@@ -36,7 +36,10 @@ func TestSeamGrepGate(t *testing.T) {
 	// .go files outside the seam.
 	patterns := map[string]*regexp.Regexp{
 		"runtime.GOOS / GOOS branch": regexp.MustCompile(`runtime\.GOOS|GOOS\s*==`),
-		"container image literal":    regexp.MustCompile(`kyuz0|docker\.io/|server-vulkan`),
+		// kyuz0|docker.io/ already bind BOTH the Vulkan and the ROCm image tokens (the
+		// rocm image is docker.io/kyuz0/…:rocm-7.2.4@sha256:…). rocm-7.2.4|rocm7-nightlies
+		// is added for EXPLICIT intent — a ROCm tag leaking outside the seam must fail CI.
+		"container image literal": regexp.MustCompile(`kyuz0|docker\.io/|server-vulkan|rocm-7\.2\.4|rocm7-nightlies`),
 		"container device args":      regexp.MustCompile(`--device\s+/dev/dri|--group-add|keep-groups`),
 		"podman invocation":          regexp.MustCompile(`exec\.Command\(\s*"podman"|"podman".*\b(run|stop|logs)\b`),
 	}
@@ -80,5 +83,25 @@ func TestSeamGrepGate(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("walk internal/: %v", err)
+	}
+}
+
+// TestROCmMarkerPresence is the POSITIVE grep-gate (D-10): the ROCm backend's
+// privilege/residency literals MUST live in backend_rocm.go (the seam), so a refactor
+// that drops or relocates them fails CI. It gates on "ROCm0" (NOT "ggml_cuda" — that
+// init prefix is SHARED with the CUDA path and would not distinguish a dropped ROCm
+// descriptor), plus the HSA override env and the /dev/kfd device — the two imperative
+// ROCm-only tokens. This is the dual of TestSeamGrepGate: the negative gate keeps these
+// literals OUT of callers; this one keeps them IN the seam.
+func TestROCmMarkerPresence(t *testing.T) {
+	data, err := os.ReadFile("backend_rocm.go")
+	if err != nil {
+		t.Fatalf("read backend_rocm.go: %v", err)
+	}
+	src := string(data)
+	for _, want := range []string{"ROCm0", "HSA_OVERRIDE_GFX_VERSION", "/dev/kfd"} {
+		if !strings.Contains(src, want) {
+			t.Errorf("backend_rocm.go is missing required ROCm marker %q (the seam must hold it — D-10)", want)
+		}
 	}
 }

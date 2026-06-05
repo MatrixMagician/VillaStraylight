@@ -112,6 +112,121 @@ func TestRunningServerBusySignalFold(t *testing.T) {
 	}
 }
 
+// rocmMarkersForTest resolves the ROCm residency descriptor through BackendFor so the
+// running-path ROCm cases key on the real backend-owned markers (ROCm0 / fault string).
+func rocmMarkersForTest(t *testing.T) ResidencyMarkers {
+	t.Helper()
+	b, err := BackendFor("rocm")
+	if err != nil {
+		t.Fatalf("BackendFor(rocm): %v", err)
+	}
+	return b.ResidencyProof()
+}
+
+// busyFromTempDRM writes a gpu_busy_percent fixture under a temp drmRoot and reads it
+// back through the REAL detect seam (detect.GPUBusyPercentForTest) — no new detect
+// code, mirroring the mem_info_gtt_used fixture pattern. value=="" writes NO file so
+// the read degrades to a typed-Unknown (absent busy).
+func busyFromTempDRM(t *testing.T, value string) detect.Int {
+	t.Helper()
+	dir := t.TempDir()
+	if value != "" {
+		if err := os.WriteFile(filepath.Join(dir, "gpu_busy_percent"), []byte(value+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return detect.GPUBusyPercentForTest(dir)
+}
+
+// TestRunningServerROCmResidency drives the RUNNING-path verdict with the ROCm
+// descriptor: a ROCm0 N/N journal → PASS, a CPU-only journal → FAIL, a GPU-fault
+// journal → FAIL (the fault string voids residency before any buffer-line PASS,
+// Pitfall 4), and an empty journal → WARN (typed-Unknown). Every existing Vulkan case
+// stays untouched.
+func TestRunningServerROCmResidency(t *testing.T) {
+	markers := rocmMarkersForTest(t)
+	drm := t.TempDir()
+	if err := os.WriteFile(filepath.Join(drm, "mem_info_gtt_used"), []byte("23068672000\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gttUsed := detect.GTTUsedBytesForTest(drm)
+
+	tests := []struct {
+		name    string
+		fixture string // "" → empty journal
+		want    Status
+	}{
+		{"rocm0 N/N residency → PASS", "load_tensors_rocm.txt", StatusPass},
+		{"rocm cpu-only journal → FAIL", "load_tensors_rocm_cpu.txt", StatusFail},
+		{"rocm gpu-fault journal → FAIL", "load_tensors_rocm_fault.txt", StatusFail},
+		{"empty journal → WARN", "", StatusWarn},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			journal := ""
+			if tc.fixture != "" {
+				journal = readFixture(t, tc.fixture)
+			}
+			v := RunningOffloadVerdict(RunningOffloadInput{
+				JournalText:  journal,
+				GTTUsedBytes: gttUsed,
+				WeightBytes:  testWeightBytes,
+				Markers:      markers,
+				// GPUBusyPercent left UNSET (typed-Unknown) → busy fold skipped here.
+			})
+			if v.Status != tc.want {
+				t.Fatalf("rocm residency status = %s, want %s (detail: %s)", v.Status, tc.want, v.Detail)
+			}
+		})
+	}
+}
+
+// TestRunningServerROCmBusySignal exercises the D-06 gpu_busy_percent residency signal
+// on the ROCm path through the REAL detect.GPUBusyPercentForTest reader (a temp drmRoot
+// gpu_busy_percent fixture): a Known non-zero busy reading CORROBORATES the ROCm0 N/N
+// PASS (stays PASS), and an Unknown/absent busy reading is NEUTRAL-for-PASS — the
+// residency-proven PASS stays PASS, never a false-FAIL (D-07/Q2). (The Known-zero→FAIL
+// rule is unit-proven in Plan 01 Task 2 — TestRunningServerBusySignalFold; the live
+// decode-time FAIL is the Phase-8 follow-on, so no live-decode fixture here.)
+func TestRunningServerROCmBusySignal(t *testing.T) {
+	markers := rocmMarkersForTest(t)
+	rocmJournal := readFixture(t, "load_tensors_rocm.txt")
+	drm := t.TempDir()
+	if err := os.WriteFile(filepath.Join(drm, "mem_info_gtt_used"), []byte("23068672000\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gttUsed := detect.GTTUsedBytesForTest(drm)
+
+	base := func(busy detect.Int) RunningOffloadInput {
+		return RunningOffloadInput{
+			JournalText:    rocmJournal,
+			GTTUsedBytes:   gttUsed,
+			WeightBytes:    testWeightBytes,
+			Markers:        markers,
+			GPUBusyPercent: busy,
+		}
+	}
+
+	// Known non-zero busy (37%) read through the real seam → corroborates PASS.
+	knownBusy := busyFromTempDRM(t, "37")
+	if !knownBusy.Known || knownBusy.Value != 37 {
+		t.Fatalf("GPUBusyPercentForTest(37) = %+v, want Known 37", knownBusy)
+	}
+	if v := RunningOffloadVerdict(base(knownBusy)); v.Status != StatusPass {
+		t.Fatalf("known non-zero busy: status = %s, want PASS (busy must corroborate; detail: %s)", v.Status, v.Detail)
+	}
+
+	// Unknown/absent busy (no gpu_busy_percent file) read through the real seam →
+	// neutral-for-PASS: the ROCm0 N/N residency PASS stays PASS, never a false-FAIL.
+	absentBusy := busyFromTempDRM(t, "")
+	if absentBusy.Known {
+		t.Fatalf("GPUBusyPercentForTest(absent) = %+v, want Unknown", absentBusy)
+	}
+	if v := RunningOffloadVerdict(base(absentBusy)); v.Status != StatusPass {
+		t.Fatalf("absent busy: status = %s, want PASS (Unknown busy is neutral, never a false-FAIL; detail: %s)", v.Status, v.Detail)
+	}
+}
+
 // TestScrapeLoadTensorsResidencyFault asserts a non-empty FaultString found in the
 // journal VOIDS residency (FAIL) before any buffer-line PASS, and that the empty
 // Vulkan FaultString makes the scan a no-op (the Vulkan residency journal still PASSes).

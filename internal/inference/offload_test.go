@@ -71,6 +71,37 @@ func TestOffloadLogScrape(t *testing.T) {
 	}
 }
 
+// TestROCmOffloadLogScrape drives the START-TIME scrape with the ROCm descriptor
+// (backendROCm{}.ResidencyProof()), proving the same offload-assert logic distinguishes
+// a real ROCm device (device_info + offloaded N/N → PASS) from a partial offload
+// (1/65 → FAIL, Pitfall 3) and a CPU fallback (no ROCm device, CPU buffer → WARN, the
+// start-time scrape sees no offloaded line and no device → could-not-evaluate). The
+// start-time path takes NO busy signal — busy is a running-path corroborator only.
+func TestROCmOffloadLogScrape(t *testing.T) {
+	rocmMarkers, err := BackendFor("rocm")
+	if err != nil {
+		t.Fatalf("BackendFor(rocm): %v", err)
+	}
+	markers := rocmMarkers.ResidencyProof()
+	cases := []struct {
+		name    string
+		fixture string
+		want    Status
+	}{
+		{"rocm device + offloaded 65/65 → PASS", "rocm_devinfo_pass.stderr", StatusPass},
+		{"rocm partial offload 1/65 → FAIL", "rocm_offloaded_partial.stderr", StatusFail},
+		{"rocm cpu fallback → WARN", "load_tensors_rocm_cpu.txt", StatusWarn},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := scrapeOffloadLog(readFixture(t, tc.fixture), markers)
+			if got.Status != tc.want {
+				t.Errorf("scrapeOffloadLog(%s) Status=%v, want %v (detail=%q)", tc.fixture, got.Status, tc.want, got.Detail)
+			}
+		})
+	}
+}
+
 // TestScrapeOffloadPartialGating proves the N<M partial-FAIL rule is GATED so a
 // Vulkan auto-fit run (a device_info enumeration with NO "offloaded N/N" line, so the
 // parse yields no total) still PASSes — only an explicit offloaded line with 0<N<M

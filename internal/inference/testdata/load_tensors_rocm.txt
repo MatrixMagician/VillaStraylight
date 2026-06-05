@@ -1,0 +1,8 @@
+Jun 05 12:00:01 strix villa-llama[1234]: ggml_cuda_init: GGML_CUDA_FORCE_MMQ:    no
+Jun 05 12:00:01 strix villa-llama[1234]: ggml_cuda_init: found 1 ROCm devices:
+Jun 05 12:00:01 strix villa-llama[1234]: ggml_cuda_init:   Device 0: AMD Radeon 8060S Graphics, gfx1151 (0x1151), VMM: no, Wave Size: 32
+Jun 05 12:00:02 strix villa-llama[1234]: load_tensors: loading model tensors, this can take a while... (mmap = false)
+Jun 05 12:00:03 strix villa-llama[1234]: load_tensors: offloaded 65/65 layers to GPU
+Jun 05 12:00:03 strix villa-llama[1234]: load_tensors:   ROCm_Host model buffer size =   315.32 MiB
+Jun 05 12:00:03 strix villa-llama[1234]: load_tensors:        ROCm0 model buffer size = 21504.49 MiB
+Jun 05 12:00:05 strix villa-llama[1234]: main: server is listening on http://0.0.0.0:8080 - starting the main loop
