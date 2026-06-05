@@ -57,11 +57,78 @@ func TestRunningServerOffloadVerdict(t *testing.T) {
 				Props:        tc.props,
 				GTTUsedBytes: tc.gtt,
 				WeightBytes:  testWeightBytes,
+				Markers:      VulkanBackend().ResidencyProof(),
+				// GPUBusyPercent left UNSET (zero value = typed-Unknown) so the busy
+				// fold is SKIPPED and these Vulkan verdicts stay byte-identical.
 			})
 			if v.Status != tc.want {
 				t.Fatalf("status = %s, want %s (detail: %s)", v.Status, tc.want, v.Detail)
 			}
 		})
+	}
+}
+
+// TestRunningServerBusySignalFold asserts the D-06 gpu_busy_percent fold: a Known
+// non-zero busy reading CORROBORATES a residency PASS (stays PASS), a Known-ZERO
+// busy reading on a claimed-healthy decode FAILs (silent CPU fallback), and an
+// absent/Unknown busy reading is combine-neutral so a residency-proven Vulkan PASS
+// stays PASS (the regression guard — Vulkan supplies no busy signal, D-07/Q2).
+func TestRunningServerBusySignalFold(t *testing.T) {
+	vulkanJournal := readFixture(t, "load_tensors_vulkan.txt")
+	drm := t.TempDir()
+	if err := os.WriteFile(filepath.Join(drm, "mem_info_gtt_used"), []byte("23068672000\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gttUsed := detect.GTTUsedBytesForTest(drm)
+	markers := VulkanBackend().ResidencyProof()
+
+	base := func(busy detect.Int) RunningOffloadInput {
+		return RunningOffloadInput{
+			JournalText:    vulkanJournal,
+			GTTUsedBytes:   gttUsed,
+			WeightBytes:    testWeightBytes,
+			Markers:        markers,
+			GPUBusyPercent: busy,
+		}
+	}
+
+	tests := []struct {
+		name string
+		busy detect.Int
+		want Status
+	}{
+		{"Known non-zero busy corroborates residency PASS", detect.KnownInt(42, "test"), StatusPass},
+		{"Known-zero busy on claimed-healthy decode → FAIL", detect.KnownInt(0, "test"), StatusFail},
+		{"Unknown busy is neutral — residency PASS stays PASS", detect.UnknownInt("unavailable", ""), StatusPass},
+		{"absent (zero-value) busy is neutral — PASS stays PASS", detect.Int{}, StatusPass},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			v := RunningOffloadVerdict(base(tc.busy))
+			if v.Status != tc.want {
+				t.Fatalf("busy fold status = %s, want %s (detail: %s)", v.Status, tc.want, v.Detail)
+			}
+		})
+	}
+}
+
+// TestScrapeLoadTensorsResidencyFault asserts a non-empty FaultString found in the
+// journal VOIDS residency (FAIL) before any buffer-line PASS, and that the empty
+// Vulkan FaultString makes the scan a no-op (the Vulkan residency journal still PASSes).
+func TestScrapeLoadTensorsResidencyFault(t *testing.T) {
+	vulkanJournal := readFixture(t, "load_tensors_vulkan.txt")
+
+	// Vulkan markers (empty FaultString) → fault scan is a no-op → PASS.
+	if r := scrapeLoadTensorsResidency(vulkanJournal, VulkanBackend().ResidencyProof()); r.Status != StatusPass {
+		t.Fatalf("vulkan residency status = %s, want PASS (fault scan must be a no-op)", r.Status)
+	}
+
+	// A backend with a fault marker present in the journal → FAIL before the
+	// buffer-line PASS.
+	faultMarkers := ResidencyMarkers{DeviceToken: "Vulkan0", FaultString: "Memory access fault by GPU node"}
+	faulted := vulkanJournal + "\nMemory access fault by GPU node-1 (Agent handle: 0x...) on address 0x...\n"
+	if r := scrapeLoadTensorsResidency(faulted, faultMarkers); r.Status != StatusFail {
+		t.Fatalf("faulted journal status = %s, want FAIL (fault voids residency)", r.Status)
 	}
 }
 
@@ -85,6 +152,7 @@ func TestRunningServerOffloadPropsDrift(t *testing.T) {
 		WeightBytes:   testWeightBytes,
 		ConfigModel:   "/models/qwen3.gguf",
 		ConfigContext: 131072,
+		Markers:       VulkanBackend().ResidencyProof(),
 	})
 	if v.Status != StatusWarn {
 		t.Fatalf("props drift status = %s, want WARN (detail: %s)", v.Status, v.Detail)
@@ -98,6 +166,7 @@ func TestRunningServerOffloadPropsDrift(t *testing.T) {
 		Props:        nil,
 		GTTUsedBytes: gttUsed,
 		WeightBytes:  testWeightBytes,
+		Markers:      VulkanBackend().ResidencyProof(),
 	})
 	if v2.Status != StatusPass {
 		t.Fatalf("nil props status = %s, want PASS (props is corroboration only; detail: %s)", v2.Status, v2.Detail)
