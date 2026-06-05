@@ -176,8 +176,9 @@ func Run(d Deps) Report {
 		return Report{Overall: inference.StatusFail.String(), NoTelemetry: noTelemetryStatement, err: err}
 	}
 
+	backend := inference.VulkanBackend()
 	units, err := d.Render(orchestrate.RenderInput{
-		Backend:   inference.VulkanBackend(),
+		Backend:   backend,
 		Cfg:       cfg,
 		ModelFile: modelFile,
 		ModelsDir: d.ModelsDir(),
@@ -232,6 +233,9 @@ func Run(d Deps) Report {
 			WeightBytes:   weight,
 			ConfigModel:   modelFile,
 			ConfigContext: cfg.Ctx,
+			Markers:       backend.ResidencyProof(),
+			// GPUBusyPercent left Unknown (busy fold skipped) — the live decode-time
+			// gpu_busy_percent read lands in Phase 8 (D-07); Phase 6 wires the input.
 		})
 		ss.OffloadApplies = true
 		ss.OffloadOK = ss.Offload.Status == inference.StatusPass

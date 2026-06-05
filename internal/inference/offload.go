@@ -71,7 +71,7 @@ const (
 //   - a software-renderer device line                                 → FAIL
 //   - offloaded 0/N explicitly                                        → FAIL
 //   - no real Vulkan device and no offload evidence / stderr empty    → Unknown (WARN)
-func scrapeOffloadLog(stderr string) OffloadResult {
+func scrapeOffloadLog(stderr string, m ResidencyMarkers) OffloadResult {
 	if strings.TrimSpace(stderr) == "" {
 		return OffloadResult{
 			Status: StatusWarn,
@@ -95,7 +95,10 @@ func scrapeOffloadLog(stderr string) OffloadResult {
 		}
 		sawVulkanDevice = true
 		deviceName = name
-		if detect.IsSoftwareRendererName(name) {
+		// Only the Vulkan backend has a software-renderer (llvmpipe) ICD analog; a
+		// backend with no such analog (ROCm) sets RejectSoftwareRenderer=false so this
+		// check is skipped (D-05).
+		if m.RejectSoftwareRenderer && detect.IsSoftwareRendererName(name) {
 			softwareDevice = name
 		}
 	}
@@ -105,8 +108,9 @@ func scrapeOffloadLog(stderr string) OffloadResult {
 		line := strings.TrimSpace(sc.Text())
 
 		// OLD device line: "ggml_vulkan: 0 = AMD Radeon … (RADV …) (radv) | …".
-		// Name is the segment after "N =" up to the first " | ".
-		if strings.HasPrefix(line, "ggml_vulkan:") && strings.Contains(line, "=") {
+		// Name is the segment after "N =" up to the first " | ". The prefix is the
+		// backend-owned StartLogDevicePrefix; empty disables this branch.
+		if m.StartLogDevicePrefix != "" && strings.HasPrefix(line, m.StartLogDevicePrefix) && strings.Contains(line, "=") {
 			if _, after, ok := strings.Cut(line, "="); ok {
 				name := after
 				if idx := strings.Index(after, "|"); idx >= 0 {
@@ -117,12 +121,15 @@ func scrapeOffloadLog(stderr string) OffloadResult {
 		}
 
 		// NEW device_info entry: "- Vulkan0 : AMD Radeon 8060S Graphics (RADV GFX1151)
-		// (64550 MiB, …)". Name is the text after the "<device> :" separator (the
-		// trailing memory parenthetical is harmless for the software-renderer check
-		// and is kept as the device label).
-		if idx := strings.Index(line, "- Vulkan"); idx >= 0 {
-			if c := strings.Index(line[idx:], ":"); c >= 0 {
-				noteDevice(line[idx+c+1:])
+		// (64550 MiB, …)". The label prefix ("- Vulkan"/"- ROCm") is backend-owned via
+		// m.DeviceLabel. Name is the text after the "<device> :" separator (the trailing
+		// memory parenthetical is harmless for the software-renderer check and is kept
+		// as the device label).
+		if m.DeviceLabel != "" {
+			if idx := strings.Index(line, m.DeviceLabel); idx >= 0 {
+				if c := strings.Index(line[idx:], ":"); c >= 0 {
+					noteDevice(line[idx+c+1:])
+				}
 			}
 		}
 
@@ -151,6 +158,19 @@ func scrapeOffloadLog(stderr string) OffloadResult {
 			Status: StatusFail,
 			Signal: detect.KnownBool(false, "load_tensors offloaded line"),
 			Detail: fmt.Sprintf("offloaded %d/%d layers — GPU offload did not engage", offloaded, total),
+		}
+	}
+
+	// Partial offload "offloaded N/M" with 0 < N < M → confident FAIL (D-06 / Pitfall 3:
+	// today's scrape only caught offloaded==0, but a partial offload is also a CPU
+	// fallback for the un-offloaded layers). This is GATED on sawOffloadLine && total > 0
+	// so a Vulkan auto-fit run (no "offloaded N/N" line emitted, so total stays 0) still
+	// PASSes — the rule only fires when an offloaded line IS present with N < M.
+	if sawOffloadLine && total > 0 && offloaded < total {
+		return OffloadResult{
+			Status: StatusFail,
+			Signal: detect.KnownBool(false, "load_tensors offloaded line"),
+			Detail: fmt.Sprintf("offloaded only %d/%d layers — %d layers stayed on the CPU (partial offload)", offloaded, total, total-offloaded),
 		}
 	}
 

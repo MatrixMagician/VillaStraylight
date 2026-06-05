@@ -313,7 +313,10 @@ func RunningOffloadVerdict(in RunningOffloadInput) Verdict {
 	// verdict is exactly residency+floor and stays byte-identical. When Known, re-fold
 	// the already-combined verdict with the busy signal through combineOffload (reused,
 	// not re-rolled): Known non-zero corroborates a PASS, Known-zero FAILs.
-	provenance := "journald load_tensors residency + point-in-time mem_info_gtt_used floor"
+	// Provenance embeds the backend-owned DeviceToken so it stays byte-identical to the
+	// pre-refactor Vulkan string ("journald load_tensors Vulkan0 residency + …") — the
+	// status --json golden is byte-frozen and must NOT change for Vulkan.
+	provenance := "journald load_tensors " + in.Markers.DeviceToken + " residency + point-in-time mem_info_gtt_used floor"
 	if in.GPUBusyPercent.Known {
 		v = combineOffload(verdictAsResult(v), gpuBusyFloor(in.GPUBusyPercent))
 		provenance += " + gpu_busy_percent corroboration"

@@ -151,6 +151,7 @@ func runValidation(ctx context.Context, m catalog.CatalogModel, withCeiling bool
 		EnvelopeBytes: rec.UsableEnvelopeBytes,
 		Runner:        runner,
 		ReadGTTUsed:   detect.GTTUsedBytes,
+		Markers:       backend.ResidencyProof(),
 	}
 	if withCeiling {
 		in.NewCeilingRunner = func(stress inference.RunSpec) inference.Runner {
