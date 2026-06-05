@@ -21,7 +21,19 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 ## Phase Details
 
-### Phase 1: Hardware Foundation & Preflight Gate
+### Phase 6: ROCm Backend + Resolver Spine
+**Goal**: A ROCm/HIP backend exists behind the v1.0 `Backend` interface and is selected from config — the single resolver `BackendFor(cfg.Backend)` routes every inference call site, and the offload-assert proves ROCm residency (not just Vulkan). This is the spine every downstream phase depends on; while Vulkan stays the only configured backend it is a behavior no-op, but the precondition for switching, benching, and surfacing.
+**Depends on**: Phase 5 (v1.0 `Backend` interface seam, D-11 offload-assert)
+**Requirements**: ROCM-01, ROCM-02, ROCM-04
+**Success Criteria** (what must be TRUE):
+  1. Setting `backend = "rocm"` in config produces a ROCm `Backend` (rocm-7.2.4 image, kfd+dri devices, HSA-override env) via `BackendFor()`, with no backend specifics leaking to callers — `backend = "vulkan"` still produces the unchanged Vulkan path.
+  2. The offload-assert distinguishes a real ROCm offload (`ROCm0` device-buffer line + `offloaded N/N layers` with N==M + non-zero sysfs `gpu_busy_percent` during a decode + no `Memory access fault by GPU node`) from a CPU fallback, which is reported as a FAIL.
+  3. A grep-gate test fails if a refactor drops the HIP/`ROCm0` marker strings from `backend_rocm.go`.
+  4. All 7 previously-hardcoded `VulkanBackend()` call sites resolve through `BackendFor(cfg.Backend)`, and the v1.0 test suite stays green (proving the re-route is a behavior no-op under the Vulkan default).
+**Plans**: 3 plans (3 waves)
+- [ ] 06-01-PLAN.md — Residency-proof engine: ResidencyProof()/ResidencyMarkers + dual-scrape parameterization (Vulkan byte-identical)
+- [ ] 06-02-PLAN.md — backend_rocm.go + BackendFor resolver + ROCm fixtures/tests + grep-gates
+- [ ] 06-03-PLAN.md — Re-route 8 VulkanBackend() sites through BackendFor(cfg.Backend) + full-suite no-op proof
 
 **Goal**: As a privacy-conscious Strix Halo owner, I want to run `villa detect`/`recommend` for a correct hardware profile + a memory-fitting model recommendation and a preflight gate that refuses unsafe installs, so that I avoid silent-CPU-fallback and OOM before anything is installed.
 **Mode:** mvp
