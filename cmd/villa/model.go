@@ -357,8 +357,12 @@ func liveSwapDeps() *modelswap.Deps {
 			if err != nil {
 				return false, err
 			}
+			backend, err := inference.BackendFor(c.Backend)
+			if err != nil {
+				return false, err
+			}
 			units, err := orchestrate.Render(orchestrate.RenderInput{
-				Backend:   inference.VulkanBackend(),
+				Backend:   backend,
 				Cfg:       c,
 				ModelFile: modelFile,
 				ModelsDir: modelsDir(),

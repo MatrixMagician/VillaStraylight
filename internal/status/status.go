@@ -176,7 +176,10 @@ func Run(d Deps) Report {
 		return Report{Overall: inference.StatusFail.String(), NoTelemetry: noTelemetryStatement, err: err}
 	}
 
-	backend := inference.VulkanBackend()
+	backend, err := inference.BackendFor(cfg.Backend)
+	if err != nil {
+		return Report{Overall: inference.StatusFail.String(), NoTelemetry: noTelemetryStatement, err: err}
+	}
 	units, err := d.Render(orchestrate.RenderInput{
 		Backend:   backend,
 		Cfg:       cfg,

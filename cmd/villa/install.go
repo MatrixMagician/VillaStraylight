@@ -230,8 +230,13 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 		fmt.Fprintf(errOut, "install: resolve model file: %v\n", err)
 		return exitBlocked
 	}
+	backend, err := inference.BackendFor(cfg.Backend)
+	if err != nil {
+		fmt.Fprintf(errOut, "install: resolve backend: %v\n", err)
+		return exitBlocked
+	}
 	units, err := d.render(orchestrate.RenderInput{
-		Backend:   inference.VulkanBackend(),
+		Backend:   backend,
 		Cfg:       cfg,
 		ModelFile: modelFile,
 		ModelsDir: d.modelsDir(),
