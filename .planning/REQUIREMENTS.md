@@ -1,0 +1,186 @@
+# Requirements: VillaStraylight
+
+**Defined:** 2026-06-03
+**Core Value:** Run a capable local AI workspace that "just works" after install — hardware-aware setup that brings inference, chat, and the dashboard up healthy, with zero data leaving the box.
+
+## v1 Requirements
+
+Milestone 1 — "Core platform." Each maps to a roadmap phase. All are hypotheses until shipped and validated.
+
+### Hardware Detection (DET)
+
+- [x] **DET-01**: User can run `villa detect` to see detected CPU model/arch, iGPU (e.g. gfx1151 / RDNA 3.5), total RAM, and usable unified-memory (GTT) envelope
+- [x] **DET-02**: Detection reports GPU-backend availability — Vulkan ICD present + iGPU enumerated via `/dev/dri`, and whether ROCm is installed
+- [x] **DET-03**: Detection computes the usable GTT/unified-memory envelope (not the BIOS VRAM carve-out), accounting for kernel-version behavior (e.g. kernel ≥ 6.16.9 auto-maps the pool)
+
+### Preflight (PRE)
+
+- [x] **PRE-01**: Preflight verifies Vulkan ICD + iGPU enumeration, reporting pass/warn/fail with a remediation hint per check
+- [x] **PRE-02**: Preflight verifies Podman is installed, rootless-ready (subuid/subgid), and `systemd --user` is available
+- [x] **PRE-03**: Preflight verifies user lingering (`loginctl enable-linger`) is enabled — or offers to enable it — so services survive logout/boot
+- [x] **PRE-04**: Preflight verifies sufficient free disk (≥ model size) and free memory (≥ envelope) before install
+- [x] **PRE-05**: A failing preflight check blocks install (or explicitly warns) instead of producing a silent container crash
+
+### Recommendation Engine (REC)
+
+- [x] **REC-01**: Given detected hardware, recommend a model + quantization + context length that fits the envelope (`model_bytes + KV-cache@context + headroom ≤ usable_envelope`)
+- [x] **REC-02**: Recommendations read from a versioned model catalog (JSON) carrying a `unified_memory_safe` flag to avoid models with known correctness issues on unified-memory backends
+- [x] **REC-03**: User can override the recommended model, quantization, and context length
+- [x] **REC-04**: Recommendation defaults to the Vulkan backend for gfx1151 (ROCm only when explicitly opted in)
+
+### Inference (INF)
+
+- [x] **INF-01**: llama.cpp `llama-server` runs the selected model on the iGPU via Vulkan with GPU offload (`-ngl`) actually engaged — verifiably not silent CPU fallback
+- [x] **INF-02**: Inference exposes an OpenAI-compatible API bound to loopback
+- [x] **INF-03**: The inference backend sits behind an interface (runner + backend neutral) so ROCm and macOS/Metal can be added later without changing callers
+
+### Orchestration (ORCH)
+
+- [x] **ORCH-01**: `villa` generates Podman Quadlet units (`.container`/`.network`/`.volume`) for the stack from config
+- [x] **ORCH-02**: Generated units pass the GPU device (`/dev/dri`) plus the required group (`keep-groups`) and SELinux settings so the container reaches the iGPU
+- [x] **ORCH-03**: Services start on boot via Quadlet `[Install]` + linger and survive logout
+- [x] **ORCH-04**: Services run rootless and publish only to loopback by default
+
+### CLI Lifecycle (CLI)
+
+- [x] **CLI-01**: `villa install` runs end-to-end setup (detect → recommend → generate units → pull model → bring up) and is idempotent / re-runnable
+- [x] **CLI-02**: `villa up` / `down` / `restart` control the whole stack and individual services
+- [x] **CLI-03**: `villa status` shows an aggregated health table (unit active-state + container health + llama.cpp `/health` + Open WebUI reachability)
+- [x] **CLI-04**: `villa logs [service]` shows and can follow (`-f`) per-service logs
+- [x] **CLI-05**: `villa config show` displays the effective config; editing config regenerates the affected units
+- [x] **CLI-06**: `villa uninstall` cleanly removes units and volumes, with a choice to keep or remove downloaded models
+- [x] **CLI-07**: Post-install output prints the chat + dashboard URL and a health summary
+
+### Model Management (MODEL)
+
+- [x] **MODEL-01**: `villa model list` shows available (catalog) and currently-loaded models, distinguishing the two
+- [x] **MODEL-02**: `villa model pull` downloads a model with checksum/size verification and resumable, atomic write (all shards present)
+- [x] **MODEL-03**: `villa model swap` switches the loaded model — regenerating the inference unit args (model path, `-c`, `-ngl`) and restarting it
+- [x] **MODEL-04**: Install auto-pulls a recommended default model (optionally a small bootstrap model first) so the first chat works immediately
+
+### Chat (CHAT)
+
+- [x] **CHAT-01**: Open WebUI runs as a container wired to the local OpenAI-compatible inference endpoint
+- [x] **CHAT-02**: User can open Open WebUI in the browser and chat with the local model with no extra configuration
+- [x] **CHAT-03**: Open WebUI data (chat history, settings) persists across restarts via a durable volume
+
+### Control Dashboard (DASH)
+
+- [ ] **DASH-01**: Dashboard shows live service health, sourced from the same internal API as `villa status`
+- [ ] **DASH-02**: Dashboard shows performance metrics — generation tok/s, prompt tok/s, latency — from llama.cpp `/metrics` + `/slots`
+- [ ] **DASH-03**: Dashboard shows iGPU utilization and unified-memory (VRAM + GTT) usage vs envelope, read from amdgpu sysfs (not amd-smi)
+- [ ] **DASH-04**: Dashboard lists available + loaded models and lets the user switch the loaded model
+- [ ] **DASH-05**: Dashboard surfaces a one-click link to the chat UI
+
+### Privacy (PRIV)
+
+- [x] **PRIV-01**: Every service binds to localhost by default; nothing listens on `0.0.0.0` unless explicitly opted in
+- [x] **PRIV-02**: First-party Go code sends zero telemetry, and known upstream telemetry (Open WebUI / ChromaDB → PostHog) is disabled
+- [x] **PRIV-03**: `villa status` / `doctor` shows bind addresses and asserts "no telemetry; outbound = image/model pulls only" so the user can verify
+
+## v2 Requirements
+
+Deferred to future releases (v1.x / Milestone 2). Tracked, not in the current roadmap.
+
+### Operability (v1.x)
+
+- **UPD-01**: Update mechanism — update the binary, pull newer pinned images, regenerate units (rollback-aware)
+- **USAGE-01**: Token / throughput usage tracking (cumulative "Token Spy"-style)
+- **DOCTOR-01**: `villa doctor` deep diagnostics / self-heal hints (reuse preflight logic post-install)
+- **INSTALL-01**: Interactive guided (TUI) install alongside the one-shot flag-driven install
+- **BAK-01**: Backup / restore — config first, then Open WebUI volume snapshots
+- **ROCM-01**: ROCm backend as an optional alternate to Vulkan
+
+### Milestone 2 — Memory & Search
+
+- **MEM-01**: Qdrant persistent memory + RAG over user files/notes
+- **SRCH-01**: SearXNG self-hosted search integration
+- **CODE-01**: OpenCode coding agent wired to local models
+
+### Future
+
+- **VOICE-01**: Voice — Whisper (STT) + Kokoro (TTS)
+- **AGENT-01**: Agents / workflows
+- **PLAT-01**: macOS / Apple Silicon / Metal backend (and other GPU backends) behind the inference interface
+- **REMOTE-01**: Authenticated remote access (designed so v1's local-only gateway extends without rework)
+
+## Out of Scope
+
+Explicitly excluded. Documented to prevent scope creep.
+
+| Feature | Reason |
+|---------|--------|
+| Building a custom chat UI | Superseded by Open WebUI (mature, multi-model, RAG-ready); rebuilding wastes the control-plane focus. Earlier Go chat scaffold is reference-only. |
+| Rebuilding AI services in Go | Go is the control plane only; reimplementing inference/chat is enormous and pointless — orchestrate OSS containers. |
+| Cloud / hybrid model fallback | Directly violates the "zero data leaving the box" core value. Local-only, not a mode. |
+| Image generation (ComfyUI) | Not requested for this product. |
+| Multiple simultaneous loaded models / auto-swap router | Unified-memory envelope rarely fits two large models; adds a routing layer. One loaded model at a time; explicit swap. |
+| Docker / Docker-Compose dependency | Fedora-native, rootless Podman Quadlets are a core differentiator and stronger security posture. |
+| Multi-platform support (macOS/Metal, NVIDIA, Intel) in v1 | Nail Fedora + Strix Halo first; multi-backend multiplies test surface. Kept behind an interface for later. |
+| Remote access / multi-user auth in v1 | Breaks the strictly-local posture; auth + exposure is its own security project (deferred, not designed out). |
+
+## Traceability
+
+Each v1 requirement maps to exactly one phase. See `.planning/ROADMAP.md` for phase details.
+
+| Requirement | Phase | Status |
+|-------------|-------|--------|
+| DET-01 | Phase 1 | Complete |
+| DET-02 | Phase 1 | Complete |
+| DET-03 | Phase 1 | Complete |
+| PRE-01 | Phase 1 | Complete |
+| PRE-02 | Phase 1 | Complete |
+| PRE-03 | Phase 1 | Complete |
+| PRE-04 | Phase 1 | Complete |
+| PRE-05 | Phase 1 | Complete |
+| REC-01 | Phase 1 | Complete |
+| REC-02 | Phase 1 | Complete |
+| REC-03 | Phase 1 | Complete |
+| REC-04 | Phase 1 | Complete |
+| INF-01 | Phase 2 | Complete |
+| INF-02 | Phase 2 | Complete |
+| INF-03 | Phase 2 | Complete |
+| MODEL-02 | Phase 2 | Complete |
+| ORCH-01 | Phase 3 | Complete |
+| ORCH-02 | Phase 3 | Complete |
+| ORCH-03 | Phase 3 | Complete |
+| ORCH-04 | Phase 3 | Complete |
+| CLI-01 | Phase 3 | Complete |
+| CLI-02 | Phase 3 | Complete |
+| CLI-03 | Phase 3 | Complete |
+| CLI-04 | Phase 3 | Complete |
+| CLI-05 | Phase 3 | Complete |
+| CLI-06 | Phase 3 | Complete |
+| CLI-07 | Phase 3 | Complete |
+| MODEL-01 | Phase 3 | Complete |
+| MODEL-03 | Phase 3 | Complete |
+| PRIV-01 | Phase 3 | Complete |
+| PRIV-03 | Phase 3 | Complete |
+| CHAT-01 | Phase 4 | Complete |
+| CHAT-02 | Phase 4 | Complete |
+| CHAT-03 | Phase 4 | Complete |
+| MODEL-04 | Phase 4 | Complete |
+| PRIV-02 | Phase 4 | Complete |
+| DASH-01 | Phase 5 | Pending |
+| DASH-02 | Phase 5 | Pending |
+| DASH-03 | Phase 5 | Pending |
+| DASH-04 | Phase 5 | Pending |
+| DASH-05 | Phase 5 | Pending |
+
+**Coverage:**
+
+- v1 requirements: 38 total
+- Mapped to phases: 38 (100%)
+- Unmapped: 0 ✓
+
+**Per-phase counts:**
+
+- Phase 1 (Hardware Foundation & Preflight Gate): 12 — DET-01..03, PRE-01..05, REC-01..04
+- Phase 2 (GPU-Validated Inference Slice): 4 — INF-01..03, MODEL-02
+- Phase 3 (Orchestrated Install & Lifecycle): 15 — ORCH-01..04, CLI-01..07, MODEL-01, MODEL-03, PRIV-01, PRIV-03
+- Phase 4 (Chat Integration): 5 — CHAT-01..03, MODEL-04, PRIV-02
+- Phase 5 (Control Dashboard): 5 — DASH-01..05
+
+---
+*Requirements defined: 2026-06-03*
+*Last updated: 2026-06-03 after roadmap creation (traceability mapped)*

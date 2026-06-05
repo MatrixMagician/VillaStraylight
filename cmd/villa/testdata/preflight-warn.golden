@@ -1,0 +1,4 @@
+PRE-01  BLOCK  PASS  RADV ICD present; 2 /dev/dri node(s)
+PRE-02  BLOCK  PASS  podman present; subuid/subgid mapped; systemd --user reachable
+PRE-03  WARN   WARN  lingering is NOT enabled — loginctl enable-linger user
+PRE-04  BLOCK  PASS  free memory and disk sufficient

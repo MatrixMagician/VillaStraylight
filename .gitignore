@@ -1,0 +1,21 @@
+# Go
+/bin/
+*.test
+*.out
+# Built villa binary (produced by `go build ./cmd/villa`)
+/villa
+
+# Env / secrets
+.env
+
+# Node / frontend
+web/node_modules/
+web/*.tsbuildinfo
+# tsc -b emits these next to vite.config.ts; they are build artifacts
+web/vite.config.js
+web/vite.config.d.ts
+
+# Built frontend assets — regenerate with `make web`. The embed directive needs
+# web/dist to exist, so web/dist/.gitkeep is tracked while build output is not.
+web/dist/*
+!web/dist/.gitkeep

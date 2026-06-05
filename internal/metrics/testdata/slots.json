@@ -1,0 +1,31 @@
+[
+  {
+    "id": 0,
+    "id_task": 135,
+    "n_ctx": 65536,
+    "is_processing": true,
+    "prompt": "SECRET USER PROMPT THAT MUST NEVER BE READ INTO THE PANEL",
+    "next_token": {
+      "has_next_token": true,
+      "n_remain": -1,
+      "n_decoded": 128
+    },
+    "params": {
+      "temperature": 0.7,
+      "prompt": "ALSO SECRET — sampling params must not be surfaced"
+    }
+  },
+  {
+    "id": 1,
+    "id_task": -1,
+    "n_ctx": 65536,
+    "is_processing": false,
+    "prompt": "",
+    "next_token": {
+      "has_next_token": false,
+      "n_remain": -1,
+      "n_decoded": 0
+    },
+    "params": {}
+  }
+]

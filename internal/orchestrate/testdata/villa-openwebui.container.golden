@@ -1,0 +1,29 @@
+# ~/.config/containers/systemd/villa-openwebui.container  (GENERATED — do not edit; source: config.toml)
+[Unit]
+Description=VillaStraylight Open WebUI chat
+After=villa-network.service
+After=villa-llama.service
+
+[Container]
+ContainerName=villa-openwebui
+Image=ghcr.io/open-webui/open-webui:main@sha256:7f1b0a1a50cfbac23da3b16f96bc968fd757b26dc9e54e93813d61768ea9184e
+Network=villa.network
+PublishPort=127.0.0.1:3000:8080
+Volume=villa-openwebui.volume:/app/backend/data:Z
+Environment=OPENAI_API_BASE_URL=http://villa-llama:8080/v1
+Environment=ENABLE_OPENAI_API=True
+Environment=ENABLE_OLLAMA_API=False
+Environment=OPENAI_API_KEY=sk-no-key-required
+Environment=ANONYMIZED_TELEMETRY=False
+Environment=DO_NOT_TRACK=True
+Environment=SCARF_NO_ANALYTICS=True
+Environment=OFFLINE_MODE=True
+Environment=ENABLE_VERSION_UPDATE_CHECK=False
+Environment=HF_HUB_OFFLINE=1
+Environment=WEBUI_AUTH=True
+
+[Service]
+Restart=on-failure
+
+[Install]
+WantedBy=default.target

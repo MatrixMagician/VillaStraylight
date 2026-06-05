@@ -1,0 +1,14 @@
+{
+  "model": "qwen3-35b-a3b-moe-64",
+  "quant": "UD-Q4_K_M",
+  "context_len": 131072,
+  "backend": "vulkan",
+  "weight_bytes": 22000000000,
+  "kv_cache_bytes": 25769803776,
+  "headroom_bytes": 8053063680,
+  "total_bytes": 55822867456,
+  "usable_envelope_bytes": 67149381632,
+  "fits": true,
+  "degraded": false,
+  "notes": []
+}

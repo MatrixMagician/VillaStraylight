@@ -1,0 +1,3 @@
+# Reserved for download fixtures. The current tests drive all I/O through in-memory
+# httptest.Server instances (Range echo, mismatch, partial-cleanup, shard sets), so
+# no on-disk fixtures are required yet; this keeps the directory tracked.

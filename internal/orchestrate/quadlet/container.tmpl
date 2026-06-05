@@ -1,0 +1,21 @@
+# ~/.config/containers/systemd/villa-llama.container  (GENERATED — do not edit; source: config.toml)
+[Unit]
+Description=VillaStraylight llama.cpp inference (Vulkan RADV)
+After=villa-network.service
+
+[Container]
+ContainerName={{.ContainerName}}
+Image={{.Image}}
+Network={{.Network}}
+AddDevice={{.AddDevice}}
+GroupAdd={{.GroupAdd}}
+PublishPort={{.PublishPort}}
+Volume={{.Volume}}
+PodmanArgs={{.PodmanArgs}}
+Exec={{.Exec}}
+
+[Service]
+Restart=on-failure
+
+[Install]
+WantedBy=default.target

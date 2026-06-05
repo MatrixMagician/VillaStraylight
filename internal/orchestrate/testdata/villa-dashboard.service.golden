@@ -1,0 +1,11 @@
+[Unit]
+Description=VillaStraylight control dashboard (read-only observer)
+After=default.target
+
+[Service]
+Type=simple
+ExecStart=/opt/villa/bin/villa dashboard
+Restart=on-failure
+
+[Install]
+WantedBy=default.target

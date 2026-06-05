@@ -1,0 +1,17 @@
+{
+  "status": 0,
+  "detail": "offload proven (log + sysfs), chat returned 7 tokens, and the context ceiling cleared at ctx 131072",
+  "remediation": "",
+  "provenance": "log-scrape + amdgpu mem_info_gtt_used delta",
+  "log_offload": {
+    "value": true,
+    "known": true,
+    "source": "ggml_vulkan device + load_tensors offloaded line"
+  },
+  "sysfs_offload": {
+    "value": true,
+    "known": true,
+    "source": "mem_info_gtt_used before/after delta"
+  },
+  "gtt_delta_bytes": 419430400
+}

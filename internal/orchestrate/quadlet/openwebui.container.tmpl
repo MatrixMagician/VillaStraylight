@@ -1,0 +1,19 @@
+# ~/.config/containers/systemd/villa-openwebui.container  (GENERATED — do not edit; source: config.toml)
+[Unit]
+Description=VillaStraylight Open WebUI chat
+After=villa-network.service
+After=villa-llama.service
+
+[Container]
+ContainerName={{.ContainerName}}
+Image={{.Image}}
+Network={{.Network}}
+PublishPort={{.PublishPort}}
+Volume={{.Volume}}
+{{range .Env}}Environment={{.Key}}={{.Value}}
+{{end}}
+[Service]
+Restart=on-failure
+
+[Install]
+WantedBy=default.target
