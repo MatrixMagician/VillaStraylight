@@ -4,7 +4,7 @@ milestone: v1.1
 milestone_name: ROCm Opt-In Backend
 status: Roadmapped — ready for `/gsd-plan-phase 6`
 stopped_at: Phase 6 context gathered
-last_updated: "2026-06-05T22:18:01.390Z"
+last_updated: "2026-06-05T22:56:26.524Z"
 last_activity: 2026-06-05 — v1.1 roadmap created (Phases 6–10, 13/13 requirements mapped)
 progress:
   total_phases: 5

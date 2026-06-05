@@ -22,181 +22,83 @@ Decimal phases appear between their surrounding integers in numeric order.
 ## Phase Details
 
 ### Phase 6: ROCm Backend + Resolver Spine
+
 **Goal**: A ROCm/HIP backend exists behind the v1.0 `Backend` interface and is selected from config — the single resolver `BackendFor(cfg.Backend)` routes every inference call site, and the offload-assert proves ROCm residency (not just Vulkan). This is the spine every downstream phase depends on; while Vulkan stays the only configured backend it is a behavior no-op, but the precondition for switching, benching, and surfacing.
 **Depends on**: Phase 5 (v1.0 `Backend` interface seam, D-11 offload-assert)
 **Requirements**: ROCM-01, ROCM-02, ROCM-04
 **Success Criteria** (what must be TRUE):
+
   1. Setting `backend = "rocm"` in config produces a ROCm `Backend` (rocm-7.2.4 image, kfd+dri devices, HSA-override env) via `BackendFor()`, with no backend specifics leaking to callers — `backend = "vulkan"` still produces the unchanged Vulkan path.
   2. The offload-assert distinguishes a real ROCm offload (`ROCm0` device-buffer line + `offloaded N/N layers` with N==M + non-zero sysfs `gpu_busy_percent` during a decode + no `Memory access fault by GPU node`) from a CPU fallback, which is reported as a FAIL.
   3. A grep-gate test fails if a refactor drops the HIP/`ROCm0` marker strings from `backend_rocm.go`.
-  4. All 7 previously-hardcoded `VulkanBackend()` call sites resolve through `BackendFor(cfg.Backend)`, and the v1.0 test suite stays green (proving the re-route is a behavior no-op under the Vulkan default).
-**Plans**: 3 plans (3 waves)
-- [ ] 06-01-PLAN.md — Residency-proof engine: ResidencyProof()/ResidencyMarkers + dual-scrape parameterization (Vulkan byte-identical)
-- [ ] 06-02-PLAN.md — backend_rocm.go + BackendFor resolver + ROCm fixtures/tests + grep-gates
-- [ ] 06-03-PLAN.md — Re-route 8 VulkanBackend() sites through BackendFor(cfg.Backend) + full-suite no-op proof
+  4. All 7 previously-hardcoded `VulkanBackend()` call sites resolve through `BackendFor(cfg.Backend)`, and the v1.0 test suite stays green (proving the re-route is a behavior no-op under the Vulkan default).**Plans**: 3 plans (3 waves)
 
-**Goal**: As a privacy-conscious Strix Halo owner, I want to run `villa detect`/`recommend` for a correct hardware profile + a memory-fitting model recommendation and a preflight gate that refuses unsafe installs, so that I avoid silent-CPU-fallback and OOM before anything is installed.
-**Mode:** mvp
-**Depends on**: Nothing (first phase)
-**Requirements**: DET-01, DET-02, DET-03, REC-01, REC-02, REC-03, REC-04, PRE-01, PRE-02, PRE-03, PRE-04, PRE-05
-**Success Criteria** (what must be TRUE):
-
-  1. `villa detect` prints a `HostProfile` showing CPU/arch, the gfx1151 iGPU, Vulkan ICD + `/dev/dri` enumeration (and whether ROCm is present), total RAM, and the usable GTT/unified-memory envelope (the real ceiling, not BIOS VRAM), correctly accounting for kernel version (e.g. ≥ 6.16.9 auto-map).
-  2. `villa recommend` prints a model + quantization + context length + backend (Vulkan default for gfx1151) that satisfies `model_bytes + KV-cache@context + headroom ≤ usable_envelope`, read from a versioned JSON catalog honoring the `unified_memory_safe` flag, and the user can override model/quant/context.
-  3. Preflight reports pass/warn/fail with a remediation hint per check for: Vulkan ICD + iGPU enumeration, kernel/Mesa/firmware floor (externalized thresholds), Podman rootless-ready (subuid/subgid) + `systemd --user`, user lingering, and free disk (≥ model) + free memory (≥ envelope).
-  4. A failing preflight check blocks install (or explicitly warns) rather than allowing a silent container crash; detection that fails to parse a tool degrades to a conservative "unknown", never to 0 or a crash.
-
-**Plans**: 3 plansPlans:
 **Wave 1**
 
-- [x] 01-01-PLAN.md — Walking skeleton + `villa detect` slice (cobra scaffold, typed Unknown contract, sysfs GTT envelope, HostProfile --json contract)
+- [ ] 06-01-PLAN.md — Residency-proof engine: ResidencyProof()/ResidencyMarkers + dual-scrape parameterization (Vulkan byte-identical)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [x] 01-02-PLAN.md — `villa recommend` slice (versioned go:embed catalog, GQA fit-math, overrides, degraded floor, TOML config + --save)
+- [ ] 06-02-PLAN.md — backend_rocm.go + BackendFor resolver + ROCm fixtures/tests + grep-gates
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [x] 01-03-PLAN.md — `villa preflight` slice (reusable preflight package, BLOCK/WARN tiering, exit codes 0/2/1, --force override summary)
+- [ ] 06-03-PLAN.md — Re-route 8 VulkanBackend() sites through BackendFor(cfg.Backend) + full-suite no-op proof
 
-### Phase 2: GPU-Validated Inference Slice
+### Phase 7: ROCm Render Unit + Preflight/Detect
 
-**Goal**: `llama-server` provably runs the selected model on the real gfx1151 iGPU via Vulkan with GPU offload actually engaged, exposing an OpenAI-compatible API on loopback — sitting behind a backend interface so no Vulkan/Linux assumption leaks to callers. This validates the project's single biggest technical risk as an early vertical slice, before any orchestration is built on it.
-**Mode:** mvp
-**Depends on**: Phase 1
-**Requirements**: INF-01, INF-02, INF-03, MODEL-02
+**Goal**: The ROCm Quadlet unit renders correctly as a pure delta over the Vulkan unit, and a reusable ROCm preflight verdict + detect-readiness fields can tell (off-hardware) whether a host is fit for ROCm — refusing with remediation rather than silently degrading. These are the two "is this unit/host valid" pieces the switch verb gates on.
+**Depends on**: Phase 6 (the `Backend` interface shape + `BackendFor`)
+**Requirements**: ROCM-03, PRE-06, DET-04
 **Success Criteria** (what must be TRUE):
 
-  1. A model resolves, downloads with SHA256/size verification, resumes if interrupted, atomically renames on success, and is rejected if any shard is missing — yielding a verified GGUF on disk for inference to load.
-  2. `llama-server` serves `/v1` bound to `127.0.0.1` with the mandatory Strix Halo flags (`-ngl 999 -fa 1 --no-mmap`), and a real chat completion returns tokens from the iGPU.
-  3. The health check asserts GPU offload actually happened (offloaded layers > 0 / Vulkan device line in startup logs) — not merely that the server responds — and a near-max-context probe surfaces OOM/long-context hangs at validation time rather than in use.
-  4. The inference backend sits behind a `Backend` interface (runner-and-backend-neutral, abstracting container-vs-native runner); review confirms no `runtime.GOOS=="linux"` or `/dev/dri` assumption has leaked outside `internal/inference/` and the AMD detection file.
+  1. A ROCm install renders a `villa-llama.container` with the digest-pinned `kyuz0:rocm-7.2.4` image (never nightlies), `/dev/kfd`+`/dev/dri` passthrough, `render` group, `HSA_OVERRIDE_GFX_VERSION=11.5.1` + `ROCBLAS_USE_HIPBLASLT=1` env, and `-ngl 999 -fa 1 --no-mmap` — frozen by a new ROCm byte-golden, with the Vulkan golden byte-for-byte unchanged.
+  2. `villa preflight` (and the switch gate) refuses ROCm bring-up with actionable remediation when `rocminfo`/gfx1151 is absent, kernel < 6.18.4, the firmware is exactly `linux-firmware-20251125`, the HSA override is missing, or a `rocm7-nightlies` image is requested — driven by externalized (`go:embed`-updatable) version ranges + denylist, biased not to over-block a genuinely-working host.
+  3. `villa detect --json` reports ROCm-readiness fields (e.g. HSA-override viability, firmware date, ROCm kernel-floor OK) appended after the existing GPU block with a bumped schema version — the frozen v1.0 contract is never reordered.
 
-**Plans**: 3 plans
-Plans:
-**Wave 1** *(parallel — no file overlap)*
+**Plans**: TBD
 
-- [x] 02-01-PLAN.md — `villa model pull` slice: catalog schema v2 (real verified HF URL/SHA256/size + corrected dims) + resumable/atomic/per-shard-verified downloader (MODEL-02)
-- [x] 02-02-PLAN.md — inference seam slice: Runner/Backend interfaces + Vulkan backend (digest-pinned image, mandatory flags, keep-groups, loopback) + dual offload assert (log-scrape + sysfs GTT/VRAM delta) + grep-gate (INF-01, INF-03)
+### Phase 8: `villa backend set` Switch Verb + Rollback
 
-**Wave 2** *(blocked on Wave 1)*
-
-- [x] 02-03-PLAN.md — proven-run slice: health/readiness + reused internal/llm chat probe + context-ceiling stress probe + offload-asserting `villa inference run|validate` verb (exit 0/2/1, --json) + on-hardware gate (INF-01, INF-02, INF-03)
-
-### Phase 3: Orchestrated Install & Lifecycle
-
-**Goal**: `villa install` runs end-to-end (detect → recommend → generate units → pull model → bring up) idempotently and re-runnably, turning Phase 2's manual run into rootless, loopback-only, boot-survivable managed services driven entirely from a single config source of truth — with the full `villa` lifecycle verb set.
-**Mode:** mvp
-**Depends on**: Phase 2
-**Requirements**: ORCH-01, ORCH-02, ORCH-03, ORCH-04, CLI-01, CLI-02, CLI-03, CLI-04, CLI-05, CLI-06, CLI-07, MODEL-01, MODEL-03, PRIV-01, PRIV-03
+**Goal**: A user can flip the inference backend on a *running* install with one command and never end up with a broken stack — the switch captures the prior working unit, gates cutover on a real generation-probe + ROCm residency proof, and auto-rolls back verbatim on any failure. This is the on-hardware risk concentration where the "just works" bar is won or lost (the v1.0 Phase-2 analog).
+**Depends on**: Phase 6 (resolver + residency), Phase 7 (render + preflight)
+**Requirements**: BSET-01, BSET-02, BSET-03
 **Success Criteria** (what must be TRUE):
 
-  1. `villa install` generates `.container`/`.network`/`.volume` Quadlet units from config, passes `/dev/dri` + `GroupAdd=keep-groups` + correct SELinux/volume settings so the container reaches the iGPU, and is idempotent — a second run is a no-op (`--dry-run` prints the rendered units).
-  2. Services run rootless, publish only to `127.0.0.1` by default, start on boot via Quadlet `[Install] WantedBy=default.target` + `loginctl enable-linger`, and survive a real logout/reboot.
-  3. `villa up`/`down`/`restart` control the whole stack and individual services; `villa status` shows an aggregated health table (unit active-state + container health + llama.cpp `/health`); `villa logs [service] [-f]` follows per-service logs; `villa config show` displays effective config and editing it regenerates the affected units.
-  4. `villa model list` distinguishes available (catalog) from loaded; `villa model swap` regenerates the inference unit args (model path, `-c`, `-ngl`) and restarts it; `villa uninstall` cleanly removes units and volumes with a keep-or-remove-models choice.
-  5. `villa status` asserts the privacy posture — every service binds loopback only (verifiable via `ss -tlnp`), nothing on `0.0.0.0` unless explicitly opted in, and "no telemetry; outbound = image/model pulls only" — and post-install output prints the chat + dashboard URL with a health summary.
+  1. `villa backend set rocm` on a running install swaps only `villa-llama` (save-before-restart, regenerate, daemon-reload, restart the inference unit only), preserving the configured model/quant/context, and refuses-with-remediation when the model no longer fits or ROCm preflight blocks — rather than guessing or re-picking.
+  2. A failed ROCm bring-up (silent CPU fallback, `load_tensors` hang, allocation cap, firmware fault) auto-rolls back to the verbatim captured prior unit/config and re-readies it, leaving the user's stack as it was (a failed switch is a no-op to the running stack).
+  3. Cutover only succeeds after a real generation-probe readiness check + residency proof for the *new* backend passes within a bounded timeout — `systemctl is-active` alone never counts as success.
+  4. `villa backend show` reports the active backend, and `villa backend set --dry-run` previews the switch (target, fit verdict, preflight verdict) without mutating config or units.
 
-**Carried-in hardening (from Phase 2 code review — `02-REVIEW.md`):** Strengthen the offload-assert that `villa status` reuses — **WR-05**: on auto-fit llama.cpp builds the log signal proves only device *enumeration*, not per-layer residency (no `offloaded N/N` line); add a stronger machine-checkable proof (e.g. a higher-verbosity `load_tensors: Vulkan0 model buffer size` line, or a `/props`/API check). **CR-03**: `mem_info_gtt_used` is a host-wide counter — make the sysfs delta robust to concurrent GPU consumers. Both keep the dual-assert's independence honest as it becomes the long-lived `villa status` / dashboard contract.
+**Plans**: TBD
+**Research flag**: on-hardware — real ROCm offload, HSA-override behavior, kernel/firmware sensitivity, `load_tensors` hang detection, the transactional rollback state-machine. Flag for `--research-phase` and the most live UAT.
 
-**Plans**: 6 plans
-Plans:
-**Wave 1**
+### Phase 9: `villa bench` (Honest A/B)
 
-- [x] 03-01-PLAN.md — Render+reconcile core: pure `internal/orchestrate` renderer (.container/.network/.volume from Backend) + content-hash reconcile + atomic write + systemd seam + golden fixtures + extended seam grep-gate (ORCH-01/02/03/04, CLI-01, PRIV-01)
-
-**Wave 2** *(blocked on Wave 1)*
-
-- [x] 03-02-PLAN.md — `villa install` slice: preflight gate + consented host-prep (SELinux/linger) + render+pull+daemon-reload+start + 503-aware readiness poll + idempotent re-run + --dry-run + post-install URL (CLI-01/07, ORCH-03, PRIV-01) — on-hardware bring-up checkpoint
-
-**Wave 3** *(blocked on Wave 2 — shared root.go)*
-
-- [x] 03-03-PLAN.md — Lifecycle verbs slice: `up`/`down`/`restart` (stack + individual) + `logs [service] [-f]` + `config show`/`set` (CLI-02/04/05)
-
-**Wave 4** *(blocked on Wave 3 — shared root.go)*
-
-- [x] 03-04-PLAN.md — Offload-asserting `status` slice: running-server Verdict (residency log + /props + point-in-time GTT floor, closes WR-05/CR-03) + aggregated table + frozen `status --json` golden + loopback/no-telemetry assertion (CLI-03, PRIV-01/03)
-
-**Wave 5** *(blocked on Wave 4 — shared root.go)*
-
-- [x] 03-05-PLAN.md — Model management slice: `model list` (available vs loaded) + `model swap` (fit-guard, auto-pull, config-first persist, inference-only restart) (MODEL-01/03)
-
-**Wave 6** *(blocked on Wave 5 — shared root.go)*
-
-- [x] 03-06-PLAN.md — `villa uninstall` slice: flag-driven keep/remove-models, ordered teardown, disable-linger, leaves config.toml (CLI-06) — on-hardware teardown + boot-survival checkpoint
-
-### Phase 4: Chat Integration
-
-**Goal**: Open WebUI runs as a second container on the shared network, wired to the local OpenAI-compatible inference endpoint by container DNS, with upstream telemetry disabled and durable data — and install auto-pulls a recommended default model so the user can open the browser and chat immediately with no extra configuration.
-**Mode:** mvp
-**Depends on**: Phase 3
-**Requirements**: CHAT-01, CHAT-02, CHAT-03, MODEL-04, PRIV-02
+**Goal**: A user can prove, on their own loaded model, whether ROCm is actually faster than Vulkan — `villa bench` runs an honest A/B over the running endpoint, reporting prompt-processing and token-generation throughput separately, never a single blended number, over residency-checked runs only. The per-metric throughput delta is the milestone's proof-of-value.
+**Depends on**: Phase 6 (a backend to measure), Phase 8 (the switch verb bench composes for `--ab` — bench never re-implements switching)
+**Requirements**: BENCH-01, BENCH-02
 **Success Criteria** (what must be TRUE):
 
-  1. Open WebUI runs as a container reaching `http://villa-llama:8080/v1` by container DNS over the private network (not `localhost`), localhost-published, and its reachability health check confirms a non-empty model list.
-  2. After install (which auto-pulls a recommended default model, optionally a small bootstrap model first), the user opens Open WebUI in the browser and chats with the local model with zero extra configuration.
-  3. Open WebUI data (chat history, settings, first-user/admin account) persists across restarts and updates via a durable named volume with correct SELinux labeling.
-  4. First-party Go code sends zero telemetry and known upstream telemetry is disabled (`ANONYMIZED_TELEMETRY=False`, `DO_NOT_TRACK=True`, `SCARF_NO_ANALYTICS=True`), re-audited on image bump — the privacy posture holds end-to-end through the chat path.
+  1. `villa bench` measures the currently-running backend non-disruptively over `/v1`+`/metrics` and reports prompt-processing and token-generation tok/s as two separate figures (never one blended headline number).
+  2. The methodology is honest and stated: discarded warmup, N repetitions with median + stddev/noise band, identical model/quant/context/flags on both sides, and only residency-checked runs counted (a CPU-fallback run is void).
+  3. Running `bench` on each backend (flipping via the Phase-8 switch) yields a per-metric Vulkan-vs-ROCm delta with its noise band, so the user gets a data-backed "worth it / not worth it" verdict for their model rather than a generic claim.
 
-**Plans**: 3 plans
-Plans:
-**Wave 1**
+**Plans**: TBD
+**Research flag**: on-hardware — the per-model pp-vs-tg delta and ROCm-7.x-vs-6.4.4 ordering are workload-dependent and volatile; validate the residency-checked numbers on the live host before trusting the throughput-delta success criterion. Confirm SELinux `/dev/kfd` behavior here or in Phase 7.
 
-- [x] 04-01-PLAN.md — Open WebUI render slice: managed-service constants + `openwebui.container`/`.volume` templates, `Render()` 3→5 units, container-DNS wiring + telemetry-kill env + named `:Z` volume, two goldens + frozen-telemetry-env test (CHAT-01, CHAT-03, PRIV-02)
+### Phase 10: Backend + tok/s Surfacing
 
-**Wave 2** *(blocked on Wave 1 — needs the 5-unit Render)*
-
-- [x] 04-02-PLAN.md — Install bring-up slice: start `villa-openwebui.service` after inference, `ensureModel` before bring-up, post-install prints the real chat URL `http://127.0.0.1:3000` (CHAT-02, MODEL-04)
-
-**Wave 3** *(blocked on Wave 2 — shared cmd/villa)*
-
-- [x] 04-03-PLAN.md — Status + teardown slice: Open WebUI reachability/model-list status row (no false offload PASS, typed-Unknown→WARN), frozen `status --json` golden + 3000 loopback port, `uninstall` removes the new named volume, end-of-phase on-hardware UAT (CHAT-01, CHAT-03, PRIV-02)
-
-**UI hint**: yes
-
-### Phase 5: Control Dashboard
-
-**Goal**: A read-only web dashboard, served by the Go binary as a read-model over the same internal API `villa status` consumes, surfaces live service health, performance and GPU/unified-memory metrics, model switching, and a one-click chat link — without forking any status logic or trusting `amd-smi` on gfx1151.
-**Mode:** mvp
-**Depends on**: Phase 4
-**Requirements**: DASH-01, DASH-02, DASH-03, DASH-04, DASH-05
+**Goal**: The dashboard, `villa status`, and `villa recommend` all become backend-aware as a single, append-only contract change landed last — `status`/dashboard show the active backend (with image tag) + live token-generation tok/s + a ROCm-readiness indicator, and `recommend` gives honest "ROCm ready / worth trying / verify with bench" advice while Vulkan stays the default. Done last so the byte-frozen `--json` goldens re-freeze exactly once.
+**Depends on**: Phase 6 (`BackendFor` in `status`), Phase 9 (the tok/s figure)
+**Requirements**: REC-05, DASH-06
 **Success Criteria** (what must be TRUE):
 
-  1. The dashboard shows live service health sourced from the same internal API as `villa status` (logic not forked), plus a one-click link to the chat UI.
-  2. The dashboard shows performance metrics — generation tok/s, prompt tok/s, latency — read from llama.cpp `/metrics` + `/slots`.
-  3. The dashboard shows iGPU utilization and unified-memory (VRAM + GTT) usage vs the envelope, read from amdgpu sysfs/hwmon (not `amd-smi`, which mis-reports the pool on gfx1151).
-  4. The dashboard lists available + loaded models and lets the user switch the loaded model, routed back through the Orchestrator (the same path as `villa model swap`).
+  1. The control dashboard and `villa status` show the active backend (with image tag), live token-generation tok/s labeled by backend, and a ROCm-readiness indicator — `status`'s previously-hardcoded `VulkanBackend()` now reflects the configured backend (a correctness fix on a ROCm install).
+  2. `villa recommend` keeps Vulkan as the recommended default and surfaces honest ROCm advice ("ready / worth trying / verify with bench") for the pick, without ever promising a guaranteed speed-up or auto-switching.
+  3. The new `status`/`detect`/`recommend` fields are append-only additions with a bumped schema version — existing `--json`/golden contracts are re-frozen as reviewed pure-addition diffs, never reordered or retagged.
 
-**Plans**: 8 plans (5 + 3 gap-closure)
-Plans:
-**Wave 1**
-
-- [x] 05-01-PLAN.md — Refactor foundation: extract `internal/status` + `internal/modelswap` cores (JSON-neutral, frozen `--json` golden stays green), extend `VillaConfig` (dashboard/chat ports), add `--metrics` to inference flags (deliberate render golden) (DASH-01, DASH-02, DASH-04)
-
-**Wave 2** *(blocked on Wave 1 — needs the shared status core + config)*
-
-- [x] 05-02-PLAN.md — Dashboard surface slice: `internal/dashboard` chi server + `/api/status` from the shared core + embedded no-build UI shell + Health panel + poll loop + chat link + loopback bind + `villa dashboard` verb + CSRF/same-origin scaffold (DASH-01, DASH-05)
-
-**Wave 3** *(blocked on Wave 2 — shared internal/dashboard)*
-
-- [x] 05-03-PLAN.md — Metrics + GPU slice: `internal/metrics` `/metrics`+`/slots` collector (corrected gauges, idle gate) + `detect.GPUBusyPercent()` + `/api/metrics`+`/api/gpu` + Performance & GPU&Memory panels (memory-first, typed-Unknown) (DASH-02, DASH-03)
-
-**Wave 4** *(blocked on Wave 3 — shared internal/dashboard)*
-
-- [x] 05-04-PLAN.md — Models + switch slice: `/api/models` list + guarded `POST /api/models/switch` through the shared `internal/modelswap` path + Models panel + fit-aware confirm dialog (DASH-04)
-
-**Wave 5** *(blocked on Wave 2+4 — shared cmd/villa lifecycle + internal/status; end-of-phase UAT)*
-
-- [x] 05-05-PLAN.md — Lifecycle integration slice: native `villa-dashboard.service` render + `Systemd.Enable()` + install/up/down/restart/uninstall wiring + `villa status` dashboard row (deliberate `--json` golden update) — on-hardware UAT (DASH-01)
-
-**Gap closure** *(UAT Test 5 — dashboard boot-survival)*
-
-- [x] 05-06-PLAN.md — Fix `villa-dashboard.service` ExecStart: render the binary path from `os.Executable()` (EvalSymlinks+Abs) at install time instead of the fixed `%h/.local/bin/villa`, so the unit survives reboot on dev + installed binaries; regression tests + golden update (DASH-05)
-
-- [x] 05-07-PLAN.md — Fix gap test:1b (`villa dashboard` printed `http://127.0.0.1:0`): self-heal zeroed `dashboard_port`/`chat_port`/`dashboard_addr` on load (`normalizeVilla` in both load paths) + seed both config writers from `DefaultVillaConfig()` so a saved config never carries 0 ports; regression tests (DASH-01, DASH-05)
-
-- [x] 05-08-PLAN.md — Fix gap test:5 (dashboard inactive after reboot on re-install): hoist the native `villa-dashboard.service` reconciliation above the no-op container early return so it runs on BOTH install paths, made idempotent via a render-vs-disk compare (write/reload/enable/restart only on a diff); regression tests (DASH-01, DASH-05)
-
+**Plans**: TBD
 **UI hint**: yes
 
 ## Progress
