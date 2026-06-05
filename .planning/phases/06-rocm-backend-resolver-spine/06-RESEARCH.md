@@ -413,16 +413,18 @@ Phase 6 is a pure-code, off-hardware refactor — it does not rename anything, r
 | A2 | ROCm start-time device-init log prefix is `ggml_cuda_init:` (HIP reuses the CUDA path). | Pattern 1 | If the kyuz0 build emits a different prefix, the start-time ROCm device line won't match → WARN not PASS. Mitigated: the running-path `ROCm0` buffer line is the primary proof and is HIGH-confidence; start-time is corroboration. Confirm exact prefix on hardware in Phase 8. `[ASSUMED]` from ollama #14855 analog. |
 | A3 | The `render` group (not `video`) is the minimal group for `/dev/kfd` in the kyuz0 image; STACK.md says `GroupAdd=render`, PITFALLS.md mentions render+video. | Code Examples | If `video` is also required, ROCm offload fails on hardware. Phase 6 is off-hardware (no functional impact); the exact group set is frozen by Phase 7's golden and validated Phase 8. Plan should note both. `[ASSUMED]` |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Does the running-server ROCm proof need the fault scan to be journal-wide or load-window-bounded?**
    - What we know: D-06 says "absence of `Memory access fault by GPU node`"; status.go reads a bounded journal tail.
    - What's unclear: whether an OLD fault (pre-restart) in the tail would false-FAIL a now-healthy server.
    - Recommendation: scan only the current load window (since the last "server is listening" line) — but for Phase 6 (fixtures), a whole-fixture scan is fine; flag the windowing as a Phase 8 live-read concern.
+   - **RESOLVED (Phase 6 disposition):** Whole-fixture scan is the Phase-6 choice (matches the recommendation). `scrapeLoadTensorsResidency` scans the entire fixture text for `m.FaultString` before the buffer-line switch (Plan 06-01 Task 2). Load-window bounding (since the last "server is listening" line) is deferred to Phase 8's live journal-tail read, where pre-restart faults in the tail are a real concern; off-hardware fixtures contain only the current load window so the whole-fixture scan is equivalent.
 
 2. **Should `gpu_busy_percent` be a FAIL-capable signal or WARN-only in Phase 6?**
    - What we know: D-06 lists non-zero busy during decode as a PASS component; idle servers read ~0; ROCm #6035 makes it N/A sometimes.
    - Recommendation: WARN-capable only in Phase 6 (it can't be a confident FAIL without a live decode in progress, which is Phase 8). Wire the input + the Known-zero-during-decode→FAIL rule, but the Phase-6 fixtures should only exercise PASS-corroborate / Unknown-WARN, deferring the live FAIL to Phase 8.
+   - **RESOLVED (Phase 6 disposition):** Wire the busy signal as an INPUT + a WARN-capable verdict rule + fixtures in Phase 6 (per the blocker fix). Concretely: `RunningOffloadInput.GPUBusyPercent detect.Int` is added (Plan 06-01 Task 2); a pure `gpuBusyFloor` helper folds it through `combineOffload` (Known non-zero corroborates PASS, Known-zero contributes FAIL, absent/Unknown is neutral-for-PASS — never a false-FAIL on an idle/unavailable reading per D-07). Phase-6 fixtures exercise PASS-corroborate (Known non-zero via `detect.GPUBusyPercentForTest` against a temp drmRoot) and Unknown→neutral-for-PASS (Plan 06-02 Task 3); the Known-zero→FAIL rule is unit-proven in Plan 06-01 Task 2. The **live decode-time read** (`GPUBusyPercent()` called from cmd/villa mid-generation, where a Known-zero during an active decode confidently FAILs) is the **Phase-8 follow-on** (CONTEXT D-07 + DISCUSSION-LOG). This matches what the plans implement for the blocker.
 
 ## Environment Availability
 
