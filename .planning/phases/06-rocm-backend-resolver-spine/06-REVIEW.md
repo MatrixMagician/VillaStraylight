@@ -24,11 +24,14 @@ files_reviewed_list:
   - internal/inference/validate_test.go
   - internal/status/status.go
 findings:
-  critical: 1
+  critical: 0
   warning: 4
   info: 3
-  total: 8
-status: issues_found
+  total: 7
+status: resolved
+resolution:
+  cr-01: "Fixed in commit 499644e — gpu_busy fold now escalates status only, preserving SysfsOffload/GTTDeltaBytes; guarded by TestRunningServerBusyFoldPreservesContract."
+  warnings: "WR-01..WR-04 remain advisory/open by design (test-fidelity + on-hardware hardening + /dev/kfd security justification deferred to /gsd-secure-phase and Phases 7/8)."
 ---
 
 # Phase 6: Code Review Report

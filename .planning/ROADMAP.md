@@ -13,11 +13,19 @@ VillaStraylight is a control plane + managed workload: a single Go binary that i
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [x] **Phase 1: Hardware Foundation & Preflight Gate** - Pure, testable `villa detect`/`recommend` over a usable-GTT envelope, plus a non-optional host-prep preflight that blocks unsafe installs *(all 3 plans complete — ready for verification)*
-- [x] **Phase 2: GPU-Validated Inference Slice** - Backend seam + Vulkan llama-server proven to actually offload to the gfx1151 iGPU, OpenAI-compatible on loopback, with offload-asserting health and a near-max-context probe (completed 2026-06-04)
-- [x] **Phase 3: Orchestrated Install & Lifecycle** - Config-as-source-of-truth, Quadlet generation, model management, and the idempotent, boot-survivable, loopback-only `villa` lifecycle verbs (completed 2026-06-04)
-- [x] **Phase 4: Chat Integration** - Open WebUI wired to local inference by container DNS, telemetry killed, durable data, default-model auto-pull so the first chat works with no configuration (completed 2026-06-05)
-- [x] **Phase 5: Control Dashboard** - Read-only web dashboard over the same internal API as `villa status`: health, tok/s + latency, iGPU/unified-memory usage, model switching, and a chat link (completed 2026-06-05)
+</details>
+
+### 🚧 v1.1 ROCm Opt-In Backend (In Progress)
+
+**Milestone Goal:** Add an opt-in ROCm/HIP inference backend for higher throughput on AMD Strix Halo (gfx1151), gated hard enough to preserve the v1.0 "just works" bar, switchable on a running install with transactional rollback, and benchmarked honestly to prove the per-model win — while Vulkan RADV remains the safe default.
+
+**Spine-first ordering (forced by research):** nothing can render, switch, or bench a backend that doesn't exist behind a polymorphic resolver. Phase 6 builds the resolver/residency spine; Phase 7 renders the unit + gates the host (both off-hardware); Phase 8 is the on-hardware switch verb (the risk concentration); Phase 9 composes the switch into an honest A/B bench; Phase 10 surfaces backend + tok/s last so the byte-frozen `--json` goldens re-freeze once.
+
+- [x] **Phase 6: ROCm Backend + Resolver Spine** — `BackendFor()` resolver + `ResidencyProof()` interface extension + `backend_rocm.go` with the HIP residency proof; re-route the 7 hardcoded `VulkanBackend()` sites (off-hardware) (completed 2026-06-05)
+- [ ] **Phase 7: ROCm Render Unit + Preflight/Detect** — ROCm Quadlet rendering (kfd device + ordered HSA-override env, new byte-golden, Vulkan golden unchanged) + reusable refuse-with-remediation ROCm preflight verdict + detect readiness fields (off-hardware)
+- [ ] **Phase 8: `villa backend set` Switch Verb + Rollback** — transactional capture→prove→cutover→rollback backend switch on a running install (on-hardware risk concentration)
+- [ ] **Phase 9: `villa bench` (Honest A/B)** — read-only A/B over the running `/v1`+`/metrics`, composing the Phase-8 switch; separate pp/tg tok/s with warmup + N-reps + noise band
+- [ ] **Phase 10: Backend + tok/s Surfacing** — backend-aware `recommend` advice + dashboard/`status` active-backend + live tok/s, as append-only `--json`/golden additions
 
 ## Phase Details
 
@@ -43,7 +51,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 06-03-PLAN.md — Re-route 8 VulkanBackend() sites through BackendFor(cfg.Backend) + full-suite no-op proof
+- [x] 06-03-PLAN.md — Re-route 8 VulkanBackend() sites through BackendFor(cfg.Backend) + full-suite no-op proof
 
 ### Phase 7: ROCm Render Unit + Preflight/Detect
 
@@ -113,7 +121,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | 3. Orchestrated Install & Lifecycle | v1.0 | 6/6 | Complete | 2026-06-04 |
 | 4. Chat Integration | v1.0 | 3/3 | Complete | 2026-06-05 |
 | 5. Control Dashboard | v1.0 | 8/8 | Complete | 2026-06-05 |
-| 6. ROCm Backend + Resolver Spine | v1.1 | 3/3 | Complete | 2026-06-06 |
+| 6. ROCm Backend + Resolver Spine | v1.1 | 3/3 | Complete    | 2026-06-05 |
 | 7. ROCm Render Unit + Preflight/Detect | v1.1 | 0/TBD | Not started | - |
 | 8. `villa backend set` Switch Verb + Rollback | v1.1 | 0/TBD | Not started | - |
 | 9. `villa bench` (Honest A/B) | v1.1 | 0/TBD | Not started | - |

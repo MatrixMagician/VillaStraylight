@@ -108,7 +108,7 @@ Explicitly excluded. Documented to prevent scope creep.
 | REQ-ID | Phase | Status |
 |--------|-------|--------|
 | ROCM-01 | Phase 6 | Complete |
-| ROCM-02 | Phase 6 | In Progress (06-01: residency engine + descriptor + gpu_busy fold; ROCm0 markers + grep-gate land in 06-02) |
+| ROCM-02 | Phase 6 | Complete (residency engine + descriptor + gpu_busy fold in 06-01; ROCm0 markers + grep-gate in 06-02; verified 06-VERIFICATION.md) |
 | ROCM-04 | Phase 6 | Complete |
 | ROCM-03 | Phase 7 | Pending |
 | PRE-06 | Phase 7 | Pending |
