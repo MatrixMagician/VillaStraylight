@@ -121,7 +121,21 @@ Explicitly excluded. Documented to prevent scope creep.
 
 ## Traceability
 
-Each v1 requirement maps to exactly one phase. See `.planning/ROADMAP.md` for phase details.
+| REQ-ID | Phase | Status |
+|--------|-------|--------|
+| ROCM-01 | Phase 6 | Pending |
+| ROCM-02 | Phase 6 | In Progress (06-01: residency engine + descriptor + gpu_busy fold; ROCm0 markers + grep-gate land in 06-02) |
+| ROCM-04 | Phase 6 | Pending |
+| ROCM-03 | Phase 7 | Pending |
+| PRE-06 | Phase 7 | Pending |
+| DET-04 | Phase 7 | Pending |
+| BSET-01 | Phase 8 | Pending |
+| BSET-02 | Phase 8 | Pending |
+| BSET-03 | Phase 8 | Pending |
+| BENCH-01 | Phase 9 | Pending |
+| BENCH-02 | Phase 9 | Pending |
+| REC-05 | Phase 10 | Pending |
+| DASH-06 | Phase 10 | Pending |
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|

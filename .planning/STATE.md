@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: ROCm Opt-In Backend
-status: Roadmapped — ready for `/gsd-plan-phase 6`
-stopped_at: Phase 6 context gathered
-last_updated: "2026-06-05T22:56:26.524Z"
-last_activity: 2026-06-05 — v1.1 roadmap created (Phases 6–10, 13/13 requirements mapped)
+status: executing
+stopped_at: Completed 06-01-PLAN.md
+last_updated: "2026-06-06T00:00:00.000Z"
+last_activity: 2026-06-06 -- Completed Phase 6 Plan 01 (residency-proof spine)
 progress:
   total_phases: 5
-  completed_phases: 4
-  total_plans: 23
-  completed_plans: 22
-  percent: 80
+  completed_phases: 0
+  total_plans: 3
+  completed_plans: 1
+  percent: 33
 ---
 
 # Project State
@@ -21,24 +21,22 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-03)
 
 **Core value:** Run a capable local AI workspace that "just works" after install — hardware-aware setup that brings inference, chat, and the dashboard up healthy, with zero data leaving the box.
-**Current focus:** Phase 05 — control-dashboard
+**Current focus:** Phase 6 — ROCm Backend + Resolver Spine
 
 ## Current Position
 
-Phase: 05 (control-dashboard) — EXECUTING
-Plan: 1 of 8
-Status: Phase 05 verified (passed) — shipped as PR #1 (pr/villastraylight-v1 → main)
-Last activity: 2026-06-05 -- Shipped VillaStraylight v1 — PR #1 (squashed clean import, Phases 1-5)
-
-Progress: [████████░░] 80% (4 of 5 phases complete)
+Phase: 6 (ROCm Backend + Resolver Spine) — EXECUTING
+Plan: 2 of 3
+Status: Executing Phase 6 (Plan 01 complete)
+Last activity: 2026-06-06 -- Completed Phase 6 Plan 01 (residency-proof spine)
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 12
-- Average duration: 35 min
-- Total execution time: 1.75 hours
+- Total plans completed: 13
+- Average duration: 34 min
+- Total execution time: 2.2 hours
 
 **By Phase:**
 
@@ -63,6 +61,7 @@ Progress: [████████░░] 80% (4 of 5 phases complete)
 | Phase 04 P01 | 12 min | 2 tasks | 8 files |
 | Phase 04 P02 | 3 min | 2 tasks | 2 files |
 | Phase 04 P03 | 14 min | 3 tasks | 4 files |
+| Phase 06 P01 | 25 min | 3 tasks | 11 files |
 
 ## Accumulated Context
 
@@ -103,6 +102,9 @@ Recent decisions affecting current work:
 - [Phase ?]: Post-install prints real loopback chat URL http://127.0.0.1:3000 on both write and no-op paths (CHAT-02/D-03)
 - [04-03]: villa status owui row health = reachability + non-empty upstream /v1/models (CHAT-01 SC#1); owui offload is an N/A WARN-typed Verdict EXCLUDED from the worst-wins fold via serviceStatus.OffloadApplies — no false offload PASS/FAIL on a non-GPU service (D-12). Transport error → typed-Unknown→WARN (never over-eager FAIL); a confidently-down owui UNIT still FAILs via active-state (CR-02/Pitfall 6).
 - [04-03]: villa uninstall removes the villa-openwebui volume via the reserved nonModelVolumes() seam — verified ZERO-CODE (the seam was already generic); the 3000 port folds into allLoopback automatically (PRIV-02). Open WebUI image digest re-confirmed on host = the pinned constant sha256:7f1b0a1a... (PRIV-02 re-audit clean, 2026-06-05).
+- [06-01]: Backend interface extended with ResidencyProof() ResidencyMarkers (D-04); both offload-assert scrapes (scrapeOffloadLog start-time + scrapeLoadTensorsResidency running) are now parameterized by the descriptor — no hardcoded Vulkan0/ggml_vulkan:/- Vulkan literals remain in the scraper bodies. ROCm slots in (Plan 02) without re-rolling combineOffload/gttFloor.
+- [06-01]: D-06 gpu_busy_percent folded through combineOffload via gpuBusyFloor (Known non-zero corroborates PASS, Known-zero FAILs a claimed-healthy decode, absent/Unknown is combine-neutral). CRITICAL: Unknown is neutral by SKIPPING the fold (combineOffload has NO neutral state) — a WARN would downgrade every Vulkan PASS; Vulkan supplies no busy reading so its verdict stays byte-identical.
+- [06-01]: A non-empty FaultString found in the journal voids residency (FAIL) before the buffer-line switch; a start-time 0<N<M partial offload FAILs, gated on an explicit offloaded line so Vulkan auto-fit (no offloaded line) still PASSes. Provenance embeds the DeviceToken so the byte-frozen status --json golden is unchanged for Vulkan.
 
 ### Pending Todos
 

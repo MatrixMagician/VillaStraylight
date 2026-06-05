@@ -35,7 +35,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 **Wave 1**
 
-- [ ] 06-01-PLAN.md — Residency-proof engine: ResidencyProof()/ResidencyMarkers + dual-scrape parameterization (Vulkan byte-identical)
+- [x] 06-01-PLAN.md — Residency-proof engine: ResidencyProof()/ResidencyMarkers + dual-scrape parameterization (Vulkan byte-identical) ✅ 3/3 tasks
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
