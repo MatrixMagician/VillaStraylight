@@ -1,0 +1,21 @@
+# ~/.config/containers/systemd/villa-llama.container  (GENERATED — do not edit; source: config.toml)
+[Unit]
+Description=VillaStraylight llama.cpp inference (Vulkan RADV)
+After=villa-network.service
+
+[Container]
+ContainerName=villa-llama
+Image=docker.io/kyuz0/amd-strix-halo-toolboxes:vulkan-radv@sha256:9a74e555c45864352a4077528836988d448e9f030fbab9f7376ea1c603ac7aad
+Network=villa.network
+AddDevice=/dev/dri
+GroupAdd=keep-groups
+PublishPort=127.0.0.1:8080:8080
+Volume=/home/villa/.local/share/villa/models:/models:ro,z
+PodmanArgs=--security-opt seccomp=unconfined
+Exec=llama-server -m /models/qwen3-35b-a3b-moe-64.gguf -c 131072 --host 0.0.0.0 --port 8080 -ngl 999 -fa 1 --no-mmap -lv 4 --metrics
+
+[Service]
+Restart=on-failure
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,22 @@
+{
+  "schema_version": 99,
+  "catalog_version": "test.too-new",
+  "models": [
+    {
+      "id": "future-model",
+      "display_name": "Future Schema Model",
+      "quant": "Q4_K_M",
+      "weight_bytes": 5000000000,
+      "n_layers": 32,
+      "n_kv_heads": 8,
+      "head_dim": 128,
+      "kv_bytes_per_elem": 2,
+      "default_ctx": 16384,
+      "min_envelope_bytes": 7000000000,
+      "tier_gb": 16,
+      "unified_memory_safe": true,
+      "backend_default": "vulkan",
+      "bootstrap": false
+    }
+  ]
+}

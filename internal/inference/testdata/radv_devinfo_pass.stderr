@@ -1,0 +1,10 @@
+0.00.032.576 I log_info: verbosity = 3 (adjust with the `-lv N` CLI arg)
+0.00.032.579 I device_info:
+0.00.032.680 I   - Vulkan0 : AMD Radeon 8060S Graphics (RADV GFX1151) (64550 MiB, 62144 MiB free)
+0.00.032.683 I   - CPU     : AMD RYZEN AI MAX+ 395 w/ Radeon 8060S (128077 MiB, 128077 MiB free)
+0.00.034.099 I srv  llama_server: loading model
+0.00.034.112 I srv    load_model: loading model '/models/qwen2.5-0.5b-instruct-q4_k_m.gguf'
+0.00.034.138 I common_init_result: fitting params to device memory ...
+0.00.766.917 I srv  llama_server: model loaded
+0.00.766.923 I srv  llama_server: server is listening on http://0.0.0.0:8080
+0.00.766.931 I srv  update_slots: all slots are idle

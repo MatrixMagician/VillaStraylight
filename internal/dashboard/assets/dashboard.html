@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="referrer" content="no-referrer" />
+  <title>VillaStraylight — Control Dashboard</title>
+  <link rel="stylesheet" href="/dashboard.css" />
+</head>
+<body>
+  <!-- Global connection-lost banner (D-11): shown ONLY when the browser cannot reach
+       the dashboard's own poll API; visually distinct from a single service being down. -->
+  <div id="connection-banner" class="connection-banner" role="alert" hidden>
+    Lost connection to the dashboard. Retrying…
+  </div>
+
+  <header class="header" role="banner">
+    <h1 class="header-title">VillaStraylight</h1>
+    <span id="overall-verdict" class="badge badge-unknown" aria-live="polite">unavailable</span>
+    <a class="chat-link"
+       href="http://127.0.0.1:{{.ChatPort}}"
+       target="_blank"
+       rel="noopener noreferrer">Open Chat ↗</a>
+  </header>
+
+  <main class="content">
+    <!-- Health (DASH-01) — filled by the poll loop from /api/status. -->
+    <section class="panel" id="health-panel" aria-labelledby="health-heading">
+      <h2 class="panel-heading" id="health-heading">Health</h2>
+      <div id="health-rows" class="health-rows">
+        <p class="muted">Loading service status…</p>
+      </div>
+    </section>
+
+    <!-- Performance (DASH-02) — filled by the poll loop from /api/metrics. -->
+    <section class="panel" id="performance-panel" aria-labelledby="performance-heading" data-mount="performance">
+      <h2 class="panel-heading" id="performance-heading">Performance</h2>
+      <div id="performance-body">
+        <p class="muted">Idle — no active generation.</p>
+      </div>
+    </section>
+
+    <!-- GPU & Memory (DASH-03) — memory-first; filled from /api/gpu. Mount point for Plan 04 below. -->
+    <section class="panel" id="gpu-panel" aria-labelledby="gpu-heading" data-mount="gpu">
+      <h2 class="panel-heading" id="gpu-heading">GPU &amp; Memory</h2>
+      <div id="gpu-body">
+        <p class="muted">Unavailable</p>
+      </div>
+    </section>
+
+    <!-- Models (DASH-04) — full catalog (loaded / on-disk / catalog-only) with the
+         guarded Switch action; filled by the poll loop from /api/models. -->
+    <section class="panel" id="models-panel" aria-labelledby="models-heading" data-mount="models">
+      <h2 class="panel-heading" id="models-heading">Models</h2>
+      <div id="models-body">
+        <p class="muted">Loading models…</p>
+      </div>
+    </section>
+  </main>
+
+  <!-- Guarded switch confirm dialog (D-08): a native <dialog> traps focus, Esc cancels,
+       and the primary "Switch model" button is the default focus. The fit-verdict + the
+       red restart-warning copy are filled per-row by the JS before showModal(). The
+       single sanctioned write (POST /api/models/switch) only fires on confirm. -->
+  <dialog id="switch-dialog" class="switch-dialog" aria-labelledby="switch-dialog-title">
+    <form method="dialog" class="switch-dialog-form">
+      <h3 class="switch-dialog-title" id="switch-dialog-title">Switch model?</h3>
+      <p class="switch-dialog-fit" id="switch-dialog-fit"></p>
+      <p class="switch-dialog-warning" id="switch-dialog-warning">
+        This restarts inference — chat is briefly unavailable while the model reloads.
+      </p>
+      <div class="switch-dialog-actions">
+        <button type="button" class="btn btn-secondary" id="switch-cancel" value="cancel">Cancel</button>
+        <button type="button" class="btn btn-primary" id="switch-confirm" value="confirm" autofocus>Switch model</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="/dashboard.js"></script>
+</body>
+</html>

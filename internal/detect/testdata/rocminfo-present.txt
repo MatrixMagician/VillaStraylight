@@ -1,0 +1,29 @@
+ROCk module is loaded
+=====================
+HSA System Attributes
+=====================
+Runtime Version:         1.1
+System Timestamp Freq.:  1000.000000MHz
+
+==========
+HSA Agents
+==========
+*******
+Agent 1
+*******
+  Name:                    AMD Ryzen AI Max+ PRO 395
+  Marketing Name:          AMD Ryzen AI Max+ PRO 395
+  Device Type:             CPU
+*******
+Agent 2
+*******
+  Name:                    gfx1151
+  Marketing Name:          AMD Radeon 8060S Graphics
+  Vendor Name:             AMD
+  Device Type:             GPU
+  Name (ISA):              amdgcn-amd-amdhsa--gfx1151
+  ISA Info:
+    ISA 1
+      Name:                    amdgcn-amd-amdhsa--gfx1151
+      Machine Models:          HSA_MACHINE_MODEL_LARGE
+*** Done ***

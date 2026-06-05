@@ -1,0 +1,17 @@
+{
+  "status": 2,
+  "detail": "offload FAILED — log: software renderer \"llvmpipe\" enumerated, not a real GPU; sysfs: GTT-used grew only 0 bytes",
+  "remediation": "GPU offload did not engage — check /dev/dri passthrough, keep-groups, and that the RADV ICD is present (not llvmpipe)",
+  "provenance": "log-scrape + amdgpu mem_info_gtt_used delta",
+  "log_offload": {
+    "value": false,
+    "known": true,
+    "source": "ggml_vulkan device line"
+  },
+  "sysfs_offload": {
+    "value": false,
+    "known": true,
+    "source": "mem_info_gtt_used before/after delta"
+  },
+  "gtt_delta_bytes": 0
+}

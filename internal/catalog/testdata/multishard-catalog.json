@@ -1,0 +1,42 @@
+{
+  "schema_version": 2,
+  "catalog_version": "test.multishard",
+  "models": [
+    {
+      "id": "sharded-235b",
+      "display_name": "Qwen3-235B-A22B (sharded UD-Q4_K_XL)",
+      "quant": "UD-Q4_K_XL",
+      "weight_bytes": 134123851136,
+      "n_layers": 94,
+      "n_kv_heads": 4,
+      "head_dim": 128,
+      "kv_bytes_per_elem": 2,
+      "default_ctx": 32768,
+      "min_envelope_bytes": 140000000000,
+      "tier_gb": 128,
+      "unified_memory_safe": true,
+      "backend_default": "vulkan",
+      "bootstrap": false,
+      "shards": [
+        {
+          "url": "https://huggingface.co/unsloth/Qwen3-235B-A22B-GGUF/resolve/main/UD-Q4_K_XL/Qwen3-235B-A22B-UD-Q4_K_XL-00001-of-00003.gguf",
+          "filename": "Qwen3-235B-A22B-UD-Q4_K_XL-00001-of-00003.gguf",
+          "sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+          "size_bytes": 49875808704
+        },
+        {
+          "url": "https://huggingface.co/unsloth/Qwen3-235B-A22B-GGUF/resolve/main/UD-Q4_K_XL/Qwen3-235B-A22B-UD-Q4_K_XL-00002-of-00003.gguf",
+          "filename": "Qwen3-235B-A22B-UD-Q4_K_XL-00002-of-00003.gguf",
+          "sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+          "size_bytes": 49586813408
+        },
+        {
+          "url": "https://huggingface.co/unsloth/Qwen3-235B-A22B-GGUF/resolve/main/UD-Q4_K_XL/Qwen3-235B-A22B-UD-Q4_K_XL-00003-of-00003.gguf",
+          "filename": "Qwen3-235B-A22B-UD-Q4_K_XL-00003-of-00003.gguf",
+          "sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+          "size_bytes": 34661229024
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,87 @@
+{
+  "services": [
+    {
+      "service": "villa-llama.service",
+      "active": "active",
+      "health": "ready",
+      "offload": {
+        "status": 0,
+        "detail": "offload proven (log + sysfs) — log: Vulkan0 model buffer 21504.49 MiB resident on the iGPU; sysfs: GTT-used 23068672000 bytes ≥ 22548578304 weight footprint (resident)",
+        "remediation": "",
+        "provenance": "journald load_tensors Vulkan0 residency + point-in-time mem_info_gtt_used floor",
+        "log_offload": {
+          "value": true,
+          "known": true,
+          "source": "load_tensors Vulkan0 model buffer size"
+        },
+        "sysfs_offload": {
+          "value": true,
+          "known": true,
+          "source": "mem_info_gtt_used point-in-time floor"
+        },
+        "gtt_delta_bytes": 23068672000
+      },
+      "offload_applies": true,
+      "offload_ok": true
+    },
+    {
+      "service": "villa-openwebui.service",
+      "active": "active",
+      "health": "ready",
+      "offload": {
+        "status": 1,
+        "detail": "N/A — this service has no GPU offload",
+        "remediation": "",
+        "provenance": "not an inference service (no llama-server residency to assert)",
+        "log_offload": {
+          "value": false,
+          "known": false
+        },
+        "sysfs_offload": {
+          "value": false,
+          "known": false
+        },
+        "gtt_delta_bytes": 0
+      },
+      "offload_applies": false,
+      "offload_ok": false
+    },
+    {
+      "service": "villa-dashboard.service",
+      "active": "active",
+      "health": "ready",
+      "offload": {
+        "status": 1,
+        "detail": "N/A — this service has no GPU offload",
+        "remediation": "",
+        "provenance": "not an inference service (no llama-server residency to assert)",
+        "log_offload": {
+          "value": false,
+          "known": false
+        },
+        "sysfs_offload": {
+          "value": false,
+          "known": false
+        },
+        "gtt_delta_bytes": 0
+      },
+      "offload_applies": false,
+      "offload_ok": false
+    }
+  ],
+  "ports": [
+    {
+      "host_addr": "127.0.0.1",
+      "container_port": "8080",
+      "loopback": true
+    },
+    {
+      "host_addr": "127.0.0.1",
+      "container_port": "8080",
+      "loopback": true
+    }
+  ],
+  "loopback_only": true,
+  "no_telemetry": "no telemetry; outbound = image/model pulls only",
+  "overall": "PASS"
+}

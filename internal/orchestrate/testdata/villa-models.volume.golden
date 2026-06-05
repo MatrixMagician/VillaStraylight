@@ -1,0 +1,10 @@
+# ~/.config/containers/systemd/villa-models.volume  (GENERATED — do not edit; source: config.toml)
+[Volume]
+VolumeName=villa-models
+Driver=local
+Type=none
+Device=/home/villa/.local/share/villa/models
+Options=bind
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,6 @@
+{
+  "schema_version": 1,
+  "catalog_version": "test.malformed",
+  "models": [
+    { "id": "broken", "display_name": "Missing closing brace"
+}

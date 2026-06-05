@@ -1,0 +1,87 @@
+{
+  "cpu_model": {
+    "value": "AMD RYZEN AI MAX+ 395 w/ Radeon 8060S",
+    "known": true,
+    "source": "ghw.CPU"
+  },
+  "arch": {
+    "value": "amd64",
+    "known": true,
+    "source": "runtime.GOARCH"
+  },
+  "total_ram_bytes": {
+    "value": 137438953472,
+    "known": true,
+    "source": "ghw.Memory"
+  },
+  "mem_available_bytes": {
+    "value": 122191437824,
+    "known": true,
+    "source": "/proc/meminfo:MemAvailable"
+  },
+  "igpu_name": {
+    "value": "AMD Radeon 8060S Graphics (RADV STRIX_HALO)",
+    "known": true,
+    "source": "vulkaninfo --summary:deviceName"
+  },
+  "igpu_gfx_id": {
+    "value": "",
+    "known": false,
+    "source": "rocminfo unavailable (gfx id not enumerated)"
+  },
+  "vulkan_icd_path": {
+    "value": "/usr/share/vulkan/icd.d/radeon_icd.x86_64.json",
+    "known": true,
+    "source": "/usr/share/vulkan/icd.d/radeon_icd.x86_64.json"
+  },
+  "vulkan_device": {
+    "value": "AMD Radeon 8060S Graphics (RADV STRIX_HALO)",
+    "known": true,
+    "source": "vulkaninfo --summary:deviceName"
+  },
+  "dri_nodes": [
+    "renderD128",
+    "card1"
+  ],
+  "dri_node_count": {
+    "value": 2,
+    "known": true,
+    "source": "/dev/dri"
+  },
+  "rocm_present": {
+    "value": false,
+    "known": true,
+    "source": "rocminfo not on PATH"
+  },
+  "usable_envelope_bytes": {
+    "value": 67149381632,
+    "known": true,
+    "source": "mem_info_gtt_total (/sys/class/drm/card1/device/mem_info_gtt_total)"
+  },
+  "gtt_total_bytes": {
+    "value": 67149381632,
+    "known": true,
+    "source": "/sys/class/drm/card1/device/mem_info_gtt_total"
+  },
+  "ttm_limit_bytes": {
+    "value": 67149381632,
+    "known": true,
+    "source": "/sys/module/ttm/parameters/pages_limit"
+  },
+  "bios_vram_bytes": {
+    "value": 536870912,
+    "known": true,
+    "source": "/sys/class/drm/card1/device/mem_info_vram_total"
+  },
+  "kernel_version": {
+    "value": "7.0.10-201.fc44.x86_64",
+    "known": true,
+    "source": "/proc/sys/kernel/osrelease"
+  },
+  "mesa_version": {
+    "value": "26.0.8",
+    "known": true,
+    "source": "vulkaninfo --summary:driverVersion"
+  },
+  "schema_version": 1
+}
