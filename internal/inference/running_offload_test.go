@@ -3,6 +3,7 @@ package inference
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
@@ -109,6 +110,50 @@ func TestRunningServerBusySignalFold(t *testing.T) {
 				t.Fatalf("busy fold status = %s, want %s (detail: %s)", v.Status, tc.want, v.Detail)
 			}
 		})
+	}
+}
+
+// TestRunningServerBusyFoldPreservesContract is the CR-01 regression guard: when a Known
+// gpu_busy_percent reading is folded in, the busy signal is a STATUS corroborator only — it
+// MUST NOT overwrite the --json contract's SysfsOffload (the real GTT-floor signal), zero the
+// GTTDeltaBytes calibration record, or nest the Detail string. (Before the fix the re-fold
+// routed busy through combineOffload's sysfs slot, corrupting all three.)
+func TestRunningServerBusyFoldPreservesContract(t *testing.T) {
+	vulkanJournal := readFixture(t, "load_tensors_vulkan.txt")
+	drm := t.TempDir()
+	const gttUsedValue = uint64(23068672000)
+	if err := os.WriteFile(filepath.Join(drm, "mem_info_gtt_used"), []byte("23068672000\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gttUsed := detect.GTTUsedBytesForTest(drm)
+	markers := VulkanBackend().ResidencyProof()
+
+	in := RunningOffloadInput{
+		JournalText:    vulkanJournal,
+		GTTUsedBytes:   gttUsed,
+		WeightBytes:    testWeightBytes,
+		Markers:        markers,
+		GPUBusyPercent: detect.KnownInt(42, "test"),
+	}
+	v := RunningOffloadVerdict(in)
+
+	if v.Status != StatusPass {
+		t.Fatalf("status = %s, want PASS (detail: %s)", v.Status, v.Detail)
+	}
+	// SysfsOffload must remain the GTT-floor signal, NOT the busy signal.
+	if strings.Contains(v.SysfsOffload.Source, "gpu_busy_percent") {
+		t.Errorf("SysfsOffload.Source = %q — busy signal leaked into the sysfs contract slot (CR-01)", v.SysfsOffload.Source)
+	}
+	// GTTDeltaBytes must keep the floor value, not be zeroed by the busy re-fold.
+	if v.GTTDeltaBytes != gttUsedValue {
+		t.Errorf("GTTDeltaBytes = %d, want %d — busy re-fold zeroed the GTT calibration record (CR-01)", v.GTTDeltaBytes, gttUsedValue)
+	}
+	// Detail must carry the busy corroboration without nesting the already-joined string.
+	if strings.Count(v.Detail, "offload proven (log + sysfs)") != 1 {
+		t.Errorf("Detail nests the combined headline (CR-01): %q", v.Detail)
+	}
+	if !strings.Contains(v.Detail, "busy:") {
+		t.Errorf("Detail missing busy corroboration clause: %q", v.Detail)
 	}
 }
 

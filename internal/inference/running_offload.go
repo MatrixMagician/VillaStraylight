@@ -318,7 +318,22 @@ func RunningOffloadVerdict(in RunningOffloadInput) Verdict {
 	// status --json golden is byte-frozen and must NOT change for Vulkan.
 	provenance := "journald load_tensors " + in.Markers.DeviceToken + " residency + point-in-time mem_info_gtt_used floor"
 	if in.GPUBusyPercent.Known {
-		v = combineOffload(verdictAsResult(v), gpuBusyFloor(in.GPUBusyPercent))
+		busy := gpuBusyFloor(in.GPUBusyPercent)
+		// Escalate the verdict status using combineOffload's precedence (FAIL dominates;
+		// else WARN; else PASS) WITHOUT routing the busy signal through the sysfs slot.
+		// combineOffload unconditionally overwrites SysfsOffload + GTTDeltaBytes from its
+		// second argument, so re-folding through it would clobber the real point-in-time
+		// GTT-floor signal, zero the GTTDeltaBytes calibration record, and nest the Detail
+		// string (CR-01). The busy reading is a residency CORROBORATOR, not the sysfs
+		// contract signal — keep LogOffload/SysfsOffload/GTTDeltaBytes as residency+floor.
+		folded := combineOffload(verdictAsResult(v), busy)
+		if folded.Status != v.Status {
+			v.Status = folded.Status
+			v.Remediation = folded.Remediation
+			v.Raw = firstNonEmpty(v.Raw, busy.Raw)
+		}
+		// Flat append (NOT joinDetail over the already-joined v.Detail) to avoid nesting.
+		v.Detail = v.Detail + "; busy: " + busy.Detail
 		provenance += " + gpu_busy_percent corroboration"
 	}
 	v.Provenance = provenance
