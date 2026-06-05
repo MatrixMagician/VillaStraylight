@@ -1,11 +1,11 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.0
-milestone_name: milestone
-status: executing
-stopped_at: Phase 5 UI-SPEC approved
-last_updated: "2026-06-05T19:46:21.066Z"
-last_activity: 2026-06-05 -- Phase 05 execution started
+milestone: v1.1
+milestone_name: ROCm Opt-In Backend
+status: Roadmapped — ready for `/gsd-plan-phase 6`
+stopped_at: Phase 6 context gathered
+last_updated: "2026-06-05T22:18:01.390Z"
+last_activity: 2026-06-05 — v1.1 roadmap created (Phases 6–10, 13/13 requirements mapped)
 progress:
   total_phases: 5
   completed_phases: 4
@@ -137,6 +137,11 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-05T12:19:57.620Z
-Stopped at: Phase 5 UI-SPEC approved
-Resume file: .planning/phases/05-control-dashboard/05-UI-SPEC.md
+Last session: 2026-06-05T22:18:01.385Z
+Stopped at: Phase 6 context gathered
+Resume file: .planning/phases/06-rocm-backend-resolver-spine/06-CONTEXT.md
+
+## Operator Next Steps
+
+- Plan the first v1.1 phase with `/gsd-plan-phase 6` (ROCm Backend + Resolver Spine — off-hardware, spine for the milestone).
+- Phases 8 and 9 carry on-hardware research flags (see Blockers/Concerns) — consider `--research-phase` when reaching them.
