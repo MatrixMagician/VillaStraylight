@@ -39,7 +39,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 06-02-PLAN.md — backend_rocm.go + BackendFor resolver + ROCm fixtures/tests + grep-gates
+- [x] 06-02-PLAN.md — backend_rocm.go + BackendFor resolver + ROCm fixtures/tests + grep-gates
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -106,10 +106,15 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Execution Order:**
 Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 
-| Phase | Plans Complete | Status | Completed |
-|-------|----------------|--------|-----------|
-| 1. Hardware Foundation & Preflight Gate | 3/3 | Complete    | 2026-06-03 |
-| 2. GPU-Validated Inference Slice | 3/3 | Complete    | 2026-06-04 |
-| 3. Orchestrated Install & Lifecycle | 6/6 | Complete   | 2026-06-04 |
-| 4. Chat Integration | 3/3 | Complete    | 2026-06-05 |
-| 5. Control Dashboard | 8/8 | Complete   | 2026-06-05 |
+| Phase | Milestone | Plans Complete | Status | Completed |
+|-------|-----------|----------------|--------|-----------|
+| 1. Hardware Foundation & Preflight Gate | v1.0 | 3/3 | Complete | 2026-06-03 |
+| 2. GPU-Validated Inference Slice | v1.0 | 3/3 | Complete | 2026-06-04 |
+| 3. Orchestrated Install & Lifecycle | v1.0 | 6/6 | Complete | 2026-06-04 |
+| 4. Chat Integration | v1.0 | 3/3 | Complete | 2026-06-05 |
+| 5. Control Dashboard | v1.0 | 8/8 | Complete | 2026-06-05 |
+| 6. ROCm Backend + Resolver Spine | v1.1 | 2/3 | In Progress|  |
+| 7. ROCm Render Unit + Preflight/Detect | v1.1 | 0/TBD | Not started | - |
+| 8. `villa backend set` Switch Verb + Rollback | v1.1 | 0/TBD | Not started | - |
+| 9. `villa bench` (Honest A/B) | v1.1 | 0/TBD | Not started | - |
+| 10. Backend + tok/s Surfacing | v1.1 | 0/TBD | Not started | - |

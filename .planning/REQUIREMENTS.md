@@ -15,11 +15,10 @@ Milestone 1 — "Core platform." Each maps to a roadmap phase. All are hypothese
 
 ### Preflight (PRE)
 
-- [x] **PRE-01**: Preflight verifies Vulkan ICD + iGPU enumeration, reporting pass/warn/fail with a remediation hint per check
-- [x] **PRE-02**: Preflight verifies Podman is installed, rootless-ready (subuid/subgid), and `systemd --user` is available
-- [x] **PRE-03**: Preflight verifies user lingering (`loginctl enable-linger`) is enabled — or offers to enable it — so services survive logout/boot
-- [x] **PRE-04**: Preflight verifies sufficient free disk (≥ model size) and free memory (≥ envelope) before install
-- [x] **PRE-05**: A failing preflight check blocks install (or explicitly warns) instead of producing a silent container crash
+- [x] **ROCM-01**: An opt-in ROCm/HIP `llama-server` inference backend implemented behind the existing `Backend` interface, selected by a `backend` config field — Vulkan RADV remains the default; no backend specifics leak to callers.
+- [x] **ROCM-02**: The ROCm backend is offload-asserting via a HIP residency proof — asserts the `ROCm0` device buffer line + `offloaded N/N layers` (N==M) + non-zero sysfs `gpu_busy_percent` during a real decode + absence of `Memory access fault by GPU node`; a silent/partial CPU fallback is a FAIL. A grep-gate test prevents a refactor dropping the HIP marker strings.
+- [ ] **ROCM-03**: The ROCm Quadlet unit renders the correct delta over the Vulkan unit — digest-pinned `kyuz0:rocm-7.2.4` image (never nightlies), `/dev/kfd` + `/dev/dri` passthrough, `render` group, `HSA_OVERRIDE_GFX_VERSION=11.5.1` + `ROCBLAS_USE_HIPBLASLT=1` env, and `-ngl 999 -fa 1 --no-mmap` flags; frozen by a new byte-golden with the Vulkan golden unchanged (proves additivity).
+- [x] **ROCM-04**: The single polymorphic resolver `BackendFor(cfg.Backend)` routes every inference-backend call site through config (replacing the 7 hardcoded `VulkanBackend()` sites), so backend choice is honored consistently across install, lifecycle, status, model, and dashboard paths.
 
 ### Recommendation Engine (REC)
 
@@ -66,38 +65,23 @@ Milestone 1 — "Core platform." Each maps to a roadmap phase. All are hypothese
 
 ### Control Dashboard (DASH)
 
-- [ ] **DASH-01**: Dashboard shows live service health, sourced from the same internal API as `villa status`
-- [ ] **DASH-02**: Dashboard shows performance metrics — generation tok/s, prompt tok/s, latency — from llama.cpp `/metrics` + `/slots`
-- [ ] **DASH-03**: Dashboard shows iGPU utilization and unified-memory (VRAM + GTT) usage vs envelope, read from amdgpu sysfs (not amd-smi)
-- [ ] **DASH-04**: Dashboard lists available + loaded models and lets the user switch the loaded model
-- [ ] **DASH-05**: Dashboard surfaces a one-click link to the chat UI
+### v1.1.x / operability
 
-### Privacy (PRIV)
-
-- [x] **PRIV-01**: Every service binds to localhost by default; nothing listens on `0.0.0.0` unless explicitly opted in
-- [x] **PRIV-02**: First-party Go code sends zero telemetry, and known upstream telemetry (Open WebUI / ChromaDB → PostHog) is disabled
-- [x] **PRIV-03**: `villa status` / `doctor` shows bind addresses and asserts "no telemetry; outbound = image/model pulls only" so the user can verify
-
-## v2 Requirements
-
-Deferred to future releases (v1.x / Milestone 2). Tracked, not in the current roadmap.
-
-### Operability (v1.x)
-
-- **UPD-01**: Update mechanism — update the binary, pull newer pinned images, regenerate units (rollback-aware)
-- **USAGE-01**: Token / throughput usage tracking (cumulative "Token Spy"-style)
-- **DOCTOR-01**: `villa doctor` deep diagnostics / self-heal hints (reuse preflight logic post-install)
-- **INSTALL-01**: Interactive guided (TUI) install alongside the one-shot flag-driven install
-- **BAK-01**: Backup / restore — config first, then Open WebUI volume snapshots
-- **ROCM-01**: ROCm backend as an optional alternate to Vulkan
+- **BENCH-03**: `villa bench --compare` one-shot flip→bench→flip-back, and a saved bench report artifact (md/JSON).
+- **BAK-01**: Backup / restore — config first, then Open WebUI volume snapshots.
+- **DOCTOR-01**: `villa doctor` deep diagnostics / self-heal hints (reuse preflight logic post-install).
+- **USAGE-01**: Cumulative token/throughput usage tracking ("Token Spy"-style).
+- **INSTALL-01**: Interactive guided (TUI) install alongside the one-shot flag-driven install.
+- **ROCM-ALT-01**: `rocm-6.4.4` (or newer stable) as a documented opt-in alternate image for TG-heavy models where 7.2.4 underperforms — selected/validated via `villa bench`.
 
 ### Milestone 2 — Memory & Search
 
-- **MEM-01**: Qdrant persistent memory + RAG over user files/notes
-- **SRCH-01**: SearXNG self-hosted search integration
-- **CODE-01**: OpenCode coding agent wired to local models
+- Qdrant persistent memory; SearXNG search; OpenCode coding-agent wiring (deferred — see PROJECT.md Out of Scope).
 
 ### Future
+
+- Metal / Apple-Silicon as a third `Backend`; voice (Whisper/Kokoro); agents/orchestration; image generation.
+- ROCm perf-tuning knobs (hipBLASLt / rocWMMA-FA / batch) exposed as first-class advanced config.
 
 - **VOICE-01**: Voice — Whisper (STT) + Kokoro (TTS)
 - **AGENT-01**: Agents / workflows
@@ -123,9 +107,9 @@ Explicitly excluded. Documented to prevent scope creep.
 
 | REQ-ID | Phase | Status |
 |--------|-------|--------|
-| ROCM-01 | Phase 6 | Pending |
+| ROCM-01 | Phase 6 | Complete |
 | ROCM-02 | Phase 6 | In Progress (06-01: residency engine + descriptor + gpu_busy fold; ROCm0 markers + grep-gate land in 06-02) |
-| ROCM-04 | Phase 6 | Pending |
+| ROCM-04 | Phase 6 | Complete |
 | ROCM-03 | Phase 7 | Pending |
 | PRE-06 | Phase 7 | Pending |
 | DET-04 | Phase 7 | Pending |

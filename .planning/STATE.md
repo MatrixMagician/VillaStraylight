@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: ROCm Opt-In Backend
 status: executing
-stopped_at: Completed 06-01-PLAN.md
-last_updated: "2026-06-06T00:00:00.000Z"
+stopped_at: Phase 6 context gathered
+last_updated: "2026-06-05T23:18:37.173Z"
 last_activity: 2026-06-06 -- Completed Phase 6 Plan 01 (residency-proof spine)
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 3
-  completed_plans: 1
-  percent: 33
+  completed_plans: 2
+  percent: 0
 ---
 
 # Project State
@@ -26,8 +26,8 @@ See: .planning/PROJECT.md (updated 2026-06-03)
 ## Current Position
 
 Phase: 6 (ROCm Backend + Resolver Spine) — EXECUTING
-Plan: 2 of 3
-Status: Executing Phase 6 (Plan 01 complete)
+Plan: 3 of 3
+Status: Ready to execute
 Last activity: 2026-06-06 -- Completed Phase 6 Plan 01 (residency-proof spine)
 
 ## Performance Metrics
@@ -62,6 +62,7 @@ Last activity: 2026-06-06 -- Completed Phase 6 Plan 01 (residency-proof spine)
 | Phase 04 P02 | 3 min | 2 tasks | 2 files |
 | Phase 04 P03 | 14 min | 3 tasks | 4 files |
 | Phase 06 P01 | 25 min | 3 tasks | 11 files |
+| Phase 06 P02 | 5min | 3 tasks | 13 files |
 
 ## Accumulated Context
 
@@ -105,6 +106,9 @@ Recent decisions affecting current work:
 - [06-01]: Backend interface extended with ResidencyProof() ResidencyMarkers (D-04); both offload-assert scrapes (scrapeOffloadLog start-time + scrapeLoadTensorsResidency running) are now parameterized by the descriptor — no hardcoded Vulkan0/ggml_vulkan:/- Vulkan literals remain in the scraper bodies. ROCm slots in (Plan 02) without re-rolling combineOffload/gttFloor.
 - [06-01]: D-06 gpu_busy_percent folded through combineOffload via gpuBusyFloor (Known non-zero corroborates PASS, Known-zero FAILs a claimed-healthy decode, absent/Unknown is combine-neutral). CRITICAL: Unknown is neutral by SKIPPING the fold (combineOffload has NO neutral state) — a WARN would downgrade every Vulkan PASS; Vulkan supplies no busy reading so its verdict stays byte-identical.
 - [06-01]: A non-empty FaultString found in the journal voids residency (FAIL) before the buffer-line switch; a start-time 0<N<M partial offload FAILs, gated on an explicit offloaded line so Vulkan auto-fit (no offloaded line) still PASSes. Provenance embeds the DeviceToken so the byte-frozen status --json golden is unchanged for Vulkan.
+- [Phase ?]: BackendFor fails closed on an unknown config backend (nil + actionable error), never a silent Vulkan fallback (D-02)
+- [Phase ?]: ROCm backend is a Vulkan sibling file (backend_rocm.go) behind the seam; rocm-7.2.4 digest-pinned, never the nightlies tag (D-08)
+- [Phase ?]: TestROCmMarkerPresence gates on ROCm0 (not ggml_cuda, which is shared with the CUDA path)
 
 ### Pending Todos
 
@@ -139,7 +143,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-05T22:18:01.385Z
+Last session: 2026-06-05T23:18:24.983Z
 Stopped at: Phase 6 context gathered
 Resume file: .planning/phases/06-rocm-backend-resolver-spine/06-CONTEXT.md
 
