@@ -48,7 +48,12 @@ func newStatus() *cobra.Command {
 			"telemetry. Exits 0 (all PASS), 2 (any WARN), or 1 (any FAIL).",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			os.Exit(runStatus(cmd, args, liveStatusDeps()))
+			deps, err := liveStatusDeps()
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "status: %v\n", err)
+				os.Exit(exitBlocked)
+			}
+			os.Exit(runStatus(cmd, args, deps))
 			return nil
 		},
 	}
@@ -130,9 +135,19 @@ func renderStatusTable(w io.Writer, r status.Report, withProvenance bool) {
 // orchestrate render + systemd is-active/journald seam, the live /health + /props
 // HTTP probes (bounded), the live GTT reader, and the recommend-derived weight
 // footprint. It is replaced wholesale by stubs in status_test.go.
-func liveStatusDeps() *status.Deps {
+func liveStatusDeps() (*status.Deps, error) {
 	sys := orchestrate.NewSystemd()
-	endpoint := inference.NewContainerRunner(inference.VulkanBackend(), inference.RunSpec{}).Endpoint()
+	// Resolve the backend from config (fail-closed, D-02): the inference endpoint is
+	// derived from the resolved backend's container runner, never a hardcoded literal.
+	cfg, err := config.LoadVilla()
+	if err != nil {
+		return nil, fmt.Errorf("load config: %w", err)
+	}
+	backend, err := inference.BackendFor(cfg.Backend)
+	if err != nil {
+		return nil, fmt.Errorf("resolve backend: %w", err)
+	}
+	endpoint := inference.NewContainerRunner(backend, inference.RunSpec{}).Endpoint()
 	return &status.Deps{
 		LoadConfig: config.LoadVilla,
 		ModelFile:  liveModelFile,
@@ -157,7 +172,7 @@ func liveStatusDeps() *status.Deps {
 		DashboardService: orchestrate.DashboardServiceName,
 		DashboardAddr:    liveDashboardAddr(),
 		DashboardHealth:  liveDashboardHealth,
-	}
+	}, nil
 }
 
 // liveDashboardAddr resolves the dashboard's loopback base URL from config
