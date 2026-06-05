@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: ROCm Opt-In Backend
 status: executing
-stopped_at: Phase 6 context gathered
-last_updated: "2026-06-05T23:18:37.173Z"
-last_activity: 2026-06-06 -- Completed Phase 6 Plan 01 (residency-proof spine)
+stopped_at: Completed 06-03-PLAN.md (8-site BackendFor re-route)
+last_updated: "2026-06-06T00:00:00.000Z"
+last_activity: 2026-06-06 -- Completed Phase 6 Plan 03 (8-site BackendFor re-route, no-op proof)
 progress:
   total_phases: 5
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 3
-  completed_plans: 2
-  percent: 0
+  completed_plans: 3
+  percent: 20
 ---
 
 # Project State
@@ -25,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-06-03)
 
 ## Current Position
 
-Phase: 6 (ROCm Backend + Resolver Spine) — EXECUTING
-Plan: 3 of 3
-Status: Ready to execute
-Last activity: 2026-06-06 -- Completed Phase 6 Plan 01 (residency-proof spine)
+Phase: 6 (ROCm Backend + Resolver Spine) — COMPLETE (3 of 3 plans)
+Plan: 3 of 3 — DONE
+Status: Phase 6 complete — ready for Phase 7
+Last activity: 2026-06-06 -- Completed Phase 6 Plan 03 (8-site BackendFor re-route, no-op proof)
 
 ## Performance Metrics
 
@@ -63,6 +63,7 @@ Last activity: 2026-06-06 -- Completed Phase 6 Plan 01 (residency-proof spine)
 | Phase 04 P03 | 14 min | 3 tasks | 4 files |
 | Phase 06 P01 | 25 min | 3 tasks | 11 files |
 | Phase 06 P02 | 5min | 3 tasks | 13 files |
+| Phase 06 P03 | 25 min | 3 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -71,8 +72,12 @@ Last activity: 2026-06-06 -- Completed Phase 6 Plan 01 (residency-proof spine)
 Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
 
-- [Roadmap]: Risk-ordered phases — pure core (detect/recommend/preflight) first, then early GPU-offload validation slice before orchestration.
-- [Roadmap]: Inference behind a `Backend` interface from day one (Vulkan v1; ROCm/Metal later) — pluggability checkpoint at Phase 2 review.
+- [06-03 / A1 RESOLVED]: `runValidation`'s cfg source is `config.LoadVilla()` (the established loader; runValidation takes no cfg param, so load in-function rather than thread a signature change). All 8 non-test `VulkanBackend()` call sites now resolve via `BackendFor(cfg.Backend)`, fail-closed; the re-route is a Vulkan-default no-op (full suite green = SC#4). Deps-wiring helpers became `func() (*T, error)` to surface the resolver error.
+- [v1.1 Roadmap]: Spine-first ordering — `BackendFor()` resolver + `ResidencyProof()` interface extension (Phase 6) is a hard precondition for render (7), switch (8), bench (9), surfacing (10). Off-hardware Phases 6–7 precede the on-hardware switch (8).
+- [v1.1 Roadmap]: Bench (Phase 9) COMPOSES the Phase-8 `backend set` verb — it must never re-implement backend switching (explicit anti-pattern).
+- [v1.1 Roadmap]: Surfacing (Phase 10) lands last so the byte-frozen `--json`/dashboard goldens re-freeze exactly once (append-only, schema-bumped, never reordered).
+- [v1.1 Roadmap]: ROCm is opt-in; Vulkan RADV stays the default. `recommend` advises ("ready / worth trying / verify with bench"), never auto-switches. Pin `rocm-7.2.4` (never `rocm7-nightlies` — 64 GB cap).
+- [Roadmap]: Inference behind a `Backend` interface from day one (Vulkan v1; ROCm/Metal later) — pluggability checkpoint at Phase 2 review. **v1.1 exercises this seam for the first time.**
 - [Roadmap]: Config is the single source of truth; Quadlet units are derived/regenerated, never hand-edited.
 - [01-01]: Usable memory envelope = `mem_info_gtt_total` (GTT-then-ttm fallback), never `MemTotal` — verified live (62.5 GiB GTT vs 128 GiB RAM). OOM guard enforced by test.
 - [01-01]: Backend-neutrality seam — all Vulkan/ROCm/DRI probing funneled through `gpu_amd.go` (`probeGPU()`); the Phase 2 Backend interface slots in there.

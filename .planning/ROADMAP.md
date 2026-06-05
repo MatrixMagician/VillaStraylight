@@ -113,7 +113,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | 3. Orchestrated Install & Lifecycle | v1.0 | 6/6 | Complete | 2026-06-04 |
 | 4. Chat Integration | v1.0 | 3/3 | Complete | 2026-06-05 |
 | 5. Control Dashboard | v1.0 | 8/8 | Complete | 2026-06-05 |
-| 6. ROCm Backend + Resolver Spine | v1.1 | 2/3 | In Progress|  |
+| 6. ROCm Backend + Resolver Spine | v1.1 | 3/3 | Complete | 2026-06-06 |
 | 7. ROCm Render Unit + Preflight/Detect | v1.1 | 0/TBD | Not started | - |
 | 8. `villa backend set` Switch Verb + Rollback | v1.1 | 0/TBD | Not started | - |
 | 9. `villa bench` (Honest A/B) | v1.1 | 0/TBD | Not started | - |
