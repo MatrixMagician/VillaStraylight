@@ -88,7 +88,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 **Wave 1**
 
-- [ ] 08-01-PLAN.md — transactional core `internal/backendswap` (Deps/Result/ProveVerdict + Run capture→mutate→prove→rollback; fit-guard + ROCm-preflight refuse; verbatim rollback; state-machine tests) [BSET-01, BSET-02]
+- [x] 08-01-PLAN.md — transactional core `internal/backendswap` (Deps/Result/ProveVerdict + Run capture→mutate→prove→rollback; fit-guard + ROCm-preflight refuse; verbatim rollback; state-machine tests) + exported `inference.PollHealth`/`GenerationProbe` + seam gate extended to cmd/villa [BSET-01, BSET-02] ✅
 
 **Wave 2** *(blocked on Wave 1 — consumes the package's Deps/ProveVerdict)*
 
@@ -137,6 +137,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | 5. Control Dashboard | v1.0 | 8/8 | Complete | 2026-06-05 |
 | 6. ROCm Backend + Resolver Spine | v1.1 | 3/3 | Complete    | 2026-06-05 |
 | 7. ROCm Render Unit + Preflight/Detect | v1.1 | 3/3 | Complete    | 2026-06-06 |
-| 8. `villa backend set` Switch Verb + Rollback | v1.1 | 0/2 | Planned | - |
+| 8. `villa backend set` Switch Verb + Rollback | v1.1 | 1/2 | Executing | - |
 | 9. `villa bench` (Honest A/B) | v1.1 | 0/TBD | Not started | - |
 | 10. Backend + tok/s Surfacing | v1.1 | 0/TBD | Not started | - |

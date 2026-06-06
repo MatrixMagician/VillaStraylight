@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: ROCm Opt-In Backend
 status: executing
-stopped_at: Phase 7 context gathered
-last_updated: "2026-06-06T11:24:55.258Z"
-last_activity: 2026-06-06 -- Phase 8 planning complete
+stopped_at: Completed 08-01-PLAN.md
+last_updated: "2026-06-06T11:33:04.417Z"
+last_activity: 2026-06-06 -- Phase 08 Plan 01 complete (backendswap transactional core)
 progress:
   total_phases: 5
   completed_phases: 2
-  total_plans: 6
-  completed_plans: 6
-  percent: 40
+  total_plans: 8
+  completed_plans: 7
+  percent: 47
 ---
 
 # Project State
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-03)
 
 **Core value:** Run a capable local AI workspace that "just works" after install — hardware-aware setup that brings inference, chat, and the dashboard up healthy, with zero data leaving the box.
-**Current focus:** Phase 8 — `villa backend set` switch verb + rollback (on-hardware)
+**Current focus:** Phase 08 — villa-backend-set-switch-verb-rollback
 
 ## Current Position
 
-Phase: 8
-Plan: Not started
-Status: Ready to execute
-Last activity: 2026-06-06 -- Phase 8 planning complete
+Phase: 08 (villa-backend-set-switch-verb-rollback) — EXECUTING
+Plan: 2 of 2
+Status: Executing Phase 08 (08-01 complete; 08-02 next)
+Last activity: 2026-06-06 -- Phase 08 Plan 01 complete (backendswap transactional core)
 
 ## Performance Metrics
 
@@ -69,6 +69,7 @@ Last activity: 2026-06-06 -- Phase 8 planning complete
 | Phase 07 P01 | 3 min | 3 tasks | 5 files |
 | Phase 07 P02 | 4min | 3 tasks | 7 files |
 | Phase 07 P03 | 14 min | 3 tasks | 8 files |
+| Phase 08 P01 | 14 min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -121,6 +122,8 @@ Recent decisions affecting current work:
 - [Phase ?]: TestROCmMarkerPresence gates on ROCm0 (not ggml_cuda, which is shared with the CUDA path)
 - [Phase ?]: [07-01]: ROCm villa-llama.container rendered as a pure additive delta over Vulkan (image+kfd+render-group+HSA/hipBLASLt env), byte-frozen by a new golden with the Vulkan golden unchanged. parseContainerArgs collects ALL --device/--group-add/--env tokens (D-09 was incomplete: second group-add + both env flags were silently dropped). BackendLabel keyed off Backend.Name() via a render.go label map (seam-clean, reproduces 'Vulkan RADV' exactly); Env excluded from the defensive check (Vulkan emits zero env, Pitfall 1).
 - [Phase ?]: Phase 7 Plan 2: externalized ROCm version floors + denylists into a go:embed rocm-policy.json; RunROCm refuses bring-up only on confident known-bad (firmware 20251125 / nightly image / kernel <6.18.4 / wrong HSA / non-gfx1151), unevaluable degrades to WARN (PRE-06)
+- [08-01]: internal/backendswap is the transactional core for `villa backend set` — capture(verbatim prior unit bytes + value-snapshot config) STRICTLY before mutate, switch ONLY on ProveStatusPass (is-active/200 alone never success, SC#3), verbatim rollback on any mutate error or non-pass verdict (BSET-02), best-effort bounded re-ready with honest incomplete-rollback reporting (Pitfall 5). ProveVerdict + ProveStatusPass='pass' are LOCAL (no inference/detect import) so the core stays literal-free of backend markers; the cmd layer maps inference.StatusPass in. Fit-guard FIRST then ROCm preflight refuse-with-remediation against the PRESERVED model (BSET-01); same-backend is a clean NoOp; refusals fire zero seams.
+- [08-01]: inference now EXPORTS PollHealth(ctx,endpoint,timeout)/GenerationProbe(ctx,endpoint,modelID) — thin wrappers over the private pollHealth/chatProbe that probe the ALREADY-running server with NO --rm container (Validate's --rm container is why liveProve cannot use it). Closes the Plan-02 liveProve BLOCKER. TestSeamGrepGate now also walks cmd/villa with the backend-marker subset (GOOS/image/device/ROCm0-HSA-fault); the podman-process pattern is EXCLUDED from the cmd/villa walk because cmd/villa is the legitimate OS-orchestration tier (lifecycle/uninstall fixed-arg podman calls).
 - [Phase ?]: [07-03]: villa detect --json gains a nested rocm_readiness object appended after the GPU block with hostProfileSchemaVersion bumped 1->2 (additive append-only golden re-freeze; SchemaVersion stays last). Off-hardware undetectable signals (rocminfo_gfx1151, firmware_date_ok, hsa_override_viable) serialize as UnknownBool/UNSET, never a real false (D-08). image_policy_ok is config-driven against the resolved image, not a host probe (Pitfall 5). detect imports neither inference nor preflight (cycles), so the ROCm image-tag + 6.18.4 kernel-floor literals are mirrored behind the gpu_amd.go seam and the version comparator re-expressed there; readiness_rocm.go stays literal-free (TestSeamGrepGate green).
 
 ### Pending Todos
@@ -157,8 +160,8 @@ Items acknowledged and carried forward from previous milestone close:
 ## Session Continuity
 
 Last session: 2026-06-06T09:44:32.819Z
-Stopped at: Phase 7 context gathered
-Resume file: .planning/phases/07-rocm-render-unit-preflight-detect/07-CONTEXT.md
+Stopped at: Completed 08-01-PLAN.md (backendswap transactional core)
+Resume file: .planning/phases/08-villa-backend-set-switch-verb-rollback/08-02-PLAN.md
 
 ## Operator Next Steps
 
