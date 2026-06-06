@@ -424,6 +424,15 @@ func runBench(cmd *cobra.Command, spec bench.BenchSpec, ab, asJSON bool, d *benc
 		return exitBlocked
 	}
 
+	// Single-mode label: the pure core leaves res.Backend empty (it is config-unaware),
+	// so the single-side header/`--json single.backend` would read `backend ():` / "".
+	// Name the measured backend from the configured-backend seam here, in the cmd layer.
+	// Single path ONLY (`!ab`): the --ab branch labels its sides from res.AB.From/To and
+	// must not read res.Backend, so leave it untouched there.
+	if !ab {
+		res.Backend = benchConfiguredBackend()
+	}
+
 	entry := benchEntryFromResult(res, ab, spec)
 
 	if asJSON {
