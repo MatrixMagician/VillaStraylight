@@ -446,6 +446,21 @@ func runBench(cmd *cobra.Command, spec bench.BenchSpec, ab, asJSON bool, d *benc
 	return exitPass
 }
 
+// benchConfiguredBackend names the currently-configured backend for the single-mode
+// result label. It is a package-level indirection mirroring benchEndpointReachable so
+// bench_test.go can drive the single-mode label without a live host (runBench stays
+// drivable with a stubbed bench.Deps and no live config). The default reads
+// config.LoadVilla().Backend, returning "" on a load error — it NEVER panics and NEVER
+// fabricates a backend name. Single-mode-only: runBench guards the assignment with
+// `if !ab` so the --ab branch (which labels sides from res.AB.From/To) is untouched.
+var benchConfiguredBackend = func() string {
+	cfg, err := config.LoadVilla()
+	if err != nil {
+		return ""
+	}
+	return cfg.Backend
+}
+
 // benchEndpointReachable is the read-only reachability pre-check. It is a package-level
 // indirection (not a field on the LOCKED bench.Deps) so bench_test.go overrides it to
 // drive the no-endpoint refusal without a live host; the default resolves the endpoint

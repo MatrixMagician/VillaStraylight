@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -101,6 +102,16 @@ func withReachable(t *testing.T, reachable bool) {
 	prev := benchEndpointReachable
 	benchEndpointReachable = func() bool { return reachable }
 	t.Cleanup(func() { benchEndpointReachable = prev })
+}
+
+// withConfiguredBackend overrides the package-level benchConfiguredBackend seam for one
+// test (mirrors withReachable) so the single-mode label is exercised without a live host
+// / the developer's real config, restoring it on cleanup.
+func withConfiguredBackend(t *testing.T, backend string) {
+	t.Helper()
+	prev := benchConfiguredBackend
+	benchConfiguredBackend = func() string { return backend }
+	t.Cleanup(func() { benchConfiguredBackend = prev })
 }
 
 // benchSpec is the deterministic spec the cmd-layer tests run under.
@@ -208,6 +219,50 @@ func TestBenchCleanPass(t *testing.T) {
 	s := out.String()
 	if !bytes.Contains(out.Bytes(), []byte("pp tok/s")) || !bytes.Contains(out.Bytes(), []byte("tg tok/s")) {
 		t.Errorf("clean run must render separate pp and tg figures, got %q", s)
+	}
+}
+
+// TestBenchSingleNamesBackend proves single-mode names the measured backend in BOTH the
+// human header and the --json single.backend field (BENCH-01/02 UAT Test 1 gap): with the
+// configured backend "vulkan", the rendered header reads `backend (vulkan):` (NOT the empty
+// `backend ():` form) and decoded `single.backend == "vulkan"`. The fix is a cmd-layer
+// wiring (runBench sets res.Backend from the benchConfiguredBackend seam in the !ab path);
+// the pure internal/bench core stays config-unaware.
+func TestBenchSingleNamesBackend(t *testing.T) {
+	withReachable(t, true)
+	withConfiguredBackend(t, "vulkan")
+
+	// (1) human single mode — header names the backend, never the empty form.
+	rec := &benchRecorder{}
+	d := newBenchStub(rec, false, "vulkan", cannedTimings{120.5, 42.25}, cannedTimings{}, true, 0)
+	cmd, out, _ := benchTestCmd()
+	if code := runBench(cmd, benchSpec(3, 1), false, false, d); code != exitPass {
+		t.Fatalf("single human exit = %d, want %d (exitPass)", code, exitPass)
+	}
+	if !bytes.Contains(out.Bytes(), []byte("backend (vulkan):")) {
+		t.Errorf("single-mode header must name the configured backend `backend (vulkan):`, got %q", out.String())
+	}
+	if bytes.Contains(out.Bytes(), []byte("backend ():")) {
+		t.Errorf("single-mode header must NOT be the empty `backend ():` form, got %q", out.String())
+	}
+
+	// (2) --json single mode — single.backend equals the configured backend.
+	rec2 := &benchRecorder{}
+	d2 := newBenchStub(rec2, false, "vulkan", cannedTimings{120.5, 42.25}, cannedTimings{}, true, 0)
+	cmd2, out2, _ := benchTestCmd()
+	if code := runBench(cmd2, benchSpec(3, 1), false, true, d2); code != exitPass {
+		t.Fatalf("single --json exit = %d, want %d (exitPass)", code, exitPass)
+	}
+	var decoded struct {
+		Single struct {
+			Backend string `json:"backend"`
+		} `json:"single"`
+	}
+	if err := json.Unmarshal(out2.Bytes(), &decoded); err != nil {
+		t.Fatalf("decode single --json: %v (out: %s)", err, out2.String())
+	}
+	if decoded.Single.Backend != "vulkan" {
+		t.Errorf("single --json single.backend = %q, want %q (configured backend)", decoded.Single.Backend, "vulkan")
 	}
 }
 
