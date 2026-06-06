@@ -116,6 +116,21 @@ func scrapeLoadTensorsResidency(journal string, m ResidencyMarkers) OffloadResul
 		}
 	}
 
+	// Descriptor guard: the device-buffer match below is strings.Contains(line,
+	// m.DeviceToken), and strings.Contains(line, "") is true for EVERY line — a
+	// zero-value (all-empty) ResidencyMarkers would classify a CPU model buffer
+	// line as device-resident and report a false PASS. The seam contract says
+	// callers MUST supply Markers; enforce it as a WARN (could-not-evaluate)
+	// rather than trusting convention, so a mis-wired caller never false-greens
+	// a silent CPU fallback.
+	if m.DeviceToken == "" {
+		return OffloadResult{
+			Status: StatusWarn,
+			Signal: detect.UnknownBool("residency markers missing a device token (could not evaluate residency)", ""),
+			Detail: "load_tensors residency could not be evaluated (no device token in markers)",
+		}
+	}
+
 	// Fault scan FIRST (D-06): an abort marker voids residency before any buffer-line
 	// PASS. Empty FaultString (Vulkan) skips this entirely → byte-identical.
 	if m.FaultString != "" && strings.Contains(journal, m.FaultString) {
@@ -147,7 +162,14 @@ func scrapeLoadTensorsResidency(journal string, m ResidencyMarkers) OffloadResul
 		// so the descriptor-driven substring match is the correct direct port.
 		if strings.Contains(line, m.DeviceToken) {
 			sawDeviceBuffer = true
-			deviceMiB = mib
+			// Keep the MAX, not the last value: a build at higher verbosity can
+			// emit a real non-zero device-buffer line followed by a "0.00 MiB"
+			// first-pass estimate line bearing the same token (see backend_vulkan.go
+			// on -lv 5). Last-write-wins would flip a genuine residency PASS to a
+			// false "0 MiB → no weights resident" FAIL; max() is robust to ordering.
+			if mib > deviceMiB {
+				deviceMiB = mib
+			}
 		} else {
 			// A non-device buffer line (CPU_Mapped / CPU model buffer size).
 			sawCPUBuffer = true

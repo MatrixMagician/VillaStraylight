@@ -292,6 +292,39 @@ func TestScrapeLoadTensorsResidencyFault(t *testing.T) {
 	}
 }
 
+// TestScrapeLoadTensorsResidencyMaxNotLast guards the residency parse against a
+// build (e.g. higher -lv) that emits a real non-zero device-buffer line FOLLOWED
+// by a "0.00 MiB" first-pass estimate line bearing the same token. Last-write-wins
+// would flip a genuine PASS to a false "0 MiB → no weights resident" FAIL; the
+// parse must keep the MAX and report PASS.
+func TestScrapeLoadTensorsResidencyMaxNotLast(t *testing.T) {
+	markers := ResidencyMarkers{DeviceToken: "Vulkan0"}
+	journal := "x villa-llama[1]: load_tensors:      Vulkan0 model buffer size = 21504.49 MiB\n" +
+		"x villa-llama[1]: load_tensors:      Vulkan0 model buffer size =     0.00 MiB\n"
+	if r := scrapeLoadTensorsResidency(journal, markers); r.Status != StatusPass {
+		t.Fatalf("non-zero then 0.00 MiB same-token lines → %s, want PASS (max, not last-write)", r.Status)
+	}
+
+	// All-zero device lines stay a FAIL (no weights resident) — max() must not mask
+	// a genuinely-empty device buffer.
+	allZero := "x villa-llama[1]: load_tensors:      Vulkan0 model buffer size =     0.00 MiB\n"
+	if r := scrapeLoadTensorsResidency(allZero, markers); r.Status != StatusFail {
+		t.Fatalf("only a 0.00 MiB device line → %s, want FAIL", r.Status)
+	}
+}
+
+// TestScrapeLoadTensorsResidencyEmptyDeviceToken guards against a mis-wired
+// (zero-value) ResidencyMarkers: strings.Contains(line, "") is true for EVERY
+// line, so an empty DeviceToken would classify a CPU model buffer line as
+// device-resident and report a false PASS on a silent CPU fallback. An empty
+// token must degrade to WARN (could-not-evaluate), never PASS.
+func TestScrapeLoadTensorsResidencyEmptyDeviceToken(t *testing.T) {
+	cpuOnly := "x villa-llama[1]: load_tensors:   CPU_Mapped model buffer size =   315.32 MiB\n"
+	if r := scrapeLoadTensorsResidency(cpuOnly, ResidencyMarkers{DeviceToken: ""}); r.Status != StatusWarn {
+		t.Fatalf("empty DeviceToken over a CPU-only journal → %s, want WARN (no false PASS)", r.Status)
+	}
+}
+
 // TestRunningServerOffloadPropsDrift asserts /props config-identity drift is a WARN
 // overlay (not the residency proof): a residency-PASS journal with a /props
 // model_path that does NOT match config downgrades to WARN.
