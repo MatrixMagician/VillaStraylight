@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
@@ -198,5 +199,144 @@ func assertVerbatimRestore(t *testing.T, rec *swapRecorder) {
 	t.Helper()
 	if !bytes.Equal(rec.restored, priorUnitBytes) {
 		t.Errorf("rollback must RestoreUnit byte-equal to the captured prior unit; got %q want %q", rec.restored, priorUnitBytes)
+	}
+}
+
+// TestRollbackVerbatim: a non-pass Prove verdict drives RestoreUnit (byte-equal to
+// the captured priorUnit) → SaveConfig(priorCfg) → DaemonReload → Restart, in that
+// order; the result is RolledBack with From/To set.
+func TestRollbackVerbatim(t *testing.T) {
+	rec := passStub()
+	rec.proveStatus = "fail"
+	rec.proveDetail = "residency FAIL"
+	res := Run(newSwapStub(rec), "rocm")
+	if !res.RolledBack || res.Switched {
+		t.Fatalf("non-pass prove must roll back (not switch), got %+v", res)
+	}
+	if res.FromBackend != "vulkan" || res.ToBackend != "rocm" {
+		t.Errorf("From/To must be set on rollback, got from=%q to=%q", res.FromBackend, res.ToBackend)
+	}
+	assertVerbatimRestore(t, rec)
+	// Restore precedes the config-restore, reload, and the rollback restart.
+	restoreIdx := indexOf(rec.callOrder, "restore")
+	reloadIdx := indexOf(rec.callOrder, "daemon-reload")
+	if restoreIdx < 0 || reloadIdx < 0 || !(restoreIdx < reloadIdx) {
+		t.Errorf("expected restore before daemon-reload in rollback, got %v", rec.callOrder)
+	}
+	// The prior config was re-saved (Backend back to vulkan).
+	if rec.saved.Backend != "vulkan" {
+		t.Errorf("rollback must SaveConfig(priorCfg) restoring backend=vulkan, got %q", rec.saved.Backend)
+	}
+	// The rollback restart targets ONLY the inference service.
+	if rec.restarted[len(rec.restarted)-1] != installService {
+		t.Errorf("rollback restart must target %s, got %v", installService, rec.restarted)
+	}
+}
+
+// TestProveGate: a non-pass Prove verdict yields Switched=false, RolledBack=true.
+func TestProveGate(t *testing.T) {
+	rec := passStub()
+	rec.proveStatus = "warn"
+	res := Run(newSwapStub(rec), "rocm")
+	if res.Switched {
+		t.Errorf("a non-pass prove must NOT switch, got %+v", res)
+	}
+	if !res.RolledBack {
+		t.Errorf("a non-pass prove must roll back, got %+v", res)
+	}
+}
+
+// TestActiveNotSuccess: a verdict that is "ready+200 but residency FAIL" — any
+// non-ProveStatusPass value — triggers rollback. is-active/health-200 alone is
+// never success (SC#3).
+func TestActiveNotSuccess(t *testing.T) {
+	rec := passStub()
+	rec.proveStatus = "ready+200 but residency FAIL" // any non-pass sentinel
+	res := Run(newSwapStub(rec), "rocm")
+	if res.Switched || !res.RolledBack {
+		t.Fatalf("ready+200-but-not-pass must roll back, never switch, got %+v", res)
+	}
+}
+
+// TestRefuseFitGuard: a FitsModel→false refuses with ZERO save/write/restart/capture
+// seams (refuse-with-remediation, BSET-01).
+func TestRefuseFitGuard(t *testing.T) {
+	rec := passStub()
+	rec.fitOK = false
+	rec.fitReason = "preserved model no longer fits the rocm envelope"
+	res := Run(newSwapStub(rec), "rocm")
+	if !res.Refused || res.Switched || res.RolledBack {
+		t.Fatalf("non-fit must Refuse with zero side effects, got %+v", res)
+	}
+	if res.Reason != rec.fitReason {
+		t.Errorf("refusal must carry the fit remediation reason, got %q", res.Reason)
+	}
+	if len(rec.callOrder) != 0 {
+		t.Errorf("a fit refusal must fire zero seams (no capture/save/write/restart), got %v", rec.callOrder)
+	}
+}
+
+// TestRefuseProveFlightROCm: a PreflightROCm→false (rocm target) refuses with ZERO
+// side effects (refuse-with-remediation, BSET-01).
+func TestRefuseProveFlightROCm(t *testing.T) {
+	rec := passStub()
+	rec.preflightOK = false
+	rec.preflight = "rocm preflight: kernel below 6.18.4 floor"
+	res := Run(newSwapStub(rec), "rocm")
+	if !res.Refused || res.Switched || res.RolledBack {
+		t.Fatalf("preflight block must Refuse with zero side effects, got %+v", res)
+	}
+	if res.Reason != rec.preflight {
+		t.Errorf("refusal must carry the preflight remediation reason, got %q", res.Reason)
+	}
+	if len(rec.callOrder) != 0 {
+		t.Errorf("a preflight refusal must fire zero seams, got %v", rec.callOrder)
+	}
+}
+
+// TestMutateErrorRollsBack: an error during the mutate step (here SaveConfig) rolls
+// back verbatim (RestoreUnit with priorUnit) and reports RolledBack with FailedStep
+// set and the original error carried.
+func TestMutateErrorRollsBack(t *testing.T) {
+	rec := passStub()
+	rec.saveErr = errors.New("disk full")
+	res := Run(newSwapStub(rec), "rocm")
+	if !res.RolledBack || res.Switched {
+		t.Fatalf("a mutate error must roll back, got %+v", res)
+	}
+	if res.FailedStep != "save" {
+		t.Errorf("FailedStep must name the mutate step, got %q", res.FailedStep)
+	}
+	if res.Err == nil {
+		t.Errorf("the original mutate error must be carried, got nil")
+	}
+	assertVerbatimRestore(t, rec)
+}
+
+// TestMutateErrorRollsBack_Restart: an error on the FORWARD restart also rolls back
+// verbatim (the mutate step covers save/write/restart).
+func TestMutateErrorRollsBack_Restart(t *testing.T) {
+	rec := passStub()
+	rec.restartErr = errors.New("systemd start failed")
+	res := Run(newSwapStub(rec), "rocm")
+	if !res.RolledBack || res.FailedStep != "restart" {
+		t.Fatalf("a forward-restart error must roll back at step restart, got %+v", res)
+	}
+	assertVerbatimRestore(t, rec)
+}
+
+// TestRollbackIncompleteReported: when a rollback step itself errors (here the
+// rollback Restart), RolledBack stays true but Reason honestly flags
+// rollback-incomplete (Pitfall 5 — never claim a clean no-op when rollback errored).
+func TestRollbackIncompleteReported(t *testing.T) {
+	rec := passStub()
+	rec.proveStatus = "fail" // trigger rollback
+	rec.rbRestartErr = errors.New("systemd refused restart")
+	res := Run(newSwapStub(rec), "rocm")
+	if !res.RolledBack {
+		t.Fatalf("expected RolledBack=true even on incomplete rollback, got %+v", res)
+	}
+	if !strings.Contains(res.Reason, "did not fully complete") {
+		t.Errorf("an incomplete rollback must be flagged honestly in Reason, got %q", res.Reason)
 	}
 }

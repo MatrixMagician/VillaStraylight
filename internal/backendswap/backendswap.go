@@ -177,26 +177,72 @@ func Run(d Deps, target string) Result {
 	}
 	priorCfg := cfg // VillaConfig is a flat value type (no pointers) → safe deep snapshot.
 
-	// (5) MUTATE. (Rollback on a mutate error is hardened in 08-01-02; for the
-	// forward path here a mutate error short-circuits.)
+	// rollback restores the verbatim captured prior unit+config and re-readies the
+	// inference service, best-effort: it accumulates errors across all four steps
+	// rather than aborting on the first, and reports whether EVERY step succeeded.
+	// Per Pitfall 5, an incomplete rollback must be flagged honestly — never claim a
+	// clean no-op when a restore step errored. Re-ready is best-effort and bounded by
+	// the live Prove/poll wiring (Open Question 2), not by this pure core.
+	rollback := func() (ok bool, detail string) {
+		ok = true
+		if err := d.RestoreUnit(priorUnit); err != nil {
+			ok = false
+			detail = "RestoreUnit failed: " + err.Error()
+		}
+		if err := d.SaveConfig(priorCfg); err != nil {
+			ok = false
+			detail = "SaveConfig(prior) failed: " + err.Error()
+		}
+		if err := d.DaemonReload(); err != nil {
+			ok = false
+			detail = "DaemonReload failed: " + err.Error()
+		}
+		if err := d.Restart(d.InstallServiceName); err != nil {
+			ok = false
+			detail = "Restart(prior) failed: " + err.Error()
+		}
+		return ok, detail
+	}
+
+	// rolledBack assembles a RolledBack Result, folding in an honest rollback-incomplete
+	// message when the restore did not fully succeed (Pitfall 5).
+	rolledBack := func(failedStep, reason string, origErr error, v ProveVerdict) Result {
+		ok, rbDetail := rollback()
+		r := Result{
+			RolledBack:  true,
+			FailedStep:  failedStep,
+			Reason:      reason,
+			Err:         origErr,
+			Prove:       v,
+			FromBackend: from,
+			ToBackend:   target,
+		}
+		if !ok {
+			// Do NOT present a half-restored stack as a clean no-op: flag it.
+			r.Reason = "rolled back, but the restore did not fully complete (" + rbDetail +
+				") — run `villa status` and inspect the villa-llama unit"
+		}
+		return r
+	}
+
+	// (5) MUTATE. ANY error here rolls back verbatim to the captured prior unit+config.
 	cfg.Backend = target
 	if err := d.SaveConfig(cfg); err != nil {
-		return Result{Err: err, FailedStep: "save", FromBackend: from, ToBackend: target}
+		return rolledBack("save", "", err, ProveVerdict{})
 	}
 	if _, err := d.ReconcileAndWrite(cfg); err != nil {
-		return Result{Err: err, FailedStep: "write", FromBackend: from, ToBackend: target}
+		return rolledBack("write", "", err, ProveVerdict{})
 	}
 	if err := d.Restart(d.InstallServiceName); err != nil {
-		return Result{Err: err, FailedStep: "restart", FromBackend: from, ToBackend: target}
+		return rolledBack("restart", "", err, ProveVerdict{})
 	}
 
 	// (6) PROVE the cutover against the already-running server. Switch ONLY on
-	// ProveStatusPass (the rollback branch is hardened in 08-01-02).
+	// ProveStatusPass; ANY other verdict (including ready+health-200-but-residency-FAIL,
+	// SC#3) rolls back verbatim — is-active/200 alone is never success.
 	v := d.Prove(context.Background(), target)
-	_ = priorUnit
-	_ = priorCfg
-	if v.Status == ProveStatusPass {
-		return Result{Switched: true, Prove: v, FromBackend: from, ToBackend: target}
+	if v.Status != ProveStatusPass {
+		return rolledBack("prove", v.Detail, nil, v)
 	}
-	return Result{RolledBack: true, FailedStep: "prove", Reason: v.Detail, Prove: v, FromBackend: from, ToBackend: target}
+	return Result{Switched: true, Prove: v, FromBackend: from, ToBackend: target}
 }
