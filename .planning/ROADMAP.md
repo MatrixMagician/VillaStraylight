@@ -107,7 +107,17 @@ Decimal phases appear between their surrounding integers in numeric order.
   2. The methodology is honest and stated: discarded warmup, N repetitions with median + stddev/noise band, identical model/quant/context/flags on both sides, and only residency-checked runs counted (a CPU-fallback run is void).
   3. Running `bench` on each backend (flipping via the Phase-8 switch) yields a per-metric Vulkan-vs-ROCm delta with its noise band, so the user gets a data-backed "worth it / not worth it" verdict for their model rather than a generic claim.
 
-**Plans**: TBD
+**Plans**: 3 plans (2 waves)
+
+**Wave 1** *(parallel — zero file overlap: the leaf llm method + the pure bench core)*
+
+- [ ] 09-01-PLAN.md — `internal/llm.OpenAIClient.Complete` non-streaming method + `Timings` type (the honest per-request pp/tg measurement source) [BENCH-01]
+- [ ] 09-02-PLAN.md — pure `internal/bench` core (BenchSpec/RunTimings/Stats/Deps/Result/Run): warmup-discard, residency void-gate, void-exhaustion WARN, separate pp/tg median+stddev, `--ab` always-restore; fake-Deps recorder tests [BENCH-01, BENCH-02]
+
+**Wave 2** *(blocked on Wave 1 — consumes `llm.Complete` + the `bench` Deps/Run)*
+
+- [ ] 09-03-PLAN.md — `cmd/villa/bench.go` cobra noun + `liveMeasure` (liveProve clone) + `liveBenchDeps` (`--ab`→`backendswap.Run`, LOCKED) + exit map + frozen separate-pp/tg `--json` golden + root registration [BENCH-01, BENCH-02]
+
 **Research flag**: on-hardware — the per-model pp-vs-tg delta and ROCm-7.x-vs-6.4.4 ordering are workload-dependent and volatile; validate the residency-checked numbers on the live host before trusting the throughput-delta success criterion. Confirm SELinux `/dev/kfd` behavior here or in Phase 7.
 
 ### Phase 10: Backend + tok/s Surfacing
@@ -139,5 +149,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | 6. ROCm Backend + Resolver Spine | v1.1 | 3/3 | Complete    | 2026-06-05 |
 | 7. ROCm Render Unit + Preflight/Detect | v1.1 | 3/3 | Complete    | 2026-06-06 |
 | 8. `villa backend set` Switch Verb + Rollback | v1.1 | 2/2 | Complete   | 2026-06-06 |
-| 9. `villa bench` (Honest A/B) | v1.1 | 0/TBD | Not started | - |
+| 9. `villa bench` (Honest A/B) | v1.1 | 0/3 | Planned | - |
 | 10. Backend + tok/s Surfacing | v1.1 | 0/TBD | Not started | - |
