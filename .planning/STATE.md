@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: ROCm Opt-In Backend
-status: verifying
+status: executing
 stopped_at: Phase 10 context gathered
-last_updated: "2026-06-06T20:01:15.726Z"
-last_activity: 2026-06-06 -- Phase 09 verified + secured; on-hardware UAT 3/3 PASS
+last_updated: "2026-06-06T20:10:10.025Z"
+last_activity: 2026-06-06 -- Phase 10 execution started
 progress:
   total_phases: 5
   completed_phases: 4
-  total_plans: 11
-  completed_plans: 11
+  total_plans: 14
+  completed_plans: 12
   percent: 80
 ---
 
@@ -21,15 +21,15 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-03)
 
 **Core value:** Run a capable local AI workspace that "just works" after install — hardware-aware setup that brings inference, chat, and the dashboard up healthy, with zero data leaving the box.
-**Current focus:** Phase 10 — backend-tok-s-surfacing (next; not yet planned). Phases 6–9 complete.
+**Current focus:** Phase 10 — backend-tok-s-surfacing
 
 ## Current Position
 
-Phase: 09 (villa-bench-honest-a-b) — COMPLETE (verified + secured)
-Plan: 3 of 3 — COMPLETE
-Status: Verified — 7/7 off-hardware truths + 3/3 on-hardware UAT PASS (Δpp +4.84 / Δtg −11.15, ROCm wins pp / regresses tg); 11/11 threats CLOSED (09-SECURITY.md); minor single-mode label gap fixed by quick task 260606-p3a.
+Phase: 10 (backend-tok-s-surfacing) — EXECUTING
+Plan: 2 of 3
+Status: Ready to execute
 Next: Phase 10 (backend-tok-s-surfacing) — REC-05/DASH-06, UI hint yes; not yet planned (`/gsd-plan-phase 10` or `/gsd-ui-phase 10`).
-Last activity: 2026-06-06 -- Phase 09 verified + secured; on-hardware UAT 3/3 PASS
+Last activity: 2026-06-06 -- Phase 10 execution started
 
 ## Performance Metrics
 
@@ -75,6 +75,7 @@ Last activity: 2026-06-06 -- Phase 09 verified + secured; on-hardware UAT 3/3 PA
 | Phase 09 P01 | 6 min | 1 tasks | 2 files |
 | Phase 09 P02 | 4 min | 2 tasks | 3 files |
 | Phase 09 P03 | 4 min | 2 tasks | 4 files |
+| Phase 10 P01 | 18min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -135,6 +136,7 @@ Recent decisions affecting current work:
 - [Phase ?]: [09-02] internal/bench is the pure honest-benchmark core: warmup-discard, residency void-gate (resident==false excluded/counted, never a slow pass), bounded void-exhaustion WARN below MinResident, separated pp/tg median+stddev; print-free/exit-free, cobra layer (09-03) owns presentation.
 - [Phase ?]: [09-02] The --ab flip composes backendswap.Run via injected Switch/Restore (LOCKED, never re-implemented); defer Restore(orig) registered BEFORE the flip so every exit path restores; package imports no inference/detect, markers arrive only via Measure verdict (seam gate green).
 - [Phase ?]: [09-03] villa bench noun wires llm.Complete + internal/bench: liveMeasure is a liveProve clone (residency gate, during-decode GPUBusyPercent sampling, spec.Timeout load_tensors-hang guard) swapping GenerationProbe for llm.Complete; resident ONLY for inference.StatusPass (CPU-fallback completion is VOID, not a slow pass). Plain `bench` benches only the running backend (zero flips, SC#1); --ab delegates Switch/Restore to backendswap.Run via the SAME liveBackendSwapDeps wiring (LOCKED) and restores the original (SC#3). Spec rides the live Measure closure (the LOCKED core threads its own context.Background()); the no-endpoint reachability pre-check is a package-level `var benchEndpointReachable` indirection (NOT a new bench.Deps field). Exit map: no-endpoint->exitBlocked, void-exhaustion->exitWarn, clean->exitPass. --json (bench.json.golden) carries separate prompt_per_sec/predicted_per_sec (+stddevs) per side + per-metric delta (Phase-10 read contract); bench.go literal-free of markers (TestSeamGrepGate green).
+- [Phase ?]: Phase 10-01: status Report schema_version=1; backend/image/tok-s/rocm-readiness tail-appended; golden re-frozen once as pure-addition diff (DASH-06)
 
 ### Pending Todos
 
@@ -170,7 +172,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-06T18:07:28.276Z
+Last session: 2026-06-06T20:09:54.135Z
 Stopped at: Phase 10 context gathered
 Resume file: .planning/phases/10-backend-tok-s-surfacing/10-CONTEXT.md
 
