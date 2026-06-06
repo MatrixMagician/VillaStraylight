@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -122,6 +123,38 @@ func TestBenchRegistered(t *testing.T) {
 	c, _, err := root.Find([]string{"bench"})
 	if err != nil || c.Name() != "bench" {
 		t.Fatalf("`bench` noun not registered: %v", err)
+	}
+}
+
+// TestBenchFlagValidation proves the bounded-int flags are rejected at the cobra
+// boundary (WR-04 / RESEARCH Security Domain V5): --reps/--n-predict < 1 and --warmup < 0
+// return a clear usage error BEFORE any run (never a confusing void-exhaustion WARN or an
+// out-of-contract negative max_tokens on the wire). The validation runs before runBench's
+// os.Exit, so executing with bad flags returns the error in-process.
+func TestBenchFlagValidation(t *testing.T) {
+	cases := [][]string{
+		{"--reps", "0"},
+		{"--reps", "-5"},
+		{"--n-predict", "0"},
+		{"--n-predict", "-1"},
+		{"--warmup", "-1"},
+	}
+	for _, args := range cases {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			cmd := newBench()
+			cmd.SetOut(new(bytes.Buffer))
+			cmd.SetErr(new(bytes.Buffer))
+			cmd.SilenceUsage = true
+			cmd.SilenceErrors = true
+			cmd.SetArgs(args)
+			err := cmd.Execute()
+			if err == nil {
+				t.Fatalf("bad flags %v must return a validation error, got nil", args)
+			}
+			if !strings.Contains(err.Error(), "must be") {
+				t.Errorf("validation error %q should explain the bound", err)
+			}
+		})
 	}
 }
 

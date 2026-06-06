@@ -300,6 +300,15 @@ func newBench() *cobra.Command {
 			"a per-metric Vulkan-vs-ROCm delta. --json emits the machine-readable contract.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			// Validate the bounded-int flags at the cobra boundary (RESEARCH Security
+			// Domain V5: "-n/--n-predict are bounded ints"). Reject nonsensical values
+			// up front with a clear usage error rather than letting -n 0/-n -5 fall
+			// through to a confusing void-exhaustion WARN (cap := 2*reps) or sending an
+			// out-of-contract negative max_tokens on the wire.
+			if reps < 1 || warmup < 0 || nPredict < 1 {
+				return fmt.Errorf("bench: --reps and --n-predict must be >= 1 and --warmup must be >= 0 "+
+					"(got --reps=%d --warmup=%d --n-predict=%d)", reps, warmup, nPredict)
+			}
 			spec := bench.BenchSpec{
 				Reps:        reps,
 				Warmup:      warmup,
