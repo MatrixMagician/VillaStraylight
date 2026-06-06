@@ -41,7 +41,7 @@ Milestone 1 — "Core platform." Each maps to a roadmap phase. All are hypothese
 ### CLI Lifecycle (CLI)
 
 - [x] **BENCH-01**: `villa bench` runs an A/B throughput comparison (Vulkan vs ROCm) on the loaded model, reporting **prompt-processing and token-generation tok/s separately** (never a single blended number), over residency-checked runs only.
-- [ ] **BENCH-02**: `villa bench` uses honest methodology — discarded warmup, N repetitions with median + stddev/noise band, identical model/quant/context/flags both sides, and stated conditions; the resulting per-metric throughput delta is the milestone's proof-of-value success criterion.
+- [x] **BENCH-02**: `villa bench` uses honest methodology — discarded warmup, N repetitions with median + stddev/noise band, identical model/quant/context/flags both sides, and stated conditions; the resulting per-metric throughput delta is the milestone's proof-of-value success criterion.
 
 ### Model Management (MODEL)
 
@@ -110,7 +110,7 @@ Explicitly excluded. Documented to prevent scope creep.
 | BSET-02 | Phase 8 | Complete |
 | BSET-03 | Phase 8 | Complete |
 | BENCH-01 | Phase 9 | Complete |
-| BENCH-02 | Phase 9 | Pending |
+| BENCH-02 | Phase 9 | Complete |
 | REC-05 | Phase 10 | Pending |
 | DASH-06 | Phase 10 | Pending |
 

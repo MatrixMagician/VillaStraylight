@@ -112,7 +112,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Wave 1** *(parallel — zero file overlap: the leaf llm method + the pure bench core)*
 
 - [x] 09-01-PLAN.md — `internal/llm.OpenAIClient.Complete` non-streaming method + `Timings` type (the honest per-request pp/tg measurement source) [BENCH-01]
-- [ ] 09-02-PLAN.md — pure `internal/bench` core (BenchSpec/RunTimings/Stats/Deps/Result/Run): warmup-discard, residency void-gate, void-exhaustion WARN, separate pp/tg median+stddev, `--ab` always-restore; fake-Deps recorder tests [BENCH-01, BENCH-02]
+- [x] 09-02-PLAN.md — pure `internal/bench` core (BenchSpec/RunTimings/Stats/Deps/Result/Run): warmup-discard, residency void-gate, void-exhaustion WARN, separate pp/tg median+stddev, `--ab` always-restore; fake-Deps recorder tests [BENCH-01, BENCH-02]
 
 **Wave 2** *(blocked on Wave 1 — consumes `llm.Complete` + the `bench` Deps/Run)*
 
@@ -149,5 +149,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | 6. ROCm Backend + Resolver Spine | v1.1 | 3/3 | Complete    | 2026-06-05 |
 | 7. ROCm Render Unit + Preflight/Detect | v1.1 | 3/3 | Complete    | 2026-06-06 |
 | 8. `villa backend set` Switch Verb + Rollback | v1.1 | 2/2 | Complete   | 2026-06-06 |
-| 9. `villa bench` (Honest A/B) | v1.1 | 1/3 | In Progress|  |
+| 9. `villa bench` (Honest A/B) | v1.1 | 2/3 | In Progress|  |
 | 10. Backend + tok/s Surfacing | v1.1 | 0/TBD | Not started | - |
