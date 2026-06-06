@@ -734,12 +734,12 @@ func liveInstallDeps() (*installDeps, error) {
 			return os.ReadFile(filepath.Join(dir, orchestrate.DashboardServiceName))
 		},
 		resolveBinaryPath: resolveDashboardBinaryPath,
-		enable:             sys.Enable,
-		username:           func() string { return uname },
-		endpoint:           func() string { return endpoint },
-		interactive:        stdinIsInteractive,
-		consent:            promptConsent,
-		pollReady:          liveReadinessPoll,
+		enable:            sys.Enable,
+		username:          func() string { return uname },
+		endpoint:          func() string { return endpoint },
+		interactive:       stdinIsInteractive,
+		consent:           promptConsent,
+		pollReady:         liveReadinessPoll,
 	}, nil
 }
 
