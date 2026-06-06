@@ -186,9 +186,11 @@ sampleLoop:
 
 // liveBenchDeps wires the pure bench core to the real host. Measure is always set
 // (the single-backend, non-disruptive path benches ONLY the running backend, SC#1).
-// The spec is captured in the Measure closure (the pure core threads its own
-// context.Background() through Measure, so the run's flags ride the closure, not the
-// context). For --ab ONLY, Switch/Restore/LoadConfig are wired so the flip DELEGATES to
+// The spec is captured in the Measure closure (the run's flags ride the closure); the
+// caller's SIGINT-cancellable context is threaded through bench.Run into every
+// Measure/Switch/Restore call so a Ctrl-C aborts an in-flight bench, while liveMeasure
+// still derives the per-run load_tensors-hang timeout from it. For --ab ONLY,
+// Switch/Restore/LoadConfig are wired so the flip DELEGATES to
 // backendswap.Run (the LOCKED Phase-8 transactional core, never re-implemented) and
 // the original backend is restored on every exit path. For plain `villa bench`,
 // Switch/Restore/LoadConfig stay nil so the core takes the single-backend branch.
@@ -380,7 +382,7 @@ func runBench(cmd *cobra.Command, spec bench.BenchSpec, ab, asJSON bool, d *benc
 		return exitBlocked
 	}
 
-	res := bench.Run(*d, spec)
+	res := bench.Run(cmd.Context(), *d, spec)
 
 	// A non-methodology failure (distinct from a void-exhaustion WARN): surface and block.
 	if res.Err != nil {

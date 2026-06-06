@@ -226,9 +226,13 @@ func benchN(ctx context.Context, d Deps, spec BenchSpec, side string) (Stats, bo
 // and exit-free. When Switch/Restore are nil it benches a single backend; when they
 // are set it runs the --ab comparison, applying the IDENTICAL spec to both sides and
 // ALWAYS restoring the original backend on every exit path.
-func Run(d Deps, spec BenchSpec) Result {
-	ctx := context.Background()
-
+//
+// ctx is the caller's context — cobra installs a SIGINT-cancelled one (cmd.Context())
+// so a Ctrl-C propagates into the in-flight Measure/Switch/Restore and aborts the loop.
+// The per-run load_tensors-hang timeout is still derived inside the live Measure wiring
+// (context.WithTimeout over this ctx), so caller cancellation and the per-run deadline
+// compose rather than conflict.
+func Run(ctx context.Context, d Deps, spec BenchSpec) Result {
 	// Single-backend path.
 	if d.Switch == nil || d.Restore == nil {
 		st, enough := benchN(ctx, d, spec, "single")
