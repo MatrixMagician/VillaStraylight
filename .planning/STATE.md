@@ -4,7 +4,7 @@ milestone: v1.1
 milestone_name: ROCm Opt-In Backend
 status: verifying
 stopped_at: Phase 10 context gathered
-last_updated: "2026-06-06T18:07:28.281Z"
+last_updated: "2026-06-06T20:01:15.726Z"
 last_activity: 2026-06-06 -- Phase 09 verified + secured; on-hardware UAT 3/3 PASS
 progress:
   total_phases: 5

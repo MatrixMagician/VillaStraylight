@@ -52,7 +52,7 @@ created: 2026-06-06
 | 10-XX | — | — | REC-05 | — | `ROCmAdvice` derived purely from `rocm_readiness`; recommended `Backend` stays `vulkan` | unit | `go test ./internal/recommend/` | ✅ extend recommend_test.go | ⬜ pending |
 | 10-XX | — | — | REC-05 | — | advice Note never promises a speed-up (no "faster"/"guaranteed"; contains "bench") | unit | `go test ./internal/recommend/ -run Advice` | ❌ W0 | ⬜ pending |
 | 10-XX | — | — | REC-05 | — | recommend golden re-frozen as a pure-addition diff | golden | `go test ./cmd/villa/ -run <recommend golden>` | ✅ recommend_test.go | ⬜ pending |
-| 10-XX | — | — | DASH-06/REC-05 | — | `detect.golden.json` stays byte-identical (no detect change) | golden | `go test ./cmd/villa/ -run TestDetect` | ✅ detect_test.go (green w/o `-update`) | ⬜ pending |
+| 10-XX | — | — | DASH-06/REC-05 | — | `detect.golden.json` stays byte-identical (no detect change) | golden | `git diff --quiet cmd/villa/testdata/detect.golden.json` (robust guard the plans use) + `go test ./cmd/villa/ -run TestJSONGolden` | ✅ detect_test.go:55 (green w/o `-update`) | ⬜ pending |
 | 10-XX | — | — | DASH-06 | — | dashboard `/api/status` serves new fields; `metricsView` shape unchanged | unit | `go test ./internal/dashboard/` | ✅ extend api_test.go | ⬜ pending |
 | 10-XX | — | — | DASH-06/REC-05 | — | seam gate: no backend marker literals (`ROCm0`, image tags, fault strings) leak into surfacing code | regression | `go test ./internal/inference/ -run TestSeamGrepGate` | ✅ seam_test.go (stays green) | ⬜ pending |
 
