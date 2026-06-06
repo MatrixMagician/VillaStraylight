@@ -339,21 +339,21 @@ func stddev(xs []float64) float64 { // sample stddev (n-1); 0 for n<2
 | A3 | A per-run timeout of ~5m (mirroring `proveTimeout`) is a sufficient load_tensors-hang guard for bench runs. | Pitfall 3 | LOW — Phase 8 validated this bound on-hardware for the same backend bring-up. |
 | A4 | The magnitude/direction of the Vulkan-vs-ROCm pp/tg delta on the user's model. | Success Criterion 3 | **By design volatile** — this is the on-hardware UAT to *measure*, not assume (ROADMAP research flag: ROCm-7.x-vs-6.4.4 ordering, pp-weighted win with tg ~flat). Not a code risk; the bench must *report* whatever it measures honestly. |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **`/v1/chat/completions` vs `/completion` as the drive endpoint.**
    - What we know: both return the `timings` block; `/v1` reuses the existing `llm` client path; `/completion` gives more direct control of `n_predict`/`cache_prompt`/`seed`.
    - What's unclear: whether the chat-template overhead on `/v1` materially skews `prompt_n` for a fixed prompt.
-   - Recommendation: default to `/v1` (lowest-risk reuse of `internal/llm`); add a one-line UAT probe confirming `timings` is present in the `/v1` response on the pinned image. If absent, switch the measurement client to `/completion`.
+   - RESOLVED: default to `/v1` (lowest-risk reuse of `internal/llm`); add a one-line UAT probe confirming `timings` is present in the `/v1` response on the pinned image. If absent, switch the measurement client to `/completion`.
 
 2. **Default N, warmup, and `n_predict`.**
    - What we know: methodology needs ≥1 discarded warmup and enough reps for a meaningful band; larger `n_predict` gives a steadier tg figure but a longer bench.
    - What's unclear: the right defaults for a "just works" UX vs. statistical honesty.
-   - Recommendation: seed defaults (warmup=1, N=5, n_predict=128, temp=0, fixed seed) as flags (`-n`, `--warmup`, `--n-predict`); document them in the "stated conditions" output. Tune on-hardware.
+   - RESOLVED: seed defaults (warmup=1, N=5, n_predict=128, temp=0, fixed seed) as flags (`-n`, `--warmup`, `--n-predict`); document them in the "stated conditions" output. Tune on-hardware.
 
 3. **Should `villa bench` (no `--ab`) ever flip backends?**
    - What we know: SC#1 says the single-backend path is "non-disruptive" (read-only over the running endpoint). SC#3 attaches the cross-backend delta to "flipping via the Phase-8 switch."
-   - Recommendation: `villa bench` benches ONLY the currently-running backend (zero flips, fully non-disruptive); the Vulkan-vs-ROCm delta is the `--ab` path. This cleanly satisfies SC#1 (non-disruptive) and SC#3 (delta) without ambiguity.
+   - RESOLVED: `villa bench` benches ONLY the currently-running backend (zero flips, fully non-disruptive); the Vulkan-vs-ROCm delta is the `--ab` path. This cleanly satisfies SC#1 (non-disruptive) and SC#3 (delta) without ambiguity.
 
 ## Environment Availability
 
