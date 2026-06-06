@@ -229,11 +229,12 @@ func TestPickROCmAdviceDerivation(t *testing.T) {
 	allGood := readinessAllGood()
 	oneUnknown := readinessAllGood()
 	oneUnknown.FirmwareDateOK = unset
+	// Every signal Known with one bad → withheld (confidently not-ready, names blocker).
 	oneBad := readinessAllGood()
 	oneBad.KernelFloorOK = bad
-	// A Known-bad signal wins over an additionally-unknown one only insofar as
-	// "withheld": any Known-bad → advice empty. Here mix bad + unknown to be sure
-	// the unknown does not flip a confidently-bad host into verify-with-bench.
+	// Mix bad + unknown: per D-04 no-false-green, UNKNOWN wins over not-ready, so a
+	// single unevaluable signal keeps the host at verify-with-bench (never a
+	// confidently-withheld "not ready"). This guards the worst-wins ordering.
 	badAndUnknown := readinessAllGood()
 	badAndUnknown.KernelFloorOK = bad
 	badAndUnknown.FirmwareDateOK = unset
@@ -243,13 +244,13 @@ func TestPickROCmAdviceDerivation(t *testing.T) {
 		name        string
 		readiness   detect.ROCmReadiness
 		wantAdvice  ROCmAdvice
-		wantNoteSub string // a substring the Note must contain ("" = Note may be empty)
+		wantNoteSub string // a substring the Note must contain ("" = no substring check)
 		wantNoNote  bool   // when true, the Note must be empty
 	}{
 		{"all-good→worth-trying", allGood, ROCmAdviceWorthTrying, "villa bench", false},
 		{"any-unknown→verify-with-bench", oneUnknown, ROCmAdviceVerifyBench, "villa bench", false},
-		{"one-known-bad→withheld+blocker", oneBad, "", "", false},
-		{"bad+unknown→withheld+blocker", badAndUnknown, "", "", false},
+		{"one-known-bad→withheld+blocker", oneBad, "", "kernel floor", false},
+		{"bad+unknown→unknown-wins→verify-with-bench", badAndUnknown, ROCmAdviceVerifyBench, "villa bench", false},
 	}
 
 	for _, c := range cases {
@@ -299,9 +300,10 @@ func TestPickROCmAdviceNoteHonorsHonesty(t *testing.T) {
 		t.Fatalf("precondition: ROCmAdvice = %q, want worth-trying", rec.ROCmAdvice)
 	}
 	note := rec.ROCmNote
+	lower := strings.ToLower(note)
 	for _, want := range []string{"verify", "bench"} {
-		if !strings.Contains(note, want) {
-			t.Errorf("honesty Note must contain %q: %q", want, note)
+		if !strings.Contains(lower, want) {
+			t.Errorf("honesty Note must contain %q (case-insensitive): %q", want, note)
 		}
 	}
 	for _, banned := range []string{"faster", "guaranteed", "speed-up"} {
