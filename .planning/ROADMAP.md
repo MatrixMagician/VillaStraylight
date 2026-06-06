@@ -64,7 +64,13 @@ Decimal phases appear between their surrounding integers in numeric order.
   2. `villa preflight` (and the switch gate) refuses ROCm bring-up with actionable remediation when `rocminfo`/gfx1151 is absent, kernel < 6.18.4, the firmware is exactly `linux-firmware-20251125`, the HSA override is missing, or a `rocm7-nightlies` image is requested — driven by externalized (`go:embed`-updatable) version ranges + denylist, biased not to over-block a genuinely-working host.
   3. `villa detect --json` reports ROCm-readiness fields (e.g. HSA-override viability, firmware date, ROCm kernel-floor OK) appended after the existing GPU block with a bumped schema version — the frozen v1.0 contract is never reordered.
 
-**Plans**: TBD
+**Plans**: 3 plans (1 wave)
+
+**Wave 1** *(all three plans are independent — zero file overlap, fully parallel)*
+
+- [ ] 07-01-PLAN.md — ROCM-03: multi-value render (devices + group-adds + env block) + `{{range}}` template + new ROCm byte-golden, Vulkan golden byte-identical
+- [ ] 07-02-PLAN.md — PRE-06: `go:embed` `rocm-policy.json` (floors migration no-op) + `RunROCm`/`RunROCmWithPolicy` checks + `villa preflight --backend rocm` wiring
+- [ ] 07-03-PLAN.md — DET-04: nested `rocm_readiness` typed-Optional object + `hostProfileSchemaVersion` 1→2 + re-frozen `detect.golden.json`
 
 ### Phase 8: `villa backend set` Switch Verb + Rollback
 
@@ -122,7 +128,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | 4. Chat Integration | v1.0 | 3/3 | Complete | 2026-06-05 |
 | 5. Control Dashboard | v1.0 | 8/8 | Complete | 2026-06-05 |
 | 6. ROCm Backend + Resolver Spine | v1.1 | 3/3 | Complete    | 2026-06-05 |
-| 7. ROCm Render Unit + Preflight/Detect | v1.1 | 0/TBD | Not started | - |
+| 7. ROCm Render Unit + Preflight/Detect | v1.1 | 0/3 | Not started | - |
 | 8. `villa backend set` Switch Verb + Rollback | v1.1 | 0/TBD | Not started | - |
 | 9. `villa bench` (Honest A/B) | v1.1 | 0/TBD | Not started | - |
 | 10. Backend + tok/s Surfacing | v1.1 | 0/TBD | Not started | - |
