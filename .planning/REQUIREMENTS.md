@@ -22,10 +22,9 @@ Milestone 1 — "Core platform." Each maps to a roadmap phase. All are hypothese
 
 ### Recommendation Engine (REC)
 
-- [x] **REC-01**: Given detected hardware, recommend a model + quantization + context length that fits the envelope (`model_bytes + KV-cache@context + headroom ≤ usable_envelope`)
-- [x] **REC-02**: Recommendations read from a versioned model catalog (JSON) carrying a `unified_memory_safe` flag to avoid models with known correctness issues on unified-memory backends
-- [x] **REC-03**: User can override the recommended model, quantization, and context length
-- [x] **REC-04**: Recommendation defaults to the Vulkan backend for gfx1151 (ROCm only when explicitly opted in)
+- [x] **BSET-01**: `villa backend set rocm|vulkan` swaps the inference unit on a *running* install (save-before-restart, regenerate `villa-llama.container`, daemon-reload, restart only `villa-llama.service`) — fit-guarded against the memory envelope; refuses-with-remediation rather than guessing.
+- [x] **BSET-02**: The switch is transactional and rollback-safe — it captures the exact prior working unit/config before mutating, gates cutover on a real generation-probe readiness check + residency proof for the new backend, and auto-rolls back to the verbatim captured working unit on any failure (failed bring-up is a no-op to the user's stack).
+- [x] **BSET-03**: `villa backend show` reports the active backend; the configured model/quant/context is preserved across a switch (model = config; refuse, don't re-pick); `--dry-run` previews the switch without mutating.
 
 ### Inference (INF)
 
@@ -112,9 +111,9 @@ Explicitly excluded. Documented to prevent scope creep.
 | ROCM-03 | Phase 7 | Complete |
 | PRE-06 | Phase 7 | Complete |
 | DET-04 | Phase 7 | Complete |
-| BSET-01 | Phase 8 | Pending |
-| BSET-02 | Phase 8 | Pending |
-| BSET-03 | Phase 8 | Pending |
+| BSET-01 | Phase 8 | Complete |
+| BSET-02 | Phase 8 | Complete |
+| BSET-03 | Phase 8 | Complete |
 | BENCH-01 | Phase 9 | Pending |
 | BENCH-02 | Phase 9 | Pending |
 | REC-05 | Phase 10 | Pending |

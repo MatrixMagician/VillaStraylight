@@ -23,7 +23,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 6: ROCm Backend + Resolver Spine** — `BackendFor()` resolver + `ResidencyProof()` interface extension + `backend_rocm.go` with the HIP residency proof; re-route the 7 hardcoded `VulkanBackend()` sites (off-hardware) (completed 2026-06-05)
 - [x] **Phase 7: ROCm Render Unit + Preflight/Detect** — ROCm Quadlet rendering (kfd device + ordered HSA-override env, new byte-golden, Vulkan golden unchanged) + reusable refuse-with-remediation ROCm preflight verdict + detect readiness fields (off-hardware) (completed 2026-06-06)
-- [ ] **Phase 8: `villa backend set` Switch Verb + Rollback** — transactional capture→prove→cutover→rollback backend switch on a running install (on-hardware risk concentration)
+- [x] **Phase 8: `villa backend set` Switch Verb + Rollback** — transactional capture→prove→cutover→rollback backend switch on a running install (on-hardware risk concentration) (completed 2026-06-06)
 - [ ] **Phase 9: `villa bench` (Honest A/B)** — read-only A/B over the running `/v1`+`/metrics`, composing the Phase-8 switch; separate pp/tg tok/s with warmup + N-reps + noise band
 - [ ] **Phase 10: Backend + tok/s Surfacing** — backend-aware `recommend` advice + dashboard/`status` active-backend + live tok/s, as append-only `--json`/golden additions
 
@@ -92,7 +92,8 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 **Wave 2** *(blocked on Wave 1 — consumes the package's Deps/ProveVerdict)*
 
-- [ ] 08-02-PLAN.md — `villa backend` cobra noun (`set`/`show`/`--dry-run`), exit mapping, `liveProve` (bounded pollHealth + generation probe + RunningOffloadVerdict, live `detect.GPUBusyPercent()` D-07 read), `liveBackendSwapDeps`, root registration, command tests [BSET-01, BSET-02, BSET-03]
+- [x] 08-02-PLAN.md — `villa backend` cobra noun (`set`/`show`/`--dry-run`), exit mapping, `liveProve` (bounded pollHealth + generation probe + RunningOffloadVerdict, live `detect.GPUBusyPercent()` D-07 read), `liveBackendSwapDeps`, root registration, command tests [BSET-01, BSET-02, BSET-03]
+
 **Research flag**: on-hardware — real ROCm offload, HSA-override behavior, kernel/firmware sensitivity, `load_tensors` hang detection, the transactional rollback state-machine. Flag for `--research-phase` and the most live UAT.
 
 ### Phase 9: `villa bench` (Honest A/B)
@@ -137,6 +138,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | 5. Control Dashboard | v1.0 | 8/8 | Complete | 2026-06-05 |
 | 6. ROCm Backend + Resolver Spine | v1.1 | 3/3 | Complete    | 2026-06-05 |
 | 7. ROCm Render Unit + Preflight/Detect | v1.1 | 3/3 | Complete    | 2026-06-06 |
-| 8. `villa backend set` Switch Verb + Rollback | v1.1 | 1/2 | Executing | - |
+| 8. `villa backend set` Switch Verb + Rollback | v1.1 | 2/2 | Complete   | 2026-06-06 |
 | 9. `villa bench` (Honest A/B) | v1.1 | 0/TBD | Not started | - |
 | 10. Backend + tok/s Surfacing | v1.1 | 0/TBD | Not started | - |
