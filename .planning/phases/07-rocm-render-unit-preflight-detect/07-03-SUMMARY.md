@@ -36,6 +36,7 @@ decisions:
   - "Off-hardware undetectable readiness signals (rocminfo_gfx1151, firmware_date_ok, hsa_override_viable) serialize as UnknownBool/UNSET — never a fabricated false (D-08)"
   - "image_policy_ok is config-driven against the resolved image string, NOT a host probe (Pitfall 5)"
   - "detect cannot import inference (cycle) nor preflight (cycle); the ROCm image-tag + kernel-floor literals are mirrored behind the gpu_amd.go seam, and the kernel comparator is re-expressed (not re-rolled with new semantics)"
+requirements-completed: [DET-04]
 metrics:
   duration: 14 min
   completed: 2026-06-06

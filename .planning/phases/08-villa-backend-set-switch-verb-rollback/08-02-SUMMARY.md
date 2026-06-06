@@ -45,6 +45,8 @@ patterns-established:
   - "During-decode corroborator sampling (goroutine probe + ticker max-read) as the live realization of the Phase-6 fixture-driven gpu_busy fold."
   - "Cmd-tier transactional-core wiring cloned verbatim from liveSwapDeps (render/reconcile/write/daemon-reload closure) so the backend switch reuses the proven model-swap host seams with no new orchestration."
 
+requirements-completed: [BSET-03]
+
 # Metrics
 duration: 18min
 completed: 2026-06-06

@@ -45,6 +45,8 @@ patterns-established:
   - "Capture-before-mutate transactional core: capture verbatim prior unit bytes + value-snapshot config strictly before SaveConfig/ReconcileAndWrite/Restart, asserted by callOrder index ordering."
   - "Refuse-with-remediation with zero side-effect seams: fit-guard FIRST then ROCm preflight, both before any capture/mutate."
 
+requirements-completed: [BSET-01, BSET-02]
+
 # Metrics
 duration: 14min
 completed: 2026-06-06

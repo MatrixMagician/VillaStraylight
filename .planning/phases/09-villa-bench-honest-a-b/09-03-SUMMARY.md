@@ -35,6 +35,7 @@ decisions:
   - "Reachability pre-check is a package-level `var benchEndpointReachable = func() bool` indirection (overridable in tests), NOT a new field on bench.Deps — the Plan-02 core is LOCKED and a no-endpoint refusal is a cmd-tier concern, not a methodology seam."
   - "MinResident = ceil(reps/2) (clear majority) below which the band is an honest void-exhaustion WARN; fixed seed=42, temp=0 (greedy) for reproducibility (BENCH-02)."
   - "--json shape: separate prompt_per_sec/predicted_per_sec (+ *_stddev) per side and delta_prompt_per_sec/delta_predicted_per_sec — never a blended tok/s key (Phase-10 read contract)."
+requirements-completed: [BENCH-02]
 metrics:
   duration: 4 min
   completed: 2026-06-06

@@ -37,6 +37,7 @@ decisions:
   - "ROCmAdviceReady const defined for contract completeness but not emitted by the Phase-10 fold (only worth-trying/verify-with-bench/withheld are derived)"
   - "Withheld-advice Note names the first Known-bad blocker and points to 'villa status' (not bench, since the host is confidently not-ready)"
   - "SchemaVersion pinned to 1 in the golden fixture (fixture bypasses Pick); surfaces unconditionally in --json"
+requirements-completed: [REC-05]
 metrics:
   duration: "~3m"
   completed: "2026-06-06T20:15:17Z"

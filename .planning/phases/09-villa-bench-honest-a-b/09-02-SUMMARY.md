@@ -33,6 +33,7 @@ decisions:
   - "[09-02] The measured loop is bounded by a 2*Reps attempt cap so an all-void host can never loop forever — it terminates into an honest void-exhaustion WARN (Pitfall 5)."
   - "[09-02] internal/bench imports neither internal/inference nor internal/detect; backend markers arrive ONLY via the injected Measure verdict. other() swaps vulkan<->rocm by config-VALUE equality (local 2-value, no allowlist, no marker literal) so TestSeamGrepGate stays green."
   - "[09-02] Added an OnSideStart(side, spec) observational Deps seam (nil-safe): the cobra layer uses it for per-side progress and the test uses it to assert both --ab sides receive a byte-identical BenchSpec. It fires no host action."
+requirements-completed: [BENCH-02]
 metrics:
   duration: 4 min
   completed: 2026-06-06
