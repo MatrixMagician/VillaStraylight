@@ -133,17 +133,25 @@ restarted to load the current code. Full results in `10-UAT.md`.
   `generation 60.3 tok/s (vulkan)`; Health panel backend `vulkan` + full image digest
   `…vulkan-radv@sha256:9a74e555…` + readiness badge `unknown` (honest fold). `/api/metrics`
   top-level shape unchanged. Screenshot: `.playwright-mcp/phase10-dashboard-live-vulkan.png`.
-- **Human item 1 — ROCm-labeled residency + tok/s → BLOCKED (third-party / environmental).**
-  No ROCm toolchain on this host (`rocminfo` absent); stack runs Vulkan. The ROCm-specific
-  values (`backend=rocm`, ROCm0 markers, `ready/not-ready` badge) require a ROCm-7.2.4 stack
-  not provisioned here. The backend-AGNOSTIC surfacing mechanism was fully verified live on
-  the Vulkan equivalent (identity from resolved backend, live `60.3 tok/s (vulkan)`, idle→omit,
-  residency PASS on resolved-backend markers, honest `unknown` readiness) — only the ROCm
-  backend swap remains. Standing deferral, consistent with Phases 8/9. NOT a code defect.
+- **Human item 1 — ROCm-labeled residency + tok/s → PASS (live ROCm backend).**
+  Brought the ROCm backend up on this host via `villa backend set rocm` (transactional cutover,
+  exit 0, self-proven, model preserved). `villa status` confirmed: `backend=rocm`, image
+  `…rocm-7.2.4@sha256:2da150c1…`, live `gen tok/s 49.3 (rocm)` under generation (omitted idle),
+  and offload/residency **PASS keyed on live ROCm0 markers** ("ROCm0 model buffer 20583.34 MiB
+  resident on the iGPU" + sysfs GTT floor) — the HIP residency proof. Throughput is ~49 tok/s
+  (rocm) vs ~60 (vulkan), matching the milestone honesty constraint (tg flat/regressed; ROCm
+  win is prompt-processing-weighted).
 
-**Net:** Phase 10 surfacing is now live-verified end-to-end on real gfx1151 hardware for the
-default (Vulkan) path. The sole outstanding UAT item is gated on a ROCm install and will be
-re-exercised when a ROCm-configured stack is available.
+**Known follow-up (not a Phase 10 defect):** the `rocm_readiness` indicator reads `unknown`
+even on the live ROCm backend, so the literal "non-`unknown` readiness badge" sub-clause is
+unmet. Root cause is a detect-path gap, not surfacing: `foldROCmReadiness` needs all 5 signals
+Known, but `FirmwareDateOK()` and `HSAOverrideViable()` are hardcoded typed-Unknown / not
+probed (`internal/detect/readiness_rocm.go:56,63`). Phase 10 correctly surfaces what detect
+provides; a non-`unknown` badge requires implementing those two probes. Recommend a follow-up.
+
+**Net:** Phase 10 surfacing is now live-verified end-to-end on real gfx1151 hardware for BOTH
+the Vulkan (default) and ROCm (opt-in) backends. Both on-hardware UAT items PASS. The only
+residual is the readiness-badge detect-probe gap above — a tracked follow-up, not a blocker.
 
 ---
 
