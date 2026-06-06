@@ -1,0 +1,34 @@
+{
+  "mode": "ab",
+  "conditions": {
+    "warmup": 1,
+    "reps": 2,
+    "n_predict": 128,
+    "seed": 42,
+    "temp": 0
+  },
+  "ab": {
+    "from": "vulkan",
+    "to": "rocm",
+    "a": {
+      "backend": "vulkan",
+      "prompt_per_sec": 120,
+      "prompt_per_sec_stddev": 0,
+      "predicted_per_sec": 40,
+      "predicted_per_sec_stddev": 0,
+      "kept": 2,
+      "void": 0
+    },
+    "b": {
+      "backend": "rocm",
+      "prompt_per_sec": 150,
+      "prompt_per_sec_stddev": 0,
+      "predicted_per_sec": 55,
+      "predicted_per_sec_stddev": 0,
+      "kept": 2,
+      "void": 0
+    },
+    "delta_prompt_per_sec": 30,
+    "delta_predicted_per_sec": 15
+  }
+}
