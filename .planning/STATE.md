@@ -4,13 +4,13 @@ milestone: v1.1
 milestone_name: ROCm Opt-In Backend
 status: executing
 stopped_at: Completed 08-01-PLAN.md (backendswap transactional core)
-last_updated: "2026-06-06T16:07:09.564Z"
+last_updated: "2026-06-06T16:13:30.135Z"
 last_activity: 2026-06-06 -- Phase 09 execution started
 progress:
   total_phases: 5
   completed_phases: 3
   total_plans: 11
-  completed_plans: 8
+  completed_plans: 9
   percent: 60
 ---
 
@@ -26,8 +26,8 @@ See: .planning/PROJECT.md (updated 2026-06-03)
 ## Current Position
 
 Phase: 09 (villa-bench-honest-a-b) — EXECUTING
-Plan: 1 of 3
-Status: Executing Phase 09
+Plan: 2 of 3
+Status: Ready to execute
 Last activity: 2026-06-06 -- Phase 09 execution started
 
 ## Performance Metrics
@@ -71,6 +71,7 @@ Last activity: 2026-06-06 -- Phase 09 execution started
 | Phase 07 P03 | 14 min | 3 tasks | 8 files |
 | Phase 08 P01 | 14 min | 3 tasks | 4 files |
 | Phase 08 P02 | 18min | 2 tasks | 3 files |
+| Phase 09 P01 | 6 min | 1 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -127,6 +128,7 @@ Recent decisions affecting current work:
 - [08-01]: inference now EXPORTS PollHealth(ctx,endpoint,timeout)/GenerationProbe(ctx,endpoint,modelID) — thin wrappers over the private pollHealth/chatProbe that probe the ALREADY-running server with NO --rm container (Validate's --rm container is why liveProve cannot use it). Closes the Plan-02 liveProve BLOCKER. TestSeamGrepGate now also walks cmd/villa with the backend-marker subset (GOOS/image/device/ROCm0-HSA-fault); the podman-process pattern is EXCLUDED from the cmd/villa walk because cmd/villa is the legitimate OS-orchestration tier (lifecycle/uninstall fixed-arg podman calls).
 - [Phase ?]: [07-03]: villa detect --json gains a nested rocm_readiness object appended after the GPU block with hostProfileSchemaVersion bumped 1->2 (additive append-only golden re-freeze; SchemaVersion stays last). Off-hardware undetectable signals (rocminfo_gfx1151, firmware_date_ok, hsa_override_viable) serialize as UnknownBool/UNSET, never a real false (D-08). image_policy_ok is config-driven against the resolved image, not a host probe (Pitfall 5). detect imports neither inference nor preflight (cycles), so the ROCm image-tag + 6.18.4 kernel-floor literals are mirrored behind the gpu_amd.go seam and the version comparator re-expressed there; readiness_rocm.go stays literal-free (TestSeamGrepGate green).
 - [Phase ?]: [08-02]: villa backend set/show noun + liveProve cutover gate — liveProve composes EXPORTED inference.PollHealth (bounded by proveTimeout=5m load_tensors-hang guard) + inference.GenerationProbe (tokens>0) + RunningOffloadVerdict over BackendFor(target).ResidencyProof() markers, sampling detect.GPUBusyPercent() DURING the decode via goroutine+ticker max-keep (D-07 closed) so a silent CPU fallback FAILs+rolls back; maps ONLY inference.StatusPass to backendswap.ProveStatusPass (SC#3). runBackendSet returns the int exit (Refused/Err/RolledBack->1, Switched/NoOp->0); --dry-run previews fit/preflight side-effect-free. liveBackendSwapDeps clones liveSwapDeps render/reconcile/write + capture/restore via traversal-guarded orchestrate.WriteUnits. backend.go literal-free of markers (cmd/villa-walking TestSeamGrepGate).
+- [Phase ?]: [09-01]: llm.Complete is the honest measurement leaf — a non-streaming stream:false /v1 completion returning the server-computed per-request timings block (pp/tg already separated) that StreamChat discards; completeResponse deserializes ONLY the numeric timings (T-09-01), non-200 bounded by io.LimitReader 2048 (T-09-02), fixed max_tokens/seed/temperature on the wire for reproducibility, stdlib-only/go.mod unchanged, literal-free of backend markers.
 
 ### Pending Todos
 
@@ -161,7 +163,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-06T11:52:52.731Z
+Last session: 2026-06-06T16:13:11.322Z
 Stopped at: Completed 08-01-PLAN.md (backendswap transactional core)
 Resume file: .planning/phases/08-villa-backend-set-switch-verb-rollback/08-02-PLAN.md
 

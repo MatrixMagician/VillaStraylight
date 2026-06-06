@@ -40,13 +40,8 @@ Milestone 1 — "Core platform." Each maps to a roadmap phase. All are hypothese
 
 ### CLI Lifecycle (CLI)
 
-- [x] **CLI-01**: `villa install` runs end-to-end setup (detect → recommend → generate units → pull model → bring up) and is idempotent / re-runnable
-- [x] **CLI-02**: `villa up` / `down` / `restart` control the whole stack and individual services
-- [x] **CLI-03**: `villa status` shows an aggregated health table (unit active-state + container health + llama.cpp `/health` + Open WebUI reachability)
-- [x] **CLI-04**: `villa logs [service]` shows and can follow (`-f`) per-service logs
-- [x] **CLI-05**: `villa config show` displays the effective config; editing config regenerates the affected units
-- [x] **CLI-06**: `villa uninstall` cleanly removes units and volumes, with a choice to keep or remove downloaded models
-- [x] **CLI-07**: Post-install output prints the chat + dashboard URL and a health summary
+- [x] **BENCH-01**: `villa bench` runs an A/B throughput comparison (Vulkan vs ROCm) on the loaded model, reporting **prompt-processing and token-generation tok/s separately** (never a single blended number), over residency-checked runs only.
+- [ ] **BENCH-02**: `villa bench` uses honest methodology — discarded warmup, N repetitions with median + stddev/noise band, identical model/quant/context/flags both sides, and stated conditions; the resulting per-metric throughput delta is the milestone's proof-of-value success criterion.
 
 ### Model Management (MODEL)
 
@@ -114,7 +109,7 @@ Explicitly excluded. Documented to prevent scope creep.
 | BSET-01 | Phase 8 | Complete |
 | BSET-02 | Phase 8 | Complete |
 | BSET-03 | Phase 8 | Complete |
-| BENCH-01 | Phase 9 | Pending |
+| BENCH-01 | Phase 9 | Complete |
 | BENCH-02 | Phase 9 | Pending |
 | REC-05 | Phase 10 | Pending |
 | DASH-06 | Phase 10 | Pending |
