@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: ROCm Opt-In Backend
-status: "v1.1 shipped — PR #2 (awaiting merge to main)"
+status: "v1.1 merged to main + tagged — between milestones"
 stopped_at: Phase 11 context gathered
-last_updated: "2026-06-06T22:43:06.736Z"
-last_activity: "2026-06-06 — v1.1 shipped, PR #2"
+last_updated: "2026-06-07T00:00:00.000Z"
+last_activity: "2026-06-07 — v1.1 merged to main (PR #2, merge 2e22d1f) + tagged v1.1"
 progress:
   total_phases: 6
   completed_phases: 6
@@ -27,8 +27,8 @@ See: .planning/PROJECT.md (updated 2026-06-06 after v1.1 milestone)
 
 Phase: Milestone v1.1 complete
 Plan: —
-Status: v1.1 shipped — PR #2 (awaiting merge to main)
-Last activity: 2026-06-06 — v1.1 shipped, PR #2
+Status: v1.1 merged to main + tagged — between milestones
+Last activity: 2026-06-07 — v1.1 merged to main (PR #2, merge 2e22d1f) + tagged v1.1
 
 ## Performance Metrics
 
@@ -190,5 +190,5 @@ Resume file: .planning/phases/11-address-v1-1-tech-debt-rocm-readiness-detect-pr
 
 ## Operator Next Steps
 
-- **Ship v1.1 to `main`:** v1.1 lives on branch `feat/phase-09-villa-bench-honest-a-b` (~143 commits ahead of `main`). Merge via `/gsd-ship` (PR, as v1.0 did via PR #1), then create the `v1.1` git tag on the merge commit (tag deferred at milestone close per release-hygiene decision).
-- **Start the next milestone:** `/clear` then `/gsd-new-milestone` (questioning → research → requirements → roadmap). Candidate themes in PROJECT.md → Between Milestones.
+- **v1.1 released** ✓ — PR #2 merged to `main` (merge commit `2e22d1f`), annotated tag `v1.1` on the merge commit (mirrors v1.0). Code-review fixes (firmware floor, residency-parse robustness) included.
+- **Start the next milestone:** `/clear` then `/gsd-new-milestone` (questioning → research → requirements → roadmap). Candidate themes in PROJECT.md → Between Milestones. Worth folding in the deferred PR-#2 review findings (see graphmind memory 10e784d6) — esp. extracting a shared `rocmpolicy` leaf package.
