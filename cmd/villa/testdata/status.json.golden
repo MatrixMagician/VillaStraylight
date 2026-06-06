@@ -83,5 +83,9 @@
   ],
   "loopback_only": true,
   "no_telemetry": "no telemetry; outbound = image/model pulls only",
-  "overall": "PASS"
+  "overall": "PASS",
+  "backend": "vulkan",
+  "image": "docker.io/kyuz0/amd-strix-halo-toolboxes:vulkan-radv@sha256:9a74e555c45864352a4077528836988d448e9f030fbab9f7376ea1c603ac7aad",
+  "rocm_readiness": "unknown",
+  "schema_version": 1
 }
