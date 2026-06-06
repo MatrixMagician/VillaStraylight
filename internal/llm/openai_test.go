@@ -3,6 +3,7 @@ package llm
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -151,6 +152,37 @@ func TestCompleteParamsOnWire(t *testing.T) {
 	}
 	if body.Temperature != 0.7 {
 		t.Errorf("temperature = %v, want 0.7", body.Temperature)
+	}
+}
+
+// TestCompleteVoidsAbsentTimings proves an otherwise-successful 200 response whose
+// `timings` block is absent (or decodes to an all-zero predicted_n/predicted_per_second)
+// is signalled as ErrNoTimings — NOT returned as a valid 0 tok/s sample. This is the
+// WR-02 honest-band guard: a missing timings block must void the run, never pollute the
+// median with a fabricated 0 (RESEARCH A1).
+func TestCompleteVoidsAbsentTimings(t *testing.T) {
+	cases := map[string]string{
+		"no timings key":     `{"choices":[{"message":{"content":"hi"}}]}`,
+		"empty timings":      `{"timings":{}}`,
+		"all-zero predicted": `{"timings":{"prompt_per_second":199.5,"predicted_n":0,"predicted_per_second":0}}`,
+	}
+	for name, body := range cases {
+		t.Run(name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(body))
+			}))
+			defer srv.Close()
+
+			client := NewOpenAIClient(Options{BaseURL: srv.URL, DefaultModel: "test-model"})
+			_, err := client.Complete(context.Background(), ChatRequest{
+				Messages: []Message{{Role: RoleUser, Content: "hi"}},
+			}, 128, 7, 0.0)
+			if !errors.Is(err, ErrNoTimings) {
+				t.Errorf("absent/empty timings must yield ErrNoTimings, got %v", err)
+			}
+		})
 	}
 }
 

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -144,6 +145,14 @@ sampleLoop:
 				maxBusy = b
 			}
 			if res.err != nil {
+				// A missing/empty `timings` block is a measurement failure, NOT a 0 tok/s
+				// pass: void the run so it never pollutes the honest band (WR-02 / A1).
+				if errors.Is(res.err, llm.ErrNoTimings) {
+					return bench.RunTimings{}, false,
+						"server returned no `timings` block (or zero predicted tokens) — " +
+							"this build may not expose /v1 timings; cannot honestly measure tg",
+						res.err
+				}
 				return bench.RunTimings{}, false, "completion failed: " + res.err.Error(), res.err
 			}
 			timings = res.t

@@ -5,12 +5,21 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
 	"time"
 )
+
+// ErrNoTimings signals that an otherwise-successful completion response carried no
+// usable per-request `timings` block (the llama.cpp extension was absent, or decoded
+// to an all-zero struct — predicted_n==0 AND predicted_per_second==0). A bench MUST
+// treat such a run as a measurement failure (VOID), never fold a 0 tok/s sample into
+// the honest band (RESEARCH Assumption A1: some builds omit `timings` on /v1). Callers
+// detect it with errors.Is(err, llm.ErrNoTimings).
+var ErrNoTimings = errors.New("llm: response carried no usable timings block")
 
 // OpenAIClient talks to any OpenAI-compatible /chat/completions endpoint using
 // server-sent-event streaming. It works with Ollama, llama.cpp's server, vLLM,
@@ -178,6 +187,13 @@ func (c *OpenAIClient) Complete(ctx context.Context, req ChatRequest, nPredict i
 	var parsed completeResponse
 	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
 		return Timings{}, fmt.Errorf("llm: decode response: %w", err)
+	}
+	// An absent `timings` block JSON-decodes to a zero-valued struct that would silently
+	// pollute the bench's honest band with a 0 tok/s sample (RESEARCH A1: some builds omit
+	// it on /v1). Signal it distinctly so the bench voids the run rather than counting it:
+	// predicted_n==0 AND predicted_per_second==0 means there is no usable tg measurement.
+	if parsed.Timings.PredictedN == 0 && parsed.Timings.PredictedPerSec == 0 {
+		return Timings{}, ErrNoTimings
 	}
 	return parsed.Timings, nil
 }
