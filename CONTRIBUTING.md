@@ -56,11 +56,25 @@ respect them:
   `preflight-pass.golden`). The tests share an `-update` flag; golden files are
   regenerated only by an explicit `go test ./... -run <Test> -update`, never by
   accident. If your change alters command output, regenerate and review the diff
-  in the same commit.
+  in the same commit. Treat the `--json` output as an **append-only** contract:
+  add fields when you must, but do not rename or remove existing ones — downstream
+  consumers and the golden fixtures depend on the stable shape.
 - **Grep-gate tests** — invariant strings in generated artifacts and CLI output
   (loopback addresses, telemetry-disabled flags, published ports) are asserted by
   substring checks. Do not weaken or delete these assertions to make a change
   pass; the assertion is the contract.
+- **Backend-seam grep-gate** — `internal/inference/seam_test.go` enforces
+  backend-neutrality so a future ROCm/Metal backend (and macOS) drops in without
+  touching callers. `TestSeamGrepGate` (negative gate) fails if imperative backend
+  literals — `runtime.GOOS`/platform branches, container image tokens (kyuz0,
+  `docker.io/`, `server-vulkan`, `rocm-7.2.4`), container device args
+  (`--device /dev/dri`, `--group-add`, keep-groups), raw backend markers
+  (`ROCm0`, `HSA_OVERRIDE_GFX_VERSION`, memory-access-fault), or `podman` process
+  invocations — leak outside the seam (`internal/inference/` and
+  `internal/detect/gpu_amd.go`). `TestROCmMarkerPresence` (positive gate) fails if
+  the ROCm-only literals are dropped from `backend_rocm.go`. When adding a backend
+  or touching the inference path, keep backend-specific literals behind the seam;
+  do not relax the gate to make a caller compile.
 
 ## Core invariants — do not break these
 
@@ -82,6 +96,9 @@ rejected even if tests are green.
   `0` = offload proven (and chat OK), `2` = offload unverifiable (warn), `1` =
   CPU fallback (fail). A model that would silently run on CPU must FAIL loudly,
   not degrade quietly. Preserve this assertion when touching the inference path.
+  As of v1.1 the ROCm backend is an opt-in alternative to the Vulkan default; the
+  same offload-assert contract applies to both, and backend-specific literals stay
+  behind the inference seam (see the backend-seam grep-gate above).
 - **Config is the source of truth** — runtime behavior derives from the resolved
   config, not from ad-hoc constants scattered through commands. Generated Quadlet
   units, dashboard wiring, and printed URLs must read from config. See
@@ -107,6 +124,10 @@ rather than relying on review to catch a regression.
   core invariants above are affected. If output fixtures changed, say so.
 - **Scope discipline**: keep changes focused on the stated goal; avoid unrelated
   refactors in the same PR.
+- **Merge flow**: work lands on `main` via a GitHub pull request (v1.0 shipped as
+  PR #1, v1.1 as PR #2). Releases are tagged on `main` (`v1.0`, `v1.1`). There is
+  no CI configured in this repository yet, so the build, test, and lint gates above
+  are the contributor's responsibility to run locally before requesting a merge.
 
 ## Issue reporting
 

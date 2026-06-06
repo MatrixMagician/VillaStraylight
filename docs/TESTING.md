@@ -21,6 +21,12 @@ the rendered Quadlet bytes, and the iGPU-offload verdicts.
 - **Setup:** none beyond a working Go toolchain. There is no global test setup
   file, no fixture database, and no environment configuration step. Run
   `go mod download` once if dependencies are not yet cached, then `go test`.
+- **Off-hardware by design:** the entire suite is pure cores plus frozen
+  fixtures, so it passes on a runner with no GPU, podman, or journald. The
+  optional ROCm backend (v1.1) is no exception — its preflight gates, residency
+  parser, and A/B swap are all driven by fixtures, never a live gfx1151. The
+  on-hardware UAT that exercised a real Strix Halo (Phases 8/9/10) is a separate
+  **manual** step, not part of `go test` (see [On-hardware UAT](#on-hardware-uat)).
 
 ## Running tests
 
@@ -41,6 +47,16 @@ make check
 # equivalent to: go vet ./... && go test ./...
 ```
 
+Run the linters (optional — requires `golangci-lint`; falls back to `go vet`
+when it is not installed):
+
+```bash
+make lint
+# golangci-lint run, configured by .golangci.yml
+# (errcheck, govet, ineffassign, staticcheck, unused, gofmt, goimports,
+#  misspell, revive)
+```
+
 Run a single package:
 
 ```bash
@@ -51,8 +67,9 @@ go test ./cmd/villa/...
 Run a single test (or a group) by name with `-run` and a regexp:
 
 ```bash
-go test ./internal/inference/... -run TestOffloadLogScrape
-go test ./internal/modelswap/... -run TestSwapSaveBeforeReconcile -v
+go test ./internal/inference/... -run TestRunningServerOffloadVerdict
+go test ./internal/modelswap/... -run TestSwapSaveBeforeReconcileAndInferenceOnlyRestart -v
+go test ./internal/backendswap/... -run TestRollbackVerbatim -v
 ```
 
 Regenerate the byte-golden fixtures after an intentional change to rendered
@@ -70,7 +87,10 @@ watch-mode target — the suite is a single fast `go test ./...` run.
 
 The suite is organised by the package under test (`<pkg>_test.go` files sit
 beside their production code in the same package, so tests can reach unexported
-functions). Five distinct testing patterns recur across the tree:
+functions). Test files span the control-plane packages — `cmd/villa`,
+`internal/{recommend, preflight, detect, orchestrate, inference, modelswap,
+backendswap, bench, status, dashboard, catalog, config, metrics, download, llm}`.
+Several distinct testing patterns recur across the tree:
 
 ### Table-driven unit tests
 
@@ -99,20 +119,27 @@ payloads — is frozen in `testdata/*.golden` and compared **byte-for-byte**. A
 shared `-update` flag regenerates the fixtures so an intended change is a
 reviewable diff rather than an inline edit.
 
-Golden coverage lives in two places:
+Golden coverage lives in two places, each with its own `-update` flag scoped to
+that package:
 
 - `internal/orchestrate/testdata/` — the rendered Quadlet units
-  (`villa-llama.container.golden`, `villa.network.golden`,
-  `villa-models.volume.golden`, the Open WebUI and dashboard units). The fixture
-  input is a fixed, deterministic `RenderInput` with an absolute host
-  `ModelsDir` (not live `$HOME`) so the golden is stable in CI. Crucially the
-  container image digest is sourced **through the Vulkan backend seam**
-  (`inference.VulkanBackend()`), never hand-typed, so the golden tracks
-  `Backend.Image()` automatically.
+  (`villa-llama.container.golden`, `villa-llama-rocm.container.golden`,
+  `villa.network.golden`, `villa-models.volume.golden`, the Open WebUI and
+  dashboard units). The fixture input is a fixed, deterministic `RenderInput`
+  with an absolute host `ModelsDir` (not live `$HOME`) so the golden is stable
+  in CI. Crucially the container image digest is sourced **through the backend
+  seam** (e.g. `inference.VulkanBackend()`), never hand-typed, so the golden
+  tracks `Backend.Image()` automatically. The v1.1 ROCm backend adds its own
+  golden pair — `TestRenderROCmContainerGolden` (the rendered ROCm `.container`)
+  and `TestRenderROCmEnvGroupFrozen` (the ROCm env/`--group-add` block frozen
+  byte-for-byte). Refreeze with `go test ./internal/orchestrate/... -update`.
 - `cmd/villa/testdata/` — command-output goldens
   (`inference-pass.json.golden`, `status.json.golden`, `preflight-pass.golden`,
-  etc.) that lock the `--json` and human-readable command contracts against
-  fixed, non-live `Recommendation` / status fixtures.
+  `bench.json.golden`, `detect.golden.json`, etc.) that lock the `--json` and
+  human-readable command contracts against fixed, non-live `Recommendation` /
+  status fixtures. A single `update` flag in the `cmd/villa` test package gates
+  every command golden; refreeze them all with
+  `go test ./cmd/villa/... -update`.
 
 Beyond the byte compare, golden tests also assert specific structural facts
 (e.g. the `.container` carries `ContainerName=villa-llama`,
@@ -122,22 +149,37 @@ Beyond the byte compare, golden tests also assert specific structural facts
 ### Grep-gate seam tests
 
 `internal/inference/seam_test.go` enforces backend-neutrality (Phase-2 success
-criterion, INF-03): it walks every non-test `.go` file under `internal/` and
-**fails the build if an imperative backend assumption leaks outside the seam**.
-The seam — the only paths allowed to hold backend literals — is
-`internal/inference/` plus `internal/detect/gpu_amd.go`. The gate matches four
-imperative-leak patterns:
+criterion, INF-03): `TestSeamGrepGate` **fails the build if an imperative
+backend assumption leaks outside the seam**. The seam — the only paths allowed
+to hold backend literals — is `internal/inference/` plus
+`internal/detect/gpu_amd.go`. The gate runs two walks:
 
-- `runtime.GOOS` / `GOOS ==` platform branching,
-- container **image** literals (`kyuz0`, `docker.io/`, `server-vulkan`),
-- container **device** args (`--device /dev/dri`, `--group-add`,
-  `keep-groups`),
-- `podman` **process** invocations (`exec.Command("podman", …)`).
+- **Walk 1 — `internal/`:** every non-test `.go` file outside the seam is matched
+  against four imperative-leak patterns:
+  - `runtime.GOOS` / `GOOS ==` platform branching,
+  - container **image** literals (`kyuz0`, `docker.io/`, `server-vulkan`, and —
+    added for v1.1 — `rocm-7.2.4`, `rocm7-nightlies` so a ROCm tag leaking out
+    of the seam also fails),
+  - container **device** args (`--device /dev/dri`, `--group-add`,
+    `keep-groups`),
+  - `podman` **process** invocations (`exec.Command("podman", …)`).
+- **Walk 2 — `cmd/villa`:** the OS-orchestration tier legitimately invokes
+  podman, so the `podman` pattern is dropped here, but it adds a **backend
+  marker** pattern (`ROCm0`, `HSA_OVERRIDE_GFX_VERSION`, `Memory access fault`)
+  alongside the platform/image/device patterns. This keeps the v1.1 cmd-tier
+  composers (`cmd/villa/backend.go` and siblings) free of any retyped backend
+  literal — they compose the `backendswap` core plus the exported inference
+  prove primitives instead.
 
 The gate is deliberately scoped to *imperative* leaks; it does not flag
 Phase-1 provenance/remediation **strings** that merely name these tools as
 findings (those are data, not backend assumptions). The purpose is structural:
 a future ROCm/Metal backend (and macOS) must drop in without editing callers.
+
+The same file carries the **positive** dual, `TestROCmMarkerPresence`: it asserts
+the ROCm backend's privilege/residency literals (`ROCm0`,
+`HSA_OVERRIDE_GFX_VERSION`, `/dev/kfd`) **do** still live in `backend_rocm.go`,
+so a refactor that drops or relocates them also fails CI.
 
 ### Dependency-seam (fake) tests
 
@@ -149,12 +191,22 @@ idempotency, consent, model-pull, config-persist, restart targeting.
 
 Two high-value invariants are asserted this way:
 
-- **Save-before-restart ordering** (`internal/modelswap`): a fitting model swap
+- **Save-before-restart ordering** (`internal/modelswap`,
+  `TestSwapSaveBeforeReconcileAndInferenceOnlyRestart`): a fitting model swap
   must run `pull → save → write → restart` in that order, and the restart must
   target **only** the inference service (the network/volume units are left
   untouched). The test records every seam call into a `callOrder` slice and
   asserts `pullIdx < saveIdx < writeIdx < restartIdx`. A no-op swap skips the
   restart entirely (WR-06).
+- **Capture-before-mutate + verbatim rollback** (`internal/backendswap`, the
+  v1.1 ROCm opt-in A/B swap): a backend switch must snapshot the current state
+  before touching anything (`TestCaptureBeforeMutate`), restart **only** the
+  inference unit (`TestSwapInferenceOnly`), refuse the swap if the snapshot can't
+  be captured (`TestCaptureFailureRefuses`), and on a mid-swap error restore the
+  original units **byte-for-byte** (`TestRollbackVerbatim`,
+  `TestMutateErrorRollsBack`). A same-backend request is a no-op
+  (`TestNoOpSameBackend`); ROCm is gated behind a fit guard and a prove-flight
+  (`TestRefuseFitGuard`, `TestRefuseProveFlightROCm`, `TestProveGate`).
 - **Block-before-side-effects** (`cmd/villa/lifecycle_test.go`,
   `install_test.go`): when an upstream step fails (e.g. the model file cannot be
   resolved from the catalog), the handler must return the blocked exit code
@@ -185,10 +237,35 @@ These tests drive frozen fixtures rather than a live server:
   (`≥ 0.5×weight → PASS`, `< 0.1×weight → FAIL`, in-between → WARN). It reads
   through the `detect` sysfs seam and never hard-codes `card0`.
 - `running_offload_test.go` — the already-running-server verdict: residency
-  proven by the journald `load_tensors: Vulkan0 model buffer size = N MiB` line,
-  corroborated by a point-in-time GTT floor, with `/props` used only as a
-  config-identity drift overlay. Every signal degrades to a typed Unknown →
-  WARN, never a false PASS.
+  proven by the journald `load_tensors: Vulkan0 model buffer size = N MiB` line
+  (`Vulkan0` for the Vulkan backend; `ROCm0` for the v1.1 ROCm backend,
+  `TestRunningServerROCmResidency`), corroborated by a point-in-time GTT floor
+  (`TestGTTFloorCorroboration`), with `/props` used only as a config-identity
+  drift overlay (`TestRunningServerOffloadPropsDrift`). A ROCm "Memory access
+  fault" line forces FAIL (`TestScrapeLoadTensorsResidencyFault`). The v1.1
+  code-review hardened the device-buffer parse with two regression tests:
+  `TestScrapeLoadTensorsResidencyMaxNotLast` (the largest buffer wins even when
+  it is not the last line) and `TestScrapeLoadTensorsResidencyEmptyDeviceToken`
+  (an empty device token never mis-keys the residency proof). Every signal
+  degrades to a typed Unknown → WARN, never a false PASS.
+
+A parallel set of ROCm preflight gates lives in
+`internal/preflight/checks_rocm_test.go` — gfx/kernel/firmware/HSA-override/image
+checks, each covering its FAIL and pass branches (e.g.
+`TestRunROCmFirmware` exercises both a denied firmware version and an unknown one),
+plus `TestRunROCmOffHardwareNoFalseFail` proving the gates never over-block when
+run off a real gfx1151.
+
+### Honest A/B benchmark tests
+
+`internal/bench` (the v1.1 `villa bench` honest A/B harness) verifies the
+measurement discipline itself rather than any host effect: warmup runs are
+discarded from the stats (`TestWarmupDiscarded`), prompt-processing and
+token-generation rates are reported separately (`TestSeparatePPTG`), a
+non-resident or memory-exhausted run is voided rather than scored
+(`TestVoidNonResident`, `TestVoidExhaustionWarn`), both arms of an A/B run use an
+identical spec (`TestIdenticalSpecBothSides`), and the harness restores the
+original backend/config after the run (`TestBenchABRestoresOriginal`).
 
 ## Writing new tests
 
@@ -224,9 +301,20 @@ go test ./... -cover
 go test ./... -coverprofile=cover.out && go tool cover -html=cover.out
 ```
 
-For reference, a full `go test ./...` run reports **434 tests passing across 17
-packages** (50 `_test.go` files), but this is an observed run total, not an
-enforced threshold.
+For reference, a full `go test ./...` run exercises roughly 380+ test functions
+across the 16 control-plane packages (50-plus `_test.go` files), but this is an
+observed run total, not an enforced threshold.
+
+## On-hardware UAT
+
+The automated suite is entirely off-hardware. Validating that a recommended
+config actually loads and runs on a real AMD Strix Halo (gfx1151) — including the
+v1.1 ROCm opt-in backend and the honest A/B benchmark — is a **separate, manual
+UAT step** performed against a live host (Phases 8/9/10 ran this on real
+gfx1151). It is not invoked by `go test` and is not required for CI: the unit
+suite proves the parsing, ordering, rendering, and verdict logic against frozen
+fixtures, while the UAT proves the integrated stack comes up healthy on the
+detected hardware.
 
 ## CI integration
 
@@ -236,8 +324,9 @@ pull request. The intended local gate before committing is:
 
 ```bash
 make check   # go vet ./... && go test ./...
+make lint    # golangci-lint (optional; falls back to go vet)
 ```
 
-When a CI workflow is added, `make check` (or `go vet ./... && go test ./...`)
-is the command it should run; the suite needs no services, secrets, or GPU and
-therefore runs on any standard Linux runner.
+When a CI workflow is added, `make check` (or `go vet ./... && go test ./...`),
+optionally with `make lint`, is the command it should run; the suite needs no
+services, secrets, or GPU and therefore runs on any standard Linux runner.

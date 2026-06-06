@@ -7,14 +7,14 @@ A single Go CLI (`villa`) that stands up a private, local AI workspace on your o
 
 VillaStraylight is for privacy-conscious power users who want a ChatGPT/Claude-class experience that runs entirely on their own machine, with no data leaving the box. `villa` is the **control plane only** — the AI services (llama.cpp `llama-server`, Open WebUI) are integrated OSS containers, not rebuilt.
 
-> Status: v1.0 shipped (tag `v1.0`). v1.1 (opt-in ROCm backend) is in progress.
+> Status: v1.1 shipped (tag `v1.1`). v1.0 was the Vulkan-only MVP; v1.1 adds an **opt-in ROCm/HIP backend** with a transactional backend switch, an honest A/B benchmark, and backend-aware `recommend`/`status`/dashboard surfacing. Vulkan RADV remains the default.
 
 ## Requirements
 
 - **Go 1.26+** — required to build the `villa` binary (see `go.mod`).
 - **Fedora Workstation 44+** on **AMD Strix Halo (gfx1151)** — the only supported host platform for v1. The architecture leaves room for a future macOS/Apple-Silicon backend, but it is not yet implemented.
 - **Podman v5 (rootless)** with the user socket enabled (`systemctl --user enable --now podman.socket`) — `villa` drives the AI stack through rootless Podman Quadlet/systemd units, not Docker.
-- A **Vulkan RADV** capable GPU stack (Mesa) for the default inference backend.
+- A **Vulkan RADV** capable GPU stack (Mesa) for the default inference backend. The opt-in **ROCm/HIP** backend additionally requires `HSA_OVERRIDE_GFX_VERSION=11.5.1` in the runtime environment; the ROCm preflight gate refuses bring-up if it is absent.
 
 `villa preflight` checks these host requirements (Vulkan ICD + iGPU enumeration, Podman rootless readiness, SELinux/linger state, and disk/memory floors) and tells you what is missing before you install anything.
 
@@ -68,6 +68,8 @@ villa detect                          # print a hardware profile (CPU/arch, iGPU
                                       # Vulkan/ROCm availability, RAM, usable GTT envelope)
 villa recommend --alternatives        # show the fit math and other fitting picks
 villa recommend --save                # persist the pick to ~/.config/villa/config.toml
+                                      # (recommend reports the backend and an honesty-bounded
+                                      #  ROCm hint; the recommended backend stays vulkan)
 ```
 
 **Validate inference before committing to a full install:**
@@ -85,11 +87,27 @@ villa model pull <name>               # download and verify a GGUF model into th
 villa model swap <name>               # fit-guard, auto-pull, persist config, restart inference
 ```
 
+**Switch and benchmark the inference backend (v1.1):**
+
+```bash
+villa backend show                    # active backend (from config) + resolved digest-pinned image tag
+villa backend set rocm                # transactional switch: re-fit-guard, ROCm preflight, restart, prove
+                                      # GPU residency in a bounded timeout — rolls back verbatim on any failure
+villa backend set vulkan --dry-run    # preview target/fit/preflight without mutating anything
+villa bench                           # honest throughput of the running backend: separate
+                                      # prompt-processing (pp) and token-generation (tg) tok/s
+villa bench --ab                      # also flip to the other backend, bench it identically,
+                                      # restore the original, and report the per-metric A/B delta
+```
+
+`villa backend set <vulkan|rocm>` is transactional (capture → mutate → prove → rollback): a failed switch is a no-op to the running stack. Vulkan RADV is the default; ROCm is strictly opt-in. `villa bench` flags include `--reps`/`-n` (counted runs per side, default 5), `--warmup` (discarded warm-up runs, default 1), and `--n-predict` (fixed `max_tokens` per run, default 128).
+
 **Run the stack lifecycle:**
 
 ```bash
 villa up [service]                    # reconcile config into units and start (whole stack or one service)
-villa status                          # aggregated health: unit + container + /health + GPU-offload proof
+villa status                          # aggregated health: unit + container + /health + GPU-offload proof,
+                                      # plus the active backend and its resolved image tag
 villa logs [service]                  # show (and optionally follow) journald logs
 villa restart [service]               # re-render units from config and restart
 villa down [service]                  # stop without removing units
@@ -114,7 +132,7 @@ Key fields (`internal/config/villaconfig.go`):
 | `model` | (from `recommend`) | Chosen catalog model id. |
 | `quant` | (from `recommend`) | Chosen quantization (e.g. `UD-Q4_K_M`). |
 | `ctx` | (from `recommend`) | Context length in tokens. |
-| `backend` | `vulkan` | Inference backend (Vulkan RADV by default for gfx1151). |
+| `backend` | `vulkan` | Inference backend: `vulkan` (RADV, default for gfx1151) or the opt-in `rocm`. Switch it transactionally with `villa backend set`. |
 | `catalog_path` | (embedded) | Optional path to an external catalog JSON override. |
 | `dashboard_addr` | `127.0.0.1` | Loopback-only bind address for the control dashboard. Never widened to a routable interface. |
 | `dashboard_port` | `8888` | Host port the control dashboard listens on. |
@@ -138,9 +156,9 @@ make tidy       # go mod tidy
 make clean      # remove build artifacts
 ```
 
-The CLI entry point is `cmd/villa/main.go`; the control-plane libraries live under `internal/` (`detect`, `recommend`, `catalog`, `preflight`, `download`, `inference`, `orchestrate`, `modelswap`, `status`, `dashboard`, `metrics`, `config`).
+The CLI entry point is `cmd/villa/main.go`; the control-plane libraries live under `internal/` (`detect`, `recommend`, `catalog`, `preflight`, `download`, `inference`, `orchestrate`, `modelswap`, `backendswap`, `bench`, `status`, `dashboard`, `metrics`, `config`).
 
-> Note: an earlier exploratory scaffold (`cmd/villastraylight`, `internal/{llm,server}`, `web/`, and `.env.example`) remains in the tree as a reference-only parts bin. It is superseded by the `villa` control plane and is not the current architecture.
+> Note: an earlier exploratory scaffold left reference-only remnants in the tree — `internal/llm` (an OpenAI-compatible SSE client, cannibalized for the gateway) and `web/` (an embedded React UI). They are superseded by the `villa` control plane plus integrated Open WebUI and are not part of the current architecture.
 
 ## License
 

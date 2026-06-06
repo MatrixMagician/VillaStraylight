@@ -26,7 +26,7 @@ Notes:
   by default and synthesizes typed defaults when no config exists. The `.env.example`
   at the repo root belongs to the legacy reference-only scaffold (see below), not to
   the `villa` control plane.
-- The dependency set is small and pure-Go: `cobra` (CLI), `chi`/`cors` (dashboard
+- The dependency set is small and pure-Go: `cobra` (CLI), `chi` (dashboard
   HTTP), `ghw` (hardware detection), and `BurntSushi/toml` (config). All are vendored
   through the module graph; run `make tidy` after changing imports.
 - **You do not need a Strix Halo host, Podman, or a GPU to develop.** Every
@@ -56,20 +56,42 @@ self-documented target list.
 The binary name is `villa` and the only current entry point is `cmd/villa/main.go`
 (`BINARY := villa` in the `Makefile`).
 
+### Gotcha: the dashboard runs a long-lived copy of the binary
+
+`status`, `recommend`, `detect`, and the other one-shot subcommands run fresh from
+`./villa` every invocation, so a rebuild is picked up immediately. The **dashboard is
+different**: `villa-dashboard.service` is a native systemd user unit
+(`internal/orchestrate/dashboard_unit.go`, `DashboardServiceName =
+"villa-dashboard.service"`) that holds a long-lived `villa dashboard` process. After
+rebuilding, the running service still executes the *old* binary until you restart it:
+
+```bash
+go build -o ./villa ./cmd/villa            # or: make build
+systemctl --user restart villa-dashboard.service   # required to load new dashboard code
+```
+
+<!-- VERIFY: villa-dashboard.service is installed as a user unit on a real host; the unit and DashboardServiceName are confirmed in-repo, the systemctl --user restart step is host behavior -->
+If you are iterating on dashboard backend code and your changes do not appear, this
+restart is almost always the reason.
+
 ## Package layout you will touch
 
 The repo follows the standard Go `cmd/` + `internal/` split. The first-party,
 under-active-development code is:
 
 - `cmd/villa/` — the cobra CLI: one file per subcommand (`detect.go`, `recommend.go`,
-  `preflight.go`, `model.go`, `install.go`, `up.go`/`down.go`/`restart.go`/`logs.go`,
-  `status.go`, `dashboard.go`, `uninstall.go`) plus `root.go` and the live-wiring of
-  each package's seams. This is the only layer that prints, maps verdicts to exit
-  codes, and calls `os.Exit`.
+  `preflight.go`, `model.go`, `install.go` (+ `install_hostprep.go`),
+  `up.go`/`down.go`/`restart.go`/`logs.go` (shared wiring in `lifecycle.go`),
+  `status.go`, `dashboard.go`, `config.go`, `backend.go`, `bench.go`, `uninstall.go`)
+  plus `root.go` and the live-wiring of each package's seams. This is the only layer
+  that prints, maps verdicts to exit codes, and calls `os.Exit`.
 - `internal/` — the pure / seam-injected libraries: `detect`, `catalog`, `recommend`,
   `preflight`, `download`, `config`, `inference`, `orchestrate`, `modelswap`,
-  `status`, `metrics`, `dashboard`. Each returns typed values and contains no CLI
-  behavior.
+  `backendswap`, `bench`, `llm`, `status`, `metrics`, `dashboard`. Each returns typed
+  values and contains no CLI behavior. (`backendswap` and `bench` are the v1.1
+  additions: the transactional Vulkan↔ROCm cutover core and the honest A/B benchmark
+  core; `internal/llm` is reused from the legacy scaffold as the bench per-request
+  timings source — `bench.go` imports it for `llm.Complete`.)
 
 ### Legacy reference-only scaffold — do not extend
 
@@ -77,9 +99,8 @@ The following trees are an earlier exploratory scaffold (an embedded-React-UI,
 OpenAI-compatible proxy). It is **superseded** by the `villa` control plane and
 integrated Open WebUI, and is kept only as a parts bin:
 
-- `cmd/villastraylight/`
-- `internal/llm/`, `internal/server/`
-- `web/`
+- `internal/llm/` (an OpenAI-compatible SSE client)
+- `web/` (an embedded React UI)
 - the root `.env.example`
 
 Do not add features to these packages or let their layout constrain new work. New
@@ -134,6 +155,20 @@ the network. Two idioms appear:
   implementation in the wiring — never call `exec.Command`, `os`, or `net/http`
   directly from decision logic.
 
+  **The `live*Deps` convention.** Every command's real host wiring is built by a single
+  constructor named `live<Noun>Deps` that fills the deps struct with the genuinely
+  host-touching functions; the rest of the file is pure decision logic that takes the
+  struct as a parameter. The current constructors are `liveInstallDeps`,
+  `liveStatusDeps`, `liveDashboardDeps`, `liveLifecycleDeps`, `liveConfigDeps`,
+  `liveListDeps`, `liveSwapDeps`, `liveUninstallDeps`, plus the v1.1 additions
+  `liveBackendSwapDeps` (`cmd/villa/backend.go`) and `liveBenchDeps`
+  (`cmd/villa/bench.go`). Individual injected effects follow the same `live*` prefix
+  (e.g. `liveProve`, `liveMeasure`, `liveModelFile`, `liveWeightBytes`,
+  `liveReadinessPoll`, `liveLingerDeps`). To find every host boundary in the cmd
+  tier, `grep -rn "func live" cmd/villa/*.go`. When you add a subcommand, mirror this:
+  one `live<Noun>Deps` constructor, a deps struct of function fields, and a test that
+  swaps each field for a fake.
+
 ### 2. Byte-golden tests for generated artifacts
 
 Anything `villa` renders or emits as a stable contract — Quadlet units and `--json`
@@ -152,11 +187,14 @@ go test ./cmd/villa/... -update
 Examples in the tree:
 
 - `internal/orchestrate/render_test.go` freezes each rendered Quadlet unit
-  (`villa-llama.container`, `villa.network`, `villa-models.volume`,
-  `villa-openwebui.container`/`.volume`) against `internal/orchestrate/testdata/*.golden`.
-  The fixture `RenderInput` uses a **fixed absolute path** (not live `$HOME`) so the
-  golden is stable in CI, and the image digest is sourced **through** the backend seam
-  (`inference.VulkanBackend()`), never hand-typed in the test.
+  (`villa-llama.container`, `villa-llama-rocm.container`, `villa.network`,
+  `villa-models.volume`, `villa-openwebui.container`/`.volume`, and the native
+  `villa-dashboard.service`) against `internal/orchestrate/testdata/*.golden`. The
+  fixture `RenderInput` uses a **fixed absolute path** (not live `$HOME`) so the golden
+  is stable in CI, and the image digest is sourced **through** the backend seam
+  (`inference.VulkanBackend()` / the ROCm backend), never hand-typed in the test. The
+  separate `villa-llama-rocm.container.golden` is the proof that the v1.1 ROCm opt-in
+  renders its own device/env block without a caller ever typing a backend literal.
 - `cmd/villa/recommend_test.go` freezes `villa recommend --json` against
   `cmd/villa/testdata/recommend.golden.json` from a deterministic fixture
   `Recommendation`. The same pattern backs the `detect`, `preflight`, `inference`, and
@@ -174,22 +212,44 @@ alongside a new golden when the bytes encode a security or privacy contract.
 
 ### 3. The seam grep-gate
 
-`internal/inference/seam_test.go` (`TestSeamGrepGate`) is a structural test that walks
-every non-test `.go` file under `internal/` and fails if an **imperative backend leak**
-appears outside the sanctioned seam (`internal/inference/` and
-`internal/detect/gpu_amd.go`). The four gated patterns are:
+`internal/inference/seam_test.go` (`TestSeamGrepGate`) is a structural test that fails
+if an **imperative backend leak** appears outside the sanctioned seam
+(`internal/inference/` and `internal/detect/gpu_amd.go`). As of v1.1 it walks **two**
+trees with two pattern sets:
+
+**Walk 1 — every non-test `.go` under `internal/`.** Four gated patterns:
 
 - `runtime.GOOS` / `GOOS ==` platform branching,
-- the container **image** literal (`kyuz0`, `docker.io/`, `server-vulkan`),
+- the container **image** literal — `kyuz0`, `docker.io/`, `server-vulkan`, and now the
+  ROCm tags `rocm-7.2.4` / `rocm7-nightlies` (added for explicit intent: a ROCm image
+  tag leaking outside the seam must fail CI),
 - container **device** args (`--device /dev/dri`, `--group-add`, `keep-groups`),
 - `podman` process invocations (`exec.Command("podman", …)`, `"podman" run|stop|logs`).
 
+**Walk 2 — every non-test `.go` under `cmd/villa`.** The cmd tier *legitimately* invokes
+`podman` (lifecycle up/down/logs, uninstall volume rm — fixed-arg, never a shell), so the
+`podman` pattern does **not** apply here. Instead it gates the three inference-backend
+patterns above **plus** a `backend marker literal` pattern: `ROCm0`,
+`HSA_OVERRIDE_GFX_VERSION`, and `Memory access fault`. These raw backend markers must
+arrive in a cmd-tier caller only through `inference.BackendFor(target).ResidencyProof()`
+— `cmd/villa/backend.go` and `cmd/villa/bench.go` carry explicit "literal-free" header
+comments enforcing exactly this. This is why a new noun (e.g. `villa backend`,
+`villa bench`) composes the `backendswap` core and the exported `inference` prove/measure
+primitives without ever retyping a backend literal.
+
 The gate is deliberately scoped to imperative behavior, not to provenance/remediation
 *strings* that merely name these tools as findings (those are data and predate the
-seam). If you need an image digest, a device passthrough, a `GOOS` branch, or a
-`podman` exec, it must live in the seam — that is how a future ROCm or Metal backend
-slots in as a sibling `Backend` implementation without touching callers. If this test
-goes red, move the literal into the seam rather than widening the allow-list.
+seam). If you need an image digest, a device passthrough, a `GOOS` branch, a `podman`
+exec, or a ROCm/HSA marker, it must live in the seam — that is how the v1.1 ROCm backend
+slotted in (and how a future Metal backend slots in) as a sibling `Backend`
+implementation without touching callers. If this test goes red, move the literal into the
+seam rather than widening the allow-list.
+
+**The positive dual: `TestROCmMarkerPresence`.** The same file holds the inverse gate. It
+reads `internal/inference/backend_rocm.go` and fails if it is **missing** the ROCm-only
+markers `ROCm0`, `HSA_OVERRIDE_GFX_VERSION`, and `/dev/kfd`. Where `TestSeamGrepGate`
+keeps these literals *out* of callers, `TestROCmMarkerPresence` keeps them *in* the seam,
+so a refactor that drops or relocates the ROCm descriptor also trips CI.
 
 ### Running tests
 

@@ -9,9 +9,10 @@ up-to-date project context lives in `.planning/` and in the GSD-managed sections
 below (Project, Technology Stack, etc.):
 
 - `.planning/PROJECT.md` — what this is, core value, constraints, key decisions
-- `.planning/REQUIREMENTS.md` — the 38 v1 requirements (REQ-IDs) and the v2/out-of-scope split
-- `.planning/ROADMAP.md` — the 5-phase vertical-MVP plan and per-phase success criteria
-- `.planning/research/` — STACK / FEATURES / ARCHITECTURE / PITFALLS / SUMMARY (Strix Halo specifics)
+- `.planning/ROADMAP.md` — milestone-grouped phase plan and per-phase success criteria
+- `.planning/MILESTONES.md` — shipped milestone history (v1.0, v1.1); `.planning/RETROSPECTIVE.md` — lessons
+- `.planning/milestones/` — archived per-milestone ROADMAP/REQUIREMENTS (a fresh `.planning/REQUIREMENTS.md` is created per active milestone via `/gsd-new-milestone`)
+- Per-phase research/specs live under `.planning/phases/NN-*/` (e.g. `NN-RESEARCH.md`)
 
 **In one line:** a single Go CLI (`villa`) that auto-detects an AMD Strix Halo
 (gfx1151) Fedora host, recommends a memory-fitting model/quant/context, generates
@@ -20,19 +21,18 @@ inference + **Open WebUI** chat + a control dashboard — strictly local, zero
 telemetry. Go is the **control plane only**; AI services are integrated OSS
 containers, not rebuilt.
 
-No `villa` code exists yet — start with `/gsd-plan-phase 1`.
+**Shipped:** v1.0 MVP and v1.1 (ROCm Opt-In Backend) are complete and tagged on `main`. The `villa` control plane is implemented under `cmd/villa/` + `internal/`. Start the next cycle with `/gsd-new-milestone`.
 
 ## Legacy scaffold (reference-only — NOT the current architecture)
 
-An earlier exploratory scaffold lives in the repo: a single Go binary
-(`cmd/villastraylight`, `internal/{config,llm,server}`, `web/`) that serves an
-embedded React UI and proxies an OpenAI-compatible backend, built/run via the
-`Makefile` (`make build`, `make run`, `make web`, `make test`). **This is
-superseded** — the product integrates Open WebUI for chat and a `villa` control
-plane for orchestration; a custom chat UI is explicitly out of scope
-(see REQUIREMENTS.md). Treat this code as a parts bin: its `internal/llm` SSE
-streaming / OpenAI-compatible client may be cannibalized for the gateway, but do
-not extend it as the app. Don't let its layout constrain new architecture.
+An earlier exploratory scaffold left reference-only remnants in the repo —
+`internal/llm` (an OpenAI-compatible SSE/streaming client) and `web/` (an embedded
+React UI), plus the root `.env.example`. **This is superseded** — the product
+integrates Open WebUI for chat and a `villa` control plane for orchestration; a
+custom chat UI is explicitly out of scope (see PROJECT.md → Out of Scope). Treat
+this code as a parts bin: its `internal/llm` SSE streaming / OpenAI-compatible
+client may be cannibalized for the gateway, but do not extend it as the app.
+Don't let its layout constrain the architecture.
 
 <!-- GSD:project-start source:PROJECT.md -->
 

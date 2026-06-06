@@ -10,6 +10,11 @@ chat in your browser, inference on your iGPU, a control dashboard — using the
 `llama-server` for inference, Open WebUI for chat) are integrated OSS containers,
 orchestrated through rootless Podman Quadlet units. Nothing leaves your machine.
 
+The default first-run path uses the **Vulkan RADV** backend — stable and
+compatible across model sizes. Once that stack is healthy, you can optionally
+trial the **ROCm/HIP** backend with a transactional switch and an honest A/B
+benchmark; see [Trying ROCm (optional, advanced)](#trying-rocm-optional-advanced).
+
 ## Prerequisites
 
 You need the build toolchain to compile `villa`, and a supported host for it to
@@ -178,6 +183,82 @@ read-only control dashboard. Confirm everything is healthy with:
 ./villa status           # unit + container + /health + GPU-offload proof
 ```
 
+`villa status` also reports the active backend and its resolved (digest-pinned)
+container image, so you always know which backend the running stack is on.
+
+## Trying ROCm (optional, advanced)
+
+The default backend is **Vulkan RADV**, and it is the only backend exercised on
+the v1.0 happy path above. Vulkan is stable and compatible across model sizes;
+**you do not need to do anything in this section to have a working stack.**
+
+v1.1 adds an **opt-in ROCm/HIP backend** as a performance option. ROCm can win on
+token generation at long context, but it is more sensitive to kernel/firmware
+versions and requires a runtime override — so it is strictly opt-in, never the
+first-run default. Only trial it once your Vulkan stack is already healthy
+(`./villa status` is green).
+
+The switch is **transactional** (capture → mutate → prove → rollback): a failed
+switch is a no-op to the running stack — your Vulkan setup is restored verbatim,
+so trialing ROCm cannot leave you worse off.
+
+### 1. Inspect the active backend
+
+```bash
+./villa backend show     # active backend (from config) + resolved digest-pinned image
+```
+
+### 2. Preview the switch without changing anything
+
+`--dry-run` reports the target, the fit verdict (the preserved model re-checked
+against the target envelope), and the ROCm preflight — and writes nothing:
+
+```bash
+./villa backend set rocm --dry-run
+```
+
+### 3. Switch to ROCm
+
+```bash
+./villa backend set rocm
+```
+
+This re-fit-guards the preserved model, runs the ROCm preflight gate, regenerates
+**only** the inference unit, restarts it, and **proves** the cutover with a real
+generation probe plus a GPU-residency check inside a bounded timeout. If any step
+fails — or the preflight refuses (e.g. a too-old kernel, a denied linux-firmware
+build, or a missing `HSA_OVERRIDE_GFX_VERSION`) — the switch rolls back verbatim
+and your Vulkan stack keeps running. <!-- VERIFY: kernel version, linux-firmware date, and gfx1151 readiness are host facts probed at runtime and cannot be confirmed from the repository alone -->
+
+The ROCm preflight is also available standalone (read-only):
+
+```bash
+./villa preflight --backend rocm
+```
+
+### 4. Compare the two backends honestly
+
+```bash
+./villa bench            # throughput of the RUNNING backend only (non-disruptive)
+./villa bench --ab       # also flip to the other backend, bench it identically,
+                         # restore the original, and report the per-metric delta
+```
+
+`villa bench` reports prompt-processing (pp) and token-generation (tg) throughput
+**separately** — never a blended number. `--ab` always restores the original
+backend on exit. Tuning flags: `--reps`/`-n` (counted runs per side, default `5`),
+`--warmup` (discarded warm-up runs, default `1`), and `--n-predict` (fixed
+`max_tokens` per run, default `128`).
+
+### 5. Switch back to Vulkan
+
+```bash
+./villa backend set vulkan
+```
+
+The same transactional guarantees apply. Vulkan RADV is always a safe place to
+return to.
+
 ## Common setup issues
 
 Most first-run problems are exactly the things `villa preflight` flags. Run it
@@ -227,10 +308,12 @@ first — the table tells you which check failed and prints the fix.
 ## Next steps
 
 - **[README.md](../README.md)** — the full command reference (model management,
-  inference validation, the lifecycle verbs `up` / `down` / `restart` / `logs`).
+  inference validation, the lifecycle verbs `up` / `down` / `restart` / `logs`,
+  and the v1.1 `backend` / `bench` verbs).
 - **[CONFIGURATION.md](CONFIGURATION.md)** — the `config.toml` surface (model,
   quant, ctx, backend, dashboard/chat ports), where it lives
-  (`~/.config/villa/config.toml`), and how to inspect or change it with
-  `villa config show` / `villa config set`.
+  (`~/.config/villa/config.toml`), how to inspect or change it with
+  `villa config show` / `villa config set`, the backend-selection rules, and the
+  ROCm bring-up policy (version floors, denylists, required override).
 - **[ARCHITECTURE.md](ARCHITECTURE.md)** — how the control plane, the generated
   Quadlet units, and the integrated OSS containers fit together.
