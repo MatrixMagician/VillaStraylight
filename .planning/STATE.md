@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: ROCm Opt-In Backend
-status: verified
-stopped_at: Phase 09 complete — verified (3/3 on-hardware UAT PASS) + secured (11/11); next Phase 10 unplanned
-last_updated: "2026-06-06T18:40:00.000Z"
-last_activity: 2026-06-06 -- Phase 09 verified + secured; on-hardware UAT 3/3 PASS (Δpp +4.84 / Δtg −11.15)
+status: verifying
+stopped_at: Phase 10 context gathered
+last_updated: "2026-06-06T18:07:28.281Z"
+last_activity: 2026-06-06 -- Phase 09 verified + secured; on-hardware UAT 3/3 PASS
 progress:
   total_phases: 5
   completed_phases: 4
@@ -170,9 +170,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-06T16:49:46.578Z
-Stopped at: Completed 09-03-PLAN.md (villa bench noun — honest A/B)
-Resume file: None — Phase 09 plans complete; next is Phase 10 (surfacing) planning
+Last session: 2026-06-06T18:07:28.276Z
+Stopped at: Phase 10 context gathered
+Resume file: .planning/phases/10-backend-tok-s-surfacing/10-CONTEXT.md
 
 ## Operator Next Steps
 
