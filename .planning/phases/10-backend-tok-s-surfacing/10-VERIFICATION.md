@@ -120,5 +120,33 @@ Status is **human_needed** solely because live ROCm-residency and live non-zero 
 
 ---
 
+## On-Hardware UAT Outcome (2026-06-06T21:50:00Z)
+
+`/gsd-verify-work 10 --auto` was executed on **real gfx1151 hardware** (this host = AMD
+Ryzen AI Max 300 / RADV STRIX_HALO) against the **live Vulkan stack** (villa-llama =
+kyuz0 vulkan-radv, model Qwen3.6-35B-A3B). The deployed `./villa` binary was stale
+(built 18:49, pre-Phase-10); it was rebuilt from HEAD and `villa-dashboard.service` was
+restarted to load the current code. Full results in `10-UAT.md`.
+
+- **Human item 2 — dashboard Performance + Health panels under live generation → PASS.**
+  Verified live via Playwright during active generation: Performance panel
+  `generation 60.3 tok/s (vulkan)`; Health panel backend `vulkan` + full image digest
+  `…vulkan-radv@sha256:9a74e555…` + readiness badge `unknown` (honest fold). `/api/metrics`
+  top-level shape unchanged. Screenshot: `.playwright-mcp/phase10-dashboard-live-vulkan.png`.
+- **Human item 1 — ROCm-labeled residency + tok/s → BLOCKED (third-party / environmental).**
+  No ROCm toolchain on this host (`rocminfo` absent); stack runs Vulkan. The ROCm-specific
+  values (`backend=rocm`, ROCm0 markers, `ready/not-ready` badge) require a ROCm-7.2.4 stack
+  not provisioned here. The backend-AGNOSTIC surfacing mechanism was fully verified live on
+  the Vulkan equivalent (identity from resolved backend, live `60.3 tok/s (vulkan)`, idle→omit,
+  residency PASS on resolved-backend markers, honest `unknown` readiness) — only the ROCm
+  backend swap remains. Standing deferral, consistent with Phases 8/9. NOT a code defect.
+
+**Net:** Phase 10 surfacing is now live-verified end-to-end on real gfx1151 hardware for the
+default (Vulkan) path. The sole outstanding UAT item is gated on a ROCm install and will be
+re-exercised when a ROCm-configured stack is available.
+
+---
+
 _Verified: 2026-06-06T21:05:00Z_
 _Verifier: Claude (gsd-verifier)_
+_On-hardware UAT: 2026-06-06T21:50:00Z (Vulkan path PASS; ROCm path blocked on provisioning)_
