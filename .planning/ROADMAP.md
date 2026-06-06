@@ -24,7 +24,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 6: ROCm Backend + Resolver Spine** — `BackendFor()` resolver + `ResidencyProof()` interface extension + `backend_rocm.go` with the HIP residency proof; re-route the 7 hardcoded `VulkanBackend()` sites (off-hardware) (completed 2026-06-05)
 - [x] **Phase 7: ROCm Render Unit + Preflight/Detect** — ROCm Quadlet rendering (kfd device + ordered HSA-override env, new byte-golden, Vulkan golden unchanged) + reusable refuse-with-remediation ROCm preflight verdict + detect readiness fields (off-hardware) (completed 2026-06-06)
 - [ ] **Phase 8: `villa backend set` Switch Verb + Rollback** — transactional capture→prove→cutover→rollback backend switch on a running install (on-hardware risk concentration) (built + off-hardware verified 2026-06-06; awaiting on-hardware UAT via `/gsd-verify-work 8`)
-- [ ] **Phase 9: `villa bench` (Honest A/B)** — read-only A/B over the running `/v1`+`/metrics`, composing the Phase-8 switch; separate pp/tg tok/s with warmup + N-reps + noise band
+- [ ] **Phase 9: `villa bench` (Honest A/B)** — read-only A/B over the running `/v1`+`/metrics`, composing the Phase-8 switch; separate pp/tg tok/s with warmup + N-reps + noise band (all 3 plans built + off-hardware verified 2026-06-06; awaiting on-hardware UAT)
 - [ ] **Phase 10: Backend + tok/s Surfacing** — backend-aware `recommend` advice + dashboard/`status` active-backend + live tok/s, as append-only `--json`/golden additions
 
 ## Phase Details
@@ -116,7 +116,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 **Wave 2** *(blocked on Wave 1 — consumes `llm.Complete` + the `bench` Deps/Run)*
 
-- [ ] 09-03-PLAN.md — `cmd/villa/bench.go` cobra noun + `liveMeasure` (liveProve clone) + `liveBenchDeps` (`--ab`→`backendswap.Run`, LOCKED) + exit map + frozen separate-pp/tg `--json` golden + root registration [BENCH-01, BENCH-02]
+- [x] 09-03-PLAN.md — `cmd/villa/bench.go` cobra noun + `liveMeasure` (liveProve clone) + `liveBenchDeps` (`--ab`→`backendswap.Run`, LOCKED) + exit map + frozen separate-pp/tg `--json` golden + root registration [BENCH-01, BENCH-02]
 
 **Research flag**: on-hardware — the per-model pp-vs-tg delta and ROCm-7.x-vs-6.4.4 ordering are workload-dependent and volatile; validate the residency-checked numbers on the live host before trusting the throughput-delta success criterion. Confirm SELinux `/dev/kfd` behavior here or in Phase 7.
 
@@ -149,5 +149,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | 6. ROCm Backend + Resolver Spine | v1.1 | 3/3 | Complete    | 2026-06-05 |
 | 7. ROCm Render Unit + Preflight/Detect | v1.1 | 3/3 | Complete    | 2026-06-06 |
 | 8. `villa backend set` Switch Verb + Rollback | v1.1 | 2/2 | Complete   | 2026-06-06 |
-| 9. `villa bench` (Honest A/B) | v1.1 | 2/3 | In Progress|  |
+| 9. `villa bench` (Honest A/B) | v1.1 | 3/3 | Complete (awaiting UAT) |  |
 | 10. Backend + tok/s Surfacing | v1.1 | 0/TBD | Not started | - |

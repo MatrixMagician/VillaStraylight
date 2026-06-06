@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: ROCm Opt-In Backend
 status: executing
-stopped_at: Completed 08-01-PLAN.md (backendswap transactional core)
-last_updated: "2026-06-06T16:20:59.175Z"
-last_activity: 2026-06-06 -- Phase 09 execution started
+stopped_at: Completed 09-03-PLAN.md (villa bench noun — honest A/B)
+last_updated: "2026-06-06T16:27:00.000Z"
+last_activity: 2026-06-06 -- Phase 09 Plan 3 complete (villa bench wired)
 progress:
   total_phases: 5
   completed_phases: 3
   total_plans: 11
-  completed_plans: 10
-  percent: 60
+  completed_plans: 11
+  percent: 65
 ---
 
 # Project State
@@ -26,9 +26,9 @@ See: .planning/PROJECT.md (updated 2026-06-03)
 ## Current Position
 
 Phase: 09 (villa-bench-honest-a-b) — EXECUTING
-Plan: 3 of 3
-Status: Ready to execute
-Last activity: 2026-06-06 -- Phase 09 execution started
+Plan: 3 of 3 — COMPLETE
+Status: All Phase 09 plans executed (01 llm.Complete, 02 internal/bench core, 03 villa bench noun)
+Last activity: 2026-06-06 -- Phase 09 Plan 3 complete (villa bench wired)
 
 ## Performance Metrics
 
@@ -73,6 +73,7 @@ Last activity: 2026-06-06 -- Phase 09 execution started
 | Phase 08 P02 | 18min | 2 tasks | 3 files |
 | Phase 09 P01 | 6 min | 1 tasks | 2 files |
 | Phase 09 P02 | 4 min | 2 tasks | 3 files |
+| Phase 09 P03 | 4 min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -132,6 +133,7 @@ Recent decisions affecting current work:
 - [Phase ?]: [09-01]: llm.Complete is the honest measurement leaf — a non-streaming stream:false /v1 completion returning the server-computed per-request timings block (pp/tg already separated) that StreamChat discards; completeResponse deserializes ONLY the numeric timings (T-09-01), non-200 bounded by io.LimitReader 2048 (T-09-02), fixed max_tokens/seed/temperature on the wire for reproducibility, stdlib-only/go.mod unchanged, literal-free of backend markers.
 - [Phase ?]: [09-02] internal/bench is the pure honest-benchmark core: warmup-discard, residency void-gate (resident==false excluded/counted, never a slow pass), bounded void-exhaustion WARN below MinResident, separated pp/tg median+stddev; print-free/exit-free, cobra layer (09-03) owns presentation.
 - [Phase ?]: [09-02] The --ab flip composes backendswap.Run via injected Switch/Restore (LOCKED, never re-implemented); defer Restore(orig) registered BEFORE the flip so every exit path restores; package imports no inference/detect, markers arrive only via Measure verdict (seam gate green).
+- [Phase ?]: [09-03] villa bench noun wires llm.Complete + internal/bench: liveMeasure is a liveProve clone (residency gate, during-decode GPUBusyPercent sampling, spec.Timeout load_tensors-hang guard) swapping GenerationProbe for llm.Complete; resident ONLY for inference.StatusPass (CPU-fallback completion is VOID, not a slow pass). Plain `bench` benches only the running backend (zero flips, SC#1); --ab delegates Switch/Restore to backendswap.Run via the SAME liveBackendSwapDeps wiring (LOCKED) and restores the original (SC#3). Spec rides the live Measure closure (the LOCKED core threads its own context.Background()); the no-endpoint reachability pre-check is a package-level `var benchEndpointReachable` indirection (NOT a new bench.Deps field). Exit map: no-endpoint->exitBlocked, void-exhaustion->exitWarn, clean->exitPass. --json (bench.json.golden) carries separate prompt_per_sec/predicted_per_sec (+stddevs) per side + per-metric delta (Phase-10 read contract); bench.go literal-free of markers (TestSeamGrepGate green).
 
 ### Pending Todos
 
@@ -166,9 +168,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-06T16:20:24.517Z
-Stopped at: Completed 08-01-PLAN.md (backendswap transactional core)
-Resume file: .planning/phases/08-villa-backend-set-switch-verb-rollback/08-02-PLAN.md
+Last session: 2026-06-06T16:27:00.000Z
+Stopped at: Completed 09-03-PLAN.md (villa bench noun — honest A/B)
+Resume file: None — Phase 09 plans complete; next is Phase 10 (surfacing) planning
 
 ## Operator Next Steps
 
