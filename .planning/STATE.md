@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: ROCm Opt-In Backend
 status: completed
-stopped_at: Phase 6 context gathered
-last_updated: "2026-06-05T23:42:37.225Z"
+stopped_at: Phase 7 context gathered
+last_updated: "2026-06-06T08:55:09.756Z"
 last_activity: 2026-06-05
 progress:
   total_phases: 5
@@ -149,9 +149,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-05T23:18:24.983Z
-Stopped at: Phase 6 context gathered
-Resume file: .planning/phases/06-rocm-backend-resolver-spine/06-CONTEXT.md
+Last session: 2026-06-06T08:55:09.751Z
+Stopped at: Phase 7 context gathered
+Resume file: .planning/phases/07-rocm-render-unit-preflight-detect/07-CONTEXT.md
 
 ## Operator Next Steps
 
