@@ -383,22 +383,22 @@ RestoreUnit: func(b []byte) error {
 | A4 | The prove timeout can reuse/derive from `defaultReadyTimeout` (5m) as the bounded `load_tensors`-hang guard | Pitfall 2 | LOW — value is a tunable constant; on-hardware UAT may suggest a different bound for large ROCm loads. Externalize as a named constant. |
 | A5 | No new external Go dependency is required | Package Legitimacy Audit / Standard Stack | LOW — every needed capability exists in stdlib or in-repo; flagged so the planner treats any proposed new dep as a checkpoint. |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Same-backend `backend set vulkan` when already on vulkan — refuse, no-op, or re-prove?**
    - What we know: `model swap` treats an unchanged target as a clean no-op (WR-06).
    - What's unclear: whether a redundant `backend set <current>` should be a silent no-op (consistent) or a useful "re-prove the running backend" action.
-   - Recommendation: Treat as a no-op (exit 0, "already on <backend>") for consistency with `model swap` and `up` no-op semantics; defer a separate `backend reprove`/`status`-driven re-check. Confirm in discuss-phase.
+   - RESOLVED: Treat as a no-op (exit 0, "already on <backend>") for consistency with `model swap` and `up` no-op semantics; defer a separate `backend reprove`/`status`-driven re-check. Implemented in 08-01-01 (`TestNoOpSameBackend`).
 
 2. **Rollback re-ready: how long to wait for the restored backend to come back up?**
    - What we know: the restored Vulkan backend was working before the switch, so it should re-ready quickly.
    - What's unclear: whether to block on a full re-ready poll or fire-and-report.
-   - Recommendation: best-effort bounded re-ready poll; report "rolled back; prior backend restored" on success and "rolled back; prior backend not yet ready — run `villa status`" if the re-ready poll times out (honest reporting, Pitfall 5).
+   - RESOLVED: best-effort bounded re-ready poll; report "rolled back; prior backend restored" on success and "rolled back; prior backend not yet ready — run `villa status`" if the re-ready poll times out (honest reporting, Pitfall 5). Implemented in 08-01-02 rollback helper.
 
 3. **gpu_busy sampling window during the generation probe (ties to A2).**
    - What we know: `RunningOffloadInput.GPUBusyPercent` is a single point-in-time read; a healthy decode shows non-zero busy.
    - What's unclear: whether one read taken right after the probe reliably catches a busy sample on a short completion.
-   - Recommendation: sample `gpu_busy_percent` DURING the generation probe (or take a couple of samples and keep the max) rather than a single post-probe read; validate on-hardware. This is the heart of the D-07 live-read task — flag for the live UAT.
+   - RESOLVED: sample `gpu_busy_percent` DURING the generation probe (or take a couple of samples and keep the max) rather than a single post-probe read; validate on-hardware. This is the heart of the D-07 live-read task — implemented in 08-02-01 (sampled during the decode), flagged for live UAT.
 
 ## Environment Availability
 
