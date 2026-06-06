@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: ROCm Opt-In Backend
-status: executing
+status: verifying
 stopped_at: Phase 7 context gathered
-last_updated: "2026-06-06T09:38:56.147Z"
+last_updated: "2026-06-06T09:44:47.739Z"
 last_activity: 2026-06-06 -- Phase 07 execution started
 progress:
   total_phases: 5
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 6
-  completed_plans: 5
-  percent: 20
+  completed_plans: 6
+  percent: 40
 ---
 
 # Project State
@@ -27,7 +27,7 @@ See: .planning/PROJECT.md (updated 2026-06-03)
 
 Phase: 07 (rocm-render-unit-preflight-detect) — EXECUTING
 Plan: 3 of 3
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-06-06 -- Phase 07 execution started
 
 ## Performance Metrics
@@ -67,6 +67,7 @@ Last activity: 2026-06-06 -- Phase 07 execution started
 | Phase 06 P03 | 25 min | 3 tasks | 7 files |
 | Phase 07 P01 | 3 min | 3 tasks | 5 files |
 | Phase 07 P02 | 4min | 3 tasks | 7 files |
+| Phase 07 P03 | 14 min | 3 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -119,6 +120,7 @@ Recent decisions affecting current work:
 - [Phase ?]: TestROCmMarkerPresence gates on ROCm0 (not ggml_cuda, which is shared with the CUDA path)
 - [Phase ?]: [07-01]: ROCm villa-llama.container rendered as a pure additive delta over Vulkan (image+kfd+render-group+HSA/hipBLASLt env), byte-frozen by a new golden with the Vulkan golden unchanged. parseContainerArgs collects ALL --device/--group-add/--env tokens (D-09 was incomplete: second group-add + both env flags were silently dropped). BackendLabel keyed off Backend.Name() via a render.go label map (seam-clean, reproduces 'Vulkan RADV' exactly); Env excluded from the defensive check (Vulkan emits zero env, Pitfall 1).
 - [Phase ?]: Phase 7 Plan 2: externalized ROCm version floors + denylists into a go:embed rocm-policy.json; RunROCm refuses bring-up only on confident known-bad (firmware 20251125 / nightly image / kernel <6.18.4 / wrong HSA / non-gfx1151), unevaluable degrades to WARN (PRE-06)
+- [Phase ?]: [07-03]: villa detect --json gains a nested rocm_readiness object appended after the GPU block with hostProfileSchemaVersion bumped 1->2 (additive append-only golden re-freeze; SchemaVersion stays last). Off-hardware undetectable signals (rocminfo_gfx1151, firmware_date_ok, hsa_override_viable) serialize as UnknownBool/UNSET, never a real false (D-08). image_policy_ok is config-driven against the resolved image, not a host probe (Pitfall 5). detect imports neither inference nor preflight (cycles), so the ROCm image-tag + 6.18.4 kernel-floor literals are mirrored behind the gpu_amd.go seam and the version comparator re-expressed there; readiness_rocm.go stays literal-free (TestSeamGrepGate green).
 
 ### Pending Todos
 
@@ -153,7 +155,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-06T09:38:50.766Z
+Last session: 2026-06-06T09:44:32.819Z
 Stopped at: Phase 7 context gathered
 Resume file: .planning/phases/07-rocm-render-unit-preflight-detect/07-CONTEXT.md
 

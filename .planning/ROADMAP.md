@@ -22,7 +22,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Spine-first ordering (forced by research):** nothing can render, switch, or bench a backend that doesn't exist behind a polymorphic resolver. Phase 6 builds the resolver/residency spine; Phase 7 renders the unit + gates the host (both off-hardware); Phase 8 is the on-hardware switch verb (the risk concentration); Phase 9 composes the switch into an honest A/B bench; Phase 10 surfaces backend + tok/s last so the byte-frozen `--json` goldens re-freeze once.
 
 - [x] **Phase 6: ROCm Backend + Resolver Spine** — `BackendFor()` resolver + `ResidencyProof()` interface extension + `backend_rocm.go` with the HIP residency proof; re-route the 7 hardcoded `VulkanBackend()` sites (off-hardware) (completed 2026-06-05)
-- [ ] **Phase 7: ROCm Render Unit + Preflight/Detect** — ROCm Quadlet rendering (kfd device + ordered HSA-override env, new byte-golden, Vulkan golden unchanged) + reusable refuse-with-remediation ROCm preflight verdict + detect readiness fields (off-hardware)
+- [x] **Phase 7: ROCm Render Unit + Preflight/Detect** — ROCm Quadlet rendering (kfd device + ordered HSA-override env, new byte-golden, Vulkan golden unchanged) + reusable refuse-with-remediation ROCm preflight verdict + detect readiness fields (off-hardware) (completed 2026-06-06)
 - [ ] **Phase 8: `villa backend set` Switch Verb + Rollback** — transactional capture→prove→cutover→rollback backend switch on a running install (on-hardware risk concentration)
 - [ ] **Phase 9: `villa bench` (Honest A/B)** — read-only A/B over the running `/v1`+`/metrics`, composing the Phase-8 switch; separate pp/tg tok/s with warmup + N-reps + noise band
 - [ ] **Phase 10: Backend + tok/s Surfacing** — backend-aware `recommend` advice + dashboard/`status` active-backend + live tok/s, as append-only `--json`/golden additions
@@ -70,7 +70,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] 07-01-PLAN.md — ROCM-03: multi-value render (devices + group-adds + env block) + `{{range}}` template + new ROCm byte-golden, Vulkan golden byte-identical
 - [x] 07-02-PLAN.md — PRE-06: `go:embed` `rocm-policy.json` (floors migration no-op) + `RunROCm`/`RunROCmWithPolicy` checks + `villa preflight --backend rocm` wiring
-- [ ] 07-03-PLAN.md — DET-04: nested `rocm_readiness` typed-Optional object + `hostProfileSchemaVersion` 1→2 + re-frozen `detect.golden.json`
+- [x] 07-03-PLAN.md — DET-04: nested `rocm_readiness` typed-Optional object + `hostProfileSchemaVersion` 1→2 + re-frozen `detect.golden.json`
 
 ### Phase 8: `villa backend set` Switch Verb + Rollback
 
@@ -128,7 +128,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | 4. Chat Integration | v1.0 | 3/3 | Complete | 2026-06-05 |
 | 5. Control Dashboard | v1.0 | 8/8 | Complete | 2026-06-05 |
 | 6. ROCm Backend + Resolver Spine | v1.1 | 3/3 | Complete    | 2026-06-05 |
-| 7. ROCm Render Unit + Preflight/Detect | v1.1 | 2/3 | In Progress|  |
+| 7. ROCm Render Unit + Preflight/Detect | v1.1 | 3/3 | Complete   | 2026-06-06 |
 | 8. `villa backend set` Switch Verb + Rollback | v1.1 | 0/TBD | Not started | - |
 | 9. `villa bench` (Honest A/B) | v1.1 | 0/TBD | Not started | - |
 | 10. Backend + tok/s Surfacing | v1.1 | 0/TBD | Not started | - |

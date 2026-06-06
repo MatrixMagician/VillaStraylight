@@ -30,7 +30,7 @@ Milestone 1 — "Core platform." Each maps to a roadmap phase. All are hypothese
 ### Inference (INF)
 
 - [x] **PRE-06**: A reusable ROCm-specific preflight verdict gates ROCm bring-up — confirms `rocminfo`/gfx1151, enforces kernel floor (≥6.18.4), blocks the known-bad `linux-firmware-20251125` (≥20260110 good), requires the HSA override, and refuses `rocm7-nightlies`; expressed as externalized (`go:embed`-updatable) version policy (ranges + denylist) and refuses-with-remediation, biased to not over-block a genuinely-working host.
-- [ ] **DET-04**: `villa detect` reports ROCm readiness (additive fields on the host profile / `--json`, schema-bumped, never reordering the frozen v1.0 contract).
+- [x] **DET-04**: `villa detect` reports ROCm readiness (additive fields on the host profile / `--json`, schema-bumped, never reordering the frozen v1.0 contract).
 
 ### Orchestration (ORCH)
 
@@ -111,7 +111,7 @@ Explicitly excluded. Documented to prevent scope creep.
 | ROCM-04 | Phase 6 | Complete |
 | ROCM-03 | Phase 7 | Complete |
 | PRE-06 | Phase 7 | Complete |
-| DET-04 | Phase 7 | Pending |
+| DET-04 | Phase 7 | Complete |
 | BSET-01 | Phase 8 | Pending |
 | BSET-02 | Phase 8 | Pending |
 | BSET-03 | Phase 8 | Pending |
