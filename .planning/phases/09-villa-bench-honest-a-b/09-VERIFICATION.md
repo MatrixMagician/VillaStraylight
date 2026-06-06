@@ -1,31 +1,45 @@
 ---
 phase: 09-villa-bench-honest-a-b
 verified: 2026-06-06T00:00:00Z
-status: human_needed
-score: 7/7 must-haves verified (off-hardware); proof-of-value delta routed to on-hardware UAT
+status: passed
+score: 7/7 must-haves verified (off-hardware) + 3/3 on-hardware proofs PASSED (UAT 2026-06-06); proof-of-value delta confirmed live
 overrides_applied: 0
+human_verification_resolved: "2026-06-06 — all 3 items exercised on the live gfx1151 host (3/3 PASS); see 09-UAT.md (status: complete) + graphmind memory. Δpp +4.84 / Δtg −11.15 measured."
 human_verification:
   - test: "Run `villa bench` against a real loaded model on gfx1151"
     expected: "pp and tg tok/s reported as two separate figures (median ± stddev), Kept>0 / Void counts shown, exit 0; the running llama-server `/v1` response actually carries the `timings` block (else the run VOIDs honestly via ErrNoTimings — fall back to /completion per A1)"
     why_human: "Requires the AMD Strix Halo GPU and a loaded model; off-hardware the /v1 timings presence and live throughput cannot be observed. ROADMAP on-hardware research flag."
+    result: "PASS (2026-06-06) — pp 112.51±2.19, tg 60.52±0.12, kept=5 void=0, exit 0; /v1 timings present (no ErrNoTimings VOID, /completion fallback not needed). --json carries separate prompt_per_sec/predicted_per_sec keys, no blended key."
   - test: "Run `villa bench --ab` flipping Vulkan<->ROCm on the live host"
     expected: "Identical spec both sides; the ROCm side reaches GPU residency (SELinux /dev/kfd / container_use_devices correct) so its runs are KEPT not VOID; a per-metric Δpp and Δtg delta with noise band is produced; the original backend is restored afterward (`villa backend show` confirms)"
     why_human: "Needs the live backend switch + ROCm container device access (SELinux /dev/kfd) which only the GPU host can exercise; this delta magnitude IS the milestone proof-of-value and is the ROADMAP-flagged on-hardware item."
+    result: "PASS (2026-06-06) — identical spec both sides; A vulkan pp 113.49±1.61/tg 60.29±0.17, B rocm pp 118.34±4.42/tg 49.13±0.06, both kept=5 void=0; per-metric Δpp +4.84 / Δtg −11.15 (ROCm wins pp, regresses tg — honesty constraint confirmed); backend restored to vulkan (villa backend show), stack OFFLOAD PASS."
   - test: "Confirm the ROCm `--ab` side residency on the real host"
     expected: "RunningOffloadVerdict returns StatusPass for ROCm runs (markers via ResidencyProof, gpu_busy sampled during decode); a CPU-fallback run is correctly VOIDed, not folded as a slow pass"
     why_human: "The residency verdict over real journal/GTT/gpu_busy signals can only be exercised against a live ROCm container on gfx1151."
+    result: "PASS (2026-06-06) — ROCm (B) side kept=5 void=0: all 5 ROCm runs passed the residency void-gate (RunningOffloadVerdict StatusPass; gpu_busy sampled during decode) = genuine GPU residency on gfx1151, not folded as a CPU pass. CPU-fallback-VOID negative path covered off-hardware by TestVoidNonResident."
 ---
 
 # Phase 9: `villa bench` (Honest A/B) Verification Report
 
 **Phase Goal:** A user can prove, on their own loaded model, whether ROCm is actually faster than Vulkan — `villa bench` runs an honest A/B over the running endpoint, reporting prompt-processing (pp) and token-generation (tg) throughput SEPARATELY (never a single blended number), over residency-checked runs only. The per-metric throughput delta is the milestone's proof-of-value.
-**Verified:** 2026-06-06
-**Status:** human_needed
-**Re-verification:** No — initial verification
+**Verified:** 2026-06-06 (off-hardware) · **On-hardware UAT:** 2026-06-06 (3/3 PASS)
+**Status:** passed
+**Re-verification:** Yes — on-hardware UAT (2026-06-06) closed all 3 `human_needed` items; status advanced human_needed → passed.
+
+> **On-hardware reconciliation (2026-06-06):** The 3 items previously routed to `human_needed` were
+> exercised on the live gfx1151 host and all PASSED — see the per-item `result:` fields in the
+> frontmatter, the Human Verification section below, and `09-UAT.md` (status: complete). The
+> proof-of-value delta is **Δpp +4.84 / Δtg −11.15** (ROCm wins prompt-processing, regresses
+> token-generation — exactly the milestone honesty constraint). Phase 9 security: 11/11 threats
+> CLOSED (`09-SECURITY.md`). Phase 9 is fully verified.
 
 ## Goal Achievement
 
-The honest-methodology machinery is fully delivered and green off-hardware. Per the ROADMAP on-hardware research flag, the live pp/tg delta magnitude, SELinux `/dev/kfd` on the ROCm `--ab` side, and real `/v1` `timings` presence are deliberate UAT items — routed to `human_needed`, not treated as off-hardware blockers. No CODE gap was found.
+The honest-methodology machinery is fully delivered and green off-hardware, **and the on-hardware
+proofs the ROADMAP flagged are now all PASSED** (2026-06-06). The live pp/tg delta magnitude, SELinux
+`/dev/kfd` on the ROCm `--ab` side, and real `/v1` `timings` presence — previously routed to
+`human_needed` — were exercised on the live host and confirmed. No CODE gap was found.
 
 ### Observable Truths
 
@@ -80,13 +94,13 @@ The render reads `res.AB`/`res.Single` from the live `Measure` verdict — not a
 | `villa bench --help` lists flags | `go run ./cmd/villa bench --help` | `--ab`, `-n/--reps`, `--warmup`, `--n-predict`, `--json` all present | ✓ PASS |
 | bench imports no inference/detect | grep | none | ✓ PASS |
 | gofmt clean (WR-05) | `go fmt ./internal/bench/... ./cmd/villa/...` (bench) | no changes | ✓ PASS |
-| Live A/B throughput delta | (requires gfx1151) | — | ? SKIP → UAT |
+| Live A/B throughput delta | `villa bench --ab` on gfx1151 (2026-06-06) | Δpp +4.84 / Δtg −11.15 (vulkan→rocm), both sides kept=5 void=0, restored | ✓ PASS (on-hardware UAT) |
 
 ### Requirements Coverage
 
 | Requirement | Source Plan | Description | Status | Evidence |
 | ----------- | ----------- | ----------- | ------ | -------- |
-| BENCH-01 | 09-01, 09-02, 09-03 | A/B pp/tg tok/s separately, residency-checked only | ✓ SATISFIED (code) / ? on-hardware delta | Separate pp/tg end-to-end; residency void-gate; `--ab` via backendswap.Run. Live delta → UAT. |
+| BENCH-01 | 09-01, 09-02, 09-03 | A/B pp/tg tok/s separately, residency-checked only | ✓ SATISFIED (code + on-hardware) | Separate pp/tg end-to-end; residency void-gate; `--ab` via backendswap.Run. Live delta CONFIRMED 2026-06-06: Δpp +4.84 / Δtg −11.15, ROCm side kept=5 void=0. |
 | BENCH-02 | 09-02, 09-03 | Honest methodology: warmup, N reps median+stddev, identical spec, stated conditions | ✓ SATISFIED | Warmup-discard, median+stddev, identical spec, stated `conditions{warmup,reps,n_predict,seed,temp}` in render + --json. |
 
 Both PLAN-declared requirement IDs (BENCH-01, BENCH-02) are accounted for and map to verified machinery. REQUIREMENTS.md (lines 37-38, 96-97) lists only these two for Phase 9 — no orphaned requirements.
@@ -99,29 +113,27 @@ Both PLAN-declared requirement IDs (BENCH-01, BENCH-02) are accounted for and ma
 
 `abResult` on the Switch-error path attaches a zero-side-B `AB` block (REVIEW IN-03), but `runBench` returns at the `res.Err != nil` check before rendering it (`bench.go:422-425`), so it is never surfaced — harmless, info-level only, intentionally out of scope per REVIEW.
 
-### Human Verification Required
+### Human Verification — RESOLVED ✓ (on-hardware, 2026-06-06)
 
-#### 1. `villa bench` on a real loaded model (gfx1151)
+All three items were exercised on the live gfx1151 host (`AMD Radeon 8060S RADV STRIX_HALO`, `/dev/kfd`, `villa-llama` active, OFFLOAD PASS) and PASSED. Recorded in `09-UAT.md` (status: complete).
 
-**Test:** Run `villa bench` against the running stack with a loaded model.
-**Expected:** pp and tg tok/s as two separate figures (median ± stddev), Kept>0/Void counts, exit 0; confirm the live llama-server `/v1` response carries the `timings` block (else the run VOIDs honestly via `ErrNoTimings` — fall back to `/completion` per Assumption A1).
-**Why human:** Requires the GPU + a loaded model; `/v1` timings presence and live throughput are unobservable off-hardware. ROADMAP on-hardware research flag.
+#### 1. `villa bench` on a real loaded model (gfx1151) — ✓ PASS
 
-#### 2. `villa bench --ab` Vulkan↔ROCm delta (the proof-of-value)
+Ran `villa bench` (+`--json`) against the running stack with a loaded model: pp 112.51±2.19 / tg 60.52±0.12 as two separate figures, kept=5 void=0, exit 0. `/v1` timings present (no `ErrNoTimings` VOID → `/completion` fallback per A1 not needed). `--json` carries separate `prompt_per_sec`/`predicted_per_sec`, no blended key.
 
-**Test:** Run `villa bench --ab` on the live host.
-**Expected:** Identical spec both sides; the ROCm side reaches GPU residency (SELinux `/dev/kfd` / `container_use_devices` correct) so its runs are KEPT; a per-metric Δpp and Δtg delta with noise band is produced; the original backend is restored (`villa backend show`).
-**Why human:** Needs the live backend switch + ROCm device access; this delta IS the milestone proof-of-value and is the ROADMAP-flagged on-hardware item.
+#### 2. `villa bench --ab` Vulkan↔ROCm delta (the proof-of-value) — ✓ PASS
 
-#### 3. ROCm residency verdict on the real host
+Ran `villa bench --ab` on the live host: identical spec both sides; A vulkan pp 113.49±1.61/tg 60.29±0.17, B rocm pp 118.34±4.42/tg 49.13±0.06, both kept=5 void=0; per-metric **Δpp +4.84 / Δtg −11.15** (ROCm wins prompt-processing, regresses token-generation — honesty constraint confirmed). Original backend restored to vulkan (`villa backend show`), stack OFFLOAD PASS.
 
-**Test:** Confirm `RunningOffloadVerdict` returns `StatusPass` for ROCm runs and a CPU-fallback run is correctly VOIDed.
-**Expected:** Real journal/GTT/gpu_busy signals fold to StatusPass for a genuine GPU run; a CPU-fallback is excluded, not folded as a slow pass.
-**Why human:** The residency verdict over live signals can only be exercised against a real ROCm container on gfx1151.
+#### 3. ROCm residency verdict on the real host — ✓ PASS
+
+The ROCm (B) side reached genuine GPU residency: kept=5 void=0 (`RunningOffloadVerdict` StatusPass, `gpu_busy` sampled during decode) — not folded as a CPU pass. The CPU-fallback-VOID negative path is covered off-hardware by `TestVoidNonResident`.
 
 ### Gaps Summary
 
-No CODE gaps. The honest-methodology machinery the phase goal requires — separate pp/tg, residency void-gate, warmup-discard, median+stddev, `--ab` composing `backendswap.Run` with always-restore, zero new deps — is fully implemented, substantively wired, and green (180 tests + seam gate). All five REVIEW Warning honesty fixes landed in source (WR-01 loud failed-restore `bench.go:230-243`; WR-02 `ErrNoTimings` void `openai.go:195`/`bench.go:150`; WR-03 ctx threading `bench.go:235`/`bench.go:419`; WR-04 flag validation `bench.go:308`; WR-05 gofmt clean). go.mod unchanged — zero new dependencies.
+No CODE gaps; no remaining human-verification items — all 3 on-hardware proofs PASSED (2026-06-06). The honest-methodology machinery the phase goal requires — separate pp/tg, residency void-gate, warmup-discard, median+stddev, `--ab` composing `backendswap.Run` with always-restore, zero new deps — is fully implemented, substantively wired, and green (180 tests + seam gate). All five REVIEW Warning honesty fixes landed in source (WR-01 loud failed-restore `bench.go:230-243`; WR-02 `ErrNoTimings` void `openai.go:195`/`bench.go:150`; WR-03 ctx threading `bench.go:235`/`bench.go:419`; WR-04 flag validation `bench.go:308`; WR-05 gofmt clean). go.mod unchanged — zero new dependencies.
+
+One minor UAT finding (single-mode bench backend label) was fixed post-verification by quick task **260606-p3a** (commits a210a7e/8aa9c90/cb25a32) — does not affect the pp/tg-separate contract. Phase 9 security: **11/11 threats CLOSED** (`09-SECURITY.md`).
 
 The single remaining item is the live per-metric throughput delta (the milestone's proof-of-value), which by the ROADMAP on-hardware research flag is a deliberate UAT, not an off-hardware blocker. Status is therefore `human_needed`: automated verification is exhausted and green; the GPU-only proof awaits on-hardware UAT.
 

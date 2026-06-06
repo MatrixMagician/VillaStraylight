@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: ROCm Opt-In Backend
-status: completed
-stopped_at: Completed 09-03-PLAN.md (villa bench noun — honest A/B)
-last_updated: "2026-06-06T16:49:46.582Z"
-last_activity: 2026-06-06 -- Completed quick task 260606-p3a: villa bench single-mode backend label
+status: verified
+stopped_at: Phase 09 complete — verified (3/3 on-hardware UAT PASS) + secured (11/11); next Phase 10 unplanned
+last_updated: "2026-06-06T18:40:00.000Z"
+last_activity: 2026-06-06 -- Phase 09 verified + secured; on-hardware UAT 3/3 PASS (Δpp +4.84 / Δtg −11.15)
 progress:
   total_phases: 5
   completed_phases: 4
@@ -21,14 +21,15 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-03)
 
 **Core value:** Run a capable local AI workspace that "just works" after install — hardware-aware setup that brings inference, chat, and the dashboard up healthy, with zero data leaving the box.
-**Current focus:** Phase 09 — villa-bench-honest-a-b
+**Current focus:** Phase 10 — backend-tok-s-surfacing (next; not yet planned). Phases 6–9 complete.
 
 ## Current Position
 
-Phase: 09 (villa-bench-honest-a-b) — EXECUTING
+Phase: 09 (villa-bench-honest-a-b) — COMPLETE (verified + secured)
 Plan: 3 of 3 — COMPLETE
-Status: All Phase 09 plans executed (01 llm.Complete, 02 internal/bench core, 03 villa bench noun)
-Last activity: 2026-06-06 -- Completed quick task 260606-p3a: villa bench single-mode backend label
+Status: Verified — 7/7 off-hardware truths + 3/3 on-hardware UAT PASS (Δpp +4.84 / Δtg −11.15, ROCm wins pp / regresses tg); 11/11 threats CLOSED (09-SECURITY.md); minor single-mode label gap fixed by quick task 260606-p3a.
+Next: Phase 10 (backend-tok-s-surfacing) — REC-05/DASH-06, UI hint yes; not yet planned (`/gsd-plan-phase 10` or `/gsd-ui-phase 10`).
+Last activity: 2026-06-06 -- Phase 09 verified + secured; on-hardware UAT 3/3 PASS
 
 ## Performance Metrics
 
