@@ -216,10 +216,21 @@ func liveBenchDeps(ab bool, spec bench.BenchSpec) *bench.Deps {
 	// and the deferred Restore still fires.
 	d.LoadConfig = config.LoadVilla
 	d.Switch = func(_ context.Context, target string) error {
-		return runBackendSwap(target)
+		return benchBackendSwap(target)
 	}
 	d.Restore = func(_ context.Context, original string) error {
-		return runBackendSwap(original)
+		// The pure core's deferred Restore is errcheck-suppressed (best-effort), so a
+		// failed restore-to-original would otherwise be SILENT — leaving the user on the
+		// non-default backend with no indication (RESEARCH Pitfall 4). Make it LOUD here,
+		// the only layer that can print, then still return the error for the record.
+		if err := benchBackendSwap(original); err != nil {
+			fmt.Fprintf(os.Stderr,
+				"bench: WARNING — failed to restore original backend %q: %v\n"+
+					"  the stack may still be on the other backend — run `villa backend show` "+
+					"and `villa backend set %s` to recover\n", original, err, original)
+			return err
+		}
+		return nil
 	}
 	return d
 }
@@ -229,6 +240,11 @@ func liveBenchDeps(ab bool, spec bench.BenchSpec) *bench.Deps {
 // to an error. This is the LOCKED composition (RESEARCH Pattern 4) — bench MUST NOT
 // touch quadlet/systemd directly. A clean NoOp (already on target) or a proven Switch
 // is success; any Refused/RolledBack/Err is an error.
+// benchBackendSwap is the package-level indirection the --ab Switch/Restore closures
+// call so bench_test.go can drive the failed-restore WARNING path (WR-01) without a
+// live host. The default is the real runBackendSwap.
+var benchBackendSwap = runBackendSwap
+
 func runBackendSwap(target string) error {
 	res := backendswap.Run(*liveBackendSwapDeps(), target)
 	switch {

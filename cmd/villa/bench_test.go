@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -207,6 +208,47 @@ func TestBenchABRestoresOriginal(t *testing.T) {
 	last := rec.callOrder[len(rec.callOrder)-1]
 	if last != "restore:vulkan" {
 		t.Errorf("--ab must END by restoring the ORIGINAL backend, got last op %q (callOrder=%v)", last, rec.callOrder)
+	}
+}
+
+// TestBenchABFailedRestoreWarns proves a failed restore-to-original in the live --ab
+// Restore closure is made LOUD (WR-01 / RESEARCH Pitfall 4): it prints a WARNING with
+// recovery guidance to stderr and propagates the error, rather than silently leaving the
+// user on the non-default backend. It drives the real liveBenchDeps Restore closure with
+// a stubbed benchBackendSwap that fails, capturing os.Stderr.
+func TestBenchABFailedRestoreWarns(t *testing.T) {
+	prev := benchBackendSwap
+	benchBackendSwap = func(target string) error {
+		return fmt.Errorf("bring-up of %s failed", target)
+	}
+	t.Cleanup(func() { benchBackendSwap = prev })
+
+	// Capture os.Stderr (the WARNING is written there, not the cobra Err buffer).
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	prevStderr := os.Stderr
+	os.Stderr = w
+	t.Cleanup(func() { os.Stderr = prevStderr })
+
+	d := liveBenchDeps(true, benchSpec(3, 1))
+	restoreErr := d.Restore(context.Background(), "vulkan")
+
+	_ = w.Close()
+	var buf bytes.Buffer
+	_, _ = buf.ReadFrom(r)
+	os.Stderr = prevStderr
+
+	if restoreErr == nil {
+		t.Error("failed restore must propagate an error, got nil")
+	}
+	got := buf.String()
+	if !bytes.Contains(buf.Bytes(), []byte("failed to restore original backend")) {
+		t.Errorf("failed restore must print a LOUD WARNING, got %q", got)
+	}
+	if !bytes.Contains(buf.Bytes(), []byte("villa backend set vulkan")) {
+		t.Errorf("failed restore must print recovery guidance for the original backend, got %q", got)
 	}
 }
 
