@@ -29,11 +29,13 @@ func Probe() HostProfile {
 
 	kernel := kernelVersion(liveKernelOSRelease)
 
-	// rocm_readiness (v1.1, schema 2): computed from already-bounded facts + the
-	// resolved ROCm image. Undetectable off-hardware signals stay UNSET (D-08); the
-	// image policy is config-driven, not a host probe (Pitfall 5). Both the image
-	// resolution and the field literals live behind the gpu_amd.go seam.
-	rocmReadiness := computeROCmReadiness(gpu.gfxID, kernel, resolvedROCmImage())
+	// rocm_readiness (v1.1, schema 2): computed from already-bounded facts (gfx-id,
+	// kernel, ROCm substrate, probed firmware date) + the resolved ROCm image.
+	// Undetectable off-hardware signals stay UNSET (D-08); the image policy is
+	// config-driven, not a host probe (Pitfall 5). All host I/O (firmwareDateProbe's
+	// rpm exec) and the field literals live behind the gpu_amd.go seam — Probe() only
+	// wires them, matching how it already threads gpu.gfxID / resolvedROCmImage().
+	rocmReadiness := computeROCmReadiness(gpu.gfxID, kernel, gpu.rocmPresent, firmwareDateProbe(), resolvedROCmImage())
 
 	return HostProfile{
 		CPUModel:            cpuModel,

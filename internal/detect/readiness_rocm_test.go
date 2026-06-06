@@ -10,6 +10,8 @@ func TestComputeROCmReadinessOffHardware(t *testing.T) {
 	r := computeROCmReadiness(
 		UnknownStr("rocminfo unavailable (gfx id not enumerated)", ""),
 		KnownStr("7.0.10-201.fc44.x86_64", "/proc/sys/kernel/osrelease"),
+		rocmPresent(),
+		UnknownStr("firmware date not probed (test)", ""),
 		resolvedROCmImage(),
 	)
 
@@ -35,6 +37,8 @@ func TestKernelFloorKnownBelowFloor(t *testing.T) {
 	r := computeROCmReadiness(
 		UnknownStr("rocminfo unavailable", ""),
 		KnownStr("6.17.0-100.fc44.x86_64", "/proc/sys/kernel/osrelease"),
+		rocmPresent(),
+		UnknownStr("firmware date not probed (test)", ""),
 		resolvedROCmImage(),
 	)
 	if !r.KernelFloorOK.Known {
@@ -51,6 +55,8 @@ func TestKernelFloorUnknownKernel(t *testing.T) {
 	r := computeROCmReadiness(
 		KnownStr("gfx1151", "rocminfo:Name"),
 		UnknownStr("osrelease unreadable", "raw"),
+		rocmPresent(),
+		UnknownStr("firmware date not probed (test)", ""),
 		resolvedROCmImage(),
 	)
 	if r.KernelFloorOK.Known {
@@ -66,13 +72,21 @@ func TestKernelFloorUnknownKernel(t *testing.T) {
 // string (config-driven, not a host probe): the in-tree pinned stable image is
 // KnownBool(true) and a synthetic nightlies tag is a confident KnownBool(false).
 func TestImagePolicyOK(t *testing.T) {
-	stable := computeROCmReadiness(UnknownStr("", ""), UnknownStr("", ""), resolvedROCmImage())
+	stable := computeROCmReadiness(
+		UnknownStr("", ""),
+		UnknownStr("", ""),
+		rocmPresent(),
+		UnknownStr("", ""),
+		resolvedROCmImage(),
+	)
 	if !stable.ImagePolicyOK.Known || !stable.ImagePolicyOK.Value {
 		t.Errorf("image_policy_ok should be Known(true) for the pinned stable image, got %+v", stable.ImagePolicyOK)
 	}
 
 	nightly := computeROCmReadiness(
 		UnknownStr("", ""),
+		UnknownStr("", ""),
+		rocmPresent(),
 		UnknownStr("", ""),
 		"docker.io/kyuz0/amd-strix-halo-toolboxes:rocm7-nightlies",
 	)
@@ -81,5 +95,62 @@ func TestImagePolicyOK(t *testing.T) {
 	}
 	if nightly.ImagePolicyOK.Value {
 		t.Errorf("image_policy_ok should be false for a nightlies image (64 GB cap), got true")
+	}
+}
+
+// TestFirmwareDateOK asserts the firmware-date verdict against the floor/denylist
+// (gpu_amd.go seam) plus the no-false-green UNSET path for an unprobed date.
+func TestFirmwareDateOK(t *testing.T) {
+	cases := []struct {
+		name      string
+		date      Str
+		wantKnown bool
+		wantValue bool
+	}{
+		{"clear date >= floor", KnownStr("20260519", "rpm"), true, true},
+		{"exactly at floor", KnownStr("20260110", "rpm"), true, true},
+		{"denylisted date", KnownStr("20251125", "rpm"), true, false},
+		{"sub-floor not denied", KnownStr("20251231", "rpm"), true, false},
+		{"unprobed firmware", UnknownStr("rpm absent", ""), false, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := firmwareDateOK(tc.date)
+			if got.Known != tc.wantKnown {
+				t.Fatalf("firmwareDateOK(%+v).Known = %v, want %v", tc.date, got.Known, tc.wantKnown)
+			}
+			if tc.wantKnown && got.Value != tc.wantValue {
+				t.Errorf("firmwareDateOK(%+v).Value = %v, want %v", tc.date, got.Value, tc.wantValue)
+			}
+		})
+	}
+}
+
+// TestHSAOverrideViable asserts the HSA-override viability is a pure derivation from
+// gfx-id + ROCm substrate, gated UNSET when the gfx-id is unknown (no-false-green),
+// and never reads HSA_OVERRIDE_GFX_VERSION.
+func TestHSAOverrideViable(t *testing.T) {
+	cases := []struct {
+		name        string
+		gfxID       Str
+		rocmPresent Bool
+		wantKnown   bool
+		wantValue   bool
+	}{
+		{"gfx1151 + rocm present", KnownStr("gfx1151", "rocminfo"), KnownBool(true, "test"), true, true},
+		{"non-gfx1151 + rocm present", KnownStr("gfx1100", "rocminfo"), KnownBool(true, "test"), true, false},
+		{"gfx1151 + no rocm", KnownStr("gfx1151", "rocminfo"), KnownBool(false, "test"), true, false},
+		{"gfx-id unknown", UnknownStr("rocminfo absent", ""), KnownBool(true, "test"), false, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := hsaOverrideViable(tc.gfxID, tc.rocmPresent)
+			if got.Known != tc.wantKnown {
+				t.Fatalf("hsaOverrideViable(%+v, %+v).Known = %v, want %v", tc.gfxID, tc.rocmPresent, got.Known, tc.wantKnown)
+			}
+			if tc.wantKnown && got.Value != tc.wantValue {
+				t.Errorf("hsaOverrideViable(%+v, %+v).Value = %v, want %v", tc.gfxID, tc.rocmPresent, got.Value, tc.wantValue)
+			}
+		})
 	}
 }
