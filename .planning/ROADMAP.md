@@ -26,6 +26,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 8: `villa backend set` Switch Verb + Rollback** — transactional capture→prove→cutover→rollback backend switch on a running install (on-hardware risk concentration) (built + off-hardware verified 2026-06-06; on-hardware UAT 4/4 PASS 2026-06-06: happy-path ROCm cutover + dry-run/show + both failure-path residuals closed via fault injection — forced CPU-fallback rollback & bounded 5m01s never-ready timeout; 0 threats open)
 - [x] **Phase 9: `villa bench` (Honest A/B)** — read-only A/B over the running `/v1`+`/metrics`, composing the Phase-8 switch; separate pp/tg tok/s with warmup + N-reps + noise band (all 3 plans built + verified; on-hardware UAT 3/3 PASS 2026-06-06: Δpp +4.84 / Δtg −11.15; 11/11 threats secured)
 - [x] **Phase 10: Backend + tok/s Surfacing** — backend-aware `recommend` advice + dashboard/`status` active-backend + live tok/s, as append-only `--json`/golden additions (completed 2026-06-06)
+- [ ] **Phase 11: Address v1.1 tech debt** — `rocm_readiness` detect probes + doc reconciliation (post-milestone tech-debt cleanup; 2 plans, 1 wave)
 
 ## Phase Details
 
@@ -161,3 +162,15 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | 8. `villa backend set` Switch Verb + Rollback | v1.1 | 2/2 | Complete   | 2026-06-06 |
 | 9. `villa bench` (Honest A/B) | v1.1 | 3/3 | Complete | 2026-06-06 |
 | 10. Backend + tok/s Surfacing | v1.1 | 3/3 | Complete   | 2026-06-06 |
+
+### Phase 11: Address v1.1 tech debt: rocm_readiness detect probes + doc reconciliation
+
+**Goal:** Make `internal/detect/readiness_rocm.go`'s `firmwareDateOK()` / `hsaOverrideViable()` real probes (KnownBool on-hardware, honest UNSET off-hardware) so the Phase-10 ROCm-readiness badge reads `ready` on a live ROCm host (closes the DASH-06 SC#1 residual + the DET-04 readiness fields), and reconcile the audit-named documentation drift (6 missing SUMMARY `requirements-completed` tags + the stale 06-REVIEW prose Status line + the REQUIREMENTS.md ROCM-02 note). Post-milestone tech-debt cleanup; no new fields, no schema bump, no golden re-freeze (D-04).
+**Requirements**: DET-04, DASH-06 (residual sub-clauses; doc plan is cross-cutting tech-debt — no new REQ-IDs)
+**Depends on:** Phase 10
+**Plans:** 2 plans (1 wave — fully parallel, zero file overlap)
+
+Plans:
+
+- [ ] 11-01-PLAN.md — DET-04/DASH-06: real `firmwareDateOK` (rpm firmware-date probe + detect-local floor/deny seam in gpu_amd.go) + `hsaOverrideViable` (pure gfx1151+substrate derivation) + threaded `computeROCmReadiness` + table tests; golden byte-identical (no re-freeze); on-hardware badge=ready as manual UAT
+- [ ] 11-02-PLAN.md — tech-debt: add `requirements-completed` frontmatter to 6 SUMMARYs (DET-04/BSET-01..03/BENCH-02/REC-05, evidence-checked) + fix stale 06-REVIEW prose Status line + human-verify checkpoint on the REQUIREMENTS.md ROCM-02 note (no blind edit)
