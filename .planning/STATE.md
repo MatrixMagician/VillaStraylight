@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: ROCm Opt-In Backend
 status: verifying
-stopped_at: Completed 08-01-PLAN.md (backendswap transactional core)
-last_updated: "2026-06-06T11:53:21.713Z"
-last_activity: 2026-06-06 -- Phase 08 Plan 01 complete (backendswap transactional core)
+stopped_at: Phase 08 built + off-hardware verified (human_needed); awaiting on-hardware UAT
+last_updated: "2026-06-06T12:00:00.000Z"
+last_activity: 2026-06-06 -- Phase 08 executed (2/2 plans), CR-01 fixed, off-hardware verification passed (human_needed)
 progress:
   total_phases: 5
-  completed_phases: 3
+  completed_phases: 2
   total_plans: 8
   completed_plans: 8
-  percent: 60
+  percent: 40
 ---
 
 # Project State
@@ -25,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-06-03)
 
 ## Current Position
 
-Phase: 08 (villa-backend-set-switch-verb-rollback) — EXECUTING
-Plan: 2 of 2
-Status: Phase complete — ready for verification
-Last activity: 2026-06-06 -- Phase 08 Plan 01 complete (backendswap transactional core)
+Phase: 08 (villa-backend-set-switch-verb-rollback) — AWAITING ON-HARDWARE UAT
+Plan: 2 of 2 (both executed + committed)
+Status: Built + off-hardware verified (4/4 success criteria at logic level); 4 on-hardware UAT items pending — run `/gsd-verify-work 8`
+Last activity: 2026-06-06 -- Phase 08 executed, CR-01 (ROCm preflight bypass) fixed, verification human_needed
 
 ## Performance Metrics
 
