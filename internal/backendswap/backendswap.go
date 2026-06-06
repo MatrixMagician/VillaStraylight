@@ -161,10 +161,15 @@ func Run(d Deps, target string) Result {
 		return Result{Refused: true, Reason: reason, FromBackend: from, ToBackend: target}
 	}
 
-	// (3) ROCm preflight gate (BSET-01). Meaningful only for a rocm target; the live
-	// seam short-circuits ok=true otherwise. A not-ok refuses-with-remediation, zero
-	// side effects.
-	if ok, reason := d.PreflightROCm(cfg); !ok {
+	// (3) ROCm preflight gate (BSET-01). The gate MUST see the TARGET backend: the live
+	// seam short-circuits ok=true unless cfg.Backend=="rocm", and a same-backend target is
+	// already a NoOp above — so passing the source cfg (CR-08-01) left preflight.RunROCm
+	// permanently dead on a vulkan→rocm switch, silently skipping the kernel/firmware/
+	// HSA-override safety checks. Pass a snapshot pinned to target (VillaConfig is a flat
+	// value type). A not-ok refuses-with-remediation, zero side effects.
+	preflightCfg := cfg
+	preflightCfg.Backend = target
+	if ok, reason := d.PreflightROCm(preflightCfg); !ok {
 		return Result{Refused: true, Reason: reason, FromBackend: from, ToBackend: target}
 	}
 

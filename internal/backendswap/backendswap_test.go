@@ -35,19 +35,20 @@ type swapRecorder struct {
 	restored  []byte
 
 	// knobs (task 08-01-02 uses prove/refuse/failure knobs):
-	fitOK        bool      // FitsModel result (true = fits)
-	fitReason    string    // remediation reason on a non-fit
-	preflightOK  bool      // PreflightROCm result
-	preflight    string    // remediation reason on a preflight block
-	captureErr   error     // CaptureUnit error (uncapturable prior unit)
-	saveErr      error     // SaveConfig error (mutate failure)
-	writeErr     error     // ReconcileAndWrite error (mutate failure)
-	restartErr   error     // first Restart error (mutate failure)
-	proveStatus  string    // Prove verdict Status (ProveStatusPass = pass)
-	proveDetail  string    // Prove verdict Detail
-	restoreErr   error     // RestoreUnit error during rollback (rollback-incomplete)
-	rbRestartErr error     // Restart error during rollback (rollback-incomplete)
-	currentBE    string    // current backend in the loaded config
+	fitOK          bool   // FitsModel result (true = fits)
+	fitReason      string // remediation reason on a non-fit
+	preflightOK    bool   // PreflightROCm result
+	preflight      string // remediation reason on a preflight block
+	preflightSawBE string // backend the PreflightROCm gate actually received (CR-08-01 guard)
+	captureErr     error  // CaptureUnit error (uncapturable prior unit)
+	saveErr        error  // SaveConfig error (mutate failure)
+	writeErr       error  // ReconcileAndWrite error (mutate failure)
+	restartErr     error  // first Restart error (mutate failure)
+	proveStatus    string // Prove verdict Status (ProveStatusPass = pass)
+	proveDetail    string // Prove verdict Detail
+	restoreErr     error  // RestoreUnit error during rollback (rollback-incomplete)
+	rbRestartErr   error  // Restart error during rollback (rollback-incomplete)
+	currentBE      string // current backend in the loaded config
 
 	restartCalls int // counts Restart invocations to distinguish forward vs rollback
 }
@@ -66,7 +67,8 @@ func newSwapStub(rec *swapRecorder) Deps {
 		FitsModel: func(_ config.VillaConfig) (bool, string) {
 			return rec.fitOK, rec.fitReason
 		},
-		PreflightROCm: func(_ config.VillaConfig) (bool, string) {
+		PreflightROCm: func(cfg config.VillaConfig) (bool, string) {
+			rec.preflightSawBE = cfg.Backend
 			return rec.preflightOK, rec.preflight
 		},
 		CaptureUnit: func() ([]byte, error) {
@@ -291,6 +293,22 @@ func TestRefuseProveFlightROCm(t *testing.T) {
 	}
 	if len(rec.callOrder) != 0 {
 		t.Errorf("a preflight refusal must fire zero seams, got %v", rec.callOrder)
+	}
+}
+
+// TestPreflightSeesTargetBackend: the ROCm preflight gate MUST receive the TARGET
+// backend, not the source. The live seam (cmd/villa) short-circuits ok=true unless
+// cfg.Backend=="rocm", and a same-backend target is already a NoOp upstream — so passing
+// the source cfg leaves preflight.RunROCm permanently dead on a vulkan→rocm switch,
+// silently skipping the kernel/firmware/HSA-override safety checks BSET-01 requires
+// (CR-08-01). This asserts the gate is handed Backend=="rocm" on a vulkan→rocm switch.
+func TestPreflightSeesTargetBackend(t *testing.T) {
+	rec := passStub() // current backend "vulkan", switching to "rocm"
+	if res := Run(newSwapStub(rec), "rocm"); res.Refused {
+		t.Fatalf("happy-path vulkan→rocm must not refuse, got %+v", res)
+	}
+	if rec.preflightSawBE != "rocm" {
+		t.Fatalf("PreflightROCm must see target backend \"rocm\", got %q — source-cfg form makes RunROCm dead code on vulkan→rocm (CR-08-01)", rec.preflightSawBE)
 	}
 }
 
