@@ -16,6 +16,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
 	"github.com/MatrixMagician/VillaStraylight/internal/inference"
+	"github.com/MatrixMagician/VillaStraylight/internal/metrics"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 	"github.com/MatrixMagician/VillaStraylight/internal/recommend"
 	"github.com/MatrixMagician/VillaStraylight/internal/status"
@@ -98,6 +99,24 @@ func runStatus(cmd *cobra.Command, _ []string, d *status.Deps) int {
 func renderStatusTable(w io.Writer, r status.Report, withProvenance bool) {
 	tw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
 	fmt.Fprintf(tw, "overall\t%s\n", r.Overall)
+
+	// Active-backend surface (D-01): backend name always; the digest-pinned image tag
+	// is verbose-only to keep the default table compact (gated behind -v like the
+	// offload provenance). The image string is a value from the resolved backend
+	// (Report.Image), never a literal in this renderer.
+	fmt.Fprintf(tw, "backend\t%s\n", r.Backend)
+	if withProvenance {
+		fmt.Fprintf(tw, "image\t%s\n", r.Image)
+	}
+	// Live tok/s (D-03): rendered ONLY when present — an idle/unavailable reading is
+	// omitted (the seam returned nil), never a fabricated 0. Labeled by the active
+	// backend so the user sees which backend produced the rate.
+	if r.GenTokensPerSec != nil {
+		fmt.Fprintf(tw, "gen tok/s\t%.1f (%s)\n", *r.GenTokensPerSec, r.Backend)
+	}
+	// ROCm-readiness tri-state (D-04): the folded indicator (ready/not-ready/unknown).
+	fmt.Fprintf(tw, "rocm-readiness\t%s\n", r.ROCmReadiness)
+
 	fmt.Fprintf(tw, "\nSERVICE\tACTIVE\tHEALTH\tOFFLOAD\n")
 	for _, s := range r.Services {
 		// A service with no GPU offload (OffloadApplies=false, e.g. Open WebUI)
@@ -172,7 +191,35 @@ func liveStatusDeps() (*status.Deps, error) {
 		DashboardService: orchestrate.DashboardServiceName,
 		DashboardAddr:    liveDashboardAddr(),
 		DashboardHealth:  liveDashboardHealth,
+		// Live tok/s (D-03): REUSE the dashboard-proven metrics collector — no new
+		// scraper. nil on a failed/absent /metrics scrape or an idle server, so the
+		// figure is omitted (typed-Unknown), NEVER a fabricated 0.
+		GenTokensPerSec: liveGenTokensPerSec,
+		// ROCm-readiness (D-04): CONSUME the already-computed detect rocm_readiness
+		// sub-tree; internal/status folds it. Never recompute the signals here.
+		ROCmReadiness: func() detect.ROCmReadiness { return detect.Probe().ROCmReadiness },
 	}, nil
+}
+
+// liveGenTokensPerSec reads the live token-generation throughput by REUSING the
+// dashboard's bounded metrics collector (D-03): metrics.ScrapeMetrics +
+// metrics.IsGenerating. It returns nil — a typed-Unknown the Report omits — on a
+// failed/absent /metrics scrape (404/transport) OR when the server is idle (the
+// gauges are stale snapshots when !IsGenerating), so the surface NEVER shows a
+// fabricated 0 tok/s. The scrape inherits the collector's 2s timeout + 64 KiB
+// io.LimitReader bounds (no new attack surface). Mirrors liveProps' nil-on-failure
+// discipline.
+func liveGenTokensPerSec(endpoint string) *float64 {
+	snap, ok := metrics.ScrapeMetrics(endpoint)
+	if !ok {
+		return nil // /metrics 404 or transport error → typed-Unknown (omitted)
+	}
+	slots, _ := metrics.ScrapeSlots(endpoint)
+	if !metrics.IsGenerating(snap, slots) {
+		return nil // idle: gauges are stale snapshots → omit, never a fabricated 0 (D-03)
+	}
+	v := snap.GenTokensPerSec
+	return &v
 }
 
 // liveDashboardAddr resolves the dashboard's loopback base URL from config

@@ -79,6 +79,11 @@ func newStatusDeps(t *testing.T, units []orchestrate.Unit) *status.Deps {
 		DashboardService: orchestrate.DashboardServiceName,
 		DashboardAddr:    "http://127.0.0.1:8888",
 		DashboardHealth:  func(string) status.HealthState { return status.HealthReady },
+		// tok/s seam (D-03): default idle → nil (omitted, never a fabricated 0). Tests
+		// override to exercise the generating case. ROCm-readiness seam (D-04): default
+		// all-unset → folds to "unknown" (off-hardware honest default).
+		GenTokensPerSec: func(string) *float64 { return nil },
+		ROCmReadiness:   func() detect.ROCmReadiness { return detect.ROCmReadiness{} },
 	}
 }
 
@@ -198,6 +203,72 @@ func TestStatusOpenWebUIActiveFoldsToFail(t *testing.T) {
 	if code := runStatus(cmd, nil, d); code != exitBlocked {
 		t.Fatalf("a confidently-down owui unit must drive overall FAIL (CR-02), got exit %d", code)
 	}
+}
+
+// floatPtr is a test helper for the typed-optional tok/s seam.
+func floatPtr(v float64) *float64 { return &v }
+
+// TestStatusTokensPerSecTypedOptional proves the live tok/s surfaces honestly (D-03):
+// generating → a value rendered in the table AND labeled by the active backend; idle →
+// omitted (seam returns nil); scrape-unavailable → omitted. NEVER a fabricated 0.
+func TestStatusTokensPerSecTypedOptional(t *testing.T) {
+	units := loopbackUnits(t)
+
+	t.Run("generating → value rendered + labeled by backend", func(t *testing.T) {
+		d := newStatusDeps(t, units)
+		d.GenTokensPerSec = func(string) *float64 { return floatPtr(12.3) }
+		report := runStatusReport(t, d)
+		if report.GenTokensPerSec == nil {
+			t.Fatalf("generating server must surface a tok/s reading (got nil)")
+		}
+		if *report.GenTokensPerSec != 12.3 {
+			t.Errorf("GenTokensPerSec = %v, want 12.3", *report.GenTokensPerSec)
+		}
+
+		var buf bytes.Buffer
+		renderStatusTable(&buf, report, false)
+		got := buf.String()
+		if !strings.Contains(got, "12.3") {
+			t.Errorf("table must render the tok/s value; got:\n%s", got)
+		}
+		// Labeled by the active backend (vulkan in the fixture).
+		if !strings.Contains(got, report.Backend) {
+			t.Errorf("tok/s row must be labeled by the active backend %q; got:\n%s", report.Backend, got)
+		}
+	})
+
+	t.Run("idle → omitted (never a fabricated 0)", func(t *testing.T) {
+		d := newStatusDeps(t, units)
+		d.GenTokensPerSec = func(string) *float64 { return nil }
+		report := runStatusReport(t, d)
+		if report.GenTokensPerSec != nil {
+			t.Fatalf("idle server must omit tok/s (typed-Unknown), got %v", *report.GenTokensPerSec)
+		}
+
+		var buf bytes.Buffer
+		renderStatusTable(&buf, report, false)
+		if strings.Contains(buf.String(), "tok/s") {
+			t.Errorf("idle table must NOT render a tok/s row (never a fabricated 0); got:\n%s", buf.String())
+		}
+		// And the --json must not carry the key at all (omitempty).
+		cmd, out, _ := statusTestCmd()
+		jsonOut = true
+		defer func() { jsonOut = false }()
+		runStatus(cmd, nil, d)
+		if strings.Contains(out.String(), "gen_tokens_per_sec") {
+			t.Errorf("idle --json must omit gen_tokens_per_sec (omitempty); got:\n%s", out.String())
+		}
+	})
+
+	t.Run("scrape unavailable → omitted", func(t *testing.T) {
+		d := newStatusDeps(t, units)
+		// An unavailable /metrics scrape is modeled the same as idle by the seam: nil.
+		d.GenTokensPerSec = func(string) *float64 { return nil }
+		report := runStatusReport(t, d)
+		if report.GenTokensPerSec != nil {
+			t.Fatalf("unavailable scrape must omit tok/s, got %v", *report.GenTokensPerSec)
+		}
+	})
 }
 
 func statusTestCmd() (*cobra.Command, *bytes.Buffer, *bytes.Buffer) {

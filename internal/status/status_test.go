@@ -343,6 +343,69 @@ func TestRunPopulatesBackendAwareFields(t *testing.T) {
 	}
 }
 
+// rocmUnits renders the stack with the resolved ROCm backend so the report reflects
+// a rocm-configured install (cfg.Backend="rocm").
+func rocmUnits(t *testing.T) []orchestrate.Unit {
+	t.Helper()
+	backend, err := inference.BackendFor("rocm")
+	if err != nil {
+		t.Fatalf("resolve rocm backend: %v", err)
+	}
+	units, err := orchestrate.Render(orchestrate.RenderInput{
+		Backend:   backend,
+		Cfg:       config.VillaConfig{Model: "qwen3", Quant: "Q4", Ctx: 131072, Backend: "rocm"},
+		ModelFile: "qwen3.gguf",
+		ModelsDir: "/home/villa/.local/share/villa/models",
+	})
+	if err != nil {
+		t.Fatalf("render rocm: %v", err)
+	}
+	return units
+}
+
+// TestRunROCmResidencyKeysOnResolvedMarkers is the SC#1 correctness PROOF (DASH-06),
+// exercisable off-hardware: on a rocm-configured install the offload/residency verdict
+// must key on the RESOLVED backend's markers (backendROCm.ResidencyProof() →
+// DeviceToken "ROCm0"), NOT a hardcoded Vulkan default. The fixture journal carries a
+// ROCm0 buffer line and NO Vulkan0 line; a verdict that proves residency PASS confirms
+// the markers came from the resolved ROCm backend. A Vulkan-default would not match the
+// ROCm0 token and could not reach PASS — so this asserts the wiring is backend-correct.
+// (The seam grep gate excludes _test.go, so the ROCm0 token may appear here.)
+func TestRunROCmResidencyKeysOnResolvedMarkers(t *testing.T) {
+	d := newDeps(t, rocmUnits(t))
+	d.LoadConfig = func() (config.VillaConfig, error) {
+		return config.VillaConfig{Model: "qwen3", Quant: "Q4", Ctx: 131072, Backend: "rocm"}, nil
+	}
+	// A ROCm0 residency journal with NO Vulkan0 line: only a verdict keyed on the
+	// resolved ROCm backend's ROCm0 marker can prove residency from this.
+	d.JournalText = func(string) (string, bool) {
+		return "load_tensors:      ROCm0 model buffer size = 21504.49 MiB\n", true
+	}
+
+	r := Run(d)
+	if r.Err() != nil {
+		t.Fatalf("Run err: %v", r.Err())
+	}
+	if r.Backend != "rocm" {
+		t.Fatalf("Report.Backend = %q, want rocm (resolved backend, SC#1)", r.Backend)
+	}
+
+	var inf ServiceStatus
+	for _, s := range r.Services {
+		if s.Service == "villa-llama.service" {
+			inf = s
+		}
+	}
+	if !inf.OffloadApplies {
+		t.Fatalf("inference row must assert offload on a rocm install")
+	}
+	if inf.Offload.Status != inference.StatusPass {
+		t.Fatalf("rocm-config residency must PASS keying on the resolved ROCm0 markers "+
+			"(a Vulkan default could not match ROCm0); got status=%v detail=%q",
+			inf.Offload.Status, inf.Offload.Detail)
+	}
+}
+
 // TestRunErrPropagates: a LoadConfig failure yields a FAIL Report carrying the error
 // via Err() (the cmd layer maps that to exitBlocked).
 func TestRunErrPropagates(t *testing.T) {
