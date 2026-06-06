@@ -89,6 +89,12 @@ type Deps struct {
 	// LoadConfig supplies the original backend (the restore target) for --ab. nil for
 	// the single-backend path.
 	LoadConfig func() (config.VillaConfig, error)
+	// OnSideStart, if set, is invoked once at the start of each side's measured loop
+	// with the side label and the EXACT spec that side will run. It is the seam the
+	// cobra layer uses to announce progress ("Benchmarking vulkan…") and the seam
+	// bench_test.go uses to assert both --ab sides receive a byte-identical spec. It
+	// is purely observational — it fires no host action and may be nil.
+	OnSideStart func(side string, spec BenchSpec)
 }
 
 // Stats are the per-side, per-metric aggregates over the KEPT (resident) runs. pp
@@ -187,7 +193,10 @@ const (
 // forever). resident==false (or a Measure error) increments Void and is excluded;
 // kept runs are folded into per-metric Stats. The boolean reports whether the floor
 // (spec.MinResident) was met.
-func benchN(ctx context.Context, d Deps, spec BenchSpec) (Stats, bool) {
+func benchN(ctx context.Context, d Deps, spec BenchSpec, side string) (Stats, bool) {
+	if d.OnSideStart != nil {
+		d.OnSideStart(side, spec)
+	}
 	// Warmup: measure then discard (not residency-gated, never counted).
 	for i := 0; i < spec.Warmup; i++ {
 		_, _, _, _ = d.Measure(ctx)
@@ -222,7 +231,7 @@ func Run(d Deps, spec BenchSpec) Result {
 
 	// Single-backend path.
 	if d.Switch == nil || d.Restore == nil {
-		st, enough := benchN(ctx, d, spec)
+		st, enough := benchN(ctx, d, spec, "single")
 		res := Result{Single: st}
 		if !enough {
 			res.VoidExhausted = true
@@ -245,7 +254,7 @@ func Run(d Deps, spec BenchSpec) Result {
 	defer d.Restore(ctx, orig) //nolint:errcheck // best-effort restore; live layer logs
 
 	// Side A on the current (original) backend.
-	statsA, enoughA := benchN(ctx, d, spec)
+	statsA, enoughA := benchN(ctx, d, spec, "A")
 
 	// Flip to the other backend. A Switch error is surfaced; the deferred Restore
 	// still fires (and the flip is then a backendswap no-op).
@@ -255,7 +264,7 @@ func Run(d Deps, spec BenchSpec) Result {
 	}
 
 	// Side B on the other backend, with the SAME spec.
-	statsB, enoughB := benchN(ctx, d, spec)
+	statsB, enoughB := benchN(ctx, d, spec, "B")
 
 	ab := abResult(orig, statsA, statsB)
 	res := Result{AB: &ab}
