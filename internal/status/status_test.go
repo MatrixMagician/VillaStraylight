@@ -265,6 +265,84 @@ func TestParsePublishPortIPv6(t *testing.T) {
 	}
 }
 
+// TestReadinessFold proves the tri-state fold of the detect rocm_readiness sub-tree
+// honors no-false-green (D-04/D-08): any unevaluable (Unknown) signal short-circuits
+// to "unknown" (never a fabricated "not-ready"); "not-ready" is reported ONLY when
+// every signal is Known and at least one is Known-false; "ready" only when every
+// signal is Known-true. Off-hardware (all-unset) the honest answer is "unknown".
+func TestReadinessFold(t *testing.T) {
+	good := detect.KnownBool(true, "test")
+	bad := detect.KnownBool(false, "test")
+	unset := detect.UnknownBool("off-hardware", "")
+
+	allUnset := detect.ROCmReadiness{
+		HSAOverrideViable: unset, FirmwareDateOK: unset, KernelFloorOK: unset,
+		RocminfoGfx1151: unset, ImagePolicyOK: unset,
+	}
+	allGood := detect.ROCmReadiness{
+		HSAOverrideViable: good, FirmwareDateOK: good, KernelFloorOK: good,
+		RocminfoGfx1151: good, ImagePolicyOK: good,
+	}
+	oneKnownBad := detect.ROCmReadiness{
+		HSAOverrideViable: good, FirmwareDateOK: bad, KernelFloorOK: good,
+		RocminfoGfx1151: good, ImagePolicyOK: good,
+	}
+	// A confidently-bad signal mixed with an unevaluable one must NOT be not-ready:
+	// unknown wins over not-ready (no-false-green).
+	badButAlsoUnknown := detect.ROCmReadiness{
+		HSAOverrideViable: bad, FirmwareDateOK: unset, KernelFloorOK: good,
+		RocminfoGfx1151: good, ImagePolicyOK: good,
+	}
+
+	cases := []struct {
+		name string
+		in   detect.ROCmReadiness
+		want ROCmReadinessIndicator
+	}{
+		{"all-unset (off-hardware) → unknown", allUnset, ROCmUnknown},
+		{"all-Known-good → ready", allGood, ROCmReady},
+		{"one-Known-bad (rest Known) → not-ready", oneKnownBad, ROCmNotReady},
+		{"any-unknown wins over not-ready → unknown", badButAlsoUnknown, ROCmUnknown},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := foldROCmReadiness(c.in); got != c.want {
+				t.Errorf("foldROCmReadiness = %q, want %q", got, c.want)
+			}
+		})
+	}
+}
+
+// TestRunPopulatesBackendAwareFields proves Run sources the active backend identity
+// from the RESOLVED backend (never a literal), folds the readiness seam, and stamps
+// the schema version. With the default vulkan config the backend/image come from
+// inference.BackendFor("vulkan").
+func TestRunPopulatesBackendAwareFields(t *testing.T) {
+	d := newDeps(t, loopbackUnits(t))
+	want, err := inference.BackendFor("vulkan")
+	if err != nil {
+		t.Fatalf("resolve backend: %v", err)
+	}
+	r := Run(d)
+	if r.Backend != want.Name() {
+		t.Errorf("Report.Backend = %q, want %q (from resolved backend)", r.Backend, want.Name())
+	}
+	if r.Image != want.Image() {
+		t.Errorf("Report.Image = %q, want %q (from resolved backend)", r.Image, want.Image())
+	}
+	if r.SchemaVersion != reportSchemaVersion {
+		t.Errorf("Report.SchemaVersion = %d, want %d", r.SchemaVersion, reportSchemaVersion)
+	}
+	// The default stub leaves GenTokensPerSec/ROCmReadiness seams nil → typed-Unknown:
+	// tok/s omitted (nil), readiness "unknown" (never a fabricated 0 / not-ready).
+	if r.GenTokensPerSec != nil {
+		t.Errorf("GenTokensPerSec = %v, want nil (no tok/s seam → omitted)", *r.GenTokensPerSec)
+	}
+	if r.ROCmReadiness != ROCmUnknown {
+		t.Errorf("ROCmReadiness = %q, want %q (no readiness seam → unknown)", r.ROCmReadiness, ROCmUnknown)
+	}
+}
+
 // TestRunErrPropagates: a LoadConfig failure yields a FAIL Report carrying the error
 // via Err() (the cmd layer maps that to exitBlocked).
 func TestRunErrPropagates(t *testing.T) {

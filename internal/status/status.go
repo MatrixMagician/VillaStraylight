@@ -97,10 +97,85 @@ type Report struct {
 	// Overall is the aggregated PASS/WARN/FAIL across every service offload + health.
 	Overall string `json:"overall"`
 
+	// Backend is the active inference backend's short identifier (e.g. "vulkan"),
+	// and Image its digest-pinned container image — sourced from the RESOLVED
+	// inference.Backend (BackendFor(cfg.Backend)), never a literal (D-01). This is
+	// the single authoritative active-backend surface both `villa status` and the
+	// dashboard /api/status read. Appended at the tail (D-06) — nothing above moved.
+	Backend string `json:"backend"`
+	Image   string `json:"image"`
+
+	// GenTokensPerSec is the live token-generation throughput
+	// (llamacpp:predicted_tokens_seconds) for the ACTIVE backend, populated ONLY
+	// while the server is generating (metrics.IsGenerating). It is *float64 +
+	// omitempty so an idle snapshot or a failed/absent /metrics scrape omits it
+	// entirely — a typed-Unknown, NEVER a fabricated 0.0 (D-03 / no-false-green).
+	GenTokensPerSec *float64 `json:"gen_tokens_per_sec,omitempty"`
+
+	// ROCmReadiness is the tri-state indicator folded (consumed, never recomputed)
+	// from the detect rocm_readiness sub-tree: any unevaluable signal yields
+	// "unknown" — never a fabricated "not-ready" (D-04 / no-false-green).
+	ROCmReadiness ROCmReadinessIndicator `json:"rocm_readiness"`
+
+	// SchemaVersion is the Report contract self-version (D-07). It MUST stay the
+	// LAST tagged field (append-only; new tagged fields go above it, the unexported
+	// err stays after it and never serializes).
+	SchemaVersion int `json:"schema_version"`
+
 	// err is the unexported load/render error carried out of Run (read via Err()).
 	// It has no json tag and is unexported, so encoding/json never serializes it —
 	// the frozen --json contract is unchanged (Pitfall 1).
 	err error
+}
+
+// reportSchemaVersion is the Report contract self-version: the first version that
+// carries the Phase-10 backend-aware tail-append fields (Backend, Image,
+// GenTokensPerSec, ROCmReadiness). It is itself a tail-appended additive field
+// (D-07). Bumped on any future additive change to the Report --json contract.
+const reportSchemaVersion = 1
+
+// ROCmReadinessIndicator is the tri-state surfaced from the detect rocm_readiness
+// sub-tree. It is a string enum so the --json contract is stable and the dashboard
+// badge maps it directly.
+type ROCmReadinessIndicator string
+
+const (
+	// ROCmReady means every readiness signal is Known-good.
+	ROCmReady ROCmReadinessIndicator = "ready"
+	// ROCmNotReady means at least one signal is Known-BAD and all others are Known
+	// (a confidently-detected blocker — never inferred from an unevaluable signal).
+	ROCmNotReady ROCmReadinessIndicator = "not-ready"
+	// ROCmUnknown means at least one signal is unevaluable (off-hardware default).
+	// Unknown wins over not-ready (no-false-green, D-04/D-08).
+	ROCmUnknown ROCmReadinessIndicator = "unknown"
+)
+
+// foldROCmReadiness reads (never recomputes) the detect rocm_readiness sub-tree and
+// folds it worst-wins with UNKNOWN winning over NOT-READY (no-false-green, D-04/D-08):
+// a single unevaluable (Known=false) signal makes the whole indicator "unknown", so
+// off-hardware (most fields unset) the honest answer is "unknown", and a
+// confidently-bad signal only yields "not-ready" when every other signal is Known.
+// It is pure — it reads the passed struct only, performing no I/O and no re-probe.
+// Because any !Known short-circuits to "unknown", fold order is irrelevant to
+// correctness: unknown can never be masked by a later not-ready.
+func foldROCmReadiness(r detect.ROCmReadiness) ROCmReadinessIndicator {
+	bools := []detect.Bool{
+		r.HSAOverrideViable, r.FirmwareDateOK, r.KernelFloorOK,
+		r.RocminfoGfx1151, r.ImagePolicyOK,
+	}
+	sawBad := false
+	for _, b := range bools {
+		if !b.Known {
+			return ROCmUnknown // any unevaluable signal → unknown (never not-ready)
+		}
+		if !b.Value {
+			sawBad = true
+		}
+	}
+	if sawBad {
+		return ROCmNotReady
+	}
+	return ROCmReady
 }
 
 // Deps are the injectable seams Run drives. Defaults wire the real host
@@ -120,6 +195,19 @@ type Deps struct {
 	GTTUsed     func() detect.Bytes
 	WeightBytes func(config.VillaConfig) uint64
 	Endpoint    func() string
+
+	// GenTokensPerSec is the live token-generation tok/s seam (D-03), wired in
+	// cmd/villa liveStatusDeps to reuse metrics.ScrapeMetrics. It returns nil on an
+	// idle server or a failed/absent /metrics scrape so Run omits the figure
+	// (typed-Unknown, never a fabricated 0). internal/status stays free of HTTP
+	// coupling; status_test.go stubs it like the other seams. A nil seam is treated
+	// as "no reading" (Run guards it).
+	GenTokensPerSec func(endpoint string) *float64
+	// ROCmReadiness is the detect rocm_readiness probe seam (D-04), wired in
+	// liveStatusDeps to detect.Probe().ROCmReadiness. internal/status folds the
+	// returned sub-tree via foldROCmReadiness; a nil seam leaves the indicator
+	// "unknown" (no false-green). status_test.go stubs it to drive the fold.
+	ROCmReadiness func() detect.ROCmReadiness
 
 	// OWUIService is the villa-openwebui.service unit name the owui-row branch
 	// targets (D-12). It is a Deps field so internal/status need not import the
@@ -196,6 +284,25 @@ func Run(d Deps) Report {
 		Ports:       publishedPorts(units),
 	}
 	report.LoopbackOnly = allLoopback(report.Ports)
+
+	// Active-backend identity from the ALREADY-RESOLVED backend (D-01) — the same
+	// accessors backendShowEntry uses, never a literal. SC#1 residency correctness is
+	// wired below at the RunningOffloadVerdict call (Markers: backend.ResidencyProof());
+	// this only surfaces the visible identity.
+	report.Backend = backend.Name()
+	report.Image = backend.Image()
+	report.SchemaVersion = reportSchemaVersion
+	// Live tok/s (D-03): typed-optional via the seam — nil on idle/unavailable so it
+	// serializes as omitted, never a fabricated 0. Guard a nil seam defensively.
+	if d.GenTokensPerSec != nil {
+		report.GenTokensPerSec = d.GenTokensPerSec(endpoint)
+	}
+	// ROCm-readiness tri-state (D-04): fold the detect sub-tree from the seam. A nil
+	// seam leaves the indicator "unknown" (no false-green).
+	report.ROCmReadiness = ROCmUnknown
+	if d.ROCmReadiness != nil {
+		report.ROCmReadiness = foldROCmReadiness(d.ROCmReadiness())
+	}
 
 	weight := d.WeightBytes(cfg)
 	for _, svc := range serviceUnits(units) {
