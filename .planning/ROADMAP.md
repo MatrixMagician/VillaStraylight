@@ -131,7 +131,17 @@ Decimal phases appear between their surrounding integers in numeric order.
   2. `villa recommend` keeps Vulkan as the recommended default and surfaces honest ROCm advice ("ready / worth trying / verify with bench") for the pick, without ever promising a guaranteed speed-up or auto-switching.
   3. The new `status`/`detect`/`recommend` fields are append-only additions with a bumped schema version — existing `--json`/golden contracts are re-frozen as reviewed pure-addition diffs, never reordered or retagged.
 
-**Plans**: TBD
+**Plans**: 3 plans (2 waves)
+
+**Wave 1** *(parallel — zero file overlap: the status surface + the recommend surface)*
+
+- [ ] 10-01-PLAN.md — DASH-06: status surface — tail-append Backend/Image/GenTokensPerSec/ROCmReadiness/SchemaVersion to `status.Report` + `foldROCmReadiness` + tok/s seam in `liveStatusDeps` (reuse `metrics.ScrapeMetrics`) + new table rows + SC#1 rocm-residency proving test + re-freeze `status.json.golden` once
+- [ ] 10-02-PLAN.md — REC-05: recommend surface — append `ROCmAdvice` enum + honesty-safe Note + SchemaVersion to `recommend.Recommendation`, derived purely in `Pick` from `rocm_readiness` (Backend stays vulkan, never promise a speed-up) + render advice + re-freeze `recommend.golden.json` once
+
+**Wave 2** *(blocked on Wave 1 — consumes the new `status.Report` fields via `/api/status`)*
+
+- [ ] 10-03-PLAN.md — DASH-06: dashboard surface — the three approved UI-SPEC elements in `dashboard.{html,css,js}` (active backend+image from /api/status, tok/s labeled by backend, tri-state ROCm-readiness badge reusing existing classes) + assert /api/status carries new fields and `metricsView` unchanged
+
 **UI hint**: yes
 
 ## Progress
@@ -150,4 +160,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | 7. ROCm Render Unit + Preflight/Detect | v1.1 | 3/3 | Complete    | 2026-06-06 |
 | 8. `villa backend set` Switch Verb + Rollback | v1.1 | 2/2 | Complete   | 2026-06-06 |
 | 9. `villa bench` (Honest A/B) | v1.1 | 3/3 | Complete | 2026-06-06 |
-| 10. Backend + tok/s Surfacing | v1.1 | 0/TBD | Not started | - |
+| 10. Backend + tok/s Surfacing | v1.1 | 0/3 | Not started | - |
