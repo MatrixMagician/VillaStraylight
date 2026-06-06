@@ -2,8 +2,8 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: ROCm Opt-In Backend
-status: verifying
-stopped_at: Phase 7 context gathered
+status: ready
+stopped_at: Phase 7 complete (verified passed 9/9), ready to plan Phase 8
 last_updated: "2026-06-06T09:53:13.383Z"
 last_activity: 2026-06-06
 progress:
@@ -21,13 +21,13 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-03)
 
 **Core value:** Run a capable local AI workspace that "just works" after install — hardware-aware setup that brings inference, chat, and the dashboard up healthy, with zero data leaving the box.
-**Current focus:** Phase 07 — rocm-render-unit-preflight-detect
+**Current focus:** Phase 8 — `villa backend set` switch verb + rollback (on-hardware)
 
 ## Current Position
 
 Phase: 8
 Plan: Not started
-Status: Phase complete — ready for verification
+Status: Ready to plan
 Last activity: 2026-06-06
 
 ## Performance Metrics
