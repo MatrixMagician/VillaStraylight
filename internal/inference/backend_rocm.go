@@ -46,10 +46,6 @@ func (backendROCm) Image() string { return rocmImage }
 //
 //   - "--device", "/dev/kfd"   — the AMD KFD compute device the HIP runtime opens
 //     (in addition to the /dev/dri render node both backends need).
-//   - "--group-add", "render"  — the host `render` GID must be inside the container so
-//     /dev/kfd + /dev/dri are accessible (A3: STACK.md prescribes the render group;
-//     PITFALLS.md notes some hosts also need `video` — the byte-golden of the exact
-//     group set is Phase 7's rendered-unit concern, not this encode-only phase).
 //   - ordered env "HSA_OVERRIDE_GFX_VERSION=11.5.1" THEN "ROCBLAS_USE_HIPBLASLT=1" —
 //     the gfx1151 HSA override (required for ROCm to target RDNA 3.5) and the hipBLASLt
 //     opt-in (the long-context throughput win). Order is preserved deliberately.
@@ -66,8 +62,14 @@ func (backendROCm) ContainerArgs(spec RunSpec) []string {
 		"--name", spec.ContainerName,
 		"--device", "/dev/kfd",
 		"--device", "/dev/dri",
+		// keep-groups ONLY: it propagates the rootless user's supplementary groups
+		// (render/video) into the container, which is what grants /dev/kfd + /dev/dri
+		// access. podman REFUSES "--group-add keep-groups" combined with any other
+		// "--group-add" (exit 125: "the '--group-add keep-groups' option is not allowed
+		// with any other --group-add options"). A redundant "--group-add render" here
+		// was an on-hardware blocker (Phase 08 UAT CR-G1) — the render GID already
+		// arrives via keep-groups, so do NOT re-add it. Matches backend_vulkan.go.
 		"--group-add", "keep-groups",
-		"--group-add", "render",
 		"--security-opt", "seccomp=unconfined",
 		"--env", "HSA_OVERRIDE_GFX_VERSION=11.5.1",
 		"--env", "ROCBLAS_USE_HIPBLASLT=1",

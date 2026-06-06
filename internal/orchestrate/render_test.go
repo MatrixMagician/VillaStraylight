@@ -149,11 +149,17 @@ func TestRenderROCmEnvGroupFrozen(t *testing.T) {
 		t.Errorf("ROCm unit has %d AddDevice= lines, want exactly %d:\n%s", got, len(wantDevices), c.Text)
 	}
 
-	wantGroups := []string{"GroupAdd=keep-groups", "GroupAdd=render"}
+	// keep-groups ONLY: the render GID is carried into the container by keep-groups,
+	// and podman REJECTS keep-groups combined with any other --group-add (CR-G1). The
+	// unit must therefore have EXACTLY one GroupAdd= line.
+	wantGroups := []string{"GroupAdd=keep-groups"}
 	for _, line := range wantGroups {
 		if !strings.Contains(c.Text, line) {
-			t.Errorf("ROCm unit missing group line %q (second group-add silent-drop guard):\n%s", line, c.Text)
+			t.Errorf("ROCm unit missing group line %q:\n%s", line, c.Text)
 		}
+	}
+	if strings.Contains(c.Text, "GroupAdd=render") {
+		t.Errorf("ROCm unit has an illegal GroupAdd=render (podman rejects keep-groups + any other --group-add, CR-G1):\n%s", c.Text)
 	}
 	if got := strings.Count(c.Text, "GroupAdd="); got != len(wantGroups) {
 		t.Errorf("ROCm unit has %d GroupAdd= lines, want exactly %d:\n%s", got, len(wantGroups), c.Text)

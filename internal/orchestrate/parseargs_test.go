@@ -36,9 +36,13 @@ func TestParseContainerArgsMultiValue(t *testing.T) {
 	if !reflect.DeepEqual(cv.AddDevice, wantDev) {
 		t.Errorf("AddDevice = %v, want %v (both devices, order preserved)", cv.AddDevice, wantDev)
 	}
-	wantGroup := []string{"keep-groups", "render"}
+	// keep-groups ONLY (CR-G1): podman rejects keep-groups combined with any other
+	// --group-add, so the ROCm seam emits a single group. The parser's multi-value
+	// collection (no silent-drop) is still exercised by the two --device and two --env
+	// tokens above.
+	wantGroup := []string{"keep-groups"}
 	if !reflect.DeepEqual(cv.GroupAdd, wantGroup) {
-		t.Errorf("GroupAdd = %v, want %v (both groups, not last-wins)", cv.GroupAdd, wantGroup)
+		t.Errorf("GroupAdd = %v, want %v (keep-groups only — render arrives via keep-groups)", cv.GroupAdd, wantGroup)
 	}
 	wantEnv := []envPair{
 		{Key: "HSA_OVERRIDE_GFX_VERSION", Value: "11.5.1"},

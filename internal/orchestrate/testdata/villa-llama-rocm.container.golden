@@ -10,7 +10,6 @@ Network=villa.network
 AddDevice=/dev/kfd
 AddDevice=/dev/dri
 GroupAdd=keep-groups
-GroupAdd=render
 Environment=HSA_OVERRIDE_GFX_VERSION=11.5.1
 Environment=ROCBLAS_USE_HIPBLASLT=1
 PublishPort=127.0.0.1:8080:8080

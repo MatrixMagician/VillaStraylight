@@ -13,8 +13,9 @@ import (
 // byte-golden is Phase 7.
 
 // TestROCmContainerArgs asserts the ROCm ContainerArgs carry the full delta over
-// Vulkan: both devices, the render group, the ordered HSA/HIPBLASLT env, and the
-// shared mandatory llama-server flags.
+// Vulkan: both devices, keep-groups (the render GID arrives via keep-groups — NOT a
+// second --group-add, which podman rejects; CR-G1), the ordered HSA/HIPBLASLT env,
+// and the shared mandatory llama-server flags.
 func TestROCmContainerArgs(t *testing.T) {
 	b, err := BackendFor("rocm")
 	if err != nil {
@@ -27,7 +28,7 @@ func TestROCmContainerArgs(t *testing.T) {
 	for _, want := range []string{
 		"--device /dev/kfd",
 		"--device /dev/dri",
-		"--group-add render",
+		"--group-add keep-groups",
 		"HSA_OVERRIDE_GFX_VERSION=11.5.1",
 		"ROCBLAS_USE_HIPBLASLT=1",
 		"-ngl 999",
