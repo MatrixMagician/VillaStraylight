@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: ROCm Opt-In Backend
-status: verifying
-stopped_at: Phase 08 built + off-hardware verified (human_needed); awaiting on-hardware UAT
-last_updated: "2026-06-06T12:00:00.000Z"
-last_activity: 2026-06-06 -- Phase 08 executed (2/2 plans), CR-01 fixed, off-hardware verification passed (human_needed)
+status: executing
+stopped_at: Completed 08-01-PLAN.md (backendswap transactional core)
+last_updated: "2026-06-06T16:07:09.564Z"
+last_activity: 2026-06-06 -- Phase 09 execution started
 progress:
   total_phases: 5
-  completed_phases: 2
-  total_plans: 8
+  completed_phases: 3
+  total_plans: 11
   completed_plans: 8
-  percent: 40
+  percent: 60
 ---
 
 # Project State
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-03)
 
 **Core value:** Run a capable local AI workspace that "just works" after install — hardware-aware setup that brings inference, chat, and the dashboard up healthy, with zero data leaving the box.
-**Current focus:** Phase 08 — villa-backend-set-switch-verb-rollback
+**Current focus:** Phase 09 — villa-bench-honest-a-b
 
 ## Current Position
 
-Phase: 08 (villa-backend-set-switch-verb-rollback) — AWAITING ON-HARDWARE UAT
-Plan: 2 of 2 (both executed + committed)
-Status: Built + off-hardware verified (4/4 success criteria at logic level); 4 on-hardware UAT items pending — run `/gsd-verify-work 8`
-Last activity: 2026-06-06 -- Phase 08 executed, CR-01 (ROCm preflight bypass) fixed, verification human_needed
+Phase: 09 (villa-bench-honest-a-b) — EXECUTING
+Plan: 1 of 3
+Status: Executing Phase 09
+Last activity: 2026-06-06 -- Phase 09 execution started
 
 ## Performance Metrics
 
