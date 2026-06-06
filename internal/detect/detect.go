@@ -27,6 +27,14 @@ func Probe() HostProfile {
 	// gpu_amd.go, keeping this orchestrator free of backend assumptions.
 	gpu := probeGPU()
 
+	kernel := kernelVersion(liveKernelOSRelease)
+
+	// rocm_readiness (v1.1, schema 2): computed from already-bounded facts + the
+	// resolved ROCm image. Undetectable off-hardware signals stay UNSET (D-08); the
+	// image policy is config-driven, not a host probe (Pitfall 5). Both the image
+	// resolution and the field literals live behind the gpu_amd.go seam.
+	rocmReadiness := computeROCmReadiness(gpu.gfxID, kernel, resolvedROCmImage())
+
 	return HostProfile{
 		CPUModel:            cpuModel,
 		Arch:                arch,
@@ -43,8 +51,9 @@ func Probe() HostProfile {
 		GTTTotalBytes:       gtt,
 		TTMLimitBytes:       ttm,
 		BIOSVRAMBytes:       vram,
-		KernelVersion:       kernelVersion(liveKernelOSRelease),
+		KernelVersion:       kernel,
 		MesaVersion:         gpu.mesaVersion,
+		ROCmReadiness:       rocmReadiness,
 		SchemaVersion:       hostProfileSchemaVersion,
 	}
 }

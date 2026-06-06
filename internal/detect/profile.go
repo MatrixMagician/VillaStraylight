@@ -81,7 +81,8 @@ type ROCmReadiness struct {
 	// Known when IGPUGfxID is Known; else Unknown (rocminfo absent off-hardware).
 	RocminfoGfx1151 Bool `json:"rocminfo_gfx1151"`
 	// ImagePolicyOK reports whether the resolved ROCm image obeys the pin policy
-	// (stable rocm-7.2.4, never a nightly). Config/request-driven, NOT a host
-	// probe (Pitfall 5) — computed against the resolved image string.
+	// (the pinned stable image, never a nightly). Config/request-driven, NOT a host
+	// probe (Pitfall 5) — computed against the resolved image string (the policy
+	// literals live behind the gpu_amd.go seam).
 	ImagePolicyOK Bool `json:"image_policy_ok"`
 }
