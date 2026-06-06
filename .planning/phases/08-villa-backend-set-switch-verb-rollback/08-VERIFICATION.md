@@ -2,23 +2,23 @@
 phase: 08-villa-backend-set-switch-verb-rollback
 verified: 2026-06-06T00:00:00Z
 status: human_needed
-score: 4/4 must-haves verified (off-hardware logic); on-hardware runtime deferred to UAT
+score: 4/4 must-haves verified (off-hardware logic); 2/4 on-hardware UAT items now PASS, 2 residual (failure-path)
 re_verification:
   previous_status: none
   previous_score: n/a
 human_verification:
-  - test: "On a running install, `villa backend set rocm` performs a real ROCm bring-up that proves healthy (offloaded N/N layers, gpu_busy>0 during the decode) and cuts over."
-    expected: "Switch succeeds (exit 0); `villa backend show` reports rocm; only villa-llama.service was restarted; model/quant/context unchanged in config.toml."
-    why_human: "Requires real ROCm/HIP offload on gfx1151 with HSA_OVERRIDE — the actual generation-probe + residency proof against a live llama-server cannot run off this host."
   - test: "Force a bad ROCm config (e.g. a host that silently CPU-falls-back, or a load_tensors hang) and run `villa backend set rocm`."
     expected: "liveProve classifies it FAIL (gpu_busy 0% / not-ready-before-timeout / no tokens) within proveTimeout (5m); the switch auto-rolls back to the verbatim prior vulkan unit+config and re-readies villa-llama; exit 1 with a 'rolled back; prior backend restored' message; the running stack is unchanged."
-    why_human: "Silent-CPU-fallback detection, the load_tensors-hang deadline, the allocation-cap / firmware-fault paths, and the live transactional restore all depend on real ROCm runtime behavior unavailable off-host."
+    why_human: "Silent-CPU-fallback detection, the load_tensors-hang deadline, the allocation-cap / firmware-fault paths, and the live transactional restore all depend on real ROCm runtime behavior unavailable off-host. RESIDUAL — requires deliberately breaking a ROCm config; not exercised in the 2026-06-06 happy-path on-hardware session."
   - test: "Confirm the bounded proveTimeout (5m) actually fires on a never-ready ROCm server (an unbounded load_tensors hang)."
     expected: "The cutover prove returns FAIL at the deadline (not an infinite wait) and rolls back."
-    why_human: "Requires a real hung llama-server load on the target hardware; the deadline context is wired but its trip can only be observed live."
+    why_human: "Requires a real hung llama-server load on the target hardware; the deadline context is wired but its trip can only be observed live. RESIDUAL — not exercised in the 2026-06-06 session (no induced hang)."
+human_verification_closed: 2026-06-06T22:00:00Z
+human_verification_resolved:
+  - test: "On a running install, `villa backend set rocm` performs a real ROCm bring-up that proves healthy and cuts over."
+    resolution: "PASS (on-hardware, 2026-06-06). `villa backend set rocm` → exit 0, 'cutover proven'; `villa backend show` reports rocm + rocm-7.2.4 digest; ROCm0 residency PASS (20583.34 MiB resident); model qwen3.6-35b-a3b preserved; only villa-llama regenerated/restarted. Cross-checked by `bench --ab` flipping vulkan↔rocm and restoring."
   - test: "`villa backend set rocm --dry-run` and `villa backend show` against a real configured install."
-    expected: "Dry-run prints {target, fit verdict, preflight verdict} and mutates nothing (config.toml + units byte-unchanged, service untouched); show reports the real active backend + image tag."
-    why_human: "The mutation-free guarantee and the preflight verdict against the real host detect probe are best confirmed on a configured install (off-host logic is already unit-proven)."
+    resolution: "PASS (on-hardware, 2026-06-06). Dry-run printed {target rocm, fit PASS, preflight PASS} and wrote nothing ('no config persisted, no units regenerated, no restart'); `villa backend show` reported the real active backend + image tag."
 ---
 
 # Phase 8: `villa backend set` Switch Verb + Rollback — Verification Report
