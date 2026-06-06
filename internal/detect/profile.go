@@ -3,7 +3,12 @@ package detect
 // hostProfileSchemaVersion is the self-version of the HostProfile contract.
 // Bump it whenever a field's meaning changes incompatibly so the Phase 5
 // dashboard can detect a mismatch.
-const hostProfileSchemaVersion = 1
+//
+// v2 (v1.1 Phase 7, DET-04): APPEND-ONLY bump — a nested rocm_readiness object
+// was added AFTER the GPU block; no existing v1 field was renamed, retyped, or
+// reordered. Consumers (dashboard, Phase-10 recommend) read schema_version to
+// detect the v1.1 contract.
+const hostProfileSchemaVersion = 2
 
 // HostProfile is the structured result of Probe — the single source of truth for
 // `villa detect --json` AND the struct the Phase 5 dashboard consumes (D-05).
@@ -45,6 +50,38 @@ type HostProfile struct {
 	KernelVersion Str `json:"kernel_version"`
 	MesaVersion   Str `json:"mesa_version"`
 
-	// SchemaVersion is the HostProfile contract self-version.
+	// ROCmReadiness is the v1.1 (schema 2) ROCm opt-in readiness sub-tree the
+	// dashboard and Phase-10 recommend consume. It is appended AFTER the GPU block
+	// (D-06) as a strictly additive contract change; nothing above it moved.
+	ROCmReadiness ROCmReadiness `json:"rocm_readiness"`
+
+	// SchemaVersion is the HostProfile contract self-version. It MUST stay the
+	// LAST field of HostProfile (append-only discipline; new fields go above it).
 	SchemaVersion int `json:"schema_version"`
+}
+
+// ROCmReadiness is the nested ROCm opt-in readiness signal added in v1.1 (schema
+// 2, DET-04). Every field is a typed-Optional Bool (value.go) so an undetectable
+// off-hardware signal serializes as UNSET (Known=false), distinct from a real
+// false — the no-false-green guarantee (D-08). It is backend-neutral by NAME only
+// in the sense that it is computed by readiness_rocm.go from already-bounded
+// HostProfile facts plus the resolved image (any ROCm-specific host probe lives
+// behind the gpu_amd.go seam).
+type ROCmReadiness struct {
+	// HSAOverrideViable reports whether the HSA_OVERRIDE_GFX_VERSION override ROCm
+	// needs on gfx1151 is viable. Unknown off-hardware (override not probed).
+	HSAOverrideViable Bool `json:"hsa_override_viable"`
+	// FirmwareDateOK reports whether the linux-firmware date is clear of the
+	// known-bad build. Unknown off-hardware (firmware date not probed).
+	FirmwareDateOK Bool `json:"firmware_date_ok"`
+	// KernelFloorOK reports whether the running kernel meets the gfx1151 floor.
+	// Known when KernelVersion is Known; else Unknown.
+	KernelFloorOK Bool `json:"kernel_floor_ok"`
+	// RocminfoGfx1151 reports whether rocminfo enumerates the gfx1151 target.
+	// Known when IGPUGfxID is Known; else Unknown (rocminfo absent off-hardware).
+	RocminfoGfx1151 Bool `json:"rocminfo_gfx1151"`
+	// ImagePolicyOK reports whether the resolved ROCm image obeys the pin policy
+	// (stable rocm-7.2.4, never a nightly). Config/request-driven, NOT a host
+	// probe (Pitfall 5) — computed against the resolved image string.
+	ImagePolicyOK Bool `json:"image_policy_ok"`
 }
