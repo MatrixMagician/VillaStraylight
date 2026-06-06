@@ -84,7 +84,15 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. Cutover only succeeds after a real generation-probe readiness check + residency proof for the *new* backend passes within a bounded timeout — `systemctl is-active` alone never counts as success.
   4. `villa backend show` reports the active backend, and `villa backend set --dry-run` previews the switch (target, fit verdict, preflight verdict) without mutating config or units.
 
-**Plans**: TBD
+**Plans**: 2 plans (2 waves)
+
+**Wave 1**
+
+- [ ] 08-01-PLAN.md — transactional core `internal/backendswap` (Deps/Result/ProveVerdict + Run capture→mutate→prove→rollback; fit-guard + ROCm-preflight refuse; verbatim rollback; state-machine tests) [BSET-01, BSET-02]
+
+**Wave 2** *(blocked on Wave 1 — consumes the package's Deps/ProveVerdict)*
+
+- [ ] 08-02-PLAN.md — `villa backend` cobra noun (`set`/`show`/`--dry-run`), exit mapping, `liveProve` (bounded pollHealth + generation probe + RunningOffloadVerdict, live `detect.GPUBusyPercent()` D-07 read), `liveBackendSwapDeps`, root registration, command tests [BSET-01, BSET-02, BSET-03]
 **Research flag**: on-hardware — real ROCm offload, HSA-override behavior, kernel/firmware sensitivity, `load_tensors` hang detection, the transactional rollback state-machine. Flag for `--research-phase` and the most live UAT.
 
 ### Phase 9: `villa bench` (Honest A/B)
@@ -129,6 +137,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | 5. Control Dashboard | v1.0 | 8/8 | Complete | 2026-06-05 |
 | 6. ROCm Backend + Resolver Spine | v1.1 | 3/3 | Complete    | 2026-06-05 |
 | 7. ROCm Render Unit + Preflight/Detect | v1.1 | 3/3 | Complete    | 2026-06-06 |
-| 8. `villa backend set` Switch Verb + Rollback | v1.1 | 0/TBD | Not started | - |
+| 8. `villa backend set` Switch Verb + Rollback | v1.1 | 0/2 | Planned | - |
 | 9. `villa bench` (Honest A/B) | v1.1 | 0/TBD | Not started | - |
 | 10. Backend + tok/s Surfacing | v1.1 | 0/TBD | Not started | - |
