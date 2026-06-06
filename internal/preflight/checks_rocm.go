@@ -134,8 +134,34 @@ func checkROCmFirmware(fw detect.Str, pol ROCmPolicy) CheckResult {
 				remediation, fw.Source, fw.Raw)
 		}
 	}
+	// Floor advisory: a firmware date BELOW the known-good baseline is not on the
+	// denylist (so not a confident FAIL), but the detect-side readiness gate
+	// (firmwareDateOK, >= floor) marks it not-ready. Without this the preflight
+	// gate gives sub-floor firmware a clean PASS while detect reports it false —
+	// the two surfaces disagree. Surface it as a WARN so they agree, while keeping
+	// the denylist as the ONLY hard FAIL (biased against over-blocking).
+	if floor != "" && isFirmwareDate(fw.Value) && compareVersions(fw.Value, floor) < 0 {
+		return warn(idROCmFirmware, name, TierBlock,
+			fmt.Sprintf("linux-firmware %s is below the ROCm-recommended floor %s (not denied, but unproven for ROCm on Strix Halo)", fw.Value, floor),
+			remediation, fw.Source, fw.Raw)
+	}
 	return pass(idROCmFirmware, name, TierBlock,
 		fmt.Sprintf("firmware %s is not on the denylist", fw.Value), fw.Source)
+}
+
+// isFirmwareDate reports whether s is an 8-digit YYYYMMDD stamp suitable for a
+// numeric floor comparison via compareVersions. Guards against over-warning on
+// an unparseable firmware value (which would otherwise compare as below floor).
+func isFirmwareDate(s string) bool {
+	if len(s) != 8 {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // checkROCmHSA FAILs only when the HSA_OVERRIDE_GFX_VERSION is Known to be absent

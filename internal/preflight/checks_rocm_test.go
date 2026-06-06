@@ -105,6 +105,27 @@ func TestRunROCmFirmware(t *testing.T) {
 	if good.Status != StatusPass {
 		t.Errorf("firmware 20260110 → %v, want PASS", good.Status)
 	}
+
+	// A firmware date BELOW the floor (20260110) but NOT on the denylist must WARN,
+	// not PASS — otherwise the preflight gate clean-PASSes sub-floor firmware while
+	// the detect-side readiness gate (>= floor) reports it not-ready (the two
+	// surfaces disagree). The denylist stays the only hard FAIL.
+	subFloor := checkROCmFirmware(detect.KnownStr("20251201", "rpm"), pol)
+	if subFloor.Status != StatusWarn {
+		t.Errorf("sub-floor firmware 20251201 (not denied) → %v, want WARN", subFloor.Status)
+	}
+
+	// A firmware date one day below the floor is still sub-floor → WARN.
+	if r := checkROCmFirmware(detect.KnownStr("20260109", "rpm"), pol); r.Status != StatusWarn {
+		t.Errorf("firmware 20260109 (one day below floor) → %v, want WARN", r.Status)
+	}
+
+	// A non-date firmware string must not be coerced into a false sub-floor WARN:
+	// isFirmwareDate rejects it, so it falls through to PASS (not denied, not
+	// comparable). Biased against over-blocking a genuinely-working host.
+	if r := checkROCmFirmware(detect.KnownStr("not-a-date", "rpm"), pol); r.Status != StatusPass {
+		t.Errorf("unparseable firmware string → %v, want PASS (no false sub-floor WARN)", r.Status)
+	}
 }
 
 // TestRunROCmHSA covers both branches: a Known-absent (unset) override FAILs; an
