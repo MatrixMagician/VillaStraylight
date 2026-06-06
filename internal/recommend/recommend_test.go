@@ -206,6 +206,125 @@ func TestRefusalWhenNoFloor(t *testing.T) {
 	}
 }
 
+// readinessAllGood returns a ROCmReadiness whose five signals are all Known-good.
+func readinessAllGood() detect.ROCmReadiness {
+	return detect.ROCmReadiness{
+		HSAOverrideViable: detect.KnownBool(true, "test"),
+		FirmwareDateOK:    detect.KnownBool(true, "test"),
+		KernelFloorOK:     detect.KnownBool(true, "test"),
+		RocminfoGfx1151:   detect.KnownBool(true, "test"),
+		ImagePolicyOK:     detect.KnownBool(true, "test"),
+	}
+}
+
+// TestPickROCmAdviceDerivation is the advice-derivation table (D-05): all-good →
+// worth-trying, any-unknown → verify-with-bench, any Known-bad → withheld (empty)
+// + a blocker Note. The advice is derived purely inside Pick from the
+// HostProfile.rocm_readiness already in hand — no new I/O, no new Pick argument.
+func TestPickROCmAdviceDerivation(t *testing.T) {
+	good := detect.KnownBool(true, "test")
+	bad := detect.KnownBool(false, "test")
+	unset := detect.UnknownBool("not probed", "")
+
+	allGood := readinessAllGood()
+	oneUnknown := readinessAllGood()
+	oneUnknown.FirmwareDateOK = unset
+	oneBad := readinessAllGood()
+	oneBad.KernelFloorOK = bad
+	// A Known-bad signal wins over an additionally-unknown one only insofar as
+	// "withheld": any Known-bad → advice empty. Here mix bad + unknown to be sure
+	// the unknown does not flip a confidently-bad host into verify-with-bench.
+	badAndUnknown := readinessAllGood()
+	badAndUnknown.KernelFloorOK = bad
+	badAndUnknown.FirmwareDateOK = unset
+	_ = good
+
+	cases := []struct {
+		name        string
+		readiness   detect.ROCmReadiness
+		wantAdvice  ROCmAdvice
+		wantNoteSub string // a substring the Note must contain ("" = Note may be empty)
+		wantNoNote  bool   // when true, the Note must be empty
+	}{
+		{"all-good→worth-trying", allGood, ROCmAdviceWorthTrying, "villa bench", false},
+		{"any-unknown→verify-with-bench", oneUnknown, ROCmAdviceVerifyBench, "villa bench", false},
+		{"one-known-bad→withheld+blocker", oneBad, "", "", false},
+		{"bad+unknown→withheld+blocker", badAndUnknown, "", "", false},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			p := profileWithEnvelope(64 << 30)
+			p.ROCmReadiness = c.readiness
+			rec := Pick(p, testCatalog(), Overrides{})
+
+			if rec.ROCmAdvice != c.wantAdvice {
+				t.Errorf("ROCmAdvice = %q, want %q", rec.ROCmAdvice, c.wantAdvice)
+			}
+
+			// The pick must never be auto-switched away from vulkan by advice (REC-04).
+			if rec.Backend != "vulkan" {
+				t.Errorf("Backend = %q, want vulkan (advice must never auto-switch)", rec.Backend)
+			}
+
+			if c.wantNoteSub != "" && !strings.Contains(rec.ROCmNote, c.wantNoteSub) {
+				t.Errorf("ROCmNote = %q, want it to contain %q", rec.ROCmNote, c.wantNoteSub)
+			}
+
+			// When advice is withheld (Known-bad), a blocker Note must be present.
+			if c.wantAdvice == "" && !c.wantNoNote && rec.ROCmNote == "" {
+				t.Errorf("withheld advice must carry a blocker Note, got empty")
+			}
+
+			// HONESTY (LOCKED, tested): the advice Note must never promise a speed-up.
+			for _, banned := range []string{"faster", "guaranteed", "speed-up"} {
+				if strings.Contains(rec.ROCmNote, banned) {
+					t.Errorf("ROCmNote contains banned promise %q: %q", banned, rec.ROCmNote)
+				}
+			}
+		})
+	}
+}
+
+// TestPickROCmAdviceNoteHonorsHonesty asserts the worth-trying advice Note points
+// the user to verification ("verify" + "bench") and never promises a speed-up
+// (no "faster"/"guaranteed"/"speed-up") — the on-hardware token-gen delta was
+// −11.15, so ROCm can REGRESS tg (T-10-05).
+func TestPickROCmAdviceNoteHonorsHonesty(t *testing.T) {
+	p := profileWithEnvelope(64 << 30)
+	p.ROCmReadiness = readinessAllGood()
+	rec := Pick(p, testCatalog(), Overrides{})
+
+	if rec.ROCmAdvice != ROCmAdviceWorthTrying {
+		t.Fatalf("precondition: ROCmAdvice = %q, want worth-trying", rec.ROCmAdvice)
+	}
+	note := rec.ROCmNote
+	for _, want := range []string{"verify", "bench"} {
+		if !strings.Contains(note, want) {
+			t.Errorf("honesty Note must contain %q: %q", want, note)
+		}
+	}
+	for _, banned := range []string{"faster", "guaranteed", "speed-up"} {
+		if strings.Contains(note, banned) {
+			t.Errorf("honesty Note must NOT contain %q: %q", banned, note)
+		}
+	}
+}
+
+// TestPickROCmAdviceEmptyWhenReadinessUnset asserts that off-hardware (all
+// readiness signals unset → any-unknown) the advice is verify-with-bench, never a
+// fabricated worth-trying, and the Backend stays vulkan.
+func TestPickROCmAdviceEmptyWhenReadinessUnset(t *testing.T) {
+	p := profileWithEnvelope(64 << 30) // default ROCmReadiness: all fields zero/unset
+	rec := Pick(p, testCatalog(), Overrides{})
+	if rec.ROCmAdvice != ROCmAdviceVerifyBench {
+		t.Errorf("off-hardware ROCmAdvice = %q, want verify-with-bench", rec.ROCmAdvice)
+	}
+	if rec.Backend != "vulkan" {
+		t.Errorf("Backend = %q, want vulkan", rec.Backend)
+	}
+}
+
 func hasNote(notes []string, substr string) bool {
 	for _, n := range notes {
 		if strings.Contains(n, substr) {
