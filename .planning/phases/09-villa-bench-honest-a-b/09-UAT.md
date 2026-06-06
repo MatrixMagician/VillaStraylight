@@ -77,7 +77,8 @@ blocked: 0
 ## Gaps
 
 - truth: "`villa bench` (single mode) states which backend it measured"
-  status: failed
+  status: resolved
+  resolved_by: "quick task 260606-p3a (fix 8aa9c90) — runBench now sets res.Backend = benchConfiguredBackend() on the !ab path; single-mode human header shows `backend (vulkan):` and --json single.backend == \"vulkan\" (verified live). internal/bench core unchanged; --ab + pp/tg-separate contract + golden no-blended-key invariant intact; 171 cmd+bench tests green."
   reason: "Found during Test 1: human-readable header is `backend ():` and --json `single.backend` is `\"\"` — the measured backend (vulkan) is never labeled in single mode. --ab mode labels sides correctly."
   severity: minor
   test: 1
