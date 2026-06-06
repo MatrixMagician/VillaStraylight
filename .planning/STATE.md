@@ -18,10 +18,10 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-06-03)
+See: .planning/PROJECT.md (updated 2026-06-06 after v1.1 milestone)
 
 **Core value:** Run a capable local AI workspace that "just works" after install — hardware-aware setup that brings inference, chat, and the dashboard up healthy, with zero data leaving the box.
-**Current focus:** Phase 11 — address-v1-1-tech-debt-rocm-readiness-detect-probes-doc-reco
+**Current focus:** Between milestones — v1.1 ROCm Opt-In Backend shipped & archived (2026-06-06). Next: `/gsd-new-milestone`.
 
 ## Current Position
 
@@ -190,4 +190,5 @@ Resume file: .planning/phases/11-address-v1-1-tech-debt-rocm-readiness-detect-pr
 
 ## Operator Next Steps
 
-- Start the next milestone with /gsd-new-milestone
+- **Ship v1.1 to `main`:** v1.1 lives on branch `feat/phase-09-villa-bench-honest-a-b` (~143 commits ahead of `main`). Merge via `/gsd-ship` (PR, as v1.0 did via PR #1), then create the `v1.1` git tag on the merge commit (tag deferred at milestone close per release-hygiene decision).
+- **Start the next milestone:** `/clear` then `/gsd-new-milestone` (questioning → research → requirements → roadmap). Candidate themes in PROJECT.md → Between Milestones.
