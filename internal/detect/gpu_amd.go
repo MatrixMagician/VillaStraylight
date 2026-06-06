@@ -353,6 +353,71 @@ func splitNumericSegments(v string) []int {
 	return out
 }
 
+// rocmFirmwareFloor is the minimum linux-firmware date (YYYYMMDD) known good for
+// ROCm on gfx1151 (CLAUDE.md "Version Compatibility": linux-firmware >= 20260110).
+// rocmFirmwareDeny lists firmware dates that are explicitly broken for ROCm on
+// Strix Halo (CLAUDE.md "What NOT to Use": linux-firmware-20251125 breaks ROCm).
+//
+// These values DUPLICATE preflight's rocm-policy.json (firmwareFloor / firmwareDeny)
+// on purpose: preflight imports detect, so detect importing preflight would create a
+// forbidden import cycle. The literals therefore live here behind the gpu_amd.go seam,
+// mirroring the established kernel-floor (rocmKernelFloorTarget) and image-tag
+// (rocmStableImageTag) duplication precedent.
+const rocmFirmwareFloor = "20260110"
+
+var rocmFirmwareDeny = []string{"20251125"}
+
+// firmwareDateProbe reads the installed linux-firmware package version via a
+// FIXED-ARG rpm query (never sh -c; the package name is a constant literal so there
+// is no command-injection surface, threat T-11-01 / ASVS V5). The Fedora
+// linux-firmware VERSION is a YYYYMMDD date stamp (live-verified: 20260519).
+//
+// No-false-green (D-08 / T-11-03): rpm absent or non-zero → UnknownStr; output that
+// is not a parseable YYYYMMDD stamp (e.g. a rawhide/snapshot string) → UnknownStr.
+// Only a clean 8-digit date returns KnownStr, so an unprobeable firmware never
+// fabricates a verdict.
+func firmwareDateProbe() Str {
+	out, ok := runTool("rpm", "-q", "--qf", "%{VERSION}", "linux-firmware")
+	if !ok {
+		return UnknownStr("rpm query for linux-firmware failed or rpm absent", capRaw(out))
+	}
+	date := strings.TrimSpace(out)
+	if !isYYYYMMDD(date) {
+		return UnknownStr("linux-firmware version not a parseable YYYYMMDD stamp", capRaw(out))
+	}
+	return KnownStr(date, "rpm -q --qf %{VERSION} linux-firmware")
+}
+
+// isYYYYMMDD reports whether s is exactly 8 digits, the shape of a Fedora
+// linux-firmware date stamp. It guards the numeric floor compare so a non-date
+// VERSION (rawhide snapshot, build hash) degrades to UNSET instead of corrupting
+// the comparison (Pitfall 2 / no-false-green).
+func isYYYYMMDD(s string) bool {
+	if len(s) != 8 {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// firmwareDatePolicyOK scores a parsed YYYYMMDD firmware date against the ROCm
+// policy: a denylisted date loses outright (denylist wins), otherwise the date must
+// meet the floor. It mirrors kernelMeetsROCmFloor + rocmImagePolicyOK verdict
+// ordering and REUSES compareVersionSegments (no new comparator). It returns a bare
+// bool; the Bool wrapping happens in readiness_rocm.go's firmwareDateOK.
+func firmwareDatePolicyOK(date string) bool {
+	for _, denied := range rocmFirmwareDeny {
+		if date == denied {
+			return false
+		}
+	}
+	return compareVersionSegments(date, rocmFirmwareFloor) >= 0
+}
+
 // rocmPresent reports whether rocminfo is installed. ROCm is the opt-in
 // performance backend (Vulkan is the gfx1151 default), so absence is a confident
 // false, not Unknown — informational, never blocking here (D-02/D-15).
