@@ -168,8 +168,8 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 **Goal:** Make `internal/detect/readiness_rocm.go`'s `firmwareDateOK()` / `hsaOverrideViable()` real probes (KnownBool on-hardware, honest UNSET off-hardware) so the Phase-10 ROCm-readiness badge reads `ready` on a live ROCm host (closes the DASH-06 SC#1 residual + the DET-04 readiness fields), and reconcile the audit-named documentation drift (6 missing SUMMARY `requirements-completed` tags + the stale 06-REVIEW prose Status line + the REQUIREMENTS.md ROCM-02 note). Post-milestone tech-debt cleanup; no new fields, no schema bump, no golden re-freeze (D-04).
 **Requirements**: DET-04, DASH-06 (residual sub-clauses; doc plan is cross-cutting tech-debt — no new REQ-IDs)
 **Depends on:** Phase 10
-**Plans:** 2 plans (1 wave — fully parallel, zero file overlap)
+**Plans:** 1/2 plans executed
 Plans:
 
-- [ ] 11-01-PLAN.md — DET-04/DASH-06: real `firmwareDateOK` (rpm firmware-date probe + detect-local floor/deny seam in gpu_amd.go) + `hsaOverrideViable` (pure gfx1151+substrate derivation) + threaded `computeROCmReadiness` + table tests; golden byte-identical (no re-freeze); on-hardware badge=ready as manual UAT
+- [x] 11-01-PLAN.md — DET-04/DASH-06: real `firmwareDateOK` (rpm firmware-date probe + detect-local floor/deny seam in gpu_amd.go) + `hsaOverrideViable` (pure gfx1151+substrate derivation) + threaded `computeROCmReadiness` + table tests; golden byte-identical (no re-freeze); on-hardware badge=ready as manual UAT
 - [ ] 11-02-PLAN.md — tech-debt: add `requirements-completed` frontmatter to 6 SUMMARYs (DET-04/BSET-01..03/BENCH-02/REC-05, evidence-checked) + fix stale 06-REVIEW prose Status line + human-verify checkpoint on the REQUIREMENTS.md ROCM-02 note (no blind edit)

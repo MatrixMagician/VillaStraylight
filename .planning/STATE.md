@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: ROCm Opt-In Backend
-status: planning
+status: executing
 stopped_at: Phase 11 context gathered
-last_updated: "2026-06-06T22:07:18.277Z"
-last_activity: 2026-06-06 -- Phase 11 added (v1.1 tech debt)
+last_updated: "2026-06-06T22:13:27.407Z"
+last_activity: 2026-06-06 -- Phase 11 execution started
 progress:
   total_phases: 6
   completed_phases: 5
-  total_plans: 14
-  completed_plans: 14
+  total_plans: 16
+  completed_plans: 15
   percent: 83
 ---
 
@@ -21,15 +21,15 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-03)
 
 **Core value:** Run a capable local AI workspace that "just works" after install — hardware-aware setup that brings inference, chat, and the dashboard up healthy, with zero data leaving the box.
-**Current focus:** Phase 10 — backend-tok-s-surfacing
+**Current focus:** Phase 11 — address-v1-1-tech-debt-rocm-readiness-detect-probes-doc-reco
 
 ## Current Position
 
-Phase: 11 (address-v1-1-tech-debt) — NOT PLANNED
-Plan: 0 of 0
-Status: Phase added — ready for planning
+Phase: 11 (address-v1-1-tech-debt-rocm-readiness-detect-probes-doc-reco) — EXECUTING
+Plan: 2 of 2
+Status: Ready to execute
 Next: Phase 11 (address-v1-1-tech-debt) — rocm_readiness detect probes + doc reconciliation; not yet planned (`/gsd-plan-phase 11`).
-Last activity: 2026-06-06 -- Phase 11 added (v1.1 tech debt)
+Last activity: 2026-06-06 -- Phase 11 execution started
 
 ## Performance Metrics
 
@@ -78,6 +78,7 @@ Last activity: 2026-06-06 -- Phase 11 added (v1.1 tech debt)
 | Phase 10 P01 | 18min | 3 tasks | 5 files |
 | Phase 10 P02 | ~3m | 2 tasks | 5 files |
 | Phase 10 P03 | 3min | 2 tasks | 2 files |
+| Phase 11 P01 | 3 min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -145,6 +146,7 @@ Recent decisions affecting current work:
 - [Phase ?]: Phase 10-01: status Report schema_version=1; backend/image/tok-s/rocm-readiness tail-appended; golden re-frozen once as pure-addition diff (DASH-06)
 - [Phase ?]: 10-02: villa recommend surfaces typed ROCmAdvice (worth-trying/verify-with-bench/withheld) derived purely in Pick from rocm_readiness; Backend stays vulkan, advice never auto-switches and never promises a speed-up (honesty Δtg −11.15, points to villa bench)
 - [Phase ?]: 10-02: recommend.golden.json re-frozen once as pure tail-addition (schema_version:1); detect + status goldens byte-identical; go.mod frozen
+- [Phase ?]: [11-01]: rocm_readiness firmwareDateOK/hsaOverrideViable made real probes — firmware floor(20260110)/deny(20251125) duplicated detect-side behind gpu_amd.go seam (NOT imported; preflight imports detect = forbidden cycle); HSA Known-ness gated on gfxID.Known not rocmPresent; no os.Getenv(HSA_OVERRIDE). detect.golden.json byte-identical with NO -update (fixture-driven, D-04).
 
 ### Pending Todos
 
@@ -180,7 +182,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-06T21:37:37.556Z
+Last session: 2026-06-06T22:13:21.412Z
 Stopped at: Phase 11 context gathered
 Resume file: .planning/phases/11-address-v1-1-tech-debt-rocm-readiness-detect-probes-doc-reco/11-CONTEXT.md
 
