@@ -83,6 +83,83 @@ func TestRenderContainerGolden(t *testing.T) {
 	goldenCompare(t, "villa-llama.container.golden", c.Text)
 }
 
+// rocmFixtureInput is the deterministic RenderInput the ROCm golden is frozen against.
+// It mirrors fixtureInput() but selects the opt-in ROCm backend through the resolver
+// (BackendFor) — the image/device/group/env delta is sourced THROUGH the seam, never
+// hand-typed, so the golden tracks backend_rocm.go.
+func rocmFixtureInput(t *testing.T) RenderInput {
+	t.Helper()
+	rocm, err := inference.BackendFor("rocm")
+	if err != nil {
+		t.Fatalf("BackendFor(rocm): %v", err)
+	}
+	return RenderInput{
+		Backend:   rocm,
+		Cfg:       config.VillaConfig{Model: "qwen3-35b-a3b-moe-64", Quant: "UD-Q4_K_M", Ctx: 131072, Backend: "rocm"},
+		ModelFile: "qwen3-35b-a3b-moe-64.gguf",
+		ModelsDir: "/home/villa/.local/share/villa/models",
+	}
+}
+
+// TestRenderROCmContainerGolden: the rendered ROCm .container equals
+// testdata/villa-llama-rocm.container.golden byte-for-byte (regen with -update). The
+// golden's delta over the Vulkan golden is exactly image + /dev/kfd + render group +
+// HSA/hipBLASLt env (ROCM-03 / D-09) — a reviewer diffs the two units to see it.
+func TestRenderROCmContainerGolden(t *testing.T) {
+	units, err := Render(rocmFixtureInput(t))
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	c := unitByName(t, units, "villa-llama.container")
+	goldenCompare(t, "villa-llama-rocm.container.golden", c.Text)
+}
+
+// TestRenderROCmEnvGroupFrozen mirrors TestRenderOpenWebUITelemetryFrozen: it guards
+// against the Pitfall-1 silent drop of the second group-add or the env block even if
+// the golden were regenerated wrong. It asserts the rendered ROCm unit contains EXACTLY
+// the two expected Environment= lines AND both AddDevice= lines AND GroupAdd=render,
+// using a count + full-set match (not a subset).
+func TestRenderROCmEnvGroupFrozen(t *testing.T) {
+	units, err := Render(rocmFixtureInput(t))
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	c := unitByName(t, units, "villa-llama.container")
+
+	wantEnv := []string{
+		"Environment=HSA_OVERRIDE_GFX_VERSION=11.5.1",
+		"Environment=ROCBLAS_USE_HIPBLASLT=1",
+	}
+	for _, line := range wantEnv {
+		if !strings.Contains(c.Text, line) {
+			t.Errorf("ROCm unit missing frozen env line %q (Pitfall-1 silent-drop guard):\n%s", line, c.Text)
+		}
+	}
+	if got := strings.Count(c.Text, "Environment="); got != len(wantEnv) {
+		t.Errorf("ROCm unit has %d Environment= lines, want exactly %d (env set drifted):\n%s", got, len(wantEnv), c.Text)
+	}
+
+	wantDevices := []string{"AddDevice=/dev/kfd", "AddDevice=/dev/dri"}
+	for _, line := range wantDevices {
+		if !strings.Contains(c.Text, line) {
+			t.Errorf("ROCm unit missing device line %q:\n%s", line, c.Text)
+		}
+	}
+	if got := strings.Count(c.Text, "AddDevice="); got != len(wantDevices) {
+		t.Errorf("ROCm unit has %d AddDevice= lines, want exactly %d:\n%s", got, len(wantDevices), c.Text)
+	}
+
+	wantGroups := []string{"GroupAdd=keep-groups", "GroupAdd=render"}
+	for _, line := range wantGroups {
+		if !strings.Contains(c.Text, line) {
+			t.Errorf("ROCm unit missing group line %q (second group-add silent-drop guard):\n%s", line, c.Text)
+		}
+	}
+	if got := strings.Count(c.Text, "GroupAdd="); got != len(wantGroups) {
+		t.Errorf("ROCm unit has %d GroupAdd= lines, want exactly %d:\n%s", got, len(wantGroups), c.Text)
+	}
+}
+
 // TestRenderNetworkGolden: the .network (NetworkName=villa) and the models .volume
 // goldens match; the container DNS name is villa-llama.
 func TestRenderNetworkGolden(t *testing.T) {
