@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: ROCm Opt-In Backend
-status: verifying
+status: Awaiting next milestone
 stopped_at: Phase 11 context gathered
-last_updated: "2026-06-06T22:26:33.530Z"
-last_activity: 2026-06-06
+last_updated: "2026-06-06T22:32:44.058Z"
+last_activity: 2026-06-06 — Milestone v1.1 completed and archived
 progress:
   total_phases: 6
   completed_phases: 6
@@ -25,11 +25,10 @@ See: .planning/PROJECT.md (updated 2026-06-03)
 
 ## Current Position
 
-Phase: 11
-Plan: Not started
-Status: Phase complete — ready for verification
-Next: Phase 11 (address-v1-1-tech-debt) — rocm_readiness detect probes + doc reconciliation; not yet planned (`/gsd-plan-phase 11`).
-Last activity: 2026-06-06
+Phase: Milestone v1.1 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-06-06 — Milestone v1.1 completed and archived
 
 ## Performance Metrics
 
@@ -177,11 +176,11 @@ None yet.
 
 ## Deferred Items
 
-Items acknowledged and carried forward from previous milestone close:
+Items acknowledged at milestone close on 2026-06-06 (v1.1):
 
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
-| *(none)* | | | |
+| quick_task | 260606-p3a-fix-villa-bench-single-mode-backend-label | Complete (commit 8aa9c90; task-status frontmatter reads `unknown` — tag lag only, work is done and in Quick Tasks Completed) | v1.1 close |
 
 ## Session Continuity
 
@@ -191,5 +190,4 @@ Resume file: .planning/phases/11-address-v1-1-tech-debt-rocm-readiness-detect-pr
 
 ## Operator Next Steps
 
-- Plan the first v1.1 phase with `/gsd-plan-phase 6` (ROCm Backend + Resolver Spine — off-hardware, spine for the milestone).
-- Phases 8 and 9 carry on-hardware research flags (see Blockers/Concerns) — consider `--research-phase` when reaching them.
+- Start the next milestone with /gsd-new-milestone

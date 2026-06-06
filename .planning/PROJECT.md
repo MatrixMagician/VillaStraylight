@@ -10,25 +10,20 @@ VillaStraylight is a self-hosted, local AI server stack for privacy-conscious po
 
 ## Current State
 
-**v1.0 MVP shipped 2026-06-05** (tag `v1.0`, PR #1 → `main`, merge `57f8ef7`). All 5 phases complete and live-verified on real AMD Strix Halo (gfx1151) hardware: `villa` detects the host, recommends a memory-fitting model, installs a rootless Podman Quadlet stack (llama.cpp Vulkan inference + Open WebUI chat), and serves a read-only control dashboard — strictly local, zero telemetry. 110 Go files, 430-test suite green, Phases 4 & 5 STRIDE-secured.
+**v1.1 ROCm Opt-In Backend shipped 2026-06-06** (tag `v1.1`). All 6 phases (6–11) complete; milestone audit `tech_debt` (13/13 requirements satisfied, 0 critical blockers, highest-value debt closed inline by Phase 11). ROCm now ships as a strictly opt-in second inference backend behind the `BackendFor` resolver with a HIP residency proof (P6), a byte-frozen Quadlet render delta + refuse-with-remediation preflight + detect-readiness fields (P7), a transactional `villa backend set` switch with verbatim rollback (P8, 4/4 on-hardware UAT), an honest A/B `villa bench` (P9, live Δpp +4.84 / Δtg −11.15), and backend-aware `recommend`/`status`/dashboard surfacing (P10). Phase 11 made the `rocm_readiness` firmware/HSA detect probes real (live-verified on the gfx1151 host — `villa status` badge reads `ready`, backend `rocm`) and reconciled documentation drift. Vulkan RADV remains the default. 129 Go files, ~26.3k LOC, full suite green (16 packages).
 
-**v1.1 all phases complete (6–11), 2026-06-06.** ROCm opt-in backend ships behind `BackendFor` with a HIP residency proof (P6), correct Quadlet render delta + refuse-with-remediation preflight + detect-readiness fields (P7), a transactional `villa backend set` switch with verbatim rollback (P8, 4/4 on-hardware UAT), an honest A/B `villa bench` (P9, live Δpp +4.84 / Δtg −11.15), and backend-aware `recommend`/`status`/dashboard surfacing (P10). Phase 11 closed the milestone-audit tech debt: the `rocm_readiness` firmware/HSA detect probes are now real (live-verified on the gfx1151 host — `villa status` badge reads `ready`, backend `rocm`), and the cross-cutting documentation drift is reconciled. Vulkan RADV remains the default; ROCm is strictly opt-in. Full suite green (16 packages). Phase 11 is the last v1.1 phase — milestone ready for completion/archive.
+**v1.0 MVP shipped 2026-06-05** (tag `v1.0`, PR #1 → `main`, merge `57f8ef7`). All 5 phases live-verified on real AMD Strix Halo (gfx1151) hardware: `villa` detects the host, recommends a memory-fitting model, installs a rootless Podman Quadlet stack (llama.cpp Vulkan inference + Open WebUI chat), and serves a read-only control dashboard — strictly local, zero telemetry. Phases 4 & 5 STRIDE-secured.
 
-## Current Milestone: v1.1 ROCm Opt-In Backend (Throughput)
+> **Note (release hygiene):** v1.1 work currently lives on branch `feat/phase-09-villa-bench-honest-a-b` (~141 commits ahead of `main`). v1.0 reached `main` via PR #1; v1.1 should follow the same path (e.g. `/gsd-ship`) before/after tagging.
 
-**Goal:** Add an opt-in ROCm/HIP inference backend for higher throughput on Strix Halo (gfx1151), gated hard enough to preserve the "just works" bar, switchable on a running install, with benchmarking to prove the win — while Vulkan RADV remains the safe default.
+## Between Milestones
 
-**Target features:**
-- ROCm backend behind the existing v1.0 `Backend` interface (`rocm-7.2.4` image, `HSA_OVERRIDE_GFX_VERSION=11.5.1`), offload-asserting like Vulkan — a silent CPU fallback is a FAIL.
-- `villa backend set rocm|vulkan` — swap the inference unit on a running install, fit-guarded + readiness-polled, rollback-safe (no full reinstall).
-- Full ROCm preflight + detect — confirm `rocminfo`/gfx1151, kernel floor, block firmware-20251125, require HSA override; refuse-with-remediation rather than silently degrade.
-- `villa bench` — A/B tok/s comparison (Vulkan vs ROCm) on the loaded model; throughput delta is a success criterion.
-- Backend-aware `recommend`/`detect` — `detect` reports ROCm readiness; `recommend` advises whether ROCm is viable/worth it; Vulkan stays default.
-- Dashboard + `villa status` show the active backend and live tok/s.
+No active milestone. Start the next cycle with `/gsd-new-milestone`.
 
-**Key constraints:** Pin `rocm-7.2.4` stable (avoid `rocm7-nightlies` 64 GB cap bug); strictly-local / zero-telemetry posture unchanged; phases continue from Phase 6.
-
-**Candidate later themes (deferred):** RAG (Qdrant) + search (SearXNG), macOS/Apple-Silicon (Metal) backend, authenticated remote/multi-user access, OpenCode coding-agent wiring, voice (Whisper/Kokoro).
+**Candidate next themes (deferred — see REQUIREMENTS archives):**
+- **v1.1.x / operability:** `villa bench --compare` + saved report (BENCH-03), backup/restore (BAK-01), `villa doctor` (DOCTOR-01), cumulative usage tracking (USAGE-01), guided TUI install (INSTALL-01), `rocm-6.4.4` alternate image for TG-heavy models (ROCM-ALT-01).
+- **Milestone 2 — Memory & Search:** Qdrant persistent memory, SearXNG search, OpenCode coding-agent wiring.
+- **Future:** macOS / Apple-Silicon (Metal) backend, authenticated remote/multi-user access, voice (Whisper/Kokoro), agents/orchestration, image generation, ROCm perf-tuning knobs (hipBLASLt/rocWMMA-FA/batch).
 
 ## Requirements
 
@@ -46,17 +41,18 @@ VillaStraylight is a self-hosted, local AI server stack for privacy-conscious po
 - [x] Strictly local operation: all services bind to localhost/LAN; no telemetry; only outbound traffic is image/model downloads during install/update — *Validated through Phase 5: PRIV-01/02/03 loopback + no-telemetry gates, `villa status` loopback-only assertion, SECURED audits (Phase 4 12/12, Phase 5 19/19 STRIDE, threats_open=0)*
 - [x] Control dashboard showing service health, performance metrics, token/throughput usage, and available/loaded models — *Validated in Phase 5: read-only dashboard as a read-model over the same internal API as `villa status`; amdgpu-sysfs GPU panel, 409-guarded model switch, chat link; all 5 UAT items live-verified on the gfx1151 host*
 - [x] Runs on Fedora Workstation 44+ on AMD Strix Halo — *Validated v1.0: continuously exercised on the live gfx1151 host through all 5 phases, incl. reboot boot-survival*
-- [x] Full ROCm preflight + detection (rocminfo/gfx1151, kernel floor, firmware-20251125 block, HSA override) — refuse-with-remediation — *Validated off-hardware in Phase 7: `villa preflight --backend rocm` refuses only on positively-known-bad with named remediation (degrades unevaluable signals to WARN, exit 2 never a false exit 1), driven by a `go:embed` `rocm-policy.json`; `villa detect --json` appends a `rocm_readiness` block (schema 1→2, append-only, undetectable signals serialize UNSET never false-green). On-hardware confirmation deferred to Phase 8.*
+- [x] Full ROCm preflight + detection (rocminfo/gfx1151, kernel floor, firmware-20251125 block, HSA override) — refuse-with-remediation — *Validated Phase 7 (off-hardware) + Phase 11 (on-hardware): `villa preflight --backend rocm` refuses only on positively-known-bad with named remediation, driven by a `go:embed` `rocm-policy.json`; `villa detect --json` appends a `rocm_readiness` block (schema 1→2, append-only). Phase 11 made the firmware/HSA probes real — live gfx1151 host reports `ready`.*
+- [x] ROCm/HIP inference backend, opt-in, behind the existing `Backend` interface, offload-asserting (no false-green CPU fallback) — *Validated v1.1 (Phase 6): `backend_rocm.go` (digest-pinned `rocm-7.2.4`, kfd+dri, render group, HSA→hipBLASLt env, ROCm0 residency markers) selected via the single `BackendFor()` resolver that fails closed; a silent/partial CPU fallback is a FAIL. Vulkan stays the default, byte-identical.*
+- [x] `villa backend set rocm|vulkan` switches the inference backend on a running install (fit-guarded, readiness-polled, rollback-safe) — *Validated v1.1 (Phase 8): transactional `internal/backendswap` capture→mutate→prove→rollback; cutover gated on a real generation-probe + residency proof; auto-rolls back verbatim on any failure. 4/4 on-hardware UAT incl. forced CPU-fallback rollback + bounded 5m timeout.*
+- [x] `villa bench` proves the Vulkan-vs-ROCm throughput delta — *Validated v1.1 (Phase 9): honest A/B reports prompt-processing and token-generation tok/s separately (never blended), warmup-discarded, N-rep median+stddev, residency-void-gated; `--ab` composes the Phase-8 switch. Live proof-of-value Δpp +4.84 / Δtg −11.15 — ROCm wins pp, regresses tg.*
+- [x] Backend-aware `detect`/`recommend` (ROCm readiness + advice; Vulkan stays default) — *Validated v1.1 (Phase 10): `recommend` derives honest ROCm advice ("worth trying / verify with bench / withheld") purely from `rocm_readiness`, never reassigns the backend, never promises a speed-up.*
+- [x] Dashboard + `villa status` surface the active backend and live tok/s — *Validated v1.1 (Phase 10): active backend + image tag, live tok/s labeled by backend, tri-state ROCm-readiness badge — append-only, schema-bumped, goldens re-frozen once; `status`'s previously-hardcoded `VulkanBackend()` now reflects the configured backend.*
 
 ### Active
 
-<!-- v1 / Milestone 1 — "Core platform". These are hypotheses until shipped. -->
+<!-- No active milestone. Next requirements defined via /gsd-new-milestone. -->
 
-- [ ] ROCm/HIP inference backend, opt-in, behind the existing `Backend` interface, offload-asserting (no false-green CPU fallback)
-- [ ] `villa backend set rocm|vulkan` switches the inference backend on a running install (fit-guarded, readiness-polled, rollback-safe)
-- [ ] `villa bench` proves the Vulkan-vs-ROCm throughput delta
-- [ ] Backend-aware `detect`/`recommend` (ROCm readiness + advice; Vulkan stays default)
-- [ ] Dashboard + `villa status` surface the active backend and live tok/s
+(None — v1.1 shipped. Define the next milestone's requirements with `/gsd-new-milestone`.)
 
 ### Out of Scope
 
@@ -95,16 +91,22 @@ VillaStraylight is a self-hosted, local AI server stack for privacy-conscious po
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
-| Go control plane; AI services are OSS containers | Avoid rebuilding mature tools; focus effort on hardware-aware orchestration | — Pending |
+| Go control plane; AI services are OSS containers | Avoid rebuilding mature tools; focus effort on hardware-aware orchestration | ✅ Validated (v1.0) — single static `villa` binary orchestrates llama.cpp + Open WebUI containers; no AI service rebuilt |
 | llama.cpp + Vulkan as primary inference backend | Most reliable Strix Halo iGPU path on Linux; OpenAI-compatible API; matches DreamServer's llama.cpp choice | ✅ Validated (Phase 2) — RADV offload proven on live gfx1151 (log device_info + sysfs GTT delta), loopback /v1, dual-assert verdict |
-| Inference behind a `Backend` interface; offload is offload-asserting (D-11), not liveness | De-risk the project's biggest unknown early; no Vulkan/Linux leak to callers; never false-green a silent CPU fallback | ✅ Validated (Phase 2) — `internal/inference` seam + grep-gate; CPU-fallback = FAIL |
-| Podman Quadlets / systemd for orchestration | Native, rootless, boot-on-startup on Fedora; no Docker | — Pending |
-| Integrate Open WebUI for chat | Mature, multi-model, RAG-ready; don't reinvent the UI | — Pending |
-| Single `villa` Go CLI as install + control entry point | Cohesive self-hosted UX; one static binary | — Pending |
-| Strictly local, no telemetry, no outbound (except pulls) | Privacy is a stated core value | — Pending |
-| v1 = "Core platform"; defer memory/search/OpenCode/voice/agents | Nail one platform end-to-end before breadth | — Pending |
-| AMD Strix Halo / Fedora first; macOS/Metal later | Reduce surface area; one hardware target to optimize | — Pending |
-| Treat repo as greenfield; earlier Go chat scaffold is reference-only | New vision is far larger than the scaffold; don't let it constrain design | — Pending |
+| Inference behind a `Backend` interface; offload is offload-asserting (D-11), not liveness | De-risk the project's biggest unknown early; no Vulkan/Linux leak to callers; never false-green a silent CPU fallback | ✅ Validated (Phase 2 + v1.1) — `internal/inference` seam + grep-gate; the v1.1 ROCm backend exercised the seam for the first time with zero caller leakage |
+| Podman Quadlets / systemd for orchestration | Native, rootless, boot-on-startup on Fedora; no Docker | ✅ Validated (v1.0) — `.container`/`.network`/`.volume` units generated + reconciled; rootless, boot-survival confirmed on reboot |
+| Integrate Open WebUI for chat | Mature, multi-model, RAG-ready; don't reinvent the UI | ✅ Validated (Phase 4) — container-DNS wired to local /v1, telemetry killed, durable volume; live browser chat + restart persistence |
+| Single `villa` Go CLI as install + control entry point | Cohesive self-hosted UX; one static binary | ✅ Validated (v1.0) — full lifecycle verb set, idempotent install, config-as-source-of-truth |
+| Strictly local, no telemetry, no outbound (except pulls) | Privacy is a stated core value | ✅ Validated (through v1.0) — loopback-only PRIV gates, STRIDE-secured (Phase 4 12/12, Phase 5 19/19); v1.1 posture unchanged |
+| v1 = "Core platform"; defer memory/search/OpenCode/voice/agents | Nail one platform end-to-end before breadth | ✅ Good — v1.0 + v1.1 shipped on the focused scope; deferred themes remain deferred |
+| AMD Strix Halo / Fedora first; macOS/Metal later | Reduce surface area; one hardware target to optimize | ✅ Good — exercised continuously on the live gfx1151 host; Metal kept behind the `Backend` interface |
+| Treat repo as greenfield; earlier Go chat scaffold is reference-only | New vision is far larger than the scaffold; don't let it constrain design | ✅ Good — scaffold not extended; clean `cmd/villa` + `internal/*` architecture |
+| ROCm is opt-in; Vulkan RADV stays default; `recommend` advises, never auto-switches | Preserve the v1.0 "just works" bar; ROCm is fragile (firmware/kernel-sensitive); honesty over hype | ✅ Validated (v1.1) — `recommend` never reassigns backend nor promises a speed-up; live Δtg −11.15 proves the honesty constraint was warranted |
+| Single polymorphic `BackendFor(cfg.Backend)` resolver, fail-closed | One resolution point so backend choice is honored across install/lifecycle/status/bench/dashboard; never silently fall back to Vulkan | ✅ Validated (Phase 6) — all runtime sites route through it; unknown config string → actionable error, not a silent default |
+| Pin `rocm-7.2.4` stable; never `rocm7-nightlies` | Nightlies have a 64 GB allocation-cap bug that blocks large models | ✅ Good — digest-pinned in `backend_rocm.go`; preflight refuses a nightly image request |
+| `villa backend set` is transactional (capture→prove→cutover→rollback) | A failed ROCm bring-up must be a no-op to the running stack — the "just works" bar | ✅ Validated (Phase 8) — 4/4 on-hardware UAT incl. forced CPU-fallback rollback + bounded timeout |
+| `bench --ab` composes the Phase-8 switch; never re-implements switching | One switch implementation; bench measures, it doesn't orchestrate | ✅ Validated (Phase 9) — `--ab` delegates the flip to `backendswap.Run` |
+| Surfacing (Phase 10) lands last; `--json`/goldens re-freeze exactly once | Append-only, schema-bumped, never reordered — protect the frozen dashboard contracts | ✅ Validated (Phase 10) — status/recommend/detect goldens re-frozen once as pure-addition diffs |
 
 ## Evolution
 
@@ -124,4 +126,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-06 — Phase 7 complete (ROCm render delta + preflight + detect, off-hardware; ROCM-03/PRE-06/DET-04 validated, 481-test suite green). 2026-06-05 — started milestone v1.1 (ROCm Opt-In Backend). Builds on the v1.0 `Backend` interface seam (Phase 2, D-11): ROCm becomes a second, opt-in backend with full preflight gating, a switchable `villa backend set` verb, `villa bench` to prove the throughput delta, and backend-aware detect/recommend/dashboard. Vulkan RADV stays the default. v1.0: all 5 phases shipped and merged to `main` (tag `v1.0`, PR #1), Phases 4 & 5 SECURED (12/12 + 19/19 STRIDE). Phases continue from Phase 6.*
+*Last updated: 2026-06-06 after v1.1 milestone (ROCm Opt-In Backend) — all 6 phases (6–11) shipped, tag `v1.1`, milestone audit `tech_debt` (13/13 requirements satisfied, 0 critical blockers). ROCm ships opt-in behind `BackendFor` with HIP residency proof, transactional `villa backend set`, honest A/B `villa bench` (live Δpp +4.84 / Δtg −11.15), and backend-aware surfacing; Vulkan RADV stays default. v1.0 (Phases 1–5) shipped + merged to `main` (tag `v1.0`, PR #1). Next: define the following milestone with `/gsd-new-milestone`.*
