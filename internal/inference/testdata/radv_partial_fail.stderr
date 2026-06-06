@@ -1,0 +1,11 @@
+build: 0 (unknown) with cc (GCC) 14.2.1 for x86_64-redhat-linux
+system info: n_threads = 16, n_threads_batch = 16, total_threads = 32
+ggml_vulkan: Found 1 Vulkan devices:
+ggml_vulkan: 0 = AMD Radeon Graphics (RADV GFX1151) (radv) | uma: 1 | fp16: 1 | warp size: 64 | shared memory: 65536 | int dot: 1 | matrix cores: none
+llama_model_loader: loaded meta data with 30 key-value pairs and 290 tensors from /models/big-70b-q4_k_m.gguf
+load_tensors: offloading 0 repeating layers to GPU
+load_tensors: offloaded 1/65 layers to GPU
+load_tensors:      Vulkan0 model buffer size =   373.71 MiB
+load_tensors:   CPU_Mapped model buffer size = 41037.94 MiB
+llama_init_from_model: flash_attn = 1
+main: server is listening on http://0.0.0.0:8080 - starting the main loop

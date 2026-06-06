@@ -1,5 +1,11 @@
 package preflight
 
+import (
+	_ "embed"
+	"encoding/json"
+	"fmt"
+)
+
 // floors.go externalizes the kernel / Mesa / firmware version thresholds the
 // preflight WARN-tier checks compare against. They live here as DATA — not
 // inlined into the check logic — because the upstream sources (CLAUDE.md, the
@@ -47,9 +53,10 @@ const FirmwareDeny = "20251125"
 
 // Floor bundles the version thresholds so a future loader can replace them
 // wholesale from embedded/external data without touching check logic. The
-// constants above are the current authoritative values; Floors() returns them as
-// a single value for callers that prefer to thread data rather than reference
-// package constants directly.
+// constants above are the AUTHORING REFERENCE for the embedded policy values;
+// Floors() returns them as a single value, now sourced from rocm-policy.json
+// (the migration is a deliberate behavior no-op — the loaded values are
+// byte-identical to the constants, asserted by policy_test.go).
 type Floor struct {
 	// Kernel is the minimum kernel with the gfx1151 stability fix.
 	Kernel string
@@ -63,16 +70,71 @@ type Floor struct {
 	FirmwareDeny string
 }
 
-// Floors returns the current version-floor data. It exists so checks and tests
-// consume a single value (and so the values can later be sourced from an embedded
-// JSON / external override without changing call sites).
+// rocmPolicyBytes is the COMPILED-IN ROCm/version policy. Because it is embedded
+// at build time it is NOT an external/runtime input — a malformed policy is a
+// build-time error caught by loadROCmPolicy's panic, never a runtime parse of
+// attacker-controlled data (Security V5 / T-07-03). It carries the v1.0 version
+// floors (re-sourced into Floors() as a no-op migration, D-04/D-05) plus the new
+// ROCm denylists and required HSA override the RunROCm checks gate on.
+//
+//go:embed rocm-policy.json
+var rocmPolicyBytes []byte
+
+// ROCmPolicy is the decoded shape of rocm-policy.json. It bundles the migrated
+// v1.0 version floors with the new ROCm-specific policy data (firmware/image
+// denylists, the required HSA override value) so a floor or denylist entry can be
+// corrected in one place — the embedded JSON — without reshaping any check (D-04).
+type ROCmPolicy struct {
+	// KernelFloor is the minimum kernel with the gfx1151 stability fix (6.18.4).
+	KernelFloor string `json:"kernelFloor"`
+	// KernelTested is the validated kernel baseline (6.18.9).
+	KernelTested string `json:"kernelTested"`
+	// MesaFloor is the minimum Mesa/RADV version (25.0.0; migrated but UNWIRED).
+	MesaFloor string `json:"mesaFloor"`
+	// FirmwareFloor is the minimum linux-firmware date stamp (20260110).
+	FirmwareFloor string `json:"firmwareFloor"`
+	// FirmwareDeny lists specific known-bad linux-firmware builds (["20251125"]).
+	FirmwareDeny []string `json:"firmwareDeny"`
+	// ImageDeny lists ROCm image tags that reintroduce the 64 GB allocation cap
+	// (the denied nightly tag — the literal lives in rocm-policy.json, not inlined
+	// here, so the inference seam grep-gate stays green).
+	ImageDeny []string `json:"imageDeny"`
+	// RequiredHSAOverride is the HSA_OVERRIDE_GFX_VERSION value ROCm needs on
+	// gfx1151 ("11.5.1").
+	RequiredHSAOverride string `json:"requiredHSAOverride"`
+}
+
+// loadROCmPolicy decodes the embedded rocm-policy.json. It PANICS on a malformed
+// embed: that is a build-time programming error (the bytes are compiled in, never
+// runtime input — T-07-03), so failing loud at startup is correct and there is no
+// attacker-controlled path to this panic.
+func loadROCmPolicy() ROCmPolicy {
+	var p ROCmPolicy
+	if err := json.Unmarshal(rocmPolicyBytes, &p); err != nil {
+		panic(fmt.Sprintf("preflight: malformed embedded rocm-policy.json: %v", err))
+	}
+	return p
+}
+
+// Floors returns the current version-floor data, sourced from the embedded
+// rocm-policy.json (D-04/D-05). The returned values are byte-identical to the
+// KernelFloor/KernelTested/MesaFloor/FirmwareFloor/FirmwareDeny constants — the
+// migration is a deliberate behavior no-op. FirmwareDeny is collapsed to the
+// FIRST denylist entry to preserve the existing scalar Floor.FirmwareDeny shape
+// the v1.0 checks/goldens already consume; the full denylist is available via
+// loadROCmPolicy for the ROCm checks.
 func Floors() Floor {
+	p := loadROCmPolicy()
+	deny := ""
+	if len(p.FirmwareDeny) > 0 {
+		deny = p.FirmwareDeny[0]
+	}
 	return Floor{
-		Kernel:       KernelFloor,
-		KernelTested: KernelTested,
-		Mesa:         MesaFloor,
-		Firmware:     FirmwareFloor,
-		FirmwareDeny: FirmwareDeny,
+		Kernel:       p.KernelFloor,
+		KernelTested: p.KernelTested,
+		Mesa:         p.MesaFloor,
+		Firmware:     p.FirmwareFloor,
+		FirmwareDeny: deny,
 	}
 }
 

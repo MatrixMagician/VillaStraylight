@@ -23,6 +23,44 @@ import (
 // is opt-in only and is never auto-selected in Phase 1.
 const defaultBackend = "vulkan"
 
+// recommendSchemaVersion is the Recommendation contract self-version. It is the
+// LAST tagged field of Recommendation and surfaces unconditionally in --json so
+// dashboards can gate on additive growth (D-06/D-07). Start at 1.
+const recommendSchemaVersion = 1
+
+// ROCmAdvice is a typed enum surfaced on the Recommendation (REC-05 / D-05): an
+// honesty-bounded hint about whether the opt-in ROCm backend is worth a benchmark
+// on this host, derived PURELY from HostProfile.rocm_readiness inside Pick (no I/O,
+// no new arg). It NEVER changes the recommended Backend (which stays vulkan,
+// REC-04) and NEVER promises a speed-up — the on-hardware token-gen delta was
+// negative (Δtg −11.15), so ROCm can REGRESS tg. Empty ("") means "not applicable"
+// (a Known-bad readiness signal withholds advice and names the blocker in a Note).
+type ROCmAdvice string
+
+const (
+	// ROCmAdviceReady is reserved for a host that is fully validated as ROCm-ready.
+	// Phase 10 derives only worth-trying / verify-with-bench / withheld from the
+	// readiness fold; the const is defined for contract completeness (D-05).
+	ROCmAdviceReady ROCmAdvice = "ready"
+	// ROCmAdviceWorthTrying means every readiness signal is Known-good — ROCm is
+	// worth a benchmark, but the advice still points at `villa bench` and never
+	// promises a win.
+	ROCmAdviceWorthTrying ROCmAdvice = "worth-trying"
+	// ROCmAdviceVerifyBench means at least one readiness signal is unevaluable
+	// (off-hardware default) — the honest answer is "verify with villa bench".
+	ROCmAdviceVerifyBench ROCmAdvice = "verify-with-bench"
+)
+
+// rocmAdviceNote is the LOCKED honesty-safe Note copy (RESEARCH Pattern 4 / D-05).
+// It points the user at `villa bench --ab` and deliberately contains none of
+// "faster"/"guaranteed"/"speed-up" — ROCm's win is prompt-processing-weighted and
+// token generation may regress (on-hardware UAT Δtg −11.15). Tested.
+const rocmAdviceNote = "ROCm: worth trying for prompt-heavy workloads — token generation may not improve (and can regress vs vulkan). Verify on your model with: villa bench --ab"
+
+// rocmVerifyNote is the verify-with-bench Note: same honesty discipline, but it
+// makes no readiness claim because at least one signal is unevaluable.
+const rocmVerifyNote = "ROCm: readiness could not be fully evaluated on this host — verify whether it helps your model with: villa bench --ab"
+
 // Recommendation is the result of Pick — and the --json / Phase-5 dashboard
 // contract (D-05). A golden-file test guards its shape. Every fit term is
 // populated so the command layer can render the full inequality (D-06).
@@ -51,6 +89,17 @@ type Recommendation struct {
 
 	// Alternatives are other fitting picks (surfaced behind --alternatives, D-06).
 	Alternatives []Alternative `json:"alternatives,omitempty"`
+
+	// ROCmAdvice + ROCmNote are the tail-appended, honesty-bounded ROCm hint
+	// (REC-05 / D-05), derived purely from HostProfile.rocm_readiness inside Pick.
+	// Both are omitempty so the contract is unchanged when advice is not applicable.
+	// They NEVER change Backend (REC-04) and NEVER promise a speed-up.
+	ROCmAdvice ROCmAdvice `json:"rocm_advice,omitempty"`
+	ROCmNote   string     `json:"rocm_note,omitempty"`
+
+	// SchemaVersion is the Recommendation contract self-version and MUST stay the
+	// LAST tagged field (append-only discipline; new fields go above it, D-06/D-07).
+	SchemaVersion int `json:"schema_version"`
 }
 
 // Alternative is a compact view of another fitting pick.
@@ -76,10 +125,10 @@ func Pick(p detect.HostProfile, c catalog.Catalog, ov Overrides) Recommendation 
 	if !ok {
 		// No usable envelope and no safe floor derivable — refuse rather than
 		// guess high (D-14). Empty Model signals the refusal.
-		return Recommendation{
+		return finalizeRecommendation(Recommendation{
 			Backend: defaultBackend,
 			Notes:   []string{"refusing to recommend: usable memory envelope is unknown and no safe floor is derivable (neither GTT envelope nor total RAM detected)"},
-		}
+		}, p)
 	}
 
 	var notes []string
@@ -91,10 +140,69 @@ func Pick(p detect.HostProfile, c catalog.Catalog, ov Overrides) Recommendation 
 
 	// An explicit --model override takes precedence and is re-validated.
 	if ov.Model != "" {
-		return pickOverride(c, ov, envelope, degraded, notes)
+		return finalizeRecommendation(pickOverride(c, ov, envelope, degraded, notes), p)
 	}
 
-	return pickBest(c, ov, envelope, degraded, notes)
+	return finalizeRecommendation(pickBest(c, ov, envelope, degraded, notes), p)
+}
+
+// finalizeRecommendation stamps the additive, contract-level fields onto a
+// fully-computed pick: the unconditional SchemaVersion and the purely-derived ROCm
+// advice. It runs AFTER Backend is set and NEVER reassigns rec.Backend — advice can
+// only annotate the pick, never auto-switch it (REC-04, T-10-06). It performs no
+// I/O: the advice is folded from p.ROCmReadiness already in hand (no new Pick arg).
+func finalizeRecommendation(rec Recommendation, p detect.HostProfile) Recommendation {
+	rec.SchemaVersion = recommendSchemaVersion
+	advice, note := deriveROCmAdvice(p.ROCmReadiness)
+	rec.ROCmAdvice = advice
+	if note != "" {
+		rec.ROCmNote = note
+	}
+	return rec
+}
+
+// deriveROCmAdvice folds the five detect.ROCmReadiness signals into the honesty-
+// bounded advice + Note (D-05 / RESEARCH Pattern 4). It mirrors
+// status.foldROCmReadiness's Known-first, worst-wins discipline (any unevaluable
+// signal → unknown wins over a confidently-bad one; no-false-green, D-04/D-08):
+//
+//   - all five Known-good        → worth-trying + the locked honesty-safe Note
+//   - any signal unevaluable     → verify-with-bench + the verify Note
+//   - all Known and any Known-bad → advice withheld ("") + a Note naming the blocker
+//
+// It is pure (reads the passed struct only, no I/O) and never promises a speed-up.
+func deriveROCmAdvice(r detect.ROCmReadiness) (ROCmAdvice, string) {
+	type signal struct {
+		name string
+		b    detect.Bool
+	}
+	signals := []signal{
+		{"HSA override viable", r.HSAOverrideViable},
+		{"firmware date", r.FirmwareDateOK},
+		{"kernel floor", r.KernelFloorOK},
+		{"rocminfo gfx1151", r.RocminfoGfx1151},
+		{"image pin policy", r.ImagePolicyOK},
+	}
+	sawUnknown := false
+	var blocker string
+	for _, s := range signals {
+		if !s.b.Known {
+			sawUnknown = true // any unevaluable signal → unknown wins
+			continue
+		}
+		if !s.b.Value && blocker == "" {
+			blocker = s.name // first Known-bad signal names the blocker
+		}
+	}
+	// Unknown wins over not-ready (no false-green): only withhold-with-blocker when
+	// every signal is Known and at least one is bad.
+	if !sawUnknown && blocker != "" {
+		return "", fmt.Sprintf("ROCm: not ready on this host — blocked by %s. Staying on vulkan; re-check after resolving it (run villa status).", blocker)
+	}
+	if sawUnknown {
+		return ROCmAdviceVerifyBench, rocmVerifyNote
+	}
+	return ROCmAdviceWorthTrying, rocmAdviceNote
 }
 
 // pickBest selects the largest auto-eligible model that fits, honoring an

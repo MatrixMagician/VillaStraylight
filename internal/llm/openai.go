@@ -5,12 +5,21 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
 	"time"
 )
+
+// ErrNoTimings signals that an otherwise-successful completion response carried no
+// usable per-request `timings` block (the llama.cpp extension was absent, or decoded
+// to an all-zero struct — predicted_n==0 AND predicted_per_second==0). A bench MUST
+// treat such a run as a measurement failure (VOID), never fold a 0 tok/s sample into
+// the honest band (RESEARCH Assumption A1: some builds omit `timings` on /v1). Callers
+// detect it with errors.Is(err, llm.ErrNoTimings).
+var ErrNoTimings = errors.New("llm: response carried no usable timings block")
 
 // OpenAIClient talks to any OpenAI-compatible /chat/completions endpoint using
 // server-sent-event streaming. It works with Ollama, llama.cpp's server, vLLM,
@@ -50,6 +59,37 @@ type wireChunk struct {
 		} `json:"delta"`
 		FinishReason *string `json:"finish_reason"`
 	} `json:"choices"`
+}
+
+// Timings is the llama.cpp /v1 per-request timings extension. The server computes
+// these for exactly this completion, with prompt-processing (pp) and
+// token-generation (tg) rates already separated — the honest throughput source
+// the bench reads, never the /metrics last-window averages (which smear warmup).
+type Timings struct {
+	PromptN         int     `json:"prompt_n"`
+	PromptMS        float64 `json:"prompt_ms"`
+	PromptPerSecond float64 `json:"prompt_per_second"`
+	PredictedN      int     `json:"predicted_n"`
+	PredictedMS     float64 `json:"predicted_ms"`
+	PredictedPerSec float64 `json:"predicted_per_second"`
+}
+
+// completeRequest is the non-streaming sibling of wireRequest: it carries the
+// fixed (max_tokens, seed, temperature) params on the wire so every bench run is
+// reproducible, and forces stream=false so the server returns the timings block.
+type completeRequest struct {
+	Model       string    `json:"model"`
+	Messages    []Message `json:"messages"`
+	Stream      bool      `json:"stream"`
+	MaxTokens   int       `json:"max_tokens"`
+	Seed        int       `json:"seed"`
+	Temperature float64   `json:"temperature"`
+}
+
+// completeResponse captures only the top-level timings block; the choices/content
+// the bench does not need are intentionally not deserialized.
+type completeResponse struct {
+	Timings Timings `json:"timings"`
 }
 
 // StreamChat implements Client.
@@ -92,6 +132,70 @@ func (c *OpenAIClient) StreamChat(ctx context.Context, req ChatRequest, onDelta 
 	}
 
 	return parseSSE(resp.Body, onDelta)
+}
+
+// Complete drives a non-streaming /v1 chat completion with fixed (max_tokens,
+// seed, temperature) params and returns the server-computed per-request Timings.
+// Unlike StreamChat (which forwards content deltas and discards the timings
+// block), Complete's whole purpose is to capture that block as the honest,
+// per-run, pp/tg-separated throughput source for the bench.
+func (c *OpenAIClient) Complete(ctx context.Context, req ChatRequest, nPredict int, seed int, temp float64) (Timings, error) {
+	model := req.Model
+	if model == "" {
+		model = c.defaultModel
+	}
+	if model == "" {
+		return Timings{}, fmt.Errorf("llm: no model specified and no default configured")
+	}
+	if len(req.Messages) == 0 {
+		return Timings{}, fmt.Errorf("llm: messages must not be empty")
+	}
+
+	body, err := json.Marshal(completeRequest{
+		Model:       model,
+		Messages:    req.Messages,
+		Stream:      false,
+		MaxTokens:   nPredict,
+		Seed:        seed,
+		Temperature: temp,
+	})
+	if err != nil {
+		return Timings{}, fmt.Errorf("llm: marshal request: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/chat/completions", bytes.NewReader(body))
+	if err != nil {
+		return Timings{}, fmt.Errorf("llm: build request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Accept", "application/json")
+	if c.apiKey != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
+	}
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return Timings{}, fmt.Errorf("llm: request to %s failed: %w", c.baseURL, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		return Timings{}, fmt.Errorf("llm: upstream returned %s: %s", resp.Status, strings.TrimSpace(string(snippet)))
+	}
+
+	var parsed completeResponse
+	if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
+		return Timings{}, fmt.Errorf("llm: decode response: %w", err)
+	}
+	// An absent `timings` block JSON-decodes to a zero-valued struct that would silently
+	// pollute the bench's honest band with a 0 tok/s sample (RESEARCH A1: some builds omit
+	// it on /v1). Signal it distinctly so the bench voids the run rather than counting it:
+	// predicted_n==0 AND predicted_per_second==0 means there is no usable tg measurement.
+	if parsed.Timings.PredictedN == 0 && parsed.Timings.PredictedPerSec == 0 {
+		return Timings{}, ErrNoTimings
+	}
+	return parsed.Timings, nil
 }
 
 // parseSSE reads an OpenAI-style SSE stream and forwards content deltas.

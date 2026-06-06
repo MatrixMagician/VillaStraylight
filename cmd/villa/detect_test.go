@@ -34,7 +34,18 @@ func fixtureProfile() detect.HostProfile {
 		BIOSVRAMBytes:       detect.KnownBytes(536870912, "/sys/class/drm/card1/device/mem_info_vram_total"),
 		KernelVersion:       detect.KnownStr("7.0.10-201.fc44.x86_64", "/proc/sys/kernel/osrelease"),
 		MesaVersion:         detect.KnownStr("26.0.8", "vulkaninfo --summary:driverVersion"),
-		SchemaVersion:       1,
+		// rocm_readiness (v1.1, schema 2): mix a Known value (kernel_floor_ok) and an
+		// Unknown value (rocminfo_gfx1151) so the golden locks BOTH serialized shapes —
+		// a real bool and an unset (Known=false) Optional that must never read as a
+		// confident false (D-08 no-false-green).
+		ROCmReadiness: detect.ROCmReadiness{
+			HSAOverrideViable: detect.UnknownBool("HSA override viability not probed (unevaluable off-hardware)", ""),
+			FirmwareDateOK:    detect.UnknownBool("firmware date not probed (advisory only off-hardware)", ""),
+			KernelFloorOK:     detect.KnownBool(true, "kernel >= gfx1151 floor"),
+			RocminfoGfx1151:   detect.UnknownBool("rocminfo gfx id not enumerated (rocm readiness unevaluable)", ""),
+			ImagePolicyOK:     detect.KnownBool(true, "pinned stable ROCm image"),
+		},
+		SchemaVersion: 2,
 	}
 }
 

@@ -11,7 +11,6 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/dashboard"
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
-	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 	"github.com/MatrixMagician/VillaStraylight/internal/metrics"
 	"github.com/MatrixMagician/VillaStraylight/internal/modelswap"
 	"github.com/MatrixMagician/VillaStraylight/internal/recommend"
@@ -73,7 +72,12 @@ func newDashboard() *cobra.Command {
 			"Strictly local, zero telemetry.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			os.Exit(runDashboard(cmd, args, liveDashboardDeps()))
+			deps, err := liveDashboardDeps()
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "dashboard: %v\n", err)
+				os.Exit(exitBlocked)
+			}
+			os.Exit(runDashboard(cmd, args, deps))
 			return nil
 		},
 	}
@@ -123,14 +127,20 @@ func runDashboard(cmd *cobra.Command, _ []string, d *dashboardDeps) int {
 // liveDashboardDeps wires dashboardDeps to the real host: config.LoadVilla, the live
 // status read-model seam (reusing liveStatusDeps so the dashboard and the CLI fold the
 // IDENTICAL core), and a Serve that binds the loopback socket.
-func liveDashboardDeps() *dashboardDeps {
+func liveDashboardDeps() (*dashboardDeps, error) {
 	// The inference endpoint is the SAME loopback URL the status seam probes (derived
-	// from the Vulkan backend's container runner, never hard-coded), so /api/metrics
-	// scrapes the exact server villa status reports on.
-	endpoint := inference.NewContainerRunner(inference.VulkanBackend(), inference.RunSpec{}).Endpoint()
+	// from the config-resolved backend's container runner, never hard-coded), so
+	// /api/metrics scrapes the exact server villa status reports on. liveStatusDeps is
+	// the SINGLE backend-resolution point (D-03/D-02 fail-closed) — reuse its Endpoint
+	// rather than resolve the backend a second time.
+	statusDeps, err := liveStatusDeps()
+	if err != nil {
+		return nil, err
+	}
+	endpoint := statusDeps.Endpoint()
 	return &dashboardDeps{
 		LoadConfig: config.LoadVilla,
-		StatusDeps: *liveStatusDeps(),
+		StatusDeps: *statusDeps,
 		Serve:      func(s *dashboard.Server) error { return s.ListenAndServe() },
 
 		// Performance: bounded /metrics + /slots scrapes of the inference endpoint.
@@ -151,7 +161,7 @@ func liveDashboardDeps() *dashboardDeps {
 		// dashboard POST routes through the same resolve→fit→pull→save→regenerate→restart
 		// security contract — never a fork.
 		SwapDeps: *liveSwapDeps(),
-	}
+	}, nil
 }
 
 // liveModelsView composes the Models read-model (DASH-04): it loads the catalog and the

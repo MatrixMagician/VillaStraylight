@@ -265,6 +265,147 @@ func TestParsePublishPortIPv6(t *testing.T) {
 	}
 }
 
+// TestReadinessFold proves the tri-state fold of the detect rocm_readiness sub-tree
+// honors no-false-green (D-04/D-08): any unevaluable (Unknown) signal short-circuits
+// to "unknown" (never a fabricated "not-ready"); "not-ready" is reported ONLY when
+// every signal is Known and at least one is Known-false; "ready" only when every
+// signal is Known-true. Off-hardware (all-unset) the honest answer is "unknown".
+func TestReadinessFold(t *testing.T) {
+	good := detect.KnownBool(true, "test")
+	bad := detect.KnownBool(false, "test")
+	unset := detect.UnknownBool("off-hardware", "")
+
+	allUnset := detect.ROCmReadiness{
+		HSAOverrideViable: unset, FirmwareDateOK: unset, KernelFloorOK: unset,
+		RocminfoGfx1151: unset, ImagePolicyOK: unset,
+	}
+	allGood := detect.ROCmReadiness{
+		HSAOverrideViable: good, FirmwareDateOK: good, KernelFloorOK: good,
+		RocminfoGfx1151: good, ImagePolicyOK: good,
+	}
+	oneKnownBad := detect.ROCmReadiness{
+		HSAOverrideViable: good, FirmwareDateOK: bad, KernelFloorOK: good,
+		RocminfoGfx1151: good, ImagePolicyOK: good,
+	}
+	// A confidently-bad signal mixed with an unevaluable one must NOT be not-ready:
+	// unknown wins over not-ready (no-false-green).
+	badButAlsoUnknown := detect.ROCmReadiness{
+		HSAOverrideViable: bad, FirmwareDateOK: unset, KernelFloorOK: good,
+		RocminfoGfx1151: good, ImagePolicyOK: good,
+	}
+
+	cases := []struct {
+		name string
+		in   detect.ROCmReadiness
+		want ROCmReadinessIndicator
+	}{
+		{"all-unset (off-hardware) → unknown", allUnset, ROCmUnknown},
+		{"all-Known-good → ready", allGood, ROCmReady},
+		{"one-Known-bad (rest Known) → not-ready", oneKnownBad, ROCmNotReady},
+		{"any-unknown wins over not-ready → unknown", badButAlsoUnknown, ROCmUnknown},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := foldROCmReadiness(c.in); got != c.want {
+				t.Errorf("foldROCmReadiness = %q, want %q", got, c.want)
+			}
+		})
+	}
+}
+
+// TestRunPopulatesBackendAwareFields proves Run sources the active backend identity
+// from the RESOLVED backend (never a literal), folds the readiness seam, and stamps
+// the schema version. With the default vulkan config the backend/image come from
+// inference.BackendFor("vulkan").
+func TestRunPopulatesBackendAwareFields(t *testing.T) {
+	d := newDeps(t, loopbackUnits(t))
+	want, err := inference.BackendFor("vulkan")
+	if err != nil {
+		t.Fatalf("resolve backend: %v", err)
+	}
+	r := Run(d)
+	if r.Backend != want.Name() {
+		t.Errorf("Report.Backend = %q, want %q (from resolved backend)", r.Backend, want.Name())
+	}
+	if r.Image != want.Image() {
+		t.Errorf("Report.Image = %q, want %q (from resolved backend)", r.Image, want.Image())
+	}
+	if r.SchemaVersion != reportSchemaVersion {
+		t.Errorf("Report.SchemaVersion = %d, want %d", r.SchemaVersion, reportSchemaVersion)
+	}
+	// The default stub leaves GenTokensPerSec/ROCmReadiness seams nil → typed-Unknown:
+	// tok/s omitted (nil), readiness "unknown" (never a fabricated 0 / not-ready).
+	if r.GenTokensPerSec != nil {
+		t.Errorf("GenTokensPerSec = %v, want nil (no tok/s seam → omitted)", *r.GenTokensPerSec)
+	}
+	if r.ROCmReadiness != ROCmUnknown {
+		t.Errorf("ROCmReadiness = %q, want %q (no readiness seam → unknown)", r.ROCmReadiness, ROCmUnknown)
+	}
+}
+
+// rocmUnits renders the stack with the resolved ROCm backend so the report reflects
+// a rocm-configured install (cfg.Backend="rocm").
+func rocmUnits(t *testing.T) []orchestrate.Unit {
+	t.Helper()
+	backend, err := inference.BackendFor("rocm")
+	if err != nil {
+		t.Fatalf("resolve rocm backend: %v", err)
+	}
+	units, err := orchestrate.Render(orchestrate.RenderInput{
+		Backend:   backend,
+		Cfg:       config.VillaConfig{Model: "qwen3", Quant: "Q4", Ctx: 131072, Backend: "rocm"},
+		ModelFile: "qwen3.gguf",
+		ModelsDir: "/home/villa/.local/share/villa/models",
+	})
+	if err != nil {
+		t.Fatalf("render rocm: %v", err)
+	}
+	return units
+}
+
+// TestRunROCmResidencyKeysOnResolvedMarkers is the SC#1 correctness PROOF (DASH-06),
+// exercisable off-hardware: on a rocm-configured install the offload/residency verdict
+// must key on the RESOLVED backend's markers (backendROCm.ResidencyProof() →
+// DeviceToken "ROCm0"), NOT a hardcoded Vulkan default. The fixture journal carries a
+// ROCm0 buffer line and NO Vulkan0 line; a verdict that proves residency PASS confirms
+// the markers came from the resolved ROCm backend. A Vulkan-default would not match the
+// ROCm0 token and could not reach PASS — so this asserts the wiring is backend-correct.
+// (The seam grep gate excludes _test.go, so the ROCm0 token may appear here.)
+func TestRunROCmResidencyKeysOnResolvedMarkers(t *testing.T) {
+	d := newDeps(t, rocmUnits(t))
+	d.LoadConfig = func() (config.VillaConfig, error) {
+		return config.VillaConfig{Model: "qwen3", Quant: "Q4", Ctx: 131072, Backend: "rocm"}, nil
+	}
+	// A ROCm0 residency journal with NO Vulkan0 line: only a verdict keyed on the
+	// resolved ROCm backend's ROCm0 marker can prove residency from this.
+	d.JournalText = func(string) (string, bool) {
+		return "load_tensors:      ROCm0 model buffer size = 21504.49 MiB\n", true
+	}
+
+	r := Run(d)
+	if r.Err() != nil {
+		t.Fatalf("Run err: %v", r.Err())
+	}
+	if r.Backend != "rocm" {
+		t.Fatalf("Report.Backend = %q, want rocm (resolved backend, SC#1)", r.Backend)
+	}
+
+	var inf ServiceStatus
+	for _, s := range r.Services {
+		if s.Service == "villa-llama.service" {
+			inf = s
+		}
+	}
+	if !inf.OffloadApplies {
+		t.Fatalf("inference row must assert offload on a rocm install")
+	}
+	if inf.Offload.Status != inference.StatusPass {
+		t.Fatalf("rocm-config residency must PASS keying on the resolved ROCm0 markers "+
+			"(a Vulkan default could not match ROCm0); got status=%v detail=%q",
+			inf.Offload.Status, inf.Offload.Detail)
+	}
+}
+
 // TestRunErrPropagates: a LoadConfig failure yields a FAIL Report carrying the error
 // via Err() (the cmd layer maps that to exitBlocked).
 func TestRunErrPropagates(t *testing.T) {

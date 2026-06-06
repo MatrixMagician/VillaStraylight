@@ -62,8 +62,12 @@ func (d *lifecycleDeps) renderStack() (units []orchestrate.Unit, unitDir string,
 	if err != nil {
 		return nil, "", fmt.Errorf("resolve model file: %w", err)
 	}
+	backend, err := inference.BackendFor(cfg.Backend)
+	if err != nil {
+		return nil, "", fmt.Errorf("resolve backend: %w", err)
+	}
 	units, err = d.render(orchestrate.RenderInput{
-		Backend:   inference.VulkanBackend(),
+		Backend:   backend,
 		Cfg:       cfg,
 		ModelFile: modelFile,
 		ModelsDir: d.modelsDir(),

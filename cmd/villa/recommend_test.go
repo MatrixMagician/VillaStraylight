@@ -30,6 +30,11 @@ func fixtureRecommendation() recommend.Recommendation {
 		Fits:                true,
 		Degraded:            false,
 		Notes:               []string{},
+		// SchemaVersion surfaces unconditionally in --json (D-06/D-07). The fixture
+		// builds the struct directly (it does not call Pick), so it pins the contract
+		// version explicitly; advice fields stay empty (no readiness fixture) and so
+		// remain absent under omitempty — a pure tail-addition to the golden.
+		SchemaVersion: 1,
 	}
 }
 

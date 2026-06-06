@@ -3,6 +3,7 @@ package inference
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
@@ -57,11 +58,270 @@ func TestRunningServerOffloadVerdict(t *testing.T) {
 				Props:        tc.props,
 				GTTUsedBytes: tc.gtt,
 				WeightBytes:  testWeightBytes,
+				Markers:      VulkanBackend().ResidencyProof(),
+				// GPUBusyPercent left UNSET (zero value = typed-Unknown) so the busy
+				// fold is SKIPPED and these Vulkan verdicts stay byte-identical.
 			})
 			if v.Status != tc.want {
 				t.Fatalf("status = %s, want %s (detail: %s)", v.Status, tc.want, v.Detail)
 			}
 		})
+	}
+}
+
+// TestRunningServerBusySignalFold asserts the D-06 gpu_busy_percent fold: a Known
+// non-zero busy reading CORROBORATES a residency PASS (stays PASS), a Known-ZERO
+// busy reading on a claimed-healthy decode FAILs (silent CPU fallback), and an
+// absent/Unknown busy reading is combine-neutral so a residency-proven Vulkan PASS
+// stays PASS (the regression guard — Vulkan supplies no busy signal, D-07/Q2).
+func TestRunningServerBusySignalFold(t *testing.T) {
+	vulkanJournal := readFixture(t, "load_tensors_vulkan.txt")
+	drm := t.TempDir()
+	if err := os.WriteFile(filepath.Join(drm, "mem_info_gtt_used"), []byte("23068672000\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gttUsed := detect.GTTUsedBytesForTest(drm)
+	markers := VulkanBackend().ResidencyProof()
+
+	base := func(busy detect.Int) RunningOffloadInput {
+		return RunningOffloadInput{
+			JournalText:    vulkanJournal,
+			GTTUsedBytes:   gttUsed,
+			WeightBytes:    testWeightBytes,
+			Markers:        markers,
+			GPUBusyPercent: busy,
+		}
+	}
+
+	tests := []struct {
+		name string
+		busy detect.Int
+		want Status
+	}{
+		{"Known non-zero busy corroborates residency PASS", detect.KnownInt(42, "test"), StatusPass},
+		{"Known-zero busy on claimed-healthy decode → FAIL", detect.KnownInt(0, "test"), StatusFail},
+		{"Unknown busy is neutral — residency PASS stays PASS", detect.UnknownInt("unavailable", ""), StatusPass},
+		{"absent (zero-value) busy is neutral — PASS stays PASS", detect.Int{}, StatusPass},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			v := RunningOffloadVerdict(base(tc.busy))
+			if v.Status != tc.want {
+				t.Fatalf("busy fold status = %s, want %s (detail: %s)", v.Status, tc.want, v.Detail)
+			}
+		})
+	}
+}
+
+// TestRunningServerBusyFoldPreservesContract is the CR-01 regression guard: when a Known
+// gpu_busy_percent reading is folded in, the busy signal is a STATUS corroborator only — it
+// MUST NOT overwrite the --json contract's SysfsOffload (the real GTT-floor signal), zero the
+// GTTDeltaBytes calibration record, or nest the Detail string. (Before the fix the re-fold
+// routed busy through combineOffload's sysfs slot, corrupting all three.)
+func TestRunningServerBusyFoldPreservesContract(t *testing.T) {
+	vulkanJournal := readFixture(t, "load_tensors_vulkan.txt")
+	drm := t.TempDir()
+	const gttUsedValue = uint64(23068672000)
+	if err := os.WriteFile(filepath.Join(drm, "mem_info_gtt_used"), []byte("23068672000\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gttUsed := detect.GTTUsedBytesForTest(drm)
+	markers := VulkanBackend().ResidencyProof()
+
+	in := RunningOffloadInput{
+		JournalText:    vulkanJournal,
+		GTTUsedBytes:   gttUsed,
+		WeightBytes:    testWeightBytes,
+		Markers:        markers,
+		GPUBusyPercent: detect.KnownInt(42, "test"),
+	}
+	v := RunningOffloadVerdict(in)
+
+	if v.Status != StatusPass {
+		t.Fatalf("status = %s, want PASS (detail: %s)", v.Status, v.Detail)
+	}
+	// SysfsOffload must remain the GTT-floor signal, NOT the busy signal.
+	if strings.Contains(v.SysfsOffload.Source, "gpu_busy_percent") {
+		t.Errorf("SysfsOffload.Source = %q — busy signal leaked into the sysfs contract slot (CR-01)", v.SysfsOffload.Source)
+	}
+	// GTTDeltaBytes must keep the floor value, not be zeroed by the busy re-fold.
+	if v.GTTDeltaBytes != gttUsedValue {
+		t.Errorf("GTTDeltaBytes = %d, want %d — busy re-fold zeroed the GTT calibration record (CR-01)", v.GTTDeltaBytes, gttUsedValue)
+	}
+	// Detail must carry the busy corroboration without nesting the already-joined string.
+	if strings.Count(v.Detail, "offload proven (log + sysfs)") != 1 {
+		t.Errorf("Detail nests the combined headline (CR-01): %q", v.Detail)
+	}
+	if !strings.Contains(v.Detail, "busy:") {
+		t.Errorf("Detail missing busy corroboration clause: %q", v.Detail)
+	}
+}
+
+// rocmMarkersForTest resolves the ROCm residency descriptor through BackendFor so the
+// running-path ROCm cases key on the real backend-owned markers (ROCm0 / fault string).
+func rocmMarkersForTest(t *testing.T) ResidencyMarkers {
+	t.Helper()
+	b, err := BackendFor("rocm")
+	if err != nil {
+		t.Fatalf("BackendFor(rocm): %v", err)
+	}
+	return b.ResidencyProof()
+}
+
+// busyFromTempDRM writes a gpu_busy_percent fixture under a temp drmRoot and reads it
+// back through the REAL detect seam (detect.GPUBusyPercentForTest) — no new detect
+// code, mirroring the mem_info_gtt_used fixture pattern. value=="" writes NO file so
+// the read degrades to a typed-Unknown (absent busy).
+func busyFromTempDRM(t *testing.T, value string) detect.Int {
+	t.Helper()
+	dir := t.TempDir()
+	if value != "" {
+		if err := os.WriteFile(filepath.Join(dir, "gpu_busy_percent"), []byte(value+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return detect.GPUBusyPercentForTest(dir)
+}
+
+// TestRunningServerROCmResidency drives the RUNNING-path verdict with the ROCm
+// descriptor: a ROCm0 N/N journal → PASS, a CPU-only journal → FAIL, a GPU-fault
+// journal → FAIL (the fault string voids residency before any buffer-line PASS,
+// Pitfall 4), and an empty journal → WARN (typed-Unknown). Every existing Vulkan case
+// stays untouched.
+func TestRunningServerROCmResidency(t *testing.T) {
+	markers := rocmMarkersForTest(t)
+	drm := t.TempDir()
+	if err := os.WriteFile(filepath.Join(drm, "mem_info_gtt_used"), []byte("23068672000\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gttUsed := detect.GTTUsedBytesForTest(drm)
+
+	tests := []struct {
+		name    string
+		fixture string // "" → empty journal
+		want    Status
+	}{
+		{"rocm0 N/N residency → PASS", "load_tensors_rocm.txt", StatusPass},
+		{"rocm cpu-only journal → FAIL", "load_tensors_rocm_cpu.txt", StatusFail},
+		{"rocm gpu-fault journal → FAIL", "load_tensors_rocm_fault.txt", StatusFail},
+		{"empty journal → WARN", "", StatusWarn},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			journal := ""
+			if tc.fixture != "" {
+				journal = readFixture(t, tc.fixture)
+			}
+			v := RunningOffloadVerdict(RunningOffloadInput{
+				JournalText:  journal,
+				GTTUsedBytes: gttUsed,
+				WeightBytes:  testWeightBytes,
+				Markers:      markers,
+				// GPUBusyPercent left UNSET (typed-Unknown) → busy fold skipped here.
+			})
+			if v.Status != tc.want {
+				t.Fatalf("rocm residency status = %s, want %s (detail: %s)", v.Status, tc.want, v.Detail)
+			}
+		})
+	}
+}
+
+// TestRunningServerROCmBusySignal exercises the D-06 gpu_busy_percent residency signal
+// on the ROCm path through the REAL detect.GPUBusyPercentForTest reader (a temp drmRoot
+// gpu_busy_percent fixture): a Known non-zero busy reading CORROBORATES the ROCm0 N/N
+// PASS (stays PASS), and an Unknown/absent busy reading is NEUTRAL-for-PASS — the
+// residency-proven PASS stays PASS, never a false-FAIL (D-07/Q2). (The Known-zero→FAIL
+// rule is unit-proven in Plan 01 Task 2 — TestRunningServerBusySignalFold; the live
+// decode-time FAIL is the Phase-8 follow-on, so no live-decode fixture here.)
+func TestRunningServerROCmBusySignal(t *testing.T) {
+	markers := rocmMarkersForTest(t)
+	rocmJournal := readFixture(t, "load_tensors_rocm.txt")
+	drm := t.TempDir()
+	if err := os.WriteFile(filepath.Join(drm, "mem_info_gtt_used"), []byte("23068672000\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gttUsed := detect.GTTUsedBytesForTest(drm)
+
+	base := func(busy detect.Int) RunningOffloadInput {
+		return RunningOffloadInput{
+			JournalText:    rocmJournal,
+			GTTUsedBytes:   gttUsed,
+			WeightBytes:    testWeightBytes,
+			Markers:        markers,
+			GPUBusyPercent: busy,
+		}
+	}
+
+	// Known non-zero busy (37%) read through the real seam → corroborates PASS.
+	knownBusy := busyFromTempDRM(t, "37")
+	if !knownBusy.Known || knownBusy.Value != 37 {
+		t.Fatalf("GPUBusyPercentForTest(37) = %+v, want Known 37", knownBusy)
+	}
+	if v := RunningOffloadVerdict(base(knownBusy)); v.Status != StatusPass {
+		t.Fatalf("known non-zero busy: status = %s, want PASS (busy must corroborate; detail: %s)", v.Status, v.Detail)
+	}
+
+	// Unknown/absent busy (no gpu_busy_percent file) read through the real seam →
+	// neutral-for-PASS: the ROCm0 N/N residency PASS stays PASS, never a false-FAIL.
+	absentBusy := busyFromTempDRM(t, "")
+	if absentBusy.Known {
+		t.Fatalf("GPUBusyPercentForTest(absent) = %+v, want Unknown", absentBusy)
+	}
+	if v := RunningOffloadVerdict(base(absentBusy)); v.Status != StatusPass {
+		t.Fatalf("absent busy: status = %s, want PASS (Unknown busy is neutral, never a false-FAIL; detail: %s)", v.Status, v.Detail)
+	}
+}
+
+// TestScrapeLoadTensorsResidencyFault asserts a non-empty FaultString found in the
+// journal VOIDS residency (FAIL) before any buffer-line PASS, and that the empty
+// Vulkan FaultString makes the scan a no-op (the Vulkan residency journal still PASSes).
+func TestScrapeLoadTensorsResidencyFault(t *testing.T) {
+	vulkanJournal := readFixture(t, "load_tensors_vulkan.txt")
+
+	// Vulkan markers (empty FaultString) → fault scan is a no-op → PASS.
+	if r := scrapeLoadTensorsResidency(vulkanJournal, VulkanBackend().ResidencyProof()); r.Status != StatusPass {
+		t.Fatalf("vulkan residency status = %s, want PASS (fault scan must be a no-op)", r.Status)
+	}
+
+	// A backend with a fault marker present in the journal → FAIL before the
+	// buffer-line PASS.
+	faultMarkers := ResidencyMarkers{DeviceToken: "Vulkan0", FaultString: "Memory access fault by GPU node"}
+	faulted := vulkanJournal + "\nMemory access fault by GPU node-1 (Agent handle: 0x...) on address 0x...\n"
+	if r := scrapeLoadTensorsResidency(faulted, faultMarkers); r.Status != StatusFail {
+		t.Fatalf("faulted journal status = %s, want FAIL (fault voids residency)", r.Status)
+	}
+}
+
+// TestScrapeLoadTensorsResidencyMaxNotLast guards the residency parse against a
+// build (e.g. higher -lv) that emits a real non-zero device-buffer line FOLLOWED
+// by a "0.00 MiB" first-pass estimate line bearing the same token. Last-write-wins
+// would flip a genuine PASS to a false "0 MiB → no weights resident" FAIL; the
+// parse must keep the MAX and report PASS.
+func TestScrapeLoadTensorsResidencyMaxNotLast(t *testing.T) {
+	markers := ResidencyMarkers{DeviceToken: "Vulkan0"}
+	journal := "x villa-llama[1]: load_tensors:      Vulkan0 model buffer size = 21504.49 MiB\n" +
+		"x villa-llama[1]: load_tensors:      Vulkan0 model buffer size =     0.00 MiB\n"
+	if r := scrapeLoadTensorsResidency(journal, markers); r.Status != StatusPass {
+		t.Fatalf("non-zero then 0.00 MiB same-token lines → %s, want PASS (max, not last-write)", r.Status)
+	}
+
+	// All-zero device lines stay a FAIL (no weights resident) — max() must not mask
+	// a genuinely-empty device buffer.
+	allZero := "x villa-llama[1]: load_tensors:      Vulkan0 model buffer size =     0.00 MiB\n"
+	if r := scrapeLoadTensorsResidency(allZero, markers); r.Status != StatusFail {
+		t.Fatalf("only a 0.00 MiB device line → %s, want FAIL", r.Status)
+	}
+}
+
+// TestScrapeLoadTensorsResidencyEmptyDeviceToken guards against a mis-wired
+// (zero-value) ResidencyMarkers: strings.Contains(line, "") is true for EVERY
+// line, so an empty DeviceToken would classify a CPU model buffer line as
+// device-resident and report a false PASS on a silent CPU fallback. An empty
+// token must degrade to WARN (could-not-evaluate), never PASS.
+func TestScrapeLoadTensorsResidencyEmptyDeviceToken(t *testing.T) {
+	cpuOnly := "x villa-llama[1]: load_tensors:   CPU_Mapped model buffer size =   315.32 MiB\n"
+	if r := scrapeLoadTensorsResidency(cpuOnly, ResidencyMarkers{DeviceToken: ""}); r.Status != StatusWarn {
+		t.Fatalf("empty DeviceToken over a CPU-only journal → %s, want WARN (no false PASS)", r.Status)
 	}
 }
 
@@ -85,6 +345,7 @@ func TestRunningServerOffloadPropsDrift(t *testing.T) {
 		WeightBytes:   testWeightBytes,
 		ConfigModel:   "/models/qwen3.gguf",
 		ConfigContext: 131072,
+		Markers:       VulkanBackend().ResidencyProof(),
 	})
 	if v.Status != StatusWarn {
 		t.Fatalf("props drift status = %s, want WARN (detail: %s)", v.Status, v.Detail)
@@ -98,6 +359,7 @@ func TestRunningServerOffloadPropsDrift(t *testing.T) {
 		Props:        nil,
 		GTTUsedBytes: gttUsed,
 		WeightBytes:  testWeightBytes,
+		Markers:      VulkanBackend().ResidencyProof(),
 	})
 	if v2.Status != StatusPass {
 		t.Fatalf("nil props status = %s, want PASS (props is corroboration only; detail: %s)", v2.Status, v2.Detail)

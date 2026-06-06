@@ -83,5 +83,32 @@
     "known": true,
     "source": "vulkaninfo --summary:driverVersion"
   },
-  "schema_version": 1
+  "rocm_readiness": {
+    "hsa_override_viable": {
+      "value": false,
+      "known": false,
+      "source": "HSA override viability not probed (unevaluable off-hardware)"
+    },
+    "firmware_date_ok": {
+      "value": false,
+      "known": false,
+      "source": "firmware date not probed (advisory only off-hardware)"
+    },
+    "kernel_floor_ok": {
+      "value": true,
+      "known": true,
+      "source": "kernel \u003e= gfx1151 floor"
+    },
+    "rocminfo_gfx1151": {
+      "value": false,
+      "known": false,
+      "source": "rocminfo gfx id not enumerated (rocm readiness unevaluable)"
+    },
+    "image_policy_ok": {
+      "value": true,
+      "known": true,
+      "source": "pinned stable ROCm image"
+    }
+  },
+  "schema_version": 2
 }

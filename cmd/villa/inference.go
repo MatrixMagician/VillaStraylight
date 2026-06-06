@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/catalog"
+	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
 	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 	"github.com/MatrixMagician/VillaStraylight/internal/recommend"
@@ -110,7 +111,30 @@ func runInference(cmd *cobra.Command, name string, withCeiling bool) int {
 // live sysfs GTT reader and a ceiling Runner factory, and calls the pure
 // inference.Validate. It is the validateFn default (replaced in tests).
 func runValidation(ctx context.Context, m catalog.CatalogModel, withCeiling bool) inference.Verdict {
-	backend := inference.VulkanBackend()
+	// Resolve the backend from config the SAME way every live deps-wiring site does
+	// (config.LoadVilla — A1 resolved). runValidation takes no cfg today, so load it
+	// here rather than invent a signature change. A config-load failure is a FAIL,
+	// never a silent Vulkan default (T-6-07, mirrors the CR-02 refusal below).
+	cfg, err := config.LoadVilla()
+	if err != nil {
+		return inference.Verdict{
+			Status:      inference.StatusFail,
+			Detail:      fmt.Sprintf("cannot validate: load config failed: %v", err),
+			Remediation: "ensure config.toml is readable (see `villa status`); re-run `villa install` if it is missing",
+			Provenance:  "config.LoadVilla",
+		}
+	}
+	// Fail closed on an unknown/typo'd backend value — BackendFor never coerces to a
+	// silent default (D-02). `backend = "rocm"` flips the whole validate path here.
+	backend, err := inference.BackendFor(cfg.Backend)
+	if err != nil {
+		return inference.Verdict{
+			Status:      inference.StatusFail,
+			Detail:      fmt.Sprintf("cannot validate: %v", err),
+			Remediation: "set backend = \"vulkan\" (default) or \"rocm\" in config.toml",
+			Provenance:  "inference.BackendFor",
+		}
+	}
 	dir := modelsDir()
 
 	// Recompute the fit terms for THIS model so the ceiling stress math has the
@@ -151,6 +175,7 @@ func runValidation(ctx context.Context, m catalog.CatalogModel, withCeiling bool
 		EnvelopeBytes: rec.UsableEnvelopeBytes,
 		Runner:        runner,
 		ReadGTTUsed:   detect.GTTUsedBytes,
+		Markers:       backend.ResidencyProof(),
 	}
 	if withCeiling {
 		in.NewCeilingRunner = func(stress inference.RunSpec) inference.Runner {

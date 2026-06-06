@@ -38,12 +38,29 @@ type containerView struct {
 	ContainerName string
 	Image         string
 	Network       string
-	AddDevice     string
-	GroupAdd      string
+	BackendLabel  string
+	AddDevice     []string
+	GroupAdd      []string
+	Env           []envPair
 	PublishPort   string
 	Volume        string
 	PodmanArgs    string
 	Exec          string
+}
+
+// backendLabel maps a backend's seam-sourced Name() ("vulkan"/"rocm") to the human
+// Description= label this package renders. The label strings are THIS project's unit
+// documentation (not backend imperatives), but the SELECTION is keyed off Backend.Name()
+// through the seam so render.go never re-types a backend's identity. The Vulkan label
+// reproduces the historical "(Vulkan RADV)" parenthetical byte-for-byte so the Vulkan
+// golden stays unchanged (ROCM-03 additivity).
+func backendLabel(name string) string {
+	switch name {
+	case "rocm":
+		return "ROCm 7.2.4 (HIP)"
+	default:
+		return "Vulkan RADV"
+	}
 }
 
 type networkView struct{ NetworkName string }
@@ -72,6 +89,10 @@ func Render(in RenderInput) ([]Unit, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Description= label is keyed off the backend's seam identity (Name()), never a
+	// literal — so the ROCm unit gets an accurate description while the Vulkan unit's
+	// Description line stays byte-identical to today's golden (ROCM-03 additivity).
+	cv.BackendLabel = backendLabel(in.Backend.Name())
 
 	tmpl, err := template.ParseFS(quadletFS, "quadlet/*.tmpl")
 	if err != nil {
@@ -150,6 +171,7 @@ func parseContainerArgs(image string, args []string) (containerView, error) {
 	var (
 		flDevice   = dash + "device"
 		flGroupAdd = dash + "group" + "-add"
+		flEnv      = dash + "env"
 		flSecOpt   = dash + "security-opt"
 		flName     = dash + "name"
 	)
@@ -161,12 +183,20 @@ func parseContainerArgs(image string, args []string) (containerView, error) {
 		switch flags[i] {
 		case flDevice:
 			if i+1 < len(flags) {
-				cv.AddDevice = flags[i+1]
+				cv.AddDevice = append(cv.AddDevice, flags[i+1])
 				i++
 			}
 		case flGroupAdd:
 			if i+1 < len(flags) {
-				cv.GroupAdd = flags[i+1]
+				cv.GroupAdd = append(cv.GroupAdd, flags[i+1])
+				i++
+			}
+		case flEnv:
+			if i+1 < len(flags) {
+				// Split on the FIRST '=' so a value containing more '=' stays intact
+				// (HSA_OVERRIDE_GFX_VERSION=11.5.1 → Key/Value, never re-typed here).
+				k, v, _ := strings.Cut(flags[i+1], "=")
+				cv.Env = append(cv.Env, envPair{Key: k, Value: v})
 				i++
 			}
 		case flSecOpt:
@@ -191,8 +221,11 @@ func parseContainerArgs(image string, args []string) (containerView, error) {
 
 	cv.Exec = strings.Join(exec, " ")
 
-	// Defensive: every imperative field must have been sourced from the seam.
-	if cv.AddDevice == "" || cv.GroupAdd == "" || cv.PublishPort == "" ||
+	// Defensive: every imperative field must have been sourced from the seam. Device
+	// and group are slices (≥1 element required); Env is intentionally NOT checked —
+	// the Vulkan backend legitimately emits zero env, and requiring it would break the
+	// Vulkan path (RESEARCH Pitfall 1).
+	if len(cv.AddDevice) == 0 || len(cv.GroupAdd) == 0 || cv.PublishPort == "" ||
 		cv.Volume == "" || cv.PodmanArgs == "" || cv.Exec == "" {
 		return containerView{}, fmt.Errorf("orchestrate: ContainerArgs missing a required mapped field: %+v", cv)
 	}

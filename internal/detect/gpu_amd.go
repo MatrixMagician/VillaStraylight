@@ -257,6 +257,167 @@ func capRaw(s string) string {
 	return s
 }
 
+// rocmStableImage is the pinned, stable ROCm image tag the v1.1 backend uses on
+// gfx1151. It mirrors internal/inference's digest-pinned rocm-7.2.4 image; detect
+// cannot import inference (that would be a cycle), so the readiness compute reads
+// the resolved image through this seam helper. The literal lives HERE (the backend
+// seam) so backend-neutral files (readiness_rocm.go) stay tag-free and the
+// inference TestSeamGrepGate stays green.
+const rocmStableImageTag = "rocm-7.2.4"
+
+// rocmNightlyDenyTag is the ROCm image tag the pin policy refuses: the nightlies
+// build reintroduces the 64 GB allocation cap (CLAUDE.md "What NOT to Use").
+const rocmNightlyDenyTag = "rocm7-nightlies"
+
+// resolvedROCmImage returns the image string the readiness compute scores against.
+// Off-hardware / by default this is the in-tree pinned stable tag; a future
+// config/request-driven override would thread its image here. It is config-driven,
+// NOT a host probe (Pitfall 5).
+func resolvedROCmImage() string { return rocmStableImageTag }
+
+// rocmImagePolicyOK scores a resolved ROCm image string against the pin policy:
+// the stable rocm-7.2.4 image is KnownBool(true); a rocm7-nightlies tag is a
+// confident KnownBool(false) (64 GB cap). This is the seam home for the image-tag
+// literals so readiness_rocm.go (backend-neutral) carries none.
+func rocmImagePolicyOK(image string) Bool {
+	switch {
+	case strings.Contains(image, rocmNightlyDenyTag):
+		return KnownBool(false, "denied ROCm nightly image (64 GB allocation cap)")
+	case strings.Contains(image, rocmStableImageTag):
+		return KnownBool(true, "pinned stable ROCm image")
+	default:
+		return UnknownBool("resolved ROCm image not recognized by pin policy", image)
+	}
+}
+
+// rocmKernelFloorTarget is the minimum kernel version with the gfx1151 stability
+// fix (CLAUDE.md version table: < 6.18.4 has a documented stability bug). It is
+// the same floor preflight gates on; the value lives here behind the seam so the
+// readiness compute can derive kernel_floor_ok without detect importing preflight
+// (which would create an import cycle — preflight imports detect).
+const rocmKernelFloorTarget = "6.18.4"
+
+// kernelMeetsROCmFloor reports whether a known kernel version string meets the
+// gfx1151 floor. It reuses the same dotted-numeric, suffix-tolerant comparison
+// shape as preflight (leading numeric runs compared; distro suffixes ignored) so
+// "6.18.4-300.fc44" and "7.0.10-201.fc44.x86_64" score correctly. A malformed
+// version sorts low (errs toward NOT-OK), never panics.
+func kernelMeetsROCmFloor(kernelVersion string) bool {
+	return compareVersionSegments(kernelVersion, rocmKernelFloorTarget) >= 0
+}
+
+// compareVersionSegments compares two dotted numeric version strings, returning
+// -1/0/+1. Each segment stops at the first non-digit so distro suffixes
+// (e.g. "-300.fc44") don't break the compare. It deliberately mirrors preflight's
+// compareVersions/splitVersion; the comparator is re-expressed (not re-rolled with
+// new semantics) because detect cannot import preflight without a cycle.
+func compareVersionSegments(a, b string) int {
+	as, bs := splitNumericSegments(a), splitNumericSegments(b)
+	n := len(as)
+	if len(bs) > n {
+		n = len(bs)
+	}
+	for i := 0; i < n; i++ {
+		var av, bv int
+		if i < len(as) {
+			av = as[i]
+		}
+		if i < len(bs) {
+			bv = bs[i]
+		}
+		if av < bv {
+			return -1
+		}
+		if av > bv {
+			return 1
+		}
+	}
+	return 0
+}
+
+// splitNumericSegments turns "6.18.9-300.fc44.x86_64" into [6 18 9], stopping each
+// segment at the first non-digit so distro suffixes don't corrupt a floor compare.
+func splitNumericSegments(v string) []int {
+	var out []int
+	for _, seg := range strings.Split(v, ".") {
+		n := 0
+		for i := 0; i < len(seg); i++ {
+			ch := seg[i]
+			if ch < '0' || ch > '9' {
+				break
+			}
+			n = n*10 + int(ch-'0')
+		}
+		out = append(out, n)
+	}
+	return out
+}
+
+// rocmFirmwareFloor is the minimum linux-firmware date (YYYYMMDD) known good for
+// ROCm on gfx1151 (CLAUDE.md "Version Compatibility": linux-firmware >= 20260110).
+// rocmFirmwareDeny lists firmware dates that are explicitly broken for ROCm on
+// Strix Halo (CLAUDE.md "What NOT to Use": linux-firmware-20251125 breaks ROCm).
+//
+// These values DUPLICATE preflight's rocm-policy.json (firmwareFloor / firmwareDeny)
+// on purpose: preflight imports detect, so detect importing preflight would create a
+// forbidden import cycle. The literals therefore live here behind the gpu_amd.go seam,
+// mirroring the established kernel-floor (rocmKernelFloorTarget) and image-tag
+// (rocmStableImageTag) duplication precedent.
+const rocmFirmwareFloor = "20260110"
+
+var rocmFirmwareDeny = []string{"20251125"}
+
+// firmwareDateProbe reads the installed linux-firmware package version via a
+// FIXED-ARG rpm query (never sh -c; the package name is a constant literal so there
+// is no command-injection surface, threat T-11-01 / ASVS V5). The Fedora
+// linux-firmware VERSION is a YYYYMMDD date stamp (live-verified: 20260519).
+//
+// No-false-green (D-08 / T-11-03): rpm absent or non-zero → UnknownStr; output that
+// is not a parseable YYYYMMDD stamp (e.g. a rawhide/snapshot string) → UnknownStr.
+// Only a clean 8-digit date returns KnownStr, so an unprobeable firmware never
+// fabricates a verdict.
+func firmwareDateProbe() Str {
+	out, ok := runTool("rpm", "-q", "--qf", "%{VERSION}", "linux-firmware")
+	if !ok {
+		return UnknownStr("rpm query for linux-firmware failed or rpm absent", capRaw(out))
+	}
+	date := strings.TrimSpace(out)
+	if !isYYYYMMDD(date) {
+		return UnknownStr("linux-firmware version not a parseable YYYYMMDD stamp", capRaw(out))
+	}
+	return KnownStr(date, "rpm -q --qf %{VERSION} linux-firmware")
+}
+
+// isYYYYMMDD reports whether s is exactly 8 digits, the shape of a Fedora
+// linux-firmware date stamp. It guards the numeric floor compare so a non-date
+// VERSION (rawhide snapshot, build hash) degrades to UNSET instead of corrupting
+// the comparison (Pitfall 2 / no-false-green).
+func isYYYYMMDD(s string) bool {
+	if len(s) != 8 {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// firmwareDatePolicyOK scores a parsed YYYYMMDD firmware date against the ROCm
+// policy: a denylisted date loses outright (denylist wins), otherwise the date must
+// meet the floor. It mirrors kernelMeetsROCmFloor + rocmImagePolicyOK verdict
+// ordering and REUSES compareVersionSegments (no new comparator). It returns a bare
+// bool; the Bool wrapping happens in readiness_rocm.go's firmwareDateOK.
+func firmwareDatePolicyOK(date string) bool {
+	for _, denied := range rocmFirmwareDeny {
+		if date == denied {
+			return false
+		}
+	}
+	return compareVersionSegments(date, rocmFirmwareFloor) >= 0
+}
+
 // rocmPresent reports whether rocminfo is installed. ROCm is the opt-in
 // performance backend (Vulkan is the gfx1151 default), so absence is a confident
 // false, not Unknown — informational, never blocking here (D-02/D-15).

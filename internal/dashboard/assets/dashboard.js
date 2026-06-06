@@ -26,6 +26,11 @@
   var switchConfirm = document.getElementById("switch-confirm");
   var switchCancel = document.getElementById("switch-cancel");
 
+  // lastBackend holds the active backend name from the most recent /api/status poll
+  // (report.backend). It is the SINGLE source of the Performance tok/s row's "(backend)"
+  // label (D-01: identity lives in /api/status, never in /api/metrics). null/"" = unknown,
+  // in which case the tok/s row appends no label and the Health badge reads "unavailable".
+  var lastBackend = null;
   // switching holds the id of the model a switch is in-flight for (drives the row's
   // disabled "Switching…" state until polling shows the new model loaded). null = idle.
   var switching = null;
@@ -141,6 +146,95 @@
     });
   }
 
+  // readinessClass maps the tri-state ROCm-readiness indicator (report.rocm_readiness:
+  // "ready"/"not-ready"/"unknown") to the EXISTING badge variant per the UI-SPEC color
+  // mapping (no-false-green): ready→ready (green), not-ready→warn (amber, NOT red — red is
+  // reserved for genuine failure), unknown/absent/unexpected→unknown (gray, the honest
+  // off-hardware / unevaluable state). Mirrors the GPU busy_available gray-badge precedent.
+  function readinessClass(state) {
+    switch (state) {
+      case "ready": return "ready";
+      case "not-ready": return "warn";
+      default: return "unknown"; // "unknown", absent, or anything unexpected → typed-Unknown
+    }
+  }
+
+  // readinessLabel is the human badge text for the tri-state readiness indicator (DASH-06,
+  // UI-SPEC Copywriting Contract). It states readiness ONLY — never implies ROCm is faster.
+  function readinessLabel(state) {
+    switch (state) {
+      case "ready": return "ROCm ready";
+      case "not-ready": return "ROCm not ready";
+      default: return "ROCm readiness unknown";
+    }
+  }
+
+  // renderBackend appends the three Phase-10 Health additions into #health-rows AFTER the
+  // service rows renderHealth built (DASH-06, UI-SPEC elements 1 & 3): the active backend
+  // row (gray "unavailable" badge when absent — never a fabricated default), the image-tag
+  // row (omitted entirely when image is unset), and the tri-state ROCm-readiness badge.
+  // All server values (backend, image) are set via textContent — NEVER innerHTML — matching
+  // the established XSS-safe DOM idiom (renderHealth / renderGPU). Backend identity is
+  // sourced from the /api/status poll (report.backend/report.image), not /api/metrics (D-01).
+  function renderBackend(backend, image, readiness) {
+    if (!healthRows) { return; }
+
+    // Active backend row (element 1). When backend is present, show the resolved name
+    // verbatim; when absent/empty, show a gray "unavailable" badge — never a literal default.
+    var backendRow = document.createElement("div");
+    backendRow.className = "health-row";
+    var backendLabel = document.createElement("span");
+    backendLabel.className = "health-service";
+    backendLabel.textContent = "backend";
+    backendRow.appendChild(backendLabel);
+    if (backend) {
+      var backendVal = document.createElement("span");
+      backendVal.className = "health-detail";
+      backendVal.textContent = backend;
+      backendRow.appendChild(backendVal);
+    } else {
+      var backendBadge = document.createElement("span");
+      backendBadge.className = "badge badge-unknown";
+      backendBadge.textContent = "unavailable";
+      backendRow.appendChild(backendBadge);
+    }
+    healthRows.appendChild(backendRow);
+
+    // Active image row (element 1). OMIT the row entirely when the image tag is unset — the
+    // honest empty state is no row, not a placeholder. Monospace tabular via .health-detail.
+    if (image) {
+      var imageRow = document.createElement("div");
+      imageRow.className = "health-row";
+      var imageLabel = document.createElement("span");
+      imageLabel.className = "health-service";
+      imageLabel.textContent = "image";
+      var imageVal = document.createElement("span");
+      imageVal.className = "health-detail";
+      imageVal.textContent = image;
+      imageRow.appendChild(imageLabel);
+      imageRow.appendChild(imageVal);
+      healthRows.appendChild(imageRow);
+    }
+
+    // ROCm-readiness badge (element 3) — mirrors the GPU busy_available honest-Unknown
+    // precedent: a tri-state badge reusing the existing badge-ready/warn/unknown classes.
+    // unknown/absent → gray badge + a muted caption (the honest off-hardware state).
+    var readinessRow = document.createElement("div");
+    readinessRow.className = "health-row";
+    var readinessLbl = document.createElement("span");
+    readinessLbl.className = "health-service";
+    readinessLbl.textContent = "ROCm readiness";
+    readinessRow.appendChild(readinessLbl);
+    var readinessBadge = document.createElement("span");
+    readinessBadge.className = "badge badge-" + readinessClass(readiness);
+    readinessBadge.textContent = readinessLabel(readiness);
+    readinessRow.appendChild(readinessBadge);
+    healthRows.appendChild(readinessRow);
+    if (readinessClass(readiness) === "unknown") {
+      healthRows.appendChild(mutedP("ROCm readiness can't be evaluated on this host."));
+    }
+  }
+
   // renderPerformance fills the Performance panel from /api/metrics (DASH-02). It
   // honors the two honesty flags: when the scrape is unavailable it shows
   // "unavailable" (never zeros, D-11); when available-but-idle it shows
@@ -167,7 +261,13 @@
       }
       return;
     }
-    perfBody.appendChild(metricRow("generation", (m.gen_tokens_per_sec || 0).toFixed(1) + " tok/s"));
+    // Generation tok/s NUMBER comes from /api/metrics; the "(backend)" LABEL comes from the
+    // /api/status poll via lastBackend (D-01 — identity lives in status, not metrics). The
+    // suffix is appended ONLY here on the generating branch; the idle/activity-unknown/
+    // unavailable branches above keep their honest copy and never label a fabricated 0.
+    perfBody.appendChild(metricRow("generation",
+      (m.gen_tokens_per_sec || 0).toFixed(1) + " tok/s" +
+      (lastBackend ? " (" + lastBackend + ")" : "")));
     perfBody.appendChild(metricRow("prompt", (m.prompt_tokens_per_sec || 0).toFixed(1) + " tok/s"));
     if (m.latency_ms != null) {
       perfBody.appendChild(metricRow("prompt-eval latency", m.latency_ms.toFixed(1) + " ms/tok"));
@@ -453,6 +553,11 @@
         setConnected(true);
         renderVerdict(report.overall);
         renderHealth(report.services);
+        // Stash the active backend for the Performance tok/s label (D-01: identity lives in
+        // /api/status, never /api/metrics) and append the backend/image rows + readiness
+        // badge into the Health panel after the service rows.
+        lastBackend = report.backend || null;
+        renderBackend(report.backend, report.image, report.rocm_readiness);
       })
       .catch(function () {
         // The dashboard's own API is unreachable → global banner, keep last-good.

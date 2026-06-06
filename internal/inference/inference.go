@@ -62,6 +62,43 @@ type Backend interface {
 	// interpolated. This is the ONLY place /dev/dri, the image, and the loopback
 	// publish literal are assembled.
 	ContainerArgs(spec RunSpec) []string
+	// ResidencyProof returns the backend-owned descriptor of the log/journal markers
+	// the offload-assert keys on (D-04). It keeps every backend marker literal
+	// (Vulkan0 vs ROCm0, the device-init prefix, the abort fault string) BEHIND the
+	// seam: the start-time scrape (offload.go) and the running scrape
+	// (running_offload.go) are both parameterized by it, so a ROCm backend slots in
+	// without re-rolling the offload math or leaking its tokens to callers.
+	ResidencyProof() ResidencyMarkers
+}
+
+// ResidencyMarkers is the backend-owned, log-shape-only descriptor that drives BOTH
+// offload-assert scrape paths (D-04). It carries ONLY the journald/stderr marker
+// literals a backend emits — never runtime signals (the gpu_busy_percent reading is
+// a per-run input on RunningOffloadInput, not a per-backend literal). Each backend
+// file owns its own values; the Vulkan implementation reproduces today's hardcoded
+// literals byte-for-byte so the refactor is a no-op for the existing Vulkan tests.
+type ResidencyMarkers struct {
+	// DeviceToken is the load_tensors buffer-line device token proving residency on
+	// the GPU (e.g. "Vulkan0"/"ROCm0"). The running scrape matches it with
+	// strings.Contains; per Pitfall 2 "ROCm0" does NOT match "ROCm_Host", so the
+	// substring match stays exact enough for a direct port.
+	DeviceToken string
+	// DeviceLabel is the start-time device_info enumeration prefix for the selected
+	// device (e.g. "- Vulkan"/"- ROCm"). The start-time scrape keys on it to read the
+	// enumerated device name (and reject a software renderer).
+	DeviceLabel string
+	// StartLogDevicePrefix is the older single-line device-init prefix the start-time
+	// scrape also accepts (e.g. "ggml_vulkan:"). Empty disables that branch (a backend
+	// whose builds never emit the old single-line format).
+	StartLogDevicePrefix string
+	// FaultString is the journal abort marker that VOIDS residency before any
+	// buffer-line PASS (e.g. "Memory access fault by GPU node"). Empty = no-op (the
+	// fault scan is skipped), which keeps Vulkan byte-identical.
+	FaultString string
+	// RejectSoftwareRenderer gates the llvmpipe/softpipe reject in the start-time
+	// scrape. True for Vulkan (a software-renderer ICD is a real risk); a backend with
+	// no software-renderer analog (ROCm) sets it false.
+	RejectSoftwareRenderer bool
 }
 
 // RunSpec is the backend-neutral description of one inference run: which model

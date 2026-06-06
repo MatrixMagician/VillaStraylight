@@ -1,0 +1,9 @@
+{
+  "kernelFloor": "6.18.4",
+  "kernelTested": "6.18.9",
+  "mesaFloor": "25.0.0",
+  "firmwareFloor": "20260110",
+  "firmwareDeny": ["20251125"],
+  "imageDeny": ["rocm7-nightlies"],
+  "requiredHSAOverride": "11.5.1"
+}

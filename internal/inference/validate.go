@@ -65,6 +65,12 @@ type ValidateInput struct {
 	// ReadyTimeout / PollInterval bound readiness polling (defaults applied if zero).
 	ReadyTimeout time.Duration
 	PollInterval time.Duration
+
+	// Markers is the backend-owned residency descriptor (D-04/D-05) the start-time
+	// log scrape keys on instead of hardcoded Vulkan literals. The caller (Plan 03)
+	// sets it from BackendFor(cfg.Backend).ResidencyProof(); the zero value yields an
+	// all-empty descriptor (no device match) — callers MUST supply it.
+	Markers ResidencyMarkers
 }
 
 // Validate runs the full offload-asserting sequence and folds every signal into a
@@ -119,7 +125,7 @@ func Validate(ctx context.Context, in ValidateInput) Verdict {
 	stderr, _ := in.Runner.Logs()
 
 	// (5) The dual offload assert (D-09): both signals required for a PASS.
-	logRes := scrapeOffloadLog(stderr)
+	logRes := scrapeOffloadLog(stderr, in.Markers)
 	sysRes := offloadSysfsDelta(before, after, in.WeightBytes)
 	offload := combineOffload(logRes, sysRes)
 

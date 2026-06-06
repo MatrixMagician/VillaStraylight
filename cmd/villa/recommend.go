@@ -166,6 +166,17 @@ func renderRecommendTable(w io.Writer, rec recommend.Recommendation, warnings []
 		fmt.Fprintf(w, "  - %s\n", n)
 	}
 
+	// Surface the honesty-bounded ROCm advice after the notes, gated on a non-empty
+	// advice value (REC-05 / D-05). The recommended backend stays vulkan; this only
+	// annotates the pick, never changes it. The Note (when present) points at
+	// `villa bench` and never promises a speed-up.
+	if rec.ROCmAdvice != "" {
+		fmt.Fprintf(w, "\nROCm advice: %s\n", rec.ROCmAdvice)
+		if rec.ROCmNote != "" {
+			fmt.Fprintf(w, "  - %s\n", rec.ROCmNote)
+		}
+	}
+
 	if withAlternatives && len(rec.Alternatives) > 0 {
 		fmt.Fprintln(w, "\nOther fitting picks:")
 		atw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)

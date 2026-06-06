@@ -1,44 +1,42 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.0
-milestone_name: milestone
-status: executing
-stopped_at: Phase 5 UI-SPEC approved
-last_updated: "2026-06-05T19:46:21.066Z"
-last_activity: 2026-06-05 -- Phase 05 execution started
+milestone: v1.1
+milestone_name: ROCm Opt-In Backend
+status: "v1.1 shipped — PR #2 (awaiting merge to main)"
+stopped_at: Phase 11 context gathered
+last_updated: "2026-06-06T22:43:06.736Z"
+last_activity: "2026-06-06 — v1.1 shipped, PR #2"
 progress:
-  total_phases: 5
-  completed_phases: 4
-  total_plans: 23
-  completed_plans: 22
-  percent: 80
+  total_phases: 6
+  completed_phases: 6
+  total_plans: 16
+  completed_plans: 16
+  percent: 100
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-06-03)
+See: .planning/PROJECT.md (updated 2026-06-06 after v1.1 milestone)
 
 **Core value:** Run a capable local AI workspace that "just works" after install — hardware-aware setup that brings inference, chat, and the dashboard up healthy, with zero data leaving the box.
-**Current focus:** Phase 05 — control-dashboard
+**Current focus:** Between milestones — v1.1 ROCm Opt-In Backend shipped & archived (2026-06-06). Next: `/gsd-new-milestone`.
 
 ## Current Position
 
-Phase: 05 (control-dashboard) — EXECUTING
-Plan: 1 of 8
-Status: Phase 05 verified (passed) — shipped as PR #1 (pr/villastraylight-v1 → main)
-Last activity: 2026-06-05 -- Shipped VillaStraylight v1 — PR #1 (squashed clean import, Phases 1-5)
-
-Progress: [████████░░] 80% (4 of 5 phases complete)
+Phase: Milestone v1.1 complete
+Plan: —
+Status: v1.1 shipped — PR #2 (awaiting merge to main)
+Last activity: 2026-06-06 — v1.1 shipped, PR #2
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 12
-- Average duration: 35 min
-- Total execution time: 1.75 hours
+- Total plans completed: 21
+- Average duration: 34 min
+- Total execution time: 2.2 hours
 
 **By Phase:**
 
@@ -47,6 +45,9 @@ Progress: [████████░░] 80% (4 of 5 phases complete)
 | 01 | 3 | - | - |
 | 02 | 3 | - | - |
 | 4 | 3 | - | - |
+| 6 | 3 | - | - |
+| 07 | 3 | - | - |
+| 11 | 2 | - | - |
 
 **Recent Trend:**
 
@@ -63,16 +64,40 @@ Progress: [████████░░] 80% (4 of 5 phases complete)
 | Phase 04 P01 | 12 min | 2 tasks | 8 files |
 | Phase 04 P02 | 3 min | 2 tasks | 2 files |
 | Phase 04 P03 | 14 min | 3 tasks | 4 files |
+| Phase 06 P01 | 25 min | 3 tasks | 11 files |
+| Phase 06 P02 | 5min | 3 tasks | 13 files |
+| Phase 06 P03 | 25 min | 3 tasks | 7 files |
+| Phase 07 P01 | 3 min | 3 tasks | 5 files |
+| Phase 07 P02 | 4min | 3 tasks | 7 files |
+| Phase 07 P03 | 14 min | 3 tasks | 8 files |
+| Phase 08 P01 | 14 min | 3 tasks | 4 files |
+| Phase 08 P02 | 18min | 2 tasks | 3 files |
+| Phase 09 P01 | 6 min | 1 tasks | 2 files |
+| Phase 09 P02 | 4 min | 2 tasks | 3 files |
+| Phase 09 P03 | 4 min | 2 tasks | 4 files |
+| Phase 10 P01 | 18min | 3 tasks | 5 files |
+| Phase 10 P02 | ~3m | 2 tasks | 5 files |
+| Phase 10 P03 | 3min | 2 tasks | 2 files |
+| Phase 11 P01 | 3 min | 3 tasks | 4 files |
+| Phase 11 P02 | ~6m | 3 tasks | 7 files |
 
 ## Accumulated Context
+
+### Roadmap Evolution
+
+- Phase 11 added (2026-06-06): Address v1.1 tech debt — rocm_readiness detect probes + doc reconciliation.
 
 ### Decisions
 
 Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
 
-- [Roadmap]: Risk-ordered phases — pure core (detect/recommend/preflight) first, then early GPU-offload validation slice before orchestration.
-- [Roadmap]: Inference behind a `Backend` interface from day one (Vulkan v1; ROCm/Metal later) — pluggability checkpoint at Phase 2 review.
+- [06-03 / A1 RESOLVED]: `runValidation`'s cfg source is `config.LoadVilla()` (the established loader; runValidation takes no cfg param, so load in-function rather than thread a signature change). All 8 non-test `VulkanBackend()` call sites now resolve via `BackendFor(cfg.Backend)`, fail-closed; the re-route is a Vulkan-default no-op (full suite green = SC#4). Deps-wiring helpers became `func() (*T, error)` to surface the resolver error.
+- [v1.1 Roadmap]: Spine-first ordering — `BackendFor()` resolver + `ResidencyProof()` interface extension (Phase 6) is a hard precondition for render (7), switch (8), bench (9), surfacing (10). Off-hardware Phases 6–7 precede the on-hardware switch (8).
+- [v1.1 Roadmap]: Bench (Phase 9) COMPOSES the Phase-8 `backend set` verb — it must never re-implement backend switching (explicit anti-pattern).
+- [v1.1 Roadmap]: Surfacing (Phase 10) lands last so the byte-frozen `--json`/dashboard goldens re-freeze exactly once (append-only, schema-bumped, never reordered).
+- [v1.1 Roadmap]: ROCm is opt-in; Vulkan RADV stays the default. `recommend` advises ("ready / worth trying / verify with bench"), never auto-switches. Pin `rocm-7.2.4` (never `rocm7-nightlies` — 64 GB cap).
+- [Roadmap]: Inference behind a `Backend` interface from day one (Vulkan v1; ROCm/Metal later) — pluggability checkpoint at Phase 2 review. **v1.1 exercises this seam for the first time.**
 - [Roadmap]: Config is the single source of truth; Quadlet units are derived/regenerated, never hand-edited.
 - [01-01]: Usable memory envelope = `mem_info_gtt_total` (GTT-then-ttm fallback), never `MemTotal` — verified live (62.5 GiB GTT vs 128 GiB RAM). OOM guard enforced by test.
 - [01-01]: Backend-neutrality seam — all Vulkan/ROCm/DRI probing funneled through `gpu_amd.go` (`probeGPU()`); the Phase 2 Backend interface slots in there.
@@ -103,6 +128,27 @@ Recent decisions affecting current work:
 - [Phase ?]: Post-install prints real loopback chat URL http://127.0.0.1:3000 on both write and no-op paths (CHAT-02/D-03)
 - [04-03]: villa status owui row health = reachability + non-empty upstream /v1/models (CHAT-01 SC#1); owui offload is an N/A WARN-typed Verdict EXCLUDED from the worst-wins fold via serviceStatus.OffloadApplies — no false offload PASS/FAIL on a non-GPU service (D-12). Transport error → typed-Unknown→WARN (never over-eager FAIL); a confidently-down owui UNIT still FAILs via active-state (CR-02/Pitfall 6).
 - [04-03]: villa uninstall removes the villa-openwebui volume via the reserved nonModelVolumes() seam — verified ZERO-CODE (the seam was already generic); the 3000 port folds into allLoopback automatically (PRIV-02). Open WebUI image digest re-confirmed on host = the pinned constant sha256:7f1b0a1a... (PRIV-02 re-audit clean, 2026-06-05).
+- [06-01]: Backend interface extended with ResidencyProof() ResidencyMarkers (D-04); both offload-assert scrapes (scrapeOffloadLog start-time + scrapeLoadTensorsResidency running) are now parameterized by the descriptor — no hardcoded Vulkan0/ggml_vulkan:/- Vulkan literals remain in the scraper bodies. ROCm slots in (Plan 02) without re-rolling combineOffload/gttFloor.
+- [06-01]: D-06 gpu_busy_percent folded through combineOffload via gpuBusyFloor (Known non-zero corroborates PASS, Known-zero FAILs a claimed-healthy decode, absent/Unknown is combine-neutral). CRITICAL: Unknown is neutral by SKIPPING the fold (combineOffload has NO neutral state) — a WARN would downgrade every Vulkan PASS; Vulkan supplies no busy reading so its verdict stays byte-identical.
+- [06-01]: A non-empty FaultString found in the journal voids residency (FAIL) before the buffer-line switch; a start-time 0<N<M partial offload FAILs, gated on an explicit offloaded line so Vulkan auto-fit (no offloaded line) still PASSes. Provenance embeds the DeviceToken so the byte-frozen status --json golden is unchanged for Vulkan.
+- [Phase ?]: BackendFor fails closed on an unknown config backend (nil + actionable error), never a silent Vulkan fallback (D-02)
+- [Phase ?]: ROCm backend is a Vulkan sibling file (backend_rocm.go) behind the seam; rocm-7.2.4 digest-pinned, never the nightlies tag (D-08)
+- [Phase ?]: TestROCmMarkerPresence gates on ROCm0 (not ggml_cuda, which is shared with the CUDA path)
+- [Phase ?]: [07-01]: ROCm villa-llama.container rendered as a pure additive delta over Vulkan (image+kfd+render-group+HSA/hipBLASLt env), byte-frozen by a new golden with the Vulkan golden unchanged. parseContainerArgs collects ALL --device/--group-add/--env tokens (D-09 was incomplete: second group-add + both env flags were silently dropped). BackendLabel keyed off Backend.Name() via a render.go label map (seam-clean, reproduces 'Vulkan RADV' exactly); Env excluded from the defensive check (Vulkan emits zero env, Pitfall 1).
+- [Phase ?]: Phase 7 Plan 2: externalized ROCm version floors + denylists into a go:embed rocm-policy.json; RunROCm refuses bring-up only on confident known-bad (firmware 20251125 / nightly image / kernel <6.18.4 / wrong HSA / non-gfx1151), unevaluable degrades to WARN (PRE-06)
+- [08-01]: internal/backendswap is the transactional core for `villa backend set` — capture(verbatim prior unit bytes + value-snapshot config) STRICTLY before mutate, switch ONLY on ProveStatusPass (is-active/200 alone never success, SC#3), verbatim rollback on any mutate error or non-pass verdict (BSET-02), best-effort bounded re-ready with honest incomplete-rollback reporting (Pitfall 5). ProveVerdict + ProveStatusPass='pass' are LOCAL (no inference/detect import) so the core stays literal-free of backend markers; the cmd layer maps inference.StatusPass in. Fit-guard FIRST then ROCm preflight refuse-with-remediation against the PRESERVED model (BSET-01); same-backend is a clean NoOp; refusals fire zero seams.
+- [08-01]: inference now EXPORTS PollHealth(ctx,endpoint,timeout)/GenerationProbe(ctx,endpoint,modelID) — thin wrappers over the private pollHealth/chatProbe that probe the ALREADY-running server with NO --rm container (Validate's --rm container is why liveProve cannot use it). Closes the Plan-02 liveProve BLOCKER. TestSeamGrepGate now also walks cmd/villa with the backend-marker subset (GOOS/image/device/ROCm0-HSA-fault); the podman-process pattern is EXCLUDED from the cmd/villa walk because cmd/villa is the legitimate OS-orchestration tier (lifecycle/uninstall fixed-arg podman calls).
+- [Phase ?]: [07-03]: villa detect --json gains a nested rocm_readiness object appended after the GPU block with hostProfileSchemaVersion bumped 1->2 (additive append-only golden re-freeze; SchemaVersion stays last). Off-hardware undetectable signals (rocminfo_gfx1151, firmware_date_ok, hsa_override_viable) serialize as UnknownBool/UNSET, never a real false (D-08). image_policy_ok is config-driven against the resolved image, not a host probe (Pitfall 5). detect imports neither inference nor preflight (cycles), so the ROCm image-tag + 6.18.4 kernel-floor literals are mirrored behind the gpu_amd.go seam and the version comparator re-expressed there; readiness_rocm.go stays literal-free (TestSeamGrepGate green).
+- [Phase ?]: [08-02]: villa backend set/show noun + liveProve cutover gate — liveProve composes EXPORTED inference.PollHealth (bounded by proveTimeout=5m load_tensors-hang guard) + inference.GenerationProbe (tokens>0) + RunningOffloadVerdict over BackendFor(target).ResidencyProof() markers, sampling detect.GPUBusyPercent() DURING the decode via goroutine+ticker max-keep (D-07 closed) so a silent CPU fallback FAILs+rolls back; maps ONLY inference.StatusPass to backendswap.ProveStatusPass (SC#3). runBackendSet returns the int exit (Refused/Err/RolledBack->1, Switched/NoOp->0); --dry-run previews fit/preflight side-effect-free. liveBackendSwapDeps clones liveSwapDeps render/reconcile/write + capture/restore via traversal-guarded orchestrate.WriteUnits. backend.go literal-free of markers (cmd/villa-walking TestSeamGrepGate).
+- [Phase ?]: [09-01]: llm.Complete is the honest measurement leaf — a non-streaming stream:false /v1 completion returning the server-computed per-request timings block (pp/tg already separated) that StreamChat discards; completeResponse deserializes ONLY the numeric timings (T-09-01), non-200 bounded by io.LimitReader 2048 (T-09-02), fixed max_tokens/seed/temperature on the wire for reproducibility, stdlib-only/go.mod unchanged, literal-free of backend markers.
+- [Phase ?]: [09-02] internal/bench is the pure honest-benchmark core: warmup-discard, residency void-gate (resident==false excluded/counted, never a slow pass), bounded void-exhaustion WARN below MinResident, separated pp/tg median+stddev; print-free/exit-free, cobra layer (09-03) owns presentation.
+- [Phase ?]: [09-02] The --ab flip composes backendswap.Run via injected Switch/Restore (LOCKED, never re-implemented); defer Restore(orig) registered BEFORE the flip so every exit path restores; package imports no inference/detect, markers arrive only via Measure verdict (seam gate green).
+- [Phase ?]: [09-03] villa bench noun wires llm.Complete + internal/bench: liveMeasure is a liveProve clone (residency gate, during-decode GPUBusyPercent sampling, spec.Timeout load_tensors-hang guard) swapping GenerationProbe for llm.Complete; resident ONLY for inference.StatusPass (CPU-fallback completion is VOID, not a slow pass). Plain `bench` benches only the running backend (zero flips, SC#1); --ab delegates Switch/Restore to backendswap.Run via the SAME liveBackendSwapDeps wiring (LOCKED) and restores the original (SC#3). Spec rides the live Measure closure (the LOCKED core threads its own context.Background()); the no-endpoint reachability pre-check is a package-level `var benchEndpointReachable` indirection (NOT a new bench.Deps field). Exit map: no-endpoint->exitBlocked, void-exhaustion->exitWarn, clean->exitPass. --json (bench.json.golden) carries separate prompt_per_sec/predicted_per_sec (+stddevs) per side + per-metric delta (Phase-10 read contract); bench.go literal-free of markers (TestSeamGrepGate green).
+- [Phase ?]: Phase 10-01: status Report schema_version=1; backend/image/tok-s/rocm-readiness tail-appended; golden re-frozen once as pure-addition diff (DASH-06)
+- [Phase ?]: 10-02: villa recommend surfaces typed ROCmAdvice (worth-trying/verify-with-bench/withheld) derived purely in Pick from rocm_readiness; Backend stays vulkan, advice never auto-switches and never promises a speed-up (honesty Δtg −11.15, points to villa bench)
+- [Phase ?]: 10-02: recommend.golden.json re-frozen once as pure tail-addition (schema_version:1); detect + status goldens byte-identical; go.mod frozen
+- [Phase ?]: [11-01]: rocm_readiness firmwareDateOK/hsaOverrideViable made real probes — firmware floor(20260110)/deny(20251125) duplicated detect-side behind gpu_amd.go seam (NOT imported; preflight imports detect = forbidden cycle); HSA Known-ness gated on gfxID.Known not rocmPresent; no os.Getenv(HSA_OVERRIDE). detect.golden.json byte-identical with NO -update (fixture-driven, D-04).
+- [Phase 11]: ROCM-02 audit note resolved as no-edit-needed (lines 19, 104 accurate; audit line-88 pointer imprecise); six SUMMARYs tagged requirements-completed evidence-first; 06-REVIEW prose Status fixed to resolved — D-05 doc reconciliation; no blind/fabricated edit
 
 ### Pending Todos
 
@@ -126,17 +172,23 @@ None yet.
 | 260605-d2q | Fix Makefile build target to produce villa binary (repoint build/run to ./cmd/villa, drop legacy web/scaffold targets) | 2026-06-05 | b3a4419 | [260605-d2q-fix-makefile-build-target-to-produce-vil](./quick/260605-d2q-fix-makefile-build-target-to-produce-vil/) |
 | 260605-fast | fix(status): render OFFLOAD N/A for non-GPU services in human table (Phase-4 UAT Test 4 cosmetic gap; --json contract unchanged) | 2026-06-05 | e5fc1fc | — |
 | 260605-tuv | Fix villa uninstall: drop unsupported podman volume rm --ignore flag (exit 125), surface stderr, tolerate missing volume, add regression tests | 2026-06-05 | 228a4c0 | [260605-tuv-fix-villa-uninstall-drop-unsupported-pod](./quick/260605-tuv-fix-villa-uninstall-drop-unsupported-pod/) |
+| 260606-p3a | Fix villa bench single-mode backend label: name the measured backend in human header + --json single.backend (Phase-9 UAT minor gap; --ab + pp/tg-separate contract unchanged) | 2026-06-06 | 8aa9c90 | [260606-p3a-fix-villa-bench-single-mode-backend-labe](./quick/260606-p3a-fix-villa-bench-single-mode-backend-labe/) |
 
 ## Deferred Items
 
-Items acknowledged and carried forward from previous milestone close:
+Items acknowledged at milestone close on 2026-06-06 (v1.1):
 
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
-| *(none)* | | | |
+| quick_task | 260606-p3a-fix-villa-bench-single-mode-backend-label | Complete (commit 8aa9c90; task-status frontmatter reads `unknown` — tag lag only, work is done and in Quick Tasks Completed) | v1.1 close |
 
 ## Session Continuity
 
-Last session: 2026-06-05T12:19:57.620Z
-Stopped at: Phase 5 UI-SPEC approved
-Resume file: .planning/phases/05-control-dashboard/05-UI-SPEC.md
+Last session: 2026-06-06T22:18:00.678Z
+Stopped at: Phase 11 context gathered
+Resume file: .planning/phases/11-address-v1-1-tech-debt-rocm-readiness-detect-probes-doc-reco/11-CONTEXT.md
+
+## Operator Next Steps
+
+- **Ship v1.1 to `main`:** v1.1 lives on branch `feat/phase-09-villa-bench-honest-a-b` (~143 commits ahead of `main`). Merge via `/gsd-ship` (PR, as v1.0 did via PR #1), then create the `v1.1` git tag on the merge commit (tag deferred at milestone close per release-hygiene decision).
+- **Start the next milestone:** `/clear` then `/gsd-new-milestone` (questioning → research → requirements → roadmap). Candidate themes in PROJECT.md → Between Milestones.

@@ -1,15 +1,16 @@
 # ~/.config/containers/systemd/villa-llama.container  (GENERATED — do not edit; source: config.toml)
 [Unit]
-Description=VillaStraylight llama.cpp inference (Vulkan RADV)
+Description=VillaStraylight llama.cpp inference ({{.BackendLabel}})
 After=villa-network.service
 
 [Container]
 ContainerName={{.ContainerName}}
 Image={{.Image}}
 Network={{.Network}}
-AddDevice={{.AddDevice}}
-GroupAdd={{.GroupAdd}}
-PublishPort={{.PublishPort}}
+{{range .AddDevice}}AddDevice={{.}}
+{{end}}{{range .GroupAdd}}GroupAdd={{.}}
+{{end}}{{range .Env}}Environment={{.Key}}={{.Value}}
+{{end}}PublishPort={{.PublishPort}}
 Volume={{.Volume}}
 PodmanArgs={{.PodmanArgs}}
 Exec={{.Exec}}

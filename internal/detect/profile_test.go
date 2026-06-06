@@ -31,7 +31,14 @@ func TestHostProfileJSONRoundTrips(t *testing.T) {
 		DRINodes:            []string{"card1", "renderD128"},
 		DRINodeCount:        KnownInt(2, "/dev/dri"),
 		ROCmPresent:         KnownBool(false, "rocminfo not on PATH"),
-		SchemaVersion:       hostProfileSchemaVersion,
+		ROCmReadiness: ROCmReadiness{
+			// Mix a Known and an Unknown Optional so both serialized shapes are
+			// exercised by the round-trip (a real bool survives; an Unknown one
+			// round-trips as Known=false, never silently becoming a real false).
+			KernelFloorOK:   KnownBool(true, "kernel >= floor"),
+			RocminfoGfx1151: UnknownBool("rocminfo unavailable (gfx id not enumerated)", "secret-raw-rocm"),
+		},
+		SchemaVersion: hostProfileSchemaVersion,
 	}
 
 	data, err := json.Marshal(p)
@@ -54,5 +61,16 @@ func TestHostProfileJSONRoundTrips(t *testing.T) {
 	}
 	if back.SchemaVersion != hostProfileSchemaVersion {
 		t.Errorf("SchemaVersion round-trip: got %d", back.SchemaVersion)
+	}
+
+	// rocm_readiness typed-Optionals survive the round-trip in both shapes.
+	if !back.ROCmReadiness.KernelFloorOK.Known || !back.ROCmReadiness.KernelFloorOK.Value {
+		t.Errorf("KnownBool rocm_readiness field did not round-trip as Known/true: %+v", back.ROCmReadiness.KernelFloorOK)
+	}
+	if back.ROCmReadiness.RocminfoGfx1151.Known {
+		t.Errorf("Unknown rocm_readiness field round-tripped as Known (false-green): %+v", back.ROCmReadiness.RocminfoGfx1151)
+	}
+	if strings.Contains(string(data), "secret-raw-rocm") {
+		t.Errorf("rocm_readiness Raw leaked into JSON: %s", data)
 	}
 }

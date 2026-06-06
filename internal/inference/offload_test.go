@@ -57,15 +57,65 @@ func TestOffloadLogScrape(t *testing.T) {
 		{"llvmpipe fail (old fmt)", "llvmpipe_fail.stderr", StatusFail},
 		{"llvmpipe fail (new device_info fmt)", "llvmpipe_devinfo_fail.stderr", StatusFail},
 		{"offloaded zero fail", "offloaded_zero.stderr", StatusFail},
+		{"partial offload 1/65 fail (0<N<M)", "radv_partial_fail.stderr", StatusFail},
 		{"loading/empty unknown", "loading_503.stderr", StatusWarn},
 	}
+	markers := VulkanBackend().ResidencyProof()
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := scrapeOffloadLog(readFixture(t, tc.fixture))
+			got := scrapeOffloadLog(readFixture(t, tc.fixture), markers)
 			if got.Status != tc.want {
 				t.Errorf("scrapeOffloadLog(%s): Status=%v, want %v (detail=%q)", tc.fixture, got.Status, tc.want, got.Detail)
 			}
 		})
+	}
+}
+
+// TestROCmOffloadLogScrape drives the START-TIME scrape with the ROCm descriptor
+// (backendROCm{}.ResidencyProof()), proving the same offload-assert logic distinguishes
+// a real ROCm device (device_info + offloaded N/N → PASS) from a partial offload
+// (1/65 → FAIL, Pitfall 3) and a CPU fallback (no ROCm device, CPU buffer → WARN, the
+// start-time scrape sees no offloaded line and no device → could-not-evaluate). The
+// start-time path takes NO busy signal — busy is a running-path corroborator only.
+func TestROCmOffloadLogScrape(t *testing.T) {
+	rocmMarkers, err := BackendFor("rocm")
+	if err != nil {
+		t.Fatalf("BackendFor(rocm): %v", err)
+	}
+	markers := rocmMarkers.ResidencyProof()
+	cases := []struct {
+		name    string
+		fixture string
+		want    Status
+	}{
+		{"rocm device + offloaded 65/65 → PASS", "rocm_devinfo_pass.stderr", StatusPass},
+		{"rocm partial offload 1/65 → FAIL", "rocm_offloaded_partial.stderr", StatusFail},
+		{"rocm cpu fallback → WARN", "load_tensors_rocm_cpu.txt", StatusWarn},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := scrapeOffloadLog(readFixture(t, tc.fixture), markers)
+			if got.Status != tc.want {
+				t.Errorf("scrapeOffloadLog(%s) Status=%v, want %v (detail=%q)", tc.fixture, got.Status, tc.want, got.Detail)
+			}
+		})
+	}
+}
+
+// TestScrapeOffloadPartialGating proves the N<M partial-FAIL rule is GATED so a
+// Vulkan auto-fit run (a device_info enumeration with NO "offloaded N/N" line, so the
+// parse yields no total) still PASSes — only an explicit offloaded line with 0<N<M
+// FAILs.
+func TestScrapeOffloadPartialGating(t *testing.T) {
+	markers := VulkanBackend().ResidencyProof()
+
+	// Auto-fit: device_info enumeration, no offloaded line → still PASS (the gating proof).
+	if r := scrapeOffloadLog(readFixture(t, "radv_devinfo_pass.stderr"), markers); r.Status != StatusPass {
+		t.Fatalf("auto-fit (no offloaded line) status = %s, want PASS (N<M rule must be gated)", r.Status)
+	}
+	// Explicit partial offload 1/65 → FAIL.
+	if r := scrapeOffloadLog(readFixture(t, "radv_partial_fail.stderr"), markers); r.Status != StatusFail {
+		t.Fatalf("partial offload 1/65 status = %s, want FAIL", r.Status)
 	}
 }
 
@@ -109,9 +159,10 @@ func TestOffloadSysfsDelta(t *testing.T) {
 // FAIL) → WARN (D-09).
 func TestOffloadVerdict(t *testing.T) {
 	before := readSysfsBytes(t, "gtt_before")
-	logPass := scrapeOffloadLog(readFixture(t, "radv_pass.stderr"))
-	logFail := scrapeOffloadLog(readFixture(t, "llvmpipe_fail.stderr"))
-	logUnknown := scrapeOffloadLog(readFixture(t, "loading_503.stderr"))
+	markers := VulkanBackend().ResidencyProof()
+	logPass := scrapeOffloadLog(readFixture(t, "radv_pass.stderr"), markers)
+	logFail := scrapeOffloadLog(readFixture(t, "llvmpipe_fail.stderr"), markers)
+	logUnknown := scrapeOffloadLog(readFixture(t, "loading_503.stderr"), markers)
 	sysPass := offloadSysfsDelta(before, readSysfsBytes(t, "gtt_after_pass"), fixtureWeightBytes)
 	sysFail := offloadSysfsDelta(before, readSysfsBytes(t, "gtt_after_fail"), fixtureWeightBytes)
 	sysUnknown := offloadSysfsDelta(detect.UnknownBytes("x", ""), readSysfsBytes(t, "gtt_after_pass"), fixtureWeightBytes)

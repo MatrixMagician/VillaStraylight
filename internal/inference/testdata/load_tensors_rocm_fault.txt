@@ -1,0 +1,6 @@
+Jun 05 12:00:01 strix villa-llama[1234]: ggml_cuda_init: found 1 ROCm devices:
+Jun 05 12:00:01 strix villa-llama[1234]: ggml_cuda_init:   Device 0: AMD Radeon 8060S Graphics, gfx1151 (0x1151), VMM: no, Wave Size: 32
+Jun 05 12:00:02 strix villa-llama[1234]: load_tensors: loading model tensors, this can take a while... (mmap = false)
+Jun 05 12:00:03 strix villa-llama[1234]: load_tensors:        ROCm0 model buffer size = 21504.49 MiB
+Jun 05 12:00:04 strix kernel: amdgpu: Memory access fault by GPU node-1 (Agent handle: 0x55d2a0) on address 0x7f00 from IH client 0x12 (UTCL2)
+Jun 05 12:00:04 strix villa-llama[1234]: GGML_ASSERT: ggml-cuda.cu - aborting

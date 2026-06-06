@@ -166,7 +166,12 @@ func newInstall() *cobra.Command {
 			"the rendered units and writes nothing (no pull, no config write). Strictly local.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			code := runInstall(cmd, installOpts{dryRun: dryRun, force: force, json: jsonOut}, liveInstallDeps())
+			deps, err := liveInstallDeps()
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "install: %v\n", err)
+				os.Exit(exitBlocked)
+			}
+			code := runInstall(cmd, installOpts{dryRun: dryRun, force: force, json: jsonOut}, deps)
 			os.Exit(code)
 			return nil
 		},
@@ -230,8 +235,13 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 		fmt.Fprintf(errOut, "install: resolve model file: %v\n", err)
 		return exitBlocked
 	}
+	backend, err := inference.BackendFor(cfg.Backend)
+	if err != nil {
+		fmt.Fprintf(errOut, "install: resolve backend: %v\n", err)
+		return exitBlocked
+	}
 	units, err := d.render(orchestrate.RenderInput{
-		Backend:   inference.VulkanBackend(),
+		Backend:   backend,
 		Cfg:       cfg,
 		ModelFile: modelFile,
 		ModelsDir: d.modelsDir(),
@@ -626,10 +636,21 @@ func printPostInstall(out io.Writer, endpoint string, ready installReadiness) {
 // seam, the SELinux/linger privileged seams, the verified model downloader + the
 // 0600 config writer (F-1/F-2, mirroring model swap), and the readiness poll
 // (Task 2). It is replaced wholesale by stubs in install_test.go.
-func liveInstallDeps() *installDeps {
+func liveInstallDeps() (*installDeps, error) {
 	sys := orchestrate.NewSystemd()
 	uname := installUsername()
-	endpoint := inference.NewContainerRunner(inference.VulkanBackend(), inference.RunSpec{}).Endpoint()
+	// Resolve the backend from config (fail-closed, D-02) for the post-install endpoint
+	// line — derived from the resolved backend's container runner, never a literal. A
+	// load failure or unknown-backend value blocks install rather than defaulting.
+	cfg, err := config.LoadVilla()
+	if err != nil {
+		return nil, fmt.Errorf("load config: %w", err)
+	}
+	backend, err := inference.BackendFor(cfg.Backend)
+	if err != nil {
+		return nil, fmt.Errorf("resolve backend: %w", err)
+	}
+	endpoint := inference.NewContainerRunner(backend, inference.RunSpec{}).Endpoint()
 
 	// resolveCatalogModel maps a recommendation to its catalog entry — the single
 	// place the model-id → catalog lookup happens for both the on-disk check and
@@ -713,13 +734,13 @@ func liveInstallDeps() *installDeps {
 			return os.ReadFile(filepath.Join(dir, orchestrate.DashboardServiceName))
 		},
 		resolveBinaryPath: resolveDashboardBinaryPath,
-		enable:             sys.Enable,
-		username:           func() string { return uname },
-		endpoint:           func() string { return endpoint },
-		interactive:        stdinIsInteractive,
-		consent:            promptConsent,
-		pollReady:          liveReadinessPoll,
-	}
+		enable:            sys.Enable,
+		username:          func() string { return uname },
+		endpoint:          func() string { return endpoint },
+		interactive:       stdinIsInteractive,
+		consent:           promptConsent,
+		pollReady:         liveReadinessPoll,
+	}, nil
 }
 
 // quadletUnitDir is the fixed rootless Quadlet generator directory

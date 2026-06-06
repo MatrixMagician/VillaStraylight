@@ -1,0 +1,4 @@
+Jun 05 12:00:01 strix villa-llama[1234]: ggml_cuda_init: no ROCm devices found, falling back to CPU
+Jun 05 12:00:02 strix villa-llama[1234]: load_tensors: loading model tensors, this can take a while... (mmap = false)
+Jun 05 12:00:03 strix villa-llama[1234]: load_tensors:   CPU_Mapped model buffer size = 21819.81 MiB
+Jun 05 12:00:05 strix villa-llama[1234]: main: server is listening on http://0.0.0.0:8080 - starting the main loop

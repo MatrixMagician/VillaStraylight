@@ -102,6 +102,26 @@ func (backendVulkan) ContainerArgs(spec RunSpec) []string {
 	return args
 }
 
+// ResidencyProof returns the Vulkan RADV log/journal markers the offload-assert keys
+// on (D-04/D-05). These values reproduce today's hardcoded literals BYTE-FOR-BYTE so
+// the descriptor refactor is a behavior no-op for the existing Vulkan tests (SC#4):
+//   - DeviceToken "Vulkan0" — the load_tensors buffer-line device token.
+//   - DeviceLabel "- Vulkan" — the device_info enumeration prefix.
+//   - StartLogDevicePrefix "ggml_vulkan:" — the older single-line device-init prefix.
+//   - FaultString "" — Vulkan has no journal abort marker to scan for, so the fault
+//     scan is a no-op (keeps Vulkan byte-identical; ROCm sets a real one).
+//   - RejectSoftwareRenderer true — a software-renderer ICD (llvmpipe) IS a real risk
+//     on Vulkan, so the start-time scrape rejects it.
+func (backendVulkan) ResidencyProof() ResidencyMarkers {
+	return ResidencyMarkers{
+		DeviceToken:            "Vulkan0",
+		DeviceLabel:            "- Vulkan",
+		StartLogDevicePrefix:   "ggml_vulkan:",
+		FaultString:            "",
+		RejectSoftwareRenderer: true,
+	}
+}
+
 // endpointURL is the loopback base URL the OpenAI-compatible API is published on.
 func endpointURL() string {
 	return fmt.Sprintf("http://%s:%d", hostPublishAddr, serverPort)

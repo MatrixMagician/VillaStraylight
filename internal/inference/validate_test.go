@@ -98,6 +98,7 @@ func baseInput(t *testing.T, fr *fakeRunner) ValidateInput {
 		ReadGTTUsed:  gttSeam(detect.KnownBytes(1<<30, "before"), detect.KnownBytes(1<<30+400<<20, "after")),
 		ReadyTimeout: 200 * time.Millisecond,
 		PollInterval: 10 * time.Millisecond,
+		Markers:      VulkanBackend().ResidencyProof(),
 	}
 }
 
@@ -269,6 +270,7 @@ func TestValidateChatFailWarns(t *testing.T) {
 		ReadGTTUsed:      gttSeam(detect.KnownBytes(1<<30, "before"), detect.KnownBytes(1<<30+400<<20, "after")),
 		ReadyTimeout:     200 * time.Millisecond,
 		PollInterval:     10 * time.Millisecond,
+		Markers:          VulkanBackend().ResidencyProof(),
 	}
 
 	v := Validate(context.Background(), in)
