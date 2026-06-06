@@ -376,3 +376,22 @@ func TestBenchJSON(t *testing.T) {
 		t.Errorf("bench --json does not match golden.\n--- got ---\n%s\n--- want ---\n%s", out.String(), want)
 	}
 }
+
+// TestBenchJSONNoBlendedKey locks the milestone honesty invariant against future drift:
+// the --json contract carries pp and tg as TWO SEPARATE keys (prompt_per_sec /
+// predicted_per_sec) and NEVER a blended tok/s figure. Reads the frozen golden and asserts
+// ZERO occurrences of any blended key. If this fails, someone re-introduced a blended
+// throughput number — the exact dishonesty Phase 9 exists to prevent.
+func TestBenchJSONNoBlendedKey(t *testing.T) {
+	golden := filepath.Join("testdata", "bench.json.golden")
+	data, err := os.ReadFile(golden)
+	if err != nil {
+		t.Fatalf("read golden: %v", err)
+	}
+	for _, blended := range [][]byte{[]byte("tok_per_sec"), []byte("tokens_per_sec")} {
+		if bytes.Contains(data, blended) {
+			t.Errorf("golden contains a blended tok/s key %q — pp and tg MUST stay SEPARATE "+
+				"(prompt_per_sec / predicted_per_sec only)", blended)
+		}
+	}
+}
