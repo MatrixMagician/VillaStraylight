@@ -4,7 +4,7 @@ milestone: v1.1
 milestone_name: ROCm Opt-In Backend
 status: planning
 stopped_at: Phase 11 context gathered
-last_updated: "2026-06-06T21:37:37.562Z"
+last_updated: "2026-06-06T22:07:18.277Z"
 last_activity: 2026-06-06 -- Phase 11 added (v1.1 tech debt)
 progress:
   total_phases: 6

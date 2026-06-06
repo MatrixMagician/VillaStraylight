@@ -169,7 +169,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 **Requirements**: DET-04, DASH-06 (residual sub-clauses; doc plan is cross-cutting tech-debt — no new REQ-IDs)
 **Depends on:** Phase 10
 **Plans:** 2 plans (1 wave — fully parallel, zero file overlap)
-
 Plans:
 
 - [ ] 11-01-PLAN.md — DET-04/DASH-06: real `firmwareDateOK` (rpm firmware-date probe + detect-local floor/deny seam in gpu_amd.go) + `hsaOverrideViable` (pure gfx1151+substrate derivation) + threaded `computeROCmReadiness` + table tests; golden byte-identical (no re-freeze); on-hardware badge=ready as manual UAT

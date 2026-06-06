@@ -416,7 +416,7 @@ func firmwareDateOK(date Str) Bool {
 | DET-04 (HSA viability Unknown) | gfx-id Unknown → UNSET | unit | `go test ./internal/detect/ -run TestHSAOverride -x` | ❌ Wave 0 |
 | D-04 (golden byte-identical) | `villa detect --json` over fixture == golden | golden | `go test ./cmd/villa/ -run TestJSONGolden` | ✅ exists (must stay green, no -update) |
 | D-04 (off-hardware no-false-green) | fixture Unknowns → UNSET | unit | `go test ./internal/detect/ -run TestComputeROCmReadinessOffHardware` | ✅ exists (extend to assert both new probes still UNSET with Unknown inputs) |
-| DASH-06 SC#1 (badge fold) | all-Known-good → `ready` | unit | `go test ./internal/status/ -run TestFoldROCmReadiness` | ✅ exists (status_test.go:279-293 already covers good/bad/unset) |
+| DASH-06 SC#1 (badge fold) | all-Known-good → `ready` | unit | `go test ./internal/status/ -run TestReadinessFold` | ✅ exists (status_test.go:273-313 covers all-good→ready / all-unset→unknown) |
 | D-05 (doc cross-check) | 6 SUMMARYs tagged, REVIEW prose fixed | manual/grep | `grep -rl requirements-completed .planning/phases/{07,08,09,10}-*` | manual |
 
 ### Sampling Rate

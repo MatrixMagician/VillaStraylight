@@ -46,7 +46,7 @@ created: 2026-06-06
 | 11-01-xx | 01 | 1 | DET-04 (HSA Unknown) | — | gfx-id Unknown → UNSET (no-false-green) | unit | `go test ./internal/detect/ -run TestHSAOverride` | ❌ W0 | ⬜ pending |
 | 11-01-xx | 01 | 1 | D-04 (golden byte-identical) | — | `villa detect --json` over fixture == golden | golden | `go test ./cmd/villa/ -run TestJSONGolden` | ✅ exists (no `-update`) | ⬜ pending |
 | 11-01-xx | 01 | 1 | D-04 (off-hardware UNSET) | — | fixture Unknowns → both probes UNSET | unit | `go test ./internal/detect/ -run TestComputeROCmReadinessOffHardware` | ✅ extend | ⬜ pending |
-| 11-01-xx | 01 | 1 | DASH-06 SC#1 (badge fold) | — | all-Known-good → `ready` | unit | `go test ./internal/status/ -run TestFoldROCmReadiness` | ✅ exists | ⬜ pending |
+| 11-01-xx | 01 | 1 | DASH-06 SC#1 (badge fold) | — | all-Known-good → `ready` | unit | `go test ./internal/status/ -run TestReadinessFold` | ✅ exists | ⬜ pending |
 | 11-02-xx | 02 | 2 | D-05 (doc cross-check) | — | 6 SUMMARYs tagged, REVIEW prose fixed | grep | `grep -rl requirements-completed .planning/phases/{07,08,09,10}-*` | manual/grep | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
