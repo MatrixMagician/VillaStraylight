@@ -4,8 +4,8 @@ milestone: v1.1
 milestone_name: ROCm Opt-In Backend
 status: verifying
 stopped_at: Phase 11 context gathered
-last_updated: "2026-06-06T22:18:35.947Z"
-last_activity: 2026-06-06 -- Phase 11 execution started
+last_updated: "2026-06-06T22:26:33.530Z"
+last_activity: 2026-06-06
 progress:
   total_phases: 6
   completed_phases: 6
@@ -25,17 +25,17 @@ See: .planning/PROJECT.md (updated 2026-06-03)
 
 ## Current Position
 
-Phase: 11 (address-v1-1-tech-debt-rocm-readiness-detect-probes-doc-reco) — EXECUTING
-Plan: 2 of 2
+Phase: 11
+Plan: Not started
 Status: Phase complete — ready for verification
 Next: Phase 11 (address-v1-1-tech-debt) — rocm_readiness detect probes + doc reconciliation; not yet planned (`/gsd-plan-phase 11`).
-Last activity: 2026-06-06 -- Phase 11 execution started
+Last activity: 2026-06-06
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 19
+- Total plans completed: 21
 - Average duration: 34 min
 - Total execution time: 2.2 hours
 
@@ -48,6 +48,7 @@ Last activity: 2026-06-06 -- Phase 11 execution started
 | 4 | 3 | - | - |
 | 6 | 3 | - | - |
 | 07 | 3 | - | - |
+| 11 | 2 | - | - |
 
 **Recent Trend:**
 
