@@ -53,6 +53,7 @@ Go 1.26+. Single module, single static binary built from `./cmd/villa`.
 - `cmd/villa/` — cobra CLI, one file per subcommand (detect, recommend, preflight,
   install, up/down/restart/logs, status, model, backend, bench, dashboard, uninstall).
   Host effects live behind injectable `live*Deps` seams (`grep -rn "func live" cmd/villa`).
+
 - `internal/` — `detect` (host probe → typed-Unknown HostProfile; AMD seam in `gpu_amd.go`),
   `recommend` (pure memory-fit `Pick`), `preflight` (reusable BLOCK/WARN gate + `go:embed`
   `rocm-policy.json`), `inference` (`BackendFor` resolver + Backend/Runner/ResidencyProof
@@ -65,17 +66,22 @@ Go 1.26+. Single module, single static binary built from `./cmd/villa`.
 
 - **Config is the single source of truth.** Quadlet units are regenerated from config,
   never hand-edited.
+
 - **Dashboard binary trap:** `villa status`/`recommend` run fresh from `./villa`, but
   `villa-dashboard.service` is long-lived — after `make build` you MUST
   `systemctl --user restart villa-dashboard.service` for dashboard code changes to take effect.
+
 - **Inference seam grep-gate (`TestSeamGrepGate`):** backend marker strings (`ROCm0`,
   `Vulkan0`, `HSA_OVERRIDE…`, image tags) must stay behind `internal/inference` +
   `internal/orchestrate`. The gate walks both `internal/` and `cmd/villa` — a leaked literal
   fails the build.
+
 - **`--json`/dashboard contracts are byte-frozen by golden tests** (`testdata/*.golden*`).
   Evolve append-only + schema-bump; refreeze intentionally with `go test … -update`.
+
 - **Offload is offload-asserting, never liveness:** a silent/partial CPU fallback is a FAIL
   (`ResidencyProof`), never a false-green.
+
 - **Vulkan RADV is the default; ROCm is strictly opt-in** (`villa backend set rocm`).
 
 <!-- GSD:project-start source:PROJECT.md -->
@@ -100,164 +106,265 @@ VillaStraylight is a self-hosted, local AI server stack for privacy-conscious po
 
 <!-- GSD:project-end -->
 
-<!-- GSD:stack-start source:research/STACK.md -->
+<!-- GSD:stack-start source:codebase/STACK.md -->
 
 ## Technology Stack
 
-## TL;DR — Prescriptive Stack
+## Languages
 
-| Layer | Choice | Confidence |
-|-------|--------|------------|
-| Inference engine | llama.cpp `llama-server` (OpenAI-compatible) | HIGH |
-| **GPU backend (v1 default)** | **Vulkan RADV (Mesa)** | HIGH |
-| GPU backend (optional/perf) | ROCm 7.2.4 (HIP) | MEDIUM |
-| Inference image | `docker.io/kyuz0/amd-strix-halo-toolboxes:vulkan-radv` (primary) / `ghcr.io/ggml-org/llama.cpp:server-vulkan` (fallback) | HIGH |
-| Chat UI | Open WebUI — `ghcr.io/open-webui/open-webui:main` | HIGH |
-| Orchestration | Podman Quadlet (`.container`/`.network`/`.volume`), rootless, user systemd | HIGH |
-| Control plane language | Go (single static binary) | HIGH (constraint) |
-| Quadlet generation | Hand-rolled template/text writer (+ `containers/podman/v5/pkg/systemd/parser` for validation) | HIGH |
-| Podman control | **Direct REST API over Unix socket using stdlib `net/http`** (NOT the full bindings module) | HIGH |
-| Hardware detection | `github.com/jaypipes/ghw` + targeted `/sys` + `vulkaninfo`/`rocminfo` parsing | HIGH |
-| HTTP/dashboard backend | `chi` router (already chosen) + stdlib | HIGH |
+- Go 1.26.2 - All first-party code: the `villa` CLI (`cmd/villa/`), hardware detection, recommendation engine, Podman/Quadlet orchestration, dashboard backend, and the OpenAI-compatible inference client. Single-language by constraint (single static binary).
+- HTML / CSS / JavaScript - The no-build, embedded control-dashboard single-page UI (`internal/dashboard/assets/dashboard.html`, `dashboard.css`, `dashboard.js`). Served verbatim via `go:embed`; there is no JS toolchain/bundler in the `villa` path.
+- TOML - Persisted CLI configuration format (`$XDG_CONFIG_HOME/villa/config.toml`).
+- JSON - The embedded model catalog (`internal/catalog/seed.json`), the ROCm pin policy (`internal/preflight/rocm-policy.json`), and golden test fixtures.
 
-## The Strix Halo (gfx1151) GPU-Backend Decision — the crux
+## Runtime
 
-### Reality on the ground
+- Go 1.26.2 (from `go.mod`). Compiles to a single static binary `villa`.
+- Target host OS: Fedora Workstation 44+ (Linux kernel >= 6.18.4) on AMD Strix Halo (gfx1151). The binary is the control plane; AI workloads run as rootless Podman containers under the user systemd manager.
+- Go modules (`go.mod` / `go.sum`).
+- Lockfile: present (`go.sum`).
+- Module path: `github.com/MatrixMagician/VillaStraylight`.
 
-- **gfx1151 is the RDNA 3.5 iGPU. Two real backends exist: Vulkan and ROCm/HIP.** Both work today; neither is "fire and forget."
-- **Vulkan RADV is the stable, compatible default.** The kyuz0 reference labels it "Most stable and compatible. Recommended for most users and all models." It loads large models cleanly, including past the 64 GB mark where ROCm has had problems. (HIGH)
-- **ROCm 7.2.4 (HIP) is the performance option** and is now genuinely usable on gfx1151 with `HSA_OVERRIDE_GFX_VERSION=11.5.1`, but it carries sharp edges: a `rocm7-nightlies` 64 GB allocation-cap bug, sensitivity to kernel/firmware versions, and historical large-model hangs needing batch limiting. (MEDIUM)
-- **AMDVLK Vulkan is the fastest Vulkan path but has a ≤2 GiB single-buffer allocation limit** — some large models won't load. Not safe as a default. (HIGH)
+## Frameworks
 
-### Decision for v1
+- `github.com/spf13/cobra` v1.10.2 - CLI command tree for `villa` (`cmd/villa/root.go` + per-verb files). Subcommands: `detect`, `recommend`, `preflight`, `install`, `uninstall`, `up`, `down`, `restart`, `status`, `logs`, `config`, `dashboard`, `model` (`list` / `pull` / `show` / swap), `backend`, `inference`, `bench`.
+- `github.com/go-chi/chi/v5` v5.3.0 - HTTP router + middleware for the loopback-only control-dashboard backend (`internal/dashboard/server.go`). Middleware chain: RequestID, RealIP, Logger, Recoverer, plus a custom `requireSameOrigin` guard on `/api`.
+- Go standard `testing` package - The only test framework. Table-driven tests, `httptest` servers, and byte-for-byte golden fixtures (`cmd/villa/testdata/*.golden.json`, `internal/orchestrate` rendered-unit goldens, `internal/metrics/testdata/slots.json`). No third-party assertion or mocking library — seams are injected `func` fields.
+- `go build` / `go test` / `go vet` / `gofmt` via `Makefile`.
+- `golangci-lint` (optional; config `.golangci.yml`) - `make lint` runs it if installed, else falls back to `go vet`.
 
-### How the iGPU is exposed (concrete)
+## Key Dependencies
 
-# env:
+- `github.com/spf13/cobra` v1.10.2 - CLI framework (see above).
+- `github.com/go-chi/chi/v5` v5.3.0 - Dashboard HTTP router (see above).
+- `github.com/jaypipes/ghw` v0.24.0 - Root-less hardware detection: CPU/arch (`ghw.CPU()` in `internal/detect/cpu.go`) and total physical memory (`ghw.Memory()` in `internal/detect/memory.go`). Never hard-errors on missing perms.
+- `github.com/BurntSushi/toml` v1.6.0 - Marshal/unmarshal of `config.toml` (`internal/config/villaconfig.go`). No string interpolation (mitigates injection on write).
+- `github.com/jaypipes/pcidb` v1.1.1 - PCI ID -> human name (transitive via ghw).
+- `github.com/spf13/pflag` v1.0.9 - flag parsing (via cobra).
+- `github.com/inconshreveable/mousetrap` v1.1.0 - cobra Windows helper.
+- `github.com/go-ole/go-ole` v1.2.6, `github.com/yusufpapurcu/wmi` v1.2.4 - ghw Windows backends (not exercised on the Fedora target).
+- `golang.org/x/sys` v0.25.0 - low-level syscalls (via ghw).
+- `gopkg.in/yaml.v3` v3.0.1, `howett.net/plist` - ghw transitive parsers.
 
-### Unified / GTT memory configuration (host kernel params)
+## Configuration
 
-| Param | Effect |
-|-------|--------|
-| `amd_iommu=off` | 5–12% faster and more stable than `iommu=pt` on Strix Halo (benchmarked). |
-| `amdgpu.gttsize=126976` | Caps GTT at 124 GiB (126976 MiB ÷ 1024). |
-| `ttm.pages_limit=32505856` | Caps pinned pages at 124 GiB (32505856 × 4 KiB). Must match gttsize. |
+- TOML file at `$XDG_CONFIG_HOME/villa/config.toml` (resolved via `os.UserConfigDir`). Defined by `VillaConfig` in `internal/config/villaconfig.go`.
+- Fields: `model`, `quant`, `ctx`, `backend` (default `vulkan`; `rocm` opt-in), `catalog_path`, `dashboard_addr` (default `127.0.0.1`, loopback-only by construction), `dashboard_port` (default `8888`), `chat_port` (default `3000`).
+- Read-only by default: `LoadVilla` returns typed defaults when the file is absent; `SaveVilla` (invoked by `recommend --save` / model swap) writes strictly under the XDG dir with mode `0600`, dir `0700`, and a path-traversal guard. Self-heals zeroed dashboard/chat fields on load (never widens the bind off loopback).
+- `internal/catalog/seed.json` - the seed model catalog (`//go:embed seed.json` in `internal/catalog/load.go`). Catalog has a schema version window; an external override path may be supplied via `catalog_path`.
+- `internal/preflight/rocm-policy.json` - ROCm pin policy: image-tag allow/deny, kernel floor, firmware floor/deny, required `HSA_OVERRIDE_GFX_VERSION` (`//go:embed rocm-policy.json` in `internal/preflight/floors.go`).
+- `internal/orchestrate/quadlet/*.tmpl` - Quadlet unit `text/template`s (`//go:embed quadlet/*.tmpl` in `internal/orchestrate/render.go`): `container.tmpl`, `network.tmpl`, `volume.tmpl`, `openwebui.container.tmpl`, `openwebui.volume.tmpl`.
+- `internal/dashboard/assets/` - embedded dashboard UI (`//go:embed all:assets` in `internal/dashboard/embed.go`); `dashboard.html` is parsed as an `html/template` shell (chat-link port injected), css/js served verbatim.
+- `Makefile` targets: `help`, `run`, `build` (-> `./villa`), `test`, `vet`, `fmt`, `lint`, `check` (vet+test), `tidy`, `clean`.
+- `.golangci.yml` - linter config (used by `make lint`).
 
-### Mandatory llama-server runtime flags on Strix Halo
+## Platform Requirements
 
-- `-ngl 999` — offload all layers to iGPU (unified memory makes this free).
-- `-fa 1` — flash attention on (required for stability + KV memory).
-- `--no-mmap` — avoid mmap; load weights resident in unified memory.
+- Go 1.26.2 toolchain.
+- For end-to-end runtime testing: a Fedora host with rootless Podman, `systemctl --user`, and the AMD GPU stack (`/dev/dri`, optionally `/dev/kfd` for ROCm). Host probe tools used when present: `vulkaninfo`, `rocminfo`, `rpm`, `setsebool`, `loginctl`, `journalctl`.
+- Fedora Workstation 44+ on AMD Strix Halo (gfx1151), kernel >= 6.18.4, linux-firmware >= 20260110 (firmware 20251125 explicitly denied for ROCm).
+- Rootless Podman v5 with the user socket/manager; user lingering enabled (`loginctl enable-linger`) so Quadlet services survive logout/reboot.
+- Strictly local; no telemetry from first-party components.
 
-## Recommended Models & Quantizations (unified-memory tiers)
+## Container Images Standardized On
 
-| RAM tier | Seed default | Quant | Context | Rationale |
-|----------|--------------|-------|---------|-----------|
-| 64 GB | Qwen3.x 35B-A3B (MoE) | UD-Q4_K_M | 128K | MoE: fast (~3B active) + fits comfortably; headroom for KV at long ctx. |
-| 96 GB | 70B-class dense (e.g. DeepSeek-R1-Distill-Llama-70B) | Q4_K_M | 32K | Dense 70B Q4 fits; ctx trimmed to 32K to stay in envelope. |
-| 124/128 GB | Qwen3.x 35B-A3B (MoE) at 128K, or larger MoE (e.g. gpt-oss-120b / GLM-4.5-Air-class) | UD-Q4_K_M | 128K | Either max context on the fast MoE, or step up to a 100B+ MoE for frontier capability. |
-
-## Go Control-Plane Libraries
-
-### Podman REST API — do NOT vendor the full bindings module
-
-| Recommended | Alternative |
-|-------------|-------------|
-| **Direct REST over Unix socket with stdlib `net/http`** (custom `http.Transport` dialing `unix:///run/user/$UID/podman/podman.sock`) | `github.com/containers/podman/v5/pkg/bindings` |
-
-### Quadlet generation — generate text, manage via systemd
-
-| Need | Approach |
-|------|----------|
-| Write Quadlet unit files | Go `text/template` — render `.container` etc. from the recommended config. Simple, dependency-free, fully controllable. |
-| (Optional) validate generated units | `github.com/containers/podman/v5/pkg/systemd/parser` — lightweight INI/unit parser, much lighter than full bindings, useful to round-trip-validate generated files. |
-| Manage user units | Shell to `systemctl --user` (daemon-reload / start / enable / status), or use `github.com/coreos/go-systemd/v22/dbus` for programmatic D-Bus control of the user manager. |
-
-### Hardware / GPU detection
-
-| Library | Use |
-|---------|-----|
-| `github.com/jaypipes/ghw` | Primary: CPU, memory (total/usable), PCI, GPU, baseboard/DMI — works **without root**, never hard-errors on missing perms. Covers "CPU/arch, GPU, total memory" cleanly. |
-| `github.com/jaypipes/pcidb` | (transitive via ghw) PCI ID → human names, to identify the Strix Halo iGPU device. |
-| Direct `/sys` reads + small parsers | gfx1151 specifics ghw won't surface: confirm `gfx1151` via `rocminfo`, confirm Vulkan device via `vulkaninfo --summary`, read current `amdgpu.gttsize`/`ttm` state, read DMI product string to recognize "Ryzen AI MAX". |
-
-### HTTP control plane / dashboard backend
-
-## Open WebUI integration
-
-## Container Images to Standardize On
-
-| Purpose | Image | Notes |
-|---------|-------|-------|
-| Inference (Vulkan, primary) | `docker.io/kyuz0/amd-strix-halo-toolboxes:vulkan-radv` | Strix-Halo-tuned, auto-rebuilt on llama.cpp master; the community reference. Includes router/`models.ini` support. |
-| Inference (Vulkan, vendor-neutral fallback) | `ghcr.io/ggml-org/llama.cpp:server-vulkan` | Official upstream; less Strix-Halo-specific but trustworthy provenance. |
-| Inference (ROCm, optional/perf) | `docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-7.2.4` | Opt-in. Avoid `rocm7-nightlies` (64 GB cap bug). |
-| Chat UI | `ghcr.io/open-webui/open-webui:main` | Pin a digest in prod. |
-
-## What NOT to Use
-
-| Avoid | Why | Use Instead |
-|-------|-----|-------------|
-| **Docker / docker-compose** | Project constraint; Podman rootless + Quadlet is Fedora-native, boots via systemd, no daemon. | Podman Quadlet + user systemd. |
-| **`containers/podman/v5` full bindings as a hard dep** | Massive dependency, build-time system libs, binary bloat — breaks the single-static-binary goal. | Direct REST over the Podman user socket with stdlib. |
-| **AMDVLK Vulkan image as default** | ≤2 GiB single-buffer limit — large models silently fail to load. | RADV (Mesa) Vulkan. |
-| **ROCm `rocm7-nightlies` for large models** | Known bug caps allocation at 64 GB → can't load 70B+/long-context. | `rocm-7.2.4` stable, or just Vulkan RADV. |
-| **ROCm as the *default* backend on gfx1151** | More fragile: firmware/kernel-version sensitive, large-model hangs, override env required. Conflicts with "just works." | Vulkan RADV default; ROCm opt-in. |
-| **`linux-firmware-20251125`** | Documented to break ROCm on Strix Halo (instability/crashes). | Newer firmware (e.g. 20260110); detection should warn if this exact version is present. |
-| **Kernels < 6.18.4** | gfx1151 stability bug. | Fedora 43/44 with kernel ≥ 6.18.4 (kyuz0 baseline: 6.18.9). |
-| **`iommu=pt`** | 5–12% slower than disabling IOMMU on Strix Halo. | `amd_iommu=off`. |
-| **mmap / no flash-attention on Strix Halo** | Crashes and slowdowns. | Always `--no-mmap -fa 1 -ngl 999`. |
-| **Auto-selecting correctness-flagged models on unified memory** | Documented wrong-output issues on these backends (e.g. Qwen3 Coder Next per DreamServer). | Catalog `unified_memory_safe` flag; route around them. |
-| **Ollama as the engine** | Vendored llama.cpp lags upstream (missing Wave32 FA / graphics-queue fixes → ~56% t/s gap on AMD Vulkan); extra abstraction over the chosen llama-server contract. | llama.cpp `llama-server` directly. |
-
-## Stack Patterns by Variant
-
-- Offer ROCm 7.2.4 backend (opt-in) for higher throughput.
-- Because HIP+hipBLASLt+rocWMMA-FA beats Vulkan on token generation at long context — but only when the environment is exactly right.
-- Prefer a 70B-class dense Q4 at reduced context (32K), or a fast MoE at full context.
-- Because 96 GB fits 70B Q4 but not with huge KV; pick one of width-vs-context, don't try both.
-- Fall back to Vulkan RADV.
-- Because the nightly 64 GB allocation cap blocks large models.
-
-## Version Compatibility
-
-| Component | Known-good baseline | Notes |
-|-----------|---------------------|-------|
-| Fedora | 43 / 44+ | kyuz0 tested on 42/43; project targets 44+. |
-| Linux kernel | ≥ 6.18.4 (6.18.9 tested) | < 6.18.4 has gfx1151 stability bug. |
-| linux-firmware | ≥ 20260110 | Avoid 20251125 (breaks ROCm). |
-| ROCm (if used) | 7.2.4 stable | Needs `HSA_OVERRIDE_GFX_VERSION=11.5.1`; avoid nightlies for >64 GB. |
-| llama.cpp | master (auto-rebuilt images) | MTP merged to master — don't use deprecated `-mtp` images. |
-| Open WebUI | `:main` (pin digest) | Internal port 8080, data `/app/backend/data`. |
-| Podman | v5 (rootless socket) | `systemctl --user enable --now podman.socket`. |
-
-## Sources
-
-- `github.com/kyuz0/amd-strix-halo-toolboxes` (README + benchmark viewer) — de-facto Strix Halo reference: backend recommendation, images, kernel params, runtime flags, firmware/kernel baselines. **HIGH**
-- `llm-tracker.info/_TOORG/Strix-Halo` — Vulkan vs HIP performance/stability, build flags, memory envelope, hipBLASLt tuning. **HIGH**
-- `github.com/ggml-org/llama.cpp` docs (docker.md) — official image tags (server-vulkan / server-rocm) on ghcr.io. **HIGH**
-- `github.com/Light-Heart-Labs/DreamServer` README — tier/model map (64/96/124 GB), UD-Q4_K_M defaults, MoE preference, unified-memory correctness-routing pattern. **HIGH** (prior art, model picks MEDIUM — volatile)
-- `unsloth.ai/docs` (Dynamic 2.0 GGUFs) — UD-Q4_K_M adaptive quantization rationale. **HIGH**
-- `docs.openwebui.com` + `pkg.go.dev` (open-webui env config) — OPENAI_API_BASE_URL, ENABLE_OLLAMA_API, ANONYMIZED_TELEMETRY, OFFLINE_MODE, WEBUI_AUTH, port 8080, data dir. **HIGH**
-- `pkg.go.dev/github.com/containers/podman/v5/pkg/bindings` + `pkg/systemd/quadlet`/`parser`; podman.io REST API docs — bindings weight, REST-over-socket alternative, quadlet packages. **HIGH**
-- `github.com/jaypipes/ghw` (+ `go-hardware/ghw` fork), `jaypipes/pcidb` — hardware detection without root. **HIGH**
-- `github.com/ollama/ollama` issues #15601 — Vulkan/AMD t/s gap vs standalone llama.cpp (why not Ollama). **MEDIUM**
-- `github.com/ggml-org/llama.cpp` issues #15018 — ROCm slow weight loading >64 GB vs Vulkan. **MEDIUM**
-
+| Purpose | Image | Source file |
+|---------|-------|-------------|
+| Inference (Vulkan RADV, v1 default) | `docker.io/kyuz0/amd-strix-halo-toolboxes:vulkan-radv@sha256:9a74e555…ac7aad` | `internal/inference/backend_vulkan.go` |
+| Inference (ROCm 7.2.4, opt-in/perf) | `docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-7.2.4@sha256:2da150c1…531a89` | `internal/inference/backend_rocm.go` |
+| Chat UI (Open WebUI) | `ghcr.io/open-webui/open-webui:main@sha256:7f1b0a1a…a9184e` | `internal/orchestrate/openwebui.go` |
 <!-- GSD:stack-end -->
 
 <!-- GSD:conventions-start source:CONVENTIONS.md -->
 
 ## Conventions
 
-Conventions not yet established. Will populate as patterns emerge during development.
+## Naming Patterns
+
+- Lowercase, no underscores for source: `value.go`, `backend.go`, `running_offload.go`
+- Tests mirror their source file with `_test.go`: `backend.go` → `backend_test.go`,
+- Topic-grouped check files in `internal/preflight`: `checks_gpu.go`,
+- Standard Go `CamelCase` (exported) / `camelCase` (unexported).
+- **`live*Deps` constructors** wire a pure core's `Deps` struct to the real host.
+- **`*ForTest` helpers** expose an internal seam to tests in another package
+- **`fake*Deps` types** are test doubles for a command's `Deps`:
+- Short receiver names (`b backendVulkan`, `r CheckResult`); descriptive locals.
+- The golden `-update` flag is a package-level `var update = flag.Bool(...)`
+- Typed `Optional` wrappers (`Bytes`/`Str`/`Int`/`Bool`) instead of bare
+- Interface seams named for the role: `Backend`, `Deps`, `RenderInput`,
+
+## Code Style
+
+- `gofmt` (`make fmt` runs `gofmt -w .`). Tabs, standard Go layout.
+- `goimports` enforced via `.golangci.yml` — imports are grouped and ordered.
+- Enabled linters: `errcheck`, `govet`, `ineffassign`, `staticcheck`, `unused`,
+- `run.timeout: 3m`.
+- `errcheck` is disabled for `_test.go` files (the only exclude rule).
+- `make lint` falls back to `go vet` if `golangci-lint` is not installed; CI
+
+## Import Organization
+
+## Core Architectural Conventions
+
+### Typed-Unknown degradation (never bare 0 / never panic)
+
+### Config is the single source of truth
+
+### Pure-core + injectable-seam
+
+- Pure logic lives in `internal/*` cores (no host I/O): `detect`, `recommend`,
+- Host effects (exec, Unix sockets, `/sys`, filesystem) are injected via a `Deps`
+- `internal/orchestrate` is the **only intentionally impure** module (it shells to
+- Consequence: every command is testable off-hardware by passing a `fake*Deps`.
+
+### Backend interface seam + fail-closed resolver
+
+### Backend marker strings stay behind the seam
+
+### Byte-frozen output contracts (golden, append-only)
+
+### Offload-asserting (silent CPU fallback = FAIL)
+
+## Error Handling
+
+- Return errors up; wrap with context using `fmt.Errorf(... %w ...)` (~60 of ~96
+- **Fail closed** on untrusted input (hand-edited config): error, never a silent
+- **Refuse-with-remediation** in preflight: every non-PASS `CheckResult` carries a
+
+## Logging
+
+## Comments
+
+- Every file opens with a package/file-level doc comment stating its role and the
+- Decision/requirement IDs (`D-NN`, `REQ-*`, `SC#N`, `T-6-03`) are the canonical
+- Test functions carry a doc comment explaining the invariant being guarded and
+
+## Function & Module Design
+
+- **`Deps` struct injection**: a command's host dependencies are a struct of
+- **Thin cobra callers**: `cmd/villa/*.go` commands are thin wrappers that call
+- **Single polymorphism point**: choose a concrete backend only via `BackendFor`.
+- Exports: package APIs are deliberately narrow; test-only access goes through
+
+## GOTCHA — dashboard restart after rebuild
+
 <!-- GSD:conventions-end -->
 
 <!-- GSD:architecture-start source:ARCHITECTURE.md -->
 
 ## Architecture
 
-Architecture not yet mapped. Follow existing patterns found in the codebase.
+> Full layered system diagram: `.planning/codebase/ARCHITECTURE.md` (System Overview).
+
+## Component Responsibilities
+
+| Component | Responsibility | File |
+|-----------|----------------|------|
+| Command tier | Cobra surface, flag parsing, exit codes, rendering, `live*Deps` wiring | `cmd/villa/*.go` |
+| detect | Probe host → typed-Unknown `HostProfile` (CPU, memory envelope, iGPU, kernel, ROCm readiness) | `internal/detect/detect.go` |
+| recommend | Pure `Pick()` → memory-fitting `Recommendation` (model/quant/ctx/backend) | `internal/recommend/recommend.go` |
+| catalog | Embedded model catalog (`go:embed seed.json`) + external override w/ fallback | `internal/catalog/catalog.go`, `load.go` |
+| preflight | Reusable host-prep gate → `[]CheckResult` (BLOCK/WARN tiers, fail-soft) | `internal/preflight/preflight.go` |
+| inference | Backend-neutral seam: `BackendFor`, `Backend` iface, offload/residency proof | `internal/inference/*.go` |
+| orchestrate | Render Quadlet units (pure) + reconcile + host-touching systemd seam | `internal/orchestrate/*.go` |
+| backendswap | Transactional `villa backend set` (capture→prove→cutover→rollback) | `internal/backendswap/backendswap.go` |
+| bench | Pure A/B throughput core; `--ab` composes `backendswap.Run` | `internal/bench/bench.go` |
+| modelswap | Guarded `villa model swap` ordering core (shared by CLI + dashboard) | `internal/modelswap/modelswap.go` |
+| status | Read-model aggregation → frozen `Report` (shared by CLI + dashboard) | `internal/status/status.go` |
+| dashboard | Loopback-only chi server folding `status` core + embedded SPA | `internal/dashboard/server.go`, `api.go` |
+| metrics | llama.cpp `/metrics` scrape (pp/tg timings) | `internal/metrics/llamacpp.go` |
+| download | Model weight pull + shard handling | `internal/download/download.go` |
+| config | Single source of truth: XDG `config.toml` load/save (`VillaConfig`) | `internal/config/villaconfig.go` |
+
+## Pattern Overview
+
+- **Pure cores, impure edges.** Cores never call `os.Exit` and never print. They return typed values (`Recommendation`, `[]CheckResult`, `Verdict`, `Result`, `Report`); the command tier maps those to exit codes and tables/JSON.
+- **Single polymorphism point for backends.** `inference.BackendFor(name)` is the only place a backend string becomes a concrete implementation; everything else depends on the `Backend` interface.
+- **Config is the single source of truth.** `config.toml` drives recommend → orchestrate; Quadlet units are regenerated from config, never hand-edited as the authority.
+- **Honesty-by-construction.** Every probe degrades to a typed `Unknown` (`detect.Bool`/`detect.Bytes`) → WARN, which is DISTINCT from a confident negative → FAIL. CPU fallback is never reported as success.
+- **Composition over re-implementation.** `bench --ab` composes `backendswap.Run`; `dashboard` composes `status` and `modelswap`; nothing forks a proven core.
+
+## Layers
+
+- Purpose: cobra command tree, flag parsing, exit-code mapping, rendering, `live*Deps` wiring.
+- Location: `cmd/villa/*.go`, one file per subcommand (`detect.go`, `install.go`, `backend.go`, …); tree assembled in `cmd/villa/root.go` (`newRoot`), entry `cmd/villa/main.go`.
+- Depends on: every pure core via `live*Deps()` closures.
+- Used by: end user (the `villa` binary).
+- Purpose: all decision logic and host-state aggregation, behind injectable seams.
+- Location: `internal/detect`, `recommend`, `catalog`, `preflight`, `inference`, `backendswap`, `bench`, `modelswap`, `status`, `metrics`, `download`, `config`.
+- Depends on: each other along the pipeline (recommend → catalog+detect; status → detect+inference+orchestrate); never on cobra.
+- Used by: the command tier and (for status/modelswap) the dashboard.
+- Purpose: turn config + proven `Backend` into rootless Podman Quadlet units, reconcile against disk, write atomically, drive user systemd.
+- Location: `internal/orchestrate/`. `render.go`/`reconcile.go` are PURE; only `systemd.go` and `WriteUnits` (in `render.go`) touch the host.
+- Depends on: `config`, `inference`.
+- Used by: install/lifecycle commands, `backendswap`, `status`.
+- Purpose: run integrated OSS AI containers (`villa-llama`, `villa-openwebui`) plus `villa-dashboard.service`, networked over `villa.network`, models on `villa-models.volume`.
+
+## Data Flow
+
+### Primary install path (detect → recommend → preflight → orchestrate → systemd → proof)
+
+### Backend switch (transactional)
+
+### A/B benchmark
+
+- Persistent state lives in `config.toml` (the single source of truth) and on-disk Quadlet units (regenerated from config). Cores hold no global mutable state; the dashboard server guards its one cached value with a `sync` mutex.
+
+## Key Abstractions
+
+- Purpose: which GPU backend applies (image, runtime flags, device args, residency markers).
+- Examples: `internal/inference/backend_vulkan.go`, `backend_rocm.go`.
+- Pattern: every backend literal lives behind it; callers depend on the interface only.
+- Purpose: map a config `backend` string → `Backend`; fail-closed on unknown values.
+- Examples: `internal/inference/backend.go:21`.
+- Pattern: `"" | "vulkan"` → Vulkan RADV; `"rocm"` → ROCm; anything else → actionable error, NEVER silent fallback.
+- Purpose: each backend owns its log/journal marker literals (`Vulkan0`/`ROCm0`, device label, fault string); both offload scrapes are parameterized by it.
+- Examples: `internal/inference/backend.go:80`, `offload.go`, `running_offload.go`.
+- Pattern: a future backend slots in without re-rolling offload math; CPU fallback = FAIL, never false-green.
+- Purpose: drive host-touching flows from tests without a live host.
+- Examples: `internal/backendswap/backendswap.go`, `internal/bench/bench.go`, `internal/modelswap/modelswap.go`, `internal/status/status.go`.
+- Pattern: every host action is a `func` field; the live wiring is a `live*Deps()` closure in `cmd/villa`.
+
+## Entry Points
+
+- Location: `cmd/villa/main.go` → `newRoot().Execute()`.
+- Triggers: user CLI invocation.
+- Responsibilities: build the cobra tree (`cmd/villa/root.go`), dispatch to the per-subcommand `run*` function, map returned error to exit 1.
+- Location: `internal/dashboard/server.go` (`NewServer`), launched as a user systemd unit (`villa-dashboard.service`).
+- Triggers: `villa dashboard` / boot via systemd.
+- Responsibilities: loopback-only chi server folding the shared `status` read-model + embedded SPA.
+
+## Architectural Constraints
+
+- **Backend literals are seam-locked.** Container image/device/`podman`/marker literals MUST live in `internal/inference/` (and `internal/detect/gpu_amd.go`). Enforced by `TestSeamGrepGate` (`internal/inference/seam_test.go`) over both `internal/` and `cmd/villa`.
+- **orchestrate is the ONLY impure first-party module.** Filesystem + `os/exec` touch is confined to `internal/orchestrate/systemd.go` + `WriteUnits`. Render/Reconcile must stay pure.
+- **No silent CPU fallback.** Offload assert requires BOTH log-scrape AND sysfs GTT-delta; an unevaluable signal → WARN, a confident absence → FAIL.
+- **Loopback-only binds.** Dashboard binds `127.0.0.1` via `net.JoinHostPort`; never `:port`/`0.0.0.0` (PRIV-01, `internal/dashboard/server.go`).
+- **No shell interpolation.** All host commands are fixed-arg `exec.Command`; model names are catalog-resolved, never shell-interpolated.
+- **`--json`/dashboard contracts are byte-frozen.** Evolve append-only + bump schema version; golden tests guard them (`cmd/villa/testdata/*.json.golden`).
+- **No telemetry.** First-party components emit none; outbound limited to image/model pulls (asserted in `status`).
+- **Single static binary.** No Podman full-bindings dependency; Podman is controlled via fixed-arg CLI / REST-over-socket.
+
+## Anti-Patterns
+
+### Re-typing a backend literal in a caller
+
+### Silently defaulting an unknown backend string
+
+### Treating health-200 / is-active as success
+
+### Re-implementing backend switching inside bench
+
+### Editing a Quadlet unit as the source of truth
+
+## Error Handling
+
+- Typed-Unknown degradation: missing tool / unparseable output → `Unknown` → WARN, never a false hard block (`internal/preflight`, `internal/detect`).
+- Typed tool errors: `orchestrate.ErrToolNotFound` (missing binary → soft) vs `ErrCommandFailed` (ran non-zero with no output → hard) (`internal/orchestrate/systemd.go`).
+- Transactional rollback: any mutate error or non-pass prove → verbatim restore, with honest rollback-incomplete reporting (`internal/backendswap/backendswap.go`).
+
+## Cross-Cutting Concerns
+
 <!-- GSD:architecture-end -->
 
 <!-- GSD:skills-start source:skills/ -->
