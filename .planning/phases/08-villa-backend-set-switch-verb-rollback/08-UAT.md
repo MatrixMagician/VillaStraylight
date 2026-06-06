@@ -1,19 +1,14 @@
 ---
-status: testing
+status: complete
 phase: 08-villa-backend-set-switch-verb-rollback
 source: [08-VERIFICATION.md]
 started: 2026-06-06T00:00:00Z
-updated: 2026-06-06T00:00:00Z
+updated: 2026-06-06T16:32:00Z
 ---
 
 ## Current Test
 
-number: 4
-name: Live `--dry-run` preview and `backend show` against a real configured install
-expected: |
-  `villa backend set rocm --dry-run` prints {target, fit, preflight} and mutates
-  nothing; `villa backend show` reports the real active backend + resolved image tag.
-awaiting: in progress (Test 3 = real 5m never-ready timeout, run last)
+[testing complete]
 
 ## Tests
 
@@ -37,19 +32,22 @@ note: "Observation (minor, not a gap): `set` returns exit 1 immediately after is
 ### 3. Bounded proveTimeout (5m) fires on a never-ready ROCm server
 expected: The cutover prove returns FAIL at the deadline (not an infinite wait) and rolls back to the prior backend.
 why_human: Requires a real hung llama-server load on the target hardware; the deadline context is wired but its trip can only be observed live.
-result: [pending]
+result: pass
+method: "Throwaway fault-injection build: changed the ROCm llama-server `--port` exec arg to 19999 while PublishPort stayed 8080:8080, so the published /health endpoint is never reachable (server runs fine, just unreachable → never-ready). Reverted via git checkout + rebuild immediately after; working tree clean."
+retest: "PASS on-hardware 2026-06-06. Switch ran 16:26:37 → 16:31:38 = 5m01s — exactly proveTimeout (5m), BOUNDED not infinite. `backend set: switch to rocm failed at \"prove\" — rolled back; prior backend (vulkan) restored`, detail `not ready before timeout (possible load_tensors hang or CPU-fallback stall)` (the PollHealth deadline branch). EXIT=1. Rolled back to Vulkan RADV — journal confirms restart on Vulkan0, listening on 8080. Note: the sabotaged container had real ROCm0 buffers loaded, so this isolated the test purely to the readiness-timeout path."
 
 ### 4. Live `--dry-run` preview and `backend show` against a real configured install
 expected: `villa backend set rocm --dry-run` prints {target, fit verdict, preflight verdict} and mutates nothing (config.toml + units byte-unchanged, service untouched); `villa backend show` reports the real active backend + resolved image tag.
 why_human: Requires a real configured install with rendered units on the target host to confirm zero-mutation preview and an accurate active-backend report.
-result: [pending]
+result: pass
+retest: "PASS on-hardware 2026-06-06. `villa backend show` → vulkan + correct vulkan-radv digest. `villa backend set rocm --dry-run` → `dry-run: would switch backend vulkan -> rocm (model \"qwen3.6-35b-a3b\" preserved)`, `fit: PASS`, `preflight: PASS`, `dry-run: nothing written (no config persisted, no units regenerated, no restart)`, EXIT=0. Zero-mutation VERIFIED: config.toml md5 + villa-llama.container md5 + villa-llama.service ActiveEnterTimestamp all byte/identical before and after the dry-run."
 
 ## Summary
 
 total: 4
-passed: 2
+passed: 4
 issues: 0
-pending: 2
+pending: 0
 skipped: 0
 blocked: 0
 
