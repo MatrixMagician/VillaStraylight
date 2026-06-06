@@ -8,12 +8,12 @@ updated: 2026-06-06T00:00:00Z
 
 ## Current Test
 
-number: 2
-name: Forced-bad ROCm bring-up auto-rolls back verbatim
+number: 4
+name: Live `--dry-run` preview and `backend show` against a real configured install
 expected: |
-  (BLOCKED behind Test 1 gap CR-G1) — cannot force a *bad* ROCm bring-up until a
-  *good* one is possible; the ROCm unit currently never starts at all.
-awaiting: Test 1 fix (render group-add)
+  `villa backend set rocm --dry-run` prints {target, fit, preflight} and mutates
+  nothing; `villa backend show` reports the real active backend + resolved image tag.
+awaiting: in progress (Test 3 = real 5m never-ready timeout, run last)
 
 ## Tests
 
@@ -29,7 +29,10 @@ note: "The first run's transactional rollback worked perfectly (verbatim unit + 
 ### 2. Forced-bad ROCm bring-up auto-rolls back verbatim
 expected: liveProve classifies a silent-CPU-fallback / load_tensors-hang as FAIL (gpu_busy 0% / not-ready-before-timeout / no tokens) within proveTimeout (5m); the switch auto-rolls back to the verbatim prior vulkan unit+config and re-readies villa-llama; exit 1 with a "rolled back; prior backend restored" message; the running stack is unchanged (a failed switch is a no-op).
 why_human: Silent-CPU-fallback detection, the load_tensors-hang deadline, the allocation-cap / firmware-fault paths, and the live transactional restore all depend on real ROCm runtime behavior unavailable off-host.
-result: [pending]
+result: pass
+method: "Throwaway fault-injection build: appended `-ngl 0` to the ROCm ContainerArgs (last -ngl wins → CPU-only) to simulate a silent CPU fallback, then `villa backend set rocm`. Reverted via git checkout + rebuild immediately after; working tree clean."
+retest: "PASS on-hardware 2026-06-06: liveProve returned FAIL at the prove step with honest multi-signal detail — `offload FAILED — log: only a CPU model buffer was loaded — server fell back to CPU; sysfs: GTT-used 2879131648 bytes < 22134528992 weight footprint — weights not resident; busy: gpu_busy_percent 10% during decode`. EXIT=1, message `backend set: switch to rocm failed at \"prove\" — rolled back; prior backend (vulkan) restored`. Verbatim vulkan unit+config restored, villa-llama re-readied on Vulkan0 (journal confirms), openwebui untouched, final `villa status overall PASS`. Prove completed in ~13s (well within the 5m bound — no hang)."
+note: "Observation (minor, not a gap): `set` returns exit 1 immediately after issuing the rollback restart; the restored backend's llama-server is still loading the model for ~4s after return, so a `villa status` run in that window shows a TRANSIENT `overall FAIL` before settling to PASS. Inherent to Type=notify (podman notifies on container-start, not app-readiness). The stack does return to healthy on its own."
 
 ### 3. Bounded proveTimeout (5m) fires on a never-ready ROCm server
 expected: The cutover prove returns FAIL at the deadline (not an infinite wait) and rolls back to the prior backend.
@@ -44,9 +47,9 @@ result: [pending]
 ## Summary
 
 total: 4
-passed: 1
+passed: 2
 issues: 0
-pending: 3
+pending: 2
 skipped: 0
 blocked: 0
 
@@ -66,3 +69,10 @@ blocked: 0
     - internal/orchestrate/parseargs_test.go:39  # wantGroup: re-scope (generic parser test — keep generic two-group case or update)
   missing:
     - "An on-hardware (or rendered-unit integration) check that the ROCm unit actually STARTS under podman, not just that the arg string matches a golden — the golden tests locked in the illegal combination."
+
+- truth: "A cold cutover (ROCm image not yet cached) does not spuriously roll back because the 7GB pull exceeds the 45s TimeoutStartSec"
+  status: investigated_cleared
+  id: CR-G2
+  severity: none
+  reason: "Tested explicitly: removed the local ROCm image, ran `villa backend set rocm`. The ~62s pull exceeded the 45s TimeoutStartSec but the switch SUCCEEDED (exit 0, cutover proven). Journal shows podman quadlet detects it runs under systemd and `setting pull timeout to 5m0s`, extending the start watchdog past TimeoutStartSec. So the in-start image pull is correctly handled — NOT a bug, no fix needed."
+  note: "Cleared on-hardware at this network speed; the mechanism (podman 5m pull-timeout + watchdog extension) is speed-independent, so the 45s start timeout is not a hard cap during pull."
