@@ -1,32 +1,30 @@
 ---
 phase: 08-villa-backend-set-switch-verb-rollback
 verified: 2026-06-06T00:00:00Z
-status: human_needed
-score: 4/4 must-haves verified (off-hardware logic); 2/4 on-hardware UAT items now PASS, 2 residual (failure-path)
+status: verified
+score: 4/4 must-haves verified (off-hardware logic); 4/4 on-hardware UAT items PASS (2 happy-path + 2 failure-path via fault injection)
 re_verification:
-  previous_status: none
-  previous_score: n/a
-human_verification:
-  - test: "Force a bad ROCm config (e.g. a host that silently CPU-falls-back, or a load_tensors hang) and run `villa backend set rocm`."
-    expected: "liveProve classifies it FAIL (gpu_busy 0% / not-ready-before-timeout / no tokens) within proveTimeout (5m); the switch auto-rolls back to the verbatim prior vulkan unit+config and re-readies villa-llama; exit 1 with a 'rolled back; prior backend restored' message; the running stack is unchanged."
-    why_human: "Silent-CPU-fallback detection, the load_tensors-hang deadline, the allocation-cap / firmware-fault paths, and the live transactional restore all depend on real ROCm runtime behavior unavailable off-host. RESIDUAL — requires deliberately breaking a ROCm config; not exercised in the 2026-06-06 happy-path on-hardware session."
-  - test: "Confirm the bounded proveTimeout (5m) actually fires on a never-ready ROCm server (an unbounded load_tensors hang)."
-    expected: "The cutover prove returns FAIL at the deadline (not an infinite wait) and rolls back."
-    why_human: "Requires a real hung llama-server load on the target hardware; the deadline context is wired but its trip can only be observed live. RESIDUAL — not exercised in the 2026-06-06 session (no induced hang)."
-human_verification_closed: 2026-06-06T22:00:00Z
+  previous_status: human_needed
+  previous_score: "4/4 off-hardware; 2/4 on-hardware (2 failure-path residual)"
+human_verification: []
+human_verification_closed: 2026-06-06T23:30:00Z
 human_verification_resolved:
   - test: "On a running install, `villa backend set rocm` performs a real ROCm bring-up that proves healthy and cuts over."
     resolution: "PASS (on-hardware, 2026-06-06). `villa backend set rocm` → exit 0, 'cutover proven'; `villa backend show` reports rocm + rocm-7.2.4 digest; ROCm0 residency PASS (20583.34 MiB resident); model qwen3.6-35b-a3b preserved; only villa-llama regenerated/restarted. Cross-checked by `bench --ab` flipping vulkan↔rocm and restoring."
   - test: "`villa backend set rocm --dry-run` and `villa backend show` against a real configured install."
     resolution: "PASS (on-hardware, 2026-06-06). Dry-run printed {target rocm, fit PASS, preflight PASS} and wrote nothing ('no config persisted, no units regenerated, no restart'); `villa backend show` reported the real active backend + image tag."
+  - test: "Force a bad ROCm config (silent CPU-fallback / load_tensors hang) and run `villa backend set rocm`."
+    resolution: "PASS (on-hardware, 2026-06-06; UAT Test 2, commit edbb6e1). Fault-injection build appended `-ngl 0` to the ROCm ContainerArgs (last -ngl wins → CPU-only). liveProve returned honest multi-signal FAIL — 'only a CPU model buffer was loaded — server fell back to CPU; sysfs GTT-used < weight footprint → weights not resident; gpu_busy 10% during decode'. EXIT=1, 'switch to rocm failed at \"prove\" — rolled back; prior backend (vulkan) restored'. Verbatim vulkan unit+config restored, villa-llama re-readied on Vulkan0, openwebui untouched, final `villa status overall PASS`. Prove completed ~13s (no hang). Build reverted via git checkout + rebuild; tree clean."
+  - test: "Confirm the bounded proveTimeout (5m) actually fires on a never-ready ROCm server (unbounded load_tensors hang)."
+    resolution: "PASS (on-hardware, 2026-06-06; UAT Test 3, commit edbb6e1). Fault-injection build moved the ROCm llama-server `--port` to 19999 while PublishPort stayed 8080:8080, so /health was never reachable (server healthy, just unreachable → never-ready). Switch ran 16:26:37 → 16:31:38 = 5m01s — exactly proveTimeout, BOUNDED not infinite. FAIL detail 'not ready before timeout (possible load_tensors hang or CPU-fallback stall)' (the PollHealth deadline branch). EXIT=1, rolled back to Vulkan RADV (journal confirms restart on Vulkan0, listening 8080). Build reverted via git checkout + rebuild; tree clean."
 ---
 
 # Phase 8: `villa backend set` Switch Verb + Rollback — Verification Report
 
 **Phase Goal:** A user can flip the inference backend on a *running* install with one command and never end up with a broken stack — the switch captures the prior working unit, gates cutover on a real generation-probe + ROCm residency proof, and auto-rolls back verbatim on any failure. (The on-hardware risk concentration; the v1.0 Phase-2 analog.)
 **Verified:** 2026-06-06
-**Status:** human_needed
-**Re-verification:** No — initial verification
+**Status:** verified — 4/4 must-haves (off-hardware logic) + 4/4 on-hardware UAT items PASS (2 happy-path, 2 failure-path via fault injection; UAT commit edbb6e1)
+**Re-verification:** Yes — reconciled from `human_needed` after on-hardware UAT closed both failure-path residuals
 
 ## Goal Achievement
 
