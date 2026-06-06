@@ -39,7 +39,7 @@ resolution:
 **Reviewed:** 2026-06-06
 **Depth:** deep (cross-file: Backend seam, BackendFor resolver wiring across the 8 re-routed call sites, parameterized offload/running_offload scrapers, gpu_busy fold, ROCm container args)
 **Files Reviewed:** 19
-**Status:** issues_found
+**Status:** resolved
 
 ## Summary
 
