@@ -29,9 +29,8 @@ Milestone 1 — "Core platform." Each maps to a roadmap phase. All are hypothese
 
 ### Inference (INF)
 
-- [x] **INF-01**: llama.cpp `llama-server` runs the selected model on the iGPU via Vulkan with GPU offload (`-ngl`) actually engaged — verifiably not silent CPU fallback
-- [x] **INF-02**: Inference exposes an OpenAI-compatible API bound to loopback
-- [x] **INF-03**: The inference backend sits behind an interface (runner + backend neutral) so ROCm and macOS/Metal can be added later without changing callers
+- [x] **PRE-06**: A reusable ROCm-specific preflight verdict gates ROCm bring-up — confirms `rocminfo`/gfx1151, enforces kernel floor (≥6.18.4), blocks the known-bad `linux-firmware-20251125` (≥20260110 good), requires the HSA override, and refuses `rocm7-nightlies`; expressed as externalized (`go:embed`-updatable) version policy (ranges + denylist) and refuses-with-remediation, biased to not over-block a genuinely-working host.
+- [ ] **DET-04**: `villa detect` reports ROCm readiness (additive fields on the host profile / `--json`, schema-bumped, never reordering the frozen v1.0 contract).
 
 ### Orchestration (ORCH)
 
@@ -111,7 +110,7 @@ Explicitly excluded. Documented to prevent scope creep.
 | ROCM-02 | Phase 6 | Complete (residency engine + descriptor + gpu_busy fold in 06-01; ROCm0 markers + grep-gate in 06-02; verified 06-VERIFICATION.md) |
 | ROCM-04 | Phase 6 | Complete |
 | ROCM-03 | Phase 7 | Complete |
-| PRE-06 | Phase 7 | Pending |
+| PRE-06 | Phase 7 | Complete |
 | DET-04 | Phase 7 | Pending |
 | BSET-01 | Phase 8 | Pending |
 | BSET-02 | Phase 8 | Pending |

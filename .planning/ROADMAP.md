@@ -69,7 +69,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Wave 1** *(all three plans are independent — zero file overlap, fully parallel)*
 
 - [x] 07-01-PLAN.md — ROCM-03: multi-value render (devices + group-adds + env block) + `{{range}}` template + new ROCm byte-golden, Vulkan golden byte-identical
-- [ ] 07-02-PLAN.md — PRE-06: `go:embed` `rocm-policy.json` (floors migration no-op) + `RunROCm`/`RunROCmWithPolicy` checks + `villa preflight --backend rocm` wiring
+- [x] 07-02-PLAN.md — PRE-06: `go:embed` `rocm-policy.json` (floors migration no-op) + `RunROCm`/`RunROCmWithPolicy` checks + `villa preflight --backend rocm` wiring
 - [ ] 07-03-PLAN.md — DET-04: nested `rocm_readiness` typed-Optional object + `hostProfileSchemaVersion` 1→2 + re-frozen `detect.golden.json`
 
 ### Phase 8: `villa backend set` Switch Verb + Rollback
@@ -128,7 +128,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | 4. Chat Integration | v1.0 | 3/3 | Complete | 2026-06-05 |
 | 5. Control Dashboard | v1.0 | 8/8 | Complete | 2026-06-05 |
 | 6. ROCm Backend + Resolver Spine | v1.1 | 3/3 | Complete    | 2026-06-05 |
-| 7. ROCm Render Unit + Preflight/Detect | v1.1 | 1/3 | In Progress|  |
+| 7. ROCm Render Unit + Preflight/Detect | v1.1 | 2/3 | In Progress|  |
 | 8. `villa backend set` Switch Verb + Rollback | v1.1 | 0/TBD | Not started | - |
 | 9. `villa bench` (Honest A/B) | v1.1 | 0/TBD | Not started | - |
 | 10. Backend + tok/s Surfacing | v1.1 | 0/TBD | Not started | - |

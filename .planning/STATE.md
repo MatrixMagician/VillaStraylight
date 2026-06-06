@@ -4,13 +4,13 @@ milestone: v1.1
 milestone_name: ROCm Opt-In Backend
 status: executing
 stopped_at: Phase 7 context gathered
-last_updated: "2026-06-06T09:31:30.806Z"
+last_updated: "2026-06-06T09:38:56.147Z"
 last_activity: 2026-06-06 -- Phase 07 execution started
 progress:
   total_phases: 5
   completed_phases: 1
   total_plans: 6
-  completed_plans: 4
+  completed_plans: 5
   percent: 20
 ---
 
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-06-03)
 ## Current Position
 
 Phase: 07 (rocm-render-unit-preflight-detect) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
 Last activity: 2026-06-06 -- Phase 07 execution started
 
@@ -66,6 +66,7 @@ Last activity: 2026-06-06 -- Phase 07 execution started
 | Phase 06 P02 | 5min | 3 tasks | 13 files |
 | Phase 06 P03 | 25 min | 3 tasks | 7 files |
 | Phase 07 P01 | 3 min | 3 tasks | 5 files |
+| Phase 07 P02 | 4min | 3 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -117,6 +118,7 @@ Recent decisions affecting current work:
 - [Phase ?]: ROCm backend is a Vulkan sibling file (backend_rocm.go) behind the seam; rocm-7.2.4 digest-pinned, never the nightlies tag (D-08)
 - [Phase ?]: TestROCmMarkerPresence gates on ROCm0 (not ggml_cuda, which is shared with the CUDA path)
 - [Phase ?]: [07-01]: ROCm villa-llama.container rendered as a pure additive delta over Vulkan (image+kfd+render-group+HSA/hipBLASLt env), byte-frozen by a new golden with the Vulkan golden unchanged. parseContainerArgs collects ALL --device/--group-add/--env tokens (D-09 was incomplete: second group-add + both env flags were silently dropped). BackendLabel keyed off Backend.Name() via a render.go label map (seam-clean, reproduces 'Vulkan RADV' exactly); Env excluded from the defensive check (Vulkan emits zero env, Pitfall 1).
+- [Phase ?]: Phase 7 Plan 2: externalized ROCm version floors + denylists into a go:embed rocm-policy.json; RunROCm refuses bring-up only on confident known-bad (firmware 20251125 / nightly image / kernel <6.18.4 / wrong HSA / non-gfx1151), unevaluable degrades to WARN (PRE-06)
 
 ### Pending Todos
 
@@ -151,7 +153,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-06T09:31:05.456Z
+Last session: 2026-06-06T09:38:50.766Z
 Stopped at: Phase 7 context gathered
 Resume file: .planning/phases/07-rocm-render-unit-preflight-detect/07-CONTEXT.md
 
