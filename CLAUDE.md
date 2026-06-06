@@ -34,6 +34,50 @@ this code as a parts bin: its `internal/llm` SSE streaming / OpenAI-compatible
 client may be cannibalized for the gateway, but do not extend it as the app.
 Don't let its layout constrain the architecture.
 
+## Build, run & test
+
+```bash
+make build   # go build -o ./villa ./cmd/villa
+make run     # go run ./cmd/villa
+make test    # go test ./...
+make check   # vet + test (pre-commit gate)
+make lint    # golangci-lint if installed, else go vet
+```
+
+Go 1.26+. Single module, single static binary built from `./cmd/villa`.
+
+## Working in this codebase
+
+**Code map** (Go is the control plane only — AI services are OSS containers):
+
+- `cmd/villa/` — cobra CLI, one file per subcommand (detect, recommend, preflight,
+  install, up/down/restart/logs, status, model, backend, bench, dashboard, uninstall).
+  Host effects live behind injectable `live*Deps` seams (`grep -rn "func live" cmd/villa`).
+- `internal/` — `detect` (host probe → typed-Unknown HostProfile; AMD seam in `gpu_amd.go`),
+  `recommend` (pure memory-fit `Pick`), `preflight` (reusable BLOCK/WARN gate + `go:embed`
+  `rocm-policy.json`), `inference` (`BackendFor` resolver + Backend/Runner/ResidencyProof
+  seam; Vulkan + ROCm), `orchestrate` (Quadlet Render/Reconcile/WriteUnits — the only impure
+  module), `backendswap` (transactional switch), `bench` (pure A/B core), plus `status`,
+  `dashboard`, `metrics`, `config`, `catalog`, `download`, `modelswap`, `llm`.
+  Deeper detail: `docs/ARCHITECTURE.md`, `docs/DEVELOPMENT.md`.
+
+**Conventions & gotchas (non-obvious — read before editing):**
+
+- **Config is the single source of truth.** Quadlet units are regenerated from config,
+  never hand-edited.
+- **Dashboard binary trap:** `villa status`/`recommend` run fresh from `./villa`, but
+  `villa-dashboard.service` is long-lived — after `make build` you MUST
+  `systemctl --user restart villa-dashboard.service` for dashboard code changes to take effect.
+- **Inference seam grep-gate (`TestSeamGrepGate`):** backend marker strings (`ROCm0`,
+  `Vulkan0`, `HSA_OVERRIDE…`, image tags) must stay behind `internal/inference` +
+  `internal/orchestrate`. The gate walks both `internal/` and `cmd/villa` — a leaked literal
+  fails the build.
+- **`--json`/dashboard contracts are byte-frozen by golden tests** (`testdata/*.golden*`).
+  Evolve append-only + schema-bump; refreeze intentionally with `go test … -update`.
+- **Offload is offload-asserting, never liveness:** a silent/partial CPU fallback is a FAIL
+  (`ResidencyProof`), never a false-green.
+- **Vulkan RADV is the default; ROCm is strictly opt-in** (`villa backend set rocm`).
+
 <!-- GSD:project-start source:PROJECT.md -->
 
 ## Project
