@@ -378,24 +378,24 @@ type benchConditions struct {
 // benchSide is one backend's per-metric band: pp and tg as separate median+stddev
 // figures plus the resident/void run counts.
 type benchSide struct {
-	Backend       string  `json:"backend"`
-	PromptPerSec  float64 `json:"prompt_per_sec"`
-	PromptStddev  float64 `json:"prompt_per_sec_stddev"`
+	Backend         string  `json:"backend"`
+	PromptPerSec    float64 `json:"prompt_per_sec"`
+	PromptStddev    float64 `json:"prompt_per_sec_stddev"`
 	PredictedPerSec float64 `json:"predicted_per_sec"`
 	PredictedStddev float64 `json:"predicted_per_sec_stddev"`
-	Kept          int     `json:"kept"`
-	Void          int     `json:"void"`
+	Kept            int     `json:"kept"`
+	Void            int     `json:"void"`
 }
 
 // benchAB is the two-sided comparison: each side's band + the per-metric deltas (B − A,
 // positive = the To backend is faster). pp and tg deltas are SEPARATE keys.
 type benchAB struct {
-	From          string    `json:"from"`
-	To            string    `json:"to"`
-	A             benchSide `json:"a"`
-	B             benchSide `json:"b"`
-	DeltaPromptPerSec    float64 `json:"delta_prompt_per_sec"`
-	DeltaPredictedPerSec float64 `json:"delta_predicted_per_sec"`
+	From                 string    `json:"from"`
+	To                   string    `json:"to"`
+	A                    benchSide `json:"a"`
+	B                    benchSide `json:"b"`
+	DeltaPromptPerSec    float64   `json:"delta_prompt_per_sec"`
+	DeltaPredictedPerSec float64   `json:"delta_predicted_per_sec"`
 }
 
 // runBench builds the BenchSpec from flags, pre-checks a reachable endpoint

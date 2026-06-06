@@ -67,7 +67,7 @@ type RunTimings struct {
 	PredictedPerSec float64
 	// PromptN / PredictedN are the token counts (carried for provenance, not folded
 	// into the median — the rates are what the delta compares).
-	PromptN   int
+	PromptN    int
 	PredictedN int
 }
 
