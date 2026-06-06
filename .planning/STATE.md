@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: ROCm Opt-In Backend
-status: completed
+status: executing
 stopped_at: Phase 7 context gathered
-last_updated: "2026-06-06T08:55:09.756Z"
-last_activity: 2026-06-05
+last_updated: "2026-06-06T09:31:30.806Z"
+last_activity: 2026-06-06 -- Phase 07 execution started
 progress:
   total_phases: 5
   completed_phases: 1
-  total_plans: 3
-  completed_plans: 3
+  total_plans: 6
+  completed_plans: 4
   percent: 20
 ---
 
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-03)
 
 **Core value:** Run a capable local AI workspace that "just works" after install — hardware-aware setup that brings inference, chat, and the dashboard up healthy, with zero data leaving the box.
-**Current focus:** Phase 6 — ROCm Backend + Resolver Spine
+**Current focus:** Phase 07 — rocm-render-unit-preflight-detect
 
 ## Current Position
 
-Phase: 7 of 3 (rocm render unit + preflight/detect)
-Plan: Not started
-Status: Phase 6 complete — ready for Phase 7
-Last activity: 2026-06-05
+Phase: 07 (rocm-render-unit-preflight-detect) — EXECUTING
+Plan: 2 of 3
+Status: Ready to execute
+Last activity: 2026-06-06 -- Phase 07 execution started
 
 ## Performance Metrics
 
@@ -65,6 +65,7 @@ Last activity: 2026-06-05
 | Phase 06 P01 | 25 min | 3 tasks | 11 files |
 | Phase 06 P02 | 5min | 3 tasks | 13 files |
 | Phase 06 P03 | 25 min | 3 tasks | 7 files |
+| Phase 07 P01 | 3 min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -115,6 +116,7 @@ Recent decisions affecting current work:
 - [Phase ?]: BackendFor fails closed on an unknown config backend (nil + actionable error), never a silent Vulkan fallback (D-02)
 - [Phase ?]: ROCm backend is a Vulkan sibling file (backend_rocm.go) behind the seam; rocm-7.2.4 digest-pinned, never the nightlies tag (D-08)
 - [Phase ?]: TestROCmMarkerPresence gates on ROCm0 (not ggml_cuda, which is shared with the CUDA path)
+- [Phase ?]: [07-01]: ROCm villa-llama.container rendered as a pure additive delta over Vulkan (image+kfd+render-group+HSA/hipBLASLt env), byte-frozen by a new golden with the Vulkan golden unchanged. parseContainerArgs collects ALL --device/--group-add/--env tokens (D-09 was incomplete: second group-add + both env flags were silently dropped). BackendLabel keyed off Backend.Name() via a render.go label map (seam-clean, reproduces 'Vulkan RADV' exactly); Env excluded from the defensive check (Vulkan emits zero env, Pitfall 1).
 
 ### Pending Todos
 
@@ -149,7 +151,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-06T08:55:09.751Z
+Last session: 2026-06-06T09:31:05.456Z
 Stopped at: Phase 7 context gathered
 Resume file: .planning/phases/07-rocm-render-unit-preflight-detect/07-CONTEXT.md
 

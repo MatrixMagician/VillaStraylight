@@ -17,7 +17,7 @@ Milestone 1 — "Core platform." Each maps to a roadmap phase. All are hypothese
 
 - [x] **ROCM-01**: An opt-in ROCm/HIP `llama-server` inference backend implemented behind the existing `Backend` interface, selected by a `backend` config field — Vulkan RADV remains the default; no backend specifics leak to callers.
 - [x] **ROCM-02**: The ROCm backend is offload-asserting via a HIP residency proof — asserts the `ROCm0` device buffer line + `offloaded N/N layers` (N==M) + non-zero sysfs `gpu_busy_percent` during a real decode + absence of `Memory access fault by GPU node`; a silent/partial CPU fallback is a FAIL. A grep-gate test prevents a refactor dropping the HIP marker strings.
-- [ ] **ROCM-03**: The ROCm Quadlet unit renders the correct delta over the Vulkan unit — digest-pinned `kyuz0:rocm-7.2.4` image (never nightlies), `/dev/kfd` + `/dev/dri` passthrough, `render` group, `HSA_OVERRIDE_GFX_VERSION=11.5.1` + `ROCBLAS_USE_HIPBLASLT=1` env, and `-ngl 999 -fa 1 --no-mmap` flags; frozen by a new byte-golden with the Vulkan golden unchanged (proves additivity).
+- [x] **ROCM-03**: The ROCm Quadlet unit renders the correct delta over the Vulkan unit — digest-pinned `kyuz0:rocm-7.2.4` image (never nightlies), `/dev/kfd` + `/dev/dri` passthrough, `render` group, `HSA_OVERRIDE_GFX_VERSION=11.5.1` + `ROCBLAS_USE_HIPBLASLT=1` env, and `-ngl 999 -fa 1 --no-mmap` flags; frozen by a new byte-golden with the Vulkan golden unchanged (proves additivity).
 - [x] **ROCM-04**: The single polymorphic resolver `BackendFor(cfg.Backend)` routes every inference-backend call site through config (replacing the 7 hardcoded `VulkanBackend()` sites), so backend choice is honored consistently across install, lifecycle, status, model, and dashboard paths.
 
 ### Recommendation Engine (REC)
@@ -110,7 +110,7 @@ Explicitly excluded. Documented to prevent scope creep.
 | ROCM-01 | Phase 6 | Complete |
 | ROCM-02 | Phase 6 | Complete (residency engine + descriptor + gpu_busy fold in 06-01; ROCm0 markers + grep-gate in 06-02; verified 06-VERIFICATION.md) |
 | ROCM-04 | Phase 6 | Complete |
-| ROCM-03 | Phase 7 | Pending |
+| ROCM-03 | Phase 7 | Complete |
 | PRE-06 | Phase 7 | Pending |
 | DET-04 | Phase 7 | Pending |
 | BSET-01 | Phase 8 | Pending |

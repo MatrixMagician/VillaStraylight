@@ -106,6 +106,10 @@ None - no external service configuration required. Phase 7 freezes rendered TEXT
 - Vulkan stays the byte-identical default; the renderer now reshapes for any multi-device/multi-group/env backend without further template work.
 - No blockers. The SELinux `--security-opt label=disable` decision remains explicitly DEFERRED to Phase 8 (on-hardware AVC) — not added speculatively here (T-07-01).
 
+## Self-Check: PASSED
+
+All 6 created/modified files exist on disk; all 4 commits (`d2db46b`, `5fca8d9`, `8ab871d`, `a95c663`) are in the git history.
+
 ---
 *Phase: 07-rocm-render-unit-preflight-detect*
 *Completed: 2026-06-06*
