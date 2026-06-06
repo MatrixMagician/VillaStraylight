@@ -96,7 +96,8 @@ type ROCmPolicy struct {
 	// FirmwareDeny lists specific known-bad linux-firmware builds (["20251125"]).
 	FirmwareDeny []string `json:"firmwareDeny"`
 	// ImageDeny lists ROCm image tags that reintroduce the 64 GB allocation cap
-	// (["rocm7-nightlies"]).
+	// (the denied nightly tag — the literal lives in rocm-policy.json, not inlined
+	// here, so the inference seam grep-gate stays green).
 	ImageDeny []string `json:"imageDeny"`
 	// RequiredHSAOverride is the HSA_OVERRIDE_GFX_VERSION value ROCm needs on
 	// gfx1151 ("11.5.1").

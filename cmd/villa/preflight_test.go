@@ -138,6 +138,42 @@ func TestPreflightConfirmedAbsentGPUBlocks(t *testing.T) {
 	}
 }
 
+// TestPreflightBackendROCmOffHardware is the Pitfall-4 guard: an off-hardware
+// `--backend rocm` invocation (every ROCm signal Unknown) renders the ROCM-PRE-*
+// rows and maps to exit code 2 (WARN), NEVER exit 1. It drives the real
+// preflight.RunROCm against a bare profile through the renderPreflight seam.
+func TestPreflightBackendROCmOffHardware(t *testing.T) {
+	results := preflight.RunROCm(detect.HostProfile{})
+
+	var buf bytes.Buffer
+	code := renderPreflight(&buf, results, false, false, false)
+	if code != exitWarn {
+		t.Errorf("off-hardware --backend rocm exit code = %d, want %d (WARN, never blocked)", code, exitWarn)
+	}
+	if code == exitBlocked {
+		t.Fatalf("off-hardware --backend rocm must NEVER exit %d (BLOCKED)", exitBlocked)
+	}
+	out := buf.String()
+	for _, id := range []string{"ROCM-PRE-gfx", "ROCM-PRE-kernel", "ROCM-PRE-image"} {
+		if !bytes.Contains(buf.Bytes(), []byte(id)) {
+			t.Errorf("--backend rocm output must render the %s row, got:\n%s", id, out)
+		}
+	}
+}
+
+// TestPreflightStandalonePathUnchanged confirms the default (no --backend) path
+// still renders the v1.0 PRE-0N host checks and not the ROCm rows (D-03).
+func TestPreflightStandalonePathUnchanged(t *testing.T) {
+	var buf bytes.Buffer
+	renderPreflight(&buf, passResults(), false, false, false)
+	if !bytes.Contains(buf.Bytes(), []byte("PRE-01")) {
+		t.Errorf("standalone preflight must render the PRE-01 host check, got:\n%s", buf.String())
+	}
+	if bytes.Contains(buf.Bytes(), []byte("ROCM-PRE-")) {
+		t.Errorf("standalone preflight must NOT render ROCM-PRE-* rows, got:\n%s", buf.String())
+	}
+}
+
 func TestPreflightJSONMode(t *testing.T) {
 	var buf bytes.Buffer
 	renderPreflight(&buf, passResults(), true, false, false)

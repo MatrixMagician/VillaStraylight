@@ -163,13 +163,17 @@ func checkROCmHSA(hsa detect.Str, pol ROCmPolicy) CheckResult {
 
 // checkROCmImage is CONFIG/REQUEST-driven, not a host probe (Pitfall 5): it FAILs
 // only when the requested/resolved image string is Known (non-empty) AND matches a
-// policy image-denylist entry (a rocm7-nightlies tag reintroducing the 64 GB cap,
-// T-07-01). An empty request (standalone / off-hardware, nothing requested)
-// degrades to WARN. The in-tree rocm-7.2.4 image passes.
+// policy image-denylist entry (a nightly tag reintroducing the 64 GB allocation
+// cap, T-07-01). An empty request (standalone / off-hardware, nothing requested)
+// degrades to WARN. The in-tree digest-pinned stable image passes.
+//
+// The denied tag literals are POLICY DATA in rocm-policy.json (pol.ImageDeny), not
+// inlined here — keeping the backend image-tag literals out of this .go file so the
+// inference seam grep-gate (TestSeamGrepGate) stays green.
 func checkROCmImage(requestedImage string, pol ROCmPolicy) CheckResult {
 	const name = "ROCm image not denied"
 	denied := strings.Join(pol.ImageDeny, ", ")
-	remediation := fmt.Sprintf("Use the digest-pinned rocm-7.2.4 image; avoid %s (caps allocation at 64 GB → large models fail to load).", denied)
+	remediation := fmt.Sprintf("Use the digest-pinned stable ROCm image; avoid the denied build(s) %s (caps allocation at 64 GB → large models fail to load).", denied)
 
 	if strings.TrimSpace(requestedImage) == "" {
 		return warn(idROCmImage, name, TierBlock,
