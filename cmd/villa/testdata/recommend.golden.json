@@ -10,5 +10,6 @@
   "usable_envelope_bytes": 67149381632,
   "fits": true,
   "degraded": false,
-  "notes": []
+  "notes": [],
+  "schema_version": 1
 }
