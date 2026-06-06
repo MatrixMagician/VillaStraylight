@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: ROCm Opt-In Backend
-status: verifying
-stopped_at: Phase 10 context gathered
-last_updated: "2026-06-06T20:22:22.542Z"
-last_activity: 2026-06-06 -- Phase 10 execution started
+status: planning
+stopped_at: Phase 11 context gathered
+last_updated: "2026-06-06T21:37:37.562Z"
+last_activity: 2026-06-06 -- Phase 11 added (v1.1 tech debt)
 progress:
-  total_phases: 5
+  total_phases: 6
   completed_phases: 5
   total_plans: 14
   completed_plans: 14
-  percent: 100
+  percent: 83
 ---
 
 # Project State
@@ -25,11 +25,11 @@ See: .planning/PROJECT.md (updated 2026-06-03)
 
 ## Current Position
 
-Phase: 10 (backend-tok-s-surfacing) — EXECUTING
-Plan: 3 of 3
-Status: Phase complete — ready for verification
-Next: Phase 10 (backend-tok-s-surfacing) — REC-05/DASH-06, UI hint yes; not yet planned (`/gsd-plan-phase 10` or `/gsd-ui-phase 10`).
-Last activity: 2026-06-06 -- Phase 10 execution started
+Phase: 11 (address-v1-1-tech-debt) — NOT PLANNED
+Plan: 0 of 0
+Status: Phase added — ready for planning
+Next: Phase 11 (address-v1-1-tech-debt) — rocm_readiness detect probes + doc reconciliation; not yet planned (`/gsd-plan-phase 11`).
+Last activity: 2026-06-06 -- Phase 11 added (v1.1 tech debt)
 
 ## Performance Metrics
 
@@ -80,6 +80,10 @@ Last activity: 2026-06-06 -- Phase 10 execution started
 | Phase 10 P03 | 3min | 2 tasks | 2 files |
 
 ## Accumulated Context
+
+### Roadmap Evolution
+
+- Phase 11 added (2026-06-06): Address v1.1 tech debt — rocm_readiness detect probes + doc reconciliation.
 
 ### Decisions
 
@@ -176,9 +180,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-06T20:21:59.199Z
-Stopped at: Phase 10 context gathered
-Resume file: .planning/phases/10-backend-tok-s-surfacing/10-CONTEXT.md
+Last session: 2026-06-06T21:37:37.556Z
+Stopped at: Phase 11 context gathered
+Resume file: .planning/phases/11-address-v1-1-tech-debt-rocm-readiness-detect-probes-doc-reco/11-CONTEXT.md
 
 ## Operator Next Steps
 
