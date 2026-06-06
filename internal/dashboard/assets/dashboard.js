@@ -261,7 +261,13 @@
       }
       return;
     }
-    perfBody.appendChild(metricRow("generation", (m.gen_tokens_per_sec || 0).toFixed(1) + " tok/s"));
+    // Generation tok/s NUMBER comes from /api/metrics; the "(backend)" LABEL comes from the
+    // /api/status poll via lastBackend (D-01 — identity lives in status, not metrics). The
+    // suffix is appended ONLY here on the generating branch; the idle/activity-unknown/
+    // unavailable branches above keep their honest copy and never label a fabricated 0.
+    perfBody.appendChild(metricRow("generation",
+      (m.gen_tokens_per_sec || 0).toFixed(1) + " tok/s" +
+      (lastBackend ? " (" + lastBackend + ")" : "")));
     perfBody.appendChild(metricRow("prompt", (m.prompt_tokens_per_sec || 0).toFixed(1) + " tok/s"));
     if (m.latency_ms != null) {
       perfBody.appendChild(metricRow("prompt-eval latency", m.latency_ms.toFixed(1) + " ms/tok"));

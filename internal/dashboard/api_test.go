@@ -94,6 +94,123 @@ func TestHandleStatusFoldsSharedCore(t *testing.T) {
 	}
 }
 
+// TestHandleStatusCarriesBackendIdentity asserts GET /api/status carries the Phase-10
+// backend-identity fields (backend, image, rocm_readiness) that handleStatus serves
+// VERBATIM from the shared status.Report — they ride for free the moment Plan 10-01 lands
+// them on Report (DASH-06 / D-01: backend identity lives on /api/status, not /api/metrics).
+// The dashboard JS composes report.backend (label) with the /api/metrics tok/s (number).
+func TestHandleStatusCarriesBackendIdentity(t *testing.T) {
+	deps := stubStatusDeps(t)
+	srv := mustNewServer(t, Config{StatusDeps: deps, ChatPort: 3000, DashboardAddr: "127.0.0.1", DashboardPort: 8888})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/status", nil)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status code = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+
+	// The new fields must be present as raw JSON keys (the JS reads report.backend /
+	// report.image / report.rocm_readiness by these exact names).
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
+		t.Fatalf("decode body: %v\n%s", err, rec.Body.String())
+	}
+	for _, key := range []string{"backend", "image", "rocm_readiness"} {
+		if _, ok := raw[key]; !ok {
+			t.Fatalf("/api/status body missing %q key (D-01 backend identity); body=%s", key, rec.Body.String())
+		}
+	}
+
+	// And they must equal the shared core's values (handleStatus serves Report verbatim).
+	want := status.Run(deps)
+	var got status.Report
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode Report: %v", err)
+	}
+	if got.Backend != want.Backend {
+		t.Fatalf("backend = %q, want %q (resolved backend, not a literal)", got.Backend, want.Backend)
+	}
+	if got.Backend == "" {
+		t.Fatalf("backend should be the resolved name (vulkan stub), got empty")
+	}
+	if got.Image != want.Image {
+		t.Fatalf("image = %q, want %q", got.Image, want.Image)
+	}
+	if got.ROCmReadiness != want.ROCmReadiness {
+		t.Fatalf("rocm_readiness = %q, want %q", got.ROCmReadiness, want.ROCmReadiness)
+	}
+	// With no ROCmReadiness seam wired, the honest off-hardware default is "unknown"
+	// (no-false-green, D-04) — the JS renders the gray "ROCm readiness unknown" badge.
+	if got.ROCmReadiness != status.ROCmUnknown {
+		t.Fatalf("rocm_readiness with no seam = %q, want %q (no-false-green default)", got.ROCmReadiness, status.ROCmUnknown)
+	}
+}
+
+// TestHandleMetricsShapeUnchanged asserts GET /api/metrics serializes ONLY the
+// metricsView read-model and carries NO backend-identity key (D-01: identity lives on
+// /api/status, the number on /api/metrics; the UI composes them). This pins the metrics
+// surface so Phase 10 cannot leak backend identity into it. With no live scrape the view
+// is the typed-Unknown {"available":false,...} shape, which still must expose exactly the
+// metricsView keys and never "backend"/"image"/"rocm_readiness".
+func TestHandleMetricsShapeUnchanged(t *testing.T) {
+	srv := mustNewServer(t, Config{
+		StatusDeps:    stubStatusDeps(t),
+		ChatPort:      3000,
+		DashboardAddr: "127.0.0.1",
+		DashboardPort: 8888,
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/metrics", nil)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("metrics code = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
+		t.Fatalf("decode body: %v\n%s", err, rec.Body.String())
+	}
+
+	// No backend identity may appear on the metrics surface (D-01 / T-10-10).
+	for _, forbidden := range []string{"backend", "image", "rocm_readiness", "schema_version"} {
+		if _, present := raw[forbidden]; present {
+			t.Fatalf("/api/metrics must NOT carry %q (identity belongs on /api/status, D-01); body=%s", forbidden, rec.Body.String())
+		}
+	}
+
+	// The metricsView shape is the frozen DASH-02 contract — the keys the dashboard JS
+	// renderPerformance reads. Assert the present keys are a subset of this set (latency_ms
+	// is omitempty, so it may be absent in the unavailable view).
+	allowed := map[string]bool{
+		"gen_tokens_per_sec":    true,
+		"prompt_tokens_per_sec": true,
+		"latency_ms":            true,
+		"active_slots":          true,
+		"slots_known":           true,
+		"idle":                  true,
+		"activity_known":        true,
+		"available":             true,
+	}
+	for key := range raw {
+		if !allowed[key] {
+			t.Fatalf("/api/metrics carries unexpected key %q — metricsView shape changed; body=%s", key, rec.Body.String())
+		}
+	}
+	// The unavailable-scrape view must still decode into metricsView with available=false
+	// (no fabricated zeros surfaced as real, D-11) — proving the shape is intact.
+	var view metricsView
+	if err := json.Unmarshal(rec.Body.Bytes(), &view); err != nil {
+		t.Fatalf("body does not decode into metricsView (shape changed): %v\n%s", err, rec.Body.String())
+	}
+	if view.Available {
+		t.Fatalf("with no live scrape, metricsView.Available should be false, got true; body=%s", rec.Body.String())
+	}
+}
+
 // TestHandleModelsListsCatalogWithFit asserts GET /api/models returns the full catalog
 // with each entry marked loaded/on-disk/catalog-only and a fits flag from the SHARED
 // fit seam — a fitting+loaded entry, a non-fitting entry (fits=false so the UI can
