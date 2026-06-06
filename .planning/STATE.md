@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: ROCm Opt-In Backend
-status: executing
+status: completed
 stopped_at: Completed 09-03-PLAN.md (villa bench noun — honest A/B)
-last_updated: "2026-06-06T16:27:00.000Z"
-last_activity: 2026-06-06 -- Phase 09 Plan 3 complete (villa bench wired)
+last_updated: "2026-06-06T16:49:46.582Z"
+last_activity: 2026-06-06 -- Completed quick task 260606-p3a: villa bench single-mode backend label
 progress:
   total_phases: 5
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 11
   completed_plans: 11
-  percent: 65
+  percent: 80
 ---
 
 # Project State
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-06-03)
 Phase: 09 (villa-bench-honest-a-b) — EXECUTING
 Plan: 3 of 3 — COMPLETE
 Status: All Phase 09 plans executed (01 llm.Complete, 02 internal/bench core, 03 villa bench noun)
-Last activity: 2026-06-06 -- Phase 09 Plan 3 complete (villa bench wired)
+Last activity: 2026-06-06 -- Completed quick task 260606-p3a: villa bench single-mode backend label
 
 ## Performance Metrics
 
@@ -157,6 +157,7 @@ None yet.
 | 260605-d2q | Fix Makefile build target to produce villa binary (repoint build/run to ./cmd/villa, drop legacy web/scaffold targets) | 2026-06-05 | b3a4419 | [260605-d2q-fix-makefile-build-target-to-produce-vil](./quick/260605-d2q-fix-makefile-build-target-to-produce-vil/) |
 | 260605-fast | fix(status): render OFFLOAD N/A for non-GPU services in human table (Phase-4 UAT Test 4 cosmetic gap; --json contract unchanged) | 2026-06-05 | e5fc1fc | — |
 | 260605-tuv | Fix villa uninstall: drop unsupported podman volume rm --ignore flag (exit 125), surface stderr, tolerate missing volume, add regression tests | 2026-06-05 | 228a4c0 | [260605-tuv-fix-villa-uninstall-drop-unsupported-pod](./quick/260605-tuv-fix-villa-uninstall-drop-unsupported-pod/) |
+| 260606-p3a | Fix villa bench single-mode backend label: name the measured backend in human header + --json single.backend (Phase-9 UAT minor gap; --ab + pp/tg-separate contract unchanged) | 2026-06-06 | 8aa9c90 | [260606-p3a-fix-villa-bench-single-mode-backend-labe](./quick/260606-p3a-fix-villa-bench-single-mode-backend-labe/) |
 
 ## Deferred Items
 
@@ -168,7 +169,7 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-06T16:27:00.000Z
+Last session: 2026-06-06T16:49:46.578Z
 Stopped at: Completed 09-03-PLAN.md (villa bench noun — honest A/B)
 Resume file: None — Phase 09 plans complete; next is Phase 10 (surfacing) planning
 
