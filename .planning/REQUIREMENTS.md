@@ -31,7 +31,7 @@ backend literals stay behind the `internal/inference` seam.
 ### Usage Tracking
 
 - [x] **USAGE-01**: villa accumulates cumulative token counts (prompt + generated, per model) locally over time, reset-aware (survives `llama-server` counter resets), counts-only with no prompt/response content and no new outbound traffic.
-- [ ] **USAGE-02**: `villa status` and the control dashboard surface cumulative usage over time as an append-only, schema-bumped contract change (live tok/s remains; cumulative totals added).
+- [x] **USAGE-02**: `villa status` and the control dashboard surface cumulative usage over time as an append-only, schema-bumped contract change (live tok/s remains; cumulative totals added).
 
 ### Guided Install
 
@@ -86,7 +86,7 @@ Which phases cover which requirements. Populated during roadmap creation (`/gsd-
 | BENCH-03 | Phase 14 | Complete |
 | BENCH-04 | Phase 14 | Complete |
 | USAGE-01 | Phase 15 | Complete |
-| USAGE-02 | Phase 15 | Pending |
+| USAGE-02 | Phase 15 | Complete |
 | BAK-01 | Phase 16 | Pending |
 | BAK-02 | Phase 16 | Pending |
 | BAK-03 | Phase 16 | Pending |

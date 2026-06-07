@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Operability
 status: executing
-stopped_at: Completed 15-01-PLAN.md
-last_updated: "2026-06-07T18:12:31.426Z"
+stopped_at: Completed 15-03-PLAN.md
+last_updated: "2026-06-07T18:18:06.477Z"
 last_activity: 2026-06-07
 progress:
   total_phases: 6
   completed_phases: 3
   total_plans: 13
-  completed_plans: 11
+  completed_plans: 12
   percent: 50
 ---
 
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-06-07 after starting v1.2)
 ## Current Position
 
 Phase: 15 (cumulative-usage-tracking) — EXECUTING
-Plan: 3 of 4
+Plan: 4 of 4
 Status: Ready to execute
 Progress: [████████░░] 77%
 Last activity: 2026-06-07
@@ -87,6 +87,7 @@ contract evolves at a time), then the destructive backup, then the TUI capstone.
 | Phase 14 P01 | 4min | 2 tasks (TDD) | 3 files |
 | Phase 15 P01 | 2 min | 2 tasks | 2 files |
 | Phase 15 P02 | 2m | 1 tasks | 3 files |
+| Phase 15 P03 | 6 min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -137,6 +138,7 @@ Earlier (v1.0 / v1.1) decisions retained below.
 - [14-02]: liveBenchstoreDeps append seam: assert-inside-dir → MkdirAll 0700 → OpenFile(O_APPEND|O_CREATE|O_WRONLY, 0600) → Write (never write-whole-file/truncate); ReadAll returns (nil,nil) on absent store (wired now for Plan 03). Path + traversal guard re-resolved as LOCAL cmd-tier copies (benchstore's are unexported).
 - [14-03]: BENCH-04 read-only `villa bench --compare`/`--list` (new cmd/villa/bench_compare.go). runBenchCompare loads via benchstore.Load, auto-selects the two most-recent comparable reports (selectComparePair, A8 v1), runs the pure Compare guard. Exit mapping: comparable→0, not-comparable→2, <2 reports→1 (remediation) — IDENTICAL in --json mode (not-comparable returns 2 even though comparable:false was emitted; no-false-green T-14-04). Flag-exclusivity rejects --ab/--ab-target/--reps/--warmup/--n-predict + --compare&&--list at the cobra boundary (read-only enforced T-14-06). Void side is advisory: a comparable pair with a void side STILL prints the delta + exits 0 but flags that side not-authoritative (RESEARCH Q3/A5). --compare --json golden (cmd/villa/testdata/bench-compare.json.golden) frozen: comparable+void AND not-comparable cases; pp/tg deltas SEPARATE keys, a_void_exhausted/b_void_exhausted flags, no blended key.
 - [Phase ?]: 15-02: CounterSample sibling + ScrapeCounters reuse the bounded /metrics scrape (no second request); absent counter => Known=false, never a fabricated 0 (D-05/D-06)
+- [Phase ?]: Plan 15-03: status.Report evolved by ONE append-only Usage *usage.UsageTotals omitempty field; reportSchemaVersion 1->2; CLI reads usage.json read-only (D-07 sole-writer)
 
 ### Pending Todos
 
@@ -175,8 +177,8 @@ Items acknowledged at milestone close on 2026-06-06 (v1.1):
 
 ## Session Continuity
 
-Last session: 2026-06-07T18:12:09.531Z
-Stopped at: Completed 15-01-PLAN.md
+Last session: 2026-06-07T18:17:57.418Z
+Stopped at: Completed 15-03-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
