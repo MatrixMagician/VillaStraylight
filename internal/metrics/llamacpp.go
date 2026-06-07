@@ -48,6 +48,48 @@ type PerfSnapshot struct {
 	RequestsDeferred float64
 }
 
+// mPromptTokensTotal and mPredictedTokensTotal are the two monotonic cumulative
+// counter NAME literals (declared "Counter:" in llama.cpp's tools/server/README.md).
+// These are the ONLY new metric literals introduced for the cumulative-usage feature
+// (USAGE-01) and — like the existing gauge names above — are confined to this package
+// per D-06's single-home discipline (enforced by the grep gate in 15-VALIDATION.md).
+const (
+	mPromptTokensTotal    = "llamacpp:prompt_tokens_total"
+	mPredictedTokensTotal = "llamacpp:tokens_predicted_total"
+)
+
+// CounterSample is the cumulative-usage counterpart to PerfSnapshot: the two monotonic
+// _total counters the fold (Plan 01) accumulates from. Counters are a DIFFERENT category
+// from the rate gauges (those are last-window snapshots, Pitfall 3), so they live in a
+// sibling struct rather than widening PerfSnapshot.
+//
+// Each value carries its own typed-Unknown bool: an absent or unparseable _total line
+// yields Known=false with the total left at its zero value (D-05) — the caller MUST gate
+// on Known and never present the bare 0 as a real reading. Values are uint64 (counts are
+// exact integers; the float64→uint64 narrowing is lossless below 2^53, Pitfall 3).
+type CounterSample struct {
+	// PromptTokensTotal is llamacpp:prompt_tokens_total; valid only when PromptTokensKnown.
+	PromptTokensTotal uint64
+	// PromptTokensKnown is the typed-Unknown signal for PromptTokensTotal (D-05).
+	PromptTokensKnown bool
+	// PredictedTokensTotal is llamacpp:tokens_predicted_total; valid only when PredictedTokensKnown.
+	PredictedTokensTotal uint64
+	// PredictedTokensKnown is the typed-Unknown signal for PredictedTokensTotal (D-05).
+	PredictedTokensKnown bool
+}
+
+// counterFromMap reads one cumulative counter out of a parsePromText map via its presence
+// signal: ok=false (absent / unparseable line) ⇒ Known=false with a zero total, never a
+// fabricated 0 presented as a real count (D-05). The float64 is narrowed to uint64
+// (lossless < 2^53; negative/NaN guarded to the typed-Unknown branch).
+func counterFromMap(m map[string]float64, name string) (uint64, bool) {
+	v, ok := m[name]
+	if !ok || v < 0 {
+		return 0, false
+	}
+	return uint64(v), true
+}
+
 // Slot is the NARROW view of one /slots element. It deliberately reads ONLY
 // non-sensitive fields — id, n_ctx, is_processing, and next_token.{n_decoded,n_remain}
 // — and NEVER the prompt or sampling params, which /slots may include (T-05-08:
@@ -120,6 +162,37 @@ func ScrapeMetrics(endpoint string) (PerfSnapshot, bool) {
 		GenTokensPerSec:    m["llamacpp:predicted_tokens_seconds"],
 		RequestsProcessing: m["llamacpp:requests_processing"],
 		RequestsDeferred:   m["llamacpp:requests_deferred"],
+	}, true
+}
+
+// ScrapeCounters is the cumulative-usage sibling of ScrapeMetrics: it surfaces the two
+// monotonic _total counters as a typed-Unknown CounterSample, reusing the SAME bounded
+// request shape (scrapeTimeout client + maxScrapeBody LimitReader + parsePromText) — it
+// adds NO second HTTP request and NO new endpoint/host literal (D-12; T-15-06/T-15-08).
+//
+// A transport error or non-200 (a 404 is the state when --metrics is absent) yields
+// (zero, false): the whole scrape is unavailable. On a 200 body, the availability bool is
+// true and each counter's own Known bool reflects its presence in the parsed map — an
+// absent counter degrades to Known=false, never a fabricated 0 (D-05 / T-15-07).
+func ScrapeCounters(endpoint string) (CounterSample, bool) {
+	client := &http.Client{Timeout: scrapeTimeout}
+	resp, err := client.Get(endpoint + "/metrics")
+	if err != nil {
+		return CounterSample{}, false
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return CounterSample{}, false
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxScrapeBody))
+	m := parsePromText(string(body))
+	prompt, promptKnown := counterFromMap(m, mPromptTokensTotal)
+	predicted, predictedKnown := counterFromMap(m, mPredictedTokensTotal)
+	return CounterSample{
+		PromptTokensTotal:    prompt,
+		PromptTokensKnown:    promptKnown,
+		PredictedTokensTotal: predicted,
+		PredictedTokensKnown: predictedKnown,
 	}, true
 }
 
