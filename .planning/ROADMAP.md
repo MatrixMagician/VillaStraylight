@@ -97,7 +97,7 @@ See `milestones/v1.1-ROADMAP.md` for full phase detail, success criteria, and pl
   3. A silent or partial CPU fallback is reported as a FAIL (offload-asserting) — `villa doctor` never returns a false-green over a health-200 that hides a degraded backend.
   4. `villa doctor` detects and reports config-vs-disk drift — rendered Quadlet units that no longer match the config source of truth.
 
-**Plans**: 2 plans
+**Plans**: 3 plans (1 gap-closure)
 
 **Wave 1**
 
@@ -106,6 +106,10 @@ See `milestones/v1.1-ROADMAP.md` for full phase detail, success criteria, and pl
 **Wave 2** *(blocked on Wave 1 completion)*
 
 - [x] 13-02-PLAN.md — `cmd/villa/doctor.go` verb + `liveDoctorDeps` + read-only unit-dir resolver + `renderDoctor` 0/2/1 exit rollup + OWN `--json` golden + root registration [Wave 2]
+
+**Wave 3** *(gap closure — 13-UAT Test 1)*
+
+- [ ] 13-03-PLAN.md — Residency-supersession in pure `doctor.Aggregate`: a proven ROCm offload PASS down-ranks the typed-Unknown ROCm host-prep WARNs (firmware/hsa/image) so a healthy ROCm install reaches exit 0, while a CONFIDENT ROCm FAIL still BLOCKs (no-false-green); + Option B image thread-through via `RunROCmForImage`. Closes the DOCTOR-01 exit-0 gap. [Wave 3]
 
 **Implementation note**: New pure `internal/doctor` core with its OWN unconstrained golden; do NOT extend the byte-frozen `status.Report`. doctor diagnoses + remediates-by-advice only — it never mutates/repairs the install (mutation stays in explicit verbs).
 
