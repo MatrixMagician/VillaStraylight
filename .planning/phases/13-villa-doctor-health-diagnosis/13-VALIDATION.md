@@ -1,8 +1,8 @@
 ---
 phase: 13
 slug: villa-doctor-health-diagnosis
-status: draft
-nyquist_compliant: false
+status: approved
+nyquist_compliant: true
 wave_0_complete: false
 created: 2026-06-07
 ---
