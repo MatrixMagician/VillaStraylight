@@ -25,6 +25,8 @@ func TestParsePromTextExtractsGauges(t *testing.T) {
 		"llamacpp:requests_processing":      1,
 		"llamacpp:requests_deferred":        0,
 		"llamacpp:n_decode_total":           8421,
+		"llamacpp:prompt_tokens_total":      130572,
+		"llamacpp:tokens_predicted_total":   48913,
 	}
 	for k, v := range want {
 		if got, ok := m[k]; !ok || got != v {
@@ -130,6 +132,77 @@ func TestScrapeMetricsTransportErrorIsTypedUnknown(t *testing.T) {
 	// 127.0.0.1:1 is the discard port — nothing listens; connect fails fast.
 	if _, ok := ScrapeMetrics("http://127.0.0.1:1"); ok {
 		t.Fatalf("ScrapeMetrics ok=true on a transport error, want false")
+	}
+}
+
+// TestScrapeCountersTotal is the USAGE-01 / D-06 counter feed guard. The present case
+// asserts the two monotonic cumulative counters (llamacpp:prompt_tokens_total and
+// llamacpp:tokens_predicted_total) read out of the bounded /metrics scrape as typed
+// uint64 readings with Known=true. The absent case is the D-05 typed-Unknown discipline:
+// a body WITHOUT the two _total lines yields Known=false (NOT a fabricated 0), and a 404
+// degrades the whole-scrape availability bool to false.
+func TestScrapeCountersTotal(t *testing.T) {
+	body, err := os.ReadFile("testdata/metrics.txt")
+	if err != nil {
+		t.Fatalf("read fixture: %v", err)
+	}
+
+	// Present: the fixture carries both _total counters.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/metrics" {
+			http.NotFound(w, r)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(body)
+	}))
+	defer srv.Close()
+
+	cs, ok := ScrapeCounters(srv.URL)
+	if !ok {
+		t.Fatalf("ScrapeCounters ok=false on a 200 body")
+	}
+	if !cs.PromptTokensKnown || cs.PromptTokensTotal != 130572 {
+		t.Errorf("PromptTokensTotal = %d (known=%v), want 130572 (known=true)", cs.PromptTokensTotal, cs.PromptTokensKnown)
+	}
+	if !cs.PredictedTokensKnown || cs.PredictedTokensTotal != 48913 {
+		t.Errorf("PredictedTokensTotal = %d (known=%v), want 48913 (known=true)", cs.PredictedTokensTotal, cs.PredictedTokensKnown)
+	}
+
+	// Absent: a body without the two _total lines → Known=false, never a fabricated 0 (D-05).
+	absentBody := strings.Join([]string{
+		`# TYPE llamacpp:requests_processing gauge`,
+		`llamacpp:requests_processing 0`,
+	}, "\n")
+	absentSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/metrics" {
+			http.NotFound(w, r)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(absentBody))
+	}))
+	defer absentSrv.Close()
+
+	cs2, ok2 := ScrapeCounters(absentSrv.URL)
+	if !ok2 {
+		t.Fatalf("ScrapeCounters ok=false on a 200 body (absent counters is still an available scrape)")
+	}
+	if cs2.PromptTokensKnown {
+		t.Errorf("PromptTokensKnown=true on an absent counter, want false (typed-Unknown, no fabricated 0)")
+	}
+	if cs2.PredictedTokensKnown {
+		t.Errorf("PredictedTokensKnown=true on an absent counter, want false (typed-Unknown, no fabricated 0)")
+	}
+	if cs2.PromptTokensTotal != 0 || cs2.PredictedTokensTotal != 0 {
+		t.Errorf("absent CounterSample carries non-zero totals %+v — Known=false MUST gate the zero value", cs2)
+	}
+
+	// A 404 /metrics (--metrics absent) degrades the availability bool to false.
+	down := httptest.NewServer(http.HandlerFunc(http.NotFound))
+	defer down.Close()
+	if _, ok := ScrapeCounters(down.URL); ok {
+		t.Errorf("ScrapeCounters ok=true on a 404, want false (whole-scrape unavailable)")
 	}
 }
 
