@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Operability
-status: executing
-stopped_at: Phase 12 Plan 03 off-hardware tasks complete; on-hardware UAT (Task 4) pending operator
-last_updated: "2026-06-07T11:20:00.000Z"
-last_activity: 2026-06-07 -- Phase 12 Plan 03 autonomous tasks executed (--ab-target); on-hardware checkpoint reached
+status: ready to plan
+stopped_at: "Phase 12 complete — UAT 7/7 pass, security 10/10 closed; on-hardware UAT recorded (rocm-6.4.4 does NOT recover Δtg; Vulkan stays tg default). Ready to plan Phase 13 (villa doctor)."
+last_updated: "2026-06-07T11:31:31.334Z"
+last_activity: 2026-06-07
 progress:
   total_phases: 6
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 3
-  completed_plans: 2
-  percent: 0
+  completed_plans: 3
+  percent: 17
 ---
 
 # Project State
@@ -21,15 +21,15 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-07 after starting v1.2)
 
 **Core value:** Run a capable local AI workspace that "just works" after install — hardware-aware setup that brings inference, chat, and the dashboard up healthy, with zero data leaving the box. v1.2 extends the bar to "and stays operable, recoverable, and measurable over time."
-**Current focus:** Phase 12 — rocm-6-4-4-alternate-backend
+**Current focus:** Phase 13 — `villa doctor` health diagnosis
 
 ## Current Position
 
-Phase: 12 (rocm-6-4-4-alternate-backend) — EXECUTING (Plan 03 off-hardware done; on-hardware UAT pending)
-Plan: 3 of 3
-Status: AWAITING on-hardware UAT — Plan 03 Task 4 (checkpoint:human-verify, gate=blocking-human). ROCM-ALT-01 stays OPEN.
-Progress: [░░░░░░] 0/6 phases complete (v1.2)
-Last activity: 2026-06-07 -- Phase 12 Plan 03 `--ab-target` (Option A) implemented + tested off-hardware; on-hardware switch/residency/Δtg checkpoint reached
+Phase: 13
+Plan: Not started
+Status: Ready to plan. Phase 12 complete (ROCM-ALT-01 verified + secured). Next: `/gsd-discuss-phase 13` or `/gsd-plan-phase 13`.
+Progress: [█░░░░░] 1/6 phases complete (v1.2)
+Last activity: 2026-06-07
 
 ## v1.2 Build Order (research-converged — preserve)
 
@@ -54,7 +54,7 @@ contract evolves at a time), then the destructive backup, then the TUI capstone.
 
 **Velocity:**
 
-- Total plans completed: 21 (across v1.0 + v1.1)
+- Total plans completed: 24 (across v1.0 + v1.1)
 - Average duration: 34 min
 - Total execution time: 2.2 hours
 
@@ -68,6 +68,7 @@ contract evolves at a time), then the destructive backup, then the TUI capstone.
 | 06 | 3 | - | - |
 | 07 | 3 | - | - |
 | 11 | 2 | - | - |
+| 12 | 3 | - | - |
 
 **Recent Trend:**
 
@@ -109,6 +110,8 @@ Earlier (v1.0 / v1.1) decisions retained below.
 - [Phase ?]: D-08 closed: every literal rocm comparison routes through inference.IsROCmFamily (cmd/villa backend.go + preflight.go)
 - [Phase ?]: SC#2: preflight.RunROCmForImage threads BackendFor(target).Image() so the policy deny-list evaluates the real digest, not an empty-image WARN
 - [Phase ?]: Seam regex anchored to image context so the gate catches image literals but not bare backend-name config values
+- [Phase 12 — UAT 2026-06-07, gfx1151]: **Hypothesis DISPROVEN** — `rocm-6.4.4` does NOT recover the v1.1 Δtg −11.15 regression. On-hardware A/B: Vulkan leads tg by ~11.68 tok/s over rocm-6.4.4 (≈ rocm-7.2.4). Vulkan remains the correct tg default; ROCm wins pp slightly. The honest A/B did its job — prove, don't assume. Capability shipped correctly (selectable, gated, residency-proven, benchable); the perf premise it tested is false on this host/model.
+- [Phase 12 — UAT]: `rocm-6.4.4-rocwmma` is non-functional on this host/model — residency FAILED (load_tensors hang / CPU-fallback stall) and rolled back verbatim. The offload-asserting FAIL + transactional rollback worked exactly as designed (a real honest FAIL, never a false-green). Ships selectable but does not come up here.
 
 ### Pending Todos
 
@@ -124,6 +127,8 @@ Earlier (v1.0 / v1.1) decisions retained below.
 - Phase 15 (USAGE) must not become telemetry: counts-only, no content, no new outbound, single writer (dashboard poller), loopback-only, bounded growth.
 - Phase 13 (DOCTOR) must inherit offload-asserting discipline — a green doctor over a silent CPU fallback is worse than no doctor.
 - On-hardware validation remains the dominant verification path (gfx1151). Phases 15 + 16 need live-host confirmation steps.
+- [Phase 12 follow-up, non-blocking] `rocm-6.4.4-rocwmma` residency FAIL on gfx1151 — investigate whether it's a bounded-timeout tuning issue (older 8.04 GB / 4-month image) or genuine gfx1151 incompatibility. Ships selectable but does not come up on this host/model.
+- [Phase 12 follow-up, non-blocking] Rolling-tag drift: the live `rocm-6.4.4` tag re-pushed to `sha256:44f115e0…` (≠ pinned `c81f30a7…`) same-day. The pin stays valid/reproducible (content-addressed); a future re-pin could capture the newer build if desired.
 
 ### Quick Tasks Completed
 
@@ -145,12 +150,12 @@ Items acknowledged at milestone close on 2026-06-06 (v1.1):
 
 ## Session Continuity
 
-Last session: 2026-06-07T11:20:00.000Z
-Stopped at: Phase 12 Plan 03 — off-hardware tasks complete (commits 9fcd5d3, c049e31); on-hardware UAT (Task 4, checkpoint:human-verify) pending operator on the gfx1151 host.
-Resume: run the on-hardware UAT steps in `.planning/phases/12-rocm-6-4-4-alternate-backend/12-03-SUMMARY.md` → "On-Hardware Checkpoint", then reply "on-hardware verified" with the residency-proof result + bench Δtg figures to close ROCM-ALT-01 / Phase 12.
+Last session: 2026-06-07
+Stopped at: Phase 12 complete, ready to plan Phase 13.
+Resume file: None
 
 ## Operator Next Steps
 
-- **v1.2 roadmap created** ✓ — 13/13 requirements mapped to Phases 12–17; research-converged build order preserved; STATE + REQUIREMENTS traceability updated.
-- **Plan the first phase:** `/gsd-plan-phase 12` (`rocm-6.4.4` Alternate Backend). Re-verify the rolling-tag digest at implementation time; extend `seam_test.go`'s image regex in the same commit.
-- Consider folding the deferred PR-#2 finding (shared `rocmpolicy` leaf package, graphmind memory 10e784d6) into Phase 12 planning.
+- **Phase 12 complete** ✓ — ROCM-ALT-01 shipped, verified (UAT 7/7), and secured (10/10 threats closed). On-hardware verdict: capability works; `rocm-6.4.4` does NOT recover Δtg — Vulkan stays the tg default (never auto-switched, as designed).
+- **Plan the next phase:** `/gsd-discuss-phase 13` then `/gsd-plan-phase 13` (`villa doctor` — pure composition of preflight + status + residency proof + drift; OWN golden, do NOT mutate `status.Report`; offload-asserting).
+- Consider folding the deferred PR-#2 finding (shared `rocmpolicy` leaf package, graphmind memory 10e784d6) into a later phase.

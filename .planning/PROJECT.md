@@ -54,6 +54,7 @@ VillaStraylight is a self-hosted, local AI server stack for privacy-conscious po
 - [x] `villa bench` proves the Vulkan-vs-ROCm throughput delta — *Validated v1.1 (Phase 9): honest A/B reports prompt-processing and token-generation tok/s separately (never blended), warmup-discarded, N-rep median+stddev, residency-void-gated; `--ab` composes the Phase-8 switch. Live proof-of-value Δpp +4.84 / Δtg −11.15 — ROCm wins pp, regresses tg.*
 - [x] Backend-aware `detect`/`recommend` (ROCm readiness + advice; Vulkan stays default) — *Validated v1.1 (Phase 10): `recommend` derives honest ROCm advice ("worth trying / verify with bench / withheld") purely from `rocm_readiness`, never reassigns the backend, never promises a speed-up.*
 - [x] Dashboard + `villa status` surface the active backend and live tok/s — *Validated v1.1 (Phase 10): active backend + image tag, live tok/s labeled by backend, tri-state ROCm-readiness badge — append-only, schema-bumped, goldens re-frozen once; `status`'s previously-hardcoded `VulkanBackend()` now reflects the configured backend.*
+- [x] `rocm-6.4.4` alternate ROCm image option for TG-heavy models (ROCM-ALT-01) — *Validated v1.2 (Phase 12): two digest-pinned, fail-closed, seam-locked backends (`rocm-6.4.4` + `-rocwmma`) selectable via `BackendFor`, gated by `rocm-policy.json`, honestly benchable via `bench --ab-target`. On-hardware UAT (gfx1151, 2026-06-07): SC#1–4 all PASS as engineering deliverables (incl. a correct offload-asserting residency FAIL + verbatim rollback for `-rocwmma`, and surviving a same-day rolling-tag drift via the content-addressed pin). **Honest perf outcome: `rocm-6.4.4` does NOT recover the v1.1 Δtg −11.15 — Vulkan still leads tg by ~11.68 tok/s; Vulkan stays the tg default, never auto-switched.** The capability + honest measurement shipped; the perf premise it tested is false on this host/model.*
 
 ### Active
 
@@ -64,7 +65,6 @@ VillaStraylight is a self-hosted, local AI server stack for privacy-conscious po
 - [ ] `villa bench --compare` + persisted/saved benchmark reports (BENCH-03)
 - [ ] Cumulative token/throughput usage tracking over time (USAGE-01)
 - [ ] Guided TUI install flow (INSTALL-01)
-- [ ] `rocm-6.4.4` alternate ROCm image option for TG-heavy models (ROCM-ALT-01)
 
 ### Out of Scope
 
@@ -119,6 +119,7 @@ VillaStraylight is a self-hosted, local AI server stack for privacy-conscious po
 | `villa backend set` is transactional (capture→prove→cutover→rollback) | A failed ROCm bring-up must be a no-op to the running stack — the "just works" bar | ✅ Validated (Phase 8) — 4/4 on-hardware UAT incl. forced CPU-fallback rollback + bounded timeout |
 | `bench --ab` composes the Phase-8 switch; never re-implements switching | One switch implementation; bench measures, it doesn't orchestrate | ✅ Validated (Phase 9) — `--ab` delegates the flip to `backendswap.Run` |
 | Surfacing (Phase 10) lands last; `--json`/goldens re-freeze exactly once | Append-only, schema-bumped, never reordered — protect the frozen dashboard contracts | ✅ Validated (Phase 10) — status/recommend/detect goldens re-frozen once as pure-addition diffs |
+| ROCM-ALT-01: ship the alt image as a selectable, honestly-benched capability; never auto-switch; adopt only the digest the A/B proves recovers Δtg | Honesty over hype — prove the perf claim on-hardware, don't promise an unbenchmarked speed-up | ✅ Validated (Phase 12), premise disproven — on-hardware A/B shows `rocm-6.4.4` does NOT recover Δtg (Vulkan leads tg ~11.68 tok/s); capability shipped, Vulkan stays tg default. The honest A/B did exactly its job: prove, don't assume |
 
 ## Evolution
 
@@ -138,4 +139,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-07 — started milestone v1.2 (Operability). Scope: `villa doctor` (DOCTOR-01), backup/restore (BAK-01), `villa bench --compare` + saved reports (BENCH-03), cumulative usage tracking (USAGE-01), guided TUI install (INSTALL-01), `rocm-6.4.4` alt image (ROCM-ALT-01). v1.1 (ROCm Opt-In Backend, Phases 6–11) shipped + merged to `main` + tagged `v1.1`; v1.0 (Phases 1–5) shipped + tagged `v1.0`. Requirements defined in REQUIREMENTS.md; phases mapped in ROADMAP.md.*
+*Last updated: 2026-06-07 after Phase 12 — ROCM-ALT-01 shipped, verified (UAT 7/7), and secured (10/10 threats closed). Honest on-hardware verdict: `rocm-6.4.4` does NOT recover the v1.1 Δtg −11.15; Vulkan stays the tg default (never auto-switched). v1.2 (Operability) remaining: `villa doctor` (DOCTOR-01, next), saved bench reports + `--compare` (BENCH-03), cumulative usage tracking (USAGE-01), backup/restore (BAK-01), guided TUI install (INSTALL-01). v1.1 (Phases 6–11) + v1.0 (Phases 1–5) shipped + tagged. Requirements in REQUIREMENTS.md; phases in ROADMAP.md.*
