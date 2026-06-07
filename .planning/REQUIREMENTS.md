@@ -13,9 +13,9 @@ backend literals stay behind the `internal/inference` seam.
 
 ### Diagnostics & Health
 
-- [ ] **DOCTOR-01**: User can run `villa doctor` to get a one-shot health diagnosis of a running install, composing the existing preflight + status + residency-proof cores, exiting `0` (healthy) / `2` (blocking fault) / `1` (warning) — mirroring the preflight exit contract.
-- [ ] **DOCTOR-02**: Every non-healthy `villa doctor` finding carries actionable remediation text, and a silent or partial CPU fallback is reported as a FAIL (offload-asserting — never a false-green health 200).
-- [ ] **DOCTOR-03**: `villa doctor` detects and reports config-vs-disk drift (rendered Quadlet units that no longer match the config source of truth).
+- [x] **DOCTOR-01**: User can run `villa doctor` to get a one-shot health diagnosis of a running install, composing the existing preflight + status + residency-proof cores, exiting `0` (healthy) / `2` (blocking fault) / `1` (warning) — mirroring the preflight exit contract.
+- [x] **DOCTOR-02**: Every non-healthy `villa doctor` finding carries actionable remediation text, and a silent or partial CPU fallback is reported as a FAIL (offload-asserting — never a false-green health 200).
+- [x] **DOCTOR-03**: `villa doctor` detects and reports config-vs-disk drift (rendered Quadlet units that no longer match the config source of truth).
 
 ### Backup & Recovery
 
@@ -80,9 +80,9 @@ Which phases cover which requirements. Populated during roadmap creation (`/gsd-
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | ROCM-ALT-01 | Phase 12 | Validated (capability shipped; perf hypothesis disproven — Vulkan stays tg default) |
-| DOCTOR-01 | Phase 13 | Pending |
-| DOCTOR-02 | Phase 13 | Pending |
-| DOCTOR-03 | Phase 13 | Pending |
+| DOCTOR-01 | Phase 13 | Complete |
+| DOCTOR-02 | Phase 13 | Complete |
+| DOCTOR-03 | Phase 13 | Complete |
 | BENCH-03 | Phase 14 | Pending |
 | BENCH-04 | Phase 14 | Pending |
 | USAGE-01 | Phase 15 | Pending |

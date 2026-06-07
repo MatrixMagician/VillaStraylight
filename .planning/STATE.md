@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Operability
-status: planning
+status: executing
 stopped_at: Phase 13 context gathered
-last_updated: "2026-06-07T14:13:02.834Z"
-last_activity: 2026-06-07 -- Phase 13 planning complete
+last_updated: "2026-06-07T14:21:01.554Z"
+last_activity: 2026-06-07 -- Phase 13 execution started
 progress:
   total_phases: 6
   completed_phases: 1
-  total_plans: 3
-  completed_plans: 3
+  total_plans: 5
+  completed_plans: 4
   percent: 17
 ---
 
@@ -21,15 +21,15 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-07 after starting v1.2)
 
 **Core value:** Run a capable local AI workspace that "just works" after install — hardware-aware setup that brings inference, chat, and the dashboard up healthy, with zero data leaving the box. v1.2 extends the bar to "and stays operable, recoverable, and measurable over time."
-**Current focus:** Phase 13 — `villa doctor` health diagnosis
+**Current focus:** Phase 13 — villa-doctor-health-diagnosis
 
 ## Current Position
 
-Phase: 13
-Plan: Not started
-Status: Ready to plan. Phase 12 complete (ROCM-ALT-01 verified + secured). Next: `/gsd-discuss-phase 13` or `/gsd-plan-phase 13`.
+Phase: 13 (villa-doctor-health-diagnosis) — EXECUTING
+Plan: 2 of 2
+Status: Ready to execute
 Progress: [█░░░░░] 1/6 phases complete (v1.2)
-Last activity: 2026-06-07 -- Phase 13 planning complete
+Last activity: 2026-06-07 -- Phase 13 execution started
 
 ## v1.2 Build Order (research-converged — preserve)
 
@@ -79,6 +79,7 @@ contract evolves at a time), then the destructive backup, then the TUI capstone.
 | Phase 12 P01 | 15 | 3 tasks | 6 files |
 | Phase 12 P02 | ~20 min | 2 tasks | 11 files |
 | Phase 12 P03 | ~20 min | 3 of 4 tasks (Task 4 on-hardware pending) | 4 files |
+| Phase 13 P01 | 3min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -112,6 +113,9 @@ Earlier (v1.0 / v1.1) decisions retained below.
 - [Phase ?]: Seam regex anchored to image context so the gate catches image literals but not bare backend-name config values
 - [Phase 12 — UAT 2026-06-07, gfx1151]: **Hypothesis DISPROVEN** — `rocm-6.4.4` does NOT recover the v1.1 Δtg −11.15 regression. On-hardware A/B: Vulkan leads tg by ~11.68 tok/s over rocm-6.4.4 (≈ rocm-7.2.4). Vulkan remains the correct tg default; ROCm wins pp slightly. The honest A/B did its job — prove, don't assume. Capability shipped correctly (selectable, gated, residency-proven, benchable); the perf premise it tested is false on this host/model.
 - [Phase 12 — UAT]: `rocm-6.4.4-rocwmma` is non-functional on this host/model — residency FAILED (load_tensors hang / CPU-fallback stall) and rolled back verbatim. The offload-asserting FAIL + transactional rollback worked exactly as designed (a real honest FAIL, never a false-green). Ships selectable but does not come up here.
+- [Phase ?]: doctor defines its OWN Report (reportSchemaVersion=1); status.Report only READ, never extended (D-02)
+- [Phase ?]: doctor worst-wins maps to authoritative shipped preflight tiers — BLOCK/offload FAIL→exit 1, WARN/drift/typed-Unknown→exit 2 (D-04/Pitfall 1, NOT inverted ROADMAP prose)
+- [Phase ?]: offload FAIL folded as BLOCK-class FAIL dominating HealthReady — no false-green over a health-200 (Pitfall 3)
 
 ### Pending Todos
 
@@ -150,7 +154,7 @@ Items acknowledged at milestone close on 2026-06-06 (v1.1):
 
 ## Session Continuity
 
-Last session: 2026-06-07T13:51:59.715Z
+Last session: 2026-06-07T14:20:55.426Z
 Stopped at: Phase 13 context gathered
 Resume file: .planning/phases/13-villa-doctor-health-diagnosis/13-CONTEXT.md
 
