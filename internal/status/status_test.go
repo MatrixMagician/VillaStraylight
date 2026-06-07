@@ -1,14 +1,17 @@
 package status
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
 	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
+	"github.com/MatrixMagician/VillaStraylight/internal/usage"
 )
 
 // status_test.go holds the read-model-level asserts that prove the extracted core
@@ -403,6 +406,84 @@ func TestRunROCmResidencyKeysOnResolvedMarkers(t *testing.T) {
 		t.Fatalf("rocm-config residency must PASS keying on the resolved ROCm0 markers "+
 			"(a Vulkan default could not match ROCm0); got status=%v detail=%q",
 			inf.Offload.Status, inf.Offload.Detail)
+	}
+}
+
+// TestUsageOmittedWhenAbsent proves the typed-Unknown discipline for the cumulative
+// usage field (D-09): when the ReadUsage seam is nil (default stub) OR returns nil
+// (absent/empty store), Run leaves Report.Usage nil and the marshaled --json OMITS
+// the "usage" key entirely — never a fabricated 0 total. Schema is still 2.
+func TestUsageOmittedWhenAbsent(t *testing.T) {
+	t.Run("nil seam → usage omitted", func(t *testing.T) {
+		d := newDeps(t, loopbackUnits(t)) // newDeps sets no ReadUsage seam
+		r := Run(d)
+		if r.Usage != nil {
+			t.Fatalf("nil ReadUsage seam must leave Usage nil, got %+v", r.Usage)
+		}
+		assertUsageKeyAbsent(t, r)
+		if r.SchemaVersion != reportSchemaVersion {
+			t.Errorf("SchemaVersion = %d, want %d", r.SchemaVersion, reportSchemaVersion)
+		}
+	})
+
+	t.Run("seam returns nil (empty store) → usage omitted", func(t *testing.T) {
+		d := newDeps(t, loopbackUnits(t))
+		d.ReadUsage = func() *usage.UsageTotals { return nil }
+		r := Run(d)
+		if r.Usage != nil {
+			t.Fatalf("a nil-returning ReadUsage seam must leave Usage nil, got %+v", r.Usage)
+		}
+		assertUsageKeyAbsent(t, r)
+	})
+}
+
+// TestUsageSurfacedWhenPresent proves a populated read-only ReadUsage seam surfaces
+// the cumulative totals on the Report and the --json carries the "usage" key plus
+// schema_version 2 (D-09).
+func TestUsageSurfacedWhenPresent(t *testing.T) {
+	want := &usage.UsageTotals{
+		SchemaVersion: 1,
+		Models: map[string]usage.ModelUsage{
+			"qwen3": {
+				Model:     "qwen3",
+				Prompt:    usage.CounterState{Cumulative: 1234},
+				Predicted: usage.CounterState{Cumulative: 5678},
+			},
+		},
+	}
+	d := newDeps(t, loopbackUnits(t))
+	d.ReadUsage = func() *usage.UsageTotals { return want }
+
+	r := Run(d)
+	if r.Usage == nil {
+		t.Fatalf("populated ReadUsage seam must surface Usage on the Report")
+	}
+	if got := r.Usage.Models["qwen3"].Predicted.Cumulative; got != 5678 {
+		t.Errorf("Usage qwen3 generated cumulative = %d, want 5678", got)
+	}
+
+	blob, err := json.Marshal(r)
+	if err != nil {
+		t.Fatalf("marshal report: %v", err)
+	}
+	s := string(blob)
+	if !strings.Contains(s, `"usage"`) {
+		t.Errorf("populated --json must carry the usage key; got:\n%s", s)
+	}
+	if !strings.Contains(s, `"schema_version":2`) {
+		t.Errorf("--json must carry schema_version 2; got:\n%s", s)
+	}
+}
+
+// assertUsageKeyAbsent marshals a Report and fails if the omitempty "usage" key leaked.
+func assertUsageKeyAbsent(t *testing.T, r Report) {
+	t.Helper()
+	blob, err := json.Marshal(r)
+	if err != nil {
+		t.Fatalf("marshal report: %v", err)
+	}
+	if strings.Contains(string(blob), `"usage"`) {
+		t.Errorf("absent usage store must OMIT the usage key (omitempty); got:\n%s", blob)
 	}
 }
 

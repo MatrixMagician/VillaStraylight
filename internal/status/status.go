@@ -20,6 +20,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
 	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
+	"github.com/MatrixMagician/VillaStraylight/internal/usage"
 )
 
 // noTelemetryStatement is the PRIV-03 assertion the report always carries.
@@ -117,6 +118,15 @@ type Report struct {
 	// "unknown" — never a fabricated "not-ready" (D-04 / no-false-green).
 	ROCmReadiness ROCmReadinessIndicator `json:"rocm_readiness"`
 
+	// Usage is the cumulative per-model token totals read (read-only) from the usage
+	// store (usage.json) — the Phase-15 USAGE-02 surface (D-09). It is a
+	// *usage.UsageTotals + omitempty so an absent/empty store OMITS the key entirely:
+	// a typed-Unknown, NEVER a fabricated 0 total. The CLI populates it via a
+	// read-only ReadUsage seam (usage.Load only — the CLI never writes the store, D-07);
+	// the dashboard (Plan 04) reads the SAME field through handleStatus, no new endpoint
+	// (D-10). Tail-appended above SchemaVersion (append-only; nothing above moved).
+	Usage *usage.UsageTotals `json:"usage,omitempty"`
+
 	// SchemaVersion is the Report contract self-version (D-07). It MUST stay the
 	// LAST tagged field (append-only; new tagged fields go above it, the unexported
 	// err stays after it and never serializes).
@@ -128,11 +138,12 @@ type Report struct {
 	err error
 }
 
-// reportSchemaVersion is the Report contract self-version: the first version that
-// carries the Phase-10 backend-aware tail-append fields (Backend, Image,
-// GenTokensPerSec, ROCmReadiness). It is itself a tail-appended additive field
-// (D-07). Bumped on any future additive change to the Report --json contract.
-const reportSchemaVersion = 1
+// reportSchemaVersion is the Report contract self-version. Version 1 carried the
+// Phase-10 backend-aware tail-append fields (Backend, Image, GenTokensPerSec,
+// ROCmReadiness). Version 2 (Phase-15, D-09) tail-appends the cumulative usage
+// field (Usage) above SchemaVersion. It is itself a tail-appended additive marker
+// (D-07); bumped on any additive change to the Report --json contract.
+const reportSchemaVersion = 2
 
 // ROCmReadinessIndicator is the tri-state surfaced from the detect rocm_readiness
 // sub-tree. It is a string enum so the --json contract is stable and the dashboard
@@ -208,6 +219,15 @@ type Deps struct {
 	// returned sub-tree via foldROCmReadiness; a nil seam leaves the indicator
 	// "unknown" (no false-green). status_test.go stubs it to drive the fold.
 	ROCmReadiness func() detect.ROCmReadiness
+
+	// ReadUsage is the READ-ONLY cumulative-usage seam (D-07/D-09), wired in
+	// liveStatusDeps to a usage.Load over usage.UsagePath(). It returns the loaded
+	// *usage.UsageTotals, or nil when the store is absent/empty so Run OMITS the Usage
+	// field (typed-Unknown, never a fabricated 0). It MUST never write usage.json — the
+	// CLI is one-shot and read-only; the dashboard (Plan 04) is the sole writer (D-07).
+	// internal/status stays free of filesystem coupling; status_test.go stubs it. A nil
+	// seam is treated as "no reading" (Run guards it, leaving Usage nil).
+	ReadUsage func() *usage.UsageTotals
 
 	// OWUIService is the villa-openwebui.service unit name the owui-row branch
 	// targets (D-12). It is a Deps field so internal/status need not import the
@@ -302,6 +322,12 @@ func Run(d Deps) Report {
 	report.ROCmReadiness = ROCmUnknown
 	if d.ROCmReadiness != nil {
 		report.ROCmReadiness = foldROCmReadiness(d.ROCmReadiness())
+	}
+	// Cumulative usage (D-09): read-only via the seam. A nil seam OR a nil result
+	// (absent/empty store) leaves report.Usage nil so it serializes as omitted —
+	// typed-Unknown, never a fabricated 0. The seam never writes usage.json (D-07).
+	if d.ReadUsage != nil {
+		report.Usage = d.ReadUsage()
 	}
 
 	weight := d.WeightBytes(cfg)
