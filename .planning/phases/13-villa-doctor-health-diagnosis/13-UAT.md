@@ -1,9 +1,9 @@
 ---
-status: diagnosed
+status: complete
 phase: 13-villa-doctor-health-diagnosis
 source: [13-VERIFICATION.md]
 started: 2026-06-07T00:00:00Z
-updated: 2026-06-07T16:12:00Z
+updated: 2026-06-07T16:55:00Z
 ---
 
 ## Current Test
@@ -14,9 +14,8 @@ updated: 2026-06-07T16:12:00Z
 
 ### 1. On a live, healthy gfx1151 install (stack up), run `villa doctor`
 expected: Exit 0; all-healthy findings report; offload PASS over a real residency proof.
-result: issue
-reported: "On this host (backend=rocm, qwen3.6-35b-a3b live), `villa doctor` returned exit 2 (overall WARN), not exit 0. Substantive diagnosis was fully correct: offload PASS over a real residency proof (log ROCm0 20583.34 MiB resident + sysfs GTT-used 26.4 GB >= 22.1 GB weight footprint), all services /health 200, drift PASS. The exit-2 came solely from three typed-Unknown ROCm preflight WARNs — ROCM-PRE-firmware (firmware version not probed), ROCM-PRE-hsa (could not verify HSA_OVERRIDE_GFX_VERSION), ROCM-PRE-image (no ROCm image requested; standalone gate). A fully-working ROCm install can therefore never reach exit 0."
-severity: major
+result: pass
+note: "Initially reported as an issue (exit 2 not 0 on a healthy ROCm install — typed-Unknown firmware/HSA/image preflight WARNs forced overall WARN). Closed by the 13-03 residency-supersession gap-closure (commits c1b9f6c/1e4e765/02265f3, review fix 00cb7e8). Re-validated LIVE on the gfx1151 host after the fix: `villa doctor` now returns overall PASS / EXIT 0, with offload proven (ROCm0 20583.34 MiB resident + sysfs GTT >= weight footprint), all /health 200, drift PASS. ROCM-PRE-image flipped to PASS (Option B now evaluates the running image via the seam); firmware/HSA stay VISIBLE as WARN but no longer raise the rank under proven residency. No-false-green preserved (TestConfidentROCmFAILStillDominatesResidency)."
 
 ### 2. Induce a CPU-fallback backend on real hardware, run `villa doctor`
 expected: Exit 1 (exitBlocked); a BLOCK-class residency-FAIL finding with actionable remediation; never a false-green over a health-200.
@@ -29,8 +28,8 @@ result: pass
 ## Summary
 
 total: 3
-passed: 2
-issues: 1
+passed: 3
+issues: 0
 pending: 0
 skipped: 0
 blocked: 0
@@ -38,7 +37,7 @@ blocked: 0
 ## Gaps
 
 - truth: "On a live, healthy install `villa doctor` exits 0 with an all-healthy report (DOCTOR-01 'exit 0 = healthy' contract)"
-  status: failed
+  status: resolved
   reason: "User reported: a fully-healthy ROCm install (offload proven, all /health 200, no drift) returns exit 2 (WARN), not exit 0, because doctor re-runs the pre-install ROCm preflight gate (preflight.RunROCm), whose host-prep checks (firmware floor, HSA_OVERRIDE_GFX_VERSION, image pin) are un-evaluable in a running-stack context and degrade to typed-Unknown WARN. Result: exit 0 is unreachable on the recommended opt-in ROCm backend even when residency is proven."
   severity: major
   test: 1

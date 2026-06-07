@@ -1,5 +1,5 @@
 ---
-status: diagnosed
+status: resolved
 trigger: "Phase 13 UAT Test 1 — `villa doctor` on a healthy live ROCm install exits 2 (WARN), can never reach exit 0"
 created: 2026-06-07
 updated: 2026-06-07
