@@ -10,7 +10,7 @@
 |-------------------|------|-----------|----------------|---------------|
 | `internal/benchstore/benchstore.go` (NEW) | service (pure core + injected I/O seam) | file-I/O (append-only JSONL) + transform (compare) | `internal/bench/bench.go` (pure core + `Deps`); `internal/config/villaconfig.go` (path safety/marshal) | role-match (compose two analogs) |
 | `internal/benchstore/benchstore_test.go` (NEW) | test | transform/round-trip | `internal/detect/profile_test.go` (schema-version assert + round-trip) | exact (pattern) |
-| `cmd/villa/testdata/benchstore-record.golden` (NEW) | config (frozen contract fixture) | file-I/O | `cmd/villa/testdata/bench.json.golden` | exact (pattern) |
+| `internal/benchstore/testdata/record.golden` (NEW) | config (frozen contract fixture) | file-I/O | `cmd/villa/testdata/bench.json.golden` | exact (pattern) |
 | `cmd/villa/testdata/bench-compare.json.golden` (NEW) | config (frozen contract fixture) | file-I/O | `cmd/villa/testdata/bench.json.golden` | exact (pattern) |
 | `cmd/villa/bench.go` (MODIFIED) | controller (cobra surface + `live*Deps` wiring + render/exit) | request-response + file-I/O write-hook | `cmd/villa/bench.go` itself (`liveBenchDeps`, `runBench`, `benchEntry`); `cmd/villa/model.go:modelsDir` (XDG resolver) | exact (extend in place) |
 | `cmd/villa/bench_test.go` (MODIFIED) | test | golden + stub-Deps | `cmd/villa/bench_test.go` itself (golden freeze + no-blended assert) | exact (extend in place) |
@@ -159,7 +159,7 @@ fmt.Fprintf(w, "  Δtg tok/s: %+8.2f\n", e.AB.DeltaPredictedPerSec)
 
 ---
 
-### `cmd/villa/testdata/benchstore-record.golden` + `bench-compare.json.golden` (NEW frozen contracts)
+### `internal/benchstore/testdata/record.golden` + `bench-compare.json.golden` (NEW frozen contracts)
 
 **Analog — golden freeze with the shared `*update` flag** (`cmd/villa/bench_test.go:463-480`; `*update` declared once in `cmd/villa/detect_test.go:13`):
 ```go
@@ -172,7 +172,7 @@ if *update {
 want, err := os.ReadFile(golden) // run with -update to create
 if !bytes.Equal(out.Bytes(), want) { t.Errorf("does not match golden ...") }
 ```
-**Replicate** for BOTH new goldens. `benchstore-record.golden` = ONE schema-1 JSONL record produced via an injected deterministic `Deps.Now` — this is the on-disk CONTRACT, frozen in the FIRST plan/wave BEFORE any live writer (ROADMAP note / RESEARCH Pitfall 1). `bench-compare.json.golden` = the `--compare --json` output covering both a comparable delta and a not-comparable refusal.
+**Replicate** for BOTH new goldens. `internal/benchstore/testdata/record.golden` = ONE schema-1 JSONL record produced via an injected deterministic `Deps.Now` — this is the on-disk CONTRACT, frozen in the FIRST plan/wave BEFORE any live writer (ROADMAP note / RESEARCH Pitfall 1). `bench-compare.json.golden` = the `--compare --json` output covering both a comparable delta and a not-comparable refusal.
 
 ---
 
@@ -194,7 +194,7 @@ for _, blended := range [][]byte{[]byte("tok_per_sec"), []byte("tokens_per_sec")
 	}
 }
 ```
-**Replicate:** run the same grep over `benchstore-record.golden` and `bench-compare.json.golden`.
+**Replicate:** run the same grep over `internal/benchstore/testdata/record.golden` and `bench-compare.json.golden`.
 
 **Analog — temp XDG in tests** (`cmd/villa/model_test.go:58, 84`): `t.Setenv("XDG_DATA_HOME", t.TempDir())` — use for the live `AppendLine`/`ReadAll` write-path test (0600/0700 + traversal, append-grows). Pure-core tests instead back `Deps` with a `bytes.Buffer` (no XDG touched), exactly as `bench_test.go` stubs the `bench.Deps` func fields.
 
@@ -210,7 +210,7 @@ for _, blended := range [][]byte{[]byte("tok_per_sec"), []byte("tokens_per_sec")
 
 ### Byte-frozen golden + schema_version (append-only)
 **Source:** `cmd/villa/bench_test.go:463-480` (golden + `*update`); `internal/detect/profile.go:11, 58-60` (last-field schema const)
-**Apply to:** `benchstore-record.golden` (on-disk record), `bench-compare.json.golden` (`--compare --json`), and the `savedReportSchemaVersion` const. Freeze the RECORD golden in the first wave.
+**Apply to:** `internal/benchstore/testdata/record.golden` (on-disk record), `bench-compare.json.golden` (`--compare --json`), and the `savedReportSchemaVersion` const. Freeze the RECORD golden in the first wave.
 
 ### pp/tg structural separation (never blended)
 **Source:** `internal/bench/bench.go:110-135` (Stats/ABResult); `cmd/villa/bench.go:397-416` (benchSide/benchAB JSON tags); `cmd/villa/bench_test.go:488-498` (no-blended grep)

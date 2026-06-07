@@ -123,8 +123,10 @@ cmd/villa/
 │                        #   flags + runBenchCompare + liveBenchstoreDeps wiring + render
 └── bench_test.go        # + write-hook fires test, + --compare render + own --json golden
 
+internal/benchstore/testdata/
+└── record.golden                  # ONE frozen JSONL record (schema 1) — the on-disk contract
+
 cmd/villa/testdata/
-├── benchstore-record.golden       # ONE frozen JSONL record (schema 1) — the on-disk contract
 └── bench-compare.json.golden      # frozen --compare --json output (deltas + not-comparable)
 ```
 
@@ -139,7 +141,7 @@ package benchstore
 
 // savedReportSchemaVersion is the self-version of the on-disk saved-report
 // contract. Bump ONLY on an incompatible change; new fields are appended above
-// SchemaVersion (append-only). Frozen by benchstore-record.golden from day one.
+// SchemaVersion (append-only). Frozen by internal/benchstore/testdata/record.golden from day one.
 const savedReportSchemaVersion = 1
 
 // SavedReport is ONE persisted bench run — the byte-frozen JSONL record. pp and
@@ -182,12 +184,12 @@ type Deps struct {
 
 ### Pattern 3: Byte-frozen golden, append-only evolution (mirror `cmd/villa/testdata/bench.json.golden`)
 
-**What:** Freeze ONE representative JSONL record (`benchstore-record.golden`) and the `--compare --json` output (`bench-compare.json.golden`) with the shared package-level `*update` flag. The record golden is the on-disk **contract** — it must be frozen in the FIRST plan/wave, BEFORE any real writer path runs, so the format can never silently drift and incur a migration (the explicit ROADMAP note).
+**What:** Freeze ONE representative JSONL record (`internal/benchstore/testdata/record.golden`) and the `--compare --json` output (`bench-compare.json.golden`) with the shared package-level `*update` flag. The record golden is the on-disk **contract** — it must be frozen in the FIRST plan/wave, BEFORE any real writer path runs, so the format can never silently drift and incur a migration (the explicit ROADMAP note).
 **When to use:** Always — `--json`/dashboard/on-disk contracts are byte-frozen in this repo.
 **Example:**
 ```go
 // Source: cmd/villa/bench_test.go (golden + *update freeze; *update declared in detect_test.go)
-golden := filepath.Join("testdata", "benchstore-record.golden")
+golden := filepath.Join("testdata", "record.golden") // under internal/benchstore/
 if *update {
 	_ = os.WriteFile(golden, got, 0o644)
 	t.Logf("updated %s", golden)
@@ -247,7 +249,7 @@ if !bytes.Equal(got, want) {
 
 The `single`/`ab` shapes can reuse the existing `benchSide`/`benchAB` JSON tag layout from `cmd/villa/bench.go` so the on-disk numbers are byte-for-byte what `bench --json` already emits — minimizing new contract surface. Decide in planning whether `benchstore` re-declares its own structs (preferred for import purity — `benchstore` must not import `cmd/villa`) or whether the cmd tier maps the existing `benchSide`/`benchAB` into `benchstore` types at the write boundary (cleaner; recommended). `[VERIFIED: codebase — cmd/villa/bench.go benchSide/benchAB JSON tags]`
 
-**`schema_version` embedding + golden freeze:** declare `const savedReportSchemaVersion = 1` in `benchstore`; assert it in a test (mirror `internal/detect/profile_test.go`'s `SchemaVersion != hostProfileSchemaVersion` guard); freeze ONE full record via `benchstore-record.golden` with the shared `*update` flag BEFORE any writer runs against a real store (ROADMAP note). `[VERIFIED: codebase — internal/detect/profile_test.go; cmd/villa/bench_test.go golden/-update]`
+**`schema_version` embedding + golden freeze:** declare `const savedReportSchemaVersion = 1` in `benchstore`; assert it in a test (mirror `internal/detect/profile_test.go`'s `SchemaVersion != hostProfileSchemaVersion` guard); freeze ONE full record via `internal/benchstore/testdata/record.golden` with the shared `*update` flag BEFORE any writer runs against a real store (ROADMAP note). `[VERIFIED: codebase — internal/detect/profile_test.go; cmd/villa/bench_test.go golden/-update]`
 
 ## Env/Host Fingerprint (BENCH-04 comparability detail)
 
@@ -317,7 +319,7 @@ The fingerprint is the comparability key. ROADMAP/REQUIREMENTS specify **model /
 ### Pitfall 1: Freezing the on-disk golden after writing real reports
 **What goes wrong:** A field is renamed/reordered after `bench-reports.jsonl` already has rows → silent contract drift → either a migration or unreadable old rows.
 **Why it happens:** Treating the JSONL like ephemeral output rather than a contract.
-**How to avoid:** Freeze `benchstore-record.golden` (schema 1) + the `savedReportSchemaVersion` const-assert test in the FIRST plan/wave, before any live writer path. New fields append above `schema_version`; incompatible change = version bump.
+**How to avoid:** Freeze `internal/benchstore/testdata/record.golden` (schema 1) + the `savedReportSchemaVersion` const-assert test in the FIRST plan/wave, before any live writer path. New fields append above `schema_version`; incompatible change = version bump.
 **Warning signs:** A planned task writes reports before a golden exists.
 
 ### Pitfall 2: `benchstore` importing `internal/inference` or `internal/detect`
@@ -415,19 +417,19 @@ func Comparable(a, b Fingerprint) (bool, []string) {
 | A9 | Exit mapping: comparable→0, not-comparable→2, no-reports→1 | `--compare` Semantics | Low — mirrors the repo's 0/2/1 contract. |
 | A10 | UNKNOWN host fingerprint field ⇒ not comparable (sentinel, no false-equal) | Pitfalls / Fingerprint | Low — preserves no-false-green posture. |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **Exact host-attribute set for the fingerprint + whether `backend` blocks comparability.**
+1. **Exact host-attribute set for the fingerprint + whether `backend` blocks comparability.** — RESOLVED: see A2/A3/A4/A10 — comparable iff model+quant+ctx+host(gfx id) match; backend deliberately allowed to differ; UNKNOWN host fact ⇒ not comparable
    - What we know: REQUIREMENTS says "model/quant/host"; the Phase-12 pairing goal implies cross-backend compare must be allowed.
    - What's unclear: the precise host fields and the backend-blocking decision.
    - Recommendation: model + quant + `igpu_gfx_id` block; backend differs freely; surface in discuss-phase (A2/A3/A4).
 
-2. **`--compare` selection UX (auto-pick vs explicit indices/ids).**
+2. **`--compare` selection UX (auto-pick vs explicit indices/ids).** — RESOLVED: A8 — bare `--compare` auto-selects the two most-recent comparable reports
    - What we know: SC#2 requires list+view; SC#3 requires `--compare` deltas.
    - What's unclear: whether bare `--compare` auto-selects a pair or requires selectors.
    - Recommendation: support both (bare = sensible auto pair; optional selectors). Confirm in discuss-phase (A8 detail).
 
-3. **Treatment of a void-exhausted record inside `--compare`.**
+3. **Treatment of a void-exhausted record inside `--compare`.** — RESOLVED: A5 — persist always; in `--compare`, still show the delta but flag the void side as not-authoritative
    - Recommendation: still show the delta but flag the void side as not-authoritative; decide in discuss-phase.
 
 ## Environment Availability
@@ -477,7 +479,7 @@ func Comparable(a, b Fingerprint) (bool, []string) {
 
 ### Wave 0 Gaps
 - [ ] `internal/benchstore/benchstore_test.go` — schema-version stability, comparable matrix, unknown-host, void round-trip, per-metric delta (BENCH-03/04)
-- [ ] `cmd/villa/testdata/benchstore-record.golden` — frozen schema-1 JSONL record (the on-disk contract; FIRST wave)
+- [ ] `internal/benchstore/testdata/record.golden` — frozen schema-1 JSONL record (the on-disk contract; FIRST wave)
 - [ ] `cmd/villa/testdata/bench-compare.json.golden` — frozen `--compare --json` (comparable + not-comparable)
 - [ ] `cmd/villa/bench_test.go` additions — write-hook fires, `--compare`/`--list` render + flag-exclusivity + no-reports + not-comparable (BENCH-03/04)
 - [ ] Framework install: none — stdlib `testing` already in use.

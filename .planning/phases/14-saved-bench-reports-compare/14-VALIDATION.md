@@ -50,9 +50,9 @@ created: 2026-06-07
 
 ## Wave 0 Requirements
 
-- [ ] `internal/benchstore/testdata/record.golden.json` — frozen `schema_version=1` saved-report record (BENCH-03 contract)
+- [ ] `internal/benchstore/testdata/record.golden` — frozen `schema_version=1` saved-report record (BENCH-03 contract)
 - [ ] `internal/benchstore/store_test.go` — round-trip, XDG path safety, fingerprint comparability table tests
-- [ ] `cmd/villa/testdata/bench_compare.golden` — frozen `--compare` output (pp/tg deltas + "not comparable" label)
+- [ ] `cmd/villa/testdata/bench-compare.json.golden` — frozen `--compare` output (pp/tg deltas + "not comparable" label)
 - [ ] No framework install needed — `go test` already in use repo-wide
 
 *Existing `testing` infrastructure covers all phase requirements; only new fixtures/test files are added.*
