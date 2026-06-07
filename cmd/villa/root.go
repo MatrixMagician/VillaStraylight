@@ -33,7 +33,7 @@ func newRoot() *cobra.Command {
 	pf.BoolVar(&force, "force", false, "override blocking preflight checks (auditable)")
 
 	root.AddCommand(newDetect(), newRecommend(), newPreflight(), newModel(), newInference(), newInstall(),
-		newUp(), newDown(), newRestart(), newLogs(), newConfig(), newStatus(), newDoctor(), newDashboard(), newBackend(), newBench(), newUninstall())
+		newUp(), newDown(), newRestart(), newLogs(), newConfig(), newStatus(), newDoctor(), newDashboard(), newBackend(), newBench(), newBackup(), newUninstall())
 
 	return root
 }
