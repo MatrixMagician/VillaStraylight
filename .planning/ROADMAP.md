@@ -186,7 +186,7 @@ See `milestones/v1.1-ROADMAP.md` for full phase detail, success criteria, and pl
 Plans:
 **Wave 1**
 
-- [ ] 16-01-PLAN.md — Pure `internal/backup` core (manifest, SHA-256, tar-slip-guarded archive, skew compare) + `orchestrate.OpenWebUIImage()` accessor + build-stamped villa version
+- [x] 16-01-PLAN.md — Pure `internal/backup` core (manifest, SHA-256, tar-slip-guarded archive, skew compare) + `orchestrate.OpenWebUIImage()` accessor + build-stamped villa version
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -234,5 +234,5 @@ Plans:
 | 13. `villa doctor` Health Diagnosis | v1.2 | 3/3 | Complete    | 2026-06-07 |
 | 14. Saved Bench Reports + `--compare` | v1.2 | 3/3 | Complete    | 2026-06-07 |
 | 15. Cumulative Usage Tracking | v1.2 | 4/4 | Complete    | 2026-06-07 |
-| 16. Backup / Restore | v1.2 | 0/? | Not started | - |
+| 16. Backup / Restore | v1.2 | 1/3 | In Progress|  |
 | 17. Guided TUI Install | v1.2 | 0/? | Not started | - |

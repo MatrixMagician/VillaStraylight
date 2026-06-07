@@ -4,13 +4,13 @@ milestone: v1.2
 milestone_name: Operability
 status: executing
 stopped_at: Phase 16 context gathered
-last_updated: "2026-06-07T19:48:17.945Z"
-last_activity: 2026-06-07 -- Phase 16 planning complete
+last_updated: "2026-06-07T20:00:40.491Z"
+last_activity: 2026-06-07 -- Phase 16 execution started
 progress:
   total_phases: 6
   completed_phases: 4
-  total_plans: 13
-  completed_plans: 13
+  total_plans: 16
+  completed_plans: 14
   percent: 67
 ---
 
@@ -21,15 +21,15 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-07 after starting v1.2)
 
 **Core value:** Run a capable local AI workspace that "just works" after install — hardware-aware setup that brings inference, chat, and the dashboard up healthy, with zero data leaving the box. v1.2 extends the bar to "and stays operable, recoverable, and measurable over time."
-**Current focus:** Phase 15 — cumulative-usage-tracking
+**Current focus:** Phase 16 — backup-restore
 
 ## Current Position
 
-Phase: 16
-Plan: Not started
+Phase: 16 (backup-restore) — EXECUTING
+Plan: 2 of 3
 Status: Ready to execute
 Progress: [████████░░] 77%
-Last activity: 2026-06-07 -- Phase 16 planning complete
+Last activity: 2026-06-07 -- Phase 16 execution started
 
 ## v1.2 Build Order (research-converged — preserve)
 
@@ -90,6 +90,7 @@ contract evolves at a time), then the destructive backup, then the TUI capstone.
 | Phase 15 P02 | 2m | 1 tasks | 3 files |
 | Phase 15 P03 | 6 min | 2 tasks | 4 files |
 | Phase 15 P04 | ~12 min | 2 tasks | 5 files |
+| Phase 16 P01 | 6m | 2 tasks | 14 files |
 
 ## Accumulated Context
 
@@ -143,6 +144,8 @@ Earlier (v1.0 / v1.1) decisions retained below.
 - [Phase ?]: Plan 15-03: status.Report evolved by ONE append-only Usage *usage.UsageTotals omitempty field; reportSchemaVersion 1->2; CLI reads usage.json read-only (D-07 sole-writer)
 - [Phase ?]: 15-04: dashboard /api/metrics is the SOLE usageMu-guarded writer of usage.json; in-section model identity (D-07/Pitfall 2)
 - [Phase ?]: 15-04: dashboard surfaces cumulative totals via the SAME status.Report.usage field (no new endpoint, D-10); typed-Unknown muted UI, never a fabricated 0
+- [Phase ?]: Backup manifest carries store schema versions as plain ints; real usage/bench values supplied by cmd-tier via Plan-02 accessors (16-01).
+- [Phase ?]: Build-stamped villa version via -ldflags -X main.version from git describe; backup manifest villa_version source (16-01, D-09).
 
 ### Pending Todos
 
@@ -181,7 +184,7 @@ Items acknowledged at milestone close on 2026-06-06 (v1.1):
 
 ## Session Continuity
 
-Last session: 2026-06-07T19:07:13.876Z
+Last session: 2026-06-07T19:59:49.669Z
 Stopped at: Phase 16 context gathered
 Resume file: .planning/phases/16-backup-restore/16-CONTEXT.md
 
