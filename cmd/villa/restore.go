@@ -54,12 +54,24 @@ func newRestore() *cobra.Command {
 			"Strictly local — no data leaves the box.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			in, d, code := liveRestore(cmd, args[0], yes)
+			in, d, tmpDir, code := liveRestore(cmd, args[0], yes)
+			// WR-01: clean up the restore temp dir (it holds the exported Open WebUI
+			// volume tar incl. webui.db) on BOTH the success and error paths. os.Exit
+			// skips defers, so remove it explicitly before every exit. tmpDir is empty
+			// when liveRestore returned before creating it (a pre-MkdirTemp error).
+			cleanup := func() {
+				if tmpDir != "" {
+					_ = os.RemoveAll(tmpDir)
+				}
+			}
 			if code != exitPass {
+				cleanup()
 				os.Exit(code)
 				return nil
 			}
-			os.Exit(runRestore(cmd, args[0], in, d))
+			rc := runRestore(cmd, args[0], in, d)
+			cleanup() // must survive until AFTER backup.Restore returns
+			os.Exit(rc)
 			return nil
 		},
 	}
@@ -113,18 +125,20 @@ func runRestore(cmd *cobra.Command, archivePath string, in backup.RestoreInput, 
 // seam-/accessor-sourced current-install facts for the skew compare, and assembles the
 // live RestoreInput + liveRestoreDeps. It RETURNS exitPass on success, or a non-pass
 // code (with a stderr message already printed) when the archive path or config cannot
-// be resolved BEFORE any side effect.
-func liveRestore(cmd *cobra.Command, archivePath string, bypass bool) (backup.RestoreInput, backup.Deps, int) {
+// be resolved BEFORE any side effect. The returned tmpDir is the restore temp dir
+// (holding the extracted/rollback volume tars); the caller MUST remove it after
+// backup.Restore returns (WR-01). tmpDir is "" on every pre-MkdirTemp error path.
+func liveRestore(cmd *cobra.Command, archivePath string, bypass bool) (backup.RestoreInput, backup.Deps, string, int) {
 	errOut := cmd.ErrOrStderr()
 
 	absArchive, err := filepath.Abs(filepath.Clean(archivePath))
 	if err != nil {
 		fmt.Fprintf(errOut, "restore: bad archive path %q: %v\n", archivePath, err)
-		return backup.RestoreInput{}, backup.Deps{}, exitBlocked
+		return backup.RestoreInput{}, backup.Deps{}, "", exitBlocked
 	}
 	if _, err := os.Stat(absArchive); err != nil {
 		fmt.Fprintf(errOut, "restore: cannot read archive %q: %v\n", absArchive, err)
-		return backup.RestoreInput{}, backup.Deps{}, exitBlocked
+		return backup.RestoreInput{}, backup.Deps{}, "", exitBlocked
 	}
 
 	// Current install facts (BAK-03): seam-sourced digests (never re-typed — D-10),
@@ -132,12 +146,12 @@ func liveRestore(cmd *cobra.Command, archivePath string, bypass bool) (backup.Re
 	cfg, err := config.LoadVilla()
 	if err != nil {
 		fmt.Fprintf(errOut, "restore: load config: %v\n", err)
-		return backup.RestoreInput{}, backup.Deps{}, exitBlocked
+		return backup.RestoreInput{}, backup.Deps{}, "", exitBlocked
 	}
 	be, err := inference.BackendFor(cfg.Backend)
 	if err != nil {
 		fmt.Fprintf(errOut, "restore: resolve backend %q: %v\n", cfg.Backend, err)
-		return backup.RestoreInput{}, backup.Deps{}, exitBlocked
+		return backup.RestoreInput{}, backup.Deps{}, "", exitBlocked
 	}
 	cur := backup.CurrentInstall{
 		VillaVersion:        villaVersion(),
@@ -149,11 +163,13 @@ func liveRestore(cmd *cobra.Command, archivePath string, bypass bool) (backup.Re
 		BenchSchemaVersion:  benchstore.SavedReportSchemaVersion(),
 	}
 
-	// Temp dir (same data-home parent) for the extracted + rollback volume tars.
+	// Temp dir (same data-home parent) for the extracted + rollback volume tars. The
+	// caller removes it after backup.Restore returns (WR-01) — it holds the exported
+	// Open WebUI volume tar, which contains the user's chat database (webui.db).
 	tmpDir, err := os.MkdirTemp("", "villa-restore-*")
 	if err != nil {
 		fmt.Fprintf(errOut, "restore: temp dir: %v\n", err)
-		return backup.RestoreInput{}, backup.Deps{}, exitBlocked
+		return backup.RestoreInput{}, backup.Deps{}, "", exitBlocked
 	}
 
 	in := backup.RestoreInput{
@@ -167,7 +183,7 @@ func liveRestore(cmd *cobra.Command, archivePath string, bypass bool) (backup.Re
 		UsageDestPath:       usage.UsagePath(),
 		BenchDestPath:       benchReportsStorePath(),
 	}
-	return in, liveRestoreDeps(), exitPass
+	return in, liveRestoreDeps(), tmpDir, exitPass
 }
 
 // liveSkewConsent prints the assembled skew WARN+remediation prompt and reads a y/N
