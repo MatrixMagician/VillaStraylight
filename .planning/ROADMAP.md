@@ -182,7 +182,12 @@ See `milestones/v1.1-ROADMAP.md` for full phase detail, success criteria, and pl
   2. User can run `villa restore` and have it apply transactionally (capture → quiesce → swap → restart → prove → rollback-on-failure) — a failed/partial restore leaves the running stack intact.
   3. `villa restore` warns on version/digest skew between the archive manifest and the current install before applying, with remediation.
 
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 16-01-PLAN.md — Pure `internal/backup` core (manifest, SHA-256, tar-slip-guarded archive, skew compare) + `orchestrate.OpenWebUIImage()` accessor + build-stamped villa version
+- [ ] 16-02-PLAN.md — `villa backup`: quiesce OWUI → `podman volume export` → assemble single .tar (manifest+config+volume+usage+bench) with seam-sourced digests, model-weight exclusion (BAK-01)
+- [ ] 16-03-PLAN.md — `villa restore`: transactional capture→quiesce→swap→prove→rollback with clean-recreate-before-import, offload-asserting prove, and skew WARN-and-confirm (BAK-02, BAK-03)
 **Research flag**: Validate cross-host / post-`podman system reset` restore (UID-mapping + SELinux `:Z` repair, e.g. `podman unshare chown -R`) — the "looks done but isn't" case the same-host round-trip test misses — and decide the Open WebUI live-SQLite quiesce approach (avoid overwriting a live DB). External Podman volume mechanics are MEDIUM-confidence.
 **Implementation note**: Use `podman volume export/import` (NEVER host-path tar) behind an `orchestrate`-resident `volume_io` seam or a cmd-tier fixed-arg podman call (as `uninstall.go`'s `podmanVolumeRm` already proves passes the seam gate) — do NOT add a new impure module; `orchestrate` stays the only intentionally-impure module. Pure `internal/backup` does manifest/verify. Restore config via `config.SaveVilla` + re-run preflight; recreate the volume via Quadlet. Mirror `backendswap` transactional discipline. 0600/0700 XDG.
 
