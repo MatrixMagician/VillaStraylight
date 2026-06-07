@@ -25,6 +25,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/metrics"
 	"github.com/MatrixMagician/VillaStraylight/internal/modelswap"
 	"github.com/MatrixMagician/VillaStraylight/internal/status"
+	"github.com/MatrixMagician/VillaStraylight/internal/usage"
 )
 
 // defaultDashboardAddr is the loopback default applied when Config.DashboardAddr is
@@ -83,6 +84,29 @@ type Config struct {
 	// logic. A zero value yields an always-refuse swap (no resolver) so a mis-wired Server
 	// never silently fires a swap.
 	SwapDeps modelswap.Deps
+
+	// --- Cumulative usage (USAGE-02 / D-07) writer seams -------------------
+	// The dashboard's /api/metrics scrape path is the SOLE, usageMu-guarded writer of
+	// usage.json (D-07): on each scrape it folds the _total counters + the configured
+	// model into the store and atomically writes. These func fields are the injected
+	// store/identity seams so api_test exercises the fold+write off-hardware; the live
+	// wiring (liveDashboardDeps) fills them with usage.Load / usage.WriteFileAtomic over
+	// usage.UsagePath and cfg.Model. When nil, NewServer defaults each to an honest
+	// no-op so a partially-wired Server never writes and never panics.
+
+	// ReadUsage loads the persisted store (the fold's prior). nil → empty UsageTotals.
+	ReadUsage func() usage.UsageTotals
+	// WriteUsage atomically writes the folded store. nil → a no-op (never writes).
+	WriteUsage func(usage.UsageTotals) error
+	// ModelID returns the configured model id (cfg.Model) used as the per-model fold key;
+	// it is read INSIDE the usageMu critical section so the key cannot drift mid-write
+	// (Pitfall 2 / T-15-14). nil → "" (Fold then keys an empty-id entry — honest no-op).
+	ModelID func() string
+
+	// CounterSample scrapes the two monotonic _total counters (the fold's source) from
+	// the SAME loopback endpoint already scraped for live tok/s — no new outbound (D-12).
+	// nil → a typed-Unknown (unavailable) sample, so no counter folds.
+	CounterSample func() (metrics.CounterSample, bool)
 }
 
 // Server holds the composed dashboard configuration and exposes the chi handler and
@@ -118,6 +142,24 @@ type Server struct {
 	// ReconcileAndWrite → Restart) and corrupt the config↔units source-of-truth invariant
 	// (CR-02). handleSwitch holds it via TryLock and refuses a concurrent switch with 409.
 	swapMu sync.Mutex
+
+	// Cumulative-usage writer seams (USAGE-02 / D-07). Filled from Config; defaulted to
+	// honest no-ops when Config leaves them nil so a partially-wired Server never writes
+	// usage.json and never nil-panics in handleMetrics.
+	readUsage     func() usage.UsageTotals
+	writeUsage    func(usage.UsageTotals) error
+	modelID       func() string
+	counterSample func() (metrics.CounterSample, bool)
+
+	// usageMu serializes the whole read-modify-write of usage.json in handleMetrics so two
+	// concurrent /api/metrics scrapes can never interleave the non-atomic
+	// ReadUsage → Fold → WriteUsage and tear the store (T-15-13). It is a sibling to swapMu
+	// (a dedicated mutex, not shared) so a usage fold never blocks a model switch and vice
+	// versa. The model identity (modelID) is captured INSIDE this section so the per-model
+	// fold key cannot drift if config changes mid-write (Pitfall 2 / T-15-14). Unlike
+	// swapMu's TryLock-then-409 (a swap may be safely refused), the usage write uses
+	// Lock/defer-Unlock: a scrape's fold must NOT be silently skipped under contention.
+	usageMu sync.Mutex
 }
 
 // isLoopbackAddr reports whether a configured DashboardAddr denotes the loopback
@@ -158,6 +200,10 @@ func NewServer(cfg Config) (*Server, error) {
 		gpuBusy:       cfg.GPUBusy,
 		listModels:    cfg.Models,
 		swapDeps:      cfg.SwapDeps,
+		readUsage:     cfg.ReadUsage,
+		writeUsage:    cfg.WriteUsage,
+		modelID:       cfg.ModelID,
+		counterSample: cfg.CounterSample,
 	}
 
 	// Default any unset collector seam to an always-unavailable / typed-Unknown no-op,
@@ -180,6 +226,24 @@ func NewServer(cfg Config) (*Server, error) {
 	}
 	if s.listModels == nil {
 		s.listModels = func() ([]ModelView, bool) { return []ModelView{}, false }
+	}
+
+	// Default the cumulative-usage writer seams to honest no-ops so a Server constructed
+	// without the USAGE-02 wiring never writes usage.json and never nil-panics in
+	// handleMetrics: ReadUsage → empty store (no prior), WriteUsage → silent no-op (never
+	// writes, D-07), ModelID → "" (Fold keys an empty entry it then discards on no Known
+	// counter), CounterSample → typed-Unknown unavailable (no counter folds, D-05).
+	if s.readUsage == nil {
+		s.readUsage = func() usage.UsageTotals { return usage.UsageTotals{} }
+	}
+	if s.writeUsage == nil {
+		s.writeUsage = func(usage.UsageTotals) error { return nil }
+	}
+	if s.modelID == nil {
+		s.modelID = func() string { return "" }
+	}
+	if s.counterSample == nil {
+		s.counterSample = func() (metrics.CounterSample, bool) { return metrics.CounterSample{}, false }
 	}
 
 	// Parse the embedded shell + sub the assets FS once at construction so a parse

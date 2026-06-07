@@ -3,10 +3,12 @@ package dashboard
 import (
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/metrics"
 	"github.com/MatrixMagician/VillaStraylight/internal/modelswap"
 	"github.com/MatrixMagician/VillaStraylight/internal/status"
+	"github.com/MatrixMagician/VillaStraylight/internal/usage"
 )
 
 // handleStatus folds the SHARED internal/status read-model and serializes the frozen
@@ -71,6 +73,14 @@ type metricsView struct {
 // fabricated zeros (D-11); a successful-but-not-generating snapshot sets Idle so the UI
 // renders "Idle — no active generation." (Pitfall 3 / D-10) rather than a stale rate.
 func (s *Server) handleMetrics(w http.ResponseWriter, _ *http.Request) {
+	// SOLE-WRITER hook (USAGE-02 / D-07): fold the cumulative _total counters into
+	// usage.json on every scrape. This is done FIRST and independently of the live-view
+	// scrape result so the cumulative store accumulates from the monotonic counters even
+	// when the rate-gauge view is idle (the counters and gauges share the same scrape, but
+	// the counters are meaningful regardless of generation activity). It is loud-but-non-
+	// fatal: a write error never changes the live metrics response (T-15-17).
+	s.foldUsage()
+
 	snap, ok := s.scrapeMetrics()
 	if !ok {
 		// /metrics 404 (--metrics absent) or transport error → typed-Unknown panel.
@@ -104,6 +114,50 @@ func (s *Server) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 		view.LatencyMS = &ms
 	}
 	writeJSON(w, http.StatusOK, view)
+}
+
+// foldUsage is the SOLE, usageMu-guarded writer of usage.json (USAGE-02 / D-07). On each
+// /api/metrics scrape it scrapes the two monotonic _total counters (the SAME loopback
+// endpoint as the live tok/s view — no new outbound, D-12), folds them into the persisted
+// per-model store via the reset-aware pure usage.Fold core (Plan 01), and atomically
+// writes the result.
+//
+// The model identity is captured INSIDE the locked section (Pitfall 2 / T-15-14) so the
+// per-model fold key cannot drift if config changes between scrapes. A typed-Unknown
+// counter (Known=false) is carried through to usage.Sample so the pure fold skips it,
+// never writing a fabricated 0 (D-05). The whole read-modify-write is serialized by
+// usageMu so concurrent scrapes cannot tear the store (T-15-13).
+//
+// It is loud-but-non-fatal: an unavailable counter scrape simply folds nothing, and a
+// WriteUsage error is intentionally discarded so a write failure NEVER changes the live
+// /api/metrics response (T-15-17, mirroring the benchstore non-fatal-write discipline).
+func (s *Server) foldUsage() {
+	sample, ok := s.counterSample()
+	if !ok {
+		// The whole counter scrape was unavailable (404 / transport error) — no fold, no
+		// write (typed-Unknown, never a fabricated 0). D-05.
+		return
+	}
+
+	s.usageMu.Lock()
+	defer s.usageMu.Unlock()
+
+	// Capture identity INSIDE the critical section (Pitfall 2 / T-15-14): the per-model
+	// fold key is read here, not at handler entry, so a concurrent config change cannot
+	// mis-key the fold mid-write.
+	model := s.modelID()
+	prior := s.readUsage()
+
+	next := usage.Fold(prior, usage.Sample{
+		Model:                model,
+		PromptTokensTotal:    sample.PromptTokensTotal,
+		PromptTokensKnown:    sample.PromptTokensKnown,
+		PredictedTokensTotal: sample.PredictedTokensTotal,
+		PredictedTokensKnown: sample.PredictedTokensKnown,
+		CapturedAt:           time.Now(),
+	})
+	// Loud-but-non-fatal (T-15-17): a write error must NOT change the live metrics view.
+	_ = s.writeUsage(next)
 }
 
 // gpuView is the GPU & Memory panel JSON read-model (DASH-03), MEMORY-FIRST: the
