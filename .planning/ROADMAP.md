@@ -52,7 +52,7 @@ See `milestones/v1.1-ROADMAP.md` for full phase detail, success criteria, and pl
 
 - [x] **Phase 12: `rocm-6.4.4` Alternate Backend** — Add a digest-pinned TG-tuned ROCm image selectable behind `BackendFor`, seam-locked + policy-gated, to recover the v1.1 Δtg −11.15 regression. (3 plans) (completed 2026-06-07)
 - [x] **Phase 13: `villa doctor` Health Diagnosis** — One-shot, read-only health/diagnosis composing preflight + status + residency proof + config-vs-disk drift, with remediation and 0/2/1 exit tiers. (verified 15/15 must-haves; on-hardware UAT 3/3 live on gfx1151 — healthy→exit 0, induced CPU fallback→exit 1 no-false-green, drift→exit 2; gap-closure 13-03 added ROCm residency-supersession so a residency-proven ROCm install reaches exit 0) (completed 2026-06-07)
-- [ ] **Phase 14: Saved Bench Reports + `--compare`** — Persist each bench run as a versioned saved report under XDG, and compare runs over time behind a comparability guard.
+- [x] **Phase 14: Saved Bench Reports + `--compare`** — Persist each bench run as a versioned saved report under XDG, and compare runs over time behind a comparability guard. (3 plans; BENCH-03/04 complete) (completed 2026-06-07)
 - [ ] **Phase 15: Cumulative Usage Tracking** — Accumulate reset-aware token totals locally and surface them (append-only) in `status` + dashboard, counts-only, no new outbound.
 - [ ] **Phase 16: Backup / Restore** — Self-describing local archive (config + Open WebUI data, model weights excluded) with a transactional, skew-warning restore.
 - [ ] **Phase 17: Guided TUI Install (Capstone)** — Interactive terminal install flow over the finished pipeline, pure presentation, TTY-gated with a `--no-tui` fallback, single static CGO-free binary.
@@ -137,7 +137,7 @@ See `milestones/v1.1-ROADMAP.md` for full phase detail, success criteria, and pl
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 14-03-PLAN.md — read-only `villa bench --compare`/`--list`: comparability-guarded pp/tg deltas on separate lines OR honest "not comparable" refusal, 0/2/1 exit mapping, flag-exclusivity with the live-measurement flags, OWN `--compare --json` golden (BENCH-04) [Wave 3]
+- [x] 14-03-PLAN.md — read-only `villa bench --compare`/`--list`: comparability-guarded pp/tg deltas on separate lines OR honest "not comparable" refusal, 0/2/1 exit mapping, flag-exclusivity with the live-measurement flags, OWN `--compare --json` golden (BENCH-04) [Wave 3]
 
 **Implementation note**: Freeze the new `internal/benchstore` saved-report format FIRST via its own golden (`schema_version` from day one) — the on-disk format is a contract; lock it before any real reports are written to prevent migrations. Flat JSONL persistence; persist the full `BenchSpec` + env fingerprint + `VoidExhausted`/`Reason`. `--compare` is read-only and distinct from live `--ab`.
 
@@ -206,7 +206,7 @@ See `milestones/v1.1-ROADMAP.md` for full phase detail, success criteria, and pl
 | 11. Address v1.1 tech debt | v1.1 | 2/2 | Complete | 2026-06-06 |
 | 12. `rocm-6.4.4` Alternate Backend | v1.2 | 3/3 | Complete    | 2026-06-07 |
 | 13. `villa doctor` Health Diagnosis | v1.2 | 3/3 | Complete    | 2026-06-07 |
-| 14. Saved Bench Reports + `--compare` | v1.2 | 1/3 | In Progress|  |
+| 14. Saved Bench Reports + `--compare` | v1.2 | 3/3 | Complete    | 2026-06-07 |
 | 15. Cumulative Usage Tracking | v1.2 | 0/? | Not started | - |
 | 16. Backup / Restore | v1.2 | 0/? | Not started | - |
 | 17. Guided TUI Install | v1.2 | 0/? | Not started | - |
