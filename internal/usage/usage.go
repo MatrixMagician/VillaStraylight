@@ -208,20 +208,29 @@ func Load(d Deps) (UsageTotals, error) {
 	return t, nil
 }
 
+// storeRootDir resolves the fixed villa DATA-store root that every durable
+// data-dir artifact (usage.json, bench-reports.jsonl) lives directly under:
+// $XDG_DATA_HOME/villa, falling back to ~/.local/share/villa then /var/tmp/villa
+// (D-02). WriteFileAtomic guards every write path against THIS fixed root rather
+// than against the path's own parent — a `..`-bearing path is only meaningfully
+// rejected when measured against a root the caller does NOT control (WR-05).
+func storeRootDir() string {
+	if x := os.Getenv("XDG_DATA_HOME"); x != "" {
+		return filepath.Join(x, "villa")
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		return filepath.Join(home, ".local", "share", "villa")
+	}
+	return filepath.Join("/var/tmp", "villa")
+}
+
 // UsagePath resolves the single mutable usage store:
 // $XDG_DATA_HOME/villa/usage.json, falling back to ~/.local/share/villa/usage.json
 // then /var/tmp/villa/usage.json (cloned from benchstore.benchReportsPath; usage is
 // durable accumulated DATA, not config and not disposable cache — D-02). It lives
 // here so the resolver ships with the contract it serves.
 func UsagePath() string {
-	const file = "usage.json"
-	if x := os.Getenv("XDG_DATA_HOME"); x != "" {
-		return filepath.Join(x, "villa", file)
-	}
-	if home, err := os.UserHomeDir(); err == nil {
-		return filepath.Join(home, ".local", "share", "villa", file)
-	}
-	return filepath.Join("/var/tmp", "villa", file)
+	return filepath.Join(storeRootDir(), "usage.json")
 }
 
 // assertInsideDir verifies path resolves within dir, rejecting traversal escapes
@@ -247,14 +256,21 @@ func assertInsideDir(path, dir string) error {
 }
 
 // WriteFileAtomic writes data to path via a same-dir temp file + os.Rename, so a
-// crash mid-write never leaves a torn usage.json (T-15-02). It guards against
-// traversal (T-15-01), creates the dir 0700, writes the temp 0600, renames
+// crash mid-write never leaves a torn usage.json (T-15-02). It guards path against
+// traversal OUT of the fixed villa data-store root (WR-05) — guarding against the
+// path's OWN parent (the prior shape) could never fire, since a path is always
+// inside its own parent. It creates the dir 0700, writes the temp 0600, renames
 // atomically, then tightens a pre-existing looser file to 0600 (T-15-04). The temp
-// is cleaned up on any error before the rename. The dashboard (Plan 04) wires this
-// as the live WriteAll seam.
+// is cleaned up on any error before the rename. The dashboard (Plan 04) and restore
+// (Phase 16) wire this as the live data-dir write seam; both write store paths
+// resolved from storeRootDir / benchstore's matching root, so a legitimate write is
+// never rejected.
 func WriteFileAtomic(path string, data []byte) error {
 	dir := filepath.Dir(path)
-	if err := assertInsideDir(path, dir); err != nil {
+	// Guard against the FIXED store root, not the path's own parent — only then does
+	// a `..`-bearing path get measured against a root the caller does not control
+	// (WR-05). usage.json and bench-reports.jsonl both live directly under this root.
+	if err := assertInsideDir(path, storeRootDir()); err != nil {
 		return err
 	}
 	if err := os.MkdirAll(dir, storeDirMode); err != nil {
