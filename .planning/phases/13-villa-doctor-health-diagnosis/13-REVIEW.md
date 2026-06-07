@@ -14,7 +14,14 @@ findings:
   warning: 2
   info: 3
   total: 5
-status: issues_found
+status: resolved
+resolution:
+  fixed_in: 00cb7e8
+  WR-01: "fixed — liveDoctorDeps now fails closed on a BackendFor error in the image gate (mirrors DriftPlan), closing the latent false-green path"
+  WR-02: "fixed — corrected the Aggregate doc comments (doctor.go:160, :260) to state all WARN-status superseded host-prep findings are down-ranked, not only the typed-Unknown subset"
+  IN-03: "fixed — dropped the inaccurate 'three' count in the rocmSupersededReport fixture doc"
+  IN-01: "accepted — Deps.LoadConfig kept as a documented reserved forward seam (stable Deps shape)"
+  IN-02: "accepted — fixture detail strings are internally consistent with the renderer golden; not a contract break"
 ---
 
 # Phase 13: Code Review Report (gap-closure: ROCm residency-supersession)
