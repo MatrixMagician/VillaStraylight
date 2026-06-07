@@ -190,7 +190,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 16-02-PLAN.md — `villa backup`: quiesce OWUI → `podman volume export` → assemble single .tar (manifest+config+volume+usage+bench) with seam-sourced digests, model-weight exclusion (BAK-01)
+- [x] 16-02-PLAN.md — `villa backup`: quiesce OWUI → `podman volume export` → assemble single .tar (manifest+config+volume+usage+bench) with seam-sourced digests, model-weight exclusion (BAK-01)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -234,5 +234,5 @@ Plans:
 | 13. `villa doctor` Health Diagnosis | v1.2 | 3/3 | Complete    | 2026-06-07 |
 | 14. Saved Bench Reports + `--compare` | v1.2 | 3/3 | Complete    | 2026-06-07 |
 | 15. Cumulative Usage Tracking | v1.2 | 4/4 | Complete    | 2026-06-07 |
-| 16. Backup / Restore | v1.2 | 1/3 | In Progress|  |
+| 16. Backup / Restore | v1.2 | 2/3 | In Progress|  |
 | 17. Guided TUI Install | v1.2 | 0/? | Not started | - |

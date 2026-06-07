@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Operability
 status: executing
-stopped_at: Phase 16 context gathered
-last_updated: "2026-06-07T20:00:40.491Z"
-last_activity: 2026-06-07 -- Phase 16 execution started
+stopped_at: Completed 16-02-PLAN.md (villa backup)
+last_updated: "2026-06-07T20:30:00.000Z"
+last_activity: 2026-06-07 -- Completed Phase 16 Plan 02 (villa backup)
 progress:
   total_phases: 6
   completed_phases: 4
   total_plans: 16
-  completed_plans: 14
-  percent: 67
+  completed_plans: 15
+  percent: 71
 ---
 
 # Project State
@@ -26,10 +26,10 @@ See: .planning/PROJECT.md (updated 2026-06-07 after starting v1.2)
 ## Current Position
 
 Phase: 16 (backup-restore) — EXECUTING
-Plan: 2 of 3
-Status: Ready to execute
-Progress: [████████░░] 77%
-Last activity: 2026-06-07 -- Phase 16 execution started
+Plan: 3 of 3
+Status: 16-02 complete (villa backup); Wave 3 (16-03 villa restore) next
+Progress: [█████████░] 88%
+Last activity: 2026-06-07 -- Completed Phase 16 Plan 02 (villa backup)
 
 ## v1.2 Build Order (research-converged — preserve)
 
@@ -91,6 +91,7 @@ contract evolves at a time), then the destructive backup, then the TUI capstone.
 | Phase 15 P03 | 6 min | 2 tasks | 4 files |
 | Phase 15 P04 | ~12 min | 2 tasks | 5 files |
 | Phase 16 P01 | 6m | 2 tasks | 14 files |
+| Phase 16 P02 | ~12m | 2 tasks | 13 files |
 
 ## Accumulated Context
 
@@ -146,6 +147,10 @@ Earlier (v1.0 / v1.1) decisions retained below.
 - [Phase ?]: 15-04: dashboard surfaces cumulative totals via the SAME status.Report.usage field (no new endpoint, D-10); typed-Unknown muted UI, never a fabricated 0
 - [Phase ?]: Backup manifest carries store schema versions as plain ints; real usage/bench values supplied by cmd-tier via Plan-02 accessors (16-01).
 - [Phase ?]: Build-stamped villa version via -ldflags -X main.version from git describe; backup manifest villa_version source (16-01, D-09).
+- [16-02]: villa backup ships (BAK-01) — pure Backup() over Deps does quiesce(stop OWUI)->podman volume export->assemble single .tar(manifest+config+volume+usage+single bench-reports.jsonl)->defer best-effort restart (D-05); model weights excluded, identities recorded for re-pull.
+- [16-02]: podman volume I/O is a SHARED cmd-tier fixed-arg seam (cmd/villa/podman_volume.go: volumeExportArgs/volumeImportArgs/podmanVolume/requirePodman) cloned from uninstall.go podmanVolumeRm — NO new impure module (D-02); internal/backup stays exec-free (SeamGrepGate green).
+- [16-02]: store schema versions sourced via NEW exported accessors usage.SchemaVersion()/benchstore.SavedReportSchemaVersion() (mirror-guarded vs the unexported consts) so the manifest can never desync; OWUI volume name via orchestrate.OpenWebUIVolumeName(); both image digests seam-sourced (no literal — D-10).
+- [16-02]: archive 0600, output traversal-guarded against its parent, corrupt partial removed on failed write; default name villa-backup-<timestamp>.tar (FS-safe, no ':'). --json deferred (D-13). On-hardware gfx1151 round-trip UAT deferred to phase gate.
 
 ### Pending Todos
 
@@ -184,9 +189,9 @@ Items acknowledged at milestone close on 2026-06-06 (v1.1):
 
 ## Session Continuity
 
-Last session: 2026-06-07T19:59:49.669Z
-Stopped at: Phase 16 context gathered
-Resume file: .planning/phases/16-backup-restore/16-CONTEXT.md
+Last session: 2026-06-07T20:30:00.000Z
+Stopped at: Completed 16-02-PLAN.md (villa backup)
+Resume file: .planning/phases/16-backup-restore/16-03-PLAN.md
 
 ## Operator Next Steps
 
