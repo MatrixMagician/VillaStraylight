@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Operability
-status: ready
-stopped_at: Phase 13 (villa doctor) complete & verified (15/15, UAT 3/3 live) — ready to plan Phase 14
-last_updated: "2026-06-07T15:55:52.008Z"
-last_activity: 2026-06-07
+status: executing
+stopped_at: Completed 13-03-PLAN.md (Phase 13 plans complete)
+last_updated: "2026-06-07T16:27:54.471Z"
+last_activity: 2026-06-07 -- Phase 14 planning complete
 progress:
   total_phases: 6
   completed_phases: 2
@@ -27,9 +27,9 @@ See: .planning/PROJECT.md (updated 2026-06-07 after starting v1.2)
 
 Phase: 14
 Plan: Not started
-Status: Phase 13 complete & verified (villa doctor; gap-closure 13-03 shipped, UAT 3/3 live) — ready to plan Phase 14
+Status: Ready to execute
 Progress: [██░░░░] 2/6 phases complete (v1.2)
-Last activity: 2026-06-07
+Last activity: 2026-06-07 -- Phase 14 planning complete
 
 ## v1.2 Build Order (research-converged — preserve)
 
