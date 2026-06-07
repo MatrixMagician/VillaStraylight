@@ -50,7 +50,7 @@ See `milestones/v1.1-ROADMAP.md` for full phase detail, success criteria, and pl
 
 **Build order is research-converged** (all four researchers + the synthesizer agreed): seam-locked + composition features first (zero/trivial contract risk), then the two persistence features with their byte-frozen evolutions staggered so **only one byte-frozen contract evolves at a time**, then the destructive backup, then the TUI capstone over the finished surface.
 
-- [ ] **Phase 12: `rocm-6.4.4` Alternate Backend** — Add a digest-pinned TG-tuned ROCm image selectable behind `BackendFor`, seam-locked + policy-gated, to recover the v1.1 Δtg −11.15 regression. (3 plans)
+- [x] **Phase 12: `rocm-6.4.4` Alternate Backend** — Add a digest-pinned TG-tuned ROCm image selectable behind `BackendFor`, seam-locked + policy-gated, to recover the v1.1 Δtg −11.15 regression. (3 plans) (completed 2026-06-07)
 - [ ] **Phase 13: `villa doctor` Health Diagnosis** — One-shot, read-only health/diagnosis composing preflight + status + residency proof + config-vs-disk drift, with remediation and 0/2/1 exit tiers.
 - [ ] **Phase 14: Saved Bench Reports + `--compare`** — Persist each bench run as a versioned saved report under XDG, and compare runs over time behind a comparability guard.
 - [ ] **Phase 15: Cumulative Usage Tracking** — Accumulate reset-aware token totals locally and surface them (append-only) in `status` + dashboard, counts-only, no new outbound.
@@ -81,7 +81,7 @@ See `milestones/v1.1-ROADMAP.md` for full phase detail, success criteria, and pl
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [~] 12-03-PLAN.md — bench `--ab-target` (Option A, SC#3) DONE off-hardware (3/4 tasks; commits 9fcd5d3, c049e31); on-hardware switch/residency/Δtg checkpoint (SC#1) PENDING operator UAT [Wave 3]
+- [x] 12-03-PLAN.md — bench `--ab-target` (Option A, SC#3); on-hardware UAT COMPLETE 2026-06-07 on gfx1151 — SC#1/SC#2/SC#3 PASS (rocm-6.4.4 residency-proven; rocwmma residency FAIL→rolled back; fail-closed validated). Honest bench result: rocm-6.4.4 does NOT recover Δtg (Vulkan still +11.68 tg) — Vulkan stays default. [Wave 3] [commits 9fcd5d3, c049e31]
 
 **Research flag**: Re-verify the rolling `rocm-6.4.4` tag digest at implementation time (kyuz0 re-pushes the rolling tag — pin the digest `sha256:c81f30a7fd2641e3ea6ac4c45323ba239dca906ed79cc0dfe5b885f9f150ec62`; the `-rocwmma` variant `sha256:9a97129af2c1a2f0080f234787f6978551a43e354f3eb26a8ebc868f643c0141` is a bench-decided choice — ship the one the A/B proves).
 
@@ -178,7 +178,7 @@ See `milestones/v1.1-ROADMAP.md` for full phase detail, success criteria, and pl
 | 9. `villa bench` (Honest A/B) | v1.1 | 3/3 | Complete | 2026-06-06 |
 | 10. Backend + tok/s Surfacing | v1.1 | 3/3 | Complete | 2026-06-06 |
 | 11. Address v1.1 tech debt | v1.1 | 2/2 | Complete | 2026-06-06 |
-| 12. `rocm-6.4.4` Alternate Backend | v1.2 | 2/3 | In Progress|  |
+| 12. `rocm-6.4.4` Alternate Backend | v1.2 | 3/3 | Complete   | 2026-06-07 |
 | 13. `villa doctor` Health Diagnosis | v1.2 | 0/? | Not started | - |
 | 14. Saved Bench Reports + `--compare` | v1.2 | 0/? | Not started | - |
 | 15. Cumulative Usage Tracking | v1.2 | 0/? | Not started | - |

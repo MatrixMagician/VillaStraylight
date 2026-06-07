@@ -126,7 +126,42 @@ fail-closed `BackendFor` validation, T-12-07) and the existing digest-pinned ima
 - `make check` → green (vet clean + all 17 packages pass).
 - `TestSeamGrepGate` / `TestROCmMarkerPresence` → green.
 - `cmd/villa/testdata/bench.json.golden` → byte-unchanged.
-- On-hardware (SC#1/SC#3 host-only legs) → **PENDING operator UAT** (Task 4).
+- On-hardware (SC#1/SC#3 host-only legs) → **COMPLETED 2026-06-07 on the gfx1151 host** (see "On-Hardware UAT Results" below).
+
+## On-Hardware UAT Results (Task 4 — COMPLETED 2026-06-07, gfx1151 Strix Halo host)
+
+Operator ran the full on-hardware checkpoint on the live host (model `qwen3.6-35b-a3b`).
+All four success criteria PASS as engineering deliverables; the **performance
+hypothesis is DISPROVEN** by the very A/B the phase built.
+
+**SC#1 — transactional switch + residency proof:** PASS.
+- `villa backend set rocm-6.4.4` → switched + cutover **proven** (residency PASS); `villa status` = backend `rocm-6.4.4`, OFFLOAD PASS, image `@sha256:c81f30a7…`. Proven twice (initial switch + post-rollback restore).
+- `villa backend set rocm-6.4.4-rocwmma` → **residency FAILED** ("not ready before timeout — possible load_tensors hang or CPU-fallback stall") and **rolled back verbatim** to rocm-6.4.4, which then recovered to OFFLOAD PASS. Offload-asserting FAIL path + transactional rollback both working as designed — a real honest FAIL, never a false-green.
+- `villa backend set rocm` (restore) → switched + cutover proven (4th proven cutover).
+
+**SC#2 — digest-pin + policy gate / fail-closed:** PASS.
+- `--dry-run` → fit PASS + preflight PASS before any mutation.
+- **Rolling-tag drift caught & survived:** `skopeo inspect` showed the live `rocm-6.4.4` tag re-pushed to `sha256:44f115e0…` (≠ pinned `c81f30a7…`) within the same day; the pinned digest still resolves & pulls (content-addressed), so the switch used the exact reproducible image. Pinning worked exactly as Pitfall 12 intended. (`-rocwmma` tag digest `9a97129a…` still matches.)
+- `--ab-target rocm-7.2.4` → **fail-closed rejected** with named remediation (valid identifier is `rocm` = 7.2.4); zero side effects (D-03 validated).
+
+**SC#3 — `bench --ab` arbitrary-pair, pp/tg separate:** PASS (mechanism). `--ab-target` works; pp/tg separate; all runs residency-checked (kept=5 void=0); auto-restore after each A/B. Conditions: warmup=1 reps=5 n_predict=128 seed=42 temp=0.
+
+| A/B (Δ = A→B) | A pp | A tg | B pp | B tg | Δpp | Δtg |
+|---|---|---|---|---|---|---|
+| rocm-6.4.4 → rocm (7.2.4) | 118.68 | 49.28 | 122.50 | 50.36 | +3.82 | +1.08 |
+| rocm-6.4.4 → vulkan | 118.25 | 49.11 | 116.54 | **60.79** | −1.72 | **+11.68** |
+
+**Δtg verdict (the bench-decided D-04 outcome): rocm-6.4.4 does NOT recover the regression.**
+Vulkan still leads tg by **~11.68 tok/s** over rocm-6.4.4 — essentially identical to v1.1's rocm-7.2.4 Δtg −11.15. rocm-6.4.4 ≈ rocm-7.2.4 (marginally slower on both). `-rocwmma` is non-functional on this host/model (residency FAIL). ROCm wins pp slightly; **Vulkan remains the tg winner and the correct default** — never auto-switched, as designed.
+
+**SC#4 — seam grep-gate:** PASS (off-hardware; `TestSeamGrepGate` green).
+
+**Net:** the engineering shipped correctly and safely (selectable, gated, residency-proven, honestly benchable alternate backend). The hypothesis it was built to test — that a TG-tuned rocm-6.4.4 image recovers the Δtg loss — is **disproven on this host/model**. The honest-A/B did exactly its job: prove, don't assume.
+
+**Follow-ups surfaced (not blocking the capability):**
+1. `rocm-6.4.4-rocwmma` residency FAIL — investigate whether it's a bounded-timeout tuning issue (older 8.04 GB / 4-month image) or a genuine gfx1151 incompatibility; it ships selectable but does not come up here.
+2. Rolling-tag drift — the live `rocm-6.4.4` tag now points to a newer build (`44f115e0…`); the pin is still valid/reproducible, but a future re-pin could capture the newer build if desired.
+3. Doc nit — the checkpoint instructions said `--ab-target rocm-7.2.4`; the valid backend identifier is `rocm`.
 
 ## Self-Check: PASSED
 

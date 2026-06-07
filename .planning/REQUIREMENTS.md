@@ -40,7 +40,7 @@ backend literals stay behind the `internal/inference` seam.
 
 ### Inference Backend
 
-- [ ] **ROCM-ALT-01**: User can opt into a digest-pinned `rocm-6.4.4` (or its `-rocwmma` variant, bench-decided) ROCm image as an alternate backend via `villa backend set`, gated by `rocm-policy.json` floors and kept behind the `internal/inference` seam (incl. extending `seam_test.go` so the new image literal cannot leak) — addressing the v1.1 Δtg −11.15 regression. Never auto-switches; Vulkan stays default. *(Off-hardware implementation complete + full suite green, Phase 12 plans 12-01/12-02/12-03; on-hardware UAT — transactional switch + residency proof (SC#1) and Δtg-recovery bench (SC#3) on the gfx1151 host — PENDING operator verification before this can be marked validated.)*
+- [x] **ROCM-ALT-01**: User can opt into a digest-pinned `rocm-6.4.4` (or its `-rocwmma` variant, bench-decided) ROCm image as an alternate backend via `villa backend set`, gated by `rocm-policy.json` floors and kept behind the `internal/inference` seam (incl. extending `seam_test.go` so the new image literal cannot leak) — addressing the v1.1 Δtg −11.15 regression. Never auto-switches; Vulkan stays default. — *Validated Phase 12 (off-hardware suite green; on-hardware UAT 2026-06-07 on gfx1151): SC#1 transactional switch + residency proof PASS for `rocm-6.4.4` (and a correct offload-asserting residency FAIL + verbatim rollback for `-rocwmma`); SC#2 digest-pin/fail-closed PASS (survived a same-day rolling-tag drift via the content-addressed pin); SC#3 `bench --ab-target` arbitrary-pair pp/tg-separate PASS; SC#4 seam grep-gate green. **Honest perf outcome (bench-decided D-04): `rocm-6.4.4` does NOT recover the Δtg regression — Vulkan still leads tg by ~11.68 tok/s (≈ the v1.1 −11.15); `rocm-6.4.4 ≈ rocm-7.2.4`; `-rocwmma` non-functional on this host/model. Vulkan remains the tg default. The capability + honest measurement shipped; adopting `rocm-6.4.4` for tg is not warranted.** See `12-03-SUMMARY.md → On-Hardware UAT Results`.*
 
 ## Future Requirements
 
@@ -79,7 +79,7 @@ Which phases cover which requirements. Populated during roadmap creation (`/gsd-
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| ROCM-ALT-01 | Phase 12 | In Progress (on-hardware UAT pending) |
+| ROCM-ALT-01 | Phase 12 | Validated (capability shipped; perf hypothesis disproven — Vulkan stays tg default) |
 | DOCTOR-01 | Phase 13 | Pending |
 | DOCTOR-02 | Phase 13 | Pending |
 | DOCTOR-03 | Phase 13 | Pending |
