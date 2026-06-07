@@ -67,6 +67,92 @@ func newDoctorDeps() Deps {
 	}
 }
 
+// rocmDoctorDeps builds a healthy-default doctor.Deps on the ROCm-family path:
+// newDoctorDeps() with Backend="rocm" so Aggregate runs the ROCm host-prep gate
+// (inference.IsROCmFamily("rocm")==true). The Probe stays the off-hardware
+// typed-Unknown HostProfile (detect.HostProfile{}), so preflight.RunROCm emits the
+// three ROCM-PRE-firmware/-hsa/-image findings as typed-Unknown WARN BY CONSTRUCTION
+// (checks_rocm.go:66-67 hardcode firmware/hsa as UnknownStr; RunROCm passes an empty
+// requested image) — exactly the structural WARNs from the live UAT (13-UAT.md Test 1).
+// The StatusReport keeps OffloadApplies=true + Offload.Status=StatusPass over a
+// HealthReady — the PROVEN-residency precondition the supersession keys off.
+func rocmDoctorDeps() Deps {
+	d := newDoctorDeps()
+	d.Backend = "rocm"
+	d.LoadConfig = func() (config.VillaConfig, error) {
+		return config.VillaConfig{Backend: "rocm"}, nil
+	}
+	return d
+}
+
+// hasFinding reports whether the report carries a finding with the given ID.
+func hasFinding(r Report, id string) bool {
+	for _, f := range r.Findings {
+		if f.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+// TestROCmResidencySupersedesHostPrepWARN is the gap-closure / residency-supersession
+// invariant (13-UAT.md Test 1; DOCTOR-01 "exit 0 = healthy" on the opt-in ROCm path).
+// Probe-reachable branch: a PROVEN ROCm residency (Backend="rocm", OffloadApplies=true,
+// Offload.Status==inference.StatusPass over a HealthReady) must DOWN-RANK the three
+// typed-Unknown ROCm host-prep WARNs (ROCM-PRE-firmware/-hsa/-image) so they no longer
+// force Overall=WARN. The findings stay VISIBLE in r.Findings (the supersession
+// down-ranks; it does NOT delete), and none becomes a FAIL. Before the fix the
+// typed-Unknown ROCm WARNs fold to "WARN" (the gap); after the fix Overall=="PASS".
+func TestROCmResidencySupersedesHostPrepWARN(t *testing.T) {
+	d := rocmDoctorDeps()
+
+	r := Aggregate(d)
+	if r.Overall != "PASS" {
+		t.Fatalf("Overall = %q, want PASS", r.Overall)
+	}
+	// Visibility preserved: the supersession down-ranks, it does NOT delete the findings.
+	for _, id := range []string{"ROCM-PRE-firmware", "ROCM-PRE-hsa", "ROCM-PRE-image"} {
+		if !hasFinding(r, id) {
+			t.Errorf("expected superseded host-prep finding %q to remain VISIBLE in Findings; findings: %+v", id, r.Findings)
+		}
+	}
+	// No finding may be a FAIL under proven residency over typed-Unknown host-prep WARNs.
+	for _, f := range r.Findings {
+		if f.Status == "FAIL" {
+			t.Errorf("unexpected FAIL finding %q (tier %s) under proven residency; findings: %+v", f.ID, f.Tier, r.Findings)
+		}
+	}
+}
+
+// TestROCmResidencyDoesNotFireOnStatusFail is the supersession-GATING guard
+// (DOCTOR-02 / no-false-green): the supersession is gated on inference.StatusPass and
+// MUST NOT fire when residency is NOT proven. Probe-reachable branch: a confident
+// offload FAIL (Offload.Status==inference.StatusFail over a HealthReady) on the
+// Backend="rocm" path must still dominate the health-200 → Overall=="FAIL", and the
+// typed-Unknown ROCM-PRE-* WARNs are NOT downgraded (no proven residency). This is the
+// gating half of the invariant — reachable from Task 1 with no Deps seam (StatusFail
+// comes from the StatusReport, not the host-prep gate). It passes today and must keep
+// passing after the fix (forward-guard against the supersession over-firing on a
+// non-proven offload).
+func TestROCmResidencyDoesNotFireOnStatusFail(t *testing.T) {
+	d := rocmDoctorDeps()
+	d.StatusReport = func() status.Report {
+		r := healthyStatusReport() // HealthReady stays
+		r.Services[0].Offload = inference.Verdict{
+			Status:      inference.StatusFail,
+			Detail:      "offloaded 0/33 layers",
+			Remediation: "check backend residency",
+		}
+		r.Services[0].OffloadOK = false
+		return r
+	}
+
+	r := Aggregate(d)
+	if r.Overall != "FAIL" {
+		t.Fatalf("Overall = %q, want FAIL (offload StatusFail must dominate; supersession must NOT fire without proven residency)", r.Overall)
+	}
+}
+
 // nonPassFindings returns the findings whose Status is not "PASS".
 func nonPassFindings(r Report) []Finding {
 	var out []Finding
