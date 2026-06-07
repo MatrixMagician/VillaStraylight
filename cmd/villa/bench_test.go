@@ -623,6 +623,55 @@ func TestBenchstoreWriteConfinedToDataDir(t *testing.T) {
 	}
 }
 
+// TestBenchAssertStoreUnderRoot proves the MEANINGFUL T-14-01 guard (WR-02): unlike the
+// previous inert check (store against its own parent dir, which can never escape), the
+// guard validates the resolved store against the TRUSTED data-home root — the actual
+// untrusted vector being $XDG_DATA_HOME. A legit absolute root passes; an empty root, a
+// NON-ABSOLUTE root, and a `..`-escaping store are all rejected (loud-but-non-fatal at
+// the call site). This is the test that fails if the guard ever regresses to a no-op.
+func TestBenchAssertStoreUnderRoot(t *testing.T) {
+	root := t.TempDir() // absolute
+	legit := filepath.Join(root, "villa", "bench-reports.jsonl")
+	if err := benchAssertStoreUnderRoot(legit, root); err != nil {
+		t.Errorf("legit store under absolute root rejected: %v", err)
+	}
+
+	// Empty root: rejected.
+	if err := benchAssertStoreUnderRoot(legit, ""); err == nil {
+		t.Error("empty data-home root must be rejected")
+	}
+
+	// Non-absolute root (a relative $XDG_DATA_HOME): rejected.
+	if err := benchAssertStoreUnderRoot(filepath.Join("rel", "villa", "x.jsonl"), "rel"); err == nil {
+		t.Error("non-absolute data-home root must be rejected")
+	}
+
+	// A store that escapes the root (a `store` NOT derived from `root`): rejected. This
+	// is the raw traversal-escape branch — an absolute store path that resolves OUTSIDE
+	// the resolved root.
+	escape := filepath.Join(filepath.Dir(root), "evil", "villa", "x.jsonl")
+	if err := benchAssertStoreUnderRoot(escape, root); err == nil {
+		t.Errorf("store escaping the data-home root must be rejected: %q", escape)
+	}
+}
+
+// TestBenchstoreWriteRejectsNonAbsoluteXDG proves the live append seam SKIPS the write
+// (returns an error the caller surfaces as a non-fatal WARN) when $XDG_DATA_HOME is a
+// NON-ABSOLUTE value — the actual untrusted-env vector. The spec requires an absolute
+// XDG_DATA_HOME; a relative one would resolve the store against an unpredictable CWD, so
+// the guard refuses rather than landing the store somewhere unintended. This is the
+// end-to-end counterpart to TestBenchAssertStoreUnderRoot and proves the guard is no
+// longer a no-op (it previously checked the store against its own parent dir and could
+// never reject anything).
+func TestBenchstoreWriteRejectsNonAbsoluteXDG(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", "relative-data-home")
+
+	d := liveBenchstoreDeps()
+	if err := d.AppendLine([]byte("{\"y\":2}\n")); err == nil {
+		t.Error("append must be refused for a non-absolute XDG_DATA_HOME (traversal guard)")
+	}
+}
+
 // TestBenchFingerprintHonorsKnownGuard proves the comparability fingerprint is captured
 // at the cmd tier from config + .Known-guarded detect.Probe(): config-sourced
 // model/quant/ctx are carried verbatim, the benched backend is recorded, and the host

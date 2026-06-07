@@ -255,40 +255,71 @@ func liveBenchDeps(ab bool, spec bench.BenchSpec) *bench.Deps {
 // passed into benchstore as plain strings — benchstore stays detect-free.
 // ---------------------------------------------------------------------------
 
-// benchReportsStorePath resolves the single append-only JSONL store the live writer
-// targets: $XDG_DATA_HOME/villa/bench-reports.jsonl (default ~/.local/share/villa/...,
-// then /var/tmp/villa/...). It mirrors the benchstore.benchReportsPath resolver (which is
-// unexported in the pure core) and model.go:modelsDir, so the live append path resolves
-// the SAME location the contract documents without importing config solely for a helper.
-func benchReportsStorePath() string {
+// benchStoreLocation resolves BOTH the single append-only JSONL store path the live
+// writer targets AND the trusted data-home ROOT it must stay under:
+//   - root = $XDG_DATA_HOME (default ~/.local/share, then /var/tmp)
+//   - store = <root>/villa/bench-reports.jsonl
+//
+// Returning the root separately is what makes the T-14-01 traversal guard MEANINGFUL:
+// the untrusted vector is $XDG_DATA_HOME itself (an attacker-controlled env var could
+// contain `..` or be a relative value and point the store anywhere). The guard
+// (benchAssertStoreUnderRoot) validates the resolved store against this resolved root
+// — NOT against its own parent dir, which by construction can never escape. It mirrors
+// the benchstore.benchReportsPath resolver (unexported in the pure core) and
+// model.go:modelsDir, so the live append path resolves the SAME documented location
+// without importing config/benchstore solely for a helper.
+func benchStoreLocation() (store, root string) {
 	const file = "bench-reports.jsonl"
 	if x := os.Getenv("XDG_DATA_HOME"); x != "" {
-		return filepath.Join(x, "villa", file)
+		return filepath.Join(x, "villa", file), x
 	}
 	if home, err := os.UserHomeDir(); err == nil {
-		return filepath.Join(home, ".local", "share", "villa", file)
+		root = filepath.Join(home, ".local", "share")
+		return filepath.Join(root, "villa", file), root
 	}
-	return filepath.Join("/var/tmp", "villa", file)
+	return filepath.Join("/var/tmp", "villa", file), "/var/tmp"
 }
 
-// benchAssertInsideDir verifies path resolves within dir, rejecting traversal escapes
-// (T-14-01). It is a LOCAL copy of the benchstore guard shape — the pure core's is
-// unexported and importing config/benchstore solely for it would widen this file's deps.
-func benchAssertInsideDir(path, dir string) error {
-	absDir, err := filepath.Abs(filepath.Clean(dir))
+// benchReportsStorePath returns just the resolved store path (for WARN messages). It
+// is the path half of benchStoreLocation.
+func benchReportsStorePath() string {
+	store, _ := benchStoreLocation()
+	return store
+}
+
+// benchAssertStoreUnderRoot is the MEANINGFUL T-14-01 traversal guard. Unlike a check
+// of the store against its own parent dir (which can never escape and is defense-
+// theater), this validates the resolved store against the TRUSTED data-home root — the
+// actual untrusted vector being $XDG_DATA_HOME. It rejects:
+//   - an empty or NON-ABSOLUTE root (a relative $XDG_DATA_HOME — the spec requires an
+//     absolute path; a relative one resolves against an unpredictable CWD), and
+//   - a store that, after Clean/Abs, escapes the resolved root (a `..` injected into
+//     $XDG_DATA_HOME).
+//
+// On rejection the caller skips persistence with a loud-but-non-fatal WARN (bench still
+// exits normally) — consistent with the existing write-failure handling.
+func benchAssertStoreUnderRoot(store, root string) error {
+	if root == "" {
+		return fmt.Errorf("bench: refusing to write store: empty data-home root")
+	}
+	if !filepath.IsAbs(root) {
+		return fmt.Errorf("bench: refusing to write store: data-home root %q is not absolute "+
+			"(set XDG_DATA_HOME to an absolute path)", root)
+	}
+	absRoot, err := filepath.Abs(filepath.Clean(root))
 	if err != nil {
 		return err
 	}
-	absPath, err := filepath.Abs(filepath.Clean(path))
+	absStore, err := filepath.Abs(filepath.Clean(store))
 	if err != nil {
 		return err
 	}
-	rel, err := filepath.Rel(absDir, absPath)
+	rel, err := filepath.Rel(absRoot, absStore)
 	if err != nil {
 		return err
 	}
 	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
-		return fmt.Errorf("bench: refusing to write %q outside store dir %q", absPath, absDir)
+		return fmt.Errorf("bench: refusing to write %q outside data-home root %q", absStore, absRoot)
 	}
 	return nil
 }
@@ -301,11 +332,15 @@ func benchAssertInsideDir(path, dir string) error {
 // (no reports ≠ error; wired now so the seam is complete for Plan 03). Now supplies the
 // capture timestamp.
 func liveBenchstoreDeps() benchstore.Deps {
-	store := benchReportsStorePath()
+	store, root := benchStoreLocation()
 	dir := filepath.Dir(store)
 	return benchstore.Deps{
 		AppendLine: func(line []byte) error {
-			if err := benchAssertInsideDir(store, dir); err != nil {
+			// MEANINGFUL T-14-01 guard: assert the resolved store stays under the
+			// trusted data-home root (rejecting a `..` or non-absolute $XDG_DATA_HOME),
+			// not against its own parent dir (which can never escape). On rejection the
+			// caller surfaces a loud-but-non-fatal WARN; the measurement is unaffected.
+			if err := benchAssertStoreUnderRoot(store, root); err != nil {
 				return err
 			}
 			if err := os.MkdirAll(dir, 0o700); err != nil {
