@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Operability
 status: executing
-stopped_at: Phase 14 executed 3/3 (BENCH-03/04); automated verification 12/12; code review WR-01/02/04 fixed; on-hardware gfx1151 UAT pending
-last_updated: "2026-06-07T17:00:00.000Z"
-last_activity: 2026-06-07 -- Phase 14 executed + verified (12/12 automated, human_needed); awaiting on-hardware UAT (/gsd-verify-work 14)
+stopped_at: Phase 14 complete — on-hardware gfx1151 UAT PASS (saved-report round-trip + cross-backend --compare); ready to plan Phase 15
+last_updated: "2026-06-07T17:22:38.885Z"
+last_activity: 2026-06-07 -- Phase 14 marked complete after on-hardware gfx1151 UAT PASS (Δtg +10.39 vulkan>rocm); advanced to Phase 15 (cumulative-usage-tracking)
 progress:
   total_phases: 6
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 9
   completed_plans: 9
-  percent: 33
+  percent: 50
 ---
 
 # Project State
@@ -21,15 +21,15 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-07 after starting v1.2)
 
 **Core value:** Run a capable local AI workspace that "just works" after install — hardware-aware setup that brings inference, chat, and the dashboard up healthy, with zero data leaving the box. v1.2 extends the bar to "and stays operable, recoverable, and measurable over time."
-**Current focus:** Phase 14 — executed; on-hardware gfx1151 UAT pending (run `/gsd-verify-work 14`) before advancing to Phase 15
+**Current focus:** Phase 15 — Cumulative Usage Tracking (USAGE-01/02); ready to plan
 
 ## Current Position
 
-Phase: 14 (saved-bench-reports-compare) — EXECUTED (3/3); on-hardware UAT pending
-Plan: 3 of 3 executed; automated verification 12/12 (human_needed)
-Status: Phase 14 executed — run `/gsd-verify-work 14` (on-hardware gfx1151 UAT) before advancing to Phase 15
-Progress: [██░░░░] 2/6 phases complete (v1.2); Phase 14 executed, UAT pending
-Last activity: 2026-06-07 -- Completed Phase 14 Plan 03 (read-only --compare/--list, comparability-guarded pp/tg deltas, 0/2/1 exit, frozen --compare --json golden)
+Phase: 15 (cumulative-usage-tracking)
+Plan: Not started
+Status: Ready to plan — Phase 14 complete (on-hardware gfx1151 UAT PASS)
+Progress: [███░░░] 3/6 phases complete (v1.2); Phase 14 verified on-hardware
+Last activity: 2026-06-07 -- Phase 14 marked complete after on-hardware gfx1151 UAT PASS; advanced to Phase 15
 
 ## v1.2 Build Order (research-converged — preserve)
 
@@ -54,7 +54,7 @@ contract evolves at a time), then the destructive backup, then the TUI capstone.
 
 **Velocity:**
 
-- Total plans completed: 27 (across v1.0 + v1.1)
+- Total plans completed: 30 (across v1.0 + v1.1)
 - Average duration: 34 min
 - Total execution time: 2.2 hours
 
@@ -70,6 +70,7 @@ contract evolves at a time), then the destructive backup, then the TUI capstone.
 | 11 | 2 | - | - |
 | 12 | 3 | - | - |
 | 13 | 3 | - | - |
+| 14 | 3 | - | - |
 
 **Recent Trend:**
 

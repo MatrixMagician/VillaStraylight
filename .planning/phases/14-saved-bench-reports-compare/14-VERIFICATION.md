@@ -1,20 +1,23 @@
 ---
 phase: 14-saved-bench-reports-compare
-verified: 2026-06-07T00:00:00Z
-status: human_needed
+verified: 2026-06-07T17:21:00Z
+status: verified
 score: 12/12 must-haves verified
 overrides_applied: 0
 human_verification:
   - test: "On real gfx1151 hardware, run `villa bench` once on vulkan and once on rocm (same model/quant/ctx/host), then `villa bench --compare`"
     expected: "Two saved JSONL records persist under $XDG_DATA_HOME/villa/bench-reports.jsonl with non-fabricated host_gfx_id captured from detect.Probe(); --compare prints a real cross-backend Δpp/Δtg (exit 0); --list shows both runs"
     why_human: "Requires live AMD Strix Halo GPU + rootless Podman llama-server to produce genuine pp/tg timings and a real (non-empty) host_gfx_id fingerprint; cannot be measured off-hardware. All deterministic logic is verified via injected-Deps tests + binary spot-checks with synthetic records."
+    result: PASS
+    verified_on: 2026-06-07T17:21:00Z
+    evidence: "On-hardware (gfx1151, qwen3.6-35b-a3b UD-Q4_K_M ctx=131072) from an absent store: bench on rocm (pp 123.10±1.08, tg 50.26±0.09, kept=5 void=0, exit 0), `backend set vulkan` (cutover proven), bench on vulkan (pp 116.52±1.63, tg 60.65±0.10, kept=5 void=0, exit 0). Store ended with 2 JSONL lines, mode 0600, schema_version=1, each fingerprint.host_gfx_id=\"gfx1151\" (real, never fabricated), pp/tg separate, void_exhausted=false. `--compare` → A(rocm)/B(vulkan), pp/tg on separate lines, Δpp -6.58 / Δtg +10.39, exit 0 (comparable). `--list` enumerated both runs, exit 0. Δtg +10.39 reproduces the Phase-12 finding (~+11.68) with genuine timings. Original backend restored to rocm. Recorded in 14-UAT.md (commit 6a92adf)."
 ---
 
 # Phase 14: Saved Bench Reports + `--compare` Verification Report
 
 **Phase Goal:** Users can persist every `villa bench` run as a versioned saved report under `$XDG_DATA_HOME/villa/` and compare saved reports over time / across models — pp and tg tok/s kept separate (never blended) with a comparability guard that refuses deltas across non-comparable runs. Pairs with Phase 12 to prove the Δtg recovery.
 **Verified:** 2026-06-07
-**Status:** human_needed
+**Status:** verified (12/12 automated + on-hardware human verification PASS, 2026-06-07T17:21Z)
 **Re-verification:** No — initial verification
 
 ## Goal Achievement

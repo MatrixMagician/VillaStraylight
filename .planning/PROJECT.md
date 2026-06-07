@@ -55,6 +55,7 @@ VillaStraylight is a self-hosted, local AI server stack for privacy-conscious po
 - [x] Backend-aware `detect`/`recommend` (ROCm readiness + advice; Vulkan stays default) — *Validated v1.1 (Phase 10): `recommend` derives honest ROCm advice ("worth trying / verify with bench / withheld") purely from `rocm_readiness`, never reassigns the backend, never promises a speed-up.*
 - [x] Dashboard + `villa status` surface the active backend and live tok/s — *Validated v1.1 (Phase 10): active backend + image tag, live tok/s labeled by backend, tri-state ROCm-readiness badge — append-only, schema-bumped, goldens re-frozen once; `status`'s previously-hardcoded `VulkanBackend()` now reflects the configured backend.*
 - [x] `rocm-6.4.4` alternate ROCm image option for TG-heavy models (ROCM-ALT-01) — *Validated v1.2 (Phase 12): two digest-pinned, fail-closed, seam-locked backends (`rocm-6.4.4` + `-rocwmma`) selectable via `BackendFor`, gated by `rocm-policy.json`, honestly benchable via `bench --ab-target`. On-hardware UAT (gfx1151, 2026-06-07): SC#1–4 all PASS as engineering deliverables (incl. a correct offload-asserting residency FAIL + verbatim rollback for `-rocwmma`, and surviving a same-day rolling-tag drift via the content-addressed pin). **Honest perf outcome: `rocm-6.4.4` does NOT recover the v1.1 Δtg −11.15 — Vulkan still leads tg by ~11.68 tok/s; Vulkan stays the tg default, never auto-switched.** The capability + honest measurement shipped; the perf premise it tested is false on this host/model.*
+- [x] Saved benchmark reports + `villa bench --compare` (BENCH-03/BENCH-04) — *Validated v1.2 (Phase 14): each `villa bench` run persists one versioned JSONL saved report under `$XDG_DATA_HOME/villa/bench-reports.jsonl` (`schema_version=1`, golden-frozen, pp/tg kept SEPARATE, residency-void recorded, `.Known`-guarded host fingerprint — never fabricated); `bench --compare`/`--list` are read-only, comparability-guarded (model+quant+ctx+host match, backend may differ, refuses on unknown host — no false-equal), 0/2/1 exit. On-hardware UAT (gfx1151, qwen3.6-35b-a3b, 2026-06-07): clean cross-backend round-trip — two records (rocm + vulkan), real `host_gfx_id=gfx1151`, `--compare` printed Δpp −6.58 / Δtg +10.39 (vulkan>rocm) on separate lines, exit 0; independently reproduces the Phase-12 ~+11.68 Δtg finding with genuine timings.*
 
 ### Active
 
@@ -62,7 +63,6 @@ VillaStraylight is a self-hosted, local AI server stack for privacy-conscious po
 
 - [ ] `villa doctor` — one-shot health/diagnostics against a running install, with remediation (DOCTOR-01)
 - [ ] Backup / restore of config + Open WebUI data volume (BAK-01)
-- [ ] `villa bench --compare` + persisted/saved benchmark reports (BENCH-03)
 - [ ] Cumulative token/throughput usage tracking over time (USAGE-01)
 - [ ] Guided TUI install flow (INSTALL-01)
 
@@ -139,4 +139,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-07 after Phase 12 — ROCM-ALT-01 shipped, verified (UAT 7/7), and secured (10/10 threats closed). Honest on-hardware verdict: `rocm-6.4.4` does NOT recover the v1.1 Δtg −11.15; Vulkan stays the tg default (never auto-switched). v1.2 (Operability) remaining: `villa doctor` (DOCTOR-01, next), saved bench reports + `--compare` (BENCH-03), cumulative usage tracking (USAGE-01), backup/restore (BAK-01), guided TUI install (INSTALL-01). v1.1 (Phases 6–11) + v1.0 (Phases 1–5) shipped + tagged. Requirements in REQUIREMENTS.md; phases in ROADMAP.md.*
+*Last updated: 2026-06-07 after Phase 14 — BENCH-03/04 saved reports + `--compare` shipped, on-hardware gfx1151 UAT PASS. (Earlier: Phase 12 ROCM-ALT-01 shipped, verified (UAT 7/7), and secured (10/10 threats closed). Honest on-hardware verdict: `rocm-6.4.4` does NOT recover the v1.1 Δtg −11.15; Vulkan stays the tg default (never auto-switched). v1.2 (Operability) progress: Phase 12 (ROCM-ALT-01), Phase 13 (`villa doctor`, DOCTOR-01), Phase 14 (saved bench reports + `--compare`, BENCH-03/04) shipped; remaining: cumulative usage tracking (USAGE-01, next/Phase 15), backup/restore (BAK-01, Phase 16), guided TUI install (INSTALL-01, Phase 17). v1.1 (Phases 6–11) + v1.0 (Phases 1–5) shipped + tagged. Requirements in REQUIREMENTS.md; phases in ROADMAP.md.*
