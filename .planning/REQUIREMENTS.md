@@ -79,25 +79,33 @@ Which phases cover which requirements. Populated during roadmap creation (`/gsd-
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| ROCM-ALT-01 | TBD | Pending |
-| DOCTOR-01 | TBD | Pending |
-| DOCTOR-02 | TBD | Pending |
-| DOCTOR-03 | TBD | Pending |
-| BENCH-03 | TBD | Pending |
-| BENCH-04 | TBD | Pending |
-| USAGE-01 | TBD | Pending |
-| USAGE-02 | TBD | Pending |
-| BAK-01 | TBD | Pending |
-| BAK-02 | TBD | Pending |
-| BAK-03 | TBD | Pending |
-| INSTALL-01 | TBD | Pending |
-| INSTALL-02 | TBD | Pending |
+| ROCM-ALT-01 | Phase 12 | Pending |
+| DOCTOR-01 | Phase 13 | Pending |
+| DOCTOR-02 | Phase 13 | Pending |
+| DOCTOR-03 | Phase 13 | Pending |
+| BENCH-03 | Phase 14 | Pending |
+| BENCH-04 | Phase 14 | Pending |
+| USAGE-01 | Phase 15 | Pending |
+| USAGE-02 | Phase 15 | Pending |
+| BAK-01 | Phase 16 | Pending |
+| BAK-02 | Phase 16 | Pending |
+| BAK-03 | Phase 16 | Pending |
+| INSTALL-01 | Phase 17 | Pending |
+| INSTALL-02 | Phase 17 | Pending |
 
 **Coverage:**
 - v1.2 requirements: 13 total
-- Mapped to phases: 0 (roadmap pending)
-- Unmapped: 13 ⚠️ (resolved by roadmapper)
+- Mapped to phases: 13 ✓
+- Unmapped: 0 ✓
+
+**Phase distribution:**
+- Phase 12 (`rocm-6.4.4` Alternate Backend): ROCM-ALT-01 (1)
+- Phase 13 (`villa doctor` Health Diagnosis): DOCTOR-01, DOCTOR-02, DOCTOR-03 (3)
+- Phase 14 (Saved Bench Reports + `--compare`): BENCH-03, BENCH-04 (2)
+- Phase 15 (Cumulative Usage Tracking): USAGE-01, USAGE-02 (2)
+- Phase 16 (Backup / Restore): BAK-01, BAK-02, BAK-03 (3)
+- Phase 17 (Guided TUI Install): INSTALL-01, INSTALL-02 (2)
 
 ---
 *Requirements defined: 2026-06-07*
-*Last updated: 2026-06-07 after milestone v1.2 (Operability) definition*
+*Last updated: 2026-06-07 after milestone v1.2 (Operability) roadmap creation — 13/13 requirements mapped to Phases 12–17.*
