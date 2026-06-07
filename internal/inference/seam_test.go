@@ -37,11 +37,14 @@ func TestSeamGrepGate(t *testing.T) {
 	patterns := map[string]*regexp.Regexp{
 		"runtime.GOOS / GOOS branch": regexp.MustCompile(`runtime\.GOOS|GOOS\s*==`),
 		// kyuz0|docker.io/ already bind BOTH the Vulkan and the ROCm image tokens (the
-		// rocm image is docker.io/kyuz0/…:rocm-7.2.4@sha256:…). rocm-7.2.4|rocm7-nightlies
-		// is added for EXPLICIT intent — a ROCm tag leaking outside the seam must fail CI.
-		"container image literal": regexp.MustCompile(`kyuz0|docker\.io/|server-vulkan|rocm-7\.2\.4|rocm7-nightlies`),
-		"container device args":      regexp.MustCompile(`--device\s+/dev/dri|--group-add|keep-groups`),
-		"podman invocation":          regexp.MustCompile(`exec\.Command\(\s*"podman"|"podman".*\b(run|stop|logs)\b`),
+		// rocm image is docker.io/kyuz0/…:rocm-7.2.4@sha256:…). rocm-7.2.4|rocm-6.4.4|
+		// rocm7-nightlies is added for EXPLICIT intent — a ROCm tag leaking outside the
+		// seam must fail CI. `rocm-6\.4\.4` matches BOTH the plain rocm-6.4.4 tag and the
+		// rocm-6.4.4-rocwmma variant (rocwmma is a suffix superset), added in the SAME
+		// commit as the new image literals (D-10/SC#4/T-12-02).
+		"container image literal": regexp.MustCompile(`kyuz0|docker\.io/|server-vulkan|rocm-7\.2\.4|rocm-6\.4\.4|rocm7-nightlies`),
+		"container device args":   regexp.MustCompile(`--device\s+/dev/dri|--group-add|keep-groups`),
+		"podman invocation":       regexp.MustCompile(`exec\.Command\(\s*"podman"|"podman".*\b(run|stop|logs)\b`),
 	}
 
 	// matchFile reports every pattern in pats that leaks in the file at path, calling

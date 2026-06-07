@@ -67,16 +67,23 @@ func TestROCmImageDigestPinned(t *testing.T) {
 }
 
 // TestBackendFor asserts the resolver maps "" and "vulkan" to the Vulkan backend,
-// "rocm" to the ROCm backend, and FAILS CLOSED on an unknown value: a nil Backend +
-// a non-nil error naming the bad value, NEVER a silent Vulkan fallback (D-02, T-6-03).
+// "rocm" to the ROCm 7.2.4 backend (unchanged digest — D-02 coexistence), the two new
+// "rocm-6.4.4"/"rocm-6.4.4-rocwmma" keys to their digest-pinned ROCm backends (D-01),
+// and FAILS CLOSED on an unknown value: a nil Backend + a non-nil error naming the bad
+// value, NEVER a silent Vulkan fallback (D-03, T-6-03 / T-12-03).
 func TestBackendFor(t *testing.T) {
 	ok := []struct {
-		name     string
-		wantName string
+		name        string
+		wantName    string
+		wantImgFrag string // a digest substring the resolved backend's Image() must contain
 	}{
-		{"", "vulkan"},
-		{"vulkan", "vulkan"},
-		{"rocm", "rocm"},
+		{"", "vulkan", ""},
+		{"vulkan", "vulkan", ""},
+		// rocm STILL means the unchanged 7.2.4 digest (D-02 coexistence).
+		{"rocm", "rocm", "2da150c1"},
+		// The two new digest-pinned ROCm backends (D-01/D-05).
+		{"rocm-6.4.4", "rocm-6.4.4", "sha256:c81f30a7"},
+		{"rocm-6.4.4-rocwmma", "rocm-6.4.4-rocwmma", "sha256:9a97129a"},
 	}
 	for _, tc := range ok {
 		t.Run("resolves "+tc.name, func(t *testing.T) {
@@ -90,10 +97,14 @@ func TestBackendFor(t *testing.T) {
 			if b.Name() != tc.wantName {
 				t.Errorf("BackendFor(%q).Name() = %q, want %q", tc.name, b.Name(), tc.wantName)
 			}
+			if tc.wantImgFrag != "" && !strings.Contains(b.Image(), tc.wantImgFrag) {
+				t.Errorf("BackendFor(%q).Image() = %q, want it to contain %q", tc.name, b.Image(), tc.wantImgFrag)
+			}
 		})
 	}
 
-	// Fail-closed: unknown → (nil, error) whose message names the bad value.
+	// Fail-closed: unknown → (nil, error) whose message names the bad value AND the
+	// four valid options (D-03 fail-closed; the widened error must still name them all).
 	t.Run("unknown fails closed", func(t *testing.T) {
 		b, err := BackendFor("cuda")
 		if err == nil {
@@ -104,6 +115,25 @@ func TestBackendFor(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "cuda") {
 			t.Errorf("BackendFor(\"cuda\") error %q should name the bad value", err.Error())
+		}
+		for _, opt := range []string{"vulkan", "rocm", "rocm-6.4.4", "rocm-6.4.4-rocwmma"} {
+			if !strings.Contains(err.Error(), opt) {
+				t.Errorf("BackendFor(\"cuda\") error %q should name the valid option %q", err.Error(), opt)
+			}
+		}
+	})
+
+	// The new digests stay seam-locked AND digest-pinned (@sha256: + 64 hex).
+	t.Run("new backends digest-pinned", func(t *testing.T) {
+		digestRe := regexp.MustCompile(`@sha256:[0-9a-f]{64}\b`)
+		for _, name := range []string{"rocm-6.4.4", "rocm-6.4.4-rocwmma"} {
+			b, err := BackendFor(name)
+			if err != nil {
+				t.Fatalf("BackendFor(%q): unexpected error %v", name, err)
+			}
+			if !digestRe.MatchString(b.Image()) {
+				t.Errorf("BackendFor(%q).Image() not digest-pinned: %s", name, b.Image())
+			}
 		}
 	})
 }

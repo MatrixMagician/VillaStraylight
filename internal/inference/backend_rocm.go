@@ -16,28 +16,48 @@ import (
 // args, the render group, and the ROCm env differ. ContainerArgs is encoded ONLY in
 // Phase 6 (no unit is rendered or run here — render is Phase 7, run is Phase 8).
 
-// rocmImage is the digest-pinned kyuz0 Strix-Halo ROCm 7.2.4 image (CLAUDE.md
-// prescribed; RESEARCH §Package Legitimacy Audit: same provenance as the audited
-// Vulkan image, pin the digest — Pitfall 12 / T-6-04: the tag is silently rebuilt,
-// the digest is not). NEVER the ROCm nightlies tag — it carries the 64 GB
-// allocation-cap bug that blocks large models (D-08; CLAUDE.md "What NOT to Use").
-// Resolved on the dev box 2026-06-05 via `skopeo inspect
-// docker://docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-7.2.4`.
-const rocmImage = "docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-7.2.4@sha256:2da150c1f0252f383b0b400f6cfa6630d3d34cf7c57132fe8445393b40531a89"
+// The three digest-pinned kyuz0 Strix-Halo ROCm images this seam can select (CLAUDE.md
+// prescribed; RESEARCH §Package Legitimacy Audit: same provenance as the audited Vulkan
+// image — pin the digest, Pitfall 12 / T-6-04 / T-12-01: the rolling tag is silently
+// rebuilt by kyuz0, the @sha256 digest is not). NEVER the ROCm nightlies tag — it carries
+// the 64 GB allocation-cap bug that blocks large models (D-07; CLAUDE.md "What NOT to Use").
+//
+//   - rocmImage724:     the stable ROCm 7.2.4 image — what BackendFor("rocm") still means
+//     (D-02 coexistence, byte-unchanged from v1.1). Resolved on the dev box 2026-06-05.
+//   - rocmImage644:     the TG-tuned ROCm 6.4.4 image (D-05); re-verified live 2026-06-07.
+//   - rocmImage644wmma: the rocWMMA variant of 6.4.4 (D-04/D-05); re-verified 2026-06-07.
+//
+// Both 6.4.4 digests were re-confirmed read-only via
+// `skopeo inspect --no-tags docker://docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-6.4.4[-rocwmma]`
+// immediately before pinning (Plan 12-01 Task 1); the authoritative pre-live-switch
+// re-verify is the on-hardware checkpoint in 12-03.
+const (
+	rocmImage724     = "docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-7.2.4@sha256:2da150c1f0252f383b0b400f6cfa6630d3d34cf7c57132fe8445393b40531a89"
+	rocmImage644     = "docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-6.4.4@sha256:c81f30a7fd2641e3ea6ac4c45323ba239dca906ed79cc0dfe5b885f9f150ec62"
+	rocmImage644wmma = "docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-6.4.4-rocwmma@sha256:9a97129af2c1a2f0080f234787f6978551a43e354f3eb26a8ebc868f643c0141"
+)
 
-// backendROCm is the ROCm 7.2.4 (HIP) Backend implementation. It is stateless. ROCm
-// is the opt-in performance backend on gfx1151 (Vulkan RADV is the default); it is
-// selected through BackendFor("rocm"), so it needs no exported constructor.
-type backendROCm struct{}
+// backendROCm is the ROCm (HIP) Backend implementation, parameterized by image (D-06):
+// the proven 7.2.4 delta — kfd+dri device passthrough, keep-groups, seccomp, loopback
+// host-publish, read-only model bind, ordered HSA/HIPBLASLT env, and the ResidencyProof
+// markers — is shared ROCm-family behaviour; only the digest (and the reported Name)
+// differ across the three selectable backends. It is stateless apart from its identity.
+// ROCm is the opt-in performance backend on gfx1151 (Vulkan RADV is the default); each
+// variant is selected through BackendFor, so it needs no exported constructor.
+type backendROCm struct {
+	name  string
+	image string
+}
 
 // Compile-time assertion that backendROCm satisfies Backend (incl. ResidencyProof).
+// The zero value is a valid Backend value for this assertion (identity is set by BackendFor).
 var _ Backend = backendROCm{}
 
-// Name identifies the backend for provenance/--json.
-func (backendROCm) Name() string { return "rocm" }
+// Name identifies the selected backend for provenance/--json (e.g. "rocm", "rocm-6.4.4").
+func (b backendROCm) Name() string { return b.name }
 
-// Image returns the digest-pinned ROCm 7.2.4 container image.
-func (backendROCm) Image() string { return rocmImage }
+// Image returns the digest-pinned ROCm container image for the selected variant.
+func (b backendROCm) Image() string { return b.image }
 
 // ContainerArgs renders the full `podman run` argument slice for one ROCm run. It is
 // a DELTA over backendVulkan.ContainerArgs (D-09): in addition to the shared /dev/dri
@@ -52,7 +72,7 @@ func (backendROCm) Image() string { return rocmImage }
 //
 // The model name is the catalog-resolved file joined onto the container models dir;
 // it is passed as a fixed exec arg, never interpolated into a shell string (T-02-08).
-func (backendROCm) ContainerArgs(spec RunSpec) []string {
+func (b backendROCm) ContainerArgs(spec RunSpec) []string {
 	hostPublish := fmt.Sprintf("%s:%d:%d", hostPublishAddr, serverPort, serverPort)
 	modelBind := fmt.Sprintf("%s:%s:ro,z", spec.ModelsDir, containerModelsDir)
 	containerModelPath := filepath.Join(containerModelsDir, spec.ModelFile)
@@ -75,7 +95,7 @@ func (backendROCm) ContainerArgs(spec RunSpec) []string {
 		"--env", "ROCBLAS_USE_HIPBLASLT=1",
 		"-p", hostPublish,
 		"-v", modelBind,
-		rocmImage,
+		b.image,
 		"llama-server",
 		"-m", containerModelPath,
 		"-c", fmt.Sprintf("%d", spec.ContextLen),
@@ -98,7 +118,7 @@ func (backendROCm) ContainerArgs(spec RunSpec) []string {
 //     VOIDS residency before any buffer-line PASS (Pitfall 4).
 //   - RejectSoftwareRenderer false — ROCm has no software-renderer (llvmpipe) ICD
 //     analog, so the start-time scrape's software-renderer reject is skipped.
-func (backendROCm) ResidencyProof() ResidencyMarkers {
+func (b backendROCm) ResidencyProof() ResidencyMarkers {
 	return ResidencyMarkers{
 		DeviceToken:            "ROCm0",
 		DeviceLabel:            "- ROCm",
