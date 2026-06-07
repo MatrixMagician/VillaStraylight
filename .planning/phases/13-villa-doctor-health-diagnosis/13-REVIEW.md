@@ -14,7 +14,8 @@ findings:
   warning: 3
   info: 2
   total: 6
-status: issues_found
+status: resolved
+resolution_commit: e9d4002
 ---
 
 # Phase 13: Code Review Report
@@ -22,7 +23,26 @@ status: issues_found
 **Reviewed:** 2026-06-07
 **Depth:** deep
 **Files Reviewed:** 5
-**Status:** issues_found
+**Status:** resolved (fixes in `e9d4002`)
+
+## Resolution (2026-06-07, commit `e9d4002`)
+
+- **CR-01 (BLOCKER) — RESOLVED.** `healthFinding(HealthDown)` now folds to a WARN
+  (status+tier), not a `statusFail`. A down/stopped stack exits 2 (warning), not 1
+  (blocking fault); the blocking tier is reserved for silent-degradation faults
+  (offload FAIL over health-200, preflight BLOCK, loopback breach). Restores the
+  FAIL ⟺ BLOCK-class invariant. Added `TestDownStackWarnsNotBlocks` regression guard.
+- **WR-01 — RESOLVED.** `liveDoctorDeps`' `DriftPlan` now stats the unit dir first; an
+  absent dir (never installed) returns a read error so the core degrades to the honest
+  "units not yet written" typed-Unknown WARN instead of a false "units no longer match".
+- **WR-02 / IN-01 — RESOLVED.** `renderDoctor` now maps the exit code from
+  `report.Overall` (the core's single worst-wins verdict); the exit code can no longer
+  diverge from the JSON `overall` field, and the "BLOCK-class FAILs" comment is now accurate.
+- **WR-03 (dead `Deps.LoadConfig` seam) — ACCEPTED as-is.** Documented as a reserved
+  forward seam ("read only if a future finding needs config directly"); intentional, not dead.
+- **IN-02 (table interpolation) — ACCEPTED as-is.** Safe today: all `Detail`/`Raw` values
+  are in-repo constants and `Raw` is `json:"-"` (never in `--json`). Note retained for if
+  `Detail` ever becomes host-sourced.
 
 ## Summary
 
