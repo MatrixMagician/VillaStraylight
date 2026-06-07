@@ -17,6 +17,7 @@ package metrics
 import (
 	"encoding/json"
 	"io"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -78,14 +79,27 @@ type CounterSample struct {
 	PredictedTokensKnown bool
 }
 
+// maxCounterValue is the inclusive upper bound a parsed counter may take before it is
+// rejected as typed-Unknown. It is 2^53, the largest integer a float64 represents
+// EXACTLY: above it the strconv.ParseFloat → uint64 narrowing has already silently lost
+// integer precision (two distinct counts could fold identically), so a value over this
+// bound is not a trustworthy count and is dropped rather than folded into the durable
+// total (D-05; defends the CounterSample "lossless below 2^53" claim).
+const maxCounterValue = 1 << 53
+
 // counterFromMap reads one cumulative counter out of a parsePromText map via its presence
 // signal: ok=false (absent / unparseable line) ⇒ Known=false with a zero total, never a
-// fabricated 0 presented as a real count (D-05). The float64 is narrowed to uint64
-// (lossless < 2^53; negative/NaN guarded to the typed-Unknown branch).
+// fabricated 0 presented as a real count (D-05). It then EXPLICITLY rejects every value
+// that cannot be a trustworthy non-negative exact integer — NaN, ±Inf, negative, and any
+// value above maxCounterValue (2^53) — by returning the typed-Unknown branch. This matters
+// because `NaN < 0` and `+Inf < 0` are both false, so a bare `v < 0` guard would narrow
+// uint64(NaN)/uint64(+Inf) (implementation-specific garbage) into a fabricated durable
+// count that the additive, reset-aware fold would then make permanent (D-05). Only a finite,
+// non-negative, exactly-representable value is narrowed to uint64 and returned Known.
 func counterFromMap(m map[string]float64, name string) (uint64, bool) {
 	v, ok := m[name]
-	if !ok || v < 0 {
-		return 0, false
+	if !ok || math.IsNaN(v) || math.IsInf(v, 0) || v < 0 || v > maxCounterValue {
+		return 0, false // typed-Unknown, never a fabricated count (D-05)
 	}
 	return uint64(v), true
 }

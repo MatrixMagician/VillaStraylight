@@ -1,6 +1,7 @@
 package metrics
 
 import (
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -203,6 +204,48 @@ func TestScrapeCountersTotal(t *testing.T) {
 	defer down.Close()
 	if _, ok := ScrapeCounters(down.URL); ok {
 		t.Errorf("ScrapeCounters ok=true on a 404, want false (whole-scrape unavailable)")
+	}
+}
+
+// TestCounterFromMapRejectsNonFinite asserts counterFromMap returns the typed-Unknown
+// branch (Known=false, zero total) for every value that is NOT a trustworthy
+// non-negative exactly-representable integer — NaN, +Inf, -Inf, negative, and an
+// over-bound value above 2^53 — so a garbage /metrics line can never be narrowed into a
+// fabricated durable count (D-05 / WR-02). A normal finite count and an absent key are
+// included as the control rows.
+func TestCounterFromMapRejectsNonFinite(t *testing.T) {
+	const name = "llamacpp:prompt_tokens_total"
+	cases := []struct {
+		desc      string
+		present   bool
+		val       float64
+		wantVal   uint64
+		wantKnown bool
+	}{
+		{"NaN", true, math.NaN(), 0, false},
+		{"+Inf", true, math.Inf(1), 0, false},
+		{"-Inf", true, math.Inf(-1), 0, false},
+		{"negative", true, -1, 0, false},
+		{"over-bound (>2^53)", true, float64(maxCounterValue) + 2048, 0, false},
+		{"absent key", false, 0, 0, false},
+		{"normal count", true, 130572, 130572, true},
+		{"at bound (2^53)", true, float64(maxCounterValue), uint64(maxCounterValue), true},
+		{"zero", true, 0, 0, true},
+	}
+	for _, c := range cases {
+		t.Run(c.desc, func(t *testing.T) {
+			m := map[string]float64{}
+			if c.present {
+				m[name] = c.val
+			}
+			got, known := counterFromMap(m, name)
+			if known != c.wantKnown {
+				t.Errorf("Known = %v, want %v (no fabricated count for %s)", known, c.wantKnown, c.desc)
+			}
+			if got != c.wantVal {
+				t.Errorf("value = %d, want %d", got, c.wantVal)
+			}
+		})
 	}
 }
 
