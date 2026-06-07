@@ -60,17 +60,24 @@ never a false-green.
 
 ### Severity aggregation & exit-tier contract
 - **D-04:** **Worst-severity-wins, mirroring preflight's `renderPreflight`.** Each
-  finding carries an explicit tier so the exit rollup is mechanical:
+  finding carries an explicit tier so the exit rollup is mechanical. **The shipped
+  preflight constants are AUTHORITATIVE** (`cmd/villa/preflight.go:20-22`:
+  `exitPass=0`, `exitWarn=2`, `exitBlocked=1`) — DOCTOR-01 says "mirror the preflight
+  exit contract", so doctor reuses these exact codes:
+  - all healthy → **exit 0** (`exitPass`);
   - any **blocking** finding (preflight BLOCK, a confident residency FAIL / CPU
-    fallback) → **exit 2**;
+    fallback) → **exit 1** (`exitBlocked`);
   - any **warning** (preflight WARN, config-vs-disk drift, a typed-Unknown /
-    unevaluable signal) → **exit 1**;
-  - all healthy → **exit 0**.
-  This satisfies DOCTOR-01 (mirror the preflight exit contract) by construction.
-- **D-05:** **Config-vs-disk drift is a WARN (exit 1)**, not a block — the stack may
-  still be running on stale units; remediation is "re-run `villa install` to
-  reconcile". A confident **residency FAIL is a BLOCK (exit 2)** — degraded backend
-  is a real fault.
+    unevaluable signal) → **exit 2** (`exitWarn`).
+  > ⚠️ **Correction (research-confirmed):** the ROADMAP SC#1 parenthetical and the
+  > earlier draft of this decision said "blocking→2, warning→1" — that is INVERTED
+  > vs the shipped preflight constants. "Mirror the preflight contract" is the
+  > binding constraint (DOCTOR-01); the constants win. Do NOT ship a doctor exit
+  > grammar that differs from preflight. See `13-RESEARCH.md` → Pitfall 1.
+- **D-05:** **Config-vs-disk drift is a WARN (exit 2 / `exitWarn`)**, not a block —
+  the stack may still be running on stale units; remediation is "re-run
+  `villa install` to reconcile". A confident **residency FAIL is a BLOCK (exit 1 /
+  `exitBlocked`)** — a degraded/CPU-fallback backend is a real fault.
 
 ### Offload assertion on a running install (read-only)
 - **D-06:** **Assert offload read-only from the EXISTING running `llama-server`** —
