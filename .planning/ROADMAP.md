@@ -109,7 +109,7 @@ See `milestones/v1.1-ROADMAP.md` for full phase detail, success criteria, and pl
 
 **Wave 3** *(gap closure — 13-UAT Test 1)*
 
-- [ ] 13-03-PLAN.md — Residency-supersession in pure `doctor.Aggregate`: a proven ROCm offload PASS down-ranks the typed-Unknown ROCm host-prep WARNs (firmware/hsa/image) so a healthy ROCm install reaches exit 0, while a CONFIDENT ROCm FAIL still BLOCKs (no-false-green); + Option B image thread-through via `RunROCmForImage`. Closes the DOCTOR-01 exit-0 gap. [Wave 3]
+- [x] 13-03-PLAN.md — Residency-supersession in pure `doctor.Aggregate`: a proven ROCm offload PASS down-ranks the typed-Unknown ROCm host-prep WARNs (firmware/hsa/image) so a healthy ROCm install reaches exit 0, while a CONFIDENT ROCm FAIL still BLOCKs (no-false-green); + Option B image thread-through via `RunROCmForImage`. Closes the DOCTOR-01 exit-0 gap. [Wave 3]
 
 **Implementation note**: New pure `internal/doctor` core with its OWN unconstrained golden; do NOT extend the byte-frozen `status.Report`. doctor diagnoses + remediates-by-advice only — it never mutates/repairs the install (mutation stays in explicit verbs).
 
@@ -192,7 +192,7 @@ See `milestones/v1.1-ROADMAP.md` for full phase detail, success criteria, and pl
 | 10. Backend + tok/s Surfacing | v1.1 | 3/3 | Complete | 2026-06-06 |
 | 11. Address v1.1 tech debt | v1.1 | 2/2 | Complete | 2026-06-06 |
 | 12. `rocm-6.4.4` Alternate Backend | v1.2 | 3/3 | Complete    | 2026-06-07 |
-| 13. `villa doctor` Health Diagnosis | v1.2 | 2/2 | Awaiting UAT | - |
+| 13. `villa doctor` Health Diagnosis | v1.2 | 3/3 | Awaiting UAT | - |
 | 14. Saved Bench Reports + `--compare` | v1.2 | 0/? | Not started | - |
 | 15. Cumulative Usage Tracking | v1.2 | 0/? | Not started | - |
 | 16. Backup / Restore | v1.2 | 0/? | Not started | - |

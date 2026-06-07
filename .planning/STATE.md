@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Operability
-status: verifying
-stopped_at: Phase 13 context gathered
-last_updated: "2026-06-07T14:34:03.419Z"
-last_activity: 2026-06-07 -- Phase 13 execution started
+status: executing
+stopped_at: Completed 13-03-PLAN.md (Phase 13 plans complete)
+last_updated: "2026-06-07T16:10:00.000Z"
+last_activity: 2026-06-07 -- Completed 13-03 (doctor ROCm residency-supersession gap-closure)
 progress:
   total_phases: 6
-  completed_phases: 2
-  total_plans: 5
+  completed_phases: 1
+  total_plans: 6
   completed_plans: 5
-  percent: 33
+  percent: 17
 ---
 
 # Project State
@@ -26,10 +26,10 @@ See: .planning/PROJECT.md (updated 2026-06-07 after starting v1.2)
 ## Current Position
 
 Phase: 13 (villa-doctor-health-diagnosis) — EXECUTING
-Plan: 2 of 2
-Status: Phase complete — ready for verification
+Plan: 3 of 3 complete (gap-closure plan 13-03 done)
+Status: Phase 13 plans complete — pending verification/UAT
 Progress: [█░░░░░] 1/6 phases complete (v1.2)
-Last activity: 2026-06-07 -- Phase 13 execution started
+Last activity: 2026-06-07 -- Completed 13-03 (doctor ROCm residency-supersession gap-closure)
 
 ## v1.2 Build Order (research-converged — preserve)
 
@@ -81,6 +81,7 @@ contract evolves at a time), then the destructive backup, then the TUI capstone.
 | Phase 12 P03 | ~20 min | 3 of 4 tasks (Task 4 on-hardware pending) | 4 files |
 | Phase 13 P01 | 3min | 2 tasks | 2 files |
 | Phase 13 P02 | 8min | 2 tasks | 6 files |
+| Phase 13 P03 | ~38min | 3 tasks (TDD) | 5 files |
 
 ## Accumulated Context
 
@@ -119,6 +120,10 @@ Earlier (v1.0 / v1.1) decisions retained below.
 - [Phase ?]: offload FAIL folded as BLOCK-class FAIL dominating HealthReady — no false-green over a health-200 (Pitfall 3)
 - [Phase ?]: villa doctor exit mapping reuses authoritative preflight constants (FAIL=1, drift/WARN=2, healthy=0) — not inverted (D-04)
 - [Phase ?]: unitDirReadOnly resolves the Quadlet dir without creating it — doctor is strictly read-only (no MkdirAll/WriteUnits)
+- [13-03]: Residency-supersession in doctor.Aggregate — a proven ROCm-family offload StatusPass (IsROCmFamily + OffloadApplies gate) down-ranks the three typed-Unknown ROCm host-prep WARNs (ROCM-PRE-firmware/-hsa/-image) so a healthy opt-in ROCm install reaches exit 0 (closes 13-UAT Test 1 / restores DOCTOR-01).
+- [13-03]: No-false-green preserved — the down-rank predicate is the (superseded-ID AND Status==statusWarn) CONJUNCTION; a confident StatusFail on the SAME IDs still folds to FAIL (pure ID-set match forbidden). Findings stay VISIBLE (rank-suppressed, not deleted); no serialized field, schema_version stays 1.
+- [13-03]: Only the three structural typed-Unknown checks are superseded; Probe-driven ROCM-PRE-gfx/-kernel are NOT (the supersession is correctly narrow, never over-firing on host-prep signals).
+- [13-03]: Option B nil-safe doctor.Deps.RunROCmImage seam — liveDoctorDeps binds preflight.RunROCmForImage(BackendFor(cfg.Backend).Image()) for ROCm-family backends (nil for vulkan) so a denied RUNNING image is a confident FAIL; the image literal stays behind the inference seam (TestSeamGrepGate green).
 
 ### Pending Todos
 
@@ -157,9 +162,9 @@ Items acknowledged at milestone close on 2026-06-06 (v1.1):
 
 ## Session Continuity
 
-Last session: 2026-06-07T14:33:47.688Z
-Stopped at: Phase 13 context gathered
-Resume file: .planning/phases/13-villa-doctor-health-diagnosis/13-CONTEXT.md
+Last session: 2026-06-07T16:10:00.000Z
+Stopped at: Completed 13-03-PLAN.md (Phase 13 plans complete)
+Resume file: None
 
 ## Operator Next Steps
 
