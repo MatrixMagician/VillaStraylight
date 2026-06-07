@@ -40,7 +40,7 @@ backend literals stay behind the `internal/inference` seam.
 
 ### Inference Backend
 
-- [x] **ROCM-ALT-01**: User can opt into a digest-pinned `rocm-6.4.4` (or its `-rocwmma` variant, bench-decided) ROCm image as an alternate backend via `villa backend set`, gated by `rocm-policy.json` floors and kept behind the `internal/inference` seam (incl. extending `seam_test.go` so the new image literal cannot leak) — addressing the v1.1 Δtg −11.15 regression. Never auto-switches; Vulkan stays default.
+- [ ] **ROCM-ALT-01**: User can opt into a digest-pinned `rocm-6.4.4` (or its `-rocwmma` variant, bench-decided) ROCm image as an alternate backend via `villa backend set`, gated by `rocm-policy.json` floors and kept behind the `internal/inference` seam (incl. extending `seam_test.go` so the new image literal cannot leak) — addressing the v1.1 Δtg −11.15 regression. Never auto-switches; Vulkan stays default. *(Off-hardware implementation complete + full suite green, Phase 12 plans 12-01/12-02/12-03; on-hardware UAT — transactional switch + residency proof (SC#1) and Δtg-recovery bench (SC#3) on the gfx1151 host — PENDING operator verification before this can be marked validated.)*
 
 ## Future Requirements
 
@@ -79,7 +79,7 @@ Which phases cover which requirements. Populated during roadmap creation (`/gsd-
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| ROCM-ALT-01 | Phase 12 | Complete |
+| ROCM-ALT-01 | Phase 12 | In Progress (on-hardware UAT pending) |
 | DOCTOR-01 | Phase 13 | Pending |
 | DOCTOR-02 | Phase 13 | Pending |
 | DOCTOR-03 | Phase 13 | Pending |
