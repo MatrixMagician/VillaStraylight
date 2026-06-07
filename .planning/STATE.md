@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Operability
-status: executing
+status: verifying
 stopped_at: Phase 13 context gathered
-last_updated: "2026-06-07T14:21:01.554Z"
+last_updated: "2026-06-07T14:34:03.419Z"
 last_activity: 2026-06-07 -- Phase 13 execution started
 progress:
   total_phases: 6
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 5
-  completed_plans: 4
-  percent: 17
+  completed_plans: 5
+  percent: 33
 ---
 
 # Project State
@@ -27,7 +27,7 @@ See: .planning/PROJECT.md (updated 2026-06-07 after starting v1.2)
 
 Phase: 13 (villa-doctor-health-diagnosis) — EXECUTING
 Plan: 2 of 2
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Progress: [█░░░░░] 1/6 phases complete (v1.2)
 Last activity: 2026-06-07 -- Phase 13 execution started
 
@@ -80,6 +80,7 @@ contract evolves at a time), then the destructive backup, then the TUI capstone.
 | Phase 12 P02 | ~20 min | 2 tasks | 11 files |
 | Phase 12 P03 | ~20 min | 3 of 4 tasks (Task 4 on-hardware pending) | 4 files |
 | Phase 13 P01 | 3min | 2 tasks | 2 files |
+| Phase 13 P02 | 8min | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -116,6 +117,8 @@ Earlier (v1.0 / v1.1) decisions retained below.
 - [Phase ?]: doctor defines its OWN Report (reportSchemaVersion=1); status.Report only READ, never extended (D-02)
 - [Phase ?]: doctor worst-wins maps to authoritative shipped preflight tiers — BLOCK/offload FAIL→exit 1, WARN/drift/typed-Unknown→exit 2 (D-04/Pitfall 1, NOT inverted ROADMAP prose)
 - [Phase ?]: offload FAIL folded as BLOCK-class FAIL dominating HealthReady — no false-green over a health-200 (Pitfall 3)
+- [Phase ?]: villa doctor exit mapping reuses authoritative preflight constants (FAIL=1, drift/WARN=2, healthy=0) — not inverted (D-04)
+- [Phase ?]: unitDirReadOnly resolves the Quadlet dir without creating it — doctor is strictly read-only (no MkdirAll/WriteUnits)
 
 ### Pending Todos
 
@@ -154,7 +157,7 @@ Items acknowledged at milestone close on 2026-06-06 (v1.1):
 
 ## Session Continuity
 
-Last session: 2026-06-07T14:20:55.426Z
+Last session: 2026-06-07T14:33:47.688Z
 Stopped at: Phase 13 context gathered
 Resume file: .planning/phases/13-villa-doctor-health-diagnosis/13-CONTEXT.md
 

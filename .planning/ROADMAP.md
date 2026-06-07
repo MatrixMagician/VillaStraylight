@@ -51,7 +51,7 @@ See `milestones/v1.1-ROADMAP.md` for full phase detail, success criteria, and pl
 **Build order is research-converged** (all four researchers + the synthesizer agreed): seam-locked + composition features first (zero/trivial contract risk), then the two persistence features with their byte-frozen evolutions staggered so **only one byte-frozen contract evolves at a time**, then the destructive backup, then the TUI capstone over the finished surface.
 
 - [x] **Phase 12: `rocm-6.4.4` Alternate Backend** — Add a digest-pinned TG-tuned ROCm image selectable behind `BackendFor`, seam-locked + policy-gated, to recover the v1.1 Δtg −11.15 regression. (3 plans) (completed 2026-06-07)
-- [ ] **Phase 13: `villa doctor` Health Diagnosis** — One-shot, read-only health/diagnosis composing preflight + status + residency proof + config-vs-disk drift, with remediation and 0/2/1 exit tiers.
+- [x] **Phase 13: `villa doctor` Health Diagnosis** — One-shot, read-only health/diagnosis composing preflight + status + residency proof + config-vs-disk drift, with remediation and 0/2/1 exit tiers. (completed 2026-06-07)
 - [ ] **Phase 14: Saved Bench Reports + `--compare`** — Persist each bench run as a versioned saved report under XDG, and compare runs over time behind a comparability guard.
 - [ ] **Phase 15: Cumulative Usage Tracking** — Accumulate reset-aware token totals locally and surface them (append-only) in `status` + dashboard, counts-only, no new outbound.
 - [ ] **Phase 16: Backup / Restore** — Self-describing local archive (config + Open WebUI data, model weights excluded) with a transactional, skew-warning restore.
@@ -105,7 +105,7 @@ See `milestones/v1.1-ROADMAP.md` for full phase detail, success criteria, and pl
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 13-02-PLAN.md — `cmd/villa/doctor.go` verb + `liveDoctorDeps` + read-only unit-dir resolver + `renderDoctor` 0/2/1 exit rollup + OWN `--json` golden + root registration [Wave 2]
+- [x] 13-02-PLAN.md — `cmd/villa/doctor.go` verb + `liveDoctorDeps` + read-only unit-dir resolver + `renderDoctor` 0/2/1 exit rollup + OWN `--json` golden + root registration [Wave 2]
 
 **Implementation note**: New pure `internal/doctor` core with its OWN unconstrained golden; do NOT extend the byte-frozen `status.Report`. doctor diagnoses + remediates-by-advice only — it never mutates/repairs the install (mutation stays in explicit verbs).
 
@@ -188,7 +188,7 @@ See `milestones/v1.1-ROADMAP.md` for full phase detail, success criteria, and pl
 | 10. Backend + tok/s Surfacing | v1.1 | 3/3 | Complete | 2026-06-06 |
 | 11. Address v1.1 tech debt | v1.1 | 2/2 | Complete | 2026-06-06 |
 | 12. `rocm-6.4.4` Alternate Backend | v1.2 | 3/3 | Complete    | 2026-06-07 |
-| 13. `villa doctor` Health Diagnosis | v1.2 | 1/2 | In Progress|  |
+| 13. `villa doctor` Health Diagnosis | v1.2 | 2/2 | Complete   | 2026-06-07 |
 | 14. Saved Bench Reports + `--compare` | v1.2 | 0/? | Not started | - |
 | 15. Cumulative Usage Tracking | v1.2 | 0/? | Not started | - |
 | 16. Backup / Restore | v1.2 | 0/? | Not started | - |
