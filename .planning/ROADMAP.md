@@ -11,6 +11,7 @@ VillaStraylight is a control plane + managed workload: a single Go binary that i
 - 🚧 **v1.2 Operability** — Phases 12–17 (active, started 2026-06-07)
 
 Full per-phase detail for shipped milestones is archived under `.planning/milestones/`:
+
 - `milestones/v1.0-ROADMAP.md` · `milestones/v1.0-REQUIREMENTS.md`
 - `milestones/v1.1-ROADMAP.md` · `milestones/v1.1-REQUIREMENTS.md` · `milestones/v1.1-MILESTONE-AUDIT.md`
 
@@ -59,79 +60,105 @@ See `milestones/v1.1-ROADMAP.md` for full phase detail, success criteria, and pl
 ## Phase Details
 
 ### Phase 12: `rocm-6.4.4` Alternate Backend
+
 **Goal**: Users can opt into a digest-pinned, token-generation-tuned ROCm image (`rocm-6.4.4` or its bench-decided `-rocwmma` variant) as an alternate inference backend, selected like any other backend through the proven `BackendFor` seam, to recover the v1.1 Δtg −11.15 token-generation regression — Vulkan stays default, never auto-switched.
 **Depends on**: Nothing new (builds on the shipped v1.1 `BackendFor` / `backendswap` / `bench --ab` machinery; first phase of v1.2)
 **Requirements**: ROCM-ALT-01
 **Success Criteria** (what must be TRUE):
+
   1. User can run `villa backend set rocm-6.4.4` (or the chosen variant) and the stack switches transactionally with a residency proof, exactly like the existing ROCm backend — Vulkan remains the default and is never auto-switched.
   2. The new image is digest-pinned and gated by `rocm-policy.json` floors; a request that fails a floor is refused with named remediation, never silently downgraded.
   3. `villa bench --ab` measures the new image against rocm-7.2.4 / Vulkan and reports the pp/tg deltas separately, so the user can prove (not assume) which digest recovers Δtg before it ships.
-  4. The new image literal cannot leak outside the inference seam — `internal/inference/seam_test.go`'s image regex is extended in the same commit and `TestSeamGrepGate` stays green.
-**Plans**: 3 plans
+  4. The new image literal cannot leak outside the inference seam — `internal/inference/seam_test.go`'s image regex is extended in the same commit and `TestSeamGrepGate` stays green.**Plans**: 3 plans
+
+**Wave 1**
+
 - [ ] 12-01-PLAN.md — Seam + resolver + digests: parameterize `backendROCm` by image (D-06), pin both re-verified digests, add the two fail-closed `BackendFor` cases + `IsROCmFamily` (D-01/D-03/D-08), extend the `seam_test.go` regex same-commit (D-10/SC#4) [Wave 1]
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 12-02-PLAN.md — Family predicate routing + policy gate + labels: route every `"rocm"` check through `IsROCmFamily`, thread the resolved image into `RunROCmForImage` (SC#2), widen `backendLabel` + detect `rocmImagePolicyOK` [Wave 2]
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 12-03-PLAN.md — bench `--ab-target` (Option A, SC#3) + on-hardware switch/residency/Δtg checkpoint (SC#1) [Wave 3]
+
 **Research flag**: Re-verify the rolling `rocm-6.4.4` tag digest at implementation time (kyuz0 re-pushes the rolling tag — pin the digest `sha256:c81f30a7fd2641e3ea6ac4c45323ba239dca906ed79cc0dfe5b885f9f150ec62`; the `-rocwmma` variant `sha256:9a97129af2c1a2f0080f234787f6978551a43e354f3eb26a8ebc868f643c0141` is a bench-decided choice — ship the one the A/B proves).
 
 ### Phase 13: `villa doctor` Health Diagnosis
+
 **Goal**: Users can run a single `villa doctor` command to get an honest, read-only health diagnosis of a running install — composing the shipped preflight + status + residency-proof cores plus a config-vs-disk drift check — with actionable remediation for every non-healthy finding and a preflight-mirroring 0/2/1 exit contract.
 **Depends on**: Phase 12 (so doctor diagnoses over the final backend surface, incl. the alt image; building it early also surfaces faults later phases may introduce)
 **Requirements**: DOCTOR-01, DOCTOR-02, DOCTOR-03
 **Success Criteria** (what must be TRUE):
+
   1. User can run `villa doctor` and get a one-shot health report that exits `0` (healthy), `2` (blocking fault), or `1` (warning), mirroring the preflight exit contract.
   2. Every non-healthy finding carries actionable remediation text the user can act on.
   3. A silent or partial CPU fallback is reported as a FAIL (offload-asserting) — `villa doctor` never returns a false-green over a health-200 that hides a degraded backend.
   4. `villa doctor` detects and reports config-vs-disk drift — rendered Quadlet units that no longer match the config source of truth.
+
 **Plans**: TBD
 **Implementation note**: New pure `internal/doctor` core with its OWN unconstrained golden; do NOT extend the byte-frozen `status.Report`. doctor diagnoses + remediates-by-advice only — it never mutates/repairs the install (mutation stays in explicit verbs).
 
 ### Phase 14: Saved Bench Reports + `--compare`
+
 **Goal**: Users can persist every `villa bench` run as a versioned saved report under `$XDG_DATA_HOME/villa/` and compare saved reports over time / across models — with prompt-processing and token-generation tok/s kept separate (never blended) and a comparability guard that refuses to print deltas across non-comparable runs. Pairs with Phase 12 to *prove* the Δtg recovery.
 **Depends on**: Phase 12 (so the alt-image bench runs are the first saved reports that prove the regression recovery); independent of Phase 13.
 **Requirements**: BENCH-03, BENCH-04
 **Success Criteria** (what must be TRUE):
+
   1. After running `villa bench`, the run is persisted as a versioned saved report under `$XDG_DATA_HOME/villa/`, recording pp and tg tok/s separately and the residency-void state.
   2. User can list and view saved bench reports.
   3. User can run `villa bench --compare` to see pp/tg deltas between saved reports.
   4. `--compare` refuses to print deltas across runs with mismatched model/quant/host fingerprint, labeling them "not comparable" rather than emitting a misleading delta.
+
 **Plans**: TBD
 **Implementation note**: Freeze the new `internal/benchstore` saved-report format FIRST via its own golden (`schema_version` from day one) — the on-disk format is a contract; lock it before any real reports are written to prevent migrations. Flat JSONL persistence; persist the full `BenchSpec` + env fingerprint + `VoidExhausted`/`Reason`. `--compare` is read-only and distinct from live `--ab`.
 
 ### Phase 15: Cumulative Usage Tracking
+
 **Goal**: villa accumulates cumulative prompt/generated token counts per model locally over time — reset-aware (surviving `llama-server` counter resets) and counts-only (no prompt/response content, no new outbound) — and surfaces those cumulative totals in `villa status` and the control dashboard alongside the existing live tok/s.
 **Depends on**: Phase 14 (sequenced after BENCH-03 so only ONE byte-frozen contract evolution — the `status.Report` schema bump — is in flight at a time)
 **Requirements**: USAGE-01, USAGE-02
 **Success Criteria** (what must be TRUE):
+
   1. villa accumulates cumulative prompt + generated token counts per model and they persist across `llama-server` restarts / counter resets (reset-aware folding).
   2. Usage is counts-only — no prompt or response content is stored — and tracking adds no new outbound traffic (the strictly-local posture is preserved and asserted).
   3. `villa status` surfaces cumulative usage totals over time (live tok/s remains).
   4. The control dashboard surfaces cumulative usage totals.
+
 **Plans**: TBD
 **UI hint**: yes
 **Research flag**: Confirm the exact llama.cpp `/metrics` cumulative counter names (`llamacpp:prompt_tokens_total` / `tokens_predicted_total`) and the counter-reset semantics on restart/backend-swap against a live `llama-server` at the start of the phase (MEDIUM-confidence names; HIGH-confidence pattern). Design the fold to degrade to typed-Unknown if a counter is absent.
 **Implementation note**: New pure `internal/usage` `Fold(prior, sample) -> Totals` folding from monotonic `_total` counters (not rate gauges). The dashboard server's existing poll loop is the SOLE, mutex-guarded writer of `usage.json` (atomic write, XDG 0600); the CLI is one-shot and only reads. The `status` change is exactly ONE append-only field above `SchemaVersion` + ONE schema bump + ONE golden re-freeze.
 
 ### Phase 16: Backup / Restore
+
 **Goal**: Users can back up their workspace (config `.toml` + the Open WebUI data volume) to a single self-describing local archive that EXCLUDES re-pullable model weights and carries a manifest of versions / image digests / checksums — and restore from it transactionally, so a failed or partial restore never corrupts a running stack.
 **Depends on**: Phase 15 (highest host-I/O and destructive risk — sequenced after the read-only/additive features so the safer surface is proven first; backup must capture the usage store and saved reports added by 14–15)
 **Requirements**: BAK-01, BAK-02, BAK-03
 **Success Criteria** (what must be TRUE):
+
   1. User can run `villa backup` to produce a single archive containing config + the Open WebUI data volume + a version/digest/checksum manifest, with model weights excluded (their identity recorded for re-pull).
   2. User can run `villa restore` and have it apply transactionally (capture → quiesce → swap → restart → prove → rollback-on-failure) — a failed/partial restore leaves the running stack intact.
   3. `villa restore` warns on version/digest skew between the archive manifest and the current install before applying, with remediation.
+
 **Plans**: TBD
 **Research flag**: Validate cross-host / post-`podman system reset` restore (UID-mapping + SELinux `:Z` repair, e.g. `podman unshare chown -R`) — the "looks done but isn't" case the same-host round-trip test misses — and decide the Open WebUI live-SQLite quiesce approach (avoid overwriting a live DB). External Podman volume mechanics are MEDIUM-confidence.
 **Implementation note**: Use `podman volume export/import` (NEVER host-path tar) behind an `orchestrate`-resident `volume_io` seam or a cmd-tier fixed-arg podman call (as `uninstall.go`'s `podmanVolumeRm` already proves passes the seam gate) — do NOT add a new impure module; `orchestrate` stays the only intentionally-impure module. Pure `internal/backup` does manifest/verify. Restore config via `config.SaveVilla` + re-run preflight; recreate the volume via Quadlet. Mirror `backendswap` transactional discipline. 0600/0700 XDG.
 
 ### Phase 17: Guided TUI Install (Capstone)
+
 **Goal**: Users can run a guided interactive terminal install that composes the finished detect → recommend → confirm/adjust → preflight-gate → install pipeline with confirmation/consent steps — pure presentation, adding no decision logic to any core — and that degrades gracefully on a non-TTY environment and via an explicit `--no-tui` flag back to the existing flag-driven path, with the binary remaining a single static CGO-free build.
 **Depends on**: Phase 16 (capstone over the *whole*, finished command surface; introduces the milestone's only new dependency, so it wraps a stable set of cores)
 **Requirements**: INSTALL-01, INSTALL-02
 **Success Criteria** (what must be TRUE):
+
   1. User can run a guided TUI that walks detect → recommend → confirm/adjust → preflight gate → install, writing the same `config.toml` and running the same install as the flag path.
   2. The TUI computes nothing itself — all fit/preflight/backend decisions come from the existing cores (`recommend.Pick`, `preflight`, `BackendFor`) — so its output matches the flag-driven path.
   3. On a non-TTY environment or with `--no-tui`, the command degrades gracefully to the existing flag-driven install path; flags stay first-class.
   4. The binary still builds as a single static CGO-free binary (`CGO_ENABLED=0` build check passes).
+
 **Plans**: TBD
 **UI hint**: yes
 **Implementation note**: `charmbracelet/huh` v1.0.0 is the ONLY new first-party dependency — pure-Go/CGO-free; it transitively pins the *stable* `bubbletea v1.3.6` / `lipgloss v1.1.0` (NOT `charm.land/bubbletea/v2`). Confined to the command tier; no pure core may import it. Verify the `CGO_ENABLED=0` static build in CI.

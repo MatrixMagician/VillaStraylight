@@ -373,19 +373,19 @@ func (backendROCm) ResidencyProof() ResidencyMarkers {
 | A3 | `imageDeny` substring gate suffices (no allow-list) — `rocm-6.4.4` is not denied, so `checkROCmImage` PASSES it. | §Common Pitfalls 3, D-07 | LOW — confirmed by reading the policy + check logic; `imageDeny = ["rocm7-nightlies"]` only. |
 | A4 | Extending the shared `patterns["container image literal"]` entry covers BOTH the internal/ and cmd/villa walks (cmdPatterns reuses it by reference). | §Common Pitfalls 1, §Code Examples | LOW — verified at seam_test.go line ~119; planner should confirm during edit. |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **`bench --ab` multi-ROCm selection (the load-bearing one for SC#3)**
+1. **`bench --ab` multi-ROCm selection (the load-bearing one for SC#3)** — **RESOLVED: Option A (`--ab-target`)** (chosen in `--auto` mode; planned in 12-03 Tasks 1–2).
    - What we know: `other()` is a binary vulkan↔rocm swap; the pure core takes the target via the injected `Switch` closure, so a `--ab-target` flag is mechanically feasible.
    - What's unclear: Whether SC#3's "against rocm-7.2.4 / Vulkan" REQUIRES arbitrary-pair A/B (Option A) or is satisfied by two separate vs-Vulkan runs (Option B).
-   - Recommendation: Surface to the user in planning. Default to **Option A (`--ab-target`)** as it directly satisfies SC#3 and is a small, well-bounded change (one flag, one cmd-tier target plumb, one optional new golden). If the user prefers minimal scope, Option B with documentation.
+   - Resolution: **Option A (`--ab-target`)** — directly satisfies SC#3, small well-bounded change (one flag, one cmd-tier target plumb, one optional new golden); the unset default preserves the v1.1 `other()` binary swap (byte-frozen golden untouched). Option B recorded as the rejected alternative in 12-03.
 
-2. **Optional 6.4.4 render golden**
+2. **Optional 6.4.4 render golden** — **RESOLVED: add the additive golden** (planned in 12-02 Task 2).
    - What we know: Widening `backendLabel` changes the rendered unit ONLY for 6.4.4 backends (no existing golden affected).
-   - Recommendation: Add a `villa-llama-rocm-6.4.4.container.golden` render test for parity with the rocm-7.2.4 golden — additive, low cost, locks the new unit shape.
+   - Resolution: Add a `villa-llama-rocm-6.4.4.container.golden` render test for parity with the rocm-7.2.4 golden — additive, low cost, locks the new unit shape.
 
-3. **On-hardware first-switch verification**
-   - Recommendation: A `checkpoint:human-verify` task: re-run `skopeo inspect` for digest currency, then `villa backend set rocm-6.4.4` on the gfx1151 host and confirm the residency proof PASSES (validates A1/A2 — wrong env/markers FAIL loudly, never silently). This is the v1.1 Phase-8 on-hardware UAT pattern.
+3. **On-hardware first-switch verification** — **RESOLVED: 12-03 Task 4 checkpoint.**
+   - Resolution: A `checkpoint:human-verify` task: re-run `skopeo inspect` for digest currency, then `villa backend set rocm-6.4.4` on the gfx1151 host and confirm the residency proof PASSES (validates A1/A2 — wrong env/markers FAIL loudly, never silently). This is the v1.1 Phase-8 on-hardware UAT pattern.
 
 ## Environment Availability
 
