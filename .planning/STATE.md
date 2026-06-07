@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Operability
 status: executing
-stopped_at: 15-04 executed (code complete) — Task 3 on-hardware UAT (gfx1151) PENDING checkpoint
-last_updated: "2026-06-07T19:00:52.245Z"
+stopped_at: Phase 16 context gathered
+last_updated: "2026-06-07T19:07:13.881Z"
 last_activity: 2026-06-07
 progress:
   total_phases: 6
@@ -181,9 +181,9 @@ Items acknowledged at milestone close on 2026-06-06 (v1.1):
 
 ## Session Continuity
 
-Last session: 2026-06-07T18:29:11.563Z
-Stopped at: 15-04 executed (code complete) — Task 3 on-hardware UAT (gfx1151) PENDING checkpoint
-Resume file: None
+Last session: 2026-06-07T19:07:13.876Z
+Stopped at: Phase 16 context gathered
+Resume file: .planning/phases/16-backup-restore/16-CONTEXT.md
 
 ## Operator Next Steps
 
