@@ -1016,6 +1016,78 @@ func TestBenchCompareReadOnly(t *testing.T) {
 	}
 }
 
+// TestBenchCompareGolden freezes the --compare --json contract byte-for-byte: a
+// comparable pair (with EXACTLY ONE void side so the a_void_exhausted/b_void_exhausted
+// flags are frozen with a true value present) AND a not-comparable refusal, concatenated
+// into one golden. pp/tg deltas are SEPARATE keys; the not-comparable case carries
+// differing_fields and zeroed deltas. Run with -update to regenerate.
+func TestBenchCompareGolden(t *testing.T) {
+	// Comparable pair, side B void (RESEARCH Q3/A5 — flag, never suppress the delta).
+	ca := comparableReport("vulkan", "2026-06-07T10:00:00Z", 120, 40, false)
+	cb := comparableReport("rocm-7.2.4", "2026-06-07T11:00:00Z", 150, 55, true)
+
+	// Not-comparable pair (mismatched model).
+	na := comparableReport("vulkan", "2026-06-07T12:00:00Z", 120, 40, false)
+	nb := comparableReport("rocm-7.2.4", "2026-06-07T13:00:00Z", 150, 55, false)
+	nb.Fingerprint.Model = "llama3"
+
+	var buf bytes.Buffer
+
+	cmd1, out1, _ := benchTestCmd()
+	if code := runBenchCompare(cmd1, false, true, true, stubBenchstoreReadAll(t, ca, cb)); code != exitPass {
+		t.Fatalf("comparable --json exit = %d, want %d", code, exitPass)
+	}
+	buf.Write(out1.Bytes())
+
+	cmd2, out2, _ := benchTestCmd()
+	if code := runBenchCompare(cmd2, false, true, true, stubBenchstoreReadAll(t, na, nb)); code != exitWarn {
+		t.Fatalf("not-comparable --json exit = %d, want %d", code, exitWarn)
+	}
+	buf.Write(out2.Bytes())
+
+	golden := filepath.Join("testdata", "bench-compare.json.golden")
+	if *update {
+		if err := os.MkdirAll("testdata", 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(golden, buf.Bytes(), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		t.Logf("updated %s", golden)
+		return
+	}
+	want, err := os.ReadFile(golden)
+	if err != nil {
+		t.Fatalf("read golden (run with -update to create): %v", err)
+	}
+	if !bytes.Equal(buf.Bytes(), want) {
+		t.Errorf("bench --compare --json does not match golden.\n--- got ---\n%s\n--- want ---\n%s", buf.String(), want)
+	}
+}
+
+// TestBenchCompareNoBlendedKey locks the milestone honesty invariant over the compare
+// golden: NO blended tok/s key (tok_per_sec / tokens_per_sec / throughput), and the
+// per-metric pp/tg deltas ARE present as SEPARATE keys (delta_prompt_per_sec /
+// delta_predicted_per_sec), plus the void-side flags (a_void_exhausted/b_void_exhausted)
+// are exercised (RESEARCH Q3/A5).
+func TestBenchCompareNoBlendedKey(t *testing.T) {
+	golden := filepath.Join("testdata", "bench-compare.json.golden")
+	data, err := os.ReadFile(golden)
+	if err != nil {
+		t.Fatalf("read golden: %v", err)
+	}
+	for _, blended := range [][]byte{[]byte("tok_per_sec"), []byte("tokens_per_sec"), []byte("throughput")} {
+		if bytes.Contains(data, blended) {
+			t.Errorf("compare golden contains a blended tok/s key %q — pp and tg MUST stay SEPARATE", blended)
+		}
+	}
+	for _, want := range []string{"delta_prompt_per_sec", "delta_predicted_per_sec", "a_void_exhausted", "b_void_exhausted", "differing_fields"} {
+		if !bytes.Contains(data, []byte(want)) {
+			t.Errorf("compare golden must contain %q (pp/tg deltas separate + void-side flags + refusal fields)", want)
+		}
+	}
+}
+
 // TestBenchVoidPersist proves a void-exhausted run is STILL persisted (persist-always
 // policy A5): the hook fires on the exitWarn path too, recording VoidExhausted=true.
 func TestBenchVoidPersist(t *testing.T) {

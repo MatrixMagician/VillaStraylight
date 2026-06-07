@@ -158,7 +158,15 @@ func runBenchCompare(cmd *cobra.Command, list, compare, asJSON bool, d benchstor
 
 	if asJSON {
 		entry := benchCompareEntryFrom(cr, a, b)
-		return encodeBenchJSON(out, errOut, entry)
+		if code := encodeBenchJSON(out, errOut, entry); code != exitPass {
+			return code // encode failure
+		}
+		// The exit mapping is the SAME in JSON mode: a not-comparable pair is exit 2 even
+		// though the contract was emitted (comparable:false carries the refusal).
+		if !cr.Comparable {
+			return exitWarn
+		}
+		return exitPass
 	}
 
 	if !cr.Comparable {
