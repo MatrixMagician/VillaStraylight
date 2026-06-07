@@ -237,8 +237,12 @@ func findingFromCheck(c preflight.CheckResult) Finding {
 }
 
 // healthFinding maps a service's mapped health to a WARN-tier finding: HealthReady →
-// PASS, HealthDown → FAIL (a confidently-down service is a real fault), loading /
-// unknown → typed-Unknown WARN (up-but-not-confirmed, never a confident FAIL).
+// PASS; HealthDown → WARN (a down/stopped stack is an expected, visible operational
+// state, not a blocking fault — D-08 / the package contract reserves the blocking
+// tier for the silent-degradation faults: a confident offload FAIL over a health-200,
+// a preflight BLOCK, or a loopback breach); loading / unknown → typed-Unknown WARN
+// (up-but-not-confirmed). Every branch stays in tierWarn, so a health signal NEVER
+// escalates doctor to the blocking exit tier — keeping FAIL ⟺ BLOCK-class invariant.
 func healthFinding(s status.ServiceStatus) Finding {
 	f := Finding{
 		ID:         "health:" + s.Service,
@@ -251,9 +255,9 @@ func healthFinding(s status.ServiceStatus) Finding {
 		f.Status = statusPass
 		f.Detail = "/health is ready (200)"
 	case status.HealthDown:
-		f.Status = statusFail
-		f.Detail = "/health is unreachable — the service is down"
-		f.Remediation = "check `villa status` / `villa logs`; run `villa up` if the stack is stopped"
+		f.Status = statusWarn
+		f.Detail = "/health is unreachable — the service is not running"
+		f.Remediation = "run `villa up` if the stack is stopped; otherwise check `villa status` / `villa logs`"
 	default: // loading / unknown
 		f.Status = statusWarn
 		f.Detail = "health could not be confirmed (loading or unevaluable)"

@@ -13,6 +13,9 @@
 //     Report.Overall=="WARN" (DOCTOR-03).
 //   - TestDriftReadErrorDegrades   — a DriftPlan read error (absent unit dir) yields a
 //     typed-Unknown WARN Finding, never a panic (D-08).
+//   - TestDownStackWarnsNotBlocks  — a confidently-down service (HealthDown) folds to a
+//     WARN-tier WARN Finding and Report.Overall=="WARN", never a blocking FAIL (D-08 /
+//     CR-01: a stopped stack is exit-2, not exit-1).
 //
 // NOTE: this file deliberately types NO backend marker literal (Vulkan0/ROCm0/image
 // tags). Offload Verdicts are constructed opaquely via inference.Verdict only, so
@@ -180,5 +183,53 @@ func TestDriftReadErrorDegrades(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("expected a typed-Unknown WARN finding with remediation on a drift read error; findings: %+v", r.Findings)
+	}
+}
+
+// TestDownStackWarnsNotBlocks: a confidently-down service (Health==HealthDown, no
+// offload signal) must fold to a WARN-tier WARN health Finding and Report.Overall=="WARN"
+// — NEVER a blocking FAIL. A stopped stack is an expected operational state (D-08): it
+// maps to exit 2 (warning), not exit 1 (blocking fault), which is reserved for the silent-
+// degradation faults (offload FAIL over a health-200, preflight BLOCK, loopback breach).
+// Regression guard for CR-01 (phase-13 code review).
+func TestDownStackWarnsNotBlocks(t *testing.T) {
+	d := newDoctorDeps()
+	d.StatusReport = func() status.Report {
+		r := healthyStatusReport()
+		r.Services[0].Active = "inactive"
+		r.Services[0].Health = status.HealthDown
+		// A down service proves no offload — the offload finding is not emitted.
+		r.Services[0].Offload = inference.Verdict{}
+		r.Services[0].OffloadApplies = false
+		r.Services[0].OffloadOK = false
+		return r
+	}
+
+	r := Aggregate(d)
+	if r.Overall != "WARN" {
+		t.Fatalf("Overall = %q, want WARN (a down stack is a WARN, never a blocking FAIL — D-08/CR-01)", r.Overall)
+	}
+	// No finding may be a blocking-tier FAIL: FAIL ⟺ BLOCK-class invariant means a down
+	// stack must not escalate doctor to the blocking exit tier.
+	for _, f := range r.Findings {
+		if f.Status == "FAIL" {
+			t.Errorf("a down stack produced a FAIL finding %q (tier %s) — expected WARN, never FAIL", f.ID, f.Tier)
+		}
+	}
+	// The down service must surface a WARN health finding with actionable remediation.
+	found := false
+	for _, f := range r.Findings {
+		if f.ID == "health:villa-llama.service" {
+			found = true
+			if f.Status != "WARN" || f.Tier != tierWarn {
+				t.Errorf("down health finding = (status %s, tier %s), want (WARN, %s)", f.Status, f.Tier, tierWarn)
+			}
+			if f.Remediation == "" {
+				t.Error("down health finding has empty Remediation (D-11)")
+			}
+		}
+	}
+	if !found {
+		t.Errorf("expected a health finding for the down service; findings: %+v", r.Findings)
 	}
 }

@@ -86,28 +86,27 @@ func renderDoctor(w io.Writer, r doctor.Report, asJSON, withProvenance bool) int
 		renderDoctorTable(w, r, withProvenance)
 	}
 
-	// Classify worst-wins over the findings: collect the BLOCK-class FAILs and whether
-	// any WARN is present. A confident FAIL dominates (exitBlocked); else any WARN →
-	// exitWarn; else exitPass.
-	var blockFails int
-	anyWarn := false
-	for _, f := range r.Findings {
-		switch f.Status {
-		case "FAIL":
-			blockFails++
-		case "WARN":
-			anyWarn = true
+	// The core's worst-wins fold (doctor.Aggregate) is the SINGLE source of truth for the
+	// verdict: r.Overall is mapped here to the AUTHORITATIVE preflight exit constants so the
+	// exit code can never diverge from the JSON `overall` field. By the core's FAIL ⟺
+	// BLOCK-class invariant, an Overall of FAIL means at least one blocking-tier FAIL is
+	// present (a confident offload FAIL, a preflight BLOCK, or a loopback breach); a down/
+	// stopped stack folds to WARN, never FAIL (D-08).
+	switch r.Overall {
+	case "FAIL":
+		var blockFails int
+		for _, f := range r.Findings {
+			if f.Status == "FAIL" {
+				blockFails++
+			}
 		}
-	}
-
-	if blockFails > 0 {
 		fmt.Fprintf(w, "\nFAULT: %d blocking finding(s) — the running install is not healthy. See the remediation(s) above.\n", blockFails)
 		return exitBlocked
-	}
-	if anyWarn {
+	case "WARN":
 		return exitWarn
+	default:
+		return exitPass
 	}
-	return exitPass
 }
 
 // renderDoctorTable writes the findings as an aligned human table (mirroring
@@ -196,6 +195,15 @@ func liveDoctorDeps() (doctor.Deps, error) {
 			dir, err := unitDirReadOnly()
 			if err != nil {
 				return orchestrate.Plan{}, fmt.Errorf("resolve unit dir: %w", err)
+			}
+			// An absent unit dir means the stack was never installed — NOT drift.
+			// Reconcile would otherwise treat every rendered unit as Changed (absent
+			// file ⇒ Changed) and the core would misreport "units no longer match".
+			// Return a read error so the core degrades it to the honest typed-Unknown
+			// WARN ("units not yet written") instead (D-08 / WR-01). This stat is the
+			// only filesystem touch and is strictly read-only.
+			if _, statErr := os.Stat(dir); statErr != nil {
+				return orchestrate.Plan{}, fmt.Errorf("read unit dir %q: %w", dir, statErr)
 			}
 			return orchestrate.Reconcile(units, dir)
 		},
