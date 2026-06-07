@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Operability
 status: executing
-stopped_at: Completed 14-03-PLAN.md (BENCH-04 read-only bench --compare/--list surface; Phase 14 complete 3/3)
+stopped_at: Phase 14 executed 3/3 (BENCH-03/04); automated verification 12/12; code review WR-01/02/04 fixed; on-hardware gfx1151 UAT pending
 last_updated: "2026-06-07T17:00:00.000Z"
-last_activity: 2026-06-07 -- Completed Phase 14 Plan 03 (read-only --compare/--list, comparability-guarded pp/tg deltas, 0/2/1 exit, frozen --compare --json golden)
+last_activity: 2026-06-07 -- Phase 14 executed + verified (12/12 automated, human_needed); awaiting on-hardware UAT (/gsd-verify-work 14)
 progress:
   total_phases: 6
-  completed_phases: 3
+  completed_phases: 2
   total_plans: 9
   completed_plans: 9
-  percent: 50
+  percent: 33
 ---
 
 # Project State
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-07 after starting v1.2)
 
 **Core value:** Run a capable local AI workspace that "just works" after install — hardware-aware setup that brings inference, chat, and the dashboard up healthy, with zero data leaving the box. v1.2 extends the bar to "and stays operable, recoverable, and measurable over time."
-**Current focus:** Phase 15 — cumulative usage tracking (next; Phase 14 complete)
+**Current focus:** Phase 14 — executed; on-hardware gfx1151 UAT pending (run `/gsd-verify-work 14`) before advancing to Phase 15
 
 ## Current Position
 
-Phase: 14 (saved-bench-reports-compare) — COMPLETE (3/3)
-Plan: 3 of 3 complete
-Status: Phase 14 complete — next: discuss/plan Phase 15 (cumulative usage tracking)
-Progress: [███░░░] 3/6 phases complete (v1.2)
+Phase: 14 (saved-bench-reports-compare) — EXECUTED (3/3); on-hardware UAT pending
+Plan: 3 of 3 executed; automated verification 12/12 (human_needed)
+Status: Phase 14 executed — run `/gsd-verify-work 14` (on-hardware gfx1151 UAT) before advancing to Phase 15
+Progress: [██░░░░] 2/6 phases complete (v1.2); Phase 14 executed, UAT pending
 Last activity: 2026-06-07 -- Completed Phase 14 Plan 03 (read-only --compare/--list, comparability-guarded pp/tg deltas, 0/2/1 exit, frozen --compare --json golden)
 
 ## v1.2 Build Order (research-converged — preserve)
