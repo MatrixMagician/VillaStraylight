@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Operability
-status: ready to plan
-stopped_at: "Phase 12 complete — UAT 7/7 pass, security 10/10 closed; on-hardware UAT recorded (rocm-6.4.4 does NOT recover Δtg; Vulkan stays tg default). Ready to plan Phase 13 (villa doctor)."
-last_updated: "2026-06-07T11:31:31.334Z"
+status: planning
+stopped_at: Phase 13 context gathered
+last_updated: "2026-06-07T13:51:59.721Z"
 last_activity: 2026-06-07
 progress:
   total_phases: 6
@@ -150,9 +150,9 @@ Items acknowledged at milestone close on 2026-06-06 (v1.1):
 
 ## Session Continuity
 
-Last session: 2026-06-07
-Stopped at: Phase 12 complete, ready to plan Phase 13.
-Resume file: None
+Last session: 2026-06-07T13:51:59.715Z
+Stopped at: Phase 13 context gathered
+Resume file: .planning/phases/13-villa-doctor-health-diagnosis/13-CONTEXT.md
 
 ## Operator Next Steps
 
