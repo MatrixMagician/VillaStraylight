@@ -20,8 +20,8 @@ backend literals stay behind the `internal/inference` seam.
 ### Backup & Recovery
 
 - [x] **BAK-01**: User can back up their workspace (config `.toml` + the Open WebUI data volume) to a single archive that **excludes** re-pullable model weights and includes a manifest of versions, image digests, and checksums.
-- [ ] **BAK-02**: User can restore from a backup archive transactionally (capture → quiesce → swap → restart → prove → rollback-on-failure), so a failed or partial restore never corrupts a running stack.
-- [ ] **BAK-03**: `villa restore` warns on version/digest skew between the archive manifest and the current install before applying.
+- [x] **BAK-02**: User can restore from a backup archive transactionally (capture → quiesce → swap → restart → prove → rollback-on-failure), so a failed or partial restore never corrupts a running stack.
+- [x] **BAK-03**: `villa restore` warns on version/digest skew between the archive manifest and the current install before applying.
 
 ### Benchmark Reports
 
@@ -88,8 +88,8 @@ Which phases cover which requirements. Populated during roadmap creation (`/gsd-
 | USAGE-01 | Phase 15 | Complete |
 | USAGE-02 | Phase 15 | Complete |
 | BAK-01 | Phase 16 | Complete |
-| BAK-02 | Phase 16 | Pending |
-| BAK-03 | Phase 16 | Pending |
+| BAK-02 | Phase 16 | Complete |
+| BAK-03 | Phase 16 | Complete |
 | INSTALL-01 | Phase 17 | Pending |
 | INSTALL-02 | Phase 17 | Pending |
 

@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Operability
 status: executing
-stopped_at: Completed 16-02-PLAN.md (villa backup)
-last_updated: "2026-06-07T20:30:00.000Z"
-last_activity: 2026-06-07 -- Completed Phase 16 Plan 02 (villa backup)
+stopped_at: Completed 16-03-PLAN.md (villa restore)
+last_updated: "2026-06-07T21:00:00.000Z"
+last_activity: 2026-06-07 -- Completed Phase 16 Plan 03 (villa restore)
 progress:
   total_phases: 6
   completed_phases: 4
   total_plans: 16
-  completed_plans: 15
-  percent: 71
+  completed_plans: 16
+  percent: 75
 ---
 
 # Project State
@@ -25,11 +25,11 @@ See: .planning/PROJECT.md (updated 2026-06-07 after starting v1.2)
 
 ## Current Position
 
-Phase: 16 (backup-restore) — EXECUTING
-Plan: 3 of 3
-Status: 16-02 complete (villa backup); Wave 3 (16-03 villa restore) next
-Progress: [█████████░] 88%
-Last activity: 2026-06-07 -- Completed Phase 16 Plan 02 (villa backup)
+Phase: 16 (backup-restore) — EXECUTING (all 3 plans complete; phase-gate UAT pending)
+Plan: 3 of 3 (complete)
+Status: 16-03 complete (villa restore — BAK-02/BAK-03); on-hardware UAT deferred to phase gate
+Progress: [██████████] 100% (plans) — phase-gate UAT remains
+Last activity: 2026-06-07 -- Completed Phase 16 Plan 03 (villa restore)
 
 ## v1.2 Build Order (research-converged — preserve)
 
@@ -92,6 +92,7 @@ contract evolves at a time), then the destructive backup, then the TUI capstone.
 | Phase 15 P04 | ~12 min | 2 tasks | 5 files |
 | Phase 16 P01 | 6m | 2 tasks | 14 files |
 | Phase 16 P02 | ~12m | 2 tasks | 13 files |
+| Phase 16 P03 | ~22m | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -151,6 +152,9 @@ Earlier (v1.0 / v1.1) decisions retained below.
 - [16-02]: podman volume I/O is a SHARED cmd-tier fixed-arg seam (cmd/villa/podman_volume.go: volumeExportArgs/volumeImportArgs/podmanVolume/requirePodman) cloned from uninstall.go podmanVolumeRm — NO new impure module (D-02); internal/backup stays exec-free (SeamGrepGate green).
 - [16-02]: store schema versions sourced via NEW exported accessors usage.SchemaVersion()/benchstore.SavedReportSchemaVersion() (mirror-guarded vs the unexported consts) so the manifest can never desync; OWUI volume name via orchestrate.OpenWebUIVolumeName(); both image digests seam-sourced (no literal — D-10).
 - [16-02]: archive 0600, output traversal-guarded against its parent, corrupt partial removed on failed write; default name villa-backup-<timestamp>.tar (FS-safe, no ':'). --json deferred (D-13). On-hardware gfx1151 round-trip UAT deferred to phase gate.
+- [16-03]: villa restore ships (BAK-02/BAK-03) — pure Restore() clones backendswap.Run: read+verify (fail-closed BLOCK on checksum mismatch / incompatible manifest schema, ZERO side effects) -> WARN-and-confirm skew (--yes/--force bypass) -> capture-before-mutate -> quiesce -> clean-recreate-before-import (VolumeRm not-found-tolerant -> ReconcileAndWrite Quadlet recreate from restored config -> EnsureVolume explicit create -> VolumeImport) on apply AND rollback -> offload-asserting prove -> verbatim rollback with honest complete/incomplete reporting.
+- [16-03]: clean-recreate-before-import is the load-bearing fix (podman volume import MERGES + does NOT auto-create, RESEARCH HIGH) — stale chats/webui.db never leak; a test asserts VolumeRm<ReconcileAndWrite<EnsureVolume<VolumeImport on the forward path and a 2nd clean-recreate on rollback re-importing the CAPTURED tar.
+- [16-03]: config restored via config.SaveVilla (new config.Parse([]byte) turns the archive's config.toml into the source-of-truth VillaConfig); data-dir artifacts via atomic usage.WriteFileAtomic 0600/0700; liveRestoreProve composes ROCm preflight + the proven Phase-8 liveProve residency assert (health-200-but-residency-FAIL -> non-pass -> rollback); no new outbound (D-12). internal/backup stays exec/inference/detect-free (SeamGrepGate green). On-hardware UAT (clean-recreate-no-merge / same-host round-trip / live-SQLite quiesce / cross-version skew / cross-host best-effort) deferred to phase gate.
 
 ### Pending Todos
 
@@ -189,9 +193,9 @@ Items acknowledged at milestone close on 2026-06-06 (v1.1):
 
 ## Session Continuity
 
-Last session: 2026-06-07T20:30:00.000Z
-Stopped at: Completed 16-02-PLAN.md (villa backup)
-Resume file: .planning/phases/16-backup-restore/16-03-PLAN.md
+Last session: 2026-06-07T21:00:00.000Z
+Stopped at: Completed 16-03-PLAN.md (villa restore)
+Resume file: None (Phase 16 plans complete; on-hardware phase-gate UAT pending)
 
 ## Operator Next Steps
 

@@ -194,7 +194,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 16-03-PLAN.md — `villa restore`: transactional capture→quiesce→swap→prove→rollback with clean-recreate-before-import, offload-asserting prove, and skew WARN-and-confirm (BAK-02, BAK-03)
+- [x] 16-03-PLAN.md — `villa restore`: transactional capture→quiesce→swap→prove→rollback with clean-recreate-before-import, offload-asserting prove, and skew WARN-and-confirm (BAK-02, BAK-03)
 
 **Research flag**: Validate cross-host / post-`podman system reset` restore (UID-mapping + SELinux `:Z` repair, e.g. `podman unshare chown -R`) — the "looks done but isn't" case the same-host round-trip test misses — and decide the Open WebUI live-SQLite quiesce approach (avoid overwriting a live DB). External Podman volume mechanics are MEDIUM-confidence.
 **Implementation note**: Use `podman volume export/import` (NEVER host-path tar) behind an `orchestrate`-resident `volume_io` seam or a cmd-tier fixed-arg podman call (as `uninstall.go`'s `podmanVolumeRm` already proves passes the seam gate) — do NOT add a new impure module; `orchestrate` stays the only intentionally-impure module. Pure `internal/backup` does manifest/verify. Restore config via `config.SaveVilla` + re-run preflight; recreate the volume via Quadlet. Mirror `backendswap` transactional discipline. 0600/0700 XDG.
