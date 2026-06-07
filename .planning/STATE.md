@@ -3,8 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Operability
 status: planning
-last_updated: "2026-06-07T10:30:00.000Z"
-last_activity: 2026-06-07
+stopped_at: Phase 12 context gathered
+last_updated: "2026-06-07T10:01:15.417Z"
+last_activity: 2026-06-07 — v1.2 roadmap created, 13/13 requirements mapped
 progress:
   total_phases: 6
   completed_phases: 0
@@ -137,8 +138,8 @@ Items acknowledged at milestone close on 2026-06-06 (v1.1):
 
 ## Session Continuity
 
-Last session: 2026-06-07T10:30:00.000Z
-Stopped at: v1.2 roadmap created (Phases 12–17)
+Last session: 2026-06-07T10:01:15.412Z
+Stopped at: Phase 12 context gathered
 Resume: `/gsd-plan-phase 12` to begin Phase 12 (`rocm-6.4.4` Alternate Backend).
 
 ## Operator Next Steps
