@@ -160,5 +160,202 @@ func TestRecordGolden(t *testing.T) {
 	}
 }
 
-// silence unused import time when only Task-1 tests are present; Task 2 uses it.
-var _ = time.Now
+// --- Task 2: comparability guard, Deps seam, Append/Load, path helper ---
+
+// fpBase is a fully-comparable fingerprint; tests mutate one field at a time.
+func fpBase() Fingerprint {
+	return Fingerprint{Model: "llama-3.1-8b", Quant: "Q4_K_M", Ctx: 8192, Backend: "vulkan", HostGfxID: "gfx1151"}
+}
+
+// TestComparableMatrix proves the guard: identical model+quant+ctx+host with a
+// DIFFERENT backend is Comparable (cross-backend compare is the point); each single
+// mismatch of model/quant/ctx/host yields Comparable==false naming the field.
+func TestComparableMatrix(t *testing.T) {
+	tests := []struct {
+		name     string
+		mutate   func(f *Fingerprint)
+		wantOK   bool
+		wantDiff string // expected field in the diff slice ("" => none)
+	}{
+		{"identical", func(f *Fingerprint) {}, true, ""},
+		{"backend-differs-still-comparable", func(f *Fingerprint) { f.Backend = "rocm" }, true, ""},
+		{"model-mismatch", func(f *Fingerprint) { f.Model = "other" }, false, "model"},
+		{"quant-mismatch", func(f *Fingerprint) { f.Quant = "Q8_0" }, false, "quant"},
+		{"ctx-mismatch", func(f *Fingerprint) { f.Ctx = 4096 }, false, "ctx"},
+		{"host-mismatch", func(f *Fingerprint) { f.HostGfxID = "gfx1100" }, false, "host"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			a := fpBase()
+			b := fpBase()
+			tc.mutate(&b)
+			ok, diff := Comparable(a, b)
+			if ok != tc.wantOK {
+				t.Fatalf("Comparable ok = %v, want %v (diff=%v)", ok, tc.wantOK, diff)
+			}
+			if tc.wantDiff != "" {
+				found := false
+				for _, d := range diff {
+					if d == tc.wantDiff {
+						found = true
+					}
+				}
+				if !found {
+					t.Errorf("diff = %v, want it to name %q", diff, tc.wantDiff)
+				}
+			}
+		})
+	}
+}
+
+// TestUnknownHost proves an UNKNOWN host fingerprint (HostGfxID=="") is NOT
+// comparable to anything — even an identical-empty one — so no false-equal.
+func TestUnknownHost(t *testing.T) {
+	a := fpBase()
+	a.HostGfxID = ""
+	b := fpBase()
+	b.HostGfxID = ""
+	if ok, diff := Comparable(a, b); ok {
+		t.Errorf("two unknown-host fingerprints must NOT be comparable, got ok=true diff=%v", diff)
+	}
+	c := fpBase() // known
+	if ok, _ := Comparable(a, c); ok {
+		t.Errorf("unknown vs known host must NOT be comparable")
+	}
+}
+
+// TestCompareDelta proves Compare returns DeltaPP and DeltaTG as TWO separate
+// figures for a comparable pair, and a non-comparable pair yields no numeric delta.
+func TestCompareDelta(t *testing.T) {
+	a := deterministicReport()
+	a.Fingerprint.Backend = "vulkan"
+	a.Single.Backend = "vulkan"
+	a.Single.PromptPerSec = 500
+	a.Single.PredictedPerSec = 40
+
+	b := deterministicReport()
+	b.Fingerprint.Backend = "rocm" // backend differs — still comparable
+	b.Single.Backend = "rocm"
+	b.Single.PromptPerSec = 560
+	b.Single.PredictedPerSec = 35
+
+	res := Compare(a, b)
+	if !res.Comparable {
+		t.Fatalf("expected comparable (only backend differs), got diff=%v", res.DifferingFields)
+	}
+	if res.DeltaPromptPerSec != 60 {
+		t.Errorf("DeltaPromptPerSec = %v, want 60", res.DeltaPromptPerSec)
+	}
+	if res.DeltaPredictedPerSec != -5 {
+		t.Errorf("DeltaPredictedPerSec = %v, want -5", res.DeltaPredictedPerSec)
+	}
+
+	// Non-comparable pair: differing model => no delta.
+	c := deterministicReport()
+	c.Fingerprint.Model = "other"
+	bad := Compare(a, c)
+	if bad.Comparable {
+		t.Fatalf("expected not comparable on model mismatch")
+	}
+	if bad.DeltaPromptPerSec != 0 || bad.DeltaPredictedPerSec != 0 {
+		t.Errorf("non-comparable pair must carry ZERO deltas, got pp=%v tg=%v", bad.DeltaPromptPerSec, bad.DeltaPredictedPerSec)
+	}
+	if len(bad.DifferingFields) == 0 {
+		t.Errorf("non-comparable result must carry the differing fields")
+	}
+}
+
+// bufDeps backs Deps with an in-memory buffer (no XDG touched) — the pure-core seam.
+func bufDeps(buf *bytes.Buffer, now time.Time) Deps {
+	return Deps{
+		AppendLine: func(line []byte) error { _, err := buf.Write(line); return err },
+		ReadAll:    func() ([]byte, error) { return buf.Bytes(), nil },
+		Now:        func() time.Time { return now },
+	}
+}
+
+// TestAppendGrowsViaSeam proves Append marshals one line per call through the seam,
+// stamps the schema version + CapturedAt from Now, and the store grows append-only.
+func TestAppendGrowsViaSeam(t *testing.T) {
+	var buf bytes.Buffer
+	fixed := time.Date(2026, 6, 7, 12, 0, 0, 0, time.UTC)
+	d := bufDeps(&buf, fixed)
+
+	r := deterministicReport()
+	r.CapturedAt = "" // force the seam to stamp it
+	r.SchemaVersion = 0
+	if err := Append(d, r); err != nil {
+		t.Fatalf("Append: %v", err)
+	}
+	if err := Append(d, deterministicReport()); err != nil {
+		t.Fatalf("Append 2: %v", err)
+	}
+	lines := bytes.Count(buf.Bytes(), []byte("\n"))
+	if lines != 2 {
+		t.Fatalf("store has %d lines after 2 Appends, want 2", lines)
+	}
+	// first record must have been stamped.
+	loaded, err := Load(d)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(loaded) != 2 {
+		t.Fatalf("Load returned %d records, want 2", len(loaded))
+	}
+	if loaded[0].SchemaVersion != savedReportSchemaVersion {
+		t.Errorf("Append did not stamp SchemaVersion: %d", loaded[0].SchemaVersion)
+	}
+	if loaded[0].CapturedAt != fixed.Format(time.RFC3339) {
+		t.Errorf("CapturedAt = %q, want %q", loaded[0].CapturedAt, fixed.Format(time.RFC3339))
+	}
+}
+
+// TestLoadSkipsCorruptLine proves Load fails CLOSED per line: a corrupt JSONL line
+// is skipped (no panic) and earlier valid records survive; an absent store yields an
+// empty slice and no error.
+func TestLoadSkipsCorruptLine(t *testing.T) {
+	good, _ := Marshal(deterministicReport())
+	var buf bytes.Buffer
+	buf.Write(good)
+	buf.WriteString("{ this is not valid json\n")
+	buf.Write(good)
+
+	d := Deps{ReadAll: func() ([]byte, error) { return buf.Bytes(), nil }}
+	got, err := Load(d)
+	if err != nil {
+		t.Fatalf("Load must not error on a corrupt line: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("Load returned %d records, want 2 (corrupt line skipped)", len(got))
+	}
+
+	// absent store: ReadAll returns nil,nil => empty slice, no error.
+	empty := Deps{ReadAll: func() ([]byte, error) { return nil, nil }}
+	got2, err := Load(empty)
+	if err != nil {
+		t.Fatalf("Load on absent store errored: %v", err)
+	}
+	if len(got2) != 0 {
+		t.Errorf("absent store must yield empty slice, got %d", len(got2))
+	}
+}
+
+// TestBenchReportsPathXDG proves the path resolver honors XDG_DATA_HOME and that the
+// traversal guard refuses a path resolving outside its dir.
+func TestBenchReportsPathXDG(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", dir)
+	got := benchReportsPath()
+	want := filepath.Join(dir, "villa", "bench-reports.jsonl")
+	if got != want {
+		t.Errorf("benchReportsPath = %q, want %q", got, want)
+	}
+	storeDir := filepath.Dir(want)
+	if err := assertInsideDir(want, storeDir); err != nil {
+		t.Errorf("legit path rejected by guard: %v", err)
+	}
+	escape := filepath.Join(storeDir, "..", "..", "etc", "evil")
+	if err := assertInsideDir(escape, storeDir); err == nil {
+		t.Errorf("traversal guard failed to reject %q", escape)
+	}
+}
