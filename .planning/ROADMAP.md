@@ -73,7 +73,7 @@ See `milestones/v1.1-ROADMAP.md` for full phase detail, success criteria, and pl
 
 **Wave 1**
 
-- [ ] 12-01-PLAN.md — Seam + resolver + digests: parameterize `backendROCm` by image (D-06), pin both re-verified digests, add the two fail-closed `BackendFor` cases + `IsROCmFamily` (D-01/D-03/D-08), extend the `seam_test.go` regex same-commit (D-10/SC#4) [Wave 1]
+- [x] 12-01-PLAN.md — Seam + resolver + digests: parameterize `backendROCm` by image (D-06), pin both re-verified digests, add the two fail-closed `BackendFor` cases + `IsROCmFamily` (D-01/D-03/D-08), extend the `seam_test.go` regex same-commit (D-10/SC#4) [Wave 1]
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -178,7 +178,7 @@ See `milestones/v1.1-ROADMAP.md` for full phase detail, success criteria, and pl
 | 9. `villa bench` (Honest A/B) | v1.1 | 3/3 | Complete | 2026-06-06 |
 | 10. Backend + tok/s Surfacing | v1.1 | 3/3 | Complete | 2026-06-06 |
 | 11. Address v1.1 tech debt | v1.1 | 2/2 | Complete | 2026-06-06 |
-| 12. `rocm-6.4.4` Alternate Backend | v1.2 | 0/3 | Planned | - |
+| 12. `rocm-6.4.4` Alternate Backend | v1.2 | 1/3 | In Progress|  |
 | 13. `villa doctor` Health Diagnosis | v1.2 | 0/? | Not started | - |
 | 14. Saved Bench Reports + `--compare` | v1.2 | 0/? | Not started | - |
 | 15. Cumulative Usage Tracking | v1.2 | 0/? | Not started | - |

@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Operability
-status: planning
+status: executing
 stopped_at: Phase 12 context gathered
-last_updated: "2026-06-07T10:29:23.551Z"
-last_activity: 2026-06-07 — v1.2 roadmap created, 13/13 requirements mapped
+last_updated: "2026-06-07T10:39:18.173Z"
+last_activity: 2026-06-07 -- Phase 12 execution started
 progress:
   total_phases: 6
   completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
+  total_plans: 3
+  completed_plans: 1
   percent: 0
 ---
 
@@ -21,15 +21,15 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-07 after starting v1.2)
 
 **Core value:** Run a capable local AI workspace that "just works" after install — hardware-aware setup that brings inference, chat, and the dashboard up healthy, with zero data leaving the box. v1.2 extends the bar to "and stays operable, recoverable, and measurable over time."
-**Current focus:** v1.2 Operability roadmap created — Phases 12–17 (ROCM-ALT → doctor → bench reports → usage → backup → TUI install). Next: `/gsd-plan-phase 12`.
+**Current focus:** Phase 12 — rocm-6-4-4-alternate-backend
 
 ## Current Position
 
-Phase: 12 — `rocm-6.4.4` Alternate Backend
-Plan: — (not yet planned)
-Status: Roadmap created; ready to plan Phase 12
+Phase: 12 (rocm-6-4-4-alternate-backend) — EXECUTING
+Plan: 2 of 3
+Status: Ready to execute
 Progress: [░░░░░░] 0/6 phases complete (v1.2)
-Last activity: 2026-06-07 — v1.2 roadmap created, 13/13 requirements mapped
+Last activity: 2026-06-07 -- Phase 12 execution started
 
 ## v1.2 Build Order (research-converged — preserve)
 
@@ -75,6 +75,7 @@ contract evolves at a time), then the destructive backup, then the TUI capstone.
 - Trend: —
 
 *Updated after each plan completion*
+| Phase 12 P01 | 15 | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -102,6 +103,7 @@ Earlier (v1.0 / v1.1) decisions retained below.
 - [Roadmap]: `bench --ab` composes the `backend set` switch — never re-implements switching.
 - [v1.1]: ROCm is opt-in; Vulkan RADV stays the default; `recommend` advises, never auto-switches. Digest-pin ROCm images (never the nightlies tag — 64 GB cap).
 - [v1.1]: `villa backend set` is transactional (capture→prove→cutover→rollback); is-active/200 alone is never success.
+- [Phase ?]: [12-01]: Two additive ROCm 6.4.4 backends (plain + rocwmma) ship as image-parameterized backendROCm variants behind BackendFor; rocm still means 7.2.4 (coexistence); IsROCmFamily is the single ROCm-name enumeration; both digests re-verified live via skopeo 2026-06-07.
 
 ### Pending Todos
 
@@ -138,7 +140,7 @@ Items acknowledged at milestone close on 2026-06-06 (v1.1):
 
 ## Session Continuity
 
-Last session: 2026-06-07T10:01:15.412Z
+Last session: 2026-06-07T10:39:13.597Z
 Stopped at: Phase 12 context gathered
 Resume: `/gsd-plan-phase 12` to begin Phase 12 (`rocm-6.4.4` Alternate Backend).
 
