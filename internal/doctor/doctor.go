@@ -53,6 +53,29 @@ const (
 // additive change to the doctor Report contract.
 const reportSchemaVersion = 1
 
+// The three typed-Unknown ROCm host-prep check IDs that a PROVEN ROCm residency
+// supersedes (down-ranks, never deletes). They INTENTIONALLY duplicate the preflight
+// check-ID strings (internal/preflight/checks_rocm.go idROCmFirmware/idROCmHSA/idROCmImage),
+// which are unexported there: doctor matches on the STABLE ID string, not by importing
+// the consts. These are finding IDs, NOT backend marker literals (no ROCm0/HSA_OVERRIDE/
+// image tag), so they are seam-safe (TestSeamGrepGate).
+const (
+	idROCmFirmware = "ROCM-PRE-firmware"
+	idROCmHSA      = "ROCM-PRE-hsa"
+	idROCmImage    = "ROCM-PRE-image"
+)
+
+// supersededROCmHostPrepID reports whether id is one of the three typed-Unknown ROCm
+// host-prep findings a proven ROCm residency may down-rank.
+func supersededROCmHostPrepID(id string) bool {
+	switch id {
+	case idROCmFirmware, idROCmHSA, idROCmImage:
+		return true
+	default:
+		return false
+	}
+}
+
 // Finding is doctor's normalized, renderable health finding — a doctor-OWNED wrapper
 // (mirroring preflight.CheckResult's field set, D-02 spirit) so doctor's golden never
 // couples to an upstream struct. Every non-PASS Finding MUST carry a non-empty
@@ -124,6 +147,15 @@ func statusRank(s string) int {
 
 // Aggregate composes the shipped cores into a single worst-wins doctor Report. It is
 // pure: every host touch is a Deps seam and it never exits or prints.
+//
+// Residency-supersession (step 4a): when ROCm residency is PROVEN (ROCm-family backend
+// + a service with OffloadApplies + a confident offload StatusPass), the three
+// typed-Unknown ROCm host-prep WARNs (ROCM-PRE-firmware/-hsa/-image) are kept VISIBLE
+// but no longer raise the worst-wins rank — restoring the DOCTOR-01 "exit 0 = healthy"
+// contract on the opt-in ROCm path (13-UAT.md Test 1). The downgrade matches the
+// (superseded-ID AND Status==statusWarn) CONJUNCTION ONLY: a confident StatusFail on the
+// SAME IDs (Known-bad firmware/HSA, denied running image) is NEVER suppressed and still
+// folds to FAIL — preserving no-false-green (DOCTOR-02).
 func Aggregate(d Deps) Report {
 	var findings []Finding
 
@@ -155,10 +187,19 @@ func Aggregate(d Deps) Report {
 			Provenance:  "status.Report.LoopbackOnly",
 		})
 	}
+	// rocmResidencyProven keys the residency-supersession step (4a) below: it is true
+	// only when the configured backend is ROCm-family AND some service has OffloadApplies
+	// AND its offload Verdict is a CONFIDENT StatusPass. Gating on OffloadApplies (not just
+	// the Status) is load-bearing: StatusPass is iota 0, so a zero-value Verdict on a
+	// non-offload service must NEVER spuriously prove residency.
+	rocmResidencyProven := false
 	for _, s := range report.Services {
 		findings = append(findings, healthFinding(s))
 		if s.OffloadApplies {
 			findings = append(findings, offloadFinding(s))
+			if inference.IsROCmFamily(d.Backend) && s.Offload.Status == inference.StatusPass {
+				rocmResidencyProven = true
+			}
 		}
 	}
 
@@ -200,8 +241,33 @@ func Aggregate(d Deps) Report {
 	}
 
 	// 4. WORST-WINS FOLD — any FAIL → "FAIL"; else any WARN → "WARN"; else "PASS".
+	//
+	// 4a. RESIDENCY SUPERSESSION (the gap-closure rule, 13-UAT.md Test 1 / DOCTOR-01):
+	// when ROCm residency is PROVEN (computed above: ROCm-family backend + OffloadApplies
+	// + a confident offload StatusPass), the three typed-Unknown ROCm host-prep WARNs —
+	// ROCM-PRE-firmware/-hsa/-image — are structural "could-not-evaluate off the running
+	// host" advisories (checks_rocm.go hardcodes firmware/hsa as typed-Unknown and the
+	// standalone gate has no requested image), already answered by the proven residency.
+	// They are DOWN-RANKED (their rank contribution suppressed) but kept VISIBLE in
+	// Findings — the rendered table/JSON still SHOWS them with their unchanged WARN status;
+	// only their contribution to the worst-wins rank is dropped.
+	//
+	// HARD NO-FALSE-GREEN INVARIANT (DOCTOR-02): the downgrade predicate is the
+	// CONJUNCTION (ID in the superseded set) AND (Status==statusWarn). A Status==statusFail
+	// on ANY ID — INCLUDING the very ROCM-PRE-firmware/-hsa/-image IDs (a Known deny-listed
+	// firmware / Known-wrong HSA / denied RUNNING image, the last reachable only via the
+	// RunROCmImage seam) — is NEVER suppressed and still folds to FAIL. A pure ID-set match
+	// that ignored Status would wrongly swallow a confident FAIL on those IDs and is
+	// FORBIDDEN. The suppression touches NOTHING else — not drift, health, loopback,
+	// offload, or any non-ROCm-host-prep finding — and fires ONLY under proven ROCm residency.
+	superseded := func(f Finding) bool {
+		return rocmResidencyProven && f.Status == statusWarn && supersededROCmHostPrepID(f.ID)
+	}
 	worst := 0
 	for _, f := range findings {
+		if superseded(f) {
+			continue // visible but non-rank-raising under proven ROCm residency
+		}
 		if r := statusRank(f.Status); r > worst {
 			worst = r
 		}

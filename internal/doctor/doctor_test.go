@@ -82,6 +82,17 @@ func rocmDoctorDeps() Deps {
 	d.LoadConfig = func() (config.VillaConfig, error) {
 		return config.VillaConfig{Backend: "rocm"}, nil
 	}
+	// Probe Known-good gfx1151 + a kernel at/above the policy floor so the two
+	// Probe-DRIVEN ROCm host-prep checks (ROCM-PRE-gfx / ROCM-PRE-kernel) PASS. That
+	// isolates the three STRUCTURALLY typed-Unknown WARNs the supersession targets —
+	// ROCM-PRE-firmware/-hsa/-image (checks_rocm.go:66-67 hardcode firmware/hsa as
+	// UnknownStr; RunROCm passes an empty image) — which are exactly the live-UAT WARNs.
+	d.Probe = func() detect.HostProfile {
+		return detect.HostProfile{
+			IGPUGfxID:     detect.KnownStr("gfx1151", "test"),
+			KernelVersion: detect.KnownStr("6.18.9", "test"),
+		}
+	}
 	return d
 }
 
