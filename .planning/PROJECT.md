@@ -14,14 +14,21 @@ VillaStraylight is a self-hosted, local AI server stack for privacy-conscious po
 
 **v1.0 MVP shipped 2026-06-05** (tag `v1.0`, PR #1 → `main`, merge `57f8ef7`). All 5 phases live-verified on real AMD Strix Halo (gfx1151) hardware: `villa` detects the host, recommends a memory-fitting model, installs a rootless Podman Quadlet stack (llama.cpp Vulkan inference + Open WebUI chat), and serves a read-only control dashboard — strictly local, zero telemetry. Phases 4 & 5 STRIDE-secured.
 
-> **Note (release hygiene):** v1.1 work currently lives on branch `feat/phase-09-villa-bench-honest-a-b` (~141 commits ahead of `main`). v1.0 reached `main` via PR #1; v1.1 should follow the same path (e.g. `/gsd-ship`) before/after tagging.
+> **Note (release hygiene):** v1.1 reached `main` via PR #2 (merge `2e22d1f`) and is tagged `v1.1` on that merge commit — mirroring v1.0's PR #1 / tag-on-`main` pattern. Both shipped milestones are on `main`.
 
-## Between Milestones
+## Current Milestone: v1.2 Operability
 
-No active milestone. Start the next cycle with `/gsd-new-milestone`.
+**Goal:** Harden VillaStraylight into an operable, recoverable daily-driver — self-diagnosis, backup/restore, comparative benchmarking, usage history, a guided install, and a TG-tuned ROCm option — without weakening the v1.0 "just works" bar or the strictly-local posture.
 
-**Candidate next themes (deferred — see REQUIREMENTS archives):**
-- **v1.1.x / operability:** `villa bench --compare` + saved report (BENCH-03), backup/restore (BAK-01), `villa doctor` (DOCTOR-01), cumulative usage tracking (USAGE-01), guided TUI install (INSTALL-01), `rocm-6.4.4` alternate image for TG-heavy models (ROCM-ALT-01).
+**Target features:**
+- **`villa doctor` (DOCTOR-01)** — one-shot health/diagnostics: re-run preflight against a running install, surface drift/faults with remediation.
+- **Backup / restore (BAK-01)** — back up and restore config + Open WebUI data volume (chats, settings) for recovery/migration.
+- **`villa bench --compare` + saved reports (BENCH-03)** — persist bench runs; compare over time / across models, building on the Phase 9 honest A/B core.
+- **Cumulative usage tracking (USAGE-01)** — track token/throughput usage over time, surfaced in `status`/dashboard (not just live).
+- **Guided TUI install (INSTALL-01)** — interactive terminal UI for first-run install/setup alongside the flag-driven CLI.
+- **`rocm-6.4.4` alt image (ROCM-ALT-01)** — alternate ROCm image option tuned for token-generation-heavy models (addresses the v1.1 Δtg −11.15 regression).
+
+**Deferred (not this milestone):**
 - **Milestone 2 — Memory & Search:** Qdrant persistent memory, SearXNG search, OpenCode coding-agent wiring.
 - **Future:** macOS / Apple-Silicon (Metal) backend, authenticated remote/multi-user access, voice (Whisper/Kokoro), agents/orchestration, image generation, ROCm perf-tuning knobs (hipBLASLt/rocWMMA-FA/batch).
 
@@ -50,9 +57,14 @@ No active milestone. Start the next cycle with `/gsd-new-milestone`.
 
 ### Active
 
-<!-- No active milestone. Next requirements defined via /gsd-new-milestone. -->
+<!-- v1.2 Operability — scoped requirements defined in REQUIREMENTS.md, mapped in ROADMAP.md. -->
 
-(None — v1.1 shipped. Define the next milestone's requirements with `/gsd-new-milestone`.)
+- [ ] `villa doctor` — one-shot health/diagnostics against a running install, with remediation (DOCTOR-01)
+- [ ] Backup / restore of config + Open WebUI data volume (BAK-01)
+- [ ] `villa bench --compare` + persisted/saved benchmark reports (BENCH-03)
+- [ ] Cumulative token/throughput usage tracking over time (USAGE-01)
+- [ ] Guided TUI install flow (INSTALL-01)
+- [ ] `rocm-6.4.4` alternate ROCm image option for TG-heavy models (ROCM-ALT-01)
 
 ### Out of Scope
 
@@ -126,4 +138,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-06 after v1.1 milestone (ROCm Opt-In Backend) — all 6 phases (6–11) shipped, tag `v1.1`, milestone audit `tech_debt` (13/13 requirements satisfied, 0 critical blockers). ROCm ships opt-in behind `BackendFor` with HIP residency proof, transactional `villa backend set`, honest A/B `villa bench` (live Δpp +4.84 / Δtg −11.15), and backend-aware surfacing; Vulkan RADV stays default. v1.0 (Phases 1–5) shipped + merged to `main` (tag `v1.0`, PR #1). Next: define the following milestone with `/gsd-new-milestone`.*
+*Last updated: 2026-06-07 — started milestone v1.2 (Operability). Scope: `villa doctor` (DOCTOR-01), backup/restore (BAK-01), `villa bench --compare` + saved reports (BENCH-03), cumulative usage tracking (USAGE-01), guided TUI install (INSTALL-01), `rocm-6.4.4` alt image (ROCM-ALT-01). v1.1 (ROCm Opt-In Backend, Phases 6–11) shipped + merged to `main` + tagged `v1.1`; v1.0 (Phases 1–5) shipped + tagged `v1.0`. Requirements defined in REQUIREMENTS.md; phases mapped in ROADMAP.md.*

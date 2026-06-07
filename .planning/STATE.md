@@ -1,17 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.1
-milestone_name: ROCm Opt-In Backend
-status: "v1.1 merged to main + tagged — between milestones"
-stopped_at: Phase 11 context gathered
-last_updated: "2026-06-07T00:00:00.000Z"
-last_activity: "2026-06-07 — v1.1 merged to main (PR #2, merge 2e22d1f) + tagged v1.1"
+milestone: v1.2
+milestone_name: Operability
+status: planning
+last_updated: "2026-06-07T09:39:02.966Z"
+last_activity: 2026-06-07
 progress:
-  total_phases: 6
-  completed_phases: 6
-  total_plans: 16
-  completed_plans: 16
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -25,10 +24,10 @@ See: .planning/PROJECT.md (updated 2026-06-06 after v1.1 milestone)
 
 ## Current Position
 
-Phase: Milestone v1.1 complete
+Phase: Not started (defining requirements)
 Plan: —
-Status: v1.1 merged to main + tagged — between milestones
-Last activity: 2026-06-07 — v1.1 merged to main (PR #2, merge 2e22d1f) + tagged v1.1
+Status: Defining requirements
+Last activity: 2026-06-07 — Milestone v1.2 started
 
 ## Performance Metrics
 
