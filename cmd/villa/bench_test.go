@@ -847,6 +847,46 @@ func TestBenchWriteNonFatal(t *testing.T) {
 	}
 }
 
+// TestBenchPersistSkipsOnConfigLoadError proves persistBenchReport (WR-04) does NOT
+// swallow a config.LoadVilla error: on a malformed config it SKIPS persistence — the
+// benchstore write-hook NEVER fires — with a loud-but-non-fatal WARN, rather than durably
+// persisting a zeroed (Model=""/Quant=""/Ctx=0) fingerprint that could later auto-select
+// and compare against another empty-fingerprint record. The exit code is unchanged.
+func TestBenchPersistSkipsOnConfigLoadError(t *testing.T) {
+	withReachable(t, true)
+	withConfiguredBackend(t, "vulkan")
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+
+	// Point XDG_CONFIG_HOME at a temp dir holding a MALFORMED config.toml so
+	// config.LoadVilla returns a parse error (not the absent-file default path).
+	cfgHome := t.TempDir()
+	villaDir := filepath.Join(cfgHome, "villa")
+	if err := os.MkdirAll(villaDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(villaDir, "config.toml"), []byte("this is = not [valid toml"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("XDG_CONFIG_HOME", cfgHome)
+
+	got := withBenchstoreWrite(t, nil)
+
+	rec := &benchRecorder{}
+	d := newBenchStub(rec, false, "vulkan", cannedTimings{120.5, 42.25}, cannedTimings{}, true, 0)
+	cmd, _, errOut := benchTestCmd()
+
+	code := runBench(cmd, benchSpec(3, 1), false, false, d)
+	if code != exitPass {
+		t.Fatalf("a config-load error must NOT change the exit code: got %d, want %d (exitPass)", code, exitPass)
+	}
+	if len(*got) != 0 {
+		t.Fatalf("persistence must be SKIPPED on a config-load error (no zeroed fingerprint), but the hook fired %d time(s)", len(*got))
+	}
+	if !bytes.Contains(errOut.Bytes(), []byte("skipping saved report")) {
+		t.Errorf("a config-load error must print a loud skip WARN, got %q", errOut.String())
+	}
+}
+
 // ---------------------------------------------------------------------------
 // BENCH-04 read-only compare/list surface (--compare / --list).
 // ---------------------------------------------------------------------------

@@ -811,12 +811,24 @@ func savedSideFromStats(backend string, s bench.Stats) benchstore.SavedSide {
 // persistBenchReport fires the BENCH-03 write-hook AFTER a successful measurement: it
 // loads config (the single source of truth), captures the .Known-guarded fingerprint with
 // the benched backend (single: res.Backend; ab: res.AB.From — the original), folds the
-// Result into a SavedReport, and appends it via the live benchstore seam. A write failure
-// is LOUD-but-NON-FATAL (T-14-05): a stderr WARN, NEVER a changed exit code (cloned from
-// liveBenchDeps.Restore). It is called on BOTH the clean and void-exhaustion paths (A5 —
-// persist always, including void runs).
+// Result into a SavedReport, and appends it via the live benchstore seam. A config-load
+// failure OR a write failure is LOUD-but-NON-FATAL (T-14-05): a stderr WARN, NEVER a
+// changed exit code (cloned from liveBenchDeps.Restore). It is called on BOTH the clean
+// and void-exhaustion paths (A5 — persist always, including void runs).
+//
+// A config-load error must SKIP persistence (not swallow): a zero VillaConfig would make
+// captureBenchFingerprint stamp Model=""/Quant=""/Ctx=0, durably persisting a zeroed
+// fingerprint that later auto-selects/compares against another empty-fingerprint record
+// — a quieter "fabricate identity" (WR-04). Skip-with-WARN instead of polluting the store.
 func persistBenchReport(errOut io.Writer, res bench.Result, ab bool, spec bench.BenchSpec) {
-	cfg, _ := config.LoadVilla()
+	cfg, err := config.LoadVilla()
+	if err != nil {
+		fmt.Fprintf(errOut,
+			"bench: WARNING — skipping saved report: cannot load config for fingerprint: %v\n"+
+				"  the measurement is unaffected; a record with an empty model/quant fingerprint "+
+				"would not be honestly comparable, so it was NOT persisted\n", err)
+		return
+	}
 	backend := res.Backend
 	if ab && res.AB != nil {
 		// Record the original backend as the fingerprint axis for an --ab run (the
