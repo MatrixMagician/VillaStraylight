@@ -25,6 +25,27 @@ const (
 	archiveDirMode  os.FileMode = 0o700
 )
 
+// Bounded-read caps for the UNTRUSTED read path (WR-04). readArchive holds every
+// entry in memory (config/usage/bench are small; the Open WebUI volume tar can be
+// large but is bounded), so an attacker-crafted or accidentally-huge .tar must NOT
+// be read unboundedly into RAM — an OOM is an availability failure, not mere
+// slowness. These mirror the bounded-read discipline benchstore.Load uses (its
+// 1 MiB/line scanner cap, T-14-03), sized GENEROUSLY here because the OWUI volume
+// entry legitimately holds a real chat database:
+//   - maxEntryBytes caps a SINGLE entry body.
+//   - maxArchiveBytes caps the SUM of all entry bodies.
+//   - maxEntryCount caps the number of members (manifest + 4 data entries today;
+//     the cap leaves generous slack for future entries while refusing an absurd
+//     member count).
+//
+// Exceeding any cap is a fail-closed refusal BEFORE the bytes are handed to fn, so
+// nothing downstream ever sees an over-bound archive.
+const (
+	maxEntryBytes   int64 = 8 << 30  // 8 GiB per entry (the OWUI volume tar)
+	maxArchiveBytes int64 = 16 << 30 // 16 GiB total across all entries
+	maxEntryCount         = 64       // generous slack over today's 5 entries
+)
+
 // archiveEntry is one in-memory outer-tar member: its archive name and its
 // bytes. The whole archive is small (model weights are excluded — BAK-01), so
 // entries are held in memory; assembly is deterministic.
@@ -68,6 +89,10 @@ func writeArchive(w io.Writer, entries []archiveEntry) error {
 // the iteration.
 func readArchive(r io.Reader, fn func(name string, data []byte) error) error {
 	tr := tar.NewReader(r)
+	var (
+		count      int
+		totalBytes int64
+	)
 	for {
 		hdr, err := tr.Next()
 		if err == io.EOF {
@@ -76,6 +101,11 @@ func readArchive(r io.Reader, fn func(name string, data []byte) error) error {
 		if err != nil {
 			return fmt.Errorf("backup: read tar: %w", err)
 		}
+		// Entry-count cap (WR-04): refuse an absurd member count before reading bodies.
+		count++
+		if count > maxEntryCount {
+			return fmt.Errorf("backup: archive has more than %d entries — refusing (possible hostile or malformed tar)", maxEntryCount)
+		}
 		// Validate the entry name against a notional extraction dir so the same
 		// filepath.Rel escape check the live extractor uses also fails here, with the
 		// archive even partially trusted (D-11). "." stands in for "the extraction
@@ -83,9 +113,21 @@ func readArchive(r io.Reader, fn func(name string, data []byte) error) error {
 		if err := assertEntryInside(hdr.Name, "."); err != nil {
 			return fmt.Errorf("backup: refusing tar entry %q: %w", hdr.Name, err)
 		}
-		data, err := io.ReadAll(tr)
+		// Bounded per-entry read (WR-04): cap a single body at maxEntryBytes via an
+		// io.LimitReader of maxEntryBytes+1 — if the read yields more than
+		// maxEntryBytes, the entry is over-bound and we refuse. This caps memory even
+		// for a header that lies about Size (we never trust hdr.Size for allocation).
+		data, err := io.ReadAll(io.LimitReader(tr, maxEntryBytes+1))
 		if err != nil {
 			return fmt.Errorf("backup: read tar body %q: %w", hdr.Name, err)
+		}
+		if int64(len(data)) > maxEntryBytes {
+			return fmt.Errorf("backup: tar entry %q exceeds the %d-byte per-entry cap — refusing", hdr.Name, maxEntryBytes)
+		}
+		// Total-archive cap (WR-04): the SUM of all entry bodies must stay bounded.
+		totalBytes += int64(len(data))
+		if totalBytes > maxArchiveBytes {
+			return fmt.Errorf("backup: archive exceeds the %d-byte total cap — refusing", maxArchiveBytes)
 		}
 		if err := fn(hdr.Name, data); err != nil {
 			return err

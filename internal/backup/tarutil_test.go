@@ -3,6 +3,7 @@ package backup
 import (
 	"archive/tar"
 	"bytes"
+	"strings"
 	"testing"
 )
 
@@ -90,6 +91,33 @@ func TestTarSlipAllowsInDir(t *testing.T) {
 	}
 	if !called {
 		t.Fatalf("callback did not run for a legitimate entry")
+	}
+}
+
+// TestReadArchiveEntryCountCapRefuses asserts readArchive refuses an archive with
+// more than maxEntryCount members (WR-04 entry-count bound) before exhausting it.
+func TestReadArchiveEntryCountCapRefuses(t *testing.T) {
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	for i := 0; i < maxEntryCount+1; i++ {
+		name := "e" + string(rune('a'+i%26)) + string(rune('0'+i/26))
+		body := []byte("x")
+		if err := tw.WriteHeader(&tar.Header{Name: name, Mode: 0o600, Size: int64(len(body)), Format: tar.FormatPAX}); err != nil {
+			t.Fatalf("write header %d: %v", i, err)
+		}
+		if _, err := tw.Write(body); err != nil {
+			t.Fatalf("write body %d: %v", i, err)
+		}
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+	err := readArchive(&buf, func(name string, data []byte) error { return nil })
+	if err == nil {
+		t.Fatalf("readArchive accepted an archive exceeding the %d-entry cap", maxEntryCount)
+	}
+	if !strings.Contains(err.Error(), "more than") {
+		t.Fatalf("want an entry-count-cap error, got %v", err)
 	}
 }
 
