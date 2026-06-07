@@ -600,6 +600,13 @@ func runBench(cmd *cobra.Command, spec bench.BenchSpec, ab, asJSON bool, d *benc
 		renderBench(out, entry)
 	}
 
+	// BENCH-03: persist the run as one saved report AFTER the measurement is rendered and
+	// BEFORE returning the exit code. Persist ALWAYS (A5) — including a void-exhausted run
+	// (VoidExhausted=true is recorded) — so the hook fires on BOTH the exitPass and
+	// exitWarn paths below. The write is loud-but-non-fatal: a failure is a stderr WARN
+	// that NEVER changes the measurement's exit code (the band is the load-bearing output).
+	persistBenchReport(errOut, res, ab, spec)
+
 	// Void-exhaustion → honest WARN (exitWarn), not a confident band.
 	if res.VoidExhausted {
 		fmt.Fprintln(errOut, "bench: WARN — insufficient residency-checked runs to compute an honest band; "+
@@ -688,6 +695,86 @@ func sideFromStats(backend string, s bench.Stats) benchSide {
 		PredictedStddev: s.StddevTG,
 		Kept:            s.Kept,
 		Void:            s.Void,
+	}
+}
+
+// savedReportFromResult folds the SAME pure bench.Result data benchEntryFromResult maps
+// into the benchstore on-disk types (Plan 14-01): Mode single/ab, the reproducible
+// SavedSpec, the per-side SavedSide(s) with pp/tg SEPARATE (cloning sideFromStats), the
+// SavedAB per-metric deltas, the VoidExhausted/Reason residency-void state, and the
+// cmd-tier-captured Fingerprint. The benched backend is carried via fp.Backend (set by the
+// caller) and the side labels; no backend marker literal is introduced here.
+func savedReportFromResult(res bench.Result, ab bool, spec bench.BenchSpec, fp benchstore.Fingerprint) benchstore.SavedReport {
+	savedSpec := benchstore.SavedSpec{
+		Prompt:   spec.Prompt,
+		Reps:     spec.Reps,
+		Warmup:   spec.Warmup,
+		NPredict: spec.NPredict,
+		Seed:     spec.Seed,
+		Temp:     spec.Temp,
+		ABTarget: spec.ABTarget,
+	}
+	report := benchstore.SavedReport{
+		Spec:          savedSpec,
+		VoidExhausted: res.VoidExhausted,
+		Reason:        res.Reason,
+		Fingerprint:   fp,
+	}
+	if ab && res.AB != nil {
+		a := savedSideFromStats(res.AB.From, res.AB.A)
+		b := savedSideFromStats(res.AB.To, res.AB.B)
+		report.Mode = "ab"
+		report.AB = &benchstore.SavedAB{
+			From:                 res.AB.From,
+			To:                   res.AB.To,
+			A:                    a,
+			B:                    b,
+			DeltaPromptPerSec:    res.AB.DeltaPP,
+			DeltaPredictedPerSec: res.AB.DeltaTG,
+		}
+		return report
+	}
+	side := savedSideFromStats(res.Backend, res.Single)
+	report.Mode = "single"
+	report.Single = &side
+	return report
+}
+
+// savedSideFromStats folds one side's pure Stats into the benchstore SavedSide (pp/tg
+// separate). It mirrors sideFromStats exactly so the on-disk numbers match `bench --json`.
+func savedSideFromStats(backend string, s bench.Stats) benchstore.SavedSide {
+	return benchstore.SavedSide{
+		Backend:         backend,
+		PromptPerSec:    s.MedianPP,
+		PromptStddev:    s.StddevPP,
+		PredictedPerSec: s.MedianTG,
+		PredictedStddev: s.StddevTG,
+		Kept:            s.Kept,
+		Void:            s.Void,
+	}
+}
+
+// persistBenchReport fires the BENCH-03 write-hook AFTER a successful measurement: it
+// loads config (the single source of truth), captures the .Known-guarded fingerprint with
+// the benched backend (single: res.Backend; ab: res.AB.From — the original), folds the
+// Result into a SavedReport, and appends it via the live benchstore seam. A write failure
+// is LOUD-but-NON-FATAL (T-14-05): a stderr WARN, NEVER a changed exit code (cloned from
+// liveBenchDeps.Restore). It is called on BOTH the clean and void-exhaustion paths (A5 —
+// persist always, including void runs).
+func persistBenchReport(errOut io.Writer, res bench.Result, ab bool, spec bench.BenchSpec) {
+	cfg, _ := config.LoadVilla()
+	backend := res.Backend
+	if ab && res.AB != nil {
+		// Record the original backend as the fingerprint axis for an --ab run (the
+		// from-side); Backend is presentation-only and never a comparability blocker.
+		backend = res.AB.From
+	}
+	fp := captureBenchFingerprint(cfg, backend)
+	report := savedReportFromResult(res, ab, spec, fp)
+	if err := benchstoreWrite(liveBenchstoreDeps(), report); err != nil {
+		fmt.Fprintf(errOut,
+			"bench: WARNING — failed to persist saved report: %v\n"+
+				"  the measurement is unaffected; check %s perms\n", err, benchReportsStorePath())
 	}
 }
 

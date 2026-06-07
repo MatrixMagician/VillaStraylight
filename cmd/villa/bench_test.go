@@ -671,3 +671,154 @@ func TestBenchFingerprintHonorsKnownGuard(t *testing.T) {
 		t.Errorf("KernelVersion = %q, want %q (.Known guard must be honored)", fp.KernelVersion, wantKver)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// BENCH-03 persistence write-hook: runBench fires benchstoreWrite after success.
+// ---------------------------------------------------------------------------
+
+// withBenchstoreWrite overrides the package-level benchstoreWrite hook for one test,
+// capturing every persisted SavedReport (and optionally returning err), restoring the
+// prior hook on cleanup. It drives the write-hook WITHOUT touching XDG or a live host.
+func withBenchstoreWrite(t *testing.T, err error) *[]benchstore.SavedReport {
+	t.Helper()
+	var captured []benchstore.SavedReport
+	prev := benchstoreWrite
+	benchstoreWrite = func(_ benchstore.Deps, r benchstore.SavedReport) error {
+		captured = append(captured, r)
+		return err
+	}
+	t.Cleanup(func() { benchstoreWrite = prev })
+	return &captured
+}
+
+// TestBenchWriteHookFiresSingle proves a successful single-mode runBench fires the
+// benchstore write EXACTLY ONCE with mode=="single", pp/tg carried separately from the
+// Result's Stats, and the captured fingerprint populated (BENCH-03 persist-on-success).
+func TestBenchWriteHookFiresSingle(t *testing.T) {
+	withReachable(t, true)
+	withConfiguredBackend(t, "vulkan")
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	got := withBenchstoreWrite(t, nil)
+
+	rec := &benchRecorder{}
+	d := newBenchStub(rec, false, "vulkan", cannedTimings{120.5, 42.25}, cannedTimings{}, true, 0)
+	cmd, _, _ := benchTestCmd()
+
+	if code := runBench(cmd, benchSpec(3, 1), false, false, d); code != exitPass {
+		t.Fatalf("clean single exit = %d, want %d (exitPass)", code, exitPass)
+	}
+	if len(*got) != 1 {
+		t.Fatalf("write-hook must fire exactly once, fired %d", len(*got))
+	}
+	r := (*got)[0]
+	if r.Mode != "single" {
+		t.Errorf("Mode = %q, want single", r.Mode)
+	}
+	if r.Single == nil {
+		t.Fatal("single report must carry Single side")
+	}
+	if r.Single.PromptPerSec != 120.5 || r.Single.PredictedPerSec != 42.25 {
+		t.Errorf("pp/tg not carried separately from Stats: %+v", r.Single)
+	}
+	if r.AB != nil {
+		t.Error("single report must not carry an AB block")
+	}
+	if r.Fingerprint.Model == "" && r.Fingerprint.Backend == "" {
+		t.Error("fingerprint must be populated (model/backend captured at cmd tier)")
+	}
+	if r.Fingerprint.Backend != "vulkan" {
+		t.Errorf("fingerprint backend = %q, want vulkan (the benched backend)", r.Fingerprint.Backend)
+	}
+	if r.VoidExhausted {
+		t.Error("a clean run must record VoidExhausted=false")
+	}
+}
+
+// TestBenchPersistABOneRecord proves an --ab runBench persists ONE record with mode=="ab"
+// and the AB block (From/To + per-metric deltas), NOT two records.
+func TestBenchPersistABOneRecord(t *testing.T) {
+	withReachable(t, true)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	got := withBenchstoreWrite(t, nil)
+
+	rec := &benchRecorder{}
+	d := newBenchStub(rec, true, "vulkan", cannedTimings{100, 40}, cannedTimings{150, 60}, true, 0)
+	cmd, _, _ := benchTestCmd()
+
+	if code := runBench(cmd, benchSpec(3, 1), true, false, d); code != exitPass {
+		t.Fatalf("clean ab exit = %d, want %d (exitPass)", code, exitPass)
+	}
+	if len(*got) != 1 {
+		t.Fatalf("--ab must persist ONE record, persisted %d", len(*got))
+	}
+	r := (*got)[0]
+	if r.Mode != "ab" {
+		t.Errorf("Mode = %q, want ab", r.Mode)
+	}
+	if r.AB == nil {
+		t.Fatal("ab report must carry an AB block")
+	}
+	if r.Single != nil {
+		t.Error("ab report must not carry a Single side")
+	}
+	if r.AB.From == "" || r.AB.To == "" {
+		t.Errorf("AB block must name From/To, got %+v", r.AB)
+	}
+	// per-metric deltas (B − A) carried separately.
+	if r.AB.DeltaPromptPerSec == 0 && r.AB.DeltaPredictedPerSec == 0 {
+		t.Error("AB block must carry per-metric deltas")
+	}
+}
+
+// TestBenchWriteNonFatal proves a benchstore write error is LOUD-but-NON-FATAL: runBench
+// returns the SAME exit code it would without persistence (exitPass for a clean run) and
+// writes a WARN to stderr — the measurement exit code is unchanged (T-14-05 availability).
+func TestBenchWriteNonFatal(t *testing.T) {
+	withReachable(t, true)
+	withConfiguredBackend(t, "vulkan")
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	got := withBenchstoreWrite(t, fmt.Errorf("disk full"))
+
+	rec := &benchRecorder{}
+	d := newBenchStub(rec, false, "vulkan", cannedTimings{120.5, 42.25}, cannedTimings{}, true, 0)
+	cmd, _, errOut := benchTestCmd()
+
+	code := runBench(cmd, benchSpec(3, 1), false, false, d)
+	if code != exitPass {
+		t.Fatalf("write error must NOT change the exit code: got %d, want %d (exitPass)", code, exitPass)
+	}
+	if len(*got) != 1 {
+		t.Fatalf("the hook must still fire on a clean run, fired %d", len(*got))
+	}
+	if !bytes.Contains(errOut.Bytes(), []byte("failed to persist")) {
+		t.Errorf("a write error must print a loud stderr WARN, got %q", errOut.String())
+	}
+}
+
+// TestBenchVoidPersist proves a void-exhausted run is STILL persisted (persist-always
+// policy A5): the hook fires on the exitWarn path too, recording VoidExhausted=true.
+func TestBenchVoidPersist(t *testing.T) {
+	withReachable(t, true)
+	withConfiguredBackend(t, "vulkan")
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	got := withBenchstoreWrite(t, nil)
+
+	rec := &benchRecorder{}
+	// Every measured run non-resident → void-exhaustion → exitWarn.
+	d := newBenchStub(rec, false, "vulkan", cannedTimings{100, 40}, cannedTimings{}, false, 0)
+	cmd, _, _ := benchTestCmd()
+
+	if code := runBench(cmd, benchSpec(5, 1), false, false, d); code != exitWarn {
+		t.Fatalf("void-exhaustion exit = %d, want %d (exitWarn)", code, exitWarn)
+	}
+	if len(*got) != 1 {
+		t.Fatalf("a void-exhausted run must STILL be persisted (A5), persisted %d", len(*got))
+	}
+	if !(*got)[0].VoidExhausted {
+		t.Error("a void-exhausted run must record VoidExhausted=true")
+	}
+}
