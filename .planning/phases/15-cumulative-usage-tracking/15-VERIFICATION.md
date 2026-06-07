@@ -1,7 +1,7 @@
 ---
 phase: 15-cumulative-usage-tracking
 verified: 2026-06-07T00:00:00Z
-status: human_needed
+status: passed
 score: 12/12 automated/code must-haves verified (4 SC; SC#1 live-reset, SC#2 runtime no-outbound, SC#4 visual render require on-hardware UAT)
 overrides_applied: 0
 human_verification:
@@ -23,8 +23,8 @@ human_verification:
 
 **Phase Goal:** villa accumulates cumulative prompt/generated token counts per model locally over time — reset-aware (surviving `llama-server` counter resets) and counts-only (no prompt/response content, no new outbound) — and surfaces those cumulative totals in `villa status` and the control dashboard alongside the existing live tok/s.
 **Verified:** 2026-06-07
-**Status:** human_needed
-**Re-verification:** No — initial verification
+**Status:** passed
+**Re-verification:** Yes — on-hardware UAT executed 2026-06-07 on gfx1151 (ROCm 7.2.4, qwen3.6-35b-a3b). All 4 human_verification items PASSED (see 15-UAT.md): (1) `_total` counters grew monotonically 17→41 / 167→231 across scrapes; (2) reset-aware persistence held — cumulative continued 41→61 / 231→263 after a `villa-llama` restart reset the raw counters to 0; (3) loopback-only sockets, `no_telemetry` intact; (4) dashboard Performance panel rendered "prompt tokens (total)" 61 / "generated tokens (total)" 263. 12/12 automated + 4/4 on-hardware = goal fully achieved.
 
 ## Goal Achievement
 
