@@ -280,6 +280,74 @@ func TestIdenticalSpecBothSides(t *testing.T) {
 	}
 }
 
+// TestBenchABUnsetTargetPreservesOther: with spec.ABTarget == "" and an original
+// backend "vulkan", the --ab flip is the v1.1 other() 2-value swap — Run flips
+// d.Switch to "rocm" and ABResult.To == "rocm" (back-compat, the existing golden
+// semantics). This is the unset default that MUST NOT change.
+func TestBenchABUnsetTargetPreservesOther(t *testing.T) {
+	rec := &benchRecorder{currentBE: "vulkan", verdicts: []measureVerdict{
+		{t: RunTimings{PromptPerSec: 100, PredictedPerSec: 10}, resident: true},
+	}}
+	d := newBenchABStub(rec, nil)
+	res := Run(context.Background(), d, BenchSpec{Reps: 1, Warmup: 0, MinResident: 1}) // ABTarget unset
+	if res.AB == nil {
+		t.Fatalf("--ab Run must produce an ABResult, got %+v", res)
+	}
+	if res.AB.From != "vulkan" {
+		t.Errorf("ABResult.From = %q, want %q (the loaded original)", res.AB.From, "vulkan")
+	}
+	if res.AB.To != "rocm" {
+		t.Errorf("unset ABTarget: ABResult.To = %q, want %q (other(orig) default)", res.AB.To, "rocm")
+	}
+	if got := lastOp(rec.callOrder, "switch:"); got != "switch:rocm" {
+		t.Errorf("unset ABTarget must flip to other(orig)=rocm, got switch op %q (order=%v)", got, rec.callOrder)
+	}
+}
+
+// TestBenchABExplicitTarget: with spec.ABTarget set to an arbitrary named backend
+// and an original that is NOT its other() opposite, Run flips d.Switch to the NAMED
+// target and ABResult.To equals that target (arbitrary-pair A/B — the SC#3 capability
+// the v1.1 other() 2-value swap cannot express). From always equals the loaded original.
+func TestBenchABExplicitTarget(t *testing.T) {
+	rec := &benchRecorder{currentBE: "rocm-6.4.4", verdicts: []measureVerdict{
+		{t: RunTimings{PromptPerSec: 100, PredictedPerSec: 10}, resident: true},
+	}}
+	d := newBenchABStub(rec, nil)
+	res := Run(context.Background(), d, BenchSpec{Reps: 1, Warmup: 0, MinResident: 1, ABTarget: "rocm-7.2.4"})
+	if res.AB == nil {
+		t.Fatalf("--ab Run must produce an ABResult, got %+v", res)
+	}
+	if res.AB.From != "rocm-6.4.4" {
+		t.Errorf("ABResult.From = %q, want %q (the loaded original)", res.AB.From, "rocm-6.4.4")
+	}
+	if res.AB.To != "rocm-7.2.4" {
+		t.Errorf("explicit ABTarget: ABResult.To = %q, want %q (the named target, NOT other(orig))", res.AB.To, "rocm-7.2.4")
+	}
+	if got := lastOp(rec.callOrder, "switch:"); got != "switch:rocm-7.2.4" {
+		t.Errorf("explicit ABTarget must flip to the NAMED target, got switch op %q (order=%v)", got, rec.callOrder)
+	}
+}
+
+// TestBenchABDeltasNeverBlended: with an explicit target, DeltaPP/DeltaTG are still
+// computed B−A per metric (never blended), and From is always the loaded original.
+func TestBenchABDeltasNeverBlended(t *testing.T) {
+	rec := &benchRecorder{currentBE: "rocm-6.4.4", verdicts: []measureVerdict{
+		{t: RunTimings{PromptPerSec: 100, PredictedPerSec: 10}, resident: true}, // side A
+		{t: RunTimings{PromptPerSec: 150, PredictedPerSec: 25}, resident: true}, // side B (after switch)
+	}}
+	d := newBenchABStub(rec, nil)
+	res := Run(context.Background(), d, BenchSpec{Reps: 1, Warmup: 0, MinResident: 1, ABTarget: "rocm-7.2.4"})
+	if res.AB == nil {
+		t.Fatalf("--ab Run must produce an ABResult, got %+v", res)
+	}
+	if !approx(res.AB.DeltaPP, 50) {
+		t.Errorf("DeltaPP = %v, want 50 (B−A pp, never blended)", res.AB.DeltaPP)
+	}
+	if !approx(res.AB.DeltaTG, 15) {
+		t.Errorf("DeltaTG = %v, want 15 (B−A tg, never blended)", res.AB.DeltaTG)
+	}
+}
+
 // TestBenchABRestoresOriginal: an --ab run that ERRORS mid-way (second-side
 // Measure errors) still calls Restore(orig) exactly once as its FINAL backend op.
 func TestBenchABRestoresOriginal(t *testing.T) {
