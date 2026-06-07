@@ -22,6 +22,7 @@ func newRoot() *cobra.Command {
 		Use:           "villa",
 		Short:         "VillaStraylight — local AI server control plane",
 		Long:          "villa detects the host hardware, recommends a fitting model/quant/context, and gates installs behind a preflight check — strictly local, zero telemetry.",
+		Version:       villaVersion(),
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}

@@ -1,6 +1,14 @@
 BINARY := villa
 PKG := ./...
 
+# VERSION stamps the build-time villa version (Phase 16, D-09): derived from
+# `git describe` (tag-based) with a "dev" fallback for a non-git / untagged tree.
+# It is injected via -ldflags -X into main.version (cmd/villa/version.go), the
+# single source for the backup manifest's villa_version and the BAK-03 skew
+# compare. CGO stays disabled — the binary remains a single static CGO-free build.
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+LDFLAGS := -X main.version=$(VERSION)
+
 .PHONY: help
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
@@ -10,8 +18,8 @@ run: ## Run the villa control-plane CLI
 	go run ./cmd/$(BINARY)
 
 .PHONY: build
-build: ## Build the villa control-plane CLI to ./villa
-	go build -o $(BINARY) ./cmd/$(BINARY)
+build: ## Build the villa control-plane CLI to ./villa (version-stamped)
+	go build -ldflags "$(LDFLAGS)" -o $(BINARY) ./cmd/$(BINARY)
 
 .PHONY: test
 test: ## Run Go tests
