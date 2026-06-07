@@ -265,6 +265,13 @@ func capRaw(s string) string {
 // inference TestSeamGrepGate stays green.
 const rocmStableImageTag = "rocm-7.2.4"
 
+// rocm644ImageTag is the v1.2 alternate stable ROCm tag (and its rocWMMA superset:
+// the "rocm-6.4.4" substring also matches "rocm-6.4.4-rocwmma"). It is pinned-stable
+// for the pin policy, NOT denied. The tag literal lives HERE (gpu_amd.go is the ONE
+// allowed non-inference seam file per seam_test.go isSeam) so the inference
+// TestSeamGrepGate stays green and readiness_rocm.go stays tag-free.
+const rocm644ImageTag = "rocm-6.4.4"
+
 // rocmNightlyDenyTag is the ROCm image tag the pin policy refuses: the nightlies
 // build reintroduces the 64 GB allocation cap (CLAUDE.md "What NOT to Use").
 const rocmNightlyDenyTag = "rocm7-nightlies"
@@ -276,14 +283,16 @@ const rocmNightlyDenyTag = "rocm7-nightlies"
 func resolvedROCmImage() string { return rocmStableImageTag }
 
 // rocmImagePolicyOK scores a resolved ROCm image string against the pin policy:
-// the stable rocm-7.2.4 image is KnownBool(true); a rocm7-nightlies tag is a
-// confident KnownBool(false) (64 GB cap). This is the seam home for the image-tag
-// literals so readiness_rocm.go (backend-neutral) carries none.
+// the stable rocm-7.2.4 image and the v1.2 rocm-6.4.4 images (incl. -rocwmma) are
+// KnownBool(true); a rocm7-nightlies tag is a confident KnownBool(false) (64 GB
+// cap). This is the seam home for the image-tag literals so readiness_rocm.go
+// (backend-neutral) carries none.
 func rocmImagePolicyOK(image string) Bool {
 	switch {
 	case strings.Contains(image, rocmNightlyDenyTag):
 		return KnownBool(false, "denied ROCm nightly image (64 GB allocation cap)")
-	case strings.Contains(image, rocmStableImageTag):
+	case strings.Contains(image, rocmStableImageTag),
+		strings.Contains(image, rocm644ImageTag):
 		return KnownBool(true, "pinned stable ROCm image")
 	default:
 		return UnknownBool("resolved ROCm image not recognized by pin policy", image)

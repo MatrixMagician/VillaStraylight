@@ -1,0 +1,24 @@
+# ~/.config/containers/systemd/villa-llama.container  (GENERATED — do not edit; source: config.toml)
+[Unit]
+Description=VillaStraylight llama.cpp inference (ROCm 6.4.4 (HIP))
+After=villa-network.service
+
+[Container]
+ContainerName=villa-llama
+Image=docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-6.4.4@sha256:c81f30a7fd2641e3ea6ac4c45323ba239dca906ed79cc0dfe5b885f9f150ec62
+Network=villa.network
+AddDevice=/dev/kfd
+AddDevice=/dev/dri
+GroupAdd=keep-groups
+Environment=HSA_OVERRIDE_GFX_VERSION=11.5.1
+Environment=ROCBLAS_USE_HIPBLASLT=1
+PublishPort=127.0.0.1:8080:8080
+Volume=/home/villa/.local/share/villa/models:/models:ro,z
+PodmanArgs=--security-opt seccomp=unconfined
+Exec=llama-server -m /models/qwen3-35b-a3b-moe-64.gguf -c 131072 --host 0.0.0.0 --port 8080 -ngl 999 -fa 1 --no-mmap -lv 4 --metrics
+
+[Service]
+Restart=on-failure
+
+[Install]
+WantedBy=default.target

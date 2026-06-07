@@ -58,6 +58,10 @@ func backendLabel(name string) string {
 	switch name {
 	case "rocm":
 		return "ROCm 7.2.4 (HIP)"
+	case "rocm-6.4.4":
+		return "ROCm 6.4.4 (HIP)"
+	case "rocm-6.4.4-rocwmma":
+		return "ROCm 6.4.4 rocWMMA (HIP)"
 	default:
 		return "Vulkan RADV"
 	}

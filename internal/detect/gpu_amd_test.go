@@ -213,3 +213,34 @@ func TestRocmAbsentNeverPanics(t *testing.T) {
 		t.Errorf("rocmPresent: Known=false, want a confident true/false (D-02)")
 	}
 }
+
+// TestRocmImagePolicyOK644 asserts rocmImagePolicyOK recognizes the rocm-6.4.4
+// images as pinned-stable (Pitfall 3 — honest rocm_readiness.image_policy_ok), the
+// rocm7-nightlies tag stays a confident KnownBool(false), and an unrecognized image
+// still degrades to UnknownBool (never a false confident verdict).
+func TestRocmImagePolicyOK644(t *testing.T) {
+	t.Run("rocm-6.4.4 is pinned stable", func(t *testing.T) {
+		got := rocmImagePolicyOK("docker.io/kyuz0/x:rocm-6.4.4@sha256:abc")
+		if !got.Known || !got.Value {
+			t.Errorf("rocm-6.4.4 → Known=%v Value=%v, want KnownBool(true)", got.Known, got.Value)
+		}
+	})
+	t.Run("rocm-6.4.4-rocwmma is pinned stable (substring superset)", func(t *testing.T) {
+		got := rocmImagePolicyOK("docker.io/kyuz0/x:rocm-6.4.4-rocwmma@sha256:def")
+		if !got.Known || !got.Value {
+			t.Errorf("rocm-6.4.4-rocwmma → Known=%v Value=%v, want KnownBool(true)", got.Known, got.Value)
+		}
+	})
+	t.Run("rocm7-nightlies stays denied", func(t *testing.T) {
+		got := rocmImagePolicyOK("docker.io/kyuz0/x:rocm7-nightlies@sha256:bad")
+		if !got.Known || got.Value {
+			t.Errorf("rocm7-nightlies → Known=%v Value=%v, want KnownBool(false)", got.Known, got.Value)
+		}
+	})
+	t.Run("unrecognized image stays Unknown", func(t *testing.T) {
+		got := rocmImagePolicyOK("docker.io/kyuz0/x:rocm-9.9.9@sha256:huh")
+		if got.Known {
+			t.Errorf("unrecognized image → Known=true, want UnknownBool")
+		}
+	})
+}
