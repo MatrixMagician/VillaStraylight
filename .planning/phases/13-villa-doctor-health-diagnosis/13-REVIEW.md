@@ -8,218 +8,151 @@ files_reviewed_list:
   - internal/doctor/doctor_test.go
   - cmd/villa/doctor.go
   - cmd/villa/doctor_test.go
-  - cmd/villa/root.go
+  - cmd/villa/testdata/doctor-rocm-superseded.golden
 findings:
-  critical: 1
-  warning: 3
-  info: 2
-  total: 6
-status: resolved
-resolution_commit: e9d4002
+  critical: 0
+  warning: 2
+  info: 3
+  total: 5
+status: issues_found
 ---
 
-# Phase 13: Code Review Report
+# Phase 13: Code Review Report (gap-closure: ROCm residency-supersession)
 
 **Reviewed:** 2026-06-07
 **Depth:** deep
 **Files Reviewed:** 5
-**Status:** resolved (fixes in `e9d4002`)
-
-## Resolution (2026-06-07, commit `e9d4002`)
-
-- **CR-01 (BLOCKER) — RESOLVED.** `healthFinding(HealthDown)` now folds to a WARN
-  (status+tier), not a `statusFail`. A down/stopped stack exits 2 (warning), not 1
-  (blocking fault); the blocking tier is reserved for silent-degradation faults
-  (offload FAIL over health-200, preflight BLOCK, loopback breach). Restores the
-  FAIL ⟺ BLOCK-class invariant. Added `TestDownStackWarnsNotBlocks` regression guard.
-- **WR-01 — RESOLVED.** `liveDoctorDeps`' `DriftPlan` now stats the unit dir first; an
-  absent dir (never installed) returns a read error so the core degrades to the honest
-  "units not yet written" typed-Unknown WARN instead of a false "units no longer match".
-- **WR-02 / IN-01 — RESOLVED.** `renderDoctor` now maps the exit code from
-  `report.Overall` (the core's single worst-wins verdict); the exit code can no longer
-  diverge from the JSON `overall` field, and the "BLOCK-class FAILs" comment is now accurate.
-- **WR-03 (dead `Deps.LoadConfig` seam) — ACCEPTED as-is.** Documented as a reserved
-  forward seam ("read only if a future finding needs config directly"); intentional, not dead.
-- **IN-02 (table interpolation) — ACCEPTED as-is.** Safe today: all `Detail`/`Raw` values
-  are in-repo constants and `Raw` is `json:"-"` (never in `--json`). Note retained for if
-  `Detail` ever becomes host-sourced.
+**Status:** issues_found
 
 ## Summary
 
-`villa doctor` is a well-structured composition of shipped cores (preflight, status,
-orchestrate.Reconcile) behind a pure `internal/doctor` core with injected `Deps`. The
-build is green, all 11 doctor tests pass, the seam grep-gate passes (no backend marker
-literals leak into `cmd/villa` or `internal/doctor`), the read-only invariant holds
-(`unitDirReadOnly` is a no-create resolver; no `WriteUnits`/`MkdirAll`), the exit
-constants are the authoritative `exitPass=0`/`exitWarn=2`/`exitBlocked=1` (not the
-inverted prose), and doctor owns its own `schema_version: 1` golden rather than
-extending `status.Report`. No command-injection, path-traversal, or info-leak surfaces
-were found — exec is fully delegated to vetted cores using fixed-arg invocations.
+Reviewed the Phase 13 gap-closure "ROCm residency-supersession" feature (commits since
+`f1de18d`) at deep depth, with adversarial focus on the five honesty-critical invariants.
+This review supersedes the earlier Phase-13 review (CR-01/WR-01/WR-02/IN-01, resolved in
+`e9d4002`); those concerned the base doctor verb, not the supersession feature.
 
-However, deep cross-file tracing surfaced one BLOCKER: a **stopped stack is reported as a
-blocking FAIL (exit 1)** in direct contradiction of the module's own documented severity
-contract (a down stack should be WARN / exit 2), because the exit classifier folds on
-`Status` alone and ignores the `Tier` it claims to honor. This is exactly the
-"false-classification" risk the phase set out to prevent, just in the opposite direction
-(over-blocking rather than false-green), and it is untested. Three warnings concern a
-misleading drift message on a configured-but-not-installed host, the Tier/exit
-divergence's blast radius, and a dead `Deps.LoadConfig` field.
+**Honesty-critical invariants — all hold:**
 
-## Critical Issues
+1. **No-false-green (DOCTOR-02): PASS.** The supersession predicate
+   (`internal/doctor/doctor.go:278-280`) is the correct CONJUNCTION
+   `rocmResidencyProven && f.Status == statusWarn && supersededROCmHostPrepID(f.ID)`.
+   A confident `statusFail` on any of `ROCM-PRE-firmware/-hsa/-image` is never suppressed
+   (the `f.Status == statusWarn` clause excludes it) and still folds to `Overall=FAIL`.
+   I traced FAIL-reachability of all three superseded IDs in
+   `internal/preflight/checks_rocm.go`: firmware-denylist FAIL (`:142`), HSA-wrong FAIL
+   (`:194`), image-denylist FAIL (`:221`) — none can be down-ranked because each carries
+   `Status==FAIL`, not `WARN`. The iota-0 zero-value trap is correctly defended:
+   `rocmResidencyProven` is gated on `s.OffloadApplies && IsROCmFamily && Offload.Status==StatusPass`
+   (`:213-217`), so a zero-value Verdict on a non-offload service cannot spuriously prove
+   residency. The suppression touches no non-ROCm-host-prep finding (drift, health, loopback,
+   offload are not in `supersededROCmHostPrepID`).
 
-### CR-01: A stopped (down) stack is reported as a BLOCKING FAULT (exit 1), contradicting the documented WARN contract
+2. **Seam grep-gate: PASS.** No backend marker literals (`ROCm0`/`Vulkan0`/`HSA_OVERRIDE`/
+   image tags) appear in either changed `.go` file. The `ROCM-PRE-*` constants are
+   finding-ID strings, not marker tokens. The running image is resolved only via
+   `inference.BackendFor(cfg.Backend).Image()` (`cmd/villa/doctor.go:174-175`); the image
+   string never appears as a literal. `go test` of both packages passes (192 tests),
+   including `TestSeamGrepGate`.
 
-**File:** `internal/doctor/doctor.go:253-255`, `internal/doctor/doctor.go:203-215`, `cmd/villa/doctor.go:92-106`
+3. **Read-only (D-03): PASS.** No `MkdirAll`/`WriteUnits`/model-load probe added.
+   `unitDirReadOnly` (`cmd/villa/doctor.go:143-149`) is the directory-creation-free twin,
+   and the lone `os.Stat` (`:223`) is read-only.
 
-**Issue:** The package doc is explicit (lines 22-26) that the WARN tier (exit 2) is for
-"a WARN (preflight WARN, config-vs-disk drift, a typed-Unknown / unevaluable signal,
-**a down stack**)". But:
+4. **Contract stability: PASS.** `schema_version` stays `1` (`internal/doctor/doctor.go:54`);
+   no new serialized `Report` field. Superseded findings stay VISIBLE in `Findings` — only
+   their rank contribution is dropped (`:283-284` `continue` skips rank, not append).
+   `TestDoctorJSON` and `doctor.json.golden` remain unchanged.
 
-1. `healthFinding` maps `HealthDown` to `Status: statusFail` (with `Tier: tierWarn`).
-2. The worst-wins fold in `Aggregate` ranks **by `Status` only** (`statusRank`, FAIL=2),
-   so a down service forces `Report.Overall = "FAIL"`.
-3. `renderDoctor` classifies the exit code by `f.Status` **only** — `case "FAIL": blockFails++`
-   — and never consults `f.Tier`, despite the comment claiming it collects "the BLOCK-class
-   FAILs" (`cmd/villa/doctor.go:89-90`).
+5. **Error / nil-safety: PASS (with one robustness gap, WR-01).** A nil `RunROCmImage`
+   falls back to `preflight.RunROCm` (`:181-182`); a non-ROCm backend takes the
+   `preflight.Run` default. No panic path. `BackendFor` error in the image-gate wiring is
+   handled (degrades to nil gate) — see WR-01 for the silent-swallow nuance.
 
-Net effect: a user who simply ran `villa down` (a normal, recoverable operational state)
-gets `Overall=FAIL` and exit code **1** with the message "FAULT: N blocking finding(s) —
-the running install is not healthy." The finding's own remediation even says "run `villa
-up` **if the stack is stopped**", confirming this is an expected state, not a fault. This
-conflates "user stopped the stack" with "GPU offload is broken" — the precise
-mis-classification this phase aimed to avoid, inverted. No test exercises `HealthDown`, so
-it slipped through (`doctor_test.go` only covers offload-FAIL, drift-WARN, and read-error).
-
-The root cause is that the exit classifier and the worst-wins fold both ignore `Tier`.
-A `tierWarn` finding must never be able to reach the blocked tier regardless of its
-`Status`.
-
-**Fix:** Make the exit classifier (and ideally the `Aggregate` fold) tier-aware so only
-`tierBlock` FAILs reach `exitBlocked`; a `tierWarn` FAIL (a down stack) caps at `exitWarn`.
-
-```go
-// cmd/villa/doctor.go — renderDoctor
-var blockFails, warnTierFails int
-anyWarn := false
-for _, f := range r.Findings {
-    switch f.Status {
-    case "FAIL":
-        if f.Tier == "BLOCK" {
-            blockFails++
-        } else {
-            warnTierFails++ // e.g. a down stack — recoverable, not blocking
-        }
-    case "WARN":
-        anyWarn = true
-    }
-}
-if blockFails > 0 {
-    fmt.Fprintf(w, "\nFAULT: %d blocking finding(s) ...\n", blockFails)
-    return exitBlocked
-}
-if anyWarn || warnTierFails > 0 {
-    return exitWarn
-}
-return exitPass
-```
-
-Apply the same tier-awareness to `Aggregate`'s worst-wins fold so `Report.Overall`
-(the `--json` contract) and the exit code stay consistent — otherwise JSON reports
-`overall: "FAIL"` while the exit code (after the fix) is 2. Add a `TestHealthDownIsWarn`
-case asserting a `HealthDown` service yields `Overall=="WARN"` and `exitWarn`.
+Ordinary deep pass surfaced no logic bugs in the changed code. The two WARNINGs below are
+robustness/maintainability concerns; the INFO items are minor.
 
 ## Warnings
 
-### WR-01: Drift finding reports a misleading "units no longer match" message on a configured-but-not-installed host
+### WR-01: `BackendFor` error in image-gate wiring is silently swallowed (asymmetric with DriftPlan)
 
-**File:** `internal/doctor/doctor.go:168-200`, `cmd/villa/doctor.go:174-201`, `internal/orchestrate/reconcile.go:26-45`
-
-**Issue:** Both the core comment (lines 167, 106-107) and the cmd-tier comment claim an
-"absent/unreadable unit dir degrades to a typed-Unknown WARN (D-08)" via the `err != nil`
-branch. That holds only when an *earlier* step in `DriftPlan` errors (e.g. an unresolvable
-model, which is the common fresh-host case since `cfg.Model` is empty). But if the host has
-a *resolvable* model in config yet `villa install` was never run (or units were manually
-deleted), `liveModelFile`/`Render` succeed and `orchestrate.Reconcile` against the absent
-dir returns `Plan{Changed: [...]}` with **nil error** — because `Reconcile` treats a
-per-file `os.ErrNotExist` as `Changed`, not as an error (`reconcile.go:31-34`). That flows
-through the `len(plan.Changed) > 0` branch, emitting "on-disk Quadlet units **no longer
-match** the rendered-from-config units" — factually wrong (the units never existed). The
-remediation ("re-run `villa install`") is acceptable, but the detail misdescribes the
-state, and the documented "absent dir → typed-Unknown WARN" path does not actually fire
-for this case.
-
-**Fix:** Detect the absent-dir / never-installed case explicitly so the message matches
-reality. Either stat the unit dir in `unitDirReadOnly`'s caller and route a missing dir to
-the typed-Unknown WARN finding, or have `Aggregate` distinguish "all units Changed because
-absent" from "some units drifted". Minimal version in the live wiring:
-
+**File:** `cmd/villa/doctor.go:173-180`
+**Issue:** In `liveDoctorDeps`, when the backend is ROCm-family, a `BackendFor` error is
+discarded by the `if ... berr == nil` guard — `rocmImageGate` stays nil and `Aggregate`
+silently falls back to `preflight.RunROCm` (the un-image-aware gate). This is currently
+*unreachable* for valid ROCm names (all three resolve cleanly), so it is not a live bug.
+But it is a latent honesty hazard: `IsROCmFamily` and `BackendFor` enumerate the ROCm-name
+set in two independent places (`internal/inference/backend.go:24` and `:47`). If a future
+ROCm digest is added to `IsROCmFamily` but missed in `BackendFor`, this path would silently
+downgrade the image-aware denied-image FAIL to the un-evaluated "no image requested" WARN —
+a false-green the supersession could then swallow. The *same* `BackendFor` call in the
+`DriftPlan` closure (`:196-199`) correctly surfaces its error, making the handling asymmetric.
+**Fix:** Surface the error rather than swallowing it, mirroring the DriftPlan path:
 ```go
-dir, err := unitDirReadOnly()
-if err != nil { return orchestrate.Plan{}, fmt.Errorf("resolve unit dir: %w", err) }
-if _, statErr := os.Stat(dir); errors.Is(statErr, os.ErrNotExist) {
-    return orchestrate.Plan{}, fmt.Errorf("unit dir not present (run `villa install`): %w", statErr)
+if inference.IsROCmFamily(cfg.Backend) {
+    b, berr := inference.BackendFor(cfg.Backend)
+    if berr != nil {
+        return doctor.Deps{}, fmt.Errorf("resolve ROCm backend image: %w", berr)
+    }
+    image := b.Image()
+    rocmImageGate = func(p detect.HostProfile) []preflight.CheckResult {
+        return preflight.RunROCmForImage(p, image)
+    }
 }
-return orchestrate.Reconcile(units, dir)
 ```
 
-This makes the documented D-08 typed-Unknown WARN path actually fire for a never-installed
-host, with an accurate detail string.
+### WR-02: Supersession down-ranks the sub-floor-firmware WARN too, widening past the documented "typed-Unknown" scope
 
-### WR-02: `Report.Overall` (JSON contract) and the exit code are computed by two independent classifiers that can diverge
-
-**File:** `internal/doctor/doctor.go:202-221`, `cmd/villa/doctor.go:92-110`
-
-**Issue:** `Aggregate` computes `Report.Overall` via `statusRank` over findings; `renderDoctor`
-re-derives the exit code from the same findings with a *separate* loop. They agree today only
-by coincidence of identical logic. Any future change to one (e.g. the CR-01 tier-aware fix
-applied to only one site) silently desynchronizes the `--json overall` field from the process
-exit code — a confusing and hard-to-test contract drift, especially for scripts that branch on
-`$?` vs. parse JSON.
-
-**Fix:** Make the exit mapper consume `report.Overall` (plus a tier check for the
-block/warn split) instead of re-scanning findings, OR factor a single
-`func classify(r Report) (overall string, code int)` used by both. Single source of truth
-for the verdict.
-
-### WR-03: `Deps.LoadConfig` is wired but never read by the core — dead seam
-
-**File:** `internal/doctor/doctor.go:97-99`, `cmd/villa/doctor.go:167`
-
-**Issue:** `Deps.LoadConfig` is documented as "Reserved for the cmd-tier drift wiring; the
-core reads it only if a future finding needs config directly" and is populated in
-`liveDoctorDeps` (`config.LoadVilla`), but `Aggregate` never calls it. The live drift
-closure loads config independently via its own `config.LoadVilla()` call. This is a dead
-field on the public `Deps` struct: it widens the seam surface, invites a future caller to
-assume it is used, and is untested. The `force` global in `root.go` is similarly
-reserved-but-unused for doctor, though that is shared flag surface and less concerning.
-
-**Fix:** Remove `Deps.LoadConfig` until a finding actually consumes it (YAGNI), or have
-`Aggregate` use it as the single config source so the field earns its place. Do not leave a
-populated-but-unread seam field.
+**File:** `internal/doctor/doctor.go:278-280` (predicate); doc `:162`, `:264`
+**Issue:** The supersession down-ranks ALL `WARN`-status findings on the three superseded
+IDs, including the firmware *floor* advisory (`checks_rocm.go:153-156`) — a firmware version
+that is below the recommended floor but not denylisted. That is a real (Known, non-Unknown)
+WARN, not the structural "could-not-evaluate off-host" advisory the supersession was scoped
+to ("typed-Unknown ROCm host-prep WARNs", per the package doc at `:162` and `:264`). Under
+proven residency this sub-floor WARN is suppressed from the rank, so a host on below-floor
+firmware reports `Overall=PASS` with the advisory only visible in the table. This is
+*defensible* (residency IS proven, so the floor concern is empirically moot) and not a
+false-green per se — but the doc comment and the implemented predicate disagree on scope,
+which is a correctness-of-documentation hazard for the next maintainer reasoning about the
+invariant.
+**Fix:** Correct the doc comments at `internal/doctor/doctor.go:162` and `:264` to state that
+*all* WARN-status superseded host-prep findings are down-ranked under proven residency (not
+only the typed-Unknown subset), so the stated invariant matches the code. (Narrowing the
+predicate instead is not feasible — the doctor layer consumes the CheckResult opaquely and
+cannot distinguish the typed-Unknown firmware WARN from the sub-floor firmware WARN.)
 
 ## Info
 
-### IN-01: Exit classifier comment claims tier-awareness it does not implement
+### IN-01: `LoadConfig` Deps field is wired but never read by the core
 
-**File:** `cmd/villa/doctor.go:89-90`
+**File:** `internal/doctor/doctor.go:121-122`; `cmd/villa/doctor.go:183`
+**Issue:** `Deps.LoadConfig` is documented as "Reserved … the core reads it only if a future
+finding needs config directly" and `Aggregate` never calls it. `liveDoctorDeps` wires it
+(`config.LoadVilla`) and `newDoctorDeps` stubs it, so it is dead plumbing today. Harmless,
+but it forces a reader to consult the doc to learn the field is intentionally unused.
+**Fix:** Either drop the field until a finding needs it (YAGNI), or keep the explicit
+"reserved" doc comment — acceptable if the team prefers a stable Deps shape.
 
-**Issue:** The comment says "collect the BLOCK-class FAILs and whether any WARN is present",
-but the loop counts *all* FAILs irrespective of `Tier`. This stale comment masks CR-01 and
-will mislead the next maintainer. Update the comment to match whatever final classification
-logic ships (and after the CR-01 fix it can then truthfully say BLOCK-class).
+### IN-02: Golden fixture firmware/HSA detail strings diverge from the real preflight output
 
-### IN-02: `Detail`/`Remediation` strings are concatenated into the human table without escaping; relies on upstream cores being trusted
+**File:** `cmd/villa/doctor_test.go:80-81`; `cmd/villa/testdata/doctor-rocm-superseded.golden:5-6`
+**Issue:** The hand-authored fixture uses "firmware version not probed; ensure recent and
+avoid the denied build", whereas the real `checkROCmFirmware` (`checks_rocm.go:136-138`) emits
+"firmware version not probed; ensure ≥ {floor} and avoid {denied}". The cmd-tier golden is
+internally consistent with its own `rocmSupersededReport()` fixture (it tests the renderer,
+not the core), so this is not a contract break — but the golden does not reflect a string the
+production path would render, weakening it as a documentation sample.
+**Fix:** Optionally align the fixture detail/remediation strings with the real
+`checkROCmFirmware`/`checkROCmHSA` output so the golden doubles as accurate sample output.
 
-**File:** `cmd/villa/doctor.go:120-133`
+### IN-03: Fixture doc comment says "three … advisories" but lists/includes only two
 
-**Issue:** `renderDoctorTable` interpolates `f.Detail`, `f.Remediation`, `f.Provenance`, and
-`f.Raw` directly into tabwriter output. `f.Raw` carries "untrusted raw output" (per the
-field doc, line 75-77) and is shown under `-v`. Today every Detail/Remediation originates
-from in-repo constant strings and Raw is only surfaced on the verbose human path (never in
-`--json`, which correctly drops it via `json:"-"`), so there is no injection or info-leak
-into the frozen contract. Flagging as Info only: if a future finding ever populates Detail
-from a host-derived string containing tabs/newlines, the aligned table could be visually
-corrupted. No action required now; note it if Detail ever becomes host-sourced.
+**File:** `cmd/villa/doctor_test.go:68-74`
+**Issue:** The `rocmSupersededReport` doc comment says "the three typed-Unknown ROCm host-prep
+advisories (ROCM-PRE-firmware/-hsa) still VISIBLE" — it names only two IDs and omits
+`ROCM-PRE-image`, and the fixture itself includes only firmware + hsa WARN rows. The fixture
+is valid (image simply absent), but "three" contradicts the two listed/present.
+**Fix:** Reword to "the typed-Unknown ROCm host-prep advisories (ROCM-PRE-firmware/-hsa)" and
+drop the "three" count, or add a `ROCM-PRE-image` WARN row for completeness.
 
 ---
 
