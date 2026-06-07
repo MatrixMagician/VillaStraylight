@@ -148,3 +148,14 @@ func marshalManifest(m Manifest) ([]byte, error) {
 	}
 	return b, nil
 }
+
+// parseManifest deserializes the manifest.json archive entry back into a Manifest
+// (the inverse of marshalManifest), used by the restore read+verify pass (D-08).
+// A malformed manifest is a real error — restore turns it into a fail-closed BLOCK.
+func parseManifest(data []byte) (Manifest, error) {
+	var m Manifest
+	if err := json.Unmarshal(data, &m); err != nil {
+		return Manifest{}, fmt.Errorf("backup: parse manifest: %w", err)
+	}
+	return m, nil
+}

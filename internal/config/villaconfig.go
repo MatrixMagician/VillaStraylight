@@ -218,6 +218,21 @@ func LoadVillaFrom(dir string) (VillaConfig, error) {
 	return normalizeVilla(cfg), nil
 }
 
+// Parse unmarshals config.toml BYTES into a VillaConfig, seeding the typed
+// defaults FIRST and self-healing zeroed dashboard/chat fields exactly as
+// LoadVilla does (loopback-only, never widening the bind — PRIV-01). It is the
+// in-memory counterpart of LoadVilla, used by `villa restore` to turn the archive's
+// config.toml entry into the source-of-truth VillaConfig the Quadlet recreate
+// renders from (config is the single source of truth — D-07). A malformed payload
+// is a real error.
+func Parse(data []byte) (VillaConfig, error) {
+	cfg := defaultConfig()
+	if err := toml.Unmarshal(data, &cfg); err != nil {
+		return VillaConfig{}, fmt.Errorf("config: parse bytes: %w", err)
+	}
+	return normalizeVilla(cfg), nil
+}
+
 // assertInsideDir verifies path resolves within dir, rejecting traversal escapes
 // (V12). Both are cleaned and compared as absolute paths.
 func assertInsideDir(path, dir string) error {
