@@ -94,18 +94,29 @@ type BackupInput struct {
 // The villa-models volume is NEVER exported. Backup runs no subprocess (links the
 // exec package NOT at all) and carries no image literal — every effect is a Deps
 // func field.
-func Backup(d Deps, in BackupInput) (Result, error) {
+func Backup(d Deps, in BackupInput) (retRes Result, retErr error) {
 	if in.OutputWriter == nil {
 		return Result{Err: fmt.Errorf("backup: nil output writer"), FailedStep: "write"}, fmt.Errorf("backup: nil output writer")
 	}
 
 	// (1) Quiesce: stop OWUI for a clean SQLite copy, defer best-effort restart so the
-	// service is restored even if a later step errors (D-05).
+	// service is restored even if a later step errors (D-05). The restart stays
+	// best-effort (it NEVER fails the backup), but a failed restart is now SURFACED
+	// via retRes.RestartWarning so the cmd tier can warn the user to run `villa up`
+	// (IN-01). The named return retRes is what every `return` below populates, so the
+	// defer (which runs ONLY after a successful Stop) annotates whichever Result is
+	// actually returned — without ever turning a successful backup into a failure.
 	if err := d.Stop(d.OpenWebUIServiceName); err != nil {
 		return Result{Err: fmt.Errorf("backup: stop %s: %w", d.OpenWebUIServiceName, err), FailedStep: "stop"},
 			fmt.Errorf("backup: stop %s: %w", d.OpenWebUIServiceName, err)
 	}
-	defer func() { _ = d.Start(d.OpenWebUIServiceName) }()
+	defer func() {
+		if serr := d.Start(d.OpenWebUIServiceName); serr != nil {
+			retRes.RestartWarning = fmt.Sprintf(
+				"backup written, but failed to restart %s (%v) — run `villa up`",
+				d.OpenWebUIServiceName, serr)
+		}
+	}()
 
 	// (2) Export ONLY the Open WebUI volume (model weights excluded — BAK-01).
 	if err := d.VolumeExport(in.OpenWebUIVolumeName, in.TempVolumeTar); err != nil {

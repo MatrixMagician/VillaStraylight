@@ -169,6 +169,11 @@ func runBackup(cmd *cobra.Command, output string, d backup.Deps) int {
 	}
 
 	fmt.Fprintf(out, "backup written to %s\n", absOut)
+	// Surface a failed best-effort Open WebUI restart (IN-01): the backup succeeded,
+	// but the service is likely down — warn rather than exit 0 silently.
+	if res.RestartWarning != "" {
+		fmt.Fprintf(errOut, "warning: %s\n", res.RestartWarning)
+	}
 	if len(in.ExcludedModels) > 0 {
 		fmt.Fprintf(out, "excluded model weights (re-pullable, recorded in manifest for re-pull):\n")
 		for _, m := range in.ExcludedModels {

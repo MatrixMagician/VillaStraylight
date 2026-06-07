@@ -138,4 +138,9 @@ type Result struct {
 	// Prove carries the cutover verdict (on a Restored or a prove-triggered
 	// RolledBack result) for the caller to surface.
 	Prove ProveVerdict
+	// RestartWarning is a non-fatal advisory set when the post-backup best-effort
+	// restart of Open WebUI failed (IN-01). The backup itself still succeeded (the
+	// archive was written); this only flags that the service is likely DOWN and the
+	// user should run `villa up`. Empty on a clean restart.
+	RestartWarning string
 }
