@@ -133,7 +133,7 @@ See `milestones/v1.1-ROADMAP.md` for full phase detail, success criteria, and pl
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 14-02-PLAN.md — cmd-tier write hook in `runBench` after success (loud-but-non-fatal), `liveBenchstoreDeps` append wiring (`O_APPEND` 0600 / 0700 dir, traversal-guarded), `.Known`-guarded fingerprint capture from `detect.Probe()` at the cmd tier (benchstore stays detect-free); persists single + --ab as one record (BENCH-03) [Wave 2]
+- [x] 14-02-PLAN.md — cmd-tier write hook in `runBench` after success (loud-but-non-fatal), `liveBenchstoreDeps` append wiring (`O_APPEND` 0600 / 0700 dir, traversal-guarded), `.Known`-guarded fingerprint capture from `detect.Probe()` at the cmd tier (benchstore stays detect-free); persists single + --ab as one record (BENCH-03) [Wave 2]
 
 **Wave 3** *(blocked on Wave 2 completion)*
 

@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Operability
 status: executing
-stopped_at: Completed 14-01-PLAN.md (benchstore saved-report contract frozen)
+stopped_at: Completed 14-02-PLAN.md (BENCH-03 persistence write-hook wired into runBench)
 last_updated: "2026-06-07T16:37:28.134Z"
-last_activity: 2026-06-07 -- Completed Phase 14 Plan 01 (benchstore contract + comparability guard)
+last_activity: 2026-06-07 -- Completed Phase 14 Plan 02 (live benchstore writer + cmd-tier fingerprint, persist-always loud-non-fatal)
 progress:
   total_phases: 6
   completed_phases: 2
   total_plans: 9
-  completed_plans: 7
+  completed_plans: 8
   percent: 33
 ---
 
@@ -26,10 +26,10 @@ See: .planning/PROJECT.md (updated 2026-06-07 after starting v1.2)
 ## Current Position
 
 Phase: 14 (saved-bench-reports-compare) — EXECUTING
-Plan: 2 of 3
-Status: Ready to execute (14-01 complete)
+Plan: 3 of 3
+Status: Ready to execute (14-02 complete)
 Progress: [██░░░░] 2/6 phases complete (v1.2)
-Last activity: 2026-06-07 -- Completed Phase 14 Plan 01 (benchstore contract + comparability guard)
+Last activity: 2026-06-07 -- Completed Phase 14 Plan 02 (live benchstore writer + cmd-tier fingerprint, persist-always loud-non-fatal)
 
 ## v1.2 Build Order (research-converged — preserve)
 
@@ -129,6 +129,9 @@ Earlier (v1.0 / v1.1) decisions retained below.
 - [14-01]: benchstore SavedReport JSONL contract frozen (savedReportSchemaVersion=1, schema_version LAST field, record.golden frozen BEFORE any live writer); pp/tg persist as SEPARATE fields, no blended key; VoidExhausted/Reason round-trip (BENCH-03).
 - [14-01]: Comparable iff model+quant+ctx+host match; backend DELIBERATELY allowed to differ (cross-backend compare is the point); UNKNOWN host (HostGfxID=="") => not comparable (no false-equal). benchstore imports NEITHER inference NOR detect (SeamGrepGate green) (BENCH-04).
 - [14-01]: SavedSpec PERSISTS the fixed benchPrompt reproducibility constant — the saved record is a SUPERSET of `bench --json` (no prompt key there) for reproducibility; the value is an in-repo constant, never user content (T-14-02). Compare reads the primary measured side (Single for single-mode, AB.B for ab); not-comparable folded into CompareResult.Comparable=false with zero deltas.
+- [14-02]: BENCH-03 write-hook fires in runBench AFTER render on BOTH exitPass and exitWarn paths (persist-always A5 — void-exhausted runs still recorded). The write is loud-but-non-fatal: a benchstore error is a stderr WARN that NEVER changes the measurement's exit code (T-14-05). Single persists mode=single, --ab persists ONE mode=ab record.
+- [14-02]: Fingerprint captured at the cmd tier from config (model/quant/ctx) + `.Known`-guarded detect.Probe() (host gfx/kernel) — UNKNOWN host fact serializes to the empty sentinel, never fabricated (T-14-04); benchstore receives plain strings and imports no detect (SeamGrepGate green). For --ab the fingerprint backend axis is res.AB.From (presentation only, not a comparability blocker).
+- [14-02]: liveBenchstoreDeps append seam: assert-inside-dir → MkdirAll 0700 → OpenFile(O_APPEND|O_CREATE|O_WRONLY, 0600) → Write (never write-whole-file/truncate); ReadAll returns (nil,nil) on absent store (wired now for Plan 03). Path + traversal guard re-resolved as LOCAL cmd-tier copies (benchstore's are unexported).
 
 ### Pending Todos
 
