@@ -232,6 +232,111 @@ func hasMutate(calls []string) bool {
 	return false
 }
 
+// rawMultiTar assembles a tar from explicit (name, data) members in the GIVEN
+// order, bypassing buildArchive's manifest-first/checksum discipline so the
+// read-side WR-02/WR-03 guards (duplicate / extra / out-of-order entries) are
+// exercised directly.
+func rawMultiTar(t *testing.T, members []archiveEntry) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	if err := writeArchive(&buf, members); err != nil {
+		t.Fatalf("rawMultiTar writeArchive: %v", err)
+	}
+	return buf.Bytes()
+}
+
+// manifestJSONFor builds a manifest.json listing exactly the given entries with
+// correct checksums (schema = backupSchemaVersion), for the raw-tar guard tests.
+func manifestJSONFor(t *testing.T, entries []archiveEntry) []byte {
+	t.Helper()
+	m := baseManifest()
+	m.SchemaVersion = backupSchemaVersion
+	var sums []EntryChecksum
+	for _, e := range entries {
+		s, err := sum(bytes.NewReader(e.data))
+		if err != nil {
+			t.Fatalf("sum: %v", err)
+		}
+		sums = append(sums, EntryChecksum{Name: e.name, SHA256: s})
+	}
+	m.Entries = sums
+	mj, err := marshalManifest(m)
+	if err != nil {
+		t.Fatalf("marshal manifest: %v", err)
+	}
+	return mj
+}
+
+// TestRestoreDuplicateEntryRefuses asserts a duplicate non-manifest entry name is
+// refused at verify with ZERO side effects (WR-02).
+func TestRestoreDuplicateEntryRefuses(t *testing.T) {
+	cfg := validCfgTOML
+	owui := []byte("owui-data")
+	dataEntries := []archiveEntry{{EntryConfig, cfg}, {EntryOpenWebUIVolume, owui}}
+	mj := manifestJSONFor(t, dataEntries)
+	// Two config.toml members (duplicate name) after the manifest.
+	arch := rawMultiTar(t, []archiveEntry{
+		{EntryManifest, mj},
+		{EntryConfig, cfg},
+		{EntryConfig, []byte("model = \"other\"\n")},
+		{EntryOpenWebUIVolume, owui},
+	})
+	r, in := baseInput(t, arch)
+	res := Restore(r.deps(), in)
+	if !res.Refused || res.FailedStep != "verify" {
+		t.Fatalf("want Refused at verify on a duplicate entry, got %+v", res)
+	}
+	if hasMutate(r.calls) {
+		t.Fatalf("duplicate-entry refusal must have ZERO mutate side effects, got %v", r.calls)
+	}
+}
+
+// TestRestoreExtraEntryRefuses asserts an entry NOT listed in the manifest is
+// refused at verify with ZERO side effects (WR-02 exact-set).
+func TestRestoreExtraEntryRefuses(t *testing.T) {
+	cfg := validCfgTOML
+	owui := []byte("owui-data")
+	dataEntries := []archiveEntry{{EntryConfig, cfg}, {EntryOpenWebUIVolume, owui}}
+	mj := manifestJSONFor(t, dataEntries)
+	arch := rawMultiTar(t, []archiveEntry{
+		{EntryManifest, mj},
+		{EntryConfig, cfg},
+		{EntryOpenWebUIVolume, owui},
+		{"unexpected.txt", []byte("stowaway")}, // not in the manifest
+	})
+	r, in := baseInput(t, arch)
+	res := Restore(r.deps(), in)
+	if !res.Refused || res.FailedStep != "verify" {
+		t.Fatalf("want Refused at verify on an unexpected entry, got %+v", res)
+	}
+	if hasMutate(r.calls) {
+		t.Fatalf("extra-entry refusal must have ZERO mutate side effects, got %v", r.calls)
+	}
+}
+
+// TestRestoreManifestNotFirstRefuses asserts an archive whose first member is NOT
+// manifest.json is refused at verify with ZERO side effects (WR-03).
+func TestRestoreManifestNotFirstRefuses(t *testing.T) {
+	cfg := validCfgTOML
+	owui := []byte("owui-data")
+	dataEntries := []archiveEntry{{EntryConfig, cfg}, {EntryOpenWebUIVolume, owui}}
+	mj := manifestJSONFor(t, dataEntries)
+	// Data entry BEFORE the manifest.
+	arch := rawMultiTar(t, []archiveEntry{
+		{EntryConfig, cfg},
+		{EntryManifest, mj},
+		{EntryOpenWebUIVolume, owui},
+	})
+	r, in := baseInput(t, arch)
+	res := Restore(r.deps(), in)
+	if !res.Refused || res.FailedStep != "verify" {
+		t.Fatalf("want Refused at verify on a non-first manifest, got %+v", res)
+	}
+	if hasMutate(r.calls) {
+		t.Fatalf("manifest-not-first refusal must have ZERO mutate side effects, got %v", r.calls)
+	}
+}
+
 func TestRestoreVerifyMismatchRefusesZeroSideEffects(t *testing.T) {
 	arch := buildArchive(t, baseManifest(), validCfgTOML, []byte("owui-data"), nil, nil, true /*corrupt*/)
 	r, in := baseInput(t, arch)

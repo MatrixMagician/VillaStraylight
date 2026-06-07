@@ -309,17 +309,48 @@ func readAndVerify(in RestoreInput) (extracted, error) {
 	}
 	defer func() { _ = rc.Close() }()
 
-	var manifestSeen bool
+	var (
+		manifestSeen bool
+		entryIdx     int
+	)
 	collect := map[string][]byte{}
 	err = readArchive(rc, func(name string, data []byte) error {
+		idx := entryIdx
+		entryIdx++
+
 		if name == EntryManifest {
+			// Manifest-first on READ (WR-03): the manifest MUST be the FIRST tar member
+			// so it is parsed + schema-gated before any subsequent body is trusted. An
+			// out-of-position manifest is refused (and a second manifest is a duplicate).
+			if idx != 0 {
+				return fmt.Errorf("archive %s must be the FIRST entry (found at position %d)", EntryManifest, idx)
+			}
 			m, perr := parseManifest(data)
 			if perr != nil {
 				return perr
 			}
 			ex.manifest = m
 			manifestSeen = true
+			// Schema-gate the manifest BEFORE reading any further entry body (WR-03):
+			// fail-closed BLOCK on an unreadable/incompatible schema (D-08), mirroring
+			// usage.Load's fail-closed-on-future discipline.
+			if m.SchemaVersion <= 0 || m.SchemaVersion > backupSchemaVersion {
+				return fmt.Errorf("manifest schema_version %d is unreadable or newer than this villa supports (%d)",
+					m.SchemaVersion, backupSchemaVersion)
+			}
 			return nil
+		}
+
+		// Every non-manifest entry arrives AFTER the manifest (WR-03): if the manifest
+		// was not the first member, the idx!=0 check above already refused it; a data
+		// entry at idx 0 means there was no leading manifest.
+		if !manifestSeen {
+			return fmt.Errorf("archive %s must be the FIRST entry — entry %q precedes it", EntryManifest, name)
+		}
+		// Reject duplicate entry names explicitly (WR-02): the prior `collect[name]=data`
+		// silently last-write-won, making verify order-dependent.
+		if _, dup := collect[name]; dup {
+			return fmt.Errorf("archive contains duplicate entry %q", name)
 		}
 		collect[name] = data
 		return nil
@@ -331,19 +362,24 @@ func readAndVerify(in RestoreInput) (extracted, error) {
 		return ex, fmt.Errorf("archive has no %s entry", EntryManifest)
 	}
 
-	// Fail-closed BLOCK on an unreadable/incompatible manifest schema (D-08), mirroring
-	// usage.Load's fail-closed-on-future discipline.
-	if ex.manifest.SchemaVersion <= 0 || ex.manifest.SchemaVersion > backupSchemaVersion {
-		return ex, fmt.Errorf("manifest schema_version %d is unreadable or newer than this villa supports (%d)",
-			ex.manifest.SchemaVersion, backupSchemaVersion)
-	}
-
-	// Verify every manifest-listed entry's SHA-256 against the collected bytes. A
-	// missing required entry or a mismatch is archive corruption (D-08).
+	// Build the manifest-listed name set once (used for both the verify pass and the
+	// extra-entry rejection below).
 	want := map[string]string{}
 	for _, e := range ex.manifest.Entries {
 		want[e.Name] = e.SHA256
 	}
+
+	// Reject any collected entry NOT listed in the manifest (WR-02): the archive must
+	// contain EXACTLY the manifest-described members — an extra/unexpected entry was
+	// previously accepted-and-ignored, which is not what the manifest claims.
+	for name := range collect {
+		if _, listed := want[name]; !listed {
+			return ex, fmt.Errorf("archive contains entry %q not listed in the manifest", name)
+		}
+	}
+
+	// Verify every manifest-listed entry's SHA-256 against the collected bytes. A
+	// missing required entry or a mismatch is archive corruption (D-08).
 	for name, csum := range want {
 		data, ok := collect[name]
 		if !ok {
