@@ -31,6 +31,12 @@
   // label (D-01: identity lives in /api/status, never in /api/metrics). null/"" = unknown,
   // in which case the tok/s row appends no label and the Health badge reads "unavailable".
   var lastBackend = null;
+  // cumulativeBox is the stable child container of #performance-body that holds the
+  // cumulative-usage rows (USAGE-02 / D-10). It lives BESIDE the live tok/s rows in the
+  // same Performance panel, but is owned by the /api/status poll (renderCumulativeUsage),
+  // NOT by renderPerformance — which clears #performance-body on every /api/metrics poll.
+  // renderPerformance re-appends this box after its clear so the two never clobber.
+  var cumulativeBox = null;
   // switching holds the id of the model a switch is in-flight for (drives the row's
   // disabled "Switching…" state until polling shows the new model loaded). null = idle.
   var switching = null;
@@ -68,6 +74,31 @@
   // fmtBytes renders a byte count as GiB with one decimal (tabular-friendly).
   function fmtBytes(n) {
     return (n / (1024 * 1024 * 1024)).toFixed(1) + " GiB";
+  }
+
+  // groupThousands renders an integer token count with thousands separators (e.g.
+  // 1284907 → "1,284,907") for the cumulative-usage rows (UI-SPEC value format). It
+  // renders in the existing .metric-value mono tabular-nums class, so the grouped number
+  // never reflows across the poll. Counts only — never a rate, never a fabricated 0.
+  function groupThousands(n) {
+    return Number(n).toLocaleString("en-US");
+  }
+
+  // ensureCumulativeBox lazily creates the stable #cumulative-usage child of
+  // #performance-body and returns it. It is created ONCE and re-used; renderPerformance
+  // re-appends it after clearing the live rows so the cumulative block survives the
+  // /api/metrics re-render (D-10: cumulative rides the /api/status poll, additive).
+  function ensureCumulativeBox() {
+    if (!perfBody) { return null; }
+    if (cumulativeBox && cumulativeBox.parentNode === perfBody) {
+      return cumulativeBox;
+    }
+    if (!cumulativeBox) {
+      cumulativeBox = document.createElement("div");
+      cumulativeBox.id = "cumulative-usage";
+    }
+    perfBody.appendChild(cumulativeBox);
+    return cumulativeBox;
   }
 
   // --- Vocabulary mapping -------------------------------------------------
@@ -244,6 +275,21 @@
     perfBody.textContent = "";
     if (!m || !m.available) {
       perfBody.appendChild(mutedP("Unavailable"));
+      ensureCumulativeBox();
+      return;
+    }
+    renderPerformanceLive(m);
+    // Re-attach the cumulative-usage block (owned by the /api/status poll) AFTER the live
+    // rows so it survives this /api/metrics re-render and stays in the same panel (D-10).
+    ensureCumulativeBox();
+  }
+
+  // renderPerformanceLive renders ONLY the live tok/s rows (the original renderPerformance
+  // body). It is split out so renderPerformance can re-attach the cumulative-usage block
+  // after it in every branch without duplicating the honesty logic.
+  function renderPerformanceLive(m) {
+    if (!m || !m.available) {
+      perfBody.appendChild(mutedP("Unavailable"));
       return;
     }
     // Activity unknown: /metrics returned but /slots failed AND requests_processing==0, so
@@ -275,6 +321,59 @@
     if (m.slots_known) {
       perfBody.appendChild(metricRow("active slots", String(m.active_slots || 0)));
     }
+  }
+
+  // renderCumulativeUsage fills the stable #cumulative-usage block from report.usage (the
+  // /api/status poll, USAGE-02 / D-10) — NOT from /api/metrics, and with NO new fetch or
+  // endpoint. It reuses metricRow/mutedP and the exact UI-SPEC copy, inside the existing
+  // Performance panel alongside the live tok/s rows. Honesty-by-construction (D-05/D-09):
+  //   - status poll unreachable / report null → "Cumulative usage unavailable";
+  //   - report present but no usage for the current model → "No usage recorded yet" + body;
+  //   - totals present → two grouped integer count rows. NEVER a fabricated 0, never tok/s,
+  //     never any prompt/response content (counts only, D-11/D-12).
+  function renderCumulativeUsage(report) {
+    var box = ensureCumulativeBox();
+    if (!box) { return; }
+    box.textContent = "";
+
+    // Status poll failed / unreadable → typed-Unknown muted copy (never a fabricated 0).
+    if (!report) {
+      box.appendChild(mutedP("Cumulative usage unavailable"));
+      return;
+    }
+
+    // report.usage is the SAME status.Report field villa status exposes (D-10). It is
+    // omitted (omitempty) when the store is absent/empty, and carries per-model totals.
+    var usage = report.usage;
+    var model = report.model || "";
+    var entry = null;
+    if (usage && usage.models) {
+      // Prefer the current configured model's totals; fall back to the sole entry when the
+      // report does not surface a model id (counts are still per-model in the store).
+      if (model && usage.models[model]) {
+        entry = usage.models[model];
+      } else {
+        var keys = Object.keys(usage.models);
+        if (keys.length === 1) { entry = usage.models[keys[0]]; }
+      }
+    }
+
+    // No usage for the current model yet (field omitted or empty) → honest empty state,
+    // NOT a fabricated 0 (D-05/D-09).
+    if (!entry) {
+      box.appendChild(mutedP("No usage recorded yet"));
+      box.appendChild(mutedP(
+        "Cumulative token totals appear here once the dashboard has observed generation. " +
+        "Totals accumulate while the dashboard service is running."));
+      return;
+    }
+
+    // Present: two grouped integer count rows (counts only — never tok/s, never a unit
+    // beyond the row label). The cumulative values live under .cumulative.
+    var prompt = (entry.prompt_tokens && entry.prompt_tokens.cumulative) || 0;
+    var generated = (entry.generated_tokens && entry.generated_tokens.cumulative) || 0;
+    box.appendChild(metricRow("prompt tokens (total)", groupThousands(prompt)));
+    box.appendChild(metricRow("generated tokens (total)", groupThousands(generated)));
   }
 
   // renderGPU fills the GPU & Memory panel from /api/gpu (DASH-03), MEMORY-FIRST: a
@@ -558,10 +657,17 @@
         // badge into the Health panel after the service rows.
         lastBackend = report.backend || null;
         renderBackend(report.backend, report.image, report.rocm_readiness);
+        // Cumulative usage rides the SAME /api/status poll (USAGE-02 / D-10) — no new
+        // endpoint, no new fetch. Render it into the stable #cumulative-usage block inside
+        // the Performance panel from report.usage (typed-Unknown muted copy when absent).
+        renderCumulativeUsage(report);
       })
       .catch(function () {
         // The dashboard's own API is unreachable → global banner, keep last-good.
         setConnected(false);
+        // The status poll failed → the cumulative block degrades to typed-Unknown muted
+        // "Cumulative usage unavailable" (never a fabricated 0, D-05/D-09).
+        renderCumulativeUsage(null);
       });
 
     // Performance + GPU degrade INDEPENDENTLY to their own typed-Unknown copy on a
