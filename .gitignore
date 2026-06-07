@@ -19,3 +19,6 @@ web/vite.config.d.ts
 # web/dist to exist, so web/dist/.gitkeep is tracked while build output is not.
 web/dist/*
 !web/dist/.gitkeep
+
+# Local GSD config (contains API keys)
+.planning/config.json
