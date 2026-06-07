@@ -398,3 +398,14 @@ func TestBenchReportsPathXDG(t *testing.T) {
 		t.Errorf("traversal guard failed to reject %q", escape)
 	}
 }
+
+// TestSavedReportSchemaVersionMirrorsConst guards that the exported
+// SavedReportSchemaVersion() accessor (the Phase-16 backup manifest's
+// reader-of-record) returns EXACTLY the unexported savedReportSchemaVersion const
+// it mirrors, so the manifest's BenchSchemaVersion field can never silently desync
+// from the store's actual on-disk schema version.
+func TestSavedReportSchemaVersionMirrorsConst(t *testing.T) {
+	if got := SavedReportSchemaVersion(); got != savedReportSchemaVersion {
+		t.Fatalf("SavedReportSchemaVersion() = %d, want %d (must mirror the const)", got, savedReportSchemaVersion)
+	}
+}

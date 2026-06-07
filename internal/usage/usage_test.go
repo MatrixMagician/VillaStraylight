@@ -269,3 +269,13 @@ func TestUsagePathXDG(t *testing.T) {
 		t.Error("assertInsideDir accepted a traversal escape, want rejection")
 	}
 }
+
+// TestSchemaVersionMirrorsConst guards that the exported SchemaVersion() accessor
+// (the Phase-16 backup manifest's reader-of-record) returns EXACTLY the unexported
+// usageSchemaVersion const it mirrors, so the manifest's UsageSchemaVersion field
+// can never silently desync from the store's actual on-disk schema version.
+func TestSchemaVersionMirrorsConst(t *testing.T) {
+	if got := SchemaVersion(); got != usageSchemaVersion {
+		t.Fatalf("SchemaVersion() = %d, want %d (must mirror the const)", got, usageSchemaVersion)
+	}
+}

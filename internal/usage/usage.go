@@ -35,6 +35,13 @@ import (
 // Report) is golden-frozen. Bump only on an incompatible usage.json change.
 const usageSchemaVersion = 1
 
+// SchemaVersion exposes the usage store's OWN schema version to the Phase-16
+// backup manifest (D-09). The const stays unexported (it is the store's private
+// contract self-version); this one-line accessor is the only reader-of-record
+// outside this package, so the manifest's UsageSchemaVersion field can never
+// silently desync from the store's actual schema. No behaviour change.
+func SchemaVersion() int { return usageSchemaVersion }
+
 // storeFileMode / storeDirMode are the owner-only modes the atomic writer enforces
 // on usage.json and its dir (T-15-04 info-disclosure mitigation), mirroring config
 // and benchstore.

@@ -8,7 +8,178 @@ package backup
 // caller supplies the current-install facts as plain data (CurrentInstall) and
 // the recomputed checksum verdict as a flag.
 
-import "fmt"
+import (
+	"bytes"
+	"fmt"
+	"io"
+)
+
+// BackupInput is the plain-data drive for the pure Backup orchestrator. The cmd
+// tier (liveBackupDeps) gathers everything host-derived — the seam-sourced image
+// digests (inference.BackendFor(cfg.Backend).Image() / orchestrate.OpenWebUIImage()
+// — NEVER a literal, D-10), the accessor-sourced store schema versions
+// (usage.SchemaVersion() / benchstore.SavedReportSchemaVersion()), the resolved
+// data-dir artifact paths, the build-stamped villa version, the flattened host
+// facts, and the excluded-model identities — then Backup() executes the pure
+// quiesce→export→assemble→restart ordering over the injected Deps. Backup imports
+// NEITHER inference NOR detect NOR any image literal, so TestSeamGrepGate stays
+// green.
+type BackupInput struct {
+	// CreatedAt is the RFC3339 backup timestamp (caller-supplied so the pure core
+	// performs no clock I/O).
+	CreatedAt string
+	// VillaVersion is the build-stamped binary version (cmd/villa version.go).
+	VillaVersion string
+	// Host is the flattened host fingerprint (arch / iGPU / kernel).
+	Host HostFingerprint
+
+	// InferenceImage / OpenWebUIImage are the seam-sourced digest-pinned images. The
+	// caller sources them from the seam; Backup carries them through to the manifest
+	// (never a re-typed literal — D-10).
+	InferenceImage string
+	OpenWebUIImage string
+
+	// ConfigSchemaVersion / UsageSchemaVersion / BenchSchemaVersion are the store
+	// schema versions (config from config; usage/bench from the Plan-02 accessors).
+	ConfigSchemaVersion int
+	UsageSchemaVersion  int
+	BenchSchemaVersion  int
+
+	// OutputPath is the traversal-guarded destination archive path the caller has
+	// already validated; Backup writes the assembled tar to OutputWriter (the caller
+	// opened it 0600). OutputPath is carried for the Result/messages only.
+	OutputPath string
+	// OutputWriter is the 0600 destination the cmd layer opened (the archive is
+	// written here). Kept as a seam so the pure core owns no file handle.
+	OutputWriter io.Writer
+
+	// OpenWebUIVolumeName is the podman NAMED volume to export (seam-sourced from
+	// orchestrate.OpenWebUIVolumeName()). The villa-models volume is NEVER named here.
+	OpenWebUIVolumeName string
+	// TempVolumeTar is the temp path the cmd layer chose for the volume-export output;
+	// Backup asks Deps.VolumeExport to write here, then reads it back for assembly.
+	TempVolumeTar string
+
+	// ConfigPath / UsagePath / BenchReportsPath are the resolved source paths for the
+	// archive's config.toml / usage.json / single bench-reports.jsonl entries. A path
+	// whose file is absent (ReadFile returns a not-exist error) is skipped, not fatal.
+	ConfigPath       string
+	UsagePath        string
+	BenchReportsPath string
+
+	// ExcludedModels are the identities of the excluded model weights (BAK-01),
+	// recorded in the manifest for re-pull. Identity only.
+	ExcludedModels []ExcludedModel
+
+	// FileMissing classifies a ReadFile error as a tolerable absent-file (skip the
+	// entry) vs a hard error. The cmd layer wires os.IsNotExist; the pure core stays
+	// free of os. When nil, any ReadFile error is treated as hard.
+	FileMissing func(error) bool
+}
+
+// Backup is the PURE backup orchestrator over the injected Deps (BAK-01, D-05). It
+// executes the quiesce ordering RESEARCH §OWUI Quiesce mandates and assembles the
+// single plain .tar:
+//
+//  1. Stop the Open WebUI service (clean SQLite copy) and DEFER its restart so the
+//     service is brought back even on a mid-backup error (best-effort).
+//  2. podman volume export the Open WebUI data volume to the temp tar (Deps seam).
+//  3. Read the source entries (the exported volume tar + config.toml + usage.json +
+//     the single bench-reports.jsonl); an absent optional data-dir file is skipped.
+//  4. Compute a lowercase-hex SHA-256 per entry.
+//  5. BuildManifest with the seam-sourced digests + accessor-sourced store schema
+//     versions + excluded-model identities injected.
+//  6. writeArchive (manifest.json FIRST) to the 0600 OutputWriter the caller opened.
+//
+// The villa-models volume is NEVER exported. Backup runs no subprocess (links the
+// exec package NOT at all) and carries no image literal — every effect is a Deps
+// func field.
+func Backup(d Deps, in BackupInput) (Result, error) {
+	if in.OutputWriter == nil {
+		return Result{Err: fmt.Errorf("backup: nil output writer"), FailedStep: "write"}, fmt.Errorf("backup: nil output writer")
+	}
+
+	// (1) Quiesce: stop OWUI for a clean SQLite copy, defer best-effort restart so the
+	// service is restored even if a later step errors (D-05).
+	if err := d.Stop(d.OpenWebUIServiceName); err != nil {
+		return Result{Err: fmt.Errorf("backup: stop %s: %w", d.OpenWebUIServiceName, err), FailedStep: "stop"},
+			fmt.Errorf("backup: stop %s: %w", d.OpenWebUIServiceName, err)
+	}
+	defer func() { _ = d.Start(d.OpenWebUIServiceName) }()
+
+	// (2) Export ONLY the Open WebUI volume (model weights excluded — BAK-01).
+	if err := d.VolumeExport(in.OpenWebUIVolumeName, in.TempVolumeTar); err != nil {
+		return Result{Err: fmt.Errorf("backup: volume export %s: %w", in.OpenWebUIVolumeName, err), FailedStep: "volume"},
+			fmt.Errorf("backup: volume export %s: %w", in.OpenWebUIVolumeName, err)
+	}
+
+	// (3) Read entries. The OWUI volume tar is REQUIRED; config/usage/bench are read
+	// from their resolved paths, an absent optional data-dir file being skipped.
+	type src struct {
+		entry    string
+		path     string
+		required bool
+	}
+	sources := []src{
+		{EntryOpenWebUIVolume, in.TempVolumeTar, true},
+		{EntryConfig, in.ConfigPath, true},
+		{EntryUsage, in.UsagePath, false},
+		{EntryBenchReports, in.BenchReportsPath, false},
+	}
+
+	var entries []archiveEntry
+	var checksums []EntryChecksum
+	for _, s := range sources {
+		if s.path == "" {
+			if s.required {
+				err := fmt.Errorf("backup: missing required source path for %s", s.entry)
+				return Result{Err: err, FailedStep: "read"}, err
+			}
+			continue
+		}
+		data, err := d.ReadFile(s.path)
+		if err != nil {
+			if !s.required && in.FileMissing != nil && in.FileMissing(err) {
+				continue // tolerable absent data-dir artifact
+			}
+			rerr := fmt.Errorf("backup: read %s (%s): %w", s.entry, s.path, err)
+			return Result{Err: rerr, FailedStep: "read"}, rerr
+		}
+		// (4) per-entry SHA-256.
+		csum, err := sum(bytes.NewReader(data))
+		if err != nil {
+			return Result{Err: err, FailedStep: "checksum"}, err
+		}
+		entries = append(entries, archiveEntry{name: s.entry, data: data})
+		checksums = append(checksums, EntryChecksum{Name: s.entry, SHA256: csum})
+	}
+
+	// (5) Build the seam/accessor-sourced manifest.
+	m := BuildManifest(ManifestInput{
+		CreatedAt:           in.CreatedAt,
+		VillaVersion:        in.VillaVersion,
+		Host:                in.Host,
+		InferenceImage:      in.InferenceImage,
+		OpenWebUIImage:      in.OpenWebUIImage,
+		ConfigSchemaVersion: in.ConfigSchemaVersion,
+		UsageSchemaVersion:  in.UsageSchemaVersion,
+		BenchSchemaVersion:  in.BenchSchemaVersion,
+		Entries:             checksums,
+		ExcludedModels:      in.ExcludedModels,
+	})
+	manifestJSON, err := marshalManifest(m)
+	if err != nil {
+		return Result{Err: err, FailedStep: "write"}, err
+	}
+
+	// (6) Assemble: manifest.json FIRST, then the data entries in deterministic order.
+	all := append([]archiveEntry{{name: EntryManifest, data: manifestJSON}}, entries...)
+	if err := writeArchive(in.OutputWriter, all); err != nil {
+		return Result{Err: err, FailedStep: "write"}, err
+	}
+
+	return Result{Reason: fmt.Sprintf("backup written to %s", in.OutputPath)}, nil
+}
 
 // CurrentInstall is the plain-data snapshot of the running install that a backup
 // Manifest is compared against (BAK-03). The cmd tier gathers these: the current

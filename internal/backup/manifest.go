@@ -1,5 +1,10 @@
 package backup
 
+import (
+	"encoding/json"
+	"fmt"
+)
+
 // manifest.go defines the self-describing backup Manifest (D-09): a
 // schema-versioned JSON document recording the villa version, host fingerprint,
 // both image digests (seam-sourced, never re-typed — D-10), the store schema
@@ -131,4 +136,15 @@ func BuildManifest(in ManifestInput) Manifest {
 		ExcludedModels:      in.ExcludedModels,
 		SchemaVersion:       backupSchemaVersion,
 	}
+}
+
+// marshalManifest serializes a Manifest to indented JSON for the manifest.json
+// archive entry. Indented for human readability (this phase ships human-readable
+// output only — D-13); the manifest is NOT byte-frozen by any golden test.
+func marshalManifest(m Manifest) ([]byte, error) {
+	b, err := json.MarshalIndent(m, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("backup: marshal manifest: %w", err)
+	}
+	return b, nil
 }

@@ -27,6 +27,14 @@ const openWebUIImage = "ghcr.io/open-webui/open-webui:main@sha256:7f1b0a1a50cfba
 // no-re-typed-image-literal discipline uniform and future-proof.
 func OpenWebUIImage() string { return openWebUIImage }
 
+// OpenWebUIVolumeName returns the podman NAMED-volume identity for the Open WebUI
+// data volume (the same name the Quadlet volume unit registers). The Phase-16
+// backup/restore flow (D-02) needs the resolved volume name to drive the cmd-tier
+// fixed-arg `podman volume export <name>` seam; routing the read through this
+// accessor keeps the volume-name a single source of truth behind the orchestrate
+// seam (config is the single source of truth — never a re-typed literal in cmd).
+func OpenWebUIVolumeName() string { return openWebUIVolumeName }
+
 // Open WebUI stable Quadlet identities (this project's unit-name/volume contract,
 // asserted by the goldens — they leak no GPU/image assumption).
 const (

@@ -31,6 +31,14 @@ import (
 // writer exists, so the on-disk format can never silently drift into a migration.
 const savedReportSchemaVersion = 1
 
+// SavedReportSchemaVersion exposes the bench store's OWN saved-report schema
+// version to the Phase-16 backup manifest (D-09). The const stays unexported (it
+// is the store's private contract self-version); this one-line accessor is the
+// only reader-of-record outside this package, so the manifest's BenchSchemaVersion
+// field can never silently desync from the store's actual schema. No behaviour
+// change. The store is a SINGLE append-only bench-reports.jsonl.
+func SavedReportSchemaVersion() int { return savedReportSchemaVersion }
+
 // storeFileMode / storeDirMode are the owner-only modes the live append writer (Plan
 // 02) enforces on the JSONL store and its dir (T-14-01/T-14-02 info-disclosure
 // mitigation). They ship here with the path resolver so the contract owns them.
