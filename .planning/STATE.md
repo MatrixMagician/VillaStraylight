@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Operability
-status: executing
-stopped_at: Phase 14 complete — on-hardware gfx1151 UAT PASS (saved-report round-trip + cross-backend --compare); ready to plan Phase 15
-last_updated: "2026-06-07T17:22:38.885Z"
-last_activity: 2026-06-07 -- Phase 14 marked complete after on-hardware gfx1151 UAT PASS (Δtg +10.39 vulkan>rocm); advanced to Phase 15 (cumulative-usage-tracking)
+status: planning
+stopped_at: Phase 15 context gathered
+last_updated: "2026-06-07T17:30:49.561Z"
+last_activity: 2026-06-07 -- Phase 14 marked complete after on-hardware gfx1151 UAT PASS; advanced to Phase 15
 progress:
   total_phases: 6
   completed_phases: 3
@@ -172,9 +172,9 @@ Items acknowledged at milestone close on 2026-06-06 (v1.1):
 
 ## Session Continuity
 
-Last session: 2026-06-07T16:37:28.128Z
-Stopped at: Completed 13-03-PLAN.md (Phase 13 plans complete)
-Resume file: None
+Last session: 2026-06-07T17:30:49.555Z
+Stopped at: Phase 15 context gathered
+Resume file: .planning/phases/15-cumulative-usage-tracking/15-CONTEXT.md
 
 ## Operator Next Steps
 
