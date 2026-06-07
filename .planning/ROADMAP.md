@@ -54,7 +54,7 @@ See `milestones/v1.1-ROADMAP.md` for full phase detail, success criteria, and pl
 - [x] **Phase 13: `villa doctor` Health Diagnosis** — One-shot, read-only health/diagnosis composing preflight + status + residency proof + config-vs-disk drift, with remediation and 0/2/1 exit tiers. (verified 15/15 must-haves; on-hardware UAT 3/3 live on gfx1151 — healthy→exit 0, induced CPU fallback→exit 1 no-false-green, drift→exit 2; gap-closure 13-03 added ROCm residency-supersession so a residency-proven ROCm install reaches exit 0) (completed 2026-06-07)
 - [x] **Phase 14: Saved Bench Reports + `--compare`** — Persist each bench run as a versioned saved report under XDG, and compare runs over time behind a comparability guard. (3 plans executed; automated verification 12/12; code review WR-01/02/04 fixed; on-hardware gfx1151 UAT PASS 2026-06-07 — Δtg +10.39 vulkan>rocm, see 14-UAT.md) (completed 2026-06-07)
 - [x] **Phase 15: Cumulative Usage Tracking** — Accumulate reset-aware token totals locally and surface them (append-only) in `status` + dashboard, counts-only, no new outbound. (completed 2026-06-07)
-- [ ] **Phase 16: Backup / Restore** — Self-describing local archive (config + Open WebUI data, model weights excluded) with a transactional, skew-warning restore.
+- [x] **Phase 16: Backup / Restore** — Self-describing local archive (config + Open WebUI data, model weights excluded) with a transactional, skew-warning restore. (completed 2026-06-07)
 - [ ] **Phase 17: Guided TUI Install (Capstone)** — Interactive terminal install flow over the finished pipeline, pure presentation, TTY-gated with a `--no-tui` fallback, single static CGO-free binary.
 
 ## Phase Details
@@ -234,5 +234,5 @@ Plans:
 | 13. `villa doctor` Health Diagnosis | v1.2 | 3/3 | Complete    | 2026-06-07 |
 | 14. Saved Bench Reports + `--compare` | v1.2 | 3/3 | Complete    | 2026-06-07 |
 | 15. Cumulative Usage Tracking | v1.2 | 4/4 | Complete    | 2026-06-07 |
-| 16. Backup / Restore | v1.2 | 2/3 | In Progress|  |
+| 16. Backup / Restore | v1.2 | 3/3 | Complete    | 2026-06-07 |
 | 17. Guided TUI Install | v1.2 | 0/? | Not started | - |

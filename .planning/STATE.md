@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Operability
-status: executing
+status: completed
 stopped_at: Completed 16-03-PLAN.md (villa restore)
-last_updated: "2026-06-07T21:00:00.000Z"
-last_activity: 2026-06-07 -- Completed Phase 16 Plan 03 (villa restore)
+last_updated: "2026-06-07T22:24:38.383Z"
+last_activity: 2026-06-07
 progress:
   total_phases: 6
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 16
   completed_plans: 16
-  percent: 75
+  percent: 83
 ---
 
 # Project State
@@ -25,11 +25,11 @@ See: .planning/PROJECT.md (updated 2026-06-07 after starting v1.2)
 
 ## Current Position
 
-Phase: 16 (backup-restore) — EXECUTING (all 3 plans complete; phase-gate UAT pending)
-Plan: 3 of 3 (complete)
+Phase: 17
+Plan: Not started
 Status: 16-03 complete (villa restore — BAK-02/BAK-03); on-hardware UAT deferred to phase gate
 Progress: [██████████] 100% (plans) — phase-gate UAT remains
-Last activity: 2026-06-07 -- Completed Phase 16 Plan 03 (villa restore)
+Last activity: 2026-06-07
 
 ## v1.2 Build Order (research-converged — preserve)
 
@@ -54,7 +54,7 @@ contract evolves at a time), then the destructive backup, then the TUI capstone.
 
 **Velocity:**
 
-- Total plans completed: 38 (across v1.0 + v1.1)
+- Total plans completed: 44 (across v1.0 + v1.1)
 - Average duration: 34 min
 - Total execution time: 2.2 hours
 
@@ -72,6 +72,7 @@ contract evolves at a time), then the destructive backup, then the TUI capstone.
 | 13 | 3 | - | - |
 | 14 | 3 | - | - |
 | 15 | 4 | - | - |
+| 16 | 3 | - | - |
 
 **Recent Trend:**
 
