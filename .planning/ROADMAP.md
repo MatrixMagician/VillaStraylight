@@ -125,7 +125,20 @@ See `milestones/v1.1-ROADMAP.md` for full phase detail, success criteria, and pl
   3. User can run `villa bench --compare` to see pp/tg deltas between saved reports.
   4. `--compare` refuses to print deltas across runs with mismatched model/quant/host fingerprint, labeling them "not comparable" rather than emitting a misleading delta.
 
-**Plans**: TBD
+**Plans**: 3 plans
+
+**Wave 1**
+
+- [ ] 14-01-PLAN.md — Pure `internal/benchstore` core: `SavedReport` JSONL record + `savedReportSchemaVersion=1` frozen by its OWN golden BEFORE any writer (ROADMAP note), pp/tg-separate fields + `VoidExhausted`/`Reason`, comparability `Fingerprint` + `Comparable`/`Compare` guard (model/quant/ctx/host block; backend allowed to differ; UNKNOWN host ⇒ not comparable), `Append`/`Load` behind an injected `Deps` seam, XDG path + 0600/0700 traversal guard; imports NEITHER inference NOR detect (BENCH-03/04) [Wave 1]
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 14-02-PLAN.md — cmd-tier write hook in `runBench` after success (loud-but-non-fatal), `liveBenchstoreDeps` append wiring (`O_APPEND` 0600 / 0700 dir, traversal-guarded), `.Known`-guarded fingerprint capture from `detect.Probe()` at the cmd tier (benchstore stays detect-free); persists single + --ab as one record (BENCH-03) [Wave 2]
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 14-03-PLAN.md — read-only `villa bench --compare`/`--list`: comparability-guarded pp/tg deltas on separate lines OR honest "not comparable" refusal, 0/2/1 exit mapping, flag-exclusivity with the live-measurement flags, OWN `--compare --json` golden (BENCH-04) [Wave 3]
+
 **Implementation note**: Freeze the new `internal/benchstore` saved-report format FIRST via its own golden (`schema_version` from day one) — the on-disk format is a contract; lock it before any real reports are written to prevent migrations. Flat JSONL persistence; persist the full `BenchSpec` + env fingerprint + `VoidExhausted`/`Reason`. `--compare` is read-only and distinct from live `--ab`.
 
 ### Phase 15: Cumulative Usage Tracking
@@ -193,7 +206,7 @@ See `milestones/v1.1-ROADMAP.md` for full phase detail, success criteria, and pl
 | 11. Address v1.1 tech debt | v1.1 | 2/2 | Complete | 2026-06-06 |
 | 12. `rocm-6.4.4` Alternate Backend | v1.2 | 3/3 | Complete    | 2026-06-07 |
 | 13. `villa doctor` Health Diagnosis | v1.2 | 3/3 | Complete    | 2026-06-07 |
-| 14. Saved Bench Reports + `--compare` | v1.2 | 0/? | Not started | - |
+| 14. Saved Bench Reports + `--compare` | v1.2 | 0/3 | Planned     | - |
 | 15. Cumulative Usage Tracking | v1.2 | 0/? | Not started | - |
 | 16. Backup / Restore | v1.2 | 0/? | Not started | - |
 | 17. Guided TUI Install | v1.2 | 0/? | Not started | - |
