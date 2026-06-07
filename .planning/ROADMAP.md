@@ -81,7 +81,7 @@ See `milestones/v1.1-ROADMAP.md` for full phase detail, success criteria, and pl
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 12-03-PLAN.md — bench `--ab-target` (Option A, SC#3) + on-hardware switch/residency/Δtg checkpoint (SC#1) [Wave 3]
+- [~] 12-03-PLAN.md — bench `--ab-target` (Option A, SC#3) DONE off-hardware (3/4 tasks; commits 9fcd5d3, c049e31); on-hardware switch/residency/Δtg checkpoint (SC#1) PENDING operator UAT [Wave 3]
 
 **Research flag**: Re-verify the rolling `rocm-6.4.4` tag digest at implementation time (kyuz0 re-pushes the rolling tag — pin the digest `sha256:c81f30a7fd2641e3ea6ac4c45323ba239dca906ed79cc0dfe5b885f9f150ec62`; the `-rocwmma` variant `sha256:9a97129af2c1a2f0080f234787f6978551a43e354f3eb26a8ebc868f643c0141` is a bench-decided choice — ship the one the A/B proves).
 
