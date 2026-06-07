@@ -40,6 +40,7 @@ type recDeps struct {
 	stopErr         error
 	startErr        error
 	writeFileErr    error
+	removeFileErr   error
 	readFile        map[string][]byte
 	readFileErr     map[string]error
 
@@ -115,6 +116,10 @@ func (r *recDeps) deps() Deps {
 		WriteFileAtomic: func(p string, data []byte) error {
 			r.log("WriteFileAtomic:" + p)
 			return r.writeFileErr
+		},
+		RemoveFile: func(p string) error {
+			r.log("RemoveFile:" + p)
+			return r.removeFileErr
 		},
 		DaemonReload: func() error { return nil },
 		Prove: func(target string) ProveVerdict {
@@ -223,7 +228,7 @@ func indexOf(calls []string, prefix string) int {
 // effects on a Refused path).
 func hasMutate(calls []string) bool {
 	for _, c := range calls {
-		for _, m := range []string{"SaveConfig", "VolumeRm", "EnsureVolume", "VolumeImport", "ReconcileAndWrite", "WriteFileAtomic", "Stop", "Start"} {
+		for _, m := range []string{"SaveConfig", "VolumeRm", "EnsureVolume", "VolumeImport", "ReconcileAndWrite", "WriteFileAtomic", "RemoveFile", "Stop", "Start"} {
 			if strings.HasPrefix(c, m) {
 				return true
 			}
@@ -461,6 +466,69 @@ func TestRestoreMutateErrorRollsBackAndReImportsCaptured(t *testing.T) {
 	}
 	if rmCount != 2 {
 		t.Fatalf("rollback must clean-recreate too (2 VolumeRm), got %d (%v)", rmCount, r.calls)
+	}
+}
+
+// TestRestoreRollbackRemovesForwardCreatedDataArtifacts is the CR-01 regression:
+// the prior install has NO usage.json / bench-reports.jsonl, the archive CARRIES
+// both, a post-write step fails (volume import), and rollback must REMOVE the
+// forward-created data-dir artifacts to restore the prior (absent) state verbatim —
+// never leave restored-from-archive data on disk after a "rollback".
+func TestRestoreRollbackRemovesForwardCreatedDataArtifacts(t *testing.T) {
+	arch := buildArchive(t, baseManifest(), validCfgTOML, []byte("owui-data"), []byte("usage-from-archive"), []byte("bench-from-archive"), false)
+	r, in := baseInput(t, arch)
+	// Prior install has NO usage.json / bench-reports.jsonl: capture (ReadFile) fails
+	// for both dest paths, so priorUsageOK/priorBenchOK are false.
+	r.readFileErr = map[string]error{
+		in.UsageDestPath: errors.New("not found"),
+		in.BenchDestPath: errors.New("not found"),
+	}
+	// Force a post-data-write failure via a NON-PASS prove so rollback runs AFTER the
+	// forward path wrote the archive's usage.json/bench-reports.jsonl, WITHOUT breaking
+	// the rollback path itself (a volumeImportErr would also fail the rollback re-import
+	// and mask the clean-remove assertion).
+	r.prove = ProveVerdict{Status: "fail", Detail: "residency FAIL"}
+
+	res := Restore(r.deps(), in)
+	if !res.RolledBack {
+		t.Fatalf("want RolledBack, got %+v (calls %v)", res, r.calls)
+	}
+	// Forward path wrote both data artifacts...
+	if indexOf(r.calls, "WriteFileAtomic:"+in.UsageDestPath) == -1 {
+		t.Fatalf("forward path must have written usage.json; calls %v", r.calls)
+	}
+	// ...and rollback must REMOVE both (no prior to restore).
+	if indexOf(r.calls, "RemoveFile:"+in.UsageDestPath) == -1 {
+		t.Fatalf("rollback must RemoveFile the forward-created usage.json; calls %v", r.calls)
+	}
+	if indexOf(r.calls, "RemoveFile:"+in.BenchDestPath) == -1 {
+		t.Fatalf("rollback must RemoveFile the forward-created bench-reports.jsonl; calls %v", r.calls)
+	}
+	// The remove must come AFTER the forward write (verbatim restore of absent state).
+	if iW, iR := indexOf(r.calls, "WriteFileAtomic:"+in.UsageDestPath), indexOf(r.calls, "RemoveFile:"+in.UsageDestPath); iW > iR {
+		t.Fatalf("RemoveFile must follow the forward WriteFileAtomic; calls %v", r.calls)
+	}
+	// A clean (complete) rollback: no rollback-incomplete reason.
+	if strings.Contains(res.Reason, "did not fully complete") {
+		t.Fatalf("rollback should be COMPLETE (RemoveFile succeeded), got %q", res.Reason)
+	}
+}
+
+// TestRestoreRollbackRemoveFailureReportsIncomplete asserts a FAILED RemoveFile
+// during rollback is counted as rollback-incomplete (honest reporting, CR-01).
+func TestRestoreRollbackRemoveFailureReportsIncomplete(t *testing.T) {
+	arch := buildArchive(t, baseManifest(), validCfgTOML, []byte("owui-data"), []byte("usage-from-archive"), nil, false)
+	r, in := baseInput(t, arch)
+	r.readFileErr = map[string]error{in.UsageDestPath: errors.New("not found")}
+	r.volumeImportErr = errors.New("import boom")
+	r.removeFileErr = errors.New("permission denied")
+
+	res := Restore(r.deps(), in)
+	if !res.RolledBack {
+		t.Fatalf("want RolledBack:true, got %+v", res)
+	}
+	if !strings.Contains(res.Reason, "did not fully complete") {
+		t.Fatalf("a failed RemoveFile must report rollback-incomplete, got %q", res.Reason)
 	}
 }
 

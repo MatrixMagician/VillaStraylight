@@ -202,11 +202,24 @@ func Restore(d Deps, in RestoreInput) Result {
 			}
 		}
 		add(d.SaveConfig(priorCfg), "SaveConfig(prior)")
-		if priorUsageOK {
+		// Restore each data-dir artifact VERBATIM (CR-01). For each path:
+		//   - prior existed → rewrite the captured prior bytes (the prior behavior);
+		//   - prior absent BUT the forward path created it (ex.*Present) → REMOVE it,
+		//     so the rolled-back state matches the prior (absent) state. Without this,
+		//     a restored-from-archive usage.json/bench-reports.jsonl was left on disk
+		//     after a "rollback", leaking backup chat/usage data into a supposedly
+		//     prior-restored install. A failed RemoveFile counts as rollback-incomplete.
+		switch {
+		case priorUsageOK:
 			add(d.WriteFileAtomic(in.UsageDestPath, priorUsage), "restore usage.json")
+		case ex.usagePresent && in.UsageDestPath != "":
+			add(rollbackRemove(d, in.UsageDestPath), "remove restored usage.json")
 		}
-		if priorBenchOK {
+		switch {
+		case priorBenchOK:
 			add(d.WriteFileAtomic(in.BenchDestPath, priorBench), "restore bench-reports.jsonl")
+		case ex.benchPresent && in.BenchDestPath != "":
+			add(rollbackRemove(d, in.BenchDestPath), "remove restored bench-reports.jsonl")
 		}
 		// Re-import the CAPTURED owui volume through the clean-recreate ordering (prior cfg).
 		add(cleanRecreateThenImport(priorCfg, in.RollbackVolumeTar), "restore Open WebUI volume")
@@ -272,6 +285,17 @@ func Restore(d Deps, in RestoreInput) Result {
 		return rolledBack("prove", v.Detail, nil, v)
 	}
 	return Result{Restored: true, Prove: v}
+}
+
+// rollbackRemove deletes a data-dir artifact the forward path newly created, to
+// restore the prior (absent) state verbatim (CR-01). It requires the RemoveFile
+// seam: a nil seam is itself a rollback-incomplete condition (the forward-created
+// file cannot be removed), surfaced honestly rather than silently left on disk.
+func rollbackRemove(d Deps, path string) error {
+	if d.RemoveFile == nil {
+		return fmt.Errorf("no RemoveFile seam wired — cannot remove forward-created %q", path)
+	}
+	return d.RemoveFile(path)
 }
 
 // captureFile reads a current data-dir artifact for the rollback set via Deps.ReadFile.

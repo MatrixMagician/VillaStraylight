@@ -79,6 +79,12 @@ type Deps struct {
 	// 0700 dir, traversal-guarded (clone of usage.WriteFileAtomic) — used to
 	// restore the data-dir artifacts and to write extracted archive entries.
 	WriteFileAtomic func(path string, data []byte) error
+	// RemoveFile deletes the file at path, TOLERATING an already-absent file (the
+	// live wiring maps os.Remove + os.IsNotExist). It is the verbatim-rollback seam
+	// for a data-dir artifact the FORWARD path newly created where none existed
+	// before (CR-01): restoring the prior (absent) state means removing it. A
+	// genuine remove failure (e.g. permissions) counts as rollback-incomplete.
+	RemoveFile func(path string) error
 
 	// Stop / Start / Restart drive ONLY the named user systemd service
 	// (orchestrate.Systemd seam). Quiesce stops villa-openwebui.service before a

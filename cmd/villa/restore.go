@@ -307,7 +307,16 @@ func liveRestoreDeps() backup.Deps {
 		Restart:         sys.Restart,
 		ReadFile:        os.ReadFile,
 		WriteFileAtomic: usage.WriteFileAtomic,
-		Prove:           liveRestoreProve,
+		// RemoveFile (CR-01): delete a data-dir artifact the forward path created
+		// where none existed before, to restore the prior (absent) state verbatim on
+		// rollback. Tolerate an already-absent file (it is the goal state).
+		RemoveFile: func(path string) error {
+			if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+				return err
+			}
+			return nil
+		},
+		Prove: liveRestoreProve,
 	}
 }
 
