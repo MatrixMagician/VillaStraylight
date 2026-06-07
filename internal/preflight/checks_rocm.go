@@ -39,6 +39,16 @@ func RunROCm(p detect.HostProfile) []CheckResult {
 	return RunROCmWithPolicy(p, loadROCmPolicy(), "")
 }
 
+// RunROCmForImage is RunROCm with the RESOLVED target image threaded into the gate
+// so checkROCmImage evaluates the ACTUAL digest against imageDeny instead of
+// WARNing "no image requested" (SC#2 / Pitfall 3). Callers pass
+// BackendFor(target).Image() so a denied image is refused-with-remediation rather
+// than passing the gate unevaluated. RunROCm itself is left unchanged: the
+// standalone host-prep path has no requested image and keeps the empty-image WARN.
+func RunROCmForImage(p detect.HostProfile, image string) []CheckResult {
+	return RunROCmWithPolicy(p, loadROCmPolicy(), image)
+}
+
 // RunROCmWithPolicy is RunROCm with an explicitly-supplied policy and the
 // requested/resolved ROCm image string (empty off-hardware / standalone), so tests
 // drive each signal's known-bad and unevaluable branch deterministically.

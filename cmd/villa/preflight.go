@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
+	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 	"github.com/MatrixMagician/VillaStraylight/internal/preflight"
 )
 
@@ -29,8 +30,9 @@ const (
 // internal/preflight package never exits or prints (D-18).
 func newPreflight() *cobra.Command {
 	// backend is a LOCAL preflight flag (not a persistent root flag): when set to
-	// "rocm" it routes the gate to the reusable preflight.RunROCm verdict the
-	// Phase 8 `backend set` verb consumes, instead of the standalone host preflight.
+	// any ROCm-family name (rocm, rocm-6.4.4, rocm-6.4.4-rocwmma) it routes the gate
+	// to the reusable preflight.RunROCm verdict the Phase 8 `backend set` verb
+	// consumes, instead of the standalone host preflight (D-08 family predicate).
 	var backend string
 	cmd := &cobra.Command{
 		Use:   "preflight",
@@ -38,15 +40,18 @@ func newPreflight() *cobra.Command {
 		Long: "Run the host-prep gate: Vulkan ICD + iGPU enumeration, Podman rootless readiness, " +
 			"user lingering, and free disk/memory — classified BLOCK vs WARN. Exits 0 (pass), " +
 			"2 (warnings), or 1 (a BLOCK check failed). --force overrides BLOCK failures and prints " +
-			"an auditable summary of exactly what was bypassed. With --backend rocm it gates ROCm " +
-			"bring-up instead (refuse-with-remediation on a confident known-bad host). Read-only.",
+			"an auditable summary of exactly what was bypassed. With --backend rocm (or rocm-6.4.4 / " +
+			"rocm-6.4.4-rocwmma) it gates ROCm bring-up instead (refuse-with-remediation on a " +
+			"confident known-bad host). Read-only.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			profile := detect.Probe()
 			var results []preflight.CheckResult
-			if backend == "rocm" {
+			if inference.IsROCmFamily(backend) {
 				// ROCm bring-up gate: refuse only confident known-bad hosts; off-hardware
-				// every signal is Unknown → WARN → exit 2 (never a false exit 1).
+				// every signal is Unknown → WARN → exit 2 (never a false exit 1). The
+				// family predicate (D-08) routes every ROCm name (rocm, rocm-6.4.4,
+				// rocm-6.4.4-rocwmma) to the same gate, not just the literal "rocm".
 				results = preflight.RunROCm(profile)
 			} else {
 				// Standalone host preflight — WARN-only, behaviorally unchanged (D-03).
@@ -57,7 +62,7 @@ func newPreflight() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&backend, "backend", "", "gate ROCm bring-up instead of the standalone host preflight (rocm)")
+	cmd.Flags().StringVar(&backend, "backend", "", "gate ROCm bring-up instead of the standalone host preflight (rocm, rocm-6.4.4, rocm-6.4.4-rocwmma)")
 	return cmd
 }
 

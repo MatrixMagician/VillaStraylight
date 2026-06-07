@@ -230,3 +230,35 @@ func TestRunROCmUsesEmbeddedPolicy(t *testing.T) {
 		}
 	}
 }
+
+// TestRunROCmForImageEvaluatesDigest asserts RunROCmForImage threads the resolved
+// target image into the policy gate so checkROCmImage EVALUATES the actual digest
+// against imageDeny (SC#2 / Pitfall 3), rather than the empty-image WARN bypass
+// RunROCm uses on the host-prep path. A pinned 6.4.4 digest is NOT denied → PASS.
+func TestRunROCmForImageEvaluatesDigest(t *testing.T) {
+	const img644 = "docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-6.4.4@sha256:c81f30a7fd2641e3ea6ac4c45323ba239dca906ed79cc0dfe5b885f9f150ec62"
+	results := RunROCmForImage(detect.HostProfile{}, img644)
+	if len(results) != 5 {
+		t.Fatalf("RunROCmForImage returned %d checks, want 5", len(results))
+	}
+	// The image check must PASS (digest evaluated, not WARN "no image requested").
+	if got := statusByID(t, results, idROCmImage); got != StatusPass {
+		t.Errorf("rocm-6.4.4 image check → %v, want PASS (digest evaluated, not denied)", got)
+	}
+	// RunROCmForImage must match RunROCmWithPolicy with the same image (it is a
+	// thin wrapper over the embedded policy).
+	want := RunROCmWithPolicy(detect.HostProfile{}, loadROCmPolicy(), img644)
+	if statusByID(t, want, idROCmImage) != statusByID(t, results, idROCmImage) {
+		t.Error("RunROCmForImage image-check status must match RunROCmWithPolicy(embedded, image)")
+	}
+}
+
+// TestRunROCmForImageDeniesNightly asserts the deny-list still bites through the
+// new wrapper: a rocm7-nightlies image FAILs the image check (refuse-with-remediation).
+func TestRunROCmForImageDeniesNightly(t *testing.T) {
+	const nightly = "docker.io/kyuz0/amd-strix-halo-toolboxes:rocm7-nightlies@sha256:deadbeef"
+	results := RunROCmForImage(detect.HostProfile{}, nightly)
+	if got := statusByID(t, results, idROCmImage); got != StatusFail {
+		t.Errorf("rocm7-nightlies image check → %v, want FAIL (denied)", got)
+	}
+}

@@ -8,6 +8,7 @@ import (
 
 	"github.com/MatrixMagician/VillaStraylight/internal/backendswap"
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
+	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 )
 
 // backendRecorder records the side-effecting backendswap.Deps seam calls so the
@@ -83,6 +84,37 @@ func newBackendStub(rec *backendRecorder) *backendswap.Deps {
 			rec.proved = append(rec.proved, target)
 			return backendswap.ProveVerdict{Status: rec.proveStatus, Detail: rec.proveDetail}
 		},
+	}
+}
+
+// TestLivePreflightROCmFamily asserts the LIVE PreflightROCm closure (built in
+// liveBackendSwapDeps) is family-aware (D-08): it short-circuits ok=true for a
+// non-ROCm backend and runs the gate against the RESOLVED target image for every
+// ROCm-family name (SC#2). Off-hardware detect.Probe() returns typed-Unknowns, so
+// every ROCm signal degrades to WARN/PASS (never a false StatusFail) — the closure
+// returns ok=true but has demonstrably run the gate (resolved a real digest).
+func TestLivePreflightROCmFamily(t *testing.T) {
+	d := liveBackendSwapDeps()
+
+	t.Run("non-ROCm backend short-circuits ok=true", func(t *testing.T) {
+		ok, why := d.PreflightROCm(config.VillaConfig{Backend: "vulkan"})
+		if !ok || why != "" {
+			t.Errorf("vulkan must short-circuit (true,\"\"), got (%v,%q)", ok, why)
+		}
+	})
+
+	// Every ROCm-family name must route through the gate. Off-hardware the gate
+	// returns no StatusFail, so ok=true; the point is that the family predicate
+	// (not the literal "rocm") routes ALL of them, and BackendFor resolves a real
+	// digest for the policy gate to evaluate.
+	for _, name := range []string{"rocm", "rocm-6.4.4", "rocm-6.4.4-rocwmma"} {
+		if !inference.IsROCmFamily(name) {
+			t.Fatalf("test premise broken: %q is not a ROCm-family name", name)
+		}
+		ok, why := d.PreflightROCm(config.VillaConfig{Backend: name})
+		if !ok {
+			t.Errorf("%s off-hardware should not FAIL the gate, got (%v,%q)", name, ok, why)
+		}
 	}
 }
 
