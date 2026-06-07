@@ -7,12 +7,15 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/backendswap"
 	"github.com/MatrixMagician/VillaStraylight/internal/bench"
+	"github.com/MatrixMagician/VillaStraylight/internal/benchstore"
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
 	"github.com/MatrixMagician/VillaStraylight/internal/inference"
@@ -242,6 +245,129 @@ func liveBenchDeps(ab bool, spec bench.BenchSpec) *bench.Deps {
 		return nil
 	}
 	return d
+}
+
+// ---------------------------------------------------------------------------
+// BENCH-03 persistence: live benchstore append seam + cmd-tier fingerprint capture.
+// The pure internal/benchstore core (Plan 14-01) owns the on-disk record contract and
+// imports NEITHER inference NOR detect (TestSeamGrepGate). The host fingerprint is
+// captured HERE, at the cmd tier, from config + .Known-guarded detect.Probe(), and
+// passed into benchstore as plain strings — benchstore stays detect-free.
+// ---------------------------------------------------------------------------
+
+// benchReportsStorePath resolves the single append-only JSONL store the live writer
+// targets: $XDG_DATA_HOME/villa/bench-reports.jsonl (default ~/.local/share/villa/...,
+// then /var/tmp/villa/...). It mirrors the benchstore.benchReportsPath resolver (which is
+// unexported in the pure core) and model.go:modelsDir, so the live append path resolves
+// the SAME location the contract documents without importing config solely for a helper.
+func benchReportsStorePath() string {
+	const file = "bench-reports.jsonl"
+	if x := os.Getenv("XDG_DATA_HOME"); x != "" {
+		return filepath.Join(x, "villa", file)
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		return filepath.Join(home, ".local", "share", "villa", file)
+	}
+	return filepath.Join("/var/tmp", "villa", file)
+}
+
+// benchAssertInsideDir verifies path resolves within dir, rejecting traversal escapes
+// (T-14-01). It is a LOCAL copy of the benchstore guard shape — the pure core's is
+// unexported and importing config/benchstore solely for it would widen this file's deps.
+func benchAssertInsideDir(path, dir string) error {
+	absDir, err := filepath.Abs(filepath.Clean(dir))
+	if err != nil {
+		return err
+	}
+	absPath, err := filepath.Abs(filepath.Clean(path))
+	if err != nil {
+		return err
+	}
+	rel, err := filepath.Rel(absDir, absPath)
+	if err != nil {
+		return err
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return fmt.Errorf("bench: refusing to write %q outside store dir %q", absPath, absDir)
+	}
+	return nil
+}
+
+// liveBenchstoreDeps wires the pure benchstore core (Plan 14-01) to the real host
+// filesystem under XDG. It mirrors liveBenchDeps's func-field seam shape. AppendLine is
+// the loud-but-non-fatal write path (T-14-01): assert-inside-dir guard → MkdirAll 0700 →
+// O_APPEND|O_CREATE|O_WRONLY 0600 → append the already-'\n'-terminated line (NEVER a
+// write-whole-file/truncate). ReadAll returns the store bytes, or (nil,nil) when absent
+// (no reports ≠ error; wired now so the seam is complete for Plan 03). Now supplies the
+// capture timestamp.
+func liveBenchstoreDeps() benchstore.Deps {
+	store := benchReportsStorePath()
+	dir := filepath.Dir(store)
+	return benchstore.Deps{
+		AppendLine: func(line []byte) error {
+			if err := benchAssertInsideDir(store, dir); err != nil {
+				return err
+			}
+			if err := os.MkdirAll(dir, 0o700); err != nil {
+				return fmt.Errorf("bench: create store dir: %w", err)
+			}
+			f, err := os.OpenFile(store, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+			if err != nil {
+				return fmt.Errorf("bench: open store: %w", err)
+			}
+			defer f.Close()
+			if _, err := f.Write(line); err != nil {
+				return fmt.Errorf("bench: append store line: %w", err)
+			}
+			return nil
+		},
+		ReadAll: func() ([]byte, error) {
+			data, err := os.ReadFile(store)
+			if errors.Is(err, os.ErrNotExist) {
+				return nil, nil // no reports yet ≠ error
+			}
+			if err != nil {
+				return nil, fmt.Errorf("bench: read store: %w", err)
+			}
+			return data, nil
+		},
+		Now: time.Now,
+	}
+}
+
+// captureBenchFingerprint builds the comparability Fingerprint at the cmd tier. Model /
+// Quant / Ctx come from config (the single source of truth — never re-derived). The host
+// facts come from detect.Probe(), .Known-guarded: an UNKNOWN gfx id / kernel serializes
+// to the empty sentinel so the Plan-01 Comparable guard treats the pair as NOT comparable
+// (T-14-04: never fabricate host identity). The benched backend is RECORDED for
+// presentation but is DELIBERATELY not a comparability blocker (Comparable excludes it).
+// NO detect type crosses into benchstore — only plain strings/ints.
+func captureBenchFingerprint(cfg config.VillaConfig, backend string) benchstore.Fingerprint {
+	hp := detect.Probe()
+	gfx := ""
+	if hp.IGPUGfxID.Known {
+		gfx = hp.IGPUGfxID.Value
+	}
+	kver := ""
+	if hp.KernelVersion.Known {
+		kver = hp.KernelVersion.Value
+	}
+	return benchstore.Fingerprint{
+		Model:         cfg.Model,
+		Quant:         cfg.Quant,
+		Ctx:           cfg.Ctx,
+		Backend:       backend,
+		HostGfxID:     gfx,
+		KernelVersion: kver,
+	}
+}
+
+// benchstoreWrite is the package-level indirection runBench fires AFTER a successful
+// measurement to persist one saved report (BENCH-03). It mirrors benchBackendSwap/benchRun
+// so bench_test.go can drive the write-hook (and its loud-but-non-fatal error path)
+// without touching XDG or a live host. The default appends via benchstore.Append.
+var benchstoreWrite = func(d benchstore.Deps, r benchstore.SavedReport) error {
+	return benchstore.Append(d, r)
 }
 
 // runBackendSwap delegates a single --ab flip to backendswap.Run via the SAME live

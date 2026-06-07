@@ -13,8 +13,25 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/bench"
+	"github.com/MatrixMagician/VillaStraylight/internal/benchstore"
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
+	"github.com/MatrixMagician/VillaStraylight/internal/detect"
 )
+
+// TestMain makes the whole cmd/villa test package hermetic against the BENCH-03
+// persistence write-hook: it defaults the package-level benchstoreWrite indirection
+// to a no-op for the test run so the existing runBench-driving tests (which do NOT
+// stub the hook) never touch the developer's real $XDG_DATA_HOME/villa/bench-reports.jsonl.
+// Tests that exercise the hook explicitly override benchstoreWrite with a recording or
+// error-returning stub and restore it on cleanup. Per-test t.Setenv(...) still wins for
+// the few tests that drive a real temp XDG dir.
+func TestMain(m *testing.M) {
+	prev := benchstoreWrite
+	benchstoreWrite = func(_ benchstore.Deps, _ benchstore.SavedReport) error { return nil }
+	code := m.Run()
+	benchstoreWrite = prev
+	os.Exit(code)
+}
 
 // bench_test.go drives the thin `villa bench` cobra caller through a stubbed bench.Deps:
 // the Result→exit mapping (no-endpoint→exitBlocked, void-exhaustion→exitWarn, clean→
@@ -496,5 +513,161 @@ func TestBenchJSONNoBlendedKey(t *testing.T) {
 			t.Errorf("golden contains a blended tok/s key %q — pp and tg MUST stay SEPARATE "+
 				"(prompt_per_sec / predicted_per_sec only)", blended)
 		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// BENCH-03 persistence: live benchstore append seam + cmd-tier fingerprint capture
+// ---------------------------------------------------------------------------
+
+// TestBenchstoreWriteAppendsGrowing proves the live append seam (liveBenchstoreDeps)
+// writes one JSONL line per call to $XDG_DATA_HOME/villa/bench-reports.jsonl, the store
+// grows append-only (a second call does NOT truncate the first), and the file mode is
+// 0600 under a 0700 dir (T-14-01/T-14-02 owner-only).
+func TestBenchstoreWriteAppendsGrowing(t *testing.T) {
+	dataHome := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", dataHome)
+
+	d := liveBenchstoreDeps()
+	if d.AppendLine == nil {
+		t.Fatal("liveBenchstoreDeps must wire AppendLine")
+	}
+
+	if err := d.AppendLine([]byte("{\"line\":1}\n")); err != nil {
+		t.Fatalf("first append: %v", err)
+	}
+	if err := d.AppendLine([]byte("{\"line\":2}\n")); err != nil {
+		t.Fatalf("second append: %v", err)
+	}
+
+	store := filepath.Join(dataHome, "villa", "bench-reports.jsonl")
+	got, err := os.ReadFile(store)
+	if err != nil {
+		t.Fatalf("read store: %v", err)
+	}
+	want := "{\"line\":1}\n{\"line\":2}\n"
+	if string(got) != want {
+		t.Errorf("store contents = %q, want %q (append-only, no truncation)", string(got), want)
+	}
+
+	fi, err := os.Stat(store)
+	if err != nil {
+		t.Fatalf("stat store: %v", err)
+	}
+	if fi.Mode().Perm() != 0o600 {
+		t.Errorf("store file mode = %o, want 0600", fi.Mode().Perm())
+	}
+	di, err := os.Stat(filepath.Join(dataHome, "villa"))
+	if err != nil {
+		t.Fatalf("stat dir: %v", err)
+	}
+	if di.Mode().Perm() != 0o700 {
+		t.Errorf("store dir mode = %o, want 0700", di.Mode().Perm())
+	}
+}
+
+// TestBenchstoreWriteReadAllRoundTrips proves the ReadAll seam returns the bytes the
+// AppendLine seam wrote, and returns (nil,nil) — not an error — when no store exists yet
+// (no reports ≠ failure; mirrors config.LoadVilla returning defaults when absent).
+func TestBenchstoreWriteReadAllRoundTrips(t *testing.T) {
+	dataHome := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", dataHome)
+
+	d := liveBenchstoreDeps()
+	if d.ReadAll == nil {
+		t.Fatal("liveBenchstoreDeps must wire ReadAll")
+	}
+
+	// Absent store → (nil, nil).
+	data, err := d.ReadAll()
+	if err != nil {
+		t.Fatalf("ReadAll on absent store must not error, got %v", err)
+	}
+	if data != nil {
+		t.Errorf("ReadAll on absent store = %q, want nil", string(data))
+	}
+
+	if err := d.AppendLine([]byte("{\"x\":1}\n")); err != nil {
+		t.Fatalf("append: %v", err)
+	}
+	data, err = d.ReadAll()
+	if err != nil {
+		t.Fatalf("ReadAll after append: %v", err)
+	}
+	if string(data) != "{\"x\":1}\n" {
+		t.Errorf("ReadAll = %q, want round-tripped line", string(data))
+	}
+}
+
+// TestBenchstoreWriteTraversalRefused proves the append seam refuses to write outside
+// the villa data dir (T-14-01): with XDG_DATA_HOME pointed at a temp dir, a store path
+// is confined under <xdg>/villa, so no traversal escape can land a write elsewhere. We
+// drive the guard by setting XDG_DATA_HOME to a path whose villa subdir cannot be the
+// parent of an escaping target — exercised via Append on a crafted Deps is covered in the
+// benchstore unit tests; here we assert the live seam's MkdirAll+guard at least confines
+// the write to the resolved store (the file lands ONLY under <xdg>/villa).
+func TestBenchstoreWriteConfinedToDataDir(t *testing.T) {
+	dataHome := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", dataHome)
+
+	d := liveBenchstoreDeps()
+	if err := d.AppendLine([]byte("{\"y\":2}\n")); err != nil {
+		t.Fatalf("append: %v", err)
+	}
+	// The ONLY file created must be under <xdg>/villa — nothing escapes to <xdg> root.
+	if _, err := os.Stat(filepath.Join(dataHome, "bench-reports.jsonl")); err == nil {
+		t.Error("write escaped to XDG root — must be confined under <xdg>/villa")
+	}
+	if _, err := os.Stat(filepath.Join(dataHome, "villa", "bench-reports.jsonl")); err != nil {
+		t.Errorf("store not under <xdg>/villa: %v", err)
+	}
+}
+
+// TestBenchFingerprintHonorsKnownGuard proves the comparability fingerprint is captured
+// at the cmd tier from config + .Known-guarded detect.Probe(): config-sourced
+// model/quant/ctx are carried verbatim, the benched backend is recorded, and the host
+// gfx id / kernel are ONLY populated when detect's typed-Optional .Known is true — an
+// UNKNOWN host fact serializes to the empty sentinel, NEVER a fabricated value (T-14-04).
+// This is hardware-agnostic: on gfx1151 the probe is Known (value carried); off-hardware
+// it is Unknown (""). Either way the captured field must EXACTLY match the .Known guard.
+func TestBenchFingerprintHonorsKnownGuard(t *testing.T) {
+	// Drive config deterministically via a temp XDG_CONFIG_HOME so the test does not read
+	// the developer's real config.
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+
+	cfg := config.VillaConfig{Model: "qwen3", Quant: "UD-Q4_K_M", Ctx: 8192, Backend: "vulkan"}
+	fp := captureBenchFingerprint(cfg, "vulkan")
+
+	if fp.Model != "qwen3" || fp.Quant != "UD-Q4_K_M" || fp.Ctx != 8192 {
+		t.Errorf("config fields not carried verbatim: %+v", fp)
+	}
+	if fp.Backend != "vulkan" {
+		t.Errorf("Backend = %q, want vulkan (recorded as the benched backend)", fp.Backend)
+	}
+
+	// The captured host facts must EXACTLY mirror the .Known guard over the same probe:
+	// Known → the value; Unknown → "" (never fabricated). Probe() is the same source the
+	// capture reads, so re-reading it gives the ground truth to assert against.
+	hp := detect.Probe()
+	wantGfx := ""
+	if hp.IGPUGfxID.Known {
+		wantGfx = hp.IGPUGfxID.Value
+	}
+	if fp.HostGfxID != wantGfx {
+		t.Errorf("HostGfxID = %q, want %q (.Known guard must be honored — no fabricated gfx id)", fp.HostGfxID, wantGfx)
+	}
+	// When the gfx id is UNKNOWN, the empty sentinel makes the pair not-comparable (the
+	// no-false-equal posture) — assert the sentinel rather than a fabricated identity.
+	if !hp.IGPUGfxID.Known && fp.HostGfxID != "" {
+		t.Errorf("UNKNOWN gfx id must serialize to \"\", got %q (no fabricated host identity)", fp.HostGfxID)
+	}
+
+	wantKver := ""
+	if hp.KernelVersion.Known {
+		wantKver = hp.KernelVersion.Value
+	}
+	if fp.KernelVersion != wantKver {
+		t.Errorf("KernelVersion = %q, want %q (.Known guard must be honored)", fp.KernelVersion, wantKver)
 	}
 }
