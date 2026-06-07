@@ -282,6 +282,7 @@ func runBackendSwap(target string) error {
 func newBench() *cobra.Command {
 	var (
 		ab       bool
+		abTarget string
 		reps     int
 		warmup   int
 		nPredict int
@@ -309,6 +310,21 @@ func newBench() *cobra.Command {
 				return fmt.Errorf("bench: --reps and --n-predict must be >= 1 and --warmup must be >= 0 "+
 					"(got --reps=%d --warmup=%d --n-predict=%d)", reps, warmup, nPredict)
 			}
+			// --ab-target plumbing (Option A, SC#3). The explicit target is only
+			// meaningful for the --ab flip path: reject it without --ab as a usage error
+			// (clearer UX than silently ignoring it).
+			if abTarget != "" && !ab {
+				return fmt.Errorf("bench: --ab-target requires --ab (the explicit comparison " +
+					"backend is only used by the --ab flip)")
+			}
+			// Fail-closed validation (D-03 / T-12-07): resolve a non-empty --ab-target via
+			// the SINGLE BackendFor resolver BEFORE any switch — a typo is an actionable
+			// error, never a silent flip to a wrong/missing backend.
+			if abTarget != "" {
+				if _, err := inference.BackendFor(abTarget); err != nil {
+					return fmt.Errorf("bench: invalid --ab-target %q: %w", abTarget, err)
+				}
+			}
 			spec := bench.BenchSpec{
 				Reps:        reps,
 				Warmup:      warmup,
@@ -318,13 +334,14 @@ func newBench() *cobra.Command {
 				Temp:        benchTemp,
 				Timeout:     benchProveTimeout,
 				MinResident: benchMinResident(reps),
+				ABTarget:    abTarget,
 			}
-			code := runBench(cmd, spec, ab, asJSON, liveBenchDeps(ab, spec))
-			os.Exit(code)
+			benchRun(cmd, spec, ab, asJSON, liveBenchDeps(ab, spec))
 			return nil
 		},
 	}
 	cmd.Flags().BoolVar(&ab, "ab", false, "also flip to the other backend (via the transactional backend-set core), bench it with the identical spec, and restore the original — for a per-metric A/B delta")
+	cmd.Flags().StringVar(&abTarget, "ab-target", "", "explicit backend the --ab flip measures against (e.g. rocm-6.4.4, rocm-7.2.4, vulkan) for an arbitrary-pair A/B; requires --ab; empty uses the vulkan<->rocm default")
 	cmd.Flags().IntVarP(&reps, "reps", "n", 5, "number of residency-checked (counted) runs per side")
 	cmd.Flags().IntVar(&warmup, "warmup", 1, "number of leading runs measured then discarded (cache/JIT warm)")
 	cmd.Flags().IntVar(&nPredict, "n-predict", 128, "fixed max_tokens every run requests (reproducibility)")
@@ -396,6 +413,17 @@ type benchAB struct {
 	B                    benchSide `json:"b"`
 	DeltaPromptPerSec    float64   `json:"delta_prompt_per_sec"`
 	DeltaPredictedPerSec float64   `json:"delta_predicted_per_sec"`
+}
+
+// benchRun is the package-level indirection RunE calls so bench_test.go can capture the
+// constructed BenchSpec (asserting --ab-target plumbing) and assert the fail-closed
+// validation NEVER reaches the run — all without firing os.Exit or touching a live host.
+// The default runs the real runBench and os.Exit(code)s (the bench noun maps its result to
+// a process exit code); a test override returns the captured code without exiting.
+var benchRun = func(cmd *cobra.Command, spec bench.BenchSpec, ab, asJSON bool, d *bench.Deps) int {
+	code := runBench(cmd, spec, ab, asJSON, d)
+	os.Exit(code)
+	return code // unreachable in the default; satisfies the signature for test overrides
 }
 
 // runBench builds the BenchSpec from flags, pre-checks a reachable endpoint

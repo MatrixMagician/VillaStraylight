@@ -169,6 +169,109 @@ func TestBenchFlagValidation(t *testing.T) {
 	}
 }
 
+// TestBenchABTargetPlumbed proves the --ab-target flag is plumbed into BenchSpec.ABTarget:
+// `villa bench --ab --ab-target rocm-6.4.4` reaches runBench with spec.ABTarget ==
+// "rocm-6.4.4"; omitting --ab-target leaves spec.ABTarget == "" (the other() default).
+// It captures the spec via the benchRun seam so no os.Exit fires.
+func TestBenchABTargetPlumbed(t *testing.T) {
+	withReachable(t, true)
+	cases := []struct {
+		name   string
+		args   []string
+		wantAB string
+	}{
+		{"explicit-target", []string{"--ab", "--ab-target", "rocm-6.4.4"}, "rocm-6.4.4"},
+		{"unset-target", []string{"--ab"}, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var gotSpec bench.BenchSpec
+			prev := benchRun
+			benchRun = func(_ *cobra.Command, spec bench.BenchSpec, _ bool, _ bool, _ *bench.Deps) int {
+				gotSpec = spec
+				return exitPass
+			}
+			t.Cleanup(func() { benchRun = prev })
+
+			cmd := newBench()
+			cmd.SetOut(new(bytes.Buffer))
+			cmd.SetErr(new(bytes.Buffer))
+			cmd.SilenceUsage = true
+			cmd.SilenceErrors = true
+			cmd.SetArgs(tc.args)
+			if err := cmd.Execute(); err != nil {
+				t.Fatalf("execute %v: unexpected error %v", tc.args, err)
+			}
+			if gotSpec.ABTarget != tc.wantAB {
+				t.Errorf("spec.ABTarget = %q, want %q", gotSpec.ABTarget, tc.wantAB)
+			}
+		})
+	}
+}
+
+// TestBenchABTargetFailClosed proves an unknown --ab-target is rejected fail-closed
+// (BackendFor validation) with an actionable error BEFORE any switch is attempted — the
+// benchRun seam is NEVER reached on a bogus target (D-03, T-12-07: a typo is an error,
+// never a silent flip).
+func TestBenchABTargetFailClosed(t *testing.T) {
+	withReachable(t, true)
+	reached := false
+	prev := benchRun
+	benchRun = func(_ *cobra.Command, _ bench.BenchSpec, _ bool, _ bool, _ *bench.Deps) int {
+		reached = true
+		return exitPass
+	}
+	t.Cleanup(func() { benchRun = prev })
+
+	cmd := newBench()
+	cmd.SetOut(new(bytes.Buffer))
+	cmd.SetErr(new(bytes.Buffer))
+	cmd.SilenceUsage = true
+	cmd.SilenceErrors = true
+	cmd.SetArgs([]string{"--ab", "--ab-target", "bogus"})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("unknown --ab-target must return a fail-closed error, got nil")
+	}
+	if !strings.Contains(err.Error(), "bogus") {
+		t.Errorf("fail-closed error must name the bad target, got %q", err)
+	}
+	if reached {
+		t.Error("benchRun must NOT be reached when --ab-target is invalid (no switch on a bad target)")
+	}
+}
+
+// TestBenchABTargetRequiresAB proves --ab-target without --ab is a usage error (the
+// explicit target is only meaningful for the --ab path): the benchRun seam is never
+// reached and a clear error is returned.
+func TestBenchABTargetRequiresAB(t *testing.T) {
+	withReachable(t, true)
+	reached := false
+	prev := benchRun
+	benchRun = func(_ *cobra.Command, _ bench.BenchSpec, _ bool, _ bool, _ *bench.Deps) int {
+		reached = true
+		return exitPass
+	}
+	t.Cleanup(func() { benchRun = prev })
+
+	cmd := newBench()
+	cmd.SetOut(new(bytes.Buffer))
+	cmd.SetErr(new(bytes.Buffer))
+	cmd.SilenceUsage = true
+	cmd.SilenceErrors = true
+	cmd.SetArgs([]string{"--ab-target", "rocm-6.4.4"})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("--ab-target without --ab must return a usage error, got nil")
+	}
+	if !strings.Contains(err.Error(), "--ab") {
+		t.Errorf("usage error must mention --ab, got %q", err)
+	}
+	if reached {
+		t.Error("benchRun must NOT be reached when --ab-target lacks --ab")
+	}
+}
+
 // TestBenchNoEndpoint: with no reachable inference endpoint, bench refuses with
 // remediation and exits exitBlocked, firing zero Measure runs.
 func TestBenchNoEndpoint(t *testing.T) {
