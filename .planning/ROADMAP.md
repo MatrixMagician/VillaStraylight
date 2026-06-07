@@ -154,10 +154,19 @@ See `milestones/v1.1-ROADMAP.md` for full phase detail, success criteria, and pl
   4. The control dashboard surfaces cumulative usage totals.
 
 **Plans**: 4 plans in 3 waves
+**Wave 1**
+
 - [ ] 15-01-PLAN.md — pure `internal/usage` core: reset-aware per-model `Fold` + XDG atomic store + counts-only structural test (USAGE-01)
 - [ ] 15-02-PLAN.md — extend `internal/metrics` to surface the two `_total` counters as a typed-Unknown `CounterSample` (USAGE-01)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 15-03-PLAN.md — ONE append-only `status.Report.usage` field + `reportSchemaVersion` 1→2 + read-only CLI seam + single golden re-freeze (USAGE-02)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 15-04-PLAN.md — dashboard sole mutex-guarded writer (fold+atomic-write in `/api/metrics`) + cumulative-totals UI + on-hardware UAT (USAGE-02)
+
 **UI hint**: yes
 **Research flag**: Confirm the exact llama.cpp `/metrics` cumulative counter names (`llamacpp:prompt_tokens_total` / `tokens_predicted_total`) and the counter-reset semantics on restart/backend-swap against a live `llama-server` at the start of the phase (MEDIUM-confidence names; HIGH-confidence pattern). Design the fold to degrade to typed-Unknown if a counter is absent.
 **Implementation note**: New pure `internal/usage` `Fold(prior, sample) -> Totals` folding from monotonic `_total` counters (not rate gauges). The dashboard server's existing poll loop is the SOLE, mutex-guarded writer of `usage.json` (atomic write, XDG 0600); the CLI is one-shot and only reads. The `status` change is exactly ONE append-only field above `SchemaVersion` + ONE schema bump + ONE golden re-freeze.
