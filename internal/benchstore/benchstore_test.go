@@ -340,6 +340,45 @@ func TestLoadSkipsCorruptLine(t *testing.T) {
 	}
 }
 
+// TestLoadSkipsUnknownSchemaVersion proves Load fails CLOSED on the schema_version
+// contract: a JSON-valid line whose schema_version is a FUTURE value (2) or the
+// UNSTAMPED zero value (0) is SKIPPED — never returned, never fed into Compare as if
+// it were v1. Only a record stamped with the supported savedReportSchemaVersion (1)
+// survives. This guards the very contract record.golden exists to protect: an unknown
+// schema must not be reinterpreted as the current one (WR-01 fail-closed read path).
+func TestLoadSkipsUnknownSchemaVersion(t *testing.T) {
+	// A supported v1 record (deterministicReport stamps SchemaVersion=1 via the ctor).
+	v1, _ := Marshal(deterministicReport())
+
+	// A future-schema record: same struct shape but schema_version=2.
+	future := deterministicReport()
+	future.SchemaVersion = 2
+	v2, _ := Marshal(future)
+
+	// An unstamped record: schema_version=0 (e.g. a struct literal that never went
+	// through Append/NewSavedReport). Must NOT be parsed as v1.
+	unstamped := deterministicReport()
+	unstamped.SchemaVersion = 0
+	v0, _ := Marshal(unstamped)
+
+	var buf bytes.Buffer
+	buf.Write(v2) // unknown/future — skipped
+	buf.Write(v1) // supported — kept
+	buf.Write(v0) // unstamped/zero — skipped
+
+	d := Deps{ReadAll: func() ([]byte, error) { return buf.Bytes(), nil }}
+	got, err := Load(d)
+	if err != nil {
+		t.Fatalf("Load must not error on unknown-schema lines: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("Load returned %d records, want 1 (only the supported v1 record kept)", len(got))
+	}
+	if got[0].SchemaVersion != savedReportSchemaVersion {
+		t.Errorf("surviving record SchemaVersion = %d, want %d", got[0].SchemaVersion, savedReportSchemaVersion)
+	}
+}
+
 // TestBenchReportsPathXDG proves the path resolver honors XDG_DATA_HOME and that the
 // traversal guard refuses a path resolving outside its dir.
 func TestBenchReportsPathXDG(t *testing.T) {

@@ -245,9 +245,12 @@ func Append(d Deps, r SavedReport) error {
 const scanBufferMax = 1 << 20 // 1 MiB per line
 
 // Load reads the store via the seam and parses every JSONL line into a SavedReport.
-// It fails CLOSED per line: a corrupt/unparseable line is skipped (never a panic)
-// and earlier records survive. An absent store (ReadAll => nil,nil) yields an empty
-// slice and no error (mirrors config.LoadVilla returning defaults when absent).
+// It fails CLOSED per line: a corrupt/unparseable line — OR one whose schema_version
+// is not the supported savedReportSchemaVersion — is skipped (never a panic) and
+// earlier records survive. An unknown/future schema is NEVER parsed as v1 (that would
+// risk a misleading delta from mis-mapped fields). An absent store (ReadAll =>
+// nil,nil) yields an empty slice and no error (mirrors config.LoadVilla returning
+// defaults when absent).
 func Load(d Deps) ([]SavedReport, error) {
 	if d.ReadAll == nil {
 		return nil, fmt.Errorf("benchstore: Load: nil ReadAll seam")
@@ -270,6 +273,16 @@ func Load(d Deps) ([]SavedReport, error) {
 		var r SavedReport
 		if err := json.Unmarshal(line, &r); err != nil {
 			continue // fail closed per line — skip and keep going
+		}
+		if r.SchemaVersion != savedReportSchemaVersion {
+			// Unknown/future schema — skip (fail closed). The golden-frozen
+			// schema_version contract gates migrations; a future v2 record (or a
+			// hand-edited JSON-valid-but-semantically-wrong line) must NEVER be
+			// parsed as v1 and fed into Compare, which could emit a misleading
+			// pp/tg delta from mis-mapped fields. If forward-compat reads are ever
+			// desired, gate on r.SchemaVersion <= savedReportSchemaVersion AND add
+			// an explicit migration — never reinterpret an unknown version as v1.
+			continue
 		}
 		out = append(out, r)
 	}
