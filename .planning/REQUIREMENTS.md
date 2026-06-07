@@ -13,9 +13,9 @@ backend literals stay behind the `internal/inference` seam.
 
 ### Diagnostics & Health
 
-- [ ] **DOCTOR-01**: User can run `villa doctor` to get a one-shot health diagnosis of a running install, composing the existing preflight + status + residency-proof cores, exiting `0` (healthy) / `1` (blocking fault) / `2` (warning) — mirroring the preflight exit contract. *(Exit numbers corrected to match the AUTHORITATIVE shipped preflight constants `exitPass=0`/`exitBlocked=1`/`exitWarn=2`; the earlier `2 blocking / 1 warning` parenthetical was inverted — see CONTEXT.md D-04.)*
-- [ ] **DOCTOR-02**: Every non-healthy `villa doctor` finding carries actionable remediation text, and a silent or partial CPU fallback is reported as a FAIL (offload-asserting — never a false-green health 200).
-- [ ] **DOCTOR-03**: `villa doctor` detects and reports config-vs-disk drift (rendered Quadlet units that no longer match the config source of truth).
+- [x] **DOCTOR-01**: User can run `villa doctor` to get a one-shot health diagnosis of a running install, composing the existing preflight + status + residency-proof cores, exiting `0` (healthy) / `1` (blocking fault) / `2` (warning) — mirroring the preflight exit contract. *(Exit numbers corrected to match the AUTHORITATIVE shipped preflight constants `exitPass=0`/`exitBlocked=1`/`exitWarn=2`; the earlier `2 blocking / 1 warning` parenthetical was inverted — see CONTEXT.md D-04.)*
+- [x] **DOCTOR-02**: Every non-healthy `villa doctor` finding carries actionable remediation text, and a silent or partial CPU fallback is reported as a FAIL (offload-asserting — never a false-green health 200).
+- [x] **DOCTOR-03**: `villa doctor` detects and reports config-vs-disk drift (rendered Quadlet units that no longer match the config source of truth).
 
 ### Backup & Recovery
 

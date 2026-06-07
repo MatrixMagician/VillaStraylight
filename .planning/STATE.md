@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Operability
-status: executing
-stopped_at: Completed 13-03-PLAN.md (Phase 13 plans complete)
-last_updated: "2026-06-07T16:10:00.000Z"
-last_activity: 2026-06-07 -- Completed 13-03 (doctor ROCm residency-supersession gap-closure)
+status: ready
+stopped_at: Phase 13 (villa doctor) complete & verified (15/15, UAT 3/3 live) — ready to plan Phase 14
+last_updated: "2026-06-07T15:55:52.008Z"
+last_activity: 2026-06-07
 progress:
   total_phases: 6
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 6
-  completed_plans: 5
-  percent: 17
+  completed_plans: 6
+  percent: 33
 ---
 
 # Project State
@@ -21,15 +21,15 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-07 after starting v1.2)
 
 **Core value:** Run a capable local AI workspace that "just works" after install — hardware-aware setup that brings inference, chat, and the dashboard up healthy, with zero data leaving the box. v1.2 extends the bar to "and stays operable, recoverable, and measurable over time."
-**Current focus:** Phase 13 — villa-doctor-health-diagnosis
+**Current focus:** Phase 14 — saved-bench-reports + `--compare`
 
 ## Current Position
 
-Phase: 13 (villa-doctor-health-diagnosis) — EXECUTING
-Plan: 3 of 3 complete (gap-closure plan 13-03 done)
-Status: Phase 13 plans complete — pending verification/UAT
-Progress: [█░░░░░] 1/6 phases complete (v1.2)
-Last activity: 2026-06-07 -- Completed 13-03 (doctor ROCm residency-supersession gap-closure)
+Phase: 14
+Plan: Not started
+Status: Phase 13 complete & verified (villa doctor; gap-closure 13-03 shipped, UAT 3/3 live) — ready to plan Phase 14
+Progress: [██░░░░] 2/6 phases complete (v1.2)
+Last activity: 2026-06-07
 
 ## v1.2 Build Order (research-converged — preserve)
 
@@ -54,7 +54,7 @@ contract evolves at a time), then the destructive backup, then the TUI capstone.
 
 **Velocity:**
 
-- Total plans completed: 24 (across v1.0 + v1.1)
+- Total plans completed: 27 (across v1.0 + v1.1)
 - Average duration: 34 min
 - Total execution time: 2.2 hours
 
@@ -69,6 +69,7 @@ contract evolves at a time), then the destructive backup, then the TUI capstone.
 | 07 | 3 | - | - |
 | 11 | 2 | - | - |
 | 12 | 3 | - | - |
+| 13 | 3 | - | - |
 
 **Recent Trend:**
 
