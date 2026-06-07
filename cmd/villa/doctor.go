@@ -29,6 +29,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/doctor"
 	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
+	"github.com/MatrixMagician/VillaStraylight/internal/preflight"
 	"github.com/MatrixMagician/VillaStraylight/internal/status"
 )
 
@@ -161,11 +162,28 @@ func liveDoctorDeps() (doctor.Deps, error) {
 	if err != nil {
 		return doctor.Deps{}, fmt.Errorf("load config: %w", err)
 	}
+	// Option B (image thread-through): on a ROCm-family backend, resolve the RUNNING
+	// ROCm image via the inference seam and bind the image-aware host-prep gate so a
+	// denied running image is a confident FAIL (refuse-with-remediation) rather than the
+	// un-evaluated "no image requested" WARN. The image is obtained ONLY through
+	// inference.BackendFor(...).Image() — no image literal appears in cmd/villa, so the
+	// cmd-tier TestSeamGrepGate walk stays green. For non-ROCm backends rocmImageGate
+	// stays nil and Aggregate uses preflight.Run/RunROCm exactly as before.
+	var rocmImageGate func(detect.HostProfile) []preflight.CheckResult
+	if inference.IsROCmFamily(cfg.Backend) {
+		if b, berr := inference.BackendFor(cfg.Backend); berr == nil {
+			image := b.Image()
+			rocmImageGate = func(p detect.HostProfile) []preflight.CheckResult {
+				return preflight.RunROCmForImage(p, image)
+			}
+		}
+	}
 	return doctor.Deps{
 		Probe:        detect.Probe,
 		LoadConfig:   config.LoadVilla,
 		StatusReport: func() status.Report { return status.Run(*sd) },
 		Backend:      cfg.Backend,
+		RunROCmImage: rocmImageGate,
 		// DriftPlan: render units from the persisted config, resolve the backend
 		// fail-closed (D-02), and Reconcile against the READ-ONLY unit dir. It NEVER
 		// writes. A read error (absent/unreadable unit dir) is returned verbatim so the

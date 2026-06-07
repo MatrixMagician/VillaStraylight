@@ -131,6 +131,15 @@ type Deps struct {
 	// Backend is the configured backend name, routing the ROCm-family preflight gate
 	// via inference.IsROCmFamily.
 	Backend string
+	// RunROCmImage is the image-AWARE ROCm host-prep gate (Option B): it evaluates the
+	// RUNNING ROCm image against the policy denylist so a denied running image is a
+	// confident FAIL rather than the un-evaluated "no image requested" WARN. The live
+	// wiring (liveDoctorDeps) supplies preflight.RunROCmForImage bound to
+	// inference.BackendFor(cfg.Backend).Image() — the image string is resolved ONLY via
+	// the inference seam, never typed in this package (TestSeamGrepGate). NIL-SAFE: when
+	// nil (e.g. the newDoctorDeps test double, or a non-ROCm backend), Aggregate falls
+	// back to preflight.RunROCm(profile) exactly as before.
+	RunROCmImage func(detect.HostProfile) []preflight.CheckResult
 }
 
 // statusOrder maps the doctor status vocabulary to a worst-wins rank (PASS<WARN<FAIL).
@@ -163,9 +172,15 @@ func Aggregate(d Deps) Report {
 	// running host, routed by the configured backend (ROCm-family → RunROCm).
 	profile := d.Probe()
 	var checks []preflight.CheckResult
-	if inference.IsROCmFamily(d.Backend) {
+	switch {
+	case inference.IsROCmFamily(d.Backend) && d.RunROCmImage != nil:
+		// Option B: evaluate the ACTUAL running ROCm image (a denied running image →
+		// confident FAIL, never swallowed by the supersession; see fold step 4a). The
+		// image literal is supplied by the live wiring, never typed in this core.
+		checks = d.RunROCmImage(profile)
+	case inference.IsROCmFamily(d.Backend):
 		checks = preflight.RunROCm(profile)
-	} else {
+	default:
 		checks = preflight.Run(profile)
 	}
 	for _, c := range checks {
@@ -293,8 +308,8 @@ func findingFromCheck(c preflight.CheckResult) Finding {
 	return Finding{
 		ID:          c.ID,
 		Name:        c.Name,
-		Tier:        c.Tier.String(),    // "BLOCK" | "WARN"
-		Status:      c.Status.String(),  // "PASS" | "WARN" | "FAIL"
+		Tier:        c.Tier.String(),   // "BLOCK" | "WARN"
+		Status:      c.Status.String(), // "PASS" | "WARN" | "FAIL"
 		Detail:      c.Detail,
 		Remediation: c.Remediation,
 		Provenance:  c.Provenance,

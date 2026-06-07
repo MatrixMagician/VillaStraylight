@@ -30,6 +30,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
 	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
+	"github.com/MatrixMagician/VillaStraylight/internal/preflight"
 	"github.com/MatrixMagician/VillaStraylight/internal/status"
 )
 
@@ -59,8 +60,8 @@ func healthyStatusReport() status.Report {
 // report above, and DriftPlan an empty Plan with nil error (no drift).
 func newDoctorDeps() Deps {
 	return Deps{
-		Probe:      func() detect.HostProfile { return detect.HostProfile{} },
-		LoadConfig: func() (config.VillaConfig, error) { return config.VillaConfig{Backend: "vulkan"}, nil },
+		Probe:        func() detect.HostProfile { return detect.HostProfile{} },
+		LoadConfig:   func() (config.VillaConfig, error) { return config.VillaConfig{Backend: "vulkan"}, nil },
 		StatusReport: func() status.Report { return healthyStatusReport() },
 		DriftPlan:    func() (orchestrate.Plan, error) { return orchestrate.Plan{}, nil },
 		Backend:      "vulkan",
@@ -161,6 +162,48 @@ func TestROCmResidencyDoesNotFireOnStatusFail(t *testing.T) {
 	r := Aggregate(d)
 	if r.Overall != "FAIL" {
 		t.Fatalf("Overall = %q, want FAIL (offload StatusFail must dominate; supersession must NOT fire without proven residency)", r.Overall)
+	}
+}
+
+// TestConfidentROCmFAILStillDominatesResidency is the CENTRAL no-false-green guard
+// (DOCTOR-02) and proves the supersession keys on the (ID AND Status==WARN) CONJUNCTION,
+// NOT ID-alone. Under PROVEN ROCm residency (Backend="rocm", OffloadApplies=true,
+// Offload.Status==inference.StatusPass), inject the image-aware host-prep gate
+// (RunROCmImage) returning a CONFIDENT FAIL on a SUPERSEDED ID — idROCmImage, a denied
+// RUNNING image (reachable only via this Option-B seam; checks_rocm.go:66-67 make a
+// firmware/hsa FAIL unreachable via Probe). A confident FAIL on one of the very IDs the
+// supersession down-ranks at WARN must NEVER be swallowed → Overall=="FAIL". (A
+// ROCM-PRE-gfx-style guard would NOT exercise this risk: gfx is not in the superseded
+// set, so an ID-only match would never have swallowed it — the danger lives precisely on
+// the superseded IDs, so the assertion lives there.) Type no backend marker literal: the
+// stub uses the ROCM-PRE-* ID string + neutral detail.
+func TestConfidentROCmFAILStillDominatesResidency(t *testing.T) {
+	d := rocmDoctorDeps() // proven residency: Backend=rocm, OffloadApplies, StatusPass
+	d.RunROCmImage = func(detect.HostProfile) []preflight.CheckResult {
+		return []preflight.CheckResult{{
+			ID:          idROCmImage,
+			Name:        "ROCm image not denied",
+			Tier:        preflight.TierBlock,
+			Status:      preflight.StatusFail,
+			Detail:      "requested image matches a denied build — ROCm bring-up refused",
+			Remediation: "use the digest-pinned stable ROCm image",
+			Provenance:  "requested image",
+		}}
+	}
+
+	r := Aggregate(d)
+	if r.Overall != "FAIL" {
+		t.Fatalf("Overall = %q, want FAIL (a confident FAIL on the superseded %s must NEVER be swallowed by residency-supersession — DOCTOR-02)", r.Overall, idROCmImage)
+	}
+	// The confident FAIL must still be present as a FAIL finding (not down-ranked).
+	found := false
+	for _, f := range r.Findings {
+		if f.ID == idROCmImage && f.Status == "FAIL" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected a FAIL finding on %s under proven residency; findings: %+v", idROCmImage, r.Findings)
 	}
 }
 
