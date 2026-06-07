@@ -4,7 +4,7 @@ milestone: v1.2
 milestone_name: Operability
 status: executing
 stopped_at: 15-04 executed (code complete) — Task 3 on-hardware UAT (gfx1151) PENDING checkpoint
-last_updated: "2026-06-07T18:29:11.568Z"
+last_updated: "2026-06-07T19:00:52.245Z"
 last_activity: 2026-06-07
 progress:
   total_phases: 6
@@ -25,8 +25,8 @@ See: .planning/PROJECT.md (updated 2026-06-07 after starting v1.2)
 
 ## Current Position
 
-Phase: 15 (cumulative-usage-tracking) — EXECUTING
-Plan: 4 of 4
+Phase: 16
+Plan: Not started
 Status: Ready to execute
 Progress: [████████░░] 77%
 Last activity: 2026-06-07
@@ -54,7 +54,7 @@ contract evolves at a time), then the destructive backup, then the TUI capstone.
 
 **Velocity:**
 
-- Total plans completed: 30 (across v1.0 + v1.1)
+- Total plans completed: 38 (across v1.0 + v1.1)
 - Average duration: 34 min
 - Total execution time: 2.2 hours
 
@@ -71,6 +71,7 @@ contract evolves at a time), then the destructive backup, then the TUI capstone.
 | 12 | 3 | - | - |
 | 13 | 3 | - | - |
 | 14 | 3 | - | - |
+| 15 | 4 | - | - |
 
 **Recent Trend:**
 
