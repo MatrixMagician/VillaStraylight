@@ -156,7 +156,7 @@ See `milestones/v1.1-ROADMAP.md` for full phase detail, success criteria, and pl
 **Plans**: 4 plans in 3 waves
 **Wave 1**
 
-- [ ] 15-01-PLAN.md — pure `internal/usage` core: reset-aware per-model `Fold` + XDG atomic store + counts-only structural test (USAGE-01)
+- [x] 15-01-PLAN.md — pure `internal/usage` core: reset-aware per-model `Fold` + XDG atomic store + counts-only structural test (USAGE-01)
 - [ ] 15-02-PLAN.md — extend `internal/metrics` to surface the two `_total` counters as a typed-Unknown `CounterSample` (USAGE-01)
 
 **Wave 2** *(blocked on Wave 1 completion)*
@@ -220,6 +220,6 @@ See `milestones/v1.1-ROADMAP.md` for full phase detail, success criteria, and pl
 | 12. `rocm-6.4.4` Alternate Backend | v1.2 | 3/3 | Complete    | 2026-06-07 |
 | 13. `villa doctor` Health Diagnosis | v1.2 | 3/3 | Complete    | 2026-06-07 |
 | 14. Saved Bench Reports + `--compare` | v1.2 | 3/3 | Complete    | 2026-06-07 |
-| 15. Cumulative Usage Tracking | v1.2 | 0/? | Not started | - |
+| 15. Cumulative Usage Tracking | v1.2 | 1/4 | In Progress|  |
 | 16. Backup / Restore | v1.2 | 0/? | Not started | - |
 | 17. Guided TUI Install | v1.2 | 0/? | Not started | - |

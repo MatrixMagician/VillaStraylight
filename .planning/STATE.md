@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Operability
-status: planning
-stopped_at: Phase 15 UI-SPEC approved
-last_updated: "2026-06-07T18:00:41.932Z"
-last_activity: 2026-06-07 -- Phase 14 marked complete after on-hardware gfx1151 UAT PASS; advanced to Phase 15
+status: executing
+stopped_at: Completed 15-01-PLAN.md
+last_updated: "2026-06-07T18:07:36.950Z"
+last_activity: 2026-06-07
 progress:
   total_phases: 6
   completed_phases: 3
-  total_plans: 9
-  completed_plans: 9
-  percent: 50
+  total_plans: 13
+  completed_plans: 10
+  percent: 77
 ---
 
 # Project State
@@ -21,15 +21,15 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-07 after starting v1.2)
 
 **Core value:** Run a capable local AI workspace that "just works" after install — hardware-aware setup that brings inference, chat, and the dashboard up healthy, with zero data leaving the box. v1.2 extends the bar to "and stays operable, recoverable, and measurable over time."
-**Current focus:** Phase 15 — Cumulative Usage Tracking (USAGE-01/02); ready to plan
+**Current focus:** Phase 15 — cumulative-usage-tracking
 
 ## Current Position
 
-Phase: 15 (cumulative-usage-tracking)
-Plan: Not started
-Status: Ready to plan — Phase 14 complete (on-hardware gfx1151 UAT PASS)
-Progress: [███░░░] 3/6 phases complete (v1.2); Phase 14 verified on-hardware
-Last activity: 2026-06-07 -- Phase 14 marked complete after on-hardware gfx1151 UAT PASS; advanced to Phase 15
+Phase: 15 (cumulative-usage-tracking) — EXECUTING
+Plan: 2 of 4
+Status: Ready to execute
+Progress: [████████░░] 77%
+Last activity: 2026-06-07
 
 ## v1.2 Build Order (research-converged — preserve)
 
@@ -85,6 +85,7 @@ contract evolves at a time), then the destructive backup, then the TUI capstone.
 | Phase 13 P02 | 8min | 2 tasks | 6 files |
 | Phase 13 P03 | ~38min | 3 tasks (TDD) | 5 files |
 | Phase 14 P01 | 4min | 2 tasks (TDD) | 3 files |
+| Phase 15 P01 | 2 min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -172,9 +173,9 @@ Items acknowledged at milestone close on 2026-06-06 (v1.1):
 
 ## Session Continuity
 
-Last session: 2026-06-07T17:43:30.451Z
-Stopped at: Phase 15 UI-SPEC approved
-Resume file: .planning/phases/15-cumulative-usage-tracking/15-UI-SPEC.md
+Last session: 2026-06-07T18:07:36.943Z
+Stopped at: Completed 15-01-PLAN.md
+Resume file: None
 
 ## Operator Next Steps
 
