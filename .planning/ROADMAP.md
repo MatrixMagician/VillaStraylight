@@ -53,7 +53,7 @@ See `milestones/v1.1-ROADMAP.md` for full phase detail, success criteria, and pl
 - [x] **Phase 12: `rocm-6.4.4` Alternate Backend** — Add a digest-pinned TG-tuned ROCm image selectable behind `BackendFor`, seam-locked + policy-gated, to recover the v1.1 Δtg −11.15 regression. (3 plans) (completed 2026-06-07)
 - [x] **Phase 13: `villa doctor` Health Diagnosis** — One-shot, read-only health/diagnosis composing preflight + status + residency proof + config-vs-disk drift, with remediation and 0/2/1 exit tiers. (verified 15/15 must-haves; on-hardware UAT 3/3 live on gfx1151 — healthy→exit 0, induced CPU fallback→exit 1 no-false-green, drift→exit 2; gap-closure 13-03 added ROCm residency-supersession so a residency-proven ROCm install reaches exit 0) (completed 2026-06-07)
 - [x] **Phase 14: Saved Bench Reports + `--compare`** — Persist each bench run as a versioned saved report under XDG, and compare runs over time behind a comparability guard. (3 plans executed; automated verification 12/12; code review WR-01/02/04 fixed; on-hardware gfx1151 UAT PASS 2026-06-07 — Δtg +10.39 vulkan>rocm, see 14-UAT.md) (completed 2026-06-07)
-- [ ] **Phase 15: Cumulative Usage Tracking** — Accumulate reset-aware token totals locally and surface them (append-only) in `status` + dashboard, counts-only, no new outbound.
+- [x] **Phase 15: Cumulative Usage Tracking** — Accumulate reset-aware token totals locally and surface them (append-only) in `status` + dashboard, counts-only, no new outbound. (completed 2026-06-07)
 - [ ] **Phase 16: Backup / Restore** — Self-describing local archive (config + Open WebUI data, model weights excluded) with a transactional, skew-warning restore.
 - [ ] **Phase 17: Guided TUI Install (Capstone)** — Interactive terminal install flow over the finished pipeline, pure presentation, TTY-gated with a `--no-tui` fallback, single static CGO-free binary.
 
@@ -165,7 +165,7 @@ See `milestones/v1.1-ROADMAP.md` for full phase detail, success criteria, and pl
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 15-04-PLAN.md — dashboard sole mutex-guarded writer (fold+atomic-write in `/api/metrics`) + cumulative-totals UI + on-hardware UAT (USAGE-02)
+- [x] 15-04-PLAN.md — dashboard sole mutex-guarded writer (fold+atomic-write in `/api/metrics`) + cumulative-totals UI + on-hardware UAT (USAGE-02)
 
 **UI hint**: yes
 **Research flag**: Confirm the exact llama.cpp `/metrics` cumulative counter names (`llamacpp:prompt_tokens_total` / `tokens_predicted_total`) and the counter-reset semantics on restart/backend-swap against a live `llama-server` at the start of the phase (MEDIUM-confidence names; HIGH-confidence pattern). Design the fold to degrade to typed-Unknown if a counter is absent.
@@ -220,6 +220,6 @@ See `milestones/v1.1-ROADMAP.md` for full phase detail, success criteria, and pl
 | 12. `rocm-6.4.4` Alternate Backend | v1.2 | 3/3 | Complete    | 2026-06-07 |
 | 13. `villa doctor` Health Diagnosis | v1.2 | 3/3 | Complete    | 2026-06-07 |
 | 14. Saved Bench Reports + `--compare` | v1.2 | 3/3 | Complete    | 2026-06-07 |
-| 15. Cumulative Usage Tracking | v1.2 | 3/4 | In Progress|  |
+| 15. Cumulative Usage Tracking | v1.2 | 4/4 | Complete   | 2026-06-07 |
 | 16. Backup / Restore | v1.2 | 0/? | Not started | - |
 | 17. Guided TUI Install | v1.2 | 0/? | Not started | - |
