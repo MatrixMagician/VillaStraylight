@@ -314,7 +314,16 @@ func liveRestoreProve(target string) backup.ProveVerdict {
 			return backup.ProveVerdict{Status: "fail", Detail: err.Error()}
 		}
 		for _, c := range preflight.RunROCmForImage(detect.Probe(), be.Image()) {
-			if c.Status == preflight.StatusFail {
+			// Fail the prove on the BLOCK tier using the EXACT canonical predicate
+			// `villa preflight`/install gates an install on (renderPreflight,
+			// cmd/villa/preflight.go: r.Status == StatusFail && r.Tier == TierBlock).
+			// In the preflight enum (internal/preflight/preflight.go) BLOCK is a TIER,
+			// not a distinct Status: StatusFail is "a confident known-bad" and is
+			// "only meaningful on TierBlock checks" — a BLOCK-tier check that cannot be
+			// EVALUATED downgrades to StatusWarn (D-15), never StatusFail. So this pairs
+			// the two conjuncts to mirror the install gate verbatim and stay auditable;
+			// a WARN-tier or could-not-verify result is intentionally NOT a prove fail.
+			if c.Status == preflight.StatusFail && c.Tier == preflight.TierBlock {
 				return backup.ProveVerdict{Status: "fail", Detail: "ROCm preflight: " + c.Detail}
 			}
 		}
