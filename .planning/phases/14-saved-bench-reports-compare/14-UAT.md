@@ -1,25 +1,14 @@
 ---
-status: testing
+status: complete
 phase: 14-saved-bench-reports-compare
 source: [14-VERIFICATION.md]
 started: 2026-06-07T00:00:00Z
-updated: 2026-06-07T00:00:00Z
+updated: 2026-06-07T17:21:00Z
 ---
 
 ## Current Test
 
-number: 1
-name: On-hardware (gfx1151) cross-backend saved-report round-trip + compare
-expected: |
-  On a real AMD Strix Halo (gfx1151) host with rootless Podman + llama-server:
-  run `villa bench` once on the vulkan backend and once on rocm (same
-  model/quant/ctx/host), then `villa bench --compare`. Two saved JSONL records
-  persist under `$XDG_DATA_HOME/villa/bench-reports.jsonl`, each with a
-  non-fabricated `host_gfx_id` captured from `detect.Probe()`; `--compare`
-  prints a real cross-backend Δpp/Δtg (exit 0) keeping pp and tg on separate
-  lines; `villa bench --list` shows both runs. This proves the Phase-12 Δtg
-  recovery with genuine timings.
-awaiting: user response
+[testing complete]
 
 ## Tests
 
@@ -36,15 +25,32 @@ why_human: |
   be measured off-hardware. All deterministic logic (persistence, schema freeze,
   fail-closed Load, comparability guard, void flagging, exit mapping) is already
   verified via injected-Deps tests + binary spot-checks with synthetic records.
-result: [pending]
+result: pass
+verified_on: 2026-06-07T17:21:00Z (on-hardware, gfx1151, qwen3.6-35b-a3b UD-Q4_K_M ctx=131072)
+evidence: |
+  Clean round-trip from an absent store. `villa bench` on rocm (pp 123.10±1.08,
+  tg 50.26±0.09, kept=5 void=0, exit 0) then `villa backend set vulkan` (cutover
+  proven) then `villa bench` on vulkan (pp 116.52±1.63, tg 60.65±0.10, kept=5
+  void=0, exit 0). Store $XDG_DATA_HOME/villa/bench-reports.jsonl ended with 2
+  JSONL lines, mode 0600, schema_version=1, each fingerprint.host_gfx_id="gfx1151"
+  (real, from detect.Probe — never fabricated), kernel "7.0.11-200.fc44.x86_64",
+  pp/tg as SEPARATE fields, void_exhausted=false, single.backend rocm/vulkan.
+  `villa bench --compare` printed A(rocm)/B(vulkan) with pp and tg on separate
+  lines and a real cross-backend delta Δpp -6.58, Δtg +10.39 tok/s, exit 0
+  (same model/quant/ctx/host => comparable). `villa bench --list` enumerated
+  both runs (#0 rocm, #1 vulkan) with separate pp/tg columns, exit 0. The
+  measured Δtg +10.39 (vulkan over rocm) independently reproduces the Phase-12
+  finding (~+11.68) with genuine timings. Original backend restored to rocm.
 
 ## Summary
 
 total: 1
-passed: 0
+passed: 1
 issues: 0
-pending: 1
+pending: 0
 skipped: 0
 blocked: 0
 
 ## Gaps
+
+[none]
