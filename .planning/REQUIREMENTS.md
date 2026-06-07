@@ -25,8 +25,8 @@ backend literals stay behind the `internal/inference` seam.
 
 ### Benchmark Reports
 
-- [ ] **BENCH-03**: `villa bench` persists each run as a versioned saved report under `$XDG_DATA_HOME/villa/`, keeping prompt-processing and token-generation tok/s separate (never blended) and recording residency-void state.
-- [ ] **BENCH-04**: User can run `villa bench --compare` to compare saved reports, gated by a comparability guard (same model/quant/host fingerprint) that refuses to print deltas across non-comparable runs.
+- [x] **BENCH-03**: `villa bench` persists each run as a versioned saved report under `$XDG_DATA_HOME/villa/`, keeping prompt-processing and token-generation tok/s separate (never blended) and recording residency-void state.
+- [x] **BENCH-04**: User can run `villa bench --compare` to compare saved reports, gated by a comparability guard (same model/quant/host fingerprint) that refuses to print deltas across non-comparable runs.
 
 ### Usage Tracking
 
@@ -83,8 +83,8 @@ Which phases cover which requirements. Populated during roadmap creation (`/gsd-
 | DOCTOR-01 | Phase 13 | Awaiting UAT |
 | DOCTOR-02 | Phase 13 | Awaiting UAT |
 | DOCTOR-03 | Phase 13 | Awaiting UAT |
-| BENCH-03 | Phase 14 | Pending |
-| BENCH-04 | Phase 14 | Pending |
+| BENCH-03 | Phase 14 | Complete |
+| BENCH-04 | Phase 14 | Complete |
 | USAGE-01 | Phase 15 | Pending |
 | USAGE-02 | Phase 15 | Pending |
 | BAK-01 | Phase 16 | Pending |

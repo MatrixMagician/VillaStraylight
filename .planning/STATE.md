@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Operability
 status: executing
-stopped_at: Completed 13-03-PLAN.md (Phase 13 plans complete)
-last_updated: "2026-06-07T16:27:54.471Z"
-last_activity: 2026-06-07 -- Phase 14 planning complete
+stopped_at: Completed 14-01-PLAN.md (benchstore saved-report contract frozen)
+last_updated: "2026-06-07T16:37:28.134Z"
+last_activity: 2026-06-07 -- Completed Phase 14 Plan 01 (benchstore contract + comparability guard)
 progress:
   total_phases: 6
   completed_phases: 2
-  total_plans: 6
-  completed_plans: 6
+  total_plans: 9
+  completed_plans: 7
   percent: 33
 ---
 
@@ -21,15 +21,15 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-07 after starting v1.2)
 
 **Core value:** Run a capable local AI workspace that "just works" after install — hardware-aware setup that brings inference, chat, and the dashboard up healthy, with zero data leaving the box. v1.2 extends the bar to "and stays operable, recoverable, and measurable over time."
-**Current focus:** Phase 14 — saved-bench-reports + `--compare`
+**Current focus:** Phase 14 — saved-bench-reports-compare
 
 ## Current Position
 
-Phase: 14
-Plan: Not started
-Status: Ready to execute
+Phase: 14 (saved-bench-reports-compare) — EXECUTING
+Plan: 2 of 3
+Status: Ready to execute (14-01 complete)
 Progress: [██░░░░] 2/6 phases complete (v1.2)
-Last activity: 2026-06-07 -- Phase 14 planning complete
+Last activity: 2026-06-07 -- Completed Phase 14 Plan 01 (benchstore contract + comparability guard)
 
 ## v1.2 Build Order (research-converged — preserve)
 
@@ -83,6 +83,7 @@ contract evolves at a time), then the destructive backup, then the TUI capstone.
 | Phase 13 P01 | 3min | 2 tasks | 2 files |
 | Phase 13 P02 | 8min | 2 tasks | 6 files |
 | Phase 13 P03 | ~38min | 3 tasks (TDD) | 5 files |
+| Phase 14 P01 | 4min | 2 tasks (TDD) | 3 files |
 
 ## Accumulated Context
 
@@ -125,6 +126,9 @@ Earlier (v1.0 / v1.1) decisions retained below.
 - [13-03]: No-false-green preserved — the down-rank predicate is the (superseded-ID AND Status==statusWarn) CONJUNCTION; a confident StatusFail on the SAME IDs still folds to FAIL (pure ID-set match forbidden). Findings stay VISIBLE (rank-suppressed, not deleted); no serialized field, schema_version stays 1.
 - [13-03]: Only the three structural typed-Unknown checks are superseded; Probe-driven ROCM-PRE-gfx/-kernel are NOT (the supersession is correctly narrow, never over-firing on host-prep signals).
 - [13-03]: Option B nil-safe doctor.Deps.RunROCmImage seam — liveDoctorDeps binds preflight.RunROCmForImage(BackendFor(cfg.Backend).Image()) for ROCm-family backends (nil for vulkan) so a denied RUNNING image is a confident FAIL; the image literal stays behind the inference seam (TestSeamGrepGate green).
+- [14-01]: benchstore SavedReport JSONL contract frozen (savedReportSchemaVersion=1, schema_version LAST field, record.golden frozen BEFORE any live writer); pp/tg persist as SEPARATE fields, no blended key; VoidExhausted/Reason round-trip (BENCH-03).
+- [14-01]: Comparable iff model+quant+ctx+host match; backend DELIBERATELY allowed to differ (cross-backend compare is the point); UNKNOWN host (HostGfxID=="") => not comparable (no false-equal). benchstore imports NEITHER inference NOR detect (SeamGrepGate green) (BENCH-04).
+- [14-01]: SavedSpec PERSISTS the fixed benchPrompt reproducibility constant — the saved record is a SUPERSET of `bench --json` (no prompt key there) for reproducibility; the value is an in-repo constant, never user content (T-14-02). Compare reads the primary measured side (Single for single-mode, AB.B for ab); not-comparable folded into CompareResult.Comparable=false with zero deltas.
 
 ### Pending Todos
 
@@ -163,7 +167,7 @@ Items acknowledged at milestone close on 2026-06-06 (v1.1):
 
 ## Session Continuity
 
-Last session: 2026-06-07T16:10:00.000Z
+Last session: 2026-06-07T16:37:28.128Z
 Stopped at: Completed 13-03-PLAN.md (Phase 13 plans complete)
 Resume file: None
 

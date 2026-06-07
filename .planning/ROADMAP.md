@@ -129,7 +129,7 @@ See `milestones/v1.1-ROADMAP.md` for full phase detail, success criteria, and pl
 
 **Wave 1**
 
-- [ ] 14-01-PLAN.md — Pure `internal/benchstore` core: `SavedReport` JSONL record + `savedReportSchemaVersion=1` frozen by its OWN golden BEFORE any writer (ROADMAP note), pp/tg-separate fields + `VoidExhausted`/`Reason`, comparability `Fingerprint` + `Comparable`/`Compare` guard (model/quant/ctx/host block; backend allowed to differ; UNKNOWN host ⇒ not comparable), `Append`/`Load` behind an injected `Deps` seam, XDG path + 0600/0700 traversal guard; imports NEITHER inference NOR detect (BENCH-03/04) [Wave 1]
+- [x] 14-01-PLAN.md — Pure `internal/benchstore` core: `SavedReport` JSONL record + `savedReportSchemaVersion=1` frozen by its OWN golden BEFORE any writer (ROADMAP note), pp/tg-separate fields + `VoidExhausted`/`Reason`, comparability `Fingerprint` + `Comparable`/`Compare` guard (model/quant/ctx/host block; backend allowed to differ; UNKNOWN host ⇒ not comparable), `Append`/`Load` behind an injected `Deps` seam, XDG path + 0600/0700 traversal guard; imports NEITHER inference NOR detect (BENCH-03/04) [Wave 1]
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -206,7 +206,7 @@ See `milestones/v1.1-ROADMAP.md` for full phase detail, success criteria, and pl
 | 11. Address v1.1 tech debt | v1.1 | 2/2 | Complete | 2026-06-06 |
 | 12. `rocm-6.4.4` Alternate Backend | v1.2 | 3/3 | Complete    | 2026-06-07 |
 | 13. `villa doctor` Health Diagnosis | v1.2 | 3/3 | Complete    | 2026-06-07 |
-| 14. Saved Bench Reports + `--compare` | v1.2 | 0/3 | Planned     | - |
+| 14. Saved Bench Reports + `--compare` | v1.2 | 1/3 | In Progress|  |
 | 15. Cumulative Usage Tracking | v1.2 | 0/? | Not started | - |
 | 16. Backup / Restore | v1.2 | 0/? | Not started | - |
 | 17. Guided TUI Install | v1.2 | 0/? | Not started | - |
