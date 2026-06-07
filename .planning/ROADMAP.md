@@ -77,7 +77,7 @@ See `milestones/v1.1-ROADMAP.md` for full phase detail, success criteria, and pl
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 12-02-PLAN.md — Family predicate routing + policy gate + labels: route every `"rocm"` check through `IsROCmFamily`, thread the resolved image into `RunROCmForImage` (SC#2), widen `backendLabel` + detect `rocmImagePolicyOK` [Wave 2]
+- [x] 12-02-PLAN.md — Family predicate routing + policy gate + labels: route every `"rocm"` check through `IsROCmFamily`, thread the resolved image into `RunROCmForImage` (SC#2), widen `backendLabel` + detect `rocmImagePolicyOK` [Wave 2]
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -178,7 +178,7 @@ See `milestones/v1.1-ROADMAP.md` for full phase detail, success criteria, and pl
 | 9. `villa bench` (Honest A/B) | v1.1 | 3/3 | Complete | 2026-06-06 |
 | 10. Backend + tok/s Surfacing | v1.1 | 3/3 | Complete | 2026-06-06 |
 | 11. Address v1.1 tech debt | v1.1 | 2/2 | Complete | 2026-06-06 |
-| 12. `rocm-6.4.4` Alternate Backend | v1.2 | 1/3 | In Progress|  |
+| 12. `rocm-6.4.4` Alternate Backend | v1.2 | 2/3 | In Progress|  |
 | 13. `villa doctor` Health Diagnosis | v1.2 | 0/? | Not started | - |
 | 14. Saved Bench Reports + `--compare` | v1.2 | 0/? | Not started | - |
 | 15. Cumulative Usage Tracking | v1.2 | 0/? | Not started | - |

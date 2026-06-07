@@ -4,13 +4,13 @@ milestone: v1.2
 milestone_name: Operability
 status: executing
 stopped_at: Phase 12 context gathered
-last_updated: "2026-06-07T10:39:18.173Z"
+last_updated: "2026-06-07T10:48:57.170Z"
 last_activity: 2026-06-07 -- Phase 12 execution started
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 3
-  completed_plans: 1
+  completed_plans: 2
   percent: 0
 ---
 
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-06-07 after starting v1.2)
 ## Current Position
 
 Phase: 12 (rocm-6-4-4-alternate-backend) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
 Progress: [░░░░░░] 0/6 phases complete (v1.2)
 Last activity: 2026-06-07 -- Phase 12 execution started
@@ -76,6 +76,7 @@ contract evolves at a time), then the destructive backup, then the TUI capstone.
 
 *Updated after each plan completion*
 | Phase 12 P01 | 15 | 3 tasks | 6 files |
+| Phase 12 P02 | ~20 min | 2 tasks | 11 files |
 
 ## Accumulated Context
 
@@ -104,6 +105,9 @@ Earlier (v1.0 / v1.1) decisions retained below.
 - [v1.1]: ROCm is opt-in; Vulkan RADV stays the default; `recommend` advises, never auto-switches. Digest-pin ROCm images (never the nightlies tag — 64 GB cap).
 - [v1.1]: `villa backend set` is transactional (capture→prove→cutover→rollback); is-active/200 alone is never success.
 - [Phase ?]: [12-01]: Two additive ROCm 6.4.4 backends (plain + rocwmma) ship as image-parameterized backendROCm variants behind BackendFor; rocm still means 7.2.4 (coexistence); IsROCmFamily is the single ROCm-name enumeration; both digests re-verified live via skopeo 2026-06-07.
+- [Phase ?]: D-08 closed: every literal rocm comparison routes through inference.IsROCmFamily (cmd/villa backend.go + preflight.go)
+- [Phase ?]: SC#2: preflight.RunROCmForImage threads BackendFor(target).Image() so the policy deny-list evaluates the real digest, not an empty-image WARN
+- [Phase ?]: Seam regex anchored to image context so the gate catches image literals but not bare backend-name config values
 
 ### Pending Todos
 
@@ -140,7 +144,7 @@ Items acknowledged at milestone close on 2026-06-06 (v1.1):
 
 ## Session Continuity
 
-Last session: 2026-06-07T10:39:13.597Z
+Last session: 2026-06-07T10:48:38.931Z
 Stopped at: Phase 12 context gathered
 Resume: `/gsd-plan-phase 12` to begin Phase 12 (`rocm-6.4.4` Alternate Backend).
 

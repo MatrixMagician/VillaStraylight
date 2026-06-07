@@ -40,7 +40,7 @@ backend literals stay behind the `internal/inference` seam.
 
 ### Inference Backend
 
-- [ ] **ROCM-ALT-01**: User can opt into a digest-pinned `rocm-6.4.4` (or its `-rocwmma` variant, bench-decided) ROCm image as an alternate backend via `villa backend set`, gated by `rocm-policy.json` floors and kept behind the `internal/inference` seam (incl. extending `seam_test.go` so the new image literal cannot leak) — addressing the v1.1 Δtg −11.15 regression. Never auto-switches; Vulkan stays default.
+- [x] **ROCM-ALT-01**: User can opt into a digest-pinned `rocm-6.4.4` (or its `-rocwmma` variant, bench-decided) ROCm image as an alternate backend via `villa backend set`, gated by `rocm-policy.json` floors and kept behind the `internal/inference` seam (incl. extending `seam_test.go` so the new image literal cannot leak) — addressing the v1.1 Δtg −11.15 regression. Never auto-switches; Vulkan stays default.
 
 ## Future Requirements
 
@@ -79,7 +79,7 @@ Which phases cover which requirements. Populated during roadmap creation (`/gsd-
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| ROCM-ALT-01 | Phase 12 | Pending |
+| ROCM-ALT-01 | Phase 12 | Complete |
 | DOCTOR-01 | Phase 13 | Pending |
 | DOCTOR-02 | Phase 13 | Pending |
 | DOCTOR-03 | Phase 13 | Pending |
@@ -94,11 +94,13 @@ Which phases cover which requirements. Populated during roadmap creation (`/gsd-
 | INSTALL-02 | Phase 17 | Pending |
 
 **Coverage:**
+
 - v1.2 requirements: 13 total
 - Mapped to phases: 13 ✓
 - Unmapped: 0 ✓
 
 **Phase distribution:**
+
 - Phase 12 (`rocm-6.4.4` Alternate Backend): ROCM-ALT-01 (1)
 - Phase 13 (`villa doctor` Health Diagnosis): DOCTOR-01, DOCTOR-02, DOCTOR-03 (3)
 - Phase 14 (Saved Bench Reports + `--compare`): BENCH-03, BENCH-04 (2)
