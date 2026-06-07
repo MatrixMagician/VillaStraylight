@@ -49,7 +49,7 @@ See `milestones/v1.1-ROADMAP.md` for full phase detail, success criteria, and pl
 
 **Build order is research-converged** (all four researchers + the synthesizer agreed): seam-locked + composition features first (zero/trivial contract risk), then the two persistence features with their byte-frozen evolutions staggered so **only one byte-frozen contract evolves at a time**, then the destructive backup, then the TUI capstone over the finished surface.
 
-- [ ] **Phase 12: `rocm-6.4.4` Alternate Backend** — Add a digest-pinned TG-tuned ROCm image selectable behind `BackendFor`, seam-locked + policy-gated, to recover the v1.1 Δtg −11.15 regression.
+- [ ] **Phase 12: `rocm-6.4.4` Alternate Backend** — Add a digest-pinned TG-tuned ROCm image selectable behind `BackendFor`, seam-locked + policy-gated, to recover the v1.1 Δtg −11.15 regression. (3 plans)
 - [ ] **Phase 13: `villa doctor` Health Diagnosis** — One-shot, read-only health/diagnosis composing preflight + status + residency proof + config-vs-disk drift, with remediation and 0/2/1 exit tiers.
 - [ ] **Phase 14: Saved Bench Reports + `--compare`** — Persist each bench run as a versioned saved report under XDG, and compare runs over time behind a comparability guard.
 - [ ] **Phase 15: Cumulative Usage Tracking** — Accumulate reset-aware token totals locally and surface them (append-only) in `status` + dashboard, counts-only, no new outbound.
@@ -67,7 +67,10 @@ See `milestones/v1.1-ROADMAP.md` for full phase detail, success criteria, and pl
   2. The new image is digest-pinned and gated by `rocm-policy.json` floors; a request that fails a floor is refused with named remediation, never silently downgraded.
   3. `villa bench --ab` measures the new image against rocm-7.2.4 / Vulkan and reports the pp/tg deltas separately, so the user can prove (not assume) which digest recovers Δtg before it ships.
   4. The new image literal cannot leak outside the inference seam — `internal/inference/seam_test.go`'s image regex is extended in the same commit and `TestSeamGrepGate` stays green.
-**Plans**: TBD
+**Plans**: 3 plans
+- [ ] 12-01-PLAN.md — Seam + resolver + digests: parameterize `backendROCm` by image (D-06), pin both re-verified digests, add the two fail-closed `BackendFor` cases + `IsROCmFamily` (D-01/D-03/D-08), extend the `seam_test.go` regex same-commit (D-10/SC#4) [Wave 1]
+- [ ] 12-02-PLAN.md — Family predicate routing + policy gate + labels: route every `"rocm"` check through `IsROCmFamily`, thread the resolved image into `RunROCmForImage` (SC#2), widen `backendLabel` + detect `rocmImagePolicyOK` [Wave 2]
+- [ ] 12-03-PLAN.md — bench `--ab-target` (Option A, SC#3) + on-hardware switch/residency/Δtg checkpoint (SC#1) [Wave 3]
 **Research flag**: Re-verify the rolling `rocm-6.4.4` tag digest at implementation time (kyuz0 re-pushes the rolling tag — pin the digest `sha256:c81f30a7fd2641e3ea6ac4c45323ba239dca906ed79cc0dfe5b885f9f150ec62`; the `-rocwmma` variant `sha256:9a97129af2c1a2f0080f234787f6978551a43e354f3eb26a8ebc868f643c0141` is a bench-decided choice — ship the one the A/B proves).
 
 ### Phase 13: `villa doctor` Health Diagnosis
@@ -148,7 +151,7 @@ See `milestones/v1.1-ROADMAP.md` for full phase detail, success criteria, and pl
 | 9. `villa bench` (Honest A/B) | v1.1 | 3/3 | Complete | 2026-06-06 |
 | 10. Backend + tok/s Surfacing | v1.1 | 3/3 | Complete | 2026-06-06 |
 | 11. Address v1.1 tech debt | v1.1 | 2/2 | Complete | 2026-06-06 |
-| 12. `rocm-6.4.4` Alternate Backend | v1.2 | 0/? | Not started | - |
+| 12. `rocm-6.4.4` Alternate Backend | v1.2 | 0/3 | Planned | - |
 | 13. `villa doctor` Health Diagnosis | v1.2 | 0/? | Not started | - |
 | 14. Saved Bench Reports + `--compare` | v1.2 | 0/? | Not started | - |
 | 15. Cumulative Usage Tracking | v1.2 | 0/? | Not started | - |
