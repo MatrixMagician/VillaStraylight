@@ -49,7 +49,7 @@ created: 2026-06-07
 | USAGE-02 | Dashboard reads SAME `Report` field, no new endpoint (D-10) | unit | `go test ./internal/dashboard -run TestStatusUsageSurfaced` | ❌ W0 |
 | USAGE-02 (D-07) | Dashboard `/api/metrics` folds+writes under mutex (sole writer) | unit | `go test ./internal/dashboard -run TestMetricsWritesUsage` | ❌ W0 |
 | USAGE-02 (D-11) | Counts-only: `UsageTotals`/`ModelUsage` have NO content fields | security | `go test ./internal/usage -run TestUsageTotalsHasNoContentFields` | ❌ W0 |
-| USAGE-02 (D-12) | No-new-outbound: usage derives only from existing scrape; `no_telemetry` intact | structural | `go test ./internal/status -run TestNoTelemetry` + grep gate | ⚠️ extend |
+| USAGE-02 (D-12) | No-new-outbound: usage reuses the existing bounded scrape — no new `http.Client`/endpoint; existing `no_telemetry` assertion (`internal/status/status_test.go`) holds | structural | Plan 02 grep-gate acceptance criterion (no new `http.` outbound symbol) + existing `go test ./internal/status -run TestNoTelemetry` + Plan 04 Task 3 UAT (no new socket) | ✅ Plan 02 + existing |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 

@@ -424,9 +424,9 @@ func TestUsageTotalsHasNoContentFields(t *testing.T) {
 table because they were VERIFIED against the official llama.cpp README this session — they
 are HIGH-confidence findings, not assumptions. A1 is the residual nuance worth a live check.
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **Live monotonic-growth confirmation of the two `_total` counters**
+1. **Live monotonic-growth confirmation of the two `_total` counters** — RESOLVED: deferred to Plan 04 Task 3 on-hardware UAT; non-fatal by design (absent counter degrades to typed-Unknown per D-05).
    - What we know: README declares both as `Counter:` type; in-memory struct resets on restart.
    - What's unclear: Whether the running gfx1151 image (`kyuz0/amd-strix-halo-toolboxes:vulkan-radv`)
      build emits these specific counters and grows them across scrapes (vs. resetting per scrape).
@@ -434,7 +434,7 @@ are HIGH-confidence findings, not assumptions. A1 is the residual nuance worth a
      `_total` values increase. The fold degrades to typed-Unknown if absent (D-05), so even a
      missing counter is non-fatal; this check only confirms the happy path accumulates.
 
-2. **Whether the two `_total` counters ride on `PerfSnapshot` or a sibling struct**
+2. **Whether the two `_total` counters ride on `PerfSnapshot` or a sibling struct** — RESOLVED: sibling `CounterSample` struct (decided in Plan 02, reusing the same bounded scrape).
    - This is explicitly Claude's discretion (CONTEXT.md). A sibling `CounterSample` struct is
      cleaner (the existing `PerfSnapshot` is documented as "last-window gauge values"; counters
      are a different category). Recommendation: sibling struct + a sibling scrape accessor that
