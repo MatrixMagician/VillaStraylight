@@ -798,6 +798,224 @@ func TestBenchWriteNonFatal(t *testing.T) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// BENCH-04 read-only compare/list surface (--compare / --list).
+// ---------------------------------------------------------------------------
+
+// stubBenchstoreReadAll builds a benchstore.Deps whose ReadAll returns the marshaled
+// JSONL of the given saved reports (one compact line each) and whose AppendLine/Now
+// panic if ever called — runBenchCompare is READ-ONLY, so a write would be a bug.
+func stubBenchstoreReadAll(t *testing.T, reports ...benchstore.SavedReport) benchstore.Deps {
+	t.Helper()
+	var buf bytes.Buffer
+	for _, r := range reports {
+		line, err := benchstore.Marshal(r)
+		if err != nil {
+			t.Fatalf("marshal stub report: %v", err)
+		}
+		buf.Write(line)
+	}
+	data := buf.Bytes()
+	return benchstore.Deps{
+		ReadAll: func() ([]byte, error) {
+			if len(data) == 0 {
+				return nil, nil
+			}
+			return data, nil
+		},
+		AppendLine: func([]byte) error {
+			t.Fatal("runBenchCompare must be READ-ONLY — AppendLine must never be called")
+			return nil
+		},
+	}
+}
+
+// comparableReport builds a deterministic single-mode SavedReport over the same
+// model/quant/ctx/host (the comparability key) on the given backend with the given
+// pp/tg, captured at the given time. void marks the residency band not-authoritative.
+func comparableReport(backend, capturedAt string, pp, tg float64, void bool) benchstore.SavedReport {
+	return benchstore.SavedReport{
+		CapturedAt: capturedAt,
+		Mode:       "single",
+		Spec:       benchstore.SavedSpec{Prompt: benchPrompt, Reps: 5, Warmup: 1, NPredict: 128, Seed: 42},
+		Single: &benchstore.SavedSide{
+			Backend:         backend,
+			PromptPerSec:    pp,
+			PredictedPerSec: tg,
+			Kept:            5,
+		},
+		VoidExhausted: void,
+		Fingerprint: benchstore.Fingerprint{
+			Model: "qwen3", Quant: "UD-Q4_K_M", Ctx: 8192, Backend: backend, HostGfxID: "gfx1151",
+		},
+		SchemaVersion: 1,
+	}
+}
+
+// TestBenchCompareFlagExclusive proves the read-only --compare/--list flags reject
+// combination with the live-measurement flags (--ab/--ab-target/changed --reps/--warmup)
+// AND each other, at the cobra boundary — runBenchCompare is never reached on a bad combo.
+func TestBenchCompareFlagExclusive(t *testing.T) {
+	cases := [][]string{
+		{"--compare", "--ab"},
+		{"--list", "--ab"},
+		{"--compare", "--ab-target", "rocm-6.4.4"},
+		{"--compare", "--reps", "3"},
+		{"--list", "--warmup", "2"},
+		{"--compare", "--list"},
+	}
+	for _, args := range cases {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			cmd := newBench()
+			cmd.SetOut(new(bytes.Buffer))
+			cmd.SetErr(new(bytes.Buffer))
+			cmd.SilenceUsage = true
+			cmd.SilenceErrors = true
+			cmd.SetArgs(args)
+			if err := cmd.Execute(); err == nil {
+				t.Fatalf("read-only flags %v combined with a live flag must error, got nil", args)
+			}
+		})
+	}
+}
+
+// TestBenchCompareList proves --list over a stub store of 2 saved reports prints both
+// (index, captured_at, model/quant/backend, pp/tg, void) and exits 0; an empty store
+// refuses with remediation and exits 1.
+func TestBenchCompareList(t *testing.T) {
+	a := comparableReport("vulkan", "2026-06-07T10:00:00Z", 120, 40, false)
+	b := comparableReport("rocm-7.2.4", "2026-06-07T11:00:00Z", 150, 55, false)
+
+	cmd, out, _ := benchTestCmd()
+	code := runBenchCompare(cmd, true, false, false, stubBenchstoreReadAll(t, a, b))
+	if code != exitPass {
+		t.Fatalf("--list exit = %d, want %d (exitPass)", code, exitPass)
+	}
+	s := out.String()
+	for _, want := range []string{"vulkan", "rocm-7.2.4", "qwen3", "120", "150"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("--list output missing %q\n%s", want, s)
+		}
+	}
+
+	cmd2, _, errOut := benchTestCmd()
+	if code := runBenchCompare(cmd2, true, false, false, stubBenchstoreReadAll(t)); code != exitBlocked {
+		t.Fatalf("--list empty store exit = %d, want %d (exitBlocked)", code, exitBlocked)
+	}
+	if !strings.Contains(errOut.String(), "villa bench") {
+		t.Errorf("empty --list must print remediation, got %q", errOut.String())
+	}
+}
+
+// TestBenchCompareComparable proves --compare over 2 comparable reports (same
+// model/quant/host, differing backend) prints Δpp and Δtg on SEPARATE lines, exit 0.
+func TestBenchCompareComparable(t *testing.T) {
+	a := comparableReport("vulkan", "2026-06-07T10:00:00Z", 120, 40, false)
+	b := comparableReport("rocm-7.2.4", "2026-06-07T11:00:00Z", 150, 55, false)
+
+	cmd, out, _ := benchTestCmd()
+	code := runBenchCompare(cmd, false, true, false, stubBenchstoreReadAll(t, a, b))
+	if code != exitPass {
+		t.Fatalf("--compare comparable exit = %d, want %d (exitPass)", code, exitPass)
+	}
+	s := out.String()
+	// pp/tg deltas on SEPARATE lines.
+	ppIdx := strings.Index(s, "Δpp")
+	tgIdx := strings.Index(s, "Δtg")
+	if ppIdx < 0 || tgIdx < 0 {
+		t.Fatalf("--compare must render Δpp and Δtg lines, got %q", s)
+	}
+	between := s[min(ppIdx, tgIdx):max(ppIdx, tgIdx)]
+	if !strings.Contains(between, "\n") {
+		t.Errorf("Δpp and Δtg must be on SEPARATE lines (no newline between), got %q", s)
+	}
+}
+
+// TestBenchCompareVoidSide proves a comparable pair with exactly one VoidExhausted side
+// STILL prints Δpp/Δtg AND flags the void side as not-authoritative, exiting 0 (RESEARCH
+// Q3/A5: the void flag is advisory, not a refusal).
+func TestBenchCompareVoidSide(t *testing.T) {
+	a := comparableReport("vulkan", "2026-06-07T10:00:00Z", 120, 40, false)
+	b := comparableReport("rocm-7.2.4", "2026-06-07T11:00:00Z", 150, 55, true) // void side
+
+	cmd, out, _ := benchTestCmd()
+	code := runBenchCompare(cmd, false, true, false, stubBenchstoreReadAll(t, a, b))
+	if code != exitPass {
+		t.Fatalf("--compare void-side exit = %d, want %d (exitPass — void is advisory)", code, exitPass)
+	}
+	s := out.String()
+	if !strings.Contains(s, "Δpp") || !strings.Contains(s, "Δtg") {
+		t.Errorf("a comparable pair must STILL print deltas even with a void side, got %q", s)
+	}
+	if !strings.Contains(strings.ToLower(s), "not authoritative") {
+		t.Errorf("the void side must be flagged 'not authoritative', got %q", s)
+	}
+}
+
+// TestBenchCompareNotComparable proves --compare over a mismatched-model pair prints
+// "not comparable" + the differing field(s) and NO numeric delta, exiting 2.
+func TestBenchCompareNotComparable(t *testing.T) {
+	a := comparableReport("vulkan", "2026-06-07T10:00:00Z", 120, 40, false)
+	b := comparableReport("rocm-7.2.4", "2026-06-07T11:00:00Z", 150, 55, false)
+	b.Fingerprint.Model = "llama3" // mismatched model → not comparable
+
+	cmd, out, _ := benchTestCmd()
+	code := runBenchCompare(cmd, false, true, false, stubBenchstoreReadAll(t, a, b))
+	if code != exitWarn {
+		t.Fatalf("--compare not-comparable exit = %d, want %d (exitWarn)", code, exitWarn)
+	}
+	s := out.String()
+	if !strings.Contains(strings.ToLower(s), "not comparable") {
+		t.Errorf("must print 'not comparable', got %q", s)
+	}
+	if !strings.Contains(s, "model") {
+		t.Errorf("must name the differing field (model), got %q", s)
+	}
+	if strings.Contains(s, "Δpp") || strings.Contains(s, "Δtg") {
+		t.Errorf("a not-comparable refusal must print NO delta, got %q", s)
+	}
+}
+
+// TestBenchCompareNoReports proves --compare over an empty or single-report store refuses
+// with remediation and exits 1 (insufficient reports).
+func TestBenchCompareNoReports(t *testing.T) {
+	cmd, _, errOut := benchTestCmd()
+	if code := runBenchCompare(cmd, false, true, false, stubBenchstoreReadAll(t)); code != exitBlocked {
+		t.Fatalf("--compare empty store exit = %d, want %d (exitBlocked)", code, exitBlocked)
+	}
+	if !strings.Contains(errOut.String(), "villa bench") {
+		t.Errorf("empty --compare must print remediation, got %q", errOut.String())
+	}
+
+	a := comparableReport("vulkan", "2026-06-07T10:00:00Z", 120, 40, false)
+	cmd2, _, errOut2 := benchTestCmd()
+	if code := runBenchCompare(cmd2, false, true, false, stubBenchstoreReadAll(t, a)); code != exitBlocked {
+		t.Fatalf("--compare single-report store exit = %d, want %d (exitBlocked)", code, exitBlocked)
+	}
+	if !strings.Contains(errOut2.String(), "villa bench") {
+		t.Errorf("single-report --compare must print remediation, got %q", errOut2.String())
+	}
+}
+
+// TestBenchCompareReadOnly proves runBenchCompare never touches the measurement path or
+// the backend swap: the stub Deps.AppendLine fatals if called, and benchBackendSwap is
+// spied to prove it is never invoked.
+func TestBenchCompareReadOnly(t *testing.T) {
+	prevSwap := benchBackendSwap
+	swapCalled := false
+	benchBackendSwap = func(target string) error { swapCalled = true; return nil }
+	t.Cleanup(func() { benchBackendSwap = prevSwap })
+
+	a := comparableReport("vulkan", "2026-06-07T10:00:00Z", 120, 40, false)
+	b := comparableReport("rocm-7.2.4", "2026-06-07T11:00:00Z", 150, 55, false)
+
+	cmd, _, _ := benchTestCmd()
+	_ = runBenchCompare(cmd, false, true, false, stubBenchstoreReadAll(t, a, b))
+	if swapCalled {
+		t.Error("runBenchCompare must NOT touch the backend swap (read-only)")
+	}
+}
+
 // TestBenchVoidPersist proves a void-exhausted run is STILL persisted (persist-always
 // policy A5): the hook fires on the exitWarn path too, recording VoidExhausted=true.
 func TestBenchVoidPersist(t *testing.T) {

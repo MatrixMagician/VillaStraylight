@@ -407,12 +407,14 @@ func runBackendSwap(target string) error {
 // and restores the original (SC#3).
 func newBench() *cobra.Command {
 	var (
-		ab       bool
-		abTarget string
-		reps     int
-		warmup   int
-		nPredict int
-		asJSON   bool
+		ab        bool
+		abTarget  string
+		reps      int
+		warmup    int
+		nPredict  int
+		asJSON    bool
+		asCompare bool
+		asList    bool
 	)
 	cmd := &cobra.Command{
 		Use:   "bench",
@@ -427,6 +429,21 @@ func newBench() *cobra.Command {
 			"a per-metric Vulkan-vs-ROCm delta. --json emits the machine-readable contract.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			// BENCH-04 read-only --compare/--list dispatch. These paths NEVER run a
+			// benchmark and NEVER touch the backend, so they reject combination with the
+			// live-measurement flags at the cobra boundary (clone of the --ab-target-requires
+			// --ab precedent shape below). Validate BEFORE building the BenchSpec.
+			if asCompare || asList {
+				if asCompare && asList {
+					return fmt.Errorf("bench: --compare and --list are mutually exclusive — pick one")
+				}
+				if ab || abTarget != "" || cmd.Flags().Changed("reps") || cmd.Flags().Changed("warmup") || cmd.Flags().Changed("n-predict") {
+					return fmt.Errorf("bench: --compare/--list are READ-ONLY (they never run a benchmark or " +
+						"touch the backend) — they cannot be combined with --ab/--ab-target/--reps/--warmup/--n-predict")
+				}
+				benchCompareRun(cmd, asList, asCompare, asJSON, liveBenchstoreDeps())
+				return nil
+			}
 			// Validate the bounded-int flags at the cobra boundary (RESEARCH Security
 			// Domain V5: "-n/--n-predict are bounded ints"). Reject nonsensical values
 			// up front with a clear usage error rather than letting -n 0/-n -5 fall
@@ -472,6 +489,8 @@ func newBench() *cobra.Command {
 	cmd.Flags().IntVar(&warmup, "warmup", 1, "number of leading runs measured then discarded (cache/JIT warm)")
 	cmd.Flags().IntVar(&nPredict, "n-predict", 128, "fixed max_tokens every run requests (reproducibility)")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "emit the bench result as JSON (the frozen pp/tg-separate contract)")
+	cmd.Flags().BoolVar(&asCompare, "compare", false, "compare saved bench reports (read-only; pp/tg deltas, comparability-guarded) — does NOT run a benchmark or touch the backend; auto-selects the two most-recent comparable reports")
+	cmd.Flags().BoolVar(&asList, "list", false, "list saved bench reports (read-only)")
 	return cmd
 }
 
