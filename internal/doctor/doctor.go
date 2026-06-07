@@ -158,10 +158,13 @@ func statusRank(s string) int {
 // pure: every host touch is a Deps seam and it never exits or prints.
 //
 // Residency-supersession (step 4a): when ROCm residency is PROVEN (ROCm-family backend
-// + a service with OffloadApplies + a confident offload StatusPass), the three
-// typed-Unknown ROCm host-prep WARNs (ROCM-PRE-firmware/-hsa/-image) are kept VISIBLE
-// but no longer raise the worst-wins rank — restoring the DOCTOR-01 "exit 0 = healthy"
-// contract on the opt-in ROCm path (13-UAT.md Test 1). The downgrade matches the
+// + a service with OffloadApplies + a confident offload StatusPass), every WARN-status
+// ROCm host-prep finding on ROCM-PRE-firmware/-hsa/-image is kept VISIBLE but no longer
+// raises the worst-wins rank — restoring the DOCTOR-01 "exit 0 = healthy" contract on the
+// opt-in ROCm path (13-UAT.md Test 1). This is predominantly the structural typed-Unknown
+// "could-not-evaluate off-host" advisories, but ALSO the Known sub-floor-firmware WARN:
+// the doctor layer consumes CheckResult opaquely and cannot distinguish the two, and a
+// proven residency empirically moots a sub-floor concern anyway. The downgrade matches the
 // (superseded-ID AND Status==statusWarn) CONJUNCTION ONLY: a confident StatusFail on the
 // SAME IDs (Known-bad firmware/HSA, denied running image) is NEVER suppressed and still
 // folds to FAIL — preserving no-false-green (DOCTOR-02).
@@ -259,13 +262,16 @@ func Aggregate(d Deps) Report {
 	//
 	// 4a. RESIDENCY SUPERSESSION (the gap-closure rule, 13-UAT.md Test 1 / DOCTOR-01):
 	// when ROCm residency is PROVEN (computed above: ROCm-family backend + OffloadApplies
-	// + a confident offload StatusPass), the three typed-Unknown ROCm host-prep WARNs —
-	// ROCM-PRE-firmware/-hsa/-image — are structural "could-not-evaluate off the running
-	// host" advisories (checks_rocm.go hardcodes firmware/hsa as typed-Unknown and the
-	// standalone gate has no requested image), already answered by the proven residency.
-	// They are DOWN-RANKED (their rank contribution suppressed) but kept VISIBLE in
-	// Findings — the rendered table/JSON still SHOWS them with their unchanged WARN status;
-	// only their contribution to the worst-wins rank is dropped.
+	// + a confident offload StatusPass), every WARN-status ROCm host-prep finding on
+	// ROCM-PRE-firmware/-hsa/-image is already answered by the proven residency. These are
+	// predominantly the structural "could-not-evaluate off the running host" typed-Unknown
+	// advisories (checks_rocm.go hardcodes firmware/hsa as typed-Unknown and the standalone
+	// gate has no requested image), but the predicate also matches a Known sub-floor-firmware
+	// WARN — the doctor layer consumes the CheckResult opaquely and cannot distinguish the
+	// two, and proven residency moots a sub-floor concern empirically. They are DOWN-RANKED
+	// (their rank contribution suppressed) but kept VISIBLE in Findings — the rendered
+	// table/JSON still SHOWS them with their unchanged WARN status; only their contribution
+	// to the worst-wins rank is dropped.
 	//
 	// HARD NO-FALSE-GREEN INVARIANT (DOCTOR-02): the downgrade predicate is the
 	// CONJUNCTION (ID in the superseded set) AND (Status==statusWarn). A Status==statusFail

@@ -171,11 +171,18 @@ func liveDoctorDeps() (doctor.Deps, error) {
 	// stays nil and Aggregate uses preflight.Run/RunROCm exactly as before.
 	var rocmImageGate func(detect.HostProfile) []preflight.CheckResult
 	if inference.IsROCmFamily(cfg.Backend) {
-		if b, berr := inference.BackendFor(cfg.Backend); berr == nil {
-			image := b.Image()
-			rocmImageGate = func(p detect.HostProfile) []preflight.CheckResult {
-				return preflight.RunROCmForImage(p, image)
-			}
+		// Surface a BackendFor error rather than swallowing it (WR-01): if a future
+		// ROCm digest is added to IsROCmFamily but missed in BackendFor, a silent nil
+		// gate would downgrade the image-aware denied-image FAIL to the un-evaluated
+		// "no image requested" WARN — a false-green the residency-supersession could
+		// then swallow. Fail closed instead, mirroring the DriftPlan BackendFor path.
+		b, berr := inference.BackendFor(cfg.Backend)
+		if berr != nil {
+			return doctor.Deps{}, fmt.Errorf("resolve ROCm backend image: %w", berr)
+		}
+		image := b.Image()
+		rocmImageGate = func(p detect.HostProfile) []preflight.CheckResult {
+			return preflight.RunROCmForImage(p, image)
 		}
 	}
 	return doctor.Deps{

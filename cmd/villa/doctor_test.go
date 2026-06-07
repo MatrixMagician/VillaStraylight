@@ -67,7 +67,7 @@ func offloadFailReport() doctor.Report {
 
 // rocmSupersededReport is the POST-supersession shape of a fully-healthy opt-in ROCm
 // install (13-UAT.md Test 1 / DOCTOR-01): proven ROCm residency (offload PASS), health
-// 200, drift PASS, and the three typed-Unknown ROCm host-prep advisories
+// 200, drift PASS, and the typed-Unknown ROCm host-prep advisories
 // (ROCM-PRE-firmware/-hsa) still VISIBLE as WARN findings — but down-ranked by the
 // residency-supersession so Overall=="PASS" → exit 0. It proves exit 0 with the
 // host-prep advisories still shown. Types no backend marker literal (ROCM-PRE-* IDs +
