@@ -85,6 +85,18 @@ type Sample struct {
 // foldCounter adds the new generation since LastSeenRaw, treating a backward step
 // (sampleRaw < prior.LastSeenRaw — the server restarted and reset the in-memory
 // counter low) as "the whole sample is new" rather than a negative delta (D-04).
+//
+// SAMPLING LIMITATION (WR-04): because this folds a monotonic counter sampled at the
+// dashboard poll cadence, a counter that fully RESETS and then regrows BETWEEN two
+// scrapes undercounts the pre-reset tail. E.g. with LastSeenRaw=150, the server grows
+// to 200, restarts, and regrows to 30 all before the next scrape: the next sample is 30,
+// 30 < 150 → "whole sample is new" → delta=30, and the 50 tokens (200−150) generated
+// after the previous scrape but before the reset are silently dropped — the fold never
+// observed raw=200 and cannot recover them. This biases the cumulative total DOWNWARD
+// (the safe direction for a usage figure — never an over-count), and the magnitude is
+// bounded by how much can be generated within one inter-scrape window at the dashboard
+// poll cadence. The figure is therefore a LOWER BOUND under restart churn. This is
+// inherent to sampling and is accepted, not corrected here.
 func foldCounter(prior CounterState, sampleRaw uint64) CounterState {
 	var delta uint64
 	if sampleRaw >= prior.LastSeenRaw {

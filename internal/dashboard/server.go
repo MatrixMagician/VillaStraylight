@@ -159,6 +159,16 @@ type Server struct {
 	// fold key cannot drift if config changes mid-write (Pitfall 2 / T-15-14). Unlike
 	// swapMu's TryLock-then-409 (a swap may be safely refused), the usage write uses
 	// Lock/defer-Unlock: a scrape's fold must NOT be silently skipped under contention.
+	//
+	// PRECONDITION (WR-03 / D-07): usageMu serializes writes WITHIN A SINGLE dashboard
+	// PROCESS only. The "sole writer" guarantee (D-07) is enforced by the deployment
+	// invariant that exactly ONE villa-dashboard.service instance runs — there is NO
+	// cross-process lock on usage.json. A second concurrent writer process (a stray manual
+	// `villa dashboard` alongside the service, or two service instances) would each hold
+	// its own usageMu, both read the same prior, both Fold, and both atomically rename:
+	// the file is never torn, but the second writer's prior is stale, so the first writer's
+	// delta is silently lost (classic lost-update → undercount, the safe direction). Running
+	// a second writer process is therefore unsupported.
 	usageMu sync.Mutex
 }
 
