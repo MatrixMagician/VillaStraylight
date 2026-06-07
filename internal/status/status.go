@@ -118,6 +118,16 @@ type Report struct {
 	// "unknown" — never a fabricated "not-ready" (D-04 / no-false-green).
 	ROCmReadiness ROCmReadinessIndicator `json:"rocm_readiness"`
 
+	// Model is the active configured model identity (cfg.Model) — the key the
+	// dashboard uses to select the CURRENT model's cumulative usage row out of the
+	// per-model Usage store (D-03/D-10). Sourced from the SAME cfg that sources
+	// Backend/Image; it is the single authoritative active-model surface both
+	// `villa status` and the dashboard /api/status read. It is omitempty so an unset
+	// model omits the key entirely — a typed-Unknown, never a fabricated identity.
+	// Tail-appended above SchemaVersion (append-only; nothing above moved). Part of
+	// the same Phase-15 v2 contract delta as Usage — no further schema bump.
+	Model string `json:"model,omitempty"`
+
 	// Usage is the cumulative per-model token totals read (read-only) from the usage
 	// store (usage.json) — the Phase-15 USAGE-02 surface (D-09). It is a
 	// *usage.UsageTotals + omitempty so an absent/empty store OMITS the key entirely:
@@ -311,6 +321,10 @@ func Run(d Deps) Report {
 	// this only surfaces the visible identity.
 	report.Backend = backend.Name()
 	report.Image = backend.Image()
+	// Active model identity (D-03/D-10): the dashboard keys per-model cumulative usage
+	// on this. Sourced from the same cfg as Backend/Image; omitempty omits it when unset
+	// (typed-Unknown, never a fabricated identity).
+	report.Model = cfg.Model
 	report.SchemaVersion = reportSchemaVersion
 	// Live tok/s (D-03): typed-optional via the seam — nil on idle/unavailable so it
 	// serializes as omitted, never a fabricated 0. Guard a nil seam defensively.
