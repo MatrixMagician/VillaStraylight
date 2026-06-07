@@ -75,10 +75,19 @@ type Deps struct {
 	// read config.toml / usage.json / bench-reports.jsonl when assembling the
 	// archive and to read captured rollback artifacts.
 	ReadFile func(path string) ([]byte, error)
-	// WriteFileAtomic writes data to path via a same-dir temp + rename, 0600 file /
-	// 0700 dir, traversal-guarded (clone of usage.WriteFileAtomic) — used to
-	// restore the data-dir artifacts and to write extracted archive entries.
+	// WriteFileAtomic writes a fixed villa data-STORE artifact (usage.json /
+	// bench-reports.jsonl) via a same-dir temp + rename, 0600 file / 0700 dir,
+	// guarded against escaping the data-store root (clone of usage.WriteFileAtomic,
+	// WR-05). Use it ONLY for store-dir destinations — its store-root guard rejects
+	// any path outside $XDG_DATA_HOME/villa.
 	WriteFileAtomic func(path string, data []byte) error
+	// WriteTempFile stages the extracted OWUI volume tar into the caller-owned
+	// restore TEMP dir (an os.MkdirTemp dir OUTSIDE the data store) before the
+	// podman import, 0600. It is deliberately NOT store-root-guarded: routing this
+	// /tmp staging write through WriteFileAtomic's store guard rejected the
+	// legitimate write and broke restore on a real host. The path is an
+	// internally-resolved mktemp path, never attacker input.
+	WriteTempFile func(path string, data []byte) error
 	// RemoveFile deletes the file at path, TOLERATING an already-absent file (the
 	// live wiring maps os.Remove + os.IsNotExist). It is the verbatim-rollback seam
 	// for a data-dir artifact the FORWARD path newly created where none existed

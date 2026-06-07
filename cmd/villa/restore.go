@@ -307,6 +307,11 @@ func liveRestoreDeps() backup.Deps {
 		Restart:         sys.Restart,
 		ReadFile:        os.ReadFile,
 		WriteFileAtomic: usage.WriteFileAtomic,
+		// WriteTempFile stages the extracted OWUI volume tar in the restore temp dir
+		// (an os.MkdirTemp dir OUTSIDE the villa data store), so it must NOT use the
+		// store-root-guarded usage.WriteFileAtomic (that guard rejects /tmp paths and
+		// broke restore on a real host). MkdirTemp made the dir 0700; the tar is 0600.
+		WriteTempFile: func(path string, data []byte) error { return os.WriteFile(path, data, 0o600) },
 		// RemoveFile (CR-01): delete a data-dir artifact the forward path created
 		// where none existed before, to restore the prior (absent) state verbatim on
 		// rollback. Tolerate an already-absent file (it is the goal state).

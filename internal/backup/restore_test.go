@@ -40,6 +40,7 @@ type recDeps struct {
 	stopErr         error
 	startErr        error
 	writeFileErr    error
+	writeTempErr    error
 	removeFileErr   error
 	readFile        map[string][]byte
 	readFileErr     map[string]error
@@ -116,6 +117,10 @@ func (r *recDeps) deps() Deps {
 		WriteFileAtomic: func(p string, data []byte) error {
 			r.log("WriteFileAtomic:" + p)
 			return r.writeFileErr
+		},
+		WriteTempFile: func(p string, data []byte) error {
+			r.log("WriteTempFile:" + p)
+			return r.writeTempErr
 		},
 		RemoveFile: func(p string) error {
 			r.log("RemoveFile:" + p)
@@ -228,7 +233,7 @@ func indexOf(calls []string, prefix string) int {
 // effects on a Refused path).
 func hasMutate(calls []string) bool {
 	for _, c := range calls {
-		for _, m := range []string{"SaveConfig", "VolumeRm", "EnsureVolume", "VolumeImport", "ReconcileAndWrite", "WriteFileAtomic", "RemoveFile", "Stop", "Start"} {
+		for _, m := range []string{"SaveConfig", "VolumeRm", "EnsureVolume", "VolumeImport", "ReconcileAndWrite", "WriteFileAtomic", "WriteTempFile", "RemoveFile", "Stop", "Start"} {
 			if strings.HasPrefix(c, m) {
 				return true
 			}
@@ -466,6 +471,33 @@ func TestRestoreMutateErrorRollsBackAndReImportsCaptured(t *testing.T) {
 	}
 	if rmCount != 2 {
 		t.Fatalf("rollback must clean-recreate too (2 VolumeRm), got %d (%v)", rmCount, r.calls)
+	}
+}
+
+// TestRestoreTempVolumeStagingFailureRollsBack is the on-hardware WR-05 regression:
+// staging the extracted OWUI volume tar must go through the UNguarded WriteTempFile
+// seam (a /tmp path outside the data store), NOT the store-root-guarded
+// WriteFileAtomic — the latter rejected the legitimate /tmp write and failed every
+// restore at the "volume" stage. Here WriteTempFile errs: restore must roll back at
+// "volume" with the prior stack intact and must NEVER reach the forward VolumeImport.
+func TestRestoreTempVolumeStagingFailureRollsBack(t *testing.T) {
+	arch := buildArchive(t, baseManifest(), validCfgTOML, []byte("owui-data"), nil, nil, false)
+	r, in := baseInput(t, arch)
+	r.writeTempErr = errors.New("stage temp boom")
+
+	res := Restore(r.deps(), in)
+	if !res.RolledBack {
+		t.Fatalf("want RolledBack on temp-staging failure, got %+v (calls %v)", res, r.calls)
+	}
+	if res.FailedStep != "volume" {
+		t.Fatalf("want FailedStep \"volume\", got %q (calls %v)", res.FailedStep, r.calls)
+	}
+	// The forward path must NOT have reached its VolumeImport (staging failed first).
+	// Only the rollback re-import of the captured tar may run.
+	for _, c := range r.calls {
+		if strings.HasPrefix(c, "VolumeImport:") && strings.HasSuffix(c, in.TempVolumeTar) {
+			t.Fatalf("forward VolumeImport of the restored tar must not run after staging failed; calls %v", r.calls)
+		}
 	}
 }
 

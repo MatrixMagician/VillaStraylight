@@ -267,7 +267,7 @@ func Restore(d Deps, in RestoreInput) Result {
 	}
 	// CLEAN-RECREATE then import the RESTORED owui volume (the whole reason for the
 	// rm→recreate→ensure→import ordering — never merge into a live volume).
-	if err := d.WriteFileAtomic(in.TempVolumeTar, ex.owuiVolume); err != nil {
+	if err := d.WriteTempFile(in.TempVolumeTar, ex.owuiVolume); err != nil {
 		return rolledBack("volume", "", fmt.Errorf("stage restored owui volume tar: %w", err), ProveVerdict{})
 	}
 	if err := cleanRecreateThenImport(restoredCfg, in.TempVolumeTar); err != nil {
