@@ -97,7 +97,15 @@ See `milestones/v1.1-ROADMAP.md` for full phase detail, success criteria, and pl
   3. A silent or partial CPU fallback is reported as a FAIL (offload-asserting) — `villa doctor` never returns a false-green over a health-200 that hides a degraded backend.
   4. `villa doctor` detects and reports config-vs-disk drift — rendered Quadlet units that no longer match the config source of truth.
 
-**Plans**: TBD
+**Plans**: 2 plans
+
+**Wave 1**
+
+- [ ] 13-01-PLAN.md — Pure `internal/doctor` core (Finding/Report/Deps/Aggregate, worst-wins fold, offload-FAIL-dominates-health, drift WARN) + Wave-0 off-hardware tests [Wave 1]
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 13-02-PLAN.md — `cmd/villa/doctor.go` verb + `liveDoctorDeps` + read-only unit-dir resolver + `renderDoctor` 0/2/1 exit rollup + OWN `--json` golden + root registration [Wave 2]
 **Implementation note**: New pure `internal/doctor` core with its OWN unconstrained golden; do NOT extend the byte-frozen `status.Report`. doctor diagnoses + remediates-by-advice only — it never mutates/repairs the install (mutation stays in explicit verbs).
 
 ### Phase 14: Saved Bench Reports + `--compare`
@@ -179,7 +187,7 @@ See `milestones/v1.1-ROADMAP.md` for full phase detail, success criteria, and pl
 | 10. Backend + tok/s Surfacing | v1.1 | 3/3 | Complete | 2026-06-06 |
 | 11. Address v1.1 tech debt | v1.1 | 2/2 | Complete | 2026-06-06 |
 | 12. `rocm-6.4.4` Alternate Backend | v1.2 | 3/3 | Complete    | 2026-06-07 |
-| 13. `villa doctor` Health Diagnosis | v1.2 | 0/? | Not started | - |
+| 13. `villa doctor` Health Diagnosis | v1.2 | 0/2 | Planned | - |
 | 14. Saved Bench Reports + `--compare` | v1.2 | 0/? | Not started | - |
 | 15. Cumulative Usage Tracking | v1.2 | 0/? | Not started | - |
 | 16. Backup / Restore | v1.2 | 0/? | Not started | - |
