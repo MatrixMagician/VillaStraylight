@@ -21,6 +21,10 @@ run: ## Run the villa control-plane CLI
 build: ## Build the villa control-plane CLI to ./villa (version-stamped)
 	go build -ldflags "$(LDFLAGS)" -o $(BINARY) ./cmd/$(BINARY)
 
+.PHONY: build-static
+build-static: ## Build a CGO-free static binary (SC#4 — must succeed with huh added)
+	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o $(BINARY) ./cmd/$(BINARY)
+
 .PHONY: test
 test: ## Run Go tests
 	go test $(PKG)
