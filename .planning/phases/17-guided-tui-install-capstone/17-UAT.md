@@ -42,12 +42,17 @@ evidence: |
   --no-tui for the flag-driven path.") and exited non-zero with no mutation.
   Cancel-default focus on the Install confirm is asserted by the automated test
   (TestInstallWizardPathRunsGateOnce / the buildWizardForm Negative="Cancel" check).
-boundary: |
-  A full interactive install-to-COMPLETION (navigating all 5 screens, granting consent, and
-  performing a real install) was NOT executed: the host has a live running villa stack
-  (villa-llama + villa-openwebui up) and a real install would reconcile units / restart
-  services. Every mechanism up to the mutation boundary is verified live; the byte-identical
-  install surface is proven by Test 3 (--dry-run) + TestWizardConfigMatchesFlagPath.
+full_completion: |
+  SUBSEQUENTLY EXECUTED to completion on the live host (user-authorized). Drove the wizard
+  through a pty in accessible mode to all 5 screens: Screen 2 picked the recommended model (1),
+  Screen 3 preflight showed 5 PASS / 2 WARN and the privileged "Run privileged host-prep for
+  [PRE-03]? [y/N]" confirm was DECLINED (n — no sudo ran), Screen 4 review showed backend:vulkan
+  + will-pull/write/start, Screen 5 "Proceed? [y/N]" → y. Result (exit 0): wrote 1 Quadlet unit,
+  started villa-llama + villa-openwebui, "health: PASS — /health 200", chat + dashboard endpoints
+  printed. config.toml + villa-llama.container reconciled to Vulkan RADV. Then restored ROCm via
+  `villa backend set rocm` (transactional cutover proven) — config.toml + villa-llama.container
+  md5 are byte-identical to the pre-test originals, villa-llama recreated on ROCm 7.2.4, /health 200.
+  Net host state: identical to before the test (back on ROCm, healthy).
 
 ### 2. NO_COLOR=1 and TERM=dumb degraded-theme render on hardware
 expected: Re-running with `NO_COLOR=1` and with `TERM=dumb` still presents the full guided flow, unstyled — Foreground stripped, the flow completes.
@@ -85,7 +90,17 @@ blocked: 0
 
 ## Gaps
 
-None. One non-blocking observation: TERM=dumb accessible mode aborts via hard SIGINT rather
-than the graceful "Install cancelled" copy (no mutation either way). Potential future polish,
-not a phase-17 defect. Full interactive install-to-completion deferred (would mutate the live
-running stack) — all mechanisms verified up to the mutation boundary.
+None blocking. Two non-blocking observations (neither a phase-17 defect — phase 17 is pure
+presentation over the existing install path):
+
+1. **`villa install` uses `systemctl --user start` (not restart)** — on an ALREADY-RUNNING
+   service, start is a no-op, so re-running the guided install over a live stack writes the new
+   config + Quadlet unit to disk but does NOT recreate the running container (observed: the live
+   villa-llama kept its 22h uptime while disk/config flipped to vulkan). Applying a changed
+   backend to a running container requires the transactional `villa backend set` (which DOES
+   recreate + prove cutover) or `villa restart`. This is pre-existing install semantics surfaced
+   by on-hardware testing; the guided wizard (a fresh-install affordance) inherits it. Possible
+   future UX note: when the wizard runs over an existing running stack with a changed backend,
+   hint that `villa restart`/`villa backend set` is needed to apply it live.
+2. **TERM=dumb accessible mode aborts via hard SIGINT** rather than the graceful "Install
+   cancelled" copy (no mutation either way). Potential future polish.
