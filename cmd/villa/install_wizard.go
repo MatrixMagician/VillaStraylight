@@ -240,7 +240,9 @@ func preflightSummary(checks []preflight.CheckResult, ascii bool) string {
 	for i, c := range checks {
 		tier, word := statusWord(c)
 		glyph := statusGlyph(tier, ascii)
-		fmt.Fprintf(&b, "%s %s  %s", glyph, statusStyle(tier).Render(word), c.Name)
+		// blockIndent prefixes the row so the glyph/word/name column sits 2 cells
+		// under the (flush) "Preflight results" heading (UI-SPEC `block` token).
+		fmt.Fprintf(&b, "%s%s %s  %s", blockIndent, glyph, statusStyle(tier).Render(word), c.Name)
 		if c.Status != preflight.StatusPass && c.Remediation != "" {
 			fmt.Fprintf(&b, " — %s", c.Remediation)
 		}
@@ -255,12 +257,15 @@ func preflightSummary(checks []preflight.CheckResult, ascii bool) string {
 // be pulled (Name()/Image() accessors — NEVER a re-typed literal), and the install side
 // effects (UI-SPEC Copywriting "Review — villa will install:").
 func reviewBlock(in wizardInput) string {
+	// Each `key: value` line is prefixed with blockIndent so the review detail lines
+	// sit 2 cells under the (flush) "Review — villa will install:" heading (UI-SPEC
+	// `block` token); the heading itself (the Note title) stays flush.
 	var b strings.Builder
-	fmt.Fprintf(&b, "model:      %s · %s · ctx %d\n", in.rec.Model, in.rec.Quant, in.rec.ContextLen)
-	fmt.Fprintf(&b, "backend:    %s\n", in.backend.Name())
-	fmt.Fprintf(&b, "will pull:  %s\n", in.backend.Image())
-	fmt.Fprintf(&b, "will write: rootless Podman Quadlet units (config-derived)\n")
-	fmt.Fprintf(&b, "will start: villa-llama, villa-openwebui, villa-dashboard")
+	fmt.Fprintf(&b, "%smodel:      %s · %s · ctx %d\n", blockIndent, in.rec.Model, in.rec.Quant, in.rec.ContextLen)
+	fmt.Fprintf(&b, "%sbackend:    %s\n", blockIndent, in.backend.Name())
+	fmt.Fprintf(&b, "%swill pull:  %s\n", blockIndent, in.backend.Image())
+	fmt.Fprintf(&b, "%swill write: rootless Podman Quadlet units (config-derived)\n", blockIndent)
+	fmt.Fprintf(&b, "%swill start: villa-llama, villa-openwebui, villa-dashboard", blockIndent)
 	return b.String()
 }
 

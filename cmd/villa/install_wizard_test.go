@@ -278,6 +278,61 @@ func TestInstallWizardAccessibleDriver(t *testing.T) {
 	}
 }
 
+// TestPreflightSummaryBlockIndent asserts every per-check detail row is 2-cell
+// `block`-indented under the "Preflight results" heading (17-UI-SPEC.md Spacing Scale
+// `block` = 2-cell left indent / Pillar 5), and that the indent is ADDITIVE — the
+// glyph/word/name content survives unchanged after the leading two spaces.
+func TestPreflightSummaryBlockIndent(t *testing.T) {
+	checks := []preflight.CheckResult{
+		{ID: "PRE-01", Name: "kernel floor", Tier: preflight.TierBlock, Status: preflight.StatusPass},
+		seloffCheck(),
+	}
+	got := preflightSummary(checks, true) // ascii=true → [OK]/[BLOCK] glyphs
+	for _, line := range strings.Split(got, "\n") {
+		if line == "" {
+			continue
+		}
+		if !strings.HasPrefix(line, blockIndent) {
+			t.Errorf("preflight detail line not 2-cell `block`-indented: %q", line)
+		}
+	}
+	// Additive: the inner glyph/word/name content is unchanged after the indent.
+	if !strings.Contains(got, "[OK]") || !strings.Contains(got, "PASS") || !strings.Contains(got, "kernel floor") {
+		t.Errorf("preflight PASS row lost its glyph/word/name content:\n%s", got)
+	}
+	if !strings.Contains(got, "[BLOCK]") || !strings.Contains(got, "SELinux container_use_devices boolean") {
+		t.Errorf("preflight BLOCK row lost its glyph/name content:\n%s", got)
+	}
+}
+
+// TestReviewBlockIndent asserts every review `key: value` line is 2-cell
+// `block`-indented under the "Review — villa will install:" heading (Pillar 5),
+// and that the "will pull:" line still renders backend.Image() via the accessor
+// (no re-typed image literal — TestSeamGrepGate).
+func TestReviewBlockIndent(t *testing.T) {
+	backend, err := inference.BackendFor("vulkan")
+	if err != nil {
+		t.Fatalf("resolve backend: %v", err)
+	}
+	in := wizardInput{
+		rec:     recommend.Recommendation{Model: "qwen2.5-0.5b", Quant: "Q4_K_M", ContextLen: 4096, Backend: "vulkan"},
+		backend: backend,
+	}
+	got := reviewBlock(in)
+	for _, line := range strings.Split(got, "\n") {
+		if line == "" {
+			continue
+		}
+		if !strings.HasPrefix(line, blockIndent) {
+			t.Errorf("review detail line not 2-cell `block`-indented: %q", line)
+		}
+	}
+	// The will-pull line renders the backend image via the accessor (not a literal).
+	if !strings.Contains(got, backend.Image()) {
+		t.Errorf("review block must render backend.Image() via the accessor, got:\n%s", got)
+	}
+}
+
 // lineReader hands out exactly one scripted line (newline-terminated) per Read
 // call, then io.EOF. huh's accessible-mode runner constructs a fresh bufio.Scanner
 // for every field over the SAME input reader; a strings.Reader would let the first
