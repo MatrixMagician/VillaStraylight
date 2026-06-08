@@ -29,7 +29,7 @@ Phase: 17 (guided-tui-install-capstone) — EXECUTING (all 3 plans complete)
 Plan: 3 of 3 — COMPLETE
 Status: All plans executed; phase-gate UAT (real-TTY wizard walk-through) remains
 Progress: [██████████] 100% (plans) — phase-gate UAT remains
-Last activity: 2026-06-08 -- Phase 17 Plan 03 complete
+Last activity: 2026-06-08 -- Completed quick task 260608-ppy: fix phase-17 UI-SPEC copy gaps (empty-state + typed-Unknown)
 
 ## v1.2 Build Order (research-converged — preserve)
 
@@ -187,6 +187,7 @@ Earlier (v1.0 / v1.1) decisions retained below.
 | 260605-fast | fix(status): render OFFLOAD N/A for non-GPU services in human table (Phase-4 UAT Test 4 cosmetic gap; --json contract unchanged) | 2026-06-05 | e5fc1fc | — |
 | 260605-tuv | Fix villa uninstall: drop unsupported podman volume rm --ignore flag (exit 125), surface stderr, tolerate missing volume, add regression tests | 2026-06-05 | 228a4c0 | [260605-tuv-fix-villa-uninstall-drop-unsupported-pod](./quick/260605-tuv-fix-villa-uninstall-drop-unsupported-pod/) |
 | 260606-p3a | Fix villa bench single-mode backend label: name the measured backend in human header + --json single.backend (Phase-9 UAT minor gap; --ab + pp/tg-separate contract unchanged) | 2026-06-06 | 8aa9c90 | [260606-p3a-fix-villa-bench-single-mode-backend-labe](./quick/260606-p3a-fix-villa-bench-single-mode-backend-labe/) |
+| 260608-ppy | fix phase-17 UI-SPEC copy gaps (17-UI-REVIEW.md: empty-state BLOCKER + typed-Unknown advisory) — command-tier presentation copy only, TDD | 2026-06-08 | 583b1ee | [260608-ppy-fix-phase-17-ui-spec-copy-gaps-17-ui-rev](./quick/260608-ppy-fix-phase-17-ui-spec-copy-gaps-17-ui-rev/) |
 
 ## Deferred Items
 
