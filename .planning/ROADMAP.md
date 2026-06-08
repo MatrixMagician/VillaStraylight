@@ -211,7 +211,20 @@ Plans:
   3. On a non-TTY environment or with `--no-tui`, the command degrades gracefully to the existing flag-driven install path; flags stay first-class.
   4. The binary still builds as a single static CGO-free binary (`CGO_ENABLED=0` build check passes).
 
-**Plans**: TBD
+**Plans**: 3 plans in 3 waves
+
+**Wave 1**
+
+- [ ] 17-01-PLAN.md — Add `charmbracelet/huh` v1.0.0 (CGO-free; pins bubbletea v1.3.6 / lipgloss v1.1.0) + `make build-static` + new `.github/workflows/ci.yml` (CGO-free gate + `go mod verify` + bubbletea-v1 assertion) + shared command-tier `tui_theme.go` with NO_COLOR/`termenv.Ascii` degradation (D-09/D-10/D-11, SC#4) [Wave 1]
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 17-02-PLAN.md — Wire the wizard into `villa install`: `--no-tui` flag + `wizard`/`stdoutIsTTY` seams + TTY-gate branch (`interactive() && !json && !noTUI && stdoutIsTTY()`) + `safeAutoFix` classifier (D-05, returns false for both privileged fixes) + live huh 5-screen wizard (`install_wizard.go`) composing `recommend.Pick`/preflight/`BackendFor`, returning to the unchanged install body (INSTALL-01/02, D-01..D-08) [Wave 2]
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 17-03-PLAN.md — Test scaffold: wizard-fires-on-TTY, three-way bypass (`--no-tui`/`--json`/non-TTY), wizard==flag-path config byte-match (SC#1/SC#2), huh accessible-mode driver, and the `safeAutoFix` false-for-PRE-03/PRE-05 regression guard (INSTALL-01/02, D-04/D-05) [Wave 3]
+
 **UI hint**: yes
 **Implementation note**: `charmbracelet/huh` v1.0.0 is the ONLY new first-party dependency — pure-Go/CGO-free; it transitively pins the *stable* `bubbletea v1.3.6` / `lipgloss v1.1.0` (NOT `charm.land/bubbletea/v2`). Confined to the command tier; no pure core may import it. Verify the `CGO_ENABLED=0` static build in CI.
 
@@ -235,4 +248,4 @@ Plans:
 | 14. Saved Bench Reports + `--compare` | v1.2 | 3/3 | Complete    | 2026-06-07 |
 | 15. Cumulative Usage Tracking | v1.2 | 4/4 | Complete    | 2026-06-07 |
 | 16. Backup / Restore | v1.2 | 3/3 | Complete    | 2026-06-07 |
-| 17. Guided TUI Install | v1.2 | 0/? | Not started | - |
+| 17. Guided TUI Install | v1.2 | 0/3 | Planned | - |
