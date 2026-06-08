@@ -1,10 +1,11 @@
 ---
 phase: 17
 slug: guided-tui-install-capstone
-status: draft
+status: approved
 shadcn_initialized: false
 preset: none
 created: 2026-06-08
+reviewed_at: 2026-06-08
 surface: terminal-tui
 ---
 
