@@ -1,10 +1,11 @@
 ---
 phase: 15
 slug: cumulative-usage-tracking
-status: draft
-nyquist_compliant: false
-wave_0_complete: false
+status: validated
+nyquist_compliant: true
+wave_0_complete: true
 created: 2026-06-07
+validated: 2026-06-08
 ---
 
 # Phase 15 — Validation Strategy
@@ -38,31 +39,31 @@ created: 2026-06-07
 
 | Req ID | Behavior | Test Type | Automated Command | File Exists |
 |--------|----------|-----------|-------------------|-------------|
-| USAGE-01 | Reset-aware fold: monotonic delta + backward-step ⇒ whole-sample-as-new (D-04) | unit | `go test ./internal/usage -run TestFoldResetAware` | ❌ W0 |
-| USAGE-01 | Per-model keying: two models accumulate independently (D-03) | unit | `go test ./internal/usage -run TestFoldPerModel` | ❌ W0 |
-| USAGE-01 | Counter absent ⇒ no fold, no write (typed-Unknown, D-05) | unit | `go test ./internal/usage -run TestFoldTypedUnknown` | ❌ W0 |
-| USAGE-01 | Metrics extension surfaces both `_total` counters from fixture (D-06) | unit | `go test ./internal/metrics -run TestScrapeCountersTotal` | ⚠️ extend |
-| USAGE-01 | Persist round-trip: atomic write then read returns identical totals (D-02) | unit | `go test ./internal/usage -run TestStoreRoundTrip` | ❌ W0 |
-| USAGE-01 | XDG path resolver honors `$XDG_DATA_HOME` + traversal guard (D-02) | unit | `go test ./internal/usage -run TestUsagePathXDG` | ❌ W0 |
-| USAGE-02 | `status.Report` carries `usage` field; absent store ⇒ omitted (omitempty, D-09) | unit | `go test ./internal/status -run TestUsageOmittedWhenAbsent` | ❌ W0 |
-| USAGE-02 | Byte-frozen `--json` golden: only `usage` + `schema_version 1→2` changed (D-09) | golden | `go test ./cmd/villa -run TestStatusJSONGolden` | ✅ re-freeze once |
-| USAGE-02 | Dashboard reads SAME `Report` field, no new endpoint (D-10) | unit | `go test ./internal/dashboard -run TestStatusUsageSurfaced` | ❌ W0 |
-| USAGE-02 (D-07) | Dashboard `/api/metrics` folds+writes under mutex (sole writer) | unit | `go test ./internal/dashboard -run TestMetricsWritesUsage` | ❌ W0 |
-| USAGE-02 (D-11) | Counts-only: `UsageTotals`/`ModelUsage` have NO content fields | security | `go test ./internal/usage -run TestUsageTotalsHasNoContentFields` | ❌ W0 |
-| USAGE-02 (D-12) | No-new-outbound: usage reuses the existing bounded scrape — no new `http.Client`/endpoint; existing `no_telemetry` assertion (`internal/status/status_test.go`) holds | structural | Plan 02 grep-gate acceptance criterion (no new `http.` outbound symbol) + existing `go test ./internal/status -run TestNoTelemetry` + Plan 04 Task 3 UAT (no new socket) | ✅ Plan 02 + existing |
+| USAGE-01 | Reset-aware fold: monotonic delta + backward-step ⇒ whole-sample-as-new (D-04) | unit | `go test ./internal/usage -run TestFoldResetAware` | ✅ green |
+| USAGE-01 | Per-model keying: two models accumulate independently (D-03) | unit | `go test ./internal/usage -run TestFoldPerModel` | ✅ green |
+| USAGE-01 | Counter absent ⇒ no fold, no write (typed-Unknown, D-05) | unit | `go test ./internal/usage -run TestFoldTypedUnknown` | ✅ green |
+| USAGE-01 | Metrics extension surfaces both `_total` counters from fixture (D-06) | unit | `go test ./internal/metrics -run TestScrapeCountersTotal` | ✅ green |
+| USAGE-01 | Persist round-trip: atomic write then read returns identical totals (D-02) | unit | `go test ./internal/usage -run TestStoreRoundTrip` | ✅ green |
+| USAGE-01 | XDG path resolver honors `$XDG_DATA_HOME` + traversal guard (D-02) | unit | `go test ./internal/usage -run TestUsagePathXDG` | ✅ green |
+| USAGE-02 | `status.Report` carries `usage` field; absent store ⇒ omitted (omitempty, D-09) | unit | `go test ./internal/status -run TestUsageOmittedWhenAbsent` | ✅ green |
+| USAGE-02 | Byte-frozen `--json` golden: only `usage` + `schema_version 1→2` changed (D-09) | golden | `go test ./cmd/villa -run TestStatusJSONGolden` | ✅ green (re-frozen) |
+| USAGE-02 | Dashboard reads SAME `Report` field, no new endpoint (D-10) | unit | `go test ./internal/dashboard -run TestStatusUsageSurfaced` | ✅ green |
+| USAGE-02 (D-07) | Dashboard `/api/metrics` folds+writes under mutex (sole writer) | unit | `go test ./internal/dashboard -run TestMetricsWritesUsage` | ✅ green |
+| USAGE-02 (D-11) | Counts-only: `UsageTotals`/`ModelUsage` have NO content fields | security | `go test ./internal/usage -run TestUsageTotalsHasNoContentFields` | ✅ green |
+| USAGE-02 (D-12) | No-new-outbound: usage reuses the existing bounded scrape — no new `http.Client`/endpoint; existing `no_telemetry` assertion (`internal/status/status_test.go`) holds | structural | grep-gate (no new `http.` outbound symbol) + `internal/status/status_test.go:156` `NoTelemetry == noTelemetryStatement` + Plan 04 UAT (no new socket, gfx1151) | ✅ green + UAT |
 
-*Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
+*Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky · reconciled 2026-06-08 (all listed tests exist + pass)*
 
 ---
 
 ## Wave 0 Requirements
 
-- [ ] `internal/usage/usage.go` + `internal/usage/usage_test.go` — net-new pure core + tests (USAGE-01, D-01/D-03/D-04/D-05/D-11)
-- [ ] `internal/metrics/llamacpp_test.go` + `testdata/metrics.txt` — add the two `_total` token counters (fixture already has `n_decode_total`)
-- [ ] `internal/dashboard/*_test.go` — writer-hook + sole-writer mutex test (D-07)
-- [ ] `internal/status/status_test.go` — usage-omitted-when-absent + surfaced-when-present
-- [ ] Re-freeze `cmd/villa/testdata/status.json.golden` ONCE (`go test ./cmd/villa -run TestStatusJSONGolden -update`), review diff
-- [ ] No framework install needed (stdlib `testing` already in use)
+- [x] `internal/usage/usage.go` + `internal/usage/usage_test.go` — net-new pure core + tests (USAGE-01, D-01/D-03/D-04/D-05/D-11)
+- [x] `internal/metrics/llamacpp_test.go` + `testdata/metrics.txt` — add the two `_total` token counters (fixture already has `n_decode_total`)
+- [x] `internal/dashboard/*_test.go` — writer-hook + sole-writer mutex test (D-07)
+- [x] `internal/status/status_test.go` — usage-omitted-when-absent + surfaced-when-present
+- [x] Re-freeze `cmd/villa/testdata/status.json.golden` ONCE (`schema_version: 2`), diff reviewed
+- [x] No framework install needed (stdlib `testing` already in use)
 
 ---
 
@@ -78,11 +79,31 @@ created: 2026-06-07
 
 ## Validation Sign-Off
 
-- [ ] All tasks have `<automated>` verify or Wave 0 dependencies
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verify
-- [ ] Wave 0 covers all MISSING references
-- [ ] No watch-mode flags
-- [ ] Feedback latency < 20s
-- [ ] `nyquist_compliant: true` set in frontmatter
+- [x] All tasks have `<automated>` verify or Wave 0 dependencies
+- [x] Sampling continuity: no 3 consecutive tasks without automated verify
+- [x] Wave 0 covers all MISSING references
+- [x] No watch-mode flags
+- [x] Feedback latency < 20s
+- [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** pending
+**Approval:** ✅ validated 2026-06-08
+
+---
+
+## Validation Audit 2026-06-08
+
+State A reconciliation: the planning-time VALIDATION.md was never updated after Phase 15
+executed. All 12 per-task verifications already had covering automated tests that exist and
+pass (`go test ./internal/usage ./internal/metrics ./internal/status ./internal/dashboard
+./cmd/villa`). The status `--json` golden was re-frozen once at `schema_version: 2`. The
+three Manual-Only items (live monotonic `_total` growth, reset-aware persistence across an
+`llama-server` restart, no-new-outbound socket observation) were performed and PASSED on
+gfx1151 (15-UAT.md, 4/4). No auditor spawn needed — zero gaps.
+
+| Metric | Count |
+|--------|-------|
+| Gaps found | 0 |
+| Resolved | 0 |
+| Escalated | 0 |
+| Tasks COVERED (automated, green) | 12/12 |
+| Manual-only (UAT, passed) | 3 |
