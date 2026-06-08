@@ -34,6 +34,12 @@ type fakeInstallDeps struct {
 	pollCalls   int
 	pullCalls   int
 	saveCalls   int
+	// wizardCalls counts invocations of the guided-wizard seam (Plan 03). The
+	// dedicated wizard tests assert it is exactly 1 on a TTY (no --json/--no-tui)
+	// and exactly 0 on every bypass path (--no-tui / --json / non-TTY). Defaulted
+	// to a no-op stub in newFakeInstallDeps so existing flag-path tests (which keep
+	// stdoutIsTTY=false) never enter the wizard branch and stay deterministic.
+	wizardCalls int
 	// startOrder records the service names passed to the start seam in invocation
 	// order (D-05: inference strictly before owui). callOrder records cross-seam
 	// ordering (e.g. ensureModel before the first start, MODEL-04).
@@ -92,6 +98,7 @@ func newFakeInstallDeps(t *testing.T, units []orchestrate.Unit, plan orchestrate
 		// these. wizard is a no-op canned result, never reached while stdoutIsTTY=false.
 		stdoutIsTTY: func() bool { return false },
 		wizard: func(context.Context, wizardInput) (wizardResult, error) {
+			f.wizardCalls++
 			return wizardResult{}, nil
 		},
 	}
