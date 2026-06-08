@@ -199,10 +199,11 @@ Items acknowledged at milestone close on 2026-06-06 (v1.1):
 
 ## Session Continuity
 
-Last session: 2026-06-08T16:48:00.897Z
-Stopped at: Phase 17 UI-SPEC approved
-Resume file: .planning/phases/17-guided-tui-install-capstone/17-UI-SPEC.md
+Last session: 2026-06-08
+Stopped at: v1.2 Operability milestone archived + audited (PASSED); on branch `gsd/phase-17-guided-tui-install-capstone`, 171 commits ahead of `main` (clean fast-forward).
 
 ## Operator Next Steps
 
-- Start the next milestone with /gsd-new-milestone
+1. **Ship v1.2 to `main`** — `/gsd-ship` (PR → review → merge), then `git tag v1.2` on the main merge commit, mirroring v1.0/v1.1's tag-on-main pattern. Phase branches 12–17 still exist; clean them up at merge time.
+2. **Then start the next milestone** — `/gsd-new-milestone` (questioning → research → fresh REQUIREMENTS.md → roadmap). Candidate themes: Memory & Search (Qdrant/SearXNG/OpenCode), Platform & Access (macOS-Metal / remote-auth), ROCm perf-tuning.
+3. **Carryover tech debt (non-blocking):** extract shared `rocmpolicy` leaf package; investigate `rocm-6.4.4-rocwmma` residency FAIL on gfx1151; optional re-pin of the drifted `rocm-6.4.4` rolling tag.

@@ -8,7 +8,7 @@ VillaStraylight is a control plane + managed workload: a single Go binary that i
 
 - ✅ **v1.0 MVP** — Phases 1–5 (shipped 2026-06-05, tag `v1.0`)
 - ✅ **v1.1 ROCm Opt-In Backend** — Phases 6–11 (shipped 2026-06-06, tag `v1.1`)
-- ✅ **v1.2 Operability** — Phases 12–17 (shipped 2026-06-08, tag `v1.2`)
+- ✅ **v1.2 Operability** — Phases 12–17 (completed 2026-06-08; PR-to-`main` + tag `v1.2` pending via `/gsd-ship`)
 
 Full per-phase detail for shipped milestones is archived under `.planning/milestones/`:
 

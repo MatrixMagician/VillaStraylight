@@ -1,6 +1,8 @@
 # Milestones
 
-## v1.2 Operability (Shipped: 2026-06-08)
+## v1.2 Operability (Completed: 2026-06-08)
+
+> **Release status:** archived + audited; PR-to-`main` and `git tag v1.2` (on the main merge commit, mirroring v1.0/v1.1) are pending via `/gsd-ship`.
 
 **Phases completed:** 6 phases (12–17), 19 plans, 24 tasks
 **Git range:** `v1.1` → `b8b94d3` (180 commits, 271 files changed, +31,077 / −15,316)
