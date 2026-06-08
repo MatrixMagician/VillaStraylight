@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Operability
-status: completed
+status: executing
 stopped_at: Phase 17 UI-SPEC approved
-last_updated: "2026-06-08T15:49:06.937Z"
-last_activity: 2026-06-07
+last_updated: "2026-06-08T16:36:51.791Z"
+last_activity: 2026-06-08 -- Phase 17 execution started
 progress:
   total_phases: 6
   completed_phases: 5
-  total_plans: 16
-  completed_plans: 16
+  total_plans: 19
+  completed_plans: 17
   percent: 83
 ---
 
@@ -21,15 +21,15 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-07 after starting v1.2)
 
 **Core value:** Run a capable local AI workspace that "just works" after install — hardware-aware setup that brings inference, chat, and the dashboard up healthy, with zero data leaving the box. v1.2 extends the bar to "and stays operable, recoverable, and measurable over time."
-**Current focus:** Phase 16 — backup-restore
+**Current focus:** Phase 17 — guided-tui-install-capstone
 
 ## Current Position
 
-Phase: 17
-Plan: Not started
-Status: 16-03 complete (villa restore — BAK-02/BAK-03); on-hardware UAT deferred to phase gate
+Phase: 17 (guided-tui-install-capstone) — EXECUTING
+Plan: 2 of 3
+Status: Ready to execute
 Progress: [██████████] 100% (plans) — phase-gate UAT remains
-Last activity: 2026-06-07
+Last activity: 2026-06-08 -- Phase 17 execution started
 
 ## v1.2 Build Order (research-converged — preserve)
 
@@ -94,6 +94,7 @@ contract evolves at a time), then the destructive backup, then the TUI capstone.
 | Phase 16 P01 | 6m | 2 tasks | 14 files |
 | Phase 16 P02 | ~12m | 2 tasks | 13 files |
 | Phase 16 P03 | ~22m | 2 tasks | 7 files |
+| Phase 17 P01 | 14min | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -156,6 +157,7 @@ Earlier (v1.0 / v1.1) decisions retained below.
 - [16-03]: villa restore ships (BAK-02/BAK-03) — pure Restore() clones backendswap.Run: read+verify (fail-closed BLOCK on checksum mismatch / incompatible manifest schema, ZERO side effects) -> WARN-and-confirm skew (--yes/--force bypass) -> capture-before-mutate -> quiesce -> clean-recreate-before-import (VolumeRm not-found-tolerant -> ReconcileAndWrite Quadlet recreate from restored config -> EnsureVolume explicit create -> VolumeImport) on apply AND rollback -> offload-asserting prove -> verbatim rollback with honest complete/incomplete reporting.
 - [16-03]: clean-recreate-before-import is the load-bearing fix (podman volume import MERGES + does NOT auto-create, RESEARCH HIGH) — stale chats/webui.db never leak; a test asserts VolumeRm<ReconcileAndWrite<EnsureVolume<VolumeImport on the forward path and a 2nd clean-recreate on rollback re-importing the CAPTURED tar.
 - [16-03]: config restored via config.SaveVilla (new config.Parse([]byte) turns the archive's config.toml into the source-of-truth VillaConfig); data-dir artifacts via atomic usage.WriteFileAtomic 0600/0700; liveRestoreProve composes ROCm preflight + the proven Phase-8 liveProve residency assert (health-200-but-residency-FAIL -> non-pass -> rollback); no new outbound (D-12). internal/backup stays exec/inference/detect-free (SeamGrepGate green). On-hardware UAT (clean-recreate-no-merge / same-host round-trip / live-SQLite quiesce / cross-version skew / cross-host best-effort) deferred to phase gate.
+- [Phase ?]: Pinned huh/lipgloss/termenv direct; bubbletea v1.3.6 stays indirect to avoid v2 leak (D-11)
 
 ### Pending Todos
 
@@ -194,7 +196,7 @@ Items acknowledged at milestone close on 2026-06-06 (v1.1):
 
 ## Session Continuity
 
-Last session: 2026-06-08T15:49:06.933Z
+Last session: 2026-06-08T16:36:40.428Z
 Stopped at: Phase 17 UI-SPEC approved
 Resume file: .planning/phases/17-guided-tui-install-capstone/17-UI-SPEC.md
 

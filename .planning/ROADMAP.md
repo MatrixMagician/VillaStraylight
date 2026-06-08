@@ -215,7 +215,7 @@ Plans:
 
 **Wave 1**
 
-- [ ] 17-01-PLAN.md — Add `charmbracelet/huh` v1.0.0 (CGO-free; pins bubbletea v1.3.6 / lipgloss v1.1.0) + `make build-static` + new `.github/workflows/ci.yml` (CGO-free gate + `go mod verify` + bubbletea-v1 assertion) + shared command-tier `tui_theme.go` with NO_COLOR/`termenv.Ascii` degradation (D-09/D-10/D-11, SC#4) [Wave 1]
+- [x] 17-01-PLAN.md — Add `charmbracelet/huh` v1.0.0 (CGO-free; pins bubbletea v1.3.6 / lipgloss v1.1.0) + `make build-static` + new `.github/workflows/ci.yml` (CGO-free gate + `go mod verify` + bubbletea-v1 assertion) + shared command-tier `tui_theme.go` with NO_COLOR/`termenv.Ascii` degradation (D-09/D-10/D-11, SC#4) [Wave 1]
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -248,4 +248,4 @@ Plans:
 | 14. Saved Bench Reports + `--compare` | v1.2 | 3/3 | Complete    | 2026-06-07 |
 | 15. Cumulative Usage Tracking | v1.2 | 4/4 | Complete    | 2026-06-07 |
 | 16. Backup / Restore | v1.2 | 3/3 | Complete    | 2026-06-07 |
-| 17. Guided TUI Install | v1.2 | 0/3 | Planned | - |
+| 17. Guided TUI Install | v1.2 | 1/3 | In Progress|  |

@@ -36,7 +36,7 @@ backend literals stay behind the `internal/inference` seam.
 ### Guided Install
 
 - [ ] **INSTALL-01**: User can run a guided interactive TUI install that composes the existing detect → recommend → preflight → install pipeline with confirmation/consent steps, adding presentation only (no decision logic in any pure core).
-- [ ] **INSTALL-02**: The guided install degrades gracefully on a non-TTY environment and via an explicit `--no-tui` flag to the existing flag-driven path, and the binary remains a single static CGO-free build.
+- [x] **INSTALL-02**: The guided install degrades gracefully on a non-TTY environment and via an explicit `--no-tui` flag to the existing flag-driven path, and the binary remains a single static CGO-free build.
 
 ### Inference Backend
 
@@ -91,7 +91,7 @@ Which phases cover which requirements. Populated during roadmap creation (`/gsd-
 | BAK-02 | Phase 16 | Complete |
 | BAK-03 | Phase 16 | Complete |
 | INSTALL-01 | Phase 17 | Pending |
-| INSTALL-02 | Phase 17 | Pending |
+| INSTALL-02 | Phase 17 | Complete |
 
 **Coverage:**
 
