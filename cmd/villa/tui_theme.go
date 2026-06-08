@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/termenv"
@@ -38,6 +39,56 @@ var (
 	warnColor  = lipgloss.AdaptiveColor{Light: "130", Dark: "214"}
 	blockColor = lipgloss.AdaptiveColor{Light: "160", Dark: "196"}
 )
+
+// villaKeyMap is the SINGLE command-tier owner of the wizard's footer key-hints
+// (17-UI-SPEC.md Interaction Contract / Pillar 2). It starts from huh's default
+// keymap and rewrites only the help LABELS on the navigation/confirm/abort bindings
+// so the rendered faint footer reads in villa's contracted vocabulary — the KEYS
+// themselves stay at huh defaults (we change what the footer SAYS, not what it does).
+//
+// Each rewrite preserves the binding's original keys via key.WithKeys(...) and sets
+// the contracted glyph+label via key.WithHelp(...). The contracted footer:
+//   - ↑/↓ (and k/j) move the Select; rendered as "↑ up" / "↓ down".
+//   - The step-2 Select advance surfaces the "use this model" CTA (Enter-to-advance
+//     IS the confirm — 17-UI-SPEC.md Copywriting "Use this model"); rendered on both
+//     the Select Next and Submit help so the footer shows the CTA however huh labels it.
+//   - Tab advances ("next") and Shift+Tab goes "back".
+//   - Confirm answers are the contracted y / n.
+//   - Quit (ctrl+c) and any esc-bound field exit read "cancel" (the clean abort).
+//
+// It is a pure func of nothing (no env, no TTY) so the whole footer contract is
+// assertable off-hardware. It renders NO backend or image literal (TestSeamGrepGate).
+func villaKeyMap() *huh.KeyMap {
+	km := huh.NewDefaultKeyMap()
+
+	// Select navigation (↑/↓) + the step-2 "use this model" advance CTA.
+	km.Select.Up = key.NewBinding(key.WithKeys("up", "k", "ctrl+k", "ctrl+p"), key.WithHelp("↑", "up"))
+	km.Select.Down = key.NewBinding(key.WithKeys("down", "j", "ctrl+j", "ctrl+n"), key.WithHelp("↓", "down"))
+	km.Select.Next = key.NewBinding(key.WithKeys("enter", "tab"), key.WithHelp("enter", "use this model"))
+	km.Select.Submit = key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "use this model"))
+	km.Select.Prev = key.NewBinding(key.WithKeys("shift+tab"), key.WithHelp("shift+tab", "back"))
+
+	// Note / Confirm field motion (Tab "next" / Shift+Tab "back").
+	km.Note.Next = key.NewBinding(key.WithKeys("enter", "tab"), key.WithHelp("enter", "next"))
+	km.Note.Prev = key.NewBinding(key.WithKeys("shift+tab"), key.WithHelp("shift+tab", "back"))
+	km.Confirm.Next = key.NewBinding(key.WithKeys("enter", "tab"), key.WithHelp("enter", "next"))
+	km.Confirm.Prev = key.NewBinding(key.WithKeys("shift+tab"), key.WithHelp("shift+tab", "back"))
+
+	// Confirm answers: the contracted y / n.
+	km.Confirm.Accept = key.NewBinding(key.WithKeys("y", "Y"), key.WithHelp("y", "yes"))
+	km.Confirm.Reject = key.NewBinding(key.WithKeys("n", "N"), key.WithHelp("n", "no"))
+
+	// Abort: ctrl+c cancels cleanly (the wizard maps the form error to a no-mutation exit).
+	km.Quit = key.NewBinding(key.WithKeys("ctrl+c"), key.WithHelp("ctrl+c", "cancel"))
+
+	return km
+}
+
+// blockIndent is the 2-cell left indent of the UI-SPEC `block` spacing token
+// (17-UI-SPEC.md Spacing Scale: `block` = "1 blank row + 2-cell left indent" for
+// indented detail lines under a heading). It prefixes each review / preflight-gap
+// detail row so the detail column sits 2 cells under its (flush) heading.
+const blockIndent = "  "
 
 // statusTier is the preflight/result status a glyph + color + bold word convey.
 type statusTier int

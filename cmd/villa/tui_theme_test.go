@@ -100,6 +100,61 @@ func TestStatusGlyphASCIIFallback(t *testing.T) {
 	}
 }
 
+// TestVillaKeyMap asserts the first-party footer key map carries the contracted
+// 17-UI-SPEC.md Interaction Contract vocabulary (Pillar 2): navigation keys (↑/↓),
+// the Tab/Shift+Tab field motion, the y/n Confirm answers, and a clean esc/ctrl+c
+// abort. The KEYS stay at huh defaults; only the help LABELS are first-party owned.
+// villaKeyMap is a pure func — callable in CI with no terminal.
+func TestVillaKeyMap(t *testing.T) {
+	km := villaKeyMap()
+	if km == nil {
+		t.Fatalf("villaKeyMap() = nil, want a *huh.KeyMap")
+	}
+
+	// Navigation: the Select up/down help glyphs carry the contracted ↑/↓ vocabulary.
+	if got := km.Select.Up.Help().Key; !strings.Contains(got, "↑") {
+		t.Errorf("Select.Up help key = %q, want it to contain ↑", got)
+	}
+	if got := km.Select.Down.Help().Key; !strings.Contains(got, "↓") {
+		t.Errorf("Select.Down help key = %q, want it to contain ↓", got)
+	}
+
+	// Field motion: a Tab next + a Shift+Tab "back" prev (the contracted Tab/Shift+Tab).
+	if got := km.Note.Prev.Help().Key; !strings.Contains(got, "shift+tab") {
+		t.Errorf("Note.Prev help key = %q, want it to contain shift+tab", got)
+	}
+	if got := km.Note.Prev.Help().Desc; got != "back" {
+		t.Errorf("Note.Prev help desc = %q, want %q", got, "back")
+	}
+
+	// Confirm answers: the contracted y/n.
+	if got := km.Confirm.Accept.Help().Key; got != "y" {
+		t.Errorf("Confirm.Accept help key = %q, want %q", got, "y")
+	}
+	if got := km.Confirm.Reject.Help().Key; got != "n" {
+		t.Errorf("Confirm.Reject help key = %q, want %q", got, "n")
+	}
+
+	// Abort: the Quit (ctrl+c) help renders the contracted "cancel" affordance.
+	if got := km.Quit.Help().Desc; got != "cancel" {
+		t.Errorf("Quit help desc = %q, want %q", got, "cancel")
+	}
+}
+
+// TestStepTwoCTA asserts the step-2 Select advance affordance surfaces the contracted
+// "use this model" CTA in the footer help (17-UI-SPEC.md Copywriting "Use this model":
+// Enter-to-advance IS the confirm). The Select Next/Submit help desc carries the CTA.
+func TestStepTwoCTA(t *testing.T) {
+	km := villaKeyMap()
+	const cta = "use this model"
+	if got := km.Select.Next.Help().Desc; got != cta {
+		t.Errorf("Select.Next help desc = %q, want the contracted CTA %q", got, cta)
+	}
+	if got := km.Select.Submit.Help().Desc; got != cta {
+		t.Errorf("Select.Submit help desc = %q, want the contracted CTA %q", got, cta)
+	}
+}
+
 // TestStepHeader asserts the Step N/M renderer produces a "Step 2/5"-style token.
 func TestStepHeader(t *testing.T) {
 	got := stepHeader(2, 5, true)

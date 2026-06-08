@@ -172,7 +172,9 @@ func buildWizardForm(in wizardInput, chosen *string, holders *[]*gapConsentValue
 		),
 	)
 
-	return huh.NewForm(groups...).WithTheme(villaTheme(in.colorEnabled))
+	return huh.NewForm(groups...).
+		WithTheme(villaTheme(in.colorEnabled)).
+		WithKeyMap(villaKeyMap())
 }
 
 // detectedHostSummary renders the typed-Unknown host facts (UI-SPEC screen 1): a
