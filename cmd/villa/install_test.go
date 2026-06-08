@@ -68,7 +68,7 @@ func newFakeInstallDeps(t *testing.T, units []orchestrate.Unit, plan orchestrate
 	f := &fakeInstallDeps{downloaded: true}
 	d := &installDeps{
 		probe: func() detect.HostProfile { return detect.HostProfile{} },
-		pick: func(detect.HostProfile) recommend.Recommendation {
+		pick: func(detect.HostProfile, recommend.Overrides) recommend.Recommendation {
 			return recommend.Recommendation{
 				Model: "qwen2.5-0.5b", Quant: "Q4_K_M", ContextLen: 4096, Backend: "vulkan",
 				WeightBytes:  1 << 30,
@@ -86,6 +86,14 @@ func newFakeInstallDeps(t *testing.T, units []orchestrate.Unit, plan orchestrate
 		endpoint:    func() string { return "http://127.0.0.1:8080" },
 		interactive: func() bool { return false },
 		consent:     func(string) bool { return false },
+		// Default the wizard seams to the flag path: stdoutIsTTY=false forces the
+		// useWizard gate off so existing flag-path tests (which only set interactive)
+		// never enter the wizard branch. The dedicated wizard tests (Plan 03) override
+		// these. wizard is a no-op canned result, never reached while stdoutIsTTY=false.
+		stdoutIsTTY: func() bool { return false },
+		wizard: func(context.Context, wizardInput) (wizardResult, error) {
+			return wizardResult{}, nil
+		},
 	}
 	d.modelDownloaded = func(recommend.Recommendation) bool { return f.downloaded }
 	d.ensureModel = func(recommend.Recommendation) error {

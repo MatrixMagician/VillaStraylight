@@ -60,6 +60,11 @@ type installOpts struct {
 	force bool
 	// json suppresses interactive consent (a --json run is non-interactive).
 	json bool
+	// noTUI opts out of the guided wizard to the flag-driven install path
+	// (D-01/D-08). Bare `villa install` on a TTY launches the wizard; --no-tui (or
+	// --json, or a non-TTY stdin/stdout) forces today's flag path verbatim. There is
+	// NO --tui opt-in and NO `villa setup` subcommand — one progressively-enhanced verb.
+	noTUI bool
 }
 
 // installReadiness is the readiness-poll verdict (Task 2): PASS once the service
@@ -73,8 +78,13 @@ type installReadiness struct {
 // installDeps are the injectable seams runInstall drives. Defaults wire the real
 // host (liveInstallDeps); install_test.go replaces them with stubs.
 type installDeps struct {
-	probe      func() detect.HostProfile
-	pick       func(detect.HostProfile) recommend.Recommendation
+	probe func() detect.HostProfile
+	// pick recommends a fitting model. It takes recommend.Overrides so a wizard
+	// model choice is re-validated through the SINGLE polymorphism point
+	// (recommend.Pick) rather than a forked catalog re-derivation (D-02): the flag
+	// path passes recommend.Overrides{} (today's behavior, byte-for-byte), the wizard
+	// passes recommend.Overrides{Model: chosen}.
+	pick       func(detect.HostProfile, recommend.Overrides) recommend.Recommendation
 	modelFile  func(recommend.Recommendation) (string, error)
 	modelsDir  func() string
 	runChecks  func(detect.HostProfile, preflight.ResourceReq) []preflight.CheckResult
@@ -138,6 +148,20 @@ type installDeps struct {
 	interactive func() bool
 	consent     func(prompt string) bool
 	pollReady   func(ctx context.Context, endpoint string) installReadiness
+
+	// stdoutIsTTY reports whether stdout is a real terminal — the stdout twin of
+	// interactive() (which checks stdin). huh renders to stdout/stderr, so BOTH must
+	// be a TTY for the styled wizard to make sense (D-01/D-08). The seam wraps the
+	// stdoutIsTTY() helper from tui_theme.go so tests can inject a fake TTY result.
+	stdoutIsTTY func() bool
+	// wizard runs the guided huh 5-screen install wizard and RETURNS the collected
+	// choices (a model override + per-item privileged consent) — it is a PURE
+	// COLLECTOR (D-01/D-04): it presents the already-computed profile/rec/checks/
+	// backend and NEVER executes a host fix. The single gateInstall in runInstall
+	// consumes the collected consent. tests inject a fake returning a canned
+	// wizardResult. NO internal/* core imports huh (D-11); the live impl is liveWizard
+	// in install_wizard.go.
+	wizard func(ctx context.Context, in wizardInput) (wizardResult, error)
 }
 
 // installServiceName is the systemd service the inference .container generates
@@ -155,6 +179,7 @@ const openWebUIServiceName = "villa-openwebui.service"
 // readiness poll, idempotent and --dry-run aware.
 func newInstall() *cobra.Command {
 	var dryRun bool
+	var noTUI bool
 	cmd := &cobra.Command{
 		Use:   "install",
 		Short: "Detect, recommend, gate, generate, and bring up the local inference stack",
@@ -171,12 +196,13 @@ func newInstall() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "install: %v\n", err)
 				os.Exit(exitBlocked)
 			}
-			code := runInstall(cmd, installOpts{dryRun: dryRun, force: force, json: jsonOut}, deps)
+			code := runInstall(cmd, installOpts{dryRun: dryRun, force: force, json: jsonOut, noTUI: noTUI}, deps)
 			os.Exit(code)
 			return nil
 		},
 	}
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "print the rendered units without writing, pulling, or starting anything")
+	cmd.Flags().BoolVar(&noTUI, "no-tui", false, "skip the guided wizard; use the flag-driven install path")
 	return cmd
 }
 
@@ -192,7 +218,7 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 
 	// (2) Recommend a concrete model. A refusal (empty Model / zero ctx / zero
 	// weight) is a clear FAIL — never start llama-server with -c 0 / no fit.
-	rec := d.pick(profile)
+	rec := d.pick(profile, recommend.Overrides{})
 	if rec.Model == "" || rec.ContextLen <= 0 || rec.WeightBytes == 0 {
 		fmt.Fprintf(errOut, "install: no fitting configuration for this host (memory envelope undeterminable — recommend refused)\n")
 		fmt.Fprintf(errOut, "  remediation: run `villa recommend` to inspect the fit; ensure the GPU/memory envelope is detectable (`villa detect`).\n")
@@ -207,7 +233,51 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 		DataDir:      d.modelsDir(),
 	}
 	checks := d.runChecks(profile, req)
-	gateCode, ok := gateInstall(out, errOut, checks, opts, d)
+
+	// (3b) Guided wizard (D-01/D-08) — the PINNED composition. probe/pick/runChecks
+	// (steps 1-3) have already run exactly once; the wizard RECEIVES their results,
+	// COLLECTS a model override + per-item privileged consent, and RETURNS here. It
+	// NEVER runs runGapFix/resolveGap/offerNonBlockingGap itself — the single
+	// gateInstall below consumes the threaded consent, so both paths converge on one
+	// gate execution (SC#1/SC#2; privileged fix at most once; D-04/D-06 preserved).
+	// nil consentDecisions ⇒ flag path: gateInstall prompts via d.consent as today.
+	var consentDecisions map[string]bool
+	useWizard := d.interactive() && !opts.json && !opts.noTUI && d.stdoutIsTTY()
+	if useWizard {
+		// Resolve the backend for the review screen via the single polymorphism point
+		// (never a re-typed image literal). On an unknown backend, fall through to the
+		// flag path rather than aborting the install.
+		backend, berr := inference.BackendFor(rec.Backend)
+		if berr != nil {
+			fmt.Fprintf(errOut, "install: resolve backend for wizard: %v — falling back to the flag path\n", berr)
+		} else {
+			res, werr := d.wizard(cmd.Context(), wizardInput{
+				profile:      profile,
+				rec:          rec,
+				alternatives: rec.Alternatives,
+				checks:       checks,
+				backend:      backend,
+				colorEnabled: colorEnabled(),
+			})
+			if werr != nil {
+				// Esc / Ctrl+C / Cancel → clean abort: no mutation, nothing written,
+				// pulled, or persisted. Return a non-zero code (never os.Exit here).
+				fmt.Fprintf(errOut, "Install cancelled — no changes were made. Re-run villa install, or villa install --no-tui for the flag-driven path.\n")
+				return exitBlocked
+			}
+			// Re-validate a chosen model override through the SAME single pick seam
+			// (the pinned override mechanism) so the resulting rec is byte-identical to
+			// the flag path's `recommend --model <id>`. The wizard computes no fit; the
+			// override is constrained to catalog ids surfaced in rec.Alternatives.
+			// Preflight checks are host-prep (model-independent), so they are NOT re-run.
+			if res.modelOverride != "" {
+				rec = d.pick(profile, recommend.Overrides{Model: res.modelOverride})
+			}
+			consentDecisions = res.consentDecisions
+		}
+	}
+
+	gateCode, ok := gateInstall(out, errOut, checks, opts, consentDecisions, d)
 	if !ok {
 		return gateCode
 	}
@@ -439,7 +509,13 @@ func reconcileDashboardUnit(out, errOut io.Writer, d *installDeps) int {
 // printed; BLOCK gaps (FAIL or a WARN-downgraded BLOCK-tier with remediation) are
 // OFFERED for consented host-prep (D-04). It returns (exitCode, proceed). proceed
 // is false when a BLOCK gap is neither consented nor --force'd.
-func gateInstall(out, errOut io.Writer, checks []preflight.CheckResult, opts installOpts, d *installDeps) (int, bool) {
+//
+// consents threads a pre-collected decision map (gap-id → y/n) from the wizard
+// path (D-04): a recorded decision is honored WITHOUT re-prompting stdin (huh
+// already consumed it); an unrecorded id (or a nil map, the flag path) falls
+// through to today's d.consent prompt byte-for-byte. gateInstall runs EXACTLY ONCE
+// per install, so a privileged fix runs AT MOST ONCE regardless of path.
+func gateInstall(out, errOut io.Writer, checks []preflight.CheckResult, opts installOpts, consents map[string]bool, d *installDeps) (int, bool) {
 	var unmet []preflight.CheckResult
 	for _, c := range checks {
 		switch c.Status {
@@ -447,6 +523,22 @@ func gateInstall(out, errOut io.Writer, checks []preflight.CheckResult, opts ins
 			// nothing
 		case preflight.StatusWarn:
 			switch {
+			case safeAutoFix(c.ID):
+				// A non-privileged safe fix auto-runs with a visible notice and NO consent
+				// (D-04/D-05) — but only when interactive and not --json (respect the
+				// non-interactive guard). It never consumes a consents entry. With no
+				// current safe fix (safeAutoFix is false for PRE-03/PRE-05) this branch is
+				// a behavior no-op today; it is the forward-looking D-05 classifier.
+				if opts.json || !d.interactive() {
+					fmt.Fprintf(out, "warning: [%s] %s — %s\n", c.ID, c.Detail, c.Remediation)
+					break
+				}
+				fmt.Fprintf(out, "auto-fixing [%s]: %s\n", c.ID, remediationCommand(c, d.username()))
+				if err := runGapFix(c, d); err != nil {
+					fmt.Fprintf(out, "  auto-fix failed: %v — run the command manually\n", err)
+				} else {
+					fmt.Fprintf(out, "  applied: %s\n", remediationCommand(c, d.username()))
+				}
 			case c.Tier == preflight.TierBlock:
 				// A BLOCK-tier check that is not satisfied (off/unverifiable) is a gap
 				// install must resolve via consent — not a clean pass.
@@ -458,7 +550,7 @@ func gateInstall(out, errOut io.Writer, checks []preflight.CheckResult, opts ins
 				// stdout (WR-07) so scripts parsing stderr do not misread a soft,
 				// optional host-prep offer as an error. The BLOCK-gap path below keeps
 				// its stderr wording.
-				offerNonBlockingGap(out, c, opts, d)
+				offerNonBlockingGap(out, c, opts, consents, d)
 			default:
 				fmt.Fprintf(out, "warning: [%s] %s — %s\n", c.ID, c.Detail, c.Remediation)
 			}
@@ -476,7 +568,7 @@ func gateInstall(out, errOut io.Writer, checks []preflight.CheckResult, opts ins
 	// the command and keep the gap as a block.
 	var stillBlocked []preflight.CheckResult
 	for _, c := range unmet {
-		if resolveGap(out, errOut, c, opts, d) {
+		if resolveGap(out, errOut, c, opts, consents, d) {
 			continue
 		}
 		stillBlocked = append(stillBlocked, c)
@@ -503,9 +595,25 @@ func gateInstall(out, errOut io.Writer, checks []preflight.CheckResult, opts ins
 // — only on an interactive TTY, non-JSON, with an explicit y — runs the matching
 // fixed-arg privileged seam (setsebool / enable-linger). It returns true when the
 // gap was consented-and-run, false otherwise (caller treats false as a block).
-func resolveGap(out, errOut io.Writer, c preflight.CheckResult, opts installOpts, d *installDeps) bool {
+func resolveGap(out, errOut io.Writer, c preflight.CheckResult, opts installOpts, consents map[string]bool, d *installDeps) bool {
 	cmdStr := remediationCommand(c, d.username())
 	fmt.Fprintf(errOut, "\nhost-prep needed: [%s] %s\n  command: %s\n", c.ID, c.Detail, cmdStr)
+
+	// Wizard path: a pre-collected decision (huh already consumed stdin) is honored
+	// WITHOUT re-prompting (D-04). A recorded `true` runs the same fixed-arg seam as
+	// the consented stdin path; a recorded `false` is a decline (same return/messaging).
+	if decision, recorded := consents[c.ID]; consents != nil && recorded {
+		if !decision {
+			fmt.Fprintf(errOut, "  declined — run the command above, then re-run `villa install`\n")
+			return false
+		}
+		if err := runGapFix(c, d); err != nil {
+			fmt.Fprintf(errOut, "  host-prep failed: %v — run the command manually, then re-run `villa install`\n", err)
+			return false
+		}
+		fmt.Fprintf(out, "  applied: %s\n", cmdStr)
+		return true
+	}
 
 	// Non-interactive / --json / no TTY → never prompt; print + block (D-04/D-05).
 	if opts.json || !d.interactive() {
@@ -534,9 +642,24 @@ func resolveGap(out, errOut io.Writer, c preflight.CheckResult, opts installOpts
 // optional offer is never misread as an error by scripts parsing stderr. It returns
 // whether the fix was consented-and-applied (informational; the caller never blocks
 // on the result).
-func offerNonBlockingGap(out io.Writer, c preflight.CheckResult, opts installOpts, d *installDeps) bool {
+func offerNonBlockingGap(out io.Writer, c preflight.CheckResult, opts installOpts, consents map[string]bool, d *installDeps) bool {
 	cmdStr := remediationCommand(c, d.username())
 	fmt.Fprintf(out, "\noptional host-prep (boot survival): [%s] %s\n  command: %s\n", c.ID, c.Detail, cmdStr)
+
+	// Wizard path: honor a pre-collected decision without re-prompting (D-04). A
+	// recorded `true` runs the same fixed-arg seam; a recorded `false` is a skip.
+	if decision, recorded := consents[c.ID]; consents != nil && recorded {
+		if !decision {
+			fmt.Fprintf(out, "  skipped — boot survival not enabled; install continues. Run the command above later if you want it.\n")
+			return false
+		}
+		if err := runGapFix(c, d); err != nil {
+			fmt.Fprintf(out, "  host-prep failed: %v — run the command manually if you want boot survival; install continues.\n", err)
+			return false
+		}
+		fmt.Fprintf(out, "  applied: %s\n", cmdStr)
+		return true
+	}
 
 	// Non-interactive / --json / no TTY → never prompt; just note it and continue.
 	if opts.json || !d.interactive() {
@@ -579,6 +702,22 @@ func hasAutomatedFix(id string) bool {
 	switch id {
 	case "PRE-05", "PRE-03":
 		return true
+	default:
+		return false
+	}
+}
+
+// safeAutoFix reports whether a check ID has a NON-privileged automated fix that
+// may auto-run with a visible notice and NO consent (D-05). It returns false for
+// both current fixes — [ASSUMED] PRE-05 (setsebool -P) and PRE-03 (loginctl
+// enable-linger) are PRIVILEGED, so they stay consent-gated (D-04: villa never
+// silently runs a privileged command; enable-linger stays privileged per the
+// RESEARCH "Open Questions (RESOLVED)" interpretation 1). This is a forward-looking
+// classifier — with no current safe fix it is a behavior no-op on the present check
+// set; a FUTURE non-privileged fix returns true here to opt into auto-run.
+func safeAutoFix(id string) bool {
+	switch id {
+	// No current non-privileged automated fix. PRE-03/PRE-05 are privileged → false.
 	default:
 		return false
 	}
@@ -665,12 +804,12 @@ func liveInstallDeps() (*installDeps, error) {
 
 	return &installDeps{
 		probe: detect.Probe,
-		pick: func(p detect.HostProfile) recommend.Recommendation {
+		pick: func(p detect.HostProfile, ov recommend.Overrides) recommend.Recommendation {
 			cat, _, err := catalog.Load(modelCatalogPath)
 			if err != nil {
 				return recommend.Recommendation{}
 			}
-			return recommend.Pick(p, cat, recommend.Overrides{})
+			return recommend.Pick(p, cat, ov)
 		},
 		modelFile: func(rec recommend.Recommendation) (string, error) {
 			// A catalog load failure or an unknown model id is a hard error (WR-08):
@@ -740,6 +879,8 @@ func liveInstallDeps() (*installDeps, error) {
 		interactive:       stdinIsInteractive,
 		consent:           promptConsent,
 		pollReady:         liveReadinessPoll,
+		stdoutIsTTY:       stdoutIsTTY,
+		wizard:            liveWizard,
 	}, nil
 }
 
