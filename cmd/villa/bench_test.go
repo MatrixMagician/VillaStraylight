@@ -192,6 +192,9 @@ func TestBenchFlagValidation(t *testing.T) {
 // It captures the spec via the benchRun seam so no os.Exit fires.
 func TestBenchABTargetPlumbed(t *testing.T) {
 	withReachable(t, true)
+	// Pin the configured backend so the same-backend --ab-target guard is deterministic:
+	// vulkan is distinct from the rocm-6.4.4 target below, so the guard never fires here.
+	withConfiguredBackend(t, "vulkan")
 	cases := []struct {
 		name   string
 		args   []string
@@ -286,6 +289,53 @@ func TestBenchABTargetRequiresAB(t *testing.T) {
 	}
 	if reached {
 		t.Error("benchRun must NOT be reached when --ab-target lacks --ab")
+	}
+}
+
+// TestBenchABTargetSameAsCurrentRejected proves `--ab --ab-target <current>` is refused
+// BEFORE any switch. backendswap NoOps a same-backend flip, so without this guard side B
+// would measure the SAME backend as side A and the A/B would report From==To with a
+// meaningless ~noise delta (the v1.2 review finding). The guard compares by resolved
+// image, so a name alias ("" vs "vulkan") is caught, not just an exact string match.
+func TestBenchABTargetSameAsCurrentRejected(t *testing.T) {
+	withReachable(t, true)
+	cases := []struct {
+		name       string
+		configured string
+		target     string
+	}{
+		{"identical-vulkan", "vulkan", "vulkan"},
+		{"empty-config-aliases-vulkan", "", "vulkan"},
+		{"identical-rocm", "rocm", "rocm"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			withConfiguredBackend(t, tc.configured)
+			reached := false
+			prev := benchRun
+			benchRun = func(_ *cobra.Command, _ bench.BenchSpec, _ bool, _ bool, _ *bench.Deps) int {
+				reached = true
+				return exitPass
+			}
+			t.Cleanup(func() { benchRun = prev })
+
+			cmd := newBench()
+			cmd.SetOut(new(bytes.Buffer))
+			cmd.SetErr(new(bytes.Buffer))
+			cmd.SilenceUsage = true
+			cmd.SilenceErrors = true
+			cmd.SetArgs([]string{"--ab", "--ab-target", tc.target})
+			err := cmd.Execute()
+			if err == nil {
+				t.Fatalf("--ab-target %q == current backend %q must be rejected, got nil", tc.target, tc.configured)
+			}
+			if !strings.Contains(err.Error(), "current backend") {
+				t.Errorf("error must explain the same-backend refusal, got %q", err)
+			}
+			if reached {
+				t.Error("benchRun must NOT be reached on a same-backend --ab-target (no no-op self-comparison)")
+			}
+		})
 	}
 }
 

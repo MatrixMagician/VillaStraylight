@@ -499,8 +499,18 @@ func newBench() *cobra.Command {
 			// the SINGLE BackendFor resolver BEFORE any switch — a typo is an actionable
 			// error, never a silent flip to a wrong/missing backend.
 			if abTarget != "" {
-				if _, err := inference.BackendFor(abTarget); err != nil {
+				tb, err := inference.BackendFor(abTarget)
+				if err != nil {
 					return fmt.Errorf("bench: invalid --ab-target %q: %w", abTarget, err)
+				}
+				// Reject a target that resolves to the CURRENT backend: backendswap NoOps a
+				// same-backend flip, so side B would measure the SAME backend as side A and the
+				// A/B would report From==To with a meaningless ~run-to-run-noise delta. Compare by
+				// resolved image so a name alias (e.g. "" vs "vulkan") is caught, not just an exact
+				// string match.
+				if cb, cerr := inference.BackendFor(benchConfiguredBackend()); cerr == nil && cb.Image() == tb.Image() {
+					return fmt.Errorf("bench: --ab-target %q resolves to the current backend; --ab compares two "+
+						"DIFFERENT backends (omit --ab-target to compare against the default, or name a different backend)", abTarget)
 				}
 			}
 			spec := bench.BenchSpec{
