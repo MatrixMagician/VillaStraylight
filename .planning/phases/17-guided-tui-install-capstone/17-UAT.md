@@ -1,5 +1,5 @@
 ---
-status: passed
+status: complete
 phase: 17-guided-tui-install-capstone
 source: [17-VERIFICATION.md]
 started: 2026-06-08

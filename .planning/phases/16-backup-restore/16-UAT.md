@@ -1,5 +1,5 @@
 ---
-status: passed
+status: complete
 phase: 16-backup-restore
 source: [16-VERIFICATION.md]
 started: 2026-06-07T00:00:00Z

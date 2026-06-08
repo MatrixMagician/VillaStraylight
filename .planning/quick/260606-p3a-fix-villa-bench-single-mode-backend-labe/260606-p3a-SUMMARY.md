@@ -1,6 +1,7 @@
 ---
 phase: quick-260606-p3a
 plan: 01
+status: complete
 subsystem: cmd/villa bench
 tags: [bench, honest-ab, cmd-layer, backend-label, BENCH-01, BENCH-02]
 dependency_graph:

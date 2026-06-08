@@ -1,6 +1,7 @@
 ---
 phase: quick-260608-ppy
 plan: 01
+status: complete
 subsystem: cmd/villa (install command-tier presentation)
 tags: [phase-17, ui-spec, install, wizard, typed-unknown, copywriting]
 requires:

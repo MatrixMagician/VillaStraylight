@@ -1,6 +1,7 @@
 ---
 phase: quick-260608-pyp
 plan: 01
+status: complete
 type: execute
 subsystem: cmd/villa (command-tier TUI presentation)
 tags: [phase-17, ui-spec, install-wizard, huh, presentation]
