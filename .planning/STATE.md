@@ -2,34 +2,33 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Operability
-status: executing
-stopped_at: Phase 17 UI-SPEC approved
-last_updated: "2026-06-08T00:00:00.000Z"
-last_activity: 2026-06-08 -- Phase 17 Plan 03 complete (all plans done; phase-gate UAT remains)
+status: Awaiting next milestone
+stopped_at: v1.2 Operability milestone complete (archived + tagged)
+last_updated: "2026-06-08T18:21:20.957Z"
+last_activity: 2026-06-08 — Milestone v1.2 completed and archived
 progress:
   total_phases: 6
-  completed_phases: 5
+  completed_phases: 6
   total_plans: 19
   completed_plans: 19
-  percent: 88
+  percent: 100
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-06-07 after starting v1.2)
+See: .planning/PROJECT.md (updated 2026-06-08 after v1.2 milestone close)
 
-**Core value:** Run a capable local AI workspace that "just works" after install — hardware-aware setup that brings inference, chat, and the dashboard up healthy, with zero data leaving the box. v1.2 extends the bar to "and stays operable, recoverable, and measurable over time."
-**Current focus:** Phase 17 — guided-tui-install-capstone
+**Core value:** Run a capable local AI workspace that "just works" after install — hardware-aware setup that brings inference, chat, and the dashboard up healthy, with zero data leaving the box. v1.2 extended the bar to "and stays operable, recoverable, and measurable over time."
+**Current focus:** Between milestones — scope the next milestone via `/gsd-new-milestone`.
 
 ## Current Position
 
-Phase: 17 (guided-tui-install-capstone) — EXECUTING (all 3 plans complete)
-Plan: 3 of 3 — COMPLETE
-Status: All plans executed; phase-gate UAT (real-TTY wizard walk-through) remains
-Progress: [██████████] 100% (plans) — phase-gate UAT remains
-Last activity: 2026-06-08 -- Completed quick task 260608-pyp: fix remaining 4 phase-17 UI-SPEC warnings (footer keymap, block indent, step-2 CTA, BLOCK-declined copy)
+Phase: Milestone v1.2 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-06-08 — Milestone v1.2 completed and archived
 
 ## v1.2 Build Order (research-converged — preserve)
 
@@ -206,6 +205,4 @@ Resume file: .planning/phases/17-guided-tui-install-capstone/17-UI-SPEC.md
 
 ## Operator Next Steps
 
-- **Phase 12 complete** ✓ — ROCM-ALT-01 shipped, verified (UAT 7/7), and secured (10/10 threats closed). On-hardware verdict: capability works; `rocm-6.4.4` does NOT recover Δtg — Vulkan stays the tg default (never auto-switched, as designed).
-- **Plan the next phase:** `/gsd-discuss-phase 13` then `/gsd-plan-phase 13` (`villa doctor` — pure composition of preflight + status + residency proof + drift; OWN golden, do NOT mutate `status.Report`; offload-asserting).
-- Consider folding the deferred PR-#2 finding (shared `rocmpolicy` leaf package, graphmind memory 10e784d6) into a later phase.
+- Start the next milestone with /gsd-new-milestone
