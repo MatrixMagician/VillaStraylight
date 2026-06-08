@@ -198,7 +198,16 @@ func ScrapeCounters(endpoint string) (CounterSample, bool) {
 	if resp.StatusCode != http.StatusOK {
 		return CounterSample{}, false
 	}
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxScrapeBody))
+	// Read one byte past the cap so an over-cap body is DETECTED as truncated rather than
+	// silently parsed. A read error (e.g. a connection reset mid-body) or a body exceeding
+	// maxScrapeBody can sever a counter line mid-value (`...predicted_total 1305` from
+	// `130572`); that smaller-but-parseable number would be folded by the reset-aware
+	// foldCounter as a COUNTER RESET, durably corrupting the cumulative total. Refuse the
+	// whole sample as unavailable instead of folding a partial read (D-05: no false data).
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxScrapeBody+1))
+	if err != nil || len(body) > maxScrapeBody {
+		return CounterSample{}, false
+	}
 	m := parsePromText(string(body))
 	prompt, promptKnown := counterFromMap(m, mPromptTokensTotal)
 	predicted, predictedKnown := counterFromMap(m, mPredictedTokensTotal)

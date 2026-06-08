@@ -207,6 +207,38 @@ func TestScrapeCountersTotal(t *testing.T) {
 	}
 }
 
+// TestScrapeCountersOversizedBodyUnavailable proves a /metrics body exceeding the scrape
+// cap is treated as UNAVAILABLE rather than parsed. A body truncated mid-line by the cap
+// can sever a counter value (e.g. `...predicted_total 1305` from `130572`); the reset-aware
+// fold would mis-read the smaller-but-parseable value as a counter reset and durably
+// corrupt the cumulative total (v1.2 review finding). Refusing the whole over-cap sample is
+// the no-false-data posture (D-05).
+func TestScrapeCountersOversizedBodyUnavailable(t *testing.T) {
+	var b strings.Builder
+	b.WriteString("# TYPE llamacpp:prompt_tokens_total counter\n")
+	b.WriteString("llamacpp:prompt_tokens_total 130572\n")
+	b.WriteString("# TYPE llamacpp:tokens_predicted_total counter\n")
+	b.WriteString("llamacpp:tokens_predicted_total 48913\n")
+	// Pad well past the 64 KiB scrape cap so the body is over-cap (and thus truncatable),
+	// even though the counter lines themselves are valid and present.
+	for b.Len() < 80<<10 {
+		b.WriteString("# llamacpp_padding_comment_line_to_exceed_the_scrape_body_cap\n")
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/metrics" {
+			http.NotFound(w, r)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(b.String()))
+	}))
+	defer srv.Close()
+
+	if _, ok := ScrapeCounters(srv.URL); ok {
+		t.Errorf("ScrapeCounters ok=true on an over-cap body, want false (truncation risk → unavailable, no partial fold)")
+	}
+}
+
 // TestCounterFromMapRejectsNonFinite asserts counterFromMap returns the typed-Unknown
 // branch (Known=false, zero total) for every value that is NOT a trustworthy
 // non-negative exactly-representable integer — NaN, +Inf, -Inf, negative, and an
