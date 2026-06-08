@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"strconv"
 
 	"github.com/spf13/cobra"
 
@@ -220,8 +221,12 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 	// weight) is a clear FAIL — never start llama-server with -c 0 / no fit.
 	rec := d.pick(profile, recommend.Overrides{})
 	if rec.Model == "" || rec.ContextLen <= 0 || rec.WeightBytes == 0 {
-		fmt.Fprintf(errOut, "install: no fitting configuration for this host (memory envelope undeterminable — recommend refused)\n")
-		fmt.Fprintf(errOut, "  remediation: run `villa recommend` to inspect the fit; ensure the GPU/memory envelope is detectable (`villa detect`).\n")
+		// Emit the contracted empty-state copy (17-UI-SPEC.md:195) verbatim, with the
+		// `<N> GiB` token substituted from the detected usable envelope. A typed-Unknown
+		// envelope renders "unknown GiB usable" (never a fabricated 0). This branch fires
+		// BEFORE the wizard is evaluated, so it covers both the flag and wizard paths from
+		// one emission point — the parenthetical confirms the --no-tui path is identical.
+		fmt.Fprintf(errOut, "No catalog model fits the detected memory envelope (%s usable). Free memory or supply a larger-envelope host, then re-run villa install. (--no-tui shows the same result.)\n", gibUsableEnvelope(profile.UsableEnvelopeBytes))
 		return exitBlocked
 	}
 	fmt.Fprintf(out, "selected model %s (ctx %d, %s)\n", rec.Model, rec.ContextLen, gib(rec.WeightBytes))
@@ -738,6 +743,21 @@ func remediationCommand(c preflight.CheckResult, username string) string {
 		}
 		return c.Detail
 	}
+}
+
+// gibUsableEnvelope renders a typed-Unknown usable-memory envelope as the
+// "<N> GiB" figure the empty-state copy contract wants (17-UI-SPEC.md:195),
+// emitting just the GiB number followed by " GiB" — e.g. "8 GiB". A typed-Unknown
+// envelope (Known=false) renders "unknown GiB" so the no-fit sentence reads
+// "(unknown GiB usable)" rather than a fabricated 0 (typed-Unknown never becomes a
+// confident 0). A whole-GiB value renders without a fractional tail; a fractional
+// value keeps up to two decimals (e.g. "7.5 GiB").
+func gibUsableEnvelope(b detect.Bytes) string {
+	if !b.Known {
+		return "unknown GiB"
+	}
+	g := float64(b.Value) / (1 << 30)
+	return strconv.FormatFloat(g, 'g', -1, 64) + " GiB"
 }
 
 // chatURL is the loopback chat (Open WebUI) URL printed post-install (D-03/D-04):

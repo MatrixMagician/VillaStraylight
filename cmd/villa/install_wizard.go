@@ -185,8 +185,25 @@ func detectedHostSummary(p detect.HostProfile, backend inference.Backend) string
 	fmt.Fprintf(&b, "iGPU:     %s (%s)\n", strOrUnknown(p.IGPUName), strOrUnknown(p.IGPUGfxID))
 	fmt.Fprintf(&b, "kernel:   %s\n", strOrUnknown(p.KernelVersion))
 	fmt.Fprintf(&b, "backend:  %s", backend.Name())
+
+	// Typed-Unknown advisory (17-UI-SPEC.md:196): when ANY rendered fact is not Known,
+	// append the contracted help-tier note as a trailing line. The check mirrors the
+	// exact unknown-conditions the renderers use — strOrUnknown also treats an empty
+	// Value as unknown, so reuse it via strKnown. The advisory AUGMENTS the bare
+	// per-field "unknown" tokens, never replaces them. Help-tier styling (faint), not
+	// accent — this is advisory, not status. Pure presentation; no decision logic.
+	if !strKnown(p.CPUModel) || !p.UsableEnvelopeBytes.Known ||
+		!strKnown(p.IGPUName) || !strKnown(p.KernelVersion) {
+		fmt.Fprintf(&b, "\n%s", mutedStyle().Render(
+			"Some host facts could not be probed; villa will pick conservatively. Run villa detect for detail."))
+	}
 	return b.String()
 }
+
+// strKnown reports whether a typed-Unknown Str renders as a real value (mirrors the
+// strOrUnknown condition: Known AND non-empty Value) so the advisory predicate and
+// the per-field renderer can never disagree about what counts as "unknown".
+func strKnown(s detect.Str) bool { return s.Known && s.Value != "" }
 
 // modelOptions builds the Select options from the recommended pick (labelled
 // "recommended") plus the memory-fitting alternatives (D-02). Each line is

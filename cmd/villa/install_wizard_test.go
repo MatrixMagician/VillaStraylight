@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"io"
+	"strings"
 	"testing"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
@@ -296,6 +298,129 @@ func (lr *lineReader) Read(p []byte) (int, error) {
 	lr.i++
 	n := copy(p, line)
 	return n, nil
+}
+
+// TestInstallNoFitEmitsContractedEmptyState proves the no-fit branch (recommend
+// refused) emits the EXACT 17-UI-SPEC.md:195 empty-state copy verbatim — the
+// usable-GiB envelope figure substituted from profile.UsableEnvelopeBytes, the
+// "(--no-tui shows the same result.)" parity note, and exitBlocked preserved.
+// A Known envelope renders the numeric GiB figure; a typed-Unknown envelope
+// renders "unknown GiB usable" (never a fabricated 0).
+func TestInstallNoFitEmitsContractedEmptyState(t *testing.T) {
+	refuse := func(env detect.Bytes) (*installDeps, *bytes.Buffer) {
+		units := []orchestrate.Unit{{Name: "villa-llama.container", Text: "[Container]\n"}}
+		plan := orchestrate.Plan{Changed: units}
+		f := newFakeInstallDeps(t, units, plan, passChecks())
+		f.installDeps.probe = func() detect.HostProfile {
+			return detect.HostProfile{UsableEnvelopeBytes: env}
+		}
+		// A refusing pick: empty Model is a clear no-fit.
+		f.installDeps.pick = func(detect.HostProfile, recommend.Overrides) recommend.Recommendation {
+			return recommend.Recommendation{}
+		}
+		return f.installDeps, nil
+	}
+
+	t.Run("known-envelope-renders-numeric-gib", func(t *testing.T) {
+		d, _ := refuse(detect.KnownBytes(8<<30, "mem_info_gtt_total"))
+		cmd, _, errOut := installTestCmd()
+		code := runInstall(cmd, installOpts{}, d)
+		if code != exitBlocked {
+			t.Fatalf("no-fit exit = %d, want exitBlocked (%d)", code, exitBlocked)
+		}
+		got := errOut.String()
+		want := "No catalog model fits the detected memory envelope (8 GiB usable). Free memory or supply a larger-envelope host, then re-run villa install. (--no-tui shows the same result.)"
+		if !strings.Contains(got, want) {
+			t.Errorf("no-fit output missing contracted empty-state copy.\n got: %q\nwant substring: %q", got, want)
+		}
+	})
+
+	t.Run("unknown-envelope-renders-unknown", func(t *testing.T) {
+		d, _ := refuse(detect.UnknownBytes("no gtt probe", ""))
+		cmd, _, errOut := installTestCmd()
+		code := runInstall(cmd, installOpts{}, d)
+		if code != exitBlocked {
+			t.Fatalf("no-fit exit = %d, want exitBlocked (%d)", code, exitBlocked)
+		}
+		got := errOut.String()
+		want := "No catalog model fits the detected memory envelope (unknown GiB usable). Free memory or supply a larger-envelope host, then re-run villa install. (--no-tui shows the same result.)"
+		if !strings.Contains(got, want) {
+			t.Errorf("typed-Unknown no-fit output missing contracted copy.\n got: %q\nwant substring: %q", got, want)
+		}
+	})
+}
+
+// TestDetectedHostSummaryTypedUnknownAdvisory proves detectedHostSummary appends
+// the EXACT 17-UI-SPEC.md:196 typed-Unknown advisory as a trailing line IFF at
+// least one rendered host fact is not Known — and omits it entirely when every
+// rendered fact is Known. The advisory augments (never replaces) the bare
+// per-field "unknown" token(s).
+func TestDetectedHostSummaryTypedUnknownAdvisory(t *testing.T) {
+	backend, err := inference.BackendFor("vulkan")
+	if err != nil {
+		t.Fatalf("resolve backend: %v", err)
+	}
+	const advisory = "Some host facts could not be probed; villa will pick conservatively. Run villa detect for detail."
+
+	allKnown := detect.HostProfile{
+		CPUModel:            detect.KnownStr("AMD Ryzen AI Max+ 395", "lscpu"),
+		UsableEnvelopeBytes: detect.KnownBytes(64<<30, "mem_info_gtt_total"),
+		IGPUName:            detect.KnownStr("Radeon 8060S", "drm"),
+		IGPUGfxID:           detect.KnownStr("gfx1151", "drm"),
+		KernelVersion:       detect.KnownStr("6.18.4", "uname"),
+	}
+
+	t.Run("all-known-omits-advisory", func(t *testing.T) {
+		got := detectedHostSummary(allKnown, backend)
+		if strings.Contains(got, advisory) {
+			t.Errorf("all-Known summary must NOT contain the advisory, got:\n%s", got)
+		}
+	})
+
+	t.Run("typed-unknown-appends-advisory-and-keeps-token", func(t *testing.T) {
+		p := allKnown
+		p.UsableEnvelopeBytes = detect.UnknownBytes("no gtt probe", "")
+		got := detectedHostSummary(p, backend)
+		if !strings.Contains(got, advisory) {
+			t.Errorf("typed-Unknown summary missing the contracted advisory, got:\n%s", got)
+		}
+		// The advisory augments, never replaces, the bare per-field "unknown" token.
+		if !strings.Contains(got, "unknown usable envelope") {
+			t.Errorf("typed-Unknown summary must still render the bare per-field unknown token, got:\n%s", got)
+		}
+		// The advisory is the trailing line.
+		if !strings.HasSuffix(strings.TrimRight(got, "\n"), advisory) {
+			t.Errorf("advisory must be the trailing line, got:\n%s", got)
+		}
+	})
+
+	// Each rendered fact going typed-Unknown independently triggers the advisory.
+	t.Run("each-fact-triggers-advisory", func(t *testing.T) {
+		cases := map[string]detect.HostProfile{
+			"cpu": func() detect.HostProfile {
+				p := allKnown
+				p.CPUModel = detect.UnknownStr("no lscpu", "")
+				return p
+			}(),
+			"igpu": func() detect.HostProfile {
+				p := allKnown
+				p.IGPUName = detect.UnknownStr("no drm", "")
+				return p
+			}(),
+			"kernel": func() detect.HostProfile {
+				p := allKnown
+				p.KernelVersion = detect.UnknownStr("no uname", "")
+				return p
+			}(),
+		}
+		for name, p := range cases {
+			t.Run(name, func(t *testing.T) {
+				if got := detectedHostSummary(p, backend); !strings.Contains(got, advisory) {
+					t.Errorf("%s typed-Unknown must append the advisory, got:\n%s", name, got)
+				}
+			})
+		}
+	})
 }
 
 // TestSafeAutoFixReturnsFalseForPrivilegedFixes pins the conservative D-05

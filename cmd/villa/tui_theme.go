@@ -89,6 +89,15 @@ func villaTheme(colorEnabled bool) *huh.Theme {
 	return t
 }
 
+// mutedStyle returns the help-tier (faint/muted) lipgloss style used for advisory
+// help text — the same mutedColor the "Step N/M" label uses. It is help-tier, NOT
+// status-tier: no bold, no accent. Under SetColorProfile(termenv.Ascii) the
+// foreground is stripped and the text renders plain (the words still carry the
+// meaning), so the advisory degrades gracefully on no-color terminals.
+func mutedStyle() lipgloss.Style {
+	return lipgloss.NewStyle().Foreground(mutedColor)
+}
+
 // statusStyle returns the named lipgloss style for a status tier — bold + the tier
 // color. The preflight rows and the final result line reuse these so PASS/WARN/BLOCK
 // render consistently. Bold is applied unconditionally so the status word stays
