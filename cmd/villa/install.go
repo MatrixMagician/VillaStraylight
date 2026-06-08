@@ -609,6 +609,11 @@ func resolveGap(out, errOut io.Writer, c preflight.CheckResult, opts installOpts
 	// the consented stdin path; a recorded `false` is a decline (same return/messaging).
 	if decision, recorded := consents[c.ID]; consents != nil && recorded {
 		if !decision {
+			// Emit the contracted BLOCK-gap-declined copy (17-UI-SPEC.md Copywriting)
+			// verbatim, with <check name>=c.Name and <remediation>=blockRemediation(c).
+			// The terse hint stays as the actionable next-step. Returning false keeps
+			// the 0/2/1 exit contract (caller blocks unless --force).
+			fmt.Fprintf(errOut, "BLOCK: %s. %s. Run the suggested command, or re-run with --no-tui --force to override (auditable).\n", c.Name, blockRemediation(c))
 			fmt.Fprintf(errOut, "  declined — run the command above, then re-run `villa install`\n")
 			return false
 		}
@@ -743,6 +748,18 @@ func remediationCommand(c preflight.CheckResult, username string) string {
 		}
 		return c.Detail
 	}
+}
+
+// blockRemediation returns the <remediation> token for the contracted
+// BLOCK-gap-declined copy (17-UI-SPEC.md Copywriting): the check's Remediation text
+// when present, else the well-known fixed remediation command (remediation-forward
+// fallback, mirroring remediationCommand). It re-resolves the username the same way
+// resolveGap does — display only, the wizard never runs the command.
+func blockRemediation(c preflight.CheckResult) string {
+	if c.Remediation != "" {
+		return c.Remediation
+	}
+	return remediationCommand(c, installUsername())
 }
 
 // gibUsableEnvelope renders a typed-Unknown usable-memory envelope as the

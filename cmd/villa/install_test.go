@@ -710,6 +710,75 @@ func TestInstallBlockWithoutConsentExits1(t *testing.T) {
 	}
 }
 
+// TestWizardBlockDeclinedCopy proves the wizard-decline path emits the EXACT
+// 17-UI-SPEC.md Copywriting "BLOCK gap declined" line verbatim (Pillar 1), with
+// <check name> = c.Name and <remediation> = c.Remediation substituted, while the
+// 0/2/1 exit contract is unchanged: a declined BLOCK gap with no --force stays
+// exitBlocked with zero host mutation; --force still degrades to exitWarn without
+// emitting the decline copy as a hard block.
+func TestWizardBlockDeclinedCopy(t *testing.T) {
+	units := []orchestrate.Unit{{Name: "villa-llama.container", Text: "[Container]\n"}}
+	plan := orchestrate.Plan{Changed: units}
+
+	// declineWizard simulates the real collector returning a declined consent for the
+	// privileged BLOCK gap (PRE-05), so the single gateInstall → resolveGap consumes
+	// the threaded false WITHOUT re-prompting stdin.
+	declineWizard := func(deps *installDeps) {
+		deps.interactive = func() bool { return true }
+		deps.stdoutIsTTY = func() bool { return true }
+		deps.consent = func(prompt string) bool {
+			t.Errorf("d.consent must NOT be re-invoked on the threaded wizard-decline path (%q)", prompt)
+			return false
+		}
+		deps.wizard = func(context.Context, wizardInput) (wizardResult, error) {
+			return wizardResult{consentDecisions: map[string]bool{"PRE-05": false}}, nil
+		}
+	}
+
+	// The contracted line with the seloffCheck name + remediation substituted verbatim.
+	const wantLine = "BLOCK: SELinux container_use_devices boolean. run `setsebool -P container_use_devices=true`.. " +
+		"Run the suggested command, or re-run with --no-tui --force to override (auditable)."
+
+	t.Run("declined-without-force-blocks-with-contracted-copy", func(t *testing.T) {
+		f := newFakeInstallDeps(t, units, plan, []preflight.CheckResult{seloffCheck()})
+		declineWizard(f.installDeps)
+
+		cmd, _, errOut := installTestCmd()
+		code := runInstall(cmd, installOpts{}, f.installDeps)
+		if code != exitBlocked {
+			t.Fatalf("declined BLOCK gap (no --force) exit = %d, want exitBlocked (%d)", code, exitBlocked)
+		}
+		if !strings.Contains(errOut.String(), wantLine) {
+			t.Errorf("wizard-decline output missing the contracted BLOCK-gap-declined copy.\n got: %q\nwant substring: %q", errOut.String(), wantLine)
+		}
+		// Zero host mutation: the privileged seam never ran, nothing written/started/pulled.
+		if f.seboolCalls != 0 {
+			t.Errorf("declined gap must NOT run setsebool, ran %d times", f.seboolCalls)
+		}
+		if f.writeCalls != 0 || f.startCalls != 0 || f.pullCalls != 0 || f.saveCalls != 0 {
+			t.Errorf("a declined BLOCK install must not mutate: write=%d start=%d pull=%d save=%d",
+				f.writeCalls, f.startCalls, f.pullCalls, f.saveCalls)
+		}
+	})
+
+	t.Run("force-override-degrades-to-warn", func(t *testing.T) {
+		f := newFakeInstallDeps(t, units, plan, []preflight.CheckResult{seloffCheck()})
+		declineWizard(f.installDeps)
+
+		cmd, _, _ := installTestCmd()
+		code := runInstall(cmd, installOpts{force: true}, f.installDeps)
+		// --force still degrades the unmet gap to WARN (it was bypassed, not satisfied)
+		// — the decline copy is the declined-without-force state, not a hard block here.
+		if code != exitWarn {
+			t.Fatalf("declined BLOCK gap with --force exit = %d, want exitWarn (%d)", code, exitWarn)
+		}
+		// The gap was bypassed → install proceeded to write the units.
+		if f.writeCalls != 1 {
+			t.Errorf("--force override must proceed to write units once, wrote %d times", f.writeCalls)
+		}
+	})
+}
+
 func seloffCheck() preflight.CheckResult {
 	return preflight.CheckResult{
 		ID: "PRE-05", Name: "SELinux container_use_devices boolean", Tier: preflight.TierBlock,
