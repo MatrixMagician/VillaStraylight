@@ -1,10 +1,11 @@
 ---
 phase: 14
 slug: saved-bench-reports-compare
-status: draft
-nyquist_compliant: false
-wave_0_complete: false
+status: validated
+nyquist_compliant: true
+wave_0_complete: true
 created: 2026-06-07
+validated: 2026-06-08
 ---
 
 # Phase 14 — Validation Strategy
@@ -38,11 +39,19 @@ created: 2026-06-07
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| 14-01-01 | 01 | 1 | BENCH-03 | — | On-disk JSONL record format frozen with `schema_version=1` from day one; golden refuses silent drift | golden | `go test ./internal/benchstore/...` | ❌ W0 | ⬜ pending |
-| 14-01-02 | 01 | 1 | BENCH-03 | T-14-01 | XDG path write confined under `$XDG_DATA_HOME/villa/`; 0600 file / 0700 dir; path-traversal guard | unit | `go test ./internal/benchstore/...` | ❌ W0 | ⬜ pending |
-| 14-02-01 | 02 | 2 | BENCH-03 | — | `villa bench` persists a report after a run; pp and tg tok/s stored separately (never blended); VoidExhausted/Reason round-trips | unit | `go test ./cmd/villa/... ./internal/benchstore/...` | ❌ W0 | ⬜ pending |
-| 14-03-01 | 03 | 3 | BENCH-04 | — | `villa bench --compare` is read-only, lists/views saved reports, prints pp/tg deltas kept structurally separate | unit | `go test ./cmd/villa/...` | ❌ W0 | ⬜ pending |
-| 14-03-02 | 03 | 3 | BENCH-04 | T-14-02 | Comparability guard refuses deltas across mismatched model/quant/host fingerprint; UNKNOWN host fact → "not comparable" (never false-equal) | unit | `go test ./internal/benchstore/...` | ❌ W0 | ⬜ pending |
+| 14-01-01 | 01 | 1 | BENCH-03 | — | On-disk JSONL record format frozen with `schema_version=1` from day one; golden refuses silent drift | golden | `go test ./internal/benchstore/...` | ✅ | ✅ green |
+| 14-01-02 | 01 | 1 | BENCH-03 | T-14-01 | XDG path write confined under `$XDG_DATA_HOME/villa/`; 0600 file / 0700 dir; path-traversal guard | unit | `go test ./internal/benchstore/... ./cmd/villa/...` | ✅ | ✅ green |
+| 14-02-01 | 02 | 2 | BENCH-03 | — | `villa bench` persists a report after a run; pp and tg tok/s stored separately (never blended); VoidExhausted/Reason round-trips | unit | `go test ./cmd/villa/... ./internal/benchstore/...` | ✅ | ✅ green |
+| 14-03-01 | 03 | 3 | BENCH-04 | — | `villa bench --compare` is read-only, lists/views saved reports, prints pp/tg deltas kept structurally separate | unit | `go test ./cmd/villa/...` | ✅ | ✅ green |
+| 14-03-02 | 03 | 3 | BENCH-04 | T-14-02 | Comparability guard refuses deltas across mismatched model/quant/host fingerprint; UNKNOWN host fact → "not comparable" (never false-equal) | unit | `go test ./internal/benchstore/... ./cmd/villa/...` | ✅ | ✅ green |
+
+**Covering tests (reconciled 2026-06-08, all green):**
+
+- **14-01-01** — `internal/benchstore`: `TestRecordGolden`, `TestSchemaVersion`, `TestSchemaVersionIsLastField`, `TestNoBlendedKey`
+- **14-01-02** — `internal/benchstore`: `TestBenchReportsPathXDG`, `TestAppendGrowsViaSeam` · `cmd/villa`: `TestBenchstoreWriteConfinedToDataDir`, `TestBenchAssertStoreUnderRoot`, `TestBenchstoreWriteRejectsNonAbsoluteXDG`
+- **14-02-01** — `internal/benchstore`: `TestVoidRoundTrip` · `cmd/villa`: `TestBenchWriteHookFiresSingle`, `TestBenchPersistABOneRecord`, `TestBenchVoidPersist`, `TestBenchFingerprintHonorsKnownGuard`, `TestBenchWriteNonFatal`
+- **14-03-01** — `cmd/villa`: `TestBenchCompareList`, `TestBenchCompareComparable`, `TestBenchCompareReadOnly`, `TestBenchCompareGolden`, `TestBenchCompareNoBlendedKey`, `TestBenchCompareFlagExclusive`, `TestBenchCompareNoReports`
+- **14-03-02** — `internal/benchstore`: `TestComparableMatrix`, `TestUnknownHost`, `TestCompareDelta` · `cmd/villa`: `TestBenchCompareNotComparable`, `TestBenchCompareVoidSide`
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky · IDs illustrative — planner assigns canonical task IDs*
 
@@ -50,10 +59,10 @@ created: 2026-06-07
 
 ## Wave 0 Requirements
 
-- [ ] `internal/benchstore/testdata/record.golden` — frozen `schema_version=1` saved-report record (BENCH-03 contract)
-- [ ] `internal/benchstore/benchstore_test.go` — round-trip, XDG path safety, fingerprint comparability table tests
-- [ ] `cmd/villa/testdata/bench-compare.json.golden` — frozen `--compare` output (pp/tg deltas + "not comparable" label)
-- [ ] No framework install needed — `go test` already in use repo-wide
+- [x] `internal/benchstore/testdata/record.golden` — frozen `schema_version=1` saved-report record (BENCH-03 contract)
+- [x] `internal/benchstore/benchstore_test.go` — round-trip, XDG path safety, fingerprint comparability table tests
+- [x] `cmd/villa/testdata/bench-compare.json.golden` — frozen `--compare` output (pp/tg deltas + "not comparable" label)
+- [x] No framework install needed — `go test` already in use repo-wide
 
 *Existing `testing` infrastructure covers all phase requirements; only new fixtures/test files are added.*
 
@@ -71,11 +80,29 @@ created: 2026-06-07
 
 ## Validation Sign-Off
 
-- [ ] All tasks have `<automated>` verify or Wave 0 dependencies
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verify
-- [ ] Wave 0 covers all MISSING references
-- [ ] No watch-mode flags
-- [ ] Feedback latency < 30s
-- [ ] `nyquist_compliant: true` set in frontmatter
+- [x] All tasks have `<automated>` verify or Wave 0 dependencies
+- [x] Sampling continuity: no 3 consecutive tasks without automated verify
+- [x] Wave 0 covers all MISSING references
+- [x] No watch-mode flags
+- [x] Feedback latency < 30s
+- [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** pending
+**Approval:** ✅ validated 2026-06-08
+
+---
+
+## Validation Audit 2026-06-08
+
+State A reconciliation: the planning-time VALIDATION.md was never updated after Phase 14
+executed. All five per-task verifications already had covering automated tests (green); no
+new tests were generated. The lone Manual-Only item (on-hardware Δtg cross-backend proof,
+BENCH-04) was performed and PASSED on gfx1151 (14-UAT.md, Δtg +10.39). No auditor spawn
+needed — zero gaps.
+
+| Metric | Count |
+|--------|-------|
+| Gaps found | 0 |
+| Resolved | 0 |
+| Escalated | 0 |
+| Tasks COVERED (automated, green) | 5/5 |
+| Manual-only (UAT, passed) | 1 |
