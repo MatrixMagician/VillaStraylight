@@ -4,14 +4,14 @@ milestone: v1.2
 milestone_name: Operability
 status: executing
 stopped_at: Phase 17 UI-SPEC approved
-last_updated: "2026-06-08T16:48:07.714Z"
-last_activity: 2026-06-08 -- Phase 17 execution started
+last_updated: "2026-06-08T00:00:00.000Z"
+last_activity: 2026-06-08 -- Phase 17 Plan 03 complete (all plans done; phase-gate UAT remains)
 progress:
   total_phases: 6
   completed_phases: 5
   total_plans: 19
-  completed_plans: 18
-  percent: 83
+  completed_plans: 19
+  percent: 88
 ---
 
 # Project State
@@ -25,11 +25,11 @@ See: .planning/PROJECT.md (updated 2026-06-07 after starting v1.2)
 
 ## Current Position
 
-Phase: 17 (guided-tui-install-capstone) — EXECUTING
-Plan: 3 of 3
-Status: Ready to execute
+Phase: 17 (guided-tui-install-capstone) — EXECUTING (all 3 plans complete)
+Plan: 3 of 3 — COMPLETE
+Status: All plans executed; phase-gate UAT (real-TTY wizard walk-through) remains
 Progress: [██████████] 100% (plans) — phase-gate UAT remains
-Last activity: 2026-06-08 -- Phase 17 execution started
+Last activity: 2026-06-08 -- Phase 17 Plan 03 complete
 
 ## v1.2 Build Order (research-converged — preserve)
 
@@ -96,6 +96,7 @@ contract evolves at a time), then the destructive backup, then the TUI capstone.
 | Phase 16 P03 | ~22m | 2 tasks | 7 files |
 | Phase 17 P01 | 14min | 2 tasks | 6 files |
 | Phase 17 P02 | 22min | 2 tasks | 3 files |
+| Phase 17 P03 | 18min | 2 tasks | 2 files |
 
 ## Accumulated Context
 

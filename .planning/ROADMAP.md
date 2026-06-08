@@ -223,7 +223,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 17-03-PLAN.md — Test scaffold: wizard-fires-on-TTY, three-way bypass (`--no-tui`/`--json`/non-TTY), wizard==flag-path config byte-match (SC#1/SC#2), huh accessible-mode driver, and the `safeAutoFix` false-for-PRE-03/PRE-05 regression guard (INSTALL-01/02, D-04/D-05) [Wave 3]
+- [x] 17-03-PLAN.md — Test scaffold: wizard-fires-on-TTY, three-way bypass (`--no-tui`/`--json`/non-TTY), wizard==flag-path config byte-match (SC#1/SC#2), huh accessible-mode driver, single-gate wizard-path privileged-seam guard, and the `safeAutoFix` false-for-PRE-03/PRE-05 regression guard (INSTALL-01/02, D-04/D-05) [Wave 3]
 
 **UI hint**: yes
 **Implementation note**: `charmbracelet/huh` v1.0.0 is the ONLY new first-party dependency — pure-Go/CGO-free; it transitively pins the *stable* `bubbletea v1.3.6` / `lipgloss v1.1.0` (NOT `charm.land/bubbletea/v2`). Confined to the command tier; no pure core may import it. Verify the `CGO_ENABLED=0` static build in CI.
@@ -248,4 +248,4 @@ Plans:
 | 14. Saved Bench Reports + `--compare` | v1.2 | 3/3 | Complete    | 2026-06-07 |
 | 15. Cumulative Usage Tracking | v1.2 | 4/4 | Complete    | 2026-06-07 |
 | 16. Backup / Restore | v1.2 | 3/3 | Complete    | 2026-06-07 |
-| 17. Guided TUI Install | v1.2 | 2/3 | In Progress|  |
+| 17. Guided TUI Install | v1.2 | 3/3 | Plans complete (phase-gate UAT pending) |  |
