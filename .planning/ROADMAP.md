@@ -219,7 +219,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 17-02-PLAN.md — Wire the wizard into `villa install`: `--no-tui` flag + `wizard`/`stdoutIsTTY` seams + TTY-gate branch (`interactive() && !json && !noTUI && stdoutIsTTY()`) + `safeAutoFix` classifier (D-05, returns false for both privileged fixes) + live huh 5-screen wizard (`install_wizard.go`) composing `recommend.Pick`/preflight/`BackendFor`, returning to the unchanged install body (INSTALL-01/02, D-01..D-08) [Wave 2]
+- [x] 17-02-PLAN.md — Wire the wizard into `villa install`: `--no-tui` flag + `wizard`/`stdoutIsTTY` seams + TTY-gate branch (`interactive() && !json && !noTUI && stdoutIsTTY()`) + `safeAutoFix` classifier (D-05, returns false for both privileged fixes) + live huh 5-screen wizard (`install_wizard.go`) composing `recommend.Pick`/preflight/`BackendFor`, returning to the unchanged install body (INSTALL-01/02, D-01..D-08) [Wave 2]
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -248,4 +248,4 @@ Plans:
 | 14. Saved Bench Reports + `--compare` | v1.2 | 3/3 | Complete    | 2026-06-07 |
 | 15. Cumulative Usage Tracking | v1.2 | 4/4 | Complete    | 2026-06-07 |
 | 16. Backup / Restore | v1.2 | 3/3 | Complete    | 2026-06-07 |
-| 17. Guided TUI Install | v1.2 | 1/3 | In Progress|  |
+| 17. Guided TUI Install | v1.2 | 2/3 | In Progress|  |

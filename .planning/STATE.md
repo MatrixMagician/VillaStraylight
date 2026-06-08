@@ -4,13 +4,13 @@ milestone: v1.2
 milestone_name: Operability
 status: executing
 stopped_at: Phase 17 UI-SPEC approved
-last_updated: "2026-06-08T16:36:51.791Z"
+last_updated: "2026-06-08T16:48:07.714Z"
 last_activity: 2026-06-08 -- Phase 17 execution started
 progress:
   total_phases: 6
   completed_phases: 5
   total_plans: 19
-  completed_plans: 17
+  completed_plans: 18
   percent: 83
 ---
 
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-06-07 after starting v1.2)
 ## Current Position
 
 Phase: 17 (guided-tui-install-capstone) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
 Progress: [██████████] 100% (plans) — phase-gate UAT remains
 Last activity: 2026-06-08 -- Phase 17 execution started
@@ -95,6 +95,7 @@ contract evolves at a time), then the destructive backup, then the TUI capstone.
 | Phase 16 P02 | ~12m | 2 tasks | 13 files |
 | Phase 16 P03 | ~22m | 2 tasks | 7 files |
 | Phase 17 P01 | 14min | 2 tasks | 6 files |
+| Phase 17 P02 | 22min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -196,7 +197,7 @@ Items acknowledged at milestone close on 2026-06-06 (v1.1):
 
 ## Session Continuity
 
-Last session: 2026-06-08T16:36:40.428Z
+Last session: 2026-06-08T16:48:00.897Z
 Stopped at: Phase 17 UI-SPEC approved
 Resume file: .planning/phases/17-guided-tui-install-capstone/17-UI-SPEC.md
 
