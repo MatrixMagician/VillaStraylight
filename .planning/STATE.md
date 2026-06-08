@@ -29,7 +29,7 @@ Phase: 17 (guided-tui-install-capstone) — EXECUTING (all 3 plans complete)
 Plan: 3 of 3 — COMPLETE
 Status: All plans executed; phase-gate UAT (real-TTY wizard walk-through) remains
 Progress: [██████████] 100% (plans) — phase-gate UAT remains
-Last activity: 2026-06-08 -- Completed quick task 260608-ppy: fix phase-17 UI-SPEC copy gaps (empty-state + typed-Unknown)
+Last activity: 2026-06-08 -- Completed quick task 260608-pyp: fix remaining 4 phase-17 UI-SPEC warnings (footer keymap, block indent, step-2 CTA, BLOCK-declined copy)
 
 ## v1.2 Build Order (research-converged — preserve)
 
@@ -188,6 +188,7 @@ Earlier (v1.0 / v1.1) decisions retained below.
 | 260605-tuv | Fix villa uninstall: drop unsupported podman volume rm --ignore flag (exit 125), surface stderr, tolerate missing volume, add regression tests | 2026-06-05 | 228a4c0 | [260605-tuv-fix-villa-uninstall-drop-unsupported-pod](./quick/260605-tuv-fix-villa-uninstall-drop-unsupported-pod/) |
 | 260606-p3a | Fix villa bench single-mode backend label: name the measured backend in human header + --json single.backend (Phase-9 UAT minor gap; --ab + pp/tg-separate contract unchanged) | 2026-06-06 | 8aa9c90 | [260606-p3a-fix-villa-bench-single-mode-backend-labe](./quick/260606-p3a-fix-villa-bench-single-mode-backend-labe/) |
 | 260608-ppy | fix phase-17 UI-SPEC copy gaps (17-UI-REVIEW.md: empty-state BLOCKER + typed-Unknown advisory) — command-tier presentation copy only, TDD | 2026-06-08 | 583b1ee | [260608-ppy-fix-phase-17-ui-spec-copy-gaps-17-ui-rev](./quick/260608-ppy-fix-phase-17-ui-spec-copy-gaps-17-ui-rev/) |
+| 260608-pyp | fix remaining 4 phase-17 UI-SPEC warnings (footer keymap, 2-cell block indent, step-2 "use this model" CTA, BLOCK-declined copy) — command-tier presentation only, TDD; +go mod tidy | 2026-06-08 | 0cbac58 | [260608-pyp-fix-remaining-phase-17-ui-spec-warnings-](./quick/260608-pyp-fix-remaining-phase-17-ui-spec-warnings-/) |
 
 ## Deferred Items
 
