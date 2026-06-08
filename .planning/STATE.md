@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Operability
 status: completed
-stopped_at: Completed 16-03-PLAN.md (villa restore)
-last_updated: "2026-06-07T22:24:38.383Z"
+stopped_at: Phase 17 context gathered
+last_updated: "2026-06-08T15:33:13.883Z"
 last_activity: 2026-06-07
 progress:
   total_phases: 6
@@ -194,9 +194,9 @@ Items acknowledged at milestone close on 2026-06-06 (v1.1):
 
 ## Session Continuity
 
-Last session: 2026-06-07T21:00:00.000Z
-Stopped at: Completed 16-03-PLAN.md (villa restore)
-Resume file: None (Phase 16 plans complete; on-hardware phase-gate UAT pending)
+Last session: 2026-06-08T15:33:13.878Z
+Stopped at: Phase 17 context gathered
+Resume file: .planning/phases/17-guided-tui-install-capstone/17-CONTEXT.md
 
 ## Operator Next Steps
 
