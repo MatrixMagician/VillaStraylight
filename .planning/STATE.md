@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Operability
-status: Awaiting next milestone
-stopped_at: v1.2 Operability milestone complete (archived + tagged)
-last_updated: "2026-06-08T18:21:20.957Z"
+status: v1.2 shipped — PR #3 open (pending cloud review + merge + tag)
+stopped_at: v1.2 Operability shipped — PR #3 open against main
+last_updated: "2026-06-08T19:40:00.000Z"
 last_activity: 2026-06-08 — Milestone v1.2 completed and archived
 progress:
   total_phases: 6
@@ -204,6 +204,9 @@ Stopped at: v1.2 Operability milestone archived + audited (PASSED); on branch `g
 
 ## Operator Next Steps
 
-1. **Ship v1.2 to `main`** — `/gsd-ship` (PR → review → merge), then `git tag v1.2` on the main merge commit, mirroring v1.0/v1.1's tag-on-main pattern. Phase branches 12–17 still exist; clean them up at merge time.
-2. **Then start the next milestone** — `/gsd-new-milestone` (questioning → research → fresh REQUIREMENTS.md → roadmap). Candidate themes: Memory & Search (Qdrant/SearXNG/OpenCode), Platform & Access (macOS-Metal / remote-auth), ROCm perf-tuning.
-3. **Carryover tech debt (non-blocking):** extract shared `rocmpolicy` leaf package; investigate `rocm-6.4.4-rocwmma` residency FAIL on gfx1151; optional re-pin of the drifted `rocm-6.4.4` rolling tag.
+v1.2 shipped as **PR #3** (https://github.com/MatrixMagician/VillaStraylight/pull/3), branch `gsd/phase-17-guided-tui-install-capstone` → `main` (176 commits).
+
+1. **Cloud ultra-review (chosen):** run `/code-review ultra 3` (user-triggered, billed — cannot be auto-launched). Address any findings.
+2. **Merge when CI + review green**, then **`git tag -a v1.2`** on the `main` merge commit (mirrors v1.0/v1.1 tag-on-main), and `git push origin v1.2`. Clean up phase branches 12–17.
+3. **Then start the next milestone** — `/gsd-new-milestone` (fresh REQUIREMENTS.md). Candidate themes: Memory & Search (Qdrant/SearXNG/OpenCode), Platform & Access (macOS-Metal / remote-auth), ROCm perf-tuning.
+4. **Carryover tech debt (non-blocking):** extract shared `rocmpolicy` leaf package; investigate `rocm-6.4.4-rocwmma` residency FAIL on gfx1151; optional re-pin of the drifted `rocm-6.4.4` rolling tag.
