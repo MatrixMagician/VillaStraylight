@@ -292,9 +292,14 @@ cmd.Flags().BoolVar(&noTUI, "no-tui", false, "skip the guided wizard; use the fl
 ```go
 useWizard := d.interactive() && !opts.json && !opts.noTUI && d.stdoutIsTTY()
 if useWizard {
-    res, err := d.wizard(cmd.Context(), wizardInput{ /* probe/pick are called inside or passed */ })
+    // RESOLVED: probe/pick/runChecks are HOISTED before this branch (they already run as
+    // runInstall steps 1-3) and their results are PASSED IN — the wizard computes none of them.
+    res, err := d.wizard(cmd.Context(), wizardInput{profile: profile, rec: rec, alternatives: rec.Alternatives, checks: checks, backend: backend, colorEnabled: colorEnabled()})
     if err != nil { /* Esc/Ctrl+C → clean abort, non-zero, "use --no-tui" hint, NO mutation */ }
-    // thread res.modelOverride into recommend.Overrides; res.consent decisions into the gate
+    // thread res.modelOverride into recommend.Overrides (re-validated via Pick); thread
+    // res.consentDecisions into the SINGLE gateInstall call (nil map on the flag path = today's
+    // d.consent prompt; populated map = honor the recorded y/n, no stdin re-prompt).
+    // The wizard NEVER runs runGapFix itself; gateInstall runs EXACTLY ONCE after this branch.
 }
 // fall through to the EXISTING detect→pick→gate→render→install body (unchanged)
 ```
@@ -413,14 +418,20 @@ for _, a := range rec.Alternatives { // already memory-fitting, re-validated by 
 
 **The remaining findings are VERIFIED (Go proxy go.mod, source inspection) or CITED (huh/lipgloss/termenv source at the pinned tags).**
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **Should PRE-03 (linger) be reclassified as a non-privileged safe-auto fix under D-05?**
+1. **Should PRE-03 (linger) be reclassified as a non-privileged safe-auto fix under D-05?**  
+   **RESOLVED: NO — interpretation (1).** PRE-03/enable-linger stays PRIVILEGED and consent-gated
+   ([ASSUMED] privilege; conservative, D-04-compliant). `safeAutoFix(id)` returns false for both
+   current fixes; D-05 is a forward-looking classifier with nothing to auto-run on the current
+   check set. villa never silently runs a privileged command.
    - What we know: it shells to `loginctl enable-linger`, currently consent-gated via `offerNonBlockingGap` (WARN/stdout).
    - What's unclear: whether the user intends D-05 to change PRE-03's behavior, or whether D-05 is purely forward-looking (no current non-privileged fix).
    - Recommendation: adopt interpretation (1) — add a `safeAutoFix(id) bool` classifier returning false for both current fixes; surface this to the user in plan review. Do NOT auto-run a privileged command (D-04).
 
-2. **Wizard ownership of `--dry-run` (Claude's discretion):**
+2. **Wizard ownership of `--dry-run` (Claude's discretion):**  
+   **RESOLVED:** `--dry-run` stays on the flag/fallback path only this phase (NOT an in-wizard
+   preview screen) — the wizard's final review screen (D-07) already serves "preview before mutate."
    - Recommendation: keep `--dry-run` on the flag path only this phase (the wizard's final review screen already serves the "preview before mutate" purpose, D-07). Defer a rich in-wizard dry-run preview.
 
 ## Environment Availability
