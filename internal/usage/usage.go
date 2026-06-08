@@ -124,8 +124,13 @@ func foldCounter(prior CounterState, sampleRaw uint64) CounterState {
 // NO new or changed model entry. Fold is pure: it returns an updated copy and never
 // mutates the input store.
 func Fold(prior UsageTotals, sample Sample) UsageTotals {
-	// A sample with no Known counter contributes nothing — never fabricate an entry.
-	if !sample.PromptTokensKnown && !sample.PredictedTokensKnown {
+	// A sample with no Known counter — or no model identity to attribute counts to —
+	// contributes nothing; never fabricate or MIS-KEY an entry. An empty Model only
+	// arises when the writer could not resolve the active model (e.g. a transient
+	// config-read error makes the dashboard's liveModelID return ""); folding it would
+	// persist a phantom ""-keyed row carrying real counts that then surfaces in
+	// `villa status` and gets backed up (D-03: per-model keying, never a blank key).
+	if (!sample.PromptTokensKnown && !sample.PredictedTokensKnown) || sample.Model == "" {
 		return prior
 	}
 

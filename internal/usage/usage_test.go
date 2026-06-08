@@ -130,6 +130,34 @@ func TestFoldTypedUnknown(t *testing.T) {
 	}
 }
 
+// TestFoldEmptyModelDiscarded proves a sample with a Known counter but an EMPTY Model is
+// discarded (prior returned unchanged) rather than persisting a phantom ""-keyed row. An
+// empty Model only arises when the writer cannot resolve the active model (e.g. a transient
+// config-read error makes the dashboard's liveModelID return ""); folding it would surface
+// a blank-keyed entry carrying real counts in `villa status` and backups (v1.2 review
+// finding — D-03 per-model keying, never a blank key).
+func TestFoldEmptyModelDiscarded(t *testing.T) {
+	prior := UsageTotals{
+		SchemaVersion: usageSchemaVersion,
+		Models: map[string]ModelUsage{
+			"m1": {Model: "m1", Prompt: CounterState{Cumulative: 100, LastSeenRaw: 100}},
+		},
+	}
+	got := Fold(prior, Sample{
+		Model:                "", // no model identity to attribute counts to
+		PromptTokensTotal:    500,
+		PromptTokensKnown:    true,
+		PredictedTokensTotal: 700,
+		PredictedTokensKnown: true,
+	})
+	if _, ok := got.Models[""]; ok {
+		t.Fatalf("empty-model sample created a blank-keyed entry, want none: %+v", got.Models)
+	}
+	if len(got.Models) != 1 || got.Models["m1"].Prompt.Cumulative != 100 {
+		t.Fatalf("empty-model fold mutated the store: %+v, want only m1 unchanged", got.Models)
+	}
+}
+
 // TestUsageTotalsHasNoContentFields is the counts-only structural security test
 // (D-11), mirroring metrics.TestParseSlotsReadsOnlyNarrowFields: it reflects over
 // UsageTotals AND ModelUsage allowing ONLY count/identity field names, and asserts
