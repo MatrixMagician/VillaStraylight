@@ -14,9 +14,11 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
 	"github.com/MatrixMagician/VillaStraylight/internal/inference"
+	"github.com/MatrixMagician/VillaStraylight/internal/metrics"
 	"github.com/MatrixMagician/VillaStraylight/internal/modelswap"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 	"github.com/MatrixMagician/VillaStraylight/internal/status"
+	"github.com/MatrixMagician/VillaStraylight/internal/usage"
 )
 
 // stubStatusDeps builds a fully-stubbed status.Deps that renders the real stack
@@ -577,5 +579,204 @@ func TestHandleHealthz(t *testing.T) {
 	}
 	if !body.OK {
 		t.Fatalf("healthz ok = false, want true")
+	}
+}
+
+// usageProbe records the folded store WriteUsage was last called with, plus a count, so a
+// test can assert the SOLE-WRITER fold ran with the expected per-model totals. ReadUsage
+// returns the last-written store so successive scrapes accumulate end-to-end through the
+// handler (reset-aware continuation is proven across requests, not just in the pure core).
+type usageProbe struct {
+	mu      sync.Mutex
+	store   usage.UsageTotals
+	written int
+}
+
+func (p *usageProbe) read() usage.UsageTotals {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.store
+}
+
+func (p *usageProbe) write(t usage.UsageTotals) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.store = t
+	p.written++
+	return nil
+}
+
+// getMetrics drives one GET /api/metrics request against the server.
+func getMetrics(t *testing.T, srv *Server) {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, "/api/metrics", nil)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("/api/metrics code = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestMetricsWritesUsage asserts the dashboard /api/metrics handler is the SOLE,
+// usageMu-guarded writer of the usage store (USAGE-02 / D-07): each scrape folds the two
+// monotonic _total counters keyed by the in-section ModelID and atomically writes. It
+// proves, end-to-end through the handler:
+//   - the fold runs with the stub counters keyed by "m1" (sole-writer);
+//   - a SECOND scrape whose raw counter went DOWN (server restart reset) continues the
+//     cumulative total reset-aware rather than dropping to the new low raw count (D-04
+//     through the handler);
+//   - a typed-Unknown counter (Known=false) contributes NO fold (no fabricated 0, D-05);
+//   - the live metricsView JSON is byte-identical to the pre-change unavailable shape
+//     (the fold is additive — it adds NO field to the live response, D-10).
+func TestMetricsWritesUsage(t *testing.T) {
+	probe := &usageProbe{}
+	// counter is mutated between requests to simulate a counter reset on the 2nd scrape.
+	counter := metrics.CounterSample{
+		PromptTokensTotal: 100, PromptTokensKnown: true,
+		PredictedTokensTotal: 40, PredictedTokensKnown: true,
+	}
+	counterOK := true
+
+	srv := mustNewServer(t, Config{
+		StatusDeps:    stubStatusDeps(t),
+		ChatPort:      3000,
+		DashboardAddr: "127.0.0.1",
+		DashboardPort: 8888,
+		// scrapeMetrics left nil → typed-Unknown unavailable live view (so we also assert the
+		// live response is byte-identical to the pre-change unavailable shape below).
+		ReadUsage:     probe.read,
+		WriteUsage:    probe.write,
+		ModelID:       func() string { return "m1" },
+		CounterSample: func() (metrics.CounterSample, bool) { return counter, counterOK },
+	})
+
+	// --- Request 1: first fold from raw 100/40 ---------------------------------
+	getMetrics(t, srv)
+
+	if probe.written != 1 {
+		t.Fatalf("after 1 scrape, WriteUsage calls = %d, want 1 (sole writer ran)", probe.written)
+	}
+	got := probe.read()
+	mu, ok := got.Models["m1"]
+	if !ok {
+		t.Fatalf("store not keyed by in-section ModelID \"m1\"; store=%+v", got)
+	}
+	if mu.Prompt.Cumulative != 100 || mu.Predicted.Cumulative != 40 {
+		t.Fatalf("after scrape 1, cumulative = prompt %d / generated %d, want 100 / 40",
+			mu.Prompt.Cumulative, mu.Predicted.Cumulative)
+	}
+
+	// --- Request 2: counter RESET (raw drops to 30/10) → reset-aware continuation ---
+	counter = metrics.CounterSample{
+		PromptTokensTotal: 30, PromptTokensKnown: true,
+		PredictedTokensTotal: 10, PredictedTokensKnown: true,
+	}
+	getMetrics(t, srv)
+
+	if probe.written != 2 {
+		t.Fatalf("after 2 scrapes, WriteUsage calls = %d, want 2", probe.written)
+	}
+	got = probe.read()
+	mu = got.Models["m1"]
+	// D-04 reset-aware THROUGH the handler: a backward step counts the whole new sample
+	// (100+30, 40+10), never a negative delta and never a drop to the low raw count.
+	if mu.Prompt.Cumulative != 130 || mu.Predicted.Cumulative != 50 {
+		t.Fatalf("after reset scrape, cumulative = prompt %d / generated %d, want 130 / 50 (reset-aware continuation)",
+			mu.Prompt.Cumulative, mu.Predicted.Cumulative)
+	}
+
+	// --- Request 3: prompt counter typed-Unknown (Known=false) → NOT folded ---------
+	counter = metrics.CounterSample{
+		PromptTokensTotal: 0, PromptTokensKnown: false, // absent → no fold for prompt (D-05)
+		PredictedTokensTotal: 60, PredictedTokensKnown: true,
+	}
+	getMetrics(t, srv)
+
+	got = probe.read()
+	mu = got.Models["m1"]
+	// Prompt is unchanged (no fabricated 0, no LastSeenRaw mutation); generated continues
+	// reset-aware from last_seen_raw=10 → +60 raw is monotonic growth of (60-10)=50.
+	if mu.Prompt.Cumulative != 130 {
+		t.Fatalf("typed-Unknown prompt counter must NOT fold; prompt cumulative = %d, want 130 (unchanged)", mu.Prompt.Cumulative)
+	}
+	if mu.Predicted.Cumulative != 100 {
+		t.Fatalf("generated should continue from raw 10→60 (+50) = 100, got %d", mu.Predicted.Cumulative)
+	}
+
+	// --- Live metricsView unchanged: the fold adds NO field to the live response (D-10) ---
+	req := httptest.NewRequest(http.MethodGet, "/api/metrics", nil)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	// With scrapeMetrics nil-defaulted unavailable, the live view is the frozen
+	// {"available":false,...} metricsView shape — byte-identical to the pre-change handler.
+	want, err := json.Marshal(metricsView{Available: false})
+	if err != nil {
+		t.Fatalf("marshal want view: %v", err)
+	}
+	if strings.TrimSpace(rec.Body.String()) != string(want) {
+		t.Fatalf("live metricsView changed by the usage fold:\n got=%s\nwant=%s", rec.Body.String(), want)
+	}
+
+	// --- Counter scrape entirely unavailable → NO fold, NO write (D-05) -------------
+	priorWrites := probe.written
+	counterOK = false
+	getMetrics(t, srv)
+	if probe.written != priorWrites {
+		t.Fatalf("an unavailable counter scrape must NOT write usage (typed-Unknown); writes = %d, want %d", probe.written, priorWrites)
+	}
+}
+
+// TestStatusUsageSurfaced asserts the dashboard surfaces cumulative totals through the
+// SAME status.Report.usage field (Plan 03) over the existing /api/status handler — NO new
+// endpoint (D-10). A populated ReadUsage seam on status.Deps yields a /api/status body
+// carrying the "usage" key; a nil-returning seam omits it (typed-Unknown, never a
+// fabricated 0).
+func TestStatusUsageSurfaced(t *testing.T) {
+	// --- Present: a populated store surfaces the usage key on /api/status -----------
+	deps := stubStatusDeps(t)
+	deps.ReadUsage = func() *usage.UsageTotals {
+		return &usage.UsageTotals{
+			SchemaVersion: 1,
+			Models: map[string]usage.ModelUsage{
+				"qwen3": {
+					Model:     "qwen3",
+					Prompt:    usage.CounterState{Cumulative: 1284907},
+					Predicted: usage.CounterState{Cumulative: 55012},
+				},
+			},
+		}
+	}
+	srv := mustNewServer(t, Config{StatusDeps: deps, ChatPort: 3000, DashboardAddr: "127.0.0.1", DashboardPort: 8888})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/status", nil)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("/api/status code = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
+		t.Fatalf("decode body: %v\n%s", err, rec.Body.String())
+	}
+	if _, ok := raw["usage"]; !ok {
+		t.Fatalf("/api/status must surface the SAME status.Report usage field (D-10, no new endpoint); body=%s", rec.Body.String())
+	}
+
+	// --- Absent: a nil-returning seam omits the usage key (typed-Unknown) -----------
+	depsNil := stubStatusDeps(t)
+	depsNil.ReadUsage = func() *usage.UsageTotals { return nil }
+	srvNil := mustNewServer(t, Config{StatusDeps: depsNil, ChatPort: 3000, DashboardAddr: "127.0.0.1", DashboardPort: 8888})
+
+	reqNil := httptest.NewRequest(http.MethodGet, "/api/status", nil)
+	recNil := httptest.NewRecorder()
+	srvNil.Handler().ServeHTTP(recNil, reqNil)
+
+	var rawNil map[string]json.RawMessage
+	if err := json.Unmarshal(recNil.Body.Bytes(), &rawNil); err != nil {
+		t.Fatalf("decode body: %v\n%s", err, recNil.Body.String())
+	}
+	if _, ok := rawNil["usage"]; ok {
+		t.Fatalf("an absent store must OMIT the usage key (omitempty, no fabricated 0); body=%s", recNil.Body.String())
 	}
 }

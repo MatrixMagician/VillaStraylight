@@ -8,6 +8,9 @@ import (
 
 	"github.com/MatrixMagician/VillaStraylight/internal/backendswap"
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
+	"github.com/MatrixMagician/VillaStraylight/internal/detect"
+	"github.com/MatrixMagician/VillaStraylight/internal/inference"
+	"github.com/MatrixMagician/VillaStraylight/internal/preflight"
 )
 
 // backendRecorder records the side-effecting backendswap.Deps seam calls so the
@@ -83,6 +86,55 @@ func newBackendStub(rec *backendRecorder) *backendswap.Deps {
 			rec.proved = append(rec.proved, target)
 			return backendswap.ProveVerdict{Status: rec.proveStatus, Detail: rec.proveDetail}
 		},
+	}
+}
+
+// TestLivePreflightROCmFamily asserts the LIVE PreflightROCm closure (built in
+// liveBackendSwapDeps) is family-aware (D-08): it short-circuits ok=true for a
+// non-ROCm backend and runs the gate against the RESOLVED target image for every
+// ROCm-family name (SC#2).
+//
+// It does NOT assert a fixed ok=true: the kernel and firmware floors are knowable
+// off-hardware (unlike the GPU/HSA signals, which degrade to typed-Unknown WARNs), so
+// on a host whose kernel is below the gfx1151 stability floor — e.g. a CI runner on an
+// older kernel — the ROCm gate legitimately returns a confident StatusFail. Instead it
+// asserts the live closure reproduces a DIRECT run of the same resolved-image gate, which
+// is hermetic (both sides see the same host) and still catches a routing/reduction break.
+func TestLivePreflightROCmFamily(t *testing.T) {
+	d := liveBackendSwapDeps()
+
+	t.Run("non-ROCm backend short-circuits ok=true", func(t *testing.T) {
+		ok, why := d.PreflightROCm(config.VillaConfig{Backend: "vulkan"})
+		if !ok || why != "" {
+			t.Errorf("vulkan must short-circuit (true,\"\"), got (%v,%q)", ok, why)
+		}
+	})
+
+	// Every ROCm-family name must route through the resolved-image gate (not be treated as
+	// non-ROCm). Assert the closure's verdict equals a direct run of that same gate: on a
+	// healthy host both are (true,""); on a sub-floor host both are the SAME (false, floor)
+	// — a routing miss would wrongly short-circuit to (true,"") and diverge.
+	for _, name := range []string{"rocm", "rocm-6.4.4", "rocm-6.4.4-rocwmma"} {
+		if !inference.IsROCmFamily(name) {
+			t.Fatalf("test premise broken: %q is not a ROCm-family name", name)
+		}
+		gotOK, gotWhy := d.PreflightROCm(config.VillaConfig{Backend: name})
+
+		b, err := inference.BackendFor(name)
+		if err != nil {
+			t.Fatalf("BackendFor(%q): %v", name, err)
+		}
+		wantOK, wantWhy := true, ""
+		for _, c := range preflight.RunROCmForImage(detect.Probe(), b.Image()) {
+			if c.Status == preflight.StatusFail {
+				wantOK, wantWhy = false, c.Detail
+				break
+			}
+		}
+		if gotOK != wantOK || gotWhy != wantWhy {
+			t.Errorf("%s: live closure verdict (%v,%q) != direct resolved-image gate (%v,%q) — family routing/reduction broken",
+				name, gotOK, gotWhy, wantOK, wantWhy)
+		}
 	}
 }
 

@@ -17,6 +17,7 @@ package metrics
 import (
 	"encoding/json"
 	"io"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -46,6 +47,61 @@ type PerfSnapshot struct {
 	RequestsProcessing float64
 	// RequestsDeferred is llamacpp:requests_deferred — queue depth (informational).
 	RequestsDeferred float64
+}
+
+// mPromptTokensTotal and mPredictedTokensTotal are the two monotonic cumulative
+// counter NAME literals (declared "Counter:" in llama.cpp's tools/server/README.md).
+// These are the ONLY new metric literals introduced for the cumulative-usage feature
+// (USAGE-01) and — like the existing gauge names above — are confined to this package
+// per D-06's single-home discipline (enforced by the grep gate in 15-VALIDATION.md).
+const (
+	mPromptTokensTotal    = "llamacpp:prompt_tokens_total"
+	mPredictedTokensTotal = "llamacpp:tokens_predicted_total"
+)
+
+// CounterSample is the cumulative-usage counterpart to PerfSnapshot: the two monotonic
+// _total counters the fold (Plan 01) accumulates from. Counters are a DIFFERENT category
+// from the rate gauges (those are last-window snapshots, Pitfall 3), so they live in a
+// sibling struct rather than widening PerfSnapshot.
+//
+// Each value carries its own typed-Unknown bool: an absent or unparseable _total line
+// yields Known=false with the total left at its zero value (D-05) — the caller MUST gate
+// on Known and never present the bare 0 as a real reading. Values are uint64 (counts are
+// exact integers; the float64→uint64 narrowing is lossless below 2^53, Pitfall 3).
+type CounterSample struct {
+	// PromptTokensTotal is llamacpp:prompt_tokens_total; valid only when PromptTokensKnown.
+	PromptTokensTotal uint64
+	// PromptTokensKnown is the typed-Unknown signal for PromptTokensTotal (D-05).
+	PromptTokensKnown bool
+	// PredictedTokensTotal is llamacpp:tokens_predicted_total; valid only when PredictedTokensKnown.
+	PredictedTokensTotal uint64
+	// PredictedTokensKnown is the typed-Unknown signal for PredictedTokensTotal (D-05).
+	PredictedTokensKnown bool
+}
+
+// maxCounterValue is the inclusive upper bound a parsed counter may take before it is
+// rejected as typed-Unknown. It is 2^53, the largest integer a float64 represents
+// EXACTLY: above it the strconv.ParseFloat → uint64 narrowing has already silently lost
+// integer precision (two distinct counts could fold identically), so a value over this
+// bound is not a trustworthy count and is dropped rather than folded into the durable
+// total (D-05; defends the CounterSample "lossless below 2^53" claim).
+const maxCounterValue = 1 << 53
+
+// counterFromMap reads one cumulative counter out of a parsePromText map via its presence
+// signal: ok=false (absent / unparseable line) ⇒ Known=false with a zero total, never a
+// fabricated 0 presented as a real count (D-05). It then EXPLICITLY rejects every value
+// that cannot be a trustworthy non-negative exact integer — NaN, ±Inf, negative, and any
+// value above maxCounterValue (2^53) — by returning the typed-Unknown branch. This matters
+// because `NaN < 0` and `+Inf < 0` are both false, so a bare `v < 0` guard would narrow
+// uint64(NaN)/uint64(+Inf) (implementation-specific garbage) into a fabricated durable
+// count that the additive, reset-aware fold would then make permanent (D-05). Only a finite,
+// non-negative, exactly-representable value is narrowed to uint64 and returned Known.
+func counterFromMap(m map[string]float64, name string) (uint64, bool) {
+	v, ok := m[name]
+	if !ok || math.IsNaN(v) || math.IsInf(v, 0) || v < 0 || v > maxCounterValue {
+		return 0, false // typed-Unknown, never a fabricated count (D-05)
+	}
+	return uint64(v), true
 }
 
 // Slot is the NARROW view of one /slots element. It deliberately reads ONLY
@@ -120,6 +176,46 @@ func ScrapeMetrics(endpoint string) (PerfSnapshot, bool) {
 		GenTokensPerSec:    m["llamacpp:predicted_tokens_seconds"],
 		RequestsProcessing: m["llamacpp:requests_processing"],
 		RequestsDeferred:   m["llamacpp:requests_deferred"],
+	}, true
+}
+
+// ScrapeCounters is the cumulative-usage sibling of ScrapeMetrics: it surfaces the two
+// monotonic _total counters as a typed-Unknown CounterSample, reusing the SAME bounded
+// request shape (scrapeTimeout client + maxScrapeBody LimitReader + parsePromText) — it
+// adds NO second HTTP request and NO new endpoint/host literal (D-12; T-15-06/T-15-08).
+//
+// A transport error or non-200 (a 404 is the state when --metrics is absent) yields
+// (zero, false): the whole scrape is unavailable. On a 200 body, the availability bool is
+// true and each counter's own Known bool reflects its presence in the parsed map — an
+// absent counter degrades to Known=false, never a fabricated 0 (D-05 / T-15-07).
+func ScrapeCounters(endpoint string) (CounterSample, bool) {
+	client := &http.Client{Timeout: scrapeTimeout}
+	resp, err := client.Get(endpoint + "/metrics")
+	if err != nil {
+		return CounterSample{}, false
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return CounterSample{}, false
+	}
+	// Read one byte past the cap so an over-cap body is DETECTED as truncated rather than
+	// silently parsed. A read error (e.g. a connection reset mid-body) or a body exceeding
+	// maxScrapeBody can sever a counter line mid-value (`...predicted_total 1305` from
+	// `130572`); that smaller-but-parseable number would be folded by the reset-aware
+	// foldCounter as a COUNTER RESET, durably corrupting the cumulative total. Refuse the
+	// whole sample as unavailable instead of folding a partial read (D-05: no false data).
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxScrapeBody+1))
+	if err != nil || len(body) > maxScrapeBody {
+		return CounterSample{}, false
+	}
+	m := parsePromText(string(body))
+	prompt, promptKnown := counterFromMap(m, mPromptTokensTotal)
+	predicted, predictedKnown := counterFromMap(m, mPredictedTokensTotal)
+	return CounterSample{
+		PromptTokensTotal:    prompt,
+		PromptTokensKnown:    promptKnown,
+		PredictedTokensTotal: predicted,
+		PredictedTokensKnown: predictedKnown,
 	}, true
 }
 

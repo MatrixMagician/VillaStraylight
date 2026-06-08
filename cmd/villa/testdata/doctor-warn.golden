@@ -1,0 +1,6 @@
+overall  WARN
+
+PRE-01               BLOCK  PASS  RADV ICD present; 2 /dev/dri node(s)
+health:villa-llama   WARN   PASS  /health is ready (200)
+offload:villa-llama  BLOCK  PASS  residency proven on Vulkan; GTT floor corroborated
+drift                WARN   WARN  on-disk Quadlet units no longer match the rendered-from-config units — re-run `villa install` to reconcile config-vs-disk drift

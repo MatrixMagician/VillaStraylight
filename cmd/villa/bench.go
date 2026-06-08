@@ -7,12 +7,15 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/backendswap"
 	"github.com/MatrixMagician/VillaStraylight/internal/bench"
+	"github.com/MatrixMagician/VillaStraylight/internal/benchstore"
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
 	"github.com/MatrixMagician/VillaStraylight/internal/inference"
@@ -244,6 +247,164 @@ func liveBenchDeps(ab bool, spec bench.BenchSpec) *bench.Deps {
 	return d
 }
 
+// ---------------------------------------------------------------------------
+// BENCH-03 persistence: live benchstore append seam + cmd-tier fingerprint capture.
+// The pure internal/benchstore core (Plan 14-01) owns the on-disk record contract and
+// imports NEITHER inference NOR detect (TestSeamGrepGate). The host fingerprint is
+// captured HERE, at the cmd tier, from config + .Known-guarded detect.Probe(), and
+// passed into benchstore as plain strings — benchstore stays detect-free.
+// ---------------------------------------------------------------------------
+
+// benchStoreLocation resolves BOTH the single append-only JSONL store path the live
+// writer targets AND the trusted data-home ROOT it must stay under:
+//   - root = $XDG_DATA_HOME (default ~/.local/share, then /var/tmp)
+//   - store = <root>/villa/bench-reports.jsonl
+//
+// Returning the root separately is what makes the T-14-01 traversal guard MEANINGFUL:
+// the untrusted vector is $XDG_DATA_HOME itself (an attacker-controlled env var could
+// contain `..` or be a relative value and point the store anywhere). The guard
+// (benchAssertStoreUnderRoot) validates the resolved store against this resolved root
+// — NOT against its own parent dir, which by construction can never escape. It mirrors
+// the benchstore.benchReportsPath resolver (unexported in the pure core) and
+// model.go:modelsDir, so the live append path resolves the SAME documented location
+// without importing config/benchstore solely for a helper.
+func benchStoreLocation() (store, root string) {
+	const file = "bench-reports.jsonl"
+	if x := os.Getenv("XDG_DATA_HOME"); x != "" {
+		return filepath.Join(x, "villa", file), x
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		root = filepath.Join(home, ".local", "share")
+		return filepath.Join(root, "villa", file), root
+	}
+	return filepath.Join("/var/tmp", "villa", file), "/var/tmp"
+}
+
+// benchReportsStorePath returns just the resolved store path (for WARN messages). It
+// is the path half of benchStoreLocation.
+func benchReportsStorePath() string {
+	store, _ := benchStoreLocation()
+	return store
+}
+
+// benchAssertStoreUnderRoot is the MEANINGFUL T-14-01 traversal guard. Unlike a check
+// of the store against its own parent dir (which can never escape and is defense-
+// theater), this validates the resolved store against the TRUSTED data-home root — the
+// actual untrusted vector being $XDG_DATA_HOME. It rejects:
+//   - an empty or NON-ABSOLUTE root (a relative $XDG_DATA_HOME — the spec requires an
+//     absolute path; a relative one resolves against an unpredictable CWD), and
+//   - a store that, after Clean/Abs, escapes the resolved root (a `..` injected into
+//     $XDG_DATA_HOME).
+//
+// On rejection the caller skips persistence with a loud-but-non-fatal WARN (bench still
+// exits normally) — consistent with the existing write-failure handling.
+func benchAssertStoreUnderRoot(store, root string) error {
+	if root == "" {
+		return fmt.Errorf("bench: refusing to write store: empty data-home root")
+	}
+	if !filepath.IsAbs(root) {
+		return fmt.Errorf("bench: refusing to write store: data-home root %q is not absolute "+
+			"(set XDG_DATA_HOME to an absolute path)", root)
+	}
+	absRoot, err := filepath.Abs(filepath.Clean(root))
+	if err != nil {
+		return err
+	}
+	absStore, err := filepath.Abs(filepath.Clean(store))
+	if err != nil {
+		return err
+	}
+	rel, err := filepath.Rel(absRoot, absStore)
+	if err != nil {
+		return err
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return fmt.Errorf("bench: refusing to write %q outside data-home root %q", absStore, absRoot)
+	}
+	return nil
+}
+
+// liveBenchstoreDeps wires the pure benchstore core (Plan 14-01) to the real host
+// filesystem under XDG. It mirrors liveBenchDeps's func-field seam shape. AppendLine is
+// the loud-but-non-fatal write path (T-14-01): assert-inside-dir guard → MkdirAll 0700 →
+// O_APPEND|O_CREATE|O_WRONLY 0600 → append the already-'\n'-terminated line (NEVER a
+// write-whole-file/truncate). ReadAll returns the store bytes, or (nil,nil) when absent
+// (no reports ≠ error; wired now so the seam is complete for Plan 03). Now supplies the
+// capture timestamp.
+func liveBenchstoreDeps() benchstore.Deps {
+	store, root := benchStoreLocation()
+	dir := filepath.Dir(store)
+	return benchstore.Deps{
+		AppendLine: func(line []byte) error {
+			// MEANINGFUL T-14-01 guard: assert the resolved store stays under the
+			// trusted data-home root (rejecting a `..` or non-absolute $XDG_DATA_HOME),
+			// not against its own parent dir (which can never escape). On rejection the
+			// caller surfaces a loud-but-non-fatal WARN; the measurement is unaffected.
+			if err := benchAssertStoreUnderRoot(store, root); err != nil {
+				return err
+			}
+			if err := os.MkdirAll(dir, 0o700); err != nil {
+				return fmt.Errorf("bench: create store dir: %w", err)
+			}
+			f, err := os.OpenFile(store, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+			if err != nil {
+				return fmt.Errorf("bench: open store: %w", err)
+			}
+			defer f.Close()
+			if _, err := f.Write(line); err != nil {
+				return fmt.Errorf("bench: append store line: %w", err)
+			}
+			return nil
+		},
+		ReadAll: func() ([]byte, error) {
+			data, err := os.ReadFile(store)
+			if errors.Is(err, os.ErrNotExist) {
+				return nil, nil // no reports yet ≠ error
+			}
+			if err != nil {
+				return nil, fmt.Errorf("bench: read store: %w", err)
+			}
+			return data, nil
+		},
+		Now: time.Now,
+	}
+}
+
+// captureBenchFingerprint builds the comparability Fingerprint at the cmd tier. Model /
+// Quant / Ctx come from config (the single source of truth — never re-derived). The host
+// facts come from detect.Probe(), .Known-guarded: an UNKNOWN gfx id / kernel serializes
+// to the empty sentinel so the Plan-01 Comparable guard treats the pair as NOT comparable
+// (T-14-04: never fabricate host identity). The benched backend is RECORDED for
+// presentation but is DELIBERATELY not a comparability blocker (Comparable excludes it).
+// NO detect type crosses into benchstore — only plain strings/ints.
+func captureBenchFingerprint(cfg config.VillaConfig, backend string) benchstore.Fingerprint {
+	hp := detect.Probe()
+	gfx := ""
+	if hp.IGPUGfxID.Known {
+		gfx = hp.IGPUGfxID.Value
+	}
+	kver := ""
+	if hp.KernelVersion.Known {
+		kver = hp.KernelVersion.Value
+	}
+	return benchstore.Fingerprint{
+		Model:         cfg.Model,
+		Quant:         cfg.Quant,
+		Ctx:           cfg.Ctx,
+		Backend:       backend,
+		HostGfxID:     gfx,
+		KernelVersion: kver,
+	}
+}
+
+// benchstoreWrite is the package-level indirection runBench fires AFTER a successful
+// measurement to persist one saved report (BENCH-03). It mirrors benchBackendSwap/benchRun
+// so bench_test.go can drive the write-hook (and its loud-but-non-fatal error path)
+// without touching XDG or a live host. The default appends via benchstore.Append.
+var benchstoreWrite = func(d benchstore.Deps, r benchstore.SavedReport) error {
+	return benchstore.Append(d, r)
+}
+
 // runBackendSwap delegates a single --ab flip to backendswap.Run via the SAME live
 // seam wiring `villa backend set` uses (liveBackendSwapDeps), mapping the typed Result
 // to an error. This is the LOCKED composition (RESEARCH Pattern 4) — bench MUST NOT
@@ -281,11 +442,14 @@ func runBackendSwap(target string) error {
 // and restores the original (SC#3).
 func newBench() *cobra.Command {
 	var (
-		ab       bool
-		reps     int
-		warmup   int
-		nPredict int
-		asJSON   bool
+		ab        bool
+		abTarget  string
+		reps      int
+		warmup    int
+		nPredict  int
+		asJSON    bool
+		asCompare bool
+		asList    bool
 	)
 	cmd := &cobra.Command{
 		Use:   "bench",
@@ -300,6 +464,21 @@ func newBench() *cobra.Command {
 			"a per-metric Vulkan-vs-ROCm delta. --json emits the machine-readable contract.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			// BENCH-04 read-only --compare/--list dispatch. These paths NEVER run a
+			// benchmark and NEVER touch the backend, so they reject combination with the
+			// live-measurement flags at the cobra boundary (clone of the --ab-target-requires
+			// --ab precedent shape below). Validate BEFORE building the BenchSpec.
+			if asCompare || asList {
+				if asCompare && asList {
+					return fmt.Errorf("bench: --compare and --list are mutually exclusive — pick one")
+				}
+				if ab || abTarget != "" || cmd.Flags().Changed("reps") || cmd.Flags().Changed("warmup") || cmd.Flags().Changed("n-predict") {
+					return fmt.Errorf("bench: --compare/--list are READ-ONLY (they never run a benchmark or " +
+						"touch the backend) — they cannot be combined with --ab/--ab-target/--reps/--warmup/--n-predict")
+				}
+				benchCompareRun(cmd, asList, asCompare, asJSON, liveBenchstoreDeps())
+				return nil
+			}
 			// Validate the bounded-int flags at the cobra boundary (RESEARCH Security
 			// Domain V5: "-n/--n-predict are bounded ints"). Reject nonsensical values
 			// up front with a clear usage error rather than letting -n 0/-n -5 fall
@@ -308,6 +487,31 @@ func newBench() *cobra.Command {
 			if reps < 1 || warmup < 0 || nPredict < 1 {
 				return fmt.Errorf("bench: --reps and --n-predict must be >= 1 and --warmup must be >= 0 "+
 					"(got --reps=%d --warmup=%d --n-predict=%d)", reps, warmup, nPredict)
+			}
+			// --ab-target plumbing (Option A, SC#3). The explicit target is only
+			// meaningful for the --ab flip path: reject it without --ab as a usage error
+			// (clearer UX than silently ignoring it).
+			if abTarget != "" && !ab {
+				return fmt.Errorf("bench: --ab-target requires --ab (the explicit comparison " +
+					"backend is only used by the --ab flip)")
+			}
+			// Fail-closed validation (D-03 / T-12-07): resolve a non-empty --ab-target via
+			// the SINGLE BackendFor resolver BEFORE any switch — a typo is an actionable
+			// error, never a silent flip to a wrong/missing backend.
+			if abTarget != "" {
+				tb, err := inference.BackendFor(abTarget)
+				if err != nil {
+					return fmt.Errorf("bench: invalid --ab-target %q: %w", abTarget, err)
+				}
+				// Reject a target that resolves to the CURRENT backend: backendswap NoOps a
+				// same-backend flip, so side B would measure the SAME backend as side A and the
+				// A/B would report From==To with a meaningless ~run-to-run-noise delta. Compare by
+				// resolved image so a name alias (e.g. "" vs "vulkan") is caught, not just an exact
+				// string match.
+				if cb, cerr := inference.BackendFor(benchConfiguredBackend()); cerr == nil && cb.Image() == tb.Image() {
+					return fmt.Errorf("bench: --ab-target %q resolves to the current backend; --ab compares two "+
+						"DIFFERENT backends (omit --ab-target to compare against the default, or name a different backend)", abTarget)
+				}
 			}
 			spec := bench.BenchSpec{
 				Reps:        reps,
@@ -318,17 +522,20 @@ func newBench() *cobra.Command {
 				Temp:        benchTemp,
 				Timeout:     benchProveTimeout,
 				MinResident: benchMinResident(reps),
+				ABTarget:    abTarget,
 			}
-			code := runBench(cmd, spec, ab, asJSON, liveBenchDeps(ab, spec))
-			os.Exit(code)
+			benchRun(cmd, spec, ab, asJSON, liveBenchDeps(ab, spec))
 			return nil
 		},
 	}
 	cmd.Flags().BoolVar(&ab, "ab", false, "also flip to the other backend (via the transactional backend-set core), bench it with the identical spec, and restore the original — for a per-metric A/B delta")
+	cmd.Flags().StringVar(&abTarget, "ab-target", "", "explicit backend the --ab flip measures against (e.g. rocm-6.4.4, rocm-7.2.4, vulkan) for an arbitrary-pair A/B; requires --ab; empty uses the vulkan<->rocm default")
 	cmd.Flags().IntVarP(&reps, "reps", "n", 5, "number of residency-checked (counted) runs per side")
 	cmd.Flags().IntVar(&warmup, "warmup", 1, "number of leading runs measured then discarded (cache/JIT warm)")
 	cmd.Flags().IntVar(&nPredict, "n-predict", 128, "fixed max_tokens every run requests (reproducibility)")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "emit the bench result as JSON (the frozen pp/tg-separate contract)")
+	cmd.Flags().BoolVar(&asCompare, "compare", false, "compare saved bench reports (read-only; pp/tg deltas, comparability-guarded) — does NOT run a benchmark or touch the backend; auto-selects the two most-recent comparable reports")
+	cmd.Flags().BoolVar(&asList, "list", false, "list saved bench reports (read-only)")
 	return cmd
 }
 
@@ -398,6 +605,17 @@ type benchAB struct {
 	DeltaPredictedPerSec float64   `json:"delta_predicted_per_sec"`
 }
 
+// benchRun is the package-level indirection RunE calls so bench_test.go can capture the
+// constructed BenchSpec (asserting --ab-target plumbing) and assert the fail-closed
+// validation NEVER reaches the run — all without firing os.Exit or touching a live host.
+// The default runs the real runBench and os.Exit(code)s (the bench noun maps its result to
+// a process exit code); a test override returns the captured code without exiting.
+var benchRun = func(cmd *cobra.Command, spec bench.BenchSpec, ab, asJSON bool, d *bench.Deps) int {
+	code := runBench(cmd, spec, ab, asJSON, d)
+	os.Exit(code)
+	return code // unreachable in the default; satisfies the signature for test overrides
+}
+
 // runBench builds the BenchSpec from flags, pre-checks a reachable endpoint
 // (refuse-with-remediation if none), runs the pure bench core, and maps the typed
 // Result to an exit code + rendered output. The body RETURNS the int (no os.Exit) so
@@ -445,6 +663,13 @@ func runBench(cmd *cobra.Command, spec bench.BenchSpec, ab, asJSON bool, d *benc
 	} else {
 		renderBench(out, entry)
 	}
+
+	// BENCH-03: persist the run as one saved report AFTER the measurement is rendered and
+	// BEFORE returning the exit code. Persist ALWAYS (A5) — including a void-exhausted run
+	// (VoidExhausted=true is recorded) — so the hook fires on BOTH the exitPass and
+	// exitWarn paths below. The write is loud-but-non-fatal: a failure is a stderr WARN
+	// that NEVER changes the measurement's exit code (the band is the load-bearing output).
+	persistBenchReport(errOut, res, ab, spec)
 
 	// Void-exhaustion → honest WARN (exitWarn), not a confident band.
 	if res.VoidExhausted {
@@ -534,6 +759,98 @@ func sideFromStats(backend string, s bench.Stats) benchSide {
 		PredictedStddev: s.StddevTG,
 		Kept:            s.Kept,
 		Void:            s.Void,
+	}
+}
+
+// savedReportFromResult folds the SAME pure bench.Result data benchEntryFromResult maps
+// into the benchstore on-disk types (Plan 14-01): Mode single/ab, the reproducible
+// SavedSpec, the per-side SavedSide(s) with pp/tg SEPARATE (cloning sideFromStats), the
+// SavedAB per-metric deltas, the VoidExhausted/Reason residency-void state, and the
+// cmd-tier-captured Fingerprint. The benched backend is carried via fp.Backend (set by the
+// caller) and the side labels; no backend marker literal is introduced here.
+func savedReportFromResult(res bench.Result, ab bool, spec bench.BenchSpec, fp benchstore.Fingerprint) benchstore.SavedReport {
+	savedSpec := benchstore.SavedSpec{
+		Prompt:   spec.Prompt,
+		Reps:     spec.Reps,
+		Warmup:   spec.Warmup,
+		NPredict: spec.NPredict,
+		Seed:     spec.Seed,
+		Temp:     spec.Temp,
+		ABTarget: spec.ABTarget,
+	}
+	report := benchstore.SavedReport{
+		Spec:          savedSpec,
+		VoidExhausted: res.VoidExhausted,
+		Reason:        res.Reason,
+		Fingerprint:   fp,
+	}
+	if ab && res.AB != nil {
+		a := savedSideFromStats(res.AB.From, res.AB.A)
+		b := savedSideFromStats(res.AB.To, res.AB.B)
+		report.Mode = "ab"
+		report.AB = &benchstore.SavedAB{
+			From:                 res.AB.From,
+			To:                   res.AB.To,
+			A:                    a,
+			B:                    b,
+			DeltaPromptPerSec:    res.AB.DeltaPP,
+			DeltaPredictedPerSec: res.AB.DeltaTG,
+		}
+		return report
+	}
+	side := savedSideFromStats(res.Backend, res.Single)
+	report.Mode = "single"
+	report.Single = &side
+	return report
+}
+
+// savedSideFromStats folds one side's pure Stats into the benchstore SavedSide (pp/tg
+// separate). It mirrors sideFromStats exactly so the on-disk numbers match `bench --json`.
+func savedSideFromStats(backend string, s bench.Stats) benchstore.SavedSide {
+	return benchstore.SavedSide{
+		Backend:         backend,
+		PromptPerSec:    s.MedianPP,
+		PromptStddev:    s.StddevPP,
+		PredictedPerSec: s.MedianTG,
+		PredictedStddev: s.StddevTG,
+		Kept:            s.Kept,
+		Void:            s.Void,
+	}
+}
+
+// persistBenchReport fires the BENCH-03 write-hook AFTER a successful measurement: it
+// loads config (the single source of truth), captures the .Known-guarded fingerprint with
+// the benched backend (single: res.Backend; ab: res.AB.From — the original), folds the
+// Result into a SavedReport, and appends it via the live benchstore seam. A config-load
+// failure OR a write failure is LOUD-but-NON-FATAL (T-14-05): a stderr WARN, NEVER a
+// changed exit code (cloned from liveBenchDeps.Restore). It is called on BOTH the clean
+// and void-exhaustion paths (A5 — persist always, including void runs).
+//
+// A config-load error must SKIP persistence (not swallow): a zero VillaConfig would make
+// captureBenchFingerprint stamp Model=""/Quant=""/Ctx=0, durably persisting a zeroed
+// fingerprint that later auto-selects/compares against another empty-fingerprint record
+// — a quieter "fabricate identity" (WR-04). Skip-with-WARN instead of polluting the store.
+func persistBenchReport(errOut io.Writer, res bench.Result, ab bool, spec bench.BenchSpec) {
+	cfg, err := config.LoadVilla()
+	if err != nil {
+		fmt.Fprintf(errOut,
+			"bench: WARNING — skipping saved report: cannot load config for fingerprint: %v\n"+
+				"  the measurement is unaffected; a record with an empty model/quant fingerprint "+
+				"would not be honestly comparable, so it was NOT persisted\n", err)
+		return
+	}
+	backend := res.Backend
+	if ab && res.AB != nil {
+		// Record the original backend as the fingerprint axis for an --ab run (the
+		// from-side); Backend is presentation-only and never a comparability blocker.
+		backend = res.AB.From
+	}
+	fp := captureBenchFingerprint(cfg, backend)
+	report := savedReportFromResult(res, ab, spec, fp)
+	if err := benchstoreWrite(liveBenchstoreDeps(), report); err != nil {
+		fmt.Fprintf(errOut,
+			"bench: WARNING — failed to persist saved report: %v\n"+
+				"  the measurement is unaffected; check %s perms\n", err, benchReportsStorePath())
 	}
 }
 

@@ -1,0 +1,37 @@
+# CI gate for VillaStraylight (Phase 17, INSTALL-02 / SC#4).
+#
+# This is the supply-chain + CGO-free build gate the guided-TUI capstone needs:
+#   - CGO_ENABLED=0 build proves the single static binary survives the new
+#     charmbracelet/huh dependency (SC#4).
+#   - go vet + go test mirror `make check` (the pre-commit gate).
+#   - go mod verify is the Go-ecosystem supply-chain integrity gate (go.sum hashes
+#     match the checksum DB) — stronger than registry-existence checking (T-17-SC).
+#   - the bubbletea-v1 grep asserts huh did NOT drag in charm.land/bubbletea/v2,
+#     which would violate D-11 (Pitfall 4 in 17-RESEARCH.md).
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.2"
+
+      - name: CGO-free static build (SC#4 gate)
+        run: CGO_ENABLED=0 go build ./...
+
+      - name: vet + test (mirrors `make check`)
+        run: go vet ./... && go test ./...
+
+      - name: go mod verify (supply-chain integrity)
+        run: go mod verify
+
+      - name: assert bubbletea stays v1 (D-11 / no v2 leak)
+        run: grep -q 'bubbletea v1' go.mod || (echo "bubbletea v2 leaked!" && exit 1)

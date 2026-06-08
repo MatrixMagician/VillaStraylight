@@ -1,0 +1,9 @@
+overall  PASS
+
+ROCM-PRE-gfx         BLOCK  PASS  iGPU is gfx1151
+ROCM-PRE-kernel      BLOCK  PASS  kernel 6.18.9 meets the 6.18.4 floor
+ROCM-PRE-firmware    BLOCK  WARN  firmware version not probed; ensure recent and avoid the denied build — install a recent linux-firmware and avoid the known-bad build
+ROCM-PRE-hsa         BLOCK  WARN  could not verify HSA_OVERRIDE_GFX_VERSION — set the HSA override for the ROCm runtime on gfx1151
+health:villa-llama   WARN   PASS  /health is ready (200)
+offload:villa-llama  BLOCK  PASS  residency proven on the running ROCm backend; GTT floor corroborated
+drift                WARN   PASS  on-disk units match the rendered-from-config units

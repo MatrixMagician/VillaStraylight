@@ -56,6 +56,13 @@ type BenchSpec struct {
 	// MinResident is the floor of resident runs below which the Result is an honest
 	// void-exhaustion WARN rather than a confident delta.
 	MinResident int
+	// ABTarget, when non-empty, is the explicit backend the --ab flip measures
+	// against (Option A, SC#3) — enabling an arbitrary-pair A/B (e.g. rocm-6.4.4 vs
+	// rocm-7.2.4) the v1.1 2-value swap cannot express. Empty falls back to the v1.1
+	// other(orig) 2-value swap for back-compat (vulkan<->rocm). It is a configuration
+	// VALUE supplied (and fail-closed validated) by the cmd tier; this pure core never
+	// validates or resolves it (no inference import — the seam boundary).
+	ABTarget string
 }
 
 // RunTimings is one run's server-computed throughput, pp and tg ALREADY separated
@@ -257,20 +264,28 @@ func Run(ctx context.Context, d Deps, spec BenchSpec) Result {
 	orig := cfg.Backend
 	defer d.Restore(ctx, orig) //nolint:errcheck // best-effort restore; live layer logs
 
+	// The effective flip target: an explicit ABTarget (Option A, arbitrary-pair A/B)
+	// when set, else the v1.1 other(orig) 2-value swap (back-compat default). Computed
+	// ONCE so the Switch and the ABResult.To agree.
+	target := spec.ABTarget
+	if target == "" {
+		target = other(orig)
+	}
+
 	// Side A on the current (original) backend.
 	statsA, enoughA := benchN(ctx, d, spec, "A")
 
-	// Flip to the other backend. A Switch error is surfaced; the deferred Restore
+	// Flip to the target backend. A Switch error is surfaced; the deferred Restore
 	// still fires (and the flip is then a backendswap no-op).
-	if err := d.Switch(ctx, other(orig)); err != nil {
-		ab := abResult(orig, statsA, Stats{})
+	if err := d.Switch(ctx, target); err != nil {
+		ab := abResult(orig, target, statsA, Stats{})
 		return Result{AB: &ab, Err: err}
 	}
 
-	// Side B on the other backend, with the SAME spec.
+	// Side B on the target backend, with the SAME spec.
 	statsB, enoughB := benchN(ctx, d, spec, "B")
 
-	ab := abResult(orig, statsA, statsB)
+	ab := abResult(orig, target, statsA, statsB)
 	res := Result{AB: &ab}
 	if !enoughA || !enoughB {
 		res.VoidExhausted = true
@@ -280,12 +295,14 @@ func Run(ctx context.Context, d Deps, spec BenchSpec) Result {
 	return res
 }
 
-// abResult builds the per-metric ABResult from the two sides' stats. Deltas are B
+// abResult builds the per-metric ABResult from the two sides' stats. From is the
+// loaded original; target is the effective flip target (explicit ABTarget or the
+// other(orig) default) so To reflects the ACTUAL pair benchmarked. Deltas are B
 // minus A per metric — never derived from a blended figure.
-func abResult(orig string, a, b Stats) ABResult {
+func abResult(orig, target string, a, b Stats) ABResult {
 	return ABResult{
 		From:    orig,
-		To:      other(orig),
+		To:      target,
 		A:       a,
 		B:       b,
 		DeltaPP: b.MedianPP - a.MedianPP,

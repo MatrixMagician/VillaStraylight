@@ -1,0 +1,48 @@
+{
+  "mode": "compare",
+  "comparable": true,
+  "differing_fields": [],
+  "a": {
+    "backend": "vulkan",
+    "captured_at": "2026-06-07T10:00:00Z",
+    "prompt_per_sec": 120,
+    "predicted_per_sec": 40,
+    "void_exhausted": false
+  },
+  "b": {
+    "backend": "rocm-7.2.4",
+    "captured_at": "2026-06-07T11:00:00Z",
+    "prompt_per_sec": 150,
+    "predicted_per_sec": 55,
+    "void_exhausted": true
+  },
+  "a_void_exhausted": false,
+  "b_void_exhausted": true,
+  "delta_prompt_per_sec": 30,
+  "delta_predicted_per_sec": 15
+}
+{
+  "mode": "compare",
+  "comparable": false,
+  "differing_fields": [
+    "model"
+  ],
+  "a": {
+    "backend": "vulkan",
+    "captured_at": "2026-06-07T12:00:00Z",
+    "prompt_per_sec": 120,
+    "predicted_per_sec": 40,
+    "void_exhausted": false
+  },
+  "b": {
+    "backend": "rocm-7.2.4",
+    "captured_at": "2026-06-07T13:00:00Z",
+    "prompt_per_sec": 150,
+    "predicted_per_sec": 55,
+    "void_exhausted": false
+  },
+  "a_void_exhausted": false,
+  "b_void_exhausted": false,
+  "delta_prompt_per_sec": 0,
+  "delta_predicted_per_sec": 0
+}

@@ -20,6 +20,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 	"github.com/MatrixMagician/VillaStraylight/internal/recommend"
 	"github.com/MatrixMagician/VillaStraylight/internal/status"
+	"github.com/MatrixMagician/VillaStraylight/internal/usage"
 )
 
 // status.go is the thin cobra caller for the offload-asserting `villa status` slice
@@ -117,6 +118,16 @@ func renderStatusTable(w io.Writer, r status.Report, withProvenance bool) {
 	// ROCm-readiness tri-state (D-04): the folded indicator (ready/not-ready/unknown).
 	fmt.Fprintf(tw, "rocm-readiness\t%s\n", r.ROCmReadiness)
 
+	// Cumulative usage (D-09): rendered ONLY when present — an absent/empty store is
+	// omitted (the read-only seam returned nil), never fabricated 0s. Prints the
+	// per-model cumulative prompt/generated token totals.
+	if r.Usage != nil {
+		for _, m := range r.Usage.Models {
+			fmt.Fprintf(tw, "usage %s\tprompt %d / generated %d (cumulative)\n",
+				m.Model, m.Prompt.Cumulative, m.Predicted.Cumulative)
+		}
+	}
+
 	fmt.Fprintf(tw, "\nSERVICE\tACTIVE\tHEALTH\tOFFLOAD\n")
 	for _, s := range r.Services {
 		// A service with no GPU offload (OffloadApplies=false, e.g. Open WebUI)
@@ -198,7 +209,42 @@ func liveStatusDeps() (*status.Deps, error) {
 		// ROCm-readiness (D-04): CONSUME the already-computed detect rocm_readiness
 		// sub-tree; internal/status folds it. Never recompute the signals here.
 		ROCmReadiness: func() detect.ROCmReadiness { return detect.Probe().ROCmReadiness },
+		// Cumulative usage (D-07/D-09): READ-ONLY load of usage.json. The CLI is
+		// one-shot and NEVER writes the store (the dashboard, Plan 04, is the sole
+		// writer); nil on an absent/empty store so the figure is omitted.
+		ReadUsage: liveReadUsage,
 	}, nil
+}
+
+// liveReadUsage loads the cumulative-usage store READ-ONLY (D-07): it wires a
+// usage.Deps whose ReadAll reads usage.UsagePath() via os.ReadFile (returning
+// (nil,nil) on a not-yet-created store so usage.Load fails closed to empty) and
+// supplies NO WriteAll seam — the CLI status path can never write usage.json (the
+// dashboard, Plan 04, is the sole writer). It returns a *usage.UsageTotals only when
+// the store holds at least one model entry; an absent/empty/corrupt store yields nil
+// so the Report omits the usage key (typed-Unknown, never a fabricated 0 — D-09).
+func liveReadUsage() *usage.UsageTotals {
+	path := usage.UsagePath()
+	deps := usage.Deps{
+		ReadAll: func() ([]byte, error) {
+			b, err := os.ReadFile(path)
+			if os.IsNotExist(err) {
+				return nil, nil // absent store ⇒ fail-closed-to-empty in usage.Load
+			}
+			if err != nil {
+				return nil, err
+			}
+			return b, nil
+		},
+	}
+	totals, err := usage.Load(deps)
+	if err != nil {
+		return nil // unreadable store → typed-Unknown (omitted), never a fabricated 0
+	}
+	if len(totals.Models) == 0 {
+		return nil // empty store ⇒ omit the usage key (D-09)
+	}
+	return &totals
 }
 
 // liveGenTokensPerSec reads the live token-generation throughput by REUSING the

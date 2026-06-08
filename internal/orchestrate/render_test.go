@@ -114,6 +114,44 @@ func TestRenderROCmContainerGolden(t *testing.T) {
 	goldenCompare(t, "villa-llama-rocm.container.golden", c.Text)
 }
 
+// rocm644FixtureInput mirrors rocmFixtureInput but selects the v1.2 rocm-6.4.4
+// backend through the resolver, so the additive golden tracks backend_rocm.go's
+// 6.4.4 digest and render.go's widened backendLabel (Pitfall 2). The image/device/
+// group/env delta is sourced THROUGH the seam, never hand-typed.
+func rocm644FixtureInput(t *testing.T) RenderInput {
+	t.Helper()
+	rocm644, err := inference.BackendFor("rocm-6.4.4")
+	if err != nil {
+		t.Fatalf("BackendFor(rocm-6.4.4): %v", err)
+	}
+	return RenderInput{
+		Backend:   rocm644,
+		Cfg:       config.VillaConfig{Model: "qwen3-35b-a3b-moe-64", Quant: "UD-Q4_K_M", Ctx: 131072, Backend: "rocm-6.4.4"},
+		ModelFile: "qwen3-35b-a3b-moe-64.gguf",
+		ModelsDir: "/home/villa/.local/share/villa/models",
+	}
+}
+
+// TestRenderROCm644ContainerGolden: the rendered rocm-6.4.4 .container equals the
+// ADDITIVE testdata/villa-llama-rocm-6.4.4.container.golden byte-for-byte. This is a
+// NEW fixture (not a refreeze of the Vulkan/7.2.4 goldens, which stay byte-frozen
+// per D-09). Its Description= must show the honest "ROCm 6.4.4 (HIP)" label, NOT the
+// misleading "Vulkan RADV" default (Pitfall 2).
+func TestRenderROCm644ContainerGolden(t *testing.T) {
+	units, err := Render(rocm644FixtureInput(t))
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	c := unitByName(t, units, "villa-llama.container")
+	if !strings.Contains(c.Text, "ROCm 6.4.4 (HIP)") {
+		t.Errorf("rocm-6.4.4 unit Description must show the honest ROCm label, got:\n%s", c.Text)
+	}
+	if strings.Contains(c.Text, "Vulkan RADV") {
+		t.Errorf("rocm-6.4.4 unit must NOT fall through to the Vulkan RADV label:\n%s", c.Text)
+	}
+	goldenCompare(t, "villa-llama-rocm-6.4.4.container.golden", c.Text)
+}
+
 // TestRenderROCmEnvGroupFrozen mirrors TestRenderOpenWebUITelemetryFrozen: it guards
 // against the Pitfall-1 silent drop of the second group-add or the env block even if
 // the golden were regenerated wrong. It asserts the rendered ROCm unit contains EXACTLY
@@ -337,5 +375,24 @@ func TestRenderedPublishLoopbackOnly(t *testing.T) {
 	}
 	if strings.Contains(c.Text, "PublishPort=0.0.0.0:") {
 		t.Errorf(".container publishes a 0.0.0.0 host port (privacy leak):\n%s", c.Text)
+	}
+}
+
+// TestBackendLabelROCmFamily asserts backendLabel maps each ROCm-family name to a
+// distinct, honest ROCm Description= label (Pitfall 2) — a 6.4.4 unit must NOT
+// fall through to the misleading "Vulkan RADV" default — while the Vulkan default
+// and the existing rocm-7.2.4 label stay byte-unchanged (D-09 additivity).
+func TestBackendLabelROCmFamily(t *testing.T) {
+	cases := map[string]string{
+		"rocm":               "ROCm 7.2.4 (HIP)",
+		"rocm-6.4.4":         "ROCm 6.4.4 (HIP)",
+		"rocm-6.4.4-rocwmma": "ROCm 6.4.4 rocWMMA (HIP)",
+		"vulkan":             "Vulkan RADV",
+		"":                   "Vulkan RADV",
+	}
+	for name, want := range cases {
+		if got := backendLabel(name); got != want {
+			t.Errorf("backendLabel(%q) = %q, want %q", name, got, want)
+		}
 	}
 }

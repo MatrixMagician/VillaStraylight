@@ -1,0 +1,42 @@
+{
+  "findings": [
+    {
+      "id": "PRE-01",
+      "name": "Vulkan ICD + iGPU enumeration",
+      "tier": "BLOCK",
+      "status": "PASS",
+      "detail": "RADV ICD present; 2 /dev/dri node(s)",
+      "remediation": "",
+      "provenance": "icd; /dev/dri"
+    },
+    {
+      "id": "health:villa-llama",
+      "name": "villa-llama health",
+      "tier": "WARN",
+      "status": "PASS",
+      "detail": "/health is ready (200)",
+      "remediation": "",
+      "provenance": "status.Report.Services[].Health"
+    },
+    {
+      "id": "offload:villa-llama",
+      "name": "villa-llama GPU offload",
+      "tier": "BLOCK",
+      "status": "PASS",
+      "detail": "residency proven on Vulkan; GTT floor corroborated",
+      "remediation": "",
+      "provenance": "status.Report.Services[].Offload"
+    },
+    {
+      "id": "drift",
+      "name": "Config-vs-disk drift",
+      "tier": "WARN",
+      "status": "PASS",
+      "detail": "on-disk units match the rendered-from-config units",
+      "remediation": "",
+      "provenance": "orchestrate.Reconcile (empty Plan.Changed)"
+    }
+  ],
+  "overall": "PASS",
+  "schema_version": 1
+}

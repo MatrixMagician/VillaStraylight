@@ -395,14 +395,21 @@ func liveBackendSwapDeps() *backendswap.Deps {
 			}
 			return false, fmt.Sprintf("needs %d bytes vs %d usable", rec.TotalBytes, rec.UsableEnvelopeBytes)
 		},
-		// PreflightROCm: meaningful only for a rocm target. For any non-rocm backend this
-		// short-circuits ok=true (zero side effects). For rocm it runs the ROCm preflight
-		// and refuses on the FIRST StatusFail with that check's Detail as the remediation.
+		// PreflightROCm: meaningful only for a ROCm-family target (D-08). For any non-ROCm
+		// backend this short-circuits ok=true (zero side effects). For a ROCm-family backend
+		// it resolves the target image and runs the ROCm preflight against the REAL digest,
+		// refusing on the FIRST StatusFail with that check's Detail as the remediation (SC#2).
 		PreflightROCm: func(cfg config.VillaConfig) (bool, string) {
-			if cfg.Backend != "rocm" {
+			if !inference.IsROCmFamily(cfg.Backend) {
 				return true, ""
 			}
-			for _, c := range preflight.RunROCm(detect.Probe()) {
+			// Resolve the target backend so the policy gate evaluates the ACTUAL
+			// digest against imageDeny (SC#2). Fail-closed on an unknown name.
+			b, err := inference.BackendFor(cfg.Backend)
+			if err != nil {
+				return false, err.Error()
+			}
+			for _, c := range preflight.RunROCmForImage(detect.Probe(), b.Image()) {
 				if c.Status == preflight.StatusFail {
 					return false, c.Detail
 				}

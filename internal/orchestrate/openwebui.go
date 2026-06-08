@@ -19,6 +19,22 @@ package orchestrate
 // of the telemetry-kill set whenever this digest is bumped.
 const openWebUIImage = "ghcr.io/open-webui/open-webui:main@sha256:7f1b0a1a50cfbac23da3b16f96bc968fd757b26dc9e54e93813d61768ea9184e"
 
+// OpenWebUIImage returns the digest-pinned Open WebUI image so callers (the
+// Phase-16 backup manifest, D-10) can record it WITHOUT re-typing the literal.
+// The literal stays behind the orchestrate seam — Open WebUI is a managed-service
+// constant, NOT an inference-backend token (so it is outside TestSeamGrepGate's
+// inference-seam scope), but routing all reads through this accessor keeps the
+// no-re-typed-image-literal discipline uniform and future-proof.
+func OpenWebUIImage() string { return openWebUIImage }
+
+// OpenWebUIVolumeName returns the podman NAMED-volume identity for the Open WebUI
+// data volume (the same name the Quadlet volume unit registers). The Phase-16
+// backup/restore flow (D-02) needs the resolved volume name to drive the cmd-tier
+// fixed-arg `podman volume export <name>` seam; routing the read through this
+// accessor keeps the volume-name a single source of truth behind the orchestrate
+// seam (config is the single source of truth — never a re-typed literal in cmd).
+func OpenWebUIVolumeName() string { return openWebUIVolumeName }
+
 // Open WebUI stable Quadlet identities (this project's unit-name/volume contract,
 // asserted by the goldens — they leak no GPU/image assumption).
 const (

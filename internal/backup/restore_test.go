@@ -1,0 +1,595 @@
+package backup
+
+// restore_test.go drives the pure transactional Restore() state-machine off-hardware
+// with a fakeDeps recorder, asserting the BAK-02/BAK-03 invariants:
+//   - a SHA-256 verify failure / incompatible manifest schema → Refused, ZERO mutate calls
+//   - a fail-closed BLOCK skew → Refused
+//   - a WARN skew with consent denied → Refused (and --yes/Bypass proceeds)
+//   - the happy-path clean-recreate-before-import ordering (VolumeRm + ReconcileAndWrite
+//     + EnsureVolume BEFORE VolumeImport) on the FORWARD path
+//   - a mutate error rolls back and the rollback re-imports the CAPTURED tar through the
+//     SAME clean-recreate ordering, reporting RolledBack:true
+//   - a rollback-STEP error yields RolledBack:true AND a rollback-incomplete Reason
+//   - a non-pass Prove rolls back
+
+import (
+	"bytes"
+	"errors"
+	"io"
+	"strings"
+	"testing"
+
+	"github.com/MatrixMagician/VillaStraylight/internal/config"
+)
+
+// recDeps is the order-recording fake Deps + the canned outcomes each seam returns.
+type recDeps struct {
+	calls []string // ordered seam-call log (verb+arg)
+
+	loadCfg     config.VillaConfig
+	loadErr     error
+	saveErr     error
+	saveErrOnce map[int]error // SaveConfig error keyed by call ordinal (1-based)
+	saveN       int
+
+	volumeExportErr error
+	volumeRmErr     error
+	ensureVolErr    error
+	volumeImportErr error
+	reconcileErr    error
+	stopErr         error
+	startErr        error
+	writeFileErr    error
+	writeTempErr    error
+	removeFileErr   error
+	readFile        map[string][]byte
+	readFileErr     map[string]error
+
+	prove ProveVerdict
+}
+
+func (r *recDeps) log(s string) { r.calls = append(r.calls, s) }
+
+// deps builds a backup.Deps wired to the recorder.
+func (r *recDeps) deps() Deps {
+	return Deps{
+		OpenWebUIServiceName: "villa-openwebui.service",
+		InstallServiceName:   "villa-llama.service",
+		LoadConfig: func() (config.VillaConfig, error) {
+			r.log("LoadConfig")
+			return r.loadCfg, r.loadErr
+		},
+		SaveConfig: func(c config.VillaConfig) error {
+			r.saveN++
+			r.log("SaveConfig:" + c.Backend)
+			if r.saveErrOnce != nil {
+				if e, ok := r.saveErrOnce[r.saveN]; ok {
+					return e
+				}
+			}
+			return r.saveErr
+		},
+		VolumeExport: func(name, out string) error {
+			r.log("VolumeExport:" + name)
+			return r.volumeExportErr
+		},
+		VolumeRm: func(name string) error {
+			r.log("VolumeRm:" + name)
+			return r.volumeRmErr
+		},
+		EnsureVolume: func(name string) error {
+			r.log("EnsureVolume:" + name)
+			return r.ensureVolErr
+		},
+		VolumeImport: func(name, src string) error {
+			r.log("VolumeImport:" + name + ":" + src)
+			return r.volumeImportErr
+		},
+		ReconcileAndWrite: func(c config.VillaConfig) (bool, error) {
+			r.log("ReconcileAndWrite:" + c.Backend)
+			return true, r.reconcileErr
+		},
+		Stop: func(s string) error {
+			r.log("Stop:" + s)
+			return r.stopErr
+		},
+		Start: func(s string) error {
+			r.log("Start:" + s)
+			return r.startErr
+		},
+		Restart: func(s string) error {
+			r.log("Restart:" + s)
+			return nil
+		},
+		ReadFile: func(p string) ([]byte, error) {
+			if r.readFileErr != nil {
+				if e, ok := r.readFileErr[p]; ok {
+					return nil, e
+				}
+			}
+			if r.readFile != nil {
+				if b, ok := r.readFile[p]; ok {
+					return b, nil
+				}
+			}
+			return nil, errors.New("not found: " + p)
+		},
+		WriteFileAtomic: func(p string, data []byte) error {
+			r.log("WriteFileAtomic:" + p)
+			return r.writeFileErr
+		},
+		WriteTempFile: func(p string, data []byte) error {
+			r.log("WriteTempFile:" + p)
+			return r.writeTempErr
+		},
+		RemoveFile: func(p string) error {
+			r.log("RemoveFile:" + p)
+			return r.removeFileErr
+		},
+		DaemonReload: func() error { return nil },
+		Prove: func(target string) ProveVerdict {
+			r.log("Prove:" + target)
+			return r.prove
+		},
+	}
+}
+
+// buildArchive assembles a valid in-memory archive (manifest FIRST + correct
+// per-entry SHA-256) the same way Backup does, so the restore verify pass passes.
+// owui/usage/bench are optional (nil entry omitted). corrupt flips one byte of the
+// owui entry AFTER its checksum is recorded, to drive a verify mismatch.
+func buildArchive(t *testing.T, m Manifest, cfgTOML, owui, usage, bench []byte, corrupt bool) []byte {
+	t.Helper()
+	type e struct {
+		name string
+		data []byte
+	}
+	var data []e
+	data = append(data, e{EntryConfig, cfgTOML})
+	data = append(data, e{EntryOpenWebUIVolume, owui})
+	if usage != nil {
+		data = append(data, e{EntryUsage, usage})
+	}
+	if bench != nil {
+		data = append(data, e{EntryBenchReports, bench})
+	}
+	var sums []EntryChecksum
+	for _, d := range data {
+		s, err := sum(bytes.NewReader(d.data))
+		if err != nil {
+			t.Fatalf("sum: %v", err)
+		}
+		sums = append(sums, EntryChecksum{Name: d.name, SHA256: s})
+	}
+	m.Entries = sums
+	if m.SchemaVersion == 0 {
+		m.SchemaVersion = backupSchemaVersion
+	}
+	mj, err := marshalManifest(m)
+	if err != nil {
+		t.Fatalf("marshal manifest: %v", err)
+	}
+	entries := []archiveEntry{{name: EntryManifest, data: mj}}
+	for i, d := range data {
+		payload := d.data
+		if corrupt && d.name == EntryOpenWebUIVolume {
+			payload = append([]byte("X"), d.data...) // mismatch vs recorded sum
+		}
+		_ = i
+		entries = append(entries, archiveEntry{name: d.name, data: payload})
+	}
+	var buf bytes.Buffer
+	if err := writeArchive(&buf, entries); err != nil {
+		t.Fatalf("writeArchive: %v", err)
+	}
+	return buf.Bytes()
+}
+
+// opener returns an OpenArchive func yielding a fresh reader over b on each call.
+func opener(b []byte) func() (io.ReadCloser, error) {
+	return func() (io.ReadCloser, error) {
+		return io.NopCloser(bytes.NewReader(b)), nil
+	}
+}
+
+// validCfgTOML is a minimal config.toml the restore parses into a VillaConfig.
+var validCfgTOML = []byte("model = \"m\"\nbackend = \"vulkan\"\nctx = 4096\n")
+
+func passVerdict() ProveVerdict { return ProveVerdict{Status: ProveStatusPass} }
+
+// baseInput builds a RestoreInput over the archive bytes with a matching Current
+// (no skew) and a pass prove, plus a recorder.
+func baseInput(t *testing.T, arch []byte) (*recDeps, RestoreInput) {
+	t.Helper()
+	r := &recDeps{
+		loadCfg:  config.VillaConfig{Backend: "vulkan", Model: "m"},
+		prove:    passVerdict(),
+		readFile: map[string][]byte{},
+	}
+	in := RestoreInput{
+		OpenArchive:         opener(arch),
+		Current:             baseCurrent(),
+		Consent:             func(string) bool { return true },
+		OpenWebUIVolumeName: "villa-openwebui",
+		TempVolumeTar:       "/tmp/restore-owui.tar",
+		RollbackVolumeTar:   "/tmp/rollback-owui.tar",
+		UsageDestPath:       "/data/usage.json",
+		BenchDestPath:       "/data/bench-reports.jsonl",
+	}
+	return r, in
+}
+
+// indexOf returns the first index of a call matching prefix, or -1.
+func indexOf(calls []string, prefix string) int {
+	for i, c := range calls {
+		if strings.HasPrefix(c, prefix) {
+			return i
+		}
+	}
+	return -1
+}
+
+// hasMutate reports whether any mutating seam was called (used to assert zero side
+// effects on a Refused path).
+func hasMutate(calls []string) bool {
+	for _, c := range calls {
+		for _, m := range []string{"SaveConfig", "VolumeRm", "EnsureVolume", "VolumeImport", "ReconcileAndWrite", "WriteFileAtomic", "WriteTempFile", "RemoveFile", "Stop", "Start"} {
+			if strings.HasPrefix(c, m) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// rawMultiTar assembles a tar from explicit (name, data) members in the GIVEN
+// order, bypassing buildArchive's manifest-first/checksum discipline so the
+// read-side WR-02/WR-03 guards (duplicate / extra / out-of-order entries) are
+// exercised directly.
+func rawMultiTar(t *testing.T, members []archiveEntry) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	if err := writeArchive(&buf, members); err != nil {
+		t.Fatalf("rawMultiTar writeArchive: %v", err)
+	}
+	return buf.Bytes()
+}
+
+// manifestJSONFor builds a manifest.json listing exactly the given entries with
+// correct checksums (schema = backupSchemaVersion), for the raw-tar guard tests.
+func manifestJSONFor(t *testing.T, entries []archiveEntry) []byte {
+	t.Helper()
+	m := baseManifest()
+	m.SchemaVersion = backupSchemaVersion
+	var sums []EntryChecksum
+	for _, e := range entries {
+		s, err := sum(bytes.NewReader(e.data))
+		if err != nil {
+			t.Fatalf("sum: %v", err)
+		}
+		sums = append(sums, EntryChecksum{Name: e.name, SHA256: s})
+	}
+	m.Entries = sums
+	mj, err := marshalManifest(m)
+	if err != nil {
+		t.Fatalf("marshal manifest: %v", err)
+	}
+	return mj
+}
+
+// TestRestoreDuplicateEntryRefuses asserts a duplicate non-manifest entry name is
+// refused at verify with ZERO side effects (WR-02).
+func TestRestoreDuplicateEntryRefuses(t *testing.T) {
+	cfg := validCfgTOML
+	owui := []byte("owui-data")
+	dataEntries := []archiveEntry{{EntryConfig, cfg}, {EntryOpenWebUIVolume, owui}}
+	mj := manifestJSONFor(t, dataEntries)
+	// Two config.toml members (duplicate name) after the manifest.
+	arch := rawMultiTar(t, []archiveEntry{
+		{EntryManifest, mj},
+		{EntryConfig, cfg},
+		{EntryConfig, []byte("model = \"other\"\n")},
+		{EntryOpenWebUIVolume, owui},
+	})
+	r, in := baseInput(t, arch)
+	res := Restore(r.deps(), in)
+	if !res.Refused || res.FailedStep != "verify" {
+		t.Fatalf("want Refused at verify on a duplicate entry, got %+v", res)
+	}
+	if hasMutate(r.calls) {
+		t.Fatalf("duplicate-entry refusal must have ZERO mutate side effects, got %v", r.calls)
+	}
+}
+
+// TestRestoreExtraEntryRefuses asserts an entry NOT listed in the manifest is
+// refused at verify with ZERO side effects (WR-02 exact-set).
+func TestRestoreExtraEntryRefuses(t *testing.T) {
+	cfg := validCfgTOML
+	owui := []byte("owui-data")
+	dataEntries := []archiveEntry{{EntryConfig, cfg}, {EntryOpenWebUIVolume, owui}}
+	mj := manifestJSONFor(t, dataEntries)
+	arch := rawMultiTar(t, []archiveEntry{
+		{EntryManifest, mj},
+		{EntryConfig, cfg},
+		{EntryOpenWebUIVolume, owui},
+		{"unexpected.txt", []byte("stowaway")}, // not in the manifest
+	})
+	r, in := baseInput(t, arch)
+	res := Restore(r.deps(), in)
+	if !res.Refused || res.FailedStep != "verify" {
+		t.Fatalf("want Refused at verify on an unexpected entry, got %+v", res)
+	}
+	if hasMutate(r.calls) {
+		t.Fatalf("extra-entry refusal must have ZERO mutate side effects, got %v", r.calls)
+	}
+}
+
+// TestRestoreManifestNotFirstRefuses asserts an archive whose first member is NOT
+// manifest.json is refused at verify with ZERO side effects (WR-03).
+func TestRestoreManifestNotFirstRefuses(t *testing.T) {
+	cfg := validCfgTOML
+	owui := []byte("owui-data")
+	dataEntries := []archiveEntry{{EntryConfig, cfg}, {EntryOpenWebUIVolume, owui}}
+	mj := manifestJSONFor(t, dataEntries)
+	// Data entry BEFORE the manifest.
+	arch := rawMultiTar(t, []archiveEntry{
+		{EntryConfig, cfg},
+		{EntryManifest, mj},
+		{EntryOpenWebUIVolume, owui},
+	})
+	r, in := baseInput(t, arch)
+	res := Restore(r.deps(), in)
+	if !res.Refused || res.FailedStep != "verify" {
+		t.Fatalf("want Refused at verify on a non-first manifest, got %+v", res)
+	}
+	if hasMutate(r.calls) {
+		t.Fatalf("manifest-not-first refusal must have ZERO mutate side effects, got %v", r.calls)
+	}
+}
+
+func TestRestoreVerifyMismatchRefusesZeroSideEffects(t *testing.T) {
+	arch := buildArchive(t, baseManifest(), validCfgTOML, []byte("owui-data"), nil, nil, true /*corrupt*/)
+	r, in := baseInput(t, arch)
+	res := Restore(r.deps(), in)
+	if !res.Refused || res.FailedStep != "verify" {
+		t.Fatalf("want Refused at verify, got %+v", res)
+	}
+	if hasMutate(r.calls) {
+		t.Fatalf("verify-fail must have ZERO mutate side effects, got calls %v", r.calls)
+	}
+}
+
+func TestRestoreIncompatibleSchemaRefuses(t *testing.T) {
+	m := baseManifest()
+	m.SchemaVersion = backupSchemaVersion + 1
+	arch := buildArchive(t, m, validCfgTOML, []byte("owui-data"), nil, nil, false)
+	r, in := baseInput(t, arch)
+	res := Restore(r.deps(), in)
+	if !res.Refused || res.FailedStep != "verify" {
+		t.Fatalf("want Refused at verify for future schema, got %+v", res)
+	}
+	if hasMutate(r.calls) {
+		t.Fatalf("incompatible-schema must have ZERO mutate side effects, got %v", r.calls)
+	}
+}
+
+func TestRestoreBlockSkewRefuses(t *testing.T) {
+	arch := buildArchive(t, baseManifest(), validCfgTOML, []byte("owui-data"), nil, nil, false)
+	r, in := baseInput(t, arch)
+	// Drive a BLOCK: current usage schema OLDER than the manifest's (future store).
+	in.Current.UsageSchemaVersion = 0 // manifest has 1 → newer than current → BLOCK
+	res := Restore(r.deps(), in)
+	if !res.Refused || res.FailedStep != "skew" {
+		t.Fatalf("want Refused at skew BLOCK, got %+v", res)
+	}
+	if hasMutate(r.calls) {
+		t.Fatalf("BLOCK skew must have ZERO mutate side effects, got %v", r.calls)
+	}
+}
+
+func TestRestoreWarnSkewConsentDeniedRefuses(t *testing.T) {
+	arch := buildArchive(t, baseManifest(), validCfgTOML, []byte("owui-data"), nil, nil, false)
+	r, in := baseInput(t, arch)
+	in.Current.VillaVersion = "v9.9.9" // WARN-only skew
+	in.Consent = func(string) bool { return false }
+	res := Restore(r.deps(), in)
+	if !res.Refused || res.FailedStep != "skew" {
+		t.Fatalf("want Refused at skew on declined consent, got %+v", res)
+	}
+	if hasMutate(r.calls) {
+		t.Fatalf("declined-consent must have ZERO mutate side effects, got %v", r.calls)
+	}
+}
+
+func TestRestoreWarnSkewBypassProceeds(t *testing.T) {
+	arch := buildArchive(t, baseManifest(), validCfgTOML, []byte("owui-data"), nil, nil, false)
+	r, in := baseInput(t, arch)
+	in.Current.VillaVersion = "v9.9.9" // WARN-only skew
+	in.Consent = func(string) bool { t.Fatalf("Consent must NOT be called when Bypass=true"); return false }
+	in.Bypass = true
+	res := Restore(r.deps(), in)
+	if !res.Restored {
+		t.Fatalf("want Restored with Bypass over a WARN skew, got %+v", res)
+	}
+}
+
+func TestRestoreHappyPathCleanRecreateBeforeImport(t *testing.T) {
+	arch := buildArchive(t, baseManifest(), validCfgTOML, []byte("owui-data"), []byte("usage"), []byte("bench"), false)
+	r, in := baseInput(t, arch)
+	res := Restore(r.deps(), in)
+	if !res.Restored {
+		t.Fatalf("want Restored, got %+v (calls %v)", res, r.calls)
+	}
+	// CAPTURE strictly before mutate: VolumeExport precedes the first SaveConfig.
+	if iExp, iSave := indexOf(r.calls, "VolumeExport"), indexOf(r.calls, "SaveConfig"); iExp == -1 || iExp > iSave {
+		t.Fatalf("capture (VolumeExport) must precede mutate (SaveConfig); calls %v", r.calls)
+	}
+	// Clean-recreate-before-import ordering on the FORWARD path: VolumeRm <
+	// ReconcileAndWrite < EnsureVolume < VolumeImport.
+	iRm := indexOf(r.calls, "VolumeRm")
+	iRec := indexOf(r.calls, "ReconcileAndWrite")
+	iEns := indexOf(r.calls, "EnsureVolume")
+	iImp := indexOf(r.calls, "VolumeImport")
+	if iRm == -1 || iRec == -1 || iEns == -1 || iImp == -1 {
+		t.Fatalf("missing a clean-recreate seam call: %v", r.calls)
+	}
+	if !(iRm < iRec && iRec < iEns && iEns < iImp) {
+		t.Fatalf("want VolumeRm<ReconcileAndWrite<EnsureVolume<VolumeImport, got rm=%d rec=%d ens=%d imp=%d (%v)",
+			iRm, iRec, iEns, iImp, r.calls)
+	}
+}
+
+func TestRestoreMutateErrorRollsBackAndReImportsCaptured(t *testing.T) {
+	arch := buildArchive(t, baseManifest(), validCfgTOML, []byte("owui-data"), nil, nil, false)
+	r, in := baseInput(t, arch)
+	// Forward import fails → rollback. The rollback must re-import the CAPTURED tar
+	// through the SAME clean-recreate ordering.
+	r.volumeImportErr = errors.New("import boom")
+	res := Restore(r.deps(), in)
+	if !res.RolledBack {
+		t.Fatalf("want RolledBack on a mutate error, got %+v", res)
+	}
+	// Two VolumeImport attempts: forward (TempVolumeTar) then rollback (RollbackVolumeTar).
+	var imports []string
+	for _, c := range r.calls {
+		if strings.HasPrefix(c, "VolumeImport:") {
+			imports = append(imports, c)
+		}
+	}
+	if len(imports) != 2 {
+		t.Fatalf("want forward+rollback VolumeImport (2), got %v (all %v)", imports, r.calls)
+	}
+	if !strings.HasSuffix(imports[1], in.RollbackVolumeTar) {
+		t.Fatalf("rollback import must use the CAPTURED tar %q, got %q", in.RollbackVolumeTar, imports[1])
+	}
+	// Rollback re-import also goes through clean-recreate (a second VolumeRm precedes it).
+	rmCount := 0
+	for _, c := range r.calls {
+		if strings.HasPrefix(c, "VolumeRm") {
+			rmCount++
+		}
+	}
+	if rmCount != 2 {
+		t.Fatalf("rollback must clean-recreate too (2 VolumeRm), got %d (%v)", rmCount, r.calls)
+	}
+}
+
+// TestRestoreTempVolumeStagingFailureRollsBack is the on-hardware WR-05 regression:
+// staging the extracted OWUI volume tar must go through the UNguarded WriteTempFile
+// seam (a /tmp path outside the data store), NOT the store-root-guarded
+// WriteFileAtomic — the latter rejected the legitimate /tmp write and failed every
+// restore at the "volume" stage. Here WriteTempFile errs: restore must roll back at
+// "volume" with the prior stack intact and must NEVER reach the forward VolumeImport.
+func TestRestoreTempVolumeStagingFailureRollsBack(t *testing.T) {
+	arch := buildArchive(t, baseManifest(), validCfgTOML, []byte("owui-data"), nil, nil, false)
+	r, in := baseInput(t, arch)
+	r.writeTempErr = errors.New("stage temp boom")
+
+	res := Restore(r.deps(), in)
+	if !res.RolledBack {
+		t.Fatalf("want RolledBack on temp-staging failure, got %+v (calls %v)", res, r.calls)
+	}
+	if res.FailedStep != "volume" {
+		t.Fatalf("want FailedStep \"volume\", got %q (calls %v)", res.FailedStep, r.calls)
+	}
+	// The forward path must NOT have reached its VolumeImport (staging failed first).
+	// Only the rollback re-import of the captured tar may run.
+	for _, c := range r.calls {
+		if strings.HasPrefix(c, "VolumeImport:") && strings.HasSuffix(c, in.TempVolumeTar) {
+			t.Fatalf("forward VolumeImport of the restored tar must not run after staging failed; calls %v", r.calls)
+		}
+	}
+}
+
+// TestRestoreRollbackRemovesForwardCreatedDataArtifacts is the CR-01 regression:
+// the prior install has NO usage.json / bench-reports.jsonl, the archive CARRIES
+// both, a post-write step fails (volume import), and rollback must REMOVE the
+// forward-created data-dir artifacts to restore the prior (absent) state verbatim —
+// never leave restored-from-archive data on disk after a "rollback".
+func TestRestoreRollbackRemovesForwardCreatedDataArtifacts(t *testing.T) {
+	arch := buildArchive(t, baseManifest(), validCfgTOML, []byte("owui-data"), []byte("usage-from-archive"), []byte("bench-from-archive"), false)
+	r, in := baseInput(t, arch)
+	// Prior install has NO usage.json / bench-reports.jsonl: capture (ReadFile) fails
+	// for both dest paths, so priorUsageOK/priorBenchOK are false.
+	r.readFileErr = map[string]error{
+		in.UsageDestPath: errors.New("not found"),
+		in.BenchDestPath: errors.New("not found"),
+	}
+	// Force a post-data-write failure via a NON-PASS prove so rollback runs AFTER the
+	// forward path wrote the archive's usage.json/bench-reports.jsonl, WITHOUT breaking
+	// the rollback path itself (a volumeImportErr would also fail the rollback re-import
+	// and mask the clean-remove assertion).
+	r.prove = ProveVerdict{Status: "fail", Detail: "residency FAIL"}
+
+	res := Restore(r.deps(), in)
+	if !res.RolledBack {
+		t.Fatalf("want RolledBack, got %+v (calls %v)", res, r.calls)
+	}
+	// Forward path wrote both data artifacts...
+	if indexOf(r.calls, "WriteFileAtomic:"+in.UsageDestPath) == -1 {
+		t.Fatalf("forward path must have written usage.json; calls %v", r.calls)
+	}
+	// ...and rollback must REMOVE both (no prior to restore).
+	if indexOf(r.calls, "RemoveFile:"+in.UsageDestPath) == -1 {
+		t.Fatalf("rollback must RemoveFile the forward-created usage.json; calls %v", r.calls)
+	}
+	if indexOf(r.calls, "RemoveFile:"+in.BenchDestPath) == -1 {
+		t.Fatalf("rollback must RemoveFile the forward-created bench-reports.jsonl; calls %v", r.calls)
+	}
+	// The remove must come AFTER the forward write (verbatim restore of absent state).
+	if iW, iR := indexOf(r.calls, "WriteFileAtomic:"+in.UsageDestPath), indexOf(r.calls, "RemoveFile:"+in.UsageDestPath); iW > iR {
+		t.Fatalf("RemoveFile must follow the forward WriteFileAtomic; calls %v", r.calls)
+	}
+	// A clean (complete) rollback: no rollback-incomplete reason.
+	if strings.Contains(res.Reason, "did not fully complete") {
+		t.Fatalf("rollback should be COMPLETE (RemoveFile succeeded), got %q", res.Reason)
+	}
+}
+
+// TestRestoreRollbackRemoveFailureReportsIncomplete asserts a FAILED RemoveFile
+// during rollback is counted as rollback-incomplete (honest reporting, CR-01).
+func TestRestoreRollbackRemoveFailureReportsIncomplete(t *testing.T) {
+	arch := buildArchive(t, baseManifest(), validCfgTOML, []byte("owui-data"), []byte("usage-from-archive"), nil, false)
+	r, in := baseInput(t, arch)
+	r.readFileErr = map[string]error{in.UsageDestPath: errors.New("not found")}
+	r.volumeImportErr = errors.New("import boom")
+	r.removeFileErr = errors.New("permission denied")
+
+	res := Restore(r.deps(), in)
+	if !res.RolledBack {
+		t.Fatalf("want RolledBack:true, got %+v", res)
+	}
+	if !strings.Contains(res.Reason, "did not fully complete") {
+		t.Fatalf("a failed RemoveFile must report rollback-incomplete, got %q", res.Reason)
+	}
+}
+
+func TestRestoreRollbackStepErrorReportsIncomplete(t *testing.T) {
+	arch := buildArchive(t, baseManifest(), validCfgTOML, []byte("owui-data"), nil, nil, false)
+	r, in := baseInput(t, arch)
+	// Forward fails at import → rollback; make the rollback SaveConfig(prior) error so
+	// the rollback is incomplete. saveErrOnce: forward SaveConfig (call 1) ok, rollback
+	// SaveConfig (call 2) errors.
+	r.volumeImportErr = errors.New("import boom")
+	r.saveErrOnce = map[int]error{2: errors.New("save prior boom")}
+	res := Restore(r.deps(), in)
+	if !res.RolledBack {
+		t.Fatalf("want RolledBack:true even on an incomplete rollback, got %+v", res)
+	}
+	if !strings.Contains(res.Reason, "did not fully complete") {
+		t.Fatalf("want an honest rollback-incomplete Reason, got %q", res.Reason)
+	}
+}
+
+func TestRestoreNonPassProveRollsBack(t *testing.T) {
+	arch := buildArchive(t, baseManifest(), validCfgTOML, []byte("owui-data"), nil, nil, false)
+	r, in := baseInput(t, arch)
+	r.prove = ProveVerdict{Status: "fail", Detail: "residency FAIL (CPU fallback)"}
+	res := Restore(r.deps(), in)
+	if !res.RolledBack || res.FailedStep != "prove" {
+		t.Fatalf("want RolledBack at prove on a non-pass verdict, got %+v", res)
+	}
+	if res.Prove.Status == ProveStatusPass {
+		t.Fatalf("prove verdict must be carried through (non-pass), got %+v", res.Prove)
+	}
+}

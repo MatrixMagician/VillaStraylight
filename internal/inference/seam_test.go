@@ -37,11 +37,23 @@ func TestSeamGrepGate(t *testing.T) {
 	patterns := map[string]*regexp.Regexp{
 		"runtime.GOOS / GOOS branch": regexp.MustCompile(`runtime\.GOOS|GOOS\s*==`),
 		// kyuz0|docker.io/ already bind BOTH the Vulkan and the ROCm image tokens (the
-		// rocm image is docker.io/kyuz0/…:rocm-7.2.4@sha256:…). rocm-7.2.4|rocm7-nightlies
-		// is added for EXPLICIT intent — a ROCm tag leaking outside the seam must fail CI.
-		"container image literal": regexp.MustCompile(`kyuz0|docker\.io/|server-vulkan|rocm-7\.2\.4|rocm7-nightlies`),
-		"container device args":      regexp.MustCompile(`--device\s+/dev/dri|--group-add|keep-groups`),
-		"podman invocation":          regexp.MustCompile(`exec\.Command\(\s*"podman"|"podman".*\b(run|stop|logs)\b`),
+		// rocm image is docker.io/kyuz0/…:rocm-7.2.4@sha256:…). The rocm tag alternatives
+		// are added for EXPLICIT intent — a ROCm image tag leaking outside the seam must
+		// fail CI.
+		//
+		// Image-CONTEXT anchoring (12-02): the ROCm tag alternatives are anchored to a
+		// `:` tag-separator prefix and/or an `@sha256` digest suffix so they match a real
+		// container IMAGE literal (`…:rocm-6.4.4@sha256:…`) but NOT a bare backend NAME
+		// config-VALUE (e.g. `case "rocm-6.4.4":` in render.go / a `--backend` help line).
+		// A config-value name is the same seam-clean class as bench.go's `vulkan`/`rocm`
+		// consts — it carries no image/device imperative. `rocm-6\.4\.4` covers BOTH the
+		// plain tag and the rocm-6.4.4-rocwmma suffix superset. The new image digest
+		// literals still land ONLY in the seam (backend_rocm.go), and the regex extended
+		// in the SAME commit (D-10/SC#4/T-12-02); the kyuz0|docker.io/ alternatives remain
+		// an un-anchored backstop that catches any image string regardless of tag.
+		"container image literal": regexp.MustCompile(`kyuz0|docker\.io/|server-vulkan|:rocm-7\.2\.4|rocm-7\.2\.4@|:rocm-6\.4\.4|rocm-6\.4\.4@|rocm7-nightlies`),
+		"container device args":   regexp.MustCompile(`--device\s+/dev/dri|--group-add|keep-groups`),
+		"podman invocation":       regexp.MustCompile(`exec\.Command\(\s*"podman"|"podman".*\b(run|stop|logs)\b`),
 	}
 
 	// matchFile reports every pattern in pats that leaks in the file at path, calling

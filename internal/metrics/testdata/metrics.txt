@@ -13,3 +13,9 @@ llamacpp:requests_deferred 0
 # HELP llamacpp:n_decode_total Total number of llama_decode() calls.
 # TYPE llamacpp:n_decode_total counter
 llamacpp:n_decode_total 8421
+# HELP llamacpp:prompt_tokens_total Number of prompt tokens processed.
+# TYPE llamacpp:prompt_tokens_total counter
+llamacpp:prompt_tokens_total 130572
+# HELP llamacpp:tokens_predicted_total Number of generation tokens processed.
+# TYPE llamacpp:tokens_predicted_total counter
+llamacpp:tokens_predicted_total 48913

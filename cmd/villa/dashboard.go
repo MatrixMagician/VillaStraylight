@@ -15,6 +15,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/modelswap"
 	"github.com/MatrixMagician/VillaStraylight/internal/recommend"
 	"github.com/MatrixMagician/VillaStraylight/internal/status"
+	"github.com/MatrixMagician/VillaStraylight/internal/usage"
 )
 
 // dashboard.go is the thin cobra caller for `villa dashboard` (DASH-01/DASH-05): it
@@ -56,6 +57,17 @@ type dashboardDeps struct {
 	// (DASH-04). The live wiring is liveSwapDeps() — the IDENTICAL deps `villa model swap`
 	// uses, so the dashboard switch routes through the same security contract.
 	SwapDeps modelswap.Deps
+
+	// Cumulative-usage writer seams (USAGE-02 / D-07). The dashboard /api/metrics scrape
+	// is the SOLE writer of usage.json: ReadUsage loads the fold's prior, WriteUsage
+	// atomically persists the folded store, ModelID supplies the per-model key (cfg.Model),
+	// and CounterSample scrapes the two monotonic _total counters from the SAME endpoint
+	// already scraped for live tok/s (no new outbound, D-12). Nil seams default (in
+	// dashboard.NewServer) to honest no-ops that never write.
+	ReadUsage     func() usage.UsageTotals
+	WriteUsage    func(usage.UsageTotals) error
+	ModelID       func() string
+	CounterSample func() (metrics.CounterSample, bool)
 }
 
 // newDashboard builds `villa dashboard`: serve the loopback-only control dashboard
@@ -109,6 +121,10 @@ func runDashboard(cmd *cobra.Command, _ []string, d *dashboardDeps) int {
 		GPUBusy:       d.GPUBusy,
 		Models:        d.Models,
 		SwapDeps:      d.SwapDeps,
+		ReadUsage:     d.ReadUsage,
+		WriteUsage:    d.WriteUsage,
+		ModelID:       d.ModelID,
+		CounterSample: d.CounterSample,
 	})
 	if err != nil {
 		fmt.Fprintf(errOut, "dashboard: %v\n", err)
@@ -161,7 +177,69 @@ func liveDashboardDeps() (*dashboardDeps, error) {
 		// dashboard POST routes through the same resolve→fit→pull→save→regenerate→restart
 		// security contract — never a fork.
 		SwapDeps: *liveSwapDeps(),
+
+		// Cumulative usage (USAGE-02 / D-07): the dashboard /api/metrics scrape is the SOLE
+		// writer of usage.json. ReadUsage loads the fold's prior via usage.Load over
+		// usage.UsagePath(); WriteUsage persists the folded store via the atomic temp+rename
+		// usage.WriteFileAtomic over the SAME path. ModelID re-reads cfg.Model from config at
+		// scrape time (config is the single source of truth; the dashboard server reads it
+		// inside the usageMu section so the per-model key cannot drift — Pitfall 2). The
+		// counter scrape reuses the SAME loopback `endpoint` already scraped for live tok/s —
+		// no new outbound (D-12).
+		ReadUsage:     liveReadUsageTotals,
+		WriteUsage:    liveWriteUsage,
+		ModelID:       liveModelID,
+		CounterSample: func() (metrics.CounterSample, bool) { return metrics.ScrapeCounters(endpoint) },
 	}, nil
+}
+
+// liveUsageDeps builds the usage byte-I/O seam over the live store path: ReadAll reads
+// usage.UsagePath() ((nil,nil) when absent so Load fails closed to empty), and WriteAll
+// is the atomic temp+rename usage.WriteFileAtomic. The dashboard is the SOLE writer
+// (D-07), so this WriteAll seam is wired ONLY here (never in the status read path).
+func liveUsageDeps() usage.Deps {
+	path := usage.UsagePath()
+	return usage.Deps{
+		ReadAll: func() ([]byte, error) {
+			data, err := os.ReadFile(path)
+			if os.IsNotExist(err) {
+				return nil, nil // absent store ⇒ Load fails closed to empty (typed-Unknown)
+			}
+			return data, err
+		},
+		WriteAll: func(data []byte) error { return usage.WriteFileAtomic(path, data) },
+	}
+}
+
+// liveReadUsageTotals loads the persisted store as the fold's prior. usage.Load fails
+// closed to an empty UsageTotals on an absent/corrupt/schema-skew store (Plan 01), so a
+// read failure degrades the fold to a fresh accumulation rather than panicking.
+func liveReadUsageTotals() usage.UsageTotals {
+	t, err := usage.Load(liveUsageDeps())
+	if err != nil {
+		return usage.UsageTotals{}
+	}
+	return t
+}
+
+// liveWriteUsage atomically persists the folded store via usage.Save (full-file replace,
+// temp+rename, 0600/0700, traversal-guarded). The dashboard server calls this inside the
+// usageMu critical section (T-15-13) and treats a returned error as loud-but-non-fatal
+// (T-15-17).
+func liveWriteUsage(t usage.UsageTotals) error {
+	return usage.Save(liveUsageDeps(), t)
+}
+
+// liveModelID re-reads cfg.Model from config at scrape time (config is the single source
+// of truth, Pitfall 2). The dashboard server invokes it INSIDE the usageMu section so the
+// per-model fold key reflects the model the scrape is actually observing; an unreadable
+// config yields "" (Fold keys an empty entry it discards when no counter is Known).
+func liveModelID() string {
+	cfg, err := config.LoadVilla()
+	if err != nil {
+		return ""
+	}
+	return cfg.Model
 }
 
 // liveModelsView composes the Models read-model (DASH-04): it loads the catalog and the

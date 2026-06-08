@@ -2,16 +2,19 @@
 
 ## Overview
 
-VillaStraylight is a control plane + managed workload: a single Go binary that inspects an AMD Strix Halo (gfx1151) Fedora host, recommends a hardware-fitting model/quant/context, generates rootless Podman Quadlet units, and brings up llama.cpp inference + Open WebUI chat + a read-only control dashboard — with zero data leaving the box. The north star throughout is "runs healthy after install" — every phase ends in something runnable and verifiable on the real hardware.
+VillaStraylight is a control plane + managed workload: a single Go binary that inspects an AMD Strix Halo (gfx1151) Fedora host, recommends a hardware-fitting model/quant/context, generates rootless Podman Quadlet units, and brings up llama.cpp inference + Open WebUI chat + a read-only control dashboard — with zero data leaving the box. The north star throughout is "runs healthy after install" — every phase ends in something runnable and verifiable on the real hardware. v1.2 (Operability) extends that bar to "and stays operable, recoverable, and measurable over time."
 
 ## Milestones
 
 - ✅ **v1.0 MVP** — Phases 1–5 (shipped 2026-06-05, tag `v1.0`)
 - ✅ **v1.1 ROCm Opt-In Backend** — Phases 6–11 (shipped 2026-06-06, tag `v1.1`)
+- ✅ **v1.2 Operability** — Phases 12–17 (completed 2026-06-08; PR-to-`main` + tag `v1.2` pending via `/gsd-ship`)
 
 Full per-phase detail for shipped milestones is archived under `.planning/milestones/`:
+
 - `milestones/v1.0-ROADMAP.md` · `milestones/v1.0-REQUIREMENTS.md`
 - `milestones/v1.1-ROADMAP.md` · `milestones/v1.1-REQUIREMENTS.md` · `milestones/v1.1-MILESTONE-AUDIT.md`
+- `milestones/v1.2-ROADMAP.md` · `milestones/v1.2-REQUIREMENTS.md` · `milestones/v1.2-MILESTONE-AUDIT.md`
 
 ## Phases
 
@@ -42,11 +45,23 @@ See `milestones/v1.1-ROADMAP.md` for full phase detail, success criteria, and pl
 
 </details>
 
-### 📋 Next Milestone (Planned)
+<details>
+<summary>✅ v1.2 Operability (Phases 12–17) — SHIPPED 2026-06-08</summary>
 
-No active milestone. Start the next cycle with `/gsd-new-milestone` (questioning → research → requirements → roadmap).
+**Milestone goal:** Harden VillaStraylight into an operable, recoverable daily-driver — self-diagnosis, backup/restore, comparative benchmarking, usage history, a guided install, and a TG-tuned ROCm option — without weakening the v1.0 "just works" bar or the strictly-local / zero-telemetry posture.
 
-Candidate themes (from REQUIREMENTS.md v1.1.x / Milestone 2 / Future, deferred): `villa bench --compare` + saved report (BENCH-03), backup/restore (BAK-01), `villa doctor` (DOCTOR-01), cumulative usage tracking (USAGE-01), guided TUI install (INSTALL-01), `rocm-6.4.4` alternate image (ROCM-ALT-01); then Qdrant memory + SearXNG search (Milestone 2); macOS/Apple-Silicon (Metal) backend, voice, agents (Future).
+**Build order was research-converged:** seam-locked + composition features first, then the two persistence features with their byte-frozen evolutions staggered so only one byte-frozen contract evolved at a time, then the destructive backup, then the TUI capstone over the finished surface.
+
+- [x] Phase 12: `rocm-6.4.4` Alternate Backend (3/3 plans) — completed 2026-06-07 (capability shipped; honest A/B disproved the perf premise — Vulkan stays tg default)
+- [x] Phase 13: `villa doctor` Health Diagnosis (3/3 plans) — completed 2026-06-07 (on-hardware UAT 3/3)
+- [x] Phase 14: Saved Bench Reports + `--compare` (3/3 plans) — completed 2026-06-07 (UAT PASS; Δtg +10.39 vulkan>rocm)
+- [x] Phase 15: Cumulative Usage Tracking (4/4 plans) — completed 2026-06-07
+- [x] Phase 16: Backup / Restore (3/3 plans) — completed 2026-06-07 (UAT 4/5 + 1 documented cross-host limitation)
+- [x] Phase 17: Guided TUI Install (Capstone) (3/3 plans) — completed 2026-06-08 (on-hardware UAT 3/3)
+
+Audit PASSED — 13/13 requirements, 5/5 integration flows, 6/6 phases Nyquist-compliant. See `milestones/v1.2-ROADMAP.md` for full phase detail, success criteria, and plan breakdowns.
+
+</details>
 
 ## Progress
 
@@ -63,3 +78,9 @@ Candidate themes (from REQUIREMENTS.md v1.1.x / Milestone 2 / Future, deferred):
 | 9. `villa bench` (Honest A/B) | v1.1 | 3/3 | Complete | 2026-06-06 |
 | 10. Backend + tok/s Surfacing | v1.1 | 3/3 | Complete | 2026-06-06 |
 | 11. Address v1.1 tech debt | v1.1 | 2/2 | Complete | 2026-06-06 |
+| 12. `rocm-6.4.4` Alternate Backend | v1.2 | 3/3 | Complete    | 2026-06-07 |
+| 13. `villa doctor` Health Diagnosis | v1.2 | 3/3 | Complete    | 2026-06-07 |
+| 14. Saved Bench Reports + `--compare` | v1.2 | 3/3 | Complete    | 2026-06-07 |
+| 15. Cumulative Usage Tracking | v1.2 | 4/4 | Complete    | 2026-06-07 |
+| 16. Backup / Restore | v1.2 | 3/3 | Complete    | 2026-06-07 |
+| 17. Guided TUI Install | v1.2 | 3/3 | Complete    | 2026-06-08 |

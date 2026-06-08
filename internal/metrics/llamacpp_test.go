@@ -1,6 +1,7 @@
 package metrics
 
 import (
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -25,6 +26,8 @@ func TestParsePromTextExtractsGauges(t *testing.T) {
 		"llamacpp:requests_processing":      1,
 		"llamacpp:requests_deferred":        0,
 		"llamacpp:n_decode_total":           8421,
+		"llamacpp:prompt_tokens_total":      130572,
+		"llamacpp:tokens_predicted_total":   48913,
 	}
 	for k, v := range want {
 		if got, ok := m[k]; !ok || got != v {
@@ -130,6 +133,151 @@ func TestScrapeMetricsTransportErrorIsTypedUnknown(t *testing.T) {
 	// 127.0.0.1:1 is the discard port — nothing listens; connect fails fast.
 	if _, ok := ScrapeMetrics("http://127.0.0.1:1"); ok {
 		t.Fatalf("ScrapeMetrics ok=true on a transport error, want false")
+	}
+}
+
+// TestScrapeCountersTotal is the USAGE-01 / D-06 counter feed guard. The present case
+// asserts the two monotonic cumulative counters (llamacpp:prompt_tokens_total and
+// llamacpp:tokens_predicted_total) read out of the bounded /metrics scrape as typed
+// uint64 readings with Known=true. The absent case is the D-05 typed-Unknown discipline:
+// a body WITHOUT the two _total lines yields Known=false (NOT a fabricated 0), and a 404
+// degrades the whole-scrape availability bool to false.
+func TestScrapeCountersTotal(t *testing.T) {
+	body, err := os.ReadFile("testdata/metrics.txt")
+	if err != nil {
+		t.Fatalf("read fixture: %v", err)
+	}
+
+	// Present: the fixture carries both _total counters.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/metrics" {
+			http.NotFound(w, r)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(body)
+	}))
+	defer srv.Close()
+
+	cs, ok := ScrapeCounters(srv.URL)
+	if !ok {
+		t.Fatalf("ScrapeCounters ok=false on a 200 body")
+	}
+	if !cs.PromptTokensKnown || cs.PromptTokensTotal != 130572 {
+		t.Errorf("PromptTokensTotal = %d (known=%v), want 130572 (known=true)", cs.PromptTokensTotal, cs.PromptTokensKnown)
+	}
+	if !cs.PredictedTokensKnown || cs.PredictedTokensTotal != 48913 {
+		t.Errorf("PredictedTokensTotal = %d (known=%v), want 48913 (known=true)", cs.PredictedTokensTotal, cs.PredictedTokensKnown)
+	}
+
+	// Absent: a body without the two _total lines → Known=false, never a fabricated 0 (D-05).
+	absentBody := strings.Join([]string{
+		`# TYPE llamacpp:requests_processing gauge`,
+		`llamacpp:requests_processing 0`,
+	}, "\n")
+	absentSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/metrics" {
+			http.NotFound(w, r)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(absentBody))
+	}))
+	defer absentSrv.Close()
+
+	cs2, ok2 := ScrapeCounters(absentSrv.URL)
+	if !ok2 {
+		t.Fatalf("ScrapeCounters ok=false on a 200 body (absent counters is still an available scrape)")
+	}
+	if cs2.PromptTokensKnown {
+		t.Errorf("PromptTokensKnown=true on an absent counter, want false (typed-Unknown, no fabricated 0)")
+	}
+	if cs2.PredictedTokensKnown {
+		t.Errorf("PredictedTokensKnown=true on an absent counter, want false (typed-Unknown, no fabricated 0)")
+	}
+	if cs2.PromptTokensTotal != 0 || cs2.PredictedTokensTotal != 0 {
+		t.Errorf("absent CounterSample carries non-zero totals %+v — Known=false MUST gate the zero value", cs2)
+	}
+
+	// A 404 /metrics (--metrics absent) degrades the availability bool to false.
+	down := httptest.NewServer(http.HandlerFunc(http.NotFound))
+	defer down.Close()
+	if _, ok := ScrapeCounters(down.URL); ok {
+		t.Errorf("ScrapeCounters ok=true on a 404, want false (whole-scrape unavailable)")
+	}
+}
+
+// TestScrapeCountersOversizedBodyUnavailable proves a /metrics body exceeding the scrape
+// cap is treated as UNAVAILABLE rather than parsed. A body truncated mid-line by the cap
+// can sever a counter value (e.g. `...predicted_total 1305` from `130572`); the reset-aware
+// fold would mis-read the smaller-but-parseable value as a counter reset and durably
+// corrupt the cumulative total (v1.2 review finding). Refusing the whole over-cap sample is
+// the no-false-data posture (D-05).
+func TestScrapeCountersOversizedBodyUnavailable(t *testing.T) {
+	var b strings.Builder
+	b.WriteString("# TYPE llamacpp:prompt_tokens_total counter\n")
+	b.WriteString("llamacpp:prompt_tokens_total 130572\n")
+	b.WriteString("# TYPE llamacpp:tokens_predicted_total counter\n")
+	b.WriteString("llamacpp:tokens_predicted_total 48913\n")
+	// Pad well past the 64 KiB scrape cap so the body is over-cap (and thus truncatable),
+	// even though the counter lines themselves are valid and present.
+	for b.Len() < 80<<10 {
+		b.WriteString("# llamacpp_padding_comment_line_to_exceed_the_scrape_body_cap\n")
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/metrics" {
+			http.NotFound(w, r)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(b.String()))
+	}))
+	defer srv.Close()
+
+	if _, ok := ScrapeCounters(srv.URL); ok {
+		t.Errorf("ScrapeCounters ok=true on an over-cap body, want false (truncation risk → unavailable, no partial fold)")
+	}
+}
+
+// TestCounterFromMapRejectsNonFinite asserts counterFromMap returns the typed-Unknown
+// branch (Known=false, zero total) for every value that is NOT a trustworthy
+// non-negative exactly-representable integer — NaN, +Inf, -Inf, negative, and an
+// over-bound value above 2^53 — so a garbage /metrics line can never be narrowed into a
+// fabricated durable count (D-05 / WR-02). A normal finite count and an absent key are
+// included as the control rows.
+func TestCounterFromMapRejectsNonFinite(t *testing.T) {
+	const name = "llamacpp:prompt_tokens_total"
+	cases := []struct {
+		desc      string
+		present   bool
+		val       float64
+		wantVal   uint64
+		wantKnown bool
+	}{
+		{"NaN", true, math.NaN(), 0, false},
+		{"+Inf", true, math.Inf(1), 0, false},
+		{"-Inf", true, math.Inf(-1), 0, false},
+		{"negative", true, -1, 0, false},
+		{"over-bound (>2^53)", true, float64(maxCounterValue) + 2048, 0, false},
+		{"absent key", false, 0, 0, false},
+		{"normal count", true, 130572, 130572, true},
+		{"at bound (2^53)", true, float64(maxCounterValue), uint64(maxCounterValue), true},
+		{"zero", true, 0, 0, true},
+	}
+	for _, c := range cases {
+		t.Run(c.desc, func(t *testing.T) {
+			m := map[string]float64{}
+			if c.present {
+				m[name] = c.val
+			}
+			got, known := counterFromMap(m, name)
+			if known != c.wantKnown {
+				t.Errorf("Known = %v, want %v (no fabricated count for %s)", known, c.wantKnown, c.desc)
+			}
+			if got != c.wantVal {
+				t.Errorf("value = %d, want %d", got, c.wantVal)
+			}
+		})
 	}
 }
 

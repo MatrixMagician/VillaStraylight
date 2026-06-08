@@ -172,6 +172,8 @@ VillaStraylight is a self-hosted, local AI server stack for privacy-conscious po
 |---------|-------|-------------|
 | Inference (Vulkan RADV, v1 default) | `docker.io/kyuz0/amd-strix-halo-toolboxes:vulkan-radv@sha256:9a74e555…ac7aad` | `internal/inference/backend_vulkan.go` |
 | Inference (ROCm 7.2.4, opt-in/perf) | `docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-7.2.4@sha256:2da150c1…531a89` | `internal/inference/backend_rocm.go` |
+| Inference (ROCm 6.4.4, TG-tuned, opt-in) | `docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-6.4.4@sha256:c81f30a7…f150ec62` | `internal/inference/backend_rocm.go` |
+| Inference (ROCm 6.4.4 rocWMMA, opt-in) | `docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-6.4.4-rocwmma@sha256:9a97129a…43c0141` | `internal/inference/backend_rocm.go` |
 | Chat UI (Open WebUI) | `ghcr.io/open-webui/open-webui:main@sha256:7f1b0a1a…a9184e` | `internal/orchestrate/openwebui.go` |
 <!-- GSD:stack-end -->
 
