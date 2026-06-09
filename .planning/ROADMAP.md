@@ -71,7 +71,7 @@ Audit PASSED — 13/13 requirements, 5/5 integration flows, 6/6 phases Nyquist-c
 **Build order is research-converged (four researchers + synthesizer agreed) — preserve it.** This is an INTEGRATION milestone: **zero new first-party Go libraries**. The two new image literals live behind the `orchestrate` managed-service seam (the same category as `openWebUIImage`), NOT behind the inference `BackendFor` / `TestSeamGrepGate` scope. Dependencies are strict: **Qdrant + embeddings must exist before the Open WebUI env wiring; wiring before the recall indexer and before surfacing/backup. Surfacing + backup + memory-aware swap land LAST** (mirrors v1.x discipline — surface/back-up after the thing exists; exactly one byte-frozen contract evolves, append-only + schema bump 2→3, golden re-frozen once).
 
 - [x] **Phase 18: Memory Spine — config core + embeddings/wiring research spike** — Land the `internal/memory` pure core + `config.toml` memory fields (the spine touched by render/recommend/preflight), and de-risk the version-sensitive integration by deciding the embeddings runtime, re-verifying the Open WebUI env contract against the pinned OWUI digest, and confirming the embedding model + footprint. (completed 2026-06-09)
-- [ ] **Phase 19: Vector Store + Local Embeddings Services** — Render the two new rootless Quadlet managed services (Qdrant + a dedicated embeddings llama-server) onto `villa.network`, container-DNS only, with a durable named `:Z` volume and the embedding model pre-staged at install (zero runtime download).
+- [x] **Phase 19: Vector Store + Local Embeddings Services** — Render the two new rootless Quadlet managed services (Qdrant + a dedicated embeddings llama-server) onto `villa.network`, container-DNS only, with a durable named `:Z` volume and the embedding model pre-staged at install (zero runtime download). (completed 2026-06-09)
 - [ ] **Phase 20: Open WebUI Memory/RAG Wiring + Offline Lockdown** — Wire Open WebUI (env-only) to Qdrant + the local embeddings endpoint with config-authoritative `ENABLE_PERSISTENT_CONFIG=false` and full offline/telemetry lockdown, delivering personalized memory (both capture modes + edit/delete) and the document knowledge base with citations — proven by a runtime firewalled zero-outbound smoke test.
 - [ ] **Phase 21: Conversational Recall Indexer** — A `villa`-orchestrated, strictly-local indexer that semantically indexes past chats into Knowledge so the assistant retrieves relevant past-chat content by meaning, with `villa`-controllable incremental re-index that reports honest state (no silent staleness).
 - [ ] **Phase 22: Control-Plane Fit + Host Gate** — Make `recommend` reserve the embedding footprint before the chat-model fit, and gate host fitness for the memory stack in `preflight` + `doctor` (vector disk, embedder headroom, offload-asserting residency under embedding load) — so the memory stack "runs healthy after install."
@@ -122,7 +122,7 @@ Audit PASSED — 13/13 requirements, 5/5 integration flows, 6/6 phases Nyquist-c
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 19-03-PLAN.md — on-hardware freeze: confirm the Qdrant dev-box RepoDigest + curl `/v1/embeddings` against the pinned kyuz0 digest (legitimacy gate), prove Qdrant writability + reboot survival + offline first embedding (INFRA-01, INFRA-02, PRIV-04)
+- [x] 19-03-PLAN.md — on-hardware freeze: confirm the Qdrant dev-box RepoDigest + curl `/v1/embeddings` against the pinned kyuz0 digest (legitimacy gate), prove Qdrant writability + reboot survival + offline first embedding (INFRA-01, INFRA-02, PRIV-04)
 
 ### Phase 20: Open WebUI Memory/RAG Wiring + Offline Lockdown
 
@@ -200,7 +200,7 @@ Audit PASSED — 13/13 requirements, 5/5 integration flows, 6/6 phases Nyquist-c
 | 16. Backup / Restore | v1.2 | 3/3 | Complete | 2026-06-07 |
 | 17. Guided TUI Install | v1.2 | 3/3 | Complete | 2026-06-08 |
 | 18. Memory Spine — config core + research spike | v1.3 | 2/2 | Complete    | 2026-06-09 |
-| 19. Vector Store + Local Embeddings Services | v1.3 | 2/3 | In Progress|  |
+| 19. Vector Store + Local Embeddings Services | v1.3 | 3/3 | Complete   | 2026-06-09 |
 | 20. Open WebUI Memory/RAG Wiring + Offline Lockdown | v1.3 | 0/? | Not started | - |
 | 21. Conversational Recall Indexer | v1.3 | 0/? | Not started | - |
 | 22. Control-Plane Fit + Host Gate | v1.3 | 0/? | Not started | - |

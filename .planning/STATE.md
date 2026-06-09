@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: Memory & Knowledge
-status: executing
+status: verifying
 stopped_at: Phase 19 planned (3 plans, 3 waves)
-last_updated: "2026-06-09T18:27:24.305Z"
+last_updated: "2026-06-09T19:52:53.291Z"
 last_activity: 2026-06-09 -- Phase 19 execution started
 progress:
   total_phases: 6
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 5
-  completed_plans: 4
-  percent: 17
+  completed_plans: 5
+  percent: 33
 ---
 
 # Project State
@@ -27,7 +27,7 @@ See: .planning/PROJECT.md (updated 2026-06-09 — started v1.3 Memory & Knowledg
 
 Phase: 19 (Vector Store + Local Embeddings Services) — EXECUTING
 Plan: 3 of 3
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-06-09 -- Phase 19 execution started
 
 ## v1.3 Build Order (research-converged — preserve)
@@ -108,6 +108,7 @@ evolution: `status.Report` 2→3, golden re-frozen once).
 | Phase 18 P02 | ~7 min | 3 tasks (TDD) | 3 files |
 | Phase 19 P01 | ~14 min | 3 tasks | 10 files |
 | Phase 19 P02 | 25min | 2 tasks | 3 files |
+| Phase 19 P03 | ~10min | 3 tasks | 0 files |
 
 ## Accumulated Context
 
@@ -148,6 +149,8 @@ Earlier (v1.0 / v1.1 / v1.2) decisions retained below.
 - [19-01]: orchestrate memory render path landed — `QdrantImage()`/`EmbedImage()` digest-pinned managed-service consts behind the orchestrate seam (D-02/D-04, `openWebUIImage` precedent, NOT inference `BackendFor`); `seam_test.go` `isSeam` allowlist extended for `orchestrate/memory.go` in the SAME commit (Pitfall 7, `TestSeamGrepGate` green). EXPORTED `EmbedGGUFFilename()` is the single-source embed GGUF filename Plan 19-02's drift test binds against (Pitfall 3). `Render(memory_enabled=true)` appends villa-qdrant.container/.volume + villa-embed.container (Exec=`llama-server … --embeddings --pooling mean -c 8192`, `:ro,z` model mount, no PublishPort); memory-off byte-identical to the v1.2 5-unit output (D-11, 5 existing goldens unchanged). `embedEmbeddingDim=768` recorded (D-08). Qdrant manifest-list digest committed as placeholder; dev-box RepoDigest confirmation deferred to Plan 19-03 checkpoint.
 - [Phase ?]: Phase-19 install memory gate keyed off PERSISTED config.LoadVilla().MemoryEnabled via loadedMemoryEnabled seam, not the always-false DefaultVillaConfig seed (T-19-16)
 - [Phase ?]: Memory readiness proof asserts offline 768-dim /v1/embeddings + Qdrant writable round-trip; FAIL refuses-with-remediation (exitBlocked), never a silent skip (D-09)
+- [Phase ?]: [19-03]: On-hardware freeze PASS — pinned qdrantImage b79aaa49ce… confirmed the OFFICIAL qdrant/qdrant manifest-list digest (EQUALS placeholder, no re-pin/no golden refreeze; the per-arch amd64 child 9f7a0450… reported by RepoDigests is NOT the pin, A5). Pinned kyuz0 embed digest serves a 768-length /v1/embeddings proven offline (--network none), clearing the D-06 #15406 regression risk.
+- [Phase ?]: [19-03]: Live villa install (memory_enabled=true) PASS — readiness proof green (offline 768-dim /v1/embeddings + Qdrant writable), villa-qdrant+villa-embed active container-DNS only (no host port, SC#4), Qdrant writes /qdrant/storage as UID 1000 on its :Z named volume (SC#2 writable). SC#2 durability proxy-proven (collection+point survived podman rm + re-run) + linger enabled; literal sudo reboot DEFERRED (would kill the operator session) — recorded honestly, not claimed as a literal reboot.
 
 ### Pending Todos
 
@@ -190,7 +193,7 @@ Items acknowledged at v1.2 milestone close (2026-06-08):
 
 ## Session Continuity
 
-Last session: 2026-06-09T18:27:24.299Z
+Last session: 2026-06-09T19:52:31.771Z
 Stopped at: Phase 19 planned (3 plans, 3 waves)
 
 ## Operator Next Steps
