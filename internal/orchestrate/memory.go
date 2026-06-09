@@ -87,10 +87,11 @@ const (
 	// NOT :Z). villa-embed serves the pre-staged GGUF; it can never write the store
 	// (T-19-05).
 	embedModelMount = "villa-models:/models:ro,z"
-	// embedEmbeddingDim is the pinned, LOAD-BEARING embedding dimension (D-08). It is
-	// recorded on the rendered service so Phase 23's backup manifest + memory-aware swap
-	// guard can detect skew — never Matryoshka-truncated.
-	embedEmbeddingDim = 768
+	// The pinned, LOAD-BEARING embedding dimension (768, D-08) is single-sourced in
+	// config.VillaConfig.EmbeddingDim (self-healed default) and carried to downstream
+	// consumers via memory.RenderView.EmbeddingDim — never duplicated as a literal here
+	// and never Matryoshka-truncated. Phase 23's backup manifest / swap guard reads it
+	// from config (the single source of truth), so no orchestrate-local copy is kept.
 )
 
 // QdrantVolumeName returns the podman NAMED-volume identity for the Qdrant storage
