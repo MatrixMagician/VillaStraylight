@@ -136,11 +136,16 @@ Audit PASSED — 13/13 requirements, 5/5 integration flows, 6/6 phases Nyquist-c
   3. A user can upload a document into a local knowledge collection and the assistant answers using the retrieved content with visible citations — chunking, embedding, and retrieval run entirely through the local embeddings + Qdrant path (no cloud API, no runtime model download).
   4. `ENABLE_PERSISTENT_CONFIG=false` plus the full offline/telemetry lockdown (`OFFLINE_MODE`, `HF_HUB_OFFLINE`, `*_AUTO_UPDATE=false`, `ANONYMIZED_TELEMETRY=False`) are set so a config.toml-driven change actually takes effect after the OWUI DB is populated, and a **runtime firewalled document-upload smoke test reaches no external host** (not just install-time green).
 
-**Plans**: 3 plans
-Plans:
+**Plans**: 3 plansPlans:
+**Wave 1**
+
 - [ ] 20-01-PLAN.md — Parameterize buildOpenWebUIView: append the D-09 RAG/Qdrant/memory env block (incl. ENABLE_PERSISTENT_CONFIG=False) only when memory_enabled; new memory-on golden + memory-aware telemetry test (INFRA-03)
 - [ ] 20-02-PLAN.md — Runtime zero-outbound RAG smoke harness: pure evalRagSmoke core + liveRagSmoke seam + `villa verify memory` subcommand, negative-control-first (KB-01/02/03, MEM-03, PRIV-05)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 20-03-PLAN.md — On-hardware verification: live OWUI Memory (MEM-01/02/04), auto-extraction default-off (MEM-03), document upload + citations (KB-01/02/03), firewalled zero-outbound proof with negative control (PRIV-05); docs/MEMORY.md
+
 **UI hint**: yes
 
 ### Phase 21: Conversational Recall Indexer
