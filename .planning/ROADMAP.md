@@ -87,7 +87,10 @@ Audit PASSED — 13/13 requirements, 5/5 integration flows, 6/6 phases Nyquist-c
   1. A user can set `memory_enabled` (plus embedding model / service ports/addrs) in `config.toml`, and an existing v1.2 install stays byte-identical until they opt in (default `memory_enabled=false`, self-healing/defaulted fields).
   2. The new `internal/memory` pure core computes the memory-stack decisions (embedding footprint, enablement-and-fields-valid gate, render-view inputs) with no host I/O — it imports neither `os/exec` nor a container image literal, and the seam gate stays green.
   3. The embeddings runtime decision (dedicated `villa-embed` llama-server vs OWUI built-in), the exact Open WebUI RAG/Memory env keys (re-verified against the pinned OWUI digest), and the pinned embedding model + its memory footprint are recorded as decisions the later phases build on.
-**Plans**: TBD
+**Plans**: 2 plans
+Plans:
+- [ ] 18-01-PLAN.md — config memory fields (default-off, self-healing, byte-identical) + recorded spike decisions D-07/D-08/D-09 (SC#1, SC#3)
+- [ ] 18-02-PLAN.md — new pure `internal/memory` core: Footprint / Decide / RenderView triad; seam gate stays green (SC#2)
 
 ### Phase 19: Vector Store + Local Embeddings Services
 **Goal**: `villa install` brings up a local Qdrant vector DB and a local OpenAI-compatible embeddings endpoint as rootless Podman Quadlet managed services on `villa.network`, reachable by container DNS only, with durable storage and the embedding model pre-staged so nothing is downloaded at runtime.
