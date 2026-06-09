@@ -80,69 +80,91 @@ Audit PASSED — 13/13 requirements, 5/5 integration flows, 6/6 phases Nyquist-c
 ## Phase Details
 
 ### Phase 18: Memory Spine — config core + embeddings/wiring research spike
+
 **Goal**: `villa` has a pure memory-decision core and config fields that make the memory stack opt-in and config-driven, and the version-sensitive integration choices (embeddings runtime, exact Open WebUI env keys, embedding model + footprint) are resolved and pinned before any unit or env block is frozen.
 **Depends on**: Nothing (first v1.3 phase; builds on the shipped v1.2 control plane)
 **Requirements**: INFRA-04
 **Success Criteria** (what must be TRUE):
+
   1. A user can set `memory_enabled` (plus embedding model / service ports/addrs) in `config.toml`, and an existing v1.2 install stays byte-identical until they opt in (default `memory_enabled=false`, self-healing/defaulted fields).
   2. The new `internal/memory` pure core computes the memory-stack decisions (embedding footprint, enablement-and-fields-valid gate, render-view inputs) with no host I/O — it imports neither `os/exec` nor a container image literal, and the seam gate stays green.
   3. The embeddings runtime decision (dedicated `villa-embed` llama-server vs OWUI built-in), the exact Open WebUI RAG/Memory env keys (re-verified against the pinned OWUI digest), and the pinned embedding model + its memory footprint are recorded as decisions the later phases build on.
-**Plans**: 2 plans
-Plans:
+
+**Plans**: 2 plansPlans:
+**Wave 1**
+
 - [ ] 18-01-PLAN.md — config memory fields (default-off, self-healing, byte-identical) + recorded spike decisions D-07/D-08/D-09 (SC#1, SC#3)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 18-02-PLAN.md — new pure `internal/memory` core: Footprint / Decide / RenderView triad; seam gate stays green (SC#2)
 
 ### Phase 19: Vector Store + Local Embeddings Services
+
 **Goal**: `villa install` brings up a local Qdrant vector DB and a local OpenAI-compatible embeddings endpoint as rootless Podman Quadlet managed services on `villa.network`, reachable by container DNS only, with durable storage and the embedding model pre-staged so nothing is downloaded at runtime.
 **Depends on**: Phase 18 (config flag + pure core spine)
 **Requirements**: INFRA-01, INFRA-02, PRIV-04
 **Success Criteria** (what must be TRUE):
+
   1. With `memory_enabled=true`, `villa install` renders and starts `villa-qdrant` (digest-pinned image, named `:Z` volume, no published host port) and a dedicated embeddings `llama-server` exposing `/v1/embeddings` (reusing the pinned toolbox image, container-DNS only) — both regenerated from config, never hand-edited.
   2. The Qdrant knowledge store survives a reboot (durable named volume + lingering) and Qdrant is writable (no rootless UID / SELinux `:Z` permission failure).
   3. The embedding model is present and served from the local stack at install time — a first embedding request succeeds with no internet access (no runtime HuggingFace/model pull).
   4. Neither new service is bound beyond loopback / `villa.network` — the loopback-only privacy audit stays green.
+
 **Plans**: TBD
 
 ### Phase 20: Open WebUI Memory/RAG Wiring + Offline Lockdown
+
 **Goal**: Open WebUI's native Memory and RAG are wired (env-only, behind the orchestrate seam) to Qdrant and the local embeddings endpoint, config stays the single source of truth, and the assistant can remember user facts and answer from uploaded documents with citations — all strictly local, proven by a runtime zero-outbound test.
 **Depends on**: Phase 19 (Qdrant + embeddings DNS targets must exist)
 **Requirements**: INFRA-03, MEM-01, MEM-02, MEM-03, MEM-04, KB-01, KB-02, KB-03, PRIV-05
 **Success Criteria** (what must be TRUE):
+
   1. The assistant remembers a user-stated fact across separate chats and injects it into a later conversation; the user can explicitly save a message/fact, and can view/edit/delete stored memories so a deleted memory stops being injected.
   2. Automatic LLM-assisted memory extraction is available and toggleable on/off (opt-in, not silently default-on given the local-model quality caveat).
   3. A user can upload a document into a local knowledge collection and the assistant answers using the retrieved content with visible citations — chunking, embedding, and retrieval run entirely through the local embeddings + Qdrant path (no cloud API, no runtime model download).
   4. `ENABLE_PERSISTENT_CONFIG=false` plus the full offline/telemetry lockdown (`OFFLINE_MODE`, `HF_HUB_OFFLINE`, `*_AUTO_UPDATE=false`, `ANONYMIZED_TELEMETRY=False`) are set so a config.toml-driven change actually takes effect after the OWUI DB is populated, and a **runtime firewalled document-upload smoke test reaches no external host** (not just install-time green).
+
 **Plans**: TBD
 **UI hint**: yes
 
 ### Phase 21: Conversational Recall Indexer
+
 **Goal**: A `villa`-orchestrated, strictly-local indexer turns the user's past chat history into a searchable Knowledge collection so the assistant can recall relevant past conversations by meaning, and the index can be kept current under explicit `villa` control with honest staleness reporting.
 **Depends on**: Phase 20 (Open WebUI RAG/Knowledge + embeddings + Qdrant wiring must be live)
 **Requirements**: RECALL-01, RECALL-02, RECALL-03
 **Success Criteria** (what must be TRUE):
+
   1. A `villa` command semantically indexes past conversations into the vector store (chats → Knowledge), running entirely locally (no new outbound).
   2. In a new chat, the assistant retrieves relevant past-chat content by meaning (semantic, not just keyword) into the current conversation's context.
   3. The chat index can be incrementally updated / re-indexed under explicit `villa` control as conversations grow, and `villa` reports the index's honest current state (indexed count / last-indexed / staleness) — never silently stale.
+
 **Plans**: TBD
 
 ### Phase 22: Control-Plane Fit + Host Gate
+
 **Goal**: The recommended configuration accounts for the embedding model so the memory stack fits the unified-memory envelope, and `villa` refuses or warns up front when the host can't host the memory stack — preserving the "runs healthy after install" bar with no OOM or silent CPU fallback under embedding load.
 **Depends on**: Phase 19 (services to gate/fit) and Phase 18 (footprint function); composes cleanly with Phase 20's running stack
 **Requirements**: CTRL-01, CTRL-03, CTRL-06
 **Success Criteria** (what must be TRUE):
+
   1. `villa recommend` reserves the embedding-model footprint in the unified-memory fit math *before* the chat-model fit (envelope shrinks first), so the recommended config never OOMs or silently CPU-falls-back on gfx1151 — surfaced as an append-only `recommend` field + schema bump.
   2. `villa preflight` gates host fitness for the memory stack (disk space for the vector index, memory headroom for the embedder) with refuse-with-remediation.
   3. `villa doctor` folds memory-stack health into its existing PASS/WARN/FAIL exit contract: services up, vector-disk/headroom checks, and an offload-asserting residency proof that the chat model survives an embedding/import workload (a silent/partial CPU fallback under embedding load is a FAIL, never a false-green).
+
 **Plans**: TBD
 
 ### Phase 23: Surfacing, Backup & Memory-Aware Swap
+
 **Goal**: The memory stack becomes observable, recoverable, and swap-safe — health rows appear in `status` + the dashboard, `backup`/`restore` cover the Qdrant volume safely, and `villa model swap` guards the dimension-mismatch hazard — landing the milestone's single byte-frozen contract evolution exactly once.
 **Depends on**: Phases 19 + 20 (the services and the volume must exist before they can be surfaced or backed up)
 **Requirements**: CTRL-02, CTRL-04, CTRL-05
 **Success Criteria** (what must be TRUE):
+
   1. `villa status` and the control dashboard show memory-stack health (Qdrant + embeddings service rows, active embedding model) as an append-only, schema-bumped contract change (`reportSchemaVersion` 2→3, golden re-frozen once); non-GPU services fold health/active into the verdict without a spurious offload PASS/FAIL.
   2. `villa backup` includes the Qdrant memory volume and `villa restore` clean-recreates it before import (no stale-vector leak), with the embedding dimension recorded in the manifest so a version/dimension skew WARNs rather than silently corrupting retrieval.
   3. `villa model swap` is memory-aware: it warns/guards when changing the embedding model would invalidate existing vectors (dimension mismatch / no auto-reindex), and a chat-model swap leaves the embedding model and vector collections intact.
+
 **Plans**: TBD
 
 ## Progress

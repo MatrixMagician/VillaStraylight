@@ -44,7 +44,7 @@ created: 2026-06-09
 | 18-02-01 | 02 | 2 | INFRA-04 | — | `memory.Footprint(model)` returns `detect.Bytes` (typed-Unknown on catalog miss, never bare 0) | unit | `go test ./internal/memory/ -run TestFootprint` | ❌ W0 | ⬜ pending |
 | 18-02-02 | 02 | 2 | INFRA-04 | T-18-03 | Enablement/fields-valid gate is fail-closed: invalid/missing fields → typed refuse-with-reason, not silent default | unit | `go test ./internal/memory/ -run TestDecide` | ❌ W0 | ⬜ pending |
 | 18-02-03 | 02 | 2 | INFRA-04 | — | RenderView carries resolved values only — no image literal; `TestSeamGrepGate` stays green over `internal/memory` | unit/grep | `go test ./internal/inference/ -run TestSeamGrepGate` | ✅ | ⬜ pending |
-| 18-03-01 | 03 | 3 | INFRA-04 | — | Spike decisions (D-07/D-08/D-09) recorded with evidence in RESEARCH.md / decisions appendix | manual | n/a (doc review) | ✅ | ⬜ pending |
+| 18-01-03 | 01 | 1 | INFRA-04 | — | Spike decisions (D-07/D-08/D-09) recorded with evidence in 18-DECISIONS.md; ENABLE_QDRANT_MULTITENANCY_MODE marked "choice pending — Phase 20" | manual | n/a (doc review) | ✅ | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 

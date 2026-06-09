@@ -386,14 +386,18 @@ These are the three decisions later phases freeze. Each is recorded with its evi
 
 **Note:** A1–A3 are quality/measurement refinements deferred to later phases by design. None blocks Phase 18's deliverables (schema + pure core + recorded decisions). The three core spike *decisions* (D-07/D-08/D-09) are VERIFIED/CITED, not assumed.
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **Exact resident footprint of `villa-embed`**
+> Both items are RESOLVED for Phase 18 as deferred to a later phase — neither blocks
+> this phase's deliverables (schema + pure core + recorded decisions). The three core
+> spike *decisions* D-07/D-08/D-09 are VERIFIED/CITED, not open.
+
+1. **Exact resident footprint of `villa-embed`** — **RESOLVED: deferred to Phase 19.**
    - What we know: GGUF file sizes are measured (Q8_0 = 146 MB); resident > file size.
    - What's unclear: the precise GTT reservation under embedding load on gfx1151.
    - Recommendation: pin a conservative ~512 MiB now (over-reserve is safe); measure and refine the constant in Phase 19 on-hardware. The footprint function's *signature and call site* are what Phase 18 must get right, not the last megabyte of the constant.
 
-2. **Multitenancy mode choice**
+2. **Multitenancy mode choice** — **RESOLVED: deferred to Phase 20 (choice pending, before any vectors exist).**
    - What we know: `ENABLE_QDRANT_MULTITENANCY_MODE` defaults `True`; toggling later disconnects existing collections.
    - What's unclear: whether the Phase-21 recall indexer is simpler against multitenant or flat collections.
    - Recommendation: record both keys in the contract now; make the explicit choice in Phase 20 before any vectors exist (free to choose then).
