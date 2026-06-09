@@ -1366,6 +1366,48 @@ func TestNomicShardValues(t *testing.T) {
 	}
 }
 
+// TestLiveEmbedModelPresentSizeGuard (IN-03): the embed-model presence check treats the
+// GGUF as present only when its on-disk size matches nomicEmbedShard.SizeBytes — a
+// truncated/tampered file is NOT trusted (returns false → re-pull + re-verify). A
+// correctly-sized file is present; an absent file is not present.
+func TestLiveEmbedModelPresentSizeGuard(t *testing.T) {
+	t.Run("absent file is not present", func(t *testing.T) {
+		dir := t.TempDir()
+		if liveEmbedModelPresent(dir) {
+			t.Error("an absent embed GGUF must not be reported present")
+		}
+	})
+
+	t.Run("truncated file is not present (integrity guard)", func(t *testing.T) {
+		dir := t.TempDir()
+		// Write a too-short file at the expected path: present on disk but the wrong size.
+		if err := os.WriteFile(embedModelPath(dir), []byte("not the real weight"), 0o600); err != nil {
+			t.Fatalf("seed truncated file: %v", err)
+		}
+		if liveEmbedModelPresent(dir) {
+			t.Error("a truncated/tampered embed GGUF must be treated as NOT present so it is re-pulled (IN-03)")
+		}
+	})
+
+	t.Run("correctly-sized file is present", func(t *testing.T) {
+		dir := t.TempDir()
+		// A sparse file of exactly the expected size — present + correct size → present.
+		f, err := os.Create(embedModelPath(dir))
+		if err != nil {
+			t.Fatalf("create: %v", err)
+		}
+		if err := f.Truncate(int64(nomicEmbedShard.SizeBytes)); err != nil {
+			t.Fatalf("truncate to expected size: %v", err)
+		}
+		if err := f.Close(); err != nil {
+			t.Fatalf("close: %v", err)
+		}
+		if !liveEmbedModelPresent(dir) {
+			t.Error("a correctly-sized embed GGUF must be reported present (no needless re-pull)")
+		}
+	})
+}
+
 // --- Task 2: memory-stack readiness proof tests ------------------------------
 
 // TestInstallMemoryProofPass: a PASS proof verdict leaves the exit code unaffected and
@@ -1375,6 +1417,9 @@ func TestInstallMemoryProofPass(t *testing.T) {
 	f := newFakeInstallDeps(t, units, plan, passChecks())
 	f.memoryEnabled = true
 	f.memoryProofStatus = preflight.StatusPass
+	// A distinctive PASS detail so the test can prove install prints the verdict's OWN
+	// detail (IN-02), not a re-typed "768-dim …" literal.
+	f.memoryProofDetail = "768-dim embeddings + Qdrant writable"
 
 	cmd, out, _ := installTestCmd()
 	code := runInstall(cmd, installOpts{}, f.installDeps)
@@ -1386,6 +1431,11 @@ func TestInstallMemoryProofPass(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "memory stack ready") {
 		t.Errorf("a PASS proof must print the ready line, got %q", out.String())
+	}
+	// IN-02: the printed line carries the proof's OWN detail (single-sourced dim), not a
+	// duplicated literal — so a dimension change in the verdict flows through here.
+	if !strings.Contains(out.String(), "memory stack ready: 768-dim embeddings + Qdrant writable") {
+		t.Errorf("a PASS proof must print the verdict's detail, got %q", out.String())
 	}
 	// The proof input must be resolved from the persisted config defaults (768-dim).
 	if f.memoryProofIn.embeddingDim != 768 {

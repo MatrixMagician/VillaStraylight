@@ -535,7 +535,10 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 			fmt.Fprintf(errOut, "install: memory stack not ready: %s\n", proof.detail)
 			return exitBlocked
 		}
-		fmt.Fprintf(out, "memory stack ready (768-dim embeddings + Qdrant writable)\n")
+		// Print the proof's own detail (IN-02) rather than re-typing the "768-dim …"
+		// figure as a literal — the dimension is single-sourced in the verdict
+		// (evalMemoryProof, from cfg.EmbeddingDim), so a dim change can't leave this stale.
+		fmt.Fprintf(out, "memory stack ready: %s\n", proof.detail)
 	}
 
 	if ready.status == preflight.StatusWarn || gateDegraded {

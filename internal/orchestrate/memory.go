@@ -20,14 +20,12 @@ import (
 
 // qdrantImage is the digest-pinned Qdrant vector-store image (D-01: the OFFICIAL
 // qdrant/qdrant org, the v1.18.2-UNPRIVILEGED variant that runs as USER_ID=1000 so the
-// rootless-Podman UID / SELinux :Z storage mount stays writable — SC#2). The dev-box
-// RepoDigest is resolved via `podman pull docker.io/qdrant/qdrant:v1.18.2-unprivileged &&
-// podman image inspect docker.io/qdrant/qdrant:v1.18.2-unprivileged --format
-// '{{index .RepoDigests 0}}'`. Committed here is the manifest-list digest from 19-RESEARCH
-// (resolved 2026-06-09); the on-hardware RepoDigest confirmation + a /v1 readiness curl
-// is Plan 19-03's checkpoint:human-verify before the unit is frozen.
-// TODO(19-03): confirm dev-box RepoDigest matches this manifest-list digest.
-// The :v1.18.2-unprivileged tag is silently rebuilt; the digest is not (reproducibility).
+// rootless-Podman UID / SELinux :Z storage mount stays writable — SC#2). This is the
+// manifest-list digest of docker.io/qdrant/qdrant:v1.18.2-unprivileged, ON-HARDWARE
+// VERIFIED during Plan 19-03: the dev-box RepoDigest (resolved via `podman pull` +
+// `podman image inspect --format '{{index .RepoDigests 0}}'`) matches this digest, and a
+// /v1 readiness curl confirmed the running container. The :v1.18.2-unprivileged tag is
+// silently rebuilt; the digest is not (reproducibility).
 const qdrantImage = "docker.io/qdrant/qdrant:v1.18.2-unprivileged@sha256:b79aaa49ce7a7e5b7e9cf3fe76be400c911457084b4b7af47487c1c9ae5962e5"
 
 // QdrantImage returns the digest-pinned Qdrant image so callers (the Phase-23 backup

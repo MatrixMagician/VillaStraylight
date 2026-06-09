@@ -78,11 +78,25 @@ func embedModelPath(modelsDir string) string {
 }
 
 // liveEmbedModelPresent reports whether the pre-staged embed GGUF already exists on
-// disk (the ensureEmbedModel idempotency guard — a present file is never re-pulled,
-// strictly-local). It is the live wiring for the embedModelPresent seam.
+// disk AND is intact (the ensureEmbedModel idempotency guard — a present file is never
+// re-pulled, strictly-local). It is the live wiring for the embedModelPresent seam.
+//
+// IN-03 integrity guard: presence requires the on-disk size to MATCH
+// nomicEmbedShard.SizeBytes. A present-but-truncated/tampered file (e.g. a leftover from
+// a kill between rename steps, or manual tampering) would otherwise be treated as
+// "present, never re-pulled" and villa-embed would crash-loop on the bad weight. A size
+// mismatch → not present → the verified download path re-pulls (download.PullModel then
+// re-verifies size + SHA256 + atomic-renames). This is a cheap stat-only guard; it does
+// NOT re-hash on every install (a full re-hash would be wasteful and is not warranted).
 func liveEmbedModelPresent(modelsDir string) bool {
-	_, err := os.Stat(embedModelPath(modelsDir))
-	return err == nil
+	fi, err := os.Stat(embedModelPath(modelsDir))
+	if err != nil {
+		return false
+	}
+	// A size mismatch means a truncated/tampered file → treat as absent so it is re-pulled
+	// and re-verified, rather than trusting a corrupt weight. fi.Size() is non-negative for
+	// a regular file, so the uint64 conversion is safe.
+	return fi.Size() >= 0 && uint64(fi.Size()) == nomicEmbedShard.SizeBytes
 }
 
 // liveEnsureEmbedModel pre-stages nomicEmbedShard into modelsDir via the verified
