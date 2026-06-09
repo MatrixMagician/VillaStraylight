@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: Memory & Knowledge
 status: executing
-stopped_at: Phase 20 context gathered
-last_updated: "2026-06-09T21:06:31.433Z"
+stopped_at: Phase 20 Wave 1 complete (20-01, 20-02); Plan 20-03 Task 1 (docs/MEMORY.md) done — paused at on-hardware checkpoint Tasks 2-5 (gfx1151 required)
+last_updated: "2026-06-09T21:10:40.557Z"
 last_activity: 2026-06-09 -- Phase 20 execution started
 progress:
   total_phases: 6
@@ -198,8 +198,8 @@ Items acknowledged at v1.2 milestone close (2026-06-08):
 
 ## Session Continuity
 
-Last session: 2026-06-09T21:06:25.210Z
-Stopped at: Phase 20 context gathered
+Last session: 2026-06-09T21:10:40.551Z
+Stopped at: Phase 20 Wave 1 complete (20-01, 20-02); Plan 20-03 Task 1 (docs/MEMORY.md) done — paused at on-hardware checkpoint Tasks 2-5 (gfx1151 required)
 
 ## Operator Next Steps
 
