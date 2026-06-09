@@ -139,7 +139,7 @@ Audit PASSED — 13/13 requirements, 5/5 integration flows, 6/6 phases Nyquist-c
 **Plans**: 3 plansPlans:
 **Wave 1**
 
-- [ ] 20-01-PLAN.md — Parameterize buildOpenWebUIView: append the D-09 RAG/Qdrant/memory env block (incl. ENABLE_PERSISTENT_CONFIG=False) only when memory_enabled; new memory-on golden + memory-aware telemetry test (INFRA-03)
+- [x] 20-01-PLAN.md — Parameterize buildOpenWebUIView: append the D-09 RAG/Qdrant/memory env block (incl. ENABLE_PERSISTENT_CONFIG=False) only when memory_enabled; new memory-on golden + memory-aware telemetry test (INFRA-03)
 - [ ] 20-02-PLAN.md — Runtime zero-outbound RAG smoke harness: pure evalRagSmoke core + liveRagSmoke seam + `villa verify memory` subcommand, negative-control-first (KB-01/02/03, MEM-03, PRIV-05)
 
 **Wave 2** *(blocked on Wave 1 completion)*
@@ -210,7 +210,7 @@ Audit PASSED — 13/13 requirements, 5/5 integration flows, 6/6 phases Nyquist-c
 | 17. Guided TUI Install | v1.2 | 3/3 | Complete | 2026-06-08 |
 | 18. Memory Spine — config core + research spike | v1.3 | 2/2 | Complete    | 2026-06-09 |
 | 19. Vector Store + Local Embeddings Services | v1.3 | 3/3 | Complete    | 2026-06-09 |
-| 20. Open WebUI Memory/RAG Wiring + Offline Lockdown | v1.3 | 0/? | Not started | - |
+| 20. Open WebUI Memory/RAG Wiring + Offline Lockdown | v1.3 | 1/3 | In Progress|  |
 | 21. Conversational Recall Indexer | v1.3 | 0/? | Not started | - |
 | 22. Control-Plane Fit + Host Gate | v1.3 | 0/? | Not started | - |
 | 23. Surfacing, Backup & Memory-Aware Swap | v1.3 | 0/? | Not started | - |

@@ -4,13 +4,13 @@ milestone: v1.3
 milestone_name: Memory & Knowledge
 status: executing
 stopped_at: Phase 20 context gathered
-last_updated: "2026-06-09T20:49:52.903Z"
-last_activity: 2026-06-09 -- Phase 20 planning complete
+last_updated: "2026-06-09T20:58:41.080Z"
+last_activity: 2026-06-09 -- Phase 20 execution started
 progress:
   total_phases: 6
   completed_phases: 2
-  total_plans: 5
-  completed_plans: 5
+  total_plans: 8
+  completed_plans: 6
   percent: 33
 ---
 
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-09 — started v1.3 Memory & Knowledge)
 
 **Core value:** Run a capable local AI workspace that "just works" after install — hardware-aware setup that brings inference, chat, and the dashboard up healthy, with zero data leaving the box. v1.2 extended the bar to "and stays operable, recoverable, and measurable over time." v1.3 extends it to "and remembers the user and their documents across chats — strictly local."
-**Current focus:** Phase 19 — Vector Store + Local Embeddings Services
+**Current focus:** Phase 20 — open-webui-memory-rag-wiring-offline-lockdown
 
 ## Current Position
 
-Phase: 20
-Plan: Not started
+Phase: 20 (open-webui-memory-rag-wiring-offline-lockdown) — EXECUTING
+Plan: 2 of 3
 Status: Ready to execute
-Last activity: 2026-06-09 -- Phase 20 planning complete
+Last activity: 2026-06-09 -- Phase 20 execution started
 
 ## v1.3 Build Order (research-converged — preserve)
 
@@ -110,6 +110,7 @@ evolution: `status.Report` 2→3, golden re-frozen once).
 | Phase 19 P01 | ~14 min | 3 tasks | 10 files |
 | Phase 19 P02 | 25min | 2 tasks | 3 files |
 | Phase 19 P03 | ~10min | 3 tasks | 0 files |
+| Phase 20 P01 | 4 min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -152,6 +153,7 @@ Earlier (v1.0 / v1.1 / v1.2) decisions retained below.
 - [Phase ?]: Memory readiness proof asserts offline 768-dim /v1/embeddings + Qdrant writable round-trip; FAIL refuses-with-remediation (exitBlocked), never a silent skip (D-09)
 - [Phase ?]: [19-03]: On-hardware freeze PASS — pinned qdrantImage b79aaa49ce… confirmed the OFFICIAL qdrant/qdrant manifest-list digest (EQUALS placeholder, no re-pin/no golden refreeze; the per-arch amd64 child 9f7a0450… reported by RepoDigests is NOT the pin, A5). Pinned kyuz0 embed digest serves a 768-length /v1/embeddings proven offline (--network none), clearing the D-06 #15406 regression risk.
 - [Phase ?]: [19-03]: Live villa install (memory_enabled=true) PASS — readiness proof green (offline 768-dim /v1/embeddings + Qdrant writable), villa-qdrant+villa-embed active container-DNS only (no host port, SC#4), Qdrant writes /qdrant/storage as UID 1000 on its :Z named volume (SC#2 writable). SC#2 durability proxy-proven (collection+point survived podman rm + re-run) + linger enabled; literal sudo reboot DEFERRED (would kill the operator session) — recorded honestly, not claimed as a literal reboot.
+- [Phase 20]: Phase 20-01: OWUI memory/RAG env wired behind orchestrate seam — D-09 block appended only when memory_enabled (byte-identical off), ENABLE_PERSISTENT_CONFIG=False mandatory, values config-sourced (no re-typed host literals) — INFRA-03 render half; single deliberate golden re-freeze (new memory golden), memory-aware telemetry test, seam gate green
 
 ### Pending Todos
 
@@ -194,7 +196,7 @@ Items acknowledged at v1.2 milestone close (2026-06-08):
 
 ## Session Continuity
 
-Last session: 2026-06-09T20:03:49.657Z
+Last session: 2026-06-09T20:58:32.065Z
 Stopped at: Phase 20 context gathered
 
 ## Operator Next Steps
