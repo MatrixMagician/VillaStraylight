@@ -122,7 +122,14 @@ func Render(in RenderInput) ([]Unit, error) {
 	// parseContainerArgs would trip that helper's defensive all-fields-non-empty check
 	// (Open WebUI has no device/group/exec args). The owui view reuses networkAttach so
 	// it joins villa.network unchanged — the Phase-3 forward-compat scaffold pays off.
-	owuiContainerText, err := execTemplate(tmpl, "openwebui.container.tmpl", buildOpenWebUIView())
+	//
+	// Phase-20 (D-04): Open WebUI is now memory-aware. The OWUI env block grows only
+	// when memory_enabled=true — the D-09 RAG/Qdrant/memory group is appended from the
+	// resolved render-view (mv); with memory off the unit is byte-identical to the v1.2
+	// golden. mv is computed ONCE here (memory.RenderView is pure, cheap, identical) and
+	// reused by the memory-stack branch below.
+	mv := memory.RenderView(in.Cfg) // D-11 resolved-values handoff (Phase-18 spine)
+	owuiContainerText, err := execTemplate(tmpl, "openwebui.container.tmpl", buildOpenWebUIView(mv, in.Cfg.MemoryEnabled))
 	if err != nil {
 		return nil, err
 	}
@@ -158,8 +165,8 @@ func Render(in RenderInput) ([]Unit, error) {
 	// OWUI-runtime concern, not a unit field); their single source stays config,
 	// consumed by the proof + Phase 23.
 	if in.Cfg.MemoryEnabled {
-		mv := memory.RenderView(in.Cfg) // D-11 resolved-values handoff (Phase-18 spine)
-
+		// mv is the hoisted render-view computed once above (Phase-20 D-04); reused
+		// here so memory.RenderView runs exactly once per Render.
 		qdrantContainerText, err := execTemplate(tmpl, "qdrant.container.tmpl", buildQdrantView(mv.QdrantAddr))
 		if err != nil {
 			return nil, err
