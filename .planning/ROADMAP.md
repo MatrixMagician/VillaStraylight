@@ -97,7 +97,7 @@ Audit PASSED — 13/13 requirements, 5/5 integration flows, 6/6 phases Nyquist-c
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 18-02-PLAN.md — new pure `internal/memory` core: Footprint / Decide / RenderView triad; seam gate stays green (SC#2)
+- [x] 18-02-PLAN.md — new pure `internal/memory` core: Footprint / Decide / RenderView triad; seam gate stays green (SC#2)
 
 ### Phase 19: Vector Store + Local Embeddings Services
 
@@ -188,7 +188,7 @@ Audit PASSED — 13/13 requirements, 5/5 integration flows, 6/6 phases Nyquist-c
 | 15. Cumulative Usage Tracking | v1.2 | 4/4 | Complete | 2026-06-07 |
 | 16. Backup / Restore | v1.2 | 3/3 | Complete | 2026-06-07 |
 | 17. Guided TUI Install | v1.2 | 3/3 | Complete | 2026-06-08 |
-| 18. Memory Spine — config core + research spike | v1.3 | 1/2 | In Progress|  |
+| 18. Memory Spine — config core + research spike | v1.3 | 2/2 | Plans Complete|  |
 | 19. Vector Store + Local Embeddings Services | v1.3 | 0/? | Not started | - |
 | 20. Open WebUI Memory/RAG Wiring + Offline Lockdown | v1.3 | 0/? | Not started | - |
 | 21. Conversational Recall Indexer | v1.3 | 0/? | Not started | - |
