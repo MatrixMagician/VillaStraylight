@@ -12,7 +12,7 @@ Requirements for the v1.3 milestone. Each maps to exactly one roadmap phase (see
 - [ ] **INFRA-01**: `villa install` orchestrates a local Qdrant vector DB as a rootless Podman Quadlet service on `villa.network` (digest-pinned image, named `:Z` volume, no published/host port — loopback/container-DNS only)
 - [ ] **INFRA-02**: `villa install` orchestrates a local embeddings `llama-server` exposing an OpenAI-compatible `/v1/embeddings` endpoint (reuses the existing pinned toolbox image, container-DNS only), serving a pinned default embedding model
 - [ ] **INFRA-03**: Open WebUI is wired (env-only, behind the orchestrate seam) to use Qdrant as its vector DB and the local embeddings endpoint, with `ENABLE_PERSISTENT_CONFIG=false` so `villa` config stays the single source of truth
-- [ ] **INFRA-04**: The memory stack is config-driven — new `config.toml` fields (enable flag, embedding model, service ports/addrs) regenerate the Quadlet units; units are never hand-edited as the authority
+- [x] **INFRA-04**: The memory stack is config-driven — new `config.toml` fields (enable flag, embedding model, service ports/addrs) regenerate the Quadlet units; units are never hand-edited as the authority
 
 ### Personalized Memory (MEM)
 
@@ -87,7 +87,7 @@ Which phases cover which requirements. Populated during roadmap creation (v1.3 p
 | INFRA-01 | Phase 19 | Pending |
 | INFRA-02 | Phase 19 | Pending |
 | INFRA-03 | Phase 20 | Pending |
-| INFRA-04 | Phase 18 | Pending |
+| INFRA-04 | Phase 18 | Complete |
 | MEM-01 | Phase 20 | Pending |
 | MEM-02 | Phase 20 | Pending |
 | MEM-03 | Phase 20 | Pending |
@@ -108,6 +108,7 @@ Which phases cover which requirements. Populated during roadmap creation (v1.3 p
 | PRIV-05 | Phase 20 | Pending |
 
 **Coverage:**
+
 - v1.3 requirements: 22 total
 - Mapped to phases: 22 ✓ (Phases 18–23)
 - Unmapped: 0 ✓

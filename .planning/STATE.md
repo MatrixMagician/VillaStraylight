@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: Memory & Knowledge
-status: planning
+status: executing
 stopped_at: Phase 18 context gathered
-last_updated: "2026-06-09T15:53:34.951Z"
-last_activity: 2026-06-09 — v1.3 ROADMAP.md written, 22/22 requirements mapped to Phases 18–23
+last_updated: "2026-06-09T16:02:11.424Z"
+last_activity: 2026-06-09 -- Phase 18 execution started
 progress:
   total_phases: 6
   completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
+  total_plans: 2
+  completed_plans: 1
   percent: 0
 ---
 
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-09 — started v1.3 Memory & Knowledge)
 
 **Core value:** Run a capable local AI workspace that "just works" after install — hardware-aware setup that brings inference, chat, and the dashboard up healthy, with zero data leaving the box. v1.2 extended the bar to "and stays operable, recoverable, and measurable over time." v1.3 extends it to "and remembers the user and their documents across chats — strictly local."
-**Current focus:** v1.3 roadmap created (Phases 18–23). Next: `/gsd-plan-phase 18`.
+**Current focus:** Phase 18 — memory-spine-config-core-embeddings-wiring-research-spike
 
 ## Current Position
 
-Phase: 18 (Memory Spine — config core + research spike) — not started
-Plan: —
-Status: Roadmap created; ready to plan Phase 18
-Last activity: 2026-06-09 — v1.3 ROADMAP.md written, 22/22 requirements mapped to Phases 18–23
+Phase: 18 (memory-spine-config-core-embeddings-wiring-research-spike) — EXECUTING
+Plan: 2 of 2
+Status: Ready to execute
+Last activity: 2026-06-09 -- Phase 18 execution started
 
 ## v1.3 Build Order (research-converged — preserve)
 
@@ -103,6 +103,7 @@ evolution: `status.Report` 2→3, golden re-frozen once).
 | Phase 17 P01 | 14min | 2 tasks | 6 files |
 | Phase 17 P02 | 22min | 2 tasks | 3 files |
 | Phase 17 P03 | 18min | 2 tasks | 2 files |
+| Phase 18 P01 | 4min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -137,6 +138,8 @@ Earlier (v1.0 / v1.1 / v1.2) decisions retained below.
 - [Roadmap]: Offload-asserting — a silent/partial CPU fallback is a FAIL, never a false-green; backend marker literals stay behind the `internal/inference` seam (`TestSeamGrepGate`).
 - [v1.1]: ROCm is opt-in; Vulkan RADV stays the default; `recommend` advises, never auto-switches. Digest-pin all images (never floating/nightly tags).
 - [16-03]: clean-recreate-before-import is the load-bearing fix (podman volume import MERGES + does NOT auto-create) — stale data never leaks; mirror this for the Qdrant volume in v1.3 Phase 23.
+- [18-01]: VillaConfig memory_* fields are default-OFF + self-heal from defaultConfig() (single source); NO memory save path added — SC#1 byte-identical for non-opted-in v1.2 installs. MemoryEnabled left as parsed (false is a valid choice); endpoint addrs are container-DNS only, never widened.
+- [18-01]: Spike decisions recorded in 18-DECISIONS.md — D-07 dedicated villa-embed llama-server (reuse pinned kyuz0 image); D-08 nomic-embed-text-v1.5 / 768-dim pinned / Q8_0 / ~512 MiB reservation; D-09 OWUI env contract with ENABLE_PERSISTENT_CONFIG=False MANDATORY and ENABLE_QDRANT_MULTITENANCY_MODE choice pending (Phase 20). TOML keys: memory_enabled/embedding_model/embedding_dim/qdrant_addr/qdrant_port/embed_addr/embed_port.
 
 ### Pending Todos
 
@@ -179,7 +182,7 @@ Items acknowledged at v1.2 milestone close (2026-06-08):
 
 ## Session Continuity
 
-Last session: 2026-06-09T15:26:31.968Z
+Last session: 2026-06-09T16:01:50.904Z
 Stopped at: Phase 18 context gathered
 
 ## Operator Next Steps
