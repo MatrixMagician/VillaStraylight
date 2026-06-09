@@ -67,11 +67,26 @@ type fakeInstallDeps struct {
 	// rendered bytes always differ from disk and every existing dashboard test keeps
 	// seeing a "differs → reconcile" outcome (dashWriteCalls==1 / a dashboard start).
 	diskUnit []byte
+
+	// Memory-stack (Phase-19) seam controls + counters. memoryEnabled drives the
+	// loadedMemoryEnabled gate seam (default false → the memory path never fires, so
+	// existing v1.2 install tests stay byte-for-byte unchanged). embedPresent drives the
+	// embedModelPresent idempotency seam (default true → present, so the pre-stage pull
+	// is skipped unless a test sets it false). The *Calls counters + memoryProofInput
+	// capture let the memory tests assert exactly which memory seams fired.
+	memoryEnabled     bool
+	embedPresent      bool
+	embedEnsureCalls  int
+	embedPresentCalls int
+	memoryProofCalls  int
+	memoryProofIn     memoryProofInput
+	memoryProofStatus preflight.Status
+	memoryProofDetail string
 }
 
 func newFakeInstallDeps(t *testing.T, units []orchestrate.Unit, plan orchestrate.Plan, checks []preflight.CheckResult) *fakeInstallDeps {
 	t.Helper()
-	f := &fakeInstallDeps{downloaded: true}
+	f := &fakeInstallDeps{downloaded: true, embedPresent: true, memoryProofStatus: preflight.StatusPass}
 	d := &installDeps{
 		probe: func() detect.HostProfile { return detect.HostProfile{} },
 		pick: func(detect.HostProfile, recommend.Overrides) recommend.Recommendation {
@@ -153,6 +168,28 @@ func newFakeInstallDeps(t *testing.T, units []orchestrate.Unit, plan orchestrate
 	d.pollReady = func(context.Context, string) installReadiness {
 		f.pollCalls++
 		return installReadiness{status: preflight.StatusPass, detail: "ready"}
+	}
+	// Memory-stack seams (Phase-19). The gate seam reflects the controllable
+	// memoryEnabled flag (default false → the memory path never fires, so existing
+	// v1.2 tests are unchanged). The pre-stage/presence seams record an ordered event
+	// so a test can assert the embed GGUF is staged BEFORE the embed service starts and
+	// the Qdrant/embed start ordering (Pitfall 4). The proof seam returns the controllable
+	// verdict and captures its input for assertion.
+	d.loadedMemoryEnabled = func() bool { return f.memoryEnabled }
+	d.embedModelPresent = func(string) bool {
+		f.embedPresentCalls++
+		return f.embedPresent
+	}
+	d.ensureEmbedModel = func(string) error {
+		f.embedEnsureCalls++
+		f.callOrder = append(f.callOrder, "ensureEmbedModel")
+		return nil
+	}
+	d.memoryProofFn = func(_ context.Context, in memoryProofInput) memoryProof {
+		f.memoryProofCalls++
+		f.memoryProofIn = in
+		f.callOrder = append(f.callOrder, "memoryProof")
+		return memoryProof{status: f.memoryProofStatus, detail: f.memoryProofDetail}
 	}
 	f.installDeps = d
 	return f
@@ -1057,4 +1094,286 @@ func TestInstallRegistered(t *testing.T) {
 	if err != nil || install.Name() != "install" {
 		t.Fatalf("`install` verb not registered: %v", err)
 	}
+}
+
+// --- Phase-19 memory-stack install tests -------------------------------------
+
+// memoryUnits returns a Changed plan so runInstall reaches the write→start path
+// (the memory start + proof steps live after the unit write).
+func memoryUnits() ([]orchestrate.Unit, orchestrate.Plan) {
+	units := []orchestrate.Unit{{Name: "villa-llama.container", Text: "[Container]\n"}}
+	return units, orchestrate.Plan{Changed: units}
+}
+
+// TestInstallMemoryGateUsesPersistedConfig is the WARNING-1 end-to-end check (T-19-16):
+// it drives runInstall through the loadedMemoryEnabled seam (the PERSISTED config gate),
+// NOT a hand-built cfg with MemoryEnabled set — so it would catch a gate mistakenly bound
+// to the always-false DefaultVillaConfig() seed. With the seam returning true, the
+// pre-stage (ensureEmbedModel) AND the memory start (villa-qdrant + villa-embed) AND the
+// proof seam all fire; with it returning false, NONE fire.
+func TestInstallMemoryGateUsesPersistedConfig(t *testing.T) {
+	t.Run("persisted memory_enabled=true fires every memory seam", func(t *testing.T) {
+		units, plan := memoryUnits()
+		f := newFakeInstallDeps(t, units, plan, passChecks())
+		f.memoryEnabled = true // the PERSISTED gate is on
+		f.embedPresent = false // force the pre-stage pull path
+
+		cmd, _, _ := installTestCmd()
+		code := runInstall(cmd, installOpts{}, f.installDeps)
+		if code != exitPass {
+			t.Fatalf("memory-on install exit = %d, want 0", code)
+		}
+		if f.embedEnsureCalls != 1 {
+			t.Errorf("memory-on must pre-stage the embed GGUF once, ensureEmbedModel calls = %d", f.embedEnsureCalls)
+		}
+		if !contains(f.startOrder, qdrantServiceName) || !contains(f.startOrder, embedServiceName) {
+			t.Errorf("memory-on must start villa-qdrant + villa-embed, startOrder = %v", f.startOrder)
+		}
+		if f.memoryProofCalls != 1 {
+			t.Errorf("memory-on must run the readiness proof once, proof calls = %d", f.memoryProofCalls)
+		}
+	})
+
+	t.Run("persisted memory_enabled=false fires no memory seam", func(t *testing.T) {
+		units, plan := memoryUnits()
+		f := newFakeInstallDeps(t, units, plan, passChecks())
+		f.memoryEnabled = false // the PERSISTED gate is off (the v1.2 default)
+		f.embedPresent = false  // even absent, nothing should pre-stage
+
+		cmd, _, _ := installTestCmd()
+		code := runInstall(cmd, installOpts{}, f.installDeps)
+		if code != exitPass {
+			t.Fatalf("memory-off install exit = %d, want 0", code)
+		}
+		if f.embedEnsureCalls != 0 {
+			t.Errorf("memory-off must not pre-stage, ensureEmbedModel calls = %d", f.embedEnsureCalls)
+		}
+		if contains(f.startOrder, qdrantServiceName) || contains(f.startOrder, embedServiceName) {
+			t.Errorf("memory-off must not start the memory services, startOrder = %v", f.startOrder)
+		}
+		if f.memoryProofCalls != 0 {
+			t.Errorf("memory-off must not run the proof, proof calls = %d", f.memoryProofCalls)
+		}
+	})
+}
+
+// TestInstallMemoryServices: gate=true pre-stages when absent and starts the memory
+// services in order (Qdrant before embed — Pitfall 4); gate off / dry-run → none called.
+func TestInstallMemoryServices(t *testing.T) {
+	t.Run("absent embed model is pre-staged then services start in order", func(t *testing.T) {
+		units, plan := memoryUnits()
+		f := newFakeInstallDeps(t, units, plan, passChecks())
+		f.memoryEnabled = true
+		f.embedPresent = false
+
+		cmd, _, _ := installTestCmd()
+		if code := runInstall(cmd, installOpts{}, f.installDeps); code != exitPass {
+			t.Fatalf("exit = %d, want 0", code)
+		}
+		if f.embedEnsureCalls != 1 {
+			t.Errorf("absent embed model must be pre-staged once, calls = %d", f.embedEnsureCalls)
+		}
+		// The pre-stage must precede the embed service start, which must follow Qdrant.
+		ensureIdx := indexOf(f.callOrder, "ensureEmbedModel")
+		qIdx := indexOf(f.callOrder, "start:"+qdrantServiceName)
+		eIdx := indexOf(f.callOrder, "start:"+embedServiceName)
+		if ensureIdx < 0 || qIdx < 0 || eIdx < 0 {
+			t.Fatalf("missing expected events in callOrder = %v", f.callOrder)
+		}
+		if !(ensureIdx < eIdx && qIdx < eIdx) {
+			t.Errorf("ordering wrong: ensure(%d) and qdrant(%d) must precede embed(%d); callOrder = %v", ensureIdx, qIdx, eIdx, f.callOrder)
+		}
+	})
+
+	t.Run("present embed model is not re-pulled", func(t *testing.T) {
+		units, plan := memoryUnits()
+		f := newFakeInstallDeps(t, units, plan, passChecks())
+		f.memoryEnabled = true
+		f.embedPresent = true // already on disk
+
+		cmd, _, _ := installTestCmd()
+		if code := runInstall(cmd, installOpts{}, f.installDeps); code != exitPass {
+			t.Fatalf("exit = %d, want 0", code)
+		}
+		if f.embedEnsureCalls != 0 {
+			t.Errorf("present embed model must not be re-pulled, calls = %d", f.embedEnsureCalls)
+		}
+		if !contains(f.startOrder, qdrantServiceName) || !contains(f.startOrder, embedServiceName) {
+			t.Errorf("memory services must still start, startOrder = %v", f.startOrder)
+		}
+	})
+
+	t.Run("gate off pre-stages and starts nothing", func(t *testing.T) {
+		units, plan := memoryUnits()
+		f := newFakeInstallDeps(t, units, plan, passChecks())
+		f.memoryEnabled = false
+		f.embedPresent = false
+
+		cmd, _, _ := installTestCmd()
+		_ = runInstall(cmd, installOpts{}, f.installDeps)
+		if f.embedEnsureCalls != 0 || f.embedPresentCalls != 0 {
+			t.Errorf("gate off must not touch the embed model (ensure=%d present=%d)", f.embedEnsureCalls, f.embedPresentCalls)
+		}
+		if contains(f.startOrder, qdrantServiceName) || contains(f.startOrder, embedServiceName) {
+			t.Errorf("gate off must not start memory services, startOrder = %v", f.startOrder)
+		}
+	})
+
+	t.Run("dry-run pre-stages and starts nothing", func(t *testing.T) {
+		units, plan := memoryUnits()
+		f := newFakeInstallDeps(t, units, plan, passChecks())
+		f.memoryEnabled = true
+		f.embedPresent = false
+
+		cmd, _, _ := installTestCmd()
+		_ = runInstall(cmd, installOpts{dryRun: true}, f.installDeps)
+		if f.embedEnsureCalls != 0 {
+			t.Errorf("dry-run must not pre-stage, ensureEmbedModel calls = %d", f.embedEnsureCalls)
+		}
+		if f.startCalls != 0 {
+			t.Errorf("dry-run must not start anything, startCalls = %d", f.startCalls)
+		}
+		if f.memoryProofCalls != 0 {
+			t.Errorf("dry-run must not run the proof, proof calls = %d", f.memoryProofCalls)
+		}
+	})
+}
+
+// TestEmbedGGUFFilenameSingleSource asserts the pre-stage Shard filename equals the
+// orchestrate single-source accessor UNCONDITIONALLY (Pitfall 3) — the served `-m` path
+// and the staged file can never drift. No literal fallback, no TODO branch.
+func TestEmbedGGUFFilenameSingleSource(t *testing.T) {
+	if nomicEmbedShard.Filename != orchestrate.EmbedGGUFFilename() {
+		t.Fatalf("embed GGUF filename drift: nomicEmbedShard.Filename = %q, orchestrate.EmbedGGUFFilename() = %q",
+			nomicEmbedShard.Filename, orchestrate.EmbedGGUFFilename())
+	}
+}
+
+// TestNomicShardValues pins the verified integrity values (PRIV-04/D-07): a typo in the
+// size or SHA256 would let an unverified GGUF through, so they are asserted here.
+func TestNomicShardValues(t *testing.T) {
+	if nomicEmbedShard.SizeBytes != 146146432 {
+		t.Errorf("nomicEmbedShard.SizeBytes = %d, want 146146432", nomicEmbedShard.SizeBytes)
+	}
+	if nomicEmbedShard.SHA256 != "3e24342164b3d94991ba9692fdc0dd08e3fd7362e0aacc396a9a5c54a544c3b7" {
+		t.Errorf("nomicEmbedShard.SHA256 = %q, want 3e24342164b3d94991ba9692fdc0dd08e3fd7362e0aacc396a9a5c54a544c3b7", nomicEmbedShard.SHA256)
+	}
+}
+
+// --- Task 2: memory-stack readiness proof tests ------------------------------
+
+// TestInstallMemoryProofPass: a PASS proof verdict leaves the exit code unaffected and
+// prints the "memory stack ready" line.
+func TestInstallMemoryProofPass(t *testing.T) {
+	units, plan := memoryUnits()
+	f := newFakeInstallDeps(t, units, plan, passChecks())
+	f.memoryEnabled = true
+	f.memoryProofStatus = preflight.StatusPass
+
+	cmd, out, _ := installTestCmd()
+	code := runInstall(cmd, installOpts{}, f.installDeps)
+	if code != exitPass {
+		t.Fatalf("proof-pass exit = %d, want 0", code)
+	}
+	if f.memoryProofCalls != 1 {
+		t.Errorf("proof must run once, calls = %d", f.memoryProofCalls)
+	}
+	if !strings.Contains(out.String(), "memory stack ready") {
+		t.Errorf("a PASS proof must print the ready line, got %q", out.String())
+	}
+	// The proof input must be resolved from the persisted config defaults (768-dim).
+	if f.memoryProofIn.embeddingDim != 768 {
+		t.Errorf("proof input embeddingDim = %d, want 768", f.memoryProofIn.embeddingDim)
+	}
+	if f.memoryProofIn.embedAddr != "villa-embed" || f.memoryProofIn.qdrantAddr != "villa-qdrant" {
+		t.Errorf("proof input addrs = %q/%q, want villa-embed/villa-qdrant", f.memoryProofIn.embedAddr, f.memoryProofIn.qdrantAddr)
+	}
+}
+
+// TestInstallMemoryProofFail: a FAIL proof verdict makes runInstall return exitBlocked
+// and surface the remediation detail (refuse-with-remediation, never a silent skip).
+func TestInstallMemoryProofFail(t *testing.T) {
+	units, plan := memoryUnits()
+	f := newFakeInstallDeps(t, units, plan, passChecks())
+	f.memoryEnabled = true
+	f.memoryProofStatus = preflight.StatusFail
+	f.memoryProofDetail = "the embeddings endpoint did not answer"
+
+	cmd, _, errOut := installTestCmd()
+	code := runInstall(cmd, installOpts{}, f.installDeps)
+	if code != exitBlocked {
+		t.Fatalf("proof-fail exit = %d, want %d (refuse-with-remediation)", code, exitBlocked)
+	}
+	if !strings.Contains(errOut.String(), "the embeddings endpoint did not answer") {
+		t.Errorf("a FAIL proof must surface the remediation detail, got %q", errOut.String())
+	}
+}
+
+// TestInstallMemoryProofSkippedWhenOffOrDryRun: the proof is not invoked when memory is
+// off or under --dry-run.
+func TestInstallMemoryProofSkippedWhenOffOrDryRun(t *testing.T) {
+	t.Run("gate off", func(t *testing.T) {
+		units, plan := memoryUnits()
+		f := newFakeInstallDeps(t, units, plan, passChecks())
+		f.memoryEnabled = false
+
+		cmd, _, _ := installTestCmd()
+		_ = runInstall(cmd, installOpts{}, f.installDeps)
+		if f.memoryProofCalls != 0 {
+			t.Errorf("gate off must not run the proof, calls = %d", f.memoryProofCalls)
+		}
+	})
+	t.Run("dry-run", func(t *testing.T) {
+		units, plan := memoryUnits()
+		f := newFakeInstallDeps(t, units, plan, passChecks())
+		f.memoryEnabled = true
+
+		cmd, _, _ := installTestCmd()
+		_ = runInstall(cmd, installOpts{dryRun: true}, f.installDeps)
+		if f.memoryProofCalls != 0 {
+			t.Errorf("dry-run must not run the proof, calls = %d", f.memoryProofCalls)
+		}
+	})
+}
+
+// TestEvalMemoryProof table-drives the PURE proof core over the four outcomes.
+func TestEvalMemoryProof(t *testing.T) {
+	const wantDim = 768
+	cases := []struct {
+		name       string
+		embedDim   int
+		embedErr   error
+		writable   bool
+		qdrantErr  error
+		wantStatus preflight.Status
+	}{
+		{"embed ok + qdrant writable", wantDim, nil, true, nil, preflight.StatusPass},
+		{"wrong dim", 256, nil, true, nil, preflight.StatusFail},
+		{"embed err", 0, errors.New("connection refused"), true, nil, preflight.StatusFail},
+		{"qdrant not writable", wantDim, nil, false, nil, preflight.StatusFail},
+		{"qdrant err", wantDim, nil, false, errors.New("readyz 503"), preflight.StatusFail},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			embedProbe := func() (int, error) { return tc.embedDim, tc.embedErr }
+			qdrantProbe := func() (bool, error) { return tc.writable, tc.qdrantErr }
+			got := evalMemoryProof(context.Background(), embedProbe, qdrantProbe, wantDim)
+			if got.status != tc.wantStatus {
+				t.Errorf("status = %v, want %v (detail %q)", got.status, tc.wantStatus, got.detail)
+			}
+			if tc.wantStatus == preflight.StatusFail && got.detail == "" {
+				t.Errorf("a FAIL verdict must carry a remediation detail")
+			}
+		})
+	}
+}
+
+// indexOf returns the first index of v in s, or -1.
+func indexOf(s []string, v string) int {
+	for i, x := range s {
+		if x == v {
+			return i
+		}
+	}
+	return -1
 }
