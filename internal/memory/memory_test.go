@@ -106,6 +106,31 @@ func TestDecide(t *testing.T) {
 			wantValid:   false,
 			wantReason:  "embed_port",
 		},
+		{
+			// WR-03: a port above the TCP range survives normalizeVilla (which only
+			// heals the zero value), so this refusal is reachable on the load path.
+			name:        "on + out-of-range qdrant port (>65535) is invalid",
+			mutate:      func(c *config.VillaConfig) { c.QdrantPort = 70000 },
+			wantEnabled: true,
+			wantValid:   false,
+			wantReason:  "qdrant_port",
+		},
+		{
+			name:        "on + out-of-range embed port (>65535) is invalid",
+			mutate:      func(c *config.VillaConfig) { c.EmbedPort = 99999 },
+			wantEnabled: true,
+			wantValid:   false,
+			wantReason:  "embed_port",
+		},
+		{
+			// Reachable after normalize: it heals dim==0 to the default but leaves a
+			// negative value untouched, so Decide is the authoritative dim guard.
+			name:        "on + negative embedding dim is invalid",
+			mutate:      func(c *config.VillaConfig) { c.EmbeddingDim = -1 },
+			wantEnabled: true,
+			wantValid:   false,
+			wantReason:  "embedding_dim",
+		},
 	}
 
 	for _, tc := range tests {
@@ -175,9 +200,10 @@ func TestRenderView(t *testing.T) {
 	if got.EmbedPort != cfg.EmbedPort {
 		t.Errorf("EmbedPort = %d, want %d", got.EmbedPort, cfg.EmbedPort)
 	}
-	// The addrs are container-DNS pieces, never a composed/routable URL.
+	// The addrs are container-DNS pieces, never a composed/routable URL — a bare
+	// name contains no ":" (which would imply a scheme separator or host:port).
 	for _, v := range []string{got.QdrantAddr, got.EmbedAddr} {
-		if strings.Contains(v, "://") || strings.Contains(v, ":") {
+		if strings.Contains(v, ":") {
 			t.Errorf("RenderView addr %q should be a bare container-DNS name, not a URL/host:port", v)
 		}
 	}

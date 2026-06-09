@@ -51,34 +51,35 @@ type VillaConfig struct {
 
 	// --- Memory stack fields (v1.3, INFRA-04 / D-04..D-08) ---
 	// These follow the existing flat, self-healing pattern (dashboard_*/chat_*),
-	// default to a coherent OFF state, and are NOT emitted to disk for a
-	// non-opted-in install (byte-identical guarantee, SC#1/D-05). The endpoint
+	// default to a coherent OFF state, and (via marshalVilla's omit-when-disabled
+	// path + ,omitempty tags) are NOT emitted to disk for a non-opted-in install on
+	// ANY save-bearing command (byte-identical guarantee, SC#1/D-05). The endpoint
 	// addr fields are container-DNS names on villa.network ONLY — never a routable
 	// host bind (PRIV-01 / D-06); normalizeVilla never widens them.
 
 	// MemoryEnabled gates the whole v1.3 memory stack. Default false (D-04): an
 	// existing v1.2 install stays memory-off until the user opts in.
-	MemoryEnabled bool `toml:"memory_enabled"`
+	MemoryEnabled bool `toml:"memory_enabled,omitempty"`
 	// EmbeddingModel is the pinned embedding model id served by villa-embed
 	// (D-08). Default "nomic-embed-text-v1.5".
-	EmbeddingModel string `toml:"embedding_model"`
+	EmbeddingModel string `toml:"embedding_model,omitempty"`
 	// EmbeddingDim is the pinned, LOAD-BEARING embedding dimension (D-03/D-08).
 	// Default 768. Changing it corrupts existing Qdrant vectors (no auto-reindex);
 	// it is recorded here as the anchor for the Phase-23 memory-aware swap guard.
-	EmbeddingDim int `toml:"embedding_dim"`
+	EmbeddingDim int `toml:"embedding_dim,omitzero"`
 	// QdrantAddr is the container-DNS name of the Qdrant vector store on
 	// villa.network (D-06). Default "villa-qdrant"; NEVER a routable host bind
 	// (PRIV-01) — Qdrant publishes no host port.
-	QdrantAddr string `toml:"qdrant_addr"`
+	QdrantAddr string `toml:"qdrant_addr,omitempty"`
 	// QdrantPort is the in-network Qdrant REST port (D-06). Default 6333.
-	QdrantPort int `toml:"qdrant_port"`
+	QdrantPort int `toml:"qdrant_port,omitzero"`
 	// EmbedAddr is the container-DNS name of the dedicated villa-embed
 	// llama-server on villa.network (D-06/D-07). Default "villa-embed"; NEVER a
 	// routable host bind (PRIV-01).
-	EmbedAddr string `toml:"embed_addr"`
+	EmbedAddr string `toml:"embed_addr,omitempty"`
 	// EmbedPort is the in-network villa-embed OpenAI /v1 port (D-06/D-07).
 	// Default 8080.
-	EmbedPort int `toml:"embed_port"`
+	EmbedPort int `toml:"embed_port,omitzero"`
 }
 
 // defaultConfig is the typed default returned when no config file exists. An absent
@@ -213,8 +214,29 @@ func LoadVilla() (VillaConfig, error) {
 	return normalizeVilla(cfg), nil
 }
 
+// marshalVilla serializes c to TOML for persistence. It is the SINGLE marshal
+// path shared by SaveVilla and SaveVillaTo so the byte-identical guarantee (SC#1)
+// holds uniformly on every save-bearing command (recommend --save, model swap,
+// backend set, restore). When the memory stack is disabled (MemoryEnabled ==
+// false) the memory_* fields are zeroed on this by-value copy so the ,omitempty
+// tags drop all seven keys from the output — an existing v1.2 install therefore
+// gains NO memory keys until the user opts in (D-04/D-05). The in-memory defaults
+// are re-applied by normalizeVilla on the next load, so dropping them on disk is
+// lossless. No string interpolation (BurntSushi/toml, T-02-03).
+func marshalVilla(c VillaConfig) ([]byte, error) {
+	if !c.MemoryEnabled {
+		c.EmbeddingModel = ""
+		c.EmbeddingDim = 0
+		c.QdrantAddr = ""
+		c.QdrantPort = 0
+		c.EmbedAddr = ""
+		c.EmbedPort = 0
+	}
+	return toml.Marshal(c)
+}
+
 // SaveVilla writes the config as TOML under the XDG config dir with 0600 perms.
-// It marshals via BurntSushi/toml (no string interpolation, T-02-03) and refuses
+// It marshals via marshalVilla (no string interpolation, T-02-03) and refuses
 // to write outside the villa config dir (path-traversal guard, T-02-02/V12).
 func SaveVilla(c VillaConfig) error {
 	dir, err := villaConfigDir()
@@ -231,7 +253,7 @@ func SaveVilla(c VillaConfig) error {
 		return fmt.Errorf("config: create config dir %q: %w", dir, err)
 	}
 
-	data, err := toml.Marshal(c)
+	data, err := marshalVilla(c)
 	if err != nil {
 		return fmt.Errorf("config: marshal: %w", err)
 	}
@@ -258,7 +280,7 @@ func SaveVillaTo(dir string, c VillaConfig) error {
 	if err := os.MkdirAll(dir, configDirMode); err != nil {
 		return fmt.Errorf("config: create config dir %q: %w", dir, err)
 	}
-	data, err := toml.Marshal(c)
+	data, err := marshalVilla(c)
 	if err != nil {
 		return fmt.Errorf("config: marshal: %w", err)
 	}

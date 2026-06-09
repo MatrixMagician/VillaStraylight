@@ -39,5 +39,8 @@ func Footprint(modelID string) detect.Bytes {
 	if b, ok := embedFootprints[modelID]; ok {
 		return detect.KnownBytes(b, "memory: pinned embedding footprint reservation")
 	}
+	if modelID == "" {
+		return detect.UnknownBytes("memory: no footprint known for empty embedding model id", modelID)
+	}
 	return detect.UnknownBytes("memory: no footprint known for embedding model "+modelID, modelID)
 }

@@ -442,3 +442,56 @@ func TestSaveRefusesTraversal(t *testing.T) {
 		t.Errorf("assertInsideDir rejected an in-dir path %q: %v", ok, err)
 	}
 }
+
+// TestMemorySaveOmitsKeysWhenDisabled guards SC#1 on the SAVE path (the gap a
+// load-only test cannot see): a save-bearing command on a memory-off install must
+// NOT introduce any memory_* key on disk, even though the in-memory struct carries
+// non-zero memory defaults. marshalVilla zeroes the memory fields when disabled so
+// the ,omitempty tags drop all seven keys. When memory is ON, every key is written.
+func TestMemorySaveOmitsKeysWhenDisabled(t *testing.T) {
+	memKeys := []string{"memory_enabled", "embedding_model", "embedding_dim",
+		"qdrant_addr", "qdrant_port", "embed_addr", "embed_port"}
+
+	// Memory OFF: a config seeded from typed defaults (non-zero memory fields).
+	off := DefaultVillaConfig() // MemoryEnabled == false, memory fields at defaults
+	off.Model = "qwen3-35b-a3b-moe-64"
+	dirOff := filepath.Join(t.TempDir(), "villa")
+	if err := SaveVillaTo(dirOff, off); err != nil {
+		t.Fatalf("SaveVillaTo(off): %v", err)
+	}
+	dataOff, err := os.ReadFile(filepath.Join(dirOff, "config.toml"))
+	if err != nil {
+		t.Fatalf("read off config: %v", err)
+	}
+	for _, k := range memKeys {
+		if strings.Contains(string(dataOff), k) {
+			t.Errorf("memory-off save wrote memory key %q (SC#1 byte-identical break):\n%s", k, dataOff)
+		}
+	}
+
+	// Memory ON: opting in must persist the full memory contract.
+	on := DefaultVillaConfig()
+	on.MemoryEnabled = true
+	dirOn := filepath.Join(t.TempDir(), "villa")
+	if err := SaveVillaTo(dirOn, on); err != nil {
+		t.Fatalf("SaveVillaTo(on): %v", err)
+	}
+	dataOn, err := os.ReadFile(filepath.Join(dirOn, "config.toml"))
+	if err != nil {
+		t.Fatalf("read on config: %v", err)
+	}
+	for _, k := range memKeys {
+		if !strings.Contains(string(dataOn), k) {
+			t.Errorf("memory-on save omitted memory key %q (opt-in must persist the full contract):\n%s", k, dataOn)
+		}
+	}
+
+	// Opting in then saving must round-trip back to an equal struct.
+	got, err := LoadVillaFrom(dirOn)
+	if err != nil {
+		t.Fatalf("LoadVillaFrom(on): %v", err)
+	}
+	if got != on {
+		t.Errorf("memory-on round-trip mismatch:\n got %+v\nwant %+v", got, on)
+	}
+}
