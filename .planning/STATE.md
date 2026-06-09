@@ -4,13 +4,13 @@ milestone: v1.3
 milestone_name: Memory & Knowledge
 status: executing
 stopped_at: Phase 20 context gathered
-last_updated: "2026-06-09T20:58:41.080Z"
+last_updated: "2026-06-09T21:06:31.433Z"
 last_activity: 2026-06-09 -- Phase 20 execution started
 progress:
   total_phases: 6
   completed_phases: 2
   total_plans: 8
-  completed_plans: 6
+  completed_plans: 7
   percent: 33
 ---
 
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-06-09 — started v1.3 Memory & Knowledg
 ## Current Position
 
 Phase: 20 (open-webui-memory-rag-wiring-offline-lockdown) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
 Last activity: 2026-06-09 -- Phase 20 execution started
 
@@ -111,6 +111,7 @@ evolution: `status.Report` 2→3, golden re-frozen once).
 | Phase 19 P02 | 25min | 2 tasks | 3 files |
 | Phase 19 P03 | ~10min | 3 tasks | 0 files |
 | Phase 20 P01 | 4 min | 3 tasks | 4 files |
+| Phase 20 P02 | ~14min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -154,6 +155,7 @@ Earlier (v1.0 / v1.1 / v1.2) decisions retained below.
 - [Phase ?]: [19-03]: On-hardware freeze PASS — pinned qdrantImage b79aaa49ce… confirmed the OFFICIAL qdrant/qdrant manifest-list digest (EQUALS placeholder, no re-pin/no golden refreeze; the per-arch amd64 child 9f7a0450… reported by RepoDigests is NOT the pin, A5). Pinned kyuz0 embed digest serves a 768-length /v1/embeddings proven offline (--network none), clearing the D-06 #15406 regression risk.
 - [Phase ?]: [19-03]: Live villa install (memory_enabled=true) PASS — readiness proof green (offline 768-dim /v1/embeddings + Qdrant writable), villa-qdrant+villa-embed active container-DNS only (no host port, SC#4), Qdrant writes /qdrant/storage as UID 1000 on its :Z named volume (SC#2 writable). SC#2 durability proxy-proven (collection+point survived podman rm + re-run) + linger enabled; literal sudo reboot DEFERRED (would kill the operator session) — recorded honestly, not claimed as a literal reboot.
 - [Phase 20]: Phase 20-01: OWUI memory/RAG env wired behind orchestrate seam — D-09 block appended only when memory_enabled (byte-identical off), ENABLE_PERSISTENT_CONFIG=False mandatory, values config-sourced (no re-typed host literals) — INFRA-03 render half; single deliberate golden re-freeze (new memory golden), memory-aware telemetry test, seam gate green
+- [Phase ?]: [20-02]: Runtime zero-outbound RAG smoke proof landed (D-10/PRIV-05) — pure evalRagSmoke asserts the egress negative control FIRST (probe-could-not-run OR external host reachable = FAIL) before trusting the upload-and-cite drive; no WARN/skip. liveRagSmoke reuses runProbeCurl over villa.network for the negative control (huggingface.co MUST be unreachable) + a NEW host-side fixed-arg curl for the loopback REST drive; helper image via orchestrate.EmbedImage(), no re-typed literal (TestSeamGrepGate green). villa verify memory is a dedicated gated verb (memory OFF exits 0, memory ON FAIL = exitBlocked); admin-token mint (signin+signup fallback, A5) + citation field (sources/citations, A6) confirmed on-hardware in Plan 03. No new host port (D-11).
 
 ### Pending Todos
 
@@ -196,7 +198,7 @@ Items acknowledged at v1.2 milestone close (2026-06-08):
 
 ## Session Continuity
 
-Last session: 2026-06-09T20:58:32.065Z
+Last session: 2026-06-09T21:06:25.210Z
 Stopped at: Phase 20 context gathered
 
 ## Operator Next Steps

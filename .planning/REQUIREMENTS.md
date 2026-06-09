@@ -18,7 +18,7 @@ Requirements for the v1.3 milestone. Each maps to exactly one roadmap phase (see
 
 - [ ] **MEM-01**: The assistant remembers user-stated facts across chats (Open WebUI Memory enabled) and injects them into future conversations
 - [ ] **MEM-02**: User can explicitly save a specific message/fact to memory from a chat
-- [ ] **MEM-03**: Memory is automatically extracted from conversations (LLM-assisted), configurable on/off
+- [x] **MEM-03**: Memory is automatically extracted from conversations (LLM-assisted), configurable on/off
 - [ ] **MEM-04**: User can view, edit, and delete stored memories
 
 ### Conversational Recall (RECALL)
@@ -29,9 +29,9 @@ Requirements for the v1.3 milestone. Each maps to exactly one roadmap phase (see
 
 ### Document Knowledge Base (KB)
 
-- [ ] **KB-01**: User can upload documents into a local knowledge collection in Open WebUI
-- [ ] **KB-02**: The assistant answers using retrieved document content and shows citations
-- [ ] **KB-03**: Document chunking, embedding, and retrieval run entirely through the local embeddings + Qdrant path (no cloud API, no runtime model download)
+- [x] **KB-01**: User can upload documents into a local knowledge collection in Open WebUI
+- [x] **KB-02**: The assistant answers using retrieved document content and shows citations
+- [x] **KB-03**: Document chunking, embedding, and retrieval run entirely through the local embeddings + Qdrant path (no cloud API, no runtime model download)
 
 ### Control-Plane Integration (CTRL)
 
@@ -45,7 +45,7 @@ Requirements for the v1.3 milestone. Each maps to exactly one roadmap phase (see
 ### Privacy & Zero-Outbound (PRIV) — continues v1.0 PRIV-01/02/03
 
 - [x] **PRIV-04**: No embedding/reranker model is downloaded from the internet at runtime — the embedding model is pre-staged at install and offline mode is enforced (`OFFLINE_MODE`/`HF_HUB_OFFLINE`/`*_AUTO_UPDATE=false`)
-- [ ] **PRIV-05**: The memory stack emits no telemetry (Qdrant chosen over telemetry-posting ChromaDB; `ANONYMIZED_TELEMETRY=False`), verified by a **runtime** firewalled document-upload zero-outbound smoke test — not just install-time green
+- [x] **PRIV-05**: The memory stack emits no telemetry (Qdrant chosen over telemetry-posting ChromaDB; `ANONYMIZED_TELEMETRY=False`), verified by a **runtime** firewalled document-upload zero-outbound smoke test — not just install-time green
 
 ## v2 Requirements
 
@@ -90,14 +90,14 @@ Which phases cover which requirements. Populated during roadmap creation (v1.3 p
 | INFRA-04 | Phase 18 | Complete |
 | MEM-01 | Phase 20 | Pending |
 | MEM-02 | Phase 20 | Pending |
-| MEM-03 | Phase 20 | Pending |
+| MEM-03 | Phase 20 | Complete |
 | MEM-04 | Phase 20 | Pending |
 | RECALL-01 | Phase 21 | Pending |
 | RECALL-02 | Phase 21 | Pending |
 | RECALL-03 | Phase 21 | Pending |
-| KB-01 | Phase 20 | Pending |
-| KB-02 | Phase 20 | Pending |
-| KB-03 | Phase 20 | Pending |
+| KB-01 | Phase 20 | Complete |
+| KB-02 | Phase 20 | Complete |
+| KB-03 | Phase 20 | Complete |
 | CTRL-01 | Phase 22 | Pending |
 | CTRL-02 | Phase 23 | Pending |
 | CTRL-03 | Phase 22 | Pending |
@@ -105,7 +105,7 @@ Which phases cover which requirements. Populated during roadmap creation (v1.3 p
 | CTRL-05 | Phase 23 | Pending |
 | CTRL-06 | Phase 22 | Pending |
 | PRIV-04 | Phase 19 | Complete |
-| PRIV-05 | Phase 20 | Pending |
+| PRIV-05 | Phase 20 | Complete |
 
 **Coverage:**
 
