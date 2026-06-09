@@ -80,38 +80,50 @@ Explicitly excluded for v1.3. Documented to prevent scope creep.
 
 ## Traceability
 
-Which phases cover which requirements. Populated during roadmap creation.
+Which phases cover which requirements. Populated during roadmap creation (v1.3 phases continue from v1.2 — numbering starts at **Phase 18**).
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| INFRA-01 | TBD | Pending |
-| INFRA-02 | TBD | Pending |
-| INFRA-03 | TBD | Pending |
-| INFRA-04 | TBD | Pending |
-| MEM-01 | TBD | Pending |
-| MEM-02 | TBD | Pending |
-| MEM-03 | TBD | Pending |
-| MEM-04 | TBD | Pending |
-| RECALL-01 | TBD | Pending |
-| RECALL-02 | TBD | Pending |
-| RECALL-03 | TBD | Pending |
-| KB-01 | TBD | Pending |
-| KB-02 | TBD | Pending |
-| KB-03 | TBD | Pending |
-| CTRL-01 | TBD | Pending |
-| CTRL-02 | TBD | Pending |
-| CTRL-03 | TBD | Pending |
-| CTRL-04 | TBD | Pending |
-| CTRL-05 | TBD | Pending |
-| CTRL-06 | TBD | Pending |
-| PRIV-04 | TBD | Pending |
-| PRIV-05 | TBD | Pending |
+| INFRA-01 | Phase 19 | Pending |
+| INFRA-02 | Phase 19 | Pending |
+| INFRA-03 | Phase 20 | Pending |
+| INFRA-04 | Phase 18 | Pending |
+| MEM-01 | Phase 20 | Pending |
+| MEM-02 | Phase 20 | Pending |
+| MEM-03 | Phase 20 | Pending |
+| MEM-04 | Phase 20 | Pending |
+| RECALL-01 | Phase 21 | Pending |
+| RECALL-02 | Phase 21 | Pending |
+| RECALL-03 | Phase 21 | Pending |
+| KB-01 | Phase 20 | Pending |
+| KB-02 | Phase 20 | Pending |
+| KB-03 | Phase 20 | Pending |
+| CTRL-01 | Phase 22 | Pending |
+| CTRL-02 | Phase 23 | Pending |
+| CTRL-03 | Phase 22 | Pending |
+| CTRL-04 | Phase 23 | Pending |
+| CTRL-05 | Phase 23 | Pending |
+| CTRL-06 | Phase 22 | Pending |
+| PRIV-04 | Phase 19 | Pending |
+| PRIV-05 | Phase 20 | Pending |
 
 **Coverage:**
 - v1.3 requirements: 22 total
-- Mapped to phases: 0 (roadmap pending)
-- Unmapped: 22 ⚠️ (resolved by roadmap)
+- Mapped to phases: 22 ✓ (Phases 18–23)
+- Unmapped: 0 ✓
+- Duplicates (mapped to >1 phase): 0 ✓
+
+**Per-phase requirement counts:**
+
+| Phase | Requirements | Count |
+|-------|--------------|-------|
+| Phase 18 — Memory Spine (config core + research spike) | INFRA-04 | 1 |
+| Phase 19 — Vector Store + Local Embeddings Services | INFRA-01, INFRA-02, PRIV-04 | 3 |
+| Phase 20 — Open WebUI Memory/RAG Wiring + Offline Lockdown | INFRA-03, MEM-01, MEM-02, MEM-03, MEM-04, KB-01, KB-02, KB-03, PRIV-05 | 9 |
+| Phase 21 — Conversational Recall Indexer | RECALL-01, RECALL-02, RECALL-03 | 3 |
+| Phase 22 — Control-Plane Fit + Host Gate | CTRL-01, CTRL-03, CTRL-06 | 3 |
+| Phase 23 — Surfacing, Backup & Memory-Aware Swap | CTRL-02, CTRL-04, CTRL-05 | 3 |
 
 ---
 *Requirements defined: 2026-06-09*
-*Last updated: 2026-06-09 after initial v1.3 definition*
+*Last updated: 2026-06-09 — roadmap created; all 22 v1.3 requirements mapped to Phases 18–23 (100% coverage, no orphans, no duplicates). v1.3 phase numbering continues from v1.2 (last phase 17).*
