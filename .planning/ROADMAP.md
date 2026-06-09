@@ -114,7 +114,7 @@ Audit PASSED — 13/13 requirements, 5/5 integration flows, 6/6 phases Nyquist-c
 **Plans**: 3 plansPlans:
 **Wave 1**
 
-- [ ] 19-01-PLAN.md — orchestrate managed-service render path: Qdrant + villa-embed units + Qdrant `:Z` volume, conditional on `memory_enabled` (byte-identical when off), three goldens, mandatory seam-gate allowlist extension (INFRA-01, INFRA-02)
+- [x] 19-01-PLAN.md — orchestrate managed-service render path: Qdrant + villa-embed units + Qdrant `:Z` volume, conditional on `memory_enabled` (byte-identical when off), three goldens, mandatory seam-gate allowlist extension (INFRA-01, INFRA-02)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -200,7 +200,7 @@ Audit PASSED — 13/13 requirements, 5/5 integration flows, 6/6 phases Nyquist-c
 | 16. Backup / Restore | v1.2 | 3/3 | Complete | 2026-06-07 |
 | 17. Guided TUI Install | v1.2 | 3/3 | Complete | 2026-06-08 |
 | 18. Memory Spine — config core + research spike | v1.3 | 2/2 | Complete    | 2026-06-09 |
-| 19. Vector Store + Local Embeddings Services | v1.3 | 0/3 | Planned | - |
+| 19. Vector Store + Local Embeddings Services | v1.3 | 1/3 | In Progress|  |
 | 20. Open WebUI Memory/RAG Wiring + Offline Lockdown | v1.3 | 0/? | Not started | - |
 | 21. Conversational Recall Indexer | v1.3 | 0/? | Not started | - |
 | 22. Control-Plane Fit + Host Gate | v1.3 | 0/? | Not started | - |

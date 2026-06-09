@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: Memory & Knowledge
-status: planning
+status: executing
 stopped_at: Phase 19 planned (3 plans, 3 waves)
-last_updated: "2026-06-09T18:04:41.896Z"
-last_activity: 2026-06-09 -- Phase 19 planning complete
+last_updated: "2026-06-09T18:13:23.743Z"
+last_activity: 2026-06-09 -- Phase 19 execution started
 progress:
   total_phases: 6
   completed_phases: 1
-  total_plans: 2
-  completed_plans: 2
+  total_plans: 5
+  completed_plans: 3
   percent: 17
 ---
 
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-09 — started v1.3 Memory & Knowledge)
 
 **Core value:** Run a capable local AI workspace that "just works" after install — hardware-aware setup that brings inference, chat, and the dashboard up healthy, with zero data leaving the box. v1.2 extended the bar to "and stays operable, recoverable, and measurable over time." v1.3 extends it to "and remembers the user and their documents across chats — strictly local."
-**Current focus:** Phase 18 — memory-spine-config-core-embeddings-wiring-research-spike
+**Current focus:** Phase 19 — Vector Store + Local Embeddings Services
 
 ## Current Position
 
-Phase: 19
-Plan: Planned (3 plans across 3 waves) — ready to execute
-Status: Phase 19 planning complete (19-01 render path, 19-02 install wiring, 19-03 on-hardware freeze)
-Last activity: 2026-06-09 -- Phase 19 planning complete
+Phase: 19 (Vector Store + Local Embeddings Services) — EXECUTING
+Plan: 2 of 3
+Status: Ready to execute
+Last activity: 2026-06-09 -- Phase 19 execution started
 
 ## v1.3 Build Order (research-converged — preserve)
 
@@ -106,6 +106,7 @@ evolution: `status.Report` 2→3, golden re-frozen once).
 | Phase 17 P03 | 18min | 2 tasks | 2 files |
 | Phase 18 P01 | 4min | 3 tasks | 3 files |
 | Phase 18 P02 | ~7 min | 3 tasks (TDD) | 3 files |
+| Phase 19 P01 | ~14 min | 3 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -143,6 +144,7 @@ Earlier (v1.0 / v1.1 / v1.2) decisions retained below.
 - [18-01]: VillaConfig memory_* fields are default-OFF + self-heal from defaultConfig() (single source); NO memory save path added — SC#1 byte-identical for non-opted-in v1.2 installs. MemoryEnabled left as parsed (false is a valid choice); endpoint addrs are container-DNS only, never widened.
 - [18-01]: Spike decisions recorded in 18-DECISIONS.md — D-07 dedicated villa-embed llama-server (reuse pinned kyuz0 image); D-08 nomic-embed-text-v1.5 / 768-dim pinned / Q8_0 / ~512 MiB reservation; D-09 OWUI env contract with ENABLE_PERSISTENT_CONFIG=False MANDATORY and ENABLE_QDRANT_MULTITENANCY_MODE choice pending (Phase 20). TOML keys: memory_enabled/embedding_model/embedding_dim/qdrant_addr/qdrant_port/embed_addr/embed_port.
 - [18-02]: NEW pure `internal/memory` core landed — `Footprint(modelID) detect.Bytes` (typed-Unknown on miss, 512 MiB single-source constant for nomic-embed-text-v1.5, D-08), `Decide(cfg) Decision` (fail-closed enablement-and-fields-valid gate, accumulates refuse-with-reason, T-18-03), `RenderView(cfg) MemoryRenderInput` (resolved-values-only handoff — no URL, no image literal, D-02c/D-10). Zero new deps; `TestSeamGrepGate` confirmed green over `internal/memory` (no os/exec, no image literal). This phase PROVIDES the functions only — no call site added; Phases 19/22/23 wire them.
+- [19-01]: orchestrate memory render path landed — `QdrantImage()`/`EmbedImage()` digest-pinned managed-service consts behind the orchestrate seam (D-02/D-04, `openWebUIImage` precedent, NOT inference `BackendFor`); `seam_test.go` `isSeam` allowlist extended for `orchestrate/memory.go` in the SAME commit (Pitfall 7, `TestSeamGrepGate` green). EXPORTED `EmbedGGUFFilename()` is the single-source embed GGUF filename Plan 19-02's drift test binds against (Pitfall 3). `Render(memory_enabled=true)` appends villa-qdrant.container/.volume + villa-embed.container (Exec=`llama-server … --embeddings --pooling mean -c 8192`, `:ro,z` model mount, no PublishPort); memory-off byte-identical to the v1.2 5-unit output (D-11, 5 existing goldens unchanged). `embedEmbeddingDim=768` recorded (D-08). Qdrant manifest-list digest committed as placeholder; dev-box RepoDigest confirmation deferred to Plan 19-03 checkpoint.
 
 ### Pending Todos
 
@@ -185,7 +187,7 @@ Items acknowledged at v1.2 milestone close (2026-06-08):
 
 ## Session Continuity
 
-Last session: 2026-06-09T17:23:05.420Z
+Last session: 2026-06-09T18:13:17.301Z
 Stopped at: Phase 19 planned (3 plans, 3 waves)
 
 ## Operator Next Steps
