@@ -1435,6 +1435,87 @@ func TestEvalMemoryProof(t *testing.T) {
 	}
 }
 
+// TestQdrantWritableProbeIdempotent (WR-03): a pre-existing villa-probe collection from
+// an interrupted prior run must NOT make the writable proof FAIL. The probe issues a
+// best-effort DELETE before the PUT-create, so a fake curl runner that fails a PUT against
+// an existing collection (unless a DELETE preceded it) must yield writable=true, not an
+// error. It also locks the no-leftover guarantee (a closing DELETE runs) and the clean-
+// store case (no stale collection → still passes).
+func TestQdrantWritableProbeIdempotent(t *testing.T) {
+	const base = "http://villa-qdrant:6333"
+	coll := base + "/collections/" + villaProbeCollection
+
+	t.Run("stale leftover collection does not cause a FAIL", func(t *testing.T) {
+		// exists models a leftover probe collection: a PUT-create while it exists is a
+		// non-2xx (curl -sf error); only after a DELETE does the PUT succeed.
+		exists := true
+		var calls []string
+		curl := func(args ...string) ([]byte, error) {
+			// Reconstruct a coarse "METHOD path" signature from the fixed-arg call.
+			method, path := "GET", args[len(args)-1]
+			for i, a := range args {
+				if a == "-X" && i+1 < len(args) {
+					method = args[i+1]
+				}
+			}
+			// The PUT/DELETE target is the coll arg (the token right after the method).
+			for i, a := range args {
+				if a == "-X" && i+2 < len(args) {
+					path = args[i+2]
+				}
+			}
+			calls = append(calls, method+" "+path)
+			switch {
+			case method == "GET" && path == base+"/readyz":
+				return []byte("ok"), nil
+			case method == "DELETE" && path == coll:
+				exists = false
+				return []byte("{}"), nil
+			case method == "PUT" && path == coll:
+				if exists {
+					return nil, errors.New("409 Conflict: collection already exists")
+				}
+				return []byte("{}"), nil
+			default:
+				return []byte("{}"), nil
+			}
+		}
+
+		writable, err := qdrantWritableProbe(curl, base, 768)
+		if err != nil {
+			t.Fatalf("a leftover probe collection must not FAIL the writable proof, got err: %v\ncalls: %v", err, calls)
+		}
+		if !writable {
+			t.Fatalf("writable = false, want true (the create succeeded after the pre-DELETE)\ncalls: %v", calls)
+		}
+		// The pre-DELETE must precede the PUT (the idempotency ordering, WR-03).
+		delIdx, putIdx := indexOf(calls, "DELETE "+coll), indexOf(calls, "PUT "+coll)
+		if delIdx < 0 || putIdx < 0 || delIdx >= putIdx {
+			t.Errorf("expected a DELETE before the PUT-create, got call order %v", calls)
+		}
+	})
+
+	t.Run("clean store still proves writable", func(t *testing.T) {
+		curl := func(args ...string) ([]byte, error) { return []byte("{}"), nil }
+		writable, err := qdrantWritableProbe(curl, base, 768)
+		if err != nil || !writable {
+			t.Fatalf("clean-store probe must pass, got writable=%v err=%v", writable, err)
+		}
+	})
+
+	t.Run("readyz failure FAILs", func(t *testing.T) {
+		curl := func(args ...string) ([]byte, error) {
+			if args[len(args)-1] == base+"/readyz" {
+				return nil, errors.New("connection refused")
+			}
+			return []byte("{}"), nil
+		}
+		if _, err := qdrantWritableProbe(curl, base, 768); err == nil {
+			t.Fatal("a /readyz failure must surface an error")
+		}
+	})
+}
+
 // indexOf returns the first index of v in s, or -1.
 func indexOf(s []string, v string) int {
 	for i, x := range s {

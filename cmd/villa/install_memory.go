@@ -246,36 +246,58 @@ func liveMemoryProof(ctx context.Context, in memoryProofInput) memoryProof {
 		return len(resp.Data[0].Embedding), nil
 	}
 
-	// qdrantProbe asserts /readyz then PUT + DELETE the 768-dim probe collection.
+	// qdrantProbe asserts /readyz then (DELETE-)PUT + DELETE the probe collection,
+	// delegating the writable round-trip to the pure qdrantWritableProbe so the
+	// idempotency ordering is unit-testable off-hardware (WR-03).
 	qdrantProbe := func() (bool, error) {
 		base := fmt.Sprintf("http://%s:%d", in.qdrantAddr, in.qdrantPort)
-		if _, err := runProbeCurl(ctx, helperImage, "-sf", base+"/readyz"); err != nil {
-			return false, fmt.Errorf("/readyz: %w", err)
-		}
-		coll := base + "/collections/" + villaProbeCollection
-		putBody, err := json.Marshal(map[string]any{
-			"vectors": map[string]any{
-				"size":     in.embeddingDim,
-				"distance": "Cosine",
-			},
-		})
-		if err != nil {
-			return false, err
-		}
-		if _, err := runProbeCurl(ctx, helperImage,
-			"-sf", "-X", "PUT", coll,
-			"-H", "Content-Type: application/json",
-			"-d", string(putBody),
-		); err != nil {
-			return false, fmt.Errorf("create probe collection: %w", err)
-		}
-		// Best-effort cleanup so no stray state remains; a delete failure does not
-		// negate the proven write (the create already proved writability).
-		_, _ = runProbeCurl(ctx, helperImage, "-sf", "-X", "DELETE", coll)
-		return true, nil
+		curl := func(args ...string) ([]byte, error) { return runProbeCurl(ctx, helperImage, args...) }
+		return qdrantWritableProbe(curl, base, in.embeddingDim)
 	}
 
 	return evalMemoryProof(ctx, embedProbe, qdrantProbe, in.embeddingDim)
+}
+
+// probeCurlFn is the injectable curl-runner seam qdrantWritableProbe drives: it runs a
+// fixed-arg curl (in production, `podman run --rm --network villa <img> curl <args...>`)
+// and returns curl's stdout. Tests inject a fake to simulate a leftover probe collection.
+type probeCurlFn func(args ...string) ([]byte, error)
+
+// qdrantWritableProbe is the PURE Qdrant writable round-trip (unit-testable via an
+// injected probeCurlFn): assert /readyz, then prove the named volume is writable by
+// creating the probe collection and deleting it. It is IDEMPOTENT (WR-03): it issues a
+// best-effort DELETE of any STALE probe collection BEFORE the PUT-create, so a leftover
+// villa-probe collection from an interrupted prior run (whose cleanup DELETE never ran)
+// can NOT make the create return a non-2xx and hard-block install on a perfectly writable
+// Qdrant. The pre-DELETE result is intentionally ignored (a no-op on a clean store). Every
+// curl invocation is fixed-arg (no shell interpolation, T-19-10).
+func qdrantWritableProbe(curl probeCurlFn, base string, embeddingDim int) (bool, error) {
+	if _, err := curl("-sf", base+"/readyz"); err != nil {
+		return false, fmt.Errorf("/readyz: %w", err)
+	}
+	coll := base + "/collections/" + villaProbeCollection
+	putBody, err := json.Marshal(map[string]any{
+		"vectors": map[string]any{
+			"size":     embeddingDim,
+			"distance": "Cosine",
+		},
+	})
+	if err != nil {
+		return false, err
+	}
+	// Idempotency (WR-03): clear any stale leftover collection first (best-effort).
+	_, _ = curl("-sf", "-X", "DELETE", coll)
+	if _, err := curl(
+		"-sf", "-X", "PUT", coll,
+		"-H", "Content-Type: application/json",
+		"-d", string(putBody),
+	); err != nil {
+		return false, fmt.Errorf("create probe collection: %w", err)
+	}
+	// Best-effort cleanup so no stray state remains; a delete failure does not
+	// negate the proven write (the create already proved writability).
+	_, _ = curl("-sf", "-X", "DELETE", coll)
+	return true, nil
 }
 
 // runProbeCurl runs `podman run --rm --network villa <helperImage> curl <args...>` as a
