@@ -8,6 +8,7 @@ import (
 	"text/template"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/inference"
+	"github.com/MatrixMagician/VillaStraylight/internal/memory"
 )
 
 // render.go is a PURE renderer (no filesystem, no systemctl) in the same sense as
@@ -132,13 +133,50 @@ func Render(in RenderInput) ([]Unit, error) {
 
 	// Fixed deterministic emit order (callers + goldens depend on it):
 	// container, network, models-volume, openwebui-container, openwebui-volume.
-	return []Unit{
+	units := []Unit{
 		{Name: containerUnitName, Text: containerText},
 		{Name: networkUnitName, Text: networkText},
 		{Name: volumeUnitName, Text: volumeText},
 		{Name: openWebUIContainerUnitName, Text: owuiContainerText},
 		{Name: openWebUIVolumeUnitName, Text: owuiVolumeText},
-	}, nil
+	}
+
+	// v1.3 memory stack (D-11): the two new managed services + the durable Qdrant
+	// volume are appended ONLY when memory_enabled=true. With memory off this branch is
+	// skipped and the returned slice is byte-identical to the v1.2 5-unit output (the 5
+	// existing goldens stay unchanged — Phase-18 SC#1 continuity). Like Open WebUI, the
+	// villa-qdrant / villa-embed views are a dedicated managed-service render path
+	// (memory.go) and BYPASS parseContainerArgs (Pitfall 4: no GPU device/group/exec
+	// args for that helper's defensive all-fields-non-empty check). memory.RenderView
+	// is the D-11 resolved-values-only handoff (model id, dim, addr/port PIECES; no
+	// image literal — orchestrate owns the image consts); the gate is keyed off
+	// in.Cfg.MemoryEnabled so the handoff is real.
+	if in.Cfg.MemoryEnabled {
+		_ = memory.RenderView(in.Cfg) // D-11 resolved-values handoff (Phase-18 spine)
+
+		qdrantContainerText, err := execTemplate(tmpl, "qdrant.container.tmpl", buildQdrantView())
+		if err != nil {
+			return nil, err
+		}
+		qdrantVolumeText, err := execTemplate(tmpl, "qdrant.volume.tmpl", buildQdrantVolumeView())
+		if err != nil {
+			return nil, err
+		}
+		// The served GGUF `-m` path binds the single-source embedGGUFFilename const
+		// (surfaced via the exported EmbedGGUFFilename() that Plan 19-02's drift test
+		// binds — Pitfall 3) so it can never drift from the pre-staged Shard.Filename.
+		embedContainerText, err := execTemplate(tmpl, "embed.container.tmpl", buildEmbedView(embedGGUFFilename))
+		if err != nil {
+			return nil, err
+		}
+		units = append(units,
+			Unit{Name: qdrantContainerUnitName, Text: qdrantContainerText},
+			Unit{Name: qdrantVolumeUnitName, Text: qdrantVolumeText},
+			Unit{Name: embedContainerUnitName, Text: embedContainerText},
+		)
+	}
+
+	return units, nil
 }
 
 // parseContainerArgs maps the proven `podman run` argument slice into Quadlet keys.

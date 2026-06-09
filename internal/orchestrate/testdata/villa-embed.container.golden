@@ -1,0 +1,17 @@
+# ~/.config/containers/systemd/villa-embed.container  (GENERATED — do not edit; source: config.toml)
+[Unit]
+Description=VillaStraylight embeddings (llama-server /v1/embeddings)
+After=villa-network.service
+
+[Container]
+ContainerName=villa-embed
+Image=docker.io/kyuz0/amd-strix-halo-toolboxes:vulkan-radv@sha256:9a74e555c45864352a4077528836988d448e9f030fbab9f7376ea1c603ac7aad
+Network=villa.network
+Volume=villa-models:/models:ro,z
+Exec=llama-server -m /models/nomic-embed-text-v1.5.Q8_0.gguf --embeddings --pooling mean -c 8192 --host 0.0.0.0 --port 8080
+
+[Service]
+Restart=on-failure
+
+[Install]
+WantedBy=default.target
