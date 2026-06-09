@@ -4,13 +4,13 @@ milestone: v1.3
 milestone_name: Memory & Knowledge
 status: executing
 stopped_at: Phase 19 planned (3 plans, 3 waves)
-last_updated: "2026-06-09T18:13:23.743Z"
+last_updated: "2026-06-09T18:27:24.305Z"
 last_activity: 2026-06-09 -- Phase 19 execution started
 progress:
   total_phases: 6
   completed_phases: 1
   total_plans: 5
-  completed_plans: 3
+  completed_plans: 4
   percent: 17
 ---
 
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-06-09 — started v1.3 Memory & Knowledg
 ## Current Position
 
 Phase: 19 (Vector Store + Local Embeddings Services) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
 Last activity: 2026-06-09 -- Phase 19 execution started
 
@@ -107,6 +107,7 @@ evolution: `status.Report` 2→3, golden re-frozen once).
 | Phase 18 P01 | 4min | 3 tasks | 3 files |
 | Phase 18 P02 | ~7 min | 3 tasks (TDD) | 3 files |
 | Phase 19 P01 | ~14 min | 3 tasks | 10 files |
+| Phase 19 P02 | 25min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -145,6 +146,8 @@ Earlier (v1.0 / v1.1 / v1.2) decisions retained below.
 - [18-01]: Spike decisions recorded in 18-DECISIONS.md — D-07 dedicated villa-embed llama-server (reuse pinned kyuz0 image); D-08 nomic-embed-text-v1.5 / 768-dim pinned / Q8_0 / ~512 MiB reservation; D-09 OWUI env contract with ENABLE_PERSISTENT_CONFIG=False MANDATORY and ENABLE_QDRANT_MULTITENANCY_MODE choice pending (Phase 20). TOML keys: memory_enabled/embedding_model/embedding_dim/qdrant_addr/qdrant_port/embed_addr/embed_port.
 - [18-02]: NEW pure `internal/memory` core landed — `Footprint(modelID) detect.Bytes` (typed-Unknown on miss, 512 MiB single-source constant for nomic-embed-text-v1.5, D-08), `Decide(cfg) Decision` (fail-closed enablement-and-fields-valid gate, accumulates refuse-with-reason, T-18-03), `RenderView(cfg) MemoryRenderInput` (resolved-values-only handoff — no URL, no image literal, D-02c/D-10). Zero new deps; `TestSeamGrepGate` confirmed green over `internal/memory` (no os/exec, no image literal). This phase PROVIDES the functions only — no call site added; Phases 19/22/23 wire them.
 - [19-01]: orchestrate memory render path landed — `QdrantImage()`/`EmbedImage()` digest-pinned managed-service consts behind the orchestrate seam (D-02/D-04, `openWebUIImage` precedent, NOT inference `BackendFor`); `seam_test.go` `isSeam` allowlist extended for `orchestrate/memory.go` in the SAME commit (Pitfall 7, `TestSeamGrepGate` green). EXPORTED `EmbedGGUFFilename()` is the single-source embed GGUF filename Plan 19-02's drift test binds against (Pitfall 3). `Render(memory_enabled=true)` appends villa-qdrant.container/.volume + villa-embed.container (Exec=`llama-server … --embeddings --pooling mean -c 8192`, `:ro,z` model mount, no PublishPort); memory-off byte-identical to the v1.2 5-unit output (D-11, 5 existing goldens unchanged). `embedEmbeddingDim=768` recorded (D-08). Qdrant manifest-list digest committed as placeholder; dev-box RepoDigest confirmation deferred to Plan 19-03 checkpoint.
+- [Phase ?]: Phase-19 install memory gate keyed off PERSISTED config.LoadVilla().MemoryEnabled via loadedMemoryEnabled seam, not the always-false DefaultVillaConfig seed (T-19-16)
+- [Phase ?]: Memory readiness proof asserts offline 768-dim /v1/embeddings + Qdrant writable round-trip; FAIL refuses-with-remediation (exitBlocked), never a silent skip (D-09)
 
 ### Pending Todos
 
@@ -187,7 +190,7 @@ Items acknowledged at v1.2 milestone close (2026-06-08):
 
 ## Session Continuity
 
-Last session: 2026-06-09T18:13:17.301Z
+Last session: 2026-06-09T18:27:24.299Z
 Stopped at: Phase 19 planned (3 plans, 3 waves)
 
 ## Operator Next Steps

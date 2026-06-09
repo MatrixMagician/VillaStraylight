@@ -118,7 +118,7 @@ Audit PASSED — 13/13 requirements, 5/5 integration flows, 6/6 phases Nyquist-c
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 19-02-PLAN.md — install wiring: pre-stage the nomic Q8_0 GGUF (zero runtime download) + start villa-qdrant/villa-embed + offline 768-dim `/v1/embeddings` + Qdrant-writable readiness proof (INFRA-02, PRIV-04)
+- [x] 19-02-PLAN.md — install wiring: pre-stage the nomic Q8_0 GGUF (zero runtime download) + start villa-qdrant/villa-embed + offline 768-dim `/v1/embeddings` + Qdrant-writable readiness proof (INFRA-02, PRIV-04)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -200,7 +200,7 @@ Audit PASSED — 13/13 requirements, 5/5 integration flows, 6/6 phases Nyquist-c
 | 16. Backup / Restore | v1.2 | 3/3 | Complete | 2026-06-07 |
 | 17. Guided TUI Install | v1.2 | 3/3 | Complete | 2026-06-08 |
 | 18. Memory Spine — config core + research spike | v1.3 | 2/2 | Complete    | 2026-06-09 |
-| 19. Vector Store + Local Embeddings Services | v1.3 | 1/3 | In Progress|  |
+| 19. Vector Store + Local Embeddings Services | v1.3 | 2/3 | In Progress|  |
 | 20. Open WebUI Memory/RAG Wiring + Offline Lockdown | v1.3 | 0/? | Not started | - |
 | 21. Conversational Recall Indexer | v1.3 | 0/? | Not started | - |
 | 22. Control-Plane Fit + Host Gate | v1.3 | 0/? | Not started | - |

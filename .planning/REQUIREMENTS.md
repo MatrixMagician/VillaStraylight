@@ -44,7 +44,7 @@ Requirements for the v1.3 milestone. Each maps to exactly one roadmap phase (see
 
 ### Privacy & Zero-Outbound (PRIV) — continues v1.0 PRIV-01/02/03
 
-- [ ] **PRIV-04**: No embedding/reranker model is downloaded from the internet at runtime — the embedding model is pre-staged at install and offline mode is enforced (`OFFLINE_MODE`/`HF_HUB_OFFLINE`/`*_AUTO_UPDATE=false`)
+- [x] **PRIV-04**: No embedding/reranker model is downloaded from the internet at runtime — the embedding model is pre-staged at install and offline mode is enforced (`OFFLINE_MODE`/`HF_HUB_OFFLINE`/`*_AUTO_UPDATE=false`)
 - [ ] **PRIV-05**: The memory stack emits no telemetry (Qdrant chosen over telemetry-posting ChromaDB; `ANONYMIZED_TELEMETRY=False`), verified by a **runtime** firewalled document-upload zero-outbound smoke test — not just install-time green
 
 ## v2 Requirements
@@ -104,7 +104,7 @@ Which phases cover which requirements. Populated during roadmap creation (v1.3 p
 | CTRL-04 | Phase 23 | Pending |
 | CTRL-05 | Phase 23 | Pending |
 | CTRL-06 | Phase 22 | Pending |
-| PRIV-04 | Phase 19 | Pending |
+| PRIV-04 | Phase 19 | Complete |
 | PRIV-05 | Phase 20 | Pending |
 
 **Coverage:**
