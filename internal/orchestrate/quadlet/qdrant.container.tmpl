@@ -1,0 +1,16 @@
+# ~/.config/containers/systemd/villa-qdrant.container  (GENERATED — do not edit; source: config.toml)
+[Unit]
+Description=VillaStraylight Qdrant vector store
+After=villa-network.service
+
+[Container]
+ContainerName={{.ContainerName}}
+Image={{.Image}}
+Network={{.Network}}
+Volume={{.Volume}}
+
+[Service]
+Restart=on-failure
+
+[Install]
+WantedBy=default.target
