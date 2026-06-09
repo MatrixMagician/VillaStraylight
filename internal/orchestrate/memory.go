@@ -65,8 +65,12 @@ const (
 	qdrantContainerUnitName = "villa-qdrant.container"
 	qdrantVolumeUnitName    = "villa-qdrant.volume"
 
-	qdrantContainerName = "villa-qdrant"
-	qdrantVolumeName    = "villa-qdrant"
+	// qdrantVolumeName is the podman NAMED-volume identity (the volume unit name +
+	// mount source). The Qdrant CONTAINER-DNS name is NOT a const here — it is
+	// config-resolved (cfg.QdrantAddr via memory.RenderView) and threaded into
+	// buildQdrantView (WR-01), so config is the single source of truth for the
+	// service's network identity.
+	qdrantVolumeName = "villa-qdrant"
 
 	// qdrantVolumeMount is the durable named-volume mount with the :Z PRIVATE SELinux
 	// label (D-03) at Qdrant's data dir. The unprivileged image (USER_ID=1000) writes
@@ -76,11 +80,15 @@ const (
 	qdrantVolumeMount = qdrantVolumeName + ".volume:/qdrant/storage:Z"
 
 	embedContainerUnitName = "villa-embed.container"
-	embedContainerName     = "villa-embed"
-	// embedContainerPort is the container-internal OpenAI /v1 port (--host 0.0.0.0 on
-	// the Exec line, never a host bind — D-05/D-10, SC#4).
-	embedContainerPort = 8080
-	// embedContextLen is the pinned embed context window (D-07/D-08).
+	// The villa-embed CONTAINER-DNS name and its served /v1 --port are NOT consts
+	// here — both are config-resolved (cfg.EmbedAddr / cfg.EmbedPort via
+	// memory.RenderView) and threaded into buildEmbedView/buildEmbedExec (WR-01), so
+	// config is the single source of truth for the embed service's identity AND the
+	// port the readiness proof probes. --host 0.0.0.0 stays container-internal only,
+	// never a host bind (D-05/D-10, SC#4).
+	//
+	// embedContextLen is a genuine pinned const (8192, D-07/D-08): there is no
+	// config field for the embed context window, so it stays a render-time constant.
 	embedContextLen = 8192
 	// embedModelMount binds the SHARED villa-models store read-only with the LOWERCASE
 	// :z shared label + ro (matching backend_vulkan.go's shared-models convention —
@@ -126,10 +134,16 @@ type embedView struct {
 	Exec          string
 }
 
-// buildQdrantView assembles the Qdrant container view from the managed-service consts.
-func buildQdrantView() qdrantView {
+// buildQdrantView assembles the Qdrant container view. ContainerName is the
+// config-resolved Qdrant container-DNS name (qdrantAddr, threaded from
+// memory.RenderView(in.Cfg) — the single source of truth) so the rendered unit's
+// identity derives from config, NEVER an orchestrate-local const (WR-01). The
+// image and the :Z volume mount stay genuine pinned managed-service constants:
+// there is no config field for them and the :Z SELinux label is a deliberate
+// render-time decision (D-03), not a config value.
+func buildQdrantView(qdrantAddr string) qdrantView {
 	return qdrantView{
-		ContainerName: qdrantContainerName,
+		ContainerName: qdrantAddr,
 		Image:         qdrantImage,
 		Network:       networkAttach,
 		Volume:        qdrantVolumeMount,
@@ -141,17 +155,22 @@ func buildQdrantVolumeView() qdrantVolumeView {
 	return qdrantVolumeView{VolumeName: qdrantVolumeName}
 }
 
-// buildEmbedView assembles the villa-embed container view. The ggufFilename is the
-// single source of truth (embedGGUFFilename, surfaced via EmbedGGUFFilename()) shared
-// with the Plan-19-02 pre-stage Shard.Filename (Pitfall 3) — it is threaded as a
-// parameter so both ends bind one symbol.
-func buildEmbedView(ggufFilename string) embedView {
+// buildEmbedView assembles the villa-embed container view. ContainerName is the
+// config-resolved villa-embed container-DNS name (embedAddr) and the served Exec's
+// --port is the config-resolved embedPort — both threaded from
+// memory.RenderView(in.Cfg) so the unit's identity/port derive from config, the
+// single source of truth (WR-01). The ggufFilename is the single source of truth
+// (embedGGUFFilename, surfaced via EmbedGGUFFilename()) shared with the Plan-19-02
+// pre-stage Shard.Filename (Pitfall 3) — it is threaded as a parameter so both
+// ends bind one symbol. The image and the :ro,z shared-models mount stay genuine
+// pinned managed-service constants (no config field for them).
+func buildEmbedView(ggufFilename, embedAddr string, embedPort int) embedView {
 	return embedView{
-		ContainerName: embedContainerName,
+		ContainerName: embedAddr,
 		Image:         embedImage,
 		Network:       networkAttach,
 		Volume:        embedModelMount,
-		Exec:          buildEmbedExec(ggufFilename),
+		Exec:          buildEmbedExec(ggufFilename, embedPort),
 	}
 }
 
@@ -160,7 +179,10 @@ func buildEmbedView(ggufFilename string) embedView {
 // and `--pooling mean` are LOAD-BEARING: the /v1/embeddings endpoint requires a pooling
 // mode != none (Pitfall 2). The ggufFilename is the single source shared with the
 // Plan-19-02 pre-stage Shard.Filename (Pitfall 3); render.go passes embedGGUFFilename.
-func buildEmbedExec(ggufFilename string) string {
+// embedPort is the config-resolved villa-embed /v1 port (cfg.EmbedPort via RenderView)
+// so the served --port matches the port the proof probes (WR-01). embedContextLen
+// stays a genuine pinned const (8192, D-07/D-08 — no config field for it).
+func buildEmbedExec(ggufFilename string, embedPort int) string {
 	tokens := []string{
 		"llama-server",
 		"-m", "/models/" + ggufFilename,
@@ -168,7 +190,7 @@ func buildEmbedExec(ggufFilename string) string {
 		"--pooling", "mean",
 		"-c", strconv.Itoa(embedContextLen),
 		"--host", "0.0.0.0", // container-internal only; no host bind (D-05/D-10)
-		"--port", strconv.Itoa(embedContainerPort),
+		"--port", strconv.Itoa(embedPort),
 	}
 	return strings.Join(tokens, " ")
 }

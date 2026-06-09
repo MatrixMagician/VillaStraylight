@@ -149,12 +149,18 @@ func Render(in RenderInput) ([]Unit, error) {
 	// (memory.go) and BYPASS parseContainerArgs (Pitfall 4: no GPU device/group/exec
 	// args for that helper's defensive all-fields-non-empty check). memory.RenderView
 	// is the D-11 resolved-values-only handoff (model id, dim, addr/port PIECES; no
-	// image literal — orchestrate owns the image consts); the gate is keyed off
-	// in.Cfg.MemoryEnabled so the handoff is real.
+	// image literal — orchestrate owns the image consts). The memory units render
+	// their container-DNS identity (mv.QdrantAddr / mv.EmbedAddr) and the served
+	// embed --port (mv.EmbedPort) FROM these resolved config values — config is the
+	// single source of truth (WR-01), so the units can never silently diverge from
+	// what the readiness proof probes (which also reads cfg). EmbeddingDim/
+	// EmbeddingModel are NOT rendered into any unit (the Qdrant collection dim is an
+	// OWUI-runtime concern, not a unit field); their single source stays config,
+	// consumed by the proof + Phase 23.
 	if in.Cfg.MemoryEnabled {
-		_ = memory.RenderView(in.Cfg) // D-11 resolved-values handoff (Phase-18 spine)
+		mv := memory.RenderView(in.Cfg) // D-11 resolved-values handoff (Phase-18 spine)
 
-		qdrantContainerText, err := execTemplate(tmpl, "qdrant.container.tmpl", buildQdrantView())
+		qdrantContainerText, err := execTemplate(tmpl, "qdrant.container.tmpl", buildQdrantView(mv.QdrantAddr))
 		if err != nil {
 			return nil, err
 		}
@@ -165,7 +171,9 @@ func Render(in RenderInput) ([]Unit, error) {
 		// The served GGUF `-m` path binds the single-source embedGGUFFilename const
 		// (surfaced via the exported EmbedGGUFFilename() that Plan 19-02's drift test
 		// binds — Pitfall 3) so it can never drift from the pre-staged Shard.Filename.
-		embedContainerText, err := execTemplate(tmpl, "embed.container.tmpl", buildEmbedView(embedGGUFFilename))
+		// The container-DNS name (mv.EmbedAddr) and the served /v1 --port (mv.EmbedPort)
+		// come from the resolved config (WR-01) so they match the proof's probe target.
+		embedContainerText, err := execTemplate(tmpl, "embed.container.tmpl", buildEmbedView(embedGGUFFilename, mv.EmbedAddr, mv.EmbedPort))
 		if err != nil {
 			return nil, err
 		}

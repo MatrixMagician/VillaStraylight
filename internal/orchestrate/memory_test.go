@@ -160,3 +160,42 @@ func TestRenderConsumesMemoryView(t *testing.T) {
 		t.Errorf("embed unit missing resolved DNS name ContainerName=villa-embed:\n%s", e.Text)
 	}
 }
+
+// TestRenderMemoryUnitsAreConfigDriven (WR-01): the memory units derive their
+// container-DNS identity (cfg.QdrantAddr / cfg.EmbedAddr) and the served embed /v1
+// --port (cfg.EmbedPort) FROM the resolved config via memory.RenderView — NOT from
+// orchestrate-local constants. Rendering with NON-default config values must surface
+// those exact values in the unit text. This LOCKS the config→unit data flow so it can
+// never silently revert to constants (the "config is the single source of truth"
+// invariant for the memory stack, the load-bearing handoff WR-01 fixed).
+func TestRenderMemoryUnitsAreConfigDriven(t *testing.T) {
+	in := memoryFixtureInput()
+	// Deliberately non-default values: a custom container-DNS name for each service and
+	// a non-default embed port. If the units rendered from constants (the WR-01 bug),
+	// these would NOT appear and the asserts below would fail.
+	in.Cfg.QdrantAddr = "villa-qdrant-custom"
+	in.Cfg.EmbedAddr = "villa-embed-custom"
+	in.Cfg.EmbedPort = 9090
+
+	units, err := Render(in)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+
+	q := unitByName(t, units, "villa-qdrant.container")
+	if !strings.Contains(q.Text, "ContainerName=villa-qdrant-custom") {
+		t.Errorf("qdrant unit did not render the config-resolved ContainerName=villa-qdrant-custom (rendered from a const?):\n%s", q.Text)
+	}
+
+	e := unitByName(t, units, "villa-embed.container")
+	if !strings.Contains(e.Text, "ContainerName=villa-embed-custom") {
+		t.Errorf("embed unit did not render the config-resolved ContainerName=villa-embed-custom (rendered from a const?):\n%s", e.Text)
+	}
+	if !strings.Contains(e.Text, "--port 9090") {
+		t.Errorf("embed Exec did not render the config-resolved --port 9090 (rendered from the embedContainerPort const?):\n%s", e.Text)
+	}
+	// The OLD hardcoded port must NOT survive when config carries a different one.
+	if strings.Contains(e.Text, "--port 8080") {
+		t.Errorf("embed Exec still carries the hardcoded --port 8080 despite cfg.EmbedPort=9090 — render is not config-driven:\n%s", e.Text)
+	}
+}
