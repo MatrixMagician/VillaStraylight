@@ -496,22 +496,27 @@ Notes: a successful create proves the `:Z`(+`:U`) named volume is writable by UI
 
 **Note:** A1 and A2 are the two on-hardware verifications that gate freezing the units — both are caught by the D-09 install proof, so neither can silently ship a broken stack. A `checkpoint:human-verify` (Audit section) covers both.
 
-## Open Questions
+## Open Questions (RESOLVED)
+
+> All three are "planner's call" questions resolved in-flight by the Phase-19 plans (19-01/19-02/19-03). The resolution for each is appended below.
 
 1. **villa-embed reachability for the install proof**
    - What we know: `villa-embed` is container-DNS only (no host port); the existing `pollReady` polls a host-loopback endpoint (the chat path DOES publish loopback).
    - What's unclear: the cleanest way to reach `villa-embed:8080/v1/embeddings` from the install host to run the proof, given no host bind.
    - Recommendation: run the proof from inside `villa.network` (a one-shot `podman run --rm --network villa.network <small-image> curl …`), or assert the embed endpoint indirectly. Container-DNS-only is non-negotiable (D-05/D-10); do NOT add a host publish just to test. **Planner picks the mechanism; the assertion (768-length, offline) is fixed.**
+   - **RESOLVED (19-02):** reach the container-DNS-only services from inside `villa.network` via a one-shot `podman run --rm --network villa.network` (or fixed-arg `podman exec`) — NO host `PublishPort=` is added (SC#4/D-10). The proof asserts a 768-length `/v1/embeddings` vector offline + a Qdrant writable round-trip; any podman invocation is fixed-arg and sources images via an orchestrate accessor (never a re-typed image literal, keeping the seam gate green).
 
 2. **Where the embed GGUF identity lives (const set vs catalog entry)**
    - What we know: it is NOT in `internal/catalog/seed.json` today (verified); the Shard format is known and verified.
    - What's unclear: whether to add it as a catalog model or as an orchestrate/memory const set.
    - Recommendation: keep the **filename a single source of truth** shared by the pre-stage Shard and the embed Exec (Pitfall 3); the storage location (const vs catalog) is the planner's call. A non-catalog const avoids polluting the chat-model catalog/recommend math.
+   - **RESOLVED (19-01/19-02):** the embed GGUF identity lives as a non-catalog `internal/orchestrate` const (`embedGGUFFilename`) surfaced via the EXPORTED accessor `orchestrate.EmbedGGUFFilename()` — NOT a `seed.json` catalog entry (avoids polluting recommend math). The pre-stage `nomicEmbedShard.Filename` (19-02) and the served `-m` path (19-01 `buildEmbedExec`) both bind that one accessor; a cross-package test asserts equality unconditionally (Pitfall 3 — no duplicated literal).
 
 3. **Embed unit GPU residency flags**
    - What we know: `--embeddings --pooling mean -c 8192` are load-bearing; the chat path adds `--no-mmap -fa 1 -ngl 999 -lv 4 --metrics`.
    - What's unclear: whether the embedder needs GPU offload flags for the install proof / for Phase-22 footprint measurement.
    - Recommendation: planner's call; `-ngl 999 --no-mmap` make the embedder GPU-resident (matches the ~512 MiB GTT reservation in D-08) and let Phase 22 measure a real GTT delta. Not required for `/v1/embeddings` correctness.
+   - **RESOLVED (19-01):** embed GPU residency flags are OPTIONAL and DEFERRED. The frozen `buildEmbedExec` ships only the load-bearing `--embeddings --pooling mean -c 8192` (plus `--host`/`--port`); GPU-offload flags (`-ngl 999 --no-mmap`) are NOT added now — they are not required for `/v1/embeddings` correctness and the real GTT-delta footprint measurement is deferred to Phase 22 (CTRL-01), where the resident delta recorded by Plan 19-03's on-hardware checkpoint refines the ~512 MiB D-08 estimate.
 
 ## Environment Availability
 
