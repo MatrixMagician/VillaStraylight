@@ -1,0 +1,117 @@
+# Requirements: VillaStraylight — v1.3 Memory & Knowledge (local RAG)
+
+**Defined:** 2026-06-09
+**Core Value:** Run a capable local AI workspace that "just works" after install — now extended so the assistant *remembers* the user across chats and can recall past conversations and uploaded documents, with zero data leaving the box.
+
+## v1.3 Requirements
+
+Requirements for the v1.3 milestone. Each maps to exactly one roadmap phase (see Traceability). Delivery is **integrate + orchestrate** — Go stays the control plane; no custom RAG/embeddings engine is built.
+
+### Memory Infrastructure (INFRA)
+
+- [ ] **INFRA-01**: `villa install` orchestrates a local Qdrant vector DB as a rootless Podman Quadlet service on `villa.network` (digest-pinned image, named `:Z` volume, no published/host port — loopback/container-DNS only)
+- [ ] **INFRA-02**: `villa install` orchestrates a local embeddings `llama-server` exposing an OpenAI-compatible `/v1/embeddings` endpoint (reuses the existing pinned toolbox image, container-DNS only), serving a pinned default embedding model
+- [ ] **INFRA-03**: Open WebUI is wired (env-only, behind the orchestrate seam) to use Qdrant as its vector DB and the local embeddings endpoint, with `ENABLE_PERSISTENT_CONFIG=false` so `villa` config stays the single source of truth
+- [ ] **INFRA-04**: The memory stack is config-driven — new `config.toml` fields (enable flag, embedding model, service ports/addrs) regenerate the Quadlet units; units are never hand-edited as the authority
+
+### Personalized Memory (MEM)
+
+- [ ] **MEM-01**: The assistant remembers user-stated facts across chats (Open WebUI Memory enabled) and injects them into future conversations
+- [ ] **MEM-02**: User can explicitly save a specific message/fact to memory from a chat
+- [ ] **MEM-03**: Memory is automatically extracted from conversations (LLM-assisted), configurable on/off
+- [ ] **MEM-04**: User can view, edit, and delete stored memories
+
+### Conversational Recall (RECALL)
+
+- [ ] **RECALL-01**: A `villa`-orchestrated indexer semantically indexes past conversations into the vector store (chats → Knowledge), running locally
+- [ ] **RECALL-02**: The assistant can retrieve relevant past-chat content *by meaning* (semantic, not just keyword) into the current conversation's context
+- [ ] **RECALL-03**: The chat index stays current as conversations grow — incremental/re-index is `villa`-controllable and reports honest state (no silent staleness)
+
+### Document Knowledge Base (KB)
+
+- [ ] **KB-01**: User can upload documents into a local knowledge collection in Open WebUI
+- [ ] **KB-02**: The assistant answers using retrieved document content and shows citations
+- [ ] **KB-03**: Document chunking, embedding, and retrieval run entirely through the local embeddings + Qdrant path (no cloud API, no runtime model download)
+
+### Control-Plane Integration (CTRL)
+
+- [ ] **CTRL-01**: `villa recommend` reserves the embedding-model footprint in the unified-memory fit math *before* the chat-model fit, so the recommended config never OOMs or silently CPU-falls-back on gfx1151
+- [ ] **CTRL-02**: `villa status` and the control dashboard surface memory-stack health (Qdrant + embeddings service rows, active embedding model) as an append-only, schema-bumped contract change (golden re-frozen once)
+- [ ] **CTRL-03**: `villa doctor` includes memory-stack health checks (services up, offload-asserting residency under embedding load, vector-disk/headroom), folded into its existing PASS/WARN/FAIL exit contract
+- [ ] **CTRL-04**: `villa backup`/`restore` cover the Qdrant memory volume — clean-recreate-before-import (no stale-vector leak) with the embedding dimension recorded in the manifest for version-skew warning
+- [ ] **CTRL-05**: `villa model swap` is memory-aware — it warns/guards when changing the embedding model would invalidate existing vectors (dimension mismatch / no auto-reindex)
+- [ ] **CTRL-06**: `villa preflight` gates host fitness for the memory stack (disk space for the vector index, memory headroom for the embedder) with refuse-with-remediation
+
+### Privacy & Zero-Outbound (PRIV) — continues v1.0 PRIV-01/02/03
+
+- [ ] **PRIV-04**: No embedding/reranker model is downloaded from the internet at runtime — the embedding model is pre-staged at install and offline mode is enforced (`OFFLINE_MODE`/`HF_HUB_OFFLINE`/`*_AUTO_UPDATE=false`)
+- [ ] **PRIV-05**: The memory stack emits no telemetry (Qdrant chosen over telemetry-posting ChromaDB; `ANONYMIZED_TELEMETRY=False`), verified by a **runtime** firewalled document-upload zero-outbound smoke test — not just install-time green
+
+## v2 Requirements
+
+Deferred to a future release. Tracked but not in the v1.3 roadmap.
+
+### Retrieval Quality (RAG-Q)
+
+- **RAG-Q-01**: Hybrid (vector + BM25) search with a local reranker model (`ENABLE_RAG_HYBRID_SEARCH` / `RAG_RERANKING_MODEL`) — deferred to keep within the gfx1151 unified-memory envelope (a reranker is a third resident model + added latency)
+
+### Search & Agents
+
+- **SRCH-01**: SearXNG local search integration
+- **CODE-01**: OpenCode (local-model coding agent) wiring
+
+### Access
+
+- **REMOTE-01**: Authenticated remote / multi-user access (memory currently assumes the strictly-local single-user posture)
+
+## Out of Scope
+
+Explicitly excluded for v1.3. Documented to prevent scope creep.
+
+| Feature | Reason |
+|---------|--------|
+| macOS / Apple Silicon / Metal backend | **Permanently out of scope** (decided 2026-06-09); the `Backend` interface keeps a port architecturally possible but it is no longer a planned goal |
+| Custom Go RAG / embeddings engine | Go is the control plane only; integrate Open WebUI's native Memory/RAG + OSS services, never rebuild them |
+| Cloud embedding / LLM APIs | Violates the strictly-local, zero-new-outbound posture; embeddings must run locally |
+| Embedded SQLite / cgo vector store in `villa` | Breaks the single static CGO-free binary constraint; vector data lives in the Qdrant podman volume |
+| Reranker / hybrid search (v1.3) | Deferred to v2 (RAG-Q-01) — third resident model + latency on a constrained envelope |
+| Multi-user memory scoping / per-user auth | Strictly-local single-user posture; remote/multi-user auth is a separate deferred milestone (REMOTE-01) |
+| Web-search-augmented RAG | Would introduce runtime outbound; conflicts with zero-outbound (and SearXNG is a separate deferred item) |
+
+## Traceability
+
+Which phases cover which requirements. Populated during roadmap creation.
+
+| Requirement | Phase | Status |
+|-------------|-------|--------|
+| INFRA-01 | TBD | Pending |
+| INFRA-02 | TBD | Pending |
+| INFRA-03 | TBD | Pending |
+| INFRA-04 | TBD | Pending |
+| MEM-01 | TBD | Pending |
+| MEM-02 | TBD | Pending |
+| MEM-03 | TBD | Pending |
+| MEM-04 | TBD | Pending |
+| RECALL-01 | TBD | Pending |
+| RECALL-02 | TBD | Pending |
+| RECALL-03 | TBD | Pending |
+| KB-01 | TBD | Pending |
+| KB-02 | TBD | Pending |
+| KB-03 | TBD | Pending |
+| CTRL-01 | TBD | Pending |
+| CTRL-02 | TBD | Pending |
+| CTRL-03 | TBD | Pending |
+| CTRL-04 | TBD | Pending |
+| CTRL-05 | TBD | Pending |
+| CTRL-06 | TBD | Pending |
+| PRIV-04 | TBD | Pending |
+| PRIV-05 | TBD | Pending |
+
+**Coverage:**
+- v1.3 requirements: 22 total
+- Mapped to phases: 0 (roadmap pending)
+- Unmapped: 22 ⚠️ (resolved by roadmap)
+
+---
+*Requirements defined: 2026-06-09*
+*Last updated: 2026-06-09 after initial v1.3 definition*
