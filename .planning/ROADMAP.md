@@ -200,7 +200,7 @@ Audit PASSED — 13/13 requirements, 5/5 integration flows, 6/6 phases Nyquist-c
 | 16. Backup / Restore | v1.2 | 3/3 | Complete | 2026-06-07 |
 | 17. Guided TUI Install | v1.2 | 3/3 | Complete | 2026-06-08 |
 | 18. Memory Spine — config core + research spike | v1.3 | 2/2 | Complete    | 2026-06-09 |
-| 19. Vector Store + Local Embeddings Services | v1.3 | 3/3 | Complete   | 2026-06-09 |
+| 19. Vector Store + Local Embeddings Services | v1.3 | 3/3 | Complete    | 2026-06-09 |
 | 20. Open WebUI Memory/RAG Wiring + Offline Lockdown | v1.3 | 0/? | Not started | - |
 | 21. Conversational Recall Indexer | v1.3 | 0/? | Not started | - |
 | 22. Control-Plane Fit + Host Gate | v1.3 | 0/? | Not started | - |
