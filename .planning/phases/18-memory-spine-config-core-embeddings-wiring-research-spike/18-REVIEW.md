@@ -14,10 +14,20 @@ findings:
   warning: 3
   info: 4
   total: 7
-status: issues_found
+status: resolved
+resolution_commit: 579e575
 ---
 
 # Phase 18: Code Review Report
+
+> **Resolution (2026-06-09, commit `579e575`):** All 3 warnings + 2 info items fixed.
+> WR-01 — `marshalVilla` now drops the 7 `memory_*` keys on save when memory is
+> disabled (`,omitempty`/`,omitzero` tags), so SC#1 byte-identical holds on every
+> save-bearing command; regression test added. WR-02 — `Decide` doc now honestly
+> states the normalize interaction; it is the authoritative gate for any config.
+> WR-03 — `Decide` rejects ports outside 1..65535 (tests added). Info: empty-id
+> `Footprint` reason trailing space + redundant `RenderView` test sub-condition.
+> `make check` green.
 
 **Reviewed:** 2026-06-09
 **Depth:** deep
