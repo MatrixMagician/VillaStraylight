@@ -111,7 +111,11 @@ Audit PASSED — 13/13 requirements, 5/5 integration flows, 6/6 phases Nyquist-c
   3. The embedding model is present and served from the local stack at install time — a first embedding request succeeds with no internet access (no runtime HuggingFace/model pull).
   4. Neither new service is bound beyond loopback / `villa.network` — the loopback-only privacy audit stays green.
 
-**Plans**: TBD
+**Plans**: 3 plans
+Plans:
+- [ ] 19-01-PLAN.md — orchestrate managed-service render path: Qdrant + villa-embed units + Qdrant `:Z` volume, conditional on `memory_enabled` (byte-identical when off), three goldens, mandatory seam-gate allowlist extension (INFRA-01, INFRA-02)
+- [ ] 19-02-PLAN.md — install wiring: pre-stage the nomic Q8_0 GGUF (zero runtime download) + start villa-qdrant/villa-embed + offline 768-dim `/v1/embeddings` + Qdrant-writable readiness proof (INFRA-02, PRIV-04)
+- [ ] 19-03-PLAN.md — on-hardware freeze: confirm the Qdrant dev-box RepoDigest + curl `/v1/embeddings` against the pinned kyuz0 digest (legitimacy gate), prove Qdrant writability + reboot survival + offline first embedding (INFRA-01, INFRA-02, PRIV-04)
 
 ### Phase 20: Open WebUI Memory/RAG Wiring + Offline Lockdown
 
@@ -189,7 +193,7 @@ Audit PASSED — 13/13 requirements, 5/5 integration flows, 6/6 phases Nyquist-c
 | 16. Backup / Restore | v1.2 | 3/3 | Complete | 2026-06-07 |
 | 17. Guided TUI Install | v1.2 | 3/3 | Complete | 2026-06-08 |
 | 18. Memory Spine — config core + research spike | v1.3 | 2/2 | Complete    | 2026-06-09 |
-| 19. Vector Store + Local Embeddings Services | v1.3 | 0/? | Not started | - |
+| 19. Vector Store + Local Embeddings Services | v1.3 | 0/3 | Planned | - |
 | 20. Open WebUI Memory/RAG Wiring + Offline Lockdown | v1.3 | 0/? | Not started | - |
 | 21. Conversational Recall Indexer | v1.3 | 0/? | Not started | - |
 | 22. Control-Plane Fit + Host Gate | v1.3 | 0/? | Not started | - |
