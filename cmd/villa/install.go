@@ -153,6 +153,16 @@ type installDeps struct {
 	// Memory-stack seams (Phase-19 / D-04/D-07, INFRA-02/PRIV-04). All gated on the
 	// PERSISTED memory_enabled (loadedMemoryEnabled), skipped under --dry-run.
 	//
+	// loadedConfig returns the PERSISTED config.LoadVilla() (fail-soft to typed
+	// defaults on a load error). runInstall SEEDS cfg from this instead of
+	// DefaultVillaConfig(), then overrides ONLY the recommendation-derived fields
+	// (Model/Quant/Ctx/Backend) and the MemoryEnabled gate — so a user's persisted
+	// memory fields (qdrant_addr/port, embed_addr/port, embedding_model/dim) and the
+	// dashboard/chat fields are PRESERVED through saveConfig, never silently reset to
+	// seed defaults on every install (WR-02). LoadVilla self-heals zeroed dashboard/
+	// chat fields, so seeding from it keeps the gap-test:1b loopback-default guarantee
+	// while honoring any persisted customization.
+	loadedConfig func() config.VillaConfig
 	// loadedMemoryEnabled returns the AUTHORITATIVE gate value: the persisted
 	// config.LoadVilla().MemoryEnabled (fail-soft to false on a load error). It is
 	// threaded into runInstall to set cfg.MemoryEnabled, REPLACING the always-false
@@ -319,21 +329,24 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 		fmt.Fprintf(errOut, "install: cannot resolve the Quadlet unit dir: %v\n", err)
 		return exitBlocked
 	}
-	// Seed from the typed defaults so the persisted config carries the
-	// dashboard/chat fields (8888/3000/127.0.0.1) rather than 0/0/"" — otherwise
-	// the install "just works" path would write a dashboard-breaking config
-	// (gap test:1b). The default literals live only in defaultConfig().
-	cfg := config.DefaultVillaConfig()
+	// Seed from the PERSISTED config (not DefaultVillaConfig()) so a user's customized
+	// memory fields (qdrant_addr/port, embed_addr/port, embedding_model/dim) and the
+	// dashboard/chat fields survive every install rather than being reset to seed
+	// defaults (WR-02). loadedConfig() fails soft to typed defaults on a load error and
+	// LoadVilla self-heals zeroed dashboard/chat fields, so this still guarantees the
+	// loopback dashboard/chat defaults (8888/3000/127.0.0.1, gap test:1b) for a host
+	// with no prior config. Only the recommendation-derived fields are overridden below.
+	cfg := d.loadedConfig()
 	cfg.Model = rec.Model
 	cfg.Quant = rec.Quant
 	cfg.Ctx = rec.ContextLen
 	cfg.Backend = rec.Backend
 	// AUTHORITATIVE memory gate (Phase-19 / T-19-16): the memory path keys off the
-	// PERSISTED config.LoadVilla().MemoryEnabled (via the loadedMemoryEnabled seam), NOT
-	// the DefaultVillaConfig() seed above — that seed is false by construction, so gating
-	// the memory steps on it would silently skip an opted-in user's memory stack. From
-	// here cfg.MemoryEnabled is the single gate value the pre-stage + start + proof steps
-	// read; the seed still owns the dashboard/chat fields (8888/3000/127.0.0.1, gap test:1b).
+	// PERSISTED config.LoadVilla().MemoryEnabled (via the loadedMemoryEnabled seam). It is
+	// the single gate value the pre-stage + start + proof steps read. (Seeding cfg from the
+	// persisted config above already carries the persisted MemoryEnabled; this is an
+	// explicit re-bind through the dedicated gate seam so the gate source stays a single,
+	// testable seam regardless of how cfg was seeded.)
 	cfg.MemoryEnabled = d.loadedMemoryEnabled()
 	modelFile, err := d.modelFile(rec)
 	if err != nil {
@@ -1009,6 +1022,7 @@ func liveInstallDeps() (*installDeps, error) {
 		// (liveLoadedMemoryEnabled → config.LoadVilla().MemoryEnabled, fail-soft to false),
 		// NOT the DefaultVillaConfig() seed (T-19-16). Pre-stage + presence reuse the same
 		// verified download path and models dir as the chat-model ensureModel above (D-07).
+		loadedConfig:        liveLoadedConfig,
 		loadedMemoryEnabled: liveLoadedMemoryEnabled,
 		embedModelPresent:   liveEmbedModelPresent,
 		ensureEmbedModel:    liveEnsureEmbedModel,

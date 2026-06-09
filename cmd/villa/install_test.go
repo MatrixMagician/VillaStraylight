@@ -74,6 +74,11 @@ type fakeInstallDeps struct {
 	// embedModelPresent idempotency seam (default true → present, so the pre-stage pull
 	// is skipped unless a test sets it false). The *Calls counters + memoryProofInput
 	// capture let the memory tests assert exactly which memory seams fired.
+	// persistedConfig, when non-nil, is returned by the loadedConfig seam so a test can
+	// prove runInstall SEEDS cfg from the user's persisted config and preserves their
+	// memory/dashboard/chat customizations through saveConfig (WR-02). nil → the seam
+	// returns config.DefaultVillaConfig() (the old seed behavior, unchanged).
+	persistedConfig   *config.VillaConfig
 	memoryEnabled     bool
 	embedPresent      bool
 	embedEnsureCalls  int
@@ -175,6 +180,16 @@ func newFakeInstallDeps(t *testing.T, units []orchestrate.Unit, plan orchestrate
 	// so a test can assert the embed GGUF is staged BEFORE the embed service starts and
 	// the Qdrant/embed start ordering (Pitfall 4). The proof seam returns the controllable
 	// verdict and captures its input for assertion.
+	// loadedConfig seeds runInstall's cfg from the persisted config (WR-02). Default to
+	// the typed defaults (byte-for-byte the old DefaultVillaConfig() seed) so existing
+	// tests are unchanged; persistedConfig lets a test inject a customized on-disk config
+	// to prove install preserves it.
+	d.loadedConfig = func() config.VillaConfig {
+		if f.persistedConfig != nil {
+			return *f.persistedConfig
+		}
+		return config.DefaultVillaConfig()
+	}
 	d.loadedMemoryEnabled = func() bool { return f.memoryEnabled }
 	d.embedModelPresent = func(string) bool {
 		f.embedPresentCalls++
@@ -1155,6 +1170,58 @@ func TestInstallMemoryGateUsesPersistedConfig(t *testing.T) {
 			t.Errorf("memory-off must not run the proof, proof calls = %d", f.memoryProofCalls)
 		}
 	})
+}
+
+// TestInstallPreservesPersistedMemoryConfig (WR-02): install must SEED cfg from the
+// user's persisted config and override ONLY the recommendation-derived fields
+// (Model/Quant/Ctx/Backend) + the MemoryEnabled gate — it must NOT reset the user's
+// customized memory address/port/model/dim fields (or dashboard/chat fields) to seed
+// defaults. A user who set a non-default embed_port / embedding_model in config.toml
+// must keep them after `villa install`. This locks the write-side single-source-of-truth
+// fix (the same class as WR-01 on the render side).
+func TestInstallPreservesPersistedMemoryConfig(t *testing.T) {
+	units := []orchestrate.Unit{{Name: "villa-llama.container", Text: "[Container]\n"}}
+	plan := orchestrate.Plan{Changed: units}
+	f := newFakeInstallDeps(t, units, plan, passChecks())
+	f.memoryEnabled = true
+
+	// A persisted config carrying NON-default memory customizations + a non-default
+	// chat port, as if the user hand-edited config.toml.
+	persisted := config.DefaultVillaConfig()
+	persisted.MemoryEnabled = true
+	persisted.EmbedPort = 9090
+	persisted.EmbeddingModel = "custom-embed-model"
+	persisted.QdrantPort = 7333
+	persisted.QdrantAddr = "villa-qdrant-custom"
+	persisted.ChatPort = 4444
+	f.persistedConfig = &persisted
+
+	cmd, _, _ := installTestCmd()
+	if code := runInstall(cmd, installOpts{}, f.installDeps); code != exitPass {
+		t.Fatalf("install exit = %d, want 0", code)
+	}
+
+	// The persisted memory + chat customizations must survive into the saved cfg —
+	// install must not have reset them to the seed defaults (8080/nomic.../6333/3000).
+	if f.savedCfg.EmbedPort != 9090 {
+		t.Errorf("install reset persisted embed_port to %d, want 9090 preserved (WR-02)", f.savedCfg.EmbedPort)
+	}
+	if f.savedCfg.EmbeddingModel != "custom-embed-model" {
+		t.Errorf("install reset persisted embedding_model to %q, want \"custom-embed-model\" preserved (WR-02)", f.savedCfg.EmbeddingModel)
+	}
+	if f.savedCfg.QdrantPort != 7333 {
+		t.Errorf("install reset persisted qdrant_port to %d, want 7333 preserved (WR-02)", f.savedCfg.QdrantPort)
+	}
+	if f.savedCfg.QdrantAddr != "villa-qdrant-custom" {
+		t.Errorf("install reset persisted qdrant_addr to %q, want preserved (WR-02)", f.savedCfg.QdrantAddr)
+	}
+	if f.savedCfg.ChatPort != 4444 {
+		t.Errorf("install reset persisted chat_port to %d, want 4444 preserved (WR-02)", f.savedCfg.ChatPort)
+	}
+	// The recommendation-derived fields are still overridden from the rec.
+	if f.savedCfg.Model != "qwen2.5-0.5b" || f.savedCfg.Backend != "vulkan" {
+		t.Errorf("install must still override the recommendation-derived fields, got %+v", f.savedCfg)
+	}
 }
 
 // TestInstallMemoryServices: gate=true pre-stages when absent and starts the memory

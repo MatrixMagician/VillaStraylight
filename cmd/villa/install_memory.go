@@ -100,6 +100,21 @@ func liveEnsureEmbedModel(modelsDir string) error {
 	return pullFn(context.Background(), m, modelsDir)
 }
 
+// liveLoadedConfig returns the PERSISTED config.LoadVilla() so runInstall can SEED cfg
+// from the user's on-disk config (preserving their memory/dashboard/chat fields) rather
+// than the always-default DefaultVillaConfig() seed (WR-02). A load error fails SOFT to
+// typed defaults: an unreadable/absent config yields the same loopback dashboard/chat +
+// memory-off defaults the DefaultVillaConfig() seed gave, so a first-install host is
+// byte-for-byte unchanged, while a host WITH a persisted config has its customizations
+// honored through saveConfig. LoadVilla self-heals zeroed dashboard/chat fields.
+func liveLoadedConfig() config.VillaConfig {
+	c, err := config.LoadVilla()
+	if err != nil {
+		return config.DefaultVillaConfig()
+	}
+	return c
+}
+
 // liveLoadedMemoryEnabled returns the PERSISTED config.LoadVilla().MemoryEnabled — the
 // AUTHORITATIVE memory gate source threaded into runInstall (NOT the DefaultVillaConfig()
 // seed, which is false by construction). A config load error fails SOFT to false so a
