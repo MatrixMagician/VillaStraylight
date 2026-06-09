@@ -10,7 +10,7 @@ VillaStraylight is a self-hosted, local AI server stack for privacy-conscious po
 
 ## Current State
 
-**v1.2 Operability completed 2026-06-08** (archived + audited; PR-to-`main` + tag `v1.2` pending via `/gsd-ship`, mirroring v1.0/v1.1). All 6 phases (12–17) complete; milestone audit **PASSED** — 13/13 requirements satisfied, 5/5 cross-phase integration flows wired, 6/6 phases Nyquist-compliant. VillaStraylight is now an operable, recoverable, measurable daily-driver: `villa doctor` gives a one-shot read-only health diagnosis (preflight + status + residency-proof + drift, 0/1/2 exit, offload-asserting) (P13); saved bench reports + `villa bench --compare` persist and compare runs behind a comparability guard (P14); cumulative reset-aware token usage is tracked counts-only and surfaced append-only in `status` + dashboard (P15); `villa backup`/`restore` give a self-describing local archive (weights excluded) with transactional skew-warning restore (P16); and a `charmbracelet/huh` guided TUI install composes the finished pipeline byte-identically to the flag path, TTY-gated with `--no-tui` fallback, single static CGO-free binary (P17). An alternate digest-pinned `rocm-6.4.4` backend shipped behind the seam (P12) — its perf hypothesis honestly disproven on-hardware (Vulkan stays the tg default). ~36.9k Go LOC, full suite green, CGO-free static build gated in CI. Vulkan RADV remains the default. Both prior milestones remain on `main`; v1.2 work lives on the phase branches pending merge.
+**v1.2 Operability shipped 2026-06-08** (PR #3 merged to `main`, merge commit `91c2ae2` — `--merge` preserving history, mirroring v1.0/v1.1; tag `v1.2` pushed on the merge commit; phase branches 12–17 deleted). All 6 phases (12–17) complete; milestone audit **PASSED** — 13/13 requirements satisfied, 5/5 cross-phase integration flows wired, 6/6 phases Nyquist-compliant. Post-merge `/code-review` found+fixed 4 issues (atomic commits `49d5324`/`6ae2077`/`8dcc2c1`/`2ed1699`); CI green. VillaStraylight is now an operable, recoverable, measurable daily-driver: `villa doctor` gives a one-shot read-only health diagnosis (preflight + status + residency-proof + drift, 0/1/2 exit, offload-asserting) (P13); saved bench reports + `villa bench --compare` persist and compare runs behind a comparability guard (P14); cumulative reset-aware token usage is tracked counts-only and surfaced append-only in `status` + dashboard (P15); `villa backup`/`restore` give a self-describing local archive (weights excluded) with transactional skew-warning restore (P16); and a `charmbracelet/huh` guided TUI install composes the finished pipeline byte-identically to the flag path, TTY-gated with `--no-tui` fallback, single static CGO-free binary (P17). An alternate digest-pinned `rocm-6.4.4` backend shipped behind the seam (P12) — its perf hypothesis honestly disproven on-hardware (Vulkan stays the tg default). ~36.9k Go LOC, full suite green, CGO-free static build gated in CI. Vulkan RADV remains the default. All three shipped milestones (v1.0, v1.1, v1.2) are on `main` and tagged.
 
 **v1.1 ROCm Opt-In Backend shipped 2026-06-06** (tag `v1.1`). All 6 phases (6–11) complete; milestone audit `tech_debt` (13/13 requirements satisfied, 0 critical blockers, highest-value debt closed inline by Phase 11). ROCm now ships as a strictly opt-in second inference backend behind the `BackendFor` resolver with a HIP residency proof (P6), a byte-frozen Quadlet render delta + refuse-with-remediation preflight + detect-readiness fields (P7), a transactional `villa backend set` switch with verbatim rollback (P8, 4/4 on-hardware UAT), an honest A/B `villa bench` (P9, live Δpp +4.84 / Δtg −11.15), and backend-aware `recommend`/`status`/dashboard surfacing (P10). Phase 11 made the `rocm_readiness` firmware/HSA detect probes real (live-verified on the gfx1151 host — `villa status` badge reads `ready`, backend `rocm`) and reconciled documentation drift. Vulkan RADV remains the default. 129 Go files, ~26.3k LOC, full suite green (16 packages).
 
@@ -18,14 +18,23 @@ VillaStraylight is a self-hosted, local AI server stack for privacy-conscious po
 
 > **Note (release hygiene):** v1.1 reached `main` via PR #2 (merge `2e22d1f`) and is tagged `v1.1` on that merge commit — mirroring v1.0's PR #1 / tag-on-`main` pattern. Both shipped milestones are on `main`.
 
-## Next Milestone
+## Current Milestone: v1.3 Memory & Knowledge (local RAG)
 
-**v1.2 Operability is shipped (2026-06-08, tag `v1.2`).** The next milestone is not yet scoped — start it with `/gsd-new-milestone` (questioning → research → requirements → roadmap).
+**Goal:** Give VillaStraylight a strictly-local memory system so the assistant remembers the user across chats and can recall past conversations and uploaded documents — integrated, not rebuilt (Go stays control-plane only).
 
-**Candidate themes (from the standing deferred backlog):**
-- **Milestone 2 — Memory & Search:** Qdrant persistent memory (MEM-01), SearXNG local search (SRCH-01), OpenCode coding-agent wiring (CODE-01).
-- **Platform & Access:** macOS / Apple-Silicon (Metal) inference backend (PLAT-01), authenticated remote / multi-user access (REMOTE-01), ROCm perf-tuning knobs — hipBLASLt / rocWMMA-FA / batch (ROCM-TUNE-01).
-- **Carryover tech debt (non-blocking):** extract a shared `rocmpolicy` leaf package (deferred PR-#2 finding); investigate `rocm-6.4.4-rocwmma` residency FAIL on gfx1151 (bounded-timeout tuning vs genuine incompatibility); optional re-pin of the drifted `rocm-6.4.4` rolling tag.
+**Target features:**
+- **Personalized memory** — facts the assistant remembers about the user across all chats (Open WebUI Memory), injected into future conversations.
+- **Conversational recall (RAG)** — semantic retrieval over past chat history.
+- **Document knowledge base** — RAG over user-uploaded documents (and optionally chats), with citations.
+- **Capture: both modes** — automatic LLM-assisted extraction *and* explicit user save/pin, with edit/delete controls.
+- **Delivery: integrate + orchestrate** — new rootless Quadlet services for a local vector DB (e.g. Qdrant) + a local embeddings path; wire Open WebUI's native RAG/Memory to them; `villa` recommends / installs / monitors / backs-up the memory stack. No custom Go RAG engine.
+
+**Key context:** Embeddings must run locally (zero-outbound); exact vector DB + embedding model/runtime are research items. Must preserve all non-negotiables — strictly local, zero telemetry, single static CGO-free binary, config as single source of truth, `orchestrate` the only impure module, byte-frozen contracts evolve append-only + schema bump. v1.2 backup/restore should extend to cover the new memory volumes.
+
+**Candidate themes deferred again (not in v1.3):**
+- **Search & agents:** SearXNG local search (SRCH-01), OpenCode coding-agent wiring (CODE-01).
+- **Access:** authenticated remote / multi-user access (REMOTE-01), ROCm perf-tuning knobs — hipBLASLt / rocWMMA-FA / batch (ROCM-TUNE-01).
+- **Carryover tech debt (non-blocking):** extract a shared `rocmpolicy` leaf package (deferred PR-#2 finding); investigate `rocm-6.4.4-rocwmma` residency FAIL on gfx1151; optional re-pin of the drifted `rocm-6.4.4` rolling tag.
 
 ## Requirements
 
@@ -58,18 +67,25 @@ VillaStraylight is a self-hosted, local AI server stack for privacy-conscious po
 
 ### Active
 
-<!-- No active milestone — v1.2 shipped 2026-06-08. Next milestone scoped via /gsd-new-milestone (fresh REQUIREMENTS.md). -->
+<!-- v1.3 Memory & Knowledge — requirements scoped in .planning/REQUIREMENTS.md (REQ-IDs assigned there). -->
 
-_(none — between milestones)_
+- [ ] Local vector store + embeddings stack orchestrated as rootless Quadlet services (integrate, e.g. Qdrant; no custom Go RAG engine)
+- [ ] Personalized memory: assistant remembers user facts across chats (Open WebUI Memory), strictly local
+- [ ] Conversational recall: semantic retrieval over past chat history
+- [ ] Document knowledge base: RAG over uploaded documents with citations
+- [ ] Capture both ways: automatic LLM-assisted extraction + explicit user save/pin, with edit/delete
+- [ ] `villa` control-plane support for the memory stack: recommend / install / status+dashboard surfacing / backup-restore coverage
+- [ ] Local embeddings only — zero new outbound beyond image/model pulls
+
+_Full, testable REQ-ID list lives in `.planning/REQUIREMENTS.md`._
 
 ### Out of Scope
 
 <!-- Explicit boundaries with reasoning. -->
 
-- **macOS / Apple Silicon / Metal backend** — deferred to a future milestone; v1 focuses on AMD Strix Halo on Linux to nail one platform first
-- **Qdrant persistent memory** — deferred to Milestone 2 (memory & search)
-- **SearXNG search** — deferred to Milestone 2
-- **OpenCode (local-model coding agent) wiring** — deferred to Milestone 2
+- **macOS / Apple Silicon / Metal backend** — **PERMANENTLY out of scope** (decided 2026-06-09). VillaStraylight commits to AMD Strix Halo on Fedora/Linux as its target; the `Backend` interface keeps a Metal port *architecturally possible* but it is no longer a planned milestone goal.
+- **SearXNG search** — deferred to a later milestone (search & agents)
+- **OpenCode (local-model coding agent) wiring** — deferred to a later milestone (search & agents)
 - **Voice (Whisper STT / Kokoro TTS)** — explicitly future
 - **Agents / agent orchestration (e.g. n8n, custom)** — explicitly future
 - **Image generation (ComfyUI) and other DreamServer extras** — not requested for this product
@@ -141,4 +157,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-08 after v1.2 Operability milestone close — all 6 phases (12–17) complete, audit PASSED (13/13 requirements, 5/5 integration flows, 6/6 phases Nyquist-compliant); PR-to-`main` + tag `v1.2` pending via `/gsd-ship`. v1.2 delivered: `villa doctor` (DOCTOR-01/02/03), saved bench reports + `--compare` (BENCH-03/04), cumulative usage tracking (USAGE-01/02), backup/restore (BAK-01/02/03), guided TUI install (INSTALL-01/02), and the alt `rocm-6.4.4` backend (ROCM-ALT-01, perf premise honestly disproven — Vulkan stays the tg default). Full per-phase detail + audit archived under `.planning/milestones/v1.2-*`. v1.1 (Phases 6–11) + v1.0 (Phases 1–5) shipped + tagged on `main`. Next milestone scoped via `/gsd-new-milestone` (fresh REQUIREMENTS.md).*
+*Last updated: 2026-06-09 — started milestone v1.3 Memory & Knowledge (local RAG): personalized memory + conversational recall + document KB, integrate-and-orchestrate (local vector DB + local embeddings wired into Open WebUI), both auto-extract and explicit-save capture; `villa` control-plane support incl. backup/restore coverage. Mac/Metal moved to PERMANENTLY out of scope. v1.2 reconciled to shipped/merged/tagged (PR #3, merge `91c2ae2`, tag `v1.2`). Prior footer: 2026-06-08 after v1.2 Operability milestone close — all 6 phases (12–17) complete, audit PASSED (13/13 requirements, 5/5 integration flows, 6/6 phases Nyquist-compliant); PR-to-`main` + tag `v1.2` pending via `/gsd-ship`. v1.2 delivered: `villa doctor` (DOCTOR-01/02/03), saved bench reports + `--compare` (BENCH-03/04), cumulative usage tracking (USAGE-01/02), backup/restore (BAK-01/02/03), guided TUI install (INSTALL-01/02), and the alt `rocm-6.4.4` backend (ROCM-ALT-01, perf premise honestly disproven — Vulkan stays the tg default). Full per-phase detail + audit archived under `.planning/milestones/v1.2-*`. v1.1 (Phases 6–11) + v1.0 (Phases 1–5) shipped + tagged on `main`. Next milestone scoped via `/gsd-new-milestone` (fresh REQUIREMENTS.md).*
