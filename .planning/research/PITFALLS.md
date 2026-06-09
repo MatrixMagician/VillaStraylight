@@ -1,357 +1,304 @@
 # Pitfalls Research
 
-**Domain:** Operability features (doctor / backup-restore / saved-bench / usage-tracking / TUI install / alt-ROCm) for a rootless-Podman, single-static-binary, zero-telemetry local AI control plane (VillaStraylight v1.2)
-**Researched:** 2026-06-07
-**Confidence:** HIGH for this-system invariants (grounded in source: `seam_test.go`, `openwebui.go`, `backend_rocm.go`, `rocm-policy.json`, `bench.go`, `metrics/llamacpp.go`, `config/villaconfig.go`); MEDIUM for external Podman volume mechanics (WebSearch-verified, not Context7).
+**Domain:** Adding strictly-local memory/RAG (vector DB + local embeddings + Open WebUI Memory/RAG) to a shipped privacy-first, single-static-CGO-free-binary Go control plane on AMD Strix Halo / Fedora (VillaStraylight v1.3)
+**Researched:** 2026-06-09
+**Confidence:** HIGH (Open WebUI official docs + GitHub issues; corroborated across multiple sources for the privacy/dimension/persistence traps)
 
-These are pitfalls specific to ADDING these six features to THIS system without weakening its shipped invariants: single static CGO-free binary, strictly-local/zero-telemetry, config-is-single-source-of-truth, `--json`/dashboard outputs byte-frozen by golden tests, offload-asserting (no false-green), loopback-only binds, no shell interpolation, backend literals seam-locked (`TestSeamGrepGate`).
+> Scope note: these are pitfalls specific to wiring Open WebUI's *native* Memory/RAG to a local vector DB + local embeddings under villa's non-negotiables (zero-outbound, CGO-free, unified-memory envelope, config-as-truth, byte-frozen contracts, honesty-by-construction). Generic RAG advice is omitted. The ones tagged **(NON-NEGOTIABLE THREAT)** would, if missed, break a constraint villa has STRIDE-secured since v1.0.
 
 ## Critical Pitfalls
 
-### Pitfall 1: Backup/restore mangles the Open WebUI volume via rootless UID-mapping (BAK-01)
+### Pitfall 1: Open WebUI silently pulls the embedding model from HuggingFace on first RAG use **(NON-NEGOTIABLE THREAT — zero-outbound)**
 
 **What goes wrong:**
-A naive backup (`tar` over `~/.local/share/containers/storage/volumes/villa-openwebui/_data`, or `podman volume export` run while the stack is up) captures files owned by the in-namespace UID. On restore — especially onto a different machine, a different `subuid` range, or after a Podman reset — the files land with the wrong host ownership and Open WebUI cannot read/write `/app/backend/data` (SQLite DB + uploads). Chats appear lost or the container crash-loops on a read-only DB.
+Open WebUI's default RAG engine is `SentenceTransformers` with default model `sentence-transformers/all-MiniLM-L6-v2`, which is **auto-downloaded from HuggingFace Hub on first RAG/document/web-search use** (via `get_ef()` → `SentenceTransformer(...)`). The same happens for the reranker model and for Whisper. This is a fresh, runtime, un-gated outbound connection that villa has never had before — install today only pulls the image; the *first document upload* would phone out to `huggingface.co`. This directly violates PRIV-01/02/03 ("only outbound is image/model pulls during install/update") because it happens at *runtime*, unattended, after install reports green.
 
 **Why it happens:**
-Rootless Podman maps the host user to an in-container UID via user namespaces; the on-disk owner is `subuid`-offset, not the host UID. `subuid`/`subgid` ranges differ per host. Capturing raw bytes preserves numeric ownership that is meaningless on the target. The Open WebUI volume is mounted `:Z` (PRIVATE SELinux label) — a raw restore also loses/!corrupts the SELinux context.
+The download is lazy and demand-driven, so it does not appear during `villa install` or a health check — it only fires when a user actually uploads a doc or enables memory. Developers verify "install is zero-outbound", see green, and miss the runtime leak. ChromaDB (OWUI's *default* vector store) **additionally** posts PostHog telemetry (`ClientCreateCollectionEvent`) unless `ANONYMIZED_TELEMETRY=False` — a second, independent leak in the same feature.
 
 **How to avoid:**
-- Use `podman volume export villa-openwebui > archive.tar` / `podman volume import` (Podman normalizes ownership through the namespace) rather than host-path `tar`, OR perform host-path tar inside `podman unshare` so ownership is namespace-relative on both ends.
-- On restore, re-apply the SELinux private label (recreate the volume via the existing Quadlet `:Z` mount path rather than writing into a pre-existing context). Reuse `internal/orchestrate`'s volume render — do not hand-create the volume.
-- After import, `podman unshare chown -R` is the documented repair if ownership is still off; surface this as remediation, never silently.
-- Treat the SQLite DB as the integrity unit: quiesce writes (stop `villa-openwebui` first) before capture.
+- Treat the embedding model as a **first-class install artifact**, pulled and verified *during* `villa install` (the only sanctioned outbound window), into a persistent volume — never lazily at runtime.
+- Set, in the Open WebUI Quadlet env (mirroring the existing telemetry-kill from Phase 4): `OFFLINE_MODE=true`, `HF_HUB_OFFLINE=1`, `RAG_EMBEDDING_MODEL_AUTO_UPDATE=false`, `RAG_RERANKING_MODEL_AUTO_UPDATE=false`, `WHISPER_MODEL_AUTO_UPDATE=false`, `ANONYMIZED_TELEMETRY=False`, `DO_NOT_TRACK=true`, `SCARF_NO_ANALYTICS=true`, and point `RAG_EMBEDDING_MODEL` at the pre-staged local path.
+- Prefer routing embeddings to the **local llama.cpp `/embeddings` endpoint** (`RAG_EMBEDDING_ENGINE=openai` against the loopback `villa-llama` OpenAI-compatible API) so the embedding model is a *gguf villa already manages*, eliminating the HF/sentence-transformers download path entirely. This also keeps villa's "embeddings must run locally" requirement honest-by-construction rather than env-flag-dependent.
+- Extend the existing no-telemetry **assertion** in `internal/status` to actively prove zero-outbound for the memory stack — not just trust env vars. An offload-style honesty check: the memory feature is only "ready" if a residency/connectivity probe confirms it embeds locally.
 
 **Warning signs:**
-Restore "succeeds" but Open WebUI shows an empty chat list, logs `attempt to write a readonly database` / `permission denied` on `/app/backend/data/webui.db`, or `ls -n` inside `podman unshare` shows files owned by `65534`/an unexpected high UID.
+First document upload hangs or fails on an air-gapped/firewalled host; `journalctl --user -u villa-openwebui` shows attempts to resolve `huggingface.co`; a connection probe during a RAG smoke test shows outbound to HF or `app.posthog.com`.
 
-**Phase to address:** Backup/restore phase (BAK-01).
+**Phase to address:**
+The orchestration/wiring phase that introduces the Open WebUI Memory/RAG env block and the embeddings backend (earliest RAG phase). Verification belongs in the same phase's UAT (zero-outbound smoke test on a doc upload) and in the `status`/`doctor` surfacing phase.
 
 ---
 
-### Pitfall 2: Restoring into a running stack corrupts the live SQLite DB (BAK-01)
+### Pitfall 2: Embedding model is omitted from the unified-memory recommend-math → OOM or silent CPU fallback of the *main* model **(NON-NEGOTIABLE THREAT — honesty/just-works)**
 
 **What goes wrong:**
-Restore overwrites `/app/backend/data` while `villa-openwebui` is running. SQLite has an open WAL/journal; replacing the DB file out from under a live process yields a corrupt database, lost recent chats, or a half-old/half-new state. The reverse — backing up a live, mid-write DB — captures a torn snapshot that restores as corrupt.
+gfx1151 has ONE unified-memory pool (the GTT envelope `mem_info_gtt_total` ≈ 62.5 GiB) shared by inference + KV cache + *now the embedding model + its KV*. villa's `recommend.Pick()` fits `model_bytes + KV@ctx + headroom ≤ envelope` for the *chat* model only. Adding an embedding model (and re-embedding bursts during a document import) silently eats into the same pool. The failure mode is exactly the one villa polices elsewhere: the chat model gets evicted/partially offloaded to CPU, or an import OOMs — and worse, llama.cpp can **silently fall back to CPU** (a FAIL by villa's offload-asserting doctrine, not a false-green).
 
 **Why it happens:**
-Operators expect volume restore to be atomic like a file copy. It is not, when a containerized process holds the file open. This mirrors the v1.0/v1.1 transactional-discipline lesson (`backendswap` capture→prove→cutover→rollback): mutating a live service must be ordered.
+The embedding model looks small (all-MiniLM is ~90 MB) so it's dismissed as free. But on a shared budget, a bigger/better local embedder (e.g. a 300M–7B gguf, which is what you'd want for quality) plus its working set during a bulk re-embed is not negligible, and the *headroom* villa reserved was calculated without it. Re-embedding an entire document corpus or chat history is a memory *spike*, not a steady state.
 
 **How to avoid:**
-- Order restore the way `internal/backendswap` orders a backend switch: **stop** `villa-openwebui` (and ideally the network) → swap the volume → **restart** → **prove** health (Open WebUI `/health` 200 AND DB readable) → only then declare success; on any failure, restore the prior volume verbatim (keep the pre-restore archive as the rollback frame).
-- Same ordering for backup: stop the service, capture, restart — or document that a live backup is best-effort and re-capture after stopping for a guaranteed-consistent copy.
-- Reuse `orchestrate`'s systemd seam (`systemctl --user stop/start`) — do not shell out anew; the impure surface must stay in `internal/orchestrate`.
+- Add the embedding model footprint (weights + its small KV at chunk-size context, e.g. ctx 512) as an explicit term in `recommend.Pick()`'s envelope math. The recommendation must fit chat + embed + headroom, not chat alone.
+- Constrain the embedding context to chunk size (ctx ≈ 512), per llama.cpp guidance — slashes embed KV cost ~75% vs 4096.
+- Keep the offload-asserting discipline: the memory stack's "healthy" verdict must include a residency proof for the *chat* model surviving an embed/import workload (no silent CPU eviction). Re-use the `ResidencyProof` seam; a partial fallback under RAG load is a FAIL.
+- If embeddings run as a *second* `llama-server` (separate Quadlet) rather than the main one, that second process's resident footprint must be in the envelope too.
 
 **Warning signs:**
-`SQLITE_CORRUPT` / `database disk image is malformed` after restore; a `-wal`/`-shm` sidecar present in the archive; restore that doesn't stop the container at all.
+tok/s on the chat model drops sharply after a large doc import; `villa doctor` residency proof flips to WARN/FAIL during/after import; GTT delta shows the chat model's pages evicted; OOM-kill in `journalctl` during embedding.
 
-**Phase to address:** Backup/restore phase (BAK-01).
+**Phase to address:**
+The `recommend`/envelope phase for memory (extend `Pick()`), with verification folded into the same `doctor`/`status` residency check that already exists.
 
 ---
 
-### Pitfall 3: Backup silently swallows (or silently drops) multi-GB model weights (BAK-01)
+### Pitfall 3: Open WebUI `PersistentConfig` bakes settings into its SQLite DB on first boot and then *ignores* the env vars — config drifts off villa's source of truth **(NON-NEGOTIABLE THREAT — config-as-truth)**
 
 **What goes wrong:**
-"Back up everything" sweeps in the `villa-models.volume` (GGUF weights — tens of GB). Either the archive balloons to 30–60 GB and the operation appears to hang / fills the disk, or the dev quietly excludes models and a "full restore" later comes up with no model and a broken stack — a false sense of recoverability.
+Most RAG/memory settings (`VECTOR_DB`, `RAG_EMBEDDING_*`, `ENABLE_RAG_WEB_SEARCH`, telemetry flags, embedding engine/URL) are **`PersistentConfig`** entries: on first run their env value is copied into `webui.db`, and from then on the **database value wins and the env var is ignored** (with `ENABLE_PERSISTENT_CONFIG=true`, the default). villa's whole model is "config.toml is the single source of truth; Quadlet units are regenerated from config, never hand-edited." But here, after first boot, changing the Quadlet env has **no effect** — the real config lives in an opaque SQLite blob inside the Open WebUI volume. A later `villa` change that *looks* applied (unit regenerated, restarted) is silently a no-op. Worse, a user toggling settings in the OWUI Admin UI silently diverges from config.toml — exactly the hand-edit-as-authority anti-pattern villa forbids for Quadlets, reappearing one layer down.
 
 **Why it happens:**
-`villa-models.volume` is a **bind volume** (`Type=none`/`Device=`/`Options=bind` in `volume.tmpl`) pointing at host model storage, distinct from the Open WebUI named volume. It's tempting to treat both volumes uniformly. Models are large, reproducible (re-pullable from the catalog), and version-pinned — fundamentally different backup economics from chats/settings.
+The PersistentConfig precedence is non-obvious and undocumented in the unit file; it only bites on the *second* configuration change, long after the feature looks done. Teams test by editing env on a fresh volume (works), never re-test after the DB is populated.
 
 **How to avoid:**
-- Scope BAK-01 explicitly to **config + Open WebUI data only** (recovery of irreplaceable state: chats, settings, prompts). Record the model identity (name/quant/digest from config) in the backup **manifest**, not the bytes — restore re-pulls weights via the existing `download`/`catalog` path.
-- Make exclusion of model bytes an explicit, documented decision in the archive manifest, not an accident.
-- Refuse-with-remediation if free disk < archive estimate before starting (consistent with preflight discipline).
+- Set `ENABLE_PERSISTENT_CONFIG=false` in the Open WebUI Quadlet so env vars (driven by config.toml) always win and the DB never shadows them. This restores villa's "config is the single source of truth" — at the documented cost that Admin-UI config edits become per-session only. That cost is *aligned* with villa's posture (config changes go through `villa`, not hand-edits), so it's the right trade.
+- Document explicitly that memory *content* (the user's facts/vectors/documents) lives in the volume and is durable — only *configuration* is forced back to env/config.toml.
+- Detect drift: a `doctor`/`status` check that the live RAG config (queryable via OWUI API) matches what config.toml declares — mirror the existing config-vs-disk Quadlet drift check.
 
 **Warning signs:**
-Backup archive size in tens of GB; backup duration in minutes; restore that produces a configured-but-modelless stack; no manifest distinguishing "captured" vs "re-pull on restore".
+A `villa` config change to embedding model / vector DB doesn't take effect after restart; OWUI Admin UI shows different RAG settings than config.toml; dimension-mismatch errors after a config change that "should" have switched models.
 
-**Phase to address:** Backup/restore phase (BAK-01).
+**Phase to address:**
+The Open WebUI memory wiring phase (set `ENABLE_PERSISTENT_CONFIG=false` from the start — retrofitting after a populated DB exists is painful). Drift verification in the surfacing phase.
 
 ---
 
-### Pitfall 4: Restore across version skew silently breaks (BAK-01)
+### Pitfall 4: Embedding/inference model swap invalidates existing vectors (dimension mismatch) — stale index, hard errors, or silent wrong answers **(quality + just-works)**
 
 **What goes wrong:**
-A backup taken under one Open WebUI image digest is restored under a newer one (or vice-versa). The DB schema migrated forward; restoring an old DB into a newer image either auto-migrates unexpectedly or fails to start. Worse: restoring config that pins an old model/quant/backend onto a host whose firmware/kernel no longer satisfies the ROCm floors yields a config that no longer passes preflight.
+Vectors are only comparable if produced by the *same* embedding model at the *same* dimensionality. If the user (or villa's `recommend`) later changes the **embedding** model — or even swaps the **chat** model in a way that changes the embedding route — existing collections (e.g. 384-dim from all-MiniLM) collide with new vectors (e.g. 768/1024-dim), producing `Embedding dimension 768 does not match collection dimensionality 384` errors, or, more insidiously, retrieval that returns garbage because the index is stale. Open WebUI does **not** auto-reindex on embedding-model change; you must explicitly re-save config AND re-embed every document, and frequently **reset the collection** first.
 
 **Why it happens:**
-Backups are assumed portable across time. They carry both data (DB) and a `config.toml` that encodes hardware-and-image-specific decisions. The Open WebUI image is digest-pinned (`openWebUIImage`), and config encodes `backend`/`model`/`quant` that were valid for a specific host+policy snapshot.
+villa already has a first-class model-swap story (`villa model swap`, `villa backend set`). It's natural to assume swapping the chat model is orthogonal to RAG. But if embeddings are routed through the *chat* `llama-server`/`/embeddings`, changing the chat model silently changes the embedder → every stored vector is now from a different model/dimension. Even when embeddings have a dedicated model, a future `recommend` that picks a different embedder breaks the corpus.
 
 **How to avoid:**
-- Stamp the backup **manifest** with: villa version, Open WebUI image digest, model/quant/backend, host fingerprint (kernel, firmware, gfx), and a backup schema version.
-- On restore, compare manifest vs current; **WARN-with-remediation** on skew (image digest changed, firmware now below `rocm-policy.json` floor, etc.) instead of restoring blind. Restoring config should re-run preflight, not assume validity.
-- Restore config through the existing `config.SaveVilla` path (0600, traversal-guarded), never by dropping a raw file — and re-validate against `recommend`/`preflight`.
+- **Decouple the embedding model from the chat model**: pin a *dedicated* embedding gguf (or sentence-transformer) that does NOT change when `villa model swap` / `backend set` runs. Record the embedding model + dimension as part of the memory stack's identity in config.toml.
+- Make `villa model swap` / `backend set` **memory-aware**: a chat-model swap must NOT touch the embedding model or the vector collections. Add a guard/assertion that the embedding identity is unchanged across a chat swap.
+- If the embedding model itself ever changes, treat it as a **destructive re-index**: clean-recreate the collection (mirror v1.2's "clean-recreate-before-import" restore lesson) and re-embed — never merge new-dim vectors into an old-dim collection. Surface this as an explicit, confirmed `villa` operation, not a silent side effect.
+- Store the embedding model name + dimension in the backup manifest so a restore can detect a mismatch (skew-warn) rather than leak stale vectors.
 
 **Warning signs:**
-Open WebUI fails to start after restore with migration errors; restored config selects `rocm` on a host whose firmware is now `firmwareDeny`-listed; no version/digest in the archive.
+`dimension … does not match collection dimensionality …` in OWUI logs; RAG citations suddenly irrelevant after a model swap; retrieval returns empty after switching backends.
 
-**Phase to address:** Backup/restore phase (BAK-01).
+**Phase to address:**
+The model-swap-integration phase (make swap memory-aware) and the embedding-identity/recommend phase (pin + record dimension). Backup/restore phase records + checks the identity.
 
 ---
 
-### Pitfall 5: Usage tracking accidentally becomes telemetry / leaks data off-box (USAGE-01)
+### Pitfall 5: Vector volume persistence / rootless-Podman pitfalls — data loss across restart/reboot, or permission-denied on the Qdrant store **(durability + just-works)**
 
 **What goes wrong:**
-Cumulative usage tracking is built in a way that (a) phones home for "anonymous stats," (b) writes prompt/response content to a usage store, or (c) the dashboard exposes a usage endpoint that isn't loopback-only — any of which violates the project's stated core value (strictly local, zero telemetry, STRIDE-secured loopback) and would fail the existing PRIV gates.
+A new vector DB (Qdrant) Quadlet stores its data in a volume. Three rootless-Podman traps: (1) **UID mapping** — the container's internal UID maps to a high host subuid; a bind mount or wrong-owned named volume yields `permission denied` on `/qdrant/storage`, and Qdrant either crashes or starts empty. (2) **SELinux** — without `:Z`, Fedora's SELinux denies access; with `:Z` shared incorrectly across containers it relabels for one owner only. (3) **Durability** — if the storage path isn't a proper persistent named volume (or lingering isn't enabled), the index doesn't survive logout/reboot, and the user's entire knowledge base silently vanishes — they re-upload and re-pay the re-embed cost, or worse, think it's fine until it isn't.
 
 **Why it happens:**
-"Usage analytics" is a near-universal SaaS pattern; the muscle memory is to ship counts somewhere. Token counts feel innocuous, but content-adjacent fields (prompts, model responses, per-chat detail) leak the very privacy the product sells.
+villa already solved exactly this for the Open WebUI volume (Phase 4: durable `:Z` volume, lingering, boot-survival) — but a *new* service is a fresh chance to get it wrong, and Qdrant's storage is larger and less forgiving than OWUI's. Named volumes "just work" for ownership in rootless mode via `:U`/auto-chown; bind mounts don't.
 
 **How to avoid:**
-- Persist **counts only** (cumulative prompt/eval tokens, tok/s aggregates, run timestamps) — never prompt or response text, never per-conversation content.
-- Source the numbers from the existing loopback `/metrics` scrape (`internal/metrics`), which is already bounded (`io.LimitReader`, 2s timeout) and local-only.
-- Any new dashboard surface binds `127.0.0.1` via `net.JoinHostPort` (PRIV-01) and sits behind the `requireSameOrigin` `/api` guard — assert with a loopback test.
-- Add a no-outbound assertion in `status`-style checks: usage tracking must add zero new outbound destinations (the only permitted egress remains image/model pulls).
+- Use a **named Podman volume** (like `villa-models.volume` / OWUI's pattern), not a host bind mount, so rootless UID mapping + ownership are handled automatically (`:U` where needed); apply `:Z` for SELinux exactly as the existing OWUI volume does, and only one owner per `:Z` volume.
+- Keep the volume generation in `internal/orchestrate` templates (the only impure module) — reuse the existing `volume.tmpl` pattern; do NOT special-case Qdrant outside the seam.
+- Ensure `loginctl enable-linger` coverage (already part of install) extends to the new service so it survives reboot; add boot-survival to UAT.
+- Add the vector volume to `villa status`/`doctor` so "memory stack healthy" includes "Qdrant volume mounted, writable, and reachable" — honest, not assumed.
 
 **Warning signs:**
-Any `http.Post`/new network dial in the usage path; prompt text or chat IDs in the usage store; a usage endpoint bound to `:port`/`0.0.0.0`; a new env var like `ANALYTICS_URL`.
+Qdrant logs `permission denied` / `read-only`; knowledge base empty after a reboot; SELinux `AVC denied` in `journalctl`/`ausearch`; collection count resets to zero.
 
-**Phase to address:** Usage-tracking phase (USAGE-01). Verify in any security-review checkpoint.
+**Phase to address:**
+The Quadlet orchestration phase that adds the Qdrant service + volume (reuse Phase-4 volume discipline). Boot-survival in its UAT.
 
 ---
 
-### Pitfall 6: Usage store grows unbounded / races on concurrent writes (USAGE-01)
+### Pitfall 6: Backup/restore of vector volumes — stale-vector leakage on restore, and archive bloat **(data integrity, extends v1.2 BAK-01/02/03)**
 
 **What goes wrong:**
-Usage is appended every scrape/interval to a file that grows forever (append-only log → multi-hundred-MB after months), and the dashboard poll loop + CLI + a background tracker all write the same file, producing interleaved/corrupt records or lost updates.
+Two distinct traps. (a) **Stale-vector leakage:** `podman volume import` MERGES into an existing volume and does not auto-create — v1.2 already learned this and adopted "clean-recreate-before-import" for the OWUI volume. The vector volume needs the *same* discipline: restoring memory vectors into a non-empty/old-dim Qdrant store leaves orphaned or mismatched vectors that pollute retrieval (and if the embedding model differs between archive and host, you get the Pitfall-4 dimension corruption silently). (b) **Archive bloat:** vector indexes for a large corpus can be hundreds of MB–GB. v1.2 deliberately EXCLUDED model weights from the archive (recorded identities for re-pull). The same judgment applies: a multi-GB vector index can balloon a "self-describing local archive" beyond usefulness.
 
 **Why it happens:**
-Append-on-every-tick is the easiest first implementation. Concurrency is non-obvious because the dashboard server is long-lived and the CLI runs fresh from `./villa` — two processes, one store. The codebase already guards its one cached dashboard value with a mutex, but a cross-process store needs file-level discipline a mutex doesn't give.
+The natural move is to add the Qdrant volume to the existing `villa backup` tar exactly like the OWUI volume. But vectors are *derived* data (re-embeddable from the source documents) AND much larger — both arguments cut against naïvely tarring them, and the restore-merge trap is a known v1.2 footgun.
 
 **How to avoid:**
-- Store **aggregates with bounded cardinality** (rolling daily/period buckets, fixed-size ring, or a single cumulative row updated in place) rather than an unbounded event log; cap retention with an explicit rotation policy.
-- Single-writer ownership: designate the long-lived `villa-dashboard.service` (or one tracker) as the writer; CLI reads. If multiple writers are unavoidable, use atomic write (write-temp-then-rename) + `flock` advisory lock; never partial-overwrite in place.
-- Store under XDG (`$XDG_DATA_HOME/villa/`), 0600, traversal-guarded — mirror the `config` save discipline; do not co-mingle with `config.toml` (config stays the single source of *configuration* truth, not a metrics sink).
+- Apply v1.2's **clean-recreate-before-import** transactional discipline to the vector volume on restore (capture → quiesce → clean-recreate → offload-asserting prove → verbatim rollback). Never merge into an existing Qdrant store.
+- Record the **embedding model name + dimension** in the backup manifest; on restore, skew-WARN (or BLOCK) if the host's embedding model/dimension differs from the archive's — preventing silent dimension corruption.
+- Decide explicitly per data class: source documents + memory facts (small, irreplaceable) → include; the *derived vector index* (large, regenerable) → consider excluding (record identity, re-embed on restore) OR include with a size guard, mirroring the weights-excluded judgment. Keep the archive "self-describing."
+- Reuse the existing SHA-256 manifest + fail-closed checksum BLOCK; reuse the shared cmd-tier fixed-arg podman-volume seam (orchestrate stays the only impure module).
 
 **Warning signs:**
-Usage file size grows linearly with uptime; truncated/garbled trailing records; two villa processes writing concurrently in `lsof`; dashboard restart loses or doubles counts.
+Restored knowledge base returns results that shouldn't exist (orphaned vectors); dimension-mismatch errors right after a restore; backup archive size jumps from MB to GB; restore onto a host with a different embedder silently "works" then retrieves garbage.
 
-**Phase to address:** Usage-tracking phase (USAGE-01).
+**Phase to address:**
+The phase that extends `villa backup`/`restore` to the memory volumes (directly continues BAK-01/02/03).
 
 ---
 
-### Pitfall 7: `villa doctor` reports false-green (DOCTOR-01)
+### Pitfall 7: Auto-extraction stores false/hallucinated "memories" and is not user-correctable — honesty failure
 
 **What goes wrong:**
-`doctor` checks `systemctl is-active` and an Open WebUI `/health` 200 and prints "all healthy" — while inference is silently running on CPU (offload failed), the model bound is missing, or the configured backend doesn't match what's actually loaded. This is exactly the false-green the whole system is architected against (D-11, offload-asserting). A green `doctor` that hides a CPU fallback is worse than no doctor.
+Open WebUI's autonomous memory ("Adaptive/Auto Memory", model-managed `add_memory`/`replace_memory_content`/`delete_memory`) lets the *chat model* decide what facts to persist. With a small *local* model (which is what runs on gfx1151), extraction quality is far below the frontier models the feature is tuned for — it can store wrong, duplicated, over-eager, or hallucinated facts ("user lives in Vienna" from a hypothetical), which then get **injected into every future chat**, compounding the error. If the user can't easily see/edit/delete these, the assistant becomes confidently, persistently wrong — a direct hit on villa's honesty-by-construction value.
 
 **Why it happens:**
-Health checks default to liveness (process up, port answers). The codebase explicitly distinguishes liveness from *offload-assertion*: `metrics` notes tok/s gauges are last-window snapshots, NOT an "is generating?" signal (Pitfall 3 in `metrics/llamacpp.go`); `bench`/`backendswap` gate on a real generation probe + `ResidencyProof`. `doctor` must inherit that rigor, not regress to is-active.
+Auto-extraction is the flashy demo feature, so it's tempting to enable it by default. But the local-model quality gap and the every-future-chat injection make false memories high-blast-radius, and Native-Function-Calling autonomous memory needs a capable model villa can't guarantee.
 
 **How to avoid:**
-- Compose `doctor` from the **existing honest cores**: re-run `internal/preflight` against the running install, fold `internal/status` (which already reflects the configured backend, not a hardcoded Vulkan), and reuse the residency/offload assertion path — a confident CPU-fallback is a FAIL, an unevaluable signal is a WARN, never a silent PASS (the typed-Unknown → WARN discipline).
-- Three-state output (PASS/WARN/FAIL) with refuse-with-remediation on every non-PASS, mirroring preflight `CheckResult`.
-- Detect **drift**: on-disk Quadlet units vs what config would render now (reuse `orchestrate.Reconcile`); backend in config vs backend actually resident; model in config vs model present on the volume.
-- Do NOT re-type backend marker literals to "check the backend" — route through `internal/inference`/`status`, or `TestSeamGrepGate` fails the build.
+- Ship **explicit user save/pin + edit/delete as the primary path** (Settings → Personalization → Memory is always available and manual), with auto-extraction **opt-in**, not default-on — matching the v1.3 requirement "both modes, with edit/delete controls."
+- Surface that memories are **user-correctable**: the UAT for the memory feature must include adding, editing, and deleting a memory, and confirming a deleted/edited memory stops being injected.
+- Don't over-promise autonomous extraction quality given the local-model constraint; in `recommend`/docs, advise (don't auto-enable) auto-memory, mirroring the ROCm "advise, never auto-switch" honesty pattern.
 
 **Warning signs:**
-`doctor` passes while `bench`/`status` show resident==false; a `doctor` check that greps `is-active` and stops; backend marker strings (`ROCm0`, `Vulkan0`, `HSA_OVERRIDE…`, image tags) appearing in a new `doctor` file outside the seam.
+Memory bank fills with duplicate/contradictory/irrelevant entries; the assistant repeats a wrong "fact" across chats; users can't find where to delete a memory.
 
-**Phase to address:** Doctor phase (DOCTOR-01).
+**Phase to address:**
+The memory-capture phase (wire manual save/pin/edit/delete first; gate auto-extraction behind opt-in). Verification in its UAT.
 
 ---
 
-### Pitfall 8: Saved bench reports drift from / break the byte-frozen golden contract (BENCH-03)
+### Pitfall 8: Open WebUI Memory/RAG/Functions APIs and config keys drift across releases — un-pinned image breaks the wiring
 
 **What goes wrong:**
-A persisted bench report is serialized as a new JSON/`--json` shape that isn't golden-frozen (so it silently mutates across versions and breaks `--compare` of old vs new), OR the dev edits an existing frozen `--json`/dashboard schema in place (reorders fields, blends pp/tg) to fit saved reports — breaking the append-only contract guarded by `cmd/villa/testdata/*.golden*` and the dashboard goldens.
+Open WebUI iterates fast; Memory/RAG/Functions behavior and **config-key names change across releases** (e.g. `ENABLE_RAG_WEB_SEARCH` → `WEB_SEARCH_ENABLE`-style renames; embedding-engine keys; the memory system itself was re-architected from passive injection to model-managed tools). villa wires to specific env keys + specific OWUI API endpoints. A floating `:main` tag (or an unpinned re-pull) can rename a key out from under villa's Quadlet env, silently disabling local-only enforcement (re-opening Pitfall 1) or breaking the RAG wiring entirely — with install still reporting green.
 
 **Why it happens:**
-Saved-report formats feel like "just another struct." But the comparison feature's whole value is cross-version stability, and the system's hard rule is that machine-readable output evolves **append-only + schema-bump**, re-frozen intentionally once (the Phase-10 discipline). It's easy to forget the saved-report format IS a frozen contract the moment a second version reads it.
+The existing OWUI image is already **digest-pinned** (`@sha256:…`), but it's tempting to "just bump to latest" for the new Memory features, or to trust `:main`. Memory/RAG is exactly the surface that churns most.
 
 **How to avoid:**
-- Define the saved-report schema with an explicit `schema_version` from day one; freeze it with a golden the same way `--json` outputs are frozen; evolve only by append + bump, refreeze with `go test … -update` deliberately.
-- Keep pp and tg **separate** in the persisted shape (never a blended number) — the `bench` core already carries them separately end-to-end; the report must not collapse them.
-- `--compare` reads via the versioned schema; older reports compare on the common (lower) schema, never silently misalign fields.
-- If saved reports surface in the dashboard, that addition is append-only to the existing dashboard golden, schema-bumped, refrozen once.
+- Keep the OWUI image **digest-pinned** (`@sha256:`), exactly as villa already does for every image; pin the specific tested version, and treat a version bump as a deliberate, re-validated change (re-run the zero-outbound + RAG smoke UAT), not a silent re-pull. This mirrors the v1.1/v1.2 "pin the digest the A/B proves" discipline.
+- Centralize all OWUI memory/RAG env keys in one place (config-driven, behind the orchestrate seam) so a key rename is a single, reviewed edit.
+- On a deliberate version bump, re-verify the full env block (offline flags especially) against that version's documented keys — don't assume keys carried over.
 
 **Warning signs:**
-A persisted report with no version field; a golden diff that reorders/removes fields rather than appends; pp and tg merged; `--compare` between two villa versions throwing a parse error or mismatching columns.
+After an image bump, doc upload phones home again (offline flag key renamed/ignored); RAG settings reset; OWUI API endpoint villa calls returns 404; goldens/contracts referencing OWUI behavior shift.
 
-**Phase to address:** Saved-bench phase (BENCH-03).
-
----
-
-### Pitfall 9: `bench --compare` compares non-comparable runs (BENCH-03)
-
-**What goes wrong:**
-`--compare` shows a tok/s delta between two saved runs that used different models, quants, prompts, `n_predict`, seeds, host firmware, or backends — presenting a meaningless number as a real regression/win. This betrays the v1.1 honesty constraint (the whole point of the Phase-9 A/B core was that a printed delta is *trustworthy*).
-
-**Why it happens:**
-Saved reports accumulate over time across config changes. The comparison UI invites "compare any two." But throughput is only comparable when the `BenchSpec` (prompt, NPredict, Seed, Temp, Reps/Warmup) AND the environment (model/quant, host, backend) match — exactly the reproducibility fields `BenchSpec` already pins for a single A/B.
-
-**How to avoid:**
-- Persist the **full `BenchSpec` + environment fingerprint** (model, quant, backend, image digest, host kernel/firmware/gfx, villa version) with every saved run.
-- `--compare` refuses-or-WARNs when the comparison axis differs on anything but the one dimension being compared (e.g. backend-vs-backend requires identical model/quant/prompt/host); a delta across mismatched specs is labeled "not comparable," never printed as a clean number.
-- Carry the residency/void state forward: a saved run that was VoidExhausted (offload not proven) must not be silently compared as a valid band.
-
-**Warning signs:**
-A clean delta between runs whose models/quants differ; saved reports lacking environment fingerprint; `--compare` with no comparability guard; a regression that's really a prompt/n_predict change.
-
-**Phase to address:** Saved-bench phase (BENCH-03).
-
----
-
-### Pitfall 10: The TUI breaks the single-static-binary / CGO-free / non-TTY contract (INSTALL-01)
-
-**What goes wrong:**
-A TUI library pulls in CGO (breaking the static, easy-distribution binary), bloats the binary, or the TUI is hard-wired so `villa install` is unusable over SSH-without-TTY, in CI, or piped — regressing the flag-driven path that v1.0 shipped. Worst case: the interactive flow becomes the *only* path and scripted/headless install dies.
-
-**Why it happens:**
-TUI frameworks are tempting and some assume an interactive terminal unconditionally. The constraint "single static binary, CGO-free preferred" is easy to violate with the wrong dependency. The existing dashboard UI is deliberately no-build/`go:embed` — the project already avoids toolchain creep.
-
-**How to avoid:**
-- Choose a **pure-Go, CGO-free** TUI (e.g. Bubble Tea / tview class — verify no cgo at build with `CGO_ENABLED=0 go build`) and confirm the binary stays single/static.
-- TUI is a **front-end over the existing flag-driven commands**, gated on `isatty(stdout)`: non-TTY / `--no-tui` / CI → fall straight through to the current non-interactive `install` path. The TUI must never be the only way in.
-- Add a `CGO_ENABLED=0` static-build check to `make check`/CI so a cgo-pulling dependency fails fast.
-
-**Warning signs:**
-`go build` now requires a C toolchain; `CGO_ENABLED=0` build fails; `villa install` hangs or panics with no TTY; binary size jumps sharply; install unusable in a script.
-
-**Phase to address:** TUI-install phase (INSTALL-01).
-
----
-
-### Pitfall 11: The TUI duplicates (and drifts from) the detect→recommend→preflight→install logic (INSTALL-01)
-
-**What goes wrong:**
-The TUI re-implements hardware fit math, the preflight gate, or backend selection inline (to drive its screens), so there are now two sources of truth. The TUI's copy drifts — it shows a model that doesn't fit, skips a BLOCK check, or selects a backend the resolver would reject — and "just works after install" silently regresses for TUI users only.
-
-**Why it happens:**
-TUIs want data shaped for rendering and it's quick to recompute locally. But the system's discipline is composition-over-reimplementation (bench composes backendswap, dashboard composes status) and a single polymorphism point (`BackendFor`). A second recommend/preflight implementation violates both.
-
-**How to avoid:**
-- The TUI **calls the existing pure cores** for every decision: `detect` → `recommend.Pick` → `preflight` → `orchestrate`, and selects the backend only via `BackendFor`. It renders their typed results; it computes nothing about fit/eligibility itself.
-- Treat the TUI as the command-tier's thin presentation seam (like `live*Deps` wiring) over the same cores the flag path uses — identical decisions, two renderings.
-- Reuse `config.SaveVilla` for persistence (0600, traversal-guarded); the TUI does not write config by a side path.
-
-**Warning signs:**
-Fit/quant math or preflight tiers reimplemented in the TUI package; the TUI recommending a model the CLI wouldn't; a backend string handled outside `BackendFor`; TUI and CLI disagreeing on the same host.
-
-**Phase to address:** TUI-install phase (INSTALL-01).
-
----
-
-### Pitfall 12: Adding `rocm-6.4.4` without a digest pin / tripping the seam gate or policy floors (ROCM-ALT-01)
-
-**What goes wrong:**
-The alternate ROCm image is added as a bare tag (`:rocm-6.4.4`) without a `@sha256:` digest — losing reproducibility (the tag is silently rebuilt). Or its literal is placed in a caller/new file outside `internal/inference`, failing `TestSeamGrepGate` (the gate explicitly matches `rocm-7.2.4`/`rocm7-nightlies` and `kyuz0`/`docker.io/` — a new ROCm literal in the wrong file fails CI). Or `rocm-6.4.4` is selected for a host that doesn't pass the `rocm-policy.json` floors (kernel `6.18.4`, firmware `20260110`, `firmwareDeny` `20251125`, required HSA `11.5.1`), reintroducing the fragility v1.1 fenced off.
-
-**Why it happens:**
-Adding "one more image" looks trivial. But this system pins every image by digest (`openWebUIImage`, `rocmImage`), seam-locks every backend literal, and gates ROCm behind a policy file — three invariants a casual addition violates at once. There's also a behavioral trap: 6.4.4 is being added for TG-heavy models because 7.2.4 regressed tg (live Δtg −11.15), so it must not be silently auto-selected (Vulkan stays default; ROCm advises, never auto-switches).
-
-**How to avoid:**
-- Pin the digest: resolve `docker.io/kyuz0/…:rocm-6.4.4` via `skopeo inspect` and store `@sha256:…`, exactly as `rocmImage` documents its resolution.
-- Keep the literal **inside `internal/inference`** (sibling to `backend_rocm.go`), behind the existing `Backend` seam and `BackendFor`; add positive-presence + the existing grep-gate coverage. Extend the gate's known-tag set to include `rocm-6.4.4` so a future leak still fails.
-- Run it through the **same `rocm-policy.json` gate**: verify 6.4.4's kernel/firmware/HSA requirements against the floors; if 6.4.4 needs different floors, model that in the policy file (append, re-audit) rather than bypassing it. Confirm 6.4.4 is not the nightly cap-bug image.
-- Selection stays **opt-in and offload-asserting**: bring it up transactionally via `backendswap` (capture→prove→cutover→rollback) with a residency proof; never auto-switch from Vulkan. Frame it as "alt option for TG-heavy," surfaced honestly, ideally validated by `bench --compare`.
-
-**Warning signs:**
-A `:rocm-6.4.4` reference with no `@sha256:`; `TestSeamGrepGate` red after the change; a new file under `internal/preflight`/`cmd/` containing the ROCm tag; 6.4.4 selectable on a host below the floors; the alt image chosen automatically without `villa backend set`.
-
-**Phase to address:** Alt-ROCm phase (ROCM-ALT-01).
+**Phase to address:**
+The orchestration phase (pin digest + centralize keys) and any future image-bump change (re-validate).
 
 ---
 
 ## Technical Debt Patterns
 
+Shortcuts that seem reasonable but create long-term problems.
+
 | Shortcut | Immediate Benefit | Long-term Cost | When Acceptable |
 |----------|-------------------|----------------|-----------------|
-| Host-path `tar` of the volume dir instead of `podman volume export`/`unshare` | Fewer moving parts | Wrong ownership/SELinux on cross-host restore; corrupt SQLite if live | Never for the supported restore path; OK only as an internal debug dump |
-| Append-only usage event log, no rotation | Trivial to write | Unbounded growth; harder concurrent writes | Only behind an explicit retention cap shipped same-phase |
-| Saved bench report with no `schema_version` | Ship faster | `--compare` breaks across versions; in-place schema edits violate golden contract | Never — version from the first commit |
-| Recompute fit/preflight inside the TUI | TUI ships independently | Two sources of truth, silent drift from CLI | Never — call the cores |
-| Bare `:rocm-6.4.4` tag (no digest) | One fewer lookup | Non-reproducible builds; tag rebuilt under you | Never |
-| `doctor` = `is-active` + `/health` 200 | Looks done in a demo | False-green over CPU fallback; betrays D-11 | Never as the verdict; OK only as one input among offload assertions |
+| Leave Open WebUI's **default ChromaDB** vector store instead of standing up Qdrant | No new Quadlet service; fastest path | ChromaDB posts PostHog telemetry unless explicitly killed; weaker scaling/durability story; still leaves the embedding-download leak | Only as a throwaway spike; not for ship — telemetry + the v1.3 "integrate a local vector DB (e.g. Qdrant)" requirement argue against it |
+| Rely on `OFFLINE_MODE`/`HF_HUB_OFFLINE` env flags alone for zero-outbound (no active assertion) | One-line "fix"; looks done | Env flag is silent if a key is renamed (Pitfall 8) or PersistentConfig shadows it (Pitfall 3); honesty-by-construction demands a *proof*, not a flag | Never as the sole control — pair with a runtime zero-outbound assertion |
+| Route embeddings through the **chat** `llama-server`/`/embeddings` | Reuses an existing managed model; no second service | Couples embedding dimension to the chat model → every `villa model swap` corrupts the vector index (Pitfall 4) | Acceptable ONLY if the embedding model is pinned/decoupled and a chat-swap guard exists |
+| Tar the **full vector index** into `villa backup` like the OWUI volume | Trivially reuses BAK-01 plumbing | Archive bloat (GB); merge-on-restore stale-vector leak; dimension-skew corruption | Acceptable only with clean-recreate-before-import + manifest dimension check + size guard |
+| Add embedding model footprint as "negligible, ignore in recommend" | Skips touching `Pick()` | OOM / silent CPU fallback of the chat model under import load (Pitfall 2) — a false-green | Never on a shared unified-memory budget |
+| Enable autonomous auto-memory by default | Impressive demo | Local model stores false memories injected into every chat; erodes trust | Never default-on with a local model; opt-in only |
 
 ## Integration Gotchas
 
+Common mistakes when connecting to external services.
+
 | Integration | Common Mistake | Correct Approach |
 |-------------|----------------|------------------|
-| Open WebUI named volume (`villa-openwebui`, `:Z`) | Raw byte tar; restore while running | `podman volume export/import` or `podman unshare` tar; stop→swap→restart→prove; recreate via Quadlet `:Z` |
-| `villa-models.volume` (bind, `Type=none`) | Sweep multi-GB weights into the backup | Capture model identity in manifest; re-pull weights on restore via catalog/download |
-| llama-server `/metrics` (`internal/metrics`) | Treat last-window tok/s as a live signal in usage totals | Gate on `IsGenerating`; accumulate only real generation windows; degrade to typed-Unknown, never fabricate zeros |
-| `systemctl --user` lifecycle | TUI/backup/doctor shell out to systemd directly | Route all systemd/exec through `internal/orchestrate` (the only impure module) |
-| ROCm images (kyuz0 toolboxes) | Bare tag; literal outside the seam | Digest-pin inside `internal/inference`; gate via `rocm-policy.json` |
-| Dashboard `/api` (chi, loopback) | New usage/doctor endpoint bound off-loopback or without same-origin | `net.JoinHostPort("127.0.0.1", …)`; behind `requireSameOrigin`; loopback test |
+| Open WebUI embeddings | Trusting that "local LLM" means RAG is local — it isn't; embeddings default to a HF sentence-transformer downloaded at runtime | Force embedding engine/model to the loopback `villa-llama` `/embeddings` OR pre-stage the model + `HF_HUB_OFFLINE=1`/`OFFLINE_MODE=true`; assert zero-outbound |
+| Open WebUI config | Editing the Quadlet env and assuming it applies | `PersistentConfig` makes the DB win after first boot — set `ENABLE_PERSISTENT_CONFIG=false` so config.toml-driven env stays authoritative |
+| ChromaDB (OWUI default) | Leaving anonymized telemetry on | `ANONYMIZED_TELEMETRY=False` (+ prefer Qdrant); verify no `app.posthog.com` outbound |
+| Qdrant volume | Host bind mount under rootless Podman | Named Podman volume (`:U`/`:Z`) so UID mapping + SELinux are handled; generate via `orchestrate` `volume.tmpl` |
+| Open WebUI web-search-in-RAG | Assuming RAG never reaches the internet | `ENABLE_RAG_WEB_SEARCH` is off by default AND per-chat toggle — keep it off / unconfigured (defer SearXNG to its deferred milestone); document that enabling it is an outbound-opening choice |
+| Open WebUI image | Floating `:main` tag for new Memory features | Digest-pin (`@sha256:`) the validated version; re-validate offline flags on any bump |
 
 ## Performance Traps
 
+Patterns that work at small scale but fail as usage grows.
+
 | Trap | Symptoms | Prevention | When It Breaks |
 |------|----------|------------|----------------|
-| Backup pulling in model weights | Backup runs for minutes; archive tens of GB; disk fills | Scope to config + WebUI data; manifest model identity only | First backup on a host with large GGUFs (immediately) |
-| Unbounded usage log | Usage file grows linearly with uptime; slow reads in dashboard | Bounded buckets / fixed retention + rotation | Weeks–months of uptime |
-| Per-scrape usage write (chatty I/O) | Disk writes every poll tick; SSD wear paranoia | Aggregate in memory, flush on interval/shutdown; single writer | High-frequency dashboard polling |
-| Comparing many saved bench runs | `--compare` slow / confusing as reports accumulate | Index by environment fingerprint; cap or paginate; comparability filter | Dozens of saved runs |
+| Re-embedding the whole corpus on every config touch | Long stalls, GTT spike, chat-model eviction | Treat re-embed as an explicit, confirmed destructive op; don't auto-trigger on incidental config saves | Bulk import / embedding-model change on a large doc set |
+| Embedding + chat sharing the unified-memory pool | Chat tok/s tanks during import; OOM-kill | Budget embed footprint in `recommend`; ctx≈512 for embed; residency-assert chat survival under RAG load | When corpus/import size grows or a larger embedder is chosen |
+| Wrong chunk size (too large → fewer, blurrier matches; too small → fragmented context) | Poor/irrelevant citations; truncated answers | Set a sane default chunk size + overlap; keep it config-driven so it's tunable | As document variety/length grows |
+| Unbounded vector volume | Disk/backup bloat; slow restore | Size-guard the volume; consider excluding the derived index from backup (re-embeddable) | Large/long-lived knowledge base |
 
 ## Security Mistakes
 
+Domain-specific security issues beyond general web security.
+
 | Mistake | Risk | Prevention |
 |---------|------|------------|
-| Usage tracking phones home for "anon stats" | Violates zero-telemetry core value; data off-box | Counts-only, local store, no new outbound; assert no new egress |
-| Usage store holds prompt/response text | Privacy leak of the exact thing the product protects | Persist token counts/timestamps only; never content/chat IDs |
-| New usage/doctor HTTP surface bound `0.0.0.0`/`:port` | LAN/remote exposure (PRIV-01 regression) | Loopback-only `net.JoinHostPort`; same-origin `/api` guard; loopback test |
-| Backup archive written world-readable | Chats/settings (sensitive) leak via file perms | 0600 file / 0700 dir; XDG path; traversal guard (mirror `config`) |
-| Restore writes config by raw file drop | Bypasses traversal guard / fail-closed parsing | Restore via `config.SaveVilla`; re-validate with preflight |
-| TUI/backup shelling user-supplied strings | Shell injection | Fixed-arg `exec.Command`; catalog-resolved names; no interpolation |
+| Embedding/reranker/Whisper model auto-download at runtime | Unconsented outbound to HuggingFace after install reports green — breaks PRIV-01/02/03 | `OFFLINE_MODE=true`+`HF_HUB_OFFLINE=1`+`*_AUTO_UPDATE=false`, pre-staged model, runtime zero-outbound assertion |
+| ChromaDB / Scarf / version-check telemetry | Outbound to `app.posthog.com` / analytics endpoints | `ANONYMIZED_TELEMETRY=False`, `DO_NOT_TRACK=true`, `SCARF_NO_ANALYTICS=true`, `OFFLINE_MODE` disables version checks; prefer Qdrant |
+| Treating "memory stores PII" as a telemetry/counts problem | Mis-scoping: memory MUST store content (that's the feature) — the real rule is content NEVER LEAVES the box | Zero-outbound is the control, not no-content; user-controllable edit/delete; backup archive stays local-only (it already is) |
+| New Qdrant service bound beyond loopback | Exposes the vector store / knowledge base to the LAN | Bind Qdrant to the `villa.network` container-DNS only / loopback; reuse PRIV-01 loopback discipline; never `0.0.0.0` |
+| Web-search-in-RAG silently enabled | Sends user query text to an external search engine | Keep `ENABLE_RAG_WEB_SEARCH` off; if ever added, it's an explicit opt-in + (deferred) local SearXNG only |
 
 ## UX Pitfalls
 
+Common user experience mistakes in this domain.
+
 | Pitfall | User Impact | Better Approach |
 |---------|-------------|-----------------|
-| Restore says "done" but stack unhealthy | User trusts a broken recovery | Prove health post-restore; FAIL + rollback if not proven |
-| `doctor` green while inference on CPU | False confidence; slow inference unnoticed | Offload-assert; FAIL on confident CPU fallback, WARN on unevaluable |
-| TUI-only install, no headless path | SSH/CI/scripted installs impossible | TTY-gated; `--no-tui` falls through to flag path |
-| `bench --compare` prints delta across mismatched specs | User chases a phantom regression | Comparability guard; label "not comparable" |
-| Backup omits models without saying so | "Full restore" comes up modelless | Manifest states what's captured vs re-pulled |
-| `doctor` lists faults with no fix | User stuck | Refuse-with-remediation on every non-PASS (preflight idiom) |
+| Auto-memory on by default with a local model | Assistant confidently repeats hallucinated "facts" forever | Manual save/pin/edit/delete as primary; auto-extraction opt-in |
+| No visible way to inspect/delete memories | Users can't correct wrong memories; lose trust | Surface Settings → Personalization → Memory; UAT must cover edit/delete |
+| Silent stale index after a model swap | RAG citations suddenly irrelevant, no explanation | Make swap memory-aware; if embedder changes, prompt for explicit re-index |
+| Knowledge base vanishes after reboot | User re-uploads everything, re-pays re-embed cost | Durable named volume + lingering + boot-survival UAT |
+| First doc upload hangs (silent HF download) | Looks broken on a privacy-conscious/firewalled host | Pre-stage the embedding model at install; offline flags set |
 
 ## "Looks Done But Isn't" Checklist
 
-- [ ] **Backup/restore:** Often missing the *cross-host UID/SELinux* case — verify restore on a second machine (or after `podman system reset`) reopens chats, not just same-host round-trip.
-- [ ] **Backup/restore:** Often missing *quiesce ordering* — verify the service is stopped before capture/restore and health is proven after (rollback on fail).
-- [ ] **Usage tracking:** Often missing the *no-new-outbound* proof — verify zero new network destinations and counts-only (no content) in the store.
-- [ ] **Usage tracking:** Often missing *concurrent-write* safety — verify CLI + long-lived dashboard don't corrupt/double-count the store.
-- [ ] **Saved bench:** Often missing *schema version + golden freeze* — verify a persisted report has a version field and a golden test guards its bytes.
-- [ ] **`--compare`:** Often missing the *comparability guard* — verify mismatched model/quant/host is flagged, not silently delta'd.
-- [ ] **doctor:** Often missing *offload assertion* — verify a forced CPU fallback yields FAIL, not green.
-- [ ] **TUI:** Often missing *non-TTY fallthrough + CGO-free* — verify `CGO_ENABLED=0` build and headless install both work.
-- [ ] **rocm-6.4.4:** Often missing *digest pin + seam containment + policy gate* — verify `@sha256:`, `TestSeamGrepGate` green, and floors enforced.
+Things that appear complete but are missing critical pieces.
+
+- [ ] **RAG/embeddings:** Often missing the *runtime* zero-outbound check — verify a doc upload on a firewalled host does NOT reach `huggingface.co`/`app.posthog.com` (install-time green is insufficient).
+- [ ] **Offline flags:** Often missing one of the set — verify `OFFLINE_MODE`, `HF_HUB_OFFLINE`, all three `*_AUTO_UPDATE=false`, `ANONYMIZED_TELEMETRY=False` are ALL present AND not shadowed by `PersistentConfig`.
+- [ ] **Config authority:** Often missing `ENABLE_PERSISTENT_CONFIG=false` — verify a config.toml-driven env change actually takes effect after the OWUI DB is populated (second-change test).
+- [ ] **Recommend math:** Often missing the embedding footprint — verify `Pick()` fits chat + embed + headroom, and that a bulk import doesn't evict the chat model (residency proof holds).
+- [ ] **Model swap:** Often missing memory-awareness — verify `villa model swap` / `backend set` leaves the embedding model + vector collections intact (no dimension corruption).
+- [ ] **Vector volume:** Often missing boot-survival — verify the knowledge base persists across a reboot and that Qdrant has write permission (rootless UID + SELinux `:Z`).
+- [ ] **Backup/restore:** Often missing clean-recreate-before-import + dimension manifest — verify a restore onto a non-empty / different-embedder store does NOT leak stale or mismatched vectors.
+- [ ] **Memory edit/delete:** Often missing the correction loop — verify a deleted/edited memory stops being injected into new chats.
+- [ ] **Loopback:** Often missing for the *new* Qdrant service — verify it's not bound to `0.0.0.0`/LAN.
 
 ## Recovery Strategies
 
+When pitfalls occur despite prevention, how to recover.
+
 | Pitfall | Recovery Cost | Recovery Steps |
 |---------|---------------|----------------|
-| Restore corrupted the live DB | HIGH | Restore from the pre-restore rollback archive (kept as the transaction frame); re-stop service, re-import, re-prove |
-| Wrong ownership after cross-host restore | MEDIUM | `podman unshare chown -R` to namespace UID; or recreate volume via Quadlet and re-import through `podman volume import` |
-| Usage log grew unbounded | LOW | Rotate/truncate to bounded buckets; ship retention cap; aggregate historical |
-| Saved-report schema edited in place (golden broke) | MEDIUM | Revert to append-only, restore prior schema, add new fields by append + bump, refreeze once |
-| `doctor` shipped false-green | MEDIUM | Re-route verdict through offload-assert/`status`; downgrade is-active to one input; add forced-CPU-fallback test |
-| `rocm-6.4.4` literal leaked / un-pinned | LOW | Move literal into `internal/inference`; add `@sha256:`; extend gate tag set; re-run `TestSeamGrepGate` |
+| Runtime HF/telemetry leak shipped | MEDIUM | Add the full offline env block + `ENABLE_PERSISTENT_CONFIG=false`, wipe/repopulate the OWUI config rows, pre-stage the model, re-run zero-outbound UAT |
+| Dimension-corrupted collection after swap | MEDIUM | Reset/clean-recreate the collection, re-embed all docs with the recorded embedding model; add the chat-swap guard so it can't recur |
+| Chat model OOM/CPU-fallback under RAG load | LOW–MEDIUM | Reduce embed ctx to ~512, shrink chat quant/ctx via `recommend`, re-fit the envelope including embed term |
+| Vector volume lost on reboot | HIGH (user re-uploads) | Re-create as named volume + enable lingering; re-import source docs and re-embed; add boot-survival test |
+| Stale vectors leaked on restore | MEDIUM | Clean-recreate the Qdrant volume, restore source data, re-embed; adopt clean-recreate-before-import + manifest dimension check |
+| Memory bank polluted by false auto-memories | LOW | User clears/edits memory bank (Settings → Personalization → Memory); switch auto-extraction to opt-in |
 
 ## Pitfall-to-Phase Mapping
 
+How roadmap phases should address these pitfalls. (Phase names are indicative; the roadmapper assigns final numbers. Suggested ordering: vector-DB+volume orchestration → embeddings backend + offline enforcement + recommend math → memory/RAG wiring + capture → swap-integration → status/doctor surfacing → backup/restore extension.)
+
 | Pitfall | Prevention Phase | Verification |
 |---------|------------------|--------------|
-| 1 UID/SELinux mangle on restore | BAK-01 (backup/restore) | Cross-host (or post-reset) restore reopens chats; ownership correct in `podman unshare` |
-| 2 Restore into running stack corrupts DB | BAK-01 | Restore stops→swaps→restarts→proves; rollback archive on fail |
-| 3 Backup sweeps model weights | BAK-01 | Manifest distinguishes captured vs re-pull; disk-estimate refuse |
-| 4 Version-skew restore | BAK-01 | Manifest carries villa version + WebUI digest + host fingerprint; WARN on skew; config re-validated |
-| 5 Usage becomes telemetry/leaks | USAGE-01 (+ security checkpoint) | No new outbound; counts-only store; loopback test on any new surface |
-| 6 Unbounded growth / write race | USAGE-01 | Bounded retention; single-writer or flock+atomic write; XDG 0600 |
-| 7 doctor false-green | DOCTOR-01 | Forced CPU fallback → FAIL; composes preflight+status+residency; seam gate green |
-| 8 Saved report breaks golden contract | BENCH-03 (saved bench) | `schema_version` present; golden-frozen; append-only diff; pp/tg separate |
-| 9 `--compare` non-comparable runs | BENCH-03 | Environment fingerprint persisted; comparability guard; void runs excluded |
-| 10 TUI breaks static/CGO/non-TTY | INSTALL-01 (TUI install) | `CGO_ENABLED=0` build passes; non-TTY/`--no-tui` falls through |
-| 11 TUI duplicates decision logic | INSTALL-01 | TUI calls detect/recommend/preflight/BackendFor; no fit/preflight reimpl |
-| 12 rocm-6.4.4 un-pinned / leaks / floor bypass | ROCM-ALT-01 (alt ROCm) | `@sha256:` pin; literal in `internal/inference`; `rocm-policy.json` gate; `TestSeamGrepGate` green; opt-in only |
+| 1. Runtime HF/embedding download (zero-outbound) | Embeddings-backend + offline-enforcement phase | Firewalled doc-upload smoke test reaches no external host; status zero-outbound assertion |
+| 2. Embedding footprint OOM / CPU fallback | Recommend/envelope phase (extend `Pick()`) | `Pick()` includes embed term; chat residency proof survives a bulk import |
+| 3. PersistentConfig shadows config.toml | OWUI memory-wiring phase | `ENABLE_PERSISTENT_CONFIG=false`; second-change config test takes effect; config-drift check |
+| 4. Embedding/chat swap dimension mismatch | Swap-integration + embedding-identity phase | Chat swap leaves vectors intact; dimension recorded; explicit re-index path |
+| 5. Vector volume durability / rootless perms | Qdrant-orchestration phase | Named volume `:Z`/`:U`; boot-survival UAT; Qdrant writable |
+| 6. Backup stale-vector leak / bloat | Backup/restore-extension phase | Clean-recreate-before-import; manifest dimension skew-warn; size/inclusion decision |
+| 7. False auto-memories, not correctable | Memory-capture phase | Manual save/edit/delete primary; auto-extraction opt-in; edit/delete UAT |
+| 8. OWUI version/key drift | Orchestration + any image bump | Digest-pinned `@sha256:`; centralized keys; offline flags re-validated on bump |
 
 ## Sources
 
-- This codebase (HIGH): `internal/inference/seam_test.go` (TestSeamGrepGate scope + matched tags), `internal/inference/backend_rocm.go` (digest-pin discipline, nightlies cap-bug, HSA/kfd), `internal/orchestrate/openwebui.go` + `quadlet/*.volume.tmpl` (named vs bind volume, `:Z` label, digest-pinned image), `internal/preflight/rocm-policy.json` + `floors.go`/`checks_rocm.go` (kernel/firmware/HSA floors, imageDeny), `internal/bench/bench.go` (separate pp/tg, residency-void gating, reproducible BenchSpec), `internal/metrics/llamacpp.go` (last-window vs live-signal trap), `internal/config/villaconfig.go` (XDG 0600/0700, traversal guard, fail-closed).
-- `.planning/PROJECT.md` + `CLAUDE.md` (HIGH): zero-telemetry/loopback PRIV gates, offload-asserting D-11, byte-frozen golden contracts, composition-over-reimplementation, single `BackendFor` resolver, transactional backendswap, dashboard-restart-after-rebuild gotcha, live Δtg −11.15 (ROCm tg regression motivating 6.4.4).
-- Podman rootless volume backup/restore mechanics (MEDIUM, WebSearch-verified): `podman volume export`/`import`, rootless storage path `~/.local/share/containers/storage/volumes/`, `--userns=keep-id`, `:U`, `podman unshare chown` — https://www.tutorialworks.com/podman-rootless-volumes/ , https://github.com/containers/podman/issues/10669
+- [Open WebUI — Offline Mode](https://docs.openwebui.com/tutorials/maintenance/offline-mode/) (HIGH — official; `OFFLINE_MODE`, `HF_HUB_OFFLINE`, `*_AUTO_UPDATE=false`, features that still phone home)
+- [Open WebUI — RAG Troubleshooting](https://docs.openwebui.com/troubleshooting/rag/) (HIGH — official; default embedding model auto-download, local model path)
+- [Open WebUI Discussion #9729 — "always wants to connect to huggingface"](https://github.com/open-webui/open-webui/discussions/9729) (HIGH — corroborates runtime HF download)
+- [Open WebUI Issue #15613 — ChromaDB PostHog telemetry](https://github.com/open-webui/open-webui/issues/15613) + [PR #618 — disable Chroma telemetry](https://github.com/open-webui/open-webui/pull/618) (HIGH — ChromaDB outbound to PostHog; `ANONYMIZED_TELEMETRY`)
+- [Open WebUI — PersistentConfig system (DeepWiki)](https://deepwiki.com/open-webui/open-webui/12.2-persistentconfig-system) + [Env Configuration docs](https://docs.openwebui.com/reference/env-configuration/) (HIGH — DB shadows env after first boot; `ENABLE_PERSISTENT_CONFIG`)
+- [Open WebUI Issue #11279 — embedding dimension 768 vs collection 384](https://github.com/open-webui/open-webui/issues/11279) + [Discussion #9609 — Qdrant dimension mismatch](https://github.com/open-webui/open-webui/discussions/9609) (HIGH — model-swap dimension corruption + re-index requirement)
+- [Open WebUI — Memory & Personalization](https://docs.openwebui.com/features/chat-conversations/memory/) (HIGH — manual vs autonomous memory, local DB, edit/delete, model-quality dependence)
+- [Open WebUI Discussion #11597 — external Qdrant `VECTOR_DB=qdrant`, `QDRANT_URI`](https://github.com/open-webui/open-webui/discussions/11597) + [Discussion #8628](https://github.com/open-webui/open-webui/discussions/8628) (HIGH — Qdrant wiring + persistent volumes)
+- [Fix Podman Volume Permission Issues with SELinux](https://oneuptime.com/blog/post/2026-03-18-fix-podman-volume-permission-issues-selinux/view) + [Rootless Podman volumes](https://www.tutorialworks.com/podman-rootless-volumes/) (HIGH — rootless UID mapping, `:Z`/`:U`, named volumes)
+- [Open WebUI — SearXNG / web-search-in-RAG](https://docs.openwebui.com/features/web-search/searxng/) (HIGH — `ENABLE_RAG_WEB_SEARCH` off by default, per-chat toggle, external query)
+- [llama.cpp server README — `/embeddings`](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md) + [Running multiple local models: memory management](https://www.sitepoint.com/multiple-local-models-memory-management/) (HIGH/MEDIUM — local embeddings endpoint; shared-memory budgeting, ctx≈512)
+- VillaStraylight `.planning/PROJECT.md` + `CLAUDE.md` (project non-negotiables: zero-outbound, CGO-free, config-as-truth, offload-asserting, digest-pinning, v1.2 clean-recreate-before-import lesson)
 
 ---
-*Pitfalls research for: VillaStraylight v1.2 Operability features*
-*Researched: 2026-06-07*
+*Pitfalls research for: local memory/RAG addition to VillaStraylight (v1.3)*
+*Researched: 2026-06-09*
