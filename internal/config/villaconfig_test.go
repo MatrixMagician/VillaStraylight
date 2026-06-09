@@ -350,6 +350,63 @@ embed_port = 9090
 	}
 }
 
+// TestMemoryByteIdentical proves SC#1's load-path half (D-05): loading a v1.2
+// config.toml that carries NO memory keys self-heals the IN-MEMORY struct to the
+// memory-off defaults WITHOUT mutating the on-disk file. The guarantee is the
+// ABSENCE of a memory save path in Phase 18 — load is read-only. Re-reading the
+// file bytes after load must equal the original bytes. The test deliberately does
+// NOT call SaveVilla/SaveVillaTo: manufacturing memory keys would be the very
+// regression SC#1 forbids (Pitfall 1: BurntSushi/toml emits type-zero keys).
+func TestMemoryByteIdentical(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "villa")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	// A pristine v1.2 config: only the v1.2 keys, NO memory keys.
+	v12 := `model = "qwen3-35b-a3b-moe-64"
+quant = "UD-Q4_K_M"
+ctx = 131072
+backend = "vulkan"
+dashboard_addr = "127.0.0.1"
+dashboard_port = 8888
+chat_port = 3000
+`
+	path := filepath.Join(dir, "config.toml")
+	if err := os.WriteFile(path, []byte(v12), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read before: %v", err)
+	}
+
+	// Load self-heals the in-memory struct to memory-off defaults.
+	got, err := LoadVillaFrom(dir)
+	if err != nil {
+		t.Fatalf("LoadVillaFrom: %v", err)
+	}
+	if got.MemoryEnabled {
+		t.Errorf("in-memory MemoryEnabled = true after load of a memory-key-free config, want false")
+	}
+
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read after: %v", err)
+	}
+	if string(after) != string(before) {
+		t.Errorf("load mutated the on-disk config (SC#1 byte-identical break):\nbefore:\n%s\nafter:\n%s",
+			before, after)
+	}
+	// Belt-and-braces: no memory key leaked into the file on load.
+	for _, key := range []string{"memory_enabled", "embedding_model", "embedding_dim",
+		"qdrant_addr", "qdrant_port", "embed_addr", "embed_port"} {
+		if strings.Contains(string(after), key) {
+			t.Errorf("memory key %q appeared in a non-opted-in config after load (SC#1 violation)", key)
+		}
+	}
+}
+
 // TestPathUnderUserConfigDir asserts Path resolves under os.UserConfigDir()/villa.
 func TestPathUnderUserConfigDir(t *testing.T) {
 	base, err := os.UserConfigDir()
