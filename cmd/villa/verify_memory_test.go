@@ -1,9 +1,14 @@
 package main
 
 import (
+	"bytes"
+	"context"
 	"errors"
 	"testing"
 
+	"github.com/spf13/cobra"
+
+	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/preflight"
 )
 
@@ -121,6 +126,82 @@ func TestEvalRagSmokeNegativeControlFirst(t *testing.T) {
 		}
 		if uploadRan {
 			t.Fatalf("uploadCite ran despite egress not being blocked — false-green hazard")
+		}
+	})
+}
+
+// TestRunVerifyMemoryGate drives runVerifyMemory over the injectable seam to lock the three
+// load-bearing behaviours: (1) memory OFF exits 0 without ever running the proof (nothing to
+// verify — NOT the silent-skip hazard); (2) memory ON + a FAIL verdict returns exitBlocked
+// with the remediation detail on stderr; (3) memory ON + a PASS returns exitPass. The proof
+// seam is injected so no live container or host egress is needed (off-hardware).
+func TestRunVerifyMemoryGate(t *testing.T) {
+	newCmd := func() *cobra.Command {
+		c := &cobra.Command{}
+		c.SetContext(context.Background())
+		return c
+	}
+
+	t.Run("memory off exits 0 without running the proof", func(t *testing.T) {
+		proofRan := false
+		deps := verifyMemoryDeps{
+			loadedMemoryEnabled: func() bool { return false },
+			loadedConfig:        func() config.VillaConfig { return config.DefaultVillaConfig() },
+			ragSmokeFn: func(context.Context, ragSmokeInput) memoryProof {
+				proofRan = true
+				return memoryProof{status: preflight.StatusPass}
+			},
+		}
+		cmd := newCmd()
+		var out bytes.Buffer
+		cmd.SetOut(&out)
+		cmd.SetErr(&out)
+		if code := runVerifyMemory(cmd, nil, deps); code != exitPass {
+			t.Errorf("memory-off exit = %d, want exitPass (%d)", code, exitPass)
+		}
+		if proofRan {
+			t.Errorf("the proof must NOT run when memory is off")
+		}
+	})
+
+	t.Run("memory on FAIL returns exitBlocked with remediation", func(t *testing.T) {
+		deps := verifyMemoryDeps{
+			loadedMemoryEnabled: func() bool { return true },
+			loadedConfig:        func() config.VillaConfig { return config.DefaultVillaConfig() },
+			ragSmokeFn: func(_ context.Context, in ragSmokeInput) memoryProof {
+				// The drive must target the loopback PublishPort (no new host port, D-11).
+				if in.owuiAddr != verifyMemoryLoopbackAddr {
+					t.Errorf("owuiAddr = %q, want loopback %q", in.owuiAddr, verifyMemoryLoopbackAddr)
+				}
+				return memoryProof{status: preflight.StatusFail, detail: "egress is NOT blocked"}
+			},
+		}
+		cmd := newCmd()
+		var out, errOut bytes.Buffer
+		cmd.SetOut(&out)
+		cmd.SetErr(&errOut)
+		if code := runVerifyMemory(cmd, nil, deps); code != exitBlocked {
+			t.Errorf("memory-on FAIL exit = %d, want exitBlocked (%d)", code, exitBlocked)
+		}
+		if errOut.Len() == 0 {
+			t.Errorf("a FAIL must print a remediation to stderr")
+		}
+	})
+
+	t.Run("memory on PASS returns exitPass", func(t *testing.T) {
+		deps := verifyMemoryDeps{
+			loadedMemoryEnabled: func() bool { return true },
+			loadedConfig:        func() config.VillaConfig { return config.DefaultVillaConfig() },
+			ragSmokeFn: func(context.Context, ragSmokeInput) memoryProof {
+				return memoryProof{status: preflight.StatusPass, detail: "document upload retrieved + cited with zero outbound"}
+			},
+		}
+		cmd := newCmd()
+		var out bytes.Buffer
+		cmd.SetOut(&out)
+		cmd.SetErr(&out)
+		if code := runVerifyMemory(cmd, nil, deps); code != exitPass {
+			t.Errorf("memory-on PASS exit = %d, want exitPass (%d)", code, exitPass)
 		}
 	})
 }
