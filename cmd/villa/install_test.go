@@ -1116,7 +1116,14 @@ func TestInstallRegistered(t *testing.T) {
 // memoryUnits returns a Changed plan so runInstall reaches the write→start path
 // (the memory start + proof steps live after the unit write).
 func memoryUnits() ([]orchestrate.Unit, orchestrate.Plan) {
-	units := []orchestrate.Unit{{Name: "villa-llama.container", Text: "[Container]\n"}}
+	// A realistic memory-on plan: Render appends the memory .container units when
+	// MemoryEnabled, so they must be present in the plan for the WR-04 start guard
+	// (which gates the memory-service starts on the units actually being in the plan).
+	units := []orchestrate.Unit{
+		{Name: "villa-llama.container", Text: "[Container]\n"},
+		{Name: orchestrate.QdrantContainerUnitName(), Text: "[Container]\n"},
+		{Name: orchestrate.EmbedContainerUnitName(), Text: "[Container]\n"},
+	}
 	return units, orchestrate.Plan{Changed: units}
 }
 
@@ -1180,8 +1187,9 @@ func TestInstallMemoryGateUsesPersistedConfig(t *testing.T) {
 // must keep them after `villa install`. This locks the write-side single-source-of-truth
 // fix (the same class as WR-01 on the render side).
 func TestInstallPreservesPersistedMemoryConfig(t *testing.T) {
-	units := []orchestrate.Unit{{Name: "villa-llama.container", Text: "[Container]\n"}}
-	plan := orchestrate.Plan{Changed: units}
+	// A realistic memory-on plan (memory units present) so the WR-04 start guard passes;
+	// this test is about the WR-02 config-preservation, not the start gate.
+	units, plan := memoryUnits()
 	f := newFakeInstallDeps(t, units, plan, passChecks())
 	f.memoryEnabled = true
 
@@ -1304,6 +1312,37 @@ func TestInstallMemoryServices(t *testing.T) {
 			t.Errorf("dry-run must not run the proof, proof calls = %d", f.memoryProofCalls)
 		}
 	})
+}
+
+// TestInstallMemoryOnButUnitsAbsentFailsClosed (WR-04): when memory is enabled but the
+// memory .container units are absent from the rendered plan (a hypothetical future
+// render/reconcile bug that drops them), install must NOT attempt to start a service
+// systemd has never seen. It must fail closed (exitBlocked) with a CLEAR internal-error
+// remediation, never a bare "Unit not found", and never call start for the memory
+// services. This locks the "start gate = unit present in the plan" invariant.
+func TestInstallMemoryOnButUnitsAbsentFailsClosed(t *testing.T) {
+	// A plan that has the inference unit (so the install proceeds to the start phase)
+	// but is MISSING the memory units — the exact gap the WR-04 guard catches.
+	units := []orchestrate.Unit{{Name: "villa-llama.container", Text: "[Container]\n"}}
+	plan := orchestrate.Plan{Changed: units}
+	f := newFakeInstallDeps(t, units, plan, passChecks())
+	f.memoryEnabled = true // memory ON, but the plan omits the memory units
+	f.embedPresent = true
+
+	cmd, _, errOut := installTestCmd()
+	code := runInstall(cmd, installOpts{}, f.installDeps)
+	if code != exitBlocked {
+		t.Fatalf("memory-on with absent memory units must fail closed, exit = %d, want exitBlocked (%d)", code, exitBlocked)
+	}
+	// A clear internal-error remediation, naming the absent units — not a bare systemd error.
+	if !strings.Contains(errOut.String(), "INTERNAL ERROR") ||
+		!strings.Contains(errOut.String(), orchestrate.QdrantContainerUnitName()) {
+		t.Errorf("expected a clear internal-error message naming the absent memory units, got:\n%s", errOut.String())
+	}
+	// The memory services must NEVER have been started (the guard fires before start).
+	if contains(f.startOrder, qdrantServiceName) || contains(f.startOrder, embedServiceName) {
+		t.Errorf("memory services must not be started when their units are absent, startOrder = %v", f.startOrder)
+	}
 }
 
 // TestEmbedGGUFFilenameSingleSource asserts the pre-stage Shard filename equals the

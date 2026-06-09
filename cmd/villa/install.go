@@ -484,7 +484,22 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 	// reach the vector store, then villa-embed (its GGUF is already pre-staged above —
 	// Pitfall 4). Each start failure refuses-with-remediation (exitBlocked), mirroring the
 	// inference/OWUI start handling. Skipped under --dry-run (the dry-run path returns far above).
+	//
+	// The start is gated on the memory .container units being PRESENT in the written plan
+	// (plan.Changed ∪ plan.Unchanged), not solely on cfg.MemoryEnabled (WR-04). With memory
+	// on, Render appends those units and reconcile diffs them in, so today they are always
+	// present — but if a future change ever lets MemoryEnabled be true while the units are
+	// filtered out of the plan (a swallowed partial render, a reconcile that drops them), we
+	// must NOT `systemctl start villa-qdrant.service` for a unit systemd has never seen and
+	// surface a raw "Unit not found". Instead fail closed with a clear INTERNAL-ERROR
+	// remediation so the gate for STARTING a service is "its unit exists in the plan".
 	if cfg.MemoryEnabled {
+		if !planHasUnit(plan, orchestrate.QdrantContainerUnitName()) ||
+			!planHasUnit(plan, orchestrate.EmbedContainerUnitName()) {
+			fmt.Fprintf(errOut, "install: INTERNAL ERROR: memory is enabled but the memory units (%s, %s) are absent from the rendered plan — refusing to start a service systemd has never seen. This is a render/reconcile bug; please re-run `villa install`, and if it persists, file an issue.\n",
+				orchestrate.QdrantContainerUnitName(), orchestrate.EmbedContainerUnitName())
+			return exitBlocked
+		}
 		if err := d.start(qdrantServiceName); err != nil {
 			fmt.Fprintf(errOut, "install: start %s failed: %v\n", qdrantServiceName, err)
 			return exitBlocked
@@ -527,6 +542,25 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 		return exitWarn
 	}
 	return exitPass
+}
+
+// planHasUnit reports whether a unit with the given name is present in the reconciled
+// plan — in either Changed (must (re)write) or Unchanged (already on disk). The install
+// flow uses it to gate the memory-service starts on the memory .container units actually
+// being part of the written plan (WR-04), so a memory-on install never `systemctl start`s
+// a unit systemd has never seen.
+func planHasUnit(plan orchestrate.Plan, name string) bool {
+	for _, u := range plan.Changed {
+		if u.Name == name {
+			return true
+		}
+	}
+	for _, u := range plan.Unchanged {
+		if u.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 // reconcileDashboardUnit brings up the native control-dashboard .service idempotently

@@ -107,6 +107,17 @@ const (
 // resolved volume name WITHOUT re-typing the literal.
 func QdrantVolumeName() string { return qdrantVolumeName }
 
+// QdrantContainerUnitName / EmbedContainerUnitName return the memory .container unit
+// filenames Render appends when memory is enabled. They are EXPORTED so the install flow
+// can assert these units are actually present in the written plan BEFORE starting their
+// services (WR-04) — gating the memory-service starts on the rendered units, not solely
+// on the config flag, so a memory-on install whose units are absent from the plan fails
+// closed with a clear message instead of a raw systemd "Unit not found".
+func QdrantContainerUnitName() string { return qdrantContainerUnitName }
+
+// EmbedContainerUnitName — see QdrantContainerUnitName.
+func EmbedContainerUnitName() string { return embedContainerUnitName }
+
 // qdrantView is the data qdrant.container.tmpl renders: no Env, no published host port,
 // no Exec (Qdrant runs its image entrypoint with defaults; QDRANT_API_KEY is a Phase-20
 // choice). Container-DNS only on villa.network (D-03/D-10, SC#4).
