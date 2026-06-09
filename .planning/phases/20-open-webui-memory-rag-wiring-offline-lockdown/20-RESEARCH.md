@@ -408,20 +408,31 @@ blocked := err != nil // a reachable external host => egress NOT blocked => FAIL
 | A5 | The OWUI admin token can be minted non-interactively via `POST /api/v1/auths/signin` for the seeded admin | Smoke test | MED: if signin requires interactive first-run setup, the test must seed the admin first (or use a pre-provisioned API key). Verify on-hardware in the planning/verify wave. |
 | A6 | Citations are returned in the `/api/chat/completions` response metadata for collection-attached RAG | KB-02 | MED: citation surface may be UI-rendered from `sources`/`citations` fields; the smoke test should assert on whichever field the pinned digest returns (confirm on-hardware). |
 
-## Open Questions
+## Open Questions (RESOLVED)
+
+> All three questions are confirmed on-hardware in **Plan 03 Tasks 4–5** (the on-hardware
+> human-verify checkpoints). The off-hardware code in **Plan 02** (`liveRagSmoke`) is
+> deliberately structured to tolerate every outcome of each question, so the on-hardware
+> step only confirms the path and supplies the planted doc + the host-egress precondition —
+> the build is never gated on an unknown. (Plan 03 task numbering: Task 4 = KB upload /
+> citation-field / token-mint verify; Task 5 = the PRIV-05 runtime zero-outbound /
+> negative-control run.)
 
 1. **Exact OWUI admin-token mint path for a non-interactive smoke test.**
    - What we know: `WEBUI_AUTH=True` seeds a local admin on first visit; API uses `Authorization: Bearer`.
    - What's unclear: whether `POST /api/v1/auths/signin` works headless before any UI visit, or whether first-run signup is required.
    - Recommendation: in the planning wave, confirm on-hardware; if needed, seed the admin via `POST /api/v1/auths/signup` (first user becomes admin) inside the test setup. FAIL (not skip) if token cannot be obtained.
+   - **RESOLVED (A5):** Confirmed on-hardware in **Plan 03 Task 4**. Plan 02 `liveRagSmoke` `uploadCite` is structured to try `POST /api/v1/auths/signin` and fall back to `POST /api/v1/auths/signup` (first-user-becomes-admin) on a fresh DB, so either mint path is tolerated — Task 4 records which one worked.
 2. **Where do citation fields appear in the chat-completions response for the pinned digest?**
    - What we know: citations are automatic with standard RAG.
    - What's unclear: field name (`sources`, `citations`) in the API response vs UI-only rendering.
    - Recommendation: assert on the actual returned field on-hardware; if UI-only, drive a query whose answer provably requires the doc and assert the planted fact is present (retrieval proven) while logging the citation field for the human-verify step.
+   - **RESOLVED (A6):** Confirmed on-hardware in **Plan 03 Task 4**. Plan 02 `liveRagSmoke` parses the candidate `sources`/`citations` fields and logs the raw response, so whichever field the pinned digest returns is tolerated — Task 4 captures the actual field name for the parse confirmation.
 3. **Negative-control egress mechanism on the dev/CI host.**
    - What we know: an external `curl` from a `villa.network` container that MUST fail proves egress is blocked.
    - What's unclear: whether the host firewall is under the test's control or must be set up as a verification-wave precondition.
    - Recommendation: prefer the container-from-villa.network negative-control probe (self-contained); document a host-egress precondition for the on-hardware verification wave.
+   - **RESOLVED (Q3):** Confirmed on-hardware in **Plan 03 Task 5**. Plan 02 `liveRagSmoke` uses the self-contained container-from-`villa.network` external probe (`runProbeCurl` → `curl https://huggingface.co/` that MUST fail), and Plan 03 declares the host-egress block as a `user_setup` precondition — so the mechanism is self-contained with the host firewall as the documented fallback, and Task 5 records which was used.
 
 ## Environment Availability
 
@@ -520,7 +531,7 @@ blocked := err != nil // a reachable external host => egress NOT blocked => FAIL
 - Code integration (parameterize view, golden re-freeze, telemetry test): HIGH — read the actual repo files
 - Multitenancy default + behavior (D-01): HIGH on default `True` (source); MEDIUM on the post-vector toggle-orphan claim (inferred)
 - Auto-memory mechanism (D-07/MEM-03): MEDIUM — docs describe Native FC tools + community filters; exact per-model toggle UX should be confirmed in UAT
-- Runtime zero-outbound proof design (D-10): MEDIUM — pattern is sound (extends a proven seam); the admin-token mint + citation field + egress mechanism need on-hardware confirmation (Open Questions 1–3)
+- Runtime zero-outbound proof design (D-10): MEDIUM — pattern is sound (extends a proven seam); the admin-token mint + citation field + egress mechanism need on-hardware confirmation (Open Questions 1–3, now RESOLVED on-hardware in Plan 03 Tasks 4–5 with code structured to tolerate each outcome)
 
 **Research date:** 2026-06-09
 **Valid until:** 2026-07-09 (OWUI `:main` is fast-moving; the pinned digest insulates the running stack, but re-verify keys if the digest is bumped)
