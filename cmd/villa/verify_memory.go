@@ -238,10 +238,18 @@ func driveRagUploadCite(ctx context.Context, base, question, wantFact string) (s
 
 	// 5) Plain (non-agentic) chat/completions with the collection attached so OWUI auto-
 	// injects the retrieved chunks WITH citations (Native FC stays OFF — MEM-03).
+	// OWUI's /api/chat/completions REQUIRES a model id; discover one over loopback (the
+	// served model id is the GGUF filename, not the config `model` slug) — a missing model
+	// is an HTTP 400, never a silent skip. stream is a real bool, not the string "false".
+	model, err := discoverChatModel(ctx, base, auth)
+	if err != nil {
+		return "", false, fmt.Errorf("discover chat model: %w", err)
+	}
 	cBody, err := json.Marshal(map[string]any{
+		"model":    model,
 		"messages": []map[string]string{{"role": "user", "content": question}},
-		"files":    []map[string]string{{"type": "collection", "id": kResp.ID}},
-		"stream":   "false",
+		"files":    []map[string]any{{"type": "collection", "id": kResp.ID}},
+		"stream":   false,
 	})
 	if err != nil {
 		return "", false, err
@@ -311,6 +319,32 @@ func mintAdminToken(ctx context.Context, base string) (string, error) {
 		return tok, nil
 	}
 	return "", fmt.Errorf("signup returned no token: %s", string(out))
+}
+
+// discoverChatModel returns an available chat model id from OWUI over loopback
+// (GET /api/models → data[].id). OWUI requires `model` on /api/chat/completions, and the
+// served id is the GGUF filename (e.g. "Qwen3.6-...gguf"), not the config `model` slug, so
+// it must be discovered at runtime. An empty list is an ERROR (the RAG drive cannot run),
+// never a silent skip. The first id is sufficient — villa runs a single chat model.
+func discoverChatModel(ctx context.Context, base, auth string) (string, error) {
+	out, err := runLoopbackCurl(ctx, "-sf", "-H", auth, base+"/api/models")
+	if err != nil {
+		return "", err
+	}
+	var r struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if jerr := json.Unmarshal(out, &r); jerr != nil {
+		return "", fmt.Errorf("parse /api/models (%v): %s", jerr, string(out))
+	}
+	for _, m := range r.Data {
+		if m.ID != "" {
+			return m.ID, nil
+		}
+	}
+	return "", fmt.Errorf("no chat model available from /api/models: %s", string(out))
 }
 
 // pollFileProcessed polls GET /api/v1/files/{id}/process/status until processing completes
