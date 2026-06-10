@@ -4,8 +4,8 @@ milestone: v1.3
 milestone_name: Memory & Knowledge
 status: verifying
 stopped_at: Completed 21-02-PLAN.md
-last_updated: "2026-06-10T12:03:14.178Z"
-last_activity: 2026-06-10 -- Phase 21 execution started
+last_updated: "2026-06-10T12:21:10.380Z"
+last_activity: 2026-06-10
 progress:
   total_phases: 6
   completed_phases: 4
@@ -18,17 +18,17 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-06-10 after Phase 20)
+See: .planning/PROJECT.md (updated 2026-06-10 after Phase 21)
 
 **Core value:** Run a capable local AI workspace that "just works" after install — hardware-aware setup that brings inference, chat, and the dashboard up healthy, with zero data leaving the box. v1.2 extended the bar to "and stays operable, recoverable, and measurable over time." v1.3 extends it to "and remembers the user and their documents across chats — strictly local."
-**Current focus:** Phase 21 — conversational-recall-indexer
+**Current focus:** Phase 22 — control-plane-fit-+-host-gate
 
 ## Current Position
 
-Phase: 21 (conversational-recall-indexer) — EXECUTING
-Plan: 3 of 3
-Status: Phase complete — ready for verification
-Last activity: 2026-06-10 -- Phase 21 execution started
+Phase: 22 (control-plane-fit-+-host-gate)
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-06-10 — Phase 21 complete (recall indexer: SC#1-3 PASS on-hardware, security 18/18, code review fixed)
 
 ## v1.3 Build Order (research-converged — preserve)
 
@@ -59,7 +59,7 @@ evolution: `status.Report` 2→3, golden re-frozen once).
 
 **Velocity:**
 
-- Total plans completed: 55 (across v1.0 + v1.1; v1.2 added 19 more)
+- Total plans completed: 58 (across v1.0 + v1.1; v1.2 added 19 more)
 - Average duration: 34 min
 - Total execution time: 2.2 hours
 
@@ -82,6 +82,7 @@ evolution: `status.Report` 2→3, golden re-frozen once).
 | 18 | 2 | - | - |
 | 19 | 3 | - | - |
 | 20 | 3 | - | - |
+| 21 | 3 | - | - |
 
 **Recent Trend:**
 
@@ -206,15 +207,16 @@ Items acknowledged at v1.2 milestone close (2026-06-08):
 | tech_debt | Investigate `rocm-6.4.4-rocwmma` residency FAIL on gfx1151 | Open | v1.2 close |
 | tech_debt | Optional re-pin of the drifted `rocm-6.4.4` rolling tag | Open | v1.2 close |
 | limitation | Backup cross-host / post-`podman system reset` restore is documented best-effort (UID-remap + SELinux `:Z` repair validated indirectly) | Documented | v1.2 close |
+| tech_debt | Phase 21 Info findings IN-01..IN-04 deferred (reasoning-strip robustness, title-newline escaping, timeout-comment, Plan-snapshot regression test) — IN-01/IN-04 strongest follow-up candidates | Open | Phase 21 close |
 
 ## Session Continuity
 
-Last session: 2026-06-10T12:02:55.692Z
-Stopped at: Completed 21-02-PLAN.md
+Last session: 2026-06-10T12:30:00Z
+Stopped at: Phase 21 complete (recall indexer shipped + verified + secured); ready to plan Phase 22
 Resume file: None
 
 ## Operator Next Steps
 
-1. **Plan Phase 21** — `/gsd-plan-phase 21` (Conversational Recall Indexer, RECALL-01..03 — the milestone's biggest single phase; FULL scope chosen). Discuss first via `/gsd-discuss-phase 21` if context is missing.
-2. **Phase 20 follow-ups (non-blocking):** operator may change/remove the live OWUI test accounts (`villa-verify@local.test`, seeded `villa-verify@localhost`); `ui.memory=true` left ON for the service account.
-3. **Carryover tech debt (non-blocking):** extract shared `rocmpolicy` leaf package; investigate `rocm-6.4.4-rocwmma` residency FAIL; optional re-pin of the drifted `rocm-6.4.4` rolling tag; REQUIREMENTS.md traceability table missing SRCH-01/CODE-01/REMOTE-01 rows (flagged by phase.complete).
+1. **Plan Phase 22** — `/gsd-plan-phase 22` (Control-Plane Fit + Host Gate, CTRL-01/03/06): `recommend` reserves the embedding footprint BEFORE the chat-model fit (append-only field + schema bump); `preflight` vector-disk/headroom gate; `doctor` folds memory checks incl. offload-asserting residency UNDER embedding load (silent/partial CPU fallback = FAIL — the Phase-21-deferred CTRL-03 gate). Discuss first via `/gsd-discuss-phase 22`.
+2. **Phase 20/21 follow-ups (non-blocking):** live OWUI test accounts (`villa-verify@local.test`, seeded `villa-verify@localhost`) + the operator's OBSIDIAN-LYNX recall test chat remain on the box — operator may remove; `ui.memory=true` left ON for the service account.
+3. **Carryover tech debt (non-blocking):** Phase 21 Info findings IN-01..IN-04; extract shared `rocmpolicy` leaf package; investigate `rocm-6.4.4-rocwmma` residency FAIL; optional re-pin of the drifted `rocm-6.4.4` rolling tag; REQUIREMENTS.md traceability table missing SRCH-01/CODE-01/REMOTE-01 rows.

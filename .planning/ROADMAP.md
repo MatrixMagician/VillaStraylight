@@ -224,6 +224,6 @@ Plans:
 | 18. Memory Spine — config core + research spike | v1.3 | 2/2 | Complete    | 2026-06-09 |
 | 19. Vector Store + Local Embeddings Services | v1.3 | 3/3 | Complete    | 2026-06-09 |
 | 20. Open WebUI Memory/RAG Wiring + Offline Lockdown | v1.3 | 3/3 | Complete    | 2026-06-10 |
-| 21. Conversational Recall Indexer | v1.3 | 3/3 | Complete   | 2026-06-10 |
+| 21. Conversational Recall Indexer | v1.3 | 3/3 | Complete    | 2026-06-10 |
 | 22. Control-Plane Fit + Host Gate | v1.3 | 0/? | Not started | - |
 | 23. Surfacing, Backup & Memory-Aware Swap | v1.3 | 0/? | Not started | - |
