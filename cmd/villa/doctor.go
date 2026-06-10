@@ -109,8 +109,15 @@ func renderDoctor(w io.Writer, r doctor.Report, asJSON, withProvenance bool) int
 		return exitBlocked
 	case "WARN":
 		return exitWarn
-	default:
+	case "PASS":
 		return exitPass
+	default:
+		// FAIL CLOSED (phase-22 WR-04, mirroring renderInference): an unrecognized
+		// Overall (a future Aggregate bug, a hand-built Report, a JSON-roundtripped
+		// fixture) can NEVER map to "healthy" — for a health verdict the only safe
+		// default is the blocking tier.
+		fmt.Fprintf(w, "\nFAULT: unrecognized overall verdict %q — treating the install as not healthy.\n", r.Overall)
+		return exitBlocked
 	}
 }
 

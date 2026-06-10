@@ -120,6 +120,23 @@ func TestDoctorExitCodes(t *testing.T) {
 	}
 }
 
+// TestDoctorUnknownOverallFailsClosed (phase-22 WR-04): an unrecognized/empty Overall
+// (a future Aggregate bug, a hand-built Report, a JSON-roundtripped fixture) must map
+// to exitBlocked — for a health-verdict command, defaulting to "healthy" is the wrong
+// defensive direction (mirrors renderInference's fail-closed default).
+func TestDoctorUnknownOverallFailsClosed(t *testing.T) {
+	for _, overall := range []string{"", "bogus", "pass"} {
+		var buf bytes.Buffer
+		code := renderDoctor(&buf, doctor.Report{Overall: overall, SchemaVersion: 1}, false, false)
+		if code != exitBlocked {
+			t.Errorf("Overall=%q mapped to exit %d, want %d (unknown verdict is never healthy)", overall, code, exitBlocked)
+		}
+		if !bytes.Contains(buf.Bytes(), []byte("unrecognized overall verdict")) {
+			t.Errorf("Overall=%q output should explain the fail-closed mapping, got:\n%s", overall, buf.String())
+		}
+	}
+}
+
 // TestDoctorJSON freezes doctor's OWN --json contract (D-02/D-09) byte-for-byte. The
 // golden MUST carry "schema_version": 1. doctor never extends status.Report's golden.
 func TestDoctorJSON(t *testing.T) {
