@@ -4,13 +4,13 @@ milestone: v1.3
 milestone_name: Memory & Knowledge
 status: executing
 stopped_at: Completed 23-02-PLAN.md (memory-aware backup/restore)
-last_updated: "2026-06-10T21:14:42.839Z"
+last_updated: "2026-06-10T21:21:29.000Z"
 last_activity: 2026-06-10 -- Phase 23 execution started
 progress:
   total_phases: 6
   completed_phases: 5
   total_plans: 20
-  completed_plans: 17
+  completed_plans: 18
   percent: 83
 ---
 
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-06-10 after Phase 22)
 ## Current Position
 
 Phase: 23 (Surfacing, Backup & Memory-Aware Swap) — EXECUTING
-Plan: 3 of 5
+Plan: 4 of 5
 Status: Ready to execute
 Last activity: 2026-06-10 -- Phase 23 execution started
 
@@ -124,6 +124,7 @@ evolution: `status.Report` 2→3, golden re-frozen once).
 | Phase 22 P04 | ~17min | 2 tasks | 1 files |
 | Phase 23 P01 | 16 min | 3 tasks | 16 files |
 | Phase 23 P02 | 18min | 2 (TDD) tasks tasks | 12 files files |
+| Phase 23 P03 | 10 min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -191,6 +192,8 @@ Earlier (v1.0 / v1.1 / v1.2) decisions retained below.
 - [Phase 23]: [23-02] manifest embedding fields recorded ONLY when cfg.MemoryEnabled - config self-heals embedding defaults even memory-off, so the cmd-tier gate keeps memory-off manifests claim-free (typed-Unknown no-alarm at restore)
 - [Phase 23]: [23-02] restore quiesces the qdrant service around the volume swap when a prior volume exists (Rule 2: live VolumeRm fails in-use); gated so memory-off hosts never Stop a non-existent unit
 - [Phase 23]: [23-02] OQ1 honored: Prove NOT extended to the memory stack - restore reports posture + verify-with-doctor / recall index --rebuild remediation instead
+- [Phase 23]: 23-03: Memory panel badge rows reuse the renderGPU busy-row shape (.metric-row + .badge) — zero new CSS, existing badge vocabulary only
+- [Phase 23]: 23-03: count/timestamp rows guard on state AND field presence so omitempty-dropped fields never render NaN/zero-fill
 
 ### Pending Todos
 
@@ -235,7 +238,7 @@ Items acknowledged at v1.2 milestone close (2026-06-08):
 
 ## Session Continuity
 
-Last session: 2026-06-10T21:14:42.834Z
+Last session: 2026-06-10T21:20:56.542Z
 Stopped at: Completed 23-02-PLAN.md (memory-aware backup/restore)
 Resume file: .planning/phases/23-surfacing-backup-memory-aware-swap/23-03-PLAN.md
 
