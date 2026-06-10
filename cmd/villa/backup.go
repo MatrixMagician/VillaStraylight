@@ -73,8 +73,10 @@ func newBackup() *cobra.Command {
 
 // runBackup resolves the output path (traversal-guarded against its parent dir),
 // gathers the seam-/accessor-sourced BackupInput, drives the pure Backup orchestrator
-// over liveBackupDeps, and RETURNS the exit code. A torn output file is removed on a
-// failed write so a corrupt partial archive is never left behind.
+// over liveBackupDeps, and RETURNS the exit code. The archive is assembled in a
+// same-dir temp file and renamed onto the destination only after a fully-successful
+// write (WR-04): a mid-backup failure removes only the temp — a pre-existing archive
+// at the output path is never truncated or deleted.
 func runBackup(cmd *cobra.Command, output string, d backup.Deps) int {
 	out := cmd.OutOrStdout()
 	errOut := cmd.ErrOrStderr()
@@ -116,20 +118,27 @@ func runBackup(cmd *cobra.Command, output string, d backup.Deps) int {
 		return exitBlocked
 	}
 
-	// Open the destination 0600 (owner-only). Created here so a failure short-circuits
-	// before any service quiesce.
-	f, err := os.OpenFile(absOut, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	// Stage the archive in a SAME-DIR temp file and os.Rename it onto absOut only
+	// after a fully-successful assembly (review WR-04): re-using an output path
+	// (e.g. a cron'd `villa backup -o ~/backups/villa-latest.tar`) must NEVER
+	// destroy the PREVIOUS archive on a mid-backup failure — the old
+	// O_TRUNC-then-remove flow left the operator with ZERO backups whenever any
+	// later step failed. Same temp+rename discipline as config.SaveVilla /
+	// usage.WriteFileAtomic; CreateTemp creates the file 0600 (owner-only).
+	// Created here so a failure short-circuits before any service quiesce.
+	f, err := os.CreateTemp(parent, ".villa-backup-*.tar")
 	if err != nil {
-		fmt.Fprintf(errOut, "backup: open output %q: %v\n", absOut, err)
+		fmt.Fprintf(errOut, "backup: open output temp file in %q: %v\n", parent, err)
 		return exitBlocked
 	}
+	tmpOutPath := f.Name()
 
 	// Temp file for the volume export; same dir as the output so the rename/cleanup
 	// stays on one filesystem. Removed after assembly.
 	tmpVol, err := os.CreateTemp(parent, ".villa-owui-vol-*.tar")
 	if err != nil {
 		_ = f.Close()
-		_ = os.Remove(absOut)
+		_ = os.Remove(tmpOutPath) // the prior archive at absOut stays untouched (WR-04)
 		fmt.Fprintf(errOut, "backup: temp volume file: %v\n", err)
 		return exitBlocked
 	}
@@ -150,7 +159,7 @@ func runBackup(cmd *cobra.Command, output string, d backup.Deps) int {
 		tmpQdrant, err := os.CreateTemp(parent, ".villa-memory-vol-*.tar")
 		if err != nil {
 			_ = f.Close()
-			_ = os.Remove(absOut)
+			_ = os.Remove(tmpOutPath) // the prior archive at absOut stays untouched (WR-04)
 			fmt.Fprintf(errOut, "backup: temp qdrant volume file: %v\n", err)
 			return exitBlocked
 		}
@@ -210,8 +219,18 @@ func runBackup(cmd *cobra.Command, output string, d backup.Deps) int {
 		res.FailedStep = "write"
 	}
 	if rerr != nil {
-		_ = os.Remove(absOut) // never leave a corrupt partial archive
+		// Remove only the torn TEMP file — a pre-existing archive at absOut is
+		// preserved (WR-04): a failed backup must never destroy the previous one.
+		_ = os.Remove(tmpOutPath)
 		fmt.Fprintf(errOut, "backup: failed at %s: %v\n", res.FailedStep, rerr)
+		return exitBlocked
+	}
+	// Publish atomically: rename the fully-written, closed temp onto the
+	// destination (same dir ⇒ same filesystem). Only now is a prior archive at
+	// absOut replaced — and only by a complete, verified-write archive.
+	if err := os.Rename(tmpOutPath, absOut); err != nil {
+		_ = os.Remove(tmpOutPath)
+		fmt.Fprintf(errOut, "backup: publish output %q: %v\n", absOut, err)
 		return exitBlocked
 	}
 

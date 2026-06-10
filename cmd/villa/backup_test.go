@@ -10,6 +10,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -173,6 +174,62 @@ func TestRunBackupWritesArchive(t *testing.T) {
 	}
 	if len(m.ExcludedModels) != 1 || m.ExcludedModels[0].ID != "qwen3-30b" {
 		t.Fatalf("excluded model identity not recorded from config: %+v", m.ExcludedModels)
+	}
+}
+
+// TestBackupFailurePreservesPriorArchive is the WR-04 regression: re-using an
+// output path (`villa backup -o villa-latest.tar` from cron) must NEVER destroy
+// the previous archive on a mid-backup failure. Pre-fix, the output was opened
+// O_TRUNC up-front and removed on failure — any failed run left ZERO backups.
+// The fix stages a same-dir temp and renames only after a complete write.
+func TestBackupFailurePreservesPriorArchive(t *testing.T) {
+	cfgHome := t.TempDir()
+	dataHome := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", cfgHome)
+	t.Setenv("XDG_DATA_HOME", dataHome)
+	cfgDir := filepath.Join(cfgHome, "villa")
+	if err := os.MkdirAll(cfgDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfgDir, "config.toml"), []byte("model = \"m\"\nbackend = \"vulkan\"\nctx = 8192\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	outDir := t.TempDir()
+	outPath := filepath.Join(outDir, "villa-latest.tar")
+	prior := []byte("PRIOR-COMPLETE-ARCHIVE-BYTES")
+	if err := os.WriteFile(outPath, prior, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// A deps whose volume export fails mid-backup (after the output would already
+	// have been truncated under the old flow).
+	d := fakeRunBackupDeps(t, map[string][]byte{})
+	d.VolumeExport = func(_, _ string) error { return errors.New("export boom") }
+
+	cmd, _, errOut := newBackupTestCmd()
+	code := runBackup(cmd, outPath, d)
+	if code != exitBlocked {
+		t.Fatalf("failed backup exit = %d, want %d; stderr=%q", code, exitBlocked, errOut.String())
+	}
+
+	// The PRIOR archive must survive byte-for-byte.
+	got, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatalf("prior archive was deleted by the failed backup: %v", err)
+	}
+	if !bytes.Equal(got, prior) {
+		t.Fatalf("prior archive was modified by the failed backup: got %q", got)
+	}
+	// And no torn temp file may be left behind.
+	entries, err := os.ReadDir(outDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), ".villa-backup-") {
+			t.Fatalf("torn output temp file left behind: %s", e.Name())
+		}
 	}
 }
 
