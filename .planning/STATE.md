@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: Memory & Knowledge
-status: ready-to-plan
-stopped_at: Phase 22 complete (UAT pass + security 17/17) — ready to plan Phase 23
-last_updated: "2026-06-10T19:38:30.755Z"
+status: planning
+stopped_at: Phase 23 context gathered
+last_updated: "2026-06-10T19:46:46.037Z"
 last_activity: 2026-06-10
 progress:
   total_phases: 6
@@ -226,9 +226,9 @@ Items acknowledged at v1.2 milestone close (2026-06-08):
 
 ## Session Continuity
 
-Last session: 2026-06-10T19:45:00Z
-Stopped at: Phase 22 complete (UAT pass, security 17/17, transition done), ready to plan Phase 23
-Resume file: None
+Last session: 2026-06-10T19:46:46.033Z
+Stopped at: Phase 23 context gathered
+Resume file: .planning/phases/23-surfacing-backup-memory-aware-swap/23-CONTEXT.md
 
 ## Operator Next Steps
 
