@@ -24,7 +24,7 @@ Requirements for the v1.3 milestone. Each maps to exactly one roadmap phase (see
 ### Conversational Recall (RECALL)
 
 - [x] **RECALL-01**: A `villa`-orchestrated indexer semantically indexes past conversations into the vector store (chats → Knowledge), running locally
-- [ ] **RECALL-02**: The assistant can retrieve relevant past-chat content *by meaning* (semantic, not just keyword) into the current conversation's context
+- [x] **RECALL-02**: The assistant can retrieve relevant past-chat content *by meaning* (semantic, not just keyword) into the current conversation's context
 - [x] **RECALL-03**: The chat index stays current as conversations grow — incremental/re-index is `villa`-controllable and reports honest state (no silent staleness)
 
 ### Document Knowledge Base (KB)
@@ -93,7 +93,7 @@ Which phases cover which requirements. Populated during roadmap creation (v1.3 p
 | MEM-03 | Phase 20 | Complete |
 | MEM-04 | Phase 20 | Complete |
 | RECALL-01 | Phase 21 | Complete |
-| RECALL-02 | Phase 21 | Pending |
+| RECALL-02 | Phase 21 | Complete |
 | RECALL-03 | Phase 21 | Complete |
 | KB-01 | Phase 20 | Complete |
 | KB-02 | Phase 20 | Complete |

@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: Memory & Knowledge
 status: executing
-stopped_at: Phase 21 context gathered
-last_updated: "2026-06-10T11:15:31.617Z"
+stopped_at: Completed 21-02-PLAN.md
+last_updated: "2026-06-10T11:34:58.532Z"
 last_activity: 2026-06-10 -- Phase 21 execution started
 progress:
   total_phases: 6
   completed_phases: 3
   total_plans: 11
-  completed_plans: 9
+  completed_plans: 10
   percent: 50
 ---
 
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-06-10 after Phase 20)
 ## Current Position
 
 Phase: 21 (conversational-recall-indexer) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
 Last activity: 2026-06-10 -- Phase 21 execution started
 
@@ -114,6 +114,7 @@ evolution: `status.Report` 2→3, golden re-frozen once).
 | Phase 20 P01 | 4 min | 3 tasks | 4 files |
 | Phase 20 P02 | ~14min | 3 tasks | 4 files |
 | Phase 21 P01 | 10min | 3 tasks | 8 files |
+| Phase 21 P02 | 15min | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -161,6 +162,9 @@ Earlier (v1.0 / v1.1 / v1.2) decisions retained below.
 - [Phase 20 close]: UAT 6/6 on-hardware (2026-06-10) — MEM-01 cross-chat injection CONFIRMED via the real web UI driven by Playwright (frontend-mediated in OWUI v0.9.6; saved fact recalled in a new chat, no recall after delete). villa verify memory re-proven live: egress-open FAIL exit 1, scoped nft block PASS exit 0. SECURITY.md: 16/16 threats closed, threats_open 0. GOTCHA: `fwd` is a reserved nftables keyword (chain renamed `villaforward`); inside `podman unshare --rootless-netns` nft can't read host files — pipe ruleset via `nft -f -`. Service account villa-verify@localhost has ui.memory=true left ON.
 - [Phase ?]: Phase 21: CompleteRun compares completed>=started (RFC3339 lexicographic) so a partial second run with an older completed stamp reports incomplete
 - [Phase ?]: Phase 21: internal/recall Classify reuses Plan for diff counts — the D-05 algebra has exactly one implementation
+- [Phase 21-02]: attachKnowledgeRow extracted as an injectable read-merge-write core so the RECALL-02 attach (foreign meta preserved, dedupe by KB id, create-or-update) is provable off-hardware
+- [Phase 21-02]: recall verbs enforce the D-07 gate delta: memory off or Decide-invalid => exitBlocked refuse-with-remediation on BOTH verbs, never verify-memory's exit-0 no-op
+- [Phase 21-02]: pollFileProcessed parameterized with a caller timeout; recall passes the size-aware 60s + 1s/2KiB allowance (verify memory behavior unchanged)
 
 ### Pending Todos
 
@@ -203,9 +207,9 @@ Items acknowledged at v1.2 milestone close (2026-06-08):
 
 ## Session Continuity
 
-Last session: 2026-06-10T11:14:53.180Z
-Stopped at: Phase 21 context gathered
-Resume file: .planning/phases/21-conversational-recall-indexer/21-CONTEXT.md
+Last session: 2026-06-10T11:34:58.525Z
+Stopped at: Completed 21-02-PLAN.md
+Resume file: None
 
 ## Operator Next Steps
 

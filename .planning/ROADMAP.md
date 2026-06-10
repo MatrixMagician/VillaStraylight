@@ -168,7 +168,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 21-02-PLAN.md — `villa recall index|status` verbs + live loopback REST seam (chats/knowledge/files/models drives, idempotent model attach, memory-off ⇒ exitBlocked) + docs/MEMORY.md recall section (RECALL-01, RECALL-02, RECALL-03)
+- [x] 21-02-PLAN.md — `villa recall index|status` verbs + live loopback REST seam (chats/knowledge/files/models drives, idempotent model attach, memory-off ⇒ exitBlocked) + docs/MEMORY.md recall section (RECALL-01, RECALL-02, RECALL-03)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -224,6 +224,6 @@ Plans:
 | 18. Memory Spine — config core + research spike | v1.3 | 2/2 | Complete    | 2026-06-09 |
 | 19. Vector Store + Local Embeddings Services | v1.3 | 3/3 | Complete    | 2026-06-09 |
 | 20. Open WebUI Memory/RAG Wiring + Offline Lockdown | v1.3 | 3/3 | Complete    | 2026-06-10 |
-| 21. Conversational Recall Indexer | v1.3 | 1/3 | In Progress|  |
+| 21. Conversational Recall Indexer | v1.3 | 2/3 | In Progress|  |
 | 22. Control-Plane Fit + Host Gate | v1.3 | 0/? | Not started | - |
 | 23. Surfacing, Backup & Memory-Aware Swap | v1.3 | 0/? | Not started | - |
