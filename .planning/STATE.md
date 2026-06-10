@@ -4,13 +4,13 @@ milestone: v1.3
 milestone_name: Memory & Knowledge
 status: executing
 stopped_at: Phase 21 context gathered
-last_updated: "2026-06-10T11:02:28.931Z"
-last_activity: 2026-06-10 — Phase 20 complete (UAT 6/6, security 16/16 closed)
+last_updated: "2026-06-10T11:15:31.617Z"
+last_activity: 2026-06-10 -- Phase 21 execution started
 progress:
   total_phases: 6
   completed_phases: 3
-  total_plans: 8
-  completed_plans: 8
+  total_plans: 11
+  completed_plans: 9
   percent: 50
 ---
 
@@ -25,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-06-10 after Phase 20)
 
 ## Current Position
 
-Phase: 21 (conversational-recall-indexer)
-Plan: Not started
+Phase: 21 (conversational-recall-indexer) — EXECUTING
+Plan: 2 of 3
 Status: Ready to execute
-Last activity: 2026-06-10 — Phase 20 complete (UAT 6/6, security 16/16 closed)
+Last activity: 2026-06-10 -- Phase 21 execution started
 
 ## v1.3 Build Order (research-converged — preserve)
 
@@ -113,6 +113,7 @@ evolution: `status.Report` 2→3, golden re-frozen once).
 | Phase 19 P03 | ~10min | 3 tasks | 0 files |
 | Phase 20 P01 | 4 min | 3 tasks | 4 files |
 | Phase 20 P02 | ~14min | 3 tasks | 4 files |
+| Phase 21 P01 | 10min | 3 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -158,6 +159,8 @@ Earlier (v1.0 / v1.1 / v1.2) decisions retained below.
 - [Phase 20]: Phase 20-01: OWUI memory/RAG env wired behind orchestrate seam — D-09 block appended only when memory_enabled (byte-identical off), ENABLE_PERSISTENT_CONFIG=False mandatory, values config-sourced (no re-typed host literals) — INFRA-03 render half; single deliberate golden re-freeze (new memory golden), memory-aware telemetry test, seam gate green
 - [Phase ?]: [20-02]: Runtime zero-outbound RAG smoke proof landed (D-10/PRIV-05) — pure evalRagSmoke asserts the egress negative control FIRST (probe-could-not-run OR external host reachable = FAIL) before trusting the upload-and-cite drive; no WARN/skip. liveRagSmoke reuses runProbeCurl over villa.network for the negative control (huggingface.co MUST be unreachable) + a NEW host-side fixed-arg curl for the loopback REST drive; helper image via orchestrate.EmbedImage(), no re-typed literal (TestSeamGrepGate green). villa verify memory is a dedicated gated verb (memory OFF exits 0, memory ON FAIL = exitBlocked); admin-token mint (signin+signup fallback, A5) + citation field (sources/citations, A6) confirmed on-hardware in Plan 03. No new host port (D-11).
 - [Phase 20 close]: UAT 6/6 on-hardware (2026-06-10) — MEM-01 cross-chat injection CONFIRMED via the real web UI driven by Playwright (frontend-mediated in OWUI v0.9.6; saved fact recalled in a new chat, no recall after delete). villa verify memory re-proven live: egress-open FAIL exit 1, scoped nft block PASS exit 0. SECURITY.md: 16/16 threats closed, threats_open 0. GOTCHA: `fwd` is a reserved nftables keyword (chain renamed `villaforward`); inside `podman unshare --rootless-netns` nft can't read host files — pipe ruleset via `nft -f -`. Service account villa-verify@localhost has ui.memory=true left ON.
+- [Phase ?]: Phase 21: CompleteRun compares completed>=started (RFC3339 lexicographic) so a partial second run with an older completed stamp reports incomplete
+- [Phase ?]: Phase 21: internal/recall Classify reuses Plan for diff counts — the D-05 algebra has exactly one implementation
 
 ### Pending Todos
 
@@ -200,7 +203,7 @@ Items acknowledged at v1.2 milestone close (2026-06-08):
 
 ## Session Continuity
 
-Last session: 2026-06-10T10:27:52.462Z
+Last session: 2026-06-10T11:14:53.180Z
 Stopped at: Phase 21 context gathered
 Resume file: .planning/phases/21-conversational-recall-indexer/21-CONTEXT.md
 
