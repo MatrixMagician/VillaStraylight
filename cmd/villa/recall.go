@@ -293,9 +293,11 @@ const (
 
 // runRecallIndex is the ordered index pipeline (modelswap-style numbered steps,
 // each short-circuiting with a refuse-with-remediation naming the failed step):
-// gate → reachability → token → state+KB (reset on --rebuild; started stamped,
-// completed CLEARED, persisted — a crash mid-run must read as a partial run) →
-// list (service account excluded) → Plan diff → sequential execute with
+// gate → reachability → token → users + single-operator guard (a refusal is
+// SIDE-EFFECT-FREE: it runs BEFORE any state/KB mutation — review WR-01) →
+// state+KB (reset on --rebuild; started stamped, completed CLEARED, persisted —
+// a crash mid-run must read as a partial run) →
+// chat list (service account excluded) → Plan diff → sequential execute with
 // per-chat incremental persist (Deletes, then Updates as remove-old→render→
 // upload, then Adds; an unrenderable chat is a RECORDED skip) → idempotent attach
 // → completed stamp ONLY on the clean full pass. It RETURNS the exit code so
@@ -323,6 +325,30 @@ func runRecallIndex(cmd *cobra.Command, _ []string, deps recallDeps, rebuild, sh
 	token, err := deps.mintToken(ctx, base)
 	if err != nil {
 		fmt.Fprintf(errOut, "recall index: could not mint the admin token (%v) — check the Open WebUI service account, then re-run.\n", err)
+		return exitBlocked
+	}
+
+	// (3a) LIST USERS + SINGLE-OPERATOR GUARD (WR-05/D-09, hoisted per the
+	// Phase-23 review WR-01): a refusal must be SIDE-EFFECT-FREE, so the guard
+	// runs BEFORE any state/KB mutation below — previously a refused --rebuild
+	// had already reset the collection, and every refused run had already
+	// re-stamped the embedding identity for an index pass that never happened
+	// (destroying the recorded truth the skew guard depends on). The token is
+	// the only dependency, so this is the earliest the guard can run; the
+	// fetched users are reused for the chat listing at step (5).
+	users, err := deps.listUsers(ctx, base, token)
+	if err != nil {
+		fmt.Fprintf(errOut, "recall index: FAILED listing users (%v) — check Open WebUI, then re-run.\n", err)
+		return exitBlocked
+	}
+	// Recall pools EVERY human user's chats into ONE shared collection attached
+	// to the served model, so every user could retrieve every other user's
+	// conversations. On >1 human user the run REFUSES with remediation until the
+	// operator explicitly acknowledges the shared-recall exposure (until
+	// per-user-scoped KBs land). Fail-closed, not silent.
+	humans := recallHumanUsers(users)
+	if len(humans) > 1 && !sharedRecallAck {
+		fmt.Fprintf(errOut, "recall index: REFUSING — found %d human users on this box, but recall pools ALL users' chats into one shared collection visible (with citations) to every user of the served model. This is a cross-user disclosure. If this is a single-operator box (or you accept the shared exposure), re-run with --i-understand-shared-recall; otherwise wait for per-user-scoped recall.\n", len(humans))
 		return exitBlocked
 	}
 
@@ -376,26 +402,9 @@ func runRecallIndex(cmd *cobra.Command, _ []string, deps recallDeps, rebuild, sh
 		return exitBlocked
 	}
 
-	// (5) LIST (D-09): enumerate users first so the WR-05 single-operator guard can
-	// fail closed BEFORE any chat content is pooled. Then build the complete chat
-	// universe (service account excluded); any listing failure refuses — an index
-	// run cannot proceed on a partial universe.
-	users, err := deps.listUsers(ctx, base, token)
-	if err != nil {
-		fmt.Fprintf(errOut, "recall index: FAILED listing users (%v) — check Open WebUI, then re-run.\n", err)
-		return exitBlocked
-	}
-	// (5a) SINGLE-OPERATOR GUARD (WR-05, D-09): recall pools EVERY human user's
-	// chats into ONE shared collection attached to the served model, so every user
-	// could retrieve every other user's conversations. The product's privacy posture
-	// makes a within-box cross-user leak especially surprising — so on >1 human user
-	// the run REFUSES with remediation until the operator explicitly acknowledges the
-	// shared-recall exposure (until per-user-scoped KBs land). Fail-closed, not silent.
-	humans := recallHumanUsers(users)
-	if len(humans) > 1 && !sharedRecallAck {
-		fmt.Fprintf(errOut, "recall index: REFUSING — found %d human users on this box, but recall pools ALL users' chats into one shared collection visible (with citations) to every user of the served model. This is a cross-user disclosure. If this is a single-operator box (or you accept the shared exposure), re-run with --i-understand-shared-recall; otherwise wait for per-user-scoped recall.\n", len(humans))
-		return exitBlocked
-	}
+	// (5) LIST (D-09): build the complete chat universe over the users already
+	// fetched (and guard-cleared) at step (3a) — service account excluded; any
+	// listing failure refuses — an index run cannot proceed on a partial universe.
 	live, err := recallChatsForUsers(ctx, deps, base, token, users)
 	if err != nil {
 		fmt.Fprintf(errOut, "recall index: FAILED listing chats (%v) — check Open WebUI, then re-run.\n", err)

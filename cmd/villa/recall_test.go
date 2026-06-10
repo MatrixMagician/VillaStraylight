@@ -497,6 +497,41 @@ func TestRecallSingleOperatorGuard(t *testing.T) {
 		}
 	})
 
+	t.Run("multi-human refusal with --rebuild is side-effect-free (WR-01)", func(t *testing.T) {
+		// Phase-23 review WR-01: a refusal must be SIDE-EFFECT-FREE. Pre-fix, the
+		// guard ran AFTER the state/KB step, so a refused --rebuild had already
+		// reset (wiped) the collection, ensureKnowledge had created the KB, and the
+		// state had been persisted with the started stamp + the CONFIGURED embedding
+		// identity overwriting the recorded truth the skew guard depends on.
+		env := newFakeRecallEnv()
+		twoHumans(env)
+		env.state = recall.State{
+			SchemaVersion:  recall.SchemaVersion(),
+			KnowledgeID:    "kb1",
+			EmbeddingModel: "nomic-embed-text-v1.5",
+			EmbeddingDim:   768,
+		}
+		cmd := newRecallCmd()
+		var out, errOut bytes.Buffer
+		cmd.SetOut(&out)
+		cmd.SetErr(&errOut)
+		if code := runRecallIndex(cmd, nil, env.deps, true /* --rebuild */, false); code != exitBlocked {
+			t.Fatalf("multi-human --rebuild exit = %d, want exitBlocked (%d)", code, exitBlocked)
+		}
+		if hasCallPrefix(env.calls, "reset:") {
+			t.Errorf("a refused --rebuild must NOT have reset the collection; calls = %v", env.calls)
+		}
+		if callIndex(env.calls, "ensureKB") != -1 {
+			t.Errorf("a refusal must NOT create the KB; calls = %v", env.calls)
+		}
+		if callIndex(env.calls, "persist") != -1 {
+			t.Errorf("a refusal must NOT persist state (stamp overwrite); calls = %v", env.calls)
+		}
+		if st := env.state; st.EmbeddingModel != "nomic-embed-text-v1.5" || st.EmbeddingDim != 768 {
+			t.Errorf("the recorded embedding stamp must survive a refusal, got %q/%d", st.EmbeddingModel, st.EmbeddingDim)
+		}
+	})
+
 	t.Run("single human user needs no ack flag", func(t *testing.T) {
 		env := newFakeRecallEnv() // default rig: one human + the service account
 		cmd := newRecallCmd()
