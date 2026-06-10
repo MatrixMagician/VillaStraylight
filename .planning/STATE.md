@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: Memory & Knowledge
-status: verifying
-stopped_at: Completed 21-02-PLAN.md
-last_updated: "2026-06-10T12:21:10.380Z"
-last_activity: 2026-06-10
+status: planning
+stopped_at: Phase 22 context gathered
+last_updated: "2026-06-10T15:15:36.418Z"
+last_activity: "2026-06-10 — Phase 21 complete (recall indexer: SC#1-3 PASS on-hardware, security 18/18, code review fixed)"
 progress:
   total_phases: 6
   completed_phases: 4
@@ -211,9 +211,9 @@ Items acknowledged at v1.2 milestone close (2026-06-08):
 
 ## Session Continuity
 
-Last session: 2026-06-10T12:30:00Z
-Stopped at: Phase 21 complete (recall indexer shipped + verified + secured); ready to plan Phase 22
-Resume file: None
+Last session: 2026-06-10T15:15:36.413Z
+Stopped at: Phase 22 context gathered
+Resume file: .planning/phases/22-control-plane-fit-host-gate/22-CONTEXT.md
 
 ## Operator Next Steps
 
