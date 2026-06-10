@@ -113,6 +113,46 @@ func TestVolumeExistsOverSeam(t *testing.T) {
 	}
 }
 
+// TestVolumeExistsTri asserts the tri-state restore-side helper (WR-02): a nil
+// seam error ⇒ exists (not unknown); a generic failure ⇒ UNKNOWN=true with a
+// printed warning — never silently collapsed into a confident "absent" the way
+// the backup-side fail-soft helper does.
+func TestVolumeExistsTri(t *testing.T) {
+	orig := podmanVolume
+	t.Cleanup(func() { podmanVolume = orig })
+
+	podmanVolume = func(args []string) (string, error) { return "", nil }
+	var warnBuf bytes.Buffer
+	exists, unknown := volumeExistsTri("v1", &warnBuf)
+	if !exists || unknown {
+		t.Fatalf("nil seam error must report exists=true unknown=false, got %v/%v", exists, unknown)
+	}
+
+	podmanVolume = func(args []string) (string, error) { return "boom stderr", errors.New("podman exploded") }
+	warnBuf.Reset()
+	exists, unknown = volumeExistsTri("v1", &warnBuf)
+	if exists || !unknown {
+		t.Fatalf("generic seam error must report UNKNOWN (exists=false unknown=true), got %v/%v", exists, unknown)
+	}
+	if !strings.Contains(warnBuf.String(), "UNKNOWN") {
+		t.Fatalf("unknown cell must print a warning naming the unknown state, got %q", warnBuf.String())
+	}
+
+	// A real exit-1 *exec.ExitError is a CONFIDENT absent — not unknown.
+	exit1 := exec.Command("false").Run()
+	if exit1 != nil {
+		podmanVolume = func(args []string) (string, error) { return "", exit1 }
+		warnBuf.Reset()
+		exists, unknown = volumeExistsTri("v1", &warnBuf)
+		if exists || unknown {
+			t.Fatalf("exit 1 must report confident absent (exists=false unknown=false), got %v/%v", exists, unknown)
+		}
+		if warnBuf.Len() != 0 {
+			t.Fatalf("confident absent must print no warning, got %q", warnBuf.String())
+		}
+	}
+}
+
 // TestPodmanVolumeFakeSwappable asserts the package-level podmanVolume var is
 // fake-swappable: a test can replace it and observe the exact argv it received,
 // with no live podman.

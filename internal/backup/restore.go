@@ -93,11 +93,18 @@ type RestoreInput struct {
 	TempQdrantTar     string
 	RollbackQdrantTar string
 	// QdrantVolumeExists reports whether the CURRENT host has the qdrant volume
-	// (the cmd tier's fail-soft `podman volume exists` check). It selects the
+	// (the cmd tier's tri-state `podman volume exists` check). It selects the
 	// Pitfall-4 capture/rollback shape: existing ⇒ capture-export + rollback
 	// re-import; absent ⇒ no capture, and rollback REMOVES the forward-created
 	// volume (the volume analog of rollbackRemove).
 	QdrantVolumeExists bool
+	// QdrantVolumeUnknown is true when the existence check could NOT be evaluated
+	// (podman missing/failed — the tri-state check's unknown cell, review WR-02).
+	// When the archive carries a qdrant entry, an Unknown current state is a
+	// fail-closed REFUSAL before any mutation: treating Unknown as absent would
+	// run the destructive VolumeRm on a possibly-real, UNCAPTURED qdrant volume.
+	// A memory-free archive ignores it (zero qdrant calls either way).
+	QdrantVolumeUnknown bool
 	// RecallDestPath is the resolved recall-state.json destination
 	// (recall.RecallStatePath() at the cmd tier) for the OPTIONAL recall-state
 	// entry — restored through the same WriteFileAtomic/rollbackRemove rows as
@@ -176,6 +183,19 @@ func Restore(d Deps, in RestoreInput) Result {
 	// rollback set: the CURRENT owui volume tar, a snapshot of the current config, and
 	// the current data-dir artifacts. An uncapturable current state must NOT be
 	// mutated — refuse with zero side effects.
+	//
+	// WR-02 fail-closed gate: when the archive carries a qdrant entry but the
+	// current volume's existence could NOT be evaluated, REFUSE before any
+	// mutation. An Unknown collapsed into "absent" would skip the capture export
+	// AND the quiesce, then run the destructive VolumeRm on a possibly-real,
+	// uncaptured qdrant volume — destroying existing vectors with no rollback
+	// copy. The typed-Unknown doctrine: Unknown is never a confident negative.
+	if ex.qdrantPresent && in.QdrantVolumeUnknown {
+		return Result{Refused: true, FailedStep: "capture",
+			Reason: "could not determine whether the Qdrant volume " + in.QdrantVolumeName +
+				" exists — an unknown current state cannot be safely captured for rollback; " +
+				"check podman (`podman volume exists " + in.QdrantVolumeName + "`), then re-run"}
+	}
 	priorCfg, err := d.LoadConfig()
 	if err != nil {
 		return Result{Refused: true, FailedStep: "capture", Err: err,

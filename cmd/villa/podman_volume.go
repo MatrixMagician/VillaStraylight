@@ -59,6 +59,25 @@ func volumeExists(name string, errOut io.Writer) bool {
 	return exists
 }
 
+// volumeExistsTri is the TRI-STATE existence check for DESTRUCTIVE callers
+// (restore — Phase-23 review WR-02): exists / absent / UNKNOWN. Unlike the
+// fail-soft volumeExists (which collapses an unevaluable check into a confident
+// "absent" — the right direction for backup, where the entry is honestly
+// omitted), restore selects its capture/quiesce/rollback shape from this signal:
+// flattening Unknown to absent would route a destructive VolumeRm past the
+// rollback capture on a transient podman failure. The caller must FAIL CLOSED
+// on unknown=true (the typed-Unknown doctrine: an Unknown is never a confident
+// negative).
+func volumeExistsTri(name string, errOut io.Writer) (exists, unknown bool) {
+	stderr, err := podmanVolume(volumeExistsArgs(name))
+	exists, warn := classifyVolumeExists(err)
+	if warn {
+		fmt.Fprintf(errOut, "warning: podman volume exists %q check failed (%v: %s) — existence is UNKNOWN\n",
+			name, err, stderr)
+	}
+	return exists, warn
+}
+
 // classifyVolumeExists maps a `podman volume exists` run error to the fail-soft
 // verdict: nil ⇒ exists; an *exec.ExitError with code 1 ⇒ confidently absent (no
 // warning); anything else (podman missing, exec failure, other exit codes) ⇒

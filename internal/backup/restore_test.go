@@ -1055,6 +1055,43 @@ func TestRestoreProveFailRollbackQuiescesBeforeVolumeRm(t *testing.T) {
 	}
 }
 
+// TestRestoreQdrantExistsUnknownFailsClosed is the WR-02 regression: when the
+// archive carries a qdrant entry but the current volume's existence could NOT be
+// evaluated (the tri-state check's unknown cell — a transient podman failure),
+// the restore must REFUSE before any mutation. Pre-fix, the fail-soft check
+// collapsed Unknown into "absent", skipping capture + quiesce and routing the
+// destructive VolumeRm at a possibly-real, uncaptured qdrant volume. A
+// memory-FREE archive stays restorable on the same host (zero qdrant calls).
+func TestRestoreQdrantExistsUnknownFailsClosed(t *testing.T) {
+	t.Run("qdrant entry present + existence unknown refuses with zero side effects", func(t *testing.T) {
+		arch := buildArchiveMem(t, baseManifest(), validCfgTOML, []byte("owui-data"), []byte("qdrant-data"), nil)
+		r, in := memInput(t, arch, false)
+		in.QdrantVolumeUnknown = true
+		res := Restore(r.deps(), in)
+		if !res.Refused || res.FailedStep != "capture" {
+			t.Fatalf("want Refused at capture on an unknown qdrant existence, got %+v", res)
+		}
+		if !strings.Contains(res.Reason, "could not determine") {
+			t.Fatalf("refusal must carry the unknown-existence remediation, got %q", res.Reason)
+		}
+		if hasMutate(r.calls) {
+			t.Fatalf("unknown-existence refusal must have ZERO mutate side effects, got %v", r.calls)
+		}
+	})
+	t.Run("memory-free archive restores despite an unknown qdrant existence", func(t *testing.T) {
+		arch := buildArchive(t, baseManifest(), validCfgTOML, []byte("owui-data"), nil, nil, false)
+		r, in := memInput(t, arch, false)
+		in.QdrantVolumeUnknown = true
+		res := Restore(r.deps(), in)
+		if !res.Restored {
+			t.Fatalf("a memory-free archive must restore regardless of the qdrant signal, got %+v", res)
+		}
+		if qc := qdrantCalls(r.calls); len(qc) != 0 {
+			t.Fatalf("memory-free restore must make zero qdrant calls, got %v", qc)
+		}
+	})
+}
+
 // TestRestoreRollbackIncompleteSetsFlag asserts the Result.RollbackIncomplete flag
 // (CR-01) mirrors the honest rollback-incomplete Reason, so the cmd tier can
 // preserve the rollback tars without string-matching the Reason text.

@@ -231,13 +231,15 @@ func liveRestore(cmd *cobra.Command, archivePath string, bypass bool) (backup.Re
 		// Phase-23 qdrant volume + recall-state wiring (D-05/D-07): identities are
 		// seam-sourced; the qdrant tars live in the SAME WR-01-cleaned tmpDir (they
 		// hold chat-derived vectors, same sensitivity as webui.db); the existence
-		// check is the fail-soft cmd-tier `podman volume exists` helper.
-		QdrantVolumeName:   orchestrate.QdrantVolumeName(),
-		TempQdrantTar:      filepath.Join(tmpDir, "restore-qdrant.tar"),
-		RollbackQdrantTar:  filepath.Join(tmpDir, "rollback-qdrant.tar"),
-		QdrantVolumeExists: volumeExists(orchestrate.QdrantVolumeName(), errOut),
-		RecallDestPath:     recall.RecallStatePath(),
+		// check is TRI-STATE for restore (WR-02): the core fail-closes when the
+		// archive carries a qdrant entry but existence is UNKNOWN — never the
+		// backup-side fail-soft collapse of Unknown into a confident "absent".
+		QdrantVolumeName:  orchestrate.QdrantVolumeName(),
+		TempQdrantTar:     filepath.Join(tmpDir, "restore-qdrant.tar"),
+		RollbackQdrantTar: filepath.Join(tmpDir, "rollback-qdrant.tar"),
+		RecallDestPath:    recall.RecallStatePath(),
 	}
+	in.QdrantVolumeExists, in.QdrantVolumeUnknown = volumeExistsTri(orchestrate.QdrantVolumeName(), errOut)
 	return in, liveRestoreDeps(), tmpDir, exitPass
 }
 
