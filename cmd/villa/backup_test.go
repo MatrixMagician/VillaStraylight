@@ -20,6 +20,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/backup"
+	"github.com/MatrixMagician/VillaStraylight/internal/recall"
 )
 
 // TestBackupDefaultNameIsFSSafe asserts the default archive name has no ':' (D-04)
@@ -172,5 +173,80 @@ func TestRunBackupWritesArchive(t *testing.T) {
 	}
 	if len(m.ExcludedModels) != 1 || m.ExcludedModels[0].ID != "qwen3-30b" {
 		t.Fatalf("excluded model identity not recorded from config: %+v", m.ExcludedModels)
+	}
+}
+
+// TestBackupMemoryOffOmitsLeftoverRecallState is the WR-03 regression over the
+// REAL cmd-tier wiring (the pure-core tests pass an empty RecallStatePath and
+// never saw it): a memory-OFF config with a LEFTOVER recall-state.json (memory
+// was previously enabled) must produce an archive WITHOUT the recall-state.json
+// entry and a manifest without the recall/embedding fields — otherwise the entry
+// escapes the fail-closed recall_schema_version gate on restore and the
+// documented v1-identical memory-off layout is violated.
+func TestBackupMemoryOffOmitsLeftoverRecallState(t *testing.T) {
+	cfgHome := t.TempDir()
+	dataHome := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", cfgHome)
+	t.Setenv("XDG_DATA_HOME", dataHome)
+
+	cfgDir := filepath.Join(cfgHome, "villa")
+	if err := os.MkdirAll(cfgDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	cfgPath := filepath.Join(cfgDir, "config.toml")
+	// memory_enabled defaults to false — a memory-OFF config.
+	if err := os.WriteFile(cfgPath, []byte("model = \"m\"\nbackend = \"vulkan\"\nctx = 8192\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// The leftover recall-state.json a previously-enabled memory stack left behind.
+	rsPath := recall.RecallStatePath()
+	if err := os.MkdirAll(filepath.Dir(rsPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(rsPath, []byte(`{"schema_version":1}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	files := map[string][]byte{cfgPath: []byte("model = \"m\"\n")}
+	outPath := filepath.Join(t.TempDir(), "b.tar")
+	cmd, out, errOut := newBackupTestCmd()
+	code := runBackup(cmd, outPath, fakeRunBackupDeps(t, files))
+	if code != exitPass {
+		t.Fatalf("runBackup exit = %d, want %d; stderr=%q", code, exitPass, errOut.String())
+	}
+
+	data, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var mBytes []byte
+	tr := tar.NewReader(bytes.NewReader(data))
+	for {
+		h, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if h.Name == backup.EntryRecallState {
+			t.Fatalf("memory-off backup must NOT archive the leftover %s", backup.EntryRecallState)
+		}
+		if h.Name == backup.EntryManifest {
+			mBytes, _ = io.ReadAll(tr)
+		} else {
+			_, _ = io.Copy(io.Discard, tr)
+		}
+	}
+	var m backup.Manifest
+	if err := json.Unmarshal(mBytes, &m); err != nil {
+		t.Fatalf("manifest unmarshal: %v", err)
+	}
+	if m.EmbeddingModel != "" || m.EmbeddingDim != 0 || m.RecallSchemaVersion != 0 {
+		t.Fatalf("memory-off manifest must omit the recall/embedding fields, got %+v", m)
+	}
+	if !strings.Contains(out.String(), "recall state not included (memory disabled)") {
+		t.Fatalf("memory-off backup must report the recall state as not included, got %q", out.String())
 	}
 }

@@ -83,7 +83,12 @@ type BackupInput struct {
 	TempQdrantTar    string
 	// RecallStatePath is the resolved recall-state.json source path (the OPTIONAL
 	// recall-state.json entry, D-06; recall.RecallStatePath() at the cmd tier). An
-	// absent file is skipped via FileMissing like the other optional entries.
+	// absent file is skipped via FileMissing like the other optional entries. The
+	// cmd tier gates it on cfg.MemoryEnabled (review WR-03), mirroring the qdrant
+	// pair: empty means memory off, so a memory-off archive stays v1-identical
+	// even when a leftover recall-state.json exists on disk — otherwise the entry
+	// would ship without a manifest recall_schema_version and escape the
+	// fail-closed schema gate on restore.
 	RecallStatePath string
 
 	// EmbeddingModel / EmbeddingDim / RecallSchemaVersion are the Phase-23 manifest

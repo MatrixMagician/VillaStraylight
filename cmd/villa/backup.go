@@ -177,10 +177,6 @@ func runBackup(cmd *cobra.Command, output string, d backup.Deps) int {
 		BenchReportsPath:    benchReportsStorePath(),
 		ExcludedModels:      excludedModelIdentities(cfg),
 		FileMissing:         os.IsNotExist,
-		// RecallStatePath is passed unconditionally: an absent recall-state.json is
-		// skipped by the core's optional-entry FileMissing logic — no presence gate
-		// is needed here (D-06).
-		RecallStatePath: recall.RecallStatePath(),
 	}
 	if includeQdrant {
 		// Seam-sourced volume identity — NEVER a literal here (D-05).
@@ -188,6 +184,14 @@ func runBackup(cmd *cobra.Command, output string, d backup.Deps) int {
 		in.TempQdrantTar = tmpQdrantPath
 	}
 	if cfg.MemoryEnabled {
+		// RecallStatePath is gated on cfg.MemoryEnabled (review WR-03), mirroring
+		// the qdrant entry: a memory-OFF backup must produce an archive IDENTICAL
+		// to the v1 layout even when a leftover recall-state.json exists from a
+		// previously-enabled memory stack. Including the orphan entry while the
+		// manifest omits recall_schema_version would let it escape the fail-closed
+		// blockOnNewerStore gate on restore. An absent file is still skipped by the
+		// core's optional-entry FileMissing logic (D-06).
+		in.RecallStatePath = recall.RecallStatePath()
 		// Manifest embedding identity + recall store schema, recorded ONLY on a
 		// memory-on backup (D-06/D-08): config is the single source of truth for the
 		// embedding model/dim; the recall schema comes from its accessor. A
@@ -224,10 +228,16 @@ func runBackup(cmd *cobra.Command, output string, d backup.Deps) int {
 	} else {
 		fmt.Fprintf(out, "memory: Qdrant volume not included (memory disabled or volume absent)\n")
 	}
-	if _, serr := os.Stat(in.RecallStatePath); serr == nil {
-		fmt.Fprintf(out, "memory: recall state included (%s)\n", backup.EntryRecallState)
-	} else {
-		fmt.Fprintf(out, "memory: recall state not included (no recall-state.json)\n")
+	switch {
+	case in.RecallStatePath == "":
+		// Memory off ⇒ the entry was never offered to the core (WR-03 gate).
+		fmt.Fprintf(out, "memory: recall state not included (memory disabled)\n")
+	default:
+		if _, serr := os.Stat(in.RecallStatePath); serr == nil {
+			fmt.Fprintf(out, "memory: recall state included (%s)\n", backup.EntryRecallState)
+		} else {
+			fmt.Fprintf(out, "memory: recall state not included (no recall-state.json)\n")
+		}
 	}
 	if len(in.ExcludedModels) > 0 {
 		fmt.Fprintf(out, "excluded model weights (re-pullable, recorded in manifest for re-pull):\n")
