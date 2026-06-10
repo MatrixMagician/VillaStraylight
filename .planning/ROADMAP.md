@@ -185,7 +185,24 @@ Plans:
   2. `villa preflight` gates host fitness for the memory stack (disk space for the vector index, memory headroom for the embedder) with refuse-with-remediation.
   3. `villa doctor` folds memory-stack health into its existing PASS/WARN/FAIL exit contract: services up, vector-disk/headroom checks, and an offload-asserting residency proof that the chat model survives an embedding/import workload (a silent/partial CPU fallback under embedding load is a FAIL, never a false-green).
 
-**Plans**: TBD
+**Plans**: 4 plans
+
+Plans:
+**Wave 1**
+
+- [ ] 22-01-PLAN.md — CTRL-01: memory-aware fit math in `recommend.Pick` (envelope shrinks first, D-01/D-02), schema bump 1→2, 7-call-site thread-through, single recommend golden re-freeze (SC#1)
+
+**Wave 2** *(blocked on Wave 1)*
+
+- [ ] 22-02-PLAN.md — CTRL-06: `checks_memory.go` MEM-PRE-disk + MEM-PRE-headroom gates (D-06/D-07), emitted only when memory_enabled, gated in the preflight verb + install path (SC#2)
+
+**Wave 3** *(blocked on Wave 2)*
+
+- [ ] 22-03-PLAN.md — CTRL-03: doctor Deps growth + memory fold + MEM-DOC-residency under-load proof (D-08/D-09/D-10) + non-GPU offload down-rank-but-visible so PASS is reachable (SC#3)
+
+**Wave 4** *(blocked on Wave 3)*
+
+- [ ] 22-04-PLAN.md — on-hardware verification on the live gfx1151 box: SC#1-3 live runs, negative controls, D-05 footprint measurement, operator sign-off (checkpoint)
 
 ### Phase 23: Surfacing, Backup & Memory-Aware Swap
 

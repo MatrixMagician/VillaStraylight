@@ -1,9 +1,9 @@
 ---
 phase: 22
 slug: control-plane-fit-host-gate
-status: draft
-nyquist_compliant: false
-wave_0_complete: false
+status: planned
+nyquist_compliant: true
+wave_0_complete: true
 created: 2026-06-10
 ---
 
@@ -38,7 +38,14 @@ created: 2026-06-10
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| (filled by planner) | | | CTRL-01 / CTRL-03 / CTRL-06 | | | unit / golden | `make check` | | ⬜ pending |
+| 22-01-T1 | 22-01 | 1 | CTRL-01 | T-22-01/02 | conservative reservation on typed-Unknown (never 0); no uint64 wrap | unit (table) | `go test ./internal/recommend/ ./internal/memory/ -count=1` | ✅ recommend_test.go / footprint_test.go | ⬜ pending |
+| 22-01-T2 | 22-01 | 1 | CTRL-01 | T-22-03/04 | memory-aware install pick; single targeted golden re-freeze | golden + full suite | `go test ./cmd/villa/ -count=1 && make check` | ✅ cmd/villa goldens | ⬜ pending |
+| 22-02-T1 | 22-02 | 2 | CTRL-06 | T-22-05/06/07 | fixed-arg podman resolver; BLOCK on confident shortage, WARN on Unknown, remediation non-empty | unit (table) | `go test ./internal/preflight/ -count=1` | ❌→created in-plan (checks_memory_test.go) | ⬜ pending |
+| 22-02-T2 | 22-02 | 2 | CTRL-06 | T-22-08 | fail-soft config gate; off-path byte-identical (frozen render goldens) | golden + full suite | `go test ./cmd/villa/ -count=1 && make check` | ✅ preflight goldens | ⬜ pending |
+| 22-03-T1 | 22-03 | 3 | CTRL-03 | T-22-10 | proof FAIL/WARN/PASS semantics; offload down-rank only on Status==WARN (FAIL never suppressed) | unit (fake Deps) | `go test ./internal/doctor/ -count=1` | ✅ doctor_test.go | ⬜ pending |
+| 22-03-T2 | 22-03 | 3 | CTRL-03 | T-22-09/11/12/13 | fixed-arg bounded embed drive; no state mutation; seam gate green | golden + grep gate + full suite | `go test ./cmd/villa/ -count=1 && go test ./internal/inference/ -run TestSeamGrepGate -count=1 && make check` | ✅ doctor render goldens (+ new additive fixtures) | ⬜ pending |
+| 22-04-T1 | 22-04 | 4 | CTRL-01/03/06 | T-22-14/15/16 | on-hardware SC#1-3 + D-05 measurement + negative controls (manual-only, justified) | manual + full suite | `make check` (+ manual checklist) | n/a | ⬜ pending |
+| 22-04-T2 | 22-04 | 4 | CTRL-01/03/06 | T-22-15 | blocking operator sign-off | manual (checkpoint) | — | n/a | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
