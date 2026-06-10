@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: Memory & Knowledge
-status: executing
+status: verifying
 stopped_at: Completed 23-02-PLAN.md (memory-aware backup/restore)
-last_updated: "2026-06-10T21:34:21.615Z"
+last_updated: "2026-06-10T21:47:57.219Z"
 last_activity: 2026-06-10 -- Phase 23 execution started
 progress:
   total_phases: 6
-  completed_phases: 5
+  completed_phases: 6
   total_plans: 20
-  completed_plans: 19
-  percent: 83
+  completed_plans: 20
+  percent: 100
 ---
 
 # Project State
@@ -27,7 +27,7 @@ See: .planning/PROJECT.md (updated 2026-06-10 after Phase 22)
 
 Phase: 23 (Surfacing, Backup & Memory-Aware Swap) — EXECUTING
 Plan: 5 of 5
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-06-10 -- Phase 23 execution started
 
 ## v1.3 Build Order (research-converged — preserve)
@@ -126,6 +126,7 @@ evolution: `status.Report` 2→3, golden re-frozen once).
 | Phase 23 P02 | 18min | 2 (TDD) tasks tasks | 12 files files |
 | Phase 23 P03 | 10 min | 2 tasks | 3 files |
 | Phase 23 P04 | 10 min | 2 tasks | 7 files |
+| Phase 23 P05 | 9 min (drill; checkpoint pending) | 1 of 2 tasks | 0 files |
 
 ## Accumulated Context
 
@@ -197,6 +198,8 @@ Earlier (v1.0 / v1.1 / v1.2) decisions retained below.
 - [Phase 23]: 23-03: count/timestamp rows guard on state AND field presence so omitempty-dropped fields never render NaN/zero-fill
 - [Phase 23]: [23-04] OQ4 locked in code: --rebuild bypasses the recall-index skew refusal (id-preserving KB reset + clean replace; fresh stamp records the new identity); on-hardware proof in 23-05
 - [Phase 23]: [23-04] liveRecallStateLoad is the single shared recall-state.json reader for both the recall verbs and the install skew WARN seam
+- [Phase ?]: [23-05] OQ2 final on hardware: memoryHealthTTL stays 15s — one probe pair per 15s window, zero helper-container churn, warm dashboard poll ~0.33s; 30s fallback not needed
+- [Phase ?]: [23-05] OQ4 final on hardware: recall index --rebuild bypasses the skew refusal, id-preserving KB clean-replace (knowledge_id unchanged), fresh stamp records the new identity; T-23-01 false-green CLOSED live (stopped villa-embed = health down, never ready)
 
 ### Pending Todos
 
@@ -241,7 +244,7 @@ Items acknowledged at v1.2 milestone close (2026-06-08):
 
 ## Session Continuity
 
-Last session: 2026-06-10T21:34:08.272Z
+Last session: 2026-06-10T21:46:55.418Z
 Stopped at: Completed 23-02-PLAN.md (memory-aware backup/restore)
 Resume file: .planning/phases/23-surfacing-backup-memory-aware-swap/23-03-PLAN.md
 

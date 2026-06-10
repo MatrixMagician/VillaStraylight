@@ -75,7 +75,7 @@ Audit PASSED — 13/13 requirements, 5/5 integration flows, 6/6 phases Nyquist-c
 - [x] **Phase 20: Open WebUI Memory/RAG Wiring + Offline Lockdown** — Wire Open WebUI (env-only) to Qdrant + the local embeddings endpoint with config-authoritative `ENABLE_PERSISTENT_CONFIG=false` and full offline/telemetry lockdown, delivering personalized memory (both capture modes + edit/delete) and the document knowledge base with citations — proven by a runtime firewalled zero-outbound smoke test. (completed 2026-06-10)
 - [x] **Phase 21: Conversational Recall Indexer** — A `villa`-orchestrated, strictly-local indexer that semantically indexes past chats into Knowledge so the assistant retrieves relevant past-chat content by meaning, with `villa`-controllable incremental re-index that reports honest state (no silent staleness). (completed 2026-06-10)
 - [x] **Phase 22: Control-Plane Fit + Host Gate** — Make `recommend` reserve the embedding footprint before the chat-model fit, and gate host fitness for the memory stack in `preflight` + `doctor` (vector disk, embedder headroom, offload-asserting residency under embedding load) — so the memory stack "runs healthy after install." (completed 2026-06-10)
-- [ ] **Phase 23: Surfacing, Backup & Memory-Aware Swap** — Land the milestone's single byte-frozen contract evolution LAST: surface memory-stack health in `status` + dashboard (schema bump 2→3, golden re-frozen once), extend `backup`/`restore` to the Qdrant volume (clean-recreate-before-import, dimension in manifest), and make `villa model swap` memory-aware (guard the embedding-dimension-invalidates-vectors hazard).
+- [x] **Phase 23: Surfacing, Backup & Memory-Aware Swap** — Land the milestone's single byte-frozen contract evolution LAST: surface memory-stack health in `status` + dashboard (schema bump 2→3, golden re-frozen once), extend `backup`/`restore` to the Qdrant volume (clean-recreate-before-import, dimension in manifest), and make `villa model swap` memory-aware (guard the embedding-dimension-invalidates-vectors hazard). (completed 2026-06-10)
 
 ## Phase Details
 
@@ -215,7 +215,7 @@ Plans:
   2. `villa backup` includes the Qdrant memory volume and `villa restore` clean-recreates it before import (no stale-vector leak), with the embedding dimension recorded in the manifest so a version/dimension skew WARNs rather than silently corrupting retrieval.
   3. `villa model swap` is memory-aware: it warns/guards when changing the embedding model would invalidate existing vectors (dimension mismatch / no auto-reindex), and a chat-model swap leaves the embedding model and vector collections intact.
 
-**Plans:** 4/5 plans executed
+**Plans:** 5/5 plans complete
 
 Plans:
 **Wave 1**
@@ -230,7 +230,7 @@ Plans:
 
 **Wave 3** *(blocked on Waves 1–2)*
 
-- [ ] 23-05-PLAN.md — on-hardware verification drill on the live gfx1151 box + operator sign-off (checkpoint)
+- [x] 23-05-PLAN.md — on-hardware verification drill on the live gfx1151 box + operator sign-off (checkpoint)
 
 ## Progress
 
@@ -258,4 +258,4 @@ Plans:
 | 20. Open WebUI Memory/RAG Wiring + Offline Lockdown | v1.3 | 3/3 | Complete    | 2026-06-10 |
 | 21. Conversational Recall Indexer | v1.3 | 3/3 | Complete    | 2026-06-10 |
 | 22. Control-Plane Fit + Host Gate | v1.3 | 4/4 | Complete    | 2026-06-10 |
-| 23. Surfacing, Backup & Memory-Aware Swap | v1.3 | 4/5 | In Progress|  |
+| 23. Surfacing, Backup & Memory-Aware Swap | v1.3 | 5/5 | Complete   | 2026-06-10 |
