@@ -475,12 +475,12 @@ curl -sf -X POST http://127.0.0.1:3000/api/chat/completions \
 | A3 | Merging `meta.knowledge` into an existing Model row via `model/update` preserves UI-set fields when the full prior meta is echoed back (read-merge-write) `[ASSUMED from ModelForm shape — extra='allow' echoes extras]` | Pattern 2 | Operator-set model description/capabilities lost; verify in the on-hardware wave by diffing the row before/after |
 | A4 | `villa verify memory`'s `/api/chat/completions` drive does not persist chat rows (so verification doesn't pollute the index) `[ASSUMED — completions endpoint writes no Chat row in the inspected code path; not live-proven]` | Identity path | Harmless noise chats get indexed; exclude service-account users by default anyway |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **Should `recall status --json` ship now?**
+1. **Should `recall status --json` ship now?** — **RESOLVED (planner discretion, 21-02-PLAN.md objective):** human-only this phase; no second frozen contract before Phase 23; `status.Report` untouched.
    - What we know: it's cheap (the staleness report is already a typed struct); it must be its OWN schema-versioned contract (CONTEXT discretion note).
    - Recommendation: ship human-only OR `--json` with `schema_version:1` and a golden — planner's call; do NOT touch `status.Report`.
-2. **Per-chat transcript size cap?**
+2. **Per-chat transcript size cap?** — **RESOLVED (planner discretion, 21-02-PLAN.md objective):** no cap in v1; per-chat timings reported in the index run output (per the recommendation below); poll timeout is size-aware (60s + 1s/2KiB), tuned in 21-03.
    - What we know: no OWUI-side max (FILE_MAX_SIZE unset); huge chats still chunk fine but embed slowly.
    - Recommendation: no cap in v1; report per-chat timing in the index run output so the operator sees outliers.
 
