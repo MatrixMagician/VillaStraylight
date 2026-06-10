@@ -4,13 +4,13 @@ milestone: v1.3
 milestone_name: Memory & Knowledge
 status: executing
 stopped_at: Phase 22 context gathered
-last_updated: "2026-06-10T16:18:30.899Z"
+last_updated: "2026-06-10T16:31:27.011Z"
 last_activity: 2026-06-10 -- Phase 22 execution started
 progress:
   total_phases: 6
   completed_phases: 4
   total_plans: 15
-  completed_plans: 12
+  completed_plans: 13
   percent: 67
 ---
 
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-06-10 after Phase 21)
 ## Current Position
 
 Phase: 22 (control-plane-fit-host-gate) — EXECUTING
-Plan: 2 of 4
+Plan: 3 of 4
 Status: Ready to execute
 Last activity: 2026-06-10 -- Phase 22 execution started
 
@@ -118,6 +118,7 @@ evolution: `status.Report` 2→3, golden re-frozen once).
 | Phase 21 P02 | 15min | 3 tasks | 6 files |
 | Phase 21 P03 | 25min | 3 tasks | 0 files |
 | Phase 22 P01 | 9min | 2 (TDD) tasks | 13 files |
+| Phase 22 P02 | 10min | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -171,6 +172,8 @@ Earlier (v1.0 / v1.1 / v1.2) decisions retained below.
 - [Phase ?]: Phase 21 on-hardware: villa recall proven live on gfx1151 (SC#1 real local index; SC#2 semantic retrieval-by-meaning with citations REST+UI; SC#3 edit/delete clean-replace + typed-Unknown OWUI-down staleness); A2 timeout needed no tuning (~1.3 s/chat)
 - [Phase 22-01]: D-01 reservation-before-fit landed — recommend.Pick(p,c,ov,MemoryInputs) shrinks the envelope by the embedding footprint FIRST (pinned 512 MiB or ConservativeFootprintBytes() on typed-Unknown with an honest RESERVED CONSERVATIVELY note); schema 2 append-only contract, ONE golden re-freeze (recommend.golden.json), all 7 call sites threaded, install MinMemBytes includes the reservation
 - [Phase 22-01]: status liveWeightBytes passes zero-value MemoryInputs on purpose — WeightBytes is envelope-independent for overrides (TestPickOverrideWeightInvariance) so status.json.golden stays provably byte-identical until the Phase-23 schema 2->3 evolution
+- [Phase ?]: [22-02]: liveVolumeRoot resolves the podman volume root through the bounded runTool seam (zero exec.Command in checks_memory.go) — TestSeamGrepGate green by construction, allowlist untouched
+- [Phase ?]: [22-02]: install memory gates behind a nil-safe runMemoryChecks installDeps seam (doctor RunROCmImage pattern) so memory-enabled install tests stay hermetic; preflight verb gates via an injectable memoryGateResults package var (pullFn convention)
 
 ### Pending Todos
 
@@ -214,7 +217,7 @@ Items acknowledged at v1.2 milestone close (2026-06-08):
 
 ## Session Continuity
 
-Last session: 2026-06-10T16:18:04.194Z
+Last session: 2026-06-10T16:30:59.671Z
 Stopped at: Phase 22 context gathered
 Resume file: .planning/phases/22-control-plane-fit-host-gate/22-CONTEXT.md
 

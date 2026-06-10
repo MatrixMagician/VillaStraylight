@@ -194,7 +194,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1)*
 
-- [ ] 22-02-PLAN.md — CTRL-06: `checks_memory.go` MEM-PRE-disk + MEM-PRE-headroom gates (D-06/D-07), emitted only when memory_enabled, gated in the preflight verb + install path (SC#2)
+- [x] 22-02-PLAN.md — CTRL-06: `checks_memory.go` MEM-PRE-disk + MEM-PRE-headroom gates (D-06/D-07), emitted only when memory_enabled, gated in the preflight verb + install path (SC#2)
 
 **Wave 3** *(blocked on Wave 2)*
 
@@ -242,5 +242,5 @@ Plans:
 | 19. Vector Store + Local Embeddings Services | v1.3 | 3/3 | Complete    | 2026-06-09 |
 | 20. Open WebUI Memory/RAG Wiring + Offline Lockdown | v1.3 | 3/3 | Complete    | 2026-06-10 |
 | 21. Conversational Recall Indexer | v1.3 | 3/3 | Complete    | 2026-06-10 |
-| 22. Control-Plane Fit + Host Gate | v1.3 | 1/4 | In Progress|  |
+| 22. Control-Plane Fit + Host Gate | v1.3 | 2/4 | In Progress|  |
 | 23. Surfacing, Backup & Memory-Aware Swap | v1.3 | 0/? | Not started | - |
