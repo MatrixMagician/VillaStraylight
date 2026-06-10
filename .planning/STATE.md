@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: Memory & Knowledge
-status: executing
+status: verifying
 stopped_at: Completed 22-03-PLAN.md
-last_updated: "2026-06-10T16:46:40.974Z"
+last_updated: "2026-06-10T16:59:01.063Z"
 last_activity: 2026-06-10 -- Phase 22 execution started
 progress:
   total_phases: 6
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 15
-  completed_plans: 14
-  percent: 67
+  completed_plans: 15
+  percent: 83
 ---
 
 # Project State
@@ -27,7 +27,7 @@ See: .planning/PROJECT.md (updated 2026-06-10 after Phase 21)
 
 Phase: 22 (control-plane-fit-host-gate) — EXECUTING
 Plan: 4 of 4
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-06-10 -- Phase 22 execution started
 
 ## v1.3 Build Order (research-converged — preserve)
@@ -120,6 +120,7 @@ evolution: `status.Report` 2→3, golden re-frozen once).
 | Phase 22 P01 | 9min | 2 (TDD) tasks | 13 files |
 | Phase 22 P02 | 10min | 2 tasks | 6 files |
 | Phase 22 P03 | 13min | 2 (TDD) tasks | 7 files |
+| Phase 22 P04 | ~17min | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -177,6 +178,9 @@ Earlier (v1.0 / v1.1 / v1.2) decisions retained below.
 - [Phase ?]: [22-02]: install memory gates behind a nil-safe runMemoryChecks installDeps seam (doctor RunROCmImage pattern) so memory-enabled install tests stay hermetic; preflight verb gates via an injectable memoryGateResults package var (pullFn convention)
 - [Phase ?]: [22-03] doctor memory-service offload down-rank is the (memory-on AND offload:<svc> in MemoryServices AND Status==WARN) conjunction — visible but non-rank-raising; a confident FAIL is never suppressed (DOCTOR-02); doctor PASS reachable on a healthy memory-on stack
 - [Phase ?]: [22-03] under-load residency proof: drive errors degrade a PASS sample to WARN, never overwrite a confident residency FAIL (D-09); D-10 precondition gate degrades to WARN, strictly read-only
+- [Phase ?]: [22-04] D-05 contingency NOT triggered: villa-embed MemoryPeak 116,240,384 B (~110.9 MiB) under a 48-request sustained embed drive vs the 536,870,912 B reservation (~4.6x margin) — the pinned 512 MiB constant stands, footprint.go untouched
+- [Phase ?]: [22-04] Rule-1 fix: residencyDriveText shrunk 96->44 reps (962->442 tokens) — pooled embedding inputs must fit ONE llama-server physical batch (-ub default 512 tokens), the real binding limit (not the 8192 ctx)
+- [Phase ?]: [22-04] Pre-existing health-row false-green deferred to Phase 23: status probes the chat endpoint for EVERY non-OWUI service row — a stopped villa-embed still shows health PASS; doctor-verdict honesty unaffected (D-10 is-active gate)
 
 ### Pending Todos
 
@@ -220,7 +224,7 @@ Items acknowledged at v1.2 milestone close (2026-06-08):
 
 ## Session Continuity
 
-Last session: 2026-06-10T16:46:40.969Z
+Last session: 2026-06-10T16:58:04.238Z
 Stopped at: Completed 22-03-PLAN.md
 Resume file: None
 

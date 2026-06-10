@@ -74,7 +74,7 @@ Audit PASSED — 13/13 requirements, 5/5 integration flows, 6/6 phases Nyquist-c
 - [x] **Phase 19: Vector Store + Local Embeddings Services** — Render the two new rootless Quadlet managed services (Qdrant + a dedicated embeddings llama-server) onto `villa.network`, container-DNS only, with a durable named `:Z` volume and the embedding model pre-staged at install (zero runtime download). (completed 2026-06-09)
 - [x] **Phase 20: Open WebUI Memory/RAG Wiring + Offline Lockdown** — Wire Open WebUI (env-only) to Qdrant + the local embeddings endpoint with config-authoritative `ENABLE_PERSISTENT_CONFIG=false` and full offline/telemetry lockdown, delivering personalized memory (both capture modes + edit/delete) and the document knowledge base with citations — proven by a runtime firewalled zero-outbound smoke test. (completed 2026-06-10)
 - [x] **Phase 21: Conversational Recall Indexer** — A `villa`-orchestrated, strictly-local indexer that semantically indexes past chats into Knowledge so the assistant retrieves relevant past-chat content by meaning, with `villa`-controllable incremental re-index that reports honest state (no silent staleness). (completed 2026-06-10)
-- [ ] **Phase 22: Control-Plane Fit + Host Gate** — Make `recommend` reserve the embedding footprint before the chat-model fit, and gate host fitness for the memory stack in `preflight` + `doctor` (vector disk, embedder headroom, offload-asserting residency under embedding load) — so the memory stack "runs healthy after install."
+- [x] **Phase 22: Control-Plane Fit + Host Gate** — Make `recommend` reserve the embedding footprint before the chat-model fit, and gate host fitness for the memory stack in `preflight` + `doctor` (vector disk, embedder headroom, offload-asserting residency under embedding load) — so the memory stack "runs healthy after install." (completed 2026-06-10)
 - [ ] **Phase 23: Surfacing, Backup & Memory-Aware Swap** — Land the milestone's single byte-frozen contract evolution LAST: surface memory-stack health in `status` + dashboard (schema bump 2→3, golden re-frozen once), extend `backup`/`restore` to the Qdrant volume (clean-recreate-before-import, dimension in manifest), and make `villa model swap` memory-aware (guard the embedding-dimension-invalidates-vectors hazard).
 
 ## Phase Details
@@ -202,7 +202,7 @@ Plans:
 
 **Wave 4** *(blocked on Wave 3)*
 
-- [ ] 22-04-PLAN.md — on-hardware verification on the live gfx1151 box: SC#1-3 live runs, negative controls, D-05 footprint measurement, operator sign-off (checkpoint)
+- [x] 22-04-PLAN.md — on-hardware verification on the live gfx1151 box: SC#1-3 live runs, negative controls, D-05 footprint measurement, operator sign-off (checkpoint)
 
 ### Phase 23: Surfacing, Backup & Memory-Aware Swap
 
@@ -242,5 +242,5 @@ Plans:
 | 19. Vector Store + Local Embeddings Services | v1.3 | 3/3 | Complete    | 2026-06-09 |
 | 20. Open WebUI Memory/RAG Wiring + Offline Lockdown | v1.3 | 3/3 | Complete    | 2026-06-10 |
 | 21. Conversational Recall Indexer | v1.3 | 3/3 | Complete    | 2026-06-10 |
-| 22. Control-Plane Fit + Host Gate | v1.3 | 3/4 | In Progress|  |
+| 22. Control-Plane Fit + Host Gate | v1.3 | 4/4 | Complete   | 2026-06-10 |
 | 23. Surfacing, Backup & Memory-Aware Swap | v1.3 | 0/? | Not started | - |
