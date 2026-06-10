@@ -190,7 +190,7 @@ Plans:
 Plans:
 **Wave 1**
 
-- [ ] 22-01-PLAN.md — CTRL-01: memory-aware fit math in `recommend.Pick` (envelope shrinks first, D-01/D-02), schema bump 1→2, 7-call-site thread-through, single recommend golden re-freeze (SC#1)
+- [x] 22-01-PLAN.md — CTRL-01: memory-aware fit math in `recommend.Pick` (envelope shrinks first, D-01/D-02), schema bump 1→2, 7-call-site thread-through, single recommend golden re-freeze (SC#1)
 
 **Wave 2** *(blocked on Wave 1)*
 
@@ -242,5 +242,5 @@ Plans:
 | 19. Vector Store + Local Embeddings Services | v1.3 | 3/3 | Complete    | 2026-06-09 |
 | 20. Open WebUI Memory/RAG Wiring + Offline Lockdown | v1.3 | 3/3 | Complete    | 2026-06-10 |
 | 21. Conversational Recall Indexer | v1.3 | 3/3 | Complete    | 2026-06-10 |
-| 22. Control-Plane Fit + Host Gate | v1.3 | 0/? | Not started | - |
+| 22. Control-Plane Fit + Host Gate | v1.3 | 1/4 | In Progress|  |
 | 23. Surfacing, Backup & Memory-Aware Swap | v1.3 | 0/? | Not started | - |

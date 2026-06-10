@@ -4,13 +4,13 @@ milestone: v1.3
 milestone_name: Memory & Knowledge
 status: executing
 stopped_at: Phase 22 context gathered
-last_updated: "2026-06-10T16:05:20.988Z"
-last_activity: "2026-06-10 — Phase 21 complete (recall indexer: SC#1-3 PASS on-hardware, security 18/18, code review fixed)"
+last_updated: "2026-06-10T16:18:30.899Z"
+last_activity: 2026-06-10 -- Phase 22 execution started
 progress:
   total_phases: 6
   completed_phases: 4
-  total_plans: 11
-  completed_plans: 11
+  total_plans: 15
+  completed_plans: 12
   percent: 67
 ---
 
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-10 after Phase 21)
 
 **Core value:** Run a capable local AI workspace that "just works" after install — hardware-aware setup that brings inference, chat, and the dashboard up healthy, with zero data leaving the box. v1.2 extended the bar to "and stays operable, recoverable, and measurable over time." v1.3 extends it to "and remembers the user and their documents across chats — strictly local."
-**Current focus:** Phase 22 — control-plane-fit-+-host-gate
+**Current focus:** Phase 22 — control-plane-fit-host-gate
 
 ## Current Position
 
-Phase: 22 (control-plane-fit-+-host-gate)
-Plan: Not started
+Phase: 22 (control-plane-fit-host-gate) — EXECUTING
+Plan: 2 of 4
 Status: Ready to execute
-Last activity: 2026-06-10 — Phase 21 complete (recall indexer: SC#1-3 PASS on-hardware, security 18/18, code review fixed)
+Last activity: 2026-06-10 -- Phase 22 execution started
 
 ## v1.3 Build Order (research-converged — preserve)
 
@@ -117,6 +117,7 @@ evolution: `status.Report` 2→3, golden re-frozen once).
 | Phase 21 P01 | 10min | 3 tasks | 8 files |
 | Phase 21 P02 | 15min | 3 tasks | 6 files |
 | Phase 21 P03 | 25min | 3 tasks | 0 files |
+| Phase 22 P01 | 9min | 2 (TDD) tasks | 13 files |
 
 ## Accumulated Context
 
@@ -168,6 +169,8 @@ Earlier (v1.0 / v1.1 / v1.2) decisions retained below.
 - [Phase 21-02]: recall verbs enforce the D-07 gate delta: memory off or Decide-invalid => exitBlocked refuse-with-remediation on BOTH verbs, never verify-memory's exit-0 no-op
 - [Phase 21-02]: pollFileProcessed parameterized with a caller timeout; recall passes the size-aware 60s + 1s/2KiB allowance (verify memory behavior unchanged)
 - [Phase ?]: Phase 21 on-hardware: villa recall proven live on gfx1151 (SC#1 real local index; SC#2 semantic retrieval-by-meaning with citations REST+UI; SC#3 edit/delete clean-replace + typed-Unknown OWUI-down staleness); A2 timeout needed no tuning (~1.3 s/chat)
+- [Phase 22-01]: D-01 reservation-before-fit landed — recommend.Pick(p,c,ov,MemoryInputs) shrinks the envelope by the embedding footprint FIRST (pinned 512 MiB or ConservativeFootprintBytes() on typed-Unknown with an honest RESERVED CONSERVATIVELY note); schema 2 append-only contract, ONE golden re-freeze (recommend.golden.json), all 7 call sites threaded, install MinMemBytes includes the reservation
+- [Phase 22-01]: status liveWeightBytes passes zero-value MemoryInputs on purpose — WeightBytes is envelope-independent for overrides (TestPickOverrideWeightInvariance) so status.json.golden stays provably byte-identical until the Phase-23 schema 2->3 evolution
 
 ### Pending Todos
 
@@ -211,7 +214,7 @@ Items acknowledged at v1.2 milestone close (2026-06-08):
 
 ## Session Continuity
 
-Last session: 2026-06-10T15:15:36.413Z
+Last session: 2026-06-10T16:18:04.194Z
 Stopped at: Phase 22 context gathered
 Resume file: .planning/phases/22-control-plane-fit-host-gate/22-CONTEXT.md
 
