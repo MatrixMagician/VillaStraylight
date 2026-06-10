@@ -6,6 +6,7 @@ import (
 
 	"github.com/MatrixMagician/VillaStraylight/internal/catalog"
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
+	"github.com/MatrixMagician/VillaStraylight/internal/memory"
 )
 
 // testCatalog is a small deterministic catalog exercising every Pick branch:
@@ -66,7 +67,7 @@ func TestPickMultiEnvelopeFitAndOOMGuard(t *testing.T) {
 	}
 	for _, e := range envelopes {
 		t.Run(e.name, func(t *testing.T) {
-			rec := Pick(profileWithEnvelope(e.env), cat, Overrides{})
+			rec := Pick(profileWithEnvelope(e.env), cat, Overrides{}, MemoryInputs{})
 			if rec.Model == "" {
 				t.Fatalf("env %s: expected a pick, got refusal: %v", e.name, rec.Notes)
 			}
@@ -106,13 +107,13 @@ func TestPickHonorsMinEnvelopeFloor(t *testing.T) {
 			},
 		},
 	}
-	rec := Pick(profileWithEnvelope(20<<30), cat, Overrides{})
+	rec := Pick(profileWithEnvelope(20<<30), cat, Overrides{}, MemoryInputs{})
 	if rec.Model == "needs-big-envelope" {
 		t.Errorf("Pick auto-selected a model below its declared MinEnvelopeBytes floor")
 	}
 
 	// With a host that clears the floor, the same model becomes eligible.
-	rec = Pick(profileWithEnvelope(60<<30), cat, Overrides{})
+	rec = Pick(profileWithEnvelope(60<<30), cat, Overrides{}, MemoryInputs{})
 	if rec.Model != "needs-big-envelope" {
 		t.Errorf("model clearing its MinEnvelopeBytes floor should be selectable, got %q (%v)", rec.Model, rec.Notes)
 	}
@@ -123,7 +124,7 @@ func TestPickHonorsMinEnvelopeFloor(t *testing.T) {
 func TestPickNeverAutoSelectsUnsafe(t *testing.T) {
 	// A tiny envelope where only the 2GiB unsafe model and 4GiB tiny could
 	// physically fit; the unsafe one must not be chosen.
-	rec := Pick(profileWithEnvelope(10<<30), testCatalog(), Overrides{})
+	rec := Pick(profileWithEnvelope(10<<30), testCatalog(), Overrides{}, MemoryInputs{})
 	if rec.Model == "unsafe-but-tiny" {
 		t.Errorf("Pick auto-selected a unified_memory_safe:false model")
 	}
@@ -132,7 +133,7 @@ func TestPickNeverAutoSelectsUnsafe(t *testing.T) {
 // TestPickNeverAutoSelectsBootstrap asserts the bootstrap entry is carried but
 // never auto-selected (D-12).
 func TestPickNeverAutoSelectsBootstrap(t *testing.T) {
-	rec := Pick(profileWithEnvelope(200<<30), testCatalog(), Overrides{})
+	rec := Pick(profileWithEnvelope(200<<30), testCatalog(), Overrides{}, MemoryInputs{})
 	if rec.Model == "bootstrap" {
 		t.Errorf("Pick auto-selected the bootstrap entry")
 	}
@@ -141,7 +142,7 @@ func TestPickNeverAutoSelectsBootstrap(t *testing.T) {
 // TestOverrideUnsafeAllowedWithWarning asserts a --model override of an unsafe
 // entry is allowed but adds a loud warning Note (D-07).
 func TestOverrideUnsafeAllowedWithWarning(t *testing.T) {
-	rec := Pick(profileWithEnvelope(64<<30), testCatalog(), Overrides{Model: "unsafe-but-tiny"})
+	rec := Pick(profileWithEnvelope(64<<30), testCatalog(), Overrides{Model: "unsafe-but-tiny"}, MemoryInputs{})
 	if rec.Model != "unsafe-but-tiny" {
 		t.Fatalf("override of unsafe model not honored, got %q", rec.Model)
 	}
@@ -153,7 +154,7 @@ func TestOverrideUnsafeAllowedWithWarning(t *testing.T) {
 // TestOverrideHugeCtxRevalidatedAndFails asserts an override that breaks the fit
 // sets Fits=false with a warning Note (D-07).
 func TestOverrideHugeCtxRevalidatedAndFails(t *testing.T) {
-	rec := Pick(profileWithEnvelope(64<<30), testCatalog(), Overrides{Model: "large", Ctx: 100_000_000})
+	rec := Pick(profileWithEnvelope(64<<30), testCatalog(), Overrides{Model: "large", Ctx: 100_000_000}, MemoryInputs{})
 	if rec.Model != "large" {
 		t.Fatalf("override model not honored, got %q", rec.Model)
 	}
@@ -175,7 +176,7 @@ func TestDegradedFloorWhenEnvelopeUnknown(t *testing.T) {
 		TotalRAMBytes:       detect.KnownBytes(128<<30, "ghw"),
 		UsableEnvelopeBytes: detect.UnknownBytes("envelope unreadable", ""),
 	}
-	rec := Pick(p, testCatalog(), Overrides{})
+	rec := Pick(p, testCatalog(), Overrides{}, MemoryInputs{})
 	if !rec.Degraded {
 		t.Errorf("expected Degraded=true on Unknown envelope")
 	}
@@ -197,7 +198,7 @@ func TestRefusalWhenNoFloor(t *testing.T) {
 		TotalRAMBytes:       detect.UnknownBytes("ram unknown", ""),
 		UsableEnvelopeBytes: detect.UnknownBytes("envelope unknown", ""),
 	}
-	rec := Pick(p, testCatalog(), Overrides{})
+	rec := Pick(p, testCatalog(), Overrides{}, MemoryInputs{})
 	if rec.Model != "" {
 		t.Errorf("expected refusal (empty Model), got %q", rec.Model)
 	}
@@ -257,7 +258,7 @@ func TestPickROCmAdviceDerivation(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			p := profileWithEnvelope(64 << 30)
 			p.ROCmReadiness = c.readiness
-			rec := Pick(p, testCatalog(), Overrides{})
+			rec := Pick(p, testCatalog(), Overrides{}, MemoryInputs{})
 
 			if rec.ROCmAdvice != c.wantAdvice {
 				t.Errorf("ROCmAdvice = %q, want %q", rec.ROCmAdvice, c.wantAdvice)
@@ -294,7 +295,7 @@ func TestPickROCmAdviceDerivation(t *testing.T) {
 func TestPickROCmAdviceNoteHonorsHonesty(t *testing.T) {
 	p := profileWithEnvelope(64 << 30)
 	p.ROCmReadiness = readinessAllGood()
-	rec := Pick(p, testCatalog(), Overrides{})
+	rec := Pick(p, testCatalog(), Overrides{}, MemoryInputs{})
 
 	if rec.ROCmAdvice != ROCmAdviceWorthTrying {
 		t.Fatalf("precondition: ROCmAdvice = %q, want worth-trying", rec.ROCmAdvice)
@@ -318,12 +319,162 @@ func TestPickROCmAdviceNoteHonorsHonesty(t *testing.T) {
 // fabricated worth-trying, and the Backend stays vulkan.
 func TestPickROCmAdviceEmptyWhenReadinessUnset(t *testing.T) {
 	p := profileWithEnvelope(64 << 30) // default ROCmReadiness: all fields zero/unset
-	rec := Pick(p, testCatalog(), Overrides{})
+	rec := Pick(p, testCatalog(), Overrides{}, MemoryInputs{})
 	if rec.ROCmAdvice != ROCmAdviceVerifyBench {
 		t.Errorf("off-hardware ROCmAdvice = %q, want verify-with-bench", rec.ROCmAdvice)
 	}
 	if rec.Backend != "vulkan" {
 		t.Errorf("Backend = %q, want vulkan", rec.Backend)
+	}
+}
+
+// TestPickMemoryReservation is the D-01/D-02/D-03 reservation matrix: memory off
+// (zero-value MemoryInputs) leaves the math byte-identical with zero/false new
+// fields; a pinned embedding model shrinks the envelope BEFORE the fit by exactly
+// its footprint; an unrecognized model id reserves the conservative default with
+// an honest "RESERVED CONSERVATIVELY" note naming the model (never a silent 0);
+// a reservation >= envelope clamps to 0 and triggers the existing no-fit refusal
+// (never uint64 wraparound). SchemaVersion is stamped 2 on every path.
+func TestPickMemoryReservation(t *testing.T) {
+	const env = uint64(64 << 30)
+	const pinnedModel = "nomic-embed-text-v1.5"
+	const pinnedFootprint = uint64(536870912) // 512 MiB — the D-08 pinned reservation
+	cat := testCatalog()
+
+	t.Run("memory off: zero-value inputs leave envelope untouched, fields zero/false", func(t *testing.T) {
+		rec := Pick(profileWithEnvelope(env), cat, Overrides{}, MemoryInputs{})
+		if rec.UsableEnvelopeBytes != env {
+			t.Errorf("UsableEnvelopeBytes = %d, want untouched %d (memory off must be byte-identical math)", rec.UsableEnvelopeBytes, env)
+		}
+		if rec.EmbeddingReservationBytes != 0 {
+			t.Errorf("EmbeddingReservationBytes = %d, want 0 when memory is off", rec.EmbeddingReservationBytes)
+		}
+		if rec.MemoryConsidered {
+			t.Errorf("MemoryConsidered = true, want false when memory is off")
+		}
+		if rec.SchemaVersion != 2 {
+			t.Errorf("SchemaVersion = %d, want 2 (D-03 bump)", rec.SchemaVersion)
+		}
+		if hasNote(rec.Notes, "RESERVED CONSERVATIVELY") {
+			t.Errorf("memory-off pick must carry no D-02 note, got %v", rec.Notes)
+		}
+	})
+
+	t.Run("pinned model shrinks envelope by exactly the pinned footprint", func(t *testing.T) {
+		mem := MemoryInputs{Enabled: true, EmbeddingModel: pinnedModel}
+		rec := Pick(profileWithEnvelope(env), cat, Overrides{}, mem)
+		if want := env - pinnedFootprint; rec.UsableEnvelopeBytes != want {
+			t.Errorf("UsableEnvelopeBytes = %d, want envelope−footprint %d (envelope shrinks FIRST, SC#1)", rec.UsableEnvelopeBytes, want)
+		}
+		if rec.EmbeddingReservationBytes != pinnedFootprint {
+			t.Errorf("EmbeddingReservationBytes = %d, want %d", rec.EmbeddingReservationBytes, pinnedFootprint)
+		}
+		if !rec.MemoryConsidered {
+			t.Errorf("MemoryConsidered = false, want true when memory is on")
+		}
+		if hasNote(rec.Notes, "RESERVED CONSERVATIVELY") {
+			t.Errorf("pinned-model reservation must not carry the D-02 conservative note, got %v", rec.Notes)
+		}
+		// The fit verdict + OOM guard must be computed against the SHRUNKEN value.
+		if rec.Model == "" {
+			t.Fatalf("expected a pick at %d bytes shrunken envelope, got refusal: %v", rec.UsableEnvelopeBytes, rec.Notes)
+		}
+		if rec.TotalBytes > rec.UsableEnvelopeBytes {
+			t.Errorf("OOM GUARD violated against shrunken envelope: total %d > %d", rec.TotalBytes, rec.UsableEnvelopeBytes)
+		}
+	})
+
+	t.Run("unrecognized model reserves the conservative default with an honest note", func(t *testing.T) {
+		mem := MemoryInputs{Enabled: true, EmbeddingModel: "mystery-embedder"}
+		rec := Pick(profileWithEnvelope(env), cat, Overrides{}, mem)
+		if want := memory.ConservativeFootprintBytes(); rec.EmbeddingReservationBytes != want {
+			t.Errorf("EmbeddingReservationBytes = %d, want conservative default %d (D-02 — never a silent 0)", rec.EmbeddingReservationBytes, want)
+		}
+		if !rec.MemoryConsidered {
+			t.Errorf("MemoryConsidered = false, want true")
+		}
+		if !hasNote(rec.Notes, "RESERVED CONSERVATIVELY") {
+			t.Errorf("expected the D-02 conservative-reservation note, got %v", rec.Notes)
+		}
+		if !hasNote(rec.Notes, "mystery-embedder") {
+			t.Errorf("D-02 note must name the unrecognized model id, got %v", rec.Notes)
+		}
+	})
+
+	t.Run("reservation >= envelope clamps to 0 and refuses honestly (no wraparound)", func(t *testing.T) {
+		mem := MemoryInputs{Enabled: true, EmbeddingModel: pinnedModel}
+		rec := Pick(profileWithEnvelope(256<<20), cat, Overrides{}, mem) // 256 MiB < 512 MiB reservation
+		if rec.Model != "" {
+			t.Errorf("expected the no-fit refusal (empty Model), got %q", rec.Model)
+		}
+		if rec.UsableEnvelopeBytes != 0 {
+			t.Errorf("UsableEnvelopeBytes = %d, want 0 (clamped — a uint64 wrap would be enormous)", rec.UsableEnvelopeBytes)
+		}
+		if !hasNote(rec.Notes, "no catalog model fits") {
+			t.Errorf("expected the existing no-fit refusal note, got %v", rec.Notes)
+		}
+		if rec.EmbeddingReservationBytes != pinnedFootprint {
+			t.Errorf("EmbeddingReservationBytes = %d, want %d (honest surface even on refusal)", rec.EmbeddingReservationBytes, pinnedFootprint)
+		}
+		if !rec.MemoryConsidered {
+			t.Errorf("MemoryConsidered = false, want true on a memory-on refusal")
+		}
+	})
+}
+
+// TestPickOverrideWeightInvariance guards the frozen status path (Pitfall 3):
+// for an explicit --model override, WeightBytes and KVCacheBytes are
+// envelope-independent — identical with and without memory inputs — so threading
+// zero-value inputs through liveWeightBytes provably keeps status.json.golden
+// byte-identical.
+func TestPickOverrideWeightInvariance(t *testing.T) {
+	cat := testCatalog()
+	p := profileWithEnvelope(64 << 30)
+	ov := Overrides{Model: "mid"}
+	recOff := Pick(p, cat, ov, MemoryInputs{})
+	recOn := Pick(p, cat, ov, MemoryInputs{Enabled: true, EmbeddingModel: "nomic-embed-text-v1.5"})
+	if recOff.WeightBytes != recOn.WeightBytes {
+		t.Errorf("WeightBytes changed with memory inputs: off %d vs on %d (must be envelope-independent)", recOff.WeightBytes, recOn.WeightBytes)
+	}
+	if recOff.KVCacheBytes != recOn.KVCacheBytes {
+		t.Errorf("KVCacheBytes changed with memory inputs: off %d vs on %d (must be envelope-independent)", recOff.KVCacheBytes, recOn.KVCacheBytes)
+	}
+}
+
+// TestPickRefusalStampsMemoryFields asserts finalizeRecommendation stamps the
+// D-03 fields on the no-envelope refusal path too: memory-on refusals report
+// MemoryConsidered=true and the reservation as computed (honest surface);
+// memory-off refusals report zero/false. SchemaVersion is 2 on both.
+func TestPickRefusalStampsMemoryFields(t *testing.T) {
+	p := detect.HostProfile{
+		TotalRAMBytes:       detect.UnknownBytes("ram unknown", ""),
+		UsableEnvelopeBytes: detect.UnknownBytes("envelope unknown", ""),
+	}
+	cat := testCatalog()
+
+	off := Pick(p, cat, Overrides{}, MemoryInputs{})
+	if off.Model != "" {
+		t.Fatalf("precondition: expected refusal, got %q", off.Model)
+	}
+	if off.EmbeddingReservationBytes != 0 || off.MemoryConsidered {
+		t.Errorf("memory-off refusal must stamp zero/false, got reservation=%d considered=%v", off.EmbeddingReservationBytes, off.MemoryConsidered)
+	}
+	if off.SchemaVersion != 2 {
+		t.Errorf("refusal SchemaVersion = %d, want 2", off.SchemaVersion)
+	}
+
+	on := Pick(p, cat, Overrides{}, MemoryInputs{Enabled: true, EmbeddingModel: "mystery-embedder"})
+	if on.Model != "" {
+		t.Fatalf("precondition: expected refusal, got %q", on.Model)
+	}
+	if !on.MemoryConsidered {
+		t.Errorf("memory-on refusal must report MemoryConsidered=true")
+	}
+	if want := memory.ConservativeFootprintBytes(); on.EmbeddingReservationBytes != want {
+		t.Errorf("memory-on refusal reservation = %d, want as-computed %d (honest surface)", on.EmbeddingReservationBytes, want)
+	}
+	if on.SchemaVersion != 2 {
+		t.Errorf("refusal SchemaVersion = %d, want 2", on.SchemaVersion)
 	}
 }
 
