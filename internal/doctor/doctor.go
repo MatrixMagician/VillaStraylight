@@ -27,9 +27,6 @@
 package doctor
 
 import (
-	"slices"
-	"strings"
-
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
 	"github.com/MatrixMagician/VillaStraylight/internal/inference"
@@ -143,20 +140,6 @@ type Deps struct {
 	// nil (e.g. the newDoctorDeps test double, or a non-ROCm backend), Aggregate falls
 	// back to preflight.RunROCm(profile) exactly as before.
 	RunROCmImage func(detect.HostProfile) []preflight.CheckResult
-	// MemoryEnabled reports whether the persisted memory stack is opted in
-	// (config memory_enabled, D-08). ZERO-SAFE: false (the memory-off default)
-	// leaves the memory-service offload down-rank inert, so memory-off doctor
-	// output is byte-identical (mirror D-06).
-	MemoryEnabled bool
-	// MemoryServices are the systemd `.service` names of the memory-stack managed
-	// services (villa-qdrant/villa-embed), supplied by the cmd tier from the
-	// orchestrate accessors (QdrantContainerUnitName/EmbedContainerUnitName, with
-	// .container → .service — the same derivation the status fold uses) — NEVER
-	// typed literals in this package (the ID-string-not-marker precedent at the
-	// idROCm* consts above). They key the non-GPU offload down-rank predicate
-	// (D-08, Pitfall 1): an `offload:<svc>` WARN on one of these services is
-	// visible but non-rank-raising. ZERO-SAFE: empty disables the down-rank.
-	MemoryServices []string
 	// RunMemoryChecks is the opt-in memory host gate (preflight.RunMemory bound by
 	// the cmd tier — D-08, composition over re-implementation): the vector-disk +
 	// embedder-headroom CheckResults are folded via findingFromCheck and ranked
@@ -356,39 +339,18 @@ func Aggregate(d Deps) Report {
 	superseded := func(f Finding) bool {
 		return rocmResidencyProven && f.Status == statusWarn && supersededROCmHostPrepID(f.ID)
 	}
-	// 4b. MEMORY-SERVICE OFFLOAD DOWN-RANK (Pitfall 1, Research Open Question 3 —
-	// resolved as down-rank-but-visible, mirroring the supersession shape above):
-	// villa-qdrant/villa-embed are non-GPU managed services, yet the status fold
-	// reports a typed-Unknown offload WARN for them (their journals carry no
-	// chat-model load_tensors line; the status-side N/A fix is Phase 23), which
-	// would make doctor PASS unreachable on a perfectly healthy memory-on stack.
-	// An `offload:<svc>` finding whose service is one of the Deps-supplied
-	// MemoryServices AND whose Status==statusWarn is kept VISIBLE in Findings but
-	// contributes nothing to the worst-wins rank.
-	//
-	// HARD NO-FALSE-GREEN INVARIANT (DOCTOR-02): the predicate is the CONJUNCTION
-	// (memory on) AND (offload: prefix + service ∈ MemoryServices) AND
-	// (Status==statusWarn). A confident Status==statusFail on the SAME service —
-	// a real CPU fallback / GPU fault on a memory container — is NEVER suppressed
-	// and still folds to FAIL. The suppression touches nothing else: health rows,
-	// drift, loopback, checks, and the chat service's offload all rank as before.
-	memoryOffloadDownRanked := func(f Finding) bool {
-		if !d.MemoryEnabled || f.Status != statusWarn {
-			return false
-		}
-		svc, ok := strings.CutPrefix(f.ID, "offload:")
-		if !ok {
-			return false
-		}
-		return slices.Contains(d.MemoryServices, svc)
-	}
+	// (Historical 4b: a MEMORY-SERVICE OFFLOAD DOWN-RANK predicate lived here while
+	// the status fold mis-classified villa-qdrant/villa-embed as GPU rows carrying a
+	// typed-Unknown offload WARN. Phase 23 (Plan 23-01) fixed the classification at
+	// the source: memory rows are OffloadApplies=false in status.Run, so the
+	// offloadFinding gate above (`if s.OffloadApplies`) never creates an
+	// offload:<memory-svc> finding and the down-rank was unreachable dead code —
+	// deleted, together with the MemoryEnabled/MemoryServices Deps fields that
+	// existed only to key it.)
 	worst := 0
 	for _, f := range findings {
 		if superseded(f) {
 			continue // visible but non-rank-raising under proven ROCm residency
-		}
-		if memoryOffloadDownRanked(f) {
-			continue // visible but non-rank-raising: non-GPU memory-service offload WARN
 		}
 		if r := statusRank(f.Status); r > worst {
 			worst = r

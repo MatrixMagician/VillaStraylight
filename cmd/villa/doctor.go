@@ -197,24 +197,19 @@ func liveDoctorDeps() (doctor.Deps, error) {
 		}
 	}
 	// Memory seams (D-08/D-09, mirroring the rocmImageGate conditional shape):
-	// bound ONLY when the persisted memory stack is opted in; all four stay
-	// zero/nil when off so the memory-off doctor output is byte-identical
-	// (mirror D-06). The service names come from the orchestrate accessors
-	// (QdrantContainerUnitName/EmbedContainerUnitName) converted via the same
-	// .container → .service derivation the status fold uses — never a typed
-	// service-name literal here.
+	// bound ONLY when the persisted memory stack is opted in; both stay nil when
+	// off so the memory-off doctor output is byte-identical (mirror D-06). The
+	// embed service name comes from the orchestrate accessor converted via the
+	// same .container → .service derivation the status fold uses — never a typed
+	// service-name literal here. (The old MemoryEnabled/MemoryServices Deps
+	// wiring was removed with the doctor offload down-rank — Plan 23-01: memory
+	// rows are OffloadApplies=false at the status source, so no offload finding
+	// exists to down-rank.)
 	var (
-		memEnabled  bool
-		memServices []string
-		memChecks   func(detect.HostProfile) []preflight.CheckResult
-		memProof    func() inference.Verdict
+		memChecks func(detect.HostProfile) []preflight.CheckResult
+		memProof  func() inference.Verdict
 	)
 	if cfg.MemoryEnabled {
-		memEnabled = true
-		memServices = []string{
-			unitServiceName(orchestrate.QdrantContainerUnitName()),
-			unitServiceName(orchestrate.EmbedContainerUnitName()),
-		}
 		embeddingModel := cfg.EmbeddingModel
 		embedService := unitServiceName(orchestrate.EmbedContainerUnitName())
 		// D-08 composition over re-implementation: the memory host gate IS
@@ -244,8 +239,6 @@ func liveDoctorDeps() (doctor.Deps, error) {
 		StatusReport:       func() status.Report { return status.Run(*sd) },
 		Backend:            cfg.Backend,
 		RunROCmImage:       rocmImageGate,
-		MemoryEnabled:      memEnabled,
-		MemoryServices:     memServices,
 		RunMemoryChecks:    memChecks,
 		ResidencyUnderLoad: memProof,
 		// DriftPlan: render units from the persisted config, resolve the backend

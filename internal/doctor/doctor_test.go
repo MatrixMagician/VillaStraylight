@@ -336,9 +336,9 @@ func TestDriftReadErrorDegrades(t *testing.T) {
 var memoryServiceNames = []string{"villa-qdrant.service", "villa-embed.service"}
 
 // memoryOnStatusReport extends healthyStatusReport with the two memory services as the
-// status fold REALLY reports them today (Pitfall 1, Phase-20 UAT): active + HealthReady
-// but carrying a typed-Unknown offload WARN (their journals have no chat-model
-// load_tensors line), with OffloadApplies=true — the status-side N/A fix is Phase 23.
+// Phase-23 v3 status fold reports them (Plan 23-01): active, their OWN per-service
+// health, and the N/A offload representation with OffloadApplies=false — the source
+// classification fix that made doctor's old offload down-rank unreachable.
 func memoryOnStatusReport() status.Report {
 	r := healthyStatusReport()
 	for _, svc := range memoryServiceNames {
@@ -346,11 +346,15 @@ func memoryOnStatusReport() status.Report {
 			Service: svc,
 			Active:  "active",
 			Health:  status.HealthReady,
+			// Phase-23 v3 classification (Plan 23-01): memory services are non-GPU
+			// rows — their own per-service health, an N/A offload Verdict, and
+			// OffloadApplies=false so doctor's offloadFinding gate never fires.
 			Offload: inference.Verdict{
-				Status: inference.StatusWarn,
-				Detail: "residency could not be confirmed from the journal (no load_tensors buffer line)",
+				Status:     inference.StatusWarn,
+				Detail:     "N/A — this service has no GPU offload",
+				Provenance: "not an inference service (no llama-server residency to assert)",
 			},
-			OffloadApplies: true,
+			OffloadApplies: false,
 			OffloadOK:      false,
 		})
 	}
@@ -368,8 +372,6 @@ func memoryOnStatusReport() status.Report {
 // The memory fold + down-rank predicate under test are backend-independent.
 func memoryDoctorDeps() Deps {
 	d := rocmDoctorDeps()
-	d.MemoryEnabled = true
-	d.MemoryServices = memoryServiceNames
 	d.StatusReport = func() status.Report { return memoryOnStatusReport() }
 	d.RunMemoryChecks = func(detect.HostProfile) []preflight.CheckResult {
 		return []preflight.CheckResult{
@@ -505,25 +507,23 @@ func TestResidencyUnderLoadWarnDegrades(t *testing.T) {
 	}
 }
 
-// TestHealthyMemoryOnOverallPass is the Pitfall 1 resolution (Research Open Question 3
-// — down-rank-but-visible): on a perfectly healthy memory-on stack — all checks PASS,
-// proof PASS, every health ready, chat offload proven — the typed-Unknown offload WARNs
-// the status fold reports for villa-qdrant/villa-embed are DOWN-RANKED (visible but
-// non-rank-raising), so Overall == PASS instead of today's spurious WARN.
+// TestHealthyMemoryOnOverallPass is the Pitfall 1 resolution, now solved at the SOURCE
+// (Plan 23-01): the v3 status fold classifies villa-qdrant/villa-embed as non-GPU rows
+// (OffloadApplies=false), so doctor's offloadFinding gate never creates an
+// offload:<memory-svc> finding at all — no down-rank needed — and a perfectly healthy
+// memory-on stack reaches Overall == PASS. Their HEALTH findings remain (the honest
+// per-service signal the false-green fix introduced).
 func TestHealthyMemoryOnOverallPass(t *testing.T) {
 	r := Aggregate(memoryDoctorDeps())
 	if r.Overall != "PASS" {
-		t.Fatalf("Overall = %q, want PASS (healthy memory-on stack; memory-service offload WARNs must be down-ranked)", r.Overall)
+		t.Fatalf("Overall = %q, want PASS (healthy memory-on stack; non-GPU memory rows emit no offload finding)", r.Overall)
 	}
-	// Visibility preserved: the down-rank suppresses rank contribution, NOT the finding.
 	for _, svc := range memoryServiceNames {
-		f, ok := findingByID(r, "offload:"+svc)
-		if !ok {
-			t.Errorf("expected down-ranked offload finding for %q to remain VISIBLE; findings: %+v", svc, r.Findings)
-			continue
+		if f, ok := findingByID(r, "offload:"+svc); ok {
+			t.Errorf("memory service %q must emit NO offload finding (OffloadApplies=false since the v3 fix); got %+v", svc, f)
 		}
-		if f.Status != "WARN" {
-			t.Errorf("offload:%s status = %q, want WARN (down-rank must not rewrite the status)", svc, f.Status)
+		if f, ok := findingByID(r, "health:"+svc); !ok || f.Status != "PASS" {
+			t.Errorf("expected a PASS health finding for %q (per-service health is the honest signal); got %+v (found=%v)", svc, f, ok)
 		}
 	}
 	if f, ok := findingByID(r, "MEM-DOC-residency"); !ok || f.Status != "PASS" {
@@ -531,33 +531,33 @@ func TestHealthyMemoryOnOverallPass(t *testing.T) {
 	}
 }
 
-// TestMemoryOffloadFailNotSuppressed is the no-false-green half of the down-rank
-// (DOCTOR-02): the predicate is the CONJUNCTION (offload:<svc> with svc in
-// MemoryServices) AND (Status==WARN) — a CONFIDENT offload FAIL on the very same
-// memory service is NEVER suppressed and still folds Overall to FAIL.
-func TestMemoryOffloadFailNotSuppressed(t *testing.T) {
+// TestMemoryServiceDownWarns is the negative control of the v3 reclassification: a
+// stopped villa-embed surfaces through its HEALTH finding (down → WARN — a down
+// stack is an expected operational state, D-08), never a false PASS and never an
+// offload finding.
+func TestMemoryServiceDownWarns(t *testing.T) {
 	d := memoryDoctorDeps()
 	d.StatusReport = func() status.Report {
 		r := memoryOnStatusReport()
 		for i := range r.Services {
-			if r.Services[i].Service == "villa-qdrant.service" {
-				r.Services[i].Offload = inference.Verdict{
-					Status:      inference.StatusFail,
-					Detail:      "only a CPU model buffer was loaded — server fell back to CPU",
-					Remediation: "check backend residency",
-				}
+			if r.Services[i].Service == "villa-embed.service" {
+				r.Services[i].Active = "inactive"
+				r.Services[i].Health = status.HealthDown
 			}
 		}
 		return r
 	}
 
 	r := Aggregate(d)
-	if r.Overall != "FAIL" {
-		t.Fatalf("Overall = %q, want FAIL (a confident offload FAIL on a memory service must NEVER be down-ranked — DOCTOR-02)", r.Overall)
+	if r.Overall != "WARN" {
+		t.Fatalf("Overall = %q, want WARN (a down memory service degrades via its health finding)", r.Overall)
 	}
-	f, ok := findingByID(r, "offload:villa-qdrant.service")
-	if !ok || f.Status != "FAIL" {
-		t.Errorf("expected a visible FAIL offload finding for villa-qdrant.service; got %+v (found=%v)", f, ok)
+	f, ok := findingByID(r, "health:villa-embed.service")
+	if !ok || f.Status != "WARN" {
+		t.Errorf("expected a WARN health finding for the stopped villa-embed.service; got %+v (found=%v)", f, ok)
+	}
+	if f, ok := findingByID(r, "offload:villa-embed.service"); ok {
+		t.Errorf("a memory service must never emit an offload finding; got %+v", f)
 	}
 }
 

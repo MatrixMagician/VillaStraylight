@@ -16,7 +16,6 @@ import (
 	"testing"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/doctor"
-	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 )
 
 // healthyReport is an all-PASS fixture (Overall PASS → exit 0).
@@ -148,11 +147,13 @@ func TestDoctorJSON(t *testing.T) {
 	assertGolden(t, "doctor.json.golden", buf.Bytes())
 }
 
-// memoryHealthyReport is the healthy MEMORY-ON shape (Phase 22-03, Pitfall 1 resolved):
-// memory checks PASS, the under-load residency proof PASS, and the two memory-service
-// offload WARNs DOWN-RANKED but still VISIBLE — Overall=="PASS" → exit 0. The fixture
-// mirrors what doctor.Aggregate emits on a healthy memory-on stack; findings are data,
-// not schema, so SchemaVersion stays 1.
+// memoryHealthyReport is the healthy MEMORY-ON shape (Phase-23 v3 classification,
+// Plan 23-01): memory checks PASS, the under-load residency proof PASS, and the two
+// memory services carrying ONLY their per-service health findings — no offload
+// findings exist for them (the status fold reports OffloadApplies=false non-GPU
+// rows, so doctor's offloadFinding gate never fires) — Overall=="PASS" → exit 0.
+// The fixture mirrors what doctor.Aggregate emits on a healthy memory-on stack;
+// findings are data, not schema, so SchemaVersion stays 1.
 func memoryHealthyReport() doctor.Report {
 	return doctor.Report{
 		Findings: []doctor.Finding{
@@ -162,9 +163,7 @@ func memoryHealthyReport() doctor.Report {
 			{ID: "health:villa-llama.service", Name: "villa-llama.service health", Tier: "WARN", Status: "PASS", Detail: "/health is ready (200)", Provenance: "status.Report.Services[].Health"},
 			{ID: "offload:villa-llama.service", Name: "villa-llama.service GPU offload", Tier: "BLOCK", Status: "PASS", Detail: "residency proven on Vulkan; GTT floor corroborated", Provenance: "status.Report.Services[].Offload (inference.RunningOffloadVerdict)"},
 			{ID: "health:villa-qdrant.service", Name: "villa-qdrant.service health", Tier: "WARN", Status: "PASS", Detail: "/health is ready (200)", Provenance: "status.Report.Services[].Health"},
-			{ID: "offload:villa-qdrant.service", Name: "villa-qdrant.service GPU offload", Tier: "WARN", Status: "WARN", Detail: "residency could not be confirmed from the journal (no load_tensors buffer line)", Remediation: "offload could not be verified — ensure the stack is running, then re-run `villa doctor`", Provenance: "status.Report.Services[].Offload (inference.RunningOffloadVerdict)"},
 			{ID: "health:villa-embed.service", Name: "villa-embed.service health", Tier: "WARN", Status: "PASS", Detail: "/health is ready (200)", Provenance: "status.Report.Services[].Health"},
-			{ID: "offload:villa-embed.service", Name: "villa-embed.service GPU offload", Tier: "WARN", Status: "WARN", Detail: "residency could not be confirmed from the journal (no load_tensors buffer line)", Remediation: "offload could not be verified — ensure the stack is running, then re-run `villa doctor`", Provenance: "status.Report.Services[].Offload (inference.RunningOffloadVerdict)"},
 			{ID: "MEM-DOC-residency", Name: "Chat-model residency under embedding load", Tier: "BLOCK", Status: "PASS", Detail: "chat-model device buffer 21504.49 MiB resident on the iGPU; GTT-used floor corroborated mid-drive", Provenance: "embed-load drive + inference.RunningOffloadVerdict"},
 			{ID: "drift", Name: "Config-vs-disk drift", Tier: "WARN", Status: "PASS", Detail: "on-disk units match the rendered-from-config units", Provenance: "orchestrate.Reconcile (empty Plan.Changed)"},
 		},
@@ -175,7 +174,7 @@ func memoryHealthyReport() doctor.Report {
 
 // memoryResidencyFailReport flips the under-load proof to a confident CPU-fallback
 // FAIL (D-09): MEM-DOC-residency becomes a BLOCK-class FAIL with remediation and
-// Overall=="FAIL" → exitBlocked. The down-ranked memory offload WARNs stay visible.
+// Overall=="FAIL" → exitBlocked.
 func memoryResidencyFailReport() doctor.Report {
 	r := memoryHealthyReport()
 	for i := range r.Findings {
@@ -189,10 +188,11 @@ func memoryResidencyFailReport() doctor.Report {
 	return r
 }
 
-// TestDoctorMemoryRender freezes the ADDITIVE memory-on render shapes (Phase 22-03):
-// a healthy memory-on report (down-ranked offload WARNs visible, Overall PASS → exit
-// 0) and a confident under-load residency FAIL (Overall FAIL → exitBlocked). NEW
-// goldens only — the existing doctor goldens are untouched (memory-off byte-identical).
+// TestDoctorMemoryRender freezes the memory-on render shapes (re-frozen in Plan 23-01
+// with the v3 classification: memory services emit health findings only, no offload
+// findings): a healthy memory-on report (Overall PASS → exit 0) and a confident
+// under-load residency FAIL (Overall FAIL → exitBlocked). The memory-off doctor
+// goldens are untouched (memory-off byte-identical).
 func TestDoctorMemoryRender(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -227,12 +227,12 @@ func TestDoctorMemoryJSON(t *testing.T) {
 	assertGolden(t, "doctor-memory.json.golden", buf.Bytes())
 }
 
-// TestLiveDoctorDepsWiresMemorySeams asserts liveDoctorDeps binds the four memory
-// seams ONLY when the persisted memory_enabled is true (D-08/D-09, mirror D-06):
-// memory off (absent config) → all four zero/nil so the memory-off doctor output is
-// byte-identical; memory on → all four bound, with MemoryServices derived from the
-// orchestrate accessors (.container → .service), never typed literals. It inspects
-// only the constructed Deps fields — it never invokes the live host probes.
+// TestLiveDoctorDepsWiresMemorySeams asserts liveDoctorDeps binds the memory seams
+// ONLY when the persisted memory_enabled is true (D-08/D-09, mirror D-06): memory
+// off (absent config) → both nil so the memory-off doctor output is byte-identical;
+// memory on → both bound. (The old MemoryEnabled/MemoryServices wiring assertions
+// were removed with the doctor offload down-rank — Plan 23-01.) It inspects only
+// the constructed Deps fields — it never invokes the live host probes.
 func TestLiveDoctorDepsWiresMemorySeams(t *testing.T) {
 	cases := []struct {
 		name      string
@@ -260,34 +260,11 @@ func TestLiveDoctorDepsWiresMemorySeams(t *testing.T) {
 			if err != nil {
 				t.Fatalf("liveDoctorDeps() error = %v", err)
 			}
-			if d.MemoryEnabled != tc.wantBound {
-				t.Errorf("MemoryEnabled = %v, want %v", d.MemoryEnabled, tc.wantBound)
-			}
 			if got := d.RunMemoryChecks != nil; got != tc.wantBound {
 				t.Errorf("RunMemoryChecks non-nil = %v, want %v", got, tc.wantBound)
 			}
 			if got := d.ResidencyUnderLoad != nil; got != tc.wantBound {
 				t.Errorf("ResidencyUnderLoad non-nil = %v, want %v", got, tc.wantBound)
-			}
-			if !tc.wantBound {
-				if len(d.MemoryServices) != 0 {
-					t.Errorf("MemoryServices = %v, want empty on the memory-off path", d.MemoryServices)
-				}
-				return
-			}
-			// The .service names must derive from the orchestrate accessors via the
-			// .container → .service conversion the status fold uses.
-			want := []string{
-				unitServiceName(orchestrate.QdrantContainerUnitName()),
-				unitServiceName(orchestrate.EmbedContainerUnitName()),
-			}
-			if len(d.MemoryServices) != len(want) {
-				t.Fatalf("MemoryServices = %v, want %v", d.MemoryServices, want)
-			}
-			for i := range want {
-				if d.MemoryServices[i] != want[i] {
-					t.Errorf("MemoryServices[%d] = %q, want %q", i, d.MemoryServices[i], want[i])
-				}
 			}
 		})
 	}

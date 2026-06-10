@@ -55,15 +55,6 @@
       "provenance": "status.Report.Services[].Health"
     },
     {
-      "id": "offload:villa-qdrant.service",
-      "name": "villa-qdrant.service GPU offload",
-      "tier": "WARN",
-      "status": "WARN",
-      "detail": "residency could not be confirmed from the journal (no load_tensors buffer line)",
-      "remediation": "offload could not be verified — ensure the stack is running, then re-run `villa doctor`",
-      "provenance": "status.Report.Services[].Offload (inference.RunningOffloadVerdict)"
-    },
-    {
       "id": "health:villa-embed.service",
       "name": "villa-embed.service health",
       "tier": "WARN",
@@ -71,15 +62,6 @@
       "detail": "/health is ready (200)",
       "remediation": "",
       "provenance": "status.Report.Services[].Health"
-    },
-    {
-      "id": "offload:villa-embed.service",
-      "name": "villa-embed.service GPU offload",
-      "tier": "WARN",
-      "status": "WARN",
-      "detail": "residency could not be confirmed from the journal (no load_tensors buffer line)",
-      "remediation": "offload could not be verified — ensure the stack is running, then re-run `villa doctor`",
-      "provenance": "status.Report.Services[].Offload (inference.RunningOffloadVerdict)"
     },
     {
       "id": "MEM-DOC-residency",

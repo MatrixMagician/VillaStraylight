@@ -17,6 +17,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
 	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
+	"github.com/MatrixMagician/VillaStraylight/internal/recall"
 	"github.com/MatrixMagician/VillaStraylight/internal/status"
 )
 
@@ -314,6 +315,98 @@ func TestStatusJSONGolden(t *testing.T) {
 	}
 	if !bytes.Equal(out.Bytes(), want) {
 		t.Errorf("status --json does not match golden.\n--- got ---\n%s\n--- want ---\n%s", out.String(), want)
+	}
+}
+
+// memoryStatusCfg is the memory-ON config fixture for the v3 memory golden:
+// the standard qwen3/vulkan install plus the typed memory defaults (sourced
+// from config.DefaultVillaConfig — never re-typed literals).
+func memoryStatusCfg() config.VillaConfig {
+	cfg := config.DefaultVillaConfig()
+	cfg.Model = "qwen3"
+	cfg.Quant = "Q4"
+	cfg.Ctx = 131072
+	cfg.MemoryEnabled = true
+	return cfg
+}
+
+// memoryLoopbackUnits renders the REAL memory-on stack so the frozen fixture
+// walks genuine villa-qdrant/villa-embed container units (Pitfall 8 coherence:
+// cfg.MemoryEnabled=true paired with render output containing the memory units).
+func memoryLoopbackUnits(t *testing.T) []orchestrate.Unit {
+	t.Helper()
+	units, err := orchestrate.Render(orchestrate.RenderInput{
+		Backend:   inference.VulkanBackend(),
+		Cfg:       memoryStatusCfg(),
+		ModelFile: "qwen3.gguf",
+		ModelsDir: "/home/villa/.local/share/villa/models",
+	})
+	if err != nil {
+		t.Fatalf("render memory-on: %v", err)
+	}
+	return units
+}
+
+// newMemoryStatusDeps builds the memory-ON stubbed deps for the v3 golden: the
+// base healthy stubs plus the memory-on config/units, per-service health seam
+// stubs, the orchestrate-derived memory service names, and a complete-run
+// recall state (deterministic timestamps so the golden is byte-stable).
+func newMemoryStatusDeps(t *testing.T) *status.Deps {
+	t.Helper()
+	d := newStatusDeps(t, memoryLoopbackUnits(t))
+	d.LoadConfig = func() (config.VillaConfig, error) { return memoryStatusCfg(), nil }
+	d.QdrantService = unitServiceName(orchestrate.QdrantContainerUnitName())
+	d.EmbedService = unitServiceName(orchestrate.EmbedContainerUnitName())
+	d.QdrantHealth = func(string, int) status.HealthState { return status.HealthReady }
+	d.EmbedHealth = func(string, int) status.HealthState { return status.HealthReady }
+	d.ReadRecallState = func() *recall.State {
+		return &recall.State{
+			EmbeddingModel:       "nomic-embed-text-v1.5",
+			EmbeddingDim:         768,
+			LastIndexStartedAt:   "2026-06-09T10:00:00Z",
+			LastIndexCompletedAt: "2026-06-09T10:05:00Z",
+			Chats: map[string]recall.ChatState{
+				"chat-1": {UserID: "u1", OWUIUpdatedAt: 1, FileID: "f1", IndexedAt: "2026-06-09T10:01:00Z"},
+				"chat-2": {UserID: "u1", OWUIUpdatedAt: 2, FileID: "f2", IndexedAt: "2026-06-09T10:02:00Z"},
+			},
+		}
+	}
+	return d
+}
+
+// TestStatusJSONGoldenMemoryOn freezes the MEMORY-ON v3 --json contract
+// byte-for-byte (D-04, Plan 23-01 — the milestone's single contract evolution):
+// memory rows with per-service health + N/A offload, the memory section with
+// the indexed recall summary, schema_version 3. Run with -update to regenerate.
+func TestStatusJSONGoldenMemoryOn(t *testing.T) {
+	d := newMemoryStatusDeps(t)
+	cmd, out, _ := statusTestCmd()
+
+	jsonOut = true
+	defer func() { jsonOut = false }()
+
+	code := runStatus(cmd, nil, d)
+	if code != exitPass {
+		t.Fatalf("healthy memory-on status: exit = %d, want %d (out: %s)", code, exitPass, out.String())
+	}
+
+	golden := filepath.Join("testdata", "status-memory.json.golden")
+	if *update {
+		if err := os.MkdirAll("testdata", 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(golden, out.Bytes(), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		t.Logf("updated %s", golden)
+		return
+	}
+	want, err := os.ReadFile(golden)
+	if err != nil {
+		t.Fatalf("read golden (run with -update to create): %v", err)
+	}
+	if !bytes.Equal(out.Bytes(), want) {
+		t.Errorf("memory-on status --json does not match golden.\n--- got ---\n%s\n--- want ---\n%s", out.String(), want)
 	}
 }
 
