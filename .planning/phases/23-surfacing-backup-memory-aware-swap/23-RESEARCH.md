@@ -397,15 +397,19 @@ if !rebuild && state.EmbeddingModel != "" &&
 
 (No external-package or compliance assumptions — nothing is installed and no new outbound surface exists.)
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Should restore's Prove gate extend to the memory stack when a qdrant entry was restored?**
    - What we know: `Prove` currently composes preflight + chat residency (`restore.go:280-287`); `qdrantWritableProbe` exists and is pure-over-curl (`install_memory.go:288`).
    - What's unclear: whether a failed memory readiness after an otherwise-good restore should roll back EVERYTHING (heavy) or report-with-remediation.
    - Recommendation: keep Prove as-is (chat stack), add an honest post-restore memory note + remediation (`villa recall index --rebuild` / `villa doctor`) — rollback-on-memory-fail is scope creep against D-07's "honest report" wording. Planner decides.
+   - **RESOLVED** → Plan 23-02 Task 2: Prove is NOT extended — restore keeps the chat-stack Prove gate and emits an honest post-restore memory report (posture line + `villa doctor` / `villa recall index --rebuild` remediation).
 2. **Probe-cost mitigation choice for the dashboard 2.5 s poll** (Pitfall 2 options a/b/c) — needs an on-hardware timing sample of `runProbeCurl` to choose between TTL-cache vs accept-cost.
+   - **RESOLVED** → Plan 23-01 Task 2: 15s TTL cache (`memoryHealthTTL`) refreshing both services' health together; documented one-const fallback to 30s, measured on-hardware in Plan 23-05 (OQ2 timing step).
 3. **Keep or delete `memoryOffloadDownRanked`** after it goes vestigial — keep = defense-in-depth, delete = less dead code. Either is safe; pick one and say why in the plan.
+   - **RESOLVED** → Plan 23-01 Task 3: DELETE `memoryOffloadDownRanked` — unreachable dead code once memory rows are `OffloadApplies=false`; rationale recorded in the commit message.
 4. **`--rebuild` bypass semantics for the D-10 refusal** — recommended yes (rebuild IS the sanctioned re-index); confirm at plan time that `resetKnowledge` clean-replaces the collection content such that dimension change is actually safe through OWUI's KB reset path. The on-hardware swap drill should prove this.
+   - **RESOLVED** → Plan 23-04: `--rebuild` bypasses the D-10 refusal (rebuild IS the sanctioned re-index — clean-replaces KB content, fresh stamp records the new model); proven end-to-end on hardware in Plan 23-05.
 
 ## Environment Availability
 
