@@ -18,7 +18,7 @@ func testDoc() ChatDoc {
 	return ChatDoc{
 		ID:        "chat-1",
 		Title:     "Quantum gravity chat",
-		CreatedAt: 1781040998, // 2026-06-10T11:36:38Z
+		CreatedAt: 1781040998, // 2026-06-09T21:36:38Z UTC
 		History: ChatHistory{
 			CurrentID: "m3",
 			Messages: map[string]ChatMsg{
@@ -40,7 +40,7 @@ func TestRenderTranscriptChainWalk(t *testing.T) {
 		t.Fatal("RenderTranscript(ok chat) ok = false, want true")
 	}
 	want := "# Quantum gravity chat\n" +
-		"# 2026-06-10T11:36:38Z — Open WebUI chat chat-1\n" +
+		"# 2026-06-09T21:36:38Z — Open WebUI chat chat-1\n" +
 		"\n" +
 		"user: Explain quantum gravity.\n" +
 		"\n" +
