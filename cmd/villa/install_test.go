@@ -907,6 +907,44 @@ func TestInstallWarnLingerOfferGoesToStdout(t *testing.T) {
 	}
 }
 
+// TestInstallDryRunNeverRunsPrivilegedHostPrep (phase-22 WR-05): --dry-run on an
+// interactive TTY with BLOCK (PRE-05) and WARN (PRE-03) gaps and a CONSENTING stub
+// must execute ZERO privileged seams, never prompt, and never enter the wizard —
+// '--dry-run ... writes nothing' is a zero-side-effect contract (ORCH SC#1), and
+// before the fix a consenting interactive dry-run executed setsebool/enable-linger.
+func TestInstallDryRunNeverRunsPrivilegedHostPrep(t *testing.T) {
+	units := []orchestrate.Unit{{Name: "villa-llama.container", Text: "[Container]\n"}}
+	plan := orchestrate.Plan{Changed: units}
+	f := newFakeInstallDeps(t, units, plan, []preflight.CheckResult{seloffCheck(), lingeroffCheck()})
+	f.installDeps.interactive = func() bool { return true }
+	f.installDeps.stdoutIsTTY = func() bool { return true } // wizard-eligible TTY
+	consentCalls := 0
+	f.installDeps.consent = func(string) bool { consentCalls++; return true } // would consent!
+
+	cmd, _, errOut := installTestCmd()
+	code := runInstall(cmd, installOpts{dryRun: true}, f.installDeps)
+	// The unmet BLOCK gap cannot be consented under dry-run, so the run blocks —
+	// the same honest outcome the non-interactive path already had.
+	if code != exitBlocked {
+		t.Fatalf("dry-run with an unmet BLOCK gap exit = %d, want exitBlocked (%d)", code, exitBlocked)
+	}
+	if consentCalls != 0 {
+		t.Errorf("--dry-run must never prompt for consent, prompted %d times", consentCalls)
+	}
+	if f.seboolCalls != 0 || f.lingerCalls != 0 {
+		t.Errorf("--dry-run executed privileged host-prep (sebool=%d linger=%d), want 0/0 — zero-side-effect contract breach", f.seboolCalls, f.lingerCalls)
+	}
+	if f.wizardCalls != 0 {
+		t.Errorf("--dry-run entered the wizard %d times, want 0 (consent collected there would be executable)", f.wizardCalls)
+	}
+	if f.writeCalls != 0 || f.startCalls != 0 || f.pullCalls != 0 || f.saveCalls != 0 {
+		t.Errorf("--dry-run mutated state: write=%d start=%d pull=%d save=%d", f.writeCalls, f.startCalls, f.pullCalls, f.saveCalls)
+	}
+	if !strings.Contains(errOut.String(), "dry-run — run the command above") {
+		t.Errorf("dry-run BLOCK gap should print the dry-run hint, got %q", errOut.String())
+	}
+}
+
 // TestInstallConsentNoBlocksAndNeverRunsSeam: declining a BLOCK gap invokes the
 // seam zero times, prints the command, and blocks (exit 1) unless --force.
 func TestInstallConsentNoBlocksAndNeverRunsSeam(t *testing.T) {

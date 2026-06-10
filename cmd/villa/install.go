@@ -298,8 +298,11 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 	// gateInstall below consumes the threaded consent, so both paths converge on one
 	// gate execution (SC#1/SC#2; privileged fix at most once; D-04/D-06 preserved).
 	// nil consentDecisions ⇒ flag path: gateInstall prompts via d.consent as today.
+	// --dry-run never enters the wizard (phase-22 WR-05): the wizard collects
+	// privileged consent the gate would then EXECUTE, and a dry run has zero side
+	// effects (ORCH SC#1) — there is nothing for consent to apply to.
 	var consentDecisions map[string]bool
-	useWizard := d.interactive() && !opts.json && !opts.noTUI && d.stdoutIsTTY()
+	useWizard := d.interactive() && !opts.json && !opts.noTUI && d.stdoutIsTTY() && !opts.dryRun
 	if useWizard {
 		// Resolve the backend for the review screen via the single polymorphism point
 		// (never a re-typed image literal). On an unknown backend, fall through to the
@@ -685,11 +688,12 @@ func gateInstall(out, errOut io.Writer, checks []preflight.CheckResult, opts ins
 			switch {
 			case safeAutoFix(c.ID):
 				// A non-privileged safe fix auto-runs with a visible notice and NO consent
-				// (D-04/D-05) — but only when interactive and not --json (respect the
-				// non-interactive guard). It never consumes a consents entry. With no
-				// current safe fix (safeAutoFix is false for PRE-03/PRE-05) this branch is
-				// a behavior no-op today; it is the forward-looking D-05 classifier.
-				if opts.json || !d.interactive() {
+				// (D-04/D-05) — but only when interactive, not --json, and not --dry-run
+				// (a dry run has zero side effects, WR-05). It never consumes a consents
+				// entry. With no current safe fix (safeAutoFix is false for PRE-03/PRE-05)
+				// this branch is a behavior no-op today; it is the forward-looking D-05
+				// classifier.
+				if opts.json || opts.dryRun || !d.interactive() {
 					fmt.Fprintf(out, "warning: [%s] %s — %s\n", c.ID, c.Detail, c.Remediation)
 					break
 				}
@@ -759,6 +763,15 @@ func resolveGap(out, errOut io.Writer, c preflight.CheckResult, opts installOpts
 	cmdStr := remediationCommand(c, d.username())
 	fmt.Fprintf(errOut, "\nhost-prep needed: [%s] %s\n  command: %s\n", c.ID, c.Detail, cmdStr)
 
+	// --dry-run NEVER mutates the host (phase-22 WR-05 / ORCH SC#1): treat it
+	// exactly like the non-interactive path — print the command, never prompt,
+	// never run the privileged seam. Checked FIRST so even a (stale) threaded
+	// consent can never execute host-prep under a flag sold as side-effect-free.
+	if opts.dryRun {
+		fmt.Fprintf(errOut, "  (dry-run — run the command above, then re-run `villa install`)\n")
+		return false
+	}
+
 	// Wizard path: a pre-collected decision (huh already consumed stdin) is honored
 	// WITHOUT re-prompting (D-04). A recorded `true` runs the same fixed-arg seam as
 	// the consented stdin path; a recorded `false` is a decline (same return/messaging).
@@ -810,6 +823,13 @@ func resolveGap(out, errOut io.Writer, c preflight.CheckResult, opts installOpts
 func offerNonBlockingGap(out io.Writer, c preflight.CheckResult, opts installOpts, consents map[string]bool, d *installDeps) bool {
 	cmdStr := remediationCommand(c, d.username())
 	fmt.Fprintf(out, "\noptional host-prep (boot survival): [%s] %s\n  command: %s\n", c.ID, c.Detail, cmdStr)
+
+	// --dry-run NEVER mutates the host (phase-22 WR-05 / ORCH SC#1): print the
+	// command, never prompt, never run the privileged seam (mirrors resolveGap).
+	if opts.dryRun {
+		fmt.Fprintf(out, "  (dry-run — optional; run the command above to enable boot survival)\n")
+		return false
+	}
 
 	// Wizard path: honor a pre-collected decision without re-prompting (D-04). A
 	// recorded `true` runs the same fixed-arg seam; a recorded `false` is a skip.
