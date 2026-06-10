@@ -56,6 +56,15 @@
         <p class="muted">Loading models…</p>
       </div>
     </section>
+
+    <!-- Memory (CTRL-02) — ships hidden (the connection-banner[hidden] precedent); the
+         poll loop unhides it ONLY when report.memory is present (memory_enabled=true).
+         Memory-off dashboards render pixel-identical to v1.2 (D-03: no new fetch or
+         endpoint — the panel reads report.memory from the existing /api/status poll). -->
+    <section class="panel" id="memory-panel" aria-labelledby="memory-heading" hidden>
+      <h2 class="panel-heading" id="memory-heading">Memory</h2>
+      <div id="memory-body"></div>
+    </section>
   </main>
 
   <!-- Guarded switch confirm dialog (D-08): a native <dialog> traps focus, Esc cancels,
