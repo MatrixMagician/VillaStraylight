@@ -369,9 +369,11 @@ func liveResidencyUnderLoad(cfg config.VillaConfig, sd *status.Deps) func() infe
 //     launched asynchronously and the sample is taken while that request is verifiably
 //     IN FLIGHT — never gated on a completion count alone, which could fire in the
 //     idle gap between two sequential requests. The sample evaluates
-//     inference.RunningOffloadVerdict over villa-llama's ResidencyJournal, the
-//     point-in-time detect.GTTUsedBytes, liveWeightBytes(cfg), and
-//     BackendFor(cfg.Backend).ResidencyProof().
+//     inference.RunningOffloadVerdict over the EXACT liveStatusDeps input set
+//     (phase-22 WR-06) — every signal through the same sd seams the status fold
+//     uses (JournalText, Props, GTTUsed, WeightBytes), keyed on the
+//     catalog-resolved GGUF filename (sd.ModelFile, mirroring liveProve), with
+//     markers from BackendFor(cfg.Backend).ResidencyProof().
 //  4. JOIN + HONESTY: the sampled in-flight request is always awaited before the loop
 //     continues (no probe container outlives the call). Drive errors alone degrade a
 //     PASS to WARN ("embed drive could not complete") — the FAIL signal is the CHAT
@@ -402,6 +404,18 @@ func runResidencyUnderLoad(cfg config.VillaConfig, sd *status.Deps) inference.Ve
 		return residencyUnevaluable(
 			fmt.Sprintf("the configured backend could not be resolved (%v)", err),
 			"fix the backend field in config.toml (`villa backend set`), then re-run `villa doctor`")
+	}
+	// Resolve the catalog-resolved GGUF FILENAME for ConfigModel (phase-22 WR-06,
+	// mirroring liveProve and the status core): the journal/props identity checks
+	// compare against the model FILE, not the catalog id — passing cfg.Model here
+	// would make the /props drift overlay misfire the moment it evaluates. The seam
+	// is sd.ModelFile (liveModelFile in the live wiring), the same source the status
+	// fold uses. An unresolvable model degrades to a typed-Unknown WARN.
+	modelFile, err := sd.ModelFile(cfg)
+	if err != nil {
+		return residencyUnevaluable(
+			fmt.Sprintf("the configured model could not be resolved (%v)", err),
+			"fix the model field in config.toml (`villa model swap`), then re-run `villa doctor`")
 	}
 
 	// (2) The bounded embed-load drive. The body is JSON-marshaled (model id never
@@ -452,12 +466,17 @@ func runResidencyUnderLoad(cfg config.VillaConfig, sd *status.Deps) inference.Ve
 				)
 				done <- derr
 			}()
+			// The sample input set IS the liveStatusDeps input set (WR-06): every
+			// signal flows through the SAME sd seams the status fold uses —
+			// JournalText, Props (the /props config-identity drift overlay),
+			// GTTUsed, WeightBytes — keyed on the catalog-resolved GGUF filename.
 			journal, _ := sd.JournalText(chatService)
 			verdict = inference.RunningOffloadVerdict(inference.RunningOffloadInput{
 				JournalText:   journal,
-				GTTUsedBytes:  detect.GTTUsedBytes(),
-				WeightBytes:   liveWeightBytes(cfg),
-				ConfigModel:   cfg.Model,
+				Props:         sd.Props(sd.Endpoint()),
+				GTTUsedBytes:  sd.GTTUsed(),
+				WeightBytes:   sd.WeightBytes(cfg),
+				ConfigModel:   modelFile,
 				ConfigContext: cfg.Ctx,
 				Markers:       backend.ResidencyProof(),
 			})
