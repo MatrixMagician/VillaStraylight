@@ -233,30 +233,53 @@ func Aggregate(d Deps) Report {
 	// 2. RUNNING-STACK HEALTH — fold the status read-model. A confident offload FAIL
 	// becomes a BLOCK-class FAIL that DOMINATES a HealthReady (Pitfall 3 / D-05); a
 	// HealthDown / unevaluable signal degrades to a typed-Unknown WARN (D-06/D-08).
-	report := d.StatusReport()
-	if !report.LoopbackOnly {
-		findings = append(findings, Finding{
-			ID:          "loopback",
-			Name:        "Loopback-only bind",
-			Tier:        tierBlock,
-			Status:      statusFail,
-			Detail:      "a published port binds a non-loopback address (privacy breach, PRIV-01)",
-			Remediation: "re-run `villa install` to regenerate loopback-only units, then `villa down && villa up`",
-			Provenance:  "status.Report.LoopbackOnly",
-		})
-	}
+	//
 	// rocmResidencyProven keys the residency-supersession step (4a) below: it is true
 	// only when the configured backend is ROCm-family AND some service has OffloadApplies
 	// AND its offload Verdict is a CONFIDENT StatusPass. Gating on OffloadApplies (not just
 	// the Status) is load-bearing: StatusPass is iota 0, so a zero-value Verdict on a
 	// non-offload service must NEVER spuriously prove residency.
 	rocmResidencyProven := false
-	for _, s := range report.Services {
-		findings = append(findings, healthFinding(s))
-		if s.OffloadApplies {
-			findings = append(findings, offloadFinding(s))
-			if inference.IsROCmFamily(d.Backend) && s.Offload.Status == inference.StatusPass {
-				rocmResidencyProven = true
+	report := d.StatusReport()
+	if err := report.Err(); err != nil {
+		// 2-pre. ERRORED READ-MODEL (phase-22 CR-01): status.Run returns an errored
+		// ZERO-VALUE Report (LoopbackOnly=false, no Services) on any internal failure —
+		// config load, ModelFile resolution, BackendFor, Render. That zero value is an
+		// UNEVALUABLE signal, not an observation: folding it would FABRICATE a confident
+		// loopback "privacy breach" BLOCK FAIL on (e.g.) a never-installed host whose
+		// cfg.Model is absent from the catalog — the exact failure mode the typed-Unknown
+		// discipline forbids ("never a FAIL fabricated from a signal that could not be
+		// evaluated"). Degrade to ONE typed-Unknown WARN carrying the real cause and fold
+		// NEITHER LoopbackOnly NOR Services (there is nothing evaluable to fold).
+		findings = append(findings, Finding{
+			ID:          "stack",
+			Name:        "Running-stack read-model",
+			Tier:        tierWarn,
+			Status:      statusWarn,
+			Detail:      "the running-stack state could not be evaluated: " + err.Error(),
+			Remediation: "fix the reported condition (check config.toml and `villa status`), then re-run `villa doctor`",
+			Provenance:  "status.Run error",
+			Raw:         err.Error(),
+		})
+	} else {
+		if !report.LoopbackOnly {
+			findings = append(findings, Finding{
+				ID:          "loopback",
+				Name:        "Loopback-only bind",
+				Tier:        tierBlock,
+				Status:      statusFail,
+				Detail:      "a published port binds a non-loopback address (privacy breach, PRIV-01)",
+				Remediation: "re-run `villa install` to regenerate loopback-only units, then `villa down && villa up`",
+				Provenance:  "status.Report.LoopbackOnly",
+			})
+		}
+		for _, s := range report.Services {
+			findings = append(findings, healthFinding(s))
+			if s.OffloadApplies {
+				findings = append(findings, offloadFinding(s))
+				if inference.IsROCmFamily(d.Backend) && s.Offload.Status == inference.StatusPass {
+					rocmResidencyProven = true
+				}
 			}
 		}
 	}

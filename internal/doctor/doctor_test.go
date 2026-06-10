@@ -24,6 +24,7 @@ package doctor
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
@@ -557,6 +558,49 @@ func TestMemoryOffloadFailNotSuppressed(t *testing.T) {
 	f, ok := findingByID(r, "offload:villa-qdrant.service")
 	if !ok || f.Status != "FAIL" {
 		t.Errorf("expected a visible FAIL offload finding for villa-qdrant.service; got %+v (found=%v)", f, ok)
+	}
+}
+
+// TestErroredStatusReportDegradesToWarn (phase-22 CR-01): an ERRORED status read-model
+// (status.Run's zero-value Report with err set — reachable on any host whose config/
+// model/backend/render fails, e.g. a never-installed box) must degrade to ONE
+// typed-Unknown WARN "stack" finding — NEVER the fabricated confident loopback
+// "privacy breach" BLOCK FAIL the zero-value LoopbackOnly=false would otherwise
+// produce. The errored Report is built through the REAL status.Run error path (the
+// err field is unexported), so the fixture is exactly what doctor sees live.
+func TestErroredStatusReportDegradesToWarn(t *testing.T) {
+	d := newDoctorDeps()
+	d.StatusReport = func() status.Report {
+		return status.Run(status.Deps{LoadConfig: func() (config.VillaConfig, error) {
+			return config.VillaConfig{}, errors.New(`model "ghost" not found in catalog`)
+		}})
+	}
+
+	r := Aggregate(d)
+	if r.Overall == "FAIL" {
+		t.Fatalf("Overall = FAIL — an unevaluable status read-model must never fabricate a blocking fault (CR-01)")
+	}
+	if hasFinding(r, "loopback") {
+		t.Error("errored read-model fabricated a loopback finding from the zero-value LoopbackOnly=false")
+	}
+	f, ok := findingByID(r, "stack")
+	if !ok {
+		t.Fatalf("expected a typed-Unknown 'stack' WARN finding for the errored read-model; findings: %+v", r.Findings)
+	}
+	if f.Status != "WARN" || f.Tier != tierWarn {
+		t.Errorf("stack finding = (status %s, tier %s), want (WARN, %s)", f.Status, f.Tier, tierWarn)
+	}
+	if f.Remediation == "" {
+		t.Error("stack WARN has empty Remediation (D-11)")
+	}
+	if !strings.Contains(f.Detail, "not found in catalog") {
+		t.Errorf("stack WARN detail %q must carry the real status.Run error cause", f.Detail)
+	}
+	// No service-derived finding can exist — the errored report has no Services.
+	for _, found := range r.Findings {
+		if strings.HasPrefix(found.ID, "health:") || strings.HasPrefix(found.ID, "offload:") {
+			t.Errorf("errored read-model produced a service finding %q from a zero-value report", found.ID)
+		}
 	}
 }
 
