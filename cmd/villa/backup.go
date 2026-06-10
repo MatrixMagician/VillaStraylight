@@ -31,6 +31,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
 	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
+	"github.com/MatrixMagician/VillaStraylight/internal/recall"
 	"github.com/MatrixMagician/VillaStraylight/internal/usage"
 )
 
@@ -136,6 +137,28 @@ func runBackup(cmd *cobra.Command, output string, d backup.Deps) int {
 	_ = tmpVol.Close()
 	defer func() { _ = os.Remove(tmpVolPath) }()
 
+	// Optional Phase-23 qdrant volume entry (D-05): gated on cfg.MemoryEnabled AND a
+	// fail-soft existence check over the podmanVolume seam — memory off or volume
+	// absent means the entry is honestly omitted (and the core makes ZERO qdrant
+	// Deps calls). The temp tar clones the OWUI same-dir frame above; it holds
+	// chat-derived vectors, so it is removed on every exit path.
+	includeQdrant := cfg.MemoryEnabled && volumeExists(orchestrate.QdrantVolumeName(), errOut)
+	tmpQdrantPath := ""
+	if includeQdrant {
+		// Temp-name pattern deliberately avoids the volume literal (the seam-grep
+		// acceptance gate): the identity comes from orchestrate.QdrantVolumeName().
+		tmpQdrant, err := os.CreateTemp(parent, ".villa-memory-vol-*.tar")
+		if err != nil {
+			_ = f.Close()
+			_ = os.Remove(absOut)
+			fmt.Fprintf(errOut, "backup: temp qdrant volume file: %v\n", err)
+			return exitBlocked
+		}
+		tmpQdrantPath = tmpQdrant.Name()
+		_ = tmpQdrant.Close()
+		defer func() { _ = os.Remove(tmpQdrantPath) }()
+	}
+
 	in := backup.BackupInput{
 		CreatedAt:           time.Now().UTC().Format(time.RFC3339),
 		VillaVersion:        villaVersion(),
@@ -154,6 +177,26 @@ func runBackup(cmd *cobra.Command, output string, d backup.Deps) int {
 		BenchReportsPath:    benchReportsStorePath(),
 		ExcludedModels:      excludedModelIdentities(cfg),
 		FileMissing:         os.IsNotExist,
+		// RecallStatePath is passed unconditionally: an absent recall-state.json is
+		// skipped by the core's optional-entry FileMissing logic — no presence gate
+		// is needed here (D-06).
+		RecallStatePath: recall.RecallStatePath(),
+	}
+	if includeQdrant {
+		// Seam-sourced volume identity — NEVER a literal here (D-05).
+		in.QdrantVolumeName = orchestrate.QdrantVolumeName()
+		in.TempQdrantTar = tmpQdrantPath
+	}
+	if cfg.MemoryEnabled {
+		// Manifest embedding identity + recall store schema, recorded ONLY on a
+		// memory-on backup (D-06/D-08): config is the single source of truth for the
+		// embedding model/dim; the recall schema comes from its accessor. A
+		// memory-off backup omits all three (the "not recorded" convention) — note
+		// cfg self-heals embedding defaults even when memory is off, so this gate is
+		// what keeps memory-off manifests claim-free.
+		in.EmbeddingModel = cfg.EmbeddingModel
+		in.EmbeddingDim = cfg.EmbeddingDim
+		in.RecallSchemaVersion = recall.SchemaVersion()
 	}
 
 	res, rerr := backup.Backup(d, in)
@@ -169,10 +212,22 @@ func runBackup(cmd *cobra.Command, output string, d backup.Deps) int {
 	}
 
 	fmt.Fprintf(out, "backup written to %s\n", absOut)
-	// Surface a failed best-effort Open WebUI restart (IN-01): the backup succeeded,
-	// but the service is likely down — warn rather than exit 0 silently.
+	// Surface a failed best-effort service restart (IN-01): the backup succeeded,
+	// but a service is likely down — warn rather than exit 0 silently.
 	if res.RestartWarning != "" {
 		fmt.Fprintf(errOut, "warning: %s\n", res.RestartWarning)
+	}
+	// Honest memory-entry reporting (Phase 23): state whether the qdrant volume and
+	// recall state made it into the archive — never leave the operator guessing.
+	if includeQdrant {
+		fmt.Fprintf(out, "memory: Qdrant volume included (%s)\n", backup.EntryQdrantVolume)
+	} else {
+		fmt.Fprintf(out, "memory: Qdrant volume not included (memory disabled or volume absent)\n")
+	}
+	if _, serr := os.Stat(in.RecallStatePath); serr == nil {
+		fmt.Fprintf(out, "memory: recall state included (%s)\n", backup.EntryRecallState)
+	} else {
+		fmt.Fprintf(out, "memory: recall state not included (no recall-state.json)\n")
 	}
 	if len(in.ExcludedModels) > 0 {
 		fmt.Fprintf(out, "excluded model weights (re-pullable, recorded in manifest for re-pull):\n")
@@ -253,8 +308,12 @@ func liveBackupDeps() backup.Deps {
 	sys := orchestrate.NewSystemd()
 	return backup.Deps{
 		OpenWebUIServiceName: openWebUIServiceName,
-		Stop:                 sys.Stop,
-		Start:                sys.Start,
+		// QdrantServiceName is derived from the orchestrate unit-name accessor (the
+		// same unitServiceName mapping doctor/status use) — never a re-typed literal
+		// (D-05).
+		QdrantServiceName: unitServiceName(orchestrate.QdrantContainerUnitName()),
+		Stop:              sys.Stop,
+		Start:             sys.Start,
 		VolumeExport: func(name, outPath string) error {
 			if err := requirePodman(); err != nil {
 				return err

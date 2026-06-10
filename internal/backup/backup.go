@@ -71,6 +71,30 @@ type BackupInput struct {
 	// recorded in the manifest for re-pull. Identity only.
 	ExcludedModels []ExcludedModel
 
+	// QdrantVolumeName / TempQdrantTar drive the OPTIONAL Phase-23 qdrant volume
+	// export (D-05): when BOTH are non-empty, Backup quiesces Deps.QdrantServiceName
+	// around VolumeExport(QdrantVolumeName, TempQdrantTar) and appends the
+	// qdrant-volume.tar entry. The cmd tier gates them on cfg.MemoryEnabled AND a
+	// fail-soft `podman volume exists` check; empty means memory off / volume
+	// absent — ZERO qdrant Deps calls, archive identical to the v1 layout.
+	// QdrantVolumeName is seam-sourced (orchestrate.QdrantVolumeName()) — never a
+	// literal (D-05).
+	QdrantVolumeName string
+	TempQdrantTar    string
+	// RecallStatePath is the resolved recall-state.json source path (the OPTIONAL
+	// recall-state.json entry, D-06; recall.RecallStatePath() at the cmd tier). An
+	// absent file is skipped via FileMissing like the other optional entries.
+	RecallStatePath string
+
+	// EmbeddingModel / EmbeddingDim / RecallSchemaVersion are the Phase-23 manifest
+	// fields (D-06/D-08): config-sourced embedding identity + dimension and the
+	// accessor-sourced recall store schema version. The cmd tier sets them ONLY on
+	// a memory-on backup; zero values are omitted from the manifest ("not
+	// recorded" — never a fabricated claim).
+	EmbeddingModel      string
+	EmbeddingDim        int
+	RecallSchemaVersion int
+
 	// FileMissing classifies a ReadFile error as a tolerable absent-file (skip the
 	// entry) vs a hard error. The cmd layer wires os.IsNotExist; the pure core stays
 	// free of os. When nil, any ReadFile error is treated as hard.
@@ -110,11 +134,20 @@ func Backup(d Deps, in BackupInput) (retRes Result, retErr error) {
 		return Result{Err: fmt.Errorf("backup: stop %s: %w", d.OpenWebUIServiceName, err), FailedStep: "stop"},
 			fmt.Errorf("backup: stop %s: %w", d.OpenWebUIServiceName, err)
 	}
+	// foldRestartWarning APPENDS a failed best-effort restart message to the named
+	// return's RestartWarning so BOTH deferred restarts (OWUI + qdrant) surface
+	// instead of the last defer clobbering the first.
+	foldRestartWarning := func(service string, serr error) {
+		warn := fmt.Sprintf("backup written, but failed to restart %s (%v) — run `villa up`", service, serr)
+		if retRes.RestartWarning != "" {
+			retRes.RestartWarning += "; " + warn
+			return
+		}
+		retRes.RestartWarning = warn
+	}
 	defer func() {
 		if serr := d.Start(d.OpenWebUIServiceName); serr != nil {
-			retRes.RestartWarning = fmt.Sprintf(
-				"backup written, but failed to restart %s (%v) — run `villa up`",
-				d.OpenWebUIServiceName, serr)
+			foldRestartWarning(d.OpenWebUIServiceName, serr)
 		}
 	}()
 
@@ -124,8 +157,33 @@ func Backup(d Deps, in BackupInput) (retRes Result, retErr error) {
 			fmt.Errorf("backup: volume export %s: %w", in.OpenWebUIVolumeName, err)
 	}
 
+	// (2b) OPTIONAL qdrant volume export (Phase 23, D-05). Gated on BOTH
+	// QdrantVolumeName and TempQdrantTar being non-empty (memory on AND volume
+	// present — decided by the cmd tier; empty ⇒ ZERO qdrant Deps calls). Clone of
+	// the OWUI quiesce frame: Stop the qdrant service so the export never copies a
+	// live RocksDB/WAL mid-write (Pitfall 3 torn-snapshot guard), export, and DEFER
+	// a best-effort Start folding into RestartWarning — a failed restart NEVER
+	// fails the backup.
+	if in.QdrantVolumeName != "" && in.TempQdrantTar != "" {
+		if err := d.Stop(d.QdrantServiceName); err != nil {
+			return Result{Err: fmt.Errorf("backup: stop %s: %w", d.QdrantServiceName, err), FailedStep: "stop"},
+				fmt.Errorf("backup: stop %s: %w", d.QdrantServiceName, err)
+		}
+		defer func() {
+			if serr := d.Start(d.QdrantServiceName); serr != nil {
+				foldRestartWarning(d.QdrantServiceName, serr)
+			}
+		}()
+		if err := d.VolumeExport(in.QdrantVolumeName, in.TempQdrantTar); err != nil {
+			return Result{Err: fmt.Errorf("backup: volume export %s: %w", in.QdrantVolumeName, err), FailedStep: "volume"},
+				fmt.Errorf("backup: volume export %s: %w", in.QdrantVolumeName, err)
+		}
+	}
+
 	// (3) Read entries. The OWUI volume tar is REQUIRED; config/usage/bench are read
-	// from their resolved paths, an absent optional data-dir file being skipped.
+	// from their resolved paths, an absent optional data-dir file being skipped. The
+	// two Phase-23 memory entries are OPTIONAL: an empty path (memory off / volume
+	// absent — the cmd tier gates by passing "") skips the row entirely.
 	type src struct {
 		entry    string
 		path     string
@@ -136,6 +194,8 @@ func Backup(d Deps, in BackupInput) (retRes Result, retErr error) {
 		{EntryConfig, in.ConfigPath, true},
 		{EntryUsage, in.UsagePath, false},
 		{EntryBenchReports, in.BenchReportsPath, false},
+		{EntryQdrantVolume, in.TempQdrantTar, false},
+		{EntryRecallState, in.RecallStatePath, false},
 	}
 
 	var entries []archiveEntry
@@ -177,6 +237,9 @@ func Backup(d Deps, in BackupInput) (retRes Result, retErr error) {
 		BenchSchemaVersion:  in.BenchSchemaVersion,
 		Entries:             checksums,
 		ExcludedModels:      in.ExcludedModels,
+		EmbeddingModel:      in.EmbeddingModel,
+		EmbeddingDim:        in.EmbeddingDim,
+		RecallSchemaVersion: in.RecallSchemaVersion,
 	})
 	manifestJSON, err := marshalManifest(m)
 	if err != nil {
@@ -208,6 +271,16 @@ type CurrentInstall struct {
 	ConfigSchemaVersion int
 	UsageSchemaVersion  int
 	BenchSchemaVersion  int
+	// EmbeddingModel / EmbeddingDim are the CURRENT install's embedding identity
+	// (cfg.EmbeddingModel / cfg.EmbeddingDim — config is the single source of
+	// truth) for the Phase-23 dimension-skew compare (D-08). Plain values so this
+	// core stays free of config-field coupling beyond the caller's snapshot.
+	EmbeddingModel string
+	EmbeddingDim   int
+	// RecallSchemaVersion is the CURRENT recall store schema version
+	// (recall.SchemaVersion(), accessor-sourced at the cmd tier — this core
+	// imports no recall, mirroring the usage/bench plain-int convention).
+	RecallSchemaVersion int
 	// ChecksumFailed is set by the caller when a per-entry SHA-256 verify failed
 	// (archive corruption) — CompareSkew turns it into a fail-closed BLOCK (D-08).
 	ChecksumFailed bool
@@ -278,6 +351,10 @@ func CompareSkew(m Manifest, cur CurrentInstall) SkewVerdict {
 		v.Block, v.BlockReason = true, reason
 		return v
 	}
+	if blocked, reason := blockOnNewerStore("recall", m.RecallSchemaVersion, cur.RecallSchemaVersion); blocked {
+		v.Block, v.BlockReason = true, reason
+		return v
+	}
 
 	// --- WARN-and-confirm findings (legitimate skew) ------------------------
 	if m.VillaVersion != cur.VillaVersion {
@@ -308,9 +385,28 @@ func CompareSkew(m Manifest, cur CurrentInstall) SkewVerdict {
 			Remediation: "backed up on a different host — if Open WebUI cannot read its data after restore, run `podman unshare chown -R $(id -u):$(id -g) <mountpoint>` and ensure the :Z relabel",
 		})
 	}
+	// Embedding model/dimension skew (Phase 23, D-08): a CONFIDENT mismatch between
+	// the manifest-recorded embedding identity and the current install means the
+	// backup's vectors were embedded under a different model/dimension — retrieval
+	// is silently corrupt after restore until a re-index. Exactly ONE warning for
+	// the model+dim pair, guarded on m.EmbeddingModel != "": an old/memory-off
+	// backup never recorded one, and "not recorded" must raise NO false alarm (the
+	// typed-Unknown convention, mirroring blockOnNewerStore's <=0 rule). Never
+	// silent, never an auto-reindex — WARN-and-confirm only.
+	if m.EmbeddingModel != "" && (m.EmbeddingModel != cur.EmbeddingModel || m.EmbeddingDim != cur.EmbeddingDim) {
+		v.Warnings = append(v.Warnings, SkewWarning{
+			Field: "embedding",
+			Detail: fmt.Sprintf("backup vectors were embedded with %s (dim %d); this install is configured for %s (dim %d)",
+				m.EmbeddingModel, m.EmbeddingDim, cur.EmbeddingModel, cur.EmbeddingDim),
+			Remediation: "restored vectors will not match the current embedder — retrieval stays corrupt until a re-index: " +
+				"run `villa recall index --rebuild` after restore, or align embedding_model/embedding_dim in config.toml " +
+				"with the backup before restoring",
+		})
+	}
 	warnOnOlderStore(&v, "config", m.ConfigSchemaVersion, cur.ConfigSchemaVersion)
 	warnOnOlderStore(&v, "usage", m.UsageSchemaVersion, cur.UsageSchemaVersion)
 	warnOnOlderStore(&v, "bench", m.BenchSchemaVersion, cur.BenchSchemaVersion)
+	warnOnOlderStore(&v, "recall", m.RecallSchemaVersion, cur.RecallSchemaVersion)
 
 	return v
 }

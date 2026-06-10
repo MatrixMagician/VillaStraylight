@@ -121,6 +121,12 @@ type Deps struct {
 	// constants (mirrors backendswap.InstallServiceName).
 	OpenWebUIServiceName string
 	InstallServiceName   string
+	// QdrantServiceName is the qdrant service identity the Phase-23 memory-on
+	// backup quiesces around its volume export (Stop → export → deferred Start;
+	// Pitfall 3 torn-RocksDB/WAL guard). Seam-sourced by the cmd tier (derived
+	// from orchestrate.QdrantContainerUnitName()) — never a literal here, so the
+	// core stays free of service-name literals (mirrors OpenWebUIServiceName).
+	QdrantServiceName string
 }
 
 // Result is the typed outcome of a backup/restore (not an exit code), so the

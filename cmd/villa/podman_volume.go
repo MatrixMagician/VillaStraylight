@@ -12,6 +12,9 @@ package main
 
 import (
 	"bytes"
+	"errors"
+	"fmt"
+	"io"
 	"os/exec"
 	"strings"
 
@@ -31,6 +34,45 @@ func volumeExportArgs(name, out string) []string {
 // builder (asserted by the argv equality test).
 func volumeImportArgs(name, src string) []string {
 	return []string{"volume", "import", name, src}
+}
+
+// volumeExistsArgs builds the FIXED-ARG argv for the volume existence check:
+// `volume exists <name>` (exit 0 = exists, exit 1 = absent). Pure builder
+// (asserted by the argv equality test) — Phase-23 D-05: backup gates the
+// optional qdrant entry on this check.
+func volumeExistsArgs(name string) []string {
+	return []string{"volume", "exists", name}
+}
+
+// volumeExists reports whether the named podman volume exists via the injectable
+// podmanVolume seam, FAIL-SOFT (D-05): exit 0 ⇒ true; exit 1 ⇒ false; a missing
+// podman binary or any other failure ⇒ false WITH a printed warning — backup
+// then simply omits the entry honestly rather than hard-failing on an
+// unevaluable check (the typed-Unknown degradation discipline).
+func volumeExists(name string, errOut io.Writer) bool {
+	stderr, err := podmanVolume(volumeExistsArgs(name))
+	exists, warn := classifyVolumeExists(err)
+	if warn {
+		fmt.Fprintf(errOut, "warning: podman volume exists %q check failed (%v: %s) — treating the volume as absent\n",
+			name, err, stderr)
+	}
+	return exists
+}
+
+// classifyVolumeExists maps a `podman volume exists` run error to the fail-soft
+// verdict: nil ⇒ exists; an *exec.ExitError with code 1 ⇒ confidently absent (no
+// warning); anything else (podman missing, exec failure, other exit codes) ⇒
+// absent-with-warning. Pure classification so the exit-code contract is
+// unit-testable without a live podman.
+func classifyVolumeExists(err error) (exists, warn bool) {
+	if err == nil {
+		return true, false
+	}
+	var ee *exec.ExitError
+	if errors.As(err, &ee) && ee.ExitCode() == 1 {
+		return false, false
+	}
+	return false, true
 }
 
 // podmanVolume runs `podman <args...>` with a FIXED-ARG exec (never a shell —
