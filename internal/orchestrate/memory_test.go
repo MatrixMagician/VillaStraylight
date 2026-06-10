@@ -161,6 +161,82 @@ func TestRenderConsumesMemoryView(t *testing.T) {
 	}
 }
 
+// TestRenderChatSwapLeavesMemoryUnitsByteIdentical (D-09 / SC#3, CTRL-05): a
+// chat-model swap leaves the embedding model and vector collections intact —
+// proven at the render layer. Two memory-on inputs differing ONLY in the chat
+// model (Cfg.Model/Cfg.Quant plus ModelFile, the catalog-resolved render-input
+// projection of Cfg.Model that liveModelFile derives) must render byte-identical
+// (==, not contains) texts for every memory unit (villa-qdrant.container,
+// villa-qdrant.volume, villa-embed.container) and every villa-openwebui.* unit.
+// Only villa-llama.container may differ — and it MUST differ, as the sanity
+// check that the simulated swap is real. Any future change that threads the
+// chat model into a memory/OWUI unit breaks this structural assertion.
+func TestRenderChatSwapLeavesMemoryUnitsByteIdentical(t *testing.T) {
+	before := memoryFixtureInput()
+
+	after := memoryFixtureInput()
+	after.Cfg.Model = "llama3-8b-instruct"
+	after.Cfg.Quant = "Q8_0"
+	// ModelFile is not an independent degree of freedom: it is the catalog-resolved
+	// GGUF filename derived from Cfg.Model (cmd/villa liveModelFile), so a real swap
+	// changes it in lockstep with Model.
+	after.ModelFile = "llama3-8b-instruct.Q8_0.gguf"
+
+	beforeUnits, err := Render(before)
+	if err != nil {
+		t.Fatalf("Render(before): %v", err)
+	}
+	afterUnits, err := Render(after)
+	if err != nil {
+		t.Fatalf("Render(after): %v", err)
+	}
+
+	beforeByName := map[string]string{}
+	for _, u := range beforeUnits {
+		beforeByName[u.Name] = u.Text
+	}
+	afterByName := map[string]string{}
+	for _, u := range afterUnits {
+		afterByName[u.Name] = u.Text
+	}
+
+	// The memory stack + every villa-openwebui.* unit must be byte-identical
+	// across the swap (D-09: the swap never touches the embedding model, the
+	// memory units, or the chat UI's RAG wiring).
+	invariant := []string{
+		"villa-qdrant.container",
+		"villa-qdrant.volume",
+		"villa-embed.container",
+	}
+	owuiCount := 0
+	for name := range beforeByName {
+		if strings.HasPrefix(name, "villa-openwebui.") {
+			invariant = append(invariant, name)
+			owuiCount++
+		}
+	}
+	if owuiCount == 0 {
+		t.Fatalf("fixture rendered no villa-openwebui.* units — invariant list incomplete: %v", unitNames(beforeUnits))
+	}
+	for _, name := range invariant {
+		b, okB := beforeByName[name]
+		a, okA := afterByName[name]
+		if !okB || !okA {
+			t.Fatalf("unit %q missing from a render (before=%v after=%v)", name, okB, okA)
+		}
+		if a != b {
+			t.Errorf("D-09 violation: unit %q changed across a chat-model-only swap\nbefore:\n%s\nafter:\n%s", name, b, a)
+		}
+	}
+
+	// Sanity: the swap is real — the inference unit MUST differ (the new model
+	// file is in its Exec). Without this, the byte-equality above could pass
+	// vacuously on two identical renders.
+	if beforeByName["villa-llama.container"] == afterByName["villa-llama.container"] {
+		t.Errorf("villa-llama.container did not change across the swap — the test's model delta is not reaching the render")
+	}
+}
+
 // TestRenderMemoryUnitsAreConfigDriven (WR-01): the memory units derive their
 // container-DNS identity (cfg.QdrantAddr / cfg.EmbedAddr) and the served embed /v1
 // --port (cfg.EmbedPort) FROM the resolved config via memory.RenderView — NOT from
