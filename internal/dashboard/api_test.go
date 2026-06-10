@@ -17,6 +17,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/metrics"
 	"github.com/MatrixMagician/VillaStraylight/internal/modelswap"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
+	"github.com/MatrixMagician/VillaStraylight/internal/recall"
 	"github.com/MatrixMagician/VillaStraylight/internal/status"
 	"github.com/MatrixMagician/VillaStraylight/internal/usage"
 )
@@ -148,6 +149,114 @@ func TestHandleStatusCarriesBackendIdentity(t *testing.T) {
 	if got.ROCmReadiness != status.ROCmUnknown {
 		t.Fatalf("rocm_readiness with no seam = %q, want %q (no-false-green default)", got.ROCmReadiness, status.ROCmUnknown)
 	}
+}
+
+// stubMemoryStatusDeps builds the memory-ON stub set: stubStatusDeps re-based on a
+// MemoryEnabled config whose render output actually contains the villa-qdrant /
+// villa-embed .container units (Pitfall 8 coherence — mirrors the Plan 23-01
+// memory-on fixture in internal/status/status_test.go), plus healthy per-service
+// memory seams and a complete-run recall state.
+func stubMemoryStatusDeps(t *testing.T) status.Deps {
+	t.Helper()
+	cfg := config.DefaultVillaConfig()
+	cfg.Model = "qwen3"
+	cfg.Quant = "Q4"
+	cfg.Ctx = 131072
+	cfg.MemoryEnabled = true
+	units, err := orchestrate.Render(orchestrate.RenderInput{
+		Backend:   inference.VulkanBackend(),
+		Cfg:       cfg,
+		ModelFile: "qwen3.gguf",
+		ModelsDir: "/home/villa/.local/share/villa/models",
+	})
+	if err != nil {
+		t.Fatalf("render memory-on: %v", err)
+	}
+	d := stubStatusDeps(t)
+	d.LoadConfig = func() (config.VillaConfig, error) { return cfg, nil }
+	d.Render = func(orchestrate.RenderInput) ([]orchestrate.Unit, error) { return units, nil }
+	d.QdrantService = "villa-qdrant.service"
+	d.EmbedService = "villa-embed.service"
+	d.QdrantHealth = func(string, int) status.HealthState { return status.HealthReady }
+	d.EmbedHealth = func(string, int) status.HealthState { return status.HealthReady }
+	d.ReadRecallState = func() *recall.State {
+		return &recall.State{
+			EmbeddingModel:       "nomic-embed-text-v1.5",
+			EmbeddingDim:         768,
+			LastIndexStartedAt:   "2026-06-09T10:00:00Z",
+			LastIndexCompletedAt: "2026-06-09T10:05:00Z",
+			Chats: map[string]recall.ChatState{
+				"chat-1": {}, "chat-2": {},
+			},
+		}
+	}
+	return d
+}
+
+// TestHandleStatusMemoryPassthrough (CTRL-02 / D-03) asserts handleStatus passes the
+// v3 memory field through UNTOUCHED from the shared status core — the dashboard JS
+// reads report.memory off the existing /api/status poll, no new endpoint or fork:
+//   - memory-ON deps → the body carries a "memory" object with the exact JSON keys
+//     renderMemory reads (embedding_model / embedding_dim / recall_state);
+//   - default memory-OFF deps → the body carries NO "memory" key at all
+//     (*MemoryInfo omitempty-nil — the panel stays hidden, pixel-identical to v1.2)
+//     while schema_version reads 3 (the v3 contract from Plan 23-01).
+func TestHandleStatusMemoryPassthrough(t *testing.T) {
+	t.Run("memory-on serves the memory object", func(t *testing.T) {
+		srv := mustNewServer(t, Config{StatusDeps: stubMemoryStatusDeps(t), ChatPort: 3000, DashboardAddr: "127.0.0.1", DashboardPort: 8888})
+
+		req := httptest.NewRequest(http.MethodGet, "/api/status", nil)
+		rec := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status code = %d, want 200; body=%s", rec.Code, rec.Body.String())
+		}
+		var raw map[string]json.RawMessage
+		if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
+			t.Fatalf("decode body: %v\n%s", err, rec.Body.String())
+		}
+		memBlob, ok := raw["memory"]
+		if !ok {
+			t.Fatalf("/api/status memory-on body missing \"memory\" key (CTRL-02 passthrough); body=%s", rec.Body.String())
+		}
+		var mem map[string]json.RawMessage
+		if err := json.Unmarshal(memBlob, &mem); err != nil {
+			t.Fatalf("decode memory object: %v\n%s", err, string(memBlob))
+		}
+		// The exact keys renderMemory reads off report.memory (the v3 contract).
+		for _, key := range []string{"embedding_model", "embedding_dim", "recall_state"} {
+			if _, present := mem[key]; !present {
+				t.Errorf("memory object missing %q key; memory=%s", key, string(memBlob))
+			}
+		}
+	})
+
+	t.Run("memory-off omits the memory key", func(t *testing.T) {
+		srv := mustNewServer(t, Config{StatusDeps: stubStatusDeps(t), ChatPort: 3000, DashboardAddr: "127.0.0.1", DashboardPort: 8888})
+
+		req := httptest.NewRequest(http.MethodGet, "/api/status", nil)
+		rec := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status code = %d, want 200; body=%s", rec.Code, rec.Body.String())
+		}
+		var raw map[string]json.RawMessage
+		if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
+			t.Fatalf("decode body: %v\n%s", err, rec.Body.String())
+		}
+		if _, present := raw["memory"]; present {
+			t.Fatalf("memory-off /api/status body must OMIT the \"memory\" key (omitempty-nil, D-04); body=%s", rec.Body.String())
+		}
+		var schemaVersion int
+		if err := json.Unmarshal(raw["schema_version"], &schemaVersion); err != nil {
+			t.Fatalf("decode schema_version: %v", err)
+		}
+		if schemaVersion != 3 {
+			t.Fatalf("schema_version = %d, want 3 (the Plan 23-01 v3 contract)", schemaVersion)
+		}
+	})
 }
 
 // TestHandleMetricsShapeUnchanged asserts GET /api/metrics serializes ONLY the
