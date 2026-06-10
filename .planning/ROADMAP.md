@@ -215,7 +215,7 @@ Plans:
   2. `villa backup` includes the Qdrant memory volume and `villa restore` clean-recreates it before import (no stale-vector leak), with the embedding dimension recorded in the manifest so a version/dimension skew WARNs rather than silently corrupting retrieval.
   3. `villa model swap` is memory-aware: it warns/guards when changing the embedding model would invalidate existing vectors (dimension mismatch / no auto-reindex), and a chat-model swap leaves the embedding model and vector collections intact.
 
-**Plans:** 3/5 plans executed
+**Plans:** 4/5 plans executed
 
 Plans:
 **Wave 1**
@@ -226,7 +226,7 @@ Plans:
 **Wave 2** *(blocked on Wave 1)*
 
 - [x] 23-03-PLAN.md — dashboard Memory panel per approved 23-UI-SPEC (reads report.memory; zero new probes/endpoints) (SC#1, CTRL-02)
-- [ ] 23-04-PLAN.md — swap guards: D-09 byte-identity/restart-scope invariant tests + D-10 recall-index refusal + install WARN (SC#3, CTRL-05)
+- [x] 23-04-PLAN.md — swap guards: D-09 byte-identity/restart-scope invariant tests + D-10 recall-index refusal + install WARN (SC#3, CTRL-05)
 
 **Wave 3** *(blocked on Waves 1–2)*
 
@@ -258,4 +258,4 @@ Plans:
 | 20. Open WebUI Memory/RAG Wiring + Offline Lockdown | v1.3 | 3/3 | Complete    | 2026-06-10 |
 | 21. Conversational Recall Indexer | v1.3 | 3/3 | Complete    | 2026-06-10 |
 | 22. Control-Plane Fit + Host Gate | v1.3 | 4/4 | Complete    | 2026-06-10 |
-| 23. Surfacing, Backup & Memory-Aware Swap | v1.3 | 3/5 | In Progress|  |
+| 23. Surfacing, Backup & Memory-Aware Swap | v1.3 | 4/5 | In Progress|  |
