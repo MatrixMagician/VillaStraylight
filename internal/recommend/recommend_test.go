@@ -169,6 +169,27 @@ func TestOverrideHugeCtxRevalidatedAndFails(t *testing.T) {
 	}
 }
 
+// TestOverrideAbsurdCtxNeverWrapsToFit (phase-22 WR-07): a --ctx so large the
+// five-term KV product would wrap mod 2^64 to a SMALL total must still re-validate
+// to Fits=false with the override-doesnt-fit warning — overflow must never defeat
+// the D-07 "never a silent OOM" guard. ctx=2^50 makes the naive product wrap (the
+// test catalog's mid multiplier is 196,608); the saturating math pins MaxUint64.
+func TestOverrideAbsurdCtxNeverWrapsToFit(t *testing.T) {
+	rec := Pick(profileWithEnvelope(64<<30), testCatalog(), Overrides{Model: "mid", Ctx: 1 << 50}, MemoryInputs{})
+	if rec.Model != "mid" {
+		t.Fatalf("override model not honored, got %q", rec.Model)
+	}
+	if rec.Fits {
+		t.Fatalf("absurd --ctx override wrapped to Fits=true (total %d, envelope %d) — overflow defeated the D-07 re-validation", rec.TotalBytes, rec.UsableEnvelopeBytes)
+	}
+	if !hasNote(rec.Notes, "does NOT fit") {
+		t.Errorf("expected an override-doesnt-fit warning, got %v", rec.Notes)
+	}
+	if rec.TotalBytes <= rec.UsableEnvelopeBytes {
+		t.Errorf("expected saturated total %d to exceed envelope %d", rec.TotalBytes, rec.UsableEnvelopeBytes)
+	}
+}
+
 // TestDegradedFloorWhenEnvelopeUnknown asserts a degraded recommendation with a
 // prominent Note when the envelope is Unknown but RAM is known (D-14).
 func TestDegradedFloorWhenEnvelopeUnknown(t *testing.T) {

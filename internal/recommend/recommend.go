@@ -371,7 +371,10 @@ func pickOverride(c catalog.Catalog, ov Overrides, envelope uint64, degraded boo
 func buildRecommendation(m catalog.CatalogModel, ctx int, envelope uint64, degraded bool, notes []string) Recommendation {
 	kv := kvCacheBytes(m, ctx)
 	headroom := headroomBytes(envelope)
-	total := m.WeightBytes + kv + headroom
+	// Saturating sum (WR-07): a saturated KV term (absurd --ctx) must keep the
+	// total at MaxUint64 — a wrapped-small total would flip Fits true and feed a
+	// silent OOM into the rendered unit's -c and the ceiling stress math.
+	total := addSaturating(addSaturating(m.WeightBytes, kv), headroom)
 
 	backend := m.BackendDefault
 	if backend == "" {

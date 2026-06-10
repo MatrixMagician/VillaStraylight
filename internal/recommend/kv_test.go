@@ -1,6 +1,7 @@
 package recommend
 
 import (
+	"math"
 	"testing"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/catalog"
@@ -32,6 +33,29 @@ func TestKVCacheBytesFormula(t *testing.T) {
 	// Zero/negative ctx → 0 (defensive).
 	if z := kvCacheBytes(m, 0); z != 0 {
 		t.Errorf("kvCacheBytes(ctx=0) = %d, want 0", z)
+	}
+}
+
+// TestKVCacheBytesSaturatesOnOverflow (phase-22 WR-07): an absurd ctx whose
+// five-term product exceeds 2^64 must SATURATE to MaxUint64, never wrap mod 2^64
+// to a small value that would defeat the D-07 fit re-validation (silent OOM).
+func TestKVCacheBytesSaturatesOnOverflow(t *testing.T) {
+	m := catalog.CatalogModel{NLayers: 48, NKVHeads: 8, HeadDim: 128, KVBytesPerElem: 2}
+	// Multiplier 2*48*8*128*2 = 196,608; ctx ≈ 9.4e13 wraps a naive product.
+	const absurdCtx = int(1) << 50
+	got := kvCacheBytes(m, absurdCtx)
+	if got != math.MaxUint64 {
+		t.Fatalf("kvCacheBytes(absurd ctx) = %d, want MaxUint64 (saturated, never wrapped)", got)
+	}
+}
+
+// TestAddSaturating guards the addition twin: a carry saturates, normal sums pass.
+func TestAddSaturating(t *testing.T) {
+	if got := addSaturating(math.MaxUint64, 1); got != math.MaxUint64 {
+		t.Errorf("addSaturating(MaxUint64, 1) = %d, want MaxUint64", got)
+	}
+	if got := addSaturating(40<<30, 2<<30); got != 42<<30 {
+		t.Errorf("addSaturating(40GiB, 2GiB) = %d, want %d", got, uint64(42<<30))
 	}
 }
 
