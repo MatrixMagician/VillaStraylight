@@ -4,7 +4,7 @@ milestone: v1.3
 milestone_name: Memory & Knowledge
 status: verifying
 stopped_at: Completed 23-02-PLAN.md (memory-aware backup/restore)
-last_updated: "2026-06-10T21:47:57.219Z"
+last_updated: "2026-06-10T21:52:07.948Z"
 last_activity: 2026-06-10 -- Phase 23 execution started
 progress:
   total_phases: 6
@@ -244,12 +244,12 @@ Items acknowledged at v1.2 milestone close (2026-06-08):
 
 ## Session Continuity
 
-Last session: 2026-06-10T21:46:55.418Z
-Stopped at: Completed 23-02-PLAN.md (memory-aware backup/restore)
-Resume file: .planning/phases/23-surfacing-backup-memory-aware-swap/23-03-PLAN.md
+Last session: 2026-06-10T21:52:07.816Z
+Stopped at: Completed 23-05-PLAN.md (operator sign-off approved — Phase 23 verification complete)
+Resume file: None
 
 ## Operator Next Steps
 
-1. **Plan Phase 23** — `/gsd-plan-phase 23` (Surfacing, Backup & Memory-Aware Swap, CTRL-02/04/05): `status` + dashboard memory rows (`reportSchemaVersion` 2→3, golden re-frozen ONCE; non-GPU N/A-offload pattern; fix the per-row health false-green — status.go:376 probes the chat endpoint for every non-OWUI row); `backup`/`restore` extend to the Qdrant volume (clean-recreate-before-import, dimension in manifest, skew-WARN); `villa model swap` memory-aware (embedding-dimension guard). Discuss first via `/gsd-discuss-phase 23`.
+1. **Phase 23 COMPLETE** — all 5 plans executed; on-hardware drill (23-05) proved CTRL-02/04/05 live and the operator sign-off is approved (dashboard Memory panel verified per 23-UI-SPEC; evidence: `phase23-dashboard-memory-panel.png`). Next: `/gsd-verify-phase 23` (or proceed to milestone close if verification is folded into 23-05's drill evidence).
 2. **Phase 20/21 follow-ups (non-blocking):** live OWUI test accounts (`villa-verify@local.test`, seeded `villa-verify@localhost`) + the operator's OBSIDIAN-LYNX recall test chat remain on the box — operator may remove; `ui.memory=true` left ON for the service account.
 3. **Carryover tech debt (non-blocking):** Phase 21 Info findings IN-01..IN-04; extract shared `rocmpolicy` leaf package; investigate `rocm-6.4.4-rocwmma` residency FAIL; optional re-pin of the drifted `rocm-6.4.4` rolling tag; REQUIREMENTS.md traceability table missing SRCH-01/CODE-01/REMOTE-01 rows.
