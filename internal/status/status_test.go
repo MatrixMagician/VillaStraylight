@@ -11,6 +11,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
 	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
+	"github.com/MatrixMagician/VillaStraylight/internal/recall"
 	"github.com/MatrixMagician/VillaStraylight/internal/usage"
 )
 
@@ -439,7 +440,7 @@ func TestUsageOmittedWhenAbsent(t *testing.T) {
 
 // TestUsageSurfacedWhenPresent proves a populated read-only ReadUsage seam surfaces
 // the cumulative totals on the Report and the --json carries the "usage" key plus
-// schema_version 2 (D-09).
+// the current schema_version (D-09; bumped 2→3 by the Phase-23 memory evolution).
 func TestUsageSurfacedWhenPresent(t *testing.T) {
 	want := &usage.UsageTotals{
 		SchemaVersion: 1,
@@ -470,8 +471,8 @@ func TestUsageSurfacedWhenPresent(t *testing.T) {
 	if !strings.Contains(s, `"usage"`) {
 		t.Errorf("populated --json must carry the usage key; got:\n%s", s)
 	}
-	if !strings.Contains(s, `"schema_version":2`) {
-		t.Errorf("--json must carry schema_version 2; got:\n%s", s)
+	if !strings.Contains(s, `"schema_version":3`) {
+		t.Errorf("--json must carry schema_version 3; got:\n%s", s)
 	}
 }
 
@@ -485,6 +486,284 @@ func assertUsageKeyAbsent(t *testing.T, r Report) {
 	if strings.Contains(string(blob), `"usage"`) {
 		t.Errorf("absent usage store must OMIT the usage key (omitempty); got:\n%s", blob)
 	}
+}
+
+// --- Phase-23 v3 memory fixtures (Pitfall 8: cfg.MemoryEnabled=true MUST pair
+// with render output that actually contains the memory .container units, so the
+// fixture is coherent with what a real memory-on install renders). ---
+
+const (
+	qdrantService = "villa-qdrant.service"
+	embedService  = "villa-embed.service"
+)
+
+// memoryCfg is the memory-ON config fixture: the standard qwen3/vulkan install
+// plus the typed memory defaults (single-sourced from config.DefaultVillaConfig,
+// never re-typed literals).
+func memoryCfg() config.VillaConfig {
+	cfg := config.DefaultVillaConfig()
+	cfg.Model = "qwen3"
+	cfg.Quant = "Q4"
+	cfg.Ctx = 131072
+	cfg.MemoryEnabled = true
+	return cfg
+}
+
+// memoryUnits renders the REAL memory-on stack via orchestrate.Render so the
+// service loop walks genuine villa-qdrant.container / villa-embed.container
+// units (Pitfall 8 coherence with memoryCfg).
+func memoryUnits(t *testing.T) []orchestrate.Unit {
+	t.Helper()
+	units, err := orchestrate.Render(orchestrate.RenderInput{
+		Backend:   inference.VulkanBackend(),
+		Cfg:       memoryCfg(),
+		ModelFile: "qwen3.gguf",
+		ModelsDir: "/home/villa/.local/share/villa/models",
+	})
+	if err != nil {
+		t.Fatalf("render memory-on: %v", err)
+	}
+	return units
+}
+
+// newMemoryDeps builds the memory-on stub set: newDeps plus the memory-on config,
+// the memory service names, healthy per-service seams, and a complete-run recall
+// state. Tests override individual seams to drive the negative cases.
+func newMemoryDeps(t *testing.T) Deps {
+	t.Helper()
+	d := newDeps(t, memoryUnits(t))
+	d.LoadConfig = func() (config.VillaConfig, error) { return memoryCfg(), nil }
+	d.QdrantService = qdrantService
+	d.EmbedService = embedService
+	d.QdrantHealth = func(string, int) HealthState { return HealthReady }
+	d.EmbedHealth = func(string, int) HealthState { return HealthReady }
+	d.ReadRecallState = func() *recall.State {
+		return &recall.State{
+			EmbeddingModel:       "nomic-embed-text-v1.5",
+			EmbeddingDim:         768,
+			LastIndexStartedAt:   "2026-06-09T10:00:00Z",
+			LastIndexCompletedAt: "2026-06-09T10:05:00Z",
+			Chats: map[string]recall.ChatState{
+				"chat-1": {}, "chat-2": {},
+			},
+		}
+	}
+	return d
+}
+
+// memRow finds the named memory-service row in a freshly-run report.
+func memRow(t *testing.T, d Deps, svc string) ServiceStatus {
+	t.Helper()
+	for _, s := range Run(d).Services {
+		if s.Service == svc {
+			return s
+		}
+	}
+	t.Fatalf("status report has no %s row", svc)
+	return ServiceStatus{}
+}
+
+// TestRunMemoryRowsClassification (D-01, T-23-01): the villa-qdrant/villa-embed
+// rows are non-GPU rows cloned from the OWUI branch shape — Health comes from
+// their OWN per-service seams (NEVER from the generic d.Health chat-endpoint
+// probe, the carried Phase-22 false-green), offload is the N/A representation
+// excluded from the fold (OffloadApplies=false, OffloadOK=false).
+func TestRunMemoryRowsClassification(t *testing.T) {
+	d := newMemoryDeps(t)
+	// Poison the generic chat-endpoint probe: if a memory row consulted it, it
+	// would read down. The rows must still read from their own seams.
+	d.Health = func(string) HealthState { return HealthDown }
+	d.QdrantHealth = func(string, int) HealthState { return HealthReady }
+	d.EmbedHealth = func(string, int) HealthState { return HealthLoading }
+
+	q := memRow(t, d, qdrantService)
+	e := memRow(t, d, embedService)
+
+	if q.Health != HealthReady {
+		t.Errorf("qdrant Health = %q, want ready (from QdrantHealth seam, not d.Health)", q.Health)
+	}
+	if e.Health != HealthLoading {
+		t.Errorf("embed Health = %q, want loading (from EmbedHealth seam, not d.Health)", e.Health)
+	}
+	na := naOffloadVerdict()
+	for _, row := range []ServiceStatus{q, e} {
+		if row.OffloadApplies || row.OffloadOK {
+			t.Errorf("%s row must be offload N/A (applies/ok false), got applies=%v ok=%v",
+				row.Service, row.OffloadApplies, row.OffloadOK)
+		}
+		if row.Offload != na {
+			t.Errorf("%s Offload = %+v, want naOffloadVerdict()", row.Service, row.Offload)
+		}
+	}
+}
+
+// TestRunMemoryEmbedDownNoFalseGreen is the negative-control proof of the
+// false-green fix (T-23-01): a stopped villa-embed reports Health down — never
+// PASS borrowed from the healthy chat endpoint — and Aggregate degrades via the
+// HEALTH fold (the N/A offload of an OffloadApplies=false row never folds).
+func TestRunMemoryEmbedDownNoFalseGreen(t *testing.T) {
+	d := newMemoryDeps(t)
+	d.EmbedHealth = func(string, int) HealthState { return HealthDown }
+
+	r := Run(d)
+	var e ServiceStatus
+	for _, s := range r.Services {
+		if s.Service == embedService {
+			e = s
+		}
+	}
+	if e.Health != HealthDown {
+		t.Fatalf("stopped embed Health = %q, want down (false-green fixed)", e.Health)
+	}
+	if r.Overall != inference.StatusFail.String() {
+		t.Errorf("Overall = %q, want FAIL via the health fold", r.Overall)
+	}
+	if e.OffloadApplies {
+		t.Errorf("embed row must not fold offload (OffloadApplies=false)")
+	}
+}
+
+// TestRunMemoryNilSeams: nil per-service health seams degrade to HealthUnknown
+// (typed-Unknown WARN) — never a fabricated ready and never a borrowed probe.
+func TestRunMemoryNilSeams(t *testing.T) {
+	d := newMemoryDeps(t)
+	d.QdrantHealth = nil
+	d.EmbedHealth = nil
+
+	if got := memRow(t, d, qdrantService).Health; got != HealthUnknown {
+		t.Errorf("nil QdrantHealth seam → Health = %q, want unknown", got)
+	}
+	if got := memRow(t, d, embedService).Health; got != HealthUnknown {
+		t.Errorf("nil EmbedHealth seam → Health = %q, want unknown", got)
+	}
+}
+
+// TestRunMemoryOffReport (D-04): with memory off the report carries NO memory
+// section (nil pointer, omitempty key absent) and the only contract delta from
+// v2 is the schema version, now 3.
+func TestRunMemoryOffReport(t *testing.T) {
+	r := Run(newDeps(t, loopbackUnits(t)))
+	if r.Memory != nil {
+		t.Fatalf("memory-off report must carry Memory == nil, got %+v", r.Memory)
+	}
+	if r.SchemaVersion != 3 {
+		t.Errorf("SchemaVersion = %d, want 3", r.SchemaVersion)
+	}
+	blob, err := json.Marshal(r)
+	if err != nil {
+		t.Fatalf("marshal report: %v", err)
+	}
+	if strings.Contains(string(blob), `"memory"`) {
+		t.Errorf("memory-off --json must OMIT the memory key (omitempty pointer); got:\n%s", blob)
+	}
+}
+
+// TestRunMemorySection (D-02): the memory-on report carries the Memory section —
+// embedding identity from cfg plus the typed RecallState mapping: nil seam/nil
+// return → "unknown", zero-value state → "empty", a complete run → "indexed"
+// with count+timestamps verbatim, started-but-never-completed → "incomplete".
+func TestRunMemorySection(t *testing.T) {
+	t.Run("complete run → indexed", func(t *testing.T) {
+		r := Run(newMemoryDeps(t))
+		if r.Memory == nil {
+			t.Fatalf("memory-on report must populate Memory")
+		}
+		m := r.Memory
+		if m.EmbeddingModel != "nomic-embed-text-v1.5" || m.EmbeddingDim != 768 {
+			t.Errorf("embedding identity = %q/%d, want nomic-embed-text-v1.5/768 (from cfg)", m.EmbeddingModel, m.EmbeddingDim)
+		}
+		if m.RecallState != "indexed" {
+			t.Errorf("RecallState = %q, want indexed", m.RecallState)
+		}
+		if m.IndexedChats != 2 {
+			t.Errorf("IndexedChats = %d, want 2", m.IndexedChats)
+		}
+		if m.LastIndexStartedAt != "2026-06-09T10:00:00Z" || m.LastIndexCompletedAt != "2026-06-09T10:05:00Z" {
+			t.Errorf("timestamps = %q/%q, want fixture values verbatim", m.LastIndexStartedAt, m.LastIndexCompletedAt)
+		}
+	})
+
+	t.Run("nil seam → unknown", func(t *testing.T) {
+		d := newMemoryDeps(t)
+		d.ReadRecallState = nil
+		r := Run(d)
+		if r.Memory == nil || r.Memory.RecallState != "unknown" {
+			t.Fatalf("nil ReadRecallState seam → RecallState unknown, got %+v", r.Memory)
+		}
+	})
+
+	t.Run("seam returns nil (unreadable store) → unknown", func(t *testing.T) {
+		d := newMemoryDeps(t)
+		d.ReadRecallState = func() *recall.State { return nil }
+		r := Run(d)
+		if r.Memory == nil || r.Memory.RecallState != "unknown" {
+			t.Fatalf("nil-returning seam → RecallState unknown, got %+v", r.Memory)
+		}
+		if r.Memory.IndexedChats != 0 || r.Memory.LastIndexStartedAt != "" {
+			t.Errorf("unknown state must carry no fabricated counts/timestamps, got %+v", r.Memory)
+		}
+	})
+
+	t.Run("zero-value state → empty", func(t *testing.T) {
+		d := newMemoryDeps(t)
+		d.ReadRecallState = func() *recall.State { return &recall.State{} }
+		r := Run(d)
+		if r.Memory == nil || r.Memory.RecallState != "empty" {
+			t.Fatalf("zero-value state → RecallState empty, got %+v", r.Memory)
+		}
+	})
+
+	t.Run("started but never completed → incomplete", func(t *testing.T) {
+		d := newMemoryDeps(t)
+		d.ReadRecallState = func() *recall.State {
+			return &recall.State{
+				EmbeddingModel:     "nomic-embed-text-v1.5",
+				EmbeddingDim:       768,
+				LastIndexStartedAt: "2026-06-09T10:00:00Z",
+			}
+		}
+		r := Run(d)
+		if r.Memory == nil || r.Memory.RecallState != "incomplete" {
+			t.Fatalf("partial run → RecallState incomplete, got %+v", r.Memory)
+		}
+	})
+}
+
+// TestRunMemorySkewField (D-10 status surface): the embedding_skew field is set
+// ONLY on a confident mismatch; a match or an unevaluated comparison (no recorded
+// stamp) leaves it empty/omitted — never a green "ok" for an unevaluated state.
+func TestRunMemorySkewField(t *testing.T) {
+	t.Run("mismatch → mismatch", func(t *testing.T) {
+		d := newMemoryDeps(t)
+		d.ReadRecallState = func() *recall.State {
+			return &recall.State{
+				EmbeddingModel:       "some-other-embedder",
+				EmbeddingDim:         512,
+				LastIndexStartedAt:   "2026-06-09T10:00:00Z",
+				LastIndexCompletedAt: "2026-06-09T10:05:00Z",
+			}
+		}
+		r := Run(d)
+		if r.Memory == nil || r.Memory.EmbeddingSkew != "mismatch" {
+			t.Fatalf("confident skew → EmbeddingSkew mismatch, got %+v", r.Memory)
+		}
+	})
+
+	t.Run("match → empty", func(t *testing.T) {
+		r := Run(newMemoryDeps(t)) // fixture state matches cfg identity
+		if r.Memory == nil || r.Memory.EmbeddingSkew != "" {
+			t.Fatalf("matching identity → EmbeddingSkew empty, got %+v", r.Memory)
+		}
+	})
+
+	t.Run("no recorded stamp → empty (unknown, never alarmed)", func(t *testing.T) {
+		d := newMemoryDeps(t)
+		d.ReadRecallState = func() *recall.State { return &recall.State{} }
+		r := Run(d)
+		if r.Memory == nil || r.Memory.EmbeddingSkew != "" {
+			t.Fatalf("unevaluated comparison → EmbeddingSkew empty, got %+v", r.Memory)
+		}
+	})
 }
 
 // TestRunErrPropagates: a LoadConfig failure yields a FAIL Report carrying the error
