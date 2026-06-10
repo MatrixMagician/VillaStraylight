@@ -159,7 +159,20 @@ Audit PASSED — 13/13 requirements, 5/5 integration flows, 6/6 phases Nyquist-c
   2. In a new chat, the assistant retrieves relevant past-chat content by meaning (semantic, not just keyword) into the current conversation's context.
   3. The chat index can be incrementally updated / re-indexed under explicit `villa` control as conversations grow, and `villa` reports the index's honest current state (indexed count / last-indexed / staleness) — never silently stale.
 
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+**Wave 1**
+
+- [ ] 21-01-PLAN.md — pure `internal/recall` core (TDD): Plan diff + transcript renderer + typed-Unknown staleness + atomic recall-state.json store; seam gate green (RECALL-01, RECALL-03)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 21-02-PLAN.md — `villa recall index|status` verbs + live loopback REST seam (chats/knowledge/files/models drives, idempotent model attach, memory-off ⇒ exitBlocked) + docs/MEMORY.md recall section (RECALL-01, RECALL-02, RECALL-03)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 21-03-PLAN.md — on-hardware verification: real bulk index + A1–A4 resolution, semantic retrieval-by-meaning with citations (SC#2), incremental/staleness drill incl. OWUI-down typed-Unknown (SC#3) (RECALL-01, RECALL-02, RECALL-03)
 
 ### Phase 22: Control-Plane Fit + Host Gate
 
