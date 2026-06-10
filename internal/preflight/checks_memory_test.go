@@ -179,6 +179,32 @@ func TestCheckEmbedHeadroom(t *testing.T) {
 		}
 	})
 
+	t.Run("running-context shortage downgrades to WARN, never a double-counted FAIL (WR-03)", func(t *testing.T) {
+		root, statfs := diskOK()
+		in := memGateInput(pinnedEmbedModel, gib, root, statfs)
+		in.EmbedderActive = true
+		got := RunMemory(memProfile(256<<20, true), in)[1]
+		if got.Tier != TierBlock || got.Status != StatusWarn {
+			t.Fatalf("running-context shortage should downgrade to BLOCK/WARN (the resident embedder's footprint is already inside MemAvailable), got tier=%v status=%v (%s)", got.Tier, got.Status, got.Detail)
+		}
+		if got.Remediation == "" {
+			t.Error("running-context WARN must carry remediation text")
+		}
+		if !strings.Contains(got.Detail, "already running") {
+			t.Errorf("running-context WARN detail should explain the embedder is already running, got %q", got.Detail)
+		}
+	})
+
+	t.Run("running-context with ample free memory still passes (WR-03 no-op on healthy hosts)", func(t *testing.T) {
+		root, statfs := diskOK()
+		in := memGateInput(pinnedEmbedModel, gib, root, statfs)
+		in.EmbedderActive = true
+		got := RunMemory(memProfile(gib, true), in)[1]
+		if got.Status != StatusPass {
+			t.Fatalf("running-context with free memory above the reservation should PASS, got %v (%s)", got.Status, got.Detail)
+		}
+	})
+
 	t.Run("unrecognized model evaluates against the conservative default floor (D-02)", func(t *testing.T) {
 		root, statfs := diskOK()
 		in := memGateInput("no-such-embedder", gib, root, statfs)

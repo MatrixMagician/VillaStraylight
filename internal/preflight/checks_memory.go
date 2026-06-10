@@ -66,6 +66,15 @@ type MemoryGateInput struct {
 	VolumeRoot volumeRootFn
 	// Statfs reads free bytes at a path (nil → the package's liveStatfs).
 	Statfs statfsFunc
+	// EmbedderActive marks the RUNNING-context mode (phase-22 WR-03): the caller
+	// (doctor, D-08) has verified the embed service is already active, so its own
+	// footprint is ALREADY subtracted from MemAvailable. In that context demanding
+	// MemAvailable >= reservation would double-count the reservation and fabricate
+	// a blocking fault on a perfectly healthy memory-tight host — a headroom
+	// shortage therefore downgrades to WARN ("low system headroom") instead of the
+	// pre-install confident FAIL. False (the zero value, the install/preflight
+	// pre-start path) keeps the original gate semantics byte-identical.
+	EmbedderActive bool
 }
 
 // checkVectorDisk is MEM-PRE-disk (BLOCK): free disk at the rootless Podman
@@ -137,6 +146,16 @@ func checkEmbedHeadroom(p detect.HostProfile, in MemoryGateInput) CheckResult {
 	}
 
 	if p.MemAvailableBytes.Value < floor {
+		if in.EmbedderActive {
+			// Running-context (WR-03): the embedder is already resident, so its
+			// consumption is already inside MemAvailable — a shortage here is low
+			// system headroom, NOT "no room to start the embedder". A confident
+			// FAIL would double-count the reservation and break the DOCTOR-01
+			// "exit 0 = healthy" contract on a healthy memory-tight host.
+			return warn(id, name, TierBlock,
+				fmt.Sprintf("free memory %s < embedding reservation %s, but the embedder is already running (its footprint is already consumed) — low system headroom", humanGiB(p.MemAvailableBytes.Value), humanGiB(floor)),
+				remediation, joinProvenance(p.MemAvailableBytes.Source, floorProvenance), "")
+		}
 		return fail(id, name,
 			fmt.Sprintf("free memory %s < embedding reservation %s", humanGiB(p.MemAvailableBytes.Value), humanGiB(floor)),
 			remediation, joinProvenance(p.MemAvailableBytes.Source, floorProvenance), "")

@@ -209,10 +209,25 @@ func liveDoctorDeps() (doctor.Deps, error) {
 			unitServiceName(orchestrate.EmbedContainerUnitName()),
 		}
 		embeddingModel := cfg.EmbeddingModel
+		embedService := unitServiceName(orchestrate.EmbedContainerUnitName())
 		// D-08 composition over re-implementation: the memory host gate IS
 		// preflight.RunMemory — doctor never re-rolls the disk/headroom logic.
+		// EmbedderActive (phase-22 WR-03): doctor runs MEM-PRE-headroom against a
+		// possibly-RUNNING stack, where the embedder's own consumption is already
+		// subtracted from MemAvailable — without this flag the check would demand
+		// a SECOND reservation on top of the resident one and fabricate a blocking
+		// fault on a healthy memory-tight host. The active-state read is the same
+		// read-only IsActive seam the status fold uses; any error or non-active
+		// state keeps the strict pre-install semantics (false).
 		memChecks = func(p detect.HostProfile) []preflight.CheckResult {
-			return preflight.RunMemory(p, preflight.MemoryGateInput{EmbeddingModel: embeddingModel})
+			embedActive := false
+			if state, aerr := sd.IsActive(embedService); aerr == nil && state == "active" {
+				embedActive = true
+			}
+			return preflight.RunMemory(p, preflight.MemoryGateInput{
+				EmbeddingModel: embeddingModel,
+				EmbedderActive: embedActive,
+			})
 		}
 		memProof = liveResidencyUnderLoad(cfg, sd)
 	}
