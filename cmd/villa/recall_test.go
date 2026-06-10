@@ -907,3 +907,127 @@ func TestRecallRebuild(t *testing.T) {
 		t.Errorf("a clean rebuild must stamp last_index_completed_at")
 	}
 }
+
+// skewedRecallCfg returns a memory-on config whose embedding identity confidently
+// diverges from the nomic/768 stamp the skew tests record — the D-10 mismatch
+// fixture (model AND dim differ; either alone would also be a mismatch).
+func skewedRecallCfg() config.VillaConfig {
+	c := config.DefaultVillaConfig()
+	c.MemoryEnabled = true
+	c.EmbeddingModel = "other-embed-model"
+	c.EmbeddingDim = 512
+	return c
+}
+
+// TestRecallIndexSkewGuard locks the D-10 fail-closed refusal at the ONE verb that
+// mutates the index (CTRL-05, T-23-15/T-23-16): a confident embedding model/dim
+// mismatch between the recall-state stamp and config REFUSES (exitBlocked,
+// refuse-with-remediation) BEFORE any state mutation — the stamp is the recorded
+// truth and must survive the refusal (Pitfall 6). --rebuild is the sanctioned
+// bypass (OQ4: the rebuild path id-preservingly resets the KB and clean-replaces
+// collection content; the fresh stamp then records the new identity). An empty
+// stamp is typed-Unknown — no recorded truth, no alarm. The comparison is the
+// single Plan 23-01 helper (recall.EmbeddingSkew), never re-rolled.
+func TestRecallIndexSkewGuard(t *testing.T) {
+	stamped := recall.State{
+		KnowledgeID:    "kb1",
+		KnowledgeName:  "villa-recall",
+		EmbeddingModel: "nomic-embed-text-v1.5",
+		EmbeddingDim:   768,
+	}
+
+	t.Run("confident mismatch refuses exitBlocked with remediation, stamp preserved", func(t *testing.T) {
+		env := newFakeRecallEnv()
+		env.state = copyRecallState(stamped)
+		env.deps.loadedConfig = skewedRecallCfg
+
+		cmd := newRecallCmd()
+		var out, errOut bytes.Buffer
+		cmd.SetOut(&out)
+		cmd.SetErr(&errOut)
+		if code := runRecallIndex(cmd, nil, env.deps, false, false); code != exitBlocked {
+			t.Fatalf("skew run exit = %d, want exitBlocked; stderr = %q", code, errOut.String())
+		}
+		msg := errOut.String()
+		for _, want := range []string{
+			"nomic-embed-text-v1.5", "768", // the stamped identity
+			"other-embed-model", "512", // the configured identity
+			"corrupts retrieval", // the consequence
+			"--rebuild",          // the sanctioned fix
+		} {
+			if !strings.Contains(msg, want) {
+				t.Errorf("refusal must name %q; stderr = %q", want, msg)
+			}
+		}
+		// Pitfall 6: the refusal must run BEFORE any state mutation — zero persists,
+		// no KB ensure/reset, and the recorded stamp survives verbatim.
+		if callIndex(env.calls, "persist") != -1 {
+			t.Errorf("a skew refusal must never persist state; calls = %v", env.calls)
+		}
+		if callIndex(env.calls, "ensureKB") != -1 || hasCallPrefix(env.calls, "reset:") {
+			t.Errorf("a skew refusal must fire no KB mutation; calls = %v", env.calls)
+		}
+		if env.state.EmbeddingModel != "nomic-embed-text-v1.5" || env.state.EmbeddingDim != 768 {
+			t.Errorf("the recorded stamp must survive the refusal, got %q/%d", env.state.EmbeddingModel, env.state.EmbeddingDim)
+		}
+	})
+
+	t.Run("consecutive mismatched runs BOTH refuse (Pitfall 6 regression)", func(t *testing.T) {
+		env := newFakeRecallEnv()
+		env.state = copyRecallState(stamped)
+		env.deps.loadedConfig = skewedRecallCfg
+
+		for i := 1; i <= 2; i++ {
+			cmd := newRecallCmd()
+			var out, errOut bytes.Buffer
+			cmd.SetOut(&out)
+			cmd.SetErr(&errOut)
+			if code := runRecallIndex(cmd, nil, env.deps, false, false); code != exitBlocked {
+				t.Fatalf("run %d exit = %d, want exitBlocked — a prior refusal must NOT have overwritten the stamp (Pitfall 6); stderr = %q", i, code, errOut.String())
+			}
+		}
+	})
+
+	t.Run("--rebuild bypasses the refusal and the fresh stamp records the new identity", func(t *testing.T) {
+		env := newFakeRecallEnv()
+		env.state = copyRecallState(stamped)
+		env.deps.loadedConfig = skewedRecallCfg
+
+		cmd := newRecallCmd()
+		var out, errOut bytes.Buffer
+		cmd.SetOut(&out)
+		cmd.SetErr(&errOut)
+		if code := runRecallIndex(cmd, nil, env.deps, true, false); code != exitPass {
+			t.Fatalf("--rebuild skew run exit = %d, want exitPass (the sanctioned re-index, OQ4); stderr = %q", code, errOut.String())
+		}
+		if callIndex(env.calls, "reset:kb1") == -1 {
+			t.Errorf("--rebuild must id-preservingly reset the KB; calls = %v", env.calls)
+		}
+		if env.state.EmbeddingModel != "other-embed-model" || env.state.EmbeddingDim != 512 {
+			t.Errorf("the fresh stamp must record the NEW identity, got %q/%d", env.state.EmbeddingModel, env.state.EmbeddingDim)
+		}
+		if env.state.LastIndexCompletedAt == "" {
+			t.Errorf("a clean rebuild must stamp last_index_completed_at")
+		}
+	})
+
+	t.Run("empty stamp is typed-Unknown - run proceeds with no alarm", func(t *testing.T) {
+		env := newFakeRecallEnv()
+		// Zero state: no EmbeddingModel recorded (pre-Phase-21 store / fresh install).
+		env.deps.loadedConfig = skewedRecallCfg
+
+		cmd := newRecallCmd()
+		var out, errOut bytes.Buffer
+		cmd.SetOut(&out)
+		cmd.SetErr(&errOut)
+		if code := runRecallIndex(cmd, nil, env.deps, false, false); code != exitPass {
+			t.Fatalf("empty-stamp run exit = %d, want exitPass (no recorded truth, no alarm); stderr = %q", code, errOut.String())
+		}
+		if strings.Contains(errOut.String(), "REFUSING") {
+			t.Errorf("an empty stamp must never refuse; stderr = %q", errOut.String())
+		}
+		if env.state.EmbeddingModel != "other-embed-model" || env.state.EmbeddingDim != 512 {
+			t.Errorf("the first stamp must record the configured identity, got %q/%d", env.state.EmbeddingModel, env.state.EmbeddingDim)
+		}
+	})
+}
