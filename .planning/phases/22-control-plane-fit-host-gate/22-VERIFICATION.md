@@ -1,7 +1,7 @@
 ---
 phase: 22-control-plane-fit-host-gate
-verified: 2026-06-10T17:45:00Z
-status: human_needed
+verified: 2026-06-10T19:35:00Z
+status: passed
 score: 22/22 must-haves verified
 overrides_applied: 0
 human_verification:
@@ -13,8 +13,8 @@ human_verification:
 # Phase 22: Control-Plane Fit + Host Gate Verification Report
 
 **Phase Goal:** The recommended configuration accounts for the embedding model so the memory stack fits the unified-memory envelope, and `villa` refuses or warns up front when the host can't host the memory stack — preserving the "runs healthy after install" bar with no OOM or silent CPU fallback under embedding load.
-**Verified:** 2026-06-10T17:45:00Z
-**Status:** human_needed (all automated checks passed; one deferred operator sign-off item)
+**Verified:** 2026-06-10T19:35:00Z
+**Status:** passed (operator sign-off completed 2026-06-10 via /gsd-verify-work 22 — operator delegated live execution on the Strix Halo host; all evidence re-executed at HEAD 70b83f8 incl. the embed-down negative control and D-05 re-measure 227123200 B ≤ 512 MiB. See 22-UAT.md.)
 **Re-verification:** No — initial verification
 
 ## Goal Achievement
