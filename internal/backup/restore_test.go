@@ -984,3 +984,96 @@ func TestRestoreNonPassProveRollsBack(t *testing.T) {
 		t.Fatalf("prove verdict must be carried through (non-pass), got %+v", res.Prove)
 	}
 }
+
+// TestRestoreProveFailRollbackQuiescesBeforeVolumeRm is the CR-01 regression with
+// LIVE-HOST FIDELITY the no-op fakes lacked: on a real host a RUNNING container
+// holds its volume, so `podman volume rm` fails "volume is in use" unless the
+// owning service is stopped first. The forward path starts Open WebUI (and
+// Qdrant) at step (5) BEFORE the Prove gate, so a prove-triggered rollback
+// arrives with both services RUNNING — the rollback MUST quiesce before its
+// clean-recreate VolumeRm, or the prior data can never be re-imported. This fake
+// tracks running state through the Stop/Start seams and fails VolumeRm in-use,
+// which made the pre-fix rollback structurally incapable of completing.
+func TestRestoreProveFailRollbackQuiescesBeforeVolumeRm(t *testing.T) {
+	arch := buildArchiveMem(t, baseManifest(), validCfgTOML, []byte("owui-data"), []byte("qdrant-data"), nil)
+	r, in := memInput(t, arch, true /* prior qdrant volume exists */)
+	r.prove = ProveVerdict{Status: "fail", Detail: "residency FAIL (CPU fallback)"}
+
+	running := map[string]bool{
+		"villa-openwebui.service": true,
+		"qdrant.service":          true,
+	}
+	serviceFor := map[string]string{
+		"villa-openwebui": "villa-openwebui.service",
+		"qdrant-vol":      "qdrant.service",
+	}
+	d := r.deps()
+	origStop, origStart, origRm := d.Stop, d.Start, d.VolumeRm
+	d.Stop = func(s string) error { running[s] = false; return origStop(s) }
+	d.Start = func(s string) error { running[s] = true; return origStart(s) }
+	d.VolumeRm = func(name string) error {
+		if running[serviceFor[name]] {
+			return errors.New("volume is being used by the following container(s)")
+		}
+		return origRm(name)
+	}
+
+	res := Restore(d, in)
+	if !res.RolledBack || res.FailedStep != "prove" {
+		t.Fatalf("want RolledBack at prove, got %+v (calls %v)", res, r.calls)
+	}
+	// The rollback must have quiesced FIRST, so every rollback VolumeRm ran against
+	// a stopped service and the rollback completed CLEANLY.
+	if res.RollbackIncomplete || strings.Contains(res.Reason, "did not fully complete") {
+		t.Fatalf("rollback must quiesce before VolumeRm and complete cleanly, got %+v (calls %v)", res, r.calls)
+	}
+	// Ordering inside the rollback phase: after Prove, Stop(service) precedes the
+	// rollback VolumeRm for BOTH volumes.
+	iProve := indexOf(r.calls, "Prove:")
+	if iProve == -1 {
+		t.Fatalf("missing Prove call: %v", r.calls)
+	}
+	for _, pair := range [][2]string{
+		{"Stop:villa-openwebui.service", "VolumeRm:villa-openwebui"},
+		{"Stop:qdrant.service", "VolumeRm:qdrant-vol"},
+	} {
+		iStop := indexAfter(r.calls, pair[0], iProve)
+		iRm := indexAfter(r.calls, pair[1], iProve)
+		if iStop == -1 || iRm == -1 || iStop > iRm {
+			t.Fatalf("rollback must %s before %s (after Prove at %d); calls %v", pair[0], pair[1], iProve, r.calls)
+		}
+	}
+	// And the rollback re-imports of BOTH captured tars actually ran (the whole
+	// point of the quiesce — without it these could never succeed on a live host).
+	for _, want := range []string{
+		"VolumeImport:villa-openwebui:" + in.RollbackVolumeTar,
+		"VolumeImport:qdrant-vol:" + in.RollbackQdrantTar,
+	} {
+		if indexAfter(r.calls, want, iProve) == -1 {
+			t.Fatalf("rollback must re-import %q; calls %v", want, r.calls)
+		}
+	}
+}
+
+// TestRestoreRollbackIncompleteSetsFlag asserts the Result.RollbackIncomplete flag
+// (CR-01) mirrors the honest rollback-incomplete Reason, so the cmd tier can
+// preserve the rollback tars without string-matching the Reason text.
+func TestRestoreRollbackIncompleteSetsFlag(t *testing.T) {
+	arch := buildArchive(t, baseManifest(), validCfgTOML, []byte("owui-data"), nil, nil, false)
+	r, in := baseInput(t, arch)
+	r.volumeImportErr = errors.New("import boom")
+	r.saveErrOnce = map[int]error{2: errors.New("save prior boom")}
+	res := Restore(r.deps(), in)
+	if !res.RolledBack || !res.RollbackIncomplete {
+		t.Fatalf("an errored rollback step must set RollbackIncomplete, got %+v", res)
+	}
+
+	// A clean rollback leaves the flag false.
+	arch = buildArchive(t, baseManifest(), validCfgTOML, []byte("owui-data"), nil, nil, false)
+	r2, in2 := baseInput(t, arch)
+	r2.prove = ProveVerdict{Status: "fail", Detail: "residency FAIL"}
+	res = Restore(r2.deps(), in2)
+	if !res.RolledBack || res.RollbackIncomplete {
+		t.Fatalf("a clean rollback must leave RollbackIncomplete false, got %+v", res)
+	}
+}

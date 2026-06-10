@@ -249,6 +249,18 @@ func Restore(d Deps, in RestoreInput) Result {
 				detail += what + ": " + e.Error()
 			}
 		}
+		// QUIESCE FIRST (CR-01): the forward path starts Open WebUI (and Qdrant)
+		// at step (5) BEFORE the Prove gate at step (6), so a prove-triggered
+		// rollback arrives with the services RUNNING — and a running container
+		// holds its volume, making the clean-recreate VolumeRm below fail in-use
+		// on a live host. Mirror the forward path's own quiesce before any volume
+		// work; Stop on an already-stopped unit is an idempotent no-op. The qdrant
+		// stop mirrors the forward Start gate (entry present AND a prior volume
+		// existed) — on the prior-absent cell nothing was ever started.
+		add(d.Stop(d.OpenWebUIServiceName), "stop Open WebUI for rollback")
+		if ex.qdrantPresent && in.QdrantVolumeExists {
+			add(d.Stop(d.QdrantServiceName), "stop Qdrant for rollback")
+		}
 		add(d.SaveConfig(priorCfg), "SaveConfig(prior)")
 		// Restore each data-dir artifact VERBATIM (CR-01). For each path:
 		//   - prior existed → rewrite the captured prior bytes (the prior behavior);
@@ -306,6 +318,7 @@ func Restore(d Deps, in RestoreInput) Result {
 			Prove:      v,
 		}
 		if !rbOK {
+			r.RollbackIncomplete = true
 			r.Reason = "rolled back, but the restore did not fully complete (" + rbDetail +
 				") — run `villa status` and inspect the villa-openwebui unit"
 		}

@@ -70,8 +70,14 @@ func newRestore() *cobra.Command {
 				os.Exit(code)
 				return nil
 			}
-			rc := runRestore(cmd, args[0], in, d)
-			cleanup() // must survive until AFTER backup.Restore returns
+			rc, preserveTmp := runRestore(cmd, args[0], in, d, tmpDir)
+			// CR-01: when the rollback did NOT fully complete, tmpDir holds the ONLY
+			// copies of the prior volume data (rollback-owui.tar / rollback-qdrant.tar)
+			// — deleting it would permanently lose the prior chat database. runRestore
+			// already printed the preservation notice + recovery hint.
+			if !preserveTmp {
+				cleanup() // must survive until AFTER backup.Restore returns
+			}
 			os.Exit(rc)
 			return nil
 		},
@@ -88,7 +94,10 @@ func newRestore() *cobra.Command {
 // Restored -> exitPass; Refused -> exitBlocked (a clean fail-closed/decline, zero side
 // effects); RolledBack -> exitBlocked with the honest rollback reason; a bare Err ->
 // exitBlocked. The body RETURNS the int (no os.Exit) so tests assert output + code.
-func runRestore(cmd *cobra.Command, archivePath string, in backup.RestoreInput, d backup.Deps) int {
+// preserveTmp reports whether the caller must PRESERVE the restore temp dir (CR-01):
+// it is true exactly when the rollback did not fully complete — tmpDir then holds the
+// ONLY copies of the prior volume data and deleting it would lose the prior chats.
+func runRestore(cmd *cobra.Command, archivePath string, in backup.RestoreInput, d backup.Deps, tmpDir string) (code int, preserveTmp bool) {
 	out := cmd.OutOrStdout()
 	errOut := cmd.ErrOrStderr()
 
@@ -102,7 +111,7 @@ func runRestore(cmd *cobra.Command, archivePath string, in backup.RestoreInput, 
 		} else {
 			fmt.Fprintf(errOut, "restore: refusing to apply %s\n", archivePath)
 		}
-		return exitBlocked
+		return exitBlocked, false
 	case res.RolledBack:
 		fmt.Fprintf(errOut, "restore: applying %s failed at %q — rolled back; prior stack restored\n", archivePath, res.FailedStep)
 		if res.Reason != "" {
@@ -111,10 +120,21 @@ func runRestore(cmd *cobra.Command, archivePath string, in backup.RestoreInput, 
 		if res.Err != nil {
 			fmt.Fprintf(errOut, "  error:  %v\n", res.Err)
 		}
-		return exitBlocked
+		if res.RollbackIncomplete {
+			// CR-01: an incomplete rollback means the captured prior state was NOT
+			// fully re-applied — the rollback tars in tmpDir are the only copies of
+			// the prior Open WebUI (webui.db) / Qdrant volume data. Preserve them
+			// and tell the operator how to recover instead of silently deleting.
+			if tmpDir != "" {
+				fmt.Fprintf(errOut, "restore: PRESERVING %s — the rollback did not fully complete and this directory holds the ONLY copies of the prior volume data (rollback-owui.tar / rollback-qdrant.tar).\n", tmpDir)
+				fmt.Fprintf(errOut, "  recover: fix the cause above, stop the affected service, then `podman volume import <volume> <rollback tar>`; remove the directory once the prior data is safe.\n")
+			}
+			return exitBlocked, true
+		}
+		return exitBlocked, false
 	case res.Err != nil:
 		fmt.Fprintf(errOut, "restore: applying %s failed at %q: %v\n", archivePath, res.FailedStep, res.Err)
-		return exitBlocked
+		return exitBlocked, false
 	default: // Restored
 		fmt.Fprintf(out, "restored %s — config + Open WebUI data + usage/bench stores applied, cutover proven\n", archivePath)
 		fmt.Fprintf(out, "note: model weights are not in the backup; if inference fails to start, re-pull with `villa model pull <id>`\n")
@@ -138,7 +158,7 @@ func runRestore(cmd *cobra.Command, archivePath string, in backup.RestoreInput, 
 			posture = "enabled"
 		}
 		fmt.Fprintf(out, "memory stack: %s (restored config); note: a reconcile does not remove stale unit files — bring services up with `villa up`\n", posture)
-		return exitPass
+		return exitPass, false
 	}
 }
 

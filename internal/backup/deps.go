@@ -145,6 +145,13 @@ type Result struct {
 	// rollback STEP itself errored — Reason/FailedStep then flag rollback-incomplete
 	// (never claim a clean no-op when rollback errored; RESEARCH Pitfall 5).
 	RolledBack bool
+	// RollbackIncomplete is true when RolledBack is set but one or more rollback
+	// steps themselves errored (CR-01). The cmd tier MUST then PRESERVE the
+	// restore temp dir instead of deleting it — the captured rollback tars
+	// (rollback-owui.tar / rollback-qdrant.tar) it holds are the ONLY copies of
+	// the prior Open WebUI / Qdrant volume data, and deleting them on an
+	// incomplete rollback would permanently lose the prior chat database.
+	RollbackIncomplete bool
 	// NoOp is true for a clean no-op with zero side effects.
 	NoOp bool
 	// Reason is the human refusal/remediation/rollback explanation (empty on a
