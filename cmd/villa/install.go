@@ -182,6 +182,13 @@ type installDeps struct {
 	// remediation (exitBlocked), never a silent skip (D-09). Invoked only when memory
 	// is on and not dry-run.
 	memoryProofFn func(ctx context.Context, in memoryProofInput) memoryProof
+	// runMemoryChecks returns the opt-in memory-stack host-fitness gates
+	// (MEM-PRE-disk vector-index disk + MEM-PRE-headroom embedder headroom,
+	// CTRL-06/D-06) appended to the preflight checks when loadedMemoryEnabled
+	// reports true — so an unfit host is refused-with-remediation BEFORE the
+	// memory stack comes up. NIL-SAFE: when nil (test doubles), no memory checks
+	// are appended (mirrors the doctor optional-seam pattern).
+	runMemoryChecks func(detect.HostProfile) []preflight.CheckResult
 
 	// stdoutIsTTY reports whether stdout is a real terminal — the stdout twin of
 	// interactive() (which checks stdin). huh renders to stdout/stderr, so BOTH must
@@ -275,6 +282,14 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 		DataDir:      d.modelsDir(),
 	}
 	checks := d.runChecks(profile, req)
+	// (3a) Opt-in memory-stack gates (CTRL-06/D-06): vector-index disk + embedder
+	// headroom are appended ONLY when the persisted memory_enabled is on, so the
+	// memory-off install gate is byte-identical. They flow through the single
+	// gateInstall below — an opted-in install on an unfit host refuses-with-
+	// remediation BEFORE the memory stack comes up.
+	if d.loadedMemoryEnabled() && d.runMemoryChecks != nil {
+		checks = append(checks, d.runMemoryChecks(profile)...)
+	}
 
 	// (3b) Guided wizard (D-01/D-08) — the PINNED composition. probe/pick/runChecks
 	// (steps 1-3) have already run exactly once; the wizard RECEIVES their results,
@@ -1071,6 +1086,11 @@ func liveInstallDeps() (*installDeps, error) {
 		embedModelPresent:   liveEmbedModelPresent,
 		ensureEmbedModel:    liveEnsureEmbedModel,
 		memoryProofFn:       liveMemoryProof,
+		// Memory host-fitness gates (CTRL-06): the embedding model comes from the
+		// same persisted fail-soft config source as the rest of the memory path.
+		runMemoryChecks: func(p detect.HostProfile) []preflight.CheckResult {
+			return preflight.RunMemory(p, preflight.MemoryGateInput{EmbeddingModel: liveLoadedConfig().EmbeddingModel})
+		},
 	}, nil
 }
 

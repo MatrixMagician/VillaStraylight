@@ -1614,3 +1614,63 @@ func indexOf(s []string, v string) int {
 	}
 	return -1
 }
+
+// TestInstallMemoryGateRefusesUnfitHost is the CTRL-06 install half: an opted-in
+// install whose memory host-fitness gate reports a confident shortage refuses-
+// with-remediation (exitBlocked) BEFORE bringing up the memory stack — zero host
+// mutation. With memory off the gate seam never fires (D-06: the memory-off
+// install path is byte-identical).
+func TestInstallMemoryGateRefusesUnfitHost(t *testing.T) {
+	units := []orchestrate.Unit{{Name: "villa-llama.container", Text: "[Container]\n"}}
+	plan := orchestrate.Plan{Changed: units}
+
+	memDiskFail := preflight.CheckResult{
+		ID: "MEM-PRE-disk", Name: "Vector-index disk space",
+		Tier: preflight.TierBlock, Status: preflight.StatusFail,
+		Detail:      `free disk 0.50 GiB at "/volroot" < required floor 1.00 GiB for the vector index`,
+		Remediation: `Free up disk under "/volroot" — the Qdrant vector index lives there and grows with indexed chats/documents; or disable memory_enabled in config.toml.`,
+	}
+
+	t.Run("memory-on unfit host refuses before any mutation", func(t *testing.T) {
+		f := newFakeInstallDeps(t, units, plan, passChecks())
+		f.memoryEnabled = true
+		gateCalls := 0
+		f.installDeps.runMemoryChecks = func(detect.HostProfile) []preflight.CheckResult {
+			gateCalls++
+			return []preflight.CheckResult{memDiskFail}
+		}
+
+		cmd, _, _ := installTestCmd()
+		code := runInstall(cmd, installOpts{}, f.installDeps)
+		if code != exitBlocked {
+			t.Fatalf("unfit memory host exit = %d, want exitBlocked (%d)", code, exitBlocked)
+		}
+		if gateCalls != 1 {
+			t.Errorf("memory gate must run exactly once, ran %d times", gateCalls)
+		}
+		// Refused BEFORE the stack comes up: nothing written, started, pulled, or
+		// persisted — and the memory pre-stage/proof seams never fired.
+		if f.writeCalls != 0 || f.startCalls != 0 || f.pullCalls != 0 || f.saveCalls != 0 {
+			t.Errorf("a blocked memory install must not mutate: write=%d start=%d pull=%d save=%d",
+				f.writeCalls, f.startCalls, f.pullCalls, f.saveCalls)
+		}
+		if f.embedEnsureCalls != 0 || f.memoryProofCalls != 0 {
+			t.Errorf("memory stack must not come up after a gate refusal: embedEnsure=%d proof=%d",
+				f.embedEnsureCalls, f.memoryProofCalls)
+		}
+	})
+
+	t.Run("memory-off install never invokes the gate", func(t *testing.T) {
+		f := newFakeInstallDeps(t, units, plan, passChecks())
+		f.installDeps.runMemoryChecks = func(detect.HostProfile) []preflight.CheckResult {
+			t.Error("memory-off install must NOT run the memory host-fitness gate")
+			return nil
+		}
+
+		cmd, _, _ := installTestCmd()
+		code := runInstall(cmd, installOpts{}, f.installDeps)
+		if code == exitBlocked {
+			t.Fatalf("memory-off install must not be blocked by the memory gate, exit = %d", code)
+		}
+	})
+}
