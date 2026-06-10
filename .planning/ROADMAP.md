@@ -215,7 +215,22 @@ Plans:
   2. `villa backup` includes the Qdrant memory volume and `villa restore` clean-recreates it before import (no stale-vector leak), with the embedding dimension recorded in the manifest so a version/dimension skew WARNs rather than silently corrupting retrieval.
   3. `villa model swap` is memory-aware: it warns/guards when changing the embedding model would invalidate existing vectors (dimension mismatch / no auto-reindex), and a chat-model swap leaves the embedding model and vector collections intact.
 
-**Plans**: TBD
+**Plans:** 5 plans
+
+Plans:
+**Wave 1**
+
+- [ ] 23-01-PLAN.md — status.Report 2→3: memory rows non-GPU classified (false-green fix), Memory section + skew field, doctor ripple, ONE golden re-freeze (SC#1, CTRL-02)
+- [ ] 23-02-PLAN.md — backup/restore: Qdrant volume + recall-state.json optional entries, quiesce, manifest model/dim, clean-recreate 2×2 matrix, skew WARN+confirm (SC#2, CTRL-04)
+
+**Wave 2** *(blocked on Wave 1)*
+
+- [ ] 23-03-PLAN.md — dashboard Memory panel per approved 23-UI-SPEC (reads report.memory; zero new probes/endpoints) (SC#1, CTRL-02)
+- [ ] 23-04-PLAN.md — swap guards: D-09 byte-identity/restart-scope invariant tests + D-10 recall-index refusal + install WARN (SC#3, CTRL-05)
+
+**Wave 3** *(blocked on Waves 1–2)*
+
+- [ ] 23-05-PLAN.md — on-hardware verification drill on the live gfx1151 box + operator sign-off (checkpoint)
 
 ## Progress
 
