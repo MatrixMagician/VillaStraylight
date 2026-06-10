@@ -302,9 +302,32 @@ func owuiUploadTranscript(ctx context.Context, base, token, kbID, filename, cont
 		"-H", "Content-Type: application/json", "-H", auth,
 		"-d", string(aBody),
 	); err != nil {
+		// WR-03: the file was uploaded and embedded but never joined the KB, so the
+		// clean-replace/delete path (which keys off recorded KB FileIDs) can never
+		// reach it and it (plus its Qdrant vectors) would orphan-accumulate on every
+		// retry. file/remove needs KB membership the file does not yet have, so
+		// best-effort delete the file directly via the files DELETE endpoint before
+		// returning the original error. The delete is best-effort: a failure to
+		// clean up never masks the real add failure.
+		_ = owuiDeleteFile(ctx, base, token, fResp.ID)
 		return "", fmt.Errorf("knowledge/file/add: %w", err)
 	}
 	return fResp.ID, nil
+}
+
+// owuiDeleteFile removes a stand-alone uploaded file (and its vectors) via
+// `DELETE /api/v1/files/{id}` — the cleanup path for a file that was uploaded and
+// embedded but never joined a KB (WR-03). Unlike owuiRemoveKnowledgeFile it does
+// NOT require KB membership.
+func owuiDeleteFile(ctx context.Context, base, token, fileID string) error {
+	auth := bearerHeader(token)
+	if _, err := runLoopbackCurl(ctx,
+		"-sf", "-X", "DELETE", base+"/api/v1/files/"+fileID,
+		"-H", auth,
+	); err != nil {
+		return fmt.Errorf("files/{id} delete: %w", err)
+	}
+	return nil
 }
 
 // owuiRemoveKnowledgeFile is the clean-replace/delete primitive (D-04):
@@ -399,20 +422,54 @@ func attachKnowledgeRow(
 		if err := updateRow(merged); err != nil {
 			return recall.AttachmentUnknown, fmt.Errorf("models/model/update: %w", err)
 		}
-		return recall.AttachmentAttached, nil
+	} else {
+		fresh := map[string]any{
+			"id":            servedModelID,
+			"base_model_id": nil,
+			"name":          servedModelID,
+			"params":        map[string]any{},
+			"is_active":     true,
+			"meta":          map[string]any{"knowledge": []any{knowledgeItem(kbID, kbName)}},
+		}
+		if err := createRow(fresh); err != nil {
+			return recall.AttachmentUnknown, fmt.Errorf("models/create: %w", err)
+		}
 	}
-	fresh := map[string]any{
-		"id":            servedModelID,
-		"base_model_id": nil,
-		"name":          servedModelID,
-		"params":        map[string]any{},
-		"is_active":     true,
-		"meta":          map[string]any{"knowledge": []any{knowledgeItem(kbID, kbName)}},
+	// WR-04 (Pitfall 2): a 200 from update/create is NOT proof the merge persisted —
+	// OWUI can reshape or silently drop meta.knowledge (legacy vs modern collection
+	// shapes), leaving retrieval OFF while the index reports "attached". Re-GET the
+	// row and confirm the recall KB id actually landed in meta.knowledge before
+	// returning Attached; otherwise return a not-Attached verdict WITH an error so
+	// the index run fails honestly instead of stamping a false green.
+	verifyRow, verifyExists, err := getRow()
+	if err != nil {
+		return recall.AttachmentUnknown, fmt.Errorf("models/model verify get: %w", err)
 	}
-	if err := createRow(fresh); err != nil {
-		return recall.AttachmentUnknown, fmt.Errorf("models/create: %w", err)
+	if !verifyExists {
+		return recall.AttachmentMissing, fmt.Errorf("attach verify: the served model row %q is absent after update/create — retrieval is NOT wired", servedModelID)
+	}
+	if !rowHasKnowledgeID(verifyRow, kbID) {
+		return recall.AttachmentMissing, fmt.Errorf("attach verify: the recall KB %q did not persist in model %q meta.knowledge (silent detach) — retrieval is NOT wired", kbID, servedModelID)
 	}
 	return recall.AttachmentAttached, nil
+}
+
+// rowHasKnowledgeID reports whether a Model row's meta.knowledge contains an item
+// with the given KB id (the WR-04 attach-verification predicate). It tolerates the
+// untyped map[string]any shape getRow returns and never panics on a missing/
+// mis-shaped meta.
+func rowHasKnowledgeID(row map[string]any, kbID string) bool {
+	meta, _ := row["meta"].(map[string]any)
+	if meta == nil {
+		return false
+	}
+	items, _ := meta["knowledge"].([]any)
+	for _, it := range items {
+		if m, ok := it.(map[string]any); ok && m["id"] == kbID {
+			return true
+		}
+	}
+	return false
 }
 
 // owuiAttachKnowledge wires attachKnowledgeRow to the live Model-row endpoints:

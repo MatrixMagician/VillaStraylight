@@ -626,21 +626,23 @@ func TestRecallAttach(t *testing.T) {
 	const kbID = "kb1"
 
 	t.Run("merges into an existing row preserving foreign meta keys", func(t *testing.T) {
+		// Stateful fakes (WR-04): getRow returns the CURRENT stored row, so the
+		// post-update re-GET verification sees the merge that updateRow persisted —
+		// exactly the live read-merge-write-then-verify cycle.
+		stored := map[string]any{
+			"id": "served.gguf",
+			"meta": map[string]any{
+				"description": "keep me",
+				"knowledge": []any{
+					map[string]any{"type": "collection", "id": "other-kb", "name": "Other"},
+				},
+			},
+			"params": map[string]any{"temperature": 0.5},
+		}
 		var updated map[string]any
 		createRan := false
-		getRow := func() (map[string]any, bool, error) {
-			return map[string]any{
-				"id": "served.gguf",
-				"meta": map[string]any{
-					"description": "keep me",
-					"knowledge": []any{
-						map[string]any{"type": "collection", "id": "other-kb", "name": "Other"},
-					},
-				},
-				"params": map[string]any{"temperature": 0.5},
-			}, true, nil
-		}
-		updateRow := func(row map[string]any) error { updated = row; return nil }
+		getRow := func() (map[string]any, bool, error) { return stored, true, nil }
+		updateRow := func(row map[string]any) error { updated = row; stored = row; return nil }
 		createRow := func(map[string]any) error { createRan = true; return nil }
 
 		state, err := attachKnowledgeRow(getRow, updateRow, createRow, "served.gguf", kbID, recallKnowledgeName)
@@ -673,18 +675,17 @@ func TestRecallAttach(t *testing.T) {
 	})
 
 	t.Run("deduplicates the recall KB by id on re-attach", func(t *testing.T) {
-		var updated map[string]any
-		getRow := func() (map[string]any, bool, error) {
-			return map[string]any{
-				"id": "served.gguf",
-				"meta": map[string]any{
-					"knowledge": []any{
-						map[string]any{"type": "collection", "id": kbID, "name": recallKnowledgeName},
-					},
+		stored := map[string]any{
+			"id": "served.gguf",
+			"meta": map[string]any{
+				"knowledge": []any{
+					map[string]any{"type": "collection", "id": kbID, "name": recallKnowledgeName},
 				},
-			}, true, nil
+			},
 		}
-		updateRow := func(row map[string]any) error { updated = row; return nil }
+		var updated map[string]any
+		getRow := func() (map[string]any, bool, error) { return stored, true, nil }
+		updateRow := func(row map[string]any) error { updated = row; stored = row; return nil }
 		createRow := func(map[string]any) error { return nil }
 
 		if _, err := attachKnowledgeRow(getRow, updateRow, createRow, "served.gguf", kbID, recallKnowledgeName); err != nil {
@@ -698,11 +699,13 @@ func TestRecallAttach(t *testing.T) {
 	})
 
 	t.Run("creates the override row when absent", func(t *testing.T) {
+		var stored map[string]any
+		exists := false
 		var created map[string]any
 		updateRan := false
-		getRow := func() (map[string]any, bool, error) { return nil, false, nil }
+		getRow := func() (map[string]any, bool, error) { return stored, exists, nil }
 		updateRow := func(map[string]any) error { updateRan = true; return nil }
-		createRow := func(row map[string]any) error { created = row; return nil }
+		createRow := func(row map[string]any) error { created = row; stored = row; exists = true; return nil }
 
 		state, err := attachKnowledgeRow(getRow, updateRow, createRow, "served.gguf", kbID, recallKnowledgeName)
 		if err != nil || state != recall.AttachmentAttached {
@@ -718,6 +721,33 @@ func TestRecallAttach(t *testing.T) {
 		items, _ := meta["knowledge"].([]any)
 		if len(items) != 1 {
 			t.Errorf("the created row must carry the recall KB in meta.knowledge; items = %v", items)
+		}
+	})
+
+	t.Run("a silent detach (update returns 200 but the KB does not land) is NOT reported attached", func(t *testing.T) {
+		// WR-04 / Pitfall 2: updateRow succeeds (HTTP 200) but OWUI dropped/reshaped
+		// meta.knowledge, so the re-GET shows the recall KB absent. attach must
+		// return a not-Attached verdict WITH an error so the index run fails
+		// honestly instead of stamping a false green.
+		// getRow returns a FRESH row each call (as the live server re-read does), so
+		// the in-place merge of the first row never pollutes the verify re-GET. The
+		// server still reports an empty meta.knowledge → the merge did not land.
+		getRow := func() (map[string]any, bool, error) {
+			return map[string]any{
+				"id":   "served.gguf",
+				"meta": map[string]any{"knowledge": []any{}},
+			}, true, nil
+		}
+		// updateRow lies: it returns success but does NOT persist the merge.
+		updateRow := func(map[string]any) error { return nil }
+		createRow := func(map[string]any) error { return nil }
+
+		state, err := attachKnowledgeRow(getRow, updateRow, createRow, "served.gguf", kbID, recallKnowledgeName)
+		if err == nil {
+			t.Fatalf("a silent detach must return an error; got state=%v err=nil", state)
+		}
+		if state == recall.AttachmentAttached {
+			t.Errorf("a silent detach must NOT be reported attached; state = %v", state)
 		}
 	})
 }
