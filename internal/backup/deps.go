@@ -164,4 +164,16 @@ type Result struct {
 	// archive was written); this only flags that the service is likely DOWN and the
 	// user should run `villa up`. Empty on a clean restart.
 	RestartWarning string
+	// QdrantRestored / RecallStateRestored report whether the OPTIONAL Phase-23
+	// memory entries were present in the archive and applied (valid on a Restored
+	// result). False means "not present in this backup" — the caller reports it
+	// honestly and existing Qdrant data was left untouched (D-07, OQ1: report,
+	// never extend Prove).
+	QdrantRestored      bool
+	RecallStateRestored bool
+	// RestoredMemoryEnabled is the RESTORED config's memory posture (Pitfall 5):
+	// the reconcile renders units from the restored config, so the stack shape may
+	// have changed — the caller prints "memory stack: enabled/disabled (restored
+	// config)". Valid on a Restored result.
+	RestoredMemoryEnabled bool
 }

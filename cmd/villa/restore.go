@@ -34,6 +34,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 	"github.com/MatrixMagician/VillaStraylight/internal/preflight"
+	"github.com/MatrixMagician/VillaStraylight/internal/recall"
 	"github.com/MatrixMagician/VillaStraylight/internal/usage"
 )
 
@@ -117,6 +118,26 @@ func runRestore(cmd *cobra.Command, archivePath string, in backup.RestoreInput, 
 	default: // Restored
 		fmt.Fprintf(out, "restored %s — config + Open WebUI data + usage/bench stores applied, cutover proven\n", archivePath)
 		fmt.Fprintf(out, "note: model weights are not in the backup; if inference fails to start, re-pull with `villa model pull <id>`\n")
+		// Honest Phase-23 memory reporting (D-07/OQ1: report, never extend Prove —
+		// the memory stack is NOT covered by the cutover proof; verify it explicitly).
+		if res.QdrantRestored {
+			fmt.Fprintf(out, "memory: Qdrant volume restored — verify with `villa doctor`; if a dimension skew was confirmed at restore, run `villa recall index --rebuild`\n")
+		} else {
+			fmt.Fprintf(out, "memory volume not present in this backup — existing Qdrant data left untouched\n")
+		}
+		if res.RecallStateRestored {
+			fmt.Fprintf(out, "memory: recall state restored\n")
+		} else {
+			fmt.Fprintf(out, "memory: recall state not present in this backup — left untouched\n")
+		}
+		// The restored config is the single source of truth for the stack shape
+		// (Pitfall 5). Stale memory unit files are NOT removed by the reconcile
+		// (it writes changed units only) — existing behavior, reported not "fixed".
+		posture := "disabled"
+		if res.RestoredMemoryEnabled {
+			posture = "enabled"
+		}
+		fmt.Fprintf(out, "memory stack: %s (restored config); note: a reconcile does not remove stale unit files — bring services up with `villa up`\n", posture)
 		return exitPass
 	}
 }
@@ -161,6 +182,11 @@ func liveRestore(cmd *cobra.Command, archivePath string, bypass bool) (backup.Re
 		ConfigSchemaVersion: 0, // VillaConfig carries no schema_version field (not recorded).
 		UsageSchemaVersion:  usage.SchemaVersion(),
 		BenchSchemaVersion:  benchstore.SavedReportSchemaVersion(),
+		// Embedding identity for the Phase-23 dimension-skew compare (D-08): config
+		// is the single source of truth; the recall schema comes from its accessor.
+		EmbeddingModel:      cfg.EmbeddingModel,
+		EmbeddingDim:        cfg.EmbeddingDim,
+		RecallSchemaVersion: recall.SchemaVersion(),
 	}
 
 	// Temp dir (same data-home parent) for the extracted + rollback volume tars. The
@@ -182,6 +208,15 @@ func liveRestore(cmd *cobra.Command, archivePath string, bypass bool) (backup.Re
 		RollbackVolumeTar:   filepath.Join(tmpDir, "rollback-owui.tar"),
 		UsageDestPath:       usage.UsagePath(),
 		BenchDestPath:       benchReportsStorePath(),
+		// Phase-23 qdrant volume + recall-state wiring (D-05/D-07): identities are
+		// seam-sourced; the qdrant tars live in the SAME WR-01-cleaned tmpDir (they
+		// hold chat-derived vectors, same sensitivity as webui.db); the existence
+		// check is the fail-soft cmd-tier `podman volume exists` helper.
+		QdrantVolumeName:   orchestrate.QdrantVolumeName(),
+		TempQdrantTar:      filepath.Join(tmpDir, "restore-qdrant.tar"),
+		RollbackQdrantTar:  filepath.Join(tmpDir, "rollback-qdrant.tar"),
+		QdrantVolumeExists: volumeExists(orchestrate.QdrantVolumeName(), errOut),
+		RecallDestPath:     recall.RecallStatePath(),
 	}
 	return in, liveRestoreDeps(), tmpDir, exitPass
 }
@@ -210,8 +245,11 @@ func liveRestoreDeps() backup.Deps {
 	return backup.Deps{
 		OpenWebUIServiceName: openWebUIServiceName,
 		InstallServiceName:   installServiceName,
-		LoadConfig:           config.LoadVilla,
-		SaveConfig:           config.SaveVilla, // atomic 0600/0700, traversal-guarded — NEVER hand-write
+		// QdrantServiceName mirrors liveBackupDeps: derived from the orchestrate
+		// unit-name accessor, never a re-typed literal (D-05).
+		QdrantServiceName: unitServiceName(orchestrate.QdrantContainerUnitName()),
+		LoadConfig:        config.LoadVilla,
+		SaveConfig:        config.SaveVilla, // atomic 0600/0700, traversal-guarded — NEVER hand-write
 		VolumeExport: func(name, outPath string) error {
 			if err := requirePodman(); err != nil {
 				return err
