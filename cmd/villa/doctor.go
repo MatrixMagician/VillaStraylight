@@ -287,7 +287,10 @@ const (
 	residencyDriveRequests = 12
 	// residencySampleAfter is how many drive requests must have completed before the
 	// mid-drive residency sample fires (Pitfall 6: the sample must be DURING load,
-	// not before the embedder has actually started working).
+	// not before the embedder has actually started working). The sample itself is
+	// then taken while the NEXT request is verifiably IN FLIGHT (launched async and
+	// joined after sampling) — never in the idle gap between two sequential
+	// requests (phase-22 WR-01).
 	residencySampleAfter = 2
 	// residencyRequestTimeout bounds each individual embed-drive request.
 	residencyRequestTimeout = 10 * time.Second
@@ -334,19 +337,24 @@ func liveResidencyUnderLoad(cfg config.VillaConfig, sd *status.Deps) func() infe
 //     decide enabled+valid and villa-llama, villa-qdrant and villa-embed must all be
 //     active. Any unmet precondition degrades to a typed-Unknown WARN naming the
 //     precondition (never a FAIL fabricated from a stack that simply is not running).
-//  2. DRIVE (T-22-09/T-22-11): a goroutine sends residencyDriveRequests sequential
-//     POSTs to the config-resolved villa-embed /v1/embeddings over villa.network via
-//     runProbeCurl (fixed-arg podman run --rm, helper image via orchestrate.EmbedImage(),
-//     model id JSON-marshaled — never interpolated into a command string). Each request
-//     is bounded by residencyRequestTimeout, the whole proof by residencyProofBudget.
-//  3. SAMPLE MID-DRIVE (Pitfall 6): after residencySampleAfter completions and while
-//     requests are still in flight, evaluate inference.RunningOffloadVerdict over the
-//     EXACT liveStatusDeps input set — villa-llama's ResidencyJournal, the point-in-time
-//     detect.GTTUsedBytes, liveWeightBytes(cfg), and BackendFor(cfg.Backend).ResidencyProof().
-//  4. JOIN + HONESTY: the drive goroutine is drained before returning (no probe
-//     container outlives the call). Drive errors alone degrade a PASS to WARN ("embed
-//     drive could not complete") — the FAIL signal is the CHAT model's residency, not
-//     the drive's success; a confident residency FAIL always stands.
+//  2. DRIVE (T-22-09/T-22-11): residencyDriveRequests sequential POSTs to the
+//     config-resolved villa-embed /v1/embeddings over villa.network via runProbeCurl
+//     (fixed-arg podman run --rm, helper image via orchestrate.EmbedImage(), model id
+//     JSON-marshaled — never interpolated into a command string). Each request is
+//     bounded by residencyRequestTimeout, the whole proof by residencyProofBudget.
+//  3. SAMPLE MID-DRIVE (Pitfall 6, phase-22 WR-01): after residencySampleAfter
+//     completions (the embedder has demonstrably done real work), the NEXT request is
+//     launched asynchronously and the sample is taken while that request is verifiably
+//     IN FLIGHT — never gated on a completion count alone, which could fire in the
+//     idle gap between two sequential requests. The sample evaluates
+//     inference.RunningOffloadVerdict over villa-llama's ResidencyJournal, the
+//     point-in-time detect.GTTUsedBytes, liveWeightBytes(cfg), and
+//     BackendFor(cfg.Backend).ResidencyProof().
+//  4. JOIN + HONESTY: the sampled in-flight request is always awaited before the loop
+//     continues (no probe container outlives the call). Drive errors alone degrade a
+//     PASS to WARN ("embed drive could not complete") — the FAIL signal is the CHAT
+//     model's residency, not the drive's success; a confident residency FAIL always
+//     stands.
 func runResidencyUnderLoad(cfg config.VillaConfig, sd *status.Deps) inference.Verdict {
 	// (1) D-10 precondition gate — strictly read-only, degrade to WARN.
 	if dec := memory.Decide(cfg); !dec.Enabled || !dec.Valid {
@@ -393,41 +401,35 @@ func runResidencyUnderLoad(cfg config.VillaConfig, sd *status.Deps) inference.Ve
 	ctx, cancel := context.WithTimeout(context.Background(), residencyProofBudget)
 	defer cancel()
 
-	// completions carries one entry per attempted drive request; closing it is the
-	// drive goroutine's exit signal, so draining it below JOINS the goroutine and
-	// guarantees no --rm probe container outlives this call (T-22-11).
-	completions := make(chan error, residencyDriveRequests)
-	go func() {
-		defer close(completions)
-		for i := 0; i < residencyDriveRequests; i++ {
-			if ctx.Err() != nil {
-				return // parent budget exhausted — stop driving
-			}
-			reqCtx, reqCancel := context.WithTimeout(ctx, residencyRequestTimeout)
-			_, derr := runProbeCurl(reqCtx, helperImage,
-				"-sf", "-X", "POST", url,
-				"-H", "Content-Type: application/json",
-				"-d", string(body),
-			)
-			reqCancel()
-			completions <- derr
-		}
-	}()
-
-	// (3) Sample DURING load: the channel is buffered, so while this consumer handles
-	// completion i the drive goroutine is already running request i+1 — the sample
-	// below therefore reads the journal/GTT with an embed request in flight.
+	// (2)+(3) Drive sequentially; sample under DEMONSTRATED in-flight work (Pitfall 6,
+	// phase-22 WR-01). The old shape (a fully-buffered producer goroutine + a sample
+	// triggered the instant completion #residencySampleAfter arrived) could sample in
+	// the idle gap BETWEEN two sequential requests — at best at the margin of load.
+	// Now the sample request itself is launched asynchronously and the journal/GTT
+	// read happens while that request is verifiably in flight; the request is then
+	// JOINED before the loop continues, so no --rm probe container ever outlives this
+	// call (T-22-11).
 	var (
 		completed, driveErrs int
 		sampled              bool
 		verdict              inference.Verdict
 	)
-	for derr := range completions {
-		completed++
-		if derr != nil {
-			driveErrs++
+	for i := 0; i < residencyDriveRequests; i++ {
+		if ctx.Err() != nil {
+			break // parent budget exhausted — stop driving
 		}
-		if !sampled && completed >= residencySampleAfter && completed < residencyDriveRequests {
+		reqCtx, reqCancel := context.WithTimeout(ctx, residencyRequestTimeout)
+		if !sampled && completed >= residencySampleAfter {
+			// Launch this drive request in flight, sample MID-REQUEST, then join it.
+			done := make(chan error, 1)
+			go func() {
+				_, derr := runProbeCurl(reqCtx, helperImage,
+					"-sf", "-X", "POST", url,
+					"-H", "Content-Type: application/json",
+					"-d", string(body),
+				)
+				done <- derr
+			}()
 			journal, _ := sd.JournalText(chatService)
 			verdict = inference.RunningOffloadVerdict(inference.RunningOffloadInput{
 				JournalText:   journal,
@@ -438,10 +440,27 @@ func runResidencyUnderLoad(cfg config.VillaConfig, sd *status.Deps) inference.Ve
 				Markers:       backend.ResidencyProof(),
 			})
 			sampled = true
+			derr := <-done // JOIN: the sampled request never outlives the call
+			reqCancel()
+			completed++
+			if derr != nil {
+				driveErrs++
+			}
+			continue
+		}
+		_, derr := runProbeCurl(reqCtx, helperImage,
+			"-sf", "-X", "POST", url,
+			"-H", "Content-Type: application/json",
+			"-d", string(body),
+		)
+		reqCancel()
+		completed++
+		if derr != nil {
+			driveErrs++
 		}
 	}
 
-	// (4) Join is complete (channel closed). Map the outcome honestly.
+	// (4) Drive complete (all requests joined). Map the outcome honestly.
 	if !sampled {
 		return residencyUnevaluable(
 			fmt.Sprintf("the embed drive could not complete (%d of %d requests finished before the budget)", completed, residencyDriveRequests),
