@@ -389,7 +389,10 @@ func liveBackendSwapDeps() *backendswap.Deps {
 			if err != nil {
 				return false, "catalog load failed"
 			}
-			rec := recommend.Pick(detect.Probe(), cat, recommend.Overrides{Model: cfg.Model})
+			// Memory inputs from the PRESERVED config threaded into the closure
+			// (D-01): the backend-swap fit gate sees the same shrunken envelope.
+			rec := recommend.Pick(detect.Probe(), cat, recommend.Overrides{Model: cfg.Model},
+				recommend.MemoryInputs{Enabled: cfg.MemoryEnabled, EmbeddingModel: cfg.EmbeddingModel})
 			if rec.Fits {
 				return true, ""
 			}

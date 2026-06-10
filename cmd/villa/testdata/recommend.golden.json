@@ -11,5 +11,7 @@
   "fits": true,
   "degraded": false,
   "notes": [],
-  "schema_version": 1
+  "embedding_reservation_bytes": 0,
+  "memory_considered": false,
+  "schema_version": 2
 }

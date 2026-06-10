@@ -402,6 +402,10 @@ func liveWeightBytes(cfg config.VillaConfig) uint64 {
 	if err != nil {
 		return 0
 	}
-	rec := recommend.Pick(detect.Probe(), cat, recommend.Overrides{Model: cfg.Model})
+	// Zero-value memory inputs ON PURPOSE: this provably keeps status.json.golden
+	// byte-identical — WeightBytes is envelope-independent for overrides (guarded
+	// by TestPickOverrideWeightInvariance), so the frozen status path never sees
+	// the memory reservation.
+	rec := recommend.Pick(detect.Probe(), cat, recommend.Overrides{Model: cfg.Model}, recommend.MemoryInputs{})
 	return rec.WeightBytes
 }

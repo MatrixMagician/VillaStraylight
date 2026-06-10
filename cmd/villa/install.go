@@ -264,10 +264,14 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 	}
 	fmt.Fprintf(out, "selected model %s (ctx %d, %s)\n", rec.Model, rec.ContextLen, gib(rec.WeightBytes))
 
-	// (3) Preflight gate with the concrete model's resource requirement.
+	// (3) Preflight gate with the concrete model's resource requirement. The
+	// embedding reservation is included (Research Open Question 2 resolved YES —
+	// more honest): the value flows from the pick so memory.Footprint stays the
+	// single source; it is zero when memory is off, leaving the off-path gate
+	// unchanged.
 	req := preflight.ResourceReq{
 		MinDiskBytes: rec.WeightBytes,
-		MinMemBytes:  rec.WeightBytes + rec.KVCacheBytes + rec.HeadroomBytes,
+		MinMemBytes:  rec.WeightBytes + rec.KVCacheBytes + rec.HeadroomBytes + rec.EmbeddingReservationBytes,
 		DataDir:      d.modelsDir(),
 	}
 	checks := d.runChecks(profile, req)
@@ -982,7 +986,10 @@ func liveInstallDeps() (*installDeps, error) {
 			if err != nil {
 				return recommend.Recommendation{}
 			}
-			return recommend.Pick(p, cat, ov)
+			// Thread the PERSISTED memory inputs (fail-soft) so an opted-in install
+			// recommends against the shrunken envelope (D-01; Pitfall 3 — a
+			// memory-blind install pick defeats CTRL-01).
+			return recommend.Pick(p, cat, ov, liveLoadedMemoryInputs())
 		},
 		modelFile: func(rec recommend.Recommendation) (string, error) {
 			// A catalog load failure or an unknown model id is a hard error (WR-08):
