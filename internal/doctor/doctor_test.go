@@ -326,6 +326,234 @@ func TestDriftReadErrorDegrades(t *testing.T) {
 	}
 }
 
+// --- Phase 22-03: memory-stack fold (D-08/D-09) + offload down-rank (Pitfall 1) ---
+
+// memoryServiceNames are the systemd .service names of the two memory-stack managed
+// services as the status fold names them (Quadlet villa-qdrant.container →
+// villa-qdrant.service). They are finding-ID/service-name strings, NOT backend marker
+// literals, so TestSeamGrepGate stays green (the ID-string-not-marker precedent).
+var memoryServiceNames = []string{"villa-qdrant.service", "villa-embed.service"}
+
+// memoryOnStatusReport extends healthyStatusReport with the two memory services as the
+// status fold REALLY reports them today (Pitfall 1, Phase-20 UAT): active + HealthReady
+// but carrying a typed-Unknown offload WARN (their journals have no chat-model
+// load_tensors line), with OffloadApplies=true — the status-side N/A fix is Phase 23.
+func memoryOnStatusReport() status.Report {
+	r := healthyStatusReport()
+	for _, svc := range memoryServiceNames {
+		r.Services = append(r.Services, status.ServiceStatus{
+			Service: svc,
+			Active:  "active",
+			Health:  status.HealthReady,
+			Offload: inference.Verdict{
+				Status: inference.StatusWarn,
+				Detail: "residency could not be confirmed from the journal (no load_tensors buffer line)",
+			},
+			OffloadApplies: true,
+			OffloadOK:      false,
+		})
+	}
+	return r
+}
+
+// memoryDoctorDeps builds a healthy-default MEMORY-ON doctor.Deps: newDoctorDeps()
+// plus all four memory seams bound — PASS memory checks, a PASS residency-under-load
+// proof, the memory service names, and the memory-on status report whose two memory
+// services carry the typed-Unknown offload WARNs the down-rank targets.
+func memoryDoctorDeps() Deps {
+	d := newDoctorDeps()
+	d.MemoryEnabled = true
+	d.MemoryServices = memoryServiceNames
+	d.StatusReport = func() status.Report { return memoryOnStatusReport() }
+	d.RunMemoryChecks = func(detect.HostProfile) []preflight.CheckResult {
+		return []preflight.CheckResult{
+			{ID: "MEM-PRE-disk", Name: "Vector-index disk space", Tier: preflight.TierBlock,
+				Status: preflight.StatusPass, Detail: "free disk ok", Provenance: "test"},
+			{ID: "MEM-PRE-headroom", Name: "Embedder memory headroom", Tier: preflight.TierBlock,
+				Status: preflight.StatusPass, Detail: "free memory ok", Provenance: "test"},
+		}
+	}
+	d.ResidencyUnderLoad = func() inference.Verdict {
+		return inference.Verdict{Status: inference.StatusPass, Detail: "chat model resident under embedding load"}
+	}
+	return d
+}
+
+// findingByID returns the first finding with the given ID, and whether it was found.
+func findingByID(r Report, id string) (Finding, bool) {
+	for _, f := range r.Findings {
+		if f.ID == id {
+			return f, true
+		}
+	}
+	return Finding{}, false
+}
+
+// TestMemoryOffNoMemoryFindings: with every new memory Deps field nil/zero (the
+// memory-off default — mirror D-06), Aggregate emits NO memory finding at all: no
+// MEM-PRE-* checks, no MEM-DOC-residency (a nil proof seam NEVER PASSes by default).
+// Together with every pre-existing test in this file passing unchanged, this is the
+// memory-off byte-identical guard (D-08/D-09 nil/zero-safety).
+func TestMemoryOffNoMemoryFindings(t *testing.T) {
+	r := Aggregate(newDoctorDeps())
+	for _, id := range []string{"MEM-PRE-disk", "MEM-PRE-headroom", "MEM-DOC-residency"} {
+		if hasFinding(r, id) {
+			t.Errorf("memory-off Aggregate emitted finding %q — new Deps fields must be nil/zero-safe", id)
+		}
+	}
+	if r.Overall != "PASS" {
+		t.Fatalf("Overall = %q, want PASS on the healthy memory-off default", r.Overall)
+	}
+}
+
+// TestMemoryChecksFoldedFailRaisesOverall: a non-nil RunMemoryChecks seam has its
+// CheckResults folded as findings via findingFromCheck and ranked worst-wins like
+// every other check — a confident MEM-PRE-headroom FAIL raises Overall to FAIL (D-08).
+func TestMemoryChecksFoldedFailRaisesOverall(t *testing.T) {
+	d := memoryDoctorDeps()
+	d.RunMemoryChecks = func(detect.HostProfile) []preflight.CheckResult {
+		return []preflight.CheckResult{
+			{ID: "MEM-PRE-disk", Name: "Vector-index disk space", Tier: preflight.TierBlock,
+				Status: preflight.StatusPass, Detail: "free disk ok", Provenance: "test"},
+			{ID: "MEM-PRE-headroom", Name: "Embedder memory headroom", Tier: preflight.TierBlock,
+				Status: preflight.StatusFail, Detail: "free memory below the embedding reservation",
+				Remediation: "close memory-heavy processes", Provenance: "test"},
+		}
+	}
+
+	r := Aggregate(d)
+	if r.Overall != "FAIL" {
+		t.Fatalf("Overall = %q, want FAIL (a confident MEM-PRE-headroom FAIL must rank worst-wins)", r.Overall)
+	}
+	f, ok := findingByID(r, "MEM-PRE-headroom")
+	if !ok {
+		t.Fatalf("expected MEM-PRE-headroom finding; findings: %+v", r.Findings)
+	}
+	if f.Status != "FAIL" || f.Tier != "BLOCK" {
+		t.Errorf("MEM-PRE-headroom = (status %s, tier %s), want (FAIL, BLOCK)", f.Status, f.Tier)
+	}
+	if f.Remediation == "" {
+		t.Error("MEM-PRE-headroom FAIL has empty Remediation (D-11)")
+	}
+	if df, ok := findingByID(r, "MEM-PRE-disk"); !ok || df.Status != "PASS" {
+		t.Errorf("expected a PASS MEM-PRE-disk finding alongside the FAIL; got %+v (found=%v)", df, ok)
+	}
+}
+
+// TestResidencyUnderLoadFailBlocks: a confident StatusFail Verdict from the
+// residency-under-embedding-load proof maps to a BLOCK-class FAIL MEM-DOC-residency
+// finding with non-empty remediation, raising Overall to FAIL (D-09 — a confident CPU
+// fallback under embedding load is the silent-degradation fault, never a false-green).
+func TestResidencyUnderLoadFailBlocks(t *testing.T) {
+	d := memoryDoctorDeps()
+	d.ResidencyUnderLoad = func() inference.Verdict {
+		return inference.Verdict{Status: inference.StatusFail, Detail: "only a CPU model buffer was loaded — server fell back to CPU"}
+	}
+
+	r := Aggregate(d)
+	if r.Overall != "FAIL" {
+		t.Fatalf("Overall = %q, want FAIL (confident CPU fallback under embedding load)", r.Overall)
+	}
+	f, ok := findingByID(r, "MEM-DOC-residency")
+	if !ok {
+		t.Fatalf("expected MEM-DOC-residency finding; findings: %+v", r.Findings)
+	}
+	if f.Status != "FAIL" || f.Tier != "BLOCK" {
+		t.Errorf("MEM-DOC-residency = (status %s, tier %s), want (FAIL, BLOCK)", f.Status, f.Tier)
+	}
+	if f.Remediation == "" {
+		t.Error("MEM-DOC-residency FAIL has empty Remediation (D-11)")
+	}
+	if f.Name != "Chat-model residency under embedding load" {
+		t.Errorf("MEM-DOC-residency Name = %q, want the D-09 contract name", f.Name)
+	}
+}
+
+// TestResidencyUnderLoadWarnDegrades: an unevaluable proof (StatusWarn — stack down,
+// scrape failed, drive could not complete) degrades to a typed-Unknown WARN-tier WARN
+// with the upstream detail preserved and a non-empty fallback remediation — never a
+// false-green PASS and never a blocking FAIL (D-09/D-10).
+func TestResidencyUnderLoadWarnDegrades(t *testing.T) {
+	d := memoryDoctorDeps()
+	d.ResidencyUnderLoad = func() inference.Verdict {
+		return inference.Verdict{Status: inference.StatusWarn, Detail: "could not evaluate residency under embedding load — villa-embed.service is not active"}
+	}
+
+	r := Aggregate(d)
+	if r.Overall != "WARN" {
+		t.Fatalf("Overall = %q, want WARN (unevaluable proof degrades, never PASS/FAIL)", r.Overall)
+	}
+	f, ok := findingByID(r, "MEM-DOC-residency")
+	if !ok {
+		t.Fatalf("expected MEM-DOC-residency finding; findings: %+v", r.Findings)
+	}
+	if f.Status != "WARN" || f.Tier != "WARN" {
+		t.Errorf("MEM-DOC-residency = (status %s, tier %s), want (WARN, WARN)", f.Status, f.Tier)
+	}
+	if f.Remediation == "" {
+		t.Error("MEM-DOC-residency WARN has empty Remediation (D-11)")
+	}
+	if f.Detail == "" {
+		t.Error("MEM-DOC-residency WARN dropped the upstream 'could not evaluate' detail")
+	}
+}
+
+// TestHealthyMemoryOnOverallPass is the Pitfall 1 resolution (Research Open Question 3
+// — down-rank-but-visible): on a perfectly healthy memory-on stack — all checks PASS,
+// proof PASS, every health ready, chat offload proven — the typed-Unknown offload WARNs
+// the status fold reports for villa-qdrant/villa-embed are DOWN-RANKED (visible but
+// non-rank-raising), so Overall == PASS instead of today's spurious WARN.
+func TestHealthyMemoryOnOverallPass(t *testing.T) {
+	r := Aggregate(memoryDoctorDeps())
+	if r.Overall != "PASS" {
+		t.Fatalf("Overall = %q, want PASS (healthy memory-on stack; memory-service offload WARNs must be down-ranked)", r.Overall)
+	}
+	// Visibility preserved: the down-rank suppresses rank contribution, NOT the finding.
+	for _, svc := range memoryServiceNames {
+		f, ok := findingByID(r, "offload:"+svc)
+		if !ok {
+			t.Errorf("expected down-ranked offload finding for %q to remain VISIBLE; findings: %+v", svc, r.Findings)
+			continue
+		}
+		if f.Status != "WARN" {
+			t.Errorf("offload:%s status = %q, want WARN (down-rank must not rewrite the status)", svc, f.Status)
+		}
+	}
+	if f, ok := findingByID(r, "MEM-DOC-residency"); !ok || f.Status != "PASS" {
+		t.Errorf("expected a PASS MEM-DOC-residency finding; got %+v (found=%v)", f, ok)
+	}
+}
+
+// TestMemoryOffloadFailNotSuppressed is the no-false-green half of the down-rank
+// (DOCTOR-02): the predicate is the CONJUNCTION (offload:<svc> with svc in
+// MemoryServices) AND (Status==WARN) — a CONFIDENT offload FAIL on the very same
+// memory service is NEVER suppressed and still folds Overall to FAIL.
+func TestMemoryOffloadFailNotSuppressed(t *testing.T) {
+	d := memoryDoctorDeps()
+	d.StatusReport = func() status.Report {
+		r := memoryOnStatusReport()
+		for i := range r.Services {
+			if r.Services[i].Service == "villa-qdrant.service" {
+				r.Services[i].Offload = inference.Verdict{
+					Status:      inference.StatusFail,
+					Detail:      "only a CPU model buffer was loaded — server fell back to CPU",
+					Remediation: "check backend residency",
+				}
+			}
+		}
+		return r
+	}
+
+	r := Aggregate(d)
+	if r.Overall != "FAIL" {
+		t.Fatalf("Overall = %q, want FAIL (a confident offload FAIL on a memory service must NEVER be down-ranked — DOCTOR-02)", r.Overall)
+	}
+	f, ok := findingByID(r, "offload:villa-qdrant.service")
+	if !ok || f.Status != "FAIL" {
+		t.Errorf("expected a visible FAIL offload finding for villa-qdrant.service; got %+v (found=%v)", f, ok)
+	}
+}
+
 // TestDownStackWarnsNotBlocks: a confidently-down service (Health==HealthDown, no
 // offload signal) must fold to a WARN-tier WARN health Finding and Report.Overall=="WARN"
 // — NEVER a blocking FAIL. A stopped stack is an expected operational state (D-08): it
