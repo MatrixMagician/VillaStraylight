@@ -1,14 +1,20 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"strconv"
+	"strings"
+	"sync"
 	"text/tabwriter"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -18,6 +24,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 	"github.com/MatrixMagician/VillaStraylight/internal/metrics"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
+	"github.com/MatrixMagician/VillaStraylight/internal/recall"
 	"github.com/MatrixMagician/VillaStraylight/internal/recommend"
 	"github.com/MatrixMagician/VillaStraylight/internal/status"
 	"github.com/MatrixMagician/VillaStraylight/internal/usage"
@@ -213,6 +220,16 @@ func liveStatusDeps() (*status.Deps, error) {
 		// one-shot and NEVER writes the store (the dashboard, Plan 04, is the sole
 		// writer); nil on an absent/empty store so the figure is omitted.
 		ReadUsage: liveReadUsage,
+		// Memory-service rows (Phase-23 D-01/D-03): service names derived from the
+		// orchestrate accessors via the SAME .container → .service derivation doctor
+		// uses — never a typed service-name literal (TestSeamGrepGate walks
+		// cmd/villa). The per-service health probes + recall seam wired here reach
+		// the dashboard verbatim (dashboard.go wires *liveStatusDeps() unchanged).
+		QdrantService:   unitServiceName(orchestrate.QdrantContainerUnitName()),
+		EmbedService:    unitServiceName(orchestrate.EmbedContainerUnitName()),
+		QdrantHealth:    liveQdrantHealth,
+		EmbedHealth:     liveEmbedHealth,
+		ReadRecallState: liveReadRecallState,
 	}, nil
 }
 
@@ -245,6 +262,162 @@ func liveReadUsage() *usage.UsageTotals {
 		return nil // empty store ⇒ omit the usage key (D-09)
 	}
 	return &totals
+}
+
+// --- Phase-23 memory-service health probes (D-01/D-03, T-23-03/T-23-04) ---
+
+// memoryHealthTTL bounds how often the memory-service health pair is re-probed.
+// The probes are podman-run helper containers (runProbeCurl), so the dashboard's
+// 2.5s status poll would otherwise spawn a container pair every poll (Pitfall 2).
+// 15s is the bounded-staleness honesty tradeoff (OQ2): a stopped service shows
+// within one TTL window while the poll churn is capped at one probe pair per
+// window. FALLBACK: if the on-hardware proof (Plan 23-05) shows residual churn,
+// raise this to 30s — a one-const change.
+const memoryHealthTTL = 15 * time.Second
+
+// memoryProbeTimeout bounds the WHOLE podman-run probe (container start + curl).
+// The curl --max-time below mirrors statusHTTPTimeout for the HTTP leg; this
+// parent context adds allowance for podman's own container startup.
+const memoryProbeTimeout = 10 * time.Second
+
+// memoryProbeExec is the injectable podman-probe seam (runProbeCurl convention):
+// it runs the fixed-arg in-network curl and returns curl's stdout, the process
+// exit code (0 success; -1 when podman could not start at all), and the error.
+// Package-level var so status_test.go runs the mapping/TTL tests hermetically.
+var memoryProbeExec = liveMemoryProbeExec
+
+// liveMemoryProbeExec routes the probe through runProbeCurl (fixed-arg
+// `podman run --rm --network villa --entrypoint curl <img>` — no shell,
+// T-23-03) and classifies the failure level via the process exit code.
+func liveMemoryProbeExec(ctx context.Context, helperImage string, curlArgs ...string) ([]byte, int, error) {
+	out, err := runProbeCurl(ctx, helperImage, curlArgs...)
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			return out, exitErr.ExitCode(), err
+		}
+		return out, -1, err // podman could not be started at all (absent/unrunnable)
+	}
+	return out, 0, nil
+}
+
+// mapMemoryProbe maps one probe outcome to a HealthState with the typed-Unknown
+// doctrine: an HTTP code written by curl is a CONFIDENT verdict (200→ready,
+// 503→loading — WR-07, anything else→down); a curl-level failure (exit < 125 —
+// connect refused/timeout INSIDE villa.network) is a confident down (the network
+// was evaluable, the service was not there); a podman-level failure (exit
+// 125/126/127, or podman absent/unstartable) means the probe itself was
+// unevaluable → HealthUnknown, NEVER a fabricated confident state.
+func mapMemoryProbe(out []byte, exitCode int, err error) status.HealthState {
+	if err != nil {
+		if exitCode >= 125 || exitCode < 0 {
+			return status.HealthUnknown // podman-level: could not evaluate the probe
+		}
+		return status.HealthDown // curl-level: evaluated in-network, service unreachable
+	}
+	switch strings.TrimSpace(string(out)) {
+	case "200":
+		return status.HealthReady
+	case "503":
+		return status.HealthLoading
+	default:
+		return status.HealthDown
+	}
+}
+
+// probeMemoryURL runs one bounded in-network probe against url: curl writes ONLY
+// the HTTP code (-s -o /dev/null -w %%{http_code}) with --max-time mirroring
+// statusHTTPTimeout, under a parent context bound. The helper image is the
+// orchestrate accessor (no re-typed literal).
+func probeMemoryURL(url string) status.HealthState {
+	ctx, cancel := context.WithTimeout(context.Background(), memoryProbeTimeout)
+	defer cancel()
+	out, code, err := memoryProbeExec(ctx, orchestrate.EmbedImage(),
+		"-s", "-o", "/dev/null", "-w", "%{http_code}",
+		"--max-time", strconv.Itoa(int(statusHTTPTimeout/time.Second)),
+		url)
+	return mapMemoryProbe(out, code, err)
+}
+
+// Package-level memory-health cache (OQ2): mutex-guarded, keyed only on time
+// (single config per process). One refresh probes BOTH services together so the
+// dashboard poll spawns at most one probe pair per memoryHealthTTL window.
+var (
+	memoryHealthMu     sync.Mutex
+	memoryHealthAt     time.Time
+	memoryHealthQdrant status.HealthState
+	memoryHealthEmbed  status.HealthState
+)
+
+// memoryHealthSnapshot returns the cached (qdrant, embed) health pair,
+// refreshing BOTH probes together when the TTL window has lapsed.
+func memoryHealthSnapshot(qAddr string, qPort int, eAddr string, ePort int) (status.HealthState, status.HealthState) {
+	memoryHealthMu.Lock()
+	defer memoryHealthMu.Unlock()
+	if !memoryHealthAt.IsZero() && time.Since(memoryHealthAt) < memoryHealthTTL {
+		return memoryHealthQdrant, memoryHealthEmbed
+	}
+	memoryHealthQdrant = probeMemoryURL("http://" + net.JoinHostPort(qAddr, strconv.Itoa(qPort)) + "/readyz")
+	memoryHealthEmbed = probeMemoryURL("http://" + net.JoinHostPort(eAddr, strconv.Itoa(ePort)) + "/health")
+	memoryHealthAt = time.Now()
+	return memoryHealthQdrant, memoryHealthEmbed
+}
+
+// liveMemoryTargets resolves both memory-service probe targets from config (the
+// single source of truth); a load failure falls back to the typed defaults so a
+// probe target is never fabricated ad hoc.
+func liveMemoryTargets() config.VillaConfig {
+	cfg, err := config.LoadVilla()
+	if err != nil {
+		return config.DefaultVillaConfig()
+	}
+	return cfg
+}
+
+// liveQdrantHealth probes the Qdrant /readyz endpoint in-network (TTL-cached
+// pair refresh). The sibling embed target comes from config so one refresh
+// covers both rows.
+func liveQdrantHealth(addr string, port int) status.HealthState {
+	cfg := liveMemoryTargets()
+	q, _ := memoryHealthSnapshot(addr, port, cfg.EmbedAddr, cfg.EmbedPort)
+	return q
+}
+
+// liveEmbedHealth probes the embed llama-server's /health endpoint
+// in-network (TTL-cached pair refresh) with the 200→ready / 503→loading
+// mapping of liveHealthProbe.
+func liveEmbedHealth(addr string, port int) status.HealthState {
+	cfg := liveMemoryTargets()
+	_, e := memoryHealthSnapshot(cfg.QdrantAddr, cfg.QdrantPort, addr, port)
+	return e
+}
+
+// liveReadRecallState loads recall-state.json READ-ONLY (D-02), cloning
+// liveReadUsage's shape over recall.Load: an absent store yields a pointer to
+// the ZERO State — "no index yet" is a CONFIDENT empty, not nil (status renders
+// "empty"); a corrupt/future-schema store fails closed to empty inside
+// recall.Load (never a fabricated count); a read error other than NotExist
+// yields nil so status renders "unknown" (typed-Unknown). It supplies NO
+// WriteAll seam — the status path can never write the store.
+func liveReadRecallState() *recall.State {
+	path := recall.RecallStatePath()
+	deps := recall.Deps{
+		ReadAll: func() ([]byte, error) {
+			b, err := os.ReadFile(path)
+			if os.IsNotExist(err) {
+				return nil, nil // absent store ⇒ fail-closed-to-empty in recall.Load
+			}
+			if err != nil {
+				return nil, err
+			}
+			return b, nil
+		},
+	}
+	st, err := recall.Load(deps)
+	if err != nil {
+		return nil // unreadable store → typed-Unknown ("unknown"), never fabricated
+	}
+	return &st
 }
 
 // liveGenTokensPerSec reads the live token-generation throughput by REUSING the
