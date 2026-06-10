@@ -201,20 +201,46 @@ func owuiGetChat(ctx context.Context, base, token, chatID string) (recall.ChatDo
 // second collection.
 func owuiEnsureKnowledge(ctx context.Context, base, token, name, description string) (string, error) {
 	auth := bearerHeader(token)
-	lOut, err := runLoopbackCurl(ctx, "-sf", "-H", auth, base+"/api/v1/knowledge/")
-	if err != nil {
-		return "", fmt.Errorf("knowledge/ list: %w", err)
-	}
-	var kbs []struct {
+	// The pinned digest serves `GET /api/v1/knowledge/` as a PAGINATED envelope
+	// `{"items":[…],"total":N}` (live-verified on gfx1151, 21-03); older shapes
+	// returned a bare array. Parse both, and walk pages until an empty page so a
+	// large KB list can never hide the recall collection (which would spawn a
+	// duplicate on every run).
+	type kbRow struct {
 		ID   string `json:"id"`
 		Name string `json:"name"`
 	}
-	if jerr := json.Unmarshal(lOut, &kbs); jerr != nil {
-		return "", fmt.Errorf("parse knowledge/ list (%v): %s", jerr, truncateBody(lOut))
-	}
-	for _, kb := range kbs {
-		if kb.Name == name && kb.ID != "" {
-			return kb.ID, nil
+	seen := map[string]bool{}
+	for page := 1; ; page++ {
+		lOut, err := runLoopbackCurl(ctx, "-sf", "-H", auth,
+			fmt.Sprintf("%s/api/v1/knowledge/?page=%d", base, page))
+		if err != nil {
+			return "", fmt.Errorf("knowledge/ list: %w", err)
+		}
+		var kbs []kbRow
+		if jerr := json.Unmarshal(lOut, &kbs); jerr != nil {
+			var envelope struct {
+				Items []kbRow `json:"items"`
+			}
+			if eerr := json.Unmarshal(lOut, &envelope); eerr != nil {
+				return "", fmt.Errorf("parse knowledge/ list (%v): %s", jerr, truncateBody(lOut))
+			}
+			kbs = envelope.Items
+		}
+		newIDs := false
+		for _, kb := range kbs {
+			if kb.Name == name && kb.ID != "" {
+				return kb.ID, nil
+			}
+			if kb.ID != "" && !seen[kb.ID] {
+				seen[kb.ID] = true
+				newIDs = true
+			}
+		}
+		// Terminate on an empty page OR a page contributing no new ids (the
+		// owuiListUsers dedupe guard — robust against a server ignoring ?page).
+		if len(kbs) == 0 || !newIDs {
+			break
 		}
 	}
 
