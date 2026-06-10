@@ -37,7 +37,7 @@ Requirements for the v1.3 milestone. Each maps to exactly one roadmap phase (see
 
 - [x] **CTRL-01**: `villa recommend` reserves the embedding-model footprint in the unified-memory fit math *before* the chat-model fit, so the recommended config never OOMs or silently CPU-falls-back on gfx1151
 - [ ] **CTRL-02**: `villa status` and the control dashboard surface memory-stack health (Qdrant + embeddings service rows, active embedding model) as an append-only, schema-bumped contract change (golden re-frozen once)
-- [ ] **CTRL-03**: `villa doctor` includes memory-stack health checks (services up, offload-asserting residency under embedding load, vector-disk/headroom), folded into its existing PASS/WARN/FAIL exit contract
+- [x] **CTRL-03**: `villa doctor` includes memory-stack health checks (services up, offload-asserting residency under embedding load, vector-disk/headroom), folded into its existing PASS/WARN/FAIL exit contract
 - [ ] **CTRL-04**: `villa backup`/`restore` cover the Qdrant memory volume — clean-recreate-before-import (no stale-vector leak) with the embedding dimension recorded in the manifest for version-skew warning
 - [ ] **CTRL-05**: `villa model swap` is memory-aware — it warns/guards when changing the embedding model would invalidate existing vectors (dimension mismatch / no auto-reindex)
 - [x] **CTRL-06**: `villa preflight` gates host fitness for the memory stack (disk space for the vector index, memory headroom for the embedder) with refuse-with-remediation
@@ -100,7 +100,7 @@ Which phases cover which requirements. Populated during roadmap creation (v1.3 p
 | KB-03 | Phase 20 | Complete |
 | CTRL-01 | Phase 22 | Complete |
 | CTRL-02 | Phase 23 | Pending |
-| CTRL-03 | Phase 22 | Pending |
+| CTRL-03 | Phase 22 | Complete |
 | CTRL-04 | Phase 23 | Pending |
 | CTRL-05 | Phase 23 | Pending |
 | CTRL-06 | Phase 22 | Complete |

@@ -198,7 +198,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2)*
 
-- [ ] 22-03-PLAN.md — CTRL-03: doctor Deps growth + memory fold + MEM-DOC-residency under-load proof (D-08/D-09/D-10) + non-GPU offload down-rank-but-visible so PASS is reachable (SC#3)
+- [x] 22-03-PLAN.md — CTRL-03: doctor Deps growth + memory fold + MEM-DOC-residency under-load proof (D-08/D-09/D-10) + non-GPU offload down-rank-but-visible so PASS is reachable (SC#3)
 
 **Wave 4** *(blocked on Wave 3)*
 
@@ -242,5 +242,5 @@ Plans:
 | 19. Vector Store + Local Embeddings Services | v1.3 | 3/3 | Complete    | 2026-06-09 |
 | 20. Open WebUI Memory/RAG Wiring + Offline Lockdown | v1.3 | 3/3 | Complete    | 2026-06-10 |
 | 21. Conversational Recall Indexer | v1.3 | 3/3 | Complete    | 2026-06-10 |
-| 22. Control-Plane Fit + Host Gate | v1.3 | 2/4 | In Progress|  |
+| 22. Control-Plane Fit + Host Gate | v1.3 | 3/4 | In Progress|  |
 | 23. Surfacing, Backup & Memory-Aware Swap | v1.3 | 0/? | Not started | - |
