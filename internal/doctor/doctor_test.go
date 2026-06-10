@@ -356,12 +356,17 @@ func memoryOnStatusReport() status.Report {
 	return r
 }
 
-// memoryDoctorDeps builds a healthy-default MEMORY-ON doctor.Deps: newDoctorDeps()
-// plus all four memory seams bound — PASS memory checks, a PASS residency-under-load
-// proof, the memory service names, and the memory-on status report whose two memory
-// services carry the typed-Unknown offload WARNs the down-rank targets.
+// memoryDoctorDeps builds a healthy-default MEMORY-ON doctor.Deps: all four memory
+// seams bound — PASS memory checks, a PASS residency-under-load proof, the memory
+// service names, and the memory-on status report whose two memory services carry the
+// typed-Unknown offload WARNs the down-rank targets. It is based on rocmDoctorDeps()
+// because that is the ONLY off-hardware fixture where host-prep PASS (and therefore
+// Overall=="PASS") is constructible: the vulkan path runs preflight.Run over the
+// empty test HostProfile, which emits typed-Unknown WARNs by construction (the same
+// PASS-reachability constraint TestROCmResidencySupersedesHostPrepWARN works under).
+// The memory fold + down-rank predicate under test are backend-independent.
 func memoryDoctorDeps() Deps {
-	d := newDoctorDeps()
+	d := rocmDoctorDeps()
 	d.MemoryEnabled = true
 	d.MemoryServices = memoryServiceNames
 	d.StatusReport = func() status.Report { return memoryOnStatusReport() }
@@ -401,9 +406,10 @@ func TestMemoryOffNoMemoryFindings(t *testing.T) {
 			t.Errorf("memory-off Aggregate emitted finding %q — new Deps fields must be nil/zero-safe", id)
 		}
 	}
-	if r.Overall != "PASS" {
-		t.Fatalf("Overall = %q, want PASS on the healthy memory-off default", r.Overall)
-	}
+	// NOTE: no Overall assertion here — the off-hardware vulkan fixture's host-prep
+	// checks are typed-Unknown WARNs by construction (profile-dependent), so the
+	// byte-identical memory-off guard is the absence of memory findings above PLUS
+	// every pre-existing test in this file passing unchanged.
 }
 
 // TestMemoryChecksFoldedFailRaisesOverall: a non-nil RunMemoryChecks seam has its

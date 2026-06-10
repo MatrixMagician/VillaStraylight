@@ -27,6 +27,9 @@
 package doctor
 
 import (
+	"slices"
+	"strings"
+
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
 	"github.com/MatrixMagician/VillaStraylight/internal/inference"
@@ -140,6 +143,33 @@ type Deps struct {
 	// nil (e.g. the newDoctorDeps test double, or a non-ROCm backend), Aggregate falls
 	// back to preflight.RunROCm(profile) exactly as before.
 	RunROCmImage func(detect.HostProfile) []preflight.CheckResult
+	// MemoryEnabled reports whether the persisted memory stack is opted in
+	// (config memory_enabled, D-08). ZERO-SAFE: false (the memory-off default)
+	// leaves the memory-service offload down-rank inert, so memory-off doctor
+	// output is byte-identical (mirror D-06).
+	MemoryEnabled bool
+	// MemoryServices are the systemd `.service` names of the memory-stack managed
+	// services (villa-qdrant/villa-embed), supplied by the cmd tier from the
+	// orchestrate accessors (QdrantContainerUnitName/EmbedContainerUnitName, with
+	// .container → .service — the same derivation the status fold uses) — NEVER
+	// typed literals in this package (the ID-string-not-marker precedent at the
+	// idROCm* consts above). They key the non-GPU offload down-rank predicate
+	// (D-08, Pitfall 1): an `offload:<svc>` WARN on one of these services is
+	// visible but non-rank-raising. ZERO-SAFE: empty disables the down-rank.
+	MemoryServices []string
+	// RunMemoryChecks is the opt-in memory host gate (preflight.RunMemory bound by
+	// the cmd tier — D-08, composition over re-implementation): the vector-disk +
+	// embedder-headroom CheckResults are folded via findingFromCheck and ranked
+	// worst-wins exactly like every other check. NIL-SAFE: when nil (memory off)
+	// no memory check finding is emitted and output stays byte-identical.
+	RunMemoryChecks func(detect.HostProfile) []preflight.CheckResult
+	// ResidencyUnderLoad is the chat-model residency-under-embedding-load proof
+	// (D-09): the cmd tier drives a REAL /v1/embeddings workload and samples the
+	// chat model's GTT/journal residency MID-DRIVE, returning the Verdict consumed
+	// OPAQUELY here (Status/Detail/Remediation only — seam-clean). NIL-SAFE: when
+	// nil (memory off) NO MEM-DOC-residency finding is emitted at all — never a
+	// PASS-by-default (no-false-green, D-09/D-10).
+	ResidencyUnderLoad func() inference.Verdict
 }
 
 // statusOrder maps the doctor status vocabulary to a worst-wins rank (PASS<WARN<FAIL).
@@ -190,6 +220,16 @@ func Aggregate(d Deps) Report {
 		findings = append(findings, findingFromCheck(c))
 	}
 
+	// 1b. MEMORY HOST GATE (D-08): fold the opt-in vector-disk/headroom checks
+	// (preflight.RunMemory, bound by the cmd tier) verbatim via findingFromCheck —
+	// no new aggregation logic; they rank worst-wins like every other check. A nil
+	// seam (memory off) emits nothing, keeping the off path byte-identical.
+	if d.RunMemoryChecks != nil {
+		for _, c := range d.RunMemoryChecks(profile) {
+			findings = append(findings, findingFromCheck(c))
+		}
+	}
+
 	// 2. RUNNING-STACK HEALTH — fold the status read-model. A confident offload FAIL
 	// becomes a BLOCK-class FAIL that DOMINATES a HealthReady (Pitfall 3 / D-05); a
 	// HealthDown / unevaluable signal degrades to a typed-Unknown WARN (D-06/D-08).
@@ -219,6 +259,15 @@ func Aggregate(d Deps) Report {
 				rocmResidencyProven = true
 			}
 		}
+	}
+
+	// 2b. RESIDENCY UNDER EMBEDDING LOAD (D-09): the chat model must SURVIVE a real
+	// embedding workload — a silent eviction to CPU under import load is the exact
+	// false-green this phase exists to catch. The proof seam is nil when memory is
+	// off: no finding is emitted at all (never a PASS-by-default). The Verdict is
+	// consumed opaquely via the offloadFinding precedent below.
+	if d.ResidencyUnderLoad != nil {
+		findings = append(findings, residencyUnderLoadFinding(d.ResidencyUnderLoad()))
 	}
 
 	// 3. DRIFT — config-vs-disk drift is independent of running-stack health: even a
@@ -284,10 +333,39 @@ func Aggregate(d Deps) Report {
 	superseded := func(f Finding) bool {
 		return rocmResidencyProven && f.Status == statusWarn && supersededROCmHostPrepID(f.ID)
 	}
+	// 4b. MEMORY-SERVICE OFFLOAD DOWN-RANK (Pitfall 1, Research Open Question 3 —
+	// resolved as down-rank-but-visible, mirroring the supersession shape above):
+	// villa-qdrant/villa-embed are non-GPU managed services, yet the status fold
+	// reports a typed-Unknown offload WARN for them (their journals carry no
+	// chat-model load_tensors line; the status-side N/A fix is Phase 23), which
+	// would make doctor PASS unreachable on a perfectly healthy memory-on stack.
+	// An `offload:<svc>` finding whose service is one of the Deps-supplied
+	// MemoryServices AND whose Status==statusWarn is kept VISIBLE in Findings but
+	// contributes nothing to the worst-wins rank.
+	//
+	// HARD NO-FALSE-GREEN INVARIANT (DOCTOR-02): the predicate is the CONJUNCTION
+	// (memory on) AND (offload: prefix + service ∈ MemoryServices) AND
+	// (Status==statusWarn). A confident Status==statusFail on the SAME service —
+	// a real CPU fallback / GPU fault on a memory container — is NEVER suppressed
+	// and still folds to FAIL. The suppression touches nothing else: health rows,
+	// drift, loopback, checks, and the chat service's offload all rank as before.
+	memoryOffloadDownRanked := func(f Finding) bool {
+		if !d.MemoryEnabled || f.Status != statusWarn {
+			return false
+		}
+		svc, ok := strings.CutPrefix(f.ID, "offload:")
+		if !ok {
+			return false
+		}
+		return slices.Contains(d.MemoryServices, svc)
+	}
 	worst := 0
 	for _, f := range findings {
 		if superseded(f) {
 			continue // visible but non-rank-raising under proven ROCm residency
+		}
+		if memoryOffloadDownRanked(f) {
+			continue // visible but non-rank-raising: non-GPU memory-service offload WARN
 		}
 		if r := statusRank(f.Status); r > worst {
 			worst = r
@@ -379,6 +457,38 @@ func offloadFinding(s status.ServiceStatus) Finding {
 		f.Tier = tierWarn
 		f.Status = statusWarn
 		f.Remediation = nonEmpty(v.Remediation, "offload could not be verified — ensure the stack is running, then re-run `villa doctor`")
+	}
+	return f
+}
+
+// residencyUnderLoadFinding maps the chat-model residency-under-embedding-load proof
+// Verdict (consumed OPAQUELY — Status/Detail/Remediation only, seam-clean) into a
+// doctor Finding, copying offloadFinding's switch (D-09): a confident CPU fallback
+// under embedding load is a BLOCK-class FAIL (the silent-degradation fault this
+// finding exists to catch); an unevaluable proof (stack down, scrape failed, drive
+// could not complete) degrades to a typed-Unknown WARN — NEVER a false-green PASS.
+// Emitted only when Deps.ResidencyUnderLoad is non-nil (nil → no finding at all).
+func residencyUnderLoadFinding(v inference.Verdict) Finding {
+	f := Finding{
+		ID:         "MEM-DOC-residency",
+		Name:       "Chat-model residency under embedding load",
+		Detail:     v.Detail,
+		Provenance: "embed-load drive + inference.RunningOffloadVerdict",
+	}
+	switch v.Status {
+	case inference.StatusPass:
+		f.Tier = tierBlock
+		f.Status = statusPass
+	case inference.StatusFail:
+		// Confident CPU fallback of the CHAT model under embedding load = a real
+		// fault (BLOCK FAIL) — never a false-green over a healthy-looking stack.
+		f.Tier = tierBlock
+		f.Status = statusFail
+		f.Remediation = nonEmpty(v.Remediation, "the chat model fell back to CPU under embedding load — check the backend (`villa backend set`) and `villa logs`")
+	default: // StatusWarn — residency under load could not be EVALUATED
+		f.Tier = tierWarn
+		f.Status = statusWarn
+		f.Remediation = nonEmpty(v.Remediation, "could not evaluate residency under embedding load — ensure the stack is running, then re-run `villa doctor`")
 	}
 	return f
 }
