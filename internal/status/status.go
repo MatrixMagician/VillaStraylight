@@ -20,6 +20,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
 	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
+	"github.com/MatrixMagician/VillaStraylight/internal/recall"
 	"github.com/MatrixMagician/VillaStraylight/internal/usage"
 )
 
@@ -137,6 +138,16 @@ type Report struct {
 	// (D-10). Tail-appended above SchemaVersion (append-only; nothing above moved).
 	Usage *usage.UsageTotals `json:"usage,omitempty"`
 
+	// Memory is the v1.3 memory-stack summary (Phase-23 D-02): the active
+	// embedding identity (from cfg, the single source of truth), the typed
+	// recall-index summary, and the embedding-skew indicator (set ONLY on a
+	// confident mismatch — D-10). It is a *MemoryInfo + omitempty (Pitfall 10:
+	// a non-pointer struct with omitempty still serializes) so a memory-OFF
+	// install OMITS the key entirely — with memory off the v3 contract differs
+	// from v2 ONLY in schema_version (D-04). Tail-appended above SchemaVersion
+	// (append-only; nothing above moved). Part of the v3 bump.
+	Memory *MemoryInfo `json:"memory,omitempty"`
+
 	// SchemaVersion is the Report contract self-version (D-07). It MUST stay the
 	// LAST tagged field (append-only; new tagged fields go above it, the unexported
 	// err stays after it and never serializes).
@@ -151,9 +162,33 @@ type Report struct {
 // reportSchemaVersion is the Report contract self-version. Version 1 carried the
 // Phase-10 backend-aware tail-append fields (Backend, Image, GenTokensPerSec,
 // ROCmReadiness). Version 2 (Phase-15, D-09) tail-appends the cumulative usage
-// field (Usage) above SchemaVersion. It is itself a tail-appended additive marker
-// (D-07); bumped on any additive change to the Report --json contract.
-const reportSchemaVersion = 2
+// field (Usage) above SchemaVersion. Version 3 (Phase-23, D-01/D-02/D-04)
+// reclassifies the memory-service rows as non-GPU rows with their OWN
+// per-service health (the false-green fix) and tail-appends the Memory section
+// (*MemoryInfo, omitted when memory is off). It is itself a tail-appended
+// additive marker (D-07); bumped on any additive change to the Report --json
+// contract.
+const reportSchemaVersion = 3
+
+// MemoryInfo is the v1.3 memory-stack summary section of the Report (Phase-23
+// D-02). EmbeddingModel/EmbeddingDim are the ACTIVE configured identity
+// (cfg.EmbeddingModel/EmbeddingDim — config is the single source of truth);
+// RecallState is the typed recall-index summary ("unknown" — store unreadable
+// or no seam; "empty" — confidently nothing indexed yet; "indexed" — a clean
+// complete run; "incomplete" — a run started but never completed). The
+// count/timestamp fields are populated ONLY for a complete run (omitempty drops
+// them otherwise — never a fabricated count, D-02). EmbeddingSkew is set ONLY
+// on a confident mismatch (D-10); a match or an unevaluated comparison leaves
+// it empty/omitted — never a green "ok" for an unevaluated state.
+type MemoryInfo struct {
+	EmbeddingModel       string `json:"embedding_model"`
+	EmbeddingDim         int    `json:"embedding_dim"`
+	RecallState          string `json:"recall_state"`
+	IndexedChats         int    `json:"indexed_chats,omitempty"`
+	LastIndexStartedAt   string `json:"last_index_started_at,omitempty"`
+	LastIndexCompletedAt string `json:"last_index_completed_at,omitempty"`
+	EmbeddingSkew        string `json:"embedding_skew,omitempty"`
+}
 
 // ROCmReadinessIndicator is the tri-state surfaced from the detect rocm_readiness
 // sub-tree. It is a string enum so the --json contract is stable and the dashboard
@@ -258,6 +293,28 @@ type Deps struct {
 	// of HTTP coupling and a wedged dashboard can never hang Run (Pitfall 6).
 	DashboardAddr   string
 	DashboardHealth func(addr string) HealthState
+
+	// Memory-service rows (Phase-23 D-01, T-23-01). QdrantService/EmbedService
+	// are the villa-qdrant.service / villa-embed.service unit names the
+	// memory-row branches target — Deps fields (like OWUIService) so
+	// internal/status never re-types a unit literal; the cmd tier derives them
+	// from the orchestrate accessors. Empty when the caller renders no memory
+	// stack, in which case the branches never match.
+	QdrantService string
+	EmbedService  string
+	// QdrantHealth/EmbedHealth are the per-service in-network health probes
+	// (cmd-tier podman-run curl, TTL-cached) taking the config-resolved
+	// container-DNS addr + port. These rows must NEVER borrow the generic
+	// d.Health(chat endpoint) probe — that was the Phase-22 false-green. A nil
+	// seam degrades the row to HealthUnknown (typed-Unknown, never fabricated).
+	QdrantHealth func(addr string, port int) HealthState
+	EmbedHealth  func(addr string, port int) HealthState
+	// ReadRecallState is the READ-ONLY recall-state.json seam (D-02), wired in
+	// liveStatusDeps over recall.Load (fail-closed). It returns a pointer to the
+	// loaded (possibly zero/empty) State, or nil when the store is unreadable —
+	// Run then reports RecallState "unknown" with no fabricated counts. A nil
+	// seam is treated the same (Run guards it).
+	ReadRecallState func() *recall.State
 }
 
 // Errored returns the synthetic active-state token Run records when `systemctl
@@ -343,6 +400,15 @@ func Run(d Deps) Report {
 	if d.ReadUsage != nil {
 		report.Usage = d.ReadUsage()
 	}
+	// Memory section (Phase-23 D-02): populated ONLY when the memory stack is
+	// enabled — a memory-off report carries Memory == nil so the omitempty key
+	// is absent and the v3 contract differs from v2 only in schema_version
+	// (D-04). The embedding identity comes from cfg (single source of truth);
+	// the recall summary degrades typed-Unknown: a nil seam or an unreadable
+	// store ⇒ "unknown" with NO fabricated counts/timestamps.
+	if cfg.MemoryEnabled {
+		report.Memory = memoryInfo(cfg, d.ReadRecallState)
+	}
 
 	weight := d.WeightBytes(cfg)
 	for _, svc := range serviceUnits(units) {
@@ -366,6 +432,36 @@ func Run(d Deps) Report {
 			// NON-EMPTY upstream model list. It has no GPU offload, so its offload
 			// is the N/A representation that does NOT fold into the overall verdict.
 			ss.Health = d.OWUIHealth(endpoint)
+			ss.Offload = naOffloadVerdict()
+			ss.OffloadApplies = false
+			ss.OffloadOK = false
+			report.Services = append(report.Services, ss)
+			continue
+		}
+
+		if svc == d.QdrantService && d.QdrantService != "" {
+			// Qdrant row (Phase-23 D-01, T-23-01): a non-GPU managed service with
+			// its OWN per-service health probe — never the generic chat-endpoint
+			// d.Health probe (that was the carried false-green). Offload is the
+			// N/A representation excluded from the worst-wins fold.
+			ss.Health = HealthUnknown
+			if d.QdrantHealth != nil {
+				ss.Health = d.QdrantHealth(cfg.QdrantAddr, cfg.QdrantPort)
+			}
+			ss.Offload = naOffloadVerdict()
+			ss.OffloadApplies = false
+			ss.OffloadOK = false
+			report.Services = append(report.Services, ss)
+			continue
+		}
+
+		if svc == d.EmbedService && d.EmbedService != "" {
+			// villa-embed row (Phase-23 D-01, T-23-01): same non-GPU classification
+			// as the qdrant row — own health seam, N/A offload, no fold.
+			ss.Health = HealthUnknown
+			if d.EmbedHealth != nil {
+				ss.Health = d.EmbedHealth(cfg.EmbedAddr, cfg.EmbedPort)
+			}
 			ss.Offload = naOffloadVerdict()
 			ss.OffloadApplies = false
 			ss.OffloadOK = false
@@ -425,6 +521,45 @@ func Run(d Deps) Report {
 
 	report.Overall = Aggregate(report).String()
 	return report
+}
+
+// memoryInfo assembles the Report's Memory section from the configured embedding
+// identity and the recall-state read seam (D-02). RecallState mapping: nil seam
+// or nil return (unreadable store) → "unknown"; a state with no index run
+// recorded → "empty" (a confident "nothing indexed yet", distinct from unknown);
+// a clean complete run (recall.CompleteRun — the single predicate, never
+// re-rolled) → "indexed" with the chat count and timestamps verbatim; a run that
+// started but never completed → "incomplete". EmbeddingSkew is set ONLY on a
+// confident recall.SkewMismatch (D-10) — match and unknown leave the field
+// empty/omitted, never a green "ok" for an unevaluated comparison.
+func memoryInfo(cfg config.VillaConfig, readState func() *recall.State) *MemoryInfo {
+	mi := &MemoryInfo{
+		EmbeddingModel: cfg.EmbeddingModel,
+		EmbeddingDim:   cfg.EmbeddingDim,
+		RecallState:    "unknown",
+	}
+	if readState == nil {
+		return mi
+	}
+	st := readState()
+	if st == nil {
+		return mi // unreadable store → typed-Unknown, no fabricated counts
+	}
+	switch {
+	case st.LastIndexStartedAt == "" && st.LastIndexCompletedAt == "":
+		mi.RecallState = "empty"
+	case recall.CompleteRun(*st):
+		mi.RecallState = "indexed"
+		mi.IndexedChats = len(st.Chats)
+		mi.LastIndexStartedAt = st.LastIndexStartedAt
+		mi.LastIndexCompletedAt = st.LastIndexCompletedAt
+	default:
+		mi.RecallState = "incomplete"
+	}
+	if recall.EmbeddingSkew(*st, cfg.EmbeddingModel, cfg.EmbeddingDim) == recall.SkewMismatch {
+		mi.EmbeddingSkew = "mismatch"
+	}
+	return mi
 }
 
 // Err exposes the load/render error Run encountered, if any. Run returns a Report

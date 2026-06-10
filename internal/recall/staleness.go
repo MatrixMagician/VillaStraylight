@@ -45,6 +45,16 @@ type Report struct {
 	Reasons              []string
 }
 
+// CompleteRun reports whether state records a clean full index pass: a stamped
+// last_index_completed_at that is not older than the last start (RFC3339 UTC
+// strings compare correctly lexicographically — Pitfall 8). It is THE single
+// complete-run predicate, exported so the Phase-23 status read-model maps the
+// same truth (indexed vs incomplete) Classify reports — never a re-rolled
+// comparison.
+func CompleteRun(state State) bool {
+	return state.LastIndexCompletedAt != "" && state.LastIndexCompletedAt >= state.LastIndexStartedAt
+}
+
 // Classify computes the honest staleness report for `recall status` (D-06):
 // villa-side truths (Indexed, LastIndex*, CompleteRun) come from state
 // unconditionally; the diff counts reuse Plan (never a second copy of the D-05
@@ -62,7 +72,7 @@ func Classify(live []ChatRef, liveKnown bool, attachment AttachmentState, state 
 	// A clean full pass stamps last_index_completed_at; a run that started but
 	// never completed leaves it empty (or older than a newer start — RFC3339 UTC
 	// strings compare correctly lexicographically). Pitfall 8.
-	r.CompleteRun = state.LastIndexCompletedAt != "" && state.LastIndexCompletedAt >= state.LastIndexStartedAt
+	r.CompleteRun = CompleteRun(state)
 	if state.LastIndexStartedAt != "" && state.LastIndexCompletedAt == "" {
 		r.Reasons = append(r.Reasons,
 			"the last index run started but never completed — its remainder must be treated as stale/unknown, never as indexed")
