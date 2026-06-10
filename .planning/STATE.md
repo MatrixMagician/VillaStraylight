@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: Memory & Knowledge
-status: verifying
-stopped_at: Completed 22-03-PLAN.md
-last_updated: "2026-06-10T16:59:01.063Z"
-last_activity: 2026-06-10 -- Phase 22 execution started
+status: ready-to-plan
+stopped_at: Phase 22 complete (UAT pass + security 17/17) — ready to plan Phase 23
+last_updated: "2026-06-10T19:38:30.755Z"
+last_activity: 2026-06-10
 progress:
   total_phases: 6
   completed_phases: 5
@@ -18,17 +18,17 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-06-10 after Phase 21)
+See: .planning/PROJECT.md (updated 2026-06-10 after Phase 22)
 
 **Core value:** Run a capable local AI workspace that "just works" after install — hardware-aware setup that brings inference, chat, and the dashboard up healthy, with zero data leaving the box. v1.2 extended the bar to "and stays operable, recoverable, and measurable over time." v1.3 extends it to "and remembers the user and their documents across chats — strictly local."
-**Current focus:** Phase 22 — control-plane-fit-host-gate
+**Current focus:** Phase 23 — surfacing, backup & memory-aware swap
 
 ## Current Position
 
-Phase: 22 (control-plane-fit-host-gate) — EXECUTING
-Plan: 4 of 4
-Status: Phase complete — ready for verification
-Last activity: 2026-06-10 -- Phase 22 execution started
+Phase: 23
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-06-10
 
 ## v1.3 Build Order (research-converged — preserve)
 
@@ -59,7 +59,7 @@ evolution: `status.Report` 2→3, golden re-frozen once).
 
 **Velocity:**
 
-- Total plans completed: 58 (across v1.0 + v1.1; v1.2 added 19 more)
+- Total plans completed: 62 (across v1.0 + v1.1; v1.2 added 19 more)
 - Average duration: 34 min
 - Total execution time: 2.2 hours
 
@@ -83,6 +83,7 @@ evolution: `status.Report` 2→3, golden re-frozen once).
 | 19 | 3 | - | - |
 | 20 | 3 | - | - |
 | 21 | 3 | - | - |
+| 22 | 4 | - | - |
 
 **Recent Trend:**
 
@@ -193,10 +194,11 @@ Earlier (v1.0 / v1.1 / v1.2) decisions retained below.
 [Issues that affect future work]
 
 - ~~NON-NEGOTIABLE THREAT (Phase 20): runtime HF model pull / PersistentConfig drift~~ — **RESOLVED in Phase 20** (pre-staged embed model, local `/v1/embeddings` routing, full offline/telemetry env block frozen by golden, `ENABLE_PERSISTENT_CONFIG=False` mandatory, runtime firewalled zero-outbound proof green on-hardware; SECURITY 16/16 closed).
-- **NON-NEGOTIABLE THREAT (Phase 22):** the embedding model competes for the SAME gfx1151 unified-memory pool — omitting it from `recommend.Pick()` → OOM or silent CPU fallback of the chat model under import load (a false-green). Reserve the embed footprint first; assert chat-model residency survives an embed/import workload.
+- ~~NON-NEGOTIABLE THREAT (Phase 22): embedding model competes for the same gfx1151 unified-memory pool~~ — **RESOLVED in Phase 22** (reservation-before-fit in `recommend.Pick()`, MEM-PRE BLOCK gates, offload-asserting MEM-DOC-residency under a real embedding drive; on-hardware UAT pass incl. embed-down negative control; security 17/17 closed).
 - **Phase 23:** embedding model/dimension swap invalidates existing vectors (dimension mismatch) — decouple embedding from chat model; make swap memory-aware; clean-recreate on embedder change; record dimension in manifest.
 - **Phase 23 (carried from Phase 20 UAT):** `villa status` shows OFFLOAD WARN for villa-qdrant/villa-embed — apply the non-GPU N/A-offload pattern when the memory rows land (schema 2→3).
-- On-hardware validation (gfx1151) remains the dominant verification path — Phases 21, 22, 23 still need live-host confirmation (19 and 20 done).
+- **Phase 23 (carried from Phase 22 UAT, graphmind 527de579):** per-row health false-green — `status.Collect` probes the single chat endpoint for EVERY non-OWUI row (`internal/status/status.go:376`), so a stopped villa-embed/qdrant still renders `health PASS`; fix with per-service health when the memory rows land; assign a threat ID in the Phase 23 register.
+- On-hardware validation (gfx1151) remains the dominant verification path — Phase 23 still needs live-host confirmation (19, 20, 21, 22 done).
 
 ### Quick Tasks Completed
 
@@ -224,12 +226,12 @@ Items acknowledged at v1.2 milestone close (2026-06-08):
 
 ## Session Continuity
 
-Last session: 2026-06-10T16:58:04.238Z
-Stopped at: Completed 22-03-PLAN.md
+Last session: 2026-06-10T19:45:00Z
+Stopped at: Phase 22 complete (UAT pass, security 17/17, transition done), ready to plan Phase 23
 Resume file: None
 
 ## Operator Next Steps
 
-1. **Plan Phase 22** — `/gsd-plan-phase 22` (Control-Plane Fit + Host Gate, CTRL-01/03/06): `recommend` reserves the embedding footprint BEFORE the chat-model fit (append-only field + schema bump); `preflight` vector-disk/headroom gate; `doctor` folds memory checks incl. offload-asserting residency UNDER embedding load (silent/partial CPU fallback = FAIL — the Phase-21-deferred CTRL-03 gate). Discuss first via `/gsd-discuss-phase 22`.
+1. **Plan Phase 23** — `/gsd-plan-phase 23` (Surfacing, Backup & Memory-Aware Swap, CTRL-02/04/05): `status` + dashboard memory rows (`reportSchemaVersion` 2→3, golden re-frozen ONCE; non-GPU N/A-offload pattern; fix the per-row health false-green — status.go:376 probes the chat endpoint for every non-OWUI row); `backup`/`restore` extend to the Qdrant volume (clean-recreate-before-import, dimension in manifest, skew-WARN); `villa model swap` memory-aware (embedding-dimension guard). Discuss first via `/gsd-discuss-phase 23`.
 2. **Phase 20/21 follow-ups (non-blocking):** live OWUI test accounts (`villa-verify@local.test`, seeded `villa-verify@localhost`) + the operator's OBSIDIAN-LYNX recall test chat remain on the box — operator may remove; `ui.memory=true` left ON for the service account.
 3. **Carryover tech debt (non-blocking):** Phase 21 Info findings IN-01..IN-04; extract shared `rocmpolicy` leaf package; investigate `rocm-6.4.4-rocwmma` residency FAIL; optional re-pin of the drifted `rocm-6.4.4` rolling tag; REQUIREMENTS.md traceability table missing SRCH-01/CODE-01/REMOTE-01 rows.
