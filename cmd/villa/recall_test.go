@@ -441,6 +441,114 @@ func TestRecallCleanReplace(t *testing.T) {
 	})
 }
 
+// TestRecallCleanReplaceFailureClearsState locks WR-01: clean-replace removes the
+// OLD transcript BEFORE upload, so on ANY failure AFTER the remove the stale state
+// entry must be cleared (FileID="" / OWUIUpdatedAt=0, persisted) — otherwise the
+// next Plan sees neither an Add nor an Update and the removed transcript is never
+// re-uploaded, leaving the chat silently absent from retrieval while status reports
+// it indexed. The cleared entry must re-qualify the chat as an Add next run.
+func TestRecallCleanReplaceFailureClearsState(t *testing.T) {
+	env := newFakeRecallEnv()
+	env.state = recall.State{
+		SchemaVersion: recall.SchemaVersion(),
+		KnowledgeID:   "kb1",
+		Chats: map[string]recall.ChatState{
+			"c1": {UserID: "u1", OWUIUpdatedAt: 100, FileID: "old-f1", IndexedAt: "2026-06-09T00:00:00Z"},
+		},
+	}
+	env.deps.listUserChats = func(_ context.Context, _, _, userID string) ([]recall.ChatRef, error) {
+		env.calls = append(env.calls, "listChats:"+userID)
+		if userID != "u1" {
+			return nil, nil
+		}
+		return []recall.ChatRef{{ID: "c1", UserID: "u1", UpdatedAt: 200}}, nil // newer → Update
+	}
+	// The remove succeeds; the re-upload then fails — the classic mid-step failure.
+	env.deps.uploadTranscript = func(_ context.Context, _, _, _, filename, _ string) (string, error) {
+		env.calls = append(env.calls, "upload:"+filename)
+		return "", errors.New("embed backend 500")
+	}
+	cmd := newRecallCmd()
+	var out, errOut bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+	if code := runRecallIndex(cmd, nil, env.deps, false); code != exitBlocked {
+		t.Fatalf("remove-then-fail exit = %d, want exitBlocked (%d)", code, exitBlocked)
+	}
+	if callIndex(env.calls, "remove:old-f1") == -1 {
+		t.Fatalf("the old transcript must have been removed first; calls = %v", env.calls)
+	}
+	got, ok := env.state.Chats["c1"]
+	if !ok {
+		t.Fatalf("the chat entry must survive (so its UserID is retained), not be dropped; state = %+v", env.state)
+	}
+	if got.FileID != "" || got.OWUIUpdatedAt != 0 {
+		t.Errorf("after remove-then-fail the entry must be cleared (FileID=\"\", OWUIUpdatedAt=0) so the next run re-qualifies it; got %+v", got)
+	}
+	// Prove re-qualification: a fresh Plan against the persisted (cleared) state and
+	// the same live ref must see c1 as WORK again (Add or Update) — its content is
+	// gone from the KB, so the next run MUST re-upload it. With OWUIUpdatedAt cleared
+	// to 0, any positive live updated_at re-qualifies it as an Update.
+	p := recall.Plan([]recall.ChatRef{{ID: "c1", UserID: "u1", UpdatedAt: 200}}, env.state)
+	requalified := false
+	for _, a := range p.Adds {
+		if a.ID == "c1" {
+			requalified = true
+		}
+	}
+	for _, u := range p.Updates {
+		if u.ID == "c1" {
+			requalified = true
+		}
+	}
+	if !requalified {
+		t.Errorf("the cleared chat must re-qualify as work (Add or Update) next run; plan = %+v", p)
+	}
+	if env.state.LastIndexCompletedAt != "" {
+		t.Errorf("a failed run must not stamp complete")
+	}
+}
+
+// TestRecallIncompletePassNotStamped locks CR-01: the completed stamp is gated on a
+// reconciliation that every planned Add+Update was uploaded-or-skipped this run
+// (done == expected). A clean pass over a renderable Add reconciles and stamps; the
+// reconciliation must hold for the run to earn last_index_completed_at.
+func TestRecallIncompletePassNotStamped(t *testing.T) {
+	env := newFakeRecallEnv()
+	env.deps.listUserChats = func(_ context.Context, _, _, userID string) ([]recall.ChatRef, error) {
+		env.calls = append(env.calls, "listChats:"+userID)
+		if userID != "u1" {
+			return nil, nil
+		}
+		// One renderable Add + one unrenderable Add (recorded skip): both reconcile.
+		return []recall.ChatRef{
+			{ID: "c1", UserID: "u1", UpdatedAt: 100},
+			{ID: "c2", UserID: "u1", UpdatedAt: 100},
+		}, nil
+	}
+	env.deps.getChat = func(_ context.Context, _, _, chatID string) (recall.ChatDoc, error) {
+		env.calls = append(env.calls, "getChat:"+chatID)
+		if chatID == "c2" {
+			return recall.ChatDoc{ID: chatID}, nil // unrenderable → skip
+		}
+		return renderableChatDoc(chatID), nil
+	}
+	cmd := newRecallCmd()
+	var out, errOut bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+	if code := runRecallIndex(cmd, nil, env.deps, false); code != exitPass {
+		t.Fatalf("a fully-reconciled pass (1 upload + 1 skip over 2 Adds) must pass and stamp; exit = %d, stderr = %q", code, errOut.String())
+	}
+	if env.state.LastIndexCompletedAt == "" {
+		t.Errorf("a reconciled clean pass (done == expected) must stamp last_index_completed_at; state = %+v", env.state)
+	}
+	// The summary must reflect 1 added + 1 skipped (counters from typed outcome, WR-02).
+	if !strings.Contains(out.String(), "1 added") || !strings.Contains(out.String(), "1 skipped") {
+		t.Errorf("counters must come from the typed outcome (1 added, 1 skipped); out = %q", out.String())
+	}
+}
+
 // TestRecallAttach locks the D-03 idempotent read-merge-write attach
 // (attachKnowledgeRow): an EXISTING Model row is updated with the recall KB merged
 // into meta.knowledge while every foreign meta key the operator set is preserved

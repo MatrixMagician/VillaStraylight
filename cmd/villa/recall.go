@@ -237,6 +237,22 @@ func recallLiveChats(ctx context.Context, deps recallDeps, base, token string) (
 	return live, nil
 }
 
+// chatOutcome is the typed result of indexing one chat (WR-02): the caller
+// increments its run counters from this verdict directly, never by checking
+// state.Chats presence after the fact (which an unrelated future mutation could
+// silently flip, miscounting the operator-facing summary line).
+type chatOutcome int
+
+const (
+	// outcomeFail — a host step failed; the run must short-circuit (exitBlocked).
+	outcomeFail chatOutcome = iota
+	// outcomeUploaded — the transcript was (re-)uploaded and recorded in state.
+	outcomeUploaded
+	// outcomeSkipped — the chat was unrenderable; its stale entry was dropped and
+	// the skip recorded (never a silent drop, D-04).
+	outcomeSkipped
+)
+
 // runRecallIndex is the ordered index pipeline (modelswap-style numbered steps,
 // each short-circuiting with a refuse-with-remediation naming the failed step):
 // gate → reachability → token → state+KB (reset on --rebuild; started stamped,
@@ -331,29 +347,48 @@ func runRecallIndex(cmd *cobra.Command, _ []string, deps recallDeps, rebuild boo
 	}
 	// indexChat clean-replaces one chat (D-04): remove the OLD transcript first
 	// (Updates), then fetch → render → upload → record + persist. An unrenderable
-	// chat is a RECORDED skip that drops any stale entry — never a silent drop.
-	indexChat := func(ref recall.ChatRef, oldFileID string) (ok bool) {
+	// chat is a RECORDED skip that drops any stale entry — never a silent drop. It
+	// returns a TYPED outcome (WR-02) so the caller increments counters from the
+	// actual operation result, never by presence-after-the-fact in state.Chats
+	// (which an unrelated future mutation could silently flip).
+	indexChat := func(ref recall.ChatRef, oldFileID string) chatOutcome {
 		if oldFileID != "" {
 			if err := deps.removeKnowledgeFile(ctx, base, token, kbID, oldFileID); err != nil {
 				fmt.Fprintf(errOut, "recall index: FAILED at chat %s (knowledge/file/remove: %v) — completed work is persisted; re-run `villa recall index` to resume.\n", ref.ID, err)
-				return false
+				return outcomeFail
+			}
+			// The OLD transcript is now gone from the KB. From here on, ANY failure
+			// must leave the chat re-qualifying on the next run (WR-01): a stale
+			// state entry still claiming FileID=old would make Plan see neither an
+			// Add nor an Update, so the removed transcript would never be
+			// re-uploaded — the chat would be silently absent from retrieval while
+			// status reported it indexed. Clear the entry's FileID/OWUIUpdatedAt and
+			// persist so the next Plan re-Adds (or re-Updates) it.
+			cur := state.Chats[ref.ID]
+			cur.FileID = ""
+			cur.OWUIUpdatedAt = 0
+			state.Chats[ref.ID] = cur
+			if !persist() {
+				return outcomeFail
 			}
 		}
 		doc, err := deps.getChat(ctx, base, token, ref.ID)
 		if err != nil {
 			fmt.Fprintf(errOut, "recall index: FAILED at chat %s (get: %v) — completed work is persisted; re-run `villa recall index` to resume.\n", ref.ID, err)
-			return false
+			return outcomeFail
 		}
 		text, renderable := recall.RenderTranscript(doc)
 		if !renderable {
 			delete(state.Chats, ref.ID)
-			skipped++
-			return persist()
+			if !persist() {
+				return outcomeFail
+			}
+			return outcomeSkipped
 		}
 		fileID, err := deps.uploadTranscript(ctx, base, token, kbID, recall.TranscriptFilename(ref.ID), text)
 		if err != nil {
 			fmt.Fprintf(errOut, "recall index: FAILED at chat %s (upload: %v) — completed work is persisted; re-run `villa recall index` to resume.\n", ref.ID, err)
-			return false
+			return outcomeFail
 		}
 		state.Chats[ref.ID] = recall.ChatState{
 			UserID:        ref.UserID,
@@ -361,7 +396,10 @@ func runRecallIndex(cmd *cobra.Command, _ []string, deps recallDeps, rebuild boo
 			FileID:        fileID,
 			IndexedAt:     deps.now().UTC().Format(time.RFC3339),
 		}
-		return persist()
+		if !persist() {
+			return outcomeFail
+		}
+		return outcomeUploaded
 	}
 
 	for _, id := range plan.Deletes {
@@ -378,19 +416,23 @@ func runRecallIndex(cmd *cobra.Command, _ []string, deps recallDeps, rebuild boo
 		deleted++
 	}
 	for _, ref := range plan.Updates {
-		if !indexChat(ref, state.Chats[ref.ID].FileID) {
-			return exitBlocked
-		}
-		if _, ok := state.Chats[ref.ID]; ok {
+		switch indexChat(ref, state.Chats[ref.ID].FileID) {
+		case outcomeUploaded:
 			updated++
+		case outcomeSkipped:
+			skipped++
+		case outcomeFail:
+			return exitBlocked
 		}
 	}
 	for _, ref := range plan.Adds {
-		if !indexChat(ref, "") {
-			return exitBlocked
-		}
-		if _, ok := state.Chats[ref.ID]; ok {
+		switch indexChat(ref, "") {
+		case outcomeUploaded:
 			added++
+		case outcomeSkipped:
+			skipped++
+		case outcomeFail:
+			return exitBlocked
 		}
 	}
 
@@ -407,7 +449,19 @@ func runRecallIndex(cmd *cobra.Command, _ []string, deps recallDeps, rebuild boo
 		return exitBlocked
 	}
 
-	// (9) STAMP: only the clean full pass earns last_index_completed_at (D-06).
+	// (9) STAMP: only the clean full pass earns last_index_completed_at (D-06,
+	// CR-01). Reconcile that EVERY planned Add and Update was either uploaded or
+	// recorded-as-skipped in THIS run before stamping complete — not merely that no
+	// loop returned early. An incomplete pass (e.g. a chat that became unrenderable
+	// AND was clean-replace-removed but not re-uploaded) must stay structurally
+	// PARTIAL so the next run re-qualifies it, never falsely "complete" over a KB
+	// missing content.
+	expected := len(plan.Adds) + len(plan.Updates)
+	done := added + updated + skipped
+	if done != expected {
+		fmt.Fprintf(errOut, "recall index: incomplete pass (%d/%d planned add/update items reconciled) — NOT stamping complete; re-run `villa recall index` to finish.\n", done, expected)
+		return exitBlocked
+	}
 	state.LastIndexCompletedAt = deps.now().UTC().Format(time.RFC3339)
 	if !persist() {
 		return exitBlocked
