@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: Memory & Knowledge
-status: executing
+status: verifying
 stopped_at: Completed 21-02-PLAN.md
-last_updated: "2026-06-10T11:34:58.532Z"
+last_updated: "2026-06-10T12:03:14.178Z"
 last_activity: 2026-06-10 -- Phase 21 execution started
 progress:
   total_phases: 6
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 11
-  completed_plans: 10
-  percent: 50
+  completed_plans: 11
+  percent: 67
 ---
 
 # Project State
@@ -27,7 +27,7 @@ See: .planning/PROJECT.md (updated 2026-06-10 after Phase 20)
 
 Phase: 21 (conversational-recall-indexer) — EXECUTING
 Plan: 3 of 3
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-06-10 -- Phase 21 execution started
 
 ## v1.3 Build Order (research-converged — preserve)
@@ -115,6 +115,7 @@ evolution: `status.Report` 2→3, golden re-frozen once).
 | Phase 20 P02 | ~14min | 3 tasks | 4 files |
 | Phase 21 P01 | 10min | 3 tasks | 8 files |
 | Phase 21 P02 | 15min | 3 tasks | 6 files |
+| Phase 21 P03 | 25min | 3 tasks | 0 files |
 
 ## Accumulated Context
 
@@ -165,6 +166,7 @@ Earlier (v1.0 / v1.1 / v1.2) decisions retained below.
 - [Phase 21-02]: attachKnowledgeRow extracted as an injectable read-merge-write core so the RECALL-02 attach (foreign meta preserved, dedupe by KB id, create-or-update) is provable off-hardware
 - [Phase 21-02]: recall verbs enforce the D-07 gate delta: memory off or Decide-invalid => exitBlocked refuse-with-remediation on BOTH verbs, never verify-memory's exit-0 no-op
 - [Phase 21-02]: pollFileProcessed parameterized with a caller timeout; recall passes the size-aware 60s + 1s/2KiB allowance (verify memory behavior unchanged)
+- [Phase ?]: Phase 21 on-hardware: villa recall proven live on gfx1151 (SC#1 real local index; SC#2 semantic retrieval-by-meaning with citations REST+UI; SC#3 edit/delete clean-replace + typed-Unknown OWUI-down staleness); A2 timeout needed no tuning (~1.3 s/chat)
 
 ### Pending Todos
 
@@ -207,7 +209,7 @@ Items acknowledged at v1.2 milestone close (2026-06-08):
 
 ## Session Continuity
 
-Last session: 2026-06-10T11:34:58.525Z
+Last session: 2026-06-10T12:02:55.692Z
 Stopped at: Completed 21-02-PLAN.md
 Resume file: None
 
