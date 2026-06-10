@@ -30,6 +30,17 @@ var embedFootprints = map[string]uint64{
 	"nomic-embed-text-v1.5": 512 << 20, // ~512 MiB conservative reservation (D-08)
 }
 
+// conservativeFootprintBytes is the conservative default reservation applied
+// when an embedding model's footprint is typed-Unknown (D-02): the same ~512 MiB
+// value embedFootprints pins for nomic-embed-text-v1.5 — over-reserve, NEVER
+// reserve 0 on a miss.
+const conservativeFootprintBytes uint64 = 512 << 20 // ~512 MiB (D-02/D-08)
+
+// ConservativeFootprintBytes returns the conservative default embedding-footprint
+// reservation (mirrors the orchestrate.EmbedImage() accessor shape) so downstream
+// readers (recommend's typed-Unknown fallback, D-02) never re-type the literal.
+func ConservativeFootprintBytes() uint64 { return conservativeFootprintBytes }
+
 // Footprint returns the resident-memory reservation for an embedding model as a
 // typed detect.Bytes. On a hit it returns KnownBytes with provenance; on a miss
 // (unknown id OR empty string) it returns a typed Unknown (Known=false) carrying
