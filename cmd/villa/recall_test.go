@@ -967,8 +967,8 @@ func TestRecallIndexSkewGuard(t *testing.T) {
 		if callIndex(env.calls, "ensureKB") != -1 || hasCallPrefix(env.calls, "reset:") {
 			t.Errorf("a skew refusal must fire no KB mutation; calls = %v", env.calls)
 		}
-		if env.state.EmbeddingModel != "nomic-embed-text-v1.5" || env.state.EmbeddingDim != 768 {
-			t.Errorf("the recorded stamp must survive the refusal, got %q/%d", env.state.EmbeddingModel, env.state.EmbeddingDim)
+		if st := env.state; st.EmbeddingModel != "nomic-embed-text-v1.5" || st.EmbeddingDim != 768 {
+			t.Errorf("the recorded stamp must survive the refusal, got %q/%d", st.EmbeddingModel, st.EmbeddingDim)
 		}
 	})
 
@@ -1003,8 +1003,8 @@ func TestRecallIndexSkewGuard(t *testing.T) {
 		if callIndex(env.calls, "reset:kb1") == -1 {
 			t.Errorf("--rebuild must id-preservingly reset the KB; calls = %v", env.calls)
 		}
-		if env.state.EmbeddingModel != "other-embed-model" || env.state.EmbeddingDim != 512 {
-			t.Errorf("the fresh stamp must record the NEW identity, got %q/%d", env.state.EmbeddingModel, env.state.EmbeddingDim)
+		if st := env.state; st.EmbeddingModel != "other-embed-model" || st.EmbeddingDim != 512 {
+			t.Errorf("the fresh stamp must record the NEW identity, got %q/%d", st.EmbeddingModel, st.EmbeddingDim)
 		}
 		if env.state.LastIndexCompletedAt == "" {
 			t.Errorf("a clean rebuild must stamp last_index_completed_at")
@@ -1026,8 +1026,8 @@ func TestRecallIndexSkewGuard(t *testing.T) {
 		if strings.Contains(errOut.String(), "REFUSING") {
 			t.Errorf("an empty stamp must never refuse; stderr = %q", errOut.String())
 		}
-		if env.state.EmbeddingModel != "other-embed-model" || env.state.EmbeddingDim != 512 {
-			t.Errorf("the first stamp must record the configured identity, got %q/%d", env.state.EmbeddingModel, env.state.EmbeddingDim)
+		if st := env.state; st.EmbeddingModel != "other-embed-model" || st.EmbeddingDim != 512 {
+			t.Errorf("the first stamp must record the configured identity, got %q/%d", st.EmbeddingModel, st.EmbeddingDim)
 		}
 	})
 }

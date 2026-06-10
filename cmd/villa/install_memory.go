@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,6 +14,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 	"github.com/MatrixMagician/VillaStraylight/internal/preflight"
+	"github.com/MatrixMagician/VillaStraylight/internal/recall"
 )
 
 // install_memory.go holds the v1.3 MEMORY-STACK install wiring the `villa install`
@@ -141,6 +143,32 @@ func liveLoadedMemoryEnabled() bool {
 		return false
 	}
 	return c.MemoryEnabled
+}
+
+// warnRecallEmbeddingSkew is the Phase-23 D-10/D-11 read-only WARN surface for the
+// install memory readiness flow (CTRL-05, T-23-18): when the recall-state stamp
+// records an embedding identity that CONFIDENTLY diverges from the configured one,
+// print a WARN naming both identities, the consequence, and the remediation — and
+// do NOTHING else. Never a block (the caller's exit code is untouched), never a
+// state write, never a service mutation, never an auto-reindex (the Phase-22
+// diagnose-don't-mutate posture). The comparison is the single Plan 23-01 helper
+// (recall.EmbeddingSkew) — never re-rolled here. Typed-Unknown discipline: a nil
+// seam (test doubles), an unreadable state (real I/O fault), or an empty stamp all
+// degrade SILENTLY — no recorded truth means no alarm, and an unevaluable signal
+// is never escalated to a fabricated warning.
+func warnRecallEmbeddingSkew(errOut io.Writer, cfg config.VillaConfig, readRecallState func() (recall.State, error)) {
+	if readRecallState == nil {
+		return // seam absent (mirrors the doctor optional-seam pattern) — silent
+	}
+	st, err := readRecallState()
+	if err != nil {
+		return // unevaluable read ⇒ typed-Unknown ⇒ silent (never a fabricated alarm, never a block)
+	}
+	if recall.EmbeddingSkew(st, cfg.EmbeddingModel, cfg.EmbeddingDim) != recall.SkewMismatch {
+		return // match or empty stamp (SkewUnknown) — nothing to warn about
+	}
+	fmt.Fprintf(errOut, "install: WARN: the recall index was built with %s (dim %d) but config now says %s (dim %d) — retrieval from the existing collection is corrupt until re-index; run `villa recall index --rebuild` to re-index, or revert embedding_model/embedding_dim in config.toml.\n",
+		st.EmbeddingModel, st.EmbeddingDim, cfg.EmbeddingModel, cfg.EmbeddingDim)
 }
 
 // --- Memory-stack readiness proof (Task 2 / D-09, SC#2/SC#3) -----------------

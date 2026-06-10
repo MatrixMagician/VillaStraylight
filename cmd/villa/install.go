@@ -18,6 +18,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 	"github.com/MatrixMagician/VillaStraylight/internal/preflight"
+	"github.com/MatrixMagician/VillaStraylight/internal/recall"
 	"github.com/MatrixMagician/VillaStraylight/internal/recommend"
 )
 
@@ -189,6 +190,14 @@ type installDeps struct {
 	// memory stack comes up. NIL-SAFE: when nil (test doubles), no memory checks
 	// are appended (mirrors the doctor optional-seam pattern).
 	runMemoryChecks func(detect.HostProfile) []preflight.CheckResult
+	// readRecallState reads recall-state.json fail-closed for the Phase-23 D-10
+	// skew WARN surface (warnRecallEmbeddingSkew): absent ⇒ empty state ⇒ silent
+	// typed-Unknown; only a real I/O fault errors (also silent — read-only WARN,
+	// D-11). NIL-SAFE: when nil (test doubles), the WARN helper degrades silently
+	// (mirrors the runMemoryChecks optional-seam pattern). Live wiring is the
+	// SHARED liveRecallStateLoad (the same reader `villa recall` uses) so the two
+	// guards can never drift onto different readers.
+	readRecallState func() (recall.State, error)
 
 	// stdoutIsTTY reports whether stdout is a real terminal — the stdout twin of
 	// interactive() (which checks stdin). huh renders to stdout/stderr, so BOTH must
@@ -545,6 +554,13 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 	// silent skip / false-green (honesty-by-construction). A PASS prints a ready line
 	// and folds into the existing PASS/WARN verdict.
 	if cfg.MemoryEnabled {
+		// (10b-pre) Phase-23 D-10 skew WARN (CTRL-05, read-only, D-11): if the
+		// recall-state stamp records an embedding identity that confidently
+		// diverges from the configured one, warn-with-remediation BEFORE the proof
+		// — the operator learns retrieval is corrupt even if the proof then fails.
+		// Never blocks, never mutates; an absent/unreadable stamp is silent
+		// typed-Unknown (warnRecallEmbeddingSkew).
+		warnRecallEmbeddingSkew(errOut, cfg, d.readRecallState)
 		proof := d.memoryProofFn(cmd.Context(), memoryProofInput{
 			embedAddr:    cfg.EmbedAddr,
 			embedPort:    cfg.EmbedPort,
@@ -1111,6 +1127,9 @@ func liveInstallDeps() (*installDeps, error) {
 		runMemoryChecks: func(p detect.HostProfile) []preflight.CheckResult {
 			return preflight.RunMemory(p, preflight.MemoryGateInput{EmbeddingModel: liveLoadedConfig().EmbeddingModel})
 		},
+		// Phase-23 D-10 skew WARN reader: the SHARED fail-closed recall-state
+		// loader `villa recall` uses (one reader, never a re-rolled second one).
+		readRecallState: liveRecallStateLoad,
 	}, nil
 }
 

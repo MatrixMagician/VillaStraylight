@@ -112,15 +112,7 @@ func liveRecallDeps() recallDeps {
 		discoverModel: func(ctx context.Context, base, token string) (string, error) {
 			return discoverChatModel(ctx, base, bearerHeader(token))
 		},
-		readState: func() (recall.State, error) {
-			return recall.Load(recall.Deps{ReadAll: func() ([]byte, error) {
-				data, err := os.ReadFile(recall.RecallStatePath())
-				if errors.Is(err, fs.ErrNotExist) {
-					return nil, nil // absent store ⇒ empty state ("nothing indexed")
-				}
-				return data, err
-			}})
-		},
+		readState: liveRecallStateLoad,
 		writeState: func(s recall.State) error {
 			return recall.Save(recall.Deps{WriteAll: func(data []byte) error {
 				return recall.WriteFileAtomic(recall.RecallStatePath(), data)
@@ -128,6 +120,24 @@ func liveRecallDeps() recallDeps {
 		},
 		now: time.Now,
 	}
+}
+
+// liveRecallStateLoad is the SHARED fail-closed recall-state.json reader (the
+// "recall-state read: use recall.Load" rule — never a second JSON reader): an
+// absent store reads as the empty state ("nothing indexed", typed-Unknown for the
+// D-10 skew guards), a corrupt/future-schema blob fail-closes to empty inside
+// recall.Load, and only a real I/O fault surfaces as an error. It is the live
+// wiring for BOTH recallDeps.readState and installDeps.readRecallState (the
+// Phase-23 install WARN surface) so the two guards can never drift onto
+// different readers.
+func liveRecallStateLoad() (recall.State, error) {
+	return recall.Load(recall.Deps{ReadAll: func() ([]byte, error) {
+		data, err := os.ReadFile(recall.RecallStatePath())
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, nil // absent store ⇒ empty state ("nothing indexed")
+		}
+		return data, err
+	}})
 }
 
 // newRecall builds the `villa recall` parent command (D-07).
@@ -322,6 +332,20 @@ func runRecallIndex(cmd *cobra.Command, _ []string, deps recallDeps, rebuild, sh
 	state, err := deps.readState()
 	if err != nil {
 		fmt.Fprintf(errOut, "recall index: could not read recall-state.json (%v) — fix the data dir, then re-run.\n", err)
+		return exitBlocked
+	}
+	// (4a) D-10 SKEW GUARD (Phase-23, T-23-15/T-23-16): compare the RECORDED
+	// embedding identity against config IMMEDIATELY after the fail-closed read and
+	// BEFORE any state mutation — the stamp overwrite below would destroy the
+	// recorded truth and make the skew undetectable forever (Pitfall 6).
+	// recall.EmbeddingSkew is THE single comparison (Plan 23-01) — never re-rolled
+	// here. An empty stamp is typed-Unknown: no recorded truth, no alarm. --rebuild
+	// is the sanctioned bypass (OQ4): the rebuild path id-preservingly resets the KB
+	// and clean-replaces the collection content, and the fresh stamp then records
+	// the new identity.
+	if !rebuild && recall.EmbeddingSkew(state, cfg.EmbeddingModel, cfg.EmbeddingDim) == recall.SkewMismatch {
+		fmt.Fprintf(errOut, "recall index: REFUSING — the index was built with %s (dim %d) but config now says %s (dim %d); indexing into a mismatched-dimension collection corrupts retrieval. Re-run with --rebuild to re-index cleanly, or revert the config.\n",
+			state.EmbeddingModel, state.EmbeddingDim, cfg.EmbeddingModel, cfg.EmbeddingDim)
 		return exitBlocked
 	}
 	if rebuild {
