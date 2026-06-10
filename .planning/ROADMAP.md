@@ -258,4 +258,4 @@ Plans:
 | 20. Open WebUI Memory/RAG Wiring + Offline Lockdown | v1.3 | 3/3 | Complete    | 2026-06-10 |
 | 21. Conversational Recall Indexer | v1.3 | 3/3 | Complete    | 2026-06-10 |
 | 22. Control-Plane Fit + Host Gate | v1.3 | 4/4 | Complete    | 2026-06-10 |
-| 23. Surfacing, Backup & Memory-Aware Swap | v1.3 | 5/5 | Complete   | 2026-06-10 |
+| 23. Surfacing, Backup & Memory-Aware Swap | v1.3 | 5/5 | Complete    | 2026-06-10 |
