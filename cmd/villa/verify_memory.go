@@ -219,7 +219,7 @@ func driveRagUploadCite(ctx context.Context, base, question, wantFact string) (s
 
 	// 3) Poll process/status until the file is chunked + embedded + stored (a timeout is an
 	// ERROR, never a silent skip — Pitfall 6).
-	if perr := pollFileProcessed(ctx, base, auth, fResp.ID); perr != nil {
+	if perr := pollFileProcessed(ctx, base, auth, fResp.ID, ragSmokeProcessTimeout); perr != nil {
 		return "", false, fmt.Errorf("file processing: %w", perr)
 	}
 
@@ -348,10 +348,13 @@ func discoverChatModel(ctx context.Context, base, auth string) (string, error) {
 }
 
 // pollFileProcessed polls GET /api/v1/files/{id}/process/status until processing completes
-// or ragSmokeProcessTimeout elapses. A timeout is returned as an ERROR (the RAG path did
-// not complete) — NEVER a silent skip (Pitfall 6). Each poll is a fixed-arg loopback curl.
-func pollFileProcessed(ctx context.Context, base, auth, fileID string) error {
-	deadline := time.Now().Add(ragSmokeProcessTimeout)
+// or the caller-supplied timeout elapses. A timeout is returned as an ERROR (the RAG path
+// did not complete) — NEVER a silent skip (Pitfall 6). Each poll is a fixed-arg loopback
+// curl. The timeout is parameterized so the recall indexer can pass a size-aware allowance
+// for long transcripts (recallUploadTimeout) while the verify-memory smoke proof keeps its
+// fixed ragSmokeProcessTimeout — one poll loop, two callers (Phase-21 Pattern 1).
+func pollFileProcessed(ctx context.Context, base, auth, fileID string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
 	url := base + "/api/v1/files/" + fileID + "/process/status"
 	for {
 		out, err := runLoopbackCurl(ctx, "-sf", "-H", auth, url)
@@ -369,7 +372,7 @@ func pollFileProcessed(ctx context.Context, base, auth, fileID string) error {
 			}
 		}
 		if time.Now().After(deadline) {
-			return fmt.Errorf("timed out after %s waiting for file %s to process", ragSmokeProcessTimeout, fileID)
+			return fmt.Errorf("timed out after %s waiting for file %s to process", timeout, fileID)
 		}
 		select {
 		case <-ctx.Done():
