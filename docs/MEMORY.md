@@ -206,6 +206,99 @@ egress before final sign-off. A negative control that always passes proves nothi
 
 ---
 
+## Indexing past conversations with `villa recall`
+
+`villa recall index` turns your **chat history** into searchable knowledge: every chat
+(archived included) is rendered to a role-labeled transcript and indexed into a
+villa-managed Knowledge collection — **"Villa Recall — Past Conversations"** — through
+Open WebUI's own chunk → embed (`villa-embed`) → Qdrant pipeline. New chats can then
+retrieve what you discussed weeks ago **by meaning**, with citations. Strictly local:
+the indexer talks to Open WebUI over the existing loopback port only — **no new host
+port, no new outbound path**.
+
+### Prerequisite
+
+The recall verbs require the memory stack: set `memory_enabled=true` in `config.toml`
+and run `villa install` first. With memory off, **both** `recall index` and
+`recall status` **refuse with remediation and exit `1`** — an explicit index request is
+never silently no-opped (unlike `villa verify memory`, where memory-off legitimately
+means "nothing to verify").
+
+### Running the indexer
+
+```bash
+villa recall index            # incremental: only new/changed/deleted chats
+villa recall index --rebuild  # clean-recreate: reset the collection, re-index everything
+```
+
+- **Incremental by default.** The indexer diffs the live chat list against
+  `recall-state.json` and only touches chats that are new, changed, or deleted. A
+  changed chat is **clean-replaced** (the old transcript file is removed — vectors
+  included — before the re-render is uploaded), so stale and fresh content never
+  coexist. Renames/pins/moves bump a chat's `updated_at`, so an occasional re-index of
+  unchanged content is expected (correct, just redundant).
+- **`--rebuild`** resets the collection **id-preservingly** (the model attachment
+  survives) and re-indexes every chat from scratch — use it after suspected drift or an
+  embedding change.
+- **Failures resume.** State is persisted after **every** chat; a failed run keeps all
+  completed work and names the failed step — re-run `villa recall index` to resume.
+- Indexing is **sequential by design**: uploads serialize at `villa-embed` anyway, and
+  parallelism would contend with the chat model on the shared GPU memory envelope.
+
+### Reading `villa recall status`
+
+```bash
+villa recall status
+```
+
+Reports, honestly:
+
+- **indexed** — how many chats the villa-side state records as indexed.
+- **last index** — when the last run started/completed. A run that started but never
+  completed renders as **PARTIAL** — its remainder is treated as stale, never as
+  indexed.
+- **stale** — new/changed/deleted counts versus the **live** chat list. If Open WebUI
+  could not be evaluated (service down, listing failed), the stale count renders as
+  **"Unknown — could not evaluate"** — Unknown is **not** "current", and it is never
+  rendered as `0`.
+- **retrieval** — whether the recall collection is attached to the served model (see
+  below). Exit codes: `0` current + attached, `2` stale/Unknown/missing-attachment
+  (a warning, not a failure), `1` only for the memory gate.
+
+### How retrieval works — and the `villa model swap` gotcha
+
+The index run ends by **attaching** the recall collection to the **served** model's
+metadata (`meta.knowledge`), so Open WebUI injects retrieved past-chat content —
+with citations — into **every new chat** server-side. No per-chat attaching needed;
+the `#` collection reference remains available as a bonus, not the mechanism. The
+attach step is read-merge-write: anything you've set on the model in the UI
+(description, capabilities) is preserved.
+
+> **After `villa model swap`, re-run `villa recall index`.** The attachment is keyed by
+> the served model id; a swap serves a **new** id with **no** attachment row, so recall
+> retrieval silently stops while the index still looks green. `villa recall status`
+> surfaces this as `retrieval: MISSING` — run `villa recall index` (idempotent, fast
+> when nothing is stale) to re-assert it.
+
+> **Non-admin caveat.** At retrieval time Open WebUI silently skips a knowledge
+> collection for users who are not an admin, the collection's owner, or grant-holders.
+> The accounts on a villa box are admin today, so this is invisible — but if you add a
+> non-admin Open WebUI user, recall retrieval will not apply to their chats.
+
+### Privacy note: widened admin read scope
+
+The indexer authenticates as the existing `villa-verify@localhost` **admin service
+account** and reads **all human users' chats** via the Open WebUI admin API — on this
+single-operator box, "all human users" is you (the service account's own chats are
+excluded). This widens the service account's use from "drive the verify-memory smoke
+test" to "read chat content for indexing", on the same strictly-local, loopback-only
+posture: the token is held in memory only and never persisted, and the villa-side
+`recall-state.json` stores **ids and timestamps only — never chat titles or content**.
+The chat content itself only ever flows Open WebUI → `villa-embed` → Qdrant on the
+private container network.
+
+---
+
 ## Related
 
 - [Configuration](CONFIGURATION.md) — `config.toml`, the managed container env, and how units
