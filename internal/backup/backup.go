@@ -213,6 +213,44 @@ func Backup(d Deps, in BackupInput) (retRes Result, retErr error) {
 			}
 			continue
 		}
+		// WR-06 streaming path: the two VOLUME TAR entries are the only members
+		// that realistically grow to many GiB (a populated Qdrant store on a
+		// memory-tight host). When the OpenFile seam is wired, checksum them via
+		// a streaming io.Copy pass and register a streaming archiveEntry that
+		// tar-copies from a fresh reader at assembly — the tar bytes never sit
+		// whole in memory. The seam is OPTIONAL: nil (existing fakes) and the
+		// small data-dir entries keep the ReadFile path below.
+		if d.OpenFile != nil && (s.entry == EntryOpenWebUIVolume || s.entry == EntryQdrantVolume) {
+			srcPath := s.path
+			rc, size, err := d.OpenFile(srcPath)
+			if err != nil {
+				if !s.required && in.FileMissing != nil && in.FileMissing(err) {
+					continue // tolerable absent optional entry (mirrors the ReadFile row)
+				}
+				rerr := fmt.Errorf("backup: open %s (%s): %w", s.entry, srcPath, err)
+				return Result{Err: rerr, FailedStep: "read"}, rerr
+			}
+			csum, sumErr := sum(rc)
+			closeErr := rc.Close()
+			if sumErr != nil {
+				rerr := fmt.Errorf("backup: checksum %s (%s): %w", s.entry, srcPath, sumErr)
+				return Result{Err: rerr, FailedStep: "checksum"}, rerr
+			}
+			if closeErr != nil {
+				rerr := fmt.Errorf("backup: close %s (%s): %w", s.entry, srcPath, closeErr)
+				return Result{Err: rerr, FailedStep: "checksum"}, rerr
+			}
+			entries = append(entries, archiveEntry{
+				name: s.entry,
+				size: size,
+				open: func() (io.ReadCloser, error) {
+					r, _, oerr := d.OpenFile(srcPath)
+					return r, oerr
+				},
+			})
+			checksums = append(checksums, EntryChecksum{Name: s.entry, SHA256: csum})
+			continue
+		}
 		data, err := d.ReadFile(s.path)
 		if err != nil {
 			if !s.required && in.FileMissing != nil && in.FileMissing(err) {

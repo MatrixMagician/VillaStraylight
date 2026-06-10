@@ -283,14 +283,14 @@ func manifestJSONFor(t *testing.T, entries []archiveEntry) []byte {
 func TestRestoreDuplicateEntryRefuses(t *testing.T) {
 	cfg := validCfgTOML
 	owui := []byte("owui-data")
-	dataEntries := []archiveEntry{{EntryConfig, cfg}, {EntryOpenWebUIVolume, owui}}
+	dataEntries := []archiveEntry{{name: EntryConfig, data: cfg}, {name: EntryOpenWebUIVolume, data: owui}}
 	mj := manifestJSONFor(t, dataEntries)
 	// Two config.toml members (duplicate name) after the manifest.
 	arch := rawMultiTar(t, []archiveEntry{
-		{EntryManifest, mj},
-		{EntryConfig, cfg},
-		{EntryConfig, []byte("model = \"other\"\n")},
-		{EntryOpenWebUIVolume, owui},
+		{name: EntryManifest, data: mj},
+		{name: EntryConfig, data: cfg},
+		{name: EntryConfig, data: []byte("model = \"other\"\n")},
+		{name: EntryOpenWebUIVolume, data: owui},
 	})
 	r, in := baseInput(t, arch)
 	res := Restore(r.deps(), in)
@@ -307,13 +307,13 @@ func TestRestoreDuplicateEntryRefuses(t *testing.T) {
 func TestRestoreExtraEntryRefuses(t *testing.T) {
 	cfg := validCfgTOML
 	owui := []byte("owui-data")
-	dataEntries := []archiveEntry{{EntryConfig, cfg}, {EntryOpenWebUIVolume, owui}}
+	dataEntries := []archiveEntry{{name: EntryConfig, data: cfg}, {name: EntryOpenWebUIVolume, data: owui}}
 	mj := manifestJSONFor(t, dataEntries)
 	arch := rawMultiTar(t, []archiveEntry{
-		{EntryManifest, mj},
-		{EntryConfig, cfg},
-		{EntryOpenWebUIVolume, owui},
-		{"unexpected.txt", []byte("stowaway")}, // not in the manifest
+		{name: EntryManifest, data: mj},
+		{name: EntryConfig, data: cfg},
+		{name: EntryOpenWebUIVolume, data: owui},
+		{name: "unexpected.txt", data: []byte("stowaway")}, // not in the manifest
 	})
 	r, in := baseInput(t, arch)
 	res := Restore(r.deps(), in)
@@ -330,13 +330,13 @@ func TestRestoreExtraEntryRefuses(t *testing.T) {
 func TestRestoreManifestNotFirstRefuses(t *testing.T) {
 	cfg := validCfgTOML
 	owui := []byte("owui-data")
-	dataEntries := []archiveEntry{{EntryConfig, cfg}, {EntryOpenWebUIVolume, owui}}
+	dataEntries := []archiveEntry{{name: EntryConfig, data: cfg}, {name: EntryOpenWebUIVolume, data: owui}}
 	mj := manifestJSONFor(t, dataEntries)
 	// Data entry BEFORE the manifest.
 	arch := rawMultiTar(t, []archiveEntry{
-		{EntryConfig, cfg},
-		{EntryManifest, mj},
-		{EntryOpenWebUIVolume, owui},
+		{name: EntryConfig, data: cfg},
+		{name: EntryManifest, data: mj},
+		{name: EntryOpenWebUIVolume, data: owui},
 	})
 	r, in := baseInput(t, arch)
 	res := Restore(r.deps(), in)

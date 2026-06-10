@@ -17,6 +17,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -354,5 +355,20 @@ func liveBackupDeps() backup.Deps {
 			return nil
 		},
 		ReadFile: os.ReadFile,
+		// OpenFile is the WR-06 streaming seam: the exported volume tars (the one
+		// entry class that can reach many GiB) are checksummed and tar-copied via
+		// io.Copy from this reader instead of being buffered whole in memory.
+		OpenFile: func(path string) (io.ReadCloser, int64, error) {
+			f, err := os.Open(path)
+			if err != nil {
+				return nil, 0, err
+			}
+			fi, err := f.Stat()
+			if err != nil {
+				_ = f.Close()
+				return nil, 0, err
+			}
+			return f, fi.Size(), nil
+		},
 	}
 }

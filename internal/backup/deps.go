@@ -17,7 +17,11 @@
 // internal/backendswap, internal/usage, and internal/status.
 package backup
 
-import "github.com/MatrixMagician/VillaStraylight/internal/config"
+import (
+	"io"
+
+	"github.com/MatrixMagician/VillaStraylight/internal/config"
+)
 
 // ProveStatusPass is this package's OWN success sentinel for a restore-cutover
 // prove verdict. The cmd layer (later plans) sets ProveVerdict.Status to this
@@ -75,6 +79,15 @@ type Deps struct {
 	// read config.toml / usage.json / bench-reports.jsonl when assembling the
 	// archive and to read captured rollback artifacts.
 	ReadFile func(path string) ([]byte, error)
+	// OpenFile opens a source file for STREAMING reads (reader + size), used by
+	// Backup for the LARGE volume-tar entries (openwebui-volume.tar /
+	// qdrant-volume.tar — the one entry that realistically grows to many GiB of
+	// vectors) so their bytes are never buffered whole in memory (review WR-06):
+	// the checksum pass streams via io.Copy and the tar assembly streams a fresh
+	// reader per entry. OPTIONAL: when nil, Backup falls back to ReadFile (the
+	// in-memory path) — existing fakes and small entries are unaffected. The live
+	// wiring is os.Open + Stat in cmd/villa.
+	OpenFile func(path string) (rc io.ReadCloser, size int64, err error)
 	// WriteFileAtomic writes a fixed villa data-STORE artifact (usage.json /
 	// bench-reports.jsonl) via a same-dir temp + rename, 0600 file / 0700 dir,
 	// guarded against escaping the data-store root (clone of usage.WriteFileAtomic,

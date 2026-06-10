@@ -624,6 +624,90 @@ func manifestFromArchive(t *testing.T, b []byte) Manifest {
 	return Manifest{}
 }
 
+// TestBackupStreamsVolumeTars is the WR-06 regression for the backup side: with
+// the OpenFile seam wired (the live cmd-tier shape), the two volume tar entries
+// are STREAMED — ReadFile is never called for their paths, so a multi-GiB qdrant
+// export is never buffered whole in memory — and the assembled archive still
+// carries manifest checksums that VERIFY against the streamed bodies (the
+// restore-side fail-closed gate stays sound).
+func TestBackupStreamsVolumeTars(t *testing.T) {
+	f := newFakeBackupDeps()
+	f.files["/cfg/config.toml"] = []byte("model = \"x\"\n")
+	f.files["/data/recall-state.json"] = []byte(`{"schema_version":1}`)
+
+	d := f.deps()
+	d.OpenFile = func(p string) (io.ReadCloser, int64, error) {
+		f.calls = append(f.calls, "open:"+p)
+		b, ok := f.files[p]
+		if !ok {
+			return nil, 0, os.ErrNotExist
+		}
+		return io.NopCloser(bytes.NewReader(b)), int64(len(b)), nil
+	}
+
+	var out bytes.Buffer
+	in := memoryBackupInput(&out)
+	if _, err := Backup(d, in); err != nil {
+		t.Fatalf("Backup err: %v", err)
+	}
+
+	// The volume tars must STREAM via OpenFile — never a whole-file ReadFile.
+	for _, c := range f.calls {
+		if c == "read:"+in.TempVolumeTar || c == "read:"+in.TempQdrantTar {
+			t.Fatalf("volume tars must stream via OpenFile, not ReadFile (WR-06); calls %v", f.calls)
+		}
+	}
+	for _, want := range []string{"open:" + in.TempVolumeTar, "open:" + in.TempQdrantTar} {
+		found := false
+		for _, c := range f.calls {
+			if c == want {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("missing streaming open %q; calls %v", want, f.calls)
+		}
+	}
+
+	// Every streamed entry's manifest SHA-256 must verify against the archived
+	// body (byte-identical to the in-memory path).
+	m := manifestFromArchive(t, out.Bytes())
+	wantSum := map[string]string{}
+	for _, e := range m.Entries {
+		wantSum[e.Name] = e.SHA256
+	}
+	tr := tar.NewReader(bytes.NewReader(out.Bytes()))
+	seen := map[string]bool{}
+	for {
+		h, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if h.Name == EntryManifest {
+			_, _ = io.Copy(io.Discard, tr)
+			continue
+		}
+		body, err := io.ReadAll(tr)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := sum(bytes.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != wantSum[h.Name] {
+			t.Fatalf("entry %q checksum mismatch after streaming: archive %s, manifest %s", h.Name, got, wantSum[h.Name])
+		}
+		seen[h.Name] = true
+	}
+	if !seen[EntryOpenWebUIVolume] || !seen[EntryQdrantVolume] {
+		t.Fatalf("streamed archive missing a volume entry: %v", seen)
+	}
+}
+
 // TestBackupSkipsAbsentDataDirArtifacts asserts an absent usage.json / bench file
 // is skipped (not fatal): the archive still assembles with the present entries.
 func TestBackupSkipsAbsentDataDirArtifacts(t *testing.T) {

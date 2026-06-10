@@ -46,12 +46,21 @@ const (
 	maxEntryCount         = 64       // generous slack over today's 5 entries
 )
 
-// archiveEntry is one in-memory outer-tar member: its archive name and its
-// bytes. The whole archive is small (model weights are excluded — BAK-01), so
-// entries are held in memory; assembly is deterministic.
+// archiveEntry is one outer-tar member: its archive name and EITHER its
+// in-memory bytes (data, the default — manifest/config/usage/bench are small)
+// OR a streaming source (open+size, review WR-06 — the volume tars can be many
+// GiB and must never be buffered whole). When open is non-nil it wins: the body
+// is io.Copy'd from a fresh reader at assembly time and data is ignored.
 type archiveEntry struct {
 	name string
 	data []byte
+	// open yields a FRESH reader over the entry body for the streaming path
+	// (WR-06); size is the byte count recorded in the tar header. The source is
+	// an internally-owned temp export file, so a size drift between the checksum
+	// pass and assembly is a hard error (the recorded SHA-256 would no longer
+	// match — writeArchive enforces the exact byte count).
+	open func() (io.ReadCloser, error)
+	size int64
 }
 
 // writeArchive emits entries to w as a single plain POSIX tar. The caller MUST
@@ -62,14 +71,39 @@ type archiveEntry struct {
 func writeArchive(w io.Writer, entries []archiveEntry) error {
 	tw := tar.NewWriter(w)
 	for _, e := range entries {
+		size := int64(len(e.data))
+		if e.open != nil {
+			size = e.size
+		}
 		hdr := &tar.Header{
 			Name:   e.name,
 			Mode:   int64(archiveFileMode),
-			Size:   int64(len(e.data)),
+			Size:   size,
 			Format: tar.FormatPAX,
 		}
 		if err := tw.WriteHeader(hdr); err != nil {
 			return fmt.Errorf("backup: write tar header %q: %w", e.name, err)
+		}
+		if e.open != nil {
+			// Streaming body (WR-06): copy from a fresh reader; the byte count
+			// MUST equal the size recorded at checksum time — a drift means the
+			// manifest SHA-256 no longer describes the written body.
+			rc, err := e.open()
+			if err != nil {
+				return fmt.Errorf("backup: open tar body source %q: %w", e.name, err)
+			}
+			n, cpErr := io.Copy(tw, rc)
+			clErr := rc.Close()
+			if cpErr != nil {
+				return fmt.Errorf("backup: stream tar body %q: %w", e.name, cpErr)
+			}
+			if clErr != nil {
+				return fmt.Errorf("backup: close tar body source %q: %w", e.name, clErr)
+			}
+			if n != size {
+				return fmt.Errorf("backup: tar body %q streamed %d bytes, want %d (source changed mid-backup?)", e.name, n, size)
+			}
+			continue
 		}
 		if _, err := tw.Write(e.data); err != nil {
 			return fmt.Errorf("backup: write tar body %q: %w", e.name, err)
