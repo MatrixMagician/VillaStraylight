@@ -227,6 +227,106 @@ func TestRestoreOffloadFailRollsBack(t *testing.T) {
 	}
 }
 
+// writeTestArchiveMem clones writeTestArchive with the OPTIONAL Phase-23 memory
+// entries (qdrant-volume.tar / recall-state.json); nil omits an entry.
+func writeTestArchiveMem(t *testing.T, path string, m backup.ManifestInput, cfgTOML, owui, qdrant, recallState []byte) {
+	t.Helper()
+	type e struct {
+		name string
+		data []byte
+	}
+	data := []e{{backup.EntryConfig, cfgTOML}, {backup.EntryOpenWebUIVolume, owui}}
+	if qdrant != nil {
+		data = append(data, e{backup.EntryQdrantVolume, qdrant})
+	}
+	if recallState != nil {
+		data = append(data, e{backup.EntryRecallState, recallState})
+	}
+	var sums []backup.EntryChecksum
+	for _, d := range data {
+		h := sha256.Sum256(d.data)
+		sums = append(sums, backup.EntryChecksum{Name: d.name, SHA256: hex.EncodeToString(h[:])})
+	}
+	m.Entries = sums
+	man := backup.BuildManifest(m)
+	mj, err := json.MarshalIndent(man, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	all := []e{{backup.EntryManifest, mj}}
+	all = append(all, data...)
+	for _, d := range all {
+		if err := tw.WriteHeader(&tar.Header{Name: d.name, Mode: 0o600, Size: int64(len(d.data)), Format: tar.FormatPAX}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tw.Write(d.data); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, buf.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestRestoreOutputMemoryNotPresent asserts the honest D-07 reporting on a
+// memory-FREE backup: the not-present-left-untouched line and the restored-config
+// memory-posture line (Pitfall 5) both print.
+func TestRestoreOutputMemoryNotPresent(t *testing.T) {
+	dir := t.TempDir()
+	arch := filepath.Join(dir, "b.tar")
+	writeTestArchive(t, arch, matchingManifestInput(), restoreCfgTOML, []byte("owui"))
+
+	cmd, out, errOut := newRestoreTestCmd()
+	code := runRestore(cmd, arch, baseRestoreInput(t, arch), fakeRestoreDeps(backup.ProveVerdict{Status: backup.ProveStatusPass}))
+	if code != exitPass {
+		t.Fatalf("runRestore = %d, want %d; stderr=%q", code, exitPass, errOut.String())
+	}
+	if !bytes.Contains(out.Bytes(), []byte("memory volume not present in this backup — existing Qdrant data left untouched")) {
+		t.Fatalf("memory-free restore must print the not-present-left-untouched line, got %q", out.String())
+	}
+	if !bytes.Contains(out.Bytes(), []byte("memory stack: disabled (restored config)")) {
+		t.Fatalf("restore must print the restored-config memory posture, got %q", out.String())
+	}
+}
+
+// TestRestoreOutputMemoryRestored asserts the memory-bearing success output: the
+// restored lines, the ENABLED posture from the restored config, and the
+// verify/re-index remediation note (OQ1: honest report, no Prove extension).
+func TestRestoreOutputMemoryRestored(t *testing.T) {
+	dir := t.TempDir()
+	arch := filepath.Join(dir, "b.tar")
+	memTOML := []byte("model = \"m\"\nbackend = \"vulkan\"\nctx = 4096\nmemory_enabled = true\n")
+	writeTestArchiveMem(t, arch, matchingManifestInput(), memTOML, []byte("owui"), []byte("qdrant"), []byte("recall"))
+
+	in := baseRestoreInput(t, arch)
+	tmp := t.TempDir()
+	in.QdrantVolumeName = "qdrant-vol"
+	in.TempQdrantTar = filepath.Join(tmp, "restore-qdrant.tar")
+	in.RollbackQdrantTar = filepath.Join(tmp, "rollback-qdrant.tar")
+	in.QdrantVolumeExists = true
+	in.RecallDestPath = filepath.Join(tmp, "recall-state.json")
+
+	cmd, out, errOut := newRestoreTestCmd()
+	code := runRestore(cmd, arch, in, fakeRestoreDeps(backup.ProveVerdict{Status: backup.ProveStatusPass}))
+	if code != exitPass {
+		t.Fatalf("runRestore = %d, want %d; stderr=%q", code, exitPass, errOut.String())
+	}
+	for _, want := range []string{
+		"memory stack: enabled (restored config)",
+		"villa doctor",
+		"villa recall index --rebuild",
+	} {
+		if !bytes.Contains(out.Bytes(), []byte(want)) {
+			t.Fatalf("memory-restored output must contain %q, got %q", want, out.String())
+		}
+	}
+}
+
 // TestRestoreCorruptArchiveBlocks: a tampered entry (checksum mismatch) is a fail-closed
 // BLOCK -> exitBlocked with zero side effects.
 func TestRestoreCorruptArchiveBlocks(t *testing.T) {

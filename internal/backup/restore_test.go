@@ -55,6 +55,7 @@ func (r *recDeps) deps() Deps {
 	return Deps{
 		OpenWebUIServiceName: "villa-openwebui.service",
 		InstallServiceName:   "villa-llama.service",
+		QdrantServiceName:    "qdrant.service",
 		LoadConfig: func() (config.VillaConfig, error) {
 			r.log("LoadConfig")
 			return r.loadCfg, r.loadErr
@@ -578,6 +579,374 @@ func TestRestoreRollbackStepErrorReportsIncomplete(t *testing.T) {
 	}
 	if !strings.Contains(res.Reason, "did not fully complete") {
 		t.Fatalf("want an honest rollback-incomplete Reason, got %q", res.Reason)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Phase-23 qdrant volume + recall-state restore (D-07/D-08): the MANDATORY 2×2
+// {entry present/absent} × {current volume present/absent} matrix, rollback
+// symmetry by failure injection, and the recall-state.json forward/rollback rows.
+// ---------------------------------------------------------------------------
+
+// buildArchiveMem clones buildArchive with the two OPTIONAL Phase-23 memory
+// entries (qdrant-volume.tar / recall-state.json); nil omits an entry.
+func buildArchiveMem(t *testing.T, m Manifest, cfgTOML, owui, qdrant, recallState []byte) []byte {
+	t.Helper()
+	type e struct {
+		name string
+		data []byte
+	}
+	var data []e
+	data = append(data, e{EntryConfig, cfgTOML})
+	data = append(data, e{EntryOpenWebUIVolume, owui})
+	if qdrant != nil {
+		data = append(data, e{EntryQdrantVolume, qdrant})
+	}
+	if recallState != nil {
+		data = append(data, e{EntryRecallState, recallState})
+	}
+	var sums []EntryChecksum
+	for _, d := range data {
+		s, err := sum(bytes.NewReader(d.data))
+		if err != nil {
+			t.Fatalf("sum: %v", err)
+		}
+		sums = append(sums, EntryChecksum{Name: d.name, SHA256: s})
+	}
+	m.Entries = sums
+	if m.SchemaVersion == 0 {
+		m.SchemaVersion = backupSchemaVersion
+	}
+	mj, err := marshalManifest(m)
+	if err != nil {
+		t.Fatalf("marshal manifest: %v", err)
+	}
+	entries := []archiveEntry{{name: EntryManifest, data: mj}}
+	for _, d := range data {
+		entries = append(entries, archiveEntry{name: d.name, data: d.data})
+	}
+	var buf bytes.Buffer
+	if err := writeArchive(&buf, entries); err != nil {
+		t.Fatalf("writeArchive: %v", err)
+	}
+	return buf.Bytes()
+}
+
+// memInput extends baseInput with the qdrant volume + recall-state destinations.
+// Names deliberately avoid the real volume literal — they are seam-sourced by the
+// cmd tier (D-05).
+func memInput(t *testing.T, arch []byte, volExists bool) (*recDeps, RestoreInput) {
+	t.Helper()
+	r, in := baseInput(t, arch)
+	in.QdrantVolumeName = "qdrant-vol"
+	in.TempQdrantTar = "/tmp/restore-qdrant.tar"
+	in.RollbackQdrantTar = "/tmp/rollback-qdrant.tar"
+	in.QdrantVolumeExists = volExists
+	in.RecallDestPath = "/data/recall-state.json"
+	return r, in
+}
+
+// qdrantCalls filters the recorded seam calls down to anything naming the qdrant
+// volume or service (the D-07 zero-touch assertion filter).
+func qdrantCalls(calls []string) []string {
+	var out []string
+	for _, c := range calls {
+		if strings.Contains(c, "qdrant") {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// indexAfter returns the first index >= from of a call matching prefix, or -1.
+func indexAfter(calls []string, prefix string, from int) int {
+	for i := from; i < len(calls); i++ {
+		if strings.HasPrefix(calls[i], prefix) {
+			return i
+		}
+	}
+	return -1
+}
+
+// memCfgTOML is a restored config with the memory stack ENABLED, for the
+// posture-reporting assertions (Pitfall 5).
+var memCfgTOML = []byte("model = \"m\"\nbackend = \"vulkan\"\nctx = 4096\nmemory_enabled = true\n")
+
+// TestRestoreQdrantMatrix drives ALL FOUR {entry present/absent} ×
+// {current volume present/absent} cells (D-07, Pitfall 4) on the happy path and
+// asserts the per-cell seam-call contracts:
+//   - present+exists: capture(qdrant) BEFORE mutate; forward clean-recreate
+//     ordering VolumeRm < ReconcileAndWrite < EnsureVolume < VolumeImport on the
+//     qdrant name; quiesce Stop(qdrant) before the rm, Start(qdrant) after import
+//   - present+absent: NO capture export, NO Stop (nothing running); the volume is
+//     created (EnsureVolume → Import)
+//   - absent+exists / absent+absent: ZERO calls naming the qdrant volume/service
+func TestRestoreQdrantMatrix(t *testing.T) {
+	tests := []struct {
+		name      string
+		entry     bool
+		volExists bool
+	}{
+		{"entry present + volume exists", true, true},
+		{"entry present + volume absent", true, false},
+		{"entry absent + volume exists", false, true},
+		{"entry absent + volume absent", false, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var qdrant []byte
+			if tt.entry {
+				qdrant = []byte("qdrant-volume-data")
+			}
+			arch := buildArchiveMem(t, baseManifest(), validCfgTOML, []byte("owui-data"), qdrant, nil)
+			r, in := memInput(t, arch, tt.volExists)
+			res := Restore(r.deps(), in)
+			if !res.Restored {
+				t.Fatalf("want Restored, got %+v (calls %v)", res, r.calls)
+			}
+			if res.QdrantRestored != tt.entry {
+				t.Fatalf("QdrantRestored = %v, want %v", res.QdrantRestored, tt.entry)
+			}
+
+			if !tt.entry {
+				// D-07 zero-touch: a memory-free backup NEVER touches qdrant state
+				// regardless of what exists on the host (T-23-09).
+				if qc := qdrantCalls(r.calls); len(qc) != 0 {
+					t.Fatalf("entry-absent cell must make ZERO qdrant calls, got %v", qc)
+				}
+				return
+			}
+
+			iRm := indexOf(r.calls, "VolumeRm:qdrant-vol")
+			iEns := indexOf(r.calls, "EnsureVolume:qdrant-vol")
+			iImp := indexOf(r.calls, "VolumeImport:qdrant-vol:"+in.TempQdrantTar)
+			if iRm == -1 || iEns == -1 || iImp == -1 {
+				t.Fatalf("missing a qdrant clean-recreate call: %v", r.calls)
+			}
+			iRec := indexAfter(r.calls, "ReconcileAndWrite", iRm)
+			if !(iRm < iRec && iRec < iEns && iEns < iImp) {
+				t.Fatalf("want VolumeRm<ReconcileAndWrite<EnsureVolume<VolumeImport on qdrant, got rm=%d rec=%d ens=%d imp=%d (%v)",
+					iRm, iRec, iEns, iImp, r.calls)
+			}
+
+			if tt.volExists {
+				// Capture strictly before mutate.
+				iExp := indexOf(r.calls, "VolumeExport:qdrant-vol")
+				iSave := indexOf(r.calls, "SaveConfig")
+				if iExp == -1 || iExp > iSave {
+					t.Fatalf("capture VolumeExport(qdrant) must precede mutate; calls %v", r.calls)
+				}
+				// Quiesce: the running qdrant service is stopped before its volume is
+				// swapped and started after the import.
+				iStop := indexOf(r.calls, "Stop:qdrant.service")
+				iStart := indexOf(r.calls, "Start:qdrant.service")
+				if iStop == -1 || iStop > iRm {
+					t.Fatalf("Stop(qdrant) must precede the qdrant VolumeRm; calls %v", r.calls)
+				}
+				if iStart == -1 || iStart < iImp {
+					t.Fatalf("Start(qdrant) must follow the qdrant import; calls %v", r.calls)
+				}
+			} else {
+				// Prior-absent: nothing to capture, nothing to stop.
+				if indexOf(r.calls, "VolumeExport:qdrant-vol") != -1 {
+					t.Fatalf("prior-absent cell must NOT capture-export the qdrant volume; calls %v", r.calls)
+				}
+				if indexOf(r.calls, "Stop:qdrant.service") != -1 {
+					t.Fatalf("prior-absent cell must NOT stop a non-running qdrant service; calls %v", r.calls)
+				}
+			}
+		})
+	}
+}
+
+// TestRestoreQdrantForwardFailureRollsBackBothVolumes injects a non-pass prove
+// AFTER the full forward apply (both volumes imported) and asserts the rollback
+// restores BOTH volumes through the SAME clean-recreate ordering from their
+// rollback tars (D-07 rollback symmetry).
+func TestRestoreQdrantForwardFailureRollsBackBothVolumes(t *testing.T) {
+	arch := buildArchiveMem(t, baseManifest(), validCfgTOML, []byte("owui-data"), []byte("qdrant-data"), nil)
+	r, in := memInput(t, arch, true)
+	r.prove = ProveVerdict{Status: "fail", Detail: "residency FAIL"}
+
+	res := Restore(r.deps(), in)
+	if !res.RolledBack {
+		t.Fatalf("want RolledBack, got %+v", res)
+	}
+	// Four imports: forward owui+qdrant from the restore tars, rollback owui+qdrant
+	// from the CAPTURED rollback tars.
+	var imports []string
+	for _, c := range r.calls {
+		if strings.HasPrefix(c, "VolumeImport:") {
+			imports = append(imports, c)
+		}
+	}
+	if len(imports) != 4 {
+		t.Fatalf("want 4 VolumeImports (forward+rollback × both volumes), got %v", imports)
+	}
+	wantRollback := map[string]bool{
+		"VolumeImport:villa-openwebui:" + in.RollbackVolumeTar: false,
+		"VolumeImport:qdrant-vol:" + in.RollbackQdrantTar:      false,
+	}
+	for _, c := range imports {
+		if _, ok := wantRollback[c]; ok {
+			wantRollback[c] = true
+		}
+	}
+	for c, seen := range wantRollback {
+		if !seen {
+			t.Fatalf("rollback must re-import %q; imports %v", c, imports)
+		}
+	}
+	// Rollback symmetry: each volume goes through clean-recreate TWICE (forward +
+	// rollback) — two VolumeRm per volume.
+	rmOwui, rmQdrant := 0, 0
+	for _, c := range r.calls {
+		switch c {
+		case "VolumeRm:villa-openwebui":
+			rmOwui++
+		case "VolumeRm:qdrant-vol":
+			rmQdrant++
+		}
+	}
+	if rmOwui != 2 || rmQdrant != 2 {
+		t.Fatalf("want 2 VolumeRm per volume (forward+rollback), got owui=%d qdrant=%d (%v)", rmOwui, rmQdrant, r.calls)
+	}
+	// The rollback qdrant import must itself follow the SAME ordering: the second
+	// VolumeRm:qdrant-vol precedes the rollback import.
+	iFirstRm := indexOf(r.calls, "VolumeRm:qdrant-vol")
+	iSecondRm := indexAfter(r.calls, "VolumeRm:qdrant-vol", iFirstRm+1)
+	iRbImp := indexOf(r.calls, "VolumeImport:qdrant-vol:"+in.RollbackQdrantTar)
+	if !(iSecondRm != -1 && iSecondRm < iRbImp) {
+		t.Fatalf("rollback qdrant import must be preceded by its own clean-recreate VolumeRm; calls %v", r.calls)
+	}
+}
+
+// TestRestoreQdrantPriorAbsentRollbackRemovesForwardCreatedVolume is the
+// Pitfall-4(a) cell: a memory-bearing backup restored onto a host with NO qdrant
+// volume. A forward failure must roll back by REMOVING the forward-created
+// volume (the volume analog of rollbackRemove) — never by importing a rollback
+// tar that was never captured.
+func TestRestoreQdrantPriorAbsentRollbackRemovesForwardCreatedVolume(t *testing.T) {
+	arch := buildArchiveMem(t, baseManifest(), validCfgTOML, []byte("owui-data"), []byte("qdrant-data"), nil)
+	r, in := memInput(t, arch, false /* volume absent */)
+	r.prove = ProveVerdict{Status: "fail", Detail: "residency FAIL"}
+
+	res := Restore(r.deps(), in)
+	if !res.RolledBack {
+		t.Fatalf("want RolledBack, got %+v", res)
+	}
+	// Never a capture export, never a rollback-tar import for the qdrant volume.
+	if indexOf(r.calls, "VolumeExport:qdrant-vol") != -1 {
+		t.Fatalf("prior-absent: no qdrant capture export may run; calls %v", r.calls)
+	}
+	if indexOf(r.calls, "VolumeImport:qdrant-vol:"+in.RollbackQdrantTar) != -1 {
+		t.Fatalf("prior-absent: rollback must NOT import a never-captured tar; calls %v", r.calls)
+	}
+	// Rollback removes the forward-created volume: a VolumeRm:qdrant-vol AFTER the
+	// forward import.
+	iImp := indexOf(r.calls, "VolumeImport:qdrant-vol:"+in.TempQdrantTar)
+	if iImp == -1 {
+		t.Fatalf("forward qdrant import must have run; calls %v", r.calls)
+	}
+	if indexAfter(r.calls, "VolumeRm:qdrant-vol", iImp+1) == -1 {
+		t.Fatalf("rollback must VolumeRm the forward-created qdrant volume; calls %v", r.calls)
+	}
+}
+
+// TestRestoreRecallStateForwardAndRollback asserts the recall-state.json entry
+// follows the usage/bench data-artifact discipline: forward atomic write to
+// RecallDestPath; prior-absent + rollback ⇒ rollbackRemove; prior-present +
+// rollback ⇒ the captured prior bytes are rewritten.
+func TestRestoreRecallStateForwardAndRollback(t *testing.T) {
+	t.Run("prior absent: rollback removes the forward-created file", func(t *testing.T) {
+		arch := buildArchiveMem(t, baseManifest(), validCfgTOML, []byte("owui-data"), nil, []byte("recall-state-from-archive"))
+		r, in := memInput(t, arch, false)
+		r.readFileErr = map[string]error{in.RecallDestPath: errors.New("not found")}
+		r.prove = ProveVerdict{Status: "fail", Detail: "residency FAIL"}
+
+		res := Restore(r.deps(), in)
+		if !res.RolledBack {
+			t.Fatalf("want RolledBack, got %+v", res)
+		}
+		iW := indexOf(r.calls, "WriteFileAtomic:"+in.RecallDestPath)
+		iR := indexOf(r.calls, "RemoveFile:"+in.RecallDestPath)
+		if iW == -1 {
+			t.Fatalf("forward path must write recall-state.json; calls %v", r.calls)
+		}
+		if iR == -1 || iR < iW {
+			t.Fatalf("rollback must RemoveFile the forward-created recall-state.json AFTER the write; calls %v", r.calls)
+		}
+		if strings.Contains(res.Reason, "did not fully complete") {
+			t.Fatalf("rollback should be COMPLETE, got %q", res.Reason)
+		}
+	})
+	t.Run("prior present: rollback rewrites the captured prior bytes", func(t *testing.T) {
+		arch := buildArchiveMem(t, baseManifest(), validCfgTOML, []byte("owui-data"), nil, []byte("recall-state-from-archive"))
+		r, in := memInput(t, arch, false)
+		r.readFile[in.RecallDestPath] = []byte("prior-recall-state")
+		r.prove = ProveVerdict{Status: "fail", Detail: "residency FAIL"}
+
+		res := Restore(r.deps(), in)
+		if !res.RolledBack {
+			t.Fatalf("want RolledBack, got %+v", res)
+		}
+		writes := 0
+		for _, c := range r.calls {
+			if c == "WriteFileAtomic:"+in.RecallDestPath {
+				writes++
+			}
+		}
+		if writes != 2 {
+			t.Fatalf("want forward write + rollback rewrite of recall-state.json (2), got %d (%v)", writes, r.calls)
+		}
+		if indexOf(r.calls, "RemoveFile:"+in.RecallDestPath) != -1 {
+			t.Fatalf("prior-present rollback must REWRITE, never remove; calls %v", r.calls)
+		}
+	})
+	t.Run("entry absent: recall-state untouched", func(t *testing.T) {
+		arch := buildArchiveMem(t, baseManifest(), validCfgTOML, []byte("owui-data"), nil, nil)
+		r, in := memInput(t, arch, false)
+		res := Restore(r.deps(), in)
+		if !res.Restored {
+			t.Fatalf("want Restored, got %+v", res)
+		}
+		if res.RecallStateRestored {
+			t.Fatalf("RecallStateRestored must be false for an entry-free archive")
+		}
+		for _, c := range r.calls {
+			if strings.Contains(c, in.RecallDestPath) {
+				t.Fatalf("entry-absent restore must never touch recall-state.json; calls %v", r.calls)
+			}
+		}
+	})
+}
+
+// TestRestoreResultMemoryFlags asserts the honest-reporting fields (OQ1 locked:
+// report, never extend Prove): QdrantRestored/RecallStateRestored mirror the
+// archive's entries and RestoredMemoryEnabled reflects the RESTORED config's
+// memory posture (Pitfall 5).
+func TestRestoreResultMemoryFlags(t *testing.T) {
+	arch := buildArchiveMem(t, baseManifest(), memCfgTOML, []byte("owui-data"), []byte("qdrant-data"), []byte("recall-state"))
+	r, in := memInput(t, arch, true)
+	res := Restore(r.deps(), in)
+	if !res.Restored {
+		t.Fatalf("want Restored, got %+v (calls %v)", res, r.calls)
+	}
+	if !res.QdrantRestored || !res.RecallStateRestored {
+		t.Fatalf("memory-bearing archive must report both entries restored: %+v", res)
+	}
+	if !res.RestoredMemoryEnabled {
+		t.Fatalf("RestoredMemoryEnabled must reflect the restored config (memory_enabled = true): %+v", res)
+	}
+
+	arch = buildArchive(t, baseManifest(), validCfgTOML, []byte("owui-data"), nil, nil, false)
+	r2, in2 := memInput(t, arch, true)
+	res = Restore(r2.deps(), in2)
+	if !res.Restored {
+		t.Fatalf("want Restored, got %+v", res)
+	}
+	if res.QdrantRestored || res.RecallStateRestored || res.RestoredMemoryEnabled {
+		t.Fatalf("memory-free archive must report nothing restored and a disabled posture: %+v", res)
 	}
 }
 
