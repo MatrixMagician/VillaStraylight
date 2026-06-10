@@ -521,8 +521,13 @@
   // loaded row carries the accent left-border. An empty list shows the empty-state copy.
   // All server values are rendered via textContent (XSS-safe, no innerHTML interpolation).
   function renderModels(models) {
+    // A null/undefined is a FAILED /api/models fetch (typed-Unknown — WR-05),
+    // NOT an empty catalog: keep the last-good rows (the stale-dimming
+    // convention) instead of fabricating the confident "No models in catalog"
+    // empty state. The empty state is reserved for a GENUINE [] from the server.
+    if (!models) { return; }
     modelsBody.textContent = "";
-    if (!models || models.length === 0) {
+    if (models.length === 0) {
       renderModelsEmpty();
       return;
     }
@@ -768,6 +773,11 @@
     // Models drives the loading→ready transition after a switch: clear the in-flight
     // Switching… state once the target shows as loaded, then re-render the rows.
     getJSON("/api/models").then(function (models) {
+      if (models === null) {
+        // Fetch failed → typed-Unknown (WR-05): keep the last-good rows under
+        // the global stale dimming; never render the fabricated empty state.
+        return;
+      }
       clearSwitchIfLoaded(models);
       renderModels(models);
     });
