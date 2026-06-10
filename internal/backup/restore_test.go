@@ -950,6 +950,28 @@ func TestRestoreResultMemoryFlags(t *testing.T) {
 	}
 }
 
+// TestRestoreV1ManifestStillRestores is the backward-compat fixture for the
+// backupSchemaVersion 1→2 bump (D-04 doctrine): a v1 archive (SchemaVersion 1,
+// no memory entries, no embedding fields) must restore cleanly under the v2
+// gate (m.SchemaVersion <= backupSchemaVersion) with no false skew alarm and
+// zero qdrant calls.
+func TestRestoreV1ManifestStillRestores(t *testing.T) {
+	m := baseManifest()
+	m.SchemaVersion = 1 // a pre-bump v1 manifest
+	arch := buildArchive(t, m, validCfgTOML, []byte("owui-data"), nil, nil, false)
+	r, in := memInput(t, arch, true /* memory-on host */)
+	res := Restore(r.deps(), in)
+	if !res.Restored {
+		t.Fatalf("a v1 backup must stay restorable under backupSchemaVersion 2, got %+v", res)
+	}
+	if res.QdrantRestored || res.RecallStateRestored {
+		t.Fatalf("a v1 backup carries no memory entries: %+v", res)
+	}
+	if qc := qdrantCalls(r.calls); len(qc) != 0 {
+		t.Fatalf("a v1 restore on a memory-on host must leave Qdrant untouched, got %v", qc)
+	}
+}
+
 func TestRestoreNonPassProveRollsBack(t *testing.T) {
 	arch := buildArchive(t, baseManifest(), validCfgTOML, []byte("owui-data"), nil, nil, false)
 	r, in := baseInput(t, arch)
