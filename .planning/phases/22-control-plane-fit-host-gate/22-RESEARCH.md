@@ -499,18 +499,23 @@ None — existing test infrastructure (table tests, fake Deps, golden harness wi
 
 All other claims in this document are `[VERIFIED]` against the codebase or live host this session, or `[CITED]` from `.planning/` artifacts.
 
-## Open Questions
+## Open Questions (RESOLVED)
+
+All three questions were resolved during Phase 22 planning (plan revision back-annotation):
 
 1. **Embed context 8192 vs the STATE.md "ctx ≈ 512" flag.**
    - What we know: `embedContextLen = 8192` is a pinned orchestrate render const `[VERIFIED: orchestrate/memory.go:90]`; KV at f16 ≈ 36,864 B/token × 8192 ≈ 302 MiB; live cgroup peak 473 MiB < 512 MiB reservation.
    - What's unclear: peak under a sustained, large-payload drive (the D-05 measurement).
    - Recommendation: do NOT change the const in this phase (an orchestrate unit change + golden re-freeze, outside CONTEXT's in-scope list); let the D-05 measurement decide — only if peak > 512 MiB does the planner choose between raising the constant (in-scope per D-05) vs flagging a ctx-shrink for a later phase. Note: shrinking ctx to 512 would cap chunk size and risks the OWUI RAG chunking path — don't do it casually.
+   - **RESOLVED:** the D-05 measurement in Plan 22-04 Task 1 step 7 decides — the constant in `internal/memory/footprint.go` is raised ONLY if MemoryPeak > 512 MiB under the sustained drive; `embedContextLen = 8192` is NOT changed this phase.
 2. **Should install's `MinMemBytes` (install.go:268-270) also add the embed reservation when memory is on?**
    - What we know: the D-07b preflight headroom check covers the embedder independently; install's gate currently sums only chat terms.
    - Recommendation: planner's call; adding `+ reservation` when enabled is one line and more honest, with `memory.Footprint` as the shared source. Either way, document the choice in the plan.
+   - **RESOLVED: YES** — Plan 22-01 Task 2 adds `rec.EmbeddingReservationBytes` to install's `MinMemBytes` (value flows from the pick; zero when memory off, so the off-path gate is unchanged).
 3. **Doctor's non-GPU offload handling: skip vs down-rank-but-visible.**
    - What we know: both fit doctor's own report; the ROCm supersession (`doctor.go:284-295`) is the down-rank precedent; skipping is simpler and matches status's OWUI N/A precedent.
    - Recommendation: down-rank-but-visible mirrors the established "visible but non-rank-raising" honesty pattern; skip is acceptable if the health row remains. Planner decides; either resolves Pitfall 1.
+   - **RESOLVED:** Plan 22-03 uses down-rank-but-visible (the established "visible but non-rank-raising" honesty pattern, mirroring the ROCm supersession precedent).
 
 ## Sources
 
