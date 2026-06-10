@@ -16,10 +16,10 @@ Requirements for the v1.3 milestone. Each maps to exactly one roadmap phase (see
 
 ### Personalized Memory (MEM)
 
-- [ ] **MEM-01**: The assistant remembers user-stated facts across chats (Open WebUI Memory enabled) and injects them into future conversations
-- [ ] **MEM-02**: User can explicitly save a specific message/fact to memory from a chat
+- [x] **MEM-01**: The assistant remembers user-stated facts across chats (Open WebUI Memory enabled) and injects them into future conversations
+- [x] **MEM-02**: User can explicitly save a specific message/fact to memory from a chat
 - [x] **MEM-03**: Memory is automatically extracted from conversations (LLM-assisted), configurable on/off
-- [ ] **MEM-04**: User can view, edit, and delete stored memories
+- [x] **MEM-04**: User can view, edit, and delete stored memories
 
 ### Conversational Recall (RECALL)
 
@@ -88,10 +88,10 @@ Which phases cover which requirements. Populated during roadmap creation (v1.3 p
 | INFRA-02 | Phase 19 | Complete |
 | INFRA-03 | Phase 20 | Complete |
 | INFRA-04 | Phase 18 | Complete |
-| MEM-01 | Phase 20 | Pending |
-| MEM-02 | Phase 20 | Pending |
+| MEM-01 | Phase 20 | Complete |
+| MEM-02 | Phase 20 | Complete |
 | MEM-03 | Phase 20 | Complete |
-| MEM-04 | Phase 20 | Pending |
+| MEM-04 | Phase 20 | Complete |
 | RECALL-01 | Phase 21 | Pending |
 | RECALL-02 | Phase 21 | Pending |
 | RECALL-03 | Phase 21 | Pending |

@@ -72,7 +72,7 @@ Audit PASSED — 13/13 requirements, 5/5 integration flows, 6/6 phases Nyquist-c
 
 - [x] **Phase 18: Memory Spine — config core + embeddings/wiring research spike** — Land the `internal/memory` pure core + `config.toml` memory fields (the spine touched by render/recommend/preflight), and de-risk the version-sensitive integration by deciding the embeddings runtime, re-verifying the Open WebUI env contract against the pinned OWUI digest, and confirming the embedding model + footprint. (completed 2026-06-09)
 - [x] **Phase 19: Vector Store + Local Embeddings Services** — Render the two new rootless Quadlet managed services (Qdrant + a dedicated embeddings llama-server) onto `villa.network`, container-DNS only, with a durable named `:Z` volume and the embedding model pre-staged at install (zero runtime download). (completed 2026-06-09)
-- [ ] **Phase 20: Open WebUI Memory/RAG Wiring + Offline Lockdown** — Wire Open WebUI (env-only) to Qdrant + the local embeddings endpoint with config-authoritative `ENABLE_PERSISTENT_CONFIG=false` and full offline/telemetry lockdown, delivering personalized memory (both capture modes + edit/delete) and the document knowledge base with citations — proven by a runtime firewalled zero-outbound smoke test.
+- [x] **Phase 20: Open WebUI Memory/RAG Wiring + Offline Lockdown** — Wire Open WebUI (env-only) to Qdrant + the local embeddings endpoint with config-authoritative `ENABLE_PERSISTENT_CONFIG=false` and full offline/telemetry lockdown, delivering personalized memory (both capture modes + edit/delete) and the document knowledge base with citations — proven by a runtime firewalled zero-outbound smoke test. (completed 2026-06-10)
 - [ ] **Phase 21: Conversational Recall Indexer** — A `villa`-orchestrated, strictly-local indexer that semantically indexes past chats into Knowledge so the assistant retrieves relevant past-chat content by meaning, with `villa`-controllable incremental re-index that reports honest state (no silent staleness).
 - [ ] **Phase 22: Control-Plane Fit + Host Gate** — Make `recommend` reserve the embedding footprint before the chat-model fit, and gate host fitness for the memory stack in `preflight` + `doctor` (vector disk, embedder headroom, offload-asserting residency under embedding load) — so the memory stack "runs healthy after install."
 - [ ] **Phase 23: Surfacing, Backup & Memory-Aware Swap** — Land the milestone's single byte-frozen contract evolution LAST: surface memory-stack health in `status` + dashboard (schema bump 2→3, golden re-frozen once), extend `backup`/`restore` to the Qdrant volume (clean-recreate-before-import, dimension in manifest), and make `villa model swap` memory-aware (guard the embedding-dimension-invalidates-vectors hazard).
@@ -144,7 +144,7 @@ Audit PASSED — 13/13 requirements, 5/5 integration flows, 6/6 phases Nyquist-c
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 20-03-PLAN.md — On-hardware verification: live OWUI Memory (MEM-01/02/04), auto-extraction default-off (MEM-03), document upload + citations (KB-01/02/03), firewalled zero-outbound proof with negative control (PRIV-05); docs/MEMORY.md
+- [x] 20-03-PLAN.md — On-hardware verification: live OWUI Memory (MEM-01/02/04), auto-extraction default-off (MEM-03), document upload + citations (KB-01/02/03), firewalled zero-outbound proof with negative control (PRIV-05); docs/MEMORY.md
 
 **UI hint**: yes
 
@@ -210,7 +210,7 @@ Audit PASSED — 13/13 requirements, 5/5 integration flows, 6/6 phases Nyquist-c
 | 17. Guided TUI Install | v1.2 | 3/3 | Complete | 2026-06-08 |
 | 18. Memory Spine — config core + research spike | v1.3 | 2/2 | Complete    | 2026-06-09 |
 | 19. Vector Store + Local Embeddings Services | v1.3 | 3/3 | Complete    | 2026-06-09 |
-| 20. Open WebUI Memory/RAG Wiring + Offline Lockdown | v1.3 | 2/3 | In Progress|  |
+| 20. Open WebUI Memory/RAG Wiring + Offline Lockdown | v1.3 | 3/3 | Complete    | 2026-06-10 |
 | 21. Conversational Recall Indexer | v1.3 | 0/? | Not started | - |
 | 22. Control-Plane Fit + Host Gate | v1.3 | 0/? | Not started | - |
 | 23. Surfacing, Backup & Memory-Aware Swap | v1.3 | 0/? | Not started | - |

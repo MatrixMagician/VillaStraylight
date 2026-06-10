@@ -3,32 +3,32 @@ gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: Memory & Knowledge
 status: executing
-stopped_at: Phase 20 Wave 1 complete (20-01, 20-02); Plan 20-03 Task 1 (docs/MEMORY.md) done — paused at on-hardware checkpoint Tasks 2-5 (gfx1151 required)
-last_updated: "2026-06-09T21:10:40.557Z"
-last_activity: 2026-06-09 -- Phase 20 execution started
+stopped_at: Phase 20 complete (UAT 6/6 on-hardware incl. MEM-01 UI-confirm; SECURITY 16/16 closed) — ready to plan Phase 21
+last_updated: "2026-06-10T10:19:39.673Z"
+last_activity: 2026-06-10
 progress:
   total_phases: 6
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 8
-  completed_plans: 7
-  percent: 33
+  completed_plans: 8
+  percent: 50
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-06-09 — started v1.3 Memory & Knowledge)
+See: .planning/PROJECT.md (updated 2026-06-10 after Phase 20)
 
 **Core value:** Run a capable local AI workspace that "just works" after install — hardware-aware setup that brings inference, chat, and the dashboard up healthy, with zero data leaving the box. v1.2 extended the bar to "and stays operable, recoverable, and measurable over time." v1.3 extends it to "and remembers the user and their documents across chats — strictly local."
-**Current focus:** Phase 20 — open-webui-memory-rag-wiring-offline-lockdown
+**Current focus:** Phase 21 — conversational-recall-indexer
 
 ## Current Position
 
-Phase: 20 (open-webui-memory-rag-wiring-offline-lockdown) — EXECUTING
-Plan: 3 of 3
-Status: Ready to execute
-Last activity: 2026-06-09 -- Phase 20 execution started
+Phase: 21 (conversational-recall-indexer)
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-06-10 — Phase 20 complete (UAT 6/6, security 16/16 closed)
 
 ## v1.3 Build Order (research-converged — preserve)
 
@@ -59,7 +59,7 @@ evolution: `status.Report` 2→3, golden re-frozen once).
 
 **Velocity:**
 
-- Total plans completed: 52 (across v1.0 + v1.1; v1.2 added 19 more)
+- Total plans completed: 55 (across v1.0 + v1.1; v1.2 added 19 more)
 - Average duration: 34 min
 - Total execution time: 2.2 hours
 
@@ -81,6 +81,7 @@ evolution: `status.Report` 2→3, golden re-frozen once).
 | 17 | 3 | - | - |
 | 18 | 2 | - | - |
 | 19 | 3 | - | - |
+| 20 | 3 | - | - |
 
 **Recent Trend:**
 
@@ -156,6 +157,7 @@ Earlier (v1.0 / v1.1 / v1.2) decisions retained below.
 - [Phase ?]: [19-03]: Live villa install (memory_enabled=true) PASS — readiness proof green (offline 768-dim /v1/embeddings + Qdrant writable), villa-qdrant+villa-embed active container-DNS only (no host port, SC#4), Qdrant writes /qdrant/storage as UID 1000 on its :Z named volume (SC#2 writable). SC#2 durability proxy-proven (collection+point survived podman rm + re-run) + linger enabled; literal sudo reboot DEFERRED (would kill the operator session) — recorded honestly, not claimed as a literal reboot.
 - [Phase 20]: Phase 20-01: OWUI memory/RAG env wired behind orchestrate seam — D-09 block appended only when memory_enabled (byte-identical off), ENABLE_PERSISTENT_CONFIG=False mandatory, values config-sourced (no re-typed host literals) — INFRA-03 render half; single deliberate golden re-freeze (new memory golden), memory-aware telemetry test, seam gate green
 - [Phase ?]: [20-02]: Runtime zero-outbound RAG smoke proof landed (D-10/PRIV-05) — pure evalRagSmoke asserts the egress negative control FIRST (probe-could-not-run OR external host reachable = FAIL) before trusting the upload-and-cite drive; no WARN/skip. liveRagSmoke reuses runProbeCurl over villa.network for the negative control (huggingface.co MUST be unreachable) + a NEW host-side fixed-arg curl for the loopback REST drive; helper image via orchestrate.EmbedImage(), no re-typed literal (TestSeamGrepGate green). villa verify memory is a dedicated gated verb (memory OFF exits 0, memory ON FAIL = exitBlocked); admin-token mint (signin+signup fallback, A5) + citation field (sources/citations, A6) confirmed on-hardware in Plan 03. No new host port (D-11).
+- [Phase 20 close]: UAT 6/6 on-hardware (2026-06-10) — MEM-01 cross-chat injection CONFIRMED via the real web UI driven by Playwright (frontend-mediated in OWUI v0.9.6; saved fact recalled in a new chat, no recall after delete). villa verify memory re-proven live: egress-open FAIL exit 1, scoped nft block PASS exit 0. SECURITY.md: 16/16 threats closed, threats_open 0. GOTCHA: `fwd` is a reserved nftables keyword (chain renamed `villaforward`); inside `podman unshare --rootless-netns` nft can't read host files — pipe ruleset via `nft -f -`. Service account villa-verify@localhost has ui.memory=true left ON.
 
 ### Pending Todos
 
@@ -167,11 +169,11 @@ Earlier (v1.0 / v1.1 / v1.2) decisions retained below.
 
 [Issues that affect future work]
 
-- **NON-NEGOTIABLE THREAT (Phase 20):** Open WebUI lazily pulls the embedding/reranker/Whisper model from HuggingFace at RUNTIME on first RAG use (not at install) — a fresh un-gated outbound that breaks PRIV-01/02/03. ChromaDB additionally posts PostHog telemetry. Mitigate: pre-stage the embedding model at install + route embeddings to the local `/v1/embeddings` + full offline/telemetry env block + a RUNTIME firewalled zero-outbound smoke test. Choose Qdrant over ChromaDB.
+- ~~NON-NEGOTIABLE THREAT (Phase 20): runtime HF model pull / PersistentConfig drift~~ — **RESOLVED in Phase 20** (pre-staged embed model, local `/v1/embeddings` routing, full offline/telemetry env block frozen by golden, `ENABLE_PERSISTENT_CONFIG=False` mandatory, runtime firewalled zero-outbound proof green on-hardware; SECURITY 16/16 closed).
 - **NON-NEGOTIABLE THREAT (Phase 22):** the embedding model competes for the SAME gfx1151 unified-memory pool — omitting it from `recommend.Pick()` → OOM or silent CPU fallback of the chat model under import load (a false-green). Reserve the embed footprint first; assert chat-model residency survives an embed/import workload.
-- **NON-NEGOTIABLE THREAT (Phase 20):** Open WebUI `PersistentConfig` bakes RAG/memory settings into `webui.db` on first boot and then IGNORES the env — config drifts off `config.toml`. Set `ENABLE_PERSISTENT_CONFIG=false` from the START (retrofitting a populated DB is painful).
 - **Phase 23:** embedding model/dimension swap invalidates existing vectors (dimension mismatch) — decouple embedding from chat model; make swap memory-aware; clean-recreate on embedder change; record dimension in manifest.
-- On-hardware validation (gfx1151) remains the dominant verification path — Phases 19, 20, 21, 22, 23 all need live-host confirmation; the runtime zero-outbound smoke test (Phase 20) requires a firewalled run.
+- **Phase 23 (carried from Phase 20 UAT):** `villa status` shows OFFLOAD WARN for villa-qdrant/villa-embed — apply the non-GPU N/A-offload pattern when the memory rows land (schema 2→3).
+- On-hardware validation (gfx1151) remains the dominant verification path — Phases 21, 22, 23 still need live-host confirmation (19 and 20 done).
 
 ### Quick Tasks Completed
 
@@ -198,11 +200,12 @@ Items acknowledged at v1.2 milestone close (2026-06-08):
 
 ## Session Continuity
 
-Last session: 2026-06-09T21:10:40.551Z
-Stopped at: Phase 20 Wave 1 complete (20-01, 20-02); Plan 20-03 Task 1 (docs/MEMORY.md) done — paused at on-hardware checkpoint Tasks 2-5 (gfx1151 required)
+Last session: 2026-06-10T10:25:00Z
+Stopped at: Phase 20 complete, ready to plan Phase 21
+Resume file: None
 
 ## Operator Next Steps
 
-1. **Review the v1.3 roadmap** (`.planning/ROADMAP.md` → "v1.3 Memory & Knowledge" + Phase Details 18–23) and the filled traceability (`.planning/REQUIREMENTS.md`).
-2. **Plan Phase 18** — `/gsd-plan-phase 18` (Memory Spine: `internal/memory` pure core + `config.toml` fields + the embeddings/wiring research spike). This phase is low-code and de-risks the env golden re-freeze; consider `--research-phase` to pin the version-sensitive OWUI env keys against the chosen OWUI digest.
-3. **Carryover tech debt (non-blocking):** extract shared `rocmpolicy` leaf package; investigate `rocm-6.4.4-rocwmma` residency FAIL; optional re-pin of the drifted `rocm-6.4.4` rolling tag.
+1. **Plan Phase 21** — `/gsd-plan-phase 21` (Conversational Recall Indexer, RECALL-01..03 — the milestone's biggest single phase; FULL scope chosen). Discuss first via `/gsd-discuss-phase 21` if context is missing.
+2. **Phase 20 follow-ups (non-blocking):** operator may change/remove the live OWUI test accounts (`villa-verify@local.test`, seeded `villa-verify@localhost`); `ui.memory=true` left ON for the service account.
+3. **Carryover tech debt (non-blocking):** extract shared `rocmpolicy` leaf package; investigate `rocm-6.4.4-rocwmma` residency FAIL; optional re-pin of the drifted `rocm-6.4.4` rolling tag; REQUIREMENTS.md traceability table missing SRCH-01/CODE-01/REMOTE-01 rows (flagged by phase.complete).
