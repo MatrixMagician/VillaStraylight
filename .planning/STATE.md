@@ -4,14 +4,14 @@ milestone: v1.3
 milestone_name: Memory & Knowledge
 status: executing
 stopped_at: Phase 23 UI-SPEC approved
-last_updated: "2026-06-10T20:33:05.146Z"
-last_activity: 2026-06-10 -- Phase 23 planning complete
+last_updated: "2026-06-10T20:53:13.208Z"
+last_activity: 2026-06-10 -- Phase 23 execution started
 progress:
   total_phases: 6
   completed_phases: 5
-  total_plans: 15
-  completed_plans: 15
-  percent: 83
+  total_plans: 20
+  completed_plans: 16
+  percent: 80
 ---
 
 # Project State
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-10 after Phase 22)
 
 **Core value:** Run a capable local AI workspace that "just works" after install — hardware-aware setup that brings inference, chat, and the dashboard up healthy, with zero data leaving the box. v1.2 extended the bar to "and stays operable, recoverable, and measurable over time." v1.3 extends it to "and remembers the user and their documents across chats — strictly local."
-**Current focus:** Phase 23 — surfacing, backup & memory-aware swap
+**Current focus:** Phase 23 — Surfacing, Backup & Memory-Aware Swap
 
 ## Current Position
 
-Phase: 23
-Plan: Not started
+Phase: 23 (Surfacing, Backup & Memory-Aware Swap) — EXECUTING
+Plan: 2 of 5
 Status: Ready to execute
-Last activity: 2026-06-10 -- Phase 23 planning complete
+Last activity: 2026-06-10 -- Phase 23 execution started
 
 ## v1.3 Build Order (research-converged — preserve)
 
@@ -122,6 +122,7 @@ evolution: `status.Report` 2→3, golden re-frozen once).
 | Phase 22 P02 | 10min | 2 tasks | 6 files |
 | Phase 22 P03 | 13min | 2 (TDD) tasks | 7 files |
 | Phase 22 P04 | ~17min | 2 tasks | 1 files |
+| Phase 23 P01 | 16 min | 3 tasks | 16 files |
 
 ## Accumulated Context
 
@@ -182,6 +183,9 @@ Earlier (v1.0 / v1.1 / v1.2) decisions retained below.
 - [Phase ?]: [22-04] D-05 contingency NOT triggered: villa-embed MemoryPeak 116,240,384 B (~110.9 MiB) under a 48-request sustained embed drive vs the 536,870,912 B reservation (~4.6x margin) — the pinned 512 MiB constant stands, footprint.go untouched
 - [Phase ?]: [22-04] Rule-1 fix: residencyDriveText shrunk 96->44 reps (962->442 tokens) — pooled embedding inputs must fit ONE llama-server physical batch (-ub default 512 tokens), the real binding limit (not the 8192 ctx)
 - [Phase ?]: [22-04] Pre-existing health-row false-green deferred to Phase 23: status probes the chat endpoint for EVERY non-OWUI service row — a stopped villa-embed still shows health PASS; doctor-verdict honesty unaffected (D-10 is-active gate)
+- [Phase 23]: OQ2 locked: memoryHealthTTL=15s mutex-guarded pair cache for memory-service probes; 30s fallback is a one-const change pending Plan 23-05 on-hardware proof
+- [Phase 23]: OQ3 locked: doctor memoryOffloadDownRanked deleted (unreachable after v3 OffloadApplies=false reclassification) together with the MemoryEnabled/MemoryServices Deps fields that only keyed it
+- [Phase 23]: status Report v3 frozen: Memory section pointer-omitempty above SchemaVersion; embedding_skew only on confident mismatch; no later plan may touch Report tagged fields or status/doctor goldens
 
 ### Pending Todos
 
@@ -226,7 +230,7 @@ Items acknowledged at v1.2 milestone close (2026-06-08):
 
 ## Session Continuity
 
-Last session: 2026-06-10T20:06:11.075Z
+Last session: 2026-06-10T20:52:19.905Z
 Stopped at: Phase 23 UI-SPEC approved
 Resume file: .planning/phases/23-surfacing-backup-memory-aware-swap/23-UI-SPEC.md
 
