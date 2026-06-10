@@ -295,12 +295,16 @@ const (
 	residencyProofBudget = 60 * time.Second
 )
 
-// residencyDriveText is the ~4 KiB embedding input each drive request carries — large
+// residencyDriveText is the ~2 KiB embedding input each drive request carries — large
 // enough that the embedder does real per-request work (a one-word probe would finish
-// before the residency sample could observe load), small enough to stay well inside
-// the embed context window. Repeats a fixed 45-byte phrase 96 times (~4.2 KiB).
+// before the residency sample could observe load), small enough to fit the embed
+// server's PHYSICAL batch (llama-server default -ub 512 tokens): a pooled embedding
+// input must fit in ONE ubatch, so anything above 512 tokens is a hard HTTP 500
+// ("input is too large to process"), not a context-window question (the 8192 ctx is
+// NOT the binding limit — measured on the live gfx1151 box, 22-04). Repeats a fixed
+// 45-byte phrase 44 times (~2.0 KiB ≈ 442 tokens, ~14% margin under the 512 floor).
 func residencyDriveText() string {
-	return strings.Repeat("villa residency-under-load drive probe text; ", 96)
+	return strings.Repeat("villa residency-under-load drive probe text; ", 44)
 }
 
 // residencyUnevaluable builds the typed-Unknown WARN Verdict every unmet precondition
