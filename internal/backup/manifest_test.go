@@ -99,6 +99,59 @@ func TestExcludedModelHasNoContentFields(t *testing.T) {
 	}
 }
 
+// TestManifestV2MemoryEntryConsts asserts the Phase-23 optional-entry names are
+// exactly qdrant-volume.tar / recall-state.json (D-05) and the manifest's own
+// schema version is 2 (the D-04-doctrine bump: v2 adds the memory entries +
+// embedding fields; old villas fail closed on new backups, v1 backups stay
+// restorable because the gate is m.SchemaVersion <= backupSchemaVersion).
+func TestManifestV2MemoryEntryConsts(t *testing.T) {
+	if EntryQdrantVolume != "qdrant-volume.tar" {
+		t.Fatalf("EntryQdrantVolume = %q, want qdrant-volume.tar", EntryQdrantVolume)
+	}
+	if EntryRecallState != "recall-state.json" {
+		t.Fatalf("EntryRecallState = %q, want recall-state.json", EntryRecallState)
+	}
+	if backupSchemaVersion != 2 {
+		t.Fatalf("backupSchemaVersion = %d, want 2 (Phase 23 memory entries + embedding fields)", backupSchemaVersion)
+	}
+}
+
+// TestManifestEmbeddingFieldsThreadAndOmit asserts BuildManifest threads the
+// memory-on embedding_model/embedding_dim/recall_schema_version fields through
+// (D-06/D-08) AND that a memory-off manifest OMITS all three keys entirely
+// (omitempty — old/memory-off backups never carry a fabricated embedding claim,
+// the typed-Unknown "not recorded" convention).
+func TestManifestEmbeddingFieldsThreadAndOmit(t *testing.T) {
+	on := BuildManifest(ManifestInput{
+		EmbeddingModel:      "nomic-embed-text-v1.5",
+		EmbeddingDim:        768,
+		RecallSchemaVersion: 1,
+	})
+	if on.EmbeddingModel != "nomic-embed-text-v1.5" || on.EmbeddingDim != 768 || on.RecallSchemaVersion != 1 {
+		t.Fatalf("BuildManifest did not thread embedding fields: %+v", on)
+	}
+	data, err := json.Marshal(on)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	for _, key := range []string{`"embedding_model"`, `"embedding_dim"`, `"recall_schema_version"`} {
+		if !strings.Contains(string(data), key) {
+			t.Fatalf("memory-on manifest JSON missing %s: %s", key, data)
+		}
+	}
+
+	off := BuildManifest(ManifestInput{})
+	data, err = json.Marshal(off)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	for _, key := range []string{`"embedding_model"`, `"embedding_dim"`, `"recall_schema_version"`} {
+		if strings.Contains(string(data), key) {
+			t.Fatalf("memory-off manifest JSON must OMIT %s (omitempty): %s", key, data)
+		}
+	}
+}
+
 // TestManifestBenchEntryIsSingle asserts the archive-entry naming uses ONE
 // bench-reports.jsonl (the single append-only bench store), not plural bench
 // files — the manifest carries exactly one bench checksum.

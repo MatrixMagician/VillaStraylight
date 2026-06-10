@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"sort"
+	"strings"
 	"testing"
 )
 
@@ -79,6 +80,55 @@ func TestSkewClassification(t *testing.T) {
 			mutate:    func(m *Manifest, c *CurrentInstall) { c.UsageSchemaVersion = 2 },
 			wantWarnN: 1,
 			wantField: "usage_schema_version",
+		},
+		{
+			// D-08: a confident embedding model/dim mismatch is exactly ONE
+			// WARN-and-confirm finding (never silent, never auto-reindex).
+			name: "embedding model+dim mismatch -> 1 embedding WARN",
+			mutate: func(m *Manifest, c *CurrentInstall) {
+				m.EmbeddingModel, m.EmbeddingDim = "nomic-embed-text-v1.5", 768
+				c.EmbeddingModel, c.EmbeddingDim = "other-model", 512
+			},
+			wantWarnN: 1,
+			wantField: "embedding",
+		},
+		{
+			name: "embedding dim-only mismatch -> 1 embedding WARN",
+			mutate: func(m *Manifest, c *CurrentInstall) {
+				m.EmbeddingModel, m.EmbeddingDim = "nomic-embed-text-v1.5", 768
+				c.EmbeddingModel, c.EmbeddingDim = "nomic-embed-text-v1.5", 512
+			},
+			wantWarnN: 1,
+			wantField: "embedding",
+		},
+		{
+			// Typed-Unknown: an old/memory-off backup never recorded an embedding
+			// model — "not recorded" must NOT raise a false alarm (D-08).
+			name: "old backup without embedding fields -> NO warning",
+			mutate: func(m *Manifest, c *CurrentInstall) {
+				c.EmbeddingModel, c.EmbeddingDim = "nomic-embed-text-v1.5", 768
+			},
+		},
+		{
+			name: "newer recall store schema -> BLOCK",
+			mutate: func(m *Manifest, c *CurrentInstall) {
+				m.RecallSchemaVersion, c.RecallSchemaVersion = 5, 1
+			},
+			wantBlock: true,
+		},
+		{
+			name: "older recall store schema -> WARN",
+			mutate: func(m *Manifest, c *CurrentInstall) {
+				m.RecallSchemaVersion, c.RecallSchemaVersion = 1, 2
+			},
+			wantWarnN: 1,
+			wantField: "recall_schema_version",
+		},
+		{
+			// v1 backups stay restorable after the bump to 2: the gate is
+			// m.SchemaVersion <= backupSchemaVersion.
+			name:   "v1 manifest passes the version gate after the bump to 2",
+			mutate: func(m *Manifest, c *CurrentInstall) { m.SchemaVersion = 1 },
 		},
 		{
 			name:      "checksum failed -> BLOCK",
@@ -169,6 +219,7 @@ type fakeBackupDeps struct {
 	files       map[string][]byte // path -> bytes for ReadFile
 	exportErr   error             // injected VolumeExport failure
 	exportWrote bool              // whether VolumeExport "wrote" the temp tar
+	startErrs   map[string]error  // injected Start failure keyed by service name
 }
 
 func newFakeBackupDeps() *fakeBackupDeps {
@@ -178,12 +229,16 @@ func newFakeBackupDeps() *fakeBackupDeps {
 func (f *fakeBackupDeps) deps() Deps {
 	return Deps{
 		OpenWebUIServiceName: "villa-openwebui.service",
+		QdrantServiceName:    "qdrant.service",
 		Stop: func(s string) error {
 			f.calls = append(f.calls, "stop:"+s)
 			return nil
 		},
 		Start: func(s string) error {
 			f.calls = append(f.calls, "start:"+s)
+			if f.startErrs != nil {
+				return f.startErrs[s]
+			}
 			return nil
 		},
 		VolumeExport: func(name, out string) error {
@@ -192,7 +247,7 @@ func (f *fakeBackupDeps) deps() Deps {
 				return f.exportErr
 			}
 			f.exportWrote = true
-			f.files[out] = []byte("OWUI-VOLUME-TAR-BYTES")
+			f.files[out] = []byte("VOL-TAR-BYTES:" + name)
 			return nil
 		},
 		ReadFile: func(p string) ([]byte, error) {
@@ -384,6 +439,189 @@ func TestBackupDeferredRestartFiresOnExportError(t *testing.T) {
 	if !sawStart {
 		t.Fatalf("deferred restart did not fire on export error, calls=%v", f.calls)
 	}
+}
+
+// TestSkewEmbeddingRemediationNamesConsequenceAndFix asserts the embedding
+// SkewWarning's Remediation names BOTH the consequence (retrieval corrupt until
+// re-index) and the fix (`villa recall index --rebuild` after restore, or align
+// embedding_model/embedding_dim in config.toml) — D-08 refuse-with-remediation.
+func TestSkewEmbeddingRemediationNamesConsequenceAndFix(t *testing.T) {
+	m := baseManifest()
+	m.EmbeddingModel, m.EmbeddingDim = "nomic-embed-text-v1.5", 768
+	c := baseCurrent()
+	c.EmbeddingModel, c.EmbeddingDim = "other-model", 512
+	v := CompareSkew(m, c)
+	if v.Block || len(v.Warnings) != 1 || v.Warnings[0].Field != "embedding" {
+		t.Fatalf("want exactly one embedding warning, got %+v", v)
+	}
+	rem := v.Warnings[0].Remediation
+	if !strings.Contains(rem, "villa recall index --rebuild") {
+		t.Fatalf("remediation must name the fix `villa recall index --rebuild`, got %q", rem)
+	}
+	if !strings.Contains(rem, "retriev") {
+		t.Fatalf("remediation must name the consequence (corrupt retrieval), got %q", rem)
+	}
+	if !strings.Contains(rem, "config.toml") {
+		t.Fatalf("remediation must name the config alignment alternative, got %q", rem)
+	}
+}
+
+// memoryBackupInput extends baseBackupInput with the memory-on optional sources:
+// the qdrant volume export + recall-state.json entries and the manifest embedding
+// fields (D-05/D-06). Names deliberately avoid the real service/volume literals —
+// they are seam-sourced by the cmd tier, never typed in this core.
+func memoryBackupInput(w io.Writer) BackupInput {
+	in := baseBackupInput(w)
+	in.QdrantVolumeName = "qdrant-vol"
+	in.TempQdrantTar = "/tmp/qdrant-vol.tar"
+	in.RecallStatePath = "/data/recall-state.json"
+	in.EmbeddingModel = "nomic-embed-text-v1.5"
+	in.EmbeddingDim = 768
+	in.RecallSchemaVersion = 1
+	return in
+}
+
+// TestBackupQdrantQuiesceOrderingAndEntries asserts the memory-on forward path
+// (D-05/D-06, Pitfall 3): Stop(qdrant) strictly before VolumeExport(qdrant
+// volume) strictly before Start(qdrant) — a live export of a running Qdrant can
+// tear RocksDB/WAL state — and that the archive carries the two optional entries
+// with checksums plus the manifest embedding fields.
+func TestBackupQdrantQuiesceOrderingAndEntries(t *testing.T) {
+	f := newFakeBackupDeps()
+	f.files["/cfg/config.toml"] = []byte("model = \"x\"\n")
+	f.files["/data/usage.json"] = []byte(`{"schema_version":3}`)
+	f.files["/data/bench-reports.jsonl"] = []byte(`{"schema_version":4}` + "\n")
+	f.files["/data/recall-state.json"] = []byte(`{"schema_version":1}`)
+
+	var out bytes.Buffer
+	res, err := Backup(f.deps(), memoryBackupInput(&out))
+	if err != nil {
+		t.Fatalf("Backup returned err: %v (result %+v)", err, res)
+	}
+
+	// Quiesce ordering by recorded call index: stop(qdrant) < export(qdrant-vol) <
+	// start(qdrant).
+	stopIdx, exportIdx, startIdx := -1, -1, -1
+	for i, c := range f.calls {
+		switch c {
+		case "stop:qdrant.service":
+			stopIdx = i
+		case "export:qdrant-vol":
+			exportIdx = i
+		case "start:qdrant.service":
+			startIdx = i
+		}
+	}
+	if !(stopIdx >= 0 && exportIdx > stopIdx) {
+		t.Fatalf("expected Stop(qdrant) before VolumeExport(qdrant), calls=%v", f.calls)
+	}
+	if !(startIdx > exportIdx) {
+		t.Fatalf("expected deferred Start(qdrant) after its export, calls=%v", f.calls)
+	}
+
+	// Archive carries both optional memory entries; manifest checksums them and
+	// records the embedding fields.
+	names := archiveNames(t, out.Bytes())
+	got := map[string]bool{}
+	for _, n := range names {
+		got[n] = true
+	}
+	if !got[EntryQdrantVolume] || !got[EntryRecallState] {
+		t.Fatalf("memory-on archive missing %q/%q: %v", EntryQdrantVolume, EntryRecallState, names)
+	}
+	m := manifestFromArchive(t, out.Bytes())
+	if m.EmbeddingModel != "nomic-embed-text-v1.5" || m.EmbeddingDim != 768 || m.RecallSchemaVersion != 1 {
+		t.Fatalf("manifest embedding fields not recorded: %+v", m)
+	}
+	csum := map[string]bool{}
+	for _, e := range m.Entries {
+		csum[e.Name] = true
+	}
+	if !csum[EntryQdrantVolume] || !csum[EntryRecallState] {
+		t.Fatalf("manifest missing memory-entry checksums: %+v", m.Entries)
+	}
+}
+
+// TestBackupQdrantRestartFailureFoldsIntoWarning asserts a failed best-effort
+// Start of the qdrant service NEVER fails the backup — it folds into
+// RestartWarning (the OWUI IN-01 convention extended to the second quiesce frame).
+func TestBackupQdrantRestartFailureFoldsIntoWarning(t *testing.T) {
+	f := newFakeBackupDeps()
+	f.files["/cfg/config.toml"] = []byte("model = \"x\"\n")
+	f.startErrs = map[string]error{"qdrant.service": errors.New("qdrant start boom")}
+
+	var out bytes.Buffer
+	res, err := Backup(f.deps(), memoryBackupInput(&out))
+	if err != nil {
+		t.Fatalf("a failed qdrant restart must NOT fail the backup: %v", err)
+	}
+	if res.RestartWarning == "" {
+		t.Fatalf("failed qdrant restart must surface via RestartWarning, got %+v", res)
+	}
+}
+
+// TestBackupMemoryOffZeroQdrantCalls asserts a memory-off backup (empty
+// QdrantVolumeName/TempQdrantTar) makes ZERO qdrant Deps calls and assembles
+// exactly the v1.2 entry set — the only delta is the manifest fields, all
+// omitted (D-07 zero-touch discipline on the backup side).
+func TestBackupMemoryOffZeroQdrantCalls(t *testing.T) {
+	f := newFakeBackupDeps()
+	f.files["/cfg/config.toml"] = []byte("model = \"x\"\n")
+	f.files["/data/usage.json"] = []byte(`{"schema_version":3}`)
+	f.files["/data/bench-reports.jsonl"] = []byte(`{"schema_version":4}` + "\n")
+
+	var out bytes.Buffer
+	if _, err := Backup(f.deps(), baseBackupInput(&out)); err != nil {
+		t.Fatalf("Backup err: %v", err)
+	}
+	for _, c := range f.calls {
+		if strings.Contains(c, "qdrant") {
+			t.Fatalf("memory-off backup must make ZERO qdrant calls, got %v", f.calls)
+		}
+	}
+	names := archiveNames(t, out.Bytes())
+	for _, n := range names {
+		if n == EntryQdrantVolume || n == EntryRecallState {
+			t.Fatalf("memory-off archive must not carry %q: %v", n, names)
+		}
+	}
+	if len(names) != 5 {
+		t.Fatalf("memory-off entry set must equal the v1.2 five, got %v", names)
+	}
+	m := manifestFromArchive(t, out.Bytes())
+	if m.EmbeddingModel != "" || m.EmbeddingDim != 0 || m.RecallSchemaVersion != 0 {
+		t.Fatalf("memory-off manifest must omit embedding fields, got %+v", m)
+	}
+}
+
+// manifestFromArchive parses the manifest.json entry back out of an assembled
+// archive (test helper).
+func manifestFromArchive(t *testing.T, b []byte) Manifest {
+	t.Helper()
+	tr := tar.NewReader(bytes.NewReader(b))
+	for {
+		h, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if h.Name == EntryManifest {
+			mBytes, err := io.ReadAll(tr)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var m Manifest
+			if err := json.Unmarshal(mBytes, &m); err != nil {
+				t.Fatalf("manifest unmarshal: %v", err)
+			}
+			return m
+		}
+		_, _ = io.Copy(io.Discard, tr)
+	}
+	t.Fatalf("no %s in archive", EntryManifest)
+	return Manifest{}
 }
 
 // TestBackupSkipsAbsentDataDirArtifacts asserts an absent usage.json / bench file
