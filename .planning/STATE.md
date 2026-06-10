@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: Memory & Knowledge
-status: executing
-stopped_at: Phase 20 complete (UAT 6/6 on-hardware incl. MEM-01 UI-confirm; SECURITY 16/16 closed) — ready to plan Phase 21
-last_updated: "2026-06-10T10:19:39.673Z"
-last_activity: 2026-06-10
+status: planning
+stopped_at: Phase 21 context gathered
+last_updated: "2026-06-10T10:27:52.467Z"
+last_activity: 2026-06-10 — Phase 20 complete (UAT 6/6, security 16/16 closed)
 progress:
   total_phases: 6
   completed_phases: 3
@@ -200,9 +200,9 @@ Items acknowledged at v1.2 milestone close (2026-06-08):
 
 ## Session Continuity
 
-Last session: 2026-06-10T10:25:00Z
-Stopped at: Phase 20 complete, ready to plan Phase 21
-Resume file: None
+Last session: 2026-06-10T10:27:52.462Z
+Stopped at: Phase 21 context gathered
+Resume file: .planning/phases/21-conversational-recall-indexer/21-CONTEXT.md
 
 ## Operator Next Steps
 
