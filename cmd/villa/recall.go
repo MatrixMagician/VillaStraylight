@@ -153,6 +153,7 @@ func newRecall() *cobra.Command {
 // step (completed work stays persisted; re-run to resume).
 func newRecallIndex() *cobra.Command {
 	var rebuild bool
+	var sharedRecallAck bool
 	cmd := &cobra.Command{
 		Use:   "index",
 		Short: "Index past chats into the recall Knowledge collection (incremental; --rebuild for clean-recreate)",
@@ -162,14 +163,20 @@ func newRecallIndex() *cobra.Command {
 			"and idempotently attach the recall collection to the SERVED model so retrieval works " +
 			"in every new chat. State persists after EVERY chat — a failed run never loses " +
 			"completed work; re-run to resume. --rebuild resets the collection (id-preserving) " +
-			"and re-indexes everything.",
+			"and re-indexes everything.\n\n" +
+			"SINGLE-OPERATOR ASSUMPTION (D-09): recall pools EVERY non-service user's chats into " +
+			"ONE shared collection attached to the served model — every user could then retrieve " +
+			"every other user's conversations. On a box with more than one human user the run " +
+			"REFUSES unless you pass --i-understand-shared-recall to acknowledge the cross-user " +
+			"exposure (until per-user-scoped KBs land).",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			os.Exit(runRecallIndex(cmd, args, liveRecallDeps(), rebuild))
+			os.Exit(runRecallIndex(cmd, args, liveRecallDeps(), rebuild, sharedRecallAck))
 			return nil
 		},
 	}
 	cmd.Flags().BoolVar(&rebuild, "rebuild", false, "reset the recall Knowledge collection (id-preserving) and re-index everything")
+	cmd.Flags().BoolVar(&sharedRecallAck, "i-understand-shared-recall", false, "acknowledge that recall pools ALL users' chats into one shared collection (required when >1 human user exists)")
 	return cmd
 }
 
@@ -223,6 +230,27 @@ func recallLiveChats(ctx context.Context, deps recallDeps, base, token string) (
 	if err != nil {
 		return nil, err
 	}
+	return recallChatsForUsers(ctx, deps, base, token, users)
+}
+
+// recallHumanUsers returns the users that are NOT the villa service account (D-09)
+// — the operator(s) whose chats recall would pool into the shared collection. The
+// WR-05 single-operator guard counts these.
+func recallHumanUsers(users []owuiUser) []owuiUser {
+	var humans []owuiUser
+	for _, u := range users {
+		if u.Email == recallServiceAccountEmail {
+			continue
+		}
+		humans = append(humans, u)
+	}
+	return humans
+}
+
+// recallChatsForUsers builds the chat universe across the given users, excluding
+// the service account (D-09). Any per-user listing failure is an error — never a
+// partial universe.
+func recallChatsForUsers(ctx context.Context, deps recallDeps, base, token string, users []owuiUser) ([]recall.ChatRef, error) {
 	var live []recall.ChatRef
 	for _, u := range users {
 		if u.Email == recallServiceAccountEmail {
@@ -262,7 +290,7 @@ const (
 // upload, then Adds; an unrenderable chat is a RECORDED skip) → idempotent attach
 // → completed stamp ONLY on the clean full pass. It RETURNS the exit code so
 // recall_test.go can drive it deterministically.
-func runRecallIndex(cmd *cobra.Command, _ []string, deps recallDeps, rebuild bool) int {
+func runRecallIndex(cmd *cobra.Command, _ []string, deps recallDeps, rebuild, sharedRecallAck bool) int {
 	out := cmd.OutOrStdout()
 	errOut := cmd.ErrOrStderr()
 	ctx := cmd.Context()
@@ -324,11 +352,29 @@ func runRecallIndex(cmd *cobra.Command, _ []string, deps recallDeps, rebuild boo
 		return exitBlocked
 	}
 
-	// (5) LIST (D-09): the complete chat universe, service account excluded; any
-	// listing failure refuses — an index run cannot proceed on a partial universe.
-	live, err := recallLiveChats(ctx, deps, base, token)
+	// (5) LIST (D-09): enumerate users first so the WR-05 single-operator guard can
+	// fail closed BEFORE any chat content is pooled. Then build the complete chat
+	// universe (service account excluded); any listing failure refuses — an index
+	// run cannot proceed on a partial universe.
+	users, err := deps.listUsers(ctx, base, token)
 	if err != nil {
-		fmt.Fprintf(errOut, "recall index: FAILED listing users/chats (%v) — check Open WebUI, then re-run.\n", err)
+		fmt.Fprintf(errOut, "recall index: FAILED listing users (%v) — check Open WebUI, then re-run.\n", err)
+		return exitBlocked
+	}
+	// (5a) SINGLE-OPERATOR GUARD (WR-05, D-09): recall pools EVERY human user's
+	// chats into ONE shared collection attached to the served model, so every user
+	// could retrieve every other user's conversations. The product's privacy posture
+	// makes a within-box cross-user leak especially surprising — so on >1 human user
+	// the run REFUSES with remediation until the operator explicitly acknowledges the
+	// shared-recall exposure (until per-user-scoped KBs land). Fail-closed, not silent.
+	humans := recallHumanUsers(users)
+	if len(humans) > 1 && !sharedRecallAck {
+		fmt.Fprintf(errOut, "recall index: REFUSING — found %d human users on this box, but recall pools ALL users' chats into one shared collection visible (with citations) to every user of the served model. This is a cross-user disclosure. If this is a single-operator box (or you accept the shared exposure), re-run with --i-understand-shared-recall; otherwise wait for per-user-scoped recall.\n", len(humans))
+		return exitBlocked
+	}
+	live, err := recallChatsForUsers(ctx, deps, base, token, users)
+	if err != nil {
+		fmt.Fprintf(errOut, "recall index: FAILED listing chats (%v) — check Open WebUI, then re-run.\n", err)
 		return exitBlocked
 	}
 
@@ -492,8 +538,13 @@ func runRecallStatus(cmd *cobra.Command, _ []string, deps recallDeps) int {
 
 	state, err := deps.readState()
 	if err != nil {
-		fmt.Fprintf(errOut, "recall status: could not read recall-state.json (%v) — status is unevaluable.\n", err)
-		return exitWarn
+		// WR-06: a real state-file I/O error (recall.Load already fail-closes a
+		// corrupt blob to empty state, so this only fires on e.g. a permissions
+		// fault) is a hard, unevaluable condition — exitBlocked, identical to the
+		// index path. exitWarn is reserved for the typed-Unknown live-list case
+		// below (the only legitimate soft state).
+		fmt.Fprintf(errOut, "recall status: could not read recall-state.json (%v) — fix the data dir, then re-run.\n", err)
+		return exitBlocked
 	}
 
 	// Build the LIVE list; liveKnown=false on ANY failure — never a partial

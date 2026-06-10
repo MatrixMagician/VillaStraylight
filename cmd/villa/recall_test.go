@@ -179,7 +179,7 @@ func TestRecallGate(t *testing.T) {
 		var out, errOut bytes.Buffer
 		cmd.SetOut(&out)
 		cmd.SetErr(&errOut)
-		if code := runRecallIndex(cmd, nil, env.deps, false); code != exitBlocked {
+		if code := runRecallIndex(cmd, nil, env.deps, false, false); code != exitBlocked {
 			t.Errorf("memory-off index exit = %d, want exitBlocked (%d)", code, exitBlocked)
 		}
 		if errOut.Len() == 0 || !strings.Contains(errOut.String(), "memory") {
@@ -221,7 +221,7 @@ func TestRecallGate(t *testing.T) {
 		var out, errOut bytes.Buffer
 		cmd.SetOut(&out)
 		cmd.SetErr(&errOut)
-		if code := runRecallIndex(cmd, nil, env.deps, false); code != exitBlocked {
+		if code := runRecallIndex(cmd, nil, env.deps, false, false); code != exitBlocked {
 			t.Errorf("invalid-config index exit = %d, want exitBlocked (%d)", code, exitBlocked)
 		}
 		if !strings.Contains(errOut.String(), "embedding_dim") {
@@ -251,7 +251,7 @@ func TestRecallIndexOrdering(t *testing.T) {
 		var out, errOut bytes.Buffer
 		cmd.SetOut(&out)
 		cmd.SetErr(&errOut)
-		if code := runRecallIndex(cmd, nil, env.deps, false); code != exitBlocked {
+		if code := runRecallIndex(cmd, nil, env.deps, false, false); code != exitBlocked {
 			t.Errorf("unreachable-OWUI exit = %d, want exitBlocked (%d)", code, exitBlocked)
 		}
 		for _, banned := range []string{"mint", "ensureKB", "listUsers"} {
@@ -287,7 +287,7 @@ func TestRecallIndexOrdering(t *testing.T) {
 		var out, errOut bytes.Buffer
 		cmd.SetOut(&out)
 		cmd.SetErr(&errOut)
-		if code := runRecallIndex(cmd, nil, env.deps, false); code != exitBlocked {
+		if code := runRecallIndex(cmd, nil, env.deps, false, false); code != exitBlocked {
 			t.Errorf("mid-run failure exit = %d, want exitBlocked (%d)", code, exitBlocked)
 		}
 		if _, ok := env.state.Chats["c1"]; !ok {
@@ -320,7 +320,7 @@ func TestRecallIndexOrdering(t *testing.T) {
 		var out, errOut bytes.Buffer
 		cmd.SetOut(&out)
 		cmd.SetErr(&errOut)
-		if code := runRecallIndex(cmd, nil, env.deps, false); code != exitPass {
+		if code := runRecallIndex(cmd, nil, env.deps, false, false); code != exitPass {
 			t.Fatalf("clean-pass exit = %d, want exitPass (%d); stderr = %q", code, exitPass, errOut.String())
 		}
 		if env.state.LastIndexCompletedAt == "" || env.state.LastIndexCompletedAt < env.state.LastIndexStartedAt {
@@ -362,7 +362,7 @@ func TestRecallIndexOrdering(t *testing.T) {
 		var out, errOut bytes.Buffer
 		cmd.SetOut(&out)
 		cmd.SetErr(&errOut)
-		if code := runRecallIndex(cmd, nil, env.deps, false); code != exitPass {
+		if code := runRecallIndex(cmd, nil, env.deps, false, false); code != exitPass {
 			t.Fatalf("a skip must not fail the run; exit = %d, stderr = %q", code, errOut.String())
 		}
 		if _, ok := env.state.Chats["c1"]; ok {
@@ -402,7 +402,7 @@ func TestRecallCleanReplace(t *testing.T) {
 		var out, errOut bytes.Buffer
 		cmd.SetOut(&out)
 		cmd.SetErr(&errOut)
-		if code := runRecallIndex(cmd, nil, env.deps, false); code != exitPass {
+		if code := runRecallIndex(cmd, nil, env.deps, false, false); code != exitPass {
 			t.Fatalf("update run exit = %d, want exitPass; stderr = %q", code, errOut.String())
 		}
 		removeAt := callIndex(env.calls, "remove:old-f1")
@@ -429,7 +429,7 @@ func TestRecallCleanReplace(t *testing.T) {
 		var out, errOut bytes.Buffer
 		cmd.SetOut(&out)
 		cmd.SetErr(&errOut)
-		if code := runRecallIndex(cmd, nil, env.deps, false); code != exitPass {
+		if code := runRecallIndex(cmd, nil, env.deps, false, false); code != exitPass {
 			t.Fatalf("delete run exit = %d, want exitPass; stderr = %q", code, errOut.String())
 		}
 		if callIndex(env.calls, "remove:old-f2") == -1 {
@@ -437,6 +437,74 @@ func TestRecallCleanReplace(t *testing.T) {
 		}
 		if _, ok := env.state.Chats["c2"]; ok {
 			t.Errorf("a deleted chat's state entry must be dropped")
+		}
+	})
+}
+
+// TestRecallSingleOperatorGuard locks WR-05: recall pools EVERY human user's chats
+// into one shared collection, so on a box with more than one human user the index
+// run REFUSES (fail-closed) until the operator passes --i-understand-shared-recall.
+// A single human user proceeds; the service account never counts toward the human
+// total (D-09).
+func TestRecallSingleOperatorGuard(t *testing.T) {
+	twoHumans := func(env *fakeRecallEnv) {
+		env.deps.listUsers = func(context.Context, string, string) ([]owuiUser, error) {
+			env.calls = append(env.calls, "listUsers")
+			return []owuiUser{
+				{ID: "u1", Email: "operator@local.test", Role: "admin"},
+				{ID: "u2", Email: "guest@local.test", Role: "user"},
+				{ID: "u-svc", Email: recallServiceAccountEmail, Role: "admin"},
+			}, nil
+		}
+	}
+
+	t.Run("more than one human user refuses without the ack flag and pools no chats", func(t *testing.T) {
+		env := newFakeRecallEnv()
+		twoHumans(env)
+		cmd := newRecallCmd()
+		var out, errOut bytes.Buffer
+		cmd.SetOut(&out)
+		cmd.SetErr(&errOut)
+		if code := runRecallIndex(cmd, nil, env.deps, false, false); code != exitBlocked {
+			t.Fatalf("multi-human index exit = %d, want exitBlocked (%d)", code, exitBlocked)
+		}
+		if !strings.Contains(errOut.String(), "--i-understand-shared-recall") {
+			t.Errorf("the refusal must name the override flag (remediation); stderr = %q", errOut.String())
+		}
+		if hasCallPrefix(env.calls, "listChats:") {
+			t.Errorf("no user's chats may be listed once the guard refuses; calls = %v", env.calls)
+		}
+		if hasCallPrefix(env.calls, "upload:") || callIndex(env.calls, "attach") != -1 {
+			t.Errorf("nothing may be uploaded or attached after the guard refuses; calls = %v", env.calls)
+		}
+	})
+
+	t.Run("more than one human user proceeds with the ack flag", func(t *testing.T) {
+		env := newFakeRecallEnv()
+		twoHumans(env)
+		cmd := newRecallCmd()
+		var out, errOut bytes.Buffer
+		cmd.SetOut(&out)
+		cmd.SetErr(&errOut)
+		if code := runRecallIndex(cmd, nil, env.deps, false, true); code != exitPass {
+			t.Fatalf("multi-human index WITH ack exit = %d, want exitPass (%d); stderr = %q", code, exitPass, errOut.String())
+		}
+		if callIndex(env.calls, "listChats:u1") == -1 || callIndex(env.calls, "listChats:u2") == -1 {
+			t.Errorf("with the ack flag both humans' chats must be listed; calls = %v", env.calls)
+		}
+		if callIndex(env.calls, "listChats:u-svc") != -1 {
+			t.Errorf("the service account must still be excluded even with the ack; calls = %v", env.calls)
+		}
+	})
+
+	t.Run("single human user needs no ack flag", func(t *testing.T) {
+		env := newFakeRecallEnv() // default rig: one human + the service account
+		cmd := newRecallCmd()
+		var out, errOut bytes.Buffer
+		cmd.SetOut(&out)
+		cmd.SetErr(&errOut)
+		if code := runRecallIndex(cmd, nil, env.deps, false, false); code != exitPass {
+			t.Fatalf("single-human index exit = %d, want exitPass (%d); stderr = %q", code, exitPass, errOut.String())
 		}
 	})
 }
@@ -472,7 +540,7 @@ func TestRecallCleanReplaceFailureClearsState(t *testing.T) {
 	var out, errOut bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&errOut)
-	if code := runRecallIndex(cmd, nil, env.deps, false); code != exitBlocked {
+	if code := runRecallIndex(cmd, nil, env.deps, false, false); code != exitBlocked {
 		t.Fatalf("remove-then-fail exit = %d, want exitBlocked (%d)", code, exitBlocked)
 	}
 	if callIndex(env.calls, "remove:old-f1") == -1 {
@@ -537,7 +605,7 @@ func TestRecallIncompletePassNotStamped(t *testing.T) {
 	var out, errOut bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&errOut)
-	if code := runRecallIndex(cmd, nil, env.deps, false); code != exitPass {
+	if code := runRecallIndex(cmd, nil, env.deps, false, false); code != exitPass {
 		t.Fatalf("a fully-reconciled pass (1 upload + 1 skip over 2 Adds) must pass and stamp; exit = %d, stderr = %q", code, errOut.String())
 	}
 	if env.state.LastIndexCompletedAt == "" {
@@ -725,6 +793,23 @@ func TestRecallStatus(t *testing.T) {
 		}
 	})
 
+	t.Run("a real state-read I/O error blocks (WR-06), never a soft warn", func(t *testing.T) {
+		env := newFakeRecallEnv()
+		env.deps.readState = func() (recall.State, error) {
+			return recall.State{}, errors.New("permission denied")
+		}
+		cmd := newRecallCmd()
+		var out, errOut bytes.Buffer
+		cmd.SetOut(&out)
+		cmd.SetErr(&errOut)
+		if code := runRecallStatus(cmd, nil, env.deps); code != exitBlocked {
+			t.Errorf("a real state-read error must block (exitBlocked %d), matching the index path; got %d", exitBlocked, code)
+		}
+		if !strings.Contains(errOut.String(), "recall-state.json") {
+			t.Errorf("the refusal must name the state file; stderr = %q", errOut.String())
+		}
+	})
+
 	t.Run("current and attached reports counts at exitPass", func(t *testing.T) {
 		env := newFakeRecallEnv()
 		env.state = completeState()
@@ -770,7 +855,7 @@ func TestRecallRebuild(t *testing.T) {
 	var out, errOut bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&errOut)
-	if code := runRecallIndex(cmd, nil, env.deps, true); code != exitPass {
+	if code := runRecallIndex(cmd, nil, env.deps, true, false); code != exitPass {
 		t.Fatalf("rebuild exit = %d, want exitPass; stderr = %q", code, errOut.String())
 	}
 	resetAt := callIndex(env.calls, "reset:kb1")
