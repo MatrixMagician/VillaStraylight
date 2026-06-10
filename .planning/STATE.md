@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: Memory & Knowledge
-status: planning
+status: executing
 stopped_at: Phase 22 context gathered
-last_updated: "2026-06-10T15:15:36.418Z"
+last_updated: "2026-06-10T16:05:20.988Z"
 last_activity: "2026-06-10 — Phase 21 complete (recall indexer: SC#1-3 PASS on-hardware, security 18/18, code review fixed)"
 progress:
   total_phases: 6
@@ -27,7 +27,7 @@ See: .planning/PROJECT.md (updated 2026-06-10 after Phase 21)
 
 Phase: 22 (control-plane-fit-+-host-gate)
 Plan: Not started
-Status: Ready to plan
+Status: Ready to execute
 Last activity: 2026-06-10 — Phase 21 complete (recall indexer: SC#1-3 PASS on-hardware, security 18/18, code review fixed)
 
 ## v1.3 Build Order (research-converged — preserve)
