@@ -1,16 +1,16 @@
-# Graph Report - VillaStraylight  (2026-06-09)
+# Graph Report - VillaStraylight  (2026-06-11)
 
 ## Corpus Check
-- 219 files · ~1,254,929 words
+- 340 files · ~1,849,344 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 5124 nodes · 12974 edges · 347 communities (328 shown, 19 thin omitted)
-- Extraction: 90% EXTRACTED · 10% INFERRED · 0% AMBIGUOUS · INFERRED: 1270 edges (avg confidence: 0.8)
+- 7098 nodes · 16379 edges · 510 communities (485 shown, 25 thin omitted)
+- Extraction: 90% EXTRACTED · 10% INFERRED · 0% AMBIGUOUS · INFERRED: 1592 edges (avg confidence: 0.8)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `8a05f49c`
+- Built from commit: `1fd334e1`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -359,26 +359,189 @@
 - [[_COMMUNITY_Community 343|Community 343]]
 - [[_COMMUNITY_Community 344|Community 344]]
 - [[_COMMUNITY_Community 345|Community 345]]
+- [[_COMMUNITY_Community 347|Community 347]]
+- [[_COMMUNITY_Community 348|Community 348]]
+- [[_COMMUNITY_Community 349|Community 349]]
+- [[_COMMUNITY_Community 350|Community 350]]
+- [[_COMMUNITY_Community 351|Community 351]]
+- [[_COMMUNITY_Community 352|Community 352]]
+- [[_COMMUNITY_Community 353|Community 353]]
+- [[_COMMUNITY_Community 354|Community 354]]
+- [[_COMMUNITY_Community 355|Community 355]]
+- [[_COMMUNITY_Community 356|Community 356]]
+- [[_COMMUNITY_Community 357|Community 357]]
+- [[_COMMUNITY_Community 358|Community 358]]
+- [[_COMMUNITY_Community 359|Community 359]]
+- [[_COMMUNITY_Community 360|Community 360]]
+- [[_COMMUNITY_Community 361|Community 361]]
+- [[_COMMUNITY_Community 362|Community 362]]
+- [[_COMMUNITY_Community 363|Community 363]]
+- [[_COMMUNITY_Community 364|Community 364]]
+- [[_COMMUNITY_Community 365|Community 365]]
+- [[_COMMUNITY_Community 366|Community 366]]
+- [[_COMMUNITY_Community 367|Community 367]]
+- [[_COMMUNITY_Community 368|Community 368]]
+- [[_COMMUNITY_Community 369|Community 369]]
+- [[_COMMUNITY_Community 370|Community 370]]
+- [[_COMMUNITY_Community 371|Community 371]]
+- [[_COMMUNITY_Community 372|Community 372]]
+- [[_COMMUNITY_Community 373|Community 373]]
+- [[_COMMUNITY_Community 374|Community 374]]
+- [[_COMMUNITY_Community 375|Community 375]]
+- [[_COMMUNITY_Community 376|Community 376]]
+- [[_COMMUNITY_Community 377|Community 377]]
+- [[_COMMUNITY_Community 378|Community 378]]
+- [[_COMMUNITY_Community 379|Community 379]]
+- [[_COMMUNITY_Community 380|Community 380]]
+- [[_COMMUNITY_Community 381|Community 381]]
+- [[_COMMUNITY_Community 382|Community 382]]
+- [[_COMMUNITY_Community 383|Community 383]]
+- [[_COMMUNITY_Community 384|Community 384]]
+- [[_COMMUNITY_Community 385|Community 385]]
+- [[_COMMUNITY_Community 386|Community 386]]
+- [[_COMMUNITY_Community 387|Community 387]]
+- [[_COMMUNITY_Community 388|Community 388]]
+- [[_COMMUNITY_Community 389|Community 389]]
+- [[_COMMUNITY_Community 390|Community 390]]
+- [[_COMMUNITY_Community 391|Community 391]]
+- [[_COMMUNITY_Community 392|Community 392]]
+- [[_COMMUNITY_Community 393|Community 393]]
+- [[_COMMUNITY_Community 394|Community 394]]
+- [[_COMMUNITY_Community 395|Community 395]]
+- [[_COMMUNITY_Community 396|Community 396]]
+- [[_COMMUNITY_Community 397|Community 397]]
+- [[_COMMUNITY_Community 398|Community 398]]
+- [[_COMMUNITY_Community 399|Community 399]]
+- [[_COMMUNITY_Community 400|Community 400]]
+- [[_COMMUNITY_Community 401|Community 401]]
+- [[_COMMUNITY_Community 402|Community 402]]
+- [[_COMMUNITY_Community 403|Community 403]]
+- [[_COMMUNITY_Community 404|Community 404]]
+- [[_COMMUNITY_Community 405|Community 405]]
+- [[_COMMUNITY_Community 406|Community 406]]
+- [[_COMMUNITY_Community 407|Community 407]]
+- [[_COMMUNITY_Community 408|Community 408]]
+- [[_COMMUNITY_Community 409|Community 409]]
+- [[_COMMUNITY_Community 410|Community 410]]
+- [[_COMMUNITY_Community 411|Community 411]]
+- [[_COMMUNITY_Community 412|Community 412]]
+- [[_COMMUNITY_Community 413|Community 413]]
+- [[_COMMUNITY_Community 414|Community 414]]
+- [[_COMMUNITY_Community 415|Community 415]]
+- [[_COMMUNITY_Community 416|Community 416]]
+- [[_COMMUNITY_Community 417|Community 417]]
+- [[_COMMUNITY_Community 418|Community 418]]
+- [[_COMMUNITY_Community 419|Community 419]]
+- [[_COMMUNITY_Community 420|Community 420]]
+- [[_COMMUNITY_Community 421|Community 421]]
+- [[_COMMUNITY_Community 422|Community 422]]
+- [[_COMMUNITY_Community 423|Community 423]]
+- [[_COMMUNITY_Community 424|Community 424]]
+- [[_COMMUNITY_Community 425|Community 425]]
+- [[_COMMUNITY_Community 426|Community 426]]
+- [[_COMMUNITY_Community 427|Community 427]]
+- [[_COMMUNITY_Community 428|Community 428]]
+- [[_COMMUNITY_Community 429|Community 429]]
+- [[_COMMUNITY_Community 430|Community 430]]
+- [[_COMMUNITY_Community 431|Community 431]]
+- [[_COMMUNITY_Community 432|Community 432]]
+- [[_COMMUNITY_Community 433|Community 433]]
+- [[_COMMUNITY_Community 434|Community 434]]
+- [[_COMMUNITY_Community 435|Community 435]]
+- [[_COMMUNITY_Community 436|Community 436]]
+- [[_COMMUNITY_Community 437|Community 437]]
+- [[_COMMUNITY_Community 438|Community 438]]
+- [[_COMMUNITY_Community 439|Community 439]]
+- [[_COMMUNITY_Community 440|Community 440]]
+- [[_COMMUNITY_Community 441|Community 441]]
+- [[_COMMUNITY_Community 442|Community 442]]
+- [[_COMMUNITY_Community 443|Community 443]]
+- [[_COMMUNITY_Community 444|Community 444]]
+- [[_COMMUNITY_Community 445|Community 445]]
+- [[_COMMUNITY_Community 446|Community 446]]
+- [[_COMMUNITY_Community 447|Community 447]]
+- [[_COMMUNITY_Community 448|Community 448]]
+- [[_COMMUNITY_Community 449|Community 449]]
+- [[_COMMUNITY_Community 450|Community 450]]
+- [[_COMMUNITY_Community 451|Community 451]]
+- [[_COMMUNITY_Community 452|Community 452]]
+- [[_COMMUNITY_Community 453|Community 453]]
+- [[_COMMUNITY_Community 454|Community 454]]
+- [[_COMMUNITY_Community 455|Community 455]]
+- [[_COMMUNITY_Community 456|Community 456]]
+- [[_COMMUNITY_Community 457|Community 457]]
+- [[_COMMUNITY_Community 458|Community 458]]
+- [[_COMMUNITY_Community 459|Community 459]]
+- [[_COMMUNITY_Community 460|Community 460]]
+- [[_COMMUNITY_Community 461|Community 461]]
+- [[_COMMUNITY_Community 462|Community 462]]
+- [[_COMMUNITY_Community 463|Community 463]]
+- [[_COMMUNITY_Community 464|Community 464]]
+- [[_COMMUNITY_Community 465|Community 465]]
+- [[_COMMUNITY_Community 466|Community 466]]
+- [[_COMMUNITY_Community 467|Community 467]]
+- [[_COMMUNITY_Community 468|Community 468]]
+- [[_COMMUNITY_Community 469|Community 469]]
+- [[_COMMUNITY_Community 470|Community 470]]
+- [[_COMMUNITY_Community 471|Community 471]]
+- [[_COMMUNITY_Community 472|Community 472]]
+- [[_COMMUNITY_Community 473|Community 473]]
+- [[_COMMUNITY_Community 474|Community 474]]
+- [[_COMMUNITY_Community 475|Community 475]]
+- [[_COMMUNITY_Community 476|Community 476]]
+- [[_COMMUNITY_Community 477|Community 477]]
+- [[_COMMUNITY_Community 478|Community 478]]
+- [[_COMMUNITY_Community 479|Community 479]]
+- [[_COMMUNITY_Community 480|Community 480]]
+- [[_COMMUNITY_Community 481|Community 481]]
+- [[_COMMUNITY_Community 482|Community 482]]
+- [[_COMMUNITY_Community 483|Community 483]]
+- [[_COMMUNITY_Community 484|Community 484]]
+- [[_COMMUNITY_Community 485|Community 485]]
+- [[_COMMUNITY_Community 486|Community 486]]
+- [[_COMMUNITY_Community 487|Community 487]]
+- [[_COMMUNITY_Community 488|Community 488]]
+- [[_COMMUNITY_Community 489|Community 489]]
+- [[_COMMUNITY_Community 490|Community 490]]
+- [[_COMMUNITY_Community 491|Community 491]]
+- [[_COMMUNITY_Community 492|Community 492]]
+- [[_COMMUNITY_Community 493|Community 493]]
+- [[_COMMUNITY_Community 494|Community 494]]
+- [[_COMMUNITY_Community 495|Community 495]]
+- [[_COMMUNITY_Community 496|Community 496]]
+- [[_COMMUNITY_Community 497|Community 497]]
+- [[_COMMUNITY_Community 498|Community 498]]
+- [[_COMMUNITY_Community 499|Community 499]]
+- [[_COMMUNITY_Community 500|Community 500]]
+- [[_COMMUNITY_Community 501|Community 501]]
+- [[_COMMUNITY_Community 502|Community 502]]
+- [[_COMMUNITY_Community 503|Community 503]]
+- [[_COMMUNITY_Community 504|Community 504]]
+- [[_COMMUNITY_Community 505|Community 505]]
+- [[_COMMUNITY_Community 506|Community 506]]
+- [[_COMMUNITY_Community 507|Community 507]]
+- [[_COMMUNITY_Community 508|Community 508]]
+- [[_COMMUNITY_Community 509|Community 509]]
 
 ## God Nodes (most connected - your core abstractions)
-1. `Communities (323 total, 20 thin omitted)` - 302 edges
-2. `Communities (320 total, 21 thin omitted)` - 298 edges
-3. `Communities (317 total, 20 thin omitted)` - 296 edges
-4. `Communities (315 total, 20 thin omitted)` - 294 edges
-5. `Communities (302 total, 20 thin omitted)` - 281 edges
-6. `Communities (299 total, 20 thin omitted)` - 278 edges
-7. `Communities (297 total, 19 thin omitted)` - 277 edges
-8. `Communities (298 total, 21 thin omitted)` - 276 edges
-9. `Communities (179 total, 8 thin omitted)` - 171 edges
-10. `Communities (175 total, 8 thin omitted)` - 167 edges
+1. `Communities (510 total, 25 thin omitted)` - 483 edges
+2. `Communities (347 total, 19 thin omitted)` - 326 edges
+3. `Communities (323 total, 20 thin omitted)` - 302 edges
+4. `Communities (320 total, 21 thin omitted)` - 298 edges
+5. `Communities (317 total, 20 thin omitted)` - 296 edges
+6. `Communities (315 total, 20 thin omitted)` - 294 edges
+7. `Communities (302 total, 20 thin omitted)` - 281 edges
+8. `Communities (299 total, 20 thin omitted)` - 278 edges
+9. `Communities (297 total, 19 thin omitted)` - 277 edges
+10. `Communities (298 total, 21 thin omitted)` - 276 edges
 
 ## Surprising Connections (you probably didn't know these)
 - `liveModelID()` --calls--> `LoadVilla()`  [INFERRED]
   cmd/villa/dashboard.go → internal/config/villaconfig.go
+- `liveLoadedMemoryEnabled()` --calls--> `LoadVilla()`  [INFERRED]
+  cmd/villa/install_memory.go → internal/config/villaconfig.go
 - `liveProve()` --calls--> `LoadVilla()`  [INFERRED]
   cmd/villa/backend.go → internal/config/villaconfig.go
-- `liveProve()` --calls--> `GPUBusyPercent()`  [INFERRED]
-  cmd/villa/backend.go → internal/detect/gpu_amd.go
 - `liveProve()` --calls--> `gttUsedBytes()`  [INFERRED]
   cmd/villa/backend.go → internal/detect/memory.go
 - `liveProve()` --calls--> `UnknownInt()`  [INFERRED]
@@ -387,11 +550,11 @@
 ## Import Cycles
 - None detected.
 
-## Communities (347 total, 19 thin omitted)
+## Communities (510 total, 25 thin omitted)
 
 ### Community 0 - "Community 0"
-Cohesion: 0.06
-Nodes (64): Bool, CatalogModel, Command, Context, Verdict, Writer, T, Verdict (+56 more)
+Cohesion: 0.24
+Nodes (16): Bool, CatalogModel, Command, Context, Verdict, Writer, boolSignal(), newInference() (+8 more)
 
 ### Community 1 - "Community 1"
 Cohesion: 0.17
@@ -422,32 +585,32 @@ Cohesion: 0.19
 Nodes (24): T, CounterSample, ActiveSlots(), counterFromMap(), IsGenerating(), parsePromText(), parseSlots(), ScrapeCounters() (+16 more)
 
 ### Community 8 - "Community 8"
-Cohesion: 0.09
-Nodes (50): Bytes, PropsInfo, RenderInput, ROCmReadiness, Status, Unit, UsageTotals, Verdict (+42 more)
+Cohesion: 0.07
+Nodes (69): State, T, Bytes, PropsInfo, RenderInput, ROCmReadiness, State, Status (+61 more)
 
 ### Community 9 - "Community 9"
 Cohesion: 0.11
 Nodes (18): Canonical References, Claude's Discretion, Deferred Ideas, Established Patterns (Phase 1 conventions to inherit), Existing Code Insights, Implementation Decisions, Integration Points, Model Acquisition & Verification (MODEL-02) (+10 more)
 
 ### Community 10 - "Community 10"
-Cohesion: 0.09
-Nodes (54): getMetrics(), jsonSwitchReq(), stubStatusDeps(), stubSwapDeps(), TestHandleHealthz(), TestHandleMetricsShapeUnchanged(), TestHandleModelsEmptyCatalog(), TestHandleModelsListsCatalogWithFit() (+46 more)
+Cohesion: 0.08
+Nodes (56): getMetrics(), jsonSwitchReq(), stubMemoryStatusDeps(), stubStatusDeps(), stubSwapDeps(), TestHandleHealthz(), TestHandleMetricsShapeUnchanged(), TestHandleModelsEmptyCatalog() (+48 more)
 
 ### Community 11 - "Community 11"
 Cohesion: 0.14
 Nodes (17): ChatRequest, ChatRequest, Client, Context, Message, Reader, StreamFunc, completeRequest (+9 more)
 
 ### Community 12 - "Community 12"
-Cohesion: 0.09
-Nodes (51): Alternative, HostProfile, T, CatalogModel, T, Alternative, Catalog, CatalogModel (+43 more)
+Cohesion: 0.07
+Nodes (65): Alternative, Bytes, T, HostProfile, T, CatalogModel, T, Alternative (+57 more)
 
 ### Community 13 - "Community 13"
-Cohesion: 0.29
-Nodes (11): M, T, M, podmanDeps, fixture(), okPodman(), TestCheckPodmanRootless(), TestCheckPodmanRootlessScanErrorWarns() (+3 more)
+Cohesion: 0.19
+Nodes (17): CheckResult, M, T, M, podmanDeps, checkPodmanRootless(), firstLine(), livePodmanDeps() (+9 more)
 
 ### Community 14 - "Community 14"
 Cohesion: 0.12
-Nodes (15): Active, Between Milestones, Constraints, Context, Core Value, Current Milestone: v1.2 Operability, Current Milestone: v1.3 Memory & Knowledge (local RAG), Current State (+7 more)
+Nodes (16): Active, Between Milestones, Constraints, Context, Core Value, Current Milestone: v1.2 Operability, Current Milestone: v1.3 Memory & Knowledge (local RAG), Current State (+8 more)
 
 ### Community 15 - "Community 15"
 Cohesion: 0.13
@@ -546,8 +709,8 @@ Cohesion: 0.67
 Nodes (3): Applicable ASVS Categories, Known Threat Patterns for Go CLI + sysfs/exec, Security Domain
 
 ### Community 39 - "Community 39"
-Cohesion: 0.10
-Nodes (54): capRaw(), compareVersionSegments(), driNodes(), firmwareDatePolicyOK(), firmwareDateProbe(), firstRealGPUBlock(), igpuGfxID(), isGfxTargetID() (+46 more)
+Cohesion: 0.16
+Nodes (36): capRaw(), compareVersionSegments(), firmwareDatePolicyOK(), firmwareDateProbe(), firstRealGPUBlock(), igpuGfxID(), isGfxTargetID(), isSoftwareRendererName() (+28 more)
 
 ### Community 40 - "Community 40"
 Cohesion: 0.11
@@ -567,7 +730,7 @@ Nodes (16): Accomplishments, Auto-fixed Issues, Decisions Made, Dependency graph
 
 ### Community 44 - "Community 44"
 Cohesion: 0.20
-Nodes (36): archiveEntry, baseManifest(), recDeps, Restore(), baseInput(), buildArchive(), hasMutate(), indexOf() (+28 more)
+Nodes (43): archiveEntry, baseManifest(), marshalManifest(), baseInput(), buildArchive(), buildArchiveMem(), hasMutate(), indexAfter() (+35 more)
 
 ### Community 45 - "Community 45"
 Cohesion: 0.20
@@ -690,20 +853,20 @@ Cohesion: 0.12
 Nodes (37): ABResult, abResult(), benchN(), other(), Run(), statsOf(), approx(), countOp() (+29 more)
 
 ### Community 76 - "Community 76"
-Cohesion: 0.09
-Nodes (332): Communities (131 total, 7 thin omitted), Communities (141 total, 7 thin omitted), Communities (143 total, 8 thin omitted), Communities (157 total, 8 thin omitted), Communities (158 total, 7 thin omitted), Communities (161 total, 9 thin omitted), Communities (165 total, 9 thin omitted), Communities (167 total, 9 thin omitted) (+324 more)
+Cohesion: 0.07
+Nodes (200): Communities (297 total, 19 thin omitted), Communities (298 total, 21 thin omitted), Communities (299 total, 20 thin omitted), Communities (302 total, 20 thin omitted), Communities (315 total, 20 thin omitted), Communities (317 total, 20 thin omitted), Communities (320 total, 21 thin omitted), Communities (323 total, 20 thin omitted) (+192 more)
 
 ### Community 77 - "Community 77"
 Cohesion: 0.05
 Nodes (36): Architectural Constraints, Build, run & test, Code Style, Commands, Comments, Component Responsibilities, Configuration, Container Images Standardized On (+28 more)
 
 ### Community 78 - "Community 78"
-Cohesion: 0.14
-Nodes (13): backend, context_len, degraded, fits, headroom_bytes, kv_cache_bytes, model, notes (+5 more)
+Cohesion: 0.12
+Nodes (15): backend, context_len, degraded, embedding_reservation_bytes, fits, headroom_bytes, kv_cache_bytes, memory_considered (+7 more)
 
 ### Community 79 - "Community 79"
-Cohesion: 0.22
-Nodes (38): Buffer, CheckResult, Command, Plan, T, Unit, runInstall(), installTestCmd() (+30 more)
+Cohesion: 0.15
+Nodes (56): T, Buffer, CheckResult, Command, Plan, T, Unit, DefaultVillaConfig() (+48 more)
 
 ### Community 80 - "Community 80"
 Cohesion: 0.18
@@ -774,8 +937,8 @@ Cohesion: 0.67
 Nodes (3): Applicable ASVS Categories, Known Threat Patterns for {Go control plane + rootless Podman + HF download}, Security Domain
 
 ### Community 97 - "Community 97"
-Cohesion: 0.10
-Nodes (26): Command, lifecycleDeps, Plan, RenderInput, Unit, Writer, Command, lifecycleDeps (+18 more)
+Cohesion: 0.09
+Nodes (30): Command, lifecycleDeps, Plan, RenderInput, Unit, VillaConfig, Writer, Command (+22 more)
 
 ### Community 98 - "Community 98"
 Cohesion: 0.11
@@ -811,7 +974,7 @@ Nodes (5): Component Responsibilities, Component Responsibilities (v1.2 addition
 
 ### Community 106 - "Community 106"
 Cohesion: 0.29
-Nodes (9): HostProfile, CheckResult, defaultDataDir(), envelopeOrZero(), fail(), pass(), Run(), Status (+1 more)
+Nodes (11): CheckResult, HostProfile, CheckResult, checkFirmwareFloor(), checkKernelFloor(), checkVulkanIGPU(), fail(), pass() (+3 more)
 
 ### Community 107 - "Community 107"
 Cohesion: 0.14
@@ -822,12 +985,12 @@ Cohesion: 0.17
 Nodes (11): Anti-Patterns Found, Behavioral Spot-Checks, Deferred / Tracked Follow-Ups (informational — not gaps), Gaps Summary, Goal Achievement, Human Verification Required, Key Link Verification, Observable Truths (ROADMAP Success Criteria) (+3 more)
 
 ### Community 109 - "Community 109"
-Cohesion: 0.17
+Cohesion: 0.19
 Nodes (21): Bool, rocmImagePolicyOK(), TestHostProfileJSONRoundTrips(), TestProbeNeverPanics(), computeROCmReadiness(), firmwareDateOK(), hsaOverrideViable(), kernelFloorOK() (+13 more)
 
 ### Community 110 - "Community 110"
-Cohesion: 0.08
-Nodes (55): Deps, Aggregate(), findingFromCheck(), healthFinding(), nonEmpty(), offloadFinding(), statusRank(), supersededROCmHostPrepID() (+47 more)
+Cohesion: 0.07
+Nodes (62): ProveVerdict, Deps, Aggregate(), findingFromCheck(), healthFinding(), nonEmpty(), offloadFinding(), residencyUnderLoadFinding() (+54 more)
 
 ### Community 111 - "Community 111"
 Cohesion: 0.18
@@ -898,8 +1061,8 @@ Cohesion: 0.09
 Nodes (21): Atomic write-temp-then-rename, Backend-seam grep-gate (the cross-cutting invariant), Bounded untrusted-output capture (8 KiB), `cmd/villa/install.go` (controller, request-response), `cmd/villa/model.go` (extend: `list`, `swap`) + `up`/`down`/`restart`/`logs`/`config`/`uninstall`, `cmd/villa/root.go` (extend) + `internal/config/villaconfig.go` (extend), `cmd/villa/status.go` (controller, request-response), File Classification (+13 more)
 
 ### Community 132 - "Community 132"
-Cohesion: 0.11
-Nodes (45): envPair, RunSpec, T, T, Unit, RenderInput, Template, Unit (+37 more)
+Cohesion: 0.06
+Nodes (79): envPair, VillaConfig, T, VillaConfig, RenderInput, T, RunSpec, T (+71 more)
 
 ### Community 133 - "Community 133"
 Cohesion: 0.25
@@ -938,8 +1101,8 @@ Cohesion: 0.50
 Nodes (4): External Services, External Services / Tools, Integration Points, Internal Boundaries
 
 ### Community 142 - "Community 142"
-Cohesion: 0.12
-Nodes (33): Bytes, CheckResult, Command, Context, HostProfile, Plan, Recommendation, RenderInput (+25 more)
+Cohesion: 0.10
+Nodes (37): Bytes, CheckResult, Command, Context, HostProfile, memoryProof, memoryProofInput, Plan (+29 more)
 
 ### Community 143 - "Community 143"
 Cohesion: 0.18
@@ -951,15 +1114,15 @@ Nodes (36): CeilingResult, ChatResult, KnownBytes(), firstNonEmptyStr(), foldVer
 
 ### Community 145 - "Community 145"
 Cohesion: 0.14
-Nodes (27): UsageTotals, Time, T, CounterState, Deps, ModelUsage, Sample, assertInsideDir() (+19 more)
+Nodes (26): UsageTotals, Time, T, CounterState, Deps, ModelUsage, Sample, assertInsideDir() (+18 more)
 
 ### Community 146 - "Community 146"
 Cohesion: 0.14
 Nodes (33): cpuInfo(), errString(), Probe(), amdSysfsCardDirs(), biosVRAMBytes(), gttTotalBytes(), gttUsedBytes(), kernelVersion() (+25 more)
 
 ### Community 147 - "Community 147"
-Cohesion: 0.24
-Nodes (10): CheckResult, T, ResourceReq, checkSELinuxContainerDevices(), liveSELinuxDeps(), TestSELinuxCheckWiredIntoRunWithResources(), TestSELinuxContainerDevices(), RunWithResources() (+2 more)
+Cohesion: 0.18
+Nodes (14): CheckResult, T, HostProfile, ResourceReq, defaultDataDir(), checkSELinuxContainerDevices(), liveSELinuxDeps(), TestSELinuxCheckWiredIntoRunWithResources() (+6 more)
 
 ### Community 148 - "Community 148"
 Cohesion: 0.35
@@ -971,7 +1134,7 @@ Nodes (9): Auto-fixed Issues, Deviations from Plan, Notes for next plans, Phase 
 
 ### Community 150 - "Community 150"
 Cohesion: 0.14
-Nodes (27): clearSwitchIfLoaded(), doSwitch(), ensureCumulativeBox(), fmtBytes(), getJSON(), groupThousands(), healthClass(), healthLabel() (+19 more)
+Nodes (29): clearSwitchIfLoaded(), doSwitch(), ensureCumulativeBox(), fmtBytes(), getJSON(), groupThousands(), healthClass(), healthLabel() (+21 more)
 
 ### Community 151 - "Community 151"
 Cohesion: 0.17
@@ -990,8 +1153,8 @@ Cohesion: 0.09
 Nodes (21): 7 Call Sites (MOD — callers, request-response), `BackendFor(name string) (Backend, error)` (NEW — resolver/factory, request-response), Combine discipline — DO NOT re-roll, Digest-pin provenance comment, File Classification, `internal/inference/backend_rocm.go` (NEW — backend impl, transform), `internal/inference/inference.go` (MOD — interface contract), `internal/inference/offload.go` (MOD — pure parser, transform) ⚠️ THE #1 TRAP (+13 more)
 
 ### Community 155 - "Community 155"
-Cohesion: 0.06
-Nodes (67): boundedWriter, Cmd, Bytes, Command, Deps, PropsInfo, RenderInput, Report (+59 more)
+Cohesion: 0.14
+Nodes (41): Command, Report, Writer, Buffer, Command, Context, Deps, Report (+33 more)
 
 ### Community 156 - "Community 156"
 Cohesion: 0.09
@@ -1010,16 +1173,16 @@ Cohesion: 0.18
 Nodes (10): Auto-fixed Issues, Deviations from Plan, Notes for next plans, Phase 03 Plan 03: lifecycle verbs (up/down/restart/logs/config) Summary, Requirements satisfied, Self-Check: PASSED, TDD gates, Threat surface (+2 more)
 
 ### Community 160 - "Community 160"
-Cohesion: 0.13
-Nodes (23): Bytes, GPUBusyPercent(), GPUBusyPercentForTest(), TestGPUBusyPercentForTestSeam(), TestGPUBusyPercentFromFixture(), TestGPUBusyPercentMissingYieldsUnknown(), TestGPUBusyPercentUnparseableYieldsUnknown(), TestGPUBusyPercentVendorDiscovery() (+15 more)
+Cohesion: 0.18
+Nodes (15): Bytes, Int, Str, KnownInt(), TestValueKnownBytes(), TestValueKnownConstructorsAllTypes(), TestValueUnknownBytes(), TestValueUnknownBytesJSONOmitsRaw() (+7 more)
 
 ### Community 161 - "Community 161"
 Cohesion: 0.18
 Nodes (10): Auto-fixed Issues, Deviations from Plan, Notes for next plans, Phase 03 Plan 04: offload-asserting `villa status` Summary, Requirements satisfied, Self-Check: PASSED, TDD gates, Threat surface (+2 more)
 
 ### Community 162 - "Community 162"
-Cohesion: 0.14
-Nodes (42): Command, Unit, Writer, Buffer, Command, T, Unit, uninstallDeps (+34 more)
+Cohesion: 0.13
+Nodes (43): Command, Unit, Writer, Buffer, Command, T, Unit, uninstallDeps (+35 more)
 
 ### Community 163 - "Community 163"
 Cohesion: 0.11
@@ -1038,20 +1201,20 @@ Cohesion: 0.30
 Nodes (21): assertVerbatimRestore(), indexOf(), newSwapStub(), passStub(), TestActiveNotSuccess(), TestCaptureBeforeMutate(), TestCaptureFailureRefuses(), TestMutateErrorRollsBack() (+13 more)
 
 ### Community 167 - "Community 167"
-Cohesion: 0.19
-Nodes (20): Catalog, CatalogModel, Command, Deps, VillaConfig, quadletUnitDir(), listDeps, listOpts (+12 more)
+Cohesion: 0.22
+Nodes (18): Catalog, CatalogModel, Command, Deps, VillaConfig, quadletUnitDir(), listDeps, listOpts (+10 more)
 
 ### Community 168 - "Community 168"
-Cohesion: 0.13
-Nodes (27): Deps, T, VillaConfig, Buffer, Command, Deps, T, VillaConfig (+19 more)
+Cohesion: 0.21
+Nodes (18): Buffer, Command, Deps, T, VillaConfig, swapDeps, runModelPull(), newSwapStub() (+10 more)
 
 ### Community 169 - "Community 169"
-Cohesion: 0.20
-Nodes (30): Buffer, Command, lifecycleDeps, Plan, T, Unit, Command, lifecycleDeps (+22 more)
+Cohesion: 0.22
+Nodes (28): Buffer, Command, lifecycleDeps, Plan, T, Unit, lifecycleDeps, lifecycleDeps (+20 more)
 
 ### Community 170 - "Community 170"
-Cohesion: 0.36
-Nodes (7): HostProfile, T, memProfile(), statfsReturning(), TestCheckResources(), TestLiveStatfsRealPath(), statfsFunc
+Cohesion: 0.22
+Nodes (18): statfsFunc, T, HostProfile, statfsFunc, T, MemoryGateInput, memGateInput(), TestCheckEmbedHeadroom() (+10 more)
 
 ### Community 171 - "Community 171"
 Cohesion: 0.11
@@ -1090,8 +1253,8 @@ Cohesion: 0.09
 Nodes (29): CeilingResult, ChatResult, fakeProbeRunner, chatProbe(), contextCeilingProbe(), lineAround(), matchCeilingOOM(), pollHealth() (+21 more)
 
 ### Community 180 - "Community 180"
-Cohesion: 0.38
-Nodes (12): Community Hubs (Navigation), Corpus Check, God Nodes (most connected - your core abstractions), Graph Freshness, Graph Report - VillaStraylight  (2026-06-03), Graph Report - VillaStraylight  (2026-06-04), Graph Report - VillaStraylight  (2026-06-07), Import Cycles (+4 more)
+Cohesion: 0.48
+Nodes (14): Community Hubs (Navigation), Corpus Check, God Nodes (most connected - your core abstractions), Graph Freshness, Graph Report - VillaStraylight  (2026-06-03), Graph Report - VillaStraylight  (2026-06-04), Graph Report - VillaStraylight  (2026-06-07), Graph Report - VillaStraylight  (2026-06-09) (+6 more)
 
 ### Community 181 - "Community 181"
 Cohesion: 0.11
@@ -1226,12 +1389,12 @@ Cohesion: 0.15
 Nodes (12): Overview, Phase 10: Backend + tok/s Surfacing, Phase 11: Address v1.1 tech debt: rocm_readiness detect probes + doc reconciliation, Phase 6: ROCm Backend + Resolver Spine, Phase 7: ROCm Render Unit + Preflight/Detect, Phase 8: `villa backend set` Switch Verb + Rollback, Phase 9: `villa bench` (Honest A/B), Phase Details (+4 more)
 
 ### Community 214 - "Community 214"
-Cohesion: 0.10
-Nodes (19): Cost Observations, Cost Observations, Cross-Milestone Trends, Cumulative Quality, Key Lessons, Key Lessons, Milestone: v1.1 — ROCm Opt-In Backend, Milestone: v1.2 — Operability (+11 more)
+Cohesion: 0.07
+Nodes (26): Cost Observations, Cost Observations, Cost Observations, Cross-Milestone Trends, Cumulative Quality, Key Lessons, Key Lessons, Key Lessons (+18 more)
 
 ### Community 215 - "Community 215"
 Cohesion: 0.15
-Nodes (13): known, source, value, known, source, value, rocm_readiness, image_policy_ok (+5 more)
+Nodes (13): known, source, value, known, source, value, rocm_readiness, firmware_date_ok (+5 more)
 
 ### Community 216 - "Community 216"
 Cohesion: 0.17
@@ -1258,16 +1421,16 @@ Cohesion: 0.11
 Nodes (17): 1. Check the host is ready, 1. Inspect the active backend, 2. Preview the switch without changing anything, 2. See what fits this machine, 3. Install and bring the stack up, 3. Switch to ROCm, 4. Compare the two backends honestly, 4. Open the dashboard and chat (+9 more)
 
 ### Community 222 - "Community 222"
-Cohesion: 0.35
-Nodes (11): Deps, T, VillaConfig, newSwapStub(), TestSwapAlreadyDownloadedSkipsPull(), TestSwapFitGuardFirst(), TestSwapNoOpSkipsRestart(), TestSwapPullFailureIsErrNotRefuse() (+3 more)
+Cohesion: 0.32
+Nodes (12): Deps, T, VillaConfig, newSwapStub(), TestSwapAlreadyDownloadedSkipsPull(), TestSwapDepsSurfaceRestartIsOnlyServiceMutator(), TestSwapFitGuardFirst(), TestSwapNoOpSkipsRestart() (+4 more)
 
 ### Community 223 - "Community 223"
 Cohesion: 0.18
 Nodes (10): IN-01: `rocmFirmwareDeny` is a package-level mutable `var`, IN-02: doc comment on `runTool` says "combined output" but returns stdout only, IN-03: firmware-date test coverage omits the non-YYYYMMDD UNSET path, Info, Phase 11: Code Review Report, Summary, Warnings, WR-01: detect firmware verdict diverges from preflight — floor enforced in one place, only denylist in the other (+2 more)
 
 ### Community 224 - "Community 224"
-Cohesion: 0.11
-Nodes (28): Command, Context, Deps, ProveVerdict, VillaConfig, ProveVerdict, BackendFor(), IsROCmFamily() (+20 more)
+Cohesion: 0.18
+Nodes (20): Command, Deps, Deps, T, VillaConfig, liveBackendSwapDeps(), newBackend(), newBackendSet() (+12 more)
 
 ### Community 225 - "Community 225"
 Cohesion: 0.20
@@ -1287,7 +1450,7 @@ Nodes (9): Claude's Discretion, Deferred Ideas, Doc-reconciliation scope & verif
 
 ### Community 229 - "Community 229"
 Cohesion: 0.12
-Nodes (25): Bytes, CatalogModel, Command, CounterSample, Deps, Int, ModelView, PerfSnapshot (+17 more)
+Nodes (24): Bytes, CatalogModel, Command, CounterSample, Deps, Int, ModelView, PerfSnapshot (+16 more)
 
 ### Community 230 - "Community 230"
 Cohesion: 0.49
@@ -1406,8 +1569,8 @@ Cohesion: 0.29
 Nodes (6): Architecture, Component diagram, Data flow, Directory structure rationale, Key abstractions, System overview
 
 ### Community 259 - "Community 259"
-Cohesion: 0.18
-Nodes (23): Marshal(), bufDeps(), deterministicReport(), fpBase(), TestAppendGrowsViaSeam(), TestBenchReportsPathXDG(), TestComparableMatrix(), TestCompareDelta() (+15 more)
+Cohesion: 0.10
+Nodes (41): benchReportsPath(), Comparable(), Compare(), Load(), Marshal(), measuredSide(), NewSavedReport(), bufDeps() (+33 more)
 
 ### Community 260 - "Community 260"
 Cohesion: 0.33
@@ -1434,8 +1597,8 @@ Cohesion: 0.40
 Nodes (5): Phase Requirements → Test Map, Sampling Rate, Test Framework, Validation Architecture, Wave 0 Gaps
 
 ### Community 266 - "Community 266"
-Cohesion: 0.22
-Nodes (21): CheckResult, Command, Writer, CheckResult, T, newPreflight(), printOverrideSummary(), renderPreflight() (+13 more)
+Cohesion: 0.19
+Nodes (25): CheckResult, Command, HostProfile, Writer, CheckResult, T, liveMemoryGateResults(), newPreflight() (+17 more)
 
 ### Community 267 - "Community 267"
 Cohesion: 0.50
@@ -1478,16 +1641,16 @@ Cohesion: 0.50
 Nodes (4): Primary (HIGH confidence — live codebase + this host), Secondary (MEDIUM confidence), Sources, Tertiary (LOW confidence)
 
 ### Community 277 - "Community 277"
-Cohesion: 0.20
-Nodes (19): Backup(), archiveNames(), baseBackupInput(), baseCurrent(), newFakeBackupDeps(), TestBackupAssemblesArchive(), TestBackupDeferredRestartFiresOnExportError(), TestBackupSkipsAbsentDataDirArtifacts() (+11 more)
+Cohesion: 0.21
+Nodes (26): Backup(), archiveNames(), baseBackupInput(), baseCurrent(), manifestFromArchive(), memoryBackupInput(), newFakeBackupDeps(), TestBackupAssemblesArchive() (+18 more)
 
 ### Community 278 - "Community 278"
 Cohesion: 0.15
 Nodes (12): Common Patterns, Coverage, Fixtures and Factories, Golden / Contract Tests, Grep-gate tests (architectural guards), Mocking / Test Doubles, Offload-Assert Regression Tests (v1.1), Test File Organization (+4 more)
 
 ### Community 279 - "Community 279"
-Cohesion: 0.17
-Nodes (19): Append(), benchReportsPath(), Comparable(), Compare(), Load(), measuredSide(), NewSavedReport(), CompareResult (+11 more)
+Cohesion: 0.01
+Nodes (159): Communities (510 total, 25 thin omitted), Community 347 - "Community 347", Community 348 - "Community 348", Community 349 - "Community 349", Community 350 - "Community 350", Community 351 - "Community 351", Community 352 - "Community 352", Community 353 - "Community 353" (+151 more)
 
 ### Community 282 - "Community 282"
 Cohesion: 0.67
@@ -1502,24 +1665,24 @@ Cohesion: 0.67
 Nodes (3): Core, Host tooling (runtime probe targets, not Go deps), Standard Stack
 
 ### Community 296 - "Community 296"
-Cohesion: 0.50
-Nodes (3): Milestones, v1.1 ROCm Opt-In Backend (Shipped: 2026-06-06), v1.2 Operability (Completed: 2026-06-08)
+Cohesion: 0.40
+Nodes (4): Milestones, v1.1 ROCm Opt-In Backend (Shipped: 2026-06-06), v1.2 Operability (Completed: 2026-06-08), v1.3 Memory & Knowledge (Shipped: 2026-06-11)
 
 ### Community 299 - "Community 299"
-Cohesion: 0.33
-Nodes (10): Buffer, Command, Server, T, dashboardDeps, dashboardTestCmd(), stubDashboardDeps(), TestRunDashboardCleanStart() (+2 more)
+Cohesion: 0.32
+Nodes (11): Buffer, Command, Server, T, dashboardDeps, runDashboard(), dashboardTestCmd(), stubDashboardDeps() (+3 more)
 
 ### Community 300 - "Community 300"
-Cohesion: 0.20
-Nodes (19): Command, Deps, Report, Writer, Report, T, liveDoctorDeps(), newDoctor() (+11 more)
+Cohesion: 0.25
+Nodes (19): Report, Writer, Report, T, renderDoctor(), renderDoctorTable(), driftReport(), healthyReport() (+11 more)
 
 ### Community 301 - "Community 301"
 Cohesion: 0.18
 Nodes (10): APIs & External Services, Authentication & Identity, CI/CD & Deployment, Container Control Plane (Podman), Data Storage, Environment Configuration, External Integrations, Host Probes (read-only hardware/OS integrations) (+2 more)
 
 ### Community 302 - "Community 302"
-Cohesion: 0.26
-Nodes (20): Buffer, Command, CurrentInstall, Deps, ProveVerdict, RestoreInput, T, ManifestInput (+12 more)
+Cohesion: 0.24
+Nodes (27): Command, Buffer, Command, CurrentInstall, Deps, ProveVerdict, RestoreInput, T (+19 more)
 
 ### Community 303 - "Community 303"
 Cohesion: 0.49
@@ -1542,32 +1705,32 @@ Cohesion: 0.25
 Nodes (7): Codebase Structure, Directory Layout, Directory Purposes, Key File Locations, Naming Conventions, Special Directories, Where to Add New Code
 
 ### Community 308 - "Community 308"
-Cohesion: 0.29
-Nodes (6): gpuView, healthzResponse, metricsView, ModelView, switchRequest, switchResponse
+Cohesion: 0.12
+Nodes (33): Bytes, PropsInfo, RenderInput, State, Status, Unit, Verdict, VillaConfig (+25 more)
 
 ### Community 309 - "Community 309"
 Cohesion: 0.33
 Nodes (6): Anti-Patterns, Editing a Quadlet unit as the source of truth, Re-implementing backend switching inside bench, Re-typing a backend literal in a caller, Silently defaulting an unknown backend string, Treating health-200 / is-active as success
 
 ### Community 310 - "Community 310"
-Cohesion: 0.18
-Nodes (17): SavedReportSchemaVersion(), Command, Deps, ExcludedModel, HostFingerprint, Time, VillaConfig, NewSystemd() (+9 more)
+Cohesion: 0.13
+Nodes (28): Command, Deps, ExcludedModel, HostFingerprint, Time, VillaConfig, Buffer, Command (+20 more)
 
 ### Community 311 - "Community 311"
-Cohesion: 0.28
-Nodes (17): hasFinding(), healthyStatusReport(), newDoctorDeps(), nonPassFindings(), rocmDoctorDeps(), TestConfidentROCmFAILStillDominatesResidency(), TestDownStackWarnsNotBlocks(), TestDriftReadErrorDegrades() (+9 more)
+Cohesion: 0.22
+Nodes (27): findingByID(), hasFinding(), healthyStatusReport(), memoryDoctorDeps(), memoryOnStatusReport(), newDoctorDeps(), nonPassFindings(), rocmDoctorDeps() (+19 more)
 
 ### Community 312 - "Community 312"
-Cohesion: 0.24
-Nodes (9): T, envPair, buildOpenWebUIView(), buildOpenWebUIVolumeView(), OpenWebUIImage(), OpenWebUIVolumeName(), TestOpenWebUIImageAccessor(), openWebUIView (+1 more)
+Cohesion: 0.21
+Nodes (10): T, MemoryRenderInput, envPair, buildOpenWebUIView(), buildOpenWebUIVolumeView(), OpenWebUIImage(), OpenWebUIVolumeName(), TestOpenWebUIImageAccessor() (+2 more)
 
 ### Community 313 - "Community 313"
 Cohesion: 0.24
 Nodes (16): T, quoteExecStart(), RenderDashboardUnit(), TestRenderDashboardUnit(), TestRenderDashboardUnitContents(), TestRenderDashboardUnitEscapesPercent(), TestRenderDashboardUnitEscapesQuotesInQuotedPath(), TestRenderDashboardUnitQuotesBackslashPath() (+8 more)
 
 ### Community 314 - "Community 314"
-Cohesion: 0.50
-Nodes (4): known, source, value, hsa_override_viable
+Cohesion: 0.22
+Nodes (28): Append(), ChatDoc, Command, State, T, VillaConfig, TranscriptFilename(), recallDeps (+20 more)
 
 ### Community 315 - "Community 315"
 Cohesion: 0.40
@@ -1586,8 +1749,8 @@ Cohesion: 0.67
 Nodes (3): Architecture, Streaming contract (important), Two SSE hops, two formats
 
 ### Community 320 - "Community 320"
-Cohesion: 0.24
-Nodes (15): archiveEntry, assertEntryInside(), assertInsideDir(), readArchive(), rawTar(), TestReadArchiveEntryCountCapRefuses(), TestTarRoundTrip(), TestTarSlipAllowsInDir() (+7 more)
+Cohesion: 0.22
+Nodes (16): archiveEntry, assertEntryInside(), assertInsideDir(), readArchive(), rawTar(), TestReadArchiveEntryCountCapRefuses(), TestTarRoundTrip(), TestTarSlipAllowsInDir() (+8 more)
 
 ### Community 321 - "Community 321"
 Cohesion: 0.13
@@ -1606,44 +1769,40 @@ Cohesion: 0.15
 Nodes (12): Decision on warning #3, Deviations from Plan, Exact contracted strings emitted (verbatim from 17-UI-SPEC.md), Goldens, Phase 17 Quick 260608-pyp: Fix remaining Phase-17 UI-SPEC warnings — Summary, Self-Check: PASSED, Task 1 — First-party footer key map + step-2 CTA (commit f2f8da6), Task 2 — 2-cell `block` indent for review + preflight detail lines (commit 1cce280) (+4 more)
 
 ### Community 325 - "Community 325"
-Cohesion: 0.19
-Nodes (12): extracted, parseManifest(), captureFile(), readAndVerify(), rollbackRemove(), skewPrompt(), RestoreInput, CurrentInstall (+4 more)
+Cohesion: 0.14
+Nodes (20): sum(), TestChecksumSumDeterministic(), TestChecksumVerifyMatch(), TestChecksumVerifyMismatch(), verify(), extracted, captureFile(), readAndVerify() (+12 more)
 
 ### Community 326 - "Community 326"
-Cohesion: 0.26
-Nodes (11): T, TestInstallGateBypassesWizard(), TestInstallNoFitEmitsContractedEmptyState(), TestInstallWizardAccessibleDriver(), TestInstallWizardFires(), TestInstallWizardPathRunsGateOnce(), TestPreflightSummaryBlockIndent(), TestReviewBlockIndent() (+3 more)
+Cohesion: 0.17
+Nodes (18): T, BackendFor(), TestBackendFor(), TestROCmContainerArgs(), TestROCmImageDigestPinned(), Backend, T, TestDetectedHostSummaryTypedUnknownAdvisory() (+10 more)
 
 ### Community 327 - "Community 327"
 Cohesion: 0.27
 Nodes (11): blockOnNewerStore(), CompareSkew(), warnOnOlderStore(), BackupInput, CurrentInstall, SkewVerdict, SkewWarning, ExcludedModel (+3 more)
 
 ### Community 328 - "Community 328"
-Cohesion: 0.32
-Nodes (11): EntryChecksum, ExcludedModel, HostFingerprint, Manifest, BuildManifest(), TestExcludedModelHasNoContentFields(), TestManifestBenchEntryIsSingle(), TestManifestJSONRoundTrip() (+3 more)
+Cohesion: 0.26
+Nodes (14): EntryChecksum, ExcludedModel, HostFingerprint, Manifest, BuildManifest(), parseManifest(), TestExcludedModelHasNoContentFields(), TestManifestBenchEntryIsSingle() (+6 more)
 
 ### Community 329 - "Community 329"
-Cohesion: 0.32
-Nodes (10): Command, Deps, RestoreInput, isVolumeAlreadyExists(), isVolumeNotFound(), liveRestore(), liveRestoreDeps(), newRestore() (+2 more)
+Cohesion: 0.25
+Nodes (9): SavedReportSchemaVersion(), Deps, RestoreInput, SchemaVersion(), isVolumeAlreadyExists(), isVolumeNotFound(), liveRestore(), liveRestoreDeps() (+1 more)
 
 ### Community 330 - "Community 330"
 Cohesion: 0.18
 Nodes (10): Commits, Deviations from Plan, Gate results (all green), Quick Task 260608-ppy: Fix Phase-17 UI-SPEC Install Copy Gaps Summary, Scope held, Self-Check: PASSED, Task 1 — Contracted empty-state no-fit copy (TDD), Task 2 — Typed-Unknown advisory in detectedHostSummary (TDD) (+2 more)
 
 ### Community 331 - "Community 331"
-Cohesion: 0.29
-Nodes (10): Buffer, Command, Deps, T, fakeRunBackupDeps(), newBackupTestCmd(), TestBackupDefaultNameIsFSSafe(), TestBackupOutputTraversalRejected() (+2 more)
-
-### Community 332 - "Community 332"
-Cohesion: 0.33
-Nodes (8): CheckResult, HostProfile, checkFirmwareFloor(), checkKernelFloor(), checkVulkanIGPU(), joinProvenance(), joinRaw(), warn()
+Cohesion: 0.17
+Nodes (29): VillaConfig, assertInsideDir(), defaultConfig(), LoadVillaFrom(), marshalVilla(), normalizeVilla(), Parse(), Path() (+21 more)
 
 ### Community 333 - "Community 333"
-Cohesion: 0.33
-Nodes (8): T, requirePodman(), TestPodmanVolumeFakeSwappable(), TestVolumeArgsNoShellMetachars(), TestVolumeExportArgsFixed(), TestVolumeImportArgsFixed(), volumeExportArgs(), volumeImportArgs()
+Cohesion: 0.22
+Nodes (17): Writer, T, classifyVolumeExists(), requirePodman(), TestClassifyVolumeExists(), TestPodmanVolumeFakeSwappable(), TestVolumeArgsNoShellMetachars(), TestVolumeExistsArgsFixed() (+9 more)
 
 ### Community 334 - "Community 334"
-Cohesion: 0.33
-Nodes (7): sum(), TestChecksumSumDeterministic(), TestChecksumVerifyMatch(), TestChecksumVerifyMismatch(), verify(), Reader, T
+Cohesion: 0.22
+Nodes (25): AttachmentState, ChatDoc, ChatRef, Context, Duration, owuiUser, attachKnowledgeRow(), bearerHeader() (+17 more)
 
 ### Community 335 - "Community 335"
 Cohesion: 0.22
@@ -1662,12 +1821,12 @@ Cohesion: 0.25
 Nodes (7): Artifacts list (files + functions + line ranges to change for the fix), Candidate Fix Directions (for the planner — preserve no-false-green), Current Focus, Eliminated, Evidence, Resolution, Symptoms
 
 ### Community 339 - "Community 339"
-Cohesion: 0.33
-Nodes (6): GenerationProbe(), PollHealth(), Bool, ChatResult, Context, Duration
+Cohesion: 0.14
+Nodes (19): Context, ProveVerdict, GPUBusyPercent(), GPUBusyPercentForTest(), TestGPUBusyPercentForTestSeam(), TestGPUBusyPercentFromFixture(), TestGPUBusyPercentMissingYieldsUnknown(), TestGPUBusyPercentUnparseableYieldsUnknown() (+11 more)
 
 ### Community 340 - "Community 340"
-Cohesion: 0.48
-Nodes (6): CheckResult, checkPodmanRootless(), firstLine(), livePodmanDeps(), subuidReady(), podmanDeps
+Cohesion: 0.08
+Nodes (24): Atomic XDG persistence, `cmd/villa/recall.go` (controller, CLI request-response), `cmd/villa/recall_live.go` (live REST seam, request-response over loopback), `cmd/villa/recall_test.go` + `internal/recall/*_test.go` (tests), `cmd/villa/root.go` (modify — registration), `cmd/villa/verify_memory.go` (modify — share, don't fork), `docs/MEMORY.md` (modify — append), Error wrapping with step names (+16 more)
 
 ### Community 341 - "Community 341"
 Cohesion: 0.29
@@ -1678,36 +1837,668 @@ Cohesion: 0.33
 Nodes (5): - cmd/villa/ is presentation; add NO decision logic to internal/* cores., Contract reminders (CLAUDE.md):, - gib(b uint64) lives at cmd/villa/recommend.go:194 — renders "X.XXX GiB (N bytes)"., - No backend/image literals in cmd/villa (TestSeamGrepGate walks it)., - UsableEnvelopeBytes is a detect.Bytes (typed-Unknown: .Known / .Value).
 
 ### Community 343 - "Community 343"
-Cohesion: 0.83
-Nodes (4): Deps, ProveVerdict, Result, VillaConfig
+Cohesion: 0.60
+Nodes (5): Deps, ProveVerdict, Result, ReadCloser, VillaConfig
 
 ### Community 344 - "Community 344"
-Cohesion: 0.50
-Nodes (4): known, source, value, firmware_date_ok
+Cohesion: 0.20
+Nodes (157): Communities (131 total, 7 thin omitted), Communities (141 total, 7 thin omitted), Communities (143 total, 8 thin omitted), Communities (157 total, 8 thin omitted), Communities (158 total, 7 thin omitted), Communities (161 total, 9 thin omitted), Communities (165 total, 9 thin omitted), Communities (167 total, 9 thin omitted) (+149 more)
 
 ### Community 345 - "Community 345"
+Cohesion: 0.40
+Nodes (5): memoryProofInput, Status, VillaConfig, installDeps, fakeInstallDeps
+
+### Community 347 - "Community 347"
+Cohesion: 0.09
+Nodes (22): `cmd/villa/doctor.go` (mod — liveDoctorDeps growth + under-load proof live seam), `cmd/villa/install.go` (mod — pick-seam memory inputs + gated memory checks), `cmd/villa/preflight.go` (mod — gated memory-check emission), `cmd/villa/recommend.go` (mod — thread memory inputs + render reservation line), `cmd/villa/testdata/recommend.golden.json` (re-freeze), Fail-soft cmd-tier config gate (pure cores never load config), File Classification, File/test conventions (+14 more)
+
+### Community 348 - "Community 348"
+Cohesion: 0.09
+Nodes (22): Append-only + schema-bump golden evolution, `cmd/villa/backup.go` / `cmd/villa/restore.go` — wiring deltas, `cmd/villa/recall.go` — D-10 embedding-skew refusal, `cmd/villa/status.go` — live wiring: memory service names, per-service health probes, recall-state seam, File Classification, `internal/backup/backup.go` — Qdrant volume entry, quiesce, dimension-skew warning, `internal/backup/deps.go` — new seam fields, `internal/backup/manifest.go` — append-only fields + new entry consts (+14 more)
+
+### Community 349 - "Community 349"
+Cohesion: 0.13
+Nodes (21): Context, State, Status, VillaConfig, Writer, Context, embedModelPath(), evalMemoryProof() (+13 more)
+
+### Community 350 - "Community 350"
+Cohesion: 0.16
+Nodes (21): Command, Recommendation, Writer, Recommendation, T, MemoryInputs, fitsGlyph(), gib() (+13 more)
+
+### Community 351 - "Community 351"
+Cohesion: 0.09
+Nodes (21): Canonical References, Chat→document granularity + re-index semantics (RECALL-01/03), Chat-history access path (RECALL-01), Claude's Discretion, Code touchpoints (reuse/extend; primary edit sites), Command surface + core layout (RECALL-01/03), Deferred Ideas, Established Patterns (+13 more)
+
+### Community 352 - "Community 352"
+Cohesion: 0.09
+Nodes (20): CR-01: Prove-fail rollback cannot complete on a live host (volumes in use), and the cmd tier then deletes the only rollback copy of prior data, Critical Issues, IN-01: assertBackupOutputInside is a vacuous guard, IN-02: Post-backup "recall state included" line is a TOCTOU re-stat, not the core's actual decision, IN-03: Stale doc — `OpenArchive` claims Restore reads the archive twice; the implementation is single-pass, IN-04: Residency-under-load sample is not actually "verifiably IN FLIGHT", IN-05: recallGate takes an ad-hoc writer interface instead of io.Writer, IN-07: Always-true condition in liveEmbedModelPresent (+12 more)
+
+### Community 353 - "Community 353"
+Cohesion: 0.10
+Nodes (20): Canonical References, Claude's Discretion, Code touchpoints (the spine extends these), config.toml memory schema, Deferred Ideas, Embedding model + footprint (spike decision — recorded here), Embeddings runtime (spike decision — recorded here), Established Patterns (+12 more)
+
+### Community 354 - "Community 354"
+Cohesion: 0.10
+Nodes (20): CR-01: doctor fabricates a confident "loopback privacy breach" FAIL when the status read-model errors, Critical Issues, IN-01: residency-FAIL render bakes a duplicated phrase into the frozen golden, IN-02: embed-drive URL composed with Sprintf, not `net.JoinHostPort`, IN-03: `liveProve` silently discards the ResidencyJournal error, IN-04: degraded-floor note mislabels the post-reservation envelope as "the %-of-RAM floor", IN-05: `runModelSwap` pre-announce runs a full probe+pick purely for a cosmetic line, IN-06: dead `!opts.dryRun` condition in the embed pre-stage gate (+12 more)
+
+### Community 355 - "Community 355"
+Cohesion: 0.20
+Nodes (21): AttachmentState, ChatDoc, ChatRef, Command, Context, State, Time, VillaConfig (+13 more)
+
+### Community 356 - "Community 356"
+Cohesion: 0.10
+Nodes (20): Confirming the negative control is real, Enabling automatic memory extraction, Host-egress precondition (required), How retrieval works — and the `villa model swap` gotcha, Indexing past conversations with `villa recall`, Memory & Knowledge (v1.3), Offline-lockdown environment, Personalized memory: save, recall, view/edit/delete (+12 more)
+
+### Community 357 - "Community 357"
+Cohesion: 0.17
+Nodes (18): Time, T, ChatState, Deps, State, assertInsideDir(), Load(), RecallStatePath() (+10 more)
+
+### Community 358 - "Community 358"
+Cohesion: 0.10
+Nodes (19): Canonical References, Claude's Discretion, Code touchpoints (the services extend these), Conditional rendering (continues Phase-18 spine), Deferred Ideas, Embedding-model pre-staging (PRIV-04 / SC#3), Embeddings service `villa-embed` (INFRA-02), Established Patterns (+11 more)
+
+### Community 359 - "Community 359"
+Cohesion: 0.10
+Nodes (19): Canonical References, Claude's Discretion, Code touchpoints (this phase edits / extends these), Deferred Ideas, Document knowledge base + citations (KB-01/02/03), Established Patterns, Existing Code Insights, External (re-verify against the PINNED OWUI digest at research time) (+11 more)
+
+### Community 360 - "Community 360"
+Cohesion: 0.10
+Nodes (19): Auto-fixed Issues, Box State (recorded first, restored last — Pitfall 8 / T-22-14), D-05 Footprint Measurement (CTRL-01), Dependency graph, Deviations from Plan, Issues Encountered, Metrics, Next Phase Readiness (+11 more)
+
+### Community 361 - "Community 361"
+Cohesion: 0.10
+Nodes (19): Canonical References, Claude's Discretion, Code touchpoints (reuse/extend; primary edit sites), Deferred Ideas, Doctor memory fold + residency-under-load proof (CTRL-03), Embed GPU posture + footprint constant (CTRL-01), Envelope reservation semantics (CTRL-01), Established Patterns (+11 more)
+
+### Community 362 - "Community 362"
+Cohesion: 0.10
+Nodes (19): Backup/restore of the Qdrant volume (CTRL-04), Canonical References, Claude's Discretion, Code touchpoints (reuse/extend; primary edit sites), Deferred Ideas, Established Patterns, Existing Code Insights, External (+11 more)
+
+### Community 363 - "Community 363"
+Cohesion: 0.11
+Nodes (18): `cmd/villa/install.go` (MOD — pre-stage + start + memory proof), File Classification, Golden fixtures (NEW × 3), `internal/inference/seam_test.go` (MOD — MANDATORY, Pitfall 7), `internal/orchestrate/memory.go` (NEW — consts + view builders), `internal/orchestrate/quadlet/embed.container.tmpl` (NEW), `internal/orchestrate/quadlet/qdrant.container.tmpl` (NEW), `internal/orchestrate/quadlet/qdrant.volume.tmpl` (NEW) (+10 more)
+
+### Community 364 - "Community 364"
+Cohesion: 0.19
+Nodes (17): ChatHistory, ChatMsg, ChatDoc, T, ChatDoc, ChatHistory, ChatMsg, linearThread() (+9 more)
+
+### Community 365 - "Community 365"
+Cohesion: 0.23
+Nodes (18): Command, Deps, Verdict, VillaConfig, Deps, LoadVilla(), EmbedContainerUnitName(), liveDoctorDeps() (+10 more)
+
+### Community 366 - "Community 366"
+Cohesion: 0.11
+Nodes (17): Byte-frozen render contract — append-only + single deliberate re-freeze (D-05), `cmd/villa/install_memory.go` (or NEW `cmd/villa/verify_memory.go`) — runtime RAG smoke proof, Config-sourced values, no re-typed host literals (WR-01 / D-04), File Classification, Fixed-arg `podman`/`curl` over `villa.network`, no shell, no host port (D-11 / T-19-10/11), Honesty-by-construction proof seam — pure core + injected probes, FAIL never skip (D-10), `internal/config/villaconfig.go` (read-only source), `internal/orchestrate/openwebui.go` (parameterize `buildOpenWebUIView`) (+9 more)
+
+### Community 367 - "Community 367"
+Cohesion: 0.11
+Nodes (17): A1-A4 Resolutions, Accomplishments, Cleanup / Box State Left Behind, Decisions Made, Dependency graph, Deviations from Plan, Known Stubs, Metrics (+9 more)
+
+### Community 368 - "Community 368"
+Cohesion: 0.20
+Nodes (17): Context, Duration, memoryProof, T, EmbedImage(), ragSmokeInput, discoverChatModel(), driveRagUploadCite() (+9 more)
+
+### Community 369 - "Community 369"
+Cohesion: 0.24
+Nodes (16): driNodes(), TestDriNodesEmptyIsKnownAbsent(), TestDriNodesEmptyYieldsUnknown(), TestDriNodesFromFixture(), TestDriNodesUnreadableYieldsUnknown(), TestIsGfxTargetID(), TestMesaVersionFromFixture(), TestParseGfxIDFromFixture() (+8 more)
+
+### Community 370 - "Community 370"
+Cohesion: 0.12
+Nodes (16): Accomplishments, Decisions Made, Dependency graph, Deviations from Plan, Files Created/Modified, Issues Encountered, Known Stubs, Memory field names + TOML key spellings (Plan 02 and downstream phases bind these) (+8 more)
+
+### Community 371 - "Community 371"
+Cohesion: 0.12
+Nodes (16): Accomplishments, Decisions Made, Dependency graph, Deviations from Plan, Files Created/Modified, Issues Encountered, Known Stubs, Metrics (+8 more)
+
+### Community 372 - "Community 372"
+Cohesion: 0.12
+Nodes (16): CR-01: `recall index` stamps `last_index_completed_at` even when an Update's underlying chat became unrenderable, but the `Deletes`/`Updates`/`Adds` execution can leave the index in a state the "complete full pass" stamp misrepresents, Critical Issues, IN-01: `stripReasoning` only matches the exact literal `<details type="reasoning"` — attribute reordering or single-quotes leaks chain-of-thought into the index, IN-02: `RenderTranscript` interpolates the chat title verbatim into the transcript header — a title containing newlines distorts the document structure, IN-03: `recallUploadTimeout` integer division silently floors small content to the base timeout, IN-04: `Plan` recomputes Deletes by iterating `state.Chats` which the execute loops mutate — safe today, but the read-after-Plan coupling is implicit, Info, Phase 21: Code Review Report (+8 more)
+
+### Community 373 - "Community 373"
+Cohesion: 0.12
+Nodes (16): Accomplishments, Auto-fixed Issues, Decisions Made, Dependency graph, Deviations from Plan, Files Created/Modified, Issues Encountered, Metrics (+8 more)
+
+### Community 374 - "Community 374"
+Cohesion: 0.12
+Nodes (16): Acceptance Criteria → Evidence Map, Authentication Gates, CTRL-02 — status v3 + dashboard + negative control (SC#1), CTRL-04 — backup/restore drill on REAL data (SC#2), CTRL-05 — memory-aware swap drill (SC#3), Deviations from Plan, Drill Evidence (all commands run live on the box, 2026-06-10 21:36–21:45 UTC), Known Stubs (+8 more)
+
+### Community 375 - "Community 375"
+Cohesion: 0.12
+Nodes (12): boundedWriter, Cmd, endpointURL(), boundedWriter, containerRunner, NewContainerRunner(), Backend, Buffer (+4 more)
+
+### Community 376 - "Community 376"
+Cohesion: 0.40
+Nodes (10): T, Verdict, cobraCommandShim, failVerdict(), passVerdict(), TestInferenceExitCodes(), TestInferenceJSONGolden(), TestInferenceRegistered() (+2 more)
+
+### Community 377 - "Community 377"
+Cohesion: 0.12
+Nodes (15): Config-write safety reused unchanged (applies to: `internal/config/villaconfig.go`), Container-DNS / loopback-only endpoints, never widen a bind (applies to: config memory endpoints + RenderView), Fail-closed validation / refuse-with-reason (applies to: `memory.Decide`), File Classification, `internal/config/villaconfig.go` (config, transform) — MODIFY, `internal/memory/memory.go` (service / pure decision core) — NEW PACKAGE, `internal/memory/memory_test.go` (test) — NEW, Metadata (+7 more)
+
+### Community 378 - "Community 378"
+Cohesion: 0.12
+Nodes (15): Accomplishments, Decisions Made, Dependency graph, Deviations from Plan, Files Created/Modified, Issues Encountered, Known Stubs, Metrics (+7 more)
+
+### Community 379 - "Community 379"
+Cohesion: 0.12
+Nodes (15): Anti-Patterns Found, Behavioral Spot-Checks, Data-Flow Trace (Level 4), Gaps Summary, Goal Achievement, Human Verification Required, Key Link Verification, Observable Truths (+7 more)
+
+### Community 380 - "Community 380"
+Cohesion: 0.12
+Nodes (15): Access, Control-Plane Integration (CTRL), Conversational Recall (RECALL), Document Knowledge Base (KB), Memory Infrastructure (INFRA), Out of Scope, Personalized Memory (MEM), Privacy & Zero-Outbound (PRIV) — continues v1.0 PRIV-01/02/03 (+7 more)
+
+### Community 381 - "Community 381"
+Cohesion: 0.13
+Nodes (14): Accomplishments, Decisions Made, Dependency graph, Deviations from Plan, Files Created/Modified, Issues Encountered, Metrics, Next Phase Readiness (+6 more)
+
+### Community 382 - "Community 382"
+Cohesion: 0.13
+Nodes (14): Accomplishments, Decisions Made, Dependency graph, Deviations from Plan, Files Created/Modified, Issues Encountered, Known Stubs, Metrics (+6 more)
+
+### Community 383 - "Community 383"
+Cohesion: 0.13
+Nodes (14): Anti-Patterns Found, Behavioral Spot-Checks, Code-Review Closure, Data-Flow Trace (Level 4), Deferred Items, Gaps Summary, Goal Achievement, Human Verification Required (+6 more)
+
+### Community 384 - "Community 384"
+Cohesion: 0.13
+Nodes (14): Accomplishments, Decisions Made, Dependency graph, Deviations from Plan, Files Created/Modified, Issues Encountered, Metrics, Next Phase Readiness (+6 more)
+
+### Community 385 - "Community 385"
+Cohesion: 0.13
+Nodes (14): Accomplishments, Decisions Made, Dependency graph, Deviations from Plan, Files Created/Modified, Issues Encountered, Metrics, Next Phase Readiness (+6 more)
+
+### Community 386 - "Community 386"
+Cohesion: 0.13
+Nodes (14): Architectural Responsibility Map, Assumptions Log, Code Examples, Don't Hand-Roll, Environment Availability, Metadata, Open Questions (RESOLVED), Package Legitimacy Audit (+6 more)
+
+### Community 387 - "Community 387"
+Cohesion: 0.13
+Nodes (14): Auto-fixed / plan-directed adjustments, Commits, Deferred (out of scope), Deviations from Plan, Known Stubs, Phase 23 Plan 01: Status v3 Memory Surfacing Summary, Self-Check: PASSED, Task 1 — Pure cores (commits f4ba413 RED, 8ab5198 GREEN) (+6 more)
+
+### Community 388 - "Community 388"
+Cohesion: 0.13
+Nodes (14): 1. Memory health rows (Health panel) — zero new UI, 2. Memory panel (new) — the only new markup, 3. Degradation behavior (existing conventions, binding), 4. Accessibility, Checker Sign-Off, Color, Component Contract (Phase 23 additions), Copywriting Contract (+6 more)
+
+### Community 389 - "Community 389"
+Cohesion: 0.14
+Nodes (13): IN-01: Stale TODO in a digest-pinned production constant, IN-02: Proof success message duplicates the verdict detail string as a literal, IN-03: `embedModelPresent` presence check trusts mere existence, not integrity, Info, Invariants verified (no finding), Narrative Findings (AI reviewer), Phase 19: Code Review Report, Summary (+5 more)
+
+### Community 390 - "Community 390"
+Cohesion: 0.14
+Nodes (13): Architectural Responsibility Map, Assumptions Log, Don't Hand-Roll, Environment Availability, Metadata, Open Questions (RESOLVED), Package Legitimacy Audit, Phase 21: Conversational Recall Indexer - Research (+5 more)
+
+### Community 391 - "Community 391"
+Cohesion: 0.14
+Nodes (13): 1. Operator sign-off on the on-hardware results, Anti-Patterns Found, Behavioral Spot-Checks, Gaps Summary, Goal Achievement, Human Verification Required, Key Link Verification, Observable Truths (+5 more)
+
+### Community 392 - "Community 392"
+Cohesion: 0.14
+Nodes (13): Authentication Gates, Auto-fixed / plan-consistent adjustments, Commits, Deviations from Plan, Known Stubs, Phase 23 Plan 04: Memory-Aware Model Swap Summary, Self-Check: PASSED, Task 1 — D-09 invariant proofs (commit 0a8074c, test-only) (+5 more)
+
+### Community 393 - "Community 393"
+Cohesion: 0.14
+Nodes (13): Milestones, Overview, Phase 18: Memory Spine — config core + embeddings/wiring research spike, Phase 19: Vector Store + Local Embeddings Services, Phase 20: Open WebUI Memory/RAG Wiring + Offline Lockdown, Phase 21: Conversational Recall Indexer, Phase 22: Control-Plane Fit + Host Gate, Phase 23: Surfacing, Backup & Memory-Aware Swap (+5 more)
+
+### Community 394 - "Community 394"
+Cohesion: 0.15
+Nodes (12): Architectural Responsibility Map, Assumptions Log, Don't Hand-Roll, Environment Availability, Metadata, Open Questions (RESOLVED), Package Legitimacy Audit, Phase 18: Memory Spine — config core + embeddings/wiring research spike - Research (+4 more)
+
+### Community 395 - "Community 395"
+Cohesion: 0.15
+Nodes (12): Architectural Responsibility Map, Assumptions Log, Don't Hand-Roll, Environment Availability, Metadata, Open Questions (RESOLVED), Package Legitimacy Audit, Phase 19: Vector Store + Local Embeddings Services - Research (+4 more)
+
+### Community 396 - "Community 396"
+Cohesion: 0.15
+Nodes (12): 1. Literal reboot durability re-confirmation of SC#2, Anti-Patterns Found, Behavioral Spot-Checks, Data-Flow Trace (Level 4), Gaps Summary, Goal Achievement, Human Verification Required, Key Link Verification (+4 more)
+
+### Community 397 - "Community 397"
+Cohesion: 0.15
+Nodes (12): Architectural Responsibility Map, Assumptions Log, Don't Hand-Roll, Environment Availability, Metadata, Open Questions (RESOLVED), Package Legitimacy Audit, Phase 20: Open WebUI Memory/RAG Wiring + Offline Lockdown - Research (+4 more)
+
+### Community 398 - "Community 398"
+Cohesion: 0.15
+Nodes (12): Architectural Responsibility Map, Assumptions Log, Don't Hand-Roll, Environment Availability, Metadata, Open Questions (RESOLVED), Package Legitimacy Audit, Phase 23: Surfacing, Backup & Memory-Aware Swap - Research (+4 more)
+
+### Community 399 - "Community 399"
+Cohesion: 0.29
+Nodes (6): gpuView, healthzResponse, metricsView, ModelView, switchRequest, switchResponse
+
+### Community 400 - "Community 400"
+Cohesion: 0.17
+Nodes (11): Dependency graph, Deviations from Plan, Exported Symbols (as planned, no deviation), How It Was Verified, Notes for Later Phases, Phase 18 Plan 02: internal/memory pure decision core Summary, Self-Check: PASSED, TDD Gate Compliance (+3 more)
+
+### Community 401 - "Community 401"
+Cohesion: 0.17
+Nodes (11): IN-01: `TestRenderView` URL/host:port check has a redundant, weaker sub-condition, IN-02: `Footprint` Unknown reason has a trailing-space artifact for empty input, IN-03: `EmbeddingDim` is documented LOAD-BEARING but only `> 0` is validated, IN-04: `RenderView` does no validation by contract — relies on caller ordering, Info, Phase 18: Code Review Report, Summary, Warnings (+3 more)
+
+### Community 402 - "Community 402"
+Cohesion: 0.17
+Nodes (11): Anti-Patterns Found, Behavioral Spot-Checks, Gaps Summary, Goal Achievement, Human Verification Required, Key Link Verification, Observable Truths, Phase 18: Memory Spine (config core + pure decision core + research spike) Verification Report (+3 more)
+
+### Community 403 - "Community 403"
+Cohesion: 0.17
+Nodes (11): Auto-fixed / auto-added, Commits, Deviations from Plan, Known stubs / limitations, Phase 23 Plan 02: Memory-Aware Backup & Restore Summary, Self-Check: PASSED, Task 1 — Backup forward path (commits 938b0e3 RED, 847ed87 GREEN), Task 2 — Restore (commits 00ec222 RED, 74cf2ed GREEN, 36c1123 v1 fixture) (+3 more)
+
+### Community 404 - "Community 404"
+Cohesion: 0.17
+Nodes (11): Auto-fixed Issues, Commits, Deviations from Plan, Known Stubs, Phase 23 Plan 03: Dashboard Memory Panel Summary, Self-Check: PASSED, Task 1 — Memory panel markup + renderMemory (commit 775537a), Task 2 — Go-side passthrough test (commit f456e54) (+3 more)
+
+### Community 405 - "Community 405"
+Cohesion: 0.17
+Nodes (11): CR-01: Prove-fail rollback cannot complete on a live host; cmd tier deletes the only rollback copy, Fixed Issues, Phase 23: Code Review Fix Report, Skipped Issues, Verification, WR-01: `recall index` mutated (KB reset/create, state-stamp persist) before the single-operator guard, WR-02: Restore gated destructive Qdrant work on the fail-soft volume-exists check, WR-03: Memory-OFF backup archived a leftover recall-state.json without a manifest schema claim (+3 more)
+
+### Community 406 - "Community 406"
+Cohesion: 0.18
+Nodes (10): Claude's Discretion, Conditional rendering on `memory_enabled`, Deferred Ideas, Embedding-model pre-staging (PRIV-04 / SC#3), Install-time proof (SC#3, SC#4), Phase 19: Vector Store + Local Embeddings Services - Discussion Log, Qdrant image & rootless write-permission strategy, Storage volume layout (+2 more)
+
+### Community 407 - "Community 407"
+Cohesion: 0.18
+Nodes (10): 1. Memory-wired Open WebUI comes up healthy (INFRA-03), 2. Document upload → cited local answer (KB-01/02/03), 3. Runtime firewalled zero-outbound proof — villa verify memory (PRIV-05), 4. Memory save / view / edit / delete (MEM-02, MEM-04), 5. Auto-extraction is default-off (MEM-03, SC#2), 6. Cross-chat memory injection via the UI (MEM-01, SC#1), Current Test, Gaps (+2 more)
+
+### Community 408 - "Community 408"
+Cohesion: 0.18
+Nodes (11): Common Pitfalls, Pitfall 10: omitempty mechanics, Pitfall 1: Accidental second contract evolution, Pitfall 2: Dashboard poll × podman-run probes = container churn, Pitfall 3: Torn Qdrant snapshot from a live export, Pitfall 4: Asymmetric memory-state restores, Pitfall 5: ReconcileAndWrite from the RESTORED config flips the memory stack, Pitfall 6: Guard placed AFTER the stamp overwrite (+3 more)
+
+### Community 409 - "Community 409"
+Cohesion: 0.33
+Nodes (10): Command, Context, memoryProof, VillaConfig, ragSmokeInput, liveVerifyMemoryDeps(), newVerify(), newVerifyMemory() (+2 more)
+
+### Community 410 - "Community 410"
+Cohesion: 0.31
+Nodes (9): ChatRef, State, T, AttachmentState, Report, Classify(), CompleteRun(), TestStaleness() (+1 more)
+
+### Community 411 - "Community 411"
+Cohesion: 0.20
+Nodes (9): Claude's Discretion, config.toml memory schema, Deferred Ideas, Embedding model + footprint, Embeddings runtime, `internal/memory` pure core API, Open WebUI env contract, Phase 18: Memory Spine — config core + embeddings/wiring research spike - Discussion Log (+1 more)
+
+### Community 412 - "Community 412"
+Cohesion: 0.20
+Nodes (9): Artifacts touched on-hardware, Plan 20-03 Summary — On-Hardware Verification (gfx1151 Strix Halo), Requirements, Task 1 — `docs/MEMORY.md` (off-hardware) — DONE, Task 2 — re-render + reconcile with memory on (INFRA-03) — ✅ VERIFIED, Task 3 — OWUI Memory (MEM-01/02/03/04, SC#1/SC#2) — PARTIAL, Task 4 — document upload → cited local answer (KB-01/02/03, SC#3) — ✅ VERIFIED, Task 5 — runtime firewalled zero-outbound proof (PRIV-05, SC#4) — ✅ VERIFIED GREEN (+1 more)
+
+### Community 413 - "Community 413"
+Cohesion: 0.20
+Nodes (9): Chat→document granularity, Chat-history access path, Claude's Discretion, Command surface + core layout, Deferred Ideas, Incremental state + staleness, Index destination + retrieval mechanism, Phase 21: Conversational Recall Indexer - Discussion Log (+1 more)
+
+### Community 414 - "Community 414"
+Cohesion: 0.40
+Nodes (8): CheckResult, HostProfile, statfsFunc, checkEmbedHeadroom(), checkVectorDisk(), RunMemory(), MemoryGateInput, volumeRootFn
+
+### Community 415 - "Community 415"
+Cohesion: 0.22
+Nodes (9): Common Pitfalls, Pitfall 1: Qdrant write failure on the rootless named volume (SC#2 keystone), Pitfall 2: `/v1/embeddings` returns 501/400 on the pinned image (the #15406 carry-forward), Pitfall 3: GGUF path drift between the pre-stage file and the `-m` mount, Pitfall 4: Embed unit started before the GGUF is staged → crash-loop + WARN, Pitfall 5: The offline proof doesn't actually prove "offline", Pitfall 6: SC#4 false alarm — the privacy audit and the new units, Pitfall 7: The new image literals trip `TestSeamGrepGate` (+1 more)
+
+### Community 416 - "Community 416"
+Cohesion: 0.22
+Nodes (8): Automatic memory extraction default (MEM-03 / SC#2), Claude's Discretion, Deferred Ideas, Document KB + retrieval-prefix quality (KB-01/02/03, D-08 caveat), OWUI env-block evolution + golden re-freeze, Phase 20: Open WebUI Memory/RAG Wiring + Offline Lockdown - Discussion Log, Qdrant multitenancy mode (the load-bearing pending choice), Runtime zero-outbound proof (PRIV-05 / SC#4) — headline new gate
+
+### Community 417 - "Community 417"
+Cohesion: 0.22
+Nodes (9): Common Pitfalls, Pitfall 1: The self-list endpoint silently misses chats, Pitfall 2: `villa model swap` silently detaches recall, Pitfall 3: Stale Model rows from PREVIOUS served models accumulate, Pitfall 4: Retrieval access-check silently skips the KB for non-admin users, Pitfall 5: Reasoning blocks and huge transcripts bloat the index, Pitfall 6: `updated_at` bumps on non-content changes, Pitfall 7: `knowledge/create` needs villa-embed up (+1 more)
+
+### Community 418 - "Community 418"
+Cohesion: 0.22
+Nodes (9): Anti-Patterns to Avoid, Architecture Patterns, CTRL-01: Fit-Math Integration (the exact mechanics), CTRL-03: Doctor Fold + Residency-Under-Load Proof, CTRL-06: Preflight Memory Gate (statfs target — VERIFIED on the live box), Pattern 1: Envelope-shrink-first reservation (sketch), Pattern 2: checks_memory.go disk gate (sketch, mirrors checkResources), Recommended Project Structure (edits, no new packages) (+1 more)
+
+### Community 419 - "Community 419"
+Cohesion: 0.22
+Nodes (9): Common Pitfalls, Pitfall 1: Doctor is already WARN with memory on (false-WARN-forever), Pitfall 2: Golden blast radius, Pitfall 3: Pick signature ripple breaks a frozen path, Pitfall 4: Memory-off byte-identicality broken, Pitfall 5: Config load in the wrong tier / not fail-soft, Pitfall 6: GTT floor misread during the load proof, Pitfall 7: Unbounded/heavy embed drive (+1 more)
+
+### Community 420 - "Community 420"
+Cohesion: 0.25
+Nodes (7): Manual-Only Verifications, Per-Task Verification Map, Phase 18 — Validation Strategy, Sampling Rate, Test Infrastructure, Validation Sign-Off, Wave 0 Requirements
+
+### Community 421 - "Community 421"
+Cohesion: 0.25
+Nodes (7): Commits, Deviations from Plan, Phase 19 Plan 01: Vector Store + Local Embeddings Render Path Summary, Self-Check: PASSED, TDD Gate Compliance, Verification, What Was Built
+
+### Community 422 - "Community 422"
+Cohesion: 0.25
+Nodes (7): Deviations from Plan, Phase 19 Plan 02: Memory-Stack Install Wiring Summary, Self-Check: PASSED, TDD Gate Compliance, Threat Coverage, Verification, What Was Built
+
+### Community 423 - "Community 423"
+Cohesion: 0.25
+Nodes (8): Anti-Patterns to Avoid, Architecture Patterns, Pattern 1: Qdrant managed-service render (mirror `openwebui.go`) — INFRA-01, Pattern 2: villa-embed render (container with Exec + read-only model mount) — INFRA-02, Pattern 3: Embedding-model pre-staging via the existing download path — PRIV-04, Pattern 4: Conditional render keyed on `memory_enabled` (byte-identical when off) — D-11/INFRA-04, Recommended Project Structure, System Architecture Diagram
+
+### Community 424 - "Community 424"
+Cohesion: 0.25
+Nodes (7): Manual-Only Verifications, Per-Task Verification Map, Phase 19 — Validation Strategy, Sampling Rate, Test Infrastructure, Validation Sign-Off, Wave 0 Requirements
+
+### Community 425 - "Community 425"
+Cohesion: 0.25
+Nodes (7): Critical Invariants Honored, Deviations from Plan, Known Stubs, Phase 20 Plan 01: Open WebUI Memory/RAG Env Wiring Summary, Self-Check: PASSED, Verification Results, What Was Built
+
+### Community 426 - "Community 426"
+Cohesion: 0.25
+Nodes (8): Common Pitfalls, Pitfall 1: `buildOpenWebUIView()` is unconditional today, Pitfall 2: Telemetry-frozen test counts env lines from a no-arg builder, Pitfall 3: `ENABLE_PERSISTENT_CONFIG=False` missing → silent ignore after first boot, Pitfall 4: Multitenancy flag flipped after vectors exist, Pitfall 5: Native Function Calling silently changes RAG behavior, Pitfall 6: Async file processing race in the smoke test, Pitfall 7: Zero-outbound asserted by absence (false-green)
+
+### Community 427 - "Community 427"
+Cohesion: 0.25
+Nodes (7): Manual-Only Verifications, Per-Task Verification Map, Phase 20 — Validation Strategy, Sampling Rate, Test Infrastructure, Validation Sign-Off, Wave 0 Requirements
+
+### Community 428 - "Community 428"
+Cohesion: 0.25
+Nodes (8): Anti-Patterns to Avoid, Architecture Patterns, Pattern 1: Generalize, don't duplicate, the Phase-20 REST drive, Pattern 2: Idempotent attach-on-index, Pattern 3: Transcript rendering mirrors `get_message_list`, Pattern 4: Gated verb that BLOCKS when memory is off, Recommended layout, System Architecture Diagram
+
+### Community 429 - "Community 429"
+Cohesion: 0.25
+Nodes (7): Manual-Only Verifications, Per-Task Verification Map, Phase 21 — Validation Strategy, Sampling Rate, Test Infrastructure, Validation Sign-Off, Wave 0 Requirements
+
+### Community 430 - "Community 430"
+Cohesion: 0.25
+Nodes (7): Artifacts this phase produces (Plan 04 share), - internal/memory/footprint.go (raise pinned value + conservative default), - internal/memory/footprint_test.go (accessor-equals-pinned coherence test follows), Normally zero edits. CONTINGENT (D-05 sanctioned exception, triggered ONLY if the, step-7 measurement shows MemoryPeak > 512 MiB under sustained drive):, STRIDE Threat Register, Trust Boundaries
+
+### Community 431 - "Community 431"
+Cohesion: 0.25
+Nodes (7): Claude's Discretion, Deferred Ideas, Doctor memory fold + residency-under-load proof (CTRL-03), Embed GPU posture + footprint constant, Envelope reservation semantics (CTRL-01), Phase 22: Control-Plane Fit + Host Gate - Discussion Log, Preflight memory-stack gate (CTRL-06)
+
+### Community 432 - "Community 432"
+Cohesion: 0.25
+Nodes (7): Accepted Risks Log, Phase 22 — Security, Security Audit Trail, Sign-Off, Threat Register, Trust Boundaries, Unregistered Flags (informational, none blocking)
+
+### Community 433 - "Community 433"
+Cohesion: 0.25
+Nodes (7): Manual-Only Verifications, Per-Task Verification Map, Phase 22 — Validation Strategy, Sampling Rate, Test Infrastructure, Validation Sign-Off, Wave 0 Requirements
+
+### Community 434 - "Community 434"
+Cohesion: 0.25
+Nodes (7): Backup/restore of the Qdrant volume (CTRL-04), Claude's Discretion, Deferred Ideas, Memory-aware model swap (CTRL-05), Phase 23: Surfacing, Backup & Memory-Aware Swap - Discussion Log, Single contract evolution mechanics (CTRL-02), Status/dashboard surfacing shape (CTRL-02)
+
+### Community 435 - "Community 435"
+Cohesion: 0.25
+Nodes (8): Backup/restore of the Qdrant volume (CTRL-04), Claude's Discretion, Deferred Ideas (OUT OF SCOPE), Locked Decisions, Memory-aware model swap (CTRL-05), Single contract evolution mechanics (CTRL-02), Status/dashboard surfacing shape (CTRL-02), User Constraints (from CONTEXT.md)
+
+### Community 436 - "Community 436"
+Cohesion: 0.25
+Nodes (7): Manual-Only Verifications, Per-Task Verification Map, Phase 23 — Validation Strategy, Sampling Rate, Test Infrastructure, Validation Sign-Off, Wave 0 Requirements
+
+### Community 437 - "Community 437"
+Cohesion: 0.25
+Nodes (7): 1. Phase Verification Aggregation (6/6), 2. Requirements Coverage (22/22 satisfied), 3. Cross-Phase Integration (15/16 wired, 0 blockers, 1 WARN), 4. E2E Flows (5/5 complete), 5. Nyquist Compliance (discovery only), 6. Verdict, Milestone v1.3 "Memory & Knowledge" — Audit Report
+
+### Community 438 - "Community 438"
+Cohesion: 0.29
+Nodes (7): Code Examples, Offline `/v1/embeddings` install proof (768-dim) — D-09 / SC#3, Pre-stage Shard (verified HF metadata) — PRIV-04, Qdrant container template (mirror `openwebui.container.tmpl`, NO PublishPort) — INFRA-01, Qdrant durable named-volume template (mirror `openwebui.volume.tmpl`) — INFRA-01, Qdrant writable/readiness probe — D-09 / SC#2, villa-embed container template (Exec + read-only model mount, NO PublishPort) — INFRA-02
+
+### Community 439 - "Community 439"
+Cohesion: 0.29
+Nodes (7): Anti-Patterns to Avoid, Architecture Patterns, Pattern 1: Parameterize the OWUI view (D-04 conditional env), Pattern 2: Make the telemetry-frozen test memory-aware (D-05), Pattern 3: Runtime zero-outbound RAG smoke proof (D-10) — extend the Phase-19 seam, Recommended Project Structure (touchpoints only — no new packages), System Architecture Diagram
+
+### Community 440 - "Community 440"
+Cohesion: 0.29
+Nodes (6): Accepted Risks Log, Phase 20 — Security, Security Audit Trail, Sign-Off, Threat Register, Trust Boundaries
+
+### Community 441 - "Community 441"
+Cohesion: 0.29
+Nodes (7): Attaching the recall KB to the served model (RECALL-02), Clean-replace of a changed chat (D-04), Code Examples, Listing the operator's chats (admin path), Reading one chat and reconstructing the thread (pure-core input), Rebuild (id-preserving), RECALL-02 verification request (no per-chat files param — the attachment must do the work)
+
+### Community 442 - "Community 442"
+Cohesion: 0.29
+Nodes (6): Accepted Risks Log, Phase 21 — Security, Security Audit Trail, Sign-Off, Threat Register, Trust Boundaries
+
+### Community 443 - "Community 443"
+Cohesion: 0.29
+Nodes (6): 1. Operator sign-off on the on-hardware verification results, Current Test, Evidence (executed live, --auto run delegated by operator), Gaps, Summary, Tests
+
+### Community 444 - "Community 444"
+Cohesion: 0.29
+Nodes (7): Bounded in-network probe (health seam body), Code Examples, D-10 refusal placement, Non-GPU row branch to clone for memory services, Optional manifest-field skew warning (typed-Unknown for old backups), Service-name derivation (no literals), Tail-append + bump (the v2→v3 edit shape)
+
+### Community 445 - "Community 445"
+Cohesion: 0.43
+Nodes (6): T, PlanResult, planResultEqual(), TestPlan(), TestPlanDeterministicOrder(), TestPlanDoesNotMutateInputs()
+
+### Community 446 - "Community 446"
+Cohesion: 0.33
+Nodes (5): Cross-cutting privacy posture (the WHY these decisions exist), D-07 — Embeddings runtime: dedicated `villa-embed` llama-server  ✅ CONFIRMED, D-08 — Embedding model + footprint: `nomic-embed-text-v1.5`, 768-dim, Q8_0 GGUF  ✅ CONFIRMED, D-09 — Open WebUI env contract (re-verified against the pinned-digest env reference)  ✅ VERIFIED, Phase 18 — Canonical Spike Decisions (D-07 / D-08 / D-09)
+
+### Community 447 - "Community 447"
+Cohesion: 0.33
+Nodes (6): Anti-Patterns to Avoid, Architecture Patterns, Pattern 1: Config field extension with single-source defaults + self-heal (D-04/D-05), Pattern 2: Pure-core triad mirroring `recommend.Pick` (D-01/D-02), Recommended Project Structure, System Architecture Diagram
+
+### Community 448 - "Community 448"
+Cohesion: 0.33
+Nodes (6): Common Pitfalls, Pitfall 1: BurntSushi/toml writes a key even when its value is the type-zero → byte-identical break, Pitfall 2: OWUI RAG/embedding/memory keys are PersistentConfig — env is ignored without `ENABLE_PERSISTENT_CONFIG=False`, Pitfall 3: `--embedding` vs `--embeddings`, and `/v1/embeddings` requires a non-`none` pooling mode, Pitfall 4: `ENABLE_QDRANT_MULTITENANCY_MODE` now defaults to `True` and `QDRANT_COLLECTION_PREFIX` defaults to `open-webui`, Pitfall 5: Embedding-dimension skew silently corrupts retrieval
+
+### Community 449 - "Community 449"
+Cohesion: 0.33
+Nodes (6): Automatic memory extraction (D-07 / MEM-03) — MECHANISM CLARIFIED, Citation display (KB-02) — CONFIRMED automatic, `ENABLE_PERSISTENT_CONFIG=False` semantics (D-03, load-bearing) — CONFIRMED, `ENABLE_QDRANT_MULTITENANCY_MODE` (D-01) — RESOLVED, nomic retrieval-prefix (D-09 / KB-02/03) — MECHANISM FOUND, OWUI Env Contract — Re-verified Against Source
+
+### Community 450 - "Community 450"
+Cohesion: 0.33
+Nodes (6): Chats — listing & reading (RECALL-01/03), Confirmed API Surface (pinned digest v0.9.6) — the planner plans directly from this, Identity path — concrete recommendation (D-09 resolved), Identity & users (D-09), Knowledge & files (D-02/D-04), RECALL-02 mechanism (D-03 — RESOLVED)
+
+### Community 451 - "Community 451"
+Cohesion: 0.33
+Nodes (6): Anti-Patterns to Avoid, Architecture Patterns, CTRL-02 Map — status core, classification fix, tail-append, goldens, CTRL-04 Map — backup/restore extension points, CTRL-05 Map — swap invariant + skew guards, System Architecture Diagram (data flow touched by this phase)
+
+### Community 452 - "Community 452"
+Cohesion: 0.50
+Nodes (4): known, source, value, hsa_override_viable
+
+### Community 453 - "Community 453"
+Cohesion: 0.40
+Nodes (4): for the exact field names / TOML key spellings chosen, then read the source of truth:, Plan 01 added the VillaConfig memory fields this core consumes — read its SUMMARY, STRIDE Threat Register, Trust Boundaries
+
+### Community 454 - "Community 454"
+Cohesion: 0.40
+Nodes (5): Phase Requirements → Test Map, Sampling Rate, Test Framework, Validation Architecture, Wave 0 Gaps
+
+### Community 455 - "Community 455"
+Cohesion: 0.40
+Nodes (5): Phase Requirements → Test Map, Sampling Rate, Test Framework, Validation Architecture, Wave 0 Gaps
+
+### Community 456 - "Community 456"
+Cohesion: 0.40
+Nodes (5): Phase Requirements → Test Map, Sampling Rate, Test Framework, Validation Architecture, Wave 0 Gaps
+
+### Community 457 - "Community 457"
+Cohesion: 0.40
+Nodes (5): Phase Requirements → Test Map, Sampling Rate, Test Framework, Validation Architecture, Wave 0 Gaps
+
+### Community 458 - "Community 458"
+Cohesion: 0.40
+Nodes (5): Phase Requirements → Test Map, Sampling Rate, Test Framework, Validation Architecture, Wave 0 Gaps
+
+### Community 459 - "Community 459"
+Cohesion: 0.40
+Nodes (5): Phase Requirements → Test Map, Sampling Rate, Test Framework, Validation Architecture, Wave 0 Gaps
+
+### Community 460 - "Community 460"
+Cohesion: 0.40
+Nodes (4): recDeps, passVerdict(), ProveVerdict, VillaConfig
+
+### Community 461 - "Community 461"
+Cohesion: 0.70
+Nodes (4): State, ChatRef, PlanResult, Plan()
+
+### Community 462 - "Community 462"
+Cohesion: 0.50
+Nodes (4): Alternatives Considered, Core, Standard Stack, Supporting
+
+### Community 463 - "Community 463"
+Cohesion: 0.50
+Nodes (4): Claude's Discretion, Deferred Ideas (OUT OF SCOPE), Locked Decisions, User Constraints (from CONTEXT.md)
+
+### Community 464 - "Community 464"
+Cohesion: 0.50
+Nodes (4): D-07 — Embeddings runtime: dedicated `villa-embed` llama-server  ✅ CONFIRMED, D-08 — Embedding model + footprint: `nomic-embed-text-v1.5`, 768-dim, Q8_0 GGUF  ✅ CONFIRMED, D-09 — Open WebUI env contract, re-verified against the live env reference  ✅ VERIFIED, Spike Decisions (PINNED with evidence)
+
+### Community 465 - "Community 465"
+Cohesion: 0.50
+Nodes (4): Primary (HIGH confidence), Secondary (MEDIUM confidence), Sources, Tertiary (LOW confidence)
+
+### Community 466 - "Community 466"
+Cohesion: 0.50
+Nodes (3): Exact analogs to copy (read in full before writing):, STRIDE Threat Register, Trust Boundaries
+
+### Community 467 - "Community 467"
+Cohesion: 0.50
+Nodes (3): Exact analogs to copy (read in full before writing):, STRIDE Threat Register, Trust Boundaries
+
+### Community 468 - "Community 468"
+Cohesion: 0.50
+Nodes (4): Alternatives Considered, Core, Standard Stack, Supporting
+
+### Community 469 - "Community 469"
+Cohesion: 0.50
+Nodes (4): Claude's Discretion, Deferred Ideas (OUT OF SCOPE), Locked Decisions, User Constraints (from CONTEXT.md)
+
+### Community 470 - "Community 470"
+Cohesion: 0.50
+Nodes (4): Primary (HIGH confidence), Secondary (MEDIUM confidence), Sources, Tertiary (LOW confidence)
+
+### Community 471 - "Community 471"
+Cohesion: 0.50
+Nodes (3): Artifacts this phase produces (Plan 01), STRIDE Threat Register, Trust Boundaries
+
+### Community 472 - "Community 472"
+Cohesion: 0.50
+Nodes (3): Artifacts this phase produces (Plan 02), STRIDE Threat Register, Trust Boundaries
+
+### Community 473 - "Community 473"
+Cohesion: 0.50
+Nodes (3): Artifacts this phase produces (Plan 03), STRIDE Threat Register, Trust Boundaries
+
+### Community 474 - "Community 474"
+Cohesion: 0.50
+Nodes (4): Claude's Discretion, Deferred Ideas (OUT OF SCOPE), Locked Decisions, User Constraints (from CONTEXT.md)
+
+### Community 475 - "Community 475"
+Cohesion: 0.50
+Nodes (4): Code Examples, Composing the Qdrant/embed URLs from the render-view (no re-typed literals), Driving the OWUI RAG path over loopback (smoke test; fixed-arg, no shell), Negative control (egress must actually be blocked)
+
+### Community 476 - "Community 476"
+Cohesion: 0.50
+Nodes (4): Primary (HIGH confidence), Secondary (MEDIUM confidence), Sources, Tertiary (LOW confidence)
+
+### Community 477 - "Community 477"
+Cohesion: 0.50
+Nodes (3): Artifacts this phase produces (Plan 01), STRIDE Threat Register, Trust Boundaries
+
+### Community 478 - "Community 478"
+Cohesion: 0.50
+Nodes (3): Artifacts this phase produces (Plan 02), STRIDE Threat Register, Trust Boundaries
+
+### Community 479 - "Community 479"
+Cohesion: 0.50
+Nodes (3): Artifacts this phase produces (Plan 03), STRIDE Threat Register, Trust Boundaries
+
+### Community 480 - "Community 480"
+Cohesion: 0.50
+Nodes (4): Alternatives Considered, Core, Standard Stack, Supporting
+
+### Community 481 - "Community 481"
+Cohesion: 0.50
+Nodes (4): Claude's Discretion, Deferred Ideas (OUT OF SCOPE), Locked Decisions, User Constraints (from CONTEXT.md)
+
+### Community 482 - "Community 482"
+Cohesion: 0.50
+Nodes (4): Primary (HIGH confidence), Secondary (MEDIUM confidence), Sources, Tertiary (LOW confidence)
+
+### Community 483 - "Community 483"
+Cohesion: 0.50
+Nodes (3): Artifacts this phase produces (Plan 01 share), STRIDE Threat Register, Trust Boundaries
+
+### Community 484 - "Community 484"
+Cohesion: 0.50
+Nodes (3): Artifacts this phase produces (Plan 02 share), STRIDE Threat Register, Trust Boundaries
+
+### Community 485 - "Community 485"
+Cohesion: 0.50
+Nodes (3): Artifacts this phase produces (Plan 03 share), STRIDE Threat Register, Trust Boundaries
+
+### Community 486 - "Community 486"
+Cohesion: 0.50
+Nodes (4): Alternatives Considered, Core, Standard Stack, Supporting (in-repo reuse inventory — all verified by reading the source this session)
+
+### Community 487 - "Community 487"
+Cohesion: 0.50
+Nodes (4): Claude's Discretion, Deferred Ideas (OUT OF SCOPE), Locked Decisions, User Constraints (from CONTEXT.md)
+
+### Community 488 - "Community 488"
+Cohesion: 0.50
+Nodes (4): Primary (HIGH confidence), Secondary (MEDIUM confidence), Sources, Tertiary (LOW confidence)
+
+### Community 489 - "Community 489"
+Cohesion: 0.50
+Nodes (3): Artifacts this phase produces (this plan's share), STRIDE Threat Register, Trust Boundaries
+
+### Community 490 - "Community 490"
+Cohesion: 0.50
+Nodes (3): Artifacts this phase produces (this plan's share), STRIDE Threat Register, Trust Boundaries
+
+### Community 491 - "Community 491"
+Cohesion: 0.50
+Nodes (3): Artifacts this phase produces (this plan's share), STRIDE Threat Register, Trust Boundaries
+
+### Community 492 - "Community 492"
+Cohesion: 0.50
+Nodes (3): Artifacts this phase produces (this plan's share), STRIDE Threat Register, Trust Boundaries
+
+### Community 493 - "Community 493"
+Cohesion: 0.50
+Nodes (3): Artifacts this phase produces (this plan's share), STRIDE Threat Register, Trust Boundaries
+
+### Community 494 - "Community 494"
+Cohesion: 0.50
+Nodes (4): known, source, value, kernel_floor_ok
+
+### Community 496 - "Community 496"
 Cohesion: 0.67
-Nodes (3): VillaConfig, installDeps, fakeInstallDeps
+Nodes (3): Applicable ASVS Categories, Known Threat Patterns for this phase's stack, Security Domain
+
+### Community 497 - "Community 497"
+Cohesion: 0.67
+Nodes (3): Code Examples, Embedding footprint with typed-Unknown (the D-02a function), Enablement-and-fields-valid gate (the D-02b function, fail-closed)
+
+### Community 499 - "Community 499"
+Cohesion: 0.67
+Nodes (3): Applicable ASVS Categories, Known Threat Patterns for {Qdrant + llama-server + Quadlet + install-pull} stack, Security Domain
+
+### Community 500 - "Community 500"
+Cohesion: 0.67
+Nodes (3): Alternatives Considered, Core (existing, pinned), Standard Stack
+
+### Community 501 - "Community 501"
+Cohesion: 0.67
+Nodes (3): Applicable ASVS Categories, Known Threat Patterns for this stack, Security Domain
+
+### Community 502 - "Community 502"
+Cohesion: 0.67
+Nodes (3): Applicable ASVS Categories, Known Threat Patterns for this stack, Security Domain
+
+### Community 503 - "Community 503"
+Cohesion: 0.67
+Nodes (3): Applicable ASVS Categories, Known Threat Patterns for this phase (STRIDE), Security Domain
+
+### Community 505 - "Community 505"
+Cohesion: 0.67
+Nodes (3): Alternatives Considered, Core, Standard Stack
+
+### Community 506 - "Community 506"
+Cohesion: 0.67
+Nodes (3): Applicable ASVS Categories (Level 1), Known Threat Patterns for this phase, Security Domain
+
+### Community 507 - "Community 507"
+Cohesion: 0.67
+Nodes (3): Primary (HIGH confidence — direct reads this session), Secondary / Tertiary, Sources
 
 ## Knowledge Gaps
-- **2400 isolated node(s):** `ts`, `status`, `exit_code`, `duration_ms`, `head_at_build` (+2395 more)
+- **3664 isolated node(s):** `ts`, `status`, `exit_code`, `duration_ms`, `head_at_build` (+3659 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **19 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **25 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `Append()` connect `Community 279` to `Community 259`, `Community 132`, `Community 8`, `Community 10`, `Community 266`, `Community 12`, `Community 142`, `Community 145`, `Community 146`, `Community 277`, `Community 152`, `Community 29`, `Community 160`, `Community 162`, `Community 163`, `Community 166`, `Community 39`, `Community 168`, `Community 169`, `Community 167`, `Community 44`, `Community 302`, `Community 47`, `Community 311`, `Community 184`, `Community 320`, `Community 327`, `Community 74`, `Community 332`, `Community 79`, `Community 222`, `Community 97`, `Community 98`, `Community 229`, `Community 230`, `Community 110`, `Community 250`, `Community 251`?**
-  _High betweenness centrality (0.071) - this node is a cross-community bridge._
-- **Why does `contains()` connect `Community 169` to `Community 0`, `Community 132`, `Community 266`, `Community 12`, `Community 146`, `Community 147`, `Community 155`, `Community 162`, `Community 163`, `Community 39`, `Community 168`, `Community 41`, `Community 47`, `Community 189`, `Community 79`, `Community 80`, `Community 99`, `Community 109`, `Community 113`?**
-  _High betweenness centrality (0.019) - this node is a cross-community bridge._
-- **Why does `NewServer()` connect `Community 189` to `Community 160`, `Community 98`, `Community 229`, `Community 7`, `Community 10`, `Community 174`, `Community 144`, `Community 146`, `Community 179`?**
-  _High betweenness centrality (0.016) - this node is a cross-community bridge._
+- **Why does `Append()` connect `Community 314` to `Community 259`, `Community 132`, `Community 8`, `Community 10`, `Community 266`, `Community 12`, `Community 142`, `Community 145`, `Community 146`, `Community 277`, `Community 152`, `Community 410`, `Community 29`, `Community 162`, `Community 163`, `Community 166`, `Community 39`, `Community 167`, `Community 169`, `Community 168`, `Community 44`, `Community 302`, `Community 47`, `Community 311`, `Community 312`, `Community 184`, `Community 445`, `Community 320`, `Community 327`, `Community 74`, `Community 460`, `Community 332`, `Community 461`, `Community 79`, `Community 334`, `Community 339`, `Community 349`, `Community 222`, `Community 224`, `Community 97`, `Community 98`, `Community 355`, `Community 357`, `Community 230`, `Community 229`, `Community 364`, `Community 110`, `Community 369`, `Community 250`, `Community 251`?**
+  _High betweenness centrality (0.056) - this node is a cross-community bridge._
+- **Why does `contains()` connect `Community 169` to `Community 132`, `Community 266`, `Community 12`, `Community 146`, `Community 147`, `Community 155`, `Community 162`, `Community 163`, `Community 39`, `Community 168`, `Community 41`, `Community 47`, `Community 189`, `Community 331`, `Community 79`, `Community 80`, `Community 350`, `Community 99`, `Community 109`, `Community 113`, `Community 376`?**
+  _High betweenness centrality (0.011) - this node is a cross-community bridge._
+- **Why does `Marshal()` connect `Community 259` to `Community 160`, `Community 357`, `Community 328`, `Community 8`, `Community 10`, `Community 331`, `Community 11`, `Community 109`, `Community 365`, `Community 334`, `Community 368`, `Community 145`, `Community 314`, `Community 349`, `Community 29`?**
+  _High betweenness centrality (0.010) - this node is a cross-community bridge._
 - **What connects `ts`, `status`, `exit_code` to the rest of the system?**
-  _2400 weakly-connected nodes found - possible documentation gaps or missing edges._
-- **Should `Community 0` be split into smaller, more focused modules?**
-  _Cohesion score 0.06436487638533675 - nodes in this community are weakly interconnected._
+  _3664 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `Community 3` be split into smaller, more focused modules?**
   _Cohesion score 0.045454545454545456 - nodes in this community are weakly interconnected._
 - **Should `Community 4` be split into smaller, more focused modules?**
   _Cohesion score 0.06666666666666667 - nodes in this community are weakly interconnected._
+- **Should `Community 5` be split into smaller, more focused modules?**
+  _Cohesion score 0.05263157894736842 - nodes in this community are weakly interconnected._
