@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: Memory & Knowledge
-status: verifying
+status: Awaiting next milestone
 stopped_at: Completed 23-05-PLAN.md (operator sign-off approved — Phase 23 verification complete)
-last_updated: "2026-06-10T22:27:52.760Z"
-last_activity: 2026-06-10
+last_updated: "2026-06-11T09:46:22.906Z"
+last_activity: 2026-06-11 — Milestone v1.3 completed and archived
 progress:
   total_phases: 6
   completed_phases: 6
@@ -18,48 +18,23 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-06-10 after Phase 22)
+See: .planning/PROJECT.md (updated 2026-06-11 after v1.3 milestone close)
 
-**Core value:** Run a capable local AI workspace that "just works" after install — hardware-aware setup that brings inference, chat, and the dashboard up healthy, with zero data leaving the box. v1.2 extended the bar to "and stays operable, recoverable, and measurable over time." v1.3 extends it to "and remembers the user and their documents across chats — strictly local."
-**Current focus:** Phase 23 — Surfacing, Backup & Memory-Aware Swap
+**Core value:** Run a capable local AI workspace that "just works" after install — hardware-aware setup that brings inference, chat, and the dashboard up healthy, with zero data leaving the box. v1.2 extended the bar to "and stays operable, recoverable, and measurable over time." v1.3 extended it to "and remembers the user and their documents across chats — strictly local."
+**Current focus:** Planning next milestone (`/gsd-new-milestone`)
 
 ## Current Position
 
-Phase: 23
-Plan: Not started
-Status: Phase complete — ready for verification
-Last activity: 2026-06-10
-
-## v1.3 Build Order (research-converged — preserve)
-
-INTEGRATION milestone: **zero new first-party Go libraries**. Two new digest-pinned managed-service
-Quadlet units (Qdrant `v1.18.2-unprivileged` + a dedicated embeddings llama-server) wired into Open WebUI
-by ENV only. New image literals live behind the `orchestrate` managed-service seam (same category as
-`openWebUIImage`), NOT behind the inference `BackendFor` / `TestSeamGrepGate` scope. Dependencies are
-strict: Qdrant + embeddings BEFORE the OWUI env wiring; wiring BEFORE the recall indexer and BEFORE
-surfacing/backup. Surfacing + backup + memory-aware swap land LAST (exactly ONE byte-frozen contract
-evolution: `status.Report` 2→3, golden re-frozen once).
-
-1. **Phase 18 — Memory Spine (INFRA-04)**: `internal/memory` pure core + `config.toml` memory fields (the spine touched by render/recommend/preflight). Low-code research spike folded in — decide embeddings runtime (dedicated `villa-embed` vs OWUI built-in), re-verify the version-sensitive OWUI env contract against the pinned OWUI digest, confirm embedding model + footprint. De-risks the env golden re-freeze.
-2. **Phase 19 — Vector Store + Embeddings Services (INFRA-01, INFRA-02, PRIV-04)**: render the two new rootless Quadlet managed services + named `:Z` volume on `villa.network`, container-DNS only; embedding model pre-staged at install (zero runtime download). Reuse the Phase-4 OWUI volume discipline (boot-survival UAT).
-3. **Phase 20 — OWUI Memory/RAG Wiring + Offline Lockdown (INFRA-03, MEM-01..04, KB-01..03, PRIV-05)**: env-only wiring; `ENABLE_PERSISTENT_CONFIG=false` + full offline/telemetry lockdown (`OFFLINE_MODE`/`HF_HUB_OFFLINE`/`*_AUTO_UPDATE=false`/`ANONYMIZED_TELEMETRY=False`); both capture modes + edit/delete; doc KB with citations; **runtime firewalled zero-outbound smoke test** (not just install-time green).
-4. **Phase 21 — Conversational Recall Indexer (RECALL-01..03)**: net-new villa behavior; the milestone's biggest single phase (user explicitly chose FULL scope). chats → Knowledge semantic indexer; villa-controllable incremental re-index; honest staleness state (no silent staleness).
-5. **Phase 22 — Control-Plane Fit + Host Gate (CTRL-01, CTRL-03, CTRL-06)**: `recommend` reserves the embedding footprint BEFORE the chat-model fit (append-only field + schema bump); `preflight` vector-disk/headroom gate (refuse-with-remediation); `doctor` folds memory checks incl. offload-asserting residency under embedding load (silent/partial CPU fallback = FAIL, no false-green).
-6. **Phase 23 — Surfacing, Backup & Memory-Aware Swap (CTRL-02, CTRL-04, CTRL-05)**: LAST. `status` + dashboard memory rows (`reportSchemaVersion` 2→3, golden re-frozen ONCE; non-GPU N/A-offload pattern); `backup`/`restore` extend to the Qdrant volume (clean-recreate-before-import, dimension in manifest, skew-WARN); `villa model swap` memory-aware (embedding-dimension guard).
-
-## Research Flags (deeper planning research likely)
-
-- **Phase 18 (Memory Spine / spike):** the exact Open WebUI RAG/Memory env keys (`VECTOR_DB`, `QDRANT_URI`, `RAG_EMBEDDING_ENGINE`, `RAG_OPENAI_API_BASE_URL`, `RAG_EMBEDDING_MODEL`, the offline/persistent-config flags) are **version-sensitive (MEDIUM-confidence)** — pin the OWUI digest the milestone ships against and re-verify the names from THAT image's docs before freezing the golden (`TestRenderOpenWebUITelemetryFrozen` forces the re-audit). Confirm the embedding model + footprint and the chats→Knowledge indexer approach.
-- **Phase 19 (Services):** Qdrant rootless-Podman volume mechanics — named `:Z`/`:U` volume (never host bind mount), boot-survival, writable store. Re-verify the Qdrant image digest at impl time. Pre-stage the embedding GGUF into a persistent volume during install (the only sanctioned outbound window).
-- **Phase 20 (Wiring):** PersistentConfig precedence (DB shadows env after first boot unless `ENABLE_PERSISTENT_CONFIG=false`) + the FULL offline flag set + the runtime firewalled zero-outbound smoke test are the load-bearing honesty gates.
-- **Phase 22 (Fit/Gate):** constrain embed ctx ≈ 512 (chunk size) to slash embed KV cost; the residency proof must assert the CHAT model survives an embed/import workload (re-use `ResidencyProof`; partial fallback = FAIL).
-- **Phase 23 (Backup/swap):** clean-recreate-before-import for the Qdrant volume (podman import MERGES + does not auto-create — v1.2 BAK lesson); record embedding model name + dimension in the manifest for skew-WARN; decide whether to include the derived vector index or re-embed on restore (size guard, mirroring the weights-excluded judgment).
+Phase: Milestone v1.3 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-06-11 — Milestone v1.3 completed and archived
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 67 (across v1.0 + v1.1; v1.2 added 19 more)
+- Total plans completed: 87 (v1.0 + v1.1: 48; v1.2: 19; v1.3: 20)
 - Average duration: 34 min
 - Total execution time: 2.2 hours
 
@@ -214,10 +189,8 @@ Earlier (v1.0 / v1.1 / v1.2) decisions retained below.
 
 - ~~NON-NEGOTIABLE THREAT (Phase 20): runtime HF model pull / PersistentConfig drift~~ — **RESOLVED in Phase 20** (pre-staged embed model, local `/v1/embeddings` routing, full offline/telemetry env block frozen by golden, `ENABLE_PERSISTENT_CONFIG=False` mandatory, runtime firewalled zero-outbound proof green on-hardware; SECURITY 16/16 closed).
 - ~~NON-NEGOTIABLE THREAT (Phase 22): embedding model competes for the same gfx1151 unified-memory pool~~ — **RESOLVED in Phase 22** (reservation-before-fit in `recommend.Pick()`, MEM-PRE BLOCK gates, offload-asserting MEM-DOC-residency under a real embedding drive; on-hardware UAT pass incl. embed-down negative control; security 17/17 closed).
-- **Phase 23:** embedding model/dimension swap invalidates existing vectors (dimension mismatch) — decouple embedding from chat model; make swap memory-aware; clean-recreate on embedder change; record dimension in manifest.
-- **Phase 23 (carried from Phase 20 UAT):** `villa status` shows OFFLOAD WARN for villa-qdrant/villa-embed — apply the non-GPU N/A-offload pattern when the memory rows land (schema 2→3).
-- **Phase 23 (carried from Phase 22 UAT, graphmind 527de579):** per-row health false-green — `status.Collect` probes the single chat endpoint for EVERY non-OWUI row (`internal/status/status.go:376`), so a stopped villa-embed/qdrant still renders `health PASS`; fix with per-service health when the memory rows land; assign a threat ID in the Phase 23 register.
-- On-hardware validation (gfx1151) remains the dominant verification path — Phase 23 still needs live-host confirmation (19, 20, 21, 22 done).
+- ~~Phase 23: embedding swap invalidates vectors / OFFLOAD WARN on memory rows / per-row health false-green~~ — **ALL RESOLVED in Phase 23** (D-09/D-10 swap guards; OffloadApplies=false reclassification; per-service in-network health in status v3 — false-green closed live with the stopped-embed negative control). On-hardware validation complete for all v1.3 phases (19–23).
+- v1.3 audit-recorded debt (non-blocking, see Deferred Items): literal reboot durability re-confirmation; restore-side tar streaming (WR-06); install service-name drift test; formal 20-VERIFICATION.md; Nyquist finalization for Phases 18–19.
 
 ### Quick Tasks Completed
 
@@ -243,6 +216,16 @@ Items acknowledged at v1.2 milestone close (2026-06-08):
 | limitation | Backup cross-host / post-`podman system reset` restore is documented best-effort (UID-remap + SELinux `:Z` repair validated indirectly) | Documented | v1.2 close |
 | tech_debt | Phase 21 Info findings IN-01..IN-04 deferred (reasoning-strip robustness, title-newline escaping, timeout-comment, Plan-snapshot regression test) — IN-01/IN-04 strongest follow-up candidates | Open | Phase 21 close |
 
+Items recorded at v1.3 milestone close (2026-06-11, from `milestones/v1.3-MILESTONE-AUDIT.md`):
+
+| Category | Item | Status | Deferred At |
+|----------|------|--------|-------------|
+| tech_debt | Literal `sudo reboot` durability re-confirmation of the Qdrant `:Z` volume (mechanism proxy-proven, linger enabled) | Open | v1.3 close |
+| tech_debt | Restore-side streaming of volume tars (WR-06; backup-side streaming landed) | Open | v1.3 close |
+| tech_debt | Drift test binding `qdrantServiceName`/`embedServiceName` (`cmd/villa/install_memory.go:67,73`) to the orchestrate accessors (sole integration-audit WARN) | Open | v1.3 close |
+| process | Phase 20 has no formal VERIFICATION.md (covered by 6/6 on-hardware UAT + approved VALIDATION + SECURITY.md) | Documented | v1.3 close |
+| process | Nyquist VALIDATION.md left draft for Phases 18–19 (`/gsd-validate-phase 18` / `19`) | Open | v1.3 close |
+
 ## Session Continuity
 
 Last session: 2026-06-10T21:52:07.816Z
@@ -251,6 +234,4 @@ Resume file: None
 
 ## Operator Next Steps
 
-1. **Phase 23 COMPLETE** — all 5 plans executed; on-hardware drill (23-05) proved CTRL-02/04/05 live and the operator sign-off is approved (dashboard Memory panel verified per 23-UI-SPEC; evidence: `phase23-dashboard-memory-panel.png`). Next: `/gsd-verify-phase 23` (or proceed to milestone close if verification is folded into 23-05's drill evidence).
-2. **Phase 20/21 follow-ups (non-blocking):** live OWUI test accounts (`villa-verify@local.test`, seeded `villa-verify@localhost`) + the operator's OBSIDIAN-LYNX recall test chat remain on the box — operator may remove; `ui.memory=true` left ON for the service account.
-3. **Carryover tech debt (non-blocking):** Phase 21 Info findings IN-01..IN-04; extract shared `rocmpolicy` leaf package; investigate `rocm-6.4.4-rocwmma` residency FAIL; optional re-pin of the drifted `rocm-6.4.4` rolling tag; REQUIREMENTS.md traceability table missing SRCH-01/CODE-01/REMOTE-01 rows.
+- Start the next milestone with /gsd-new-milestone
