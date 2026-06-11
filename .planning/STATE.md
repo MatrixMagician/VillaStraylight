@@ -1,7 +1,7 @@
 ---
 gsd_state_version: 1.0
 milestone: v1.3
-milestone_name: milestone
+milestone_name: Memory & Knowledge
 status: "Milestone v1.3 shipped — PR #4"
 stopped_at: Completed 23-05-PLAN.md (operator sign-off approved — Phase 23 verification complete)
 last_updated: "2026-06-11T10:04:02.340Z"
