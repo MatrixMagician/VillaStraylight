@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
 	"github.com/MatrixMagician/VillaStraylight/internal/preflight"
 )
@@ -180,4 +181,77 @@ func TestPreflightJSONMode(t *testing.T) {
 	if !bytes.Contains(buf.Bytes(), []byte(`"id": "PRE-01"`)) {
 		t.Errorf("--json output should include the check ids, got:\n%s", buf.String())
 	}
+}
+
+// TestPreflightMemoryGateAppendsRows is the CTRL-06/D-06 memory-ON half: with
+// the memory gate seam reporting enabled, the rendered preflight output carries
+// the MEM-PRE-disk + MEM-PRE-headroom rows AFTER the standalone results,
+// flowing through the unchanged renderPreflight + exit constants.
+func TestPreflightMemoryGateAppendsRows(t *testing.T) {
+	orig := memoryGateResults
+	defer func() { memoryGateResults = orig }()
+	memoryGateResults = func(p detect.HostProfile) []preflight.CheckResult {
+		return preflight.RunMemory(p, preflight.MemoryGateInput{
+			EmbeddingModel: "nomic-embed-text-v1.5",
+			VolumeRoot:     func() (string, bool) { return "/volroot", true },
+			Statfs:         func(string) (uint64, bool) { return 100 << 30, true },
+		})
+	}
+	profile := detect.HostProfile{MemAvailableBytes: detect.KnownBytes(64<<30, "/proc/meminfo:MemAvailable")}
+	results := append(passResults(), memoryGateResults(profile)...)
+
+	var buf bytes.Buffer
+	code := renderPreflight(&buf, results, false, false, false)
+	if code != exitPass {
+		t.Fatalf("all-pass with memory rows should exit %d, got %d:\n%s", exitPass, code, buf.String())
+	}
+	for _, id := range []string{"MEM-PRE-disk", "MEM-PRE-headroom"} {
+		if !bytes.Contains(buf.Bytes(), []byte(id)) {
+			t.Errorf("memory-on preflight output must render the %s row, got:\n%s", id, buf.String())
+		}
+	}
+}
+
+// TestLiveMemoryGateOffPath is the CTRL-06/D-06/T-22-08 memory-OFF half: an
+// absent config (fail-soft) and a persisted memory-off config both yield nil —
+// nothing is appended, so the memory-off output stays byte-identical to v1.2
+// (the frozen preflight goldens are the net) and the verb gains no error path.
+// The memory-ON live path returns exactly the two MEM-PRE checks in order.
+func TestLiveMemoryGateOffPath(t *testing.T) {
+	t.Run("absent config fails soft to nil", func(t *testing.T) {
+		t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+		if got := liveMemoryGateResults(detect.HostProfile{}); got != nil {
+			t.Fatalf("absent config must append NO memory checks, got %d", len(got))
+		}
+	})
+
+	t.Run("persisted memory-off config yields nil", func(t *testing.T) {
+		t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+		cfg := config.DefaultVillaConfig()
+		if cfg.MemoryEnabled {
+			t.Fatal("DefaultVillaConfig must be memory-off (D-04)")
+		}
+		if err := config.SaveVilla(cfg); err != nil {
+			t.Fatalf("save config: %v", err)
+		}
+		if got := liveMemoryGateResults(detect.HostProfile{}); got != nil {
+			t.Fatalf("memory-off config must append NO memory checks, got %d", len(got))
+		}
+	})
+
+	t.Run("persisted memory-on config yields both MEM-PRE checks", func(t *testing.T) {
+		t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+		cfg := config.DefaultVillaConfig()
+		cfg.MemoryEnabled = true
+		if err := config.SaveVilla(cfg); err != nil {
+			t.Fatalf("save config: %v", err)
+		}
+		got := liveMemoryGateResults(detect.HostProfile{})
+		if len(got) != 2 {
+			t.Fatalf("memory-on gate must return exactly 2 checks, got %d", len(got))
+		}
+		if got[0].ID != "MEM-PRE-disk" || got[1].ID != "MEM-PRE-headroom" {
+			t.Fatalf("want stable order [MEM-PRE-disk, MEM-PRE-headroom], got [%s, %s]", got[0].ID, got[1].ID)
+		}
+	})
 }

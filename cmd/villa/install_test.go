@@ -67,11 +67,31 @@ type fakeInstallDeps struct {
 	// rendered bytes always differ from disk and every existing dashboard test keeps
 	// seeing a "differs → reconcile" outcome (dashWriteCalls==1 / a dashboard start).
 	diskUnit []byte
+
+	// Memory-stack (Phase-19) seam controls + counters. memoryEnabled drives the
+	// loadedMemoryEnabled gate seam (default false → the memory path never fires, so
+	// existing v1.2 install tests stay byte-for-byte unchanged). embedPresent drives the
+	// embedModelPresent idempotency seam (default true → present, so the pre-stage pull
+	// is skipped unless a test sets it false). The *Calls counters + memoryProofInput
+	// capture let the memory tests assert exactly which memory seams fired.
+	// persistedConfig, when non-nil, is returned by the loadedConfig seam so a test can
+	// prove runInstall SEEDS cfg from the user's persisted config and preserves their
+	// memory/dashboard/chat customizations through saveConfig (WR-02). nil → the seam
+	// returns config.DefaultVillaConfig() (the old seed behavior, unchanged).
+	persistedConfig   *config.VillaConfig
+	memoryEnabled     bool
+	embedPresent      bool
+	embedEnsureCalls  int
+	embedPresentCalls int
+	memoryProofCalls  int
+	memoryProofIn     memoryProofInput
+	memoryProofStatus preflight.Status
+	memoryProofDetail string
 }
 
 func newFakeInstallDeps(t *testing.T, units []orchestrate.Unit, plan orchestrate.Plan, checks []preflight.CheckResult) *fakeInstallDeps {
 	t.Helper()
-	f := &fakeInstallDeps{downloaded: true}
+	f := &fakeInstallDeps{downloaded: true, embedPresent: true, memoryProofStatus: preflight.StatusPass}
 	d := &installDeps{
 		probe: func() detect.HostProfile { return detect.HostProfile{} },
 		pick: func(detect.HostProfile, recommend.Overrides) recommend.Recommendation {
@@ -153,6 +173,38 @@ func newFakeInstallDeps(t *testing.T, units []orchestrate.Unit, plan orchestrate
 	d.pollReady = func(context.Context, string) installReadiness {
 		f.pollCalls++
 		return installReadiness{status: preflight.StatusPass, detail: "ready"}
+	}
+	// Memory-stack seams (Phase-19). The gate seam reflects the controllable
+	// memoryEnabled flag (default false → the memory path never fires, so existing
+	// v1.2 tests are unchanged). The pre-stage/presence seams record an ordered event
+	// so a test can assert the embed GGUF is staged BEFORE the embed service starts and
+	// the Qdrant/embed start ordering (Pitfall 4). The proof seam returns the controllable
+	// verdict and captures its input for assertion.
+	// loadedConfig seeds runInstall's cfg from the persisted config (WR-02). Default to
+	// the typed defaults (byte-for-byte the old DefaultVillaConfig() seed) so existing
+	// tests are unchanged; persistedConfig lets a test inject a customized on-disk config
+	// to prove install preserves it.
+	d.loadedConfig = func() config.VillaConfig {
+		if f.persistedConfig != nil {
+			return *f.persistedConfig
+		}
+		return config.DefaultVillaConfig()
+	}
+	d.loadedMemoryEnabled = func() bool { return f.memoryEnabled }
+	d.embedModelPresent = func(string) bool {
+		f.embedPresentCalls++
+		return f.embedPresent
+	}
+	d.ensureEmbedModel = func(string) error {
+		f.embedEnsureCalls++
+		f.callOrder = append(f.callOrder, "ensureEmbedModel")
+		return nil
+	}
+	d.memoryProofFn = func(_ context.Context, in memoryProofInput) memoryProof {
+		f.memoryProofCalls++
+		f.memoryProofIn = in
+		f.callOrder = append(f.callOrder, "memoryProof")
+		return memoryProof{status: f.memoryProofStatus, detail: f.memoryProofDetail}
 	}
 	f.installDeps = d
 	return f
@@ -855,6 +907,44 @@ func TestInstallWarnLingerOfferGoesToStdout(t *testing.T) {
 	}
 }
 
+// TestInstallDryRunNeverRunsPrivilegedHostPrep (phase-22 WR-05): --dry-run on an
+// interactive TTY with BLOCK (PRE-05) and WARN (PRE-03) gaps and a CONSENTING stub
+// must execute ZERO privileged seams, never prompt, and never enter the wizard —
+// '--dry-run ... writes nothing' is a zero-side-effect contract (ORCH SC#1), and
+// before the fix a consenting interactive dry-run executed setsebool/enable-linger.
+func TestInstallDryRunNeverRunsPrivilegedHostPrep(t *testing.T) {
+	units := []orchestrate.Unit{{Name: "villa-llama.container", Text: "[Container]\n"}}
+	plan := orchestrate.Plan{Changed: units}
+	f := newFakeInstallDeps(t, units, plan, []preflight.CheckResult{seloffCheck(), lingeroffCheck()})
+	f.installDeps.interactive = func() bool { return true }
+	f.installDeps.stdoutIsTTY = func() bool { return true } // wizard-eligible TTY
+	consentCalls := 0
+	f.installDeps.consent = func(string) bool { consentCalls++; return true } // would consent!
+
+	cmd, _, errOut := installTestCmd()
+	code := runInstall(cmd, installOpts{dryRun: true}, f.installDeps)
+	// The unmet BLOCK gap cannot be consented under dry-run, so the run blocks —
+	// the same honest outcome the non-interactive path already had.
+	if code != exitBlocked {
+		t.Fatalf("dry-run with an unmet BLOCK gap exit = %d, want exitBlocked (%d)", code, exitBlocked)
+	}
+	if consentCalls != 0 {
+		t.Errorf("--dry-run must never prompt for consent, prompted %d times", consentCalls)
+	}
+	if f.seboolCalls != 0 || f.lingerCalls != 0 {
+		t.Errorf("--dry-run executed privileged host-prep (sebool=%d linger=%d), want 0/0 — zero-side-effect contract breach", f.seboolCalls, f.lingerCalls)
+	}
+	if f.wizardCalls != 0 {
+		t.Errorf("--dry-run entered the wizard %d times, want 0 (consent collected there would be executable)", f.wizardCalls)
+	}
+	if f.writeCalls != 0 || f.startCalls != 0 || f.pullCalls != 0 || f.saveCalls != 0 {
+		t.Errorf("--dry-run mutated state: write=%d start=%d pull=%d save=%d", f.writeCalls, f.startCalls, f.pullCalls, f.saveCalls)
+	}
+	if !strings.Contains(errOut.String(), "dry-run — run the command above") {
+		t.Errorf("dry-run BLOCK gap should print the dry-run hint, got %q", errOut.String())
+	}
+}
+
 // TestInstallConsentNoBlocksAndNeverRunsSeam: declining a BLOCK gap invokes the
 // seam zero times, prints the command, and blocks (exit 1) unless --force.
 func TestInstallConsentNoBlocksAndNeverRunsSeam(t *testing.T) {
@@ -1057,4 +1147,568 @@ func TestInstallRegistered(t *testing.T) {
 	if err != nil || install.Name() != "install" {
 		t.Fatalf("`install` verb not registered: %v", err)
 	}
+}
+
+// --- Phase-19 memory-stack install tests -------------------------------------
+
+// memoryUnits returns a Changed plan so runInstall reaches the write→start path
+// (the memory start + proof steps live after the unit write).
+func memoryUnits() ([]orchestrate.Unit, orchestrate.Plan) {
+	// A realistic memory-on plan: Render appends the memory .container units when
+	// MemoryEnabled, so they must be present in the plan for the WR-04 start guard
+	// (which gates the memory-service starts on the units actually being in the plan).
+	units := []orchestrate.Unit{
+		{Name: "villa-llama.container", Text: "[Container]\n"},
+		{Name: orchestrate.QdrantContainerUnitName(), Text: "[Container]\n"},
+		{Name: orchestrate.EmbedContainerUnitName(), Text: "[Container]\n"},
+	}
+	return units, orchestrate.Plan{Changed: units}
+}
+
+// TestInstallMemoryGateUsesPersistedConfig is the WARNING-1 end-to-end check (T-19-16):
+// it drives runInstall through the loadedMemoryEnabled seam (the PERSISTED config gate),
+// NOT a hand-built cfg with MemoryEnabled set — so it would catch a gate mistakenly bound
+// to the always-false DefaultVillaConfig() seed. With the seam returning true, the
+// pre-stage (ensureEmbedModel) AND the memory start (villa-qdrant + villa-embed) AND the
+// proof seam all fire; with it returning false, NONE fire.
+func TestInstallMemoryGateUsesPersistedConfig(t *testing.T) {
+	t.Run("persisted memory_enabled=true fires every memory seam", func(t *testing.T) {
+		units, plan := memoryUnits()
+		f := newFakeInstallDeps(t, units, plan, passChecks())
+		f.memoryEnabled = true // the PERSISTED gate is on
+		f.embedPresent = false // force the pre-stage pull path
+
+		cmd, _, _ := installTestCmd()
+		code := runInstall(cmd, installOpts{}, f.installDeps)
+		if code != exitPass {
+			t.Fatalf("memory-on install exit = %d, want 0", code)
+		}
+		if f.embedEnsureCalls != 1 {
+			t.Errorf("memory-on must pre-stage the embed GGUF once, ensureEmbedModel calls = %d", f.embedEnsureCalls)
+		}
+		if !contains(f.startOrder, qdrantServiceName) || !contains(f.startOrder, embedServiceName) {
+			t.Errorf("memory-on must start villa-qdrant + villa-embed, startOrder = %v", f.startOrder)
+		}
+		if f.memoryProofCalls != 1 {
+			t.Errorf("memory-on must run the readiness proof once, proof calls = %d", f.memoryProofCalls)
+		}
+	})
+
+	t.Run("persisted memory_enabled=false fires no memory seam", func(t *testing.T) {
+		units, plan := memoryUnits()
+		f := newFakeInstallDeps(t, units, plan, passChecks())
+		f.memoryEnabled = false // the PERSISTED gate is off (the v1.2 default)
+		f.embedPresent = false  // even absent, nothing should pre-stage
+
+		cmd, _, _ := installTestCmd()
+		code := runInstall(cmd, installOpts{}, f.installDeps)
+		if code != exitPass {
+			t.Fatalf("memory-off install exit = %d, want 0", code)
+		}
+		if f.embedEnsureCalls != 0 {
+			t.Errorf("memory-off must not pre-stage, ensureEmbedModel calls = %d", f.embedEnsureCalls)
+		}
+		if contains(f.startOrder, qdrantServiceName) || contains(f.startOrder, embedServiceName) {
+			t.Errorf("memory-off must not start the memory services, startOrder = %v", f.startOrder)
+		}
+		if f.memoryProofCalls != 0 {
+			t.Errorf("memory-off must not run the proof, proof calls = %d", f.memoryProofCalls)
+		}
+	})
+}
+
+// TestInstallPreservesPersistedMemoryConfig (WR-02): install must SEED cfg from the
+// user's persisted config and override ONLY the recommendation-derived fields
+// (Model/Quant/Ctx/Backend) + the MemoryEnabled gate — it must NOT reset the user's
+// customized memory address/port/model/dim fields (or dashboard/chat fields) to seed
+// defaults. A user who set a non-default embed_port / embedding_model in config.toml
+// must keep them after `villa install`. This locks the write-side single-source-of-truth
+// fix (the same class as WR-01 on the render side).
+func TestInstallPreservesPersistedMemoryConfig(t *testing.T) {
+	// A realistic memory-on plan (memory units present) so the WR-04 start guard passes;
+	// this test is about the WR-02 config-preservation, not the start gate.
+	units, plan := memoryUnits()
+	f := newFakeInstallDeps(t, units, plan, passChecks())
+	f.memoryEnabled = true
+
+	// A persisted config carrying NON-default memory customizations + a non-default
+	// chat port, as if the user hand-edited config.toml.
+	persisted := config.DefaultVillaConfig()
+	persisted.MemoryEnabled = true
+	persisted.EmbedPort = 9090
+	persisted.EmbeddingModel = "custom-embed-model"
+	persisted.QdrantPort = 7333
+	persisted.QdrantAddr = "villa-qdrant-custom"
+	persisted.ChatPort = 4444
+	f.persistedConfig = &persisted
+
+	cmd, _, _ := installTestCmd()
+	if code := runInstall(cmd, installOpts{}, f.installDeps); code != exitPass {
+		t.Fatalf("install exit = %d, want 0", code)
+	}
+
+	// The persisted memory + chat customizations must survive into the saved cfg —
+	// install must not have reset them to the seed defaults (8080/nomic.../6333/3000).
+	if f.savedCfg.EmbedPort != 9090 {
+		t.Errorf("install reset persisted embed_port to %d, want 9090 preserved (WR-02)", f.savedCfg.EmbedPort)
+	}
+	if f.savedCfg.EmbeddingModel != "custom-embed-model" {
+		t.Errorf("install reset persisted embedding_model to %q, want \"custom-embed-model\" preserved (WR-02)", f.savedCfg.EmbeddingModel)
+	}
+	if f.savedCfg.QdrantPort != 7333 {
+		t.Errorf("install reset persisted qdrant_port to %d, want 7333 preserved (WR-02)", f.savedCfg.QdrantPort)
+	}
+	if f.savedCfg.QdrantAddr != "villa-qdrant-custom" {
+		t.Errorf("install reset persisted qdrant_addr to %q, want preserved (WR-02)", f.savedCfg.QdrantAddr)
+	}
+	if f.savedCfg.ChatPort != 4444 {
+		t.Errorf("install reset persisted chat_port to %d, want 4444 preserved (WR-02)", f.savedCfg.ChatPort)
+	}
+	// The recommendation-derived fields are still overridden from the rec.
+	if f.savedCfg.Model != "qwen2.5-0.5b" || f.savedCfg.Backend != "vulkan" {
+		t.Errorf("install must still override the recommendation-derived fields, got %+v", f.savedCfg)
+	}
+}
+
+// TestInstallMemoryServices: gate=true pre-stages when absent and starts the memory
+// services in order (Qdrant before embed — Pitfall 4); gate off / dry-run → none called.
+func TestInstallMemoryServices(t *testing.T) {
+	t.Run("absent embed model is pre-staged then services start in order", func(t *testing.T) {
+		units, plan := memoryUnits()
+		f := newFakeInstallDeps(t, units, plan, passChecks())
+		f.memoryEnabled = true
+		f.embedPresent = false
+
+		cmd, _, _ := installTestCmd()
+		if code := runInstall(cmd, installOpts{}, f.installDeps); code != exitPass {
+			t.Fatalf("exit = %d, want 0", code)
+		}
+		if f.embedEnsureCalls != 1 {
+			t.Errorf("absent embed model must be pre-staged once, calls = %d", f.embedEnsureCalls)
+		}
+		// The pre-stage must precede the embed service start, which must follow Qdrant.
+		ensureIdx := indexOf(f.callOrder, "ensureEmbedModel")
+		qIdx := indexOf(f.callOrder, "start:"+qdrantServiceName)
+		eIdx := indexOf(f.callOrder, "start:"+embedServiceName)
+		if ensureIdx < 0 || qIdx < 0 || eIdx < 0 {
+			t.Fatalf("missing expected events in callOrder = %v", f.callOrder)
+		}
+		if !(ensureIdx < eIdx && qIdx < eIdx) {
+			t.Errorf("ordering wrong: ensure(%d) and qdrant(%d) must precede embed(%d); callOrder = %v", ensureIdx, qIdx, eIdx, f.callOrder)
+		}
+	})
+
+	t.Run("present embed model is not re-pulled", func(t *testing.T) {
+		units, plan := memoryUnits()
+		f := newFakeInstallDeps(t, units, plan, passChecks())
+		f.memoryEnabled = true
+		f.embedPresent = true // already on disk
+
+		cmd, _, _ := installTestCmd()
+		if code := runInstall(cmd, installOpts{}, f.installDeps); code != exitPass {
+			t.Fatalf("exit = %d, want 0", code)
+		}
+		if f.embedEnsureCalls != 0 {
+			t.Errorf("present embed model must not be re-pulled, calls = %d", f.embedEnsureCalls)
+		}
+		if !contains(f.startOrder, qdrantServiceName) || !contains(f.startOrder, embedServiceName) {
+			t.Errorf("memory services must still start, startOrder = %v", f.startOrder)
+		}
+	})
+
+	t.Run("gate off pre-stages and starts nothing", func(t *testing.T) {
+		units, plan := memoryUnits()
+		f := newFakeInstallDeps(t, units, plan, passChecks())
+		f.memoryEnabled = false
+		f.embedPresent = false
+
+		cmd, _, _ := installTestCmd()
+		_ = runInstall(cmd, installOpts{}, f.installDeps)
+		if f.embedEnsureCalls != 0 || f.embedPresentCalls != 0 {
+			t.Errorf("gate off must not touch the embed model (ensure=%d present=%d)", f.embedEnsureCalls, f.embedPresentCalls)
+		}
+		if contains(f.startOrder, qdrantServiceName) || contains(f.startOrder, embedServiceName) {
+			t.Errorf("gate off must not start memory services, startOrder = %v", f.startOrder)
+		}
+	})
+
+	t.Run("dry-run pre-stages and starts nothing", func(t *testing.T) {
+		units, plan := memoryUnits()
+		f := newFakeInstallDeps(t, units, plan, passChecks())
+		f.memoryEnabled = true
+		f.embedPresent = false
+
+		cmd, _, _ := installTestCmd()
+		_ = runInstall(cmd, installOpts{dryRun: true}, f.installDeps)
+		if f.embedEnsureCalls != 0 {
+			t.Errorf("dry-run must not pre-stage, ensureEmbedModel calls = %d", f.embedEnsureCalls)
+		}
+		if f.startCalls != 0 {
+			t.Errorf("dry-run must not start anything, startCalls = %d", f.startCalls)
+		}
+		if f.memoryProofCalls != 0 {
+			t.Errorf("dry-run must not run the proof, proof calls = %d", f.memoryProofCalls)
+		}
+	})
+}
+
+// TestInstallMemoryOnButUnitsAbsentFailsClosed (WR-04): when memory is enabled but the
+// memory .container units are absent from the rendered plan (a hypothetical future
+// render/reconcile bug that drops them), install must NOT attempt to start a service
+// systemd has never seen. It must fail closed (exitBlocked) with a CLEAR internal-error
+// remediation, never a bare "Unit not found", and never call start for the memory
+// services. This locks the "start gate = unit present in the plan" invariant.
+func TestInstallMemoryOnButUnitsAbsentFailsClosed(t *testing.T) {
+	// A plan that has the inference unit (so the install proceeds to the start phase)
+	// but is MISSING the memory units — the exact gap the WR-04 guard catches.
+	units := []orchestrate.Unit{{Name: "villa-llama.container", Text: "[Container]\n"}}
+	plan := orchestrate.Plan{Changed: units}
+	f := newFakeInstallDeps(t, units, plan, passChecks())
+	f.memoryEnabled = true // memory ON, but the plan omits the memory units
+	f.embedPresent = true
+
+	cmd, _, errOut := installTestCmd()
+	code := runInstall(cmd, installOpts{}, f.installDeps)
+	if code != exitBlocked {
+		t.Fatalf("memory-on with absent memory units must fail closed, exit = %d, want exitBlocked (%d)", code, exitBlocked)
+	}
+	// A clear internal-error remediation, naming the absent units — not a bare systemd error.
+	if !strings.Contains(errOut.String(), "INTERNAL ERROR") ||
+		!strings.Contains(errOut.String(), orchestrate.QdrantContainerUnitName()) {
+		t.Errorf("expected a clear internal-error message naming the absent memory units, got:\n%s", errOut.String())
+	}
+	// The memory services must NEVER have been started (the guard fires before start).
+	if contains(f.startOrder, qdrantServiceName) || contains(f.startOrder, embedServiceName) {
+		t.Errorf("memory services must not be started when their units are absent, startOrder = %v", f.startOrder)
+	}
+}
+
+// TestEmbedGGUFFilenameSingleSource asserts the pre-stage Shard filename equals the
+// orchestrate single-source accessor UNCONDITIONALLY (Pitfall 3) — the served `-m` path
+// and the staged file can never drift. No literal fallback, no TODO branch.
+func TestEmbedGGUFFilenameSingleSource(t *testing.T) {
+	if nomicEmbedShard.Filename != orchestrate.EmbedGGUFFilename() {
+		t.Fatalf("embed GGUF filename drift: nomicEmbedShard.Filename = %q, orchestrate.EmbedGGUFFilename() = %q",
+			nomicEmbedShard.Filename, orchestrate.EmbedGGUFFilename())
+	}
+}
+
+// TestNomicShardValues pins the verified integrity values (PRIV-04/D-07): a typo in the
+// size or SHA256 would let an unverified GGUF through, so they are asserted here.
+func TestNomicShardValues(t *testing.T) {
+	if nomicEmbedShard.SizeBytes != 146146432 {
+		t.Errorf("nomicEmbedShard.SizeBytes = %d, want 146146432", nomicEmbedShard.SizeBytes)
+	}
+	if nomicEmbedShard.SHA256 != "3e24342164b3d94991ba9692fdc0dd08e3fd7362e0aacc396a9a5c54a544c3b7" {
+		t.Errorf("nomicEmbedShard.SHA256 = %q, want 3e24342164b3d94991ba9692fdc0dd08e3fd7362e0aacc396a9a5c54a544c3b7", nomicEmbedShard.SHA256)
+	}
+}
+
+// TestLiveEmbedModelPresentSizeGuard (IN-03): the embed-model presence check treats the
+// GGUF as present only when its on-disk size matches nomicEmbedShard.SizeBytes — a
+// truncated/tampered file is NOT trusted (returns false → re-pull + re-verify). A
+// correctly-sized file is present; an absent file is not present.
+func TestLiveEmbedModelPresentSizeGuard(t *testing.T) {
+	t.Run("absent file is not present", func(t *testing.T) {
+		dir := t.TempDir()
+		if liveEmbedModelPresent(dir) {
+			t.Error("an absent embed GGUF must not be reported present")
+		}
+	})
+
+	t.Run("truncated file is not present (integrity guard)", func(t *testing.T) {
+		dir := t.TempDir()
+		// Write a too-short file at the expected path: present on disk but the wrong size.
+		if err := os.WriteFile(embedModelPath(dir), []byte("not the real weight"), 0o600); err != nil {
+			t.Fatalf("seed truncated file: %v", err)
+		}
+		if liveEmbedModelPresent(dir) {
+			t.Error("a truncated/tampered embed GGUF must be treated as NOT present so it is re-pulled (IN-03)")
+		}
+	})
+
+	t.Run("correctly-sized file is present", func(t *testing.T) {
+		dir := t.TempDir()
+		// A sparse file of exactly the expected size — present + correct size → present.
+		f, err := os.Create(embedModelPath(dir))
+		if err != nil {
+			t.Fatalf("create: %v", err)
+		}
+		if err := f.Truncate(int64(nomicEmbedShard.SizeBytes)); err != nil {
+			t.Fatalf("truncate to expected size: %v", err)
+		}
+		if err := f.Close(); err != nil {
+			t.Fatalf("close: %v", err)
+		}
+		if !liveEmbedModelPresent(dir) {
+			t.Error("a correctly-sized embed GGUF must be reported present (no needless re-pull)")
+		}
+	})
+}
+
+// --- Task 2: memory-stack readiness proof tests ------------------------------
+
+// TestInstallMemoryProofPass: a PASS proof verdict leaves the exit code unaffected and
+// prints the "memory stack ready" line.
+func TestInstallMemoryProofPass(t *testing.T) {
+	units, plan := memoryUnits()
+	f := newFakeInstallDeps(t, units, plan, passChecks())
+	f.memoryEnabled = true
+	f.memoryProofStatus = preflight.StatusPass
+	// A distinctive PASS detail so the test can prove install prints the verdict's OWN
+	// detail (IN-02), not a re-typed "768-dim …" literal.
+	f.memoryProofDetail = "768-dim embeddings + Qdrant writable"
+
+	cmd, out, _ := installTestCmd()
+	code := runInstall(cmd, installOpts{}, f.installDeps)
+	if code != exitPass {
+		t.Fatalf("proof-pass exit = %d, want 0", code)
+	}
+	if f.memoryProofCalls != 1 {
+		t.Errorf("proof must run once, calls = %d", f.memoryProofCalls)
+	}
+	if !strings.Contains(out.String(), "memory stack ready") {
+		t.Errorf("a PASS proof must print the ready line, got %q", out.String())
+	}
+	// IN-02: the printed line carries the proof's OWN detail (single-sourced dim), not a
+	// duplicated literal — so a dimension change in the verdict flows through here.
+	if !strings.Contains(out.String(), "memory stack ready: 768-dim embeddings + Qdrant writable") {
+		t.Errorf("a PASS proof must print the verdict's detail, got %q", out.String())
+	}
+	// The proof input must be resolved from the persisted config defaults (768-dim).
+	if f.memoryProofIn.embeddingDim != 768 {
+		t.Errorf("proof input embeddingDim = %d, want 768", f.memoryProofIn.embeddingDim)
+	}
+	if f.memoryProofIn.embedAddr != "villa-embed" || f.memoryProofIn.qdrantAddr != "villa-qdrant" {
+		t.Errorf("proof input addrs = %q/%q, want villa-embed/villa-qdrant", f.memoryProofIn.embedAddr, f.memoryProofIn.qdrantAddr)
+	}
+}
+
+// TestInstallMemoryProofFail: a FAIL proof verdict makes runInstall return exitBlocked
+// and surface the remediation detail (refuse-with-remediation, never a silent skip).
+func TestInstallMemoryProofFail(t *testing.T) {
+	units, plan := memoryUnits()
+	f := newFakeInstallDeps(t, units, plan, passChecks())
+	f.memoryEnabled = true
+	f.memoryProofStatus = preflight.StatusFail
+	f.memoryProofDetail = "the embeddings endpoint did not answer"
+
+	cmd, _, errOut := installTestCmd()
+	code := runInstall(cmd, installOpts{}, f.installDeps)
+	if code != exitBlocked {
+		t.Fatalf("proof-fail exit = %d, want %d (refuse-with-remediation)", code, exitBlocked)
+	}
+	if !strings.Contains(errOut.String(), "the embeddings endpoint did not answer") {
+		t.Errorf("a FAIL proof must surface the remediation detail, got %q", errOut.String())
+	}
+}
+
+// TestInstallMemoryProofSkippedWhenOffOrDryRun: the proof is not invoked when memory is
+// off or under --dry-run.
+func TestInstallMemoryProofSkippedWhenOffOrDryRun(t *testing.T) {
+	t.Run("gate off", func(t *testing.T) {
+		units, plan := memoryUnits()
+		f := newFakeInstallDeps(t, units, plan, passChecks())
+		f.memoryEnabled = false
+
+		cmd, _, _ := installTestCmd()
+		_ = runInstall(cmd, installOpts{}, f.installDeps)
+		if f.memoryProofCalls != 0 {
+			t.Errorf("gate off must not run the proof, calls = %d", f.memoryProofCalls)
+		}
+	})
+	t.Run("dry-run", func(t *testing.T) {
+		units, plan := memoryUnits()
+		f := newFakeInstallDeps(t, units, plan, passChecks())
+		f.memoryEnabled = true
+
+		cmd, _, _ := installTestCmd()
+		_ = runInstall(cmd, installOpts{dryRun: true}, f.installDeps)
+		if f.memoryProofCalls != 0 {
+			t.Errorf("dry-run must not run the proof, calls = %d", f.memoryProofCalls)
+		}
+	})
+}
+
+// TestEvalMemoryProof table-drives the PURE proof core over the four outcomes.
+func TestEvalMemoryProof(t *testing.T) {
+	const wantDim = 768
+	cases := []struct {
+		name       string
+		embedDim   int
+		embedErr   error
+		writable   bool
+		qdrantErr  error
+		wantStatus preflight.Status
+	}{
+		{"embed ok + qdrant writable", wantDim, nil, true, nil, preflight.StatusPass},
+		{"wrong dim", 256, nil, true, nil, preflight.StatusFail},
+		{"embed err", 0, errors.New("connection refused"), true, nil, preflight.StatusFail},
+		{"qdrant not writable", wantDim, nil, false, nil, preflight.StatusFail},
+		{"qdrant err", wantDim, nil, false, errors.New("readyz 503"), preflight.StatusFail},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			embedProbe := func() (int, error) { return tc.embedDim, tc.embedErr }
+			qdrantProbe := func() (bool, error) { return tc.writable, tc.qdrantErr }
+			got := evalMemoryProof(context.Background(), embedProbe, qdrantProbe, wantDim)
+			if got.status != tc.wantStatus {
+				t.Errorf("status = %v, want %v (detail %q)", got.status, tc.wantStatus, got.detail)
+			}
+			if tc.wantStatus == preflight.StatusFail && got.detail == "" {
+				t.Errorf("a FAIL verdict must carry a remediation detail")
+			}
+		})
+	}
+}
+
+// TestQdrantWritableProbeIdempotent (WR-03): a pre-existing villa-probe collection from
+// an interrupted prior run must NOT make the writable proof FAIL. The probe issues a
+// best-effort DELETE before the PUT-create, so a fake curl runner that fails a PUT against
+// an existing collection (unless a DELETE preceded it) must yield writable=true, not an
+// error. It also locks the no-leftover guarantee (a closing DELETE runs) and the clean-
+// store case (no stale collection → still passes).
+func TestQdrantWritableProbeIdempotent(t *testing.T) {
+	const base = "http://villa-qdrant:6333"
+	coll := base + "/collections/" + villaProbeCollection
+
+	t.Run("stale leftover collection does not cause a FAIL", func(t *testing.T) {
+		// exists models a leftover probe collection: a PUT-create while it exists is a
+		// non-2xx (curl -sf error); only after a DELETE does the PUT succeed.
+		exists := true
+		var calls []string
+		curl := func(args ...string) ([]byte, error) {
+			// Reconstruct a coarse "METHOD path" signature from the fixed-arg call.
+			method, path := "GET", args[len(args)-1]
+			for i, a := range args {
+				if a == "-X" && i+1 < len(args) {
+					method = args[i+1]
+				}
+			}
+			// The PUT/DELETE target is the coll arg (the token right after the method).
+			for i, a := range args {
+				if a == "-X" && i+2 < len(args) {
+					path = args[i+2]
+				}
+			}
+			calls = append(calls, method+" "+path)
+			switch {
+			case method == "GET" && path == base+"/readyz":
+				return []byte("ok"), nil
+			case method == "DELETE" && path == coll:
+				exists = false
+				return []byte("{}"), nil
+			case method == "PUT" && path == coll:
+				if exists {
+					return nil, errors.New("409 Conflict: collection already exists")
+				}
+				return []byte("{}"), nil
+			default:
+				return []byte("{}"), nil
+			}
+		}
+
+		writable, err := qdrantWritableProbe(curl, base, 768)
+		if err != nil {
+			t.Fatalf("a leftover probe collection must not FAIL the writable proof, got err: %v\ncalls: %v", err, calls)
+		}
+		if !writable {
+			t.Fatalf("writable = false, want true (the create succeeded after the pre-DELETE)\ncalls: %v", calls)
+		}
+		// The pre-DELETE must precede the PUT (the idempotency ordering, WR-03).
+		delIdx, putIdx := indexOf(calls, "DELETE "+coll), indexOf(calls, "PUT "+coll)
+		if delIdx < 0 || putIdx < 0 || delIdx >= putIdx {
+			t.Errorf("expected a DELETE before the PUT-create, got call order %v", calls)
+		}
+	})
+
+	t.Run("clean store still proves writable", func(t *testing.T) {
+		curl := func(args ...string) ([]byte, error) { return []byte("{}"), nil }
+		writable, err := qdrantWritableProbe(curl, base, 768)
+		if err != nil || !writable {
+			t.Fatalf("clean-store probe must pass, got writable=%v err=%v", writable, err)
+		}
+	})
+
+	t.Run("readyz failure FAILs", func(t *testing.T) {
+		curl := func(args ...string) ([]byte, error) {
+			if args[len(args)-1] == base+"/readyz" {
+				return nil, errors.New("connection refused")
+			}
+			return []byte("{}"), nil
+		}
+		if _, err := qdrantWritableProbe(curl, base, 768); err == nil {
+			t.Fatal("a /readyz failure must surface an error")
+		}
+	})
+}
+
+// indexOf returns the first index of v in s, or -1.
+func indexOf(s []string, v string) int {
+	for i, x := range s {
+		if x == v {
+			return i
+		}
+	}
+	return -1
+}
+
+// TestInstallMemoryGateRefusesUnfitHost is the CTRL-06 install half: an opted-in
+// install whose memory host-fitness gate reports a confident shortage refuses-
+// with-remediation (exitBlocked) BEFORE bringing up the memory stack — zero host
+// mutation. With memory off the gate seam never fires (D-06: the memory-off
+// install path is byte-identical).
+func TestInstallMemoryGateRefusesUnfitHost(t *testing.T) {
+	units := []orchestrate.Unit{{Name: "villa-llama.container", Text: "[Container]\n"}}
+	plan := orchestrate.Plan{Changed: units}
+
+	memDiskFail := preflight.CheckResult{
+		ID: "MEM-PRE-disk", Name: "Vector-index disk space",
+		Tier: preflight.TierBlock, Status: preflight.StatusFail,
+		Detail:      `free disk 0.50 GiB at "/volroot" < required floor 1.00 GiB for the vector index`,
+		Remediation: `Free up disk under "/volroot" — the Qdrant vector index lives there and grows with indexed chats/documents; or disable memory_enabled in config.toml.`,
+	}
+
+	t.Run("memory-on unfit host refuses before any mutation", func(t *testing.T) {
+		f := newFakeInstallDeps(t, units, plan, passChecks())
+		f.memoryEnabled = true
+		gateCalls := 0
+		f.installDeps.runMemoryChecks = func(detect.HostProfile) []preflight.CheckResult {
+			gateCalls++
+			return []preflight.CheckResult{memDiskFail}
+		}
+
+		cmd, _, _ := installTestCmd()
+		code := runInstall(cmd, installOpts{}, f.installDeps)
+		if code != exitBlocked {
+			t.Fatalf("unfit memory host exit = %d, want exitBlocked (%d)", code, exitBlocked)
+		}
+		if gateCalls != 1 {
+			t.Errorf("memory gate must run exactly once, ran %d times", gateCalls)
+		}
+		// Refused BEFORE the stack comes up: nothing written, started, pulled, or
+		// persisted — and the memory pre-stage/proof seams never fired.
+		if f.writeCalls != 0 || f.startCalls != 0 || f.pullCalls != 0 || f.saveCalls != 0 {
+			t.Errorf("a blocked memory install must not mutate: write=%d start=%d pull=%d save=%d",
+				f.writeCalls, f.startCalls, f.pullCalls, f.saveCalls)
+		}
+		if f.embedEnsureCalls != 0 || f.memoryProofCalls != 0 {
+			t.Errorf("memory stack must not come up after a gate refusal: embedEnsure=%d proof=%d",
+				f.embedEnsureCalls, f.memoryProofCalls)
+		}
+	})
+
+	t.Run("memory-off install never invokes the gate", func(t *testing.T) {
+		f := newFakeInstallDeps(t, units, plan, passChecks())
+		f.installDeps.runMemoryChecks = func(detect.HostProfile) []preflight.CheckResult {
+			t.Error("memory-off install must NOT run the memory host-fitness gate")
+			return nil
+		}
+
+		cmd, _, _ := installTestCmd()
+		code := runInstall(cmd, installOpts{}, f.installDeps)
+		if code == exitBlocked {
+			t.Fatalf("memory-off install must not be blocked by the memory gate, exit = %d", code)
+		}
+	})
 }

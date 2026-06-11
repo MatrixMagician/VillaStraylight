@@ -119,6 +119,23 @@ func TestDoctorExitCodes(t *testing.T) {
 	}
 }
 
+// TestDoctorUnknownOverallFailsClosed (phase-22 WR-04): an unrecognized/empty Overall
+// (a future Aggregate bug, a hand-built Report, a JSON-roundtripped fixture) must map
+// to exitBlocked — for a health-verdict command, defaulting to "healthy" is the wrong
+// defensive direction (mirrors renderInference's fail-closed default).
+func TestDoctorUnknownOverallFailsClosed(t *testing.T) {
+	for _, overall := range []string{"", "bogus", "pass"} {
+		var buf bytes.Buffer
+		code := renderDoctor(&buf, doctor.Report{Overall: overall, SchemaVersion: 1}, false, false)
+		if code != exitBlocked {
+			t.Errorf("Overall=%q mapped to exit %d, want %d (unknown verdict is never healthy)", overall, code, exitBlocked)
+		}
+		if !bytes.Contains(buf.Bytes(), []byte("unrecognized overall verdict")) {
+			t.Errorf("Overall=%q output should explain the fail-closed mapping, got:\n%s", overall, buf.String())
+		}
+	}
+}
+
 // TestDoctorJSON freezes doctor's OWN --json contract (D-02/D-09) byte-for-byte. The
 // golden MUST carry "schema_version": 1. doctor never extends status.Report's golden.
 func TestDoctorJSON(t *testing.T) {
@@ -128,6 +145,129 @@ func TestDoctorJSON(t *testing.T) {
 		t.Errorf("--json output must carry schema_version 1, got:\n%s", buf.String())
 	}
 	assertGolden(t, "doctor.json.golden", buf.Bytes())
+}
+
+// memoryHealthyReport is the healthy MEMORY-ON shape (Phase-23 v3 classification,
+// Plan 23-01): memory checks PASS, the under-load residency proof PASS, and the two
+// memory services carrying ONLY their per-service health findings — no offload
+// findings exist for them (the status fold reports OffloadApplies=false non-GPU
+// rows, so doctor's offloadFinding gate never fires) — Overall=="PASS" → exit 0.
+// The fixture mirrors what doctor.Aggregate emits on a healthy memory-on stack;
+// findings are data, not schema, so SchemaVersion stays 1.
+func memoryHealthyReport() doctor.Report {
+	return doctor.Report{
+		Findings: []doctor.Finding{
+			{ID: "PRE-01", Name: "Vulkan ICD + iGPU enumeration", Tier: "BLOCK", Status: "PASS", Detail: "RADV ICD present; 2 /dev/dri node(s)", Provenance: "icd; /dev/dri"},
+			{ID: "MEM-PRE-disk", Name: "Vector-index disk space", Tier: "BLOCK", Status: "PASS", Detail: "free disk 469.22 GiB ≥ 1.00 GiB at the podman volume root", Provenance: "syscall.Statfs"},
+			{ID: "MEM-PRE-headroom", Name: "Embedder memory headroom", Tier: "BLOCK", Status: "PASS", Detail: "free memory 76.67 GiB ≥ embedding reservation 0.50 GiB", Provenance: "/proc/meminfo MemAvailable"},
+			{ID: "health:villa-llama.service", Name: "villa-llama.service health", Tier: "WARN", Status: "PASS", Detail: "/health is ready (200)", Provenance: "status.Report.Services[].Health"},
+			{ID: "offload:villa-llama.service", Name: "villa-llama.service GPU offload", Tier: "BLOCK", Status: "PASS", Detail: "residency proven on Vulkan; GTT floor corroborated", Provenance: "status.Report.Services[].Offload (inference.RunningOffloadVerdict)"},
+			{ID: "health:villa-qdrant.service", Name: "villa-qdrant.service health", Tier: "WARN", Status: "PASS", Detail: "/health is ready (200)", Provenance: "status.Report.Services[].Health"},
+			{ID: "health:villa-embed.service", Name: "villa-embed.service health", Tier: "WARN", Status: "PASS", Detail: "/health is ready (200)", Provenance: "status.Report.Services[].Health"},
+			{ID: "MEM-DOC-residency", Name: "Chat-model residency under embedding load", Tier: "BLOCK", Status: "PASS", Detail: "chat-model device buffer 21504.49 MiB resident on the iGPU; GTT-used floor corroborated mid-drive", Provenance: "embed-load drive + inference.RunningOffloadVerdict"},
+			{ID: "drift", Name: "Config-vs-disk drift", Tier: "WARN", Status: "PASS", Detail: "on-disk units match the rendered-from-config units", Provenance: "orchestrate.Reconcile (empty Plan.Changed)"},
+		},
+		Overall:       "PASS",
+		SchemaVersion: 1,
+	}
+}
+
+// memoryResidencyFailReport flips the under-load proof to a confident CPU-fallback
+// FAIL (D-09): MEM-DOC-residency becomes a BLOCK-class FAIL with remediation and
+// Overall=="FAIL" → exitBlocked.
+func memoryResidencyFailReport() doctor.Report {
+	r := memoryHealthyReport()
+	for i := range r.Findings {
+		if r.Findings[i].ID == "MEM-DOC-residency" {
+			r.Findings[i].Status = "FAIL"
+			r.Findings[i].Detail = "only a CPU model buffer was loaded — the chat model fell back to CPU under embedding load"
+			r.Findings[i].Remediation = "the chat model fell back to CPU under embedding load — check the backend (`villa backend set`) and `villa logs`"
+		}
+	}
+	r.Overall = "FAIL"
+	return r
+}
+
+// TestDoctorMemoryRender freezes the memory-on render shapes (re-frozen in Plan 23-01
+// with the v3 classification: memory services emit health findings only, no offload
+// findings): a healthy memory-on report (Overall PASS → exit 0) and a confident
+// under-load residency FAIL (Overall FAIL → exitBlocked). The memory-off doctor
+// goldens are untouched (memory-off byte-identical).
+func TestDoctorMemoryRender(t *testing.T) {
+	tests := []struct {
+		name     string
+		report   doctor.Report
+		wantCode int
+		golden   string
+	}{
+		{"memory-healthy", memoryHealthyReport(), exitPass, "doctor-memory-pass.golden"},
+		{"memory-residency-fail", memoryResidencyFailReport(), exitBlocked, "doctor-memory-residency-fail.golden"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			code := renderDoctor(&buf, tc.report, false, false)
+			if code != tc.wantCode {
+				t.Errorf("exit code = %d, want %d", code, tc.wantCode)
+			}
+			assertGolden(t, tc.golden, buf.Bytes())
+		})
+	}
+}
+
+// TestDoctorMemoryJSON freezes the ADDITIVE memory-on --json shape: the memory
+// findings flow through the unchanged doctor Report contract (findings are data, not
+// schema — schema_version stays 1). NEW golden; doctor.json.golden is untouched.
+func TestDoctorMemoryJSON(t *testing.T) {
+	var buf bytes.Buffer
+	renderDoctor(&buf, memoryHealthyReport(), true, false)
+	if !bytes.Contains(buf.Bytes(), []byte(`"schema_version": 1`)) {
+		t.Errorf("--json output must carry schema_version 1, got:\n%s", buf.String())
+	}
+	assertGolden(t, "doctor-memory.json.golden", buf.Bytes())
+}
+
+// TestLiveDoctorDepsWiresMemorySeams asserts liveDoctorDeps binds the memory seams
+// ONLY when the persisted memory_enabled is true (D-08/D-09, mirror D-06): memory
+// off (absent config) → both nil so the memory-off doctor output is byte-identical;
+// memory on → both bound. (The old MemoryEnabled/MemoryServices wiring assertions
+// were removed with the doctor offload down-rank — Plan 23-01.) It inspects only
+// the constructed Deps fields — it never invokes the live host probes.
+func TestLiveDoctorDepsWiresMemorySeams(t *testing.T) {
+	cases := []struct {
+		name      string
+		memoryOn  bool
+		wantBound bool
+	}{
+		{"memory-off-default", false, false},
+		{"memory-on", true, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfgBase := t.TempDir()
+			t.Setenv("XDG_CONFIG_HOME", cfgBase)
+			if tc.memoryOn {
+				dir := filepath.Join(cfgBase, "villa")
+				if err := os.MkdirAll(dir, 0o700); err != nil {
+					t.Fatalf("mkdir config dir: %v", err)
+				}
+				if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte("memory_enabled = true\n"), 0o600); err != nil {
+					t.Fatalf("write config: %v", err)
+				}
+			}
+
+			d, err := liveDoctorDeps()
+			if err != nil {
+				t.Fatalf("liveDoctorDeps() error = %v", err)
+			}
+			if got := d.RunMemoryChecks != nil; got != tc.wantBound {
+				t.Errorf("RunMemoryChecks non-nil = %v, want %v", got, tc.wantBound)
+			}
+			if got := d.ResidencyUnderLoad != nil; got != tc.wantBound {
+				t.Errorf("ResidencyUnderLoad non-nil = %v, want %v", got, tc.wantBound)
+			}
+		})
+	}
 }
 
 // TestLiveDoctorDepsWiresRunROCmImage closes the silently-nil hole in the Option-B

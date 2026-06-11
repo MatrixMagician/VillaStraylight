@@ -1,0 +1,17 @@
+# ~/.config/containers/systemd/villa-embed.container  (GENERATED — do not edit; source: config.toml)
+[Unit]
+Description=VillaStraylight embeddings (llama-server /v1/embeddings)
+After=villa-network.service
+
+[Container]
+ContainerName={{.ContainerName}}
+Image={{.Image}}
+Network={{.Network}}
+Volume={{.Volume}}
+Exec={{.Exec}}
+
+[Service]
+Restart=on-failure
+
+[Install]
+WantedBy=default.target

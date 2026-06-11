@@ -8,6 +8,7 @@ import (
 	"text/template"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/inference"
+	"github.com/MatrixMagician/VillaStraylight/internal/memory"
 )
 
 // render.go is a PURE renderer (no filesystem, no systemctl) in the same sense as
@@ -121,7 +122,14 @@ func Render(in RenderInput) ([]Unit, error) {
 	// parseContainerArgs would trip that helper's defensive all-fields-non-empty check
 	// (Open WebUI has no device/group/exec args). The owui view reuses networkAttach so
 	// it joins villa.network unchanged — the Phase-3 forward-compat scaffold pays off.
-	owuiContainerText, err := execTemplate(tmpl, "openwebui.container.tmpl", buildOpenWebUIView())
+	//
+	// Phase-20 (D-04): Open WebUI is now memory-aware. The OWUI env block grows only
+	// when memory_enabled=true — the D-09 RAG/Qdrant/memory group is appended from the
+	// resolved render-view (mv); with memory off the unit is byte-identical to the v1.2
+	// golden. mv is computed ONCE here (memory.RenderView is pure, cheap, identical) and
+	// reused by the memory-stack branch below.
+	mv := memory.RenderView(in.Cfg) // D-11 resolved-values handoff (Phase-18 spine)
+	owuiContainerText, err := execTemplate(tmpl, "openwebui.container.tmpl", buildOpenWebUIView(mv, in.Cfg.MemoryEnabled))
 	if err != nil {
 		return nil, err
 	}
@@ -132,13 +140,58 @@ func Render(in RenderInput) ([]Unit, error) {
 
 	// Fixed deterministic emit order (callers + goldens depend on it):
 	// container, network, models-volume, openwebui-container, openwebui-volume.
-	return []Unit{
+	units := []Unit{
 		{Name: containerUnitName, Text: containerText},
 		{Name: networkUnitName, Text: networkText},
 		{Name: volumeUnitName, Text: volumeText},
 		{Name: openWebUIContainerUnitName, Text: owuiContainerText},
 		{Name: openWebUIVolumeUnitName, Text: owuiVolumeText},
-	}, nil
+	}
+
+	// v1.3 memory stack (D-11): the two new managed services + the durable Qdrant
+	// volume are appended ONLY when memory_enabled=true. With memory off this branch is
+	// skipped and the returned slice is byte-identical to the v1.2 5-unit output (the 5
+	// existing goldens stay unchanged — Phase-18 SC#1 continuity). Like Open WebUI, the
+	// villa-qdrant / villa-embed views are a dedicated managed-service render path
+	// (memory.go) and BYPASS parseContainerArgs (Pitfall 4: no GPU device/group/exec
+	// args for that helper's defensive all-fields-non-empty check). memory.RenderView
+	// is the D-11 resolved-values-only handoff (model id, dim, addr/port PIECES; no
+	// image literal — orchestrate owns the image consts). The memory units render
+	// their container-DNS identity (mv.QdrantAddr / mv.EmbedAddr) and the served
+	// embed --port (mv.EmbedPort) FROM these resolved config values — config is the
+	// single source of truth (WR-01), so the units can never silently diverge from
+	// what the readiness proof probes (which also reads cfg). EmbeddingDim/
+	// EmbeddingModel are NOT rendered into any unit (the Qdrant collection dim is an
+	// OWUI-runtime concern, not a unit field); their single source stays config,
+	// consumed by the proof + Phase 23.
+	if in.Cfg.MemoryEnabled {
+		// mv is the hoisted render-view computed once above (Phase-20 D-04); reused
+		// here so memory.RenderView runs exactly once per Render.
+		qdrantContainerText, err := execTemplate(tmpl, "qdrant.container.tmpl", buildQdrantView(mv.QdrantAddr))
+		if err != nil {
+			return nil, err
+		}
+		qdrantVolumeText, err := execTemplate(tmpl, "qdrant.volume.tmpl", buildQdrantVolumeView())
+		if err != nil {
+			return nil, err
+		}
+		// The served GGUF `-m` path binds the single-source embedGGUFFilename const
+		// (surfaced via the exported EmbedGGUFFilename() that Plan 19-02's drift test
+		// binds — Pitfall 3) so it can never drift from the pre-staged Shard.Filename.
+		// The container-DNS name (mv.EmbedAddr) and the served /v1 --port (mv.EmbedPort)
+		// come from the resolved config (WR-01) so they match the proof's probe target.
+		embedContainerText, err := execTemplate(tmpl, "embed.container.tmpl", buildEmbedView(embedGGUFFilename, mv.EmbedAddr, mv.EmbedPort))
+		if err != nil {
+			return nil, err
+		}
+		units = append(units,
+			Unit{Name: qdrantContainerUnitName, Text: qdrantContainerText},
+			Unit{Name: qdrantVolumeUnitName, Text: qdrantVolumeText},
+			Unit{Name: embedContainerUnitName, Text: embedContainerText},
+		)
+	}
+
+	return units, nil
 }
 
 // parseContainerArgs maps the proven `podman run` argument slice into Quadlet keys.

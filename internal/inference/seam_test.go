@@ -91,7 +91,15 @@ func TestSeamGrepGate(t *testing.T) {
 	// The seam: paths allowed to hold these imperative literals.
 	isSeam := func(rel string) bool {
 		rel = filepath.ToSlash(rel)
-		return strings.HasPrefix(rel, "inference/") || rel == "detect/gpu_amd.go"
+		// orchestrate/memory.go (Phase-19 D-10): the villa-qdrant + villa-embed
+		// MANAGED-SERVICE image literals (docker.io/qdrant/…, docker.io/kyuz0/… == the
+		// embed image) live here, the SAME category as openWebUIImage — NOT a
+		// GPU-backend token. The two docker.io/ literals would trip the "container
+		// image literal" regex without this allowlist; it is extended in the SAME
+		// commit as the consts, mirroring the 12-02 ROCm-tag same-commit precedent.
+		return strings.HasPrefix(rel, "inference/") ||
+			rel == "detect/gpu_amd.go" ||
+			rel == "orchestrate/memory.go"
 	}
 
 	err := filepath.Walk(internalRoot, func(path string, info os.FileInfo, err error) error {

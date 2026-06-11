@@ -33,8 +33,10 @@ func fixtureRecommendation() recommend.Recommendation {
 		// SchemaVersion surfaces unconditionally in --json (D-06/D-07). The fixture
 		// builds the struct directly (it does not call Pick), so it pins the contract
 		// version explicitly; advice fields stay empty (no readiness fixture) and so
-		// remain absent under omitempty — a pure tail-addition to the golden.
-		SchemaVersion: 1,
+		// remain absent under omitempty. Schema 2 (Phase 22, D-03): the append-only
+		// embedding_reservation_bytes + memory_considered keys surface as zero/false
+		// here — the memory-off contract shape.
+		SchemaVersion: 2,
 	}
 }
 

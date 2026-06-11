@@ -140,6 +140,19 @@ type Deps struct {
 	// nil (e.g. the newDoctorDeps test double, or a non-ROCm backend), Aggregate falls
 	// back to preflight.RunROCm(profile) exactly as before.
 	RunROCmImage func(detect.HostProfile) []preflight.CheckResult
+	// RunMemoryChecks is the opt-in memory host gate (preflight.RunMemory bound by
+	// the cmd tier — D-08, composition over re-implementation): the vector-disk +
+	// embedder-headroom CheckResults are folded via findingFromCheck and ranked
+	// worst-wins exactly like every other check. NIL-SAFE: when nil (memory off)
+	// no memory check finding is emitted and output stays byte-identical.
+	RunMemoryChecks func(detect.HostProfile) []preflight.CheckResult
+	// ResidencyUnderLoad is the chat-model residency-under-embedding-load proof
+	// (D-09): the cmd tier drives a REAL /v1/embeddings workload and samples the
+	// chat model's GTT/journal residency MID-DRIVE, returning the Verdict consumed
+	// OPAQUELY here (Status/Detail/Remediation only — seam-clean). NIL-SAFE: when
+	// nil (memory off) NO MEM-DOC-residency finding is emitted at all — never a
+	// PASS-by-default (no-false-green, D-09/D-10).
+	ResidencyUnderLoad func() inference.Verdict
 }
 
 // statusOrder maps the doctor status vocabulary to a worst-wins rank (PASS<WARN<FAIL).
@@ -190,35 +203,77 @@ func Aggregate(d Deps) Report {
 		findings = append(findings, findingFromCheck(c))
 	}
 
+	// 1b. MEMORY HOST GATE (D-08): fold the opt-in vector-disk/headroom checks
+	// (preflight.RunMemory, bound by the cmd tier) verbatim via findingFromCheck —
+	// no new aggregation logic; they rank worst-wins like every other check. A nil
+	// seam (memory off) emits nothing, keeping the off path byte-identical.
+	if d.RunMemoryChecks != nil {
+		for _, c := range d.RunMemoryChecks(profile) {
+			findings = append(findings, findingFromCheck(c))
+		}
+	}
+
 	// 2. RUNNING-STACK HEALTH — fold the status read-model. A confident offload FAIL
 	// becomes a BLOCK-class FAIL that DOMINATES a HealthReady (Pitfall 3 / D-05); a
 	// HealthDown / unevaluable signal degrades to a typed-Unknown WARN (D-06/D-08).
-	report := d.StatusReport()
-	if !report.LoopbackOnly {
-		findings = append(findings, Finding{
-			ID:          "loopback",
-			Name:        "Loopback-only bind",
-			Tier:        tierBlock,
-			Status:      statusFail,
-			Detail:      "a published port binds a non-loopback address (privacy breach, PRIV-01)",
-			Remediation: "re-run `villa install` to regenerate loopback-only units, then `villa down && villa up`",
-			Provenance:  "status.Report.LoopbackOnly",
-		})
-	}
+	//
 	// rocmResidencyProven keys the residency-supersession step (4a) below: it is true
 	// only when the configured backend is ROCm-family AND some service has OffloadApplies
 	// AND its offload Verdict is a CONFIDENT StatusPass. Gating on OffloadApplies (not just
 	// the Status) is load-bearing: StatusPass is iota 0, so a zero-value Verdict on a
 	// non-offload service must NEVER spuriously prove residency.
 	rocmResidencyProven := false
-	for _, s := range report.Services {
-		findings = append(findings, healthFinding(s))
-		if s.OffloadApplies {
-			findings = append(findings, offloadFinding(s))
-			if inference.IsROCmFamily(d.Backend) && s.Offload.Status == inference.StatusPass {
-				rocmResidencyProven = true
+	report := d.StatusReport()
+	if err := report.Err(); err != nil {
+		// 2-pre. ERRORED READ-MODEL (phase-22 CR-01): status.Run returns an errored
+		// ZERO-VALUE Report (LoopbackOnly=false, no Services) on any internal failure —
+		// config load, ModelFile resolution, BackendFor, Render. That zero value is an
+		// UNEVALUABLE signal, not an observation: folding it would FABRICATE a confident
+		// loopback "privacy breach" BLOCK FAIL on (e.g.) a never-installed host whose
+		// cfg.Model is absent from the catalog — the exact failure mode the typed-Unknown
+		// discipline forbids ("never a FAIL fabricated from a signal that could not be
+		// evaluated"). Degrade to ONE typed-Unknown WARN carrying the real cause and fold
+		// NEITHER LoopbackOnly NOR Services (there is nothing evaluable to fold).
+		findings = append(findings, Finding{
+			ID:          "stack",
+			Name:        "Running-stack read-model",
+			Tier:        tierWarn,
+			Status:      statusWarn,
+			Detail:      "the running-stack state could not be evaluated: " + err.Error(),
+			Remediation: "fix the reported condition (check config.toml and `villa status`), then re-run `villa doctor`",
+			Provenance:  "status.Run error",
+			Raw:         err.Error(),
+		})
+	} else {
+		if !report.LoopbackOnly {
+			findings = append(findings, Finding{
+				ID:          "loopback",
+				Name:        "Loopback-only bind",
+				Tier:        tierBlock,
+				Status:      statusFail,
+				Detail:      "a published port binds a non-loopback address (privacy breach, PRIV-01)",
+				Remediation: "re-run `villa install` to regenerate loopback-only units, then `villa down && villa up`",
+				Provenance:  "status.Report.LoopbackOnly",
+			})
+		}
+		for _, s := range report.Services {
+			findings = append(findings, healthFinding(s))
+			if s.OffloadApplies {
+				findings = append(findings, offloadFinding(s))
+				if inference.IsROCmFamily(d.Backend) && s.Offload.Status == inference.StatusPass {
+					rocmResidencyProven = true
+				}
 			}
 		}
+	}
+
+	// 2b. RESIDENCY UNDER EMBEDDING LOAD (D-09): the chat model must SURVIVE a real
+	// embedding workload — a silent eviction to CPU under import load is the exact
+	// false-green this phase exists to catch. The proof seam is nil when memory is
+	// off: no finding is emitted at all (never a PASS-by-default). The Verdict is
+	// consumed opaquely via the offloadFinding precedent below.
+	if d.ResidencyUnderLoad != nil {
+		findings = append(findings, residencyUnderLoadFinding(d.ResidencyUnderLoad()))
 	}
 
 	// 3. DRIFT — config-vs-disk drift is independent of running-stack health: even a
@@ -284,6 +339,14 @@ func Aggregate(d Deps) Report {
 	superseded := func(f Finding) bool {
 		return rocmResidencyProven && f.Status == statusWarn && supersededROCmHostPrepID(f.ID)
 	}
+	// (Historical 4b: a MEMORY-SERVICE OFFLOAD DOWN-RANK predicate lived here while
+	// the status fold mis-classified villa-qdrant/villa-embed as GPU rows carrying a
+	// typed-Unknown offload WARN. Phase 23 (Plan 23-01) fixed the classification at
+	// the source: memory rows are OffloadApplies=false in status.Run, so the
+	// offloadFinding gate above (`if s.OffloadApplies`) never creates an
+	// offload:<memory-svc> finding and the down-rank was unreachable dead code —
+	// deleted, together with the MemoryEnabled/MemoryServices Deps fields that
+	// existed only to key it.)
 	worst := 0
 	for _, f := range findings {
 		if superseded(f) {
@@ -379,6 +442,38 @@ func offloadFinding(s status.ServiceStatus) Finding {
 		f.Tier = tierWarn
 		f.Status = statusWarn
 		f.Remediation = nonEmpty(v.Remediation, "offload could not be verified — ensure the stack is running, then re-run `villa doctor`")
+	}
+	return f
+}
+
+// residencyUnderLoadFinding maps the chat-model residency-under-embedding-load proof
+// Verdict (consumed OPAQUELY — Status/Detail/Remediation only, seam-clean) into a
+// doctor Finding, copying offloadFinding's switch (D-09): a confident CPU fallback
+// under embedding load is a BLOCK-class FAIL (the silent-degradation fault this
+// finding exists to catch); an unevaluable proof (stack down, scrape failed, drive
+// could not complete) degrades to a typed-Unknown WARN — NEVER a false-green PASS.
+// Emitted only when Deps.ResidencyUnderLoad is non-nil (nil → no finding at all).
+func residencyUnderLoadFinding(v inference.Verdict) Finding {
+	f := Finding{
+		ID:         "MEM-DOC-residency",
+		Name:       "Chat-model residency under embedding load",
+		Detail:     v.Detail,
+		Provenance: "embed-load drive + inference.RunningOffloadVerdict",
+	}
+	switch v.Status {
+	case inference.StatusPass:
+		f.Tier = tierBlock
+		f.Status = statusPass
+	case inference.StatusFail:
+		// Confident CPU fallback of the CHAT model under embedding load = a real
+		// fault (BLOCK FAIL) — never a false-green over a healthy-looking stack.
+		f.Tier = tierBlock
+		f.Status = statusFail
+		f.Remediation = nonEmpty(v.Remediation, "the chat model fell back to CPU under embedding load — check the backend (`villa backend set`) and `villa logs`")
+	default: // StatusWarn — residency under load could not be EVALUATED
+		f.Tier = tierWarn
+		f.Status = statusWarn
+		f.Remediation = nonEmpty(v.Remediation, "could not evaluate residency under embedding load — ensure the stack is running, then re-run `villa doctor`")
 	}
 	return f
 }

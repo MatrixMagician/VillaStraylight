@@ -18,6 +18,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 	"github.com/MatrixMagician/VillaStraylight/internal/preflight"
+	"github.com/MatrixMagician/VillaStraylight/internal/recall"
 	"github.com/MatrixMagician/VillaStraylight/internal/recommend"
 )
 
@@ -150,6 +151,54 @@ type installDeps struct {
 	consent     func(prompt string) bool
 	pollReady   func(ctx context.Context, endpoint string) installReadiness
 
+	// Memory-stack seams (Phase-19 / D-04/D-07, INFRA-02/PRIV-04). All gated on the
+	// PERSISTED memory_enabled (loadedMemoryEnabled), skipped under --dry-run.
+	//
+	// loadedConfig returns the PERSISTED config.LoadVilla() (fail-soft to typed
+	// defaults on a load error). runInstall SEEDS cfg from this instead of
+	// DefaultVillaConfig(), then overrides ONLY the recommendation-derived fields
+	// (Model/Quant/Ctx/Backend) and the MemoryEnabled gate — so a user's persisted
+	// memory fields (qdrant_addr/port, embed_addr/port, embedding_model/dim) and the
+	// dashboard/chat fields are PRESERVED through saveConfig, never silently reset to
+	// seed defaults on every install (WR-02). LoadVilla self-heals zeroed dashboard/
+	// chat fields, so seeding from it keeps the gap-test:1b loopback-default guarantee
+	// while honoring any persisted customization.
+	loadedConfig func() config.VillaConfig
+	// loadedMemoryEnabled returns the AUTHORITATIVE gate value: the persisted
+	// config.LoadVilla().MemoryEnabled (fail-soft to false on a load error). It is
+	// threaded into runInstall to set cfg.MemoryEnabled, REPLACING the always-false
+	// DefaultVillaConfig() seed as the memory gate source — so an opted-in user's memory
+	// stack is never silently skipped (T-19-16). This is the one seam the whole memory
+	// path keys off; binding it to the seed's hard-coded false would be the silent-failure
+	// bug this plan exists to prevent.
+	loadedMemoryEnabled func() bool
+	// embedModelPresent reports whether the pre-staged embed GGUF is already on disk
+	// (the ensureEmbedModel idempotency guard — a present file is never re-pulled).
+	embedModelPresent func(modelsDir string) bool
+	// ensureEmbedModel pre-stages the nomic embed GGUF into modelsDir via the verified
+	// download path (D-07), invoked only when memory is on, not dry-run, and absent.
+	ensureEmbedModel func(modelsDir string) error
+	// memoryProofFn asserts the memory stack is healthy: an offline 768-dim
+	// /v1/embeddings vector AND a Qdrant writable round-trip. A FAIL refuses-with-
+	// remediation (exitBlocked), never a silent skip (D-09). Invoked only when memory
+	// is on and not dry-run.
+	memoryProofFn func(ctx context.Context, in memoryProofInput) memoryProof
+	// runMemoryChecks returns the opt-in memory-stack host-fitness gates
+	// (MEM-PRE-disk vector-index disk + MEM-PRE-headroom embedder headroom,
+	// CTRL-06/D-06) appended to the preflight checks when loadedMemoryEnabled
+	// reports true — so an unfit host is refused-with-remediation BEFORE the
+	// memory stack comes up. NIL-SAFE: when nil (test doubles), no memory checks
+	// are appended (mirrors the doctor optional-seam pattern).
+	runMemoryChecks func(detect.HostProfile) []preflight.CheckResult
+	// readRecallState reads recall-state.json fail-closed for the Phase-23 D-10
+	// skew WARN surface (warnRecallEmbeddingSkew): absent ⇒ empty state ⇒ silent
+	// typed-Unknown; only a real I/O fault errors (also silent — read-only WARN,
+	// D-11). NIL-SAFE: when nil (test doubles), the WARN helper degrades silently
+	// (mirrors the runMemoryChecks optional-seam pattern). Live wiring is the
+	// SHARED liveRecallStateLoad (the same reader `villa recall` uses) so the two
+	// guards can never drift onto different readers.
+	readRecallState func() (recall.State, error)
+
 	// stdoutIsTTY reports whether stdout is a real terminal — the stdout twin of
 	// interactive() (which checks stdin). huh renders to stdout/stderr, so BOTH must
 	// be a TTY for the styled wizard to make sense (D-01/D-08). The seam wraps the
@@ -231,13 +280,25 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 	}
 	fmt.Fprintf(out, "selected model %s (ctx %d, %s)\n", rec.Model, rec.ContextLen, gib(rec.WeightBytes))
 
-	// (3) Preflight gate with the concrete model's resource requirement.
+	// (3) Preflight gate with the concrete model's resource requirement. The
+	// embedding reservation is included (Research Open Question 2 resolved YES —
+	// more honest): the value flows from the pick so memory.Footprint stays the
+	// single source; it is zero when memory is off, leaving the off-path gate
+	// unchanged.
 	req := preflight.ResourceReq{
 		MinDiskBytes: rec.WeightBytes,
-		MinMemBytes:  rec.WeightBytes + rec.KVCacheBytes + rec.HeadroomBytes,
+		MinMemBytes:  rec.WeightBytes + rec.KVCacheBytes + rec.HeadroomBytes + rec.EmbeddingReservationBytes,
 		DataDir:      d.modelsDir(),
 	}
 	checks := d.runChecks(profile, req)
+	// (3a) Opt-in memory-stack gates (CTRL-06/D-06): vector-index disk + embedder
+	// headroom are appended ONLY when the persisted memory_enabled is on, so the
+	// memory-off install gate is byte-identical. They flow through the single
+	// gateInstall below — an opted-in install on an unfit host refuses-with-
+	// remediation BEFORE the memory stack comes up.
+	if d.loadedMemoryEnabled() && d.runMemoryChecks != nil {
+		checks = append(checks, d.runMemoryChecks(profile)...)
+	}
 
 	// (3b) Guided wizard (D-01/D-08) — the PINNED composition. probe/pick/runChecks
 	// (steps 1-3) have already run exactly once; the wizard RECEIVES their results,
@@ -246,8 +307,11 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 	// gateInstall below consumes the threaded consent, so both paths converge on one
 	// gate execution (SC#1/SC#2; privileged fix at most once; D-04/D-06 preserved).
 	// nil consentDecisions ⇒ flag path: gateInstall prompts via d.consent as today.
+	// --dry-run never enters the wizard (phase-22 WR-05): the wizard collects
+	// privileged consent the gate would then EXECUTE, and a dry run has zero side
+	// effects (ORCH SC#1) — there is nothing for consent to apply to.
 	var consentDecisions map[string]bool
-	useWizard := d.interactive() && !opts.json && !opts.noTUI && d.stdoutIsTTY()
+	useWizard := d.interactive() && !opts.json && !opts.noTUI && d.stdoutIsTTY() && !opts.dryRun
 	if useWizard {
 		// Resolve the backend for the review screen via the single polymorphism point
 		// (never a re-typed image literal). On an unknown backend, fall through to the
@@ -296,15 +360,25 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 		fmt.Fprintf(errOut, "install: cannot resolve the Quadlet unit dir: %v\n", err)
 		return exitBlocked
 	}
-	// Seed from the typed defaults so the persisted config carries the
-	// dashboard/chat fields (8888/3000/127.0.0.1) rather than 0/0/"" — otherwise
-	// the install "just works" path would write a dashboard-breaking config
-	// (gap test:1b). The default literals live only in defaultConfig().
-	cfg := config.DefaultVillaConfig()
+	// Seed from the PERSISTED config (not DefaultVillaConfig()) so a user's customized
+	// memory fields (qdrant_addr/port, embed_addr/port, embedding_model/dim) and the
+	// dashboard/chat fields survive every install rather than being reset to seed
+	// defaults (WR-02). loadedConfig() fails soft to typed defaults on a load error and
+	// LoadVilla self-heals zeroed dashboard/chat fields, so this still guarantees the
+	// loopback dashboard/chat defaults (8888/3000/127.0.0.1, gap test:1b) for a host
+	// with no prior config. Only the recommendation-derived fields are overridden below.
+	cfg := d.loadedConfig()
 	cfg.Model = rec.Model
 	cfg.Quant = rec.Quant
 	cfg.Ctx = rec.ContextLen
 	cfg.Backend = rec.Backend
+	// AUTHORITATIVE memory gate (Phase-19 / T-19-16): the memory path keys off the
+	// PERSISTED config.LoadVilla().MemoryEnabled (via the loadedMemoryEnabled seam). It is
+	// the single gate value the pre-stage + start + proof steps read. (Seeding cfg from the
+	// persisted config above already carries the persisted MemoryEnabled; this is an
+	// explicit re-bind through the dedicated gate seam so the gate source stays a single,
+	// testable seam regardless of how cfg was seeded.)
+	cfg.MemoryEnabled = d.loadedMemoryEnabled()
 	modelFile, err := d.modelFile(rec)
 	if err != nil {
 		fmt.Fprintf(errOut, "install: resolve model file: %v\n", err)
@@ -357,6 +431,22 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 			return exitBlocked
 		}
 		fmt.Fprintf(out, "model %s downloaded and verified\n", rec.Model)
+	}
+
+	// (6b) Pre-stage the embedding GGUF into villa-models BEFORE starting villa-embed
+	// (Phase-19 / D-07, PRIV-04). Gated on the PERSISTED memory_enabled (cfg.MemoryEnabled,
+	// resolved via loadedMemoryEnabled above), skipped under --dry-run, and idempotent: a
+	// present file is never re-pulled. This is the one-time install-time controlled pull
+	// (the single sanctioned outbound window) so the embeddings runtime is ZERO-download.
+	// download.PullModel verifies size + SHA256 before the atomic rename (T-19-06), so a
+	// half-written/unverified GGUF is never trusted; a pull failure refuses-with-remediation.
+	if cfg.MemoryEnabled && !opts.dryRun && !d.embedModelPresent(d.modelsDir()) {
+		fmt.Fprintf(out, "embedding model %s not present — downloading...\n", nomicEmbedShard.Filename)
+		if err := d.ensureEmbedModel(d.modelsDir()); err != nil {
+			fmt.Fprintf(errOut, "install: pre-stage embedding model %s failed: %v\n", nomicEmbedShard.Filename, err)
+			return exitBlocked
+		}
+		fmt.Fprintf(out, "embedding model %s downloaded and verified\n", nomicEmbedShard.Filename)
 	}
 
 	// (7) Persist the chosen selection to config.toml BEFORE any unit work (F-2 /
@@ -420,14 +510,98 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 	}
 	fmt.Fprintf(out, "started %s\n", openWebUIServiceName)
 
+	// (9b) Start the memory stack AFTER inference + Open WebUI, gated on the PERSISTED
+	// memory_enabled (Phase-19 / INFRA-02). Qdrant FIRST so the embedder/OWUI peers can
+	// reach the vector store, then villa-embed (its GGUF is already pre-staged above —
+	// Pitfall 4). Each start failure refuses-with-remediation (exitBlocked), mirroring the
+	// inference/OWUI start handling. Skipped under --dry-run (the dry-run path returns far above).
+	//
+	// The start is gated on the memory .container units being PRESENT in the written plan
+	// (plan.Changed ∪ plan.Unchanged), not solely on cfg.MemoryEnabled (WR-04). With memory
+	// on, Render appends those units and reconcile diffs them in, so today they are always
+	// present — but if a future change ever lets MemoryEnabled be true while the units are
+	// filtered out of the plan (a swallowed partial render, a reconcile that drops them), we
+	// must NOT `systemctl start villa-qdrant.service` for a unit systemd has never seen and
+	// surface a raw "Unit not found". Instead fail closed with a clear INTERNAL-ERROR
+	// remediation so the gate for STARTING a service is "its unit exists in the plan".
+	if cfg.MemoryEnabled {
+		if !planHasUnit(plan, orchestrate.QdrantContainerUnitName()) ||
+			!planHasUnit(plan, orchestrate.EmbedContainerUnitName()) {
+			fmt.Fprintf(errOut, "install: INTERNAL ERROR: memory is enabled but the memory units (%s, %s) are absent from the rendered plan — refusing to start a service systemd has never seen. This is a render/reconcile bug; please re-run `villa install`, and if it persists, file an issue.\n",
+				orchestrate.QdrantContainerUnitName(), orchestrate.EmbedContainerUnitName())
+			return exitBlocked
+		}
+		if err := d.start(qdrantServiceName); err != nil {
+			fmt.Fprintf(errOut, "install: start %s failed: %v\n", qdrantServiceName, err)
+			return exitBlocked
+		}
+		fmt.Fprintf(out, "started %s\n", qdrantServiceName)
+		if err := d.start(embedServiceName); err != nil {
+			fmt.Fprintf(errOut, "install: start %s failed: %v\n", embedServiceName, err)
+			return exitBlocked
+		}
+		fmt.Fprintf(out, "started %s\n", embedServiceName)
+	}
+
 	// (10) Poll readiness (503=keep-polling, timeout→WARN — Task 2 wiring).
 	ready := d.pollReady(cmd.Context(), d.endpoint())
 	printPostInstall(out, d.endpoint(), ready)
+
+	// (10b) Memory-stack readiness proof (Phase-19 / D-09, SC#2/SC#3): an OFFLINE
+	// 768-dim /v1/embeddings vector AND a Qdrant writable round-trip. Gated on the
+	// PERSISTED memory_enabled (cfg.MemoryEnabled); skipped under --dry-run (that path
+	// returned far above). A FAIL refuses-with-remediation (exitBlocked) — never a
+	// silent skip / false-green (honesty-by-construction). A PASS prints a ready line
+	// and folds into the existing PASS/WARN verdict.
+	if cfg.MemoryEnabled {
+		// (10b-pre) Phase-23 D-10 skew WARN (CTRL-05, read-only, D-11): if the
+		// recall-state stamp records an embedding identity that confidently
+		// diverges from the configured one, warn-with-remediation BEFORE the proof
+		// — the operator learns retrieval is corrupt even if the proof then fails.
+		// Never blocks, never mutates; an absent/unreadable stamp is silent
+		// typed-Unknown (warnRecallEmbeddingSkew).
+		warnRecallEmbeddingSkew(errOut, cfg, d.readRecallState)
+		proof := d.memoryProofFn(cmd.Context(), memoryProofInput{
+			embedAddr:    cfg.EmbedAddr,
+			embedPort:    cfg.EmbedPort,
+			embedModel:   cfg.EmbeddingModel,
+			embeddingDim: cfg.EmbeddingDim,
+			qdrantAddr:   cfg.QdrantAddr,
+			qdrantPort:   cfg.QdrantPort,
+		})
+		if proof.status == preflight.StatusFail {
+			fmt.Fprintf(errOut, "install: memory stack not ready: %s\n", proof.detail)
+			return exitBlocked
+		}
+		// Print the proof's own detail (IN-02) rather than re-typing the "768-dim …"
+		// figure as a literal — the dimension is single-sourced in the verdict
+		// (evalMemoryProof, from cfg.EmbeddingDim), so a dim change can't leave this stale.
+		fmt.Fprintf(out, "memory stack ready: %s\n", proof.detail)
+	}
 
 	if ready.status == preflight.StatusWarn || gateDegraded {
 		return exitWarn
 	}
 	return exitPass
+}
+
+// planHasUnit reports whether a unit with the given name is present in the reconciled
+// plan — in either Changed (must (re)write) or Unchanged (already on disk). The install
+// flow uses it to gate the memory-service starts on the memory .container units actually
+// being part of the written plan (WR-04), so a memory-on install never `systemctl start`s
+// a unit systemd has never seen.
+func planHasUnit(plan orchestrate.Plan, name string) bool {
+	for _, u := range plan.Changed {
+		if u.Name == name {
+			return true
+		}
+	}
+	for _, u := range plan.Unchanged {
+		if u.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 // reconcileDashboardUnit brings up the native control-dashboard .service idempotently
@@ -530,11 +704,12 @@ func gateInstall(out, errOut io.Writer, checks []preflight.CheckResult, opts ins
 			switch {
 			case safeAutoFix(c.ID):
 				// A non-privileged safe fix auto-runs with a visible notice and NO consent
-				// (D-04/D-05) — but only when interactive and not --json (respect the
-				// non-interactive guard). It never consumes a consents entry. With no
-				// current safe fix (safeAutoFix is false for PRE-03/PRE-05) this branch is
-				// a behavior no-op today; it is the forward-looking D-05 classifier.
-				if opts.json || !d.interactive() {
+				// (D-04/D-05) — but only when interactive, not --json, and not --dry-run
+				// (a dry run has zero side effects, WR-05). It never consumes a consents
+				// entry. With no current safe fix (safeAutoFix is false for PRE-03/PRE-05)
+				// this branch is a behavior no-op today; it is the forward-looking D-05
+				// classifier.
+				if opts.json || opts.dryRun || !d.interactive() {
 					fmt.Fprintf(out, "warning: [%s] %s — %s\n", c.ID, c.Detail, c.Remediation)
 					break
 				}
@@ -604,6 +779,15 @@ func resolveGap(out, errOut io.Writer, c preflight.CheckResult, opts installOpts
 	cmdStr := remediationCommand(c, d.username())
 	fmt.Fprintf(errOut, "\nhost-prep needed: [%s] %s\n  command: %s\n", c.ID, c.Detail, cmdStr)
 
+	// --dry-run NEVER mutates the host (phase-22 WR-05 / ORCH SC#1): treat it
+	// exactly like the non-interactive path — print the command, never prompt,
+	// never run the privileged seam. Checked FIRST so even a (stale) threaded
+	// consent can never execute host-prep under a flag sold as side-effect-free.
+	if opts.dryRun {
+		fmt.Fprintf(errOut, "  (dry-run — run the command above, then re-run `villa install`)\n")
+		return false
+	}
+
 	// Wizard path: a pre-collected decision (huh already consumed stdin) is honored
 	// WITHOUT re-prompting (D-04). A recorded `true` runs the same fixed-arg seam as
 	// the consented stdin path; a recorded `false` is a decline (same return/messaging).
@@ -655,6 +839,13 @@ func resolveGap(out, errOut io.Writer, c preflight.CheckResult, opts installOpts
 func offerNonBlockingGap(out io.Writer, c preflight.CheckResult, opts installOpts, consents map[string]bool, d *installDeps) bool {
 	cmdStr := remediationCommand(c, d.username())
 	fmt.Fprintf(out, "\noptional host-prep (boot survival): [%s] %s\n  command: %s\n", c.ID, c.Detail, cmdStr)
+
+	// --dry-run NEVER mutates the host (phase-22 WR-05 / ORCH SC#1): print the
+	// command, never prompt, never run the privileged seam (mirrors resolveGap).
+	if opts.dryRun {
+		fmt.Fprintf(out, "  (dry-run — optional; run the command above to enable boot survival)\n")
+		return false
+	}
 
 	// Wizard path: honor a pre-collected decision without re-prompting (D-04). A
 	// recorded `true` runs the same fixed-arg seam; a recorded `false` is a skip.
@@ -846,7 +1037,10 @@ func liveInstallDeps() (*installDeps, error) {
 			if err != nil {
 				return recommend.Recommendation{}
 			}
-			return recommend.Pick(p, cat, ov)
+			// Thread the PERSISTED memory inputs (fail-soft) so an opted-in install
+			// recommends against the shrunken envelope (D-01; Pitfall 3 — a
+			// memory-blind install pick defeats CTRL-01).
+			return recommend.Pick(p, cat, ov, liveLoadedMemoryInputs())
 		},
 		modelFile: func(rec recommend.Recommendation) (string, error) {
 			// A catalog load failure or an unknown model id is a hard error (WR-08):
@@ -918,6 +1112,24 @@ func liveInstallDeps() (*installDeps, error) {
 		pollReady:         liveReadinessPoll,
 		stdoutIsTTY:       stdoutIsTTY,
 		wizard:            liveWizard,
+
+		// Memory-stack seams (Phase-19). The gate keys off the PERSISTED config
+		// (liveLoadedMemoryEnabled → config.LoadVilla().MemoryEnabled, fail-soft to false),
+		// NOT the DefaultVillaConfig() seed (T-19-16). Pre-stage + presence reuse the same
+		// verified download path and models dir as the chat-model ensureModel above (D-07).
+		loadedConfig:        liveLoadedConfig,
+		loadedMemoryEnabled: liveLoadedMemoryEnabled,
+		embedModelPresent:   liveEmbedModelPresent,
+		ensureEmbedModel:    liveEnsureEmbedModel,
+		memoryProofFn:       liveMemoryProof,
+		// Memory host-fitness gates (CTRL-06): the embedding model comes from the
+		// same persisted fail-soft config source as the rest of the memory path.
+		runMemoryChecks: func(p detect.HostProfile) []preflight.CheckResult {
+			return preflight.RunMemory(p, preflight.MemoryGateInput{EmbeddingModel: liveLoadedConfig().EmbeddingModel})
+		},
+		// Phase-23 D-10 skew WARN reader: the SHARED fail-closed recall-state
+		// loader `villa recall` uses (one reader, never a re-rolled second one).
+		readRecallState: liveRecallStateLoad,
 	}, nil
 }
 

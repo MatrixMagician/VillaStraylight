@@ -44,12 +44,16 @@ func newRecommend() *cobra.Command {
 			// Resolve the catalog source: an explicit --catalog flag wins; otherwise
 			// fall back to a saved cfg.CatalogPath so a persisted external-catalog
 			// choice is honored without re-passing the flag (D-09, IN-03). A missing
-			// config is not an error (read-only default, D-20).
+			// config is not an error (read-only default, D-20). The SAME fail-soft
+			// load sources the persisted memory inputs (D-01): a load error threads
+			// the zero value (memory off), never an error-path change.
 			catalogPath := f.catalogPath
-			if catalogPath == "" {
-				if cfg, err := config.LoadVilla(); err == nil {
+			var mem recommend.MemoryInputs
+			if cfg, err := config.LoadVilla(); err == nil {
+				if catalogPath == "" {
 					catalogPath = cfg.CatalogPath
 				}
+				mem = recommend.MemoryInputs{Enabled: cfg.MemoryEnabled, EmbeddingModel: cfg.EmbeddingModel}
 			}
 
 			cat, warnings, err := catalog.Load(catalogPath)
@@ -61,7 +65,7 @@ func newRecommend() *cobra.Command {
 				Model: f.model,
 				Quant: f.quant,
 				Ctx:   f.ctx,
-			})
+			}, mem)
 
 			if err := renderRecommend(cmd.OutOrStdout(), rec, warnings, jsonOut, f.alternatives); err != nil {
 				return err
@@ -151,6 +155,11 @@ func renderRecommendTable(w io.Writer, rec recommend.Recommendation, warnings []
 	fmt.Fprintf(tw, "+ KV-cache @ ctx %d\t%s\n", rec.ContextLen, gib(rec.KVCacheBytes))
 	fmt.Fprintf(tw, "+ headroom\t%s\n", gib(rec.HeadroomBytes))
 	fmt.Fprintf(tw, "= total\t%s\n", gib(rec.TotalBytes))
+	// Embed-reservation row gated on a non-zero value (D-03 / Pitfall 4, the
+	// ROCmAdvice gated-line pattern) so memory-off table output stays byte-identical.
+	if rec.EmbeddingReservationBytes > 0 {
+		fmt.Fprintf(tw, "− embed reservation\t%s\n", gib(rec.EmbeddingReservationBytes))
+	}
 	fmt.Fprintf(tw, "%s usable envelope\t%s\n", fitsGlyph(rec.Fits), gib(rec.UsableEnvelopeBytes))
 	if err := tw.Flush(); err != nil {
 		return err
@@ -188,6 +197,19 @@ func renderRecommendTable(w io.Writer, rec recommend.Recommendation, warnings []
 		}
 	}
 	return nil
+}
+
+// liveLoadedMemoryInputs returns the PERSISTED memory inputs for recommend.Pick
+// (D-01): the memory_enabled gate + embedding model id from config.LoadVilla().
+// A config load error fails SOFT to the zero value (memory off — byte-identical
+// math), mirroring liveLoadedMemoryEnabled (install_memory.go): a broken config
+// never silently enables the reservation and never changes an error path.
+func liveLoadedMemoryInputs() recommend.MemoryInputs {
+	c, err := config.LoadVilla()
+	if err != nil {
+		return recommend.MemoryInputs{}
+	}
+	return recommend.MemoryInputs{Enabled: c.MemoryEnabled, EmbeddingModel: c.EmbeddingModel}
 }
 
 // gib renders bytes as a GiB string with raw bytes for the fit table.

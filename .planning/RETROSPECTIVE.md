@@ -89,6 +89,50 @@
 
 ---
 
+## Milestone: v1.3 — Memory & Knowledge
+
+**Shipped:** 2026-06-11
+**Phases:** 6 (18–23) | **Plans:** 20 | **Tasks:** 41
+
+### What Was Built
+- A config-driven local memory stack: digest-pinned Qdrant + a dedicated `villa-embed` llama-server (nomic-embed-text-v1.5, 768-dim) as rootless Quadlet managed services on `villa.network`, container-DNS only, embedding GGUF pre-staged at install.
+- Open WebUI Memory/RAG wired env-only behind the orchestrate seam (`ENABLE_PERSISTENT_CONFIG=False` mandatory) with the full offline/telemetry kill-set and `villa verify memory` — a negative-control-first runtime zero-outbound proof.
+- `villa recall index|status` — a pure `internal/recall` diff core that semantically indexes past chats into an OWUI Knowledge collection through OWUI's own embed path, with clean-replace incrementality and typed-Unknown staleness honesty.
+- Control-plane fit + gates: embedding-footprint reservation before the chat fit (recommend schema 2), MEM-PRE disk/headroom preflight gates, and doctor residency proven under a real embedding workload.
+- Surfacing + durability: `status.Report` 2→3 (single golden re-freeze) with per-service in-network memory health + a dashboard Memory panel; Qdrant-volume backup/restore (manifest v2 with embedding dim, clean-recreate-before-import, skew WARN+confirm); structural swap isolation (D-09) + fail-closed skew refusal at `recall index`.
+
+### What Worked
+- **The Phase-18 research spike paid for itself.** Pinning the version-sensitive OWUI env contract, embeddings runtime, and model footprint against the exact shipped digest BEFORE any golden froze meant zero env-contract rework across Phases 19–23.
+- **Integrate-not-rebuild held under pressure.** Zero new first-party Go libraries; recall reuses OWUI's own chunk/embed/retrieve path (citations worked for free), rather than writing Qdrant directly — the riskiest design choice in the milestone and it validated cleanly on-hardware.
+- **Negative-control-first proofs caught real things.** `verify memory` proves the egress gate is real before trusting the pass; the 22-04 residency drive exposed the actual binding limit (512-token physical embed batch, not the 8192 ctx); the 23-05 stopped-embed drill closed the carried per-row health false-green live.
+- **Single-contract discipline, third milestone running.** Exactly one byte-frozen evolution (`status.Report` 2→3), landed last, frozen once; recommend evolved separately (1→2) in its own phase. The integration audit confirmed no schema churn anywhere else.
+- **Deferred human gates were honestly tracked and closed.** Phase 22's auto-approved sign-off was carried as an explicit verification item and closed by the operator in the 23-05 live drill — not silently dropped.
+
+### What Was Inefficient
+- **VALIDATION.md status drift for the THIRD consecutive milestone.** Phases 18–19 shipped verified `passed` but left `nyquist_compliant: false` drafts. The v1.1 and v1.2 lessons were logged but still not enforced in-flow.
+- **Phase 20 closed without a formal VERIFICATION.md** — the 6/6 UAT + approved VALIDATION carried the evidence, but the audit's 3-source cross-reference had to fall back to UAT parsing; one phase's verification artifact shape diverged from the other five.
+- **SUMMARY frontmatter inconsistency** (`requirements:` vs `requirements_completed:`, several empty) degraded the automated requirements cross-check; coverage had to be re-derived from VERIFICATION tables.
+- **Auto-extracted MILESTONES accomplishments were noisy again** (a process note surfaced as the first "accomplishment") and needed the same hand-rewrite as v1.2.
+- **Phase branches accumulated unmerged again** (18–23 stacked on each other, `main` 171 commits behind at close) — the same release-hygiene gap flagged at v1.1 and v1.2 close.
+
+### Patterns Established
+- **Managed-service seam category** — non-inference container images (`QdrantImage()`/`EmbedImage()`, like `openWebUIImage`) live behind orchestrate accessors, NOT the inference `BackendFor`/grep-gate scope; backup/doctor/status read the accessors, never re-type literals.
+- **Negative-control-first runtime proof** — a privacy/health gate must first prove it CAN fail (egress-open → FAIL) before its pass is trusted; flag-trust and install-time green are insufficient.
+- **Structural invariant tests** — a reflect-pinned Deps-surface test proves a verb *cannot* touch a subsystem (swap vs memory units), stronger than behavioral tests for isolation guarantees.
+- **Conservative typed-Unknown reservation + on-hardware measurement** — reserve a pinned constant (512 MiB) on unknown footprint, never silent 0, then measure live (D-05: ~110–217 MiB peak) and record the "constant stands" decision.
+
+### Key Lessons
+1. **Make artifact-status reconciliation a phase-close gate, not an audit discovery.** Three milestones in a row (VALIDATION drift; now also a missing VERIFICATION.md and frontmatter key drift) — the verifier should refuse to close a phase with draft VALIDATION or absent VERIFICATION, instead of the milestone audit absorbing it.
+2. **Spike version-sensitive third-party contracts against the exact pinned digest before freezing anything** — the cheapest de-risk in the milestone (Phase 18) prevented the most expensive class of rework (golden re-freezes).
+3. **Guard where the hazard actually lives.** CTRL-05's literal reading ("make swap warn") would have been theater; the dimension hazard lives at config-change consumption points (recall index / install / restore). Reinterpreting a requirement against its intent — documented — beat implementing its letter.
+4. **Real workloads find real limits.** The embed drive had to respect the llama-server physical batch (-ub 512), not the configured ctx (8192) — proofs that drive synthetic load discover the binding constraint that static analysis misses.
+
+### Cost Observations
+- Model mix: adaptive profile (Opus-led planning/verification/close, Sonnet execution).
+- Sessions: milestone executed 2026-06-09 → 2026-06-11; 20 plans at 2–25 min each; heaviest were the on-hardware drill plans (19-03, 21-03, 22-04, 23-05) where live verification dominated.
+
+---
+
 ## Cross-Milestone Trends
 
 ### Process Evolution
@@ -98,6 +142,7 @@
 | v1.0 MVP | 5 (1–5) | 23 | Vertical-MVP slices; on-hardware UAT per phase; PR-to-`main` merge (PR #1) |
 | v1.1 ROCm Opt-In | 6 (6–11) | 16 | Spine-first ordering; on-hardware risk concentrated in one phase; append-only contract discipline; first exercise of the `Backend` seam |
 | v1.2 Operability | 6 (12–17) | 19 | Research-converged ordering (one frozen contract in flight at a time); one pure core per feature + cmd/orchestrate seam; honest A/B disproved a perf premise; capstone over a finished surface |
+| v1.3 Memory & Knowledge | 6 (18–23) | 20 | Integration milestone (zero new Go libraries); digest-pinned spike before any golden froze; managed-service seam category; negative-control-first runtime proofs; structural invariant tests |
 
 ### Cumulative Quality
 
@@ -106,9 +151,11 @@
 | v1.0 MVP | ~430 green | — | Phases 4 & 5 STRIDE-secured (12/12 + 19/19), threats_open=0 |
 | v1.1 ROCm Opt-In | ~548 green | 16 | Milestone audit `tech_debt`: 13/13 reqs, 0 critical blockers |
 | v1.2 Operability | ~563 green | 16+ | Milestone audit **PASSED**: 13/13 reqs, 5/5 integration flows, 6/6 phases Nyquist-compliant |
+| v1.3 Memory & Knowledge | 885 green | 21+ | Milestone audit **PASSED**: 22/22 reqs, 15/16 integration connections (0 blockers), 5/5 E2E flows; Nyquist 4 compliant / 2 partial |
 
 ### Top Lessons (Verified Across Milestones)
 
 1. On-hardware UAT per phase (not just at milestone end) catches the failure modes that off-hardware tests structurally cannot (silent CPU fallback, OOM, HSA-override behavior).
 2. Freeze `--json`/dashboard contracts with byte-goldens early and only ever extend them append-only — it has protected the dashboard read-model across all three milestones.
-3. **Status-frontmatter lag recurs every milestone** (SUMMARY `requirements-completed`, `VALIDATION.md` nyquist status, UAT/quick-task terminal vocabulary) and each time costs a close-time reconciliation pass — verified across v1.1 and v1.2. The durable fix is to reconcile these at phase-verification time, ideally enforced by the verifier, rather than rediscovering them at the milestone-close audit.
+3. **Status-frontmatter lag recurs every milestone** (SUMMARY `requirements-completed`, `VALIDATION.md` nyquist status, UAT/quick-task terminal vocabulary; in v1.3 also a missing per-phase VERIFICATION.md) and each time costs a close-time reconciliation pass — now verified across v1.1, v1.2, AND v1.3. The durable fix is to reconcile these at phase-verification time, enforced by the verifier as a phase-close gate, rather than rediscovering them at the milestone-close audit.
+4. Negative-control-first proofs (the gate must demonstrably be able to FAIL before its PASS is trusted) generalize beyond offload-assertion — v1.3 applied the pattern to egress (verify memory), service health (stopped-embed drill), and skew refusal (provoked WARN), each catching or closing a real false-green.

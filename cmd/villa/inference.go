@@ -141,7 +141,10 @@ func runValidation(ctx context.Context, m catalog.CatalogModel, withCeiling bool
 	// recommend-chosen ctx + envelope (D-10). Probe the host and pick for this model.
 	profile := detect.Probe()
 	cat := catalog.Catalog{Models: []catalog.CatalogModel{m}}
-	rec := recommend.Pick(profile, cat, recommend.Overrides{Model: m.ID})
+	// Memory inputs from the already-loaded persisted config (D-01): the ceiling
+	// stress math sizes against the same shrunken envelope recommend showed.
+	rec := recommend.Pick(profile, cat, recommend.Overrides{Model: m.ID},
+		recommend.MemoryInputs{Enabled: cfg.MemoryEnabled, EmbeddingModel: cfg.EmbeddingModel})
 
 	// Guard the recommend refusal path (CR-02): when the memory envelope is
 	// undeterminable Pick returns a zero Recommendation (Model:"", ContextLen:0,

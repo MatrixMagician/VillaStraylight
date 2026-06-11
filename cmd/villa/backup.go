@@ -17,6 +17,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -31,6 +32,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
 	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
+	"github.com/MatrixMagician/VillaStraylight/internal/recall"
 	"github.com/MatrixMagician/VillaStraylight/internal/usage"
 )
 
@@ -72,8 +74,10 @@ func newBackup() *cobra.Command {
 
 // runBackup resolves the output path (traversal-guarded against its parent dir),
 // gathers the seam-/accessor-sourced BackupInput, drives the pure Backup orchestrator
-// over liveBackupDeps, and RETURNS the exit code. A torn output file is removed on a
-// failed write so a corrupt partial archive is never left behind.
+// over liveBackupDeps, and RETURNS the exit code. The archive is assembled in a
+// same-dir temp file and renamed onto the destination only after a fully-successful
+// write (WR-04): a mid-backup failure removes only the temp — a pre-existing archive
+// at the output path is never truncated or deleted.
 func runBackup(cmd *cobra.Command, output string, d backup.Deps) int {
 	out := cmd.OutOrStdout()
 	errOut := cmd.ErrOrStderr()
@@ -115,26 +119,55 @@ func runBackup(cmd *cobra.Command, output string, d backup.Deps) int {
 		return exitBlocked
 	}
 
-	// Open the destination 0600 (owner-only). Created here so a failure short-circuits
-	// before any service quiesce.
-	f, err := os.OpenFile(absOut, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	// Stage the archive in a SAME-DIR temp file and os.Rename it onto absOut only
+	// after a fully-successful assembly (review WR-04): re-using an output path
+	// (e.g. a cron'd `villa backup -o ~/backups/villa-latest.tar`) must NEVER
+	// destroy the PREVIOUS archive on a mid-backup failure — the old
+	// O_TRUNC-then-remove flow left the operator with ZERO backups whenever any
+	// later step failed. Same temp+rename discipline as config.SaveVilla /
+	// usage.WriteFileAtomic; CreateTemp creates the file 0600 (owner-only).
+	// Created here so a failure short-circuits before any service quiesce.
+	f, err := os.CreateTemp(parent, ".villa-backup-*.tar")
 	if err != nil {
-		fmt.Fprintf(errOut, "backup: open output %q: %v\n", absOut, err)
+		fmt.Fprintf(errOut, "backup: open output temp file in %q: %v\n", parent, err)
 		return exitBlocked
 	}
+	tmpOutPath := f.Name()
 
 	// Temp file for the volume export; same dir as the output so the rename/cleanup
 	// stays on one filesystem. Removed after assembly.
 	tmpVol, err := os.CreateTemp(parent, ".villa-owui-vol-*.tar")
 	if err != nil {
 		_ = f.Close()
-		_ = os.Remove(absOut)
+		_ = os.Remove(tmpOutPath) // the prior archive at absOut stays untouched (WR-04)
 		fmt.Fprintf(errOut, "backup: temp volume file: %v\n", err)
 		return exitBlocked
 	}
 	tmpVolPath := tmpVol.Name()
 	_ = tmpVol.Close()
 	defer func() { _ = os.Remove(tmpVolPath) }()
+
+	// Optional Phase-23 qdrant volume entry (D-05): gated on cfg.MemoryEnabled AND a
+	// fail-soft existence check over the podmanVolume seam — memory off or volume
+	// absent means the entry is honestly omitted (and the core makes ZERO qdrant
+	// Deps calls). The temp tar clones the OWUI same-dir frame above; it holds
+	// chat-derived vectors, so it is removed on every exit path.
+	includeQdrant := cfg.MemoryEnabled && volumeExists(orchestrate.QdrantVolumeName(), errOut)
+	tmpQdrantPath := ""
+	if includeQdrant {
+		// Temp-name pattern deliberately avoids the volume literal (the seam-grep
+		// acceptance gate): the identity comes from orchestrate.QdrantVolumeName().
+		tmpQdrant, err := os.CreateTemp(parent, ".villa-memory-vol-*.tar")
+		if err != nil {
+			_ = f.Close()
+			_ = os.Remove(tmpOutPath) // the prior archive at absOut stays untouched (WR-04)
+			fmt.Fprintf(errOut, "backup: temp qdrant volume file: %v\n", err)
+			return exitBlocked
+		}
+		tmpQdrantPath = tmpQdrant.Name()
+		_ = tmpQdrant.Close()
+		defer func() { _ = os.Remove(tmpQdrantPath) }()
+	}
 
 	in := backup.BackupInput{
 		CreatedAt:           time.Now().UTC().Format(time.RFC3339),
@@ -155,6 +188,30 @@ func runBackup(cmd *cobra.Command, output string, d backup.Deps) int {
 		ExcludedModels:      excludedModelIdentities(cfg),
 		FileMissing:         os.IsNotExist,
 	}
+	if includeQdrant {
+		// Seam-sourced volume identity — NEVER a literal here (D-05).
+		in.QdrantVolumeName = orchestrate.QdrantVolumeName()
+		in.TempQdrantTar = tmpQdrantPath
+	}
+	if cfg.MemoryEnabled {
+		// RecallStatePath is gated on cfg.MemoryEnabled (review WR-03), mirroring
+		// the qdrant entry: a memory-OFF backup must produce an archive IDENTICAL
+		// to the v1 layout even when a leftover recall-state.json exists from a
+		// previously-enabled memory stack. Including the orphan entry while the
+		// manifest omits recall_schema_version would let it escape the fail-closed
+		// blockOnNewerStore gate on restore. An absent file is still skipped by the
+		// core's optional-entry FileMissing logic (D-06).
+		in.RecallStatePath = recall.RecallStatePath()
+		// Manifest embedding identity + recall store schema, recorded ONLY on a
+		// memory-on backup (D-06/D-08): config is the single source of truth for the
+		// embedding model/dim; the recall schema comes from its accessor. A
+		// memory-off backup omits all three (the "not recorded" convention) — note
+		// cfg self-heals embedding defaults even when memory is off, so this gate is
+		// what keeps memory-off manifests claim-free.
+		in.EmbeddingModel = cfg.EmbeddingModel
+		in.EmbeddingDim = cfg.EmbeddingDim
+		in.RecallSchemaVersion = recall.SchemaVersion()
+	}
 
 	res, rerr := backup.Backup(d, in)
 	if cerr := f.Close(); cerr != nil && rerr == nil {
@@ -163,16 +220,44 @@ func runBackup(cmd *cobra.Command, output string, d backup.Deps) int {
 		res.FailedStep = "write"
 	}
 	if rerr != nil {
-		_ = os.Remove(absOut) // never leave a corrupt partial archive
+		// Remove only the torn TEMP file — a pre-existing archive at absOut is
+		// preserved (WR-04): a failed backup must never destroy the previous one.
+		_ = os.Remove(tmpOutPath)
 		fmt.Fprintf(errOut, "backup: failed at %s: %v\n", res.FailedStep, rerr)
+		return exitBlocked
+	}
+	// Publish atomically: rename the fully-written, closed temp onto the
+	// destination (same dir ⇒ same filesystem). Only now is a prior archive at
+	// absOut replaced — and only by a complete, verified-write archive.
+	if err := os.Rename(tmpOutPath, absOut); err != nil {
+		_ = os.Remove(tmpOutPath)
+		fmt.Fprintf(errOut, "backup: publish output %q: %v\n", absOut, err)
 		return exitBlocked
 	}
 
 	fmt.Fprintf(out, "backup written to %s\n", absOut)
-	// Surface a failed best-effort Open WebUI restart (IN-01): the backup succeeded,
-	// but the service is likely down — warn rather than exit 0 silently.
+	// Surface a failed best-effort service restart (IN-01): the backup succeeded,
+	// but a service is likely down — warn rather than exit 0 silently.
 	if res.RestartWarning != "" {
 		fmt.Fprintf(errOut, "warning: %s\n", res.RestartWarning)
+	}
+	// Honest memory-entry reporting (Phase 23): state whether the qdrant volume and
+	// recall state made it into the archive — never leave the operator guessing.
+	if includeQdrant {
+		fmt.Fprintf(out, "memory: Qdrant volume included (%s)\n", backup.EntryQdrantVolume)
+	} else {
+		fmt.Fprintf(out, "memory: Qdrant volume not included (memory disabled or volume absent)\n")
+	}
+	switch {
+	case in.RecallStatePath == "":
+		// Memory off ⇒ the entry was never offered to the core (WR-03 gate).
+		fmt.Fprintf(out, "memory: recall state not included (memory disabled)\n")
+	default:
+		if _, serr := os.Stat(in.RecallStatePath); serr == nil {
+			fmt.Fprintf(out, "memory: recall state included (%s)\n", backup.EntryRecallState)
+		} else {
+			fmt.Fprintf(out, "memory: recall state not included (no recall-state.json)\n")
+		}
 	}
 	if len(in.ExcludedModels) > 0 {
 		fmt.Fprintf(out, "excluded model weights (re-pullable, recorded in manifest for re-pull):\n")
@@ -253,8 +338,12 @@ func liveBackupDeps() backup.Deps {
 	sys := orchestrate.NewSystemd()
 	return backup.Deps{
 		OpenWebUIServiceName: openWebUIServiceName,
-		Stop:                 sys.Stop,
-		Start:                sys.Start,
+		// QdrantServiceName is derived from the orchestrate unit-name accessor (the
+		// same unitServiceName mapping doctor/status use) — never a re-typed literal
+		// (D-05).
+		QdrantServiceName: unitServiceName(orchestrate.QdrantContainerUnitName()),
+		Stop:              sys.Stop,
+		Start:             sys.Start,
 		VolumeExport: func(name, outPath string) error {
 			if err := requirePodman(); err != nil {
 				return err
@@ -266,5 +355,20 @@ func liveBackupDeps() backup.Deps {
 			return nil
 		},
 		ReadFile: os.ReadFile,
+		// OpenFile is the WR-06 streaming seam: the exported volume tars (the one
+		// entry class that can reach many GiB) are checksummed and tar-copied via
+		// io.Copy from this reader instead of being buffered whole in memory.
+		OpenFile: func(path string) (io.ReadCloser, int64, error) {
+			f, err := os.Open(path)
+			if err != nil {
+				return nil, 0, err
+			}
+			fi, err := f.Stat()
+			if err != nil {
+				_ = f.Close()
+				return nil, 0, err
+			}
+			return f, fi.Size(), nil
+		},
 	}
 }

@@ -18,6 +18,8 @@
   var perfBody = document.getElementById("performance-body");
   var gpuBody = document.getElementById("gpu-body");
   var modelsBody = document.getElementById("models-body");
+  var memoryPanel = document.getElementById("memory-panel");
+  var memoryBody = document.getElementById("memory-body");
 
   // Confirm-dialog elements (the single guarded write, D-08).
   var switchDialog = document.getElementById("switch-dialog");
@@ -266,6 +268,89 @@
     }
   }
 
+  // memoryBadgeRow builds a "label  badge" metric row (the renderGPU busy-row
+  // precedent: a .metric-row whose value slot is a .badge, no .metric-value). All
+  // text is set via textContent — never HTML interpolation (XSS-safe idiom).
+  function memoryBadgeRow(label, text, cls) {
+    var row = document.createElement("div");
+    row.className = "metric-row";
+    var l = document.createElement("span");
+    l.className = "metric-label";
+    l.textContent = label;
+    row.appendChild(l);
+    var badge = document.createElement("span");
+    badge.className = "badge badge-" + cls;
+    badge.textContent = text;
+    row.appendChild(badge);
+    return row;
+  }
+
+  // renderMemory fills the Memory panel from report.memory on the SAME /api/status
+  // poll (CTRL-02 / D-03: no new fetch, endpoint, or probe). The panel ships hidden
+  // in the static shell and is unhidden ONLY when report.memory is present — it
+  // re-hides if the field disappears, so a memory-off install renders pixel-identical
+  // to v1.2. Honesty mapping (UI-SPEC, binding): typed-Unknown → gray "unavailable"
+  // badge, never green/red; incomplete index and embedding skew → amber badge-warn,
+  // never red (red stays reserved for genuine failure); count/timestamp rows are
+  // OMITTED when not proven, never zero-filled. On a failed poll the existing
+  // setConnected stale-dimming keeps last-good content — this function is not called
+  // from the catch path, no spinner, no animation. All values render via
+  // createElement + textContent (XSS-safe — never HTML interpolation of server values).
+  function renderMemory(report) {
+    if (!memoryPanel || !memoryBody) { return; }
+    var mem = report && report.memory;
+    if (!mem) {
+      memoryPanel.hidden = true;
+      return;
+    }
+    memoryPanel.hidden = false;
+    memoryBody.textContent = "";
+
+    // Active embedding identity (config is the single source of truth) — mono, verbatim.
+    memoryBody.appendChild(metricRow("embedding model", mem.embedding_model || ""));
+    memoryBody.appendChild(metricRow("dimension", String(mem.embedding_dim)));
+
+    // Count + last-indexed rows render ONLY for the indexed/incomplete states and
+    // ONLY when the field is actually present — omitted otherwise, never zero-filled.
+    var state = mem.recall_state;
+    var showRuns = state === "indexed" || state === "incomplete";
+    if (showRuns && typeof mem.indexed_chats === "number") {
+      memoryBody.appendChild(metricRow("indexed chats", groupThousands(mem.indexed_chats)));
+    }
+    if (showRuns && mem.last_index_completed_at) {
+      // Verbatim RFC3339 — no fabricated relative time (UI-SPEC value format).
+      memoryBody.appendChild(metricRow("last indexed", mem.last_index_completed_at));
+    }
+
+    // Recall-index state badge per the UI-SPEC state table.
+    if (state === "indexed") {
+      memoryBody.appendChild(memoryBadgeRow("recall index", "indexed", "ready"));
+    } else if (state === "incomplete") {
+      memoryBody.appendChild(memoryBadgeRow("recall index", "incomplete", "warn"));
+      memoryBody.appendChild(mutedP("Last index run did not complete — re-run villa recall index."));
+    } else if (state === "empty") {
+      // Honest empty state: no badge, no fabricated count (mirrors the Models empty state).
+      var h = document.createElement("p");
+      h.className = "model-empty-heading";
+      h.textContent = "No recall index yet";
+      memoryBody.appendChild(h);
+      memoryBody.appendChild(mutedP("Build it with villa recall index — indexed chats appear here once a run completes."));
+    } else {
+      // "unknown", absent, or anything unexpected → typed-Unknown gray badge — never
+      // green, never red (the readinessClass gray-badge convention).
+      memoryBody.appendChild(memoryBadgeRow("recall index", "unavailable", "unknown"));
+      memoryBody.appendChild(mutedP("Recall index state unavailable."));
+    }
+
+    // Embedding-skew indicator (D-10): rendered ONLY on a confident mismatch — amber,
+    // NOT red. A match or an unevaluated comparison omits the row entirely (the honest
+    // empty state is no row — never a green "ok" for an unevaluated comparison).
+    if (mem.embedding_skew === "mismatch") {
+      memoryBody.appendChild(memoryBadgeRow("embedding config", "mismatch", "warn"));
+      memoryBody.appendChild(mutedP("Configured embedding model differs from the indexed vectors — re-index with villa recall index --rebuild, or revert config.toml."));
+    }
+  }
+
   // renderPerformance fills the Performance panel from /api/metrics (DASH-02). It
   // honors the two honesty flags: when the scrape is unavailable it shows
   // "unavailable" (never zeros, D-11); when available-but-idle it shows
@@ -436,8 +521,13 @@
   // loaded row carries the accent left-border. An empty list shows the empty-state copy.
   // All server values are rendered via textContent (XSS-safe, no innerHTML interpolation).
   function renderModels(models) {
+    // A null/undefined is a FAILED /api/models fetch (typed-Unknown — WR-05),
+    // NOT an empty catalog: keep the last-good rows (the stale-dimming
+    // convention) instead of fabricating the confident "No models in catalog"
+    // empty state. The empty state is reserved for a GENUINE [] from the server.
+    if (!models) { return; }
     modelsBody.textContent = "";
-    if (!models || models.length === 0) {
+    if (models.length === 0) {
       renderModelsEmpty();
       return;
     }
@@ -661,6 +751,11 @@
         // endpoint, no new fetch. Render it into the stable #cumulative-usage block inside
         // the Performance panel from report.usage (typed-Unknown muted copy when absent).
         renderCumulativeUsage(report);
+        // Memory panel rides the SAME /api/status poll (CTRL-02 / D-03 — no new fetch,
+        // endpoint, or probe): unhidden only when report.memory is present, re-hidden
+        // when it disappears. NOT called from the catch path — on a failed poll the
+        // panel keeps last-good content under the global stale dimming.
+        renderMemory(report);
       })
       .catch(function () {
         // The dashboard's own API is unreachable → global banner, keep last-good.
@@ -678,6 +773,11 @@
     // Models drives the loading→ready transition after a switch: clear the in-flight
     // Switching… state once the target shows as loaded, then re-render the rows.
     getJSON("/api/models").then(function (models) {
+      if (models === null) {
+        // Fetch failed → typed-Unknown (WR-05): keep the last-good rows under
+        // the global stale dimming; never render the fabricated empty state.
+        return;
+      }
       clearSwitchIfLoaded(models);
       renderModels(models);
     });

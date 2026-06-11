@@ -1,0 +1,13 @@
+overall  FAIL
+
+PRE-01                       BLOCK  PASS  RADV ICD present; 2 /dev/dri node(s)
+MEM-PRE-disk                 BLOCK  PASS  free disk 469.22 GiB ≥ 1.00 GiB at the podman volume root
+MEM-PRE-headroom             BLOCK  PASS  free memory 76.67 GiB ≥ embedding reservation 0.50 GiB
+health:villa-llama.service   WARN   PASS  /health is ready (200)
+offload:villa-llama.service  BLOCK  PASS  residency proven on Vulkan; GTT floor corroborated
+health:villa-qdrant.service  WARN   PASS  /health is ready (200)
+health:villa-embed.service   WARN   PASS  /health is ready (200)
+MEM-DOC-residency            BLOCK  FAIL  only a CPU model buffer was loaded — the chat model fell back to CPU under embedding load — the chat model fell back to CPU under embedding load — check the backend (`villa backend set`) and `villa logs`
+drift                        WARN   PASS  on-disk units match the rendered-from-config units
+
+FAULT: 1 blocking finding(s) — the running install is not healthy. See the remediation(s) above.

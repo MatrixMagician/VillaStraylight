@@ -15,23 +15,37 @@ import (
 // usage/metrics narrow-field discipline.
 
 // backupSchemaVersion is the manifest's OWN self-version (D-09), INDEPENDENT of
-// status.Report's reportSchemaVersion and of the usage/bench store schema
+// status.Report's reportSchemaVersion and of the usage/bench/recall store schema
 // versions. It is NOT byte-frozen by any golden test (this phase ships no --json
 // contract). Bump only on an incompatible manifest.json change; CompareSkew
 // fail-closes on a manifest whose schema_version is unreadable or NEWER than
 // this (D-08).
-const backupSchemaVersion = 1
+//
+// Version history:
+//   - v1 (Phase 16): the original five-entry archive (manifest/config/owui
+//     volume/usage/bench) + version/digest/host/store-schema fields.
+//   - v2 (Phase 23, D-04 doctrine): adds the OPTIONAL memory entries
+//     (qdrant-volume.tar / recall-state.json) and the embedding_model /
+//     embedding_dim / recall_schema_version manifest fields. The version
+//     reflects the CONTRACT: an old villa fails closed on a v2 backup (it
+//     cannot honor the memory entries); v1 backups STAY restorable because
+//     the gate is m.SchemaVersion <= backupSchemaVersion.
+const backupSchemaVersion = 2
 
 // Archive entry names (the deterministic outer-tar layout, D-03). manifest.json
 // is FIRST so a reader parses the manifest before validating the rest. The bench
 // store is a SINGLE append-only bench-reports.jsonl — exactly ONE entry / ONE
-// checksum, never plural bench files.
+// checksum, never plural bench files. The two Phase-23 memory entries
+// (qdrant-volume.tar / recall-state.json) are OPTIONAL: present only in a
+// memory-on backup (D-05/D-06).
 const (
 	EntryManifest        = "manifest.json"
 	EntryConfig          = "config.toml"
 	EntryOpenWebUIVolume = "openwebui-volume.tar"
 	EntryUsage           = "usage.json"
 	EntryBenchReports    = "bench-reports.jsonl"
+	EntryQdrantVolume    = "qdrant-volume.tar"
+	EntryRecallState     = "recall-state.json"
 )
 
 // EntryChecksum is one archive member's name and its lowercase-hex SHA-256
@@ -96,6 +110,18 @@ type Manifest struct {
 	// ExcludedModels are the identities of the excluded model weights (for re-pull,
 	// BAK-01). Identity only.
 	ExcludedModels []ExcludedModel `json:"excluded_models,omitempty"`
+	// EmbeddingModel / EmbeddingDim record the embedding model id and its
+	// LOAD-BEARING vector dimension at backup time (Phase 23, D-06/D-08), sourced
+	// from config (the single source of truth). Recorded ONLY on a memory-on
+	// backup; omitted otherwise so an old/memory-off backup never carries a
+	// fabricated embedding claim (the "not recorded" typed-Unknown convention —
+	// CompareSkew raises NO alarm on an empty model).
+	EmbeddingModel string `json:"embedding_model,omitempty"`
+	EmbeddingDim   int    `json:"embedding_dim,omitempty"`
+	// RecallSchemaVersion is the recall store's own schema version at backup time
+	// (recall.SchemaVersion(), accessor-sourced — Phase 23). Zero means "not
+	// recorded" (memory-off / pre-v2 backup) and never blocks.
+	RecallSchemaVersion int `json:"recall_schema_version,omitempty"`
 	// SchemaVersion is the manifest's own self-version. APPEND-ONLY: this stays the
 	// LAST field; new fields go ABOVE it (D-09).
 	SchemaVersion int `json:"schema_version"`
@@ -117,6 +143,13 @@ type ManifestInput struct {
 	BenchSchemaVersion  int
 	Entries             []EntryChecksum
 	ExcludedModels      []ExcludedModel
+	// EmbeddingModel / EmbeddingDim / RecallSchemaVersion are the Phase-23
+	// memory-stack fields (D-06/D-08): config-sourced model id + dimension and the
+	// accessor-sourced recall store schema. Zero values mean "not recorded"
+	// (memory-off backup) and are omitted from the marshaled manifest.
+	EmbeddingModel      string
+	EmbeddingDim        int
+	RecallSchemaVersion int
 }
 
 // BuildManifest is the pure assembly of a Manifest from plain-data input. It
@@ -134,6 +167,9 @@ func BuildManifest(in ManifestInput) Manifest {
 		BenchSchemaVersion:  in.BenchSchemaVersion,
 		Entries:             in.Entries,
 		ExcludedModels:      in.ExcludedModels,
+		EmbeddingModel:      in.EmbeddingModel,
+		EmbeddingDim:        in.EmbeddingDim,
+		RecallSchemaVersion: in.RecallSchemaVersion,
 		SchemaVersion:       backupSchemaVersion,
 	}
 }

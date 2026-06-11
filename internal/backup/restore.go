@@ -77,6 +77,40 @@ type RestoreInput struct {
 	// extracted usage.json / bench-reports.jsonl entries are written to atomically.
 	UsageDestPath string
 	BenchDestPath string
+
+	// QdrantVolumeName is the podman NAMED qdrant storage volume (seam-sourced from
+	// orchestrate.QdrantVolumeName() — never a literal, D-05) the OPTIONAL
+	// qdrant-volume.tar entry is clean-recreated + imported into (D-07). Every
+	// qdrant mutation is gated on the entry actually being present in the archive
+	// (ex.qdrantPresent) — a memory-free backup NEVER touches existing Qdrant data
+	// (T-23-09).
+	QdrantVolumeName string
+	// TempQdrantTar / RollbackQdrantTar mirror TempVolumeTar / RollbackVolumeTar
+	// for the qdrant volume: the cmd-chosen staging path for the EXTRACTED entry
+	// and the capture destination for the CURRENT volume's rollback tar (both in
+	// the WR-01-cleaned restore temp dir — the qdrant tar holds chat-derived
+	// vectors, same sensitivity as webui.db).
+	TempQdrantTar     string
+	RollbackQdrantTar string
+	// QdrantVolumeExists reports whether the CURRENT host has the qdrant volume
+	// (the cmd tier's tri-state `podman volume exists` check). It selects the
+	// Pitfall-4 capture/rollback shape: existing ⇒ capture-export + rollback
+	// re-import; absent ⇒ no capture, and rollback REMOVES the forward-created
+	// volume (the volume analog of rollbackRemove).
+	QdrantVolumeExists bool
+	// QdrantVolumeUnknown is true when the existence check could NOT be evaluated
+	// (podman missing/failed — the tri-state check's unknown cell, review WR-02).
+	// When the archive carries a qdrant entry, an Unknown current state is a
+	// fail-closed REFUSAL before any mutation: treating Unknown as absent would
+	// run the destructive VolumeRm on a possibly-real, UNCAPTURED qdrant volume.
+	// A memory-free archive ignores it (zero qdrant calls either way).
+	QdrantVolumeUnknown bool
+	// RecallDestPath is the resolved recall-state.json destination
+	// (recall.RecallStatePath() at the cmd tier) for the OPTIONAL recall-state
+	// entry — restored through the same WriteFileAtomic/rollbackRemove rows as
+	// usage/bench (the file lives directly under the villa data root, so the
+	// store-root guard covers it).
+	RecallDestPath string
 }
 
 // extracted holds the verified, tar-slip-guarded archive payload after the read
@@ -91,6 +125,12 @@ type extracted struct {
 	usagePresent bool
 	bench        []byte
 	benchPresent bool
+	// qdrantVolume / recallState are the OPTIONAL Phase-23 memory entries
+	// (D-06/D-07); the present flags gate EVERY qdrant/recall mutation downstream.
+	qdrantVolume  []byte
+	qdrantPresent bool
+	recallState   []byte
+	recallPresent bool
 }
 
 // Restore performs the guarded, transactional archive apply and returns a typed
@@ -143,6 +183,19 @@ func Restore(d Deps, in RestoreInput) Result {
 	// rollback set: the CURRENT owui volume tar, a snapshot of the current config, and
 	// the current data-dir artifacts. An uncapturable current state must NOT be
 	// mutated — refuse with zero side effects.
+	//
+	// WR-02 fail-closed gate: when the archive carries a qdrant entry but the
+	// current volume's existence could NOT be evaluated, REFUSE before any
+	// mutation. An Unknown collapsed into "absent" would skip the capture export
+	// AND the quiesce, then run the destructive VolumeRm on a possibly-real,
+	// uncaptured qdrant volume — destroying existing vectors with no rollback
+	// copy. The typed-Unknown doctrine: Unknown is never a confident negative.
+	if ex.qdrantPresent && in.QdrantVolumeUnknown {
+		return Result{Refused: true, FailedStep: "capture",
+			Reason: "could not determine whether the Qdrant volume " + in.QdrantVolumeName +
+				" exists — an unknown current state cannot be safely captured for rollback; " +
+				"check podman (`podman volume exists " + in.QdrantVolumeName + "`), then re-run"}
+	}
 	priorCfg, err := d.LoadConfig()
 	if err != nil {
 		return Result{Refused: true, FailedStep: "capture", Err: err,
@@ -152,8 +205,19 @@ func Restore(d Deps, in RestoreInput) Result {
 		return Result{Refused: true, FailedStep: "capture", Err: err,
 			Reason: "cannot capture the current Open WebUI volume for rollback — refusing to mutate: " + err.Error()}
 	}
+	// Qdrant capture (Phase 23, D-07/Pitfall 4): ONLY when the archive carries the
+	// entry AND the current host actually has the volume. Entry-present +
+	// volume-absent records prior-absent (rollback then REMOVES the
+	// forward-created volume); entry-absent makes ZERO qdrant calls of any kind.
+	if ex.qdrantPresent && in.QdrantVolumeExists {
+		if err := d.VolumeExport(in.QdrantVolumeName, in.RollbackQdrantTar); err != nil {
+			return Result{Refused: true, FailedStep: "capture", Err: err,
+				Reason: "cannot capture the current Qdrant volume for rollback — refusing to mutate: " + err.Error()}
+		}
+	}
 	priorUsage, priorUsageOK := captureFile(d, in.UsageDestPath)
 	priorBench, priorBenchOK := captureFile(d, in.BenchDestPath)
+	priorRecall, priorRecallOK := captureFile(d, in.RecallDestPath)
 
 	// Restored config is the archive's config.toml parsed into a VillaConfig (config is
 	// the single source of truth — the Quadlet recreate renders from it; D-07).
@@ -164,22 +228,26 @@ func Restore(d Deps, in RestoreInput) Result {
 	}
 
 	// cleanRecreateThenImport is the load-bearing clean-recreate-before-import
-	// sequence (RESEARCH Pitfall 1/2), used on BOTH the forward apply and the rollback:
+	// sequence (RESEARCH Pitfall 1/2), used on BOTH the forward apply and the
+	// rollback, for BOTH volumes (Phase 23 generalized it over volumeName — D-07):
 	// VolumeRm (not-found-tolerant) → ReconcileAndWrite (Quadlet recreate from cfg) →
 	// EnsureVolume (explicit create) → VolumeImport. import MERGES + does NOT
-	// auto-create, so the volume MUST be rm'd + freshly created first.
-	cleanRecreateThenImport := func(cfg config.VillaConfig, srcTar string) error {
-		if err := d.VolumeRm(in.OpenWebUIVolumeName); err != nil {
-			return fmt.Errorf("volume rm %s: %w", in.OpenWebUIVolumeName, err)
+	// auto-create, so the volume MUST be rm'd + freshly created first. When both
+	// volumes restore, ReconcileAndWrite runs once per call — the second invocation
+	// is an idempotent no-op by construction (Reconcile is a pure content-hash
+	// compare; WriteUnits writes only Changed), tolerated rather than restructured.
+	cleanRecreateThenImport := func(cfg config.VillaConfig, volumeName, srcTar string) error {
+		if err := d.VolumeRm(volumeName); err != nil {
+			return fmt.Errorf("volume rm %s: %w", volumeName, err)
 		}
 		if _, err := d.ReconcileAndWrite(cfg); err != nil {
 			return fmt.Errorf("reconcile/recreate units: %w", err)
 		}
-		if err := d.EnsureVolume(in.OpenWebUIVolumeName); err != nil {
-			return fmt.Errorf("ensure volume %s: %w", in.OpenWebUIVolumeName, err)
+		if err := d.EnsureVolume(volumeName); err != nil {
+			return fmt.Errorf("ensure volume %s: %w", volumeName, err)
 		}
-		if err := d.VolumeImport(in.OpenWebUIVolumeName, srcTar); err != nil {
-			return fmt.Errorf("volume import %s: %w", in.OpenWebUIVolumeName, err)
+		if err := d.VolumeImport(volumeName, srcTar); err != nil {
+			return fmt.Errorf("volume import %s: %w", volumeName, err)
 		}
 		return nil
 	}
@@ -201,6 +269,18 @@ func Restore(d Deps, in RestoreInput) Result {
 				detail += what + ": " + e.Error()
 			}
 		}
+		// QUIESCE FIRST (CR-01): the forward path starts Open WebUI (and Qdrant)
+		// at step (5) BEFORE the Prove gate at step (6), so a prove-triggered
+		// rollback arrives with the services RUNNING — and a running container
+		// holds its volume, making the clean-recreate VolumeRm below fail in-use
+		// on a live host. Mirror the forward path's own quiesce before any volume
+		// work; Stop on an already-stopped unit is an idempotent no-op. The qdrant
+		// stop mirrors the forward Start gate (entry present AND a prior volume
+		// existed) — on the prior-absent cell nothing was ever started.
+		add(d.Stop(d.OpenWebUIServiceName), "stop Open WebUI for rollback")
+		if ex.qdrantPresent && in.QdrantVolumeExists {
+			add(d.Stop(d.QdrantServiceName), "stop Qdrant for rollback")
+		}
 		add(d.SaveConfig(priorCfg), "SaveConfig(prior)")
 		// Restore each data-dir artifact VERBATIM (CR-01). For each path:
 		//   - prior existed → rewrite the captured prior bytes (the prior behavior);
@@ -221,8 +301,27 @@ func Restore(d Deps, in RestoreInput) Result {
 		case ex.benchPresent && in.BenchDestPath != "":
 			add(rollbackRemove(d, in.BenchDestPath), "remove restored bench-reports.jsonl")
 		}
+		// recall-state.json follows the same verbatim CR-01 rows (Phase 23, D-06).
+		switch {
+		case priorRecallOK:
+			add(d.WriteFileAtomic(in.RecallDestPath, priorRecall), "restore recall-state.json")
+		case ex.recallPresent && in.RecallDestPath != "":
+			add(rollbackRemove(d, in.RecallDestPath), "remove restored recall-state.json")
+		}
 		// Re-import the CAPTURED owui volume through the clean-recreate ordering (prior cfg).
-		add(cleanRecreateThenImport(priorCfg, in.RollbackVolumeTar), "restore Open WebUI volume")
+		add(cleanRecreateThenImport(priorCfg, in.OpenWebUIVolumeName, in.RollbackVolumeTar), "restore Open WebUI volume")
+		// Qdrant rollback (Phase 23, D-07/Pitfall 4): same clean-recreate ordering
+		// from the CAPTURED rollback tar when a prior volume existed; when the prior
+		// state was ABSENT, restore it verbatim by REMOVING the forward-created
+		// volume (the volume analog of rollbackRemove). Entry-absent ⇒ zero calls.
+		if ex.qdrantPresent {
+			if in.QdrantVolumeExists {
+				add(cleanRecreateThenImport(priorCfg, in.QdrantVolumeName, in.RollbackQdrantTar), "restore Qdrant volume")
+				add(d.Start(d.QdrantServiceName), "restart Qdrant")
+			} else {
+				add(d.VolumeRm(in.QdrantVolumeName), "remove forward-created Qdrant volume")
+			}
+		}
 		add(d.Start(d.OpenWebUIServiceName), "restart Open WebUI")
 		return ok, detail
 	}
@@ -239,6 +338,7 @@ func Restore(d Deps, in RestoreInput) Result {
 			Prove:      v,
 		}
 		if !rbOK {
+			r.RollbackIncomplete = true
 			r.Reason = "rolled back, but the restore did not fully complete (" + rbDetail +
 				") — run `villa status` and inspect the villa-openwebui unit"
 		}
@@ -249,6 +349,15 @@ func Restore(d Deps, in RestoreInput) Result {
 	// is a pre-mutate error → rollback (which best-effort re-readies).
 	if err := d.Stop(d.OpenWebUIServiceName); err != nil {
 		return rolledBack("quiesce", "", fmt.Errorf("stop %s: %w", d.OpenWebUIServiceName, err), ProveVerdict{})
+	}
+	// Quiesce the qdrant service too (Phase 23, Pitfall 3): a RUNNING qdrant holds
+	// its volume (the live VolumeRm would fail in-use) and could write mid-swap.
+	// Gated on a prior volume actually existing — on a memory-off host there is no
+	// running qdrant service to stop (its unit may not even exist).
+	if ex.qdrantPresent && in.QdrantVolumeExists {
+		if err := d.Stop(d.QdrantServiceName); err != nil {
+			return rolledBack("quiesce", "", fmt.Errorf("stop %s: %w", d.QdrantServiceName, err), ProveVerdict{})
+		}
 	}
 
 	// (5) MUTATE. ANY error here rolls back verbatim from the captured set.
@@ -265,16 +374,45 @@ func Restore(d Deps, in RestoreInput) Result {
 			return rolledBack("data", "", fmt.Errorf("restore bench-reports.jsonl: %w", err), ProveVerdict{})
 		}
 	}
+	// recall-state.json restores like the usage/bench rows (Phase 23, D-06): the
+	// store-root-guarded atomic write covers it (it lives directly under the villa
+	// data root).
+	if ex.recallPresent {
+		if err := d.WriteFileAtomic(in.RecallDestPath, ex.recallState); err != nil {
+			return rolledBack("data", "", fmt.Errorf("restore recall-state.json: %w", err), ProveVerdict{})
+		}
+	}
 	// CLEAN-RECREATE then import the RESTORED owui volume (the whole reason for the
 	// rm→recreate→ensure→import ordering — never merge into a live volume).
 	if err := d.WriteTempFile(in.TempVolumeTar, ex.owuiVolume); err != nil {
 		return rolledBack("volume", "", fmt.Errorf("stage restored owui volume tar: %w", err), ProveVerdict{})
 	}
-	if err := cleanRecreateThenImport(restoredCfg, in.TempVolumeTar); err != nil {
+	if err := cleanRecreateThenImport(restoredCfg, in.OpenWebUIVolumeName, in.TempVolumeTar); err != nil {
 		return rolledBack("volume", "", err, ProveVerdict{})
+	}
+	// Forward qdrant apply (Phase 23, D-07): SAME clean-recreate ordering for the
+	// second volume — never a merge-import. Gated on the entry being present;
+	// VolumeRm tolerates an absent prior volume (the seam contract), so the
+	// prior-absent cell flows through the same sequence.
+	if ex.qdrantPresent {
+		if err := d.WriteTempFile(in.TempQdrantTar, ex.qdrantVolume); err != nil {
+			return rolledBack("volume", "", fmt.Errorf("stage restored qdrant volume tar: %w", err), ProveVerdict{})
+		}
+		if err := cleanRecreateThenImport(restoredCfg, in.QdrantVolumeName, in.TempQdrantTar); err != nil {
+			return rolledBack("volume", "", err, ProveVerdict{})
+		}
 	}
 	if err := d.Start(d.OpenWebUIServiceName); err != nil {
 		return rolledBack("restart", "", fmt.Errorf("start %s: %w", d.OpenWebUIServiceName, err), ProveVerdict{})
+	}
+	// Restart the qdrant service we quiesced (symmetric with its Stop gate). On the
+	// prior-absent cell nothing was stopped — the operator brings the (possibly
+	// newly-rendered) memory stack up via `villa up`, reported honestly by the
+	// caller.
+	if ex.qdrantPresent && in.QdrantVolumeExists {
+		if err := d.Start(d.QdrantServiceName); err != nil {
+			return rolledBack("restart", "", fmt.Errorf("start %s: %w", d.QdrantServiceName, err), ProveVerdict{})
+		}
 	}
 
 	// (6) PROVE the restored stack offload-honestly. Switch to success ONLY on
@@ -284,7 +422,13 @@ func Restore(d Deps, in RestoreInput) Result {
 	if v.Status != ProveStatusPass {
 		return rolledBack("prove", v.Detail, nil, v)
 	}
-	return Result{Restored: true, Prove: v}
+	return Result{
+		Restored:              true,
+		Prove:                 v,
+		QdrantRestored:        ex.qdrantPresent,
+		RecallStateRestored:   ex.recallPresent,
+		RestoredMemoryEnabled: restoredCfg.MemoryEnabled,
+	}
 }
 
 // rollbackRemove deletes a data-dir artifact the forward path newly created, to
@@ -431,6 +575,16 @@ func readAndVerify(in RestoreInput) (extracted, error) {
 	}
 	if b, ok := collect[EntryBenchReports]; ok {
 		ex.bench, ex.benchPresent = b, true
+	}
+	// The Phase-23 memory entries are OPTIONAL and flow through the SAME
+	// readAndVerify guards as every other entry (SHA-256, tar-slip, duplicate +
+	// extra-entry rejection, fail-closed version gate) — no parallel reader
+	// (T-23-11).
+	if b, ok := collect[EntryQdrantVolume]; ok {
+		ex.qdrantVolume, ex.qdrantPresent = b, true
+	}
+	if b, ok := collect[EntryRecallState]; ok {
+		ex.recallState, ex.recallPresent = b, true
 	}
 	return ex, nil
 }

@@ -34,6 +34,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 	"github.com/MatrixMagician/VillaStraylight/internal/preflight"
+	"github.com/MatrixMagician/VillaStraylight/internal/recall"
 	"github.com/MatrixMagician/VillaStraylight/internal/usage"
 )
 
@@ -69,8 +70,14 @@ func newRestore() *cobra.Command {
 				os.Exit(code)
 				return nil
 			}
-			rc := runRestore(cmd, args[0], in, d)
-			cleanup() // must survive until AFTER backup.Restore returns
+			rc, preserveTmp := runRestore(cmd, args[0], in, d, tmpDir)
+			// CR-01: when the rollback did NOT fully complete, tmpDir holds the ONLY
+			// copies of the prior volume data (rollback-owui.tar / rollback-qdrant.tar)
+			// — deleting it would permanently lose the prior chat database. runRestore
+			// already printed the preservation notice + recovery hint.
+			if !preserveTmp {
+				cleanup() // must survive until AFTER backup.Restore returns
+			}
 			os.Exit(rc)
 			return nil
 		},
@@ -87,7 +94,10 @@ func newRestore() *cobra.Command {
 // Restored -> exitPass; Refused -> exitBlocked (a clean fail-closed/decline, zero side
 // effects); RolledBack -> exitBlocked with the honest rollback reason; a bare Err ->
 // exitBlocked. The body RETURNS the int (no os.Exit) so tests assert output + code.
-func runRestore(cmd *cobra.Command, archivePath string, in backup.RestoreInput, d backup.Deps) int {
+// preserveTmp reports whether the caller must PRESERVE the restore temp dir (CR-01):
+// it is true exactly when the rollback did not fully complete — tmpDir then holds the
+// ONLY copies of the prior volume data and deleting it would lose the prior chats.
+func runRestore(cmd *cobra.Command, archivePath string, in backup.RestoreInput, d backup.Deps, tmpDir string) (code int, preserveTmp bool) {
 	out := cmd.OutOrStdout()
 	errOut := cmd.ErrOrStderr()
 
@@ -101,7 +111,7 @@ func runRestore(cmd *cobra.Command, archivePath string, in backup.RestoreInput, 
 		} else {
 			fmt.Fprintf(errOut, "restore: refusing to apply %s\n", archivePath)
 		}
-		return exitBlocked
+		return exitBlocked, false
 	case res.RolledBack:
 		fmt.Fprintf(errOut, "restore: applying %s failed at %q — rolled back; prior stack restored\n", archivePath, res.FailedStep)
 		if res.Reason != "" {
@@ -110,14 +120,45 @@ func runRestore(cmd *cobra.Command, archivePath string, in backup.RestoreInput, 
 		if res.Err != nil {
 			fmt.Fprintf(errOut, "  error:  %v\n", res.Err)
 		}
-		return exitBlocked
+		if res.RollbackIncomplete {
+			// CR-01: an incomplete rollback means the captured prior state was NOT
+			// fully re-applied — the rollback tars in tmpDir are the only copies of
+			// the prior Open WebUI (webui.db) / Qdrant volume data. Preserve them
+			// and tell the operator how to recover instead of silently deleting.
+			if tmpDir != "" {
+				fmt.Fprintf(errOut, "restore: PRESERVING %s — the rollback did not fully complete and this directory holds the ONLY copies of the prior volume data (rollback-owui.tar / rollback-qdrant.tar).\n", tmpDir)
+				fmt.Fprintf(errOut, "  recover: fix the cause above, stop the affected service, then `podman volume import <volume> <rollback tar>`; remove the directory once the prior data is safe.\n")
+			}
+			return exitBlocked, true
+		}
+		return exitBlocked, false
 	case res.Err != nil:
 		fmt.Fprintf(errOut, "restore: applying %s failed at %q: %v\n", archivePath, res.FailedStep, res.Err)
-		return exitBlocked
+		return exitBlocked, false
 	default: // Restored
 		fmt.Fprintf(out, "restored %s — config + Open WebUI data + usage/bench stores applied, cutover proven\n", archivePath)
 		fmt.Fprintf(out, "note: model weights are not in the backup; if inference fails to start, re-pull with `villa model pull <id>`\n")
-		return exitPass
+		// Honest Phase-23 memory reporting (D-07/OQ1: report, never extend Prove —
+		// the memory stack is NOT covered by the cutover proof; verify it explicitly).
+		if res.QdrantRestored {
+			fmt.Fprintf(out, "memory: Qdrant volume restored — verify with `villa doctor`; if a dimension skew was confirmed at restore, run `villa recall index --rebuild`\n")
+		} else {
+			fmt.Fprintf(out, "memory volume not present in this backup — existing Qdrant data left untouched\n")
+		}
+		if res.RecallStateRestored {
+			fmt.Fprintf(out, "memory: recall state restored\n")
+		} else {
+			fmt.Fprintf(out, "memory: recall state not present in this backup — left untouched\n")
+		}
+		// The restored config is the single source of truth for the stack shape
+		// (Pitfall 5). Stale memory unit files are NOT removed by the reconcile
+		// (it writes changed units only) — existing behavior, reported not "fixed".
+		posture := "disabled"
+		if res.RestoredMemoryEnabled {
+			posture = "enabled"
+		}
+		fmt.Fprintf(out, "memory stack: %s (restored config); note: a reconcile does not remove stale unit files — bring services up with `villa up`\n", posture)
+		return exitPass, false
 	}
 }
 
@@ -161,6 +202,11 @@ func liveRestore(cmd *cobra.Command, archivePath string, bypass bool) (backup.Re
 		ConfigSchemaVersion: 0, // VillaConfig carries no schema_version field (not recorded).
 		UsageSchemaVersion:  usage.SchemaVersion(),
 		BenchSchemaVersion:  benchstore.SavedReportSchemaVersion(),
+		// Embedding identity for the Phase-23 dimension-skew compare (D-08): config
+		// is the single source of truth; the recall schema comes from its accessor.
+		EmbeddingModel:      cfg.EmbeddingModel,
+		EmbeddingDim:        cfg.EmbeddingDim,
+		RecallSchemaVersion: recall.SchemaVersion(),
 	}
 
 	// Temp dir (same data-home parent) for the extracted + rollback volume tars. The
@@ -182,7 +228,18 @@ func liveRestore(cmd *cobra.Command, archivePath string, bypass bool) (backup.Re
 		RollbackVolumeTar:   filepath.Join(tmpDir, "rollback-owui.tar"),
 		UsageDestPath:       usage.UsagePath(),
 		BenchDestPath:       benchReportsStorePath(),
+		// Phase-23 qdrant volume + recall-state wiring (D-05/D-07): identities are
+		// seam-sourced; the qdrant tars live in the SAME WR-01-cleaned tmpDir (they
+		// hold chat-derived vectors, same sensitivity as webui.db); the existence
+		// check is TRI-STATE for restore (WR-02): the core fail-closes when the
+		// archive carries a qdrant entry but existence is UNKNOWN — never the
+		// backup-side fail-soft collapse of Unknown into a confident "absent".
+		QdrantVolumeName:  orchestrate.QdrantVolumeName(),
+		TempQdrantTar:     filepath.Join(tmpDir, "restore-qdrant.tar"),
+		RollbackQdrantTar: filepath.Join(tmpDir, "rollback-qdrant.tar"),
+		RecallDestPath:    recall.RecallStatePath(),
 	}
+	in.QdrantVolumeExists, in.QdrantVolumeUnknown = volumeExistsTri(orchestrate.QdrantVolumeName(), errOut)
 	return in, liveRestoreDeps(), tmpDir, exitPass
 }
 
@@ -210,8 +267,11 @@ func liveRestoreDeps() backup.Deps {
 	return backup.Deps{
 		OpenWebUIServiceName: openWebUIServiceName,
 		InstallServiceName:   installServiceName,
-		LoadConfig:           config.LoadVilla,
-		SaveConfig:           config.SaveVilla, // atomic 0600/0700, traversal-guarded — NEVER hand-write
+		// QdrantServiceName mirrors liveBackupDeps: derived from the orchestrate
+		// unit-name accessor, never a re-typed literal (D-05).
+		QdrantServiceName: unitServiceName(orchestrate.QdrantContainerUnitName()),
+		LoadConfig:        config.LoadVilla,
+		SaveConfig:        config.SaveVilla, // atomic 0600/0700, traversal-guarded — NEVER hand-write
 		VolumeExport: func(name, outPath string) error {
 			if err := requirePodman(); err != nil {
 				return err

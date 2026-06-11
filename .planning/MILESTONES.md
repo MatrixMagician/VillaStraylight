@@ -1,5 +1,31 @@
 # Milestones
 
+## v1.3 Memory & Knowledge (Shipped: 2026-06-11)
+
+**Phases completed:** 6 phases (18–23), 20 plans, 41 tasks
+**Git range:** `main (76be899)` → v1.3 (171 commits, 276 files changed, +392,738 / −15,603 incl. planning artifacts)
+**Timeline:** 2026-06-09 → 2026-06-11
+**Codebase:** ~49.2k Go LOC; full suite green (885 tests across milestone packages + cmd/villa)
+**Audit:** PASSED — 22/22 requirements satisfied, 15/16 cross-phase connections wired (0 blockers, 1 WARN), 5/5 E2E flows complete (see `milestones/v1.3-MILESTONE-AUDIT.md`)
+
+**Theme:** the assistant now *remembers the user and their documents across chats — strictly local*: a config-driven memory stack (Qdrant + local embeddings + Open WebUI Memory/RAG), conversational recall by meaning, and the control plane extended to fit, gate, surface, back up, and swap-guard it — zero new outbound, zero telemetry.
+
+**Key accomplishments:**
+
+- **Local memory-stack services (INFRA-01/02/04, PRIV-04)** — digest-pinned Qdrant `v1.18.2-unprivileged` + a dedicated `villa-embed` llama-server (nomic-embed-text-v1.5, 768-dim) rendered as rootless Quadlet units on `villa.network`, container-DNS only (no host port), durable named `:Z` volume, all driven from new `config.toml` memory fields through `memory.RenderView` — and the embedding GGUF pre-staged at install so nothing downloads at runtime (proven with `--network none`).
+- **Open WebUI Memory/RAG wiring + offline lockdown (INFRA-03, MEM-01..04, KB-01..03, PRIV-05)** — env-only wiring behind the orchestrate seam with `ENABLE_PERSISTENT_CONFIG=False` keeping villa config the single source of truth, the full telemetry/offline kill-set, and a **runtime** firewalled zero-outbound proof: `villa verify memory` drives a real document upload→cited answer inside an egress-blocked netns, with a negative control that FAILS when egress is open — never a false-green. Cross-chat memory, explicit save, view/edit/delete, and cited doc-KB answers all UAT-passed live.
+- **Conversational recall (RECALL-01..03)** — `villa recall index|status`: a pure `internal/recall` diff core + 17-field Deps seam indexes past chats into OWUI Knowledge through the local embed→Qdrant path, incrementally with clean-replace semantics, typed-Unknown staleness honesty (never silently stale), and a fail-closed embedding-skew gate. Proven live on gfx1151: zero-keyword semantic retrieval in a new chat with visible citation; negative control clean.
+- **Control-plane fit + host gates (CTRL-01/03/06)** — `recommend` reserves the embedding footprint off the unified-memory envelope *before* the chat-model fit (append-only schema-2 fields), `preflight`/`install` gate vector-disk + embedder headroom with refuse-with-remediation, and `villa doctor` folds memory health plus a chat-model residency proof under **real** `/v1/embeddings` load — confident CPU fallback is never suppressed.
+- **Surfacing (CTRL-02)** — `status.Report` schema 2→3 in exactly one golden re-freeze: per-service in-network health rows for villa-qdrant/villa-embed (fixing a Phase-22 chat-endpoint false-green), embedding identity + typed recall summary + mismatch-only skew indicator, inherited verbatim by the dashboard's new XSS-safe memory panel (hidden entirely when memory is off).
+- **Backup/restore + memory-aware swap (CTRL-04/05)** — `villa backup`/`restore` extend to the Qdrant volume and recall-state.json with quiesced export, manifest v2 recording embedding model + dimension, clean-recreate-before-import, dimension-skew WARN+confirm, and rollback symmetry; the swap hazard is closed structurally (chat swap can never touch memory units — reflect-pinned D-09 invariant) plus a fail-closed dimension-skew refusal at `recall index` with `--rebuild` as the sanctioned bypass. All drilled live, box restored byte-identical.
+
+**Honest outcomes & known limitations (not gaps):**
+
+- CTRL-05 shipped as a *documented reinterpretation*: `villa model swap` only swaps the chat model, so the dimension guard lives where a dimension change can actually occur (recall index / install / restore) plus the structural swap-isolation invariant — single-sourced via `recall.EmbeddingSkew`, no forked 768 constant.
+- Phase 20 was verified via complete on-hardware UAT (6/6 pass, every REQ evidenced) + approved Nyquist VALIDATION instead of a formal VERIFICATION.md artifact.
+- Deferred (recorded in the audit): literal `sudo reboot` durability re-confirmation of the Qdrant volume (mechanism proxy-proven), restore-side tar streaming (WR-06; backup-side landed), and a drift test for the install-side memory service-name constants (sole integration WARN).
+---
+
 ## v1.2 Operability (Completed: 2026-06-08)
 
 > **Release status:** archived + audited; PR-to-`main` and `git tag v1.2` (on the main merge commit, mirroring v1.0/v1.1) are pending via `/gsd-ship`.

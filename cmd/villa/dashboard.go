@@ -261,11 +261,15 @@ func liveModelsView() ([]dashboard.ModelView, bool) {
 	}
 
 	profile := detect.Probe()
+	// Memory inputs from the fail-soft cfg load above (D-01): the dashboard's
+	// per-model fit column reflects the same shrunken envelope recommend uses
+	// (a load error left cfg zero-valued — memory off).
+	mem := recommend.MemoryInputs{Enabled: cfg.MemoryEnabled, EmbeddingModel: cfg.EmbeddingModel}
 	views := make([]dashboard.ModelView, 0, len(cat.Models))
 	for _, m := range cat.Models {
 		// Reuse recommend.Pick fit-math by overriding to this entry (the same override
 		// path liveSwapDeps.Fits uses, recommend.go / D-07) — never new envelope math.
-		rec := recommend.Pick(profile, cat, recommend.Overrides{Model: m.ID})
+		rec := recommend.Pick(profile, cat, recommend.Overrides{Model: m.ID}, mem)
 		views = append(views, dashboard.ModelView{
 			ID:        m.ID,
 			Quant:     m.Quant,

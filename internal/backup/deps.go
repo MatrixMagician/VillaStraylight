@@ -17,7 +17,11 @@
 // internal/backendswap, internal/usage, and internal/status.
 package backup
 
-import "github.com/MatrixMagician/VillaStraylight/internal/config"
+import (
+	"io"
+
+	"github.com/MatrixMagician/VillaStraylight/internal/config"
+)
 
 // ProveStatusPass is this package's OWN success sentinel for a restore-cutover
 // prove verdict. The cmd layer (later plans) sets ProveVerdict.Status to this
@@ -75,6 +79,15 @@ type Deps struct {
 	// read config.toml / usage.json / bench-reports.jsonl when assembling the
 	// archive and to read captured rollback artifacts.
 	ReadFile func(path string) ([]byte, error)
+	// OpenFile opens a source file for STREAMING reads (reader + size), used by
+	// Backup for the LARGE volume-tar entries (openwebui-volume.tar /
+	// qdrant-volume.tar — the one entry that realistically grows to many GiB of
+	// vectors) so their bytes are never buffered whole in memory (review WR-06):
+	// the checksum pass streams via io.Copy and the tar assembly streams a fresh
+	// reader per entry. OPTIONAL: when nil, Backup falls back to ReadFile (the
+	// in-memory path) — existing fakes and small entries are unaffected. The live
+	// wiring is os.Open + Stat in cmd/villa.
+	OpenFile func(path string) (rc io.ReadCloser, size int64, err error)
 	// WriteFileAtomic writes a fixed villa data-STORE artifact (usage.json /
 	// bench-reports.jsonl) via a same-dir temp + rename, 0600 file / 0700 dir,
 	// guarded against escaping the data-store root (clone of usage.WriteFileAtomic,
@@ -121,6 +134,12 @@ type Deps struct {
 	// constants (mirrors backendswap.InstallServiceName).
 	OpenWebUIServiceName string
 	InstallServiceName   string
+	// QdrantServiceName is the qdrant service identity the Phase-23 memory-on
+	// backup quiesces around its volume export (Stop → export → deferred Start;
+	// Pitfall 3 torn-RocksDB/WAL guard). Seam-sourced by the cmd tier (derived
+	// from orchestrate.QdrantContainerUnitName()) — never a literal here, so the
+	// core stays free of service-name literals (mirrors OpenWebUIServiceName).
+	QdrantServiceName string
 }
 
 // Result is the typed outcome of a backup/restore (not an exit code), so the
@@ -139,6 +158,13 @@ type Result struct {
 	// rollback STEP itself errored — Reason/FailedStep then flag rollback-incomplete
 	// (never claim a clean no-op when rollback errored; RESEARCH Pitfall 5).
 	RolledBack bool
+	// RollbackIncomplete is true when RolledBack is set but one or more rollback
+	// steps themselves errored (CR-01). The cmd tier MUST then PRESERVE the
+	// restore temp dir instead of deleting it — the captured rollback tars
+	// (rollback-owui.tar / rollback-qdrant.tar) it holds are the ONLY copies of
+	// the prior Open WebUI / Qdrant volume data, and deleting them on an
+	// incomplete rollback would permanently lose the prior chat database.
+	RollbackIncomplete bool
 	// NoOp is true for a clean no-op with zero side effects.
 	NoOp bool
 	// Reason is the human refusal/remediation/rollback explanation (empty on a
@@ -158,4 +184,16 @@ type Result struct {
 	// archive was written); this only flags that the service is likely DOWN and the
 	// user should run `villa up`. Empty on a clean restart.
 	RestartWarning string
+	// QdrantRestored / RecallStateRestored report whether the OPTIONAL Phase-23
+	// memory entries were present in the archive and applied (valid on a Restored
+	// result). False means "not present in this backup" — the caller reports it
+	// honestly and existing Qdrant data was left untouched (D-07, OQ1: report,
+	// never extend Prove).
+	QdrantRestored      bool
+	RecallStateRestored bool
+	// RestoredMemoryEnabled is the RESTORED config's memory posture (Pitfall 5):
+	// the reconcile renders units from the restored config, so the stack shape may
+	// have changed — the caller prints "memory stack: enabled/disabled (restored
+	// config)". Valid on a Restored result.
+	RestoredMemoryEnabled bool
 }

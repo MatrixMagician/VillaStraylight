@@ -9,10 +9,32 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
 	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 	"github.com/MatrixMagician/VillaStraylight/internal/preflight"
 )
+
+// memoryGateResults returns the OPT-IN memory-stack gates (MEM-PRE-disk /
+// MEM-PRE-headroom, CTRL-06/D-06) to append to the preflight results, or nil
+// when memory is off — so the memory-off output stays byte-identical (the
+// frozen preflight goldens are the regression net). It is an injectable seam
+// var (the pullFn convention) so tests drive the append without a host config
+// or a live podman. Live wiring: liveMemoryGateResults.
+var memoryGateResults = liveMemoryGateResults
+
+// liveMemoryGateResults loads the PERSISTED config FAIL-SOFT (the
+// liveLoadedMemoryEnabled shape: a load error or absent file yields memory-off —
+// a broken config never silently enables gates and never changes the verb's
+// error path or exit code, T-22-08) and, only when memory_enabled, runs the
+// memory host-fitness checks with the configured embedding model.
+func liveMemoryGateResults(profile detect.HostProfile) []preflight.CheckResult {
+	cfg, err := config.LoadVilla()
+	if err != nil || !cfg.MemoryEnabled {
+		return nil
+	}
+	return preflight.RunMemory(profile, preflight.MemoryGateInput{EmbeddingModel: cfg.EmbeddingModel})
+}
 
 // Exit codes for `villa preflight` (D-04). These are the scriptable contract that
 // Phase 3 install and a future `villa doctor` branch on, so they are named.
@@ -57,6 +79,10 @@ func newPreflight() *cobra.Command {
 				// Standalone host preflight — WARN-only, behaviorally unchanged (D-03).
 				results = preflight.Run(profile)
 			}
+			// Opt-in memory-stack gates (CTRL-06/D-06): appended on BOTH branches,
+			// only when the persisted config enables memory; nil (memory off /
+			// unreadable config) appends nothing — byte-identical off path.
+			results = append(results, memoryGateResults(profile)...)
 			code := renderPreflight(cmd.OutOrStdout(), results, jsonOut, verbose, force)
 			os.Exit(code)
 			return nil

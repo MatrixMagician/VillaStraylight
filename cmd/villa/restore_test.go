@@ -13,6 +13,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -160,7 +161,7 @@ func TestRestoreHappyPathExitsPass(t *testing.T) {
 	writeTestArchive(t, arch, matchingManifestInput(), restoreCfgTOML, []byte("owui"))
 
 	cmd, out, errOut := newRestoreTestCmd()
-	code := runRestore(cmd, arch, baseRestoreInput(t, arch), fakeRestoreDeps(backup.ProveVerdict{Status: backup.ProveStatusPass}))
+	code, _ := runRestore(cmd, arch, baseRestoreInput(t, arch), fakeRestoreDeps(backup.ProveVerdict{Status: backup.ProveStatusPass}), "")
 	if code != exitPass {
 		t.Fatalf("runRestore = %d, want %d; stderr=%q", code, exitPass, errOut.String())
 	}
@@ -181,7 +182,7 @@ func TestRestoreConsentDeniedExitsBlocked(t *testing.T) {
 	in.Consent = func(string) bool { return false }
 
 	cmd, _, errOut := newRestoreTestCmd()
-	code := runRestore(cmd, arch, in, fakeRestoreDeps(backup.ProveVerdict{Status: backup.ProveStatusPass}))
+	code, _ := runRestore(cmd, arch, in, fakeRestoreDeps(backup.ProveVerdict{Status: backup.ProveStatusPass}), "")
 	if code != exitBlocked {
 		t.Fatalf("declined consent: runRestore = %d, want %d", code, exitBlocked)
 	}
@@ -203,7 +204,7 @@ func TestRestoreYesBypassesConsent(t *testing.T) {
 	in.Bypass = true
 
 	cmd, _, errOut := newRestoreTestCmd()
-	code := runRestore(cmd, arch, in, fakeRestoreDeps(backup.ProveVerdict{Status: backup.ProveStatusPass}))
+	code, _ := runRestore(cmd, arch, in, fakeRestoreDeps(backup.ProveVerdict{Status: backup.ProveStatusPass}), "")
 	if code != exitPass {
 		t.Fatalf("--yes over WARN skew: runRestore = %d, want %d; stderr=%q", code, exitPass, errOut.String())
 	}
@@ -217,13 +218,147 @@ func TestRestoreOffloadFailRollsBack(t *testing.T) {
 	writeTestArchive(t, arch, matchingManifestInput(), restoreCfgTOML, []byte("owui"))
 
 	cmd, _, errOut := newRestoreTestCmd()
-	code := runRestore(cmd, arch, baseRestoreInput(t, arch),
-		fakeRestoreDeps(backup.ProveVerdict{Status: "fail", Detail: "residency FAIL (CPU fallback)"}))
+	code, preserve := runRestore(cmd, arch, baseRestoreInput(t, arch),
+		fakeRestoreDeps(backup.ProveVerdict{Status: "fail", Detail: "residency FAIL (CPU fallback)"}), "")
 	if code != exitBlocked {
 		t.Fatalf("offload-FAIL prove: runRestore = %d, want %d", code, exitBlocked)
 	}
 	if !bytes.Contains(errOut.Bytes(), []byte("rolled back")) {
 		t.Fatalf("expected a rollback message, got %q", errOut.String())
+	}
+	// A CLEAN rollback must not ask the caller to preserve the temp dir (CR-01).
+	if preserve {
+		t.Fatalf("a complete rollback must not preserve the restore temp dir")
+	}
+}
+
+// TestRestoreRollbackIncompletePreservesTmpDir is the CR-01 cmd-tier regression:
+// when the rollback did NOT fully complete (here: every VolumeRm fails "in use"),
+// runRestore must report preserveTmp=true and print the preservation notice naming
+// the temp dir — the rollback tars it holds are the ONLY copies of the prior
+// webui.db / Qdrant vectors, and the old unconditional cleanup deleted them.
+func TestRestoreRollbackIncompletePreservesTmpDir(t *testing.T) {
+	dir := t.TempDir()
+	arch := filepath.Join(dir, "b.tar")
+	writeTestArchive(t, arch, matchingManifestInput(), restoreCfgTOML, []byte("owui"))
+
+	d := fakeRestoreDeps(backup.ProveVerdict{Status: "fail", Detail: "residency FAIL"})
+	d.VolumeRm = func(string) error { return errors.New("volume is being used") }
+
+	tmpDir := t.TempDir()
+	cmd, _, errOut := newRestoreTestCmd()
+	code, preserve := runRestore(cmd, arch, baseRestoreInput(t, arch), d, tmpDir)
+	if code != exitBlocked {
+		t.Fatalf("rollback-incomplete: runRestore = %d, want %d", code, exitBlocked)
+	}
+	if !preserve {
+		t.Fatalf("an INCOMPLETE rollback must preserve the restore temp dir (CR-01)")
+	}
+	if !bytes.Contains(errOut.Bytes(), []byte("PRESERVING "+tmpDir)) {
+		t.Fatalf("expected the preservation notice naming %q, got %q", tmpDir, errOut.String())
+	}
+	if !bytes.Contains(errOut.Bytes(), []byte("podman volume import")) {
+		t.Fatalf("expected a recovery hint, got %q", errOut.String())
+	}
+}
+
+// writeTestArchiveMem clones writeTestArchive with the OPTIONAL Phase-23 memory
+// entries (qdrant-volume.tar / recall-state.json); nil omits an entry.
+func writeTestArchiveMem(t *testing.T, path string, m backup.ManifestInput, cfgTOML, owui, qdrant, recallState []byte) {
+	t.Helper()
+	type e struct {
+		name string
+		data []byte
+	}
+	data := []e{{backup.EntryConfig, cfgTOML}, {backup.EntryOpenWebUIVolume, owui}}
+	if qdrant != nil {
+		data = append(data, e{backup.EntryQdrantVolume, qdrant})
+	}
+	if recallState != nil {
+		data = append(data, e{backup.EntryRecallState, recallState})
+	}
+	var sums []backup.EntryChecksum
+	for _, d := range data {
+		h := sha256.Sum256(d.data)
+		sums = append(sums, backup.EntryChecksum{Name: d.name, SHA256: hex.EncodeToString(h[:])})
+	}
+	m.Entries = sums
+	man := backup.BuildManifest(m)
+	mj, err := json.MarshalIndent(man, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	all := []e{{backup.EntryManifest, mj}}
+	all = append(all, data...)
+	for _, d := range all {
+		if err := tw.WriteHeader(&tar.Header{Name: d.name, Mode: 0o600, Size: int64(len(d.data)), Format: tar.FormatPAX}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tw.Write(d.data); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, buf.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestRestoreOutputMemoryNotPresent asserts the honest D-07 reporting on a
+// memory-FREE backup: the not-present-left-untouched line and the restored-config
+// memory-posture line (Pitfall 5) both print.
+func TestRestoreOutputMemoryNotPresent(t *testing.T) {
+	dir := t.TempDir()
+	arch := filepath.Join(dir, "b.tar")
+	writeTestArchive(t, arch, matchingManifestInput(), restoreCfgTOML, []byte("owui"))
+
+	cmd, out, errOut := newRestoreTestCmd()
+	code, _ := runRestore(cmd, arch, baseRestoreInput(t, arch), fakeRestoreDeps(backup.ProveVerdict{Status: backup.ProveStatusPass}), "")
+	if code != exitPass {
+		t.Fatalf("runRestore = %d, want %d; stderr=%q", code, exitPass, errOut.String())
+	}
+	if !bytes.Contains(out.Bytes(), []byte("memory volume not present in this backup — existing Qdrant data left untouched")) {
+		t.Fatalf("memory-free restore must print the not-present-left-untouched line, got %q", out.String())
+	}
+	if !bytes.Contains(out.Bytes(), []byte("memory stack: disabled (restored config)")) {
+		t.Fatalf("restore must print the restored-config memory posture, got %q", out.String())
+	}
+}
+
+// TestRestoreOutputMemoryRestored asserts the memory-bearing success output: the
+// restored lines, the ENABLED posture from the restored config, and the
+// verify/re-index remediation note (OQ1: honest report, no Prove extension).
+func TestRestoreOutputMemoryRestored(t *testing.T) {
+	dir := t.TempDir()
+	arch := filepath.Join(dir, "b.tar")
+	memTOML := []byte("model = \"m\"\nbackend = \"vulkan\"\nctx = 4096\nmemory_enabled = true\n")
+	writeTestArchiveMem(t, arch, matchingManifestInput(), memTOML, []byte("owui"), []byte("qdrant"), []byte("recall"))
+
+	in := baseRestoreInput(t, arch)
+	tmp := t.TempDir()
+	in.QdrantVolumeName = "qdrant-vol"
+	in.TempQdrantTar = filepath.Join(tmp, "restore-qdrant.tar")
+	in.RollbackQdrantTar = filepath.Join(tmp, "rollback-qdrant.tar")
+	in.QdrantVolumeExists = true
+	in.RecallDestPath = filepath.Join(tmp, "recall-state.json")
+
+	cmd, out, errOut := newRestoreTestCmd()
+	code, _ := runRestore(cmd, arch, in, fakeRestoreDeps(backup.ProveVerdict{Status: backup.ProveStatusPass}), "")
+	if code != exitPass {
+		t.Fatalf("runRestore = %d, want %d; stderr=%q", code, exitPass, errOut.String())
+	}
+	for _, want := range []string{
+		"memory stack: enabled (restored config)",
+		"villa doctor",
+		"villa recall index --rebuild",
+	} {
+		if !bytes.Contains(out.Bytes(), []byte(want)) {
+			t.Fatalf("memory-restored output must contain %q, got %q", want, out.String())
+		}
 	}
 }
 
@@ -245,7 +380,7 @@ func TestRestoreCorruptArchiveBlocks(t *testing.T) {
 	}
 
 	cmd, _, _ := newRestoreTestCmd()
-	code := runRestore(cmd, arch, baseRestoreInput(t, arch), fakeRestoreDeps(backup.ProveVerdict{Status: backup.ProveStatusPass}))
+	code, _ := runRestore(cmd, arch, baseRestoreInput(t, arch), fakeRestoreDeps(backup.ProveVerdict{Status: backup.ProveStatusPass}), "")
 	if code != exitBlocked {
 		t.Fatalf("corrupt archive: runRestore = %d, want %d", code, exitBlocked)
 	}

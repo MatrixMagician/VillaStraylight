@@ -9,6 +9,7 @@ import (
 
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/inference"
+	"github.com/MatrixMagician/VillaStraylight/internal/memory"
 )
 
 // update regenerates the golden fixtures (mirrors cmd/villa/recommend_test.go's
@@ -281,6 +282,21 @@ func TestRenderOpenWebUIContainerGolden(t *testing.T) {
 	goldenCompare(t, "villa-openwebui.container.golden", c.Text)
 }
 
+// TestRenderOpenWebUIMemoryContainerGolden: the memory-ON villa-openwebui.container
+// unit matches its dedicated golden byte-for-byte (Phase-20 D-05). This is the single
+// deliberate re-freeze target for the appended D-09 RAG/Qdrant/memory env block (24
+// Environment= lines incl. ENABLE_PERSISTENT_CONFIG=False). The memory-OFF golden
+// (TestRenderOpenWebUIContainerGolden above) MUST stay byte-identical — do NOT regen
+// it; only this memory golden is intentionally re-frozen with -update.
+func TestRenderOpenWebUIMemoryContainerGolden(t *testing.T) {
+	units, err := Render(memoryFixtureInput())
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	c := unitByName(t, units, "villa-openwebui.container")
+	goldenCompare(t, "villa-openwebui.container.memory.golden", c.Text)
+}
+
 // TestRenderOpenWebUIVolumeGolden: the villa-openwebui.volume unit matches its golden.
 func TestRenderOpenWebUIVolumeGolden(t *testing.T) {
 	units, err := Render(fixtureInput())
@@ -298,12 +314,6 @@ func TestRenderOpenWebUIVolumeGolden(t *testing.T) {
 // container golden (which catches ANY drift) by documenting the load-bearing intent
 // and surviving incidental whitespace edits.
 func TestRenderOpenWebUITelemetryFrozen(t *testing.T) {
-	units, err := Render(fixtureInput())
-	if err != nil {
-		t.Fatalf("Render: %v", err)
-	}
-	c := unitByName(t, units, "villa-openwebui.container")
-
 	// Bidirectional freeze (WR-02): derive the expected env from the single source of
 	// truth (buildOpenWebUIView), require EVERY Key=Value line is rendered, AND assert
 	// the rendered unit carries EXACTLY that many Environment= lines. A subset check
@@ -311,16 +321,64 @@ func TestRenderOpenWebUITelemetryFrozen(t *testing.T) {
 	// OPENAI_API_KEY) without tripping this guard — only the byte golden would catch it.
 	// Counting + full-set matching makes the PRIV-02 re-audit-on-bump guarantee real,
 	// not merely decorative.
-	env := buildOpenWebUIView().Env
-	for _, p := range env {
-		want := "Environment=" + p.Key + "=" + p.Value
-		if !strings.Contains(c.Text, want) {
-			t.Errorf("Open WebUI unit missing frozen env line %q (PRIV-02 re-audit guard):\n%s", want, c.Text)
-		}
+	//
+	// Phase-20 (D-05) memory-aware re-audit: the env set now depends on memory_enabled.
+	// Assert BOTH views against the SAME buildOpenWebUIView source of truth — the
+	// memory-ON unit carries exactly the memory-ON view's lines (24, incl. the appended
+	// D-09 block + ENABLE_PERSISTENT_CONFIG=False) and the memory-OFF unit carries
+	// exactly the 11 baseline lines (byte-identical to the v1.2 golden). This re-confirms
+	// the telemetry-kill posture (ANONYMIZED_TELEMETRY/DO_NOT_TRACK/SCARF_NO_ANALYTICS/
+	// OFFLINE_MODE/HF_HUB_OFFLINE) survives in BOTH views.
+	cases := []struct {
+		name string
+		in   RenderInput
+		env  []envPair
+	}{
+		{
+			name: "memory-off",
+			in:   fixtureInput(),
+			env:  buildOpenWebUIView(memory.RenderView(fixtureInput().Cfg), false).Env,
+		},
+		{
+			name: "memory-on",
+			in:   memoryFixtureInput(),
+			env:  buildOpenWebUIView(memory.RenderView(memoryFixtureInput().Cfg), true).Env,
+		},
 	}
-	got := strings.Count(c.Text, "Environment=")
-	if got != len(env) {
-		t.Errorf("Open WebUI unit has %d Environment= lines, want exactly %d — the env set drifted from buildOpenWebUIView (PRIV-02 re-audit: update this test AND re-confirm the telemetry-kill posture):\n%s", got, len(env), c.Text)
+
+	// Telemetry-kill set that MUST survive in BOTH views (D-05 re-audit).
+	telemetryKill := []string{
+		"Environment=ANONYMIZED_TELEMETRY=False",
+		"Environment=DO_NOT_TRACK=True",
+		"Environment=SCARF_NO_ANALYTICS=True",
+		"Environment=OFFLINE_MODE=True",
+		"Environment=HF_HUB_OFFLINE=1",
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			units, err := Render(tc.in)
+			if err != nil {
+				t.Fatalf("Render: %v", err)
+			}
+			c := unitByName(t, units, "villa-openwebui.container")
+
+			for _, p := range tc.env {
+				want := "Environment=" + p.Key + "=" + p.Value
+				if !strings.Contains(c.Text, want) {
+					t.Errorf("Open WebUI unit missing frozen env line %q (PRIV-02 re-audit guard):\n%s", want, c.Text)
+				}
+			}
+			got := strings.Count(c.Text, "Environment=")
+			if got != len(tc.env) {
+				t.Errorf("Open WebUI unit has %d Environment= lines, want exactly %d — the env set drifted from buildOpenWebUIView (PRIV-02 re-audit: update this test AND re-confirm the telemetry-kill posture):\n%s", got, len(tc.env), c.Text)
+			}
+			for _, k := range telemetryKill {
+				if !strings.Contains(c.Text, k) {
+					t.Errorf("Open WebUI %s unit dropped telemetry-kill line %q (PRIV-02/D-05 re-audit):\n%s", tc.name, k, c.Text)
+				}
+			}
+		})
 	}
 }
 

@@ -15,12 +15,15 @@ package main
 // core's inference.IsROCmFamily and resolved via inference.BackendFor.
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"text/tabwriter"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -28,6 +31,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
 	"github.com/MatrixMagician/VillaStraylight/internal/doctor"
 	"github.com/MatrixMagician/VillaStraylight/internal/inference"
+	"github.com/MatrixMagician/VillaStraylight/internal/memory"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 	"github.com/MatrixMagician/VillaStraylight/internal/preflight"
 	"github.com/MatrixMagician/VillaStraylight/internal/status"
@@ -105,8 +109,15 @@ func renderDoctor(w io.Writer, r doctor.Report, asJSON, withProvenance bool) int
 		return exitBlocked
 	case "WARN":
 		return exitWarn
-	default:
+	case "PASS":
 		return exitPass
+	default:
+		// FAIL CLOSED (phase-22 WR-04, mirroring renderInference): an unrecognized
+		// Overall (a future Aggregate bug, a hand-built Report, a JSON-roundtripped
+		// fixture) can NEVER map to "healthy" — for a health verdict the only safe
+		// default is the blocking tier.
+		fmt.Fprintf(w, "\nFAULT: unrecognized overall verdict %q — treating the install as not healthy.\n", r.Overall)
+		return exitBlocked
 	}
 }
 
@@ -185,12 +196,51 @@ func liveDoctorDeps() (doctor.Deps, error) {
 			return preflight.RunROCmForImage(p, image)
 		}
 	}
+	// Memory seams (D-08/D-09, mirroring the rocmImageGate conditional shape):
+	// bound ONLY when the persisted memory stack is opted in; both stay nil when
+	// off so the memory-off doctor output is byte-identical (mirror D-06). The
+	// embed service name comes from the orchestrate accessor converted via the
+	// same .container → .service derivation the status fold uses — never a typed
+	// service-name literal here. (The old MemoryEnabled/MemoryServices Deps
+	// wiring was removed with the doctor offload down-rank — Plan 23-01: memory
+	// rows are OffloadApplies=false at the status source, so no offload finding
+	// exists to down-rank.)
+	var (
+		memChecks func(detect.HostProfile) []preflight.CheckResult
+		memProof  func() inference.Verdict
+	)
+	if cfg.MemoryEnabled {
+		embeddingModel := cfg.EmbeddingModel
+		embedService := unitServiceName(orchestrate.EmbedContainerUnitName())
+		// D-08 composition over re-implementation: the memory host gate IS
+		// preflight.RunMemory — doctor never re-rolls the disk/headroom logic.
+		// EmbedderActive (phase-22 WR-03): doctor runs MEM-PRE-headroom against a
+		// possibly-RUNNING stack, where the embedder's own consumption is already
+		// subtracted from MemAvailable — without this flag the check would demand
+		// a SECOND reservation on top of the resident one and fabricate a blocking
+		// fault on a healthy memory-tight host. The active-state read is the same
+		// read-only IsActive seam the status fold uses; any error or non-active
+		// state keeps the strict pre-install semantics (false).
+		memChecks = func(p detect.HostProfile) []preflight.CheckResult {
+			embedActive := false
+			if state, aerr := sd.IsActive(embedService); aerr == nil && state == "active" {
+				embedActive = true
+			}
+			return preflight.RunMemory(p, preflight.MemoryGateInput{
+				EmbeddingModel: embeddingModel,
+				EmbedderActive: embedActive,
+			})
+		}
+		memProof = liveResidencyUnderLoad(cfg, sd)
+	}
 	return doctor.Deps{
-		Probe:        detect.Probe,
-		LoadConfig:   config.LoadVilla,
-		StatusReport: func() status.Report { return status.Run(*sd) },
-		Backend:      cfg.Backend,
-		RunROCmImage: rocmImageGate,
+		Probe:              detect.Probe,
+		LoadConfig:         config.LoadVilla,
+		StatusReport:       func() status.Report { return status.Run(*sd) },
+		Backend:            cfg.Backend,
+		RunROCmImage:       rocmImageGate,
+		RunMemoryChecks:    memChecks,
+		ResidencyUnderLoad: memProof,
 		// DriftPlan: render units from the persisted config, resolve the backend
 		// fail-closed (D-02), and Reconcile against the READ-ONLY unit dir. It NEVER
 		// writes. A read error (absent/unreadable unit dir) is returned verbatim so the
@@ -233,4 +283,230 @@ func liveDoctorDeps() (doctor.Deps, error) {
 			return orchestrate.Reconcile(units, dir)
 		},
 	}, nil
+}
+
+// unitServiceName converts a Quadlet .container unit filename to its generated systemd
+// .service name (villa-qdrant.container → villa-qdrant.service) — the same derivation
+// the status fold (status.serviceUnits) and the lifecycle verbs use, so the doctor
+// down-rank predicate keys on exactly the names the status rows carry.
+func unitServiceName(containerUnit string) string {
+	return strings.TrimSuffix(containerUnit, ".container") + ".service"
+}
+
+// Residency-under-embedding-load proof tuning (D-09, T-22-11 DoS bounds): a REAL but
+// strictly bounded /v1/embeddings workload — N sequential multi-KiB requests, each with
+// its own timeout, the whole proof under one parent budget, all probe containers
+// transient (--rm, Pitfall 7).
+const (
+	// residencyDriveRequests is the bounded request count of the embed-load drive.
+	residencyDriveRequests = 12
+	// residencySampleAfter is how many drive requests must have completed before the
+	// mid-drive residency sample fires (Pitfall 6: the sample must be DURING load,
+	// not before the embedder has actually started working). The sample itself is
+	// then taken while the NEXT request is verifiably IN FLIGHT (launched async and
+	// joined after sampling) — never in the idle gap between two sequential
+	// requests (phase-22 WR-01).
+	residencySampleAfter = 2
+	// residencyRequestTimeout bounds each individual embed-drive request.
+	residencyRequestTimeout = 10 * time.Second
+	// residencyProofBudget bounds the WHOLE proof (drive + sample + join).
+	residencyProofBudget = 60 * time.Second
+)
+
+// residencyDriveText is the ~2 KiB embedding input each drive request carries — large
+// enough that the embedder does real per-request work (a one-word probe would finish
+// before the residency sample could observe load), small enough to fit the embed
+// server's PHYSICAL batch (llama-server default -ub 512 tokens): a pooled embedding
+// input must fit in ONE ubatch, so anything above 512 tokens is a hard HTTP 500
+// ("input is too large to process"), not a context-window question (the 8192 ctx is
+// NOT the binding limit — measured on the live gfx1151 box, 22-04). Repeats a fixed
+// 45-byte phrase 44 times (~2.0 KiB ≈ 442 tokens, ~14% margin under the 512 floor).
+func residencyDriveText() string {
+	return strings.Repeat("villa residency-under-load drive probe text; ", 44)
+}
+
+// residencyUnevaluable builds the typed-Unknown WARN Verdict every unmet precondition
+// and unevaluable drive degrades to (D-09/D-10): never a false-green PASS, never a
+// FAIL fabricated from a signal that could not be evaluated.
+func residencyUnevaluable(detail, remediation string) inference.Verdict {
+	return inference.Verdict{
+		Status:      inference.StatusWarn,
+		Detail:      "could not evaluate residency under embedding load — " + detail,
+		Remediation: remediation,
+	}
+}
+
+// liveResidencyUnderLoad builds the D-09/D-10 live proof seam liveDoctorDeps binds when
+// memory is enabled: a closure returning the chat-model residency Verdict sampled
+// DURING a real embed-load drive. It is constructed (not run) at wiring time; the
+// drive/sample only fire when doctor.Aggregate invokes the seam.
+func liveResidencyUnderLoad(cfg config.VillaConfig, sd *status.Deps) func() inference.Verdict {
+	return func() inference.Verdict { return runResidencyUnderLoad(cfg, sd) }
+}
+
+// runResidencyUnderLoad is the live under-load residency proof (D-09, the live half of
+// MEM-DOC-residency; composed per 22-PATTERNS from liveMemoryProof's drive + the
+// liveStatusDeps residency inputs — no analog exists for the interleaving):
+//
+//  1. D-10 PRECONDITION GATE (read-only — doctor NEVER starts a service): memory must
+//     decide enabled+valid and villa-llama, villa-qdrant and villa-embed must all be
+//     active. Any unmet precondition degrades to a typed-Unknown WARN naming the
+//     precondition (never a FAIL fabricated from a stack that simply is not running).
+//  2. DRIVE (T-22-09/T-22-11): residencyDriveRequests sequential POSTs to the
+//     config-resolved villa-embed /v1/embeddings over villa.network via runProbeCurl
+//     (fixed-arg podman run --rm, helper image via orchestrate.EmbedImage(), model id
+//     JSON-marshaled — never interpolated into a command string). Each request is
+//     bounded by residencyRequestTimeout, the whole proof by residencyProofBudget.
+//  3. SAMPLE MID-DRIVE (Pitfall 6, phase-22 WR-01): after residencySampleAfter
+//     completions (the embedder has demonstrably done real work), the NEXT request is
+//     launched asynchronously and the sample is taken while that request is verifiably
+//     IN FLIGHT — never gated on a completion count alone, which could fire in the
+//     idle gap between two sequential requests. The sample evaluates
+//     inference.RunningOffloadVerdict over the EXACT liveStatusDeps input set
+//     (phase-22 WR-06) — every signal through the same sd seams the status fold
+//     uses (JournalText, Props, GTTUsed, WeightBytes), keyed on the
+//     catalog-resolved GGUF filename (sd.ModelFile, mirroring liveProve), with
+//     markers from BackendFor(cfg.Backend).ResidencyProof().
+//  4. JOIN + HONESTY: the sampled in-flight request is always awaited before the loop
+//     continues (no probe container outlives the call). Drive errors alone degrade a
+//     PASS to WARN ("embed drive could not complete") — the FAIL signal is the CHAT
+//     model's residency, not the drive's success; a confident residency FAIL always
+//     stands.
+func runResidencyUnderLoad(cfg config.VillaConfig, sd *status.Deps) inference.Verdict {
+	// (1) D-10 precondition gate — strictly read-only, degrade to WARN.
+	if dec := memory.Decide(cfg); !dec.Enabled || !dec.Valid {
+		return residencyUnevaluable(
+			"the memory stack is not enabled/valid in config",
+			"fix the memory_* fields in config.toml (see `villa preflight`), then re-run `villa doctor`")
+	}
+	chatService := installServiceName
+	for _, svc := range []string{
+		chatService,
+		unitServiceName(orchestrate.QdrantContainerUnitName()),
+		unitServiceName(orchestrate.EmbedContainerUnitName()),
+	} {
+		state, err := sd.IsActive(svc)
+		if err != nil || state != "active" {
+			return residencyUnevaluable(
+				fmt.Sprintf("%s is not active", svc),
+				fmt.Sprintf("check `systemctl --user status %s`; run `villa up` if the stack is stopped, then re-run `villa doctor`", svc))
+		}
+	}
+	backend, err := inference.BackendFor(cfg.Backend)
+	if err != nil {
+		return residencyUnevaluable(
+			fmt.Sprintf("the configured backend could not be resolved (%v)", err),
+			"fix the backend field in config.toml (`villa backend set`), then re-run `villa doctor`")
+	}
+	// Resolve the catalog-resolved GGUF FILENAME for ConfigModel (phase-22 WR-06,
+	// mirroring liveProve and the status core): the journal/props identity checks
+	// compare against the model FILE, not the catalog id — passing cfg.Model here
+	// would make the /props drift overlay misfire the moment it evaluates. The seam
+	// is sd.ModelFile (liveModelFile in the live wiring), the same source the status
+	// fold uses. An unresolvable model degrades to a typed-Unknown WARN.
+	modelFile, err := sd.ModelFile(cfg)
+	if err != nil {
+		return residencyUnevaluable(
+			fmt.Sprintf("the configured model could not be resolved (%v)", err),
+			"fix the model field in config.toml (`villa model swap`), then re-run `villa doctor`")
+	}
+
+	// (2) The bounded embed-load drive. The body is JSON-marshaled (model id never
+	// interpolated into a command string, T-22-09/T-19-10) and reused verbatim for
+	// every request; the URL host:port composition mirrors liveMemoryProof.
+	body, err := json.Marshal(map[string]any{
+		"input":           residencyDriveText(),
+		"model":           cfg.EmbeddingModel,
+		"encoding_format": "float",
+	})
+	if err != nil {
+		return residencyUnevaluable(
+			fmt.Sprintf("the embed drive body could not be built (%v)", err),
+			"re-run `villa doctor`")
+	}
+	url := fmt.Sprintf("http://%s:%d/v1/embeddings", cfg.EmbedAddr, cfg.EmbedPort)
+	helperImage := orchestrate.EmbedImage()
+
+	ctx, cancel := context.WithTimeout(context.Background(), residencyProofBudget)
+	defer cancel()
+
+	// (2)+(3) Drive sequentially; sample under DEMONSTRATED in-flight work (Pitfall 6,
+	// phase-22 WR-01). The old shape (a fully-buffered producer goroutine + a sample
+	// triggered the instant completion #residencySampleAfter arrived) could sample in
+	// the idle gap BETWEEN two sequential requests — at best at the margin of load.
+	// Now the sample request itself is launched asynchronously and the journal/GTT
+	// read happens while that request is verifiably in flight; the request is then
+	// JOINED before the loop continues, so no --rm probe container ever outlives this
+	// call (T-22-11).
+	var (
+		completed, driveErrs int
+		sampled              bool
+		verdict              inference.Verdict
+	)
+	for i := 0; i < residencyDriveRequests; i++ {
+		if ctx.Err() != nil {
+			break // parent budget exhausted — stop driving
+		}
+		reqCtx, reqCancel := context.WithTimeout(ctx, residencyRequestTimeout)
+		if !sampled && completed >= residencySampleAfter {
+			// Launch this drive request in flight, sample MID-REQUEST, then join it.
+			done := make(chan error, 1)
+			go func() {
+				_, derr := runProbeCurl(reqCtx, helperImage,
+					"-sf", "-X", "POST", url,
+					"-H", "Content-Type: application/json",
+					"-d", string(body),
+				)
+				done <- derr
+			}()
+			// The sample input set IS the liveStatusDeps input set (WR-06): every
+			// signal flows through the SAME sd seams the status fold uses —
+			// JournalText, Props (the /props config-identity drift overlay),
+			// GTTUsed, WeightBytes — keyed on the catalog-resolved GGUF filename.
+			journal, _ := sd.JournalText(chatService)
+			verdict = inference.RunningOffloadVerdict(inference.RunningOffloadInput{
+				JournalText:   journal,
+				Props:         sd.Props(sd.Endpoint()),
+				GTTUsedBytes:  sd.GTTUsed(),
+				WeightBytes:   sd.WeightBytes(cfg),
+				ConfigModel:   modelFile,
+				ConfigContext: cfg.Ctx,
+				Markers:       backend.ResidencyProof(),
+			})
+			sampled = true
+			derr := <-done // JOIN: the sampled request never outlives the call
+			reqCancel()
+			completed++
+			if derr != nil {
+				driveErrs++
+			}
+			continue
+		}
+		_, derr := runProbeCurl(reqCtx, helperImage,
+			"-sf", "-X", "POST", url,
+			"-H", "Content-Type: application/json",
+			"-d", string(body),
+		)
+		reqCancel()
+		completed++
+		if derr != nil {
+			driveErrs++
+		}
+	}
+
+	// (4) Drive complete (all requests joined). Map the outcome honestly.
+	if !sampled {
+		return residencyUnevaluable(
+			fmt.Sprintf("the embed drive could not complete (%d of %d requests finished before the budget)", completed, residencyDriveRequests),
+			fmt.Sprintf("check `systemctl --user status %s` and `villa logs`, then re-run `villa doctor`", unitServiceName(orchestrate.EmbedContainerUnitName())))
+	}
+	if driveErrs > 0 && verdict.Status == inference.StatusPass {
+		// The workload did not fully exercise the embedder — a PASS sampled under a
+		// faltering drive is not a proven PASS (no false-green); a confident FAIL or
+		// an already-WARN verdict stands on its own.
+		return residencyUnevaluable(
+			fmt.Sprintf("the embed drive could not complete (%d of %d requests failed)", driveErrs, residencyDriveRequests),
+			fmt.Sprintf("check `systemctl --user status %s` and `villa logs`, then re-run `villa doctor`", unitServiceName(orchestrate.EmbedContainerUnitName())))
+	}
+	return verdict
 }

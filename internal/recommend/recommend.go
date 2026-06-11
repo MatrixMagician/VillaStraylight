@@ -17,6 +17,7 @@ import (
 
 	"github.com/MatrixMagician/VillaStraylight/internal/catalog"
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
+	"github.com/MatrixMagician/VillaStraylight/internal/memory"
 )
 
 // defaultBackend is the inference backend recommended for gfx1151 (REC-04). ROCm
@@ -25,8 +26,10 @@ const defaultBackend = "vulkan"
 
 // recommendSchemaVersion is the Recommendation contract self-version. It is the
 // LAST tagged field of Recommendation and surfaces unconditionally in --json so
-// dashboards can gate on additive growth (D-06/D-07). Start at 1.
-const recommendSchemaVersion = 1
+// dashboards can gate on additive growth (D-06/D-07). Bumped 1→2 when the
+// append-only embedding_reservation_bytes + memory_considered fields landed
+// (Phase 22, D-03).
+const recommendSchemaVersion = 2
 
 // ROCmAdvice is a typed enum surfaced on the Recommendation (REC-05 / D-05): an
 // honesty-bounded hint about whether the opt-in ROCm backend is worth a benchmark
@@ -97,6 +100,16 @@ type Recommendation struct {
 	ROCmAdvice ROCmAdvice `json:"rocm_advice,omitempty"`
 	ROCmNote   string     `json:"rocm_note,omitempty"`
 
+	// EmbeddingReservationBytes is the embedding-model footprint subtracted from
+	// the envelope BEFORE the chat-model fit when memory is enabled (D-01/D-03).
+	// Zero when memory is off — the off-path JSON shape changes only by this key.
+	EmbeddingReservationBytes uint64 `json:"embedding_reservation_bytes"`
+
+	// MemoryConsidered marks whether the memory reservation was applied to this
+	// pick (D-03): true whenever memory inputs were enabled — including refusals,
+	// which honestly report the reservation they would have applied.
+	MemoryConsidered bool `json:"memory_considered"`
+
 	// SchemaVersion is the Recommendation contract self-version and MUST stay the
 	// LAST tagged field (append-only discipline; new fields go above it, D-06/D-07).
 	SchemaVersion int `json:"schema_version"`
@@ -118,20 +131,48 @@ type Overrides struct {
 	Ctx   int
 }
 
+// MemoryInputs carries the memory-stack inputs Pick reserves BEFORE the
+// chat-model fit (D-01). The zero value means memory off — provably
+// byte-identical math to the pre-memory contract. Pure-core rule: callers (the
+// cmd tier) load config and thread these explicitly; Pick never loads config.
+type MemoryInputs struct {
+	// Enabled mirrors the persisted memory_enabled gate. Callers fail SOFT: a
+	// config load error threads the zero value, never an error-path change.
+	Enabled bool
+	// EmbeddingModel is the persisted embedding model id whose footprint is
+	// reserved; an unrecognized id reserves the conservative default (D-02).
+	EmbeddingModel string
+}
+
 // Pick selects the single best fitting model for the host, applies and re-
-// validates any overrides, and returns a fully-populated Recommendation.
-func Pick(p detect.HostProfile, c catalog.Catalog, ov Overrides) Recommendation {
+// validates any overrides, and returns a fully-populated Recommendation. When
+// memory is enabled the embedding-model footprint is reserved off the envelope
+// FIRST (D-01) so the fit verdict, headroom, OOM guard and UsableEnvelopeBytes
+// all see the shrunken value (SC#1).
+func Pick(p detect.HostProfile, c catalog.Catalog, ov Overrides, mem MemoryInputs) Recommendation {
+	reservation, memNotes := memoryReservation(mem)
+
 	envelope, degraded, ok := resolveEnvelope(p)
 	if !ok {
 		// No usable envelope and no safe floor derivable — refuse rather than
-		// guess high (D-14). Empty Model signals the refusal.
+		// guess high (D-14). Empty Model signals the refusal. The refusal still
+		// stamps the reservation as computed (honest surface, D-03).
 		return finalizeRecommendation(Recommendation{
 			Backend: defaultBackend,
-			Notes:   []string{"refusing to recommend: usable memory envelope is unknown and no safe floor is derivable (neither GTT envelope nor total RAM detected)"},
-		}, p)
+			Notes:   append(memNotes, "refusing to recommend: usable memory envelope is unknown and no safe floor is derivable (neither GTT envelope nor total RAM detected)"),
+		}, p, mem, reservation)
 	}
 
-	var notes []string
+	// D-01: the envelope shrinks BEFORE the degraded note and BEFORE
+	// pickOverride/pickBest. Never wrap a uint64 (a reservation at or above the
+	// envelope clamps to 0 and falls into pickBest's existing no-fit refusal).
+	if reservation >= envelope {
+		envelope = 0
+	} else {
+		envelope -= reservation
+	}
+
+	notes := memNotes
 	if degraded {
 		notes = append(notes, fmt.Sprintf(
 			"DEGRADED ESTIMATE: real GTT envelope unknown; sized against a conservative %.0f%%-of-RAM floor (%s). Verify before relying on this pick (D-14).",
@@ -140,19 +181,43 @@ func Pick(p detect.HostProfile, c catalog.Catalog, ov Overrides) Recommendation 
 
 	// An explicit --model override takes precedence and is re-validated.
 	if ov.Model != "" {
-		return finalizeRecommendation(pickOverride(c, ov, envelope, degraded, notes), p)
+		return finalizeRecommendation(pickOverride(c, ov, envelope, degraded, notes), p, mem, reservation)
 	}
 
-	return finalizeRecommendation(pickBest(c, ov, envelope, degraded, notes), p)
+	return finalizeRecommendation(pickBest(c, ov, envelope, degraded, notes), p, mem, reservation)
+}
+
+// memoryReservation resolves the D-01 embedding reservation from the memory
+// inputs: zero with no notes when memory is off; the pinned footprint when the
+// model id is recognized; the conservative default plus an honest D-02 note
+// naming the model when the footprint is typed-Unknown — NEVER a silent 0
+// reservation. The byte value flows only from internal/memory (single source).
+func memoryReservation(mem MemoryInputs) (uint64, []string) {
+	if !mem.Enabled {
+		return 0, nil
+	}
+	fp := memory.Footprint(mem.EmbeddingModel)
+	if fp.Known {
+		return fp.Value, nil
+	}
+	reserved := memory.ConservativeFootprintBytes()
+	return reserved, []string{fmt.Sprintf(
+		"RESERVED CONSERVATIVELY: no pinned footprint for embedding model %q — reserving the conservative default %s before the chat-model fit (D-02).",
+		mem.EmbeddingModel, humanGiB(reserved))}
 }
 
 // finalizeRecommendation stamps the additive, contract-level fields onto a
-// fully-computed pick: the unconditional SchemaVersion and the purely-derived ROCm
-// advice. It runs AFTER Backend is set and NEVER reassigns rec.Backend — advice can
-// only annotate the pick, never auto-switch it (REC-04, T-10-06). It performs no
-// I/O: the advice is folded from p.ROCmReadiness already in hand (no new Pick arg).
-func finalizeRecommendation(rec Recommendation, p detect.HostProfile) Recommendation {
+// fully-computed pick: the unconditional SchemaVersion, the D-03 memory fields,
+// and the purely-derived ROCm advice. It runs AFTER Backend is set and NEVER
+// reassigns rec.Backend — advice can only annotate the pick, never auto-switch it
+// (REC-04, T-10-06). It performs no I/O: the advice is folded from
+// p.ROCmReadiness already in hand. EVERY Pick return path — including the
+// no-envelope refusal — flows through here, so the D-03 fields are stamped
+// unconditionally (zero/false when memory is off; reservation+true when on).
+func finalizeRecommendation(rec Recommendation, p detect.HostProfile, mem MemoryInputs, reservation uint64) Recommendation {
 	rec.SchemaVersion = recommendSchemaVersion
+	rec.EmbeddingReservationBytes = reservation
+	rec.MemoryConsidered = mem.Enabled
 	advice, note := deriveROCmAdvice(p.ROCmReadiness)
 	rec.ROCmAdvice = advice
 	if note != "" {
@@ -306,7 +371,10 @@ func pickOverride(c catalog.Catalog, ov Overrides, envelope uint64, degraded boo
 func buildRecommendation(m catalog.CatalogModel, ctx int, envelope uint64, degraded bool, notes []string) Recommendation {
 	kv := kvCacheBytes(m, ctx)
 	headroom := headroomBytes(envelope)
-	total := m.WeightBytes + kv + headroom
+	// Saturating sum (WR-07): a saturated KV term (absurd --ctx) must keep the
+	// total at MaxUint64 — a wrapped-small total would flip Fits true and feed a
+	// silent OOM into the rendered unit's -c and the ceiling stress math.
+	total := addSaturating(addSaturating(m.WeightBytes, kv), headroom)
 
 	backend := m.BackendDefault
 	if backend == "" {

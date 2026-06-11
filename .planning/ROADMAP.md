@@ -2,19 +2,21 @@
 
 ## Overview
 
-VillaStraylight is a control plane + managed workload: a single Go binary that inspects an AMD Strix Halo (gfx1151) Fedora host, recommends a hardware-fitting model/quant/context, generates rootless Podman Quadlet units, and brings up llama.cpp inference + Open WebUI chat + a read-only control dashboard — with zero data leaving the box. The north star throughout is "runs healthy after install" — every phase ends in something runnable and verifiable on the real hardware. v1.2 (Operability) extends that bar to "and stays operable, recoverable, and measurable over time."
+VillaStraylight is a control plane + managed workload: a single Go binary that inspects an AMD Strix Halo (gfx1151) Fedora host, recommends a hardware-fitting model/quant/context, generates rootless Podman Quadlet units, and brings up llama.cpp inference + Open WebUI chat + a read-only control dashboard — with zero data leaving the box. The north star throughout is "runs healthy after install" — every phase ends in something runnable and verifiable on the real hardware. v1.2 (Operability) extended that bar to "and stays operable, recoverable, and measurable over time." v1.3 (Memory & Knowledge) extends it again to "and remembers the user and their documents across chats — strictly local."
 
 ## Milestones
 
 - ✅ **v1.0 MVP** — Phases 1–5 (shipped 2026-06-05, tag `v1.0`)
 - ✅ **v1.1 ROCm Opt-In Backend** — Phases 6–11 (shipped 2026-06-06, tag `v1.1`)
-- ✅ **v1.2 Operability** — Phases 12–17 (completed 2026-06-08; PR-to-`main` + tag `v1.2` pending via `/gsd-ship`)
+- ✅ **v1.2 Operability** — Phases 12–17 (shipped 2026-06-08, tag `v1.2`)
+- ✅ **v1.3 Memory & Knowledge (local RAG)** — Phases 18–23 (shipped 2026-06-11, tag `v1.3`)
 
 Full per-phase detail for shipped milestones is archived under `.planning/milestones/`:
 
 - `milestones/v1.0-ROADMAP.md` · `milestones/v1.0-REQUIREMENTS.md`
 - `milestones/v1.1-ROADMAP.md` · `milestones/v1.1-REQUIREMENTS.md` · `milestones/v1.1-MILESTONE-AUDIT.md`
 - `milestones/v1.2-ROADMAP.md` · `milestones/v1.2-REQUIREMENTS.md` · `milestones/v1.2-MILESTONE-AUDIT.md`
+- `milestones/v1.3-ROADMAP.md` · `milestones/v1.3-REQUIREMENTS.md` · `milestones/v1.3-MILESTONE-AUDIT.md`
 
 ## Phases
 
@@ -63,6 +65,22 @@ Audit PASSED — 13/13 requirements, 5/5 integration flows, 6/6 phases Nyquist-c
 
 </details>
 
+<details>
+<summary>✅ v1.3 Memory & Knowledge (Phases 18–23) — SHIPPED 2026-06-11</summary>
+
+**Milestone goal:** Give VillaStraylight a strictly-local memory system so the assistant remembers the user across chats and can recall past conversations and uploaded documents — **integrate + orchestrate, never rebuild** (Go stays control-plane only). Two new digest-pinned managed-service Quadlet units (Qdrant + a dedicated embeddings llama-server) wired into Open WebUI's native Memory/RAG by ENV only; `villa` recommends, installs, gates, surfaces, and backs up the new stack — with zero new outbound.
+
+- [x] Phase 18: Memory Spine — config core + embeddings/wiring research spike (2/2 plans) — completed 2026-06-09
+- [x] Phase 19: Vector Store + Local Embeddings Services (3/3 plans) — completed 2026-06-09
+- [x] Phase 20: Open WebUI Memory/RAG Wiring + Offline Lockdown (3/3 plans) — completed 2026-06-10 (on-hardware UAT 6/6 incl. runtime zero-outbound proof)
+- [x] Phase 21: Conversational Recall Indexer (3/3 plans) — completed 2026-06-10 (on-hardware SC 3/3; semantic retrieval with citation)
+- [x] Phase 22: Control-Plane Fit + Host Gate (4/4 plans) — completed 2026-06-10 (residency proven under real embedding load)
+- [x] Phase 23: Surfacing, Backup & Memory-Aware Swap (5/5 plans) — completed 2026-06-10 (status.Report 2→3 single re-freeze; live restore + swap drills)
+
+Audit PASSED — 22/22 requirements, 15/16 integration connections (0 blockers), 5/5 E2E flows. See `milestones/v1.3-ROADMAP.md` for full phase detail, success criteria, and plan breakdowns.
+
+</details>
+
 ## Progress
 
 | Phase | Milestone | Plans Complete | Status | Completed |
@@ -78,9 +96,15 @@ Audit PASSED — 13/13 requirements, 5/5 integration flows, 6/6 phases Nyquist-c
 | 9. `villa bench` (Honest A/B) | v1.1 | 3/3 | Complete | 2026-06-06 |
 | 10. Backend + tok/s Surfacing | v1.1 | 3/3 | Complete | 2026-06-06 |
 | 11. Address v1.1 tech debt | v1.1 | 2/2 | Complete | 2026-06-06 |
-| 12. `rocm-6.4.4` Alternate Backend | v1.2 | 3/3 | Complete    | 2026-06-07 |
-| 13. `villa doctor` Health Diagnosis | v1.2 | 3/3 | Complete    | 2026-06-07 |
-| 14. Saved Bench Reports + `--compare` | v1.2 | 3/3 | Complete    | 2026-06-07 |
-| 15. Cumulative Usage Tracking | v1.2 | 4/4 | Complete    | 2026-06-07 |
-| 16. Backup / Restore | v1.2 | 3/3 | Complete    | 2026-06-07 |
-| 17. Guided TUI Install | v1.2 | 3/3 | Complete    | 2026-06-08 |
+| 12. `rocm-6.4.4` Alternate Backend | v1.2 | 3/3 | Complete | 2026-06-07 |
+| 13. `villa doctor` Health Diagnosis | v1.2 | 3/3 | Complete | 2026-06-07 |
+| 14. Saved Bench Reports + `--compare` | v1.2 | 3/3 | Complete | 2026-06-07 |
+| 15. Cumulative Usage Tracking | v1.2 | 4/4 | Complete | 2026-06-07 |
+| 16. Backup / Restore | v1.2 | 3/3 | Complete | 2026-06-07 |
+| 17. Guided TUI Install | v1.2 | 3/3 | Complete | 2026-06-08 |
+| 18. Memory Spine — config core + research spike | v1.3 | 2/2 | Complete    | 2026-06-09 |
+| 19. Vector Store + Local Embeddings Services | v1.3 | 3/3 | Complete    | 2026-06-09 |
+| 20. Open WebUI Memory/RAG Wiring + Offline Lockdown | v1.3 | 3/3 | Complete    | 2026-06-10 |
+| 21. Conversational Recall Indexer | v1.3 | 3/3 | Complete    | 2026-06-10 |
+| 22. Control-Plane Fit + Host Gate | v1.3 | 4/4 | Complete    | 2026-06-10 |
+| 23. Surfacing, Backup & Memory-Aware Swap | v1.3 | 5/5 | Complete    | 2026-06-10 |

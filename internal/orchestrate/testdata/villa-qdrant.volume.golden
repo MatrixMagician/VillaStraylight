@@ -1,0 +1,7 @@
+# ~/.config/containers/systemd/villa-qdrant.volume  (GENERATED — do not edit; source: config.toml)
+[Volume]
+VolumeName=villa-qdrant
+Driver=local
+
+[Install]
+WantedBy=default.target
