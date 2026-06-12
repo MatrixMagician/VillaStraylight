@@ -43,6 +43,9 @@ func Load(externalPath string) (Catalog, []string, error) {
 		} else if ext.SchemaVersion != SupportedSchema {
 			warnings = append(warnings, schemaMismatchWarning(externalPath, ext.SchemaVersion))
 			// fall through to embedded seed below
+		} else if verr := validateCoderEntries(ext); verr != nil {
+			warnings = append(warnings, fmt.Sprintf("catalog: external catalog %q rejected (%v) — using embedded seed", externalPath, verr))
+			// fall through to embedded seed below
 		} else {
 			return ext, warnings, nil
 		}
@@ -66,6 +69,39 @@ func schemaMismatchWarning(path string, got int) string {
 	default:
 		return fmt.Sprintf("catalog: external catalog %q has schema_version %d, older than this binary supports (%d) — using embedded seed", path, got, SupportedSchema)
 	}
+}
+
+// validateCoderEntries is the input-validation pass for role:"coder" entries on
+// the external-catalog trust boundary (T-24-02, ASVS V5). A coder entry with a
+// non-positive agent_ctx or an out-of-range sampling value invalidates the WHOLE
+// external catalog: the caller refuses it with a warning naming the offending
+// entry and falls back to the embedded seed. Out-of-range values are NEVER
+// silently coerced into range, and the catalog is never partially accepted
+// (refuse whole, fail-closed, D-01). The embedded
+// seed is exempt — it is compiled in and guarded by its own tests, not by
+// runtime validation.
+func validateCoderEntries(c Catalog) error {
+	for _, m := range c.Models {
+		if m.Role != "coder" {
+			continue
+		}
+		if m.AgentCtx <= 0 {
+			return fmt.Errorf("coder entry %q: agent_ctx %d out of range (must be > 0)", m.ID, m.AgentCtx)
+		}
+		if s := m.AgentSampling; s != nil {
+			switch {
+			case s.Temperature <= 0 || s.Temperature > 2:
+				return fmt.Errorf("coder entry %q: agent_sampling temperature %g out of range (0, 2]", m.ID, s.Temperature)
+			case s.TopP <= 0 || s.TopP > 1:
+				return fmt.Errorf("coder entry %q: agent_sampling top_p %g out of range (0, 1]", m.ID, s.TopP)
+			case s.TopK < 0:
+				return fmt.Errorf("coder entry %q: agent_sampling top_k %d out of range (must be >= 0)", m.ID, s.TopK)
+			case s.RepeatPenalty <= 0 || s.RepeatPenalty > 3:
+				return fmt.Errorf("coder entry %q: agent_sampling repeat_penalty %g out of range (0, 3]", m.ID, s.RepeatPenalty)
+			}
+		}
+	}
+	return nil
 }
 
 // loadExternal cleans and validates the external path, reads it with a bounded

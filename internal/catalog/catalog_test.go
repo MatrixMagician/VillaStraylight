@@ -94,8 +94,8 @@ func TestLoadSeedVerifiedDims(t *testing.T) {
 		t.Fatalf("Load(\"\"): %v", err)
 	}
 	want := map[string]struct{ layers, kv, head int }{
-		"qwen2.5-0.5b": {24, 2, 64},
-		"qwen2.5-1.5b": {28, 2, 128},
+		"qwen2.5-0.5b":  {24, 2, 64},
+		"qwen2.5-1.5b":  {28, 2, 128},
 		"qwen3-30b-a3b": {48, 4, 128},
 	}
 	for id, w := range want {
@@ -329,9 +329,9 @@ func TestLoadSeedCoderVerifiedDims(t *testing.T) {
 		t.Fatalf("Load(\"\"): %v", err)
 	}
 	want := map[string]struct {
-		weight                          uint64
+		weight                           uint64
 		layers, kv, head, agentCtx, tier int
-		cacheReuse                      bool
+		cacheReuse                       bool
 	}{
 		"qwen3-coder-30b-a3b": {17665334432, 48, 4, 128, 65536, 64, true},
 		"qwen3-coder-next-q4": {49608478720, 12, 2, 256, 131072, 128, false},
