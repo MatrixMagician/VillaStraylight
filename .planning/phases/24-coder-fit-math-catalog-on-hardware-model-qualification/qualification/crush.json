@@ -4,6 +4,9 @@
     "disable_metrics": true,
     "disable_provider_auto_update": true
   },
+  "permissions": {
+    "allowed_tools": ["view", "ls", "grep", "glob", "edit", "write", "bash"]
+  },
   "providers": {
     "villa-qual": {
       "name": "villa qualification (local)",

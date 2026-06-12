@@ -200,7 +200,14 @@ PYEOF
   rm -rf "${QUAL_REPO}/.crush"
   echo "--- pre-run go test (must FAIL) ---"
   (cd "${QUAL_REPO}" && go test ./... 2>&1 || true) | tail -5
-  CRUSH_DISABLE_METRICS=1 DO_NOT_TRACK=1 "${CRUSH_BIN}" run --yolo --cwd "${QUAL_REPO}" \
+  # NOTE (deviation, verified against the real v0.76.0 binary on first qual run):
+  # `--yolo` is rejected when the `run` subcommand is present (cobra root-local
+  # flag). The supported non-interactive auto-accept mechanism at v0.76.0 is the
+  # config `permissions.allowed_tools` list — set in the qual crush.json to exactly
+  # the read->edit->verify tool set (view/ls/grep/glob/edit/write/bash). This is
+  # STRICTLY TIGHTER than --yolo (T-24-09): no agent/fetch/download auto-accept.
+  # timeout 1500 guards against a permission prompt hanging a non-interactive run.
+  CRUSH_DISABLE_METRICS=1 DO_NOT_TRACK=1 timeout 1500 "${CRUSH_BIN}" run --cwd "${QUAL_REPO}" \
     "Run 'go test ./...', read the failing test and the source file it covers, fix the bug so the test passes, then run 'go test ./...' again and confirm it passes." \
     2>&1 | tee "${outdir}/crush-transcript.txt"
   echo "--- post-run go test (PASS criterion) ---" | tee -a "${outdir}/crush-transcript.txt"
