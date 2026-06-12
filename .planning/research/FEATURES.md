@@ -1,36 +1,65 @@
 # Feature Research
 
-**Domain:** Strictly-local memory / RAG system for a self-hosted Open-WebUI-based AI stack (VillaStraylight v1.3)
-**Researched:** 2026-06-09
-**Confidence:** HIGH (Open WebUI native behavior, verified against official docs.openwebui.com); MEDIUM on community Function/Pipeline patterns and the past-chats-recall gap (GitHub discussions/issues)
+**Domain:** Strictly-local coding-agent integration (OpenCode-class) on a self-hosted llama.cpp + Open WebUI stack (VillaStraylight v1.4)
+**Researched:** 2026-06-12
+**Confidence:** HIGH on OpenCode config surface + llama-server tool-calling/caching flags (official docs); MEDIUM on community workflow patterns and perf numbers; MEDIUM-HIGH on the agentic-search-vs-vector-RAG finding (multiple independent sources incl. an Amazon Science result, but the field is moving)
 
-> **One-line verdict for the requirements step.** Of the four chosen v1.3 capabilities, **three are essentially NATIVE to Open WebUI** (personalized memory, document knowledge base, automatic LLM-assisted extraction) and need villa only to *orchestrate + wire + back up* them. **One is a genuine gap**: semantic *conversational recall over past chats* is NOT native RAG — Open WebUI only does literal text search over chat titles/messages (`search_chats`/`view_chat`), and true semantic chat-history recall is an open upstream feature request. That gap is the single biggest scoping decision in this milestone.
-
----
-
-## Native-vs-Must-Build, per chosen capability
-
-This is the table the requirements step needs most. "Native" = ships in Open WebUI today; villa's job is install/wire/surface/back-up. "Build/External" = needs a villa-side or external component.
-
-| Capability (v1.3) | Native to Open WebUI? | What's native | What villa / external must add |
-|-------------------|-----------------------|---------------|--------------------------------|
-| **Personalized memory** (facts remembered across chats) | **YES** (Beta) | Settings > Personalization > Memory; facts stored in `webui.db`, scoped per user; manual add/edit/delete; agentic `add_memory`/`search_memories`/`replace_memory_content`/`delete_memory`/`list_memories` tools; memories injected as context | Nothing to build — only **enable + surface + back up**. Quality of *auto*-capture depends on the local model (see anti-features). |
-| **Document knowledge base** (RAG over uploads + citations) | **YES** | Knowledge collections (upload file/dir, sync dir, add text); LangChain `RecursiveCharacterTextSplitter`/`TokenTextSplitter` chunking; vector + optional BM25 hybrid search + reranking; **citations** rendered inline | **Wire the backing services**: a vector DB (default Chroma is single-process SQLite — see below) and a **local** embedding path. No custom Go RAG engine. |
-| **Capture: automatic LLM-assisted extraction** | **YES (native) + community alternatives** | End-of-conversation background model analyzes the chat and saves memories; agentic-mode tools let the model save mid-conversation | **Choose + configure** the extraction path; community Functions/Filters ("Adaptive Memory", "Auto Memory") exist if the native flow underperforms on small models. Largely a **config/recommendation** problem, not a build. |
-| **Capture: explicit user save/pin + edit/delete** | **YES** | Manual memory CRUD in Personalization settings; manual Knowledge curation in Workspace | Nothing to build — surface it in docs/dashboard. |
-| **Conversational recall over PAST CHATS (semantic)** | **NO — GAP** | Only **literal/fuzzy text search** across chat titles, message content, tags (`search_chats` returns IDs+snippets, `view_chat` fetches full history). No embedding/RAG indexing of chat history. | **The build/decision item.** Options: (a) accept native keyword search as "recall"; (b) periodically export prior chats into a Knowledge collection so they become RAG-retrievable (semi-automatic, villa-orchestrated); (c) wait on upstream. True semantic chat-history RAG is an **open feature request** (open-webui #13568/#13041/#13595), not shipping. |
-
-**Reading for scope:** memory, document-KB, and auto-extraction are **integration/orchestration** work (villa's wheelhouse). Conversational-recall-as-semantic-RAG is **net-new behavior** — decide early whether v1.3 ships native keyword recall (cheap, honest) or a villa-driven "chats → Knowledge" indexer (more value, more surface).
+> **One-line verdict for the requirements step.** A "stack-managed coding agent" in 2026 means: villa installs/pins the agent **as a host binary**, writes one villa-owned provider block into the agent's global config pointing at the local OpenAI-compatible endpoint, stages a fit-guarded **tool-calling-trained coding model**, and tunes `llama-server` for agentic sessions (`--jinja`, large ctx, `--cache-reuse`, concurrency policy) — then **gets out of the way**. The user runs the agent themselves, in their own repos. **The biggest scope correction vs the milestone sketch:** OpenCode-class agents do **NOT** use vector/embedding codebase indexes — they navigate via ripgrep/glob + LSP + `AGENTS.md`, and the leading agents (Claude Code, OpenCode) explicitly rejected RAG-based code search. "Reuse Qdrant + villa-embed for codebase memory" should be **demoted from default to optional MCP differentiator** (or dropped); the default codebase-memory story is agent-native and costs villa nothing.
 
 ---
 
-## Backing-services facts (drive STACK + orchestrate scope)
+## How a stack-managed agent integration actually works (per question area)
 
-- **Default vector DB = ChromaDB**, embedded as a local SQLite `PersistentClient` — **single-process, not fork/multi-worker safe**. For a separate, durable, restart-surviving Quadlet service the right move is `VECTOR_DB=qdrant` (or pgvector/milvus). Supported: `chroma | qdrant | milvus | pgvector | opensearch | elasticsearch | pinecone` via the `VECTOR_DB` env var. Qdrant matches the PROJECT.md candidate and runs cleanly as a rootless container. *(MEDIUM — DeepWiki + GitHub discussions; HIGH that the var/options exist.)*
-- **Default embeddings = `sentence-transformers/all-MiniLM-L6-v2`, loaded IN-PROCESS inside the Open WebUI container** (downloads from HuggingFace on first use — an outbound pull). Alternatives via `RAG_EMBEDDING_ENGINE`: `ollama` or `openai` (any OpenAI-compatible base URL). *(HIGH — env-config docs.)*
-- **Local-only embeddings path that fits villa's posture:** run a **dedicated `llama-server --embeddings`** instance on its own port with a GGUF embedding model (e.g. an e5/arctic-embed/nomic-embed GGUF), then point Open WebUI at it with `RAG_EMBEDDING_ENGINE=openai` + a loopback base URL. This reuses villa's existing llama.cpp / OpenAI-compatible contract and the inference `Backend` seam, and keeps everything on-box. Caveat: llama.cpp's `/v1/embeddings` has had version-sensitive breakage — **pin by digest and assert it on install** (villa already pins images by digest). *(MEDIUM — llama.cpp issues/README + Open WebUI env docs.)*
-- **Re-index cost:** changing the embedding model invalidates all vectors (different vector spaces) → a full Knowledge re-index. Pin the embedding model as carefully as the inference image; treat a change as a migration. *(HIGH.)*
-- **First-use HF download** for embeddings violates "zero new outbound beyond image/model pulls" unless the embedding model is **pre-pulled like other model weights**. Fold it into the existing weight-pull + recommend flow. *(HIGH — this is a privacy-posture requirement, not optional.)*
+### 1. Install / config UX — what users expect
+
+Prior art is Harbor's `harbor launch opencode`: the stack tool auto-writes the agent's provider configuration against the local inference endpoint, auto-discovers/pre-populates available models, and the agent then runs **natively on the host, in whatever repo the user is standing in** — "without touching a single env var" is the marketed bar. *(MEDIUM-HIGH — Harbor wiki "Run Coding Agents with Local LLMs" + "Satellite OpenCode".)*
+
+OpenCode specifics (HIGH — official docs):
+
+- **Delivery:** single host binary; install via curl script (`curl -fsSL https://opencode.ai/install | bash`, honors `OPENCODE_INSTALL_DIR`/`XDG_BIN_DIR`), npm, brew, or direct GitHub-release binary. Community Docker images exist but are a CI/sandbox niche — interactive use wants host LSP toolchains, git identity, and the real repo cwd.
+- **Config:** layered JSONC, merged not replaced — global `~/.config/opencode/opencode.json` ← project-root `opencode.json` ← `.opencode/` dirs. A local provider is one block:
+  ```json
+  "provider": { "villa": { "npm": "@ai-sdk/openai-compatible",
+    "name": "VillaStraylight (local)",
+    "options": { "baseURL": "http://127.0.0.1:8080/v1" },
+    "models": { "<model-id>": { "name": "...", "limit": { "context": 65536, "output": 8192 } } } } }
+  ```
+  `limit.context`/`limit.output` are real, documented keys — and they must **match what the server actually serves**, or the agent over-stuffs prompts.
+- **Working-dir conventions:** the agent is invoked by the user *inside their repo*; project context comes from `AGENTS.md` (generated by the agent's own `/init`), `instructions` globs, and project-level `opencode.json`. **Villa never manages working directories or repos.**
+- **What villa owns:** the agent binary's presence/version, ONE provider key in the *global* config (merge-in, never clobber the user's other providers/settings), the served model entries + limits, and the endpoint health. Everything project-level belongs to the user.
+
+### 2. What an agent session needs from the platform
+
+All HIGH unless noted (llama.cpp docs/discussions, opencode docs):
+
+- **Tool calling:** `llama-server` must run with `--jinja`; native tool-call formats exist for Qwen/Llama/Hermes/etc., with a less-efficient generic fallback. OpenCode's own docs warn: *"if tool calls aren't working, try increasing ctx to 16k–32k."* Community reports template landmines (e.g. a default template 500-ing when the system message isn't strictly first; patched chat templates fixing Qwen tool-calls) — so villa's value is shipping a **known-good model+template+flags preset**, smoke-tested. *(Template quirks: MEDIUM.)*
+- **Context window:** agentic prompts are big — ~20–50k tokens of system prompt + tool schemas + repo context is routine; real-world OpenCode-on-llama.cpp setups configure 65536, power users 128k–200k. 64k is the practical floor for a usable agent; 32k is "works but cramped". KV at 64k+ is a first-class memory cost — this is exactly villa's `model_bytes + KV@ctx + headroom` fit math, with a much larger ctx than chat.
+- **Prompt caching:** `--cache-reuse N` (chunked KV prefix reuse) is "the single biggest lever for agent operators" — iGPU prefill is slow, and every agent turn re-sends the whole conversation. Verifiable per-request via `timings.cache_n` vs `prompt_n` (an honesty-proof hook in villa's style). Caveats: (a) agent-mode switches (Plan→Build) change the system prompt prefix and force full reprocess — known, unfixable server-side; (b) **`--cache-reuse` is incompatible with recurrent/hybrid-state models — explicitly including Qwen3.6-35B-A3B**, the chat model currently on this box, which strengthens the case for a *dedicated* coding model/server. *(MEDIUM-HIGH — llama.cpp discussions #13606, #22354, #20574.)*
+- **Concurrency:** chat (Open WebUI) and the agent hitting the same `llama-server`: `--parallel N` **divides** `--ctx-size` per slot (64k / 2 = 32k each — instantly under the agent floor) unless `--kv-unified` is set, which shares one context pool across slots and is "very suitable for local usage" (recent llama.cpp). Decision for requirements: dedicated `villa-code` server (clean isolation, two models resident) vs shared server with `--kv-unified` (one resident model, contention) vs serialized single-slot (requests queue). *(HIGH on the flag semantics; the choice is a roadmap decision.)*
+- **Co-resident vs swap on the 62.5 GiB GTT envelope:** Qwen3-Coder-30B-A3B-class (~18–20 GB at Q4) can plausibly co-reside with the chat + embed stack under villa's existing reservation discipline (P22 precedent); Qwen3-Coder-Next 80B-A3B needs ~46–48 GB at 4-bit (+~7 GB for full 256k ctx) and is **swap-mode only** on this box. The fit-guard must decide per-catalog-entry, not globally. *(HIGH on model sizes — Unsloth docs; fit conclusion is arithmetic.)*
+
+### 3. Model management expectations
+
+- **Dedicated coding model is the norm, not reuse.** The 2026 local-agent ecosystem standardized on agentically-RL-trained coder MoEs: **Qwen3-Coder-30B-A3B** (tool-calling fixed in llama.cpp; ~86 tok/s-class A3B speed on Strix Halo) and **Qwen3-Coder-Next (80B-A3B, Feb 2026)** "designed for coding agents and local development," working out-of-the-box with OpenCode/Cline/Qwen Code. Devstral remains a smaller dense alternative. Generic chat models tool-call worse and (per above) the current chat model can't even use `--cache-reuse`. *(MEDIUM-HIGH — Qwen/Unsloth docs + community.)*
+- **Switching UX:** users pick models in the agent's own UI from the provider `models` map — so villa's job is to make the right entries *exist and be true* (served, fitting, correct limits), not to build a switcher. For swap-mode ("coding mode" on/off), villa already owns the proven primitive: `modelswap`/`backendswap` transactional discipline. Explicit verb, never auto-switch — consistent with the ROCm precedent.
+- **Catalog:** coding models need new metadata (tool-call template requirements, agent-recommended ctx, sampling like `--temp 0.6 --top-p 0.95 --top-k 20` for coding) — an append-only catalog schema extension. GGUF pre-staged at install (the sanctioned outbound window, v1.3 precedent).
+
+### 4. Codebase tracking / memory — the scope correction
+
+The strongest, most decision-relevant finding of this research:
+
+- **Leading agents do not vector-index code.** Claude Code: no index, no embeddings — Glob/Grep(ripgrep)/Read on demand; its team built RAG into early versions, tested it against agentic search, and **agentic search won "not narrowly"**. OpenCode: identical philosophy — ripgrep/glob for exploration + **LSP for precision** (signatures, references, dependencies) + `AGENTS.md` for distilled project knowledge. A Feb 2026 Amazon Science paper found agentic keyword search reaches **>90% of RAG-level performance with no vector DB**. Index-first is now the *minority* camp (Cursor, Augment, Cody), and the hybrid future is **semantic search as a pluggable MCP server** (Augment Context Engine, Feb 2026), not as agent plumbing. *(MEDIUM-HIGH — multiple independent sources agree.)*
+- **Consequence for v1.4:** there is no native hook in OpenCode to "give it a Qdrant index" — the only integration shape is an MCP tool the model may or may not call. The milestone's "default: reuse villa-qdrant + villa-embed with a code collection" should be **inverted**: default = agent-native context (ripgrep + LSP + `AGENTS.md`), which villa gets for free; Qdrant-backed semantic code search = an **optional MCP-server differentiator** for "I don't know what it's called" queries — and only if a phase proves it pulls its weight. Incremental re-index and multi-repo handling only exist as problems **if villa builds an index**; don't inherit them by default. The PROJECT.md fallback (Graphmind-style code graph) is likewise substantially covered by OpenCode's built-in LSP integration.
+- **What codebase-memory users *actually* expect to work:** ripgrep present on host, LSP servers available for their languages (OpenCode auto-spawns them), `/init`-generated `AGENTS.md`, and persistent local session history (OpenCode stores sessions on disk). All agent-native; villa's preflight can *check* for ripgrep/LSP toolchains, not provide them.
+
+### 5. Lifecycle / observability expectations
+
+- **The agent is not a service.** No Quadlet unit, no `up/down`, no boot persistence — it's a user-invoked TUI. Forcing it into the service model is an anti-feature. What *does* belong in villa's surfaces:
+  - `status`: addon installed + agent binary version, villa-owned provider block present, endpoint reachable, coding model staged + resident/fitting — append-only `status.Report` 3→4, single golden re-freeze (established discipline).
+  - `doctor`: config-drift check (villa-owned provider block vs `config.toml` truth), endpoint + model availability, and — in villa's offload-asserting ethos — a **real tool-call round-trip probe** (send a trivial tools-enabled completion; a model that answers but can't emit a `tool_call` is a FAIL for the agent use-case, not a pass).
+  - Dashboard: an Agent panel, hidden-until-data (Memory-panel precedent).
+- **Usage tracking comes free** if the coding model is a distinct served model: v1.2's per-model reset-aware usage `Fold` over `/metrics` already attributes agent traffic separately. `timings.cache_n` exposure would be a new, cheap, high-signal addition (cache effectiveness = the agent's perceived speed).
+- **Backup:** the villa-written agent provider config is config-tier → include. Agent session history (`~/.local/share/opencode`) is user data, large and churny → document, default-exclude (weights-excluded precedent).
 
 ---
 
@@ -38,134 +67,147 @@ This is the table the requirements step needs most. "Native" = ships in Open Web
 
 ### Table Stakes (Users Expect These)
 
-| Feature | Why Expected | Complexity | Notes |
-|---------|--------------|------------|-------|
-| Personalized memory ON + injected into chats | "It should remember I prefer Python / live in Vienna." Baseline of any 2026 memory product | LOW (villa) | Native OW feature; villa enables + ensures persistence across restarts. |
-| Manual save / edit / delete of memories | Users demand control over what's remembered (privacy product) | LOW (villa) | Native Personalization CRUD; surface, don't build. |
-| Document upload → RAG answers **with citations** | "Upload my PDFs and ask questions, show me where it came from" | LOW–MED (villa) | Native Knowledge + citations; cost is wiring vector DB + local embeddings. |
-| Local vector DB as a durable, boot-surviving service | A KB that loses its index on restart feels broken | MED | Qdrant Quadlet `.container` + `.volume`; default Chroma-SQLite is too fragile for the daily-driver bar. |
-| Local-only embeddings (zero new outbound) | Strict-local is the product's core value; cloud embeddings are disqualifying | MED | `llama-server --embeddings` or pre-pulled SentenceTransformers; **pre-pull, don't first-use-download**. |
-| Memory + KB included in backup/restore | v1.2 shipped backup/restore; users expect memory to be covered too | MED | Extend `internal/backup` to the new volumes (vector DB volume; OW volume already covered; embedding weights as identities). |
-| Health/status visibility of the memory stack | Daily-driver bar = "is my KB / vector DB healthy?" | MED | Extend `villa status`/`doctor`/dashboard to the new services (append-only, schema-bump per frozen-contract rule). |
+| Feature | Why Expected | Complexity | Notes / villa dependency |
+|---------|--------------|------------|--------------------------|
+| Agent installed/pinned as host binary via the addon flow | Harbor-style "one command, agent works" is the bar; curl-script-latest is unpinned and irreproducible | LOW-MED | `villa install` addon pattern (`memory_enabled` precedent); pin + record version; uninstall coverage |
+| Villa-owned provider block written into the agent's global config | Users expect zero manual endpoint/env wiring | MED | Merge-in to JSONC, own ONE key, never clobber user config; `config.toml` stays source of truth for what the block *should* say |
+| Tool-calling-ready inference preset (`--jinja`, known-good template, agent sampling) | An agent that can't call tools is dead on arrival; template landmines are the #1 community failure mode | MED | `internal/inference`/orchestrate flag rendering; catalog metadata; seam-locked literals |
+| Agent-grade context window (≥64k) with honest fit math | 20–50k-token agent prompts; community floor is 64k | MED | Reuses `recommend.Pick` KV@ctx math; per-model `limit.context` must equal served ctx |
+| Fit-guarded recommended coding model, GGUF pre-staged | "Just works after install" core value; agentically-trained coder ≫ generic chat model | MED | Catalog append + recommend extension + download pre-stage (v1.3 outbound-window precedent) |
+| Prompt caching on (`--cache-reuse`) for the agent's server | Without it every turn re-prefills 30k+ tokens on a slow-prefill iGPU — agent feels broken | LOW-MED | Flag + verify via `timings.cache_n`; blocked on hybrid-state models → pushes dedicated coding model |
+| Concurrency policy: chat + agent don't starve each other | Users WILL chat while the agent runs; naive `--parallel` halves ctx below agent floor | MED | Decision: dedicated `villa-code` server vs `--kv-unified` shared; fit math covers either |
+| Addon visible in status/doctor/dashboard | Every villa capability since v1.2 is surfaced; invisible addon = "is it even installed?" | MED | `status.Report` 3→4 append-only; doctor checks; dashboard panel (Memory-panel pattern) |
+| Strictly local: agent talks only to loopback endpoints | Product's core posture | LOW | baseURL 127.0.0.1; verify no agent-side telemetry/update phone-home defaults, or document them |
 
 ### Differentiators (Competitive Advantage)
 
 | Feature | Value Proposition | Complexity | Notes |
 |---------|-------------------|------------|-------|
-| **Hardware-aware memory-stack recommend** (vector DB + embedding model sized to the memory envelope) | Nobody else picks a *fitting* embedding model + reserves headroom for it alongside the chat model | MED | Extend `recommend`: embedding model adds resident MB + a second llama-server; fit math must account for it. This is villa's signature move. |
-| **One-command, digest-pinned, rootless memory stack** | Integrate-and-orchestrate done right: Qdrant + embeddings come up healthy with the rest, no compose, no Docker | MED | New Quadlet units behind `orchestrate`; config remains single source of truth. |
-| **Memory-stack residency/health proof** (`villa doctor` covers KB + vector DB + embeddings) | "Just works after install" extended to memory; offload-asserting honesty applied to embeddings too | MED | Embedding server should be offload-asserted like inference (no silent CPU fallback false-green). |
-| **villa-orchestrated "past chats → Knowledge" indexer** (optional) | Closes the conversational-recall gap *honestly* by reusing native RAG instead of faking semantic search | HIGH | Periodic export of prior chats into a Knowledge collection so they become citable/retrievable. Net-new behavior; scope carefully or defer. |
-| **Backup/restore that round-trips the whole memory brain** | Your "second brain" is portable + recoverable, weights excluded/re-pulled (matches v1.2 archive discipline) | MED | Extends the proven v1.2 transactional restore to vector-DB + memory volumes. |
+| **Tool-call round-trip proof in `doctor`** | Nobody else proves the agent loop actually works; extends offload-asserting honesty to "can it emit a tool_call" | MED | Tools-enabled probe completion; FAIL on no-tool-call, WARN on unevaluable |
+| **Hardware-aware coding-model recommend (co-resident vs swap decided by fit math)** | villa's signature move applied to agents: picks a coder that *fits next to* chat+embed, or honestly says "swap-mode only" | MED | Extends P22 reservation discipline; per-entry decision (30B-A3B co-resident vs 80B-A3B swap) |
+| **Cache-effectiveness surfacing (`cache_n`/`prompt_n`)** | Makes the agent's perceived speed measurable + diagnosable; unique honesty signal | LOW-MED | Already scraping timings-adjacent data; append-only usage/status addition |
+| **Transactional "coding mode" swap verb** (if swap-based) | Big-coder users (Qwen3-Coder-Next) get a safe, rollback-proven mode switch | MED | Composes existing `modelswap` + readiness probe; never automatic |
+| **Per-model agent usage in status/dashboard** | "How much did the agent burn this week" — free attribution via distinct model entry | LOW | v1.2 usage core unchanged |
+| **Optional Qdrant-backed semantic code search as an MCP server** | The honest version of "codebase memory": pluggable, model-invoked, for terminology-mismatch queries grep can't do | HIGH | Only if validated; MCP config is a documented opencode.json key; reuses villa-embed + Qdrant; brings indexing/staleness/multi-repo problems with it — defer-able |
 
 ### Anti-Features (Commonly Requested, Often Problematic)
 
 | Feature | Why Requested | Why Problematic | Alternative |
 |---------|---------------|-----------------|-------------|
-| **Custom Go RAG / embedding engine** | "Full control, single binary" | Reinvents mature OW RAG + llama.cpp embeddings; violates "Go = control plane only" and "integrate, don't rebuild"; massive surface | Wire OW native RAG to Qdrant + a local embedding server. Explicitly out of scope per PROJECT.md. |
-| **Faking semantic chat recall by silently dumping recent chats into context** | Mimics ChatGPT "reference chat history" | Blows the context window, degrades the model, hides what's happening; small local models choke | Ship native keyword `search_chats` recall, or the explicit "chats → Knowledge" indexer; be honest it's keyword vs semantic. |
-| **Aggressive always-on auto-memory on a small local model** | "Make it remember everything automatically" | Small local models store junk/PII, mis-select, hallucinate facts → memory pollution the user must clean up | Default auto-extract conservative or off; favor explicit save; document the model-quality dependency. |
-| **External / cloud vector DB or cloud embeddings (Pinecone, OpenAI embeddings)** | Easy, scalable, "just works" | Sends user content off-box — disqualifying for a zero-telemetry strict-local product | Local Qdrant + local embeddings only; never expose a cloud embedding default. |
-| **Multi-user / shared memory + RBAC tuning** | OW supports per-role memory permissions | Out of v1 scope (strictly-local single-user); adds auth surface | Single-user defaults; remote/multi-user already deferred in PROJECT.md. |
-| **First-use HuggingFace auto-download of embeddings** | It's the OW default, zero config | Silent outbound at runtime breaks the zero-new-outbound posture and "fails" on an air-gapped box | Pre-pull the embedding model in the install/weight-pull flow; assert presence in preflight. |
+| **Villa wrapping/proxying the agent's UI or running `opencode serve` as a villa service** | "Manage everything from villa/dashboard" | The agent is an interactive user tool, not stack plumbing; wrapping it = owning its UX, auth, upgrades; serve-mode exposed beyond loopback breaks posture | Install + wire + verify, then get out of the way; dashboard links/docs at most |
+| **Default vector/RAG codebase index (Qdrant code collection)** | The milestone sketch's default; "Cursor has one" | Leading agents rejected it (agentic search won at Anthropic; >90%-of-RAG Amazon result); no native OpenCode hook — only MCP; inherits indexing/staleness/multi-repo/re-embed costs for marginal gain on a strong agent | Agent-native grep+LSP+`AGENTS.md` as default; optional MCP semantic search as a validated differentiator |
+| **Villa auto-writing `AGENTS.md` / project config into user repos** | "Set up my repo for me" | Touches user-owned working trees — scope violation + surprise diffs in *their* git status | Document `/init`; keep villa's writes to villa-owned paths |
+| **Containerized interactive agent as the default delivery** | Sandboxing appeal, stack consistency (everything else is a container) | Breaks LSP toolchains, git identity, file ownership, repo mounting ergonomics; community treats containers as CI niche | Host binary, pinned + verified; container variant later if a sandbox story is wanted |
+| **Auto-switching the chat model to the coding model when the agent connects** | "Seamless coding mode" | Violates never-auto-switch (ROCm precedent); yanks the model out from under an active chat; hides a multi-GB residency change | Explicit fit-guarded verb (or co-resident dedicated server) |
+| **A villa-built gateway/LiteLLM layer between agent and llama-server** | "Central routing/control point" | llama-server is already the OpenAI-compatible contract; a proxy adds latency, failure modes, and a maintenance surface for zero capability | Point the agent straight at the endpoint; config is the control point |
+| **Taking ownership of the user's entire `opencode.json`** | Config-as-single-source purism | The agent config is *user* config (their other providers, agents, MCP servers, keybinds); clobbering it is hostile | Own exactly one provider key + its model entries; drift-check only that block |
 
 ---
 
 ## Feature Dependencies
 
 ```
-Local embedding server / model (llama-server --embeddings OR pre-pulled ST model)
-    └──required by──> Document Knowledge Base (RAG)
-    └──required by──> "Past chats → Knowledge" semantic recall (if built)
+Agent addon install (binary + provider block)
+    └──requires──> existing install addon pattern (memory_enabled)      [v1.2/v1.3]
+    └──requires──> agent-tuned llama-server preset (--jinja, ctx, cache) [new flags via inference/orchestrate]
+    └──requires──> recommended coding model staged                       [catalog + download]
 
-Local vector DB service (Qdrant Quadlet)
-    └──required by──> Document Knowledge Base (RAG)
-    └──required by──> "Past chats → Knowledge" semantic recall (if built)
+Recommended coding model (fit-guarded)
+    └──requires──> recommend.Pick extension (coding ctx KV + co-resident vs swap)  [P22 reservation precedent]
+    └──decides──> dedicated villa-code server  XOR  swap-mode "coding mode" verb
 
-Personalized Memory (native, webui.db)
-    └──independent of──> vector DB / embeddings   (memory ≠ RAG; stored as facts in webui.db)
+Dedicated villa-code server (if co-resident)
+    └──requires──> orchestrate render (new Quadlet unit, container-DNS, loopback port for host agent)
+    └──conflicts──> --kv-unified shared-server option (pick one concurrency story)
 
-Automatic LLM-assisted extraction ──enhances──> Personalized Memory
-    └──quality-gated-by──> local chat model capability
+Swap-mode coding verb (if swap-based)
+    └──requires──> modelswap transactional core                          [v1.0/v1.3, D-09 guards]
 
-Hardware-aware recommend (embedding-model fit)
-    └──must-precede──> install of the memory stack (envelope must include embeddings)
+Status/doctor/dashboard surfacing
+    └──requires──> agent addon installed (something to surface)
+    └──extends──> status.Report 3→4 append-only, single re-freeze        [established discipline]
+    └──doctor tool-call probe requires──> tool-calling preset live
 
-Memory-stack backup/restore  ──extends──> v1.2 internal/backup (new volumes)
-status / doctor / dashboard surfacing ──extends──> v1.2 read-models (append-only + schema bump)
+Usage attribution for agent traffic
+    └──requires──> coding model as a DISTINCT served model entry         [v1.2 usage core, unchanged]
+
+Optional MCP semantic code search (differentiator, defer-able)
+    └──requires──> villa-qdrant + villa-embed                            [v1.3]
+    └──requires──> agent addon (MCP config in opencode.json)
+    └──requires──> validation phase proving value over grep+LSP
 ```
 
 ### Dependency Notes
 
-- **KB requires both a vector DB and a local embedding path.** Neither alone is enough; ship them together or the KB is non-functional. Order: stand up Qdrant + embeddings, *then* enable Knowledge.
-- **Personalized Memory is independent of the RAG stack.** It lives in `webui.db` as facts, not vectors — it can ship in an earlier/separate phase than the vector-DB work, de-risking the milestone.
-- **Recommend must precede install.** The embedding model consumes memory and (if llama-server-based) a second service; the fit math and recommendation must account for it before anything is installed, or the "runs healthy" bar breaks.
-- **Auto-extraction quality is gated by the chat model**, not by villa code — a config/recommendation concern, and a documented limitation.
-- **Conversational-recall semantic option depends on the same vector DB + embeddings** as the KB, so if built it should follow (not precede) the KB phase.
-
----
+- **The co-resident-vs-swap decision gates the architecture** (new Quadlet unit vs new swap verb) and must be made by the fit math per catalog entry, early — it shapes orchestrate, recommend, and surfacing work.
+- **Usage tracking and most observability are near-free** once the coding model is a distinct model entry — strong argument for the dedicated-model path even in swap mode.
+- **The MCP semantic-search differentiator depends on everything else shipping first** and on an explicit effectiveness validation; it must not block the milestone.
+- **`--cache-reuse` incompatibility with the current hybrid-state chat model** (Qwen3.6-35B-A3B) couples the caching table-stake to the dedicated-coding-model choice.
 
 ## MVP Definition
 
-### Launch With (v1.3 core)
+### Launch With (v1.4 core)
 
-- [ ] **Local vector DB (Qdrant) + local embedding path** as rootless Quadlet services, digest-pinned, boot-surviving — essential substrate for KB.
-- [ ] **Document Knowledge Base wired to them**, with native chunking + citations — the headline RAG deliverable.
-- [ ] **Personalized Memory enabled + persistent**, manual save/edit/delete surfaced — cheap, high-value, independent of RAG.
-- [ ] **Hardware-aware recommend extended to the embedding model** (fit math includes it) — protects the "runs healthy" bar.
-- [ ] **Pre-pulled local embeddings (zero new outbound)** + preflight assertion — non-negotiable privacy posture.
-- [ ] **Backup/restore + status/doctor/dashboard extended to the memory stack** — daily-driver operability parity with v1.2.
+- [ ] Agent addon in `villa install` (host binary pinned + villa-owned provider block + uninstall) — the headline deliverable
+- [ ] Tool-calling inference preset (`--jinja`, template-verified model, agent ctx ≥64k, `--cache-reuse`) — without it the agent is decorative
+- [ ] Fit-guarded recommended coding model, pre-staged, with honest co-resident-vs-swap outcome — the "just works" bar
+- [ ] Concurrency policy implemented (dedicated server or `--kv-unified`) — chat + agent must coexist
+- [ ] Status/doctor/dashboard coverage incl. tool-call probe — operability parity with every prior addon
+- [ ] Strictly-local verification (loopback-only wiring; agent telemetry/update behavior audited + documented)
 
-### Add After Validation (v1.3.x)
+### Add After Validation (v1.4.x)
 
-- [ ] **Automatic LLM-assisted memory extraction tuned for local models** — ship conservative/off first, enable once recall quality is validated on the recommended model.
-- [ ] **"Past chats → Knowledge" semantic recall indexer** — only if native keyword `search_chats` proves insufficient; reuses the KB stack.
-- [ ] **Hybrid search + reranking knobs** exposed via recommend/config — refinement once base RAG is solid.
+- [ ] Cache-effectiveness (`cache_n`) surfacing — once timings data is confirmed stable across llama.cpp pin
+- [ ] Transactional "coding mode" verb — only if the fit math lands on swap-mode for the recommended model
+- [ ] Backup coverage of the villa-written agent config — cheap, ride a backup-touching phase
 
-### Future Consideration (v2+)
+### Future Consideration (v1.5+)
 
-- [ ] **True upstream semantic chat-history RAG** — adopt natively when Open WebUI ships it (open feature request); don't fork it now.
-- [ ] **Community Adaptive-Memory Function** as a supported option — only if native memory underperforms broadly.
+- [ ] Optional MCP semantic code search backed by villa-qdrant/villa-embed — only after an explicit phase proves value over agent-native grep+LSP
+- [ ] Sandboxed/containerized agent profile for CI or untrusted-repo use
+- [ ] Graphmind-style code-graph MCP — revisit only if LSP+grep demonstrably falls short for the user's workflow
 
 ## Feature Prioritization Matrix
 
 | Feature | User Value | Implementation Cost | Priority |
 |---------|------------|---------------------|----------|
-| Local vector DB + embeddings (Quadlet, pinned, local-only) | HIGH | MEDIUM | P1 |
-| Document KB wired + citations | HIGH | LOW–MED | P1 |
-| Personalized Memory enabled + CRUD surfaced | HIGH | LOW | P1 |
-| Recommend extended for embedding-model fit | HIGH | MEDIUM | P1 |
-| Backup/restore + status/doctor/dashboard for memory stack | HIGH | MEDIUM | P1 |
-| Automatic LLM-assisted extraction (local-tuned) | MEDIUM | LOW (config) / MED (validate) | P2 |
-| Past-chats → Knowledge semantic recall indexer | MEDIUM | HIGH | P2/P3 |
-| Hybrid search + reranking tuning | MEDIUM | MEDIUM | P3 |
+| Agent addon install + provider wiring | HIGH | MEDIUM | P1 |
+| Tool-calling preset + agent ctx + cache | HIGH | MEDIUM | P1 |
+| Fit-guarded coding model (co-resident/swap decided) | HIGH | MEDIUM | P1 |
+| Concurrency policy (chat + agent coexist) | HIGH | MEDIUM | P1 |
+| Status/doctor/dashboard + tool-call probe | HIGH | MEDIUM | P1 |
+| Usage attribution per model | MEDIUM | LOW | P2 |
+| Cache-effectiveness surfacing | MEDIUM | LOW-MED | P2 |
+| Swap-mode coding verb | MEDIUM (conditional) | MEDIUM | P2 |
+| MCP semantic code search (Qdrant) | LOW-MED (unproven) | HIGH | P3 |
 
 ## Competitor Feature Analysis
 
-| Feature | ChatGPT / Claude (cloud) | DreamServer (local, Docker-Compose) | VillaStraylight approach |
-|---------|--------------------------|--------------------------------------|--------------------------|
-| Personalized memory | Cloud memory, auto + manage | Open WebUI native memory | OW native memory, strictly local, villa surfaces + backs up |
-| Document RAG + citations | Native, cloud-indexed | Open WebUI + Qdrant | OW Knowledge + **local** Qdrant + **local** embeddings, villa-orchestrated |
-| Semantic past-chat recall | Native ("reference chat history") | Not solved (OW limitation) | Native keyword recall first; honest villa "chats→Knowledge" indexer only if needed — no faking |
-| Auto memory extraction | Native, frontier model | OW background model | OW native, **tuned/gated for local models**, conservative by default |
-| Vector DB / embeddings | Managed cloud | Qdrant container, often cloud-ish embeddings | Rootless Qdrant Quadlet + on-box embeddings, digest-pinned, offload-asserted |
-| Hardware-aware sizing | N/A (cloud) | Manual model/quant tiers | **villa recommend includes the embedding model in the fit math** (signature differentiator) |
-| Backup / portability | Vendor-locked | Manual volume backup | v1.2 transactional archive extended to the memory brain |
+| Feature | Harbor (`harbor launch`) | Raw DIY (blog-standard) | VillaStraylight approach |
+|---------|--------------------------|--------------------------|--------------------------|
+| Agent wiring | Auto-writes provider config, auto-discovers models, agent runs on host | Hand-edit `opencode.json`, hand-tune llama-server flags | Villa-owned provider block from `config.toml` truth, merge-in, drift-checked by doctor |
+| Model choice | Whatever the stack serves | User picks; tool-call template landmines hit at runtime | Catalog-driven, fit-guarded, tool-call-template-verified coder; honest co-resident-vs-swap |
+| Server tuning for agents | Generic | Each blog rediscovers `--jinja`/ctx/`--cache-reuse` | Preset rendered by orchestrate, seam-locked, proven by doctor probe |
+| Codebase memory | None (agent-native) | None (agent-native) | Agent-native default; optional validated MCP semantic search later |
+| Observability | None | None | status/doctor/dashboard + per-model usage + cache effectiveness |
+| Privacy | Local-stack focused | Varies | Loopback-only, telemetry audited, zero new outbound beyond pulls |
 
 ## Sources
 
-- [Open WebUI — Memory & Personalization (docs)](https://docs.openwebui.com/features/chat-conversations/memory/) — HIGH
-- [Open WebUI — Knowledge (docs)](https://docs.openwebui.com/features/workspace/knowledge/) — HIGH
-- [Open WebUI — Retrieval Augmented Generation (RAG) (docs)](https://docs.openwebui.com/features/chat-conversations/rag/) — HIGH
-- [Open WebUI — History & Search (docs)](https://docs.openwebui.com/features/chat-conversations/chat-features/history-search/) — HIGH (confirms chat search is text-based, not semantic)
-- [Open WebUI — Environment Variable Configuration (VECTOR_DB, RAG_EMBEDDING_ENGINE/MODEL)](https://docs.openwebui.com/reference/env-configuration/) — HIGH
-- [Open WebUI — Vector Database Integration (DeepWiki)](https://deepwiki.com/open-webui/open-webui/7.5-vector-database-integration) — MEDIUM
-- [feat: Reference Chat History · Discussion #13041](https://github.com/open-webui/open-webui/discussions/13041) — MEDIUM (confirms semantic chat recall is a gap/open request)
-- [feat: Add Previous Chats Recall · Issue #13568 / Discussion #13595](https://github.com/open-webui/open-webui/issues/13568) — MEDIUM
-- [Open WebUI Adaptive Memory (community Function)](https://open-webui.com/open-webui-adaptive-memory/) — MEDIUM (community extraction patterns)
-- [tutorial: compute embeddings using llama.cpp · Discussion #7712](https://github.com/ggml-org/llama.cpp/discussions/7712) + [llama.cpp server README](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md) — MEDIUM (local `--embeddings` path)
-- [llama-server /v1/embeddings version-sensitivity · Issue #15406](https://github.com/ggml-org/llama.cpp/issues/15406) — MEDIUM (pin-and-assert rationale)
+- [OpenCode — Providers docs](https://opencode.ai/docs/providers/) — HIGH (provider/baseURL/`limit` keys; local llama.cpp/Ollama/LM Studio guidance, tool-call ctx note)
+- [OpenCode — Config docs](https://opencode.ai/docs/config/) — HIGH (config layering/merge, `small_model`, MCP, agents, permissions)
+- [OpenCode — Rules / LSP / Tools docs](https://opencode.ai/docs/rules/) — HIGH (`AGENTS.md`, `/init`, LSP integration, ripgrep-backed grep/glob)
+- [llama.cpp — function-calling.md](https://github.com/ggml-org/llama.cpp/blob/master/docs/function-calling.md) — HIGH (`--jinja`, native formats, parallel tool calls)
+- [llama.cpp Discussion #13606 — KV cache reuse tutorial](https://github.com/ggml-org/llama.cpp/discussions/13606) + [#20574 — host-memory prompt caching](https://github.com/ggml-org/llama.cpp/discussions/20574) — MEDIUM-HIGH (`--cache-reuse`, `cache_n` timings)
+- [llama.cpp Discussion #22354 — cache reuse w/ OpenCode agent switching](https://github.com/ggml-org/llama.cpp/discussions/22354) — MEDIUM (agent-switch reprocessing; `--cache-reuse` incompatible with Qwen3.6-35B-A3B hybrid state; Apr–May 2026)
+- [llama.cpp Issue #11681 — `--ctx-size` divided by `--parallel`](https://github.com/ggml-org/llama.cpp/issues/11681) — HIGH (slot ctx split; `--kv-unified` shared-context alternative)
+- [Using a local LLM in OpenCode with llama.cpp (Mar 2026)](https://aayushgarg.dev/posts/2026-03-29-local-llm-opencode/) — MEDIUM (real flags: `--ctx-size 65536`, `--jinja`, patched template, coding sampling; system-message-first 500 bug)
+- [Harbor wiki — Run Coding Agents with Local LLMs](https://github.com/av/harbor/wiki/8.3-Run-Coding-Agents-with-Local-LLMs) + [Satellite OpenCode](https://github.com/av/harbor/wiki/2.3.68-Satellite-OpenCode) — MEDIUM-HIGH (stack-managed agent UX prior art)
+- [Claude Code doesn't index your codebase](https://vadim.blog/claude-code-no-indexing/) + [SmartScope — why Claude Code dropped vector RAG](https://smartscope.blog/en/ai-development/practices/rag-debate-agentic-search-code-exploration/) + [Why coding agents still use grep (Mar 2026)](https://yage.ai/share/why-coding-agents-still-use-grep-en-20260327.html) — MEDIUM-HIGH (agentic-search-over-embeddings consensus; Amazon Science >90%-of-RAG result; Augment MCP hybrid)
+- [Unsloth — Qwen3-Coder-Next local guide](https://unsloth.ai/docs/models/qwen3-coder-next) + [Qwen3-Coder local guide](https://unsloth.ai/docs/models/tutorials/qwen3-coder-how-to-run-locally) — HIGH (≈46–48 GB at 4-bit, +~7 GB to 256k ctx; tool-calling fixed in llama.cpp; agent-trained)
+- [OpenCode install guides (curl/npm/brew/Docker)](https://www.nxcode.io/resources/news/opencode-install-guide-step-by-step-2026) + [opencode-container](https://github.com/nezhar/opencode-container) — MEDIUM (delivery modes; container = CI niche)
+- [Strix Halo local LLM guides 2026](https://www.starryhope.com/minipcs/strix-halo-local-llm-inference-2026/) — MEDIUM (Qwen3 30B-A3B ~86 tok/s class on Strix Halo; Vulkan-first guidance)
 
 ---
-*Feature research for: strictly-local memory/RAG on an Open-WebUI stack (VillaStraylight v1.3)*
-*Researched: 2026-06-09*
+*Feature research for: strictly-local coding-agent integration (VillaStraylight v1.4)*
+*Researched: 2026-06-12*

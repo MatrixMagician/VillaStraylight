@@ -1,175 +1,222 @@
 # Stack Research
 
-**Domain:** Strictly-local memory/RAG additions for a single-static-binary Go control-plane CLI orchestrating Open WebUI + llama.cpp via rootless Podman/Quadlet on AMD Strix Halo (gfx1151) / Fedora — v1.3 "Memory & Knowledge"
-**Researched:** 2026-06-09
-**Confidence:** HIGH — all Open WebUI env vars + defaults verified against the authoritative source (`backend/open_webui/config.py` @ `main`); Qdrant version/digests verified against GitHub releases + Docker Hub manifest API; llama-server `--embedding` / OpenAI-compatible `/v1/embeddings` verified against llama.cpp server docs. The embedding-runtime choice (dedicated llama-server vs Open WebUI built-in) is a design call with HIGH confidence on the constraint analysis.
+**Domain:** Strictly-local coding agent addon for a Go control-plane CLI orchestrating llama.cpp (Vulkan) + Open WebUI + Qdrant via rootless Podman/Quadlet on AMD Strix Halo (gfx1151) / Fedora — v1.4 "Coding Agent"
+**Researched:** 2026-06-12
+**Confidence:** HIGH on the agent landscape (versions/licenses/outbound behavior verified against GitHub releases, issues, and official docs today); HIGH on GGUF file sizes (HF repo listings); MEDIUM on throughput numbers (third-party Strix Halo benchmarks) and KV-cache estimates (computed from architecture, labeled as estimates); MEDIUM on exact `crush.json` schema details (freeze in phase research).
 
 ## Scope note
 
-This is a SUBSEQUENT-milestone study. The shipped v1.0–v1.2 stack — Go 1.26.2, cobra v1.10.2, chi v5.3.0, ghw v0.24.0, BurntSushi/toml v1.6.0, charmbracelet/huh, rootless Podman v5 + Quadlet, llama.cpp Vulkan/ROCm backends behind the `Backend` seam, Open WebUI `:main`-pinned-by-digest — is **fixed and NOT re-researched**. This file covers only the NEW capabilities the memory/RAG milestone adds, and how they wire into the existing orchestrate/Quadlet/config plane.
+SUBSEQUENT-milestone study. The shipped v1.0–v1.3 stack — Go 1.26.2, cobra, chi, ghw, rootless Podman v5 + Quadlet, llama.cpp Vulkan/ROCm behind the `Backend` seam, Open WebUI, digest-pinned Qdrant + `villa-embed` (nomic-embed-text-v1.5, 768-dim) — is **fixed and NOT re-researched**. This file covers only: (a) which coding agent, (b) which coding model(s) for the gfx1151 memory tiers, (c) what codebase-memory machinery the agent actually needs.
 
-**The single biggest finding:** This milestone needs **essentially zero new first-party Go libraries.** Open WebUI already ships native Memory + RAG + a built-in vector-DB abstraction and an OpenAI-compatible embedding-engine client. The work is **orchestration + config**, not code: stand up two new rootless Quadlet services (a vector DB and a local embedding server) and set the right Open WebUI env vars. That is exactly the "Go is control-plane only; integrate, don't rebuild" constraint.
+**Three headline findings (each reverses a default assumption in PROJECT.md):**
+
+1. **Agent: recommend Crush (charmbracelet), not OpenCode.** OpenCode was the leading candidate, but it cannot be locked down to villa's zero-outbound posture by config: it unconditionally fetches `models.dev/api.json`, downloads provider/plugin npm packages at runtime via embedded bun, auto-downloads LSP servers, and upstream **closed air-gapped support as "not planned"** (anomalyco/opencode #2224; #16117 closed as dup). Crush is a single static Go binary whose ONLY two outbound channels (pseudonymous metrics, Catwalk provider-DB refresh) both have **documented config kill switches** villa can generate (`disable_metrics`, `disable_provider_auto_update`) with an embedded provider DB as offline fallback.
+2. **Codebase memory: do NOT extend Qdrant/villa-embed with a code collection.** The 2025–2026 industry consensus among serious coding agents (Cline, Claude Code, OpenCode, Crush) is that embedding-RAG over code is inferior to agentic search (grep/glob/AST/LSP): chunking breaks code semantics, indexes go stale on every commit, and a vector copy of the repo doubles the security surface. Crush ships LSP integration + agentic file tools natively. Codebase "memory" = `CRUSH.md`/`AGENTS.md` context files + LSP — **zero new services**.
+3. **Model: Qwen3-Coder family, tiered by GTT envelope; swap-based "coding mode" is the universal mechanism.** Qwen3-Coder-30B-A3B (17.7 GB at UD-Q4_K_XL) fits every tier; Qwen3-Coder-Next (80B-A3B hybrid-attention MoE, 49.6 GB at UD-Q4_K_XL) is the quality pick for the 128 GB tier. Co-residency with the chat model is only honest on 96/128 GB tiers — the swap mechanism (reusing `internal/modelswap`) works on all three.
 
 ## Recommended Stack
 
-### Core Technologies (NEW containerized services)
+### Core Technologies (NEW)
 
-| Technology | Version (pin) | Purpose | Why Recommended |
-|------------|---------------|---------|-----------------|
-| **Qdrant** (vector DB) | `qdrant/qdrant:v1.18.2-unprivileged@sha256:9f7a04503dbdc17531752927bf0f822b5e71a3b713db547eab92c22210430fc8` | The vector store Open WebUI persists RAG + memory embeddings into | First-class Open WebUI backend (`VECTOR_DB=qdrant`), single static Rust binary, zero external deps, embedded on-disk storage, no SQL server to babysit, runs happily as ONE rootless container. The `-unprivileged` variant runs as non-root → clean fit for rootless Podman. v1.18.2 is the latest stable (released 2026-06-04). See "Vector DB rationale" below for why over pgvector/Chroma/Milvus. |
-| **llama.cpp embedding server** (`llama-server --embedding`) | REUSE the already-pinned toolbox image `docker.io/kyuz0/amd-strix-halo-toolboxes:vulkan-radv@sha256:9a74e555…ac7aad` | A second `llama-server` instance serving an OpenAI-compatible `/v1/embeddings` endpoint for a local embedding GGUF | The toolbox image already ships `llama-server`, which natively supports `--embedding` + OpenAI-compatible `/v1/embeddings`. **No new image, no new backend seam** — it's the SAME binary already proven for inference, run with `--embedding`. Keeps embeddings GPU-accelerated on the iGPU and strictly local. Open WebUI's `openai` embedding engine points straight at it. |
-| **Embedding model (GGUF weight)** | `nomic-embed-text-v1.5` (Q8_0 GGUF) — 137M params, 768-dim, 8192-ctx | The actual embedding model the embedding server loads | Best quality-to-size ratio for a local single-user box: ~140–300 MB resident, Matryoshka-truncatable 768→64 dims, 8192-token context (long chunks), Apache-2.0, ubiquitous GGUF availability. Tiny memory-envelope cost next to the main inference model (see memory-envelope analysis). `bge-m3` is the multilingual upgrade if needed (~1.2 GB) — offer as an alternate, not the default. |
+| Technology | Version | Purpose | Why Recommended |
+|------------|---------|---------|-----------------|
+| **Crush** (charmbracelet/crush) | **v0.76.0** (released 2026-06-05; pin exact release artifact + checksum) | The terminal coding agent — agentic read/write/exec + LSP over the local OpenAI-compatible endpoint | Single static Go binary (matches villa's distribution ethos; no Python/Node/bun runtime); plain-JSON `crush.json` config that villa can generate deterministically; `type: "openai-compat"` provider points straight at `villa-llama`; **both outbound channels are config-killable** (`disable_metrics` / `CRUSH_DISABLE_METRICS` / `DO_NOT_TRACK`, and `disable_provider_auto_update` / `CRUSH_DISABLE_PROVIDER_AUTO_UPDATE` with an embedded Catwalk provider DB for offline); built-in LSP integration (`lsp` config block — gopls, pyright, rust-analyzer, etc.) that uses **locally installed** servers, never auto-downloads; MCP support for future extension; Fedora/RHEL repo + GitHub release tarballs with checksums. Active: ~weekly releases through June 2026. |
+| **Coding model — default (all tiers):** Qwen3-Coder-30B-A3B-Instruct, GGUF | `unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF` **UD-Q4_K_XL (17.7 GB)** | The fit-everywhere agentic coding model | MoE with 3B active params → token generation is fast on Strix Halo's bandwidth-bound iGPU (third-party Strix Halo Vulkan/RADV reports ~70–98 tok/s tg, vs ~10–15 tok/s for a 24B dense model); 256K native context; Apache-2.0; purpose-trained for agentic tool use; unsloth quants carry the Aug-2025 tool-calling chat-template fixes llama-server needs. 17.7 GB fits even the 64 GB tier's ~31 GiB GTT envelope with KV to spare. |
+| **Coding model — quality (128 GB tier, 96 GB at Q3):** Qwen3-Coder-Next, GGUF | `unsloth/Qwen3-Coder-Next-GGUF` **UD-Q4_K_XL (49.6 GB)**; UD-Q3_K_XL (36.3 GB) for the 96 GB tier | Best open agentic coder that fits 128 GB unified memory | 80B-total / 3B-active hybrid-attention MoE (Gated-DeltaNet-style + sparse full attention) → near-flagship agentic coding (unsloth: "performance comparable to models 10–20× larger", RL-trained for long-horizon tool use with failure recovery) at A3B generation speed, with a **small KV cache** (only a fraction of layers carry full attention) so 128K+ agent contexts are cheap; 256K native ctx. Third-party Strix Halo numbers: ~421 tok/s pp (Vulkan RADV), ~524 tok/s pp (ROCm 7.2). |
+| **llama-server tool-calling flags** | `--jinja` added to the rendered `villa-llama` unit in coding mode | OpenAI `tools` API support — the agent's function-calling contract | llama-server hard-errors `"tools param requires --jinja flag"` when an agent sends `tools` without it. `--jinja` uses the GGUF-embedded chat template, which (for unsloth Qwen3-Coder quants) includes the XML tool-call parser fixes. This is a render-delta in `internal/orchestrate`, gated on coding mode — exactly the Phase-7-style byte-frozen unit-delta pattern. |
 
-### Supporting Libraries (first-party Go — minimal)
+### Supporting Libraries (first-party Go — none new)
 
 | Library | Version | Purpose | When to Use |
 |---------|---------|---------|-------------|
-| **(none required)** | — | The milestone adds NO new Go module dependency in the happy path | Orchestration reuses existing `internal/orchestrate` Quadlet rendering; config reuses `internal/config`; health reuses `internal/status`/`doctor`; backup reuses `internal/backup`. New code is new *templates* + *config fields* + *status probes*, not new libraries. |
-| `net/http` (stdlib) | — | Optional readiness probe of Qdrant `/readyz` and the embedding `/health` during install/doctor | Only if you add a memory-stack readiness gate to `doctor`/`status` — reuses the existing bounded-loopback-scrape pattern (cf. metrics `/metrics`). No new dependency. |
+| **(none required)** | — | The milestone adds NO new Go module dependency | Agent binary download reuses the `internal/download` pattern (SHA-256-verified artifact pull during the sanctioned install window); coding-model fit reuses `internal/recommend` (envelope math + embed reservation already shipped in v1.3 P22); model switch reuses `internal/modelswap`; config generation is a new pure core (`internal/agentconf` or similar) emitting `crush.json` via `encoding/json` (stdlib); health/status probes reuse the bounded-loopback patterns. |
+| `encoding/json` (stdlib) | — | Render `crush.json` from `config.toml` | Config stays the single source of truth; `crush.json` becomes a villa-rendered artifact like Quadlet units — regenerated, never hand-edited as authority. |
 
-> **Hard rule honored:** no cgo-SQLite, no native libs, no Go RAG/embeddings engine. Qdrant and the embedding server are *containers*; the `villa` binary stays a single static `CGO_ENABLED=0` build.
+> **Hard rule honored:** no cgo, no new runtime (no Python/Node/bun on the host), `villa` stays a single static `CGO_ENABLED=0` binary. The agent itself is also a single static Go binary.
 
 ### Development Tools
 
 | Tool | Purpose | Notes |
 |------|---------|-------|
-| `podman volume` (fixed-arg seam) | Persist Qdrant storage + embedding weights | Two new rootless volumes: `villa-qdrant.volume` (vector data) and reuse/extend the models volume for the embedding GGUF. Backup/restore (v1.2) must be extended to cover `villa-qdrant.volume` (weights still excluded; embedding GGUF is re-pullable, vector data is regenerable but worth archiving). |
-| Quadlet `*.tmpl` (go:embed) | New unit templates | `qdrant.container.tmpl`, `qdrant.volume.tmpl`, and an `embeddings.container.tmpl` (a second llama-server). All join the existing `villa.network`. |
+| Crush release artifacts | `crush_<ver>_Linux_x86_64.tar.gz` + `checksums.txt` from GitHub releases | villa pins an exact version + SHA-256 (mirror of the digest-pin discipline for images). Charm also publishes a Fedora/RHEL yum repo — viable alternative, but a villa-managed download keeps the version pinned and checksummed under villa's control. |
+| LSP servers (optional, user-supplied) | gopls / pyright / rust-analyzer / typescript-language-server | Crush uses whatever is on `$PATH` per its `lsp` config block. villa should render sensible `lsp` entries but treat missing servers as a WARN (typed-Unknown style), never a BLOCK — the agent degrades gracefully to grep/glob. |
 
-## Open WebUI configuration surface (exact env vars — VERIFIED against `config.py` @ main)
+## Delivery mode: host binary, not container
 
-These are set on the **`villa-openwebui` container** (the existing Open WebUI Quadlet unit), wired via container-DNS to the new services on `villa.network`. All defaults below are quoted from `backend/open_webui/config.py`.
+**Recommendation: install Crush as a host binary** (villa-downloaded, version-pinned, checksum-verified, placed under `$XDG_DATA_HOME/villa/bin/` or `~/.local/bin/`), **not** a Quadlet container.
 
-### Vector DB selection
-| Env var | Value to set | Default in OWUI | Notes |
-|---------|--------------|-----------------|-------|
-| `VECTOR_DB` | `qdrant` | `chroma` | Selects the Qdrant backend. |
-| `QDRANT_URI` | `http://villa-qdrant:6333` | `None` | Container-DNS to the new Qdrant unit (HTTP REST port). |
-| `QDRANT_API_KEY` | (unset / empty) | `None` | Not needed loopback-internal on a private podman network; leave unset. |
-| `QDRANT_ON_DISK` | `true` | `false` | Persist vectors to disk (the volume) rather than holding all in RAM — correct for a memory-envelope-constrained box. |
-| `QDRANT_PREFER_GRPC` | `false` | `false` | HTTP is fine single-user; leave default. (`QDRANT_GRPC_PORT` default `6334` if ever enabled.) |
-| `ENABLE_QDRANT_MULTITENANCY_MODE` | `true` (OWUI default) | `true` | Default; leave as-is. |
-| `QDRANT_COLLECTION_PREFIX` | `open-webui` (default) | `open-webui` | Leave default. |
+- A coding agent's whole value is host-side: the user's repos, toolchains, LSP servers, git, and shell. A containerized agent needs the workspace bind-mounted plus every toolchain baked into the image — it cripples LSP and `bash` tool use, and there is no official Crush container image to pin anyway.
+- The strictly-local posture is enforced by **config** (the two kill switches villa writes) and verified at **runtime** (a `villa verify agent`-style negative-control-first egress proof, mirroring `villa verify memory`) — not by network namespace. A container would only add false comfort while breaking the feature.
+- Consequence for the install story: the agent binary pull joins images/models in the sanctioned outbound window ("image/model/agent pulls" — PROJECT.md already words v1.4 this way).
 
-### Local embeddings (point Open WebUI at the local llama-server embedding endpoint)
-| Env var | Value to set | Default in OWUI | Notes |
-|---------|--------------|-----------------|-------|
-| `RAG_EMBEDDING_ENGINE` | `openai` | `''` (built-in SentenceTransformers) | Accepted values: `''`, `ollama`, `openai`, `azure_openai`. `openai` makes OWUI call an OpenAI-compatible `/v1/embeddings` — i.e. our local llama-server. **This moves embedding compute OUT of the OWUI Python process** (frees its RAM, GPU-accelerates embeddings). |
-| `RAG_OPENAI_API_BASE_URL` | `http://villa-embeddings:8080/v1` | inherits `OPENAI_API_BASE_URL` | Container-DNS to the new embedding llama-server unit. |
-| `RAG_OPENAI_API_KEY` | any non-empty placeholder (e.g. `sk-local`) | inherits `OPENAI_API_KEY` | llama-server ignores it but OWUI's client wants a value. **Stays local — never leaves the box.** |
-| `RAG_EMBEDDING_MODEL` | `nomic-embed-text-v1.5` (the model name llama-server advertises) | `sentence-transformers/all-MiniLM-L6-v2` | Must match the GGUF loaded by the embedding server. |
-| `RAG_EMBEDDING_BATCH_SIZE` | `1`–`8` | `1` | Keep small to cap peak memory; raise only if embedding throughput on bulk uploads is too slow. |
+## villa-generated `crush.json` (sketch — freeze exact schema in phase research)
 
-> **Alternative (zero new service):** Leave `RAG_EMBEDDING_ENGINE=''` and let Open WebUI run `all-MiniLM-L6-v2` (~50 MB) in-process on CPU. Viable for a true minimal install, but it (a) loads a model into the OWUI worker's RAM, (b) is CPU-only (no iGPU), and (c) caps quality at a 384-dim MiniLM. The dedicated llama-server path is the recommended default; the built-in is the documented fallback for the leanest envelope.
+Villa renders this from `config.toml` (global config at `~/.config/crush/crush.json`); it is a derived artifact like Quadlet units:
 
-### RAG / document knowledge-base settings
-| Env var | Suggested value | Default in OWUI | Notes |
-|---------|-----------------|-----------------|-------|
-| `CHUNK_SIZE` | `1000` (default) | `1000` | Tune later; default is reasonable. |
-| `CHUNK_OVERLAP` | `100` (default) | `100` | Default. |
-| `RAG_TOP_K` | `3`–`5` | `3` | Retrieved chunks injected per query. |
-| `RAG_RELEVANCE_THRESHOLD` | `0.0` (default) | `0.0` | Raise to filter weak matches once tuned. |
-| `RAG_FULL_CONTEXT` | `false` (default) | `False` | Keep false; full-context bypasses retrieval and blows the context window on a memory-constrained box. |
-| `RAG_EMBEDDING_QUERY_PREFIX` / `RAG_EMBEDDING_CONTENT_PREFIX` | set IF the chosen model needs task prefixes (nomic-v1.5 uses `search_query:` / `search_document:`) | `None` | nomic-embed-text-v1.5 benefits from prefixes; set them for retrieval quality. |
-
-### Personalized memory (cross-chat)
-| Env var | Value | Default in OWUI | Notes |
-|---------|-------|-----------------|-------|
-| `ENABLE_MEMORIES` | `true` (default) | `True` | Native Memory feature — stores user facts and injects them into future chats. Uses the SAME embedding engine + vector store configured above. Capture is both automatic (LLM-assisted extraction) and explicit user save/edit/delete via the UI. No extra service needed. |
-
-> The "conversational recall (RAG over past chats)" and "personalized memory" features both ride the SAME Qdrant + embedding plumbing as document RAG — there is no separate memory store to provision. One vector DB + one embedding endpoint covers all three target features.
-
-## Vector DB rationale — why Qdrant (one recommendation, not a survey)
-
-Open WebUI's `VECTOR_DB` accepts `chroma` (default), `pgvector`, `qdrant`, `milvus`, `opensearch`, `elasticsearch`, `pinecone`, `mariadb-vector`, `oracle23ai`. Only **pgvector** and **chroma** are "consistently maintained by the Open WebUI team"; the rest are community-supported — but Qdrant is mature, widely used, and well-exercised with OWUI.
-
-For a **strictly-local, single-user, rootless-Podman, memory-envelope-constrained** box:
-
-- **Qdrant (CHOSEN):** single self-contained Rust binary, no companion DB server, embedded on-disk storage (Gridstore as of v1.17+), low idle footprint, runs as ONE rootless `-unprivileged` container, first-class OWUI support, supports the hybrid-search/payload features OWUI uses. Best "just works after install" fit — matches the product's bar and DreamServer prior art.
-- **pgvector (alternative):** team-maintained, but requires running a **full Postgres server** as a second stateful service (or making Postgres OWUI's primary DB). More moving parts, more memory, more backup surface. Choose only if you later want OWUI's app DB and vectors co-located in one Postgres.
-- **Chroma (default, rejected as the pick):** team-maintained and zero-config, but historically heavier/flakier at scale and its embedded mode lives inside the OWUI process rather than as an independently orchestrable/monitorable Quadlet service — which is exactly what `villa` wants to manage and back up. Fine as the do-nothing fallback; not the orchestrated target.
-- **Milvus (rejected):** powerful but operationally heavy (etcd + MinIO + multiple services in standalone mode) — disproportionate for a single-user local box.
-
-## Installation (orchestration, not package installs)
-
-```bash
-# No `go get`. The milestone is delivered as new Quadlet units + config, pulled by villa:
-
-# 1. Vector DB image (rootless, unprivileged)
-podman pull qdrant/qdrant:v1.18.2-unprivileged@sha256:9f7a04503dbdc17531752927bf0f822b5e71a3b713db547eab92c22210430fc8
-
-# 2. Embedding runtime — REUSE the already-pinned toolbox image (no new pull beyond the GGUF)
-#    docker.io/kyuz0/amd-strix-halo-toolboxes:vulkan-radv@sha256:9a74e555…ac7aad  (already present)
-#    + pull the embedding GGUF weight (e.g. nomic-embed-text-v1.5.Q8_0.gguf) into the models volume
-
-# 3. Embedding server invocation (inside the second llama-server Quadlet unit):
-#    llama-server -m /models/nomic-embed-text-v1.5.Q8_0.gguf --embedding --pooling cls \
-#                 --host 0.0.0.0 --port 8080 -ub 8192
-#    → serves OpenAI-compatible POST /v1/embeddings
+```json
+{
+  "$schema": "https://charm.land/crush.json",
+  "options": {
+    "disable_metrics": true,
+    "disable_provider_auto_update": true
+  },
+  "providers": {
+    "villa": {
+      "name": "VillaStraylight (local)",
+      "type": "openai-compat",
+      "base_url": "http://127.0.0.1:8080/v1",
+      "models": [
+        {
+          "id": "qwen3-coder-30b-a3b",
+          "name": "Qwen3-Coder-30B-A3B (local)",
+          "context_window": 65536,
+          "default_max_tokens": 16384
+        }
+      ]
+    }
+  },
+  "lsp": {
+    "go": { "command": "gopls" }
+  }
+}
 ```
 
-## Memory-envelope impact on gfx1151 (the load-bearing tradeoff)
+Belt-and-braces: also set `CRUSH_DISABLE_METRICS=1` (and optionally `DO_NOT_TRACK=1`) in the shell wrapper/launcher villa provides. The `models[].id` must match what the rendered llama-server advertises. Note Crush warns that a **project-local** `crush.json` can execute `$(...)` at load time — villa should only manage the global config and document the project-file trust model.
 
-The embedding model **competes with the main inference model for the unified-memory (GTT) envelope** that `recommend`'s fit math already governs (`model_bytes + KV@ctx + headroom ≤ envelope`). The new costs:
+## Memory-envelope math (grounded in real GGUF sizes)
 
-| Component | Approx resident cost | Notes |
-|-----------|----------------------|-------|
-| nomic-embed-text-v1.5 (Q8_0, 137M) | **~140–300 MB** | Negligible vs a multi-GB main model. Recommended default. |
-| bge-m3 (568M, multilingual) | ~1.2 GB (up to ~5.7 GB under heavy batching) | Only if multilingual recall is required; raises envelope pressure. |
-| Qdrant idle + on-disk vectors | **low hundreds of MB RAM** with `QDRANT_ON_DISK=true` | Disk-backed; minimal RAM idle. |
-| all-MiniLM-L6-v2 (built-in, fallback) | ~50 MB, CPU-only, inside OWUI | Cheapest but lower quality, no iGPU. |
+The binding constraint is the **GTT envelope** villa already measures (`mem_info_gtt_total` — ~50% of RAM at Fedora defaults; 62.5 GiB measured on the 128 GB dev host), NOT total RAM. The v1.3 embed reservation (512 MiB) comes off the top first (shipped P22 behavior).
 
-**Recommendation for `recommend`:** subtract a small embedding-model reservation (≈300 MB for the nomic default) from the envelope before the main-model fit, OR document the embedding cost as an envelope line item. A second always-resident `llama-server` does add a process, but a 137M embedder is a rounding error next to a 20–70 GB inference model on a 64–128 GB unified-memory box. **Do NOT run a >1 GB embedder by default** — it eats headroom the main model needs.
+KV-cache estimates (computed, q8_0 KV halves them): Qwen3-Coder-30B-A3B ≈ 96 KiB/token fp16 (48 layers × 4 KV heads × 128 dim) → ~3 GiB @ 64K with q8_0 KV. Qwen3-Coder-Next: only a minority of layers carry full attention → roughly ¼ of that per token (~1.5 GiB @ 64K fp16-equivalent). Label: ESTIMATE — verify on-hardware in the phase.
 
-## Reranker / hybrid search — DEFER (but know the knobs)
+| RAM tier | GTT envelope (default ≈ ½ RAM) | Coding mode (swap) pick | Footprint (model + KV@64K q8 + embed 0.5 GiB) | Co-resident option (chat + coder + embed) |
+|----------|-------------------------------|--------------------------|----------------------------------------------|-------------------------------------------|
+| 64 GB | ~31 GiB | Qwen3-Coder-30B-A3B UD-Q4_K_XL (17.7 GB) | ~21–22 GiB → **fits** | **None** — refuse honestly; swap-only |
+| 96 GB | ~47 GiB | Qwen3-Coder-Next UD-Q3_K_XL (36.3 GB) | ~39–40 GiB → **fits** | 30B-A3B coder (17.7) + ~20 GB chat MoE + embed ≈ 41–43 GiB — borderline; only with reduced ctx, fit-gate decides |
+| 128 GB | ~62.5 GiB (measured) | Qwen3-Coder-Next UD-Q4_K_XL (49.6 GB) | ~53–55 GiB (even @128K ctx) → **fits** | 30B-A3B coder + chat + embed ≈ 44–46 GiB → **fits comfortably** |
 
-Open WebUI exposes `ENABLE_RAG_HYBRID_SEARCH` (default off; combines BM25 + vector), `RAG_RERANKING_ENGINE`/`RAG_RERANKING_MODEL` (default empty), `RAG_TOP_K_RERANKER` (default 3), `RAG_RERANKING_BATCH_SIZE` (default 32). A reranker (e.g. `bge-reranker`) measurably improves precision **but adds a THIRD resident model to the envelope and more first-token latency.**
+**Residency recommendation: swap-based "coding mode" is the core mechanism; co-residency is a fit-permitting enhancement.**
 
-**Recommendation: ship v1.3 WITHOUT a reranker and with hybrid search OFF by default.** Get the core three features (memory, conversational recall, document KB w/ citations) correct and within the envelope first. Leave the env knobs documented so a power user can opt in, and flag "reranker / hybrid search tuning" as a clean follow-up milestone. This matches the project's pattern of shipping the honest minimum, then proving value before adding load.
+- **Day-one baseline (zero memory cost):** point Crush at the *existing* resident chat model — `qwen3.6-35b-a3b`-class MoE models are competent tool-callers. This works on every tier with no orchestration change and should be the install default.
+- **Coding mode (the real feature):** `villa code on|off`-style transactional swap of the served model to the coding pick, reusing `internal/modelswap` ordering + the D-09 guarantee (chat swap never touches memory units). Works on all tiers; the chat UI simply talks to the coding model while coding mode is on (acceptable — Qwen3-Coder chats fine).
+- **Co-resident second llama-server (`villa-code` unit):** only where the fit-gate proves it (128 GB always for 30B-A3B; never on 64 GB). Recommend deferring this to a stretch/later phase — it adds a second inference unit, second residency proof, and a second `/metrics` surface for marginal benefit over swap.
+
+**Do not** silently depend on raising GTT (`amdttm.pages_limit` kernel args). If detect sees an envelope ≪ RAM, surface it as preflight ADVICE (it can ~double the envelope) — never auto-edit kernel parameters.
+
+## Codebase memory: what's actually needed
+
+**Validation verdict on Qdrant-style code RAG: NOT recommended.** Evidence:
+
+- Cline's engineering position ("Why Cline doesn't index your codebase"): chunk-embedding breaks code semantics (definition/call/context land in different chunks), every merge desyncs the index, and a vector copy of the code doubles the security surface; agentic exploration (follow imports, AST, grep) "outperformed RAG by a lot" per a cited Anthropic engineer.
+- Claude Code, OpenCode, and Crush — the three most-used terminal agents of 2025–2026 — all ship **without** embedding indexes; their retrieval is grep/glob + LSP + file reads. Aider's celebrated repo-map is tree-sitter/PageRank, also embedding-free.
+- Counter-evidence honestly noted (Milvus: "grep burns tokens"): token burn = prompt-processing latency, which matters more on local hardware than in the cloud. Mitigations that hold on this host: MoE coding models prompt-process at ~400–500 tok/s on gfx1151, LSP narrows searches dramatically, and 256K-context models reduce re-reads. Net: agentic search still wins locally; an embedding pipeline would *also* steal GPU from the coding model on a constrained envelope.
+
+**What v1.4 should ship instead (all agent-native, zero new services):**
+
+| Need | Mechanism | villa's job |
+|------|-----------|-------------|
+| Code navigation / symbols | Crush LSP integration (`lsp` block) | Render `lsp` entries for detected toolchains; WARN (not BLOCK) when servers are missing |
+| Repo retrieval | Crush agentic tools (grep/glob/read) | Nothing — built in |
+| Persistent project memory | `CRUSH.md` / `AGENTS.md` context files (Crush reads project context files; `AGENTS.md` is the cross-agent convention) | Optionally scaffold a template on first run; document the convention |
+| Semantic code search (if ever demanded) | An MCP server (e.g. a Qdrant-backed MCP) plugged into Crush's MCP support | **Defer** — opt-in, future milestone; do not build now |
+
+**Consequence:** the existing villa-qdrant + villa-embed stack is untouched by v1.4 (beyond the already-shipped embed reservation in fit math). The "dedicated code collection" default in PROJECT.md should be dropped in requirements — it would be write-only plumbing no recommended agent reads.
+
+## Installation
+
+```bash
+# Agent binary (villa-managed during install; sanctioned outbound window)
+# Pin: crush v0.76.0, verify against checksums.txt
+curl -fsSLO https://github.com/charmbracelet/crush/releases/download/v0.76.0/crush_0.76.0_Linux_x86_64.tar.gz
+sha256sum --check ...   # villa embeds the expected digest
+
+# Coding model GGUFs (villa download core, existing shard-aware path)
+# 64 GB+ tiers:
+#   https://huggingface.co/unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF  (UD-Q4_K_XL, 17.7 GB)
+# 96/128 GB tiers:
+#   https://huggingface.co/unsloth/Qwen3-Coder-Next-GGUF              (UD-Q3_K_XL 36.3 GB / UD-Q4_K_XL 49.6 GB)
+
+# llama-server render delta (coding mode): add --jinja for OpenAI tools support
+```
+
+Config additions (`config.toml`, mirroring `memory_enabled`): `coding_enabled`, `coding_model`, `coding_quant`, `coding_ctx`, agent version pin.
 
 ## Alternatives Considered
 
 | Recommended | Alternative | When to Use Alternative |
 |-------------|-------------|-------------------------|
-| Qdrant (`VECTOR_DB=qdrant`) | pgvector | If you later move Open WebUI's primary DB to Postgres and want vectors co-located; accept the extra Postgres service. |
-| Qdrant | Chroma (built-in default) | Absolute-minimal "do nothing" install; accept in-process storage that `villa` can't independently orchestrate/back up cleanly. |
-| Dedicated llama-server embedding endpoint (`RAG_EMBEDDING_ENGINE=openai`) | OWUI built-in SentenceTransformers (`RAG_EMBEDDING_ENGINE=''`) | Leanest envelope / no second service; accept CPU-only, in-process RAM cost, 384-dim MiniLM quality ceiling. |
-| nomic-embed-text-v1.5 (768-dim) | bge-m3 (multilingual, ~1.2 GB) | Non-English / cross-lingual document corpora; accept the larger envelope cost. |
-| No reranker (v1.3) | bge-reranker + `ENABLE_RAG_HYBRID_SEARCH=true` | Precision-critical retrieval once the core is stable and envelope headroom is confirmed — a later milestone. |
+| Crush v0.76.0 | **OpenCode (anomalyco/opencode) v1.17.4** (2026-06-12; MIT; bun-compiled single binary; `opencode.json` with `@ai-sdk/openai-compatible` provider; `share: "disabled"`, `autoupdate: false` configurable) | If upstream ships a real offline mode (re-opened #2224 / #16117) — it is the most popular agent with the biggest ecosystem. Today it fails villa's bar: unconditional `models.dev` fetch at startup, runtime npm/bun package downloads for providers & plugins (proven by the #2224 `ConnectionRefused downloading package manifest` failure), LSP auto-download, autoupdate default-ON, and air-gapped support **closed as not planned**. A `villa verify agent` egress proof would fail it out of the box. |
+| Crush | **Goose (aaif-goose/goose, ex-Block) v1.37.0** (2026-06-03; Apache-2.0; Rust CLI + desktop; YAML config; opt-in usage data) | If the user wants an MCP-extension-centric general agent rather than a coding-focused one. Weaker fit: no LSP integration, historically fussy with local models' tool-calling, desktop-app center of gravity. License (Apache-2.0) is cleaner than Crush's FSL — relevant if FSL is unacceptable. |
+| Crush | **Aider v0.86.x** (Apache-2.0; pip/uv Python; tree-sitter repo-map; analytics opt-in) | If the user wants conversational pair-programming with git-commit discipline rather than an autonomous agent. Not the pick: Python runtime on host, release cadence has slowed sharply (v0.86.0 Aug 2025; v0.86.2 ~Feb 2026), and its REPL model predates the agentic tool-loop generation. |
+| Crush | **Codex CLI** (OpenAI; Apache-2.0; Rust single binary; `config.toml` with custom `model_providers`) | If a TOML-config, Apache-2.0 single binary matters more than local-model polish; designed around OpenAI models, local-endpoint support is secondary. Worth re-checking at the next milestone. |
+| Crush | **Qwen Code** (Apache-2.0 gemini-cli fork tuned for Qwen3-Coder) | If maximum Qwen3-Coder tool-template compatibility ever becomes a blocker — but it needs Node.js on the host and has weaker offline hygiene. |
+| Qwen3-Coder-30B-A3B / -Next | **Devstral Small 2 (24B dense, `Devstral-Small-2-24B-Instruct-2512`, Apache-2.0, 256K ctx, Q4_K_M ≈ 14.5 GB)** | If dense-model quality-per-GB or vision input matters more than speed. On a bandwidth-bound iGPU a 24B dense generates ~3–5× slower than an A3B MoE — painful for agent loops. Catalog-alternate, not default. |
 
-## What NOT to Use / NOT to Add (scope-creep guard)
+## What NOT to Use
 
 | Avoid | Why | Use Instead |
 |-------|-----|-------------|
-| A custom Go RAG / embeddings / chunking engine | Violates "Go is control-plane only; integrate, don't rebuild." Open WebUI already does RAG, chunking, citations, memory. | Open WebUI native RAG + Memory, configured via env. |
-| cgo-SQLite or any native vector lib in the `villa` binary | Breaks the single static `CGO_ENABLED=0` build (CI-gated). | Vector data lives in the **Qdrant container**, not the binary. |
-| pure-Go embedded vector DB inside `villa` | Same "rebuild" + envelope/architecture mismatch; vectors belong to OWUI's plane. | Qdrant Quadlet service. |
-| Any cloud embedding API (OpenAI/Cohere/Voyage) | Violates strictly-local / zero-outbound. `RAG_EMBEDDING_ENGINE=openai` here points at a LOCAL llama-server only. | Local llama-server embedding endpoint. |
-| Milvus / OpenSearch / Elasticsearch | Multi-service, heavyweight; disproportionate for single-user local. | Qdrant. |
-| Reranker + hybrid search in v1.3 | Adds a third resident model + latency; premature. | Defer; document the knobs. |
-| Ollama as the embedding engine (`RAG_EMBEDDING_ENGINE=ollama`) | Would introduce a whole new runtime (Ollama) the stack doesn't use — the project standardized on llama.cpp. | Reuse the existing llama-server image with `--embedding`. |
-| Freezing the Open WebUI RAG env surface against `:main` without re-verifying at the pinned digest | RAG/memory env surface evolves between releases; the project pins `:main@digest`. | Pin a tested digest (the `v1.18.x` release line now exists) and re-verify `config.py` at that digest before freezing. |
+| Qdrant + villa-embed "code collection" RAG for the agent | Industry-validated as the wrong retrieval model for code (stale on every commit, chunking breaks semantics, doubled security surface); no recommended agent would even query it — it would be write-only plumbing; embedding steals GPU from the coding model | Crush LSP + agentic search + `CRUSH.md`/`AGENTS.md`; MCP-based semantic search as a future opt-in |
+| OpenCode (today) | Cannot be config-locked to zero outbound: models.dev fetch, runtime bun/npm downloads, LSP auto-download; air-gapped mode closed as not planned | Crush with both kill switches rendered by villa + runtime egress proof |
+| DeepSeek-Coder-V2-Lite | 2024-era; decisively superseded by Qwen3-Coder family for agentic use | Qwen3-Coder-30B-A3B |
+| Devstral 2 (123B dense) / GLM-5-class / Kimi K2.6 / MiniMax M3 | Don't fit the GTT envelope at honest quants (123B dense ≈ 70 GB at Q4; the others are far larger) — would force silent CPU spill, which villa treats as FAIL | Qwen3-Coder-Next at the 128 GB tier |
+| gpt-oss-120b as the coding default | ~60–63 GB MXFP4 vs a 62.5 GiB envelope — no KV headroom; weaker agentic-coding tuning than Qwen3-Coder-Next at similar size | Qwen3-Coder-Next UD-Q4_K_XL (49.6 GB) leaves real KV room |
+| Containerizing the agent | Breaks LSP/toolchain/git access; no official image; network-namespace "privacy" is theater vs a config + runtime-proof approach | Host binary, pinned + checksummed, config-locked, runtime-verified |
+| Auto-editing kernel GTT parameters | Violates "just works"/least-surprise; reboot-coupled failure mode | Preflight ADVICE with the exact kernel-arg remediation text |
+
+## Stack Patterns by Variant
+
+**If 64 GB tier (envelope ~31 GiB):**
+- Swap-based coding mode only; Qwen3-Coder-30B-A3B UD-Q4_K_XL @ 64K ctx (q8_0 KV).
+- Refuse co-residency at the fit gate with remediation ("coding mode swaps the chat model; both cannot fit").
+
+**If 96 GB tier (envelope ~47 GiB):**
+- Default: swap to Qwen3-Coder-Next UD-Q3_K_XL @ 64K.
+- Fit-gate may permit co-resident 30B-A3B + chat at reduced ctx — let `recommend` decide, never assume.
+
+**If 128 GB tier (envelope ~62.5 GiB measured):**
+- Default: swap to Qwen3-Coder-Next UD-Q4_K_XL @ 128K.
+- Co-resident 30B-A3B coder + chat + embed fits — the only tier where a dedicated `villa-code` unit is honest, if that stretch ships.
+
+**If the user declines a dedicated coding model:**
+- Agent rides the existing chat endpoint/model (zero cost, all tiers) — this is the install default; coding-model pull is the upsell inside the addon.
 
 ## Version Compatibility
 
-| Component | Compatible With | Notes |
+| Package A | Compatible With | Notes |
 |-----------|-----------------|-------|
-| `qdrant/qdrant:v1.18.2` | Open WebUI `:main` / `v1.18.x` | First-class `VECTOR_DB=qdrant` backend; HTTP REST on `:6333`, gRPC on `:6334`. Use the `-unprivileged` variant for rootless Podman. |
-| llama-server `--embedding` | Open WebUI `RAG_EMBEDDING_ENGINE=openai` | OpenAI-compatible `/v1/embeddings`; requires `--pooling` other than `none` (use `cls` or `mean`). Same toolbox image already in use. |
-| nomic-embed-text-v1.5 GGUF | llama-server (Vulkan) | 768-dim, 8192-ctx; set query/content prefixes for best retrieval. |
-| `QDRANT_ON_DISK=true` | Qdrant v1.17+ Gridstore | v1.17 removed RocksDB for Gridstore — on-disk persistence is the supported path. |
+| Qwen3-Coder-Next GGUF | llama.cpp ≥ Qwen3-Next merge (PR #16095, landed ~Dec 2025) + Feb-2026 tool-template fixes | **Check the pinned `vulkan-radv` toolbox digest ships a llama.cpp new enough for the hybrid (DeltaNet) architecture and its tool-call parser; re-pin if not.** A residency/generation probe on the new arch is part of the phase gate. |
+| Crush `openai-compat` provider | llama-server **with `--jinja`** | Without it, any `tools` request 500s ("tools param requires --jinja flag"). Known ecosystem quirks pairing agents with Qwen3-Coder jinja templates (e.g. anomalyco/opencode #1890) — unsloth quants carry the fixed templates; verify tool-call round-trip in UAT. |
+| Crush custom provider models | Embedded Catwalk catalog | Known issue: a custom `providers.<name>.models[].id` can be shadowed by an embedded catalog alias (charmbracelet/crush #2649) — pick villa-unique model ids; verify in phase. |
+| Crush v0.76.0 | FSL-1.1-MIT license | Source-available (converts to MIT after 2 years per release). Fine for end-users and for villa *downloading* it at install (no redistribution); document the license in the addon's install consent text. |
+| `recommend` schema | Coding-model fit fields | Any new `--json` fields must be append-only + schema-bump per the frozen-contract rule (recommend currently at 2). |
+
+## Open questions for phase research
+
+- Exact `crush.json` schema for `options`/`models.large`/`models.small` selection and the model-id shadowing workaround — freeze against Crush docs at the pinned version.
+- Crush's *complete* outbound surface under negative-control (`villa verify agent`, nft-scoped, mirroring `verify memory`) — config kill switches are documented, but villa proves, never trusts flags.
+- On-hardware KV/footprint measurements for Qwen3-Coder-Next (hybrid-attention KV estimate is computed, not measured) and tool-call round-trip quality through Crush → llama-server `--jinja`.
+- Whether the pinned toolbox digest's llama.cpp supports Qwen3-Next arch (re-pin decision).
 
 ## Sources
 
-- **Open WebUI `backend/open_webui/config.py` @ `main`** (raw GitHub) — AUTHORITATIVE for ALL env var names + defaults: `VECTOR_DB` (default `chroma`), `QDRANT_URI/API_KEY/ON_DISK/PREFER_GRPC/GRPC_PORT/TIMEOUT/HNSW_M/COLLECTION_PREFIX`, `ENABLE_QDRANT_MULTITENANCY_MODE` (default true), `RAG_EMBEDDING_ENGINE` (default `''`), `RAG_EMBEDDING_MODEL` (default `sentence-transformers/all-MiniLM-L6-v2`), `RAG_OPENAI_API_BASE_URL/KEY`, `RAG_OLLAMA_BASE_URL/API_KEY`, `RAG_EMBEDDING_BATCH_SIZE` (default 1), `RAG_RERANKING_ENGINE/MODEL`, `RAG_TOP_K` (3), `RAG_TOP_K_RERANKER` (3), `RAG_RELEVANCE_THRESHOLD` (0.0), `ENABLE_RAG_HYBRID_SEARCH`, `RAG_FULL_CONTEXT`, `CHUNK_SIZE` (1000), `CHUNK_OVERLAP` (100), `RAG_EMBEDDING_QUERY/CONTENT_PREFIX`, `ENABLE_MEMORIES` (default True). — **HIGH**
-- **Open WebUI `backend/open_webui/retrieval/utils.py` @ `main`** — embedding-engine branch values (`''`, `ollama`, `openai`, `azure_openai`) and reranking `external` engine. — **HIGH**
-- **Qdrant GitHub releases API** — latest stable `v1.18.2` (2026-06-04); v1.17 removed RocksDB → Gridstore. — **HIGH**
-- **Docker Hub manifest API (qdrant/qdrant)** — amd64 digests: `v1.18.2` `sha256:da65a06b…7b7071`, `v1.18.2-unprivileged` `sha256:9f7a0450…430fc8`. — **HIGH**
-- **llama.cpp `tools/server/README.md` + community guides** — `llama-server --embedding --pooling cls`; OpenAI-compatible `/v1/embeddings` requires pooling ≠ none. — **HIGH**
-- **Open WebUI docs: Memory & Personalization / RAG** (docs.openwebui.com) — native Memory (auto-extract + explicit save/edit/delete), RAG over docs with citations, vector-based retrieval; Memory feature is Beta. — **MEDIUM** (feature behavior; env vars cross-checked against config.py = HIGH).
-- **2026 embedding-model benchmarks** (promptquorum, milvus.io, morphllm) — footprints: all-MiniLM ~50 MB, nomic-embed-text ~300 MB, mxbai ~700 MB, bge-m3 ~1.2 GB; nomic best quality-to-size, Matryoshka 768→64, 8192-ctx. — **MEDIUM**
-- **Project files** `.planning/PROJECT.md`, `CLAUDE.md`, `internal/orchestrate/openwebui.go`, `internal/inference/backend_vulkan.go` — current pins (OWUI `:main@sha256:7f1b0a1a…`, toolbox `vulkan-radv@sha256:9a74e555…`), constraints, house style. — **HIGH**
+- [anomalyco/opencode releases](https://github.com/anomalyco/opencode/releases) — v1.17.4, 2026-06-12 (GitHub API, verified today) — HIGH
+- [opencode docs: providers](https://opencode.ai/docs/providers/), [config](https://opencode.ai/docs/config/), [models](https://opencode.ai/docs/models/) — `@ai-sdk/openai-compatible` config shape; `share` default `manual`; `autoupdate` default ON — HIGH
+- [anomalyco/opencode #2224](https://github.com/anomalyco/opencode/issues/2224) — air-gapped support **closed as not planned**; runtime npm manifest downloads proven — HIGH
+- [anomalyco/opencode #16117](https://github.com/anomalyco/opencode/issues/16117) — outbound inventory (models.dev, autoupdate, plugin/LSP downloads); closed as dup of #2224 — HIGH
+- [charmbracelet/crush README](https://github.com/charmbracelet/crush) + [releases](https://github.com/charmbracelet/crush/releases) — v0.76.0 (2026-06-05, GitHub API); `openai-compat` provider JSON; `disable_metrics` + `CRUSH_DISABLE_METRICS` + `DO_NOT_TRACK`; FSL-1.1-MIT; LSP config; install channels incl. Fedora repo — HIGH
+- [charmbracelet/catwalk](https://github.com/charmbracelet/catwalk) + Crush docs — `disable_provider_auto_update` / `CRUSH_DISABLE_PROVIDER_AUTO_UPDATE`, embedded provider DB, `crush update-providers` — HIGH
+- [charmbracelet/crush #2649](https://github.com/charmbracelet/crush/issues/2649) — custom model-id shadowing by embedded catalog — MEDIUM (single report)
+- [aaif-goose/goose](https://github.com/aaif-goose/goose) — v1.37.0 (2026-06-03, GitHub API; repo moved from block/goose); [usage-data docs](https://goose-docs.ai/docs/guides/usage-data/) — telemetry prompt opt-in — HIGH/MEDIUM
+- [Aider-AI/aider releases](https://github.com/Aider-AI/aider/releases) — latest GH release v0.86.0 (2025-08-09); tags to v0.86.2; [analytics docs](https://aider.chat/docs/more/analytics.html) (opt-in) — HIGH
+- [unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF](https://huggingface.co/unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF) — UD-Q4_K_XL 17.7 GB; 262,144 native ctx; Aug-2025 tool-template fixes — HIGH
+- [unsloth/Qwen3-Coder-Next-GGUF](https://huggingface.co/unsloth/Qwen3-Coder-Next-GGUF/tree/main) + [unsloth run guide](https://unsloth.ai/docs/models/qwen3-coder-next) — 80B-A3B hybrid MoE; UD-Q4_K_XL 49.6 GB / UD-Q3_K_XL 36.3 GB / Q4_K_M 48.5 GB; ~46 GB RAM rec for 4-bit; Feb-2026 tool-calling updates — HIGH
+- [Devstral Small 2 GGUFs](https://huggingface.co/unsloth/Devstral-Small-2-24B-Instruct-2512-GGUF) + Mistral docs — 24B, Apache-2.0, 256K ctx, Q8 ≈ 25 GB — HIGH
+- [kyuz0 Strix Halo backend benchmarks](https://kyuz0.github.io/amd-strix-halo-toolboxes/) (same author as villa's pinned toolbox images) + [pablo-ross strix-halo benchmarks](https://github.com/pablo-ross/strix-halo-gmktec-evo-x2/blob/main/QWEN3-CODER-30B_BENCHMARK.md) — Qwen3-Coder-Next pp 421 t/s Vulkan / 524 t/s ROCm; Qwen3-Coder-30B tg ~71–98 t/s — MEDIUM (third-party, JS-rendered grid not fully extracted)
+- [Cline: Why Cline doesn't index your codebase](https://cline.bot/blog/why-cline-doesnt-index-your-codebase-and-why-thats-a-good-thing); [Claude Code no-indexing analysis](https://vadim.blog/claude-code-no-indexing/); [MindStudio: grep, not vectors](https://www.mindstudio.ai/blog/is-rag-dead-what-ai-agents-use-instead); counterpoint: [Milvus on grep token burn](https://milvus.io/blog/why-im-against-claude-codes-grep-only-retrieval-it-just-burns-too-many-tokens.md) — code-RAG effectiveness verdict — HIGH (consensus + counterpoint weighed)
+- [Qwen llama.cpp docs](https://qwen.readthedocs.io/en/latest/run_locally/llama.cpp.html) + [unsloth Qwen3-Coder local guide](https://unsloth.ai/docs/models/tutorials/qwen3-coder-how-to-run-locally) — `--jinja` requirement for tools ("tools param requires --jinja flag") — HIGH
+- [LM Studio / llama.cpp Qwen3-Next support](https://x.com/lmstudio/status/1995646603919606140) (PR #16095) — hybrid-arch support timeline — MEDIUM
 
 ---
-*Stack research for: strictly-local memory/RAG additions to VillaStraylight (v1.3)*
-*Researched: 2026-06-09*
+*Stack research for: VillaStraylight v1.4 Coding Agent (agent selection, gfx1151 coding models, codebase memory)*
+*Researched: 2026-06-12*
