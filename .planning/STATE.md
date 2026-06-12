@@ -4,7 +4,7 @@ milestone: v1.4
 milestone_name: Coding Agent
 status: planning
 stopped_at: Phase 24 context gathered
-last_updated: "2026-06-12T20:07:12.014Z"
+last_updated: "2026-06-12T21:15:40.480Z"
 last_activity: 2026-06-12 — v1.4 roadmap created (Phases 24–28, 17/17 requirements mapped)
 progress:
   total_phases: 5

@@ -97,69 +97,92 @@ Audit PASSED — 22/22 requirements, 15/16 integration connections (0 blockers),
 ## Phase Details
 
 ### Phase 24: Coder Fit Math, Catalog & On-Hardware Model Qualification
+
 **Goal**: `villa recommend` produces an honest, hardware-qualified coding-model recommendation — fit computed at agent-profile context, residency mode (`swap`/`shared`) derived purely from fit math — backed by catalog entries that survived a real agent-in-the-loop tool-call loop on the gfx1151 box.
 **Depends on**: Nothing (first phase of v1.4; consumes shipped v1.3 recommend/catalog contracts)
 **Requirements**: CODER-01, CODER-02, CODER-03
 **Success Criteria** (what must be TRUE):
+
   1. The catalog ships `role:"coder"` entries (Qwen3-Coder-30B-A3B for all tiers; Qwen3-Coder-Next for 96/128 GB tiers) with revision-pinned GGUF artifacts and template provenance — catalog schema 2→3, append-only; existing chat entries untouched.
   2. `villa recommend` outputs a coder fit computed at agent-profile context, AFTER the embed reservation and chat fit, with an honest residency mode (`swap` or `shared`) that is an output of the fit math — never a preference or tier special-case (recommend schema 2→3, append-only, one golden re-freeze).
   3. Every coder catalog entry that ships has passed a real multi-step agent-in-the-loop tool-call loop through llama-server `--jinja` on the pinned toolbox image, with KV footprint MEASURED at agent ctx on the gfx1151 box — benchmark scores alone never qualify an entry; entries that fail are deleted or re-pinned, never shipped on hope.
   4. The toolbox re-pin decision (Qwen3-Coder-Next arch support + tool-call parser vintage, `--cache-reuse` compatibility per model) is recorded as a decision with evidence before the catalog freezes.
-**Plans**: 4 plans
 
+**Plans**: 4 plans
 Plans:
+**Wave 1**
+
 - [ ] 24-01-PLAN.md — Catalog schema 2→3: `role:"coder"` entries with revision-pinned artifacts + template provenance (CODER-01)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 24-02-PLAN.md — Recommend schema 2→3: coder fit at agent ctx + residency mode, ONE golden re-freeze (CODER-02)
 - [ ] 24-03-PLAN.md — On-hardware agent-in-the-loop qualification of all three coder entries, measured KV (CODER-03)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 24-04-PLAN.md — Reconciliation, D-11 toolbox decision record, operator-approved catalog freeze (CODER-01/03)
+
 **Research**: recommended (`/gsd-plan-phase 24 --research-phase` — exact on-hardware qualification protocol, KV measurement, toolbox re-pin decision, `--cache-reuse` vs Qwen3-Coder-Next hybrid attention)
 
 ### Phase 25: Coding-Mode Render & Transactional Swap Verb
+
 **Goal**: User can flip the running stack into a tool-calling-ready coding mode and back via an explicit transactional verb — chat model restored on exit, residency proven under load, addon-off renders byte-identical to v1.3.
 **Depends on**: Phase 24 (qualified coder catalog entries + residency-mode fit output)
 **Requirements**: CMODE-01, CMODE-02
 **Success Criteria** (what must be TRUE):
+
   1. With the addon enabled, coding mode renders a tool-calling-ready llama-server unit delta (`--jinja`, agent ctx, sampling preset, `--cache-reuse` only where catalog-declared model-compatible) behind the inference/orchestrate seams; with the addon off, render output is byte-identical to the v1.3 goldens and the seam grep-gate stays green.
   2. User can enter coding mode via a transactional verb composing `modelswap` (capture → cutover → under-load residency prove → verbatim rollback on any failure) — a silent or partial CPU fallback during the prove step FAILS the swap and rolls back; idle-green is not green.
   3. User can exit coding mode and the chat model is restored under the same transactional discipline; the mode never changes automatically (explicit verb only, ROCm `backend set` precedent).
+
 **Plans**: TBD
 **Research**: not needed (composes shipped modelswap + Phase-7/D-09 render-delta patterns)
 
 ### Phase 26: Agent Delivery Core & Lockdown Launcher
+
 **Goal**: villa installs a pinned, checksum-verified Crush binary and renders its config as a derived artifact of `config.toml` — kill switches set, loopback-only provider, launched through a locked-down `villa code` verb, with drift detected and never auto-corrected.
 **Depends on**: Phase 24 (villa-unique coder model ids); pure core parallel-capable with Phase 25
 **Requirements**: AGENT-01, AGENT-02, AGENT-03, AGENT-04
 **Success Criteria** (what must be TRUE):
+
   1. villa installs the pinned Crush release (version + per-platform asset + SHA-256 from a villa-owned `go:embed` pin policy, rocm-policy pattern); the checksum is verified BEFORE install — a mismatch refuses with remediation — and autoupdate is forced off.
   2. `crush.json` is rendered as a derived artifact of `config.toml`: both kill switches set (`disable_metrics`, `disable_provider_auto_update`), exactly one villa provider block pointing at the loopback endpoint, villa-unique model ids (shadowing workaround), and LSP entries for detected toolchains — a missing server like `gopls` produces a WARN with remediation, never a BLOCK.
   3. User can launch the agent via `villa code`, which applies the belt-and-braces env lockdown (`CRUSH_DISABLE_METRICS=1`, `DO_NOT_TRACK=1`) before exec.
   4. Drift of the agent binary or rendered config from the pin policy is detected and surfaced with remediation — never silently auto-corrected.
+
 **Plans**: TBD
 **Research**: recommended (`/gsd-plan-phase 26 --research-phase` — freeze the exact `crush.json` schema at v0.76.0: options/models/lsp keys, model-id shadowing #2649, permission-config surface)
 
 ### Phase 27: Install Addon, Preflight Gates & `villa verify agent`
+
 **Goal**: The coding agent is an optional `villa install` addon that comes up ready (real tool-call round-trip), gated honestly by preflight, removable by uninstall, and PROVEN strictly local at runtime — egress and cloud-fallback negative controls, never flag-trusted.
 **Depends on**: Phases 24, 25, 26 (full assembly required for the proofs)
 **Requirements**: INSTALL-03, INSTALL-04, PRIV-06
 **Success Criteria** (what must be TRUE):
+
   1. User can enable the coding agent as an optional `villa install` addon (mirroring the memory addon): gate → pre-stage the coder GGUF + agent binary inside the sanctioned outbound window → render → readiness proof that includes a REAL tool-call round-trip — a health-200 alone never passes readiness.
   2. Preflight gates the addon honestly: disk BLOCK, post-coder envelope BLOCK, cloud-credential WARN — refuse-with-remediation on confident known-bad, typed-Unknown degrades to WARN.
   3. `villa verify agent` proves zero outbound at runtime, negative-control-FIRST, covering agent **startup**: the egress-open control run must FAIL the gate (proving it is real), and the egress-blocked run must complete a real agent task.
   4. A llama-down negative control proves no silent cloud-model fallback: with `villa-llama` stopped, the agent must NOT keep working — an agent answering with inference down is the smoking gun and FAILS the verification.
   5. `villa uninstall` removes the agent binary, rendered config, and addon artifacts.
+
 **Plans**: TBD
 **Research**: recommended (`/gsd-plan-phase 27 --research-phase` — Crush's complete outbound surface under negative control + FSL-1.1-MIT consent text)
 
 ### Phase 28: Agent Surfacing & Contracts
+
 **Goal**: The operator can see, diagnose, back up, and measure the coding agent — `status.Report` 3→4 lands once at the end (the proven v1.2/v1.3 single-bump discipline), dashboard Agent panel, doctor agent checks, and honest usage/cache-effectiveness signals.
 **Depends on**: Phase 27 (surfaces only a finished feature set)
 **Requirements**: SURF-01, SURF-02, SURF-03, USAGE-03, USAGE-04
 **Success Criteria** (what must be TRUE):
+
   1. `villa status` (human + `--json`) reports an append-only `coding` block (enabled, agent version + pin match, model, mode, residency) — `status.Report` 3→4 in exactly ONE golden re-freeze (coding-on/off variants); the dashboard renders a matching Agent panel, hidden entirely until data exists.
   2. `villa doctor` folds agent checks: binary/version drift, config drift, a real tool-call round-trip probe, and under-load residency — an offload/residency FAIL dominates a healthy-looking HTTP probe, never a false-green.
   3. `villa backup`/`restore` cover the rendered agent config; the agent binary is identity-recorded and excluded from the archive, exactly like model weights.
   4. Agent token usage is attributed per-model in status and the dashboard via the v1.2 usage core (the coder is a distinct served model).
   5. Cache effectiveness (`timings.cache_n` vs `prompt_n`) is surfaced as an honest agent-speed signal.
+
 **Plans**: TBD
 **UI hint**: yes
 **Research**: not needed (v1.2 P15 / v1.3 P23 surfacing discipline applies verbatim)
