@@ -1,6 +1,6 @@
 {
-  "schema_version": 2,
-  "catalog_version": "2026.06.1",
+  "schema_version": 3,
+  "catalog_version": "2026.06.2",
   "models": [
     {
       "id": "qwen2.5-0.5b",
@@ -95,6 +95,106 @@
           "filename": "Qwen3.6-35B-A3B-UD-Q4_K_M.gguf",
           "sha256": "ac0e2c1189e055faa36eff361580e79c5bd6f8e76bffb4ce547f167d53e31a61",
           "size_bytes": 22134528992
+        }
+      ]
+    },
+    {
+      "id": "qwen3-coder-30b-a3b",
+      "display_name": "Qwen3-Coder-30B-A3B-Instruct (coder, all tiers)",
+      "quant": "UD-Q4_K_XL",
+      "weight_bytes": 17665334432,
+      "n_layers": 48,
+      "n_kv_heads": 4,
+      "head_dim": 128,
+      "kv_bytes_per_elem": 2,
+      "default_ctx": 65536,
+      "min_envelope_bytes": 28000000000,
+      "tier_gb": 64,
+      "unified_memory_safe": true,
+      "backend_default": "vulkan",
+      "bootstrap": false,
+      "role": "coder",
+      "agent_ctx": 65536,
+      "cache_reuse_safe": true,
+      "agent_sampling": {
+        "temperature": 0.7,
+        "top_p": 0.8,
+        "top_k": 20,
+        "repeat_penalty": 1.05
+      },
+      "template_provenance": "unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF@b17cb02dd882d5b6ab62fc777ad2995f19668350 (embedded GGUF chat template)",
+      "shards": [
+        {
+          "url": "https://huggingface.co/unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF/resolve/b17cb02dd882d5b6ab62fc777ad2995f19668350/Qwen3-Coder-30B-A3B-Instruct-UD-Q4_K_XL.gguf",
+          "filename": "Qwen3-Coder-30B-A3B-Instruct-UD-Q4_K_XL.gguf",
+          "sha256": "2841aa314d916434860cfb8990347528dcdfe5c350dbcb9d1461dbee88ff2533",
+          "size_bytes": 17665334432
+        }
+      ]
+    },
+    {
+      "id": "qwen3-coder-next-q4",
+      "display_name": "Qwen3-Coder-Next (coder, 128 GB tier; hybrid arch — n_layers 12 = full-attention layers, 48/4, NOT total layers)",
+      "quant": "UD-Q4_K_XL",
+      "weight_bytes": 49608478720,
+      "n_layers": 12,
+      "n_kv_heads": 2,
+      "head_dim": 256,
+      "kv_bytes_per_elem": 2,
+      "default_ctx": 131072,
+      "min_envelope_bytes": 60000000000,
+      "tier_gb": 128,
+      "unified_memory_safe": true,
+      "backend_default": "vulkan",
+      "bootstrap": false,
+      "role": "coder",
+      "agent_ctx": 131072,
+      "agent_sampling": {
+        "temperature": 0.7,
+        "top_p": 0.8,
+        "top_k": 20,
+        "repeat_penalty": 1.05
+      },
+      "template_provenance": "unsloth/Qwen3-Coder-Next-GGUF@ce09c67b53bc8739eef83fe67b2f5d293c270632 (embedded GGUF chat template)",
+      "shards": [
+        {
+          "url": "https://huggingface.co/unsloth/Qwen3-Coder-Next-GGUF/resolve/ce09c67b53bc8739eef83fe67b2f5d293c270632/Qwen3-Coder-Next-UD-Q4_K_XL.gguf",
+          "filename": "Qwen3-Coder-Next-UD-Q4_K_XL.gguf",
+          "sha256": "4bb93f0a0221ef4ff963ca9094df629c8dfdfabc3b4fdd85c1a2e4c0624fce36",
+          "size_bytes": 49608478720
+        }
+      ]
+    },
+    {
+      "id": "qwen3-coder-next-q3",
+      "display_name": "Qwen3-Coder-Next (coder, 96 GB tier; hybrid arch — n_layers 12 = full-attention layers, 48/4, NOT total layers)",
+      "quant": "UD-Q3_K_XL",
+      "weight_bytes": 36282685440,
+      "n_layers": 12,
+      "n_kv_heads": 2,
+      "head_dim": 256,
+      "kv_bytes_per_elem": 2,
+      "default_ctx": 131072,
+      "min_envelope_bytes": 45000000000,
+      "tier_gb": 96,
+      "unified_memory_safe": true,
+      "backend_default": "vulkan",
+      "bootstrap": false,
+      "role": "coder",
+      "agent_ctx": 131072,
+      "agent_sampling": {
+        "temperature": 0.7,
+        "top_p": 0.8,
+        "top_k": 20,
+        "repeat_penalty": 1.05
+      },
+      "template_provenance": "unsloth/Qwen3-Coder-Next-GGUF@ce09c67b53bc8739eef83fe67b2f5d293c270632 (embedded GGUF chat template)",
+      "shards": [
+        {
+          "url": "https://huggingface.co/unsloth/Qwen3-Coder-Next-GGUF/resolve/ce09c67b53bc8739eef83fe67b2f5d293c270632/Qwen3-Coder-Next-UD-Q3_K_XL.gguf",
+          "filename": "Qwen3-Coder-Next-UD-Q3_K_XL.gguf",
+          "sha256": "91b928f28a2f4b76a0d9147f148311bfe8716ac8e495acc33eb7aace0ad76135",
+          "size_bytes": 36282685440
         }
       ]
     }

@@ -1,8 +1,10 @@
 package catalog
 
 import (
+	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -54,11 +56,11 @@ func TestLoadSeedDownloadMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load(\"\"): unexpected error: %v", err)
 	}
-	if SupportedSchema != 2 {
-		t.Fatalf("SupportedSchema = %d, want 2 (schema bumped for download fields)", SupportedSchema)
+	if SupportedSchema != 3 {
+		t.Fatalf("SupportedSchema = %d, want 3 (schema bumped for coder-role fields, Phase 24 D-01)", SupportedSchema)
 	}
-	if c.SchemaVersion != 2 {
-		t.Errorf("embedded seed schema_version = %d, want 2", c.SchemaVersion)
+	if c.SchemaVersion != 3 {
+		t.Errorf("embedded seed schema_version = %d, want 3", c.SchemaVersion)
 	}
 	for _, m := range c.Models {
 		if len(m.Shards) == 0 {
@@ -201,6 +203,161 @@ func TestLoadMalformedFallsBack(t *testing.T) {
 	}
 	if _, ok := c.FindByID("qwen2.5-1.5b"); !ok {
 		t.Errorf("Load(malformed): expected fallback to embedded seed")
+	}
+}
+
+// TestLoadSeedCoderEntries asserts the schema-v3 seed ships exactly three
+// role:"coder" entries (CODER-01, D-02), each with an agent-profile context,
+// a repo@revision template-provenance pin, and a single shard whose URL is
+// revision-pinned (`resolve/{40-hex}` — never `resolve/main/`, T-24-01).
+func TestLoadSeedCoderEntries(t *testing.T) {
+	c, _, err := Load("")
+	if err != nil {
+		t.Fatalf("Load(\"\"): unexpected error: %v", err)
+	}
+	if SupportedSchema != 3 {
+		t.Fatalf("SupportedSchema = %d, want 3 (schema bumped for coder-role fields, Phase 24 D-01)", SupportedSchema)
+	}
+	wantIDs := map[string]bool{
+		"qwen3-coder-30b-a3b": false,
+		"qwen3-coder-next-q4": false,
+		"qwen3-coder-next-q3": false,
+	}
+	revisionURL := regexp.MustCompile(`/resolve/[0-9a-f]{40}/`)
+	coders := 0
+	for _, m := range c.Models {
+		if m.Role != "coder" {
+			continue
+		}
+		coders++
+		if _, expected := wantIDs[m.ID]; !expected {
+			t.Errorf("unexpected coder entry %q in seed", m.ID)
+			continue
+		}
+		wantIDs[m.ID] = true
+		if m.AgentCtx <= 0 {
+			t.Errorf("coder entry %q has agent_ctx %d, want > 0 (D-01/D-04)", m.ID, m.AgentCtx)
+		}
+		if m.TemplateProvenance == "" || !strings.Contains(m.TemplateProvenance, "@") {
+			t.Errorf("coder entry %q template_provenance = %q, want non-empty repo@revision pin (D-02)", m.ID, m.TemplateProvenance)
+		}
+		if len(m.Shards) != 1 {
+			t.Errorf("coder entry %q has %d shards, want exactly 1", m.ID, len(m.Shards))
+			continue
+		}
+		u := m.Shards[0].URL
+		if strings.Contains(u, "/resolve/main/") {
+			t.Errorf("coder entry %q shard URL %q uses /resolve/main/ — must be revision-pinned (D-02, T-24-01)", m.ID, u)
+		}
+		if !revisionURL.MatchString(u) {
+			t.Errorf("coder entry %q shard URL %q lacks a /resolve/{40-hex}/ revision pin (D-02, T-24-01)", m.ID, u)
+		}
+	}
+	if coders != 3 {
+		t.Errorf("seed has %d role:\"coder\" entries, want exactly 3", coders)
+	}
+	for id, seen := range wantIDs {
+		if !seen {
+			t.Errorf("seed missing expected coder entry %q", id)
+		}
+	}
+}
+
+// TestCatalogModelFailClosedDefaults asserts the D-01 fail-closed decode
+// defaults: a CatalogModel decoded from JSON WITHOUT role / cache_reuse_safe
+// keys yields Role == "" (treated as chat) and CacheReuseSafe == false —
+// absence never widens capability.
+func TestCatalogModelFailClosedDefaults(t *testing.T) {
+	raw := `{"id":"no-coder-keys","quant":"Q4_K_M","weight_bytes":1000}`
+	var m CatalogModel
+	if err := json.Unmarshal([]byte(raw), &m); err != nil {
+		t.Fatalf("unmarshal minimal entry: %v", err)
+	}
+	if m.Role != "" {
+		t.Errorf("absent role decoded as %q, want \"\" (chat, D-01/D-03)", m.Role)
+	}
+	if m.CacheReuseSafe {
+		t.Errorf("absent cache_reuse_safe decoded as true, want false (fail-closed, D-01)")
+	}
+	if m.AgentSampling != nil {
+		t.Errorf("absent agent_sampling decoded non-nil, want nil")
+	}
+}
+
+// TestLoadSeedChatEntriesUntouched asserts the pre-existing chat entries gained
+// NO coder keys in the v3 bump (D-03 byte-untouched apart from the two
+// top-level version bumps).
+func TestLoadSeedChatEntriesUntouched(t *testing.T) {
+	c, _, err := Load("")
+	if err != nil {
+		t.Fatalf("Load(\"\"): unexpected error: %v", err)
+	}
+	chatIDs := []string{"qwen2.5-0.5b", "qwen2.5-1.5b", "qwen3-30b-a3b", "qwen3.6-35b-a3b"}
+	for _, id := range chatIDs {
+		m, ok := c.FindByID(id)
+		if !ok {
+			t.Errorf("seed missing pre-existing chat entry %q (D-03)", id)
+			continue
+		}
+		if m.Role != "" {
+			t.Errorf("chat entry %q has role %q, want absent/empty (D-03)", id, m.Role)
+		}
+		if m.AgentCtx != 0 {
+			t.Errorf("chat entry %q has agent_ctx %d, want absent/0 (D-03)", id, m.AgentCtx)
+		}
+		if m.CacheReuseSafe {
+			t.Errorf("chat entry %q has cache_reuse_safe true, want absent/false (D-03)", id)
+		}
+		if m.AgentSampling != nil {
+			t.Errorf("chat entry %q has an agent_sampling block, want absent (D-03)", id)
+		}
+		if m.TemplateProvenance != "" {
+			t.Errorf("chat entry %q has template_provenance %q, want absent (D-03)", id, m.TemplateProvenance)
+		}
+	}
+}
+
+// TestLoadSeedCoderVerifiedDims asserts the verified per-entry values from the
+// 24-RESEARCH GGUF artifact table made it into the seed (the
+// TestLoadSeedVerifiedDims pattern). Note qwen3-coder-next-* encodes
+// n_layers=12: the FULL-ATTENTION layer count of the hybrid
+// Qwen3NextForCausalLM (48 / full_attention_interval 4) — NOT 48.
+func TestLoadSeedCoderVerifiedDims(t *testing.T) {
+	c, _, err := Load("")
+	if err != nil {
+		t.Fatalf("Load(\"\"): %v", err)
+	}
+	want := map[string]struct {
+		weight                          uint64
+		layers, kv, head, agentCtx, tier int
+		cacheReuse                      bool
+	}{
+		"qwen3-coder-30b-a3b": {17665334432, 48, 4, 128, 65536, 64, true},
+		"qwen3-coder-next-q4": {49608478720, 12, 2, 256, 131072, 128, false},
+		"qwen3-coder-next-q3": {36282685440, 12, 2, 256, 131072, 96, false},
+	}
+	for id, w := range want {
+		m, ok := c.FindByID(id)
+		if !ok {
+			t.Errorf("seed missing expected coder entry %q", id)
+			continue
+		}
+		if m.WeightBytes != w.weight {
+			t.Errorf("model %q weight_bytes = %d, want %d", id, m.WeightBytes, w.weight)
+		}
+		if m.NLayers != w.layers || m.NKVHeads != w.kv || m.HeadDim != w.head {
+			t.Errorf("model %q dims = %dL/%dKV/%d, want %dL/%dKV/%d",
+				id, m.NLayers, m.NKVHeads, m.HeadDim, w.layers, w.kv, w.head)
+		}
+		if m.AgentCtx != w.agentCtx {
+			t.Errorf("model %q agent_ctx = %d, want %d", id, m.AgentCtx, w.agentCtx)
+		}
+		if m.TierGB != w.tier {
+			t.Errorf("model %q tier_gb = %d, want %d", id, m.TierGB, w.tier)
+		}
+		if m.CacheReuseSafe != w.cacheReuse {
+			t.Errorf("model %q cache_reuse_safe = %v, want %v (D-01/D-09: only the on-hardware probe licenses true)", id, m.CacheReuseSafe, w.cacheReuse)
+		}
 	}
 }
 
