@@ -1,17 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.3
-milestone_name: Memory & Knowledge
-status: "Milestone v1.3 shipped — PR #4"
-stopped_at: Completed 23-05-PLAN.md (operator sign-off approved — Phase 23 verification complete)
-last_updated: "2026-06-11T10:04:02.340Z"
-last_activity: 2026-06-11
+milestone: v1.4
+milestone_name: Coding Agent
+status: planning
+last_updated: "2026-06-12T19:16:51.571Z"
+last_activity: 2026-06-12
 progress:
-  total_phases: 6
-  completed_phases: 6
-  total_plans: 20
-  completed_plans: 20
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -25,10 +24,10 @@ See: .planning/PROJECT.md (updated 2026-06-11 after v1.3 milestone close)
 
 ## Current Position
 
-Phase: Milestone v1.3 complete
+Phase: Not started (defining requirements)
 Plan: —
-Status: Milestone v1.3 shipped — PR #4
-Last activity: 2026-06-11
+Status: Defining requirements
+Last activity: 2026-06-12 — Milestone v1.4 started
 
 ## Performance Metrics
 
