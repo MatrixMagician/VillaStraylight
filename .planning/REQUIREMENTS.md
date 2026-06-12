@@ -4,6 +4,7 @@
 **Core Value:** Run a capable local AI workspace that "just works" after install — hardware-aware setup, zero data leaving the box. v1.4 extends it to "and gives the operator a strictly-local terminal coding agent, wired to a fit-guarded coding model."
 
 **Research verdicts ratified 2026-06-12** (see `.planning/research/SUMMARY.md`):
+
 1. **Agent of record: Crush v0.76.0** (charmbracelet) — not OpenCode. OpenCode is structurally unlockable to the zero-outbound posture (unconditional `models.dev` startup fetch, runtime bun/npm downloads, autoupdate default-ON, air-gap closed upstream as not-planned). Crush's two outbound channels both have config kill switches villa renders — and proves at runtime, never flag-trusts.
 2. **Residency: transactional swap-based coding mode** (composing `internal/modelswap`); install default is **shared mode** (agent rides the existing chat endpoint). Co-resident `villa-coder` deferred as a 128 GB fit-gated stretch. Residency mode is always an OUTPUT of recommend fit math at agent-profile ctx.
 3. **Codebase memory: agent-native retrieval** (Crush LSP + ripgrep/glob + `AGENTS.md`/`CRUSH.md` context files). The original "Qdrant tracks the codebase" premise was researched and **rejected on evidence** (text embedder, chunking breaks code semantics, index staleness; leading agents ship embedding-free by design). villa-qdrant/villa-embed are untouched by v1.4.
@@ -14,7 +15,7 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 ### Coding Model & Fit
 
-- [ ] **CODER-01**: Catalog ships `role:"coder"` entries (Qwen3-Coder-30B-A3B for all tiers; Qwen3-Coder-Next for 96/128 GB tiers) with revision-pinned GGUF artifacts and template provenance (catalog schema 2→3, append-only)
+- [x] **CODER-01**: Catalog ships `role:"coder"` entries (Qwen3-Coder-30B-A3B for all tiers; Qwen3-Coder-Next for 96/128 GB tiers) with revision-pinned GGUF artifacts and template provenance (catalog schema 2→3, append-only)
 - [ ] **CODER-02**: `villa recommend` computes a coder fit at agent-profile context (after embed reservation + chat fit) and outputs an honest residency mode (`swap`/`shared`) as a fit-math output, never a preference (recommend schema 2→3, append-only)
 - [ ] **CODER-03**: Coder catalog entries are qualified agent-in-the-loop on hardware (real multi-step tool-call loop through llama-server `--jinja` on the pinned image, measured KV at agent ctx) before freezing; toolbox re-pin decision recorded
 
@@ -74,7 +75,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| CODER-01 | Phase 24 | Pending |
+| CODER-01 | Phase 24 | Complete |
 | CODER-02 | Phase 24 | Pending |
 | CODER-03 | Phase 24 | Pending |
 | CMODE-01 | Phase 25 | Pending |
@@ -93,6 +94,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | USAGE-04 | Phase 28 | Pending |
 
 **Coverage:**
+
 - v1 requirements: 17 total
 - Mapped to phases: 17 ✓ (Phases 24–28)
 - Unmapped: 0

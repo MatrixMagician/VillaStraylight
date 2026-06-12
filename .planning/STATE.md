@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Coding Agent
-status: planning
+status: executing
 stopped_at: Phase 24 context gathered
-last_updated: "2026-06-12T21:15:40.480Z"
-last_activity: 2026-06-12 — v1.4 roadmap created (Phases 24–28, 17/17 requirements mapped)
+last_updated: "2026-06-12T21:27:03.543Z"
+last_activity: 2026-06-12 -- Phase 24 execution started
 progress:
   total_phases: 5
   completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
+  total_plans: 4
+  completed_plans: 1
   percent: 0
 ---
 
@@ -25,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-06-12 — milestone v1.4 Coding Agent st
 
 ## Current Position
 
-Phase: 24 of 28 (Coder Fit Math, Catalog & On-Hardware Model Qualification) — first of 5 v1.4 phases
-Plan: — (phase not yet planned)
-Status: Ready to plan (`/gsd-plan-phase 24` — research-phase recommended)
-Last activity: 2026-06-12 — v1.4 roadmap created (Phases 24–28, 17/17 requirements mapped)
+Phase: 24 (Coder Fit Math, Catalog & On-Hardware Model Qualification) — EXECUTING
+Plan: 2 of 4
+Status: Ready to execute
+Last activity: 2026-06-12 -- Phase 24 execution started
 
 Progress: [░░░░░░░░░░] 0% (v1.4)
 
@@ -105,6 +105,7 @@ Progress: [░░░░░░░░░░] 0% (v1.4)
 | Phase 23 P03 | 10 min | 2 tasks | 3 files |
 | Phase 23 P04 | 10 min | 2 tasks | 7 files |
 | Phase 23 P05 | 9 min (drill; checkpoint pending) | 1 of 2 tasks | 0 files |
+| Phase 24 P01 | 9min | 2 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -136,6 +137,8 @@ Earlier (v1.0–v1.3) standing decisions retained:
 - [v1.2]: New persistence is flat JSONL/JSON under `$XDG_DATA_HOME/villa/` — never `config.toml`, never embedded SQLite; each decision-logic feature gets ONE new pure `internal/*` core; orchestrate stays the only intentionally-impure module.
 - [v1.3]: Zero-outbound is proven at runtime, negative-control-first — never flag-trusted (`villa verify memory` precedent extends to `villa verify agent`). Reservation-before-fit in `recommend.Pick()`; D-09 reflect-pinned chat-swap isolation from memory units.
 - [16-03]: clean-recreate-before-import is the load-bearing restore fix (podman volume import MERGES + does NOT auto-create).
+- [Phase 24-01]: AgentSampling is a pointer field (*AgentSampling) so absent blocks stay absent on re-encode; chat entries emit no agent_sampling key (D-03)
+- [Phase 24-01]: External coder-entry validation refuses the whole catalog (warning naming entry id + seed fallback), never clamps — bounds: agent_ctx>0, temperature (0,2], top_p (0,1], top_k>=0, repeat_penalty (0,3]
 
 ### Pending Todos
 
@@ -196,7 +199,7 @@ Items deferred at v1.4 roadmap creation (2026-06-12, research-recorded):
 
 ## Session Continuity
 
-Last session: 2026-06-12T20:07:12.009Z
+Last session: 2026-06-12T21:26:31.858Z
 Stopped at: Phase 24 context gathered
 Resume file: .planning/phases/24-coder-fit-math-catalog-on-hardware-model-qualification/24-CONTEXT.md
 

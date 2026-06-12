@@ -112,7 +112,7 @@ Audit PASSED — 22/22 requirements, 15/16 integration connections (0 blockers),
 Plans:
 **Wave 1**
 
-- [ ] 24-01-PLAN.md — Catalog schema 2→3: `role:"coder"` entries with revision-pinned artifacts + template provenance (CODER-01)
+- [x] 24-01-PLAN.md — Catalog schema 2→3: `role:"coder"` entries with revision-pinned artifacts + template provenance (CODER-01)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -214,7 +214,7 @@ Plans:
 | 21. Conversational Recall Indexer | v1.3 | 3/3 | Complete | 2026-06-10 |
 | 22. Control-Plane Fit + Host Gate | v1.3 | 4/4 | Complete | 2026-06-10 |
 | 23. Surfacing, Backup & Memory-Aware Swap | v1.3 | 5/5 | Complete | 2026-06-10 |
-| 24. Coder Fit Math, Catalog & On-Hardware Model Qualification | v1.4 | 0/4 | Planned | - |
+| 24. Coder Fit Math, Catalog & On-Hardware Model Qualification | v1.4 | 1/4 | In Progress|  |
 | 25. Coding-Mode Render & Transactional Swap Verb | v1.4 | 0/TBD | Not started | - |
 | 26. Agent Delivery Core & Lockdown Launcher | v1.4 | 0/TBD | Not started | - |
 | 27. Install Addon, Preflight Gates & `villa verify agent` | v1.4 | 0/TBD | Not started | - |
