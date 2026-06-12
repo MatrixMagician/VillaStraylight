@@ -3,6 +3,7 @@ package catalog
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -373,5 +374,144 @@ func TestLoadMissingExternalFallsBack(t *testing.T) {
 	}
 	if len(c.Models) == 0 {
 		t.Errorf("Load(missing): expected fallback to embedded seed (non-empty)")
+	}
+}
+
+// TestLoadSchema2ExternalFallsBack asserts an external catalog at the previous
+// schema (2) now warns and falls back to the embedded seed — the v1→v2
+// precedent exercised for 2-vs-3 (D-11, exact-match schema window).
+func TestLoadSchema2ExternalFallsBack(t *testing.T) {
+	path := filepath.Join("testdata", "schema2-catalog.json")
+	c, warnings, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load(schema2): unexpected error: %v", err)
+	}
+	if len(warnings) == 0 {
+		t.Fatalf("Load(schema2): expected a schema-mismatch warning, got none")
+	}
+	if !strings.Contains(strings.Join(warnings, " "), "schema_version") {
+		t.Errorf("Load(schema2): warning should mention schema_version, got %v", warnings)
+	}
+	if _, ok := c.FindByID("schema2-chat-model"); ok {
+		t.Errorf("Load(schema2): external schema-2 catalog must NOT be used")
+	}
+	if _, ok := c.FindByID("qwen2.5-1.5b"); !ok {
+		t.Errorf("Load(schema2): expected fallback to embedded seed, but qwen2.5-1.5b not present")
+	}
+}
+
+// TestLoadSchema3ExternalRoundTrip asserts an external schema-3 catalog
+// carrying a coder entry with ALL five new keys decodes under
+// DisallowUnknownFields and is returned by Load — the Pitfall-5 regression
+// guard (struct + seed landed together; an external v3 file must round-trip).
+func TestLoadSchema3ExternalRoundTrip(t *testing.T) {
+	path := filepath.Join("testdata", "schema3-external.json")
+	c, warnings, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load(schema3): unexpected error: %v", err)
+	}
+	if len(warnings) != 0 {
+		t.Errorf("Load(schema3): unexpected warnings: %v", warnings)
+	}
+	m, ok := c.FindByID("external-coder-model")
+	if !ok {
+		t.Fatalf("Load(schema3): external-coder-model not found (got %d models)", len(c.Models))
+	}
+	if m.Role != "coder" {
+		t.Errorf("role = %q, want \"coder\"", m.Role)
+	}
+	if m.AgentCtx != 32768 {
+		t.Errorf("agent_ctx = %d, want 32768", m.AgentCtx)
+	}
+	if !m.CacheReuseSafe {
+		t.Errorf("cache_reuse_safe = false, want true (explicit key in fixture)")
+	}
+	if m.AgentSampling == nil {
+		t.Fatalf("agent_sampling absent, want populated block")
+	}
+	if m.AgentSampling.Temperature != 0.7 || m.AgentSampling.TopP != 0.8 ||
+		m.AgentSampling.TopK != 20 || m.AgentSampling.RepeatPenalty != 1.05 {
+		t.Errorf("agent_sampling = %+v, want {0.7 0.8 20 1.05}", *m.AgentSampling)
+	}
+	if !strings.Contains(m.TemplateProvenance, "@") {
+		t.Errorf("template_provenance = %q, want repo@revision pin", m.TemplateProvenance)
+	}
+}
+
+// TestLoadCoderValidationRefusesNeverClamps asserts the ASVS-V5 control on the
+// external-catalog trust boundary (T-24-02): a role:"coder" entry with
+// agent_ctx <= 0 or out-of-range sampling values causes the WHOLE external
+// catalog to be refused with a warning naming the offending entry id and a
+// fallback to the embedded seed — values are NEVER silently clamped.
+func TestLoadCoderValidationRefusesNeverClamps(t *testing.T) {
+	const entryID = "bad-coder-model"
+	// build renders a minimal schema-3 external catalog with one coder entry
+	// whose agent_ctx and sampling values come from the case under test.
+	build := func(agentCtx int, sampling string) string {
+		return fmt.Sprintf(`{
+  "schema_version": 3,
+  "catalog_version": "test.invalid-coder",
+  "models": [
+    {
+      "id": %q,
+      "display_name": "Bad Coder Model",
+      "quant": "Q4_K_M",
+      "weight_bytes": 5000000000,
+      "n_layers": 32,
+      "n_kv_heads": 8,
+      "head_dim": 128,
+      "kv_bytes_per_elem": 2,
+      "default_ctx": 16384,
+      "min_envelope_bytes": 7000000000,
+      "tier_gb": 16,
+      "unified_memory_safe": true,
+      "backend_default": "vulkan",
+      "bootstrap": false,
+      "role": "coder",
+      "agent_ctx": %d,
+      "agent_sampling": %s,
+      "template_provenance": "example/Bad-GGUF@0123456789abcdef0123456789abcdef01234567 (embedded GGUF chat template)"
+    }
+  ]
+}`, entryID, agentCtx, sampling)
+	}
+	goodSampling := `{"temperature": 0.7, "top_p": 0.8, "top_k": 20, "repeat_penalty": 1.05}`
+	cases := []struct {
+		name string
+		doc  string
+	}{
+		{"agent_ctx zero", build(0, goodSampling)},
+		{"temperature above 2", build(32768, `{"temperature": 2.5, "top_p": 0.8, "top_k": 20, "repeat_penalty": 1.05}`)},
+		{"temperature zero", build(32768, `{"temperature": 0, "top_p": 0.8, "top_k": 20, "repeat_penalty": 1.05}`)},
+		{"top_p above 1", build(32768, `{"temperature": 0.7, "top_p": 1.5, "top_k": 20, "repeat_penalty": 1.05}`)},
+		{"top_k negative", build(32768, `{"temperature": 0.7, "top_p": 0.8, "top_k": -1, "repeat_penalty": 1.05}`)},
+		{"repeat_penalty above 3", build(32768, `{"temperature": 0.7, "top_p": 0.8, "top_k": 20, "repeat_penalty": 3.5}`)},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "invalid-coder-catalog.json")
+			if err := os.WriteFile(path, []byte(tc.doc), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			c, warnings, err := Load(path)
+			if err != nil {
+				t.Fatalf("Load(invalid coder): unexpected error: %v", err)
+			}
+			if len(warnings) == 0 {
+				t.Fatalf("Load(invalid coder): expected a refusal warning, got none")
+			}
+			joined := strings.Join(warnings, " ")
+			if !strings.Contains(joined, entryID) {
+				t.Errorf("refusal warning must name the offending entry %q, got %v", entryID, warnings)
+			}
+			// Never partially accepted: the invalid entry must not be returned.
+			if _, ok := c.FindByID(entryID); ok {
+				t.Errorf("invalid coder entry %q was returned — external catalog must be refused whole, never clamped", entryID)
+			}
+			// Fell back to the embedded seed.
+			if _, ok := c.FindByID("qwen2.5-1.5b"); !ok {
+				t.Errorf("expected fallback to embedded seed, but qwen2.5-1.5b not present")
+			}
+		})
 	}
 }
