@@ -355,7 +355,7 @@ func TestPickROCmAdviceEmptyWhenReadinessUnset(t *testing.T) {
 // its footprint; an unrecognized model id reserves the conservative default with
 // an honest "RESERVED CONSERVATIVELY" note naming the model (never a silent 0);
 // a reservation >= envelope clamps to 0 and triggers the existing no-fit refusal
-// (never uint64 wraparound). SchemaVersion is stamped 2 on every path.
+// (never uint64 wraparound). SchemaVersion is stamped 3 on every path.
 func TestPickMemoryReservation(t *testing.T) {
 	const env = uint64(64 << 30)
 	const pinnedModel = "nomic-embed-text-v1.5"
@@ -373,8 +373,8 @@ func TestPickMemoryReservation(t *testing.T) {
 		if rec.MemoryConsidered {
 			t.Errorf("MemoryConsidered = true, want false when memory is off")
 		}
-		if rec.SchemaVersion != 2 {
-			t.Errorf("SchemaVersion = %d, want 2 (D-03 bump)", rec.SchemaVersion)
+		if rec.SchemaVersion != 3 {
+			t.Errorf("SchemaVersion = %d, want 3 (D-07 coder-block bump)", rec.SchemaVersion)
 		}
 		if hasNote(rec.Notes, "RESERVED CONSERVATIVELY") {
 			t.Errorf("memory-off pick must carry no D-02 note, got %v", rec.Notes)
@@ -465,7 +465,7 @@ func TestPickOverrideWeightInvariance(t *testing.T) {
 // TestPickRefusalStampsMemoryFields asserts finalizeRecommendation stamps the
 // D-03 fields on the no-envelope refusal path too: memory-on refusals report
 // MemoryConsidered=true and the reservation as computed (honest surface);
-// memory-off refusals report zero/false. SchemaVersion is 2 on both.
+// memory-off refusals report zero/false. SchemaVersion is 3 on both.
 func TestPickRefusalStampsMemoryFields(t *testing.T) {
 	p := detect.HostProfile{
 		TotalRAMBytes:       detect.UnknownBytes("ram unknown", ""),
@@ -480,8 +480,8 @@ func TestPickRefusalStampsMemoryFields(t *testing.T) {
 	if off.EmbeddingReservationBytes != 0 || off.MemoryConsidered {
 		t.Errorf("memory-off refusal must stamp zero/false, got reservation=%d considered=%v", off.EmbeddingReservationBytes, off.MemoryConsidered)
 	}
-	if off.SchemaVersion != 2 {
-		t.Errorf("refusal SchemaVersion = %d, want 2", off.SchemaVersion)
+	if off.SchemaVersion != 3 {
+		t.Errorf("refusal SchemaVersion = %d, want 3", off.SchemaVersion)
 	}
 
 	on := Pick(p, cat, Overrides{}, MemoryInputs{Enabled: true, EmbeddingModel: "mystery-embedder"})
@@ -494,8 +494,8 @@ func TestPickRefusalStampsMemoryFields(t *testing.T) {
 	if want := memory.ConservativeFootprintBytes(); on.EmbeddingReservationBytes != want {
 		t.Errorf("memory-on refusal reservation = %d, want as-computed %d (honest surface)", on.EmbeddingReservationBytes, want)
 	}
-	if on.SchemaVersion != 2 {
-		t.Errorf("refusal SchemaVersion = %d, want 2", on.SchemaVersion)
+	if on.SchemaVersion != 3 {
+		t.Errorf("refusal SchemaVersion = %d, want 3", on.SchemaVersion)
 	}
 }
 
