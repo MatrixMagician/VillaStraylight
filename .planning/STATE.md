@@ -4,13 +4,13 @@ milestone: v1.4
 milestone_name: Coding Agent
 status: executing
 stopped_at: Phase 24 context gathered
-last_updated: "2026-06-12T21:27:03.543Z"
+last_updated: "2026-06-12T21:38:26.718Z"
 last_activity: 2026-06-12 -- Phase 24 execution started
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 4
-  completed_plans: 1
+  completed_plans: 2
   percent: 0
 ---
 
@@ -26,7 +26,7 @@ See: .planning/PROJECT.md (updated 2026-06-12 — milestone v1.4 Coding Agent st
 ## Current Position
 
 Phase: 24 (Coder Fit Math, Catalog & On-Hardware Model Qualification) — EXECUTING
-Plan: 2 of 4
+Plan: 3 of 4
 Status: Ready to execute
 Last activity: 2026-06-12 -- Phase 24 execution started
 
@@ -106,6 +106,7 @@ Progress: [░░░░░░░░░░] 0% (v1.4)
 | Phase 23 P04 | 10 min | 2 tasks | 7 files |
 | Phase 23 P05 | 9 min (drill; checkpoint pending) | 1 of 2 tasks | 0 files |
 | Phase 24 P01 | 9min | 2 tasks | 8 files |
+| Phase 24 P02 | 7min | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -139,6 +140,7 @@ Earlier (v1.0–v1.3) standing decisions retained:
 - [16-03]: clean-recreate-before-import is the load-bearing restore fix (podman volume import MERGES + does NOT auto-create).
 - [Phase 24-01]: AgentSampling is a pointer field (*AgentSampling) so absent blocks stay absent on re-encode; chat entries emit no agent_sampling key (D-03)
 - [Phase 24-01]: External coder-entry validation refuses the whole catalog (warning naming entry id + seed fallback), never clamps — bounds: agent_ctx>0, temperature (0,2], top_p (0,1], top_k>=0, repeat_penalty (0,3]
+- [Phase 24-02]: Coder block computed once in Pick after the reservation shrink and threaded to finalizeRecommendation (refusal path passes the shared conservative floor); --model override of a coder id is warn-and-allow (chat KV stays effectiveCtx; only pickCoder is agent_ctx-locked)
 
 ### Pending Todos
 
@@ -199,7 +201,7 @@ Items deferred at v1.4 roadmap creation (2026-06-12, research-recorded):
 
 ## Session Continuity
 
-Last session: 2026-06-12T21:26:31.858Z
+Last session: 2026-06-12T21:37:31.719Z
 Stopped at: Phase 24 context gathered
 Resume file: .planning/phases/24-coder-fit-math-catalog-on-hardware-model-qualification/24-CONTEXT.md
 

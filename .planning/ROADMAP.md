@@ -116,7 +116,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 24-02-PLAN.md — Recommend schema 2→3: coder fit at agent ctx + residency mode, ONE golden re-freeze (CODER-02)
+- [x] 24-02-PLAN.md — Recommend schema 2→3: coder fit at agent ctx + residency mode, ONE golden re-freeze (CODER-02)
 - [ ] 24-03-PLAN.md — On-hardware agent-in-the-loop qualification of all three coder entries, measured KV (CODER-03)
 
 **Wave 3** *(blocked on Wave 2 completion)*
@@ -214,7 +214,7 @@ Plans:
 | 21. Conversational Recall Indexer | v1.3 | 3/3 | Complete | 2026-06-10 |
 | 22. Control-Plane Fit + Host Gate | v1.3 | 4/4 | Complete | 2026-06-10 |
 | 23. Surfacing, Backup & Memory-Aware Swap | v1.3 | 5/5 | Complete | 2026-06-10 |
-| 24. Coder Fit Math, Catalog & On-Hardware Model Qualification | v1.4 | 1/4 | In Progress|  |
+| 24. Coder Fit Math, Catalog & On-Hardware Model Qualification | v1.4 | 2/4 | In Progress|  |
 | 25. Coding-Mode Render & Transactional Swap Verb | v1.4 | 0/TBD | Not started | - |
 | 26. Agent Delivery Core & Lockdown Launcher | v1.4 | 0/TBD | Not started | - |
 | 27. Install Addon, Preflight Gates & `villa verify agent` | v1.4 | 0/TBD | Not started | - |

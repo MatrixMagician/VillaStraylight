@@ -16,7 +16,7 @@ Requirements for this milestone. Each maps to roadmap phases.
 ### Coding Model & Fit
 
 - [x] **CODER-01**: Catalog ships `role:"coder"` entries (Qwen3-Coder-30B-A3B for all tiers; Qwen3-Coder-Next for 96/128 GB tiers) with revision-pinned GGUF artifacts and template provenance (catalog schema 2→3, append-only)
-- [ ] **CODER-02**: `villa recommend` computes a coder fit at agent-profile context (after embed reservation + chat fit) and outputs an honest residency mode (`swap`/`shared`) as a fit-math output, never a preference (recommend schema 2→3, append-only)
+- [x] **CODER-02**: `villa recommend` computes a coder fit at agent-profile context (after embed reservation + chat fit) and outputs an honest residency mode (`swap`/`shared`) as a fit-math output, never a preference (recommend schema 2→3, append-only)
 - [ ] **CODER-03**: Coder catalog entries are qualified agent-in-the-loop on hardware (real multi-step tool-call loop through llama-server `--jinja` on the pinned image, measured KV at agent ctx) before freezing; toolbox re-pin decision recorded
 
 ### Coding Mode
@@ -76,7 +76,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | CODER-01 | Phase 24 | Complete |
-| CODER-02 | Phase 24 | Pending |
+| CODER-02 | Phase 24 | Complete |
 | CODER-03 | Phase 24 | Pending |
 | CMODE-01 | Phase 25 | Pending |
 | CMODE-02 | Phase 25 | Pending |
