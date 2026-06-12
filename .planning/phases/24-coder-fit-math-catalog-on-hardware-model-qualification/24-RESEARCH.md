@@ -503,17 +503,23 @@ podman logs villa-qual 2>&1 | grep -E "KV buffer size|offloaded|Vulkan0 model bu
 | A5 | Crush `--yolo` + `crush run` behave at v0.76.0 as documented (auto-accept, non-interactive single-turn-driving-multi-tool-loop) | Pattern 4 | Harness friction only — verify on first qual run; the protocol isolates harness faults (smoke test first) from model faults |
 | A6 | Tier envelopes for 64/96 GB hosts (~31/~47 GiB, ½-RAM default) — only the 128 GB box is measured | Fit Pre-Computations | Entry `min_envelope_bytes`/`tier_gb` values misjudge smaller tiers — values are conservative; fit math (not the tier label) is the actual gate |
 
-## Open Questions
+## Open Questions (RESOLVED)
+
+> All four questions were resolved during planning (2026-06-12). Adopted answers are recorded inline below; plans 24-01..24-04 implement them.
 
 1. **Should a user `--model` override be allowed to name a coder entry on the chat path?**
    - What we know: `pickOverride` uses `FindByID` (no role filter today); D-03 only mandates the auto-pick filter.
    - What's unclear: whether overriding chat to a coder model should warn-and-allow (unsafe-override precedent) or refuse.
    - Recommendation: warn-and-allow with a loud note (consistent with D-07 v1.0 override philosophy); add a table test either way. Must not perturb the existing golden.
+   - **RESOLVED: warn-and-allow.** Plan 24-02 Task 1 implements it in `pickOverride` (loud note naming the entry id, unsafe-override style) with behavior Test 6 guarding it; the existing golden is untouched by the note path.
 2. **Exact JSON shape of the recommend `coder` block** (flat fields vs nested struct).
    - What we know: D-07 lists contents (model, quant, agent ctx, fit terms, residency mode, fits) and placement (above `SchemaVersion`, always stamped).
    - Recommendation: a nested struct (`"coder": {...}`) keeps the top level clean and makes "always stamped" unambiguous (`"coder": {"fits": false, "residency": "shared", ...}` on refusals); planner's call.
+   - **RESOLVED: nested struct.** Plan 24-02 ships exported `CoderFit` rendered as a nested top-level `"coder": {...}` object (no omitempty on any key), placed directly above `schema_version`, stamped on every path including refusals (D-07, Pitfall 6).
 3. **30B-A3B at 128k on big tiers** — one entry at `agent_ctx: 65536` (recommended, fits everywhere) forgoes a 128k 30B profile on 96/128 GB tiers. Acceptable for v1.4? (Next covers the big tiers at 131072.)
+   - **RESOLVED: accepted for v1.4.** The 30B-A3B entry ships at `agent_ctx: 65536` only (fits every tier); the 96/128 GB tiers get 128k agent context via the Qwen3-Coder-Next entries at 131072 (`qwen3-coder-next-q3` / `qwen3-coder-next-q4`). No 128k 30B profile in v1.4 — revisit only if a future phase demands it.
 4. **Whether qualification should also exercise Open WebUI-style plain chat on the coder models** — not required by CODER-03; recommend no (scope discipline), the agent loop + smoke test cover the contract Phase 25 consumes.
+   - **RESOLVED: no chat-UI qualification.** Plan 24-03 qualifies via the tool-call smoke test + real Crush agent loop only; Open WebUI-style plain chat is out of scope for CODER-03 (scope discipline — the agent contract is what Phase 25 consumes).
 
 ## Environment Availability
 
