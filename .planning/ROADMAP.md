@@ -105,7 +105,13 @@ Audit PASSED — 22/22 requirements, 15/16 integration connections (0 blockers),
   2. `villa recommend` outputs a coder fit computed at agent-profile context, AFTER the embed reservation and chat fit, with an honest residency mode (`swap` or `shared`) that is an output of the fit math — never a preference or tier special-case (recommend schema 2→3, append-only, one golden re-freeze).
   3. Every coder catalog entry that ships has passed a real multi-step agent-in-the-loop tool-call loop through llama-server `--jinja` on the pinned toolbox image, with KV footprint MEASURED at agent ctx on the gfx1151 box — benchmark scores alone never qualify an entry; entries that fail are deleted or re-pinned, never shipped on hope.
   4. The toolbox re-pin decision (Qwen3-Coder-Next arch support + tool-call parser vintage, `--cache-reuse` compatibility per model) is recorded as a decision with evidence before the catalog freezes.
-**Plans**: TBD
+**Plans**: 4 plans
+
+Plans:
+- [ ] 24-01-PLAN.md — Catalog schema 2→3: `role:"coder"` entries with revision-pinned artifacts + template provenance (CODER-01)
+- [ ] 24-02-PLAN.md — Recommend schema 2→3: coder fit at agent ctx + residency mode, ONE golden re-freeze (CODER-02)
+- [ ] 24-03-PLAN.md — On-hardware agent-in-the-loop qualification of all three coder entries, measured KV (CODER-03)
+- [ ] 24-04-PLAN.md — Reconciliation, D-11 toolbox decision record, operator-approved catalog freeze (CODER-01/03)
 **Research**: recommended (`/gsd-plan-phase 24 --research-phase` — exact on-hardware qualification protocol, KV measurement, toolbox re-pin decision, `--cache-reuse` vs Qwen3-Coder-Next hybrid attention)
 
 ### Phase 25: Coding-Mode Render & Transactional Swap Verb
@@ -185,7 +191,7 @@ Audit PASSED — 22/22 requirements, 15/16 integration connections (0 blockers),
 | 21. Conversational Recall Indexer | v1.3 | 3/3 | Complete | 2026-06-10 |
 | 22. Control-Plane Fit + Host Gate | v1.3 | 4/4 | Complete | 2026-06-10 |
 | 23. Surfacing, Backup & Memory-Aware Swap | v1.3 | 5/5 | Complete | 2026-06-10 |
-| 24. Coder Fit Math, Catalog & On-Hardware Model Qualification | v1.4 | 0/TBD | Not started | - |
+| 24. Coder Fit Math, Catalog & On-Hardware Model Qualification | v1.4 | 0/4 | Planned | - |
 | 25. Coding-Mode Render & Transactional Swap Verb | v1.4 | 0/TBD | Not started | - |
 | 26. Agent Delivery Core & Lockdown Launcher | v1.4 | 0/TBD | Not started | - |
 | 27. Install Addon, Preflight Gates & `villa verify agent` | v1.4 | 0/TBD | Not started | - |
