@@ -74,29 +74,29 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| CODER-01 | — | Pending |
-| CODER-02 | — | Pending |
-| CODER-03 | — | Pending |
-| CMODE-01 | — | Pending |
-| CMODE-02 | — | Pending |
-| AGENT-01 | — | Pending |
-| AGENT-02 | — | Pending |
-| AGENT-03 | — | Pending |
-| AGENT-04 | — | Pending |
-| INSTALL-03 | — | Pending |
-| INSTALL-04 | — | Pending |
-| PRIV-06 | — | Pending |
-| SURF-01 | — | Pending |
-| SURF-02 | — | Pending |
-| SURF-03 | — | Pending |
-| USAGE-03 | — | Pending |
-| USAGE-04 | — | Pending |
+| CODER-01 | Phase 24 | Pending |
+| CODER-02 | Phase 24 | Pending |
+| CODER-03 | Phase 24 | Pending |
+| CMODE-01 | Phase 25 | Pending |
+| CMODE-02 | Phase 25 | Pending |
+| AGENT-01 | Phase 26 | Pending |
+| AGENT-02 | Phase 26 | Pending |
+| AGENT-03 | Phase 26 | Pending |
+| AGENT-04 | Phase 26 | Pending |
+| INSTALL-03 | Phase 27 | Pending |
+| INSTALL-04 | Phase 27 | Pending |
+| PRIV-06 | Phase 27 | Pending |
+| SURF-01 | Phase 28 | Pending |
+| SURF-02 | Phase 28 | Pending |
+| SURF-03 | Phase 28 | Pending |
+| USAGE-03 | Phase 28 | Pending |
+| USAGE-04 | Phase 28 | Pending |
 
 **Coverage:**
 - v1 requirements: 17 total
-- Mapped to phases: 0 (roadmap pending)
-- Unmapped: 17 ⚠️ (expected before roadmap creation)
+- Mapped to phases: 17 ✓ (Phases 24–28)
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-06-12*
-*Last updated: 2026-06-12 after initial definition*
+*Last updated: 2026-06-12 — traceability mapped during v1.4 roadmap creation (Phases 24–28)*

@@ -2,11 +2,11 @@
 gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Coding Agent
-status: planning
-last_updated: "2026-06-12T19:16:51.571Z"
+status: roadmap_created
+last_updated: "2026-06-12"
 last_activity: 2026-06-12
 progress:
-  total_phases: 0
+  total_phases: 5
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -17,17 +17,19 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-06-11 after v1.3 milestone close)
+See: .planning/PROJECT.md (updated 2026-06-12 — milestone v1.4 Coding Agent started)
 
-**Core value:** Run a capable local AI workspace that "just works" after install — hardware-aware setup that brings inference, chat, and the dashboard up healthy, with zero data leaving the box. v1.2 extended the bar to "and stays operable, recoverable, and measurable over time." v1.3 extended it to "and remembers the user and their documents across chats — strictly local."
-**Current focus:** Planning next milestone (`/gsd-new-milestone`)
+**Core value:** Run a capable local AI workspace that "just works" after install — hardware-aware setup that brings inference, chat, and the dashboard up healthy, with zero data leaving the box. v1.2 extended the bar to "and stays operable, recoverable, and measurable over time." v1.3 extended it to "and remembers the user and their documents across chats — strictly local." v1.4 extends it to "and gives the operator a strictly-local terminal coding agent, wired to a fit-guarded coding model."
+**Current focus:** Phase 24 — Coder Fit Math, Catalog & On-Hardware Model Qualification
 
 ## Current Position
 
-Phase: Not started (defining requirements)
-Plan: —
-Status: Defining requirements
-Last activity: 2026-06-12 — Milestone v1.4 started
+Phase: 24 of 28 (Coder Fit Math, Catalog & On-Hardware Model Qualification) — first of 5 v1.4 phases
+Plan: — (phase not yet planned)
+Status: Ready to plan (`/gsd-plan-phase 24` — research-phase recommended)
+Last activity: 2026-06-12 — v1.4 roadmap created (Phases 24–28, 17/17 requirements mapped)
+
+Progress: [░░░░░░░░░░] 0% (v1.4)
 
 ## Performance Metrics
 
@@ -107,74 +109,32 @@ Last activity: 2026-06-12 — Milestone v1.4 started
 
 ### Roadmap Evolution
 
-- **v1.3 Memory & Knowledge roadmap created (2026-06-09): Phases 18–23 mapped from 22 requirements** (INFRA/MEM/RECALL/KB/CTRL/PRIV); phase numbering CONTINUES from v1.2 (last phase 17). Granularity = coarse → 6 phases compressing the research's ~8 + optional spike (spike folded into Phase 18; recommend/preflight/doctor combined into Phase 22; surfacing/backup/swap combined into Phase 23) while honoring all hard dependencies and keeping the single byte-frozen contract evolution isolated to the last phase. 100% coverage, no orphans, no duplicates.
+- **v1.4 Coding Agent roadmap created (2026-06-12): Phases 24–28 mapped from 17 requirements** (CODER/CMODE/AGENT/INSTALL/PRIV/SURF/USAGE); numbering CONTINUES from v1.3 (last phase 23). Structure follows the research-reconciled 5-phase shape verbatim: fit math + on-hardware model qualification FIRST (24), render + transactional swap verb (25), agent delivery core + lockdown launcher (26), install addon + preflight + `villa verify agent` (27), surfacing + the single `status.Report` 3→4 contract bump LAST (28). 100% coverage, no orphans, no duplicates. Research flags: Phases 24/26/27 need `/gsd-plan-phase --research-phase`; 25/28 follow shipped patterns.
+- v1.3 Memory & Knowledge roadmap created (2026-06-09): Phases 18–23 mapped from 22 requirements; shipped 2026-06-11, audit PASSED.
 - v1.2 Operability roadmap created (2026-06-07): Phases 12–17 mapped from 13 requirements, research-converged build order preserved.
 - Phase 11 added (2026-06-06): Address v1.1 tech debt — rocm_readiness detect probes + doc reconciliation (v1.1, shipped).
 
 ### Decisions
 
-Decisions are logged in PROJECT.md Key Decisions table. Recent v1.3 roadmap decisions:
+Decisions are logged in PROJECT.md Key Decisions table. v1.4 roadmap decisions:
 
-- [v1.3 Roadmap]: INTEGRATION milestone — **zero new first-party Go libraries**. Two new digest-pinned managed-service Quadlet units (Qdrant + dedicated embeddings llama-server) wired into Open WebUI by ENV only. Go stays control-plane.
-- [v1.3 Roadmap]: New image literals (Qdrant + embed) live behind the `orchestrate` managed-service seam (same category as `openWebUIImage`), NOT behind the inference `BackendFor` / `TestSeamGrepGate` scope (that gate guards GPU/backend markers like `ROCm0`/`Vulkan0`). Add `QdrantImage()`/`EmbedImage()` accessors so backup can read each digest without re-typing.
-- [v1.3 Roadmap]: Qdrant + embeddings are MANAGED SERVICES (rendered like `openwebui.go`), NOT inference `Backend`s — they have no device/group/exec for chat backends and must NOT flow through `parseContainerArgs`.
-- [v1.3 Roadmap]: ONE new pure `internal/memory` core for all memory decision logic (footprint, enablement gate, render-view inputs, status-row classification); host effects stay in `orchestrate` + existing cmd seams. `internal/memory` imports neither `os/exec` nor a container image literal (SeamGrepGate stays green).
-- [v1.3 Roadmap]: Dependency order is strict and research-converged — Qdrant + embeddings BEFORE the OWUI env wiring; wiring BEFORE the recall indexer and BEFORE surfacing/backup. Surfacing + backup + memory-aware swap land LAST (mirrors v1.x discipline: surface/back-up after the thing exists; one byte-frozen contract evolves at a time).
-- [v1.3 Roadmap]: EXACTLY ONE byte-frozen contract evolves — `status.Report` `reportSchemaVersion` 2→3, append-only fields above `SchemaVersion`, golden re-frozen ONCE (Phase 23). `recommend` gets its own append-only field + schema bump (Phase 22, separate contract). `doctor` only READS `status.Report`.
-- [v1.3 Roadmap]: Zero-outbound is proven, not flag-trusted — `ENABLE_PERSISTENT_CONFIG=false` + the FULL offline/telemetry env set + a **runtime firewalled document-upload smoke test** (install-time green is insufficient). Embedding model pre-staged at install (the only sanctioned outbound window).
-- [v1.3 Roadmap]: Embedding footprint is reserved in `recommend.Pick()` BEFORE the chat-model fit (envelope shrinks first); the chat model must survive an embed/import workload (offload-asserting residency — a silent/partial CPU fallback under embedding load is a FAIL, never a false-green).
-- [v1.3 Roadmap]: Embedding model is DECOUPLED from the chat model; `villa model swap` / `backend set` must NOT touch the embedding model or vector collections; an embedding-model change is a destructive re-index (clean-recreate the collection), surfaced as an explicit confirmed op, never a silent side effect. Dimension recorded in config + backup manifest.
+- [v1.4 Roadmap]: **Agent of record is Crush v0.76.0, NOT OpenCode** — OpenCode is structurally unlockable to the zero-outbound posture (unconditional `models.dev` startup fetch, runtime bun/npm downloads, autoupdate default-ON, air-gap closed upstream as not-planned #2224). Crush's two outbound channels both have config kill switches villa renders AND proves at runtime — never flag-trusted.
+- [v1.4 Roadmap]: **Residency = transactional swap-based coding mode** composing `internal/modelswap`; install default is shared mode (agent rides the chat endpoint). Co-resident `villa-coder` deferred to a 128 GB fit-gated v2 stretch. Residency mode is always an OUTPUT of recommend fit math at agent-profile ctx, never a preference. Mode change is an explicit verb, never automatic (ROCm precedent).
+- [v1.4 Roadmap]: **Qdrant code-collection premise researched and REJECTED** (four-way research convergence): text embedder + chunking breaks code semantics + index stale on agent edits; codebase memory is agent-native (Crush LSP + ripgrep/glob + `AGENTS.md`/`CRUSH.md`). villa-qdrant/villa-embed are UNTOUCHED by v1.4. A Qdrant-backed MCP code search is v2-only, behind a pre-declared numeric eval it must WIN.
+- [v1.4 Roadmap]: **Agent is a villa-managed host binary, never a container/service** — pinned release + SHA-256 via a villa-owned `go:embed` pin policy (rocm-policy pattern); `crush.json` is a derived artifact of `config.toml` (regenerated, never hand-edited; doctor flags drift, never auto-corrects).
+- [v1.4 Roadmap]: **Honesty constraints frozen into success criteria**: negative-control-first egress proofs (egress-open run must FAIL), llama-down cloud-fallback control (agent working with inference down = FAIL), under-load residency in the swap prove step (idle-green is not green), addon-off renders byte-identical to v1.3, tool-call round-trip as readiness (health-200 never suffices).
+- [v1.4 Roadmap]: **EXACTLY ONE byte-frozen contract evolves** — `status.Report` 3→4, append-only `coding` block, single golden re-freeze, landed in the final phase (28). Catalog 2→3 and recommend 2→3 are separate contracts landing once, early (24).
 
-Earlier (v1.0 / v1.1 / v1.2) decisions retained below.
+Earlier (v1.0–v1.3) standing decisions retained:
 
-- [v1.2 Roadmap]: Build order is research-converged — seam-locked/composition first, only ONE byte-frozen contract evolution in flight at a time, destructive backup BEFORE the TUI front-end.
-- [v1.2 Roadmap]: New persistence is flat JSONL/JSON under `$XDG_DATA_HOME/villa/` — NEVER in `config.toml`, NEVER embedded SQLite (CGO breaks the static binary).
-- [v1.2 Roadmap]: Each feature with decision logic gets ONE new pure `internal/*` core; host effects stay behind an `orchestrate`-resident or cmd-tier seam — `orchestrate` remains the ONLY intentionally-impure module.
-- [Roadmap]: Inference behind a `Backend` interface from day one; the single `BackendFor()` resolver is the only polymorphism point, fail-closed.
-- [Roadmap]: Config is the single source of truth; Quadlet units are derived/regenerated, never hand-edited.
+- [Roadmap]: Inference behind a `Backend` interface; the single `BackendFor()` resolver is the only polymorphism point, fail-closed.
+- [Roadmap]: Config is the single source of truth; Quadlet units (and now agent config) are derived/regenerated, never hand-edited.
 - [Roadmap]: `--json`/dashboard contracts are byte-frozen; evolve append-only + schema bump, re-freeze goldens exactly once.
 - [Roadmap]: Offload-asserting — a silent/partial CPU fallback is a FAIL, never a false-green; backend marker literals stay behind the `internal/inference` seam (`TestSeamGrepGate`).
 - [v1.1]: ROCm is opt-in; Vulkan RADV stays the default; `recommend` advises, never auto-switches. Digest-pin all images (never floating/nightly tags).
-- [16-03]: clean-recreate-before-import is the load-bearing fix (podman volume import MERGES + does NOT auto-create) — stale data never leaks; mirror this for the Qdrant volume in v1.3 Phase 23.
-- [18-01]: VillaConfig memory_* fields are default-OFF + self-heal from defaultConfig() (single source); NO memory save path added — SC#1 byte-identical for non-opted-in v1.2 installs. MemoryEnabled left as parsed (false is a valid choice); endpoint addrs are container-DNS only, never widened.
-- [18-01]: Spike decisions recorded in 18-DECISIONS.md — D-07 dedicated villa-embed llama-server (reuse pinned kyuz0 image); D-08 nomic-embed-text-v1.5 / 768-dim pinned / Q8_0 / ~512 MiB reservation; D-09 OWUI env contract with ENABLE_PERSISTENT_CONFIG=False MANDATORY and ENABLE_QDRANT_MULTITENANCY_MODE choice pending (Phase 20). TOML keys: memory_enabled/embedding_model/embedding_dim/qdrant_addr/qdrant_port/embed_addr/embed_port.
-- [18-02]: NEW pure `internal/memory` core landed — `Footprint(modelID) detect.Bytes` (typed-Unknown on miss, 512 MiB single-source constant for nomic-embed-text-v1.5, D-08), `Decide(cfg) Decision` (fail-closed enablement-and-fields-valid gate, accumulates refuse-with-reason, T-18-03), `RenderView(cfg) MemoryRenderInput` (resolved-values-only handoff — no URL, no image literal, D-02c/D-10). Zero new deps; `TestSeamGrepGate` confirmed green over `internal/memory` (no os/exec, no image literal). This phase PROVIDES the functions only — no call site added; Phases 19/22/23 wire them.
-- [19-01]: orchestrate memory render path landed — `QdrantImage()`/`EmbedImage()` digest-pinned managed-service consts behind the orchestrate seam (D-02/D-04, `openWebUIImage` precedent, NOT inference `BackendFor`); `seam_test.go` `isSeam` allowlist extended for `orchestrate/memory.go` in the SAME commit (Pitfall 7, `TestSeamGrepGate` green). EXPORTED `EmbedGGUFFilename()` is the single-source embed GGUF filename Plan 19-02's drift test binds against (Pitfall 3). `Render(memory_enabled=true)` appends villa-qdrant.container/.volume + villa-embed.container (Exec=`llama-server … --embeddings --pooling mean -c 8192`, `:ro,z` model mount, no PublishPort); memory-off byte-identical to the v1.2 5-unit output (D-11, 5 existing goldens unchanged). `embedEmbeddingDim=768` recorded (D-08). Qdrant manifest-list digest committed as placeholder; dev-box RepoDigest confirmation deferred to Plan 19-03 checkpoint.
-- [Phase ?]: Phase-19 install memory gate keyed off PERSISTED config.LoadVilla().MemoryEnabled via loadedMemoryEnabled seam, not the always-false DefaultVillaConfig seed (T-19-16)
-- [Phase ?]: Memory readiness proof asserts offline 768-dim /v1/embeddings + Qdrant writable round-trip; FAIL refuses-with-remediation (exitBlocked), never a silent skip (D-09)
-- [Phase ?]: [19-03]: On-hardware freeze PASS — pinned qdrantImage b79aaa49ce… confirmed the OFFICIAL qdrant/qdrant manifest-list digest (EQUALS placeholder, no re-pin/no golden refreeze; the per-arch amd64 child 9f7a0450… reported by RepoDigests is NOT the pin, A5). Pinned kyuz0 embed digest serves a 768-length /v1/embeddings proven offline (--network none), clearing the D-06 #15406 regression risk.
-- [Phase ?]: [19-03]: Live villa install (memory_enabled=true) PASS — readiness proof green (offline 768-dim /v1/embeddings + Qdrant writable), villa-qdrant+villa-embed active container-DNS only (no host port, SC#4), Qdrant writes /qdrant/storage as UID 1000 on its :Z named volume (SC#2 writable). SC#2 durability proxy-proven (collection+point survived podman rm + re-run) + linger enabled; literal sudo reboot DEFERRED (would kill the operator session) — recorded honestly, not claimed as a literal reboot.
-- [Phase 20]: Phase 20-01: OWUI memory/RAG env wired behind orchestrate seam — D-09 block appended only when memory_enabled (byte-identical off), ENABLE_PERSISTENT_CONFIG=False mandatory, values config-sourced (no re-typed host literals) — INFRA-03 render half; single deliberate golden re-freeze (new memory golden), memory-aware telemetry test, seam gate green
-- [Phase ?]: [20-02]: Runtime zero-outbound RAG smoke proof landed (D-10/PRIV-05) — pure evalRagSmoke asserts the egress negative control FIRST (probe-could-not-run OR external host reachable = FAIL) before trusting the upload-and-cite drive; no WARN/skip. liveRagSmoke reuses runProbeCurl over villa.network for the negative control (huggingface.co MUST be unreachable) + a NEW host-side fixed-arg curl for the loopback REST drive; helper image via orchestrate.EmbedImage(), no re-typed literal (TestSeamGrepGate green). villa verify memory is a dedicated gated verb (memory OFF exits 0, memory ON FAIL = exitBlocked); admin-token mint (signin+signup fallback, A5) + citation field (sources/citations, A6) confirmed on-hardware in Plan 03. No new host port (D-11).
-- [Phase 20 close]: UAT 6/6 on-hardware (2026-06-10) — MEM-01 cross-chat injection CONFIRMED via the real web UI driven by Playwright (frontend-mediated in OWUI v0.9.6; saved fact recalled in a new chat, no recall after delete). villa verify memory re-proven live: egress-open FAIL exit 1, scoped nft block PASS exit 0. SECURITY.md: 16/16 threats closed, threats_open 0. GOTCHA: `fwd` is a reserved nftables keyword (chain renamed `villaforward`); inside `podman unshare --rootless-netns` nft can't read host files — pipe ruleset via `nft -f -`. Service account villa-verify@localhost has ui.memory=true left ON.
-- [Phase ?]: Phase 21: CompleteRun compares completed>=started (RFC3339 lexicographic) so a partial second run with an older completed stamp reports incomplete
-- [Phase ?]: Phase 21: internal/recall Classify reuses Plan for diff counts — the D-05 algebra has exactly one implementation
-- [Phase 21-02]: attachKnowledgeRow extracted as an injectable read-merge-write core so the RECALL-02 attach (foreign meta preserved, dedupe by KB id, create-or-update) is provable off-hardware
-- [Phase 21-02]: recall verbs enforce the D-07 gate delta: memory off or Decide-invalid => exitBlocked refuse-with-remediation on BOTH verbs, never verify-memory's exit-0 no-op
-- [Phase 21-02]: pollFileProcessed parameterized with a caller timeout; recall passes the size-aware 60s + 1s/2KiB allowance (verify memory behavior unchanged)
-- [Phase ?]: Phase 21 on-hardware: villa recall proven live on gfx1151 (SC#1 real local index; SC#2 semantic retrieval-by-meaning with citations REST+UI; SC#3 edit/delete clean-replace + typed-Unknown OWUI-down staleness); A2 timeout needed no tuning (~1.3 s/chat)
-- [Phase 22-01]: D-01 reservation-before-fit landed — recommend.Pick(p,c,ov,MemoryInputs) shrinks the envelope by the embedding footprint FIRST (pinned 512 MiB or ConservativeFootprintBytes() on typed-Unknown with an honest RESERVED CONSERVATIVELY note); schema 2 append-only contract, ONE golden re-freeze (recommend.golden.json), all 7 call sites threaded, install MinMemBytes includes the reservation
-- [Phase 22-01]: status liveWeightBytes passes zero-value MemoryInputs on purpose — WeightBytes is envelope-independent for overrides (TestPickOverrideWeightInvariance) so status.json.golden stays provably byte-identical until the Phase-23 schema 2->3 evolution
-- [Phase ?]: [22-02]: liveVolumeRoot resolves the podman volume root through the bounded runTool seam (zero exec.Command in checks_memory.go) — TestSeamGrepGate green by construction, allowlist untouched
-- [Phase ?]: [22-02]: install memory gates behind a nil-safe runMemoryChecks installDeps seam (doctor RunROCmImage pattern) so memory-enabled install tests stay hermetic; preflight verb gates via an injectable memoryGateResults package var (pullFn convention)
-- [Phase ?]: [22-03] doctor memory-service offload down-rank is the (memory-on AND offload:<svc> in MemoryServices AND Status==WARN) conjunction — visible but non-rank-raising; a confident FAIL is never suppressed (DOCTOR-02); doctor PASS reachable on a healthy memory-on stack
-- [Phase ?]: [22-03] under-load residency proof: drive errors degrade a PASS sample to WARN, never overwrite a confident residency FAIL (D-09); D-10 precondition gate degrades to WARN, strictly read-only
-- [Phase ?]: [22-04] D-05 contingency NOT triggered: villa-embed MemoryPeak 116,240,384 B (~110.9 MiB) under a 48-request sustained embed drive vs the 536,870,912 B reservation (~4.6x margin) — the pinned 512 MiB constant stands, footprint.go untouched
-- [Phase ?]: [22-04] Rule-1 fix: residencyDriveText shrunk 96->44 reps (962->442 tokens) — pooled embedding inputs must fit ONE llama-server physical batch (-ub default 512 tokens), the real binding limit (not the 8192 ctx)
-- [Phase ?]: [22-04] Pre-existing health-row false-green deferred to Phase 23: status probes the chat endpoint for EVERY non-OWUI service row — a stopped villa-embed still shows health PASS; doctor-verdict honesty unaffected (D-10 is-active gate)
-- [Phase 23]: OQ2 locked: memoryHealthTTL=15s mutex-guarded pair cache for memory-service probes; 30s fallback is a one-const change pending Plan 23-05 on-hardware proof
-- [Phase 23]: OQ3 locked: doctor memoryOffloadDownRanked deleted (unreachable after v3 OffloadApplies=false reclassification) together with the MemoryEnabled/MemoryServices Deps fields that only keyed it
-- [Phase 23]: status Report v3 frozen: Memory section pointer-omitempty above SchemaVersion; embedding_skew only on confident mismatch; no later plan may touch Report tagged fields or status/doctor goldens
-- [Phase 23]: [23-02] backupSchemaVersion bumped to 2 (D-04 doctrine): old villas fail closed on v2 backups; v1 backups stay restorable via the <= gate, proven by a restore-path fixture
-- [Phase 23]: [23-02] manifest embedding fields recorded ONLY when cfg.MemoryEnabled - config self-heals embedding defaults even memory-off, so the cmd-tier gate keeps memory-off manifests claim-free (typed-Unknown no-alarm at restore)
-- [Phase 23]: [23-02] restore quiesces the qdrant service around the volume swap when a prior volume exists (Rule 2: live VolumeRm fails in-use); gated so memory-off hosts never Stop a non-existent unit
-- [Phase 23]: [23-02] OQ1 honored: Prove NOT extended to the memory stack - restore reports posture + verify-with-doctor / recall index --rebuild remediation instead
-- [Phase 23]: 23-03: Memory panel badge rows reuse the renderGPU busy-row shape (.metric-row + .badge) — zero new CSS, existing badge vocabulary only
-- [Phase 23]: 23-03: count/timestamp rows guard on state AND field presence so omitempty-dropped fields never render NaN/zero-fill
-- [Phase 23]: [23-04] OQ4 locked in code: --rebuild bypasses the recall-index skew refusal (id-preserving KB reset + clean replace; fresh stamp records the new identity); on-hardware proof in 23-05
-- [Phase 23]: [23-04] liveRecallStateLoad is the single shared recall-state.json reader for both the recall verbs and the install skew WARN seam
-- [Phase ?]: [23-05] OQ2 final on hardware: memoryHealthTTL stays 15s — one probe pair per 15s window, zero helper-container churn, warm dashboard poll ~0.33s; 30s fallback not needed
-- [Phase ?]: [23-05] OQ4 final on hardware: recall index --rebuild bypasses the skew refusal, id-preserving KB clean-replace (knowledge_id unchanged), fresh stamp records the new identity; T-23-01 false-green CLOSED live (stopped villa-embed = health down, never ready)
+- [v1.2]: New persistence is flat JSONL/JSON under `$XDG_DATA_HOME/villa/` — never `config.toml`, never embedded SQLite; each decision-logic feature gets ONE new pure `internal/*` core; orchestrate stays the only intentionally-impure module.
+- [v1.3]: Zero-outbound is proven at runtime, negative-control-first — never flag-trusted (`villa verify memory` precedent extends to `villa verify agent`). Reservation-before-fit in `recommend.Pick()`; D-09 reflect-pinned chat-swap isolation from memory units.
+- [16-03]: clean-recreate-before-import is the load-bearing restore fix (podman volume import MERGES + does NOT auto-create).
 
 ### Pending Todos
 
@@ -186,9 +146,9 @@ Earlier (v1.0 / v1.1 / v1.2) decisions retained below.
 
 [Issues that affect future work]
 
-- ~~NON-NEGOTIABLE THREAT (Phase 20): runtime HF model pull / PersistentConfig drift~~ — **RESOLVED in Phase 20** (pre-staged embed model, local `/v1/embeddings` routing, full offline/telemetry env block frozen by golden, `ENABLE_PERSISTENT_CONFIG=False` mandatory, runtime firewalled zero-outbound proof green on-hardware; SECURITY 16/16 closed).
-- ~~NON-NEGOTIABLE THREAT (Phase 22): embedding model competes for the same gfx1151 unified-memory pool~~ — **RESOLVED in Phase 22** (reservation-before-fit in `recommend.Pick()`, MEM-PRE BLOCK gates, offload-asserting MEM-DOC-residency under a real embedding drive; on-hardware UAT pass incl. embed-down negative control; security 17/17 closed).
-- ~~Phase 23: embedding swap invalidates vectors / OFFLOAD WARN on memory rows / per-row health false-green~~ — **ALL RESOLVED in Phase 23** (D-09/D-10 swap guards; OffloadApplies=false reclassification; per-service in-network health in status v3 — false-green closed live with the stopped-embed negative control). On-hardware validation complete for all v1.3 phases (19–23).
+- NON-NEGOTIABLE THREAT (Phase 27): agent phone-home at **startup** (registry/update fetches fire before first prompt) and silent cloud-model fallback — both must be closed by the negative-control-first `villa verify agent` (egress-open run FAILs; llama-down control FAILs an agent that keeps working). Kill switches are documented upstream but unproven on this host until Phase 27.
+- Phase 24 risk: tool-call/jinja template landmines — GGUF artifacts must be pinned at repo+revision level (the embedded chat template is part of the artifact); the pinned `vulkan-radv` toolbox digest may need a re-pin if its llama.cpp predates Qwen3-Next arch support (PR #16095) + Feb-2026 tool-call parser fixes. `--cache-reuse` is incompatible with recurrent/hybrid models incl. the current chat model; verify for Qwen3-Coder-Next.
+- Phase 24 risk: agent-scale KV (~6–12 GiB at 64–128k ctx) blows fit math anchored on chat contexts — fit must be computed at the agent's RENDERED ctx; KV-quantization only as a catalog-declared, benched choice.
 - v1.3 audit-recorded debt (non-blocking, see Deferred Items): literal reboot durability re-confirmation; restore-side tar streaming (WR-06); install service-name drift test; formal 20-VERIFICATION.md; Nyquist finalization for Phases 18–19.
 
 ### Quick Tasks Completed
@@ -225,12 +185,20 @@ Items recorded at v1.3 milestone close (2026-06-11, from `milestones/v1.3-MILEST
 | process | Phase 20 has no formal VERIFICATION.md (covered by 6/6 on-hardware UAT + approved VALIDATION + SECURITY.md) | Documented | v1.3 close |
 | process | Nyquist VALIDATION.md left draft for Phases 18–19 (`/gsd-validate-phase 18` / `19`) | Open | v1.3 close |
 
+Items deferred at v1.4 roadmap creation (2026-06-12, research-recorded):
+
+| Category | Item | Status | Deferred At |
+|----------|------|--------|-------------|
+| v2_scope | CODER-V2-01: Co-resident `villa-coder` Quadlet unit (128 GB fit-gated stretch; design shelf-ready in research/ARCHITECTURE.md) | Deferred | v1.4 roadmap |
+| v2_scope | CODER-V2-02: Qdrant/villa-embed MCP semantic code search — only behind a pre-declared numeric eval it must WIN vs grep/LSP | Deferred | v1.4 roadmap |
+| v2_scope | CODER-V2-03: Sandboxed/containerized agent profile for untrusted repos | Deferred | v1.4 roadmap |
+
 ## Session Continuity
 
-Last session: 2026-06-10T21:52:07.816Z
-Stopped at: Completed 23-05-PLAN.md (operator sign-off approved — Phase 23 verification complete)
+Last session: 2026-06-12
+Stopped at: v1.4 roadmap created — Phases 24–28 mapped (17/17 requirements), ROADMAP.md/STATE.md written, REQUIREMENTS.md traceability updated
 Resume file: None
 
 ## Operator Next Steps
 
-- Start the next milestone with /gsd-new-milestone
+- Plan the first v1.4 phase: `/gsd-plan-phase 24` (research-phase recommended — on-hardware qualification protocol, KV measurement, toolbox re-pin decision)
