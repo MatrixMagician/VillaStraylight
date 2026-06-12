@@ -1,0 +1,101 @@
+{
+  "standard_variant": {
+    "assertion": "PASS: well-formed tool_calls, string arguments: {\"city\":\"Berlin\"}",
+    "response": {
+      "choices": [
+        {
+          "finish_reason": "tool_calls",
+          "index": 0,
+          "message": {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "get_weather",
+                  "arguments": "{\"city\":\"Berlin\"}"
+                },
+                "id": "fHQTIwRfElKXaig6dQZjSe3pdp2GeIAZ"
+              }
+            ]
+          }
+        }
+      ],
+      "created": 1781305025,
+      "model": "Qwen3-Coder-Next-UD-Q4_K_XL.gguf",
+      "system_fingerprint": "b9496-94a220cd6",
+      "object": "chat.completion",
+      "usage": {
+        "completion_tokens": 22,
+        "prompt_tokens": 288,
+        "total_tokens": 310,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        }
+      },
+      "id": "chatcmpl-OeKtFFizk80CM0vzj7Jyr4d8H6Xihl53",
+      "timings": {
+        "cache_n": 0,
+        "prompt_n": 288,
+        "prompt_ms": 1277.503,
+        "prompt_per_token_ms": 4.435774305555555,
+        "prompt_per_second": 225.43978370305197,
+        "predicted_n": 22,
+        "predicted_ms": 492.142,
+        "predicted_per_token_ms": 22.37009090909091,
+        "predicted_per_second": 44.702545200369
+      }
+    }
+  },
+  "no_properties_variant": {
+    "http_code": "200",
+    "must_not_500": "PASS",
+    "response": {
+      "choices": [
+        {
+          "finish_reason": "tool_calls",
+          "index": 0,
+          "message": {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+              {
+                "type": "function",
+                "function": {
+                  "name": "get_weather",
+                  "arguments": "{}"
+                },
+                "id": "53DxoyVIhO6H6NVAwnmOLeg5DtWfRa31"
+              }
+            ]
+          }
+        }
+      ],
+      "created": 1781305026,
+      "model": "Qwen3-Coder-Next-UD-Q4_K_XL.gguf",
+      "system_fingerprint": "b9496-94a220cd6",
+      "object": "chat.completion",
+      "usage": {
+        "completion_tokens": 12,
+        "prompt_tokens": 259,
+        "total_tokens": 271,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        }
+      },
+      "id": "chatcmpl-SR07V280UIG7bNvJ7bTTokd6DKJPMpNX",
+      "timings": {
+        "cache_n": 0,
+        "prompt_n": 259,
+        "prompt_ms": 720.432,
+        "prompt_per_token_ms": 2.7815907335907335,
+        "prompt_per_second": 359.5065183112355,
+        "predicted_n": 12,
+        "predicted_ms": 239.943,
+        "predicted_per_token_ms": 19.995250000000002,
+        "predicted_per_second": 50.01187782098248
+      }
+    }
+  }
+}

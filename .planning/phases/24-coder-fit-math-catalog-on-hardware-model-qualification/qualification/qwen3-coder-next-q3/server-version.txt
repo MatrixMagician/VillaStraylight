@@ -1,0 +1,5 @@
+# llama-server --version, one-shot run BY DIGEST (T-24-07)
+# image: docker.io/kyuz0/amd-strix-halo-toolboxes@sha256:9a74e555c45864352a4077528836988d448e9f030fbab9f7376ea1c603ac7aad
+# captured: 2026-06-12T23:00:02Z
+version: 9496 (94a220cd6)
+built with GNU 15.2.1 for Linux x86_64

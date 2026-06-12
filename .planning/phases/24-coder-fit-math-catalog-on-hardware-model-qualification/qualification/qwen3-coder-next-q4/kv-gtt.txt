@@ -1,0 +1,17 @@
+# KV / GTT measurement (D-09) — captured 2026-06-12T22:56:32Z
+GTT baseline (quiesced): 1941512192 bytes = 1851 MiB
+GTT after load:          55450583040 bytes = 52881 MiB
+GTT delta:               53509070848 bytes = 51030 MiB
+
+# load-log KV / residency lines (offload-asserting, never liveness):
+0.03.273.556 I load_tensors: offloaded 49/49 layers to GPU
+0.03.273.564 I load_tensors:      Vulkan0 model buffer size = 46989.32 MiB
+0.13.817.179 I llama_kv_cache:    Vulkan0 KV buffer size =  3072.00 MiB
+
+# hybrid-arch detail lines (A2 — DeltaNet recurrent-state constant):
+0.00.282.053 I llama_model_loader: - kv   0:                       general.architecture str              = qwen3next
+0.13.841.746 I llama_kv_cache: size = 3072.00 MiB (131072 cells,  12 layers,  4/1 seqs), K (f16): 1536.00 MiB, V (f16): 1536.00 MiB
+0.13.862.085 I llama_memory_recurrent:    Vulkan0 RS buffer size =   301.50 MiB
+0.13.862.096 I llama_memory_recurrent: size =  301.50 MiB (     4 cells,  48 layers,  4 seqs  0 rs_seq), R (f32):   13.50 MiB, S (f32):  288.00 MiB
+0.13.932.899 I sched_reserve:    Vulkan0 compute buffer size =   216.38 MiB
+0.13.932.906 I sched_reserve: Vulkan_Host compute buffer size =   136.02 MiB
