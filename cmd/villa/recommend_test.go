@@ -30,13 +30,28 @@ func fixtureRecommendation() recommend.Recommendation {
 		Fits:                true,
 		Degraded:            false,
 		Notes:               []string{},
+		// The coder block surfaces unconditionally (D-07, no omitempty) and is
+		// POPULATED here so the frozen bytes exercise the full schema-3 shape:
+		// a fitting agent-profile pick with residency "swap".
+		Coder: recommend.CoderFit{
+			Model:         "qwen3-coder-30b-a3b",
+			Quant:         "UD-Q4_K_XL",
+			AgentCtx:      65536,
+			WeightBytes:   17665334432,
+			KVCacheBytes:  6442450944,
+			HeadroomBytes: 8057925795,
+			TotalBytes:    32165711171,
+			Fits:          true,
+			Residency:     "swap",
+		},
 		// SchemaVersion surfaces unconditionally in --json (D-06/D-07). The fixture
 		// builds the struct directly (it does not call Pick), so it pins the contract
 		// version explicitly; advice fields stay empty (no readiness fixture) and so
 		// remain absent under omitempty. Schema 2 (Phase 22, D-03): the append-only
 		// embedding_reservation_bytes + memory_considered keys surface as zero/false
-		// here — the memory-off contract shape.
-		SchemaVersion: 2,
+		// here — the memory-off contract shape. Schema 3 (Phase 24, D-07): the
+		// append-only coder block lands directly above schema_version.
+		SchemaVersion: 3,
 	}
 }
 
@@ -71,17 +86,43 @@ func TestRecommendJSONGolden(t *testing.T) {
 }
 
 // TestRecommendTableShowsFitMath asserts the default table surfaces all four fit
-// terms and the ≤ comparison (D-06 — math is SHOWN, not just applied).
+// terms and the ≤ comparison (D-06 — math is SHOWN, not just applied), plus the
+// coder (agent profile) section: model id, agent ctx, fits glyph and residency
+// when a coder entry fits.
 func TestRecommendTableShowsFitMath(t *testing.T) {
 	var buf bytes.Buffer
 	if err := renderRecommend(&buf, fixtureRecommendation(), nil, false /*table*/, false); err != nil {
 		t.Fatalf("renderRecommend: %v", err)
 	}
 	out := buf.String()
-	for _, want := range []string{"model_bytes", "KV-cache", "headroom", "total", "usable envelope"} {
+	for _, want := range []string{
+		"model_bytes", "KV-cache", "headroom", "total", "usable envelope",
+		"Coder (agent profile)", "qwen3-coder-30b-a3b", "agent ctx 65536", "residency: swap", "≤",
+	} {
 		if !bytes.Contains(buf.Bytes(), []byte(want)) {
 			t.Errorf("fit table missing %q:\n%s", want, out)
 		}
+	}
+}
+
+// TestRecommendTableCoderNoFitLine asserts the compact honest rendering when no
+// coder entry fits: a single line stating no coder model fits and residency is
+// "shared" — the JSON block is always stamped (D-07) but the table stays terse.
+func TestRecommendTableCoderNoFitLine(t *testing.T) {
+	rec := fixtureRecommendation()
+	rec.Coder = recommend.CoderFit{Fits: false, Residency: "shared"}
+	var buf bytes.Buffer
+	if err := renderRecommend(&buf, rec, nil, false /*table*/, false); err != nil {
+		t.Fatalf("renderRecommend: %v", err)
+	}
+	out := buf.String()
+	for _, want := range []string{"Coder (agent profile)", "no coder model fits", "shared"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("no-fit coder line missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "residency: swap") {
+		t.Errorf("no-fit coder rendering must not claim swap residency:\n%s", out)
 	}
 }
 

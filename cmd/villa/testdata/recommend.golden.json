@@ -13,5 +13,16 @@
   "notes": [],
   "embedding_reservation_bytes": 0,
   "memory_considered": false,
-  "schema_version": 2
+  "coder": {
+    "model": "qwen3-coder-30b-a3b",
+    "quant": "UD-Q4_K_XL",
+    "agent_ctx": 65536,
+    "weight_bytes": 17665334432,
+    "kv_cache_bytes": 6442450944,
+    "headroom_bytes": 8057925795,
+    "total_bytes": 32165711171,
+    "fits": true,
+    "residency": "swap"
+  },
+  "schema_version": 3
 }
