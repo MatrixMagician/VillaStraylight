@@ -28,8 +28,9 @@ const defaultBackend = "vulkan"
 // LAST tagged field of Recommendation and surfaces unconditionally in --json so
 // dashboards can gate on additive growth (D-06/D-07). Bumped 1→2 when the
 // append-only embedding_reservation_bytes + memory_considered fields landed
-// (Phase 22, D-03).
-const recommendSchemaVersion = 2
+// (Phase 22, D-03). Bumped 2→3 when the append-only coder block landed
+// (Phase 24, D-07).
+const recommendSchemaVersion = 3
 
 // ROCmAdvice is a typed enum surfaced on the Recommendation (REC-05 / D-05): an
 // honesty-bounded hint about whether the opt-in ROCm backend is worth a benchmark
@@ -110,6 +111,13 @@ type Recommendation struct {
 	// which honestly report the reservation they would have applied.
 	MemoryConsidered bool `json:"memory_considered"`
 
+	// Coder is the agent-profile coder fit + derived residency mode (D-06): the
+	// fit is computed at each coder entry's catalog agent_ctx against the
+	// post-reservation envelope. It is ALWAYS stamped — including on refusals,
+	// where it carries fits:false / residency:"shared" — and deliberately NOT
+	// omitempty so the residency basis is never hidden (D-07, Pitfall 6).
+	Coder CoderFit `json:"coder"`
+
 	// SchemaVersion is the Recommendation contract self-version and MUST stay the
 	// LAST tagged field (append-only discipline; new fields go above it, D-06/D-07).
 	SchemaVersion int `json:"schema_version"`
@@ -156,11 +164,13 @@ func Pick(p detect.HostProfile, c catalog.Catalog, ov Overrides, mem MemoryInput
 	if !ok {
 		// No usable envelope and no safe floor derivable — refuse rather than
 		// guess high (D-14). Empty Model signals the refusal. The refusal still
-		// stamps the reservation as computed (honest surface, D-03).
+		// stamps the reservation as computed (honest surface, D-03) and the
+		// conservative-floor coder block (D-06/D-07: swap requires a PROVEN
+		// fit, so a refusal stamps fits:false / residency:"shared").
 		return finalizeRecommendation(Recommendation{
 			Backend: defaultBackend,
 			Notes:   append(memNotes, "refusing to recommend: usable memory envelope is unknown and no safe floor is derivable (neither GTT envelope nor total RAM detected)"),
-		}, p, mem, reservation)
+		}, p, mem, reservation, sharedCoderFit())
 	}
 
 	// D-01: the envelope shrinks BEFORE the degraded note and BEFORE
@@ -179,12 +189,17 @@ func Pick(p detect.HostProfile, c catalog.Catalog, ov Overrides, mem MemoryInput
 			degradedFloorFraction*100, humanGiB(envelope)))
 	}
 
+	// The coder fit runs against the POST-reservation envelope (D-05 ordering:
+	// envelope → reservation → chat fit → coder fit) and is locked to each
+	// entry's agent_ctx — pickCoder takes no Overrides by construction (D-04).
+	coder := pickCoder(c, envelope)
+
 	// An explicit --model override takes precedence and is re-validated.
 	if ov.Model != "" {
-		return finalizeRecommendation(pickOverride(c, ov, envelope, degraded, notes), p, mem, reservation)
+		return finalizeRecommendation(pickOverride(c, ov, envelope, degraded, notes), p, mem, reservation, coder)
 	}
 
-	return finalizeRecommendation(pickBest(c, ov, envelope, degraded, notes), p, mem, reservation)
+	return finalizeRecommendation(pickBest(c, ov, envelope, degraded, notes), p, mem, reservation, coder)
 }
 
 // memoryReservation resolves the D-01 embedding reservation from the memory
@@ -208,16 +223,18 @@ func memoryReservation(mem MemoryInputs) (uint64, []string) {
 
 // finalizeRecommendation stamps the additive, contract-level fields onto a
 // fully-computed pick: the unconditional SchemaVersion, the D-03 memory fields,
-// and the purely-derived ROCm advice. It runs AFTER Backend is set and NEVER
-// reassigns rec.Backend — advice can only annotate the pick, never auto-switch it
-// (REC-04, T-10-06). It performs no I/O: the advice is folded from
-// p.ROCmReadiness already in hand. EVERY Pick return path — including the
-// no-envelope refusal — flows through here, so the D-03 fields are stamped
-// unconditionally (zero/false when memory is off; reservation+true when on).
-func finalizeRecommendation(rec Recommendation, p detect.HostProfile, mem MemoryInputs, reservation uint64) Recommendation {
+// the D-07 coder block, and the purely-derived ROCm advice. It runs AFTER
+// Backend is set and NEVER reassigns rec.Backend — advice can only annotate the
+// pick, never auto-switch it (REC-04, T-10-06). It performs no I/O: the advice
+// is folded from p.ROCmReadiness already in hand. EVERY Pick return path —
+// including the no-envelope refusal — flows through here, so the D-03 memory
+// fields and the coder block are stamped unconditionally (the refusal path
+// passes the conservative-floor block: fits:false / residency:"shared", D-06).
+func finalizeRecommendation(rec Recommendation, p detect.HostProfile, mem MemoryInputs, reservation uint64, coder CoderFit) Recommendation {
 	rec.SchemaVersion = recommendSchemaVersion
 	rec.EmbeddingReservationBytes = reservation
 	rec.MemoryConsidered = mem.Enabled
+	rec.Coder = coder
 	advice, note := deriveROCmAdvice(p.ROCmReadiness)
 	rec.ROCmAdvice = advice
 	if note != "" {
@@ -281,6 +298,10 @@ func pickBest(c catalog.Catalog, ov Overrides, envelope uint64, degraded bool, n
 
 	for i := range c.Models {
 		m := c.Models[i]
+		if m.Role == "coder" {
+			continue // chat path excludes coder entries — absent role ⇒ chat;
+			// coder entries are sized separately by pickCoder (D-03)
+		}
 		if m.Bootstrap {
 			continue // never auto-select the bootstrap entry (D-12)
 		}
@@ -348,6 +369,13 @@ func pickOverride(c catalog.Catalog, ov Overrides, envelope uint64, degraded boo
 
 	if !m.UnifiedMemorySafe {
 		notes = append(notes, fmt.Sprintf("WARNING: model %q is flagged unified_memory_safe:false — it is known to misbehave on unified memory; using it only because you overrode (D-07)", m.ID))
+	}
+	if m.Role == "coder" {
+		// Warn-and-allow (Open Question 1, the D-07 override philosophy): a
+		// coder entry can be forced onto the CHAT pick, but loudly. The chat KV
+		// for an override still uses effectiveCtx — only pickCoder is
+		// agent_ctx-locked (D-04).
+		notes = append(notes, fmt.Sprintf("WARNING: model %q is a role:\"coder\" entry — using it as the CHAT pick only because you overrode (D-07); the coder fit/residency is computed separately at its agent profile", m.ID))
 	}
 	if ov.Quant != "" && ov.Quant != m.Quant {
 		notes = append(notes, fmt.Sprintf("note: override quant %q differs from the catalog entry's %q; fit math uses the catalog entry's dimensions", ov.Quant, m.Quant))
