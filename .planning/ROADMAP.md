@@ -89,7 +89,7 @@ Audit PASSED — 22/22 requirements, 15/16 integration connections (0 blockers),
 **Build order is research-converged (mirrors the proven v1.2/v1.3 shape):** fit math + on-hardware model qualification first (schema bumps land once, early; qualification can delete/re-pin catalog entries), render/swap before the agent exists so the endpoint contract is golden-frozen first, agent delivery core next, the install addon + egress/cloud-fallback proofs over the full assembly, and ALL surfacing last — the single `status.Report` 3→4 bump with exactly one golden re-freeze.
 
 - [x] **Phase 24: Coder Fit Math, Catalog & On-Hardware Model Qualification** - `role:"coder"` catalog entries + recommend coder-fit stage at agent-profile ctx with honest residency-mode output, qualified agent-in-the-loop on the gfx1151 box *(COMPLETE 2026-06-13 — 4/4 plans; catalog FROZEN, D-13 toolbox keep, CODER-01/02/03)*
-- [ ] **Phase 25: Coding-Mode Render & Transactional Swap Verb** - Tool-calling-ready llama-server unit delta behind the seams + a transactional enter/exit coding-mode verb composing `modelswap`
+- [x] **Phase 25: Coding-Mode Render & Transactional Swap Verb** - Tool-calling-ready llama-server unit delta behind the seams + a transactional enter/exit coding-mode verb composing `modelswap` (completed 2026-06-13)
 - [ ] **Phase 26: Agent Delivery Core & Lockdown Launcher** - Pinned SHA-256-verified Crush install via villa-owned pin policy, `crush.json` rendered from config.toml with kill switches, `villa code` launcher with env lockdown, drift detection
 - [ ] **Phase 27: Install Addon, Preflight Gates & `villa verify agent`** - Optional install addon with sanctioned-window pre-staging + tool-call readiness proof, honest preflight gates, negative-control-first egress + cloud-fallback proofs, uninstall coverage
 - [ ] **Phase 28: Agent Surfacing & Contracts** - `status.Report` 3→4 `coding` block (single golden re-freeze), dashboard Agent panel, doctor agent checks, backup coverage, per-model usage + cache-effectiveness signals
@@ -225,7 +225,7 @@ Plans:
 | 22. Control-Plane Fit + Host Gate | v1.3 | 4/4 | Complete | 2026-06-10 |
 | 23. Surfacing, Backup & Memory-Aware Swap | v1.3 | 5/5 | Complete | 2026-06-10 |
 | 24. Coder Fit Math, Catalog & On-Hardware Model Qualification | v1.4 | 4/4 | Complete    | 2026-06-13 |
-| 25. Coding-Mode Render & Transactional Swap Verb | v1.4 | 1.5/2 (25-02 Tasks 1-2 done; Task 3 on-hardware acceptance OPEN) | In Progress|  |
+| 25. Coding-Mode Render & Transactional Swap Verb | v1.4 | 2/2 | Complete   | 2026-06-13 |
 | 26. Agent Delivery Core & Lockdown Launcher | v1.4 | 0/TBD | Not started | - |
 | 27. Install Addon, Preflight Gates & `villa verify agent` | v1.4 | 0/TBD | Not started | - |
 | 28. Agent Surfacing & Contracts | v1.4 | 0/TBD | Not started | - |

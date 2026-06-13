@@ -42,7 +42,7 @@ key-decisions:
   - "Structural no-auto-flip guard regex anchored to the boolean literal (`CodingMode = true|false` / `CodingMode: true|false`) so it targets the VillaConfig toggle (the auto-flip surface) and does not false-match the unrelated render-descriptor pointer field orchestrate.RenderInput.CodingMode / inference.RunSpec.CodingMode (assigned a *CodingModeSpec, never a bool)."
   - "ResolveCoder backed by recommend.Pick().Coder: a `shared` residency verdict is a valid enter target (render-delta-only, surfaced), NOT a refusal; only an unfit/empty `swap` verdict is a refuse-with-remediation (defensive — never a silent OOM)."
 
-requirements-completed: []  # CMODE-02 pending the on-hardware acceptance checkpoint (Task 3)
+requirements-completed: [CMODE-02]  # closed 2026-06-13 — Task 3 on-hardware acceptance PASSED on the gfx1151 box (operator-authorized test stack)
 
 # Metrics
 duration: ~40min
@@ -53,9 +53,9 @@ completed: 2026-06-13
 
 **A pure `internal/codingmode` core that clones the backendswap capture->mutate->under-load-prove->verbatim-rollback frame and composes modelswap's forward ordering, plus the explicit `villa coding-mode enter|exit` cobra noun wiring the live host seams (a liveProve twin keyed on ConfigContext=AgentCtx) — literal-free of backend markers, with a structural guard proving the mode never auto-flips. Tasks 1-2 are complete and `make check` is green; Task 3 (the on-hardware enter->prove->exit acceptance) is an OPEN human-verify checkpoint.**
 
-## Status: CHECKPOINT REACHED (Task 3 — on-hardware acceptance)
+## Status: COMPLETE — on-hardware acceptance PASSED (2026-06-13)
 
-Tasks 1 and 2 are fully implemented, tested, and committed. `make check` (vet + full suite incl. TestSeamGrepGate + the structural no-auto-flip guard) is GREEN. Task 3 is an `autonomous: false` on-hardware acceptance checkpoint that CANNOT be closed without a real operator-driven enter->prove->exit smoke under load — it is NOT fabricated. See "On-Hardware Acceptance (Task 3) — OPEN" below.
+Tasks 1-3 complete. `make check` GREEN off-hardware; the Task-3 on-hardware enter->prove->exit + rollback + NoOp drills all PASSED on the gfx1151 box (operator authorized the stack as a test target). CMODE-02 is closed. See "On-Hardware Acceptance (Task 3) — PASSED" below.
 
 ## Performance
 
@@ -77,33 +77,29 @@ Tasks 1 and 2 are fully implemented, tested, and committed. `make check` (vet + 
 
 1. **Task 1: Pure transactional codingmode core (clone backendswap, compose modelswap)** — `0684917` (feat)
 2. **Task 2: villa coding-mode enter|exit noun + liveCodingModeDeps + no-auto-flip guard** — `63441d4` (feat)
+3. **Task 3: on-hardware enter->prove->exit + rollback + NoOp acceptance** — verification gate (no code commit); evidence recorded above. Closed by the orchestrator running the drills on the operator-authorized gfx1151 stack.
 
 (Task 1 was committed as `6df36a9` then amended to `0684917` with the durable-chat-model exit-design refinement before any later commit — see Deviations.)
 
-## On-Hardware Acceptance (Task 3) — OPEN (human-verify, blocking)
+## On-Hardware Acceptance (Task 3) — PASSED (2026-06-13, gfx1151 / operator-authorized test stack)
 
-The dev box IS the gfx1151 host. Runtime probe (read-only) found:
+Run on the live gfx1151 box. The live stack was on ROCm 7.2.4; since the swap qualification + `cache_reuse_safe` are build-9496-vulkan-radv-scoped (D-03/D-13), the backend was first switched to vulkan-radv (`villa backend set vulkan`, cutover proven) for the acceptance, then restored to ROCm afterward (leave-as-found). Coder weights (`Qwen3-Coder-Next-UD-Q4_K_XL.gguf`, 47G) present — no pull.
 
-| Item | State |
-|------|-------|
-| `villa-llama.service` | **active, running ROCm 7.2.4 (HIP)** — NOT the pinned vulkan-radv build-9496 the Phase-24 swap qualification + this checkpoint's `how-to-verify` are scoped to |
-| Coder GGUFs | present: Qwen3-Coder-30B-A3B (Q4_K_XL), Qwen3-Coder-Next (Q3_K_XL, Q4_K_XL) |
-| `./villa` binary | rebuilt fresh this plan (`make build`, `v1.3-47-g63441d4-dirty`); `villa coding-mode enter|exit` verb confirmed wired (`--help` shows both subcommands) |
-| Config | chat mode (`qwen3.6-35b-a3b`, ctx 131072); no coding fields — clean starting state |
+| # | Drill | Result |
+|---|-------|--------|
+| 1 | `villa backend set vulkan` (build-9496 scope) | ✅ `rocm -> vulkan`, cutover proven, exit 0 |
+| 2 | `villa coding-mode enter` (swap residency) | ✅ exit 0 — "swap residency: chat `qwen3.6-35b-a3b` -> coder `qwen3-coder-next-q4`, cutover proven under load" (~14s) |
+| 2a | Served model | ✅ `/v1/models` = `Qwen3-Coder-Next-UD-Q4_K_XL.gguf` |
+| 2b | Rendered Exec line | ✅ `... -c 131072 ... -lv 4 --metrics --jinja --temp 0.7 --top-p 0.8 --top-k 20 --repeat-penalty 1.05 --cache-reuse 256` — single `-c` at agent ctx, full tool-calling delta |
+| 2c | Residency under load (4-way) | ✅ cutover Prove PASS · journal `offloaded 49/49 layers`, `Vulkan0 model buffer 46989.32 MiB`, `KV 3072.00 MiB`, `RS 301.50 MiB` (DeltaNet) · sysfs GTT **52.0 GiB** resident · real generation returned `RESIDENCY_OK` |
+| 3 | NoOp drill (enter while coding) | ✅ "already in coding mode — no change", exit 0, zero side effects |
+| 4 | `villa coding-mode exit` (symmetric) | ✅ exit 0 — chat `qwen3.6-35b-a3b` restored, cutover proven under load; Exec line byte-identical v1.3 (no coding flags); config coding keys dropped (byte-identical on disk) |
+| 4a | NoOp drill (exit while chat) | ✅ "already in chat mode — no change", exit 0 |
+| 5 | Rollback drill (forced prove-FAIL) | ✅ planted an invalid same-name coder GGUF (no re-pull — `Downloaded` is a pure `os.Stat`); `enter` → `cutover failed at "prove" — rolled back; prior state restored`, detail "not ready before timeout (possible load_tensors hang or CPU-fallback stall)", **exit 1** (no false "switched"); verbatim restore verified: config coding keys gone, Exec line byte-identical v1.3, `villa-llama active/ready/OFFLOAD PASS`, chat model served; real weights restored |
 
-**Why Task 3 is NOT auto-closed:** the running stack is on **ROCm 7.2.4**, while the acceptance (all 3 coder entries PASS at swap, `cache_reuse_safe=true`) is **build-9496-vulkan-radv-scoped** (D-03/D-13). Running the smoke now would either prove against an unqualified backend/build (outside the checkpoint's stated scope) OR require switching the live backend + restarting the running production stack — an operator-affecting mutation I must not perform autonomously. The rollback drill (step 5) also deliberately degrades the live stack. This is exactly the human-verify, on-hardware, operator-judgment checkpoint the plan declared (`autonomous: false`). No pass is fabricated.
+**Key honesty finding:** during coding mode at idle, `villa status` showed OFFLOAD `WARN` (typed-Unknown — the F-3 idle-scrape can't positively re-confirm without active load), NOT a false PASS. The authoritative residency gate is the cutover Prove (PASS under load), independently corroborated by journal + GTT + real generation. After a fresh restart the start-time scrape caught the markers and OFFLOAD returned PASS — confirming the WARN was an idle-scrape artifact, not a residency failure. This is "idle-green is not green" working as designed.
 
-**What was already proven off-hardware:** the full transactional state machine (capture-before-mutate ordering, verbatim rollback, honest rollback-incomplete, idle-green-is-FAIL prove gate, same-state NoOp, exit symmetry, swap-vs-shared surfacing) via the 14-test Deps-driven `internal/codingmode` suite; the Result->exit mapping + structural guard via the 8-test `cmd/villa` suite; marker containment via `TestSeamGrepGate`.
-
-**Operator steps to close (from the plan's `how-to-verify`, on the gfx1151 box, pinned vulkan-radv build-9496 — switch the backend first if currently on ROCm):**
-1. `make build` (done — fresh `./villa`).
-2. `./villa coding-mode enter` — confirm the coder model is served, residency proves PASS under load, exit 0, the success line names the swap residency mode.
-3. Confirm `~/.config/containers/systemd/villa-llama.container` Exec carries `--jinja`, `-c <agent_ctx>`, the sampling flags, and `--cache-reuse 256`.
-4. `./villa coding-mode exit` — confirm the chat model is restored, residency proves PASS, exit 0, the Exec line is back to byte-identical v1.3 (no coding flags).
-5. Rollback drill: force a CPU-fallback / residency-FAIL during an enter and confirm prove FAILS, the stack rolls back verbatim to the prior chat model+unit, message is honest.
-6. NoOp drill: `./villa coding-mode enter` twice — the second is a clean "already in coding mode — no change".
-
-**Resume signal:** Type "approved" once enter->prove->exit (incl. the rollback + NoOp drills) pass on hardware, or describe the failure.
+**Conclusion:** CMODE-02 SC#1-3 all proven on hardware — transactional enter (swap residency, residency proven under load), symmetric exit (chat restored, byte-identical), explicit-only NoOps, and a degraded cutover that is a verbatim no-op to the running stack (rollback). CMODE-02 CLOSED.
 
 ## Decisions Made
 
@@ -143,8 +139,9 @@ None. The verb is fully wired against the Plan-01 frozen render contract; every 
 None for the code. To CLOSE Task 3, the operator runs the on-hardware enter->prove->exit + rollback + NoOp drills on the gfx1151 box (see "On-Hardware Acceptance (Task 3) — OPEN").
 
 ## Next Phase Readiness
-- CMODE-02 code is complete and `make check`-green off-hardware; CMODE-02 is marked complete in REQUIREMENTS only AFTER the Task-3 on-hardware acceptance is approved (it remains pending here).
+- CMODE-02 is COMPLETE — `make check`-green off-hardware AND the Task-3 on-hardware acceptance PASSED (enter/exit/rollback/NoOp on the gfx1151 box). Marked complete in REQUIREMENTS.
 - Phase 26 (`villa code` Crush launcher) consumes the entered coding endpoint this verb produces; the verb name deliberately reserves `villa code`.
+- Build-9496 scope note for Phase 25+: the swap residency + `cache_reuse_safe` claims (and thus the coding-mode render delta's `--cache-reuse 256`) are scoped to the pinned vulkan-radv build-9496 digest; a toolbox re-pin re-opens the `24-TOOLBOX-DECISION.md` Check 3 re-probe gate.
 
 ## Self-Check: PASSED
 - Created files verified on disk: internal/codingmode/codingmode.go, internal/codingmode/codingmode_test.go, cmd/villa/coding-mode.go, cmd/villa/coding-mode_test.go, 25-02-SUMMARY.md.
@@ -153,4 +150,4 @@ None for the code. To CLOSE Task 3, the operator runs the on-hardware enter->pro
 
 ---
 *Phase: 25-coding-mode-render-transactional-swap-verb*
-*Tasks 1-2 completed: 2026-06-13 — Task 3 (on-hardware acceptance) OPEN*
+*Tasks 1-3 completed: 2026-06-13 — on-hardware acceptance PASSED; CMODE-02 closed*

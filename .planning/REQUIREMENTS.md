@@ -22,7 +22,7 @@ Requirements for this milestone. Each maps to roadmap phases.
 ### Coding Mode
 
 - [x] **CMODE-01**: Coding mode renders a tool-calling-ready llama-server unit delta (`--jinja`, agent ctx, sampling preset, `--cache-reuse` where model-compatible) behind the inference/orchestrate seams; addon-off renders byte-identical to v1.3
-- [ ] **CMODE-02**: User can enter/exit coding mode via a transactional verb composing `modelswap` (capture → under-load residency prove → cutover → verbatim rollback), with the chat model restored on exit
+- [x] **CMODE-02**: User can enter/exit coding mode via a transactional verb composing `modelswap` (capture → under-load residency prove → cutover → verbatim rollback), with the chat model restored on exit
 
 ### Agent Delivery & Lockdown
 
@@ -79,7 +79,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | CODER-02 | Phase 24 | Complete |
 | CODER-03 | Phase 24 | Complete |
 | CMODE-01 | Phase 25 | Complete |
-| CMODE-02 | Phase 25 | Pending |
+| CMODE-02 | Phase 25 | Complete |
 | AGENT-01 | Phase 26 | Pending |
 | AGENT-02 | Phase 26 | Pending |
 | AGENT-03 | Phase 26 | Pending |
