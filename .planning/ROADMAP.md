@@ -166,7 +166,7 @@ Plans:
 
 **Wave 1**
 
-- [ ] 26-01-PLAN.md — Pure `internal/agent` core: `go:embed` pin policy + checksum gate, deterministic `crush.json` renderer (kill switches, one loopback provider, villa- model id, LSP WARN-on-absence), version comparator, drift detector + golden (AGENT-01/02/04)
+- [x] 26-01-PLAN.md — Pure `internal/agent` core: `go:embed` pin policy + checksum gate, deterministic `crush.json` renderer (kill switches, one loopback provider, villa- model id, LSP WARN-on-absence), version comparator, drift detector + golden (AGENT-01/02/04) — COMPLETE (3/3 TDD tasks; 22 tests + golden; TestSeamGrepGate + make check green)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 

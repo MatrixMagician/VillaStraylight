@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Coding Agent
-status: Awaiting on-hardware enter->prove->exit acceptance (CMODE-02 pending)
-stopped_at: Phase 26 planned (3 plans, plan-check PASS)
-last_updated: "2026-06-13T15:01:03.876Z"
-last_activity: 2026-06-13
+status: executing
+stopped_at: Phase 26 Plan 1 of 3 complete (AGENT-01/02/04 pure half)
+last_updated: "2026-06-13T15:30:00.000Z"
+last_activity: 2026-06-13 -- Phase 26 Plan 01 (agent delivery core) complete
 progress:
   total_phases: 5
   completed_phases: 2
   total_plans: 9
-  completed_plans: 6
-  percent: 40
+  completed_plans: 7
+  percent: 47
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-12 — milestone v1.4 Coding Agent started)
 
 **Core value:** Run a capable local AI workspace that "just works" after install — hardware-aware setup that brings inference, chat, and the dashboard up healthy, with zero data leaving the box. v1.2 extended the bar to "and stays operable, recoverable, and measurable over time." v1.3 extended it to "and remembers the user and their documents across chats — strictly local." v1.4 extends it to "and gives the operator a strictly-local terminal coding agent, wired to a fit-guarded coding model."
-**Current focus:** Phase 25 — Coding-Mode Render & Transactional Swap Verb
+**Current focus:** Phase 26 — agent-delivery-core-lockdown-launcher
 
 ## Current Position
 
-Phase: 26
-Plan: Not started
-Status: Awaiting on-hardware enter->prove->exit acceptance (CMODE-02 pending)
-Last activity: 2026-06-13
+Phase: 26 (agent-delivery-core-lockdown-launcher) — EXECUTING
+Plan: 1 of 3 complete; next Plan 2 (launcher verb)
+Status: Executing Phase 26
+Last activity: 2026-06-13 -- Phase 26 Plan 01 (agent delivery core) complete
 
-Progress: [██░░░░░░░░] 20% (v1.4)
+Progress: [████░░░░░░] 40% (v1.4)
 
 ## Performance Metrics
 
@@ -113,6 +113,7 @@ Progress: [██░░░░░░░░] 20% (v1.4)
 | Phase 24 P04 | ~6min | 3 tasks (2 auto + 1 checkpoint APPROVED) | 4 files |
 | Phase 25 P01 | 35min | 3 tasks | 11 files |
 | Phase 25 P02 | ~40min | 2 of 3 tasks (2 auto + 1 on-hardware checkpoint OPEN) | 5 files |
+| Phase 26 P01 | ~22min | 3 tasks (TDD) | 8 files |
 
 ## Accumulated Context
 
@@ -156,6 +157,7 @@ Earlier (v1.0–v1.3) standing decisions retained:
 - [Phase 25-02]: Durable-chat-model realizes D-08 with NO new schema field: cfg.Model is never overwritten at enter; the coder is served from cfg.CoderModel and exit reverts by clearing the coder fields (config-derived restore, symmetric to enter). Keeps Plan-01's frozen config schema.
 - [Phase 25-02]: No-auto-flip structural guard regex anchored to the bool literal (CodingMode = true|false) so it targets the VillaConfig toggle without false-matching the same-named render-descriptor pointer field (RenderInput/RunSpec.CodingMode, a *CodingModeSpec).
 - [Phase 25-02]: Task-3 acceptance is OPEN — the live villa-llama on this box runs ROCm 7.2.4, while the swap qualification + cache_reuse_safe claim are build-9496-vulkan-radv-scoped (D-03/D-13); running the smoke against ROCm or mutating the live backend autonomously was refused. No pass fabricated.
+- [Phase 26-01]: AGENT-01/02/04 pure half landed — new pure `internal/agent` core (policy/render/drift/version + Deps/Result), zero new deps, TestSeamGrepGate + make check green. **Open-Q1 → option (ii) render-only:** base_url is the FIXED loopback `http://127.0.0.1:8080/v1` (serverPort=8080 constant, not a config field); model id = `villa-`+(CoderModel else Model) relying on llama.cpp single-model leniency — NO --alias delta into the inference seam. **Open-Q4 → parsed-semantic** config-drift (canonicalize→bytes.Equal; whitespace-only re-save is not drift). **Open-Q2 sentinel:** crush-policy.json binarySha256 = `UNPINNED-binary-sha256-set-by-26-03-on-hardware` — **Plan 03 MUST replace it on-hardware** (extract verified tarball → sha256sum crush); until then DetectDrift returns BinaryDriftUnknown (typed-Unknown WARN), never a false drift. config-ABSENT is a DISTINCT first-run render trigger (never compared, never reported as drift; parallels BinaryAbsent). permissions rendered omitted (Phase-27 STRIDE owns the restrictive allowlist).
 
 ### Pending Todos
 
@@ -216,9 +218,9 @@ Items deferred at v1.4 roadmap creation (2026-06-12, research-recorded):
 
 ## Session Continuity
 
-Last session: 2026-06-13T15:01:03.870Z
-Stopped at: Phase 26 planned (3 plans, plan-check PASS)
-Resume file: .planning/phases/26-agent-delivery-core-lockdown-launcher/26-01-PLAN.md
+Last session: 2026-06-13T15:30:00.000Z
+Stopped at: Phase 26 Plan 1 of 3 complete (agent delivery core; AGENT-01/02/04 pure half)
+Resume file: .planning/phases/26-agent-delivery-core-lockdown-launcher/26-02-PLAN.md
 
 ## Operator Next Steps
 

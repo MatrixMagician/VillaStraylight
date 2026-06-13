@@ -27,7 +27,7 @@ Requirements for this milestone. Each maps to roadmap phases.
 ### Agent Delivery & Lockdown
 
 - [ ] **AGENT-01**: villa installs a pinned Crush release via a villa-owned `go:embed` pin policy (version, per-platform asset, SHA-256 verified before install); autoupdate forced off
-- [ ] **AGENT-02**: villa renders `crush.json` as a derived artifact of `config.toml` — both kill switches set (`disable_metrics`, `disable_provider_auto_update`), exactly one villa provider block (loopback), villa-unique model ids, LSP entries for detected toolchains (missing `gopls` → WARN, never BLOCK)
+- [x] **AGENT-02**: villa renders `crush.json` as a derived artifact of `config.toml` — both kill switches set (`disable_metrics`, `disable_provider_auto_update`), exactly one villa provider block (loopback), villa-unique model ids, LSP entries for detected toolchains (missing `gopls` → WARN, never BLOCK)
 - [ ] **AGENT-03**: User launches the agent via a `villa code` launcher with belt-and-braces env lockdown (`CRUSH_DISABLE_METRICS=1`, `DO_NOT_TRACK=1`)
 - [ ] **AGENT-04**: Agent binary/config drift from the pin policy is detected and surfaced with remediation, never auto-corrected
 
@@ -80,10 +80,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | CODER-03 | Phase 24 | Complete |
 | CMODE-01 | Phase 25 | Complete |
 | CMODE-02 | Phase 25 | Complete |
-| AGENT-01 | Phase 26 | Pending |
-| AGENT-02 | Phase 26 | Pending |
+| AGENT-01 | Phase 26 | Partial (26-01: pin policy decodes + pure VerifyTarball gate; live install in 26-02, binary hash in 26-03) |
+| AGENT-02 | Phase 26 | Complete (26-01: deterministic crush.json renderer + golden) |
 | AGENT-03 | Phase 26 | Pending |
-| AGENT-04 | Phase 26 | Pending |
+| AGENT-04 | Phase 26 | Partial (26-01: pure DetectDrift core; live reads in 26-02, binary hash in 26-03) |
 | INSTALL-03 | Phase 27 | Pending |
 | INSTALL-04 | Phase 27 | Pending |
 | PRIV-06 | Phase 27 | Pending |
