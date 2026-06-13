@@ -10,6 +10,10 @@ import (
 	"testing"
 )
 
+// goodSamplingJSON is a valid agent_sampling block shared by the coder-entry
+// validation tests; individual cases override it to exercise a single guard.
+const goodSamplingJSON = `{"temperature": 0.7, "top_p": 0.8, "top_k": 20, "repeat_penalty": 1.05}`
+
 // TestLoadEmbeddedSeed asserts Load("") returns the embedded seed with the
 // supported schema, at least three tier seeds plus exactly one bootstrap entry,
 // and that every model carries the dimensions the fit math needs.
@@ -445,17 +449,21 @@ func TestLoadSchema3ExternalRoundTrip(t *testing.T) {
 	}
 }
 
-// TestLoadCoderValidationRefusesNeverClamps asserts the ASVS-V5 control on the
-// external-catalog trust boundary (T-24-02): a role:"coder" entry with
-// agent_ctx <= 0 or out-of-range sampling values causes the WHOLE external
-// catalog to be refused with a warning naming the offending entry id and a
-// fallback to the embedded seed — values are NEVER silently clamped.
-func TestLoadCoderValidationRefusesNeverClamps(t *testing.T) {
-	const entryID = "bad-coder-model"
-	// build renders a minimal schema-3 external catalog with one coder entry
-	// whose agent_ctx and sampling values come from the case under test.
-	build := func(agentCtx int, sampling string) string {
-		return fmt.Sprintf(`{
+// coderDims is the set of KV-cache sizing integers a coder entry must carry as
+// positive values; a test case overrides one to exercise the WR-01/WR-02 guard.
+type coderDims struct {
+	nLayers, nKVHeads, headDim, kvBytesPerElem int
+}
+
+// goodCoderDims returns the valid KV dimensions every well-formed coder fixture
+// in these tests starts from.
+func goodCoderDims() coderDims { return coderDims{32, 8, 128, 2} }
+
+// buildCoderCatalog renders a minimal schema-3 external catalog with one
+// role:"coder" entry whose agent_ctx, KV dimensions, and sampling block come
+// from the case under test. Shared by the refuse-whole and accept tests below.
+func buildCoderCatalog(entryID string, agentCtx int, d coderDims, sampling string) string {
+	return fmt.Sprintf(`{
   "schema_version": 3,
   "catalog_version": "test.invalid-coder",
   "models": [
@@ -464,10 +472,10 @@ func TestLoadCoderValidationRefusesNeverClamps(t *testing.T) {
       "display_name": "Bad Coder Model",
       "quant": "Q4_K_M",
       "weight_bytes": 5000000000,
-      "n_layers": 32,
-      "n_kv_heads": 8,
-      "head_dim": 128,
-      "kv_bytes_per_elem": 2,
+      "n_layers": %d,
+      "n_kv_heads": %d,
+      "head_dim": %d,
+      "kv_bytes_per_elem": %d,
       "default_ctx": 16384,
       "min_envelope_bytes": 7000000000,
       "tier_gb": 16,
@@ -480,16 +488,37 @@ func TestLoadCoderValidationRefusesNeverClamps(t *testing.T) {
       "template_provenance": "example/Bad-GGUF@0123456789abcdef0123456789abcdef01234567 (embedded GGUF chat template)"
     }
   ]
-}`, entryID, agentCtx, sampling)
+}`, entryID, d.nLayers, d.nKVHeads, d.headDim, d.kvBytesPerElem, agentCtx, sampling)
+}
+
+// TestLoadCoderValidationRefusesNeverClamps asserts the ASVS-V5 control on the
+// external-catalog trust boundary (T-24-02): a role:"coder" entry with
+// agent_ctx <= 0, a non-positive KV dimension (WR-01/WR-02), or out-of-range
+// sampling values causes the WHOLE external catalog to be refused with a warning
+// naming the offending entry id and a fallback to the embedded seed — values are
+// NEVER silently clamped.
+func TestLoadCoderValidationRefusesNeverClamps(t *testing.T) {
+	const entryID = "bad-coder-model"
+	build := func(agentCtx int, sampling string) string {
+		return buildCoderCatalog(entryID, agentCtx, goodCoderDims(), sampling)
 	}
-	goodSampling := `{"temperature": 0.7, "top_p": 0.8, "top_k": 20, "repeat_penalty": 1.05}`
+	buildDims := func(d coderDims) string {
+		return buildCoderCatalog(entryID, 32768, d, goodSamplingJSON)
+	}
 	cases := []struct {
 		name string
 		doc  string
 	}{
-		{"agent_ctx zero", build(0, goodSampling)},
+		{"agent_ctx zero", build(0, goodSamplingJSON)},
+		// WR-01: a zeroed/omitted KV dimension collapses the KV term and must be refused.
+		{"n_layers zero", buildDims(coderDims{0, 8, 128, 2})},
+		{"n_kv_heads zero", buildDims(coderDims{32, 0, 128, 2})},
+		{"head_dim zero", buildDims(coderDims{32, 8, 0, 2})},
+		{"kv_bytes_per_elem zero", buildDims(coderDims{32, 8, 128, 0})},
+		// WR-02: a negative signed dimension (decodes to a huge uint64) must be refused, not silently saturated.
+		{"n_layers negative", buildDims(coderDims{-1, 8, 128, 2})},
+		{"head_dim negative", buildDims(coderDims{32, 8, -1, 2})},
 		{"temperature above 2", build(32768, `{"temperature": 2.5, "top_p": 0.8, "top_k": 20, "repeat_penalty": 1.05}`)},
-		{"temperature zero", build(32768, `{"temperature": 0, "top_p": 0.8, "top_k": 20, "repeat_penalty": 1.05}`)},
 		{"top_p above 1", build(32768, `{"temperature": 0.7, "top_p": 1.5, "top_k": 20, "repeat_penalty": 1.05}`)},
 		{"top_k negative", build(32768, `{"temperature": 0.7, "top_p": 0.8, "top_k": -1, "repeat_penalty": 1.05}`)},
 		{"repeat_penalty above 3", build(32768, `{"temperature": 0.7, "top_p": 0.8, "top_k": 20, "repeat_penalty": 3.5}`)},
@@ -520,5 +549,35 @@ func TestLoadCoderValidationRefusesNeverClamps(t *testing.T) {
 				t.Errorf("expected fallback to embedded seed, but qwen2.5-1.5b not present")
 			}
 		})
+	}
+}
+
+// TestLoadCoderAcceptsGreedyTemperature asserts WR-03: a coder entry with
+// temperature == 0 (greedy/deterministic decoding — llama.cpp treats temp <= 0
+// as greedy) is now ACCEPTED, not refused. The inclusive lower bound is [0, 2];
+// a hand-authored deterministic coder preset must NOT silently fall the whole
+// external catalog back to the embedded seed.
+func TestLoadCoderAcceptsGreedyTemperature(t *testing.T) {
+	const entryID = "greedy-coder-model"
+	greedySampling := `{"temperature": 0, "top_p": 0.8, "top_k": 20, "repeat_penalty": 1.05}`
+	doc := buildCoderCatalog(entryID, 32768, goodCoderDims(), greedySampling)
+
+	path := filepath.Join(t.TempDir(), "greedy-coder-catalog.json")
+	if err := os.WriteFile(path, []byte(doc), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c, warnings, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load(greedy coder): unexpected error: %v", err)
+	}
+	if len(warnings) != 0 {
+		t.Errorf("Load(greedy coder): temperature 0 must be accepted, got warnings: %v", warnings)
+	}
+	m, ok := c.FindByID(entryID)
+	if !ok {
+		t.Fatalf("Load(greedy coder): expected the external catalog to be used (%q not found); got %d models", entryID, len(c.Models))
+	}
+	if m.AgentSampling == nil || m.AgentSampling.Temperature != 0 {
+		t.Errorf("greedy coder temperature not preserved: %+v", m.AgentSampling)
 	}
 }
