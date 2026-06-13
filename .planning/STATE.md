@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Coding Agent
 status: executing
-stopped_at: Phase 26 Plan 1 of 3 complete (AGENT-01/02/04 pure half)
-last_updated: "2026-06-13T15:30:00.000Z"
-last_activity: 2026-06-13 -- Phase 26 Plan 01 (agent delivery core) complete
+stopped_at: Phase 26 Plan 2 of 3 complete (AGENT-01 live + AGENT-03 + AGENT-04 live; villa code launcher + install seam)
+last_updated: "2026-06-13T15:20:00.000Z"
+last_activity: 2026-06-13 -- Phase 26 Plan 02 (villa code launcher + lockdown exec + checksum-before-extract install seam) complete
 progress:
   total_phases: 5
   completed_phases: 2
   total_plans: 9
-  completed_plans: 7
-  percent: 47
+  completed_plans: 8
+  percent: 53
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-06-12 — milestone v1.4 Coding Agent st
 ## Current Position
 
 Phase: 26 (agent-delivery-core-lockdown-launcher) — EXECUTING
-Plan: 1 of 3 complete; next Plan 2 (launcher verb)
+Plan: 2 of 3 complete; next Plan 3 (on-hardware binary pin + launch smoke)
 Status: Executing Phase 26
-Last activity: 2026-06-13 -- Phase 26 Plan 01 (agent delivery core) complete
+Last activity: 2026-06-13 -- Phase 26 Plan 02 (villa code launcher + install seam) complete
 
-Progress: [████░░░░░░] 40% (v1.4)
+Progress: [███████░░░] 67% (v1.4)
 
 ## Performance Metrics
 
@@ -218,9 +218,9 @@ Items deferred at v1.4 roadmap creation (2026-06-12, research-recorded):
 
 ## Session Continuity
 
-Last session: 2026-06-13T15:30:00.000Z
-Stopped at: Phase 26 Plan 1 of 3 complete (agent delivery core; AGENT-01/02/04 pure half)
-Resume file: .planning/phases/26-agent-delivery-core-lockdown-launcher/26-02-PLAN.md
+Last session: 2026-06-13T15:20:00.000Z
+Stopped at: Phase 26 Plan 2 of 3 complete (villa code launcher + lockdown exec + checksum-before-extract install seam; AGENT-01 live + AGENT-03 + AGENT-04 live)
+Resume file: .planning/phases/26-agent-delivery-core-lockdown-launcher/26-03-PLAN.md
 
 ## Operator Next Steps
 

@@ -170,7 +170,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 26-02-PLAN.md — `villa code` launcher + `liveAgentDeps` + checksum-before-extract install seam + LSP PATH probe + root.go registration; env lockdown, no-auto-flip honored, drift surfaced at launch (AGENT-01/03/04)
+- [x] 26-02-PLAN.md — `villa code` launcher + `liveAgentDeps` + checksum-before-extract install seam + LSP PATH probe + root.go registration; env lockdown, no-auto-flip honored, drift surfaced at launch (AGENT-01/03/04) — COMPLETE (2 tasks, Task 1 TDD; agent.Run flow + Install seam + villa code verb; TestSeamGrepGate + TestNoAutoFlipStructuralGuard + make check green; commits a00f4e6, aa64196)
 
 **Wave 3** *(blocked on Wave 2; on-hardware checkpoint)*
 
