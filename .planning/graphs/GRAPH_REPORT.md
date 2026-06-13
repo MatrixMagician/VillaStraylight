@@ -1,16 +1,16 @@
-# Graph Report - VillaStraylight  (2026-06-11)
+# Graph Report - VillaStraylight  (2026-06-12)
 
 ## Corpus Check
-- 340 files · ~1,849,344 words
+- 249 files · ~1,699,300 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 7098 nodes · 16379 edges · 510 communities (485 shown, 25 thin omitted)
-- Extraction: 90% EXTRACTED · 10% INFERRED · 0% AMBIGUOUS · INFERRED: 1592 edges (avg confidence: 0.8)
+- 7161 nodes · 16933 edges · 526 communities (500 shown, 26 thin omitted)
+- Extraction: 91% EXTRACTED · 9% INFERRED · 0% AMBIGUOUS · INFERRED: 1592 edges (avg confidence: 0.8)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `1fd334e1`
+- Built from commit: `877058ed`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -522,18 +522,34 @@
 - [[_COMMUNITY_Community 507|Community 507]]
 - [[_COMMUNITY_Community 508|Community 508]]
 - [[_COMMUNITY_Community 509|Community 509]]
+- [[_COMMUNITY_Community 510|Community 510]]
+- [[_COMMUNITY_Community 511|Community 511]]
+- [[_COMMUNITY_Community 512|Community 512]]
+- [[_COMMUNITY_Community 513|Community 513]]
+- [[_COMMUNITY_Community 514|Community 514]]
+- [[_COMMUNITY_Community 515|Community 515]]
+- [[_COMMUNITY_Community 516|Community 516]]
+- [[_COMMUNITY_Community 517|Community 517]]
+- [[_COMMUNITY_Community 518|Community 518]]
+- [[_COMMUNITY_Community 519|Community 519]]
+- [[_COMMUNITY_Community 520|Community 520]]
+- [[_COMMUNITY_Community 521|Community 521]]
+- [[_COMMUNITY_Community 522|Community 522]]
+- [[_COMMUNITY_Community 523|Community 523]]
+- [[_COMMUNITY_Community 524|Community 524]]
+- [[_COMMUNITY_Community 525|Community 525]]
 
 ## God Nodes (most connected - your core abstractions)
-1. `Communities (510 total, 25 thin omitted)` - 483 edges
-2. `Communities (347 total, 19 thin omitted)` - 326 edges
-3. `Communities (323 total, 20 thin omitted)` - 302 edges
-4. `Communities (320 total, 21 thin omitted)` - 298 edges
-5. `Communities (317 total, 20 thin omitted)` - 296 edges
-6. `Communities (315 total, 20 thin omitted)` - 294 edges
-7. `Communities (302 total, 20 thin omitted)` - 281 edges
-8. `Communities (299 total, 20 thin omitted)` - 278 edges
-9. `Communities (297 total, 19 thin omitted)` - 277 edges
-10. `Communities (298 total, 21 thin omitted)` - 276 edges
+1. `Communities (514 total, 25 thin omitted)` - 487 edges
+2. `Communities (510 total, 25 thin omitted)` - 483 edges
+3. `Communities (347 total, 19 thin omitted)` - 326 edges
+4. `Communities (323 total, 20 thin omitted)` - 302 edges
+5. `Communities (320 total, 21 thin omitted)` - 298 edges
+6. `Communities (317 total, 20 thin omitted)` - 296 edges
+7. `Communities (315 total, 20 thin omitted)` - 294 edges
+8. `Communities (302 total, 20 thin omitted)` - 281 edges
+9. `Communities (299 total, 20 thin omitted)` - 278 edges
+10. `Communities (297 total, 19 thin omitted)` - 277 edges
 
 ## Surprising Connections (you probably didn't know these)
 - `liveModelID()` --calls--> `LoadVilla()`  [INFERRED]
@@ -550,43 +566,43 @@
 ## Import Cycles
 - None detected.
 
-## Communities (510 total, 25 thin omitted)
+## Communities (526 total, 26 thin omitted)
 
 ### Community 0 - "Community 0"
-Cohesion: 0.24
-Nodes (16): Bool, CatalogModel, Command, Context, Verdict, Writer, boolSignal(), newInference() (+8 more)
+Cohesion: 0.16
+Nodes (25): Bool, CatalogModel, Command, Context, Verdict, Writer, T, Verdict (+17 more)
 
 ### Community 1 - "Community 1"
 Cohesion: 0.17
 Nodes (3): ErrCommandFailed, ErrToolNotFound, Systemd
 
 ### Community 2 - "Community 2"
-Cohesion: 0.20
+Cohesion: 0.18
 Nodes (10): Architecture Research, Build Order (phase sequencing), Disk Layout (XDG), Golden / Byte-Frozen Contract Impact Summary (for the roadmapper), GPU + Unified Memory Exposure (rootless, concrete), Metrics Collection, Networking, Recommended Project Structure (+2 more)
 
 ### Community 3 - "Community 3"
 Cohesion: 0.05
-Nodes (43): Critical Pitfalls, Integration Gotchas, "Looks Done But Isn't" Checklist, Performance Traps, Pitfall 10: Privacy regressions — telemetry and accidental 0.0.0.0 binding, Pitfall 10: The TUI breaks the single-static-binary / CGO-free / non-TTY contract (INSTALL-01), Pitfall 11: Open WebUI pointed at the wrong endpoint / first-user & persistence missed, Pitfall 11: The TUI duplicates (and drifts from) the detect→recommend→preflight→install logic (INSTALL-01) (+35 more)
+Nodes (42): Critical Pitfalls, Pitfall 10: Privacy regressions — telemetry and accidental 0.0.0.0 binding, Pitfall 10: The TUI breaks the single-static-binary / CGO-free / non-TTY contract (INSTALL-01), Pitfall 11: Open WebUI pointed at the wrong endpoint / first-user & persistence missed, Pitfall 11: The TUI duplicates (and drifts from) the detect→recommend→preflight→install logic (INSTALL-01), Pitfall 12: Adding `rocm-6.4.4` without a digest pin / tripping the seam gate or policy floors (ROCM-ALT-01), Pitfall 12: Non-idempotent installs / updates breaking Quadlets / partial-state, Pitfall 1: Agent phone-home defaults silently violate the zero-telemetry posture **(NON-NEGOTIABLE THREAT — zero-outbound)** (+34 more)
 
 ### Community 4 - "Community 4"
-Cohesion: 0.07
-Nodes (29): Architecture Approach, Confidence Assessment, Critical Pitfalls, (Deferred) Gateway / remote access / M2 services, Executive Summary, Expected Features, Gaps to Address, Implications for Roadmap (+21 more)
+Cohesion: 0.05
+Nodes (39): 1. Agent selection: Crush, not OpenCode, 2. Coding-model residency: swap-based coding mode wins; co-residency is a fit-gated 128 GB stretch, 3. Codebase memory: Qdrant code collection is dead; agent-native retrieval is the default, Architecture Approach, Confidence Assessment, Critical Pitfalls, (Deferred) Gateway / remote access / M2 services, Executive Summary (+31 more)
 
 ### Community 5 - "Community 5"
-Cohesion: 0.05
-Nodes (37): Add After Core (same milestone, builds on the above), Add After Validation (v1.3.x), Add After Validation (v1.x), Anti-Features (Commonly Requested, Often Problematic), Anti-Features (Commonly Requested, Often Problematic — for v1), Backing-services facts (drive STACK + orchestrate scope), BAK-01 — Backup / restore (config + Open WebUI data volume), BENCH-03 — `villa bench --compare` + persisted/saved reports (+29 more)
+Cohesion: 0.04
+Nodes (46): 1. Install / config UX — what users expect, 2. What an agent session needs from the platform, 3. Model management expectations, 4. Codebase tracking / memory — the scope correction, 5. Lifecycle / observability expectations, Add After Core (same milestone, builds on the above), Add After Validation (v1.3.x), Add After Validation (v1.4.x) (+38 more)
 
 ### Community 6 - "Community 6"
-Cohesion: 0.05
-Nodes (42): Alternatives Considered, Container Images to Standardize On, Core Technologies (NEW containerized services), Core Technologies (NEW for v1.2), Decision for v1, Decision: JSONL flat files vs SQLite (BENCH-03 + USAGE-01) — RESOLVED, Development Tools, Go Control-Plane Libraries (+34 more)
+Cohesion: 0.08
+Nodes (25): Alternatives Considered, Codebase memory: what's actually needed, Container Images to Standardize On, Decision: JSONL flat files vs SQLite (BENCH-03 + USAGE-01) — RESOLVED, Delivery mode: host binary, not container, Installation, Installation (orchestration, not package installs), Integration Points (existing `internal/*` layout) (+17 more)
 
 ### Community 7 - "Community 7"
-Cohesion: 0.19
-Nodes (24): T, CounterSample, ActiveSlots(), counterFromMap(), IsGenerating(), parsePromText(), parseSlots(), ScrapeCounters() (+16 more)
+Cohesion: 0.18
+Nodes (25): T, CounterSample, ActiveSlots(), counterFromMap(), IsGenerating(), parsePromText(), parseSlots(), ScrapeCounters() (+17 more)
 
 ### Community 8 - "Community 8"
-Cohesion: 0.07
-Nodes (69): State, T, Bytes, PropsInfo, RenderInput, ROCmReadiness, State, Status (+61 more)
+Cohesion: 0.08
+Nodes (64): Bytes, PropsInfo, RenderInput, ROCmReadiness, State, Status, Unit, UsageTotals (+56 more)
 
 ### Community 9 - "Community 9"
 Cohesion: 0.11
@@ -609,8 +625,8 @@ Cohesion: 0.19
 Nodes (17): CheckResult, M, T, M, podmanDeps, checkPodmanRootless(), firstLine(), livePodmanDeps() (+9 more)
 
 ### Community 14 - "Community 14"
-Cohesion: 0.12
-Nodes (16): Active, Between Milestones, Constraints, Context, Core Value, Current Milestone: v1.2 Operability, Current Milestone: v1.3 Memory & Knowledge (local RAG), Current State (+8 more)
+Cohesion: 0.11
+Nodes (17): Active, Between Milestones, Constraints, Context, Core Value, Current Milestone: v1.2 Operability, Current Milestone: v1.3 Memory & Knowledge (local RAG), Current Milestone: v1.4 Coding Agent (+9 more)
 
 ### Community 15 - "Community 15"
 Cohesion: 0.13
@@ -709,8 +725,8 @@ Cohesion: 0.67
 Nodes (3): Applicable ASVS Categories, Known Threat Patterns for Go CLI + sysfs/exec, Security Domain
 
 ### Community 39 - "Community 39"
-Cohesion: 0.16
-Nodes (36): capRaw(), compareVersionSegments(), firmwareDatePolicyOK(), firmwareDateProbe(), firstRealGPUBlock(), igpuGfxID(), isGfxTargetID(), isSoftwareRendererName() (+28 more)
+Cohesion: 0.09
+Nodes (59): capRaw(), compareVersionSegments(), driNodes(), firmwareDatePolicyOK(), firmwareDateProbe(), firstRealGPUBlock(), igpuGfxID(), isGfxTargetID() (+51 more)
 
 ### Community 40 - "Community 40"
 Cohesion: 0.11
@@ -729,8 +745,8 @@ Cohesion: 0.12
 Nodes (16): Accomplishments, Auto-fixed Issues, Decisions Made, Dependency graph, Deviations from Plan, Files Created/Modified, Issues Encountered, Known Stubs (+8 more)
 
 ### Community 44 - "Community 44"
-Cohesion: 0.20
-Nodes (43): archiveEntry, baseManifest(), marshalManifest(), baseInput(), buildArchive(), buildArchiveMem(), hasMutate(), indexAfter() (+35 more)
+Cohesion: 0.22
+Nodes (43): archiveEntry, baseManifest(), marshalManifest(), Restore(), baseInput(), buildArchive(), buildArchiveMem(), hasMutate() (+35 more)
 
 ### Community 45 - "Community 45"
 Cohesion: 0.20
@@ -866,11 +882,11 @@ Nodes (15): backend, context_len, degraded, embedding_reservation_bytes, fits, h
 
 ### Community 79 - "Community 79"
 Cohesion: 0.15
-Nodes (56): T, Buffer, CheckResult, Command, Plan, T, Unit, DefaultVillaConfig() (+48 more)
+Nodes (56): T, Buffer, CheckResult, Command, Plan, T, Unit, QdrantContainerUnitName() (+48 more)
 
 ### Community 80 - "Community 80"
-Cohesion: 0.18
-Nodes (22): combineOffload(), firstNonEmpty(), joinDetail(), offloadSysfsDelta(), parseOffloadedLayers(), scrapeOffloadLog(), gttUsedFromFile(), readFixture() (+14 more)
+Cohesion: 0.20
+Nodes (20): combineOffload(), firstNonEmpty(), joinDetail(), parseOffloadedLayers(), scrapeOffloadLog(), gttUsedFromFile(), readFixture(), readSysfsBytes() (+12 more)
 
 ### Community 81 - "Community 81"
 Cohesion: 0.18
@@ -885,8 +901,8 @@ Cohesion: 0.12
 Nodes (15): IN-01: `CatalogModel.MinEnvelopeBytes` is populated in seed.json but never used in fit logic, IN-02: `MesaFloor` is defined and threaded through `Floors()` but no check ever compares against it, IN-03: `config.VillaConfig.CatalogPath` is never read or saved — dead config field, IN-04: `go.mod` is not tidy — `BurntSushi/toml` mislabeled `// indirect`, IN-05: `igpuGfxID` matches any line containing "gfx" then cuts on the first colon — fragile rocminfo parse, Info, Narrative Findings (AI reviewer), Phase 1: Code Review Report (+7 more)
 
 ### Community 84 - "Community 84"
-Cohesion: 0.22
-Nodes (9): Backup / restore, bench --compare (no live measurement), Cumulative usage (write path = dashboard poller; read path = CLI/dashboard), Data Flow, Install / Bring-up Flow (the primary flow), Metrics / Dashboard Flow (read-only), Runtime Chat Flow, State Management (+1 more)
+Cohesion: 0.18
+Nodes (11): Backup / restore, bench --compare (no live measurement), Component Boundaries, Cumulative usage (write path = dashboard poller; read path = CLI/dashboard), Data Flow, Install / Bring-up Flow (the primary flow), Metrics / Dashboard Flow (read-only), Recommended Architecture (+3 more)
 
 ### Community 85 - "Community 85"
 Cohesion: 0.14
@@ -937,12 +953,12 @@ Cohesion: 0.67
 Nodes (3): Applicable ASVS Categories, Known Threat Patterns for {Go control plane + rootless Podman + HF download}, Security Domain
 
 ### Community 97 - "Community 97"
-Cohesion: 0.09
-Nodes (30): Command, lifecycleDeps, Plan, RenderInput, Unit, VillaConfig, Writer, Command (+22 more)
+Cohesion: 0.11
+Nodes (27): Command, lifecycleDeps, Plan, RenderInput, Unit, VillaConfig, Writer, Command (+19 more)
 
 ### Community 98 - "Community 98"
-Cohesion: 0.11
-Nodes (41): assertInsideDir(), downloadFile(), drainClose(), headVerify(), PullModel(), seedHashFromPart(), snippet(), streamToPart() (+33 more)
+Cohesion: 0.17
+Nodes (25): makeShard(), rangeServer(), sha256Hex(), TestAtomicRename(), TestRejectsTraversalFilename(), TestResume(), TestVerifyRejectsMismatch(), TestVerifyRejectsSizeMismatch() (+17 more)
 
 ### Community 99 - "Community 99"
 Cohesion: 0.19
@@ -985,12 +1001,12 @@ Cohesion: 0.17
 Nodes (11): Anti-Patterns Found, Behavioral Spot-Checks, Deferred / Tracked Follow-Ups (informational — not gaps), Gaps Summary, Goal Achievement, Human Verification Required, Key Link Verification, Observable Truths (ROADMAP Success Criteria) (+3 more)
 
 ### Community 109 - "Community 109"
-Cohesion: 0.19
-Nodes (21): Bool, rocmImagePolicyOK(), TestHostProfileJSONRoundTrips(), TestProbeNeverPanics(), computeROCmReadiness(), firmwareDateOK(), hsaOverrideViable(), kernelFloorOK() (+13 more)
+Cohesion: 0.17
+Nodes (23): Bool, rocmImagePolicyOK(), TestHostProfileJSONRoundTrips(), TestProbeNeverPanics(), computeROCmReadiness(), firmwareDateOK(), hsaOverrideViable(), kernelFloorOK() (+15 more)
 
 ### Community 110 - "Community 110"
-Cohesion: 0.07
-Nodes (62): ProveVerdict, Deps, Aggregate(), findingFromCheck(), healthFinding(), nonEmpty(), offloadFinding(), residencyUnderLoadFinding() (+54 more)
+Cohesion: 0.18
+Nodes (28): CheckResult, HostProfile, ROCmPolicy, Str, CheckResult, ROCmPolicy, Status, T (+20 more)
 
 ### Community 111 - "Community 111"
 Cohesion: 0.18
@@ -1061,8 +1077,8 @@ Cohesion: 0.09
 Nodes (21): Atomic write-temp-then-rename, Backend-seam grep-gate (the cross-cutting invariant), Bounded untrusted-output capture (8 KiB), `cmd/villa/install.go` (controller, request-response), `cmd/villa/model.go` (extend: `list`, `swap`) + `up`/`down`/`restart`/`logs`/`config`/`uninstall`, `cmd/villa/root.go` (extend) + `internal/config/villaconfig.go` (extend), `cmd/villa/status.go` (controller, request-response), File Classification (+13 more)
 
 ### Community 132 - "Community 132"
-Cohesion: 0.06
-Nodes (79): envPair, VillaConfig, T, VillaConfig, RenderInput, T, RunSpec, T (+71 more)
+Cohesion: 0.28
+Nodes (23): RenderInput, T, fixtureInput(), goldenCompare(), rocm644FixtureInput(), rocmFixtureInput(), TestBackendLabelROCmFamily(), TestInstallSectionPresent() (+15 more)
 
 ### Community 133 - "Community 133"
 Cohesion: 0.25
@@ -1117,8 +1133,8 @@ Cohesion: 0.14
 Nodes (26): UsageTotals, Time, T, CounterState, Deps, ModelUsage, Sample, assertInsideDir() (+18 more)
 
 ### Community 146 - "Community 146"
-Cohesion: 0.14
-Nodes (33): cpuInfo(), errString(), Probe(), amdSysfsCardDirs(), biosVRAMBytes(), gttTotalBytes(), gttUsedBytes(), kernelVersion() (+25 more)
+Cohesion: 0.11
+Nodes (38): Bytes, cpuInfo(), errString(), Probe(), amdSysfsCardDirs(), biosVRAMBytes(), gttTotalBytes(), gttUsedBytes() (+30 more)
 
 ### Community 147 - "Community 147"
 Cohesion: 0.18
@@ -1141,8 +1157,8 @@ Cohesion: 0.17
 Nodes (11): Auto-fixed Issues, Checkpoint — Task 3 (on-hardware human-verify, `gate="blocking-human"`), Deviations from Plan, Notes for next plans, Phase 03 Plan 02: `villa install` vertical slice Summary, Requirements satisfied, Self-Check: PASSED, TDD (Task 1) (+3 more)
 
 ### Community 152 - "Community 152"
-Cohesion: 0.29
-Nodes (3): backendVulkan, ResidencyMarkers, RunSpec
+Cohesion: 0.24
+Nodes (20): Report, Writer, Report, T, renderDoctor(), renderDoctorTable(), driftReport(), healthyReport() (+12 more)
 
 ### Community 153 - "Community 153"
 Cohesion: 0.32
@@ -1153,8 +1169,8 @@ Cohesion: 0.09
 Nodes (21): 7 Call Sites (MOD — callers, request-response), `BackendFor(name string) (Backend, error)` (NEW — resolver/factory, request-response), Combine discipline — DO NOT re-roll, Digest-pin provenance comment, File Classification, `internal/inference/backend_rocm.go` (NEW — backend impl, transform), `internal/inference/inference.go` (MOD — interface contract), `internal/inference/offload.go` (MOD — pure parser, transform) ⚠️ THE #1 TRAP (+13 more)
 
 ### Community 155 - "Community 155"
-Cohesion: 0.14
-Nodes (41): Command, Report, Writer, Buffer, Command, Context, Deps, Report (+33 more)
+Cohesion: 0.18
+Nodes (33): Report, Writer, Buffer, Command, Deps, Report, ServiceStatus, T (+25 more)
 
 ### Community 156 - "Community 156"
 Cohesion: 0.09
@@ -1173,16 +1189,16 @@ Cohesion: 0.18
 Nodes (10): Auto-fixed Issues, Deviations from Plan, Notes for next plans, Phase 03 Plan 03: lifecycle verbs (up/down/restart/logs/config) Summary, Requirements satisfied, Self-Check: PASSED, TDD gates, Threat surface (+2 more)
 
 ### Community 160 - "Community 160"
-Cohesion: 0.18
-Nodes (15): Bytes, Int, Str, KnownInt(), TestValueKnownBytes(), TestValueKnownConstructorsAllTypes(), TestValueUnknownBytes(), TestValueUnknownBytesJSONOmitsRaw() (+7 more)
+Cohesion: 0.13
+Nodes (21): Context, ProveVerdict, ProveVerdict, GPUBusyPercent(), GPUBusyPercentForTest(), TestGPUBusyPercentForTestSeam(), TestGPUBusyPercentFromFixture(), TestGPUBusyPercentMissingYieldsUnknown() (+13 more)
 
 ### Community 161 - "Community 161"
 Cohesion: 0.18
 Nodes (10): Auto-fixed Issues, Deviations from Plan, Notes for next plans, Phase 03 Plan 04: offload-asserting `villa status` Summary, Requirements satisfied, Self-Check: PASSED, TDD gates, Threat surface (+2 more)
 
 ### Community 162 - "Community 162"
-Cohesion: 0.13
-Nodes (43): Command, Unit, Writer, Buffer, Command, T, Unit, uninstallDeps (+35 more)
+Cohesion: 0.14
+Nodes (42): Command, Unit, Writer, Buffer, Command, T, Unit, uninstallDeps (+34 more)
 
 ### Community 163 - "Community 163"
 Cohesion: 0.11
@@ -1202,15 +1218,15 @@ Nodes (21): assertVerbatimRestore(), indexOf(), newSwapStub(), passStub(), TestA
 
 ### Community 167 - "Community 167"
 Cohesion: 0.22
-Nodes (18): Catalog, CatalogModel, Command, Deps, VillaConfig, quadletUnitDir(), listDeps, listOpts (+10 more)
+Nodes (19): Catalog, CatalogModel, Command, Deps, VillaConfig, listDeps, listOpts, liveListDeps() (+11 more)
 
 ### Community 168 - "Community 168"
-Cohesion: 0.21
-Nodes (18): Buffer, Command, Deps, T, VillaConfig, swapDeps, runModelPull(), newSwapStub() (+10 more)
+Cohesion: 0.11
+Nodes (29): Deps, T, VillaConfig, Buffer, Command, Deps, T, VillaConfig (+21 more)
 
 ### Community 169 - "Community 169"
-Cohesion: 0.22
-Nodes (28): Buffer, Command, lifecycleDeps, Plan, T, Unit, lifecycleDeps, lifecycleDeps (+20 more)
+Cohesion: 0.27
+Nodes (25): Buffer, Command, lifecycleDeps, Plan, T, Unit, lifecycleDeps, fakeLifecycleDeps (+17 more)
 
 ### Community 170 - "Community 170"
 Cohesion: 0.22
@@ -1253,8 +1269,8 @@ Cohesion: 0.09
 Nodes (29): CeilingResult, ChatResult, fakeProbeRunner, chatProbe(), contextCeilingProbe(), lineAround(), matchCeilingOOM(), pollHealth() (+21 more)
 
 ### Community 180 - "Community 180"
-Cohesion: 0.48
-Nodes (14): Community Hubs (Navigation), Corpus Check, God Nodes (most connected - your core abstractions), Graph Freshness, Graph Report - VillaStraylight  (2026-06-03), Graph Report - VillaStraylight  (2026-06-04), Graph Report - VillaStraylight  (2026-06-07), Graph Report - VillaStraylight  (2026-06-09) (+6 more)
+Cohesion: 0.50
+Nodes (15): Community Hubs (Navigation), Corpus Check, God Nodes (most connected - your core abstractions), Graph Freshness, Graph Report - VillaStraylight  (2026-06-03), Graph Report - VillaStraylight  (2026-06-04), Graph Report - VillaStraylight  (2026-06-07), Graph Report - VillaStraylight  (2026-06-09) (+7 more)
 
 ### Community 181 - "Community 181"
 Cohesion: 0.11
@@ -1429,8 +1445,8 @@ Cohesion: 0.18
 Nodes (10): IN-01: `rocmFirmwareDeny` is a package-level mutable `var`, IN-02: doc comment on `runTool` says "combined output" but returns stdout only, IN-03: firmware-date test coverage omits the non-YYYYMMDD UNSET path, Info, Phase 11: Code Review Report, Summary, Warnings, WR-01: detect firmware verdict diverges from preflight — floor enforced in one place, only denylist in the other (+2 more)
 
 ### Community 224 - "Community 224"
-Cohesion: 0.18
-Nodes (20): Command, Deps, Deps, T, VillaConfig, liveBackendSwapDeps(), newBackend(), newBackendSet() (+12 more)
+Cohesion: 0.13
+Nodes (22): Command, Deps, IsROCmFamily(), TestIsROCmFamily(), T, Plan, Unit, assertInsideDir() (+14 more)
 
 ### Community 225 - "Community 225"
 Cohesion: 0.20
@@ -1449,8 +1465,8 @@ Cohesion: 0.20
 Nodes (9): Claude's Discretion, Deferred Ideas, Doc-reconciliation scope & verification (D-05), Firmware-date probe source & comparison (D-01/D-02), HSA-override viability probe definition (D-03), On-hardware verification expectation (D-06), Out-of-scope boundary (deferred), Phase 11: Address v1.1 tech debt — rocm_readiness detect probes + doc reconciliation - Discussion Log (+1 more)
 
 ### Community 229 - "Community 229"
-Cohesion: 0.12
-Nodes (24): Bytes, CatalogModel, Command, CounterSample, Deps, Int, ModelView, PerfSnapshot (+16 more)
+Cohesion: 0.13
+Nodes (21): Bytes, CatalogModel, CounterSample, Deps, Int, ModelView, PerfSnapshot, Recommendation (+13 more)
 
 ### Community 230 - "Community 230"
 Cohesion: 0.49
@@ -1537,8 +1553,8 @@ Cohesion: 0.25
 Nodes (3): backendROCm, ResidencyMarkers, RunSpec
 
 ### Community 251 - "Community 251"
-Cohesion: 0.39
-Nodes (7): Plan, Unit, assertInsideDir(), atomicWrite(), Reconcile(), WriteUnits(), Plan
+Cohesion: 0.18
+Nodes (15): T, T, TestCheckFirmwareFloorIsWarnAdvisory(), TestCheckKernelFloor(), TestCompareVersions(), Floor, compareVersions(), Floors() (+7 more)
 
 ### Community 252 - "Community 252"
 Cohesion: 0.25
@@ -1598,7 +1614,7 @@ Nodes (5): Phase Requirements → Test Map, Sampling Rate, Test Framework, Valid
 
 ### Community 266 - "Community 266"
 Cohesion: 0.19
-Nodes (25): CheckResult, Command, HostProfile, Writer, CheckResult, T, liveMemoryGateResults(), newPreflight() (+17 more)
+Nodes (24): CheckResult, Command, HostProfile, Writer, CheckResult, T, liveMemoryGateResults(), newPreflight() (+16 more)
 
 ### Community 267 - "Community 267"
 Cohesion: 0.50
@@ -1649,8 +1665,8 @@ Cohesion: 0.15
 Nodes (12): Common Patterns, Coverage, Fixtures and Factories, Golden / Contract Tests, Grep-gate tests (architectural guards), Mocking / Test Doubles, Offload-Assert Regression Tests (v1.1), Test File Organization (+4 more)
 
 ### Community 279 - "Community 279"
-Cohesion: 0.01
-Nodes (159): Communities (510 total, 25 thin omitted), Community 347 - "Community 347", Community 348 - "Community 348", Community 349 - "Community 349", Community 350 - "Community 350", Community 351 - "Community 351", Community 352 - "Community 352", Community 353 - "Community 353" (+151 more)
+Cohesion: 0.02
+Nodes (164): Communities (510 total, 25 thin omitted), Communities (514 total, 25 thin omitted), Community 347 - "Community 347", Community 348 - "Community 348", Community 349 - "Community 349", Community 350 - "Community 350", Community 351 - "Community 351", Community 352 - "Community 352" (+156 more)
 
 ### Community 282 - "Community 282"
 Cohesion: 0.67
@@ -1669,12 +1685,12 @@ Cohesion: 0.40
 Nodes (4): Milestones, v1.1 ROCm Opt-In Backend (Shipped: 2026-06-06), v1.2 Operability (Completed: 2026-06-08), v1.3 Memory & Knowledge (Shipped: 2026-06-11)
 
 ### Community 299 - "Community 299"
-Cohesion: 0.32
-Nodes (11): Buffer, Command, Server, T, dashboardDeps, runDashboard(), dashboardTestCmd(), stubDashboardDeps() (+3 more)
+Cohesion: 0.24
+Nodes (17): Deps, Aggregate(), findingFromCheck(), healthFinding(), nonEmpty(), offloadFinding(), residencyUnderLoadFinding(), statusRank() (+9 more)
 
 ### Community 300 - "Community 300"
-Cohesion: 0.25
-Nodes (19): Report, Writer, Report, T, renderDoctor(), renderDoctorTable(), driftReport(), healthyReport() (+11 more)
+Cohesion: 0.24
+Nodes (16): assertInsideDir(), downloadFile(), drainClose(), headVerify(), PullModel(), seedHashFromPart(), snippet(), streamToPart() (+8 more)
 
 ### Community 301 - "Community 301"
 Cohesion: 0.18
@@ -1769,20 +1785,20 @@ Cohesion: 0.15
 Nodes (12): Decision on warning #3, Deviations from Plan, Exact contracted strings emitted (verbatim from 17-UI-SPEC.md), Goldens, Phase 17 Quick 260608-pyp: Fix remaining Phase-17 UI-SPEC warnings — Summary, Self-Check: PASSED, Task 1 — First-party footer key map + step-2 CTA (commit f2f8da6), Task 2 — 2-cell `block` indent for review + preflight detail lines (commit 1cce280) (+4 more)
 
 ### Community 325 - "Community 325"
-Cohesion: 0.14
-Nodes (20): sum(), TestChecksumSumDeterministic(), TestChecksumVerifyMatch(), TestChecksumVerifyMismatch(), verify(), extracted, captureFile(), readAndVerify() (+12 more)
+Cohesion: 0.19
+Nodes (12): extracted, parseManifest(), captureFile(), readAndVerify(), rollbackRemove(), skewPrompt(), RestoreInput, CurrentInstall (+4 more)
 
 ### Community 326 - "Community 326"
 Cohesion: 0.17
-Nodes (18): T, BackendFor(), TestBackendFor(), TestROCmContainerArgs(), TestROCmImageDigestPinned(), Backend, T, TestDetectedHostSummaryTypedUnknownAdvisory() (+10 more)
+Nodes (17): T, BackendFor(), TestBackendFor(), TestROCmContainerArgs(), TestROCmImageDigestPinned(), Backend, T, TestDetectedHostSummaryTypedUnknownAdvisory() (+9 more)
 
 ### Community 327 - "Community 327"
 Cohesion: 0.27
 Nodes (11): blockOnNewerStore(), CompareSkew(), warnOnOlderStore(), BackupInput, CurrentInstall, SkewVerdict, SkewWarning, ExcludedModel (+3 more)
 
 ### Community 328 - "Community 328"
-Cohesion: 0.26
-Nodes (14): EntryChecksum, ExcludedModel, HostFingerprint, Manifest, BuildManifest(), parseManifest(), TestExcludedModelHasNoContentFields(), TestManifestBenchEntryIsSingle() (+6 more)
+Cohesion: 0.29
+Nodes (13): EntryChecksum, ExcludedModel, HostFingerprint, Manifest, BuildManifest(), TestExcludedModelHasNoContentFields(), TestManifestBenchEntryIsSingle(), TestManifestEmbeddingFieldsThreadAndOmit() (+5 more)
 
 ### Community 329 - "Community 329"
 Cohesion: 0.25
@@ -1793,24 +1809,24 @@ Cohesion: 0.18
 Nodes (10): Commits, Deviations from Plan, Gate results (all green), Quick Task 260608-ppy: Fix Phase-17 UI-SPEC Install Copy Gaps Summary, Scope held, Self-Check: PASSED, Task 1 — Contracted empty-state no-fit copy (TDD), Task 2 — Typed-Unknown advisory in detectedHostSummary (TDD) (+2 more)
 
 ### Community 331 - "Community 331"
-Cohesion: 0.17
-Nodes (29): VillaConfig, assertInsideDir(), defaultConfig(), LoadVillaFrom(), marshalVilla(), normalizeVilla(), Parse(), Path() (+21 more)
+Cohesion: 0.15
+Nodes (33): VillaConfig, assertInsideDir(), defaultConfig(), DefaultVillaConfig(), LoadVilla(), LoadVillaFrom(), marshalVilla(), normalizeVilla() (+25 more)
 
 ### Community 333 - "Community 333"
-Cohesion: 0.22
-Nodes (17): Writer, T, classifyVolumeExists(), requirePodman(), TestClassifyVolumeExists(), TestPodmanVolumeFakeSwappable(), TestVolumeArgsNoShellMetachars(), TestVolumeExistsArgsFixed() (+9 more)
+Cohesion: 0.24
+Nodes (16): Writer, T, classifyVolumeExists(), TestClassifyVolumeExists(), TestPodmanVolumeFakeSwappable(), TestVolumeArgsNoShellMetachars(), TestVolumeExistsArgsFixed(), TestVolumeExistsOverSeam() (+8 more)
 
 ### Community 334 - "Community 334"
-Cohesion: 0.22
-Nodes (25): AttachmentState, ChatDoc, ChatRef, Context, Duration, owuiUser, attachKnowledgeRow(), bearerHeader() (+17 more)
+Cohesion: 0.14
+Nodes (37): AttachmentState, ChatDoc, ChatRef, Context, Duration, Context, Duration, memoryProof (+29 more)
 
 ### Community 335 - "Community 335"
 Cohesion: 0.22
 Nodes (8): Architectural Invariants (5/5 PASS), Cross-Phase Integration (5/5 WIRED), Notable, Phase Verification Roll-up, Requirements Coverage (3-source cross-reference), Summary, v1.2 Operability — Milestone Audit, Verdict
 
 ### Community 336 - "Community 336"
-Cohesion: 0.25
-Nodes (7): Architecture Patterns, Component Boundaries, Confidence Notes, Recommended Architecture, Scalability Considerations, Sources, Suggested Build Order (dependency-aware)
+Cohesion: 0.17
+Nodes (12): (a) DELIVERY — host binary, villa-pinned. Not a container., Anti-Patterns (domain-specific), Architecture Patterns, (c) ENDPOINT EXPOSURE — loopback PublishPort, same pattern as villa-llama; one deliberate posture change for villa-embed., Confidence Notes, Evidence, Recommended Architecture (one paragraph), Scalability Considerations (+4 more)
 
 ### Community 337 - "Community 337"
 Cohesion: 0.25
@@ -1821,8 +1837,8 @@ Cohesion: 0.25
 Nodes (7): Artifacts list (files + functions + line ranges to change for the fix), Candidate Fix Directions (for the planner — preserve no-false-green), Current Focus, Eliminated, Evidence, Resolution, Symptoms
 
 ### Community 339 - "Community 339"
-Cohesion: 0.14
-Nodes (19): Context, ProveVerdict, GPUBusyPercent(), GPUBusyPercentForTest(), TestGPUBusyPercentForTestSeam(), TestGPUBusyPercentFromFixture(), TestGPUBusyPercentMissingYieldsUnknown(), TestGPUBusyPercentUnparseableYieldsUnknown() (+11 more)
+Cohesion: 0.29
+Nodes (16): RenderInput, T, RenderInput, Unit, Unit, memoryFixtureInput(), TestMemoryUnitsNoPublishPort(), TestRenderByteIdenticalWhenMemoryOff() (+8 more)
 
 ### Community 340 - "Community 340"
 Cohesion: 0.08
@@ -1857,8 +1873,8 @@ Cohesion: 0.09
 Nodes (22): Append-only + schema-bump golden evolution, `cmd/villa/backup.go` / `cmd/villa/restore.go` — wiring deltas, `cmd/villa/recall.go` — D-10 embedding-skew refusal, `cmd/villa/status.go` — live wiring: memory service names, per-service health probes, recall-state seam, File Classification, `internal/backup/backup.go` — Qdrant volume entry, quiesce, dimension-skew warning, `internal/backup/deps.go` — new seam fields, `internal/backup/manifest.go` — append-only fields + new entry consts (+14 more)
 
 ### Community 349 - "Community 349"
-Cohesion: 0.13
-Nodes (21): Context, State, Status, VillaConfig, Writer, Context, embedModelPath(), evalMemoryProof() (+13 more)
+Cohesion: 0.18
+Nodes (16): Context, Status, Context, embedModelPath(), evalMemoryProof(), liveEmbedModelPresent(), liveLoadedMemoryEnabled(), liveMemoryProof() (+8 more)
 
 ### Community 350 - "Community 350"
 Cohesion: 0.16
@@ -1921,8 +1937,8 @@ Cohesion: 0.19
 Nodes (17): ChatHistory, ChatMsg, ChatDoc, T, ChatDoc, ChatHistory, ChatMsg, linearThread() (+9 more)
 
 ### Community 365 - "Community 365"
-Cohesion: 0.23
-Nodes (18): Command, Deps, Verdict, VillaConfig, Deps, LoadVilla(), EmbedContainerUnitName(), liveDoctorDeps() (+10 more)
+Cohesion: 0.22
+Nodes (18): Command, Deps, Verdict, VillaConfig, Command, Deps, EmbedContainerUnitName(), liveDoctorDeps() (+10 more)
 
 ### Community 366 - "Community 366"
 Cohesion: 0.11
@@ -1933,12 +1949,12 @@ Cohesion: 0.11
 Nodes (17): A1-A4 Resolutions, Accomplishments, Cleanup / Box State Left Behind, Decisions Made, Dependency graph, Deviations from Plan, Known Stubs, Metrics (+9 more)
 
 ### Community 368 - "Community 368"
-Cohesion: 0.20
-Nodes (17): Context, Duration, memoryProof, T, EmbedImage(), ragSmokeInput, discoverChatModel(), driveRagUploadCite() (+9 more)
+Cohesion: 0.15
+Nodes (13): envPair, RunSpec, T, Template, containerView, networkView, fixtureSpec(), TestParseContainerArgsMultiValue() (+5 more)
 
 ### Community 369 - "Community 369"
-Cohesion: 0.24
-Nodes (16): driNodes(), TestDriNodesEmptyIsKnownAbsent(), TestDriNodesEmptyYieldsUnknown(), TestDriNodesFromFixture(), TestDriNodesUnreadableYieldsUnknown(), TestIsGfxTargetID(), TestMesaVersionFromFixture(), TestParseGfxIDFromFixture() (+8 more)
+Cohesion: 0.53
+Nodes (5): Command, lifecycleDeps, newLogs(), runLogs(), logsOpts
 
 ### Community 370 - "Community 370"
 Cohesion: 0.12
@@ -1961,12 +1977,12 @@ Cohesion: 0.12
 Nodes (16): Acceptance Criteria → Evidence Map, Authentication Gates, CTRL-02 — status v3 + dashboard + negative control (SC#1), CTRL-04 — backup/restore drill on REAL data (SC#2), CTRL-05 — memory-aware swap drill (SC#3), Deviations from Plan, Drill Evidence (all commands run live on the box, 2026-06-10 21:36–21:45 UTC), Known Stubs (+8 more)
 
 ### Community 375 - "Community 375"
-Cohesion: 0.12
-Nodes (12): boundedWriter, Cmd, endpointURL(), boundedWriter, containerRunner, NewContainerRunner(), Backend, Buffer (+4 more)
+Cohesion: 0.09
+Nodes (15): boundedWriter, Cmd, endpointURL(), backendVulkan, boundedWriter, containerRunner, NewContainerRunner(), ResidencyMarkers (+7 more)
 
 ### Community 376 - "Community 376"
-Cohesion: 0.40
-Nodes (10): T, Verdict, cobraCommandShim, failVerdict(), passVerdict(), TestInferenceExitCodes(), TestInferenceJSONGolden(), TestInferenceRegistered() (+2 more)
+Cohesion: 0.26
+Nodes (13): VillaConfig, T, VillaConfig, Decision, Decide(), RenderView(), reasonsMention(), TestDecide() (+5 more)
 
 ### Community 377 - "Community 377"
 Cohesion: 0.12
@@ -2057,8 +2073,8 @@ Cohesion: 0.15
 Nodes (12): Architectural Responsibility Map, Assumptions Log, Don't Hand-Roll, Environment Availability, Metadata, Open Questions (RESOLVED), Package Legitimacy Audit, Phase 23: Surfacing, Backup & Memory-Aware Swap - Research (+4 more)
 
 ### Community 399 - "Community 399"
-Cohesion: 0.29
-Nodes (6): gpuView, healthzResponse, metricsView, ModelView, switchRequest, switchResponse
+Cohesion: 0.26
+Nodes (13): Command, Buffer, Command, Server, T, dashboardDeps, newDashboard(), runDashboard() (+5 more)
 
 ### Community 400 - "Community 400"
 Cohesion: 0.17
@@ -2480,25 +2496,85 @@ Nodes (3): Applicable ASVS Categories (Level 1), Known Threat Patterns for this 
 Cohesion: 0.67
 Nodes (3): Primary (HIGH confidence — direct reads this session), Secondary / Tertiary, Sources
 
+### Community 510 - "Community 510"
+Cohesion: 0.20
+Nodes (9): State, VillaConfig, Writer, State, T, EmbeddingSkew(), TestEmbeddingSkew(), SkewState (+1 more)
+
+### Community 511 - "Community 511"
+Cohesion: 0.33
+Nodes (7): Context, EmbedImage(), probeURLOf(), resetMemoryHealthCache(), swapMemoryProbeExec(), TestLiveEmbedHealth(), TestLiveQdrantHealth()
+
+### Community 512 - "Community 512"
+Cohesion: 0.25
+Nodes (9): embedView, buildEmbedExec(), buildEmbedView(), buildQdrantView(), buildQdrantVolumeView(), EmbedGGUFFilename(), QdrantVolumeName(), qdrantView (+1 more)
+
+### Community 513 - "Community 513"
+Cohesion: 0.18
+Nodes (10): Integration Gotchas, "Looks Done But Isn't" Checklist, Performance Traps, Pitfall-to-Phase Mapping, Pitfalls Research, Recovery Strategies, Security Mistakes, Sources (+2 more)
+
+### Community 514 - "Community 514"
+Cohesion: 0.33
+Nodes (7): sum(), TestChecksumSumDeterministic(), TestChecksumVerifyMatch(), TestChecksumVerifyMismatch(), verify(), Reader, T
+
+### Community 515 - "Community 515"
+Cohesion: 0.25
+Nodes (8): Core Technologies (NEW), Core Technologies (NEW containerized services), Core Technologies (NEW for v1.2), Development Tools, Recommended Stack, Supporting Libraries (first-party Go — minimal), Supporting Libraries (first-party Go — none new), Supporting Libraries (transitively pulled by `huh` — informational, not separately added)
+
+### Community 516 - "Community 516"
+Cohesion: 0.29
+Nodes (6): gpuView, healthzResponse, metricsView, ModelView, switchRequest, switchResponse
+
+### Community 517 - "Community 517"
+Cohesion: 0.53
+Nodes (5): T, Unit, TestAtomicUnitWrite(), TestReconcileNoOpAndDiff(), writeUnitsToDir()
+
+### Community 518 - "Community 518"
+Cohesion: 0.33
+Nodes (6): Decision for v1, How the iGPU is exposed (concrete), Mandatory llama-server runtime flags on Strix Halo, Reality on the ground, The Strix Halo (gfx1151) GPU-Backend Decision — the crux, Unified / GTT memory configuration (host kernel params)
+
+### Community 519 - "Community 519"
+Cohesion: 0.60
+Nodes (4): T, TestEvalRagSmoke(), TestEvalRagSmokeNegativeControlFirst(), TestRunVerifyMemoryGate()
+
+### Community 520 - "Community 520"
+Cohesion: 0.40
+Nodes (5): (b) MODEL RESIDENCY — co-resident `villa-coder` unit when it fits; honest degradation to shared `villa-llama`; no swap-based mode., Envelope tiers vs realistic coder GGUFs (approximate; the catalog entry pins exact numbers), Fit math extension (grounded in the real schema), llama-server flags the coder unit needs (vs the chat unit), Why not swap-based
+
+### Community 521 - "Community 521"
+Cohesion: 0.40
+Nodes (5): (d) CODEBASE MEMORY — agent-native (LSP + ripgrep) is the default; optional plugin reuses villa-embed; Qdrant is NOT the code-memory store., Decision matrix, The 2026 effectiveness evidence (MEDIUM, consistent across sources), The optional semantic layer that DOES reuse villa infrastructure (HIGH, repo fetched), What OpenCode natively does (HIGH confidence, official docs)
+
+### Community 522 - "Community 522"
+Cohesion: 0.40
+Nodes (5): Go Control-Plane Libraries, Hardware / GPU detection, HTTP control plane / dashboard backend, Podman REST API — do NOT vendor the full bindings module, Quadlet generation — generate text, manage via systemd
+
+### Community 523 - "Community 523"
+Cohesion: 0.40
+Nodes (5): Local embeddings (point Open WebUI at the local llama-server embedding endpoint), Open WebUI configuration surface (exact env vars — VERIFIED against `config.py` @ main), Personalized memory (cross-chat), RAG / document knowledge-base settings, Vector DB selection
+
+### Community 524 - "Community 524"
+Cohesion: 0.50
+Nodes (4): Build order (dependency-driven), (e) MODIFIED vs NEW, and build order, Modified (every touch is append-only / behind an existing seam), New
+
 ## Knowledge Gaps
-- **3664 isolated node(s):** `ts`, `status`, `exit_code`, `duration_ms`, `head_at_build` (+3659 more)
+- **3561 isolated node(s):** `ts`, `status`, `exit_code`, `duration_ms`, `head_at_build` (+3556 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **25 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **26 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `Append()` connect `Community 314` to `Community 259`, `Community 132`, `Community 8`, `Community 10`, `Community 266`, `Community 12`, `Community 142`, `Community 145`, `Community 146`, `Community 277`, `Community 152`, `Community 410`, `Community 29`, `Community 162`, `Community 163`, `Community 166`, `Community 39`, `Community 167`, `Community 169`, `Community 168`, `Community 44`, `Community 302`, `Community 47`, `Community 311`, `Community 312`, `Community 184`, `Community 445`, `Community 320`, `Community 327`, `Community 74`, `Community 460`, `Community 332`, `Community 461`, `Community 79`, `Community 334`, `Community 339`, `Community 349`, `Community 222`, `Community 224`, `Community 97`, `Community 98`, `Community 355`, `Community 357`, `Community 230`, `Community 229`, `Community 364`, `Community 110`, `Community 369`, `Community 250`, `Community 251`?**
+- **Why does `Append()` connect `Community 314` to `Community 259`, `Community 517`, `Community 8`, `Community 10`, `Community 266`, `Community 12`, `Community 142`, `Community 145`, `Community 146`, `Community 277`, `Community 410`, `Community 29`, `Community 160`, `Community 162`, `Community 163`, `Community 166`, `Community 39`, `Community 168`, `Community 169`, `Community 167`, `Community 299`, `Community 44`, `Community 302`, `Community 47`, `Community 311`, `Community 312`, `Community 184`, `Community 445`, `Community 320`, `Community 327`, `Community 74`, `Community 460`, `Community 332`, `Community 461`, `Community 79`, `Community 334`, `Community 339`, `Community 349`, `Community 222`, `Community 224`, `Community 97`, `Community 98`, `Community 355`, `Community 357`, `Community 230`, `Community 229`, `Community 364`, `Community 368`, `Community 375`, `Community 376`, `Community 250`, `Community 251`?**
   _High betweenness centrality (0.056) - this node is a cross-community bridge._
-- **Why does `contains()` connect `Community 169` to `Community 132`, `Community 266`, `Community 12`, `Community 146`, `Community 147`, `Community 155`, `Community 162`, `Community 163`, `Community 39`, `Community 168`, `Community 41`, `Community 47`, `Community 189`, `Community 331`, `Community 79`, `Community 80`, `Community 350`, `Community 99`, `Community 109`, `Community 113`, `Community 376`?**
+- **Why does `contains()` connect `Community 169` to `Community 0`, `Community 132`, `Community 266`, `Community 12`, `Community 146`, `Community 147`, `Community 155`, `Community 162`, `Community 163`, `Community 39`, `Community 168`, `Community 41`, `Community 47`, `Community 189`, `Community 331`, `Community 79`, `Community 80`, `Community 350`, `Community 99`, `Community 109`, `Community 113`?**
   _High betweenness centrality (0.011) - this node is a cross-community bridge._
-- **Why does `Marshal()` connect `Community 259` to `Community 160`, `Community 357`, `Community 328`, `Community 8`, `Community 10`, `Community 331`, `Community 11`, `Community 109`, `Community 365`, `Community 334`, `Community 368`, `Community 145`, `Community 314`, `Community 349`, `Community 29`?**
-  _High betweenness centrality (0.010) - this node is a cross-community bridge._
+- **Why does `BackendFor()` connect `Community 326` to `Community 224`, `Community 160`, `Community 0`, `Community 163`, `Community 132`, `Community 97`, `Community 167`, `Community 8`, `Community 329`, `Community 365`, `Community 142`, `Community 79`, `Community 80`, `Community 368`, `Community 310`, `Community 29`?**
+  _High betweenness centrality (0.011) - this node is a cross-community bridge._
 - **What connects `ts`, `status`, `exit_code` to the rest of the system?**
-  _3664 weakly-connected nodes found - possible documentation gaps or missing edges._
+  _3561 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `Community 3` be split into smaller, more focused modules?**
-  _Cohesion score 0.045454545454545456 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.047619047619047616 - nodes in this community are weakly interconnected._
 - **Should `Community 4` be split into smaller, more focused modules?**
-  _Cohesion score 0.06666666666666667 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.05 - nodes in this community are weakly interconnected._
 - **Should `Community 5` be split into smaller, more focused modules?**
-  _Cohesion score 0.05263157894736842 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.0425531914893617 - nodes in this community are weakly interconnected._
