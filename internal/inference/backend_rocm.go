@@ -103,6 +103,10 @@ func (b backendROCm) ContainerArgs(spec RunSpec) []string {
 		"--port", fmt.Sprintf("%d", serverPort),
 	}
 	args = append(args, llamaServerFlags...)
+	// ROCm symmetry (D-01): the IDENTICAL coding-mode delta as the Vulkan backend,
+	// rendered through the shared seam helper so both backends emit --jinja / sampling /
+	// --cache-reuse behind the seam. nil ⇒ byte-identical off path (D-02).
+	args = appendCodingModeArgs(args, spec.CodingMode)
 	return args
 }
 

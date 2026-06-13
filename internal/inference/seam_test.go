@@ -31,11 +31,36 @@ import (
 //
 // SC#4 intent (no silent CPU/Linux assumption in callers) is preserved, not
 // relaxed: every one of these is an imperative behavior, not a printed finding.
+// codingModeFlagPattern is the SINGLE source for the CMODE-01 coding-mode llama-server
+// flag-leak regex (D-02/SC#4). The --jinja / --cache-reuse / sampling literals are the
+// same seam class as the existing llamaServerFlags: they MUST live ONLY in
+// backend_vulkan.go / backend_rocm.go (the appendCodingModeArgs helper). This regex
+// forbids them in any non-seam internal/* file AND in cmd/villa. It anchors on the
+// distinctive --jinja / --cache-reuse / --repeat-penalty tokens; --temp / --top-p /
+// --top-k are deliberately NOT anchored (too generic to match safely without false
+// positives). Both the internal/ walk (patterns) and the cmd/villa walk (cmdPatterns)
+// reference this so adding it to one map cannot leave the other unguarded.
+//
+// String-LITERAL anchoring (mirrors the gate's existing image-CONTEXT anchoring): the
+// seam EMITS these flags as quoted Go string-literal args (`"--jinja"`, `"--cache-reuse"`),
+// so each alternative is anchored to a leading double-quote. This catches a real emission
+// leak while NOT matching a legitimate bare-prose PROVENANCE mention in a doc comment
+// (e.g. catalog.go's "whether llama.cpp --cache-reuse is proven safe" — that is DATA
+// describing the cache_reuse_safe field, the same class the gate's top-of-file scoping
+// comment deliberately excludes; flagging it would weaken the gate into noise).
+func codingModeFlagPattern() *regexp.Regexp {
+	return regexp.MustCompile(`"--jinja"|"--cache-reuse"|"--repeat-penalty"`)
+}
+
 func TestSeamGrepGate(t *testing.T) {
 	// Imperative backend-leak patterns. Each must appear ZERO times in non-test
 	// .go files outside the seam.
 	patterns := map[string]*regexp.Regexp{
 		"runtime.GOOS / GOOS branch": regexp.MustCompile(`runtime\.GOOS|GOOS\s*==`),
+		// CMODE-01 coding-mode flag literals (D-02/SC#4): --jinja / --cache-reuse /
+		// sampling MUST stay behind the inference seam (appendCodingModeArgs). A leak into
+		// any non-seam internal/* file fails CI. Added in the SAME commit as the literals.
+		"coding-mode llama-server flags": codingModeFlagPattern(),
 		// kyuz0|docker.io/ already bind BOTH the Vulkan and the ROCm image tokens (the
 		// rocm image is docker.io/kyuz0/…:rocm-7.2.4@sha256:…). The rocm tag alternatives
 		// are added for EXPLICIT intent — a ROCm image tag leaking outside the seam must
@@ -142,6 +167,13 @@ func TestSeamGrepGate(t *testing.T) {
 		// and the memory-access-fault marker MUST live behind the inference seam
 		// (backend_rocm.go), never in a cmd/villa caller.
 		"backend marker literal": regexp.MustCompile(`ROCm0|HSA_OVERRIDE_GFX_VERSION|Memory access fault`),
+		// CMODE-01 coding-mode flag literals: the cmd-tier guard. The Plan-02
+		// cmd/villa/coding-mode.go noun composes the codingmode core + the orchestrate
+		// render delta WITHOUT retyping --jinja / --cache-reuse / sampling — those land
+		// only in backend_*.go. This key is added to cmdPatterns EXPLICITLY (cmdPatterns
+		// selectively copies named keys and does NOT inherit new patterns entries), so the
+		// cmd/villa walk is a REAL guarantee, not a vacuous one (SC1).
+		"coding-mode llama-server flags": codingModeFlagPattern(),
 	}
 
 	cmdRoot := "../../cmd/villa" // relative to internal/inference
@@ -159,6 +191,19 @@ func TestSeamGrepGate(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("walk cmd/villa: %v", err)
+	}
+
+	// --- Walk 2b: cmd/villa coding-flag guard is a REAL assertion (SC1) ----------
+	// Prove the cmdPatterns set actually FORBIDS a coding-mode flag leak in a
+	// cmd/villa-shaped source (not just that the key is present). A synthetic
+	// cmd/villa fixture carrying `--jinja` MUST be caught by the cmd-tier pattern;
+	// this guards against a future refactor that drops the cmdPatterns key and
+	// silently re-opens the Plan-02 cmd/villa/coding-mode.go leak path.
+	cmdLeakFixture := `package main
+func render() []string { return []string{"llama-server", "--jinja", "--cache-reuse", "256"} }
+`
+	if !cmdPatterns["coding-mode llama-server flags"].MatchString(cmdLeakFixture) {
+		t.Errorf("cmd-tier coding-flag guard FAILED to catch a --jinja leak in a cmd/villa fixture (SC1 regression): the cmdPatterns key is vacuous")
 	}
 }
 
