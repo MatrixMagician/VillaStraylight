@@ -161,8 +161,22 @@ Plans:
   3. User can launch the agent via `villa code`, which applies the belt-and-braces env lockdown (`CRUSH_DISABLE_METRICS=1`, `DO_NOT_TRACK=1`) before exec.
   4. Drift of the agent binary or rendered config from the pin policy is detected and surfaced with remediation — never silently auto-corrected.
 
-**Plans**: TBD
-**Research**: recommended (`/gsd-plan-phase 26 --research-phase` — freeze the exact `crush.json` schema at v0.76.0: options/models/lsp keys, model-id shadowing #2649, permission-config surface)
+**Plans**: 3 plans
+Plans:
+
+**Wave 1**
+
+- [ ] 26-01-PLAN.md — Pure `internal/agent` core: `go:embed` pin policy + checksum gate, deterministic `crush.json` renderer (kill switches, one loopback provider, villa- model id, LSP WARN-on-absence), version comparator, drift detector + golden (AGENT-01/02/04)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 26-02-PLAN.md — `villa code` launcher + `liveAgentDeps` + checksum-before-extract install seam + LSP PATH probe + root.go registration; env lockdown, no-auto-flip honored, drift surfaced at launch (AGENT-01/03/04)
+
+**Wave 3** *(blocked on Wave 2; on-hardware checkpoint)*
+
+- [ ] 26-03-PLAN.md — On-hardware: pin the extracted-binary SHA-256 (Pitfall 6 / Q2), flip binary-drift to a confident signal, and a real `villa code` launch acceptance on the gfx1151 box (AGENT-01/04)
+
+**Research**: COMPLETE (26-RESEARCH.md — crush.json v0.76.0 schema frozen; #2649 villa- prefix resolved; pin artifacts verified). Open questions locked in planning: Q1 → render-only (option ii, llama.cpp single-model leniency); Q2 → policy carries `binarySha256`, pinned on-hardware in 26-03; Q3 → minimal/omitted `permissions` (full STRIDE allowlist is Phase 27).
 
 ### Phase 27: Install Addon, Preflight Gates & `villa verify agent`
 
@@ -226,6 +240,6 @@ Plans:
 | 23. Surfacing, Backup & Memory-Aware Swap | v1.3 | 5/5 | Complete | 2026-06-10 |
 | 24. Coder Fit Math, Catalog & On-Hardware Model Qualification | v1.4 | 4/4 | Complete    | 2026-06-13 |
 | 25. Coding-Mode Render & Transactional Swap Verb | v1.4 | 2/2 | Complete    | 2026-06-13 |
-| 26. Agent Delivery Core & Lockdown Launcher | v1.4 | 0/TBD | Not started | - |
+| 26. Agent Delivery Core & Lockdown Launcher | v1.4 | 0/3 | Planned | - |
 | 27. Install Addon, Preflight Gates & `villa verify agent` | v1.4 | 0/TBD | Not started | - |
 | 28. Agent Surfacing & Contracts | v1.4 | 0/TBD | Not started | - |
