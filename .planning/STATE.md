@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Coding Agent
 status: completed
-stopped_at: Completed 24-04-PLAN.md (catalog reconciled + FROZEN; D-13 toolbox keep; operator-approved). Phase 24 complete (4/4).
-last_updated: "2026-06-13T09:50:19.922Z"
+stopped_at: Phase 25 context gathered
+last_updated: "2026-06-13T09:57:33.894Z"
 last_activity: 2026-06-13
 progress:
   total_phases: 5
@@ -206,9 +206,9 @@ Items deferred at v1.4 roadmap creation (2026-06-12, research-recorded):
 
 ## Session Continuity
 
-Last session: 2026-06-13
-Stopped at: Completed 24-04-PLAN.md (catalog reconciled + FROZEN; D-13 toolbox keep; operator-approved). Phase 24 complete (4/4).
-Resume file: None
+Last session: 2026-06-13T09:57:33.888Z
+Stopped at: Phase 25 context gathered
+Resume file: .planning/phases/25-coding-mode-render-transactional-swap-verb/25-CONTEXT.md
 
 ## Operator Next Steps
 
