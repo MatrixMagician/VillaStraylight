@@ -143,3 +143,28 @@ the outcome.
   smoke, server logs, KV/GTT, cache-reuse probes) — operator-approved in 24-03
   (`qualification/REVIEW.md`).
 - Per-entry summary table: `24-QUALIFICATION-EVIDENCE.md`.
+
+---
+
+## Freeze Ratification (Task 3 — SC#1/SC#4 blocking checkpoint)
+
+**Status: APPROVED — 2026-06-13.** The operator reviewed the freeze evidence chain at the
+blocking human-verify checkpoint and ratified the catalog freeze:
+
+- Reviewed the `internal/catalog/seed.json` diff against the plan 24-01 state — the only
+  reconciliation change is `cache_reuse_safe: true` added to the two hybrid Next entries
+  (exactly 2 lines; commit `e18ce7b`). No FAIL entry shipped; no deletion/re-pin required.
+- Reviewed this decision record (`24-TOOLBOX-DECISION.md`) — accepted **Decision: KEEP**
+  the pinned digest `sha256:9a74e555…` (build 9496), no re-pin; nothing lands at the
+  `internal/inference` seam in Phase 25 on account of D-11.
+- Reviewed `24-QUALIFICATION-EVIDENCE.md` — confirmed every entry's disposition traces to
+  its `qualification/*/verdict.md` (all three PASS).
+- Explicitly accepted the **build-9496-scoped** `cache_reuse_safe: true` truth-up on the two
+  Next entries, with the mechanism = DeltaNet recurrent-state context checkpoints (Check 3 /
+  FINDING A3), to be re-probed if a future toolbox re-pin removes context-checkpoint support.
+- Confirmed the recommend golden (`cmd/villa/testdata/recommend.golden.json`) is untouched
+  since its single 24-02 re-freeze (`be8ee0e`) and `make check` is green incl.
+  `TestSeamGrepGate`.
+
+The catalog is **FROZEN**. This closes the SC#1 freeze and the SC#4 decision-before-freeze
+gate; CODER-01 and CODER-03 are satisfied. Phase 24 plans are complete.
