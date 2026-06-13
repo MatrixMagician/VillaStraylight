@@ -298,3 +298,135 @@ func TestRenderNoMetachars(t *testing.T) {
 		}
 	}
 }
+
+const (
+	pinnedBinSHA = "1111111111111111111111111111111111111111111111111111111111111111"
+	otherBinSHA  = "2222222222222222222222222222222222222222222222222222222222222222"
+)
+
+// TestBinaryDrift asserts D-14a: a mismatched installed binary hash is a confident
+// BinaryDrift; equal hashes are clean; an UNPINNED policy hash degrades to a
+// typed-Unknown WARN (BinaryDriftUnknown), never a false drift (Pitfall 6).
+func TestBinaryDrift(t *testing.T) {
+	rendered, _, _ := Render(renderTestConfig(), renderTestProbes())
+
+	t.Run("mismatch is confident drift", func(t *testing.T) {
+		r := DetectDrift(DriftInput{
+			BinaryPresent: true, InstalledBinSHA: otherBinSHA, PolicyBinSHA: pinnedBinSHA,
+			ConfigPresent: true, OnDiskConfig: rendered, RenderedConfig: rendered,
+		})
+		if !r.BinaryDrift {
+			t.Error("BinaryDrift = false, want true on a hash mismatch")
+		}
+		if r.BinaryDriftUnknown {
+			t.Error("BinaryDriftUnknown = true on a confident mismatch, want false")
+		}
+		if r.Reason == "" {
+			t.Error("expected a remediation Reason on binary drift")
+		}
+	})
+
+	t.Run("equal hashes are clean", func(t *testing.T) {
+		r := DetectDrift(DriftInput{
+			BinaryPresent: true, InstalledBinSHA: pinnedBinSHA, PolicyBinSHA: pinnedBinSHA,
+			ConfigPresent: true, OnDiskConfig: rendered, RenderedConfig: rendered,
+		})
+		if r.BinaryDrift || r.BinaryDriftUnknown {
+			t.Errorf("equal hashes: BinaryDrift=%v Unknown=%v, want both false", r.BinaryDrift, r.BinaryDriftUnknown)
+		}
+	})
+
+	t.Run("unpinned sentinel degrades to typed-Unknown WARN", func(t *testing.T) {
+		r := DetectDrift(DriftInput{
+			BinaryPresent: true, InstalledBinSHA: otherBinSHA, PolicyBinSHA: unpinnedBinarySentinel,
+			ConfigPresent: true, OnDiskConfig: rendered, RenderedConfig: rendered,
+		})
+		if r.BinaryDrift {
+			t.Error("BinaryDrift = true against the unpinned sentinel, want a typed-Unknown WARN (false drift avoided)")
+		}
+		if !r.BinaryDriftUnknown {
+			t.Error("BinaryDriftUnknown = false against the unpinned sentinel, want true")
+		}
+	})
+
+	t.Run("empty policy hash also degrades to Unknown", func(t *testing.T) {
+		r := DetectDrift(DriftInput{
+			BinaryPresent: true, InstalledBinSHA: otherBinSHA, PolicyBinSHA: "",
+			ConfigPresent: true, OnDiskConfig: rendered, RenderedConfig: rendered,
+		})
+		if r.BinaryDrift || !r.BinaryDriftUnknown {
+			t.Errorf("empty policy hash: BinaryDrift=%v Unknown=%v, want false/true", r.BinaryDrift, r.BinaryDriftUnknown)
+		}
+	})
+
+	t.Run("absent binary is BinaryAbsent not drift", func(t *testing.T) {
+		r := DetectDrift(DriftInput{
+			BinaryPresent: false, PolicyBinSHA: pinnedBinSHA,
+			ConfigPresent: true, OnDiskConfig: rendered, RenderedConfig: rendered,
+		})
+		if !r.BinaryAbsent {
+			t.Error("BinaryAbsent = false on a missing binary, want true")
+		}
+		if r.BinaryDrift {
+			t.Error("BinaryDrift = true on a missing binary, want false (absent != drift)")
+		}
+	})
+}
+
+// TestConfigAbsent asserts D-14: ConfigPresent=false is the FIRST-RUN render
+// trigger (ConfigAbsent), DISTINCT from ConfigDrift, and an absent config is never
+// compared against the rendered reference (no false drift).
+func TestConfigAbsent(t *testing.T) {
+	rendered, _, _ := Render(renderTestConfig(), renderTestProbes())
+	r := DetectDrift(DriftInput{
+		BinaryPresent: true, InstalledBinSHA: pinnedBinSHA, PolicyBinSHA: pinnedBinSHA,
+		ConfigPresent: false, OnDiskConfig: nil, RenderedConfig: rendered,
+	})
+	if !r.ConfigAbsent {
+		t.Error("ConfigAbsent = false on a missing crush.json, want true (first-run render trigger)")
+	}
+	if r.ConfigDrift {
+		t.Error("ConfigDrift = true on a missing crush.json, want false (absent != drift)")
+	}
+}
+
+// TestConfigDrift asserts D-14b + Pitfall 4: a present config that semantically
+// differs is ConfigDrift; a whitespace-only re-save of identical semantics is NOT
+// drift (parsed-semantic compare).
+func TestConfigDrift(t *testing.T) {
+	rendered, _, _ := Render(renderTestConfig(), renderTestProbes())
+
+	t.Run("semantic difference is drift", func(t *testing.T) {
+		// A different config (no coder model) renders a different model id.
+		other, _, _ := Render(config.VillaConfig{Model: "different-model"}, nil)
+		r := DetectDrift(DriftInput{
+			BinaryPresent: true, InstalledBinSHA: pinnedBinSHA, PolicyBinSHA: pinnedBinSHA,
+			ConfigPresent: true, OnDiskConfig: other, RenderedConfig: rendered,
+		})
+		if !r.ConfigDrift {
+			t.Error("ConfigDrift = false on a semantic difference, want true")
+		}
+		if r.Reason == "" {
+			t.Error("expected a remediation Reason on config drift")
+		}
+	})
+
+	t.Run("whitespace-only difference is not drift", func(t *testing.T) {
+		// Re-indent the rendered config with different whitespace but identical semantics.
+		var v any
+		if err := json.Unmarshal(rendered, &v); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		reSaved, err := json.MarshalIndent(v, "", "    ") // 4-space indent vs the rendered 2-space
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+		r := DetectDrift(DriftInput{
+			BinaryPresent: true, InstalledBinSHA: pinnedBinSHA, PolicyBinSHA: pinnedBinSHA,
+			ConfigPresent: true, OnDiskConfig: reSaved, RenderedConfig: rendered,
+		})
+		if r.ConfigDrift {
+			t.Error("ConfigDrift = true on a whitespace-only re-save, want false (parsed-semantic compare, Pitfall 4)")
+		}
+	})
+}
