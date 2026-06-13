@@ -17,7 +17,7 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 - [x] **CODER-01**: Catalog ships `role:"coder"` entries (Qwen3-Coder-30B-A3B for all tiers; Qwen3-Coder-Next for 96/128 GB tiers) with revision-pinned GGUF artifacts and template provenance (catalog schema 2→3, append-only)
 - [x] **CODER-02**: `villa recommend` computes a coder fit at agent-profile context (after embed reservation + chat fit) and outputs an honest residency mode (`swap`/`shared`) as a fit-math output, never a preference (recommend schema 2→3, append-only)
-- [ ] **CODER-03**: Coder catalog entries are qualified agent-in-the-loop on hardware (real multi-step tool-call loop through llama-server `--jinja` on the pinned image, measured KV at agent ctx) before freezing; toolbox re-pin decision recorded
+- [x] **CODER-03**: Coder catalog entries are qualified agent-in-the-loop on hardware (real multi-step tool-call loop through llama-server `--jinja` on the pinned image, measured KV at agent ctx) before freezing; toolbox re-pin decision recorded
 
 ### Coding Mode
 
@@ -77,7 +77,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 |-------------|-------|--------|
 | CODER-01 | Phase 24 | Complete |
 | CODER-02 | Phase 24 | Complete |
-| CODER-03 | Phase 24 | Pending |
+| CODER-03 | Phase 24 | Complete |
 | CMODE-01 | Phase 25 | Pending |
 | CMODE-02 | Phase 25 | Pending |
 | AGENT-01 | Phase 26 | Pending |
@@ -101,4 +101,4 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 ---
 *Requirements defined: 2026-06-12*
-*Last updated: 2026-06-12 — traceability mapped during v1.4 roadmap creation (Phases 24–28)*
+*Last updated: 2026-06-13 — CODER-03 marked complete (Phase 24-04: catalog frozen, D-13 toolbox keep recorded); Phase 24 fully complete (CODER-01/02/03)*

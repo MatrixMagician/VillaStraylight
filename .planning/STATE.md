@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Coding Agent
 status: executing
-stopped_at: Completed 24-03-PLAN.md (on-hardware coder qualification; operator-approved)
-last_updated: "2026-06-13T07:06:13Z"
-last_activity: 2026-06-13 -- Plan 24-03 complete (3/3 coder entries PASS on-hardware)
+stopped_at: Completed 24-04-PLAN.md (catalog reconciled + FROZEN; D-13 toolbox keep; operator-approved)
+last_updated: "2026-06-13T00:00:00Z"
+last_activity: 2026-06-13 -- Plan 24-04 complete (catalog FROZEN, D-13 KEEP build 9496, CODER-01/03 closed); Phase 24 complete
 progress:
   total_phases: 5
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 4
-  completed_plans: 3
-  percent: 0
+  completed_plans: 4
+  percent: 20
 ---
 
 # Project State
@@ -25,12 +25,12 @@ See: .planning/PROJECT.md (updated 2026-06-12 — milestone v1.4 Coding Agent st
 
 ## Current Position
 
-Phase: 24 (Coder Fit Math, Catalog & On-Hardware Model Qualification) — EXECUTING
-Plan: 4 of 4
-Status: Ready to execute (24-04 reconciliation + D-11 toolbox decision; 24-03 evidence approved)
-Last activity: 2026-06-13 -- Plan 24-03 complete (3/3 coder entries PASS on-hardware)
+Phase: 24 (Coder Fit Math, Catalog & On-Hardware Model Qualification) — COMPLETE (4/4 plans)
+Plan: 4 of 4 — COMPLETE
+Status: Phase 24 complete — catalog FROZEN, D-13 toolbox keep recorded, CODER-01/02/03 closed. Next: Phase 25 (CMODE).
+Last activity: 2026-06-13 -- Plan 24-04 complete (catalog reconciled + FROZEN; D-13 KEEP build 9496)
 
-Progress: [░░░░░░░░░░] 0% (v1.4)
+Progress: [██░░░░░░░░] 20% (v1.4)
 
 ## Performance Metrics
 
@@ -108,6 +108,7 @@ Progress: [░░░░░░░░░░] 0% (v1.4)
 | Phase 24 P01 | 9min | 2 tasks | 8 files |
 | Phase 24 P02 | 7min | 2 tasks | 7 files |
 | Phase 24 P03 | ~3h (on-hardware) | 4 tasks (3 auto + 1 checkpoint APPROVED) | 24 evidence + 3 files |
+| Phase 24 P04 | ~6min | 3 tasks (2 auto + 1 checkpoint APPROVED) | 4 files |
 
 ## Accumulated Context
 
@@ -143,6 +144,7 @@ Earlier (v1.0–v1.3) standing decisions retained:
 - [Phase 24-01]: External coder-entry validation refuses the whole catalog (warning naming entry id + seed fallback), never clamps — bounds: agent_ctx>0, temperature (0,2], top_p (0,1], top_k>=0, repeat_penalty (0,3]
 - [Phase 24-02]: Coder block computed once in Pick after the reservation shrink and threaded to finalizeRecommendation (refusal path passes the shared conservative floor); --model override of a coder id is warn-and-allow (chat KV stays effectiveCtx; only pickCoder is agent_ctx-locked)
 - [Phase 24-03]: On-hardware qualification (CODER-03, D-08/D-09) APPROVED — all three coder entries PASS on the PINNED vulkan-radv digest (build 9496, NOT the drifted 9579 tag): offload 49/49, measured KV exact-match to fit math (6.00 / 3.00 / 3.00 GiB). FINDING A2: DeltaNet recurrent-state buffer = 301.50 MiB (ctx/quant-independent) — candidate min_envelope_bytes constant for 24-04. FINDING A3: cache-reuse on the Next hybrids came back TRUE via recurrent-state context checkpoints (75.376 MiB), NOT n_cache_reuse chunk reuse — cache_reuse_safe catalog claim to be RATIFIED in 24-04. Build 9579 re-pin fallback NOT needed (9496 has full Qwen3-Next arch support). Harness deviation: Crush v0.76.0 rejects --yolo with `run`; auto-accept via config permissions.allowed_tools (strictly tighter than --yolo).
+- [Phase 24-04]: **D-13 (ratifies D-11): KEEP the pinned vulkan-radv digest sha256:9a74e555 (build 9496) — NO re-pin.** Fallback build 9579 not needed (9496 has full Qwen3-Next/DeltaNet arch + working Qwen3-Coder tool-call parser). Catalog FROZEN: all three coder entries `cache_reuse_safe: true` as the literal probe verdict (truth-up of A3) — **build-9496-scoped** (Next-entry reuse mechanism is recurrent-state context checkpoints, NOT GQA KV shifting; re-probe required if a future re-pin drops checkpoint support). D-10/D-12 delete-over-hope contingency NOT triggered (3/3 PASS). Recommend golden untouched since 24-02 (be8ee0e). Operator ratified the freeze at the SC#1/SC#4 blocking checkpoint. CODER-01/02/03 closed; Phase 24 COMPLETE.
 
 ### Pending Todos
 
@@ -203,10 +205,10 @@ Items deferred at v1.4 roadmap creation (2026-06-12, research-recorded):
 
 ## Session Continuity
 
-Last session: 2026-06-13T07:06:13Z
-Stopped at: Completed 24-03-PLAN.md (on-hardware coder qualification; operator-approved, 3/3 PASS)
+Last session: 2026-06-13
+Stopped at: Completed 24-04-PLAN.md (catalog reconciled + FROZEN; D-13 toolbox keep; operator-approved). Phase 24 complete (4/4).
 Resume file: None
 
 ## Operator Next Steps
 
-- Execute the final phase-24 plan: `/gsd-execute-phase 24` → 24-04 (reconciliation, D-11 toolbox decision record, catalog ratification of cache_reuse_safe + A2/A3 findings). The qualification evidence is operator-approved and released.
+- Phase 24 is complete (4/4 plans; CODER-01/02/03 closed, catalog frozen, D-13 toolbox keep recorded). Start the next phase: `/gsd-plan-phase 25` (CMODE — coding-mode unit delta + transactional swap verb; CMODE-01/CMODE-02). Phase 25 consumes the frozen entries' agent_ctx/agent_sampling/cache_reuse_safe and the D-13 decision; the cache_reuse_safe claim is build-9496-scoped (re-probe gate in 24-TOOLBOX-DECISION.md Check 3 if the toolbox is ever re-pinned).

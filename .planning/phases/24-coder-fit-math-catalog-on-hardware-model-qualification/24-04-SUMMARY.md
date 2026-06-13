@@ -115,6 +115,11 @@ None - no external service configuration required.
 - **Phase 25 (CMODE) is unblocked.** Phase 25 consumes the frozen entries' `agent_ctx` / `agent_sampling` / `cache_reuse_safe` and the D-13 decision record. The KEEP decision means no inference-seam digest change is owed from Phase 24; Phase 25 renders `--cache-reuse 256` against entries whose safety is build-9496-scoped (re-probe gate documented in 24-TOOLBOX-DECISION.md Check 3 if the toolbox is ever re-pinned).
 - Phase 24 is the FINAL plan of the phase — all 4 plans complete; CODER-01/02/03 satisfied.
 
+## Self-Check: PASSED
+
+- Files verified on disk: `24-04-SUMMARY.md`, `24-TOOLBOX-DECISION.md`, `24-QUALIFICATION-EVIDENCE.md`.
+- Commits verified in git: `e18ce7b` (Task 1), `cff6449` (Task 2), `bd9a2f0` (Task 3 freeze approval), `ea4db0d` (SUMMARY).
+
 ---
 *Phase: 24-coder-fit-math-catalog-on-hardware-model-qualification*
 *Completed: 2026-06-13*
