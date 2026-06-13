@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Coding Agent
 status: Awaiting on-hardware enter->prove->exit acceptance (CMODE-02 pending)
-stopped_at: 25-02 Task 3 on-hardware acceptance checkpoint (Tasks 1-2 complete, make check green)
-last_updated: "2026-06-13T13:38:18.955Z"
+stopped_at: Phase 26 context gathered
+last_updated: "2026-06-13T14:28:44.202Z"
 last_activity: 2026-06-13
 progress:
   total_phases: 5
@@ -216,9 +216,9 @@ Items deferred at v1.4 roadmap creation (2026-06-12, research-recorded):
 
 ## Session Continuity
 
-Last session: 2026-06-13T10:34:40Z
-Stopped at: 25-02 Task 3 on-hardware acceptance checkpoint (Tasks 1-2 complete, make check green)
-Resume file: .planning/phases/25-coding-mode-render-transactional-swap-verb/25-02-SUMMARY.md
+Last session: 2026-06-13T14:28:44.196Z
+Stopped at: Phase 26 context gathered
+Resume file: .planning/phases/26-agent-delivery-core-lockdown-launcher/26-CONTEXT.md
 
 ## Operator Next Steps
 
