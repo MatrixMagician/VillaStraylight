@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Coding Agent
-status: executing
-stopped_at: Phase 25 context gathered
-last_updated: "2026-06-13T10:30:46.398Z"
-last_activity: 2026-06-13 -- Phase 25 execution started
+status: Awaiting on-hardware enter->prove->exit acceptance (CMODE-02 pending)
+stopped_at: 25-02 Task 3 on-hardware acceptance checkpoint (Tasks 1-2 complete, make check green)
+last_updated: "2026-06-13T13:38:18.955Z"
+last_activity: 2026-06-13
 progress:
   total_phases: 5
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 6
-  completed_plans: 5
-  percent: 20
+  completed_plans: 6
+  percent: 40
 ---
 
 # Project State
@@ -25,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-06-12 — milestone v1.4 Coding Agent st
 
 ## Current Position
 
-Phase: 25 (Coding-Mode Render & Transactional Swap Verb) — EXECUTING
-Plan: 2 of 2 — Tasks 1-2 complete; Task 3 (on-hardware acceptance) OPEN checkpoint
+Phase: 26
+Plan: Not started
 Status: Awaiting on-hardware enter->prove->exit acceptance (CMODE-02 pending)
-Last activity: 2026-06-13 -- 25-02 Tasks 1-2 landed (codingmode core + verb); Task 3 checkpoint reached
+Last activity: 2026-06-13
 
 Progress: [██░░░░░░░░] 20% (v1.4)
 
@@ -36,7 +36,7 @@ Progress: [██░░░░░░░░] 20% (v1.4)
 
 **Velocity:**
 
-- Total plans completed: 91 (v1.0 + v1.1: 48; v1.2: 19; v1.3: 20)
+- Total plans completed: 93 (v1.0 + v1.1: 48; v1.2: 19; v1.3: 20)
 - Average duration: 34 min
 - Total execution time: 2.2 hours
 
@@ -63,6 +63,7 @@ Progress: [██░░░░░░░░] 20% (v1.4)
 | 22 | 4 | - | - |
 | 23 | 5 | - | - |
 | 24 | 4 | - | - |
+| 25 | 2 | - | - |
 
 **Recent Trend:**
 

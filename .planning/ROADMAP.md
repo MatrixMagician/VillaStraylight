@@ -225,7 +225,7 @@ Plans:
 | 22. Control-Plane Fit + Host Gate | v1.3 | 4/4 | Complete | 2026-06-10 |
 | 23. Surfacing, Backup & Memory-Aware Swap | v1.3 | 5/5 | Complete | 2026-06-10 |
 | 24. Coder Fit Math, Catalog & On-Hardware Model Qualification | v1.4 | 4/4 | Complete    | 2026-06-13 |
-| 25. Coding-Mode Render & Transactional Swap Verb | v1.4 | 2/2 | Complete   | 2026-06-13 |
+| 25. Coding-Mode Render & Transactional Swap Verb | v1.4 | 2/2 | Complete    | 2026-06-13 |
 | 26. Agent Delivery Core & Lockdown Launcher | v1.4 | 0/TBD | Not started | - |
 | 27. Install Addon, Preflight Gates & `villa verify agent` | v1.4 | 0/TBD | Not started | - |
 | 28. Agent Surfacing & Contracts | v1.4 | 0/TBD | Not started | - |
