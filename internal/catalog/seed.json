@@ -149,6 +149,7 @@
       "bootstrap": false,
       "role": "coder",
       "agent_ctx": 131072,
+      "cache_reuse_safe": true,
       "agent_sampling": {
         "temperature": 0.7,
         "top_p": 0.8,
@@ -182,6 +183,7 @@
       "bootstrap": false,
       "role": "coder",
       "agent_ctx": 131072,
+      "cache_reuse_safe": true,
       "agent_sampling": {
         "temperature": 0.7,
         "top_p": 0.8,

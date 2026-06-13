@@ -333,9 +333,16 @@ func TestLoadSeedCoderVerifiedDims(t *testing.T) {
 		layers, kv, head, agentCtx, tier int
 		cacheReuse                       bool
 	}{
+		// cache_reuse_safe truth-up (24-04 D-09 / FINDING A3): the on-hardware
+		// probe returned true for ALL THREE entries — for the Next hybrids the
+		// reuse is via DeltaNet recurrent-state context checkpoints (75.376 MiB
+		// snapshots), not n_cache_reuse chunk reuse, but --cache-reuse 256 is
+		// demonstrably harmless on build 9496 (no degrade warning, turn-2
+		// cache_n>0). Probe verdict is the literal catalog claim. Evidence:
+		// qualification/qwen3-coder-*/{verdict.md,cache-reuse.txt}.
 		"qwen3-coder-30b-a3b": {17665334432, 48, 4, 128, 65536, 64, true},
-		"qwen3-coder-next-q4": {49608478720, 12, 2, 256, 131072, 128, false},
-		"qwen3-coder-next-q3": {36282685440, 12, 2, 256, 131072, 96, false},
+		"qwen3-coder-next-q4": {49608478720, 12, 2, 256, 131072, 128, true},
+		"qwen3-coder-next-q3": {36282685440, 12, 2, 256, 131072, 96, true},
 	}
 	for id, w := range want {
 		m, ok := c.FindByID(id)
