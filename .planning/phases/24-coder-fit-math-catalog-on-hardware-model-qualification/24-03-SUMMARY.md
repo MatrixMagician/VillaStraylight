@@ -133,6 +133,12 @@ None - no security-relevant surface introduced beyond the plan's `<threat_model>
 - **Plan 24-04 (reconciliation + D-11) is unblocked:** three operator-approved PASS verdicts on real hardware, with A2/A3 findings and the measured-vs-computed deltas ready to fold into the catalog and the D-11 toolbox decision record. Build 9579 (locally present, digest-pinnable) was the pre-identified re-pin fallback but is NOT needed — build 9496 qualified all three entries, including full Qwen3-Next/DeltaNet arch support.
 - **No blockers.** Chat stack is restored and green.
 
+## Self-Check: PASSED
+
+- All claimed files exist on disk (SUMMARY, REVIEW.md, three verdict.md).
+- All task commits present in git history (`e012887`, `750ee17`, `7d63df3`, `abd4c80`, `a8dbf45`).
+- `git status --porcelain -- internal cmd` empty — zero product-code changes (TestSeamGrepGate untouched).
+
 ---
 *Phase: 24-coder-fit-math-catalog-on-hardware-model-qualification*
 *Completed: 2026-06-13*

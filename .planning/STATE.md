@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Coding Agent
 status: executing
-stopped_at: Phase 24 context gathered
-last_updated: "2026-06-12T21:38:26.718Z"
-last_activity: 2026-06-12 -- Phase 24 execution started
+stopped_at: Completed 24-03-PLAN.md (on-hardware coder qualification; operator-approved)
+last_updated: "2026-06-13T07:06:13Z"
+last_activity: 2026-06-13 -- Plan 24-03 complete (3/3 coder entries PASS on-hardware)
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 4
-  completed_plans: 2
+  completed_plans: 3
   percent: 0
 ---
 
@@ -26,9 +26,9 @@ See: .planning/PROJECT.md (updated 2026-06-12 — milestone v1.4 Coding Agent st
 ## Current Position
 
 Phase: 24 (Coder Fit Math, Catalog & On-Hardware Model Qualification) — EXECUTING
-Plan: 3 of 4
-Status: Ready to execute
-Last activity: 2026-06-12 -- Phase 24 execution started
+Plan: 4 of 4
+Status: Ready to execute (24-04 reconciliation + D-11 toolbox decision; 24-03 evidence approved)
+Last activity: 2026-06-13 -- Plan 24-03 complete (3/3 coder entries PASS on-hardware)
 
 Progress: [░░░░░░░░░░] 0% (v1.4)
 
@@ -107,6 +107,7 @@ Progress: [░░░░░░░░░░] 0% (v1.4)
 | Phase 23 P05 | 9 min (drill; checkpoint pending) | 1 of 2 tasks | 0 files |
 | Phase 24 P01 | 9min | 2 tasks | 8 files |
 | Phase 24 P02 | 7min | 2 tasks | 7 files |
+| Phase 24 P03 | ~3h (on-hardware) | 4 tasks (3 auto + 1 checkpoint APPROVED) | 24 evidence + 3 files |
 
 ## Accumulated Context
 
@@ -141,6 +142,7 @@ Earlier (v1.0–v1.3) standing decisions retained:
 - [Phase 24-01]: AgentSampling is a pointer field (*AgentSampling) so absent blocks stay absent on re-encode; chat entries emit no agent_sampling key (D-03)
 - [Phase 24-01]: External coder-entry validation refuses the whole catalog (warning naming entry id + seed fallback), never clamps — bounds: agent_ctx>0, temperature (0,2], top_p (0,1], top_k>=0, repeat_penalty (0,3]
 - [Phase 24-02]: Coder block computed once in Pick after the reservation shrink and threaded to finalizeRecommendation (refusal path passes the shared conservative floor); --model override of a coder id is warn-and-allow (chat KV stays effectiveCtx; only pickCoder is agent_ctx-locked)
+- [Phase 24-03]: On-hardware qualification (CODER-03, D-08/D-09) APPROVED — all three coder entries PASS on the PINNED vulkan-radv digest (build 9496, NOT the drifted 9579 tag): offload 49/49, measured KV exact-match to fit math (6.00 / 3.00 / 3.00 GiB). FINDING A2: DeltaNet recurrent-state buffer = 301.50 MiB (ctx/quant-independent) — candidate min_envelope_bytes constant for 24-04. FINDING A3: cache-reuse on the Next hybrids came back TRUE via recurrent-state context checkpoints (75.376 MiB), NOT n_cache_reuse chunk reuse — cache_reuse_safe catalog claim to be RATIFIED in 24-04. Build 9579 re-pin fallback NOT needed (9496 has full Qwen3-Next arch support). Harness deviation: Crush v0.76.0 rejects --yolo with `run`; auto-accept via config permissions.allowed_tools (strictly tighter than --yolo).
 
 ### Pending Todos
 
@@ -201,10 +203,10 @@ Items deferred at v1.4 roadmap creation (2026-06-12, research-recorded):
 
 ## Session Continuity
 
-Last session: 2026-06-12T21:37:31.719Z
-Stopped at: Phase 24 context gathered
-Resume file: .planning/phases/24-coder-fit-math-catalog-on-hardware-model-qualification/24-CONTEXT.md
+Last session: 2026-06-13T07:06:13Z
+Stopped at: Completed 24-03-PLAN.md (on-hardware coder qualification; operator-approved, 3/3 PASS)
+Resume file: None
 
 ## Operator Next Steps
 
-- Plan the first v1.4 phase: `/gsd-plan-phase 24` (research-phase recommended — on-hardware qualification protocol, KV measurement, toolbox re-pin decision)
+- Execute the final phase-24 plan: `/gsd-execute-phase 24` → 24-04 (reconciliation, D-11 toolbox decision record, catalog ratification of cache_reuse_safe + A2/A3 findings). The qualification evidence is operator-approved and released.
