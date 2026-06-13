@@ -46,6 +46,19 @@ type RenderInput struct {
 	// ModelsDir is the host directory bind-mounted read-only at the container's
 	// models path. A host path, never shell-interpolated.
 	ModelsDir string
+
+	// CodingMode is the OPTIONAL pre-translated coding-mode render descriptor
+	// (CMODE-01, D-05). nil ⇒ the off path: Render leaves spec.CodingMode nil and the
+	// rendered unit is byte-identical to v1.3 (D-02). Non-nil ⇒ Render sets
+	// spec.CodingMode and overrides spec.ContextLen with CoderAgentCtx (the single -c,
+	// Pitfall 1). The CALLER (Plan-02 live wiring) resolves the coder catalog entry once
+	// and translates catalog.AgentSampling → inference.Sampling, so the pure renderer —
+	// and internal/inference — never import internal/catalog (clean dependency direction).
+	CodingMode *inference.CodingModeSpec
+	// CoderAgentCtx is the resolved agent context the coder unit is rendered with. Used
+	// ONLY when CodingMode != nil, where it overrides Cfg.Ctx as the single -c value
+	// (Pitfall 1: the agent ctx is carried by the existing -c, never a second one).
+	CoderAgentCtx int
 }
 
 // Plan is the result of a Reconcile: the rendered units whose on-disk hash differs
