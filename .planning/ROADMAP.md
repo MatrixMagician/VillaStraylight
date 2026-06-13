@@ -174,7 +174,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2; on-hardware checkpoint)*
 
-- [ ] 26-03-PLAN.md — On-hardware: pin the extracted-binary SHA-256 (Pitfall 6 / Q2), flip binary-drift to a confident signal, and a real `villa code` launch acceptance on the gfx1151 box (AGENT-01/04)
+- [x] 26-03-PLAN.md — On-hardware: pin the extracted-binary SHA-256 (Pitfall 6 / Q2), flip binary-drift to a confident signal, and a real `villa code` launch acceptance on the gfx1151 box (AGENT-01/04) — COMPLETE (binary hash `4fd811f6…8342b4` pinned from the verified tarball; first-run render + `crush run` PONG round-trip + no-rewrite + drift-refusal all PASS; FOUND+FIXED a D-12 defect — coding-off WARN was lost across syscall.Exec, now surfaced before exec; commits 29bc674, ca7f598; make check green. Caveat: live box on ROCm; TUI proven via non-interactive crush run)
 
 **Research**: COMPLETE (26-RESEARCH.md — crush.json v0.76.0 schema frozen; #2649 villa- prefix resolved; pin artifacts verified). Open questions locked in planning: Q1 → render-only (option ii, llama.cpp single-model leniency); Q2 → policy carries `binarySha256`, pinned on-hardware in 26-03; Q3 → minimal/omitted `permissions` (full STRIDE allowlist is Phase 27).
 

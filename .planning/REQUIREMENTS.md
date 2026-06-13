@@ -80,10 +80,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | CODER-03 | Phase 24 | Complete |
 | CMODE-01 | Phase 25 | Complete |
 | CMODE-02 | Phase 25 | Complete |
-| AGENT-01 | Phase 26 | Partial (26-01: pin policy + pure VerifyTarball gate; 26-02: checksum-before-extract Install seam landed; on-hardware binary-hash pin in 26-03) |
-| AGENT-02 | Phase 26 | Complete (26-01: deterministic crush.json renderer + golden) |
-| AGENT-03 | Phase 26 | Complete (26-02: villa code launcher + lockdown env before exec + explicit villa-owned syscall.Exec + no-auto-flip) |
-| AGENT-04 | Phase 26 | Partial (26-01: pure DetectDrift core; 26-02: live drift surfacing at launch, never auto-corrected; confident binary-drift signal in 26-03) |
+| AGENT-01 | Phase 26 | Complete (26-01: pin policy + pure VerifyTarball gate; 26-02: checksum-before-extract Install seam; 26-03: real binary hash pinned on-hardware from the verified tarball; autoupdate forced off) |
+| AGENT-02 | Phase 26 | Complete (26-01: deterministic crush.json renderer + golden; 26-03 on-hardware: first-run render verified — kill switches, one loopback provider, villa- model id, LSP block) |
+| AGENT-03 | Phase 26 | Complete (26-02: villa code launcher + lockdown env before exec + explicit villa-owned syscall.Exec + no-auto-flip; 26-03 on-hardware: round-trip + WARN-before-exec D-12 fix verified) |
+| AGENT-04 | Phase 26 | Complete (26-01: pure DetectDrift core; 26-02: live drift surfacing at launch, never auto-corrected; 26-03: confident binary-drift signal + drift-refusal negative control verified on-hardware) |
 | INSTALL-03 | Phase 27 | Pending |
 | INSTALL-04 | Phase 27 | Pending |
 | PRIV-06 | Phase 27 | Pending |
