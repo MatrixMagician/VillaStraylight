@@ -70,11 +70,17 @@ func newCodeCmd() (*cobra.Command, *bytes.Buffer, *bytes.Buffer) {
 	return cmd, &out, &errOut
 }
 
+// pinnedPolicyBinSHA is the REAL extracted-binary SHA-256 pinned in
+// internal/agent/crush-policy.json (Plan 03, on-hardware). agent.Run loads the
+// embedded policy, so a fake installed binary must carry this exact hash to be
+// non-drifting; any other value is now a confident binary-drift signal.
+const pinnedPolicyBinSHA = "4fd811f68c05da6c8d11fd1d5b6298a75ecc38a6c105a342b74e080cce8342b4"
+
 // TestCodeLockdownEnv — on the clean path a fake Launch captures the env; it MUST
 // contain the three lockdown vars (D-11).
 func TestCodeLockdownEnv(t *testing.T) {
 	cfg := config.VillaConfig{Model: "qwen3", CodingMode: true}
-	rec := &codeRecorder{cfg: cfg, binPresent: true, binSHA: "abc", configPresent: true, onDisk: renderRef(t, cfg)}
+	rec := &codeRecorder{cfg: cfg, binPresent: true, binSHA: pinnedPolicyBinSHA, configPresent: true, onDisk: renderRef(t, cfg)}
 	cmd, _, _ := newCodeCmd()
 	code := runCode(cmd, rec.deps())
 	if code != exitPass {
@@ -95,7 +101,7 @@ func TestCodeLockdownEnv(t *testing.T) {
 // still launches (first-run render-then-launch, no drift error surfaced).
 func TestCodeFirstRunRenders(t *testing.T) {
 	cfg := config.VillaConfig{Model: "qwen3", CodingMode: true}
-	rec := &codeRecorder{cfg: cfg, binPresent: true, binSHA: "abc", configPresent: false}
+	rec := &codeRecorder{cfg: cfg, binPresent: true, binSHA: pinnedPolicyBinSHA, configPresent: false}
 	cmd, _, _ := newCodeCmd()
 	code := runCode(cmd, rec.deps())
 	if code != exitPass {
@@ -138,7 +144,7 @@ func TestCodeDriftSurfaced(t *testing.T) {
 	rec := &codeRecorder{
 		cfg:           config.VillaConfig{Model: "qwen3", CodingMode: true},
 		binPresent:    true,
-		binSHA:        "abc",
+		binSHA:        pinnedPolicyBinSHA,
 		configPresent: true,
 		onDisk:        []byte(`{"$schema":"hand-edited","options":{"disable_metrics":false}}`),
 	}
@@ -162,7 +168,7 @@ func TestCodeDriftSurfaced(t *testing.T) {
 // `villa coding-mode enter` AND still launches (D-12).
 func TestCodeCodingModeOffWarns(t *testing.T) {
 	cfg := config.VillaConfig{Model: "qwen3", CodingMode: false}
-	rec := &codeRecorder{cfg: cfg, binPresent: true, binSHA: "abc", configPresent: true, onDisk: renderRef(t, cfg)}
+	rec := &codeRecorder{cfg: cfg, binPresent: true, binSHA: pinnedPolicyBinSHA, configPresent: true, onDisk: renderRef(t, cfg)}
 	cmd, _, errOut := newCodeCmd()
 	code := runCode(cmd, rec.deps())
 	if code != exitPass {

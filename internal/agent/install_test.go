@@ -17,6 +17,12 @@ import (
 // injected Deps func field / an in-memory reader, so the whole flow is driven
 // off-hardware.
 
+// pinnedPolicyBinSHA is the REAL extracted-binary SHA-256 pinned in crush-policy.json
+// (Plan 03, on-hardware). Run() loads the embedded policy, so a fake installed binary
+// must carry this exact hash to be treated as non-drifting; any other value is now a
+// confident BinaryDrift (the sentinel-WARN era ended when the hash was pinned).
+const pinnedPolicyBinSHA = "4fd811f68c05da6c8d11fd1d5b6298a75ecc38a6c105a342b74e080cce8342b4"
+
 // runRecorder captures the side-effecting seam calls so the flow tests can assert
 // what Run did (and did NOT do) without a live host.
 type runRecorder struct {
@@ -95,7 +101,7 @@ func TestRunFirstRunRendersThenLaunches(t *testing.T) {
 	rec := &runRecorder{
 		cfg:           config.VillaConfig{Model: "qwen3", CodingMode: true},
 		binPresent:    true,
-		binSHA:        "abc123",
+		binSHA:        pinnedPolicyBinSHA,
 		configPresent: false, // first run — no crush.json yet
 	}
 	res := Run(rec.deps())
@@ -127,7 +133,7 @@ func TestRunDriftSurfaced(t *testing.T) {
 	rec := &runRecorder{
 		cfg:           config.VillaConfig{Model: "qwen3", CodingMode: true},
 		binPresent:    true,
-		binSHA:        "abc123",
+		binSHA:        pinnedPolicyBinSHA,
 		configPresent: true,
 		onDisk:        []byte(`{"$schema":"hand-edited","options":{"disable_metrics":false}}`),
 	}
@@ -154,7 +160,7 @@ func TestRunLaunchesClean(t *testing.T) {
 	rec := &runRecorder{
 		cfg:           cfg,
 		binPresent:    true,
-		binSHA:        "abc123",
+		binSHA:        pinnedPolicyBinSHA,
 		configPresent: true,
 		onDisk:        renderedRef(t, cfg),
 	}
@@ -186,7 +192,7 @@ func TestRunCodingModeOffWarns(t *testing.T) {
 	rec := &runRecorder{
 		cfg:           cfg,
 		binPresent:    true,
-		binSHA:        "abc123",
+		binSHA:        pinnedPolicyBinSHA,
 		configPresent: true,
 		onDisk:        renderedRef(t, cfg),
 	}

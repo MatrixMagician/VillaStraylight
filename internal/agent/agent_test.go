@@ -43,9 +43,16 @@ func TestPolicyLoad(t *testing.T) {
 	if p.URLTmpl == "" || !strings.Contains(p.URLTmpl, "{asset}") {
 		t.Errorf("urlTemplate = %q, want a {asset}-placeholder URL", p.URLTmpl)
 	}
-	// The binary hash is the UNPINNED sentinel until Plan 03 records it on-hardware.
-	if asset.BinarySHA256 != unpinnedBinarySentinel {
-		t.Errorf("binarySha256 = %q, want the unpinned sentinel %q (Plan 03 replaces it)", asset.BinarySHA256, unpinnedBinarySentinel)
+	// The binary hash was pinned on-hardware in Plan 03 (26-03): the EXTRACTED
+	// `crush` binary SHA-256, derived from the SHA-256-verified tarball on the
+	// gfx1151 box (Q2 / Pitfall 6 — distinct from the tarball SHA above). With a
+	// real value present, binary-drift is now a confident signal, not a WARN.
+	wantBinSHA := "4fd811f68c05da6c8d11fd1d5b6298a75ecc38a6c105a342b74e080cce8342b4"
+	if !strings.EqualFold(asset.BinarySHA256, wantBinSHA) {
+		t.Errorf("binarySha256 = %q, want the pinned extracted-binary hash %q", asset.BinarySHA256, wantBinSHA)
+	}
+	if asset.BinarySHA256 == unpinnedBinarySentinel {
+		t.Error("binarySha256 is still the unpinned sentinel — Plan 03 must pin the real on-hardware hash")
 	}
 }
 
