@@ -4,13 +4,13 @@ milestone: v1.4
 milestone_name: Coding Agent
 status: executing
 stopped_at: Phase 25 context gathered
-last_updated: "2026-06-13T10:18:12.698Z"
-last_activity: 2026-06-13 -- Phase 25 planning complete
+last_updated: "2026-06-13T10:30:46.398Z"
+last_activity: 2026-06-13 -- Phase 25 execution started
 progress:
   total_phases: 5
   completed_phases: 1
-  total_plans: 4
-  completed_plans: 4
+  total_plans: 6
+  completed_plans: 5
   percent: 20
 ---
 
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-12 — milestone v1.4 Coding Agent started)
 
 **Core value:** Run a capable local AI workspace that "just works" after install — hardware-aware setup that brings inference, chat, and the dashboard up healthy, with zero data leaving the box. v1.2 extended the bar to "and stays operable, recoverable, and measurable over time." v1.3 extended it to "and remembers the user and their documents across chats — strictly local." v1.4 extends it to "and gives the operator a strictly-local terminal coding agent, wired to a fit-guarded coding model."
-**Current focus:** Phase 24 — Coder Fit Math, Catalog & On-Hardware Model Qualification
+**Current focus:** Phase 25 — Coding-Mode Render & Transactional Swap Verb
 
 ## Current Position
 
-Phase: 25
-Plan: Not started
+Phase: 25 (Coding-Mode Render & Transactional Swap Verb) — EXECUTING
+Plan: 2 of 2
 Status: Ready to execute
-Last activity: 2026-06-13 -- Phase 25 planning complete
+Last activity: 2026-06-13 -- Phase 25 execution started
 
 Progress: [██░░░░░░░░] 20% (v1.4)
 
@@ -110,6 +110,7 @@ Progress: [██░░░░░░░░] 20% (v1.4)
 | Phase 24 P02 | 7min | 2 tasks | 7 files |
 | Phase 24 P03 | ~3h (on-hardware) | 4 tasks (3 auto + 1 checkpoint APPROVED) | 24 evidence + 3 files |
 | Phase 24 P04 | ~6min | 3 tasks (2 auto + 1 checkpoint APPROVED) | 4 files |
+| Phase 25 P01 | 35min | 3 tasks | 11 files |
 
 ## Accumulated Context
 
@@ -146,6 +147,9 @@ Earlier (v1.0–v1.3) standing decisions retained:
 - [Phase 24-02]: Coder block computed once in Pick after the reservation shrink and threaded to finalizeRecommendation (refusal path passes the shared conservative floor); --model override of a coder id is warn-and-allow (chat KV stays effectiveCtx; only pickCoder is agent_ctx-locked)
 - [Phase 24-03]: On-hardware qualification (CODER-03, D-08/D-09) APPROVED — all three coder entries PASS on the PINNED vulkan-radv digest (build 9496, NOT the drifted 9579 tag): offload 49/49, measured KV exact-match to fit math (6.00 / 3.00 / 3.00 GiB). FINDING A2: DeltaNet recurrent-state buffer = 301.50 MiB (ctx/quant-independent) — candidate min_envelope_bytes constant for 24-04. FINDING A3: cache-reuse on the Next hybrids came back TRUE via recurrent-state context checkpoints (75.376 MiB), NOT n_cache_reuse chunk reuse — cache_reuse_safe catalog claim to be RATIFIED in 24-04. Build 9579 re-pin fallback NOT needed (9496 has full Qwen3-Next arch support). Harness deviation: Crush v0.76.0 rejects --yolo with `run`; auto-accept via config permissions.allowed_tools (strictly tighter than --yolo).
 - [Phase 24-04]: **D-13 (ratifies D-11): KEEP the pinned vulkan-radv digest sha256:9a74e555 (build 9496) — NO re-pin.** Fallback build 9579 not needed (9496 has full Qwen3-Next/DeltaNet arch + working Qwen3-Coder tool-call parser). Catalog FROZEN: all three coder entries `cache_reuse_safe: true` as the literal probe verdict (truth-up of A3) — **build-9496-scoped** (Next-entry reuse mechanism is recurrent-state context checkpoints, NOT GQA KV shifting; re-probe required if a future re-pin drops checkpoint support). D-10/D-12 delete-over-hope contingency NOT triggered (3/3 PASS). Recommend golden untouched since 24-02 (be8ee0e). Operator ratified the freeze at the SC#1/SC#4 blocking checkpoint. CODER-01/02/03 closed; Phase 24 COMPLETE.
+- [Phase ?]: CMODE-01: coding-mode render delta (--jinja + single -c agent ctx + sampling + fail-closed --cache-reuse) appended behind the inference/orchestrate seam via an optional RunSpec.CodingMode pointer; nil = byte-identical v1.3 off path
+- [Phase ?]: CoderAgentCtx uses omitzero (not omitempty): BurntSushi/toml omitempty does not drop a zero int (v1.3 memory-stack int precedent)
+- [Phase ?]: A1 closed on hardware: build-9496 llama-server flag spellings confirmed exact before freezing the on-path golden
 
 ### Pending Todos
 
@@ -206,7 +210,7 @@ Items deferred at v1.4 roadmap creation (2026-06-12, research-recorded):
 
 ## Session Continuity
 
-Last session: 2026-06-13T09:57:33.888Z
+Last session: 2026-06-13T10:30:13.203Z
 Stopped at: Phase 25 context gathered
 Resume file: .planning/phases/25-coding-mode-render-transactional-swap-verb/25-CONTEXT.md
 
