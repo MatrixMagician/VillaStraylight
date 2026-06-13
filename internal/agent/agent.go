@@ -75,9 +75,10 @@ var knownLSPServers = []struct{ key, command string }{
 // Run is the orchestration for `villa code` (AGENT-03/AGENT-04 live half). It mirrors
 // codingmode.Run's load-then-guard-then-act SHAPE but carries NO transactional
 // capture/prove/rollback: `villa code` only reads host state, optionally renders a
-// first-run config when ABSENT, and launches. It composes the Plan-01 pure cores
-// (Render + DetectDrift) and the injected Deps host seams, returning a typed Result —
-// it NEVER os.Exit, NEVER prints (the cobra caller maps Result → exit + messages).
+// first-run config when ABSENT, and reports ready-to-launch. It composes the Plan-01
+// pure cores (Render + DetectDrift) and the injected Deps host seams, returning a typed
+// Result — it NEVER os.Exit, NEVER prints, and NEVER execs (the cobra caller maps Result
+// → exit + messages, prints Warnings, THEN performs the single d.Launch).
 //
 // Ordering (D-13/D-14):
 //  1. LoadConfig (source of truth) — on error, a non-refusal Err Result.
@@ -91,9 +92,10 @@ var knownLSPServers = []struct{ key, command string }{
 //  7. BinaryDrift || ConfigDrift (present-but-differs) → surface + remediation,
 //     return WITHOUT launching, WITHOUT writing, WITHOUT auto-correcting (D-14).
 //     BinaryDriftUnknown (unpinned sentinel) → carry a WARN, do NOT block (Pitfall 6).
-//  8. Clean / first-run-rendered → build the lockdown env (D-11) and call d.Launch —
-//     the SINGLE launch point. A coding-mode-OFF cfg adds a WARN (caller surfaces it,
-//     launch still proceeds — D-12; this core NEVER mutates the toggle).
+//  8. Clean / first-run-rendered → build the lockdown env (D-11) into res.LaunchEnv and
+//     set res.ReadyToLaunch. The caller prints Warnings then performs the SINGLE
+//     d.Launch — so a coding-mode-OFF WARN (caller surfaces it; this core NEVER mutates
+//     the toggle — D-12) is shown BEFORE the exec replaces the process.
 func Run(d Deps) Result {
 	var res Result
 
@@ -208,16 +210,15 @@ func Run(d Deps) Result {
 		})
 	}
 
-	// Build the lockdown env (D-11) in the pure core (unit-testable) and call the
-	// injected Launch — the SINGLE launch point (T-26-09/T-26-10). On a normal exec the
-	// process is replaced and Launch never returns; a returned error is a launch failure.
-	env := lockdownEnv()
-	if err := d.Launch(env); err != nil {
-		res.Err = fmt.Errorf("agent: launch Crush: %w", err)
-		res.Reason = "could not exec the villa-owned Crush binary"
-		return res
-	}
-	res.Launched = true
+	// Build the lockdown env (D-11) in the pure core (unit-testable) and hand it back
+	// as ReadyToLaunch — the caller prints Warnings, THEN performs the single
+	// d.Launch(LaunchEnv) exec (the single launch point, T-26-09/T-26-10). The core
+	// does NOT exec here: doing so replaces the process before the command tier can
+	// surface the coding-mode-off / first-run-rendered / lsp-missing Warnings, and
+	// cores never print or exec (architecture invariant). On a normal exec the caller's
+	// d.Launch never returns; a returned error there is a launch failure it maps.
+	res.LaunchEnv = lockdownEnv()
+	res.ReadyToLaunch = true
 	return res
 }
 
@@ -297,8 +298,16 @@ type Result struct {
 	// semantically from the freshly-rendered reference (hand-edit / staleness,
 	// D-14b) → surface + remediation, NEVER auto-correct.
 	ConfigDrift bool
-	// Launched is true when the presence+drift check was clean and Crush was exec'd.
-	Launched bool
+	// ReadyToLaunch is true when the presence+drift check was clean (and any
+	// first-run render completed): the caller should print Warnings, then exec via
+	// the SINGLE launch point d.Launch(LaunchEnv). The core does NOT exec itself —
+	// the exec is the caller's final action so advisory Warnings (coding-mode-off,
+	// first-run-rendered, lsp-missing) are surfaced BEFORE the process is replaced
+	// (D-12 surfacing; cores never print or exec — that is the command tier's job).
+	ReadyToLaunch bool
+	// LaunchEnv is the resolved belt-and-braces lockdown env (D-11) the caller passes
+	// to d.Launch. Populated only when ReadyToLaunch is true.
+	LaunchEnv []string
 	// Reason is the human refusal/remediation explanation (empty on a clean launch).
 	Reason string
 	// Warnings carries non-blocking signals (LSP-missing, coding-mode-off) for the

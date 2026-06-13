@@ -26,19 +26,19 @@ const pinnedPolicyBinSHA = "4fd811f68c05da6c8d11fd1d5b6298a75ecc38a6c105a342b74e
 // runRecorder captures the side-effecting seam calls so the flow tests can assert
 // what Run did (and did NOT do) without a live host.
 type runRecorder struct {
-	cfg            config.VillaConfig
-	loadErr        error
-	binSHA         string
-	binPresent     bool
-	binErr         error
-	onDisk         []byte
-	configPresent  bool
-	readErr        error
-	lookFound      map[string]bool
-	writeCalls     [][]byte
-	writeErr       error
-	launchCalls    [][]string
-	launchErr      error
+	cfg           config.VillaConfig
+	loadErr       error
+	binSHA        string
+	binPresent    bool
+	binErr        error
+	onDisk        []byte
+	configPresent bool
+	readErr       error
+	lookFound     map[string]bool
+	writeCalls    [][]byte
+	writeErr      error
+	launchCalls   [][]string
+	launchErr     error
 }
 
 // deps wires the recorder into an agent.Deps with sensible defaults (gopls found).
@@ -80,11 +80,8 @@ func TestRunBinaryAbsent(t *testing.T) {
 	if !res.BinaryAbsent {
 		t.Fatalf("BinaryAbsent = false, want true; res=%+v", res)
 	}
-	if res.Launched {
-		t.Errorf("Launched = true on binary-absent; must not launch")
-	}
-	if len(rec.launchCalls) != 0 {
-		t.Errorf("Launch called %d times on binary-absent; want 0", len(rec.launchCalls))
+	if res.ReadyToLaunch {
+		t.Errorf("ReadyToLaunch = true on binary-absent; must not launch")
 	}
 	if len(rec.writeCalls) != 0 {
 		t.Errorf("WriteConfig called %d times on binary-absent; want 0", len(rec.writeCalls))
@@ -118,11 +115,13 @@ func TestRunFirstRunRendersThenLaunches(t *testing.T) {
 	if !bytes.Equal(rec.writeCalls[0], wantRef) {
 		t.Errorf("first-run WriteConfig bytes != freshly-rendered reference")
 	}
-	if len(rec.launchCalls) != 1 {
-		t.Fatalf("Launch called %d times; want exactly 1 after first-run render", len(rec.launchCalls))
+	if !res.ReadyToLaunch {
+		t.Errorf("ReadyToLaunch = false after first-run render; want true (render-then-launch)")
 	}
-	if !res.Launched {
-		t.Errorf("Launched = false after first-run render-then-launch")
+	// Run resolves the env but does NOT exec — the caller (runCode) is the single
+	// launch point, so it can surface warnings before the process is replaced.
+	if len(rec.launchCalls) != 0 {
+		t.Errorf("Run called Launch %d times; want 0 (Run never execs — caller does)", len(rec.launchCalls))
 	}
 }
 
@@ -141,8 +140,8 @@ func TestRunDriftSurfaced(t *testing.T) {
 	if !res.ConfigDrift {
 		t.Fatalf("ConfigDrift = false on present-but-differs config; want true; res=%+v", res)
 	}
-	if res.Launched || len(rec.launchCalls) != 0 {
-		t.Errorf("Launch must NOT be called on config drift")
+	if res.ReadyToLaunch || len(rec.launchCalls) != 0 {
+		t.Errorf("must NOT be ReadyToLaunch on config drift")
 	}
 	if len(rec.writeCalls) != 0 {
 		t.Errorf("WriteConfig must NOT be called on config drift (never auto-correct)")
@@ -168,19 +167,19 @@ func TestRunLaunchesClean(t *testing.T) {
 	if res.Err != nil {
 		t.Fatalf("clean Run returned Err: %v (res=%+v)", res.Err, res)
 	}
-	if !res.Launched {
-		t.Fatalf("Launched = false on the clean path; res=%+v", res)
+	if !res.ReadyToLaunch {
+		t.Fatalf("ReadyToLaunch = false on the clean path; res=%+v", res)
 	}
 	if len(rec.writeCalls) != 0 {
 		t.Errorf("WriteConfig called on the clean (config-present-matching) path; want 0")
 	}
-	if len(rec.launchCalls) != 1 {
-		t.Fatalf("Launch called %d times; want exactly 1", len(rec.launchCalls))
+	if len(rec.launchCalls) != 0 {
+		t.Errorf("Run called Launch %d times; want 0 (Run resolves env only — caller execs)", len(rec.launchCalls))
 	}
-	env := rec.launchCalls[0]
+	// The resolved lockdown env is returned on the Result for the caller to exec with.
 	for _, want := range []string{envCrushDisableMetrics, envDoNotTrack, envCrushDisableAutoUpdate} {
-		if !containsEnv(env, want) {
-			t.Errorf("launch env missing lockdown var %q; env=%v", want, env)
+		if !containsEnv(res.LaunchEnv, want) {
+			t.Errorf("LaunchEnv missing lockdown var %q; env=%v", want, res.LaunchEnv)
 		}
 	}
 }
@@ -197,8 +196,8 @@ func TestRunCodingModeOffWarns(t *testing.T) {
 		onDisk:        renderedRef(t, cfg),
 	}
 	res := Run(rec.deps())
-	if !res.Launched {
-		t.Fatalf("coding-mode-off must still launch (D-12); res=%+v", res)
+	if !res.ReadyToLaunch {
+		t.Fatalf("coding-mode-off must still be ReadyToLaunch (D-12); res=%+v", res)
 	}
 	if !hasWarning(res.Warnings, "coding_mode_off") {
 		t.Errorf("coding-mode-off did not carry a coding_mode_off WARN; warnings=%+v", res.Warnings)

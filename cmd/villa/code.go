@@ -99,9 +99,16 @@ func runCode(cmd *cobra.Command, d *agent.Deps) int {
 	case res.Err != nil:
 		fmt.Fprintf(errOut, "villa code: failed — %s: %v\n", res.Reason, res.Err)
 		return exitBlocked
-	case res.Launched:
-		// On a real exec the process is replaced and we never reach here; this branch is
-		// for the test seam where the injected Launch returns nil without exec'ing.
+	case res.ReadyToLaunch:
+		// Warnings were printed above — NOW perform the single launch (D-12: the
+		// coding-mode-off / first-run-rendered / lsp-missing WARNs are surfaced BEFORE
+		// the process is replaced). d.Launch is the SINGLE launch point; on a real exec
+		// it replaces the process and never returns, so the lines below are reached only
+		// via the test seam (injected Launch returns nil) or a launch failure.
+		if err := d.Launch(res.LaunchEnv); err != nil {
+			fmt.Fprintf(errOut, "villa code: failed — could not exec the villa-owned Crush binary: %v\n", err)
+			return exitBlocked
+		}
 		fmt.Fprintf(out, "villa code: launched Crush against the local endpoint\n")
 		return exitPass
 	default:
