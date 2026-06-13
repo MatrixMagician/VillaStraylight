@@ -32,8 +32,207 @@
 package agent
 
 import (
+	"fmt"
+	"os"
+
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 )
+
+// osEnviron is the inherited-environment source for lockdownEnv, a package var seam
+// so agent_test.go can assert the lockdown vars are APPENDED to (not replacing) the
+// process env without depending on the live os.Environ. Defaults to os.Environ.
+var osEnviron = os.Environ
+
+// lockdown env vars (D-11): the belt-and-braces telemetry/autoupdate kill switches
+// set in the launch env BEFORE exec, redundant with the config kill switches (Plan
+// 01 render). They are CONSTANT literals — no user-controlled string is interpolated
+// (T-26-12). DO_NOT_TRACK is the cross-tool privacy convention; the two CRUSH_*
+// vars disable Crush's metrics + provider auto-update at the process level.
+const (
+	envCrushDisableMetrics    = "CRUSH_DISABLE_METRICS=1"
+	envDoNotTrack             = "DO_NOT_TRACK=1"
+	envCrushDisableAutoUpdate = "CRUSH_DISABLE_PROVIDER_AUTO_UPDATE=1"
+)
+
+// targetPlatformKey is the policy.Assets key for the supported install target. Phase
+// 26 targets linux/amd64 (Fedora/Strix Halo); the policy table is structured to allow
+// a future darwin/arm64 without a code change here. Kept as a fixed constant (NOT a
+// compile-time platform branch) so cmd/villa/code.go and this core stay seam-clean —
+// the seam gate forbids a platform branch outside the inference seam.
+const targetPlatformKey = "linux/amd64"
+
+// knownLSPServers is the fixed probe list (D-10): the primary gopls plus the
+// opportunistic servers villa renders an lsp entry for WHEN found on PATH. Each pair
+// is {crush.json lsp key, server command}. A missing server is a WARN + omitted
+// entry, never a BLOCK (renderLSP / Render owns that degradation).
+var knownLSPServers = []struct{ key, command string }{
+	{"go", "gopls"},
+	{"python", "pyright-langserver"},
+	{"rust", "rust-analyzer"},
+	{"typescript", "typescript-language-server"},
+}
+
+// Run is the orchestration for `villa code` (AGENT-03/AGENT-04 live half). It mirrors
+// codingmode.Run's load-then-guard-then-act SHAPE but carries NO transactional
+// capture/prove/rollback: `villa code` only reads host state, optionally renders a
+// first-run config when ABSENT, and launches. It composes the Plan-01 pure cores
+// (Render + DetectDrift) and the injected Deps host seams, returning a typed Result —
+// it NEVER os.Exit, NEVER prints (the cobra caller maps Result → exit + messages).
+//
+// Ordering (D-13/D-14):
+//  1. LoadConfig (source of truth) — on error, a non-refusal Err Result.
+//  2. Probe LSP servers via LookPath (references only, never installs — D-10).
+//  3. Render(cfg, probes) → the reference bytes (BOTH the drift-compare target AND
+//     the first-run write payload) + LSP warnings.
+//  4. HashBinary + ReadConfig → DetectDrift.
+//  5. BinaryAbsent → graceful remediation, return WITHOUT writing or launching.
+//  6. ConfigAbsent (first-run) → WriteConfig(reference) then PROCEED to launch (NOT
+//     drift). The ONLY auto-write path, and ONLY when absent (D-14).
+//  7. BinaryDrift || ConfigDrift (present-but-differs) → surface + remediation,
+//     return WITHOUT launching, WITHOUT writing, WITHOUT auto-correcting (D-14).
+//     BinaryDriftUnknown (unpinned sentinel) → carry a WARN, do NOT block (Pitfall 6).
+//  8. Clean / first-run-rendered → build the lockdown env (D-11) and call d.Launch —
+//     the SINGLE launch point. A coding-mode-OFF cfg adds a WARN (caller surfaces it,
+//     launch still proceeds — D-12; this core NEVER mutates the toggle).
+func Run(d Deps) Result {
+	var res Result
+
+	// (1) Config is the source of truth feeding Render (D-06).
+	cfg, err := d.LoadConfig()
+	if err != nil {
+		res.Err = fmt.Errorf("agent: load config: %w", err)
+		res.Reason = "could not load villa config — fix config.toml and retry"
+		return res
+	}
+
+	// (2) Probe LSP servers (references only, never installs — D-10).
+	probes := make([]LSPProbe, 0, len(knownLSPServers))
+	for _, srv := range knownLSPServers {
+		_, found := d.LookPath(srv.command)
+		probes = append(probes, LSPProbe{Key: srv.key, Command: srv.command, Found: found})
+	}
+
+	// (3) Freshly render the reference — BOTH the drift-compare target AND the bytes
+	// written on the first-run config-absent path.
+	reference, warns, err := Render(cfg, probes)
+	if err != nil {
+		res.Err = fmt.Errorf("agent: render crush.json: %w", err)
+		res.Reason = "could not render the Crush config from your config.toml"
+		return res
+	}
+	res.Warnings = append(res.Warnings, warns...)
+
+	// (4) Probe the installed binary + on-disk config, then detect drift (report-only).
+	binSHA, binPresent, err := d.HashBinary()
+	if err != nil {
+		res.Err = fmt.Errorf("agent: hash villa-owned Crush binary: %w", err)
+		res.Reason = "could not read the villa-owned Crush binary"
+		return res
+	}
+	onDisk, configPresent, err := d.ReadConfig()
+	if err != nil {
+		res.Err = fmt.Errorf("agent: read on-disk crush.json: %w", err)
+		res.Reason = "could not read the on-disk crush.json"
+		return res
+	}
+
+	policy := loadCrushPolicy()
+	var policyBinSHA string
+	if asset, ok := policy.Assets[targetPlatformKey]; ok {
+		policyBinSHA = asset.BinarySHA256
+	}
+
+	report := DetectDrift(DriftInput{
+		BinaryPresent:   binPresent,
+		InstalledBinSHA: binSHA,
+		PolicyBinSHA:    policyBinSHA,
+		ConfigPresent:   configPresent,
+		OnDiskConfig:    onDisk,
+		RenderedConfig:  reference,
+	})
+
+	// (5) BinaryAbsent → graceful Phase-27 install remediation; never crash, never
+	// write, never launch (D-13).
+	if report.BinaryAbsent {
+		res.BinaryAbsent = true
+		res.Reason = report.Reason
+		return res
+	}
+
+	// (7a) Present-but-differs binary drift → surface + remediation, never auto-correct
+	// (D-14a). A BinaryDriftUnknown sentinel is NOT a block — it carries a WARN below.
+	if report.BinaryDrift {
+		res.BinaryDrift = true
+		res.Reason = report.Reason
+		return res
+	}
+	if report.BinaryDriftUnknown {
+		res.Warnings = append(res.Warnings, Warning{
+			Code: "binary_drift_unknown",
+			Msg:  report.Reason,
+		})
+	}
+
+	// (7b) Present-but-differs CONFIG drift → surface + remediation, never auto-correct
+	// (D-14b). Checked BEFORE the absent-render path so a present-but-drifting config is
+	// never overwritten.
+	if report.ConfigDrift {
+		res.ConfigDrift = true
+		res.Reason = report.Reason
+		return res
+	}
+
+	// (6) FIRST-RUN config-absent → render-then-launch (NOT drift). The ONLY auto-write
+	// path, and ONLY when the config is ABSENT (D-14). Write the freshly-rendered
+	// reference, then PROCEED to launch.
+	if report.ConfigAbsent {
+		if err := d.WriteConfig(reference); err != nil {
+			res.Err = fmt.Errorf("agent: write first-run crush.json: %w", err)
+			res.Reason = "could not write the first-run crush.json"
+			return res
+		}
+		res.ConfigAbsent = true
+		res.Warnings = append(res.Warnings, Warning{
+			Code: "config_rendered",
+			Msg:  "rendered a fresh crush.json from your config.toml (first run)",
+		})
+	}
+
+	// (8) Clean / first-run-rendered path. Coding-mode-OFF is a WARN, never a mutation
+	// (D-12 — this core holds no toggle write). The caller surfaces it; the launch
+	// still proceeds.
+	if !cfg.CodingMode {
+		res.Warnings = append(res.Warnings, Warning{
+			Code: "coding_mode_off",
+			Msg:  "coding mode is OFF — the running stack may not be serving the coder model; run `villa coding-mode enter` to flip it. Launching against the current endpoint anyway.",
+		})
+	}
+
+	// Build the lockdown env (D-11) in the pure core (unit-testable) and call the
+	// injected Launch — the SINGLE launch point (T-26-09/T-26-10). On a normal exec the
+	// process is replaced and Launch never returns; a returned error is a launch failure.
+	env := lockdownEnv()
+	if err := d.Launch(env); err != nil {
+		res.Err = fmt.Errorf("agent: launch Crush: %w", err)
+		res.Reason = "could not exec the villa-owned Crush binary"
+		return res
+	}
+	res.Launched = true
+	return res
+}
+
+// lockdownEnv builds the belt-and-braces launch env (D-11): the three constant
+// telemetry/autoupdate kill switches APPENDED to the inherited process env so Crush
+// still sees PATH/HOME/etc. The values are constant literals — nothing user-controlled
+// is interpolated (T-26-12). Extracted from Run so it is independently unit-testable.
+func lockdownEnv() []string {
+	base := osEnviron()
+	return append(base,
+		envCrushDisableMetrics,
+		envDoNotTrack,
+		envCrushDisableAutoUpdate,
+	)
+}
 
 // Warning is a non-blocking, surfaced-with-remediation signal (typed-Unknown
 // degradation → WARN, never BLOCK). The primary producer is the LSP render: a
