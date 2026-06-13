@@ -112,8 +112,47 @@ type RunSpec struct {
 	// ModelsDir is the host directory bind-mounted read-only at the container's
 	// models path. It is a host path, never interpolated into a shell string.
 	ModelsDir string
-	// ContextLen is the -c context length llama-server is started with.
+	// ContextLen is the -c context length llama-server is started with. For coding
+	// mode the render layer sets this to the resolved agent ctx (CoderAgentCtx) so the
+	// SINGLE -c carries the agent context — never a second -c (D-01, Pitfall 1).
 	ContextLen int
+	// CodingMode is the OPTIONAL coding-mode render descriptor (CMODE-01, D-01/D-02).
+	// nil ⇒ off path BY CONSTRUCTION: ContainerArgs emits exactly the v1.3 base args, so
+	// the existing villa-llama*.container goldens are byte-identical. Non-nil ⇒
+	// ContainerArgs appends the tool-calling delta (--jinja, the sampling preset, and
+	// --cache-reuse 256 gated on CacheReuseSafe) behind the backend seam. Populated only
+	// by orchestrate.Render when cfg.CodingMode is true (D-05).
+	CodingMode *CodingModeSpec
+}
+
+// CodingModeSpec is the OPTIONAL tool-calling render delta carried on RunSpec
+// (CMODE-01, D-01/D-02/D-03). It is populated only when coding mode is active; when a
+// RunSpec's CodingMode is nil the rendered unit is byte-identical to v1.3 (D-02). The
+// agent context is NOT a field here — it is delivered via RunSpec.ContextLen =
+// AgentCtx so the single -c carries it (Pitfall 1: never a second -c).
+type CodingModeSpec struct {
+	// Sampling is the catalog-qualified agent sampling preset (D-01). nil ⇒ the
+	// sampling flags are omitted (the --jinja toggle still renders). The orchestrate
+	// layer translates catalog.AgentSampling → inference.Sampling so internal/inference
+	// stays free of an internal/catalog import (clean dependency direction).
+	Sampling *Sampling
+	// CacheReuseSafe gates --cache-reuse 256 (D-03, carried from Phase 24). The Go zero
+	// value false is the FAIL-CLOSED default: --cache-reuse is appended ONLY when the
+	// catalog entry positively declares cache_reuse_safe=true (build-9496-scoped; the
+	// 24-TOOLBOX-DECISION.md Check 3 re-probe gate fires on any toolbox re-pin).
+	CacheReuseSafe bool
+}
+
+// Sampling is the inference-layer mirror of catalog.AgentSampling (D-01). It is defined
+// HERE (not imported from internal/catalog) so the backend seam stays
+// catalog-independent; the orchestrate layer does the catalog→inference translation.
+// The values are formatted into the llama-server sampling flags inside ContainerArgs
+// (%g for the floats, %d for the int) — typed, never shell-interpolated (T-25-03).
+type Sampling struct {
+	Temperature   float64
+	TopP          float64
+	TopK          int
+	RepeatPenalty float64
 }
 
 // Status is the outcome of an offload assertion. It mirrors preflight.Status so
