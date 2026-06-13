@@ -193,11 +193,12 @@ func TestCodingModeNounRegistered(t *testing.T) {
 	if !have["enter"] || !have["exit"] {
 		t.Errorf("coding-mode must have enter AND exit subcommands, got %v", have)
 	}
-	// D-06: the reserved Phase-26 launcher name must NOT exist yet.
-	for _, c := range root.Commands() {
-		if c.Name() == "code" {
-			t.Errorf("`villa code` is reserved for Phase 26 — must not exist in Phase 25")
-		}
+	// D-06: `villa code` (the Phase-26 agent launcher) is a SIBLING of coding-mode on
+	// the root tree, NOT a coding-mode subcommand — the launcher and the mode-flip verb
+	// are distinct surfaces. (Phase 26 ships `villa code`; before Phase 26 it did not
+	// exist. The invariant that survives is the separation, asserted here.)
+	if have["code"] {
+		t.Errorf("`villa code` must NOT be a coding-mode subcommand — it is a root-level sibling (D-06)")
 	}
 }
 
