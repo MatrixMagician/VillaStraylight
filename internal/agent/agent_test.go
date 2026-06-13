@@ -4,9 +4,18 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"flag"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/MatrixMagician/VillaStraylight/internal/config"
 )
+
+// update regenerates the render-determinism golden fixture (NEW append-only):
+// `go test ./internal/agent -run TestRenderGolden -update`.
+var update = flag.Bool("update", false, "regenerate golden crush.json fixtures")
 
 // TestPolicyLoad verifies the embedded crush-policy.json decodes to the FROZEN
 // v0.76.0 pin (AGENT-01, D-02): the pinned version, the linux/amd64 asset name,
@@ -128,6 +137,164 @@ func TestVersionCompare(t *testing.T) {
 	for _, c := range cases {
 		if got := compareVersions(c.a, c.b); got != c.want {
 			t.Errorf("compareVersions(%q, %q) = %d, want %d", c.a, c.b, got, c.want)
+		}
+	}
+}
+
+// renderTestConfig is the fixed config the render tests/golden are pinned to. Using
+// CoderModel exercises the coding-mode served-id derivation (D-09).
+func renderTestConfig() config.VillaConfig {
+	return config.VillaConfig{
+		Model:         "qwen3-30b",
+		CoderModel:    "qwen3-coder-30b-a3b",
+		CoderAgentCtx: 65536,
+	}
+}
+
+// renderTestProbes pins the LSP probe inputs: gopls FOUND, pyright MISSING (so the
+// golden exercises both the rendered-entry and WARN-and-omit paths, D-10).
+func renderTestProbes() []LSPProbe {
+	return []LSPProbe{
+		{Key: "go", Command: "gopls", Found: true},
+		{Key: "python", Command: "pyright", Found: false},
+	}
+}
+
+// TestRenderGolden asserts Render is byte-deterministic (Pitfall 4) and equals the
+// append-only golden fixture (refreezable via -update). Two renders of the same
+// inputs MUST be byte-identical (config-drift compare depends on it).
+func TestRenderGolden(t *testing.T) {
+	cfg := renderTestConfig()
+	probes := renderTestProbes()
+
+	got, _, err := Render(cfg, probes)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	again, _, err := Render(cfg, probes)
+	if err != nil {
+		t.Fatalf("Render (2nd): %v", err)
+	}
+	if string(got) != string(again) {
+		t.Fatal("Render is not byte-deterministic across two identical calls")
+	}
+
+	goldenPath := filepath.Join("testdata", "crush.json.golden")
+	if *update {
+		if err := os.MkdirAll("testdata", 0o755); err != nil {
+			t.Fatalf("mkdir testdata: %v", err)
+		}
+		if err := os.WriteFile(goldenPath, got, 0o644); err != nil {
+			t.Fatalf("write golden: %v", err)
+		}
+	}
+	want, err := os.ReadFile(goldenPath)
+	if err != nil {
+		t.Fatalf("read golden (run with -update to create): %v", err)
+	}
+	if string(got) != string(want) {
+		t.Errorf("rendered crush.json != golden\n--- got ---\n%s\n--- want ---\n%s", got, want)
+	}
+}
+
+// TestRenderContract asserts the rendered JSON satisfies the locked contract:
+// both kill switches set; exactly ONE openai-compat provider at the loopback
+// base_url with a non-empty models[] whose id is villa- prefixed (D-07/D-08/D-09).
+func TestRenderContract(t *testing.T) {
+	got, _, err := Render(renderTestConfig(), renderTestProbes())
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	var parsed struct {
+		Options struct {
+			DisableMetrics            bool `json:"disable_metrics"`
+			DisableProviderAutoUpdate bool `json:"disable_provider_auto_update"`
+		} `json:"options"`
+		Providers map[string]struct {
+			Type    string `json:"type"`
+			BaseURL string `json:"base_url"`
+			Models  []struct {
+				ID string `json:"id"`
+			} `json:"models"`
+		} `json:"providers"`
+	}
+	if err := json.Unmarshal(got, &parsed); err != nil {
+		t.Fatalf("rendered crush.json does not parse: %v", err)
+	}
+	if !parsed.Options.DisableMetrics || !parsed.Options.DisableProviderAutoUpdate {
+		t.Errorf("kill switches: disable_metrics=%v disable_provider_auto_update=%v, want both true",
+			parsed.Options.DisableMetrics, parsed.Options.DisableProviderAutoUpdate)
+	}
+	if len(parsed.Providers) != 1 {
+		t.Fatalf("provider count = %d, want exactly 1", len(parsed.Providers))
+	}
+	p, ok := parsed.Providers["villa"]
+	if !ok {
+		t.Fatalf("no 'villa' provider; providers=%v", parsed.Providers)
+	}
+	if p.Type != "openai-compat" {
+		t.Errorf("provider type = %q, want openai-compat", p.Type)
+	}
+	if p.BaseURL != "http://127.0.0.1:8080/v1" {
+		t.Errorf("base_url = %q, want the loopback literal http://127.0.0.1:8080/v1", p.BaseURL)
+	}
+	if len(p.Models) == 0 {
+		t.Fatal("models[] is empty — would trigger a startup /models fetch (Pitfall 3)")
+	}
+	if !strings.HasPrefix(p.Models[0].ID, "villa-") {
+		t.Errorf("models[0].id = %q, want a villa- prefix (#2649)", p.Models[0].ID)
+	}
+}
+
+// TestLSPMissingWarn asserts D-10: a not-found server WARNs and OMITS the entry; a
+// found server renders a fixed-literal command and emits no warning; Render never
+// returns a blocking error for a missing LSP server.
+func TestLSPMissingWarn(t *testing.T) {
+	probes := []LSPProbe{
+		{Key: "go", Command: "gopls", Found: false},
+		{Key: "rust", Command: "rust-analyzer", Found: true},
+	}
+	got, warns, err := Render(renderTestConfig(), probes)
+	if err != nil {
+		t.Fatalf("Render returned a blocking error for a missing LSP server: %v", err)
+	}
+	var found bool
+	for _, w := range warns {
+		if w.Code == "lsp_missing" && strings.Contains(w.Msg, "gopls") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected an lsp_missing WARN mentioning gopls; warns=%v", warns)
+	}
+	var parsed struct {
+		LSP map[string]struct {
+			Command string `json:"command"`
+		} `json:"lsp"`
+	}
+	if err := json.Unmarshal(got, &parsed); err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if _, ok := parsed.LSP["go"]; ok {
+		t.Error("missing gopls should be OMITTED from the lsp block, but 'go' is present")
+	}
+	rust, ok := parsed.LSP["rust"]
+	if !ok || rust.Command != "rust-analyzer" {
+		t.Errorf("found rust-analyzer should render entry with fixed command; got %+v ok=%v", rust, ok)
+	}
+}
+
+// TestRenderNoMetachars asserts NO rendered value contains a shell metacharacter
+// sequence ($(, backtick, ${) — Crush $(...)-expands config values at load
+// (Pitfall 1 / T-26-02); every villa-rendered value MUST be metachar-free.
+func TestRenderNoMetachars(t *testing.T) {
+	got, _, err := Render(renderTestConfig(), renderTestProbes())
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	for _, bad := range []string{"$(", "`", "${"} {
+		if strings.Contains(string(got), bad) {
+			t.Errorf("rendered crush.json contains shell metachar %q (Pitfall 1)", bad)
 		}
 	}
 }

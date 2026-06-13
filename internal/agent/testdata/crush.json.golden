@@ -1,0 +1,36 @@
+{
+  "$schema": "https://charm.land/crush.json",
+  "options": {
+    "disable_metrics": true,
+    "disable_provider_auto_update": true,
+    "disable_default_providers": true,
+    "auto_lsp": false
+  },
+  "providers": {
+    "villa": {
+      "name": "VillaStraylight (local)",
+      "type": "openai-compat",
+      "base_url": "http://127.0.0.1:8080/v1",
+      "api_key": "local",
+      "models": [
+        {
+          "id": "villa-qwen3-coder-30b-a3b",
+          "name": "qwen3-coder-30b-a3b (local)",
+          "cost_per_1m_in": 0,
+          "cost_per_1m_out": 0,
+          "cost_per_1m_in_cached": 0,
+          "cost_per_1m_out_cached": 0,
+          "context_window": 65536,
+          "default_max_tokens": 16384,
+          "can_reason": false,
+          "supports_attachments": false
+        }
+      ]
+    }
+  },
+  "lsp": {
+    "go": {
+      "command": "gopls"
+    }
+  }
+}
