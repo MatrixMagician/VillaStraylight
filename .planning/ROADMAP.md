@@ -145,7 +145,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 25-02-PLAN.md — CMODE-02 transactional verb: new pure `internal/codingmode` core cloning `backendswap` + composing `modelswap`, `villa coding-mode enter|exit` + `liveCodingModeDeps`, under-load residency prove (idle-green = rollback), symmetric exit, on-hardware acceptance checkpoint
+- [~] 25-02-PLAN.md — CMODE-02 transactional verb: new pure `internal/codingmode` core cloning `backendswap` + composing `modelswap`, `villa coding-mode enter|exit` + `liveCodingModeDeps`, under-load residency prove (idle-green = rollback), symmetric exit — **Tasks 1-2 done & `make check` green; Task 3 on-hardware acceptance OPEN**
 
 **Research**: not needed (composes shipped modelswap + Phase-7/D-09 render-delta patterns)
 
@@ -225,7 +225,7 @@ Plans:
 | 22. Control-Plane Fit + Host Gate | v1.3 | 4/4 | Complete | 2026-06-10 |
 | 23. Surfacing, Backup & Memory-Aware Swap | v1.3 | 5/5 | Complete | 2026-06-10 |
 | 24. Coder Fit Math, Catalog & On-Hardware Model Qualification | v1.4 | 4/4 | Complete    | 2026-06-13 |
-| 25. Coding-Mode Render & Transactional Swap Verb | v1.4 | 1/2 | In Progress|  |
+| 25. Coding-Mode Render & Transactional Swap Verb | v1.4 | 1.5/2 (25-02 Tasks 1-2 done; Task 3 on-hardware acceptance OPEN) | In Progress|  |
 | 26. Agent Delivery Core & Lockdown Launcher | v1.4 | 0/TBD | Not started | - |
 | 27. Install Addon, Preflight Gates & `villa verify agent` | v1.4 | 0/TBD | Not started | - |
 | 28. Agent Surfacing & Contracts | v1.4 | 0/TBD | Not started | - |

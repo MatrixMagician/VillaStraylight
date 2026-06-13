@@ -26,9 +26,9 @@ See: .planning/PROJECT.md (updated 2026-06-12 — milestone v1.4 Coding Agent st
 ## Current Position
 
 Phase: 25 (Coding-Mode Render & Transactional Swap Verb) — EXECUTING
-Plan: 2 of 2
-Status: Ready to execute
-Last activity: 2026-06-13 -- Phase 25 execution started
+Plan: 2 of 2 — Tasks 1-2 complete; Task 3 (on-hardware acceptance) OPEN checkpoint
+Status: Awaiting on-hardware enter->prove->exit acceptance (CMODE-02 pending)
+Last activity: 2026-06-13 -- 25-02 Tasks 1-2 landed (codingmode core + verb); Task 3 checkpoint reached
 
 Progress: [██░░░░░░░░] 20% (v1.4)
 
@@ -111,6 +111,7 @@ Progress: [██░░░░░░░░] 20% (v1.4)
 | Phase 24 P03 | ~3h (on-hardware) | 4 tasks (3 auto + 1 checkpoint APPROVED) | 24 evidence + 3 files |
 | Phase 24 P04 | ~6min | 3 tasks (2 auto + 1 checkpoint APPROVED) | 4 files |
 | Phase 25 P01 | 35min | 3 tasks | 11 files |
+| Phase 25 P02 | ~40min | 2 of 3 tasks (2 auto + 1 on-hardware checkpoint OPEN) | 5 files |
 
 ## Accumulated Context
 
@@ -150,6 +151,10 @@ Earlier (v1.0–v1.3) standing decisions retained:
 - [Phase ?]: CMODE-01: coding-mode render delta (--jinja + single -c agent ctx + sampling + fail-closed --cache-reuse) appended behind the inference/orchestrate seam via an optional RunSpec.CodingMode pointer; nil = byte-identical v1.3 off path
 - [Phase ?]: CoderAgentCtx uses omitzero (not omitempty): BurntSushi/toml omitempty does not drop a zero int (v1.3 memory-stack int precedent)
 - [Phase ?]: A1 closed on hardware: build-9496 llama-server flag spellings confirmed exact before freezing the on-path golden
+- [Phase 25-02]: CMODE-02 verb implemented (off-hardware GREEN): internal/codingmode clones the backendswap capture->mutate->under-load-prove->verbatim-rollback frame and composes modelswap's forward ordering; villa coding-mode enter|exit noun wires the live seams + a liveProve twin (ConfigContext=AgentCtx). Literal-free of backend markers; TestSeamGrepGate + a structural no-auto-flip guard green. CMODE-02 requirement closes ONLY after the Task-3 on-hardware acceptance.
+- [Phase 25-02]: Durable-chat-model realizes D-08 with NO new schema field: cfg.Model is never overwritten at enter; the coder is served from cfg.CoderModel and exit reverts by clearing the coder fields (config-derived restore, symmetric to enter). Keeps Plan-01's frozen config schema.
+- [Phase 25-02]: No-auto-flip structural guard regex anchored to the bool literal (CodingMode = true|false) so it targets the VillaConfig toggle without false-matching the same-named render-descriptor pointer field (RenderInput/RunSpec.CodingMode, a *CodingModeSpec).
+- [Phase 25-02]: Task-3 acceptance is OPEN — the live villa-llama on this box runs ROCm 7.2.4, while the swap qualification + cache_reuse_safe claim are build-9496-vulkan-radv-scoped (D-03/D-13); running the smoke against ROCm or mutating the live backend autonomously was refused. No pass fabricated.
 
 ### Pending Todos
 
@@ -210,9 +215,9 @@ Items deferred at v1.4 roadmap creation (2026-06-12, research-recorded):
 
 ## Session Continuity
 
-Last session: 2026-06-13T10:30:13.203Z
-Stopped at: Phase 25 context gathered
-Resume file: .planning/phases/25-coding-mode-render-transactional-swap-verb/25-CONTEXT.md
+Last session: 2026-06-13T10:34:40Z
+Stopped at: 25-02 Task 3 on-hardware acceptance checkpoint (Tasks 1-2 complete, make check green)
+Resume file: .planning/phases/25-coding-mode-render-transactional-swap-verb/25-02-SUMMARY.md
 
 ## Operator Next Steps
 
