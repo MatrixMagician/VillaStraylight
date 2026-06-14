@@ -156,3 +156,11 @@ func (backendVulkan) ResidencyProof() ResidencyMarkers {
 func endpointURL() string {
 	return fmt.Sprintf("http://%s:%d", hostPublishAddr, serverPort)
 }
+
+// ServerPort exposes the inference server's container-internal port (serverPort = 8080)
+// so callers compose endpoint URLs WITHOUT re-typing the port literal. The in-network
+// orchestrate accessor (orchestrate.LlamaInNetworkEndpoint) sources the port from HERE so
+// the in-network villa-llama URL stays in lockstep with the inference port, never drifting
+// from a hand-typed :8080 (DNS/port lockstep, Pitfall 3 / T-4-01). This is a string-free
+// pure accessor; it leaks no GPU/backend marker (TestSeamGrepGate-clean).
+func ServerPort() int { return serverPort }
