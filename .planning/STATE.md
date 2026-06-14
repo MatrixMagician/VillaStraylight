@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Coding Agent
 status: executing
-stopped_at: Phase 27 Plan 02 complete (preflight gates + uninstall coverage; INSTALL-04 closed)
-last_updated: "2026-06-14T09:20:00.000Z"
-last_activity: 2026-06-14 -- Phase 27 Plan 02 executed (preflight agent gates + uninstall teardown)
+stopped_at: Phase 27 Plan 03 complete (villa verify agent runtime strictly-local proof; PRIV-06 closed)
+last_updated: "2026-06-14T09:31:00.000Z"
+last_activity: 2026-06-14 -- Phase 27 Plan 03 executed (villa verify agent: negative-control-first egress + llama-down cloud-fallback control)
 progress:
   total_phases: 5
   completed_phases: 3
   total_plans: 13
-  completed_plans: 11
-  percent: 65
+  completed_plans: 12
+  percent: 70
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-06-12 — milestone v1.4 Coding Agent st
 ## Current Position
 
 Phase: 27 (install-addon-preflight-gates-villa-verify-agent) — EXECUTING
-Plan: 3 of 4
-Status: Ready to execute (27-03 verify-agent next)
-Last activity: 2026-06-14 -- Phase 27 Plan 02 executed (preflight agent gates + uninstall teardown; INSTALL-04 closed)
+Plan: 4 of 4
+Status: Ready to execute (27-04 on-hardware acceptance next)
+Last activity: 2026-06-14 -- Phase 27 Plan 03 executed (villa verify agent runtime strictly-local proof; PRIV-06 closed off-hardware)
 
-Progress: [████████░░] 75% (v1.4)
+Progress: [█████████░] 92% (v1.4)
 
 ## Performance Metrics
 
@@ -115,6 +115,7 @@ Progress: [████████░░] 75% (v1.4)
 | Phase 25 P02 | ~40min | 2 of 3 tasks (2 auto + 1 on-hardware checkpoint OPEN) | 5 files |
 | Phase 26 P01 | ~22min | 3 tasks (TDD) | 8 files |
 | Phase 27 P27-01 | ~40 min | 3 tasks | 10 files |
+| Phase 27 P27-03 | ~5 min | 2 tasks (Task 1 TDD) | 3 files |
 
 ## Accumulated Context
 
@@ -159,6 +160,7 @@ Earlier (v1.0–v1.3) standing decisions retained:
 - [Phase 25-02]: No-auto-flip structural guard regex anchored to the bool literal (CodingMode = true|false) so it targets the VillaConfig toggle without false-matching the same-named render-descriptor pointer field (RenderInput/RunSpec.CodingMode, a *CodingModeSpec).
 - [Phase 25-02]: Task-3 acceptance is OPEN — the live villa-llama on this box runs ROCm 7.2.4, while the swap qualification + cache_reuse_safe claim are build-9496-vulkan-radv-scoped (D-03/D-13); running the smoke against ROCm or mutating the live backend autonomously was refused. No pass fabricated.
 - [Phase 27-02]: INSTALL-04 closed (preflight gates + uninstall coverage). **D-09 honest preflight:** `runAgentChecks` (cmd/villa/preflight_agent.go) appends `AGENT-PRE-disk` (BLOCK: free disk < staged coder GGUF + binary; unprobeable → typed-Unknown WARN), `AGENT-PRE-envelope` (BLOCK read from `rec.Coder.Fits`/`TotalBytes`/`Residency`, NEVER re-derived), `AGENT-PRE-cloud-cred` (WARN naming present provider key(s) — 11-key allowlist from 27-RESEARCH A1; NEVER a BLOCK). Folded into install.go via a `runAgentChecks` seam gated on `agentEnabledForGate` (--coding-agent override folded into persisted agent_enabled) → flows through the SAME gateInstall (refuse-with-remediation inherited); agent-off byte-identical. Checks built as cmd-tier `CheckResult` literals (preflight pass/warn/fail are package-private; the gate needs rec.Coder + the staged size); statfs/lookupEnv injected as seams (deterministic tiers). Added `liveAgentStatfs` (cmd-tier copy of the package-private `preflight.liveStatfs` — Rule-3 deviation). **D-10 uninstall:** `removeAgentBinary`+`removeCrushConfig` ALWAYS-removed idempotent seams at a deterministic asserted position (after dashboard teardown, before container stop); live wiring reuses `agentBinPath()`/`crushConfigPath()` + `assertUnitInsideDir` traversal guard; staged GGUF follows the existing keep/remove-models choice; config.toml LEFT (no seam). make check + TestSeamGrepGate green.
+- [Phase 27-03]: PRIV-06 closed off-hardware — `villa verify agent` (cmd/villa/verify_agent.go) mirrors the verify_memory.go four-layer seam EXACTLY. **Pure core `evalAgentVerify`** folds BOTH controls negative-control-FIRST: ctrl1 egress probe (err→FAIL "could not run"; !blocked→FAIL "egress is NOT blocked") runs BEFORE the agent task is trusted; then the real `crush run` read→edit task (err/!completed→FAIL); then ctrl2 llama-down (answered→FAIL "silent cloud-model fallback"; an error from llamaDownTask is the EXPECTED inference-down outcome). Verdict = ctrl1.pass && ctrl2.failed-as-expected; PASS/FAIL only (reuses memoryProof), a timeout/unevaluable is a FAIL. **`liveAgentVerify`** egress probe = `runProbeCurl(ctx, orchestrate.EmbedImage(), "-sf","--max-time","5", egressNegativeControlHost)` (helper image strictly from the seam accessor — TestSeamGrepGate green); agentTask reuses the Plan-01 `liveAgentToolCallProbe` driver verbatim (DRY); llamaDownTask stops `villa-llama.service` via the injected `orchestrate.Systemd.Stop` seam, runs the same task, then restores via a deferred `Start` (T-27-16 — never left stopped). `verifyAgentDeps`/`liveVerifyAgentDeps()` quartet mirrors verifyMemoryDeps; `newVerifyAgent()` registered under the verify parent, gated on persisted agent_enabled (addon-off exits 0; PASS→exitPass / FAIL→exitBlocked). No golden/JSON contract changed; agent-off byte-identical. make check + TestSeamGrepGate green. On-hardware egress + llama-down acceptance is Plan 04.
 - [Phase 26-01]: AGENT-01/02/04 pure half landed — new pure `internal/agent` core (policy/render/drift/version + Deps/Result), zero new deps, TestSeamGrepGate + make check green. **Open-Q1 → option (ii) render-only:** base_url is the FIXED loopback `http://127.0.0.1:8080/v1` (serverPort=8080 constant, not a config field); model id = `villa-`+(CoderModel else Model) relying on llama.cpp single-model leniency — NO --alias delta into the inference seam. **Open-Q4 → parsed-semantic** config-drift (canonicalize→bytes.Equal; whitespace-only re-save is not drift). **Open-Q2 sentinel:** crush-policy.json binarySha256 = `UNPINNED-binary-sha256-set-by-26-03-on-hardware` — **Plan 03 MUST replace it on-hardware** (extract verified tarball → sha256sum crush); until then DetectDrift returns BinaryDriftUnknown (typed-Unknown WARN), never a false drift. config-ABSENT is a DISTINCT first-run render trigger (never compared, never reported as drift; parallels BinaryAbsent). permissions rendered omitted (Phase-27 STRIDE owns the restrictive allowlist).
 
 ### Pending Todos
@@ -171,7 +173,7 @@ Earlier (v1.0–v1.3) standing decisions retained:
 
 [Issues that affect future work]
 
-- NON-NEGOTIABLE THREAT (Phase 27): agent phone-home at **startup** (registry/update fetches fire before first prompt) and silent cloud-model fallback — both must be closed by the negative-control-first `villa verify agent` (egress-open run FAILs; llama-down control FAILs an agent that keeps working). Kill switches are documented upstream but unproven on this host until Phase 27.
+- NON-NEGOTIABLE THREAT (Phase 27): agent phone-home at **startup** (registry/update fetches fire before first prompt) and silent cloud-model fallback. The `villa verify agent` verb that closes both is LANDED off-hardware (27-03): negative-control-first egress (egress-open run FAILs) + llama-down cloud-fallback control (an agent that keeps working with villa-llama down FAILs). The on-hardware acceptance (live egress block + live crush-run round-trip + villa-llama stop/restore) remains OPEN in Plan 04 — the kill switches are proven by construction in the verb but not yet exercised on this host.
 - Phase 24 risk: tool-call/jinja template landmines — GGUF artifacts must be pinned at repo+revision level (the embedded chat template is part of the artifact); the pinned `vulkan-radv` toolbox digest may need a re-pin if its llama.cpp predates Qwen3-Next arch support (PR #16095) + Feb-2026 tool-call parser fixes. `--cache-reuse` is incompatible with recurrent/hybrid models incl. the current chat model; verify for Qwen3-Coder-Next.
 - Phase 24 risk: agent-scale KV (~6–12 GiB at 64–128k ctx) blows fit math anchored on chat contexts — fit must be computed at the agent's RENDERED ctx; KV-quantization only as a catalog-declared, benched choice.
 - v1.3 audit-recorded debt (non-blocking, see Deferred Items): literal reboot durability re-confirmation; restore-side tar streaming (WR-06); install service-name drift test; formal 20-VERIFICATION.md; Nyquist finalization for Phases 18–19.

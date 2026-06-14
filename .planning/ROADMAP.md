@@ -201,7 +201,7 @@ Plans:
 **Wave 2** *(blocked on Wave 1; parallel)*
 
 - [x] 27-02-PLAN.md — Preflight gates + uninstall coverage: disk/post-coder-envelope BLOCK, cloud-credential WARN, typed-Unknown→WARN; `removeAgentBinary`/`removeCrushConfig` ordered teardown, GGUF via keep/remove-models, config.toml left (INSTALL-04) ✅
-- [ ] 27-03-PLAN.md — `villa verify agent`: negative-control-FIRST `evalAgentVerify` (egress block + llama-down cloud-fallback controls), four-layer seam cloned from verify_memory, registered under the verify parent (PRIV-06)
+- [x] 27-03-PLAN.md — `villa verify agent`: negative-control-FIRST `evalAgentVerify` (egress block + llama-down cloud-fallback controls), four-layer seam cloned from verify_memory, registered under the verify parent (PRIV-06)
 
 **Wave 3** *(blocked on Wave 2; on-hardware checkpoint)*
 
@@ -256,5 +256,5 @@ Plans:
 | 24. Coder Fit Math, Catalog & On-Hardware Model Qualification | v1.4 | 4/4 | Complete    | 2026-06-13 |
 | 25. Coding-Mode Render & Transactional Swap Verb | v1.4 | 2/2 | Complete    | 2026-06-13 |
 | 26. Agent Delivery Core & Lockdown Launcher | v1.4 | 0/3 | Planned | - |
-| 27. Install Addon, Preflight Gates & `villa verify agent` | v1.4 | 1/4 | In Progress|  |
+| 27. Install Addon, Preflight Gates & `villa verify agent` | v1.4 | 3/4 | In Progress|  |
 | 28. Agent Surfacing & Contracts | v1.4 | 0/TBD | Not started | - |

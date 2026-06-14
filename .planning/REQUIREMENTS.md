@@ -35,7 +35,7 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 - [x] **INSTALL-03**: Coding agent is an optional `villa install` addon (mirroring the memory addon): gate → pre-stage coder GGUF + agent binary in the sanctioned outbound window → render → readiness proof including a real tool-call round-trip
 - [x] **INSTALL-04**: Preflight gates the addon honestly: disk BLOCK, post-coder envelope BLOCK, cloud-credential WARN; uninstall removes the agent binary, rendered config, and addon artifacts
-- [ ] **PRIV-06**: `villa verify agent` proves zero outbound at runtime, negative-control-first, covering agent **startup**; a llama-down negative control proves no silent cloud-model fallback
+- [x] **PRIV-06**: `villa verify agent` proves zero outbound at runtime, negative-control-first, covering agent **startup**; a llama-down negative control proves no silent cloud-model fallback
 
 ### Surfacing
 
@@ -86,7 +86,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | AGENT-04 | Phase 26 | Complete (26-01: pure DetectDrift core; 26-02: live drift surfacing at launch, never auto-corrected; 26-03: confident binary-drift signal + drift-refusal negative control verified on-hardware) |
 | INSTALL-03 | Phase 27 | Complete |
 | INSTALL-04 | Phase 27 | Complete |
-| PRIV-06 | Phase 27 | Pending |
+| PRIV-06 | Phase 27 | Complete |
 | SURF-01 | Phase 28 | Pending |
 | SURF-02 | Phase 28 | Pending |
 | SURF-03 | Phase 28 | Pending |
