@@ -2,8 +2,8 @@
 gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Coding Agent
-status: verifying
-stopped_at: "Phase 27 — gap-closure 27-06 DONE (WR-01 + WR-06 closed). `villa verify agent` egress negative control now FAILs on broken probe infra (classifyEgressProbe — no false-green) and sanity-probes villa-llama in-network via the new orchestrate.LlamaInNetworkEndpoint() seam accessor (container DNS + inference.ServerPort(), in DNS/port lockstep — no false-FAIL on healthy hosts, no re-typed literal); the llama-down restore failure is now surfaced with `systemctl --user start villa-llama.service` remediation (runLlamaDownControl/restoreLlamaWarning, verdict-downgrade wiring b). make check + TestSeamGrepGate green; no golden/JSON contract change. All four phase-27 gaps (CR-01/WR-01/WR-05/WR-06) closed. Next: re-verify the phase (`/gsd-verify-phase 27`)."
+status: executing
+stopped_at: "Phase 27 COMPLETE — re-verified PASS 5/5 (2026-06-14). Gap-closure plans 27-05 (CR-01 BLOCKER + WR-05) + 27-06 (WR-01 + WR-06) executed; deep gap-closure code review applied 3 warnings (WR-01/02/03; 27-REVIEW-FIX.md, all_fixed). NOTE: WR-02 dropped -f from the egress negative-control curl (behavioral change to the PRIV-06 gate) — needs on-hardware re-confirm via `villa verify agent` before milestone close. make check + TestSeamGrepGate green; no golden/JSON contract change. INSTALL-03/INSTALL-04/PRIV-06 all Complete. Next: Phase 28 (Agent Surfacing & Contracts) — /gsd-discuss-phase 28."
 last_updated: "2026-06-14T17:45:38.798Z"
 last_activity: 2026-06-14
 progress:
