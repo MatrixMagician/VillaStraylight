@@ -196,7 +196,18 @@ func liveAgentVerify(ctx context.Context, deps verifyAgentDeps) memoryProof {
 		//     host fails with a curl CONNECTION/TIMEOUT code (6/7/28) → blocked=true; any other
 		//     failure mode (container never started, curl absent, unclassified non-zero) is an
 		//     infrastructure failure → error (→ FAIL). Exit 0 (reachable) → blocked=false.
-		_, externalExit, externalErr := runProbeCurlCode(ctx, helperImage, "-sf", "--max-time", "5", egressNegativeControlHost)
+		//
+		//     WR-02: this probe deliberately OMITS curl's -f (fail-on-HTTP-error). The negative
+		//     control's question is reachability, not HTTP status: a host that answers with a
+		//     4xx/5xx (rate-limit, captcha, transient outage) is demonstrably REACHABLE, so egress
+		//     is OPEN and the gate MUST fail as "not blocked". With -f, that response would be
+		//     curl exit 22 → the classifier's default (infra-failure) branch, excusing an open-
+		//     egress host as a probe problem (a false-negative on the PRIV-06 security assertion).
+		//     Dropping -f makes ANY HTTP response (including 4xx/5xx) return exit 0 ⇒ blocked=false,
+		//     so a reachable-but-erroring host correctly reads as egress-open. The fail-closed
+		//     property is preserved: a true connection/timeout still exits 6/7/28 → blocked=true,
+		//     and a broken probe environment still surfaces via sanityErr / an unclassified exit.
+		_, externalExit, externalErr := runProbeCurlCode(ctx, helperImage, "-s", "--max-time", "5", egressNegativeControlHost)
 
 		return classifyEgressProbe(sanityErr, externalExit, externalErr)
 	}
