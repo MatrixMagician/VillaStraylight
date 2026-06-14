@@ -13,10 +13,13 @@ import "github.com/MatrixMagician/VillaStraylight/internal/catalog"
 // including refusals (D-07).
 
 // Residency mode values (D-06). Swap requires a PROVEN fit; shared is the
-// floor the agent falls back to (riding the chat endpoint).
+// floor the agent falls back to (riding the chat endpoint). They are EXPORTED
+// (ResidencySwap/ResidencyShared) so callers compare against the constant
+// rather than a re-typed "swap"/"shared" literal (WR-03 — the install addon
+// keys its swap-only refusal off ResidencyShared).
 const (
-	residencySwap   = "swap"
-	residencyShared = "shared"
+	ResidencySwap   = "swap"
+	ResidencyShared = "shared"
 )
 
 // CoderFit is the coder-fit block of the Recommendation contract (D-06/D-07):
@@ -51,7 +54,7 @@ type CoderFit struct {
 // residency degrades to "shared" (D-06). It is also what the no-envelope
 // refusal path stamps (D-07 — swap requires a proven fit).
 func sharedCoderFit() CoderFit {
-	return CoderFit{Fits: false, Residency: residencyShared}
+	return CoderFit{Fits: false, Residency: ResidencyShared}
 }
 
 // pickCoder evaluates every role:"coder" catalog entry against the
@@ -107,6 +110,6 @@ func pickCoder(c catalog.Catalog, envelope uint64) CoderFit {
 		HeadroomBytes: headroom,
 		TotalBytes:    bestTotal,
 		Fits:          true,
-		Residency:     residencySwap,
+		Residency:     ResidencySwap,
 	}
 }

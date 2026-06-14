@@ -576,6 +576,18 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 			fmt.Fprintf(errOut, "install: cannot load the model catalog to resolve the coder model — re-run `villa install --coding-agent` once the catalog is readable.\n")
 			return exitBlocked
 		}
+		// WR-03: distinguish a SHARED-residency coder fit from a genuine no-fit. When the
+		// recommender derived residency "shared" (rec.Coder.Residency == residencyShared, i.e. a
+		// coder DOES fit but only by riding the chat endpoint, not standalone), the v1.4 addon —
+		// which serves a dedicated SWAP-residency coder — cannot stage it. That is a deliberate
+		// v1.4 swap-only limitation, NOT a memory shortfall, so emit a refusal that says so
+		// rather than the "free memory / use a larger host" copy (which misdirects an operator
+		// who may have ample memory). The generic no-fit copy below is reserved for a coder that
+		// is genuinely absent from the catalog (coderShardFor false with a non-shared residency).
+		if rec.Coder.Residency == recommend.ResidencyShared {
+			fmt.Fprintf(errOut, "install: the coding-agent addon currently requires a swap-residency coder fit, but this host only supports SHARED residency (the coder would ride the chat endpoint), which v1.4 does not yet serve as a dedicated agent — so the addon cannot be staged. This is a swap-only limitation, not a memory shortfall; freeing memory will not help. (The chat stack is unaffected.)\n")
+			return exitBlocked
+		}
 		sh, ok := coderShardFor(rec, cat)
 		if !ok {
 			fmt.Fprintf(errOut, "install: no coder model fits the detected memory envelope, so the coding-agent addon cannot be staged — free memory or use a larger-envelope host, then re-run `villa install --coding-agent`. (The chat stack is unaffected.)\n")

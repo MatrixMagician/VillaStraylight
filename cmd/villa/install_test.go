@@ -2004,33 +2004,41 @@ func TestInstallCodingAgentFlow(t *testing.T) {
 		}
 	})
 
-	t.Run("no coder fit refuses-with-remediation", func(t *testing.T) {
+	t.Run("shared-residency coder fit refuses with a swap-only message, NOT free-memory copy (WR-03)", func(t *testing.T) {
 		f := newFakeInstallDeps(t, units, plan, passChecks())
-		// Catalog with no coder entry → coderShardFor returns false.
+		// Catalog with no coder entry → coderShardFor would return false, but the shared-
+		// residency branch refuses BEFORE reaching it.
 		f.agentCat = catalog.Catalog{Models: []catalog.CatalogModel{{ID: "qwen3-chat"}}}
-		// rec.Coder has no fitting coder (shared residency, empty Model) so coding-mode is
-		// NOT entered (cfg.CodingMode stays false) and the addon refuses at the step-6c
-		// coder-fit gate, not at the render-side coder-file resolution.
+		// rec.Coder is a SHARED-residency fit (Residency "shared", empty Model). A coder DOES
+		// fit conceptually (riding the chat endpoint) but v1.4 only serves a dedicated swap-
+		// residency coder, so the addon refuses with the swap-only message — NOT the misleading
+		// "free memory / use a larger host" copy. Coding-mode is NOT entered (cfg.CodingMode
+		// stays false) and the addon refuses at the step-6c shared-residency gate.
 		f.installDeps.pick = func(detect.HostProfile, recommend.Overrides) recommend.Recommendation {
 			return recommend.Recommendation{
 				Model: "qwen2.5-0.5b", Quant: "Q4_K_M", ContextLen: 4096, Backend: "vulkan",
 				WeightBytes: 1 << 30, KVCacheBytes: 1 << 28, HeadroomBytes: 1 << 28,
 				UsableEnvelopeBytes: 8 << 30, Fits: true,
-				Coder: recommend.CoderFit{Fits: false, Residency: "shared"},
+				Coder: recommend.CoderFit{Fits: false, Residency: recommend.ResidencyShared},
 			}
 		}
 
 		cmd, _, errOut := installTestCmd()
 		code := runInstall(cmd, installOpts{codingAgent: true}, f.installDeps)
 		if code != exitBlocked {
-			t.Fatalf("no coder fit must block the addon, exit = %d want %d", code, exitBlocked)
+			t.Fatalf("a shared-residency coder fit must block the addon, exit = %d want %d", code, exitBlocked)
 		}
 		if f.binaryInstallCalls != 0 || f.agentProofCalls != 0 {
 			t.Errorf("no agent staging/proof after a coder-fit refusal: binaryInstall=%d proof=%d",
 				f.binaryInstallCalls, f.agentProofCalls)
 		}
-		if !strings.Contains(errOut.String(), "coding-agent addon cannot be staged") {
-			t.Errorf("a no-coder-fit refusal must carry a remediation; got:\n%s", errOut.String())
+		got := errOut.String()
+		if !strings.Contains(got, "swap-residency coder fit") || !strings.Contains(got, "SHARED residency") {
+			t.Errorf("a shared-residency refusal must explain the swap-only limitation; got:\n%s", got)
+		}
+		// WR-03 cardinal point: the operator must NOT be misdirected toward freeing memory.
+		if strings.Contains(got, "free memory or use a larger-envelope host") {
+			t.Errorf("a shared-residency refusal must NOT use the misleading no-fit free-memory copy; got:\n%s", got)
 		}
 	})
 
