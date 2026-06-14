@@ -156,9 +156,9 @@ func newFakeInstallDeps(t *testing.T, units []orchestrate.Unit, plan orchestrate
 				Coder: recommend.CoderFit{Model: "qwen3-coder-30b-a3b", Quant: "Q4_K_M", AgentCtx: 65536, Fits: true, Residency: "swap"},
 			}
 		},
-		modelFile:   func(recommend.Recommendation) (string, error) { return "qwen2.5-0.5b.gguf", nil },
-		modelsDir:   func() string { return t.TempDir() },
-		runChecks:   func(detect.HostProfile, preflight.ResourceReq) []preflight.CheckResult { return checks },
+		modelFile: func(recommend.Recommendation) (string, error) { return "qwen2.5-0.5b.gguf", nil },
+		modelsDir: func() string { return t.TempDir() },
+		runChecks: func(detect.HostProfile, preflight.ResourceReq) []preflight.CheckResult { return checks },
 		render: func(in orchestrate.RenderInput) ([]orchestrate.Unit, error) {
 			f.renderedInput = in
 			f.renderedInputSet = true
