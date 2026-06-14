@@ -102,17 +102,66 @@ func evalAgentVerify(
 	return memoryProof{status: preflight.StatusPass, detail: "zero-outbound agent task completed; no cloud fallback (llama-down control failed as expected)"}
 }
 
+// curl exit codes that mean the external host was genuinely UNREACHABLE (a real egress block),
+// as opposed to an infrastructure failure of the probe itself: 6 could-not-resolve-host,
+// 7 failed-to-connect, 28 operation-timeout. Any OTHER non-zero exit (e.g. 127 curl-absent) or
+// a container that never started is "the probe could not run", NOT "the host was blocked".
+const (
+	curlExitCouldNotResolve  = 6
+	curlExitFailedToConnect  = 7
+	curlExitOperationTimeout = 28
+)
+
+// classifyEgressProbe is the PURE WR-01 classifier the live egressBlocked closure delegates
+// its verdict math to (the live podman/curl exec is not driveable off-hardware; this is). It
+// distinguishes a genuinely-blocked external host from a probe that could not RUN — the core
+// honesty fix for the negative-control-FIRST gate.
+//
+//   - sanityErr != nil: the in-network sanity probe to villa-llama failed, so the probe
+//     environment is wholesale-broken (missing image/network, podman daemon error, curl
+//     absent, villa-llama down). Return an ERROR (the pure evalAgentVerify maps it to FAIL
+//     "could not run the egress negative-control probe"). NEVER blocked=true — that is exactly
+//     the false-green this control exists to forbid.
+//   - sanity ok + a curl CONNECTION/TIMEOUT exit (6/7/28): the external host is genuinely
+//     unreachable → blocked=true (the desired, proven-blocked outcome).
+//   - sanity ok + exit 0 (externalErr == nil): the external host was reachable → blocked=false
+//     (egress is NOT blocked; evalAgentVerify FAILs with the unblocked remediation).
+//   - sanity ok + an UNCLASSIFIED non-zero exit or a never-started container (externalErr !=
+//     nil but the code is not 6/7/28): an infrastructure failure → ERROR, NOT blocked=true.
+func classifyEgressProbe(sanityErr error, externalExitCode int, externalErr error) (blocked bool, err error) {
+	if sanityErr != nil {
+		return false, fmt.Errorf("egress negative-control probe environment is broken: the in-network sanity probe to %s failed (%w) — verify the %q network, a reachable helper image, and that villa-llama is up, then re-run", orchestrate.LlamaInNetworkEndpoint(), sanityErr, memoryProofNetwork)
+	}
+	if externalErr == nil {
+		// Exit 0 — the external host answered. Egress is NOT blocked.
+		return false, nil
+	}
+	switch externalExitCode {
+	case curlExitCouldNotResolve, curlExitFailedToConnect, curlExitOperationTimeout:
+		// A real connection/timeout failure → the host is genuinely unreachable.
+		return true, nil
+	default:
+		// Non-zero but not a connection/timeout code (e.g. 127 curl-absent), or a container
+		// that never started (-1). "The probe could not run" — FAIL, never a false block.
+		return false, fmt.Errorf("egress negative-control external probe could not run (exit %d: %w) — this is NOT proof of a block; verify the helper image has curl and podman can reach %q, then re-run", externalExitCode, externalErr, egressNegativeControlHost)
+	}
+}
+
 // liveAgentVerify is the production runtime strictly-local agent proof seam (on-hardware by
 // nature: it needs the live villa-llama + crush binary + a host-egress precondition supplied
 // by the verification wave). It mirrors liveRagSmoke's four-layer shape, composing the
 // negative-control egress probe with the host-side crush-run drivers, then calls the pure
 // evalAgentVerify.
 //
-//   - egressBlocked: a negative-control external probe via the EXISTING runProbeCurl (fixed-
-//     arg `podman run --rm --network villa --entrypoint curl <helperImage> curl -sf
-//     --max-time 5 https://huggingface.co/`). The helper image is sourced from
-//     orchestrate.EmbedImage() — NO re-typed image literal (T-27-15, TestSeamGrepGate green).
-//     `blocked := err != nil`: a REACHABLE external host means egress is NOT blocked.
+//   - egressBlocked: a TWO-LAYER negative control (WR-01). FIRST a positive in-network sanity
+//     probe to villa-llama by container DNS (orchestrate.LlamaInNetworkEndpoint()) proves the
+//     probe environment works; if it fails the control FAILs ("could not run the probe"),
+//     never false-greens as blocked. THEN a negative external probe (runProbeCurlCode) is
+//     classified by curl exit code via classifyEgressProbe: a CONNECTION/TIMEOUT exit (6/7/28)
+//     → genuinely blocked; exit 0 → not blocked; any other failure → infrastructure FAIL. The
+//     helper image is sourced from orchestrate.EmbedImage() and the in-network URL from
+//     orchestrate.LlamaInNetworkEndpoint() — NO re-typed image/host literal (T-27-15,
+//     TestSeamGrepGate green).
 //
 //   - agentTask: the Plan-01 host-side crush-run read→edit round-trip driver
 //     (liveAgentToolCallProbe) over the loopback inference endpoint, bounded by ctx (a
@@ -127,10 +176,29 @@ func liveAgentVerify(ctx context.Context, deps verifyAgentDeps) memoryProof {
 	helperImage := orchestrate.EmbedImage()
 
 	egressBlocked := func() (bool, error) {
-		_, err := runProbeCurl(ctx, helperImage, "-sf", "--max-time", "5", egressNegativeControlHost)
-		// A reachable external host (err == nil) means egress is NOT blocked → blocked=false.
-		// An unreachable host (err != nil) is the EXPECTED, desired outcome → blocked=true.
-		return err != nil, nil
+		// WR-01: the negative control is the FIRST gate, so a BROKEN probe environment must
+		// FAIL the control, never false-green as "blocked". Two layers, the in-network sanity
+		// probe being the primary robust mechanism:
+		//
+		// (1) Positive in-network sanity probe FIRST. Curl villa-llama by its CONTAINER DNS
+		//     name + server port (orchestrate.LlamaInNetworkEndpoint()), INSIDE the same villa
+		//     network the negative probe uses. CRITICAL: runProbeCurl runs in a --network villa
+		//     helper container where 127.0.0.1 is the HELPER's OWN loopback — so the agent
+		//     task's host-loopback providerBaseURL would ALWAYS fail here and false-FAIL the
+		//     control on every healthy host. The sanity probe proves podman runs, the villa
+		//     network exists, the helper image is present, curl works in it, AND villa-llama is
+		//     reachable by DNS. If it fails, the probe environment is wholesale-broken → error
+		//     (the pure core maps it to FAIL "could not run the probe"), NOT blocked=true.
+		_, sanityErr := runProbeCurl(ctx, helperImage, "-sf", "--max-time", "5",
+			orchestrate.LlamaInNetworkEndpoint()+"/models")
+
+		// (2) Negative external probe, classified by curl exit semantics. A genuinely-blocked
+		//     host fails with a curl CONNECTION/TIMEOUT code (6/7/28) → blocked=true; any other
+		//     failure mode (container never started, curl absent, unclassified non-zero) is an
+		//     infrastructure failure → error (→ FAIL). Exit 0 (reachable) → blocked=false.
+		_, externalExit, externalErr := runProbeCurlCode(ctx, helperImage, "-sf", "--max-time", "5", egressNegativeControlHost)
+
+		return classifyEgressProbe(sanityErr, externalExit, externalErr)
 	}
 
 	// The crush-run read→edit round-trip; reused verbatim for both controls (DRY).

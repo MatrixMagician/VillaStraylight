@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -157,6 +158,122 @@ func TestEvalAgentVerifyNegativeControlFirst(t *testing.T) {
 			t.Fatalf("llamaDownTask ran despite the agent task not completing — wasted service stop")
 		}
 	})
+}
+
+// TestClassifyEgressProbe is the WR-01 false-green / false-FAIL guard at the live-closure
+// classification granularity (the live podman/curl exec is not driveable off-hardware, so the
+// closure delegates the verdict math to this pure classifier). The truth table it locks:
+//
+//   - ANY sanity-probe error → an infrastructure FAIL (err != nil), regardless of the external
+//     result. A wholesale-broken probe environment (missing image/network, podman daemon error,
+//     curl absent, villa-llama down) must NEVER read as blocked=true (the false-green WR-01
+//     forbids — the negative control is the FIRST gate).
+//   - sanity ok + a curl CONNECTION/TIMEOUT exit (6 could-not-resolve, 7 failed-to-connect,
+//     28 operation-timeout) → blocked=true (the external host is genuinely unreachable).
+//   - sanity ok + exit 0 (external host reachable) → blocked=false (egress is NOT blocked).
+//   - sanity ok + an UNCLASSIFIED non-zero exit (e.g. 127 curl-absent) or a never-started
+//     container (a non-ExitError failure, exit code <0) → an infrastructure FAIL (err != nil),
+//     NOT blocked=true. "The probe could not run" is distinct from "the host was blocked".
+func TestClassifyEgressProbe(t *testing.T) {
+	cases := []struct {
+		name         string
+		sanityErr    error
+		externalExit int
+		externalErr  error
+		wantBlocked  bool
+		wantErr      bool
+	}{
+		{
+			name:         "sanity probe broken → infra FAIL regardless of external",
+			sanityErr:    errors.New("in-network sanity probe failed"),
+			externalExit: 7,
+			externalErr:  errors.New("connection refused"),
+			wantBlocked:  false,
+			wantErr:      true,
+		},
+		{
+			name:         "sanity ok + curl 7 (failed to connect) → blocked",
+			externalExit: 7,
+			externalErr:  errors.New("curl: (7) Failed to connect"),
+			wantBlocked:  true,
+			wantErr:      false,
+		},
+		{
+			name:         "sanity ok + curl 28 (timeout) → blocked",
+			externalExit: 28,
+			externalErr:  errors.New("curl: (28) Operation timed out"),
+			wantBlocked:  true,
+			wantErr:      false,
+		},
+		{
+			name:         "sanity ok + curl 6 (could not resolve host) → blocked",
+			externalExit: 6,
+			externalErr:  errors.New("curl: (6) Could not resolve host"),
+			wantBlocked:  true,
+			wantErr:      false,
+		},
+		{
+			name:         "sanity ok + exit 0 (external reachable) → NOT blocked",
+			externalExit: 0,
+			externalErr:  nil,
+			wantBlocked:  false,
+			wantErr:      false,
+		},
+		{
+			name:         "sanity ok + unclassified non-zero (127 curl-absent) → infra FAIL",
+			externalExit: 127,
+			externalErr:  errors.New("curl: command not found"),
+			wantBlocked:  false,
+			wantErr:      true,
+		},
+		{
+			name:         "sanity ok + never-started container (no ExitError, code -1) → infra FAIL",
+			externalExit: -1,
+			externalErr:  errors.New("podman: container could not start"),
+			wantBlocked:  false,
+			wantErr:      true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			blocked, err := classifyEgressProbe(tc.sanityErr, tc.externalExit, tc.externalErr)
+			if blocked != tc.wantBlocked {
+				t.Errorf("blocked = %t, want %t", blocked, tc.wantBlocked)
+			}
+			if (err != nil) != tc.wantErr {
+				t.Errorf("err = %v, wantErr = %t", err, tc.wantErr)
+			}
+			// The cardinal WR-01 invariant: an infra failure must NEVER be reported as blocked.
+			if tc.wantErr && blocked {
+				t.Errorf("an infrastructure failure must never read as blocked=true (false-green)")
+			}
+		})
+	}
+}
+
+// TestEvalAgentVerifyInfraErrorFails proves the COMPOSED path: a classifyEgressProbe-style
+// infrastructure failure (an egressBlocked closure returning (false, err)) reaches the pure
+// evalAgentVerify core as a StatusFail with the "could not run the egress negative-control
+// probe" detail — never a pass. This makes the infra-error → FAIL contract provably covered by
+// the `-run 'TestClassifyEgressProbe|TestEvalAgentVerify'` verify filter.
+func TestEvalAgentVerifyInfraErrorFails(t *testing.T) {
+	// An infra error as classifyEgressProbe would return it for a broken probe environment.
+	_, infraErr := classifyEgressProbe(errors.New("in-network sanity probe to villa-llama failed"), 0, nil)
+	if infraErr == nil {
+		t.Fatalf("a broken sanity probe must yield an infrastructure error")
+	}
+	egressBlocked := func() (bool, error) { return false, infraErr }
+	agentTask := func() (bool, error) { return true, nil }
+	llamaDownTask := func() (bool, error) { return false, nil }
+
+	got := evalAgentVerify(egressBlocked, agentTask, llamaDownTask)
+	if got.status != preflight.StatusFail {
+		t.Fatalf("status = %v, want FAIL when the egress probe could not run", got.status)
+	}
+	if !strings.Contains(got.detail, "could not run the egress negative-control probe") {
+		t.Errorf("detail = %q, want it to name the could-not-run-the-probe remediation", got.detail)
+	}
 }
 
 // TestVerifyAgentRegistered asserts `villa verify agent` is registered under the `verify`

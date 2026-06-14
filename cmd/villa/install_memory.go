@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -366,4 +367,49 @@ func runProbeCurl(ctx context.Context, helperImage string, curlArgs ...string) (
 		return nil, err
 	}
 	return stdout.Bytes(), nil
+}
+
+// runProbeCurlCode is the exit-code-aware sibling of runProbeCurl (additive — runProbeCurl is
+// unchanged for its existing callers). It runs the SAME fixed-arg `podman run --rm --network
+// villa --entrypoint curl <helperImage> curl <args...>` and additionally returns the numeric
+// process exit code. podman propagates the container process's (curl's) exit code, so callers
+// can distinguish a curl CONNECTION/TIMEOUT failure (6/7/28 — a genuine block) from an
+// infrastructure failure where the container never started or curl was absent (WR-01: "the
+// host was blocked" vs "the probe could not run").
+//
+// The exit code is extracted via errors.As on *exec.ExitError. When the container could not be
+// started at all (a non-ExitError failure — e.g. podman missing/daemon error), the exit code
+// is reported as -1 (never a curl exit value), so the caller treats it as infrastructure, not
+// a block.
+func runProbeCurlCode(ctx context.Context, helperImage string, curlArgs ...string) (stdout []byte, exitCode int, err error) {
+	args := []string{
+		"run", "--rm",
+		"--network", memoryProofNetwork,
+		"--entrypoint", "curl",
+		helperImage,
+	}
+	args = append(args, curlArgs...)
+	cmd := exec.CommandContext(ctx, "podman", args...) // fixed args; no shell
+	var out, stderr bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &stderr
+	runErr := cmd.Run()
+	if runErr == nil {
+		return out.Bytes(), 0, nil
+	}
+	var exitErr *exec.ExitError
+	if errors.As(runErr, &exitErr) {
+		// The container ran and exited non-zero; podman surfaces curl's exit code.
+		code := exitErr.ExitCode()
+		if stderr.Len() > 0 {
+			return out.Bytes(), code, fmt.Errorf("%w: %s", runErr, stderr.String())
+		}
+		return out.Bytes(), code, runErr
+	}
+	// The container never started (podman missing/daemon error / context cancel): NOT a curl
+	// exit code. Report -1 so the caller classifies it as infrastructure, never a block.
+	if stderr.Len() > 0 {
+		return out.Bytes(), -1, fmt.Errorf("%w: %s", runErr, stderr.String())
+	}
+	return out.Bytes(), -1, runErr
 }
