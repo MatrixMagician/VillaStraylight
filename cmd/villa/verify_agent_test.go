@@ -32,9 +32,9 @@ func TestEvalAgentVerify(t *testing.T) {
 		completed bool
 		taskErr   error
 		// ctrl2 llama-down control
-		answered    bool
+		answered     bool
 		llamaDownErr error
-		wantStatus  preflight.Status
+		wantStatus   preflight.Status
 	}{
 		{
 			name:       "egress negative-control probe error",
