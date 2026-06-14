@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Coding Agent
 status: executing
-stopped_at: Phase 27 — all 4 plans executed + on-hardware acceptance done, but PHASE NOT COMPLETE: code-review BLOCKER CR-01 requires gap-closure (`villa install --coding-agent` stages the coder but configures crush.json + proves readiness against the CHAT model, not the coder). Next: /gsd-plan-phase 27 --gaps
-last_updated: "2026-06-14T11:30:00.000Z"
-last_activity: 2026-06-14 -- Phase 27 Plan 04 COMPLETE (operator-authorized on-hardware acceptance: install readiness real edit; verify agent ctrl1+ctrl2 PASS exit 0; T-27-20 egress-block command captured; box restored)
+stopped_at: "Phase 27 — gap-closure 27-05 DONE (CR-01 BLOCKER + WR-05 closed): install --coding-agent now serves the staged coder + readiness asserts a real TOKEN_A→TOKEN_B replacement; make check green, no golden change. Remaining: 27-06 (WR-01 egress false-green + WR-06 restore-error swallow in verify_agent.go). Next: execute 27-06, then re-verify the phase."
+last_updated: "2026-06-14T14:44:59.201Z"
+last_activity: 2026-06-14 -- Phase 27 execution started
 progress:
   total_phases: 5
   completed_phases: 3
-  total_plans: 13
+  total_plans: 15
   completed_plans: 13
-  percent: 75
+  percent: 60
 ---
 
 # Project State
@@ -26,9 +26,9 @@ See: .planning/PROJECT.md (updated 2026-06-12 — milestone v1.4 Coding Agent st
 ## Current Position
 
 Phase: 27 (install-addon-preflight-gates-villa-verify-agent) — EXECUTING
-Plan: 4 of 4 executed — PHASE NOT COMPLETE (gap-closure required, code-review BLOCKER CR-01)
-Status: All 4 plans executed; 27-04 on-hardware acceptance done (INSTALL-03 readiness real tool-call round-trip + PRIV-06 `villa verify agent` PASS exit 0 under a real rootless-netns egress block, ctrl1+ctrl2; T-27-20 closed; box restored to as-found). **GAP-CLOSURE OPEN — deep code review (27-REVIEW.md) found BLOCKER CR-01:** `villa install --coding-agent` sets AgentEnabled but never CodingMode/CoderModel, so orchestrate serves the CHAT model and crush.json + the readiness proof + verify agent all target the chat model, not the staged coder (coding-mode entry is a separate verb). Plus honesty WRs: WR-01 (any podman-probe failure reads as "egress blocked"), WR-05 (readiness Contains(TOKEN_B) false-greens on append vs replace), WR-06 (discarded villa-llama restore error). Phase NOT marked complete. Next: /gsd-plan-phase 27 --gaps → /gsd-execute-phase 27 --gaps-only.
-Last activity: 2026-06-14 -- Phase 27 Plan 04 on-hardware acceptance COMPLETE; Phase 27 ready for verification
+Plan: 1 of 6
+Status: Executing Phase 27
+Last activity: 2026-06-14 -- Phase 27 execution started
 
 Progress: [█████████░] 92% (v1.4)
 
@@ -116,6 +116,7 @@ Progress: [█████████░] 92% (v1.4)
 | Phase 26 P01 | ~22min | 3 tasks (TDD) | 8 files |
 | Phase 27 P27-01 | ~40 min | 3 tasks | 10 files |
 | Phase 27 P27-03 | ~5 min | 2 tasks (Task 1 TDD) | 3 files |
+| Phase 27 P27-05 | ~4 min | 2 tasks (TDD; gap-closure CR-01+WR-05) | 5 files |
 
 ## Accumulated Context
 
@@ -161,6 +162,7 @@ Earlier (v1.0–v1.3) standing decisions retained:
 - [Phase 25-02]: Task-3 acceptance is OPEN — the live villa-llama on this box runs ROCm 7.2.4, while the swap qualification + cache_reuse_safe claim are build-9496-vulkan-radv-scoped (D-03/D-13); running the smoke against ROCm or mutating the live backend autonomously was refused. No pass fabricated.
 - [Phase 27-02]: INSTALL-04 closed (preflight gates + uninstall coverage). **D-09 honest preflight:** `runAgentChecks` (cmd/villa/preflight_agent.go) appends `AGENT-PRE-disk` (BLOCK: free disk < staged coder GGUF + binary; unprobeable → typed-Unknown WARN), `AGENT-PRE-envelope` (BLOCK read from `rec.Coder.Fits`/`TotalBytes`/`Residency`, NEVER re-derived), `AGENT-PRE-cloud-cred` (WARN naming present provider key(s) — 11-key allowlist from 27-RESEARCH A1; NEVER a BLOCK). Folded into install.go via a `runAgentChecks` seam gated on `agentEnabledForGate` (--coding-agent override folded into persisted agent_enabled) → flows through the SAME gateInstall (refuse-with-remediation inherited); agent-off byte-identical. Checks built as cmd-tier `CheckResult` literals (preflight pass/warn/fail are package-private; the gate needs rec.Coder + the staged size); statfs/lookupEnv injected as seams (deterministic tiers). Added `liveAgentStatfs` (cmd-tier copy of the package-private `preflight.liveStatfs` — Rule-3 deviation). **D-10 uninstall:** `removeAgentBinary`+`removeCrushConfig` ALWAYS-removed idempotent seams at a deterministic asserted position (after dashboard teardown, before container stop); live wiring reuses `agentBinPath()`/`crushConfigPath()` + `assertUnitInsideDir` traversal guard; staged GGUF follows the existing keep/remove-models choice; config.toml LEFT (no seam). make check + TestSeamGrepGate green.
 - [Phase 27-04]: **COMPLETE — full on-hardware acceptance accepted on gfx1151 (operator-authorized).** Open Q1 confirmed verbatim (deterministic `crush run` read→edit→result, exit 0, no TTY, 2x). **INSTALL-03:** `villa install --coding-agent` → exit 0, coder GGUF presence-skipped, pinned crush binary verified, locked-down crush.json rendered, and readiness PASSED via `coding agent ready: tool-call round-trip (read→edit→result) completed` — a REAL edit, not a health-200 (2nd run idempotent no-op). **PRIV-06:** `villa verify agent` PASS exit 0 under a real egress block — ctrl1 (egress proven blocked → blocked crush task completes) + ctrl2 (llama-down task fails → no cloud fallback), villa-llama restored. **T-27-20 RESOLVED — egress-block command captured (rootless podman):** the block lives in the ROOTLESS network namespace, NOT the host main netns (pasta proxies container egress; it traverses FORWARD inside the rootless netns podman3→enp191s0): `podman unshare --rootless-netns nft add table inet villa_egress_block` + `... add chain ... forward { type filter hook forward priority -1 ; }` + `... add rule ... forward ip saddr 10.89.2.0/24 ip daddr != 10.89.2.0/24 drop`. **Honesty proven:** an initial host-main-netns block did NOT block rootless egress and `villa verify agent` correctly FAILED (exit 1, "egress is NOT blocked") — no false-green. Acceptance ran on ROCm 7.2.4 (install's `systemctl start` no-op'd the already-active service; runtime stayed ROCm). Box restored byte-identical to as-found (backend=rocm, agent_enabled unset, crush.json, egress open, services up, no lingering nft). **BUG FILED:** `villa install` reverts persisted backend=rocm→vulkan (install.go:432 `cfg.Backend=rec.Backend`; recommend defaults Vulkan) — config-is-source-of-truth violation, follow-up todo.
+- [Phase 27-05]: **CR-01 BLOCKER + WR-05 closed (gap-closure).** `villa install --coding-agent` now ENTERS coding-mode and SERVES the staged coder (CR-01 fix option a — honesty-by-construction, D-05: the readiness proof must exercise the model crush.json advertises). install.go single-sources cfg.CoderModel/CoderQuant/CoderAgentCtx/CodingMode from rec.Coder (gated on `opts.codingAgent && rec.Coder.Model != ""` — bare install never auto-flips; shared-residency never serves an empty -m) and threads a non-nil CodingMode descriptor + coder ModelFile into orchestrate.RenderInput by REUSING the Phase-25 helpers codingServedTarget/codingModelFile/codingDescriptor (same render path coding-mode enter drives → frozen by villa-llama-coding.container.golden; chat-only path byte-identical, no -update). **install.go added to the D-06 no-auto-flip structural guard allow-list** as a sanctioned ONE-SHOT coding-mode ENTRY surface (the runtime toggle remains `villa coding-mode enter|exit`). **WR-05:** liveAgentToolCallProbe readiness now uses pure agentProbeReplaced(content) = Contains(TOKEN_B) && !Contains(TOKEN_A) — closes the append/echo/transcript false-green; shared driver hardens villa verify agent's agentTask too. New off-hardware seam tests (served-id assertion + chat-only off-path guard + replacement truth table). make check + TestSeamGrepGate green; no golden/JSON contract changed. Remaining phase-27 gaps: WR-01 + WR-06 (27-06).
 - [Phase 27-03]: PRIV-06 closed off-hardware — `villa verify agent` (cmd/villa/verify_agent.go) mirrors the verify_memory.go four-layer seam EXACTLY. **Pure core `evalAgentVerify`** folds BOTH controls negative-control-FIRST: ctrl1 egress probe (err→FAIL "could not run"; !blocked→FAIL "egress is NOT blocked") runs BEFORE the agent task is trusted; then the real `crush run` read→edit task (err/!completed→FAIL); then ctrl2 llama-down (answered→FAIL "silent cloud-model fallback"; an error from llamaDownTask is the EXPECTED inference-down outcome). Verdict = ctrl1.pass && ctrl2.failed-as-expected; PASS/FAIL only (reuses memoryProof), a timeout/unevaluable is a FAIL. **`liveAgentVerify`** egress probe = `runProbeCurl(ctx, orchestrate.EmbedImage(), "-sf","--max-time","5", egressNegativeControlHost)` (helper image strictly from the seam accessor — TestSeamGrepGate green); agentTask reuses the Plan-01 `liveAgentToolCallProbe` driver verbatim (DRY); llamaDownTask stops `villa-llama.service` via the injected `orchestrate.Systemd.Stop` seam, runs the same task, then restores via a deferred `Start` (T-27-16 — never left stopped). `verifyAgentDeps`/`liveVerifyAgentDeps()` quartet mirrors verifyMemoryDeps; `newVerifyAgent()` registered under the verify parent, gated on persisted agent_enabled (addon-off exits 0; PASS→exitPass / FAIL→exitBlocked). No golden/JSON contract changed; agent-off byte-identical. make check + TestSeamGrepGate green. On-hardware egress + llama-down acceptance is Plan 04.
 - [Phase 26-01]: AGENT-01/02/04 pure half landed — new pure `internal/agent` core (policy/render/drift/version + Deps/Result), zero new deps, TestSeamGrepGate + make check green. **Open-Q1 → option (ii) render-only:** base_url is the FIXED loopback `http://127.0.0.1:8080/v1` (serverPort=8080 constant, not a config field); model id = `villa-`+(CoderModel else Model) relying on llama.cpp single-model leniency — NO --alias delta into the inference seam. **Open-Q4 → parsed-semantic** config-drift (canonicalize→bytes.Equal; whitespace-only re-save is not drift). **Open-Q2 sentinel:** crush-policy.json binarySha256 = `UNPINNED-binary-sha256-set-by-26-03-on-hardware` — **Plan 03 MUST replace it on-hardware** (extract verified tarball → sha256sum crush); until then DetectDrift returns BinaryDriftUnknown (typed-Unknown WARN), never a false drift. config-ABSENT is a DISTINCT first-run render trigger (never compared, never reported as drift; parallels BinaryAbsent). permissions rendered omitted (Phase-27 STRIDE owns the restrictive allowlist).
 
@@ -225,9 +227,9 @@ Items deferred at v1.4 roadmap creation (2026-06-12, research-recorded):
 
 ## Session Continuity
 
-Last session: 2026-06-14T11:30:00.000Z
-Stopped at: Phase 27 — 4/4 plans executed + on-hardware acceptance done, but PHASE NOT COMPLETE. Deep code review found BLOCKER CR-01 (install --coding-agent stages the coder but configures/proves against the CHAT model) + honesty WRs (WR-01/05/06). Gap-closure required before completion. Next: /gsd-plan-phase 27 --gaps → /gsd-execute-phase 27 --gaps-only.
-Resume file: .planning/phases/27-install-addon-preflight-gates-villa-verify-agent/27-REVIEW.md
+Last session: 2026-06-14T14:50:00.000Z
+Stopped at: Phase 27 — gap-closure 27-05 DONE (CR-01 BLOCKER + WR-05 closed): install --coding-agent now serves the staged coder (cfg.CoderModel/CoderQuant/CoderAgentCtx/CodingMode single-sourced from rec.Coder; non-nil CodingMode descriptor + coder ModelFile threaded into RenderInput via the Phase-25 helpers) and readiness asserts a real TOKEN_A→TOKEN_B replacement (agentProbeReplaced). make check green, no golden change. Remaining: 27-06 (WR-01 egress negative-control false-green + WR-06 llama-down restore-error swallow, both verify_agent.go). Next: execute 27-06, then re-verify the phase.
+Resume file: .planning/phases/27-install-addon-preflight-gates-villa-verify-agent/27-06-PLAN.md
 
 ## Operator Next Steps
 

@@ -209,7 +209,7 @@ Plans:
 
 **Wave 4** *(gap closure — `/gsd-plan-phase 27 --gaps`; both autonomous, off-hardware seam tests, parallel)*
 
-- [ ] 27-05-PLAN.md — Serve the coder the addon stages: `--coding-agent` sets cfg.CoderModel/CoderQuant/CoderAgentCtx/CodingMode from rec.Coder and threads a non-nil CodingMode descriptor into RenderInput so the unit + crush.json + readiness prove the CODER (CR-01 BLOCKER); readiness asserts a real TOKEN_A→TOKEN_B replacement, not mere presence (WR-05) (INSTALL-03)
+- [x] 27-05-PLAN.md — Serve the coder the addon stages: `--coding-agent` sets cfg.CoderModel/CoderQuant/CoderAgentCtx/CodingMode from rec.Coder and threads a non-nil CodingMode descriptor into RenderInput so the unit + crush.json + readiness prove the CODER (CR-01 BLOCKER); readiness asserts a real TOKEN_A→TOKEN_B replacement, not mere presence (WR-05) (INSTALL-03)
 - [ ] 27-06-PLAN.md — Honest `villa verify agent` controls: the egress negative control FAILs on broken probe infra instead of false-greening — positive in-network sanity probe + curl 6/7/28 classification (WR-01); the llama-down restore surfaces a Start failure with `systemctl --user start villa-llama.service` remediation, never leaving villa-llama silently stopped (WR-06) (PRIV-06)
 
 **Research**: COMPLETE (27-RESEARCH.md — composition phase; Crush two-channel outbound surface confirmed, cloud-cred allowlist, FSL-1.1-MIT consent text, Open Q1 on-hardware payload deferred to 27-04)
@@ -261,5 +261,5 @@ Plans:
 | 24. Coder Fit Math, Catalog & On-Hardware Model Qualification | v1.4 | 4/4 | Complete    | 2026-06-13 |
 | 25. Coding-Mode Render & Transactional Swap Verb | v1.4 | 2/2 | Complete    | 2026-06-13 |
 | 26. Agent Delivery Core & Lockdown Launcher | v1.4 | 0/3 | Planned | - |
-| 27. Install Addon, Preflight Gates & `villa verify agent` | v1.4 | 4/4 | Gaps (CR-01) | 2026-06-14 |
+| 27. Install Addon, Preflight Gates & `villa verify agent` | v1.4 | 5/6 | Gaps (CR-01 closed; WR-01/06 in 27-06) | 2026-06-14 |
 | 28. Agent Surfacing & Contracts | v1.4 | 0/TBD | Not started | - |
