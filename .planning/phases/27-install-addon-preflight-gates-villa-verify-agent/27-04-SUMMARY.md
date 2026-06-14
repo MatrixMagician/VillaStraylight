@@ -2,7 +2,7 @@
 phase: 27-install-addon-preflight-gates-villa-verify-agent
 plan: 04
 subsystem: acceptance
-tags: [on-hardware, acceptance, crush-run, tool-call, egress, llama-down, gfx1151, checkpoint, priv-06, install-03, partial]
+tags: [on-hardware, acceptance, crush-run, tool-call, egress, llama-down, gfx1151, priv-06, install-03, complete]
 
 # Dependency graph
 requires:
@@ -16,14 +16,17 @@ requires:
     provides: "recommend coder pick (qwen3-coder-next-q4, residency swap); D-13 build-9496-vulkan-radv qualification scope"
 provides:
   - "On-hardware confirmation (Open Q1 RESOLVED): the deterministic crush run planted-file read->edit->result payload forces a verifiable tool-call edit on the live served model + restrictive-tools crush.json with NO TTY prompt, exit 0, deterministic across 2 runs"
-  - "Confirmation that agentProbePrompt/agentProbeTokenA/agentProbeTokenB need NO tuning — the placeholder constants are confirmed verbatim; shared byte-identically by both drivers (install readiness + verify agent) via liveAgentToolCallProbe"
+  - "INSTALL-03 readiness ACCEPTED on-hardware: `villa install --coding-agent` PASSES via a real tool-call round-trip (read->edit->result), NOT a health-200; coder GGUF presence-skipped, pinned crush binary verified, locked-down crush.json rendered"
+  - "PRIV-06 ACCEPTED on-hardware: `villa verify agent` PASS (exit 0) under a REAL host egress block — ctrl1 (egress proven blocked first, then blocked crush-run task completes) AND ctrl2 (llama-down task fails => no silent cloud fallback, villa-llama restored)"
+  - "T-27-20 RESOLVED: the exact host egress-block command for rootless podman is captured (rootless-netns nft FORWARD drop) — the Phase-20 gap is closed"
 affects: [phase-28-surfacing, milestone-v1.4-close]
 
 # Tech tracking
 tech-stack:
   added: []
   patterns:
-    - "On-hardware payload confirmation without source mutation: the placeholder constants from Plans 01/03 were proven verbatim, so Task 2 produced acceptance evidence rather than a code commit"
+    - "Rootless-podman egress block lives in the ROOTLESS NETWORK NAMESPACE, not the host main netns: container egress is proxied (pasta) and traverses FORWARD inside the rootless netns (podman3 -> enp191s0), so the operator block must be applied there via `podman unshare --rootless-netns nft ...`"
+    - "On-hardware acceptance without source mutation: the Plan-01/03 payload + seams were exercised end-to-end on the live box; no code change was needed (placeholder constants confirmed verbatim)"
 
 key-files:
   created:
@@ -32,96 +35,88 @@ key-files:
 
 key-decisions:
   - "No payload tuning: agentProbePrompt + TOKEN_A/TOKEN_B confirmed deterministic verbatim on the live ROCm 7.2.4 served model with permissions.allowed_tools auto-accept (no --yolo, no TTY) — Open Q1 resolved with the placeholder constants unchanged"
-  - "Tasks 1 and 3 surfaced as a genuine blocking-human checkpoint: applying a real host outbound egress block (sudo/firewall) and the 46.2 GiB coder-GGUF install + transactional backend swap acceptance are operator-gated and were NOT fabricated"
+  - "Host egress-block mechanism (T-27-20) for rootless podman: apply an nft FORWARD drop INSIDE the rootless network namespace (`podman unshare --rootless-netns`), matching the villa.network subnet (10.89.2.0/24). A host-main-netns FORWARD rule does NOT block rootless egress (verified — see Negative finding) because pasta proxies container traffic outside the host FORWARD path"
+  - "FINDING (bug, follow-up filed): `villa install` reverts a persisted `backend=rocm` to Vulkan — install.go:432 `cfg.Backend = rec.Backend` and recommend.Pick always defaults Vulkan (ROCm is opt-in, never auto-recommended). On this box install rewrote the unit + config to Vulkan; the runtime stayed ROCm only because `systemctl start` no-op'd the already-active service. Config-is-source-of-truth violation; reversible via `villa backend set rocm`"
 
-requirements-completed: []
-requirements-partial: [INSTALL-03, PRIV-06]
+requirements-completed: [INSTALL-03, PRIV-06]
+requirements-partial: []
 
 # Metrics
-duration: ~25min
+duration: ~25min (executor, Task 2) + on-hardware acceptance (orchestrator-driven, operator-authorized)
 completed: 2026-06-14
-status: PARTIAL — Task 2 accepted on-hardware; Tasks 1 + 3 operator-gated (blocking-human checkpoint)
+status: COMPLETE — all three tasks accepted on-hardware (INSTALL-03 readiness + PRIV-06 egress/llama-down), box restored to as-found
 ---
 
-# Phase 27 Plan 04: On-Hardware Acceptance Summary (PARTIAL — operator checkpoint open)
+# Phase 27 Plan 04: On-Hardware Acceptance Summary (COMPLETE)
 
-**Open Q1 is RESOLVED on the live gfx1151 box: the deterministic `crush run` planted-file read→edit→result payload (`VILLA_PROBE_TOKEN_A` → `VILLA_PROBE_TOKEN_B`) forces a verifiable tool-call edit with NO TTY prompt, exit 0, deterministically across two independent runs — confirming the placeholder payload constants verbatim (no tuning). The two proofs that require host privileges I do not have — the operator-applied egress block (Task 1) and the full `villa install --coding-agent` readiness + `villa verify agent` egress/llama-down acceptance (Task 3) — remain a genuine blocking-human checkpoint and were NOT simulated.**
+All three tasks are accepted on the live gfx1151 box. **Task 2 (Open Q1)** confirmed the deterministic `crush run` payload verbatim. **Task 1** applied a real host egress block (rootless-netns nft FORWARD drop — the T-27-20 gap is now closed with an exact, reproducible command). **Task 3** ran the full acceptance: `villa install --coding-agent` PASSED readiness via a real tool-call round-trip (not a health-200), and `villa verify agent` returned PASS (exit 0) under the real block — ctrl1 (egress proven blocked first, then the blocked crush-run task completed) and ctrl2 (llama-down task failed => no silent cloud fallback), with villa-llama restored. No green was fabricated; an earlier ineffective block was correctly REJECTED by the verb (see Negative finding). The box was restored to its exact as-found state.
 
-## Host context (live box, as found)
+## Host context (live box)
 
-- Host: `neurodev` (gfx1151 AMD Strix Halo), user `oliverh`.
-- Stack up: `villa-llama.service` **running on ROCm 7.2.4 (HIP)** — note the D-13 backend caveat: the coder qualification + `cache_reuse_safe` claim are **build-9496-vulkan-radv-scoped**; this box currently serves the chat model on ROCm. `villa-openwebui`, `villa-dashboard`, `villa-qdrant`, `villa-embed` all active.
-- Crush binary staged at `~/.local/share/villa/bin/crush` — `crush version v0.76.0` (the pinned, checksum-verified release).
-- Loopback inference endpoint `http://127.0.0.1:8080/v1/models` **reachable (exit 0)**, currently serving the **chat** model `Qwen3.6-35B-A3B-UD-Q4_K_M.gguf` (the coder `qwen3-coder-next-q4` is residency: swap — not yet swapped in; that is Task 3).
-- `agent_enabled` is NOT set in `~/.config/villa/config.toml` (addon not yet installed since Plan 01 landed) → `villa verify agent` would currently exit 0 "nothing to verify". `--coding-agent` (Task 3) flips + persists it.
+- Host: gfx1151 AMD Strix Halo, user `oliverh`, **rootless** Podman (user systemd manager).
+- As-found: `villa-llama.service` running on **ROCm 7.2.4 (HIP)** image `@sha256:2da150c1…`, serving the chat model `Qwen3.6-35B-A3B-UD-Q4_K_M.gguf` on `127.0.0.1:8080`; `villa-openwebui`/`villa-qdrant`/`villa-embed` up; `agent_enabled` unset; coder GGUF `Qwen3-Coder-Next-UD-Q4_K_XL.gguf` (47310.3 MiB ≈ 46.2 GiB) already staged at `~/.local/share/villa/models/`.
+- Crush binary at `~/.local/share/villa/bin/crush` — `crush version v0.76.0` (pinned, checksum-verified).
+- `villa.network`: bridge `podman3`, subnet **10.89.2.0/24** (rootless netns: `podman3` 10.89.2.1 → `enp191s0` 192.168.1.98, default route via 192.168.1.1).
 
 ## Task outcomes
 
 ### Task 2 — CONFIRMED on-hardware (Open Q1 RESOLVED) ✅
 
-The deterministic `crush run` tool-call payload was exercised against the **live served model** using a Phase-27-rendered `crush.json` (restrictive tools present: `options.disabled_tools` = fetch/agentic_fetch/download/sourcegraph AND `permissions.allowed_tools` = view/edit/write).
+The deterministic `crush run` tool-call payload was exercised against the live served model with a Phase-27 restrictive-tools `crush.json` (`options.disabled_tools` = fetch/agentic_fetch/download/sourcegraph; `permissions.allowed_tools` = view/edit/write).
 
-**Exact payload (the confirmed constants — `install_agent.go:258-263`, verbatim, NO tuning):**
-
-- `agentProbeTokenA` = `VILLA_PROBE_TOKEN_A`
-- `agentProbeTokenB` = `VILLA_PROBE_TOKEN_B`
+**Confirmed payload constants (`install_agent.go`, verbatim — NO tuning):**
+- `agentProbeTokenA` = `VILLA_PROBE_TOKEN_A`; `agentProbeTokenB` = `VILLA_PROBE_TOKEN_B`
 - `agentProbePrompt` = `Open the file villa-readiness-probe.txt, replace the text VILLA_PROBE_TOKEN_A with VILLA_PROBE_TOKEN_B, and save it. Reply DONE when finished.`
-- `permissions.allowed_tools` = `["view","edit","write"]` (auto-accept; **no `--yolo`** — rejected with `run` in v0.76.0, per 24-03/26-03)
+- `permissions.allowed_tools` auto-accept (no `--yolo`, rejected with `run` in v0.76.0); stdin `/dev/null` (no TTY).
 
-**Procedure run (mirrors `liveAgentToolCallProbe` exactly):** plant `villa-readiness-probe.txt` containing `VILLA_PROBE_TOKEN_A` in a fresh temp working dir → `crush run --quiet "<agentProbePrompt>"` with **stdin from `/dev/null`** (proving no interactive TTY prompt is required) → assert the file now contains `VILLA_PROBE_TOKEN_B` and `crush run` exited 0.
+Two independent runs: `crush run` exit 0, file `VILLA_PROBE_TOKEN_A` → `VILLA_PROBE_TOKEN_B`, no TTY prompt, bounded by 240 s (no timeout). The constants are defined once in `install_agent.go` and consumed by `liveAgentToolCallProbe`; `verify_agent.go` wires `agentTaskFn: liveAgentToolCallProbe`, so the install readiness driver and the verify-agent `agentTask`/`llamaDownTask` drive the identical round (DRY). `make check` GREEN (24 packages).
 
-**Results:**
+### Task 1 — ACCEPTED: host egress block applied + proven (T-27-20 RESOLVED) ✅
 
-| Run | crush run exit | File before | File after | TTY prompt | Verdict |
-|-----|---------------|-------------|------------|------------|---------|
-| 1 | 0 (printed `DONE`) | `VILLA_PROBE_TOKEN_A` | `VILLA_PROBE_TOKEN_B` | none (stdin /dev/null) | EDIT CONFIRMED |
-| 2 | 0 (printed `DONE`) | `VILLA_PROBE_TOKEN_A` | `VILLA_PROBE_TOKEN_B` | none (stdin /dev/null) | EDIT CONFIRMED |
+**Mechanism (the exact operator commands — rootless podman):** rootless container egress is proxied by pasta and does NOT traverse the host main-netns FORWARD chain; it traverses FORWARD **inside the rootless network namespace** (`podman3` → `enp191s0`). The block is therefore applied there:
 
-A real read→edit→result loop (the tool-bearing analog of Phase-26's PONG), deterministic across two independent runs, bounded by a 240 s timeout (no timeout occurred — a timeout would be a FAIL). Backend: **ROCm 7.2.4** (D-13 caveat noted; the payload mechanism is model/backend-agnostic).
+```sh
+podman unshare --rootless-netns nft add table inet villa_egress_block
+podman unshare --rootless-netns nft add chain inet villa_egress_block forward '{ type filter hook forward priority -1 ; policy accept ; }'
+podman unshare --rootless-netns nft add rule  inet villa_egress_block forward ip saddr 10.89.2.0/24 ip daddr != 10.89.2.0/24 drop
+# removal:
+podman unshare --rootless-netns nft delete table inet villa_egress_block
+```
 
-**Payload identity across both drivers (DRY, by construction):** the constants are defined ONCE in `install_agent.go` (`agentProbePrompt`, `agentProbeTokenA/B`) and consumed by `liveAgentToolCallProbe`. `verify_agent.go` wires `agentTaskFn: liveAgentToolCallProbe` (`liveVerifyAgentDeps`), so the install readiness driver and the verify-agent `agentTask`/`llamaDownTask` drive the **identical** tool-call round. No source edit was needed; nothing diverged to keep in sync.
+**Proven real under the block:**
+- Container egress probe on `villa.network` (the `runProbeCurl` mechanism): `podman run --rm --network villa --entrypoint curl <vulkan-radv image> -sf --max-time 8 https://huggingface.co/` → **HTTP_000, exit 28 (timeout — BLOCKED)**.
+- Loopback `curl -sf --max-time 8 http://127.0.0.1:8080/v1/models` → **HTTP_200 (still reachable)** — the agent's only allowed path stays open (host loopback is in the main netns, untouched by the rootless-netns rule).
 
-**`make check`:** GREEN across all 24 packages (vet + `go test ./...`).
+**Negative finding (honesty-by-construction proven):** an initial block applied via the HOST main-netns FORWARD chain did NOT block rootless egress (container probe still HTTP_200), and `villa verify agent` correctly **FAILED (exit 1)**: *"egress is NOT blocked: an external host was reachable during the test."* The negative-control-FIRST design rejected the ineffective block rather than false-greening — direct evidence the proof is real.
 
-### Task 1 — OPERATOR-GATED (blocking-human checkpoint) ⛔
+### Task 3 — ACCEPTED: install readiness + verify-agent controls ✅
 
-Applying a **real host outbound egress block** is a privileged operator network action (the same precondition `villa verify memory` uses) with **no villa CLI/API seam** (D-07 forbids new cap-root tooling). I confirmed the block is currently **NOT applied** and do not have host firewall/sudo privileges to apply it, so I cannot complete this task and must not fabricate it.
+**1. INSTALL READINESS (INSTALL-03 / D-05):** `./villa install --coding-agent --no-tui` → exit 0. Output:
+- FSL-1.1-MIT notice surfaced (informational).
+- coder GGUF **presence-skipped** (already staged — no re-pull; no download line emitted).
+- `coding agent installed and verified at ~/.local/share/villa/bin/crush` (pinned, checksum-verified binary).
+- `coding-agent config rendered (outbound tools disabled, loopback provider only)`.
+- **`coding agent ready: tool-call round-trip (read→edit→result) completed against the local endpoint`** — readiness PASSED via a REAL planted-file edit, NOT a health-200 (the separate `health: PASS — /health 200` line is the inference liveness, distinct from the agent proof which drives an edit).
+- Second run: presence-skip + `no changes — stack already matches config` + `health: PASS — unchanged` (idempotent — confirms no re-pull on re-run).
 
-**Current (block NOT applied) — captured for the operator baseline:**
+**2. VERIFY AGENT ctrl1 + ctrl2 (PRIV-06):** `./villa verify agent` under the block → **PASS, exit 0**: *"zero-outbound agent task completed; no cloud fallback (llama-down control failed as expected)."*
+- ctrl1 (negative-control-FIRST): the external egress probe FAILED under the block FIRST (proving the block is real), THEN the real `crush run` tool-call task COMPLETED while egress was blocked.
+- ctrl2 (no cloud fallback): with `villa-llama` stopped the same task FAILED (no answer — no silent cloud fallback); `villa-llama` was RESTORED (active) after the verb returned.
+- Overall verdict PASS only because ctrl1 passed AND ctrl2 failed-as-expected; exit 0.
 
-- Container egress probe on `villa.network` (the exact `runProbeCurl` mechanism `villa verify agent` uses):
-  `podman run --rm --network villa --entrypoint curl docker.io/kyuz0/amd-strix-halo-toolboxes:vulkan-radv@sha256:9a74e555…ac7aad -sf --max-time 5 https://huggingface.co/`
-  → currently **SUCCEEDS** (egress OPEN — block not yet applied).
-- Loopback `curl -sf --max-time 5 http://127.0.0.1:8080/v1/models` → **SUCCEEDS** (exit 0).
+**Backend the acceptance ran on (D-13 caveat):** **ROCm 7.2.4** — `villa install`'s `systemctl start` no-op'd the already-active service, so the running container stayed the as-found ROCm 7.2.4 container through the install readiness proof and verify ctrl1; verify ctrl2's stop/restart recreated it (briefly on Vulkan, from the install-rewritten unit) before restore. The coder qualification is build-9496-vulkan-radv-scoped; the payload + egress mechanisms are backend-agnostic.
 
-**What the operator must do (and capture):** apply the host outbound egress block the same way the Phase-20 / `verify memory` acceptance did, then confirm:
-1. the container probe above **FAILS** (non-zero) under the block, AND
-2. loopback `/v1/models` **still succeeds**.
-**Capture the EXACT operator block command in this SUMMARY** (the Phase-20 artifacts did not record one — T-27-20; this gap is still open pending the operator-supplied command).
+## Finding (bug — follow-up filed)
 
-### Task 3 — OPERATOR-GATED (blocking-human checkpoint) ⛔
+`villa install` reverts a persisted `backend=rocm` to Vulkan: `install.go:432` does `cfg.Backend = rec.Backend`, and `recommend.Pick` always defaults to Vulkan (ROCm is strictly opt-in, never auto-recommended). On this box, `villa install --coding-agent` rewrote the `villa-llama` unit to the Vulkan image and persisted `backend = "vulkan"`; the runtime stayed ROCm only because `systemctl start` no-op'd the already-active service. This is a config-is-source-of-truth violation (a re-install silently discards a `villa backend set rocm` opt-in). Reversible via `villa backend set rocm`. Tracked as a follow-up todo for a maintenance fix (out of Phase-27 scope).
 
-The full addon acceptance depends on Task 1's live block AND requires actions I cannot/should not perform autonomously:
-- `villa install --coding-agent` pre-stages a **46.2 GiB** coder GGUF (`qwen3-coder-next-q4`, residency: swap) and performs a **transactional backend swap** to serve the coder on the loopback endpoint — a heavy, state-mutating operation that must be operator-initiated on the live box.
-- `villa verify agent` ctrl2 **stops `villa-llama`** then restores it — must run with the egress block live and be observed end-to-end.
-- An agent that answers with inference down, a simulated egress block, or a skipped llama-down control would be a FAIL, not a pass (honesty-by-construction).
+## Restore to as-found (post-acceptance)
 
-**What the operator must run (with Task 1's block applied) and record here:**
-1. **INSTALL READINESS (INSTALL-03 / D-05):** `villa install --coding-agent` → confirm it stages exactly the picked coder GGUF (presence-skip on a 2nd run), installs the pinned checksum-verified crush binary, renders `crush.json` (one loopback provider, kill switches, `villa-` model id, restrictive tools), and PASSES readiness via a **real planted-file edit** (NOT a health-200).
-2. **VERIFY AGENT ctrl1 (PRIV-06 egress, negative-control-FIRST):** `villa verify agent` → the external egress probe FAILS under the block FIRST, THEN the real `crush run` task COMPLETES while egress is blocked.
-3. **VERIFY AGENT ctrl2 (no cloud fallback):** with `villa-llama` stopped the SAME task FAILS (no answer — no silent cloud fallback), and `villa-llama` is RESTORED (running) afterward.
-4. Overall `villa verify agent` verdict PASS only when ctrl1 passes AND ctrl2 fails-as-expected; exit 0 on PASS.
-5. Record the exact operator egress-block command, the restored-`villa-llama` confirmation, and the **backend the acceptance ran on** (note ROCm 7.2.4 vs the build-9496-vulkan-radv coder qualification scope, exactly as 26-03 did).
-
-## Deviations from Plan
-
-**1. [Rule 3 — Blocking, resolved] Task 2 run order vs the Task 1 checkpoint.**
-The plan orders Task 1 (operator egress block) as a blocking-human checkpoint BEFORE Task 2. Because Task 2 (payload confirmation) does NOT depend on egress being blocked — it needs only the live served model + crush binary + restrictive-tools config — and the orchestrator is in AUTO mode instructing me to "attempt every step I genuinely can run," I executed Task 2 first to resolve Open Q1 and de-risk the operator's Task 3 run. This does not weaken any proof: the egress block is strictly required only for the Task 3 controls, which remain operator-gated.
-
-**2. Box left as found.** To run Task 2, a Phase-27 `crush.json` was rendered to `~/.config/crush/crush.json` (derived artifact; Task 3's install re-renders it). The pre-existing pre-Phase-27 `crush.json` was backed up to `/tmp/crush.json.pre27.bak` and **restored** afterward; no villa service state was mutated; `agent_enabled` was NOT flipped; no coder GGUF was pulled; no backend was swapped. A one-off render driver placed under `internal/_task2render/` was removed (not committed).
+`villa backend set rocm` (cutover proven) → `config.toml` restored from the as-found backup (now byte-identical: `backend=rocm`, `agent_enabled` unset) → `crush.json` restored. Verified: `villa-llama` back on ROCm 7.2.4 serving the chat model (HTTP_200), egress reopened (HTTP_200), all services up, no lingering nft block (host + rootless netns both clean).
 
 ## Self-Check: PASSED
-- Created file verified on disk: `.planning/phases/27-install-addon-preflight-gates-villa-verify-agent/27-04-SUMMARY.md`.
-- Task 2 evidence is from real on-hardware `crush run` invocations (two independent runs, both exit 0 + TOKEN_B edit, no TTY).
-- No source files were modified (payload confirmed verbatim) → no per-task code commit for Task 2; no fabricated commit is claimed.
-- Tasks 1 & 3 are honestly reported as operator-gated (blocking-human), not simulated.
+- INSTALL-03 readiness PASSED via a real tool-call round-trip on the live box (not a health-200).
+- PRIV-06 `villa verify agent` PASS (exit 0): egress proven blocked (negative-control-first) + no cloud fallback (llama-down FAILS), villa-llama restored.
+- The egress block is real (container probe HTTP_000/exit 28; loopback HTTP_200) and its exact command is captured (T-27-20 closed).
+- An ineffective block was correctly REJECTED by the verb (exit 1) — no fabricated PASS.
+- Box restored to as-found (config byte-identical, ROCm 7.2.4 serving chat, egress open, services up, no lingering firewall state).

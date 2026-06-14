@@ -91,7 +91,7 @@ Audit PASSED — 22/22 requirements, 15/16 integration connections (0 blockers),
 - [x] **Phase 24: Coder Fit Math, Catalog & On-Hardware Model Qualification** - `role:"coder"` catalog entries + recommend coder-fit stage at agent-profile ctx with honest residency-mode output, qualified agent-in-the-loop on the gfx1151 box *(COMPLETE 2026-06-13 — 4/4 plans; catalog FROZEN, D-13 toolbox keep, CODER-01/02/03)*
 - [x] **Phase 25: Coding-Mode Render & Transactional Swap Verb** - Tool-calling-ready llama-server unit delta behind the seams + a transactional enter/exit coding-mode verb composing `modelswap` (completed 2026-06-13)
 - [ ] **Phase 26: Agent Delivery Core & Lockdown Launcher** - Pinned SHA-256-verified Crush install via villa-owned pin policy, `crush.json` rendered from config.toml with kill switches, `villa code` launcher with env lockdown, drift detection
-- [~] **Phase 27: Install Addon, Preflight Gates & `villa verify agent`** - Optional install addon with sanctioned-window pre-staging + tool-call readiness proof, honest preflight gates, negative-control-first egress + cloud-fallback proofs, uninstall coverage. Code COMPLETE (27-01/02/03); on-hardware acceptance (27-04) PARTIAL — Open Q1 payload confirmed on-hardware, INSTALL-03/PRIV-06 install+verify acceptance OPERATOR-GATED (blocking-human checkpoint open, 2026-06-14)
+- [x] **Phase 27: Install Addon, Preflight Gates & `villa verify agent`** - Optional install addon with sanctioned-window pre-staging + tool-call readiness proof, honest preflight gates, negative-control-first egress + cloud-fallback proofs, uninstall coverage. Code COMPLETE (27-01/02/03); on-hardware acceptance (27-04) COMPLETE — INSTALL-03 readiness (real tool-call round-trip) + PRIV-06 (`villa verify agent` PASS under a real rootless-netns egress block: ctrl1 egress-blocked task completes, ctrl2 llama-down fails) accepted on gfx1151; box restored to as-found (2026-06-14)
 - [ ] **Phase 28: Agent Surfacing & Contracts** - `status.Report` 3→4 `coding` block (single golden re-freeze), dashboard Agent panel, doctor agent checks, backup coverage, per-model usage + cache-effectiveness signals
 
 ## Phase Details
@@ -203,9 +203,9 @@ Plans:
 - [x] 27-02-PLAN.md — Preflight gates + uninstall coverage: disk/post-coder-envelope BLOCK, cloud-credential WARN, typed-Unknown→WARN; `removeAgentBinary`/`removeCrushConfig` ordered teardown, GGUF via keep/remove-models, config.toml left (INSTALL-04) ✅
 - [x] 27-03-PLAN.md — `villa verify agent`: negative-control-FIRST `evalAgentVerify` (egress block + llama-down cloud-fallback controls), four-layer seam cloned from verify_memory, registered under the verify parent (PRIV-06)
 
-**Wave 3** *(blocked on Wave 2; on-hardware checkpoint)*
+**Wave 3** *(on-hardware acceptance — COMPLETE)*
 
-- [~] 27-04-PLAN.md — On-hardware acceptance on gfx1151: **Task 2 ACCEPTED** (deterministic `crush run` tool-call payload CONFIRMED verbatim, Open Q1 resolved; 2x deterministic, exit 0, no TTY, make check green). **Tasks 1+3 OPERATOR-GATED (blocking-human checkpoint OPEN):** operator host egress block (sudo/firewall, no villa CLI seam) + `villa install --coding-agent` readiness round-trip + `villa verify agent` egress/llama-down controls. INSTALL-03/PRIV-06 acceptance NOT yet signed off — see 27-04-SUMMARY.md "OPERATOR-GATED"
+- [x] 27-04-PLAN.md — On-hardware acceptance on gfx1151 (operator-authorized): **Task 2** deterministic `crush run` payload confirmed verbatim (Open Q1); **Task 1** real host egress block applied + proven (T-27-20 RESOLVED — rootless-netns nft FORWARD drop; the Phase-20 gap is closed); **Task 3** `villa install --coding-agent` PASSED readiness via a real tool-call round-trip (not health-200), and `villa verify agent` PASS exit 0 under the block (ctrl1 egress proven blocked → blocked task completes; ctrl2 llama-down task fails → no cloud fallback, villa-llama restored). An ineffective host-main-netns block was correctly REJECTED (exit 1) — no fabricated PASS. INSTALL-03 + PRIV-06 accepted; box restored to as-found. See 27-04-SUMMARY.md
 
 **Research**: COMPLETE (27-RESEARCH.md — composition phase; Crush two-channel outbound surface confirmed, cloud-cred allowlist, FSL-1.1-MIT consent text, Open Q1 on-hardware payload deferred to 27-04)
 
@@ -256,5 +256,5 @@ Plans:
 | 24. Coder Fit Math, Catalog & On-Hardware Model Qualification | v1.4 | 4/4 | Complete    | 2026-06-13 |
 | 25. Coding-Mode Render & Transactional Swap Verb | v1.4 | 2/2 | Complete    | 2026-06-13 |
 | 26. Agent Delivery Core & Lockdown Launcher | v1.4 | 0/3 | Planned | - |
-| 27. Install Addon, Preflight Gates & `villa verify agent` | v1.4 | 4/4 (27-04 PARTIAL) | Acceptance OPEN | 2026-06-14 |
+| 27. Install Addon, Preflight Gates & `villa verify agent` | v1.4 | 4/4 | Complete   | 2026-06-14 |
 | 28. Agent Surfacing & Contracts | v1.4 | 0/TBD | Not started | - |
