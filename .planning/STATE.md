@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Coding Agent
-status: executing
-stopped_at: "Phase 27 COMPLETE — re-verified PASS 5/5 (2026-06-14). Gap-closure plans 27-05 (CR-01 BLOCKER + WR-05) + 27-06 (WR-01 + WR-06) executed; deep gap-closure code review (0 blockers, 3 advisory warn, 4 info) confirmed all four gaps closed in the actual codebase; make check + TestSeamGrepGate green; no golden/JSON contract change. INSTALL-03/INSTALL-04/PRIV-06 all Complete. Next: Phase 28 (Agent Surfacing & Contracts) — /gsd-discuss-phase 28."
-last_updated: "2026-06-14T15:18:42.288Z"
+status: verifying
+stopped_at: "Phase 27 — gap-closure 27-06 DONE (WR-01 + WR-06 closed). `villa verify agent` egress negative control now FAILs on broken probe infra (classifyEgressProbe — no false-green) and sanity-probes villa-llama in-network via the new orchestrate.LlamaInNetworkEndpoint() seam accessor (container DNS + inference.ServerPort(), in DNS/port lockstep — no false-FAIL on healthy hosts, no re-typed literal); the llama-down restore failure is now surfaced with `systemctl --user start villa-llama.service` remediation (runLlamaDownControl/restoreLlamaWarning, verdict-downgrade wiring b). make check + TestSeamGrepGate green; no golden/JSON contract change. All four phase-27 gaps (CR-01/WR-01/WR-05/WR-06) closed. Next: re-verify the phase (`/gsd-verify-phase 27`)."
+last_updated: "2026-06-14T17:45:38.798Z"
 last_activity: 2026-06-14
 progress:
   total_phases: 5
@@ -230,7 +230,7 @@ Items deferred at v1.4 roadmap creation (2026-06-12, research-recorded):
 
 ## Session Continuity
 
-Last session: 2026-06-14T15:10:00.000Z
+Last session: 2026-06-14T17:45:38.792Z
 Stopped at: Phase 27 — gap-closure 27-06 DONE (WR-01 + WR-06 closed). `villa verify agent` egress negative control now FAILs on broken probe infra (classifyEgressProbe — no false-green) and sanity-probes villa-llama in-network via the new orchestrate.LlamaInNetworkEndpoint() seam accessor (container DNS + inference.ServerPort(), in DNS/port lockstep — no false-FAIL on healthy hosts, no re-typed literal); the llama-down restore failure is now surfaced with `systemctl --user start villa-llama.service` remediation (runLlamaDownControl/restoreLlamaWarning, verdict-downgrade wiring b). make check + TestSeamGrepGate green; no golden/JSON contract change. All four phase-27 gaps (CR-01/WR-01/WR-05/WR-06) closed. Next: re-verify the phase (`/gsd-verify-phase 27`).
 Resume file: .planning/phases/27-install-addon-preflight-gates-villa-verify-agent/27-06-SUMMARY.md
 
