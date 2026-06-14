@@ -196,7 +196,7 @@ Plans:
 
 **Wave 1**
 
-- [ ] 27-01-PLAN.md — Install addon foundation: `agent_enabled` gate + `--coding-agent` flag, coder-GGUF pre-stage (picked entry) + binary install (agent.Install), restrictive-tools render + FSL notice, `evalAgentProof` tool-call readiness (INSTALL-03)
+- [x] 27-01-PLAN.md — Install addon foundation: `agent_enabled` gate + `--coding-agent` flag, coder-GGUF pre-stage (picked entry) + binary install (agent.Install), restrictive-tools render + FSL notice, `evalAgentProof` tool-call readiness (INSTALL-03)
 
 **Wave 2** *(blocked on Wave 1; parallel)*
 
@@ -256,5 +256,5 @@ Plans:
 | 24. Coder Fit Math, Catalog & On-Hardware Model Qualification | v1.4 | 4/4 | Complete    | 2026-06-13 |
 | 25. Coding-Mode Render & Transactional Swap Verb | v1.4 | 2/2 | Complete    | 2026-06-13 |
 | 26. Agent Delivery Core & Lockdown Launcher | v1.4 | 0/3 | Planned | - |
-| 27. Install Addon, Preflight Gates & `villa verify agent` | v1.4 | 0/4 | Planned | - |
+| 27. Install Addon, Preflight Gates & `villa verify agent` | v1.4 | 1/4 | In Progress|  |
 | 28. Agent Surfacing & Contracts | v1.4 | 0/TBD | Not started | - |

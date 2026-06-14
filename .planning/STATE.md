@@ -4,13 +4,13 @@ milestone: v1.4
 milestone_name: Coding Agent
 status: executing
 stopped_at: Phase 27 planned & verified (4 plans, 3 waves)
-last_updated: "2026-06-14T01:05:43.802Z"
-last_activity: 2026-06-13 -- Phase 26 Plan 02 (villa code launcher + install seam) complete
+last_updated: "2026-06-14T09:10:06.333Z"
+last_activity: 2026-06-14 -- Phase 27 execution started
 progress:
   total_phases: 5
   completed_phases: 3
   total_plans: 13
-  completed_plans: 9
+  completed_plans: 10
   percent: 60
 ---
 
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-12 — milestone v1.4 Coding Agent started)
 
 **Core value:** Run a capable local AI workspace that "just works" after install — hardware-aware setup that brings inference, chat, and the dashboard up healthy, with zero data leaving the box. v1.2 extended the bar to "and stays operable, recoverable, and measurable over time." v1.3 extended it to "and remembers the user and their documents across chats — strictly local." v1.4 extends it to "and gives the operator a strictly-local terminal coding agent, wired to a fit-guarded coding model."
-**Current focus:** Phase 26 — agent-delivery-core-lockdown-launcher
+**Current focus:** Phase 27 — install-addon-preflight-gates-villa-verify-agent
 
 ## Current Position
 
-Phase: 26 (agent-delivery-core-lockdown-launcher) — EXECUTING
-Plan: 2 of 3 complete; next Plan 3 (on-hardware binary pin + launch smoke)
-Status: Executing Phase 26
-Last activity: 2026-06-13 -- Phase 26 Plan 02 (villa code launcher + install seam) complete
+Phase: 27 (install-addon-preflight-gates-villa-verify-agent) — EXECUTING
+Plan: 2 of 4
+Status: Ready to execute
+Last activity: 2026-06-14 -- Phase 27 execution started
 
 Progress: [███████░░░] 67% (v1.4)
 
@@ -114,6 +114,7 @@ Progress: [███████░░░] 67% (v1.4)
 | Phase 25 P01 | 35min | 3 tasks | 11 files |
 | Phase 25 P02 | ~40min | 2 of 3 tasks (2 auto + 1 on-hardware checkpoint OPEN) | 5 files |
 | Phase 26 P01 | ~22min | 3 tasks (TDD) | 8 files |
+| Phase 27 P27-01 | ~40 min | 3 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -218,9 +219,9 @@ Items deferred at v1.4 roadmap creation (2026-06-12, research-recorded):
 
 ## Session Continuity
 
-Last session: 2026-06-14T01:05:43.797Z
-Stopped at: Phase 27 planned & verified (4 plans, 3 waves)
-Resume file: .planning/phases/27-install-addon-preflight-gates-villa-verify-agent/27-01-PLAN.md
+Last session: 2026-06-14T09:10:00.292Z
+Stopped at: Phase 27 Plan 01 complete (coding-agent install addon; INSTALL-03 closed) — next: 27-02
+Resume file: .planning/phases/27-install-addon-preflight-gates-villa-verify-agent/27-02-PLAN.md
 
 ## Operator Next Steps
 
