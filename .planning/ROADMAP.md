@@ -191,7 +191,7 @@ Plans:
   4. A llama-down negative control proves no silent cloud-model fallback: with `villa-llama` stopped, the agent must NOT keep working — an agent answering with inference down is the smoking gun and FAILS the verification.
   5. `villa uninstall` removes the agent binary, rendered config, and addon artifacts.
 
-**Plans**: 4 plans
+**Plans**: 6 plans (4 original + 2 gap-closure)
 Plans:
 
 **Wave 1**
@@ -206,6 +206,11 @@ Plans:
 **Wave 3** *(on-hardware acceptance — COMPLETE)*
 
 - [x] 27-04-PLAN.md — On-hardware acceptance on gfx1151 (operator-authorized): **Task 2** deterministic `crush run` payload confirmed verbatim (Open Q1); **Task 1** real host egress block applied + proven (T-27-20 RESOLVED — rootless-netns nft FORWARD drop; the Phase-20 gap is closed); **Task 3** `villa install --coding-agent` PASSED readiness via a real tool-call round-trip (not health-200), and `villa verify agent` PASS exit 0 under the block (ctrl1 egress proven blocked → blocked task completes; ctrl2 llama-down task fails → no cloud fallback, villa-llama restored). An ineffective host-main-netns block was correctly REJECTED (exit 1) — no fabricated PASS. INSTALL-03 + PRIV-06 accepted; box restored to as-found. See 27-04-SUMMARY.md
+
+**Wave 4** *(gap closure — `/gsd-plan-phase 27 --gaps`; both autonomous, off-hardware seam tests, parallel)*
+
+- [ ] 27-05-PLAN.md — Serve the coder the addon stages: `--coding-agent` sets cfg.CoderModel/CoderQuant/CoderAgentCtx/CodingMode from rec.Coder and threads a non-nil CodingMode descriptor into RenderInput so the unit + crush.json + readiness prove the CODER (CR-01 BLOCKER); readiness asserts a real TOKEN_A→TOKEN_B replacement, not mere presence (WR-05) (INSTALL-03)
+- [ ] 27-06-PLAN.md — Honest `villa verify agent` controls: the egress negative control FAILs on broken probe infra instead of false-greening — positive in-network sanity probe + curl 6/7/28 classification (WR-01); the llama-down restore surfaces a Start failure with `systemctl --user start villa-llama.service` remediation, never leaving villa-llama silently stopped (WR-06) (PRIV-06)
 
 **Research**: COMPLETE (27-RESEARCH.md — composition phase; Crush two-channel outbound surface confirmed, cloud-cred allowlist, FSL-1.1-MIT consent text, Open Q1 on-hardware payload deferred to 27-04)
 
