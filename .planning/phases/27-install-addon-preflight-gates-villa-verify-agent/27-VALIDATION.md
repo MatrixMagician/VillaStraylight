@@ -1,11 +1,13 @@
 ---
 phase: 27
 slug: install-addon-preflight-gates-villa-verify-agent
-status: draft
-nyquist_compliant: false
+status: approved
+nyquist_compliant: true
 wave_0_complete: false
 created: 2026-06-14
 ---
+
+> **Wave 0 model:** No separate Wave 0 plan — test-first is folded into every implementation task (all of 27-01/02/03 are `tdd=true`: each writes its test FIRST and carries an `<automated>` verify command). `wave_0_complete` stays `false` until execution writes those tests; the validation *strategy* is nyquist-compliant (every requirement has a mapped automated verify, no 3-consecutive-task gap). Ratified 2026-06-14.
 
 # Phase 27 — Validation Strategy
 
@@ -74,11 +76,11 @@ created: 2026-06-14
 
 ## Validation Sign-Off
 
-- [ ] All tasks have `<automated>` verify or Wave 0 dependencies
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verify
-- [ ] Wave 0 covers all MISSING references
-- [ ] No watch-mode flags
-- [ ] Feedback latency < 60s
-- [ ] `nyquist_compliant: true` set in frontmatter
+- [x] All tasks have `<automated>` verify or Wave 0 dependencies (test-first folded into every tdd task)
+- [x] Sampling continuity: no 3 consecutive tasks without automated verify
+- [x] Wave 0 covers all MISSING references (folded into tdd tasks; no dangling MISSING ref)
+- [x] No watch-mode flags
+- [x] Feedback latency < 60s
+- [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** pending
+**Approval:** approved 2026-06-14
