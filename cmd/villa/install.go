@@ -445,6 +445,20 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 	cfg.AgentEnabled = d.loadedAgentEnabled()
 	if opts.codingAgent {
 		cfg.AgentEnabled = true
+		// CR-01: the --coding-agent addon ENTERS coding-mode at install and SERVES the coder
+		// it stages + gates on (D-02/D-04 single source). Single-source the coder render
+		// inputs from the SAME rec.Coder the disk/envelope preflight gates and the staged
+		// shard derive from, so the unit, crush.json, and the readiness proof all agree on the
+		// coder model. Guard against the shared-residency / no-coder-fit case: only enter
+		// coding-mode for a REAL swap-residency coder fit (rec.Coder.Model != "") so a future
+		// shared-residency path can never serve an empty -m. (When empty, the coder-fit refusal
+		// at step 6c already blocks the addon before the stack starts.)
+		if rec.Coder.Model != "" {
+			cfg.CoderModel = rec.Coder.Model
+			cfg.CoderQuant = rec.Coder.Quant
+			cfg.CoderAgentCtx = rec.Coder.AgentCtx
+			cfg.CodingMode = true
+		}
 	}
 	modelFile, err := d.modelFile(rec)
 	if err != nil {
@@ -456,12 +470,37 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 		fmt.Fprintf(errOut, "install: resolve backend: %v\n", err)
 		return exitBlocked
 	}
-	units, err := d.render(orchestrate.RenderInput{
+	// Build the render input. On the chat-only path this is byte-identical to v1.3 (CodingMode
+	// stays nil → orchestrate.Render off-path unchanged → the v1.3 unit goldens are untouched).
+	// On the --coding-agent path (cfg.CodingMode), serve the staged coder: resolve the served
+	// -m from the coder shard (NOT the chat model's modelFile) and thread a non-nil CodingMode
+	// descriptor, REUSING the proven Phase-25 coding-mode helpers (codingServedTarget /
+	// codingModelFile / codingDescriptor) — the same render path `villa coding-mode enter`
+	// drives, already frozen by villa-llama-coding.container.golden. The catalog→inference
+	// translation stays in the live wiring (the pure renderer never imports internal/catalog, D-05).
+	renderIn := orchestrate.RenderInput{
 		Backend:   backend,
 		Cfg:       cfg,
 		ModelFile: modelFile,
 		ModelsDir: d.modelsDir(),
-	})
+	}
+	if cfg.CodingMode {
+		servedModel, _ := codingServedTarget(cfg)
+		coderModelFile, mferr := codingModelFile(cfg, servedModel)
+		if mferr != nil {
+			fmt.Fprintf(errOut, "install: resolve coder model file: %v\n", mferr)
+			return exitBlocked
+		}
+		spec, derr := codingDescriptor(cfg, servedModel)
+		if derr != nil {
+			fmt.Fprintf(errOut, "install: build coding-mode descriptor: %v\n", derr)
+			return exitBlocked
+		}
+		renderIn.ModelFile = coderModelFile
+		renderIn.CodingMode = spec
+		renderIn.CoderAgentCtx = cfg.CoderAgentCtx
+	}
+	units, err := d.render(renderIn)
 	if err != nil {
 		fmt.Fprintf(errOut, "install: render failed: %v\n", err)
 		return exitBlocked

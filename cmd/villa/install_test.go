@@ -109,6 +109,13 @@ type fakeInstallDeps struct {
 	agentProofStatus     preflight.Status
 	agentProofDetail     string
 	renderedAgentEnabled bool
+	// renderedInput captures the orchestrate.RenderInput the render seam received so a
+	// test can assert the coder-serving wiring (CR-01): on --coding-agent the captured
+	// CodingMode must be non-nil and Cfg.CoderModel/CoderAgentCtx must equal rec.Coder,
+	// while a chat-only install must capture CodingMode == nil + CoderModel == "" (off-path
+	// byte-identical). renderedInputSet guards the zero-value (no render call yet).
+	renderedInput    orchestrate.RenderInput
+	renderedInputSet bool
 	// agentChecksCalls counts invocations of the runAgentChecks preflight-fold seam
 	// (INSTALL-04/D-09): a test asserts it is exactly 1 on an agent-on install and 0 on
 	// an agent-off install (the agent-off gate is byte-identical). agentChecks is the
@@ -126,9 +133,13 @@ func newFakeInstallDeps(t *testing.T, units []orchestrate.Unit, plan orchestrate
 		// pick's Coder.Model (set below) and a shard, so an agent-on test resolves a shard
 		// without extra setup. agentCatOK true so the load seam succeeds by default.
 		agentCatOK: true,
+		// Use a REAL embedded-catalog coder id: codingModelFile/codingDescriptor (the
+		// Phase-25 coder-serving helpers reused on the --coding-agent render path) read the
+		// embedded catalog via modelCatalogPath, NOT this fake, so the served coder id must
+		// be a genuine catalog entry for the default agent-on flow to render.
 		agentCat: catalog.Catalog{Models: []catalog.CatalogModel{
-			{ID: "qwen3-coder-test", Role: "coder", Shards: []catalog.Shard{
-				{Filename: "qwen3-coder-test.gguf", SizeBytes: 4096},
+			{ID: "qwen3-coder-30b-a3b", Role: "coder", Shards: []catalog.Shard{
+				{Filename: "qwen3-coder-30b-a3b.gguf", SizeBytes: 4096},
 			}},
 		}},
 	}
@@ -142,13 +153,17 @@ func newFakeInstallDeps(t *testing.T, units []orchestrate.Unit, plan orchestrate
 				Fits: true,
 				// A fitting coder block so the agent-on tests resolve a shard from the
 				// default agent catalog (id matches agentCat's coder entry).
-				Coder: recommend.CoderFit{Model: "qwen3-coder-test", Fits: true, Residency: "swap"},
+				Coder: recommend.CoderFit{Model: "qwen3-coder-30b-a3b", Quant: "Q4_K_M", AgentCtx: 65536, Fits: true, Residency: "swap"},
 			}
 		},
 		modelFile:   func(recommend.Recommendation) (string, error) { return "qwen2.5-0.5b.gguf", nil },
 		modelsDir:   func() string { return t.TempDir() },
 		runChecks:   func(detect.HostProfile, preflight.ResourceReq) []preflight.CheckResult { return checks },
-		render:      func(orchestrate.RenderInput) ([]orchestrate.Unit, error) { return units, nil },
+		render: func(in orchestrate.RenderInput) ([]orchestrate.Unit, error) {
+			f.renderedInput = in
+			f.renderedInputSet = true
+			return units, nil
+		},
 		reconcile:   func([]orchestrate.Unit, string) (orchestrate.Plan, error) { return plan, nil },
 		unitDir:     func() (string, error) { return t.TempDir(), nil },
 		username:    func() string { return "tester" },
@@ -1901,6 +1916,79 @@ func TestInstallCodingAgentFlow(t *testing.T) {
 		}
 	})
 
+	t.Run("--coding-agent serves the coder (CR-01): RenderInput.CodingMode != nil + served id == rec.Coder.Model", func(t *testing.T) {
+		f := newFakeInstallDeps(t, units, plan, passChecks())
+		// Use a REAL catalog coder id so codingModelFile/codingDescriptor (which read the
+		// embedded catalog via modelCatalogPath, not the fake) resolve. rec.Coder carries a
+		// real swap-residency coder fit with a non-zero agent ctx and quant.
+		f.installDeps.pick = func(detect.HostProfile, recommend.Overrides) recommend.Recommendation {
+			return recommend.Recommendation{
+				Model: "qwen2.5-0.5b", Quant: "Q4_K_M", ContextLen: 4096, Backend: "vulkan",
+				WeightBytes: 1 << 30, KVCacheBytes: 1 << 28, HeadroomBytes: 1 << 28,
+				UsableEnvelopeBytes: 8 << 30, Fits: true,
+				Coder: recommend.CoderFit{
+					Model: "qwen3-coder-30b-a3b", Quant: "Q4_K_M", AgentCtx: 65536,
+					Fits: true, Residency: "swap",
+				},
+			}
+		}
+		// Catalog the coderShardFor pre-stage resolves against must carry the same id.
+		f.agentCat = catalog.Catalog{Models: []catalog.CatalogModel{
+			{ID: "qwen3-coder-30b-a3b", Role: "coder", Shards: []catalog.Shard{
+				{Filename: "qwen3-coder-30b-a3b.gguf", SizeBytes: 4096},
+			}},
+		}}
+
+		cmd, _, errOut := installTestCmd()
+		code := runInstall(cmd, installOpts{codingAgent: true}, f.installDeps)
+		if code != exitPass {
+			t.Fatalf("coding-agent install exit = %d, want %d; stderr:\n%s", code, exitPass, errOut.String())
+		}
+		if !f.renderedInputSet {
+			t.Fatal("render seam was never called")
+		}
+		// CR-01: the coder must be SERVED — a non-nil CodingMode descriptor + coder render inputs.
+		if f.renderedInput.CodingMode == nil {
+			t.Error("--coding-agent must thread a non-nil RenderInput.CodingMode (the coder is served)")
+		}
+		if f.renderedInput.Cfg.CoderModel != "qwen3-coder-30b-a3b" {
+			t.Errorf("RenderInput.Cfg.CoderModel = %q, want rec.Coder.Model %q",
+				f.renderedInput.Cfg.CoderModel, "qwen3-coder-30b-a3b")
+		}
+		if !f.renderedInput.Cfg.CodingMode {
+			t.Error("RenderInput.Cfg.CodingMode must be true on --coding-agent")
+		}
+		if f.renderedInput.CoderAgentCtx != 65536 {
+			t.Errorf("RenderInput.CoderAgentCtx = %d, want rec.Coder.AgentCtx %d",
+				f.renderedInput.CoderAgentCtx, 65536)
+		}
+		// The persisted config carries the coder fields so a bare `villa up` re-renders the coder.
+		if f.savedCfg.CoderModel != "qwen3-coder-30b-a3b" || !f.savedCfg.CodingMode ||
+			f.savedCfg.CoderQuant != "Q4_K_M" || f.savedCfg.CoderAgentCtx != 65536 {
+			t.Errorf("persisted cfg must carry coder fields: CoderModel=%q CodingMode=%v CoderQuant=%q CoderAgentCtx=%d",
+				f.savedCfg.CoderModel, f.savedCfg.CodingMode, f.savedCfg.CoderQuant, f.savedCfg.CoderAgentCtx)
+		}
+	})
+
+	t.Run("chat-only install is off-path byte-identical: RenderInput.CodingMode == nil + CoderModel empty", func(t *testing.T) {
+		f := newFakeInstallDeps(t, units, plan, passChecks())
+		cmd, _, _ := installTestCmd()
+		code := runInstall(cmd, installOpts{}, f.installDeps)
+		if code != exitPass {
+			t.Fatalf("chat-only install exit = %d, want %d", code, exitPass)
+		}
+		if !f.renderedInputSet {
+			t.Fatal("render seam was never called")
+		}
+		if f.renderedInput.CodingMode != nil {
+			t.Error("chat-only install must keep RenderInput.CodingMode == nil (off-path byte-identical)")
+		}
+		if f.renderedInput.Cfg.CoderModel != "" || f.renderedInput.Cfg.CodingMode {
+			t.Errorf("chat-only install must not set coder fields: CoderModel=%q CodingMode=%v",
+				f.renderedInput.Cfg.CoderModel, f.renderedInput.Cfg.CodingMode)
+		}
+	})
+
 	t.Run("readiness FAIL refuses-with-remediation, no false-green", func(t *testing.T) {
 		f := newFakeInstallDeps(t, units, plan, passChecks())
 		f.agentProofStatus = preflight.StatusFail
@@ -1920,6 +2008,17 @@ func TestInstallCodingAgentFlow(t *testing.T) {
 		f := newFakeInstallDeps(t, units, plan, passChecks())
 		// Catalog with no coder entry → coderShardFor returns false.
 		f.agentCat = catalog.Catalog{Models: []catalog.CatalogModel{{ID: "qwen3-chat"}}}
+		// rec.Coder has no fitting coder (shared residency, empty Model) so coding-mode is
+		// NOT entered (cfg.CodingMode stays false) and the addon refuses at the step-6c
+		// coder-fit gate, not at the render-side coder-file resolution.
+		f.installDeps.pick = func(detect.HostProfile, recommend.Overrides) recommend.Recommendation {
+			return recommend.Recommendation{
+				Model: "qwen2.5-0.5b", Quant: "Q4_K_M", ContextLen: 4096, Backend: "vulkan",
+				WeightBytes: 1 << 30, KVCacheBytes: 1 << 28, HeadroomBytes: 1 << 28,
+				UsableEnvelopeBytes: 8 << 30, Fits: true,
+				Coder: recommend.CoderFit{Fits: false, Residency: "shared"},
+			}
+		}
 
 		cmd, _, errOut := installTestCmd()
 		code := runInstall(cmd, installOpts{codingAgent: true}, f.installDeps)

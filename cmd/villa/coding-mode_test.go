@@ -226,9 +226,19 @@ func TestNoAutoFlipStructuralGuard(t *testing.T) {
 		base := filepath.Base(rel)
 		switch {
 		case strings.HasSuffix(rel, "internal/codingmode/codingmode.go"):
-			return true // the core that OWNS the mutation (codingmode.Run)
+			return true // the core that OWNS the runtime mode-flip (codingmode.Run)
 		case strings.HasSuffix(rel, "internal/config/villaconfig.go"):
 			return true // the field declaration + marshal omit-when-off path
+		case strings.HasSuffix(base, "install.go"):
+			// CR-01 (Phase 27-05): `villa install --coding-agent` is a sanctioned one-shot
+			// coding-mode ENTRY surface — the install addon brings the agent up PROVEN-READY by
+			// serving the staged coder, so it single-sources cfg.CodingMode from a real
+			// rec.Coder fit (never a preference, never an auto-flip on a bare `villa install`:
+			// the assignment is gated on opts.codingAgent && rec.Coder.Model != ""). The runtime
+			// toggle remains the explicit `villa coding-mode enter|exit` verb (D-04/D-06); this
+			// is install-time entry, not a runtime auto-flip. Honesty-by-construction (D-05)
+			// requires the readiness proof to exercise the model crush.json advertises.
+			return true
 		case strings.HasSuffix(base, "_test.go"):
 			return true // tests construct configs with CodingMode set
 		}
