@@ -191,8 +191,23 @@ Plans:
   4. A llama-down negative control proves no silent cloud-model fallback: with `villa-llama` stopped, the agent must NOT keep working — an agent answering with inference down is the smoking gun and FAILS the verification.
   5. `villa uninstall` removes the agent binary, rendered config, and addon artifacts.
 
-**Plans**: TBD
-**Research**: recommended (`/gsd-plan-phase 27 --research-phase` — Crush's complete outbound surface under negative control + FSL-1.1-MIT consent text)
+**Plans**: 4 plans
+Plans:
+
+**Wave 1**
+
+- [ ] 27-01-PLAN.md — Install addon foundation: `agent_enabled` gate + `--coding-agent` flag, coder-GGUF pre-stage (picked entry) + binary install (agent.Install), restrictive-tools render + FSL notice, `evalAgentProof` tool-call readiness (INSTALL-03)
+
+**Wave 2** *(blocked on Wave 1; parallel)*
+
+- [ ] 27-02-PLAN.md — Preflight gates + uninstall coverage: disk/post-coder-envelope BLOCK, cloud-credential WARN, typed-Unknown→WARN; `removeAgentBinary`/`removeCrushConfig` ordered teardown, GGUF via keep/remove-models, config.toml left (INSTALL-04)
+- [ ] 27-03-PLAN.md — `villa verify agent`: negative-control-FIRST `evalAgentVerify` (egress block + llama-down cloud-fallback controls), four-layer seam cloned from verify_memory, registered under the verify parent (PRIV-06)
+
+**Wave 3** *(blocked on Wave 2; on-hardware checkpoint)*
+
+- [ ] 27-04-PLAN.md — On-hardware acceptance on gfx1151: confirm deterministic `crush run` tool-call payload (Open Q1), install readiness round-trip, `villa verify agent` egress + llama-down controls under the operator egress block (INSTALL-03/PRIV-06)
+
+**Research**: COMPLETE (27-RESEARCH.md — composition phase; Crush two-channel outbound surface confirmed, cloud-cred allowlist, FSL-1.1-MIT consent text, Open Q1 on-hardware payload deferred to 27-04)
 
 ### Phase 28: Agent Surfacing & Contracts
 
@@ -241,5 +256,5 @@ Plans:
 | 24. Coder Fit Math, Catalog & On-Hardware Model Qualification | v1.4 | 4/4 | Complete    | 2026-06-13 |
 | 25. Coding-Mode Render & Transactional Swap Verb | v1.4 | 2/2 | Complete    | 2026-06-13 |
 | 26. Agent Delivery Core & Lockdown Launcher | v1.4 | 0/3 | Planned | - |
-| 27. Install Addon, Preflight Gates & `villa verify agent` | v1.4 | 0/TBD | Not started | - |
+| 27. Install Addon, Preflight Gates & `villa verify agent` | v1.4 | 0/4 | Planned | - |
 | 28. Agent Surfacing & Contracts | v1.4 | 0/TBD | Not started | - |
