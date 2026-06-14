@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Coding Agent
 status: executing
-stopped_at: Phase 27 Plan 03 complete (villa verify agent runtime strictly-local proof; PRIV-06 closed)
-last_updated: "2026-06-14T09:31:00.000Z"
-last_activity: 2026-06-14 -- Phase 27 Plan 03 executed (villa verify agent: negative-control-first egress + llama-down cloud-fallback control)
+stopped_at: Phase 27 Plan 04 PARTIAL — Task 2 accepted on-hardware (Open Q1 resolved); Tasks 1+3 operator-gated (blocking-human egress block + install/verify acceptance)
+last_updated: "2026-06-14T09:58:00.000Z"
+last_activity: 2026-06-14 -- Phase 27 Plan 04 executed PARTIAL (Task 2: deterministic crush-run tool-call payload CONFIRMED verbatim on live gfx1151/ROCm 7.2.4, exit 0, no TTY, 2x deterministic; Tasks 1+3 await operator egress block + acceptance)
 progress:
   total_phases: 5
   completed_phases: 3
@@ -26,9 +26,9 @@ See: .planning/PROJECT.md (updated 2026-06-12 — milestone v1.4 Coding Agent st
 ## Current Position
 
 Phase: 27 (install-addon-preflight-gates-villa-verify-agent) — EXECUTING
-Plan: 4 of 4
-Status: Ready to execute (27-04 on-hardware acceptance next)
-Last activity: 2026-06-14 -- Phase 27 Plan 03 executed (villa verify agent runtime strictly-local proof; PRIV-06 closed off-hardware)
+Plan: 4 of 4 (PARTIAL — operator checkpoint open)
+Status: 27-04 Task 2 ACCEPTED on-hardware (Open Q1 resolved, payload confirmed verbatim, make check green); Tasks 1+3 are a genuine blocking-human checkpoint (operator host egress block via sudo/firewall + `villa install --coding-agent` readiness + `villa verify agent` egress/llama-down acceptance). NOT fabricated.
+Last activity: 2026-06-14 -- Phase 27 Plan 04 executed PARTIAL (Task 2 on-hardware crush-run round-trip CONFIRMED; INSTALL-03/PRIV-06 acceptance awaits operator)
 
 Progress: [█████████░] 92% (v1.4)
 
@@ -160,6 +160,7 @@ Earlier (v1.0–v1.3) standing decisions retained:
 - [Phase 25-02]: No-auto-flip structural guard regex anchored to the bool literal (CodingMode = true|false) so it targets the VillaConfig toggle without false-matching the same-named render-descriptor pointer field (RenderInput/RunSpec.CodingMode, a *CodingModeSpec).
 - [Phase 25-02]: Task-3 acceptance is OPEN — the live villa-llama on this box runs ROCm 7.2.4, while the swap qualification + cache_reuse_safe claim are build-9496-vulkan-radv-scoped (D-03/D-13); running the smoke against ROCm or mutating the live backend autonomously was refused. No pass fabricated.
 - [Phase 27-02]: INSTALL-04 closed (preflight gates + uninstall coverage). **D-09 honest preflight:** `runAgentChecks` (cmd/villa/preflight_agent.go) appends `AGENT-PRE-disk` (BLOCK: free disk < staged coder GGUF + binary; unprobeable → typed-Unknown WARN), `AGENT-PRE-envelope` (BLOCK read from `rec.Coder.Fits`/`TotalBytes`/`Residency`, NEVER re-derived), `AGENT-PRE-cloud-cred` (WARN naming present provider key(s) — 11-key allowlist from 27-RESEARCH A1; NEVER a BLOCK). Folded into install.go via a `runAgentChecks` seam gated on `agentEnabledForGate` (--coding-agent override folded into persisted agent_enabled) → flows through the SAME gateInstall (refuse-with-remediation inherited); agent-off byte-identical. Checks built as cmd-tier `CheckResult` literals (preflight pass/warn/fail are package-private; the gate needs rec.Coder + the staged size); statfs/lookupEnv injected as seams (deterministic tiers). Added `liveAgentStatfs` (cmd-tier copy of the package-private `preflight.liveStatfs` — Rule-3 deviation). **D-10 uninstall:** `removeAgentBinary`+`removeCrushConfig` ALWAYS-removed idempotent seams at a deterministic asserted position (after dashboard teardown, before container stop); live wiring reuses `agentBinPath()`/`crushConfigPath()` + `assertUnitInsideDir` traversal guard; staged GGUF follows the existing keep/remove-models choice; config.toml LEFT (no seam). make check + TestSeamGrepGate green.
+- [Phase 27-04]: **Open Q1 RESOLVED on-hardware — payload confirmed VERBATIM (no tuning).** On the live gfx1151 box (villa-llama on ROCm 7.2.4, crush v0.76.0, Phase-27 restrictive-tools crush.json), the deterministic `crush run` planted-file payload (`agentProbePrompt` + `VILLA_PROBE_TOKEN_A`→`VILLA_PROBE_TOKEN_B`) forced a real read→edit→result tool-call edit with NO TTY prompt (stdin /dev/null), exit 0, deterministic across 2 independent runs (240s bound, no timeout). `permissions.allowed_tools`=view/edit/write auto-accept (NOT --yolo). The constants in `install_agent.go` are shared byte-identically by both drivers via `liveAgentToolCallProbe` (verify_agent agentTask/llamaDownTask reuse it) — no source edit needed; make check green (24 pkgs). D-13 caveat noted: the run was on ROCm 7.2.4 while the coder qualification is build-9496-vulkan-radv-scoped (payload mechanism is backend-agnostic). **Tasks 1+3 (operator host egress block + `villa install --coding-agent` readiness + `villa verify agent` egress/llama-down acceptance) remain a genuine blocking-human checkpoint — NOT fabricated; the egress block has no villa CLI seam (D-07) and requires sudo/firewall the executor lacks.**
 - [Phase 27-03]: PRIV-06 closed off-hardware — `villa verify agent` (cmd/villa/verify_agent.go) mirrors the verify_memory.go four-layer seam EXACTLY. **Pure core `evalAgentVerify`** folds BOTH controls negative-control-FIRST: ctrl1 egress probe (err→FAIL "could not run"; !blocked→FAIL "egress is NOT blocked") runs BEFORE the agent task is trusted; then the real `crush run` read→edit task (err/!completed→FAIL); then ctrl2 llama-down (answered→FAIL "silent cloud-model fallback"; an error from llamaDownTask is the EXPECTED inference-down outcome). Verdict = ctrl1.pass && ctrl2.failed-as-expected; PASS/FAIL only (reuses memoryProof), a timeout/unevaluable is a FAIL. **`liveAgentVerify`** egress probe = `runProbeCurl(ctx, orchestrate.EmbedImage(), "-sf","--max-time","5", egressNegativeControlHost)` (helper image strictly from the seam accessor — TestSeamGrepGate green); agentTask reuses the Plan-01 `liveAgentToolCallProbe` driver verbatim (DRY); llamaDownTask stops `villa-llama.service` via the injected `orchestrate.Systemd.Stop` seam, runs the same task, then restores via a deferred `Start` (T-27-16 — never left stopped). `verifyAgentDeps`/`liveVerifyAgentDeps()` quartet mirrors verifyMemoryDeps; `newVerifyAgent()` registered under the verify parent, gated on persisted agent_enabled (addon-off exits 0; PASS→exitPass / FAIL→exitBlocked). No golden/JSON contract changed; agent-off byte-identical. make check + TestSeamGrepGate green. On-hardware egress + llama-down acceptance is Plan 04.
 - [Phase 26-01]: AGENT-01/02/04 pure half landed — new pure `internal/agent` core (policy/render/drift/version + Deps/Result), zero new deps, TestSeamGrepGate + make check green. **Open-Q1 → option (ii) render-only:** base_url is the FIXED loopback `http://127.0.0.1:8080/v1` (serverPort=8080 constant, not a config field); model id = `villa-`+(CoderModel else Model) relying on llama.cpp single-model leniency — NO --alias delta into the inference seam. **Open-Q4 → parsed-semantic** config-drift (canonicalize→bytes.Equal; whitespace-only re-save is not drift). **Open-Q2 sentinel:** crush-policy.json binarySha256 = `UNPINNED-binary-sha256-set-by-26-03-on-hardware` — **Plan 03 MUST replace it on-hardware** (extract verified tarball → sha256sum crush); until then DetectDrift returns BinaryDriftUnknown (typed-Unknown WARN), never a false drift. config-ABSENT is a DISTINCT first-run render trigger (never compared, never reported as drift; parallels BinaryAbsent). permissions rendered omitted (Phase-27 STRIDE owns the restrictive allowlist).
 
@@ -173,6 +174,7 @@ Earlier (v1.0–v1.3) standing decisions retained:
 
 [Issues that affect future work]
 
+- OPEN BLOCKING-HUMAN CHECKPOINT (Phase 27 Plan 04): the on-hardware INSTALL-03 readiness + PRIV-06 egress/llama-down acceptance is **operator-gated**. Task 2 (deterministic crush-run payload, Open Q1) is CONFIRMED on-hardware. Tasks 1+3 need: (1) the operator to apply a real host outbound egress block (sudo/firewall — no villa CLI seam, D-07) and capture the exact command (the Phase-20 gap, T-27-20), then (2) run `villa install --coding-agent` (stages the 46.2 GiB qwen3-coder-next-q4 + transactional swap; readiness via real planted-file edit, NOT health-200) and `villa verify agent` (ctrl1 egress-blocked task completes; ctrl2 llama-down task FAILS, villa-llama restored). Resume with the operator outcomes per 27-04-SUMMARY.md "OPERATOR-GATED" sections; do NOT fabricate a PASS.
 - NON-NEGOTIABLE THREAT (Phase 27): agent phone-home at **startup** (registry/update fetches fire before first prompt) and silent cloud-model fallback. The `villa verify agent` verb that closes both is LANDED off-hardware (27-03): negative-control-first egress (egress-open run FAILs) + llama-down cloud-fallback control (an agent that keeps working with villa-llama down FAILs). The on-hardware acceptance (live egress block + live crush-run round-trip + villa-llama stop/restore) remains OPEN in Plan 04 — the kill switches are proven by construction in the verb but not yet exercised on this host.
 - Phase 24 risk: tool-call/jinja template landmines — GGUF artifacts must be pinned at repo+revision level (the embedded chat template is part of the artifact); the pinned `vulkan-radv` toolbox digest may need a re-pin if its llama.cpp predates Qwen3-Next arch support (PR #16095) + Feb-2026 tool-call parser fixes. `--cache-reuse` is incompatible with recurrent/hybrid models incl. the current chat model; verify for Qwen3-Coder-Next.
 - Phase 24 risk: agent-scale KV (~6–12 GiB at 64–128k ctx) blows fit math anchored on chat contexts — fit must be computed at the agent's RENDERED ctx; KV-quantization only as a catalog-declared, benched choice.
@@ -222,9 +224,9 @@ Items deferred at v1.4 roadmap creation (2026-06-12, research-recorded):
 
 ## Session Continuity
 
-Last session: 2026-06-14T09:20:00.000Z
-Stopped at: Phase 27 Plan 02 complete (preflight gates + uninstall coverage; INSTALL-04 closed) — next: 27-03
-Resume file: .planning/phases/27-install-addon-preflight-gates-villa-verify-agent/27-03-PLAN.md
+Last session: 2026-06-14T09:58:00.000Z
+Stopped at: Phase 27 Plan 04 PARTIAL — Task 2 accepted on-hardware (Open Q1 resolved); BLOCKING-HUMAN checkpoint open for Tasks 1+3 (operator host egress block + `villa install --coding-agent` readiness + `villa verify agent` egress/llama-down acceptance). See 27-04-SUMMARY.md "Task 1/Task 3 — OPERATOR-GATED" for the exact operator commands + evidence required.
+Resume file: .planning/phases/27-install-addon-preflight-gates-villa-verify-agent/27-04-PLAN.md
 
 ## Operator Next Steps
 
