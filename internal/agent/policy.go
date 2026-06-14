@@ -78,6 +78,17 @@ func loadCrushPolicy() CrushPolicy {
 	return p
 }
 
+// LoadCrushPolicy is the EXPORTED accessor for the embedded crush-policy.json (the
+// pinned version + per-platform asset table + release URL template). Phase 27's install
+// addon (cmd/villa/install_agent.go) resolves the pinned linux/amd64 asset + URL through
+// it to compose agent.Install (checksum-before-extract, D-03) without re-implementing the
+// verified install — keeping asset/URL resolution testable in cmd/villa. It delegates to
+// the unexported loadCrushPolicy, so the panic-on-malformed build-time discipline (T-26-05)
+// is shared by both the package-internal and the exported entry points.
+func LoadCrushPolicy() CrushPolicy {
+	return loadCrushPolicy()
+}
+
 // VerifyTarball is the PURE half of the D-03 install gate (T-26-01): it asserts
 // the downloaded tarball bytes match the pinned asset by SIZE then SHA-256
 // (hex-encoded, case-insensitive), refusing-with-remediation on any mismatch —
