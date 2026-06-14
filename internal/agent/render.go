@@ -44,6 +44,19 @@ const (
 	maxTokensDivisor = 4
 )
 
+// allowedTools is the Phase-27 STRIDE restrictive allowlist rendered into
+// permissions.allowed_tools (TOP-LEVEL permissions block, 26-RESEARCH:192-193): the
+// three tools the readiness/verify `crush run` round-trip needs (view→edit→result), so
+// the agent auto-accepts them without an interactive prompt and outbound tools stay off.
+// PINNED against the v0.76.0 frozen schema (do NOT re-confirm at runtime).
+var allowedTools = []string{"view", "edit", "write"}
+
+// disabledTools is the Phase-27 STRIDE outbound-tool denylist rendered into
+// options.disabled_tools (under the OPTIONS block, 26-RESEARCH:158/169): the agent's
+// outbound tools are off by construction (defense-in-depth for PRIV-06 / T-27-21).
+// Disabling these does NOT harm the readiness loop, which needs only view/edit/write.
+var disabledTools = []string{"fetch", "agentic_fetch", "download", "sourcegraph"}
+
 // LSPProbe is a resolved host-PATH probe for one LSP server, produced by the live
 // Deps.LookPath seam and consumed PURELY here. Found drives whether the lsp entry
 // is rendered (D-10); a not-found probe yields a WARN and an omitted entry.
@@ -65,16 +78,27 @@ type crushConfig struct {
 	Options     crushOptions             `json:"options"`
 	Providers   map[string]crushProvider `json:"providers"`
 	LSP         map[string]crushLSPEntry `json:"lsp,omitempty"`
-	Permissions *crushPermissions        `json:"permissions,omitempty"`
+	// Permissions is rendered unconditionally from Phase 27 (the STRIDE pass): a
+	// non-nil block carrying the restrictive allowed_tools so the readiness/verify
+	// `crush run` completes without an interactive prompt (27-RESEARCH A3). It is no
+	// longer omitempty — an omitted allowed_tools makes Crush prompt and blocks readiness.
+	Permissions *crushPermissions `json:"permissions,omitempty"`
 }
 
 // crushOptions carries both kill switches (D-07) plus the cloud-fallback /
-// determinism strengtheners (Pitfall 2/5).
+// determinism strengtheners (Pitfall 2/5) and the Phase-27 STRIDE outbound-tool
+// denylist (DisabledTools). disabled_tools is an OPTIONS field in the v0.76.0 frozen
+// schema (26-RESEARCH:158/169) — NOT a top-level key.
 type crushOptions struct {
 	DisableMetrics            bool `json:"disable_metrics"`
 	DisableProviderAutoUpdate bool `json:"disable_provider_auto_update"`
 	DisableDefaultProviders   bool `json:"disable_default_providers"`
 	AutoLSP                   bool `json:"auto_lsp"`
+	// DisabledTools turns the agent's outbound tools OFF by construction (Phase-27
+	// STRIDE / T-27-21, defense-in-depth for PRIV-06): fetch / agentic_fetch / download
+	// / sourcegraph. Rendered unconditionally — an omitted denylist leaves outbound
+	// tools on (the STRIDE FAIL), so it is NEVER omitempty.
+	DisabledTools []string `json:"disabled_tools"`
 }
 
 // crushProvider is the single villa openai-compat provider block (D-08).
@@ -107,11 +131,12 @@ type crushLSPEntry struct {
 	Command string `json:"command"`
 }
 
-// crushPermissions is rendered minimal/omitted in Phase 26 (default-prompt). The
-// full restrictive allowlist is the Phase-27 STRIDE pass (Open-Q3) — Phase 26
-// MUST NOT render an allow-all surface. Currently always omitted (nil).
+// crushPermissions carries the Phase-27 STRIDE restrictive allowlist (Open-Q3): from
+// Phase 27 it is rendered with allowed_tools = view/edit/write (the readiness loop's
+// needs). allowed_tools is no longer omitempty — it renders unconditionally so the
+// agent runs auto-accepting ONLY those three tools and never prompts (27-RESEARCH A3).
 type crushPermissions struct {
-	AllowedTools []string `json:"allowed_tools,omitempty"`
+	AllowedTools []string `json:"allowed_tools"`
 }
 
 // servedModelID derives the served model id from config (the source of truth,
@@ -160,6 +185,7 @@ func Render(cfg config.VillaConfig, probes []LSPProbe) ([]byte, []Warning, error
 			DisableProviderAutoUpdate: true,  // D-04/D-07
 			DisableDefaultProviders:   true,  // Pitfall 2 — only the villa provider is usable
 			AutoLSP:                   false, // Pitfall 5 — the lsp block is authoritative
+			DisabledTools:             disabledTools, // Phase-27 STRIDE — outbound tools off (T-27-21)
 		},
 		Providers: map[string]crushProvider{
 			providerKey: {
@@ -171,7 +197,9 @@ func Render(cfg config.VillaConfig, probes []LSPProbe) ([]byte, []Warning, error
 			},
 		},
 		LSP: lsp,
-		// Permissions omitted in Phase 26 (default-prompt; Phase-27 STRIDE, Open-Q3).
+		// Phase-27 STRIDE pass (Open-Q3): render the restrictive allowlist so the
+		// readiness/verify `crush run` auto-accepts view/edit/write without a prompt.
+		Permissions: &crushPermissions{AllowedTools: allowedTools},
 	}
 
 	b, err := json.MarshalIndent(cfgOut, "", "  ")

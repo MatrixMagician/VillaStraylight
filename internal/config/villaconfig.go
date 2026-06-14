@@ -110,6 +110,16 @@ type VillaConfig struct {
 	// (embedding_dim/qdrant_port/embed_port): BurntSushi/toml's omitempty does NOT drop
 	// a zero int, only omitzero does — required for the byte-identical-off guarantee.
 	CoderAgentCtx int `toml:"coder_agent_ctx,omitzero"`
+
+	// --- Coding-agent addon gate (v1.4, INSTALL-03 / D-01) ---
+	// AgentEnabled gates the whole v1.4 coding-agent (Crush) install addon. Default
+	// false (D-01): an existing install stays agent-off until the user opts in via
+	// `villa install --coding-agent`. A deliberate bool toggle (mirrors MemoryEnabled /
+	// CodingMode) — false is a meaningful explicit choice, so it is NOT self-healed in
+	// normalizeVilla. ,omitempty so an agent-off install is byte-identical on disk: a
+	// plain bool with omitempty drops the key on a default-false marshal (no marshalVilla
+	// zeroing is needed — unlike the memory/coder blocks whose non-bool fields require it).
+	AgentEnabled bool `toml:"agent_enabled,omitempty"`
 }
 
 // defaultConfig is the typed default returned when no config file exists. An absent

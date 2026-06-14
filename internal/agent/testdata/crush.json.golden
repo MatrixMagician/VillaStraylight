@@ -4,7 +4,13 @@
     "disable_metrics": true,
     "disable_provider_auto_update": true,
     "disable_default_providers": true,
-    "auto_lsp": false
+    "auto_lsp": false,
+    "disabled_tools": [
+      "fetch",
+      "agentic_fetch",
+      "download",
+      "sourcegraph"
+    ]
   },
   "providers": {
     "villa": {
@@ -32,5 +38,12 @@
     "go": {
       "command": "gopls"
     }
+  },
+  "permissions": {
+    "allowed_tools": [
+      "view",
+      "edit",
+      "write"
+    ]
   }
 }
