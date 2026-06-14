@@ -190,7 +190,7 @@ func runCeiling(ctx context.Context, in ValidateInput) CeilingResult {
 //     unconfirmed — never a silent PASS)
 //   - ceiling cliff (OOM/hang finding)           → WARN (D-10)
 //   - else                                       → PASS (offload proven + real tokens
-//     + ceiling cleared)
+//   - ceiling cleared)
 func foldVerdict(offload Verdict, chat ChatResult, ceiling CeilingResult) Verdict {
 	// Carry the offload signals + delta into whatever verdict we return.
 	base := offload // already has LogOffload/SysfsOffload/GTTDeltaBytes/Provenance

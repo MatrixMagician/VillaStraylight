@@ -24,11 +24,15 @@ type fakeRunner struct {
 	startSpec RunSpec // captured spec the orchestrator started us with
 }
 
-func (f *fakeRunner) Start(spec RunSpec) error { f.started = true; f.startSpec = spec; return f.startErr }
-func (f *fakeRunner) Stop() error              { f.stopped = true; return nil }
-func (f *fakeRunner) Health() detect.Bool      { return f.health }
-func (f *fakeRunner) Endpoint() string         { return f.endpoint }
-func (f *fakeRunner) Logs() (string, bool)     { return f.stderr, f.stderr != "" }
+func (f *fakeRunner) Start(spec RunSpec) error {
+	f.started = true
+	f.startSpec = spec
+	return f.startErr
+}
+func (f *fakeRunner) Stop() error          { f.stopped = true; return nil }
+func (f *fakeRunner) Health() detect.Bool  { return f.health }
+func (f *fakeRunner) Endpoint() string     { return f.endpoint }
+func (f *fakeRunner) Logs() (string, bool) { return f.stderr, f.stderr != "" }
 
 // healthyChatServer is an httptest server emulating a ready llama-server: /health
 // returns 200 and /v1/chat/completions streams tokens.

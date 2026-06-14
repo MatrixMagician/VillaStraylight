@@ -117,7 +117,7 @@ func selectComparePair(reports []benchstore.SavedReport) (benchstore.SavedReport
 // runBenchCompare is the READ-ONLY --compare/--list path. It RETURNS the exit code (no
 // os.Exit) so tests assert output+code. It loads saved reports via the seam, then:
 //   - --list: enumerates the reports (table or --json), exit 0 (empty store → remediation
-//     + exit 1).
+//   - exit 1).
 //   - --compare: auto-selects the two most-recent comparable reports, runs the pure
 //     Compare guard, and renders the pp/tg deltas (separate lines) OR a "not comparable"
 //     refusal (no delta, exit 2). A comparable pair with a void side STILL prints the

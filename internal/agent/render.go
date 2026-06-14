@@ -74,10 +74,10 @@ type LSPProbe struct {
 // field order (Pitfall 4). providers and lsp are maps in the schema; Go's
 // encoding/json emits map keys sorted, and the golden pins the result.
 type crushConfig struct {
-	Schema      string                   `json:"$schema"`
-	Options     crushOptions             `json:"options"`
-	Providers   map[string]crushProvider `json:"providers"`
-	LSP         map[string]crushLSPEntry `json:"lsp,omitempty"`
+	Schema    string                   `json:"$schema"`
+	Options   crushOptions             `json:"options"`
+	Providers map[string]crushProvider `json:"providers"`
+	LSP       map[string]crushLSPEntry `json:"lsp,omitempty"`
 	// Permissions is rendered unconditionally from Phase 27 (the STRIDE pass): a
 	// non-nil block carrying the restrictive allowed_tools so the readiness/verify
 	// `crush run` completes without an interactive prompt (27-RESEARCH A3). It is no
@@ -181,10 +181,10 @@ func Render(cfg config.VillaConfig, probes []LSPProbe) ([]byte, []Warning, error
 	cfgOut := crushConfig{
 		Schema: crushSchema,
 		Options: crushOptions{
-			DisableMetrics:            true,  // D-07
-			DisableProviderAutoUpdate: true,  // D-04/D-07
-			DisableDefaultProviders:   true,  // Pitfall 2 — only the villa provider is usable
-			AutoLSP:                   false, // Pitfall 5 — the lsp block is authoritative
+			DisableMetrics:            true,          // D-07
+			DisableProviderAutoUpdate: true,          // D-04/D-07
+			DisableDefaultProviders:   true,          // Pitfall 2 — only the villa provider is usable
+			AutoLSP:                   false,         // Pitfall 5 — the lsp block is authoritative
 			DisabledTools:             disabledTools, // Phase-27 STRIDE — outbound tools off (T-27-21)
 		},
 		Providers: map[string]crushProvider{
