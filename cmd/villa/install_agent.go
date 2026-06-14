@@ -12,6 +12,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/agent"
 	"github.com/MatrixMagician/VillaStraylight/internal/catalog"
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
+	"github.com/MatrixMagician/VillaStraylight/internal/preflight"
 	"github.com/MatrixMagician/VillaStraylight/internal/recommend"
 )
 
@@ -177,4 +178,123 @@ func liveLSPProbes() []agent.LSPProbe {
 var lookPathFn = func(bin string) (string, bool) {
 	p, err := exec.LookPath(bin)
 	return p, err == nil
+}
+
+// liveLoadedAgentEnabled returns the PERSISTED config.LoadVilla().AgentEnabled — the
+// AUTHORITATIVE coding-agent gate source threaded into runInstall (mirrors
+// liveLoadedMemoryEnabled). A config load error fails SOFT to false so a broken config never
+// silently enables the agent addon (an opted-in user must have a readable config). A bare
+// `villa install` therefore gates on the persisted value, while `--coding-agent` overrides
+// it to true before the gate (D-01).
+func liveLoadedAgentEnabled() bool {
+	c, err := config.LoadVilla()
+	if err != nil {
+		return false
+	}
+	return c.AgentEnabled
+}
+
+// --- FSL-1.1-MIT consent notice (install-addon obligation) -------------------
+
+// agentLicenseNotice returns the one-line FSL-1.1-MIT notice surfaced before the Crush
+// binary is staged (27-RESEARCH § FSL consent text). It is INFORMATIONAL, not a click-
+// through EULA — the user already invoked --coding-agent. It mirrors how villa already
+// surfaces honest notices (the no-telemetry line, the SELinux note). The load-bearing
+// content is the license fact: FSL-1.1-MIT, non-compete, each version → MIT two years
+// after release; villa installs a pinned, checksum-verified release and renders config locally.
+func agentLicenseNotice() string {
+	return "The coding agent (Crush, charmbracelet) is distributed under the Functional Source " +
+		"License v1.1 (FSL-1.1-MIT): you may use, modify, and redistribute it for any purpose " +
+		"except offering a competing commercial service; each version becomes MIT-licensed two " +
+		"years after release. villa installs a pinned, checksum-verified release and renders its " +
+		"config locally."
+}
+
+// --- Install readiness: tool-call round-trip verdict (D-05) ------------------
+//
+// The proof asserts the coding agent is HONESTLY ready BEFORE install declares success:
+// a REAL `crush run` tool-call round-trip (read a planted file → edit it → result), not a
+// health-200. A health-200 / no-edit is a false-green and FAILS (D-05, T-27-05). A FAIL
+// refuses-with-remediation (the caller returns exitBlocked), never a silent skip.
+
+// agentProof is the install-readiness verdict for the coding agent (the agentProof twin of
+// memoryProof): PASS only on a real tool-call edit, FAIL with a remediation detail otherwise.
+// There is no WARN — an agent that cannot complete a planted read→edit round-trip is a
+// confident known-bad the user opted into (honesty-by-construction).
+type agentProof struct {
+	status preflight.Status
+	detail string
+}
+
+// evalAgentProof is the PURE readiness core (unit-testable off-hardware via the injected
+// toolCall): it maps the SINGLE tool-call outcome to a verdict (D-05). A health-200 is NEVER
+// an input — the only signal is whether the agent performed the planted edit:
+//   - err            → FAIL (the round-trip could not run; re-run `villa install --coding-agent`)
+//   - !edited        → FAIL (the agent ran but did not edit — verify the coding-mode --jinja unit)
+//   - edited, no err → PASS (read→edit→result completed against the local endpoint)
+func evalAgentProof(toolCall func() (edited bool, err error)) agentProof {
+	edited, err := toolCall()
+	if err != nil {
+		return agentProof{
+			status: preflight.StatusFail,
+			detail: fmt.Sprintf("the coding agent could not complete a tool-call round-trip (%v) — check `systemctl --user status %s` and its journal, then re-run `villa install --coding-agent`", err, installServiceName),
+		}
+	}
+	if !edited {
+		return agentProof{
+			status: preflight.StatusFail,
+			detail: fmt.Sprintf("the coding agent ran but did not perform the tool-call edit — the served coding-mode (--jinja) unit may be misconfigured; check `systemctl --user status %s`, then re-run `villa install --coding-agent`", installServiceName),
+		}
+	}
+	return agentProof{status: preflight.StatusPass, detail: "tool-call round-trip (read→edit→result) completed against the local endpoint"}
+}
+
+// agentProbePrompt / agentProbeToken{A,B} are the planted read→edit round-trip payload the
+// readiness driver uses: a temp file is planted containing TOKEN_A, the agent is asked to
+// replace TOKEN_A with TOKEN_B, and success is the file now containing TOKEN_B (a REAL edit,
+// D-05). The tokens are fixed, metachar-free constants (no shell interpolation, T-27-06).
+// The on-hardware payload (exact prompt phrasing) is confirmed in Plan 04; these are the
+// pinned defaults the live driver uses.
+const (
+	agentProbeTokenA = "VILLA_PROBE_TOKEN_A"
+	agentProbeTokenB = "VILLA_PROBE_TOKEN_B"
+	agentProbePrompt = "Open the file villa-readiness-probe.txt, replace the text " +
+		agentProbeTokenA + " with " + agentProbeTokenB + ", and save it. Reply DONE when finished."
+)
+
+// liveAgentToolCallProbe is the host-side `crush run` driver for the readiness verdict
+// (D-05): it plants a file containing TOKEN_A in a fresh temp working dir, execs the
+// EXPLICIT villa-owned crush binary (agentBinPath()) fixed-arg with the constant prompt,
+// and reports edited == the file now containing TOKEN_B. It is fixed-arg (no shell, no image
+// literal — host binary exec only, so TestSeamGrepGate stays green) and bounded by the
+// passed context (a timeout → err → FAIL, never a hang masquerading as success). The
+// returned func is the toolCall input evalAgentProof consumes.
+func liveAgentToolCallProbe(ctx context.Context) func() (bool, error) {
+	return func() (bool, error) {
+		workDir, err := os.MkdirTemp("", "villa-agent-probe-")
+		if err != nil {
+			return false, fmt.Errorf("create probe working dir: %w", err)
+		}
+		defer os.RemoveAll(workDir)
+
+		probeFile := filepath.Join(workDir, "villa-readiness-probe.txt")
+		if err := os.WriteFile(probeFile, []byte(agentProbeTokenA+"\n"), 0o600); err != nil {
+			return false, fmt.Errorf("plant probe file: %w", err)
+		}
+
+		// Fixed-arg exec of the villa-owned binary in the probe working dir: `crush run
+		// "<prompt>"`. NEVER a PATH lookup (a user-installed crush cannot be hijacked,
+		// T-26-09) and NEVER a shell. A non-zero exit is surfaced as the round-trip error.
+		cmd := exec.CommandContext(ctx, agentBinPath(), "run", agentProbePrompt) //nolint:gosec // fixed-arg, villa-owned binary, constant prompt
+		cmd.Dir = workDir
+		if runErr := cmd.Run(); runErr != nil {
+			return false, fmt.Errorf("crush run: %w", runErr)
+		}
+
+		edited, err := os.ReadFile(probeFile) //nolint:gosec // path is the planted probe file under a villa temp dir
+		if err != nil {
+			return false, fmt.Errorf("read probe file after run: %w", err)
+		}
+		return strings.Contains(string(edited), agentProbeTokenB), nil
+	}
 }

@@ -13,6 +13,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/MatrixMagician/VillaStraylight/internal/catalog"
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
@@ -87,11 +88,44 @@ type fakeInstallDeps struct {
 	memoryProofIn     memoryProofInput
 	memoryProofStatus preflight.Status
 	memoryProofDetail string
+
+	// Coding-agent (Crush) addon seam controls + counters (v1.4 / INSTALL-03). agentEnabled
+	// drives the loadedAgentEnabled gate seam (default false → the agent path never fires,
+	// so existing install tests stay unchanged). agentCat is the catalog the coderShardFor
+	// resolution reads (default carries a single coder entry so the agent-on tests resolve a
+	// shard). coderPresent drives the coderModelPresent idempotency seam (default true →
+	// present, so the pre-stage pull is skipped unless a test sets it false). agentProofStatus
+	// drives the readiness verdict. The *Calls counters let the agent tests assert exactly
+	// which agent seams fired.
+	agentEnabled         bool
+	agentCat             catalog.Catalog
+	agentCatOK           bool
+	coderPresent         bool
+	coderEnsureCalls     int
+	coderPresentCalls    int
+	binaryInstallCalls   int
+	renderCrushCalls     int
+	agentProofCalls      int
+	agentProofStatus     preflight.Status
+	agentProofDetail     string
+	renderedAgentEnabled bool
 }
 
 func newFakeInstallDeps(t *testing.T, units []orchestrate.Unit, plan orchestrate.Plan, checks []preflight.CheckResult) *fakeInstallDeps {
 	t.Helper()
-	f := &fakeInstallDeps{downloaded: true, embedPresent: true, memoryProofStatus: preflight.StatusPass}
+	f := &fakeInstallDeps{
+		downloaded: true, embedPresent: true, memoryProofStatus: preflight.StatusPass,
+		coderPresent: true, agentProofStatus: preflight.StatusPass,
+		// Default agent catalog carries a single coder entry whose id matches the default
+		// pick's Coder.Model (set below) and a shard, so an agent-on test resolves a shard
+		// without extra setup. agentCatOK true so the load seam succeeds by default.
+		agentCatOK: true,
+		agentCat: catalog.Catalog{Models: []catalog.CatalogModel{
+			{ID: "qwen3-coder-test", Role: "coder", Shards: []catalog.Shard{
+				{Filename: "qwen3-coder-test.gguf", SizeBytes: 4096},
+			}},
+		}},
+	}
 	d := &installDeps{
 		probe: func() detect.HostProfile { return detect.HostProfile{} },
 		pick: func(detect.HostProfile, recommend.Overrides) recommend.Recommendation {
@@ -100,6 +134,9 @@ func newFakeInstallDeps(t *testing.T, units []orchestrate.Unit, plan orchestrate
 				WeightBytes:  1 << 30,
 				KVCacheBytes: 1 << 28, HeadroomBytes: 1 << 28, UsableEnvelopeBytes: 8 << 30,
 				Fits: true,
+				// A fitting coder block so the agent-on tests resolve a shard from the
+				// default agent catalog (id matches agentCat's coder entry).
+				Coder: recommend.CoderFit{Model: "qwen3-coder-test", Fits: true, Residency: "swap"},
 			}
 		},
 		modelFile:   func(recommend.Recommendation) (string, error) { return "qwen2.5-0.5b.gguf", nil },
@@ -205,6 +242,38 @@ func newFakeInstallDeps(t *testing.T, units []orchestrate.Unit, plan orchestrate
 		f.memoryProofIn = in
 		f.callOrder = append(f.callOrder, "memoryProof")
 		return memoryProof{status: f.memoryProofStatus, detail: f.memoryProofDetail}
+	}
+	// Coding-agent (Crush) addon seams (v1.4 / INSTALL-03). The gate seam reflects the
+	// controllable agentEnabled flag (default false → the agent path never fires, so existing
+	// tests are unchanged). The pre-stage/install/render/proof seams record an ordered event
+	// so a test can assert the binary + GGUF are staged and the config rendered BEFORE the
+	// readiness proof, and the proof seam returns the controllable verdict.
+	d.loadedAgentEnabled = func() bool { return f.agentEnabled }
+	d.agentCatalog = func() (catalog.Catalog, bool) { return f.agentCat, f.agentCatOK }
+	d.coderModelPresent = func(string, catalog.Shard) bool {
+		f.coderPresentCalls++
+		return f.coderPresent
+	}
+	d.ensureCoderModel = func(string, catalog.Shard) error {
+		f.coderEnsureCalls++
+		f.callOrder = append(f.callOrder, "ensureCoderModel")
+		return nil
+	}
+	d.installAgentBinary = func(context.Context) (string, error) {
+		f.binaryInstallCalls++
+		f.callOrder = append(f.callOrder, "installAgentBinary")
+		return "/tmp/villa/bin/crush", nil
+	}
+	d.renderCrushConfig = func(cfg config.VillaConfig) error {
+		f.renderCrushCalls++
+		f.renderedAgentEnabled = cfg.AgentEnabled
+		f.callOrder = append(f.callOrder, "renderCrushConfig")
+		return nil
+	}
+	d.agentProofFn = func(context.Context) agentProof {
+		f.agentProofCalls++
+		f.callOrder = append(f.callOrder, "agentProof")
+		return agentProof{status: f.agentProofStatus, detail: f.agentProofDetail}
 	}
 	f.installDeps = d
 	return f
@@ -1711,4 +1780,179 @@ func TestInstallMemoryGateRefusesUnfitHost(t *testing.T) {
 			t.Fatalf("memory-off install must not be blocked by the memory gate, exit = %d", code)
 		}
 	})
+}
+
+// TestEvalAgentProof asserts the coding-agent install-readiness verdict (D-05, T-27-05):
+// PASS only on a REAL tool-call edit; FAIL on no-edit and on err. A health-200 is NEVER an
+// input — the only signal is the planted read→edit round-trip result.
+func TestEvalAgentProof(t *testing.T) {
+	cases := []struct {
+		name       string
+		edited     bool
+		err        error
+		wantStatus preflight.Status
+	}{
+		{"real edit passes", true, nil, preflight.StatusPass},
+		{"no edit fails (false-green guard)", false, nil, preflight.StatusFail},
+		{"round-trip err fails", false, errors.New("crush run: exit 1"), preflight.StatusFail},
+		{"err takes precedence over a stale edited=true", true, errors.New("timeout"), preflight.StatusFail},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			toolCall := func() (bool, error) { return tc.edited, tc.err }
+			got := evalAgentProof(toolCall)
+			if got.status != tc.wantStatus {
+				t.Errorf("status = %v, want %v (detail %q)", got.status, tc.wantStatus, got.detail)
+			}
+			if tc.wantStatus == preflight.StatusFail && got.detail == "" {
+				t.Error("a FAIL verdict must carry a remediation detail")
+			}
+		})
+	}
+}
+
+// TestCoderShardSingleSource proves D-04: the staged coder shard and the served coder model
+// resolve from ONE catalog entry (the recommend-picked id), not two independent literals. It
+// resolves the shard via coderShardFor against the picked rec.Coder.Model, then asserts the
+// resolved entry's id is exactly the served coder id — a single-entry derivation, so the
+// staged filename and the served -m path can never drift.
+func TestCoderShardSingleSource(t *testing.T) {
+	cat := catalog.Catalog{Models: []catalog.CatalogModel{
+		{ID: "qwen3-chat", Role: ""},
+		{ID: "qwen3-coder-30b", Role: "coder", Shards: []catalog.Shard{
+			{Filename: "qwen3-coder-30b.Q4.gguf", SizeBytes: 18_000_000_000},
+		}},
+	}}
+	// The served coder id comes from the recommend pick (cfg.CoderModel is set from it at
+	// coding-mode enter — the SAME id). coderShardFor must resolve THAT entry's shard.
+	rec := recommend.Recommendation{Coder: recommend.CoderFit{Model: "qwen3-coder-30b"}}
+
+	sh, ok := coderShardFor(rec, cat)
+	if !ok {
+		t.Fatal("coderShardFor did not resolve the picked coder entry's shard")
+	}
+	// Find the entry coderShardFor resolved from and assert it is the SAME entry whose id is
+	// the served coder model — one entry drives both the staged filename and the served id.
+	var servedEntry catalog.CatalogModel
+	for _, m := range cat.Models {
+		if m.ID == rec.Coder.Model {
+			servedEntry = m
+		}
+	}
+	if servedEntry.ID != rec.Coder.Model {
+		t.Fatalf("served coder entry id = %q, want the picked id %q", servedEntry.ID, rec.Coder.Model)
+	}
+	if len(servedEntry.Shards) == 0 || sh.Filename != servedEntry.Shards[0].Filename {
+		t.Errorf("staged shard %q does not derive from the served entry's Shards[0] %v — D-04 single-source break",
+			sh.Filename, servedEntry.Shards)
+	}
+}
+
+// TestInstallCodingAgentFlow asserts the --coding-agent gate block (D-01/D-03/D-05): with the
+// flag set the FSL notice prints, the coder GGUF + binary are staged and the config rendered
+// BEFORE the readiness proof, AgentEnabled is persisted, the render sees AgentEnabled=true,
+// and a clean install passes. An agent-off install fires NONE of the agent seams.
+func TestInstallCodingAgentFlow(t *testing.T) {
+	units := []orchestrate.Unit{{Name: "villa-llama.container", Text: "x"}}
+	plan := orchestrate.Plan{Changed: units}
+
+	t.Run("--coding-agent stages, persists, and proves the agent", func(t *testing.T) {
+		f := newFakeInstallDeps(t, units, plan, passChecks())
+		f.coderPresent = false // exercise the pre-stage pull path
+
+		cmd, out, _ := installTestCmd()
+		code := runInstall(cmd, installOpts{codingAgent: true}, f.installDeps)
+		if code != exitPass {
+			t.Fatalf("clean coding-agent install exit = %d, want %d", code, exitPass)
+		}
+		// FSL-1.1-MIT notice surfaced before staging.
+		if !strings.Contains(out.String(), "FSL-1.1-MIT") {
+			t.Errorf("install output must surface the FSL-1.1-MIT notice; got:\n%s", out.String())
+		}
+		// All agent seams fired exactly once.
+		if f.coderEnsureCalls != 1 || f.binaryInstallCalls != 1 || f.renderCrushCalls != 1 || f.agentProofCalls != 1 {
+			t.Errorf("agent seam counts: coderEnsure=%d binaryInstall=%d render=%d proof=%d, want 1/1/1/1",
+				f.coderEnsureCalls, f.binaryInstallCalls, f.renderCrushCalls, f.agentProofCalls)
+		}
+		// The gate persisted AgentEnabled and the render saw it true (D-01).
+		if !f.savedCfg.AgentEnabled {
+			t.Error("--coding-agent must persist cfg.AgentEnabled = true (D-01)")
+		}
+		if !f.renderedAgentEnabled {
+			t.Error("renderCrushConfig must receive cfg.AgentEnabled = true")
+		}
+		// Ordering: stage + render BEFORE the readiness proof (D-05).
+		if idx(f.callOrder, "renderCrushConfig") > idx(f.callOrder, "agentProof") {
+			t.Errorf("config must be rendered before the readiness proof; callOrder = %v", f.callOrder)
+		}
+		if idx(f.callOrder, "installAgentBinary") < 0 || idx(f.callOrder, "ensureCoderModel") < 0 {
+			t.Errorf("binary install + coder pre-stage must both run; callOrder = %v", f.callOrder)
+		}
+	})
+
+	t.Run("readiness FAIL refuses-with-remediation, no false-green", func(t *testing.T) {
+		f := newFakeInstallDeps(t, units, plan, passChecks())
+		f.agentProofStatus = preflight.StatusFail
+		f.agentProofDetail = "the coding agent ran but did not perform the tool-call edit"
+
+		cmd, _, errOut := installTestCmd()
+		code := runInstall(cmd, installOpts{codingAgent: true}, f.installDeps)
+		if code != exitBlocked {
+			t.Fatalf("an agent readiness FAIL must block, exit = %d want %d", code, exitBlocked)
+		}
+		if !strings.Contains(errOut.String(), "coding agent not ready") {
+			t.Errorf("a readiness FAIL must refuse-with-remediation; got:\n%s", errOut.String())
+		}
+	})
+
+	t.Run("no coder fit refuses-with-remediation", func(t *testing.T) {
+		f := newFakeInstallDeps(t, units, plan, passChecks())
+		// Catalog with no coder entry → coderShardFor returns false.
+		f.agentCat = catalog.Catalog{Models: []catalog.CatalogModel{{ID: "qwen3-chat"}}}
+
+		cmd, _, errOut := installTestCmd()
+		code := runInstall(cmd, installOpts{codingAgent: true}, f.installDeps)
+		if code != exitBlocked {
+			t.Fatalf("no coder fit must block the addon, exit = %d want %d", code, exitBlocked)
+		}
+		if f.binaryInstallCalls != 0 || f.agentProofCalls != 0 {
+			t.Errorf("no agent staging/proof after a coder-fit refusal: binaryInstall=%d proof=%d",
+				f.binaryInstallCalls, f.agentProofCalls)
+		}
+		if !strings.Contains(errOut.String(), "coding-agent addon cannot be staged") {
+			t.Errorf("a no-coder-fit refusal must carry a remediation; got:\n%s", errOut.String())
+		}
+	})
+
+	t.Run("agent-off install fires NO agent seam (D-01 byte-identical)", func(t *testing.T) {
+		f := newFakeInstallDeps(t, units, plan, passChecks())
+		// agentEnabled stays false (default); no --coding-agent flag.
+		cmd, out, _ := installTestCmd()
+		code := runInstall(cmd, installOpts{}, f.installDeps)
+		if code != exitPass {
+			t.Fatalf("agent-off install exit = %d, want %d", code, exitPass)
+		}
+		if f.coderPresentCalls != 0 || f.coderEnsureCalls != 0 || f.binaryInstallCalls != 0 ||
+			f.renderCrushCalls != 0 || f.agentProofCalls != 0 {
+			t.Errorf("agent-off install must fire NO agent seam: present=%d ensure=%d binary=%d render=%d proof=%d",
+				f.coderPresentCalls, f.coderEnsureCalls, f.binaryInstallCalls, f.renderCrushCalls, f.agentProofCalls)
+		}
+		if strings.Contains(out.String(), "FSL-1.1-MIT") || strings.Contains(out.String(), "coding agent") {
+			t.Errorf("agent-off install must not surface any coding-agent output; got:\n%s", out.String())
+		}
+		if f.savedCfg.AgentEnabled {
+			t.Error("agent-off install must persist AgentEnabled = false (D-01)")
+		}
+	})
+}
+
+// idx returns the index of v in s, or -1 if absent (a small test helper for callOrder
+// ordering assertions).
+func idx(s []string, v string) int {
+	for i, x := range s {
+		if x == v {
+			return i
+		}
+	}
+	return -1
 }
