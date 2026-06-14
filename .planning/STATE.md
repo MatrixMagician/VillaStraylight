@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Coding Agent
 status: executing
-stopped_at: "Phase 27 — gap-closure 27-06 DONE (WR-01 + WR-06 closed): villa verify agent's egress negative control now FAILs on broken probe infra (classifyEgressProbe; no false-green) and sanity-probes villa-llama in-network via new orchestrate.LlamaInNetworkEndpoint() (no false-FAIL on healthy hosts); the llama-down restore failure is surfaced with `systemctl --user start villa-llama.service` remediation (runLlamaDownControl/restoreLlamaWarning). make check + TestSeamGrepGate green; no golden/JSON contract change. All four phase-27 gaps (CR-01/WR-01/WR-05/WR-06) closed. Next: re-verify the phase."
-last_updated: "2026-06-14T15:10:00.000Z"
-last_activity: 2026-06-14 -- Phase 27 execution started
+stopped_at: "Phase 27 COMPLETE — re-verified PASS 5/5 (2026-06-14). Gap-closure plans 27-05 (CR-01 BLOCKER + WR-05) + 27-06 (WR-01 + WR-06) executed; deep gap-closure code review (0 blockers, 3 advisory warn, 4 info) confirmed all four gaps closed in the actual codebase; make check + TestSeamGrepGate green; no golden/JSON contract change. INSTALL-03/INSTALL-04/PRIV-06 all Complete. Next: Phase 28 (Agent Surfacing & Contracts) — /gsd-discuss-phase 28."
+last_updated: "2026-06-14T15:18:42.288Z"
+last_activity: 2026-06-14
 progress:
   total_phases: 5
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 15
-  completed_plans: 13
-  percent: 60
+  completed_plans: 15
+  percent: 80
 ---
 
 # Project State
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-12 — milestone v1.4 Coding Agent started)
 
 **Core value:** Run a capable local AI workspace that "just works" after install — hardware-aware setup that brings inference, chat, and the dashboard up healthy, with zero data leaving the box. v1.2 extended the bar to "and stays operable, recoverable, and measurable over time." v1.3 extended it to "and remembers the user and their documents across chats — strictly local." v1.4 extends it to "and gives the operator a strictly-local terminal coding agent, wired to a fit-guarded coding model."
-**Current focus:** Phase 27 — install-addon-preflight-gates-villa-verify-agent
+**Current focus:** Phase 28 — agent-surfacing-&-contracts (Phase 27 complete, verified 5/5)
 
 ## Current Position
 
-Phase: 27 (install-addon-preflight-gates-villa-verify-agent) — EXECUTING
-Plan: 6 of 6 (gap-closure 27-06 DONE — all phase-27 gaps closed; ready to re-verify)
-Status: Executing Phase 27
-Last activity: 2026-06-14 -- Phase 27 gap-closure 27-06 complete (WR-01 + WR-06)
+Phase: 28
+Plan: Not started
+Status: Phase 27 complete (re-verified PASS 5/5) — ready to start Phase 28
+Last activity: 2026-06-14
 
 Progress: [█████████░] 92% (v1.4)
 
@@ -36,7 +36,7 @@ Progress: [█████████░] 92% (v1.4)
 
 **Velocity:**
 
-- Total plans completed: 93 (v1.0 + v1.1: 48; v1.2: 19; v1.3: 20)
+- Total plans completed: 99 (v1.0 + v1.1: 48; v1.2: 19; v1.3: 20)
 - Average duration: 34 min
 - Total execution time: 2.2 hours
 
@@ -64,6 +64,7 @@ Progress: [█████████░] 92% (v1.4)
 | 23 | 5 | - | - |
 | 24 | 4 | - | - |
 | 25 | 2 | - | - |
+| 27 | 6 | - | - |
 
 **Recent Trend:**
 
