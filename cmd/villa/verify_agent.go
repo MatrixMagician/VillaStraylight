@@ -205,21 +205,68 @@ func liveAgentVerify(ctx context.Context, deps verifyAgentDeps) memoryProof {
 	task := deps.agentTaskFn(ctx)
 	agentTask := func() (bool, error) { return task() }
 
+	// WR-06: capture the restore (Start) error so a failed restore is SURFACED, never swallowed
+	// (T-27-16 "never left stopped"). The deferred Start inside runLlamaDownControl always
+	// ATTEMPTS the restore; its error is recorded here and folded into the verdict below.
+	var restoreErr error
 	llamaDownTask := func() (bool, error) {
-		// Stop villa-llama, run the SAME task, then ALWAYS restore (deferred Start). The
-		// restore runs regardless of the task outcome so the service is never left stopped.
-		if err := deps.systemd.Stop(installServiceName); err != nil {
-			// Could not even stop the service — we cannot run a meaningful control. Treat as
-			// not-answered (no false cloud-fallback claim); the stop error is surfaced by the
-			// service-restore inspection on-hardware (Plan 04).
-			return false, fmt.Errorf("stop %s: %w", installServiceName, err)
-		}
-		defer func() { _ = deps.systemd.Start(installServiceName) }()
-		answered, _ := task()
+		answered, rerr := runLlamaDownControl(
+			func() error { return deps.systemd.Stop(installServiceName) },
+			func() error { return deps.systemd.Start(installServiceName) },
+			task,
+		)
+		restoreErr = rerr
 		return answered, nil
 	}
 
-	return evalAgentVerify(egressBlocked, agentTask, llamaDownTask)
+	proof := evalAgentVerify(egressBlocked, agentTask, llamaDownTask)
+
+	// WR-06: a restore failure means the verb that deliberately stopped a core service did NOT
+	// cleanly pass — villa-llama may be left down. DOWNGRADE a would-be PASS to FAIL and surface
+	// the manual remediation; if the proof already FAILed, append the warning so the operator
+	// still hears that the service may be stopped.
+	if restoreErr != nil {
+		warning := restoreLlamaWarning(installServiceName, restoreErr)
+		if proof.status == preflight.StatusPass {
+			return memoryProof{status: preflight.StatusFail, detail: warning}
+		}
+		return memoryProof{status: proof.status, detail: proof.detail + " " + warning}
+	}
+	return proof
+}
+
+// runLlamaDownControl runs the llama-down negative control as a PURE orchestration over
+// injected seams (so the restore-failure path is unit-testable off-hardware): STOP villa-llama,
+// run the SAME crush-run task, then ALWAYS attempt to restore (deferred Start) regardless of
+// the task outcome — and SURFACE the restore (Start) error instead of swallowing it (WR-06 /
+// T-27-16). It reports whether the agent ANSWERED with inference down (the cloud-fallback
+// smoking gun) and the captured restore error.
+//
+// A stop failure short-circuits: if the service could not even be stopped there is no
+// meaningful control to run and nothing to restore (the service was never stopped), so the
+// task is not run and no restore is attempted (answered=false, restoreErr=nil).
+func runLlamaDownControl(stop, start func() error, task func() (bool, error)) (answered bool, restoreErr error) {
+	if err := stop(); err != nil {
+		// Could not stop the service — cannot run a meaningful control, and there is nothing to
+		// restore. No false cloud-fallback claim (answered=false); no restore error to surface.
+		return false, nil
+	}
+	// Restore is ATTEMPTED on every path (deferred), and its error is CAPTURED (never dropped).
+	defer func() { restoreErr = start() }()
+	answered, _ = task()
+	return answered, restoreErr
+}
+
+// restoreLlamaWarning builds the WR-06 operator-facing warning for a FAILED villa-llama restore
+// after the llama-down control. A nil error yields no warning (the clean path is silent). A
+// non-nil error yields a message that names the service was left stopped and carries the
+// LITERAL manual remediation `systemctl --user start <service>` so the operator can recover by
+// hand — the verb that deliberately stopped a core service must never leave it down silently.
+func restoreLlamaWarning(service string, rerr error) string {
+	if rerr == nil {
+		return ""
+	}
+	return fmt.Sprintf("WARNING: failed to restore %s after the llama-down control (%v) — villa-llama may be left STOPPED; run `systemctl --user start %s` to restore it.", service, rerr, service)
 }
 
 // verifyAgentDeps are the injectable host seams for `villa verify agent`, so the run path is

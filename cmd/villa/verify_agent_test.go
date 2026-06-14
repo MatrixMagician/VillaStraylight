@@ -276,6 +276,79 @@ func TestEvalAgentVerifyInfraErrorFails(t *testing.T) {
 	}
 }
 
+// TestRestoreLlamaWarning is the WR-06 message guard. A nil restore error yields NO warning
+// (an empty string — the clean path emits nothing). A non-nil restore error yields a warning
+// that names the service was left stopped AND carries the LITERAL manual remediation
+// `systemctl --user start villa-llama.service` so the operator can recover by hand.
+func TestRestoreLlamaWarning(t *testing.T) {
+	if got := restoreLlamaWarning(installServiceName, nil); got != "" {
+		t.Errorf("restoreLlamaWarning(nil) = %q, want empty (no warning when restore succeeded)", got)
+	}
+	got := restoreLlamaWarning(installServiceName, errors.New("systemctl: transient error"))
+	if got == "" {
+		t.Fatalf("restoreLlamaWarning(err) must produce a warning")
+	}
+	if !strings.Contains(got, "systemctl --user start "+installServiceName) {
+		t.Errorf("warning = %q, want it to contain the manual remediation `systemctl --user start %s`", got, installServiceName)
+	}
+	if !strings.Contains(got, installServiceName) {
+		t.Errorf("warning = %q, want it to name the service left stopped", got)
+	}
+}
+
+// TestLlamaDownRestore is the WR-06 behaviour guard at the control granularity. The llama-down
+// control STOPS villa-llama, runs the task, then ALWAYS attempts to restore (Start) — and on a
+// restore failure it must SURFACE the Start error (never swallow it), while still having
+// ATTEMPTED the restore on every path. Driven via injected stop/start/task func seams (no live
+// host).
+func TestLlamaDownRestore(t *testing.T) {
+	t.Run("restore failure is surfaced; restore still attempted", func(t *testing.T) {
+		startCalled := false
+		stop := func() error { return nil }
+		start := func() error { startCalled = true; return errors.New("systemctl start: transient") }
+		task := func() (bool, error) { return false, errors.New("connection refused") } // inference down
+
+		answered, restoreErr := runLlamaDownControl(stop, start, task)
+		if !startCalled {
+			t.Errorf("the restore (Start) must be ATTEMPTED unconditionally (deferred)")
+		}
+		if restoreErr == nil {
+			t.Errorf("a Start failure must be SURFACED, not swallowed")
+		}
+		if answered {
+			t.Errorf("inference-down task did not answer; answered must be false")
+		}
+	})
+
+	t.Run("clean restore surfaces no error", func(t *testing.T) {
+		stop := func() error { return nil }
+		start := func() error { return nil }
+		task := func() (bool, error) { return false, nil }
+		answered, restoreErr := runLlamaDownControl(stop, start, task)
+		if restoreErr != nil {
+			t.Errorf("a clean restore must surface no error, got %v", restoreErr)
+		}
+		if answered {
+			t.Errorf("answered must be false")
+		}
+	})
+
+	t.Run("stop failure short-circuits (no restore of a service never stopped)", func(t *testing.T) {
+		startCalled := false
+		stop := func() error { return errors.New("systemctl stop: failed") }
+		start := func() error { startCalled = true; return nil }
+		task := func() (bool, error) { t.Fatalf("task must not run when stop failed"); return false, nil }
+		answered, restoreErr := runLlamaDownControl(stop, start, task)
+		if startCalled {
+			t.Errorf("must not restore a service that was never stopped")
+		}
+		if answered {
+			t.Errorf("answered must be false when stop failed")
+		}
+		_ = restoreErr
+	})
+}
+
 // TestVerifyAgentRegistered asserts `villa verify agent` is registered under the `verify`
 // parent next to `verify memory` (a missing subcommand is a silent regression of the runtime
 // PRIV-06 gate).
