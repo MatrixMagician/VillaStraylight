@@ -109,6 +109,12 @@ type fakeInstallDeps struct {
 	agentProofStatus     preflight.Status
 	agentProofDetail     string
 	renderedAgentEnabled bool
+	// agentChecksCalls counts invocations of the runAgentChecks preflight-fold seam
+	// (INSTALL-04/D-09): a test asserts it is exactly 1 on an agent-on install and 0 on
+	// an agent-off install (the agent-off gate is byte-identical). agentChecks is the
+	// canned []CheckResult the seam returns (default empty → the gate stays a pass).
+	agentChecksCalls int
+	agentChecks      []preflight.CheckResult
 }
 
 func newFakeInstallDeps(t *testing.T, units []orchestrate.Unit, plan orchestrate.Plan, checks []preflight.CheckResult) *fakeInstallDeps {
@@ -274,6 +280,11 @@ func newFakeInstallDeps(t *testing.T, units []orchestrate.Unit, plan orchestrate
 		f.agentProofCalls++
 		f.callOrder = append(f.callOrder, "agentProof")
 		return agentProof{status: f.agentProofStatus, detail: f.agentProofDetail}
+	}
+	d.runAgentChecks = func(detect.HostProfile, recommend.Recommendation) []preflight.CheckResult {
+		f.agentChecksCalls++
+		f.callOrder = append(f.callOrder, "runAgentChecks")
+		return f.agentChecks
 	}
 	f.installDeps = d
 	return f
@@ -1942,6 +1953,59 @@ func TestInstallCodingAgentFlow(t *testing.T) {
 		}
 		if f.savedCfg.AgentEnabled {
 			t.Error("agent-off install must persist AgentEnabled = false (D-01)")
+		}
+	})
+}
+
+// TestInstallAgentPreflightFold asserts the INSTALL-04/D-09 preflight fold: the
+// runAgentChecks seam is appended to the install gate ONLY when the addon is enabled
+// (--coding-agent or persisted agent_enabled), an agent-off install never calls it (the
+// gate stays byte-identical), and an agent BLOCK from the fold refuses the install
+// through the SAME gateInstall (inheriting refuse-with-remediation).
+func TestInstallAgentPreflightFold(t *testing.T) {
+	units := []orchestrate.Unit{{Name: "villa-llama.container", Text: "x"}}
+	plan := orchestrate.Plan{Changed: units}
+
+	t.Run("--coding-agent folds the agent checks exactly once", func(t *testing.T) {
+		f := newFakeInstallDeps(t, units, plan, passChecks())
+		cmd, _, _ := installTestCmd()
+		if code := runInstall(cmd, installOpts{codingAgent: true}, f.installDeps); code != exitPass {
+			t.Fatalf("clean agent install exit = %d, want %d", code, exitPass)
+		}
+		if f.agentChecksCalls != 1 {
+			t.Errorf("runAgentChecks must fire exactly once when the addon is on; got %d", f.agentChecksCalls)
+		}
+	})
+
+	t.Run("agent-off install never folds the agent checks (byte-identical)", func(t *testing.T) {
+		f := newFakeInstallDeps(t, units, plan, passChecks())
+		cmd, _, _ := installTestCmd()
+		if code := runInstall(cmd, installOpts{}, f.installDeps); code != exitPass {
+			t.Fatalf("agent-off install exit = %d, want %d", code, exitPass)
+		}
+		if f.agentChecksCalls != 0 {
+			t.Errorf("agent-off install must NOT fold the agent checks; got %d", f.agentChecksCalls)
+		}
+	})
+
+	t.Run("an agent BLOCK from the fold refuses the install", func(t *testing.T) {
+		f := newFakeInstallDeps(t, units, plan, passChecks())
+		f.agentChecks = []preflight.CheckResult{{
+			ID: agentEnvelopeCheckID, Name: "Coding-agent memory envelope",
+			Tier: preflight.TierBlock, Status: preflight.StatusFail,
+			Detail: "no coder model fits", Remediation: "free memory",
+		}}
+		cmd, _, errOut := installTestCmd()
+		code := runInstall(cmd, installOpts{codingAgent: true}, f.installDeps)
+		if code != exitBlocked {
+			t.Fatalf("an agent BLOCK must refuse the install, exit = %d want %d", code, exitBlocked)
+		}
+		if f.binaryInstallCalls != 0 || f.agentProofCalls != 0 {
+			t.Errorf("a blocked gate must not stage/prove the agent: binary=%d proof=%d",
+				f.binaryInstallCalls, f.agentProofCalls)
+		}
+		if !strings.Contains(errOut.String(), "BLOCKED") {
+			t.Errorf("an agent BLOCK must refuse-with-remediation via gateInstall; got:\n%s", errOut.String())
 		}
 	})
 }

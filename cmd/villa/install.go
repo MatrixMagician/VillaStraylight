@@ -9,9 +9,11 @@ import (
 	"os/user"
 	"path/filepath"
 	"strconv"
+	"syscall"
 
 	"github.com/spf13/cobra"
 
+	"github.com/MatrixMagician/VillaStraylight/internal/agent"
 	"github.com/MatrixMagician/VillaStraylight/internal/catalog"
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
@@ -233,6 +235,15 @@ type installDeps struct {
 	// result), PASS/FAIL only — a health-200 is never an input (D-05). A FAIL refuses-with-
 	// remediation (exitBlocked). Invoked only when the agent is on and not dry-run.
 	agentProofFn func(ctx context.Context) agentProof
+	// runAgentChecks returns the opt-in coding-agent host-fitness gates (AGENT-PRE-disk
+	// staged-footprint disk BLOCK, AGENT-PRE-envelope post-coder fit BLOCK driven by
+	// rec.Coder, AGENT-PRE-cloud-cred env-credential WARN — INSTALL-04/D-09) appended to
+	// the preflight checks when loadedAgentEnabled reports true — so an unfit host (no
+	// disk, no coder fit) is refused-with-remediation BEFORE the agent is staged. It takes
+	// rec (unlike runMemoryChecks(profile)) because the envelope gate reads rec.Coder and
+	// the disk gate sizes from the picked coder shard. NIL-SAFE: when nil (test doubles), no
+	// agent checks are appended (mirrors the runMemoryChecks optional-seam pattern).
+	runAgentChecks func(detect.HostProfile, recommend.Recommendation) []preflight.CheckResult
 
 	// stdoutIsTTY reports whether stdout is a real terminal — the stdout twin of
 	// interactive() (which checks stdin). huh renders to stdout/stderr, so BOTH must
@@ -335,6 +346,16 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 	// remediation BEFORE the memory stack comes up.
 	if d.loadedMemoryEnabled() && d.runMemoryChecks != nil {
 		checks = append(checks, d.runMemoryChecks(profile)...)
+	}
+	// (3a') Opt-in coding-agent gates (INSTALL-04/D-09): the staged-footprint disk BLOCK,
+	// the post-coder envelope BLOCK (driven by rec.Coder, never re-derived), and the cloud-
+	// credential WARN are appended ONLY when the addon is enabled (the persisted agent_enabled
+	// OR --coding-agent override), so the agent-off install gate is byte-identical. They flow
+	// through the SAME gateInstall below — an unfit host (no disk, no coder fit) is refused-
+	// with-remediation BEFORE the agent is staged. agentEnabledForGate folds the --coding-agent
+	// override into the persisted gate so a first-time `--coding-agent` run is gated too.
+	if agentEnabledForGate(opts, d) && d.runAgentChecks != nil {
+		checks = append(checks, d.runAgentChecks(profile, rec)...)
 	}
 
 	// (3b) Guided wizard (D-01/D-08) — the PINNED composition. probe/pick/runChecks
@@ -698,6 +719,19 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 		return exitWarn
 	}
 	return exitPass
+}
+
+// agentEnabledForGate reports whether the coding-agent preflight gates should be
+// appended: true when --coding-agent was passed (a first-time opt-in, which
+// runInstall persists below) OR when the PERSISTED agent_enabled is on. This folds the
+// override into the gate so a `villa install --coding-agent` on a host with no prior
+// agent_enabled is STILL gated (disk/envelope checked before staging), matching how
+// cfg.AgentEnabled is resolved later in runInstall (loadedAgentEnabled || codingAgent).
+func agentEnabledForGate(opts installOpts, d *installDeps) bool {
+	if opts.codingAgent {
+		return true
+	}
+	return d.loadedAgentEnabled != nil && d.loadedAgentEnabled()
 }
 
 // planHasUnit reports whether a unit with the given name is present in the reconciled
@@ -1266,7 +1300,66 @@ func liveInstallDeps() (*installDeps, error) {
 		agentProofFn: func(ctx context.Context) agentProof {
 			return evalAgentProof(liveAgentToolCallProbe(ctx))
 		},
+		// Coding-agent preflight gates (INSTALL-04/D-09). The closure resolves the staged
+		// footprint (coder GGUF SizeBytes + the pinned binary asset.Size) from the SAME
+		// catalog entry + policy pin the install flow stages, so the disk gate can never
+		// drift from what is actually written; statfs reuses the same syscall.Statfs path
+		// the install/memory disk checks use (liveAgentStatfs), and the cloud-credential
+		// scan reads the env via os.LookupEnv. A catalog load failure / no-coder-fit yields
+		// a zero staged size — the envelope check (rec.Coder.Fits==false) is the BLOCK that
+		// refuses-with-remediation, so the disk check is not relied on to catch that case.
+		runAgentChecks: func(p detect.HostProfile, rec recommend.Recommendation) []preflight.CheckResult {
+			var staged uint64
+			if cat, _, err := catalog.Load(modelCatalogPath); err == nil {
+				if sh, ok := coderShardFor(rec, cat); ok {
+					staged += sh.SizeBytes
+				}
+			}
+			if asset, ok := agent.LoadCrushPolicy().Assets["linux/amd64"]; ok {
+				staged += asset.Size
+			}
+			return runAgentChecks(p, rec, agentCheckInput{
+				stagedBytes: staged,
+				dataDir:     modelsDir(),
+				statfs:      liveAgentStatfs,
+				lookupEnv:   os.LookupEnv,
+			})
+		},
 	}, nil
+}
+
+// liveAgentStatfs reads real free space at a path via syscall.Statfs (the same
+// locale-proof, no-shell-to-df discipline preflight.liveStatfs uses — that helper is
+// package-private to preflight, so the cmd-tier agent gate carries its own copy). It
+// walks up to an existing ancestor so a not-yet-created models dir still reports its
+// filesystem's free space. A statfs error → ok=false → the disk check degrades to a
+// typed-Unknown WARN (never a false BLOCK, D-09).
+func liveAgentStatfs(path string) (uint64, bool) {
+	p := existingAncestorDir(path)
+	var st syscall.Statfs_t
+	if err := syscall.Statfs(p, &st); err != nil {
+		return 0, false
+	}
+	return st.Bavail * uint64(st.Bsize), true
+}
+
+// existingAncestorDir returns path if it exists, else the nearest existing parent
+// (down to "/"), so statfs has a real path to stat for a target dir not yet created.
+func existingAncestorDir(path string) string {
+	if path == "" {
+		return "/"
+	}
+	p := path
+	for {
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+		parent := filepath.Dir(p)
+		if parent == p {
+			return "/"
+		}
+		p = parent
+	}
 }
 
 // quadletUnitDir is the fixed rootless Quadlet generator directory
