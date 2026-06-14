@@ -397,19 +397,31 @@ func runProbeCurlCode(ctx context.Context, helperImage string, curlArgs ...strin
 	if runErr == nil {
 		return out.Bytes(), 0, nil
 	}
+	code := extractExitCode(runErr)
+	if stderr.Len() > 0 {
+		return out.Bytes(), code, fmt.Errorf("%w: %s", runErr, stderr.String())
+	}
+	return out.Bytes(), code, runErr
+}
+
+// extractExitCode is the load-bearing WR-01 exit-code mapping pulled out of runProbeCurlCode so
+// it can be anchored by a real-exec test (the full podman-run helper is not driveable off-
+// hardware). It is the SINGLE point that decides "this is a genuine process exit code" vs "the
+// process never started" — the distinction the egress negative control's honesty rests on:
+//
+//   - runErr is an *exec.ExitError (the process ran and exited non-zero): return its ExitCode().
+//     podman propagates the container process's (curl's) exit code unchanged, so a curl
+//     CONNECTION/TIMEOUT (6/7/28) surfaces here and the classifier reads it as a genuine block.
+//   - runErr is anything else (binary missing, podman daemon error, context cancel/timeout — a
+//     non-ExitError failure): the process never produced an exit code, so return -1. The caller
+//     MUST treat -1 as infrastructure ("the probe could not run"), NEVER as a curl exit value
+//     and NEVER as a block (classifyEgressProbe's default branch).
+//
+// runErr == nil is not this function's concern (the caller short-circuits to 0 before calling).
+func extractExitCode(runErr error) int {
 	var exitErr *exec.ExitError
 	if errors.As(runErr, &exitErr) {
-		// The container ran and exited non-zero; podman surfaces curl's exit code.
-		code := exitErr.ExitCode()
-		if stderr.Len() > 0 {
-			return out.Bytes(), code, fmt.Errorf("%w: %s", runErr, stderr.String())
-		}
-		return out.Bytes(), code, runErr
+		return exitErr.ExitCode()
 	}
-	// The container never started (podman missing/daemon error / context cancel): NOT a curl
-	// exit code. Report -1 so the caller classifies it as infrastructure, never a block.
-	if stderr.Len() > 0 {
-		return out.Bytes(), -1, fmt.Errorf("%w: %s", runErr, stderr.String())
-	}
-	return out.Bytes(), -1, runErr
+	return -1
 }
