@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Coding Agent
 status: executing
-stopped_at: Phase 27 planned & verified (4 plans, 3 waves)
-last_updated: "2026-06-14T09:10:06.333Z"
-last_activity: 2026-06-14 -- Phase 27 execution started
+stopped_at: Phase 27 Plan 02 complete (preflight gates + uninstall coverage; INSTALL-04 closed)
+last_updated: "2026-06-14T09:20:00.000Z"
+last_activity: 2026-06-14 -- Phase 27 Plan 02 executed (preflight agent gates + uninstall teardown)
 progress:
   total_phases: 5
   completed_phases: 3
   total_plans: 13
-  completed_plans: 10
-  percent: 60
+  completed_plans: 11
+  percent: 65
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-06-12 — milestone v1.4 Coding Agent st
 ## Current Position
 
 Phase: 27 (install-addon-preflight-gates-villa-verify-agent) — EXECUTING
-Plan: 2 of 4
-Status: Ready to execute
-Last activity: 2026-06-14 -- Phase 27 execution started
+Plan: 3 of 4
+Status: Ready to execute (27-03 verify-agent next)
+Last activity: 2026-06-14 -- Phase 27 Plan 02 executed (preflight agent gates + uninstall teardown; INSTALL-04 closed)
 
-Progress: [███████░░░] 67% (v1.4)
+Progress: [████████░░] 75% (v1.4)
 
 ## Performance Metrics
 
@@ -158,6 +158,7 @@ Earlier (v1.0–v1.3) standing decisions retained:
 - [Phase 25-02]: Durable-chat-model realizes D-08 with NO new schema field: cfg.Model is never overwritten at enter; the coder is served from cfg.CoderModel and exit reverts by clearing the coder fields (config-derived restore, symmetric to enter). Keeps Plan-01's frozen config schema.
 - [Phase 25-02]: No-auto-flip structural guard regex anchored to the bool literal (CodingMode = true|false) so it targets the VillaConfig toggle without false-matching the same-named render-descriptor pointer field (RenderInput/RunSpec.CodingMode, a *CodingModeSpec).
 - [Phase 25-02]: Task-3 acceptance is OPEN — the live villa-llama on this box runs ROCm 7.2.4, while the swap qualification + cache_reuse_safe claim are build-9496-vulkan-radv-scoped (D-03/D-13); running the smoke against ROCm or mutating the live backend autonomously was refused. No pass fabricated.
+- [Phase 27-02]: INSTALL-04 closed (preflight gates + uninstall coverage). **D-09 honest preflight:** `runAgentChecks` (cmd/villa/preflight_agent.go) appends `AGENT-PRE-disk` (BLOCK: free disk < staged coder GGUF + binary; unprobeable → typed-Unknown WARN), `AGENT-PRE-envelope` (BLOCK read from `rec.Coder.Fits`/`TotalBytes`/`Residency`, NEVER re-derived), `AGENT-PRE-cloud-cred` (WARN naming present provider key(s) — 11-key allowlist from 27-RESEARCH A1; NEVER a BLOCK). Folded into install.go via a `runAgentChecks` seam gated on `agentEnabledForGate` (--coding-agent override folded into persisted agent_enabled) → flows through the SAME gateInstall (refuse-with-remediation inherited); agent-off byte-identical. Checks built as cmd-tier `CheckResult` literals (preflight pass/warn/fail are package-private; the gate needs rec.Coder + the staged size); statfs/lookupEnv injected as seams (deterministic tiers). Added `liveAgentStatfs` (cmd-tier copy of the package-private `preflight.liveStatfs` — Rule-3 deviation). **D-10 uninstall:** `removeAgentBinary`+`removeCrushConfig` ALWAYS-removed idempotent seams at a deterministic asserted position (after dashboard teardown, before container stop); live wiring reuses `agentBinPath()`/`crushConfigPath()` + `assertUnitInsideDir` traversal guard; staged GGUF follows the existing keep/remove-models choice; config.toml LEFT (no seam). make check + TestSeamGrepGate green.
 - [Phase 26-01]: AGENT-01/02/04 pure half landed — new pure `internal/agent` core (policy/render/drift/version + Deps/Result), zero new deps, TestSeamGrepGate + make check green. **Open-Q1 → option (ii) render-only:** base_url is the FIXED loopback `http://127.0.0.1:8080/v1` (serverPort=8080 constant, not a config field); model id = `villa-`+(CoderModel else Model) relying on llama.cpp single-model leniency — NO --alias delta into the inference seam. **Open-Q4 → parsed-semantic** config-drift (canonicalize→bytes.Equal; whitespace-only re-save is not drift). **Open-Q2 sentinel:** crush-policy.json binarySha256 = `UNPINNED-binary-sha256-set-by-26-03-on-hardware` — **Plan 03 MUST replace it on-hardware** (extract verified tarball → sha256sum crush); until then DetectDrift returns BinaryDriftUnknown (typed-Unknown WARN), never a false drift. config-ABSENT is a DISTINCT first-run render trigger (never compared, never reported as drift; parallels BinaryAbsent). permissions rendered omitted (Phase-27 STRIDE owns the restrictive allowlist).
 
 ### Pending Todos
@@ -219,9 +220,9 @@ Items deferred at v1.4 roadmap creation (2026-06-12, research-recorded):
 
 ## Session Continuity
 
-Last session: 2026-06-14T09:10:00.292Z
-Stopped at: Phase 27 Plan 01 complete (coding-agent install addon; INSTALL-03 closed) — next: 27-02
-Resume file: .planning/phases/27-install-addon-preflight-gates-villa-verify-agent/27-02-PLAN.md
+Last session: 2026-06-14T09:20:00.000Z
+Stopped at: Phase 27 Plan 02 complete (preflight gates + uninstall coverage; INSTALL-04 closed) — next: 27-03
+Resume file: .planning/phases/27-install-addon-preflight-gates-villa-verify-agent/27-03-PLAN.md
 
 ## Operator Next Steps
 

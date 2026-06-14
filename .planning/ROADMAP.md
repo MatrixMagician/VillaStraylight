@@ -200,7 +200,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1; parallel)*
 
-- [ ] 27-02-PLAN.md — Preflight gates + uninstall coverage: disk/post-coder-envelope BLOCK, cloud-credential WARN, typed-Unknown→WARN; `removeAgentBinary`/`removeCrushConfig` ordered teardown, GGUF via keep/remove-models, config.toml left (INSTALL-04)
+- [x] 27-02-PLAN.md — Preflight gates + uninstall coverage: disk/post-coder-envelope BLOCK, cloud-credential WARN, typed-Unknown→WARN; `removeAgentBinary`/`removeCrushConfig` ordered teardown, GGUF via keep/remove-models, config.toml left (INSTALL-04) ✅
 - [ ] 27-03-PLAN.md — `villa verify agent`: negative-control-FIRST `evalAgentVerify` (egress block + llama-down cloud-fallback controls), four-layer seam cloned from verify_memory, registered under the verify parent (PRIV-06)
 
 **Wave 3** *(blocked on Wave 2; on-hardware checkpoint)*
