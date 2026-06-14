@@ -295,6 +295,16 @@ func liveAgentToolCallProbe(ctx context.Context) func() (bool, error) {
 		if err != nil {
 			return false, fmt.Errorf("read probe file after run: %w", err)
 		}
-		return strings.Contains(string(edited), agentProbeTokenB), nil
+		return agentProbeReplaced(string(edited)), nil
 	}
+}
+
+// agentProbeReplaced is the WR-05 readiness predicate: the round-trip is a REPLACE of TOKEN_A
+// with TOKEN_B, so success requires TOKEN_B present AND TOKEN_A absent. Presence-only
+// (Contains(TOKEN_B)) false-greened an append, a partial write, or a tool writing a
+// transcript/confirmation echoing TOKEN_B into the workdir — none of which is a real semantic
+// replace (D-05 honesty). Factored out as a pure helper so the contract is asserted by an
+// off-hardware truth-table test without execing a live crush binary.
+func agentProbeReplaced(content string) bool {
+	return strings.Contains(content, agentProbeTokenB) && !strings.Contains(content, agentProbeTokenA)
 }

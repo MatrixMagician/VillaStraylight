@@ -96,6 +96,34 @@ func TestCoderModelPresent(t *testing.T) {
 	})
 }
 
+// TestAgentProbeReplaced asserts the WR-05 replacement contract: the readiness probe (and,
+// via the shared liveAgentToolCallProbe driver, `villa verify agent`'s agentTask) declares
+// success ONLY on a real semantic replace of TOKEN_A with TOKEN_B — never on the mere
+// presence of TOKEN_B. An append (TOKEN_A still present), a transcript line echoing both
+// tokens, the unedited file, or empty/unrelated content must all be FALSE. This proves the
+// false-green is gone off-hardware, without execing a live crush binary (D-05 honesty).
+func TestAgentProbeReplaced(t *testing.T) {
+	cases := []struct {
+		name    string
+		content string
+		want    bool
+	}{
+		{"real replace: TOKEN_B only", agentProbeTokenB + "\n", true},
+		{"append (not replace): TOKEN_A + TOKEN_B", agentProbeTokenA + " " + agentProbeTokenB + "\n", false},
+		{"no edit: TOKEN_A only", agentProbeTokenA + "\n", false},
+		{"empty content", "", false},
+		{"unrelated text", "the agent did something else\n", false},
+		{"transcript echoing both tokens", "I replaced " + agentProbeTokenA + " with " + agentProbeTokenB + ". DONE\n", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := agentProbeReplaced(tc.content); got != tc.want {
+				t.Errorf("agentProbeReplaced(%q) = %v, want %v", tc.content, got, tc.want)
+			}
+		})
+	}
+}
+
 // writeFileOfSize writes a file of exactly n zero bytes at path (test helper).
 func writeFileOfSize(t *testing.T, path string, n int) {
 	t.Helper()
