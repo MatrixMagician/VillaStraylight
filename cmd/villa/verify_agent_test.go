@@ -1,8 +1,12 @@
 package main
 
 import (
+	"bytes"
+	"context"
 	"errors"
 	"testing"
+
+	"github.com/spf13/cobra"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/preflight"
 )
@@ -151,6 +155,100 @@ func TestEvalAgentVerifyNegativeControlFirst(t *testing.T) {
 		}
 		if llamaDownRan {
 			t.Fatalf("llamaDownTask ran despite the agent task not completing — wasted service stop")
+		}
+	})
+}
+
+// TestVerifyAgentRegistered asserts `villa verify agent` is registered under the `verify`
+// parent next to `verify memory` (a missing subcommand is a silent regression of the runtime
+// PRIV-06 gate).
+func TestVerifyAgentRegistered(t *testing.T) {
+	verify := newVerify()
+	var foundAgent, foundMemory bool
+	for _, c := range verify.Commands() {
+		switch c.Name() {
+		case "agent":
+			foundAgent = true
+		case "memory":
+			foundMemory = true
+		}
+	}
+	if !foundMemory {
+		t.Errorf("`verify memory` is no longer registered under `verify`")
+	}
+	if !foundAgent {
+		t.Errorf("`verify agent` is not registered under `verify` — the runtime PRIV-06 proof is unreachable")
+	}
+}
+
+// TestRunVerifyAgentGate drives runVerifyAgent over the injectable seam to lock the three
+// load-bearing behaviours (mirrors TestRunVerifyMemoryGate): (1) the agent addon OFF exits 0
+// without ever running the proof (nothing to verify — NOT the silent-skip hazard); (2) addon
+// ON + a FAIL verdict returns exitBlocked with the remediation detail on stderr; (3) addon ON
+// + a PASS returns exitPass. The proof seam is injected so no live host is needed.
+func TestRunVerifyAgentGate(t *testing.T) {
+	newCmd := func() *cobra.Command {
+		c := &cobra.Command{}
+		c.SetContext(context.Background())
+		return c
+	}
+
+	t.Run("agent off exits 0 without running the proof", func(t *testing.T) {
+		proofRan := false
+		deps := verifyAgentDeps{
+			loadedAgentEnabled: func() bool { return false },
+			verifyFn: func(context.Context, verifyAgentDeps) memoryProof {
+				proofRan = true
+				return memoryProof{status: preflight.StatusPass}
+			},
+		}
+		cmd := newCmd()
+		var out bytes.Buffer
+		cmd.SetOut(&out)
+		cmd.SetErr(&out)
+		if code := runVerifyAgent(cmd, nil, deps); code != exitPass {
+			t.Errorf("agent-off exit = %d, want exitPass (%d)", code, exitPass)
+		}
+		if proofRan {
+			t.Errorf("the proof must NOT run when the agent addon is off")
+		}
+	})
+
+	t.Run("agent on FAIL returns exitBlocked with remediation", func(t *testing.T) {
+		deps := verifyAgentDeps{
+			loadedAgentEnabled: func() bool { return true },
+			verifyFn: func(context.Context, verifyAgentDeps) memoryProof {
+				return memoryProof{status: preflight.StatusFail, detail: "egress is NOT blocked"}
+			},
+		}
+		cmd := newCmd()
+		var out, errOut bytes.Buffer
+		cmd.SetOut(&out)
+		cmd.SetErr(&errOut)
+		if code := runVerifyAgent(cmd, nil, deps); code != exitBlocked {
+			t.Errorf("agent-on FAIL exit = %d, want exitBlocked (%d)", code, exitBlocked)
+		}
+		if errOut.Len() == 0 {
+			t.Errorf("a FAIL must print a remediation to stderr")
+		}
+	})
+
+	t.Run("agent on PASS returns exitPass", func(t *testing.T) {
+		deps := verifyAgentDeps{
+			loadedAgentEnabled: func() bool { return true },
+			verifyFn: func(context.Context, verifyAgentDeps) memoryProof {
+				return memoryProof{status: preflight.StatusPass, detail: "zero-outbound agent task completed; no cloud fallback (llama-down control failed as expected)"}
+			},
+		}
+		cmd := newCmd()
+		var out bytes.Buffer
+		cmd.SetOut(&out)
+		cmd.SetErr(&out)
+		if code := runVerifyAgent(cmd, nil, deps); code != exitPass {
+			t.Errorf("agent-on PASS exit = %d, want exitPass (%d)", code, exitPass)
+		}
+		if out.Len() == 0 {
+			t.Errorf("a PASS must print the proof detail to stdout")
 		}
 	})
 }

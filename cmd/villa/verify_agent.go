@@ -3,6 +3,9 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
+
+	"github.com/spf13/cobra"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 	"github.com/MatrixMagician/VillaStraylight/internal/preflight"
@@ -179,4 +182,54 @@ func liveVerifyAgentDeps() verifyAgentDeps {
 		systemd:            orchestrate.NewSystemd(),
 		verifyFn:           liveAgentVerify,
 	}
+}
+
+// newVerifyAgent builds `villa verify agent`: the runtime strictly-local coding-agent proof
+// (PRIV-06). It is gated on the persisted agent_enabled and refuses-with-remediation
+// (exitBlocked) on FAIL. The exit-code mapping lives ENTIRELY in runVerifyAgent (return-not-
+// Exit body; cobra RunE calls os.Exit), mirroring newVerifyMemory.
+func newVerifyAgent() *cobra.Command {
+	return &cobra.Command{
+		Use:   "agent",
+		Short: "Prove the coding agent runs with ZERO outbound and NO silent cloud fallback (runtime, firewalled)",
+		Long: "Drive a REAL `crush run` tool-call round-trip (read → edit → result) over the local " +
+			"loopback inference endpoint WHILE host egress is blocked, paired with a negative-control " +
+			"external probe that MUST fail (proving the block is real, not merely unused). Then fold in " +
+			"a llama-down control: with villa-llama STOPPED the same task MUST fail — an answer is a " +
+			"silent cloud-model fallback and FAILS verification. Asserting zero-outbound by absence " +
+			"alone is a false-green; the negative control runs FIRST. On-hardware by nature: needs the " +
+			"live villa-llama service, the staged crush binary, and a host-egress precondition supplied " +
+			"by the verification wave. Gated on the persisted agent_enabled; exits 0 (passed, or the " +
+			"agent addon is off — nothing to verify) or 1 (a blocking FAIL with remediation). Mutates " +
+			"nothing in config (villa-llama is stopped then restored).",
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			os.Exit(runVerifyAgent(cmd, args, liveVerifyAgentDeps()))
+			return nil
+		},
+	}
+}
+
+// runVerifyAgent gates on the persisted agent_enabled, runs the injected proof, and RETURNS
+// the exit code (no os.Exit) so verify_agent_test.go can drive it deterministically. An
+// agent-OFF stack exits 0 (nothing to verify — NOT the silent-skip hazard; the hazard is
+// skipping the proof while the agent IS on). An agent-ON FAIL prints the refuse-with-
+// remediation detail to stderr and returns exitBlocked; a PASS prints the proof detail and
+// returns exitPass. It mirrors runVerifyMemory's gate + exit mapping.
+func runVerifyAgent(cmd *cobra.Command, _ []string, deps verifyAgentDeps) int {
+	out := cmd.OutOrStdout()
+	errOut := cmd.ErrOrStderr()
+
+	if !deps.loadedAgentEnabled() {
+		fmt.Fprintln(out, "verify agent: the coding agent is not enabled (agent_enabled=false) — nothing to verify. Enable it with `villa install --coding-agent`, then re-run.")
+		return exitPass
+	}
+
+	proof := deps.verifyFn(cmd.Context(), deps)
+	if proof.status == preflight.StatusFail {
+		fmt.Fprintf(errOut, "verify agent: runtime strictly-local agent proof FAILED: %s\n", proof.detail)
+		return exitBlocked
+	}
+	fmt.Fprintf(out, "verify agent: %s\n", proof.detail)
+	return exitPass
 }

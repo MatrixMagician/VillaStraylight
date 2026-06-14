@@ -73,6 +73,7 @@ func newVerify() *cobra.Command {
 		Args: cobra.NoArgs,
 	}
 	cmd.AddCommand(newVerifyMemory())
+	cmd.AddCommand(newVerifyAgent())
 	return cmd
 }
 
