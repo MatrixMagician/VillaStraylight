@@ -91,7 +91,7 @@ Audit PASSED — 22/22 requirements, 15/16 integration connections (0 blockers),
 - [x] **Phase 24: Coder Fit Math, Catalog & On-Hardware Model Qualification** - `role:"coder"` catalog entries + recommend coder-fit stage at agent-profile ctx with honest residency-mode output, qualified agent-in-the-loop on the gfx1151 box *(COMPLETE 2026-06-13 — 4/4 plans; catalog FROZEN, D-13 toolbox keep, CODER-01/02/03)*
 - [x] **Phase 25: Coding-Mode Render & Transactional Swap Verb** - Tool-calling-ready llama-server unit delta behind the seams + a transactional enter/exit coding-mode verb composing `modelswap` (completed 2026-06-13)
 - [ ] **Phase 26: Agent Delivery Core & Lockdown Launcher** - Pinned SHA-256-verified Crush install via villa-owned pin policy, `crush.json` rendered from config.toml with kill switches, `villa code` launcher with env lockdown, drift detection
-- [x] **Phase 27: Install Addon, Preflight Gates & `villa verify agent`** - Optional install addon with sanctioned-window pre-staging + tool-call readiness proof, honest preflight gates, negative-control-first egress + cloud-fallback proofs, uninstall coverage. Code COMPLETE (27-01/02/03); on-hardware acceptance (27-04) COMPLETE — INSTALL-03 readiness (real tool-call round-trip) + PRIV-06 (`villa verify agent` PASS under a real rootless-netns egress block: ctrl1 egress-blocked task completes, ctrl2 llama-down fails) accepted on gfx1151; box restored to as-found (2026-06-14)
+- [~] **Phase 27: Install Addon, Preflight Gates & `villa verify agent`** - Optional install addon with sanctioned-window pre-staging + tool-call readiness proof, honest preflight gates, negative-control-first egress + cloud-fallback proofs, uninstall coverage. All 4 plans executed; on-hardware acceptance (27-04) done — INSTALL-03 readiness real tool-call round-trip + PRIV-06 `villa verify agent` PASS under a real rootless-netns egress block (2026-06-14). **GAP-CLOSURE OPEN (code-review BLOCKER CR-01):** `villa install --coding-agent` stages the coder GGUF but never sets CodingMode/CoderModel, so crush.json + the readiness proof + verify agent all target the CHAT model, not the coder (coding-mode entry is a separate verb). Phase NOT complete until CR-01 + honesty WRs (WR-01/05/06) are resolved — see 27-REVIEW.md
 - [ ] **Phase 28: Agent Surfacing & Contracts** - `status.Report` 3→4 `coding` block (single golden re-freeze), dashboard Agent panel, doctor agent checks, backup coverage, per-model usage + cache-effectiveness signals
 
 ## Phase Details
@@ -256,5 +256,5 @@ Plans:
 | 24. Coder Fit Math, Catalog & On-Hardware Model Qualification | v1.4 | 4/4 | Complete    | 2026-06-13 |
 | 25. Coding-Mode Render & Transactional Swap Verb | v1.4 | 2/2 | Complete    | 2026-06-13 |
 | 26. Agent Delivery Core & Lockdown Launcher | v1.4 | 0/3 | Planned | - |
-| 27. Install Addon, Preflight Gates & `villa verify agent` | v1.4 | 4/4 | Complete   | 2026-06-14 |
+| 27. Install Addon, Preflight Gates & `villa verify agent` | v1.4 | 4/4 | Gaps (CR-01) | 2026-06-14 |
 | 28. Agent Surfacing & Contracts | v1.4 | 0/TBD | Not started | - |

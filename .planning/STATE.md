@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Coding Agent
 status: executing
-stopped_at: Phase 27 Plan 04 COMPLETE — on-hardware acceptance accepted on gfx1151 (INSTALL-03 readiness tool-call round-trip + PRIV-06 `villa verify agent` PASS under a real rootless-netns egress block); box restored to as-found
+stopped_at: Phase 27 — all 4 plans executed + on-hardware acceptance done, but PHASE NOT COMPLETE: code-review BLOCKER CR-01 requires gap-closure (`villa install --coding-agent` stages the coder but configures crush.json + proves readiness against the CHAT model, not the coder). Next: /gsd-plan-phase 27 --gaps
 last_updated: "2026-06-14T11:30:00.000Z"
 last_activity: 2026-06-14 -- Phase 27 Plan 04 COMPLETE (operator-authorized on-hardware acceptance: install readiness real edit; verify agent ctrl1+ctrl2 PASS exit 0; T-27-20 egress-block command captured; box restored)
 progress:
@@ -26,8 +26,8 @@ See: .planning/PROJECT.md (updated 2026-06-12 — milestone v1.4 Coding Agent st
 ## Current Position
 
 Phase: 27 (install-addon-preflight-gates-villa-verify-agent) — EXECUTING
-Plan: 4 of 4 (COMPLETE)
-Status: 27-04 COMPLETE — full on-hardware acceptance accepted on gfx1151 (operator-authorized). INSTALL-03: `villa install --coding-agent` PASSED readiness via a real read→edit→result tool-call round-trip (not health-200). PRIV-06: `villa verify agent` PASS exit 0 under a real egress block (ctrl1 egress proven blocked → blocked task completes; ctrl2 llama-down task fails → no cloud fallback, villa-llama restored). T-27-20 closed (rootless-netns nft egress-block command captured). Box restored to as-found. No fabricated PASS.
+Plan: 4 of 4 executed — PHASE NOT COMPLETE (gap-closure required, code-review BLOCKER CR-01)
+Status: All 4 plans executed; 27-04 on-hardware acceptance done (INSTALL-03 readiness real tool-call round-trip + PRIV-06 `villa verify agent` PASS exit 0 under a real rootless-netns egress block, ctrl1+ctrl2; T-27-20 closed; box restored to as-found). **GAP-CLOSURE OPEN — deep code review (27-REVIEW.md) found BLOCKER CR-01:** `villa install --coding-agent` sets AgentEnabled but never CodingMode/CoderModel, so orchestrate serves the CHAT model and crush.json + the readiness proof + verify agent all target the chat model, not the staged coder (coding-mode entry is a separate verb). Plus honesty WRs: WR-01 (any podman-probe failure reads as "egress blocked"), WR-05 (readiness Contains(TOKEN_B) false-greens on append vs replace), WR-06 (discarded villa-llama restore error). Phase NOT marked complete. Next: /gsd-plan-phase 27 --gaps → /gsd-execute-phase 27 --gaps-only.
 Last activity: 2026-06-14 -- Phase 27 Plan 04 on-hardware acceptance COMPLETE; Phase 27 ready for verification
 
 Progress: [█████████░] 92% (v1.4)
@@ -226,8 +226,8 @@ Items deferred at v1.4 roadmap creation (2026-06-12, research-recorded):
 ## Session Continuity
 
 Last session: 2026-06-14T11:30:00.000Z
-Stopped at: Phase 27 Plan 04 COMPLETE — full on-hardware acceptance accepted on gfx1151 (INSTALL-03 readiness real tool-call round-trip + PRIV-06 `villa verify agent` PASS exit 0 under a real rootless-netns egress block, ctrl1+ctrl2). T-27-20 egress-block command captured; box restored to as-found. Phase 27 ready for phase-level verification + completion. See 27-04-SUMMARY.md.
-Resume file: .planning/phases/27-install-addon-preflight-gates-villa-verify-agent/27-04-SUMMARY.md
+Stopped at: Phase 27 — 4/4 plans executed + on-hardware acceptance done, but PHASE NOT COMPLETE. Deep code review found BLOCKER CR-01 (install --coding-agent stages the coder but configures/proves against the CHAT model) + honesty WRs (WR-01/05/06). Gap-closure required before completion. Next: /gsd-plan-phase 27 --gaps → /gsd-execute-phase 27 --gaps-only.
+Resume file: .planning/phases/27-install-addon-preflight-gates-villa-verify-agent/27-REVIEW.md
 
 ## Operator Next Steps
 
