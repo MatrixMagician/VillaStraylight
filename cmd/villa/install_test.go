@@ -1365,6 +1365,120 @@ func TestInstallPreservesPersistedMemoryConfig(t *testing.T) {
 	}
 }
 
+// TestInstallPreservesPersistedROCmBackend is the regression for the
+// install-reverts-rocm-to-vulkan debug session: `villa install` (and `villa install
+// --coding-agent`) must PRESERVE a persisted `backend=rocm` opt-in, not silently revert
+// it to vulkan. recommend.Pick always returns the default (vulkan) backend — ROCm is
+// strictly opt-in and never auto-recommended (REC-04) — so the cmd tier must guard the
+// `cfg.Backend = rec.Backend` assignment (config is the single source of truth for the
+// backend opt-in). The test proves BOTH halves: (a) the rendered villa-llama unit resolves
+// to the ROCm backend (not vulkan-radv), and (b) the persisted cfg keeps backend=rocm; plus
+// a re-install on an unchanged plan is a true no-op on the ROCm choice. The default path
+// (persisted vulkan) must still take the recommendation — the guard only PRESERVES an
+// already-chosen opt-in, it never auto-selects ROCm.
+func TestInstallPreservesPersistedROCmBackend(t *testing.T) {
+	persistedRocm := func() *config.VillaConfig {
+		c := config.DefaultVillaConfig()
+		c.Backend = "rocm"
+		return &c
+	}
+
+	t.Run("flag path preserves a persisted rocm opt-in in render and saved config", func(t *testing.T) {
+		units := []orchestrate.Unit{{Name: "villa-llama.container", Text: "[Container]\n"}}
+		plan := orchestrate.Plan{Changed: units}
+		f := newFakeInstallDeps(t, units, plan, passChecks())
+		f.persistedConfig = persistedRocm()
+
+		cmd, _, _ := installTestCmd()
+		if code := runInstall(cmd, installOpts{}, f.installDeps); code != exitPass {
+			t.Fatalf("install exit = %d, want 0", code)
+		}
+		// (a) The unit was rendered from the persisted ROCm backend — NOT reverted to the
+		// vulkan-radv default. The render path resolves cfg.Backend via inference.BackendFor,
+		// so the captured RenderInput.Backend.Name() is the proof the ROCm unit is rendered.
+		if !f.renderedInputSet {
+			t.Fatal("render seam was never invoked — cannot assert the rendered backend")
+		}
+		if got := f.renderedInput.Backend.Name(); got != "rocm" {
+			t.Errorf("install rendered backend %q, want \"rocm\" preserved (config is the single source of truth; ROCm is opt-in and never auto-reverted)", got)
+		}
+		// (b) The persisted opt-in survives into the saved cfg — install must not rewrite
+		// config.toml back to backend=vulkan.
+		if f.savedCfg.Backend != "rocm" {
+			t.Errorf("install reverted persisted backend to %q, want \"rocm\" preserved", f.savedCfg.Backend)
+		}
+		// The recommendation-derived NON-backend fields are still overridden from the rec.
+		if f.savedCfg.Model != "qwen2.5-0.5b" {
+			t.Errorf("install must still override the recommendation-derived model, got %q", f.savedCfg.Model)
+		}
+	})
+
+	t.Run("--coding-agent path preserves a persisted rocm opt-in (the reported repro)", func(t *testing.T) {
+		units := []orchestrate.Unit{{Name: "villa-llama.container", Text: "[Container]\n"}}
+		plan := orchestrate.Plan{Changed: units}
+		f := newFakeInstallDeps(t, units, plan, passChecks())
+		f.persistedConfig = persistedRocm()
+
+		cmd, _, _ := installTestCmd()
+		if code := runInstall(cmd, installOpts{codingAgent: true}, f.installDeps); code != exitPass {
+			t.Fatalf("install --coding-agent exit = %d, want 0", code)
+		}
+		if got := f.renderedInput.Backend.Name(); got != "rocm" {
+			t.Errorf("install --coding-agent rendered backend %q, want \"rocm\" preserved", got)
+		}
+		if f.savedCfg.Backend != "rocm" {
+			t.Errorf("install --coding-agent reverted persisted backend to %q, want \"rocm\" preserved", f.savedCfg.Backend)
+		}
+	})
+
+	t.Run("re-install on a persisted rocm config + unchanged plan is a true no-op", func(t *testing.T) {
+		units := []orchestrate.Unit{{Name: "villa-llama.container", Text: "[Container]\n"}}
+		plan := orchestrate.Plan{Unchanged: units} // zero Changed = no-op container path
+		f := newFakeInstallDeps(t, units, plan, passChecks())
+		f.persistedConfig = persistedRocm()
+		// Pre-seed the on-disk dashboard unit with the rendered bytes so the dashboard
+		// reconcile is ALSO a no-op (otherwise the dashboard always reconciles on a nil
+		// diskUnit, which is unrelated to the backend-preservation no-op under test).
+		f.diskUnit = mustRenderDashboardUnit(t, "/opt/villa/bin/villa")
+
+		cmd, _, _ := installTestCmd()
+		if code := runInstall(cmd, installOpts{}, f.installDeps); code != exitPass {
+			t.Fatalf("re-install exit = %d, want 0", code)
+		}
+		// The unchanged plan must NOT rewrite or (re)start the llama unit — preserving the
+		// persisted ROCm backend keeps the rendered units byte-identical to disk, so the
+		// reconcile is a true no-op on the ROCm choice (plan.Changed == 0).
+		if f.writeCalls != 0 {
+			t.Errorf("re-install on an unchanged rocm config must NOT rewrite container units, writeCalls = %d", f.writeCalls)
+		}
+		if contains(f.startOrder, "villa-llama.service") {
+			t.Errorf("re-install on an unchanged rocm config must NOT restart the llama service, startOrder = %v", f.startOrder)
+		}
+		// The persisted opt-in is still rocm after the no-op re-install.
+		if f.savedCfg.Backend != "rocm" {
+			t.Errorf("no-op re-install reverted persisted backend to %q, want \"rocm\" preserved", f.savedCfg.Backend)
+		}
+	})
+
+	t.Run("a persisted vulkan default still takes the recommendation (guard preserves only opt-ins)", func(t *testing.T) {
+		units := []orchestrate.Unit{{Name: "villa-llama.container", Text: "[Container]\n"}}
+		plan := orchestrate.Plan{Changed: units}
+		f := newFakeInstallDeps(t, units, plan, passChecks())
+		// Default persisted config: backend=vulkan. The recommendation (also vulkan) wins;
+		// the guard must NOT pin a non-opt-in value or block the recommendation flow.
+		cmd, _, _ := installTestCmd()
+		if code := runInstall(cmd, installOpts{}, f.installDeps); code != exitPass {
+			t.Fatalf("install exit = %d, want 0", code)
+		}
+		if got := f.renderedInput.Backend.Name(); got != "vulkan" {
+			t.Errorf("default-path install rendered backend %q, want \"vulkan\" from the recommendation", got)
+		}
+		if f.savedCfg.Backend != "vulkan" {
+			t.Errorf("default-path install saved backend %q, want \"vulkan\" from the recommendation", f.savedCfg.Backend)
+		}
+	})
+}
+
 // TestInstallMemoryServices: gate=true pre-stages when absent and starts the memory
 // services in order (Qdrant before embed — Pitfall 4); gate off / dry-run → none called.
 func TestInstallMemoryServices(t *testing.T) {

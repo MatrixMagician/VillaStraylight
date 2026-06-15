@@ -429,7 +429,21 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 	cfg.Model = rec.Model
 	cfg.Quant = rec.Quant
 	cfg.Ctx = rec.ContextLen
-	cfg.Backend = rec.Backend
+	// Config is the single source of truth for the backend opt-in. recommend.Pick
+	// always returns the DEFAULT (vulkan) backend — ROCm is strictly opt-in and is
+	// NEVER auto-recommended (REC-04), and recommend.Overrides carries no Backend
+	// field — so a bare `cfg.Backend = rec.Backend` would silently revert a persisted
+	// `backend=rocm` opt-in to vulkan on every re-install (including `villa install
+	// --coding-agent`), re-rendering the villa-llama unit to the vulkan-radv image.
+	// Guard the assignment: PRESERVE a valid persisted ROCm-family opt-in (the
+	// seam-clean inference.IsROCmFamily name set — NAME strings only, never an image
+	// literal, so this stays clear of TestSeamGrepGate), and otherwise take the
+	// recommendation (vulkan default; an empty/unknown persisted value falls through
+	// to the recommendation and the fail-closed inference.BackendFor at render time).
+	// This only PRESERVES an already-chosen opt-in; it never auto-selects ROCm.
+	if !inference.IsROCmFamily(cfg.Backend) {
+		cfg.Backend = rec.Backend
+	}
 	// AUTHORITATIVE memory gate (Phase-19 / T-19-16): the memory path keys off the
 	// PERSISTED config.LoadVilla().MemoryEnabled (via the loadedMemoryEnabled seam). It is
 	// the single gate value the pre-stage + start + proof steps read. (Seeding cfg from the
