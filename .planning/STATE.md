@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Coding Agent
-status: verifying
-stopped_at: Phase 28 context gathered
-last_updated: "2026-06-15T10:00:27.702Z"
-last_activity: 2026-06-14
+status: executing
+stopped_at: Phase 28 UI-SPEC approved
+last_updated: "2026-06-15T10:30:57.237Z"
+last_activity: 2026-06-15 -- Phase 28 planning complete
 progress:
   total_phases: 5
   completed_phases: 4
@@ -27,8 +27,8 @@ See: .planning/PROJECT.md (updated 2026-06-12 — milestone v1.4 Coding Agent st
 
 Phase: 28
 Plan: Not started
-Status: Phase 27 complete (re-verified PASS 5/5) — ready to start Phase 28
-Last activity: 2026-06-14
+Status: Ready to execute
+Last activity: 2026-06-15 -- Phase 28 planning complete
 
 Progress: [█████████░] 92% (v1.4)
 
@@ -230,9 +230,9 @@ Items deferred at v1.4 roadmap creation (2026-06-12, research-recorded):
 
 ## Session Continuity
 
-Last session: 2026-06-15T10:00:27.696Z
-Stopped at: Phase 28 context gathered
-Resume file: .planning/phases/28-agent-surfacing-contracts/28-CONTEXT.md
+Last session: 2026-06-15T10:06:21.835Z
+Stopped at: Phase 28 UI-SPEC approved
+Resume file: .planning/phases/28-agent-surfacing-contracts/28-UI-SPEC.md
 
 ## Operator Next Steps
 
