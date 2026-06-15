@@ -1,0 +1,30 @@
+{
+  "schema_version": 2,
+  "catalog_version": "test.external.schema2",
+  "models": [
+    {
+      "id": "schema2-chat-model",
+      "display_name": "Schema-2 Chat Model (pre-coder external catalog)",
+      "quant": "Q4_K_M",
+      "weight_bytes": 5000000000,
+      "n_layers": 32,
+      "n_kv_heads": 8,
+      "head_dim": 128,
+      "kv_bytes_per_elem": 2,
+      "default_ctx": 16384,
+      "min_envelope_bytes": 7000000000,
+      "tier_gb": 16,
+      "unified_memory_safe": true,
+      "backend_default": "vulkan",
+      "bootstrap": false,
+      "shards": [
+        {
+          "url": "https://huggingface.co/example/Schema2-GGUF/resolve/main/schema2-chat-q4_k_m.gguf",
+          "filename": "schema2-chat-q4_k_m.gguf",
+          "sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+          "size_bytes": 5000000000
+        }
+      ]
+    }
+  ]
+}

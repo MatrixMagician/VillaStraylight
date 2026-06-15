@@ -495,3 +495,160 @@ func TestMemorySaveOmitsKeysWhenDisabled(t *testing.T) {
 		t.Errorf("memory-on round-trip mismatch:\n got %+v\nwant %+v", got, on)
 	}
 }
+
+// TestCodingModeSaveOmitsKeysWhenDisabled is the coding-mode (Phase-25 D-04) twin of
+// TestMemorySaveOmitsKeysWhenDisabled: on a non-coding install a save-bearing command
+// must NOT introduce any coding_mode / coder_* key on disk (byte-identical off-path,
+// D-02/D-04). marshalVilla zeroes the coder_* fields when CodingMode==false so the
+// ,omitempty tags drop all four keys. When coding mode is ON every field is written and
+// round-trips. The coder_* fields hold the model/quant/agent_ctx RESOLVED AT ENTER.
+func TestCodingModeSaveOmitsKeysWhenDisabled(t *testing.T) {
+	codeKeys := []string{"coding_mode", "coder_model", "coder_quant", "coder_agent_ctx"}
+
+	// Coding mode OFF: a config seeded from typed defaults (CodingMode == false). Even if
+	// the in-memory struct carried resolved coder fields, off-path marshal must drop them.
+	off := DefaultVillaConfig()
+	off.Model = "qwen3-35b-a3b-moe-64"
+	// Seed non-zero coder fields to prove the off-path zeroing is the gate (not absence).
+	off.CoderModel = "qwen3-coder-30b"
+	off.CoderQuant = "UD-Q4_K_M"
+	off.CoderAgentCtx = 65536
+	dirOff := filepath.Join(t.TempDir(), "villa")
+	if err := SaveVillaTo(dirOff, off); err != nil {
+		t.Fatalf("SaveVillaTo(off): %v", err)
+	}
+	dataOff, err := os.ReadFile(filepath.Join(dirOff, "config.toml"))
+	if err != nil {
+		t.Fatalf("read off config: %v", err)
+	}
+	for _, k := range codeKeys {
+		if strings.Contains(string(dataOff), k) {
+			t.Errorf("coding-off save wrote coding key %q (D-02/D-04 byte-identical break):\n%s", k, dataOff)
+		}
+	}
+
+	// Coding mode ON: opting in must persist the full coder contract (resolved at enter).
+	on := DefaultVillaConfig()
+	on.Model = "qwen3-35b-a3b-moe-64"
+	on.CodingMode = true
+	on.CoderModel = "qwen3-coder-30b"
+	on.CoderQuant = "UD-Q4_K_M"
+	on.CoderAgentCtx = 65536
+	dirOn := filepath.Join(t.TempDir(), "villa")
+	if err := SaveVillaTo(dirOn, on); err != nil {
+		t.Fatalf("SaveVillaTo(on): %v", err)
+	}
+	dataOn, err := os.ReadFile(filepath.Join(dirOn, "config.toml"))
+	if err != nil {
+		t.Fatalf("read on config: %v", err)
+	}
+	for _, k := range codeKeys {
+		if !strings.Contains(string(dataOn), k) {
+			t.Errorf("coding-on save omitted coding key %q (opt-in must persist the full contract):\n%s", k, dataOn)
+		}
+	}
+
+	// Opting in then saving must round-trip back to an equal struct (all four preserved).
+	got, err := LoadVillaFrom(dirOn)
+	if err != nil {
+		t.Fatalf("LoadVillaFrom(on): %v", err)
+	}
+	if got != on {
+		t.Errorf("coding-on round-trip mismatch:\n got %+v\nwant %+v", got, on)
+	}
+}
+
+// TestCodingModeNotSelfHealed asserts normalizeVilla does NOT self-heal the coding
+// fields: CodingMode is a deliberate bool toggle (false is a valid explicit choice,
+// mirroring MemoryEnabled), and the coder_* fields have no meaningful default when off
+// (they are dropped on disk and always re-written by the enter path). A loaded
+// coding-off config leaves CoderAgentCtx==0 / CoderModel=="" exactly as parsed.
+func TestCodingModeNotSelfHealed(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "villa")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	// A coding-off config: no coding keys at all (the byte-identical install).
+	cfg := `model = "qwen3-35b-a3b-moe-64"
+quant = "UD-Q4_K_M"
+ctx = 131072
+backend = "vulkan"
+dashboard_addr = "127.0.0.1"
+dashboard_port = 8888
+chat_port = 3000
+`
+	path := filepath.Join(dir, "config.toml")
+	if err := os.WriteFile(path, []byte(cfg), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	got, err := LoadVillaFrom(dir)
+	if err != nil {
+		t.Fatalf("LoadVillaFrom: %v", err)
+	}
+	if got.CodingMode {
+		t.Errorf("CodingMode self-healed to true on a coding-key-free config, want false")
+	}
+	if got.CoderModel != "" || got.CoderQuant != "" || got.CoderAgentCtx != 0 {
+		t.Errorf("coder_* fields were self-healed to a default; want zero values when off, got %q/%q/%d",
+			got.CoderModel, got.CoderQuant, got.CoderAgentCtx)
+	}
+}
+
+// TestAgentEnabledSaveOmitsKeyWhenDisabled is the v1.4 coding-agent (Phase-27 D-01)
+// twin of the memory/coding omit-when-off tests: on a non-agent install a save-bearing
+// command must NOT introduce the agent_enabled key on disk (byte-identical off-path,
+// D-01). AgentEnabled is a plain bool with ,omitempty, so a default-false marshal drops
+// the key with no marshalVilla zeroing. When the agent addon is ON the key is written
+// and round-trips.
+func TestAgentEnabledSaveOmitsKeyWhenDisabled(t *testing.T) {
+	const agentKey = "agent_enabled"
+
+	// Agent OFF: a config seeded from typed defaults (AgentEnabled == false).
+	off := DefaultVillaConfig()
+	off.Model = "qwen3-35b-a3b-moe-64"
+	dirOff := filepath.Join(t.TempDir(), "villa")
+	if err := SaveVillaTo(dirOff, off); err != nil {
+		t.Fatalf("SaveVillaTo(off): %v", err)
+	}
+	dataOff, err := os.ReadFile(filepath.Join(dirOff, "config.toml"))
+	if err != nil {
+		t.Fatalf("read off config: %v", err)
+	}
+	if strings.Contains(string(dataOff), agentKey) {
+		t.Errorf("agent-off save wrote %q (D-01 byte-identical break):\n%s", agentKey, dataOff)
+	}
+
+	// Agent ON: opting in must persist the gate so a bare re-install gates on it.
+	on := DefaultVillaConfig()
+	on.Model = "qwen3-35b-a3b-moe-64"
+	on.AgentEnabled = true
+	dirOn := filepath.Join(t.TempDir(), "villa")
+	if err := SaveVillaTo(dirOn, on); err != nil {
+		t.Fatalf("SaveVillaTo(on): %v", err)
+	}
+	dataOn, err := os.ReadFile(filepath.Join(dirOn, "config.toml"))
+	if err != nil {
+		t.Fatalf("read on config: %v", err)
+	}
+	if !strings.Contains(string(dataOn), agentKey) {
+		t.Errorf("agent-on save omitted %q (opt-in must persist the gate):\n%s", agentKey, dataOn)
+	}
+
+	got, err := LoadVillaFrom(dirOn)
+	if err != nil {
+		t.Fatalf("LoadVillaFrom(on): %v", err)
+	}
+	if !got.AgentEnabled {
+		t.Errorf("agent-on round-trip lost the gate: AgentEnabled = false, want true")
+	}
+}
+
+// TestAgentEnabledNotSelfHealed asserts normalizeVilla does NOT self-heal AgentEnabled:
+// like MemoryEnabled / CodingMode it is a deliberate bool toggle (false is a valid
+// explicit choice). A loaded agent-free config leaves AgentEnabled==false as parsed.
+func TestAgentEnabledNotSelfHealed(t *testing.T) {
+	got := normalizeVilla(VillaConfig{})
+	if got.AgentEnabled {
+		t.Errorf("normalizeVilla widened AgentEnabled to true, want false (not self-healed, D-01)")
+	}
+}

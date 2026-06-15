@@ -20,6 +20,8 @@
   var modelsBody = document.getElementById("models-body");
   var memoryPanel = document.getElementById("memory-panel");
   var memoryBody = document.getElementById("memory-body");
+  var agentPanel = document.getElementById("agent-panel");
+  var agentBody = document.getElementById("agent-body");
 
   // Confirm-dialog elements (the single guarded write, D-08).
   var switchDialog = document.getElementById("switch-dialog");
@@ -348,6 +350,90 @@
     if (mem.embedding_skew === "mismatch") {
       memoryBody.appendChild(memoryBadgeRow("embedding config", "mismatch", "warn"));
       memoryBody.appendChild(mutedP("Configured embedding model differs from the indexed vectors — re-index with villa recall index --rebuild, or revert config.toml."));
+    }
+  }
+
+  // renderAgent fills the Agent panel from report.coding on the SAME /api/status poll
+  // (SURF-01 / D-05: no new fetch, endpoint, or probe). It mirrors renderMemory
+  // exactly: the panel ships hidden in the static shell and is unhidden ONLY when
+  // report.coding is present — it re-hides if the field disappears, so an agent-off
+  // install renders pixel-identical to v1.3. Honesty mapping (28-UI-SPEC.md, binding):
+  // a policy-pin MATCH → green badge-ready; a MISMATCH → amber badge-warn (NEVER red);
+  // a typed-Unknown pin (or absent cache timings) → gray "unavailable" badge-unknown.
+  // version/model/mode/residency rows are OMITTED when their field is absent — never a
+  // placeholder, never a guessed swap/shared. Per-model coder usage is selected from
+  // report.usage keyed on report.coding.model (honest empty state — never a fabricated
+  // 0). Cache effectiveness shows the pct + raw ratio ONLY when proven, else the gray
+  // Unknown badge — NEVER a fabricated 0%. NOT called from the catch path. All values
+  // render via createElement + textContent (XSS-safe — never HTML interpolation).
+  function renderAgent(report) {
+    if (!agentPanel || !agentBody) { return; }
+    var ag = report && report.coding;
+    if (!ag) {
+      agentPanel.hidden = true;
+      return;
+    }
+    agentPanel.hidden = false;
+    agentBody.textContent = "";
+
+    // Version (mono, verbatim) — omitted when absent.
+    if (ag.version) {
+      agentBody.appendChild(metricRow("version", ag.version));
+    }
+
+    // Policy pin: tri-state badge per the UI-SPEC. match → green, mismatch → amber
+    // (NEVER red), anything else (unknown/absent) → gray "unavailable" + caption.
+    if (ag.pin_match === "match") {
+      agentBody.appendChild(memoryBadgeRow("policy pin", "match", "ready"));
+    } else if (ag.pin_match === "mismatch") {
+      agentBody.appendChild(memoryBadgeRow("policy pin", "mismatch", "warn"));
+      agentBody.appendChild(mutedP("Installed agent binary does not match the policy pin — re-install with villa install --coding-agent, or revert config.toml."));
+    } else {
+      agentBody.appendChild(memoryBadgeRow("policy pin", "unavailable", "unknown"));
+      agentBody.appendChild(mutedP("Agent pin state unavailable."));
+    }
+
+    // Model / mode / residency (mono, verbatim) — each OMITTED when absent. Residency
+    // is honestly absent (typed-Unknown) when the live envelope is unevaluable; it is
+    // NEVER rendered as a guessed swap/shared.
+    if (ag.model) {
+      agentBody.appendChild(metricRow("model", ag.model));
+    }
+    if (ag.mode) {
+      agentBody.appendChild(metricRow("mode", ag.mode));
+    }
+    if (ag.residency) {
+      agentBody.appendChild(metricRow("residency", ag.residency));
+    }
+
+    // Per-model coder usage (USAGE-03 / D-09): select the coder model's cumulative
+    // totals out of report.usage.models keyed on report.coding.model. Honest empty
+    // state when absent — NOT a fabricated 0.
+    var usage = report.usage;
+    var entry = null;
+    if (usage && usage.models && ag.model && usage.models[ag.model]) {
+      entry = usage.models[ag.model];
+    }
+    if (entry) {
+      var prompt = (entry.prompt_tokens && entry.prompt_tokens.cumulative) || 0;
+      var generated = (entry.generated_tokens && entry.generated_tokens.cumulative) || 0;
+      agentBody.appendChild(metricRow("prompt tokens (total)", groupThousands(prompt)));
+      agentBody.appendChild(metricRow("generated tokens (total)", groupThousands(generated)));
+    } else {
+      agentBody.appendChild(mutedP("No usage recorded yet"));
+    }
+
+    // Cache effectiveness (USAGE-04 / D-10): the status core sets cache_effectiveness_pct
+    // ONLY when both counts are Known and prompt_n>0; otherwise it is absent. Show the
+    // pct + raw ratio when present, else the gray Unknown badge + caption — NEVER a
+    // fabricated 0% (28-UI-SPEC.md percentage rule).
+    if (typeof ag.cache_effectiveness_pct === "number") {
+      agentBody.appendChild(metricRow(
+        "cache effectiveness",
+        ag.cache_effectiveness_pct.toFixed(1) + "% (" + (ag.cache_n || 0) + "/" + (ag.prompt_n || 0) + ")"));
+    } else {
+      agentBody.appendChild(memoryBadgeRow("cache effectiveness", "unavailable", "unknown"));
+      agentBody.appendChild(mutedP("Cache effectiveness unavailable — llama.cpp timings not yet observed."));
     }
   }
 
@@ -756,6 +842,10 @@
         // when it disappears. NOT called from the catch path — on a failed poll the
         // panel keeps last-good content under the global stale dimming.
         renderMemory(report);
+        // Agent panel rides the SAME /api/status poll (SURF-01 / D-05 — no new fetch,
+        // endpoint, or probe): unhidden only when report.coding is present, re-hidden
+        // when it disappears. NOT called from the catch path (last-good under stale dim).
+        renderAgent(report);
       })
       .catch(function () {
         // The dashboard's own API is unreachable → global banner, keep last-good.

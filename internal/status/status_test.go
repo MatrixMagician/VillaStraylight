@@ -12,6 +12,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 	"github.com/MatrixMagician/VillaStraylight/internal/recall"
+	"github.com/MatrixMagician/VillaStraylight/internal/recommend"
 	"github.com/MatrixMagician/VillaStraylight/internal/usage"
 )
 
@@ -471,8 +472,8 @@ func TestUsageSurfacedWhenPresent(t *testing.T) {
 	if !strings.Contains(s, `"usage"`) {
 		t.Errorf("populated --json must carry the usage key; got:\n%s", s)
 	}
-	if !strings.Contains(s, `"schema_version":3`) {
-		t.Errorf("--json must carry schema_version 3; got:\n%s", s)
+	if !strings.Contains(s, `"schema_version":4`) {
+		t.Errorf("--json must carry schema_version 4; got:\n%s", s)
 	}
 }
 
@@ -646,8 +647,8 @@ func TestRunMemoryOffReport(t *testing.T) {
 	if r.Memory != nil {
 		t.Fatalf("memory-off report must carry Memory == nil, got %+v", r.Memory)
 	}
-	if r.SchemaVersion != 3 {
-		t.Errorf("SchemaVersion = %d, want 3", r.SchemaVersion)
+	if r.SchemaVersion != 4 {
+		t.Errorf("SchemaVersion = %d, want 4", r.SchemaVersion)
 	}
 	blob, err := json.Marshal(r)
 	if err != nil {
@@ -762,6 +763,220 @@ func TestRunMemorySkewField(t *testing.T) {
 		r := Run(d)
 		if r.Memory == nil || r.Memory.EmbeddingSkew != "" {
 			t.Fatalf("unevaluated comparison → EmbeddingSkew empty, got %+v", r.Memory)
+		}
+	})
+}
+
+// --- Phase-28 v4 coding-agent fixtures (D-01..D-04). The coding section is built
+// ONLY when cfg.AgentEnabled; identity from cfg, pin/residency/cache from nil-safe
+// seams that degrade typed-Unknown. ---
+
+// agentCfg is the agent-ON config fixture: the standard qwen3/vulkan install plus
+// the persisted coding-agent fields (agent enabled, a coder model, coding mode on).
+func agentCfg() config.VillaConfig {
+	cfg := config.DefaultVillaConfig()
+	cfg.Model = "qwen3"
+	cfg.Quant = "Q4"
+	cfg.Ctx = 131072
+	cfg.AgentEnabled = true
+	cfg.CoderModel = "qwen3-coder"
+	cfg.CodingMode = true
+	return cfg
+}
+
+// newAgentDeps builds the agent-ON stub set: newDeps plus the agent-on config and
+// the three coding seams stubbed to confident-good values (pin match, swap
+// residency, a usable cache pair). Tests override individual seams to drive the
+// typed-Unknown cases.
+func newAgentDeps(t *testing.T) Deps {
+	t.Helper()
+	d := newDeps(t, loopbackUnits(t))
+	d.LoadConfig = func() (config.VillaConfig, error) { return agentCfg(), nil }
+	d.AgentPinMatch = func() string { return PinMatch }
+	d.AgentResidency = func() string { return recommend.ResidencySwap }
+	d.AgentCache = func() (uint64, uint64, bool) { return 84, 200, true }
+	return d
+}
+
+// TestRunCodingOffReport: an agent-OFF report carries Coding == nil so the
+// omitempty key is absent — the v4 --json differs from v3 only in schema_version
+// (D-02). SchemaVersion is the single 3→4 bump (==4).
+func TestRunCodingOffReport(t *testing.T) {
+	r := Run(newDeps(t, loopbackUnits(t)))
+	if r.Coding != nil {
+		t.Fatalf("agent-off report must carry Coding == nil, got %+v", r.Coding)
+	}
+	if r.SchemaVersion != 4 {
+		t.Errorf("SchemaVersion = %d, want 4 (single bump)", r.SchemaVersion)
+	}
+	blob, err := json.Marshal(r)
+	if err != nil {
+		t.Fatalf("marshal report: %v", err)
+	}
+	if strings.Contains(string(blob), `"coding"`) {
+		t.Errorf("agent-off --json must OMIT the coding key (omitempty pointer); got:\n%s", blob)
+	}
+}
+
+// TestRunCodingSection (D-01..D-04): the agent-on report carries the Coding
+// section with the LOCKED spellings — identity from cfg, pin tri-state, derived
+// residency, cache pct computed from the seam counts.
+func TestRunCodingSection(t *testing.T) {
+	r := Run(newAgentDeps(t))
+	if r.Coding == nil {
+		t.Fatalf("agent-on report must populate Coding")
+	}
+	c := r.Coding
+	if !c.Enabled {
+		t.Errorf("Enabled = false, want true (section built only when agent on)")
+	}
+	if c.Version == "" {
+		t.Errorf("Version empty, want the pinned crush policy version")
+	}
+	if c.Model != "qwen3-coder" {
+		t.Errorf("Model = %q, want qwen3-coder (from cfg.CoderModel)", c.Model)
+	}
+	if c.Mode != "coding" {
+		t.Errorf("Mode = %q, want coding (cfg.CodingMode on)", c.Mode)
+	}
+	if c.PinMatch != PinMatch {
+		t.Errorf("PinMatch = %q, want %q", c.PinMatch, PinMatch)
+	}
+	if c.Residency != recommend.ResidencySwap {
+		t.Errorf("Residency = %q, want %q (derived from the seam)", c.Residency, recommend.ResidencySwap)
+	}
+	if c.CacheEffectivenessPct == nil {
+		t.Fatalf("CacheEffectivenessPct nil, want a computed pct (both counts Known, prompt_n>0)")
+	}
+	if got := *c.CacheEffectivenessPct; got != 42.0 {
+		t.Errorf("CacheEffectivenessPct = %v, want 42.0 (84/200)", got)
+	}
+	if c.CacheN != 84 || c.PromptN != 200 {
+		t.Errorf("raw counts = %d/%d, want 84/200", c.CacheN, c.PromptN)
+	}
+}
+
+// TestRunCodingPinTriState (D-03): the pin compare is a tri-state — a nil seam OR
+// an empty return degrades to "unknown", never a fabricated confident state.
+func TestRunCodingPinTriState(t *testing.T) {
+	cases := []struct {
+		name string
+		seam func() string
+		want string
+	}{
+		{"match", func() string { return PinMatch }, PinMatch},
+		{"mismatch", func() string { return PinMismatch }, PinMismatch},
+		{"explicit unknown", func() string { return PinUnknown }, PinUnknown},
+		{"empty return → unknown", func() string { return "" }, PinUnknown},
+		{"nil seam → unknown", nil, PinUnknown},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			d := newAgentDeps(t)
+			d.AgentPinMatch = tc.seam
+			r := Run(d)
+			if r.Coding == nil || r.Coding.PinMatch != tc.want {
+				t.Fatalf("PinMatch = %v, want %q", r.Coding, tc.want)
+			}
+		})
+	}
+}
+
+// TestRunCodingResidencyTypedUnknown (D-03/SC1): residency is the DERIVED seam
+// value; a nil seam or an empty return leaves it "" so the key is OMITTED —
+// never a fabricated swap/shared, never read from cfg.
+func TestRunCodingResidencyTypedUnknown(t *testing.T) {
+	t.Run("seam swap → swap", func(t *testing.T) {
+		d := newAgentDeps(t)
+		d.AgentResidency = func() string { return recommend.ResidencySwap }
+		r := Run(d)
+		if r.Coding == nil || r.Coding.Residency != recommend.ResidencySwap {
+			t.Fatalf("Residency = %v, want swap", r.Coding)
+		}
+	})
+	t.Run("seam shared → shared", func(t *testing.T) {
+		d := newAgentDeps(t)
+		d.AgentResidency = func() string { return recommend.ResidencyShared }
+		r := Run(d)
+		if r.Coding == nil || r.Coding.Residency != recommend.ResidencyShared {
+			t.Fatalf("Residency = %v, want shared", r.Coding)
+		}
+	})
+	t.Run("empty return → omitted (typed-Unknown)", func(t *testing.T) {
+		d := newAgentDeps(t)
+		d.AgentResidency = func() string { return "" }
+		r := Run(d)
+		if r.Coding == nil || r.Coding.Residency != "" {
+			t.Fatalf("Residency = %v, want \"\" (omitted)", r.Coding)
+		}
+		blob, _ := json.Marshal(r)
+		if strings.Contains(string(blob), `"residency"`) {
+			t.Errorf("unevaluable residency must OMIT the key; got:\n%s", blob)
+		}
+	})
+	t.Run("nil seam → omitted (typed-Unknown, never fabricated)", func(t *testing.T) {
+		d := newAgentDeps(t)
+		d.AgentResidency = nil
+		r := Run(d)
+		if r.Coding == nil || r.Coding.Residency != "" {
+			t.Fatalf("nil residency seam must yield \"\", got %v", r.Coding)
+		}
+	})
+}
+
+// TestRunCodingCacheGate (D-10): the cache pct is set ONLY when the seam reports
+// ok AND prompt_n>0 — else nil pct + omitted counts (never a fabricated 0%).
+func TestRunCodingCacheGate(t *testing.T) {
+	t.Run("ok + prompt_n>0 → pct computed", func(t *testing.T) {
+		d := newAgentDeps(t)
+		d.AgentCache = func() (uint64, uint64, bool) { return 50, 100, true }
+		r := Run(d)
+		if r.Coding.CacheEffectivenessPct == nil || *r.Coding.CacheEffectivenessPct != 50.0 {
+			t.Fatalf("pct = %v, want 50.0", r.Coding.CacheEffectivenessPct)
+		}
+	})
+	t.Run("prompt_n==0 → nil pct, omitted counts (never 0%)", func(t *testing.T) {
+		d := newAgentDeps(t)
+		d.AgentCache = func() (uint64, uint64, bool) { return 0, 0, true }
+		r := Run(d)
+		if r.Coding.CacheEffectivenessPct != nil {
+			t.Fatalf("prompt_n==0 must leave pct nil, got %v", *r.Coding.CacheEffectivenessPct)
+		}
+		blob, _ := json.Marshal(r)
+		if strings.Contains(string(blob), `cache_effectiveness_pct`) || strings.Contains(string(blob), `"cache_n"`) {
+			t.Errorf("prompt_n==0 must omit pct + counts; got:\n%s", blob)
+		}
+	})
+	t.Run("not ok (unparseable scrape) → nil pct (never 0%)", func(t *testing.T) {
+		d := newAgentDeps(t)
+		d.AgentCache = func() (uint64, uint64, bool) { return 84, 200, false }
+		r := Run(d)
+		if r.Coding.CacheEffectivenessPct != nil {
+			t.Fatalf("not-ok scrape must leave pct nil, got %v", *r.Coding.CacheEffectivenessPct)
+		}
+	})
+	t.Run("nil seam → nil pct (typed-Unknown)", func(t *testing.T) {
+		d := newAgentDeps(t)
+		d.AgentCache = nil
+		r := Run(d)
+		if r.Coding.CacheEffectivenessPct != nil {
+			t.Fatalf("nil cache seam must leave pct nil, got %v", *r.Coding.CacheEffectivenessPct)
+		}
+	})
+	t.Run("cache_n>prompt_n (inconsistent sample) → nil pct, omitted counts (never >100%)", func(t *testing.T) {
+		// WR-04: the two counters come from distinct llama.cpp _total series scraped
+		// independently; a counter skew can yield cache_n>prompt_n, an impossible
+		// >100% ratio. Degrade to the gray Unknown badge (nil pct + omitted counts)
+		// rather than surface a fabricated-looking ratio.
+		d := newAgentDeps(t)
+		d.AgentCache = func() (uint64, uint64, bool) { return 250, 200, true }
+		r := Run(d)
+		if r.Coding.CacheEffectivenessPct != nil {
+			t.Fatalf("cache_n>prompt_n must leave pct nil (never >100%%), got %v", *r.Coding.CacheEffectivenessPct)
+		}
+		blob, _ := json.Marshal(r)
+		if strings.Contains(string(blob), `cache_effectiveness_pct`) || strings.Contains(string(blob), `"cache_n"`) {
+			t.Errorf("inconsistent sample must omit pct + counts; got:\n%s", blob)
 		}
 	})
 }

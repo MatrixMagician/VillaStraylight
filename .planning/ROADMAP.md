@@ -2,7 +2,7 @@
 
 ## Overview
 
-VillaStraylight is a control plane + managed workload: a single Go binary that inspects an AMD Strix Halo (gfx1151) Fedora host, recommends a hardware-fitting model/quant/context, generates rootless Podman Quadlet units, and brings up llama.cpp inference + Open WebUI chat + a read-only control dashboard — with zero data leaving the box. The north star throughout is "runs healthy after install" — every phase ends in something runnable and verifiable on the real hardware. v1.2 (Operability) extended that bar to "and stays operable, recoverable, and measurable over time." v1.3 (Memory & Knowledge) extends it again to "and remembers the user and their documents across chats — strictly local."
+VillaStraylight is a control plane + managed workload: a single Go binary that inspects an AMD Strix Halo (gfx1151) Fedora host, recommends a hardware-fitting model/quant/context, generates rootless Podman Quadlet units, and brings up llama.cpp inference + Open WebUI chat + a read-only control dashboard — with zero data leaving the box. The north star throughout is "runs healthy after install" — every phase ends in something runnable and verifiable on the real hardware. v1.2 (Operability) extended that bar to "and stays operable, recoverable, and measurable over time." v1.3 (Memory & Knowledge) extended it to "and remembers the user and their documents across chats — strictly local." v1.4 (Coding Agent) extends it again to "and gives the operator a strictly-local terminal coding agent, wired to a fit-guarded coding model."
 
 ## Milestones
 
@@ -10,6 +10,7 @@ VillaStraylight is a control plane + managed workload: a single Go binary that i
 - ✅ **v1.1 ROCm Opt-In Backend** — Phases 6–11 (shipped 2026-06-06, tag `v1.1`)
 - ✅ **v1.2 Operability** — Phases 12–17 (shipped 2026-06-08, tag `v1.2`)
 - ✅ **v1.3 Memory & Knowledge (local RAG)** — Phases 18–23 (shipped 2026-06-11, tag `v1.3`)
+- ✅ **v1.4 Coding Agent** — Phases 24–28 (shipped 2026-06-15, tag `v1.4`)
 
 Full per-phase detail for shipped milestones is archived under `.planning/milestones/`:
 
@@ -17,6 +18,7 @@ Full per-phase detail for shipped milestones is archived under `.planning/milest
 - `milestones/v1.1-ROADMAP.md` · `milestones/v1.1-REQUIREMENTS.md` · `milestones/v1.1-MILESTONE-AUDIT.md`
 - `milestones/v1.2-ROADMAP.md` · `milestones/v1.2-REQUIREMENTS.md` · `milestones/v1.2-MILESTONE-AUDIT.md`
 - `milestones/v1.3-ROADMAP.md` · `milestones/v1.3-REQUIREMENTS.md` · `milestones/v1.3-MILESTONE-AUDIT.md`
+- `milestones/v1.4-ROADMAP.md` · `milestones/v1.4-REQUIREMENTS.md` · `milestones/v1.4-MILESTONE-AUDIT.md`
 
 ## Phases
 
@@ -81,6 +83,23 @@ Audit PASSED — 22/22 requirements, 15/16 integration connections (0 blockers),
 
 </details>
 
+<details>
+<summary>✅ v1.4 Coding Agent (Phases 24–28) — SHIPPED 2026-06-15</summary>
+
+**Milestone goal:** A villa-orchestrated, strictly-local terminal coding agent as an optional install addon — **Crush v0.76.0** (research-selected over OpenCode on zero-outbound grounds), delivered as a pinned SHA-256-verified host binary with villa-rendered config, talking over loopback to a fit-guarded recommended coding model (Qwen3-Coder family) via a transactional swap-based coding mode. Codebase memory is agent-native (LSP + ripgrep + context files); the original Qdrant code-collection premise was researched and **rejected on evidence** — villa-qdrant/villa-embed stay untouched. Zero new outbound, proven at runtime, negative-control-first.
+
+**Build order was research-converged (mirrors the proven v1.2/v1.3 shape):** fit math + on-hardware model qualification first (schema bumps land once, early), render/swap before the agent exists so the endpoint contract is golden-frozen first, agent delivery core next, the install addon + egress/cloud-fallback proofs over the full assembly, and ALL surfacing last — the single `status.Report` 3→4 bump with exactly one golden re-freeze.
+
+- [x] Phase 24: Coder Fit Math, Catalog & On-Hardware Model Qualification (4/4 plans) — completed 2026-06-13 (catalog FROZEN, D-13 toolbox keep; CODER-01/02/03)
+- [x] Phase 25: Coding-Mode Render & Transactional Swap Verb (2/2 plans) — completed 2026-06-13 (25-VERIFICATION 9/9; CMODE-01/02)
+- [x] Phase 26: Agent Delivery Core & Lockdown Launcher (3/3 plans) — completed 2026-06-13 (binary SHA pinned on-hardware, `crush run` round-trip + drift-refusal; AGENT-01/02/03/04)
+- [x] Phase 27: Install Addon, Preflight Gates & `villa verify agent` (6/6 plans) — completed 2026-06-14 (on-hardware readiness + PRIV-06 under real rootless-netns egress block; gap-closure 27-05/06; INSTALL-03/04, PRIV-06)
+- [x] Phase 28: Agent Surfacing & Contracts (3/3 plans) — completed 2026-06-15 (`status.Report` 3→4 single re-freeze, dashboard Agent panel, doctor/backup/usage; SURF-01/02/03, USAGE-03/04)
+
+Audit `tech_debt` — 17/17 requirements satisfied, integration PASS (7/7 seam groups, 0 blockers), 6/6 E2E flows, Nyquist 4/5 (Phase 28 contract open); no blockers, debt acknowledged at close. See `milestones/v1.4-ROADMAP.md` for full phase detail, success criteria, and plan breakdowns.
+
+</details>
+
 ## Progress
 
 | Phase | Milestone | Plans Complete | Status | Completed |
@@ -102,9 +121,14 @@ Audit PASSED — 22/22 requirements, 15/16 integration connections (0 blockers),
 | 15. Cumulative Usage Tracking | v1.2 | 4/4 | Complete | 2026-06-07 |
 | 16. Backup / Restore | v1.2 | 3/3 | Complete | 2026-06-07 |
 | 17. Guided TUI Install | v1.2 | 3/3 | Complete | 2026-06-08 |
-| 18. Memory Spine — config core + research spike | v1.3 | 2/2 | Complete    | 2026-06-09 |
-| 19. Vector Store + Local Embeddings Services | v1.3 | 3/3 | Complete    | 2026-06-09 |
-| 20. Open WebUI Memory/RAG Wiring + Offline Lockdown | v1.3 | 3/3 | Complete    | 2026-06-10 |
-| 21. Conversational Recall Indexer | v1.3 | 3/3 | Complete    | 2026-06-10 |
-| 22. Control-Plane Fit + Host Gate | v1.3 | 4/4 | Complete    | 2026-06-10 |
-| 23. Surfacing, Backup & Memory-Aware Swap | v1.3 | 5/5 | Complete    | 2026-06-10 |
+| 18. Memory Spine — config core + research spike | v1.3 | 2/2 | Complete | 2026-06-09 |
+| 19. Vector Store + Local Embeddings Services | v1.3 | 3/3 | Complete | 2026-06-09 |
+| 20. Open WebUI Memory/RAG Wiring + Offline Lockdown | v1.3 | 3/3 | Complete | 2026-06-10 |
+| 21. Conversational Recall Indexer | v1.3 | 3/3 | Complete | 2026-06-10 |
+| 22. Control-Plane Fit + Host Gate | v1.3 | 4/4 | Complete | 2026-06-10 |
+| 23. Surfacing, Backup & Memory-Aware Swap | v1.3 | 5/5 | Complete | 2026-06-10 |
+| 24. Coder Fit Math, Catalog & On-Hardware Model Qualification | v1.4 | 4/4 | Complete    | 2026-06-13 |
+| 25. Coding-Mode Render & Transactional Swap Verb | v1.4 | 2/2 | Complete    | 2026-06-13 |
+| 26. Agent Delivery Core & Lockdown Launcher | v1.4 | 3/3 | Complete | 2026-06-13 |
+| 27. Install Addon, Preflight Gates & `villa verify agent` | v1.4 | 6/6 | Complete    | 2026-06-14 |
+| 28. Agent Surfacing & Contracts | v1.4 | 3/3 | Complete   | 2026-06-15 |

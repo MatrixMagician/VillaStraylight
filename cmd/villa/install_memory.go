@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -366,4 +367,61 @@ func runProbeCurl(ctx context.Context, helperImage string, curlArgs ...string) (
 		return nil, err
 	}
 	return stdout.Bytes(), nil
+}
+
+// runProbeCurlCode is the exit-code-aware sibling of runProbeCurl (additive — runProbeCurl is
+// unchanged for its existing callers). It runs the SAME fixed-arg `podman run --rm --network
+// villa --entrypoint curl <helperImage> curl <args...>` and additionally returns the numeric
+// process exit code. podman propagates the container process's (curl's) exit code, so callers
+// can distinguish a curl CONNECTION/TIMEOUT failure (6/7/28 — a genuine block) from an
+// infrastructure failure where the container never started or curl was absent (WR-01: "the
+// host was blocked" vs "the probe could not run").
+//
+// The exit code is extracted via errors.As on *exec.ExitError. When the container could not be
+// started at all (a non-ExitError failure — e.g. podman missing/daemon error), the exit code
+// is reported as -1 (never a curl exit value), so the caller treats it as infrastructure, not
+// a block.
+func runProbeCurlCode(ctx context.Context, helperImage string, curlArgs ...string) (stdout []byte, exitCode int, err error) {
+	args := []string{
+		"run", "--rm",
+		"--network", memoryProofNetwork,
+		"--entrypoint", "curl",
+		helperImage,
+	}
+	args = append(args, curlArgs...)
+	cmd := exec.CommandContext(ctx, "podman", args...) // fixed args; no shell
+	var out, stderr bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &stderr
+	runErr := cmd.Run()
+	if runErr == nil {
+		return out.Bytes(), 0, nil
+	}
+	code := extractExitCode(runErr)
+	if stderr.Len() > 0 {
+		return out.Bytes(), code, fmt.Errorf("%w: %s", runErr, stderr.String())
+	}
+	return out.Bytes(), code, runErr
+}
+
+// extractExitCode is the load-bearing WR-01 exit-code mapping pulled out of runProbeCurlCode so
+// it can be anchored by a real-exec test (the full podman-run helper is not driveable off-
+// hardware). It is the SINGLE point that decides "this is a genuine process exit code" vs "the
+// process never started" — the distinction the egress negative control's honesty rests on:
+//
+//   - runErr is an *exec.ExitError (the process ran and exited non-zero): return its ExitCode().
+//     podman propagates the container process's (curl's) exit code unchanged, so a curl
+//     CONNECTION/TIMEOUT (6/7/28) surfaces here and the classifier reads it as a genuine block.
+//   - runErr is anything else (binary missing, podman daemon error, context cancel/timeout — a
+//     non-ExitError failure): the process never produced an exit code, so return -1. The caller
+//     MUST treat -1 as infrastructure ("the probe could not run"), NEVER as a curl exit value
+//     and NEVER as a block (classifyEgressProbe's default branch).
+//
+// runErr == nil is not this function's concern (the caller short-circuits to 0 before calling).
+func extractExitCode(runErr error) int {
+	var exitErr *exec.ExitError
+	if errors.As(runErr, &exitErr) {
+		return exitErr.ExitCode()
+	}
+	return -1
 }

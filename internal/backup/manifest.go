@@ -30,7 +30,16 @@ import (
 //     reflects the CONTRACT: an old villa fails closed on a v2 backup (it
 //     cannot honor the memory entries); v1 backups STAY restorable because
 //     the gate is m.SchemaVersion <= backupSchemaVersion.
-const backupSchemaVersion = 2
+//   - v3 (Phase 28, SURF-03/D-08): adds the OPTIONAL coding-agent coverage —
+//     the rendered crush.json archive entry and the ExcludedAgent identity
+//     record (sha256 + version + pin sha256) of the EXCLUDED agent binary
+//     (bytes never archived, exactly like model weights — BAK-01). Same D-04
+//     contract: an old villa fails closed on a v3 backup; v2/v1 backups stay
+//     restorable (the gate is m.SchemaVersion <= backupSchemaVersion). An
+//     agent-OFF backup records NO agent entry / NO ExcludedAgent and stays
+//     byte-/layout-identical to a v2 archive (the bump only widens the contract
+//     for an agent-ON backup).
+const backupSchemaVersion = 3
 
 // Archive entry names (the deterministic outer-tar layout, D-03). manifest.json
 // is FIRST so a reader parses the manifest before validating the rest. The bench
@@ -46,6 +55,13 @@ const (
 	EntryBenchReports    = "bench-reports.jsonl"
 	EntryQdrantVolume    = "qdrant-volume.tar"
 	EntryRecallState     = "recall-state.json"
+	// EntryCrushConfig is the OPTIONAL Phase-28 coding-agent entry (SURF-03/D-08):
+	// the RENDERED crush.json (the villa-authored agent config — kill switches +
+	// loopback provider, no cloud credentials by construction, AGENT-02). Present
+	// ONLY in an agent-on backup; checksummed and verified exactly like every other
+	// archive member. The agent BINARY is NEVER an archive entry — only its identity
+	// is recorded (ExcludedAgent), mirroring the excluded model weights (BAK-01).
+	EntryCrushConfig = "crush.json"
 )
 
 // EntryChecksum is one archive member's name and its lowercase-hex SHA-256
@@ -65,6 +81,29 @@ type ExcludedModel struct {
 	Quant  string `json:"quant"`
 	Ctx    string `json:"ctx"`
 	Source string `json:"source"`
+}
+
+// ExcludedAgent is the IDENTITY of the coding-agent (Crush) binary that the
+// backup deliberately EXCLUDES (SURF-03/D-08), recorded so restore can re-stage
+// it (re-download the pinned release) and refuse-with-remediation on identity
+// drift — exactly the ExcludedModel model-weights pattern (BAK-01). It carries
+// the on-disk binary's SHA-256, the pinned policy version, and the policy's
+// pinned binary SHA-256 ONLY — NEVER any prompt/response/content text (asserted
+// by the reflect-over-allow-set + JSON-denylist test, cloned from
+// TestExcludedModelHasNoContentFields). The binary BYTES are never archived.
+type ExcludedAgent struct {
+	// SHA256 is the lowercase-hex SHA-256 of the on-disk villa-owned crush binary
+	// at backup time (identity for the restore re-stage verify).
+	SHA256 string `json:"sha256"`
+	// Version is the pinned Crush release recorded for re-stage (e.g. "v0.76.0"),
+	// sourced from the embedded crush-policy.json by the cmd tier.
+	Version string `json:"version"`
+	// PinSHA256 is the policy-pinned EXTRACTED-binary SHA-256 (CrushAsset
+	// BinarySHA256) — the expected identity restore re-stages against. A drift
+	// between SHA256 and PinSHA256 is surfaced for the operator; "" means the pin
+	// was not yet recorded on-hardware (the typed-Unknown sentinel — never a false
+	// confident drift).
+	PinSHA256 string `json:"pin_sha256"`
 }
 
 // HostFingerprint is the plain-string host identity recorded for skew compare
@@ -122,6 +161,13 @@ type Manifest struct {
 	// (recall.SchemaVersion(), accessor-sourced — Phase 23). Zero means "not
 	// recorded" (memory-off / pre-v2 backup) and never blocks.
 	RecallSchemaVersion int `json:"recall_schema_version,omitempty"`
+	// ExcludedAgent is the IDENTITY of the EXCLUDED coding-agent binary (Phase 28,
+	// SURF-03/D-08), recorded ONLY on an agent-on backup so restore can re-stage it
+	// and fail-closed on identity drift — the binary bytes are NEVER archived
+	// (clone of ExcludedModels weights exclusion, BAK-01). A *ExcludedAgent +
+	// omitempty: an agent-off backup OMITS the key entirely, so the archive stays
+	// byte-/layout-identical to a v2 manifest (never a fabricated agent claim).
+	ExcludedAgent *ExcludedAgent `json:"excluded_agent,omitempty"`
 	// SchemaVersion is the manifest's own self-version. APPEND-ONLY: this stays the
 	// LAST field; new fields go ABOVE it (D-09).
 	SchemaVersion int `json:"schema_version"`
@@ -150,6 +196,11 @@ type ManifestInput struct {
 	EmbeddingModel      string
 	EmbeddingDim        int
 	RecallSchemaVersion int
+	// ExcludedAgent is the Phase-28 coding-agent identity record (SURF-03/D-08):
+	// the cmd tier sets it ONLY on an agent-on backup (nil otherwise, so the
+	// manifest omits the key and the archive stays v2-layout-identical). Identity
+	// only — the binary bytes are never archived.
+	ExcludedAgent *ExcludedAgent
 }
 
 // BuildManifest is the pure assembly of a Manifest from plain-data input. It
@@ -170,6 +221,7 @@ func BuildManifest(in ManifestInput) Manifest {
 		EmbeddingModel:      in.EmbeddingModel,
 		EmbeddingDim:        in.EmbeddingDim,
 		RecallSchemaVersion: in.RecallSchemaVersion,
+		ExcludedAgent:       in.ExcludedAgent,
 		SchemaVersion:       backupSchemaVersion,
 	}
 }

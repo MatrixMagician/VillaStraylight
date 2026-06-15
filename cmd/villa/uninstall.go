@@ -74,6 +74,19 @@ type uninstallDeps struct {
 	userUnitDir         func() (string, error)
 	removeDashboardUnit func(dir, name string) error
 
+	// Coding-agent addon teardown seams (v1.4 / D-10). Both are ALWAYS removed,
+	// idempotently (an absent file is NOT an error — a re-uninstall, or an uninstall
+	// after an agent-off install, succeeds):
+	//   - removeAgentBinary removes the villa-owned crush binary at agentBinPath()
+	//     ($XDG_DATA_HOME/villa/bin/crush), traversal-guarded inside agentBinDir().
+	//   - removeCrushConfig removes the rendered crush.json at crushConfigPath()
+	//     (~/.config/crush/crush.json), traversal-guarded inside its parent dir.
+	// The staged coder GGUF is NOT a seam here — it lives in modelsDir() and is governed
+	// by the existing keep/remove-models choice (default keep). config.toml is LEFT
+	// (no seam touches it) — the deliberate-absence invariant above still holds.
+	removeAgentBinary func() error
+	removeCrushConfig func() error
+
 	// disableLinger reverses install's enable-linger (`loginctl disable-linger`).
 	disableLinger func(user string) error
 	// username resolves the current user for disable-linger.
@@ -166,6 +179,25 @@ func runUninstall(cmd *cobra.Command, opts uninstallOpts, d *uninstallDeps) int 
 		fmt.Fprintf(errOut, "uninstall: daemon-reload (dashboard) failed: %v\n", err)
 		return exitBlocked
 	}
+
+	// (0b) Coding-agent addon teardown (v1.4 / D-10): ALWAYS remove the villa-owned
+	// crush binary and the rendered crush.json, in that order, at this deterministic
+	// position — after the dashboard teardown, before the container stop. Ordering IS
+	// the contract (D-10), asserted by uninstall_test.go. Both removals are idempotent
+	// (an absent file is not an error), so a re-uninstall — or an uninstall after an
+	// agent-off install — succeeds. The staged coder GGUF is NOT touched here: it lives
+	// in modelsDir(), governed by the existing keep/remove-models choice (default keep).
+	// config.toml is likewise LEFT — there is no seam that touches it (D-10).
+	if err := d.removeAgentBinary(); err != nil {
+		fmt.Fprintf(errOut, "uninstall: remove coding agent binary failed: %v\n", err)
+		return exitBlocked
+	}
+	fmt.Fprintf(out, "removed coding agent binary\n")
+	if err := d.removeCrushConfig(); err != nil {
+		fmt.Fprintf(errOut, "uninstall: remove coding agent config (crush.json) failed: %v\n", err)
+		return exitBlocked
+	}
+	fmt.Fprintf(out, "removed coding agent config (crush.json)\n")
 
 	// (1) down: stop every generated service first. A stop failure aborts BEFORE any
 	// file removal — we never leave dangling units after a failed stop. Stop in the
@@ -299,10 +331,49 @@ func liveUninstallDeps() *uninstallDeps {
 		disable:             sys.Disable,
 		userUnitDir:         orchestrate.UserUnitDir,
 		removeDashboardUnit: removeUnitFileLive,
-		username:            installUsername,
-		interactive:         stdinIsInteractive,
-		consent:             promptConsent,
+
+		// Coding-agent addon teardown (D-10): reuse agentBinPath()/crushConfigPath() from
+		// code.go (DRY — the same paths install_agent.go stages to) with a traversal-guarded
+		// idempotent os.Remove. ALWAYS removed; an absent file is tolerated.
+		removeAgentBinary: removeAgentBinaryLive,
+		removeCrushConfig: removeCrushConfigLive,
+
+		username:    installUsername,
+		interactive: stdinIsInteractive,
+		consent:     promptConsent,
 	}
+}
+
+// removeAgentBinaryLive removes the villa-owned crush binary at agentBinPath()
+// ($XDG_DATA_HOME/villa/bin/crush), confining the path inside agentBinDir() before
+// removing (traversal guard, mirroring removeUnitFileLive/assertUnitInsideDir) and
+// tolerating an already-absent file (idempotent re-uninstall — D-10).
+func removeAgentBinaryLive() error {
+	target := agentBinPath()
+	if err := assertUnitInsideDir(target, agentBinDir()); err != nil {
+		return err
+	}
+	if err := os.Remove(target); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
+
+// removeCrushConfigLive removes the rendered crush.json at crushConfigPath()
+// (~/.config/crush/crush.json), confining the path inside its parent dir before
+// removing (traversal guard) and tolerating an already-absent file (idempotent — D-10).
+func removeCrushConfigLive() error {
+	target, err := crushConfigPath()
+	if err != nil {
+		return err
+	}
+	if err := assertUnitInsideDir(target, filepath.Dir(target)); err != nil {
+		return err
+	}
+	if err := os.Remove(target); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
 }
 
 // removeUnitFileLive removes one generated unit file, refusing any name that escapes

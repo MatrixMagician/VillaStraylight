@@ -90,6 +90,19 @@ func Render(in RenderInput) ([]Unit, error) {
 		ContextLen:    in.Cfg.Ctx,
 	}
 
+	// D-05 single point: turn "coding_mode=true in config" into the rendered tool-calling
+	// unit. The CALLER (Plan-02 live wiring) resolves the coder catalog entry from
+	// cfg.CoderModel and translates catalog.AgentSampling → inference.Sampling, handing
+	// Render the already-translated descriptor on RenderInput — so the pure renderer never
+	// imports internal/catalog. When the descriptor is present, the single -c carries the
+	// resolved agent ctx (Pitfall 1: spec.ContextLen = CoderAgentCtx, never a second -c).
+	// When absent (in.CodingMode == nil) spec is left exactly as v1.3, so the off-path
+	// goldens are byte-identical BY CONSTRUCTION (D-02).
+	if in.CodingMode != nil {
+		spec.CodingMode = in.CodingMode
+		spec.ContextLen = in.CoderAgentCtx
+	}
+
 	cv, err := parseContainerArgs(in.Backend.Image(), in.Backend.ContainerArgs(spec))
 	if err != nil {
 		return nil, err

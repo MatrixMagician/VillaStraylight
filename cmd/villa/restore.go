@@ -158,6 +158,26 @@ func runRestore(cmd *cobra.Command, archivePath string, in backup.RestoreInput, 
 			posture = "enabled"
 		}
 		fmt.Fprintf(out, "memory stack: %s (restored config); note: a reconcile does not remove stale unit files — bring services up with `villa up`\n", posture)
+		// Honest Phase-28 coding-agent reporting (SURF-03/D-08): report whether the
+		// rendered crush.json was restored AND surface the EXCLUDED agent binary
+		// identity for re-stage (the binary bytes were never in the archive, exactly
+		// like model weights — re-download the pinned release; identity verify is
+		// fail-closed on drift).
+		switch {
+		case res.CrushConfigRestored:
+			fmt.Fprintf(out, "coding agent: crush.json restored\n")
+		case res.CrushConfigSkipped:
+			// WR-02: the archive CARRIED crush.json but the current install is
+			// agent-off, so no destination was wired and the entry was NOT applied.
+			// Report the skip honestly — the restored config.toml may believe the
+			// agent is enabled while its crush.json was never restored.
+			fmt.Fprintf(out, "coding agent: archive carried crush.json but the current install is agent-off — NOT applied; re-run `villa install --coding-agent` then restore, or it will not be applied\n")
+		default:
+			fmt.Fprintf(out, "coding agent: no agent config in this backup — left untouched\n")
+		}
+		if res.ExcludedAgent != nil {
+			fmt.Fprintf(out, "coding agent: binary not in the backup (identity recorded) — re-stage the pinned release with `villa install --coding-agent` (pinned %s); the re-stage verifies identity and refuses on drift\n", res.ExcludedAgent.Version)
+		}
 		return exitPass, false
 	}
 }
@@ -240,6 +260,18 @@ func liveRestore(cmd *cobra.Command, archivePath string, bypass bool) (backup.Re
 		RecallDestPath:    recall.RecallStatePath(),
 	}
 	in.QdrantVolumeExists, in.QdrantVolumeUnknown = volumeExistsTri(orchestrate.QdrantVolumeName(), errOut)
+	// Phase-28 coding-agent crush.json destination (SURF-03/D-08): wired ONLY when
+	// the agent is enabled (the AUTHORITATIVE persisted gate, mirroring the backup
+	// side), so an agent-off restore makes ZERO crush.json writes even if an archive
+	// carries the entry. crushConfigPath() resolves ~/.config/crush/crush.json
+	// (OUTSIDE the data-store root — restored via the dedicated WriteCrushConfig seam).
+	if cfg.AgentEnabled {
+		if crushPath, perr := crushConfigPath(); perr == nil {
+			in.CrushConfigDestPath = crushPath
+		} else {
+			fmt.Fprintf(errOut, "restore: warning: cannot resolve crush.json path (agent config will not be restored): %v\n", perr)
+		}
+	}
 	return in, liveRestoreDeps(), tmpDir, exitPass
 }
 
@@ -378,6 +410,24 @@ func liveRestoreDeps() backup.Deps {
 		RemoveFile: func(path string) error {
 			if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 				return err
+			}
+			return nil
+		},
+		// WriteCrushConfig restores the OPTIONAL crush.json entry to ~/.config/crush/
+		// (OUTSIDE the villa data-store root — SURF-03/D-08), so it must NOT use the
+		// store-root-guarded usage.WriteFileAtomic. It mirrors code.go's WriteConfig
+		// discipline: traversal-guard the path within its dir, MkdirAll 0700, WriteFile
+		// 0600. The path is the XDG-resolved crush config path, never user input.
+		WriteCrushConfig: func(path string, data []byte) error {
+			dir := filepath.Dir(path)
+			if err := assertWithinDir(path, dir); err != nil {
+				return err
+			}
+			if err := os.MkdirAll(dir, 0o700); err != nil {
+				return fmt.Errorf("restore: create crush config dir: %w", err)
+			}
+			if err := os.WriteFile(path, data, 0o600); err != nil {
+				return fmt.Errorf("restore: write crush.json: %w", err)
 			}
 			return nil
 		},

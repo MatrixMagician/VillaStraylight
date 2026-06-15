@@ -36,6 +36,14 @@ type fakeUninstallDeps struct {
 	// calls and the dashboard unit file removal.
 	dashDisabled    []string
 	removedDashUnit []string
+
+	// Coding-agent teardown (D-10): records the ALWAYS-removed crush binary + crush.json
+	// seam calls (each must fire exactly once, idempotently). agentBinErr / crushCfgErr
+	// let a test inject a removal error.
+	agentBinRemoved int
+	crushCfgRemoved int
+	agentBinErr     error
+	crushCfgErr     error
 }
 
 func newFakeUninstallDeps(t *testing.T, units []orchestrate.Unit, unitDir string) *fakeUninstallDeps {
@@ -79,6 +87,16 @@ func newFakeUninstallDeps(t *testing.T, units []orchestrate.Unit, unitDir string
 		f.order = append(f.order, "rmdash:"+name)
 		f.removedDashUnit = append(f.removedDashUnit, name)
 		return nil
+	}
+	d.removeAgentBinary = func() error {
+		f.order = append(f.order, "rmagentbin")
+		f.agentBinRemoved++
+		return f.agentBinErr
+	}
+	d.removeCrushConfig = func() error {
+		f.order = append(f.order, "rmcrushcfg")
+		f.crushCfgRemoved++
+		return f.crushCfgErr
 	}
 	f.uninstallDeps = d
 	return f
@@ -188,6 +206,97 @@ func TestUninstallTearsDownDashboard(t *testing.T) {
 	}
 	if !(containerStopI > dashRmI) {
 		t.Fatalf("dashboard must be torn down before the container services: %v", f.order)
+	}
+}
+
+// TestUninstallRemovesAgentArtifacts (D-10): uninstall ALWAYS removes the villa-owned
+// crush binary + the rendered crush.json, exactly once each, at a deterministic position
+// in the ordered teardown — after the dashboard teardown, before the container stop —
+// regardless of the keep/remove-models choice.
+func TestUninstallRemovesAgentArtifacts(t *testing.T) {
+	dir := t.TempDir()
+	f := newFakeUninstallDeps(t, sampleUnits(), dir)
+	cmd, _, errOut := uninstallTestCmd()
+
+	if code := runUninstall(cmd, uninstallOpts{keepModels: true}, f.uninstallDeps); code != exitPass {
+		t.Fatalf("expected exit %d, got %d (stderr: %s)", exitPass, code, errOut.String())
+	}
+
+	// Both ALWAYS-removed seams fired exactly once.
+	if f.agentBinRemoved != 1 || f.crushCfgRemoved != 1 {
+		t.Fatalf("agent teardown must fire each removal once: bin=%d cfg=%d", f.agentBinRemoved, f.crushCfgRemoved)
+	}
+
+	idx := func(want string) int {
+		for i, s := range f.order {
+			if s == want {
+				return i
+			}
+		}
+		return -1
+	}
+	binI := idx("rmagentbin")
+	cfgI := idx("rmcrushcfg")
+	dashRmI := idx("rmdash:" + orchestrate.DashboardServiceName)
+	containerStopI := idx("stop:villa-llama.service")
+
+	// Deterministic position: after the dashboard removal, before the container stop.
+	if !(binI > dashRmI && cfgI > dashRmI) {
+		t.Fatalf("agent removals must run AFTER the dashboard teardown: %v", f.order)
+	}
+	if !(binI < containerStopI && cfgI < containerStopI) {
+		t.Fatalf("agent removals must run BEFORE the container stop: %v", f.order)
+	}
+}
+
+// TestUninstallAgentRemovalIdempotent (D-10): an absent crush binary / crush.json is NOT
+// an error — a re-uninstall (or an uninstall after an agent-off install) succeeds. The
+// live seams tolerate os.IsNotExist; here the fake seams return nil to model the absent
+// case, and uninstall must still complete cleanly.
+func TestUninstallAgentRemovalIdempotent(t *testing.T) {
+	dir := t.TempDir()
+	f := newFakeUninstallDeps(t, sampleUnits(), dir)
+	cmd, _, errOut := uninstallTestCmd()
+
+	if code := runUninstall(cmd, uninstallOpts{keepModels: true}, f.uninstallDeps); code != exitPass {
+		t.Fatalf("idempotent agent teardown must succeed; exit=%d stderr=%s", code, errOut.String())
+	}
+}
+
+// TestUninstallAgentRemovalErrorAborts (D-10): a genuine removal error (not absence)
+// aborts the teardown with a refuse-with-remediation message, mirroring the other
+// host-touching steps' short-circuit discipline.
+func TestUninstallAgentRemovalErrorAborts(t *testing.T) {
+	dir := t.TempDir()
+	f := newFakeUninstallDeps(t, sampleUnits(), dir)
+	f.agentBinErr = errors.New("permission denied")
+	cmd, _, errOut := uninstallTestCmd()
+
+	if code := runUninstall(cmd, uninstallOpts{keepModels: true}, f.uninstallDeps); code != exitBlocked {
+		t.Fatalf("an agent-binary removal error must abort; exit=%d", code)
+	}
+	if !strings.Contains(errOut.String(), "coding agent") && !strings.Contains(errOut.String(), "crush") {
+		t.Errorf("a removal failure must name the artifact; got: %s", errOut.String())
+	}
+}
+
+// TestUninstallAgentTeardownNoConfigTouch (D-10): the agent teardown adds NO seam that
+// writes/deletes config.toml — the config-left invariant holds even with the agent
+// removals present. Asserted by the file surviving an uninstall in the same dir.
+func TestUninstallAgentTeardownNoConfigTouch(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.toml")
+	if err := os.WriteFile(cfgPath, []byte("agent_enabled = true\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f := newFakeUninstallDeps(t, sampleUnits(), dir)
+	cmd, _, _ := uninstallTestCmd()
+
+	if code := runUninstall(cmd, uninstallOpts{removeModels: true}, f.uninstallDeps); code != exitPass {
+		t.Fatalf("unexpected exit %d", code)
+	}
+	if _, err := os.Stat(cfgPath); err != nil {
+		t.Fatalf("config.toml (with agent_enabled) must be preserved by the agent teardown: %v", err)
 	}
 }
 

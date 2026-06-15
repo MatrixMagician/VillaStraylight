@@ -18,6 +18,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 	"github.com/MatrixMagician/VillaStraylight/internal/recall"
+	"github.com/MatrixMagician/VillaStraylight/internal/recommend"
 	"github.com/MatrixMagician/VillaStraylight/internal/status"
 )
 
@@ -407,6 +408,71 @@ func TestStatusJSONGoldenMemoryOn(t *testing.T) {
 	}
 	if !bytes.Equal(out.Bytes(), want) {
 		t.Errorf("memory-on status --json does not match golden.\n--- got ---\n%s\n--- want ---\n%s", out.String(), want)
+	}
+}
+
+// codingStatusCfg is the agent-ON config fixture for the v4 coding golden: the
+// standard qwen3/vulkan install plus the persisted coding-agent fields (agent
+// enabled, a coder model, coding mode on). Sourced from DefaultVillaConfig — no
+// re-typed literals.
+func codingStatusCfg() config.VillaConfig {
+	cfg := config.DefaultVillaConfig()
+	cfg.Model = "qwen3"
+	cfg.Quant = "Q4"
+	cfg.Ctx = 131072
+	cfg.AgentEnabled = true
+	cfg.CoderModel = "qwen3-coder"
+	cfg.CodingMode = true
+	return cfg
+}
+
+// newCodingStatusDeps builds the agent-ON stubbed deps for the v4 golden: the base
+// healthy stubs plus the agent-on config and the three coding seams stubbed to
+// confident-good values (pin match, swap residency via the recommend CONSTANT, a
+// usable cache pair). Deterministic so the golden is byte-stable.
+func newCodingStatusDeps(t *testing.T) *status.Deps {
+	t.Helper()
+	d := newStatusDeps(t, loopbackUnits(t))
+	d.LoadConfig = func() (config.VillaConfig, error) { return codingStatusCfg(), nil }
+	d.AgentPinMatch = func() string { return status.PinMatch }
+	d.AgentResidency = func() string { return recommend.ResidencySwap }
+	d.AgentCache = func() (uint64, uint64, bool) { return 84, 200, true }
+	return d
+}
+
+// TestStatusJSONGoldenCodingOn freezes the AGENT-ON v4 --json contract byte-for-
+// byte (D-01..D-04, the v1.4 milestone's single contract evolution): the coding
+// section with version/pin/model/mode/residency + the cache ratio, schema_version
+// 4. Run with -update to regenerate (refreeze BOTH status goldens together).
+func TestStatusJSONGoldenCodingOn(t *testing.T) {
+	d := newCodingStatusDeps(t)
+	cmd, out, _ := statusTestCmd()
+
+	jsonOut = true
+	defer func() { jsonOut = false }()
+
+	code := runStatus(cmd, nil, d)
+	if code != exitPass {
+		t.Fatalf("healthy agent-on status: exit = %d, want %d (out: %s)", code, exitPass, out.String())
+	}
+
+	golden := filepath.Join("testdata", "status-coding.json.golden")
+	if *update {
+		if err := os.MkdirAll("testdata", 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(golden, out.Bytes(), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		t.Logf("updated %s", golden)
+		return
+	}
+	want, err := os.ReadFile(golden)
+	if err != nil {
+		t.Fatalf("read golden (run with -update to create): %v", err)
+	}
+	if !bytes.Equal(out.Bytes(), want) {
+		t.Errorf("agent-on status --json does not match golden.\n--- got ---\n%s\n--- want ---\n%s", out.String(), want)
 	}
 }
 

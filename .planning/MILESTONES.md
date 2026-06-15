@@ -1,5 +1,34 @@
 # Milestones
 
+## v1.4 Coding Agent (Shipped: 2026-06-15)
+
+**Phases completed:** 5 phases (24–28), 18 plans, 39 tasks
+**Git range:** `v1.3` → v1.4 (151 commits, 301 files changed, +279,585 / −150,093 incl. planning + graphify artifacts)
+**Timeline:** 2026-06-12 → 2026-06-15
+**Codebase:** ~59.9k Go LOC; full suite green (`go test ./...` 1321 passed / 24 pkgs / 0 fail; `TestSeamGrepGate` green)
+**Audit:** `tech_debt` — 17/17 requirements satisfied, cross-phase integration PASS (7/7 seam groups wired, 0 blockers), 6/6 E2E flows complete, Nyquist 4/5 (Phase 28 contract open); no blockers, debt acknowledged at close (see `milestones/v1.4-MILESTONE-AUDIT.md`)
+**Known deferred items at close:** 4 (2 benign open artifacts + the 27-04 backend-revert bug + the Phase-28 Nyquist gap; see STATE.md → Deferred Items)
+
+**Theme:** the operator now has a *strictly-local terminal coding agent wired to a fit-guarded coding model* — **Crush v0.76.0** delivered as a pinned, SHA-256-verified host binary with villa-rendered config, talking over loopback to a recommended Qwen3-Coder model via a transactional swap-based coding mode. Codebase memory is agent-native (LSP + ripgrep + context files); the Qdrant code-collection premise was researched and **rejected on evidence**. Zero new outbound, proven at runtime, negative-control-first; `status.Report` evolved exactly once (3→4).
+
+**Key accomplishments:**
+
+- **Coder fit math, catalog & on-hardware qualification (CODER-01/02/03)** — catalog schema 2→3 ships three revision-pinned `role:"coder"` entries (Qwen3-Coder-30B-A3B @65536; Qwen3-Coder-Next Q4/Q3 @131072) behind a refuse-never-clamp trust boundary; `recommend` computes a coder fit at agent-profile ctx (after embed reservation + chat fit) and emits residency (`swap`/`shared`) as a pure inequality output stamped on every path including refusals (schema 2→3, one golden re-freeze). All three entries PASS real agent-in-the-loop qualification on the gfx1151 box via the pinned build-9496 toolbox digest (49/49 offload, exact-match KV, real Crush read→edit→verify loops); D-13 toolbox-keep recorded, catalog operator-frozen.
+- **Coding-mode render + transactional swap verb (CMODE-01/02)** — a tool-calling-ready llama-server unit delta (`--jinja`, single `-c <agent_ctx>`, sampling preset, fail-closed `--cache-reuse`) appended behind the inference/orchestrate seams from append-only config fields, off-path byte-identical to v1.3 (seam-gate extended to lock the new literals); plus a pure `internal/codingmode` core cloning the `backendswap` capture→mutate→under-load-prove→verbatim-rollback frame and composing `modelswap`, driving the explicit `villa coding-mode enter|exit` verb — idle-green is not green, the mode never auto-flips (structural guard). On-hardware enter→prove→exit accepted; 25-VERIFICATION 9/9.
+- **Agent delivery core & lockdown launcher (AGENT-01/02/03/04)** — a pure `internal/agent` core: a `go:embed` Crush v0.76.0 pin policy + fail-closed checksum-before-extract install (stdlib tar, traversal-guarded), a byte-deterministic golden-frozen `crush.json` renderer (both kill switches, one loopback openai-compat provider, `villa-`prefixed model ids, LSP WARN-on-absence), and a report-only drift detector that never auto-corrects; the `villa code` launcher applies belt-and-braces telemetry/autoupdate env lockdown before a single villa-owned `syscall.Exec`. On-hardware: binary SHA-256 pinned from the verified tarball, real `crush run` round-trip + drift-refusal verified (found+fixed a D-12 coding-off-WARN-lost-across-exec defect).
+- **Install addon, preflight gates & `villa verify agent` (INSTALL-03/04, PRIV-06)** — the agent is an optional `villa install --coding-agent` addon (persisted `AgentEnabled` gate, catalog-resolved coder-GGUF pre-stage in the single sanctioned outbound window, checksum-verified binary, locked-down render, real tool-call round-trip readiness — never health-200); preflight gates honestly (staged-disk BLOCK, post-coder envelope BLOCK read from `rec.Coder` never re-derived, 11-key cloud-cred WARN, typed-Unknown→WARN) and `villa uninstall` deterministically removes binary + crush.json (GGUF via keep/remove-models, config.toml left). `villa verify agent` proves zero outbound **negative-control-first** (egress-open MUST fail before trust) plus a llama-down cloud-fallback control — proven on-hardware under a real rootless-netns nft FORWARD block (the Phase-20 egress-block gap closed); agent-off stays byte-identical to v1.3.
+- **Agent surfacing & contracts (SURF-01/02/03, USAGE-03/04)** — `status.Report` 3→4 in exactly ONE golden re-freeze: an append-only `coding` block (enabled, agent version + pin match, model, mode, residency) inherited verbatim by a hidden-until-data dashboard Agent panel; `villa doctor` folds agent checks (binary/version + config drift, tool-call round-trip, under-load residency, offload-FAIL-dominates) on its own schema 1→2; `villa backup`/`restore` cover the rendered crush.json (binary identity-recorded + excluded like weights); per-model coder token usage + a `cache_n`/`prompt_n` cache-effectiveness ratio surface as honest agent-speed signals. On-hardware UAT resolved 2026-06-15.
+
+**Honest outcomes & known limitations (not gaps):**
+
+- **27-04 backend-revert bug (real, tracked):** `villa install` reverts a persisted `backend=rocm` to Vulkan (`install.go cfg.Backend = rec.Backend` + `recommend.Pick` always defaults Vulkan as ROCm is strictly opt-in) — a re-install silently discards a `villa backend set rocm` opt-in (config-is-source-of-truth violation). On the gfx1151 box the runtime stayed ROCm because `systemctl start` no-op'd the already-active service. Reversible via `villa backend set rocm`; out of v1.4 scope, tracked as a v1.5/maintenance fix.
+- **Phase 28 Nyquist gap:** the only v1.4 phase without a `*-VALIDATION.md`. Coverage is real (28-VERIFICATION passed 5/5 with a per-SC evidence table and green status/doctor/metrics/golden suites) — only the Nyquist validation contract was never written. Closeable via `/gsd-validate-phase 28` (expected State-B reconstruct, no new tests).
+- **On-hardware caveats:** Phase-26 acceptance ran on ROCm 7.2.4 (not the Vulkan RADV default), and the Crush TUI was proven via a non-interactive `crush run` round-trip, not the interactive TUI.
+- **Fail-safe advisories (Phase 27, non-blocking):** external egress probe exit 22 classifies as infra-FAIL not "not blocked" (can never false-green PRIV-06); `--coding-agent` with only a shared-residency coder fit blocks with misleading "no coder fits" copy (v1.4 swap-only limitation); `runProbeCurlCode` live exit-code extraction is convention-anchored, untested with a real-exec case.
+- **By-design (W-1, cosmetic):** `villa uninstall` leaves config.toml untouched (D-10), so post-uninstall `villa status`/`doctor` enter the agent branch and surface an honest typed-Unknown (PinUnknown WARN), never a crash or fabricated value.
+
+---
+
 ## v1.3 Memory & Knowledge (Shipped: 2026-06-11)
 
 **Phases completed:** 6 phases (18–23), 20 plans, 41 tasks
@@ -24,6 +53,7 @@
 - CTRL-05 shipped as a *documented reinterpretation*: `villa model swap` only swaps the chat model, so the dimension guard lives where a dimension change can actually occur (recall index / install / restore) plus the structural swap-isolation invariant — single-sourced via `recall.EmbeddingSkew`, no forked 768 constant.
 - Phase 20 was verified via complete on-hardware UAT (6/6 pass, every REQ evidenced) + approved Nyquist VALIDATION instead of a formal VERIFICATION.md artifact.
 - Deferred (recorded in the audit): literal `sudo reboot` durability re-confirmation of the Qdrant volume (mechanism proxy-proven), restore-side tar streaming (WR-06; backup-side landed), and a drift test for the install-side memory service-name constants (sole integration WARN).
+
 ---
 
 ## v1.2 Operability (Completed: 2026-06-08)

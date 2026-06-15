@@ -1,0 +1,25 @@
+{
+  "$schema": "https://charm.land/crush.json",
+  "options": {
+    "disable_metrics": true,
+    "disable_provider_auto_update": true
+  },
+  "permissions": {
+    "allowed_tools": ["view", "ls", "grep", "glob", "edit", "write", "bash"]
+  },
+  "providers": {
+    "villa-qual": {
+      "name": "villa qualification (local)",
+      "type": "openai-compat",
+      "base_url": "http://127.0.0.1:8081/v1",
+      "models": [
+        {
+          "id": "villa-qwen3-coder-30b",
+          "name": "Qwen3-Coder 30B (qual)",
+          "context_window": 65536,
+          "default_max_tokens": 16384
+        }
+      ]
+    }
+  }
+}

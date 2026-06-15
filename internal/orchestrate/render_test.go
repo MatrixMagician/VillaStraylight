@@ -84,6 +84,99 @@ func TestRenderContainerGolden(t *testing.T) {
 	goldenCompare(t, "villa-llama.container.golden", c.Text)
 }
 
+// codingFixtureInput is the deterministic RenderInput the coding-mode-ON golden is
+// frozen against (CMODE-01, D-05). It mirrors fixtureInput() but carries the pre-
+// translated coding-mode descriptor + the resolved agent ctx on RenderInput — exactly
+// what the Plan-02 live wiring will populate after resolving the coder catalog entry.
+// cfg.CodingMode + cfg.Coder* are set too (the persisted source of truth, D-04), though
+// it is RenderInput.CodingMode that drives the render delta. The flag spellings baked
+// into the golden are A1-confirmed against build-9496 (llama-server --help).
+func codingFixtureInput(cacheReuseSafe bool) RenderInput {
+	return RenderInput{
+		Backend: inference.VulkanBackend(),
+		Cfg: config.VillaConfig{
+			Model: "qwen3-35b-a3b-moe-64", Quant: "UD-Q4_K_M", Ctx: 131072, Backend: "vulkan",
+			CodingMode: true, CoderModel: "qwen3-coder-30b", CoderQuant: "UD-Q4_K_M", CoderAgentCtx: 65536,
+		},
+		ModelFile: "qwen3-coder-30b.gguf",
+		ModelsDir: "/home/villa/.local/share/villa/models",
+		CodingMode: &inference.CodingModeSpec{
+			Sampling:       &inference.Sampling{Temperature: 0.7, TopP: 0.8, TopK: 20, RepeatPenalty: 1.05},
+			CacheReuseSafe: cacheReuseSafe,
+		},
+		CoderAgentCtx: 65536,
+	}
+}
+
+// TestRenderCodingMode: with the coding-mode descriptor present, the rendered villa-llama
+// unit matches the NEW append-only villa-llama-coding.container.golden byte-for-byte. The
+// Exec line carries -c 65536 (the agent ctx, NOT the chat 131072), --jinja, the sampling
+// preset, and --cache-reuse 256 (CacheReuseSafe=true). The off-path goldens are NOT
+// regenerated — append-only discipline (D-02).
+func TestRenderCodingMode(t *testing.T) {
+	units, err := Render(codingFixtureInput(true))
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	c := unitByName(t, units, "villa-llama.container")
+	goldenCompare(t, "villa-llama-coding.container.golden", c.Text)
+
+	// Belt-and-braces structural assertions on the Exec line (independent of the golden):
+	// the single -c carries the AGENT ctx (Pitfall 1), and the delta flags are present.
+	if !strings.Contains(c.Text, "-c 65536") {
+		t.Errorf("coding unit Exec must carry -c 65536 (the agent ctx, single -c):\n%s", c.Text)
+	}
+	if strings.Contains(c.Text, "-c 131072") {
+		t.Errorf("coding unit Exec must NOT carry the chat ctx 131072 (Pitfall 1):\n%s", c.Text)
+	}
+	if strings.Count(c.Text, "-c ") != 1 {
+		t.Errorf("coding unit Exec must have exactly one -c token:\n%s", c.Text)
+	}
+	for _, want := range []string{"--jinja", "--temp 0.7", "--top-p 0.8", "--top-k 20", "--repeat-penalty 1.05", "--cache-reuse 256"} {
+		if !strings.Contains(c.Text, want) {
+			t.Errorf("coding unit Exec missing %q:\n%s", want, c.Text)
+		}
+	}
+}
+
+// TestRenderCodingModeFailClosedCacheReuse: with the coder entry CacheReuseSafe=false,
+// the on-path Exec line OMITS --cache-reuse (fail-closed render, D-03) while still
+// carrying --jinja + the sampling preset.
+func TestRenderCodingModeFailClosedCacheReuse(t *testing.T) {
+	units, err := Render(codingFixtureInput(false))
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	c := unitByName(t, units, "villa-llama.container")
+	if strings.Contains(c.Text, "--cache-reuse") {
+		t.Errorf("coding unit must OMIT --cache-reuse when CacheReuseSafe=false (D-03 fail-closed):\n%s", c.Text)
+	}
+	if !strings.Contains(c.Text, "--jinja") {
+		t.Errorf("coding unit missing --jinja with reuse-off:\n%s", c.Text)
+	}
+	if !strings.Contains(c.Text, "--temp 0.7") {
+		t.Errorf("coding unit missing the sampling preset with reuse-off:\n%s", c.Text)
+	}
+}
+
+// TestRenderCodingModeOffPathUnchanged is the regression guard proving the delta is
+// opt-in: with RenderInput.CodingMode == nil the off-path container golden is unchanged
+// and still passes byte-for-byte (D-02). This is the same fixture as
+// TestRenderContainerGolden but asserted here alongside the coding cases so a reviewer
+// sees the opt-in contract in one place.
+func TestRenderCodingModeOffPathUnchanged(t *testing.T) {
+	in := fixtureInput() // CodingMode nil, CoderAgentCtx 0
+	units, err := Render(in)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	c := unitByName(t, units, "villa-llama.container")
+	goldenCompare(t, "villa-llama.container.golden", c.Text)
+	if strings.Contains(c.Text, "--jinja") || strings.Contains(c.Text, "--cache-reuse") {
+		t.Errorf("off-path unit leaked a coding-mode flag (D-02 break):\n%s", c.Text)
+	}
+}
+
 // rocmFixtureInput is the deterministic RenderInput the ROCm golden is frozen against.
 // It mirrors fixtureInput() but selects the opt-in ROCm backend through the resolver
 // (BackendFor) — the image/device/group/env delta is sourced THROUGH the seam, never

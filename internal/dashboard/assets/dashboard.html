@@ -65,6 +65,16 @@
       <h2 class="panel-heading" id="memory-heading">Memory</h2>
       <div id="memory-body"></div>
     </section>
+
+    <!-- Agent (SURF-01 / D-05) — ships hidden (the memory-panel precedent); the poll
+         loop unhides it ONLY when report.coding is present (agent_enabled=true). Agent-off
+         dashboards render pixel-identical to v1.3 (D-05: no new fetch or endpoint — the
+         panel reads report.coding from the existing /api/status poll). Mirrors the Memory
+         panel chrome verbatim (28-UI-SPEC.md §Static shell). -->
+    <section class="panel" id="agent-panel" aria-labelledby="agent-heading" hidden>
+      <h2 class="panel-heading" id="agent-heading">Agent</h2>
+      <div id="agent-body"></div>
+    </section>
   </main>
 
   <!-- Guarded switch confirm dialog (D-08): a native <dialog> traps focus, Esc cancels,

@@ -1,161 +1,204 @@
 # Project Research Summary
 
-**Project:** VillaStraylight — v1.2 milestone (Operability)
-**Domain:** Operability features layered onto a shipped, single-static-binary Go CLI control plane (`villa`) orchestrating a strictly-local AI stack (rootless Podman/Quadlet, llama.cpp Vulkan/ROCm, Open WebUI) on AMD Strix Halo / Fedora
-**Researched:** 2026-06-07
-**Confidence:** HIGH
+**Project:** VillaStraylight — v1.4 Coding Agent milestone
+**Domain:** Strictly-local coding-agent integration (agent + coder model + codebase memory) on the shipped llama.cpp/Vulkan + Open WebUI + Qdrant control plane (AMD Strix Halo / Fedora)
+**Researched:** 2026-06-12
+**Confidence:** HIGH on agent landscape, integration seams, and pitfall inventory; MEDIUM on KV-cache math and third-party throughput numbers (computed/community — verify on hardware in phase)
 
 ## Executive Summary
 
-v1.2 adds six operability features — `villa doctor` (DOCTOR-01), backup/restore (BAK-01), `bench --compare` + saved reports (BENCH-03), cumulative usage tracking (USAGE-01), a guided TUI install (INSTALL-01), and a `rocm-6.4.4` alternate backend (ROCM-ALT-01) — to a stack whose architecture (pure cores in `internal/*`, host effects behind injectable `Deps` func-field seams, `orchestrate` as the only intentionally-impure module) was deliberately built to absorb exactly this kind of extension. The headline finding across all four researchers is that **this is an integration milestone, not an ecosystem milestone**: five of the six features are buildable with the standard library plus the existing fixed-arg `podman`/systemd seams, and the entire milestone adds **exactly one** new first-party dependency — `charmbracelet/huh` v1.0.0, a pure-Go (CGO-free) TUI form library, gated to INSTALL-01 and confined to the command tier.
+v1.4 adds a terminal coding agent to the stack as a **villa-managed host binary** (pinned release, SHA-256-verified, config rendered from `config.toml` — never a container, never a service), talking over loopback to the existing OpenAI-compatible llama-server endpoint. The agent of record is **Crush (charmbracelet) v0.76.0**, not OpenCode: research verified that OpenCode cannot be config-locked to villa's zero-outbound posture (unconditional `models.dev` fetch at startup, runtime bun/npm package downloads, autoupdate default-ON, air-gapped support closed upstream as "not planned"), while Crush's only two outbound channels both have documented config kill switches villa can render. The coding model is the **Qwen3-Coder family** (30B-A3B everywhere; Qwen3-Coder-Next on big envelopes), served via a **transactional swap-based "coding mode"** that reuses `internal/modelswap`, with the zero-cost install default being the agent simply riding the existing chat endpoint.
 
-The recommended approach is to add one new pure `internal/*` core per feature that has decision logic (`doctor`, `backup`, `benchstore`, `usage`), keep every host effect (podman volume export/import, file I/O) behind an `orchestrate`-resident or command-tier seam, and persist new state as flat append-only **JSONL/JSON under `$XDG_DATA_HOME/villa/`** — never in `config.toml` (which stays the single source of *configuration* truth) and never in an embedded SQLite store (CGO SQLite breaks the static binary; pure-Go `modernc.org/sqlite` is a disproportionate migration burden for append-mostly data). ROCM-ALT-01 is the cheapest and most architecturally-proven feature — the `BackendFor` seam was first exercised by the v1.1 ROCm backend specifically to absorb a new digest-pinned image with zero caller changes; its `rocm-6.4.4` image is verified live (`sha256:c81f30a7…150ec62`), with a matrix-tuned `-rocwmma` variant (`sha256:9a97129a…3c0141`) to be treated as a **bench-decided** choice for recovering the v1.1 Δtg −11.15 regression.
+Two of the milestone's original premises are **overturned by evidence**. First, the agent choice flips from OpenCode to Crush on outbound-surface grounds (reconciled below — three of four files weighed in). Second, and decisive for scope: **the "use Qdrant + villa-embed to track the codebase" premise fails the effectiveness test the milestone itself demanded.** All four research files independently converge on the same verdict — 2025–2026's leading agents (Claude Code, OpenCode, Crush, Codex CLI) deliberately ship *without* vector indexes because agentic search (grep/glob + LSP) beats embedding-RAG over code (chunking breaks code semantics, indexes go stale the moment the agent edits a file, and nomic-embed-text is a text model, not a code model). The user asked for an alternative if Qdrant proved ineffective; the alternative is **agent-native retrieval (Crush's built-in LSP + ripgrep tools + `CRUSH.md`/`AGENTS.md` context files)** — which costs villa zero new services and is what the recommended agent does natively. villa-qdrant and villa-embed stay untouched by v1.4.
 
-The dominant risk is BAK-01 (highest-risk feature): rootless-Podman UID-mapping/SELinux mangling, torn live-SQLite snapshots, accidental sweeping of multi-GB model weights, and version-skew restore. Mitigation is to mirror the proven `backendswap` transactional discipline (quiesce → capture/swap → restart → prove → rollback), use `podman volume export/import` (never host-path tar), **exclude model weights** (record their identity in the manifest, re-pull on restore), and stamp every archive with a version/digest/host-fingerprint manifest that WARNs on skew. Secondary honesty risks: USAGE-01 must not become telemetry or log content (counts-only, local, single-writer), and DOCTOR-01 must inherit the offload-asserting discipline (a green doctor over a silent CPU fallback is worse than no doctor). All `--json`/dashboard contract changes evolve append-only + schema-bump, re-frozen exactly once.
+The key risks are honesty risks, exactly the class this codebase is built to forbid: agent phone-home at *startup* (extend the v1.3 negative-control-first nft egress proof to the agent, including startup), silent cloud-model fallback (llama-down negative control), tool-call/jinja template landmines (model selection must be agent-in-the-loop, GGUF artifacts pinned at revision level), and agent-scale KV cache (~6–12 GiB at 64–128k ctx) blowing fit math anchored on chat contexts. All are preventable with established v1.2/v1.3 patterns; the roadmap below maps each to a phase.
+
+## Reconciled Disagreements (read this before the roadmap)
+
+The four files were researched in parallel and disagree on three load-bearing decisions. Resolution, with the evidence weighed:
+
+### 1. Agent selection: Crush, not OpenCode
+
+- **STACK** (which ran the head-to-head selection): recommends **Crush v0.76.0**. OpenCode unconditionally fetches `models.dev/api.json` at startup, downloads provider/plugin npm packages at runtime via embedded bun, auto-downloads LSP servers, autoupdates by default, and upstream **closed air-gapped support as "not planned"** (anomalyco/opencode #2224; #16117 closed as duplicate). Crush is a single static Go binary whose only two outbound channels (PostHog metrics, Catwalk provider-DB refresh) have documented kill switches (`disable_metrics`, `disable_provider_auto_update`) plus an embedded provider DB for offline.
+- **FEATURES** and **ARCHITECTURE**: written assuming OpenCode as the leading candidate. ARCHITECTURE itself flagged the air-gap issues as "the single biggest honesty risk of the milestone" but treated them as mitigable-with-proof; STACK's later finding (closure as not-planned, runtime npm fetches proven) shows the mitigation surface is structurally incomplete — `villa verify agent` would fail OpenCode out of the box.
+- **PITFALLS**: documents phone-home defaults for all three candidates (OpenCode worst: unconditional registry fetch + cloud-default model `gpt-5-nano` via Zen + allow-all permissions; Crush: a single metrics channel with three documented opt-outs; Aider: random-subset analytics — worse for a *provable* posture).
+
+**Verdict: Crush.** The combined evidence is one-directional: villa's posture requires config-killable outbound, and only Crush has it. Crucially, **most of FEATURES'/ARCHITECTURE's integration design transfers unchanged** — host-binary delivery, villa-owned pin policy (`go:embed` policy JSON, rocm-policy pattern), rendered agent config as a derived artifact of `config.toml`, one villa-owned provider block, `--jinja` server preset, LSP-as-code-graph, fit math, surfacing discipline — all of it is agent-shape-generic. What does NOT transfer: the OpenCode-specific `opencode-codebase-index` plugin (moot anyway, see #3) and OpenCode config key names. Crush caveats to carry into phase research: FSL-1.1-MIT license (fine for end-user download; document in install consent text), the model-id shadowing issue (#2649 — use villa-unique model ids), and Crush's permission-config surface (PITFALLS' workspace-escape analysis was OpenCode-specific; re-verify Crush's defaults). The cloud-fallback and egress negative controls apply to Crush identically — villa proves, never trusts flags.
+
+### 2. Coding-model residency: swap-based coding mode wins; co-residency is a fit-gated 128 GB stretch
+
+- **STACK + PITFALLS**: swap-based coding mode (reusing `internal/modelswap`) is the universal mechanism across all tiers; co-residency is honest only on 96/128 GB and should be a stretch. PITFALLS: "on a 64 GiB-class envelope, swap-based coding mode is almost certainly the honest recommendation; co-residency is a ≥96–128 GiB outcome" — and co-residency "because it loaded once" is its worst-UX failure mode (mid-session OOM days later, or silent CPU spill).
+- **ARCHITECTURE**: argues a co-resident `villa-coder` Quadlet unit with honest degradation to shared mode (agent → existing chat endpoint), explicitly rejecting swap because it "breaks chat while coding, adds a third transactional state machine, and reintroduces the D-09/D-10 hazard class."
+
+**Verdict: swap-based coding mode is the v1.4 core mechanism; co-resident `villa-coder` is deferred to a fit-gated stretch (realistically 128 GB-tier-only).** The weighing:
+
+- **Agent-scale KV math kills co-residency on most tiers.** Agent contexts are 64–128k, not chat-scale: ~6 GiB KV at 64k f16 (~3 GiB q8_0), ~12 GiB at 128k for the 30B-A3B. Against the **62.5 GiB measured GTT envelope** with the chat claimant (~27 GiB incl. embed + headroom) resident, co-residency of the 30B coder fits only on the 128 GB tier; the 96 GB tier is marginal-at-reduced-ctx; 64 GB is a hard no. And the **quality pick — Qwen3-Coder-Next at 49.6 GB — can never co-reside on any tier**: co-residency permanently locks users out of the best model; swap serves it everywhere it fits.
+- **ARCHITECTURE's hazard argument is stale.** v1.3's D-09 made chat-swap isolation from memory units *structural and reflect-pin-tested* — swap does not reintroduce that hazard class, it rides the guard that closed it. Swap composes a proven transactional core (capture → prove residency → cutover → rollback); a co-resident unit adds a second inference unit, second under-load residency proof, and second `/metrics` surface for marginal benefit.
+- **What survives from ARCHITECTURE** (these are real contributions, keep them): (a) **shared mode as the zero-cost install default** — the agent points at the existing chat endpoint; Qwen3.6-35B-A3B is a competent tool-caller; STACK independently reached the same baseline; (b) **residency mode must be an output of `recommend` fit math computed at the agent-profile ctx** (PITFALLS demands the same), never a preference or tier special-case; (c) chat stays the primary claimant; (d) the `villa-coder` unit design (Backend-seam reuse, loopback publish, role-parameterized spec) is shelf-ready if the stretch ships.
+- Mitigation for swap's one real cost (chat serves the coding model while coding mode is on): explicit verb, never automatic (ROCm precedent), surfaced in status; Qwen3-Coder chats acceptably.
+
+### 3. Codebase memory: Qdrant code collection is dead; agent-native retrieval is the default
+
+All four files converge **against** a Qdrant code collection — this is the strongest cross-file agreement in the research, and it **overturns the original milestone premise**:
+
+- **STACK**: zero new services — Crush LSP + agentic grep/glob + `CRUSH.md`/`AGENTS.md`; the "dedicated code collection" default in PROJECT.md "would be write-only plumbing no recommended agent reads."
+- **FEATURES**: leading agents explicitly rejected code-RAG (Anthropic tested it — agentic search won "not narrowly"; a Feb 2026 Amazon Science result shows agentic keyword search reaches >90% of RAG performance with no vector DB); demote to optional MCP differentiator at most.
+- **PITFALLS**: three compounding failures verified — nomic-embed-text-v1.5 is a *text* model (Nomic ships separate code embedders for a reason), naive text chunking destroys code structure, and a vector index is stale the moment the agent writes a file (retrieval then actively lies). Demands any code-RAG layer **win a pre-declared, numerically-scored eval against the grep/LSP baseline before it ships** — it must win to ship, not lose to be removed.
+- **ARCHITECTURE**: also rejects Qdrant-as-code-memory, but proposes an optional `villa-embed`-backed index *plugin* as a differentiator. That plugin (`opencode-codebase-index`) is **OpenCode-specific and moot under Crush**. The surviving shape of the idea is a future Qdrant/embed-backed **MCP server** plugged into Crush's MCP support — explicitly deferred (v1.5+, behind PITFALLS' numeric eval gate).
+
+**Verdict: default = agent-native (Crush LSP + ripgrep/glob + context files); villa-qdrant and villa-embed are untouched by v1.4** (no conditional embed publish, no T-19-01 relaxation — ARCHITECTURE's posture change is no longer needed). villa's only jobs: render `lsp` entries for detected toolchains (WARN, never BLOCK, when servers like `gopls` are missing) and document the `AGENTS.md`/`CRUSH.md` convention. Requirements must state plainly that the Qdrant premise was researched and rejected, per the user's explicit ask for an alternative.
 
 ## Key Findings
 
 ### Recommended Stack
 
-The v1.0/v1.1 stack (Go 1.26.2, cobra, chi, ghw, BurntSushi/toml, rootless Podman v5 + Quadlet, digest-pinned kyuz0 inference images, Open WebUI, stdlib-`testing`-only) is fixed and not re-litigated. v1.2 adds **one** new first-party dependency and one new container image; everything else is stdlib + existing seams. Full detail: `.planning/research/STACK.md`.
+Full detail: `.planning/research/STACK.md`. No new Go module dependencies; villa stays a single static binary; the agent is also a single static Go binary.
 
-**Core technologies (new for v1.2):**
-- **`github.com/charmbracelet/huh` v1.0.0** (INSTALL-01 only): declarative TUI forms with built-in validation + an accessible/no-TTY mode — pure-Go/CGO-free, statically links, transitively pins the *stable* `bubbletea v1.3.6` / `lipgloss v1.1.0` (NOT the churny `charm.land/bubbletea/v2` path). The milestone's only new dependency; isolated to the command tier (no pure core may import it).
-- **`podman volume export` / `import`** (BAK-01): native rootless tarball backup/restore of the Open WebUI volume via the existing fixed-arg `exec.Command` seam — zero new Go/runtime deps; `local`-driver only; not over podman-remote (fine — villa is local-only).
-- **Flat JSONL under `$XDG_DATA_HOME/villa/`** (BENCH-03 + USAGE-01): append-mostly history is byte-stable, golden-testable, CGO-free, and matches the existing JSON/TOML persistence idiom. Decision RESOLVED: **JSONL over SQLite** (CGO SQLite breaks the static binary; pure-Go SQLite is an over-heavy generated tree + migration burden for data with no query workload).
-- **`docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-6.4.4`** (ROCM-ALT-01): existence VERIFIED, digest `sha256:c81f30a7fd2641e3ea6ac4c45323ba239dca906ed79cc0dfe5b885f9f150ec62`. The `-rocwmma` variant (`sha256:9a97129af2c1a2f0080f234787f6978551a43e354f3eb26a8ebc868f643c0141`, matrix-multiply-tuned) is the more likely TG win and should be **A/B-benchmarked** before deciding which digest ships — re-verify at implementation time (kyuz0 re-pushes the rolling tag; pin the digest, never the bare tag).
+**Core technologies:**
+- **Crush v0.76.0** (charmbracelet): the terminal coding agent — pinned release artifact + checksum, installed under `$XDG_DATA_HOME/villa/bin/`; villa renders `crush.json` (global config) from `config.toml` with both kill switches set, plus belt-and-braces env (`CRUSH_DISABLE_METRICS=1`, `DO_NOT_TRACK=1`) in a `villa code` launcher.
+- **Qwen3-Coder-30B-A3B-Instruct** (unsloth GGUF, UD-Q4_K_XL, 17.7 GB): fit-everywhere default coder — MoE A3B speed on the bandwidth-bound iGPU (~70–98 tok/s tg), 256K native ctx, agentic-RL-trained, fixed tool-call templates.
+- **Qwen3-Coder-Next** (80B-A3B hybrid MoE; UD-Q4_K_XL 49.6 GB / UD-Q3_K_XL 36.3 GB): quality pick for 128/96 GB tiers — near-flagship agentic coding at A3B speed, small KV (hybrid attention), swap-only.
+- **llama-server `--jinja` render delta** in coding mode (+ agent ctx ≥64k, `--cache-reuse`, agent sampling preset) — behind the inference/orchestrate seams, Phase-7-style unit-delta pattern.
+- **Delivery: host binary, not container** — a containerized agent breaks LSP/toolchains/git and there's no official image; locality is enforced by rendered config + runtime egress proof, not network-namespace theater.
 
 ### Expected Features
 
-Six scoped features; full landscape in `.planning/research/FEATURES.md`. The unifying invariants gating all six: single static CGO-free binary, strictly-local/zero-telemetry, config-is-single-source-of-truth, byte-frozen `--json` goldens, offload-asserting (no false-green).
+Full detail: `.planning/research/FEATURES.md` (OpenCode-flavored; table stakes transfer to Crush).
 
-**Must have (the milestone core — P1):**
-- **ROCM-ALT-01** — digest-pinned `rocm-6.4.4` selectable behind `BackendFor`; answers a shipped, measured v1.1 regression; lowest risk, proven seam.
-- **DOCTOR-01** — one-shot health + remediation that *composes* preflight + status + residency proof + config-vs-disk drift; highest operability value per unit effort; 0/2/1 exit tiers; `--json` frozen.
-- **BAK-01** — config + Open WebUI data backup/restore; the only protection for irreplaceable user state today; highest risk (see Pitfalls).
+**Must have (table stakes):**
+- Agent addon in `villa install` (pinned binary + villa-owned provider config + uninstall coverage) — the headline deliverable
+- Tool-calling-ready inference preset (`--jinja`, template-verified GGUF, agent ctx ≥64k, `--cache-reuse` where compatible)
+- Fit-guarded recommended coding model, pre-staged in the sanctioned outbound window, honest residency-mode outcome
+- Transactional coding-mode swap verb (the residency decision landed on swap — promotes this from FEATURES' conditional P2 to core)
+- Status/doctor/dashboard coverage including a **tool-call round-trip probe** (health-200 is not tool-calling success)
+- Strictly-local verification: `villa verify agent` negative-control-first egress proof covering agent **startup**
 
-**Should have (builds on the core — P2):**
-- **BENCH-03** — persist each `bench.Result` as a versioned saved report; `--compare` reads history and diffs pp/tg *separately*; pairs with ROCM-ALT-01 to *prove* the Δtg recovery.
-- **USAGE-01** — cumulative prompt/generated token totals (from llama.cpp `*_tokens_total` counters) with reset detection, surfaced in `status`/dashboard; honesty-trickiest persistence surface.
+**Should have (differentiators):**
+- Hardware-aware coder recommend (fit math decides swap vs co-resident vs shared, per catalog entry) — villa's signature move applied to agents
+- Cache-effectiveness surfacing (`timings.cache_n` vs `prompt_n`) — measurable agent speed honesty signal
+- Per-model agent usage attribution (near-free via the v1.2 usage core once the coder is a distinct served model)
 
-**Sequence last (P2/P3):**
-- **INSTALL-01** — guided TUI as a pure presentation layer over the same detect→recommend→preflight→install pipeline; most UI surface, the only new dependency, TTY/accessibility-gated. None of the other five depend on it.
+**Defer (v1.5+):**
+- Co-resident `villa-coder` unit (128 GB fit-gated stretch)
+- MCP semantic code search backed by Qdrant/villa-embed — only behind a pre-declared numeric eval it must *win*
+- Sandboxed/containerized agent profile for untrusted repos
 
-**Explicit anti-features (do NOT build):** doctor auto-repair / diagnostic-bundle upload; backing up model weights or to a cloud target; scheduled-backup daemon; a single blended bench "score"; bench leaderboard upload; usage content-logging or a metrics-daemon/TSDB; usage/bench telemetry; a TUI-only (no-flag) install or a TUI that re-derives fit/preflight logic; auto-switching to rocm-6.4.4; unpinned/floating ROCm tags.
+**Anti-features (explicitly rejected):** default Qdrant code collection; villa wrapping the agent's UI or running it as a service; auto-switching models when the agent connects; villa writing `AGENTS.md` into user repos; owning the user's whole agent config (one provider block only); a gateway/proxy layer between agent and llama-server.
 
 ### Architecture Approach
 
-The architecture is fixed; the question for each feature is *where it slots in without violating an invariant*. The answer is uniform: one new **pure** `internal/*` core per feature with decision logic, host I/O confined to `orchestrate` (or the command tier, as `uninstall.go`'s `podmanVolumeRm` already proves passes the seam gate), persisted state under XDG data dir, and any surfaced state evolved append-only. Full integration map: `.planning/research/ARCHITECTURE.md`.
+Full detail: `.planning/research/ARCHITECTURE.md` (co-residency section superseded by reconciliation #2; integration-seam mapping remains the authoritative modified-vs-new inventory).
 
-**Major components (v1.2 additions):**
-1. **`internal/doctor`** — pure: composes `preflight.RunWithResources` + `status.Run` + adds drift cross-checks; its OWN unconstrained golden (do NOT extend the byte-frozen `status.Report`).
-2. **`internal/backup`** (pure manifest/verify) + **`orchestrate` volume_io seam** (`podman volume export/import`, fixed-arg) — preserves the single-impure-module invariant; restore is transactional (stop → import → restart → prove → rollback).
-3. **`internal/benchstore`** — pure, frozen versioned `SavedReport` codec (golden-frozen on creation); `--compare` is read-only and distinct from live `--ab`; carries `VoidExhausted`/`Reason` honesty flags + full env fingerprint.
-4. **`internal/usage`** — pure `Fold(prior, sample) -> Totals`; **the dashboard server's existing poll loop is the SOLE writer** of `usage.json` (mutex-guarded; the CLI is one-shot and only reads); folds from monotonic `_total` counters, not rate gauges.
-5. **`internal/inference/backend_rocm_alt.go`** — the `rocm-6.4.4` image literal + args + markers, seam-locked; **`seam_test.go`'s image regex MUST be extended** (`rocm-7\.2\.4` → also `rocm-6\.4\.4`) in the same commit, or a future leak passes CI silently. Add the tag to `rocm-policy.json`.
+The addon bolts onto shipped seams with zero new impure modules: a new pure core (`internal/agent` or `internal/coder`) owns the pin policy (`go:embed` policy JSON — rocm-policy pattern: version, per-platform asset, sha256), the `crush.json` renderer (config-as-source-of-truth, regenerated never hand-edited, doctor flags drift), and version comparison; host effects (download via `internal/download`, unzip, exec) are injected Deps. Coding mode composes `internal/modelswap`; the render delta (`--jinja`/ctx/cache flags) lives in `Backend.ContainerArgs` behind the seam grep-gate.
+
+**Major components:**
+1. `internal/agent` (NEW pure core) — pin policy, crush.json render, lockdown env, version drift
+2. `cmd/villa/code.go` + `install_agent.go` (NEW) — launcher verb + addon install mirroring `install_memory.go`
+3. catalog/recommend (MODIFIED, schema 2→3 each, append-only) — `role:"coder"` entries; coder fit stage at agent-profile ctx after embed reservation + chat fit
+4. inference/orchestrate (MODIFIED) — coding-mode flag rendering behind existing seams; addon-off renders byte-identical to v1.3 goldens
+5. status/doctor/dashboard/backup/verify/uninstall (MODIFIED, final phase) — `status.Report` 3→4 append-only, single golden re-freeze; doctor tool-call + under-load residency probes; `villa verify agent`
 
 ### Critical Pitfalls
 
-Top items from `.planning/research/PITFALLS.md` (12 pitfalls total, mapped to phases):
+Full detail: `.planning/research/PITFALLS.md`. The milestone-shaping five:
 
-1. **BAK-01 — UID-mapping / SELinux mangle + torn SQLite (Pitfalls 1–2):** rootless Podman maps owners via subuid; raw host-path tar restores with meaningless ownership and breaks the `:Z` SELinux label, and overwriting a live DB corrupts it. *Avoid:* `podman volume export/import` (never host-path tar), recreate the volume via Quadlet, and order restore like `backendswap` — quiesce → swap → restart → prove → verbatim rollback on failure.
-2. **BAK-01 — model-weight sweep + version skew (Pitfalls 3–4):** "back up everything" balloons to tens of GB (`villa-models.volume` is a bind volume of re-pullable weights) or silently drops them; a backup restored under a newer Open WebUI digest / stale ROCm floors breaks. *Avoid:* scope to config + Open WebUI data only, record model identity in the manifest (re-pull on restore), stamp version/digest/host-fingerprint, WARN-with-remediation on skew, restore config via `config.SaveVilla` + re-run preflight.
-3. **DOCTOR-01 — false-green over CPU fallback (Pitfall 7):** an `is-active` + `/health 200` doctor that hides a silent CPU fallback betrays D-11. *Avoid:* compose the existing honest cores (preflight + status + `ResidencyProof`); confident CPU fallback = FAIL, unevaluable = WARN; three-state output with remediation; never re-type backend markers (seam gate).
-4. **USAGE-01 — telemetry/leak + unbounded growth/write race (Pitfalls 5–6):** usage that phones home, logs content, binds off-loopback, grows forever, or is written by two processes. *Avoid:* counts-only, local, no new outbound (assert it); bounded/rolling aggregate with retention; **single writer = the dashboard poller** + atomic write; XDG 0600, loopback-only.
-5. **BENCH-03 — broken golden contract + non-comparable runs (Pitfalls 8–9):** an unversioned saved-report shape, an in-place edit to a frozen `--json`, blended pp/tg, or a delta across mismatched model/quant/host. *Avoid:* `schema_version` from day one, golden-frozen, append-only evolution; keep pp/tg separate; persist the full `BenchSpec` + env fingerprint; comparability guard labels mismatches "not comparable."
-6. **INSTALL-01 / ROCM-ALT-01 (Pitfalls 10–12):** TUI pulling CGO / becoming the only path / re-deriving fit logic; rocm-6.4.4 added unpinned, outside the seam, or bypassing floors. *Avoid:* CGO-free `huh`, TTY-gated fall-through to the flag path, TUI computes nothing (calls the cores); digest-pin inside `internal/inference`, extend the seam regex, gate via `rocm-policy.json`, opt-in + bench-proven only.
+1. **Agent phone-home at startup** — extend the v1.3 negative-control-first nft egress proof to the agent **including startup** (registry/update fetches fire at startup, not first prompt); egress-open run must FAIL the gate, blocked run must complete a real edit-loop task. Never flag-trust.
+2. **Cloud-model fallback** — exactly one provider in rendered config; preflight WARN on cloud credentials in the agent auth store; **llama-down negative control** (agent working while `villa-llama` is down is the smoking gun).
+3. **Tool-call/jinja template landmines** — model selection must be **agent-in-the-loop** (real multi-step tool loop against the actual quant on the actual pinned image; benchmark scores don't qualify a model); **pin GGUF artifacts at repo+revision level** (the embedded chat template is part of the artifact — two quants of "the same model" differ in agentic usability); tool-call smoke proof as an install readiness gate.
+4. **Agent-scale KV OOM / silent CPU fallback** — fit math at the *agent's rendered ctx* (not chat ctx); agent config ctx and server `--ctx-size` rendered from the same config value; under-load residency proof (MEM-DOC pattern) — idle-green is not green; KV-quantization only as a catalog-declared, benched choice (aggressive K-cache quant corrupts tool-call JSON).
+5. **Version churn + contract freeze** — Crush/OpenCode release weekly-to-daily; villa-owned pin policy with explicit upgrade verb, autoupdate forced off, doctor drift check; ALL surfacing lands in the final phase as the single `status.Report` 3→4 bump, one golden re-freeze, addon-off renders byte-identical.
+
+**Cross-cutting flags for phase research:** `--cache-reuse` is **incompatible with recurrent/hybrid-state models — including the current chat model (Qwen3.6-35B-A3B)**, which strengthens the dedicated-coding-model case; verify whether it also affects Qwen3-Coder-Next (also hybrid-attention). And the pinned `vulkan-radv` toolbox digest may need a **re-pin** if its llama.cpp predates Qwen3-Next arch support (PR #16095) + the Feb-2026 tool-call parser fixes.
 
 ## Implications for Roadmap
 
-All four researchers independently converged on the **same build order** — preserve it. It sequences seam-locked + composition features first (zero/trivial contract risk), then the two persistence features with their byte-frozen evolutions staggered, then the destructive backup, then the TUI capstone.
+Suggested structure (continues the proven v1.2/v1.3 shape: pure fit/control-plane gates first, integration middle, surfacing last):
 
-### Phase 1: ROCM-ALT-01 — `rocm-6.4.4` alternate backend
-**Rationale:** Lowest risk, fully self-contained, no dependents; the `BackendFor`/`backendswap`/`bench --ab` machinery was built for exactly this. Lands the milestone's measured-regression motivation early.
-**Delivers:** A digest-pinned `rocm-6.4.4` (and/or `-rocwmma`) backend selectable like any other, gated by the same `rocm-policy.json` floors, switched transactionally with residency proof.
-**Addresses:** ROCM-ALT-01.
-**Avoids:** Pitfall 12 — **extend `seam_test.go`'s image regex in the same commit** (the gate change IS the regression guard); digest-pin (re-verify at impl time); add the tag to `rocm-policy.json`; opt-in only, never auto-switched. Which digest ships (plain 6.4.4 vs `-rocwmma`) is a bench-decided choice — validate the Δtg recovery, don't assume it.
+### Phase 1: Coding fit math + catalog (+ on-hardware model qualification)
+**Rationale:** Everything downstream consumes the fit verdict and the qualified model artifacts; schema bumps land once, early. The agent-in-the-loop tool-call qualification and the toolbox-digest arch check can delete or re-pin catalog entries — must precede render work.
+**Delivers:** catalog schema 2→3 (`role:"coder"`, Qwen3-Coder entries with revision-pinned GGUF SHAs, template provenance, agent-ctx/sampling metadata); `recommend` coder fit stage at agent-profile ctx (schema 2→3, append-only, one golden re-freeze); residency-mode output (`swap`/`shared`, co-resident reserved); on-hardware verification: tool-call round-trip through llama-server `--jinja` on the pinned image, Qwen3-Next arch support check (re-pin decision), measured KV footprints.
+**Addresses:** fit-guarded coding model (FEATURES P1).
+**Avoids:** Pitfalls 3 (template landmines), 4 (KV OOM), 6 (the eval verdict is recorded as a decision: Qdrant code-RAG rejected).
 
-### Phase 2: DOCTOR-01 — `villa doctor`
-**Rationale:** Composes already-shipped `preflight` + `status` + residency + `orchestrate` drift; no new persistence, no frozen-contract risk. Building it early surfaces faults the later features may introduce.
-**Delivers:** A read-only health + remediation report with config-vs-disk drift detection, 0/2/1 exit tiers, and a `--json` array.
-**Implements:** New pure `internal/doctor` core (its OWN golden) + thin `cmd/villa/doctor.go`.
-**Avoids:** Pitfall 7 — offload-assert, never `is-active`-only; do not extend `status.Report` (Anti-Pattern 3).
+### Phase 2: Coding-mode render + transactional swap verb
+**Rationale:** Pure render + a composition of the proven modelswap core; testable off-hardware; gives the agent something correct to talk to before the agent exists.
+**Delivers:** coding-mode unit delta (`--jinja`, agent ctx, `--cache-reuse` where model-compatible, sampling) behind inference/orchestrate seams; `villa code on|off`-style transactional swap (capture → prove residency under load → cutover → rollback; D-09 reflect-pin guard extended); seam grep-gate + goldens extended; addon-off renders byte-identical.
+**Uses:** `internal/modelswap`, `Backend.ContainerArgs`, Quadlet render goldens.
+**Avoids:** Pitfall 5 (silent CPU fallback — under-load residency in the swap's prove step), Pitfall 9 (no contract changes yet).
 
-### Phase 3: BENCH-03 — saved reports + `--compare`
-**Rationale:** Builds on the shipped honest-A/B bench core; pairs with Phase 1 to *prove* the Δtg recovery. **Freeze the `benchstore` saved-report format FIRST**, then wire `--compare` + save — the on-disk format is a contract; locking it before any real reports are written prevents migrations.
-**Delivers:** Versioned `SavedReport` persistence (JSONL under XDG), `bench --compare` reading history with per-metric pp/tg deltas, list/show.
-**Uses:** Flat JSONL persistence (STACK decision); `internal/inference` image digest for run identity.
-**Avoids:** Pitfalls 8–9 — `schema_version` + golden freeze; pp/tg never blended; full `BenchSpec` + env fingerprint + comparability guard; carry `VoidExhausted`/`Reason`.
+### Phase 3: Agent delivery core + lockdown launcher
+**Rationale:** The pure agent core (pin policy, crush.json render, lockdown) is fully testable off-hardware and independent of phases 1–2; it gates the install addon.
+**Delivers:** `internal/agent` pure core (`go:embed` crush-policy.json: v0.76.0 + asset names + SHA-256s; crush.json renderer with `disable_metrics`/`disable_provider_auto_update`, single villa provider, villa-unique model ids, lsp block; version comparator); `villa code` launcher (env lockdown + exec); download via `internal/download`.
+**Uses:** rocm-policy and download patterns verbatim.
+**Avoids:** Pitfall 8 (version churn — villa owns the pin), Pitfall 1 (kill-switch config frozen here).
 
-### Phase 4: USAGE-01 — cumulative usage tracking
-**Rationale:** The most invariant-sensitive surfacing (touches the byte-frozen `status.Report`). Sequence after BENCH-03 so only one byte-frozen evolution is in flight at a time.
-**Delivers:** Cumulative prompt/generated token totals with counter-reset handling, persisted to `usage.json`, surfaced (append-only) in `status` + dashboard.
-**Implements:** Pure `internal/usage` `Fold`; **the dashboard poll loop as the sole, mutex-guarded writer**; CLI reads only; fold from monotonic `_total` counters (confirm exact names against the live server).
-**Avoids:** Pitfalls 5–6 — counts-only/no content, no new outbound, bounded retention, single-writer, loopback-only; `status` change is one append-only field above `SchemaVersion` + one schema bump + one golden re-freeze.
+### Phase 4: Install addon + preflight + `villa verify agent`
+**Rationale:** Wires 1–3 into the user-facing flow; the egress and cloud-fallback proofs need the full assembly.
+**Delivers:** `install_agent.go` mirroring `install_memory.go` (gate → pre-stage GGUF + agent tarball in the sanctioned outbound window → render → readiness proof with a real tool-call probe); preflight gates (disk BLOCK, post-coder envelope BLOCK, gopls/LSP WARN, cloud-credential WARN); `villa verify agent` negative-control-first nft egress proof **covering agent startup** + llama-down negative control; uninstall coverage.
+**Avoids:** Pitfalls 1, 2, 7 (Crush permission config rendered restrictively; STRIDE pass on the injection→tool-call path).
 
-### Phase 5: BAK-01 — backup / restore
-**Rationale:** Independent of the others but the highest host-I/O and destructive risk; sequence after the read-only/additive features so the safer surface is proven first.
-**Delivers:** A self-describing local archive (config + Open WebUI volume + manifest) and a transactional, consent-gated restore.
-**Implements:** Pure `internal/backup` (manifest/verify) + `orchestrate` `volume_io` seam (or cmd-tier fixed-arg podman, as `uninstall.go` proves passes the gate).
-**Avoids:** Pitfalls 1–4 — `podman volume export/import`; quiesce → swap → restart → prove → rollback; **exclude model weights** (manifest identity, re-pull on restore); version/digest/host-fingerprint stamp + WARN on skew; 0600/0700 XDG, restore via `config.SaveVilla` + re-preflight.
-
-### Phase 6: INSTALL-01 — guided TUI install (capstone)
-**Rationale:** A front-end over the *whole* pipeline, ideally over the final command surface; introduces the milestone's only new dependency. Sequence last so it wraps a stable set of cores.
-**Delivers:** A guided detect → recommend → confirm/adjust → preflight-gate → install flow that writes the same `config.toml` and runs the same install, with a TTY/accessible fall-through to the existing flag path.
-**Uses:** `charmbracelet/huh` v1.0.0 (command-tier only; verify `CGO_ENABLED=0` build).
-**Avoids:** Pitfalls 10–11 — pure presentation (no fit/preflight re-implementation; decisions only via the cores + `BackendFor`); flags stay first-class; CGO-free static build check in CI.
+### Phase 5: Surfacing + contracts (LAST)
+**Rationale:** The single byte-frozen contract evolution lands once, at the end — the discipline v1.2 (P15) and v1.3 (P23) proved.
+**Delivers:** `status.Report` 3→4 append-only (`coding` block: enabled, agent version + pin-match, model, mode, residency), one golden re-freeze with coding-on/off variants; doctor agent checks (binary/version drift, config drift, tool-call probe, under-load residency); dashboard Agent panel (hidden-until-data); backup manifest (rendered crush.json included; agent binary identity-recorded/excluded like weights); per-model usage attribution + optional `cache_n` surfacing.
+**Avoids:** Pitfall 9 (single bump, service-name drift test debt closed rather than extended).
 
 ### Phase Ordering Rationale
-- **Dependency-honoring:** ROCM-ALT-01 and DOCTOR-01 have zero/trivial contract risk and no dependents → first. BENCH-03's format must be frozen before USAGE-01's status surfacing so **only one byte-frozen evolution lands at a time**. BAK-01 (destructive, new impure surface) follows the safe additive features. INSTALL-01 is a capstone over the finished surface.
-- **Reinforcement:** BENCH-03 ⇄ ROCM-ALT-01 — saved/`--compare` reports are exactly how the alt image *proves* it recovered Δtg −11.15.
-- **Invariant protection:** the order keeps the two riskiest invariant interactions (byte-frozen golden evolution; the only-impure-module rule) isolated and sequential rather than concurrent.
+
+- Fit math first because residency mode, catalog entries, and model qualification gate every later phase (PITFALLS' explicit "control-plane phase before the install addon", mirroring v1.3's fit-before-surfacing ordering).
+- Render/swap before agent delivery so the endpoint contract (`--jinja`, ctx, alias) exists and is golden-frozen before anything consumes it.
+- Verification phases sit with the assemblies they prove (swap proves residency in 2; egress/cloud proofs need the full install in 4).
+- Surfacing last by construction — the only way the single-schema-bump discipline holds.
 
 ### Research Flags
 
-Phases likely needing deeper research during planning (`/gsd-plan-phase --research-phase`):
-- **Phase 4 (USAGE-01):** confirm the exact llama.cpp `/metrics` cumulative counter names (`llamacpp:prompt_tokens_total` / `tokens_predicted_total`) against a live `llama-server`, and the counter-reset semantics on restart/backend-swap (MEDIUM-confidence names; HIGH-confidence pattern).
-- **Phase 5 (BAK-01):** validate cross-host / post-`podman system reset` restore (UID-mapping + SELinux `:Z`) — the "looks done but isn't" case the round-trip test misses; external Podman volume mechanics are MEDIUM (WebSearch-verified, not Context7).
+Phases likely needing deeper research during planning (`/gsd-plan-phase --research-phase N`):
+- **Phase 1:** exact on-hardware qualification protocol (agent-in-the-loop tool loop, KV measurement, toolbox re-pin decision, `--cache-reuse` compatibility with Qwen3-Coder-Next's hybrid attention).
+- **Phase 3:** freeze the exact `crush.json` schema at the pinned version (options/models/lsp keys, model-id shadowing workaround for #2649, permission-config surface) — STACK's sketch is MEDIUM-confidence.
+- **Phase 4:** Crush's complete outbound surface under negative control (kill switches are documented; villa proves, never trusts) + FSL license consent text.
 
-Phases with standard/well-documented patterns (skip research-phase):
-- **Phase 1 (ROCM-ALT-01):** image verified, seam proven by v1.1; only the digest needs re-verification (a build step, not research).
-- **Phase 2 (DOCTOR-01):** pure composition of shipped cores; the doctor pattern (wp-cli/brew) is HIGH-confidence.
-- **Phase 3 (BENCH-03):** builds on the shipped bench core; JSONL persistence decision RESOLVED.
-- **Phase 6 (INSTALL-01):** `huh` versions + dep graph verified against the module proxy; pattern is HIGH-confidence — main work is execution, not research.
+Phases with standard patterns (skip research-phase):
+- **Phase 2:** composes shipped modelswap + render-delta patterns (Phase-7/D-09 precedents).
+- **Phase 5:** the v1.2/v1.3 surfacing discipline applies verbatim.
 
 ## Confidence Assessment
 
 | Area | Confidence | Notes |
 |------|------------|-------|
-| Stack | HIGH | huh versions + transitive graph from the Go module proxy; rocm-6.4.4 + `-rocwmma` digests from the live Docker registry manifest; podman volume export/import from official docs; JSONL-vs-SQLite is a design call with HIGH confidence on the constraint analysis. |
-| Features | MEDIUM-HIGH | doctor / Podman backup / Charm TUI patterns HIGH from official sources; llama.cpp counter *persistence* MEDIUM (inferred from standard Prometheus counter semantics, not an explicit llama.cpp doc statement). |
-| Architecture | HIGH | Grounded directly in the v1.1 codebase (seam_test.go, status.go, bench.go, preflight.go, config.go, systemd.go, install.go, uninstall.go all read); integration points cite exact files. |
-| Pitfalls | HIGH (this-system) / MEDIUM (external) | HIGH for this-system invariants (sourced from the codebase); MEDIUM for external rootless-Podman volume mechanics (WebSearch-verified, not Context7). |
+| Stack | HIGH | Agent versions/licenses/outbound behavior verified against releases, issues, official docs on 2026-06-12; GGUF sizes from HF listings. MEDIUM on throughput numbers and computed KV estimates. |
+| Features | MEDIUM-HIGH | Official agent docs + multi-source agentic-search consensus; written OpenCode-flavored — table stakes transfer to Crush, key names don't. |
+| Architecture | HIGH on seams (every claim cites a verified file); MEDIUM on its residency recommendation, which this synthesis overrides on KV math + transferred-hazard grounds. |
+| Pitfalls | HIGH | Telemetry/template/churn behaviors verified upstream; KV math computed (MEDIUM); code-RAG verdict is industry consensus (MEDIUM) but four-way convergent here. |
 
-**Overall confidence:** HIGH
+**Overall confidence:** HIGH for roadmap structure; MEDIUM on the on-hardware specifics deliberately deferred to Phase 1.
 
 ### Gaps to Address
-- **llama.cpp cumulative counter names (USAGE-01):** confirm `llamacpp:prompt_tokens_total` / `tokens_predicted_total` and reset behavior on the running server before wiring the accumulator. *Handle:* a 10-minute live `/metrics` check at the start of Phase 4; design the fold to degrade to typed-Unknown if a counter is absent.
-- **Cross-host / post-reset restore (BAK-01):** the UID-mapping + SELinux `:Z` repair path (`podman unshare chown -R`) is MEDIUM-confidence external mechanics. *Handle:* explicit cross-host (or post-`podman system reset`) round-trip test in Phase 5 acceptance, not just same-host.
-- **Which rocm-6.4.4 digest ships (ROCM-ALT-01):** plain `rocm-6.4.4` vs `-rocwmma` is a TG-perf question. *Handle:* `villa bench --ab` against rocm-7.2.4 + Vulkan during Phase 1; ship the digest the bench proves, consistent with the never-promise-an-unbenchmarked-speedup constraint.
+
+- **Exact `crush.json` schema + Crush permission model** at v0.76.0 — freeze in Phase 3 research; STACK's sketch and PITFALLS' permission analysis (OpenCode-based) both need Crush-specific verification.
+- **Crush's complete outbound surface** — only provable under the Phase 4 negative-control nft proof; kill switches are documented but unproven on this host.
+- **Qwen3-Coder-Next on the pinned toolbox digest** — hybrid (DeltaNet) arch support + tool-call parser vintage; re-pin decision in Phase 1. Also whether `--cache-reuse` works with its hybrid attention.
+- **Measured KV/footprint at agent ctx** — all KV numbers are computed estimates; Phase 1 measures on the gfx1151 box before catalog entries freeze.
+- **Crush model-id shadowing (#2649)** — single report; verify and pick villa-unique ids in Phase 3.
 
 ## Sources
 
 ### Primary (HIGH confidence)
-- VillaStraylight v1.1 source read directly — `internal/inference/{seam_test.go,backend.go,backend_rocm.go}`, `internal/{status,bench,preflight,metrics,config,orchestrate,dashboard}/…`, `cmd/villa/{install,uninstall,bench}.go` — binding invariants, integration points.
-- `.planning/PROJECT.md` + `CLAUDE.md` — Key Decisions, v1.2 scope, architectural constraints / anti-patterns, the live Δtg −11.15 motivation.
-- Go module proxy (`proxy.golang.org`) — authoritative versions/dep graph: huh v1.0.0 → bubbletea v1.3.6 / lipgloss v1.1.0 (NOT charm.land/v2).
-- Docker registry manifest API (`registry-1.docker.io`) — full sha256 digests for rocm-6.4.4, rocm-6.4.4-rocwmma, rocm-7.2.4, vulkan-radv.
-- Podman docs — `podman-volume-export(1)` / `podman-volume-import(1)` (tarball, STDOUT/STDIN, volume-must-pre-exist, local-driver-only, not over remote).
-- Context7 `/charmbracelet/{huh,bubbletea,bubbles}` — capability summaries, accessible mode, business-logic-behind-flags pattern.
-- wp-cli/doctor-command, llama.cpp Issue #19811 (`prompt_tokens_total` / `tokens_predicted_total` counters).
+- charmbracelet/crush README + releases (v0.76.0, 2026-06-05) — kill switches, openai-compat provider, LSP config, FSL-1.1-MIT
+- anomalyco/opencode #2224 / #16117 — air-gapped support closed as not-planned; runtime npm fetch proven; releases page (v1.17.4, cadence)
+- opencode.ai docs (config/providers/LSP/tools) — config surface, autoupdate/share defaults
+- llama.cpp function-calling docs + server README — `--jinja` requirement, `--parallel` ctx split, cache types; llama.cpp #20198 (arguments-as-object bug)
+- unsloth Qwen3-Coder-30B-A3B / Qwen3-Coder-Next GGUF repos + run guides — sizes, ctx, template fixes
+- Codebase (verified 2026-06-12): `internal/recommend/recommend.go` (reservation pattern), `internal/inference/backend_vulkan.go` (loopback seam), `internal/orchestrate/memory_test.go` (T-19-01), `internal/catalog/seed.json`, `cmd/villa/install_memory.go` (addon pattern)
 
 ### Secondary (MEDIUM confidence)
-- containers/podman discussions #23054 / issues #14411, #25442, #10669 + oneuptime/tutorialworks rootless-volume guides — rootless backup, UID-mapping/SELinux, `podman unshare chown` repair.
-- glukhov.org "Monitor LLM Inference (2026)" — "Cumulative Tokens" Grafana panel over the two `_total` counters; `--metrics` flag.
+- Cline "Why we don't index your codebase", Claude Code no-indexing analyses, Augment SWE-bench grep-vs-embeddings post-mortem, Amazon Science agentic-search result — code-RAG rejection consensus (with Milvus counterpoint weighed)
+- kyuz0 + community Strix Halo benchmarks — Qwen3-Coder throughput figures
+- llama.cpp discussions #13606/#22354/#20574 — `--cache-reuse` semantics, hybrid-model incompatibility
+- ROCm Strix Halo system-optimization docs + llama.cpp #18159/#22372 — GTT/TTM envelope behavior
 
-### Tertiary (LOW confidence)
-- None load-bearing; all key decisions corroborated by at least one HIGH-confidence source or the codebase itself.
+### Tertiary (LOW confidence, validate in phase)
+- charmbracelet/crush #2649 — model-id shadowing (single report)
+- LM Studio post on llama.cpp Qwen3-Next support timeline (PR #16095)
 
 ---
-*Research completed: 2026-06-07*
+*Research completed: 2026-06-12*
 *Ready for roadmap: yes*

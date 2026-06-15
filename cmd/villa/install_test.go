@@ -13,6 +13,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/MatrixMagician/VillaStraylight/internal/catalog"
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
@@ -87,11 +88,61 @@ type fakeInstallDeps struct {
 	memoryProofIn     memoryProofInput
 	memoryProofStatus preflight.Status
 	memoryProofDetail string
+
+	// Coding-agent (Crush) addon seam controls + counters (v1.4 / INSTALL-03). agentEnabled
+	// drives the loadedAgentEnabled gate seam (default false → the agent path never fires,
+	// so existing install tests stay unchanged). agentCat is the catalog the coderShardFor
+	// resolution reads (default carries a single coder entry so the agent-on tests resolve a
+	// shard). coderPresent drives the coderModelPresent idempotency seam (default true →
+	// present, so the pre-stage pull is skipped unless a test sets it false). agentProofStatus
+	// drives the readiness verdict. The *Calls counters let the agent tests assert exactly
+	// which agent seams fired.
+	agentEnabled         bool
+	agentCat             catalog.Catalog
+	agentCatOK           bool
+	coderPresent         bool
+	coderEnsureCalls     int
+	coderPresentCalls    int
+	binaryInstallCalls   int
+	renderCrushCalls     int
+	agentProofCalls      int
+	agentProofStatus     preflight.Status
+	agentProofDetail     string
+	renderedAgentEnabled bool
+	// renderedInput captures the orchestrate.RenderInput the render seam received so a
+	// test can assert the coder-serving wiring (CR-01): on --coding-agent the captured
+	// CodingMode must be non-nil and Cfg.CoderModel/CoderAgentCtx must equal rec.Coder,
+	// while a chat-only install must capture CodingMode == nil + CoderModel == "" (off-path
+	// byte-identical). renderedInputSet guards the zero-value (no render call yet).
+	renderedInput    orchestrate.RenderInput
+	renderedInputSet bool
+	// agentChecksCalls counts invocations of the runAgentChecks preflight-fold seam
+	// (INSTALL-04/D-09): a test asserts it is exactly 1 on an agent-on install and 0 on
+	// an agent-off install (the agent-off gate is byte-identical). agentChecks is the
+	// canned []CheckResult the seam returns (default empty → the gate stays a pass).
+	agentChecksCalls int
+	agentChecks      []preflight.CheckResult
 }
 
 func newFakeInstallDeps(t *testing.T, units []orchestrate.Unit, plan orchestrate.Plan, checks []preflight.CheckResult) *fakeInstallDeps {
 	t.Helper()
-	f := &fakeInstallDeps{downloaded: true, embedPresent: true, memoryProofStatus: preflight.StatusPass}
+	f := &fakeInstallDeps{
+		downloaded: true, embedPresent: true, memoryProofStatus: preflight.StatusPass,
+		coderPresent: true, agentProofStatus: preflight.StatusPass,
+		// Default agent catalog carries a single coder entry whose id matches the default
+		// pick's Coder.Model (set below) and a shard, so an agent-on test resolves a shard
+		// without extra setup. agentCatOK true so the load seam succeeds by default.
+		agentCatOK: true,
+		// Use a REAL embedded-catalog coder id: codingModelFile/codingDescriptor (the
+		// Phase-25 coder-serving helpers reused on the --coding-agent render path) read the
+		// embedded catalog via modelCatalogPath, NOT this fake, so the served coder id must
+		// be a genuine catalog entry for the default agent-on flow to render.
+		agentCat: catalog.Catalog{Models: []catalog.CatalogModel{
+			{ID: "qwen3-coder-30b-a3b", Role: "coder", Shards: []catalog.Shard{
+				{Filename: "qwen3-coder-30b-a3b.gguf", SizeBytes: 4096},
+			}},
+		}},
+	}
 	d := &installDeps{
 		probe: func() detect.HostProfile { return detect.HostProfile{} },
 		pick: func(detect.HostProfile, recommend.Overrides) recommend.Recommendation {
@@ -100,12 +151,19 @@ func newFakeInstallDeps(t *testing.T, units []orchestrate.Unit, plan orchestrate
 				WeightBytes:  1 << 30,
 				KVCacheBytes: 1 << 28, HeadroomBytes: 1 << 28, UsableEnvelopeBytes: 8 << 30,
 				Fits: true,
+				// A fitting coder block so the agent-on tests resolve a shard from the
+				// default agent catalog (id matches agentCat's coder entry).
+				Coder: recommend.CoderFit{Model: "qwen3-coder-30b-a3b", Quant: "Q4_K_M", AgentCtx: 65536, Fits: true, Residency: "swap"},
 			}
 		},
-		modelFile:   func(recommend.Recommendation) (string, error) { return "qwen2.5-0.5b.gguf", nil },
-		modelsDir:   func() string { return t.TempDir() },
-		runChecks:   func(detect.HostProfile, preflight.ResourceReq) []preflight.CheckResult { return checks },
-		render:      func(orchestrate.RenderInput) ([]orchestrate.Unit, error) { return units, nil },
+		modelFile: func(recommend.Recommendation) (string, error) { return "qwen2.5-0.5b.gguf", nil },
+		modelsDir: func() string { return t.TempDir() },
+		runChecks: func(detect.HostProfile, preflight.ResourceReq) []preflight.CheckResult { return checks },
+		render: func(in orchestrate.RenderInput) ([]orchestrate.Unit, error) {
+			f.renderedInput = in
+			f.renderedInputSet = true
+			return units, nil
+		},
 		reconcile:   func([]orchestrate.Unit, string) (orchestrate.Plan, error) { return plan, nil },
 		unitDir:     func() (string, error) { return t.TempDir(), nil },
 		username:    func() string { return "tester" },
@@ -205,6 +263,43 @@ func newFakeInstallDeps(t *testing.T, units []orchestrate.Unit, plan orchestrate
 		f.memoryProofIn = in
 		f.callOrder = append(f.callOrder, "memoryProof")
 		return memoryProof{status: f.memoryProofStatus, detail: f.memoryProofDetail}
+	}
+	// Coding-agent (Crush) addon seams (v1.4 / INSTALL-03). The gate seam reflects the
+	// controllable agentEnabled flag (default false → the agent path never fires, so existing
+	// tests are unchanged). The pre-stage/install/render/proof seams record an ordered event
+	// so a test can assert the binary + GGUF are staged and the config rendered BEFORE the
+	// readiness proof, and the proof seam returns the controllable verdict.
+	d.loadedAgentEnabled = func() bool { return f.agentEnabled }
+	d.agentCatalog = func() (catalog.Catalog, bool) { return f.agentCat, f.agentCatOK }
+	d.coderModelPresent = func(string, catalog.Shard) bool {
+		f.coderPresentCalls++
+		return f.coderPresent
+	}
+	d.ensureCoderModel = func(string, catalog.Shard) error {
+		f.coderEnsureCalls++
+		f.callOrder = append(f.callOrder, "ensureCoderModel")
+		return nil
+	}
+	d.installAgentBinary = func(context.Context) (string, error) {
+		f.binaryInstallCalls++
+		f.callOrder = append(f.callOrder, "installAgentBinary")
+		return "/tmp/villa/bin/crush", nil
+	}
+	d.renderCrushConfig = func(cfg config.VillaConfig) error {
+		f.renderCrushCalls++
+		f.renderedAgentEnabled = cfg.AgentEnabled
+		f.callOrder = append(f.callOrder, "renderCrushConfig")
+		return nil
+	}
+	d.agentProofFn = func(context.Context) agentProof {
+		f.agentProofCalls++
+		f.callOrder = append(f.callOrder, "agentProof")
+		return agentProof{status: f.agentProofStatus, detail: f.agentProofDetail}
+	}
+	d.runAgentChecks = func(detect.HostProfile, recommend.Recommendation) []preflight.CheckResult {
+		f.agentChecksCalls++
+		f.callOrder = append(f.callOrder, "runAgentChecks")
+		return f.agentChecks
 	}
 	f.installDeps = d
 	return f
@@ -1270,6 +1365,120 @@ func TestInstallPreservesPersistedMemoryConfig(t *testing.T) {
 	}
 }
 
+// TestInstallPreservesPersistedROCmBackend is the regression for the
+// install-reverts-rocm-to-vulkan debug session: `villa install` (and `villa install
+// --coding-agent`) must PRESERVE a persisted `backend=rocm` opt-in, not silently revert
+// it to vulkan. recommend.Pick always returns the default (vulkan) backend — ROCm is
+// strictly opt-in and never auto-recommended (REC-04) — so the cmd tier must guard the
+// `cfg.Backend = rec.Backend` assignment (config is the single source of truth for the
+// backend opt-in). The test proves BOTH halves: (a) the rendered villa-llama unit resolves
+// to the ROCm backend (not vulkan-radv), and (b) the persisted cfg keeps backend=rocm; plus
+// a re-install on an unchanged plan is a true no-op on the ROCm choice. The default path
+// (persisted vulkan) must still take the recommendation — the guard only PRESERVES an
+// already-chosen opt-in, it never auto-selects ROCm.
+func TestInstallPreservesPersistedROCmBackend(t *testing.T) {
+	persistedRocm := func() *config.VillaConfig {
+		c := config.DefaultVillaConfig()
+		c.Backend = "rocm"
+		return &c
+	}
+
+	t.Run("flag path preserves a persisted rocm opt-in in render and saved config", func(t *testing.T) {
+		units := []orchestrate.Unit{{Name: "villa-llama.container", Text: "[Container]\n"}}
+		plan := orchestrate.Plan{Changed: units}
+		f := newFakeInstallDeps(t, units, plan, passChecks())
+		f.persistedConfig = persistedRocm()
+
+		cmd, _, _ := installTestCmd()
+		if code := runInstall(cmd, installOpts{}, f.installDeps); code != exitPass {
+			t.Fatalf("install exit = %d, want 0", code)
+		}
+		// (a) The unit was rendered from the persisted ROCm backend — NOT reverted to the
+		// vulkan-radv default. The render path resolves cfg.Backend via inference.BackendFor,
+		// so the captured RenderInput.Backend.Name() is the proof the ROCm unit is rendered.
+		if !f.renderedInputSet {
+			t.Fatal("render seam was never invoked — cannot assert the rendered backend")
+		}
+		if got := f.renderedInput.Backend.Name(); got != "rocm" {
+			t.Errorf("install rendered backend %q, want \"rocm\" preserved (config is the single source of truth; ROCm is opt-in and never auto-reverted)", got)
+		}
+		// (b) The persisted opt-in survives into the saved cfg — install must not rewrite
+		// config.toml back to backend=vulkan.
+		if f.savedCfg.Backend != "rocm" {
+			t.Errorf("install reverted persisted backend to %q, want \"rocm\" preserved", f.savedCfg.Backend)
+		}
+		// The recommendation-derived NON-backend fields are still overridden from the rec.
+		if f.savedCfg.Model != "qwen2.5-0.5b" {
+			t.Errorf("install must still override the recommendation-derived model, got %q", f.savedCfg.Model)
+		}
+	})
+
+	t.Run("--coding-agent path preserves a persisted rocm opt-in (the reported repro)", func(t *testing.T) {
+		units := []orchestrate.Unit{{Name: "villa-llama.container", Text: "[Container]\n"}}
+		plan := orchestrate.Plan{Changed: units}
+		f := newFakeInstallDeps(t, units, plan, passChecks())
+		f.persistedConfig = persistedRocm()
+
+		cmd, _, _ := installTestCmd()
+		if code := runInstall(cmd, installOpts{codingAgent: true}, f.installDeps); code != exitPass {
+			t.Fatalf("install --coding-agent exit = %d, want 0", code)
+		}
+		if got := f.renderedInput.Backend.Name(); got != "rocm" {
+			t.Errorf("install --coding-agent rendered backend %q, want \"rocm\" preserved", got)
+		}
+		if f.savedCfg.Backend != "rocm" {
+			t.Errorf("install --coding-agent reverted persisted backend to %q, want \"rocm\" preserved", f.savedCfg.Backend)
+		}
+	})
+
+	t.Run("re-install on a persisted rocm config + unchanged plan is a true no-op", func(t *testing.T) {
+		units := []orchestrate.Unit{{Name: "villa-llama.container", Text: "[Container]\n"}}
+		plan := orchestrate.Plan{Unchanged: units} // zero Changed = no-op container path
+		f := newFakeInstallDeps(t, units, plan, passChecks())
+		f.persistedConfig = persistedRocm()
+		// Pre-seed the on-disk dashboard unit with the rendered bytes so the dashboard
+		// reconcile is ALSO a no-op (otherwise the dashboard always reconciles on a nil
+		// diskUnit, which is unrelated to the backend-preservation no-op under test).
+		f.diskUnit = mustRenderDashboardUnit(t, "/opt/villa/bin/villa")
+
+		cmd, _, _ := installTestCmd()
+		if code := runInstall(cmd, installOpts{}, f.installDeps); code != exitPass {
+			t.Fatalf("re-install exit = %d, want 0", code)
+		}
+		// The unchanged plan must NOT rewrite or (re)start the llama unit — preserving the
+		// persisted ROCm backend keeps the rendered units byte-identical to disk, so the
+		// reconcile is a true no-op on the ROCm choice (plan.Changed == 0).
+		if f.writeCalls != 0 {
+			t.Errorf("re-install on an unchanged rocm config must NOT rewrite container units, writeCalls = %d", f.writeCalls)
+		}
+		if contains(f.startOrder, "villa-llama.service") {
+			t.Errorf("re-install on an unchanged rocm config must NOT restart the llama service, startOrder = %v", f.startOrder)
+		}
+		// The persisted opt-in is still rocm after the no-op re-install.
+		if f.savedCfg.Backend != "rocm" {
+			t.Errorf("no-op re-install reverted persisted backend to %q, want \"rocm\" preserved", f.savedCfg.Backend)
+		}
+	})
+
+	t.Run("a persisted vulkan default still takes the recommendation (guard preserves only opt-ins)", func(t *testing.T) {
+		units := []orchestrate.Unit{{Name: "villa-llama.container", Text: "[Container]\n"}}
+		plan := orchestrate.Plan{Changed: units}
+		f := newFakeInstallDeps(t, units, plan, passChecks())
+		// Default persisted config: backend=vulkan. The recommendation (also vulkan) wins;
+		// the guard must NOT pin a non-opt-in value or block the recommendation flow.
+		cmd, _, _ := installTestCmd()
+		if code := runInstall(cmd, installOpts{}, f.installDeps); code != exitPass {
+			t.Fatalf("install exit = %d, want 0", code)
+		}
+		if got := f.renderedInput.Backend.Name(); got != "vulkan" {
+			t.Errorf("default-path install rendered backend %q, want \"vulkan\" from the recommendation", got)
+		}
+		if f.savedCfg.Backend != "vulkan" {
+			t.Errorf("default-path install saved backend %q, want \"vulkan\" from the recommendation", f.savedCfg.Backend)
+		}
+	})
+}
+
 // TestInstallMemoryServices: gate=true pre-stages when absent and starts the memory
 // services in order (Qdrant before embed — Pitfall 4); gate off / dry-run → none called.
 func TestInstallMemoryServices(t *testing.T) {
@@ -1711,4 +1920,324 @@ func TestInstallMemoryGateRefusesUnfitHost(t *testing.T) {
 			t.Fatalf("memory-off install must not be blocked by the memory gate, exit = %d", code)
 		}
 	})
+}
+
+// TestEvalAgentProof asserts the coding-agent install-readiness verdict (D-05, T-27-05):
+// PASS only on a REAL tool-call edit; FAIL on no-edit and on err. A health-200 is NEVER an
+// input — the only signal is the planted read→edit round-trip result.
+func TestEvalAgentProof(t *testing.T) {
+	cases := []struct {
+		name       string
+		edited     bool
+		err        error
+		wantStatus preflight.Status
+	}{
+		{"real edit passes", true, nil, preflight.StatusPass},
+		{"no edit fails (false-green guard)", false, nil, preflight.StatusFail},
+		{"round-trip err fails", false, errors.New("crush run: exit 1"), preflight.StatusFail},
+		{"err takes precedence over a stale edited=true", true, errors.New("timeout"), preflight.StatusFail},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			toolCall := func() (bool, error) { return tc.edited, tc.err }
+			got := evalAgentProof(toolCall)
+			if got.status != tc.wantStatus {
+				t.Errorf("status = %v, want %v (detail %q)", got.status, tc.wantStatus, got.detail)
+			}
+			if tc.wantStatus == preflight.StatusFail && got.detail == "" {
+				t.Error("a FAIL verdict must carry a remediation detail")
+			}
+		})
+	}
+}
+
+// TestCoderShardSingleSource proves D-04: the staged coder shard and the served coder model
+// resolve from ONE catalog entry (the recommend-picked id), not two independent literals. It
+// resolves the shard via coderShardFor against the picked rec.Coder.Model, then asserts the
+// resolved entry's id is exactly the served coder id — a single-entry derivation, so the
+// staged filename and the served -m path can never drift.
+func TestCoderShardSingleSource(t *testing.T) {
+	cat := catalog.Catalog{Models: []catalog.CatalogModel{
+		{ID: "qwen3-chat", Role: ""},
+		{ID: "qwen3-coder-30b", Role: "coder", Shards: []catalog.Shard{
+			{Filename: "qwen3-coder-30b.Q4.gguf", SizeBytes: 18_000_000_000},
+		}},
+	}}
+	// The served coder id comes from the recommend pick (cfg.CoderModel is set from it at
+	// coding-mode enter — the SAME id). coderShardFor must resolve THAT entry's shard.
+	rec := recommend.Recommendation{Coder: recommend.CoderFit{Model: "qwen3-coder-30b"}}
+
+	sh, ok := coderShardFor(rec, cat)
+	if !ok {
+		t.Fatal("coderShardFor did not resolve the picked coder entry's shard")
+	}
+	// Find the entry coderShardFor resolved from and assert it is the SAME entry whose id is
+	// the served coder model — one entry drives both the staged filename and the served id.
+	var servedEntry catalog.CatalogModel
+	for _, m := range cat.Models {
+		if m.ID == rec.Coder.Model {
+			servedEntry = m
+		}
+	}
+	if servedEntry.ID != rec.Coder.Model {
+		t.Fatalf("served coder entry id = %q, want the picked id %q", servedEntry.ID, rec.Coder.Model)
+	}
+	if len(servedEntry.Shards) == 0 || sh.Filename != servedEntry.Shards[0].Filename {
+		t.Errorf("staged shard %q does not derive from the served entry's Shards[0] %v — D-04 single-source break",
+			sh.Filename, servedEntry.Shards)
+	}
+}
+
+// TestInstallCodingAgentFlow asserts the --coding-agent gate block (D-01/D-03/D-05): with the
+// flag set the FSL notice prints, the coder GGUF + binary are staged and the config rendered
+// BEFORE the readiness proof, AgentEnabled is persisted, the render sees AgentEnabled=true,
+// and a clean install passes. An agent-off install fires NONE of the agent seams.
+func TestInstallCodingAgentFlow(t *testing.T) {
+	units := []orchestrate.Unit{{Name: "villa-llama.container", Text: "x"}}
+	plan := orchestrate.Plan{Changed: units}
+
+	t.Run("--coding-agent stages, persists, and proves the agent", func(t *testing.T) {
+		f := newFakeInstallDeps(t, units, plan, passChecks())
+		f.coderPresent = false // exercise the pre-stage pull path
+
+		cmd, out, _ := installTestCmd()
+		code := runInstall(cmd, installOpts{codingAgent: true}, f.installDeps)
+		if code != exitPass {
+			t.Fatalf("clean coding-agent install exit = %d, want %d", code, exitPass)
+		}
+		// FSL-1.1-MIT notice surfaced before staging.
+		if !strings.Contains(out.String(), "FSL-1.1-MIT") {
+			t.Errorf("install output must surface the FSL-1.1-MIT notice; got:\n%s", out.String())
+		}
+		// All agent seams fired exactly once.
+		if f.coderEnsureCalls != 1 || f.binaryInstallCalls != 1 || f.renderCrushCalls != 1 || f.agentProofCalls != 1 {
+			t.Errorf("agent seam counts: coderEnsure=%d binaryInstall=%d render=%d proof=%d, want 1/1/1/1",
+				f.coderEnsureCalls, f.binaryInstallCalls, f.renderCrushCalls, f.agentProofCalls)
+		}
+		// The gate persisted AgentEnabled and the render saw it true (D-01).
+		if !f.savedCfg.AgentEnabled {
+			t.Error("--coding-agent must persist cfg.AgentEnabled = true (D-01)")
+		}
+		if !f.renderedAgentEnabled {
+			t.Error("renderCrushConfig must receive cfg.AgentEnabled = true")
+		}
+		// Ordering: stage + render BEFORE the readiness proof (D-05).
+		if idx(f.callOrder, "renderCrushConfig") > idx(f.callOrder, "agentProof") {
+			t.Errorf("config must be rendered before the readiness proof; callOrder = %v", f.callOrder)
+		}
+		if idx(f.callOrder, "installAgentBinary") < 0 || idx(f.callOrder, "ensureCoderModel") < 0 {
+			t.Errorf("binary install + coder pre-stage must both run; callOrder = %v", f.callOrder)
+		}
+	})
+
+	t.Run("--coding-agent serves the coder (CR-01): RenderInput.CodingMode != nil + served id == rec.Coder.Model", func(t *testing.T) {
+		f := newFakeInstallDeps(t, units, plan, passChecks())
+		// Use a REAL catalog coder id so codingModelFile/codingDescriptor (which read the
+		// embedded catalog via modelCatalogPath, not the fake) resolve. rec.Coder carries a
+		// real swap-residency coder fit with a non-zero agent ctx and quant.
+		f.installDeps.pick = func(detect.HostProfile, recommend.Overrides) recommend.Recommendation {
+			return recommend.Recommendation{
+				Model: "qwen2.5-0.5b", Quant: "Q4_K_M", ContextLen: 4096, Backend: "vulkan",
+				WeightBytes: 1 << 30, KVCacheBytes: 1 << 28, HeadroomBytes: 1 << 28,
+				UsableEnvelopeBytes: 8 << 30, Fits: true,
+				Coder: recommend.CoderFit{
+					Model: "qwen3-coder-30b-a3b", Quant: "Q4_K_M", AgentCtx: 65536,
+					Fits: true, Residency: "swap",
+				},
+			}
+		}
+		// Catalog the coderShardFor pre-stage resolves against must carry the same id.
+		f.agentCat = catalog.Catalog{Models: []catalog.CatalogModel{
+			{ID: "qwen3-coder-30b-a3b", Role: "coder", Shards: []catalog.Shard{
+				{Filename: "qwen3-coder-30b-a3b.gguf", SizeBytes: 4096},
+			}},
+		}}
+
+		cmd, _, errOut := installTestCmd()
+		code := runInstall(cmd, installOpts{codingAgent: true}, f.installDeps)
+		if code != exitPass {
+			t.Fatalf("coding-agent install exit = %d, want %d; stderr:\n%s", code, exitPass, errOut.String())
+		}
+		if !f.renderedInputSet {
+			t.Fatal("render seam was never called")
+		}
+		// CR-01: the coder must be SERVED — a non-nil CodingMode descriptor + coder render inputs.
+		if f.renderedInput.CodingMode == nil {
+			t.Error("--coding-agent must thread a non-nil RenderInput.CodingMode (the coder is served)")
+		}
+		if f.renderedInput.Cfg.CoderModel != "qwen3-coder-30b-a3b" {
+			t.Errorf("RenderInput.Cfg.CoderModel = %q, want rec.Coder.Model %q",
+				f.renderedInput.Cfg.CoderModel, "qwen3-coder-30b-a3b")
+		}
+		if !f.renderedInput.Cfg.CodingMode {
+			t.Error("RenderInput.Cfg.CodingMode must be true on --coding-agent")
+		}
+		if f.renderedInput.CoderAgentCtx != 65536 {
+			t.Errorf("RenderInput.CoderAgentCtx = %d, want rec.Coder.AgentCtx %d",
+				f.renderedInput.CoderAgentCtx, 65536)
+		}
+		// The persisted config carries the coder fields so a bare `villa up` re-renders the coder.
+		if f.savedCfg.CoderModel != "qwen3-coder-30b-a3b" || !f.savedCfg.CodingMode ||
+			f.savedCfg.CoderQuant != "Q4_K_M" || f.savedCfg.CoderAgentCtx != 65536 {
+			t.Errorf("persisted cfg must carry coder fields: CoderModel=%q CodingMode=%v CoderQuant=%q CoderAgentCtx=%d",
+				f.savedCfg.CoderModel, f.savedCfg.CodingMode, f.savedCfg.CoderQuant, f.savedCfg.CoderAgentCtx)
+		}
+	})
+
+	t.Run("chat-only install is off-path byte-identical: RenderInput.CodingMode == nil + CoderModel empty", func(t *testing.T) {
+		f := newFakeInstallDeps(t, units, plan, passChecks())
+		cmd, _, _ := installTestCmd()
+		code := runInstall(cmd, installOpts{}, f.installDeps)
+		if code != exitPass {
+			t.Fatalf("chat-only install exit = %d, want %d", code, exitPass)
+		}
+		if !f.renderedInputSet {
+			t.Fatal("render seam was never called")
+		}
+		if f.renderedInput.CodingMode != nil {
+			t.Error("chat-only install must keep RenderInput.CodingMode == nil (off-path byte-identical)")
+		}
+		if f.renderedInput.Cfg.CoderModel != "" || f.renderedInput.Cfg.CodingMode {
+			t.Errorf("chat-only install must not set coder fields: CoderModel=%q CodingMode=%v",
+				f.renderedInput.Cfg.CoderModel, f.renderedInput.Cfg.CodingMode)
+		}
+	})
+
+	t.Run("readiness FAIL refuses-with-remediation, no false-green", func(t *testing.T) {
+		f := newFakeInstallDeps(t, units, plan, passChecks())
+		f.agentProofStatus = preflight.StatusFail
+		f.agentProofDetail = "the coding agent ran but did not perform the tool-call edit"
+
+		cmd, _, errOut := installTestCmd()
+		code := runInstall(cmd, installOpts{codingAgent: true}, f.installDeps)
+		if code != exitBlocked {
+			t.Fatalf("an agent readiness FAIL must block, exit = %d want %d", code, exitBlocked)
+		}
+		if !strings.Contains(errOut.String(), "coding agent not ready") {
+			t.Errorf("a readiness FAIL must refuse-with-remediation; got:\n%s", errOut.String())
+		}
+	})
+
+	t.Run("shared-residency coder fit refuses with a swap-only message, NOT free-memory copy (WR-03)", func(t *testing.T) {
+		f := newFakeInstallDeps(t, units, plan, passChecks())
+		// Catalog with no coder entry → coderShardFor would return false, but the shared-
+		// residency branch refuses BEFORE reaching it.
+		f.agentCat = catalog.Catalog{Models: []catalog.CatalogModel{{ID: "qwen3-chat"}}}
+		// rec.Coder is a SHARED-residency fit (Residency "shared", empty Model). A coder DOES
+		// fit conceptually (riding the chat endpoint) but v1.4 only serves a dedicated swap-
+		// residency coder, so the addon refuses with the swap-only message — NOT the misleading
+		// "free memory / use a larger host" copy. Coding-mode is NOT entered (cfg.CodingMode
+		// stays false) and the addon refuses at the step-6c shared-residency gate.
+		f.installDeps.pick = func(detect.HostProfile, recommend.Overrides) recommend.Recommendation {
+			return recommend.Recommendation{
+				Model: "qwen2.5-0.5b", Quant: "Q4_K_M", ContextLen: 4096, Backend: "vulkan",
+				WeightBytes: 1 << 30, KVCacheBytes: 1 << 28, HeadroomBytes: 1 << 28,
+				UsableEnvelopeBytes: 8 << 30, Fits: true,
+				Coder: recommend.CoderFit{Fits: false, Residency: recommend.ResidencyShared},
+			}
+		}
+
+		cmd, _, errOut := installTestCmd()
+		code := runInstall(cmd, installOpts{codingAgent: true}, f.installDeps)
+		if code != exitBlocked {
+			t.Fatalf("a shared-residency coder fit must block the addon, exit = %d want %d", code, exitBlocked)
+		}
+		if f.binaryInstallCalls != 0 || f.agentProofCalls != 0 {
+			t.Errorf("no agent staging/proof after a coder-fit refusal: binaryInstall=%d proof=%d",
+				f.binaryInstallCalls, f.agentProofCalls)
+		}
+		got := errOut.String()
+		if !strings.Contains(got, "swap-residency coder fit") || !strings.Contains(got, "SHARED residency") {
+			t.Errorf("a shared-residency refusal must explain the swap-only limitation; got:\n%s", got)
+		}
+		// WR-03 cardinal point: the operator must NOT be misdirected toward freeing memory.
+		if strings.Contains(got, "free memory or use a larger-envelope host") {
+			t.Errorf("a shared-residency refusal must NOT use the misleading no-fit free-memory copy; got:\n%s", got)
+		}
+	})
+
+	t.Run("agent-off install fires NO agent seam (D-01 byte-identical)", func(t *testing.T) {
+		f := newFakeInstallDeps(t, units, plan, passChecks())
+		// agentEnabled stays false (default); no --coding-agent flag.
+		cmd, out, _ := installTestCmd()
+		code := runInstall(cmd, installOpts{}, f.installDeps)
+		if code != exitPass {
+			t.Fatalf("agent-off install exit = %d, want %d", code, exitPass)
+		}
+		if f.coderPresentCalls != 0 || f.coderEnsureCalls != 0 || f.binaryInstallCalls != 0 ||
+			f.renderCrushCalls != 0 || f.agentProofCalls != 0 {
+			t.Errorf("agent-off install must fire NO agent seam: present=%d ensure=%d binary=%d render=%d proof=%d",
+				f.coderPresentCalls, f.coderEnsureCalls, f.binaryInstallCalls, f.renderCrushCalls, f.agentProofCalls)
+		}
+		if strings.Contains(out.String(), "FSL-1.1-MIT") || strings.Contains(out.String(), "coding agent") {
+			t.Errorf("agent-off install must not surface any coding-agent output; got:\n%s", out.String())
+		}
+		if f.savedCfg.AgentEnabled {
+			t.Error("agent-off install must persist AgentEnabled = false (D-01)")
+		}
+	})
+}
+
+// TestInstallAgentPreflightFold asserts the INSTALL-04/D-09 preflight fold: the
+// runAgentChecks seam is appended to the install gate ONLY when the addon is enabled
+// (--coding-agent or persisted agent_enabled), an agent-off install never calls it (the
+// gate stays byte-identical), and an agent BLOCK from the fold refuses the install
+// through the SAME gateInstall (inheriting refuse-with-remediation).
+func TestInstallAgentPreflightFold(t *testing.T) {
+	units := []orchestrate.Unit{{Name: "villa-llama.container", Text: "x"}}
+	plan := orchestrate.Plan{Changed: units}
+
+	t.Run("--coding-agent folds the agent checks exactly once", func(t *testing.T) {
+		f := newFakeInstallDeps(t, units, plan, passChecks())
+		cmd, _, _ := installTestCmd()
+		if code := runInstall(cmd, installOpts{codingAgent: true}, f.installDeps); code != exitPass {
+			t.Fatalf("clean agent install exit = %d, want %d", code, exitPass)
+		}
+		if f.agentChecksCalls != 1 {
+			t.Errorf("runAgentChecks must fire exactly once when the addon is on; got %d", f.agentChecksCalls)
+		}
+	})
+
+	t.Run("agent-off install never folds the agent checks (byte-identical)", func(t *testing.T) {
+		f := newFakeInstallDeps(t, units, plan, passChecks())
+		cmd, _, _ := installTestCmd()
+		if code := runInstall(cmd, installOpts{}, f.installDeps); code != exitPass {
+			t.Fatalf("agent-off install exit = %d, want %d", code, exitPass)
+		}
+		if f.agentChecksCalls != 0 {
+			t.Errorf("agent-off install must NOT fold the agent checks; got %d", f.agentChecksCalls)
+		}
+	})
+
+	t.Run("an agent BLOCK from the fold refuses the install", func(t *testing.T) {
+		f := newFakeInstallDeps(t, units, plan, passChecks())
+		f.agentChecks = []preflight.CheckResult{{
+			ID: agentEnvelopeCheckID, Name: "Coding-agent memory envelope",
+			Tier: preflight.TierBlock, Status: preflight.StatusFail,
+			Detail: "no coder model fits", Remediation: "free memory",
+		}}
+		cmd, _, errOut := installTestCmd()
+		code := runInstall(cmd, installOpts{codingAgent: true}, f.installDeps)
+		if code != exitBlocked {
+			t.Fatalf("an agent BLOCK must refuse the install, exit = %d want %d", code, exitBlocked)
+		}
+		if f.binaryInstallCalls != 0 || f.agentProofCalls != 0 {
+			t.Errorf("a blocked gate must not stage/prove the agent: binary=%d proof=%d",
+				f.binaryInstallCalls, f.agentProofCalls)
+		}
+		if !strings.Contains(errOut.String(), "BLOCKED") {
+			t.Errorf("an agent BLOCK must refuse-with-remediation via gateInstall; got:\n%s", errOut.String())
+		}
+	})
+}
+
+// idx returns the index of v in s, or -1 if absent (a small test helper for callOrder
+// ordering assertions).
+func idx(s []string, v string) int {
+	for i, x := range s {
+		if x == v {
+			return i
+		}
+	}
+	return -1
 }

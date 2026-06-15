@@ -1,0 +1,44 @@
+# cache-reuse probe (--cache-reuse 256), captured 2026-06-12T22:58:46Z
+
+## journal scan (warning ABSENT required for true):
+WARNING_PRESENT=false (no cache-reuse incompatibility warning in log)
+
+## turn-1 timings:
+{
+ "cache_n": 0,
+ "prompt_n": 77,
+ "prompt_ms": 724.847,
+ "prompt_per_token_ms": 9.413597402597402,
+ "prompt_per_second": 106.2293146001846,
+ "predicted_n": 59,
+ "predicted_ms": 1244.106,
+ "predicted_per_token_ms": 21.086542372881357,
+ "predicted_per_second": 47.42361181442739
+}
+
+## turn-2 timings (cache_n > 0 required for true):
+{
+ "cache_n": 58,
+ "prompt_n": 96,
+ "prompt_ms": 546.525,
+ "prompt_per_token_ms": 5.6929687499999995,
+ "prompt_per_second": 175.65527651982984,
+ "predicted_n": 70,
+ "predicted_ms": 1455.63,
+ "predicted_per_token_ms": 20.79471428571429,
+ "predicted_per_second": 48.08914353235369
+}
+
+## full turn-2 response:
+{"choices":[{"finish_reason":"stop","index":0,"message":{"role":"assistant","content":"Context length determines how many tokens' KV pairs are stored; as more tokens are generated, the cache grows linearly (O(n²) memory for attention computations), since each new token requires storing its K/V vectors alongside all prior ones for full self-attention. This growth directly impacts memory usage and can become a bottleneck for long-context generation."}}],"created":1781305126,"model":"Qwen3-Coder-Next-UD-Q4_K_XL.gguf","system_fingerprint":"b9496-94a220cd6","object":"chat.completion","usage":{"completion_tokens":70,"prompt_tokens":154,"total_tokens":224,"prompt_tokens_details":{"cached_tokens":58}},"id":"chatcmpl-NcSFUYrjV1zrvv3zybGZiIVQS5C1yQIM","timings":{"cache_n":58,"prompt_n":96,"prompt_ms":546.525,"prompt_per_token_ms":5.6929687499999995,"prompt_per_second":175.65527651982984,"predicted_n":70,"predicted_ms":1455.63,"predicted_per_token_ms":20.79471428571429,"predicted_per_second":48.08914353235369}}
+
+## mechanism nuance (hybrid arch): reuse achieved via recurrent-state CONTEXT CHECKPOINTS, not KV shifting:
+0.09.554.568 W srv    load_model: speculative decoding will use checkpoints
+0.09.554.673 I srv    load_model: context checkpoints enabled, max = 32, min spacing = 256
+0.10.475.920 I slot create_check: id  3 | task 0 | created context checkpoint 1 of 32 (pos_min = 57, pos_max = 57, n_tokens = 58, size = 75.376 MiB)
+0.12.043.211 I slot print_timing: id  3 | task 0 |    graphs reused =         58
+0.12.086.009 I slot update_slots: id  3 | task 62 | Checking checkpoint with [57, 57] against 134...
+0.12.095.902 W slot update_slots: id  3 | task 62 | restored context checkpoint (pos_min = 57, pos_max = 57, n_tokens = 58, n_past = 58, size = 75.376 MiB)
+0.14.088.180 I slot print_timing: id  3 | task 62 |    graphs reused =        126
+
+## note: no 'cache_reuse' param echo appears in the log; neither incompatibility warning string appeared (build 9496 wording verified in RESEARCH).

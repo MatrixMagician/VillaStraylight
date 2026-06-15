@@ -1,304 +1,340 @@
 # Pitfalls Research
 
-**Domain:** Adding strictly-local memory/RAG (vector DB + local embeddings + Open WebUI Memory/RAG) to a shipped privacy-first, single-static-CGO-free-binary Go control plane on AMD Strix Halo / Fedora (VillaStraylight v1.3)
-**Researched:** 2026-06-09
-**Confidence:** HIGH (Open WebUI official docs + GitHub issues; corroborated across multiple sources for the privacy/dimension/persistence traps)
+**Domain:** Adding a strictly-local coding agent + coding model + codebase memory to an existing self-hosted llama.cpp stack (VillaStraylight v1.4)
+**Researched:** 2026-06-12
+**Confidence:** HIGH overall (agent telemetry/offline behaviors verified against official docs + GitHub issues mid-2026; memory math MEDIUM where computed; Qdrant-for-code effectiveness MEDIUM — industry consensus, not yet measured on this stack)
 
-> Scope note: these are pitfalls specific to wiring Open WebUI's *native* Memory/RAG to a local vector DB + local embeddings under villa's non-negotiables (zero-outbound, CGO-free, unified-memory envelope, config-as-truth, byte-frozen contracts, honesty-by-construction). Generic RAG advice is omitted. The ones tagged **(NON-NEGOTIABLE THREAT)** would, if missed, break a constraint villa has STRIDE-secured since v1.0.
+> Scope note: this is integration-pitfall research — every item is scoped to THIS stack's invariants: strictly-local/zero-telemetry posture (PRIV-*), offload-asserting honesty (D-11), fit-math-before-install (CTRL-01 pattern), byte-frozen `status.Report`/golden contracts, orchestrate-as-the-only-impure-module, and the digest-pin discipline. Generic agent advice is omitted.
 
 ## Critical Pitfalls
 
-### Pitfall 1: Open WebUI silently pulls the embedding model from HuggingFace on first RAG use **(NON-NEGOTIABLE THREAT — zero-outbound)**
+### Pitfall 1: Agent phone-home defaults silently violate the zero-telemetry posture **(NON-NEGOTIABLE THREAT — zero-outbound)**
 
 **What goes wrong:**
-Open WebUI's default RAG engine is `SentenceTransformers` with default model `sentence-transformers/all-MiniLM-L6-v2`, which is **auto-downloaded from HuggingFace Hub on first RAG/document/web-search use** (via `get_ef()` → `SentenceTransformer(...)`). The same happens for the reranker model and for Whisper. This is a fresh, runtime, un-gated outbound connection that villa has never had before — install today only pulls the image; the *first document upload* would phone out to `huggingface.co`. This directly violates PRIV-01/02/03 ("only outbound is image/model pulls during install/update") because it happens at *runtime*, unattended, after install reports green.
+The agent is "wired to local endpoints" but still makes outbound connections the stack's privacy claim forbids. All three candidates phone home **by default**, each differently:
+
+- **OpenCode (leading candidate):** (a) **unconditional startup fetch of `https://models.dev/api.json`** for provider/model discovery — hangs or fails in no-internet setups, doesn't respect `HTTP_PROXY` (Bun fetch), and is the subject of multiple open air-gap issues ([#16117](https://github.com/anomalyco/opencode/issues/16117), [#18492](https://github.com/anomalyco/opencode/issues/18492), [#4959](https://github.com/anomalyco/opencode/issues/4959)); `OPENCODE_DISABLE_MODELS_FETCH=1` and `OPENCODE_MODELS_URL` exist but are reported as *partial* — crashes/500s still occur. (b) **`autoupdate` downloads new versions at startup** by default. (c) **`share` feature uploads conversations to opencode.ai** (default `"manual"` — one keystroke from upload, not disabled). (d) Provider plumbing can pull `@ai-sdk/*` npm packages at runtime. Community verdict as of mid-2026: "doesn't work fully offline yet… depends on pulling stuff from remote resources" ([llama.cpp discussion #19619](https://github.com/ggml-org/llama.cpp/discussions/19619)).
+- **Aider:** PostHog analytics enabled **for a random subset of users** unless `--no-analytics` / `analytics-disable` is set ([aider analytics docs](https://aider.chat/docs/more/analytics.html)) — a given install may or may not be phoning home, which is worse for a *provable* posture than always-on.
+- **Crush:** pseudonymous usage metrics to PostHog at `data.charm.land` by default; opt-out via `CRUSH_DISABLE_METRICS=1`, `DO_NOT_TRACK=1`, or `options.disable_metrics` ([Crush metrics & privacy](https://mintlify.com/charmbracelet/crush/guides/metrics)).
 
 **Why it happens:**
-The download is lazy and demand-driven, so it does not appear during `villa install` or a health check — it only fires when a user actually uploads a doc or enables memory. Developers verify "install is zero-outbound", see green, and miss the runtime leak. ChromaDB (OWUI's *default* vector store) **additionally** posts PostHog telemetry (`ClientCreateCollectionEvent`) unless `ANONYMIZED_TELEMETRY=False` — a second, independent leak in the same feature.
+Teams treat "points at a local baseURL" as equivalent to "local-only." The model endpoint is only one of the agent's outbound surfaces — update checks, model registries, share/sync, analytics, and runtime package fetches are separate code paths that no provider config touches.
 
 **How to avoid:**
-- Treat the embedding model as a **first-class install artifact**, pulled and verified *during* `villa install` (the only sanctioned outbound window), into a persistent volume — never lazily at runtime.
-- Set, in the Open WebUI Quadlet env (mirroring the existing telemetry-kill from Phase 4): `OFFLINE_MODE=true`, `HF_HUB_OFFLINE=1`, `RAG_EMBEDDING_MODEL_AUTO_UPDATE=false`, `RAG_RERANKING_MODEL_AUTO_UPDATE=false`, `WHISPER_MODEL_AUTO_UPDATE=false`, `ANONYMIZED_TELEMETRY=False`, `DO_NOT_TRACK=true`, `SCARF_NO_ANALYTICS=true`, and point `RAG_EMBEDDING_MODEL` at the pre-staged local path.
-- Prefer routing embeddings to the **local llama.cpp `/embeddings` endpoint** (`RAG_EMBEDDING_ENGINE=openai` against the loopback `villa-llama` OpenAI-compatible API) so the embedding model is a *gguf villa already manages*, eliminating the HF/sentence-transformers download path entirely. This also keeps villa's "embeddings must run locally" requirement honest-by-construction rather than env-flag-dependent.
-- Extend the existing no-telemetry **assertion** in `internal/status` to actively prove zero-outbound for the memory stack — not just trust env vars. An offload-style honesty check: the memory feature is only "ready" if a residency/connectivity probe confirms it embeds locally.
+1. The agent-selection research phase must produce a **complete outbound-surface inventory** per candidate (model endpoint, registry fetch, update check, share, analytics, plugin/npm fetch, auth) — not just "supports OpenAI-compatible API."
+2. Ship a **frozen kill-switch config** the install renders (mirror of the OWUI `ENABLE_PERSISTENT_CONFIG=False` pattern): for OpenCode at minimum `autoupdate: false`, `share: "disabled"`, `OPENCODE_DISABLE_MODELS_FETCH=1` + a local `OPENCODE_MODELS_URL` mirror (or vendored models manifest), explicit provider with only the local endpoint, `disabled_providers` for everything else. Golden-freeze this config.
+3. **Reuse the v1.3 `villa verify` runtime negative-control pattern**: an egress-open run must FAIL (gate proven real), then under a scoped nft egress block the agent must complete a real edit-loop task. Flag-trusting the agent's own config is exactly the vacuous-green the v1.3 decision log warns against — and OpenCode's air-gap issues prove the flags are *known incomplete* here.
 
 **Warning signs:**
-First document upload hangs or fails on an air-gapped/firewalled host; `journalctl --user -u villa-openwebui` shows attempts to resolve `huggingface.co`; a connection probe during a RAG smoke test shows outbound to HF or `app.posthog.com`.
+Agent startup latency that disappears when offline-blocked; `models.dev`, `data.charm.land`, npm registry, or GitHub-release hosts in nft/conntrack logs; agent failing to start with networking restricted (means it depends on a remote resource); a "share" URL appearing in agent output.
 
 **Phase to address:**
-The orchestration/wiring phase that introduces the Open WebUI Memory/RAG env block and the embeddings backend (earliest RAG phase). Verification belongs in the same phase's UAT (zero-outbound smoke test on a doc upload) and in the `status`/`doctor` surfacing phase.
+Agent-selection/research phase defines the kill-set as a hard selection criterion; install-addon phase renders + freezes it; verification phase extends `villa verify` to the agent (negative-control-first).
 
 ---
 
-### Pitfall 2: Embedding model is omitted from the unified-memory recommend-math → OOM or silent CPU fallback of the *main* model **(NON-NEGOTIABLE THREAT — honesty/just-works)**
+### Pitfall 2: Cloud-provider fallback — the agent's *default* model is a hosted API **(NON-NEGOTIABLE THREAT — code exfiltration)**
 
 **What goes wrong:**
-gfx1151 has ONE unified-memory pool (the GTT envelope `mem_info_gtt_total` ≈ 62.5 GiB) shared by inference + KV cache + *now the embedding model + its KV*. villa's `recommend.Pick()` fits `model_bytes + KV@ctx + headroom ≤ envelope` for the *chat* model only. Adding an embedding model (and re-embedding bursts during a document import) silently eats into the same pool. The failure mode is exactly the one villa polices elsewhere: the chat model gets evicted/partially offloaded to CPU, or an import OOMs — and worse, llama.cpp can **silently fall back to CPU** (a FAIL by villa's offload-asserting doctrine, not a false-green).
+The agent runs, but inference goes to a cloud API instead of `villa-llama`. OpenCode's out-of-box default model is **`gpt-5-nano` hosted by OpenCode Zen** (their cloud gateway, behind `opencode auth login`) ([OpenCode Zen docs](https://opencode.ai/docs/zen/), [models docs](https://opencode.ai/docs/models/)). If the local provider config is missing/typoed, or the user has ever run `opencode auth login` for another tool, the agent can silently resolve to a cloud provider — code and prompts leave the box while everything *appears* to work (better than the local model would, even, which masks the failure).
 
 **Why it happens:**
-The embedding model looks small (all-MiniLM is ~90 MB) so it's dismissed as free. But on a shared budget, a bigger/better local embedder (e.g. a 300M–7B gguf, which is what you'd want for quality) plus its working set during a bulk re-embed is not negligible, and the *headroom* villa reserved was calculated without it. Re-embedding an entire document corpus or chat history is a memory *spike*, not a steady state.
+Agents are built provider-first; local models are a configured exception. Provider resolution falls back to whatever credentials/registry entries exist, and "it answered" looks like success.
 
 **How to avoid:**
-- Add the embedding model footprint (weights + its small KV at chunk-size context, e.g. ctx 512) as an explicit term in `recommend.Pick()`'s envelope math. The recommendation must fit chat + embed + headroom, not chat alone.
-- Constrain the embedding context to chunk size (ctx ≈ 512), per llama.cpp guidance — slashes embed KV cost ~75% vs 4096.
-- Keep the offload-asserting discipline: the memory stack's "healthy" verdict must include a residency proof for the *chat* model surviving an embed/import workload (no silent CPU eviction). Re-use the `ResidencyProof` seam; a partial fallback under RAG load is a FAIL.
-- If embeddings run as a *second* `llama-server` (separate Quadlet) rather than the main one, that second process's resident footprint must be in the envelope too.
+- Pin exactly one provider (the local llama-server endpoint) and the exact model id in the rendered agent config; disable all other providers (`disabled_providers` / equivalent).
+- Treat **presence of cloud credentials as a preflight WARN** for the addon (check the agent's auth store, e.g. `~/.local/share/opencode/auth.json`).
+- The runtime egress-block verify (Pitfall 1) catches this class structurally: a cloud-resolved model cannot answer under the nft block.
+- Surface the agent's *configured* provider+model in `villa status` (append-only) so drift is visible — mirroring how the active backend/image tag is surfaced today.
 
 **Warning signs:**
-tok/s on the chat model drops sharply after a large doc import; `villa doctor` residency proof flips to WARN/FAIL during/after import; GTT delta shows the chat model's pages evicted; OOM-kill in `journalctl` during embedding.
+Agent responses faster/smarter than the local model plausibly is; **agent works while `villa-llama` is down** (smoking gun — make this an explicit negative control: stop `villa-llama`, agent task MUST fail); `auth.json` exists with non-local entries.
 
 **Phase to address:**
-The `recommend`/envelope phase for memory (extend `Pick()`), with verification folded into the same `doctor`/`status` residency check that already exists.
+Install-addon phase (config rendering + preflight credential check); verification phase (llama-down negative control + egress proof).
 
 ---
 
-### Pitfall 3: Open WebUI `PersistentConfig` bakes settings into its SQLite DB on first boot and then *ignores* the env vars — config drifts off villa's source of truth **(NON-NEGOTIABLE THREAT — config-as-truth)**
+### Pitfall 3: Tool-calling / chat-template breakage through llama-server's OpenAI endpoint
 
 **What goes wrong:**
-Most RAG/memory settings (`VECTOR_DB`, `RAG_EMBEDDING_*`, `ENABLE_RAG_WEB_SEARCH`, telemetry flags, embedding engine/URL) are **`PersistentConfig`** entries: on first run their env value is copied into `webui.db`, and from then on the **database value wins and the env var is ignored** (with `ENABLE_PERSISTENT_CONFIG=true`, the default). villa's whole model is "config.toml is the single source of truth; Quadlet units are regenerated from config, never hand-edited." But here, after first boot, changing the Quadlet env has **no effect** — the real config lives in an opaque SQLite blob inside the Open WebUI volume. A later `villa` change that *looks* applied (unit regenerated, restarted) is silently a no-op. Worse, a user toggling settings in the OWUI Admin UI silently diverges from config.toml — exactly the hand-edit-as-authority anti-pattern villa forbids for Quadlets, reappearing one layer down.
+The chosen coding model "supports tool calling" on paper but is unusable agentically through `llama-server`'s `/v1` endpoint. Verified failure modes (mid-2026):
+
+- llama-server needs **`--jinja`** to honor tool definitions at all; without it, agents sending `tools` get 500s — and *with* it, some shipped templates crash (e.g. "Value is not callable: null" on the `reject` filter; OpenCode hit exactly this against llama.cpp: [opencode#1890](https://github.com/anomalyco/opencode/issues/1890)).
+- **Qwen3-Coder uses XML-style tool calls** (`<tool_call><function=...><parameter=...>`), which llama.cpp must parse back into OpenAI-shape `tool_calls`; specific builds crashed with 500 when a tool definition had no `properties` field, and template fixes shipped repeatedly through quant re-uploads ([Unsloth Qwen3-Coder template fixes](https://huggingface.co/unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF/discussions/10)). The **GGUF's embedded chat template is part of the artifact** — two quants of "the same model" can differ in agentic usability.
+- OpenAI-compat bugs in llama-server itself, e.g. `tool_calls.arguments` returned as a JSON object instead of a string ([llama.cpp#20198](https://github.com/ggml-org/llama.cpp/issues/20198)) — agents with strict OpenAI clients reject the response.
+- Some agents/models effectively require provider-specific APIs or wrappers (Qwen docs recommend Qwen-Agent for tool-template handling; Anthropic-native agents need an Anthropic-shape endpoint) — "OpenAI-compatible" is a spectrum, and the integration contract here is strictly llama-server's `/v1`.
 
 **Why it happens:**
-The PersistentConfig precedence is non-obvious and undocumented in the unit file; it only bites on the *second* configuration change, long after the feature looks done. Teams test by editing env on a fresh volume (works), never re-test after the DB is populated.
+Tool calling lives in the seam between the GGUF's chat template, llama.cpp's Jinja engine + format-specific parsers, and the agent's client expectations. All three move independently; benchmark pages test none of this.
 
 **How to avoid:**
-- Set `ENABLE_PERSISTENT_CONFIG=false` in the Open WebUI Quadlet so env vars (driven by config.toml) always win and the DB never shadows them. This restores villa's "config is the single source of truth" — at the documented cost that Admin-UI config edits become per-session only. That cost is *aligned* with villa's posture (config changes go through `villa`, not hand-edits), so it's the right trade.
-- Document explicitly that memory *content* (the user's facts/vectors/documents) lives in the volume and is durable — only *configuration* is forced back to env/config.toml.
-- Detect drift: a `doctor`/`status` check that the live RAG config (queryable via OWUI API) matches what config.toml declares — mirror the existing config-vs-disk Quadlet drift check.
+- Model selection must be **agent-in-the-loop**: the research spike runs the actual chosen agent against the actual quant on the actual pinned llama.cpp image through a real multi-step tool loop (read file → edit → run command). A model that can't survive that loop is disqualified regardless of coding-benchmark scores.
+- Pin the **GGUF artifact** (specific repo + revision, prefer fixed-template quants for Qwen3-Coder-class models) the way images are digest-pinned; record template provenance in the catalog entry.
+- The coder llama-server unit needs its own flag set (`--jinja`, possibly a `--chat-template-file` override) rendered behind the orchestrate seam — don't assume the chat model's unit flags transfer.
+- Add a **tool-call smoke proof** to the addon's install/readiness gate (mirror of the v1.3 768-dim `/v1/embeddings` readiness proof): POST a canned `tools` request, assert a well-formed `tool_calls` response with string `arguments`. Health-200 is not tool-calling success — same honesty rule as everywhere else in this stack.
 
 **Warning signs:**
-A `villa` config change to embedding model / vector DB doesn't take effect after restart; OWUI Admin UI shows different RAG settings than config.toml; dimension-mismatch errors after a config change that "should" have switched models.
+Agent "narrates" tool calls as plain text instead of executing them; 500s only when `tools` is present in the request; agent loops re-asking for the same file; tool arguments arriving malformed; works in OWUI chat but not in the agent.
 
 **Phase to address:**
-The Open WebUI memory wiring phase (set `ENABLE_PERSISTENT_CONFIG=false` from the start — retrofitting after a populated DB exists is painful). Drift verification in the surfacing phase.
+Research/model-selection phase (agent-in-the-loop disqualification testing); install-addon phase (tool-call readiness proof as a gate).
 
 ---
 
-### Pitfall 4: Embedding/inference model swap invalidates existing vectors (dimension mismatch) — stale index, hard errors, or silent wrong answers **(quality + just-works)**
+### Pitfall 4: Memory-envelope OOM — agent-scale KV cache joins chat + embed on unified memory
 
 **What goes wrong:**
-Vectors are only comparable if produced by the *same* embedding model at the *same* dimensionality. If the user (or villa's `recommend`) later changes the **embedding** model — or even swaps the **chat** model in a way that changes the embedding route — existing collections (e.g. 384-dim from all-MiniLM) collide with new vectors (e.g. 768/1024-dim), producing `Embedding dimension 768 does not match collection dimensionality 384` errors, or, more insidiously, retrieval that returns garbage because the index is stale. Open WebUI does **not** auto-reindex on embedding-model change; you must explicitly re-save config AND re-embed every document, and frequently **reset the collection** first.
+The coder model is sized like a chat model and blows the GTT envelope. Agents are not chat: they routinely fill **64k–128k+ contexts** with file contents and tool transcripts. For a Qwen3-Coder-30B-A3B-class model (48 layers, GQA 4 KV heads, head_dim 128), KV cache is ~96 KiB/token at f16 → **~6 GiB at 64k, ~12 GiB at 128k** *on top of* ~18–20 GiB of Q4 weights (computed from the model card; MEDIUM confidence — verify per catalog entry). On the 62.5 GiB GTT envelope with the current chat model (qwen3.6-35b-a3b) + villa-embed already resident, a co-resident coder at agent context does not fit at naive sizing. Failure is at *allocation time under load*, possibly mid-task days after install — or worse, it "fits" only because something fell back to CPU (Pitfall 5). Also: default GTT is ~50% of system RAM, the usable envelope is `mem_info_gtt_total` not MemTotal (already handled by `detect`), and the ttm `pages_limit`/`page_pool_size` tuning question resurfaces if co-residency is attempted ([llama.cpp#18159](https://github.com/ggml-org/llama.cpp/issues/18159), [discussion #22372](https://github.com/ggml-org/llama.cpp/discussions/22372), [ROCm Strix Halo system optimization](https://rocm.docs.amd.com/en/latest/how-to/system-optimization/strixhalo.html)).
 
 **Why it happens:**
-villa already has a first-class model-swap story (`villa model swap`, `villa backend set`). It's natural to assume swapping the chat model is orthogonal to RAG. But if embeddings are routed through the *chat* `llama-server`/`/embeddings`, changing the chat model silently changes the embedder → every stored vector is now from a different model/dimension. Even when embeddings have a dedicated model, a future `recommend` that picks a different embedder breaks the corpus.
+Fit math anchored on chat-style contexts (8–16k) undercounts KV by 4–10×; and "the model loaded fine" at install says nothing about peak KV occupancy at the agent's configured `--ctx-size`.
 
 **How to avoid:**
-- **Decouple the embedding model from the chat model**: pin a *dedicated* embedding gguf (or sentence-transformer) that does NOT change when `villa model swap` / `backend set` runs. Record the embedding model + dimension as part of the memory stack's identity in config.toml.
-- Make `villa model swap` / `backend set` **memory-aware**: a chat-model swap must NOT touch the embedding model or the vector collections. Add a guard/assertion that the embedding identity is unchanged across a chat swap.
-- If the embedding model itself ever changes, treat it as a **destructive re-index**: clean-recreate the collection (mirror v1.2's "clean-recreate-before-import" restore lesson) and re-embed — never merge new-dim vectors into an old-dim collection. Surface this as an explicit, confirmed `villa` operation, not a silent side effect.
-- Store the embedding model name + dimension in the backup manifest so a restore can detect a mismatch (skew-warn) rather than leak stale vectors.
+- Extend `recommend.Pick()` with the **same reservation discipline as v1.3 CTRL-01**: when the coding addon is enabled, the fit is computed at the *agent-profile context* (the ctx the agent config will actually request), reserving embed + chat (if co-resident) first. Typed-Unknown anything → conservative constant, never silent 0.
+- The **co-resident vs swap-based decision must be an output of this fit math**, not a preference: on a 64 GiB-class envelope, swap-based coding mode (chat model down while coding) is almost certainly the honest recommendation; co-residency is a ≥96–128 GiB outcome. Encode the threshold; don't hand-wave it.
+- KV-cache quantization (`-ctk q8_0 -ctv q8_0`, roughly halves KV) is a legitimate lever but must be a *catalog-declared, benched* choice — some models degrade agentically with quantized V-cache; never apply it silently to make the fit math pass.
+- Preflight BLOCK (MEM-PRE pattern) when the configured agent ctx cannot fit the envelope in the chosen residency mode.
+- **Render the agent's context setting and the server's `--ctx-size` from the same config value** — a mismatch silently truncates the agent's context (a separate honesty bug).
 
 **Warning signs:**
-`dimension … does not match collection dimensionality …` in OWUI logs; RAG citations suddenly irrelevant after a model swap; retrieval returns empty after switching backends.
+`ggml_vulkan: Device memory allocation … failed` in the journal mid-task; agent tasks dying only on large repos / long sessions; fit math passing at install ctx while the agent config requests a larger context than the server flag.
 
 **Phase to address:**
-The model-swap-integration phase (make swap memory-aware) and the embedding-identity/recommend phase (pin + record dimension). Backup/restore phase records + checks the identity.
+Control-plane fit phase (recommend/preflight extension) — must land **before** the install addon can gate on it, mirroring the v1.3 fit-before-surfacing ordering.
 
 ---
 
-### Pitfall 5: Vector volume persistence / rootless-Podman pitfalls — data loss across restart/reboot, or permission-denied on the Qdrant store **(durability + just-works)**
+### Pitfall 5: Silent CPU fallback under multi-model load — residency proven only at idle **(NON-NEGOTIABLE THREAT — D-11 honesty)**
 
 **What goes wrong:**
-A new vector DB (Qdrant) Quadlet stores its data in a volume. Three rootless-Podman traps: (1) **UID mapping** — the container's internal UID maps to a high host subuid; a bind mount or wrong-owned named volume yields `permission denied` on `/qdrant/storage`, and Qdrant either crashes or starts empty. (2) **SELinux** — without `:Z`, Fedora's SELinux denies access; with `:Z` shared incorrectly across containers it relabels for one owner only. (3) **Durability** — if the storage path isn't a proper persistent named volume (or lingering isn't enabled), the index doesn't survive logout/reboot, and the user's entire knowledge base silently vanishes — they re-upload and re-pay the re-embed cost, or worse, think it's fine until it isn't.
+The coder model's residency is proven at install (idle), but under real concurrent load — chat generation + embed traffic + agent prompt-processing — GTT pressure pushes allocations to host memory, or the coder server boots with partial offload after a memory-tight start. llama.cpp does not fail loudly in every such case; the result is a 3–10× slowdown that reads as "the coding model is just slow on this hardware." On this stack, a silent/partial CPU fallback reported as healthy is the cardinal false-green.
 
 **Why it happens:**
-villa already solved exactly this for the Open WebUI volume (Phase 4: durable `:Z` volume, lingering, boot-survival) — but a *new* service is a fresh chance to get it wrong, and Qdrant's storage is larger and less forgiving than OWUI's. Named volumes "just work" for ownership in rootless mode via `:U`/auto-chown; bind mounts don't.
+Residency is treated as a boot-time property. On unified memory with multiple resident models it is a *load-time* property: the marginal allocation (KV growth during a long agent session) is what spills.
 
 **How to avoid:**
-- Use a **named Podman volume** (like `villa-models.volume` / OWUI's pattern), not a host bind mount, so rootless UID mapping + ownership are handled automatically (`:U` where needed); apply `:Z` for SELinux exactly as the existing OWUI volume does, and only one owner per `:Z` volume.
-- Keep the volume generation in `internal/orchestrate` templates (the only impure module) — reuse the existing `volume.tmpl` pattern; do NOT special-case Qdrant outside the seam.
-- Ensure `loginctl enable-linger` coverage (already part of install) extends to the new service so it survives reboot; add boot-survival to UAT.
-- Add the vector volume to `villa status`/`doctor` so "memory stack healthy" includes "Qdrant volume mounted, writable, and reachable" — honest, not assumed.
+- The coder service gets its own **dual-assert residency proof** (log device_info + sysfs GTT delta) through the existing `Backend`/`ResidencyProof` seam — new marker literals stay behind `internal/inference` (`TestSeamGrepGate` will enforce this; extend the gate in the same commit that introduces the literals).
+- Reuse the v1.3 **MEM-DOC under-load pattern**: doctor drives a real bounded workload (an actual tool-call generation on the coder endpoint) while sampling residency mid-flight, with chat+embed up if co-resident. Idle-green is not green.
+- If swap-based mode wins (Pitfall 4), the coding-mode switch must be **transactional via the existing `backendswap`/`modelswap` discipline** (capture → prove residency → cutover → rollback), never a bare unit start/stop.
 
 **Warning signs:**
-Qdrant logs `permission denied` / `read-only`; knowledge base empty after a reboot; SELinux `AVC denied` in `journalctl`/`ausearch`; collection count resets to zero.
+Coder tok/s far below the benched figure for the same quant; GTT-used delta on model load smaller than model size; effective `--n-gpu-layers` < layer count in logs; system RAM ballooning while GTT stays flat.
 
 **Phase to address:**
-The Quadlet orchestration phase that adds the Qdrant service + volume (reuse Phase-4 volume discipline). Boot-survival in its UAT.
+Same control-plane phase as Pitfall 4 (doctor residency-under-load check); coding-mode-switch phase if swap-based (transactional discipline).
 
 ---
 
-### Pitfall 6: Backup/restore of vector volumes — stale-vector leakage on restore, and archive bloat **(data integrity, extends v1.2 BAK-01/02/03)**
+### Pitfall 6: Qdrant-for-code ineffectiveness — text embeddings + naive chunking + stale index
 
 **What goes wrong:**
-Two distinct traps. (a) **Stale-vector leakage:** `podman volume import` MERGES into an existing volume and does not auto-create — v1.2 already learned this and adopted "clean-recreate-before-import" for the OWUI volume. The vector volume needs the *same* discipline: restoring memory vectors into a non-empty/old-dim Qdrant store leaves orphaned or mismatched vectors that pollute retrieval (and if the embedding model differs between archive and host, you get the Pitfall-4 dimension corruption silently). (b) **Archive bloat:** vector indexes for a large corpus can be hundreds of MB–GB. v1.2 deliberately EXCLUDED model weights from the archive (recorded identities for re-pull). The same judgment applies: a multi-GB vector index can balloon a "self-describing local archive" beyond usefulness.
+The "default: reuse villa-qdrant + villa-embed with a code collection" plan ships, retrieval quality is poor, and the agent ignores or is misled by it. Three compounding causes, all verified:
+
+1. **nomic-embed-text-v1.5 is a TEXT model.** Code retrieval is a distinct task; Nomic themselves ship separate code models because general text embedders "struggle with real-world challenges like finding bugs in GitHub repositories" ([Nomic Embed Code announcement](https://www.nomic.ai/news/introducing-state-of-the-art-nomic-embed-code)). The viable code-trained options are **CodeRankEmbed (137M, CoRNStack-trained — small enough for this envelope, but requires a specific query prefix)** and **nomic-embed-code (7B — a non-starter footprint here)** ([code embedding model comparison](https://modal.com/blog/6-best-code-embedding-models-compared)). Reusing villa-embed as-is means text-model embeddings over code — the single most likely route to the "RAG proves ineffective" outcome the milestone hedges against.
+2. **Naive chunking destroys code structure.** Fixed-size/text chunking splits functions mid-body and severs signature from implementation; code RAG that works uses AST/tree-sitter-aligned chunks. OWUI's document chunker (the v1.3 path) is a *text* chunker.
+3. **Stale index vs working tree.** The agent *edits the code it retrieves over*. A vector index is stale the moment the agent writes a file; retrieval then actively lies (returns the pre-edit version). This is the structural reason **Claude Code — and, per Augment's SWE-bench post-mortem, most top agents — dropped vector RAG for grep/agentic search**: freshness and precision beat semantic recall for code-edit workloads ([Claude Code no-indexing](https://vadim.blog/claude-code-no-indexing/), [why grep beat embeddings](https://jxnl.co/writing/2025/09/11/why-grep-beat-embeddings-in-our-swe-bench-agent-lessons-from-augment/)). Note OpenCode itself ships grep/glob/LSP tools and uses **no** vector index — bolting Qdrant retrieval onto it swims against its design.
 
 **Why it happens:**
-The natural move is to add the Qdrant volume to the existing `villa backup` tar exactly like the OWUI volume. But vectors are *derived* data (re-embeddable from the source documents) AND much larger — both arguments cut against naïvely tarring them, and the restore-merge trap is a known v1.2 footgun.
+"We already have Qdrant + an embedder" makes reuse look free; the per-component reuse *is* free, but the task fit is what's wrong.
 
 **How to avoid:**
-- Apply v1.2's **clean-recreate-before-import** transactional discipline to the vector volume on restore (capture → quiesce → clean-recreate → offload-asserting prove → verbatim rollback). Never merge into an existing Qdrant store.
-- Record the **embedding model name + dimension** in the backup manifest; on restore, skew-WARN (or BLOCK) if the host's embedding model/dimension differs from the archive's — preventing silent dimension corruption.
-- Decide explicitly per data class: source documents + memory facts (small, irreplaceable) → include; the *derived vector index* (large, regenerable) → consider excluding (record identity, re-embed on restore) OR include with a size guard, mirroring the weights-excluded judgment. Keep the archive "self-describing."
-- Reuse the existing SHA-256 manifest + fail-closed checksum BLOCK; reuse the shared cmd-tier fixed-arg podman-volume seam (orchestrate stays the only impure module).
+- The milestone already plans research-validated effectiveness — make that validation **real and decision-grade**: a small fixed eval (15–20 retrieval questions against this very repo: "where is residency asserted", "what writes Quadlet units") scoring text-embed-RAG vs the agent's native grep/LSP loop vs (optionally) CodeRankEmbed-RAG. Define the fallback trigger numerically *before* running it.
+- Plan for the likelihood that the honest default is the **fallback**: the agent's built-in grep/glob/LSP + a generated repo map (Graphmind-style code graph, per the milestone's own hedge) — zero new resident models, zero staleness, matches agent design. Qdrant code-RAG should have to *win* the eval to ship, not lose it to be removed.
+- If code-RAG does ship: dedicated collection, code-trained embedder (CodeRankEmbed-class), AST-aware chunking, and **index-refresh-on-write** wired into the agent loop (or staleness surfaced with the typed-Unknown honesty used by `recall status`).
+- **Embedding-skew interaction (this stack specifically):** a second embedding model/dimension for the code collection must not trip the v1.3 fail-closed `EmbeddingSkew` gate or the backup manifest-v2 dimension check, both designed around a single embedder. Skew logic must become collection-scoped *before* a second embedder exists, or `recall index` and restores will refuse incorrectly.
 
 **Warning signs:**
-Restored knowledge base returns results that shouldn't exist (orphaned vectors); dimension-mismatch errors right after a restore; backup archive size jumps from MB to GB; restore onto a host with a different embedder silently "works" then retrieves garbage.
+Agent retrieves chunks then re-greps anyway (retrieval adds tokens, not signal); retrieved chunks are mid-function fragments; retrieval returns pre-edit code during a session; eval recall@5 below the grep baseline.
 
 **Phase to address:**
-The phase that extends `villa backup`/`restore` to the memory volumes (directly continues BAK-01/02/03).
+The milestone's biggest *ordering* risk: the effectiveness eval belongs in the **first research phase**, before any code-memory integration is built — its outcome can delete an entire phase's worth of work from the plan.
 
 ---
 
-### Pitfall 7: Auto-extraction stores false/hallucinated "memories" and is not user-correctable — honesty failure
+### Pitfall 7: Agent workspace escape and arbitrary command execution — no sandbox by default
 
 **What goes wrong:**
-Open WebUI's autonomous memory ("Adaptive/Auto Memory", model-managed `add_memory`/`replace_memory_content`/`delete_memory`) lets the *chat model* decide what facts to persist. With a small *local* model (which is what runs on gfx1151), extraction quality is far below the frontier models the feature is tuned for — it can store wrong, duplicated, over-eager, or hallucinated facts ("user lives in Vienna" from a hypothetical), which then get **injected into every future chat**, compounding the error. If the user can't easily see/edit/delete these, the assistant becomes confidently, persistently wrong — a direct hit on villa's honesty-by-construction value.
+**OpenCode's default permission posture allows all operations without approval** — bash, file edits, anywhere the process can reach ([OpenCode config docs](https://opencode.ai/docs/config/): "By default, opencode allows all operations without requiring explicit approval"). A locally-run agent driven by a mid-size local model — which follows instructions less reliably than frontier models and is more susceptible to prompt injection from repo contents it reads — can write outside the workspace, touch `~/.config/villa/config.toml`, the Quadlet units, or the agent's own config (including re-enabling the outbound surfaces from Pitfall 1). The stack's own state files are inside the blast radius.
 
 **Why it happens:**
-Auto-extraction is the flashy demo feature, so it's tempting to enable it by default. But the local-model quality gap and the every-future-chat injection make false memories high-blast-radius, and Native-Function-Calling autonomous memory needs a capable model villa can't guarantee.
+Agent defaults are tuned for frontier cloud models and developer convenience; "local" gets conflated with "safe." The threat isn't a malicious agent — it's a weaker model misfiring plus untrusted text (README, code comments, fetched docs) steering tool calls.
 
 **How to avoid:**
-- Ship **explicit user save/pin + edit/delete as the primary path** (Settings → Personalization → Memory is always available and manual), with auto-extraction **opt-in**, not default-on — matching the v1.3 requirement "both modes, with edit/delete controls."
-- Surface that memories are **user-correctable**: the UAT for the memory feature must include adding, editing, and deleting a memory, and confirming a deleted/edited memory stops being injected.
-- Don't over-promise autonomous extraction quality given the local-model constraint; in `recommend`/docs, advise (don't auto-enable) auto-memory, mirroring the ROCm "advise, never auto-switch" honesty pattern.
+- Treat the **delivery-mode decision (host binary vs container) as a security decision**, made in research with STRIDE input: a rootless Podman container with only the workspace bind-mounted, joined to `villa.network` (or loopback-only), no access to `$XDG_CONFIG_HOME/villa` or the Quadlet dir, gives workspace confinement + the egress story (Pitfall 1) *by construction* — consistent with how every other service in this stack is contained. A host binary makes both properties config-trust-based.
+- Render restrictive `permission` config (`bash: "ask"`, `edit: "ask"` outside the workspace, at minimum) in the frozen agent config regardless of delivery mode — defense in depth, not the primary control.
+- villa-owned state (config.toml, units, auth) must be **unreachable**, not merely "not asked about."
 
 **Warning signs:**
-Memory bank fills with duplicate/contradictory/irrelevant entries; the assistant repeats a wrong "fact" across chats; users can't find where to delete a memory.
+Agent config or villa config mtime changing during agent sessions; files appearing outside the project dir; the agent running network commands (curl/pip/npm) as part of "fixing" something.
 
 **Phase to address:**
-The memory-capture phase (wire manual save/pin/edit/delete first; gate auto-extraction behind opt-in). Verification in its UAT.
+Research phase decides delivery mode with an explicit security rationale; install-addon phase implements confinement; that phase's STRIDE pass covers the prompt-injection→tool-call escalation path.
 
 ---
 
-### Pitfall 8: Open WebUI Memory/RAG/Functions APIs and config keys drift across releases — un-pinned image breaks the wiring
+### Pitfall 8: Version churn in the agent project breaks the pinned install
 
 **What goes wrong:**
-Open WebUI iterates fast; Memory/RAG/Functions behavior and **config-key names change across releases** (e.g. `ENABLE_RAG_WEB_SEARCH` → `WEB_SEARCH_ENABLE`-style renames; embedding-engine keys; the memory system itself was re-architected from passive injection to model-managed tools). villa wires to specific env keys + specific OWUI API endpoints. A floating `:main` tag (or an unpinned re-pull) can rename a key out from under villa's Quadlet env, silently disabling local-only enforcement (re-opening Pitfall 1) or breaking the RAG wiring entirely — with install still reporting green.
+OpenCode is the fastest-moving dependency this stack would ever take: in mid-2026 alone the repo **moved organizations (sst → anomalyco)** ([HN thread](https://news.ycombinator.com/item?id=46552218)), shipped **breaking SDK/data-model changes** (v1.4.0), and runs a near-daily release cadence ([releases](https://github.com/anomalyco/opencode/releases)); there's even a reported bug where a plugin cache silently serves stale versions despite `@latest` ([#25293](https://github.com/anomalyco/opencode/issues/25293)). Its default `autoupdate` self-replaces the binary at startup. An unpinned or curl-script-installed agent means the installed artifact drifts under the user, config schemas break, and `villa doctor`'s view of the addon goes stale — the same failure class as the v1.2 rolling-tag drift that digest-pinning already solved for images.
 
 **Why it happens:**
-The existing OWUI image is already **digest-pinned** (`@sha256:…`), but it's tempting to "just bump to latest" for the new Memory features, or to trust `:main`. Memory/RAG is exactly the surface that churns most.
+Agent projects optimize for velocity; their install paths (curl | sh, npm latest, self-update) are anti-pin by design.
 
 **How to avoid:**
-- Keep the OWUI image **digest-pinned** (`@sha256:`), exactly as villa already does for every image; pin the specific tested version, and treat a version bump as a deliberate, re-validated change (re-run the zero-outbound + RAG smoke UAT), not a silent re-pull. This mirrors the v1.1/v1.2 "pin the digest the A/B proves" discipline.
-- Centralize all OWUI memory/RAG env keys in one place (config-driven, behind the orchestrate seam) so a key rename is a single, reviewed edit.
-- On a deliberate version bump, re-verify the full env block (offline flags especially) against that version's documented keys — don't assume keys carried over.
+- Apply the **existing digest-pin discipline**: install a specific released version by checksum (container image digest if containerized — another argument for container delivery; versioned release artifact + sha256 if host binary). Never the install script, never `latest`.
+- `autoupdate: false` in the frozen config (also required by Pitfall 1); upgrades happen only through a deliberate `villa`-mediated path, like image updates today.
+- `villa doctor` checks installed-agent-version vs config-expected (drift detection, same as unit drift today).
+- Keep the integration surface thin: depend on the agent's *config file + OpenAI-compatible provider contract*, not its SDK/plugin API — the SDK is what broke at 1.4.0.
 
 **Warning signs:**
-After an image bump, doc upload phones home again (offline flag key renamed/ignored); RAG settings reset; OWUI API endpoint villa calls returns 404; goldens/contracts referencing OWUI behavior shift.
+`--version` differing from the pinned version; agent config keys producing deprecation warnings after an update; upstream repo URL changing (it already happened once).
 
 **Phase to address:**
-The orchestration phase (pin digest + centralize keys) and any future image-bump change (re-validate).
+Install-addon phase (pinned acquisition + doctor drift check); research phase records the exact pinned version + acquisition channel as a decision.
+
+---
+
+### Pitfall 9: Contract-freeze violations when surfacing the addon
+
+**What goes wrong:**
+Surfacing the coding addon in `status`/dashboard/doctor breaks the byte-frozen contracts: `status.Report` fields reshaped instead of appended, goldens re-frozen multiple times across phases, doctor's separate schema accidentally entangled, or — the v1.3-audit-flagged variant — new service-name constants duplicated in `cmd/villa` without a drift test (repeating the advisory WARN recorded for the memory service names). Separately: the new agent/coder container image and any backend marker literals placed outside `internal/inference`/`internal/orchestrate` will fail `TestSeamGrepGate` — or worse, pass because they hide somewhere the gate doesn't walk, recreating the leak the gate exists to prevent.
+
+**Why it happens:**
+Each feature's surfacing feels small in isolation; the discipline (ONE schema bump, append-only, surfacing lands LAST, single golden re-freeze) only holds if the roadmap enforces it structurally — which is exactly why v1.2 and v1.3 each pushed their single contract evolution into the final phase.
+
+**How to avoid:**
+- Reuse the proven pattern verbatim: **all v1.4 surfacing lands in the milestone's final phase as the single `status.Report` 3→4 evolution**, append-only (a `coding` block: enabled, agent version, model, residency, mode), one golden re-freeze, with coding-on/off golden variants. Recommend/doctor schemas bump only if they actually gain fields, each at most once.
+- Coding-addon-off renders must be **byte-identical** to the v1.3 unit goldens (the `memory_enabled` off-render precedent).
+- New service names get accessor functions in orchestrate + the drift test v1.3 deferred — close that debt class rather than extend it.
+- Coder-model/agent image literals go behind the existing seams from day one; extend `TestSeamGrepGate`'s marker list in the same commit that introduces the literals.
+
+**Warning signs:**
+More than one golden re-freeze appearing across the milestone's phases; a `testdata` diff that isn't a pure addition; a service-name string literal in `cmd/villa`; `schema_version` bumped without an appended field (or vice versa).
+
+**Phase to address:**
+Final surfacing phase (by construction); every earlier phase carries an explicit "no contract changes yet" constraint.
 
 ---
 
 ## Technical Debt Patterns
 
-Shortcuts that seem reasonable but create long-term problems.
-
 | Shortcut | Immediate Benefit | Long-term Cost | When Acceptable |
 |----------|-------------------|----------------|-----------------|
-| Leave Open WebUI's **default ChromaDB** vector store instead of standing up Qdrant | No new Quadlet service; fastest path | ChromaDB posts PostHog telemetry unless explicitly killed; weaker scaling/durability story; still leaves the embedding-download leak | Only as a throwaway spike; not for ship — telemetry + the v1.3 "integrate a local vector DB (e.g. Qdrant)" requirement argue against it |
-| Rely on `OFFLINE_MODE`/`HF_HUB_OFFLINE` env flags alone for zero-outbound (no active assertion) | One-line "fix"; looks done | Env flag is silent if a key is renamed (Pitfall 8) or PersistentConfig shadows it (Pitfall 3); honesty-by-construction demands a *proof*, not a flag | Never as the sole control — pair with a runtime zero-outbound assertion |
-| Route embeddings through the **chat** `llama-server`/`/embeddings` | Reuses an existing managed model; no second service | Couples embedding dimension to the chat model → every `villa model swap` corrupts the vector index (Pitfall 4) | Acceptable ONLY if the embedding model is pinned/decoupled and a chat-swap guard exists |
-| Tar the **full vector index** into `villa backup` like the OWUI volume | Trivially reuses BAK-01 plumbing | Archive bloat (GB); merge-on-restore stale-vector leak; dimension-skew corruption | Acceptable only with clean-recreate-before-import + manifest dimension check + size guard |
-| Add embedding model footprint as "negligible, ignore in recommend" | Skips touching `Pick()` | OOM / silent CPU fallback of the chat model under import load (Pitfall 2) — a false-green | Never on a shared unified-memory budget |
-| Enable autonomous auto-memory by default | Impressive demo | Local model stores false memories injected into every chat; erodes trust | Never default-on with a local model; opt-in only |
+| Reuse villa-embed (text model) for the code collection "to start" | Zero new model, instant integration | Poor retrieval blamed on "RAG doesn't work"; rework after users distrust the feature | Never as a shipped default — only inside the eval spike, as the baseline arm |
+| Install agent via its curl/npm script | Fast bring-up | Unpinned, self-updating artifact; doctor can't reason about it; breaks on upstream churn | Never (violates the digest-pin discipline) |
+| Trust agent config flags for offline posture | No firewall test harness needed | Vacuous green on the privacy claim; OpenCode's flags are documented-incomplete | Never — runtime negative-control proof is the established bar |
+| Prove coder residency at idle only | Simpler doctor check | Silent CPU fallback under concurrent load ships as "slow hardware" | Only if doctor reports under-load residency as typed-Unknown, never as PASS |
+| Co-residency "because it loaded once" | No mode-switch machinery | Mid-session OOM days later; worst possible failure UX | Never — residency mode must come out of fit math |
+| KV-cache q8_0 by default to make fit pass | Bigger ctx fits | Unbenched agentic-quality regression, invisible | Only as a catalog-declared option validated in the model-selection spike |
 
 ## Integration Gotchas
 
-Common mistakes when connecting to external services.
-
 | Integration | Common Mistake | Correct Approach |
 |-------------|----------------|------------------|
-| Open WebUI embeddings | Trusting that "local LLM" means RAG is local — it isn't; embeddings default to a HF sentence-transformer downloaded at runtime | Force embedding engine/model to the loopback `villa-llama` `/embeddings` OR pre-stage the model + `HF_HUB_OFFLINE=1`/`OFFLINE_MODE=true`; assert zero-outbound |
-| Open WebUI config | Editing the Quadlet env and assuming it applies | `PersistentConfig` makes the DB win after first boot — set `ENABLE_PERSISTENT_CONFIG=false` so config.toml-driven env stays authoritative |
-| ChromaDB (OWUI default) | Leaving anonymized telemetry on | `ANONYMIZED_TELEMETRY=False` (+ prefer Qdrant); verify no `app.posthog.com` outbound |
-| Qdrant volume | Host bind mount under rootless Podman | Named Podman volume (`:U`/`:Z`) so UID mapping + SELinux are handled; generate via `orchestrate` `volume.tmpl` |
-| Open WebUI web-search-in-RAG | Assuming RAG never reaches the internet | `ENABLE_RAG_WEB_SEARCH` is off by default AND per-chat toggle — keep it off / unconfigured (defer SearXNG to its deferred milestone); document that enabling it is an outbound-opening choice |
-| Open WebUI image | Floating `:main` tag for new Memory features | Digest-pin (`@sha256:`) the validated version; re-validate offline flags on any bump |
+| OpenCode ↔ llama-server | Point baseURL at `/v1`, assume done | Also: `--jinja` on the server, tool-call smoke proof, pinned GGUF with known-good template, agent context and server `--ctx-size` rendered from the same config value |
+| OpenCode ↔ network | Believe `share: disabled` + provider config = offline | models.dev fetch, autoupdate, npm provider pulls are separate paths; need env kills + container egress restriction + runtime proof |
+| Agent ↔ existing Qdrant | New code collection with a different embedder under single-embedder skew logic | Make `EmbeddingSkew` + backup manifest dimension checks collection-scoped BEFORE a second embedder exists |
+| Agent ↔ `villa model swap` / `backend set` | Coding mode flips units ad hoc | Route through the transactional swap discipline; reflect-pinned Deps test that coding-mode ops can't touch memory/OWUI units (D-09 precedent) |
+| Addon ↔ `villa install` TUI | New screen computing its own decisions | Pure-collector pattern: TUI only collects `coding_enabled` + consent; the pipeline computes; byte-identical to the flag path |
+| Coder unit ↔ orchestrate | Render agent/coder units in the cmd tier "just this once" | All rendering stays in `internal/orchestrate` templates; cmd tier stays thin |
 
 ## Performance Traps
 
-Patterns that work at small scale but fail as usage grows.
-
 | Trap | Symptoms | Prevention | When It Breaks |
 |------|----------|------------|----------------|
-| Re-embedding the whole corpus on every config touch | Long stalls, GTT spike, chat-model eviction | Treat re-embed as an explicit, confirmed destructive op; don't auto-trigger on incidental config saves | Bulk import / embedding-model change on a large doc set |
-| Embedding + chat sharing the unified-memory pool | Chat tok/s tanks during import; OOM-kill | Budget embed footprint in `recommend`; ctx≈512 for embed; residency-assert chat survival under RAG load | When corpus/import size grows or a larger embedder is chosen |
-| Wrong chunk size (too large → fewer, blurrier matches; too small → fragmented context) | Poor/irrelevant citations; truncated answers | Set a sane default chunk size + overlap; keep it config-driven so it's tunable | As document variety/length grows |
-| Unbounded vector volume | Disk/backup bloat; slow restore | Size-guard the volume; consider excluding the derived index from backup (re-embeddable) | Large/long-lived knowledge base |
+| Agent ctx sized to model maximum (256k native) | OOM, or massive KV reservation crowding out chat | Fit-math-derived ctx cap written into both server flag and agent config | Immediately on 64 GiB-class envelopes |
+| Prompt re-processing per agent turn (no cache reuse) | Each tool round re-pays full pp cost; agent feels 10× slower than chat | Keep llama-server prompt caching effective (single slot, stable prefix); bench an actual agent loop, not bare tok/s | Any multi-turn agent session |
+| Embed + coder + chat contending for GTT bandwidth | tok/s collapse during concurrent RAG + generation | Bench the concurrent case (v1.3 D-05 measurement pattern); document expected degradation | Co-resident mode under real use |
+| Vector-indexing the whole repo on every change | Index lag, constant embed load | If code-RAG ships: incremental clean-replace (recall pattern); else moot | Repos beyond a few hundred files |
 
 ## Security Mistakes
 
-Domain-specific security issues beyond general web security.
-
 | Mistake | Risk | Prevention |
 |---------|------|------------|
-| Embedding/reranker/Whisper model auto-download at runtime | Unconsented outbound to HuggingFace after install reports green — breaks PRIV-01/02/03 | `OFFLINE_MODE=true`+`HF_HUB_OFFLINE=1`+`*_AUTO_UPDATE=false`, pre-staged model, runtime zero-outbound assertion |
-| ChromaDB / Scarf / version-check telemetry | Outbound to `app.posthog.com` / analytics endpoints | `ANONYMIZED_TELEMETRY=False`, `DO_NOT_TRACK=true`, `SCARF_NO_ANALYTICS=true`, `OFFLINE_MODE` disables version checks; prefer Qdrant |
-| Treating "memory stores PII" as a telemetry/counts problem | Mis-scoping: memory MUST store content (that's the feature) — the real rule is content NEVER LEAVES the box | Zero-outbound is the control, not no-content; user-controllable edit/delete; backup archive stays local-only (it already is) |
-| New Qdrant service bound beyond loopback | Exposes the vector store / knowledge base to the LAN | Bind Qdrant to the `villa.network` container-DNS only / loopback; reuse PRIV-01 loopback discipline; never `0.0.0.0` |
-| Web-search-in-RAG silently enabled | Sends user query text to an external search engine | Keep `ENABLE_RAG_WEB_SEARCH` off; if ever added, it's an explicit opt-in + (deferred) local SearXNG only |
+| Agent runs unconfined on host with default allow-all permissions | Prompt-injected tool calls write outside workspace, mutate villa config/units | Container confinement + workspace-only mount + restrictive `permission` config; STRIDE pass on the injection→tool-call path |
+| Cloud credentials present in agent auth store | Silent cloud fallback exfiltrates code | Preflight WARN on auth-store contents; llama-down negative control |
+| Agent can reach villa's XDG config/data dirs | Agent re-enables its own telemetry/update surfaces | Mount/permission boundary makes villa state unreachable, not just un-asked-about |
+| Trusting agent-reported "local only" | Vacuous privacy claim | Negative-control-first runtime egress proof (`villa verify` extension) — including agent *startup*, where the registry/update fetches happen |
 
 ## UX Pitfalls
 
-Common user experience mistakes in this domain.
-
 | Pitfall | User Impact | Better Approach |
 |---------|-------------|-----------------|
-| Auto-memory on by default with a local model | Assistant confidently repeats hallucinated "facts" forever | Manual save/pin/edit/delete as primary; auto-extraction opt-in |
-| No visible way to inspect/delete memories | Users can't correct wrong memories; lose trust | Surface Settings → Personalization → Memory; UAT must cover edit/delete |
-| Silent stale index after a model swap | RAG citations suddenly irrelevant, no explanation | Make swap memory-aware; if embedder changes, prompt for explicit re-index |
-| Knowledge base vanishes after reboot | User re-uploads everything, re-pays re-embed cost | Durable named volume + lingering + boot-survival UAT |
-| First doc upload hangs (silent HF download) | Looks broken on a privacy-conscious/firewalled host | Pre-stage the embedding model at install; offline flags set |
+| Coding mode silently swaps the chat model out | User's chat dies mid-conversation, unexplained | Explicit mode-switch verb with status surfacing; refuse-with-remediation if chat is busy |
+| Agent slow due to unbenched pp-heavy workload | "This product is broken" perception | Set expectations from bench data for the *agent loop*, not bare tg tok/s; surface live tok/s as today |
+| Addon install pulls GBs (agent + coder model) without a size gate | Disk surprise, half-installed addon | Reuse the MEM-PRE disk-gate pattern with coder-model size |
+| Code-RAG shipped but quietly useless | User attributes agent failures to the product | Ship the eval winner only; if grep/LSP wins, say so in docs — honesty is the brand |
 
 ## "Looks Done But Isn't" Checklist
 
-Things that appear complete but are missing critical pieces.
-
-- [ ] **RAG/embeddings:** Often missing the *runtime* zero-outbound check — verify a doc upload on a firewalled host does NOT reach `huggingface.co`/`app.posthog.com` (install-time green is insufficient).
-- [ ] **Offline flags:** Often missing one of the set — verify `OFFLINE_MODE`, `HF_HUB_OFFLINE`, all three `*_AUTO_UPDATE=false`, `ANONYMIZED_TELEMETRY=False` are ALL present AND not shadowed by `PersistentConfig`.
-- [ ] **Config authority:** Often missing `ENABLE_PERSISTENT_CONFIG=false` — verify a config.toml-driven env change actually takes effect after the OWUI DB is populated (second-change test).
-- [ ] **Recommend math:** Often missing the embedding footprint — verify `Pick()` fits chat + embed + headroom, and that a bulk import doesn't evict the chat model (residency proof holds).
-- [ ] **Model swap:** Often missing memory-awareness — verify `villa model swap` / `backend set` leaves the embedding model + vector collections intact (no dimension corruption).
-- [ ] **Vector volume:** Often missing boot-survival — verify the knowledge base persists across a reboot and that Qdrant has write permission (rootless UID + SELinux `:Z`).
-- [ ] **Backup/restore:** Often missing clean-recreate-before-import + dimension manifest — verify a restore onto a non-empty / different-embedder store does NOT leak stale or mismatched vectors.
-- [ ] **Memory edit/delete:** Often missing the correction loop — verify a deleted/edited memory stops being injected into new chats.
-- [ ] **Loopback:** Often missing for the *new* Qdrant service — verify it's not bound to `0.0.0.0`/LAN.
+- [ ] **Agent answers prompts:** may be resolving a *cloud* model. Verify: stop `villa-llama`, agent task must FAIL; egress-blocked run must PASS.
+- [ ] **Tool calling "works":** one toy call ≠ agentic; breaks on tool defs without `properties`, parallel calls, long sessions. Verify: scripted multi-step edit-loop proof.
+- [ ] **Model fits:** fits at install-test ctx, not agent ctx. Verify: fit math evaluated at the rendered agent context; allocation proven at that ctx.
+- [ ] **Residency PASS:** proven idle-only. Verify: doctor under-load residency sample (MEM-DOC pattern) with all resident services active.
+- [ ] **Offline posture:** config-flag-trusted. Verify: negative-control-first nft proof covering agent *startup* (models.dev/update fetches fire at startup, not first prompt).
+- [ ] **Pinned install:** agent self-updated since install. Verify: doctor version-drift check.
+- [ ] **Code memory effective:** indexed but never beats the agent's own grep. Verify: the predefined eval, fallback trigger honored.
+- [ ] **Contracts intact:** verify single golden re-freeze, addon-off renders byte-identical to v1.3 goldens, SeamGrepGate extended for new literals, service-name drift test present.
 
 ## Recovery Strategies
 
-When pitfalls occur despite prevention, how to recover.
-
 | Pitfall | Recovery Cost | Recovery Steps |
 |---------|---------------|----------------|
-| Runtime HF/telemetry leak shipped | MEDIUM | Add the full offline env block + `ENABLE_PERSISTENT_CONFIG=false`, wipe/repopulate the OWUI config rows, pre-stage the model, re-run zero-outbound UAT |
-| Dimension-corrupted collection after swap | MEDIUM | Reset/clean-recreate the collection, re-embed all docs with the recorded embedding model; add the chat-swap guard so it can't recur |
-| Chat model OOM/CPU-fallback under RAG load | LOW–MEDIUM | Reduce embed ctx to ~512, shrink chat quant/ctx via `recommend`, re-fit the envelope including embed term |
-| Vector volume lost on reboot | HIGH (user re-uploads) | Re-create as named volume + enable lingering; re-import source docs and re-embed; add boot-survival test |
-| Stale vectors leaked on restore | MEDIUM | Clean-recreate the Qdrant volume, restore source data, re-embed; adopt clean-recreate-before-import + manifest dimension check |
-| Memory bank polluted by false auto-memories | LOW | User clears/edits memory bank (Settings → Personalization → Memory); switch auto-extraction to opt-in |
+| Telemetry/egress leak found post-ship | MEDIUM | Hotfix frozen config + verify extension; disclose in release notes (zero-telemetry is the stated core value — treat as a security fix) |
+| Tool-calling broken for shipped model | MEDIUM | Catalog-side fix: re-pin to fixed-template GGUF revision; tool-call proof gate prevents recurrence |
+| OOM in the field | LOW-MEDIUM | `recommend` re-run with corrected agent-ctx fit; swap-based mode as remediation; fit-gate fix |
+| Qdrant code-RAG ineffective | HIGH if shipped, LOW if caught in eval | Pre-declared fallback (grep/LSP + repo map / code graph); this is why the eval must precede the build |
+| Agent escaped workspace | HIGH (trust) | Container confinement retrofit; audit villa state for mutation; restore via v1.2 backup machinery |
+| Upstream breaking release | LOW (if pinned) | Stay on pin; upgrade deliberately, re-running tool-call + egress proofs |
 
 ## Pitfall-to-Phase Mapping
 
-How roadmap phases should address these pitfalls. (Phase names are indicative; the roadmapper assigns final numbers. Suggested ordering: vector-DB+volume orchestration → embeddings backend + offline enforcement + recommend math → memory/RAG wiring + capture → swap-integration → status/doctor surfacing → backup/restore extension.)
+Suggested phase roles for the v1.4 roadmap (continuing the proven v1.2/v1.3 shape: research/selection spike → control-plane gates → integration → surfacing-last):
 
 | Pitfall | Prevention Phase | Verification |
 |---------|------------------|--------------|
-| 1. Runtime HF/embedding download (zero-outbound) | Embeddings-backend + offline-enforcement phase | Firewalled doc-upload smoke test reaches no external host; status zero-outbound assertion |
-| 2. Embedding footprint OOM / CPU fallback | Recommend/envelope phase (extend `Pick()`) | `Pick()` includes embed term; chat residency proof survives a bulk import |
-| 3. PersistentConfig shadows config.toml | OWUI memory-wiring phase | `ENABLE_PERSISTENT_CONFIG=false`; second-change config test takes effect; config-drift check |
-| 4. Embedding/chat swap dimension mismatch | Swap-integration + embedding-identity phase | Chat swap leaves vectors intact; dimension recorded; explicit re-index path |
-| 5. Vector volume durability / rootless perms | Qdrant-orchestration phase | Named volume `:Z`/`:U`; boot-survival UAT; Qdrant writable |
-| 6. Backup stale-vector leak / bloat | Backup/restore-extension phase | Clean-recreate-before-import; manifest dimension skew-warn; size/inclusion decision |
-| 7. False auto-memories, not correctable | Memory-capture phase | Manual save/edit/delete primary; auto-extraction opt-in; edit/delete UAT |
-| 8. OWUI version/key drift | Orchestration + any image bump | Digest-pinned `@sha256:`; centralized keys; offline flags re-validated on bump |
+| 6. Code-memory ineffectiveness | **Phase R (first): agent/model/memory selection spike** — eval with pre-declared fallback trigger | Eval scorecard vs grep baseline; go/no-go recorded as a decision |
+| 1. Phone-home defaults | Phase R defines the kill-set as a selection criterion; install phase freezes it | Egress-blocked agent startup + task completes; egress-open control FAILs |
+| 2. Cloud fallback | Install-addon phase (config + preflight credential WARN) | llama-down negative control |
+| 3. Tool-call breakage | Phase R (agent-in-the-loop model disqualification); install phase readiness proof | Scripted multi-step tool-loop proof passes on pinned artifacts |
+| 4. Memory-envelope OOM | **Control-plane phase (before the install addon):** recommend/preflight extension at agent ctx; residency-mode decision | Fit-math golden; on-hardware allocation at agent ctx |
+| 5. Silent CPU fallback | Control-plane phase (doctor under-load residency); mode-switch phase if swap-based | Induced-pressure negative control → FAIL, not false-green |
+| 7. Workspace escape | Phase R (delivery-mode decision) + install phase (confinement) + STRIDE | Write-outside-workspace attempt blocked; villa state unreachable |
+| 8. Version churn | Install phase (pinned acquisition, autoupdate off, doctor drift check) | Doctor flags an injected version drift |
+| 9. Contract violations | **Final surfacing phase only** — single `status.Report` 3→4 | One golden re-freeze in the milestone diff; addon-off renders byte-identical; SeamGrepGate green |
 
 ## Sources
 
-- [Open WebUI — Offline Mode](https://docs.openwebui.com/tutorials/maintenance/offline-mode/) (HIGH — official; `OFFLINE_MODE`, `HF_HUB_OFFLINE`, `*_AUTO_UPDATE=false`, features that still phone home)
-- [Open WebUI — RAG Troubleshooting](https://docs.openwebui.com/troubleshooting/rag/) (HIGH — official; default embedding model auto-download, local model path)
-- [Open WebUI Discussion #9729 — "always wants to connect to huggingface"](https://github.com/open-webui/open-webui/discussions/9729) (HIGH — corroborates runtime HF download)
-- [Open WebUI Issue #15613 — ChromaDB PostHog telemetry](https://github.com/open-webui/open-webui/issues/15613) + [PR #618 — disable Chroma telemetry](https://github.com/open-webui/open-webui/pull/618) (HIGH — ChromaDB outbound to PostHog; `ANONYMIZED_TELEMETRY`)
-- [Open WebUI — PersistentConfig system (DeepWiki)](https://deepwiki.com/open-webui/open-webui/12.2-persistentconfig-system) + [Env Configuration docs](https://docs.openwebui.com/reference/env-configuration/) (HIGH — DB shadows env after first boot; `ENABLE_PERSISTENT_CONFIG`)
-- [Open WebUI Issue #11279 — embedding dimension 768 vs collection 384](https://github.com/open-webui/open-webui/issues/11279) + [Discussion #9609 — Qdrant dimension mismatch](https://github.com/open-webui/open-webui/discussions/9609) (HIGH — model-swap dimension corruption + re-index requirement)
-- [Open WebUI — Memory & Personalization](https://docs.openwebui.com/features/chat-conversations/memory/) (HIGH — manual vs autonomous memory, local DB, edit/delete, model-quality dependence)
-- [Open WebUI Discussion #11597 — external Qdrant `VECTOR_DB=qdrant`, `QDRANT_URI`](https://github.com/open-webui/open-webui/discussions/11597) + [Discussion #8628](https://github.com/open-webui/open-webui/discussions/8628) (HIGH — Qdrant wiring + persistent volumes)
-- [Fix Podman Volume Permission Issues with SELinux](https://oneuptime.com/blog/post/2026-03-18-fix-podman-volume-permission-issues-selinux/view) + [Rootless Podman volumes](https://www.tutorialworks.com/podman-rootless-volumes/) (HIGH — rootless UID mapping, `:Z`/`:U`, named volumes)
-- [Open WebUI — SearXNG / web-search-in-RAG](https://docs.openwebui.com/features/web-search/searxng/) (HIGH — `ENABLE_RAG_WEB_SEARCH` off by default, per-chat toggle, external query)
-- [llama.cpp server README — `/embeddings`](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md) + [Running multiple local models: memory management](https://www.sitepoint.com/multiple-local-models-memory-management/) (HIGH/MEDIUM — local embeddings endpoint; shared-memory budgeting, ctx≈512)
-- VillaStraylight `.planning/PROJECT.md` + `CLAUDE.md` (project non-negotiables: zero-outbound, CGO-free, config-as-truth, offload-asserting, digest-pinning, v1.2 clean-recreate-before-import lesson)
+**Agent telemetry / offline behavior (HIGH — official docs; MEDIUM — GitHub issues):**
+- [OpenCode config docs](https://opencode.ai/docs/config/) — autoupdate, share, permission defaults
+- [OpenCode Zen](https://opencode.ai/docs/zen/), [Models](https://opencode.ai/docs/models/), [Providers](https://opencode.ai/docs/providers/) — default gpt-5-nano via Zen, auth flows
+- OpenCode air-gap issues: [#16117](https://github.com/anomalyco/opencode/issues/16117), [#18492](https://github.com/anomalyco/opencode/issues/18492), [#4959](https://github.com/anomalyco/opencode/issues/4959), [#10766](https://github.com/anomalyco/opencode/issues/10766), [#11385](https://github.com/anomalyco/opencode/issues/11385)
+- [Aider analytics docs](https://aider.chat/docs/more/analytics.html) — random-subset opt-out PostHog
+- [Crush metrics & privacy](https://mintlify.com/charmbracelet/crush/guides/metrics) — PostHog data.charm.land; CRUSH_DISABLE_METRICS / DO_NOT_TRACK; [Crush local-model config discussions](https://github.com/charmbracelet/crush/discussions/775)
+- [llama.cpp discussion #19619 — privacy-friendly coding agents](https://github.com/ggml-org/llama.cpp/discussions/19619); [#14758 — offline agentic coding tutorial](https://github.com/ggml-org/llama.cpp/discussions/14758)
+
+**Tool calling / templates (HIGH — upstream issues/docs):**
+- [llama.cpp function-calling docs](https://github.com/ggml-org/llama.cpp/blob/master/docs/function-calling.md); [llama.cpp#20198 — arguments-as-object OpenAI-compat bug](https://github.com/ggml-org/llama.cpp/issues/20198)
+- [opencode#1890 — jinja tool-template crash vs llama.cpp](https://github.com/anomalyco/opencode/issues/1890)
+- [Unsloth Qwen3-Coder chat-template + tool-calling fixes](https://huggingface.co/unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF/discussions/10)
+
+**Memory envelope / Strix Halo (HIGH — upstream + AMD docs; KV math computed, MEDIUM):**
+- [llama.cpp#18159 — UMA detection vs TTM on AMD APUs](https://github.com/ggml-org/llama.cpp/issues/18159); [discussion #22372 — Strix Halo OOM with free memory](https://github.com/ggml-org/llama.cpp/discussions/22372)
+- [ROCm Strix Halo system optimization (GTT/TTM limits)](https://rocm.docs.amd.com/en/latest/how-to/system-optimization/strixhalo.html)
+- [Qwen3-30B-A3B model card (arch params for KV math)](https://huggingface.co/Qwen/Qwen3-30B-A3B-Instruct-2507); [Unsloth Qwen3-Coder run-locally guide](https://unsloth.ai/docs/models/tutorials/qwen3-coder-how-to-run-locally)
+
+**Code RAG effectiveness (MEDIUM — industry consensus across multiple independent sources):**
+- [Why grep beat embeddings — Augment SWE-bench lessons](https://jxnl.co/writing/2025/09/11/why-grep-beat-embeddings-in-our-swe-bench-agent-lessons-from-augment/)
+- [Claude Code no-indexing analysis](https://vadim.blog/claude-code-no-indexing/); [grep vs semantic search nuance](https://www.nuss-and-bolts.com/p/on-the-lost-nuance-of-grep-vs-semantic)
+- [Nomic Embed Code announcement](https://www.nomic.ai/news/introducing-state-of-the-art-nomic-embed-code); [CodeRankEmbed](https://huggingface.co/nomic-ai/CodeRankEmbed); [code embedding model comparison](https://modal.com/blog/6-best-code-embedding-models-compared)
+
+**Version churn (HIGH — releases/HN):**
+- [anomalyco/opencode releases](https://github.com/anomalyco/opencode/releases) (v1.4.0 breaking SDK/data-model changes); [HN: sst→anomalyco org move](https://news.ycombinator.com/item?id=46552218); [#25293 — stale plugin pin cache](https://github.com/anomalyco/opencode/issues/25293)
+
+**Stack-internal (HIGH — first-party):**
+- `.planning/PROJECT.md` — v1.3 validated patterns (CTRL-01 reservation, MEM-DOC under-load proof, EmbeddingSkew, D-09 swap isolation, single-schema-bump discipline, `villa verify` negative-control), v1.3 audit advisory (service-name drift test)
 
 ---
-*Pitfalls research for: local memory/RAG addition to VillaStraylight (v1.3)*
-*Researched: 2026-06-09*
+*Pitfalls research for: VillaStraylight v1.4 Coding Agent milestone*
+*Researched: 2026-06-12*

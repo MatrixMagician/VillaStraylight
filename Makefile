@@ -1,6 +1,11 @@
 BINARY := villa
 PKG := ./...
 
+# gofmt is shipped with the toolchain but is not guaranteed on $PATH (some Go
+# installs expose `go` only). Resolve it from GOROOT so `make fmt` works
+# regardless of PATH, and stays version-matched to the active toolchain.
+GOFMT := $(shell go env GOROOT)/bin/gofmt
+
 # VERSION stamps the build-time villa version (Phase 16, D-09): derived from
 # `git describe` (tag-based) with a "dev" fallback for a non-git / untagged tree.
 # It is injected via -ldflags -X into main.version (cmd/villa/version.go), the
@@ -35,7 +40,7 @@ vet: ## Run go vet
 
 .PHONY: fmt
 fmt: ## Format Go code
-	gofmt -w .
+	$(GOFMT) -w .
 
 .PHONY: lint
 lint: ## Run golangci-lint if installed, else fall back to vet

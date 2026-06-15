@@ -1,11 +1,18 @@
 package catalog
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
+
+// goodSamplingJSON is a valid agent_sampling block shared by the coder-entry
+// validation tests; individual cases override it to exercise a single guard.
+const goodSamplingJSON = `{"temperature": 0.7, "top_p": 0.8, "top_k": 20, "repeat_penalty": 1.05}`
 
 // TestLoadEmbeddedSeed asserts Load("") returns the embedded seed with the
 // supported schema, at least three tier seeds plus exactly one bootstrap entry,
@@ -54,11 +61,11 @@ func TestLoadSeedDownloadMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load(\"\"): unexpected error: %v", err)
 	}
-	if SupportedSchema != 2 {
-		t.Fatalf("SupportedSchema = %d, want 2 (schema bumped for download fields)", SupportedSchema)
+	if SupportedSchema != 3 {
+		t.Fatalf("SupportedSchema = %d, want 3 (schema bumped for coder-role fields, Phase 24 D-01)", SupportedSchema)
 	}
-	if c.SchemaVersion != 2 {
-		t.Errorf("embedded seed schema_version = %d, want 2", c.SchemaVersion)
+	if c.SchemaVersion != 3 {
+		t.Errorf("embedded seed schema_version = %d, want 3", c.SchemaVersion)
 	}
 	for _, m := range c.Models {
 		if len(m.Shards) == 0 {
@@ -91,8 +98,8 @@ func TestLoadSeedVerifiedDims(t *testing.T) {
 		t.Fatalf("Load(\"\"): %v", err)
 	}
 	want := map[string]struct{ layers, kv, head int }{
-		"qwen2.5-0.5b": {24, 2, 64},
-		"qwen2.5-1.5b": {28, 2, 128},
+		"qwen2.5-0.5b":  {24, 2, 64},
+		"qwen2.5-1.5b":  {28, 2, 128},
 		"qwen3-30b-a3b": {48, 4, 128},
 	}
 	for id, w := range want {
@@ -204,6 +211,168 @@ func TestLoadMalformedFallsBack(t *testing.T) {
 	}
 }
 
+// TestLoadSeedCoderEntries asserts the schema-v3 seed ships exactly three
+// role:"coder" entries (CODER-01, D-02), each with an agent-profile context,
+// a repo@revision template-provenance pin, and a single shard whose URL is
+// revision-pinned (`resolve/{40-hex}` — never `resolve/main/`, T-24-01).
+func TestLoadSeedCoderEntries(t *testing.T) {
+	c, _, err := Load("")
+	if err != nil {
+		t.Fatalf("Load(\"\"): unexpected error: %v", err)
+	}
+	if SupportedSchema != 3 {
+		t.Fatalf("SupportedSchema = %d, want 3 (schema bumped for coder-role fields, Phase 24 D-01)", SupportedSchema)
+	}
+	wantIDs := map[string]bool{
+		"qwen3-coder-30b-a3b": false,
+		"qwen3-coder-next-q4": false,
+		"qwen3-coder-next-q3": false,
+	}
+	revisionURL := regexp.MustCompile(`/resolve/[0-9a-f]{40}/`)
+	coders := 0
+	for _, m := range c.Models {
+		if m.Role != "coder" {
+			continue
+		}
+		coders++
+		if _, expected := wantIDs[m.ID]; !expected {
+			t.Errorf("unexpected coder entry %q in seed", m.ID)
+			continue
+		}
+		wantIDs[m.ID] = true
+		if m.AgentCtx <= 0 {
+			t.Errorf("coder entry %q has agent_ctx %d, want > 0 (D-01/D-04)", m.ID, m.AgentCtx)
+		}
+		if m.TemplateProvenance == "" || !strings.Contains(m.TemplateProvenance, "@") {
+			t.Errorf("coder entry %q template_provenance = %q, want non-empty repo@revision pin (D-02)", m.ID, m.TemplateProvenance)
+		}
+		if len(m.Shards) != 1 {
+			t.Errorf("coder entry %q has %d shards, want exactly 1", m.ID, len(m.Shards))
+			continue
+		}
+		u := m.Shards[0].URL
+		if strings.Contains(u, "/resolve/main/") {
+			t.Errorf("coder entry %q shard URL %q uses /resolve/main/ — must be revision-pinned (D-02, T-24-01)", m.ID, u)
+		}
+		if !revisionURL.MatchString(u) {
+			t.Errorf("coder entry %q shard URL %q lacks a /resolve/{40-hex}/ revision pin (D-02, T-24-01)", m.ID, u)
+		}
+	}
+	if coders != 3 {
+		t.Errorf("seed has %d role:\"coder\" entries, want exactly 3", coders)
+	}
+	for id, seen := range wantIDs {
+		if !seen {
+			t.Errorf("seed missing expected coder entry %q", id)
+		}
+	}
+}
+
+// TestCatalogModelFailClosedDefaults asserts the D-01 fail-closed decode
+// defaults: a CatalogModel decoded from JSON WITHOUT role / cache_reuse_safe
+// keys yields Role == "" (treated as chat) and CacheReuseSafe == false —
+// absence never widens capability.
+func TestCatalogModelFailClosedDefaults(t *testing.T) {
+	raw := `{"id":"no-coder-keys","quant":"Q4_K_M","weight_bytes":1000}`
+	var m CatalogModel
+	if err := json.Unmarshal([]byte(raw), &m); err != nil {
+		t.Fatalf("unmarshal minimal entry: %v", err)
+	}
+	if m.Role != "" {
+		t.Errorf("absent role decoded as %q, want \"\" (chat, D-01/D-03)", m.Role)
+	}
+	if m.CacheReuseSafe {
+		t.Errorf("absent cache_reuse_safe decoded as true, want false (fail-closed, D-01)")
+	}
+	if m.AgentSampling != nil {
+		t.Errorf("absent agent_sampling decoded non-nil, want nil")
+	}
+}
+
+// TestLoadSeedChatEntriesUntouched asserts the pre-existing chat entries gained
+// NO coder keys in the v3 bump (D-03 byte-untouched apart from the two
+// top-level version bumps).
+func TestLoadSeedChatEntriesUntouched(t *testing.T) {
+	c, _, err := Load("")
+	if err != nil {
+		t.Fatalf("Load(\"\"): unexpected error: %v", err)
+	}
+	chatIDs := []string{"qwen2.5-0.5b", "qwen2.5-1.5b", "qwen3-30b-a3b", "qwen3.6-35b-a3b"}
+	for _, id := range chatIDs {
+		m, ok := c.FindByID(id)
+		if !ok {
+			t.Errorf("seed missing pre-existing chat entry %q (D-03)", id)
+			continue
+		}
+		if m.Role != "" {
+			t.Errorf("chat entry %q has role %q, want absent/empty (D-03)", id, m.Role)
+		}
+		if m.AgentCtx != 0 {
+			t.Errorf("chat entry %q has agent_ctx %d, want absent/0 (D-03)", id, m.AgentCtx)
+		}
+		if m.CacheReuseSafe {
+			t.Errorf("chat entry %q has cache_reuse_safe true, want absent/false (D-03)", id)
+		}
+		if m.AgentSampling != nil {
+			t.Errorf("chat entry %q has an agent_sampling block, want absent (D-03)", id)
+		}
+		if m.TemplateProvenance != "" {
+			t.Errorf("chat entry %q has template_provenance %q, want absent (D-03)", id, m.TemplateProvenance)
+		}
+	}
+}
+
+// TestLoadSeedCoderVerifiedDims asserts the verified per-entry values from the
+// 24-RESEARCH GGUF artifact table made it into the seed (the
+// TestLoadSeedVerifiedDims pattern). Note qwen3-coder-next-* encodes
+// n_layers=12: the FULL-ATTENTION layer count of the hybrid
+// Qwen3NextForCausalLM (48 / full_attention_interval 4) — NOT 48.
+func TestLoadSeedCoderVerifiedDims(t *testing.T) {
+	c, _, err := Load("")
+	if err != nil {
+		t.Fatalf("Load(\"\"): %v", err)
+	}
+	want := map[string]struct {
+		weight                           uint64
+		layers, kv, head, agentCtx, tier int
+		cacheReuse                       bool
+	}{
+		// cache_reuse_safe truth-up (24-04 D-09 / FINDING A3): the on-hardware
+		// probe returned true for ALL THREE entries — for the Next hybrids the
+		// reuse is via DeltaNet recurrent-state context checkpoints (75.376 MiB
+		// snapshots), not n_cache_reuse chunk reuse, but --cache-reuse 256 is
+		// demonstrably harmless on build 9496 (no degrade warning, turn-2
+		// cache_n>0). Probe verdict is the literal catalog claim. Evidence:
+		// qualification/qwen3-coder-*/{verdict.md,cache-reuse.txt}.
+		"qwen3-coder-30b-a3b": {17665334432, 48, 4, 128, 65536, 64, true},
+		"qwen3-coder-next-q4": {49608478720, 12, 2, 256, 131072, 128, true},
+		"qwen3-coder-next-q3": {36282685440, 12, 2, 256, 131072, 96, true},
+	}
+	for id, w := range want {
+		m, ok := c.FindByID(id)
+		if !ok {
+			t.Errorf("seed missing expected coder entry %q", id)
+			continue
+		}
+		if m.WeightBytes != w.weight {
+			t.Errorf("model %q weight_bytes = %d, want %d", id, m.WeightBytes, w.weight)
+		}
+		if m.NLayers != w.layers || m.NKVHeads != w.kv || m.HeadDim != w.head {
+			t.Errorf("model %q dims = %dL/%dKV/%d, want %dL/%dKV/%d",
+				id, m.NLayers, m.NKVHeads, m.HeadDim, w.layers, w.kv, w.head)
+		}
+		if m.AgentCtx != w.agentCtx {
+			t.Errorf("model %q agent_ctx = %d, want %d", id, m.AgentCtx, w.agentCtx)
+		}
+		if m.TierGB != w.tier {
+			t.Errorf("model %q tier_gb = %d, want %d", id, m.TierGB, w.tier)
+		}
+		if m.CacheReuseSafe != w.cacheReuse {
+			t.Errorf("model %q cache_reuse_safe = %v, want %v (D-01/D-09: only the on-hardware probe licenses true)", id, m.CacheReuseSafe, w.cacheReuse)
+		}
+	}
+}
+
 // TestLoadRejectsTraversalDir asserts a directory path is rejected (and falls
 // back to the seed) rather than read.
 func TestLoadMissingExternalFallsBack(t *testing.T) {
@@ -216,5 +385,199 @@ func TestLoadMissingExternalFallsBack(t *testing.T) {
 	}
 	if len(c.Models) == 0 {
 		t.Errorf("Load(missing): expected fallback to embedded seed (non-empty)")
+	}
+}
+
+// TestLoadSchema2ExternalFallsBack asserts an external catalog at the previous
+// schema (2) now warns and falls back to the embedded seed — the v1→v2
+// precedent exercised for 2-vs-3 (D-11, exact-match schema window).
+func TestLoadSchema2ExternalFallsBack(t *testing.T) {
+	path := filepath.Join("testdata", "schema2-catalog.json")
+	c, warnings, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load(schema2): unexpected error: %v", err)
+	}
+	if len(warnings) == 0 {
+		t.Fatalf("Load(schema2): expected a schema-mismatch warning, got none")
+	}
+	if !strings.Contains(strings.Join(warnings, " "), "schema_version") {
+		t.Errorf("Load(schema2): warning should mention schema_version, got %v", warnings)
+	}
+	if _, ok := c.FindByID("schema2-chat-model"); ok {
+		t.Errorf("Load(schema2): external schema-2 catalog must NOT be used")
+	}
+	if _, ok := c.FindByID("qwen2.5-1.5b"); !ok {
+		t.Errorf("Load(schema2): expected fallback to embedded seed, but qwen2.5-1.5b not present")
+	}
+}
+
+// TestLoadSchema3ExternalRoundTrip asserts an external schema-3 catalog
+// carrying a coder entry with ALL five new keys decodes under
+// DisallowUnknownFields and is returned by Load — the Pitfall-5 regression
+// guard (struct + seed landed together; an external v3 file must round-trip).
+func TestLoadSchema3ExternalRoundTrip(t *testing.T) {
+	path := filepath.Join("testdata", "schema3-external.json")
+	c, warnings, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load(schema3): unexpected error: %v", err)
+	}
+	if len(warnings) != 0 {
+		t.Errorf("Load(schema3): unexpected warnings: %v", warnings)
+	}
+	m, ok := c.FindByID("external-coder-model")
+	if !ok {
+		t.Fatalf("Load(schema3): external-coder-model not found (got %d models)", len(c.Models))
+	}
+	if m.Role != "coder" {
+		t.Errorf("role = %q, want \"coder\"", m.Role)
+	}
+	if m.AgentCtx != 32768 {
+		t.Errorf("agent_ctx = %d, want 32768", m.AgentCtx)
+	}
+	if !m.CacheReuseSafe {
+		t.Errorf("cache_reuse_safe = false, want true (explicit key in fixture)")
+	}
+	if m.AgentSampling == nil {
+		t.Fatalf("agent_sampling absent, want populated block")
+	}
+	if m.AgentSampling.Temperature != 0.7 || m.AgentSampling.TopP != 0.8 ||
+		m.AgentSampling.TopK != 20 || m.AgentSampling.RepeatPenalty != 1.05 {
+		t.Errorf("agent_sampling = %+v, want {0.7 0.8 20 1.05}", *m.AgentSampling)
+	}
+	if !strings.Contains(m.TemplateProvenance, "@") {
+		t.Errorf("template_provenance = %q, want repo@revision pin", m.TemplateProvenance)
+	}
+}
+
+// coderDims is the set of KV-cache sizing integers a coder entry must carry as
+// positive values; a test case overrides one to exercise the WR-01/WR-02 guard.
+type coderDims struct {
+	nLayers, nKVHeads, headDim, kvBytesPerElem int
+}
+
+// goodCoderDims returns the valid KV dimensions every well-formed coder fixture
+// in these tests starts from.
+func goodCoderDims() coderDims { return coderDims{32, 8, 128, 2} }
+
+// buildCoderCatalog renders a minimal schema-3 external catalog with one
+// role:"coder" entry whose agent_ctx, KV dimensions, and sampling block come
+// from the case under test. Shared by the refuse-whole and accept tests below.
+func buildCoderCatalog(entryID string, agentCtx int, d coderDims, sampling string) string {
+	return fmt.Sprintf(`{
+  "schema_version": 3,
+  "catalog_version": "test.invalid-coder",
+  "models": [
+    {
+      "id": %q,
+      "display_name": "Bad Coder Model",
+      "quant": "Q4_K_M",
+      "weight_bytes": 5000000000,
+      "n_layers": %d,
+      "n_kv_heads": %d,
+      "head_dim": %d,
+      "kv_bytes_per_elem": %d,
+      "default_ctx": 16384,
+      "min_envelope_bytes": 7000000000,
+      "tier_gb": 16,
+      "unified_memory_safe": true,
+      "backend_default": "vulkan",
+      "bootstrap": false,
+      "role": "coder",
+      "agent_ctx": %d,
+      "agent_sampling": %s,
+      "template_provenance": "example/Bad-GGUF@0123456789abcdef0123456789abcdef01234567 (embedded GGUF chat template)"
+    }
+  ]
+}`, entryID, d.nLayers, d.nKVHeads, d.headDim, d.kvBytesPerElem, agentCtx, sampling)
+}
+
+// TestLoadCoderValidationRefusesNeverClamps asserts the ASVS-V5 control on the
+// external-catalog trust boundary (T-24-02): a role:"coder" entry with
+// agent_ctx <= 0, a non-positive KV dimension (WR-01/WR-02), or out-of-range
+// sampling values causes the WHOLE external catalog to be refused with a warning
+// naming the offending entry id and a fallback to the embedded seed — values are
+// NEVER silently clamped.
+func TestLoadCoderValidationRefusesNeverClamps(t *testing.T) {
+	const entryID = "bad-coder-model"
+	build := func(agentCtx int, sampling string) string {
+		return buildCoderCatalog(entryID, agentCtx, goodCoderDims(), sampling)
+	}
+	buildDims := func(d coderDims) string {
+		return buildCoderCatalog(entryID, 32768, d, goodSamplingJSON)
+	}
+	cases := []struct {
+		name string
+		doc  string
+	}{
+		{"agent_ctx zero", build(0, goodSamplingJSON)},
+		// WR-01: a zeroed/omitted KV dimension collapses the KV term and must be refused.
+		{"n_layers zero", buildDims(coderDims{0, 8, 128, 2})},
+		{"n_kv_heads zero", buildDims(coderDims{32, 0, 128, 2})},
+		{"head_dim zero", buildDims(coderDims{32, 8, 0, 2})},
+		{"kv_bytes_per_elem zero", buildDims(coderDims{32, 8, 128, 0})},
+		// WR-02: a negative signed dimension (decodes to a huge uint64) must be refused, not silently saturated.
+		{"n_layers negative", buildDims(coderDims{-1, 8, 128, 2})},
+		{"head_dim negative", buildDims(coderDims{32, 8, -1, 2})},
+		{"temperature above 2", build(32768, `{"temperature": 2.5, "top_p": 0.8, "top_k": 20, "repeat_penalty": 1.05}`)},
+		{"top_p above 1", build(32768, `{"temperature": 0.7, "top_p": 1.5, "top_k": 20, "repeat_penalty": 1.05}`)},
+		{"top_k negative", build(32768, `{"temperature": 0.7, "top_p": 0.8, "top_k": -1, "repeat_penalty": 1.05}`)},
+		{"repeat_penalty above 3", build(32768, `{"temperature": 0.7, "top_p": 0.8, "top_k": 20, "repeat_penalty": 3.5}`)},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "invalid-coder-catalog.json")
+			if err := os.WriteFile(path, []byte(tc.doc), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			c, warnings, err := Load(path)
+			if err != nil {
+				t.Fatalf("Load(invalid coder): unexpected error: %v", err)
+			}
+			if len(warnings) == 0 {
+				t.Fatalf("Load(invalid coder): expected a refusal warning, got none")
+			}
+			joined := strings.Join(warnings, " ")
+			if !strings.Contains(joined, entryID) {
+				t.Errorf("refusal warning must name the offending entry %q, got %v", entryID, warnings)
+			}
+			// Never partially accepted: the invalid entry must not be returned.
+			if _, ok := c.FindByID(entryID); ok {
+				t.Errorf("invalid coder entry %q was returned — external catalog must be refused whole, never clamped", entryID)
+			}
+			// Fell back to the embedded seed.
+			if _, ok := c.FindByID("qwen2.5-1.5b"); !ok {
+				t.Errorf("expected fallback to embedded seed, but qwen2.5-1.5b not present")
+			}
+		})
+	}
+}
+
+// TestLoadCoderAcceptsGreedyTemperature asserts WR-03: a coder entry with
+// temperature == 0 (greedy/deterministic decoding — llama.cpp treats temp <= 0
+// as greedy) is now ACCEPTED, not refused. The inclusive lower bound is [0, 2];
+// a hand-authored deterministic coder preset must NOT silently fall the whole
+// external catalog back to the embedded seed.
+func TestLoadCoderAcceptsGreedyTemperature(t *testing.T) {
+	const entryID = "greedy-coder-model"
+	greedySampling := `{"temperature": 0, "top_p": 0.8, "top_k": 20, "repeat_penalty": 1.05}`
+	doc := buildCoderCatalog(entryID, 32768, goodCoderDims(), greedySampling)
+
+	path := filepath.Join(t.TempDir(), "greedy-coder-catalog.json")
+	if err := os.WriteFile(path, []byte(doc), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c, warnings, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load(greedy coder): unexpected error: %v", err)
+	}
+	if len(warnings) != 0 {
+		t.Errorf("Load(greedy coder): temperature 0 must be accepted, got warnings: %v", warnings)
+	}
+	m, ok := c.FindByID(entryID)
+	if !ok {
+		t.Fatalf("Load(greedy coder): expected the external catalog to be used (%q not found); got %d models", entryID, len(c.Models))
+	}
+	if m.AgentSampling == nil || m.AgentSampling.Temperature != 0 {
+		t.Errorf("greedy coder temperature not preserved: %+v", m.AgentSampling)
 	}
 }

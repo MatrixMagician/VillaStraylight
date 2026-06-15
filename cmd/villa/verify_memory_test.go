@@ -31,8 +31,8 @@ func TestEvalRagSmoke(t *testing.T) {
 	cases := []struct {
 		name string
 		// negative control
-		blocked    bool
-		egressErr  error
+		blocked   bool
+		egressErr error
 		// upload drive
 		answer     string
 		cited      bool

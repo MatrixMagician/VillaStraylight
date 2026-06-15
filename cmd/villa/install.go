@@ -9,9 +9,11 @@ import (
 	"os/user"
 	"path/filepath"
 	"strconv"
+	"syscall"
 
 	"github.com/spf13/cobra"
 
+	"github.com/MatrixMagician/VillaStraylight/internal/agent"
 	"github.com/MatrixMagician/VillaStraylight/internal/catalog"
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
@@ -67,6 +69,11 @@ type installOpts struct {
 	// --json, or a non-TTY stdin/stdout) forces today's flag path verbatim. There is
 	// NO --tui opt-in and NO `villa setup` subcommand — one progressively-enhanced verb.
 	noTUI bool
+	// codingAgent opts INTO the v1.4 coding-agent (Crush) install addon (INSTALL-03 /
+	// D-01): when set, runInstall overrides+persists cfg.AgentEnabled = true before the
+	// gate, then runs the agent pre-stage/install/render/readiness block. A bare
+	// `villa install` (flag unset) gates on the PERSISTED agent_enabled instead.
+	codingAgent bool
 }
 
 // installReadiness is the readiness-poll verdict (Task 2): PASS once the service
@@ -199,6 +206,45 @@ type installDeps struct {
 	// guards can never drift onto different readers.
 	readRecallState func() (recall.State, error)
 
+	// Coding-agent (Crush) addon seams (v1.4 / INSTALL-03, D-01/D-02/D-03/D-05). All
+	// gated on the PERSISTED agent_enabled (loadedAgentEnabled) unless --coding-agent
+	// overrides it, skipped under --dry-run.
+	//
+	// loadedAgentEnabled returns the AUTHORITATIVE gate value: the persisted
+	// config.LoadVilla().AgentEnabled (fail-soft to false). --coding-agent overrides it
+	// to true before the gate (D-01); a bare install gates on the persisted value.
+	loadedAgentEnabled func() bool
+	// agentCatalog loads the model catalog the coder-shard resolution reads (coderShardFor).
+	// Returns (catalog, false) on a load failure so the gate refuses-with-remediation
+	// rather than fabricating a shard.
+	agentCatalog func() (catalog.Catalog, bool)
+	// coderModelPresent reports whether the resolved coder GGUF is already on disk AND
+	// intact (size-gated; a present file is never re-pulled — the idempotency guard).
+	coderModelPresent func(modelsDir string, sh catalog.Shard) bool
+	// ensureCoderModel pre-stages the resolved coder shard into modelsDir via the verified
+	// download path (the single sanctioned outbound window, D-03), invoked only when the
+	// agent is on, not dry-run, and the file is absent.
+	ensureCoderModel func(modelsDir string, sh catalog.Shard) error
+	// installAgentBinary stages the pinned Crush binary via the checksum-before-extract
+	// agent.Install seam (D-03). Returns the placed binary path.
+	installAgentBinary func(ctx context.Context) (string, error)
+	// renderCrushConfig composes agent.Render (the restrictive-tools crush.json) and writes
+	// it to the global crush config path (D-06). The render is the security control.
+	renderCrushConfig func(cfg config.VillaConfig) error
+	// agentProofFn asserts the agent is ready via a REAL tool-call round-trip (read→edit→
+	// result), PASS/FAIL only — a health-200 is never an input (D-05). A FAIL refuses-with-
+	// remediation (exitBlocked). Invoked only when the agent is on and not dry-run.
+	agentProofFn func(ctx context.Context) agentProof
+	// runAgentChecks returns the opt-in coding-agent host-fitness gates (AGENT-PRE-disk
+	// staged-footprint disk BLOCK, AGENT-PRE-envelope post-coder fit BLOCK driven by
+	// rec.Coder, AGENT-PRE-cloud-cred env-credential WARN — INSTALL-04/D-09) appended to
+	// the preflight checks when loadedAgentEnabled reports true — so an unfit host (no
+	// disk, no coder fit) is refused-with-remediation BEFORE the agent is staged. It takes
+	// rec (unlike runMemoryChecks(profile)) because the envelope gate reads rec.Coder and
+	// the disk gate sizes from the picked coder shard. NIL-SAFE: when nil (test doubles), no
+	// agent checks are appended (mirrors the runMemoryChecks optional-seam pattern).
+	runAgentChecks func(detect.HostProfile, recommend.Recommendation) []preflight.CheckResult
+
 	// stdoutIsTTY reports whether stdout is a real terminal — the stdout twin of
 	// interactive() (which checks stdin). huh renders to stdout/stderr, so BOTH must
 	// be a TTY for the styled wizard to make sense (D-01/D-08). The seam wraps the
@@ -230,6 +276,7 @@ const openWebUIServiceName = "villa-openwebui.service"
 func newInstall() *cobra.Command {
 	var dryRun bool
 	var noTUI bool
+	var codingAgent bool
 	cmd := &cobra.Command{
 		Use:   "install",
 		Short: "Detect, recommend, gate, generate, and bring up the local inference stack",
@@ -246,13 +293,14 @@ func newInstall() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "install: %v\n", err)
 				os.Exit(exitBlocked)
 			}
-			code := runInstall(cmd, installOpts{dryRun: dryRun, force: force, json: jsonOut, noTUI: noTUI}, deps)
+			code := runInstall(cmd, installOpts{dryRun: dryRun, force: force, json: jsonOut, noTUI: noTUI, codingAgent: codingAgent}, deps)
 			os.Exit(code)
 			return nil
 		},
 	}
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "print the rendered units without writing, pulling, or starting anything")
 	cmd.Flags().BoolVar(&noTUI, "no-tui", false, "skip the guided wizard; use the flag-driven install path")
+	cmd.Flags().BoolVar(&codingAgent, "coding-agent", false, "install the local coding agent (Crush) addon: stage its pinned binary + coder model, render a locked-down config, and prove a tool-call round-trip")
 	return cmd
 }
 
@@ -298,6 +346,16 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 	// remediation BEFORE the memory stack comes up.
 	if d.loadedMemoryEnabled() && d.runMemoryChecks != nil {
 		checks = append(checks, d.runMemoryChecks(profile)...)
+	}
+	// (3a') Opt-in coding-agent gates (INSTALL-04/D-09): the staged-footprint disk BLOCK,
+	// the post-coder envelope BLOCK (driven by rec.Coder, never re-derived), and the cloud-
+	// credential WARN are appended ONLY when the addon is enabled (the persisted agent_enabled
+	// OR --coding-agent override), so the agent-off install gate is byte-identical. They flow
+	// through the SAME gateInstall below — an unfit host (no disk, no coder fit) is refused-
+	// with-remediation BEFORE the agent is staged. agentEnabledForGate folds the --coding-agent
+	// override into the persisted gate so a first-time `--coding-agent` run is gated too.
+	if agentEnabledForGate(opts, d) && d.runAgentChecks != nil {
+		checks = append(checks, d.runAgentChecks(profile, rec)...)
 	}
 
 	// (3b) Guided wizard (D-01/D-08) — the PINNED composition. probe/pick/runChecks
@@ -371,7 +429,21 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 	cfg.Model = rec.Model
 	cfg.Quant = rec.Quant
 	cfg.Ctx = rec.ContextLen
-	cfg.Backend = rec.Backend
+	// Config is the single source of truth for the backend opt-in. recommend.Pick
+	// always returns the DEFAULT (vulkan) backend — ROCm is strictly opt-in and is
+	// NEVER auto-recommended (REC-04), and recommend.Overrides carries no Backend
+	// field — so a bare `cfg.Backend = rec.Backend` would silently revert a persisted
+	// `backend=rocm` opt-in to vulkan on every re-install (including `villa install
+	// --coding-agent`), re-rendering the villa-llama unit to the vulkan-radv image.
+	// Guard the assignment: PRESERVE a valid persisted ROCm-family opt-in (the
+	// seam-clean inference.IsROCmFamily name set — NAME strings only, never an image
+	// literal, so this stays clear of TestSeamGrepGate), and otherwise take the
+	// recommendation (vulkan default; an empty/unknown persisted value falls through
+	// to the recommendation and the fail-closed inference.BackendFor at render time).
+	// This only PRESERVES an already-chosen opt-in; it never auto-selects ROCm.
+	if !inference.IsROCmFamily(cfg.Backend) {
+		cfg.Backend = rec.Backend
+	}
 	// AUTHORITATIVE memory gate (Phase-19 / T-19-16): the memory path keys off the
 	// PERSISTED config.LoadVilla().MemoryEnabled (via the loadedMemoryEnabled seam). It is
 	// the single gate value the pre-stage + start + proof steps read. (Seeding cfg from the
@@ -379,6 +451,29 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 	// explicit re-bind through the dedicated gate seam so the gate source stays a single,
 	// testable seam regardless of how cfg was seeded.)
 	cfg.MemoryEnabled = d.loadedMemoryEnabled()
+	// AUTHORITATIVE coding-agent gate (v1.4 / D-01): the agent path keys off the PERSISTED
+	// config.LoadVilla().AgentEnabled (via the loadedAgentEnabled seam). --coding-agent
+	// OVERRIDES it to true and persists it below (saveConfig) so a subsequent bare
+	// `villa install` gates on the now-persisted value. Without the flag, the persisted
+	// value stands — an agent-off install stays byte-identical (D-01).
+	cfg.AgentEnabled = d.loadedAgentEnabled()
+	if opts.codingAgent {
+		cfg.AgentEnabled = true
+		// CR-01: the --coding-agent addon ENTERS coding-mode at install and SERVES the coder
+		// it stages + gates on (D-02/D-04 single source). Single-source the coder render
+		// inputs from the SAME rec.Coder the disk/envelope preflight gates and the staged
+		// shard derive from, so the unit, crush.json, and the readiness proof all agree on the
+		// coder model. Guard against the shared-residency / no-coder-fit case: only enter
+		// coding-mode for a REAL swap-residency coder fit (rec.Coder.Model != "") so a future
+		// shared-residency path can never serve an empty -m. (When empty, the coder-fit refusal
+		// at step 6c already blocks the addon before the stack starts.)
+		if rec.Coder.Model != "" {
+			cfg.CoderModel = rec.Coder.Model
+			cfg.CoderQuant = rec.Coder.Quant
+			cfg.CoderAgentCtx = rec.Coder.AgentCtx
+			cfg.CodingMode = true
+		}
+	}
 	modelFile, err := d.modelFile(rec)
 	if err != nil {
 		fmt.Fprintf(errOut, "install: resolve model file: %v\n", err)
@@ -389,12 +484,37 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 		fmt.Fprintf(errOut, "install: resolve backend: %v\n", err)
 		return exitBlocked
 	}
-	units, err := d.render(orchestrate.RenderInput{
+	// Build the render input. On the chat-only path this is byte-identical to v1.3 (CodingMode
+	// stays nil → orchestrate.Render off-path unchanged → the v1.3 unit goldens are untouched).
+	// On the --coding-agent path (cfg.CodingMode), serve the staged coder: resolve the served
+	// -m from the coder shard (NOT the chat model's modelFile) and thread a non-nil CodingMode
+	// descriptor, REUSING the proven Phase-25 coding-mode helpers (codingServedTarget /
+	// codingModelFile / codingDescriptor) — the same render path `villa coding-mode enter`
+	// drives, already frozen by villa-llama-coding.container.golden. The catalog→inference
+	// translation stays in the live wiring (the pure renderer never imports internal/catalog, D-05).
+	renderIn := orchestrate.RenderInput{
 		Backend:   backend,
 		Cfg:       cfg,
 		ModelFile: modelFile,
 		ModelsDir: d.modelsDir(),
-	})
+	}
+	if cfg.CodingMode {
+		servedModel, _ := codingServedTarget(cfg)
+		coderModelFile, mferr := codingModelFile(cfg, servedModel)
+		if mferr != nil {
+			fmt.Fprintf(errOut, "install: resolve coder model file: %v\n", mferr)
+			return exitBlocked
+		}
+		spec, derr := codingDescriptor(cfg, servedModel)
+		if derr != nil {
+			fmt.Fprintf(errOut, "install: build coding-mode descriptor: %v\n", derr)
+			return exitBlocked
+		}
+		renderIn.ModelFile = coderModelFile
+		renderIn.CodingMode = spec
+		renderIn.CoderAgentCtx = cfg.CoderAgentCtx
+	}
+	units, err := d.render(renderIn)
 	if err != nil {
 		fmt.Fprintf(errOut, "install: render failed: %v\n", err)
 		return exitBlocked
@@ -447,6 +567,73 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 			return exitBlocked
 		}
 		fmt.Fprintf(out, "embedding model %s downloaded and verified\n", nomicEmbedShard.Filename)
+	}
+
+	// (6c) Pre-stage the coding-agent (Crush) addon BEFORE persisting config + starting
+	// the stack (v1.4 / INSTALL-03, D-01/D-02/D-03). Gated on cfg.AgentEnabled (the
+	// persisted gate, or --coding-agent override) and skipped under --dry-run (that path
+	// returned far above). The steps, in order: surface the FSL-1.1-MIT notice; resolve the
+	// coder GGUF shard from the recommend-picked catalog entry (refuse-with-remediation when
+	// no coder fits — D-02); presence-skip else pre-stage it via the single sanctioned
+	// outbound window (D-03); stage the pinned, checksum-verified Crush binary (D-03); render
+	// the locked-down crush.json (the restrictive-tools security control, T-27-21). The
+	// readiness proof (a real tool-call round-trip) runs AFTER the stack is up (step 10c).
+	var coderShard catalog.Shard
+	if cfg.AgentEnabled && !opts.dryRun {
+		// (a) FSL-1.1-MIT consent notice — informational, printed BEFORE staging the binary.
+		fmt.Fprintf(out, "%s\n", agentLicenseNotice())
+
+		// (b) Resolve the coder GGUF from the picked catalog entry (D-02/D-04 single source):
+		// the staged filename and the served -m path derive from ONE entry, never a literal.
+		cat, ok := d.agentCatalog()
+		if !ok {
+			fmt.Fprintf(errOut, "install: cannot load the model catalog to resolve the coder model — re-run `villa install --coding-agent` once the catalog is readable.\n")
+			return exitBlocked
+		}
+		// WR-03: distinguish a SHARED-residency coder fit from a genuine no-fit. When the
+		// recommender derived residency "shared" (rec.Coder.Residency == residencyShared, i.e. a
+		// coder DOES fit but only by riding the chat endpoint, not standalone), the v1.4 addon —
+		// which serves a dedicated SWAP-residency coder — cannot stage it. That is a deliberate
+		// v1.4 swap-only limitation, NOT a memory shortfall, so emit a refusal that says so
+		// rather than the "free memory / use a larger host" copy (which misdirects an operator
+		// who may have ample memory). The generic no-fit copy below is reserved for a coder that
+		// is genuinely absent from the catalog (coderShardFor false with a non-shared residency).
+		if rec.Coder.Residency == recommend.ResidencyShared {
+			fmt.Fprintf(errOut, "install: the coding-agent addon currently requires a swap-residency coder fit, but this host only supports SHARED residency (the coder would ride the chat endpoint), which v1.4 does not yet serve as a dedicated agent — so the addon cannot be staged. This is a swap-only limitation, not a memory shortfall; freeing memory will not help. (The chat stack is unaffected.)\n")
+			return exitBlocked
+		}
+		sh, ok := coderShardFor(rec, cat)
+		if !ok {
+			fmt.Fprintf(errOut, "install: no coder model fits the detected memory envelope, so the coding-agent addon cannot be staged — free memory or use a larger-envelope host, then re-run `villa install --coding-agent`. (The chat stack is unaffected.)\n")
+			return exitBlocked
+		}
+		coderShard = sh
+
+		// (c) Pre-stage the coder GGUF (idempotent, size-gated). The single sanctioned
+		// outbound window for the coder weight; download.PullModel verifies before use (T-27-01).
+		if !d.coderModelPresent(d.modelsDir(), coderShard) {
+			fmt.Fprintf(out, "coder model %s not present — downloading...\n", coderShard.Filename)
+			if err := d.ensureCoderModel(d.modelsDir(), coderShard); err != nil {
+				fmt.Fprintf(errOut, "install: pre-stage coder model %s failed: %v\n", coderShard.Filename, err)
+				return exitBlocked
+			}
+			fmt.Fprintf(out, "coder model %s downloaded and verified\n", coderShard.Filename)
+		}
+
+		// (d) Stage the pinned Crush binary (checksum-before-extract, D-03 — never re-implemented).
+		binPath, err := d.installAgentBinary(cmd.Context())
+		if err != nil {
+			fmt.Fprintf(errOut, "install: stage coding-agent binary failed: %v\n", err)
+			return exitBlocked
+		}
+		fmt.Fprintf(out, "coding agent installed and verified at %s\n", binPath)
+
+		// (e) Render the locked-down crush.json (the restrictive-tools security control).
+		if err := d.renderCrushConfig(cfg); err != nil {
+			fmt.Fprintf(errOut, "install: render coding-agent config failed: %v\n", err)
+			return exitBlocked
+		}
+		fmt.Fprintf(out, "coding-agent config rendered (outbound tools disabled, loopback provider only)\n")
 	}
 
 	// (7) Persist the chosen selection to config.toml BEFORE any unit work (F-2 /
@@ -579,10 +766,37 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 		fmt.Fprintf(out, "memory stack ready: %s\n", proof.detail)
 	}
 
+	// (10c) Coding-agent readiness proof (v1.4 / D-05, T-27-05): a REAL `crush run`
+	// tool-call round-trip (plant a file → ask the agent to edit it → assert the edit),
+	// NOT a health-200. Gated on cfg.AgentEnabled; skipped under --dry-run (that path
+	// returned far above). A FAIL refuses-with-remediation (exitBlocked) — never a silent
+	// skip / false-green (honesty-by-construction). A health-200 is never an input.
+	if cfg.AgentEnabled {
+		proof := d.agentProofFn(cmd.Context())
+		if proof.status == preflight.StatusFail {
+			fmt.Fprintf(errOut, "install: coding agent not ready: %s\n", proof.detail)
+			return exitBlocked
+		}
+		fmt.Fprintf(out, "coding agent ready: %s\n", proof.detail)
+	}
+
 	if ready.status == preflight.StatusWarn || gateDegraded {
 		return exitWarn
 	}
 	return exitPass
+}
+
+// agentEnabledForGate reports whether the coding-agent preflight gates should be
+// appended: true when --coding-agent was passed (a first-time opt-in, which
+// runInstall persists below) OR when the PERSISTED agent_enabled is on. This folds the
+// override into the gate so a `villa install --coding-agent` on a host with no prior
+// agent_enabled is STILL gated (disk/envelope checked before staging), matching how
+// cfg.AgentEnabled is resolved later in runInstall (loadedAgentEnabled || codingAgent).
+func agentEnabledForGate(opts installOpts, d *installDeps) bool {
+	if opts.codingAgent {
+		return true
+	}
+	return d.loadedAgentEnabled != nil && d.loadedAgentEnabled()
 }
 
 // planHasUnit reports whether a unit with the given name is present in the reconciled
@@ -1130,7 +1344,87 @@ func liveInstallDeps() (*installDeps, error) {
 		// Phase-23 D-10 skew WARN reader: the SHARED fail-closed recall-state
 		// loader `villa recall` uses (one reader, never a re-rolled second one).
 		readRecallState: liveRecallStateLoad,
+
+		// Coding-agent (Crush) addon seams (v1.4 / INSTALL-03). The gate keys off the
+		// PERSISTED config (liveLoadedAgentEnabled → config.LoadVilla().AgentEnabled,
+		// fail-soft to false); --coding-agent overrides it. Pre-stage reuses the same
+		// verified download path + models dir as the chat/embed models (D-03); the binary
+		// install + render compose the Phase-26/Task-1 seams, never re-implemented.
+		loadedAgentEnabled: liveLoadedAgentEnabled,
+		agentCatalog: func() (catalog.Catalog, bool) {
+			cat, _, err := catalog.Load(modelCatalogPath)
+			if err != nil {
+				return catalog.Catalog{}, false
+			}
+			return cat, true
+		},
+		coderModelPresent:  liveCoderModelPresent,
+		ensureCoderModel:   liveEnsureCoderModel,
+		installAgentBinary: liveInstallAgentBinary,
+		renderCrushConfig:  liveRenderCrushConfig,
+		agentProofFn: func(ctx context.Context) agentProof {
+			return evalAgentProof(liveAgentToolCallProbe(ctx))
+		},
+		// Coding-agent preflight gates (INSTALL-04/D-09). The closure resolves the staged
+		// footprint (coder GGUF SizeBytes + the pinned binary asset.Size) from the SAME
+		// catalog entry + policy pin the install flow stages, so the disk gate can never
+		// drift from what is actually written; statfs reuses the same syscall.Statfs path
+		// the install/memory disk checks use (liveAgentStatfs), and the cloud-credential
+		// scan reads the env via os.LookupEnv. A catalog load failure / no-coder-fit yields
+		// a zero staged size — the envelope check (rec.Coder.Fits==false) is the BLOCK that
+		// refuses-with-remediation, so the disk check is not relied on to catch that case.
+		runAgentChecks: func(p detect.HostProfile, rec recommend.Recommendation) []preflight.CheckResult {
+			var staged uint64
+			if cat, _, err := catalog.Load(modelCatalogPath); err == nil {
+				if sh, ok := coderShardFor(rec, cat); ok {
+					staged += sh.SizeBytes
+				}
+			}
+			if asset, ok := agent.LoadCrushPolicy().Assets["linux/amd64"]; ok {
+				staged += asset.Size
+			}
+			return runAgentChecks(p, rec, agentCheckInput{
+				stagedBytes: staged,
+				dataDir:     modelsDir(),
+				statfs:      liveAgentStatfs,
+				lookupEnv:   os.LookupEnv,
+			})
+		},
 	}, nil
+}
+
+// liveAgentStatfs reads real free space at a path via syscall.Statfs (the same
+// locale-proof, no-shell-to-df discipline preflight.liveStatfs uses — that helper is
+// package-private to preflight, so the cmd-tier agent gate carries its own copy). It
+// walks up to an existing ancestor so a not-yet-created models dir still reports its
+// filesystem's free space. A statfs error → ok=false → the disk check degrades to a
+// typed-Unknown WARN (never a false BLOCK, D-09).
+func liveAgentStatfs(path string) (uint64, bool) {
+	p := existingAncestorDir(path)
+	var st syscall.Statfs_t
+	if err := syscall.Statfs(p, &st); err != nil {
+		return 0, false
+	}
+	return st.Bavail * uint64(st.Bsize), true
+}
+
+// existingAncestorDir returns path if it exists, else the nearest existing parent
+// (down to "/"), so statfs has a real path to stat for a target dir not yet created.
+func existingAncestorDir(path string) string {
+	if path == "" {
+		return "/"
+	}
+	p := path
+	for {
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+		parent := filepath.Dir(p)
+		if parent == p {
+			return "/"
+		}
+		p = parent
+	}
 }
 
 // quadletUnitDir is the fixed rootless Quadlet generator directory

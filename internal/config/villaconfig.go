@@ -80,6 +80,46 @@ type VillaConfig struct {
 	// EmbedPort is the in-network villa-embed OpenAI /v1 port (D-06/D-07).
 	// Default 8080.
 	EmbedPort int `toml:"embed_port,omitzero"`
+
+	// --- Coding-mode fields (v1.4, CMODE-01 / D-02/D-04) ---
+	// These follow the v1.3 memory-stack precedent EXACTLY: append-only, all
+	// ,omitempty, and (via marshalVilla's omit-when-off path) NOT emitted to disk for
+	// a non-coding install on ANY save-bearing command — so an existing v1.3 install is
+	// byte-identical on disk until the user enters coding mode (D-02/D-04). Units
+	// regenerate from these fields (D-05: orchestrate.Render derives the coding-mode
+	// render descriptor from them), so the mode survives restart/reboot. The mode
+	// changes ONLY via the explicit `villa coding-mode enter|exit` verb (Phase 25
+	// Plan 02) — never auto-flipped, never a hand-edited unit. The coder_* fields hold
+	// the model/quant/agent_ctx RESOLVED AT ENTER (D-04), never re-picked later.
+
+	// CodingMode gates the whole coding-mode delta. Default false (D-04): an existing
+	// v1.3 install stays chat-only until the user enters coding mode. A deliberate bool
+	// toggle (mirrors MemoryEnabled) — false is a meaningful explicit choice, so it is
+	// NOT self-healed in normalizeVilla.
+	CodingMode bool `toml:"coding_mode,omitempty"`
+	// CoderModel is the catalog id of the active coder model, resolved AT ENTER from the
+	// Phase-24 coder catalog (D-04). Empty/dropped when coding mode is off.
+	CoderModel string `toml:"coder_model,omitempty"`
+	// CoderQuant is the active coder quantization, resolved AT ENTER (D-04). Empty/dropped
+	// when coding mode is off.
+	CoderQuant string `toml:"coder_quant,omitempty"`
+	// CoderAgentCtx is the resolved agent-profile context window the coder unit is
+	// rendered with (the single `-c`, Pitfall 1) — sourced from the catalog entry's
+	// agent_ctx AT ENTER (D-04). Zero/dropped when coding mode is off. Tagged
+	// `omitzero` (NOT `omitempty`) to match the v1.3 memory-stack int precedent
+	// (embedding_dim/qdrant_port/embed_port): BurntSushi/toml's omitempty does NOT drop
+	// a zero int, only omitzero does — required for the byte-identical-off guarantee.
+	CoderAgentCtx int `toml:"coder_agent_ctx,omitzero"`
+
+	// --- Coding-agent addon gate (v1.4, INSTALL-03 / D-01) ---
+	// AgentEnabled gates the whole v1.4 coding-agent (Crush) install addon. Default
+	// false (D-01): an existing install stays agent-off until the user opts in via
+	// `villa install --coding-agent`. A deliberate bool toggle (mirrors MemoryEnabled /
+	// CodingMode) — false is a meaningful explicit choice, so it is NOT self-healed in
+	// normalizeVilla. ,omitempty so an agent-off install is byte-identical on disk: a
+	// plain bool with omitempty drops the key on a default-false marshal (no marshalVilla
+	// zeroing is needed — unlike the memory/coder blocks whose non-bool fields require it).
+	AgentEnabled bool `toml:"agent_enabled,omitempty"`
 }
 
 // defaultConfig is the typed default returned when no config file exists. An absent
@@ -231,6 +271,16 @@ func marshalVilla(c VillaConfig) ([]byte, error) {
 		c.QdrantPort = 0
 		c.EmbedAddr = ""
 		c.EmbedPort = 0
+	}
+	// Coding-mode omit-when-off (v1.4, D-02/D-04): when coding mode is disabled the
+	// resolved coder_* fields are zeroed on this by-value copy so the ,omitempty tags
+	// drop all four coding keys — an existing v1.3 install therefore gains NO coding
+	// keys on disk until the user enters coding mode (byte-identical, same discipline
+	// as the memory block above). The fields are re-written by the enter path (D-04).
+	if !c.CodingMode {
+		c.CoderModel = ""
+		c.CoderQuant = ""
+		c.CoderAgentCtx = 0
 	}
 	return toml.Marshal(c)
 }

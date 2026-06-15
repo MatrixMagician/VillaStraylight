@@ -186,6 +186,28 @@ func renderRecommendTable(w io.Writer, rec recommend.Recommendation, warnings []
 		}
 	}
 
+	// Coder (agent profile) section (CODER-02, D-06/D-07): the JSON block is
+	// ALWAYS stamped, but the human table renders compactly — the full fit
+	// inequality when a coder entry fits (residency "swap"), one honest line
+	// when none does (residency "shared", the agent rides the chat endpoint).
+	if rec.Coder.Model != "" {
+		fmt.Fprintf(w, "\nCoder (agent profile): %s  (quant %s, agent ctx %d)\n",
+			rec.Coder.Model, rec.Coder.Quant, rec.Coder.AgentCtx)
+		ctw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
+		fmt.Fprintf(ctw, "  model_bytes\t%s\n", gib(rec.Coder.WeightBytes))
+		fmt.Fprintf(ctw, "+ KV-cache @ agent ctx %d\t%s\n", rec.Coder.AgentCtx, gib(rec.Coder.KVCacheBytes))
+		fmt.Fprintf(ctw, "+ headroom\t%s\n", gib(rec.Coder.HeadroomBytes))
+		fmt.Fprintf(ctw, "= total\t%s\n", gib(rec.Coder.TotalBytes))
+		fmt.Fprintf(ctw, "%s usable envelope\t%s\n", fitsGlyph(rec.Coder.Fits), gib(rec.UsableEnvelopeBytes))
+		if err := ctw.Flush(); err != nil {
+			return err
+		}
+		fmt.Fprintf(w, "  residency: %s\n", rec.Coder.Residency)
+	} else {
+		fmt.Fprintf(w, "\nCoder (agent profile): no coder model fits the usable envelope — residency %q (the agent rides the chat endpoint)\n",
+			rec.Coder.Residency)
+	}
+
 	if withAlternatives && len(rec.Alternatives) > 0 {
 		fmt.Fprintln(w, "\nOther fitting picks:")
 		atw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)

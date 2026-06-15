@@ -133,6 +133,50 @@
 
 ---
 
+## Milestone: v1.4 — Coding Agent
+
+**Shipped:** 2026-06-15
+**Phases:** 5 (24–28) | **Plans:** 18 | **Tasks:** 39
+
+### What Was Built
+- A strictly-local terminal coding agent as an optional `villa install --coding-agent` addon: **Crush v0.76.0** delivered as a pinned, SHA-256-verified host binary with `crush.json` rendered from `config.toml` (both kill switches, one loopback provider, `villa-`prefixed model ids), launched through a locked-down `villa code` verb, drift detected-never-auto-corrected.
+- Coder catalog (schema 2→3): three revision-pinned `role:"coder"` entries (Qwen3-Coder-30B-A3B; Qwen3-Coder-Next Q4/Q3), each qualified agent-in-the-loop on gfx1151 (49/49 offload, exact-match KV, real Crush read→edit→verify loops) before freezing.
+- `recommend` coder fit at agent-profile ctx with honest `swap`/`shared` residency as a pure fit-math output (schema 2→3); coding mode as an explicit transactional `villa coding-mode enter|exit` verb cloning `backendswap` + composing `modelswap` (under-load residency prove, never auto-flip).
+- `villa verify agent`: negative-control-first runtime zero-outbound proof + a llama-down cloud-fallback control, accepted on-hardware under a real rootless-netns nft FORWARD block (closed the Phase-20 egress-block gap).
+- Surfacing landed last: `status.Report` 3→4 (single golden re-freeze) coding block + hidden-until-data dashboard Agent panel; doctor agent checks (schema 1→2); backup coverage (crush.json in, binary excluded); per-model usage + cache-effectiveness signals.
+
+### What Worked
+- **Research killed the wrong agent before a line was written.** Selecting Crush over OpenCode on zero-outbound *structural* grounds (not popularity) and rejecting the Qdrant code-collection premise on evidence saved an entire mis-built subsystem — the riskiest scoping calls were made in research and held.
+- **Negative-control-first, fourth milestone running.** `villa verify agent` proved the egress gate is real before trusting a pass, and an *ineffective* host-main-netns block was correctly REJECTED on-hardware — no fabricated PASS — which is what surfaced that rootless egress traverses FORWARD inside the netns, not the host chain.
+- **On-hardware qualification gated the catalog, not bench scores.** Every coder entry had to drive a real tool-call loop with KV measured at agent ctx before freezing; D-13 recorded the toolbox-keep decision with evidence at an explicit operator checkpoint.
+- **Single-contract discipline, fourth milestone running.** Exactly one byte-frozen evolution (`status.Report` 3→4), landed last, frozen once; doctor (1→2) and backup (2→3) evolved as their own distinct contracts. The integration audit confirmed exactly one status bump.
+- **Composition over re-implementation held.** `codingmode` cloned `backendswap` + composed `modelswap`; the install addon composed the P26 agent core; `villa verify agent` and `villa doctor` share the single `liveAgentToolCallProbe` driver — no forks.
+
+### What Was Inefficient
+- **VALIDATION.md status drift for the FOURTH consecutive milestone.** Phase 28 shipped verified `passed` (5/5) but never got a `28-VALIDATION.md` — the same artifact-reconciliation gap logged at v1.1/v1.2/v1.3 close, still not enforced in-flow.
+- **SUMMARY frontmatter inconsistency again** — Phase-28 and gap-closure 27-05/06 SUMMARYs encode requirements in `tags`/`provides` rather than `requirements-completed`, so the audit's requirements cross-check had to fall back to VERIFICATION SC tables.
+- **Auto-extracted MILESTONES accomplishments were noisy again** — the CLI dumped 14 raw items including a stray on-hardware-context line and a mid-sentence netns fragment; needed the same hand-rewrite to 5 phase-level accomplishments as v1.2/v1.3.
+- **Phase branches accumulated unmerged again** (24–28 stacked; `main` 151 commits behind at close) — the identical release-hygiene gap flagged at every prior milestone close.
+- **A real config-is-source-of-truth bug shipped as tracked debt** (27-04 backend-revert) — found during on-hardware acceptance, correctly scoped out rather than rushed, but it's a regression in a core invariant that the install path should have caught earlier.
+
+### Patterns Established
+- **Host-binary delivery seam** — a pinned, checksum-before-extract `go:embed` policy + traversal-guarded stdlib-tar install for a NON-container first-party tool (Crush), distinct from the inference image seam; the renderer derives config from `config.toml`, never hand-edited.
+- **Explicit-verb-never-auto transactional mode** — coding mode mirrors the ROCm `backend set` precedent: clone `backendswap`, prove residency under load (idle-green = rollback), and a structural guard asserting the mode never auto-flips on connect.
+- **Negative-control-first now covers the network namespace, not just the host** — the on-hardware egress proof had to discover and block the rootless-netns FORWARD path; an ineffective block must be REJECTED, never absorbed as a pass.
+- **Acknowledge-with-evidence milestone close** — a `tech_debt` audit with zero blockers can close by recording each item (bug / process / advisory / by-design) in STATE.md Deferred Items with its reproduction and remediation, rather than gating the release on non-critical debt.
+
+### Key Lessons
+1. **Enforce artifact-status reconciliation as a phase-close gate — fourth time logging this.** Draft/absent VALIDATION and frontmatter key drift have now cost audit rework in four consecutive milestones; the verifier should refuse to close a phase without a compliant VALIDATION + a `requirements-completed` key, instead of the milestone audit absorbing it every time.
+2. **Reject the wrong architecture in research, loudly and with structural reasons.** "OpenCode can't be locked to zero-outbound" and "a text embedder over chunked code is stale on first edit" were cheap conclusions that prevented the most expensive class of rework — building and then ripping out a subsystem.
+3. **Prove the proof on the real topology.** A privacy gate validated against the wrong network layer (host chain vs rootless netns) would have false-greened; driving the actual egress path and rejecting an ineffective block is what made PRIV-06 real.
+4. **Scope a found-in-acceptance bug out cleanly rather than rushing it.** The 27-04 backend-revert was real but out of v1.4's coder scope; tracking it with exact repro + remediation (reversible via `villa backend set rocm`) beat a hurried fix in a frozen milestone.
+
+### Cost Observations
+- Model mix: adaptive profile (Opus-led planning/verification/close, Sonnet execution); Opus 4.8 (1M context) for the milestone close.
+- Sessions: milestone executed 2026-06-12 → 2026-06-15; 18 plans; heaviest were the on-hardware acceptance plans (24-03/04 qualification, 26-03 launch, 27-04 egress proof) where live verification + a real netns egress block dominated.
+
+---
+
 ## Cross-Milestone Trends
 
 ### Process Evolution
@@ -143,6 +187,7 @@
 | v1.1 ROCm Opt-In | 6 (6–11) | 16 | Spine-first ordering; on-hardware risk concentrated in one phase; append-only contract discipline; first exercise of the `Backend` seam |
 | v1.2 Operability | 6 (12–17) | 19 | Research-converged ordering (one frozen contract in flight at a time); one pure core per feature + cmd/orchestrate seam; honest A/B disproved a perf premise; capstone over a finished surface |
 | v1.3 Memory & Knowledge | 6 (18–23) | 20 | Integration milestone (zero new Go libraries); digest-pinned spike before any golden froze; managed-service seam category; negative-control-first runtime proofs; structural invariant tests |
+| v1.4 Coding Agent | 5 (24–28) | 18 | Research rejected the wrong agent (Crush over OpenCode) + the wrong memory model (Qdrant code-collection) on structural evidence; host-binary delivery seam; explicit-verb transactional coding mode; egress proof extended to the rootless netns; acknowledge-with-evidence `tech_debt` close |
 
 ### Cumulative Quality
 
@@ -152,10 +197,12 @@
 | v1.1 ROCm Opt-In | ~548 green | 16 | Milestone audit `tech_debt`: 13/13 reqs, 0 critical blockers |
 | v1.2 Operability | ~563 green | 16+ | Milestone audit **PASSED**: 13/13 reqs, 5/5 integration flows, 6/6 phases Nyquist-compliant |
 | v1.3 Memory & Knowledge | 885 green | 21+ | Milestone audit **PASSED**: 22/22 reqs, 15/16 integration connections (0 blockers), 5/5 E2E flows; Nyquist 4 compliant / 2 partial |
+| v1.4 Coding Agent | 1321 green | 24 | Milestone audit `tech_debt`: 17/17 reqs, integration PASS (7/7 seam groups, 0 blockers), 6/6 E2E flows; Nyquist 4/5 (P28 open); debt acknowledged at close |
 
 ### Top Lessons (Verified Across Milestones)
 
 1. On-hardware UAT per phase (not just at milestone end) catches the failure modes that off-hardware tests structurally cannot (silent CPU fallback, OOM, HSA-override behavior).
 2. Freeze `--json`/dashboard contracts with byte-goldens early and only ever extend them append-only — it has protected the dashboard read-model across all three milestones.
-3. **Status-frontmatter lag recurs every milestone** (SUMMARY `requirements-completed`, `VALIDATION.md` nyquist status, UAT/quick-task terminal vocabulary; in v1.3 also a missing per-phase VERIFICATION.md) and each time costs a close-time reconciliation pass — now verified across v1.1, v1.2, AND v1.3. The durable fix is to reconcile these at phase-verification time, enforced by the verifier as a phase-close gate, rather than rediscovering them at the milestone-close audit.
-4. Negative-control-first proofs (the gate must demonstrably be able to FAIL before its PASS is trusted) generalize beyond offload-assertion — v1.3 applied the pattern to egress (verify memory), service health (stopped-embed drill), and skew refusal (provoked WARN), each catching or closing a real false-green.
+3. **Status-frontmatter lag recurs every milestone** (SUMMARY `requirements-completed`, `VALIDATION.md` nyquist status, UAT/quick-task terminal vocabulary; in v1.3 also a missing per-phase VERIFICATION.md; in v1.4 a missing `28-VALIDATION.md`) and each time costs a close-time reconciliation pass — now verified across v1.1, v1.2, v1.3, AND v1.4 (four consecutive). The durable fix is to reconcile these at phase-verification time, enforced by the verifier as a phase-close gate, rather than rediscovering them at the milestone-close audit.
+4. Negative-control-first proofs (the gate must demonstrably be able to FAIL before its PASS is trusted) generalize beyond offload-assertion — v1.3 applied the pattern to egress (verify memory), service health (stopped-embed drill), and skew refusal (provoked WARN); v1.4 extended it to the rootless network namespace (`verify agent` rejected an *ineffective* host-chain block on-hardware before trusting the netns-FORWARD block), each catching or closing a real false-green.
+5. Research that rejects the wrong architecture on **structural** grounds (v1.4: OpenCode unlockable to zero-outbound; a text embedder over chunked code stale on first edit) is the cheapest de-risk available — it prevents the most expensive rework class (build-then-rip-out) before any code is written.

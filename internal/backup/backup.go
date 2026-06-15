@@ -71,6 +71,23 @@ type BackupInput struct {
 	// recorded in the manifest for re-pull. Identity only.
 	ExcludedModels []ExcludedModel
 
+	// CrushConfigPath is the resolved source path for the OPTIONAL Phase-28
+	// crush.json archive entry (SURF-03/D-08): the RENDERED coding-agent config.
+	// The cmd tier sets it ONLY on an agent-on backup (crushConfigPath()); empty
+	// means agent off → the entry is never offered to the core (archive stays
+	// v2-layout-identical). An absent file at a non-empty path is skipped via
+	// FileMissing exactly like the other optional entries.
+	CrushConfigPath string
+	// AgentBinarySHA256 / AgentVersion / AgentPinSHA256 are the IDENTITY of the
+	// EXCLUDED coding-agent binary (SURF-03/D-08), supplied by the cmd tier
+	// (hashFileSHA256(agentBinPath()) + the pinned policy version + the policy's
+	// pinned binary SHA-256). Identity only — the binary bytes are NEVER archived.
+	// Set ONLY on an agent-on backup; when all three are empty the manifest records
+	// no ExcludedAgent.
+	AgentBinarySHA256 string
+	AgentVersion      string
+	AgentPinSHA256    string
+
 	// QdrantVolumeName / TempQdrantTar drive the OPTIONAL Phase-23 qdrant volume
 	// export (D-05): when BOTH are non-empty, Backup quiesces Deps.QdrantServiceName
 	// around VolumeExport(QdrantVolumeName, TempQdrantTar) and appends the
@@ -201,6 +218,13 @@ func Backup(d Deps, in BackupInput) (retRes Result, retErr error) {
 		{EntryBenchReports, in.BenchReportsPath, false},
 		{EntryQdrantVolume, in.TempQdrantTar, false},
 		{EntryRecallState, in.RecallStatePath, false},
+		// The OPTIONAL Phase-28 coding-agent config (SURF-03/D-08): present only on
+		// an agent-on backup (the cmd tier passes CrushConfigPath=""  when the agent
+		// is off, skipping the row). An absent file at a non-empty path is tolerated
+		// via FileMissing like the other optional entries — agent-on but no rendered
+		// crush.json on disk skips the entry rather than failing the backup. The
+		// agent BINARY is NEVER an entry — only its identity (ExcludedAgent) below.
+		{EntryCrushConfig, in.CrushConfigPath, false},
 	}
 
 	var entries []archiveEntry
@@ -268,6 +292,21 @@ func Backup(d Deps, in BackupInput) (retRes Result, retErr error) {
 		checksums = append(checksums, EntryChecksum{Name: s.entry, SHA256: csum})
 	}
 
+	// Record the EXCLUDED coding-agent binary IDENTITY (SURF-03/D-08), agent-on
+	// ONLY (clone of the ExcludedModels weights exclusion). It is gated on the cmd
+	// tier having supplied an identity (any of the three fields non-empty); an
+	// agent-off backup leaves all three empty so excludedAgent stays nil and the
+	// manifest omits the key — keeping the archive v2-layout-identical. The binary
+	// bytes are NEVER added to the archive (there is no EntryCrushBinary).
+	var excludedAgent *ExcludedAgent
+	if in.AgentBinarySHA256 != "" || in.AgentVersion != "" || in.AgentPinSHA256 != "" {
+		excludedAgent = &ExcludedAgent{
+			SHA256:    in.AgentBinarySHA256,
+			Version:   in.AgentVersion,
+			PinSHA256: in.AgentPinSHA256,
+		}
+	}
+
 	// (5) Build the seam/accessor-sourced manifest.
 	m := BuildManifest(ManifestInput{
 		CreatedAt:           in.CreatedAt,
@@ -283,6 +322,7 @@ func Backup(d Deps, in BackupInput) (retRes Result, retErr error) {
 		EmbeddingModel:      in.EmbeddingModel,
 		EmbeddingDim:        in.EmbeddingDim,
 		RecallSchemaVersion: in.RecallSchemaVersion,
+		ExcludedAgent:       excludedAgent,
 	})
 	manifestJSON, err := marshalManifest(m)
 	if err != nil {

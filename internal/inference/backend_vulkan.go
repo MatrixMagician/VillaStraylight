@@ -99,6 +99,36 @@ func (backendVulkan) ContainerArgs(spec RunSpec) []string {
 		"--port", fmt.Sprintf("%d", serverPort),
 	}
 	args = append(args, llamaServerFlags...)
+	args = appendCodingModeArgs(args, spec.CodingMode)
+	return args
+}
+
+// appendCodingModeArgs appends the CMODE-01 tool-calling render delta to args, behind
+// the backend seam (D-01/D-02/D-03). It is shared by both backend ContainerArgs paths
+// (Vulkan + ROCm) so the delta stays symmetric and the --jinja / --cache-reuse /
+// sampling flag LITERALS live in exactly one place inside the seam (TestSeamGrepGate
+// locks them here). cm == nil ⇒ the args are returned UNCHANGED, so the off path is
+// byte-identical to v1.3 BY CONSTRUCTION (D-02). The agent ctx is carried by the single
+// -c already in the base args (spec.ContextLen = AgentCtx) — this delta NEVER emits a
+// second -c (Pitfall 1). Sampling values are typed float/int formatted with %g/%d,
+// never interpolated into a shell string (T-25-03).
+func appendCodingModeArgs(args []string, cm *CodingModeSpec) []string {
+	if cm == nil {
+		return args
+	}
+	args = append(args, "--jinja")
+	if s := cm.Sampling; s != nil {
+		args = append(args,
+			"--temp", fmt.Sprintf("%g", s.Temperature),
+			"--top-p", fmt.Sprintf("%g", s.TopP),
+			"--top-k", fmt.Sprintf("%d", s.TopK),
+			"--repeat-penalty", fmt.Sprintf("%g", s.RepeatPenalty))
+	}
+	// --cache-reuse is appended ONLY when the catalog entry positively declares
+	// cache_reuse_safe=true (D-03). The Go zero value false is the fail-closed default.
+	if cm.CacheReuseSafe {
+		args = append(args, "--cache-reuse", "256")
+	}
 	return args
 }
 
@@ -126,3 +156,13 @@ func (backendVulkan) ResidencyProof() ResidencyMarkers {
 func endpointURL() string {
 	return fmt.Sprintf("http://%s:%d", hostPublishAddr, serverPort)
 }
+
+// ServerPort exposes the inference server's container-internal port (serverPort = 8080)
+// so callers compose endpoint URLs WITHOUT re-typing the port literal. The in-network
+// orchestrate accessor (orchestrate.LlamaInNetworkEndpoint) sources the port from HERE so
+// the in-network villa-llama URL stays in lockstep with the inference port, never drifting
+// from a hand-typed :8080 (DNS/port lockstep, Pitfall 3 / T-4-01). This is a string-free
+// pure accessor; it leaks no GPU/backend marker (TestSeamGrepGate-clean).
+// The agent renderer's hard-coded providerBaseURL port (internal/agent/render.go) is
+// drift-guarded against this accessor by cmd/villa.TestCrushProviderPortMatchesInferenceServerPort.
+func ServerPort() int { return serverPort }

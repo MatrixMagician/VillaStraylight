@@ -27,6 +27,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/MatrixMagician/VillaStraylight/internal/agent"
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
 	"github.com/MatrixMagician/VillaStraylight/internal/doctor"
@@ -233,14 +234,34 @@ func liveDoctorDeps() (doctor.Deps, error) {
 		}
 		memProof = liveResidencyUnderLoad(cfg, sd)
 	}
+	// Coding-agent seams (SURF-02, D-06/D-07, mirroring the cfg.MemoryEnabled
+	// conditional above): bound ONLY when the persisted agent_enabled is true; all
+	// three stay nil when the agent is off so the agent-off doctor output is
+	// byte-identical (mirror D-06). Each seam REUSES a Phase-27 probe — never a
+	// re-rolled crush-run round-trip or residency scrape — and consumes the resulting
+	// inference.Verdict opaquely (no backend marker literal in cmd/villa;
+	// TestSeamGrepGate walks this tree).
+	var (
+		agentToolCall  func() inference.Verdict
+		agentResidency func() inference.Verdict
+		agentDrift     func() agent.DriftReport
+	)
+	if cfg.AgentEnabled {
+		agentToolCall = liveAgentToolCallVerdict(cfg)
+		agentResidency = liveAgentResidencyUnderLoad(cfg, sd)
+		agentDrift = liveAgentDrift(cfg)
+	}
 	return doctor.Deps{
-		Probe:              detect.Probe,
-		LoadConfig:         config.LoadVilla,
-		StatusReport:       func() status.Report { return status.Run(*sd) },
-		Backend:            cfg.Backend,
-		RunROCmImage:       rocmImageGate,
-		RunMemoryChecks:    memChecks,
-		ResidencyUnderLoad: memProof,
+		Probe:                   detect.Probe,
+		LoadConfig:              config.LoadVilla,
+		StatusReport:            func() status.Report { return status.Run(*sd) },
+		Backend:                 cfg.Backend,
+		RunROCmImage:            rocmImageGate,
+		RunMemoryChecks:         memChecks,
+		ResidencyUnderLoad:      memProof,
+		AgentToolCall:           agentToolCall,
+		AgentResidencyUnderLoad: agentResidency,
+		AgentDrift:              agentDrift,
 		// DriftPlan: render units from the persisted config, resolve the backend
 		// fail-closed (D-02), and Reconcile against the READ-ONLY unit dir. It NEVER
 		// writes. A read error (absent/unreadable unit dir) is returned verbatim so the
@@ -509,4 +530,252 @@ func runResidencyUnderLoad(cfg config.VillaConfig, sd *status.Deps) inference.Ve
 			fmt.Sprintf("check `systemctl --user status %s` and `villa logs`, then re-run `villa doctor`", unitServiceName(orchestrate.EmbedContainerUnitName())))
 	}
 	return verdict
+}
+
+// agentProofBudget bounds the WHOLE coding-agent tool-call round-trip (read→edit `crush
+// run`) the doctor tool-call + residency seams drive. It mirrors residencyProofBudget: a
+// timeout → err → a typed-Unknown WARN, never a hang masquerading as a PASS.
+const agentProofBudget = 90 * time.Second
+
+const (
+	// agentResidencyDriveRounds bounds how many sequential tool-call round-trips the
+	// residency-under-load proof will drive while trying to catch one verifiably IN
+	// FLIGHT (WR-03). The memory analog drives cheap embed requests; an agent
+	// round-trip is heavyweight, so a small bound under agentProofBudget suffices.
+	agentResidencyDriveRounds = 3
+	// agentResidencySettle is how long the proof waits after launching a tool-call
+	// round before checking it is still in flight, then sampling (WR-03). Long enough
+	// that a real coder round-trip has demonstrably started loading the model, short
+	// enough to stay well inside agentProofBudget. A round that has already COMPLETED
+	// by this point was too fast to have been sampled under load — that round is
+	// skipped and the next one is driven (or the proof degrades to a typed-Unknown
+	// WARN), never sampled idle (which could mask a CPU-fallback-under-load false-green).
+	agentResidencySettle = 750 * time.Millisecond
+)
+
+// agentUnevaluable builds the typed-Unknown WARN Verdict every unmet precondition /
+// unevaluable agent drive degrades to (SURF-02, D-07): never a false-green PASS, never a
+// FAIL fabricated from a signal that could not be evaluated.
+func agentUnevaluable(detail, remediation string) inference.Verdict {
+	return inference.Verdict{
+		Status:      inference.StatusWarn,
+		Detail:      detail,
+		Remediation: remediation,
+	}
+}
+
+// liveAgentToolCallVerdict builds the SURF-02 tool-call round-trip seam liveDoctorDeps
+// binds when the agent is enabled: a closure that runs the REUSED liveAgentToolCallProbe
+// (DEFINED at install_agent.go; the SAME read→edit `crush run` driver verify_agent.go
+// wires as agentTaskFn — never re-rolled here) and maps the outcome to an
+// inference.Verdict consumed opaquely by the doctor core. A completed round-trip →
+// StatusPass; not-completed → StatusFail; a probe error (binary absent, timeout, non-zero
+// exit) → StatusFail (a confident failure to drive the agent is a real fault, not an
+// unevaluable signal — the agent IS enabled). It is constructed (not run) at wiring time;
+// the drive only fires when doctor.Aggregate invokes the seam.
+func liveAgentToolCallVerdict(_ config.VillaConfig) func() inference.Verdict {
+	return func() inference.Verdict {
+		ctx, cancel := context.WithTimeout(context.Background(), agentProofBudget)
+		defer cancel()
+		completed, err := liveAgentToolCallProbe(ctx)()
+		if err != nil {
+			return inference.Verdict{
+				Status:      inference.StatusFail,
+				Detail:      fmt.Sprintf("the agent tool-call round-trip failed to run: %v", err),
+				Remediation: "ensure the agent is installed (`villa install --coding-agent`) and the stack is up (`villa up`), then re-run `villa doctor`; check `villa verify agent` and `villa logs`",
+			}
+		}
+		if !completed {
+			return inference.Verdict{
+				Status:      inference.StatusFail,
+				Detail:      "the agent ran but did not complete the read→edit tool-call round-trip (the probe file was not edited as instructed)",
+				Remediation: "check `villa verify agent` and `villa logs` — the coder model may not be serving tool-calls correctly",
+			}
+		}
+		return inference.Verdict{
+			Status: inference.StatusPass,
+			Detail: "the agent completed a real read→edit tool-call round-trip over the local endpoint",
+		}
+	}
+}
+
+// liveAgentResidencyUnderLoad builds the SURF-02/D-07 coder-residency-under-load seam: a
+// closure returning the CODER model's residency Verdict sampled DURING a real tool-call
+// drive. It mirrors liveResidencyUnderLoad's drive→sample→join shape but drives the REUSED
+// crush-run tool-call probe (install_agent.go) instead of the embed workload, and samples
+// inference.RunningOffloadVerdict over the EXACT liveStatusDeps input set — keyed on the
+// SERVED coder model file (sd.ModelFile resolves cfg.Model, which IS the coder under coding
+// mode, per D-09 distinct served model). Every unmet precondition / unevaluable drive
+// degrades to a typed-Unknown WARN; a confident CPU fallback of the coder under load is the
+// silent-degradation FAIL this seam exists to catch (consumed opaquely by the core).
+func liveAgentResidencyUnderLoad(cfg config.VillaConfig, sd *status.Deps) func() inference.Verdict {
+	return func() inference.Verdict { return runAgentResidencyUnderLoad(cfg, sd) }
+}
+
+// runAgentResidencyUnderLoad is the live under-tool-call-load residency proof for the
+// served coder model (SURF-02/D-07/D-09). Strictly READ-ONLY (doctor never starts a
+// service): villa-llama must be active; the backend + served model must resolve; otherwise
+// it degrades to a typed-Unknown WARN. It drives sequential REUSED tool-call rounds and
+// samples the coder model's GTT/journal residency ONLY while a round-trip is verifiably IN
+// FLIGHT (WR-03: a round that completes before the settle deadline is too fast to have
+// loaded the model under observation, so it is joined and the next round driven — never
+// sampled idle, which could mask a CPU-fallback-under-load false-green). Every sampled
+// round is JOINED so no agent process outlives the call; if no round can be caught in
+// flight within the bounded rounds / budget, it degrades to a typed-Unknown WARN.
+func runAgentResidencyUnderLoad(cfg config.VillaConfig, sd *status.Deps) inference.Verdict {
+	chatService := installServiceName // the served inference unit (coder under coding mode)
+	if state, err := sd.IsActive(chatService); err != nil || state != "active" {
+		return agentUnevaluable(
+			fmt.Sprintf("could not evaluate coder residency under tool-call load — %s is not active", chatService),
+			fmt.Sprintf("check `systemctl --user status %s`; run `villa up` if the stack is stopped, then re-run `villa doctor`", chatService))
+	}
+	backend, err := inference.BackendFor(cfg.Backend)
+	if err != nil {
+		return agentUnevaluable(
+			fmt.Sprintf("could not evaluate coder residency under tool-call load — the configured backend could not be resolved (%v)", err),
+			"fix the backend field in config.toml (`villa backend set`), then re-run `villa doctor`")
+	}
+	// The served model FILE (sd.ModelFile resolves cfg.Model — the coder GGUF under coding
+	// mode, D-09). The /props + journal identity checks compare against the model FILE.
+	modelFile, err := sd.ModelFile(cfg)
+	if err != nil {
+		return agentUnevaluable(
+			fmt.Sprintf("could not evaluate coder residency under tool-call load — the served model could not be resolved (%v)", err),
+			"fix the model field in config.toml (`villa model swap` / `villa coding-mode enter`), then re-run `villa doctor`")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), agentProofBudget)
+	defer cancel()
+
+	// Drive sequential tool-call rounds and sample ONLY while a round is verifiably IN
+	// FLIGHT (WR-03), mirroring runResidencyUnderLoad's phase-22 WR-01 in-flight
+	// discipline. The old shape launched ONE round and sampled immediately — if the
+	// probe exited fast (binary errors, non-zero exit, or a trivial round-trip), the
+	// GTT/journal was read with the coder IDLE, masking a CPU-fallback-under-load
+	// (the exact silent degradation this seam exists to catch) as a false-green PASS.
+	//
+	// For each round: launch the probe async, wait agentResidencySettle for the coder
+	// to demonstrably start working, then sample ONLY IF the round is still running.
+	// A round that already completed by the settle deadline was too fast to sample
+	// under load — it is joined and the next round is driven. If no round can be
+	// caught in flight within the bounded rounds / budget, degrade to a typed-Unknown
+	// WARN rather than returning an idle-sampled verdict.
+	var (
+		sampled bool
+		verdict inference.Verdict
+	)
+	for round := 0; round < agentResidencyDriveRounds && !sampled; round++ {
+		if ctx.Err() != nil {
+			break // parent budget exhausted — stop driving
+		}
+		done := make(chan struct{})
+		go func() {
+			_, _ = liveAgentToolCallProbe(ctx)() // drive-only; the FAIL signal here is residency, not the round-trip
+			close(done)
+		}()
+
+		settle := time.NewTimer(agentResidencySettle)
+		select {
+		case <-done:
+			// The round-trip finished before it could be sampled under load — too fast
+			// to prove residency-under-load. Do NOT sample idle; drive the next round.
+			settle.Stop()
+			continue
+		case <-ctx.Done():
+			settle.Stop()
+			<-done // JOIN: never let a probe outlive the call
+			break
+		case <-settle.C:
+			// The round is verifiably still IN FLIGHT — sample now, over the EXACT
+			// liveStatusDeps input set (every signal through the same sd seams the
+			// status fold uses), keyed on the served coder GGUF filename.
+			journal, _ := sd.JournalText(chatService)
+			verdict = inference.RunningOffloadVerdict(inference.RunningOffloadInput{
+				JournalText:   journal,
+				Props:         sd.Props(sd.Endpoint()),
+				GTTUsedBytes:  sd.GTTUsed(),
+				WeightBytes:   sd.WeightBytes(cfg),
+				ConfigModel:   modelFile,
+				ConfigContext: cfg.Ctx,
+				Markers:       backend.ResidencyProof(),
+			})
+			sampled = true
+			<-done // JOIN: the sampled tool-call round never outlives the call
+		}
+	}
+
+	if !sampled {
+		// No round stayed in flight long enough to sample (every round exited before
+		// the settle deadline, or the budget was exhausted) — the "under load"
+		// precondition was never met. Degrade to a typed-Unknown WARN rather than
+		// return an idle-sampled verdict that could mask a CPU-fallback-under-load.
+		return agentUnevaluable(
+			"could not evaluate coder residency under tool-call load — no tool-call round-trip stayed in flight long enough to sample residency under load",
+			"check `villa verify agent` and `villa logs` — the agent may be erroring or exiting before it loads the coder model; ensure the stack is up (`villa up`), then re-run `villa doctor`")
+	}
+	return verdict
+}
+
+// liveAgentDrift builds the SURF-02/D-14 drift seam: a closure that assembles the pure
+// agent.DetectDrift inputs from the live host (the installed-binary SHA + on-disk
+// crush.json + a freshly-rendered reference + the pinned policy binary hash) and returns
+// the report-only DriftReport. It REUSES the code.go accessors (agentBinPath /
+// hashFileSHA256 / crushConfigPath) and agent.Render / agent.LoadCrushPolicy — no
+// re-typed image/marker literal. Any read error degrades to a typed-Unknown WARN report
+// (BinaryDriftUnknown) rather than a fabricated drift — doctor never FAILs on a signal it
+// could not evaluate. It is constructed (not run) at wiring time.
+func liveAgentDrift(cfg config.VillaConfig) func() agent.DriftReport {
+	return func() agent.DriftReport {
+		reference, _, rerr := agent.Render(cfg, liveLSPProbes())
+		if rerr != nil {
+			return agent.DriftReport{
+				BinaryDriftUnknown: true,
+				Reason:             fmt.Sprintf("could not render the reference crush.json to check drift: %v", rerr),
+			}
+		}
+		binSHA, binPresent, herr := hashFileSHA256(agentBinPath())
+		if herr != nil {
+			return agent.DriftReport{
+				BinaryDriftUnknown: true,
+				Reason:             fmt.Sprintf("could not hash the villa-owned Crush binary to check drift: %v", herr),
+			}
+		}
+		onDisk, configPresent, cerr := readCrushConfig()
+		if cerr != nil {
+			return agent.DriftReport{
+				BinaryDriftUnknown: true,
+				Reason:             fmt.Sprintf("could not read the on-disk crush.json to check drift: %v", cerr),
+			}
+		}
+		var policyBinSHA string
+		if asset, ok := agent.LoadCrushPolicy().Assets["linux/amd64"]; ok {
+			policyBinSHA = asset.BinarySHA256
+		}
+		return agent.DetectDrift(agent.DriftInput{
+			BinaryPresent:   binPresent,
+			InstalledBinSHA: binSHA,
+			PolicyBinSHA:    policyBinSHA,
+			ConfigPresent:   configPresent,
+			OnDiskConfig:    onDisk,
+			RenderedConfig:  reference,
+		})
+	}
+}
+
+// readCrushConfig reads ~/.config/crush/crush.json for the drift compare. A not-exist read
+// maps to (nil, false, nil) — the FIRST-RUN trigger (ConfigPresent=false), distinct from a
+// real read error. Mirrors the liveAgentDeps.ReadConfig seam (code.go).
+func readCrushConfig() ([]byte, bool, error) {
+	path, err := crushConfigPath()
+	if err != nil {
+		return nil, false, err
+	}
+	b, err := os.ReadFile(path) //nolint:gosec // path is the XDG-resolved crush config, not user input
+	if os.IsNotExist(err) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	return b, true, nil
 }
