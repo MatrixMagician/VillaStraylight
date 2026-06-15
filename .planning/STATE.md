@@ -27,8 +27,8 @@ See: .planning/PROJECT.md (updated 2026-06-15 — milestone v1.4 Coding Agent sh
 
 Phase: Milestone v1.4 complete
 Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-06-15 — Milestone v1.4 completed and archived
+Status: v1.4 shipped — PR #5 (awaiting review/merge); tag v1.4 on the main merge commit
+Last activity: 2026-06-15 — Milestone v1.4 shipped via PR #5 (https://github.com/MatrixMagician/VillaStraylight/pull/5)
 
 ## Performance Metrics
 
