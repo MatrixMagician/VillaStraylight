@@ -537,6 +537,22 @@ func runResidencyUnderLoad(cfg config.VillaConfig, sd *status.Deps) inference.Ve
 // timeout → err → a typed-Unknown WARN, never a hang masquerading as a PASS.
 const agentProofBudget = 90 * time.Second
 
+const (
+	// agentResidencyDriveRounds bounds how many sequential tool-call round-trips the
+	// residency-under-load proof will drive while trying to catch one verifiably IN
+	// FLIGHT (WR-03). The memory analog drives cheap embed requests; an agent
+	// round-trip is heavyweight, so a small bound under agentProofBudget suffices.
+	agentResidencyDriveRounds = 3
+	// agentResidencySettle is how long the proof waits after launching a tool-call
+	// round before checking it is still in flight, then sampling (WR-03). Long enough
+	// that a real coder round-trip has demonstrably started loading the model, short
+	// enough to stay well inside agentProofBudget. A round that has already COMPLETED
+	// by this point was too fast to have been sampled under load — that round is
+	// skipped and the next one is driven (or the proof degrades to a typed-Unknown
+	// WARN), never sampled idle (which could mask a CPU-fallback-under-load false-green).
+	agentResidencySettle = 750 * time.Millisecond
+)
+
 // agentUnevaluable builds the typed-Unknown WARN Verdict every unmet precondition /
 // unevaluable agent drive degrades to (SURF-02, D-07): never a false-green PASS, never a
 // FAIL fabricated from a signal that could not be evaluated.
@@ -599,9 +615,13 @@ func liveAgentResidencyUnderLoad(cfg config.VillaConfig, sd *status.Deps) func()
 // runAgentResidencyUnderLoad is the live under-tool-call-load residency proof for the
 // served coder model (SURF-02/D-07/D-09). Strictly READ-ONLY (doctor never starts a
 // service): villa-llama must be active; the backend + served model must resolve; otherwise
-// it degrades to a typed-Unknown WARN. It launches the REUSED tool-call probe
-// asynchronously and samples the coder model's GTT/journal residency while the round-trip
-// is verifiably IN FLIGHT, then JOINS the probe so no agent process outlives the call.
+// it degrades to a typed-Unknown WARN. It drives sequential REUSED tool-call rounds and
+// samples the coder model's GTT/journal residency ONLY while a round-trip is verifiably IN
+// FLIGHT (WR-03: a round that completes before the settle deadline is too fast to have
+// loaded the model under observation, so it is joined and the next round driven — never
+// sampled idle, which could mask a CPU-fallback-under-load false-green). Every sampled
+// round is JOINED so no agent process outlives the call; if no round can be caught in
+// flight within the bounded rounds / budget, it degrades to a typed-Unknown WARN.
 func runAgentResidencyUnderLoad(cfg config.VillaConfig, sd *status.Deps) inference.Verdict {
 	chatService := installServiceName // the served inference unit (coder under coding mode)
 	if state, err := sd.IsActive(chatService); err != nil || state != "active" {
@@ -627,24 +647,72 @@ func runAgentResidencyUnderLoad(cfg config.VillaConfig, sd *status.Deps) inferen
 	ctx, cancel := context.WithTimeout(context.Background(), agentProofBudget)
 	defer cancel()
 
-	// Launch the REUSED tool-call round-trip in flight, sample MID-DRIVE, then JOIN it so
-	// no agent process outlives this call (mirroring runResidencyUnderLoad's WR-01 shape).
-	done := make(chan struct{})
-	go func() {
-		_, _ = liveAgentToolCallProbe(ctx)() // drive-only; the FAIL signal here is residency, not the round-trip
-		close(done)
-	}()
-	journal, _ := sd.JournalText(chatService)
-	verdict := inference.RunningOffloadVerdict(inference.RunningOffloadInput{
-		JournalText:   journal,
-		Props:         sd.Props(sd.Endpoint()),
-		GTTUsedBytes:  sd.GTTUsed(),
-		WeightBytes:   sd.WeightBytes(cfg),
-		ConfigModel:   modelFile,
-		ConfigContext: cfg.Ctx,
-		Markers:       backend.ResidencyProof(),
-	})
-	<-done // JOIN: the sampled tool-call drive never outlives the call
+	// Drive sequential tool-call rounds and sample ONLY while a round is verifiably IN
+	// FLIGHT (WR-03), mirroring runResidencyUnderLoad's phase-22 WR-01 in-flight
+	// discipline. The old shape launched ONE round and sampled immediately — if the
+	// probe exited fast (binary errors, non-zero exit, or a trivial round-trip), the
+	// GTT/journal was read with the coder IDLE, masking a CPU-fallback-under-load
+	// (the exact silent degradation this seam exists to catch) as a false-green PASS.
+	//
+	// For each round: launch the probe async, wait agentResidencySettle for the coder
+	// to demonstrably start working, then sample ONLY IF the round is still running.
+	// A round that already completed by the settle deadline was too fast to sample
+	// under load — it is joined and the next round is driven. If no round can be
+	// caught in flight within the bounded rounds / budget, degrade to a typed-Unknown
+	// WARN rather than returning an idle-sampled verdict.
+	var (
+		sampled bool
+		verdict inference.Verdict
+	)
+	for round := 0; round < agentResidencyDriveRounds && !sampled; round++ {
+		if ctx.Err() != nil {
+			break // parent budget exhausted — stop driving
+		}
+		done := make(chan struct{})
+		go func() {
+			_, _ = liveAgentToolCallProbe(ctx)() // drive-only; the FAIL signal here is residency, not the round-trip
+			close(done)
+		}()
+
+		settle := time.NewTimer(agentResidencySettle)
+		select {
+		case <-done:
+			// The round-trip finished before it could be sampled under load — too fast
+			// to prove residency-under-load. Do NOT sample idle; drive the next round.
+			settle.Stop()
+			continue
+		case <-ctx.Done():
+			settle.Stop()
+			<-done // JOIN: never let a probe outlive the call
+			break
+		case <-settle.C:
+			// The round is verifiably still IN FLIGHT — sample now, over the EXACT
+			// liveStatusDeps input set (every signal through the same sd seams the
+			// status fold uses), keyed on the served coder GGUF filename.
+			journal, _ := sd.JournalText(chatService)
+			verdict = inference.RunningOffloadVerdict(inference.RunningOffloadInput{
+				JournalText:   journal,
+				Props:         sd.Props(sd.Endpoint()),
+				GTTUsedBytes:  sd.GTTUsed(),
+				WeightBytes:   sd.WeightBytes(cfg),
+				ConfigModel:   modelFile,
+				ConfigContext: cfg.Ctx,
+				Markers:       backend.ResidencyProof(),
+			})
+			sampled = true
+			<-done // JOIN: the sampled tool-call round never outlives the call
+		}
+	}
+
+	if !sampled {
+		// No round stayed in flight long enough to sample (every round exited before
+		// the settle deadline, or the budget was exhausted) — the "under load"
+		// precondition was never met. Degrade to a typed-Unknown WARN rather than
+		// return an idle-sampled verdict that could mask a CPU-fallback-under-load.
+		return agentUnevaluable(
+			"could not evaluate coder residency under tool-call load — no tool-call round-trip stayed in flight long enough to sample residency under load",
+			"check `villa verify agent` and `villa logs` — the agent may be erroring or exiting before it loads the coder model; ensure the stack is up (`villa up`), then re-run `villa doctor`")
+	}
 	return verdict
 }
 
