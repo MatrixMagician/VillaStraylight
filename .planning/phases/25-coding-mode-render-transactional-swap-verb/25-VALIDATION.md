@@ -1,10 +1,11 @@
 ---
 phase: 25
 slug: coding-mode-render-transactional-swap-verb
-status: bound
-nyquist_compliant: false
-wave_0_complete: false
+status: validated
+nyquist_compliant: true
+wave_0_complete: true
 created: 2026-06-13
+validated: 2026-06-15
 ---
 
 # Phase 25 — Validation Strategy
@@ -38,17 +39,17 @@ created: 2026-06-13
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| 25-01-03 | 01 | 1 | CMODE-01 | — | Addon-OFF render byte-identical to v1.3 goldens | unit/golden | `go test ./internal/orchestrate/ -run TestRender` | ✅ existing off-path goldens | ⬜ pending |
-| 25-01-02 | 01 | 1 | CMODE-01 | T-25 seam-leak | Seam grep-gate green (no `--jinja`/`--cache-reuse`/sampling leak outside `internal/inference`) | unit | `go test ./internal/inference/ -run TestSeamGrepGate` | ✅ existing gate | ⬜ pending |
-| 25-01-03 | 01 | 1 | CMODE-01 | — | Addon-ON renders `--jinja` + `-c <agent_ctx>` + sampling; `--cache-reuse` only when `cache_reuse_safe` | unit/golden | `go test ./internal/inference/ -run TestContainerArgs`; new `villa-llama-coding.container.golden` | ❌ W0 | ⬜ pending |
-| 25-01-02 | 01 | 1 | CMODE-01 | T-25 capability-drift | `--cache-reuse` absent when `cache_reuse_safe=false` (fail-closed) | unit | `go test ./internal/inference/ -run TestCacheReuseGate` | ❌ W0 | ⬜ pending |
-| 25-01-01 | 01 | 1 | CMODE-01/02 | — | Config off-path byte-identical on disk (no coding keys when off) | unit | `go test ./internal/config/ -run TestMarshalOmitWhenOff` | ❌ W0 (extend memory-omit test) | ⬜ pending |
-| 25-02-01 | 02 | 2 | CMODE-02 | — | Enter → prove-pass → coder model served (swap residency) | unit (Deps-driven) | `go test ./internal/codingmode/ -run TestEnter` | ❌ W0 | ⬜ pending |
-| 25-02-01 | 02 | 2 | CMODE-02 | T-25 false-green | Prove-FAIL (CPU fallback / residency FAIL) → verbatim rollback, prior unit+config restored | unit | `go test ./internal/codingmode/ -run TestProveFailRollback` | ❌ W0 | ⬜ pending |
-| 25-02-01 | 02 | 2 | CMODE-02 | — | Mutate error (save/write/restart) → verbatim rollback with honest rollback-incomplete | unit | `go test ./internal/codingmode/ -run TestMutateRollback` | ❌ W0 | ⬜ pending |
-| 25-02-01 | 02 | 2 | CMODE-02 | — | Exit → chat model restored under same transactional discipline (symmetric) | unit | `go test ./internal/codingmode/ -run TestExitRestoresChat` | ❌ W0 | ⬜ pending |
-| 25-02-01 | 02 | 2 | CMODE-02 | — | Same-state enter/exit is a clean NoOp (zero side effects) | unit | `go test ./internal/codingmode/ -run TestNoOp` | ❌ W0 | ⬜ pending |
-| 25-02-02 | 02 | 2 | CMODE-02 | T-25 unintended-mode-change | Mode never auto-flips (explicit verb only) | structural | grep/structural: no caller mutates `coding_mode` outside `codingmode.Run` | ❌ W0 | ⬜ pending |
+| 25-01-03 | 01 | 1 | CMODE-01 | — | Addon-OFF render byte-identical to v1.3 goldens | unit/golden | `go test ./internal/orchestrate/ -run 'TestRenderContainerGolden\|TestRenderCodingModeOffPathUnchanged'` | ✅ off-path goldens + `TestRenderCodingModeOffPathUnchanged` | ✅ green |
+| 25-01-02 | 01 | 1 | CMODE-01 | T-25 seam-leak | Seam grep-gate green (no `--jinja`/`--cache-reuse`/sampling leak outside `internal/inference`) | unit | `go test ./internal/inference/ -run 'TestSeamGrepGate\|TestSeamGateForbidsCodingFlagsInCmdFixture'` | ✅ gate extended (`codingModeFlagPattern` in both `patterns`+`cmdPatterns`) | ✅ green |
+| 25-01-03 | 01 | 1 | CMODE-01 | — | Addon-ON renders `--jinja` + `-c <agent_ctx>` + sampling; `--cache-reuse` only when `cache_reuse_safe` | unit/golden | `go test ./internal/inference/ -run TestCodingModeArgs`; `go test ./internal/orchestrate/ -run TestRenderCodingMode` (`villa-llama-coding.container.golden`) | ✅ `containerargs_coding_test.go` + new golden | ✅ green |
+| 25-01-02 | 01 | 1 | CMODE-01 | T-25 capability-drift | `--cache-reuse` absent when `cache_reuse_safe=false` (fail-closed) | unit | `go test ./internal/inference/ -run TestCacheReuseGate`; `go test ./internal/orchestrate/ -run TestRenderCodingModeFailClosedCacheReuse` | ✅ both backends + render | ✅ green |
+| 25-01-01 | 01 | 1 | CMODE-01/02 | — | Config off-path byte-identical on disk (no coding keys when off) | unit | `go test ./internal/config/ -run 'TestCodingModeSaveOmitsKeysWhenDisabled\|TestCodingModeNotSelfHealed'` | ✅ `villaconfig_test.go` (extended) | ✅ green |
+| 25-02-01 | 02 | 2 | CMODE-02 | — | Enter → prove-pass → coder model served (swap residency) | unit (Deps-driven) | `go test ./internal/codingmode/ -run 'TestEnter\|TestSharedResidencyRenderDeltaOnly'` | ✅ `codingmode_test.go` | ✅ green |
+| 25-02-01 | 02 | 2 | CMODE-02 | T-25 false-green | Prove-FAIL (CPU fallback / residency FAIL) → verbatim rollback, prior unit+config restored | unit | `go test ./internal/codingmode/ -run 'TestProveFailRollback\|TestIdleGreenNotSuccess'` | ✅ `codingmode_test.go` | ✅ green |
+| 25-02-01 | 02 | 2 | CMODE-02 | — | Mutate error (save/write/restart) → verbatim rollback with honest rollback-incomplete | unit | `go test ./internal/codingmode/ -run 'TestMutateRollback\|TestRollbackIncompleteReported'` | ✅ `codingmode_test.go` | ✅ green |
+| 25-02-01 | 02 | 2 | CMODE-02 | — | Exit → chat model restored under same transactional discipline (symmetric) | unit | `go test ./internal/codingmode/ -run 'TestExitRestoresChat\|TestExitProveFailRollback'` | ✅ `codingmode_test.go` | ✅ green |
+| 25-02-01 | 02 | 2 | CMODE-02 | — | Same-state enter/exit is a clean NoOp (zero side effects) | unit | `go test ./internal/codingmode/ -run 'TestNoOpEnterAlreadyCoding\|TestNoOpExitAlreadyChat'` | ✅ `codingmode_test.go` | ✅ green |
+| 25-02-02 | 02 | 2 | CMODE-02 | T-25 unintended-mode-change | Mode never auto-flips (explicit verb only) | structural | `go test ./cmd/villa/ -run TestNoAutoFlipStructuralGuard` (walks `cmd/villa`+`internal/`; bool-literal anchored) | ✅ `coding-mode_test.go` | ✅ green |
 
 *Task IDs bound to concrete `NN-NN-NN` (plan 25-01 = Wave 1 / CMODE-01; plan 25-02 = Wave 2 / CMODE-02).*
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
@@ -57,12 +58,12 @@ created: 2026-06-13
 
 ## Wave 0 Requirements
 
-- [ ] `internal/codingmode/codingmode_test.go` — covers CMODE-02 (enter/exit/rollback/NoOp), clone of `backendswap_test.go`
-- [ ] `internal/inference/` ContainerArgs coding-mode cases — covers CMODE-01 on-path flags + `cache_reuse_safe` gate
-- [ ] `internal/orchestrate/testdata/villa-llama-coding.container.golden` — NEW append-only on-path golden (CMODE-01)
-- [ ] `internal/config/` marshal-omit-when-off extension — covers byte-identical-on-disk for coding fields
-- [ ] Structural guard: no `coding_mode` mutation outside `codingmode.Run` (explicit-verb-only invariant)
-- [ ] Framework install: none — `go test` is already the suite
+- [x] `internal/codingmode/codingmode_test.go` — covers CMODE-02 (enter/exit/rollback/NoOp), clone of `backendswap_test.go` — **15 Deps-driven tests** (incl. idle-green-not-success, capture-failure, rollback-incomplete, fit-guard refusal, shared-residency)
+- [x] `internal/inference/containerargs_coding_test.go` — covers CMODE-01 on-path flags + `cache_reuse_safe` gate (both backends) + cmd-tier seam-leak fixture
+- [x] `internal/orchestrate/testdata/villa-llama-coding.container.golden` — NEW append-only on-path golden (CMODE-01); no existing golden mutated
+- [x] `internal/config/villaconfig_test.go` — marshal-omit-when-off extension (`TestCodingModeSaveOmitsKeysWhenDisabled` + `TestCodingModeNotSelfHealed`)
+- [x] Structural guard: `TestNoAutoFlipStructuralGuard` — no `CodingMode` bool toggle mutated outside `codingmode.Run`
+- [x] Framework install: none — `go test` is already the suite
 
 ---
 
@@ -76,11 +77,35 @@ created: 2026-06-13
 
 ## Validation Sign-Off
 
-- [ ] All tasks have `<automated>` verify or Wave 0 dependencies
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verify
-- [ ] Wave 0 covers all MISSING references
-- [ ] No watch-mode flags
-- [ ] Feedback latency < 30s
-- [ ] `nyquist_compliant: true` set in frontmatter
+- [x] All tasks have `<automated>` verify or Wave 0 dependencies
+- [x] Sampling continuity: no 3 consecutive tasks without automated verify
+- [x] Wave 0 covers all MISSING references — all Wave-0 tests written during execution
+- [x] No watch-mode flags
+- [x] Feedback latency < 30s
+- [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** pending
+**Approval:** validated 2026-06-15 (all 11 map rows green; on-hardware CMODE-02 acceptance PASSED, recorded in 25-02-SUMMARY)
+
+---
+
+## Validation Audit 2026-06-15
+
+State A audit of the planning-time VALIDATION contract against the executed phase. Every
+Wave-0 test was authored during execution (plans 25-01 / 25-02), so no `gsd-nyquist-auditor`
+spawn was required. All 11 per-task map rows verified green; suggested test names in the
+original map were reconciled to the actual implemented test function names.
+
+| Metric | Count |
+|--------|-------|
+| Gaps found | 0 |
+| Resolved | 0 (all covered at execution time) |
+| Escalated | 0 |
+| Map rows verified green | 11 / 11 |
+| Manual-only items | 1 (on-hardware enter→prove→exit — PASSED, see 25-02-SUMMARY) |
+
+**Verification commands run (all green):**
+`go test ./internal/codingmode/... ./internal/inference/... ./internal/orchestrate/... ./internal/config/... ./cmd/villa/...`
+
+Notable coverage beyond the original plan: `TestIdleGreenNotSuccess` (idle WARN ≠ false PASS),
+`TestRollbackIncompleteReported` (honest rollback-incomplete), `TestCaptureFailureRefuses`,
+`TestRefuseFitGuard`, `TestSeamGateForbidsCodingFlagsInCmdFixture` (cmd-tier seam-leak fixture).
