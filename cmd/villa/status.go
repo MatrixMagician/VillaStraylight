@@ -331,8 +331,10 @@ func liveAgentPinMatch() string {
 // Unknown, the residency key is omitted) when the catalog load fails OR the live
 // envelope is unevaluable (profile.UsableEnvelopeBytes.Known == false); otherwise
 // the DERIVED recommend.Pick(...).Coder.Residency (the recommend.ResidencySwap/
-// ResidencyShared CONSTANT — never a re-typed "swap"/"shared" literal). It is NEVER
-// read from cfg (VillaConfig has no residency field) and NEVER fabricated.
+// ResidencyShared CONSTANT — never a re-typed "swap"/"shared" literal). The
+// residency value itself is NEVER read from cfg (VillaConfig has no residency
+// field) and NEVER fabricated; cfg is consulted ONLY for the memory inputs
+// (MemoryEnabled/EmbeddingModel) so the fit reflects the post-reservation envelope.
 func liveAgentResidency() string {
 	cat, _, err := catalog.Load(modelCatalogPath)
 	if err != nil {
@@ -342,7 +344,18 @@ func liveAgentResidency() string {
 	if !profile.UsableEnvelopeBytes.Known {
 		return "" // unevaluable envelope → typed-Unknown, NEVER a fabricated swap/shared
 	}
-	rec := recommend.Pick(profile, cat, recommend.Overrides{}, recommend.MemoryInputs{})
+	// WR-01: thread the REAL memory inputs (D-01) so the coder fit is computed
+	// against the post-embedding-reservation envelope — matching every other live
+	// caller (backend.go, dashboard.go, inference.go). A memory-blind MemoryInputs{}
+	// would compute against the FULL un-reserved envelope and surface an
+	// optimistically-wrong "shared" when the post-reservation reality is "swap" — a
+	// fabricated-by-omission residency this seam's doc comment forbids.
+	cfg, err := config.LoadVilla()
+	if err != nil {
+		return "" // cfg load failed → typed-Unknown rather than a memory-blind guess
+	}
+	rec := recommend.Pick(profile, cat, recommend.Overrides{},
+		recommend.MemoryInputs{Enabled: cfg.MemoryEnabled, EmbeddingModel: cfg.EmbeddingModel})
 	return rec.Coder.Residency
 }
 
