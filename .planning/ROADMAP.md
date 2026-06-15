@@ -227,7 +227,18 @@ Plans:
   4. Agent token usage is attributed per-model in status and the dashboard via the v1.2 usage core (the coder is a distinct served model).
   5. Cache effectiveness (`timings.cache_n` vs `prompt_n`) is surfaced as an honest agent-speed signal.
 
-**Plans**: TBD
+**Plans**: 3 plans
+Plans:
+
+**Wave 1** *(parallel — disjoint file ownership; neither touches `status.Report` or its goldens)*
+
+- [ ] 28-01-PLAN.md — Doctor agent checks: fold tool-call round-trip + under-load residency + binary/version + config drift into `internal/doctor`, offload-FAIL-dominates, gated on `agent_enabled` (reuse verify_agent probes); doctor's OWN schema 1→2 (SURF-02)
+- [ ] 28-02-PLAN.md — Backup/restore agent coverage (crush.json INTO archive, binary identity-recorded + EXCLUDED, restore re-stage fail-closed; backup schema 2→3) + the `cache_n`/`prompt_n` typed-Unknown counter primitive in `internal/metrics` (SURF-03, USAGE-04 core)
+
+**Wave 2** *(the SINGLE `status.Report` 3→4 contract bump + golden re-freeze — depends on 28-02 for the metrics cache primitive)*
+
+- [ ] 28-03-PLAN.md — `status.Report` append-only `coding` block + reportSchemaVersion 3→4 (ONE re-freeze, coding-on/off variants) + human-table rows + dashboard Agent panel (hidden-until-data, existing /api/status poll) + per-model coder usage + cache-effectiveness ratio surfacing (SURF-01, USAGE-03, USAGE-04 surface)
+
 **UI hint**: yes
 **Research**: not needed (v1.2 P15 / v1.3 P23 surfacing discipline applies verbatim)
 
@@ -262,4 +273,4 @@ Plans:
 | 25. Coding-Mode Render & Transactional Swap Verb | v1.4 | 2/2 | Complete    | 2026-06-13 |
 | 26. Agent Delivery Core & Lockdown Launcher | v1.4 | 0/3 | Planned | - |
 | 27. Install Addon, Preflight Gates & `villa verify agent` | v1.4 | 6/6 | Complete    | 2026-06-14 |
-| 28. Agent Surfacing & Contracts | v1.4 | 0/TBD | Not started | - |
+| 28. Agent Surfacing & Contracts | v1.4 | 0/3 | Planned | - |
