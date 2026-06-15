@@ -5,9 +5,14 @@ A single Go CLI (`villa`) that stands up a private, local AI workspace on your o
 
 ![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)
 
-VillaStraylight is for privacy-conscious power users who want a ChatGPT/Claude-class experience that runs entirely on their own machine, with no data leaving the box. `villa` is the **control plane only** — the AI services (llama.cpp `llama-server`, Open WebUI) are integrated OSS containers, not rebuilt.
+VillaStraylight is for privacy-conscious power users who want a ChatGPT/Claude-class experience that runs entirely on their own machine, with no data leaving the box. `villa` is the **control plane only** — the AI services (llama.cpp `llama-server`, Open WebUI, and the optional Qdrant + local-embeddings memory stack) are integrated OSS components, not rebuilt; the optional coding agent is the pinned, checksum-verified Crush binary.
 
-> Status: v1.1 shipped (tag `v1.1`). v1.0 was the Vulkan-only MVP; v1.1 adds an **opt-in ROCm/HIP backend** with a transactional backend switch, an honest A/B benchmark, and backend-aware `recommend`/`status`/dashboard surfacing. Vulkan RADV remains the default.
+> Status: **v1.4 shipped** (tag `v1.4`). Built milestone by milestone, each addition keeping the zero-telemetry, loopback-only posture:
+> - **v1.0** — Vulkan-only MVP: detect → recommend → install → Open WebUI chat → control dashboard.
+> - **v1.1** — opt-in **ROCm/HIP backend** with a transactional `backend set` switch and an honest A/B `bench`. Vulkan RADV stays the default.
+> - **v1.2** — operability: `villa doctor`, saved bench `--compare`, cumulative usage, `backup`/`restore`, and a guided TUI install.
+> - **v1.3** — strictly-local **memory & knowledge**: a Qdrant + local-embeddings stack wired into Open WebUI Memory/RAG, plus conversational `recall`.
+> - **v1.4** — an optional strictly-local **terminal coding agent** (Crush) wired over loopback to a fit-guarded coding model, proven zero-outbound at runtime.
 
 ## Requirements
 
@@ -134,6 +139,41 @@ villa bench --ab                      # also flip to the other backend, bench it
 
 `villa backend set <vulkan|rocm>` is transactional (capture → mutate → prove → rollback): a failed switch is a no-op to the running stack. Vulkan RADV is the default; ROCm is strictly opt-in. `villa bench` flags include `--reps`/`-n` (counted runs per side, default 5), `--warmup` (discarded warm-up runs, default 1), and `--n-predict` (fixed `max_tokens` per run, default 128).
 
+**Diagnose, measure, back up (v1.2):**
+
+```bash
+villa doctor                          # one-shot read-only health diagnosis (preflight + status +
+                                      # GPU-residency proof + config-vs-disk drift; 0/1/2 exit)
+villa bench --compare                 # compare saved bench reports — per-metric deltas, comparability-guarded
+villa bench --list                    # list saved bench reports
+villa backup [archive]                # self-describing local archive (config + Open WebUI/Qdrant volumes +
+                                      # usage + bench; model weights EXCLUDED, identities recorded)
+villa restore <archive>               # transactional restore (capture → quiesce → import → prove → rollback)
+```
+
+**Strictly-local memory & knowledge (v1.3):**
+
+```bash
+villa recall index                    # semantically index past chats into an Open WebUI Knowledge collection
+villa recall status                   # show recall-index freshness (typed-Unknown when unevaluable, never silently stale)
+villa verify memory                   # negative-control-first runtime proof: a real upload→cited answer with zero outbound
+```
+
+The memory stack — a digest-pinned Qdrant plus a dedicated local-embeddings `llama-server`, wired into Open WebUI's native Memory/RAG by environment only — is an optional addon enabled during `villa install`. It adds **zero new outbound**; `villa verify memory` proves that under a real egress block.
+
+**Local coding agent (v1.4):**
+
+```bash
+villa install --coding-agent          # optional addon: pin + SHA-256-verify the Crush binary, pre-stage the
+                                      # recommended coder GGUF, render crush.json (kill switches, loopback-only)
+villa coding-mode enter               # transactionally swap the running stack into a tool-calling coding mode
+villa coding-mode exit                # restore the chat model (explicit verb — coding mode never auto-flips)
+villa code                            # launch the locked-down Crush agent (telemetry/autoupdate killed) over loopback
+villa verify agent                    # negative-control-first proof of zero outbound + no silent cloud fallback
+```
+
+`villa recommend` also computes a coder fit at agent-profile context and reports an honest residency mode (`swap` or `shared`); the coder is qualified agent-in-the-loop on the gfx1151 box before it ships in the catalog. Codebase memory is agent-native (LSP + ripgrep + `AGENTS.md`/`CRUSH.md` context files), not a vector index.
+
 **Run the stack lifecycle:**
 
 ```bash
@@ -170,6 +210,8 @@ Key fields (`internal/config/villaconfig.go`):
 | `dashboard_port` | `8888` | Host port the control dashboard listens on. |
 | `chat_port` | `3000` | Host port Open WebUI is published on (the dashboard's chat link target). |
 
+When the optional memory (v1.3) and coding-agent (v1.4) addons are enabled, `villa install` persists their own append-only fields (e.g. the memory/embedding settings and the coder model/quant/context + agent toggle) into the same `config.toml`, which stays the single source of truth — the rendered Quadlet units and `crush.json` are regenerated from it, never hand-edited.
+
 Inspect or change config with `villa config show` and `villa config set key=value`.
 
 ## Development
@@ -188,7 +230,7 @@ make tidy       # go mod tidy
 make clean      # remove build artifacts
 ```
 
-The CLI entry point is `cmd/villa/main.go`; the control-plane libraries live under `internal/` (`detect`, `recommend`, `catalog`, `preflight`, `download`, `inference`, `orchestrate`, `modelswap`, `backendswap`, `bench`, `status`, `dashboard`, `metrics`, `config`).
+The CLI entry point is `cmd/villa/main.go`; the control-plane libraries live under `internal/` (`detect`, `recommend`, `catalog`, `preflight`, `download`, `inference`, `orchestrate`, `modelswap`, `backendswap`, `bench`, `benchstore`, `status`, `dashboard`, `metrics`, `config`, `doctor`, `usage`, `backup`, `memory`, `recall`, `codingmode`, `agent`).
 
 > Note: an earlier exploratory scaffold left reference-only remnants in the tree — `internal/llm` (an OpenAI-compatible SSE client, cannibalized for the gateway) and `web/` (an embedded React UI). They are superseded by the `villa` control plane plus integrated Open WebUI and are not part of the current architecture.
 
