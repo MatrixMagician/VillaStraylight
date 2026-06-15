@@ -1,12 +1,15 @@
 ---
 id: install-reverts-rocm-to-vulkan
 type: bug
-status: pending
+status: resolved
 created: 2026-06-14
+resolved: 2026-06-15
+fix_commit: 4424f13
 source: Phase 27 Plan 04 on-hardware acceptance
 severity: medium
 component: cmd/villa/install.go
 reproduced_on_hardware: 2026-06-15  # confirmed again during Phase 28 UAT: `villa install --coding-agent` clobbered backend rocm->vulkan on gfx1151; restored via `villa backend set rocm`
+resolution: "Guarded cmd/villa/install.go cfg.Backend assignment with !inference.IsROCmFamily(cfg.Backend) so a persisted ROCm opt-in survives re-install; never auto-selects ROCm. Regression TestInstallPreservesPersistedROCmBackend; on-hardware confirmed (dry-run keeps rocm image). See .planning/debug/resolved/install-reverts-rocm-to-vulkan.md"
 ---
 
 # `villa install` reverts a persisted `backend=rocm` to Vulkan
