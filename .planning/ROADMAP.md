@@ -233,7 +233,7 @@ Plans:
 **Wave 1** *(parallel — disjoint file ownership; neither touches `status.Report` or its goldens)*
 
 - [x] 28-01-PLAN.md — Doctor agent checks: fold tool-call round-trip + under-load residency + binary/version + config drift into `internal/doctor`, offload-FAIL-dominates, gated on `agent_enabled` (reuse verify_agent probes); doctor's OWN schema 1→2 (SURF-02) ✅ 2026-06-15
-- [ ] 28-02-PLAN.md — Backup/restore agent coverage (crush.json INTO archive, binary identity-recorded + EXCLUDED, restore re-stage fail-closed; backup schema 2→3) + the `cache_n`/`prompt_n` typed-Unknown counter primitive in `internal/metrics` (SURF-03, USAGE-04 core)
+- [x] 28-02-PLAN.md — Backup/restore agent coverage (crush.json INTO archive, binary identity-recorded + EXCLUDED, restore re-stage fail-closed; backup schema 2→3) + the `cache_n`/`prompt_n` typed-Unknown counter primitive in `internal/metrics` (SURF-03, USAGE-04 core)
 
 **Wave 2** *(the SINGLE `status.Report` 3→4 contract bump + golden re-freeze — depends on 28-02 for the metrics cache primitive)*
 
@@ -273,4 +273,4 @@ Plans:
 | 25. Coding-Mode Render & Transactional Swap Verb | v1.4 | 2/2 | Complete    | 2026-06-13 |
 | 26. Agent Delivery Core & Lockdown Launcher | v1.4 | 0/3 | Planned | - |
 | 27. Install Addon, Preflight Gates & `villa verify agent` | v1.4 | 6/6 | Complete    | 2026-06-14 |
-| 28. Agent Surfacing & Contracts | v1.4 | 0/3 | Planned | - |
+| 28. Agent Surfacing & Contracts | v1.4 | 2/3 | In Progress|  |

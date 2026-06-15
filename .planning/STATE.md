@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Coding Agent
 status: executing
-stopped_at: Completed 28-01-PLAN.md
-last_updated: "2026-06-15T10:41:09Z"
+stopped_at: Phase 28 UI-SPEC approved
+last_updated: "2026-06-15T10:58:10.050Z"
 last_activity: 2026-06-15 -- Completed Phase 28 Plan 01 (doctor coding-agent fold)
 progress:
   total_phases: 5
   completed_phases: 4
   total_plans: 18
-  completed_plans: 16
-  percent: 84
+  completed_plans: 17
+  percent: 80
 ---
 
 # Project State
@@ -26,8 +26,8 @@ See: .planning/PROJECT.md (updated 2026-06-12 — milestone v1.4 Coding Agent st
 ## Current Position
 
 Phase: 28 (agent-surfacing-contracts) — EXECUTING
-Plan: 2 of 3
-Status: Executing Phase 28 (Plan 01 complete)
+Plan: 3 of 3
+Status: Ready to execute
 Last activity: 2026-06-15 -- Completed Phase 28 Plan 01 (doctor coding-agent fold)
 
 Progress: [█████████░] 94% (v1.4)
@@ -119,6 +119,7 @@ Progress: [█████████░] 94% (v1.4)
 | Phase 27 P27-03 | ~5 min | 2 tasks (Task 1 TDD) | 3 files |
 | Phase 27 P27-05 | ~4 min | 2 tasks (TDD; gap-closure CR-01+WR-05) | 5 files |
 | Phase 27 P27-06 | ~12 min | 3 tasks (TDD; gap-closure WR-01+WR-06) | 6 files |
+| Phase 28 P02 | 30m | 2 tasks | 11 files |
 
 ## Accumulated Context
 
@@ -171,6 +172,9 @@ Earlier (v1.0–v1.3) standing decisions retained:
 - [Phase 27-06]: **WR-01 + WR-06 closed (gap-closure) — `villa verify agent` honesty defects.** **WR-01 (egress false-green + false-FAIL):** the `egressBlocked` closure's defective `return err != nil, nil` (any probe failure read as "blocked = good") is replaced by a pure `classifyEgressProbe(sanityErr, externalExitCode, externalErr)` truth table — ANY sanity error → infra FAIL (never blocked); curl 6/7/28 → blocked; exit 0 → not-blocked; unclassified non-zero / never-started(-1) → infra FAIL. The closure now runs a POSITIVE in-network sanity probe FIRST to the new `orchestrate.LlamaInNetworkEndpoint()` (container DNS `villa-llama:8080`, NOT the agent's host-loopback providerBaseURL — runProbeCurl runs in a `--network villa` helper where 127.0.0.1 is the helper's own loopback, which would false-FAIL every healthy host), then an exit-classified external probe via new additive `runProbeCurlCode` (curl exit via `errors.As(*exec.ExitError)`; never-started → -1). The pure `evalAgentVerify` is UNCHANGED (already mapped an egress error to FAIL). **New seam accessor `orchestrate.LlamaInNetworkEndpoint()`** (internal/orchestrate/endpoint.go) composes the orchestrate `containerName` + new `inference.ServerPort()` accessor → single-source in-network URL in DNS/port lockstep with the rendered `ContainerName=` and the inference port (Pitfall 3 / T-4-01); NO re-typed `villa-llama:8080`/`:8080` literal in cmd/villa or the accessor body — TestSeamGrepGate green. **WR-06 (restore swallow):** the discarded deferred `_ = deps.systemd.Start(...)` is replaced by pure `runLlamaDownControl(stop, start, task)` (stop → task → ALWAYS deferred restore, CAPTURING the Start error via named return; a stop failure short-circuits) + `restoreLlamaWarning(service, rerr)` (literal `systemctl --user start villa-llama.service` remediation). **Wiring (b):** a failed restore DOWNGRADES a would-be PASS to StatusFail with the remediation in the verdict detail (printed to stderr by runVerifyAgent) — chosen over a warning-only io.Writer thread (more honest; avoids a churny verifyFn signature change). New off-hardware tests: TestLlamaInNetworkEndpoint, TestClassifyEgressProbe (7-row), TestEvalAgentVerifyInfraErrorFails, TestRestoreLlamaWarning, TestLlamaDownRestore. make check + TestSeamGrepGate green; no golden/JSON contract changed. **All four phase-27 gaps (CR-01/WR-01/WR-05/WR-06) now closed — phase ready to re-verify.**
 - [Phase 27-03]: PRIV-06 closed off-hardware — `villa verify agent` (cmd/villa/verify_agent.go) mirrors the verify_memory.go four-layer seam EXACTLY. **Pure core `evalAgentVerify`** folds BOTH controls negative-control-FIRST: ctrl1 egress probe (err→FAIL "could not run"; !blocked→FAIL "egress is NOT blocked") runs BEFORE the agent task is trusted; then the real `crush run` read→edit task (err/!completed→FAIL); then ctrl2 llama-down (answered→FAIL "silent cloud-model fallback"; an error from llamaDownTask is the EXPECTED inference-down outcome). Verdict = ctrl1.pass && ctrl2.failed-as-expected; PASS/FAIL only (reuses memoryProof), a timeout/unevaluable is a FAIL. **`liveAgentVerify`** egress probe = `runProbeCurl(ctx, orchestrate.EmbedImage(), "-sf","--max-time","5", egressNegativeControlHost)` (helper image strictly from the seam accessor — TestSeamGrepGate green); agentTask reuses the Plan-01 `liveAgentToolCallProbe` driver verbatim (DRY); llamaDownTask stops `villa-llama.service` via the injected `orchestrate.Systemd.Stop` seam, runs the same task, then restores via a deferred `Start` (T-27-16 — never left stopped). `verifyAgentDeps`/`liveVerifyAgentDeps()` quartet mirrors verifyMemoryDeps; `newVerifyAgent()` registered under the verify parent, gated on persisted agent_enabled (addon-off exits 0; PASS→exitPass / FAIL→exitBlocked). No golden/JSON contract changed; agent-off byte-identical. make check + TestSeamGrepGate green. On-hardware egress + llama-down acceptance is Plan 04.
 - [Phase 26-01]: AGENT-01/02/04 pure half landed — new pure `internal/agent` core (policy/render/drift/version + Deps/Result), zero new deps, TestSeamGrepGate + make check green. **Open-Q1 → option (ii) render-only:** base_url is the FIXED loopback `http://127.0.0.1:8080/v1` (serverPort=8080 constant, not a config field); model id = `villa-`+(CoderModel else Model) relying on llama.cpp single-model leniency — NO --alias delta into the inference seam. **Open-Q4 → parsed-semantic** config-drift (canonicalize→bytes.Equal; whitespace-only re-save is not drift). **Open-Q2 sentinel:** crush-policy.json binarySha256 = `UNPINNED-binary-sha256-set-by-26-03-on-hardware` — **Plan 03 MUST replace it on-hardware** (extract verified tarball → sha256sum crush); until then DetectDrift returns BinaryDriftUnknown (typed-Unknown WARN), never a false drift. config-ABSENT is a DISTINCT first-run render trigger (never compared, never reported as drift; parallels BinaryAbsent). permissions rendered omitted (Phase-27 STRIDE owns the restrictive allowlist).
+- [Phase ?]: backup schema bumped 2->3 append-only (status/doctor-independent, not golden-frozen) for agent ExcludedAgent + crush.json entry
+- [Phase ?]: crush.json restore uses a new out-of-store-root WriteCrushConfig seam (store-root guard rejects ~/.config/crush/)
+- [Phase ?]: cache_n/prompt_n added as typed-Unknown CacheSample from the SAME bounded /metrics scrape; ratio computed in Plan 28-03
 
 ### Pending Todos
 
@@ -233,7 +237,7 @@ Items deferred at v1.4 roadmap creation (2026-06-12, research-recorded):
 
 ## Session Continuity
 
-Last session: 2026-06-15T10:06:21.835Z
+Last session: 2026-06-15T10:57:30.959Z
 Stopped at: Phase 28 UI-SPEC approved
 Resume file: .planning/phases/28-agent-surfacing-contracts/28-UI-SPEC.md
 
