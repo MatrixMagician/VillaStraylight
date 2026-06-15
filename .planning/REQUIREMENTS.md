@@ -26,10 +26,10 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 ### Agent Delivery & Lockdown
 
-- [ ] **AGENT-01**: villa installs a pinned Crush release via a villa-owned `go:embed` pin policy (version, per-platform asset, SHA-256 verified before install); autoupdate forced off
+- [x] **AGENT-01**: villa installs a pinned Crush release via a villa-owned `go:embed` pin policy (version, per-platform asset, SHA-256 verified before install); autoupdate forced off
 - [x] **AGENT-02**: villa renders `crush.json` as a derived artifact of `config.toml` — both kill switches set (`disable_metrics`, `disable_provider_auto_update`), exactly one villa provider block (loopback), villa-unique model ids, LSP entries for detected toolchains (missing `gopls` → WARN, never BLOCK)
 - [x] **AGENT-03**: User launches the agent via a `villa code` launcher with belt-and-braces env lockdown (`CRUSH_DISABLE_METRICS=1`, `DO_NOT_TRACK=1`)
-- [ ] **AGENT-04**: Agent binary/config drift from the pin policy is detected and surfaced with remediation, never auto-corrected
+- [x] **AGENT-04**: Agent binary/config drift from the pin policy is detected and surfaced with remediation, never auto-corrected
 
 ### Install & Verification
 

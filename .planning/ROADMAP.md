@@ -145,7 +145,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [~] 25-02-PLAN.md — CMODE-02 transactional verb: new pure `internal/codingmode` core cloning `backendswap` + composing `modelswap`, `villa coding-mode enter|exit` + `liveCodingModeDeps`, under-load residency prove (idle-green = rollback), symmetric exit — **Tasks 1-2 done & `make check` green; Task 3 on-hardware acceptance OPEN**
+- [x] 25-02-PLAN.md — CMODE-02 transactional verb: new pure `internal/codingmode` core cloning `backendswap` + composing `modelswap`, `villa coding-mode enter|exit` + `liveCodingModeDeps`, under-load residency prove (idle-green = rollback), symmetric exit — **complete; 25-VERIFICATION passed 9/9 (2026-06-13)**
 
 **Research**: not needed (composes shipped modelswap + Phase-7/D-09 render-delta patterns)
 
@@ -271,6 +271,6 @@ Plans:
 | 23. Surfacing, Backup & Memory-Aware Swap | v1.3 | 5/5 | Complete | 2026-06-10 |
 | 24. Coder Fit Math, Catalog & On-Hardware Model Qualification | v1.4 | 4/4 | Complete    | 2026-06-13 |
 | 25. Coding-Mode Render & Transactional Swap Verb | v1.4 | 2/2 | Complete    | 2026-06-13 |
-| 26. Agent Delivery Core & Lockdown Launcher | v1.4 | 0/3 | Planned | - |
+| 26. Agent Delivery Core & Lockdown Launcher | v1.4 | 3/3 | Complete | 2026-06-13 |
 | 27. Install Addon, Preflight Gates & `villa verify agent` | v1.4 | 6/6 | Complete    | 2026-06-14 |
 | 28. Agent Surfacing & Contracts | v1.4 | 3/3 | Complete   | 2026-06-15 |
