@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Coding Agent
-status: verifying
+status: Awaiting next milestone
 stopped_at: Completed 28-03-PLAN.md
-last_updated: "2026-06-15T11:12:37.857Z"
-last_activity: 2026-06-15 -- Completed Phase 28 Plan 01 (doctor coding-agent fold)
+last_updated: "2026-06-15T15:07:50.350Z"
+last_activity: 2026-06-15 — Milestone v1.4 completed and archived
 progress:
   total_phases: 5
   completed_phases: 5
@@ -18,19 +18,17 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-06-12 — milestone v1.4 Coding Agent started)
+See: .planning/PROJECT.md (updated 2026-06-15 — milestone v1.4 Coding Agent shipped + archived)
 
-**Core value:** Run a capable local AI workspace that "just works" after install — hardware-aware setup that brings inference, chat, and the dashboard up healthy, with zero data leaving the box. v1.2 extended the bar to "and stays operable, recoverable, and measurable over time." v1.3 extended it to "and remembers the user and their documents across chats — strictly local." v1.4 extends it to "and gives the operator a strictly-local terminal coding agent, wired to a fit-guarded coding model."
-**Current focus:** Phase 28 — agent-surfacing-contracts
+**Core value:** Run a capable local AI workspace that "just works" after install — hardware-aware setup that brings inference, chat, and the dashboard up healthy, with zero data leaving the box. v1.2 extended the bar to "and stays operable, recoverable, and measurable over time." v1.3 extended it to "and remembers the user and their documents across chats — strictly local." v1.4 extended it to "and gives the operator a strictly-local terminal coding agent, wired to a fit-guarded coding model."
+**Current focus:** Planning next milestone (`/gsd-new-milestone`)
 
 ## Current Position
 
-Phase: 28 (agent-surfacing-contracts) — EXECUTING
-Plan: 3 of 3
-Status: Phase complete — ready for verification
-Last activity: 2026-06-15 -- Completed quick task 260615-ipn: crush.json provider-port drift-guard test (v1.4 audit WARN closed)
-
-Progress: [█████████░] 94% (v1.4)
+Phase: Milestone v1.4 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-06-15 — Milestone v1.4 completed and archived
 
 ## Performance Metrics
 
@@ -240,6 +238,17 @@ Items deferred at v1.4 roadmap creation (2026-06-12, research-recorded):
 | v2_scope | CODER-V2-02: Qdrant/villa-embed MCP semantic code search — only behind a pre-declared numeric eval it must WIN vs grep/LSP | Deferred | v1.4 roadmap |
 | v2_scope | CODER-V2-03: Sandboxed/containerized agent profile for untrusted repos | Deferred | v1.4 roadmap |
 
+Items acknowledged at v1.4 milestone close (2026-06-15, from `milestones/v1.4-MILESTONE-AUDIT.md`) — audit `tech_debt`, no blockers:
+
+| Category | Item | Status | Deferred At |
+|----------|------|--------|-------------|
+| bug | 27-04: `villa install` reverts a persisted `backend=rocm` to Vulkan (`install.go cfg.Backend = rec.Backend` + `recommend.Pick` always defaults Vulkan) — config-is-source-of-truth violation; reversible via `villa backend set rocm`; track as v1.5/maintenance fix | Open | v1.4 close |
+| process | Phase 28 has no `28-VALIDATION.md` (only v1.4 phase without one) — coverage real via 28-VERIFICATION 5/5 + green suites; close via `/gsd-validate-phase 28` (expected State-B reconstruct) | Open | v1.4 close |
+| artifact | Pre-close audit: Phase 28 `28-UAT.md` status `passed`, 0 pending scenarios (benign — flagged only because the UAT artifact exists) | Documented | v1.4 close |
+| artifact | Pre-close audit: quick task `260615-ipn` (crush.json drift-guard) status `unknown` — RESOLVED in commit 6eda867 (`TestCrushProviderPortMatchesInferenceServerPort`); frontmatter tag lag only | Documented | v1.4 close |
+| advisory | Phase 27 fail-safe advisories (non-blocking): egress-probe exit-22 classifies as infra-FAIL not "not blocked" (never false-greens PRIV-06); `--coding-agent` with only shared-residency coder fit shows misleading "no coder fits" copy (v1.4 swap-only); `runProbeCurlCode` real-exec case untested | Open | v1.4 close |
+| by_design | W-1 (cosmetic): `villa uninstall` leaves config.toml untouched (D-10), so post-uninstall `status`/`doctor` surface an honest typed-Unknown (PinUnknown WARN), never a crash/fabricated value | Documented | v1.4 close |
+
 ## Session Continuity
 
 Last session: 2026-06-15T11:12:37.850Z
@@ -248,4 +257,4 @@ Resume file: None
 
 ## Operator Next Steps
 
-- Phase 24 is complete (4/4 plans; CODER-01/02/03 closed, catalog frozen, D-13 toolbox keep recorded). Start the next phase: `/gsd-plan-phase 25` (CMODE — coding-mode unit delta + transactional swap verb; CMODE-01/CMODE-02). Phase 25 consumes the frozen entries' agent_ctx/agent_sampling/cache_reuse_safe and the D-13 decision; the cache_reuse_safe claim is build-9496-scoped (re-probe gate in 24-TOOLBOX-DECISION.md Check 3 if the toolbox is ever re-pinned).
+- Start the next milestone with /gsd-new-milestone
