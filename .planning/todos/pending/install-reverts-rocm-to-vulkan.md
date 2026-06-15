@@ -6,6 +6,7 @@ created: 2026-06-14
 source: Phase 27 Plan 04 on-hardware acceptance
 severity: medium
 component: cmd/villa/install.go
+reproduced_on_hardware: 2026-06-15  # confirmed again during Phase 28 UAT: `villa install --coding-agent` clobbered backend rocm->vulkan on gfx1151; restored via `villa backend set rocm`
 ---
 
 # `villa install` reverts a persisted `backend=rocm` to Vulkan
