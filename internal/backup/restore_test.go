@@ -13,6 +13,7 @@ package backup
 //   - a non-pass Prove rolls back
 
 import (
+	"archive/tar"
 	"bytes"
 	"errors"
 	"io"
@@ -41,6 +42,7 @@ type recDeps struct {
 	startErr        error
 	writeFileErr    error
 	writeTempErr    error
+	writeCrushErr   error
 	removeFileErr   error
 	readFile        map[string][]byte
 	readFileErr     map[string]error
@@ -126,6 +128,10 @@ func (r *recDeps) deps() Deps {
 		RemoveFile: func(p string) error {
 			r.log("RemoveFile:" + p)
 			return r.removeFileErr
+		},
+		WriteCrushConfig: func(p string, data []byte) error {
+			r.log("WriteCrushConfig:" + p)
+			return r.writeCrushErr
 		},
 		DaemonReload: func() error { return nil },
 		Prove: func(target string) ProveVerdict {
@@ -1113,4 +1119,148 @@ func TestRestoreRollbackIncompleteSetsFlag(t *testing.T) {
 	if !res.RolledBack || res.RollbackIncomplete {
 		t.Fatalf("a clean rollback must leave RollbackIncomplete false, got %+v", res)
 	}
+}
+
+// buildAgentArchive assembles a valid archive that includes the OPTIONAL Phase-28
+// crush.json entry and an ExcludedAgent manifest record (SURF-03/D-08), with the
+// manifest-first + correct per-entry SHA-256 discipline so the verify pass passes.
+func buildAgentArchive(t *testing.T, m Manifest, cfgTOML, owui, crush []byte) []byte {
+	t.Helper()
+	type e struct {
+		name string
+		data []byte
+	}
+	data := []e{{EntryConfig, cfgTOML}, {EntryOpenWebUIVolume, owui}}
+	if crush != nil {
+		data = append(data, e{EntryCrushConfig, crush})
+	}
+	var sums []EntryChecksum
+	for _, d := range data {
+		s, err := sum(bytes.NewReader(d.data))
+		if err != nil {
+			t.Fatalf("sum: %v", err)
+		}
+		sums = append(sums, EntryChecksum{Name: d.name, SHA256: s})
+	}
+	m.Entries = sums
+	if m.SchemaVersion == 0 {
+		m.SchemaVersion = backupSchemaVersion
+	}
+	mj, err := marshalManifest(m)
+	if err != nil {
+		t.Fatalf("marshal manifest: %v", err)
+	}
+	entries := []archiveEntry{{name: EntryManifest, data: mj}}
+	for _, d := range data {
+		entries = append(entries, archiveEntry{name: d.name, data: d.data})
+	}
+	var buf bytes.Buffer
+	if err := writeArchive(&buf, entries); err != nil {
+		t.Fatalf("writeArchive: %v", err)
+	}
+	return buf.Bytes()
+}
+
+// TestRestoreAgentOnRestoresCrushAndReportsExcludedAgent asserts an agent-on
+// archive (SURF-03/D-08) restores the crush.json via the dedicated
+// WriteCrushConfig seam AND surfaces the EXCLUDED agent binary identity on the
+// Result for the operator to re-stage (re-download the pinned release).
+func TestRestoreAgentOnRestoresCrushAndReportsExcludedAgent(t *testing.T) {
+	m := baseManifest()
+	m.ExcludedAgent = &ExcludedAgent{SHA256: "on-disk-sha", Version: "v0.76.0", PinSHA256: "pin-sha"}
+	arch := buildAgentArchive(t, m, validCfgTOML, []byte("owui-data"), []byte(`{"provider":"local"}`))
+	r, in := baseInput(t, arch)
+	in.CrushConfigDestPath = "/home/u/.config/crush/crush.json"
+
+	res := Restore(r.deps(), in)
+	if !res.Restored {
+		t.Fatalf("want Restored, got %+v (calls %v)", res, r.calls)
+	}
+	if !res.CrushConfigRestored {
+		t.Fatalf("CrushConfigRestored must be true on an agent-on archive, got %+v", res)
+	}
+	if indexOf(r.calls, "WriteCrushConfig:") == -1 {
+		t.Fatalf("crush.json restore must go through WriteCrushConfig (out-of-store-root), calls=%v", r.calls)
+	}
+	if res.ExcludedAgent == nil || res.ExcludedAgent.SHA256 != "on-disk-sha" ||
+		res.ExcludedAgent.Version != "v0.76.0" || res.ExcludedAgent.PinSHA256 != "pin-sha" {
+		t.Fatalf("ExcludedAgent identity must be surfaced for re-stage, got %+v", res.ExcludedAgent)
+	}
+}
+
+// TestRestoreAgentOffNoCrushNoExcludedAgent asserts an agent-off archive (no
+// crush.json entry, nil ExcludedAgent) restores with ZERO WriteCrushConfig calls
+// and a nil ExcludedAgent — layout-identical to a v2 restore.
+func TestRestoreAgentOffNoCrushNoExcludedAgent(t *testing.T) {
+	arch := buildAgentArchive(t, baseManifest(), validCfgTOML, []byte("owui-data"), nil)
+	r, in := baseInput(t, arch)
+	in.CrushConfigDestPath = "/home/u/.config/crush/crush.json"
+
+	res := Restore(r.deps(), in)
+	if !res.Restored {
+		t.Fatalf("want Restored, got %+v", res)
+	}
+	if res.CrushConfigRestored {
+		t.Fatalf("agent-off archive must NOT report CrushConfigRestored, got %+v", res)
+	}
+	if res.ExcludedAgent != nil {
+		t.Fatalf("agent-off archive must surface nil ExcludedAgent, got %+v", res.ExcludedAgent)
+	}
+	if indexOf(r.calls, "WriteCrushConfig:") != -1 {
+		t.Fatalf("agent-off restore must make ZERO WriteCrushConfig calls, calls=%v", r.calls)
+	}
+}
+
+// TestRestoreAgentIdentityDriftFailsClosed asserts a TAMPERED crush.json entry
+// (whose bytes do not match the manifest's recorded SHA-256) is a fail-closed
+// BLOCK with ZERO side effects (SURF-03/D-08; T-28-02-01) — the same verify gate
+// every archive member is held to. The agent identity record is verified by the
+// same SHA-256 pass; a drifted entry must never be applied.
+func TestRestoreAgentIdentityDriftFailsClosed(t *testing.T) {
+	m := baseManifest()
+	m.ExcludedAgent = &ExcludedAgent{SHA256: "on-disk-sha", Version: "v0.76.0", PinSHA256: "pin-sha"}
+	arch := buildAgentArchive(t, m, validCfgTOML, []byte("owui-data"), []byte(`{"provider":"local"}`))
+	// Corrupt the crush.json body AFTER its checksum was recorded by flipping the
+	// archive bytes: re-marshal a manifest whose crush.json checksum no longer
+	// matches the body we ship.
+	tampered := tamperEntry(t, arch, EntryCrushConfig)
+
+	r, in := baseInput(t, tampered)
+	in.CrushConfigDestPath = "/home/u/.config/crush/crush.json"
+	res := Restore(r.deps(), in)
+	if !res.Refused {
+		t.Fatalf("a drifted crush.json must be a fail-closed Refused, got %+v", res)
+	}
+	if hasMutate(r.calls) {
+		t.Fatalf("a fail-closed verify refusal must have ZERO side effects, calls=%v", r.calls)
+	}
+}
+
+// tamperEntry rewrites the named entry's body to a value that no longer matches
+// its manifest-recorded SHA-256, driving the readAndVerify mismatch path. It
+// preserves the manifest (and thus the now-stale checksum) and replaces only the
+// target entry's bytes.
+func tamperEntry(t *testing.T, arch []byte, name string) []byte {
+	t.Helper()
+	tr := tar.NewReader(bytes.NewReader(arch))
+	var entries []archiveEntry
+	for {
+		h, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatalf("read tar: %v", err)
+		}
+		body, _ := io.ReadAll(tr)
+		if h.Name == name {
+			body = append([]byte("TAMPER"), body...)
+		}
+		entries = append(entries, archiveEntry{name: h.Name, data: body})
+	}
+	var buf bytes.Buffer
+	if err := writeArchive(&buf, entries); err != nil {
+		t.Fatalf("writeArchive: %v", err)
+	}
+	return buf.Bytes()
 }

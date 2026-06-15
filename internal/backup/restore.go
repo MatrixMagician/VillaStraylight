@@ -111,6 +111,15 @@ type RestoreInput struct {
 	// usage/bench (the file lives directly under the villa data root, so the
 	// store-root guard covers it).
 	RecallDestPath string
+
+	// CrushConfigDestPath is the resolved crush.json destination for the OPTIONAL
+	// Phase-28 coding-agent config entry (SURF-03/D-08; crushConfigPath() at the cmd
+	// tier — ~/.config/crush/crush.json, OUTSIDE the villa data-store root). It is
+	// restored through the dedicated WriteCrushConfig / RemoveFile seams (NOT
+	// WriteFileAtomic, whose store-root guard would reject a path outside
+	// $XDG_DATA_HOME/villa). Empty means the cmd tier supplied no destination — the
+	// crush.json entry, if present, is reported as re-stageable but not written.
+	CrushConfigDestPath string
 }
 
 // extracted holds the verified, tar-slip-guarded archive payload after the read
@@ -131,6 +140,13 @@ type extracted struct {
 	qdrantPresent bool
 	recallState   []byte
 	recallPresent bool
+	// crushConfig is the OPTIONAL Phase-28 coding-agent config entry (SURF-03/D-08);
+	// crushPresent gates its restore. It is SHA-256-verified through the SAME
+	// readAndVerify pass as every other entry (no parallel reader). The manifest's
+	// ExcludedAgent (the EXCLUDED binary identity) rides alongside it for the
+	// re-stage report.
+	crushConfig   []byte
+	crushPresent  bool
 }
 
 // Restore performs the guarded, transactional archive apply and returns a typed
@@ -218,6 +234,11 @@ func Restore(d Deps, in RestoreInput) Result {
 	priorUsage, priorUsageOK := captureFile(d, in.UsageDestPath)
 	priorBench, priorBenchOK := captureFile(d, in.BenchDestPath)
 	priorRecall, priorRecallOK := captureFile(d, in.RecallDestPath)
+	// Capture the current crush.json for verbatim rollback (Phase 28, SURF-03/D-08).
+	// It lives OUTSIDE the data-store root, so it is captured via the same ReadFile
+	// seam as the others but restored/rolled-back through the dedicated
+	// WriteCrushConfig / RemoveFile seams below.
+	priorCrush, priorCrushOK := captureFile(d, in.CrushConfigDestPath)
 
 	// Restored config is the archive's config.toml parsed into a VillaConfig (config is
 	// the single source of truth — the Quadlet recreate renders from it; D-07).
@@ -308,6 +329,15 @@ func Restore(d Deps, in RestoreInput) Result {
 		case ex.recallPresent && in.RecallDestPath != "":
 			add(rollbackRemove(d, in.RecallDestPath), "remove restored recall-state.json")
 		}
+		// crush.json follows the same verbatim CR-01 rows (Phase 28, SURF-03/D-08),
+		// but through the dedicated out-of-store-root seams: WriteCrushConfig to
+		// restore the prior bytes, RemoveFile to undo a forward-created file.
+		switch {
+		case priorCrushOK:
+			add(writeCrushConfig(d, in.CrushConfigDestPath, priorCrush), "restore crush.json")
+		case ex.crushPresent && in.CrushConfigDestPath != "":
+			add(rollbackRemove(d, in.CrushConfigDestPath), "remove restored crush.json")
+		}
 		// Re-import the CAPTURED owui volume through the clean-recreate ordering (prior cfg).
 		add(cleanRecreateThenImport(priorCfg, in.OpenWebUIVolumeName, in.RollbackVolumeTar), "restore Open WebUI volume")
 		// Qdrant rollback (Phase 23, D-07/Pitfall 4): same clean-recreate ordering
@@ -382,6 +412,17 @@ func Restore(d Deps, in RestoreInput) Result {
 			return rolledBack("data", "", fmt.Errorf("restore recall-state.json: %w", err), ProveVerdict{})
 		}
 	}
+	// Restore the OPTIONAL crush.json (Phase 28, SURF-03/D-08) through the dedicated
+	// out-of-store-root seam (it lives at ~/.config/crush/, not under the villa data
+	// root). Gated on the entry being present AND a destination wired; any error
+	// rolls back verbatim like the other data rows. The agent BINARY is NOT restored
+	// here — it is re-staged separately (re-download the pinned release; the
+	// ExcludedAgent identity is surfaced on the Result for that fail-closed re-stage).
+	if ex.crushPresent && in.CrushConfigDestPath != "" {
+		if err := writeCrushConfig(d, in.CrushConfigDestPath, ex.crushConfig); err != nil {
+			return rolledBack("data", "", fmt.Errorf("restore crush.json: %w", err), ProveVerdict{})
+		}
+	}
 	// CLEAN-RECREATE then import the RESTORED owui volume (the whole reason for the
 	// rm→recreate→ensure→import ordering — never merge into a live volume).
 	if err := d.WriteTempFile(in.TempVolumeTar, ex.owuiVolume); err != nil {
@@ -428,7 +469,24 @@ func Restore(d Deps, in RestoreInput) Result {
 		QdrantRestored:        ex.qdrantPresent,
 		RecallStateRestored:   ex.recallPresent,
 		RestoredMemoryEnabled: restoredCfg.MemoryEnabled,
+		CrushConfigRestored:   ex.crushPresent,
+		// Surface the EXCLUDED agent binary identity for the operator to RE-STAGE
+		// (re-download the pinned release) — the binary bytes were never in the
+		// archive, exactly like model weights (SURF-03/D-08). Nil on an agent-off
+		// backup (the manifest recorded no ExcludedAgent).
+		ExcludedAgent: ex.manifest.ExcludedAgent,
 	}
+}
+
+// writeCrushConfig restores the crush.json entry to the out-of-store-root agent
+// config destination via the dedicated WriteCrushConfig seam (Phase 28,
+// SURF-03/D-08). A nil seam is a restore-incomplete condition surfaced honestly
+// (mirrors rollbackRemove's nil-seam contract) rather than a silent skip.
+func writeCrushConfig(d Deps, path string, data []byte) error {
+	if d.WriteCrushConfig == nil {
+		return fmt.Errorf("no WriteCrushConfig seam wired — cannot restore crush.json to %q", path)
+	}
+	return d.WriteCrushConfig(path, data)
 }
 
 // rollbackRemove deletes a data-dir artifact the forward path newly created, to
@@ -585,6 +643,12 @@ func readAndVerify(in RestoreInput) (extracted, error) {
 	}
 	if b, ok := collect[EntryRecallState]; ok {
 		ex.recallState, ex.recallPresent = b, true
+	}
+	// The Phase-28 coding-agent config entry is OPTIONAL and flows through the SAME
+	// readAndVerify guards (SHA-256, tar-slip, duplicate + extra-entry rejection,
+	// fail-closed version gate) as every other entry (SURF-03/D-08).
+	if b, ok := collect[EntryCrushConfig]; ok {
+		ex.crushConfig, ex.crushPresent = b, true
 	}
 	return ex, nil
 }

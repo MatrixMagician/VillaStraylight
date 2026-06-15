@@ -100,10 +100,7 @@ func TestExcludedModelHasNoContentFields(t *testing.T) {
 }
 
 // TestManifestV2MemoryEntryConsts asserts the Phase-23 optional-entry names are
-// exactly qdrant-volume.tar / recall-state.json (D-05) and the manifest's own
-// schema version is 2 (the D-04-doctrine bump: v2 adds the memory entries +
-// embedding fields; old villas fail closed on new backups, v1 backups stay
-// restorable because the gate is m.SchemaVersion <= backupSchemaVersion).
+// exactly qdrant-volume.tar / recall-state.json (D-05).
 func TestManifestV2MemoryEntryConsts(t *testing.T) {
 	if EntryQdrantVolume != "qdrant-volume.tar" {
 		t.Fatalf("EntryQdrantVolume = %q, want qdrant-volume.tar", EntryQdrantVolume)
@@ -111,8 +108,85 @@ func TestManifestV2MemoryEntryConsts(t *testing.T) {
 	if EntryRecallState != "recall-state.json" {
 		t.Fatalf("EntryRecallState = %q, want recall-state.json", EntryRecallState)
 	}
-	if backupSchemaVersion != 2 {
-		t.Fatalf("backupSchemaVersion = %d, want 2 (Phase 23 memory entries + embedding fields)", backupSchemaVersion)
+}
+
+// TestManifestSchemaVersionIsV3 asserts the manifest's own schema version is 3
+// (the Phase-28 SURF-03/D-08 append-only bump: v3 adds the OPTIONAL crush.json
+// entry + the ExcludedAgent identity record; old villas fail closed on a v3
+// backup, v2/v1 backups stay restorable because the gate is m.SchemaVersion <=
+// backupSchemaVersion).
+func TestManifestSchemaVersionIsV3(t *testing.T) {
+	if backupSchemaVersion != 3 {
+		t.Fatalf("backupSchemaVersion = %d, want 3 (Phase 28 agent crush.json entry + ExcludedAgent identity)", backupSchemaVersion)
+	}
+	if EntryCrushConfig != "crush.json" {
+		t.Fatalf("EntryCrushConfig = %q, want crush.json", EntryCrushConfig)
+	}
+}
+
+// TestExcludedAgentHasNoContentFields is the structural narrow-field / no-content
+// security test for the Phase-28 ExcludedAgent identity record (cloned from
+// TestExcludedModelHasNoContentFields): it must carry ONLY sha256 / version /
+// pin sha256 — identity only, NEVER any prompt/response/content text (T-28-02-02).
+// It asserts both the allow-set of Go field names AND a JSON-key denylist on a
+// marshaled instance.
+func TestExcludedAgentHasNoContentFields(t *testing.T) {
+	allowed := map[string]bool{"SHA256": true, "Version": true, "PinSHA256": true}
+	st := reflect.TypeOf(ExcludedAgent{})
+	for i := 0; i < st.NumField(); i++ {
+		name := st.Field(i).Name
+		if !allowed[name] {
+			t.Errorf("ExcludedAgent has unexpected field %q — identity only, no prompt/content", name)
+		}
+	}
+
+	data, err := json.Marshal(ExcludedAgent{SHA256: "ab", Version: "v0.76.0", PinSHA256: "cd"})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	denylist := []string{"prompt_text", "response", "content", "text", "messages"}
+	js := strings.ToLower(string(data))
+	for _, bad := range denylist {
+		if strings.Contains(js, bad) {
+			t.Errorf("ExcludedAgent JSON contains forbidden content key %q: %s", bad, data)
+		}
+	}
+}
+
+// TestManifestExcludedAgentThreadsAndOmits asserts BuildManifest threads the
+// Phase-28 ExcludedAgent through (SURF-03/D-08) AND that an agent-off manifest
+// (nil ExcludedAgent) OMITS the excluded_agent key entirely (omitempty — an
+// agent-off backup never carries a fabricated agent claim, keeping the archive
+// v2-layout-identical), and that ExcludedAgent stays tail-appended ABOVE
+// schema_version (append-only).
+func TestManifestExcludedAgentThreadsAndOmits(t *testing.T) {
+	on := BuildManifest(ManifestInput{
+		ExcludedAgent: &ExcludedAgent{SHA256: "aa", Version: "v0.76.0", PinSHA256: "bb"},
+	})
+	if on.ExcludedAgent == nil || on.ExcludedAgent.SHA256 != "aa" ||
+		on.ExcludedAgent.Version != "v0.76.0" || on.ExcludedAgent.PinSHA256 != "bb" {
+		t.Fatalf("BuildManifest did not thread ExcludedAgent: %+v", on.ExcludedAgent)
+	}
+	data, err := json.Marshal(on)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	s := string(data)
+	if !strings.Contains(s, `"excluded_agent"`) {
+		t.Fatalf("agent-on manifest JSON missing excluded_agent: %s", s)
+	}
+	// excluded_agent must precede schema_version (append-only: new field ABOVE it).
+	if strings.Index(s, `"excluded_agent"`) > strings.Index(s, `"schema_version"`) {
+		t.Fatalf("excluded_agent must appear BEFORE schema_version (append-only): %s", s)
+	}
+
+	off := BuildManifest(ManifestInput{})
+	data, err = json.Marshal(off)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if strings.Contains(string(data), `"excluded_agent"`) {
+		t.Fatalf("agent-off manifest JSON must OMIT excluded_agent (omitempty): %s", data)
 	}
 }
 

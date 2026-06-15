@@ -26,6 +26,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/MatrixMagician/VillaStraylight/internal/agent"
 	"github.com/MatrixMagician/VillaStraylight/internal/backup"
 	"github.com/MatrixMagician/VillaStraylight/internal/benchstore"
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
@@ -212,6 +213,31 @@ func runBackup(cmd *cobra.Command, output string, d backup.Deps) int {
 		in.EmbeddingDim = cfg.EmbeddingDim
 		in.RecallSchemaVersion = recall.SchemaVersion()
 	}
+	if cfg.AgentEnabled {
+		// Phase-28 coding-agent coverage (SURF-03/D-08), agent-on ONLY: the rendered
+		// crush.json goes INTO the archive (sourced from crushConfigPath() — an absent
+		// file is skipped by the core's FileMissing logic), and the agent binary
+		// IDENTITY (on-disk sha256 + pinned version + policy pin sha256) is recorded in
+		// the manifest while the binary BYTES are EXCLUDED, exactly like model weights.
+		// An agent-off backup leaves all four empty so the archive stays v2-identical.
+		if crushPath, perr := crushConfigPath(); perr == nil {
+			in.CrushConfigPath = crushPath
+		} else {
+			fmt.Fprintf(errOut, "backup: warning: cannot resolve crush.json path (agent config not archived): %v\n", perr)
+		}
+		// On-disk binary identity (the BinaryAbsent signal degrades to an empty sha —
+		// the identity record is still written from the pinned policy version/pin).
+		binSHA, _, herr := hashFileSHA256(agentBinPath())
+		if herr != nil {
+			fmt.Fprintf(errOut, "backup: warning: cannot hash the coding-agent binary (identity left empty): %v\n", herr)
+		}
+		policy := agent.LoadCrushPolicy()
+		in.AgentBinarySHA256 = binSHA
+		in.AgentVersion = policy.Version
+		if asset, ok := policy.Assets["linux/amd64"]; ok {
+			in.AgentPinSHA256 = asset.BinarySHA256
+		}
+	}
 
 	res, rerr := backup.Backup(d, in)
 	if cerr := f.Close(); cerr != nil && rerr == nil {
@@ -264,6 +290,22 @@ func runBackup(cmd *cobra.Command, output string, d backup.Deps) int {
 		for _, m := range in.ExcludedModels {
 			fmt.Fprintf(out, "  - %s (quant %s, ctx %s)\n", m.ID, m.Quant, m.Ctx)
 		}
+	}
+	// Honest coding-agent reporting (Phase 28, SURF-03/D-08): the rendered crush.json
+	// is archived (if present); the agent binary is identity-recorded for re-stage but
+	// its bytes are EXCLUDED, exactly like model weights.
+	switch {
+	case in.CrushConfigPath == "":
+		fmt.Fprintf(out, "coding agent: not included (agent disabled)\n")
+	default:
+		if _, serr := os.Stat(in.CrushConfigPath); serr == nil {
+			fmt.Fprintf(out, "coding agent: crush.json included (%s)\n", backup.EntryCrushConfig)
+		} else {
+			fmt.Fprintf(out, "coding agent: crush.json not included (no rendered crush.json)\n")
+		}
+	}
+	if in.AgentBinarySHA256 != "" || in.AgentVersion != "" || in.AgentPinSHA256 != "" {
+		fmt.Fprintf(out, "coding agent: binary excluded, identity recorded for re-stage (pinned %s) — re-stage with `villa install --coding-agent`\n", in.AgentVersion)
 	}
 	return exitPass
 }

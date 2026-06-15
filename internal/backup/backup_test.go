@@ -418,6 +418,119 @@ func TestBackupAssemblesArchive(t *testing.T) {
 	}
 }
 
+// TestBackupAgentOnAddsCrushConfigAndExcludedAgent asserts an agent-on backup
+// (SURF-03/D-08) adds the crush.json entry INTO the archive (checksummed like
+// every member) and records the EXCLUDED agent binary IDENTITY in the manifest
+// (sha256 + version + pin) — while the agent binary BYTES are NEVER an archive
+// entry (mirroring the excluded model weights).
+func TestBackupAgentOnAddsCrushConfigAndExcludedAgent(t *testing.T) {
+	f := newFakeBackupDeps()
+	f.files["/cfg/config.toml"] = []byte("model = \"x\"\n")
+	f.files["/crush/crush.json"] = []byte(`{"provider":"local"}`)
+
+	in := baseBackupInput(nil)
+	var out bytes.Buffer
+	in.OutputWriter = &out
+	in.CrushConfigPath = "/crush/crush.json"
+	in.AgentBinarySHA256 = "sha-of-on-disk-binary"
+	in.AgentVersion = "v0.76.0"
+	in.AgentPinSHA256 = "sha-of-pinned-binary"
+
+	res, err := Backup(f.deps(), in)
+	if err != nil {
+		t.Fatalf("Backup err: %v (%+v)", err, res)
+	}
+
+	names := archiveNames(t, out.Bytes())
+	gotCrush := false
+	for _, n := range names {
+		gotCrush = gotCrush || n == EntryCrushConfig
+		if n == "crush" || n == "crush-binary" {
+			t.Fatalf("agent BINARY bytes must NEVER be archived; found %q", n)
+		}
+	}
+	if !gotCrush {
+		t.Fatalf("agent-on backup missing %q entry: %v", EntryCrushConfig, names)
+	}
+
+	m := manifestFromArchive(t, out.Bytes())
+	if m.ExcludedAgent == nil {
+		t.Fatalf("agent-on backup must record ExcludedAgent identity; manifest=%+v", m)
+	}
+	if m.ExcludedAgent.SHA256 != "sha-of-on-disk-binary" ||
+		m.ExcludedAgent.Version != "v0.76.0" ||
+		m.ExcludedAgent.PinSHA256 != "sha-of-pinned-binary" {
+		t.Fatalf("ExcludedAgent identity not recorded: %+v", m.ExcludedAgent)
+	}
+	// crush.json carries a checksum like every other member.
+	csum := map[string]bool{}
+	for _, e := range m.Entries {
+		csum[e.Name] = e.SHA256 != ""
+	}
+	if !csum[EntryCrushConfig] {
+		t.Fatalf("crush.json entry has no checksum: %+v", m.Entries)
+	}
+}
+
+// TestBackupAgentOffIsLayoutIdentical asserts an agent-off backup (no
+// CrushConfigPath, no agent identity) records ZERO agent entries and a nil
+// ExcludedAgent — the archive layout is identical to the pre-Phase-28 v2 backup
+// (SURF-03/D-08: the bump only widens the contract for an agent-ON backup).
+func TestBackupAgentOffIsLayoutIdentical(t *testing.T) {
+	f := newFakeBackupDeps()
+	f.files["/cfg/config.toml"] = []byte("model = \"x\"\n")
+	f.files["/data/usage.json"] = []byte(`{"schema_version":3}`)
+	f.files["/data/bench-reports.jsonl"] = []byte(`{"schema_version":4}` + "\n")
+
+	var out bytes.Buffer
+	if _, err := Backup(f.deps(), baseBackupInput(&out)); err != nil {
+		t.Fatalf("Backup err: %v", err)
+	}
+
+	for _, n := range archiveNames(t, out.Bytes()) {
+		if n == EntryCrushConfig {
+			t.Fatalf("agent-off backup must NOT include %q: %v", EntryCrushConfig, archiveNames(t, out.Bytes()))
+		}
+	}
+	m := manifestFromArchive(t, out.Bytes())
+	if m.ExcludedAgent != nil {
+		t.Fatalf("agent-off backup must record NO ExcludedAgent, got %+v", m.ExcludedAgent)
+	}
+}
+
+// TestBackupAgentOnSkipsAbsentCrushConfig asserts an agent-on backup whose
+// rendered crush.json is absent on disk SKIPS the entry (via FileMissing) rather
+// than failing the backup — mirroring the qdrant/recall optional skip-when-absent
+// shape. The ExcludedAgent identity is still recorded (the binary identity is
+// independent of the config file's presence).
+func TestBackupAgentOnSkipsAbsentCrushConfig(t *testing.T) {
+	f := newFakeBackupDeps()
+	f.files["/cfg/config.toml"] = []byte("model = \"x\"\n")
+	// NOTE: /crush/crush.json deliberately NOT seeded — ReadFile returns ErrNotExist.
+
+	in := baseBackupInput(nil)
+	var out bytes.Buffer
+	in.OutputWriter = &out
+	in.CrushConfigPath = "/crush/crush.json"
+	in.AgentBinarySHA256 = "sha-of-on-disk-binary"
+	in.AgentVersion = "v0.76.0"
+	in.AgentPinSHA256 = "sha-of-pinned-binary"
+
+	res, err := Backup(f.deps(), in)
+	if err != nil {
+		t.Fatalf("absent crush.json must be skipped, not fatal: %v (%+v)", err, res)
+	}
+	for _, n := range archiveNames(t, out.Bytes()) {
+		if n == EntryCrushConfig {
+			t.Fatalf("absent crush.json must be skipped, but %q is present", EntryCrushConfig)
+		}
+	}
+	m := manifestFromArchive(t, out.Bytes())
+	if m.ExcludedAgent == nil || m.ExcludedAgent.SHA256 != "sha-of-on-disk-binary" {
+		t.Fatalf("ExcludedAgent identity must still be recorded when crush.json is absent: %+v", m.ExcludedAgent)
+	}
+}
+
 // TestBackupDeferredRestartFiresOnExportError asserts the OWUI service is restarted
 // (best-effort defer) even when the volume export fails mid-backup (D-05).
 func TestBackupDeferredRestartFiresOnExportError(t *testing.T) {

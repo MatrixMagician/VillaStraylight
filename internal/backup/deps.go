@@ -101,6 +101,15 @@ type Deps struct {
 	// legitimate write and broke restore on a real host. The path is an
 	// internally-resolved mktemp path, never attacker input.
 	WriteTempFile func(path string, data []byte) error
+	// WriteCrushConfig restores the OPTIONAL Phase-28 crush.json entry to the
+	// coding-agent config destination (~/.config/crush/crush.json, OUTSIDE the
+	// villa data-store root — SURF-03/D-08). It is a DISTINCT seam from
+	// WriteFileAtomic precisely because that one is store-root-guarded and would
+	// reject a path outside $XDG_DATA_HOME/villa; the live wiring is the MkdirAll
+	// 0700 + WriteFile 0600 + traversal-guard shape from code.go's WriteConfig. When
+	// nil, a present crush.json entry is reported as re-stageable but not written
+	// (the cmd tier always wires it on an agent-on restore).
+	WriteCrushConfig func(path string, data []byte) error
 	// RemoveFile deletes the file at path, TOLERATING an already-absent file (the
 	// live wiring maps os.Remove + os.IsNotExist). It is the verbatim-rollback seam
 	// for a data-dir artifact the FORWARD path newly created where none existed
@@ -196,4 +205,15 @@ type Result struct {
 	// have changed — the caller prints "memory stack: enabled/disabled (restored
 	// config)". Valid on a Restored result.
 	RestoredMemoryEnabled bool
+	// CrushConfigRestored reports whether the OPTIONAL Phase-28 crush.json entry was
+	// present in the archive and restored (Phase 28, SURF-03/D-08). False means the
+	// backup carried no agent config (agent-off backup). Valid on a Restored result.
+	CrushConfigRestored bool
+	// ExcludedAgent is the EXCLUDED coding-agent binary identity recorded in the
+	// restored manifest (SURF-03/D-08), surfaced for the operator to RE-STAGE the
+	// binary (re-download the pinned release) — exactly the ExcludedModels re-pull
+	// report. Nil when the backup recorded no agent identity (agent-off backup). The
+	// binary bytes were never in the archive; restore re-stages it like model
+	// weights, and the identity verify is fail-closed on drift.
+	ExcludedAgent *ExcludedAgent
 }
