@@ -5,7 +5,7 @@ status: verified
 nyquist_compliant: true
 wave_0_complete: true
 created: 2026-06-13
-validated: 2026-06-13
+validated: 2026-06-15
 ---
 
 # Phase 26 — Validation Strategy
@@ -93,6 +93,33 @@ Evidence (this run):
 - `internal/inference` — `TestSeamGrepGate` PASS (no backend-marker leak into `internal/agent` / `cmd/villa`).
 - `make check` (vet + `go test ./...`) — PASS across all packages.
 - 26-03-02 manual on-hardware `villa code` launch acceptance recorded in 26-03-SUMMARY.md (first-run render, present-but-matching no-rewrite, drift negative-control refusal) — remains manual-only by nature (live gfx1151 box, real Crush binary, serving loopback endpoint).
+
+---
+
+## Validation Audit 2026-06-15
+
+State A re-audit (`/gsd-validate-phase 26`). Re-ran every per-task automated command
+against the **current** tree — post Phase 27 (install addon + preflight + `villa verify
+agent`) and Phase 28 (status/dashboard/doctor surfacing) — to confirm no later phase
+regressed Phase-26 coverage. All commands still map to real tests and run green; no new
+gaps surfaced, so no auditor spawn was needed.
+
+| Metric | Count |
+|--------|-------|
+| Gaps found | 0 |
+| Resolved | 0 |
+| Escalated | 0 |
+
+Evidence (this run):
+- 26-01-01 — `go test ./internal/agent/ -run 'TestPolicyLoad|TestChecksumGate|TestVersionCompare'` → ok
+- 26-01-02 — `go test ./internal/agent/ -run 'TestRenderGolden|TestRenderContract|TestLSPMissingWarn'` → ok
+- 26-01-03 — `go test ./internal/agent/ -run 'TestBinaryDrift|TestConfigDrift'` + `TestSeamGrepGate` → ok
+- 26-02-01 — `go test ./internal/agent/ -run 'TestRun|TestInstall'` → ok
+- 26-02-02 — `go test ./cmd/villa/ -run 'TestCode'` + `TestNoAutoFlipStructuralGuard` → ok
+- 26-03-01 — `go test ./internal/agent/ -run 'TestPolicyLoad|TestBinaryDrift'` → ok
+- `make check` (vet + `go test ./...`) — PASS, no failures across any package.
+- Test artifacts confirmed present: `internal/agent/agent_test.go`, `internal/agent/install_test.go`, `cmd/villa/code_test.go`, `internal/agent/testdata/crush.json.golden`.
+- 26-03-02 remains manual-only by nature (live gfx1151 box) — already accepted on-hardware in 26-03-SUMMARY.md.
 
 ---
 
