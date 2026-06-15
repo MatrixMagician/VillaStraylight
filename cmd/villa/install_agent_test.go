@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/MatrixMagician/VillaStraylight/internal/agent"
 	"github.com/MatrixMagician/VillaStraylight/internal/catalog"
 	"github.com/MatrixMagician/VillaStraylight/internal/recommend"
 )
@@ -121,6 +122,36 @@ func TestAgentProbeReplaced(t *testing.T) {
 				t.Errorf("agentProbeReplaced(%q) = %v, want %v", tc.content, got, tc.want)
 			}
 		})
+	}
+}
+
+// TestLiveLSPProbesMatchKnownServers is a drift-guard (mirroring the project's
+// TestCrushProviderPortMatchesInferenceServerPort discipline): the install/doctor live
+// probe seam (liveLSPProbes) and the `villa code` launcher (agent.Run over
+// agent.KnownLSPServers) MUST probe the SAME {key, command} set, or every
+// `villa install --coding-agent` would render a crush.json that `villa code` then refuses
+// as ConfigDrift (D-14 is report-only). The Key/Command sequence is host-independent
+// (only Found varies with PATH), so this asserts the mapping exactly. It also pins the
+// python entry to pyright-langserver (the LSP entry point), guarding the specific
+// pyright-vs-pyright-langserver fork that this test was added to close.
+func TestLiveLSPProbesMatchKnownServers(t *testing.T) {
+	probes := liveLSPProbes()
+	if len(probes) != len(agent.KnownLSPServers) {
+		t.Fatalf("liveLSPProbes returned %d probes, want %d (one per agent.KnownLSPServers entry)",
+			len(probes), len(agent.KnownLSPServers))
+	}
+	for i, srv := range agent.KnownLSPServers {
+		if probes[i].Key != srv.Key || probes[i].Command != srv.Command {
+			t.Errorf("probe[%d] = {Key:%q Command:%q}, want {Key:%q Command:%q} from agent.KnownLSPServers — "+
+				"the install render and the villa code drift-compare have FORKED",
+				i, probes[i].Key, probes[i].Command, srv.Key, srv.Command)
+		}
+	}
+	for _, srv := range agent.KnownLSPServers {
+		if srv.Key == "python" && srv.Command != "pyright-langserver" {
+			t.Errorf("python LSP command = %q, want %q (the LSP server entry point, NOT the pyright CLI type-checker)",
+				srv.Command, "pyright-langserver")
+		}
 	}
 }
 

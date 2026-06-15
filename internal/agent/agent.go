@@ -61,11 +61,18 @@ const (
 // the seam gate forbids a platform branch outside the inference seam.
 const targetPlatformKey = "linux/amd64"
 
-// knownLSPServers is the fixed probe list (D-10): the primary gopls plus the
-// opportunistic servers villa renders an lsp entry for WHEN found on PATH. Each pair
-// is {crush.json lsp key, server command}. A missing server is a WARN + omitted
-// entry, never a BLOCK (renderLSP / Render owns that degradation).
-var knownLSPServers = []struct{ key, command string }{
+// KnownLSPServers is the fixed probe list (D-10) and the SINGLE source of truth for
+// the set of LSP servers villa probes and renders an lsp entry for WHEN found on PATH.
+// Each pair is {crush.json lsp key, server command}. A missing server is a WARN +
+// omitted entry, never a BLOCK (renderLSP / Render owns that degradation).
+//
+// Exported so the install/doctor live probe seam (cmd/villa liveLSPProbes) consumes the
+// SAME list — the launcher (villa code) and the install render MUST agree by
+// construction, or every install would render a crush.json that villa code then refuses
+// as ConfigDrift (D-14 is report-only; it assumes the install path is authoritative).
+// The python entry is pyright-langserver (the LSP entry point), NOT pyright (the
+// standalone CLI type-checker — a different binary the Pyright distribution also ships).
+var KnownLSPServers = []struct{ Key, Command string }{
 	{"go", "gopls"},
 	{"python", "pyright-langserver"},
 	{"rust", "rust-analyzer"},
@@ -108,10 +115,10 @@ func Run(d Deps) Result {
 	}
 
 	// (2) Probe LSP servers (references only, never installs — D-10).
-	probes := make([]LSPProbe, 0, len(knownLSPServers))
-	for _, srv := range knownLSPServers {
-		_, found := d.LookPath(srv.command)
-		probes = append(probes, LSPProbe{Key: srv.key, Command: srv.command, Found: found})
+	probes := make([]LSPProbe, 0, len(KnownLSPServers))
+	for _, srv := range KnownLSPServers {
+		_, found := d.LookPath(srv.Command)
+		probes = append(probes, LSPProbe{Key: srv.Key, Command: srv.Command, Found: found})
 	}
 
 	// (3) Freshly render the reference — BOTH the drift-compare target AND the bytes

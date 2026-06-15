@@ -155,19 +155,17 @@ func liveRenderCrushConfig(cfg config.VillaConfig) error {
 
 // liveLSPProbes resolves the fixed set of supported LSP servers on the host PATH for the
 // crush.json render (D-10). It references PATH only — it NEVER auto-installs (the Render
-// contract: a not-found server is a WARN and an omitted lsp entry). The probe set mirrors
-// the languages the coding agent commonly drives; absence degrades gracefully.
+// contract: a not-found server is a WARN and an omitted lsp entry).
+//
+// It iterates agent.KnownLSPServers — the SAME source the `villa code` launcher probes —
+// so the install render and the launcher's drift-compare reference agree by construction.
+// Forking this list (e.g. python pyright vs pyright-langserver) would render a crush.json
+// that `villa code` then permanently refuses as ConfigDrift (D-14 is report-only).
 func liveLSPProbes() []agent.LSPProbe {
-	want := []struct{ key, cmd string }{
-		{"go", "gopls"},
-		{"python", "pyright"},
-		{"rust", "rust-analyzer"},
-		{"typescript", "typescript-language-server"},
-	}
-	probes := make([]agent.LSPProbe, 0, len(want))
-	for _, w := range want {
-		_, found := lookPathFn(w.cmd)
-		probes = append(probes, agent.LSPProbe{Key: w.key, Command: w.cmd, Found: found})
+	probes := make([]agent.LSPProbe, 0, len(agent.KnownLSPServers))
+	for _, s := range agent.KnownLSPServers {
+		_, found := lookPathFn(s.Command)
+		probes = append(probes, agent.LSPProbe{Key: s.Key, Command: s.Command, Found: found})
 	}
 	return probes
 }

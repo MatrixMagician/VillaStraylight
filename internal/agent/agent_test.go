@@ -163,7 +163,7 @@ func renderTestConfig() config.VillaConfig {
 func renderTestProbes() []LSPProbe {
 	return []LSPProbe{
 		{Key: "go", Command: "gopls", Found: true},
-		{Key: "python", Command: "pyright", Found: false},
+		{Key: "python", Command: "pyright-langserver", Found: false},
 	}
 }
 
