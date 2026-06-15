@@ -27,6 +27,7 @@
 package doctor
 
 import (
+	"github.com/MatrixMagician/VillaStraylight/internal/agent"
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
 	"github.com/MatrixMagician/VillaStraylight/internal/inference"
@@ -49,9 +50,15 @@ const (
 )
 
 // reportSchemaVersion is doctor's OWN --json contract self-version (D-09), distinct
-// from status.reportSchemaVersion. =1 from day one; bumped append-only on any future
-// additive change to the doctor Report contract.
-const reportSchemaVersion = 1
+// from status.reportSchemaVersion. Bumped append-only on any additive change to the
+// doctor Report contract.
+//
+// Version history (append-only — never renumber a shipped version):
+//   - v1: the original host-prep + running-stack + drift + memory fold.
+//   - v2: the coding-agent fold (Phase 28-01, SURF-02) — additive agent findings
+//     (agent-tool-call / agent-residency / agent-binary-drift / agent-config-drift).
+//     No existing field changed shape; agent-off output is byte-identical except this bump.
+const reportSchemaVersion = 2
 
 // The three typed-Unknown ROCm host-prep check IDs that a PROVEN ROCm residency
 // supersedes (down-ranks, never deletes). They INTENTIONALLY duplicate the preflight
@@ -153,6 +160,24 @@ type Deps struct {
 	// nil (memory off) NO MEM-DOC-residency finding is emitted at all — never a
 	// PASS-by-default (no-false-green, D-09/D-10).
 	ResidencyUnderLoad func() inference.Verdict
+	// AgentToolCall is the coding-agent tool-call round-trip proof (SURF-02, D-07):
+	// the cmd tier drives a REAL read→edit `crush run` round-trip and maps its
+	// completion to an inference.Verdict consumed OPAQUELY here (Status/Detail/
+	// Remediation only — seam-clean). NIL-SAFE: when nil (agent off) NO agent-tool-call
+	// finding is emitted at all — never a PASS-by-default (no-false-green).
+	AgentToolCall func() inference.Verdict
+	// AgentResidencyUnderLoad is the coder-model residency-under-tool-call-load proof
+	// (SURF-02, D-07): the cmd tier samples the served CODER model's GTT/journal
+	// residency MID-DRIVE under a real tool-call workload, returning the Verdict
+	// consumed OPAQUELY here. NIL-SAFE: when nil (agent off) NO agent-residency finding
+	// is emitted at all — never a PASS-by-default (D-07 honesty dominance).
+	AgentResidencyUnderLoad func() inference.Verdict
+	// AgentDrift is the binary/version + config drift report from internal/agent
+	// (SURF-02, D-14): the cmd tier feeds the installed-binary SHA + on-disk crush.json
+	// + freshly-rendered reference to agent.DetectDrift and hands back the report-only
+	// outcome. It is surfaced, NEVER auto-corrected (D-14). NIL-SAFE: when nil (agent
+	// off) NO agent drift finding is emitted at all.
+	AgentDrift func() agent.DriftReport
 }
 
 // statusOrder maps the doctor status vocabulary to a worst-wins rank (PASS<WARN<FAIL).
@@ -274,6 +299,22 @@ func Aggregate(d Deps) Report {
 	// consumed opaquely via the offloadFinding precedent below.
 	if d.ResidencyUnderLoad != nil {
 		findings = append(findings, residencyUnderLoadFinding(d.ResidencyUnderLoad()))
+	}
+
+	// 2c. CODING-AGENT FOLD (SURF-02, D-06/D-07): when the agent is enabled the cmd tier
+	// binds the three agent seams; each NIL seam (agent off) emits NO finding (never a
+	// PASS-by-default — agent-off output stays byte-identical except the schema bump). A
+	// confident agent tool-call / residency FAIL folds worst-wins and DOMINATES a
+	// healthy-looking HTTP-200 (the offload-FAIL-dominates switch, cloned below). Drift is
+	// surfaced as WARN-with-remediation, never auto-corrected (D-14).
+	if d.AgentToolCall != nil {
+		findings = append(findings, agentToolCallFinding(d.AgentToolCall()))
+	}
+	if d.AgentResidencyUnderLoad != nil {
+		findings = append(findings, agentResidencyFinding(d.AgentResidencyUnderLoad()))
+	}
+	if d.AgentDrift != nil {
+		findings = append(findings, agentDriftFindings(d.AgentDrift())...)
 	}
 
 	// 3. DRIFT — config-vs-disk drift is independent of running-stack health: even a
@@ -476,6 +517,150 @@ func residencyUnderLoadFinding(v inference.Verdict) Finding {
 		f.Remediation = nonEmpty(v.Remediation, "could not evaluate residency under embedding load — ensure the stack is running, then re-run `villa doctor`")
 	}
 	return f
+}
+
+// agentToolCallFinding maps the coding-agent tool-call round-trip proof Verdict (consumed
+// OPAQUELY — Status/Detail/Remediation only, seam-clean) into a doctor Finding, cloning
+// offloadFinding's offload-FAIL-dominates switch (D-07): a confident StatusFail (the agent
+// could not complete a real read→edit `crush run` round-trip) is a BLOCK-class FAIL that
+// DOMINATES a healthy-looking HTTP-200 — never a false-green; an unevaluable proof
+// degrades to a typed-Unknown WARN. Emitted only when Deps.AgentToolCall is non-nil.
+func agentToolCallFinding(v inference.Verdict) Finding {
+	f := Finding{
+		ID:         "agent-tool-call",
+		Name:       "Coding-agent tool-call round-trip",
+		Detail:     v.Detail,
+		Provenance: "crush-run tool-call round-trip (liveAgentToolCallProbe)",
+	}
+	switch v.Status {
+	case inference.StatusPass:
+		f.Tier = tierBlock
+		f.Status = statusPass
+	case inference.StatusFail:
+		// Confident failure of the agent tool-call round-trip = a real fault (BLOCK FAIL),
+		// never a false-green over a healthy-looking inference endpoint.
+		f.Tier = tierBlock
+		f.Status = statusFail
+		f.Remediation = nonEmpty(v.Remediation, "the agent tool-call round-trip failed — check `villa verify agent` and `villa logs`")
+	default: // StatusWarn — the round-trip could not be EVALUATED
+		f.Tier = tierWarn
+		f.Status = statusWarn
+		f.Remediation = nonEmpty(v.Remediation, "could not evaluate the agent tool-call round-trip — ensure the stack and the agent are installed, then re-run `villa doctor`")
+	}
+	return f
+}
+
+// agentResidencyFinding maps the coder-model residency-under-tool-call-load proof Verdict
+// (consumed OPAQUELY) into a doctor Finding, using the IDENTICAL offload-FAIL-dominates
+// switch (D-07 honesty dominance): a confident CPU fallback of the CODER model under
+// tool-call load is a BLOCK-class FAIL that dominates a health-200; an unevaluable proof
+// degrades to a typed-Unknown WARN — NEVER a false-green PASS. Emitted only when
+// Deps.AgentResidencyUnderLoad is non-nil.
+func agentResidencyFinding(v inference.Verdict) Finding {
+	f := Finding{
+		ID:         "agent-residency",
+		Name:       "Coder-model residency under tool-call load",
+		Detail:     v.Detail,
+		Provenance: "tool-call drive + inference.RunningOffloadVerdict",
+	}
+	switch v.Status {
+	case inference.StatusPass:
+		f.Tier = tierBlock
+		f.Status = statusPass
+	case inference.StatusFail:
+		// Confident CPU fallback of the CODER model under tool-call load = a real fault
+		// (BLOCK FAIL) — never a false-green over a healthy-looking stack.
+		f.Tier = tierBlock
+		f.Status = statusFail
+		f.Remediation = nonEmpty(v.Remediation, "the coder model fell back to CPU under tool-call load — check the backend (`villa backend set`) and `villa logs`")
+	default: // StatusWarn — residency under load could not be EVALUATED
+		f.Tier = tierWarn
+		f.Status = statusWarn
+		f.Remediation = nonEmpty(v.Remediation, "could not evaluate coder residency under tool-call load — ensure the stack is running, then re-run `villa doctor`")
+	}
+	return f
+}
+
+// agentDriftFindings maps a report-only agent.DriftReport (D-14) into doctor Findings.
+// Drift is SURFACED, never auto-corrected: each non-clean signal is a WARN-with-remediation,
+// never a BLOCK FAIL (a drifted/absent binary or hand-edited config is an operator decision,
+// not a silent-degradation fault). The honesty discipline:
+//   - BinaryAbsent           → WARN + Phase-27 install remediation (agent-binary-drift).
+//   - BinaryDriftUnknown     → typed-Unknown WARN (the policy hash is not yet pinned).
+//   - BinaryDrift            → WARN + re-install remediation (never auto-corrected, D-14a).
+//   - ConfigDrift            → WARN + review/re-render remediation (never overwritten, D-14b).
+//   - ConfigAbsent ALONE     → NO finding (the first-run render trigger, parallels BinaryAbsent
+//     — NOT drift; emitting a finding here would mis-report a false drift at the first run).
+//   - all clean              → a single PASS finding (agent-drift).
+//
+// The DriftReport.Reason carries the human remediation text; doctor surfaces it as the
+// finding Detail. Emitted only when Deps.AgentDrift is non-nil.
+func agentDriftFindings(r agent.DriftReport) []Finding {
+	var out []Finding
+
+	// Binary signal — at most one binary finding.
+	switch {
+	case r.BinaryAbsent:
+		out = append(out, Finding{
+			ID:          "agent-binary-drift",
+			Name:        "Coding-agent binary",
+			Tier:        tierWarn,
+			Status:      statusWarn,
+			Detail:      nonEmpty(r.Reason, "the villa-owned Crush binary is not installed"),
+			Remediation: "run the agent install (the Phase-27 `villa install` addon) to place the pinned binary, then re-run `villa doctor`",
+			Provenance:  "agent.DetectDrift (BinaryAbsent)",
+		})
+	case r.BinaryDriftUnknown:
+		out = append(out, Finding{
+			ID:          "agent-binary-drift",
+			Name:        "Coding-agent binary drift",
+			Tier:        tierWarn,
+			Status:      statusWarn,
+			Detail:      nonEmpty(r.Reason, "binary drift could not be confirmed — the policy binary checksum is not yet pinned"),
+			Remediation: "no action needed yet — the binary-drift gate activates once the policy checksum is pinned on-hardware",
+			Provenance:  "agent.DetectDrift (BinaryDriftUnknown)",
+		})
+	case r.BinaryDrift:
+		out = append(out, Finding{
+			ID:          "agent-binary-drift",
+			Name:        "Coding-agent binary drift",
+			Tier:        tierWarn,
+			Status:      statusWarn,
+			Detail:      nonEmpty(r.Reason, "installed Crush binary checksum does not match the pinned policy"),
+			Remediation: "re-install the pinned binary (the Phase-27 `villa install` addon); villa never auto-corrects a drifted binary",
+			Provenance:  "agent.DetectDrift (BinaryDrift)",
+		})
+	}
+
+	// Config signal — ConfigAbsent ALONE emits NO finding (first-run trigger, not drift).
+	if r.ConfigDrift {
+		out = append(out, Finding{
+			ID:          "agent-config-drift",
+			Name:        "Coding-agent config drift",
+			Tier:        tierWarn,
+			Status:      statusWarn,
+			Detail:      nonEmpty(r.Reason, "on-disk crush.json differs from what villa would render from config.toml"),
+			Remediation: "review your crush.json edits or re-render from config.toml; villa surfaces drift but never overwrites your file automatically",
+			Provenance:  "agent.DetectDrift (ConfigDrift)",
+		})
+	}
+
+	// All clean (binary present + matched + config present + matched, OR the unpinned/
+	// first-run benign states that emitted no WARN above): a single PASS finding so the
+	// agent-on doctor table always carries a positive drift signal. ConfigAbsent is benign
+	// (first-run) and BinaryDriftUnknown is benign-but-WARN; we only emit the PASS when
+	// NOTHING above produced a finding.
+	if len(out) == 0 {
+		out = append(out, Finding{
+			ID:         "agent-drift",
+			Name:       "Coding-agent drift",
+			Tier:       tierWarn,
+			Status:     statusPass,
+			Detail:     "the installed Crush binary and on-disk crush.json match the pinned policy and rendered reference",
+			Provenance: "agent.DetectDrift (clean)",
+		})
+	}
+	return out
 }
 
 // nonEmpty returns the upstream remediation when present, else a doctor default — so
