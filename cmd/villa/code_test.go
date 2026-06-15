@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -9,6 +10,7 @@ import (
 
 	"github.com/MatrixMagician/VillaStraylight/internal/agent"
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
+	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 )
 
 // code_test.go exercises the `villa code` cmd-tier mapping of agent.Run's Result to
@@ -59,6 +61,37 @@ func renderRef(t *testing.T, cfg config.VillaConfig) []byte {
 		t.Fatalf("render reference: %v", err)
 	}
 	return b
+}
+
+// TestCrushProviderPortMatchesInferenceServerPort is the cross-seam drift guard
+// (v1.4-AUDIT-WARN-crush-port-drift): it ties the rendered crush.json provider
+// baseURL port to inference.ServerPort(), failing if the two desync.
+//
+// WHY this lives in cmd/villa and NOT in internal/agent: the agent core deliberately
+// imports NEITHER internal/inference NOR internal/detect (LOCKED seam invariant,
+// agent.go:17-24); its loopback `http://127.0.0.1:8080/v1` literal in render.go is
+// SANCTIONED but cannot source inference.ServerPort() without violating that seam.
+// cmd/villa is the single package that legitimately imports BOTH cores, so it is the
+// correct place to bind render.go's rendered provider port to inference.ServerPort().
+// This mirrors the orchestrate.LlamaInNetworkEndpoint() precedent
+// (internal/orchestrate/endpoint.go), which composes inference.ServerPort() because
+// orchestrate MAY import inference — agent may not, so the coupling is asserted from
+// the test tier instead.
+//
+// Contract: this guard FAILS if someone changes inference.serverPort (or render.go's
+// providerBaseURL) without updating the other. Both are 8080 today, so it PASSES.
+func TestCrushProviderPortMatchesInferenceServerPort(t *testing.T) {
+	cfg := config.VillaConfig{Model: "qwen3", CodingMode: true}
+	rendered, _, err := agent.Render(cfg, nil)
+	if err != nil {
+		t.Fatalf("render crush.json: %v", err)
+	}
+	want := fmt.Sprintf("127.0.0.1:%d/v1", inference.ServerPort())
+	if !bytes.Contains(rendered, []byte(want)) {
+		t.Errorf("rendered crush.json provider baseURL does not embed inference.ServerPort()=%d (want substring %q); "+
+			"render.go providerBaseURL desynced from the served inference port — update one to match the other",
+			inference.ServerPort(), want)
+	}
 }
 
 // newCodeCmd returns a cobra.Command with captured out/err buffers for runCode.

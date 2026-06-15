@@ -29,6 +29,9 @@ const (
 	// providerBaseURL is the FIXED loopback inference endpoint (Open-Q1 option ii):
 	// the inference port is the constant serverPort=8080 (internal/inference), NOT a
 	// config field. Loopback-only, consistent with PRIV-01. Not a backend marker.
+	// Drift-guarded against inference.ServerPort() by
+	// cmd/villa.TestCrushProviderPortMatchesInferenceServerPort (the agent seam forbids
+	// importing inference here, so the coupling is asserted from the cmd/villa test tier).
 	providerBaseURL = "http://127.0.0.1:8080/v1"
 	// providerAPIKey is a dummy non-secret key (the existing inference probe uses
 	// "local"); MUST be metachar-free (Pitfall 1).

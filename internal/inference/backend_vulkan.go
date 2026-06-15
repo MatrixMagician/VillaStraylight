@@ -163,4 +163,6 @@ func endpointURL() string {
 // the in-network villa-llama URL stays in lockstep with the inference port, never drifting
 // from a hand-typed :8080 (DNS/port lockstep, Pitfall 3 / T-4-01). This is a string-free
 // pure accessor; it leaks no GPU/backend marker (TestSeamGrepGate-clean).
+// The agent renderer's hard-coded providerBaseURL port (internal/agent/render.go) is
+// drift-guarded against this accessor by cmd/villa.TestCrushProviderPortMatchesInferenceServerPort.
 func ServerPort() int { return serverPort }
