@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Coding Agent
 status: executing
-stopped_at: Phase 28 UI-SPEC approved
-last_updated: "2026-06-15T10:30:57.237Z"
-last_activity: 2026-06-15 -- Phase 28 planning complete
+stopped_at: Completed 28-01-PLAN.md
+last_updated: "2026-06-15T10:41:09Z"
+last_activity: 2026-06-15 -- Completed Phase 28 Plan 01 (doctor coding-agent fold)
 progress:
   total_phases: 5
   completed_phases: 4
-  total_plans: 15
-  completed_plans: 15
-  percent: 80
+  total_plans: 18
+  completed_plans: 16
+  percent: 84
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-12 — milestone v1.4 Coding Agent started)
 
 **Core value:** Run a capable local AI workspace that "just works" after install — hardware-aware setup that brings inference, chat, and the dashboard up healthy, with zero data leaving the box. v1.2 extended the bar to "and stays operable, recoverable, and measurable over time." v1.3 extended it to "and remembers the user and their documents across chats — strictly local." v1.4 extends it to "and gives the operator a strictly-local terminal coding agent, wired to a fit-guarded coding model."
-**Current focus:** Phase 28 — agent-surfacing-&-contracts (Phase 27 complete, verified 5/5)
+**Current focus:** Phase 28 — agent-surfacing-contracts
 
 ## Current Position
 
-Phase: 28
-Plan: Not started
-Status: Ready to execute
-Last activity: 2026-06-15 -- Phase 28 planning complete
+Phase: 28 (agent-surfacing-contracts) — EXECUTING
+Plan: 2 of 3
+Status: Executing Phase 28 (Plan 01 complete)
+Last activity: 2026-06-15 -- Completed Phase 28 Plan 01 (doctor coding-agent fold)
 
-Progress: [█████████░] 92% (v1.4)
+Progress: [█████████░] 94% (v1.4)
 
 ## Performance Metrics
 
@@ -139,6 +139,9 @@ Decisions are logged in PROJECT.md Key Decisions table. v1.4 roadmap decisions:
 - [v1.4 Roadmap]: **Agent is a villa-managed host binary, never a container/service** — pinned release + SHA-256 via a villa-owned `go:embed` pin policy (rocm-policy pattern); `crush.json` is a derived artifact of `config.toml` (regenerated, never hand-edited; doctor flags drift, never auto-corrects).
 - [v1.4 Roadmap]: **Honesty constraints frozen into success criteria**: negative-control-first egress proofs (egress-open run must FAIL), llama-down cloud-fallback control (agent working with inference down = FAIL), under-load residency in the swap prove step (idle-green is not green), addon-off renders byte-identical to v1.3, tool-call round-trip as readiness (health-200 never suffices).
 - [v1.4 Roadmap]: **EXACTLY ONE byte-frozen contract evolves** — `status.Report` 3→4, append-only `coding` block, single golden re-freeze, landed in the final phase (28). Catalog 2→3 and recommend 2→3 are separate contracts landing once, early (24).
+- [28-01]: **Agent drift is WARN-only in doctor, never BLOCK FAIL** — a drifted/absent binary or hand-edited `crush.json` is an operator decision surfaced with remediation, never auto-corrected (D-14). Only a confident tool-call/residency offload FAIL is BLOCK-class (D-07 honesty dominance).
+- [28-01]: **doctor owns its OWN schema, bumped 1→2 (append-only)** for the additive agent fold — independent of and NOT touching `status.Report` (that 3→4 bump is isolated to Plan 28-03). Agent-off doctor output is byte-identical except the schema_version field.
+- [28-01]: **AgentResidency keys on the served coder model file** (`sd.ModelFile` resolves `cfg.Model`, which IS the coder under coding mode — D-09 distinct served model); the proof reuses `liveAgentToolCallProbe` (never a re-rolled crush-run round-trip) drive→sample→join.
 
 Earlier (v1.0–v1.3) standing decisions retained:
 

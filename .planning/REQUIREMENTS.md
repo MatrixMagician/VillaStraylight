@@ -40,7 +40,7 @@ Requirements for this milestone. Each maps to roadmap phases.
 ### Surfacing
 
 - [ ] **SURF-01**: `status.Report` 3→4 append-only `coding` block (enabled, agent version + pin match, model, mode, residency) — single golden re-freeze; dashboard Agent panel, hidden-until-data
-- [ ] **SURF-02**: `villa doctor` folds agent checks: binary/version drift, config drift, tool-call round-trip probe, under-load residency
+- [x] **SURF-02**: `villa doctor` folds agent checks: binary/version drift, config drift, tool-call round-trip probe, under-load residency
 - [ ] **SURF-03**: `villa backup`/`restore` cover the rendered agent config; the agent binary is identity-recorded and excluded (like model weights)
 - [ ] **USAGE-03**: Agent token usage is attributed per-model in status/dashboard via the v1.2 usage core
 - [ ] **USAGE-04**: Cache effectiveness (`timings.cache_n` vs `prompt_n`) is surfaced as an honest agent-speed signal
@@ -88,7 +88,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | INSTALL-04 | Phase 27 | Complete |
 | PRIV-06 | Phase 27 | Complete |
 | SURF-01 | Phase 28 | Pending |
-| SURF-02 | Phase 28 | Pending |
+| SURF-02 | Phase 28 | Complete (28-01) |
 | SURF-03 | Phase 28 | Pending |
 | USAGE-03 | Phase 28 | Pending |
 | USAGE-04 | Phase 28 | Pending |
