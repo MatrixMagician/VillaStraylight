@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Coding Agent
-status: executing
-stopped_at: Phase 28 UI-SPEC approved
-last_updated: "2026-06-15T10:58:10.050Z"
+status: verifying
+stopped_at: Completed 28-03-PLAN.md
+last_updated: "2026-06-15T11:12:37.857Z"
 last_activity: 2026-06-15 -- Completed Phase 28 Plan 01 (doctor coding-agent fold)
 progress:
   total_phases: 5
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 18
-  completed_plans: 17
-  percent: 80
+  completed_plans: 18
+  percent: 100
 ---
 
 # Project State
@@ -27,7 +27,7 @@ See: .planning/PROJECT.md (updated 2026-06-12 — milestone v1.4 Coding Agent st
 
 Phase: 28 (agent-surfacing-contracts) — EXECUTING
 Plan: 3 of 3
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-06-15 -- Completed Phase 28 Plan 01 (doctor coding-agent fold)
 
 Progress: [█████████░] 94% (v1.4)
@@ -120,6 +120,7 @@ Progress: [█████████░] 94% (v1.4)
 | Phase 27 P27-05 | ~4 min | 2 tasks (TDD; gap-closure CR-01+WR-05) | 5 files |
 | Phase 27 P27-06 | ~12 min | 3 tasks (TDD; gap-closure WR-01+WR-06) | 6 files |
 | Phase 28 P02 | 30m | 2 tasks | 11 files |
+| Phase 28 P03 | ~40 min | 2 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -175,6 +176,9 @@ Earlier (v1.0–v1.3) standing decisions retained:
 - [Phase ?]: backup schema bumped 2->3 append-only (status/doctor-independent, not golden-frozen) for agent ExcludedAgent + crush.json entry
 - [Phase ?]: crush.json restore uses a new out-of-store-root WriteCrushConfig seam (store-root guard rejects ~/.config/crush/)
 - [Phase ?]: cache_n/prompt_n added as typed-Unknown CacheSample from the SAME bounded /metrics scrape; ratio computed in Plan 28-03
+- [Phase 28]: status.Report 3→4 single bump (the v1.4 milestone's only contract change); coding-off --json byte-identical except schema_version
+- [Phase 28]: Coding agent residency is DERIVED (recommend.Pick(...).Coder.Residency) and recomputed at status time — never persisted, omitted typed-Unknown when the live envelope is unevaluable
+- [Phase 28]: Agent pin_match surfaced as a tri-state string (match/mismatch/unknown), not a bare bool
 
 ### Pending Todos
 
@@ -237,9 +241,9 @@ Items deferred at v1.4 roadmap creation (2026-06-12, research-recorded):
 
 ## Session Continuity
 
-Last session: 2026-06-15T10:57:30.959Z
-Stopped at: Phase 28 UI-SPEC approved
-Resume file: .planning/phases/28-agent-surfacing-contracts/28-UI-SPEC.md
+Last session: 2026-06-15T11:12:37.850Z
+Stopped at: Completed 28-03-PLAN.md
+Resume file: None
 
 ## Operator Next Steps
 

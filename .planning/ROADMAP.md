@@ -92,7 +92,7 @@ Audit PASSED — 22/22 requirements, 15/16 integration connections (0 blockers),
 - [x] **Phase 25: Coding-Mode Render & Transactional Swap Verb** - Tool-calling-ready llama-server unit delta behind the seams + a transactional enter/exit coding-mode verb composing `modelswap` (completed 2026-06-13)
 - [ ] **Phase 26: Agent Delivery Core & Lockdown Launcher** - Pinned SHA-256-verified Crush install via villa-owned pin policy, `crush.json` rendered from config.toml with kill switches, `villa code` launcher with env lockdown, drift detection
 - [x] **Phase 27: Install Addon, Preflight Gates & `villa verify agent`** - Optional install addon with sanctioned-window pre-staging + tool-call readiness proof, honest preflight gates, negative-control-first egress + cloud-fallback proofs, uninstall coverage. All 4 plans executed; on-hardware acceptance (27-04) done — INSTALL-03 readiness real tool-call round-trip + PRIV-06 `villa verify agent` PASS under a real rootless-netns egress block (2026-06-14). **GAP-CLOSURE COMPLETE (all four gaps closed):** CR-01 + WR-05 (27-05) — `--coding-agent` now enters coding-mode and serves the staged coder + readiness asserts a real TOKEN_A→TOKEN_B replacement; WR-01 + WR-06 (27-06) — `villa verify agent`'s egress negative control FAILs on broken probe infra (classifyEgressProbe, no false-green) and sanity-probes villa-llama in-network via the new `orchestrate.LlamaInNetworkEndpoint()` seam accessor (no false-FAIL on healthy hosts), and the llama-down restore failure is surfaced with `systemctl --user start villa-llama.service` remediation. make check + TestSeamGrepGate green; no golden/JSON contract change. **RE-VERIFIED PASS 5/5 (2026-06-14)** — all four gaps closed (deep gap-closure code review: 0 blockers, 3 advisory warn, 4 info); see 27-VERIFICATION.md / 27-REVIEW.md
-- [ ] **Phase 28: Agent Surfacing & Contracts** - `status.Report` 3→4 `coding` block (single golden re-freeze), dashboard Agent panel, doctor agent checks, backup coverage, per-model usage + cache-effectiveness signals
+- [x] **Phase 28: Agent Surfacing & Contracts** - `status.Report` 3→4 `coding` block (single golden re-freeze), dashboard Agent panel, doctor agent checks, backup coverage, per-model usage + cache-effectiveness signals (completed 2026-06-15)
 
 ## Phase Details
 
@@ -237,7 +237,7 @@ Plans:
 
 **Wave 2** *(the SINGLE `status.Report` 3→4 contract bump + golden re-freeze — depends on 28-02 for the metrics cache primitive)*
 
-- [ ] 28-03-PLAN.md — `status.Report` append-only `coding` block + reportSchemaVersion 3→4 (ONE re-freeze, coding-on/off variants) + human-table rows + dashboard Agent panel (hidden-until-data, existing /api/status poll) + per-model coder usage + cache-effectiveness ratio surfacing (SURF-01, USAGE-03, USAGE-04 surface)
+- [x] 28-03-PLAN.md — `status.Report` append-only `coding` block + reportSchemaVersion 3→4 (ONE re-freeze, coding-on/off variants) + human-table rows + dashboard Agent panel (hidden-until-data, existing /api/status poll) + per-model coder usage + cache-effectiveness ratio surfacing (SURF-01, USAGE-03, USAGE-04 surface)
 
 **UI hint**: yes
 **Research**: not needed (v1.2 P15 / v1.3 P23 surfacing discipline applies verbatim)
@@ -273,4 +273,4 @@ Plans:
 | 25. Coding-Mode Render & Transactional Swap Verb | v1.4 | 2/2 | Complete    | 2026-06-13 |
 | 26. Agent Delivery Core & Lockdown Launcher | v1.4 | 0/3 | Planned | - |
 | 27. Install Addon, Preflight Gates & `villa verify agent` | v1.4 | 6/6 | Complete    | 2026-06-14 |
-| 28. Agent Surfacing & Contracts | v1.4 | 2/3 | In Progress|  |
+| 28. Agent Surfacing & Contracts | v1.4 | 3/3 | Complete   | 2026-06-15 |
