@@ -702,11 +702,17 @@ func codingInfo(
 	if residency != nil {
 		ci.Residency = residency()
 	}
-	// Cache effectiveness: the pct is shown ONLY when the scrape is usable AND
-	// promptN>0 (D-10). Otherwise pct stays nil + counts omitted (gray Unknown
-	// badge / "unavailable" — never a fabricated 0%).
+	// Cache effectiveness: the pct is shown ONLY when the scrape is usable, promptN>0
+	// (D-10), AND the sample is internally consistent (cacheN<=promptN). Otherwise pct
+	// stays nil + counts omitted (gray Unknown badge / "unavailable" — never a
+	// fabricated 0%). cacheN and promptN are scraped from DISTINCT llama.cpp _total
+	// series independently, so a counter skew (one reset but not the other, or a build
+	// where cache_n semantics differ) can yield cacheN>promptN — an impossible >100%
+	// ratio (WR-04). Treating that as an inconsistent sample and degrading to the gray
+	// Unknown badge keeps the surface honest; fixing it HERE in the core means both
+	// --json and the dashboard inherit it (no dashboard-only clamp).
 	if cache != nil {
-		if cacheN, promptN, ok := cache(); ok && promptN > 0 {
+		if cacheN, promptN, ok := cache(); ok && promptN > 0 && cacheN <= promptN {
 			ci.CacheN = cacheN
 			ci.PromptN = promptN
 			pct := (float64(cacheN) / float64(promptN)) * 100.0

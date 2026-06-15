@@ -145,8 +145,8 @@ type extracted struct {
 	// readAndVerify pass as every other entry (no parallel reader). The manifest's
 	// ExcludedAgent (the EXCLUDED binary identity) rides alongside it for the
 	// re-stage report.
-	crushConfig   []byte
-	crushPresent  bool
+	crushConfig  []byte
+	crushPresent bool
 }
 
 // Restore performs the guarded, transactional archive apply and returns a typed

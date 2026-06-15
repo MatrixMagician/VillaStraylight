@@ -963,6 +963,22 @@ func TestRunCodingCacheGate(t *testing.T) {
 			t.Fatalf("nil cache seam must leave pct nil, got %v", *r.Coding.CacheEffectivenessPct)
 		}
 	})
+	t.Run("cache_n>prompt_n (inconsistent sample) → nil pct, omitted counts (never >100%)", func(t *testing.T) {
+		// WR-04: the two counters come from distinct llama.cpp _total series scraped
+		// independently; a counter skew can yield cache_n>prompt_n, an impossible
+		// >100% ratio. Degrade to the gray Unknown badge (nil pct + omitted counts)
+		// rather than surface a fabricated-looking ratio.
+		d := newAgentDeps(t)
+		d.AgentCache = func() (uint64, uint64, bool) { return 250, 200, true }
+		r := Run(d)
+		if r.Coding.CacheEffectivenessPct != nil {
+			t.Fatalf("cache_n>prompt_n must leave pct nil (never >100%%), got %v", *r.Coding.CacheEffectivenessPct)
+		}
+		blob, _ := json.Marshal(r)
+		if strings.Contains(string(blob), `cache_effectiveness_pct`) || strings.Contains(string(blob), `"cache_n"`) {
+			t.Errorf("inconsistent sample must omit pct + counts; got:\n%s", blob)
+		}
+	})
 }
 
 // TestRunErrPropagates: a LoadConfig failure yields a FAIL Report carrying the error
