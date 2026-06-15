@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-06-12 — milestone v1.4 Coding Agent st
 Phase: 28 (agent-surfacing-contracts) — EXECUTING
 Plan: 3 of 3
 Status: Phase complete — ready for verification
-Last activity: 2026-06-15 -- Completed Phase 28 Plan 01 (doctor coding-agent fold)
+Last activity: 2026-06-15 -- Completed quick task 260615-ipn: crush.json provider-port drift-guard test (v1.4 audit WARN closed)
 
 Progress: [█████████░] 94% (v1.4)
 
@@ -208,6 +208,7 @@ Earlier (v1.0–v1.3) standing decisions retained:
 | 260606-p3a | Fix villa bench single-mode backend label | 2026-06-06 | 8aa9c90 | [260606-p3a-...](./quick/260606-p3a-fix-villa-bench-single-mode-backend-labe/) |
 | 260608-ppy | fix phase-17 UI-SPEC copy gaps | 2026-06-08 | 583b1ee | [260608-ppy-...](./quick/260608-ppy-fix-phase-17-ui-spec-copy-gaps-17-ui-rev/) |
 | 260608-pyp | fix remaining 4 phase-17 UI-SPEC warnings | 2026-06-08 | 0cbac58 | [260608-pyp-...](./quick/260608-pyp-fix-remaining-phase-17-ui-spec-warnings-/) |
+| 260615-ipn | Add drift-guard test tying crush.json provider port to inference.ServerPort() (v1.4 audit WARN) | 2026-06-15 | 6eda867 | [260615-ipn-...](./quick/260615-ipn-add-drift-guard-test-tying-crush-json-pr/) |
 
 ## Deferred Items
 
