@@ -207,6 +207,7 @@ Earlier (v1.0–v1.3) standing decisions retained:
 | 260608-ppy | fix phase-17 UI-SPEC copy gaps | 2026-06-08 | 583b1ee | [260608-ppy-...](./quick/260608-ppy-fix-phase-17-ui-spec-copy-gaps-17-ui-rev/) |
 | 260608-pyp | fix remaining 4 phase-17 UI-SPEC warnings | 2026-06-08 | 0cbac58 | [260608-pyp-...](./quick/260608-pyp-fix-remaining-phase-17-ui-spec-warnings-/) |
 | 260615-ipn | Add drift-guard test tying crush.json provider port to inference.ServerPort() (v1.4 audit WARN) | 2026-06-15 | 6eda867 | [260615-ipn-...](./quick/260615-ipn-add-drift-guard-test-tying-crush-json-pr/) |
+| 260615-qmr | Add README prerequisites section documenting Strix Halo kernel parameters | 2026-06-15 | 4a2f016 | [260615-qmr-...](./quick/260615-qmr-add-readme-prerequisites-section-documen/) |
 
 ## Deferred Items
 

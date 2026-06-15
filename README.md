@@ -18,6 +18,38 @@ VillaStraylight is for privacy-conscious power users who want a ChatGPT/Claude-c
 
 `villa preflight` checks these host requirements (Vulkan ICD + iGPU enumeration, Podman rootless readiness, SELinux/linger state, and disk/memory floors) and tells you what is missing before you install anything.
 
+## Prerequisites: Kernel Parameters
+
+VillaStraylight targets AMD Strix Halo's **unified memory** — the CPU and iGPU share one physical RAM pool. To let llama.cpp offload large models onto the iGPU, the host kernel must allow the GPU to address that pool dynamically.
+
+### Why custom kernel parameters?
+
+Many guides statically partition memory between the CPU and iGPU (e.g. locking 32 GB for video). That is a waste. With **unified dynamic memory**, the GPU can access nearly all system RAM (up to ~124 GB) on demand, while keeping the flexibility to use it for the CPU when needed.
+
+> **Performance note:** Benchmarking by Lars Urban ([Issue #66](https://github.com/MatrixMagician/VillaStraylight/issues/66)) shows a **5–12% performance increase** from setting `amd_iommu=off` instead of the previously recommended pass-through mode.
+
+### Apply the parameters
+
+Add the parameters to `GRUB_CMDLINE_LINUX` in `/etc/default/grub`, then regenerate the GRUB config and reboot:
+
+```bash
+# Edit GRUB_CMDLINE_LINUX in /etc/default/grub
+sudo vim /etc/default/grub
+#   GRUB_CMDLINE_LINUX="... amd_iommu=off amdgpu.gttsize=126976 ttm.pages_limit=32505856"
+
+# Regenerate the GRUB config, then reboot for the parameters to take effect
+sudo grub2-mkconfig -o /boot/grub2/grub.cfg
+sudo reboot
+```
+
+| Parameter | How it enables unified memory |
+|-----------|-------------------------------|
+| `amd_iommu=off` | **Disable AMD IOMMU** entirely, which can improve GPU memory-access performance on Strix Halo unified-memory setups. |
+| `amdgpu.gttsize=126976` | **GTT size (Graphics Translation Table):** explicitly sets the maximum unified memory addressable by the GPU to ~124 GB (126976 MB), overriding default driver limits. |
+| `ttm.pages_limit=32505856` | **Pinned-memory limit:** allows the TTM (Translation Table Manager) to pin up to ~124 GB of pages in high-speed system RAM, ensuring the GPU has direct access without swapping. |
+
+After rebooting, `villa detect` and `villa recommend` report the enlarged GTT envelope (the usable memory pool is the GTT total, `mem_info_gtt_total`), so the recommended model/quant/context can fit the full unified-memory budget.
+
 ## Installation
 
 Build the static `villa` binary from source:
