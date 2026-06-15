@@ -25,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-06-15 — milestone v1.4 Coding Agent sh
 
 ## Current Position
 
-Phase: Milestone v1.4 complete
+Phase: Milestone v1.4 shipped + merged
 Plan: —
-Status: v1.4 shipped — PR #5 (awaiting review/merge); tag v1.4 on the main merge commit
-Last activity: 2026-06-15 — Milestone v1.4 shipped via PR #5 (https://github.com/MatrixMagician/VillaStraylight/pull/5)
+Status: v1.4 MERGED to main (PR #5, merge commit 5bcd651) + tagged v1.4 (pushed). Awaiting next milestone.
+Last activity: 2026-06-15 — Milestone v1.4 merged to main + tagged v1.4; ultrareview fix 0f1b32d (LSP probe drift) included; phase branches 24–28 deleted
 
 ## Performance Metrics
 
