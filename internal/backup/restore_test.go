@@ -1179,6 +1179,9 @@ func TestRestoreAgentOnRestoresCrushAndReportsExcludedAgent(t *testing.T) {
 	if !res.CrushConfigRestored {
 		t.Fatalf("CrushConfigRestored must be true on an agent-on archive, got %+v", res)
 	}
+	if res.CrushConfigSkipped {
+		t.Fatalf("a written crush.json must NOT report CrushConfigSkipped, got %+v", res)
+	}
 	if indexOf(r.calls, "WriteCrushConfig:") == -1 {
 		t.Fatalf("crush.json restore must go through WriteCrushConfig (out-of-store-root), calls=%v", r.calls)
 	}
@@ -1208,6 +1211,34 @@ func TestRestoreAgentOffNoCrushNoExcludedAgent(t *testing.T) {
 	}
 	if indexOf(r.calls, "WriteCrushConfig:") != -1 {
 		t.Fatalf("agent-off restore must make ZERO WriteCrushConfig calls, calls=%v", r.calls)
+	}
+}
+
+// TestRestoreAgentOnArchiveOntoAgentOffInstallSkipsCrush asserts WR-02: an
+// agent-ON archive (carries crush.json) restored onto an agent-OFF current
+// install (no CrushConfigDestPath wired) does NOT write crush.json, reports
+// CrushConfigRestored=false (no false-green) AND CrushConfigSkipped=true so the
+// cmd tier can warn the operator the entry was present but NOT applied.
+func TestRestoreAgentOnArchiveOntoAgentOffInstallSkipsCrush(t *testing.T) {
+	m := baseManifest()
+	m.ExcludedAgent = &ExcludedAgent{SHA256: "on-disk-sha", Version: "v0.76.0", PinSHA256: "pin-sha"}
+	arch := buildAgentArchive(t, m, validCfgTOML, []byte("owui-data"), []byte(`{"provider":"local"}`))
+	r, in := baseInput(t, arch)
+	// Current install is agent-off → the cmd tier wires NO destination.
+	in.CrushConfigDestPath = ""
+
+	res := Restore(r.deps(), in)
+	if !res.Restored {
+		t.Fatalf("want Restored, got %+v (calls %v)", res, r.calls)
+	}
+	if res.CrushConfigRestored {
+		t.Fatalf("WR-02: crush.json was NOT written (no dest) — CrushConfigRestored must be false, got %+v", res)
+	}
+	if !res.CrushConfigSkipped {
+		t.Fatalf("WR-02: archive carried crush.json but it was skipped — CrushConfigSkipped must be true, got %+v", res)
+	}
+	if indexOf(r.calls, "WriteCrushConfig:") != -1 {
+		t.Fatalf("WR-02: no destination wired must make ZERO WriteCrushConfig calls, calls=%v", r.calls)
 	}
 }
 

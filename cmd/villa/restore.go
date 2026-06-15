@@ -163,9 +163,16 @@ func runRestore(cmd *cobra.Command, archivePath string, in backup.RestoreInput, 
 		// identity for re-stage (the binary bytes were never in the archive, exactly
 		// like model weights — re-download the pinned release; identity verify is
 		// fail-closed on drift).
-		if res.CrushConfigRestored {
+		switch {
+		case res.CrushConfigRestored:
 			fmt.Fprintf(out, "coding agent: crush.json restored\n")
-		} else {
+		case res.CrushConfigSkipped:
+			// WR-02: the archive CARRIED crush.json but the current install is
+			// agent-off, so no destination was wired and the entry was NOT applied.
+			// Report the skip honestly — the restored config.toml may believe the
+			// agent is enabled while its crush.json was never restored.
+			fmt.Fprintf(out, "coding agent: archive carried crush.json but the current install is agent-off — NOT applied; re-run `villa install --coding-agent` then restore, or it will not be applied\n")
+		default:
 			fmt.Fprintf(out, "coding agent: no agent config in this backup — left untouched\n")
 		}
 		if res.ExcludedAgent != nil {

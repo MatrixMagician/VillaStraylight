@@ -418,7 +418,14 @@ func Restore(d Deps, in RestoreInput) Result {
 	// rolls back verbatim like the other data rows. The agent BINARY is NOT restored
 	// here — it is re-staged separately (re-download the pinned release; the
 	// ExcludedAgent identity is surfaced on the Result for that fail-closed re-stage).
-	if ex.crushPresent && in.CrushConfigDestPath != "" {
+	// crushWritten records the ACTUAL write (entry present AND a destination wired),
+	// NOT mere presence (WR-02). crushSkipped flags an archive that CARRIED a
+	// crush.json entry but had no destination wired — i.e. the current install is
+	// agent-off — so the cmd tier reports the skip honestly instead of a false
+	// "crush.json restored".
+	crushWritten := ex.crushPresent && in.CrushConfigDestPath != ""
+	crushSkipped := ex.crushPresent && in.CrushConfigDestPath == ""
+	if crushWritten {
 		if err := writeCrushConfig(d, in.CrushConfigDestPath, ex.crushConfig); err != nil {
 			return rolledBack("data", "", fmt.Errorf("restore crush.json: %w", err), ProveVerdict{})
 		}
@@ -469,7 +476,8 @@ func Restore(d Deps, in RestoreInput) Result {
 		QdrantRestored:        ex.qdrantPresent,
 		RecallStateRestored:   ex.recallPresent,
 		RestoredMemoryEnabled: restoredCfg.MemoryEnabled,
-		CrushConfigRestored:   ex.crushPresent,
+		CrushConfigRestored:   crushWritten,
+		CrushConfigSkipped:    crushSkipped,
 		// Surface the EXCLUDED agent binary identity for the operator to RE-STAGE
 		// (re-download the pinned release) — the binary bytes were never in the
 		// archive, exactly like model weights (SURF-03/D-08). Nil on an agent-off

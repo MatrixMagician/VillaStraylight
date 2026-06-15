@@ -206,9 +206,19 @@ type Result struct {
 	// config)". Valid on a Restored result.
 	RestoredMemoryEnabled bool
 	// CrushConfigRestored reports whether the OPTIONAL Phase-28 crush.json entry was
-	// present in the archive and restored (Phase 28, SURF-03/D-08). False means the
-	// backup carried no agent config (agent-off backup). Valid on a Restored result.
+	// present in the archive AND actually written (Phase 28, SURF-03/D-08, WR-02).
+	// It reflects the ACTUAL write (entry present AND a destination wired), not mere
+	// presence — an agent-on archive restored onto an agent-off current install has
+	// no destination wired, so the entry is skipped and this stays false (see
+	// CrushConfigSkipped). Valid on a Restored result.
 	CrushConfigRestored bool
+	// CrushConfigSkipped is true when the archive CARRIED a crush.json entry but it
+	// was NOT applied because no destination was wired — i.e. the current install is
+	// agent-off (WR-02). This is the honest signal that the restored config.toml may
+	// believe the agent is enabled while its crush.json was never restored; the cmd
+	// tier warns the operator to re-run `villa install --coding-agent` then restore.
+	// Mutually exclusive with CrushConfigRestored. Valid on a Restored result.
+	CrushConfigSkipped bool
 	// ExcludedAgent is the EXCLUDED coding-agent binary identity recorded in the
 	// restored manifest (SURF-03/D-08), surfaced for the operator to RE-STAGE the
 	// binary (re-download the pinned release) — exactly the ExcludedModels re-pull
