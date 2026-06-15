@@ -28,7 +28,7 @@ func healthyReport() doctor.Report {
 			{ID: "drift", Name: "Config-vs-disk drift", Tier: "WARN", Status: "PASS", Detail: "on-disk units match the rendered-from-config units", Provenance: "orchestrate.Reconcile (empty Plan.Changed)"},
 		},
 		Overall:       "PASS",
-		SchemaVersion: 1,
+		SchemaVersion: 2,
 	}
 }
 
@@ -84,7 +84,7 @@ func rocmSupersededReport() doctor.Report {
 			{ID: "drift", Name: "Config-vs-disk drift", Tier: "WARN", Status: "PASS", Detail: "on-disk units match the rendered-from-config units", Provenance: "orchestrate.Reconcile (empty Plan.Changed)"},
 		},
 		Overall:       "PASS",
-		SchemaVersion: 1,
+		SchemaVersion: 2,
 	}
 }
 
@@ -137,11 +137,11 @@ func TestDoctorUnknownOverallFailsClosed(t *testing.T) {
 }
 
 // TestDoctorJSON freezes doctor's OWN --json contract (D-02/D-09) byte-for-byte. The
-// golden MUST carry "schema_version": 1. doctor never extends status.Report's golden.
+// golden MUST carry "schema_version": 2. doctor never extends status.Report's golden.
 func TestDoctorJSON(t *testing.T) {
 	var buf bytes.Buffer
 	renderDoctor(&buf, healthyReport(), true, false)
-	if !bytes.Contains(buf.Bytes(), []byte(`"schema_version": 1`)) {
+	if !bytes.Contains(buf.Bytes(), []byte(`"schema_version": 2`)) {
 		t.Errorf("--json output must carry schema_version 1, got:\n%s", buf.String())
 	}
 	assertGolden(t, "doctor.json.golden", buf.Bytes())
@@ -168,7 +168,7 @@ func memoryHealthyReport() doctor.Report {
 			{ID: "drift", Name: "Config-vs-disk drift", Tier: "WARN", Status: "PASS", Detail: "on-disk units match the rendered-from-config units", Provenance: "orchestrate.Reconcile (empty Plan.Changed)"},
 		},
 		Overall:       "PASS",
-		SchemaVersion: 1,
+		SchemaVersion: 2,
 	}
 }
 
@@ -221,10 +221,107 @@ func TestDoctorMemoryRender(t *testing.T) {
 func TestDoctorMemoryJSON(t *testing.T) {
 	var buf bytes.Buffer
 	renderDoctor(&buf, memoryHealthyReport(), true, false)
-	if !bytes.Contains(buf.Bytes(), []byte(`"schema_version": 1`)) {
+	if !bytes.Contains(buf.Bytes(), []byte(`"schema_version": 2`)) {
 		t.Errorf("--json output must carry schema_version 1, got:\n%s", buf.String())
 	}
 	assertGolden(t, "doctor-memory.json.golden", buf.Bytes())
+}
+
+// agentHealthyReport is the healthy AGENT-ON shape (Phase 28-01, SURF-02): the
+// memory-on healthy report PLUS the three additive agent findings — a PASS tool-call
+// round-trip, a PASS coder residency under tool-call load, and a clean drift PASS.
+// Overall=="PASS" → exit 0. Findings are data, not schema; the contract bump is the
+// schema_version 1→2 carried by EVERY doctor report (additive agent fold).
+func agentHealthyReport() doctor.Report {
+	r := memoryHealthyReport()
+	r.Findings = append(r.Findings,
+		doctor.Finding{ID: "agent-tool-call", Name: "Coding-agent tool-call round-trip", Tier: "BLOCK", Status: "PASS", Detail: "the agent completed a real read→edit tool-call round-trip over the local endpoint", Provenance: "crush-run tool-call round-trip (liveAgentToolCallProbe)"},
+		doctor.Finding{ID: "agent-residency", Name: "Coder-model residency under tool-call load", Tier: "BLOCK", Status: "PASS", Detail: "coder-model device buffer resident on the iGPU; GTT-used floor corroborated mid-drive", Provenance: "tool-call drive + inference.RunningOffloadVerdict"},
+		doctor.Finding{ID: "agent-drift", Name: "Coding-agent drift", Tier: "WARN", Status: "PASS", Detail: "the installed Crush binary and on-disk crush.json match the pinned policy and rendered reference", Provenance: "agent.DetectDrift (clean)"},
+	)
+	return r
+}
+
+// agentToolCallFailReport flips the agent tool-call round-trip to a confident FAIL — a
+// BLOCK-class fault that DOMINATES a healthy-looking HTTP-200 (D-07), Overall=="FAIL" →
+// exitBlocked.
+func agentToolCallFailReport() doctor.Report {
+	r := agentHealthyReport()
+	for i := range r.Findings {
+		if r.Findings[i].ID == "agent-tool-call" {
+			r.Findings[i].Status = "FAIL"
+			r.Findings[i].Detail = "the agent ran but did not complete the read→edit tool-call round-trip (the probe file was not edited as instructed)"
+			r.Findings[i].Remediation = "check `villa verify agent` and `villa logs` — the coder model may not be serving tool-calls correctly"
+		}
+	}
+	r.Overall = "FAIL"
+	return r
+}
+
+// TestDoctorAgentRender freezes the agent-on render shapes: a healthy agent-on report
+// (Overall PASS → exit 0, golden doctor-agent.json.golden) and a confident tool-call FAIL
+// (Overall FAIL → exitBlocked). It proves the additive agent findings render and that an
+// agent FAIL maps to the blocking exit tier (D-07 honesty dominance).
+func TestDoctorAgentRender(t *testing.T) {
+	var buf bytes.Buffer
+	code := renderDoctor(&buf, agentHealthyReport(), true, false)
+	if code != exitPass {
+		t.Errorf("agent-healthy exit code = %d, want %d", code, exitPass)
+	}
+	if !bytes.Contains(buf.Bytes(), []byte(`"schema_version": 2`)) {
+		t.Errorf("--json output must carry schema_version 2 (the agent-fold bump), got:\n%s", buf.String())
+	}
+	assertGolden(t, "doctor-agent.json.golden", buf.Bytes())
+
+	var failBuf bytes.Buffer
+	if code := renderDoctor(&failBuf, agentToolCallFailReport(), false, false); code != exitBlocked {
+		t.Errorf("agent tool-call FAIL exit code = %d, want %d (a confident agent FAIL must block — D-07)", code, exitBlocked)
+	}
+}
+
+// TestLiveDoctorDepsWiresAgentSeams asserts liveDoctorDeps binds the three agent seams
+// ONLY when the persisted agent_enabled is true (SURF-02, mirroring the memory-seam
+// wiring): agent off (absent config) → all three nil so the agent-off doctor output is
+// byte-identical; agent on → all three bound. It inspects only the constructed Deps
+// fields — it never invokes the live host probes.
+func TestLiveDoctorDepsWiresAgentSeams(t *testing.T) {
+	cases := []struct {
+		name      string
+		agentOn   bool
+		wantBound bool
+	}{
+		{"agent-off-default", false, false},
+		{"agent-on", true, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfgBase := t.TempDir()
+			t.Setenv("XDG_CONFIG_HOME", cfgBase)
+			if tc.agentOn {
+				dir := filepath.Join(cfgBase, "villa")
+				if err := os.MkdirAll(dir, 0o700); err != nil {
+					t.Fatalf("mkdir config dir: %v", err)
+				}
+				if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte("agent_enabled = true\n"), 0o600); err != nil {
+					t.Fatalf("write config: %v", err)
+				}
+			}
+
+			d, err := liveDoctorDeps()
+			if err != nil {
+				t.Fatalf("liveDoctorDeps() error = %v", err)
+			}
+			if got := d.AgentToolCall != nil; got != tc.wantBound {
+				t.Errorf("AgentToolCall non-nil = %v, want %v", got, tc.wantBound)
+			}
+			if got := d.AgentResidencyUnderLoad != nil; got != tc.wantBound {
+				t.Errorf("AgentResidencyUnderLoad non-nil = %v, want %v", got, tc.wantBound)
+			}
+			if got := d.AgentDrift != nil; got != tc.wantBound {
+				t.Errorf("AgentDrift non-nil = %v, want %v", got, tc.wantBound)
+			}
+		})
+	}
 }
 
 // TestLiveDoctorDepsWiresMemorySeams asserts liveDoctorDeps binds the memory seams

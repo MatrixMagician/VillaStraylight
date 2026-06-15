@@ -80,6 +80,33 @@
       "detail": "on-disk units match the rendered-from-config units",
       "remediation": "",
       "provenance": "orchestrate.Reconcile (empty Plan.Changed)"
+    },
+    {
+      "id": "agent-tool-call",
+      "name": "Coding-agent tool-call round-trip",
+      "tier": "BLOCK",
+      "status": "PASS",
+      "detail": "the agent completed a real read→edit tool-call round-trip over the local endpoint",
+      "remediation": "",
+      "provenance": "crush-run tool-call round-trip (liveAgentToolCallProbe)"
+    },
+    {
+      "id": "agent-residency",
+      "name": "Coder-model residency under tool-call load",
+      "tier": "BLOCK",
+      "status": "PASS",
+      "detail": "coder-model device buffer resident on the iGPU; GTT-used floor corroborated mid-drive",
+      "remediation": "",
+      "provenance": "tool-call drive + inference.RunningOffloadVerdict"
+    },
+    {
+      "id": "agent-drift",
+      "name": "Coding-agent drift",
+      "tier": "WARN",
+      "status": "PASS",
+      "detail": "the installed Crush binary and on-disk crush.json match the pinned policy and rendered reference",
+      "remediation": "",
+      "provenance": "agent.DetectDrift (clean)"
     }
   ],
   "overall": "PASS",
