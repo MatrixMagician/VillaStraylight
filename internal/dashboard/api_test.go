@@ -200,7 +200,7 @@ func stubMemoryStatusDeps(t *testing.T) status.Deps {
 //     renderMemory reads (embedding_model / embedding_dim / recall_state);
 //   - default memory-OFF deps → the body carries NO "memory" key at all
 //     (*MemoryInfo omitempty-nil — the panel stays hidden, pixel-identical to v1.2)
-//     while schema_version reads 3 (the v3 contract from Plan 23-01).
+//     while schema_version reads 4 (the v4 contract from Plan 28-03).
 func TestHandleStatusMemoryPassthrough(t *testing.T) {
 	t.Run("memory-on serves the memory object", func(t *testing.T) {
 		srv := mustNewServer(t, Config{StatusDeps: stubMemoryStatusDeps(t), ChatPort: 3000, DashboardAddr: "127.0.0.1", DashboardPort: 8888})
@@ -253,8 +253,8 @@ func TestHandleStatusMemoryPassthrough(t *testing.T) {
 		if err := json.Unmarshal(raw["schema_version"], &schemaVersion); err != nil {
 			t.Fatalf("decode schema_version: %v", err)
 		}
-		if schemaVersion != 3 {
-			t.Fatalf("schema_version = %d, want 3 (the Plan 23-01 v3 contract)", schemaVersion)
+		if schemaVersion != 4 {
+			t.Fatalf("schema_version = %d, want 4 (the Plan 28-03 v4 contract)", schemaVersion)
 		}
 	})
 }
