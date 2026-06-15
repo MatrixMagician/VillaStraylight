@@ -59,6 +59,21 @@ const (
 	mPredictedTokensTotal = "llamacpp:tokens_predicted_total"
 )
 
+// mCacheTokensTotal and mPromptCacheTokensTotal are the cache-effectiveness counter
+// NAME literals (USAGE-04 core half, D-10): the llama.cpp prompt-cache reuse pair
+// surfaced for the agent-speed signal. cache_n is the count of prompt tokens served
+// from the KV cache (a cache HIT — the work llama.cpp skipped by reusing a prior
+// prefix); prompt_n is the total prompt tokens the request carried. The Plan-03
+// surfacing layer computes the ratio cache_n/prompt_n (shown ONLY when BOTH are Known
+// AND prompt_n>0) — NEVER a fabricated 0% here. These NAMEs are confined to this
+// package per D-06's single-home metric-literal discipline (grep gate). An absent
+// line (a llama.cpp build that does not emit the pair) degrades to typed-Unknown via
+// counterFromMap — never a fabricated count.
+const (
+	mPromptCacheTokensTotal = "llamacpp:prompt_tokens_cache_n_total"
+	mCacheTokensTotal       = "llamacpp:tokens_cache_n_total"
+)
+
 // CounterSample is the cumulative-usage counterpart to PerfSnapshot: the two monotonic
 // _total counters the fold (Plan 01) accumulates from. Counters are a DIFFERENT category
 // from the rate gauges (those are last-window snapshots, Pitfall 3), so they live in a
@@ -77,6 +92,27 @@ type CounterSample struct {
 	PredictedTokensTotal uint64
 	// PredictedTokensKnown is the typed-Unknown signal for PredictedTokensTotal (D-05).
 	PredictedTokensKnown bool
+}
+
+// CacheSample is the cache-effectiveness counterpart to CounterSample (USAGE-04
+// core half, D-10): the prompt-cache reuse pair (cache_n / prompt_n) the Plan-03
+// surfacing layer turns into the agent-speed cache-hit ratio. Like CounterSample
+// each value carries its OWN typed-Unknown bool — an absent or unparseable line
+// yields Known=false with the count left at zero (D-05), and the caller MUST gate
+// on Known and never present the bare 0 as a real reading. The RATIO is NOT
+// computed here: Plan 03 shows cache_n/prompt_n ONLY when BOTH are Known AND
+// prompt_n>0, else the gray Unknown badge — never a fabricated 0%.
+type CacheSample struct {
+	// CacheN is llamacpp cache_n — prompt tokens served from the KV cache (a hit);
+	// valid only when CacheKnown.
+	CacheN uint64
+	// CacheKnown is the typed-Unknown signal for CacheN (D-05).
+	CacheKnown bool
+	// PromptN is llamacpp prompt_n — total prompt tokens the request carried; valid
+	// only when PromptKnown. The ratio's denominator (Plan 03 gates on PromptN>0).
+	PromptN uint64
+	// PromptKnown is the typed-Unknown signal for PromptN (D-05).
+	PromptKnown bool
 }
 
 // maxCounterValue is the inclusive upper bound a parsed counter may take before it is
@@ -216,6 +252,47 @@ func ScrapeCounters(endpoint string) (CounterSample, bool) {
 		PromptTokensKnown:    promptKnown,
 		PredictedTokensTotal: predicted,
 		PredictedTokensKnown: predictedKnown,
+	}, true
+}
+
+// ScrapeCacheCounters is the cache-effectiveness sibling of ScrapeCounters (USAGE-04
+// core half, D-10): it surfaces the prompt-cache reuse pair (cache_n / prompt_n) as a
+// typed-Unknown CacheSample, REUSING the IDENTICAL bounded request shape (scrapeTimeout
+// client + maxScrapeBody+1 LimitReader truncation-refusal + parsePromText) — it adds NO
+// second HTTP request and NO new endpoint/host literal (D-12; T-15-06/T-15-08), so the
+// surfacing layer can read it from the SAME bounded scrape.
+//
+// A transport error or non-200 (a 404 is the state when --metrics is absent) yields
+// (zero, false): the whole scrape is unavailable. An over-cap body is refused as
+// unavailable (the same truncation guard as ScrapeCounters — a severed counter line
+// would mis-parse). On a 200 body the availability bool is true and each counter's own
+// Known bool reflects its presence in the parsed map — an absent counter degrades to
+// Known=false, never a fabricated 0 (D-05). The RATIO is computed in Plan 03, not here.
+func ScrapeCacheCounters(endpoint string) (CacheSample, bool) {
+	client := &http.Client{Timeout: scrapeTimeout}
+	resp, err := client.Get(endpoint + "/metrics")
+	if err != nil {
+		return CacheSample{}, false
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return CacheSample{}, false
+	}
+	// Same truncation-refusal as ScrapeCounters: read one byte past the cap so an
+	// over-cap body is DETECTED and the whole sample refused rather than folding a
+	// counter line severed mid-value (D-05: no false data).
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxScrapeBody+1))
+	if err != nil || len(body) > maxScrapeBody {
+		return CacheSample{}, false
+	}
+	m := parsePromText(string(body))
+	cacheN, cacheKnown := counterFromMap(m, mCacheTokensTotal)
+	promptN, promptKnown := counterFromMap(m, mPromptCacheTokensTotal)
+	return CacheSample{
+		CacheN:      cacheN,
+		CacheKnown:  cacheKnown,
+		PromptN:     promptN,
+		PromptKnown: promptKnown,
 	}, true
 }
 

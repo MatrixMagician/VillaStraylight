@@ -378,3 +378,152 @@ func TestScrapeSlotsFromServer(t *testing.T) {
 		t.Errorf("ScrapeSlots ok=true on a 404, want false")
 	}
 }
+
+// TestScrapeCacheCountersTotal asserts ScrapeCacheCounters surfaces the
+// cache_n/prompt_n pair as a typed-Unknown CacheSample (USAGE-04, D-10): both
+// present → Known with exact counts; an absent counter → that one Known=false
+// (never a fabricated 0); a 404 → the whole scrape unavailable. The ratio itself is
+// NOT computed here (Plan 03 owns it).
+func TestScrapeCacheCountersTotal(t *testing.T) {
+	bothBody := strings.Join([]string{
+		"# TYPE " + mPromptCacheTokensTotal + " counter",
+		mPromptCacheTokensTotal + " 4096",
+		"# TYPE " + mCacheTokensTotal + " counter",
+		mCacheTokensTotal + " 3072",
+	}, "\n")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/metrics" {
+			http.NotFound(w, r)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(bothBody))
+	}))
+	defer srv.Close()
+
+	cs, ok := ScrapeCacheCounters(srv.URL)
+	if !ok {
+		t.Fatalf("ScrapeCacheCounters ok=false on a 200 body")
+	}
+	if !cs.PromptKnown || cs.PromptN != 4096 {
+		t.Errorf("PromptN = %d (known=%v), want 4096 (known=true)", cs.PromptN, cs.PromptKnown)
+	}
+	if !cs.CacheKnown || cs.CacheN != 3072 {
+		t.Errorf("CacheN = %d (known=%v), want 3072 (known=true)", cs.CacheN, cs.CacheKnown)
+	}
+
+	// Only prompt_n present → cache_n Known=false, never a fabricated 0 (D-05).
+	onlyPrompt := "# TYPE " + mPromptCacheTokensTotal + " counter\n" + mPromptCacheTokensTotal + " 100\n"
+	pSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/metrics" {
+			http.NotFound(w, r)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(onlyPrompt))
+	}))
+	defer pSrv.Close()
+
+	cs2, ok2 := ScrapeCacheCounters(pSrv.URL)
+	if !ok2 {
+		t.Fatalf("ScrapeCacheCounters ok=false on a 200 body (a partial pair is still an available scrape)")
+	}
+	if !cs2.PromptKnown || cs2.PromptN != 100 {
+		t.Errorf("PromptN = %d (known=%v), want 100 (known=true)", cs2.PromptN, cs2.PromptKnown)
+	}
+	if cs2.CacheKnown {
+		t.Errorf("CacheKnown=true on an absent cache_n, want false (typed-Unknown, no fabricated 0)")
+	}
+	if cs2.CacheN != 0 {
+		t.Errorf("absent CacheN must be the zero value gated by CacheKnown=false, got %d", cs2.CacheN)
+	}
+
+	// Both absent → both Known=false (the whole pair unevaluable, but the scrape is available).
+	emptyBody := "# TYPE llamacpp:requests_processing gauge\nllamacpp:requests_processing 0\n"
+	eSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/metrics" {
+			http.NotFound(w, r)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(emptyBody))
+	}))
+	defer eSrv.Close()
+	cs3, ok3 := ScrapeCacheCounters(eSrv.URL)
+	if !ok3 || cs3.CacheKnown || cs3.PromptKnown {
+		t.Errorf("both-absent cache pair must be Known=false on an available scrape, got %+v ok=%v", cs3, ok3)
+	}
+
+	// A 404 /metrics (--metrics absent) → whole-scrape unavailable.
+	down := httptest.NewServer(http.HandlerFunc(http.NotFound))
+	defer down.Close()
+	if _, ok := ScrapeCacheCounters(down.URL); ok {
+		t.Errorf("ScrapeCacheCounters ok=true on a 404, want false (whole-scrape unavailable)")
+	}
+}
+
+// TestScrapeCacheCountersOversizedBodyUnavailable proves an over-cap /metrics body
+// is refused as UNAVAILABLE (same truncation guard as ScrapeCounters): a counter
+// line severed mid-value by the cap would mis-parse, so the whole sample is dropped
+// rather than folding a partial read (D-05).
+func TestScrapeCacheCountersOversizedBodyUnavailable(t *testing.T) {
+	var b strings.Builder
+	b.WriteString("# TYPE " + mPromptCacheTokensTotal + " counter\n")
+	b.WriteString(mPromptCacheTokensTotal + " 4096\n")
+	b.WriteString("# TYPE " + mCacheTokensTotal + " counter\n")
+	b.WriteString(mCacheTokensTotal + " 3072\n")
+	for b.Len() < 80<<10 {
+		b.WriteString("# llamacpp_padding_comment_line_to_exceed_the_scrape_body_cap\n")
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/metrics" {
+			http.NotFound(w, r)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(b.String()))
+	}))
+	defer srv.Close()
+
+	if _, ok := ScrapeCacheCounters(srv.URL); ok {
+		t.Errorf("ScrapeCacheCounters ok=true on an over-cap body, want false (truncation risk → unavailable)")
+	}
+}
+
+// TestCacheSampleRejectsNonFinite asserts the cache pair is read through the SAME
+// counterFromMap finiteness guard as the usage counters: a NaN/Inf/negative/over-cap
+// cache_n or prompt_n line degrades to Known=false (never a fabricated durable count),
+// so a garbage /metrics line can never corrupt the surfacing-layer ratio (D-05).
+func TestCacheSampleRejectsNonFinite(t *testing.T) {
+	for _, c := range []struct {
+		desc      string
+		line      string
+		wantKnown bool
+		wantN     uint64
+	}{
+		{"normal", mCacheTokensTotal + " 3072", true, 3072},
+		{"NaN", mCacheTokensTotal + " NaN", false, 0},
+		{"+Inf", mCacheTokensTotal + " +Inf", false, 0},
+		{"negative", mCacheTokensTotal + " -5", false, 0},
+	} {
+		t.Run(c.desc, func(t *testing.T) {
+			body := "# TYPE " + mCacheTokensTotal + " counter\n" + c.line + "\n"
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/metrics" {
+					http.NotFound(w, r)
+					return
+				}
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(body))
+			}))
+			defer srv.Close()
+			cs, ok := ScrapeCacheCounters(srv.URL)
+			if !ok {
+				t.Fatalf("ok=false on a 200 body")
+			}
+			if cs.CacheKnown != c.wantKnown || cs.CacheN != c.wantN {
+				t.Errorf("CacheN=%d known=%v, want %d known=%v", cs.CacheN, cs.CacheKnown, c.wantN, c.wantKnown)
+			}
+		})
+	}
+}
