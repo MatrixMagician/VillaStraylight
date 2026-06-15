@@ -27,6 +27,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/MatrixMagician/VillaStraylight/internal/agent"
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
 	"github.com/MatrixMagician/VillaStraylight/internal/inference"
@@ -649,5 +650,245 @@ func TestDownStackWarnsNotBlocks(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("expected a health finding for the down service; findings: %+v", r.Findings)
+	}
+}
+
+// --- Phase 28-01: coding-agent fold (SURF-02, D-06/D-07) ---
+
+// TestDoctorSchemaVersionIsTwo: the doctor --json contract self-version was bumped
+// append-only from 1→2 when the agent findings were folded in (this plan). The const
+// is the single source of truth — Aggregate stamps it on every Report.
+func TestDoctorSchemaVersionIsTwo(t *testing.T) {
+	r := Aggregate(newDoctorDeps())
+	if r.SchemaVersion != 2 {
+		t.Fatalf("Report.SchemaVersion = %d, want 2 (append-only bump for the agent fold)", r.SchemaVersion)
+	}
+}
+
+// TestAgentToolCallFindingSwitch is the offload-FAIL-dominates truth table for the
+// tool-call round-trip mapper (D-07 clone of residencyUnderLoadFinding): Pass → BLOCK/PASS,
+// Fail → BLOCK/FAIL+remediation, Warn → WARN/WARN+remediation (typed-Unknown, never a
+// false-green PASS).
+func TestAgentToolCallFindingSwitch(t *testing.T) {
+	cases := []struct {
+		name       string
+		in         inference.Verdict
+		wantTier   string
+		wantStatus string
+		wantRemed  bool
+	}{
+		{"pass", inference.Verdict{Status: inference.StatusPass, Detail: "round-trip completed"}, tierBlock, statusPass, false},
+		{"fail", inference.Verdict{Status: inference.StatusFail, Detail: "round-trip did not complete"}, tierBlock, statusFail, true},
+		{"warn", inference.Verdict{Status: inference.StatusWarn, Detail: "could not evaluate"}, tierWarn, statusWarn, true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			f := agentToolCallFinding(c.in)
+			if f.ID != "agent-tool-call" {
+				t.Errorf("ID = %q, want agent-tool-call", f.ID)
+			}
+			if f.Tier != c.wantTier || f.Status != c.wantStatus {
+				t.Errorf("(tier %s, status %s), want (%s, %s)", f.Tier, f.Status, c.wantTier, c.wantStatus)
+			}
+			if c.wantRemed && f.Remediation == "" {
+				t.Errorf("non-PASS finding has empty Remediation (D-11)")
+			}
+			if !c.wantRemed && f.Status == statusPass && f.Remediation != "" {
+				t.Errorf("PASS finding carries a Remediation %q", f.Remediation)
+			}
+		})
+	}
+}
+
+// TestAgentResidencyFindingSwitch is the same offload-FAIL-dominates truth table for the
+// agent under-load residency mapper (D-07 honesty dominance): a confident StatusFail is a
+// BLOCK-class FAIL that dominates a healthy-looking HTTP-200; an unevaluable signal → WARN.
+func TestAgentResidencyFindingSwitch(t *testing.T) {
+	cases := []struct {
+		name       string
+		in         inference.Verdict
+		wantTier   string
+		wantStatus string
+		wantRemed  bool
+	}{
+		{"pass", inference.Verdict{Status: inference.StatusPass, Detail: "coder resident under load"}, tierBlock, statusPass, false},
+		{"fail", inference.Verdict{Status: inference.StatusFail, Detail: "coder fell back to CPU under load"}, tierBlock, statusFail, true},
+		{"warn", inference.Verdict{Status: inference.StatusWarn, Detail: "could not evaluate"}, tierWarn, statusWarn, true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			f := agentResidencyFinding(c.in)
+			if f.ID != "agent-residency" {
+				t.Errorf("ID = %q, want agent-residency", f.ID)
+			}
+			if f.Tier != c.wantTier || f.Status != c.wantStatus {
+				t.Errorf("(tier %s, status %s), want (%s, %s)", f.Tier, f.Status, c.wantTier, c.wantStatus)
+			}
+			if c.wantRemed && f.Remediation == "" {
+				t.Errorf("non-PASS finding has empty Remediation (D-11)")
+			}
+		})
+	}
+}
+
+// TestAgentDriftFindingsMatrix is the drift-report → findings mapping matrix:
+//   - all clean → exactly ONE PASS finding.
+//   - BinaryDriftUnknown → typed-Unknown WARN (agent-binary-drift).
+//   - BinaryDrift → WARN + re-install remediation (agent-binary-drift).
+//   - BinaryAbsent → WARN + Phase-27 install remediation (agent-binary-drift).
+//   - ConfigDrift → WARN + review/re-render remediation (agent-config-drift).
+//   - ConfigAbsent ALONE → NO finding (first-run trigger, not drift).
+func TestAgentDriftFindingsMatrix(t *testing.T) {
+	hasID := func(fs []Finding, id string) (Finding, bool) {
+		for _, f := range fs {
+			if f.ID == id {
+				return f, true
+			}
+		}
+		return Finding{}, false
+	}
+
+	t.Run("clean", func(t *testing.T) {
+		fs := agentDriftFindings(agent.DriftReport{})
+		if len(fs) != 1 {
+			t.Fatalf("clean drift → %d findings, want exactly 1 PASS; %+v", len(fs), fs)
+		}
+		if fs[0].Status != statusPass {
+			t.Errorf("clean drift finding status = %s, want PASS", fs[0].Status)
+		}
+	})
+
+	t.Run("binary-drift-unknown", func(t *testing.T) {
+		fs := agentDriftFindings(agent.DriftReport{BinaryDriftUnknown: true, Reason: "not yet pinned"})
+		f, ok := hasID(fs, "agent-binary-drift")
+		if !ok || f.Status != statusWarn || f.Tier != tierWarn {
+			t.Fatalf("BinaryDriftUnknown → %+v, want a typed-Unknown WARN agent-binary-drift", fs)
+		}
+	})
+
+	t.Run("binary-drift", func(t *testing.T) {
+		fs := agentDriftFindings(agent.DriftReport{BinaryDrift: true, Reason: "checksum mismatch"})
+		f, ok := hasID(fs, "agent-binary-drift")
+		if !ok || f.Status != statusWarn || f.Remediation == "" {
+			t.Fatalf("BinaryDrift → %+v, want WARN agent-binary-drift with remediation", fs)
+		}
+	})
+
+	t.Run("binary-absent", func(t *testing.T) {
+		fs := agentDriftFindings(agent.DriftReport{BinaryAbsent: true, Reason: "not installed"})
+		f, ok := hasID(fs, "agent-binary-drift")
+		if !ok || f.Status != statusWarn || f.Remediation == "" {
+			t.Fatalf("BinaryAbsent → %+v, want WARN agent-binary-drift with install remediation", fs)
+		}
+	})
+
+	t.Run("config-drift", func(t *testing.T) {
+		fs := agentDriftFindings(agent.DriftReport{ConfigDrift: true, Reason: "edited crush.json"})
+		f, ok := hasID(fs, "agent-config-drift")
+		if !ok || f.Status != statusWarn || f.Remediation == "" {
+			t.Fatalf("ConfigDrift → %+v, want WARN agent-config-drift with remediation", fs)
+		}
+	})
+
+	t.Run("config-absent-alone-no-finding", func(t *testing.T) {
+		fs := agentDriftFindings(agent.DriftReport{ConfigAbsent: true, Reason: "first run"})
+		if _, ok := hasID(fs, "agent-config-drift"); ok {
+			t.Errorf("ConfigAbsent alone must emit NO config-drift finding (first-run trigger); %+v", fs)
+		}
+		// Binary is present + matched + config absent → no binary drift either, and the
+		// config-absent path is not drift, so there is no PASS-by-default for config.
+		if _, ok := hasID(fs, "agent-config-drift"); ok {
+			t.Errorf("unexpected config finding on the first-run absent path; %+v", fs)
+		}
+	})
+}
+
+// agentDoctorDeps extends memoryDoctorDeps with all three agent seams bound to healthy
+// defaults: a PASS tool-call verdict, a PASS residency verdict, and a clean drift report.
+func agentDoctorDeps() Deps {
+	d := memoryDoctorDeps()
+	d.AgentToolCall = func() inference.Verdict {
+		return inference.Verdict{Status: inference.StatusPass, Detail: "tool-call round-trip completed"}
+	}
+	d.AgentResidencyUnderLoad = func() inference.Verdict {
+		return inference.Verdict{Status: inference.StatusPass, Detail: "coder model resident under tool-call load"}
+	}
+	d.AgentDrift = func() agent.DriftReport { return agent.DriftReport{} }
+	return d
+}
+
+// TestAgentOffNoAgentFindings: with every agent Deps seam nil (the agent-off default),
+// Aggregate emits NO agent finding at all — never a PASS-by-default. This is the
+// agent-off byte-identical guard.
+func TestAgentOffNoAgentFindings(t *testing.T) {
+	r := Aggregate(newDoctorDeps())
+	for _, id := range []string{"agent-tool-call", "agent-residency", "agent-binary-drift", "agent-config-drift"} {
+		if hasFinding(r, id) {
+			t.Errorf("agent-off Aggregate emitted finding %q — agent Deps seams must be nil-safe (no PASS-by-default)", id)
+		}
+	}
+}
+
+// TestAgentToolCallFoldedFailRaisesOverall: a confident StatusFail tool-call verdict folds
+// worst-wins to Overall==FAIL (an agent FAIL dominates a healthy-looking stack — D-07).
+func TestAgentToolCallFoldedFailRaisesOverall(t *testing.T) {
+	d := agentDoctorDeps()
+	d.AgentToolCall = func() inference.Verdict {
+		return inference.Verdict{Status: inference.StatusFail, Detail: "the agent tool-call round-trip failed"}
+	}
+
+	r := Aggregate(d)
+	if r.Overall != "FAIL" {
+		t.Fatalf("Overall = %q, want FAIL (a confident agent tool-call FAIL must dominate)", r.Overall)
+	}
+	f, ok := findingByID(r, "agent-tool-call")
+	if !ok || f.Status != statusFail || f.Tier != tierBlock {
+		t.Errorf("agent-tool-call = %+v (found=%v), want a BLOCK-class FAIL", f, ok)
+	}
+}
+
+// TestAgentResidencyFoldedFailRaisesOverall: a confident StatusFail agent residency verdict
+// (the coder fell back to CPU under tool-call load) folds worst-wins to Overall==FAIL.
+func TestAgentResidencyFoldedFailRaisesOverall(t *testing.T) {
+	d := agentDoctorDeps()
+	d.AgentResidencyUnderLoad = func() inference.Verdict {
+		return inference.Verdict{Status: inference.StatusFail, Detail: "the coder model fell back to CPU under load"}
+	}
+
+	r := Aggregate(d)
+	if r.Overall != "FAIL" {
+		t.Fatalf("Overall = %q, want FAIL (a confident agent residency FAIL must dominate a health-200)", r.Overall)
+	}
+	f, ok := findingByID(r, "agent-residency")
+	if !ok || f.Status != statusFail || f.Tier != tierBlock {
+		t.Errorf("agent-residency = %+v (found=%v), want a BLOCK-class FAIL", f, ok)
+	}
+}
+
+// TestAgentDriftFoldedWarn: a non-nil AgentDrift seam reporting BinaryDrift folds the
+// drift findings worst-wins; the clean memory+agent stack drops to WARN (drift is a WARN,
+// never auto-corrected — D-14).
+func TestAgentDriftFoldedWarn(t *testing.T) {
+	d := agentDoctorDeps()
+	d.AgentDrift = func() agent.DriftReport {
+		return agent.DriftReport{BinaryDrift: true, Reason: "installed Crush binary checksum does not match the pinned policy"}
+	}
+
+	r := Aggregate(d)
+	if r.Overall != "WARN" {
+		t.Fatalf("Overall = %q, want WARN (binary drift folds to WARN, surfaced not auto-corrected)", r.Overall)
+	}
+	f, ok := findingByID(r, "agent-binary-drift")
+	if !ok || f.Status != statusWarn || f.Remediation == "" {
+		t.Errorf("agent-binary-drift = %+v (found=%v), want a WARN with remediation", f, ok)
+	}
+}
+
+// TestAgentCleanDriftPasses: a clean drift report (binary present+matched, config
+// present+matched) emits a single PASS agent-drift finding and does not raise Overall.
+func TestAgentCleanDriftPasses(t *testing.T) {
+	r := Aggregate(agentDoctorDeps())
+	if r.Overall != "PASS" {
+		t.Fatalf("Overall = %q, want PASS (healthy agent-on stack, clean drift)", r.Overall)
 	}
 }
