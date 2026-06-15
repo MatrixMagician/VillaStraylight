@@ -18,6 +18,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/MatrixMagician/VillaStraylight/internal/agent"
 	"github.com/MatrixMagician/VillaStraylight/internal/catalog"
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
@@ -135,6 +136,48 @@ func renderStatusTable(w io.Writer, r status.Report, withProvenance bool) {
 		}
 	}
 
+	// Coding-agent block (Phase-28 SURF-01): rendered ONLY when the agent is
+	// enabled (r.Coding != nil — the section is gated on cfg.AgentEnabled in the
+	// core). Each row degrades honestly: version/model/mode are omitted when their
+	// cfg field is unset; pin is the tri-state ("match"/"mismatch"/"unknown");
+	// residency is OMITTED when "" (typed-Unknown — never a guessed swap/shared);
+	// per-model coder usage is selected from r.Usage.Models keyed on the coder model
+	// id (honest empty state, never a fabricated 0); cache effectiveness shows the
+	// pct + raw ratio ONLY when proven, else "unavailable" — never a fabricated 0%.
+	if r.Coding != nil {
+		c := r.Coding
+		if c.Version != "" {
+			fmt.Fprintf(tw, "agent version\t%s\n", c.Version)
+		}
+		fmt.Fprintf(tw, "agent pin\t%s\n", c.PinMatch)
+		if c.Model != "" {
+			fmt.Fprintf(tw, "agent model\t%s\n", c.Model)
+		}
+		if c.Mode != "" {
+			fmt.Fprintf(tw, "agent mode\t%s\n", c.Mode)
+		}
+		// Residency is omitted when typed-Unknown (recomputed-from-envelope "") —
+		// never rendered as a guessed swap/shared.
+		if c.Residency != "" {
+			fmt.Fprintf(tw, "agent residency\t%s\n", c.Residency)
+		}
+		// Per-model coder usage (USAGE-03): select the coder model's cumulative
+		// totals out of the per-model usage store; honest empty state when absent.
+		if r.Usage != nil && c.Model != "" {
+			if m, ok := r.Usage.Models[c.Model]; ok {
+				fmt.Fprintf(tw, "agent usage %s\tprompt %d / generated %d (cumulative)\n",
+					m.Model, m.Prompt.Cumulative, m.Predicted.Cumulative)
+			}
+		}
+		// Cache effectiveness (USAGE-04): pct + raw ONLY when proven, else
+		// "unavailable" — never a fabricated 0%.
+		if c.CacheEffectivenessPct != nil {
+			fmt.Fprintf(tw, "agent cache\t%.1f%% (%d/%d)\n", *c.CacheEffectivenessPct, c.CacheN, c.PromptN)
+		} else {
+			fmt.Fprintf(tw, "agent cache\tunavailable\n")
+		}
+	}
+
 	fmt.Fprintf(tw, "\nSERVICE\tACTIVE\tHEALTH\tOFFLOAD\n")
 	for _, s := range r.Services {
 		// A service with no GPU offload (OffloadApplies=false, e.g. Open WebUI)
@@ -185,7 +228,7 @@ func liveStatusDeps() (*status.Deps, error) {
 		return nil, fmt.Errorf("resolve backend: %w", err)
 	}
 	endpoint := inference.NewContainerRunner(backend, inference.RunSpec{}).Endpoint()
-	return &status.Deps{
+	deps := &status.Deps{
 		LoadConfig: config.LoadVilla,
 		ModelFile:  liveModelFile,
 		ModelsDir:  modelsDir,
@@ -230,7 +273,92 @@ func liveStatusDeps() (*status.Deps, error) {
 		QdrantHealth:    liveQdrantHealth,
 		EmbedHealth:     liveEmbedHealth,
 		ReadRecallState: liveReadRecallState,
-	}, nil
+	}
+	// Coding-agent seams (Phase-28 D-01..D-04): wired ONLY when the agent is
+	// PERSISTED-enabled (cfg.AgentEnabled). With the agent off the seams stay nil so
+	// the core leaves report.Coding nil (the omitempty key is absent — coding-off
+	// --json is byte-identical to today except schema_version). The dashboard reuses
+	// *liveStatusDeps() verbatim, so the Agent panel is fed for free.
+	if cfg.AgentEnabled {
+		deps.AgentPinMatch = liveAgentPinMatch
+		deps.AgentResidency = liveAgentResidency
+		deps.AgentCache = func() (uint64, uint64, bool) { return liveAgentCache(endpoint) }
+	}
+	return deps, nil
+}
+
+// liveAgentPinMatch is the tri-state policy-pin compare seam (D-03): it hashes the
+// installed villa-owned Crush binary and compares it to the pinned policy
+// BinarySHA256 via the SAME pure agent.DetectDrift gate `villa code` uses, mapping
+// the report to "match" / "mismatch" / "unknown". Binary absent OR the policy hash
+// not yet pinned → "unknown" (typed-Unknown WARN, never a false confident state).
+// It consults ONLY the binary signal (drift's config branch is irrelevant to the
+// pin), passing ConfigPresent=true with an empty rendered ref so no false config
+// drift is computed. No backend marker literal touched (TestSeamGrepGate).
+func liveAgentPinMatch() string {
+	installedSHA, present, err := hashFileSHA256(agentBinPath())
+	if err != nil {
+		return status.PinUnknown // could not read the binary → typed-Unknown
+	}
+	policy := agent.LoadCrushPolicy()
+	asset, ok := policy.Assets["linux/amd64"]
+	if !ok {
+		return status.PinUnknown
+	}
+	rep := agent.DetectDrift(agent.DriftInput{
+		BinaryPresent:   present,
+		InstalledBinSHA: installedSHA,
+		PolicyBinSHA:    asset.BinarySHA256,
+		// Config branch is irrelevant to the pin compare: mark present + identical
+		// rendered ref so DetectDrift computes NO config drift (only the binary signal).
+		ConfigPresent:  true,
+		OnDiskConfig:   nil,
+		RenderedConfig: nil,
+	})
+	switch {
+	case rep.BinaryAbsent || rep.BinaryDriftUnknown:
+		return status.PinUnknown // binary absent / hash not yet pinned → typed-Unknown
+	case rep.BinaryDrift:
+		return status.PinMismatch // confident mismatch
+	default:
+		return status.PinMatch // installed hash equals the pinned policy hash
+	}
+}
+
+// liveAgentResidency is the DERIVED residency seam (D-03/SC1): it RECOMPUTES the
+// coder fit's residency from the live memory envelope, cloning liveWeightBytes'
+// shape (catalog.Load + detect.Probe + recommend.Pick). It returns "" (typed-
+// Unknown, the residency key is omitted) when the catalog load fails OR the live
+// envelope is unevaluable (profile.UsableEnvelopeBytes.Known == false); otherwise
+// the DERIVED recommend.Pick(...).Coder.Residency (the recommend.ResidencySwap/
+// ResidencyShared CONSTANT — never a re-typed "swap"/"shared" literal). It is NEVER
+// read from cfg (VillaConfig has no residency field) and NEVER fabricated.
+func liveAgentResidency() string {
+	cat, _, err := catalog.Load(modelCatalogPath)
+	if err != nil {
+		return "" // catalog unavailable → typed-Unknown (omitted)
+	}
+	profile := detect.Probe()
+	if !profile.UsableEnvelopeBytes.Known {
+		return "" // unevaluable envelope → typed-Unknown, NEVER a fabricated swap/shared
+	}
+	rec := recommend.Pick(profile, cat, recommend.Overrides{}, recommend.MemoryInputs{})
+	return rec.Coder.Residency
+}
+
+// liveAgentCache is the cache-effectiveness counter seam (D-10): it REUSES the
+// Plan-02 metrics.ScrapeCacheCounters primitive over the SAME bounded /metrics
+// scrape (no new HTTP request / endpoint literal). It returns (cacheN, promptN,
+// ok) with ok=true ONLY when BOTH counters are Known; an absent/unparseable scrape
+// or either counter Unknown → ok=false so the surface degrades typed-Unknown
+// (gray badge / "unavailable" — never a fabricated 0%). The Plan-03 ratio gate
+// (promptN>0) lives in the status core's codingInfo populator.
+func liveAgentCache(endpoint string) (uint64, uint64, bool) {
+	sample, ok := metrics.ScrapeCacheCounters(endpoint)
+	if !ok || !sample.CacheKnown || !sample.PromptKnown {
+		return 0, 0, false // typed-Unknown, never a fabricated 0%
+	}
+	return sample.CacheN, sample.PromptN, true
 }
 
 // liveReadUsage loads the cumulative-usage store READ-ONLY (D-07): it wires a

@@ -88,5 +88,16 @@
   "image": "docker.io/kyuz0/amd-strix-halo-toolboxes:vulkan-radv@sha256:9a74e555c45864352a4077528836988d448e9f030fbab9f7376ea1c603ac7aad",
   "rocm_readiness": "unknown",
   "model": "qwen3",
+  "coding": {
+    "enabled": true,
+    "version": "v0.76.0",
+    "pin_match": "match",
+    "model": "qwen3-coder",
+    "mode": "coding",
+    "residency": "swap",
+    "cache_effectiveness_pct": 42,
+    "cache_n": 84,
+    "prompt_n": 200
+  },
   "schema_version": 4
 }

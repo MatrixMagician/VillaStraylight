@@ -16,6 +16,7 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/MatrixMagician/VillaStraylight/internal/agent"
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
 	"github.com/MatrixMagician/VillaStraylight/internal/inference"
@@ -148,6 +149,17 @@ type Report struct {
 	// (append-only; nothing above moved). Part of the v3 bump.
 	Memory *MemoryInfo `json:"memory,omitempty"`
 
+	// Coding is the v1.4 coding-agent summary (Phase-28 D-01..D-04): the active
+	// agent identity (version/model/mode from cfg, the single source of truth),
+	// the tri-state policy-pin match, the DERIVED residency mode (recomputed at
+	// status time from the live memory envelope — NEVER persisted), and the
+	// cache-effectiveness ratio inputs. Like Memory it is a *CodingInfo +
+	// omitempty so an agent-OFF install OMITS the key entirely — with the agent
+	// off the v4 contract differs from v3 ONLY in schema_version (D-02 hidden-
+	// until-data). Tail-appended above SchemaVersion (append-only; nothing above
+	// moved). Part of the v4 bump — the phase's ONLY contract change.
+	Coding *CodingInfo `json:"coding,omitempty"`
+
 	// SchemaVersion is the Report contract self-version (D-07). It MUST stay the
 	// LAST tagged field (append-only; new tagged fields go above it, the unexported
 	// err stays after it and never serializes).
@@ -165,10 +177,13 @@ type Report struct {
 // field (Usage) above SchemaVersion. Version 3 (Phase-23, D-01/D-02/D-04)
 // reclassifies the memory-service rows as non-GPU rows with their OWN
 // per-service health (the false-green fix) and tail-appends the Memory section
-// (*MemoryInfo, omitted when memory is off). It is itself a tail-appended
-// additive marker (D-07); bumped on any additive change to the Report --json
-// contract.
-const reportSchemaVersion = 3
+// (*MemoryInfo, omitted when memory is off). Version 4 (Phase-28, D-01/D-02/D-04)
+// tail-appends the coding-agent section (*CodingInfo, omitted when the agent is
+// off) ABOVE SchemaVersion — the v1.4 milestone's SINGLE contract evolution;
+// with the agent off the v4 output differs from v3 ONLY in schema_version. It is
+// itself a tail-appended additive marker (D-07); bumped on any additive change to
+// the Report --json contract.
+const reportSchemaVersion = 4
 
 // MemoryInfo is the v1.3 memory-stack summary section of the Report (Phase-23
 // D-02). EmbeddingModel/EmbeddingDim are the ACTIVE configured identity
@@ -189,6 +204,51 @@ type MemoryInfo struct {
 	LastIndexCompletedAt string `json:"last_index_completed_at,omitempty"`
 	EmbeddingSkew        string `json:"embedding_skew,omitempty"`
 }
+
+// CodingInfo is the v1.4 coding-agent summary section of the Report (Phase-28
+// D-01..D-04). It clones the MemoryInfo sidecar idiom (snake_case + omitempty
+// tails) and is built ONLY when the agent is enabled (cfg.AgentEnabled), so its
+// Enabled field is always true. The field set is LOCKED (D-03):
+//
+//   - Version/Model/Mode are the ACTIVE configured identity from cfg (the single
+//     source of truth) — omitempty drops an unset field (typed-Unknown, never a
+//     fabricated identity).
+//   - PinMatch is a TRI-STATE string ("match"/"mismatch"/"unknown") — NOT a bare
+//     bool: the policy/binary comparison degrades to "unknown" when it cannot be
+//     made (mirrors ROCmReadinessIndicator + the Memory skew idiom). The UI-SPEC
+//     pin badge maps it directly. It is NOT omitempty — the tri-state always
+//     surfaces so an unevaluable pin is honestly "unknown", never a silent absence.
+//   - Residency ("swap"/"shared") is DERIVED (recommend.CoderFit.Residency,
+//     recommend.ResidencySwap/ResidencyShared) and RECOMPUTED at status time from
+//     the live memory envelope via the AgentResidency seam — NEVER read from cfg
+//     (VillaConfig has no residency field) and NEVER fabricated: an unevaluable
+//     envelope leaves it "" (omitted by omitempty), never a guessed swap/shared.
+//   - CacheEffectivenessPct is *float64 + omitempty (nil-on-Unknown, mirroring
+//     GenTokensPerSec): set ONLY when both cache_n/prompt_n are Known AND
+//     prompt_n>0 — otherwise nil so the surface shows a gray Unknown badge, never
+//     a fabricated 0%. CacheN/PromptN are the raw ratio inputs (omitted when
+//     Unknown).
+type CodingInfo struct {
+	Enabled               bool     `json:"enabled"`
+	Version               string   `json:"version,omitempty"`
+	PinMatch              string   `json:"pin_match"`
+	Model                 string   `json:"model,omitempty"`
+	Mode                  string   `json:"mode,omitempty"`
+	Residency             string   `json:"residency,omitempty"`
+	CacheEffectivenessPct *float64 `json:"cache_effectiveness_pct,omitempty"`
+	CacheN                uint64   `json:"cache_n,omitempty"`
+	PromptN               uint64   `json:"prompt_n,omitempty"`
+}
+
+// Pin-match tri-state tokens (D-03). The comparison degrades to PinUnknown when
+// the policy/binary hashes cannot be compared — never a fabricated confident
+// match/mismatch (the typed-Unknown convention; the UI-SPEC pin badge maps these
+// directly).
+const (
+	PinMatch    = "match"
+	PinMismatch = "mismatch"
+	PinUnknown  = "unknown"
+)
 
 // ROCmReadinessIndicator is the tri-state surfaced from the detect rocm_readiness
 // sub-tree. It is a string enum so the --json contract is stable and the dashboard
@@ -315,6 +375,33 @@ type Deps struct {
 	// Run then reports RecallState "unknown" with no fabricated counts. A nil
 	// seam is treated the same (Run guards it).
 	ReadRecallState func() *recall.State
+
+	// --- Coding-agent seams (Phase-28 D-01..D-04). All nil-safe: a nil seam
+	// degrades to typed-Unknown (no fabricated value), mirroring the
+	// ReadUsage/ReadRecallState contract. They are consulted ONLY when the agent
+	// is enabled (Run gates on cfg.AgentEnabled).
+
+	// AgentPinMatch is the tri-state policy-pin compare seam (D-03): the installed
+	// villa-owned Crush binary SHA-256 vs the pinned policy hash → "match" /
+	// "mismatch" / "unknown" (the unevaluable case: binary absent, or the policy
+	// hash not yet pinned). A nil seam → "unknown". internal/status stays free of
+	// filesystem/hash coupling; status_test.go stubs it.
+	AgentPinMatch func() string
+
+	// AgentResidency is the DERIVED residency seam (D-03/SC1): it RECOMPUTES the
+	// coder fit's residency from the live memory envelope
+	// (recommend.Pick(...).Coder.Residency → recommend.ResidencySwap/ResidencyShared)
+	// and returns "" (typed-Unknown) when the envelope is unevaluable. It is NEVER
+	// read from cfg (VillaConfig has no residency field) and NEVER fabricated. A nil
+	// seam → "" (the residency key is omitted), never a guessed swap/shared.
+	AgentResidency func() string
+
+	// AgentCache is the cache-effectiveness counter seam (D-10): it reuses the
+	// Plan-02 metrics.ScrapeCacheCounters primitive over the live /metrics scrape.
+	// It returns (cacheN, promptN, ok) where ok is false on an absent/unparseable
+	// scrape — Run then leaves the ratio nil + counts omitted (typed-Unknown, never
+	// a fabricated 0%). A nil seam is treated as ok=false (Run guards it).
+	AgentCache func() (cacheN uint64, promptN uint64, ok bool)
 }
 
 // Errored returns the synthetic active-state token Run records when `systemctl
@@ -408,6 +495,16 @@ func Run(d Deps) Report {
 	// store ⇒ "unknown" with NO fabricated counts/timestamps.
 	if cfg.MemoryEnabled {
 		report.Memory = memoryInfo(cfg, d.ReadRecallState)
+	}
+	// Coding-agent section (Phase-28 D-01/D-02): populated ONLY when the agent is
+	// enabled — an agent-off report carries Coding == nil so the omitempty key is
+	// absent and the v4 contract differs from v3 only in schema_version (D-02).
+	// The identity (version/model/mode) comes from cfg (single source of truth);
+	// pin/residency/cache degrade typed-Unknown via their seams: a nil seam or an
+	// unevaluable signal yields "unknown" pin / omitted residency / omitted cache —
+	// NEVER a fabricated match/swap/0%.
+	if cfg.AgentEnabled {
+		report.Coding = codingInfo(cfg, d.AgentPinMatch, d.AgentResidency, d.AgentCache)
 	}
 
 	weight := d.WeightBytes(cfg)
@@ -560,6 +657,63 @@ func memoryInfo(cfg config.VillaConfig, readState func() *recall.State) *MemoryI
 		mi.EmbeddingSkew = "mismatch"
 	}
 	return mi
+}
+
+// codingInfo assembles the Report's Coding section from the configured agent
+// identity and the three nil-safe agent seams (Phase-28 D-01..D-04). It clones
+// memoryInfo's typed-Unknown discipline:
+//
+//   - Enabled is always true (the section is built ONLY when cfg.AgentEnabled).
+//   - Version is the pinned Crush policy version (agent.LoadCrushPolicy() — a pure
+//     embedded-bytes read, no host I/O) — omitted by omitempty if empty.
+//   - Model is cfg.CoderModel; Mode is "coding" when cfg.CodingMode is on, else ""
+//     (omitted) — both from cfg, the single source of truth (NEVER fabricated).
+//   - PinMatch is the tri-state from the pin seam: a nil seam OR an empty return
+//     degrades to PinUnknown — never a fabricated confident match/mismatch.
+//   - Residency is the DERIVED value from the residency seam (recomputed from the
+//     live envelope): "" when the seam is nil or the envelope is unevaluable
+//     (omitted by omitempty) — NEVER a guessed swap/shared, NEVER read from cfg.
+//   - Cache: the pct is set ONLY when the cache seam reports ok AND both counts are
+//     usable AND promptN>0; otherwise the pct stays nil and the counts are omitted
+//     — never a fabricated 0%.
+func codingInfo(
+	cfg config.VillaConfig,
+	pinMatch func() string,
+	residency func() string,
+	cache func() (uint64, uint64, bool),
+) *CodingInfo {
+	ci := &CodingInfo{
+		Enabled:  true,
+		Version:  agent.LoadCrushPolicy().Version,
+		Model:    cfg.CoderModel,
+		PinMatch: PinUnknown,
+	}
+	if cfg.CodingMode {
+		ci.Mode = "coding"
+	}
+	// Tri-state pin compare: a nil seam or an empty return is typed-Unknown.
+	if pinMatch != nil {
+		if pm := pinMatch(); pm != "" {
+			ci.PinMatch = pm
+		}
+	}
+	// Derived residency: recomputed from the live envelope by the seam. "" stays ""
+	// (omitted) — never a fabricated swap/shared.
+	if residency != nil {
+		ci.Residency = residency()
+	}
+	// Cache effectiveness: the pct is shown ONLY when the scrape is usable AND
+	// promptN>0 (D-10). Otherwise pct stays nil + counts omitted (gray Unknown
+	// badge / "unavailable" — never a fabricated 0%).
+	if cache != nil {
+		if cacheN, promptN, ok := cache(); ok && promptN > 0 {
+			ci.CacheN = cacheN
+			ci.PromptN = promptN
+			pct := (float64(cacheN) / float64(promptN)) * 100.0
+			ci.CacheEffectivenessPct = &pct
+		}
+	}
+	return ci
 }
 
 // Err exposes the load/render error Run encountered, if any. Run returns a Report
