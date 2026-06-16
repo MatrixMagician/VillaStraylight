@@ -4,8 +4,8 @@ milestone: v1.4
 milestone_name: Coding Agent
 status: Awaiting next milestone
 stopped_at: Completed 28-03-PLAN.md
-last_updated: "2026-06-15T15:07:50.350Z"
-last_activity: 2026-06-15 — Milestone v1.4 completed and archived
+last_updated: "2026-06-16T00:00:00.000Z"
+last_activity: 2026-06-16 — Deferred-item audit: 27-04 confirmed already RESOLVED in v1.4 (stale "Open" corrected)
 progress:
   total_phases: 5
   completed_phases: 5
@@ -243,7 +243,7 @@ Items acknowledged at v1.4 milestone close (2026-06-15, from `milestones/v1.4-MI
 
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
-| bug | 27-04: `villa install` reverts a persisted `backend=rocm` to Vulkan (`install.go cfg.Backend = rec.Backend` + `recommend.Pick` always defaults Vulkan) — config-is-source-of-truth violation; reversible via `villa backend set rocm`; track as v1.5/maintenance fix | Open | v1.4 close |
+| bug | 27-04: `villa install` reverts a persisted `backend=rocm` to Vulkan (`install.go cfg.Backend = rec.Backend` + `recommend.Pick` always defaults Vulkan) — config-is-source-of-truth violation; reversible via `villa backend set rocm` | RESOLVED (commit `4424f13`, in v1.4; guard at `install.go:444-446` via `inference.IsROCmFamily`, covered by `TestInstallPreservesPersistedROCmBackend` 4/4 incl. `--coding-agent` repro; audit "Open" was stale — fix committed same day as v1.4 tag, after audit snapshot) | v1.4 close |
 | process | Phase 28 has no `28-VALIDATION.md` (only v1.4 phase without one) — coverage real via 28-VERIFICATION 5/5 + green suites; close via `/gsd-validate-phase 28` (expected State-B reconstruct) | Open | v1.4 close |
 | artifact | Pre-close audit: Phase 28 `28-UAT.md` status `passed`, 0 pending scenarios (benign — flagged only because the UAT artifact exists) | Documented | v1.4 close |
 | artifact | Pre-close audit: quick task `260615-ipn` (crush.json drift-guard) status `unknown` — RESOLVED in commit 6eda867 (`TestCrushProviderPortMatchesInferenceServerPort`); frontmatter tag lag only | Documented | v1.4 close |
