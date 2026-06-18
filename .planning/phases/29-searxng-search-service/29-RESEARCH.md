@@ -375,21 +375,21 @@ var resp struct {
 | A3 | SearXNG needs little/no writable volume for a private JSON instance | Runtime State Inventory | If a cache/state dir is needed, planner adds a `.volume` unit (cheap clone). |
 | A4 | A 0600 route for the secret_key is achievable within v1.5 scope | Pitfall 2/3 | If no clean 0600 route exists, the secret may land in a 0644 unit/env — must be documented as a known limitation rather than silently exposed. |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Where does the generated secret_key live and when is it regenerated?**
    - What we know: must be config-derived for a stable golden; the repo keeps secrets at 0600 (config.toml), units at 0644.
-   - What's unclear: persist in config.toml and inject via env, vs a separate 0600 settings file; regenerate-on-first-opt-in vs rotate.
-   - Recommendation: generate once at opt-in via `crypto/rand`, persist in config.toml (0600), inject via `$SEARXNG_SECRET`; never regenerate on plain re-install.
+   - What was unclear: persist in config.toml and inject via env, vs a separate 0600 settings file; regenerate-on-first-opt-in vs rotate.
+   - **RESOLVED:** Generate the secret ONCE at first opt-in via `crypto/rand`, persist in `config.toml` (0600); never regenerate on plain re-install. The secret reaches the container via a Quadlet **`EnvironmentFile=<0600 path>`** directive — a dedicated `searxng.env` file (`SEARXNG_SECRET=<value>`) written at mode 0600 by Plan 02's `WriteSearxngSecretEnv` into the villa searxng config dir, referenced by the `.container` unit by PATH only. An inline `Environment=SEARXNG_SECRET=<value>` literal is REJECTED: the `.container` unit is written 0644 (world-readable) by `WriteUnits`, so an inline value would leak the secret into a world-readable file (Pitfall 2). The render path no longer reads the secret at all; the unit references only `SearXNGSecretEnvFilePath()`. (Plan 01 declares the path/contract; Plan 02 writes it at 0600; Plan 03 generates-and-persists then writes it before service start.)
 
 2. **Exact `format=json` readiness PASS condition.**
    - What we know: must be a real query, not health-200; transient single-engine failures are normal (`unresponsive_engines`).
-   - What's unclear: require ≥1 result, vs require parseable structure + non-empty `number_of_results`, vs tolerate empty results if JSON is well-formed.
-   - Recommendation: require parseable JSON with `results`/`number_of_results` keys present AND ≥1 result for a well-known probe query, with a short retry to absorb cold-start engine timeouts.
+   - What was unclear: require ≥1 result, vs require parseable structure + non-empty `number_of_results`, vs tolerate empty results if JSON is well-formed.
+   - **RESOLVED:** Require parseable JSON with `results`/`number_of_results` keys present AND ≥1 result for a well-known probe query, with a short cold-start retry to absorb transient engine timeouts. An HTTP 200 carrying `{"results": []}` (all upstream engines timed out) is NOT healthy and FAILs with remediation. (Implemented in Plan 03 `evalSearxngProof`.)
 
 3. **Does the settings.yml mount need a named volume or a host-dir bind?**
    - What we know: `:Z` private SELinux label discipline is established; atomic-rename writes interact badly with single-file binds.
-   - Recommendation: mount a villa-owned config DIRECTORY (`%h/.config/villa/searxng:/etc/searxng:ro,Z`), write settings.yml into it via the atomicWrite clone.
+   - **RESOLVED:** Mount a villa-owned config DIRECTORY (`%h/.config/villa/searxng:/etc/searxng:ro,Z`), writing settings.yml (and the secret env file) into it via the atomicWrite clone. No writable searxng `.volume` is rendered — a private JSON-only instance (`limiter:false`, `image_proxy:false`) is stateless, so SC#1's `/.volume` clause is intentionally N/A (Plan 01 `<plan_decisions>`).
 
 ## Environment Availability
 
