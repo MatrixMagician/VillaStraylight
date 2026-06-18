@@ -30,6 +30,12 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 		QdrantPort:     6333,
 		EmbedAddr:      "villa-embed",
 		EmbedPort:      8080,
+		// Web-search fields (v1.5, SRCH-01): populate with the inert defaults so the
+		// full-literal equality assertion survives the schema extension (mirrors the
+		// memory-field treatment above). normalizeVilla self-heals these on load.
+		WebSearchEnabled: false,
+		SearxngAddr:      "villa-searxng",
+		SearxngPort:      8080,
 	}
 	if err := SaveVillaTo(dir, want); err != nil {
 		t.Fatalf("SaveVillaTo: %v", err)
@@ -650,5 +656,154 @@ func TestAgentEnabledNotSelfHealed(t *testing.T) {
 	got := normalizeVilla(VillaConfig{})
 	if got.AgentEnabled {
 		t.Errorf("normalizeVilla widened AgentEnabled to true, want false (not self-healed, D-01)")
+	}
+}
+
+// TestDefaultConfigWebSearchFields asserts defaultConfig() seeds the web-search defaults
+// directly (the SINGLE home of those literals, SRCH-01), independent of file I/O.
+// WebSearchEnabled defaults false; the addr/port are the container-DNS-only endpoint;
+// the secret has no default (generated at opt-in).
+func TestDefaultConfigWebSearchFields(t *testing.T) {
+	d := defaultConfig()
+	if d.WebSearchEnabled {
+		t.Errorf("defaultConfig() WebSearchEnabled = true, want false (default-OFF)")
+	}
+	if d.SearxngAddr != "villa-searxng" || d.SearxngPort != 8080 {
+		t.Errorf("default searxng endpoint = {%q, %d}, want {villa-searxng, 8080} (container-DNS only)",
+			d.SearxngAddr, d.SearxngPort)
+	}
+	if d.SearxngSecret != "" {
+		t.Errorf("default SearxngSecret = %q, want empty (generated at opt-in, never a hardcoded default)", d.SearxngSecret)
+	}
+}
+
+// TestWebSearchSaveOmitsKeysWhenDisabled is the web-search (v1.5, SC#4/PRIV-07) twin of
+// the memory/coding omit-when-off tests: on a non-web-search install a save-bearing
+// command must NOT introduce any web-search key on disk, even though the in-memory struct
+// carries non-zero searxng defaults. marshalVilla zeroes the searxng fields when disabled
+// so the ,omitempty/,omitzero tags drop all four keys. When web search is ON, every key
+// is written and round-trips.
+func TestWebSearchSaveOmitsKeysWhenDisabled(t *testing.T) {
+	webKeys := []string{"web_search_enabled", "searxng_addr", "searxng_port", "searxng_secret"}
+
+	// Web search OFF: a config seeded from typed defaults (non-zero searxng fields). Seed a
+	// secret too, to prove the off-path zeroing is the gate (not mere absence).
+	off := DefaultVillaConfig() // WebSearchEnabled == false, searxng fields at defaults
+	off.Model = "qwen3-35b-a3b-moe-64"
+	off.SearxngSecret = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef0"
+	dirOff := filepath.Join(t.TempDir(), "villa")
+	if err := SaveVillaTo(dirOff, off); err != nil {
+		t.Fatalf("SaveVillaTo(off): %v", err)
+	}
+	dataOff, err := os.ReadFile(filepath.Join(dirOff, "config.toml"))
+	if err != nil {
+		t.Fatalf("read off config: %v", err)
+	}
+	for _, k := range webKeys {
+		if strings.Contains(string(dataOff), k) {
+			t.Errorf("web-search-off save wrote web-search key %q (SC#4 byte-identical break):\n%s", k, dataOff)
+		}
+	}
+	// The secret VALUE must never appear in the off config (it is zeroed before marshal).
+	if strings.Contains(string(dataOff), "deadbeef") {
+		t.Errorf("web-search-off save leaked the secret value into config.toml:\n%s", dataOff)
+	}
+
+	// Web search ON: opting in must persist the full searxng contract.
+	on := DefaultVillaConfig()
+	on.Model = "qwen3-35b-a3b-moe-64"
+	on.WebSearchEnabled = true
+	on.SearxngSecret = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef0"
+	dirOn := filepath.Join(t.TempDir(), "villa")
+	if err := SaveVillaTo(dirOn, on); err != nil {
+		t.Fatalf("SaveVillaTo(on): %v", err)
+	}
+	dataOn, err := os.ReadFile(filepath.Join(dirOn, "config.toml"))
+	if err != nil {
+		t.Fatalf("read on config: %v", err)
+	}
+	for _, k := range webKeys {
+		if !strings.Contains(string(dataOn), k) {
+			t.Errorf("web-search-on save omitted web-search key %q (opt-in must persist the full contract):\n%s", k, dataOn)
+		}
+	}
+
+	// Opting in then saving must round-trip back to an equal struct.
+	got, err := LoadVillaFrom(dirOn)
+	if err != nil {
+		t.Fatalf("LoadVillaFrom(on): %v", err)
+	}
+	if got != on {
+		t.Errorf("web-search-on round-trip mismatch:\n got %+v\nwant %+v", got, on)
+	}
+}
+
+// TestWebSearchNormalizeSelfHeal asserts normalizeVilla fills a zero SearxngPort and an
+// empty SearxngAddr from defaultConfig() (mirrors TestNormalizeMemorySelfHeal) while NEVER
+// self-healing WebSearchEnabled (a deliberate bool) or SearxngSecret (a generated secret
+// with no default). The addr fill only ever yields the container-DNS name (PRIV-01).
+func TestWebSearchNormalizeSelfHeal(t *testing.T) {
+	got := normalizeVilla(VillaConfig{WebSearchEnabled: true})
+	if !got.WebSearchEnabled {
+		t.Errorf("WebSearchEnabled = false, want true (explicit opt-in must survive)")
+	}
+	if got.SearxngAddr != "villa-searxng" {
+		t.Errorf("empty SearxngAddr self-heal = %q, want container-DNS villa-searxng (never a routable bind)", got.SearxngAddr)
+	}
+	if got.SearxngPort != 8080 {
+		t.Errorf("zeroed SearxngPort self-heal = %d, want 8080", got.SearxngPort)
+	}
+	if got.SearxngSecret != "" {
+		t.Errorf("SearxngSecret was self-healed to %q, want empty (a generated secret has no default)", got.SearxngSecret)
+	}
+}
+
+// TestWebSearchEnabledNotSelfHealed asserts normalizeVilla does NOT widen WebSearchEnabled
+// (like MemoryEnabled / CodingMode / AgentEnabled, false is a valid explicit choice).
+func TestWebSearchEnabledNotSelfHealed(t *testing.T) {
+	got := normalizeVilla(VillaConfig{})
+	if got.WebSearchEnabled {
+		t.Errorf("normalizeVilla widened WebSearchEnabled to true, want false (not self-healed)")
+	}
+}
+
+// TestGenerateSearxngSecret asserts the secret generator returns a non-empty,
+// high-entropy hex string from crypto/rand, two calls differ, and it never panics (V6).
+func TestGenerateSearxngSecret(t *testing.T) {
+	a, err := GenerateSearxngSecret()
+	if err != nil {
+		t.Fatalf("GenerateSearxngSecret: %v", err)
+	}
+	if len(a) != 64 {
+		t.Errorf("secret length = %d, want 64 hex chars (32 random bytes)", len(a))
+	}
+	for _, r := range a {
+		if !strings.ContainsRune("0123456789abcdef", r) {
+			t.Errorf("secret %q contains a non-hex rune %q (crypto/rand hex-encode expected)", a, r)
+		}
+	}
+	b, err := GenerateSearxngSecret()
+	if err != nil {
+		t.Fatalf("GenerateSearxngSecret (2nd): %v", err)
+	}
+	if a == b {
+		t.Errorf("two GenerateSearxngSecret calls returned the same value %q — not high-entropy", a)
+	}
+}
+
+// TestGenerateSearxngSecretUsesCryptoRand is a source-level guard (V6): the generator
+// MUST import crypto/rand and MUST NOT import math/rand. A regression that swaps the
+// source is caught here in addition to the behavioral test above.
+func TestGenerateSearxngSecretUsesCryptoRand(t *testing.T) {
+	data, err := os.ReadFile("villaconfig.go")
+	if err != nil {
+		t.Fatalf("read villaconfig.go: %v", err)
+	}
+	src := string(data)
+	if !strings.Contains(src, `"crypto/rand"`) {
+		t.Errorf("villaconfig.go must import crypto/rand for GenerateSearxngSecret (V6)")
+	}
+	if strings.Contains(src, `"math/rand"`) {
+		t.Errorf("villaconfig.go must NOT import math/rand — the secret must be cryptographically random (V6)")
 	}
 }

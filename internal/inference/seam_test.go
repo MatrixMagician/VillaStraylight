@@ -122,9 +122,16 @@ func TestSeamGrepGate(t *testing.T) {
 		// GPU-backend token. The two docker.io/ literals would trip the "container
 		// image literal" regex without this allowlist; it is extended in the SAME
 		// commit as the consts, mirroring the 12-02 ROCm-tag same-commit precedent.
+		// orchestrate/searxng.go (Phase-29 SRCH-01): the villa-searxng MANAGED-SERVICE
+		// image literal (ghcr.io/searxng/searxng@sha256:…) lives here, the SAME category
+		// as openWebUIImage / qdrantImage — NOT a GPU-backend token. The ghcr.io/ literal
+		// would trip the "container image literal" regex without this allowlist; it is
+		// extended in the SAME commit as the const, mirroring the orchestrate/memory.go
+		// precedent (Pitfall 5).
 		return strings.HasPrefix(rel, "inference/") ||
 			rel == "detect/gpu_amd.go" ||
-			rel == "orchestrate/memory.go"
+			rel == "orchestrate/memory.go" ||
+			rel == "orchestrate/searxng.go"
 	}
 
 	err := filepath.Walk(internalRoot, func(path string, info os.FileInfo, err error) error {
