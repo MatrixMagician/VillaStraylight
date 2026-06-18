@@ -5,10 +5,10 @@ milestone_name: Web Search
 current_phase: 30
 current_phase_name: OWUI Native-Search Wiring
 status: ready to plan
-stopped_at: Phase 29 complete (on-hardware UAT PASSED — live format=json returned 10 results, no host port; SECURITY 14/14 closed); ready to plan Phase 30
-last_updated: "2026-06-18T22:25:00.000Z"
+stopped_at: Phase 30 context gathered
+last_updated: "2026-06-18T21:36:40.100Z"
 last_activity: 2026-06-18
-last_activity_desc: Phase 29 complete (UAT + security verified), transitioned to Phase 30
+last_activity_desc: Phase 29 complete (on-hardware UAT PASSED, security 14/14 closed), transitioned to Phase 30
 progress:
   total_phases: 6
   completed_phases: 1
@@ -242,9 +242,9 @@ Items deferred at v1.5 roadmap creation (2026-06-18, research-recorded):
 
 ## Session Continuity
 
-Last session: 2026-06-18 — Phase 29 complete (on-hardware UAT PASSED + security verified)
-Stopped at: Phase 29 complete (live format=json returned 10 results, no host port; SECURITY 14/14 closed); ready to plan Phase 30
-Resume file: None
+Last session: 2026-06-18T21:36:40.093Z
+Stopped at: Phase 30 context gathered
+Resume file: .planning/phases/30-owui-native-search-wiring/30-CONTEXT.md
 
 ## Operator Next Steps
 
