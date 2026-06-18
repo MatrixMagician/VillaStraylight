@@ -89,6 +89,19 @@ type fakeInstallDeps struct {
 	memoryProofStatus preflight.Status
 	memoryProofDetail string
 
+	// Web-search (SearXNG) seam controls + counters (v1.5 / Phase-29). webSearchEnabled
+	// drives the loadedWebSearchEnabled gate seam (default false → the searxng path never
+	// fires, so existing tests stay byte-for-byte unchanged). The *Calls counters +
+	// searxngProofIn capture let the web-search tests assert exactly which seams fired
+	// (settings + secret-env writes BEFORE the start, the proof input, the verdict folding).
+	webSearchEnabled      bool
+	searxngSettingsCalls  int
+	searxngSecretEnvCalls int
+	searxngProofCalls     int
+	searxngProofIn        searxngProofInput
+	searxngProofStatus    preflight.Status
+	searxngProofDetail    string
+
 	// Coding-agent (Crush) addon seam controls + counters (v1.4 / INSTALL-03). agentEnabled
 	// drives the loadedAgentEnabled gate seam (default false → the agent path never fires,
 	// so existing install tests stay unchanged). agentCat is the catalog the coderShardFor
@@ -128,7 +141,8 @@ func newFakeInstallDeps(t *testing.T, units []orchestrate.Unit, plan orchestrate
 	t.Helper()
 	f := &fakeInstallDeps{
 		downloaded: true, embedPresent: true, memoryProofStatus: preflight.StatusPass,
-		coderPresent: true, agentProofStatus: preflight.StatusPass,
+		searxngProofStatus: preflight.StatusPass,
+		coderPresent:       true, agentProofStatus: preflight.StatusPass,
 		// Default agent catalog carries a single coder entry whose id matches the default
 		// pick's Coder.Model (set below) and a shard, so an agent-on test resolves a shard
 		// without extra setup. agentCatOK true so the load seam succeeds by default.
@@ -263,6 +277,28 @@ func newFakeInstallDeps(t *testing.T, units []orchestrate.Unit, plan orchestrate
 		f.memoryProofIn = in
 		f.callOrder = append(f.callOrder, "memoryProof")
 		return memoryProof{status: f.memoryProofStatus, detail: f.memoryProofDetail}
+	}
+	// Web-search (SearXNG) seams (v1.5 / Phase-29). The gate seam reflects the controllable
+	// webSearchEnabled flag (default false → the searxng path never fires, so existing tests
+	// are unchanged). The settings + secret-env writers record an ordered event so a test can
+	// assert BOTH config files are written BEFORE the searxng start (Pitfall 3). The proof
+	// seam returns the controllable verdict and captures its input for assertion.
+	d.loadedWebSearchEnabled = func() bool { return f.webSearchEnabled }
+	d.writeSearxngSettings = func(string, string) error {
+		f.searxngSettingsCalls++
+		f.callOrder = append(f.callOrder, "writeSearxngSettings")
+		return nil
+	}
+	d.writeSearxngSecretEnv = func(string, string) error {
+		f.searxngSecretEnvCalls++
+		f.callOrder = append(f.callOrder, "writeSearxngSecretEnv")
+		return nil
+	}
+	d.searxngProofFn = func(_ context.Context, in searxngProofInput) searxngProof {
+		f.searxngProofCalls++
+		f.searxngProofIn = in
+		f.callOrder = append(f.callOrder, "searxngProof")
+		return searxngProof{status: f.searxngProofStatus, detail: f.searxngProofDetail}
 	}
 	// Coding-agent (Crush) addon seams (v1.4 / INSTALL-03). The gate seam reflects the
 	// controllable agentEnabled flag (default false → the agent path never fires, so existing
