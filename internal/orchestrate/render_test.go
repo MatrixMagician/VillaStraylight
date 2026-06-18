@@ -390,6 +390,82 @@ func TestRenderOpenWebUIMemoryContainerGolden(t *testing.T) {
 	goldenCompare(t, "villa-openwebui.container.memory.golden", c.Text)
 }
 
+// TestRenderOpenWebUIWebSearchContainerGolden: the web-search-ON villa-openwebui.container
+// unit matches its dedicated golden byte-for-byte (Phase-30 D-08, SC#1). This is the single
+// deliberate re-freeze target for the appended web-search env block (ENABLE_WEB_SEARCH=True,
+// WEB_SEARCH_ENGINE=searxng, SEARXNG_QUERY_URL, WEB_SEARCH_RESULT_COUNT) + a single trailing
+// ENABLE_PERSISTENT_CONFIG=False. The memory-OFF / memory-ON goldens MUST stay byte-identical
+// — only this web-search golden is intentionally re-frozen with -update.
+func TestRenderOpenWebUIWebSearchContainerGolden(t *testing.T) {
+	units, err := Render(searxngFixtureInput())
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	c := unitByName(t, units, "villa-openwebui.container")
+	goldenCompare(t, "villa-openwebui.container.websearch.golden", c.Text)
+}
+
+// TestRenderOpenWebUIWebSearchConfigDriven (WR-01): the OWUI SEARXNG_QUERY_URL host:port is
+// composed from the resolved cfg.SearxngAddr/cfg.SearxngPort, NOT an orchestrate-local const.
+// A non-default addr+port must surface in the rendered SEARXNG_QUERY_URL. Do NOT couple any
+// assertion to OWUI forwarding &format=json from the URL (Pitfall 1: at this digest OWUI
+// strips the URL query string and supplies format=json itself — the suffix is frozen for SC#1
+// literal compliance only, not relied on for grounding).
+func TestRenderOpenWebUIWebSearchConfigDriven(t *testing.T) {
+	in := searxngFixtureInput()
+	in.Cfg.SearxngAddr = "villa-searxng-custom"
+	in.Cfg.SearxngPort = 9090
+	units, err := Render(in)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	c := unitByName(t, units, "villa-openwebui.container")
+	want := "Environment=SEARXNG_QUERY_URL=http://villa-searxng-custom:9090/search?q=<query>&format=json"
+	if !strings.Contains(c.Text, want) {
+		t.Errorf("OWUI SEARXNG_QUERY_URL not composed from the config-resolved host:port (rendered from a const?):\nwant substring %q\n%s", want, c.Text)
+	}
+}
+
+// TestRenderOpenWebUIPersistentConfigSingleEmit (Phase-30 D-04, Pitfall 2): the load-bearing
+// ENABLE_PERSISTENT_CONFIG=False is emitted EXACTLY once, as the LAST Environment= line, for
+// BOTH web-on/memory-off (searxngFixtureInput) AND memory-on/web-off (memoryFixtureInput) —
+// catching a duplicate (one emit per group) or a drop (omitted when web is on but memory off).
+func TestRenderOpenWebUIPersistentConfigSingleEmit(t *testing.T) {
+	cases := []struct {
+		name string
+		in   RenderInput
+	}{
+		{name: "websearch-on/memory-off", in: searxngFixtureInput()},
+		{name: "memory-on/websearch-off", in: memoryFixtureInput()},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			units, err := Render(tc.in)
+			if err != nil {
+				t.Fatalf("Render: %v", err)
+			}
+			c := unitByName(t, units, "villa-openwebui.container")
+			if got := strings.Count(c.Text, "Environment=ENABLE_PERSISTENT_CONFIG="); got != 1 {
+				t.Errorf("ENABLE_PERSISTENT_CONFIG emitted %d times, want exactly 1 (D-04 single-emit):\n%s", got, c.Text)
+			}
+			// It must be the LAST Environment= line.
+			envLines := []string{}
+			for _, line := range strings.Split(c.Text, "\n") {
+				if strings.HasPrefix(line, "Environment=") {
+					envLines = append(envLines, line)
+				}
+			}
+			if len(envLines) == 0 {
+				t.Fatalf("no Environment= lines rendered:\n%s", c.Text)
+			}
+			last := envLines[len(envLines)-1]
+			if last != "Environment=ENABLE_PERSISTENT_CONFIG=False" {
+				t.Errorf("last Environment= line = %q, want Environment=ENABLE_PERSISTENT_CONFIG=False (must be LAST):\n%s", last, c.Text)
+			}
+		})
+	}
+}
+
 // TestRenderOpenWebUIVolumeGolden: the villa-openwebui.volume unit matches its golden.
 func TestRenderOpenWebUIVolumeGolden(t *testing.T) {
 	units, err := Render(fixtureInput())
