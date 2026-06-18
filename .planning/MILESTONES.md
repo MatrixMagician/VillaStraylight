@@ -56,9 +56,7 @@
 
 ---
 
-## v1.2 Operability (Completed: 2026-06-08)
-
-> **Release status:** archived + audited; PR-to-`main` and `git tag v1.2` (on the main merge commit, mirroring v1.0/v1.1) are pending via `/gsd-ship`.
+## v1.2 Operability (Shipped: 2026-06-08)
 
 **Phases completed:** 6 phases (12–17), 19 plans, 24 tasks
 **Git range:** `v1.1` → `b8b94d3` (180 commits, 271 files changed, +31,077 / −15,316)
@@ -85,7 +83,7 @@
 
 ---
 
-## v1.1 ROCm Opt-In Backend (Shipped: 2026-06-06)
+## v1.1 ROCm Opt-In Backend (Shipped: 2026-06-07)
 
 **Phases completed:** 6 phases (6–11), 16 plans, 29 tasks
 **Git range:** `v1.0` → `c62eb52` (141 commits, 160 files changed, +23,360 / −328)

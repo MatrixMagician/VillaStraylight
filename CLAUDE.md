@@ -10,7 +10,7 @@ below (Project, Technology Stack, etc.):
 
 - `.planning/PROJECT.md` — what this is, core value, constraints, key decisions
 - `.planning/ROADMAP.md` — milestone-grouped phase plan and per-phase success criteria
-- `.planning/MILESTONES.md` — shipped milestone history (v1.0, v1.1); `.planning/RETROSPECTIVE.md` — lessons
+- `.planning/MILESTONES.md` — shipped milestone history (v1.0 through v1.4); `.planning/RETROSPECTIVE.md` — lessons
 - `.planning/milestones/` — archived per-milestone ROADMAP/REQUIREMENTS (a fresh `.planning/REQUIREMENTS.md` is created per active milestone via `/gsd-new-milestone`)
 - Per-phase research/specs live under `.planning/phases/NN-*/` (e.g. `NN-RESEARCH.md`)
 
@@ -21,7 +21,7 @@ inference + **Open WebUI** chat + a control dashboard — strictly local, zero
 telemetry. Go is the **control plane only**; AI services are integrated OSS
 containers, not rebuilt.
 
-**Shipped:** v1.0 MVP and v1.1 (ROCm Opt-In Backend) are complete and tagged on `main`. The `villa` control plane is implemented under `cmd/villa/` + `internal/`. Start the next cycle with `/gsd-new-milestone`.
+**Shipped:** v1.0 MVP, v1.1 (ROCm Opt-In Backend), v1.2 (Operability), v1.3 (Memory & Knowledge), and v1.4 (Coding Agent) are complete and tagged on `main`. The `villa` control plane is implemented under `cmd/villa/` + `internal/`. Start the next cycle with `/gsd-new-milestone`.
 
 ## Legacy scaffold (reference-only — NOT the current architecture)
 
