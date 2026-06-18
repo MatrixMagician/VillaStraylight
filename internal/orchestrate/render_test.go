@@ -430,12 +430,24 @@ func TestRenderOpenWebUITelemetryFrozen(t *testing.T) {
 		{
 			name: "memory-off",
 			in:   fixtureInput(),
-			env:  buildOpenWebUIView(memory.RenderView(fixtureInput().Cfg), false).Env,
+			env:  buildOpenWebUIView(memory.RenderView(fixtureInput().Cfg), false, false, "", 0, 0).Env,
 		},
 		{
 			name: "memory-on",
 			in:   memoryFixtureInput(),
-			env:  buildOpenWebUIView(memory.RenderView(memoryFixtureInput().Cfg), true).Env,
+			env:  buildOpenWebUIView(memory.RenderView(memoryFixtureInput().Cfg), true, false, "", 0, 0).Env,
+		},
+		{
+			// Phase-30 SC#4 drift guard: the web-search-on view binds every web-search
+			// KEY to buildOpenWebUIView's output. Because the loop below asserts each
+			// Key=Value line is rendered AND that Environment= line COUNT == len(env),
+			// an env-name regression (e.g. reverting ENABLE_WEB_SEARCH to the old
+			// ENABLE_RAG_WEB_SEARCH name) or a duplicated/dropped ENABLE_PERSISTENT_CONFIG
+			// fails by construction. searxngFixtureInput() is WebSearchEnabled (memory
+			// off); the literal 3 matches its WebSearchResultCount and the rendered unit.
+			name: "websearch-on",
+			in:   searxngFixtureInput(),
+			env:  buildOpenWebUIView(memory.RenderView(searxngFixtureInput().Cfg), false, true, "villa-searxng", 8080, 3).Env,
 		},
 	}
 
