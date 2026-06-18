@@ -33,9 +33,10 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 		// Web-search fields (v1.5, SRCH-01): populate with the inert defaults so the
 		// full-literal equality assertion survives the schema extension (mirrors the
 		// memory-field treatment above). normalizeVilla self-heals these on load.
-		WebSearchEnabled: false,
-		SearxngAddr:      "villa-searxng",
-		SearxngPort:      8080,
+		WebSearchEnabled:     false,
+		SearxngAddr:          "villa-searxng",
+		SearxngPort:          8080,
+		WebSearchResultCount: 3, // inert default so the full-literal equality survives the schema extension (normalizeVilla self-heals 0 -> 3 on load)
 	}
 	if err := SaveVillaTo(dir, want); err != nil {
 		t.Fatalf("SaveVillaTo: %v", err)
@@ -675,6 +676,9 @@ func TestDefaultConfigWebSearchFields(t *testing.T) {
 	if d.SearxngSecret != "" {
 		t.Errorf("default SearxngSecret = %q, want empty (generated at opt-in, never a hardcoded default)", d.SearxngSecret)
 	}
+	if d.WebSearchResultCount != 3 {
+		t.Errorf("default WebSearchResultCount = %d, want 3 (conservative ctx budget ahead of Phase 31)", d.WebSearchResultCount)
+	}
 }
 
 // TestWebSearchSaveOmitsKeysWhenDisabled is the web-search (v1.5, SC#4/PRIV-07) twin of
@@ -684,7 +688,7 @@ func TestDefaultConfigWebSearchFields(t *testing.T) {
 // so the ,omitempty/,omitzero tags drop all four keys. When web search is ON, every key
 // is written and round-trips.
 func TestWebSearchSaveOmitsKeysWhenDisabled(t *testing.T) {
-	webKeys := []string{"web_search_enabled", "searxng_addr", "searxng_port", "searxng_secret"}
+	webKeys := []string{"web_search_enabled", "searxng_addr", "searxng_port", "searxng_secret", "web_search_result_count"}
 
 	// Web search OFF: a config seeded from typed defaults (non-zero searxng fields). Seed a
 	// secret too, to prove the off-path zeroing is the gate (not mere absence).
@@ -714,6 +718,7 @@ func TestWebSearchSaveOmitsKeysWhenDisabled(t *testing.T) {
 	on.Model = "qwen3-35b-a3b-moe-64"
 	on.WebSearchEnabled = true
 	on.SearxngSecret = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef0"
+	on.WebSearchResultCount = 7 // a non-default value must round-trip when web search is ON
 	dirOn := filepath.Join(t.TempDir(), "villa")
 	if err := SaveVillaTo(dirOn, on); err != nil {
 		t.Fatalf("SaveVillaTo(on): %v", err)
@@ -726,6 +731,10 @@ func TestWebSearchSaveOmitsKeysWhenDisabled(t *testing.T) {
 		if !strings.Contains(string(dataOn), k) {
 			t.Errorf("web-search-on save omitted web-search key %q (opt-in must persist the full contract):\n%s", k, dataOn)
 		}
+	}
+	// The tuned (non-default) result count must be persisted verbatim (round-trip when ON).
+	if !strings.Contains(string(dataOn), "web_search_result_count = 7") {
+		t.Errorf("web-search-on save did not persist web_search_result_count = 7 (operator tuning must round-trip):\n%s", dataOn)
 	}
 
 	// Opting in then saving must round-trip back to an equal struct.
@@ -755,6 +764,9 @@ func TestWebSearchNormalizeSelfHeal(t *testing.T) {
 	}
 	if got.SearxngSecret != "" {
 		t.Errorf("SearxngSecret was self-healed to %q, want empty (a generated secret has no default)", got.SearxngSecret)
+	}
+	if got.WebSearchResultCount != 3 {
+		t.Errorf("zeroed WebSearchResultCount self-heal = %d, want 3 (mirrors SearxngPort heal)", got.WebSearchResultCount)
 	}
 }
 
