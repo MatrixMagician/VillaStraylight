@@ -1,17 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.4
-milestone_name: Coding Agent
-status: Awaiting next milestone
-stopped_at: Completed 28-03-PLAN.md
-last_updated: "2026-06-16T00:00:00.000Z"
-last_activity: 2026-06-16 — Deferred-item audit: 27-04 + Phase-28 VALIDATION both confirmed already RESOLVED in v1.4 (stale "Open" records corrected; Phase-28 command set re-confirmed green)
+milestone: v1.5
+milestone_name: Web Search
+status: planning
+last_updated: "2026-06-18T16:30:48.590Z"
+last_activity: 2026-06-18
 progress:
-  total_phases: 5
-  completed_phases: 5
-  total_plans: 18
-  completed_plans: 18
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -25,10 +24,10 @@ See: .planning/PROJECT.md (updated 2026-06-15 — milestone v1.4 Coding Agent sh
 
 ## Current Position
 
-Phase: Milestone v1.4 shipped + merged
+Phase: Not started (defining requirements)
 Plan: —
-Status: v1.4 MERGED to main (PR #5, merge commit 5bcd651) + tagged v1.4 (pushed). Awaiting next milestone.
-Last activity: 2026-06-18 — Completed quick task 260618-dvb: corrected shipped-milestone records (v1.0→v1.4) in CLAUDE.md + MILESTONES.md
+Status: Defining requirements
+Last activity: 2026-06-18 — Milestone v1.5 started
 
 ## Performance Metrics
 
