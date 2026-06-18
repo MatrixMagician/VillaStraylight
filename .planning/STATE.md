@@ -2,9 +2,13 @@
 gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Web Search
-status: planning
-last_updated: "2026-06-18T20:00:00.000Z"
+current_phase: 29
+current_phase_name: SearXNG Search Service
+status: executing
+stopped_at: Phase 29 planning complete — RESEARCH/VALIDATION/PATTERNS + 29-01/02/03-PLAN.md written; ready to execute
+last_updated: "2026-06-18T19:17:10.229Z"
 last_activity: 2026-06-18
+last_activity_desc: Phase 29 execution started
 progress:
   total_phases: 6
   completed_phases: 0
@@ -20,14 +24,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-18 — milestone v1.5 Web Search started; SearXNG moved from Out of Scope to Active)
 
 **Core value:** Run a capable local AI workspace that "just works" after install — hardware-aware setup that brings inference, chat, and the dashboard up healthy, with zero data leaving the box. v1.2 extended the bar to "and stays operable, recoverable, and measurable over time." v1.3 extended it to "and remembers the user and their documents across chats — strictly local." v1.4 extended it to "and gives the operator a strictly-local terminal coding agent, wired to a fit-guarded coding model." v1.5 extends it to "and can ground answers in live web search when the operator opts in — accurate, up-to-date, with malicious-site prompt injection defended-in-depth and outbound provably bounded."
-**Current focus:** Phase 29 (SearXNG Search Service) planned — 3 plans across 2 waves, plan-checker PASSED. Ready to execute (`/gsd-execute-phase 29`).
+**Current focus:** Phase 29 — SearXNG Search Service
 
 ## Current Position
 
-Phase: 29 — SearXNG Search Service (planned)
-Plan: 3 plans (29-01 spine → 29-02 + 29-03 in Wave 2)
-Status: Ready to execute
-Last activity: 2026-06-18 — Phase 29 planned (research + validation + patterns + 3 plans; plan-checker passed after 1 revision)
+Phase: 29 (SearXNG Search Service) — EXECUTING
+Plan: 1 of 3
+Status: Executing Phase 29
+Last activity: 2026-06-18 — Phase 29 execution started
 
 ## Performance Metrics
 

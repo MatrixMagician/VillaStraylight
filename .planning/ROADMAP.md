@@ -130,10 +130,10 @@ Audit `tech_debt` — 17/17 requirements satisfied, integration PASS (7/7 seam g
   3. The rendered SearXNG runs a **vetted subset** of upstream engines (a bounded, auditable list of outbound upstream hosts), not the full default engine set.
   4. With web search not configured, the rest of the stack renders byte-identical to v1.4 (the new unit is additive and gated).
 
-**Plans**: 3 plans
+**Plans**: 1/3 plans executed
 **Wave 1**
 
-- [ ] 29-01-PLAN.md — Config gate/fields/crypto-rand secret + orchestrate/searxng.go (image const, views, settings render) + render branch + seam allowlist + goldens (SRCH-01, SRCH-04)
+- [x] 29-01-PLAN.md — Config gate/fields/crypto-rand secret + orchestrate/searxng.go (image const, views, settings render) + render branch + seam allowlist + goldens (SRCH-01, SRCH-04)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
