@@ -1,224 +1,296 @@
-# Architecture Patterns
+# Architecture Research — v1.5 Web Search (Grounded & Guarded)
 
-**Domain:** Integrating a strictly-local coding agent (OpenCode, host-delivered) + a fit-guarded coder model + codebase memory into the shipped VillaStraylight Go control plane (v1.4 Coding Agent milestone)
-**Researched:** 2026-06-12
-**Confidence:** HIGH on codebase integration seams (every claim grounded in real files verified this session); HIGH on OpenCode delivery/config facts (official docs + releases page fetched); MEDIUM on coder-model KV math and OpenCode offline-flag completeness (version-sensitive — pin + re-verify in the implementing phase)
+**Domain:** Local AI server stack — integrating opt-in, guarded web search into an existing Go control plane (Podman Quadlet orchestration + Open WebUI + v1.3 villa-embed/Qdrant RAG)
+**Researched:** 2026-06-18
+**Confidence:** HIGH (OWUI integration seams + external-loader contract verified against released source; v1.3/v1.4 patterns verified against this repo)
 
-> This is a **subsequent-milestone** research doc. It does NOT re-derive v1.0–v1.3 architecture; it identifies exactly where the coding-agent addon bolts onto it, resolves the five open questions (delivery, residency, endpoints, codebase memory, modified-vs-new), and proposes a build order. Every codebase claim cites a real file verified on 2026-06-12.
+> This is **integration research**, not greenfield. It answers: *how do the v1.5 web-search features slot into the existing architecture without breaking the project's load-bearing disciplines* (orchestrate is the only impure module; config is the single source of truth; backend literals seam-locked; one byte-frozen `status.Report` bump landing last; negative-control-first egress proof). Every recommendation maps to a **real existing module**.
 
 ---
 
-## Recommended Architecture (one paragraph)
+## Executive Finding (the crux — guard-layer integration point)
 
-The coding agent is a **villa-managed host binary** (pinned OpenCode release, SHA256-verified, launched through a `villa code` wrapper that injects a villa-rendered config + offline-lockdown env), talking over **loopback** to a **second co-resident llama-server Quadlet unit `villa-coder`** (dedicated coder model, large ctx, `--jinja` tool calling) when the envelope fits — degrading honestly to **shared mode** (agent points at the existing `villa-llama` chat endpoint) on small envelopes. **Codebase memory is agent-native (LSP + ripgrep) by default** — the 2026 evidence is that top coding agents do not use vector RAG over the working repo — with an **optional, off-by-default semantic-index plugin that reuses `villa-embed`'s `/v1/embeddings`** (768-dim nomic-embed matches exactly); **villa-qdrant is NOT used for code memory** (the plugin stores its vector index per-project locally; pushing code vectors into Qdrant would require villa to build/maintain an MCP RAG server with the weakest effectiveness evidence of the three options).
+**OWUI owns the entire fetch→load→embed→inject pipeline internally.** When `WEB_SEARCH_ENGINE=searxng`, OWUI: (1) generates a search query, (2) calls `SEARXNG_QUERY_URL` for result URLs, (3) **fetches each result page itself** via its configured `WEB_LOADER_ENGINE`, (4) splits/embeds the page text (or bypasses embedding and attaches raw), (5) injects the result into the model context. Villa does **not** sit in this fetch path by default — so a naive "villa sanitizes the fetch" plan is architecturally dishonest.
+
+**The honest seam exists and is released:** `WEB_LOADER_ENGINE=external` makes OWUI delegate page fetching to an HTTP service via `EXTERNAL_WEB_LOADER_URL`. Verified against `open-webui/open-webui` source — `retrieval/web/utils.py::get_web_loader` and `retrieval/loaders/external_web.py::ExternalWebLoader`:
 
 ```
-HOST (Fedora, user session)                      CONTAINERS (rootless podman, villa.network)
-┌──────────────────────────────┐
-│ opencode (pinned binary)     │   /v1 chat ──► 127.0.0.1:8090 ─► villa-coder.container   (NEW)
-│  launched via `villa code`   │                                   llama-server --jinja, coder GGUF
-│  OPENCODE_CONFIG=<villa-     │   /v1 chat ──► 127.0.0.1:8080 ─► villa-llama.container   (existing)
-│   rendered opencode.json>    │                                   (shared-mode fallback)
-│  LSP + ripgrep (built-in)    │   /v1/embeddings (OPTIONAL)
-│  [opt] codebase-index plugin │      └───────► 127.0.0.1:8091 ─► villa-embed.container   (MODIFIED:
-│        .opencode/index/ local│                (new conditional      conditional loopback publish)
-│        usearch+SQLite store  │                 loopback publish)
-└──────────────────────────────┘                 villa-qdrant: UNCHANGED, stays unpublished,
-   villa CLI: install/doctor/status/              NOT used for code memory
-   backup/verify cover the addon
+OWUI → POST {EXTERNAL_WEB_LOADER_URL}   # batches of ≤20 URLs
+       Authorization: Bearer {EXTERNAL_WEB_LOADER_API_KEY}
+       body: { "urls": ["https://…", …] }
+     ← 200 [ { "page_content": "<text>", "metadata": {…} }, … ]
 ```
 
----
-
-## (a) DELIVERY — host binary, villa-pinned. Not a container.
-
-**Decision: villa downloads a pinned OpenCode release, verifies SHA256, installs under `$XDG_DATA_HOME/villa/bin/`, and renders its config from `config.toml`. Container delivery is rejected.**
-
-### Evidence
-
-| Fact | Source | Confidence |
-|------|--------|------------|
-| Active project is `anomalyco/opencode` (TypeScript/Bun, formerly sst/opencode); the old Go `opencode-ai/opencode` is the lineage that became Crush | [github.com/anomalyco/opencode](https://github.com/anomalyco/opencode) | HIGH |
-| Releases ship per-platform zips **with SHA256 checksums per asset**; latest v1.17.4 (2026-06-12); cadence is multiple releases/week, sometimes several/day | [Releases page](https://github.com/anomalyco/opencode/releases) (fetched 2026-06-12) | HIGH |
-| Built-in `opencode upgrade` self-updater + `autoupdate` config key (`false`/`"notify"`) | [opencode.ai/docs/config](https://opencode.ai/docs/config/) | HIGH |
-| **No first-party container image.** Only community images exist (pilinux/opencode, openeuler/opencode, brockar/opencoded) | Docker Hub / GHCR search 2026-06-12 | MEDIUM (absence-of-evidence, cross-checked across 3 community projects that exist precisely because no official one does) |
-| Config merge order includes `OPENCODE_CONFIG` env-var path overriding global `~/.config/opencode/opencode.json` | [opencode.ai/docs/config](https://opencode.ai/docs/config/) | HIGH |
-| OpenCode performs **unconditional startup fetches** (`https://models.dev/api.json`, update check, plugin/npm manifests); `OPENCODE_DISABLE_MODELS_FETCH=1`, `"share": "disabled"`, `"autoupdate": false` mitigate but air-gap issues remain open upstream (#16117, #18492, #4959, #5554) | GitHub issues, anomalyco/opencode | MEDIUM-HIGH |
-
-### Why host binary wins
-
-- **TUI UX:** OpenCode is a terminal TUI working on the user's repo. Containerized TUI attach (`podman run -it` + workspace bind-mount) requires `:Z`/`:z` **SELinux relabeling of the user's arbitrary source tree** — mutating labels on directories villa does not own. That is invasive and un-villa-like; host binary needs zero SELinux work.
-- **No upstream image to pin.** villa's discipline is digest-pinned *upstream* images (kyuz0 toolboxes, OWUI, Qdrant). For OpenCode villa would have to trust a third-party repackager or build/maintain its own image — both worse supply chains than the upstream release zip + per-asset SHA256 that already exists.
-- **Pinning discipline maps cleanly.** Mirror `rocm-policy.json`: a `go:embed opencode-policy.json` in the new agent package pins `{version, platform→asset name, sha256}`. `villa coder upgrade` (explicit verb) moves the pin; OpenCode's own `autoupdate` is forced off. The multi-daily upstream cadence is exactly why villa must own the pin — an auto-updating agent breaks reproducibility and the no-surprise-outbound posture.
-- **Strictly-local posture is enforceable on the host too.** `villa code` launches the binary with `OPENCODE_CONFIG=$XDG_CONFIG_HOME/villa/opencode.json` (villa-rendered, regenerated from `config.toml` — never hand-edited as authority, same rule as Quadlet units) plus `OPENCODE_DISABLE_MODELS_FETCH=1`, and the rendered config carries `"share": "disabled"`, `"autoupdate": false`, `"experimental": {"openTelemetry": false}`. Because mitigations are known-partial upstream, **`villa verify coder` must extend the v1.3 negative-control-first nft zero-outbound proof** (egress-open run must show the gate is real; blocked run must still complete a local completion). This is the single biggest honesty risk of the milestone — flag-trusting OpenCode's offline behavior would repeat the exact mistake the v1.3 PRIV-05 runtime proof was built to prevent.
-- **Reuse:** the existing verified resumable downloader (`internal/download`) already does HEAD-verify → `.part` → SHA256 → atomic rename for GGUFs; the agent zip is a smaller, simpler case of the same seam.
-
-**Trade-off accepted:** a host binary is outside the container sandbox — OpenCode executes shell commands on the host as the user. That is inherent to a coding agent's job (it edits the user's repo, runs the user's tests); villa's mitigation is OpenCode's own `permissions` config (rendered to `"ask"` for bash by default) and documentation, not sandbox theater. The agent binary is treated like model weights in backup: **identity recorded in the manifest, binary excluded, re-pull on restore.**
+**Recommendation (guard layer): option (b) — a villa-managed sanitizing fetch-loader container is the architecturally honest integration point.** Set `WEB_LOADER_ENGINE=external` and point `EXTERNAL_WEB_LOADER_URL` at a villa-owned `villa-websafe` service on `villa.network`. That service IS the fetch path: it pulls each URL, strips active markup, classifies for injection, wraps the surviving text in provenance fences, and returns `page_content` to OWUI. OWUI then embeds the *already-sanitized, already-fenced* text through its normal villa-embed/Qdrant RAG path. This gives villa **real control over sanitize+fence+classify without rebuilding OWUI search** — villa controls the only place untrusted bytes become `page_content`. Options (a) "proxy/intercept the SearXNG response" and (c) "guard pass on indexed content" are rejected below (§Guard-Layer Decision).
 
 ---
 
-## (b) MODEL RESIDENCY — co-resident `villa-coder` unit when it fits; honest degradation to shared `villa-llama`; no swap-based mode.
+## Standard Architecture (v1.5 integrated)
 
-**Decision: a second llama-server Quadlet unit (`villa-coder.container`) rendered through the existing `Backend` seam, co-resident with chat. `recommend.Pick` extends with a coder fit stage. If the coder model does not fit, the addon resolves to `shared` mode (agent uses the chat endpoint) — never a swap-based "coding mode".**
-
-### Why not swap-based
-
-Swap-based coding mode (re-rendering `villa-llama` with the coder model on demand) breaks chat while coding, adds a third transactional state machine, and reintroduces the D-09/D-10 hazard class v1.3 just closed. The cheap fallback — pointing OpenCode at the existing chat model — costs **zero** extra residency and `qwen3.6-35b-a3b` is itself a competent coder. Co-resident-or-shared covers all envelope tiers with no new transaction. (Community Strix Halo stacks reach the same shape with llama-swap; villa already owns orchestration, so importing llama-swap would be an anti-pattern — see Anti-Patterns.)
-
-### Fit math extension (grounded in the real schema)
-
-`internal/recommend/recommend.go` already does ordered reservation: schema-2 appended `embedding_reservation_bytes` is subtracted from the envelope **before** the chat fit, with a conservative 512 MiB default on typed-Unknown (D-01/D-02, verified lines 103–206). The coder stage extends the same pattern as a **third, last claimant**:
+### System Overview
 
 ```
-envelope' = envelope − embedding_reservation            (existing, v1.3)
-chat_fit:  chat_weights + chat_KV@ctx + headroom ≤ envelope'   (existing)
-coder_fit: coder_weights + coder_KV@coder_ctx ≤ envelope' − chat_total   (NEW)
-  → fits  → coder_mode = "dedicated", largest role:"coder" catalog model wins
-  → !fits → coder_mode = "shared" (advice line, never a refusal — shared always works)
+┌──────────────────────────────────────────────────────────────────────┐
+│  Command tier  cmd/villa/*.go  (thin cobra; live*Deps wiring)          │
+│   install --web-search · verify search · status · doctor · dashboard   │
+├──────────────────────────────────────────────────────────────────────┤
+│  Pure cores  internal/*  (no host I/O; injected Deps)                   │
+│  detect  recommend  preflight  status  verify(search)  websafe  config  │
+├──────────────────────────────────────────────────────────────────────┤
+│  orchestrate  (the ONLY impure module — renders Quadlet, drives systemd)│
+│   render: searxng.container/.volume · websafe.container · OWUI env block │
+└──────────────────────────────────────────────────────────────────────┘
+                                  │ regenerated from config.toml
+                                  ▼
+┌──────────────────────────────────────────────────────────────────────┐
+│                 villa.network  (rootless Podman, container-DNS only)   │
+│                                                                        │
+│   ┌──────────────┐   native web search    ┌──────────────────────┐    │
+│   │villa-openwebui│ ─ SEARXNG_QUERY_URL ──▶│  villa-searxng        │───┼──▶ upstream
+│   │  (chat + RAG) │                        │ (metasearch engines)  │   │   engines
+│   │               │ ─ EXTERNAL_WEB_LOADER ▶│  villa-websafe        │───┼──▶ result
+│   │  embeds via ─▶│   (POST {urls})        │  GUARD: fetch+strip+   │   │   sites
+│   │  villa-embed  │ ◀─ page_content ───────│  classify+fence        │   │
+│   └──────┬────────┘                        └──────────────────────┘    │
+│          │ /v1/embeddings (768-dim)                                     │
+│          ▼                                                              │
+│   ┌──────────────┐        ┌──────────────┐        (v1.3 stack, reused)  │
+│   │ villa-embed  │───────▶│  villa-qdrant │  ← web pages land in OWUI    │
+│   │ (nomic-embed)│        │ (vector store)│    Knowledge collections     │
+│   └──────────────┘        └──────────────┘                              │
+└──────────────────────────────────────────────────────────────────────┘
+        outbound (opt-in, egress-bounded, honestly surfaced):
+        villa-searxng → search engines · villa-websafe → result sites
 ```
 
-Chat stays the primary claimant (the chat stack is the shipped product; the coder is the addon). `Recommendation` evolves **append-only, schema 2→3**: `coder_model`, `coder_quant`, `coder_ctx`, `coder_reservation_bytes`, `coder_mode`, `coder_considered` — one golden re-freeze, same discipline as v1.3's single 1→2 bump.
+### Component Responsibilities
 
-### Envelope tiers vs realistic coder GGUFs (approximate; the catalog entry pins exact numbers)
-
-Coder candidate: **Qwen3-Coder-30B-A3B-Instruct** Q4_K_M ≈ 18.6 GiB weights; KV ≈ 96 KiB/token f16 (48 layers × 4 KV heads × 128 head_dim × 2(K+V) × 2 B), halved at q8_0 KV. Measured ~97 tok/s tg on Strix Halo ([strix-halo-guide](https://github.com/hogeheer499-commits/strix-halo-guide), MEDIUM). Chat claimant: qwen3.6-35b-a3b Q4 ≈ 20 GiB + KV + 0.5 GiB embed + headroom ≈ 27 GiB.
-
-| RAM tier | Usable GTT envelope (default ÷2 / raised `ttm pages_limit`) | Coder co-residency verdict |
-|----------|--------------------------------------------------------------|----------------------------|
-| 128 GB | ~62.5 GiB observed on the dev host (detect-validated) / ~110 GiB raised | **YES, comfortable** — chat 27 + coder 18.6 + 64k-ctx q8_0 KV ~3 ≈ 49 GiB ≤ 62.5. Raised GTT also admits Qwen3-Coder-Next 80B-A3B (~46 GiB @4-bit, 256k ctx — [unsloth](https://unsloth.ai/docs/models/qwen3-coder-next), MEDIUM) as a premium catalog entry |
-| 96 GB | ~48 GiB / ~84 GiB | **MARGINAL at default GTT** (49 > 48 → fits at 32k coder ctx or smaller chat model); YES raised |
-| 64 GB | ~30 GiB / ~56 GiB | **NO at default** → `shared` mode; raised GTT fits only with a reduced-ctx coder or a smaller chat model — let the fit math decide, never special-case the tier |
-
-The table is advisory; the shipped behavior is the inequality, exactly as today. `min_envelope_bytes`/`tier_gb` already exist per catalog entry (verified `internal/catalog/seed.json`, schema 2).
-
-### llama-server flags the coder unit needs (vs the chat unit)
-
-| Flag | Why | Confidence |
-|------|-----|------------|
-| `--jinja` | Required for tool-call template rendering — OpenCode is tool-call-driven; without it the agent's edit/bash tools silently degrade | HIGH ([llama-server README](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md)) |
-| `--ctx-size 65536` (tier-scaled; 131072 on big envelopes) | Agent sessions accumulate repo context far beyond chat norms; coder GGUFs support 256k native | HIGH |
-| `--cache-reuse 256` | Biggest single agent-workload lever — prefix-cache reuse across the agent's many similar prompts | MEDIUM (community-converged, [rigel-computer](https://medium.com/rigel-computer-com/optimize-your-gpu-kv-cache-for-llama-cpp-opencode-co-13b6bc74f5ec)) |
-| `-fa on` + `--cache-type-v q8_0`; **keep K-cache f16 (or at most q8_0) — never q4 K** | Halves V-cache memory; documented reports of **tool-call corruption from aggressive K-cache quantization** in coding agents — a residency/fit win that breaks the agent is a false economy | MEDIUM (same source + llama.cpp discussions) |
-| `--parallel 1` (default) | `--parallel N` splits `--ctx-size` evenly across slots; OpenCode's `small_model` tasks (title gen) can share slot 1 sequentially. Only raise with ctx scaled ×N | HIGH (server README) |
-| `--alias <catalog-id>` | OpenCode's provider config keys models by the exact `/v1/models` id — pin it to the catalog id so the rendered `opencode.json` and the unit can never drift | HIGH (provider docs + multiple setup guides) |
-
-All of these are imperative literals → they live in `Backend.ContainerArgs(spec)` territory behind the inference seam (the seam grep-gate already enforces this); the coder unit **reuses the existing Vulkan/ROCm `Backend` implementations** with a service-role-parameterized spec — a coder unit gets ROCm support and residency markers for free, and the offload-asserting `RunningOffloadVerdict` applies unchanged (a CPU-fallback coder is FAIL, never false-green).
+| Component | New / Modified | Responsibility | Existing pattern it follows |
+|-----------|----------------|----------------|-----------------------------|
+| `villa-searxng` (container) | **NEW** | Metasearch — turns a query into result URLs; JSON format enabled | v1.3 managed-service render (`orchestrate/memory.go` → `qdrant.container.tmpl`/`.volume.tmpl`); digest-pinned, seam-locked image const, on `villa.network`, container-DNS only |
+| `villa-websafe` (container) | **NEW** | **The guard layer + fetch path.** Receives `{urls}` from OWUI, fetches, strips active markup, runs the injection classifier, wraps in provenance fences, returns `page_content` | New managed service rendered the same way; image/marker consts seam-locked in orchestrate; **the only first-party component that touches result sites** |
+| OWUI env block | **MODIFIED** | Add `ENABLE_WEB_SEARCH`, `WEB_SEARCH_ENGINE=searxng`, `SEARXNG_QUERY_URL`, `WEB_LOADER_ENGINE=external`, `EXTERNAL_WEB_LOADER_URL`, result-count, domain filter — env-only, ordered `envPair` | v1.3 `buildOpenWebUIView` env-only wiring; `ENABLE_PERSISTENT_CONFIG=False` discipline preserved |
+| `internal/config` | **MODIFIED** | Append web-search fields (opt-in toggle + addrs/ports/knobs) | `MemoryEnabled`/`AgentEnabled` toggle precedent; container-DNS `*Addr`/`*Port` fields |
+| `internal/recommend` | **MODIFIED (light)** | SearXNG + websafe have negligible model footprint; **no new resident model** (reuses villa-embed). Optionally surface "web search enabled"; fit math largely untouched | reuses existing embed reservation; no new envelope claim |
+| `internal/preflight` | **MODIFIED** | Add web-search checks (disk for SearXNG volume; outbound-reachability is a WARN, not BLOCK — opt-in feature) | reusable BLOCK/WARN gate; typed-Unknown → WARN |
+| `internal/websafe` | **NEW (pure core)** | strip + classify + fence over a page string; network fetch injected as a `Deps` func | pure-core + injectable-seam (like `status`/`backendswap`) |
+| `internal/verify` (`villa verify search`) | **NEW verb, reused pattern** | Negative-control-first egress + guard proof: prove the guard strips/fences a planted injection; prove outbound is bounded to searxng+websafe | **clones v1.4 `villa verify agent`** four-layer seam (pure eval core + live Deps + nft egress block + negative control) |
+| `internal/status` + dashboard | **MODIFIED (LANDS LAST)** | `status.Report` schema **4→5**, append-only `web_search` block; hidden-until-data dashboard Web Search panel | v1.4 SURF precedent: one golden re-freeze, append-only, schema bump, panel inherits the report verbatim |
 
 ---
 
-## (c) ENDPOINT EXPOSURE — loopback PublishPort, same pattern as villa-llama; one deliberate posture change for villa-embed.
+## Integration Points (against REAL existing modules)
 
-The agent runs on the host, so container-DNS names are unreachable for it. Current published surface (verified in code):
+### (1) SearXNG — slots into the v1.3 managed-service rendering path **exactly**
 
-- `villa-llama`: **already loopback-published** — `hostPublishAddr = "127.0.0.1"` lives behind the inference seam (`internal/inference/backend_vulkan.go:29`), asserted by `TestLoopbackPublish` (no `0.0.0.0:` publish). Shared mode needs **nothing new**.
-- `villa-openwebui`: `127.0.0.1:3000:8080` (`internal/orchestrate/openwebui.go:71`). Unchanged.
-- `villa-qdrant`, `villa-embed`: **no PublishPort at all**, enforced by `TestMemoryUnitsNoPublishPort` (T-19-01, `internal/orchestrate/memory_test.go:104`). 
+**Answer: YES.** SearXNG is rendered the same way as `villa-qdrant`/`villa-embed`. The repo's pattern (verified in `internal/orchestrate/memory.go` + `quadlet/qdrant.container.tmpl` + `qdrant.volume.tmpl`) is:
 
-What v1.4 needs:
+1. A seam-locked image constant + accessor: `func SearxngImage() string { return searxngImage }` (digest-pinned `docker.io/searxng/searxng@sha256:…`), plus `SearxngContainerUnitName()`/`SearxngVolumeName()` accessors — mirroring `QdrantImage()`/`QdrantContainerUnitName()`/`QdrantVolumeName()`. **The image literal must live in `internal/orchestrate`** so `TestSeamGrepGate` (walks `internal/` + `cmd/villa`) stays green.
+2. A `buildSearxngView(...)` pure builder + `searxng.container.tmpl` / `searxng.volume.tmpl` (`go:embed`). The container joins `villa.network`, **publishes no host port** (PRIV-01: container-DNS only, like Qdrant), durable named volume for `settings.yml`.
+3. SearXNG config (`settings.yml`) must enable JSON output (`search.formats: [html, json]`) and a generated `secret_key` (`openssl rand -hex 32` → rendered into config, **never hand-edited**; config is the single source of truth). Rendered into the durable volume at install, regenerated from `config.toml`.
+4. Byte-identical-when-off: a `TestRenderByteIdenticalWhenWebSearchOff` golden mirrors v1.3's `TestRenderByteIdenticalWhenMemoryOff` — web-search-off render must equal the v1.4 baseline byte-for-byte.
 
-1. **`villa-coder`: new loopback publish `127.0.0.1:<coder_port>:8080`** (default 8090, persisted in config). The `127.0.0.1` literal stays behind the inference seam; the *port number* becomes a spec field (the render parser already maps `-p/--publish` → `PublishPort`, `internal/orchestrate/render.go:264`). Extend the existing loopback test to cover the second unit.
-2. **`villa-embed`: conditional loopback publish `127.0.0.1:<embed_host_port>:8080`, rendered ONLY when the optional codebase-index feature is enabled.** This deliberately relaxes T-19-01 from "no publish ever" to "no publish unless `coder_index_enabled`, and then loopback-only" — an explicit, test-renamed posture change, not a silent edit. Alternatives (systemd socket proxy, a villa Go reverse-proxy) add moving parts to dodge a publish that is exactly as loopback-safe as the three existing ones; rejected.
-3. **`villa-qdrant`: stays unpublished.** Nothing on the host needs it (see (d)).
+**New `config.toml` fields** (append-only; use `omitempty` for strings/bools and `omitzero` for ints with a meaningful 0 — per the BurntSushi caveat noted in `villaconfig.go`):
 
-No socket-activation pattern is needed; rootless podman `PublishPort=127.0.0.1:p:p` is the established, STRIDE-reviewed mechanism in this codebase. `villa status` already asserts loopback posture — the new rows inherit that check.
+| Field | toml | Default | Purpose |
+|-------|------|---------|---------|
+| `WebSearchEnabled` | `web_search_enabled,omitempty` | `false` | The opt-in gate (mirrors `MemoryEnabled`/`AgentEnabled`). Off = byte-identical render. |
+| `SearxngAddr` | `searxng_addr,omitempty` | `villa-searxng` | container-DNS name on villa.network (no host port) |
+| `SearxngPort` | `searxng_port,omitzero` | `8080` | in-network SearXNG port |
+| `WebSafeAddr` | `websafe_addr,omitempty` | `villa-websafe` | container-DNS name of the guard/loader service |
+| `WebSafePort` | `websafe_port,omitzero` | `8181` | in-network loader port (`EXTERNAL_WEB_LOADER_URL` target) |
+| `WebSearchResultCount` | `web_search_result_count,omitzero` | `3` | → OWUI `WEB_SEARCH_RESULT_COUNT` |
+| `WebSearchFullPageFetch` | `web_search_full_page_fetch,omitempty` | `false` | snippet-only vs full-page fetch+embed (controls whether the loader path is exercised / `BYPASS_…` env) |
+| `WebSearchEgressAllowlist` | `web_search_egress_allowlist,omitempty` | `[]` | optional domain allowlist → OWUI `WEB_SEARCH_DOMAIN_FILTER_LIST` and re-enforced in the guard |
+
+> The image **digest** is NOT a config field — image pins live as seam-locked constants in `internal/orchestrate` (the v1.3/v1.4 norm), so a hand-edited config can never request an unpinned image.
+
+### (2) OWUI native-search wiring — env-only behind the orchestrate seam (like v1.3 Memory)
+
+**Answer: YES, identical discipline.** This extends `buildOpenWebUIView` (`internal/orchestrate/openwebui.go`), which already assembles an **ordered** `[]envPair` and enforces `ENABLE_PERSISTENT_CONFIG=False` (D-03). When `WebSearchEnabled`, append these ordered entries (all verified to exist in released OWUI `config.py`):
+
+```
+ENABLE_WEB_SEARCH=True
+WEB_SEARCH_ENGINE=searxng
+SEARXNG_QUERY_URL=http://{SearxngAddr}:{SearxngPort}/search?q=<query>&format=json
+WEB_SEARCH_RESULT_COUNT={WebSearchResultCount}
+WEB_SEARCH_DOMAIN_FILTER_LIST={egress allowlist}     # if set
+WEB_LOADER_ENGINE=external                            # ← delegates fetch to villa
+EXTERNAL_WEB_LOADER_URL=http://{WebSafeAddr}:{WebSafePort}/load
+EXTERNAL_WEB_LOADER_API_KEY={rendered shared secret}
+BYPASS_WEB_SEARCH_EMBEDDING_AND_RETRIEVAL={!WebSearchFullPageFetch}  # snippet path may bypass embed
+```
+
+Discipline preserved:
+- **`ENABLE_PERSISTENT_CONFIG=False` stays mandatory** — the v1.3 rationale (PersistentConfig bakes env into `webui.db` on first boot then ignores env) applies identically; config must remain the single source of truth.
+- **Off-render byte-identical to v1.4**: when `WebSearchEnabled=false`, none of these entries render; the env block equals the v1.4 baseline (frozen by extending the existing memory/OWUI golden test).
+- **Embedding reuses villa-embed/Qdrant verbatim** — `RAG_EMBEDDING_*` already points at `villa-embed`; web pages flow through the *same* 768-dim path. No new embedding plumbing (the milestone's explicit reuse goal).
+- The `<query>` placeholder and `format=json` are required by OWUI's SearXNG provider; `format=json` must also be enabled in SearXNG's `settings.yml`.
+
+### (3) The villa-owned injection guard layer — WHERE it lives (the hard problem, honestly analyzed)
+
+**Problem restated honestly:** OWUI's native web search fetches result pages *inside the OWUI container*. By default villa is **not** in the fetch path, so villa cannot sanitize/fence/classify what reaches the model — unless it changes *which component does the fetch*.
+
+**Three options analyzed:**
+
+| Option | What it means | Verdict |
+|--------|---------------|---------|
+| **(a)** villa proxies/intercepts the SearXNG response | Sit between OWUI and SearXNG, or rewrite SearXNG output | **Rejected.** SearXNG returns *result metadata (URLs/snippets)*, not page bodies. Intercepting it does not let villa guard the **page content** OWUI fetches afterward — the actual injection vector. Wrong layer. |
+| **(b)** villa-managed sanitizing fetch-loader container between OWUI and the internet | `WEB_LOADER_ENGINE=external`; OWUI POSTs `{urls}` to `villa-websafe`; villa fetches, strips, classifies, fences, returns `page_content` | **RECOMMENDED.** This is the released OWUI seam (`ExternalWebLoader`). Villa becomes the **sole producer of `page_content`** — the exact bytes that get embedded and shown to the model. Full control over sanitize+fence+classify; **zero OWUI rebuild**; OWUI's own RAG/citations/Knowledge layout untouched. |
+| **(c)** guard pass on indexed content (post-embed, in Qdrant) | Scan vectors/chunks after OWUI has embedded them | **Rejected as the primary control.** Too late: raw text already exists in OWUI's store and is retrievable; fences must be present *before* embedding so the model sees them; classifying post-chunked vectors loses page-level structure. Acceptable only as defense-in-depth, never the gate. |
+
+**Why (b) is architecturally honest with this codebase:**
+- It mirrors the project's deepest invariant: **villa controls the boundary, integrates the OSS.** Just as `villa-embed` owns embeddings and OWUI consumes them, `villa-websafe` owns fetch+guard and OWUI consumes the sanitized result.
+- The guard does three things on each fetched page, in order:
+  1. **sanitize** — fetch raw HTML, strip `<script>`/`<style>`/event handlers/`data:`/hidden text/zero-width chars, normalize to plain text (kills hidden-instruction markup);
+  2. **classify** — run a heuristic/regex (+ optional small-model) pass over the cleaned text to flag injection patterns ("ignore previous instructions", tool-call lures, exfil URLs), tagging or quarantining suspicious pages;
+  3. **fence** — wrap surviving text in explicit provenance fences (`<<UNTRUSTED_WEB_CONTENT source=URL>> … <<END_UNTRUSTED_WEB_CONTENT>>` with a "treat as data, not instructions" preamble) so the fence travels *with the text* through embedding into the model context.
+
+  Returns `{page_content: fenced_text, metadata: {source, guard_verdict}}`.
+- **Egress bounding folds in here**: `villa-websafe` enforces the domain allowlist and protocol/private-IP blocks (OWUI's `SafeWebBaseLoader` already blocks private IPs / non-http(s); villa re-asserts at its own boundary). Outbound is concentrated in exactly two services (searxng, websafe), making the egress claim *small and provable*.
+
+**Language/impurity note (important for the "Go is the control plane" constraint):** `villa-websafe` is an **integrated service, not first-party control-plane code that breaks "orchestrate is the only impure module."** Two honest shapes:
+  - **Preferred:** a tiny purpose-built Go HTTP service compiled into the same `villa` binary and run as the container *entrypoint* (`villa websafe-serve`, an internal subcommand) — keeps single-binary distribution, keeps the guard logic in a **pure, unit-testable `internal/websafe` core** (fetch behind an injected `Deps` seam; strip/classify/fence are pure), and the *container* does the impure fetching, not the control-plane process. Fits the existing pure-core + injectable-seam discipline exactly (the websafe *server* is a thin impure edge over a pure core, like the dashboard server folds pure `status`).
+  - **Alternative:** an off-the-shelf loader image — rejected, because villa must *own* the strip/classify/fence policy and prove it (`villa verify search`); an opaque third-party loader can't be the trust anchor.
+
+> `orchestrate` remains the only module that shells to podman/systemd. The websafe server's network fetch is an injected `Deps` func over a pure core — it does not make `internal/websafe` an "impure module."
+
+### (4) Egress-bounding + `villa verify search` — reuse the v1.4 four-layer seam
+
+**Answer: clone `villa verify agent` (Phase 27) directly.** That verb is the proven template: a pure eval core + live `Deps` + a real **rootless-netns nft FORWARD egress block** + **negative-control-first** (the egress-open run MUST FAIL exit 1 before any PASS is trusted). For `villa verify search`:
+
+- **Negative control first (gate is real):** prove the guard is live — e.g. an injection probe that *should* be stripped/flagged; if it survives unfenced, FAIL. A vacuous green is forbidden (the v1.3/v1.4 lesson: install-time green ≠ runtime safe).
+- **Guard proof:** plant a known indirect-injection page; drive a real search→fetch→guard round-trip; assert the returned `page_content` is **stripped + fenced** and the classifier flagged it. The fence/verdict must be observable in the model-facing content.
+- **Egress-bound proof:** under a scoped nft block that permits *only* searxng + websafe egress, prove search still works (PASS) and that nothing else (OWUI, llama, qdrant, embed) reaches the internet. An ineffective block must be **REJECTED, not fabricated-PASS** (the Phase-27 correctness bar — an ineffective host-main-netns block was correctly rejected there).
+- Outbound is honestly surfaced in `status`/`doctor` — it is NOT "zero data leaving the box" anymore; it is *bounded, opt-in, surfaced* outbound (per PROJECT.md's reconciled tension).
+
+This reuses the netns/nft scaffolding Phase 27 built; the novelty is the *guard* assertions layered on top.
+
+### (5) Surfacing — single `status.Report` 4→5 bump, dashboard panel LANDS LAST
+
+**Answer: one append-only bump, last phase, one golden re-freeze** — the v1.2/v1.3/v1.4 invariant (each milestone evolves `status.Report` exactly once):
+- `status.Report` schema **4→5**: append a `web_search` block (`enabled`, searxng/websafe in-network health rows, guard verdict counters, last-query freshness, outbound-bounded indicator). `recommend` stays put; `doctor` owns its own schema (bump doctor independently if it folds web-search checks, like the v1.4 doctor 1→2).
+- **Hidden-until-data dashboard Web Search panel** inherits the `web_search` block **verbatim** (XSS-safe render, the v1.3/v1.4 panel pattern) — surfacing reads the frozen contract, never re-derives.
+- Land it **in the final phase**, after fit/orchestrate, guard, and verify are all done — so the schema freezes a finished feature set (the explicit staggered-contract-risk discipline).
 
 ---
 
-## (d) CODEBASE MEMORY — agent-native (LSP + ripgrep) is the default; optional plugin reuses villa-embed; Qdrant is NOT the code-memory store.
+## Recommended Phase Build Order (dependencies honored)
 
-This directly answers the milestone's "research validates effectiveness" clause, and the answer is opinionated:
+Ordering respects **fit/orchestrate first → guard layer → verify → surfacing last**, with one `status.Report` bump and seam-locked literals throughout.
 
-### What OpenCode natively does (HIGH confidence, official docs)
+```
+P-A  Fit + Orchestrate (SearXNG + websafe units, OWUI env wiring, config fields)
+        │  config.toml fields; searxng/websafe image consts (seam-locked);
+        │  *.container/*.volume tmpls; buildSearxngView/buildWebSafeView;
+        │  OWUI env block extension (ENABLE_PERSISTENT_CONFIG=False preserved);
+        │  byte-identical-when-off golden. NO surfacing yet.
+        ▼
+P-B  Guard Layer (internal/websafe pure core + villa-websafe service)
+        │  strip + classify + fence pure core (Deps-injected fetch);
+        │  ExternalWebLoader contract impl (POST {urls} → [{page_content,metadata}]);
+        │  egress allowlist + private-IP/protocol re-assertion at the boundary.
+        │  DEPENDS ON P-A (the unit + EXTERNAL_WEB_LOADER_URL wiring must exist).
+        ▼
+P-C  Verify (villa verify search — clone verify-agent four-layer seam)
+        │  negative-control-first; planted-injection guard proof;
+        │  nft-bounded egress proof (searxng+websafe only); reject ineffective block.
+        │  DEPENDS ON P-A+P-B (proves the rendered+guarded stack end-to-end).
+        ▼
+P-D  Surfacing (LANDS LAST — status.Report 4→5 + dashboard panel)
+        │  one golden re-freeze; hidden-until-data Web Search panel;
+        │  doctor web-search checks on doctor's own schema if added.
+        │  DEPENDS ON A+B+C (freezes a finished, proven feature set).
+```
 
-- Built-in `grep`/`glob` tools are **ripgrep-backed** full-regex repo search respecting `.gitignore`; built-in LSP integration feeds type signatures, definitions, references, and diagnostics to the agent ([docs/lsp](https://opencode.ai/docs/lsp/), [docs/tools](https://opencode.ai/docs/tools/)). For this repo, that means `gopls` — preflight should WARN (not BLOCK) if absent.
-- MCP servers are first-class config (`mcp` key) but each one adds permanent prompt-context cost; the docs themselves warn to be sparing.
-
-### The 2026 effectiveness evidence (MEDIUM, consistent across sources)
-
-Top SWE-bench-Verified agentic systems in 2026 do **not** use vector retrieval over the target repo; Claude Code, Codex CLI, and Aider all ship without embedding indexes — retrieval is exposed as tools (grep/LSP/file-read) and the LLM decides what to call ([MindStudio analysis](https://www.mindstudio.ai/blog/is-rag-dead-what-ai-coding-agents-use-instead), [agentic-search overview](https://buzzgrewal.medium.com/ai-agents-dont-need-vector-search-anymore-inside-the-agentic-search-stack-replacing-rag-in-2026-58efcabe4f6f); upstream Codex declined semantic indexing, openai/codex#5181). Code has explicit structure (imports, call graphs, types) that flat embeddings discard. **Conclusion: Qdrant-RAG-as-default for agent code memory fails the effectiveness test the milestone asked research to run.** The Graphmind-style fallback is likewise unnecessary as a *villa-built* component — LSP **is** the structural code graph, already integrated.
-
-### The optional semantic layer that DOES reuse villa infrastructure (HIGH, repo fetched)
-
-[`opencode-codebase-index`](https://github.com/Helweg/opencode-codebase-index) (OpenCode plugin, also exposable as MCP): tree-sitter chunking + hybrid BM25/vector search, and — decisive for villa — a **`custom` embedding provider speaking the OpenAI `/v1/embeddings` format with configurable `baseUrl`, `model`, and `dimensions: 768`**, i.e. a drop-in match for `villa-embed` (nomic-embed-text-v1.5, 768-dim). Its vector store is **per-project local** (`.opencode/index/`: SQLite + usearch + BM25 JSON) — private, zero services, survives without Qdrant.
-
-### Decision matrix
-
-| Option | What villa orchestrates | Effectiveness evidence | Verdict |
-|--------|------------------------|------------------------|---------|
-| **Agent-native LSP + ripgrep** | Nothing (config renders `lsp` enabled; preflight WARNs on missing gopls) | Strongest (2026 SOTA agents) | **DEFAULT — always on** |
-| **codebase-index plugin → villa-embed** | Conditional villa-embed loopback publish + plugin pin in rendered opencode.json + `coder_index_enabled` flag | Positive but secondary (semantic recall helps exploration on unfamiliar/large repos; hybrid BM25+vector) | **OPTIONAL, default OFF** — third-party npm plugin = new supply-chain surface; pin version; pre-stage during the install outbound window (OpenCode fetches plugins via npm at startup — another outbound to gate in `verify coder`) |
-| **villa-built MCP RAG server over Qdrant** | A whole new first-party service + collection lifecycle + chunking pipeline | Weakest; duplicates what the plugin does with more code | **REJECTED** — violates integration-first; build only the control plane |
-
-**What villa must do vs configure:** villa *configures* (renders `lsp`, `mcp`/plugin, provider blocks into its `opencode.json`) and *orchestrates only the embed publish*. It never owns chunking, indexing, or a code collection. The `.opencode/index/` stores are user-project data — **excluded from `villa backup`** (like weights: per-project, regenerable).
-
----
-
-## (e) MODIFIED vs NEW, and build order
-
-### Modified (every touch is append-only / behind an existing seam)
-
-| Component | File(s) (verified) | Change |
-|-----------|--------------------|--------|
-| config | `internal/config/villaconfig.go` | Append coder block after the v1.3 memory block (lines 60–82 pattern): `coder_enabled`, `coder_model`, `coder_quant`, `coder_ctx`, `coder_port` (default 8090), `coder_mode` (`dedicated`/`shared`, machine-resolved), `coder_index_enabled`, `embed_host_port`. Same omitempty/self-heal discipline |
-| catalog | `internal/catalog/seed.json`, `catalog.go` | Schema 2→3: append `role` field (`"chat"` default / `"coder"`; absent = chat — old catalogs stay valid); add Qwen3-Coder-30B-A3B entry (+ optional Qwen3-Coder-Next for big envelopes) with real shard SHA256s and KV dims |
-| recommend | `internal/recommend/recommend.go` | Coder fit stage after embed reservation + chat fit (see (b)); `Recommendation` schema 2→3 append-only; one golden re-freeze |
-| inference | `internal/inference/` | Spec gains host-publish port + service-role; `--jinja`/ctx/KV-cache flags for the coder role live in `ContainerArgs` behind the seam (grep-gate `TestSeamGrepGate` keeps enforcing) |
-| orchestrate | `internal/orchestrate/` | Render `villa-coder.container` (new tmpl, through the Backend seam like villa-llama, on `villa.network`, models from `villa-models.volume`); conditional villa-embed PublishPort; reconcile/WriteUnits untouched (they're unit-generic) |
-| preflight | `internal/preflight/` | Coder gates: disk for coder GGUF + agent zip (BLOCK), post-coder envelope headroom (BLOCK), gopls present (WARN), node-free check N/A (plugin runs inside OpenCode's bundled Bun) |
-| install | `cmd/villa/install.go`, `install_wizard.go`, new `install_coder.go` | Mirror `install_memory.go` addon pattern exactly (gate → pre-stage GGUF + agent zip + plugin tarball in the sanctioned outbound window → render → readiness proof: `/health` + residency + one real `/v1/chat/completions` tool-call probe) |
-| doctor | `internal/doctor/` (+ `cmd/villa/doctor.go` wiring) | Coder checks: agent binary present + version==pin, villa-coder health + **offload-asserting residency under a real generation** (reuse the MEM-DOC pattern), rendered-config-vs-disk drift for `opencode.json` |
-| status | `internal/status/status.go` + dashboard | `Report` 3→4 append-only, **landed in the final phase, one golden re-freeze** (the proven v1.2/v1.3 discipline): coder service row, mode (dedicated/shared), agent version + pin-match, coder model id |
-| backup | `internal/backup/` | Manifest v3: include villa-rendered `opencode.json` + agent identity (version+sha256, binary excluded, re-pull on restore — same rule as weights); `.opencode/index/` explicitly excluded |
-| verify | `cmd/villa/` (verify path) | `villa verify coder`: negative-control-first nft egress proof around a full agent round-trip (models.dev fetch, telemetry, npm, update check must all be absent/blocked-and-survivable) |
-| uninstall | `cmd/villa/uninstall.go` | Remove villa-coder unit, agent binary, rendered opencode.json; leave user repos untouched |
-
-### New
-
-| Component | Shape |
-|-----------|-------|
-| `internal/coder` (pure core) | `go:embed opencode-policy.json` (pinned version + per-platform asset + sha256, deny-list room — the rocm-policy pattern); opencode.json renderer (`VillaConfig` → provider/model/lsp/plugin/permissions/lockdown JSON — config-as-source-of-truth, regenerated never hand-edited); pin/installed-version comparator. Host effects (download via `internal/download`, unzip, chmod, exec) injected as Deps — core stays exec-free per the v1.2 rule "one new pure core per decision-logic feature" |
-| `cmd/villa/coder.go` | `villa code` (launcher: env lockdown + `OPENCODE_CONFIG` + exec), `villa coder status|upgrade` (explicit pin move) |
-| `villa-coder.container` tmpl | In `internal/orchestrate/quadlet/`, sibling of the existing five units |
-
-### Build order (dependency-driven)
-
-1. **Catalog role + coder entries, recommend coder-fit stage** — pure, no host effects, everything downstream consumes the fit verdict; schema bumps (catalog 2→3, recommend 2→3) land here, goldens re-frozen once each.
-2. **Inference spec port/role + orchestrate villa-coder render + conditional embed publish** — pure render + goldens; seam grep-gate and loopback tests extended.
-3. **`internal/coder` delivery core + `villa code` launcher** — policy pin, checksum verify, opencode.json render, offline-lockdown env. Testable off-hardware end-to-end.
-4. **Install addon + preflight gates** — wire 1–3 into `install_coder.go` (mirror `install_memory.go`), wizard screen, readiness proof with a real tool-call probe on the gfx1151 box.
-5. **Codebase memory optional layer** — plugin pin + custom-provider wiring to villa-embed + on-hardware effectiveness validation (the milestone's explicit research-validates-effectiveness gate: compare agent task success/latency with index on/off before defaulting anything on).
-6. **Surfacing + proofs LAST** — doctor coder checks, `status.Report` 3→4 + dashboard panel, backup manifest v3, `villa verify coder`. Single byte-frozen contract evolution in the final phase, exactly as v1.2 (P15) and v1.3 (P23) proved out.
+**Why this order:**
+- **P-A before P-B:** the guard service is wired via `EXTERNAL_WEB_LOADER_URL` — that env + the unit must render first. P-A is also the only phase (other than P-D's status golden) that touches the orchestrate render goldens.
+- **P-B before P-C:** you can't prove a guard that doesn't exist; verify asserts on the guard's stripped+fenced output.
+- **P-D last, always:** the byte-frozen `status.Report` must bump over a *finished* feature set (staggered-contract-risk discipline). Surfacing reads, never derives.
+- **Seam-lock throughout:** the searxng/websafe image digests are constants in `internal/orchestrate`; `TestSeamGrepGate` fails the build on any leaked image/marker literal — so P-A must place them correctly from the start.
 
 ---
 
-## Anti-Patterns (domain-specific)
+## Anti-Patterns (specific to this integration)
 
-- **Trusting OpenCode's offline flags.** `OPENCODE_DISABLE_MODELS_FETCH` + `share:disabled` are known-partial (open upstream issues). A flag-trusted "strictly local" claim is the false-green this codebase exists to forbid → runtime nft proof, negative control first.
-- **Letting OpenCode self-update.** `opencode upgrade`/autoupdate would silently move a binary villa attested by checksum. Force `autoupdate:false`; updates only via the villa pin.
-- **Importing llama-swap (or building swap-based coding mode) for residency.** villa already owns Quadlet orchestration and has a fit engine; a swap proxy adds a second orchestrator and breaks chat during coding. Co-resident-or-shared needs no new transaction.
-- **Writing code vectors into villa-qdrant.** Invisible to the agent's tooling, requires a first-party MCP RAG server, weakest effectiveness evidence; the plugin's local index + villa-embed endpoint achieves the reuse goal without it.
-- **Hand-editing `opencode.json` as authority.** It is a rendered artifact of `config.toml`, same as Quadlet units; doctor should flag drift.
-- **Re-typing llama-server coder flags outside the seam.** `--jinja`/KV/ctx/publish literals belong in `internal/inference` `ContainerArgs` — the grep-gate will catch leaks; don't fight it.
-- **Aggressive K-cache quantization on the coder unit.** Saves memory, corrupts tool-call JSON in agent workloads (documented community reports) — the agent fails weirdly while residency stays green.
+### Anti-Pattern 1: Letting OWUI fetch with its built-in loader and "guarding later"
+**What people do:** Leave `WEB_LOADER_ENGINE` default (`safe_web`/`playwright`), then try to sanitize in Qdrant or via a prompt instruction.
+**Why it's wrong:** The raw, un-fenced page is already embedded and retrievable; the model sees unfenced untrusted text. The injection has already entered the trust boundary.
+**Do this instead:** `WEB_LOADER_ENGINE=external` → `villa-websafe`. Villa is the sole producer of `page_content`; fences exist *before* embedding.
 
-## Scalability / envelope considerations
+### Anti-Pattern 2: Putting the SearXNG/websafe image digest in `config.toml`
+**What people do:** Make the image pin a config field "for flexibility."
+**Why it's wrong:** Breaks "config is configuration truth, image pins are seam-locked constants" — a hand-edited config could request an unpinned/malicious image, and `TestSeamGrepGate` would not guard a config string.
+**Do this instead:** Digest constant in `internal/orchestrate` (like `QdrantImage()`); config carries only addr/port/toggles.
 
-Single-user, single-host by constraint. The only "scale" axis is the memory envelope, handled entirely by the recommend fit stage (tier table in (b)). The one operational concern: two co-resident llama-servers contend for iGPU compute — chat tok/s will dip while the agent generates. Surface honestly (status shows both; bench stays per-endpoint), don't engineer QoS.
+### Anti-Pattern 3: Trusting an install-time egress check (vacuous green)
+**What people do:** Assert "no outbound" once at install and call it proven.
+**Why it's wrong:** Web search *necessarily* makes outbound calls at *runtime*; an install-time check is meaningless. The v1.3/v1.4 lesson.
+**Do this instead:** `villa verify search` at runtime, negative-control-first, under a real nft block — prove the egress is *bounded* (searxng+websafe only), not *absent*.
+
+### Anti-Pattern 4: Rebuilding OWUI's search/RAG to inject the guard
+**What people do:** Fork OWUI to intercept its fetch.
+**Why it's wrong:** Violates "integrate-not-rebuild"; OWUI owns chunk/embed/retrieve/citations/Knowledge layout (the v1.3 recall decision). A fork rots.
+**Do this instead:** Use the released `external` loader seam. Villa controls fetch; OWUI keeps owning RAG.
+
+### Anti-Pattern 5: Auto-enabling web search / widening egress silently
+**What people do:** Turn search on by default or open egress broadly.
+**Why it's wrong:** Breaks the opt-in/default-off posture and surfaced-outbound honesty (mirrors "ROCm never auto-switches", "coding mode never auto-flips").
+**Do this instead:** Explicit `villa install --web-search` (or a `villa web-search enable` verb), default-off, byte-identical when off, outbound surfaced in status/doctor.
+
+---
+
+## Integration Points (summary tables)
+
+### External Services
+
+| Service | Integration Pattern | Notes / gotchas |
+|---------|---------------------|-----------------|
+| SearXNG | Managed Quadlet on villa.network; `SEARXNG_QUERY_URL=http://villa-searxng:8080/search?q=<query>&format=json` | MUST enable `search.formats: [html, json]` and a generated `secret_key` in `settings.yml`; container-DNS only, no host port |
+| OWUI native web search | env-only behind `buildOpenWebUIView`; `WEB_SEARCH_ENGINE=searxng` + `WEB_LOADER_ENGINE=external` | `ENABLE_PERSISTENT_CONFIG=False` mandatory; off-render byte-identical |
+| villa-websafe (guard/loader) | `EXTERNAL_WEB_LOADER_URL=http://villa-websafe:8181/load`; OWUI POSTs `{urls}` (≤20/batch, Bearer), expects `[{page_content,metadata}]` | This IS the fetch path + guard; the only first-party component touching result sites |
+| Upstream search engines / result sites | reached *only* via villa-searxng / villa-websafe | the entire (opt-in, bounded) outbound surface — proven by `villa verify search` |
+
+### Internal Boundaries
+
+| Boundary | Communication | Notes |
+|----------|---------------|-------|
+| `internal/websafe` ↔ network fetch | injected `Deps` func (pure core, impure edge) | strip/classify/fence are pure + unit-testable off-hardware |
+| `orchestrate` ↔ searxng/websafe units | render Quadlet from config (pure) + WriteUnits/systemd (impure edge) | orchestrate stays the ONLY impure module |
+| `status` ↔ dashboard panel | frozen `status.Report.web_search` (schema 5) | append-only; panel reads, never derives |
+| `verify(search)` ↔ host | live `Deps` + nft/netns (cloned from verify-agent) | negative-control-first |
+
+---
+
+## Confidence & Gaps
+
+| Area | Confidence | Basis |
+|------|------------|-------|
+| OWUI external-loader seam & contract | **HIGH** | Verified against released `open-webui` source (`get_web_loader`, `ExternalWebLoader`, `config.py` vars) |
+| SearXNG-as-managed-service fit | **HIGH** | Identical to v1.3 qdrant/embed pattern verified in this repo (`orchestrate/memory.go`, templates) |
+| OWUI env-only wiring discipline | **HIGH** | Verified in repo (`buildOpenWebUIView`, `ENABLE_PERSISTENT_CONFIG=False`) + released OWUI env names |
+| verify-search seam reuse | **HIGH** | v1.4 `villa verify agent` four-layer seam is the proven template |
+| Guard classifier *efficacy* (false-pos/neg of injection detection) | **MEDIUM** | Strip+fence is robust; the *classifier* heuristic quality needs phase-level eval (flag P-B/P-C for a small injection benchmark) |
+| `BYPASS_WEB_SEARCH_EMBEDDING_AND_RETRIEVAL` exact behavior per OWUI version | **MEDIUM** | Confirmed the var exists; snippet-vs-full-page behavior should be pinned to the exact OWUI `@sha256` villa ships |
+
+**Gaps to flag for phase research:**
+- The injection **classifier** (P-B) deserves a small pre-declared injection-detection eval (precision/recall on planted prompts) — mirror the v1.4 "must-WIN eval" discipline rather than shipping on hope.
+- Confirm the OWUI digest villa pins exposes `external` loader + `BYPASS_WEB_SEARCH_EMBEDDING_AND_RETRIEVAL` (current pin is OWUI v0.9.6-era; verify against the exact `@sha256` before P-A).
+- SearXNG bot-detection/limiter tuning (`UWSGI_WORKERS`, `botdetection`) for a single-user local instance — minor, but render sane defaults.
 
 ## Sources
 
-**Codebase (HIGH, verified 2026-06-12):** `internal/config/villaconfig.go` (fields, memory block 60–82), `internal/inference/backend_vulkan.go` (hostPublishAddr 127.0.0.1, loopback test), `internal/orchestrate/openwebui.go:71` + `memory_test.go:104` (publish posture, T-19-01), `internal/orchestrate/render.go:264` (publish parsing), `internal/recommend/recommend.go:103–206` (embedding reservation, schema 2), `internal/catalog/seed.json` (schema 2, entry shape, 4 model ids), `cmd/villa/install_memory.go` (addon pattern), `docs/ARCHITECTURE.md`, `.planning/PROJECT.md`.
-
-**Web (fetched/searched 2026-06-12):**
-- [anomalyco/opencode releases](https://github.com/anomalyco/opencode/releases) — v1.17.4, per-asset SHA256, cadence (HIGH)
-- [OpenCode config docs](https://opencode.ai/docs/config/) — merge order, OPENCODE_CONFIG, autoupdate/share keys (HIGH); [providers](https://opencode.ai/docs/providers/), [LSP](https://opencode.ai/docs/lsp/), [tools](https://opencode.ai/docs/tools/), [MCP](https://opencode.ai/docs/mcp-servers/) (HIGH)
-- OpenCode offline/air-gap issues #16117, #18492, #4959, #5554 + community offline forks (MEDIUM-HIGH)
-- [Helweg/opencode-codebase-index](https://github.com/Helweg/opencode-codebase-index) — custom OpenAI-compatible embeddings (baseUrl/model/dimensions:768), local usearch/SQLite store, plugin+MCP modes (HIGH)
-- [llama-server README](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md) — --jinja, --parallel ctx-split, cache types (HIGH); [KV-cache for OpenCode agents](https://medium.com/rigel-computer-com/optimize-your-gpu-kv-cache-for-llama-cpp-opencode-co-13b6bc74f5ec), llama.cpp discussions (MEDIUM)
-- [strix-halo-guide benchmarks](https://github.com/hogeheer499-commits/strix-halo-guide) — Qwen3-Coder-30B-A3B ~97 t/s (MEDIUM); [Unsloth Qwen3-Coder-Next](https://unsloth.ai/docs/models/qwen3-coder-next) — 80B-A3B, 256k ctx, ~46 GB @4-bit (MEDIUM)
-- Agentic-search-vs-RAG evidence: [MindStudio](https://www.mindstudio.ai/blog/is-rag-dead-what-ai-coding-agents-use-instead), [agentic search stack 2026](https://buzzgrewal.medium.com/ai-agents-dont-need-vector-search-anymore-inside-the-agentic-search-stack-replacing-rag-in-2026-58efcabe4f6f), openai/codex#5181 (MEDIUM, cross-consistent)
-- Community OpenCode container images (pilinux, openeuler, brockar) — evidence of no first-party image (MEDIUM)
+- [Open WebUI — SearXNG provider](https://docs.openwebui.com/features/chat-conversations/web-search/providers/searxng/) (HIGH — config: `SEARXNG_QUERY_URL`, JSON format requirement)
+- [Open WebUI — Web Search Integration (DeepWiki)](https://deepwiki.com/open-webui/open-webui/6.5-web-search-integration) (HIGH — pipeline: search→load→embed→inject, loader engines incl. `external`)
+- [Open WebUI — Agentic Search & URL Fetching](https://docs.openwebui.com/features/chat-conversations/web-search/agentic-search/) (MEDIUM — fetch_url, 50k-char truncation)
+- `open-webui/open-webui` source `backend/open_webui/retrieval/web/utils.py::get_web_loader` and `retrieval/loaders/external_web.py::ExternalWebLoader` (HIGH — verified external-loader request/response contract)
+- `open-webui/open-webui` source `backend/open_webui/config.py` (HIGH — verified env var names: `ENABLE_WEB_SEARCH`, `WEB_SEARCH_ENGINE`, `SEARXNG_QUERY_URL`, `WEB_LOADER_ENGINE`, `EXTERNAL_WEB_LOADER_URL`, `BYPASS_WEB_SEARCH_EMBEDDING_AND_RETRIEVAL`, `WEB_SEARCH_DOMAIN_FILTER_LIST`)
+- [SearXNG — Docker installation](https://docs.searxng.org/admin/installation-docker.html) + [settings.yml](https://github.com/searxng/searxng/blob/master/searx/settings.yml) (HIGH — JSON format, secret_key, rootless container)
+- [Thoughtworks — prompt fencing vs prompt injection](https://www.thoughtworks.com/en-us/insights/blog/generative-ai/how-prompt-fencing-can-tackle-prompt-injection-attacks) (MEDIUM — provenance fencing as a defense)
+- [Document Injection: the prompt-injection vector inside every RAG pipeline](https://tianpan.co/blog/2026-04-15-document-injection-rag-pipeline) (MEDIUM — sanitize-before-embed, fence-as-data)
+- [Indirect Prompt Injection in RAG Systems and AI Agents (AquilaX)](https://aquilax.ai/blog/indirect-prompt-injection-rag-agents) (MEDIUM — defense-in-depth: provenance + isolation + validation)
+- This repo: `internal/orchestrate/memory.go`, `openwebui.go`, `quadlet/*.tmpl`, `internal/config/villaconfig.go`, PROJECT.md, CLAUDE.md (HIGH — existing managed-service + env-wiring + config patterns)
 
 ---
-*Architecture research for: VillaStraylight v1.4 Coding Agent milestone*
-*Researched: 2026-06-12*
+*Architecture research for: VillaStraylight v1.5 Web Search (Grounded & Guarded) — integration with existing Go control plane*
+*Researched: 2026-06-18*
