@@ -150,6 +150,15 @@ type VillaConfig struct {
 	// container via a Quadlet EnvironmentFile=<0600 path> directive (T-29-02). Empty until
 	// opt-in; NOT self-healed (a generated secret has no meaningful default).
 	SearxngSecret string `toml:"searxng_secret,omitempty"`
+	// WebSearchResultCount is the operator-tunable number of search results Open WebUI
+	// requests per query — it maps directly to OWUI's WEB_SEARCH_RESULT_COUNT env var
+	// (D-05, threaded into the OWUI render by Plan 02). Default 3 keeps the context budget
+	// conservative ahead of Phase 31's ctx-budget reservation. Tagged ,omitzero (NOT
+	// ,omitempty) to match the v1.3 memory int precedent (qdrant_port/embed_port) and the
+	// SearxngPort precedent above: BurntSushi/toml only drops a zero int with omitzero,
+	// which the byte-identical-off guarantee depends on (the key is dropped from disk when
+	// web search is off via marshalVilla zeroing).
+	WebSearchResultCount int `toml:"web_search_result_count,omitzero"`
 }
 
 // defaultConfig is the typed default returned when no config file exists. An absent
@@ -176,6 +185,9 @@ func defaultConfig() VillaConfig {
 		WebSearchEnabled: false,
 		SearxngAddr:      "villa-searxng",
 		SearxngPort:      8080,
+		// Result-count default (D-05): conservative 3 ahead of Phase 31's ctx-budget
+		// reservation. The SINGLE home of this literal; the other three sites derive it.
+		WebSearchResultCount: 3,
 	}
 }
 
@@ -245,6 +257,12 @@ func normalizeVilla(cfg VillaConfig) VillaConfig {
 	}
 	if cfg.SearxngPort == 0 {
 		cfg.SearxngPort = d.SearxngPort
+	}
+	// Result-count self-heal (v1.5, D-05): a zero WebSearchResultCount is treated as
+	// "unset -> default" and filled from the SAME defaultConfig() source (never a
+	// re-hard-coded literal). Mirrors the SearxngPort==0 heal above.
+	if cfg.WebSearchResultCount == 0 {
+		cfg.WebSearchResultCount = d.WebSearchResultCount
 	}
 	return cfg
 }
@@ -340,6 +358,7 @@ func marshalVilla(c VillaConfig) ([]byte, error) {
 		c.SearxngAddr = ""
 		c.SearxngPort = 0
 		c.SearxngSecret = ""
+		c.WebSearchResultCount = 0
 	}
 	return toml.Marshal(c)
 }
