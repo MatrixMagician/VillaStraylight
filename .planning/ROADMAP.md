@@ -127,7 +127,10 @@ Audit `tech_debt` — 17/17 requirements satisfied, integration PASS (7/7 seam g
   2. `settings.yml` is rendered from config with `search.formats: [html, json]`, a generated `secret_key`, and `limiter: false` — and a real `format=json` query returns parseable JSON results (readiness is the actual query, never a health-200).
   3. The rendered SearXNG runs a **vetted subset** of upstream engines (a bounded, auditable list of outbound upstream hosts), not the full default engine set.
   4. With web search not configured, the rest of the stack renders byte-identical to v1.4 (the new unit is additive and gated).
-**Plans**: TBD
+**Plans**: 3 plans
+- [ ] 29-01-PLAN.md — Config gate/fields/crypto-rand secret + orchestrate/searxng.go (image const, views, settings render) + render branch + seam allowlist + goldens (SRCH-01, SRCH-04)
+- [ ] 29-02-PLAN.md — settings.yml atomic writer (sibling of WriteUnits): traversal-guarded, 0600, into the villa config dir for `/etc/searxng:ro,Z` mount (SRCH-01)
+- [ ] 29-03-PLAN.md — Real `format=json` readiness proof (evalSearxngProof + liveSearxngProof via runProbeCurl) + install gating/start (SRCH-01)
 
 ### Phase 30: OWUI Native-Search Wiring
 **Goal**: The operator's Open WebUI is wired to the local SearXNG via OWUI's native web search, opt-in per-query, with honest no-results behavior — and with web search off the install is byte-identical to v1.4.
