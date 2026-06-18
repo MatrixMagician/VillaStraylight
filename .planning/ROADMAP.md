@@ -109,7 +109,7 @@ Audit `tech_debt` — 17/17 requirements satisfied, integration PASS (7/7 seam g
 
 **Build order is research-converged (fit/orchestrate → guard → verify → surface-last):** the premise SearXNG container and OWUI env wiring first (they own the orchestrate render goldens); the bounded fetch path (SSRF + ephemeral collection + ctx-fit) before the guard policy is layered onto it; the guard before the verify that asserts on its output; egress-bounding `villa verify search` as the honest backstop over the full assembly; and ALL surfacing last — the single `status.Report` 4→5 bump with exactly one golden re-freeze.
 
-- [ ] **Phase 29: SearXNG Search Service** - The premise container: `villa-searxng` rendered like v1.3 qdrant/embed, readiness proven by a real `format=json` query
+- [x] **Phase 29: SearXNG Search Service** - The premise container: `villa-searxng` rendered like v1.3 qdrant/embed, readiness proven by a real `format=json` query (completed 2026-06-18)
 - [ ] **Phase 30: OWUI Native-Search Wiring** - Env-only opt-in wiring of OWUI's native SearXNG search behind the orchestrate seam, off-render byte-identical to v1.4
 - [ ] **Phase 31: Grounded Fetch → Embed Grounding** - The `villa-websafe` fetch path: full-page fetch → embed via v1.3 RAG → cited answer, dedicated ephemeral collection, ctx reservation, SSRF guard
 - [ ] **Phase 32: Villa Injection Guard Layer** - Sanitize + Unicode-normalize + nonced provenance-fence + heuristic flag-not-block classifier layered onto the fetch path (reduces/flags, never eliminates)
@@ -130,15 +130,15 @@ Audit `tech_debt` — 17/17 requirements satisfied, integration PASS (7/7 seam g
   3. The rendered SearXNG runs a **vetted subset** of upstream engines (a bounded, auditable list of outbound upstream hosts), not the full default engine set.
   4. With web search not configured, the rest of the stack renders byte-identical to v1.4 (the new unit is additive and gated).
 
-**Plans**: 1/3 plans executed
+**Plans**: 3/3 plans complete
 **Wave 1**
 
 - [x] 29-01-PLAN.md — Config gate/fields/crypto-rand secret + orchestrate/searxng.go (image const, views, settings render) + render branch + seam allowlist + goldens (SRCH-01, SRCH-04)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 29-02-PLAN.md — settings.yml atomic writer (sibling of WriteUnits): traversal-guarded, 0600, into the villa config dir for `/etc/searxng:ro,Z` mount (SRCH-01)
-- [ ] 29-03-PLAN.md — Real `format=json` readiness proof (evalSearxngProof + liveSearxngProof via runProbeCurl) + install gating/start (SRCH-01)
+- [x] 29-02-PLAN.md — settings.yml atomic writer (sibling of WriteUnits): traversal-guarded, 0600, into the villa config dir for `/etc/searxng:ro,Z` mount (SRCH-01)
+- [x] 29-03-PLAN.md — Real `format=json` readiness proof (evalSearxngProof + liveSearxngProof via runProbeCurl) + install gating/start (SRCH-01)
 
 ### Phase 30: OWUI Native-Search Wiring
 
