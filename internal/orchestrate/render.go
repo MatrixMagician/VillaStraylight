@@ -143,7 +143,7 @@ func Render(in RenderInput) ([]Unit, error) {
 	// golden. mv is computed ONCE here (memory.RenderView is pure, cheap, identical) and
 	// reused by the memory-stack branch below.
 	mv := memory.RenderView(in.Cfg) // D-11 resolved-values handoff (Phase-18 spine)
-	owuiContainerText, err := execTemplate(tmpl, "openwebui.container.tmpl", buildOpenWebUIView(mv, in.Cfg.MemoryEnabled))
+	owuiContainerText, err := execTemplate(tmpl, "openwebui.container.tmpl", buildOpenWebUIView(mv, in.Cfg.MemoryEnabled, in.Cfg.WebSearchEnabled, in.Cfg.SearxngAddr, in.Cfg.SearxngPort, in.Cfg.WebSearchResultCount))
 	if err != nil {
 		return nil, err
 	}
