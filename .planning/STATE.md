@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-06-15 — milestone v1.4 Coding Agent sh
 Phase: Milestone v1.4 shipped + merged
 Plan: —
 Status: v1.4 MERGED to main (PR #5, merge commit 5bcd651) + tagged v1.4 (pushed). Awaiting next milestone.
-Last activity: 2026-06-15 — Milestone v1.4 merged to main + tagged v1.4; ultrareview fix 0f1b32d (LSP probe drift) included; phase branches 24–28 deleted
+Last activity: 2026-06-18 — Completed quick task 260618-dvb: corrected shipped-milestone records (v1.0→v1.4) in CLAUDE.md + MILESTONES.md
 
 ## Performance Metrics
 
@@ -208,6 +208,7 @@ Earlier (v1.0–v1.3) standing decisions retained:
 | 260608-pyp | fix remaining 4 phase-17 UI-SPEC warnings | 2026-06-08 | 0cbac58 | [260608-pyp-...](./quick/260608-pyp-fix-remaining-phase-17-ui-spec-warnings-/) |
 | 260615-ipn | Add drift-guard test tying crush.json provider port to inference.ServerPort() (v1.4 audit WARN) | 2026-06-15 | 6eda867 | [260615-ipn-...](./quick/260615-ipn-add-drift-guard-test-tying-crush-json-pr/) |
 | 260615-qmr | Add README prerequisites section documenting Strix Halo kernel parameters | 2026-06-15 | a87bb56 | [260615-qmr-...](./quick/260615-qmr-add-readme-prerequisites-section-documen/) |
+| 260618-dvb | Correct shipped-milestone records (v1.0→v1.4) in CLAUDE.md + MILESTONES.md (v1.2 stale note, v1.1 tag date) | 2026-06-18 | 8110598 | [260618-dvb-...](./quick/260618-dvb-commit-doc-correction-edits-claude-md-mi/) |
 
 ## Deferred Items
 
