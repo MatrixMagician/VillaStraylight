@@ -109,7 +109,7 @@ Audit `tech_debt` — 17/17 requirements satisfied, integration PASS (7/7 seam g
 
 **Build order is research-converged (fit/orchestrate → guard → verify → surface-last):** the premise SearXNG container and OWUI env wiring first (they own the orchestrate render goldens); the bounded fetch path (SSRF + ephemeral collection + ctx-fit) before the guard policy is layered onto it; the guard before the verify that asserts on its output; egress-bounding `villa verify search` as the honest backstop over the full assembly; and ALL surfacing last — the single `status.Report` 4→5 bump with exactly one golden re-freeze.
 
-- [~] **Phase 29: SearXNG Search Service** - The premise container: `villa-searxng` rendered like v1.3 qdrant/embed, readiness proven by a real `format=json` query (executed 2026-06-18; awaiting on-hardware UAT — `/gsd-verify-work 29`)
+- [x] **Phase 29: SearXNG Search Service** - The premise container: `villa-searxng` rendered like v1.3 qdrant/embed, readiness proven by a real `format=json` query (complete 2026-06-18; on-hardware UAT PASSED — live `format=json` returned 10 results, no host port; security 14/14 closed)
 - [ ] **Phase 30: OWUI Native-Search Wiring** - Env-only opt-in wiring of OWUI's native SearXNG search behind the orchestrate seam, off-render byte-identical to v1.4
 - [ ] **Phase 31: Grounded Fetch → Embed Grounding** - The `villa-websafe` fetch path: full-page fetch → embed via v1.3 RAG → cited answer, dedicated ephemeral collection, ctx reservation, SSRF guard
 - [ ] **Phase 32: Villa Injection Guard Layer** - Sanitize + Unicode-normalize + nonced provenance-fence + heuristic flag-not-block classifier layered onto the fetch path (reduces/flags, never eliminates)
@@ -270,7 +270,7 @@ These standing project disciplines apply to every v1.5 phase — stated here onc
 | 26. Agent Delivery Core & Lockdown Launcher | v1.4 | 3/3 | Complete | 2026-06-13 |
 | 27. Install Addon, Preflight Gates & `villa verify agent` | v1.4 | 6/6 | Complete | 2026-06-14 |
 | 28. Agent Surfacing & Contracts | v1.4 | 3/3 | Complete | 2026-06-15 |
-| 29. SearXNG Search Service | v1.5 | 0/? | Not started | - |
+| 29. SearXNG Search Service | v1.5 | 3/3 | Complete | 2026-06-18 |
 | 30. OWUI Native-Search Wiring | v1.5 | 0/? | Not started | - |
 | 31. Grounded Fetch → Embed Grounding | v1.5 | 0/? | Not started | - |
 | 32. Villa Injection Guard Layer | v1.5 | 0/? | Not started | - |

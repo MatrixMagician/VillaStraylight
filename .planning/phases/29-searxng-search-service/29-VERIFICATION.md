@@ -1,9 +1,10 @@
 ---
 phase: 29-searxng-search-service
 verified: 2026-06-18T00:00:00Z
-status: human_needed
-score: 5/6 must-haves verified
-behavior_unverified: 1
+status: verified
+uat_confirmed: 2026-06-18T22:23:00Z
+score: 6/6 must-haves verified
+behavior_unverified: 0
 overrides_applied: 0
 behavior_unverified_items:
   - truth: "A real format=json query against a running villa-searxng returns parseable JSON results[] (SC#2 live readiness — readiness is the actual query, never a health-200)"
@@ -109,5 +110,20 @@ No gaps. All four ROADMAP success criteria are achieved in the codebase at the r
 
 ---
 
-_Verified: 2026-06-18_
-_Verifier: Claude (gsd-verifier)_
+## On-Hardware UAT Confirmation (2026-06-18)
+
+The sole behavior-unverified item (SC#2b live `format=json` round-trip) was confirmed on the live gfx1151 host:
+
+- `make build` (v1.4-36-gca4a09d-dirty) → `web_search_enabled = true` → `./villa install` (exit 0) printed
+  **`search service ready: real format=json query returned 10 result(s)`** — the live `liveSearxngProof`
+  round-trip over `villa.network` (N=10 ≥ 1, never a health-200).
+- No-host-port surface confirmed: `podman port villa-searxng` empty; `podman inspect` `HostConfig.PortBindings={}`
+  (container-DNS-only). The `127.0.0.1:8080` host listener belongs to `villa-llama`, not searxng.
+
+Recorded in `29-UAT.md` (status: complete, 1/1 passed, 0 issues). Truth #3 → ✓ VERIFIED. **Score: 6/6.**
+SRCH-01 live-query readiness satisfied. Security review: `SECURITY.md` — 14/14 threats CLOSED, `threats_open: 0`.
+
+---
+
+_Verified: 2026-06-18 (re-verified after on-hardware UAT)_
+_Verifier: Claude (gsd-verifier + on-hardware UAT)_

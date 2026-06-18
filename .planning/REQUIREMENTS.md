@@ -11,7 +11,7 @@ Requirements for the v1.5 milestone. Each maps to exactly one roadmap phase (Tra
 
 ### Search Service & Wiring (SRCH)
 
-- [ ] **SRCH-01**: Operator gets a SearXNG metasearch service running as a rootless Podman Quadlet unit on `villa.network` (container-DNS only, no host port, digest-pinned), with `settings.yml` rendered from config (`search.formats: [html, json]`, generated `secret_key`, `limiter: false`); readiness is proven by a real `format=json` query returning parseable results, never a health-200.
+- [x] **SRCH-01**: Operator gets a SearXNG metasearch service running as a rootless Podman Quadlet unit on `villa.network` (container-DNS only, no host port, digest-pinned), with `settings.yml` rendered from config (`search.formats: [html, json]`, generated `secret_key`, `limiter: false`); readiness is proven by a real `format=json` query returning parseable results, never a health-200.
 - [ ] **SRCH-02**: Operator's Open WebUI is wired to the local SearXNG via OWUI's **native** web search, env-only behind the orchestrate seam (`ENABLE_WEB_SEARCH`, `WEB_SEARCH_ENGINE=searxng`, `SEARXNG_QUERY_URL…&format=json`, result-count), with `ENABLE_PERSISTENT_CONFIG=False` mandatory; the search-disabled render stays byte-identical to v1.4.
 - [ ] **SRCH-03**: Operator can opt into web search per-query/per-session via OWUI's native toggle, tune result count, and get honest behavior on no-results (never a fabricated answer).
 - [x] **SRCH-04**: Operator's SearXNG is rendered with a vetted subset of upstream engines (bounded, auditable set of outbound upstream hosts) rather than the full default engine set.
@@ -78,7 +78,7 @@ Which phase covers which requirement. Populated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| SRCH-01 | Phase 29 | Pending |
+| SRCH-01 | Phase 29 | Complete |
 | SRCH-02 | Phase 30 | Pending |
 | SRCH-03 | Phase 30 | Pending |
 | SRCH-04 | Phase 29 | Complete |

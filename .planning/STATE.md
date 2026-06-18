@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Web Search
-current_phase: 29
-current_phase_name: SearXNG Search Service
-status: executing
-stopped_at: Phase 29 executed (3/3 plans merged, build/test/vet green, review 0 critical); verifier human_needed — on-hardware live format=json UAT pending (/gsd-verify-work 29)
-last_updated: "2026-06-18T19:17:10.229Z"
+current_phase: 30
+current_phase_name: OWUI Native-Search Wiring
+status: ready to plan
+stopped_at: Phase 29 complete (on-hardware UAT PASSED — live format=json returned 10 results, no host port; SECURITY 14/14 closed); ready to plan Phase 30
+last_updated: "2026-06-18T22:25:00.000Z"
 last_activity: 2026-06-18
-last_activity_desc: Phase 29 execution started
+last_activity_desc: Phase 29 complete (UAT + security verified), transitioned to Phase 30
 progress:
   total_phases: 6
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 3
-  completed_plans: 0
-  percent: 0
+  completed_plans: 3
+  percent: 17
 ---
 
 # Project State
@@ -24,20 +24,20 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-18 — milestone v1.5 Web Search started; SearXNG moved from Out of Scope to Active)
 
 **Core value:** Run a capable local AI workspace that "just works" after install — hardware-aware setup that brings inference, chat, and the dashboard up healthy, with zero data leaving the box. v1.2 extended the bar to "and stays operable, recoverable, and measurable over time." v1.3 extended it to "and remembers the user and their documents across chats — strictly local." v1.4 extended it to "and gives the operator a strictly-local terminal coding agent, wired to a fit-guarded coding model." v1.5 extends it to "and can ground answers in live web search when the operator opts in — accurate, up-to-date, with malicious-site prompt injection defended-in-depth and outbound provably bounded."
-**Current focus:** Phase 29 (SearXNG Search Service) executed — awaiting on-hardware UAT (`/gsd-verify-work 29`) before completion
+**Current focus:** Phase 30 (OWUI Native-Search Wiring) — ready to plan (Phase 29 complete, UAT + security verified)
 
 ## Current Position
 
-Phase: 29 (SearXNG Search Service) — EXECUTED, awaiting on-hardware UAT
-Plan: 3 of 3 complete (all merged; build/test/vet green; code review 0 critical)
-Status: Executed — awaiting on-hardware UAT (`/gsd-verify-work 29`)
-Last activity: 2026-06-18 — Phase 29 executed; verifier returned human_needed (live format=json UAT pending)
+Phase: 30 — OWUI Native-Search Wiring
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-06-18 — Phase 29 complete (on-hardware UAT PASSED, security 14/14 closed), transitioned to Phase 30
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 99 (v1.0 + v1.1: 48; v1.2: 19; v1.3: 20)
+- Total plans completed: 102 (v1.0 + v1.1: 48; v1.2: 19; v1.3: 20)
 - Average duration: 34 min
 - Total execution time: 2.2 hours
 
@@ -66,6 +66,7 @@ Last activity: 2026-06-18 — Phase 29 executed; verifier returned human_needed 
 | 24 | 4 | - | - |
 | 25 | 2 | - | - |
 | 27 | 6 | - | - |
+| 29 | 3 | - | - |
 
 **Recent Trend:**
 
@@ -241,13 +242,13 @@ Items deferred at v1.5 roadmap creation (2026-06-18, research-recorded):
 
 ## Session Continuity
 
-Last session: 2026-06-18 — Phase 29 executed (3 plans), verifier human_needed
-Stopped at: Phase 29 executed (3/3 plans merged, build/test/vet green, review 0 critical); verifier human_needed — on-hardware live format=json UAT pending (/gsd-verify-work 29)
+Last session: 2026-06-18 — Phase 29 complete (on-hardware UAT PASSED + security verified)
+Stopped at: Phase 29 complete (live format=json returned 10 results, no host port; SECURITY 14/14 closed); ready to plan Phase 30
 Resume file: None
 
 ## Operator Next Steps
 
-- **On-hardware UAT (gfx1151) — gates Phase 29 completion:** `/gsd-verify-work 29` — set `web_search_enabled=true`, `make build`, run `villa install`; confirm `search service ready: real format=json query returned N result(s)` (N≥1) and `ss -ltnp`/`podman port villa-searxng` show NO host port. See `29-UAT.md`.
+- **Phase 29 on-hardware UAT — PASSED (2026-06-18):** `./villa install` with `web_search_enabled=true` printed `search service ready: real format=json query returned 10 result(s)`; `podman inspect villa-searxng` → `PortBindings={}` (no host port). Security review complete (`SECURITY.md`, 14/14 threats closed). Phase 29 marked complete. Next: `/gsd-plan-phase 30`.
 - SRCH-04 engine allowlist (shipped as proposed): `duckduckgo, brave, wikipedia, wikidata` — the auditable outbound surface Phase 33 cross-checks. Adjust in `internal/orchestrate/searxng.go` (`keep_only`) if desired before UAT.
 - Forward deps noted by review/verify (NOT Phase 29 gaps): WR-01 the opt-in enable path is later-phase (SRCH-02/Phase 30, PRIV-07/Phase 33); WR-02 container-entrypoint `$SEARXNG_SECRET` substitution is what the live UAT confirms.
 - Research-phase flag reminder: Phases 31, 32, 33 warrant `/gsd-plan-phase --research-phase` (fetch path/SSRF; injection corpus + must-WIN eval; rootless-netns nft inverse-framing)
