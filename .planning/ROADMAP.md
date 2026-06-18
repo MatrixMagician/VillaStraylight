@@ -119,76 +119,99 @@ Audit `tech_debt` — 17/17 requirements satisfied, integration PASS (7/7 seam g
 ## Phase Details
 
 ### Phase 29: SearXNG Search Service
+
 **Goal**: The operator has a local SearXNG metasearch service running as a managed Quadlet unit on `villa.network`, returning parseable JSON results from a bounded, auditable set of upstream engines — the premise that nothing grounds without.
 **Depends on**: Nothing new (builds on the established v1.3 managed-service render path; first v1.5 phase)
 **Requirements**: SRCH-01, SRCH-04
 **Success Criteria** (what must be TRUE):
+
   1. `villa-searxng.container`/`.volume` come up on `villa.network` with container-DNS-only reachability and **no host port** (rendered like the v1.3 qdrant/embed managed-service path; image digest-pinned behind a seam-locked const).
   2. `settings.yml` is rendered from config with `search.formats: [html, json]`, a generated `secret_key`, and `limiter: false` — and a real `format=json` query returns parseable JSON results (readiness is the actual query, never a health-200).
   3. The rendered SearXNG runs a **vetted subset** of upstream engines (a bounded, auditable list of outbound upstream hosts), not the full default engine set.
   4. With web search not configured, the rest of the stack renders byte-identical to v1.4 (the new unit is additive and gated).
+
 **Plans**: 3 plans
+**Wave 1**
+
 - [ ] 29-01-PLAN.md — Config gate/fields/crypto-rand secret + orchestrate/searxng.go (image const, views, settings render) + render branch + seam allowlist + goldens (SRCH-01, SRCH-04)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 29-02-PLAN.md — settings.yml atomic writer (sibling of WriteUnits): traversal-guarded, 0600, into the villa config dir for `/etc/searxng:ro,Z` mount (SRCH-01)
 - [ ] 29-03-PLAN.md — Real `format=json` readiness proof (evalSearxngProof + liveSearxngProof via runProbeCurl) + install gating/start (SRCH-01)
 
 ### Phase 30: OWUI Native-Search Wiring
+
 **Goal**: The operator's Open WebUI is wired to the local SearXNG via OWUI's native web search, opt-in per-query, with honest no-results behavior — and with web search off the install is byte-identical to v1.4.
 **Depends on**: Phase 29 (SearXNG must be reachable before OWUI can call it)
 **Requirements**: SRCH-02, SRCH-03
 **Success Criteria** (what must be TRUE):
+
   1. OWUI reaches the local SearXNG through its **native** web search via an env-only block behind the orchestrate seam (`ENABLE_WEB_SEARCH`, `WEB_SEARCH_ENGINE=searxng`, `SEARXNG_QUERY_URL…&format=json`, result-count) with `ENABLE_PERSISTENT_CONFIG=False` mandatory and frozen in the golden.
   2. The operator can opt into web search per-query/per-session via OWUI's native toggle and tune the result count.
   3. On no-results the behavior is honest (never a fabricated answer).
   4. The search-disabled render is **byte-identical to v1.4**, and a drift test binds the env keys to their orchestrate accessors (env-name churn caught by construction).
+
 **Plans**: TBD
 **UI hint**: yes
 
 ### Phase 31: Grounded Fetch → Embed Grounding
+
 **Goal**: With search on, the operator asks a current-events/research question and gets an answer grounded in fetched pages with inline citations to live URLs — the fetch path established and resource-bounded (SSRF-guarded, ephemeral, ctx-reserved) before any guard policy is layered on.
 **Depends on**: Phase 30 (OWUI search wiring must exist; this swaps OWUI's fetch to `villa-websafe`)
 **Requirements**: GROUND-01, GROUND-02, GROUND-03, GUARD-01, GUARD-05
 **Success Criteria** (what must be TRUE):
+
   1. The `villa-websafe` loader is registered as OWUI's `WEB_LOADER_ENGINE=external` fetch path and is the **sole producer of `page_content`** — every byte embedded or shown to the model passes through it (the GUARD-01 seam lands here, on the fetch path).
   2. A search-on research question returns an answer **grounded in fetched pages with inline citations to live URLs** — full-page fetch → chunk → embed → retrieve → cite reusing the v1.3 villa-embed/Qdrant RAG and its top-level `sources` field verbatim (no new embedder, vector DB, or citation plumbing).
   3. Fetched content is embedded into a **dedicated ephemeral collection** (clean-replace / bounded lifetime), never the operator's durable memory/document-KB store.
   4. `recommend` reserves a web-search context budget (bounded result-count × page-size) **before** the chat-model fit, and residency is **offload-asserted under search load** (a silent/partial CPU fallback is a FAIL).
   5. The fetcher enforces an **SSRF guard** — resolve-and-validate the target IP (reject loopback / link-local / `169.254.169.254` / internal `villa-*` hosts), re-check after every redirect, and allow only an http(s) scheme list.
+
 **Plans**: TBD
 
 ### Phase 32: Villa Injection Guard Layer
+
 **Goal**: Fetched web content reaching the model is sanitized, Unicode-normalized, provenance-fenced as untrusted-data-not-instructions, and screened by a heuristic classifier that flags injection attempts — honestly surfaced as "reduces and flags, does not eliminate."
 **Depends on**: Phase 31 (the guard policy layers onto the established `villa-websafe` fetch path)
 **Requirements**: GUARD-02, GUARD-03, GUARD-04
 **Success Criteria** (what must be TRUE):
+
   1. Fetched content is **sanitized** (active markup stripped via pure-Go `bluemonday` StrictPolicy) and **normalized** (invisible / bidirectional / zero-width / homoglyph Unicode neutralized) *before* fencing.
   2. Sanitized content is wrapped in a **nonced provenance fence** marking it untrusted-data-not-instructions before it reaches the model.
   3. A pure-Go **heuristic injection classifier** flags injection attempts as a flag-not-block tripwire (never silently passes), and the detection outcome (strip/flag/quarantine) is surfaced honestly.
   4. The package doc and operator-facing copy state **"reduces and flags, does not eliminate"** (no "injection-safe" copy), and the browser-side markdown-image exfiltration channel is **documented as a known residual** — not claimed closed.
+
 **Plans**: TBD
 **Research**: `/gsd-plan-phase --research-phase` — needs a phase-specific adversarial injection corpus + a pre-declared injection-detection precision/recall eval (invisible-Unicode + fence-breakout payloads; mirror the v1.4 must-WIN-eval discipline). The rules-vs-model decision is already settled to heuristic-rules-for-v1.5 (the DeBERTa/PromptGuard sidecar is deferred as GUARD-V2-01 behind a must-WIN eval).
 
 ### Phase 33: Egress-Bounding + `villa verify search`
+
 **Goal**: The operator can prove — negative-control-first, inverse-framed, under a real rootless-netns nft block — that web search's outbound is bounded; web search is opt-in/default-off and OWUI's lazy/background outbound is killed, so the only sanctioned runtime outbound is SearXNG upstreams + result-page fetches.
 **Depends on**: Phase 32 (verify asserts on the guard's stripped + fenced output; you cannot prove a guard that does not exist)
 **Requirements**: PRIV-07, PRIV-08, PRIV-09
 **Success Criteria** (what must be TRUE):
+
   1. Web search is **opt-in, default-OFF**: with it disabled the install renders byte-identical to v1.4 and the zero-outbound posture is unchanged.
   2. `villa verify search` proves bounded outbound **negative-control-first, inverse-framed** under a real rootless-netns nft block — an off-allowlist canary is reachable *unguarded* and blocked *under* the bound; an ineffective block is **REJECTED**, never a fabricated PASS.
   3. The proof also asserts a planted-injection page comes back stripped + fenced + flagged, exercises SSRF internal-host cases, and includes a secret-in-query-string exfil case.
   4. OWUI's lazy/background outbound (HuggingFace pulls, telemetry) is killed (`HF_HUB_OFFLINE` + telemetry kill switches) and any web-search-required weights are pre-staged, so the only sanctioned runtime outbound is SearXNG upstreams + result-page fetches.
+
 **Plans**: TBD
 **Research**: `/gsd-plan-phase --research-phase` — needs the exact rootless-netns nft mechanics for the inverse-framed bound. The v1.4 verify-agent four-layer harness is the template, but the canary/allowlist assertions are new and **easy to get backwards** (off-allowlist canary reachable unguarded, blocked under the bound — never invert this).
 
 ### Phase 34: Web-Search Surfacing (LANDS LAST)
+
 **Goal**: The finished, proven web-search feature set is surfaced — `villa status`/`--json`, the dashboard, `villa doctor`, and `villa backup`/`restore` all reflect it — over a single append-only `status.Report` 4→5 bump (one golden re-freeze), with the outbound-bounded indicator deriving from the real `villa verify search` result, never a config bool.
 **Depends on**: Phase 33 (surfacing reads a proven feature; the schema bump must freeze a finished, verified set — staggered-contract-risk discipline)
 **Requirements**: SURF-04, SURF-05, SURF-06, SURF-07
 **Success Criteria** (what must be TRUE):
+
   1. `villa status`/`--json` gains exactly one **append-only** `web_search` block (`status.Report` schema **4→5**, single golden re-freeze): enabled state, `villa-searxng`/`villa-websafe` health rows, guard-verdict counters, last-query freshness, and an **outbound-bounded indicator derived from the real `villa verify search` result** (never a bare config bool).
   2. The control dashboard gains a **hidden-until-data, XSS-safe Web Search panel** surfacing search/guard/outbound state, including outbound visibility (what was searched/fetched) and the bounded-outbound indicator.
   3. `villa doctor` folds web-search checks (on **doctor's own** schema bump) — service readiness, guard health, and egress-proof status — as tri-state (ready / degraded-with-reason / typed-Unknown), with an **offload-asserting residency check under search load** and remediation on every non-PASS.
   4. `villa backup`/`restore` cover the web-search configuration (SearXNG `settings.yml` provenance + the `WebSearchEnabled` gate), consistent with prior backup coverage; fetched ephemeral web content is **excluded by design**.
+
 **Plans**: TBD
 **UI hint**: yes
 
