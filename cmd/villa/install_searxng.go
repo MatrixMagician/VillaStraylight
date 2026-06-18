@@ -28,9 +28,24 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 	"github.com/MatrixMagician/VillaStraylight/internal/preflight"
 )
+
+// liveLoadedWebSearchEnabled returns the PERSISTED config.LoadVilla().WebSearchEnabled —
+// the AUTHORITATIVE web-search gate source threaded into runInstall (NOT the
+// DefaultVillaConfig() seed, which is false by construction). A config load error fails
+// SOFT to false so a broken/absent config never silently enables the search stack (an
+// opted-in user must have a readable config). This mirrors liveLoadedMemoryEnabled — the
+// gate reflects the user's opt-in, not the seed's hard-coded false.
+func liveLoadedWebSearchEnabled() bool {
+	c, err := config.LoadVilla()
+	if err != nil {
+		return false
+	}
+	return c.WebSearchEnabled
+}
 
 // searxngServiceName is the systemd service the villa-searxng .container generates
 // (Quadlet maps villa-searxng.container → villa-searxng.service). Its start is gated on
