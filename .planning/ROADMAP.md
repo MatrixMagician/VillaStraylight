@@ -152,7 +152,9 @@ Audit `tech_debt` — 17/17 requirements satisfied, integration PASS (7/7 seam g
   3. On no-results the behavior is honest (never a fabricated answer).
   4. The search-disabled render is **byte-identical to v1.4**, and a drift test binds the env keys to their orchestrate accessors (env-name churn caught by construction).
 
-**Plans**: TBD
+**Plans**: 2 plans
+- [ ] 30-01-PLAN.md — WebSearchResultCount config field (default 3, omit-when-off, self-heal) — SRCH-03 tunable count
+- [ ] 30-02-PLAN.md — OWUI web-search env block + single-emit ENABLE_PERSISTENT_CONFIG refactor + websearch golden + drift test + on-hardware UAT — SRCH-02/SRCH-03
 **UI hint**: yes
 
 ### Phase 31: Grounded Fetch → Embed Grounding
