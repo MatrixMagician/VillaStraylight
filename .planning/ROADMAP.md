@@ -152,10 +152,10 @@ Audit `tech_debt` — 17/17 requirements satisfied, integration PASS (7/7 seam g
   3. On no-results the behavior is honest (never a fabricated answer).
   4. The search-disabled render is **byte-identical to v1.4**, and a drift test binds the env keys to their orchestrate accessors (env-name churn caught by construction).
 
-**Plans**: 2 plans
+**Plans**: 1/2 plans executed
 **Wave 1**
 
-- [ ] 30-01-PLAN.md — WebSearchResultCount config field (default 3, omit-when-off, self-heal) — SRCH-03 tunable count
+- [x] 30-01-PLAN.md — WebSearchResultCount config field (default 3, omit-when-off, self-heal) — SRCH-03 tunable count
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
