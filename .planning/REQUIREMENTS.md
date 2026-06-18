@@ -78,31 +78,31 @@ Which phase covers which requirement. Populated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| SRCH-01 | TBD | Pending |
-| SRCH-02 | TBD | Pending |
-| SRCH-03 | TBD | Pending |
-| SRCH-04 | TBD | Pending |
-| GROUND-01 | TBD | Pending |
-| GROUND-02 | TBD | Pending |
-| GROUND-03 | TBD | Pending |
-| GUARD-01 | TBD | Pending |
-| GUARD-02 | TBD | Pending |
-| GUARD-03 | TBD | Pending |
-| GUARD-04 | TBD | Pending |
-| GUARD-05 | TBD | Pending |
-| PRIV-07 | TBD | Pending |
-| PRIV-08 | TBD | Pending |
-| PRIV-09 | TBD | Pending |
-| SURF-04 | TBD | Pending |
-| SURF-05 | TBD | Pending |
-| SURF-06 | TBD | Pending |
-| SURF-07 | TBD | Pending |
+| SRCH-01 | Phase 29 | Pending |
+| SRCH-02 | Phase 30 | Pending |
+| SRCH-03 | Phase 30 | Pending |
+| SRCH-04 | Phase 29 | Pending |
+| GROUND-01 | Phase 31 | Pending |
+| GROUND-02 | Phase 31 | Pending |
+| GROUND-03 | Phase 31 | Pending |
+| GUARD-01 | Phase 31 | Pending |
+| GUARD-02 | Phase 32 | Pending |
+| GUARD-03 | Phase 32 | Pending |
+| GUARD-04 | Phase 32 | Pending |
+| GUARD-05 | Phase 31 | Pending |
+| PRIV-07 | Phase 33 | Pending |
+| PRIV-08 | Phase 33 | Pending |
+| PRIV-09 | Phase 33 | Pending |
+| SURF-04 | Phase 34 | Pending |
+| SURF-05 | Phase 34 | Pending |
+| SURF-06 | Phase 34 | Pending |
+| SURF-07 | Phase 34 | Pending |
 
 **Coverage:**
 - v1 requirements: 19 total
-- Mapped to phases: 0 (roadmap pending)
-- Unmapped: 19 ⚠️ (filled by `/gsd-new-milestone` roadmapper)
+- Mapped to phases: 19 ✓ (Phase 29: 2 · Phase 30: 2 · Phase 31: 5 · Phase 32: 3 · Phase 33: 3 · Phase 34: 4)
+- Unmapped: 0 ✓ (no orphans, no duplicates)
 
 ---
 *Requirements defined: 2026-06-18*
-*Last updated: 2026-06-18 after initial v1.5 definition (research-grounded; SearXNG + OWUI native search + villa-websafe guard + verify-search + surfacing)*
+*Last updated: 2026-06-18 after roadmap creation — all 19 v1 requirements mapped to Phases 29–34 (research-converged six-phase build order: fit/orchestrate → guard → verify → surface-last; numbering continues from v1.4's Phase 28).*
