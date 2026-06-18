@@ -1,0 +1,17 @@
+# ~/.config/containers/systemd/villa-searxng.container  (GENERATED — do not edit; source: config.toml)
+[Unit]
+Description=VillaStraylight SearXNG metasearch
+After=villa-network.service
+
+[Container]
+ContainerName=villa-searxng
+Image=ghcr.io/searxng/searxng@sha256:ed29454ec1f7149986d42819b8b75265e545e79dd9187ba241c09f16a0fe56d0
+Network=villa.network
+EnvironmentFile=%h/.config/villa/searxng/searxng.env
+Volume=%h/.config/villa/searxng:/etc/searxng:ro,Z
+
+[Service]
+Restart=on-failure
+
+[Install]
+WantedBy=default.target
