@@ -112,7 +112,7 @@ Audit `tech_debt` — 17/17 requirements satisfied, integration PASS (7/7 seam g
 - [x] **Phase 29: SearXNG Search Service** - The premise container: `villa-searxng` rendered like v1.3 qdrant/embed, readiness proven by a real `format=json` query (complete 2026-06-18; on-hardware UAT PASSED — live `format=json` returned 10 results, no host port; security 14/14 closed)
 - [x] **Phase 30: OWUI Native-Search Wiring** - Env-only opt-in wiring of OWUI's native SearXNG search behind the orchestrate seam, off-render byte-identical to v1.4 (complete 2026-06-19; on-hardware UAT PASSED — SC#2 grounded answer reached via D-06 `BYPASS_WEB_SEARCH_EMBEDDING_AND_RETRIEVAL` direct-inject fix, SC#3 no-fabrication confirmed; D-06 deviates from "reuse embed/retrieve verbatim" → reconcile in Phase 31)
 - [x] **Phase 31: Grounded Fetch → Embed Grounding** - The `villa-websafe` fetch path: full-page fetch → embed via v1.3 RAG → cited answer, dedicated ephemeral collection, ctx reservation, SSRF guard (completed 2026-06-19)
-- [ ] **Phase 32: Villa Injection Guard Layer** - Sanitize + Unicode-normalize + nonced provenance-fence + heuristic flag-not-block classifier layered onto the fetch path (reduces/flags, never eliminates)
+- [x] **Phase 32: Villa Injection Guard Layer** - Sanitize + Unicode-normalize + nonced provenance-fence + heuristic flag-not-block classifier layered onto the fetch path (reduces/flags, never eliminates) (completed 2026-06-19)
 - [ ] **Phase 33: Egress-Bounding + `villa verify search`** - The honest backstop: inverse-framed negative-control-first egress proof under a real rootless-netns nft block; opt-in/default-off honesty
 - [ ] **Phase 34: Web-Search Surfacing (LANDS LAST)** - The single `status.Report` 4→5 bump + dashboard Web Search panel + doctor checks + backup/restore coverage; outbound-bounded indicator derives from the real verify-search result
 
@@ -205,7 +205,7 @@ Audit `tech_debt` — 17/17 requirements satisfied, integration PASS (7/7 seam g
   3. A pure-Go **heuristic injection classifier** flags injection attempts as a flag-not-block tripwire (never silently passes), and the detection outcome (strip/flag/quarantine) is surfaced honestly.
   4. The package doc and operator-facing copy state **"reduces and flags, does not eliminate"** (no "injection-safe" copy), and the browser-side markdown-image exfiltration channel is **documented as a known residual** — not claimed closed.
 
-**Plans**: 2/3 plans executed
+**Plans**: 3/3 plans complete
 
 Plans:
 **Wave 1**
@@ -215,7 +215,7 @@ Plans:
 **Wave 2** *(blocked on Wave 1 completion)*
 
 - [x] 32-02-PLAN.md — Must-WIN recall/precision eval (frozen thresholds + adversarial/benign corpus) + honesty grep-ban + markdown-image residual doc (GUARD-04 evaluation & honesty)
-- [ ] 32-03-PLAN.md — Rewire the fetchOne guard seam (sanitize→normalize→classify→fence, verdict used) + Page.Verdict + defanged title + additive /load metadata.guard (GUARD-02/03/04 integration)
+- [x] 32-03-PLAN.md — Rewire the fetchOne guard seam (sanitize→normalize→classify→fence, verdict used) + Page.Verdict + defanged title + additive /load metadata.guard (GUARD-02/03/04 integration)
 
 **Research**: `/gsd-plan-phase --research-phase` — needs a phase-specific adversarial injection corpus + a pre-declared injection-detection precision/recall eval (invisible-Unicode + fence-breakout payloads; mirror the v1.4 must-WIN-eval discipline). The rules-vs-model decision is already settled to heuristic-rules-for-v1.5 (the DeBERTa/PromptGuard sidecar is deferred as GUARD-V2-01 behind a must-WIN eval).
 
