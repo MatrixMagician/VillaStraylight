@@ -104,6 +104,30 @@ func TestControlConnectTime(t *testing.T) {
 	}
 }
 
+// TestSSRFInternalHostCase is the EXPLICIT Phase-33 family-(c) internal-host contract
+// (PRIV-08): the `villa verify search` SSRF assertion proves the shipped GUARD-05 guard
+// refuses the cloud-metadata IP, loopback, and the managed-service container-DNS names.
+// It names the verify-search family directly (the broader reject-set is covered by
+// TestSSRFRejectSet/TestHostRejected above; this is the focused security-property pin).
+func TestSSRFInternalHostCase(t *testing.T) {
+	if !ipRejected(netip.MustParseAddr("169.254.169.254")) {
+		t.Error("ipRejected(169.254.169.254) = false, want true (cloud-metadata IP must be refused)")
+	}
+	if !ipRejected(netip.MustParseAddr("127.0.0.1")) {
+		t.Error("ipRejected(127.0.0.1) = false, want true (loopback must be refused)")
+	}
+	if !hostRejected("villa-searxng") {
+		t.Error("hostRejected(villa-searxng) = false, want true (managed-service DNS must be refused)")
+	}
+	if !hostRejected("localhost") {
+		t.Error("hostRejected(localhost) = false, want true")
+	}
+	// The connect-time Control hook returns a non-nil SSRF error for an internal address.
+	if err := control("tcp", "169.254.169.254:80", nil); err == nil {
+		t.Error("control(169.254.169.254:80) = nil, want SSRF error (connect-time refusal)")
+	}
+}
+
 // TestRedirectRevalidation asserts the CheckRedirect re-check rejects an internal
 // redirect target, a non-http(s) redirect scheme, and a >MaxRedirects chain.
 func TestRedirectRevalidation(t *testing.T) {
