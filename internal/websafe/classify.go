@@ -51,9 +51,12 @@ var injectionRules = map[string][]string{
 		"<|im_start|>",
 		"<|im_end|>",
 		"###system",
-		"system:",
-		"assistant:",
 		"[inst]",
+		// NOTE: the bare "system:" / "assistant:" role markers are NOT plain Contains
+		// phrases — they over-match benign prose ("Operating System: Linux", "Voice
+		// assistant: enabled"). They are matched line-anchored instead (see
+		// lineLeadingRoleMarkers + matchLineLeadingRole), which is the actual turn-spoof
+		// shape (a role label at the START of a line / chat turn). WR-03.
 	},
 	"secret-exfil-probe": {
 		"reveal your system prompt",
@@ -64,6 +67,63 @@ var injectionRules = map[string][]string{
 	},
 }
 
+// lineLeadingRoleMarkers are the chat-turn role labels matched ONLY in a line-leading
+// (turn-start) position, NOT as bare substrings (WR-03). A turn-spoof injection writes
+// the role label at the start of a line ("system: ...", "assistant: ...") to fake a new
+// conversation turn; benign prose instead embeds the word mid-sentence ("Operating
+// System: Linux", "the voice assistant: enabled"), which this does NOT match. The frozen
+// recall corpus's turn-spoof samples are line-leading, so recall is preserved.
+var lineLeadingRoleMarkers = []string{
+	"system:",
+	"assistant:",
+	"user:",
+}
+
+// matchLineLeadingRole reports whether hay contains any role marker in a line-leading
+// position: at the very start of the text, or immediately after a newline, optionally
+// preceded by run-of-whitespace or a turn/fence delimiter punctuation run (so a forged
+// "[/UNTRUSTED_WEB_CONTENT ...] system: ..." breakout still matches). hay is already
+// lowercased by classify.
+func matchLineLeadingRole(hay string) bool {
+	for _, m := range lineLeadingRoleMarkers {
+		from := 0
+		for {
+			i := strings.Index(hay[from:], m)
+			if i < 0 {
+				break
+			}
+			i += from
+			if lineLeading(hay, i) {
+				return true
+			}
+			from = i + 1
+		}
+	}
+	return false
+}
+
+// lineLeading reports whether position i in s begins a line for turn-spoof purposes:
+// it is at the start of s, or the run of characters back to the previous newline / start
+// consists only of whitespace or delimiter punctuation ("[](){}<>|#*-=/ \t"). This admits
+// "system:" at a real turn start and after a forged-delimiter breakout, but rejects
+// "Operating System:" / "the assistant:" where a letter or word precedes the marker.
+func lineLeading(s string, i int) bool {
+	for j := i - 1; j >= 0; j-- {
+		c := s[j]
+		if c == '\n' || c == '\r' {
+			return true
+		}
+		switch c {
+		case ' ', '\t', '\f', '\v',
+			'[', ']', '(', ')', '{', '}', '<', '>', '|', '#', '*', '-', '=', '/', '.', ',', ';', ':':
+			continue // delimiter / whitespace run — keep scanning left
+		default:
+			return false // a word character precedes the marker → not a turn start
+		}
+	}
+	return true // reached start of s
+}
+
 // classify returns a Verdict over the normalized text. It lowercases the input, scans
 // every rule family for a containing phrase, and reports the matched family names. It
 // returns ONLY a Verdict — content is never dropped, decoded, or rewritten
@@ -72,11 +132,20 @@ func classify(normalized string) Verdict {
 	hay := strings.ToLower(normalized)
 	var hit []string
 	for _, name := range injectionRuleOrder {
+		matched := false
 		for _, phrase := range injectionRules[name] {
 			if strings.Contains(hay, phrase) {
-				hit = append(hit, name)
+				matched = true
 				break
 			}
+		}
+		// The bare role markers are line-anchored (WR-03), not plain Contains — they live
+		// in the delimiter-turn-spoofing family alongside the Contains delimiters above.
+		if !matched && name == "delimiter-turn-spoofing" && matchLineLeadingRole(hay) {
+			matched = true
+		}
+		if matched {
+			hit = append(hit, name)
 		}
 	}
 	return Verdict{Detected: len(hit) > 0, Rules: hit}

@@ -158,5 +158,40 @@
     "name": "html-benign-formatting",
     "text": "<p>Welcome to our <b>community forum</b>. Please read the posting guidelines first.</p>",
     "expect_detected": false
+  },
+  {
+    "name": "spec-table-operating-system",
+    "text": "Operating System: Linux. Recommended memory: 16 GB. Disk space: 2 GB free.",
+    "expect_detected": false
+  },
+  {
+    "name": "product-spec-voice-assistant",
+    "text": "The speaker pairs over Bluetooth and the built-in voice assistant: enabled by default in the companion app.",
+    "expect_detected": false
+  },
+  {
+    "name": "support-article-system-requirements",
+    "text": "Before installing, check your system: a recent browser and a stable connection are all you need.",
+    "expect_detected": false
+  },
+  {
+    "name": "review-digital-assistant",
+    "text": "My favourite feature is the assistant: it summarises long threads and drafts quick replies for me.",
+    "expect_detected": false
+  },
+  {
+    "name": "transcript-quote-header-system",
+    "text": "The moderator summarised the panel on operating system: security trade-offs, then opened the floor to questions from the audience.",
+    "expect_detected": false
+  },
+  {
+    "name": "docs-config-key-system",
+    "text": "Each entry uses the form key: value, for example region: eu-west and tier: standard, parsed top to bottom.",
+    "expect_detected": false
+  },
+  {
+    "name": "faq-personal-assistant",
+    "text": "A good personal assistant: someone who anticipates needs, keeps the calendar tidy, and protects your focus time.",
+    "expect_detected": false
   }
 ]
