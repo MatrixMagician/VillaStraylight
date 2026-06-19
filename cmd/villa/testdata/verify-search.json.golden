@@ -1,0 +1,5 @@
+{
+  "schema": 1,
+  "verdict": "FAIL",
+  "detail": "off-allowlist canary STILL reachable under the bound — the block is INEFFECTIVE; FAILS verification (never a fabricated PASS). Fix the egress bound so off-allowlist hosts are dropped, then re-run `villa verify search`"
+}

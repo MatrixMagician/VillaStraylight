@@ -112,3 +112,62 @@ func TestOpenWebUIImageAccessor(t *testing.T) {
 		t.Errorf("OpenWebUIImage() %q is not digest-pinned", got)
 	}
 }
+
+// --- Phase 33: PRIV-09 / PRIV-07 regression assertions (assert-only) ---------
+//
+// These guards LOCK the already-shipped invariants Phase 33 depends on; they ASSERT, never
+// modify (re-adding the env keys or re-freezing the golden would break the existing
+// byte-frozen guards). openwebui.go, villaconfig.go, and the OWUI goldens are untouched by
+// this phase — these tests fail loudly if a future change silently drops the outbound-kill
+// env or widens the web-search-OFF render.
+
+// TestOWUIKillEnvPresentBothViewsPRIV09 (PRIV-09) asserts the SIX outbound-kill env keys are
+// present in BOTH the web-search-OFF and web-search-ON rendered villa-openwebui.container
+// units — a dedicated, self-documenting guard that the kill-set is never silently dropped or
+// gated behind the web-search toggle. The keys live UNCONDITIONALLY in the base env block of
+// openwebui.go (buildOpenWebUIView); this is assertion-only.
+func TestOWUIKillEnvPresentBothViewsPRIV09(t *testing.T) {
+	killEnv := []string{
+		"Environment=HF_HUB_OFFLINE=1",
+		"Environment=ANONYMIZED_TELEMETRY=False",
+		"Environment=DO_NOT_TRACK=True",
+		"Environment=SCARF_NO_ANALYTICS=True",
+		"Environment=OFFLINE_MODE=True",
+		"Environment=ENABLE_VERSION_UPDATE_CHECK=False",
+	}
+
+	views := []struct {
+		name string
+		in   RenderInput
+	}{
+		{"web-search-off", fixtureInput()},
+		{"web-search-on", searxngFixtureInput()},
+	}
+	for _, v := range views {
+		t.Run(v.name, func(t *testing.T) {
+			units, err := Render(v.in)
+			if err != nil {
+				t.Fatalf("Render(%s): %v", v.name, err)
+			}
+			c := unitByName(t, units, "villa-openwebui.container")
+			for _, key := range killEnv {
+				if !strings.Contains(c.Text, key) {
+					t.Errorf("PRIV-09 regression: %s OWUI unit is missing outbound-kill env %q (the kill-set must never be dropped or gated):\n%s", v.name, key, c.Text)
+				}
+			}
+		})
+	}
+}
+
+// TestOWUIWebOffByteIdenticalPRIV07 (PRIV-07) asserts the web-search-OFF OWUI render stays
+// byte-identical to the v1.4 villa-openwebui.container.golden — opting into web search must
+// be the ONLY thing that changes the unit (no silent scope reduction of the opt-in). It
+// reuses the EXISTING golden (goldenCompare); it does NOT re-freeze it.
+func TestOWUIWebOffByteIdenticalPRIV07(t *testing.T) {
+	units, err := Render(fixtureInput())
+	if err != nil {
+		t.Fatalf("Render(web-off): %v", err)
+	}
+	c := unitByName(t, units, "villa-openwebui.container")
+	goldenCompare(t, "villa-openwebui.container.golden", c.Text)
+}

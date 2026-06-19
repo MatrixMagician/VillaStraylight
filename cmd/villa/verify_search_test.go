@@ -19,6 +19,8 @@ import (
 	"io"
 	"net/http"
 	"net/netip"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -499,5 +501,67 @@ func TestRunVerifySearchExit(t *testing.T) {
 				t.Errorf("a PASS must not write to stderr, got: %s", errOut.String())
 			}
 		})
+	}
+}
+
+// TestVerifySearchJSON asserts `verify search --json` over a deterministic verdict matches
+// cmd/villa/testdata/verify-search.json.golden byte-for-byte (schema v1, greenfield — A5).
+// Run with -update to (re)freeze. Clones TestRecommendJSONGolden.
+func TestVerifySearchJSON(t *testing.T) {
+	// A deterministic FAIL verdict (the load-bearing non-PASS shape — schema + verdict +
+	// detail all populated) so the golden exercises the full contract, not just a bare PASS.
+	proof := fail("off-allowlist canary STILL reachable under the bound — the block is INEFFECTIVE; FAILS verification (never a fabricated PASS). Fix the egress bound so off-allowlist hosts are dropped, then re-run `villa verify search`")
+
+	var buf bytes.Buffer
+	if err := renderVerifySearchJSON(&buf, proof); err != nil {
+		t.Fatalf("renderVerifySearchJSON: %v", err)
+	}
+
+	golden := filepath.Join("testdata", "verify-search.json.golden")
+	if *update {
+		if err := os.MkdirAll("testdata", 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(golden, buf.Bytes(), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		t.Logf("updated %s", golden)
+		return
+	}
+
+	want, err := os.ReadFile(golden)
+	if err != nil {
+		t.Fatalf("read golden (run with -update to create): %v", err)
+	}
+	if !bytes.Equal(buf.Bytes(), want) {
+		t.Errorf("JSON output does not match golden.\n--- got ---\n%s\n--- want ---\n%s", buf.String(), want)
+	}
+}
+
+// TestVerifySearchJSONRunPath asserts the run path honors --json: with the flag set, the
+// verdict view is marshaled to stdout (schema + verdict present) and NOTHING is written to
+// stderr (the human refuse-with-remediation line is suppressed in JSON mode), while the exit
+// code map is unchanged (a FAIL still returns exitBlocked).
+func TestVerifySearchJSONRunPath(t *testing.T) {
+	deps := searchVerifyDeps{
+		loadedWebSearchEnabled: func() bool { return true },
+		verifyFn:               func(context.Context, searchVerifyDeps) searchProof { return fail("ineffective block") },
+	}
+	cmd := newSearchCmd()
+	if err := cmd.Flags().Set("json", "true"); err != nil {
+		t.Fatal(err)
+	}
+	var out, errOut bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&errOut)
+	code := runVerifySearch(cmd, nil, deps)
+	if code != exitBlocked {
+		t.Errorf("--json FAIL exit = %d, want exitBlocked (%d)", code, exitBlocked)
+	}
+	if !strings.Contains(out.String(), "\"schema\"") || !strings.Contains(out.String(), "\"verdict\": \"FAIL\"") {
+		t.Errorf("--json stdout must carry the schema + FAIL verdict, got: %s", out.String())
+	}
+	if errOut.Len() != 0 {
+		t.Errorf("--json mode must not write the human line to stderr, got: %s", errOut.String())
 	}
 }
