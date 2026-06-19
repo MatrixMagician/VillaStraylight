@@ -25,6 +25,7 @@ Environment=ENABLE_WEB_SEARCH=True
 Environment=WEB_SEARCH_ENGINE=searxng
 Environment=SEARXNG_QUERY_URL=http://villa-searxng:8080/search?q=<query>&format=json
 Environment=WEB_SEARCH_RESULT_COUNT=3
+Environment=BYPASS_WEB_SEARCH_EMBEDDING_AND_RETRIEVAL=True
 Environment=ENABLE_PERSISTENT_CONFIG=False
 
 [Service]

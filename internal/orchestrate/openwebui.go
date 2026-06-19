@@ -235,6 +235,17 @@ func buildOpenWebUIView(mv memory.MemoryRenderInput, memoryEnabled bool, webSear
 			// D-05 operator-tunable result count (config is the single source of truth;
 			// default 3 resolved upstream in config). Rendered via strconv.Itoa.
 			envPair{Key: "WEB_SEARCH_RESULT_COUNT", Value: strconv.Itoa(webSearchResultCount)},
+			// D-06 (Phase-30 on-hardware UAT fix, SRCH-03 SC#2): inject fetched page
+			// content DIRECTLY into the model context instead of OWUI's
+			// embed→retrieve path. On-hardware UAT (OWUI 0.9.6) proved that with the
+			// default embed→retrieve path (BYPASS=False) OWUI embeds web results into the
+			// ephemeral open-webui_web-search collection but never QUERIES that collection
+			// at retrieval time — only the model-attached durable knowledge/memory
+			// collection is queried — so SearXNG results never reach the model and the
+			// answer silently falls back to stale internal knowledge (SC#2 "grounded
+			// answer" FAILS). Direct injection makes grounding reliable. Per-page /
+			// result-count context bounding is deferred to Phase-31 (GROUND-03).
+			envPair{Key: "BYPASS_WEB_SEARCH_EMBEDDING_AND_RETRIEVAL", Value: "True"},
 		)
 	}
 
