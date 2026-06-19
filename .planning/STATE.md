@@ -3,18 +3,18 @@ gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Web Search
 current_phase: 33
-current_phase_name: egress-bounding-villa-verify-search
-status: executing
+status: completed
 stopped_at: Phase 31 COMPLETE — on-hardware UAT PASSED (A1 retrieval-fix key confirmed; GROUND-01 grounded cited answer w/ live URLs; GROUND-02 ephemeral collection isolated from durable; GROUND-03 offload PASS under load; GUARD-01/05 SSRF live). VERIFICATION passed 5/5. Deep code review found+fixed 3 defects (CR-01 extractTitle DoS panic, CR-02 extractText swallow, WR-01 restore websafe.env). UAT also surfaced+fixed an install secret-env gap. Ready to plan Phase 32.
-last_updated: "2026-06-19T22:33:07.691Z"
+last_updated: "2026-06-19T23:13:15.423Z"
 last_activity: 2026-06-19
-last_activity_desc: Phase 33 execution started
+last_activity_desc: Phase 33 marked complete
 progress:
   total_phases: 6
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 15
-  completed_plans: 14
-  percent: 67
+  completed_plans: 15
+  percent: 83
+current_phase_name: egress-bounding-villa-verify-search
 ---
 
 # Project State
@@ -28,10 +28,10 @@ See: .planning/PROJECT.md (updated 2026-06-18 — milestone v1.5 Web Search star
 
 ## Current Position
 
-Phase: 33 (egress-bounding-villa-verify-search) — EXECUTING
+Phase: 33 — COMPLETE
 Plan: 3 of 3
-Status: Ready to execute
-Last activity: 2026-06-19 — Phase 33 execution started
+Status: Phase 33 complete
+Last activity: 2026-06-19 — Phase 33 marked complete
 
 ## Performance Metrics
 
