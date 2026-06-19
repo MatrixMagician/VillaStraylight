@@ -143,7 +143,7 @@ func Render(in RenderInput) ([]Unit, error) {
 	// golden. mv is computed ONCE here (memory.RenderView is pure, cheap, identical) and
 	// reused by the memory-stack branch below.
 	mv := memory.RenderView(in.Cfg) // D-11 resolved-values handoff (Phase-18 spine)
-	owuiContainerText, err := execTemplate(tmpl, "openwebui.container.tmpl", buildOpenWebUIView(mv, in.Cfg.MemoryEnabled, in.Cfg.WebSearchEnabled, in.Cfg.SearxngAddr, in.Cfg.SearxngPort, in.Cfg.WebSearchResultCount))
+	owuiContainerText, err := execTemplate(tmpl, "openwebui.container.tmpl", buildOpenWebUIView(mv, in.Cfg.MemoryEnabled, in.Cfg.WebSearchEnabled, in.Cfg.SearxngAddr, in.Cfg.SearxngPort, in.Cfg.WebSearchResultCount, in.Cfg.WebsafeAddr, in.Cfg.WebsafePort))
 	if err != nil {
 		return nil, err
 	}
@@ -225,6 +225,23 @@ func Render(in RenderInput) ([]Unit, error) {
 			return nil, err
 		}
 		units = append(units, Unit{Name: searxngContainerUnitName, Text: searxngContainerText})
+
+		// Phase-31 (GUARD-01/GROUND-01): the villa-websafe loader is appended STRICTLY
+		// AFTER the searxng unit, inside the SAME web-search gate (websafe and SearXNG are
+		// both the web-search stack), never mutating the shared `units` slice or any shared
+		// view before this point (Pitfall 6 byte-identical-off discipline). The host villa
+		// binary PATH (in.HostVillaPath) is bind-mounted read-only and the container-DNS
+		// identity (cfg.WebsafeAddr) + in-network port (cfg.WebsafePort) are threaded FROM
+		// resolved config (WR-01) so the rendered service can never diverge from what OWUI's
+		// EXTERNAL_WEB_LOADER_URL composes. The render does NOT thread the secret: the unit
+		// references it only via the EnvironmentFile= path baked by buildWebsafeView (the
+		// secret value lives in config + the 0600 env file Plan 02 writes, never in this 0644
+		// unit — T-31-12).
+		websafeContainerText, err := execTemplate(tmpl, "websafe.container.tmpl", buildWebsafeView(in.Cfg.WebsafeAddr, in.HostVillaPath, in.Cfg.WebsafePort))
+		if err != nil {
+			return nil, err
+		}
+		units = append(units, Unit{Name: websafeContainerUnitName, Text: websafeContainerText})
 	}
 
 	return units, nil
@@ -259,6 +276,17 @@ func RenderSearxngSettings(cfg config.VillaConfig) (name, text string, err error
 // crypto/rand secret from config.SearxngSecret; it is NEVER logged.
 func RenderSearxngSecretEnv(secret string) (name, text string) {
 	return searxngSecretEnvName(), searxngSecretEnvBody(secret)
+}
+
+// RenderWebsafeSecretEnv renders the 0600 EXTERNAL_WEB_LOADER_API_KEY env-file Plan 02
+// writes and BOTH the villa-websafe AND the OWUI .container units reference via
+// EnvironmentFile= (WebsafeSecretEnvFilePath). It is the SINGLE source of the env-file FORMAT
+// (a fixed `EXTERNAL_WEB_LOADER_API_KEY=<value>` line, no shell interpolation) — Plan 02's
+// writer emits exactly these bytes at 0600. It is NOT a Unit (the secret must never land in
+// the 0644 unit dir — T-31-12). The secret value is the crypto/rand bearer from
+// config.WebLoaderSecret; it is NEVER logged. Mirrors RenderSearxngSecretEnv.
+func RenderWebsafeSecretEnv(secret string) (name, text string) {
+	return websafeSecretEnvName(), websafeSecretEnvBody(secret)
 }
 
 // parseContainerArgs maps the proven `podman run` argument slice into Quadlet keys.

@@ -115,6 +115,13 @@ type openWebUIView struct {
 	PublishPort   string
 	Volume        string
 	Env           []envPair
+	// SecretEnvFile is the EnvironmentFile= PATH carrying the 0600
+	// EXTERNAL_WEB_LOADER_API_KEY bearer (T-31-12). It is set ONLY when web search is on
+	// (the OWUI container needs the bearer to authenticate to villa-websafe); EMPTY when
+	// web search is off, so the template's {{if .SecretEnvFile}} guard renders nothing and
+	// the web-off unit is byte-identical to v1.4. The secret VALUE is NEVER an env line —
+	// it reaches OWUI only via this 0600 file, never the 0644 unit.
+	SecretEnvFile string
 }
 
 // openWebUIVolumeView is the data the openwebui.volume.tmpl renders: a plain
@@ -134,7 +141,7 @@ type openWebUIVolumeView struct {
 // existing networkAttach ("villa.network") so Open WebUI joins the Phase-3 network
 // unchanged. WEBUI_AUTH stays True (D-10): the first visit creates a local admin
 // account persisted in the durable volume — do NOT set it False.
-func buildOpenWebUIView(mv memory.MemoryRenderInput, memoryEnabled bool, webSearchEnabled bool, searxngAddr string, searxngPort int, webSearchResultCount int) openWebUIView {
+func buildOpenWebUIView(mv memory.MemoryRenderInput, memoryEnabled bool, webSearchEnabled bool, searxngAddr string, searxngPort int, webSearchResultCount int, websafeAddr string, websafePort int) openWebUIView {
 	env := []envPair{
 		// Connection: reach inference over villa.network by container DNS
 		// (NOT localhost / host.containers.internal), at its internal port 8080.
@@ -235,17 +242,32 @@ func buildOpenWebUIView(mv memory.MemoryRenderInput, memoryEnabled bool, webSear
 			// D-05 operator-tunable result count (config is the single source of truth;
 			// default 3 resolved upstream in config). Rendered via strconv.Itoa.
 			envPair{Key: "WEB_SEARCH_RESULT_COUNT", Value: strconv.Itoa(webSearchResultCount)},
-			// D-06 (Phase-30 on-hardware UAT fix, SRCH-03 SC#2): inject fetched page
-			// content DIRECTLY into the model context instead of OWUI's
-			// embed→retrieve path. On-hardware UAT (OWUI 0.9.6) proved that with the
-			// default embed→retrieve path (BYPASS=False) OWUI embeds web results into the
-			// ephemeral open-webui_web-search collection but never QUERIES that collection
-			// at retrieval time — only the model-attached durable knowledge/memory
-			// collection is queried — so SearXNG results never reach the model and the
-			// answer silently falls back to stale internal knowledge (SC#2 "grounded
-			// answer" FAILS). Direct injection makes grounding reliable. Per-page /
-			// result-count context bounding is deferred to Phase-31 (GROUND-03).
-			envPair{Key: "BYPASS_WEB_SEARCH_EMBEDDING_AND_RETRIEVAL", Value: "True"},
+			// Phase-31 GUARD-01 (GROUND-01): route OWUI's web fetch through the villa-owned
+			// villa-websafe loader — the SOLE producer of page_content (SSRF-guarded, bounded,
+			// guard-seam piped). WEB_LOADER_ENGINE=external selects an external loader;
+			// EXTERNAL_WEB_LOADER_URL is composed via fmt.Sprintf from the config-threaded
+			// websafe host:port (WR-01) — NEVER a re-typed villa-websafe/8090 literal. The
+			// /load path token is the single source of truth registered by the Plan-01 handler
+			// (internal/websafe loadPath); it MUST match the served route.
+			envPair{Key: "WEB_LOADER_ENGINE", Value: "external"},
+			envPair{Key: "EXTERNAL_WEB_LOADER_URL",
+				Value: fmt.Sprintf("http://%s:%d/load", websafeAddr, websafePort)},
+			// Phase-31 GROUND-01/02: turn the native embed→retrieve grounding path back ON
+			// (Phase-30 set this True at the on-hardware UAT to direct-inject; Phase 31 reverts
+			// it so fetched web content is embedded into OWUI's per-query web-search collection
+			// and retrieved at query time, distinct from durable memory — GROUND-02 isolation).
+			// FLIPPED True→False vs Phase-30. The on-hardware PROOF that BYPASS=False + the
+			// retrieval-fix key below actually grounds is Plan 04's blocking gate; this plan
+			// writes the wiring, the search-ON golden re-freeze is DEFERRED to Plan 04.
+			envPair{Key: "BYPASS_WEB_SEARCH_EMBEDDING_AND_RETRIEVAL", Value: "False"},
+			// RETRIEVAL FIX (RESEARCH Pitfall 1, the v0.9.6 lever): with BYPASS=False, OWUI
+			// embeds web results into an unscoped per-query web-search collection but, at the
+			// pinned digest, does NOT query unscoped collections at retrieval time unless this
+			// is set — so SearXNG results would never reach the model (the Phase-30 UAT
+			// failure). CONFIRMED to exist + ground on-hardware in Plan 04 (A1 HIGH-risk
+			// unknown) BEFORE the search-ON golden freezes; if the key is absent/renamed at the
+			// digest, Plan 04 escalates (a CONTEXT change, not a silent decision).
+			envPair{Key: "ENABLE_RETRIEVAL_UNSCOPED_COLLECTIONS", Value: "True"},
 		)
 	}
 
@@ -259,6 +281,17 @@ func buildOpenWebUIView(mv memory.MemoryRenderInput, memoryEnabled bool, webSear
 		env = append(env, envPair{Key: "ENABLE_PERSISTENT_CONFIG", Value: "False"})
 	}
 
+	// Phase-31 (T-31-12): when web search is on, the OWUI container must authenticate to
+	// villa-websafe with the EXTERNAL_WEB_LOADER_API_KEY bearer. That bearer is a SECRET,
+	// so it is carried via a 0600 EnvironmentFile= (the SAME websafe.env file the
+	// villa-websafe unit references — WebsafeSecretEnvFilePath, single source), NEVER as an
+	// Environment= line in this 0644 unit. EMPTY when web search is off so the unit is
+	// byte-identical to v1.4 (the template's {{if .SecretEnvFile}} guard renders nothing).
+	secretEnvFile := ""
+	if webSearchEnabled {
+		secretEnvFile = websafeSecretEnvFilePath
+	}
+
 	return openWebUIView{
 		ContainerName: openWebUIContainerName,
 		Image:         openWebUIImage,
@@ -266,6 +299,7 @@ func buildOpenWebUIView(mv memory.MemoryRenderInput, memoryEnabled bool, webSear
 		PublishPort:   openWebUIPublishPort,
 		Volume:        openWebUIVolumeMount,
 		Env:           env,
+		SecretEnvFile: secretEnvFile,
 	}
 }
 

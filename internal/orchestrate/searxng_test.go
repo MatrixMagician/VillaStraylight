@@ -24,9 +24,18 @@ func searxngFixtureInput() RenderInput {
 			SearxngPort:          8080,
 			SearxngSecret:        "testsecret_must_not_appear_in_the_0644_unit",
 			WebSearchResultCount: 3,
+			// Phase-31 villa-websafe loader identity (WR-01, config-resolved). The bearer
+			// secret VALUE must NOT appear in the rendered 0644 unit (T-31-12) — only the
+			// EnvironmentFile= path does.
+			WebsafeAddr:     "villa-websafe",
+			WebsafePort:     8090,
+			WebLoaderSecret: "websafe_testsecret_must_not_appear_in_the_0644_unit",
 		},
 		ModelFile: "qwen3-35b-a3b-moe-64.gguf",
 		ModelsDir: "/home/villa/.local/share/villa/models",
+		// Phase-31: the host villa binary path bind-mounted into the villa-websafe container
+		// (deterministic for the golden; never shell-interpolated).
+		HostVillaPath: "/home/villa/.local/bin/villa",
 	}
 }
 
@@ -221,22 +230,29 @@ func TestRenderByteIdenticalWhenWebSearchOff(t *testing.T) {
 		if u.Name == "villa-searxng.container" {
 			t.Errorf("web search off: Render must NOT emit villa-searxng.container (got %v)", unitNames(units))
 		}
+		if u.Name == "villa-websafe.container" {
+			t.Errorf("web search off: Render must NOT emit villa-websafe.container (got %v)", unitNames(units))
+		}
 	}
 	if len(units) != 5 {
 		t.Fatalf("web search off: Render returned %d units, want exactly 5 (v1.4 baseline): %v", len(units), unitNames(units))
 	}
 
-	// Sanity: turning web search ON adds exactly ONE unit (the searxng container), strictly
-	// appended — the off-render is the on-render minus that one unit.
+	// Sanity: turning web search ON adds exactly TWO units (the searxng container then the
+	// villa-websafe container, in that order), strictly appended — the off-render is the
+	// on-render minus those two units (Phase-31 byte-identical-off, SC#4).
 	on, err := Render(searxngFixtureInput())
 	if err != nil {
 		t.Fatalf("Render(on): %v", err)
 	}
-	if len(on) != 6 {
-		t.Fatalf("web search on: Render returned %d units, want 6 (5 baseline + searxng): %v", len(on), unitNames(on))
+	if len(on) != 7 {
+		t.Fatalf("web search on: Render returned %d units, want 7 (5 baseline + searxng + websafe): %v", len(on), unitNames(on))
 	}
-	if on[len(on)-1].Name != "villa-searxng.container" {
-		t.Errorf("searxng unit must be the LAST (strictly appended) unit, got order %v", unitNames(on))
+	if on[len(on)-2].Name != "villa-searxng.container" {
+		t.Errorf("searxng unit must be the second-to-last (strictly appended before websafe) unit, got order %v", unitNames(on))
+	}
+	if on[len(on)-1].Name != "villa-websafe.container" {
+		t.Errorf("websafe unit must be the LAST (strictly appended) unit, got order %v", unitNames(on))
 	}
 }
 

@@ -1,0 +1,18 @@
+# ~/.config/containers/systemd/villa-websafe.container  (GENERATED — do not edit; source: config.toml)
+[Unit]
+Description=VillaStraylight web-safe loader (OWUI external web loader)
+After=villa-network.service
+
+[Container]
+ContainerName=villa-websafe
+Image=gcr.io/distroless/static-debian12@sha256:RESOLVE_ON_HARDWARE
+Network=villa.network
+EnvironmentFile=%h/.config/villa/websafe/websafe.env
+Volume=/home/villa/.local/bin/villa:/usr/local/bin/villa:ro,z
+Exec=/usr/local/bin/villa websafe-serve --host 0.0.0.0 --port 8090
+
+[Service]
+Restart=on-failure
+
+[Install]
+WantedBy=default.target

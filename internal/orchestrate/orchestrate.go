@@ -47,6 +47,14 @@ type RenderInput struct {
 	// models path. A host path, never shell-interpolated.
 	ModelsDir string
 
+	// HostVillaPath is the host filesystem path to the running villa binary
+	// (os.Executable() captured at install time), bind-mounted READ-ONLY into the
+	// villa-websafe container so the hidden `villa websafe-serve` subcommand can run
+	// there (Phase-31 Area 1). A host path, NEVER shell-interpolated. Consumed ONLY
+	// inside the WebSearchEnabled branch; when web search is off it is unused and the
+	// rendered stack is byte-identical to v1.4.
+	HostVillaPath string
+
 	// CodingMode is the OPTIONAL pre-translated coding-mode render descriptor
 	// (CMODE-01, D-05). nil ⇒ the off path: Render leaves spec.CodingMode nil and the
 	// rendered unit is byte-identical to v1.3 (D-02). Non-nil ⇒ Render sets

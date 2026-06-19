@@ -10,7 +10,8 @@ Image={{.Image}}
 Network={{.Network}}
 PublishPort={{.PublishPort}}
 Volume={{.Volume}}
-{{range .Env}}Environment={{.Key}}={{.Value}}
+{{if .SecretEnvFile}}EnvironmentFile={{.SecretEnvFile}}
+{{end}}{{range .Env}}Environment={{.Key}}={{.Value}}
 {{end}}
 [Service]
 Restart=on-failure
