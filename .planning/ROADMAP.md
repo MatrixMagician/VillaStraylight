@@ -176,7 +176,22 @@ Audit `tech_debt` — 17/17 requirements satisfied, integration PASS (7/7 seam g
   4. `recommend` reserves a web-search context budget (bounded result-count × page-size) **before** the chat-model fit, and residency is **offload-asserted under search load** (a silent/partial CPU fallback is a FAIL).
   5. The fetcher enforces an **SSRF guard** — resolve-and-validate the target IP (reject loopback / link-local / `169.254.169.254` / internal `villa-*` hosts), re-check after every redirect, and allow only an http(s) scheme list.
 
-**Plans**: TBD
+**Plans**: 4 plans
+
+**Wave 1** *(parallel; disjoint file ownership)*
+
+- [ ] 31-01-PLAN.md — `internal/websafe` pure core: SSRF guard (connect-time `Control` + per-hop redirect re-check + reject-set) + bounded skip-and-continue fetcher + Phase-32 guard stubs + the VERIFIED OWUI external-loader contract glue (GUARD-05, GUARD-01, GROUND-01)
+- [ ] 31-02-PLAN.md — `recommend` web-search reservation-before-fit (schema 3→4, one golden re-freeze) + `config` websafe fields/bearer/host-path (omit-when-off, byte-identical-off) (GROUND-03, GROUND-01, GROUND-02)
+
+**Wave 2** *(blocked on Wave 1)*
+
+- [ ] 31-03-PLAN.md — orchestrate `villa-websafe` unit (seam-locked distroless + binary bind-mount, gated/byte-identical-off) + OWUI external-loader env wiring (BYPASS True→False + retrieval-fix key + 0600 bearer) + hidden `villa websafe-serve` cmd + lifecycle (GUARD-01, GROUND-01, GROUND-02, GROUND-03)
+
+**Wave 3** *(blocked on Wave 2; human-needed)*
+
+- [ ] 31-04-PLAN.md — on-hardware UAT gate: confirm static-binary + distroless digest, the A1 retrieval-fix lever, grounded-cited-answer, ephemeral-collection isolation, offload-assert under search load; final golden re-freeze (or CONTEXT escalation if A1 fails) (GROUND-01, GROUND-02, GROUND-03, GUARD-01)
+
+**Research**: completed — `31-RESEARCH.md` (OWUI external-loader contract verified at the pinned digest; Go SSRF pattern; reuse map; pitfalls)
 
 ### Phase 32: Villa Injection Guard Layer
 
@@ -280,7 +295,7 @@ These standing project disciplines apply to every v1.5 phase — stated here onc
 | 28. Agent Surfacing & Contracts | v1.4 | 3/3 | Complete | 2026-06-15 |
 | 29. SearXNG Search Service | v1.5 | 3/3 | Complete | 2026-06-18 |
 | 30. OWUI Native-Search Wiring | v1.5 | 2/2 | Complete | 2026-06-19 |
-| 31. Grounded Fetch → Embed Grounding | v1.5 | 0/? | Not started | - |
+| 31. Grounded Fetch → Embed Grounding | v1.5 | 0/4 | Planned | - |
 | 32. Villa Injection Guard Layer | v1.5 | 0/? | Not started | - |
 | 33. Egress-Bounding + `villa verify search` | v1.5 | 0/? | Not started | - |
 | 34. Web-Search Surfacing | v1.5 | 0/? | Not started | - |
