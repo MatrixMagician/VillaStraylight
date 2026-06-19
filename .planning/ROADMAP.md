@@ -208,7 +208,12 @@ Audit `tech_debt` — 17/17 requirements satisfied, integration PASS (7/7 seam g
 **Plans**: 3 plans
 
 Plans:
+**Wave 1**
+
 - [ ] 32-01-PLAN.md — Replace the four guard stubs with real policy (bluemonday sanitize, NFKC + invisible/bidi normalize, crypto/rand nonced fence, heuristic classifier + Verdict); delete guard_stubs.go (GUARD-02/03/04 production core)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 32-02-PLAN.md — Must-WIN recall/precision eval (frozen thresholds + adversarial/benign corpus) + honesty grep-ban + markdown-image residual doc (GUARD-04 evaluation & honesty)
 - [ ] 32-03-PLAN.md — Rewire the fetchOne guard seam (sanitize→normalize→classify→fence, verdict used) + Page.Verdict + defanged title + additive /load metadata.guard (GUARD-02/03/04 integration)
 

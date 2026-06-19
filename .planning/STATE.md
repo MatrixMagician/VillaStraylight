@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Web Search
-current_phase: 32
-current_phase_name: villa-injection-guard-layer
+current_phase: 31
+current_phase_name: grounded-fetch-embed-grounding
 status: ready_to_plan
-stopped_at: "Phase 31 COMPLETE — on-hardware UAT PASSED (A1 retrieval-fix key confirmed; GROUND-01 grounded cited answer w/ live URLs; GROUND-02 ephemeral collection isolated from durable; GROUND-03 offload PASS under load; GUARD-01/05 SSRF live). VERIFICATION passed 5/5. Deep code review found+fixed 3 defects (CR-01 extractTitle DoS panic, CR-02 extractText swallow, WR-01 restore websafe.env). UAT also surfaced+fixed an install secret-env gap. Ready to plan Phase 32."
-last_updated: "2026-06-19T18:30:00Z"
+stopped_at: Phase 31 COMPLETE — on-hardware UAT PASSED (A1 retrieval-fix key confirmed; GROUND-01 grounded cited answer w/ live URLs; GROUND-02 ephemeral collection isolated from durable; GROUND-03 offload PASS under load; GUARD-01/05 SSRF live). VERIFICATION passed 5/5. Deep code review found+fixed 3 defects (CR-01 extractTitle DoS panic, CR-02 extractText swallow, WR-01 restore websafe.env). UAT also surfaced+fixed an install secret-env gap. Ready to plan Phase 32.
+last_updated: "2026-06-19T19:43:49.159Z"
 last_activity: 2026-06-19
-last_activity_desc: Phase 31 complete (UAT passed, code-review fixes landed)
+last_activity_desc: Phase 31 execution started
 progress:
   total_phases: 6
   completed_phases: 3
