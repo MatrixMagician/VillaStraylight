@@ -23,6 +23,9 @@ func searxngUnits() ([]orchestrate.Unit, orchestrate.Plan) {
 	units := []orchestrate.Unit{
 		{Name: "villa-llama.container", Text: "[Container]\n"},
 		{Name: orchestrate.SearXNGContainerUnitName(), Text: "[Container]\n"},
+		// Phase-31: web search on also renders the villa-websafe unit; its presence in the plan
+		// satisfies the websafe start gate (planHasUnit) the install flow checks.
+		{Name: orchestrate.WebsafeContainerUnitName(), Text: "[Container]\n"},
 	}
 	return units, orchestrate.Plan{Changed: units}
 }

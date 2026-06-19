@@ -102,6 +102,12 @@ type fakeInstallDeps struct {
 	searxngProofStatus    preflight.Status
 	searxngProofDetail    string
 
+	// villa-websafe secret-env writer counter (v1.5 / Phase-31). webSearchEnabled drives this
+	// path too (the websafe.env 0600 bearer is written when web search is on). The counter lets
+	// the web-search tests assert the bearer file is written exactly once (and BEFORE the OWUI
+	// start, which references it via EnvironmentFile= when web search is on — T-31-12).
+	websafeSecretEnvCalls int
+
 	// Coding-agent (Crush) addon seam controls + counters (v1.4 / INSTALL-03). agentEnabled
 	// drives the loadedAgentEnabled gate seam (default false → the agent path never fires,
 	// so existing install tests stay unchanged). agentCat is the catalog the coderShardFor
@@ -299,6 +305,14 @@ func newFakeInstallDeps(t *testing.T, units []orchestrate.Unit, plan orchestrate
 		f.searxngProofIn = in
 		f.callOrder = append(f.callOrder, "searxngProof")
 		return searxngProof{status: f.searxngProofStatus, detail: f.searxngProofDetail}
+	}
+	// villa-websafe 0600 bearer (websafe.env) writer (v1.5 / Phase-31). It records an ordered
+	// event so a test can assert the bearer file is written BEFORE the OWUI start (which
+	// references it via EnvironmentFile= when web search is on — T-31-12) and exactly once.
+	d.writeWebsafeSecretEnv = func(string, string) error {
+		f.websafeSecretEnvCalls++
+		f.callOrder = append(f.callOrder, "writeWebsafeSecretEnv")
+		return nil
 	}
 	// Coding-agent (Crush) addon seams (v1.4 / INSTALL-03). The gate seam reflects the
 	// controllable agentEnabled flag (default false → the agent path never fires, so existing

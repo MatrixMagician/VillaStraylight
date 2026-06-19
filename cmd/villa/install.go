@@ -230,6 +230,14 @@ type installDeps struct {
 	// (exitBlocked), never a silent skip. Invoked only when web search is on and not dry-run.
 	searxngProofFn func(ctx context.Context, in searxngProofInput) searxngProof
 
+	// writeWebsafeSecretEnv persists the 0600 EXTERNAL_WEB_LOADER_API_KEY env file — the
+	// EnvironmentFile= target BOTH the villa-websafe AND the OWUI units reference
+	// (WebsafeSecretEnvFilePath, single source) — so the bearer reaches both containers via the
+	// 0600 file, never a 0644 unit (T-31-12). It is gated on the PERSISTED web_search_enabled
+	// and MUST be invoked BEFORE the OWUI start (which references it via EnvironmentFile= when
+	// web search is on) AND before the villa-websafe start. Mirrors writeSearxngSecretEnv.
+	writeWebsafeSecretEnv func(name, text string) error
+
 	// Coding-agent (Crush) addon seams (v1.4 / INSTALL-03, D-01/D-02/D-03/D-05). All
 	// gated on the PERSISTED agent_enabled (loadedAgentEnabled) unless --coding-agent
 	// overrides it, skipped under --dry-run.
@@ -721,6 +729,41 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 		return exitBlocked
 	}
 	fmt.Fprintf(out, "started %s\n", installServiceName)
+
+	// (9a) Generate-and-persist the EXTERNAL_WEB_LOADER_API_KEY bearer ONCE and write the 0600
+	// websafe.env BEFORE the OWUI start (v1.5 / Phase-31 GUARD-01 / GROUND-01), gated on the
+	// PERSISTED web_search_enabled. This MUST precede the OWUI start: when web search is on the
+	// OWUI unit references the SAME websafe.env via EnvironmentFile= (WebsafeSecretEnvFilePath),
+	// and `systemctl start` fails if that EnvironmentFile target is absent. The villa-websafe
+	// service itself is started further below alongside searxng (its planHasUnit gate). The
+	// secret VALUE only ever lands in this 0600 file — never the 0644 unit, a log line, or
+	// stdout. Mirrors the searxng secret-env path (generate-once + 0600 EnvironmentFile, T-31-12).
+	if cfg.WebSearchEnabled {
+		// Generate-and-persist the bearer ONCE on first opt-in BEFORE rendering the env file so
+		// the EnvironmentFile target exists and is non-empty (a re-install reuses the same bearer
+		// rather than churning the OWUI⇄websafe trust).
+		if cfg.WebLoaderSecret == "" {
+			secret, gerr := config.GenerateWebLoaderSecret()
+			if gerr != nil {
+				fmt.Fprintf(errOut, "install: generate web loader secret failed: %v\n", gerr)
+				return exitBlocked
+			}
+			cfg.WebLoaderSecret = secret
+			if serr := d.saveConfig(cfg); serr != nil {
+				fmt.Fprintf(errOut, "install: persist web loader secret failed: %v\n", serr)
+				return exitBlocked
+			}
+		}
+		// Write the 0600 bearer env file — the EnvironmentFile= target BOTH the OWUI unit (started
+		// next) and the villa-websafe unit reference. The secret VALUE only ever lands in this
+		// 0600 file (T-31-12).
+		envName, envText := orchestrate.RenderWebsafeSecretEnv(cfg.WebLoaderSecret)
+		if werr := d.writeWebsafeSecretEnv(envName, envText); werr != nil {
+			fmt.Fprintf(errOut, "install: write websafe secret env failed: %v\n", werr)
+			return exitBlocked
+		}
+	}
+
 	// Start Open WebUI AFTER inference (D-05): the chat UI must come up against a
 	// live backend, and the recommended model is already ensured present above
 	// (step 6, MODEL-04) so the model picker is populated on first visit.
@@ -829,6 +872,23 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 			return exitBlocked
 		}
 		fmt.Fprintf(out, "started %s\n", searxngServiceName)
+
+		// villa-websafe (grounded-fetch loader, Phase-31): its 0600 websafe.env bearer was already
+		// written above (step 9a, BEFORE the OWUI start that also references it). Gate the START on
+		// the rendered unit being PRESENT in the written plan (WR-04 backstop): never `systemctl
+		// start villa-websafe.service` for a unit systemd has never seen — fail closed with an
+		// INTERNAL-ERROR remediation, not a raw "Unit not found". With web search on, Render
+		// appends the unit, so today it is always present; the gate is the fail-closed backstop.
+		if !planHasUnit(plan, orchestrate.WebsafeContainerUnitName()) {
+			fmt.Fprintf(errOut, "install: INTERNAL ERROR: web search is enabled but the websafe unit (%s) is absent from the rendered plan — refusing to start a service systemd has never seen. This is a render/reconcile bug; please re-run `villa install`, and if it persists, file an issue.\n",
+				orchestrate.WebsafeContainerUnitName())
+			return exitBlocked
+		}
+		if err := d.start(websafeServiceName); err != nil {
+			fmt.Fprintf(errOut, "install: start %s failed: %v\n", websafeServiceName, err)
+			return exitBlocked
+		}
+		fmt.Fprintf(out, "started %s\n", websafeServiceName)
 	}
 
 	// (10) Poll readiness (503=keep-polling, timeout→WARN — Task 2 wiring).
@@ -1476,6 +1536,11 @@ func liveInstallDeps() (*installDeps, error) {
 		writeSearxngSettings:   orchestrate.WriteSearxngSettings,
 		writeSearxngSecretEnv:  orchestrate.WriteSearxngSecretEnv,
 		searxngProofFn:         liveSearxngProof,
+		// villa-websafe 0600 bearer (websafe.env) writer — the EnvironmentFile= target BOTH the
+		// villa-websafe AND the OWUI units reference (WebsafeSecretEnvFilePath). The secret reaches
+		// both containers via the 0600 file, never the 0644 unit (T-31-12). Mirrors the searxng
+		// secret-env writer wiring above.
+		writeWebsafeSecretEnv: orchestrate.WriteWebsafeSecretEnv,
 
 		// Coding-agent (Crush) addon seams (v1.4 / INSTALL-03). The gate keys off the
 		// PERSISTED config (liveLoadedAgentEnabled → config.LoadVilla().AgentEnabled,
