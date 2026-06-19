@@ -13,11 +13,16 @@ package main
 // and the cobra wiring land in Plan 02.
 
 import (
+	"bytes"
+	"context"
 	"errors"
 	"io"
 	"net/http"
+	"net/netip"
 	"strings"
 	"testing"
+
+	"github.com/spf13/cobra"
 )
 
 // okProbe / falseProbe / errProbe are tiny seam helpers so each truth-table row reads as
@@ -302,5 +307,197 @@ func TestSearchSSRF(t *testing.T) {
 		if !ssrfBlocked(u) {
 			t.Errorf("ssrfBlocked(%q) = false, want true (internal host must be refused)", u)
 		}
+	}
+}
+
+// --- Plan 02: live seam + cobra wiring tests --------------------------------
+
+// TestSearchSecretQuery pins the family-(d) live driver (PRIV-08 / T-33-10) off-hardware via
+// an injected fake curl-exit seam (the SAME boundary runProbeCurlCode is driven through — no
+// network, no live bound). It is the load-bearing exfil case: the secret in the query string
+// MUST be contained under the bound; if it escapes the verdict FAILs, never a fabricated PASS.
+func TestSearchSecretQuery(t *testing.T) {
+	cases := []struct {
+		name        string
+		exit        int
+		probeErr    error
+		wantBlocked bool
+		wantErr     bool
+	}{
+		// A genuine curl connection/timeout exit ⇒ the secret-bearing request did NOT reach
+		// the canary ⇒ contained (blocked=true, no error).
+		{"could-not-resolve 6 contained", curlExitCouldNotResolve, errors.New("curl: (6)"), true, false},
+		{"failed-to-connect 7 contained", curlExitFailedToConnect, errors.New("curl: (7)"), true, false},
+		{"operation-timeout 28 contained", curlExitOperationTimeout, errors.New("curl: (28)"), true, false},
+		// Exit 0 ⇒ the request REACHED the canary ⇒ the secret escaped ⇒ not blocked, no error
+		// (the pure core maps this to FAIL).
+		{"exit 0 reached the canary", 0, nil, false, false},
+		// Any other exit / could-not-run ⇒ a non-nil error (REJECT-bound at the probe layer;
+		// the verdict FAILs — never a fabricated PASS).
+		{"exit 127 curl-absent errors", 127, errors.New("curl: (127)"), false, true},
+		{"container never started errors", -1, errors.New("podman run failed"), false, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			blocked, err := secretQueryBlocked(func() (int, error) { return tc.exit, tc.probeErr })
+			if blocked != tc.wantBlocked {
+				t.Errorf("secretQueryBlocked blocked = %t, want %t", blocked, tc.wantBlocked)
+			}
+			if (err != nil) != tc.wantErr {
+				t.Errorf("secretQueryBlocked err = %v, wantErr %t", err, tc.wantErr)
+			}
+		})
+	}
+}
+
+// TestSearchSecretQueryDrivesFailNotPass proves family (d) is exercised END-TO-END through the
+// pure core, not vacuously true: when the secret-query probe reports the secret REACHED the
+// canary (blocked=false, no err) — every OTHER clause passing — evalSearchVerify yields
+// searchFail, NEVER searchPass. This is the SC2 false-green hazard pinned at the verdict level.
+func TestSearchSecretQueryDrivesFailNotPass(t *testing.T) {
+	got := evalSearchVerify(
+		goodAllowlist,
+		goodCanary,
+		goodBound,
+		goodInjection,
+		func() bool { return true }, // ssrf blocked
+		func() (bool, error) { return false, nil }, // secret REACHED the canary
+	)
+	if got.status != searchFail {
+		t.Fatalf("secret-reached-canary verdict = %v, want searchFail (never a fabricated PASS)", got.status)
+	}
+	if got.status == searchPass {
+		t.Fatalf("FALSE-GREEN: a secret that escaped under the bound must never PASS")
+	}
+}
+
+// TestSecretExfilURLCarriesTokenInQuery asserts the family-(d) URL carries the fixed secret
+// token in the query string of the SAME off-allowlist canary host the reachability probe uses
+// — and that the token is a CONSTANT (never shell-interpolated; the URL is a single fixed arg).
+func TestSecretExfilURLCarriesTokenInQuery(t *testing.T) {
+	u := secretExfilURL()
+	if !strings.HasPrefix(u, egressNegativeControlHost) {
+		t.Errorf("secret-exfil URL %q does not target the off-allowlist canary host %q", u, egressNegativeControlHost)
+	}
+	if !strings.Contains(u, "exfil="+searchSecretExfilToken) {
+		t.Errorf("secret-exfil URL %q does not carry the fixed token in the query string", u)
+	}
+}
+
+// TestNftBoundRuleset asserts the rendered ruleset is the verified RESEARCH-Pattern-4 shape:
+// policy drop, loopback + established/related accepted, and one `ip daddr <ip> accept` per
+// validated allowlist IP — built from netip.Addr values (no shell-composed string).
+func TestNftBoundRuleset(t *testing.T) {
+	rs := nftBoundRuleset([]netip.Addr{
+		netip.MustParseAddr("198.51.100.7"),
+		netip.MustParseAddr("203.0.113.9"),
+	})
+	for _, want := range []string{
+		"table inet villabound",
+		"policy drop;",
+		"oif \"lo\" accept",
+		"ct state established,related accept",
+		"ip daddr 198.51.100.7 accept",
+		"ip daddr 203.0.113.9 accept",
+	} {
+		if !strings.Contains(rs, want) {
+			t.Errorf("nft ruleset missing %q:\n%s", want, rs)
+		}
+	}
+}
+
+// TestVerifySearchRegistered asserts `villa verify search` is registered under the `verify`
+// parent next to memory/agent (a missing subcommand is a silent regression of the PRIV-08 gate).
+func TestVerifySearchRegistered(t *testing.T) {
+	verify := newVerify()
+	var foundSearch, foundMemory, foundAgent bool
+	for _, c := range verify.Commands() {
+		switch c.Name() {
+		case "search":
+			foundSearch = true
+		case "memory":
+			foundMemory = true
+		case "agent":
+			foundAgent = true
+		}
+	}
+	if !foundMemory || !foundAgent {
+		t.Errorf("an existing verify subcommand was dropped (memory=%t agent=%t)", foundMemory, foundAgent)
+	}
+	if !foundSearch {
+		t.Errorf("`verify search` is not registered under `verify` — the PRIV-08 bounded-outbound proof is unreachable")
+	}
+}
+
+// newSearchCmd builds a cobra command carrying the --json flag + a context, so the run path
+// can be driven deterministically (the flag is read via cmd.Flags().GetBool).
+func newSearchCmd() *cobra.Command {
+	c := &cobra.Command{}
+	c.SetContext(context.Background())
+	c.Flags().Bool("json", false, "")
+	return c
+}
+
+// TestRunVerifySearchGate drives runVerifySearch over the injectable seam: web-search OFF
+// exits 0 WITHOUT running the proof (nothing to verify — NOT the silent-skip hazard).
+func TestRunVerifySearchGate(t *testing.T) {
+	proofRan := false
+	deps := searchVerifyDeps{
+		loadedWebSearchEnabled: func() bool { return false },
+		verifyFn: func(context.Context, searchVerifyDeps) searchProof {
+			proofRan = true
+			return pass("should not run")
+		},
+	}
+	cmd := newSearchCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	if code := runVerifySearch(cmd, nil, deps); code != exitPass {
+		t.Errorf("web-search-off exit = %d, want exitPass (%d)", code, exitPass)
+	}
+	if proofRan {
+		t.Errorf("the proof must NOT run when web search is off")
+	}
+	if !strings.Contains(out.String(), "nothing to verify") {
+		t.Errorf("web-search-off message must say nothing to verify, got: %s", out.String())
+	}
+}
+
+// TestRunVerifySearchExit pins the three-state verdict→exit map: PASS→exitPass(0),
+// FAIL→exitBlocked(1) with remediation on stderr, REJECT→exitWarn(2) with the infra-fail
+// detail on stderr. No 4th code.
+func TestRunVerifySearchExit(t *testing.T) {
+	cases := []struct {
+		name     string
+		proof    searchProof
+		wantCode int
+		wantErr  bool // expect stderr output
+	}{
+		{"pass", pass("bounded outbound proven"), exitPass, false},
+		{"fail", fail("canary STILL reachable under the bound"), exitBlocked, true},
+		{"reject", reject("nft absent — cannot conduct the proof"), exitWarn, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			deps := searchVerifyDeps{
+				loadedWebSearchEnabled: func() bool { return true },
+				verifyFn:               func(context.Context, searchVerifyDeps) searchProof { return tc.proof },
+			}
+			cmd := newSearchCmd()
+			var out, errOut bytes.Buffer
+			cmd.SetOut(&out)
+			cmd.SetErr(&errOut)
+			code := runVerifySearch(cmd, nil, deps)
+			if code != tc.wantCode {
+				t.Errorf("exit = %d, want %d", code, tc.wantCode)
+			}
+			if tc.wantErr && errOut.Len() == 0 {
+				t.Errorf("a non-PASS verdict must print a remediation/detail to stderr")
+			}
+			if !tc.wantErr && errOut.Len() != 0 {
+				t.Errorf("a PASS must not write to stderr, got: %s", errOut.String())
+			}
+		})
 	}
 }

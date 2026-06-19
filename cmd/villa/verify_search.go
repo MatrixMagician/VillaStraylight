@@ -19,18 +19,28 @@ package main
 //  4. In-process family drivers — injectionFlagged (family b) and ssrfBlocked (family c)
 //     assert the SHIPPED Phase-31/32 websafe guard in-process (no network, no live bound).
 //
-// The verdict→exit map (PASS→exitPass, FAIL→exitBlocked, REJECT→exitWarn), the live
-// `unshare -rn` + nft bound seam, the family-(d) live secret-query driver + its
-// TestSearchSecretQuery, and the cobra registration all land in Plan 02. This file is
-// deliberately host-free so the load-bearing, easy-to-invert truth table — where a
-// false-green is most dangerous — is pinned by unit tests FIRST.
+// Plan 02 completes the verb on TOP of this pure spine (BELOW the host-free section):
+// the searchVerifyDeps host seam + liveSearchVerify live wiring (composing all SIX probes,
+// incl. the REAL family-(d) secretQueryBlocked driver), the transient `unshare -rn` + nft
+// bound, the verdict→exit map (PASS→exitPass, FAIL→exitBlocked, REJECT→exitWarn), and the
+// cobra registration. The pure half above is deliberately host-free so the load-bearing,
+// easy-to-invert truth table — where a false-green is most dangerous — is pinned by unit
+// tests FIRST.
 
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
+	"net/netip"
+	"os"
+	"os/exec"
 	"strings"
 
+	"github.com/spf13/cobra"
+
+	"github.com/MatrixMagician/VillaStraylight/internal/config"
+	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 	"github.com/MatrixMagician/VillaStraylight/internal/websafe"
 )
 
@@ -226,4 +236,359 @@ func ssrfBlocked(internalURL string) bool {
 		_ = resp.Body.Close()
 	}
 	return err != nil
+}
+
+// --- Plan 02: live host seam + cobra wiring ---------------------------------
+//
+// Everything below is the HOST half of `villa verify search` (on-hardware by nature:
+// it needs nft/unshare + a real-egress netns + a probe container). It is structured so
+// the pure verdict core (above) and the cobra run path stay testable off-hardware: the
+// live work hides behind func seams (searchVerifyDeps.verifyFn) and the family-(d)
+// classifier delegates to the pure classifySearchProbe, so TestSearchSecretQuery drives
+// the secret-query driver with a fake curl exit code — no network, no live bound.
+
+// searchSecretExfilToken is the FIXED secret token the family-(d) probe carries in the
+// canary URL's query string (`?exfil=<token>`). It is a constant carried as a single
+// fixed exec.Command arg — NEVER shell-interpolated (T-33-10). It is not a real secret;
+// it is a recognizable canary value whose APPEARANCE-at-the-canary-host would be the
+// exfil. Under the bound the request MUST be dropped (curl 6/7/28) so the token never
+// leaves; if the request reaches the canary (exit 0) the pure core FAILs.
+const searchSecretExfilToken = "VILLA-SEARCH-EXFIL-CANARY-7741"
+
+// secretExfilURL composes the family-(d) canary URL: the SAME off-allowlist canary host
+// as the reachability probe, with the secret token in the query string. The URL is built
+// in Go (net/url-safe concatenation of constants) and passed as ONE fixed exec.Command
+// arg — there is no shell, so the token is never interpolated into a command line.
+func secretExfilURL() string {
+	sep := "?"
+	if strings.Contains(egressNegativeControlHost, "?") {
+		sep = "&"
+	}
+	return egressNegativeControlHost + sep + "exfil=" + searchSecretExfilToken
+}
+
+// secretQueryBlocked is the family-(d) live driver (PRIV-08 / T-33-10), unit-testable
+// off-hardware via the injected probeExit seam (the same boundary runProbeCurlCode is
+// driven through). It probes the off-allowlist canary URL WITH the secret token in the
+// query string, UNDER the already-applied transient bound, and classifies the curl exit
+// via the PURE classifySearchProbe (the SAME honesty map the reachability probe uses):
+//
+//   - probeExit returns a curl CONNECTION/TIMEOUT exit (6/7/28): the secret-bearing
+//     request did NOT reach the canary → (blocked=true, nil) — contained.
+//   - probeExit returns exit 0 (nil err): the request reached the canary → (false, nil);
+//     the pure core maps this to FAIL (the secret escaped under the bound — never a
+//     fabricated PASS, 33-RESEARCH:320-321).
+//   - any other exit / a probe that could not run: classifySearchProbe surfaces an error
+//     → (false, non-nil err); the pure core maps this to FAIL too (REJECT-bound at the
+//     probe layer, FAIL at the verdict — never a fabricated PASS).
+//
+// WR-02: the probe OMITS curl -f (a reachable-but-erroring canary is still REACHED — the
+// secret escaped — so it must read as exit 0 / not-blocked, never excused as a probe
+// problem). The sanity branch of classifySearchProbe is unused here (the bound's own
+// positive control already proved the environment) — a nil sanityErr is passed.
+func secretQueryBlocked(probeExit func() (exitCode int, err error)) (blocked bool, err error) {
+	exitCode, perr := probeExit()
+	return classifySearchProbe(nil, exitCode, perr)
+}
+
+// searchVerifyDeps are the injectable host seams for `villa verify search`, so the run
+// path is testable off-hardware (mirrors verifyAgentDeps). The live wiring is
+// liveVerifySearchDeps.
+type searchVerifyDeps struct {
+	// loadedWebSearchEnabled is the AUTHORITATIVE web-search gate source — the PERSISTED
+	// config.LoadVilla().WebSearchEnabled (live: liveLoadedWebSearchEnabled, failing soft
+	// to false so a broken config never silently claims web search is on). Already shipped
+	// (PRIV-07); read-only here.
+	loadedWebSearchEnabled func() bool
+	// loadedConfig resolves the allowlist host(s) the bound permits (live:
+	// liveLoadedConfig). Read-only.
+	loadedConfig func() config.VillaConfig
+	// verifyFn drives the bounded-outbound proof (live: liveSearchVerify). Injecting it
+	// makes the gated cobra run path unit-testable without a host.
+	verifyFn func(ctx context.Context, deps searchVerifyDeps) searchProof
+}
+
+// The web-search gate source liveLoadedWebSearchEnabled (the PERSISTED
+// config.LoadVilla().WebSearchEnabled, failing soft to false) is the SAME authoritative
+// gate install uses — it lives in install_searxng.go and is REUSED here (one gate, no
+// redeclaration), exactly as the curl-exit constants are shared from verify_agent.go.
+
+// liveVerifySearchDeps wires searchVerifyDeps to the real host: the persisted web-search
+// gate, the persisted config, and the production liveSearchVerify seam.
+func liveVerifySearchDeps() searchVerifyDeps {
+	return searchVerifyDeps{
+		loadedWebSearchEnabled: liveLoadedWebSearchEnabled,
+		loadedConfig:           liveLoadedConfig,
+		verifyFn:               liveSearchVerify,
+	}
+}
+
+// searchAllowlistHost is the sanctioned upstream the positive control reaches and the
+// transient bound permits. It is the SearXNG general-engine surface — Wikipedia's API
+// host is a stable, allowlisted (general/reference) upstream from the vetted engine subset
+// (orchestrate.searxngEngines = duckduckgo/brave/wikipedia/wikidata). A loopback/internal
+// host would be unroutable; this is a real public allowlisted host so the positive control
+// is meaningful. It is a hostname (not an IP/image literal), resolved to IPs at runtime for
+// the nft rule.
+const searchAllowlistHost = "en.wikipedia.org"
+
+// nftBoundRuleset renders the verified RESEARCH-Pattern-4 ruleset for the allowlist IPs.
+// policy drop with loopback + established/related accepted and ONE `ip daddr <ip> accept`
+// per netip-validated allowlist IP. The IPs are netip.Addr values (already validated by the
+// caller), formatted with %s — there is NO shell interpolation; the whole ruleset is fed to
+// `nft -f -` on STDIN as data, never a composed shell command.
+func nftBoundRuleset(allow []netip.Addr) string {
+	var b strings.Builder
+	b.WriteString("table inet villabound {\n")
+	b.WriteString("    chain output {\n")
+	b.WriteString("        type filter hook output priority 0; policy drop;\n")
+	b.WriteString("        oif \"lo\" accept\n")
+	b.WriteString("        ct state established,related accept\n")
+	for _, ip := range allow {
+		fmt.Fprintf(&b, "        ip daddr %s accept\n", ip.String())
+	}
+	b.WriteString("    }\n")
+	b.WriteString("}\n")
+	return b.String()
+}
+
+// resolveAllowlistIPs resolves the allowlist host to validated IPv4 addresses for the nft
+// rule. Each address is re-parsed through netip (validation; a malformed resolver answer is
+// dropped) so only well-formed IPs ever enter the ruleset text. An empty result is an error
+// the caller maps to REJECT (the proof cannot be conducted without a routable allowlist).
+func resolveAllowlistIPs(host string) ([]netip.Addr, error) {
+	addrs, err := net.LookupHost(host)
+	if err != nil {
+		return nil, fmt.Errorf("could not resolve the allowlist host %q: %w", host, err)
+	}
+	var out []netip.Addr
+	for _, a := range addrs {
+		ip, perr := netip.ParseAddr(a)
+		if perr != nil {
+			continue // drop anything that is not a well-formed IP (never into the rule text)
+		}
+		if ip.Is4() {
+			out = append(out, ip) // IPv4 daddr rules (the inet table also covers v6, but we pin v4 upstreams)
+		}
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("the allowlist host %q resolved to no usable IPv4 address", host)
+	}
+	return out, nil
+}
+
+// liveSearchVerify is the production bounded-outbound proof seam (on-hardware by nature: it
+// needs nft/unshare + a real-egress netns + a probe container). It composes ALL SIX injected
+// probe funcs into the pure evalSearchVerify — the negative-control/positive-control reaches,
+// the under-bound re-probe, the in-process families (b)/(c), and the REAL family-(d)
+// secret-query driver — then returns the verdict. The exact rootless-netns attach point
+// (architecture A vs B) is finalized on-hardware in Plan 03; this seam is mechanism-agnostic
+// and the pure core is unchanged either way.
+//
+// Honesty-by-construction: if nft/unshare are absent the bound cannot be applied, so the
+// under-bound probe returns an error and the pure core REJECTs (typed-Unknown → never a
+// false PASS). The helper image comes ONLY from orchestrate.EmbedImage() (no re-typed
+// literal — TestSeamGrepGate); every exec is fixed-arg; the nft ruleset is fed on STDIN
+// (no shell). curl -f is OMITTED on BOTH reachability and the secret-query probe (WR-02).
+func liveSearchVerify(ctx context.Context, deps searchVerifyDeps) searchProof {
+	helperImage := orchestrate.EmbedImage()
+
+	allowlistURL := "https://" + searchAllowlistHost + "/"
+
+	// (1) Positive control: the allowlisted upstream must be reachable UNGUARDED.
+	allowlistReaches := func() (bool, error) {
+		_, code, perr := runProbeCurlCode(ctx, helperImage, "-s", "--max-time", "5", allowlistURL)
+		return classifySearchProbe(nil, code, perr)
+	}
+
+	// (2) Negative control: the off-allowlist canary must be reachable UNGUARDED. reach==true
+	//     iff exit 0; classifySearchProbe returns (blocked, err) so reach = !blocked.
+	canaryUnguarded := func() (bool, error) {
+		_, code, perr := runProbeCurlCode(ctx, helperImage, "-s", "--max-time", "5", egressNegativeControlHost)
+		blocked, cerr := classifySearchProbe(nil, code, perr)
+		if cerr != nil {
+			return false, cerr
+		}
+		return !blocked, nil
+	}
+
+	// (3) Under the transient bound: re-probe BOTH the canary (must be unreachable) and the
+	//     allowlist (must stay reachable). applyBound builds + applies the nft ruleset in a
+	//     real-egress netns; an absent tool / apply failure surfaces as an error → REJECT.
+	boundThen := func() (canaryReachable, allowlistReachable bool, err error) {
+		allow, rerr := resolveAllowlistIPs(searchAllowlistHost)
+		if rerr != nil {
+			return false, false, rerr
+		}
+		release, aerr := applySearchBound(ctx, nftBoundRuleset(allow))
+		if aerr != nil {
+			return false, false, aerr
+		}
+		// Deferred-always teardown (runLlamaDownControl precedent); a restore failure is
+		// surfaced so the caller REJECTs rather than leaving the bound applied (T-33-06).
+		defer func() {
+			if rrErr := release(); rrErr != nil && err == nil {
+				err = fmt.Errorf("could not tear down the transient egress bound (%w) — refusing to declare bounded; the bound may still be applied", rrErr)
+			}
+		}()
+
+		_, canaryCode, canaryErr := runProbeCurlCode(ctx, helperImage, "-s", "--max-time", "5", egressNegativeControlHost)
+		canaryBlocked, cErr := classifySearchProbe(nil, canaryCode, canaryErr)
+		if cErr != nil {
+			return false, false, cErr
+		}
+		_, allowCode, allowErr := runProbeCurlCode(ctx, helperImage, "-s", "--max-time", "5", allowlistURL)
+		allowBlocked, aErr := classifySearchProbe(nil, allowCode, allowErr)
+		if aErr != nil {
+			return false, false, aErr
+		}
+		// Also exercise family (d) UNDER the bound: probe the canary WITH the secret in the
+		// query string. The result is recorded for the sixth probe below via secretUnderBound.
+		_, secretCode, secretErr := runProbeCurlCode(ctx, helperImage, "-s", "--max-time", "5", secretExfilURL())
+		secretBlk, sErr := secretQueryBlocked(func() (int, error) { return secretCode, secretErr })
+		secretUnderBound.blocked = secretBlk
+		secretUnderBound.err = sErr
+		secretUnderBound.ran = true
+
+		return !canaryBlocked, !allowBlocked, nil
+	}
+
+	// (b) in-process injection assertion against the shipped websafe guard (no network).
+	injection := func() (stripped, fenced, flagged bool) {
+		return injectionFlagged(websafe.SafeClient(websafe.DefaultBounds()), "<script>", allowlistURL)
+	}
+
+	// (c) in-process SSRF assertion against the shipped websafe SSRF guard (no network).
+	ssrf := func() bool { return ssrfBlocked("http://169.254.169.254/latest/meta-data/") }
+
+	// (d) the secret-query verdict observed UNDER the bound (set inside boundThen). Before
+	//     boundThen runs the bound is not applied, so if it has not run yet this returns an
+	//     error → the pure core FAILs (never a fabricated PASS). The pure core invokes the
+	//     families AFTER boundThen, so secretUnderBound.ran is true by the time this is read.
+	secretUnderBound.ran = false
+	secret := func() (bool, error) {
+		if !secretUnderBound.ran {
+			return false, fmt.Errorf("the secret-in-query-string probe did not run under the bound — refusing to declare contained")
+		}
+		return secretUnderBound.blocked, secretUnderBound.err
+	}
+
+	return evalSearchVerify(allowlistReaches, canaryUnguarded, boundThen, injection, ssrf, secret)
+}
+
+// secretUnderBound carries the family-(d) result observed inside boundThen across to the
+// sixth probe closure (the pure core invokes the families only AFTER boundThen, so the value
+// is always set by the time it is read). It is a request-scoped value, not shared mutable
+// state across invocations — liveSearchVerify resets .ran=false at the start of every call.
+var secretUnderBound struct {
+	ran     bool
+	blocked bool
+	err     error
+}
+
+// applySearchBound applies the verified nft ruleset in a REAL-egress netns and returns a
+// teardown func. It REQUIRES nft + unshare; if either is absent it returns an error the
+// caller maps to REJECT (typed-Unknown → never a false PASS). The ruleset is fed to
+// `nft -f -` on STDIN (fixed-arg exec, no shell interpolation — T-33-03). The exact
+// rootless-netns attach point is finalized on-hardware in Plan 03 (Open Q2); this is the
+// mechanism-agnostic apply/teardown seam the pure core composes through.
+func applySearchBound(ctx context.Context, ruleset string) (release func() error, err error) {
+	if _, lerr := exec.LookPath("nft"); lerr != nil {
+		return nil, fmt.Errorf("nft is not available (%w) — cannot apply the transient egress bound; install nftables, then re-run `villa verify search`", lerr)
+	}
+	if _, lerr := exec.LookPath("unshare"); lerr != nil {
+		return nil, fmt.Errorf("unshare is not available (%w) — cannot create the transient netns for the egress bound; install util-linux, then re-run `villa verify search`", lerr)
+	}
+	// Apply the ruleset transactionally via `unshare -rn nft --file -` reading from STDIN
+	// (`--file` is nft's long form of `-f`; the long form is used so the only `-f` in this
+	// file is unambiguously NOT a curl -f, preserving the WR-02 reachability-probe invariant).
+	// The `unshare -rn` netns auto-tears-down when the process exits, so the returned release
+	// is a no-op for the ephemeral path; the on-hardware Plan-03 task replaces this with the
+	// chosen architecture (A: podman rootless-netns) and a real teardown if it touches a
+	// persistent netns. Fixed-arg exec; the ruleset is STDIN data, never a shell-composed string.
+	cmd := exec.CommandContext(ctx, "unshare", "-rn", "nft", "--file", "-")
+	cmd.Stdin = strings.NewReader(ruleset)
+	if out, runErr := cmd.CombinedOutput(); runErr != nil {
+		return nil, fmt.Errorf("could not apply the transient egress bound (%w: %s) — cannot conduct the bounded-outbound proof; ensure nft/unshare work unprivileged, then re-run `villa verify search`", runErr, strings.TrimSpace(string(out)))
+	}
+	return func() error { return nil }, nil
+}
+
+// newVerifySearch builds `villa verify search`: the bounded-outbound honesty proof (PRIV-08,
+// SC2). It is gated on the persisted web_search_enabled and refuses-with-remediation
+// (exitBlocked) on a security FAIL, or REJECTs honestly (exitWarn) when the proof cannot be
+// conducted. The exit-code mapping lives ENTIRELY in runVerifySearch (return-not-Exit body;
+// cobra RunE calls os.Exit), mirroring newVerifyAgent.
+func newVerifySearch() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "search",
+		Short: "Prove web-search outbound is BOUNDED to the sanctioned allowlist (runtime, negative-control-first)",
+		Long: "Prove that web-search egress is BOUNDED — not blanket-open and not blanket-blocked — " +
+			"inverse-framed and negative-control-FIRST: an allowlisted upstream MUST be reachable and an " +
+			"off-allowlist canary MUST be reachable UNGUARDED (proving the probe environment works), and " +
+			"ONLY THEN, under a transient nft egress bound, the canary MUST become unreachable WHILE the " +
+			"allowlist stays reachable. A canary still reachable under the bound is an INEFFECTIVE block " +
+			"and FAILS (never a fabricated PASS); a blanket block or a broken/unroutable environment is an " +
+			"honest REJECT, distinct from a FAIL. It also asserts the shipped websafe guard in-process " +
+			"(planted-injection stripped+fenced+flagged; an SSRF internal-host case blocked) and that a " +
+			"secret in the canary query string does NOT escape under the bound. On-hardware by nature: " +
+			"needs nft/unshare and a real-egress netns. Gated on the persisted web_search_enabled; exits 0 " +
+			"(passed, or web search off — nothing to verify), 1 (a blocking FAIL with remediation), or 2 " +
+			"(an honest REJECT — the proof could not be conducted). Mutates nothing in config.",
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			os.Exit(runVerifySearch(cmd, args, liveVerifySearchDeps()))
+			return nil
+		},
+	}
+	cmd.Flags().Bool("json", false, "emit the verdict as a byte-frozen schema-v1 JSON contract instead of the human line")
+	return cmd
+}
+
+// runVerifySearch gates on the persisted web_search_enabled, runs the injected proof, and
+// RETURNS the exit code (no os.Exit) so verify_search_test.go can drive it deterministically.
+// A web-search-OFF stack exits 0 (nothing to verify — NOT the silent-skip hazard; the hazard
+// is skipping the proof while web search IS on). Otherwise it maps the three-state verdict:
+// searchPass→exitPass(0), searchFail→exitBlocked(1) (the refuse-with-remediation detail to
+// stderr), searchReject→exitWarn(2) (the honest infra-fail detail to stderr) — no 4th code.
+// The --json render (Task 2) marshals the verdict view to stdout while keeping the SAME exit
+// map; here it is wired via renderVerifySearchJSON.
+func runVerifySearch(cmd *cobra.Command, _ []string, deps searchVerifyDeps) int {
+	out := cmd.OutOrStdout()
+	errOut := cmd.ErrOrStderr()
+
+	asJSON, _ := cmd.Flags().GetBool("json")
+
+	if !deps.loadedWebSearchEnabled() {
+		if asJSON {
+			_ = renderVerifySearchJSON(out, searchProof{status: searchPass, detail: "web search is not enabled (web_search_enabled=false) — nothing to verify"})
+			return exitPass
+		}
+		fmt.Fprintln(out, "verify search: web search is not enabled (web_search_enabled=false) — nothing to verify. Enable it with `villa install` after opting in, then re-run.")
+		return exitPass
+	}
+
+	proof := deps.verifyFn(cmd.Context(), deps)
+
+	if asJSON {
+		_ = renderVerifySearchJSON(out, proof)
+	}
+
+	switch proof.status {
+	case searchFail:
+		if !asJSON {
+			fmt.Fprintf(errOut, "verify search: bounded-outbound proof FAILED: %s\n", proof.detail)
+		}
+		return exitBlocked
+	case searchReject:
+		if !asJSON {
+			fmt.Fprintf(errOut, "verify search: bounded-outbound proof could not be conducted (REJECT): %s\n", proof.detail)
+		}
+		return exitWarn
+	default:
+		if !asJSON {
+			fmt.Fprintf(out, "verify search: %s\n", proof.detail)
+		}
+		return exitPass
+	}
 }
