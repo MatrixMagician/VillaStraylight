@@ -36,6 +36,7 @@ import (
 	"net/netip"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -359,30 +360,58 @@ func liveVerifySearchDeps() searchVerifyDeps {
 // the nft rule.
 const searchAllowlistHost = "en.wikipedia.org"
 
-// nftBoundRuleset renders the verified RESEARCH-Pattern-4 ruleset for the allowlist IPs.
-// policy drop with loopback + established/related accepted and ONE `ip daddr <ip> accept`
-// per netip-validated allowlist IP. The IPs are netip.Addr values (already validated by the
-// caller), formatted with %s — there is NO shell interpolation; the whole ruleset is fed to
-// `nft -f -` on STDIN as data, never a composed shell command.
-func nftBoundRuleset(allow []netip.Addr) string {
+// nftBoundRuleset renders the on-hardware-verified (architecture A, Plan 03) egress bound for
+// the allowlist IPs. It is a FORWARD-hook drop scoped to the villa bridge interface (bridgeIf,
+// e.g. "podman3") inside podman's rootless-netns — the namespace the `--network villa` probe
+// container's egress is actually forwarded through (33-RESEARCH Pitfall 1/2: rootless egress is
+// L4 via pasta, so the bound must live where container traffic flows, NOT the host FORWARD
+// chain or an empty `unshare -rn` netns). Shape (verified exit-0 on the live Strix Halo host):
+//
+//	table inet villabound {
+//	    chain forward {
+//	        type filter hook forward priority -1; policy accept;
+//	        iifname "<bridgeIf>" ct state established,related accept
+//	        iifname "<bridgeIf>" ip  daddr <v4> accept        # one per allowlist v4
+//	        iifname "<bridgeIf>" ip6 daddr <v6> accept        # one per allowlist v6 (WR-02)
+//	        iifname "<bridgeIf>" drop                         # everything else off the bridge
+//	    }
+//	}
+//
+// Why iifname-scoped (not a blanket policy drop): the rootless-netns is SHARED by the running
+// villa stack; scoping the drop to traffic arriving on the villa bridge bounds the probe (and
+// any other villa container) WITHOUT touching the netns's own host-mirrored connectivity, and
+// the established,related accept keeps the running stack's in-flight connections alive. The
+// trailing `iifname … drop` catches BOTH families (v4 and v6 destinations), so an IPv6 egress
+// path cannot bypass a v4-only block (WR-02). The IPs are netip.Addr values (already validated
+// by the caller), formatted with %s — there is NO shell interpolation; the whole ruleset is fed
+// to `nft -f -` on STDIN as data, never a composed shell command. bridgeIf is the
+// podman-reported NetworkInterface (a kernel ifname, validated by the caller before it reaches
+// here — see liveBridgeInterface), never user input.
+func nftBoundRuleset(bridgeIf string, allow []netip.Addr) string {
 	var b strings.Builder
 	b.WriteString("table inet villabound {\n")
-	b.WriteString("    chain output {\n")
-	b.WriteString("        type filter hook output priority 0; policy drop;\n")
-	b.WriteString("        oif \"lo\" accept\n")
-	b.WriteString("        ct state established,related accept\n")
+	b.WriteString("    chain forward {\n")
+	b.WriteString("        type filter hook forward priority -1; policy accept;\n")
+	fmt.Fprintf(&b, "        iifname %q ct state established,related accept\n", bridgeIf)
 	for _, ip := range allow {
-		fmt.Fprintf(&b, "        ip daddr %s accept\n", ip.String())
+		if ip.Is4() {
+			fmt.Fprintf(&b, "        iifname %q ip daddr %s accept\n", bridgeIf, ip.String())
+		} else {
+			fmt.Fprintf(&b, "        iifname %q ip6 daddr %s accept\n", bridgeIf, ip.String())
+		}
 	}
+	fmt.Fprintf(&b, "        iifname %q drop\n", bridgeIf)
 	b.WriteString("    }\n")
 	b.WriteString("}\n")
 	return b.String()
 }
 
-// resolveAllowlistIPs resolves the allowlist host to validated IPv4 addresses for the nft
-// rule. Each address is re-parsed through netip (validation; a malformed resolver answer is
-// dropped) so only well-formed IPs ever enter the ruleset text. An empty result is an error
-// the caller maps to REJECT (the proof cannot be conducted without a routable allowlist).
+// resolveAllowlistIPs resolves the allowlist host to validated IP addresses (BOTH families) for
+// the nft rule. Each address is re-parsed through netip (validation; a malformed resolver answer
+// is dropped) so only well-formed IPs ever enter the ruleset text. Both v4 AND v6 are kept (WR-02
+// / WR-03): the canary may egress over IPv6, so the allowlist must be reachable over IPv6 too or
+// a correct bound would blanket-block the allowlist's v6 path. An empty result is an error the
+// caller maps to REJECT (the proof cannot be conducted without a routable allowlist).
 func resolveAllowlistIPs(host string) ([]netip.Addr, error) {
 	addrs, err := net.LookupHost(host)
 	if err != nil {
@@ -394,14 +423,35 @@ func resolveAllowlistIPs(host string) ([]netip.Addr, error) {
 		if perr != nil {
 			continue // drop anything that is not a well-formed IP (never into the rule text)
 		}
-		if ip.Is4() {
-			out = append(out, ip) // IPv4 daddr rules (the inet table also covers v6, but we pin v4 upstreams)
-		}
+		out = append(out, ip) // BOTH v4 (ip daddr) and v6 (ip6 daddr) accepts (WR-02/WR-03)
 	}
 	if len(out) == 0 {
-		return nil, fmt.Errorf("the allowlist host %q resolved to no usable IPv4 address", host)
+		return nil, fmt.Errorf("the allowlist host %q resolved to no usable IP address", host)
 	}
 	return out, nil
+}
+
+// resolveCurlPin builds the curl `--resolve host:port:ip` args that pin the allowlist probe to
+// the SAME address the nft accept rule was built for (WR-04 TOCTOU close). It prefers a v4
+// address (the villa bridge is v4-only, so a v4 pin matches the forward path) and falls back to
+// the first v6 if v4 is absent. The ip is a netip-validated addr formatted with %s as ONE fixed
+// exec arg — there is no shell, so nothing is interpolated. An empty allow list yields no args
+// (the probe then resolves normally; the caller already errors before this on no-allow).
+func resolveCurlPin(host string, port int, allow []netip.Addr) []string {
+	var pick netip.Addr
+	for _, ip := range allow {
+		if ip.Is4() {
+			pick = ip
+			break
+		}
+	}
+	if !pick.IsValid() && len(allow) > 0 {
+		pick = allow[0] // v6-only fallback
+	}
+	if !pick.IsValid() {
+		return nil
+	}
+	return []string{"--resolve", fmt.Sprintf("%s:%d:%s", host, port, pick.String())}
 }
 
 // liveSearchVerify is the production bounded-outbound proof seam (on-hardware by nature: it
@@ -434,10 +484,20 @@ func liveSearchVerify(ctx context.Context, deps searchVerifyDeps) searchProof {
 		err     error
 	}
 
-	// (1) Positive control: the allowlisted upstream must be reachable UNGUARDED.
+	// (1) Positive control: the allowlisted upstream must be reachable UNGUARDED. classifySearchProbe
+	//     returns (blocked, err); the pure core's allowlistReaches seam expects (REACHABLE, err), so
+	//     reach = !blocked (mirroring canaryUnguarded below). Returning the raw (blocked, err) here
+	//     would INVERT the positive control — a reachable allowlist (blocked=false) would read as
+	//     ok=false and REJECT every healthy host, masking the real proof (Rule 1 fix surfaced on-
+	//     hardware in Plan 03: the verb REJECTed at step 1 on a host where the allowlist was plainly
+	//     reachable). reach==true iff exit 0.
 	allowlistReaches := func() (bool, error) {
 		_, code, perr := runProbeCurlCode(ctx, helperImage, "-s", "--max-time", "5", allowlistURL)
-		return classifySearchProbe(nil, code, perr)
+		blocked, cerr := classifySearchProbe(nil, code, perr)
+		if cerr != nil {
+			return false, cerr
+		}
+		return !blocked, nil
 	}
 
 	// (2) Negative control: the off-allowlist canary must be reachable UNGUARDED. reach==true
@@ -455,16 +515,22 @@ func liveSearchVerify(ctx context.Context, deps searchVerifyDeps) searchProof {
 	//     allowlist (must stay reachable). applyBound builds + applies the nft ruleset in a
 	//     real-egress netns; an absent tool / apply failure surfaces as an error → REJECT.
 	boundThen := func() (canaryReachable, allowlistReachable bool, err error) {
+		bridgeIf, berr := liveBridgeInterface(ctx)
+		if berr != nil {
+			return false, false, berr
+		}
 		allow, rerr := resolveAllowlistIPs(searchAllowlistHost)
 		if rerr != nil {
 			return false, false, rerr
 		}
-		release, aerr := applySearchBound(ctx, nftBoundRuleset(allow))
+		release, aerr := applySearchBound(ctx, nftBoundRuleset(bridgeIf, allow))
 		if aerr != nil {
 			return false, false, aerr
 		}
 		// Deferred-always teardown (runLlamaDownControl precedent); a restore failure is
-		// surfaced so the caller REJECTs rather than leaving the bound applied (T-33-06).
+		// surfaced so the caller REJECTs rather than leaving the bound applied (T-33-06). The
+		// rootless-netns outlives the verb, so this REAL teardown (nft delete table) must run
+		// on EVERY exit path or real web search stays bounded after the verb (Pitfall 6).
 		defer func() {
 			if rrErr := release(); rrErr != nil && err == nil {
 				err = fmt.Errorf("could not tear down the transient egress bound (%w) — refusing to declare bounded; the bound may still be applied", rrErr)
@@ -476,7 +542,15 @@ func liveSearchVerify(ctx context.Context, deps searchVerifyDeps) searchProof {
 		if cErr != nil {
 			return false, false, cErr
 		}
-		_, allowCode, allowErr := runProbeCurlCode(ctx, helperImage, "-s", "--max-time", "5", allowlistURL)
+		// The allowlist probe is PINNED to the resolved allowlist IP via --resolve (WR-04): the
+		// nft accept rules and the probe target the IDENTICAL address, closing the TOCTOU window
+		// where curl's own (second) DNS resolution could return a CDN edge IP not in the accept
+		// set → a spurious blanket-block REJECT on a healthy host. The pin arg is built from the
+		// netip-validated allowlist IPs (no shell). resolveCurlPin prefers a v4 address (the
+		// villa bridge is v4-only) and falls back to v6 if that is all that resolved.
+		pinArgs := resolveCurlPin(searchAllowlistHost, 443, allow)
+		allowArgs := append(append([]string{"-s", "--max-time", "5"}, pinArgs...), allowlistURL)
+		_, allowCode, allowErr := runProbeCurlCode(ctx, helperImage, allowArgs...)
 		allowBlocked, aErr := classifySearchProbe(nil, allowCode, allowErr)
 		if aErr != nil {
 			return false, false, aErr
@@ -521,32 +595,66 @@ func liveSearchVerify(ctx context.Context, deps searchVerifyDeps) searchProof {
 	return evalSearchVerify(allowlistReaches, canaryUnguarded, boundThen, injection, ssrf, secret)
 }
 
-// applySearchBound applies the verified nft ruleset in a REAL-egress netns and returns a
-// teardown func. It REQUIRES nft + unshare; if either is absent it returns an error the
-// caller maps to REJECT (typed-Unknown → never a false PASS). The ruleset is fed to
-// `nft -f -` on STDIN (fixed-arg exec, no shell interpolation — T-33-03). The exact
-// rootless-netns attach point is finalized on-hardware in Plan 03 (Open Q2); this is the
-// mechanism-agnostic apply/teardown seam the pure core composes through.
+// nftBridgeIfPattern validates a podman-reported bridge interface name before it is ever
+// formatted into the nft ruleset. A kernel ifname is short, alnum + a few separators; this is
+// belt-and-braces (the value comes from `podman network inspect`, not user input) so a
+// hostile/garbage network config can never inject ruleset syntax via the iifname literal.
+var nftBridgeIfPattern = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,15}$`)
+
+// liveBridgeInterface resolves the villa network's bridge interface name (e.g. "podman3") via
+// fixed-arg `podman network inspect villa --format {{.NetworkInterface}}` — the interface the
+// rootless-netns forwards `--network villa` egress through, which the nft forward-hook bound is
+// scoped to (architecture A). The result is validated against nftBridgeIfPattern so only a
+// well-formed kernel ifname ever reaches the ruleset text. An empty/garbage result is an error
+// the caller maps to REJECT (the bound cannot be scoped without the bridge).
+func liveBridgeInterface(ctx context.Context) (string, error) {
+	cmd := exec.CommandContext(ctx, "podman", "network", "inspect", memoryProofNetwork, "--format", "{{.NetworkInterface}}")
+	out, runErr := cmd.Output()
+	if runErr != nil {
+		return "", fmt.Errorf("could not resolve the %q bridge interface (%w) — cannot scope the egress bound; ensure the villa network exists, then re-run `villa verify search`", memoryProofNetwork, runErr)
+	}
+	iface := strings.TrimSpace(string(out))
+	if !nftBridgeIfPattern.MatchString(iface) {
+		return "", fmt.Errorf("the %q network reported an unusable bridge interface %q — cannot scope the egress bound; re-run `villa install`, then re-run `villa verify search`", memoryProofNetwork, iface)
+	}
+	return iface, nil
+}
+
+// applySearchBound applies the verified nft ruleset INSIDE podman's rootless-netns — the
+// namespace the `--network villa` probe container's egress is forwarded through (architecture A,
+// finalized on-hardware in Plan 03; Open Q2 resolved). This is the load-bearing CR-01 fix: the
+// bound and the probe MUST share one network namespace, else the rule has zero effect on the
+// probe (the old `unshare -rn` path applied the rule to a throwaway netns the podman probe never
+// entered, so the canary was always probed UNGUARDED — the proof could never PASS and the bound
+// was a no-op firewall). It REQUIRES podman + nft; if either is absent it returns an error the
+// caller maps to REJECT (typed-Unknown → never a false PASS). The ruleset is fed to `nft -f -` on
+// STDIN through `podman unshare --rootless-netns nft -f -` (fixed-arg exec, no shell
+// interpolation — T-33-03; `--file` is nft's long form of `-f`, used so the only `-f` in this
+// file is unambiguously NOT a curl -f, preserving the WR-02 reachability-probe invariant). The
+// returned release performs a REAL teardown (`nft delete table inet villabound` in the same
+// rootless-netns) — Pitfall 6: the rootless-netns OUTLIVES the verb (it owns the running stack),
+// so the bound MUST be torn down on EVERY exit path or real web search stays broken. A teardown
+// failure is surfaced so the caller REJECTs rather than leaving the bound applied (T-33-06).
 func applySearchBound(ctx context.Context, ruleset string) (release func() error, err error) {
+	if _, lerr := exec.LookPath("podman"); lerr != nil {
+		return nil, fmt.Errorf("podman is not available (%w) — cannot enter the rootless-netns to apply the egress bound; install podman, then re-run `villa verify search`", lerr)
+	}
 	if _, lerr := exec.LookPath("nft"); lerr != nil {
 		return nil, fmt.Errorf("nft is not available (%w) — cannot apply the transient egress bound; install nftables, then re-run `villa verify search`", lerr)
 	}
-	if _, lerr := exec.LookPath("unshare"); lerr != nil {
-		return nil, fmt.Errorf("unshare is not available (%w) — cannot create the transient netns for the egress bound; install util-linux, then re-run `villa verify search`", lerr)
-	}
-	// Apply the ruleset transactionally via `unshare -rn nft --file -` reading from STDIN
-	// (`--file` is nft's long form of `-f`; the long form is used so the only `-f` in this
-	// file is unambiguously NOT a curl -f, preserving the WR-02 reachability-probe invariant).
-	// The `unshare -rn` netns auto-tears-down when the process exits, so the returned release
-	// is a no-op for the ephemeral path; the on-hardware Plan-03 task replaces this with the
-	// chosen architecture (A: podman rootless-netns) and a real teardown if it touches a
-	// persistent netns. Fixed-arg exec; the ruleset is STDIN data, never a shell-composed string.
-	cmd := exec.CommandContext(ctx, "unshare", "-rn", "nft", "--file", "-")
+	cmd := exec.CommandContext(ctx, "podman", "unshare", "--rootless-netns", "nft", "--file", "-")
 	cmd.Stdin = strings.NewReader(ruleset)
 	if out, runErr := cmd.CombinedOutput(); runErr != nil {
-		return nil, fmt.Errorf("could not apply the transient egress bound (%w: %s) — cannot conduct the bounded-outbound proof; ensure nft/unshare work unprivileged, then re-run `villa verify search`", runErr, strings.TrimSpace(string(out)))
+		return nil, fmt.Errorf("could not apply the transient egress bound in the rootless-netns (%w: %s) — cannot conduct the bounded-outbound proof; ensure podman/nft work, then re-run `villa verify search`", runErr, strings.TrimSpace(string(out)))
 	}
-	return func() error { return nil }, nil
+	// REAL teardown: delete the table in the SAME rootless-netns. Fixed-arg exec; no shell.
+	return func() error {
+		del := exec.CommandContext(context.Background(), "podman", "unshare", "--rootless-netns", "nft", "delete", "table", "inet", "villabound")
+		if out, delErr := del.CombinedOutput(); delErr != nil {
+			return fmt.Errorf("nft delete table inet villabound failed (%w: %s)", delErr, strings.TrimSpace(string(out)))
+		}
+		return nil
+	}, nil
 }
 
 // newVerifySearch builds `villa verify search`: the bounded-outbound honesty proof (PRIV-08,

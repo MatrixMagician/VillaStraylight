@@ -419,25 +419,79 @@ func TestSecretExfilURLCarriesTokenInQuery(t *testing.T) {
 	}
 }
 
-// TestNftBoundRuleset asserts the rendered ruleset is the verified RESEARCH-Pattern-4 shape:
-// policy drop, loopback + established/related accepted, and one `ip daddr <ip> accept` per
-// validated allowlist IP — built from netip.Addr values (no shell-composed string).
+// TestNftBoundRuleset asserts the rendered ruleset is the on-hardware-verified architecture-A
+// shape (Plan 03): a FORWARD-hook drop scoped to the villa bridge interface, established,related
+// accepted, and one `ip daddr`/`ip6 daddr <ip> accept` per validated allowlist IP for BOTH
+// families (WR-02), with a trailing iifname-scoped drop catching everything else — built from
+// netip.Addr values (no shell-composed string). The bridge ifname is quoted via %q.
 func TestNftBoundRuleset(t *testing.T) {
-	rs := nftBoundRuleset([]netip.Addr{
-		netip.MustParseAddr("198.51.100.7"),
-		netip.MustParseAddr("203.0.113.9"),
+	rs := nftBoundRuleset("podman3", []netip.Addr{
+		netip.MustParseAddr("198.51.100.7"),                 // v4
+		netip.MustParseAddr("2001:db8::1"),                  // v6 (WR-02: must emit an ip6 daddr accept)
 	})
 	for _, want := range []string{
 		"table inet villabound",
-		"policy drop;",
-		"oif \"lo\" accept",
-		"ct state established,related accept",
-		"ip daddr 198.51.100.7 accept",
-		"ip daddr 203.0.113.9 accept",
+		"chain forward {",
+		"type filter hook forward priority -1; policy accept;",
+		"iifname \"podman3\" ct state established,related accept",
+		"iifname \"podman3\" ip daddr 198.51.100.7 accept",
+		"iifname \"podman3\" ip6 daddr 2001:db8::1 accept",
+		"iifname \"podman3\" drop",
 	} {
 		if !strings.Contains(rs, want) {
 			t.Errorf("nft ruleset missing %q:\n%s", want, rs)
 		}
+	}
+	// The trailing catch-all drop MUST come AFTER the allowlist accepts (order is load-bearing:
+	// an accept after the drop would never match). Assert positional ordering.
+	dropIdx := strings.Index(rs, "iifname \"podman3\" drop")
+	acceptIdx := strings.Index(rs, "ip daddr 198.51.100.7 accept")
+	if dropIdx < acceptIdx {
+		t.Errorf("catch-all drop precedes the allowlist accept — the allowlist would be dropped:\n%s", rs)
+	}
+}
+
+// TestNftBridgeIfPattern pins the bridge-ifname validation (defense in depth): a normal podman
+// bridge name is accepted, while anything carrying nft ruleset syntax (spaces, braces, newlines,
+// shell/quote chars) is REJECTED so it can never be formatted into the ruleset text.
+func TestNftBridgeIfPattern(t *testing.T) {
+	good := []string{"podman3", "veth0", "br-villa", "eth0", "podman_1"}
+	for _, s := range good {
+		if !nftBridgeIfPattern.MatchString(s) {
+			t.Errorf("nftBridgeIfPattern rejected a valid ifname %q", s)
+		}
+	}
+	bad := []string{"", "po dman3", "podman3\naccept", "po;dman", "pod\"man", "pod}man", "thisnameiswaytoolongforanifname"}
+	for _, s := range bad {
+		if nftBridgeIfPattern.MatchString(s) {
+			t.Errorf("nftBridgeIfPattern accepted an unsafe ifname %q (could inject ruleset syntax)", s)
+		}
+	}
+}
+
+// TestResolveCurlPin pins the WR-04 TOCTOU-close pin builder: it prefers a v4 address (the villa
+// bridge is v4-only), falls back to v6 when no v4 resolved, emits a single fixed --resolve arg
+// pair, and yields no args for an empty allow set.
+func TestResolveCurlPin(t *testing.T) {
+	v4 := netip.MustParseAddr("185.15.59.224")
+	v6 := netip.MustParseAddr("2a02:ec80:300:ed1a::1")
+
+	// Mixed: must PREFER the v4 (matches the v4-only bridge forward path).
+	got := resolveCurlPin("en.wikipedia.org", 443, []netip.Addr{v6, v4})
+	want := []string{"--resolve", "en.wikipedia.org:443:185.15.59.224"}
+	if len(got) != 2 || got[0] != want[0] || got[1] != want[1] {
+		t.Errorf("resolveCurlPin mixed = %v, want %v (must prefer v4)", got, want)
+	}
+
+	// v6-only: must fall back to the v6 address.
+	got6 := resolveCurlPin("en.wikipedia.org", 443, []netip.Addr{v6})
+	if len(got6) != 2 || got6[1] != "en.wikipedia.org:443:2a02:ec80:300:ed1a::1" {
+		t.Errorf("resolveCurlPin v6-only = %v, want a v6 pin", got6)
+	}
+
+	// Empty: no args (the probe resolves normally; the caller errors earlier on no-allow).
+	if got0 := resolveCurlPin("en.wikipedia.org", 443, nil); got0 != nil {
+		t.Errorf("resolveCurlPin empty = %v, want nil", got0)
 	}
 }
 
