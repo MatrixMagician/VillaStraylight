@@ -523,7 +523,13 @@ func (s *server) handleLoad(w http.ResponseWriter, r *http.Request) {
 | A5 | `EXTERNAL_WEB_LOADER_API_KEY` as a crypto/rand bearer is honored (OWUI sends `Authorization: Bearer …`). | OWUI Contract | LOW — verified in `external_web.py`. If empty, OWUI sends no/empty bearer; villa can then accept any villa.network caller. |
 | A6 | Conservative ctx reservation = `RAG_TOP_K(3) × CHUNK_SIZE(1000 chars) ÷ ~3.5 chars/token + citation overhead`, scaled by a safety factor. | Validation / GROUND-03 | LOW (intentionally conservative) — over-reserving is safe (refuses risky picks); on-hardware tuning is deferred to Phase 33/34. |
 
-## Open Questions
+## Open Questions (RESOLVED)
+
+> Disposition (all threaded into executable plan content during planning, commit `3495454`):
+> Q1 → Plan 31-04 Task 2 blocking human gate (probe key + cited-answer UAT before the OWUI golden freeze) with a non-silent `## PHASE ESCALATION` path if absent.
+> Q2 → Plans 31-02/31-03 implement the crypto/rand bearer via 0600 EnvironmentFile.
+> Q3 → Plan 31-02 captures the host binary path via `os.Executable()` into a config field (no shell interpolation).
+> The RAG-env wiring dependency (below) was resolved in Plan 31-03 as **option (a): web search requires memory-on**.
 
 1. **Exact retrieval-fix env key at digest `02dc3e6`.**
    - What we know: OWUI issue #25585 names `ENABLE_RETRIEVAL_UNSCOPED_COLLECTIONS=True` as the v0.9.6 workaround; BYPASS must be False for embed→retrieve.
