@@ -183,8 +183,18 @@ func extractText(body []byte) string {
 
 // extractTitle returns a best-effort document title from the <title> element, or "" if
 // none is found. Simple substring scan; full parsing is out of scope for Phase 31.
+//
+// CR-01: the case-insensitive search MUST be length-preserving. strings.ToLower is NOT
+// byte-length-identical for some Unicode (e.g. U+023A/U+023E grow 2->3 bytes), so
+// computing match indices on a strings.ToLower(body) copy and then slicing the ORIGINAL
+// body with them can index past len(body) -> "slice bounds out of range" panic. The body
+// is attacker-controlled fetched web content, so a crafted <title> would DoS the loader
+// goroutine (no recover). We fold ONLY ASCII A-Z -> a-z into a byte-length-identical copy
+// (asciiLower) for the match — HTML tag names are ASCII, so ASCII-only folding is correct
+// — then slice the original body with those still-valid indices.
 func extractTitle(body []byte) string {
-	s := strings.ToLower(string(body))
+	orig := string(body)
+	s := asciiLower(orig) // byte-length-identical to orig (only A-Z folded)
 	open := strings.Index(s, "<title")
 	if open < 0 {
 		return ""
@@ -198,6 +208,29 @@ func extractTitle(body []byte) string {
 	if end < 0 {
 		return ""
 	}
-	// Slice the ORIGINAL (case-preserving) body for the title text.
-	return strings.TrimSpace(string(body[start : start+end]))
+	// start/end are offsets into s, which is byte-length-identical to orig, so they are
+	// valid indices into orig — slice the ORIGINAL (case-preserving) body for the title.
+	return strings.TrimSpace(orig[start : start+end])
+}
+
+// asciiLower returns a byte-length-identical copy of s with ASCII 'A'..'Z' folded to
+// 'a'..'z' and every other byte left untouched. Unlike strings.ToLower it never changes
+// the byte length, so offsets computed against the result remain valid indices into the
+// original string (CR-01). HTML tag names are ASCII, so ASCII-only folding suffices for
+// case-insensitive tag matching.
+func asciiLower(s string) string {
+	var b []byte
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c >= 'A' && c <= 'Z' {
+			if b == nil {
+				b = []byte(s)
+			}
+			b[i] = c + ('a' - 'A')
+		}
+	}
+	if b == nil {
+		return s
+	}
+	return string(b)
 }

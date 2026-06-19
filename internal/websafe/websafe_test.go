@@ -198,6 +198,30 @@ func TestDefaultBoundsConservative(t *testing.T) {
 	}
 }
 
+// TestExtractTitleLengthPreserving is the CR-01 regression: a <title> containing a rune
+// whose strings.ToLower form GROWS in byte length (U+023A "Ⱥ" -> 2 bytes -> U+2C65 3
+// bytes) previously made extractTitle slice the original body with indices computed on a
+// LONGER lowercased copy -> "slice bounds out of range" panic. The body is attacker-
+// controlled fetched content, so this was a remote DoS. After the length-preserving
+// ASCII-fold fix it must extract the title cleanly with no panic.
+func TestExtractTitleLengthPreserving(t *testing.T) {
+	// 20 growing runes + an ASCII tail, the exact shape the review reproduced as a panic.
+	titleText := strings.Repeat("Ⱥ", 20) + "X"
+	body := []byte("<title>" + titleText + "</title>")
+
+	// A panic here (pre-fix) fails the test via the testing harness; assert correctness too.
+	got := extractTitle(body)
+	if got != titleText {
+		t.Errorf("extractTitle = %q, want %q (length-preserving ASCII fold must not corrupt non-ASCII bytes)", got, titleText)
+	}
+
+	// Mixed-case ASCII tag with a growing rune inside: case-insensitive match still works.
+	body2 := []byte("<TITLE>" + strings.Repeat("Ⱦ", 5) + "ok</TITLE>")
+	if got := extractTitle(body2); got != strings.Repeat("Ⱦ", 5)+"ok" {
+		t.Errorf("extractTitle(mixed-case) = %q, want %q", got, strings.Repeat("Ⱦ", 5)+"ok")
+	}
+}
+
 // --- loader.go: OWUI external-loader contract glue ---
 
 const testSecret = "test-bearer-secret"
