@@ -24,7 +24,7 @@ Requirements for the v1.5 milestone. Each maps to exactly one roadmap phase (Tra
 
 ### Injection-Defense Guard Layer (GUARD)
 
-- [ ] **GUARD-01**: A villa-owned `villa-websafe` loader (registered as OWUI's `WEB_LOADER_ENGINE=external` fetch path) is the **sole producer of `page_content`** — every byte embedded or shown to the model passes through it.
+- [x] **GUARD-01**: A villa-owned `villa-websafe` loader (registered as OWUI's `WEB_LOADER_ENGINE=external` fetch path) is the **sole producer of `page_content`** — every byte embedded or shown to the model passes through it.
 - [ ] **GUARD-02**: Fetched content is **sanitized** (active markup stripped via pure-Go `bluemonday` StrictPolicy) and **normalized** (invisible / bidirectional / zero-width / homoglyph Unicode neutralized) *before* fencing.
 - [ ] **GUARD-03**: Sanitized content is wrapped in a **nonced provenance fence** marking it untrusted-data-not-instructions before it reaches the model.
 - [ ] **GUARD-04**: A pure-Go **heuristic injection classifier** flags injection attempts (flag-not-block tripwire — never silently passes); detection outcome (strip/flag/quarantine) is surfaced honestly, the package doc + operator-facing copy state **"reduces and flags, does not eliminate,"** and the browser-side markdown-image exfiltration channel is **documented as a known residual** (not claimed closed).
@@ -85,7 +85,7 @@ Which phase covers which requirement. Populated during roadmap creation.
 | GROUND-01 | Phase 31 | Complete |
 | GROUND-02 | Phase 31 | Complete |
 | GROUND-03 | Phase 31 | Complete |
-| GUARD-01 | Phase 31 | Pending |
+| GUARD-01 | Phase 31 | Complete |
 | GUARD-02 | Phase 32 | Pending |
 | GUARD-03 | Phase 32 | Pending |
 | GUARD-04 | Phase 32 | Pending |

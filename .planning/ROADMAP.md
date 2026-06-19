@@ -176,7 +176,7 @@ Audit `tech_debt` — 17/17 requirements satisfied, integration PASS (7/7 seam g
   4. `recommend` reserves a web-search context budget (bounded result-count × page-size) **before** the chat-model fit, and residency is **offload-asserted under search load** (a silent/partial CPU fallback is a FAIL).
   5. The fetcher enforces an **SSRF guard** — resolve-and-validate the target IP (reject loopback / link-local / `169.254.169.254` / internal `villa-*` hosts), re-check after every redirect, and allow only an http(s) scheme list.
 
-**Plans**: 2/4 plans executed
+**Plans**: 3/4 plans executed
 
 **Wave 1** *(parallel; disjoint file ownership)*
 
@@ -185,7 +185,7 @@ Audit `tech_debt` — 17/17 requirements satisfied, integration PASS (7/7 seam g
 
 **Wave 2** *(blocked on Wave 1)*
 
-- [ ] 31-03-PLAN.md — orchestrate `villa-websafe` unit (seam-locked distroless + binary bind-mount, gated/byte-identical-off) + OWUI external-loader env wiring (BYPASS True→False + retrieval-fix key + 0600 bearer) + hidden `villa websafe-serve` cmd + lifecycle (GUARD-01, GROUND-01, GROUND-02, GROUND-03)
+- [x] 31-03-PLAN.md — orchestrate `villa-websafe` unit (seam-locked distroless + binary bind-mount, gated/byte-identical-off) + OWUI external-loader env wiring (BYPASS True→False + retrieval-fix key + 0600 bearer) + hidden `villa websafe-serve` cmd + lifecycle (GUARD-01, GROUND-01, GROUND-02, GROUND-03)
 
 **Wave 3** *(blocked on Wave 2; human-needed)*
 
