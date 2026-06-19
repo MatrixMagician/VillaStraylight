@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Web Search
-current_phase: 32
+current_phase: 33
+current_phase_name: egress-bounding-villa-verify-search
 status: executing
 stopped_at: Phase 31 COMPLETE — on-hardware UAT PASSED (A1 retrieval-fix key confirmed; GROUND-01 grounded cited answer w/ live URLs; GROUND-02 ephemeral collection isolated from durable; GROUND-03 offload PASS under load; GUARD-01/05 SSRF live). VERIFICATION passed 5/5. Deep code review found+fixed 3 defects (CR-01 extractTitle DoS panic, CR-02 extractText swallow, WR-01 restore websafe.env). UAT also surfaced+fixed an install secret-env gap. Ready to plan Phase 32.
-last_updated: "2026-06-19T22:13:05.729Z"
+last_updated: "2026-06-19T22:20:52.602Z"
 last_activity: 2026-06-19
-last_activity_desc: Phase 32 marked complete
+last_activity_desc: Phase 33 execution started
 progress:
   total_phases: 6
   completed_phases: 4
-  total_plans: 12
-  completed_plans: 12
+  total_plans: 15
+  completed_plans: 13
   percent: 67
-current_phase_name: villa-injection-guard-layer
 ---
 
 # Project State
@@ -24,14 +24,14 @@ current_phase_name: villa-injection-guard-layer
 See: .planning/PROJECT.md (updated 2026-06-18 — milestone v1.5 Web Search started; SearXNG moved from Out of Scope to Active)
 
 **Core value:** Run a capable local AI workspace that "just works" after install — hardware-aware setup that brings inference, chat, and the dashboard up healthy, with zero data leaving the box. v1.2 extended the bar to "and stays operable, recoverable, and measurable over time." v1.3 extended it to "and remembers the user and their documents across chats — strictly local." v1.4 extended it to "and gives the operator a strictly-local terminal coding agent, wired to a fit-guarded coding model." v1.5 extends it to "and can ground answers in live web search when the operator opts in — accurate, up-to-date, with malicious-site prompt injection defended-in-depth and outbound provably bounded."
-**Current focus:** Phase 32 — villa-injection-guard-layer
+**Current focus:** Phase 33 — egress-bounding-villa-verify-search
 
 ## Current Position
 
-Phase: 32 — COMPLETE
-Plan: 3 of 3
+Phase: 33 (egress-bounding-villa-verify-search) — EXECUTING
+Plan: 2 of 3
 Status: Ready to execute
-Last activity: 2026-06-19 — Phase 32 marked complete
+Last activity: 2026-06-19 — Phase 33 execution started
 
 ## Performance Metrics
 
@@ -129,6 +129,7 @@ Last activity: 2026-06-19 — Phase 32 marked complete
 | Phase 32 P01 | 35m | 3 tasks | 13 files |
 | Phase 32 P02 | ~20m | 3 tasks | 5 files |
 | Phase 32 P03 | 20m | 2 tasks | 4 files |
+| Phase 33 P01 | 4m | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -253,7 +254,7 @@ Items deferred at v1.5 roadmap creation (2026-06-18, research-recorded):
 
 ## Session Continuity
 
-Last session: 2026-06-19T20:12:22.019Z
+Last session: 2026-06-19T22:20:18.267Z
 Stopped at: Phase 30 COMPLETE — on-hardware UAT PASSED (SC#2 grounded via D-06 BYPASS_WEB_SEARCH_EMBEDDING_AND_RETRIEVAL direct-inject fix; SC#3 no-fabrication). Ready to plan Phase 31 (Grounded Fetch → Embed Grounding).
 Resume file: .planning/phases/30-owui-native-search-wiring/30-VERIFICATION.md
 

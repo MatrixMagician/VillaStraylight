@@ -91,7 +91,7 @@ Which phase covers which requirement. Populated during roadmap creation.
 | GUARD-04 | Phase 32 | Complete |
 | GUARD-05 | Phase 31 | Complete |
 | PRIV-07 | Phase 33 | Pending |
-| PRIV-08 | Phase 33 | Pending |
+| PRIV-08 | Phase 33 | In Progress |
 | PRIV-09 | Phase 33 | Pending |
 | SURF-04 | Phase 34 | Pending |
 | SURF-05 | Phase 34 | Pending |

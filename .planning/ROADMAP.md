@@ -231,12 +231,12 @@ Plans:
   3. The proof also asserts a planted-injection page comes back stripped + fenced + flagged, exercises SSRF internal-host cases, and includes a secret-in-query-string exfil case.
   4. OWUI's lazy/background outbound (HuggingFace pulls, telemetry) is killed (`HF_HUB_OFFLINE` + telemetry kill switches) and any web-search-required weights are pre-staged, so the only sanctioned runtime outbound is SearXNG upstreams + result-page fetches.
 
-**Plans**: 3 plans
+**Plans**: 1/3 plans executed
 
 Plans:
 **Wave 1**
 
-- [ ] 33-01-PLAN.md — Pure 3-state PASS/FAIL/REJECT verdict core + curl-exit classifier + in-process injection (b)/SSRF (c) families (TDD spine, off-hardware)
+- [x] 33-01-PLAN.md — Pure 3-state PASS/FAIL/REJECT verdict core + curl-exit classifier + in-process injection (b)/SSRF (c) families (TDD spine, off-hardware)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
