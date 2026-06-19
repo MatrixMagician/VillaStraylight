@@ -222,6 +222,42 @@ func TestExtractTitleLengthPreserving(t *testing.T) {
 	}
 }
 
+// TestExtractTextUnterminatedTag is the CR-02 regression: a bare/unterminated '<' (no
+// matching '>' before EOF — common in real HTML/JS and especially when the body is
+// truncated at Bounds.MaxBytes mid-tag) previously flipped the tag scanner to "inside a
+// tag" forever and swallowed ALL following content, emitting empty page_content as a
+// "successful" citation (silent grounding-integrity loss). After the fix the visible text
+// is recovered, never blackholed.
+func TestExtractTextUnterminatedTag(t *testing.T) {
+	t.Run("trailing-unterminated-lt-recovers-tail", func(t *testing.T) {
+		// Body truncated mid-tag: "<p>" closes normally, then a bare "<" with text after
+		// it and NO closing ">". The tail must survive.
+		got := extractText([]byte("<p>visible content</p>more text <"))
+		if !strings.Contains(got, "visible content") {
+			t.Errorf("extractText dropped the in-body text: got %q", got)
+		}
+		if !strings.Contains(got, "more text") {
+			t.Errorf("extractText swallowed the tail after an unterminated '<': got %q", got)
+		}
+	})
+
+	t.Run("mid-body-bare-lt-keeps-following-text", func(t *testing.T) {
+		// "a < b" style bare '<': everything after it (including "b is true") must remain.
+		got := extractText([]byte("<body>if a < b is true then ok</body>"))
+		if !strings.Contains(got, "b is true then ok") {
+			t.Errorf("a mid-body bare '<' swallowed the rest of the body: got %q", got)
+		}
+	})
+
+	t.Run("well-formed-html-unchanged", func(t *testing.T) {
+		// Well-formed HTML: every tag closes, so tag runs are dropped exactly as before.
+		got := extractText([]byte("<html><body><p>hello</p> <b>world</b></body></html>"))
+		if got != "hello world" {
+			t.Errorf("well-formed extraction regressed: got %q, want %q", got, "hello world")
+		}
+	})
+}
+
 // --- loader.go: OWUI external-loader contract glue ---
 
 const testSecret = "test-bearer-secret"

@@ -163,20 +163,52 @@ func (l *Loader) fetchOne(ctx context.Context, rawURL string) (Page, error) {
 // extractText returns a reasonable text rendering of a fetched body. Phase-31 keeps
 // extraction deliberately SIMPLE (per RESEARCH "Don't Hand-Roll" HTML->text row): it
 // strips HTML tags and collapses whitespace. Full sanitization (bluemonday) is Phase 32.
+//
+// CR-02: the tag scanner must NOT let an UNTERMINATED '<' (a '<' with no matching '>'
+// before EOF) silently swallow the remainder of the body. A bare '<' is common in real
+// HTML/JS ("if (a < b)") and especially likely when the body is truncated at
+// Bounds.MaxBytes mid-tag — the old state machine flipped to "inside a tag" forever and
+// discarded every following byte, emitting empty page_content as a "successful" citation
+// (grounding-integrity loss, GROUND-01). We instead buffer the run AFTER each '<' and only
+// COMMIT to dropping it once its closing '>' is seen; at EOF an unterminated tail is
+// RECOVERED as literal text rather than discarded. Well-formed HTML is unaffected: every
+// real tag is closed, so its buffered run is dropped exactly as before.
 func extractText(body []byte) string {
 	s := string(body)
 	var b strings.Builder
 	b.Grow(len(s))
+	// pending holds the bytes seen since the last unmatched '<' (the candidate tag body,
+	// excluding the '<' itself). It is DISCARDED if a '>' closes the tag, or RECOVERED as
+	// literal text (prefixed with the '<') if EOF arrives first.
+	var pending strings.Builder
 	inTag := false
 	for _, r := range s {
 		switch {
 		case r == '<':
+			// A new '<'. If we were already "inside" an unterminated tag, that earlier
+			// '<' had no closing '>' before this one — recover it as literal text so it is
+			// not lost, then start buffering the new candidate tag.
+			if inTag {
+				b.WriteByte('<')
+				b.WriteString(pending.String())
+			}
+			pending.Reset()
 			inTag = true
 		case r == '>':
+			// Closing '>': this was a real tag — drop the buffered run.
+			pending.Reset()
 			inTag = false
-		case !inTag:
+		case inTag:
+			pending.WriteRune(r)
+		default:
 			b.WriteRune(r)
 		}
+	}
+	// EOF with an unterminated '<': recover the buffered tail as literal text (CR-02) so a
+	// bare/truncated '<' never blackholes the body's remaining content.
+	if inTag {
+		b.WriteByte('<')
+		b.WriteString(pending.String())
 	}
 	return strings.Join(strings.Fields(b.String()), " ")
 }
