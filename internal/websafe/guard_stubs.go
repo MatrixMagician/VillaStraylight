@@ -16,12 +16,6 @@ package websafe
 // that claim is NEVER made in Phase 31. The two governing claims are kept distinct:
 // outbound is bounded (proven later), injection-immunity is not asserted.
 
-// sanitize is the Phase-32 GUARD-02 sanitization hook. Phase-31 identity pass-through.
-func sanitize(s string) string { return s }
-
-// normalize is the Phase-32 GUARD-02 Unicode-normalization hook. Phase-31 identity.
-func normalize(s string) string { return s }
-
 // fence is the Phase-32 GUARD-03 provenance-fencing hook. Phase-31 identity pass-through.
 func fence(s string) string { return s }
 
