@@ -34,13 +34,17 @@ type Deps struct {
 	Client *http.Client
 }
 
-// Page is one fetched-and-produced page. Content is the (Phase-31: lightly extracted)
-// page text, Source is the fetched URL (flows into OWUI's `sources` citation field —
-// GROUND-01), and Title is a best-effort document title.
+// Page is one fetched-and-produced page. Content is the GUARD-02/03 sanitized + Unicode-
+// normalized + provenance-fenced page text, Source is the fetched URL (flows into OWUI's
+// `sources` citation field — GROUND-01), and Title is the same-defanged document title.
 type Page struct {
 	Content string
 	Source  string
 	Title   string
+	// Verdict is the GUARD-04 heuristic injection classifier outcome over the normalized
+	// text (flag-not-block: Detected never drops Content; it is surfaced additively in the
+	// /load response metadata.guard sub-key for Phase 34 to count).
+	Verdict Verdict
 }
 
 // Loader is the fetch core: it holds the injected Deps and the resource Bounds.
@@ -112,8 +116,11 @@ func (l *Loader) Load(ctx context.Context, urls []string) []Page {
 // produced Page. It enforces the http(s) scheme allowlist and the hostname reject-set
 // up front (defense-in-depth; the connect-time Control hook is the authoritative IP
 // check in the injected client), bounds the fetch by Bounds.Timeout, rejects non-2xx,
-// caps the body at Bounds.MaxBytes via io.LimitReader, then pipes the extracted text
-// through the (Phase-31 stubbed) guard seam.
+// caps the body at Bounds.MaxBytes via io.LimitReader, then runs the raw body through the
+// load-bearing GUARD-02/03/04 pipeline in the order sanitize → normalize → classify →
+// fence (sanitize-first on the RAW HTML, classify on the NORMALIZED text so no fence
+// delimiter self-matches — Pitfall 5), USING the verdict (it is stored on Page.Verdict,
+// never discarded). The title is defanged through the same sanitize+normalize path.
 func (l *Loader) fetchOne(ctx context.Context, rawURL string) (Page, error) {
 	u, err := url.Parse(rawURL)
 	if err != nil {
@@ -149,69 +156,34 @@ func (l *Loader) fetchOne(ctx context.Context, rawURL string) (Page, error) {
 		return Page{}, err
 	}
 
-	text := extractText(body)
-	title := extractTitle(body)
+	// GUARD-02/03/04 pipeline, load-bearing order (T-32-10):
+	//  1. sanitize  — bluemonday StrictPolicy strips markup off the RAW HTML (+ entity-
+	//                 decode); replaces the old hand-rolled extractText.
+	//  2. normalize — NFKC fold + strip invisible/bidi runes (defangs Trojan-Source +
+	//                 fullwidth/homoglyph obfuscation BEFORE the classifier sees it).
+	//  3. classify  — heuristic rule-family verdict over the NORMALIZED text (no fence
+	//                 delimiters in the classifier input, since fence is last — Pitfall 5);
+	//                 the verdict is USED (stored on Page.Verdict), NOT discarded.
+	//  4. fence     — wrap in the crypto/rand-nonced UNTRUSTED_WEB_CONTENT provenance fence.
+	// flag-not-block: the fenced text is the Page Content regardless of the verdict.
+	clean := sanitize(string(body))
+	clean = normalize(clean)
+	verdict := classify(clean)
+	fenced := fence(clean)
 
-	// Phase-31 guard seam (identity pass-throughs; policy lands in Phase 32).
-	text = sanitize(normalize(text))
-	text = fence(text)
-	_ = classify(text)
+	// The title is defanged through the SAME sanitize+normalize path (T-32-12) so a
+	// markup/Unicode-laden <title> cannot carry tags or invisible runes into metadata.title.
+	title := normalize(sanitize(extractTitle(body)))
 
-	return Page{Content: text, Source: rawURL, Title: title}, nil
+	return Page{Content: fenced, Source: rawURL, Title: title, Verdict: verdict}, nil
 }
 
-// extractText returns a reasonable text rendering of a fetched body. Phase-31 keeps
-// extraction deliberately SIMPLE (per RESEARCH "Don't Hand-Roll" HTML->text row): it
-// strips HTML tags and collapses whitespace. Full sanitization (bluemonday) is Phase 32.
-//
-// CR-02: the tag scanner must NOT let an UNTERMINATED '<' (a '<' with no matching '>'
-// before EOF) silently swallow the remainder of the body. A bare '<' is common in real
-// HTML/JS ("if (a < b)") and especially likely when the body is truncated at
-// Bounds.MaxBytes mid-tag — the old state machine flipped to "inside a tag" forever and
-// discarded every following byte, emitting empty page_content as a "successful" citation
-// (grounding-integrity loss, GROUND-01). We instead buffer the run AFTER each '<' and only
-// COMMIT to dropping it once its closing '>' is seen; at EOF an unterminated tail is
-// RECOVERED as literal text rather than discarded. Well-formed HTML is unaffected: every
-// real tag is closed, so its buffered run is dropped exactly as before.
-func extractText(body []byte) string {
-	s := string(body)
-	var b strings.Builder
-	b.Grow(len(s))
-	// pending holds the bytes seen since the last unmatched '<' (the candidate tag body,
-	// excluding the '<' itself). It is DISCARDED if a '>' closes the tag, or RECOVERED as
-	// literal text (prefixed with the '<') if EOF arrives first.
-	var pending strings.Builder
-	inTag := false
-	for _, r := range s {
-		switch {
-		case r == '<':
-			// A new '<'. If we were already "inside" an unterminated tag, that earlier
-			// '<' had no closing '>' before this one — recover it as literal text so it is
-			// not lost, then start buffering the new candidate tag.
-			if inTag {
-				b.WriteByte('<')
-				b.WriteString(pending.String())
-			}
-			pending.Reset()
-			inTag = true
-		case r == '>':
-			// Closing '>': this was a real tag — drop the buffered run.
-			pending.Reset()
-			inTag = false
-		case inTag:
-			pending.WriteRune(r)
-		default:
-			b.WriteRune(r)
-		}
-	}
-	// EOF with an unterminated '<': recover the buffered tail as literal text (CR-02) so a
-	// bare/truncated '<' never blackholes the body's remaining content.
-	if inTag {
-		b.WriteByte('<')
-		b.WriteString(pending.String())
-	}
-	return strings.Join(strings.Fields(b.String()), " ")
-}
+// NOTE: the Phase-31 hand-rolled extractText stripper was DELETED in Phase 32 — the
+// GUARD-02 `sanitize` (bluemonday StrictPolicy, sanitize.go) is now the sole body
+// stripper. sanitize is parser-backed, so it does not suffer the unterminated-'<'
+// blackhole the CR-02 fix guarded against; its never-return-empty posture is covered in
+// sanitize_test.go / normalize_test.go. extractTitle (+ asciiLower) is RETAINED below —
+// it scans the <title> element and is now routed through sanitize+normalize in fetchOne.
 
 // extractTitle returns a best-effort document title from the <title> element, or "" if
 // none is found. Simple substring scan; full parsing is out of scope for Phase 31.
