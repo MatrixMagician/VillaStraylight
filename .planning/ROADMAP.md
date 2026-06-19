@@ -111,7 +111,7 @@ Audit `tech_debt` — 17/17 requirements satisfied, integration PASS (7/7 seam g
 
 - [x] **Phase 29: SearXNG Search Service** - The premise container: `villa-searxng` rendered like v1.3 qdrant/embed, readiness proven by a real `format=json` query (complete 2026-06-18; on-hardware UAT PASSED — live `format=json` returned 10 results, no host port; security 14/14 closed)
 - [x] **Phase 30: OWUI Native-Search Wiring** - Env-only opt-in wiring of OWUI's native SearXNG search behind the orchestrate seam, off-render byte-identical to v1.4 (complete 2026-06-19; on-hardware UAT PASSED — SC#2 grounded answer reached via D-06 `BYPASS_WEB_SEARCH_EMBEDDING_AND_RETRIEVAL` direct-inject fix, SC#3 no-fabrication confirmed; D-06 deviates from "reuse embed/retrieve verbatim" → reconcile in Phase 31)
-- [ ] **Phase 31: Grounded Fetch → Embed Grounding** - The `villa-websafe` fetch path: full-page fetch → embed via v1.3 RAG → cited answer, dedicated ephemeral collection, ctx reservation, SSRF guard
+- [x] **Phase 31: Grounded Fetch → Embed Grounding** - The `villa-websafe` fetch path: full-page fetch → embed via v1.3 RAG → cited answer, dedicated ephemeral collection, ctx reservation, SSRF guard (completed 2026-06-19)
 - [ ] **Phase 32: Villa Injection Guard Layer** - Sanitize + Unicode-normalize + nonced provenance-fence + heuristic flag-not-block classifier layered onto the fetch path (reduces/flags, never eliminates)
 - [ ] **Phase 33: Egress-Bounding + `villa verify search`** - The honest backstop: inverse-framed negative-control-first egress proof under a real rootless-netns nft block; opt-in/default-off honesty
 - [ ] **Phase 34: Web-Search Surfacing (LANDS LAST)** - The single `status.Report` 4→5 bump + dashboard Web Search panel + doctor checks + backup/restore coverage; outbound-bounded indicator derives from the real verify-search result
@@ -176,7 +176,7 @@ Audit `tech_debt` — 17/17 requirements satisfied, integration PASS (7/7 seam g
   4. `recommend` reserves a web-search context budget (bounded result-count × page-size) **before** the chat-model fit, and residency is **offload-asserted under search load** (a silent/partial CPU fallback is a FAIL).
   5. The fetcher enforces an **SSRF guard** — resolve-and-validate the target IP (reject loopback / link-local / `169.254.169.254` / internal `villa-*` hosts), re-check after every redirect, and allow only an http(s) scheme list.
 
-**Plans**: 3/4 plans executed
+**Plans**: 4/4 plans complete
 
 **Wave 1** *(parallel; disjoint file ownership)*
 
@@ -189,7 +189,7 @@ Audit `tech_debt` — 17/17 requirements satisfied, integration PASS (7/7 seam g
 
 **Wave 3** *(blocked on Wave 2; human-needed)*
 
-- [ ] 31-04-PLAN.md — on-hardware UAT gate: confirm static-binary + distroless digest, the A1 retrieval-fix lever, grounded-cited-answer, ephemeral-collection isolation, offload-assert under search load; final golden re-freeze (or CONTEXT escalation if A1 fails) (GROUND-01, GROUND-02, GROUND-03, GUARD-01)
+- [x] 31-04-PLAN.md — on-hardware UAT gate: confirm static-binary + distroless digest, the A1 retrieval-fix lever, grounded-cited-answer, ephemeral-collection isolation, offload-assert under search load; final golden re-freeze (or CONTEXT escalation if A1 fails) (GROUND-01, GROUND-02, GROUND-03, GUARD-01)
 
 **Research**: completed — `31-RESEARCH.md` (OWUI external-loader contract verified at the pinned digest; Go SSRF pattern; reuse map; pitfalls)
 
