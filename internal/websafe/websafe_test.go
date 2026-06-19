@@ -1,6 +1,7 @@
-// websafe_test.go guards the fetch core (websafe.go) and the Phase-32 guard stubs
-// (guard_stubs.go): bounded body/timeout, scheme allowlist, skip-and-continue batch
-// behaviour, honest empty-on-all-fail, and the identity pass-through of the stubs.
+// websafe_test.go guards the fetch core (websafe.go): bounded body/timeout, scheme
+// allowlist, skip-and-continue batch behaviour, and honest empty-on-all-fail. The
+// Phase-32 guard policies (sanitize/normalize/fence/classify) are covered per-policy in
+// their own *_test.go files.
 //
 // The fetch core is the sole producer of page_content (GUARD-01) under the conservative
 // resource bounds (GROUND-01 partial). It must NEVER fabricate context: an all-fail
@@ -79,8 +80,14 @@ func TestFetchBounds(t *testing.T) {
 		if len(pages) != 1 {
 			t.Fatalf("Load returned %d pages, want 1", len(pages))
 		}
-		if int64(len(pages[0].Content)) > b.MaxBytes {
-			t.Errorf("Content length %d exceeds MaxBytes %d (not truncated)", len(pages[0].Content), b.MaxBytes)
+		// The FETCHED BODY is bounded at MaxBytes by io.LimitReader; the produced
+		// Content additionally carries the GUARD-03 provenance fence (a small, fixed
+		// preamble + two nonced delimiters), so it may exceed MaxBytes by that bounded
+		// scaffold but must NOT grow unboundedly (no per-byte amplification).
+		const maxFenceOverhead = 1 << 10 // generous bound for preamble + 2 nonced tags
+		if int64(len(pages[0].Content)) > b.MaxBytes+maxFenceOverhead {
+			t.Errorf("Content length %d exceeds MaxBytes %d + fence overhead %d (body not truncated)",
+				len(pages[0].Content), b.MaxBytes, maxFenceOverhead)
 		}
 	})
 
@@ -161,24 +168,10 @@ func TestSkipAndContinue(t *testing.T) {
 	})
 }
 
-// TestGuardStubsIdentity: the Phase-32 hooks are identity pass-throughs in Phase 31 —
-// sanitize/normalize/fence return their input unchanged and classify reports no
-// detection. The seam exists; the policy lands in Phase 32.
-func TestGuardStubsIdentity(t *testing.T) {
-	in := "  some <b>fetched</b> text ‮ with tricks  "
-	if got := sanitize(in); got != in {
-		t.Errorf("sanitize mutated input: got %q", got)
-	}
-	if got := normalize(in); got != in {
-		t.Errorf("normalize mutated input: got %q", got)
-	}
-	if got := fence(in); got != in {
-		t.Errorf("fence mutated input: got %q", got)
-	}
-	if classify(in) {
-		t.Error("classify reported a detection, want false (no-detection stub in Phase 31)")
-	}
-}
+// NOTE: the Phase-31 TestGuardStubsIdentity test (which asserted sanitize/normalize/
+// fence/classify were identity pass-throughs) was removed in Phase 32 — the four guards
+// now carry real GUARD-02/03/04 policy. Their behavior is covered per-policy in
+// sanitize_test.go, normalize_test.go, fence_test.go, and classify_test.go.
 
 // TestDefaultBoundsConservative documents the conservative v1.5 defaults so a future
 // loosening is an intentional, reviewed change.
