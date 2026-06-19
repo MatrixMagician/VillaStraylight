@@ -2,18 +2,18 @@
 gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Web Search
-current_phase: 31
-current_phase_name: grounded-fetch-embed-grounding
-status: ready_to_plan
+current_phase: 32
+current_phase_name: villa-injection-guard-layer
+status: executing
 stopped_at: Phase 31 COMPLETE — on-hardware UAT PASSED (A1 retrieval-fix key confirmed; GROUND-01 grounded cited answer w/ live URLs; GROUND-02 ephemeral collection isolated from durable; GROUND-03 offload PASS under load; GUARD-01/05 SSRF live). VERIFICATION passed 5/5. Deep code review found+fixed 3 defects (CR-01 extractTitle DoS panic, CR-02 extractText swallow, WR-01 restore websafe.env). UAT also surfaced+fixed an install secret-env gap. Ready to plan Phase 32.
-last_updated: "2026-06-19T19:43:49.159Z"
+last_updated: "2026-06-19T19:56:04.722Z"
 last_activity: 2026-06-19
-last_activity_desc: Phase 31 execution started
+last_activity_desc: Phase 32 execution started
 progress:
   total_phases: 6
   completed_phases: 3
-  total_plans: 13
-  completed_plans: 13
+  total_plans: 12
+  completed_plans: 10
   percent: 50
 ---
 
@@ -24,14 +24,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-18 — milestone v1.5 Web Search started; SearXNG moved from Out of Scope to Active)
 
 **Core value:** Run a capable local AI workspace that "just works" after install — hardware-aware setup that brings inference, chat, and the dashboard up healthy, with zero data leaving the box. v1.2 extended the bar to "and stays operable, recoverable, and measurable over time." v1.3 extended it to "and remembers the user and their documents across chats — strictly local." v1.4 extended it to "and gives the operator a strictly-local terminal coding agent, wired to a fit-guarded coding model." v1.5 extends it to "and can ground answers in live web search when the operator opts in — accurate, up-to-date, with malicious-site prompt injection defended-in-depth and outbound provably bounded."
-**Current focus:** Phase 31 — grounded-fetch-embed-grounding
+**Current focus:** Phase 32 — villa-injection-guard-layer
 
 ## Current Position
 
-Phase: 31 (grounded-fetch-embed-grounding) — EXECUTING
-Plan: 4 of 4
+Phase: 32 (villa-injection-guard-layer) — EXECUTING
+Plan: 2 of 3
 Status: Ready to execute
-Last activity: 2026-06-19 — Phase 31 execution started
+Last activity: 2026-06-19 — Phase 32 execution started
 
 ## Performance Metrics
 
@@ -126,6 +126,7 @@ Last activity: 2026-06-19 — Phase 31 execution started
 | Phase 31 P01 | ~25m | 3 tasks | 6 files |
 | Phase 31 P02 | 30min | 2 tasks | 5 files |
 | Phase 31 P03 | 55min | 3 tasks | 26 files |
+| Phase 32 P01 | 35m | 3 tasks | 13 files |
 
 ## Accumulated Context
 
@@ -164,6 +165,8 @@ Earlier (v1.0–v1.4) standing decisions retained:
 - [Phase ?]: Phase 31-01: internal/websafe pure fetch core — net.Dialer.Control connect-time IP validation (TOCTOU-safe SSRF) + per-hop CheckRedirect; network injected via Deps{Client} seam; OWUI route fixed at /load; always-200 partial array for OWUI raise_for_status; stdlib only (bluemonday deferred to Phase 32).
 - [Phase ?]: [31-02]: recommend reserves a conservative web-search ctx budget (A6 formula) BEFORE the chat fit, gated on WebSearchInputs.Enabled; Recommendation gains append-only WebSearchReservationBytes, schema 3->4 (single sanctioned Phase 31 recommend bump), recommend golden re-frozen with isolated diff; on-hardware tuning deferred to Phase 33/34.
 - [Phase ?]: [31-02]: config gains villa-websafe loader fields (WebsafeAddr/WebsafePort default villa-websafe:8090, WebLoaderSecret crypto/rand bearer, HostVillaPath) cloning SearXNG omit-when-off + addr/port-self-heal; secret + host path never self-healed; off-render byte-identical to v1.4.
+- [Phase ?]: GUARD-04 rule families use multi-word imperative phrases (not bare tokens) to protect classifier precision
+- [Phase ?]: GUARD-03 fence puts a crypto/rand nonce on both delimiters so the closing tag is non-forgeable
 
 ### Pending Todos
 
@@ -248,7 +251,7 @@ Items deferred at v1.5 roadmap creation (2026-06-18, research-recorded):
 
 ## Session Continuity
 
-Last session: 2026-06-19T17:50:16.527Z
+Last session: 2026-06-19T19:55:33.045Z
 Stopped at: Phase 30 COMPLETE — on-hardware UAT PASSED (SC#2 grounded via D-06 BYPASS_WEB_SEARCH_EMBEDDING_AND_RETRIEVAL direct-inject fix; SC#3 no-fabrication). Ready to plan Phase 31 (Grounded Fetch → Embed Grounding).
 Resume file: .planning/phases/30-owui-native-search-wiring/30-VERIFICATION.md
 

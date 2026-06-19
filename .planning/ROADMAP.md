@@ -205,12 +205,12 @@ Audit `tech_debt` — 17/17 requirements satisfied, integration PASS (7/7 seam g
   3. A pure-Go **heuristic injection classifier** flags injection attempts as a flag-not-block tripwire (never silently passes), and the detection outcome (strip/flag/quarantine) is surfaced honestly.
   4. The package doc and operator-facing copy state **"reduces and flags, does not eliminate"** (no "injection-safe" copy), and the browser-side markdown-image exfiltration channel is **documented as a known residual** — not claimed closed.
 
-**Plans**: 3 plans
+**Plans**: 1/3 plans executed
 
 Plans:
 **Wave 1**
 
-- [ ] 32-01-PLAN.md — Replace the four guard stubs with real policy (bluemonday sanitize, NFKC + invisible/bidi normalize, crypto/rand nonced fence, heuristic classifier + Verdict); delete guard_stubs.go (GUARD-02/03/04 production core)
+- [x] 32-01-PLAN.md — Replace the four guard stubs with real policy (bluemonday sanitize, NFKC + invisible/bidi normalize, crypto/rand nonced fence, heuristic classifier + Verdict); delete guard_stubs.go (GUARD-02/03/04 production core)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
