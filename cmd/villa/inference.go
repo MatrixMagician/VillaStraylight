@@ -144,7 +144,8 @@ func runValidation(ctx context.Context, m catalog.CatalogModel, withCeiling bool
 	// Memory inputs from the already-loaded persisted config (D-01): the ceiling
 	// stress math sizes against the same shrunken envelope recommend showed.
 	rec := recommend.Pick(profile, cat, recommend.Overrides{Model: m.ID},
-		recommend.MemoryInputs{Enabled: cfg.MemoryEnabled, EmbeddingModel: cfg.EmbeddingModel})
+		recommend.MemoryInputs{Enabled: cfg.MemoryEnabled, EmbeddingModel: cfg.EmbeddingModel},
+		recommend.WebSearchInputs{}) // Plan 03 threads the config-derived web-search inputs
 
 	// Guard the recommend refusal path (CR-02): when the memory envelope is
 	// undeterminable Pick returns a zero Recommendation (Model:"", ContextLen:0,

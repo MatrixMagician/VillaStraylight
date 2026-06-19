@@ -355,7 +355,8 @@ func liveAgentResidency() string {
 		return "" // cfg load failed → typed-Unknown rather than a memory-blind guess
 	}
 	rec := recommend.Pick(profile, cat, recommend.Overrides{},
-		recommend.MemoryInputs{Enabled: cfg.MemoryEnabled, EmbeddingModel: cfg.EmbeddingModel})
+		recommend.MemoryInputs{Enabled: cfg.MemoryEnabled, EmbeddingModel: cfg.EmbeddingModel},
+		recommend.WebSearchInputs{}) // Plan 03 threads the config-derived web-search inputs
 	return rec.Coder.Residency
 }
 
@@ -720,6 +721,6 @@ func liveWeightBytes(cfg config.VillaConfig) uint64 {
 	// byte-identical — WeightBytes is envelope-independent for overrides (guarded
 	// by TestPickOverrideWeightInvariance), so the frozen status path never sees
 	// the memory reservation.
-	rec := recommend.Pick(detect.Probe(), cat, recommend.Overrides{Model: cfg.Model}, recommend.MemoryInputs{})
+	rec := recommend.Pick(detect.Probe(), cat, recommend.Overrides{Model: cfg.Model}, recommend.MemoryInputs{}, recommend.WebSearchInputs{})
 	return rec.WeightBytes
 }

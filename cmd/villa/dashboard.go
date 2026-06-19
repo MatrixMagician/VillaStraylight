@@ -269,7 +269,7 @@ func liveModelsView() ([]dashboard.ModelView, bool) {
 	for _, m := range cat.Models {
 		// Reuse recommend.Pick fit-math by overriding to this entry (the same override
 		// path liveSwapDeps.Fits uses, recommend.go / D-07) — never new envelope math.
-		rec := recommend.Pick(profile, cat, recommend.Overrides{Model: m.ID}, mem)
+		rec := recommend.Pick(profile, cat, recommend.Overrides{Model: m.ID}, mem, recommend.WebSearchInputs{})
 		views = append(views, dashboard.ModelView{
 			ID:        m.ID,
 			Quant:     m.Quant,

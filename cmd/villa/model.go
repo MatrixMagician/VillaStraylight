@@ -330,7 +330,7 @@ func liveSwapDeps() *modelswap.Deps {
 			// sets Fits=false when it won't fit (recommend.go:188-192 / D-07).
 			// Persisted memory inputs (fail-soft): swap fit re-validation must see
 			// the same shrunken envelope the user was recommended (D-01).
-			rec := recommend.Pick(detect.Probe(), cat, recommend.Overrides{Model: m.ID}, liveLoadedMemoryInputs())
+			rec := recommend.Pick(detect.Probe(), cat, recommend.Overrides{Model: m.ID}, liveLoadedMemoryInputs(), recommend.WebSearchInputs{})
 			if rec.Fits {
 				return true, ""
 			}

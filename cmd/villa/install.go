@@ -1374,7 +1374,7 @@ func liveInstallDeps() (*installDeps, error) {
 			// Thread the PERSISTED memory inputs (fail-soft) so an opted-in install
 			// recommends against the shrunken envelope (D-01; Pitfall 3 — a
 			// memory-blind install pick defeats CTRL-01).
-			return recommend.Pick(p, cat, ov, liveLoadedMemoryInputs())
+			return recommend.Pick(p, cat, ov, liveLoadedMemoryInputs(), recommend.WebSearchInputs{})
 		},
 		modelFile: func(rec recommend.Recommendation) (string, error) {
 			// A catalog load failure or an unknown model id is a hard error (WR-08):

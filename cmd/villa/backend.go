@@ -392,7 +392,8 @@ func liveBackendSwapDeps() *backendswap.Deps {
 			// Memory inputs from the PRESERVED config threaded into the closure
 			// (D-01): the backend-swap fit gate sees the same shrunken envelope.
 			rec := recommend.Pick(detect.Probe(), cat, recommend.Overrides{Model: cfg.Model},
-				recommend.MemoryInputs{Enabled: cfg.MemoryEnabled, EmbeddingModel: cfg.EmbeddingModel})
+				recommend.MemoryInputs{Enabled: cfg.MemoryEnabled, EmbeddingModel: cfg.EmbeddingModel},
+				recommend.WebSearchInputs{}) // Plan 03 threads the config-derived web-search inputs
 			if rec.Fits {
 				return true, ""
 			}

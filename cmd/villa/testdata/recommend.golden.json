@@ -24,5 +24,6 @@
     "fits": true,
     "residency": "swap"
   },
-  "schema_version": 3
+  "web_search_reservation_bytes": 0,
+  "schema_version": 4
 }

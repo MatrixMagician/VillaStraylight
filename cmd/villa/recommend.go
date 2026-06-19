@@ -65,7 +65,7 @@ func newRecommend() *cobra.Command {
 				Model: f.model,
 				Quant: f.quant,
 				Ctx:   f.ctx,
-			}, mem)
+			}, mem, recommend.WebSearchInputs{}) // Plan 03 threads the config-derived web-search inputs
 
 			if err := renderRecommend(cmd.OutOrStdout(), rec, warnings, jsonOut, f.alternatives); err != nil {
 				return err

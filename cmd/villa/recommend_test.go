@@ -50,8 +50,12 @@ func fixtureRecommendation() recommend.Recommendation {
 		// remain absent under omitempty. Schema 2 (Phase 22, D-03): the append-only
 		// embedding_reservation_bytes + memory_considered keys surface as zero/false
 		// here — the memory-off contract shape. Schema 3 (Phase 24, D-07): the
-		// append-only coder block lands directly above schema_version.
-		SchemaVersion: 3,
+		// append-only coder block lands directly above schema_version. Schema 4
+		// (Phase 31, GROUND-03): the append-only web_search_reservation_bytes key
+		// surfaces as 0 here (web-search-off contract shape) directly above
+		// schema_version.
+		WebSearchReservationBytes: 0,
+		SchemaVersion:             4,
 	}
 }
 
