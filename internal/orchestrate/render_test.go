@@ -397,19 +397,14 @@ func TestRenderOpenWebUIMemoryContainerGolden(t *testing.T) {
 // ENABLE_PERSISTENT_CONFIG=False. The memory-OFF / memory-ON goldens MUST stay byte-identical
 // — only this web-search golden is intentionally re-frozen with -update.
 func TestRenderOpenWebUIWebSearchContainerGolden(t *testing.T) {
-	// Phase-31 GOLDEN-FREEZE DEFERRAL: this plan (31-03) wires the external-loader keys
-	// (WEB_LOADER_ENGINE=external + EXTERNAL_WEB_LOADER_URL), flips
-	// BYPASS_WEB_SEARCH_EMBEDDING_AND_RETRIEVAL True→False, adds the retrieval-fix key
-	// (ENABLE_RETRIEVAL_UNSCOPED_COLLECTIONS), and carries the bearer via a 0600
-	// EnvironmentFile on the OWUI unit — but the search-ON OWUI golden is NOT re-frozen here.
-	// The retrieval-fix key is the A1 HIGH-risk unknown: it must be CONFIRMED to exist + to
-	// actually ground at the pinned OWUI digest ON-HARDWARE (Plan 31-04) before the golden is
-	// frozen. Plan 04 re-runs this with -update after on-hardware confirmation. The drift test
-	// (TestRenderOpenWebUITelemetryFrozen websearch-on case) already binds every web-search
-	// KEY to buildOpenWebUIView by construction, so env-name regressions are still caught now;
-	// only the byte-for-byte golden assertion is deferred.
-	t.Skip("re-frozen in Plan 31-04 after on-hardware retrieval-fix (ENABLE_RETRIEVAL_UNSCOPED_COLLECTIONS) confirmation")
-
+	// Phase-31 FINAL FREEZE (Plan 31-04, on-hardware 2026-06-19): the search-ON OWUI golden
+	// carries WEB_LOADER_ENGINE=external + EXTERNAL_WEB_LOADER_URL,
+	// BYPASS_WEB_SEARCH_EMBEDDING_AND_RETRIEVAL=False, the retrieval-fix key
+	// ENABLE_RETRIEVAL_UNSCOPED_COLLECTIONS=True, and the 0600 EnvironmentFile bearer. The A1
+	// HIGH-risk unknown was CONFIRMED on the gfx1151 dev box: ENABLE_RETRIEVAL_UNSCOPED_COLLECTIONS
+	// exists at the pinned OWUI digest (v0.9.6, env.py:688, wired in retrieval/utils.py) and a real
+	// web-search query returned a grounded answer with inline citations to live URLs (31-UAT.md).
+	// The golden is now frozen byte-for-byte against the on-hardware-confirmed render.
 	units, err := Render(searxngFixtureInput())
 	if err != nil {
 		t.Fatalf("Render: %v", err)
