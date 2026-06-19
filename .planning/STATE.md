@@ -3,18 +3,18 @@ gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Web Search
 current_phase: 32
-current_phase_name: villa-injection-guard-layer
-status: verifying
+status: completed
 stopped_at: Phase 31 COMPLETE — on-hardware UAT PASSED (A1 retrieval-fix key confirmed; GROUND-01 grounded cited answer w/ live URLs; GROUND-02 ephemeral collection isolated from durable; GROUND-03 offload PASS under load; GUARD-01/05 SSRF live). VERIFICATION passed 5/5. Deep code review found+fixed 3 defects (CR-01 extractTitle DoS panic, CR-02 extractText swallow, WR-01 restore websafe.env). UAT also surfaced+fixed an install secret-env gap. Ready to plan Phase 32.
-last_updated: "2026-06-19T20:12:38.603Z"
+last_updated: "2026-06-19T20:40:13.695Z"
 last_activity: 2026-06-19
-last_activity_desc: Phase 32 execution started
+last_activity_desc: Phase 32 marked complete
 progress:
   total_phases: 6
   completed_phases: 4
   total_plans: 12
   completed_plans: 12
   percent: 67
+current_phase_name: villa-injection-guard-layer
 ---
 
 # Project State
@@ -28,10 +28,10 @@ See: .planning/PROJECT.md (updated 2026-06-18 — milestone v1.5 Web Search star
 
 ## Current Position
 
-Phase: 32 (villa-injection-guard-layer) — EXECUTING
+Phase: 32 — COMPLETE
 Plan: 3 of 3
-Status: Phase complete — ready for verification
-Last activity: 2026-06-19 — Phase 32 execution started
+Status: Phase 32 complete
+Last activity: 2026-06-19 — Phase 32 marked complete
 
 ## Performance Metrics
 
