@@ -18,9 +18,9 @@ Requirements for the v1.5 milestone. Each maps to exactly one roadmap phase (Tra
 
 ### Grounded Answers (GROUND)
 
-- [ ] **GROUND-01**: Operator asks a current-events/research question with search on and gets an answer **grounded in fetched pages with inline citations to live URLs** — full-page fetch → chunk → embed → retrieve → cite, reusing the shipped v1.3 villa-embed/Qdrant RAG and its top-level `sources` field verbatim (no new embedder, vector DB, or citation plumbing).
-- [ ] **GROUND-02**: Fetched web content is embedded into a **dedicated ephemeral collection** (clean-replace / bounded lifetime), never the operator's durable memory/document-KB store.
-- [ ] **GROUND-03**: `recommend` reserves a web-search context budget (bounded result-count × page-size) **before** the chat-model fit so a search-enabled envelope cannot silently CPU-fall-back; residency is offload-asserted under search load (a silent/partial fallback is a FAIL).
+- [x] **GROUND-01**: Operator asks a current-events/research question with search on and gets an answer **grounded in fetched pages with inline citations to live URLs** — full-page fetch → chunk → embed → retrieve → cite, reusing the shipped v1.3 villa-embed/Qdrant RAG and its top-level `sources` field verbatim (no new embedder, vector DB, or citation plumbing).
+- [x] **GROUND-02**: Fetched web content is embedded into a **dedicated ephemeral collection** (clean-replace / bounded lifetime), never the operator's durable memory/document-KB store.
+- [x] **GROUND-03**: `recommend` reserves a web-search context budget (bounded result-count × page-size) **before** the chat-model fit so a search-enabled envelope cannot silently CPU-fall-back; residency is offload-asserted under search load (a silent/partial fallback is a FAIL).
 
 ### Injection-Defense Guard Layer (GUARD)
 
@@ -82,9 +82,9 @@ Which phase covers which requirement. Populated during roadmap creation.
 | SRCH-02 | Phase 30 | Pending |
 | SRCH-03 | Phase 30 | Pending |
 | SRCH-04 | Phase 29 | Complete |
-| GROUND-01 | Phase 31 | Pending |
-| GROUND-02 | Phase 31 | Pending |
-| GROUND-03 | Phase 31 | Pending |
+| GROUND-01 | Phase 31 | Complete |
+| GROUND-02 | Phase 31 | Complete |
+| GROUND-03 | Phase 31 | Complete |
 | GUARD-01 | Phase 31 | Pending |
 | GUARD-02 | Phase 32 | Pending |
 | GUARD-03 | Phase 32 | Pending |

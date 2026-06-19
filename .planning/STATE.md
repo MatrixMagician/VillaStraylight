@@ -6,14 +6,14 @@ current_phase: 31
 current_phase_name: grounded-fetch-embed-grounding
 status: executing
 stopped_at: "Phase 30 COMPLETE — on-hardware UAT PASSED (SC#2 grounded via D-06 BYPASS_WEB_SEARCH_EMBEDDING_AND_RETRIEVAL direct-inject fix; SC#3 no-fabrication). Ready to plan Phase 31."
-last_updated: "2026-06-19T17:13:57.510Z"
+last_updated: "2026-06-19T17:29:06.213Z"
 last_activity: 2026-06-19
 last_activity_desc: Phase 31 execution started
 progress:
   total_phases: 6
   completed_phases: 2
   total_plans: 9
-  completed_plans: 6
+  completed_plans: 7
   percent: 33
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-06-18 — milestone v1.5 Web Search star
 ## Current Position
 
 Phase: 31 (grounded-fetch-embed-grounding) — EXECUTING
-Plan: 2 of 4
+Plan: 3 of 4
 Status: Ready to execute
 Last activity: 2026-06-19 — Phase 31 execution started
 
@@ -124,6 +124,7 @@ Last activity: 2026-06-19 — Phase 31 execution started
 | Phase 28 P02 | 30m | 2 tasks | 11 files |
 | Phase 28 P03 | ~40 min | 2 tasks | 9 files |
 | Phase 31 P01 | ~25m | 3 tasks | 6 files |
+| Phase 31 P02 | 30min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -160,6 +161,8 @@ Earlier (v1.0–v1.4) standing decisions retained:
 - [v1.3]: Zero-outbound is proven at runtime, negative-control-first — never flag-trusted (`villa verify memory` precedent extends to `villa verify search`). Reservation-before-fit in `recommend.Pick()`; OWUI memory/RAG wiring is env-only with `ENABLE_PERSISTENT_CONFIG=False` mandatory.
 - [v1.4]: Agent egress proven negative-control-first under a real rootless-netns nft FORWARD block; the verify harness lives in the rootless netns (pasta proxies container egress), NOT the host main netns — the v1.5 inverse-framed `villa verify search` clones this exact mechanism.
 - [Phase ?]: Phase 31-01: internal/websafe pure fetch core — net.Dialer.Control connect-time IP validation (TOCTOU-safe SSRF) + per-hop CheckRedirect; network injected via Deps{Client} seam; OWUI route fixed at /load; always-200 partial array for OWUI raise_for_status; stdlib only (bluemonday deferred to Phase 32).
+- [Phase ?]: [31-02]: recommend reserves a conservative web-search ctx budget (A6 formula) BEFORE the chat fit, gated on WebSearchInputs.Enabled; Recommendation gains append-only WebSearchReservationBytes, schema 3->4 (single sanctioned Phase 31 recommend bump), recommend golden re-frozen with isolated diff; on-hardware tuning deferred to Phase 33/34.
+- [Phase ?]: [31-02]: config gains villa-websafe loader fields (WebsafeAddr/WebsafePort default villa-websafe:8090, WebLoaderSecret crypto/rand bearer, HostVillaPath) cloning SearXNG omit-when-off + addr/port-self-heal; secret + host path never self-healed; off-render byte-identical to v1.4.
 
 ### Pending Todos
 
@@ -244,7 +247,7 @@ Items deferred at v1.5 roadmap creation (2026-06-18, research-recorded):
 
 ## Session Continuity
 
-Last session: 2026-06-19T17:13:37.009Z
+Last session: 2026-06-19T17:28:35.125Z
 Stopped at: Phase 30 COMPLETE — on-hardware UAT PASSED (SC#2 grounded via D-06 BYPASS_WEB_SEARCH_EMBEDDING_AND_RETRIEVAL direct-inject fix; SC#3 no-fabrication). Ready to plan Phase 31 (Grounded Fetch → Embed Grounding).
 Resume file: .planning/phases/30-owui-native-search-wiring/30-VERIFICATION.md
 
