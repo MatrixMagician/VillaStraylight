@@ -37,6 +37,11 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 		SearxngAddr:          "villa-searxng",
 		SearxngPort:          8080,
 		WebSearchResultCount: 3, // inert default so the full-literal equality survives the schema extension (normalizeVilla self-heals 0 -> 3 on load)
+		// villa-websafe fields (v1.5, GROUND/GUARD): inert addr/port defaults so the
+		// full-literal equality survives the schema extension (normalizeVilla self-heals
+		// "" / 0 -> villa-websafe / 8090 on load). The secret/path stay empty (not self-healed).
+		WebsafeAddr: "villa-websafe",
+		WebsafePort: 8090,
 	}
 	if err := SaveVillaTo(dir, want); err != nil {
 		t.Fatalf("SaveVillaTo: %v", err)
@@ -817,5 +822,132 @@ func TestGenerateSearxngSecretUsesCryptoRand(t *testing.T) {
 	}
 	if strings.Contains(src, `"math/rand"`) {
 		t.Errorf("villaconfig.go must NOT import math/rand — the secret must be cryptographically random (V6)")
+	}
+}
+
+// TestDefaultConfigWebsafeFields asserts the v1.5 (GROUND/GUARD) websafe defaults:
+// the addr/port are the SINGLE home of villa-websafe:8090 (container-DNS only,
+// PRIV-01), and the bearer secret + host binary path have NO default (captured /
+// generated at opt-in, never a hardcoded literal).
+func TestDefaultConfigWebsafeFields(t *testing.T) {
+	d := defaultConfig()
+	if d.WebsafeAddr != "villa-websafe" || d.WebsafePort != 8090 {
+		t.Errorf("default websafe endpoint = {%q, %d}, want {villa-websafe, 8090} (container-DNS only)",
+			d.WebsafeAddr, d.WebsafePort)
+	}
+	if d.WebLoaderSecret != "" {
+		t.Errorf("default WebLoaderSecret = %q, want empty (generated at opt-in, never a hardcoded default)", d.WebLoaderSecret)
+	}
+	if d.HostVillaPath != "" {
+		t.Errorf("default HostVillaPath = %q, want empty (captured at opt-in, never a hardcoded default)", d.HostVillaPath)
+	}
+}
+
+// TestWebsafeSaveOmitsKeysWhenDisabled is the websafe twin of the SearXNG omit-when-off
+// test: on a non-web-search install a save-bearing command must NOT introduce any websafe
+// key on disk, even though the in-memory struct carries non-zero websafe addr/port defaults.
+// marshalVilla zeroes the websafe fields when disabled so the ,omitempty/,omitzero tags
+// drop all four keys. When web search is ON, the addr/port (and the secret/path when set)
+// are written and round-trip.
+func TestWebsafeSaveOmitsKeysWhenDisabled(t *testing.T) {
+	websafeKeys := []string{"websafe_addr", "websafe_port", "web_loader_secret", "host_villa_path"}
+
+	// Web search OFF: seed a secret + host path to prove the off-path zeroing is the gate.
+	off := DefaultVillaConfig() // WebSearchEnabled == false, websafe fields at defaults
+	off.Model = "qwen3-35b-a3b-moe-64"
+	off.WebLoaderSecret = "cafebabecafebabecafebabecafebabecafebabecafebabecafebabecafebabe"
+	off.HostVillaPath = "/usr/local/bin/villa"
+	dirOff := filepath.Join(t.TempDir(), "villa")
+	if err := SaveVillaTo(dirOff, off); err != nil {
+		t.Fatalf("SaveVillaTo(off): %v", err)
+	}
+	dataOff, err := os.ReadFile(filepath.Join(dirOff, "config.toml"))
+	if err != nil {
+		t.Fatalf("read off config: %v", err)
+	}
+	for _, k := range websafeKeys {
+		if strings.Contains(string(dataOff), k) {
+			t.Errorf("web-search-off save wrote websafe key %q (SC#4 byte-identical break):\n%s", k, dataOff)
+		}
+	}
+	if strings.Contains(string(dataOff), "cafebabe") {
+		t.Errorf("web-search-off save leaked the bearer secret value into config.toml:\n%s", dataOff)
+	}
+	if strings.Contains(string(dataOff), "/usr/local/bin/villa") {
+		t.Errorf("web-search-off save leaked the host villa path into config.toml:\n%s", dataOff)
+	}
+
+	// Web search ON: opting in must persist the websafe addr/port and the secret/path when set.
+	on := DefaultVillaConfig()
+	on.Model = "qwen3-35b-a3b-moe-64"
+	on.WebSearchEnabled = true
+	on.WebLoaderSecret = "cafebabecafebabecafebabecafebabecafebabecafebabecafebabecafebabe"
+	on.HostVillaPath = "/usr/local/bin/villa"
+	dirOn := filepath.Join(t.TempDir(), "villa")
+	if err := SaveVillaTo(dirOn, on); err != nil {
+		t.Fatalf("SaveVillaTo(on): %v", err)
+	}
+	dataOn, err := os.ReadFile(filepath.Join(dirOn, "config.toml"))
+	if err != nil {
+		t.Fatalf("read on config: %v", err)
+	}
+	for _, k := range websafeKeys {
+		if !strings.Contains(string(dataOn), k) {
+			t.Errorf("web-search-on save omitted websafe key %q (opt-in must persist the full contract):\n%s", k, dataOn)
+		}
+	}
+
+	// Opting in then saving must round-trip back to an equal struct.
+	got, err := LoadVillaFrom(dirOn)
+	if err != nil {
+		t.Fatalf("LoadVillaFrom(on): %v", err)
+	}
+	if got != on {
+		t.Errorf("websafe-on round-trip mismatch:\n got %+v\nwant %+v", got, on)
+	}
+}
+
+// TestWebsafeNormalizeSelfHeal asserts normalizeVilla fills a zero WebsafePort and an
+// empty WebsafeAddr from defaultConfig() (mirrors the SearXNG self-heal) while NEVER
+// self-healing WebLoaderSecret (a generated secret) or HostVillaPath (a captured host
+// path). The addr fill only ever yields the container-DNS name (PRIV-01).
+func TestWebsafeNormalizeSelfHeal(t *testing.T) {
+	got := normalizeVilla(VillaConfig{WebSearchEnabled: true})
+	if got.WebsafeAddr != "villa-websafe" {
+		t.Errorf("empty WebsafeAddr self-heal = %q, want container-DNS villa-websafe (never a routable bind)", got.WebsafeAddr)
+	}
+	if got.WebsafePort != 8090 {
+		t.Errorf("zeroed WebsafePort self-heal = %d, want 8090", got.WebsafePort)
+	}
+	if got.WebLoaderSecret != "" {
+		t.Errorf("WebLoaderSecret was self-healed to %q, want empty (a generated secret has no default)", got.WebLoaderSecret)
+	}
+	if got.HostVillaPath != "" {
+		t.Errorf("HostVillaPath was self-healed to %q, want empty (a captured host path has no default)", got.HostVillaPath)
+	}
+}
+
+// TestGenerateWebLoaderSecret asserts the bearer-token generator returns a non-empty,
+// high-entropy hex string from crypto/rand, two calls differ, and it never panics (V6).
+// It mirrors GenerateSearxngSecret exactly (the EXTERNAL_WEB_LOADER_API_KEY bearer).
+func TestGenerateWebLoaderSecret(t *testing.T) {
+	a, err := GenerateWebLoaderSecret()
+	if err != nil {
+		t.Fatalf("GenerateWebLoaderSecret: %v", err)
+	}
+	if len(a) != 64 {
+		t.Errorf("secret length = %d, want 64 hex chars (32 random bytes)", len(a))
+	}
+	for _, r := range a {
+		if !strings.ContainsRune("0123456789abcdef", r) {
+			t.Errorf("secret %q contains a non-hex rune %q (crypto/rand hex-encode expected)", a, r)
+		}
+	}
+	b, err := GenerateWebLoaderSecret()
+	if err != nil {
+		t.Fatalf("GenerateWebLoaderSecret (2nd): %v", err)
+	}
+	if a == b {
+		t.Errorf("two GenerateWebLoaderSecret calls returned the same value %q — not high-entropy", a)
 	}
 }
