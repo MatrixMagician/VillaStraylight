@@ -234,8 +234,16 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
+**Wave 1**
+
 - [ ] 33-01-PLAN.md — Pure 3-state PASS/FAIL/REJECT verdict core + curl-exit classifier + in-process injection (b)/SSRF (c) families (TDD spine, off-hardware)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 33-02-PLAN.md — Live netns/nft seam + cobra `verify search` registration/gate/exit-map + `--json` schema-v1 golden + PRIV-07/PRIV-09 regression assertions
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 33-03-PLAN.md — On-hardware bound-mechanics finalization (arch A/B) + real `villa verify search` PASS + no-HF-pull UAT (human checkpoint)
 
 **Research**: `/gsd-plan-phase --research-phase` — needs the exact rootless-netns nft mechanics for the inverse-framed bound. The v1.4 verify-agent four-layer harness is the template, but the canary/allowlist assertions are new and **easy to get backwards** (off-allowlist canary reachable unguarded, blocked under the bound — never invert this).
