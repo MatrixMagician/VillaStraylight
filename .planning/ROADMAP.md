@@ -205,7 +205,7 @@ Audit `tech_debt` — 17/17 requirements satisfied, integration PASS (7/7 seam g
   3. A pure-Go **heuristic injection classifier** flags injection attempts as a flag-not-block tripwire (never silently passes), and the detection outcome (strip/flag/quarantine) is surfaced honestly.
   4. The package doc and operator-facing copy state **"reduces and flags, does not eliminate"** (no "injection-safe" copy), and the browser-side markdown-image exfiltration channel is **documented as a known residual** — not claimed closed.
 
-**Plans**: 1/3 plans executed
+**Plans**: 2/3 plans executed
 
 Plans:
 **Wave 1**
@@ -214,7 +214,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 32-02-PLAN.md — Must-WIN recall/precision eval (frozen thresholds + adversarial/benign corpus) + honesty grep-ban + markdown-image residual doc (GUARD-04 evaluation & honesty)
+- [x] 32-02-PLAN.md — Must-WIN recall/precision eval (frozen thresholds + adversarial/benign corpus) + honesty grep-ban + markdown-image residual doc (GUARD-04 evaluation & honesty)
 - [ ] 32-03-PLAN.md — Rewire the fetchOne guard seam (sanitize→normalize→classify→fence, verdict used) + Page.Verdict + defanged title + additive /load metadata.guard (GUARD-02/03/04 integration)
 
 **Research**: `/gsd-plan-phase --research-phase` — needs a phase-specific adversarial injection corpus + a pre-declared injection-detection precision/recall eval (invisible-Unicode + fence-breakout payloads; mirror the v1.4 must-WIN-eval discipline). The rules-vs-model decision is already settled to heuristic-rules-for-v1.5 (the DeBERTa/PromptGuard sidecar is deferred as GUARD-V2-01 behind a must-WIN eval).

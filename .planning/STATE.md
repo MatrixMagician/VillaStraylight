@@ -6,14 +6,14 @@ current_phase: 32
 current_phase_name: villa-injection-guard-layer
 status: executing
 stopped_at: Phase 31 COMPLETE — on-hardware UAT PASSED (A1 retrieval-fix key confirmed; GROUND-01 grounded cited answer w/ live URLs; GROUND-02 ephemeral collection isolated from durable; GROUND-03 offload PASS under load; GUARD-01/05 SSRF live). VERIFICATION passed 5/5. Deep code review found+fixed 3 defects (CR-01 extractTitle DoS panic, CR-02 extractText swallow, WR-01 restore websafe.env). UAT also surfaced+fixed an install secret-env gap. Ready to plan Phase 32.
-last_updated: "2026-06-19T19:56:04.722Z"
+last_updated: "2026-06-19T20:04:18.975Z"
 last_activity: 2026-06-19
 last_activity_desc: Phase 32 execution started
 progress:
   total_phases: 6
   completed_phases: 3
   total_plans: 12
-  completed_plans: 10
+  completed_plans: 11
   percent: 50
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-06-18 — milestone v1.5 Web Search star
 ## Current Position
 
 Phase: 32 (villa-injection-guard-layer) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
 Last activity: 2026-06-19 — Phase 32 execution started
 
@@ -127,6 +127,7 @@ Last activity: 2026-06-19 — Phase 32 execution started
 | Phase 31 P02 | 30min | 2 tasks | 5 files |
 | Phase 31 P03 | 55min | 3 tasks | 26 files |
 | Phase 32 P01 | 35m | 3 tasks | 13 files |
+| Phase 32 P02 | ~20m | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -251,7 +252,7 @@ Items deferred at v1.5 roadmap creation (2026-06-18, research-recorded):
 
 ## Session Continuity
 
-Last session: 2026-06-19T19:55:33.045Z
+Last session: 2026-06-19T20:04:12.213Z
 Stopped at: Phase 30 COMPLETE — on-hardware UAT PASSED (SC#2 grounded via D-06 BYPASS_WEB_SEARCH_EMBEDDING_AND_RETRIEVAL direct-inject fix; SC#3 no-fabrication). Ready to plan Phase 31 (Grounded Fetch → Embed Grounding).
 Resume file: .planning/phases/30-owui-native-search-wiring/30-VERIFICATION.md
 
