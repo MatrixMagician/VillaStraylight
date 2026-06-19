@@ -525,10 +525,11 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 	// drives, already frozen by villa-llama-coding.container.golden. The catalog→inference
 	// translation stays in the live wiring (the pure renderer never imports internal/catalog, D-05).
 	renderIn := orchestrate.RenderInput{
-		Backend:   backend,
-		Cfg:       cfg,
-		ModelFile: modelFile,
-		ModelsDir: d.modelsDir(),
+		Backend:       backend,
+		Cfg:           cfg,
+		ModelFile:     modelFile,
+		ModelsDir:     d.modelsDir(),
+		HostVillaPath: hostVillaPath(),
 	}
 	if cfg.CodingMode {
 		servedModel, _ := codingServedTarget(cfg)
@@ -1374,7 +1375,7 @@ func liveInstallDeps() (*installDeps, error) {
 			// Thread the PERSISTED memory inputs (fail-soft) so an opted-in install
 			// recommends against the shrunken envelope (D-01; Pitfall 3 — a
 			// memory-blind install pick defeats CTRL-01).
-			return recommend.Pick(p, cat, ov, liveLoadedMemoryInputs(), recommend.WebSearchInputs{})
+			return recommend.Pick(p, cat, ov, liveLoadedMemoryInputs(), liveLoadedWebSearchInputs())
 		},
 		modelFile: func(rec recommend.Recommendation) (string, error) {
 			// A catalog load failure or an unknown model id is a hard error (WR-08):

@@ -356,7 +356,7 @@ func liveAgentResidency() string {
 	}
 	rec := recommend.Pick(profile, cat, recommend.Overrides{},
 		recommend.MemoryInputs{Enabled: cfg.MemoryEnabled, EmbeddingModel: cfg.EmbeddingModel},
-		recommend.WebSearchInputs{}) // Plan 03 threads the config-derived web-search inputs
+		webSearchInputsFrom(cfg))
 	return rec.Coder.Residency
 }
 

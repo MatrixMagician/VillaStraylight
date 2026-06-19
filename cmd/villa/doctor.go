@@ -280,10 +280,11 @@ func liveDoctorDeps() (doctor.Deps, error) {
 				return orchestrate.Plan{}, fmt.Errorf("resolve model file: %w", err)
 			}
 			units, err := orchestrate.Render(orchestrate.RenderInput{
-				Backend:   backend,
-				Cfg:       c,
-				ModelFile: modelFile,
-				ModelsDir: modelsDir(),
+				Backend:       backend,
+				Cfg:           c,
+				ModelFile:     modelFile,
+				ModelsDir:     modelsDir(),
+				HostVillaPath: hostVillaPath(),
 			})
 			if err != nil {
 				return orchestrate.Plan{}, fmt.Errorf("render units: %w", err)

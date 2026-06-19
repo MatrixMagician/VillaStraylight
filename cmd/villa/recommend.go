@@ -49,11 +49,13 @@ func newRecommend() *cobra.Command {
 			// the zero value (memory off), never an error-path change.
 			catalogPath := f.catalogPath
 			var mem recommend.MemoryInputs
+			var web recommend.WebSearchInputs
 			if cfg, err := config.LoadVilla(); err == nil {
 				if catalogPath == "" {
 					catalogPath = cfg.CatalogPath
 				}
 				mem = recommend.MemoryInputs{Enabled: cfg.MemoryEnabled, EmbeddingModel: cfg.EmbeddingModel}
+				web = webSearchInputsFrom(cfg)
 			}
 
 			cat, warnings, err := catalog.Load(catalogPath)
@@ -65,7 +67,7 @@ func newRecommend() *cobra.Command {
 				Model: f.model,
 				Quant: f.quant,
 				Ctx:   f.ctx,
-			}, mem, recommend.WebSearchInputs{}) // Plan 03 threads the config-derived web-search inputs
+			}, mem, web)
 
 			if err := renderRecommend(cmd.OutOrStdout(), rec, warnings, jsonOut, f.alternatives); err != nil {
 				return err
@@ -232,6 +234,31 @@ func liveLoadedMemoryInputs() recommend.MemoryInputs {
 		return recommend.MemoryInputs{}
 	}
 	return recommend.MemoryInputs{Enabled: c.MemoryEnabled, EmbeddingModel: c.EmbeddingModel}
+}
+
+// webSearchInputsFrom builds the recommend web-search reservation inputs (GROUND-03) from a
+// loaded config: the web_search_enabled gate + the operator-tunable result count. TopK and
+// ChunkSizeChars have no config field, so they are left zero and recommend falls back to the
+// OWUI defaults (3/1000) — never a silent zero when enabled. When web search is off this is
+// the zero value (Enabled:false → webSearchReservation returns (0,nil), byte-identical math).
+// Pure (config-in), so call sites that already hold a cfg avoid a second LoadVilla.
+func webSearchInputsFrom(c config.VillaConfig) recommend.WebSearchInputs {
+	return recommend.WebSearchInputs{
+		Enabled:     c.WebSearchEnabled,
+		ResultCount: c.WebSearchResultCount,
+	}
+}
+
+// liveLoadedWebSearchInputs returns the PERSISTED web-search inputs for recommend.Pick
+// (GROUND-03), mirroring liveLoadedMemoryInputs: a config load error fails SOFT to the zero
+// value (web search off — byte-identical math), so a broken config never silently enables the
+// reservation and never changes an error path.
+func liveLoadedWebSearchInputs() recommend.WebSearchInputs {
+	c, err := config.LoadVilla()
+	if err != nil {
+		return recommend.WebSearchInputs{}
+	}
+	return webSearchInputsFrom(c)
 }
 
 // gib renders bytes as a GiB string with raw bytes for the fit table.

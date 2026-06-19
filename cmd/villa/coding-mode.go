@@ -351,7 +351,7 @@ func liveCodingModeDeps() *codingmode.Deps {
 			}
 			// Persisted memory inputs (fail-soft): the coder fit must see the same shrunken
 			// envelope the user was recommended (D-01/D-05 ordering).
-			rec := recommend.Pick(detect.Probe(), cat, recommend.Overrides{}, liveLoadedMemoryInputs(), recommend.WebSearchInputs{})
+			rec := recommend.Pick(detect.Probe(), cat, recommend.Overrides{}, liveLoadedMemoryInputs(), liveLoadedWebSearchInputs())
 			coder := rec.Coder
 			if coder.Residency == codingmode.ResidencyShared {
 				// Shared residency (D-10): no coder fits standalone — apply render-delta-only on
@@ -428,10 +428,11 @@ func liveCodingModeDeps() *codingmode.Deps {
 				return false, err
 			}
 			in := orchestrate.RenderInput{
-				Backend:   backend,
-				Cfg:       c,
-				ModelFile: modelFile,
-				ModelsDir: modelsDir(),
+				Backend:       backend,
+				Cfg:           c,
+				ModelFile:     modelFile,
+				ModelsDir:     modelsDir(),
+				HostVillaPath: hostVillaPath(),
 			}
 			if c.CodingMode {
 				spec, derr := codingDescriptor(c, servedModel)

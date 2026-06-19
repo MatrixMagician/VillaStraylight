@@ -330,7 +330,7 @@ func liveSwapDeps() *modelswap.Deps {
 			// sets Fits=false when it won't fit (recommend.go:188-192 / D-07).
 			// Persisted memory inputs (fail-soft): swap fit re-validation must see
 			// the same shrunken envelope the user was recommended (D-01).
-			rec := recommend.Pick(detect.Probe(), cat, recommend.Overrides{Model: m.ID}, liveLoadedMemoryInputs(), recommend.WebSearchInputs{})
+			rec := recommend.Pick(detect.Probe(), cat, recommend.Overrides{Model: m.ID}, liveLoadedMemoryInputs(), liveLoadedWebSearchInputs())
 			if rec.Fits {
 				return true, ""
 			}
@@ -364,10 +364,11 @@ func liveSwapDeps() *modelswap.Deps {
 				return false, err
 			}
 			units, err := orchestrate.Render(orchestrate.RenderInput{
-				Backend:   backend,
-				Cfg:       c,
-				ModelFile: modelFile,
-				ModelsDir: modelsDir(),
+				Backend:       backend,
+				Cfg:           c,
+				ModelFile:     modelFile,
+				ModelsDir:     modelsDir(),
+				HostVillaPath: hostVillaPath(),
 			})
 			if err != nil {
 				return false, err

@@ -67,15 +67,31 @@ func (d *lifecycleDeps) renderStack() (units []orchestrate.Unit, unitDir string,
 		return nil, "", fmt.Errorf("resolve backend: %w", err)
 	}
 	units, err = d.render(orchestrate.RenderInput{
-		Backend:   backend,
-		Cfg:       cfg,
-		ModelFile: modelFile,
-		ModelsDir: d.modelsDir(),
+		Backend:       backend,
+		Cfg:           cfg,
+		ModelFile:     modelFile,
+		ModelsDir:     d.modelsDir(),
+		HostVillaPath: hostVillaPath(),
 	})
 	if err != nil {
 		return nil, "", fmt.Errorf("render: %w", err)
 	}
 	return units, dir, nil
+}
+
+// hostVillaPath returns the host filesystem path to the running villa binary, threaded into
+// orchestrate.RenderInput so the villa-websafe unit bind-mounts THIS binary read-only and
+// exec's `villa websafe-serve` inside the container (Phase-31 Area 1). It resolves
+// os.Executable() (the canonical absolute path of the running binary). On the unlikely error
+// it returns "" — harmless when web search is off (HostVillaPath is unused), and the
+// install-flow gate (WebsafeContainerUnitName presence + an empty-path render) surfaces a
+// web-search-on misconfiguration rather than silently shell-injecting. Never shell-interpolated.
+func hostVillaPath() string {
+	exe, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	return exe
 }
 
 // serviceUnits returns the systemd service names a rendered stack produces. Only
