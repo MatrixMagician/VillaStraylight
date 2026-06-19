@@ -357,14 +357,16 @@ fenced := strings.Contains(p.Content, "UNTRUSTED_WEB_CONTENT nonce=")
 | A4 | The canary host should be a stable off-allowlist public host (e.g. `https://example.com/` or the existing `egressNegativeControlHost = https://huggingface.co/`). | Pattern 3 | HF is already the agent/memory negative-control target and is OFF the SearXNG allowlist — reusing it keeps one canary constant. If HF were ever allowlisted this would invert; it is not (allowlist = duckduckgo/brave/wikipedia/wikidata). |
 | A5 | `--json` for the verify family is net-new (no existing verify command emits JSON). | Summary | Verified: no `--json`/marshal in `verify_*.go`. The schema is greenfield → schema version starts at 1; no append-only constraint against a prior verify json. |
 
-## Open Questions
+## Open Questions (RESOLVED on-hardware in Plan 03)
 
 1. **Do any web-search-required weights need pre-staging? (PRIV-09 clause)**
+   - **RESOLVED:** routed to Plan 03 Task 2 (on-hardware checkpoint, step 6 — no-HF-pull under a real web search). Default assumption carried (A2): "none needed" beyond the already-staged villa-embed `nomic-embed-text-v1.5`; if grounding breaks for a missing weight on hardware, escalate as a CONTEXT change (not a silent fix).
    - What we know: the v1.3 embedder (`nomic-embed-text-v1.5`, served by villa-embed) is already staged; OWUI's web-search grounding routes embeddings through villa-embed (`RAG_OPENAI_API_BASE_URL`), and `HF_HUB_OFFLINE=1` + `RAG_EMBEDDING_MODEL_AUTO_UPDATE=False` are already set.
    - What's unclear: whether OWUI's native web-search path lazily fetches any *additional* model (reranker, content classifier) at first web-search use that the embedder staging doesn't cover.
    - Recommendation: the plan should include an on-hardware task that runs a real web search under the bound and confirms NO outbound HF pull occurs (the kill env should already prevent it); if grounding breaks, that reveals a missing pre-stage → escalate as a CONTEXT change, not a silent decision. Default assumption (A2): "none needed."
 
 2. **Architecture (A) vs (B) for the bound — which netns?**
+   - **RESOLVED:** routed to Plan 03 Task 1 (on-hardware bound-mechanics finalization — prototype A and B, pick the one that makes the canary genuinely reachable unguarded + blocked by the nft rule and tears down on every exit path; record the chosen architecture in the SUMMARY). The pure core is mechanism-agnostic, so only the live seam is affected.
    - What we know: `unshare -rn nft` works unprivileged; the `villa` bridge lives in the rootless-netns; pasta is L4.
    - What's unclear: the cleanest fixed-arg way to apply nft in podman's rootless-netns AND run the probe container through it within one verb invocation, with guaranteed teardown.
    - Recommendation: a dedicated bound-mechanics task that prototypes both and picks the one that (i) makes the canary genuinely reachable unguarded and (ii) tears down on every exit path. The pure core is mechanism-agnostic.
