@@ -37,18 +37,30 @@ var invisibleAndBidi = runes.Predicate(func(r rune) bool {
 	return unicode.Is(unicode.Cf, r)
 })
 
-// normalizer folds NFKC then removes the invisible/bidi rune set in a single pass.
-var normalizer = transform.Chain(norm.NFKC, runes.Remove(invisibleAndBidi))
+// invisibleRemover strips the invisible/bidi rune set. runes.Remove returns a
+// STATELESS Transformer whose .String form holds no shared mutable state, so it is
+// safe to call concurrently — unlike a package-level transform.Chain, whose
+// Reset/Transform mutate internal link buffers and race across goroutines (CR-01).
+var invisibleRemover = runes.Remove(invisibleAndBidi)
 
 // normalize applies the NFKC + invisible/bidi-strip pipeline to s.
 //
-// CR-02 invariant (websafe.go:163-214): on a transform error it falls back to
-// NFKC-only of the raw input and NEVER returns "" for non-empty input — silently
-// blackholing a real citation's content is the exact bug class the codebase fixed.
+// CONCURRENCY (CR-01): normalize is called from up to Bounds.MaxConcurrent fetch
+// goroutines (websafe.go Load → fetchOne). It uses ONLY the stateless string forms
+// (norm.NFKC.String and runes.Transformer.String via transform.String), so there is
+// NO shared mutable transformer to race on. A package-level transform.Chain is
+// stateful and NOT safe for concurrent use — that shared chain was the data race the
+// race detector flagged. norm.NFKC and a freshly-spanning runes Transformer are both
+// documented concurrency-safe.
+//
+// CR-02 invariant (websafe.go:163-214): on a transform error it falls back to the
+// NFKC-folded input and NEVER returns "" for non-empty input — silently blackholing a
+// real citation's content is the exact bug class the codebase fixed.
 func normalize(s string) string {
-	out, _, err := transform.String(normalizer, s)
+	folded := norm.NFKC.String(s) // stateless, concurrency-safe
+	out, _, err := transform.String(invisibleRemover, folded)
 	if err != nil {
-		out = norm.NFKC.String(s) // never return "" on error — CR-02 anti-pattern
+		return folded // never return "" on error — CR-02 anti-pattern (NFKC-folded fallback)
 	}
 	return out
 }

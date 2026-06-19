@@ -34,6 +34,16 @@ build-static: ## Build a CGO-free static binary (SC#4 — must succeed with huh 
 test: ## Run Go tests
 	go test $(PKG)
 
+# The race detector is cgo-based, so this target enables CGO for the TEST run
+# only — it does NOT affect the shipped binary, which stays CGO-free (build/
+# build-static keep CGO_ENABLED=0). internal/websafe is the project's only
+# intentionally-concurrent pure core (Loader.Load fans out fetch goroutines),
+# so its concurrency invariants MUST be guarded under -race (CR-01/WR-04). We
+# run the whole tree under -race so any future concurrent core is covered too.
+.PHONY: test-race
+test-race: ## Run Go tests under the race detector (cgo test-only; binary stays CGO-free)
+	CGO_ENABLED=1 go test -race $(PKG)
+
 .PHONY: vet
 vet: ## Run go vet
 	go vet $(PKG)
@@ -47,7 +57,7 @@ lint: ## Run golangci-lint if installed, else fall back to vet
 	@command -v golangci-lint >/dev/null 2>&1 && golangci-lint run || (echo "golangci-lint not found; running go vet" && go vet $(PKG))
 
 .PHONY: check
-check: vet test ## Run vet + tests
+check: vet test test-race ## Run vet + tests (incl. the -race gate, CR-01/WR-04)
 
 .PHONY: tidy
 tidy: ## Tidy Go module dependencies
