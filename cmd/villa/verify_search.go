@@ -395,6 +395,18 @@ func liveSearchVerify(ctx context.Context, deps searchVerifyDeps) searchProof {
 
 	allowlistURL := "https://" + searchAllowlistHost + "/"
 
+	// secretUnderBound carries the family-(d) result observed inside boundThen across to the
+	// sixth probe closure. It is a LOCAL request-scoped value closed over by both boundThen
+	// (writer) and the secret closure (reader) — NOT a package-global — so its lifetime is
+	// genuinely scoped to this single liveSearchVerify call and cannot leak across invocations
+	// or be raced by a concurrent caller (WR-01). The pure core invokes the families only AFTER
+	// boundThen, so .ran is always true by the time secret() reads it.
+	var secretUnderBound struct {
+		ran     bool
+		blocked bool
+		err     error
+	}
+
 	// (1) Positive control: the allowlisted upstream must be reachable UNGUARDED.
 	allowlistReaches := func() (bool, error) {
 		_, code, perr := runProbeCurlCode(ctx, helperImage, "-s", "--max-time", "5", allowlistURL)
@@ -461,11 +473,11 @@ func liveSearchVerify(ctx context.Context, deps searchVerifyDeps) searchProof {
 	// (c) in-process SSRF assertion against the shipped websafe SSRF guard (no network).
 	ssrf := func() bool { return ssrfBlocked("http://169.254.169.254/latest/meta-data/") }
 
-	// (d) the secret-query verdict observed UNDER the bound (set inside boundThen). Before
-	//     boundThen runs the bound is not applied, so if it has not run yet this returns an
-	//     error → the pure core FAILs (never a fabricated PASS). The pure core invokes the
-	//     families AFTER boundThen, so secretUnderBound.ran is true by the time this is read.
-	secretUnderBound.ran = false
+	// (d) the secret-query verdict observed UNDER the bound (set inside boundThen via the
+	//     local secretUnderBound above). Before boundThen runs the bound is not applied, so if
+	//     it has not run yet this returns an error → the pure core FAILs (never a fabricated
+	//     PASS). The pure core invokes the families AFTER boundThen, so secretUnderBound.ran is
+	//     true by the time this is read. The zero value (.ran=false) is the unrun state.
 	secret := func() (bool, error) {
 		if !secretUnderBound.ran {
 			return false, fmt.Errorf("the secret-in-query-string probe did not run under the bound — refusing to declare contained")
@@ -474,16 +486,6 @@ func liveSearchVerify(ctx context.Context, deps searchVerifyDeps) searchProof {
 	}
 
 	return evalSearchVerify(allowlistReaches, canaryUnguarded, boundThen, injection, ssrf, secret)
-}
-
-// secretUnderBound carries the family-(d) result observed inside boundThen across to the
-// sixth probe closure (the pure core invokes the families only AFTER boundThen, so the value
-// is always set by the time it is read). It is a request-scoped value, not shared mutable
-// state across invocations — liveSearchVerify resets .ran=false at the start of every call.
-var secretUnderBound struct {
-	ran     bool
-	blocked bool
-	err     error
 }
 
 // applySearchBound applies the verified nft ruleset in a REAL-egress netns and returns a
