@@ -383,6 +383,24 @@ func liveRestoreDeps() backup.Deps {
 			if err != nil {
 				return false, err
 			}
+			// WR-01: write the 0600 websafe.env bearer the restored web-search units
+			// reference via EnvironmentFile=. Phase 31 makes BOTH the OWUI unit and the
+			// villa-websafe unit carry EnvironmentFile={websafe.env} whenever
+			// cfg.WebSearchEnabled — but restore only restores config.toml, never the 0600
+			// env files (they live outside the backup archive). On a fresh-host restore of a
+			// web-search backup, `systemctl start villa-openwebui.service` would then fail on
+			// the absent EnvironmentFile target. Mirror install.go step 9a: when the restored
+			// config has web search on AND carries the bearer, render+write the 0600 file
+			// BEFORE the units are activated/started. Fail closed with remediation when the
+			// secret is absent rather than starting into a missing-file failure. This write is
+			// done BEFORE the WriteUnits/no-op decision so it lands even when the unit text is
+			// already current (same-host restore) — it must exist regardless of unit churn.
+			// (The SearXNG secret-env/settings share the same restore gap; this fix is scoped
+			// to websafe to match the finding — the OWUI EnvironmentFile dependency is the
+			// Phase-31-introduced regression.)
+			if err := restoreWriteWebsafeSecretEnv(c, orchestrate.WriteWebsafeSecretEnv); err != nil {
+				return false, err
+			}
 			if len(plan.Changed) == 0 {
 				return false, nil
 			}
@@ -476,6 +494,29 @@ func liveRestoreProve(target string) backup.ProveVerdict {
 		return backup.ProveVerdict{Status: backup.ProveStatusPass, Detail: v.Detail}
 	}
 	return backup.ProveVerdict{Status: "fail", Detail: v.Detail}
+}
+
+// restoreWriteWebsafeSecretEnv writes the 0600 websafe.env bearer the restored
+// web-search units reference via EnvironmentFile= (WR-01). It is a no-op when the restored
+// config has web search OFF (byte-identical to a pre-Phase-31 restore). When web search is
+// ON it fails closed with remediation if the restored config carries no bearer (the env
+// file would otherwise be absent and `systemctl start villa-openwebui.service` would fail
+// on the missing EnvironmentFile), else renders + writes the 0600 file via the injected
+// write seam. The seam is orchestrate.WriteWebsafeSecretEnv in the live wiring and a fake
+// in restore_test.go (the env-file render/write path is proven in orchestrate tests; this
+// helper guards the restore GATE — write-on, fail-closed-on-missing-secret, no-op-off).
+func restoreWriteWebsafeSecretEnv(c config.VillaConfig, writeEnv func(name, text string) error) error {
+	if !c.WebSearchEnabled {
+		return nil
+	}
+	if c.WebLoaderSecret == "" {
+		return fmt.Errorf("restore: restored config has web search enabled but no web loader secret — refusing to start into a missing websafe.env EnvironmentFile; re-run `villa install` to regenerate the bearer")
+	}
+	envName, envText := orchestrate.RenderWebsafeSecretEnv(c.WebLoaderSecret)
+	if err := writeEnv(envName, envText); err != nil {
+		return fmt.Errorf("restore: write websafe secret env: %w", err)
+	}
+	return nil
 }
 
 // isVolumeNotFound recognises the `podman volume rm` not-found stderr so the

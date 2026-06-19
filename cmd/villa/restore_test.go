@@ -362,6 +362,64 @@ func TestRestoreOutputMemoryRestored(t *testing.T) {
 	}
 }
 
+// TestRestoreWritesWebsafeSecretEnv is the WR-01 regression: Phase 31 makes the restored
+// OWUI + villa-websafe units carry EnvironmentFile={websafe.env} whenever the restored
+// config has web search on. restore only restores config.toml (the 0600 env file lives
+// outside the archive), so the reconcile/start path MUST write that 0600 websafe.env from
+// the restored config's bearer BEFORE starting OWUI — otherwise `systemctl start
+// villa-openwebui.service` fails on the absent EnvironmentFile. restoreWriteWebsafeSecretEnv
+// is the gate the live ReconcileAndWrite closure calls; this drives it over a fake writer.
+func TestRestoreWritesWebsafeSecretEnv(t *testing.T) {
+	t.Run("web-search-on-with-secret-writes-env", func(t *testing.T) {
+		var wrote int
+		var gotName, gotText string
+		writeEnv := func(name, text string) error {
+			wrote++
+			gotName, gotText = name, text
+			return nil
+		}
+		cfg := config.VillaConfig{WebSearchEnabled: true, WebLoaderSecret: "deadbeefcafe"}
+		if err := restoreWriteWebsafeSecretEnv(cfg, writeEnv); err != nil {
+			t.Fatalf("restoreWriteWebsafeSecretEnv = %v, want nil", err)
+		}
+		if wrote != 1 {
+			t.Fatalf("websafe.env must be written exactly once on a web-search restore, got %d writes", wrote)
+		}
+		if gotName == "" || gotText == "" {
+			t.Fatalf("websafe.env render produced empty name/text: name=%q text=%q", gotName, gotText)
+		}
+		if !bytes.Contains([]byte(gotText), []byte("deadbeefcafe")) {
+			t.Errorf("websafe.env body must carry the restored bearer, got %q", gotText)
+		}
+	})
+
+	t.Run("web-search-on-without-secret-fails-closed", func(t *testing.T) {
+		writeEnv := func(string, string) error {
+			t.Fatalf("must NOT write the env file when the restored config has no bearer")
+			return nil
+		}
+		cfg := config.VillaConfig{WebSearchEnabled: true, WebLoaderSecret: ""}
+		err := restoreWriteWebsafeSecretEnv(cfg, writeEnv)
+		if err == nil {
+			t.Fatalf("a web-search restore with no bearer must fail closed, got nil error")
+		}
+		if !bytes.Contains([]byte(err.Error()), []byte("no web loader secret")) {
+			t.Errorf("error must explain the missing bearer with remediation, got %v", err)
+		}
+	})
+
+	t.Run("web-search-off-writes-nothing", func(t *testing.T) {
+		writeEnv := func(string, string) error {
+			t.Fatalf("a web-search-off restore must write no websafe.env")
+			return nil
+		}
+		cfg := config.VillaConfig{WebSearchEnabled: false}
+		if err := restoreWriteWebsafeSecretEnv(cfg, writeEnv); err != nil {
+			t.Fatalf("web-search-off restore = %v, want nil (no-op)", err)
+		}
+	})
+}
+
 // TestRestoreCorruptArchiveBlocks: a tampered entry (checksum mismatch) is a fail-closed
 // BLOCK -> exitBlocked with zero side effects.
 func TestRestoreCorruptArchiveBlocks(t *testing.T) {
