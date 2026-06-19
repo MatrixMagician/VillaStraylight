@@ -5,7 +5,7 @@ After=villa-network.service
 
 [Container]
 ContainerName=villa-websafe
-Image=gcr.io/distroless/static-debian12@sha256:RESOLVE_ON_HARDWARE
+Image=gcr.io/distroless/static-debian12@sha256:b669b9df05a88a085fefed6520c6d2268aabacf3008b149ddf877e752ae89400
 Network=villa.network
 EnvironmentFile=%h/.config/villa/websafe/websafe.env
 Volume=/home/villa/.local/bin/villa:/usr/local/bin/villa:ro,z

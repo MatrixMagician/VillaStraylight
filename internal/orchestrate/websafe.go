@@ -40,12 +40,12 @@ import (
 // box via `podman pull gcr.io/distroless/static-debian12:nonroot` + `podman image inspect
 // --format '{{index .RepoDigests 0}}'` (the same procedure searxngImage/qdrantImage used).
 //
-// PLACEHOLDER: Plan 04 resolves the real RepoDigest on the dev box (after confirming
-// `file ./villa` → statically linked, CGO_ENABLED=0 — Pitfall 5) and replaces this token
-// BEFORE freezing the villa-websafe render golden. Until then the golden is frozen against
-// this clearly-marked placeholder so the byte-identical-off discipline + the seam gate can
-// be verified now; the on-hardware digest + golden re-freeze is Plan 04's blocking gate.
-const websafeImage = "gcr.io/distroless/static-debian12@sha256:RESOLVE_ON_HARDWARE"
+// Resolved on the gfx1151 dev box (Plan 04 Task 1, 2026-06-19) after confirming the static
+// binary: `file ./villa` (built CGO_ENABLED=0 via `make build-static`) reports "statically
+// linked", and `villa detect` runs correctly CGO-free (ghw reads /proc + /sys; no cgo needed
+// on Linux — Pitfall 5 cleared, no alpine fallback required). The bind-mounted villa binary
+// MUST therefore be the static build; web-search opt-in requires `make build-static`.
+const websafeImage = "gcr.io/distroless/static-debian12@sha256:b669b9df05a88a085fefed6520c6d2268aabacf3008b149ddf877e752ae89400"
 
 // WebsafeImage returns the digest-pinned distroless base image so callers (e.g. the
 // Phase-34 backup manifest) record it WITHOUT re-typing the literal. The literal stays
