@@ -12,9 +12,9 @@ package websafe
 //   - fence     -> GUARD-03: nonced provenance fencing around untrusted content.
 //   - classify  -> GUARD-04: heuristic prompt-injection classifier (reduces-and-flags).
 //
-// IMPORTANT (project posture): these stubs do NOT make content "injection-safe" — that
-// claim is NEVER made in Phase 31. The two governing claims are kept distinct: outbound
-// is bounded (proven later), injection-immunity is not asserted.
+// IMPORTANT (project posture): these stubs do NOT confer immunity to prompt injection —
+// that claim is NEVER made in Phase 31. The two governing claims are kept distinct:
+// outbound is bounded (proven later), injection-immunity is not asserted.
 
 // sanitize is the Phase-32 GUARD-02 sanitization hook. Phase-31 identity pass-through.
 func sanitize(s string) string { return s }
