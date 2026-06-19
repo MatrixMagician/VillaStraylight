@@ -16,3 +16,22 @@ type Verdict struct {
 	Detected bool     `json:"detected"`
 	Rules    []string `json:"rules,omitempty"`
 }
+
+// mergeVerdicts folds two verdicts (body + title, WR-01) into one: Detected is the OR of
+// both, and Rules is the union with duplicate family names removed, preserving the
+// deterministic injectionRuleOrder iteration that produced each input (so the merged
+// Rules slice stays stable for the metadata.guard contract). It NEVER drops content — a
+// Verdict is a flag, never a block (flag-not-block).
+func mergeVerdicts(a, b Verdict) Verdict {
+	seen := make(map[string]bool, len(a.Rules)+len(b.Rules))
+	var rules []string
+	for _, list := range [][]string{a.Rules, b.Rules} {
+		for _, r := range list {
+			if !seen[r] {
+				seen[r] = true
+				rules = append(rules, r)
+			}
+		}
+	}
+	return Verdict{Detected: a.Detected || b.Detected, Rules: rules}
+}

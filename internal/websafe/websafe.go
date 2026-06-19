@@ -169,11 +169,26 @@ func (l *Loader) fetchOne(ctx context.Context, rawURL string) (Page, error) {
 	clean := sanitize(string(body))
 	clean = normalize(clean)
 	verdict := classify(clean)
-	fenced := fence(clean)
 
-	// The title is defanged through the SAME sanitize+normalize path (T-32-12) so a
-	// markup/Unicode-laden <title> cannot carry tags or invisible runes into metadata.title.
+	// The title is untrusted web content that reaches model context via metadata.title
+	// (OWUI citation), so it gets the SAME defang as the body (sanitize+normalize) AND is
+	// run through the classifier (WR-01) — title-borne injection (e.g. a forged
+	// [/UNTRUSTED_WEB_CONTENT] close or "ignore previous instructions" in a <title>) must
+	// not enter metadata unflagged. extractTitle now ignores <title> inside HTML comments
+	// so a commented-out decoy title cannot be scraped over the real one (WR-01/IN-02).
+	// We fold the title verdict INTO the page verdict (a title hit flags the page) rather
+	// than fence the title, because metadata.title is a human-facing citation label that
+	// must stay verbatim; classification is what makes title injection visible to Phase 34.
 	title := normalize(sanitize(extractTitle(body)))
+	verdict = mergeVerdicts(verdict, classify(title))
+
+	fenced, err := fence(clean)
+	if err != nil {
+		// FAIL-CLOSED (WR-02): a fence with no crypto/rand nonce would carry a forgeable
+		// constant delimiter, defeating the fence's sole security property. Omit the page
+		// (skip-and-continue, honest partial) rather than ship a breakout-able fence.
+		return Page{}, err
+	}
 
 	return Page{Content: fenced, Source: rawURL, Title: title, Verdict: verdict}, nil
 }
@@ -199,10 +214,36 @@ func (l *Loader) fetchOne(ctx context.Context, rawURL string) (Page, error) {
 func extractTitle(body []byte) string {
 	orig := string(body)
 	s := asciiLower(orig) // byte-length-identical to orig (only A-Z folded)
-	open := strings.Index(s, "<title")
-	if open < 0 {
-		return ""
+
+	// WR-01: skip <title> elements that live inside an HTML comment. A naive raw scan
+	// would pick `<!-- <title>HIDDEN</title> -->` over the real document title, letting
+	// an attacker plant an arbitrary metadata.title. We advance past any comment span
+	// that would otherwise contain the candidate match. blankComments replaces every
+	// comment span with spaces of the SAME byte length, so s stays byte-length-identical
+	// to orig and the indices computed against it remain valid slices into orig.
+	s = blankComments(s)
+
+	// WR-01/IN-02: require a tag terminator after "<title" so "<titlebar>"/"<titlexyz>"
+	// cannot match. A real <title> is immediately followed by '>' (no attrs) or
+	// whitespace (before attrs); anything else is a different element name.
+	open := -1
+	for from := 0; ; {
+		i := strings.Index(s[from:], "<title")
+		if i < 0 {
+			return ""
+		}
+		i += from
+		next := i + len("<title")
+		if next >= len(s) {
+			return ""
+		}
+		if c := s[next]; c == '>' || c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' {
+			open = i
+			break
+		}
+		from = next // not a real <title*>; keep scanning
 	}
+
 	gt := strings.IndexByte(s[open:], '>')
 	if gt < 0 {
 		return ""
@@ -215,6 +256,42 @@ func extractTitle(body []byte) string {
 	// start/end are offsets into s, which is byte-length-identical to orig, so they are
 	// valid indices into orig — slice the ORIGINAL (case-preserving) body for the title.
 	return strings.TrimSpace(orig[start : start+end])
+}
+
+// blankComments returns a byte-length-identical copy of s with every HTML comment span
+// (`<!-- ... -->`) replaced by spaces, so a <title> hidden inside a comment is not
+// scraped (WR-01). Preserving byte length keeps the indices extractTitle computes against
+// the result valid as slices into the ORIGINAL body. An unterminated comment blanks to
+// end-of-input (an attacker cannot smuggle a real title after an open-but-unclosed
+// comment). The input is already asciiLower-folded, so the markers are lowercase-safe.
+func blankComments(s string) string {
+	const openTok, closeTok = "<!--", "-->"
+	var b []byte
+	for from := 0; ; {
+		i := strings.Index(s[from:], openTok)
+		if i < 0 {
+			break
+		}
+		i += from
+		if b == nil {
+			b = []byte(s)
+		}
+		end := strings.Index(s[i+len(openTok):], closeTok)
+		var stop int
+		if end < 0 {
+			stop = len(s) // unterminated comment: blank to EOF
+		} else {
+			stop = i + len(openTok) + end + len(closeTok)
+		}
+		for j := i; j < stop; j++ {
+			b[j] = ' '
+		}
+		from = stop
+	}
+	if b == nil {
+		return s
+	}
+	return string(b)
 }
 
 // asciiLower returns a byte-length-identical copy of s with ASCII 'A'..'Z' folded to
