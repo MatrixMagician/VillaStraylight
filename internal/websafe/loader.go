@@ -12,6 +12,9 @@ package websafe
 //
 //	200 [{"page_content": "...", "metadata": {"source": "https://result1", "title": "..."}}]
 //
+// The metadata map ALSO carries an additive nested guard sub-key (see the Phase-32 note
+// below) — {detected, rules} — alongside source and title.
+//
 // Contract details VERIFIED at the pinned OWUI digest (commit 02dc3e6):
 //   - metadata.source flows into OWUI's top-level `sources` citation field, so it MUST
 //     carry the fetched URL (GROUND-01 inline citations to live URLs).
@@ -19,6 +22,12 @@ package websafe
 //     Therefore per-URL failures are represented by OMITTING that URL from the array
 //     (skip-and-continue, done by Loader.Load); the handler ALWAYS returns 200 with a
 //     (possibly empty, non-nil) array — never a non-2xx for a per-URL failure.
+//
+// Phase-32 ADDITIVE widening (T-32-13): metadata gains a nested `guard` sub-key carrying
+// the GUARD-04 verdict {detected, rules} from Page.Verdict. This is the ONLY safe change —
+// the verified page_content / metadata / source / title tags are NOT renamed. OWUI ignores
+// unknown metadata keys (Assumption A3), so the widening is contract-safe; Phase 34
+// surfaces these as counters. The widening is guarded by TestLoadMetadataGuard.
 //
 // The handler is the GUARD-01 sole-producer boundary: every byte OWUI embeds or shows
 // the model passes through Loader.fetchOne (incl. the Phase-31-stubbed guard seam).
@@ -127,6 +136,13 @@ func (s *Server) HandleLoad(w http.ResponseWriter, r *http.Request) {
 			Metadata: map[string]any{
 				"source": p.Source, // → OWUI top-level `sources` citation (GROUND-01)
 				"title":  p.Title,
+				// ADDITIVE GUARD-04 verdict (T-32-13): a nested sub-key ALONGSIDE the
+				// verified contract tags; OWUI ignores unknown metadata keys (A3). Always
+				// present (detected:false for benign pages) so Phase 34 can count it.
+				"guard": map[string]any{
+					"detected": p.Verdict.Detected,
+					"rules":    p.Verdict.Rules,
+				},
 			},
 		})
 	}
