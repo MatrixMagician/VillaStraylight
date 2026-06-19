@@ -32,9 +32,9 @@ Requirements for the v1.5 milestone. Each maps to exactly one roadmap phase (Tra
 
 ### Privacy & Egress Honesty (PRIV)
 
-- [ ] **PRIV-07**: Web search is **opt-in, default-OFF**; with it disabled the install renders byte-identical to v1.4 and the zero-outbound posture is unchanged.
+- [x] **PRIV-07**: Web search is **opt-in, default-OFF**; with it disabled the install renders byte-identical to v1.4 and the zero-outbound posture is unchanged.
 - [ ] **PRIV-08**: `villa verify search` **proves bounded outbound negative-control-first** under a real rootless-netns nft block — **inverse-framed**: an off-allowlist canary must be reachable *unguarded* and blocked *under* the bound (an ineffective block is REJECTED, never a fabricated PASS); the proof also asserts a planted-injection page comes back stripped + fenced + flagged, exercises SSRF internal-host cases, and includes a secret-in-query-string exfil case.
-- [ ] **PRIV-09**: OWUI's lazy/background outbound (HuggingFace model pulls, telemetry) is killed (`HF_HUB_OFFLINE` + telemetry kill switches) and any web-search-required weights are pre-staged, so the only sanctioned runtime outbound is SearXNG upstreams + result-page fetches.
+- [x] **PRIV-09**: OWUI's lazy/background outbound (HuggingFace model pulls, telemetry) is killed (`HF_HUB_OFFLINE` + telemetry kill switches) and any web-search-required weights are pre-staged, so the only sanctioned runtime outbound is SearXNG upstreams + result-page fetches.
 
 ### Surfacing & Operability (SURF — lands last)
 
@@ -90,9 +90,9 @@ Which phase covers which requirement. Populated during roadmap creation.
 | GUARD-03 | Phase 32 | Complete |
 | GUARD-04 | Phase 32 | Complete |
 | GUARD-05 | Phase 31 | Complete |
-| PRIV-07 | Phase 33 | Pending |
+| PRIV-07 | Phase 33 | Complete |
 | PRIV-08 | Phase 33 | In Progress |
-| PRIV-09 | Phase 33 | Pending |
+| PRIV-09 | Phase 33 | Complete |
 | SURF-04 | Phase 34 | Pending |
 | SURF-05 | Phase 34 | Pending |
 | SURF-06 | Phase 34 | Pending |

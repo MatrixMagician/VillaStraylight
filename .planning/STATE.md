@@ -6,14 +6,14 @@ current_phase: 33
 current_phase_name: egress-bounding-villa-verify-search
 status: executing
 stopped_at: Phase 31 COMPLETE — on-hardware UAT PASSED (A1 retrieval-fix key confirmed; GROUND-01 grounded cited answer w/ live URLs; GROUND-02 ephemeral collection isolated from durable; GROUND-03 offload PASS under load; GUARD-01/05 SSRF live). VERIFICATION passed 5/5. Deep code review found+fixed 3 defects (CR-01 extractTitle DoS panic, CR-02 extractText swallow, WR-01 restore websafe.env). UAT also surfaced+fixed an install secret-env gap. Ready to plan Phase 32.
-last_updated: "2026-06-19T22:20:52.602Z"
+last_updated: "2026-06-19T22:33:07.691Z"
 last_activity: 2026-06-19
 last_activity_desc: Phase 33 execution started
 progress:
   total_phases: 6
   completed_phases: 4
   total_plans: 15
-  completed_plans: 13
+  completed_plans: 14
   percent: 67
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-06-18 — milestone v1.5 Web Search star
 ## Current Position
 
 Phase: 33 (egress-bounding-villa-verify-search) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
 Last activity: 2026-06-19 — Phase 33 execution started
 
@@ -130,6 +130,7 @@ Last activity: 2026-06-19 — Phase 33 execution started
 | Phase 32 P02 | ~20m | 3 tasks | 5 files |
 | Phase 32 P03 | 20m | 2 tasks | 4 files |
 | Phase 33 P01 | 4m | 2 tasks | 3 files |
+| Phase 33 P02 | ~12m | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -170,6 +171,7 @@ Earlier (v1.0–v1.4) standing decisions retained:
 - [Phase ?]: [31-02]: config gains villa-websafe loader fields (WebsafeAddr/WebsafePort default villa-websafe:8090, WebLoaderSecret crypto/rand bearer, HostVillaPath) cloning SearXNG omit-when-off + addr/port-self-heal; secret + host path never self-healed; off-render byte-identical to v1.4.
 - [Phase ?]: GUARD-04 rule families use multi-word imperative phrases (not bare tokens) to protect classifier precision
 - [Phase ?]: GUARD-03 fence puts a crypto/rand nonce on both delimiters so the closing tag is non-forgeable
+- [Phase ?]: 33-02: verify search live seam reuses shipped liveLoadedWebSearchEnabled gate; nft uses --file - to preserve the WR-02 curl-f-omitted invariant; PRIV-08 stays In Progress (on-hardware proof in Plan 03).
 
 ### Pending Todos
 
@@ -254,7 +256,7 @@ Items deferred at v1.5 roadmap creation (2026-06-18, research-recorded):
 
 ## Session Continuity
 
-Last session: 2026-06-19T22:20:18.267Z
+Last session: 2026-06-19T22:32:20.035Z
 Stopped at: Phase 30 COMPLETE — on-hardware UAT PASSED (SC#2 grounded via D-06 BYPASS_WEB_SEARCH_EMBEDDING_AND_RETRIEVAL direct-inject fix; SC#3 no-fabrication). Ready to plan Phase 31 (Grounded Fetch → Embed Grounding).
 Resume file: .planning/phases/30-owui-native-search-wiring/30-VERIFICATION.md
 

@@ -231,7 +231,7 @@ Plans:
   3. The proof also asserts a planted-injection page comes back stripped + fenced + flagged, exercises SSRF internal-host cases, and includes a secret-in-query-string exfil case.
   4. OWUI's lazy/background outbound (HuggingFace pulls, telemetry) is killed (`HF_HUB_OFFLINE` + telemetry kill switches) and any web-search-required weights are pre-staged, so the only sanctioned runtime outbound is SearXNG upstreams + result-page fetches.
 
-**Plans**: 1/3 plans executed
+**Plans**: 2/3 plans executed
 
 Plans:
 **Wave 1**
@@ -240,7 +240,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 33-02-PLAN.md — Live netns/nft seam + cobra `verify search` registration/gate/exit-map + `--json` schema-v1 golden + PRIV-07/PRIV-09 regression assertions
+- [x] 33-02-PLAN.md — Live netns/nft seam + cobra `verify search` registration/gate/exit-map + `--json` schema-v1 golden + PRIV-07/PRIV-09 regression assertions
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
