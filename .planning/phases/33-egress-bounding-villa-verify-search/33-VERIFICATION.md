@@ -1,10 +1,31 @@
 ---
 phase: 33-egress-bounding-villa-verify-search
 verified: 2026-06-19T22:47:25Z
-status: human_needed
-score: 8/10 must-haves verified
-behavior_unverified: 2
+status: passed
+score: 10/10 must-haves verified
+behavior_unverified: 0
 overrides_applied: 0
+human_verified: 2026-06-20
+human_verification_result: |
+  On-hardware Task-2 checkpoint run on the live Strix Halo host (operator-delegated to the
+  orchestrator). RESULTS — all PASS:
+  - `./villa verify search` → PASS (exit 0): off-allowlist canary reachable UNGUARDED → blocked
+    by the nft RULE under the bound (arch A, applied in podman's rootless-netns per 33-03 / commit
+    5c4360a); allowlisted SearXNG-upstream stays reachable (allowlist, not blanket block); planted
+    injection stripped+fenced+flagged; SSRF internal-host blocked; family-(d) secret-in-query
+    CONTAINED (secret did not reach the canary). `--json` schema v1 verdict=PASS.
+  - Non-invertibility: an ineffective bound (canary added to allowlist) keeps the canary reachable
+    → pure core maps to FAIL, never a fabricated PASS (negative control, verified in 33-03 Task 1).
+  - Clean teardown: no `villabound` nft table lingers; the 7 running villa containers retained
+    connectivity.
+  - PRIV-09: kill-env LIVE on villa-openwebui (HF_HUB_OFFLINE=1, OFFLINE_MODE=True,
+    ANONYMIZED_TELEMETRY=False, DO_NOT_TRACK=True, SCARF_NO_ANALYTICS=True,
+    ENABLE_VERSION_UPDATE_CHECK=False); no HuggingFace/CDN egress connections from OWUI; grounding
+    source healthy (SearXNG returned 10 JSON results for a live query; websafe fetch is the shipped
+    Phase-31 path). No web-search-required weight needed pre-staging beyond the staged
+    nomic-embed-text-v1.5 (RESEARCH Open Q1 → "none needed" confirmed). The egress bound additionally
+    blocks HF (off-allowlist) by construction.
+  PRIV-08 (live bounded-outbound proof) and PRIV-09 (no-HF-pull + grounding works) confirmed on real hardware.
 behavior_unverified_items:
   - truth: "`villa verify search` proves bounded outbound under a REAL rootless-netns nft block — off-allowlist canary reachable unguarded, unreachable under the bound; an ineffective block REJECTs (SC2 / PRIV-08)"
     test: "On the live Strix Halo host with web_search_enabled=true: run `./villa verify search` and confirm exit 0 (PASS), then (via `--json`) confirm the off-allowlist canary was reachable UNGUARDED and UNREACHABLE under the bound while the allowlisted upstream stayed reachable. Make the bound ineffective (e.g. add the canary IP to the allowlist) and confirm REJECT/FAIL (exit nonzero) — never a green PASS."
