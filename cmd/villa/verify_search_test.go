@@ -294,6 +294,39 @@ func TestSearchInjectionFlagged(t *testing.T) {
 	}
 }
 
+// TestSearchLivePlantedInjectionFlagged proves the LIVE family-(b) wiring is genuinely
+// non-vacuous (CR-02): driving the shipped websafe guard against the PRODUCTION planted
+// page (searchPlantedInjectionPage) through the PRODUCTION in-process transport
+// (plantedPageRoundTripper) yields stripped+fenced+flagged — i.e. the live clause CAN PASS.
+// The previous live clause fetched a benign allowlist URL, which is never flagged, so it
+// always FAILed; this asserts the planted-page wiring the live path now uses is reachable.
+func TestSearchLivePlantedInjectionFlagged(t *testing.T) {
+	client := &http.Client{Transport: plantedPageRoundTripper{body: searchPlantedInjectionPage}}
+	stripped, fenced, flagged := injectionFlagged(client, "<script>", "https://villa.invalid/planted")
+	if !stripped {
+		t.Error("live planted page not stripped — active markup survived into Content")
+	}
+	if !fenced {
+		t.Error("live planted page not fenced — missing the UNTRUSTED_WEB_CONTENT provenance fence")
+	}
+	if !flagged {
+		t.Error("live planted page not flagged — Verdict.Detected/Rules not set by the classifier; the live family-(b) clause would be vacuously FAIL")
+	}
+}
+
+// TestSearchLiveInjectionFlagsBenignFalse pins the OTHER half of non-vacuity (CR-02): a
+// BENIGN page (no active markup, no injection imperative) is NOT flagged — which is exactly
+// why the old live clause (a live fetch of benign Wikipedia) could only ever FAIL. This
+// documents that the live clause MUST use a planted input, never a benign upstream.
+func TestSearchLiveInjectionFlagsBenignFalse(t *testing.T) {
+	const benign = `<html><body><p>The capital of France is Paris.</p></body></html>`
+	client := &http.Client{Transport: plantedPageRoundTripper{body: benign}}
+	_, _, flagged := injectionFlagged(client, "<script>", "https://villa.invalid/benign")
+	if flagged {
+		t.Error("a benign page was flagged — unexpected; the classifier should only flag injection content")
+	}
+}
+
 // TestSearchSSRF drives the in-process family-(c) ssrfBlocked driver via the exported
 // SafeClient wiring and asserts an internal-host URL is REFUSED (the connect-time SSRF
 // Control hook / hostname reject-set fires). No real network is reached: an internal
