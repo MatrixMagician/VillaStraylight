@@ -16,9 +16,6 @@ package websafe
 // that claim is NEVER made in Phase 31. The two governing claims are kept distinct:
 // outbound is bounded (proven later), injection-immunity is not asserted.
 
-// fence is the Phase-32 GUARD-03 provenance-fencing hook. Phase-31 identity pass-through.
-func fence(s string) string { return s }
-
 // classify is the Phase-32 GUARD-04 prompt-injection classifier. It returns true when a
 // detection fires; the Phase-31 stub never detects (returns false) — the seam is present,
 // the policy is not.
