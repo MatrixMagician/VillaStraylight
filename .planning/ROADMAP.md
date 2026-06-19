@@ -231,7 +231,13 @@ Plans:
   3. The proof also asserts a planted-injection page comes back stripped + fenced + flagged, exercises SSRF internal-host cases, and includes a secret-in-query-string exfil case.
   4. OWUI's lazy/background outbound (HuggingFace pulls, telemetry) is killed (`HF_HUB_OFFLINE` + telemetry kill switches) and any web-search-required weights are pre-staged, so the only sanctioned runtime outbound is SearXNG upstreams + result-page fetches.
 
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 33-01-PLAN.md — Pure 3-state PASS/FAIL/REJECT verdict core + curl-exit classifier + in-process injection (b)/SSRF (c) families (TDD spine, off-hardware)
+- [ ] 33-02-PLAN.md — Live netns/nft seam + cobra `verify search` registration/gate/exit-map + `--json` schema-v1 golden + PRIV-07/PRIV-09 regression assertions
+- [ ] 33-03-PLAN.md — On-hardware bound-mechanics finalization (arch A/B) + real `villa verify search` PASS + no-HF-pull UAT (human checkpoint)
+
 **Research**: `/gsd-plan-phase --research-phase` — needs the exact rootless-netns nft mechanics for the inverse-framed bound. The v1.4 verify-agent four-layer harness is the template, but the canary/allowlist assertions are new and **easy to get backwards** (off-allowlist canary reachable unguarded, blocked under the bound — never invert this).
 
 ### Phase 34: Web-Search Surfacing (LANDS LAST)
