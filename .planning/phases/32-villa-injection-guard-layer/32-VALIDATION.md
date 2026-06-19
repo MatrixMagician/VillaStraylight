@@ -38,12 +38,12 @@ created: 2026-06-19
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| 32-01-* | 01 | 1 | GUARD-02 | T-32-01 / — | active markup stripped + Unicode normalized before fencing | unit | `go test ./internal/websafe/...` | ❌ W0 | ⬜ pending |
-| 32-02-* | 02 | 1 | GUARD-03 | T-32-02 / — | untrusted content wrapped in nonced provenance fence | unit | `go test ./internal/websafe/...` | ❌ W0 | ⬜ pending |
-| 32-03-* | 03 | 2 | GUARD-03 | T-32-03 / — | heuristic classifier flags injections (flag-not-block); precision/recall must-WIN gate | unit | `go test ./internal/websafe/...` | ❌ W0 | ⬜ pending |
-| 32-04-* | 04 | 2 | GUARD-04 | — | "reduces and flags, does not eliminate" copy; markdown-image residual documented; no "injection-safe" string | unit/grep | `go test ./internal/websafe/...` | ❌ W0 | ⬜ pending |
+| 32-01-* | 01 | 1 | GUARD-02/03/04 | T-32-01..05 | active markup stripped + Unicode normalized before fencing; nonced provenance fence; heuristic classifier (`injectionRules` map) flags injections (flag-not-block) | unit | `go test ./internal/websafe/...` | ❌ W0 | ⬜ pending |
+| 32-02-* | 02 | 2 | GUARD-04 | T-32-06..09 | precision/recall must-WIN gate over the production ordering `classify(normalize(sanitize(sample)))`; "reduces and flags, does not eliminate" copy; markdown-image residual documented; no "injection-safe" string (directory-walking grep-ban) | unit/eval/grep | `go test ./internal/websafe/...` | ❌ W0 | ⬜ pending |
+| 32-03-* | 03 | 2 | GUARD-02/03/04 | T-32-01..05 | fetchOne runs sanitize → normalize → classify → fence (sanitize-first); verdict threaded into /load metadata.guard; title routed through sanitize+normalize | unit | `go test ./internal/websafe/...` | ❌ W0 | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky · Task IDs finalized by the planner.*
+*Note: the GUARD-04 honesty copy / markdown-image residual / "injection-safe" grep-ban (formerly drafted as a standalone 32-04 row) is delivered by Plan 32-02 — the phase is a 3-plan layout (32-01, 32-02, 32-03).*
 
 ---
 
