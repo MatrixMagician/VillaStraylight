@@ -176,11 +176,11 @@ Audit `tech_debt` — 17/17 requirements satisfied, integration PASS (7/7 seam g
   4. `recommend` reserves a web-search context budget (bounded result-count × page-size) **before** the chat-model fit, and residency is **offload-asserted under search load** (a silent/partial CPU fallback is a FAIL).
   5. The fetcher enforces an **SSRF guard** — resolve-and-validate the target IP (reject loopback / link-local / `169.254.169.254` / internal `villa-*` hosts), re-check after every redirect, and allow only an http(s) scheme list.
 
-**Plans**: 4 plans
+**Plans**: 1/4 plans executed
 
 **Wave 1** *(parallel; disjoint file ownership)*
 
-- [ ] 31-01-PLAN.md — `internal/websafe` pure core: SSRF guard (connect-time `Control` + per-hop redirect re-check + reject-set) + bounded skip-and-continue fetcher + Phase-32 guard stubs + the VERIFIED OWUI external-loader contract glue (GUARD-05, GUARD-01, GROUND-01)
+- [x] 31-01-PLAN.md — `internal/websafe` pure core: SSRF guard (connect-time `Control` + per-hop redirect re-check + reject-set) + bounded skip-and-continue fetcher + Phase-32 guard stubs + the VERIFIED OWUI external-loader contract glue (GUARD-05, GUARD-01, GROUND-01)
 - [ ] 31-02-PLAN.md — `recommend` web-search reservation-before-fit (schema 3→4, one golden re-freeze) + `config` websafe fields/bearer/host-path (omit-when-off, byte-identical-off) (GROUND-03, GROUND-01, GROUND-02)
 
 **Wave 2** *(blocked on Wave 1)*
