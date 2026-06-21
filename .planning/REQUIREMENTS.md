@@ -41,7 +41,7 @@ Requirements for the v1.5 milestone. Each maps to exactly one roadmap phase (Tra
 - [x] **SURF-04**: `villa status` / `--json` gains exactly one append-only `web_search` block (`status.Report` schema **4→5**, single golden re-freeze): enabled state, `villa-searxng`/`villa-websafe` health rows, guard-verdict counters, last-query freshness, and an **outbound-bounded indicator derived from the real `villa verify search` result** (never a bare config bool).
 - [ ] **SURF-05**: The control dashboard gains a **hidden-until-data, XSS-safe Web Search panel** surfacing search/guard/outbound state, including outbound visibility (what was searched/fetched) and the bounded-outbound indicator.
 - [ ] **SURF-06**: `villa doctor` folds web-search checks (on doctor's own schema bump) — service readiness, guard health, and egress-proof status — as tri-state (ready / degraded-with-reason / typed-Unknown), with an offload-asserting residency check under search load and remediation on every non-PASS.
-- [ ] **SURF-07**: `villa backup` / `restore` cover the web-search configuration (SearXNG `settings.yml` provenance + the `WebSearchEnabled` gate), consistent with prior backup coverage; fetched ephemeral web content is excluded by design.
+- [x] **SURF-07**: `villa backup` / `restore` cover the web-search configuration (SearXNG `settings.yml` provenance + the `WebSearchEnabled` gate), consistent with prior backup coverage; fetched ephemeral web content is excluded by design.
 
 ## v2 Requirements
 
@@ -96,7 +96,7 @@ Which phase covers which requirement. Populated during roadmap creation.
 | SURF-04 | Phase 34 | Complete |
 | SURF-05 | Phase 34 | Pending |
 | SURF-06 | Phase 34 | Pending |
-| SURF-07 | Phase 34 | Pending |
+| SURF-07 | Phase 34 | Complete |
 
 **Coverage:**
 

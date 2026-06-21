@@ -5,15 +5,15 @@ milestone_name: Web Search
 current_phase: 33
 status: verifying
 stopped_at: Phase 34 UI-SPEC approved
-last_updated: "2026-06-21T20:00:13.874Z"
+last_updated: "2026-06-21T20:14:30.532Z"
 last_activity: 2026-06-19
 last_activity_desc: Phase 33 marked complete
 progress:
   total_phases: 6
   completed_phases: 5
   total_plans: 20
-  completed_plans: 16
-  percent: 80
+  completed_plans: 17
+  percent: 83
 current_phase_name: egress-bounding-villa-verify-search
 ---
 
@@ -132,6 +132,7 @@ Last activity: 2026-06-19 — Phase 33 marked complete
 | Phase 33 P01 | 4m | 2 tasks | 3 files |
 | Phase 33 P02 | ~12m | 2 tasks | 6 files |
 | Phase 34 P01 | 4min | 2 tasks | 4 files |
+| Phase 34 P02 | 30 min | 2 tasks tasks | 10 files files |
 
 ## Accumulated Context
 
@@ -175,6 +176,7 @@ Earlier (v1.0–v1.4) standing decisions retained:
 - [Phase ?]: 33-02: verify search live seam reuses shipped liveLoadedWebSearchEnabled gate; nft uses --file - to preserve the WR-02 curl-f-omitted invariant; PRIV-08 stays In Progress (on-hardware proof in Plan 03).
 - [Phase ?]: [34-01]: new internal/verifystate store clones the recall-store discipline (clone-don't-import); Save stamps schema_version itself; fail-closed Load (absent/corrupt/future-schema => empty State, never a fabricated PASS, T-34-01); verify-search-state.json at $XDG_DATA_HOME/villa, 0600 atomic traversal-guarded write.
 - [Phase ?]: [34-01]: villa verify search persists the verdict best-effort via a new persistFn seam after the proof; a persist failure NEVER changes the exit code and the persist stays OUT of the pure evalSearchVerify core. Plan 03 derives bounded from verifystate.Load + a freshness gate, never from cfg.WebSearchEnabled.
+- [Phase 34]: [34-02]: backup gains optional EntrySearxngSettings (settings.yml provenance) + backupSchemaVersion 3->4 (SURF-07); WebSearchEnabled gate already covered by EntryConfig; ephemeral fetched content excluded by design; restore re-writes 0600-preserving via dedicated WriteSearxngSettings out-of-store-root seam (rendered SEARXNG_SECRET, T-34-05); both cmd source/dest gated on cfg.WebSearchEnabled.
 
 ### Pending Todos
 
@@ -259,7 +261,7 @@ Items deferred at v1.5 roadmap creation (2026-06-18, research-recorded):
 
 ## Session Continuity
 
-Last session: 2026-06-21T19:59:28.559Z
+Last session: 2026-06-21T20:13:34.128Z
 Stopped at: Phase 34 UI-SPEC approved
 Resume file: .planning/phases/34-web-search-surfacing-lands-last/34-UI-SPEC.md
 
