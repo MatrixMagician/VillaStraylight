@@ -22,6 +22,8 @@
   var memoryBody = document.getElementById("memory-body");
   var agentPanel = document.getElementById("agent-panel");
   var agentBody = document.getElementById("agent-body");
+  var webSearchPanel = document.getElementById("web-search-panel");
+  var webSearchBody = document.getElementById("web-search-body");
 
   // Confirm-dialog elements (the single guarded write, D-08).
   var switchDialog = document.getElementById("switch-dialog");
@@ -437,6 +439,70 @@
     }
   }
 
+  // renderWebSearch fills the Web Search panel from report.web_search on the SAME
+  // /api/status poll (SURF-05 / CTRL-02 / D-03: no new fetch, endpoint, or probe).
+  // It mirrors renderMemory/renderAgent exactly: the panel ships hidden in the static
+  // shell and is unhidden ONLY when report.web_search is present — it re-hides if the
+  // field disappears, so a web-search-off install renders pixel-identical to v1.4.
+  //
+  // Honesty mapping (34-UI-SPEC.md, binding): the outbound-bounded indicator is the only
+  // SECURITY claim in the panel, so it is green ONLY for a real recent verify PASS:
+  //   bounded     → green badge-ready "bounded"
+  //   not-bounded → amber badge-warn "not bounded" (NEVER red — not a service failure)
+  //   else        → gray  badge-unknown "unavailable" + a remediation caption
+  // verify_checked_at (RFC3339, verbatim) renders ONLY when present (no fabricated
+  // relative time). The frozen status contract (Plan 03, schema 5) ships ONLY
+  // {enabled, outbound_bounded, verify_checked_at} — searxng/villa-websafe health are
+  // report.services[] rows owned by the Health panel, and the source-gap rows (guard
+  // counters, last_query, fetched URLs) have NO host source and are OMITTED here, never
+  // fabricated. The empty state (web_search present, no recent verify) is the gray
+  // outbound badge + caption. NOT called from the catch path (last-good under stale-dim,
+  // setConnected line ~795). All values render via createElement + textContent — never
+  // innerHTML — especially the most attacker-influenceable verbatim provenance (T-34-16).
+  function renderWebSearch(report) {
+    if (!webSearchPanel || !webSearchBody) { return; }
+    var ws = report && report.web_search;
+    if (!ws) {
+      webSearchPanel.hidden = true;
+      return;
+    }
+    webSearchPanel.hidden = false;
+    webSearchBody.textContent = "";
+
+    // Outbound bounded: tri-state, derived by the status core from a cached
+    // `villa verify search` result with a 24h freshness gate (NEVER from a config bool).
+    // Green ONLY for a real recent PASS; amber for a real recent non-PASS; gray for
+    // stale/absent/unevaluable — never a false-green security claim (T-34-17).
+    var ob = ws.outbound_bounded;
+    if (ob === "bounded") {
+      webSearchBody.appendChild(memoryBadgeRow("outbound", "bounded", "ready"));
+      // Verify freshness (egress-checked timestamp) — verbatim RFC3339, omitted when
+      // absent (no fabricated relative time). Only carried for a non-stale result.
+      if (ws.verify_checked_at) {
+        webSearchBody.appendChild(metricRow("egress checked", ws.verify_checked_at));
+      }
+    } else if (ob === "not-bounded") {
+      webSearchBody.appendChild(memoryBadgeRow("outbound", "not bounded", "warn"));
+      if (ws.verify_checked_at) {
+        webSearchBody.appendChild(metricRow("egress checked", ws.verify_checked_at));
+      }
+    } else {
+      // "unknown", absent, or anything unexpected → typed-Unknown gray badge + caption.
+      // The caption distinguishes a never-run verify from a stale one: a stale result
+      // carries verify_checked_at-less "unknown" by the freshness gate, so when no
+      // timestamp is present we point at the first run; the UI-SPEC stale variant copy
+      // applies whenever a prior check has since aged out.
+      webSearchBody.appendChild(memoryBadgeRow("outbound", "unavailable", "unknown"));
+      webSearchBody.appendChild(mutedP(
+        "Outbound bound not verified — run villa verify search to confirm egress is bounded."));
+    }
+
+    // Source-gap rows (guard strip/flag/quarantine counters, last query, fetched URLs)
+    // are OMITTED by design: the frozen status contract (Plan 03) carries no host source
+    // for them (T-34-18). They render ONLY if the status core ever ships them; until then
+    // the renderer never fabricates a 0 / "never" / placeholder.
+  }
+
   // renderPerformance fills the Performance panel from /api/metrics (DASH-02). It
   // honors the two honesty flags: when the scrape is unavailable it shows
   // "unavailable" (never zeros, D-11); when available-but-idle it shows
@@ -846,6 +912,11 @@
         // endpoint, or probe): unhidden only when report.coding is present, re-hidden
         // when it disappears. NOT called from the catch path (last-good under stale dim).
         renderAgent(report);
+        // Web Search panel rides the SAME /api/status poll (SURF-05 / CTRL-02 / D-03 — no
+        // new fetch, endpoint, or probe): unhidden only when report.web_search is present,
+        // re-hidden when it disappears. NOT called from the catch path (last-good under
+        // stale dim). XSS-safe: every value via textContent, never innerHTML.
+        renderWebSearch(report);
       })
       .catch(function () {
         // The dashboard's own API is unreachable → global banner, keep last-good.
