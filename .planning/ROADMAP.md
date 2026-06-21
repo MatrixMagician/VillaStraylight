@@ -114,7 +114,7 @@ Audit `tech_debt` — 17/17 requirements satisfied, integration PASS (7/7 seam g
 - [x] **Phase 31: Grounded Fetch → Embed Grounding** - The `villa-websafe` fetch path: full-page fetch → embed via v1.3 RAG → cited answer, dedicated ephemeral collection, ctx reservation, SSRF guard (completed 2026-06-19)
 - [x] **Phase 32: Villa Injection Guard Layer** - Sanitize + Unicode-normalize + nonced provenance-fence + heuristic flag-not-block classifier layered onto the fetch path (reduces/flags, never eliminates) (completed 2026-06-19)
 - [x] **Phase 33: Egress-Bounding + `villa verify search`** - The honest backstop: inverse-framed negative-control-first egress proof under a real rootless-netns nft block; opt-in/default-off honesty (completed 2026-06-19)
-- [ ] **Phase 34: Web-Search Surfacing (LANDS LAST)** - The single `status.Report` 4→5 bump + dashboard Web Search panel + doctor checks + backup/restore coverage; outbound-bounded indicator derives from the real verify-search result
+- [x] **Phase 34: Web-Search Surfacing (LANDS LAST)** - The single `status.Report` 4→5 bump + dashboard Web Search panel + doctor checks + backup/restore coverage; outbound-bounded indicator derives from the real verify-search result (completed 2026-06-21)
 
 ## Phase Details
 
@@ -260,7 +260,7 @@ Plans:
   3. `villa doctor` folds web-search checks (on **doctor's own** schema bump) — service readiness, guard health, and egress-proof status — as tri-state (ready / degraded-with-reason / typed-Unknown), with an **offload-asserting residency check under search load** and remediation on every non-PASS.
   4. `villa backup`/`restore` cover the web-search configuration (SearXNG `settings.yml` provenance + the `WebSearchEnabled` gate), consistent with prior backup coverage; fetched ephemeral web content is **excluded by design**.
 
-**Plans**: 4/5 plans executed
+**Plans**: 5/5 plans complete
 
 Plans:
 
@@ -268,7 +268,7 @@ Plans:
 - [x] 34-02-PLAN.md — backup/restore SearXNG settings.yml provenance entry (3→4, 0600-preserving; ephemeral content excluded; SURF-07)
 - [x] 34-03-PLAN.md — status.Report 4→5 web_search block + outbound-bounded tri-state from cached verify + searxng/websafe dedicated rows + single golden re-freeze (SURF-04)
 - [x] 34-04-PLAN.md — `villa doctor` web-search fold on its own 2→3 bump + offload-asserting residency-under-search-load + egress-proof from cached verify (SURF-06)
-- [ ] 34-05-PLAN.md — dashboard hidden-until-data XSS-safe Web Search panel (clone agent-panel; textContent-only; SURF-05)
+- [x] 34-05-PLAN.md — dashboard hidden-until-data XSS-safe Web Search panel (clone agent-panel; textContent-only; SURF-05)
 
 **UI hint**: yes
 

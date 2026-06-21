@@ -5,15 +5,15 @@ milestone_name: Web Search
 current_phase: 33
 status: verifying
 stopped_at: Phase 34 UI-SPEC approved
-last_updated: "2026-06-21T20:41:49.372Z"
+last_updated: "2026-06-21T20:47:32.496Z"
 last_activity: 2026-06-19
 last_activity_desc: Phase 33 marked complete
 progress:
   total_phases: 6
-  completed_phases: 5
+  completed_phases: 6
   total_plans: 20
-  completed_plans: 19
-  percent: 83
+  completed_plans: 20
+  percent: 100
 current_phase_name: egress-bounding-villa-verify-search
 ---
 
@@ -135,6 +135,7 @@ Last activity: 2026-06-19 — Phase 33 marked complete
 | Phase 34 P02 | 30 min | 2 tasks tasks | 10 files files |
 | Phase 34 P03 | 18min | 2 tasks | 7 files |
 | Phase 34 P04 | 11min | 2 tasks | 7 files |
+| Phase 34 P05 | 10min | 1 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -181,6 +182,7 @@ Earlier (v1.0–v1.4) standing decisions retained:
 - [Phase 34]: [34-02]: backup gains optional EntrySearxngSettings (settings.yml provenance) + backupSchemaVersion 3->4 (SURF-07); WebSearchEnabled gate already covered by EntryConfig; ephemeral fetched content excluded by design; restore re-writes 0600-preserving via dedicated WriteSearxngSettings out-of-store-root seam (rendered SEARXNG_SECRET, T-34-05); both cmd source/dest gated on cfg.WebSearchEnabled.
 - [Phase ?]: Phase 34-03: status.Report 4→5 — outbound_bounded tri-state derived from cached verify-search result with a 24h verifyFreshnessWindow gate, NEVER from cfg.WebSearchEnabled (T-34-08).
 - [Phase ?]: Phase 34-03: villa-websafe has no /healthz route; liveness probe treats any HTTP response as up (mapWebsafeProbe); source-gap fields (guard counters/last_query/fetched URLs) omitted.
+- [Phase ?]: 34-05: Web Search dashboard panel renders ONLY the outbound tri-state (+ optional egress-checked row); searxng/websafe health stay in the Health panel and source-gap rows are omitted per the frozen 34-03 contract — zero new CSS, textContent-only, web-off pixel-identical.
 
 ### Pending Todos
 
@@ -265,7 +267,7 @@ Items deferred at v1.5 roadmap creation (2026-06-18, research-recorded):
 
 ## Session Continuity
 
-Last session: 2026-06-21T20:41:28.559Z
+Last session: 2026-06-21T20:47:16.532Z
 Stopped at: Phase 34 UI-SPEC approved
 Resume file: .planning/phases/34-web-search-surfacing-lands-last/34-UI-SPEC.md
 
