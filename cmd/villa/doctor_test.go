@@ -15,7 +15,10 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/doctor"
+	"github.com/MatrixMagician/VillaStraylight/internal/inference"
+	"github.com/MatrixMagician/VillaStraylight/internal/status"
 )
 
 // healthyReport is an all-PASS fixture (Overall PASS → exit 0).
@@ -28,7 +31,7 @@ func healthyReport() doctor.Report {
 			{ID: "drift", Name: "Config-vs-disk drift", Tier: "WARN", Status: "PASS", Detail: "on-disk units match the rendered-from-config units", Provenance: "orchestrate.Reconcile (empty Plan.Changed)"},
 		},
 		Overall:       "PASS",
-		SchemaVersion: 2,
+		SchemaVersion: 3,
 	}
 }
 
@@ -84,7 +87,7 @@ func rocmSupersededReport() doctor.Report {
 			{ID: "drift", Name: "Config-vs-disk drift", Tier: "WARN", Status: "PASS", Detail: "on-disk units match the rendered-from-config units", Provenance: "orchestrate.Reconcile (empty Plan.Changed)"},
 		},
 		Overall:       "PASS",
-		SchemaVersion: 2,
+		SchemaVersion: 3,
 	}
 }
 
@@ -137,12 +140,12 @@ func TestDoctorUnknownOverallFailsClosed(t *testing.T) {
 }
 
 // TestDoctorJSON freezes doctor's OWN --json contract (D-02/D-09) byte-for-byte. The
-// golden MUST carry "schema_version": 2. doctor never extends status.Report's golden.
+// golden MUST carry "schema_version": 3 (the web-search-fold bump, SURF-06). doctor never extends status.Report's golden.
 func TestDoctorJSON(t *testing.T) {
 	var buf bytes.Buffer
 	renderDoctor(&buf, healthyReport(), true, false)
-	if !bytes.Contains(buf.Bytes(), []byte(`"schema_version": 2`)) {
-		t.Errorf("--json output must carry schema_version 1, got:\n%s", buf.String())
+	if !bytes.Contains(buf.Bytes(), []byte(`"schema_version": 3`)) {
+		t.Errorf("--json output must carry schema_version 3, got:\n%s", buf.String())
 	}
 	assertGolden(t, "doctor.json.golden", buf.Bytes())
 }
@@ -168,7 +171,7 @@ func memoryHealthyReport() doctor.Report {
 			{ID: "drift", Name: "Config-vs-disk drift", Tier: "WARN", Status: "PASS", Detail: "on-disk units match the rendered-from-config units", Provenance: "orchestrate.Reconcile (empty Plan.Changed)"},
 		},
 		Overall:       "PASS",
-		SchemaVersion: 2,
+		SchemaVersion: 3,
 	}
 }
 
@@ -221,8 +224,8 @@ func TestDoctorMemoryRender(t *testing.T) {
 func TestDoctorMemoryJSON(t *testing.T) {
 	var buf bytes.Buffer
 	renderDoctor(&buf, memoryHealthyReport(), true, false)
-	if !bytes.Contains(buf.Bytes(), []byte(`"schema_version": 2`)) {
-		t.Errorf("--json output must carry schema_version 1, got:\n%s", buf.String())
+	if !bytes.Contains(buf.Bytes(), []byte(`"schema_version": 3`)) {
+		t.Errorf("--json output must carry schema_version 3, got:\n%s", buf.String())
 	}
 	assertGolden(t, "doctor-memory.json.golden", buf.Bytes())
 }
@@ -268,8 +271,8 @@ func TestDoctorAgentRender(t *testing.T) {
 	if code != exitPass {
 		t.Errorf("agent-healthy exit code = %d, want %d", code, exitPass)
 	}
-	if !bytes.Contains(buf.Bytes(), []byte(`"schema_version": 2`)) {
-		t.Errorf("--json output must carry schema_version 2 (the agent-fold bump), got:\n%s", buf.String())
+	if !bytes.Contains(buf.Bytes(), []byte(`"schema_version": 3`)) {
+		t.Errorf("--json output must carry schema_version 3 (the web-search-fold bump), got:\n%s", buf.String())
 	}
 	assertGolden(t, "doctor-agent.json.golden", buf.Bytes())
 
@@ -407,6 +410,72 @@ func TestLiveDoctorDepsWiresRunROCmImage(t *testing.T) {
 			got := d.RunROCmImage != nil
 			if got != tc.wantNonNil {
 				t.Errorf("RunROCmImage non-nil = %v, want %v (backend %q)", got, tc.wantNonNil, tc.backend)
+			}
+		})
+	}
+}
+
+// --- Phase 34-04: live web-search residency + egress-proof seams (SURF-06) ---
+
+// TestRunSearchResidencyUnderLoadPreconditionGate exercises the read-only precondition
+// gate of the live search-residency proof OFF-HARDWARE (SURF-06, T-34-13): a stub
+// status.Deps whose IsActive reports the served inference unit as NOT active must yield a
+// typed-Unknown WARN (never a FAIL fabricated from a stack that simply is not running, and
+// never an idle-sampled false-green). doctor NEVER starts a service. This is the
+// off-hardware-reachable half of the drive seam; the full drive→sample→join is exercised
+// on the live Strix Halo box (plan verification).
+func TestRunSearchResidencyUnderLoadPreconditionGate(t *testing.T) {
+	sd := &status.Deps{
+		// Served inference unit not active → the gate must short-circuit to typed-Unknown
+		// BEFORE any podman drive runs (off-hardware safe).
+		IsActive: func(string) (string, error) { return "inactive", nil },
+	}
+	v := runSearchResidencyUnderLoad(config.VillaConfig{Backend: "vulkan", WebSearchEnabled: true}, sd)
+	if v.Status != inference.StatusWarn {
+		t.Fatalf("Status = %v, want StatusWarn (typed-Unknown when the served unit is not active — never a fabricated FAIL)", v.Status)
+	}
+	if v.Remediation == "" {
+		t.Errorf("typed-Unknown verdict must carry a Remediation (D-11)")
+	}
+}
+
+// TestLiveDoctorDepsWiresWebSearchSeams asserts liveDoctorDeps binds the two web-search
+// seams ONLY when the persisted web_search_enabled is true (SURF-06, mirroring the memory/
+// agent-seam wiring): web off (absent config) → both nil so the web-off doctor output is
+// byte-identical (except the schema bump); web on → both bound. It inspects only the
+// constructed Deps func-fields — it never invokes the live host probes.
+func TestLiveDoctorDepsWiresWebSearchSeams(t *testing.T) {
+	cases := []struct {
+		name      string
+		webOn     bool
+		wantBound bool
+	}{
+		{"web-off-default", false, false},
+		{"web-on", true, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfgBase := t.TempDir()
+			t.Setenv("XDG_CONFIG_HOME", cfgBase)
+			if tc.webOn {
+				dir := filepath.Join(cfgBase, "villa")
+				if err := os.MkdirAll(dir, 0o700); err != nil {
+					t.Fatalf("mkdir config dir: %v", err)
+				}
+				if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte("web_search_enabled = true\n"), 0o600); err != nil {
+					t.Fatalf("write config: %v", err)
+				}
+			}
+
+			d, err := liveDoctorDeps()
+			if err != nil {
+				t.Fatalf("liveDoctorDeps() error = %v", err)
+			}
+			if got := d.SearchEgressProof != nil; got != tc.wantBound {
+				t.Errorf("SearchEgressProof non-nil = %v, want %v", got, tc.wantBound)
+			}
+			if got := d.SearchResidencyUnderLoad != nil; got != tc.wantBound {
+				t.Errorf("SearchResidencyUnderLoad non-nil = %v, want %v", got, tc.wantBound)
 			}
 		})
 	}
