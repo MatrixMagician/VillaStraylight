@@ -38,11 +38,13 @@ import (
 	"os/exec"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
+	"github.com/MatrixMagician/VillaStraylight/internal/verifystate"
 	"github.com/MatrixMagician/VillaStraylight/internal/websafe"
 )
 
@@ -334,6 +336,13 @@ type searchVerifyDeps struct {
 	// verifyFn drives the bounded-outbound proof (live: liveSearchVerify). Injecting it
 	// makes the gated cobra run path unit-testable without a host.
 	verifyFn func(ctx context.Context, deps searchVerifyDeps) searchProof
+	// persistFn writes the LAST real proof verdict best-effort to the host-side
+	// verify-search-state.json store (live: liveVerifyStatePersist over verifystate.Save +
+	// WriteFileAtomic). It is the ONE new write of Phase 34 (SURF-04) — the cached source
+	// of the outbound-bounded indicator surfaced by status/doctor/dashboard in Plans 03/04/05.
+	// A persistFn FAILURE must NEVER change the verb's exit code (the proof verdict is
+	// authoritative); a nil seam is a no-op (the run path stays panic-free when unwired).
+	persistFn func(s verifystate.State) error
 }
 
 // The web-search gate source liveLoadedWebSearchEnabled (the PERSISTED
@@ -348,7 +357,22 @@ func liveVerifySearchDeps() searchVerifyDeps {
 		loadedWebSearchEnabled: liveLoadedWebSearchEnabled,
 		loadedConfig:           liveLoadedConfig,
 		verifyFn:               liveSearchVerify,
+		persistFn:              liveVerifyStatePersist,
 	}
+}
+
+// liveVerifyStatePersist is the live persistFn seam: it stamps the verify store via
+// verifystate.Save over a WriteAll that wraps the traversal-guarded atomic writer at the
+// fixed verify-search-state.json path (SURF-04). It is best-effort — the caller discards
+// its error for the exit code (the proof verdict is authoritative). The path is resolved
+// from verifystate.VerifyStatePath() so the WR-05 traversal guard never rejects a
+// legitimate write.
+func liveVerifyStatePersist(s verifystate.State) error {
+	return verifystate.Save(verifystate.Deps{
+		WriteAll: func(data []byte) error {
+			return verifystate.WriteFileAtomic(verifystate.VerifyStatePath(), data)
+		},
+	}, s)
 }
 
 // searchAllowlistHost is the sanctioned upstream the positive control reaches and the
@@ -712,6 +736,21 @@ func runVerifySearch(cmd *cobra.Command, _ []string, deps searchVerifyDeps) int 
 	}
 
 	proof := deps.verifyFn(cmd.Context(), deps)
+
+	// Persist the verdict best-effort (the ONE new write of Phase 34, SURF-04): the cached
+	// result is the source of the outbound-bounded indicator surfaced downstream. This stays
+	// OUT of the pure evalSearchVerify core (which does ZERO host I/O); it is a side effect
+	// of the cmd-tier run path only. A persist failure NEVER changes the exit code (the proof
+	// verdict is authoritative) — at most it surfaces a best-effort warning on stderr, mirroring
+	// the backup RestartWarning posture. A nil persistFn seam is a no-op.
+	if deps.persistFn != nil {
+		if err := deps.persistFn(verifystate.State{
+			Verdict:   verdictName(proof.status),
+			CheckedAt: time.Now().UTC().Format(time.RFC3339),
+		}); err != nil && !asJSON {
+			fmt.Fprintf(errOut, "verify search: warning: could not persist the verify result (verdict stands): %v\n", err)
+		}
+	}
 
 	if asJSON {
 		_ = renderVerifySearchJSON(out, proof)

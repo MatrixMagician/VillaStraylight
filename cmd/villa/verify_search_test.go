@@ -25,18 +25,20 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
+
+	"github.com/MatrixMagician/VillaStraylight/internal/verifystate"
 )
 
 // okProbe / falseProbe / errProbe are tiny seam helpers so each truth-table row reads as
 // the locked control order. The "good" defaults below are factored out so a row only has
 // to override the ONE seam it is exercising.
 
-func goodAllowlist() (bool, error)  { return true, nil }
-func goodCanary() (bool, error)     { return true, nil }
-func goodBound() (bool, bool, error) { return false, true, nil } // canary blocked, allowlist reachable
+func goodAllowlist() (bool, error)      { return true, nil }
+func goodCanary() (bool, error)         { return true, nil }
+func goodBound() (bool, bool, error)    { return false, true, nil } // canary blocked, allowlist reachable
 func goodInjection() (bool, bool, bool) { return true, true, true } // stripped, fenced, flagged
-func goodSSRF() bool                 { return true }
-func goodSecret() (bool, error)     { return true, nil }
+func goodSSRF() bool                    { return true }
+func goodSecret() (bool, error)         { return true, nil }
 
 // TestEvalSearchVerify table-drives the PURE three-state bounded-outbound proof core over
 // every outcome, mirroring TestEvalAgentVerify. The locked invariants (PRIV-08 / SC2):
@@ -334,9 +336,9 @@ func TestSearchLiveInjectionFlagsBenignFalse(t *testing.T) {
 func TestSearchSSRF(t *testing.T) {
 	internalURLs := []string{
 		"http://169.254.169.254/latest/meta-data/", // cloud metadata
-		"http://127.0.0.1:8888/",                    // loopback
-		"http://villa-searxng:8080/",                // managed-service container DNS
-		"http://localhost/",                         // localhost
+		"http://127.0.0.1:8888/",                   // loopback
+		"http://villa-searxng:8080/",               // managed-service container DNS
+		"http://localhost/",                        // localhost
 	}
 	for _, u := range internalURLs {
 		if !ssrfBlocked(u) {
@@ -426,8 +428,8 @@ func TestSecretExfilURLCarriesTokenInQuery(t *testing.T) {
 // netip.Addr values (no shell-composed string). The bridge ifname is quoted via %q.
 func TestNftBoundRuleset(t *testing.T) {
 	rs := nftBoundRuleset("podman3", []netip.Addr{
-		netip.MustParseAddr("198.51.100.7"),                 // v4
-		netip.MustParseAddr("2001:db8::1"),                  // v6 (WR-02: must emit an ip6 daddr accept)
+		netip.MustParseAddr("198.51.100.7"), // v4
+		netip.MustParseAddr("2001:db8::1"),  // v6 (WR-02: must emit an ip6 daddr accept)
 	})
 	for _, want := range []string{
 		"table inet villabound",
@@ -589,6 +591,86 @@ func TestRunVerifySearchExit(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestVerifySearchPersists proves runVerifySearch persists the proof verdict best-effort
+// via the injectable persistFn seam (SURF-04): for each of the three verdicts the captured
+// State.Verdict matches verdictName for that status and CheckedAt is populated, AND a persist
+// FAILURE never changes the verb's exit code (the proof verdict stays authoritative).
+func TestVerifySearchPersists(t *testing.T) {
+	cases := []struct {
+		name        string
+		proof       searchProof
+		wantVerdict string
+		wantCode    int
+	}{
+		{"pass", pass("bounded outbound proven"), "PASS", exitPass},
+		{"fail", fail("canary STILL reachable under the bound"), "FAIL", exitBlocked},
+		{"reject", reject("nft absent — cannot conduct the proof"), "REJECT", exitWarn},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var captured verifystate.State
+			persistCalled := false
+			deps := searchVerifyDeps{
+				loadedWebSearchEnabled: func() bool { return true },
+				verifyFn:               func(context.Context, searchVerifyDeps) searchProof { return tc.proof },
+				persistFn: func(s verifystate.State) error {
+					persistCalled = true
+					captured = s
+					return nil
+				},
+			}
+			cmd := newSearchCmd()
+			var out, errOut bytes.Buffer
+			cmd.SetOut(&out)
+			cmd.SetErr(&errOut)
+			code := runVerifySearch(cmd, nil, deps)
+			if code != tc.wantCode {
+				t.Errorf("exit = %d, want %d", code, tc.wantCode)
+			}
+			if !persistCalled {
+				t.Fatal("persistFn was not called — the verdict must be persisted after the proof")
+			}
+			if captured.Verdict != tc.wantVerdict {
+				t.Errorf("persisted Verdict = %q, want %q", captured.Verdict, tc.wantVerdict)
+			}
+			if captured.CheckedAt == "" {
+				t.Error("persisted CheckedAt is empty — a verify result must carry a timestamp")
+			}
+		})
+	}
+
+	// A persist FAILURE must NOT change the exit code (the proof verdict is authoritative).
+	t.Run("persist-failure-does-not-change-exit", func(t *testing.T) {
+		deps := searchVerifyDeps{
+			loadedWebSearchEnabled: func() bool { return true },
+			verifyFn:               func(context.Context, searchVerifyDeps) searchProof { return pass("bounded outbound proven") },
+			persistFn:              func(verifystate.State) error { return errors.New("disk full") },
+		}
+		cmd := newSearchCmd()
+		var out, errOut bytes.Buffer
+		cmd.SetOut(&out)
+		cmd.SetErr(&errOut)
+		if code := runVerifySearch(cmd, nil, deps); code != exitPass {
+			t.Errorf("a persist failure changed the exit code: got %d, want exitPass (%d)", code, exitPass)
+		}
+	})
+
+	// A nil persistFn seam must be safe (the run path must not panic when unwired).
+	t.Run("nil-persistFn-is-safe", func(t *testing.T) {
+		deps := searchVerifyDeps{
+			loadedWebSearchEnabled: func() bool { return true },
+			verifyFn:               func(context.Context, searchVerifyDeps) searchProof { return pass("ok") },
+		}
+		cmd := newSearchCmd()
+		var out, errOut bytes.Buffer
+		cmd.SetOut(&out)
+		cmd.SetErr(&errOut)
+		if code := runVerifySearch(cmd, nil, deps); code != exitPass {
+			t.Errorf("nil persistFn exit = %d, want exitPass (%d)", code, exitPass)
+		}
+	})
 }
 
 // TestVerifySearchJSON asserts `verify search --json` over a deterministic verdict matches
