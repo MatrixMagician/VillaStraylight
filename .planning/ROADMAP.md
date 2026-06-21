@@ -329,7 +329,7 @@ These standing project disciplines apply to every v1.5 phase — stated here onc
 | 28. Agent Surfacing & Contracts | v1.4 | 3/3 | Complete | 2026-06-15 |
 | 29. SearXNG Search Service | v1.5 | 3/3 | Complete | 2026-06-18 |
 | 30. OWUI Native-Search Wiring | v1.5 | 2/2 | Complete | 2026-06-19 |
-| 31. Grounded Fetch → Embed Grounding | v1.5 | 0/4 | Planned | - |
-| 32. Villa Injection Guard Layer | v1.5 | 0/? | Not started | - |
-| 33. Egress-Bounding + `villa verify search` | v1.5 | 0/? | Not started | - |
-| 34. Web-Search Surfacing | v1.5 | 0/? | Not started | - |
+| 31. Grounded Fetch → Embed Grounding | v1.5 | 4/4 | Complete | 2026-06-19 |
+| 32. Villa Injection Guard Layer | v1.5 | 3/3 | Complete | 2026-06-19 |
+| 33. Egress-Bounding + `villa verify search` | v1.5 | 3/3 | Complete | 2026-06-19 |
+| 34. Web-Search Surfacing | v1.5 | 5/5 | Complete | 2026-06-21 |

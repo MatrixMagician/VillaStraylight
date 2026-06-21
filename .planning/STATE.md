@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Web Search
-current_phase: 33
-status: verifying
-stopped_at: Phase 34 UI-SPEC approved
-last_updated: "2026-06-21T20:47:32.496Z"
-last_activity: 2026-06-19
-last_activity_desc: Phase 33 marked complete
+current_phase: 34
+status: complete
+stopped_at: Phase 34 complete — v1.5 all phases done, ready for milestone audit
+last_updated: "2026-06-21T21:31:15.534Z"
+last_activity: 2026-06-21
+last_activity_desc: Phase 34 complete — milestone v1.5 ready for audit
 progress:
   total_phases: 6
   completed_phases: 6
   total_plans: 20
   completed_plans: 20
   percent: 100
-current_phase_name: egress-bounding-villa-verify-search
+current_phase_name: web-search-surfacing-lands-last
 ---
 
 # Project State
@@ -24,20 +24,20 @@ current_phase_name: egress-bounding-villa-verify-search
 See: .planning/PROJECT.md (updated 2026-06-18 — milestone v1.5 Web Search started; SearXNG moved from Out of Scope to Active)
 
 **Core value:** Run a capable local AI workspace that "just works" after install — hardware-aware setup that brings inference, chat, and the dashboard up healthy, with zero data leaving the box. v1.2 extended the bar to "and stays operable, recoverable, and measurable over time." v1.3 extended it to "and remembers the user and their documents across chats — strictly local." v1.4 extended it to "and gives the operator a strictly-local terminal coding agent, wired to a fit-guarded coding model." v1.5 extends it to "and can ground answers in live web search when the operator opts in — accurate, up-to-date, with malicious-site prompt injection defended-in-depth and outbound provably bounded."
-**Current focus:** Phase 33 — egress-bounding-villa-verify-search
+**Current focus:** v1.5 Web Search — all 6 phases complete; milestone ready for audit → complete → cleanup
 
 ## Current Position
 
-Phase: 33 — COMPLETE
-Plan: 3 of 3
-Status: Phase complete — ready for verification
-Last activity: 2026-06-19 — Phase 33 marked complete
+Phase: 34 (complete) — milestone v1.5 ready for audit
+Plan: 5/5 complete
+Status: complete
+Last activity: 2026-06-21 — Phase 34 complete; v1.5 all 6 phases done
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 102 (v1.0 + v1.1: 48; v1.2: 19; v1.3: 20)
+- Total plans completed: 107 (v1.0 + v1.1: 48; v1.2: 19; v1.3: 20)
 - Average duration: 34 min
 - Total execution time: 2.2 hours
 
@@ -67,6 +67,7 @@ Last activity: 2026-06-19 — Phase 33 marked complete
 | 25 | 2 | - | - |
 | 27 | 6 | - | - |
 | 29 | 3 | - | - |
+| 34 | 5 | - | - |
 
 **Recent Trend:**
 
