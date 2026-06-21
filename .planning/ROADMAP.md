@@ -260,13 +260,13 @@ Plans:
   3. `villa doctor` folds web-search checks (on **doctor's own** schema bump) — service readiness, guard health, and egress-proof status — as tri-state (ready / degraded-with-reason / typed-Unknown), with an **offload-asserting residency check under search load** and remediation on every non-PASS.
   4. `villa backup`/`restore` cover the web-search configuration (SearXNG `settings.yml` provenance + the `WebSearchEnabled` gate), consistent with prior backup coverage; fetched ephemeral web content is **excluded by design**.
 
-**Plans**: 2/5 plans executed
+**Plans**: 3/5 plans executed
 
 Plans:
 
 - [x] 34-01-PLAN.md — NEW verifystate store (clone recall) + wire `villa verify search` to persist verdict+timestamp (the load-bearing cached source; SURF-04)
 - [x] 34-02-PLAN.md — backup/restore SearXNG settings.yml provenance entry (3→4, 0600-preserving; ephemeral content excluded; SURF-07)
-- [ ] 34-03-PLAN.md — status.Report 4→5 web_search block + outbound-bounded tri-state from cached verify + searxng/websafe dedicated rows + single golden re-freeze (SURF-04)
+- [x] 34-03-PLAN.md — status.Report 4→5 web_search block + outbound-bounded tri-state from cached verify + searxng/websafe dedicated rows + single golden re-freeze (SURF-04)
 - [ ] 34-04-PLAN.md — `villa doctor` web-search fold on its own 2→3 bump + offload-asserting residency-under-search-load + egress-proof from cached verify (SURF-06)
 - [ ] 34-05-PLAN.md — dashboard hidden-until-data XSS-safe Web Search panel (clone agent-panel; textContent-only; SURF-05)
 
