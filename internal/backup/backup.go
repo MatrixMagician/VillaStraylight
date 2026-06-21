@@ -117,6 +117,16 @@ type BackupInput struct {
 	EmbeddingDim        int
 	RecallSchemaVersion int
 
+	// SearxngSettingsPath is the resolved source path for the OPTIONAL Phase-34
+	// web-search settings.yml archive entry (SURF-07): the RENDERED SearXNG
+	// provenance ($XDG_CONFIG_HOME/villa/searxng/settings.yml). The cmd tier sets it
+	// ONLY on a web-search-on backup (gated on cfg.WebSearchEnabled); empty means web
+	// search off, so the entry is never offered to the core and the archive stays
+	// v3-layout-identical. An absent file at a non-empty path is skipped via
+	// FileMissing exactly like the other optional entries. Fetched EPHEMERAL web
+	// content is NEVER a source here — only this CONFIG provenance crosses (T-34-06).
+	SearxngSettingsPath string
+
 	// FileMissing classifies a ReadFile error as a tolerable absent-file (skip the
 	// entry) vs a hard error. The cmd layer wires os.IsNotExist; the pure core stays
 	// free of os. When nil, any ReadFile error is treated as hard.
@@ -225,6 +235,13 @@ func Backup(d Deps, in BackupInput) (retRes Result, retErr error) {
 		// crush.json on disk skips the entry rather than failing the backup. The
 		// agent BINARY is NEVER an entry — only its identity (ExcludedAgent) below.
 		{EntryCrushConfig, in.CrushConfigPath, false},
+		// The OPTIONAL Phase-34 web-search settings.yml provenance (SURF-07):
+		// present only on a web-search-on backup (the cmd tier passes
+		// SearxngSettingsPath="" when web search is off, skipping the row). An absent
+		// file at a non-empty path is tolerated via FileMissing exactly like the
+		// other optional entries. NO entry is ever added for fetched/ephemeral web
+		// content — only this rendered CONFIG provenance crosses (T-34-06).
+		{EntrySearxngSettings, in.SearxngSettingsPath, false},
 	}
 
 	var entries []archiveEntry

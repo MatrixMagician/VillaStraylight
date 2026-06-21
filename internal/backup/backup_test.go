@@ -531,6 +531,147 @@ func TestBackupAgentOnSkipsAbsentCrushConfig(t *testing.T) {
 	}
 }
 
+// TestBackupSearxngSettings asserts the OPTIONAL Phase-34 web-search settings.yml
+// provenance entry (SURF-07) behaves exactly like the crush.json optional entry:
+// present-when-set, absent-when-empty (web off), FileMissing-skipped-when-absent,
+// and the manifest stamps its OWN schema version 4 in every case (the manifest
+// stamps its own version, never a caller-supplied one).
+func TestBackupSearxngSettings(t *testing.T) {
+	t.Run("present when set", func(t *testing.T) {
+		f := newFakeBackupDeps()
+		f.files["/cfg/config.toml"] = []byte("model = \"x\"\n")
+		f.files["/searxng/settings.yml"] = []byte("use_default_settings: true\n")
+
+		in := baseBackupInput(nil)
+		var out bytes.Buffer
+		in.OutputWriter = &out
+		in.SearxngSettingsPath = "/searxng/settings.yml"
+
+		res, err := Backup(f.deps(), in)
+		if err != nil {
+			t.Fatalf("Backup err: %v (%+v)", err, res)
+		}
+		gotSettings := false
+		for _, n := range archiveNames(t, out.Bytes()) {
+			gotSettings = gotSettings || n == EntrySearxngSettings
+		}
+		if !gotSettings {
+			t.Fatalf("web-search-on backup missing %q entry: %v", EntrySearxngSettings, archiveNames(t, out.Bytes()))
+		}
+		m := manifestFromArchive(t, out.Bytes())
+		// settings.yml carries a checksum like every other member (T-34-07).
+		csum := map[string]bool{}
+		for _, e := range m.Entries {
+			csum[e.Name] = e.SHA256 != ""
+		}
+		if !csum[EntrySearxngSettings] {
+			t.Fatalf("settings.yml entry has no checksum: %+v", m.Entries)
+		}
+		// The manifest stamps its OWN backupSchemaVersion (4), never a caller value.
+		if m.SchemaVersion != backupSchemaVersion {
+			t.Fatalf("manifest must stamp schema %d, got %d", backupSchemaVersion, m.SchemaVersion)
+		}
+		if backupSchemaVersion != 4 {
+			t.Fatalf("Phase-34 backup contract is schema 4, got %d", backupSchemaVersion)
+		}
+	})
+
+	t.Run("skipped when empty (web off)", func(t *testing.T) {
+		f := newFakeBackupDeps()
+		f.files["/cfg/config.toml"] = []byte("model = \"x\"\n")
+
+		in := baseBackupInput(nil)
+		var out bytes.Buffer
+		in.OutputWriter = &out
+		in.SearxngSettingsPath = "" // web search off
+
+		res, err := Backup(f.deps(), in)
+		if err != nil {
+			t.Fatalf("web-off backup must not error: %v (%+v)", err, res)
+		}
+		for _, n := range archiveNames(t, out.Bytes()) {
+			if n == EntrySearxngSettings {
+				t.Fatalf("web-off backup must NOT include %q: %v", EntrySearxngSettings, archiveNames(t, out.Bytes()))
+			}
+		}
+		// Even with the v4 bump, a web-off backup still stamps schema 4 (the
+		// contract widened; the LAYOUT is identical to a v3 archive sans entry).
+		if m := manifestFromArchive(t, out.Bytes()); m.SchemaVersion != backupSchemaVersion {
+			t.Fatalf("manifest must stamp schema %d even when web off, got %d", backupSchemaVersion, m.SchemaVersion)
+		}
+	})
+
+	t.Run("FileMissing-skipped when absent", func(t *testing.T) {
+		f := newFakeBackupDeps()
+		f.files["/cfg/config.toml"] = []byte("model = \"x\"\n")
+		// NOTE: /searxng/settings.yml deliberately NOT seeded — ReadFile returns ErrNotExist.
+
+		in := baseBackupInput(nil)
+		var out bytes.Buffer
+		in.OutputWriter = &out
+		in.SearxngSettingsPath = "/searxng/settings.yml"
+
+		res, err := Backup(f.deps(), in)
+		if err != nil {
+			t.Fatalf("absent settings.yml must be skipped, not fatal: %v (%+v)", err, res)
+		}
+		for _, n := range archiveNames(t, out.Bytes()) {
+			if n == EntrySearxngSettings {
+				t.Fatalf("absent settings.yml must be skipped, but %q is present", EntrySearxngSettings)
+			}
+		}
+	})
+}
+
+// TestBackupExcludesEphemeral is the NEGATIVE assertion guarding SURF-07/T-34-06:
+// a web-search-on backup archives ONLY the rendered settings.yml CONFIG provenance
+// and NEVER any fetched/ephemeral web content — no query log, no fetched-URL log,
+// no per-page content key. The backup core exposes exactly one web-search source
+// field (SearxngSettingsPath); there is no input or archive entry for ephemeral
+// content, by construction.
+func TestBackupExcludesEphemeral(t *testing.T) {
+	f := newFakeBackupDeps()
+	f.files["/cfg/config.toml"] = []byte("model = \"x\"\n")
+	f.files["/searxng/settings.yml"] = []byte("use_default_settings: true\n")
+
+	in := baseBackupInput(nil)
+	var out bytes.Buffer
+	in.OutputWriter = &out
+	in.SearxngSettingsPath = "/searxng/settings.yml"
+
+	res, err := Backup(f.deps(), in)
+	if err != nil {
+		t.Fatalf("Backup err: %v (%+v)", err, res)
+	}
+	// No archive entry may reference a fetched-URL / query log / per-page ephemeral
+	// content key. The ONLY sanctioned web-search member is the settings.yml CONFIG.
+	bannedSubstrings := []string{"query", "queries", "fetched", "fetch-log", "url-log", "urls", "page_content", "ephemeral", "web-content", "search-log", "history"}
+	for _, n := range archiveNames(t, out.Bytes()) {
+		if n == EntrySearxngSettings {
+			continue // the sanctioned CONFIG provenance entry
+		}
+		low := strings.ToLower(n)
+		for _, b := range bannedSubstrings {
+			if strings.Contains(low, b) {
+				t.Fatalf("SURF-07/T-34-06: archive entry %q looks like ephemeral web content — only the settings.yml CONFIG may cross", n)
+			}
+		}
+	}
+	// And the manifest carries no ephemeral-content checksum either.
+	m := manifestFromArchive(t, out.Bytes())
+	for _, e := range m.Entries {
+		if e.Name == EntrySearxngSettings {
+			continue
+		}
+		low := strings.ToLower(e.Name)
+		for _, b := range bannedSubstrings {
+			if strings.Contains(low, b) {
+				t.Fatalf("SURF-07/T-34-06: manifest lists %q — no ephemeral web content may be archived", e.Name)
+			}
+		}
+	}
+}
+
 // TestBackupDeferredRestartFiresOnExportError asserts the OWUI service is restarted
 // (best-effort defer) even when the volume export fails mid-backup (D-05).
 func TestBackupDeferredRestartFiresOnExportError(t *testing.T) {
