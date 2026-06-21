@@ -11,14 +11,17 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/doctor"
 	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 	"github.com/MatrixMagician/VillaStraylight/internal/status"
+	"github.com/MatrixMagician/VillaStraylight/internal/verifystate"
 )
 
 // healthyReport is an all-PASS fixture (Overall PASS → exit 0).
@@ -436,6 +439,55 @@ func TestRunSearchResidencyUnderLoadPreconditionGate(t *testing.T) {
 	}
 	if v.Remediation == "" {
 		t.Errorf("typed-Unknown verdict must carry a Remediation (D-11)")
+	}
+}
+
+// writeVerifyState persists a verifystate.State at the live VerifyStatePath under the
+// test's XDG_DATA_HOME so liveSearchEgressProof (which reads the real store) can be driven
+// off-hardware. Callers MUST t.Setenv("XDG_DATA_HOME", …) before calling.
+func writeVerifyState(t *testing.T, verdict, checkedAt string) {
+	t.Helper()
+	path := verifystate.VerifyStatePath()
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatalf("mkdir verify-state dir: %v", err)
+	}
+	b, err := json.Marshal(verifystate.State{
+		SchemaVersion: verifystate.SchemaVersion(),
+		Verdict:       verdict,
+		CheckedAt:     checkedAt,
+	})
+	if err != nil {
+		t.Fatalf("marshal verify state: %v", err)
+	}
+	if err := os.WriteFile(path, b, 0o600); err != nil {
+		t.Fatalf("write verify state: %v", err)
+	}
+}
+
+// TestLiveSearchEgressProofFreshness asserts the doctor egress-proof seam mirrors the
+// status core's freshness gate (T-34-12) with the WR-01 lower-bound clamp: a fresh cached
+// PASS → StatusPass (outbound bounded); a STALE PASS → StatusWarn (re-prove); and a
+// FUTURE-dated PASS (clock-skewed/forged timestamp, negative age) → StatusWarn, NEVER
+// StatusPass. A future timestamp must be re-proven, never trusted as bounded.
+func TestLiveSearchEgressProofFreshness(t *testing.T) {
+	cases := []struct {
+		name      string
+		checkedAt string
+		want      inference.Status
+	}{
+		{"PASS fresh → StatusPass", time.Now().UTC().Format(time.RFC3339), inference.StatusPass},
+		{"PASS stale → StatusWarn", time.Now().Add(-searchVerifyFreshnessWindow - time.Hour).UTC().Format(time.RFC3339), inference.StatusWarn},
+		{"PASS future-dated → StatusWarn", time.Now().Add(time.Hour).UTC().Format(time.RFC3339), inference.StatusWarn},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("XDG_DATA_HOME", t.TempDir())
+			writeVerifyState(t, "PASS", tc.checkedAt)
+			v := liveSearchEgressProof()()
+			if v.Status != tc.want {
+				t.Errorf("liveSearchEgressProof Status = %v, want %v (detail %q)", v.Status, tc.want, v.Detail)
+			}
+		})
 	}
 }
 

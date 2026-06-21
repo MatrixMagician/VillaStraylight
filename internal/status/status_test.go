@@ -1024,6 +1024,18 @@ func staleVerify(verdict string) *verifystate.State {
 	}
 }
 
+// futureVerify returns a verifystate.State with the given verdict checked in the FUTURE
+// (a clock-skewed or forged timestamp). time.Since returns a negative age for it, so the
+// freshness gate's lower-bound clamp must treat even a PASS as "unknown" (WR-01 — a
+// future timestamp must be re-proven, never trusted as bounded).
+func futureVerify(verdict string) *verifystate.State {
+	return &verifystate.State{
+		SchemaVersion: verifystate.SchemaVersion(),
+		Verdict:       verdict,
+		CheckedAt:     time.Now().Add(time.Hour).UTC().Format(time.RFC3339),
+	}
+}
+
 // newWebSearchDeps builds the web-search-ON stub set: newDeps plus the web-search-on
 // config, the dedicated searxng/websafe health seams (ready by default), and a fresh
 // PASS verify result (the outbound-bounded happy path). Tests override individual
@@ -1131,6 +1143,7 @@ func TestWebSearchOutboundBounded(t *testing.T) {
 	}{
 		{"PASS fresh → bounded", func() *verifystate.State { return freshVerify("PASS") }, true, "bounded"},
 		{"PASS stale → unknown", func() *verifystate.State { return staleVerify("PASS") }, true, "unknown"},
+		{"PASS future-dated → unknown", func() *verifystate.State { return futureVerify("PASS") }, true, "unknown"},
 		{"FAIL fresh → not-bounded", func() *verifystate.State { return freshVerify("FAIL") }, true, "not-bounded"},
 		{"REJECT fresh → not-bounded", func() *verifystate.State { return freshVerify("REJECT") }, true, "not-bounded"},
 		{"absent store → unknown", func() *verifystate.State { return nil }, true, "unknown"},
@@ -1180,6 +1193,10 @@ func TestWebSearchOutboundBounded(t *testing.T) {
 		d.ReadVerifyState = func() *verifystate.State { return staleVerify("PASS") }
 		if r := Run(d); r.WebSearch == nil || r.WebSearch.VerifyCheckedAt != "" {
 			t.Errorf("stale result must OMIT verify_checked_at, got %+v", r.WebSearch)
+		}
+		d.ReadVerifyState = func() *verifystate.State { return futureVerify("PASS") }
+		if r := Run(d); r.WebSearch == nil || r.WebSearch.VerifyCheckedAt != "" {
+			t.Errorf("future-dated result must OMIT verify_checked_at, got %+v", r.WebSearch)
 		}
 		d.ReadVerifyState = func() *verifystate.State { return nil }
 		if r := Run(d); r.WebSearch == nil || r.WebSearch.VerifyCheckedAt != "" {

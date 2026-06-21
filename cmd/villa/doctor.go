@@ -628,9 +628,11 @@ func liveSearchEgressProof() func() inference.Verdict {
 			}
 		}
 		checked, perr := time.Parse(time.RFC3339, st.CheckedAt)
-		if perr != nil || time.Since(checked) > searchVerifyFreshnessWindow {
-			// Unparseable or stale → the property must be re-proven, NEVER read as bounded
-			// and NEVER inferred from cfg.WebSearchEnabled (T-34-12).
+		if perr != nil || time.Since(checked) < 0 || time.Since(checked) > searchVerifyFreshnessWindow {
+			// Unparseable, future-dated, or stale → the property must be re-proven, NEVER read
+			// as bounded and NEVER inferred from cfg.WebSearchEnabled (T-34-12). A future
+			// CheckedAt yields a negative age (never > window), so the lower-bound clamp is
+			// required to keep the no-false-green invariant (WR-01).
 			return inference.Verdict{
 				Status:      inference.StatusWarn,
 				Detail:      "no fresh verified outbound-bounded result (the last `villa verify search` is stale or absent)",

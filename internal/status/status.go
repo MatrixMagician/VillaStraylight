@@ -896,9 +896,11 @@ func webSearchInfo(readVerify func() *verifystate.State) *WebSearchInfo {
 	if err != nil {
 		return wi // unparseable timestamp → cannot assert freshness → "unknown"
 	}
-	if time.Since(checked) > verifyFreshnessWindow {
-		// Stale result — a PASS this old must be re-proven, NEVER read as bounded.
-		// VerifyCheckedAt stays omitted (no fabricated "current" timestamp).
+	if age := time.Since(checked); age < 0 || age > verifyFreshnessWindow {
+		// Stale OR future-dated result — a PASS this old (or stamped in the future by a
+		// skewed/forged clock) must be re-proven, NEVER read as bounded. A negative age
+		// is never > window, so the lower-bound clamp is required to keep the no-false-green
+		// invariant (WR-01). VerifyCheckedAt stays omitted (no fabricated "current" timestamp).
 		return wi
 	}
 	// Fresh, evaluable result: surface its timestamp and map the verdict.
