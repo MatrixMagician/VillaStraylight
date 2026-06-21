@@ -655,13 +655,15 @@ func TestDownStackWarnsNotBlocks(t *testing.T) {
 
 // --- Phase 28-01: coding-agent fold (SURF-02, D-06/D-07) ---
 
-// TestDoctorSchemaVersionIsTwo: the doctor --json contract self-version was bumped
-// append-only from 1→2 when the agent findings were folded in (this plan). The const
-// is the single source of truth — Aggregate stamps it on every Report.
-func TestDoctorSchemaVersionIsTwo(t *testing.T) {
+// TestDoctorSchemaVersionAgentFold: the doctor --json contract self-version reached 2 when
+// the agent findings were folded in (Phase 28-01). Phase 34-04 bumped it append-only 2→3
+// (the web-search fold, asserted by TestDoctorSchemaVersionIsThree); the const is the single
+// source of truth — Aggregate stamps it on every Report. This test now tracks the CURRENT
+// version so it cannot silently desync from the bump.
+func TestDoctorSchemaVersionAgentFold(t *testing.T) {
 	r := Aggregate(newDoctorDeps())
-	if r.SchemaVersion != 2 {
-		t.Fatalf("Report.SchemaVersion = %d, want 2 (append-only bump for the agent fold)", r.SchemaVersion)
+	if r.SchemaVersion != reportSchemaVersion {
+		t.Fatalf("Report.SchemaVersion = %d, want %d (the const is the single source of truth)", r.SchemaVersion, reportSchemaVersion)
 	}
 }
 
@@ -890,5 +892,156 @@ func TestAgentCleanDriftPasses(t *testing.T) {
 	r := Aggregate(agentDoctorDeps())
 	if r.Overall != "PASS" {
 		t.Fatalf("Overall = %q, want PASS (healthy agent-on stack, clean drift)", r.Overall)
+	}
+}
+
+// --- Phase 34-04: web-search fold (SURF-06, reportSchemaVersion 2→3) ---
+
+// TestDoctorSchemaVersionIsThree: doctor's OWN --json contract self-version was bumped
+// append-only 2→3 when the web-search findings were folded in (SURF-06). The const is the
+// single source of truth — Aggregate stamps it on every Report. INDEPENDENT of status's
+// reportSchemaVersion (5).
+func TestDoctorSchemaVersionIsThree(t *testing.T) {
+	r := Aggregate(newDoctorDeps())
+	if r.SchemaVersion != 3 {
+		t.Fatalf("Report.SchemaVersion = %d, want 3 (append-only bump for the web-search fold)", r.SchemaVersion)
+	}
+}
+
+// TestAggregateWebSearch proves the nil-safe fold: with both web-search seams nil (web
+// off — the newDoctorDeps default) Aggregate emits NO web-search finding (byte-identical
+// except the schema bump, which is covered separately); with the seams bound the egress
+// and residency findings are present.
+func TestAggregateWebSearch(t *testing.T) {
+	t.Run("web-off-no-findings", func(t *testing.T) {
+		r := Aggregate(newDoctorDeps())
+		for _, id := range []string{"search-egress", "search-residency"} {
+			if hasFinding(r, id) {
+				t.Errorf("web-off Aggregate emitted finding %q — web-search Deps seams must be nil-safe (no PASS-by-default)", id)
+			}
+		}
+	})
+	t.Run("web-on-findings-present", func(t *testing.T) {
+		d := newDoctorDeps()
+		d.SearchEgressProof = func() inference.Verdict {
+			return inference.Verdict{Status: inference.StatusPass, Detail: "outbound bounded: a recent verify search PASS"}
+		}
+		d.SearchResidencyUnderLoad = func() inference.Verdict {
+			return inference.Verdict{Status: inference.StatusPass, Detail: "chat model resident under search load"}
+		}
+		r := Aggregate(d)
+		if _, ok := findingByID(r, "search-egress"); !ok {
+			t.Errorf("search-egress finding missing with SearchEgressProof bound")
+		}
+		if _, ok := findingByID(r, "search-residency"); !ok {
+			t.Errorf("search-residency finding missing with SearchResidencyUnderLoad bound")
+		}
+	})
+}
+
+// TestSearchEgressFinding is the tri-state truth table for the egress-proof mapper
+// (T-34-12): a cached verify PASS+fresh → ready (PASS, no remediation); a real recent
+// non-PASS → degraded-with-reason (FAIL/WARN + remediation); a stale/absent cache →
+// typed-Unknown WARN + remediation. The Verdict is consumed opaquely (the cmd-tier
+// closure does the freshness mapping), so the switch mirrors offloadFinding's grammar.
+func TestSearchEgressFinding(t *testing.T) {
+	cases := []struct {
+		name       string
+		in         inference.Verdict
+		wantStatus string
+		wantRemed  bool
+	}{
+		{"ready", inference.Verdict{Status: inference.StatusPass, Detail: "outbound bounded"}, statusPass, false},
+		{"degraded", inference.Verdict{Status: inference.StatusFail, Detail: "a recent verify search FAILed"}, statusFail, true},
+		{"unknown", inference.Verdict{Status: inference.StatusWarn, Detail: "no fresh verify search result"}, statusWarn, true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			f := searchEgressFinding(c.in)
+			if f.ID != "search-egress" {
+				t.Errorf("ID = %q, want search-egress", f.ID)
+			}
+			if f.Status != c.wantStatus {
+				t.Errorf("Status = %q, want %q", f.Status, c.wantStatus)
+			}
+			if c.wantRemed && f.Remediation == "" {
+				t.Errorf("non-PASS egress finding has empty Remediation (D-11)")
+			}
+			if !c.wantRemed && f.Remediation != "" {
+				t.Errorf("PASS egress finding carries a Remediation %q", f.Remediation)
+			}
+		})
+	}
+}
+
+// TestSearchResidencyFinding is the offload-FAIL-dominates truth table for the
+// residency-under-search-load mapper (T-34-13): a confident CPU-fallback Verdict is a
+// BLOCK-class FAIL that DOMINATES a healthy-looking HTTP-200 (never an idle-sampled
+// false-green); a not-in-flight / unevaluable Verdict → typed-Unknown WARN.
+func TestSearchResidencyFinding(t *testing.T) {
+	cases := []struct {
+		name       string
+		in         inference.Verdict
+		wantTier   string
+		wantStatus string
+		wantRemed  bool
+	}{
+		{"pass", inference.Verdict{Status: inference.StatusPass, Detail: "chat model resident under search load"}, tierBlock, statusPass, false},
+		{"cpu-fallback", inference.Verdict{Status: inference.StatusFail, Detail: "only a CPU model buffer was loaded — server fell back to CPU under search load"}, tierBlock, statusFail, true},
+		{"not-in-flight", inference.Verdict{Status: inference.StatusWarn, Detail: "no search-augmented round stayed in flight long enough to sample"}, tierWarn, statusWarn, true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			f := searchResidencyFinding(c.in)
+			if f.ID != "search-residency" {
+				t.Errorf("ID = %q, want search-residency", f.ID)
+			}
+			if f.Tier != c.wantTier || f.Status != c.wantStatus {
+				t.Errorf("(tier %s, status %s), want (%s, %s)", f.Tier, f.Status, c.wantTier, c.wantStatus)
+			}
+			if c.wantRemed && f.Remediation == "" {
+				t.Errorf("non-PASS residency finding has empty Remediation (D-11)")
+			}
+		})
+	}
+}
+
+// TestSearchResidencyFoldedFailDominatesHealth proves the no-false-green invariant at the
+// Aggregate level: a confident CPU-fallback search-residency Verdict folds worst-wins to
+// Overall==FAIL even over an all-healthy HTTP-200 stack (T-34-13).
+func TestSearchResidencyFoldedFailDominatesHealth(t *testing.T) {
+	d := newDoctorDeps() // healthy HTTP-200 stack
+	d.SearchResidencyUnderLoad = func() inference.Verdict {
+		return inference.Verdict{Status: inference.StatusFail, Detail: "the chat model fell back to CPU under search load"}
+	}
+	r := Aggregate(d)
+	if r.Overall != "FAIL" {
+		t.Fatalf("Overall = %q, want FAIL (a confident CPU-fallback under search load must dominate a health-200)", r.Overall)
+	}
+	f, ok := findingByID(r, "search-residency")
+	if !ok || f.Status != statusFail || f.Tier != tierBlock {
+		t.Errorf("search-residency = %+v (found=%v), want a BLOCK-class FAIL not masked by HTTP-200", f, ok)
+	}
+}
+
+// TestWebSearchFindingsHaveRemediation asserts EVERY non-PASS web-search finding carries a
+// non-empty Remediation (D-11), across the egress and residency mappers' non-PASS branches.
+func TestWebSearchFindingsHaveRemediation(t *testing.T) {
+	d := newDoctorDeps()
+	d.SearchEgressProof = func() inference.Verdict {
+		return inference.Verdict{Status: inference.StatusWarn, Detail: "no fresh verify search result"}
+	}
+	d.SearchResidencyUnderLoad = func() inference.Verdict {
+		return inference.Verdict{Status: inference.StatusFail, Detail: "fell back to CPU under search load"}
+	}
+	r := Aggregate(d)
+	for _, id := range []string{"search-egress", "search-residency"} {
+		f, ok := findingByID(r, id)
+		if !ok {
+			t.Fatalf("finding %q missing", id)
+		}
+		if f.Status != statusPass && f.Remediation == "" {
+			t.Errorf("non-PASS web-search finding %q has empty Remediation (D-11)", id)
+		}
 	}
 }

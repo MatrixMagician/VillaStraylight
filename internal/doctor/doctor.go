@@ -58,7 +58,12 @@ const (
 //   - v2: the coding-agent fold (Phase 28-01, SURF-02) — additive agent findings
 //     (agent-tool-call / agent-residency / agent-binary-drift / agent-config-drift).
 //     No existing field changed shape; agent-off output is byte-identical except this bump.
-const reportSchemaVersion = 2
+//   - v3: the web-search fold (Phase 34-04, SURF-06) — additive web-search findings
+//     (search-egress / search-residency). searxng/websafe service readiness is composed
+//     from the status read-model rows (no new finding type). No existing field changed
+//     shape; web-search-OFF output is byte-identical except this bump (nil seams emit no
+//     findings). This is doctor's OWN version — INDEPENDENT of status.reportSchemaVersion (5).
+const reportSchemaVersion = 3
 
 // The three typed-Unknown ROCm host-prep check IDs that a PROVEN ROCm residency
 // supersedes (down-ranks, never deletes). They INTENTIONALLY duplicate the preflight
@@ -178,6 +183,30 @@ type Deps struct {
 	// outcome. It is surfaced, NEVER auto-corrected (D-14). NIL-SAFE: when nil (agent
 	// off) NO agent drift finding is emitted at all.
 	AgentDrift func() agent.DriftReport
+	// SearchEgressProof is the web-search egress-proof seam (SURF-06, T-34-12): the cmd
+	// tier reads the CACHED `villa verify search` result (verifystate.Load) and maps it to
+	// a tri-state inference.Verdict consumed OPAQUELY here (Status/Detail/Remediation only
+	// — seam-clean): a fresh cached PASS → StatusPass (ready); a real recent non-PASS →
+	// StatusFail (degraded-with-reason); a stale/absent cache → StatusWarn (typed-Unknown,
+	// NEVER a config-bool-derived PASS). NIL-SAFE: when nil (web search off) NO search-egress
+	// finding is emitted at all — never a PASS-by-default (no-false-green).
+	SearchEgressProof func() inference.Verdict
+	// SearchResidencyUnderLoad is the chat-model residency-under-SEARCH-load proof (SURF-06,
+	// T-34-13): the cmd tier drives a bounded search-augmented chat workload (with villa-searxng
+	// /villa-websafe up) and samples the served model's GTT/journal residency MID-DRIVE,
+	// returning the Verdict consumed OPAQUELY here. A confident CPU fallback under search load
+	// is a BLOCK-class FAIL that DOMINATES a healthy-looking HTTP-200; a not-in-flight /
+	// unevaluable signal → typed-Unknown WARN (never an idle-sampled false-green). NIL-SAFE:
+	// when nil (web search off) NO search-residency finding is emitted at all.
+	//
+	// SCOPE OMISSION (SURF-06, accepted limit): guard health has NO host-side source — the
+	// per-request guard metadata lives in-container only, with no host aggregate. Building a
+	// guard counter/health pipeline = NEW behavior = OUT OF SCOPE for this surfacing phase, so
+	// NO guard-health finding is emitted (a documented omission, never a fabricated PASS/0).
+	// searxng/websafe service READINESS is folded for free: status.Run already emits dedicated
+	// villa-searxng/villa-websafe Services rows (Plan 03) which flow through the existing
+	// healthFinding loop — no new finding type is added here (composition, RESEARCH A1).
+	SearchResidencyUnderLoad func() inference.Verdict
 }
 
 // statusOrder maps the doctor status vocabulary to a worst-wins rank (PASS<WARN<FAIL).
@@ -315,6 +344,23 @@ func Aggregate(d Deps) Report {
 	}
 	if d.AgentDrift != nil {
 		findings = append(findings, agentDriftFindings(d.AgentDrift())...)
+	}
+
+	// 2d. WEB-SEARCH FOLD (SURF-06, T-34-12/T-34-13): when web search is enabled the cmd
+	// tier binds the two web-search seams; each NIL seam (web off) emits NO finding (never a
+	// PASS-by-default — web-off output stays byte-identical except the schema bump). The
+	// egress-proof finding is a tri-state derived from the CACHED `villa verify search`
+	// result (NEVER a config bool, T-34-12); the residency finding is offload-asserting — a
+	// confident CPU fallback under search load folds worst-wins and DOMINATES a healthy-looking
+	// HTTP-200 (T-34-13, the offload-FAIL-dominates switch cloned below). searxng/websafe
+	// service READINESS needs NO finding here — status.Run already surfaces dedicated
+	// villa-searxng/villa-websafe rows (Plan 03) folded by the healthFinding loop in step 2.
+	// Guard health is a documented OMISSION (no host-side source — accepted scope limit).
+	if d.SearchEgressProof != nil {
+		findings = append(findings, searchEgressFinding(d.SearchEgressProof()))
+	}
+	if d.SearchResidencyUnderLoad != nil {
+		findings = append(findings, searchResidencyFinding(d.SearchResidencyUnderLoad()))
 	}
 
 	// 3. DRIFT — config-vs-disk drift is independent of running-stack health: even a
@@ -577,6 +623,77 @@ func agentResidencyFinding(v inference.Verdict) Finding {
 		f.Tier = tierWarn
 		f.Status = statusWarn
 		f.Remediation = nonEmpty(v.Remediation, "could not evaluate coder residency under tool-call load — ensure the stack is running, then re-run `villa doctor`")
+	}
+	return f
+}
+
+// searchEgressFinding maps the web-search egress-proof Verdict (SURF-06, T-34-12) into a
+// doctor Finding. The Verdict is consumed OPAQUELY (Status/Detail/Remediation only —
+// seam-clean): the cmd tier has already mapped the CACHED `villa verify search` result to
+// a tri-state (PASS+fresh → StatusPass "ready"; a real recent non-PASS → StatusFail
+// "degraded-with-reason"; stale/absent → StatusWarn typed-Unknown). This switch mirrors
+// offloadFinding's grammar but the egress-proof tiers differ: a degraded egress proof is a
+// real, confident security-property FAILURE (a verify search that did NOT pass) — a
+// BLOCK-class FAIL, never swallowed; a stale/absent cache is a WARN-tier typed-Unknown
+// (the property must be re-proven, never trusted indefinitely — and never a config-bool
+// PASS). Every non-PASS branch carries a Remediation (D-11). Emitted only when
+// Deps.SearchEgressProof is non-nil.
+func searchEgressFinding(v inference.Verdict) Finding {
+	f := Finding{
+		ID:         "search-egress",
+		Name:       "Web-search outbound-bounded proof",
+		Detail:     v.Detail,
+		Provenance: "cached `villa verify search` result (verifystate.Load) + freshness gate",
+	}
+	switch v.Status {
+	case inference.StatusPass:
+		// A fresh cached verify-search PASS — outbound is proven bounded (ready).
+		f.Tier = tierBlock
+		f.Status = statusPass
+	case inference.StatusFail:
+		// A real RECENT verify-search non-PASS — the outbound-bounded security property is
+		// confidently NOT holding (degraded-with-reason). A real fault, never a false-green.
+		f.Tier = tierBlock
+		f.Status = statusFail
+		f.Remediation = nonEmpty(v.Remediation, "the last `villa verify search` did not pass — re-run `villa verify search` and check `villa logs`")
+	default: // StatusWarn — no fresh evaluable proof (stale/absent cache)
+		// typed-Unknown: a security property must be re-proven, NEVER trusted from a stale
+		// cache and NEVER inferred from cfg.WebSearchEnabled (T-34-12).
+		f.Tier = tierWarn
+		f.Status = statusWarn
+		f.Remediation = nonEmpty(v.Remediation, "no fresh verified outbound-bounded result — run `villa verify search`, then re-run `villa doctor`")
+	}
+	return f
+}
+
+// searchResidencyFinding maps the chat-model residency-under-SEARCH-load proof Verdict
+// (SURF-06, T-34-13) into a doctor Finding, using the IDENTICAL offload-FAIL-dominates
+// switch (the project's offload-asserting invariant applied to the search path): a confident
+// CPU fallback of the served model under search load is a BLOCK-class FAIL that DOMINATES a
+// health-200 — never a false-green; a not-in-flight / unevaluable proof degrades to a
+// typed-Unknown WARN (never an idle-sampled false-green PASS). Emitted only when
+// Deps.SearchResidencyUnderLoad is non-nil.
+func searchResidencyFinding(v inference.Verdict) Finding {
+	f := Finding{
+		ID:         "search-residency",
+		Name:       "Chat-model residency under search load",
+		Detail:     v.Detail,
+		Provenance: "search-load drive + inference.RunningOffloadVerdict",
+	}
+	switch v.Status {
+	case inference.StatusPass:
+		f.Tier = tierBlock
+		f.Status = statusPass
+	case inference.StatusFail:
+		// Confident CPU fallback of the served model under search load = a real fault
+		// (BLOCK FAIL) — never a false-green over a healthy-looking HTTP-200.
+		f.Tier = tierBlock
+		f.Status = statusFail
+		f.Remediation = nonEmpty(v.Remediation, "the chat model fell back to CPU under search load — check the backend (`villa backend set`) and `villa logs`")
+	default: // StatusWarn — residency under search load could not be EVALUATED
+		f.Tier = tierWarn
+		f.Status = statusWarn
+		f.Remediation = nonEmpty(v.Remediation, "could not evaluate residency under search load — ensure the stack (incl. villa-searxng/villa-websafe) is running, then re-run `villa doctor`")
 	}
 	return f
 }
