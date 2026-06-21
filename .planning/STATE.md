@@ -3,17 +3,17 @@ gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Web Search
 current_phase: 33
-status: completed
-stopped_at: Phase 31 COMPLETE — on-hardware UAT PASSED (A1 retrieval-fix key confirmed; GROUND-01 grounded cited answer w/ live URLs; GROUND-02 ephemeral collection isolated from durable; GROUND-03 offload PASS under load; GUARD-01/05 SSRF live). VERIFICATION passed 5/5. Deep code review found+fixed 3 defects (CR-01 extractTitle DoS panic, CR-02 extractText swallow, WR-01 restore websafe.env). UAT also surfaced+fixed an install secret-env gap. Ready to plan Phase 32.
-last_updated: "2026-06-19T23:13:15.423Z"
+status: verifying
+stopped_at: Phase 34 UI-SPEC approved
+last_updated: "2026-06-21T20:00:13.874Z"
 last_activity: 2026-06-19
 last_activity_desc: Phase 33 marked complete
 progress:
   total_phases: 6
   completed_phases: 5
-  total_plans: 15
-  completed_plans: 15
-  percent: 83
+  total_plans: 20
+  completed_plans: 16
+  percent: 80
 current_phase_name: egress-bounding-villa-verify-search
 ---
 
@@ -30,7 +30,7 @@ See: .planning/PROJECT.md (updated 2026-06-18 — milestone v1.5 Web Search star
 
 Phase: 33 — COMPLETE
 Plan: 3 of 3
-Status: Phase 33 complete
+Status: Phase complete — ready for verification
 Last activity: 2026-06-19 — Phase 33 marked complete
 
 ## Performance Metrics
@@ -131,6 +131,7 @@ Last activity: 2026-06-19 — Phase 33 marked complete
 | Phase 32 P03 | 20m | 2 tasks | 4 files |
 | Phase 33 P01 | 4m | 2 tasks | 3 files |
 | Phase 33 P02 | ~12m | 2 tasks | 6 files |
+| Phase 34 P01 | 4min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -172,6 +173,8 @@ Earlier (v1.0–v1.4) standing decisions retained:
 - [Phase ?]: GUARD-04 rule families use multi-word imperative phrases (not bare tokens) to protect classifier precision
 - [Phase ?]: GUARD-03 fence puts a crypto/rand nonce on both delimiters so the closing tag is non-forgeable
 - [Phase ?]: 33-02: verify search live seam reuses shipped liveLoadedWebSearchEnabled gate; nft uses --file - to preserve the WR-02 curl-f-omitted invariant; PRIV-08 stays In Progress (on-hardware proof in Plan 03).
+- [Phase ?]: [34-01]: new internal/verifystate store clones the recall-store discipline (clone-don't-import); Save stamps schema_version itself; fail-closed Load (absent/corrupt/future-schema => empty State, never a fabricated PASS, T-34-01); verify-search-state.json at $XDG_DATA_HOME/villa, 0600 atomic traversal-guarded write.
+- [Phase ?]: [34-01]: villa verify search persists the verdict best-effort via a new persistFn seam after the proof; a persist failure NEVER changes the exit code and the persist stays OUT of the pure evalSearchVerify core. Plan 03 derives bounded from verifystate.Load + a freshness gate, never from cfg.WebSearchEnabled.
 
 ### Pending Todos
 
@@ -256,9 +259,9 @@ Items deferred at v1.5 roadmap creation (2026-06-18, research-recorded):
 
 ## Session Continuity
 
-Last session: 2026-06-19T22:32:20.035Z
-Stopped at: Phase 30 COMPLETE — on-hardware UAT PASSED (SC#2 grounded via D-06 BYPASS_WEB_SEARCH_EMBEDDING_AND_RETRIEVAL direct-inject fix; SC#3 no-fabrication). Ready to plan Phase 31 (Grounded Fetch → Embed Grounding).
-Resume file: .planning/phases/30-owui-native-search-wiring/30-VERIFICATION.md
+Last session: 2026-06-21T19:59:28.559Z
+Stopped at: Phase 34 UI-SPEC approved
+Resume file: .planning/phases/34-web-search-surfacing-lands-last/34-UI-SPEC.md
 
 ## Operator Next Steps
 
