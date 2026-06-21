@@ -79,8 +79,8 @@ Which phase covers which requirement. Populated during roadmap creation.
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | SRCH-01 | Phase 29 | Complete |
-| SRCH-02 | Phase 30 | Pending |
-| SRCH-03 | Phase 30 | Pending |
+| SRCH-02 | Phase 30 | Complete |
+| SRCH-03 | Phase 30 | Complete |
 | SRCH-04 | Phase 29 | Complete |
 | GROUND-01 | Phase 31 | Complete |
 | GROUND-02 | Phase 31 | Complete |
@@ -91,7 +91,7 @@ Which phase covers which requirement. Populated during roadmap creation.
 | GUARD-04 | Phase 32 | Complete |
 | GUARD-05 | Phase 31 | Complete |
 | PRIV-07 | Phase 33 | Complete |
-| PRIV-08 | Phase 33 | In Progress |
+| PRIV-08 | Phase 33 | Complete |
 | PRIV-09 | Phase 33 | Complete |
 | SURF-04 | Phase 34 | Complete |
 | SURF-05 | Phase 34 | Complete |
