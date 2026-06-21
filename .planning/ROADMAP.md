@@ -113,7 +113,7 @@ Audit `tech_debt` — 17/17 requirements satisfied, integration PASS (7/7 seam g
 - [x] **Phase 30: OWUI Native-Search Wiring** - Env-only opt-in wiring of OWUI's native SearXNG search behind the orchestrate seam, off-render byte-identical to v1.4 (complete 2026-06-19; on-hardware UAT PASSED — SC#2 grounded answer reached via D-06 `BYPASS_WEB_SEARCH_EMBEDDING_AND_RETRIEVAL` direct-inject fix, SC#3 no-fabrication confirmed; D-06 deviates from "reuse embed/retrieve verbatim" → reconcile in Phase 31)
 - [x] **Phase 31: Grounded Fetch → Embed Grounding** - The `villa-websafe` fetch path: full-page fetch → embed via v1.3 RAG → cited answer, dedicated ephemeral collection, ctx reservation, SSRF guard (completed 2026-06-19)
 - [x] **Phase 32: Villa Injection Guard Layer** - Sanitize + Unicode-normalize + nonced provenance-fence + heuristic flag-not-block classifier layered onto the fetch path (reduces/flags, never eliminates) (completed 2026-06-19)
-- [ ] **Phase 33: Egress-Bounding + `villa verify search`** - The honest backstop: inverse-framed negative-control-first egress proof under a real rootless-netns nft block; opt-in/default-off honesty
+- [x] **Phase 33: Egress-Bounding + `villa verify search`** - The honest backstop: inverse-framed negative-control-first egress proof under a real rootless-netns nft block; opt-in/default-off honesty (completed 2026-06-19)
 - [ ] **Phase 34: Web-Search Surfacing (LANDS LAST)** - The single `status.Report` 4→5 bump + dashboard Web Search panel + doctor checks + backup/restore coverage; outbound-bounded indicator derives from the real verify-search result
 
 ## Phase Details
@@ -231,7 +231,7 @@ Plans:
   3. The proof also asserts a planted-injection page comes back stripped + fenced + flagged, exercises SSRF internal-host cases, and includes a secret-in-query-string exfil case.
   4. OWUI's lazy/background outbound (HuggingFace pulls, telemetry) is killed (`HF_HUB_OFFLINE` + telemetry kill switches) and any web-search-required weights are pre-staged, so the only sanctioned runtime outbound is SearXNG upstreams + result-page fetches.
 
-**Plans**: 2/3 plans executed
+**Plans**: 3/3 plans complete
 
 Plans:
 **Wave 1**
@@ -244,7 +244,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 33-03-PLAN.md — On-hardware bound-mechanics finalization (arch A/B) + real `villa verify search` PASS + no-HF-pull UAT (human checkpoint)
+- [x] 33-03-PLAN.md — On-hardware bound-mechanics finalization (arch A/B) + real `villa verify search` PASS + no-HF-pull UAT (human checkpoint)
 
 **Research**: `/gsd-plan-phase --research-phase` — needs the exact rootless-netns nft mechanics for the inverse-framed bound. The v1.4 verify-agent four-layer harness is the template, but the canary/allowlist assertions are new and **easy to get backwards** (off-allowlist canary reachable unguarded, blocked under the bound — never invert this).
 
@@ -260,7 +260,15 @@ Plans:
   3. `villa doctor` folds web-search checks (on **doctor's own** schema bump) — service readiness, guard health, and egress-proof status — as tri-state (ready / degraded-with-reason / typed-Unknown), with an **offload-asserting residency check under search load** and remediation on every non-PASS.
   4. `villa backup`/`restore` cover the web-search configuration (SearXNG `settings.yml` provenance + the `WebSearchEnabled` gate), consistent with prior backup coverage; fetched ephemeral web content is **excluded by design**.
 
-**Plans**: TBD
+**Plans**: 5 plans
+
+Plans:
+- [ ] 34-01-PLAN.md — NEW verifystate store (clone recall) + wire `villa verify search` to persist verdict+timestamp (the load-bearing cached source; SURF-04)
+- [ ] 34-02-PLAN.md — backup/restore SearXNG settings.yml provenance entry (3→4, 0600-preserving; ephemeral content excluded; SURF-07)
+- [ ] 34-03-PLAN.md — status.Report 4→5 web_search block + outbound-bounded tri-state from cached verify + searxng/websafe dedicated rows + single golden re-freeze (SURF-04)
+- [ ] 34-04-PLAN.md — `villa doctor` web-search fold on its own 2→3 bump + offload-asserting residency-under-search-load + egress-proof from cached verify (SURF-06)
+- [ ] 34-05-PLAN.md — dashboard hidden-until-data XSS-safe Web Search panel (clone agent-panel; textContent-only; SURF-05)
+
 **UI hint**: yes
 
 ## Cross-Cutting Constraints (v1.5)
