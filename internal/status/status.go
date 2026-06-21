@@ -15,6 +15,7 @@ package status
 import (
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/agent"
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
@@ -23,6 +24,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 	"github.com/MatrixMagician/VillaStraylight/internal/recall"
 	"github.com/MatrixMagician/VillaStraylight/internal/usage"
+	"github.com/MatrixMagician/VillaStraylight/internal/verifystate"
 )
 
 // noTelemetryStatement is the PRIV-03 assertion the report always carries.
@@ -160,6 +162,18 @@ type Report struct {
 	// moved). Part of the v4 bump — the phase's ONLY contract change.
 	Coding *CodingInfo `json:"coding,omitempty"`
 
+	// WebSearch is the v1.5 web-search summary section of the Report (Phase-34
+	// SURF-04): the enabled state plus the outbound-bounded indicator DERIVED from
+	// the cached `villa verify search` result (verifystate.State) with a freshness
+	// gate — NEVER from cfg.WebSearchEnabled (T-34-08). Like Memory/Coding it is a
+	// *WebSearchInfo + omitempty so a web-search-OFF install OMITS the key entirely —
+	// with web search off the v5 contract differs from v4 ONLY in schema_version
+	// (the agent-off hidden-until-data precedent). The villa-searxng / villa-websafe
+	// health rows surface as Services entries (dedicated in-network seams), NOT as
+	// WebSearchInfo sub-fields. Tail-appended above SchemaVersion (append-only;
+	// nothing above moved). Part of the v5 bump — the phase's ONLY contract change.
+	WebSearch *WebSearchInfo `json:"web_search,omitempty"`
+
 	// SchemaVersion is the Report contract self-version (D-07). It MUST stay the
 	// LAST tagged field (append-only; new tagged fields go above it, the unexported
 	// err stays after it and never serializes).
@@ -180,10 +194,21 @@ type Report struct {
 // (*MemoryInfo, omitted when memory is off). Version 4 (Phase-28, D-01/D-02/D-04)
 // tail-appends the coding-agent section (*CodingInfo, omitted when the agent is
 // off) ABOVE SchemaVersion — the v1.4 milestone's SINGLE contract evolution;
-// with the agent off the v4 output differs from v3 ONLY in schema_version. It is
-// itself a tail-appended additive marker (D-07); bumped on any additive change to
-// the Report --json contract.
-const reportSchemaVersion = 4
+// with the agent off the v4 output differs from v3 ONLY in schema_version. Version
+// 5 (Phase-34, SURF-04) tail-appends the web-search section (*WebSearchInfo,
+// omitted when web search is off) ABOVE SchemaVersion — the v1.5 milestone's SINGLE
+// contract evolution; with web search off the v5 output differs from v4 ONLY in
+// schema_version. It is itself a tail-appended additive marker (D-07); bumped on
+// any additive change to the Report --json contract.
+const reportSchemaVersion = 5
+
+// verifyFreshnessWindow bounds how recent a persisted `villa verify search` PASS must
+// be to surface as the green "bounded" outbound indicator (Open Q3 — SURF-04). A PASS
+// older than this window degrades to "unknown" ("unavailable"), NEVER green: a security
+// property must be re-proven, not trusted indefinitely from a stale cache (T-34-08).
+// Defined ONCE in the status core so both `villa status --json` and the dashboard
+// inherit the SAME freshness gate.
+const verifyFreshnessWindow = 24 * time.Hour
 
 // MemoryInfo is the v1.3 memory-stack summary section of the Report (Phase-23
 // D-02). EmbeddingModel/EmbeddingDim are the ACTIVE configured identity
@@ -239,6 +264,48 @@ type CodingInfo struct {
 	CacheN                uint64   `json:"cache_n,omitempty"`
 	PromptN               uint64   `json:"prompt_n,omitempty"`
 }
+
+// WebSearchInfo is the v1.5 web-search summary section of the Report (Phase-34
+// SURF-04). It clones the MemoryInfo/CodingInfo sidecar idiom (snake_case +
+// omitempty tails) and is built ONLY when web search is enabled
+// (cfg.WebSearchEnabled), so its Enabled field is always true. The field set is
+// deliberately MINIMAL (the documented accepted scope limit):
+//
+//   - Enabled is always true (the section is built ONLY when cfg.WebSearchEnabled).
+//   - OutboundBounded is a TRI-STATE string ("bounded"/"not-bounded"/"unknown")
+//     DERIVED from the cached `villa verify search` result (verifystate.State) with
+//     a freshness gate — green ONLY for a real RECENT PASS; a real recent non-PASS
+//     verdict → "not-bounded"; a stale PASS, an absent/corrupt store, or a nil seam
+//     → "unknown" (typed-Unknown "unavailable"). It is NEVER derived from
+//     cfg.WebSearchEnabled (T-34-08 — the no-false-green spoof guard). It is NOT
+//     omitempty: the tri-state always surfaces so an unevaluable bound is honestly
+//     "unknown", never a silent absence.
+//   - VerifyCheckedAt is the RFC3339 timestamp of the cached verify result, carried
+//     ONLY when a non-stale result exists (omitempty drops it for a stale/absent
+//     result) — never a fabricated "never".
+//
+// SOURCE-GAP fields (guard strip/flag counters, last_query_at, outbound-visibility
+// last_query/last_fetched[]) have NO host-side persisted source today and are
+// OMITTED — surfacing them would require a query/URL log that conflicts with the
+// "ephemeral content excluded by design" posture (SURF-07/T-34-10). Building a
+// counter/query-log pipeline is NEW behavior and OUT OF SCOPE for this surfacing
+// phase. The villa-searxng / villa-websafe health rows surface as Services entries
+// (their own in-network seams), NOT as WebSearchInfo sub-fields.
+type WebSearchInfo struct {
+	Enabled         bool   `json:"enabled"`
+	OutboundBounded string `json:"outbound_bounded"`
+	VerifyCheckedAt string `json:"verify_checked_at,omitempty"`
+}
+
+// Outbound-bounded tri-state tokens (T-34-08). "bounded" is reserved for a real
+// RECENT verify-search PASS; "not-bounded" is a real recent non-PASS verdict;
+// "unknown" is the typed-Unknown default (stale/absent/nil) — NEVER green by default,
+// NEVER inferred from cfg.WebSearchEnabled.
+const (
+	OutboundBounded    = "bounded"
+	OutboundNotBounded = "not-bounded"
+	OutboundUnknown    = "unknown"
+)
 
 // Pin-match tri-state tokens (D-03). The comparison degrades to PinUnknown when
 // the policy/binary hashes cannot be compared — never a fabricated confident
@@ -376,6 +443,36 @@ type Deps struct {
 	// seam is treated the same (Run guards it).
 	ReadRecallState func() *recall.State
 
+	// --- Web-search seams (Phase-34 SURF-04). All nil-safe: a nil seam degrades to
+	// typed-Unknown (no fabricated value), mirroring the qdrant/embed + ReadRecallState
+	// contract. The service-row seams are consulted ONLY when the matching service unit
+	// is rendered; ReadVerifyState is consulted ONLY when web search is enabled (Run
+	// gates on cfg.WebSearchEnabled).
+
+	// SearxngService/WebsafeService are the villa-searxng.service / villa-websafe.service
+	// unit names the web-search-row branches target — Deps fields (like OWUIService /
+	// QdrantService) so internal/status never re-types a unit literal; the cmd tier
+	// derives them from the orchestrate accessors. Empty when the caller renders no
+	// web-search stack, in which case the branches never match.
+	SearxngService string
+	WebsafeService string
+	// SearxngHealth/WebsafeHealth are the per-service in-network health probes
+	// (cmd-tier podman-run curl, TTL-cached) taking the config-resolved container-DNS
+	// addr + port. These rows must NEVER borrow the generic d.Health(chat endpoint)
+	// probe — that was the Phase-22 false-green (T-34-09). A nil seam degrades the row
+	// to HealthUnknown (typed-Unknown, never fabricated).
+	SearxngHealth func(addr string, port int) HealthState
+	WebsafeHealth func(addr string, port int) HealthState
+	// ReadVerifyState is the READ-ONLY cached verify-search-result seam (T-34-08),
+	// wired in liveStatusDeps over verifystate.Load (fail-closed). It returns a pointer
+	// to the loaded State, or nil when the store is absent/unreadable — the
+	// outbound-bounded indicator then reads "unknown" (typed-Unknown), NEVER a
+	// fabricated PASS. It MUST never write the store. A nil seam is treated the same
+	// (Run/webSearchInfo guards it). The "bounded" verdict ALSO requires the cached
+	// PASS to be FRESH (within verifyFreshnessWindow) — derived ONLY here, never from
+	// cfg.WebSearchEnabled.
+	ReadVerifyState func() *verifystate.State
+
 	// --- Coding-agent seams (Phase-28 D-01..D-04). All nil-safe: a nil seam
 	// degrades to typed-Unknown (no fabricated value), mirroring the
 	// ReadUsage/ReadRecallState contract. They are consulted ONLY when the agent
@@ -506,6 +603,16 @@ func Run(d Deps) Report {
 	if cfg.AgentEnabled {
 		report.Coding = codingInfo(cfg, d.AgentPinMatch, d.AgentResidency, d.AgentCache)
 	}
+	// Web-search section (Phase-34 SURF-04): populated ONLY when web search is
+	// enabled — a web-search-off report carries WebSearch == nil so the omitempty
+	// key is absent and the v5 contract differs from v4 only in schema_version
+	// (the agent-off precedent). The outbound-bounded indicator degrades
+	// typed-Unknown via the cached verify seam: a nil seam, an absent store, OR a
+	// stale PASS yields "unknown" — NEVER a fabricated PASS, NEVER derived from
+	// cfg.WebSearchEnabled (T-34-08).
+	if cfg.WebSearchEnabled {
+		report.WebSearch = webSearchInfo(d.ReadVerifyState)
+	}
 
 	weight := d.WeightBytes(cfg)
 	for _, svc := range serviceUnits(units) {
@@ -558,6 +665,38 @@ func Run(d Deps) Report {
 			ss.Health = HealthUnknown
 			if d.EmbedHealth != nil {
 				ss.Health = d.EmbedHealth(cfg.EmbedAddr, cfg.EmbedPort)
+			}
+			ss.Offload = naOffloadVerdict()
+			ss.OffloadApplies = false
+			ss.OffloadOK = false
+			report.Services = append(report.Services, ss)
+			continue
+		}
+
+		if svc == d.SearxngService && d.SearxngService != "" {
+			// villa-searxng row (Phase-34 SURF-04, T-34-09): a non-GPU managed
+			// service with its OWN in-network health probe — never the generic
+			// chat-endpoint d.Health probe (the Phase-22 false-green). A nil seam
+			// degrades to HealthUnknown. Offload is the N/A representation excluded
+			// from the worst-wins fold.
+			ss.Health = HealthUnknown
+			if d.SearxngHealth != nil {
+				ss.Health = d.SearxngHealth(cfg.SearxngAddr, cfg.SearxngPort)
+			}
+			ss.Offload = naOffloadVerdict()
+			ss.OffloadApplies = false
+			ss.OffloadOK = false
+			report.Services = append(report.Services, ss)
+			continue
+		}
+
+		if svc == d.WebsafeService && d.WebsafeService != "" {
+			// villa-websafe row (Phase-34 SURF-04, T-34-09): same non-GPU
+			// classification as the searxng row — own health seam, N/A offload, no
+			// fold. A nil seam degrades to HealthUnknown.
+			ss.Health = HealthUnknown
+			if d.WebsafeHealth != nil {
+				ss.Health = d.WebsafeHealth(cfg.WebsafeAddr, cfg.WebsafePort)
 			}
 			ss.Offload = naOffloadVerdict()
 			ss.OffloadApplies = false
@@ -720,6 +859,56 @@ func codingInfo(
 		}
 	}
 	return ci
+}
+
+// webSearchInfo assembles the Report's WebSearch section (Phase-34 SURF-04). Enabled
+// is always true (the section is built ONLY when cfg.WebSearchEnabled). The
+// outbound-bounded indicator is the load-bearing honesty property (T-34-08): it is
+// DERIVED from the cached `villa verify search` result with a FRESHNESS gate and is
+// NEVER inferred from cfg.WebSearchEnabled.
+//
+//   - default "unknown" (typed-Unknown — never green by default);
+//   - "bounded" ONLY when the cached State has Verdict=="PASS" AND CheckedAt parses
+//     and is within verifyFreshnessWindow (a real RECENT proof PASS);
+//   - "not-bounded" when the cached State carries a real recent non-PASS verdict
+//     (FAIL/REJECT) within the freshness window;
+//   - "unknown" when the seam is nil, the store is absent, the timestamp is
+//     unparseable, OR the result is stale (older than the window) — a security
+//     property must be re-proven, never trusted indefinitely from a stale cache.
+//
+// VerifyCheckedAt is carried ONLY for a non-stale result (omitempty drops it
+// otherwise) — never a fabricated timestamp. Source-gap fields (guard counters,
+// last_query_at, outbound-visibility) are OMITTED: no host-side source exists and
+// building one is out of scope (T-34-10).
+func webSearchInfo(readVerify func() *verifystate.State) *WebSearchInfo {
+	wi := &WebSearchInfo{
+		Enabled:         true,
+		OutboundBounded: OutboundUnknown, // typed-Unknown default — NEVER green by default
+	}
+	if readVerify == nil {
+		return wi // no seam → typed-Unknown ("unavailable"), never green
+	}
+	st := readVerify()
+	if st == nil {
+		return wi // absent/unreadable store → typed-Unknown, never a fabricated PASS
+	}
+	checked, err := time.Parse(time.RFC3339, st.CheckedAt)
+	if err != nil {
+		return wi // unparseable timestamp → cannot assert freshness → "unknown"
+	}
+	if time.Since(checked) > verifyFreshnessWindow {
+		// Stale result — a PASS this old must be re-proven, NEVER read as bounded.
+		// VerifyCheckedAt stays omitted (no fabricated "current" timestamp).
+		return wi
+	}
+	// Fresh, evaluable result: surface its timestamp and map the verdict.
+	wi.VerifyCheckedAt = st.CheckedAt
+	if st.Verdict == "PASS" {
+		wi.OutboundBounded = OutboundBounded // green: a real RECENT verify PASS
+	} else {
+		wi.OutboundBounded = OutboundNotBounded // amber: a real recent non-PASS verdict
+	}
+	return wi
 }
 
 // Err exposes the load/render error Run encountered, if any. Run returns a Report
