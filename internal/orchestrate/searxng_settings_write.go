@@ -50,6 +50,26 @@ func searxngSettingsDir() (string, error) {
 	return filepath.Join(base, "villa", "searxng"), nil
 }
 
+// searxngSettingsFileName is the BARE filename WriteSearxngSettings writes (and
+// RenderSearxngSettings returns). Single-sourced here so the Phase-34 backup/restore
+// path (SURF-07) resolves the SAME file without re-typing the literal.
+const searxngSettingsFileName = "settings.yml"
+
+// SearXNGSettingsFilePath returns the RESOLVED host path of the rendered SearXNG
+// settings.yml, $XDG_CONFIG_HOME/villa/searxng/settings.yml — the exact file
+// WriteSearxngSettings writes at 0600. EXPORTED as the cross-plan provenance contract
+// so the Phase-34 backup/restore path (SURF-07) sources the settings.yml path WITHOUT
+// re-typing the dir/filename literals (mirrors how crushConfigPath() is resolved at the
+// cmd tier). The file holds the rendered SEARXNG_SECRET, so restore re-writes it
+// 0600-preserving (never widens the mode — T-34-05).
+func SearXNGSettingsFilePath() (string, error) {
+	dir, err := searxngSettingsDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, searxngSettingsFileName), nil
+}
+
 // WriteSearxngSettings writes the rendered settings.yml (name+text from
 // RenderSearxngSettings) atomically + traversal-guarded + 0600 into the live villa searxng
 // config dir. It is a SIBLING of WriteUnits targeting the config dir, never the unit dir.

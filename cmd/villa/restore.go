@@ -178,6 +178,17 @@ func runRestore(cmd *cobra.Command, archivePath string, in backup.RestoreInput, 
 		if res.ExcludedAgent != nil {
 			fmt.Fprintf(out, "coding agent: binary not in the backup (identity recorded) — re-stage the pinned release with `villa install --coding-agent` (pinned %s); the re-stage verifies identity and refuses on drift\n", res.ExcludedAgent.Version)
 		}
+		// Honest Phase-34 web-search reporting (SURF-07): report whether the rendered
+		// settings.yml provenance was restored (0600-preserving). Fetched ephemeral web
+		// content was never archived by design (T-34-06).
+		switch {
+		case res.SearxngSettingsRestored:
+			fmt.Fprintf(out, "web search: settings.yml restored\n")
+		case res.SearxngSettingsSkipped:
+			fmt.Fprintf(out, "web search: archive carried settings.yml but the current install is web-search-off — NOT applied; re-run `villa install` with web search enabled then restore, or it will not be applied\n")
+		default:
+			fmt.Fprintf(out, "web search: no settings.yml in this backup — left untouched\n")
+		}
 		return exitPass, false
 	}
 }
@@ -270,6 +281,19 @@ func liveRestore(cmd *cobra.Command, archivePath string, bypass bool) (backup.Re
 			in.CrushConfigDestPath = crushPath
 		} else {
 			fmt.Fprintf(errOut, "restore: warning: cannot resolve crush.json path (agent config will not be restored): %v\n", perr)
+		}
+	}
+	// Phase-34 web-search settings.yml destination (SURF-07): wired ONLY when web search
+	// is enabled (the AUTHORITATIVE persisted gate, mirroring the backup side), so a
+	// web-search-off restore makes ZERO settings.yml writes even if an archive carries the
+	// entry. SearXNGSettingsFilePath() resolves $XDG_CONFIG_HOME/villa/searxng/settings.yml
+	// (OUTSIDE the data-store root — restored via the dedicated WriteSearxngSettings seam,
+	// 0600-preserving, T-34-05).
+	if cfg.WebSearchEnabled {
+		if settingsPath, perr := orchestrate.SearXNGSettingsFilePath(); perr == nil {
+			in.SearxngSettingsDestPath = settingsPath
+		} else {
+			fmt.Fprintf(errOut, "restore: warning: cannot resolve settings.yml path (web-search config will not be restored): %v\n", perr)
 		}
 	}
 	return in, liveRestoreDeps(), tmpDir, exitPass
@@ -447,6 +471,26 @@ func liveRestoreDeps() backup.Deps {
 			}
 			if err := os.WriteFile(path, data, 0o600); err != nil {
 				return fmt.Errorf("restore: write crush.json: %w", err)
+			}
+			return nil
+		},
+		// WriteSearxngSettings restores the OPTIONAL settings.yml entry to
+		// $XDG_CONFIG_HOME/villa/searxng/ (OUTSIDE the villa data-store root — SURF-07),
+		// so it must NOT use the store-root-guarded usage.WriteFileAtomic. It mirrors the
+		// WriteCrushConfig discipline AND orchestrate.WriteSearxngSettings' 0600 mode:
+		// traversal-guard the path within its dir, MkdirAll 0700, WriteFile 0600. The mode
+		// is FORCED 0600 because the file holds the rendered SEARXNG_SECRET — never widen
+		// it (T-34-05). The path is the XDG-resolved settings.yml path, never user input.
+		WriteSearxngSettings: func(path string, data []byte) error {
+			dir := filepath.Dir(path)
+			if err := assertWithinDir(path, dir); err != nil {
+				return err
+			}
+			if err := os.MkdirAll(dir, 0o700); err != nil {
+				return fmt.Errorf("restore: create searxng config dir: %w", err)
+			}
+			if err := os.WriteFile(path, data, 0o600); err != nil {
+				return fmt.Errorf("restore: write settings.yml: %w", err)
 			}
 			return nil
 		},
