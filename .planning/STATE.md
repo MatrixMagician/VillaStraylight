@@ -294,6 +294,6 @@ Resume file: .planning/phases/34-web-search-surfacing-lands-last/34-UI-SPEC.md
 
 ## Operator Next Steps
 
-- v1.5 archived on branch `gsd/phase-34-web-search-surfacing-lands-last` (3 close commits); phase branches 29–34 kept, **no tag yet** (deferred at close).
-- Ship v1.5 to `main` via `/gsd-ship` — PR → review → merge → tag `v1.5` on the main merge commit (matches the v1.0–v1.3 PR-to-main pattern).
+- v1.5 shipped as **PR #6** (https://github.com/MatrixMagician/VillaStraylight/pull/6) from `gsd/phase-34-web-search-surfacing-lands-last` → `main`. Ship code-review ran (10 findings, 0 critical): 7 fixed inline + web-on goldens (finding #6); #5/#9 deferred (see Deferred Items). **No tag yet** — tag `v1.5` on the `main` merge commit after merge (v1.0–v1.3 pattern).
+- Review/approve PR #6, merge when CI is green, then tag `v1.5`.
 - Then start the next milestone with `/gsd-new-milestone`.
