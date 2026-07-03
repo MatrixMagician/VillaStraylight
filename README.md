@@ -5,14 +5,15 @@ A single Go CLI (`villa`) that stands up a private, local AI workspace on your o
 
 ![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)
 
-VillaStraylight is for privacy-conscious power users who want a ChatGPT/Claude-class experience that runs entirely on their own machine, with no data leaving the box. `villa` is the **control plane only** — the AI services (llama.cpp `llama-server`, Open WebUI, and the optional Qdrant + local-embeddings memory stack) are integrated OSS components, not rebuilt; the optional coding agent is the pinned, checksum-verified Crush binary.
+VillaStraylight is for privacy-conscious power users who want a ChatGPT/Claude-class experience that runs entirely on their own machine, with no data leaving the box. `villa` is the **control plane only** — the AI services (llama.cpp `llama-server`, Open WebUI, the optional Qdrant + local-embeddings memory stack, and the optional SearXNG web-search service) are integrated OSS components, not rebuilt; the optional coding agent is the pinned, checksum-verified Crush binary.
 
-> Status: **v1.4 shipped** (tag `v1.4`). Built milestone by milestone, each addition keeping the zero-telemetry, loopback-only posture:
+> Status: **v1.5 shipped** (tag `v1.5`). Built milestone by milestone, each addition keeping the zero-telemetry, loopback-only posture:
 > - **v1.0** — Vulkan-only MVP: detect → recommend → install → Open WebUI chat → control dashboard.
 > - **v1.1** — opt-in **ROCm/HIP backend** with a transactional `backend set` switch and an honest A/B `bench`. Vulkan RADV stays the default.
 > - **v1.2** — operability: `villa doctor`, saved bench `--compare`, cumulative usage, `backup`/`restore`, and a guided TUI install.
 > - **v1.3** — strictly-local **memory & knowledge**: a Qdrant + local-embeddings stack wired into Open WebUI Memory/RAG, plus conversational `recall`.
 > - **v1.4** — an optional strictly-local **terminal coding agent** (Crush) wired over loopback to a fit-guarded coding model, proven zero-outbound at runtime.
+> - **v1.5** — opt-in **web-search grounding**: a containerized SearXNG wired into Open WebUI's native web search, with grounded fetch → embed → cite through an SSRF-guarded, injection-guarding `villa-websafe` loader. Strictly opt-in / default-OFF (byte-identical to v1.4 when disabled); outbound is provably bounded (`villa verify search`) and prompt injection is reduced-and-flagged, never claimed eliminated.
 
 ## Requirements
 
@@ -174,6 +175,22 @@ villa verify agent                    # negative-control-first proof of zero out
 
 `villa recommend` also computes a coder fit at agent-profile context and reports an honest residency mode (`swap` or `shared`); the coder is qualified agent-in-the-loop on the gfx1151 box before it ships in the catalog. Codebase memory is agent-native (LSP + ripgrep + `AGENTS.md`/`CRUSH.md` context files), not a vector index.
 
+**Opt-in web-search grounding (v1.5):**
+
+```bash
+# Web search is gated by the persisted opt-in bool `web_search_enabled` in config.toml
+# (default false, never self-healed on). Set it, then install:
+#   web_search_enabled = true    # in ~/.config/villa/config.toml
+villa install                          # with the gate on: render the SearXNG search service + the SSRF-guarded
+                                       # villa-websafe loader, generate their secrets, wire Open WebUI's native
+                                       # web search, and prove SearXNG readiness with a real format=json query
+villa verify search                    # negative-control-first, inverse-framed proof that outbound is BOUNDED
+                                       # under a real egress block (an ineffective block is REJECTED, never a
+                                       # fabricated PASS); also asserts planted injections are stripped+fenced+flagged
+```
+
+Web search is **strictly opt-in and default-OFF** — with it disabled the install renders byte-identical to v1.4 and the zero-outbound posture is unchanged. When enabled, a query reaches SearXNG's upstream engines and result pages are fetched, so outbound is no longer zero; that outbound is **bounded and provable** (`villa verify search`) and surfaced honestly in `villa status`/`doctor`/the dashboard (the outbound-bounded indicator derives from the real verify result, never a config flag). Fetched pages flow through `villa-websafe` — the sole producer of Open WebUI `page_content` — which SSRF-guards every fetch and runs an injection-guard pass (sanitize → Unicode-normalize → provenance-fence → heuristic classify). The guard **reduces and flags** prompt injection; it is never claimed to eliminate it, and the browser-side markdown-image exfiltration channel is a documented residual, not closed.
+
 **Run the stack lifecycle:**
 
 ```bash
@@ -210,7 +227,7 @@ Key fields (`internal/config/villaconfig.go`):
 | `dashboard_port` | `8888` | Host port the control dashboard listens on. |
 | `chat_port` | `3000` | Host port Open WebUI is published on (the dashboard's chat link target). |
 
-When the optional memory (v1.3) and coding-agent (v1.4) addons are enabled, `villa install` persists their own append-only fields (e.g. the memory/embedding settings and the coder model/quant/context + agent toggle) into the same `config.toml`, which stays the single source of truth — the rendered Quadlet units and `crush.json` are regenerated from it, never hand-edited.
+When the optional memory (v1.3), coding-agent (v1.4), and web-search (v1.5) addons are enabled, `villa install` persists their own append-only fields into the same `config.toml`, which stays the single source of truth — the rendered Quadlet units, `crush.json`, and the SearXNG `settings.yml` are regenerated from it, never hand-edited. Web search keys off the deliberate `web_search_enabled` bool (default false, never self-healed on); with it off, every field is omitted and the render is byte-identical to v1.4. When on, `villa install` generates the SearXNG `secret_key` and the `villa-websafe` bearer via `crypto/rand` into `0600` files (never logged, never in a `0644` unit).
 
 Inspect or change config with `villa config show` and `villa config set key=value`.
 
@@ -230,7 +247,7 @@ make tidy       # go mod tidy
 make clean      # remove build artifacts
 ```
 
-The CLI entry point is `cmd/villa/main.go`; the control-plane libraries live under `internal/` (`detect`, `recommend`, `catalog`, `preflight`, `download`, `inference`, `orchestrate`, `modelswap`, `backendswap`, `bench`, `benchstore`, `status`, `dashboard`, `metrics`, `config`, `doctor`, `usage`, `backup`, `memory`, `recall`, `codingmode`, `agent`).
+The CLI entry point is `cmd/villa/main.go`; the control-plane libraries live under `internal/` (`detect`, `recommend`, `catalog`, `preflight`, `download`, `inference`, `orchestrate`, `modelswap`, `backendswap`, `bench`, `benchstore`, `status`, `dashboard`, `metrics`, `config`, `doctor`, `usage`, `backup`, `memory`, `recall`, `codingmode`, `agent`, `websafe`, `verifystate`).
 
 > Note: an earlier exploratory scaffold left reference-only remnants in the tree — `internal/llm` (an OpenAI-compatible SSE client, cannibalized for the gateway) and `web/` (an embedded React UI). They are superseded by the `villa` control plane plus integrated Open WebUI and are not part of the current architecture.
 
