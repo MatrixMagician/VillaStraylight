@@ -1,5 +1,20 @@
 # Milestones
 
+## v1.5 Web Search (Shipped: 2026-07-03)
+
+**Phases completed:** 6 phases, 20 plans, 14 tasks
+
+**Key accomplishments:**
+
+- **Local SearXNG metasearch service** (Phase 29) — gated, container-DNS-only (no host port ever published), with readiness proven by a real `format=json` query parsing `results[]` (never a health-200), a bounded cold-start retry loop, and `GenerateSearxngSecret()` — the repo's first runtime `crypto/rand` secret generator. Web-search-off config stays byte-identical on disk to v1.4.
+- **Open WebUI native web-search wiring** (Phase 30) — OWUI points at the local SearXNG behind the same gate, byte-identical-off, with the config-schema extension threaded through recommend/orchestrate.
+- **Grounded fetch + embed grounding** (Phase 31) — an SSRF-guarded `villa-websafe` fetch service (distroless, host binary bind-mounted read-only, container-DNS only, 0600 bearer auth) serves as OWUI's external web loader; `recommend.Pick` reserves a conservative web-RAG context budget (GROUND-03) behind a gated seam.
+- **Villa injection-guard layer** (Phase 32) — a prompt-injection guard between fetched web content and the model, honesty-by-construction (no "immune" claims), seam-locked.
+- **Egress bounding + `villa verify search`** (Phase 33) — outbound egress is bounded and proven end-to-end; `villa verify search` produces a cached, freshness-gated result that downstream surfaces consume.
+- **Web-search surfacing** (Phase 34) — `status` (schema 4→5), `doctor` (schema 2→3), and the dashboard each fold an honest tri-state outbound-bounded indicator (green only on a real recent verify PASS, 24h freshness gate); web-search-off output stays byte/pixel-identical to v1.4.
+
+---
+
 ## v1.4 Coding Agent (Shipped: 2026-06-15)
 
 **Phases completed:** 5 phases (24–28), 18 plans, 39 tasks

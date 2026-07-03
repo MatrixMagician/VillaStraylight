@@ -2,12 +2,12 @@
 gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Web Search
-current_phase: 34
-status: complete
-stopped_at: Phase 34 complete — v1.5 all phases done, ready for milestone audit
-last_updated: "2026-06-21T21:31:15.534Z"
-last_activity: 2026-06-21
-last_activity_desc: Phase 34 complete — milestone v1.5 ready for audit
+current_phase: 5
+status: Awaiting next milestone
+stopped_at: Phase 34 UI-SPEC approved
+last_updated: "2026-07-03T16:09:06.329Z"
+last_activity: 2026-07-03
+last_activity_desc: Milestone v1.5 completed and archived
 progress:
   total_phases: 6
   completed_phases: 6
@@ -21,17 +21,17 @@ current_phase_name: web-search-surfacing-lands-last
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-06-18 — milestone v1.5 Web Search started; SearXNG moved from Out of Scope to Active)
+See: .planning/PROJECT.md (updated 2026-07-03 — milestone v1.5 Web Search closed + archived; SearXNG moved to Validated; between milestones)
 
 **Core value:** Run a capable local AI workspace that "just works" after install — hardware-aware setup that brings inference, chat, and the dashboard up healthy, with zero data leaving the box. v1.2 extended the bar to "and stays operable, recoverable, and measurable over time." v1.3 extended it to "and remembers the user and their documents across chats — strictly local." v1.4 extended it to "and gives the operator a strictly-local terminal coding agent, wired to a fit-guarded coding model." v1.5 extends it to "and can ground answers in live web search when the operator opts in — accurate, up-to-date, with malicious-site prompt injection defended-in-depth and outbound provably bounded."
-**Current focus:** v1.5 Web Search — all 6 phases complete; milestone ready for audit → complete → cleanup
+**Current focus:** Between milestones — v1.5 Web Search shipped + archived (tag `v1.5`, 2026-07-03). Next milestone scoped via `/gsd-new-milestone`.
 
 ## Current Position
 
-Phase: 34 (complete) — milestone v1.5 ready for audit
-Plan: 5/5 complete
-Status: complete
-Last activity: 2026-06-21 — Phase 34 complete; v1.5 all 6 phases done
+Phase: Milestone v1.5 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-07-03 — Milestone v1.5 completed and archived
 
 ## Performance Metrics
 
@@ -266,6 +266,16 @@ Items deferred at v1.5 roadmap creation (2026-06-18, research-recorded):
 | v2_scope | SRCH-V2-03: Multi-round "deep research / quality mode" (iterative search→read→refine) | Deferred | v1.5 roadmap |
 | residual | Browser-side markdown-image zero-click exfil channel — bypasses container egress (operator's browser renders the image); documented as a known residual + mitigated where feasible (CSP/same-origin), NOT claimed closed (GUARD-04) | Documented | v1.5 roadmap |
 
+Items acknowledged at v1.5 milestone close (2026-07-03, from `milestones/v1.5-MILESTONE-AUDIT.md`) — audit `tech_debt`, no blockers (0 requirement gaps, integration PASS 100%, Nyquist compliant):
+
+| Category | Item | Status | Deferred At |
+|----------|------|--------|-------------|
+| process | Nyquist VALIDATION finalization for early v1.5 phases (`/gsd-validate-phase`) — process/doc completeness only, no requirement or flow gap | Open | v1.5 close |
+| process | Per-phase SECURITY.md missing on early v1.5 phases (later phases secured; no unmitigated threat) | Open | v1.5 close |
+| artifact | Pre-close audit: Phase 31 `31-UAT.md` verdict PASS in body but no machine `status:` field (read `[unknown]`, benign) | Documented | v1.5 close |
+| artifact | Pre-close audit: quick task `260615-ipn` read `[unknown]` — SUMMARY marked `completed: 2026-06-15` (frontmatter parse lag only) | Documented | v1.5 close |
+| process | `29-VERIFICATION.md` shipped a non-canonical `status: verified` (normalized to `passed` at close); reconcile frontmatter status vocabulary at phase-verify time | RESOLVED (normalized 2026-07-03) | v1.5 close |
+
 ## Session Continuity
 
 Last session: 2026-06-21T20:47:16.532Z
@@ -274,7 +284,4 @@ Resume file: .planning/phases/34-web-search-surfacing-lands-last/34-UI-SPEC.md
 
 ## Operator Next Steps
 
-- **Phase 29 on-hardware UAT — PASSED (2026-06-18):** `./villa install` with `web_search_enabled=true` printed `search service ready: real format=json query returned 10 result(s)`; `podman inspect villa-searxng` → `PortBindings={}` (no host port). Security review complete (`SECURITY.md`, 14/14 threats closed). Phase 29 marked complete. Next: `/gsd-plan-phase 30`.
-- SRCH-04 engine allowlist (shipped as proposed): `duckduckgo, brave, wikipedia, wikidata` — the auditable outbound surface Phase 33 cross-checks. Adjust in `internal/orchestrate/searxng.go` (`keep_only`) if desired before UAT.
-- Forward deps noted by review/verify (NOT Phase 29 gaps): WR-01 the opt-in enable path is later-phase (SRCH-02/Phase 30, PRIV-07/Phase 33); WR-02 container-entrypoint `$SEARXNG_SECRET` substitution is what the live UAT confirms.
-- Research-phase flag reminder: Phases 31, 32, 33 warrant `/gsd-plan-phase --research-phase` (fetch path/SSRF; injection corpus + must-WIN eval; rootless-netns nft inverse-framing)
+- Start the next milestone with /gsd-new-milestone

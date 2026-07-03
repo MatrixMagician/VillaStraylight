@@ -1,7 +1,7 @@
 ---
 phase: 29-searxng-search-service
 verified: 2026-06-18T00:00:00Z
-status: verified
+status: passed
 uat_confirmed: 2026-06-18T22:23:00Z
 score: 6/6 must-haves verified
 behavior_unverified: 0
