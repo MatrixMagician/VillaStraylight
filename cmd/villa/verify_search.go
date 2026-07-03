@@ -179,23 +179,16 @@ func evalSearchVerify(
 //   - any OTHER non-zero exit (e.g. 127 curl-absent) or a container that never started:
 //     "the probe could not run" → ERROR (caller REJECTs), NEVER a false block.
 func classifySearchProbe(sanityOrControlErr error, externalExitCode int, externalErr error) (blocked bool, err error) {
-	if sanityOrControlErr != nil {
-		return false, fmt.Errorf("the verify-search probe environment is broken: the positive sanity control failed (%w) — verify host egress and the helper image, then re-run `villa verify search`", sanityOrControlErr)
-	}
-	if externalErr == nil {
-		// Exit 0 — the host answered. Reachable, not blocked.
-		return false, nil
-	}
-	switch externalExitCode {
-	case curlExitCouldNotResolve, curlExitFailedToConnect, curlExitOperationTimeout:
-		// A real connection/timeout failure → the host is genuinely unreachable.
-		return true, nil
-	default:
-		// Non-zero but not a connection/timeout code (e.g. 127 curl-absent), or a
-		// container that never started (-1). "The probe could not run" → REJECT-bound
-		// error, NEVER a false block.
-		return false, fmt.Errorf("the verify-search reachability probe could not run (exit %d: %w) — this is NOT proof of a block; verify the helper image has curl and the bound netns is reachable, then re-run `villa verify search`", externalExitCode, externalErr)
-	}
+	// Delegates the exit-code taxonomy to the shared classifyReachabilityProbe (verify_agent.go)
+	// so the "which curl codes prove a block" set is single-source; only the remediation wording
+	// (verify-search framing; the caller maps the returned error to REJECT, not FAIL) differs.
+	return classifyReachabilityProbe(sanityOrControlErr, externalExitCode, externalErr,
+		func(e error) error {
+			return fmt.Errorf("the verify-search probe environment is broken: the positive sanity control failed (%w) — verify host egress and the helper image, then re-run `villa verify search`", e)
+		},
+		func(code int, e error) error {
+			return fmt.Errorf("the verify-search reachability probe could not run (exit %d: %w) — this is NOT proof of a block; verify the helper image has curl and the bound netns is reachable, then re-run `villa verify search`", code, e)
+		})
 }
 
 // injectionFlagged is the in-process family-(b) driver (PRIV-08): it asserts the SHIPPED
