@@ -284,4 +284,6 @@ Resume file: .planning/phases/34-web-search-surfacing-lands-last/34-UI-SPEC.md
 
 ## Operator Next Steps
 
-- Start the next milestone with /gsd-new-milestone
+- v1.5 archived on branch `gsd/phase-34-web-search-surfacing-lands-last` (3 close commits); phase branches 29–34 kept, **no tag yet** (deferred at close).
+- Ship v1.5 to `main` via `/gsd-ship` — PR → review → merge → tag `v1.5` on the main merge commit (matches the v1.0–v1.3 PR-to-main pattern).
+- Then start the next milestone with `/gsd-new-milestone`.
