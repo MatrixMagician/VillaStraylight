@@ -20,6 +20,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/recall"
 	"github.com/MatrixMagician/VillaStraylight/internal/recommend"
 	"github.com/MatrixMagician/VillaStraylight/internal/status"
+	"github.com/MatrixMagician/VillaStraylight/internal/verifystate"
 )
 
 // status_test.go drives the thin `villa status` cobra caller through a stubbed
@@ -408,6 +409,99 @@ func TestStatusJSONGoldenMemoryOn(t *testing.T) {
 	}
 	if !bytes.Equal(out.Bytes(), want) {
 		t.Errorf("memory-on status --json does not match golden.\n--- got ---\n%s\n--- want ---\n%s", out.String(), want)
+	}
+}
+
+// webSearchStatusCfg is the web-search-ON config fixture for the web_search golden: the
+// standard qwen3/vulkan install plus the v1.5 web-search fields (searxng + websafe identity
+// and a fixed test secret so the rendered units are byte-stable; the secret VALUES never
+// appear in the 0644 units).
+func webSearchStatusCfg() config.VillaConfig {
+	cfg := config.DefaultVillaConfig()
+	cfg.Model = "qwen3"
+	cfg.Quant = "Q4"
+	cfg.Ctx = 131072
+	cfg.WebSearchEnabled = true
+	cfg.SearxngAddr = "villa-searxng"
+	cfg.SearxngPort = 8080
+	cfg.SearxngSecret = "testsecret_must_not_appear_in_the_0644_unit"
+	cfg.WebSearchResultCount = 3
+	cfg.WebsafeAddr = "villa-websafe"
+	cfg.WebsafePort = 8090
+	cfg.WebLoaderSecret = "websafe_testsecret_must_not_appear_in_the_0644_unit"
+	return cfg
+}
+
+// webSearchLoopbackUnits renders the REAL web-search-on stack so the frozen fixture walks
+// genuine villa-searxng/villa-websafe container units (coherence: WebSearchEnabled=true paired
+// with render output containing the web units; HostVillaPath supplies the websafe bind mount).
+func webSearchLoopbackUnits(t *testing.T) []orchestrate.Unit {
+	t.Helper()
+	units, err := orchestrate.Render(orchestrate.RenderInput{
+		Backend:       inference.VulkanBackend(),
+		Cfg:           webSearchStatusCfg(),
+		ModelFile:     "qwen3.gguf",
+		ModelsDir:     "/home/villa/.local/share/villa/models",
+		HostVillaPath: "/home/villa/.local/bin/villa",
+	})
+	if err != nil {
+		t.Fatalf("render websearch-on: %v", err)
+	}
+	return units
+}
+
+// newWebSearchStatusDeps builds the web-search-ON stubbed deps for the v5 golden: the base
+// healthy stubs plus the web-on config/units, the searxng/websafe service names + ready health
+// seams, and a nil ReadVerifyState. The nil verify state makes outbound_bounded deterministically
+// "unknown" (typed-Unknown, never green) — the FRESH-PASS green path is clock-relative
+// (time.Since vs status.VerifyFreshnessWindow) and cannot be byte-frozen, so it is unit-tested in
+// internal/status instead. This golden freezes the WebSearchInfo FIELD NAMES + the searxng/websafe
+// health rows the dashboard JS consumer string-matches (the contract a rename would silently break).
+func newWebSearchStatusDeps(t *testing.T) *status.Deps {
+	t.Helper()
+	d := newStatusDeps(t, webSearchLoopbackUnits(t))
+	d.LoadConfig = func() (config.VillaConfig, error) { return webSearchStatusCfg(), nil }
+	d.SearxngService = unitServiceName(orchestrate.SearXNGContainerUnitName())
+	d.WebsafeService = unitServiceName(orchestrate.WebsafeContainerUnitName())
+	d.SearxngHealth = func(string, int) status.HealthState { return status.HealthReady }
+	d.WebsafeHealth = func(string, int) status.HealthState { return status.HealthReady }
+	d.ReadVerifyState = func() *verifystate.State { return nil }
+	return d
+}
+
+// TestStatusJSONGoldenWebSearchOn freezes the WEB-SEARCH-ON v5 --json contract byte-for-byte
+// (SURF-04): the villa-searxng/villa-websafe health rows + N/A offload, and the web_search block
+// (enabled, outbound_bounded="unknown" with the timestamp omitted). This protects the field
+// names/order the dashboard JS consumer depends on. Run with -update to regenerate.
+func TestStatusJSONGoldenWebSearchOn(t *testing.T) {
+	d := newWebSearchStatusDeps(t)
+	cmd, out, _ := statusTestCmd()
+
+	jsonOut = true
+	defer func() { jsonOut = false }()
+
+	code := runStatus(cmd, nil, d)
+	if code != exitPass {
+		t.Fatalf("healthy web-search-on status: exit = %d, want %d (out: %s)", code, exitPass, out.String())
+	}
+
+	golden := filepath.Join("testdata", "status-websearch.json.golden")
+	if *update {
+		if err := os.MkdirAll("testdata", 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(golden, out.Bytes(), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		t.Logf("updated %s", golden)
+		return
+	}
+	want, err := os.ReadFile(golden)
+	if err != nil {
+		t.Fatalf("read golden (run with -update to create): %v", err)
+	}
+	if !bytes.Equal(out.Bytes(), want) {
+		t.Errorf("web-search-on status --json does not match golden.\n--- got ---\n%s\n--- want ---\n%s", out.String(), want)
 	}
 }
 

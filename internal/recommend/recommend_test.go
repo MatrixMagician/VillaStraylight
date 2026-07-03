@@ -489,6 +489,20 @@ func TestWebSearchReservation(t *testing.T) {
 		}
 	})
 
+	t.Run("exact value freezes the A6 reservation math constants", func(t *testing.T) {
+		// The cmd-tier recommend golden hand-builds the Recommendation struct and does NOT
+		// exercise this math, so freeze the computed value here: for the default OWUI tuning
+		// (TopK 3 × 1000-char chunks, 3 results) a change to any reservation constant
+		// (webCharsPerTokenX10 / webCitationTokensPerResult / webBytesPerCtxToken /
+		// webSafetyFactorX10) shifts the subtracted envelope and could flip a fit verdict.
+		got, _ := webSearchReservation(WebSearchInputs{Enabled: true, TopK: 3, ChunkSizeChars: 1000, ResultCount: 3})
+		// (⌊(3×1000×10)/35⌋ + 3×64) × 4096 × 15 / 10 = (857 + 192) × 4096 × 15 / 10
+		const want = 6_445_056
+		if got != want {
+			t.Errorf("webSearchReservation(defaults) = %d, want %d — a reservation constant changed; update this value deliberately", got, want)
+		}
+	})
+
 	t.Run("pathological hand-edited tuning is clamped, never wraps to a small under-reservation", func(t *testing.T) {
 		// A value near the uint64-overflow band (~4.7e13) must NOT wrap small; the clamp caps
 		// the reservation at the maxWeb* ceiling — always >= a sane at-max reservation.
