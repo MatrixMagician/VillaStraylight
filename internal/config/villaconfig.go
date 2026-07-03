@@ -11,6 +11,8 @@ package config
 // strictly under the XDG config dir with 0600 perms (V12 / T-02-02..04).
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -120,6 +122,72 @@ type VillaConfig struct {
 	// plain bool with omitempty drops the key on a default-false marshal (no marshalVilla
 	// zeroing is needed — unlike the memory/coder blocks whose non-bool fields require it).
 	AgentEnabled bool `toml:"agent_enabled,omitempty"`
+
+	// --- Web-search stack fields (v1.5, SRCH-01/SRCH-04) ---
+	// These follow the v1.3 memory-stack precedent EXACTLY: append-only, all
+	// ,omitempty/,omitzero, and (via marshalVilla's omit-when-off path) NOT emitted to
+	// disk for a non-opted-in install on ANY save-bearing command — so an existing v1.4
+	// install is byte-identical on disk until the user opts into web search (SC#4 /
+	// PRIV-07). The addr field is a container-DNS name on villa.network ONLY — never a
+	// routable host bind (PRIV-01); normalizeVilla never widens it.
+
+	// WebSearchEnabled gates the whole v1.5 web-search (SearXNG) stack. Default false: an
+	// existing v1.4 install stays web-search-off until the user opts in. A deliberate bool
+	// toggle (mirrors MemoryEnabled / CodingMode / AgentEnabled) — false is a meaningful
+	// explicit choice, so it is NOT self-healed in normalizeVilla.
+	WebSearchEnabled bool `toml:"web_search_enabled,omitempty"`
+	// SearxngAddr is the container-DNS name of the SearXNG metasearch service on
+	// villa.network. Default "villa-searxng"; NEVER a routable host bind (PRIV-01) —
+	// SearXNG publishes no host port.
+	SearxngAddr string `toml:"searxng_addr,omitempty"`
+	// SearxngPort is the in-network SearXNG port the readiness proof probes. Default 8080.
+	// Tagged ,omitzero (NOT ,omitempty) to match the v1.3 memory int precedent
+	// (qdrant_port/embed_port): BurntSushi/toml only drops a zero int with omitzero.
+	SearxngPort int `toml:"searxng_port,omitzero"`
+	// SearxngSecret is the SearXNG secret_key (its session/CSRF crypto seed, V3/V6),
+	// generated ONCE via crypto/rand at first opt-in and persisted at 0600 (config.toml).
+	// It is NEVER rendered into any 0644 file (unit/settings.yml) — it reaches the
+	// container via a Quadlet EnvironmentFile=<0600 path> directive (T-29-02). Empty until
+	// opt-in; NOT self-healed (a generated secret has no meaningful default).
+	SearxngSecret string `toml:"searxng_secret,omitempty"`
+	// WebSearchResultCount is the operator-tunable number of search results Open WebUI
+	// requests per query — it maps directly to OWUI's WEB_SEARCH_RESULT_COUNT env var
+	// (D-05, threaded into the OWUI render by Plan 02). Default 3 keeps the context budget
+	// conservative ahead of Phase 31's ctx-budget reservation. Tagged ,omitzero (NOT
+	// ,omitempty) to match the v1.3 memory int precedent (qdrant_port/embed_port) and the
+	// SearxngPort precedent above: BurntSushi/toml only drops a zero int with omitzero,
+	// which the byte-identical-off guarantee depends on (the key is dropped from disk when
+	// web search is off via marshalVilla zeroing).
+	WebSearchResultCount int `toml:"web_search_result_count,omitzero"`
+
+	// --- villa-websafe loader fields (v1.5, GROUND-01/GUARD-01/GUARD-05) ---
+	// The villa-websafe external-loader service identity + the OWUI bearer secret + the
+	// host binary path for the bind-mount. Same omit-when-off + self-heal discipline as the
+	// SearXNG fields: addr/port self-heal (container-DNS only, PRIV-01 — never a host bind);
+	// the secret + host path are NOT self-healed (a generated secret / a captured path has no
+	// meaningful default). marshalVilla zeroes all four when web search is off so an existing
+	// install is byte-identical on disk until opt-in (SC#4 / PRIV-07).
+
+	// WebsafeAddr is the container-DNS name of the villa-websafe loader on villa.network.
+	// Default "villa-websafe"; NEVER a routable host bind (PRIV-01) — villa-websafe publishes
+	// no host port. Tagged ,omitempty (mirrors SearxngAddr).
+	WebsafeAddr string `toml:"websafe_addr,omitempty"`
+	// WebsafePort is the in-network port the villa-websafe loader listens on (composed into
+	// the OWUI EXTERNAL_WEB_LOADER_URL by Plan 03). Default 8090. Tagged ,omitzero (NOT
+	// ,omitempty) to match the SearxngPort/embed_port int precedent: BurntSushi/toml only
+	// drops a zero int with omitzero, which the byte-identical-off guarantee depends on.
+	WebsafePort int `toml:"websafe_port,omitzero"`
+	// WebLoaderSecret is the EXTERNAL_WEB_LOADER_API_KEY bearer shared between OWUI and
+	// villa-websafe (T-31-08), generated ONCE via crypto/rand at first opt-in and persisted at
+	// 0600. It is NEVER rendered into any 0644 file — it reaches the containers via a 0600
+	// EnvironmentFile (mirrors SearxngSecret). Empty until opt-in; NOT self-healed (a generated
+	// secret has no meaningful default) and never logged.
+	WebLoaderSecret string `toml:"web_loader_secret,omitempty"`
+	// HostVillaPath is the absolute host path of the villa binary (os.Executable() captured AT
+	// opt-in), bind-mounted into the villa-websafe container so the same single static binary
+	// serves the loader (Area 1). It is NEVER shell-interpolated. Empty until opt-in; NOT
+	// self-healed (a captured host path has no meaningful default).
+	HostVillaPath string `toml:"host_villa_path,omitempty"`
 }
 
 // defaultConfig is the typed default returned when no config file exists. An absent
@@ -140,6 +208,21 @@ func defaultConfig() VillaConfig {
 		QdrantPort:     6333,
 		EmbedAddr:      "villa-embed",
 		EmbedPort:      8080,
+		// Web-search stack defaults (v1.5, SRCH-01) — the SINGLE home of these literals.
+		// The stack is OFF by default; the addr is a container-DNS name on villa.network
+		// only (PRIV-01). The secret has no default (generated at opt-in).
+		WebSearchEnabled: false,
+		SearxngAddr:      "villa-searxng",
+		SearxngPort:      8080,
+		// Result-count default (D-05): conservative 3 ahead of Phase 31's ctx-budget
+		// reservation. The SINGLE home of this literal; the other three sites derive it.
+		WebSearchResultCount: 3,
+		// villa-websafe loader defaults (v1.5) — the SINGLE home of these literals. The addr
+		// is a container-DNS name on villa.network only (PRIV-01); the port is the in-network
+		// loader port. The bearer secret + host binary path have NO default (generated /
+		// captured at opt-in).
+		WebsafeAddr: "villa-websafe",
+		WebsafePort: 8090,
 	}
 }
 
@@ -197,6 +280,36 @@ func normalizeVilla(cfg VillaConfig) VillaConfig {
 	}
 	if cfg.EmbedPort == 0 {
 		cfg.EmbedPort = d.EmbedPort
+	}
+	// Web-search endpoint self-heal (v1.5): a zero SearxngPort or empty SearxngAddr is
+	// treated as "unset -> default" and filled from the SAME defaultConfig() source
+	// (never a re-hard-coded literal). For the addr this only ever fills the container-DNS
+	// default name (villa-searxng) — it NEVER widens to a routable bind (PRIV-01).
+	// WebSearchEnabled (a deliberate bool) and SearxngSecret (a generated secret with no
+	// meaningful default) are NOT self-healed.
+	if cfg.SearxngAddr == "" {
+		cfg.SearxngAddr = d.SearxngAddr
+	}
+	if cfg.SearxngPort == 0 {
+		cfg.SearxngPort = d.SearxngPort
+	}
+	// Result-count self-heal (v1.5, D-05): a zero WebSearchResultCount is treated as
+	// "unset -> default" and filled from the SAME defaultConfig() source (never a
+	// re-hard-coded literal). Mirrors the SearxngPort==0 heal above.
+	if cfg.WebSearchResultCount == 0 {
+		cfg.WebSearchResultCount = d.WebSearchResultCount
+	}
+	// villa-websafe endpoint self-heal (v1.5): a zero WebsafePort or empty WebsafeAddr is
+	// treated as "unset -> default" and filled from the SAME defaultConfig() source (never a
+	// re-hard-coded literal). For the addr this only ever fills the container-DNS default name
+	// (villa-websafe) — it NEVER widens to a routable bind (PRIV-01). WebLoaderSecret (a
+	// generated bearer) and HostVillaPath (a captured host path) are NOT self-healed — neither
+	// has a meaningful default.
+	if cfg.WebsafeAddr == "" {
+		cfg.WebsafeAddr = d.WebsafeAddr
+	}
+	if cfg.WebsafePort == 0 {
+		cfg.WebsafePort = d.WebsafePort
 	}
 	return cfg
 }
@@ -282,7 +395,55 @@ func marshalVilla(c VillaConfig) ([]byte, error) {
 		c.CoderQuant = ""
 		c.CoderAgentCtx = 0
 	}
+	// Web-search omit-when-off (v1.5, SC#4/PRIV-07): when web search is disabled the
+	// searxng fields are zeroed on this by-value copy so the ,omitempty/,omitzero tags
+	// drop all four web-search keys — an existing v1.4 install therefore gains NO
+	// web-search keys on disk until the user opts in (byte-identical, same discipline as
+	// the memory/coder blocks above). The fields are re-applied by normalizeVilla on the
+	// next load (addr/port) or re-written by the opt-in path (the generated secret).
+	if !c.WebSearchEnabled {
+		c.SearxngAddr = ""
+		c.SearxngPort = 0
+		c.SearxngSecret = ""
+		c.WebSearchResultCount = 0
+		// villa-websafe loader fields (v1.5, SC#4/PRIV-07): zeroed on this by-value copy so
+		// the ,omitempty/,omitzero tags drop all four websafe keys — an off install gains NO
+		// websafe keys on disk (byte-identical-off). addr/port are re-applied by normalizeVilla
+		// on the next load; the secret/path are re-written by the opt-in path.
+		c.WebsafeAddr = ""
+		c.WebsafePort = 0
+		c.WebLoaderSecret = ""
+		c.HostVillaPath = ""
+	}
 	return toml.Marshal(c)
+}
+
+// GenerateSearxngSecret returns a fresh, high-entropy SearXNG secret_key sourced from
+// crypto/rand (V6) — the repo's FIRST runtime secret generator. It reads 32 random
+// bytes (256 bits) and hex-encodes them to a 64-char ASCII string safe to carry in an
+// env file. NEVER use math/rand here; never log the returned value. The secret is
+// generated ONCE at first web-search opt-in, persisted at 0600 in config.toml, and
+// reaches the container only via a 0600 EnvironmentFile (never a 0644 file — T-29-02).
+func GenerateSearxngSecret() (string, error) {
+	buf := make([]byte, 32)
+	if _, err := rand.Read(buf); err != nil {
+		return "", fmt.Errorf("config: generate searxng secret: %w", err)
+	}
+	return hex.EncodeToString(buf), nil
+}
+
+// GenerateWebLoaderSecret returns a fresh, high-entropy EXTERNAL_WEB_LOADER_API_KEY bearer
+// token sourced from crypto/rand (V6/T-31-11) — a 1:1 clone of GenerateSearxngSecret. It
+// reads 32 random bytes (256 bits) and hex-encodes them to a 64-char ASCII string safe to
+// carry in an env file. NEVER use math/rand here; never log the returned value. The bearer is
+// generated ONCE at first web-search opt-in, persisted at 0600 in config.toml, and reaches the
+// villa-websafe + villa-openwebui containers only via a 0600 EnvironmentFile (T-31-08).
+func GenerateWebLoaderSecret() (string, error) {
+	buf := make([]byte, 32)
+	if _, err := rand.Read(buf); err != nil {
+		return "", fmt.Errorf("config: generate web loader secret: %w", err)
+	}
+	return hex.EncodeToString(buf), nil
 }
 
 // SaveVilla writes the config as TOML under the XDG config dir with 0600 perms.

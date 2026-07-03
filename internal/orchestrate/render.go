@@ -7,6 +7,7 @@ import (
 	"strings"
 	"text/template"
 
+	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 	"github.com/MatrixMagician/VillaStraylight/internal/memory"
 )
@@ -142,7 +143,7 @@ func Render(in RenderInput) ([]Unit, error) {
 	// golden. mv is computed ONCE here (memory.RenderView is pure, cheap, identical) and
 	// reused by the memory-stack branch below.
 	mv := memory.RenderView(in.Cfg) // D-11 resolved-values handoff (Phase-18 spine)
-	owuiContainerText, err := execTemplate(tmpl, "openwebui.container.tmpl", buildOpenWebUIView(mv, in.Cfg.MemoryEnabled))
+	owuiContainerText, err := execTemplate(tmpl, "openwebui.container.tmpl", buildOpenWebUIView(mv, in.Cfg.MemoryEnabled, in.Cfg.WebSearchEnabled, in.Cfg.SearxngAddr, in.Cfg.SearxngPort, in.Cfg.WebSearchResultCount, in.Cfg.WebsafeAddr, in.Cfg.WebsafePort))
 	if err != nil {
 		return nil, err
 	}
@@ -204,7 +205,88 @@ func Render(in RenderInput) ([]Unit, error) {
 		)
 	}
 
+	// v1.5 web-search stack (SRCH-01): the single villa-searxng managed service is
+	// appended ONLY when web_search_enabled=true, STRICTLY AFTER the memory branch and
+	// never mutating the shared `units` slice or any shared view (Pitfall 6 / SC#4). With
+	// web search off this branch is skipped and the returned slice is byte-identical to the
+	// v1.4 output (the 13 existing goldens stay unchanged), proven by the negative test.
+	// Like Open WebUI / the memory stack, the searxng view is a dedicated managed-service
+	// render path (searxng.go) that BYPASSES parseContainerArgs (no GPU device/group/exec
+	// args). The container-DNS identity (cfg.SearxngAddr) is threaded FROM resolved config
+	// (WR-01) so the rendered service can never diverge from what Plan 03's readiness proof
+	// probes. The render does NOT thread the secret: the unit references it only via the
+	// EnvironmentFile= path baked by buildSearxngView (the secret value lives in config +
+	// the 0600 env file Plan 02 writes, never in this 0644 unit — T-29-02 / Pitfall 2). The
+	// settings.yml is NOT a Unit (Pitfall 1: it must not land in the systemd unit dir) — it
+	// is produced by the separate RenderSearxngSettings helper that Plan 02's writer consumes.
+	if in.Cfg.WebSearchEnabled {
+		searxngContainerText, err := execTemplate(tmpl, "searxng.container.tmpl", buildSearxngView(in.Cfg.SearxngAddr))
+		if err != nil {
+			return nil, err
+		}
+		units = append(units, Unit{Name: searxngContainerUnitName, Text: searxngContainerText})
+
+		// Phase-31 (GUARD-01/GROUND-01): the villa-websafe loader is appended STRICTLY
+		// AFTER the searxng unit, inside the SAME web-search gate (websafe and SearXNG are
+		// both the web-search stack), never mutating the shared `units` slice or any shared
+		// view before this point (Pitfall 6 byte-identical-off discipline). The host villa
+		// binary PATH (in.HostVillaPath) is bind-mounted read-only and the container-DNS
+		// identity (cfg.WebsafeAddr) + in-network port (cfg.WebsafePort) are threaded FROM
+		// resolved config (WR-01) so the rendered service can never diverge from what OWUI's
+		// EXTERNAL_WEB_LOADER_URL composes. The render does NOT thread the secret: the unit
+		// references it only via the EnvironmentFile= path baked by buildWebsafeView (the
+		// secret value lives in config + the 0600 env file Plan 02 writes, never in this 0644
+		// unit — T-31-12).
+		websafeContainerText, err := execTemplate(tmpl, "websafe.container.tmpl", buildWebsafeView(in.Cfg.WebsafeAddr, in.HostVillaPath, in.Cfg.WebsafePort))
+		if err != nil {
+			return nil, err
+		}
+		units = append(units, Unit{Name: websafeContainerUnitName, Text: websafeContainerText})
+	}
+
 	return units, nil
+}
+
+// RenderSearxngSettings renders the SearXNG settings.yml from config and returns the bare
+// filename + text for Plan 02's impure writer to persist (at 0600) into the villa searxng
+// config dir mounted read-only at /etc/searxng. It is a SEPARATE pure helper — NOT part of
+// the Render() []Unit slice — because settings.yml is a config FILE, not a systemd unit
+// (rendering it into the unit dir would make systemd's generator choke, Pitfall 1). The
+// engine allowlist is the single-source vetted subset (SRCH-04); secret_key renders empty
+// (the live value arrives via $SEARXNG_SECRET from the EnvironmentFile, never written into
+// this 0644-capable file — T-29-02 / Pitfall 2). cfg is accepted for forward symmetry with
+// the unit render's config-driven identity; the rendered content is config-derived.
+func RenderSearxngSettings(cfg config.VillaConfig) (name, text string, err error) {
+	tmpl, err := template.ParseFS(quadletFS, "quadlet/*.tmpl")
+	if err != nil {
+		return "", "", fmt.Errorf("orchestrate: parse templates: %w", err)
+	}
+	text, err = execTemplate(tmpl, "searxng-settings.yml.tmpl", buildSettingsYml(searxngEngines))
+	if err != nil {
+		return "", "", err
+	}
+	return "settings.yml", text, nil
+}
+
+// RenderSearxngSecretEnv renders the 0600 SEARXNG_SECRET env-file Plan 02 writes and the
+// searxng .container unit references via EnvironmentFile= (SearXNGSecretEnvFilePath). It is
+// the SINGLE source of the env-file FORMAT (a fixed `SEARXNG_SECRET=<value>` line, no shell
+// interpolation) — Plan 02's writer emits exactly these bytes at 0600. It is NOT a Unit
+// (the secret must never land in the 0644 unit dir — T-29-02). The secret value is the
+// crypto/rand secret from config.SearxngSecret; it is NEVER logged.
+func RenderSearxngSecretEnv(secret string) (name, text string) {
+	return searxngSecretEnvName(), searxngSecretEnvBody(secret)
+}
+
+// RenderWebsafeSecretEnv renders the 0600 EXTERNAL_WEB_LOADER_API_KEY env-file Plan 02
+// writes and BOTH the villa-websafe AND the OWUI .container units reference via
+// EnvironmentFile= (WebsafeSecretEnvFilePath). It is the SINGLE source of the env-file FORMAT
+// (a fixed `EXTERNAL_WEB_LOADER_API_KEY=<value>` line, no shell interpolation) — Plan 02's
+// writer emits exactly these bytes at 0600. It is NOT a Unit (the secret must never land in
+// the 0644 unit dir — T-31-12). The secret value is the crypto/rand bearer from
+// config.WebLoaderSecret; it is NEVER logged. Mirrors RenderSearxngSecretEnv.
+func RenderWebsafeSecretEnv(secret string) (name, text string) {
+	return websafeSecretEnvName(), websafeSecretEnvBody(secret)
 }
 
 // parseContainerArgs maps the proven `podman run` argument slice into Quadlet keys.

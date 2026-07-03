@@ -140,5 +140,5 @@
     "last_index_started_at": "2026-06-09T10:00:00Z",
     "last_index_completed_at": "2026-06-09T10:05:00Z"
   },
-  "schema_version": 4
+  "schema_version": 5
 }

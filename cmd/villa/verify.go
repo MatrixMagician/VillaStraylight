@@ -74,6 +74,7 @@ func newVerify() *cobra.Command {
 	}
 	cmd.AddCommand(newVerifyMemory())
 	cmd.AddCommand(newVerifyAgent())
+	cmd.AddCommand(newVerifySearch())
 	return cmd
 }
 

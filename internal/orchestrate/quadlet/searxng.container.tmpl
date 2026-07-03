@@ -1,0 +1,17 @@
+# ~/.config/containers/systemd/villa-searxng.container  (GENERATED — do not edit; source: config.toml)
+[Unit]
+Description=VillaStraylight SearXNG metasearch
+After=villa-network.service
+
+[Container]
+ContainerName={{.ContainerName}}
+Image={{.Image}}
+Network={{.Network}}
+EnvironmentFile={{.SecretEnvFile}}
+Volume={{.SettingsMount}}
+
+[Service]
+Restart=on-failure
+
+[Install]
+WantedBy=default.target

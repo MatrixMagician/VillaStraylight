@@ -129,21 +129,35 @@ const (
 //   - sanity ok + an UNCLASSIFIED non-zero exit or a never-started container (externalErr !=
 //     nil but the code is not 6/7/28): an infrastructure failure → ERROR, NOT blocked=true.
 func classifyEgressProbe(sanityErr error, externalExitCode int, externalErr error) (blocked bool, err error) {
+	return classifyReachabilityProbe(sanityErr, externalExitCode, externalErr,
+		func(e error) error {
+			return fmt.Errorf("egress negative-control probe environment is broken: the in-network sanity probe to %s failed (%w) — verify the %q network, a reachable helper image, and that villa-llama is up, then re-run", orchestrate.LlamaInNetworkEndpoint(), e, memoryProofNetwork)
+		},
+		func(code int, e error) error {
+			return fmt.Errorf("egress negative-control external probe could not run (exit %d: %w) — this is NOT proof of a block; verify the helper image has curl and podman can reach %q, then re-run", code, e, egressNegativeControlHost)
+		})
+}
+
+// classifyReachabilityProbe is the SINGLE source of truth for the curl-exit reachability
+// taxonomy shared by classifyEgressProbe (verify agent) and classifySearchProbe (verify
+// search): a broken sanity/positive control → error (never blocked=true — the false-green
+// this forbids); exit 0 → reachable (blocked=false); a genuine connection/timeout exit
+// (6/7/28) → blocked=true; any OTHER non-zero exit or never-started container → "could not
+// run" error. Keeping the exit-code SET in one place means the two verify paths cannot drift
+// on which curl codes count as a proven block. Callers supply their own remediation wording
+// (broken/cantRun) — the only thing that legitimately differs between the two proofs.
+func classifyReachabilityProbe(sanityErr error, externalExitCode int, externalErr error, broken func(error) error, cantRun func(int, error) error) (blocked bool, err error) {
 	if sanityErr != nil {
-		return false, fmt.Errorf("egress negative-control probe environment is broken: the in-network sanity probe to %s failed (%w) — verify the %q network, a reachable helper image, and that villa-llama is up, then re-run", orchestrate.LlamaInNetworkEndpoint(), sanityErr, memoryProofNetwork)
+		return false, broken(sanityErr)
 	}
 	if externalErr == nil {
-		// Exit 0 — the external host answered. Egress is NOT blocked.
 		return false, nil
 	}
 	switch externalExitCode {
 	case curlExitCouldNotResolve, curlExitFailedToConnect, curlExitOperationTimeout:
-		// A real connection/timeout failure → the host is genuinely unreachable.
 		return true, nil
 	default:
-		// Non-zero but not a connection/timeout code (e.g. 127 curl-absent), or a container
-		// that never started (-1). "The probe could not run" — FAIL, never a false block.
-		return false, fmt.Errorf("egress negative-control external probe could not run (exit %d: %w) — this is NOT proof of a block; verify the helper image has curl and podman can reach %q, then re-run", externalExitCode, externalErr, egressNegativeControlHost)
+		return false, cantRun(externalExitCode, externalErr)
 	}
 }
 

@@ -392,7 +392,8 @@ func liveBackendSwapDeps() *backendswap.Deps {
 			// Memory inputs from the PRESERVED config threaded into the closure
 			// (D-01): the backend-swap fit gate sees the same shrunken envelope.
 			rec := recommend.Pick(detect.Probe(), cat, recommend.Overrides{Model: cfg.Model},
-				recommend.MemoryInputs{Enabled: cfg.MemoryEnabled, EmbeddingModel: cfg.EmbeddingModel})
+				recommend.MemoryInputs{Enabled: cfg.MemoryEnabled, EmbeddingModel: cfg.EmbeddingModel},
+				webSearchInputsFrom(cfg))
 			if rec.Fits {
 				return true, ""
 			}
@@ -444,10 +445,11 @@ func liveBackendSwapDeps() *backendswap.Deps {
 				return false, err
 			}
 			units, err := orchestrate.Render(orchestrate.RenderInput{
-				Backend:   backend,
-				Cfg:       c,
-				ModelFile: modelFile,
-				ModelsDir: modelsDir(),
+				Backend:       backend,
+				Cfg:           c,
+				ModelFile:     modelFile,
+				ModelsDir:     modelsDir(),
+				HostVillaPath: hostVillaPath(),
 			})
 			if err != nil {
 				return false, err

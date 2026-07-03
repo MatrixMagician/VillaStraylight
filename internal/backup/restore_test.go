@@ -17,6 +17,8 @@ import (
 	"bytes"
 	"errors"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -43,9 +45,18 @@ type recDeps struct {
 	writeFileErr    error
 	writeTempErr    error
 	writeCrushErr   error
+	writeSearxngErr error
 	removeFileErr   error
 	readFile        map[string][]byte
 	readFileErr     map[string]error
+
+	// searxngWrites captures the path→bytes the WriteSearxngSettings seam received
+	// (Phase 34, SURF-07), so a test can assert the restored content. When
+	// searxngRealWriteDir is set, the seam ALSO performs a REAL on-disk write under that
+	// dir at 0600 (mirroring the live wiring) so a test can assert the actual file mode
+	// (T-34-05) — the pure core can't reach the cmd-tier closure otherwise.
+	searxngWrites       map[string][]byte
+	searxngRealWriteDir string
 
 	prove ProveVerdict
 }
@@ -132,6 +143,28 @@ func (r *recDeps) deps() Deps {
 		WriteCrushConfig: func(p string, data []byte) error {
 			r.log("WriteCrushConfig:" + p)
 			return r.writeCrushErr
+		},
+		WriteSearxngSettings: func(p string, data []byte) error {
+			r.log("WriteSearxngSettings:" + p)
+			if r.writeSearxngErr != nil {
+				return r.writeSearxngErr
+			}
+			if r.searxngWrites == nil {
+				r.searxngWrites = map[string][]byte{}
+			}
+			r.searxngWrites[p] = append([]byte(nil), data...)
+			// Optional REAL on-disk write at 0600 so a test can assert the file mode
+			// (T-34-05) — the seam mirrors the live cmd-tier wiring's MkdirAll 0700 +
+			// WriteFile 0600 discipline.
+			if r.searxngRealWriteDir != "" {
+				if err := os.MkdirAll(r.searxngRealWriteDir, 0o700); err != nil {
+					return err
+				}
+				if err := os.WriteFile(filepath.Join(r.searxngRealWriteDir, "settings.yml"), data, 0o600); err != nil {
+					return err
+				}
+			}
+			return nil
 		},
 		DaemonReload: func() error { return nil },
 		Prove: func(target string) ProveVerdict {
@@ -1265,6 +1298,148 @@ func TestRestoreAgentIdentityDriftFailsClosed(t *testing.T) {
 	if hasMutate(r.calls) {
 		t.Fatalf("a fail-closed verify refusal must have ZERO side effects, calls=%v", r.calls)
 	}
+}
+
+// buildSearxngArchive assembles a valid archive that includes the OPTIONAL Phase-34
+// settings.yml entry (SURF-07), with the manifest-first + correct per-entry SHA-256
+// discipline so the verify pass passes. A nil settings omits the entry (web-off backup).
+func buildSearxngArchive(t *testing.T, m Manifest, cfgTOML, owui, settings []byte) []byte {
+	t.Helper()
+	type e struct {
+		name string
+		data []byte
+	}
+	data := []e{{EntryConfig, cfgTOML}, {EntryOpenWebUIVolume, owui}}
+	if settings != nil {
+		data = append(data, e{EntrySearxngSettings, settings})
+	}
+	var sums []EntryChecksum
+	for _, d := range data {
+		s, err := sum(bytes.NewReader(d.data))
+		if err != nil {
+			t.Fatalf("sum: %v", err)
+		}
+		sums = append(sums, EntryChecksum{Name: d.name, SHA256: s})
+	}
+	m.Entries = sums
+	if m.SchemaVersion == 0 {
+		m.SchemaVersion = backupSchemaVersion
+	}
+	mj, err := marshalManifest(m)
+	if err != nil {
+		t.Fatalf("marshal manifest: %v", err)
+	}
+	entries := []archiveEntry{{name: EntryManifest, data: mj}}
+	for _, d := range data {
+		entries = append(entries, archiveEntry{name: d.name, data: d.data})
+	}
+	var buf bytes.Buffer
+	if err := writeArchive(&buf, entries); err != nil {
+		t.Fatalf("writeArchive: %v", err)
+	}
+	return buf.Bytes()
+}
+
+// TestRestoreSearxngSettings asserts the OPTIONAL Phase-34 settings.yml entry (SURF-07)
+// behaves exactly like the crush.json optional entry on restore:
+//   - present + a destination wired (web-search-on current install) → re-written through
+//     the dedicated WriteSearxngSettings seam at mode EXACTLY 0600 (T-34-05, never widened)
+//   - present but NO destination wired (web-search-off current install) → NOT applied,
+//     reported as SearxngSettingsSkipped (no false-green, WR-02 mirror)
+//   - absent from the archive → not-present (ZERO WriteSearxngSettings calls)
+//   - the entry is SHA-256-verified through the SAME verify path as every member: a
+//     tampered settings.yml is a fail-closed Refused with zero side effects (T-34-07)
+func TestRestoreSearxngSettings(t *testing.T) {
+	const settingsBody = "use_default_settings: true\nserver:\n  secret_key: rendered-secret\n"
+
+	t.Run("present → written 0600", func(t *testing.T) {
+		arch := buildSearxngArchive(t, baseManifest(), validCfgTOML, []byte("owui-data"), []byte(settingsBody))
+		r, in := baseInput(t, arch)
+		dest := filepath.Join(t.TempDir(), "searxng", "settings.yml")
+		in.SearxngSettingsDestPath = dest
+		r.searxngRealWriteDir = filepath.Dir(dest)
+
+		res := Restore(r.deps(), in)
+		if !res.Restored {
+			t.Fatalf("want Restored, got %+v (calls %v)", res, r.calls)
+		}
+		if !res.SearxngSettingsRestored {
+			t.Fatalf("SearxngSettingsRestored must be true on a web-search-on archive, got %+v", res)
+		}
+		if res.SearxngSettingsSkipped {
+			t.Fatalf("a written settings.yml must NOT report SearxngSettingsSkipped, got %+v", res)
+		}
+		if indexOf(r.calls, "WriteSearxngSettings:") == -1 {
+			t.Fatalf("settings.yml restore must go through WriteSearxngSettings (out-of-store-root), calls=%v", r.calls)
+		}
+		if got := string(r.searxngWrites[dest]); got != settingsBody {
+			t.Fatalf("restored settings.yml content mismatch: got %q want %q", got, settingsBody)
+		}
+		// The load-bearing mode assertion (T-34-05): the restored file is EXACTLY 0600,
+		// never widened — it holds the rendered SEARXNG_SECRET.
+		fi, err := os.Stat(filepath.Join(r.searxngRealWriteDir, "settings.yml"))
+		if err != nil {
+			t.Fatalf("stat restored settings.yml: %v", err)
+		}
+		if perm := fi.Mode().Perm(); perm != 0o600 {
+			t.Fatalf("T-34-05: restored settings.yml mode must be EXACTLY 0600, got %o", perm)
+		}
+	})
+
+	t.Run("absent → not present", func(t *testing.T) {
+		arch := buildSearxngArchive(t, baseManifest(), validCfgTOML, []byte("owui-data"), nil)
+		r, in := baseInput(t, arch)
+		in.SearxngSettingsDestPath = filepath.Join(t.TempDir(), "searxng", "settings.yml")
+
+		res := Restore(r.deps(), in)
+		if !res.Restored {
+			t.Fatalf("want Restored, got %+v", res)
+		}
+		if res.SearxngSettingsRestored {
+			t.Fatalf("web-search-off archive must NOT report SearxngSettingsRestored, got %+v", res)
+		}
+		if res.SearxngSettingsSkipped {
+			t.Fatalf("an archive with NO settings.yml must NOT report SearxngSettingsSkipped, got %+v", res)
+		}
+		if indexOf(r.calls, "WriteSearxngSettings:") != -1 {
+			t.Fatalf("an absent settings.yml must make ZERO WriteSearxngSettings calls, calls=%v", r.calls)
+		}
+	})
+
+	t.Run("present onto web-off install → skipped", func(t *testing.T) {
+		arch := buildSearxngArchive(t, baseManifest(), validCfgTOML, []byte("owui-data"), []byte(settingsBody))
+		r, in := baseInput(t, arch)
+		in.SearxngSettingsDestPath = "" // web-search-off current install: no dest wired
+
+		res := Restore(r.deps(), in)
+		if !res.Restored {
+			t.Fatalf("want Restored, got %+v (calls %v)", res, r.calls)
+		}
+		if res.SearxngSettingsRestored {
+			t.Fatalf("no destination wired → SearxngSettingsRestored must be false, got %+v", res)
+		}
+		if !res.SearxngSettingsSkipped {
+			t.Fatalf("archive carried settings.yml but it was skipped → SearxngSettingsSkipped must be true, got %+v", res)
+		}
+		if indexOf(r.calls, "WriteSearxngSettings:") != -1 {
+			t.Fatalf("no destination wired must make ZERO WriteSearxngSettings calls, calls=%v", r.calls)
+		}
+	})
+
+	t.Run("tampered settings.yml → fail-closed", func(t *testing.T) {
+		arch := buildSearxngArchive(t, baseManifest(), validCfgTOML, []byte("owui-data"), []byte(settingsBody))
+		tampered := tamperEntry(t, arch, EntrySearxngSettings)
+		r, in := baseInput(t, tampered)
+		in.SearxngSettingsDestPath = filepath.Join(t.TempDir(), "searxng", "settings.yml")
+
+		res := Restore(r.deps(), in)
+		if !res.Refused {
+			t.Fatalf("a drifted settings.yml must be a fail-closed Refused, got %+v", res)
+		}
+		if hasMutate(r.calls) {
+			t.Fatalf("a fail-closed verify refusal must have ZERO side effects, calls=%v", r.calls)
+		}
+	})
 }
 
 // tamperEntry rewrites the named entry's body to a value that no longer matches

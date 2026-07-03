@@ -19,13 +19,30 @@ package orchestrate
 // the memory.MemoryRenderInput pieces (QdrantAddr/QdrantPort/EmbedAddr/EmbedPort/
 // EmbeddingModel) with fmt — NO re-typed villa-qdrant/villa-embed/port host literals,
 // so TestSeamGrepGate stays green (these are config-sourced values, not GPU/image
-// tokens). The MANDATORY load-bearing key is ENABLE_PERSISTENT_CONFIG=False (D-03):
-// without it the RAG/embedding/memory ConfigVar keys seed the OWUI DB once and the
-// env is silently ignored after first boot, so "config is the single source of truth"
-// (INFRA-03) would NOT hold; its absence is a phase failure.
+// tokens).
+//
+// Phase-30 (SRCH-02/SRCH-03, D-01..D-04): buildOpenWebUIView is additionally
+// parameterized by the resolved web-search inputs (webSearchEnabled flag +
+// searxngAddr/searxngPort/webSearchResultCount, all config-threaded). When web
+// search is ON a SECOND ordered group of OWUI native web-search keys is APPENDED
+// (independent of the memory group, append-only): the enable key, the engine key
+// (searxng), the SearXNG query-URL key, and the result-count key. The query URL is
+// composed via fmt.Sprintf from the config-threaded searxngAddr/searxngPort — NO
+// re-typed host literal (WR-01, so TestSeamGrepGate stays green). The <query> token
+// is OWUI's literal substitution placeholder, kept verbatim.
+//
+// The MANDATORY load-bearing key is ENABLE_PERSISTENT_CONFIG=False (D-04): it is
+// emitted exactly ONCE, LAST, gated on memoryEnabled || webSearchEnabled. ALL of
+// the appended memory keys AND the appended web-search keys are DB-backed
+// PersistentConfig ConfigVars — without this trailing gate they seed the OWUI DB
+// once and the env is silently ignored after first boot, so "config is the single
+// source of truth" (INFRA-03) would NOT hold; its absence (or duplication, or being
+// dropped when web search is on but memory is off) is a phase failure (T-20-01,
+// extended to the web-search ConfigVars).
 
 import (
 	"fmt"
+	"strconv"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/memory"
 )
@@ -98,6 +115,13 @@ type openWebUIView struct {
 	PublishPort   string
 	Volume        string
 	Env           []envPair
+	// SecretEnvFile is the EnvironmentFile= PATH carrying the 0600
+	// EXTERNAL_WEB_LOADER_API_KEY bearer (T-31-12). It is set ONLY when web search is on
+	// (the OWUI container needs the bearer to authenticate to villa-websafe); EMPTY when
+	// web search is off, so the template's {{if .SecretEnvFile}} guard renders nothing and
+	// the web-off unit is byte-identical to v1.4. The secret VALUE is NEVER an env line —
+	// it reaches OWUI only via this 0600 file, never the 0644 unit.
+	SecretEnvFile string
 }
 
 // openWebUIVolumeView is the data the openwebui.volume.tmpl renders: a plain
@@ -117,7 +141,7 @@ type openWebUIVolumeView struct {
 // existing networkAttach ("villa.network") so Open WebUI joins the Phase-3 network
 // unchanged. WEBUI_AUTH stays True (D-10): the first visit creates a local admin
 // account persisted in the durable volume — do NOT set it False.
-func buildOpenWebUIView(mv memory.MemoryRenderInput, memoryEnabled bool) openWebUIView {
+func buildOpenWebUIView(mv memory.MemoryRenderInput, memoryEnabled bool, webSearchEnabled bool, searxngAddr string, searxngPort int, webSearchResultCount int, websafeAddr string, websafePort int) openWebUIView {
 	env := []envPair{
 		// Connection: reach inference over villa.network by container DNS
 		// (NOT localhost / host.containers.internal), at its internal port 8080.
@@ -185,16 +209,87 @@ func buildOpenWebUIView(mv memory.MemoryRenderInput, memoryEnabled bool) openWeb
 			envPair{Key: "RAG_EMBEDDING_MODEL_AUTO_UPDATE", Value: "False"},
 			// D-06: native personalized memory store + cross-chat injection.
 			envPair{Key: "ENABLE_MEMORIES", Value: "True"},
-			// D-03 (MANDATORY, load-bearing — T-20-01): force OWUI to always read the
-			// ConfigVar keys above from env, ignoring the DB. Without it the
-			// RAG/embedding/memory keys are silently ignored after first boot and
-			// config is NOT the single source of truth. Its absence is a phase
-			// failure. KEEP LAST in the appended block (the load-bearing switch that
-			// makes every preceding ConfigVar key authoritative).
-			envPair{Key: "ENABLE_PERSISTENT_CONFIG", Value: "False"},
 			// QDRANT_API_KEY intentionally omitted: empty default is accepted on the
 			// private villa.network (D-discretion, A4).
+			//
+			// NOTE (Phase-30 D-04): the load-bearing ENABLE_PERSISTENT_CONFIG=False
+			// switch NO LONGER lives inside this memory block — it is now emitted once,
+			// last, by the trailing memoryEnabled || webSearchEnabled gate below.
 		)
+	}
+
+	if webSearchEnabled {
+		// Phase-30 OWUI native web-search group (SRCH-02/SRCH-03, D-01..D-03), appended
+		// as ONE ordered block AFTER the base env, INDEPENDENT of the memory group
+		// (append-only). The exact key names are VERIFIED against OWUI config.py at the
+		// pinned digest rev 02dc3e68 (30-RESEARCH "OWUI Env Contract"): the older
+		// ENABLE_RAG_WEB_SEARCH / RAG_WEB_SEARCH_* family is GONE at this revision (no
+		// os.environ fallback), so the current names are used verbatim.
+		env = append(env,
+			// Turn OWUI's native web search on (DB-backed ConfigVar → authoritative only
+			// with the ENABLE_PERSISTENT_CONFIG=False trailing gate below).
+			envPair{Key: "ENABLE_WEB_SEARCH", Value: "True"},
+			// Select the SearXNG provider.
+			envPair{Key: "WEB_SEARCH_ENGINE", Value: "searxng"},
+			// Compose the SearXNG query URL from the config-threaded host:port (WR-01) —
+			// NEVER a re-typed villa-searxng / 8080 literal. The <query> token is OWUI's
+			// literal substitution placeholder (kept verbatim). The &format=json suffix
+			// is frozen for SC#1 literal compliance and future-robustness; at this digest
+			// OWUI's SearXNG provider strips the URL query string and supplies format=json
+			// itself, so the suffix is a no-op here (do not rely on it — Pitfall 1).
+			envPair{Key: "SEARXNG_QUERY_URL",
+				Value: fmt.Sprintf("http://%s:%d/search?q=<query>&format=json", searxngAddr, searxngPort)},
+			// D-05 operator-tunable result count (config is the single source of truth;
+			// default 3 resolved upstream in config). Rendered via strconv.Itoa.
+			envPair{Key: "WEB_SEARCH_RESULT_COUNT", Value: strconv.Itoa(webSearchResultCount)},
+			// Phase-31 GUARD-01 (GROUND-01): route OWUI's web fetch through the villa-owned
+			// villa-websafe loader — the SOLE producer of page_content (SSRF-guarded, bounded,
+			// guard-seam piped). WEB_LOADER_ENGINE=external selects an external loader;
+			// EXTERNAL_WEB_LOADER_URL is composed via fmt.Sprintf from the config-threaded
+			// websafe host:port (WR-01) — NEVER a re-typed villa-websafe/8090 literal. The
+			// /load path token is the single source of truth registered by the Plan-01 handler
+			// (internal/websafe loadPath); it MUST match the served route.
+			envPair{Key: "WEB_LOADER_ENGINE", Value: "external"},
+			envPair{Key: "EXTERNAL_WEB_LOADER_URL",
+				Value: fmt.Sprintf("http://%s:%d/load", websafeAddr, websafePort)},
+			// Phase-31 GROUND-01/02: turn the native embed→retrieve grounding path back ON
+			// (Phase-30 set this True at the on-hardware UAT to direct-inject; Phase 31 reverts
+			// it so fetched web content is embedded into OWUI's per-query web-search collection
+			// and retrieved at query time, distinct from durable memory — GROUND-02 isolation).
+			// FLIPPED True→False vs Phase-30. The on-hardware PROOF that BYPASS=False + the
+			// retrieval-fix key below actually grounds is Plan 04's blocking gate; this plan
+			// writes the wiring, the search-ON golden re-freeze is DEFERRED to Plan 04.
+			envPair{Key: "BYPASS_WEB_SEARCH_EMBEDDING_AND_RETRIEVAL", Value: "False"},
+			// RETRIEVAL FIX (RESEARCH Pitfall 1, the v0.9.6 lever): with BYPASS=False, OWUI
+			// embeds web results into an unscoped per-query web-search collection but, at the
+			// pinned digest, does NOT query unscoped collections at retrieval time unless this
+			// is set — so SearXNG results would never reach the model (the Phase-30 UAT
+			// failure). CONFIRMED to exist + ground on-hardware in Plan 04 (A1 HIGH-risk
+			// unknown) BEFORE the search-ON golden freezes; if the key is absent/renamed at the
+			// digest, Plan 04 escalates (a CONTEXT change, not a silent decision).
+			envPair{Key: "ENABLE_RETRIEVAL_UNSCOPED_COLLECTIONS", Value: "True"},
+		)
+	}
+
+	if memoryEnabled || webSearchEnabled {
+		// D-04 (MANDATORY, load-bearing — T-20-01, extended to the web-search ConfigVars):
+		// force OWUI to always read the appended ConfigVar keys (memory AND/OR web-search)
+		// from env, ignoring the DB. Without it those keys are silently ignored after
+		// first boot and config is NOT the single source of truth — its absence is a phase
+		// failure. Emitted exactly ONCE and LAST, regardless of which group(s) are on
+		// (never duplicated per-group, never dropped when web search is on but memory off).
+		env = append(env, envPair{Key: "ENABLE_PERSISTENT_CONFIG", Value: "False"})
+	}
+
+	// Phase-31 (T-31-12): when web search is on, the OWUI container must authenticate to
+	// villa-websafe with the EXTERNAL_WEB_LOADER_API_KEY bearer. That bearer is a SECRET,
+	// so it is carried via a 0600 EnvironmentFile= (the SAME websafe.env file the
+	// villa-websafe unit references — WebsafeSecretEnvFilePath, single source), NEVER as an
+	// Environment= line in this 0644 unit. EMPTY when web search is off so the unit is
+	// byte-identical to v1.4 (the template's {{if .SecretEnvFile}} guard renders nothing).
+	secretEnvFile := ""
+	if webSearchEnabled {
+		secretEnvFile = websafeSecretEnvFilePath
 	}
 
 	return openWebUIView{
@@ -204,6 +299,7 @@ func buildOpenWebUIView(mv memory.MemoryRenderInput, memoryEnabled bool) openWeb
 		PublishPort:   openWebUIPublishPort,
 		Volume:        openWebUIVolumeMount,
 		Env:           env,
+		SecretEnvFile: secretEnvFile,
 	}
 }
 

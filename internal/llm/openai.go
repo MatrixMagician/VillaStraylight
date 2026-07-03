@@ -92,7 +92,9 @@ type completeResponse struct {
 	Timings Timings `json:"timings"`
 }
 
-// StreamChat implements Client.
+// StreamChat streams a chat completion, invoking onDelta for each content
+// chunk. It returns when the stream completes, the context is cancelled, or an
+// error occurs.
 func (c *OpenAIClient) StreamChat(ctx context.Context, req ChatRequest, onDelta StreamFunc) error {
 	model := req.Model
 	if model == "" {

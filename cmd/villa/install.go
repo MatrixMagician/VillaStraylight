@@ -206,6 +206,38 @@ type installDeps struct {
 	// guards can never drift onto different readers.
 	readRecallState func() (recall.State, error)
 
+	// Web-search (SearXNG) seams (v1.5 / Phase-29, SRCH-01). Gated on the PERSISTED
+	// web_search_enabled (loadedWebSearchEnabled), skipped under --dry-run. The path is
+	// INDEPENDENT of inference/memory (SearXNG has no dependency on llama/qdrant — it is
+	// started additively after villa.network when gated on).
+	//
+	// loadedWebSearchEnabled returns the AUTHORITATIVE gate value: the persisted
+	// config.LoadVilla().WebSearchEnabled (fail-soft to false on a load error) — NOT the
+	// DefaultVillaConfig() seed (false by construction). A config load error fails SOFT to
+	// false so a broken config never silently enables the search stack (mirrors
+	// loadedMemoryEnabled). This is the one seam the whole web-search path keys off.
+	loadedWebSearchEnabled func() bool
+	// writeSearxngSettings persists the rendered settings.yml into the villa-owned searxng
+	// config dir mounted read-only at /etc/searxng (Plan 02's atomic, traversal-guarded,
+	// 0600 writer). Invoked BEFORE the searxng start so the container reads it on first boot.
+	writeSearxngSettings func(name, text string) error
+	// writeSearxngSecretEnv persists the 0600 SEARXNG_SECRET env file — the unit's
+	// EnvironmentFile= target (Plan 02's writer) — so the secret reaches the container via
+	// the 0600 file, never the 0644 unit (T-29-02). Invoked BEFORE the searxng start.
+	writeSearxngSecretEnv func(name, text string) error
+	// searxngProofFn asserts the search service is ready via a REAL format=json query
+	// parsing results[] (never a health-200 — SC#2). A FAIL refuses-with-remediation
+	// (exitBlocked), never a silent skip. Invoked only when web search is on and not dry-run.
+	searxngProofFn func(ctx context.Context, in searxngProofInput) searxngProof
+
+	// writeWebsafeSecretEnv persists the 0600 EXTERNAL_WEB_LOADER_API_KEY env file — the
+	// EnvironmentFile= target BOTH the villa-websafe AND the OWUI units reference
+	// (WebsafeSecretEnvFilePath, single source) — so the bearer reaches both containers via the
+	// 0600 file, never a 0644 unit (T-31-12). It is gated on the PERSISTED web_search_enabled
+	// and MUST be invoked BEFORE the OWUI start (which references it via EnvironmentFile= when
+	// web search is on) AND before the villa-websafe start. Mirrors writeSearxngSecretEnv.
+	writeWebsafeSecretEnv func(name, text string) error
+
 	// Coding-agent (Crush) addon seams (v1.4 / INSTALL-03, D-01/D-02/D-03/D-05). All
 	// gated on the PERSISTED agent_enabled (loadedAgentEnabled) unless --coding-agent
 	// overrides it, skipped under --dry-run.
@@ -451,6 +483,14 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 	// explicit re-bind through the dedicated gate seam so the gate source stays a single,
 	// testable seam regardless of how cfg was seeded.)
 	cfg.MemoryEnabled = d.loadedMemoryEnabled()
+	// AUTHORITATIVE web-search gate (v1.5 / Phase-29): the web-search path keys off the
+	// PERSISTED config.LoadVilla().WebSearchEnabled (via the loadedWebSearchEnabled seam,
+	// fail-soft to false). It is the single gate value the searxng start + proof steps read.
+	// NIL-SAFE: a test double / pre-Phase-29 wiring leaves the seam nil → web search off →
+	// the searxng path is byte-identical to a v1.4 install (no start, no proof, no writes).
+	if d.loadedWebSearchEnabled != nil {
+		cfg.WebSearchEnabled = d.loadedWebSearchEnabled()
+	}
 	// AUTHORITATIVE coding-agent gate (v1.4 / D-01): the agent path keys off the PERSISTED
 	// config.LoadVilla().AgentEnabled (via the loadedAgentEnabled seam). --coding-agent
 	// OVERRIDES it to true and persists it below (saveConfig) so a subsequent bare
@@ -493,10 +533,11 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 	// drives, already frozen by villa-llama-coding.container.golden. The catalog→inference
 	// translation stays in the live wiring (the pure renderer never imports internal/catalog, D-05).
 	renderIn := orchestrate.RenderInput{
-		Backend:   backend,
-		Cfg:       cfg,
-		ModelFile: modelFile,
-		ModelsDir: d.modelsDir(),
+		Backend:       backend,
+		Cfg:           cfg,
+		ModelFile:     modelFile,
+		ModelsDir:     d.modelsDir(),
+		HostVillaPath: hostVillaPath(),
 	}
 	if cfg.CodingMode {
 		servedModel, _ := codingServedTarget(cfg)
@@ -688,6 +729,41 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 		return exitBlocked
 	}
 	fmt.Fprintf(out, "started %s\n", installServiceName)
+
+	// (9a) Generate-and-persist the EXTERNAL_WEB_LOADER_API_KEY bearer ONCE and write the 0600
+	// websafe.env BEFORE the OWUI start (v1.5 / Phase-31 GUARD-01 / GROUND-01), gated on the
+	// PERSISTED web_search_enabled. This MUST precede the OWUI start: when web search is on the
+	// OWUI unit references the SAME websafe.env via EnvironmentFile= (WebsafeSecretEnvFilePath),
+	// and `systemctl start` fails if that EnvironmentFile target is absent. The villa-websafe
+	// service itself is started further below alongside searxng (its planHasUnit gate). The
+	// secret VALUE only ever lands in this 0600 file — never the 0644 unit, a log line, or
+	// stdout. Mirrors the searxng secret-env path (generate-once + 0600 EnvironmentFile, T-31-12).
+	if cfg.WebSearchEnabled {
+		// Generate-and-persist the bearer ONCE on first opt-in BEFORE rendering the env file so
+		// the EnvironmentFile target exists and is non-empty (a re-install reuses the same bearer
+		// rather than churning the OWUI⇄websafe trust).
+		if cfg.WebLoaderSecret == "" {
+			secret, gerr := config.GenerateWebLoaderSecret()
+			if gerr != nil {
+				fmt.Fprintf(errOut, "install: generate web loader secret failed: %v\n", gerr)
+				return exitBlocked
+			}
+			cfg.WebLoaderSecret = secret
+			if serr := d.saveConfig(cfg); serr != nil {
+				fmt.Fprintf(errOut, "install: persist web loader secret failed: %v\n", serr)
+				return exitBlocked
+			}
+		}
+		// Write the 0600 bearer env file — the EnvironmentFile= target BOTH the OWUI unit (started
+		// next) and the villa-websafe unit reference. The secret VALUE only ever lands in this
+		// 0600 file (T-31-12).
+		envName, envText := orchestrate.RenderWebsafeSecretEnv(cfg.WebLoaderSecret)
+		if werr := d.writeWebsafeSecretEnv(envName, envText); werr != nil {
+			fmt.Fprintf(errOut, "install: write websafe secret env failed: %v\n", werr)
+			return exitBlocked
+		}
+	}
+
 	// Start Open WebUI AFTER inference (D-05): the chat UI must come up against a
 	// live backend, and the recommended model is already ensured present above
 	// (step 6, MODEL-04) so the model picker is populated on first visit.
@@ -730,6 +806,91 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 		fmt.Fprintf(out, "started %s\n", embedServiceName)
 	}
 
+	// (9c) Start the SearXNG web-search service, gated on the PERSISTED web_search_enabled
+	// (v1.5 / Phase-29 SRCH-01). INDEPENDENT of inference/memory (SearXNG has no dependency
+	// on llama/qdrant — it only needs villa.network, already attached). Each step
+	// refuses-with-remediation (exitBlocked). Skipped under --dry-run (that path returned
+	// far above).
+	//
+	// Order within the block (BEFORE the start, so the container has its config + secret on
+	// first boot — Pitfall 3):
+	//   1. Gate the START on the rendered unit being PRESENT in the written plan (WR-04 /
+	//      T-29-13): never `systemctl start villa-searxng.service` for a unit systemd has
+	//      never seen — fail closed with an INTERNAL-ERROR remediation, not a raw "Unit not
+	//      found", if web search is on but the unit is absent from the plan (a render/
+	//      reconcile bug). With web search on, Render appends the unit, so today it is always
+	//      present; the gate is the fail-closed backstop.
+	//   2. Generate-and-persist the secret ONCE if absent (first opt-in): the secret_key is a
+	//      crypto/rand value generated a SINGLE time and persisted in config.toml at 0600
+	//      (config.GenerateSearxngSecret + saveConfig), so a re-install reuses the same secret
+	//      rather than churning sessions (Pitfall 3).
+	//   3. Write BOTH config artifacts the unit needs: the rendered settings.yml (mounted
+	//      read-only at /etc/searxng) and the 0600 secret env file (the EnvironmentFile=
+	//      target — the secret reaches the container via this 0600 file, NEVER an inline
+	//      literal in the 0644 unit — BLOCKER 1 / T-29-02).
+	if cfg.WebSearchEnabled {
+		if !planHasUnit(plan, orchestrate.SearXNGContainerUnitName()) {
+			fmt.Fprintf(errOut, "install: INTERNAL ERROR: web search is enabled but the searxng unit (%s) is absent from the rendered plan — refusing to start a service systemd has never seen. This is a render/reconcile bug; please re-run `villa install`, and if it persists, file an issue.\n",
+				orchestrate.SearXNGContainerUnitName())
+			return exitBlocked
+		}
+		// Generate-and-persist the secret ONCE on first opt-in (Pitfall 3) BEFORE rendering
+		// the env file so the unit's EnvironmentFile target exists and is non-empty.
+		if cfg.SearxngSecret == "" {
+			secret, gerr := config.GenerateSearxngSecret()
+			if gerr != nil {
+				fmt.Fprintf(errOut, "install: generate searxng secret failed: %v\n", gerr)
+				return exitBlocked
+			}
+			cfg.SearxngSecret = secret
+			if serr := d.saveConfig(cfg); serr != nil {
+				fmt.Fprintf(errOut, "install: persist searxng secret failed: %v\n", serr)
+				return exitBlocked
+			}
+		}
+		// (a) settings.yml (mounted ro at /etc/searxng) — the file that enables the json
+		// format + the bounded engine allowlist (SRCH-04). The render is the single source
+		// of truth (RenderSearxngSettings); the writer persists exactly those bytes.
+		settingsName, settingsText, rerr := orchestrate.RenderSearxngSettings(cfg)
+		if rerr != nil {
+			fmt.Fprintf(errOut, "install: render searxng settings failed: %v\n", rerr)
+			return exitBlocked
+		}
+		if werr := d.writeSearxngSettings(settingsName, settingsText); werr != nil {
+			fmt.Fprintf(errOut, "install: write searxng settings failed: %v\n", werr)
+			return exitBlocked
+		}
+		// (b) the 0600 secret env file — the EnvironmentFile= target (T-29-02). The secret
+		// VALUE only ever lands in this 0600 file, never the 0644 unit.
+		envName, envText := orchestrate.RenderSearxngSecretEnv(cfg.SearxngSecret)
+		if werr := d.writeSearxngSecretEnv(envName, envText); werr != nil {
+			fmt.Fprintf(errOut, "install: write searxng secret env failed: %v\n", werr)
+			return exitBlocked
+		}
+		if err := d.start(searxngServiceName); err != nil {
+			fmt.Fprintf(errOut, "install: start %s failed: %v\n", searxngServiceName, err)
+			return exitBlocked
+		}
+		fmt.Fprintf(out, "started %s\n", searxngServiceName)
+
+		// villa-websafe (grounded-fetch loader, Phase-31): its 0600 websafe.env bearer was already
+		// written above (step 9a, BEFORE the OWUI start that also references it). Gate the START on
+		// the rendered unit being PRESENT in the written plan (WR-04 backstop): never `systemctl
+		// start villa-websafe.service` for a unit systemd has never seen — fail closed with an
+		// INTERNAL-ERROR remediation, not a raw "Unit not found". With web search on, Render
+		// appends the unit, so today it is always present; the gate is the fail-closed backstop.
+		if !planHasUnit(plan, orchestrate.WebsafeContainerUnitName()) {
+			fmt.Fprintf(errOut, "install: INTERNAL ERROR: web search is enabled but the websafe unit (%s) is absent from the rendered plan — refusing to start a service systemd has never seen. This is a render/reconcile bug; please re-run `villa install`, and if it persists, file an issue.\n",
+				orchestrate.WebsafeContainerUnitName())
+			return exitBlocked
+		}
+		if err := d.start(websafeServiceName); err != nil {
+			fmt.Fprintf(errOut, "install: start %s failed: %v\n", websafeServiceName, err)
+			return exitBlocked
+		}
+		fmt.Fprintf(out, "started %s\n", websafeServiceName)
+	}
+
 	// (10) Poll readiness (503=keep-polling, timeout→WARN — Task 2 wiring).
 	ready := d.pollReady(cmd.Context(), d.endpoint())
 	printPostInstall(out, d.endpoint(), ready)
@@ -764,6 +925,26 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 		// figure as a literal — the dimension is single-sourced in the verdict
 		// (evalMemoryProof, from cfg.EmbeddingDim), so a dim change can't leave this stale.
 		fmt.Fprintf(out, "memory stack ready: %s\n", proof.detail)
+	}
+
+	// (10b2) Web-search readiness proof (v1.5 / Phase-29 SRCH-01, SC#2): a REAL format=json
+	// query parsing results[], NOT a health-200 (the project's "offload-asserting, never
+	// liveness" principle). Gated on the PERSISTED web_search_enabled (cfg.WebSearchEnabled);
+	// skipped under --dry-run (that path returned far above). A FAIL refuses-with-remediation
+	// (exitBlocked) — never a silent skip / false-green (honesty-by-construction). A PASS
+	// prints a ready line and folds into the existing PASS/WARN verdict. The proof probes the
+	// SAME cfg.SearxngAddr/SearxngPort the rendered unit's container-DNS identity derives from
+	// (WR-01), so it can never probe a different target than what runs.
+	if cfg.WebSearchEnabled {
+		proof := d.searxngProofFn(cmd.Context(), searxngProofInput{
+			searxngAddr: cfg.SearxngAddr,
+			searxngPort: cfg.SearxngPort,
+		})
+		if proof.status == preflight.StatusFail {
+			fmt.Fprintf(errOut, "install: search service not ready: %s\n", proof.detail)
+			return exitBlocked
+		}
+		fmt.Fprintf(out, "search service ready: %s\n", proof.detail)
 	}
 
 	// (10c) Coding-agent readiness proof (v1.4 / D-05, T-27-05): a REAL `crush run`
@@ -1254,7 +1435,7 @@ func liveInstallDeps() (*installDeps, error) {
 			// Thread the PERSISTED memory inputs (fail-soft) so an opted-in install
 			// recommends against the shrunken envelope (D-01; Pitfall 3 — a
 			// memory-blind install pick defeats CTRL-01).
-			return recommend.Pick(p, cat, ov, liveLoadedMemoryInputs())
+			return recommend.Pick(p, cat, ov, liveLoadedMemoryInputs(), liveLoadedWebSearchInputs())
 		},
 		modelFile: func(rec recommend.Recommendation) (string, error) {
 			// A catalog load failure or an unknown model id is a hard error (WR-08):
@@ -1344,6 +1525,22 @@ func liveInstallDeps() (*installDeps, error) {
 		// Phase-23 D-10 skew WARN reader: the SHARED fail-closed recall-state
 		// loader `villa recall` uses (one reader, never a re-rolled second one).
 		readRecallState: liveRecallStateLoad,
+
+		// Web-search (SearXNG) seams (v1.5 / Phase-29 SRCH-01). The gate keys off the
+		// PERSISTED config (liveLoadedWebSearchEnabled → config.LoadVilla().WebSearchEnabled,
+		// fail-soft to false), NOT the DefaultVillaConfig() seed. The settings.yml + 0600
+		// secret env writers are the Phase-29 Plan-02 orchestrate writers (the secret reaches
+		// the container via the 0600 EnvironmentFile, never the 0644 unit — T-29-02). The proof
+		// is the real format=json query (liveSearxngProof), never a health-200 (SC#2).
+		loadedWebSearchEnabled: liveLoadedWebSearchEnabled,
+		writeSearxngSettings:   orchestrate.WriteSearxngSettings,
+		writeSearxngSecretEnv:  orchestrate.WriteSearxngSecretEnv,
+		searxngProofFn:         liveSearxngProof,
+		// villa-websafe 0600 bearer (websafe.env) writer — the EnvironmentFile= target BOTH the
+		// villa-websafe AND the OWUI units reference (WebsafeSecretEnvFilePath). The secret reaches
+		// both containers via the 0600 file, never the 0644 unit (T-31-12). Mirrors the searxng
+		// secret-env writer wiring above.
+		writeWebsafeSecretEnv: orchestrate.WriteWebsafeSecretEnv,
 
 		// Coding-agent (Crush) addon seams (v1.4 / INSTALL-03). The gate keys off the
 		// PERSISTED config (liveLoadedAgentEnabled → config.LoadVilla().AgentEnabled,

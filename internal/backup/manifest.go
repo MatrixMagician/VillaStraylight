@@ -39,7 +39,19 @@ import (
 //     agent-OFF backup records NO agent entry / NO ExcludedAgent and stays
 //     byte-/layout-identical to a v2 archive (the bump only widens the contract
 //     for an agent-ON backup).
-const backupSchemaVersion = 3
+//   - v4 (Phase 34, SURF-07): adds the OPTIONAL web-search coverage — the
+//     RENDERED SearXNG settings.yml provenance archive entry (EntrySearxngSettings).
+//     The settings.yml holds the rendered SEARXNG_SECRET, so restore re-writes it
+//     0600-preserving (never widens the mode). The WebSearchEnabled GATE itself is
+//     ALREADY archived via config.toml (web_search_enabled → EntryConfig), so this
+//     bump adds the settings.yml provenance ONLY. Fetched EPHEMERAL web content is
+//     EXCLUDED by design — no query/URL log entry is ever added (SURF-07). Same D-04
+//     contract: an old villa fails closed on a v4 backup; v3/v2/v1 backups stay
+//     restorable (the gate is m.SchemaVersion <= backupSchemaVersion). A
+//     web-search-OFF backup records NO settings.yml entry and stays
+//     byte-/layout-identical to a v3 archive (the bump only widens the contract
+//     for a web-search-ON backup).
+const backupSchemaVersion = 4
 
 // Archive entry names (the deterministic outer-tar layout, D-03). manifest.json
 // is FIRST so a reader parses the manifest before validating the rest. The bench
@@ -62,6 +74,16 @@ const (
 	// archive member. The agent BINARY is NEVER an archive entry — only its identity
 	// is recorded (ExcludedAgent), mirroring the excluded model weights (BAK-01).
 	EntryCrushConfig = "crush.json"
+	// EntrySearxngSettings is the OPTIONAL Phase-34 web-search entry (SURF-07): the
+	// RENDERED SearXNG settings.yml provenance (the villa-authored search config —
+	// the bounded engine keep_only allowlist + render-time decisions). It holds the
+	// rendered SEARXNG_SECRET, so restore re-writes it 0600-preserving (never widens
+	// the mode — T-34-05). Present ONLY in a web-search-on backup; checksummed and
+	// SHA-256-verified exactly like every other archive member (T-34-07). Fetched
+	// EPHEMERAL web content is NEVER archived — no query/URL log entry exists by
+	// design (SURF-07, T-34-06). The WebSearchEnabled gate itself rides in config.toml
+	// (web_search_enabled to EntryConfig), so this is the settings.yml provenance only.
+	EntrySearxngSettings = "searxng-settings.yml"
 )
 
 // EntryChecksum is one archive member's name and its lowercase-hex SHA-256

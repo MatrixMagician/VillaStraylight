@@ -120,6 +120,17 @@ type RestoreInput struct {
 	// $XDG_DATA_HOME/villa). Empty means the cmd tier supplied no destination — the
 	// crush.json entry, if present, is reported as re-stageable but not written.
 	CrushConfigDestPath string
+
+	// SearxngSettingsDestPath is the resolved settings.yml destination for the OPTIONAL
+	// Phase-34 web-search config entry (SURF-07; orchestrate.SearXNGSettingsFilePath() at
+	// the cmd tier — $XDG_CONFIG_HOME/villa/searxng/settings.yml, OUTSIDE the villa
+	// data-STORE root). It is restored through the dedicated WriteSearxngSettings /
+	// RemoveFile seams (NOT WriteFileAtomic, whose data-store-root guard would reject a
+	// path under $XDG_CONFIG_HOME). The file holds the rendered SEARXNG_SECRET, so the
+	// write is 0600-preserving and NEVER widens the mode (T-34-05). Empty means the cmd
+	// tier supplied no destination (web search off) — the settings.yml entry, if present,
+	// is reported as re-writable but not written.
+	SearxngSettingsDestPath string
 }
 
 // extracted holds the verified, tar-slip-guarded archive payload after the read
@@ -147,6 +158,11 @@ type extracted struct {
 	// re-stage report.
 	crushConfig  []byte
 	crushPresent bool
+	// searxngSettings is the OPTIONAL Phase-34 web-search config entry (SURF-07);
+	// searxngSettingsPresent gates its restore. It is SHA-256-verified through the SAME
+	// readAndVerify pass as every other entry (no parallel reader — T-34-07).
+	searxngSettings        []byte
+	searxngSettingsPresent bool
 }
 
 // Restore performs the guarded, transactional archive apply and returns a typed
@@ -239,6 +255,11 @@ func Restore(d Deps, in RestoreInput) Result {
 	// seam as the others but restored/rolled-back through the dedicated
 	// WriteCrushConfig / RemoveFile seams below.
 	priorCrush, priorCrushOK := captureFile(d, in.CrushConfigDestPath)
+	// Capture the current settings.yml for verbatim rollback (Phase 34, SURF-07). Like
+	// crush.json it lives OUTSIDE the data-store root, so it is captured via the same
+	// ReadFile seam but restored/rolled-back through the dedicated WriteSearxngSettings /
+	// RemoveFile seams below.
+	priorSearxngSettings, priorSearxngSettingsOK := captureFile(d, in.SearxngSettingsDestPath)
 
 	// Restored config is the archive's config.toml parsed into a VillaConfig (config is
 	// the single source of truth — the Quadlet recreate renders from it; D-07).
@@ -338,6 +359,15 @@ func Restore(d Deps, in RestoreInput) Result {
 		case ex.crushPresent && in.CrushConfigDestPath != "":
 			add(rollbackRemove(d, in.CrushConfigDestPath), "remove restored crush.json")
 		}
+		// settings.yml follows the same verbatim CR-01 rows (Phase 34, SURF-07),
+		// through the dedicated out-of-store-root seams: WriteSearxngSettings to restore
+		// the prior bytes (0600-preserving), RemoveFile to undo a forward-created file.
+		switch {
+		case priorSearxngSettingsOK:
+			add(writeSearxngSettings(d, in.SearxngSettingsDestPath, priorSearxngSettings), "restore settings.yml")
+		case ex.searxngSettingsPresent && in.SearxngSettingsDestPath != "":
+			add(rollbackRemove(d, in.SearxngSettingsDestPath), "remove restored settings.yml")
+		}
 		// Re-import the CAPTURED owui volume through the clean-recreate ordering (prior cfg).
 		add(cleanRecreateThenImport(priorCfg, in.OpenWebUIVolumeName, in.RollbackVolumeTar), "restore Open WebUI volume")
 		// Qdrant rollback (Phase 23, D-07/Pitfall 4): same clean-recreate ordering
@@ -430,6 +460,21 @@ func Restore(d Deps, in RestoreInput) Result {
 			return rolledBack("data", "", fmt.Errorf("restore crush.json: %w", err), ProveVerdict{})
 		}
 	}
+	// Restore the OPTIONAL settings.yml (Phase 34, SURF-07) through the dedicated
+	// out-of-store-root seam (it lives at $XDG_CONFIG_HOME/villa/searxng/, not under the
+	// villa data root). Gated on the entry being present AND a destination wired; any
+	// error rolls back verbatim like the other data rows. The write FORCES 0600 (the
+	// entry holds the rendered SEARXNG_SECRET — never widen the mode, T-34-05).
+	// searxngSettingsWritten records the ACTUAL write; searxngSettingsSkipped flags an
+	// archive that CARRIED a settings.yml entry but had no destination wired (web-off
+	// current install) so the cmd tier reports the skip honestly (mirror crush WR-02).
+	searxngSettingsWritten := ex.searxngSettingsPresent && in.SearxngSettingsDestPath != ""
+	searxngSettingsSkipped := ex.searxngSettingsPresent && in.SearxngSettingsDestPath == ""
+	if searxngSettingsWritten {
+		if err := writeSearxngSettings(d, in.SearxngSettingsDestPath, ex.searxngSettings); err != nil {
+			return rolledBack("data", "", fmt.Errorf("restore settings.yml: %w", err), ProveVerdict{})
+		}
+	}
 	// CLEAN-RECREATE then import the RESTORED owui volume (the whole reason for the
 	// rm→recreate→ensure→import ordering — never merge into a live volume).
 	if err := d.WriteTempFile(in.TempVolumeTar, ex.owuiVolume); err != nil {
@@ -471,13 +516,15 @@ func Restore(d Deps, in RestoreInput) Result {
 		return rolledBack("prove", v.Detail, nil, v)
 	}
 	return Result{
-		Restored:              true,
-		Prove:                 v,
-		QdrantRestored:        ex.qdrantPresent,
-		RecallStateRestored:   ex.recallPresent,
-		RestoredMemoryEnabled: restoredCfg.MemoryEnabled,
-		CrushConfigRestored:   crushWritten,
-		CrushConfigSkipped:    crushSkipped,
+		Restored:                true,
+		Prove:                   v,
+		QdrantRestored:          ex.qdrantPresent,
+		RecallStateRestored:     ex.recallPresent,
+		RestoredMemoryEnabled:   restoredCfg.MemoryEnabled,
+		CrushConfigRestored:     crushWritten,
+		CrushConfigSkipped:      crushSkipped,
+		SearxngSettingsRestored: searxngSettingsWritten,
+		SearxngSettingsSkipped:  searxngSettingsSkipped,
 		// Surface the EXCLUDED agent binary identity for the operator to RE-STAGE
 		// (re-download the pinned release) — the binary bytes were never in the
 		// archive, exactly like model weights (SURF-03/D-08). Nil on an agent-off
@@ -495,6 +542,18 @@ func writeCrushConfig(d Deps, path string, data []byte) error {
 		return fmt.Errorf("no WriteCrushConfig seam wired — cannot restore crush.json to %q", path)
 	}
 	return d.WriteCrushConfig(path, data)
+}
+
+// writeSearxngSettings restores the settings.yml entry to the out-of-store-root SearXNG
+// config destination via the dedicated WriteSearxngSettings seam (Phase 34, SURF-07). A
+// nil seam is a restore-incomplete condition surfaced honestly (mirrors writeCrushConfig's
+// nil-seam contract) rather than a silent skip. The seam's live wiring writes 0600 (the
+// entry holds the rendered SEARXNG_SECRET — never widen the mode, T-34-05).
+func writeSearxngSettings(d Deps, path string, data []byte) error {
+	if d.WriteSearxngSettings == nil {
+		return fmt.Errorf("no WriteSearxngSettings seam wired — cannot restore settings.yml to %q", path)
+	}
+	return d.WriteSearxngSettings(path, data)
 }
 
 // rollbackRemove deletes a data-dir artifact the forward path newly created, to
@@ -657,6 +716,12 @@ func readAndVerify(in RestoreInput) (extracted, error) {
 	// fail-closed version gate) as every other entry (SURF-03/D-08).
 	if b, ok := collect[EntryCrushConfig]; ok {
 		ex.crushConfig, ex.crushPresent = b, true
+	}
+	// The Phase-34 web-search settings.yml entry is OPTIONAL and flows through the SAME
+	// readAndVerify guards (SHA-256, tar-slip, duplicate + extra-entry rejection,
+	// fail-closed version gate) as every other entry (SURF-07/T-34-07).
+	if b, ok := collect[EntrySearxngSettings]; ok {
+		ex.searxngSettings, ex.searxngSettingsPresent = b, true
 	}
 	return ex, nil
 }

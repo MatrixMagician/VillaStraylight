@@ -75,6 +75,17 @@
       <h2 class="panel-heading" id="agent-heading">Agent</h2>
       <div id="agent-body"></div>
     </section>
+
+    <!-- Web Search (SURF-05) — ships hidden (the memory-panel / agent-panel precedent);
+         the poll loop unhides it ONLY when report.web_search is present
+         (web_search_enabled=true). Web-search-off dashboards render pixel-identical
+         to v1.4 (CTRL-02/D-03: no new fetch or endpoint — the panel reads
+         report.web_search from the existing /api/status poll). XSS-safe: all
+         server/web-derived values via textContent, never innerHTML. -->
+    <section class="panel" id="web-search-panel" aria-labelledby="web-search-heading" hidden>
+      <h2 class="panel-heading" id="web-search-heading">Web Search</h2>
+      <div id="web-search-body"></div>
+    </section>
   </main>
 
   <!-- Guarded switch confirm dialog (D-08): a native <dialog> traps focus, Esc cancels,

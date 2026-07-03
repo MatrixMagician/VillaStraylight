@@ -2,7 +2,7 @@
 
 ## Overview
 
-VillaStraylight is a control plane + managed workload: a single Go binary that inspects an AMD Strix Halo (gfx1151) Fedora host, recommends a hardware-fitting model/quant/context, generates rootless Podman Quadlet units, and brings up llama.cpp inference + Open WebUI chat + a read-only control dashboard — with zero data leaving the box. The north star throughout is "runs healthy after install" — every phase ends in something runnable and verifiable on the real hardware. v1.2 (Operability) extended that bar to "and stays operable, recoverable, and measurable over time." v1.3 (Memory & Knowledge) extended it to "and remembers the user and their documents across chats — strictly local." v1.4 (Coding Agent) extends it again to "and gives the operator a strictly-local terminal coding agent, wired to a fit-guarded coding model."
+VillaStraylight is a control plane + managed workload: a single Go binary that inspects an AMD Strix Halo (gfx1151) Fedora host, recommends a hardware-fitting model/quant/context, generates rootless Podman Quadlet units, and brings up llama.cpp inference + Open WebUI chat + a read-only control dashboard — with zero data leaving the box. The north star throughout is "runs healthy after install" — every phase ends in something runnable and verifiable on the real hardware. v1.2 (Operability) extended that bar to "and stays operable, recoverable, and measurable over time." v1.3 (Memory & Knowledge) extended it to "and remembers the user and their documents across chats — strictly local." v1.4 (Coding Agent) extended it to "and gives the operator a strictly-local terminal coding agent, wired to a fit-guarded coding model." v1.5 (Web Search, Grounded & Guarded) extends it again to "and can ground answers in live web search when the operator opts in — accurate, up-to-date, with malicious-site prompt injection defended-in-depth and outbound provably bounded."
 
 ## Milestones
 
@@ -11,6 +11,7 @@ VillaStraylight is a control plane + managed workload: a single Go binary that i
 - ✅ **v1.2 Operability** — Phases 12–17 (shipped 2026-06-08, tag `v1.2`)
 - ✅ **v1.3 Memory & Knowledge (local RAG)** — Phases 18–23 (shipped 2026-06-11, tag `v1.3`)
 - ✅ **v1.4 Coding Agent** — Phases 24–28 (shipped 2026-06-15, tag `v1.4`)
+- ✅ **v1.5 Web Search (Grounded & Guarded)** — Phases 29–34 (shipped 2026-07-03, tag `v1.5`)
 
 Full per-phase detail for shipped milestones is archived under `.planning/milestones/`:
 
@@ -19,6 +20,7 @@ Full per-phase detail for shipped milestones is archived under `.planning/milest
 - `milestones/v1.2-ROADMAP.md` · `milestones/v1.2-REQUIREMENTS.md` · `milestones/v1.2-MILESTONE-AUDIT.md`
 - `milestones/v1.3-ROADMAP.md` · `milestones/v1.3-REQUIREMENTS.md` · `milestones/v1.3-MILESTONE-AUDIT.md`
 - `milestones/v1.4-ROADMAP.md` · `milestones/v1.4-REQUIREMENTS.md` · `milestones/v1.4-MILESTONE-AUDIT.md`
+- `milestones/v1.5-ROADMAP.md` · `milestones/v1.5-REQUIREMENTS.md` · `milestones/v1.5-MILESTONE-AUDIT.md`
 
 ## Phases
 
@@ -100,6 +102,24 @@ Audit `tech_debt` — 17/17 requirements satisfied, integration PASS (7/7 seam g
 
 </details>
 
+<details>
+<summary>✅ v1.5 Web Search (Grounded & Guarded) (Phases 29–34) — SHIPPED 2026-07-03</summary>
+
+**Milestone goal:** Give the local model accurate, up-to-date answers by grounding them in live web search — integrated alongside the existing Open WebUI chat — while defending in depth against malicious sites that try to inject destructive/dangerous prompts into the model. **Integrate, not rebuild:** exactly ONE new search container (SearXNG) wired into OWUI's *native* web search, the fetch → chunk → embed → retrieve → cite pipeline reusing the shipped v1.3 villa-embed/Qdrant RAG verbatim, a villa-owned injection-defense guard layer *in front of* the embed (the `villa-websafe` loader), plus a provable egress-bounding backstop. **Strictly opt-in, default-OFF** — with web search disabled the install renders byte-identical to v1.4.
+
+**Two governing claims:** *"outbound is bounded"* is proven (negative-control-first, inverse-framed); *"safe from injection"* is **never claimed** — the guard **reduces and flags, never eliminates**, and the browser-side markdown-image exfil channel is documented as a known residual.
+
+- [x] Phase 29: SearXNG Search Service (3/3 plans) — completed 2026-06-18 (on-hardware UAT PASSED — live `format=json` returned 10 results, no host port; security 14/14)
+- [x] Phase 30: OWUI Native-Search Wiring (2/2 plans) — completed 2026-06-19 (on-hardware UAT PASSED — grounded answer via D-06 direct-inject fix, no fabrication)
+- [x] Phase 31: Grounded Fetch → Embed Grounding (4/4 plans) — completed 2026-06-19 (SSRF-guarded `villa-websafe`, ephemeral collection, ctx reservation, offload-asserted)
+- [x] Phase 32: Villa Injection Guard Layer (3/3 plans) — completed 2026-06-19 (sanitize + Unicode-normalize + nonced fence + heuristic flag-not-block classifier)
+- [x] Phase 33: Egress-Bounding + `villa verify search` (3/3 plans) — completed 2026-06-19 (inverse-framed egress proof under real rootless-netns nft block)
+- [x] Phase 34: Web-Search Surfacing (5/5 plans) — completed 2026-06-21 (`status.Report` 4→5 single re-freeze, dashboard panel, doctor 2→3, backup/restore)
+
+Audit `tech_debt` — 0 requirement gaps, integration PASS 100%, Nyquist compliant; no blockers, closed verified. See `milestones/v1.5-ROADMAP.md` for full phase detail, success criteria, and plan breakdowns.
+
+</details>
+
 ## Progress
 
 | Phase | Milestone | Plans Complete | Status | Completed |
@@ -127,8 +147,14 @@ Audit `tech_debt` — 17/17 requirements satisfied, integration PASS (7/7 seam g
 | 21. Conversational Recall Indexer | v1.3 | 3/3 | Complete | 2026-06-10 |
 | 22. Control-Plane Fit + Host Gate | v1.3 | 4/4 | Complete | 2026-06-10 |
 | 23. Surfacing, Backup & Memory-Aware Swap | v1.3 | 5/5 | Complete | 2026-06-10 |
-| 24. Coder Fit Math, Catalog & On-Hardware Model Qualification | v1.4 | 4/4 | Complete    | 2026-06-13 |
-| 25. Coding-Mode Render & Transactional Swap Verb | v1.4 | 2/2 | Complete    | 2026-06-13 |
+| 24. Coder Fit Math, Catalog & On-Hardware Model Qualification | v1.4 | 4/4 | Complete | 2026-06-13 |
+| 25. Coding-Mode Render & Transactional Swap Verb | v1.4 | 2/2 | Complete | 2026-06-13 |
 | 26. Agent Delivery Core & Lockdown Launcher | v1.4 | 3/3 | Complete | 2026-06-13 |
-| 27. Install Addon, Preflight Gates & `villa verify agent` | v1.4 | 6/6 | Complete    | 2026-06-14 |
-| 28. Agent Surfacing & Contracts | v1.4 | 3/3 | Complete   | 2026-06-15 |
+| 27. Install Addon, Preflight Gates & `villa verify agent` | v1.4 | 6/6 | Complete | 2026-06-14 |
+| 28. Agent Surfacing & Contracts | v1.4 | 3/3 | Complete | 2026-06-15 |
+| 29. SearXNG Search Service | v1.5 | 3/3 | Complete | 2026-06-18 |
+| 30. OWUI Native-Search Wiring | v1.5 | 2/2 | Complete | 2026-06-19 |
+| 31. Grounded Fetch → Embed Grounding | v1.5 | 4/4 | Complete | 2026-06-19 |
+| 32. Villa Injection Guard Layer | v1.5 | 3/3 | Complete | 2026-06-19 |
+| 33. Egress-Bounding + `villa verify search` | v1.5 | 3/3 | Complete | 2026-06-19 |
+| 34. Web-Search Surfacing | v1.5 | 5/5 | Complete | 2026-06-21 |

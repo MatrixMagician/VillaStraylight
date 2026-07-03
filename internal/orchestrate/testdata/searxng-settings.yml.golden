@@ -1,0 +1,21 @@
+# /etc/searxng/settings.yml  (GENERATED — do not edit; source: config.toml)
+# NOTE: this is NOT a systemd unit — it is mounted read-only into villa-searxng at
+# /etc/searxng. secret_key is rendered EMPTY: the live value arrives via $SEARXNG_SECRET
+# from a 0600 EnvironmentFile, never written into this (0644-capable) file (T-29-02).
+use_default_settings:
+  engines:
+    keep_only:
+      - duckduckgo
+      - brave
+      - wikipedia
+      - wikidata
+server:
+  secret_key: ""
+  limiter: false
+  image_proxy: false
+search:
+  formats:
+    - html
+    - json
+  safe_search: 0
+  autocomplete: ""

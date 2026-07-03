@@ -238,6 +238,20 @@ func runBackup(cmd *cobra.Command, output string, d backup.Deps) int {
 			in.AgentPinSHA256 = asset.BinarySHA256
 		}
 	}
+	if cfg.WebSearchEnabled {
+		// Phase-34 web-search coverage (SURF-07), web-search-on ONLY: the rendered
+		// SearXNG settings.yml provenance goes INTO the archive (sourced from
+		// orchestrate.SearXNGSettingsFilePath() — an absent file is skipped by the core's
+		// FileMissing logic). The WebSearchEnabled GATE itself is already archived via
+		// config.toml; this is the settings.yml provenance only. Fetched EPHEMERAL web
+		// content is NEVER archived (T-34-06). A web-search-off backup leaves
+		// SearxngSettingsPath empty so the archive stays v3-identical.
+		if settingsPath, perr := orchestrate.SearXNGSettingsFilePath(); perr == nil {
+			in.SearxngSettingsPath = settingsPath
+		} else {
+			fmt.Fprintf(errOut, "backup: warning: cannot resolve settings.yml path (web-search config not archived): %v\n", perr)
+		}
+	}
 
 	res, rerr := backup.Backup(d, in)
 	if cerr := f.Close(); cerr != nil && rerr == nil {
@@ -302,6 +316,19 @@ func runBackup(cmd *cobra.Command, output string, d backup.Deps) int {
 			fmt.Fprintf(out, "coding agent: crush.json included (%s)\n", backup.EntryCrushConfig)
 		} else {
 			fmt.Fprintf(out, "coding agent: crush.json not included (no rendered crush.json)\n")
+		}
+	}
+	// Honest web-search reporting (Phase 34, SURF-07): the rendered settings.yml
+	// provenance is archived (if present). Fetched ephemeral web content is never
+	// archived by design (T-34-06).
+	switch {
+	case in.SearxngSettingsPath == "":
+		fmt.Fprintf(out, "web search: not included (web search disabled)\n")
+	default:
+		if _, serr := os.Stat(in.SearxngSettingsPath); serr == nil {
+			fmt.Fprintf(out, "web search: settings.yml included (%s)\n", backup.EntrySearxngSettings)
+		} else {
+			fmt.Fprintf(out, "web search: settings.yml not included (no rendered settings.yml)\n")
 		}
 	}
 	if in.AgentBinarySHA256 != "" || in.AgentVersion != "" || in.AgentPinSHA256 != "" {

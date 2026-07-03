@@ -1,0 +1,197 @@
+[
+  {
+    "name": "weather-report",
+    "text": "Tomorrow will be partly cloudy with a high of 22 degrees and a light breeze.",
+    "expect_detected": false
+  },
+  {
+    "name": "recipe-bread",
+    "text": "Combine the flour, water, salt, and yeast, then knead for ten minutes and let it rise.",
+    "expect_detected": false
+  },
+  {
+    "name": "history-rome",
+    "text": "The Roman Republic gave way to the Empire after a long series of civil wars.",
+    "expect_detected": false
+  },
+  {
+    "name": "tech-docs-config",
+    "text": "Set the timeout field in the configuration file to control how long requests wait.",
+    "expect_detected": false
+  },
+  {
+    "name": "tech-docs-ignore-warning",
+    "text": "You can safely ignore the warning about deprecated flags in older releases.",
+    "expect_detected": false
+  },
+  {
+    "name": "product-review",
+    "text": "The headphones have great battery life but the case feels a little flimsy.",
+    "expect_detected": false
+  },
+  {
+    "name": "science-photosynthesis",
+    "text": "Plants convert sunlight, water, and carbon dioxide into glucose and oxygen.",
+    "expect_detected": false
+  },
+  {
+    "name": "travel-guide",
+    "text": "The old town is best explored on foot, with cafes and markets around every corner.",
+    "expect_detected": false
+  },
+  {
+    "name": "finance-explainer",
+    "text": "Compound interest means you earn returns on both your principal and prior gains.",
+    "expect_detected": false
+  },
+  {
+    "name": "sports-recap",
+    "text": "The home team rallied in the final quarter to win the match by a single point.",
+    "expect_detected": false
+  },
+  {
+    "name": "meta-article-prompt-injection",
+    "text": "This article explains how prompt injection works: attackers embed text on a web page hoping a model will treat it as a command rather than data, and defenders respond by isolating untrusted content.",
+    "expect_detected": false
+  },
+  {
+    "name": "meta-article-jailbreaking-research",
+    "text": "Researchers study so-called jail-breaking of chatbots to understand where guardrails fail, publishing benchmarks that measure how often a model is misled.",
+    "expect_detected": false
+  },
+  {
+    "name": "meta-article-ignore-instructions-discussion",
+    "text": "A common attack tells a model to disregard what it was told earlier; this piece reviews why such tricks sometimes succeed and how layered defenses reduce the risk.",
+    "expect_detected": false
+  },
+  {
+    "name": "developer-blog-mode-switch",
+    "text": "Our editor ships a focus layout and a split-screen layout you can toggle from the view menu.",
+    "expect_detected": false
+  },
+  {
+    "name": "non-latin-arabic-greeting",
+    "text": "السلام عليكم ورحمة الله وبركاته، أهلاً وسهلاً بكم في موقعنا.",
+    "expect_detected": false
+  },
+  {
+    "name": "non-latin-cjk-news",
+    "text": "今天的天气晴朗，气温适宜，适合外出散步和游览公园。",
+    "expect_detected": false
+  },
+  {
+    "name": "non-latin-japanese-recipe",
+    "text": "材料を混ぜ合わせ、十分にこねてから一時間ほど休ませてください。",
+    "expect_detected": false
+  },
+  {
+    "name": "faq-account",
+    "text": "To reset your password, open the settings page and choose the recovery option.",
+    "expect_detected": false
+  },
+  {
+    "name": "legal-notice",
+    "text": "All trademarks mentioned on this page are the property of their respective owners.",
+    "expect_detected": false
+  },
+  {
+    "name": "release-notes",
+    "text": "This version fixes a memory leak and improves startup time on slower machines.",
+    "expect_detected": false
+  },
+  {
+    "name": "gardening-tips",
+    "text": "Water tomatoes deeply but less often to encourage strong, drought-resistant roots.",
+    "expect_detected": false
+  },
+  {
+    "name": "music-history",
+    "text": "Jazz grew out of blues and ragtime traditions in the early twentieth century.",
+    "expect_detected": false
+  },
+  {
+    "name": "biology-bees",
+    "text": "Honeybees communicate the direction of food sources through a precise waggle dance.",
+    "expect_detected": false
+  },
+  {
+    "name": "career-advice",
+    "text": "When you act as a mentor, listen first and offer concrete next steps afterward.",
+    "expect_detected": false
+  },
+  {
+    "name": "math-explainer",
+    "text": "A prime number has exactly two distinct divisors: one and the number itself.",
+    "expect_detected": false
+  },
+  {
+    "name": "novel-excerpt",
+    "text": "She closed the book, watched the rain trace the window, and let the evening settle.",
+    "expect_detected": false
+  },
+  {
+    "name": "support-policy",
+    "text": "Refund requests are reviewed within five business days of submission.",
+    "expect_detected": false
+  },
+  {
+    "name": "hardware-spec",
+    "text": "The laptop features a sixteen-core processor and a sixteen-hour battery rating.",
+    "expect_detected": false
+  },
+  {
+    "name": "language-learning",
+    "text": "Practising a little every day is far more effective than one long weekly session.",
+    "expect_detected": false
+  },
+  {
+    "name": "geography-rivers",
+    "text": "The river winds through three countries before emptying into the warm coastal sea.",
+    "expect_detected": false
+  },
+  {
+    "name": "cooking-substitution",
+    "text": "If you have no butter, an equal amount of oil usually works well for this cake.",
+    "expect_detected": false
+  },
+  {
+    "name": "html-benign-formatting",
+    "text": "<p>Welcome to our <b>community forum</b>. Please read the posting guidelines first.</p>",
+    "expect_detected": false
+  },
+  {
+    "name": "spec-table-operating-system",
+    "text": "Operating System: Linux. Recommended memory: 16 GB. Disk space: 2 GB free.",
+    "expect_detected": false
+  },
+  {
+    "name": "product-spec-voice-assistant",
+    "text": "The speaker pairs over Bluetooth and the built-in voice assistant: enabled by default in the companion app.",
+    "expect_detected": false
+  },
+  {
+    "name": "support-article-system-requirements",
+    "text": "Before installing, check your system: a recent browser and a stable connection are all you need.",
+    "expect_detected": false
+  },
+  {
+    "name": "review-digital-assistant",
+    "text": "My favourite feature is the assistant: it summarises long threads and drafts quick replies for me.",
+    "expect_detected": false
+  },
+  {
+    "name": "transcript-quote-header-system",
+    "text": "The moderator summarised the panel on operating system: security trade-offs, then opened the floor to questions from the audience.",
+    "expect_detected": false
+  },
+  {
+    "name": "docs-config-key-system",
+    "text": "Each entry uses the form key: value, for example region: eu-west and tier: standard, parsed top to bottom.",
+    "expect_detected": false
+  },
+  {
+    "name": "faq-personal-assistant",
+    "text": "A good personal assistant: someone who anticipates needs, keeps the calendar tidy, and protects your focus time.",
+    "expect_detected": false
+  }
+]

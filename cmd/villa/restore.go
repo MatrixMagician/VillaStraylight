@@ -178,6 +178,17 @@ func runRestore(cmd *cobra.Command, archivePath string, in backup.RestoreInput, 
 		if res.ExcludedAgent != nil {
 			fmt.Fprintf(out, "coding agent: binary not in the backup (identity recorded) — re-stage the pinned release with `villa install --coding-agent` (pinned %s); the re-stage verifies identity and refuses on drift\n", res.ExcludedAgent.Version)
 		}
+		// Honest Phase-34 web-search reporting (SURF-07): report whether the rendered
+		// settings.yml provenance was restored (0600-preserving). Fetched ephemeral web
+		// content was never archived by design (T-34-06).
+		switch {
+		case res.SearxngSettingsRestored:
+			fmt.Fprintf(out, "web search: settings.yml restored\n")
+		case res.SearxngSettingsSkipped:
+			fmt.Fprintf(out, "web search: archive carried settings.yml but the current install is web-search-off — NOT applied; re-run `villa install` with web search enabled then restore, or it will not be applied\n")
+		default:
+			fmt.Fprintf(out, "web search: no settings.yml in this backup — left untouched\n")
+		}
 		return exitPass, false
 	}
 }
@@ -270,6 +281,19 @@ func liveRestore(cmd *cobra.Command, archivePath string, bypass bool) (backup.Re
 			in.CrushConfigDestPath = crushPath
 		} else {
 			fmt.Fprintf(errOut, "restore: warning: cannot resolve crush.json path (agent config will not be restored): %v\n", perr)
+		}
+	}
+	// Phase-34 web-search settings.yml destination (SURF-07): wired ONLY when web search
+	// is enabled (the AUTHORITATIVE persisted gate, mirroring the backup side), so a
+	// web-search-off restore makes ZERO settings.yml writes even if an archive carries the
+	// entry. SearXNGSettingsFilePath() resolves $XDG_CONFIG_HOME/villa/searxng/settings.yml
+	// (OUTSIDE the data-store root — restored via the dedicated WriteSearxngSettings seam,
+	// 0600-preserving, T-34-05).
+	if cfg.WebSearchEnabled {
+		if settingsPath, perr := orchestrate.SearXNGSettingsFilePath(); perr == nil {
+			in.SearxngSettingsDestPath = settingsPath
+		} else {
+			fmt.Fprintf(errOut, "restore: warning: cannot resolve settings.yml path (web-search config will not be restored): %v\n", perr)
 		}
 	}
 	return in, liveRestoreDeps(), tmpDir, exitPass
@@ -370,16 +394,35 @@ func liveRestoreDeps() backup.Deps {
 				return false, err
 			}
 			units, err := orchestrate.Render(orchestrate.RenderInput{
-				Backend:   backend,
-				Cfg:       c,
-				ModelFile: modelFile,
-				ModelsDir: modelsDir(),
+				Backend:       backend,
+				Cfg:           c,
+				ModelFile:     modelFile,
+				ModelsDir:     modelsDir(),
+				HostVillaPath: hostVillaPath(),
 			})
 			if err != nil {
 				return false, err
 			}
 			plan, err := orchestrate.Reconcile(units, dir)
 			if err != nil {
+				return false, err
+			}
+			// WR-01: write the 0600 websafe.env bearer the restored web-search units
+			// reference via EnvironmentFile=. Phase 31 makes BOTH the OWUI unit and the
+			// villa-websafe unit carry EnvironmentFile={websafe.env} whenever
+			// cfg.WebSearchEnabled — but restore only restores config.toml, never the 0600
+			// env files (they live outside the backup archive). On a fresh-host restore of a
+			// web-search backup, `systemctl start villa-openwebui.service` would then fail on
+			// the absent EnvironmentFile target. Mirror install.go step 9a: when the restored
+			// config has web search on AND carries the bearer, render+write the 0600 file
+			// BEFORE the units are activated/started. Fail closed with remediation when the
+			// secret is absent rather than starting into a missing-file failure. This write is
+			// done BEFORE the WriteUnits/no-op decision so it lands even when the unit text is
+			// already current (same-host restore) — it must exist regardless of unit churn.
+			// (The SearXNG secret-env/settings share the same restore gap; this fix is scoped
+			// to websafe to match the finding — the OWUI EnvironmentFile dependency is the
+			// Phase-31-introduced regression.)
+			if err := restoreWriteWebsafeSecretEnv(c, orchestrate.WriteWebsafeSecretEnv); err != nil {
 				return false, err
 			}
 			if len(plan.Changed) == 0 {
@@ -431,6 +474,26 @@ func liveRestoreDeps() backup.Deps {
 			}
 			return nil
 		},
+		// WriteSearxngSettings restores the OPTIONAL settings.yml entry to
+		// $XDG_CONFIG_HOME/villa/searxng/ (OUTSIDE the villa data-store root — SURF-07),
+		// so it must NOT use the store-root-guarded usage.WriteFileAtomic. It mirrors the
+		// WriteCrushConfig discipline AND orchestrate.WriteSearxngSettings' 0600 mode:
+		// traversal-guard the path within its dir, MkdirAll 0700, WriteFile 0600. The mode
+		// is FORCED 0600 because the file holds the rendered SEARXNG_SECRET — never widen
+		// it (T-34-05). The path is the XDG-resolved settings.yml path, never user input.
+		WriteSearxngSettings: func(path string, data []byte) error {
+			dir := filepath.Dir(path)
+			if err := assertWithinDir(path, dir); err != nil {
+				return err
+			}
+			if err := os.MkdirAll(dir, 0o700); err != nil {
+				return fmt.Errorf("restore: create searxng config dir: %w", err)
+			}
+			if err := os.WriteFile(path, data, 0o600); err != nil {
+				return fmt.Errorf("restore: write settings.yml: %w", err)
+			}
+			return nil
+		},
 		Prove: liveRestoreProve,
 	}
 }
@@ -475,6 +538,29 @@ func liveRestoreProve(target string) backup.ProveVerdict {
 		return backup.ProveVerdict{Status: backup.ProveStatusPass, Detail: v.Detail}
 	}
 	return backup.ProveVerdict{Status: "fail", Detail: v.Detail}
+}
+
+// restoreWriteWebsafeSecretEnv writes the 0600 websafe.env bearer the restored
+// web-search units reference via EnvironmentFile= (WR-01). It is a no-op when the restored
+// config has web search OFF (byte-identical to a pre-Phase-31 restore). When web search is
+// ON it fails closed with remediation if the restored config carries no bearer (the env
+// file would otherwise be absent and `systemctl start villa-openwebui.service` would fail
+// on the missing EnvironmentFile), else renders + writes the 0600 file via the injected
+// write seam. The seam is orchestrate.WriteWebsafeSecretEnv in the live wiring and a fake
+// in restore_test.go (the env-file render/write path is proven in orchestrate tests; this
+// helper guards the restore GATE — write-on, fail-closed-on-missing-secret, no-op-off).
+func restoreWriteWebsafeSecretEnv(c config.VillaConfig, writeEnv func(name, text string) error) error {
+	if !c.WebSearchEnabled {
+		return nil
+	}
+	if c.WebLoaderSecret == "" {
+		return fmt.Errorf("restore: restored config has web search enabled but no web loader secret — refusing to start into a missing websafe.env EnvironmentFile; re-run `villa install` to regenerate the bearer")
+	}
+	envName, envText := orchestrate.RenderWebsafeSecretEnv(c.WebLoaderSecret)
+	if err := writeEnv(envName, envText); err != nil {
+		return fmt.Errorf("restore: write websafe secret env: %w", err)
+	}
+	return nil
 }
 
 // isVolumeNotFound recognises the `podman volume rm` not-found stderr so the

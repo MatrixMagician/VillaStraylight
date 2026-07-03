@@ -110,17 +110,20 @@ func TestManifestV2MemoryEntryConsts(t *testing.T) {
 	}
 }
 
-// TestManifestSchemaVersionIsV3 asserts the manifest's own schema version is 3
-// (the Phase-28 SURF-03/D-08 append-only bump: v3 adds the OPTIONAL crush.json
-// entry + the ExcludedAgent identity record; old villas fail closed on a v3
-// backup, v2/v1 backups stay restorable because the gate is m.SchemaVersion <=
-// backupSchemaVersion).
-func TestManifestSchemaVersionIsV3(t *testing.T) {
-	if backupSchemaVersion != 3 {
-		t.Fatalf("backupSchemaVersion = %d, want 3 (Phase 28 agent crush.json entry + ExcludedAgent identity)", backupSchemaVersion)
+// TestManifestSchemaVersionIsV4 asserts the manifest's own schema version is 4
+// (the Phase-34 SURF-07 append-only bump: v4 adds the OPTIONAL settings.yml
+// web-search provenance entry; old villas fail closed on a v4 backup, v3/v2/v1
+// backups stay restorable because the gate is m.SchemaVersion <=
+// backupSchemaVersion). The Phase-28 v3 crush.json entry stays present.
+func TestManifestSchemaVersionIsV4(t *testing.T) {
+	if backupSchemaVersion != 4 {
+		t.Fatalf("backupSchemaVersion = %d, want 4 (Phase 34 web-search settings.yml entry)", backupSchemaVersion)
 	}
 	if EntryCrushConfig != "crush.json" {
 		t.Fatalf("EntryCrushConfig = %q, want crush.json", EntryCrushConfig)
+	}
+	if EntrySearxngSettings != "searxng-settings.yml" {
+		t.Fatalf("EntrySearxngSettings = %q, want searxng-settings.yml", EntrySearxngSettings)
 	}
 }
 

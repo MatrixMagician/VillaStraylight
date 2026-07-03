@@ -29,6 +29,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/recommend"
 	"github.com/MatrixMagician/VillaStraylight/internal/status"
 	"github.com/MatrixMagician/VillaStraylight/internal/usage"
+	"github.com/MatrixMagician/VillaStraylight/internal/verifystate"
 )
 
 // status.go is the thin cobra caller for the offload-asserting `villa status` slice
@@ -273,6 +274,19 @@ func liveStatusDeps() (*status.Deps, error) {
 		QdrantHealth:    liveQdrantHealth,
 		EmbedHealth:     liveEmbedHealth,
 		ReadRecallState: liveReadRecallState,
+		// Web-search rows + cached-verify seam (Phase-34 SURF-04): service names
+		// derived from the orchestrate accessors via the SAME .container → .service
+		// derivation doctor uses — never a typed service-name literal (TestSeamGrepGate
+		// walks cmd/villa). The dedicated in-network health probes + the fail-closed
+		// ReadVerifyState seam wired here reach the dashboard verbatim (dashboard.go
+		// wires *liveStatusDeps() unchanged). The outbound-bounded indicator is derived
+		// in the status core from this cached result with a freshness gate — NEVER from
+		// cfg.WebSearchEnabled.
+		SearxngService:  unitServiceName(orchestrate.SearXNGContainerUnitName()),
+		WebsafeService:  unitServiceName(orchestrate.WebsafeContainerUnitName()),
+		SearxngHealth:   liveSearxngHealth,
+		WebsafeHealth:   liveWebsafeHealth,
+		ReadVerifyState: liveReadVerifyState,
 	}
 	// Coding-agent seams (Phase-28 D-01..D-04): wired ONLY when the agent is
 	// PERSISTED-enabled (cfg.AgentEnabled). With the agent off the seams stay nil so
@@ -355,7 +369,8 @@ func liveAgentResidency() string {
 		return "" // cfg load failed → typed-Unknown rather than a memory-blind guess
 	}
 	rec := recommend.Pick(profile, cat, recommend.Overrides{},
-		recommend.MemoryInputs{Enabled: cfg.MemoryEnabled, EmbeddingModel: cfg.EmbeddingModel})
+		recommend.MemoryInputs{Enabled: cfg.MemoryEnabled, EmbeddingModel: cfg.EmbeddingModel},
+		webSearchInputsFrom(cfg))
 	return rec.Coder.Residency
 }
 
@@ -561,6 +576,129 @@ func liveReadRecallState() *recall.State {
 	return &st
 }
 
+// Package-level web-search-health cache (Phase-34 SURF-04): mutex-guarded, keyed
+// only on time (single config per process), mirroring the memory-health pair. One
+// refresh probes BOTH services together so the dashboard poll spawns at most one
+// probe pair per memoryHealthTTL window.
+var (
+	webSearchHealthMu      sync.Mutex
+	webSearchHealthAt      time.Time
+	webSearchHealthSearxng status.HealthState
+	webSearchHealthWebsafe status.HealthState
+)
+
+// webSearchHealthSnapshot returns the cached (searxng, websafe) health pair,
+// refreshing BOTH probes together when the TTL window has lapsed. SearXNG exposes a
+// standard /healthz (200→ready); the villa-websafe loader serves only its single
+// POST /load route, so a liveness GET is mapped via mapWebsafeProbe (any HTTP
+// response = up; connect refused = down) — never the searxng 200-only mapping that
+// would mis-read websafe's 401/400/405 as down.
+func webSearchHealthSnapshot(sxAddr string, sxPort int, wsAddr string, wsPort int) (status.HealthState, status.HealthState) {
+	webSearchHealthMu.Lock()
+	defer webSearchHealthMu.Unlock()
+	if !webSearchHealthAt.IsZero() && time.Since(webSearchHealthAt) < memoryHealthTTL {
+		return webSearchHealthSearxng, webSearchHealthWebsafe
+	}
+	webSearchHealthSearxng = probeMemoryURL("http://" + net.JoinHostPort(sxAddr, strconv.Itoa(sxPort)) + "/healthz")
+	webSearchHealthWebsafe = probeWebsafeURL("http://" + net.JoinHostPort(wsAddr, strconv.Itoa(wsPort)) + "/load")
+	webSearchHealthAt = time.Now()
+	return webSearchHealthSearxng, webSearchHealthWebsafe
+}
+
+// liveWebSearchTargets resolves both web-search probe targets from config (the single
+// source of truth); a load failure falls back to the typed defaults so a probe target
+// is never fabricated ad hoc (mirrors liveMemoryTargets).
+func liveWebSearchTargets() config.VillaConfig {
+	cfg, err := config.LoadVilla()
+	if err != nil {
+		return config.DefaultVillaConfig()
+	}
+	return cfg
+}
+
+// liveSearxngHealth probes the SearXNG /healthz endpoint in-network (TTL-cached pair
+// refresh). The sibling websafe target comes from config so one refresh covers both
+// rows.
+func liveSearxngHealth(addr string, port int) status.HealthState {
+	cfg := liveWebSearchTargets()
+	sx, _ := webSearchHealthSnapshot(addr, port, cfg.WebsafeAddr, cfg.WebsafePort)
+	return sx
+}
+
+// liveWebsafeHealth probes the villa-websafe loader in-network (TTL-cached pair
+// refresh) via mapWebsafeProbe (any HTTP response = up; the loader has no dedicated
+// health route, only POST /load).
+func liveWebsafeHealth(addr string, port int) status.HealthState {
+	cfg := liveWebSearchTargets()
+	_, ws := webSearchHealthSnapshot(cfg.SearxngAddr, cfg.SearxngPort, addr, port)
+	return ws
+}
+
+// probeWebsafeURL runs one bounded in-network liveness probe against the villa-websafe
+// loader. Because the loader exposes ONLY a POST /load route (no /healthz), a GET
+// elicits a 401/400/405 — all of which prove the server is UP. mapWebsafeProbe treats
+// ANY HTTP code curl wrote as "ready" and only a curl-/podman-level failure as
+// down/unknown — never the searxng 200-only mapping (which would false-negative every
+// healthy websafe).
+func probeWebsafeURL(url string) status.HealthState {
+	ctx, cancel := context.WithTimeout(context.Background(), memoryProbeTimeout)
+	defer cancel()
+	out, code, err := memoryProbeExec(ctx, orchestrate.EmbedImage(),
+		"-s", "-o", "/dev/null", "-w", "%{http_code}",
+		"--max-time", strconv.Itoa(int(statusHTTPTimeout/time.Second)),
+		url)
+	return mapWebsafeProbe(out, code, err)
+}
+
+// mapWebsafeProbe maps a villa-websafe liveness-probe outcome with the typed-Unknown
+// doctrine, adapted for a server with NO health route: ANY HTTP code curl wrote means
+// the server answered (→ready); a curl-level failure (connect refused/timeout inside
+// villa.network) is a confident down; a podman-level failure (exit ≥125 or <0) is
+// unevaluable → HealthUnknown, NEVER a fabricated confident state.
+func mapWebsafeProbe(out []byte, exitCode int, err error) status.HealthState {
+	if err != nil {
+		if exitCode >= 125 || exitCode < 0 {
+			return status.HealthUnknown // podman-level: could not evaluate the probe
+		}
+		return status.HealthDown // curl-level: evaluated in-network, service unreachable
+	}
+	if code := strings.TrimSpace(string(out)); code != "" && code != "000" {
+		// The loader answered with an HTTP status (200/400/401/405) — it is UP. curl
+		// writes "000" when it got no HTTP response despite exit 0 (rare); treat that
+		// as down, never a fabricated ready.
+		return status.HealthReady
+	}
+	return status.HealthDown
+}
+
+// liveReadVerifyState loads verify-search-state.json READ-ONLY (SURF-04, T-34-08),
+// cloning liveReadRecallState's shape over verifystate.Load (fail-closed): an absent
+// store yields a pointer to the ZERO State (the status core's freshness gate then reads
+// it as a non-PASS/empty → "unknown", never green); a corrupt/future-schema store fails
+// closed to empty inside verifystate.Load (never a fabricated PASS); a read error other
+// than NotExist yields nil so the indicator stays "unknown" (typed-Unknown). It supplies
+// NO WriteAll seam — the status path can never write the store.
+func liveReadVerifyState() *verifystate.State {
+	path := verifystate.VerifyStatePath()
+	deps := verifystate.Deps{
+		ReadAll: func() ([]byte, error) {
+			b, err := os.ReadFile(path)
+			if os.IsNotExist(err) {
+				return nil, nil // absent store ⇒ fail-closed-to-empty in verifystate.Load
+			}
+			if err != nil {
+				return nil, err
+			}
+			return b, nil
+		},
+	}
+	st, err := verifystate.Load(deps)
+	if err != nil {
+		return nil // unreadable store → typed-Unknown ("unknown"), never fabricated
+	}
+	return &st
+}
+
 // liveGenTokensPerSec reads the live token-generation throughput by REUSING the
 // dashboard's bounded metrics collector (D-03): metrics.ScrapeMetrics +
 // metrics.IsGenerating. It returns nil — a typed-Unknown the Report omits — on a
@@ -720,6 +858,6 @@ func liveWeightBytes(cfg config.VillaConfig) uint64 {
 	// byte-identical — WeightBytes is envelope-independent for overrides (guarded
 	// by TestPickOverrideWeightInvariance), so the frozen status path never sees
 	// the memory reservation.
-	rec := recommend.Pick(detect.Probe(), cat, recommend.Overrides{Model: cfg.Model}, recommend.MemoryInputs{})
+	rec := recommend.Pick(detect.Probe(), cat, recommend.Overrides{Model: cfg.Model}, recommend.MemoryInputs{}, recommend.WebSearchInputs{})
 	return rec.WeightBytes
 }

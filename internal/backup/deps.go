@@ -110,6 +110,17 @@ type Deps struct {
 	// nil, a present crush.json entry is reported as re-stageable but not written
 	// (the cmd tier always wires it on an agent-on restore).
 	WriteCrushConfig func(path string, data []byte) error
+	// WriteSearxngSettings restores the OPTIONAL Phase-34 settings.yml entry to the
+	// villa-owned SearXNG config destination ($XDG_CONFIG_HOME/villa/searxng/settings.yml,
+	// OUTSIDE the villa data-STORE root — SURF-07). It is a DISTINCT seam from
+	// WriteFileAtomic precisely because that one is data-store-root-guarded and would
+	// reject a path under $XDG_CONFIG_HOME; the live wiring mirrors
+	// orchestrate.WriteSearxngSettings' MkdirAll 0700 + traversal-guard + atomic 0600
+	// write. The settings.yml holds the rendered SEARXNG_SECRET, so the write MUST force
+	// 0600 and NEVER widen the mode (T-34-05). When nil, a present settings.yml entry is
+	// reported as re-writable but not written (the cmd tier wires it on a web-search-on
+	// restore).
+	WriteSearxngSettings func(path string, data []byte) error
 	// RemoveFile deletes the file at path, TOLERATING an already-absent file (the
 	// live wiring maps os.Remove + os.IsNotExist). It is the verbatim-rollback seam
 	// for a data-dir artifact the FORWARD path newly created where none existed
@@ -219,6 +230,20 @@ type Result struct {
 	// tier warns the operator to re-run `villa install --coding-agent` then restore.
 	// Mutually exclusive with CrushConfigRestored. Valid on a Restored result.
 	CrushConfigSkipped bool
+	// SearxngSettingsRestored reports whether the OPTIONAL Phase-34 settings.yml entry
+	// was present in the archive AND actually written (SURF-07). It reflects the ACTUAL
+	// write (entry present AND a destination wired), not mere presence — a web-search-on
+	// archive restored onto a web-search-off current install has no destination wired, so
+	// the entry is skipped and this stays false (see SearxngSettingsSkipped). Valid on a
+	// Restored result.
+	SearxngSettingsRestored bool
+	// SearxngSettingsSkipped is true when the archive CARRIED a settings.yml entry but it
+	// was NOT applied because no destination was wired — i.e. the current install is
+	// web-search-off. This is the honest signal that the restored config.toml may believe
+	// web search is enabled while its settings.yml was never restored; the cmd tier warns
+	// the operator to re-run `villa install` (web search) then restore. Mutually exclusive
+	// with SearxngSettingsRestored. Valid on a Restored result.
+	SearxngSettingsSkipped bool
 	// ExcludedAgent is the EXCLUDED coding-agent binary identity recorded in the
 	// restored manifest (SURF-03/D-08), surfaced for the operator to RE-STAGE the
 	// binary (re-download the pinned release) — exactly the ExcludedModels re-pull

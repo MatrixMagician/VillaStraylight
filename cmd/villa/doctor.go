@@ -251,17 +251,34 @@ func liveDoctorDeps() (doctor.Deps, error) {
 		agentResidency = liveAgentResidencyUnderLoad(cfg, sd)
 		agentDrift = liveAgentDrift(cfg)
 	}
+	// Web-search seams (SURF-06, T-34-12/T-34-13, mirroring the cfg.AgentEnabled conditional
+	// above): bound ONLY when the persisted web_search_enabled is true; both stay nil when
+	// web search is off so the web-off doctor output is byte-identical (except the schema
+	// bump). SearchEgressProof reads the CACHED `villa verify search` result (never a config
+	// bool); SearchResidencyUnderLoad samples residency under a bounded search-augmented chat
+	// drive. Both consume/produce inference.Verdict opaquely (no backend marker literal in
+	// cmd/villa; TestSeamGrepGate walks this tree). Guard health is a documented omission.
+	var (
+		searchEgress    func() inference.Verdict
+		searchResidency func() inference.Verdict
+	)
+	if cfg.WebSearchEnabled {
+		searchEgress = liveSearchEgressProof()
+		searchResidency = liveSearchResidencyUnderLoad(cfg, sd)
+	}
 	return doctor.Deps{
-		Probe:                   detect.Probe,
-		LoadConfig:              config.LoadVilla,
-		StatusReport:            func() status.Report { return status.Run(*sd) },
-		Backend:                 cfg.Backend,
-		RunROCmImage:            rocmImageGate,
-		RunMemoryChecks:         memChecks,
-		ResidencyUnderLoad:      memProof,
-		AgentToolCall:           agentToolCall,
-		AgentResidencyUnderLoad: agentResidency,
-		AgentDrift:              agentDrift,
+		Probe:                    detect.Probe,
+		LoadConfig:               config.LoadVilla,
+		StatusReport:             func() status.Report { return status.Run(*sd) },
+		Backend:                  cfg.Backend,
+		RunROCmImage:             rocmImageGate,
+		RunMemoryChecks:          memChecks,
+		ResidencyUnderLoad:       memProof,
+		AgentToolCall:            agentToolCall,
+		AgentResidencyUnderLoad:  agentResidency,
+		AgentDrift:               agentDrift,
+		SearchEgressProof:        searchEgress,
+		SearchResidencyUnderLoad: searchResidency,
 		// DriftPlan: render units from the persisted config, resolve the backend
 		// fail-closed (D-02), and Reconcile against the READ-ONLY unit dir. It NEVER
 		// writes. A read error (absent/unreadable unit dir) is returned verbatim so the
@@ -280,10 +297,11 @@ func liveDoctorDeps() (doctor.Deps, error) {
 				return orchestrate.Plan{}, fmt.Errorf("resolve model file: %w", err)
 			}
 			units, err := orchestrate.Render(orchestrate.RenderInput{
-				Backend:   backend,
-				Cfg:       c,
-				ModelFile: modelFile,
-				ModelsDir: modelsDir(),
+				Backend:       backend,
+				Cfg:           c,
+				ModelFile:     modelFile,
+				ModelsDir:     modelsDir(),
+				HostVillaPath: hostVillaPath(),
 			})
 			if err != nil {
 				return orchestrate.Plan{}, fmt.Errorf("render units: %w", err)
@@ -552,6 +570,220 @@ const (
 	// WARN), never sampled idle (which could mask a CPU-fallback-under-load false-green).
 	agentResidencySettle = 750 * time.Millisecond
 )
+
+// --- Phase 34-04: live search-residency proof + egress-proof seam (SURF-06) ---
+
+// searchResidencyDriveRounds / searchResidencySettle clone the agent-residency in-flight
+// discipline (WR-03) for the search-load drive: drive bounded sequential search-augmented
+// chat rounds and sample the served model's residency ONLY while a round is verifiably IN
+// FLIGHT — never idle (which could mask a CPU-fallback-under-search-load false-green,
+// T-34-13). The drive is the cheapest honest one that keeps villa-llama decoding under load
+// (a bounded chat completion) while villa-searxng/villa-websafe are up (Open Q2 resolution).
+const (
+	searchResidencyDriveRounds = 3
+	searchResidencySettle      = 750 * time.Millisecond
+)
+
+// searchVerifyFreshnessWindow is the SINGLE freshness gate a cached `villa verify search`
+// PASS must satisfy to read as a CURRENT outbound-bounded proof — sourced from the exported
+// status.VerifyFreshnessWindow (not a forked literal) so the doctor egress finding and the
+// status `outbound_bounded` indicator can never drift apart; a security property is NEVER
+// trusted indefinitely from a stale cache (T-34-12).
+const searchVerifyFreshnessWindow = status.VerifyFreshnessWindow
+
+// searchResidencyDriveBody is the bounded chat-completion drive payload: a small, fixed
+// max_tokens completion that keeps villa-llama DECODING (so the residency sample observes
+// the served model under real load) without an unbounded generation. The model id is
+// JSON-marshaled, never interpolated into a command string (T-34-09 / the runResidencyUnderLoad
+// precedent). stream=false keeps the round a single bounded request.
+func searchResidencyDriveBody(model string) ([]byte, error) {
+	return json.Marshal(map[string]any{
+		"model": model,
+		"messages": []map[string]string{
+			{"role": "user", "content": "villa search-residency drive probe: reply with a single short sentence."},
+		},
+		"max_tokens": 16,
+		"stream":     false,
+	})
+}
+
+// liveSearchEgressProof builds the SURF-06/T-34-12 egress-proof seam liveDoctorDeps binds
+// when web search is enabled: a closure that reads the CACHED `villa verify search` result
+// (verifystate.Load, fail-closed) and maps it to a tri-state inference.Verdict consumed
+// opaquely by the doctor core. The mapping mirrors the status core's webSearchInfo exactly
+// (the SAME 24h freshness gate, NEVER cfg.WebSearchEnabled): a fresh cached PASS → StatusPass
+// (ready); a real recent non-PASS (FAIL/REJECT within the window) → StatusFail
+// (degraded-with-reason); a nil/absent/corrupt store, an unparseable timestamp, or a stale
+// result (>24h) → StatusWarn (typed-Unknown — re-prove, never trust a stale cache). It is
+// constructed (not run) at wiring time; the read only fires when doctor.Aggregate invokes it.
+func liveSearchEgressProof() func() inference.Verdict {
+	return func() inference.Verdict {
+		st := liveReadVerifyState() // fail-closed: absent → zero State, unreadable → nil
+		if st == nil {
+			return inference.Verdict{
+				Status:      inference.StatusWarn,
+				Detail:      "no fresh verified outbound-bounded result (the cached verify-search store is unavailable)",
+				Remediation: "run `villa verify search` to prove outbound is bounded, then re-run `villa doctor`",
+			}
+		}
+		checked, perr := time.Parse(time.RFC3339, st.CheckedAt)
+		if perr != nil || time.Since(checked) < 0 || time.Since(checked) > searchVerifyFreshnessWindow {
+			// Unparseable, future-dated, or stale → the property must be re-proven, NEVER read
+			// as bounded and NEVER inferred from cfg.WebSearchEnabled (T-34-12). A future
+			// CheckedAt yields a negative age (never > window), so the lower-bound clamp is
+			// required to keep the no-false-green invariant (WR-01).
+			return inference.Verdict{
+				Status:      inference.StatusWarn,
+				Detail:      "no fresh verified outbound-bounded result (the last `villa verify search` is stale or absent)",
+				Remediation: "run `villa verify search` to re-prove outbound is bounded, then re-run `villa doctor`",
+			}
+		}
+		if st.Verdict == "PASS" {
+			return inference.Verdict{
+				Status: inference.StatusPass,
+				Detail: fmt.Sprintf("outbound bounded: a recent `villa verify search` PASS (checked %s)", st.CheckedAt),
+			}
+		}
+		// A real RECENT non-PASS verdict (FAIL/REJECT) — confidently NOT bounded.
+		return inference.Verdict{
+			Status:      inference.StatusFail,
+			Detail:      fmt.Sprintf("the last `villa verify search` did not pass (verdict %q, checked %s)", st.Verdict, st.CheckedAt),
+			Remediation: "re-run `villa verify search` and check `villa logs` — outbound is not proven bounded",
+		}
+	}
+}
+
+// liveSearchResidencyUnderLoad builds the SURF-06/T-34-13 chat-model-residency-under-
+// SEARCH-load seam: a closure returning the served model's residency Verdict sampled DURING
+// a bounded search-augmented chat drive (with villa-searxng/villa-websafe up). It mirrors
+// liveAgentResidencyUnderLoad's drive→settle→sample-if-in-flight→join shape but drives a
+// bounded chat completion (the cheapest honest drive that keeps villa-llama decoding under
+// search load) instead of the crush-run tool-call probe. It is constructed (not run) at
+// wiring time; the drive/sample only fire when doctor.Aggregate invokes the seam.
+func liveSearchResidencyUnderLoad(cfg config.VillaConfig, sd *status.Deps) func() inference.Verdict {
+	return func() inference.Verdict { return runSearchResidencyUnderLoad(cfg, sd) }
+}
+
+// runSearchResidencyUnderLoad is the live under-SEARCH-load residency proof for the served
+// model (SURF-06/T-34-13), a verbatim-in-shape clone of runAgentResidencyUnderLoad with ONLY
+// the drive swapped and the precondition gate extended. Strictly READ-ONLY (doctor never
+// starts a service):
+//
+//  1. PRECONDITION GATE: the served inference unit (villa-llama) AND villa-searxng AND
+//     villa-websafe must all be active; the backend + served model must resolve. Each unmet
+//     precondition → agentUnevaluable typed-Unknown WARN (NOT a FAIL fabricated from a stack
+//     that is not running). Unit names come from orchestrate.*ContainerUnitName() via
+//     unitServiceName — never a typed service-name literal (TestSeamGrepGate).
+//  2. DRIVE + IN-FLIGHT SAMPLE (WR-03): drive sequential bounded search-augmented chat rounds;
+//     for each, launch async, wait searchResidencySettle, then sample ONLY IF the round is
+//     still in flight (a round that finished too fast to load the model under observation is
+//     joined and the next driven). Sample inference.RunningOffloadVerdict over the EXACT
+//     liveStatusDeps input set (JournalText/Props/GTTUsed/WeightBytes/ConfigModel/
+//     ConfigContext/Markers: backend.ResidencyProof()), keyed on the served GGUF filename.
+//  3. JOIN + HONESTY: every sampled round is JOINED so no probe outlives the call; if no round
+//     can be caught in flight within the bounded rounds / budget, degrade to a typed-Unknown
+//     WARN (never an idle-sampled verdict). A confident CPU fallback under search load → FAIL.
+func runSearchResidencyUnderLoad(cfg config.VillaConfig, sd *status.Deps) inference.Verdict {
+	chatService := installServiceName // the served inference unit
+	// The served unit + the web-search services must all be active (read-only gate).
+	for _, svc := range []string{
+		chatService,
+		unitServiceName(orchestrate.SearXNGContainerUnitName()),
+		unitServiceName(orchestrate.WebsafeContainerUnitName()),
+	} {
+		if state, err := sd.IsActive(svc); err != nil || state != "active" {
+			return agentUnevaluable(
+				fmt.Sprintf("could not evaluate residency under search load — %s is not active", svc),
+				fmt.Sprintf("check `systemctl --user status %s`; run `villa up` if the stack is stopped, then re-run `villa doctor`", svc))
+		}
+	}
+	backend, err := inference.BackendFor(cfg.Backend)
+	if err != nil {
+		return agentUnevaluable(
+			fmt.Sprintf("could not evaluate residency under search load — the configured backend could not be resolved (%v)", err),
+			"fix the backend field in config.toml (`villa backend set`), then re-run `villa doctor`")
+	}
+	// The served model FILE (sd.ModelFile resolves cfg.Model). The /props + journal identity
+	// checks compare against the model FILE, mirroring runAgentResidencyUnderLoad.
+	modelFile, err := sd.ModelFile(cfg)
+	if err != nil {
+		return agentUnevaluable(
+			fmt.Sprintf("could not evaluate residency under search load — the served model could not be resolved (%v)", err),
+			"fix the model field in config.toml (`villa model swap`), then re-run `villa doctor`")
+	}
+
+	// The bounded chat-completion drive payload (model id JSON-marshaled, never interpolated).
+	body, err := searchResidencyDriveBody(cfg.Model)
+	if err != nil {
+		return agentUnevaluable(
+			fmt.Sprintf("could not evaluate residency under search load — the chat drive body could not be built (%v)", err),
+			"re-run `villa doctor`")
+	}
+	url := orchestrate.LlamaInNetworkEndpoint() + "/chat/completions"
+	helperImage := orchestrate.EmbedImage()
+
+	ctx, cancel := context.WithTimeout(context.Background(), agentProofBudget)
+	defer cancel()
+
+	// Drive sequential rounds and sample ONLY while a round is verifiably IN FLIGHT (WR-03),
+	// mirroring runAgentResidencyUnderLoad's in-flight discipline. A round that completes
+	// before the settle deadline is too fast to have loaded the model under observation — it
+	// is joined and the next round driven; if no round can be caught in flight, degrade to a
+	// typed-Unknown WARN rather than return an idle-sampled verdict.
+	var (
+		sampled bool
+		verdict inference.Verdict
+	)
+	for round := 0; round < searchResidencyDriveRounds && !sampled; round++ {
+		if ctx.Err() != nil {
+			break // parent budget exhausted — stop driving
+		}
+		done := make(chan struct{})
+		go func() {
+			_, _ = runProbeCurl(ctx, helperImage,
+				"-sf", "-X", "POST", url,
+				"-H", "Content-Type: application/json",
+				"-d", string(body),
+			) // drive-only; the FAIL signal here is residency, not the chat round
+			close(done)
+		}()
+
+		settle := time.NewTimer(searchResidencySettle)
+		select {
+		case <-done:
+			// The chat round finished before it could be sampled under load — too fast to
+			// prove residency-under-load. Do NOT sample idle; drive the next round.
+			settle.Stop()
+			continue
+		case <-ctx.Done():
+			settle.Stop()
+			<-done // JOIN: never let a probe outlive the call
+		case <-settle.C:
+			// The round is verifiably still IN FLIGHT — sample now, over the EXACT
+			// liveStatusDeps input set (every signal through the same sd seams the status
+			// fold uses), keyed on the served GGUF filename.
+			journal, _ := sd.JournalText(chatService)
+			verdict = inference.RunningOffloadVerdict(inference.RunningOffloadInput{
+				JournalText:   journal,
+				Props:         sd.Props(sd.Endpoint()),
+				GTTUsedBytes:  sd.GTTUsed(),
+				WeightBytes:   sd.WeightBytes(cfg),
+				ConfigModel:   modelFile,
+				ConfigContext: cfg.Ctx,
+				Markers:       backend.ResidencyProof(),
+			})
+			sampled = true
+			<-done // JOIN: the sampled chat round never outlives the call
+		}
+	}
+
+	if !sampled {
+		return agentUnevaluable(
+			"could not evaluate residency under search load — no search-augmented chat round stayed in flight long enough to sample residency under load",
+			"check `systemctl --user status "+chatService+"` and `villa logs`; ensure the stack (incl. villa-searxng/villa-websafe) is up (`villa up`), then re-run `villa doctor`")
+	}
+	return verdict
+}
 
 // agentUnevaluable builds the typed-Unknown WARN Verdict every unmet precondition /
 // unevaluable agent drive degrades to (SURF-02, D-07): never a false-green PASS, never a

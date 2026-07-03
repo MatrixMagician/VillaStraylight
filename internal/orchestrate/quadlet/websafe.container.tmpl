@@ -1,0 +1,18 @@
+# ~/.config/containers/systemd/villa-websafe.container  (GENERATED — do not edit; source: config.toml)
+[Unit]
+Description=VillaStraylight web-safe loader (OWUI external web loader)
+After=villa-network.service
+
+[Container]
+ContainerName={{.ContainerName}}
+Image={{.Image}}
+Network={{.Network}}
+EnvironmentFile={{.SecretEnvFile}}
+Volume={{.BinaryMount}}
+Exec={{.Exec}}
+
+[Service]
+Restart=on-failure
+
+[Install]
+WantedBy=default.target
