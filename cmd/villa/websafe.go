@@ -34,8 +34,9 @@ type websafeDeps struct {
 	// Bounds are the per-fetch resource limits shared by the client and the Loader.
 	Bounds websafe.Bounds
 	// Secret is the expected Bearer (EXTERNAL_WEB_LOADER_API_KEY) the handler enforces. The
-	// live wiring reads it from the container env (the mounted 0600 EnvironmentFile); an empty
-	// secret accepts any villa.network caller (documented fallback posture).
+	// live wiring reads it from the container env (the mounted 0600 EnvironmentFile). runWebsafe
+	// refuses to serve when this is empty (fail-closed) — the pure loader's empty-secret
+	// accept-any behavior is for unit tests only and must never reach the live serve path.
 	Secret string
 	// Serve binds the socket at addr and serves the handler until it errors. Stubbed in tests
 	// so no real listener is bound; the live wiring is http.ListenAndServe.
@@ -88,6 +89,17 @@ func runWebsafe(cmd *cobra.Command, _ []string, d *websafeDeps) int {
 	port, err := cmd.Flags().GetInt("port")
 	if err != nil {
 		fmt.Fprintf(errOut, "websafe: %v\n", err)
+		return exitBlocked
+	}
+
+	// Fail closed on an empty bearer: the pure loader's authOK treats an empty secret as
+	// "accept any caller", which is fine for unit tests but must NEVER reach the live serve
+	// path — an unauthenticated /load on villa.network is a trust-boundary fail-open. The
+	// install flow always generates a crypto/rand bearer into the 0600 EnvironmentFile, so an
+	// empty value here means that file was lost/tampered; refuse with remediation.
+	if d.Secret == "" {
+		fmt.Fprintf(errOut, "websafe: refusing to serve with an empty bearer (EXTERNAL_WEB_LOADER_API_KEY unset); "+
+			"the villa-websafe unit's 0600 EnvironmentFile must supply it — re-run `villa install` to regenerate\n")
 		return exitBlocked
 	}
 

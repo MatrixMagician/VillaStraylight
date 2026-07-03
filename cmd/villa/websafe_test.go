@@ -134,6 +134,7 @@ func TestRunWebsafeServeError(t *testing.T) {
 	d := &websafeDeps{
 		Client: http.DefaultClient,
 		Bounds: websafe.DefaultBounds(),
+		Secret: "topsecret", // non-empty so we reach the serve path, not the empty-bearer refusal
 		Serve:  func(string, http.Handler) error { return errors.New("bind: address in use") },
 	}
 	if code := runWebsafe(cmd, nil, d); code != exitBlocked {
@@ -141,6 +142,29 @@ func TestRunWebsafeServeError(t *testing.T) {
 	}
 	if !strings.Contains(errOut.String(), "bind: address in use") {
 		t.Fatalf("stderr missing serve error:\n%s", errOut.String())
+	}
+}
+
+// TestRunWebsafeRefusesEmptyBearer: the live serve path must fail closed on an empty bearer
+// (EXTERNAL_WEB_LOADER_API_KEY unset) rather than serving an unauthenticated /load — the
+// pure loader's empty-secret accept-any behavior must never reach production.
+func TestRunWebsafeRefusesEmptyBearer(t *testing.T) {
+	cmd, _, errOut := websafeTestCmd()
+	served := false
+	d := &websafeDeps{
+		Client: http.DefaultClient,
+		Bounds: websafe.DefaultBounds(),
+		Secret: "", // empty → must refuse before binding
+		Serve:  func(string, http.Handler) error { served = true; return nil },
+	}
+	if code := runWebsafe(cmd, nil, d); code != exitBlocked {
+		t.Fatalf("runWebsafe with empty bearer = %d, want exitBlocked", code)
+	}
+	if served {
+		t.Fatal("runWebsafe bound the listener with an empty bearer — must fail closed first")
+	}
+	if !strings.Contains(errOut.String(), "empty bearer") {
+		t.Fatalf("stderr missing empty-bearer remediation:\n%s", errOut.String())
 	}
 }
 
