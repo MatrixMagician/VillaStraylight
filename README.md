@@ -178,12 +178,11 @@ villa verify agent                    # negative-control-first proof of zero out
 **Opt-in web-search grounding (v1.5):**
 
 ```bash
-# Web search is gated by the persisted opt-in bool `web_search_enabled` in config.toml
-# (default false, never self-healed on). Set it, then install:
-#   web_search_enabled = true    # in ~/.config/villa/config.toml
-villa install                          # with the gate on: render the SearXNG search service + the SSRF-guarded
-                                       # villa-websafe loader, generate their secrets, wire Open WebUI's native
-                                       # web search, and prove SearXNG readiness with a real format=json query
+villa install --web-search             # opt into the web-search addon: render the SearXNG search service + the
+                                       # SSRF-guarded villa-websafe loader, generate their secrets, wire Open
+                                       # WebUI's native web search, and prove SearXNG readiness with a real
+                                       # format=json query. Persists web_search_enabled=true (default off), so a
+                                       # later bare `villa install` keeps it on.
 villa verify search                    # negative-control-first, inverse-framed proof that outbound is BOUNDED
                                        # under a real egress block (an ineffective block is REJECTED, never a
                                        # fabricated PASS); also asserts planted injections are stripped+fenced+flagged
@@ -227,7 +226,7 @@ Key fields (`internal/config/villaconfig.go`):
 | `dashboard_port` | `8888` | Host port the control dashboard listens on. |
 | `chat_port` | `3000` | Host port Open WebUI is published on (the dashboard's chat link target). |
 
-When the optional memory (v1.3), coding-agent (v1.4), and web-search (v1.5) addons are enabled, `villa install` persists their own append-only fields into the same `config.toml`, which stays the single source of truth — the rendered Quadlet units, `crush.json`, and the SearXNG `settings.yml` are regenerated from it, never hand-edited. Web search keys off the deliberate `web_search_enabled` bool (default false, never self-healed on); with it off, every field is omitted and the render is byte-identical to v1.4. When on, `villa install` generates the SearXNG `secret_key` and the `villa-websafe` bearer via `crypto/rand` into `0600` files (never logged, never in a `0644` unit).
+When the optional memory (v1.3), coding-agent (v1.4), and web-search (v1.5) addons are enabled, `villa install` persists their own append-only fields into the same `config.toml`, which stays the single source of truth — the rendered Quadlet units, `crush.json`, and the SearXNG `settings.yml` are regenerated from it, never hand-edited. Web search keys off the deliberate `web_search_enabled` bool (default false, never self-healed on) — set it with `villa install --web-search` (which persists the gate). With it off, every field is omitted and the render is byte-identical to v1.4. When on, `villa install` generates the SearXNG `secret_key` and the `villa-websafe` bearer via `crypto/rand` into `0600` files (never logged, never in a `0644` unit).
 
 Inspect or change config with `villa config show` and `villa config set key=value`.
 
