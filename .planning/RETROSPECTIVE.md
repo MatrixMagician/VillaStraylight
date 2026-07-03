@@ -177,6 +177,45 @@
 
 ---
 
+## Milestone: v1.5 — Web Search (Grounded & Guarded)
+
+**Shipped:** 2026-07-03
+**Phases:** 6 (29–34) | **Plans:** 20 | **Tasks:** 14
+
+### What Was Built
+- Live web-search grounding as a strictly opt-in, default-OFF addon (byte-identical to v1.4 when disabled): exactly ONE new container (`villa-searxng`) rendered like the v1.3 qdrant/embed managed-service path (container-DNS only, no host port), readiness proven by a real `format=json` query parsing `results[]` — never a health-200 — plus the repo's first runtime `crypto/rand` secret generator (P29).
+- OWUI native web search wired env-only behind the orchestrate seam (P30); grounded answers through a villa-owned **SSRF-guarded `villa-websafe` fetch service** (distroless, host binary bind-mounted read-only, 0600 bearer) that is OWUI's sole `page_content` producer, embedding into a dedicated ephemeral Qdrant collection via the v1.3 RAG verbatim, ctx-reserved before the chat fit and offload-asserted under search load (P31).
+- A pure-Go **injection-guard layer** (bluemonday sanitize + NFKC/invisible/bidi normalize + nonced provenance fence + heuristic flag-not-block classifier), frozen behind a must-WIN precision/recall eval, honestly copy'd as "reduces and flags, does not eliminate" with the markdown-image exfil channel documented as a known residual (P32).
+- `villa verify search`: bounded-outbound proof negative-control-first, inverse-framed, under a real rootless-netns nft block (ineffective block REJECTED, never a fabricated PASS) (P33).
+- Surfacing landed last over a single `status.Report` 4→5 bump (one golden re-freeze): dashboard Web Search panel, `villa doctor` fold (its own 2→3), backup/restore of the SearXNG settings provenance + gate — the outbound-bounded indicator derived from the real cached verify result (24h freshness gate), never a config bool (P34).
+
+### What Worked
+- **Integrate-not-rebuild held under the hardest test yet.** The whole fetch→chunk→embed→retrieve→cite path reused the shipped v1.3 villa-embed/Qdrant RAG + top-level `sources` verbatim — no new embedder, vector DB, or citation plumbing. Only `villa-searxng` + the thin `villa-websafe` service were new.
+- **Honesty-by-construction extended to an unsolvable problem.** Prompt injection can't be closed, so v1.5 never claimed it was: the guard reduces+flags, the copy grep-bans "injection-safe"/"immune", and the browser-side markdown-image exfil channel ships documented-as-residual rather than hidden. The one provable half — "outbound is bounded" — got the full negative-control-first, inverse-framed treatment.
+- **Negative-control-first, FIFTH milestone running.** `villa verify search` rejected an ineffective block before trusting a PASS; the surfaced indicator derives from that real cached verdict with a freshness gate, never a config bool — no false-green path from config to dashboard.
+- **Single-contract discipline, FIFTH milestone running.** Exactly one byte-frozen evolution (`status.Report` 4→5), landed last, frozen once; doctor (2→3) and recommend (3→4) evolved as their own distinct contracts. Integration audit confirmed 100% wired, 0 blockers.
+
+### What Was Inefficient
+- **Status-frontmatter lag bit AGAIN — fifth consecutive milestone.** Phase 29's `29-VERIFICATION.md` carried a non-canonical `status: verified` (vs the gate's `passed`), so the phase read as `unknown`/incomplete and the milestone showed not-ready until a one-word manual fix at close. Exactly the artifact-reconciliation gap logged at v1.1–v1.4.
+- **Auto-extracted MILESTONES accomplishments were noisy again** — the CLI dumped 20 raw SUMMARY one-liners including "New", "Architecture A, finalized.", and several `1. [Rule N - Bug]` executor notes; needed the same hand-rewrite to 6 phase-level accomplishments as v1.2/v1.3/v1.4.
+- **Pre-close audit flagged two already-done artifacts as `[unknown]`** (Phase 31 UAT = PASS in body; a completed quick task with `completed:` in its SUMMARY) purely because they lacked a machine-parseable `status:` field — the same terminal-vocabulary parse-noise, now costing a decision gate at close.
+- **Phase branches accumulated unmerged again** (29–34 stacked; `main` 138 commits behind at close) — the identical release-hygiene gap flagged at every prior milestone close.
+
+### Patterns Established
+- **Guard-in-front-of-the-embed seam** — a villa-owned fetch service (`villa-websafe`) inserted as OWUI's *sole* `page_content` producer, so sanitize→normalize→classify→fence runs on every byte before it reaches the embed/model; distinct from the managed-service seam, and the honest framing (reduce+flag+document-the-residual) is the template for any future unsolvable-security feature.
+- **Indicator-derives-from-a-real-verify, never a config bool** — the outbound-bounded state in `status`/`doctor`/dashboard reads the cached `villa verify search` verdict under a 24h freshness gate; a config flag can't false-green the privacy claim by construction.
+
+### Key Lessons
+1. **When a claim is unsolvable, say so in the copy and ship the residual documented.** "Safe from injection" would have been the dishonest kind of false-green this project forbids; reduce+flag+document was both more honest and simpler than chasing an unwinnable "closed" state.
+2. **Enforce artifact-status reconciliation as a phase-close gate — FIFTH time logging this.** A single non-canonical `status:` string (P29 `verified` vs `passed`) blocked the milestone-ready signal until hand-fixed; the verifier should normalize/validate the frontmatter status at phase-verify time instead of the close absorbing it every milestone.
+3. **Reuse the proven pipeline verbatim rather than re-plumbing it.** The v1.3 RAG carried grounded web citations with zero new embedding/citation code — the cheapest correct path was the one that added nothing.
+
+### Cost Observations
+- Model mix: adaptive profile (Opus-led planning/verification/close, Sonnet execution); Opus 4.8 (1M context) for the milestone close.
+- Sessions: milestone executed 2026-06-18 → 2026-06-21 (~4 days, 20 plans); heaviest were the on-hardware acceptance plans (P31 grounded-answer + offload-assert, P33 egress proof under a real netns nft block).
+
+---
+
 ## Cross-Milestone Trends
 
 ### Process Evolution
@@ -188,6 +227,7 @@
 | v1.2 Operability | 6 (12–17) | 19 | Research-converged ordering (one frozen contract in flight at a time); one pure core per feature + cmd/orchestrate seam; honest A/B disproved a perf premise; capstone over a finished surface |
 | v1.3 Memory & Knowledge | 6 (18–23) | 20 | Integration milestone (zero new Go libraries); digest-pinned spike before any golden froze; managed-service seam category; negative-control-first runtime proofs; structural invariant tests |
 | v1.4 Coding Agent | 5 (24–28) | 18 | Research rejected the wrong agent (Crush over OpenCode) + the wrong memory model (Qdrant code-collection) on structural evidence; host-binary delivery seam; explicit-verb transactional coding mode; egress proof extended to the rootless netns; acknowledge-with-evidence `tech_debt` close |
+| v1.5 Web Search | 6 (29–34) | 20 | Integrate-not-rebuild reused the v1.3 RAG verbatim for grounded web citations; guard-in-front-of-embed seam (`villa-websafe` sole `page_content` producer); honesty extended to an unsolvable claim (injection reduce+flag+document-residual, never "safe"); indicator-derives-from-real-verify (never a config bool); negative-control-first + single-contract discipline for the fifth consecutive milestone |
 
 ### Cumulative Quality
 
@@ -198,11 +238,12 @@
 | v1.2 Operability | ~563 green | 16+ | Milestone audit **PASSED**: 13/13 reqs, 5/5 integration flows, 6/6 phases Nyquist-compliant |
 | v1.3 Memory & Knowledge | 885 green | 21+ | Milestone audit **PASSED**: 22/22 reqs, 15/16 integration connections (0 blockers), 5/5 E2E flows; Nyquist 4 compliant / 2 partial |
 | v1.4 Coding Agent | 1321 green | 24 | Milestone audit `tech_debt`: 17/17 reqs, integration PASS (7/7 seam groups, 0 blockers), 6/6 E2E flows; Nyquist 4/5 (P28 open); debt acknowledged at close |
+| v1.5 Web Search | full suite green (925 test funcs, ~69.9k LOC) | 26 | Milestone audit `tech_debt`: 0 requirement gaps, integration PASS 100% (0 blockers), Nyquist compliant; only outstanding item is process/doc debt (Nyquist finalization + early-phase SECURITY.md), acknowledged at close |
 
 ### Top Lessons (Verified Across Milestones)
 
 1. On-hardware UAT per phase (not just at milestone end) catches the failure modes that off-hardware tests structurally cannot (silent CPU fallback, OOM, HSA-override behavior).
 2. Freeze `--json`/dashboard contracts with byte-goldens early and only ever extend them append-only — it has protected the dashboard read-model across all three milestones.
-3. **Status-frontmatter lag recurs every milestone** (SUMMARY `requirements-completed`, `VALIDATION.md` nyquist status, UAT/quick-task terminal vocabulary; in v1.3 also a missing per-phase VERIFICATION.md; in v1.4 a missing `28-VALIDATION.md`) and each time costs a close-time reconciliation pass — now verified across v1.1, v1.2, v1.3, AND v1.4 (four consecutive). The durable fix is to reconcile these at phase-verification time, enforced by the verifier as a phase-close gate, rather than rediscovering them at the milestone-close audit.
+3. **Status-frontmatter lag recurs every milestone** (SUMMARY `requirements-completed`, `VALIDATION.md` nyquist status, UAT/quick-task terminal vocabulary; in v1.3 also a missing per-phase VERIFICATION.md; in v1.4 a missing `28-VALIDATION.md`; in v1.5 a non-canonical `29-VERIFICATION.md` `status: verified` that blocked the milestone-ready signal until hand-fixed) and each time costs a close-time reconciliation pass — now verified across v1.1, v1.2, v1.3, v1.4, AND v1.5 (five consecutive). The durable fix is to reconcile these at phase-verification time, enforced by the verifier as a phase-close gate (normalize/validate the frontmatter `status:` string), rather than rediscovering them at the milestone-close audit.
 4. Negative-control-first proofs (the gate must demonstrably be able to FAIL before its PASS is trusted) generalize beyond offload-assertion — v1.3 applied the pattern to egress (verify memory), service health (stopped-embed drill), and skew refusal (provoked WARN); v1.4 extended it to the rootless network namespace (`verify agent` rejected an *ineffective* host-chain block on-hardware before trusting the netns-FORWARD block), each catching or closing a real false-green.
 5. Research that rejects the wrong architecture on **structural** grounds (v1.4: OpenCode unlockable to zero-outbound; a text embedder over chunked code stale on first edit) is the cheapest de-risk available — it prevents the most expensive rework class (build-then-rip-out) before any code is written.
