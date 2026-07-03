@@ -584,13 +584,12 @@ const (
 	searchResidencySettle      = 750 * time.Millisecond
 )
 
-// searchVerifyFreshnessWindow MIRRORS the status core's verifyFreshnessWindow (24h,
-// internal/status/status.go) — the single freshness gate a cached `villa verify search`
-// PASS must satisfy to read as a CURRENT outbound-bounded proof. It is duplicated here (the
-// status const is unexported) so the doctor egress finding and the status `outbound_bounded`
-// indicator apply the SAME 24h gate; a security property is NEVER trusted indefinitely from
-// a stale cache (T-34-12).
-const searchVerifyFreshnessWindow = 24 * time.Hour
+// searchVerifyFreshnessWindow is the SINGLE freshness gate a cached `villa verify search`
+// PASS must satisfy to read as a CURRENT outbound-bounded proof — sourced from the exported
+// status.VerifyFreshnessWindow (not a forked literal) so the doctor egress finding and the
+// status `outbound_bounded` indicator can never drift apart; a security property is NEVER
+// trusted indefinitely from a stale cache (T-34-12).
+const searchVerifyFreshnessWindow = status.VerifyFreshnessWindow
 
 // searchResidencyDriveBody is the bounded chat-completion drive payload: a small, fixed
 // max_tokens completion that keeps villa-llama DECODING (so the residency sample observes

@@ -1005,7 +1005,7 @@ func webSearchCfg() config.VillaConfig {
 }
 
 // freshVerify returns a verifystate.State with the given verdict checked just now (well
-// inside verifyFreshnessWindow).
+// inside VerifyFreshnessWindow).
 func freshVerify(verdict string) *verifystate.State {
 	return &verifystate.State{
 		SchemaVersion: verifystate.SchemaVersion(),
@@ -1015,12 +1015,12 @@ func freshVerify(verdict string) *verifystate.State {
 }
 
 // staleVerify returns a verifystate.State with the given verdict checked LONG ago
-// (older than verifyFreshnessWindow), so even a PASS must read as "unknown".
+// (older than VerifyFreshnessWindow), so even a PASS must read as "unknown".
 func staleVerify(verdict string) *verifystate.State {
 	return &verifystate.State{
 		SchemaVersion: verifystate.SchemaVersion(),
 		Verdict:       verdict,
-		CheckedAt:     time.Now().Add(-verifyFreshnessWindow - time.Hour).UTC().Format(time.RFC3339),
+		CheckedAt:     time.Now().Add(-VerifyFreshnessWindow - time.Hour).UTC().Format(time.RFC3339),
 	}
 }
 

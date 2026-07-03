@@ -202,13 +202,13 @@ type Report struct {
 // any additive change to the Report --json contract.
 const reportSchemaVersion = 5
 
-// verifyFreshnessWindow bounds how recent a persisted `villa verify search` PASS must
+// VerifyFreshnessWindow bounds how recent a persisted `villa verify search` PASS must
 // be to surface as the green "bounded" outbound indicator (Open Q3 — SURF-04). A PASS
 // older than this window degrades to "unknown" ("unavailable"), NEVER green: a security
 // property must be re-proven, not trusted indefinitely from a stale cache (T-34-08).
-// Defined ONCE in the status core so both `villa status --json` and the dashboard
-// inherit the SAME freshness gate.
-const verifyFreshnessWindow = 24 * time.Hour
+// Defined ONCE (exported) in the status core so `villa status --json`, the dashboard,
+// AND `villa doctor` all inherit the SAME freshness gate — no forked literal to drift.
+const VerifyFreshnessWindow = 24 * time.Hour
 
 // MemoryInfo is the v1.3 memory-stack summary section of the Report (Phase-23
 // D-02). EmbeddingModel/EmbeddingDim are the ACTIVE configured identity
@@ -469,7 +469,7 @@ type Deps struct {
 	// outbound-bounded indicator then reads "unknown" (typed-Unknown), NEVER a
 	// fabricated PASS. It MUST never write the store. A nil seam is treated the same
 	// (Run/webSearchInfo guards it). The "bounded" verdict ALSO requires the cached
-	// PASS to be FRESH (within verifyFreshnessWindow) — derived ONLY here, never from
+	// PASS to be FRESH (within VerifyFreshnessWindow) — derived ONLY here, never from
 	// cfg.WebSearchEnabled.
 	ReadVerifyState func() *verifystate.State
 
@@ -869,7 +869,7 @@ func codingInfo(
 //
 //   - default "unknown" (typed-Unknown — never green by default);
 //   - "bounded" ONLY when the cached State has Verdict=="PASS" AND CheckedAt parses
-//     and is within verifyFreshnessWindow (a real RECENT proof PASS);
+//     and is within VerifyFreshnessWindow (a real RECENT proof PASS);
 //   - "not-bounded" when the cached State carries a real recent non-PASS verdict
 //     (FAIL/REJECT) within the freshness window;
 //   - "unknown" when the seam is nil, the store is absent, the timestamp is
@@ -896,7 +896,7 @@ func webSearchInfo(readVerify func() *verifystate.State) *WebSearchInfo {
 	if err != nil {
 		return wi // unparseable timestamp → cannot assert freshness → "unknown"
 	}
-	if age := time.Since(checked); age < 0 || age > verifyFreshnessWindow {
+	if age := time.Since(checked); age < 0 || age > VerifyFreshnessWindow {
 		// Stale OR future-dated result — a PASS this old (or stamped in the future by a
 		// skewed/forged clock) must be re-proven, NEVER read as bounded. A negative age
 		// is never > window, so the lower-bound clamp is required to keep the no-false-green
