@@ -51,6 +51,14 @@ const (
 	// webSafetyFactorX10 is a 1.5× safety pad (×10 = 15) for chunk overlap, prompt
 	// scaffolding, and estimation error; divided back out in webSearchReservation.
 	webSafetyFactorX10 = 15
+	// maxWeb* clamp pathological (hand-edited config.toml) tuning values so the reservation
+	// products cannot overflow uint64 and wrap to a SMALL under-reservation (which would let
+	// a search-on host silently CPU-fall-back — the exact GROUND-03 failure the reservation
+	// exists to prevent). Clamping UP-TO the max over-reserves (fail-closed), never under.
+	// The maxima are far above any sane OWUI config yet keep every product well below 2^64.
+	maxWebTopK           = 100
+	maxWebChunkSizeChars = 100000
+	maxWebResultCount    = 100
 )
 
 // recommendSchemaVersion is the Recommendation contract self-version. It is the
@@ -332,6 +340,18 @@ func webSearchReservation(web WebSearchInputs) (uint64, []string) {
 	resultCount := web.ResultCount
 	if resultCount <= 0 {
 		resultCount = defaultWebResultCount
+	}
+
+	// Clamp pathological hand-edited tuning to conservative maxima before the products below,
+	// so an absurd value cannot overflow uint64 and wrap to a small under-reservation (GROUND-03).
+	if topK > maxWebTopK {
+		topK = maxWebTopK
+	}
+	if chunkChars > maxWebChunkSizeChars {
+		chunkChars = maxWebChunkSizeChars
+	}
+	if resultCount > maxWebResultCount {
+		resultCount = maxWebResultCount
 	}
 
 	// injected_tokens = (TopK × ChunkSizeChars) ÷ charsPerToken (×10 fixed-point

@@ -488,6 +488,21 @@ func TestWebSearchReservation(t *testing.T) {
 			t.Errorf("reservation must grow with TopK×ChunkSizeChars: small=%d big=%d", small, big)
 		}
 	})
+
+	t.Run("pathological hand-edited tuning is clamped, never wraps to a small under-reservation", func(t *testing.T) {
+		// A value near the uint64-overflow band (~4.7e13) must NOT wrap small; the clamp caps
+		// the reservation at the maxWeb* ceiling — always >= a sane at-max reservation.
+		atMax, _ := webSearchReservation(WebSearchInputs{Enabled: true, TopK: maxWebTopK, ChunkSizeChars: maxWebChunkSizeChars, ResultCount: maxWebResultCount})
+		pathological, _ := webSearchReservation(WebSearchInputs{Enabled: true, TopK: 1 << 40, ChunkSizeChars: 1 << 40, ResultCount: 1 << 40})
+		if pathological != atMax {
+			t.Errorf("pathological tuning must clamp to the at-max reservation: got %d, want %d (clamp prevents uint64 wrap)", pathological, atMax)
+		}
+		// And the at-max reservation is large (over-reserve), not a wrapped-small value.
+		normal, _ := webSearchReservation(WebSearchInputs{Enabled: true, TopK: 3, ChunkSizeChars: 1000, ResultCount: 3})
+		if pathological < normal {
+			t.Errorf("clamped reservation %d < normal %d — indicates an overflow wrap", pathological, normal)
+		}
+	})
 }
 
 // TestPickWebSearchReservation is the GROUND-03 reservation-before-fit matrix
