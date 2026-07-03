@@ -266,6 +266,16 @@ Items deferred at v1.5 roadmap creation (2026-06-18, research-recorded):
 | v2_scope | SRCH-V2-03: Multi-round "deep research / quality mode" (iterative search→read→refine) | Deferred | v1.5 roadmap |
 | residual | Browser-side markdown-image zero-click exfil channel — bypasses container egress (operator's browser renders the image); documented as a known residual + mitigated where feasible (CSP/same-origin), NOT claimed closed (GUARD-04) | Documented | v1.5 roadmap |
 
+Items deferred from the v1.5 ship code-review (2026-07-03, PR #6) — 7 of 10 findings fixed inline (commits `1f72fb7`/`67d3f4d`/`b20ec71`/`644eee2`/`011f3d3`/`d426548`); the rest deferred by decision:
+
+| Category | Item | Status | Deferred At |
+|----------|------|--------|-------------|
+| tech_debt | #5: villa-websafe has no install-time readiness proof (searxng/memory both do) — a broken `/load` surfaces only when an end user runs a search. Deferred: a large addition to the load-bearing install flow (~probe seam + eval/live proof + deps + tests); an honest readiness needs a real `/load` round-trip, not a health-200. | Open | v1.5 ship review |
+| tech_debt | #9: `internal/verifystate/store.go` is a third verbatim copy of the recall/usage store (traversal guard + 0600 atomic write). Deferred: reversing it opposes the documented 34-01 "clone-don't-import" decision and would touch the stable, shipped v1.2/v1.3 usage/recall stores for a low-severity cleanup. Revisit if a shared `internal/datastore` leaf is ever extracted. | Open | v1.5 ship review |
+| tech_debt | #6-residual: doctor's web-search findings have no web-ON golden (status web-ON golden + reservation exact-value ARE now frozen). Lower priority — doctor findings are unit-tested and the freshness window is shared with status. | Open | v1.5 ship review |
+| residual | #3-residual (low): the pure `websafe.authOK` still accepts any caller on an empty secret; the live serve path now fails closed (commit `67d3f4d`), so only reachable via privileged 0600-env tampering. | Documented | v1.5 ship review |
+| residual | #1/#2-residual (low): the injection classifier still misses punctuation-substituted phrasings (hyphenated) and homoglyph/confusables (NFKC-only) — documented finite-recall by design (flag-not-block; egress bound is the backstop). Whitespace-pad evasion is now closed. | Documented | v1.5 ship review |
+
 Items acknowledged at v1.5 milestone close (2026-07-03, from `milestones/v1.5-MILESTONE-AUDIT.md`) — audit `tech_debt`, no blockers (0 requirement gaps, integration PASS 100%, Nyquist compliant):
 
 | Category | Item | Status | Deferred At |
