@@ -74,6 +74,9 @@ var rejectPrefixes = []netip.Prefix{
 	netip.MustParsePrefix("fc00::/7"),       // ULA v6
 	netip.MustParsePrefix("0.0.0.0/8"),      // "this network"
 	netip.MustParsePrefix("::ffff:0:0/96"),  // v4-mapped v6 (catch mapped-internal)
+	netip.MustParsePrefix("::/96"),          // deprecated IPv4-compatible v6 (e.g. ::7f00:1 = ::127.0.0.1)
+	netip.MustParsePrefix("64:ff9b::/96"),   // NAT64 (RFC 6052) — can embed an internal v4 target
+	netip.MustParsePrefix("2002::/16"),      // 6to4 (deprecated) — can embed an internal v4 target
 }
 
 // ipRejected reports whether ip is an internal/reserved address that the fetcher must
@@ -88,7 +91,7 @@ func ipRejected(ip netip.Addr) bool {
 	if !ip.IsValid() ||
 		ip.IsLoopback() ||
 		ip.IsLinkLocalUnicast() ||
-		ip.IsLinkLocalMulticast() ||
+		ip.IsMulticast() || // all multicast (v4 224.0.0.0/4, v6 ff00::/8), not just link-local
 		ip.IsPrivate() ||
 		ip.IsUnspecified() {
 		return true

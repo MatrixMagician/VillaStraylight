@@ -79,13 +79,23 @@ var lineLeadingRoleMarkers = []string{
 	"user:",
 }
 
-// matchLineLeadingRole reports whether hay contains any role marker in a line-leading
-// position: at the very start of the text, or immediately after a newline, optionally
-// preceded by run-of-whitespace or a turn/fence delimiter punctuation run (so a forged
-// "[/UNTRUSTED_WEB_CONTENT ...] system: ..." breakout still matches). hay is already
+// lineLeadingRoleRules maps a rule-family to the role markers it matches in a line-leading
+// position (WR-03). Keeping the line-leading matcher as family-keyed DATA — rather than a
+// hardcoded `name == "delimiter-turn-spoofing"` branch welded into classify's loop — means
+// the special matcher travels with the family if the family is renamed or restructured
+// (otherwise a corpus/rename refresh silently detaches turn-spoof detection with no test
+// failure).
+var lineLeadingRoleRules = map[string][]string{
+	"delimiter-turn-spoofing": lineLeadingRoleMarkers,
+}
+
+// matchLineLeadingRole reports whether hay contains any of the given role markers in a
+// line-leading position: at the very start of the text, or immediately after a newline,
+// optionally preceded by run-of-whitespace or a turn/fence delimiter punctuation run (so a
+// forged "[/UNTRUSTED_WEB_CONTENT ...] system: ..." breakout still matches). hay is already
 // lowercased by classify.
-func matchLineLeadingRole(hay string) bool {
-	for _, m := range lineLeadingRoleMarkers {
+func matchLineLeadingRole(hay string, markers []string) bool {
+	for _, m := range markers {
 		from := 0
 		for {
 			i := strings.Index(hay[from:], m)
@@ -130,19 +140,30 @@ func lineLeading(s string, i int) bool {
 // (flag-not-block; the signature is widened from the Phase-31 stub's bool).
 func classify(normalized string) Verdict {
 	hay := strings.ToLower(normalized)
+	// collapsed folds runs of whitespace (spaces, tabs, newlines) to a single space so a
+	// spacing-padded phrase ("ignore  all   previous instructions", or one broken across a
+	// newline) still matches the single-spaced rule phrases (an easy evasion otherwise).
+	// The delimiter rules (<|im_start|>, ###system, [inst]) contain no internal whitespace
+	// and are unaffected; line-leading role matching still runs over hay, which keeps its
+	// newlines. Punctuation-substituted phrasings (e.g. hyphenated) remain a known-residual
+	// miss — the guard has finite recall by design (flag-not-block; egress bound is the backstop).
+	collapsed := strings.Join(strings.Fields(hay), " ")
 	var hit []string
 	for _, name := range injectionRuleOrder {
 		matched := false
 		for _, phrase := range injectionRules[name] {
-			if strings.Contains(hay, phrase) {
+			if strings.Contains(collapsed, phrase) {
 				matched = true
 				break
 			}
 		}
-		// The bare role markers are line-anchored (WR-03), not plain Contains — they live
-		// in the delimiter-turn-spoofing family alongside the Contains delimiters above.
-		if !matched && name == "delimiter-turn-spoofing" && matchLineLeadingRole(hay) {
-			matched = true
+		// Some families ALSO match bare role markers line-anchored (WR-03), not as plain
+		// Contains phrases. This is family-keyed data (lineLeadingRoleRules), not a hardcoded
+		// name branch, so it stays attached if the family is renamed.
+		if !matched {
+			if markers, ok := lineLeadingRoleRules[name]; ok && matchLineLeadingRole(hay, markers) {
+				matched = true
+			}
 		}
 		if matched {
 			hit = append(hit, name)

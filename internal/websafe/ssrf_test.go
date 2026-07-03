@@ -32,6 +32,11 @@ func TestSSRFRejectSet(t *testing.T) {
 		"0.0.0.0",          // "this network" / unspecified
 		"::ffff:127.0.0.1", // v4-mapped-v6 internal addr
 		"::ffff:10.0.0.5",  // v4-mapped-v6 RFC1918
+		"::7f00:1",         // deprecated IPv4-compatible v6 (::127.0.0.1)
+		"64:ff9b::7f00:1",  // NAT64 embedding 127.0.0.1
+		"2002:7f00:1::1",   // 6to4 embedding an internal v4
+		"224.0.0.1",        // multicast v4 (all-hosts)
+		"ff02::1",          // multicast v6 (link-local all-nodes)
 	}
 	for _, s := range rejected {
 		ip, err := netip.ParseAddr(s)
