@@ -74,6 +74,12 @@ type installOpts struct {
 	// gate, then runs the agent pre-stage/install/render/readiness block. A bare
 	// `villa install` (flag unset) gates on the PERSISTED agent_enabled instead.
 	codingAgent bool
+	// webSearch opts INTO the v1.5 web-search (SearXNG + villa-websafe) addon: when set,
+	// runInstall overrides+persists cfg.WebSearchEnabled = true before the gate (mirroring
+	// codingAgent), so the searxng-secret generation + render + start + readiness proof all
+	// fire. A bare `villa install` (flag unset) gates on the PERSISTED web_search_enabled
+	// instead, so an unchanged, web-search-off install stays byte-identical to v1.4.
+	webSearch bool
 }
 
 // installReadiness is the readiness-poll verdict (Task 2): PASS once the service
@@ -309,6 +315,7 @@ func newInstall() *cobra.Command {
 	var dryRun bool
 	var noTUI bool
 	var codingAgent bool
+	var webSearch bool
 	cmd := &cobra.Command{
 		Use:   "install",
 		Short: "Detect, recommend, gate, generate, and bring up the local inference stack",
@@ -325,7 +332,7 @@ func newInstall() *cobra.Command {
 				fmt.Fprintf(cmd.ErrOrStderr(), "install: %v\n", err)
 				os.Exit(exitBlocked)
 			}
-			code := runInstall(cmd, installOpts{dryRun: dryRun, force: force, json: jsonOut, noTUI: noTUI, codingAgent: codingAgent}, deps)
+			code := runInstall(cmd, installOpts{dryRun: dryRun, force: force, json: jsonOut, noTUI: noTUI, codingAgent: codingAgent, webSearch: webSearch}, deps)
 			os.Exit(code)
 			return nil
 		},
@@ -333,6 +340,7 @@ func newInstall() *cobra.Command {
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "print the rendered units without writing, pulling, or starting anything")
 	cmd.Flags().BoolVar(&noTUI, "no-tui", false, "skip the guided wizard; use the flag-driven install path")
 	cmd.Flags().BoolVar(&codingAgent, "coding-agent", false, "install the local coding agent (Crush) addon: stage its pinned binary + coder model, render a locked-down config, and prove a tool-call round-trip")
+	cmd.Flags().BoolVar(&webSearch, "web-search", false, "install the web-search addon: render the SearXNG service + the SSRF-guarded villa-websafe loader, wire Open WebUI's native web search, and prove SearXNG readiness (opt-in; default off)")
 	return cmd
 }
 
@@ -490,6 +498,13 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 	// the searxng path is byte-identical to a v1.4 install (no start, no proof, no writes).
 	if d.loadedWebSearchEnabled != nil {
 		cfg.WebSearchEnabled = d.loadedWebSearchEnabled()
+	}
+	// --web-search OVERRIDES the persisted gate to true and persists it below (saveConfig),
+	// mirroring --coding-agent, so a first-time `villa install --web-search` brings the stack
+	// up and a subsequent bare `villa install` gates on the now-persisted value. Without the
+	// flag, the persisted value stands — a web-search-off install stays byte-identical to v1.4.
+	if opts.webSearch {
+		cfg.WebSearchEnabled = true
 	}
 	// AUTHORITATIVE coding-agent gate (v1.4 / D-01): the agent path keys off the PERSISTED
 	// config.LoadVilla().AgentEnabled (via the loadedAgentEnabled seam). --coding-agent

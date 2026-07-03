@@ -2042,6 +2042,57 @@ func TestCoderShardSingleSource(t *testing.T) {
 // flag set the FSL notice prints, the coder GGUF + binary are staged and the config rendered
 // BEFORE the readiness proof, AgentEnabled is persisted, the render sees AgentEnabled=true,
 // and a clean install passes. An agent-off install fires NONE of the agent seams.
+// TestInstallWebSearchFlag: `villa install --web-search` overrides the persisted gate,
+// persists cfg.WebSearchEnabled=true, and fires the searxng bring-up path even when the
+// persisted web_search_enabled is false — the mirror of the --coding-agent flag flow. And
+// without the flag (persisted off), the searxng path never fires (byte-identical to v1.4).
+func TestInstallWebSearchFlag(t *testing.T) {
+	// The plan must carry the web-search units so the planHasUnit start-gate (WR-04) passes
+	// when web search is on — the real render appends them when WebSearchEnabled=true.
+	webUnits := []orchestrate.Unit{
+		{Name: "villa-llama.container", Text: "x"},
+		{Name: orchestrate.SearXNGContainerUnitName(), Text: "s"},
+		{Name: orchestrate.WebsafeContainerUnitName(), Text: "w"},
+	}
+	plan := orchestrate.Plan{Changed: webUnits}
+
+	t.Run("--web-search overrides the persisted-off gate, persists it, and brings up searxng", func(t *testing.T) {
+		f := newFakeInstallDeps(t, webUnits, plan, passChecks())
+		f.webSearchEnabled = false // persisted OFF — the flag must override
+
+		cmd, _, errOut := installTestCmd()
+		code := runInstall(cmd, installOpts{webSearch: true}, f.installDeps)
+		if code != exitPass {
+			t.Fatalf("clean --web-search install exit = %d, want %d; stderr:\n%s", code, exitPass, errOut.String())
+		}
+		if !f.savedCfg.WebSearchEnabled {
+			t.Error("--web-search must persist cfg.WebSearchEnabled = true")
+		}
+		if f.searxngSettingsCalls != 1 || f.searxngProofCalls != 1 {
+			t.Errorf("web-search seams must fire once: searxngSettings=%d searxngProof=%d, want 1/1",
+				f.searxngSettingsCalls, f.searxngProofCalls)
+		}
+	})
+
+	t.Run("no --web-search with persisted-off gate: searxng path never fires (byte-identical to v1.4)", func(t *testing.T) {
+		f := newFakeInstallDeps(t, webUnits, plan, passChecks())
+		f.webSearchEnabled = false
+
+		cmd, _, _ := installTestCmd()
+		code := runInstall(cmd, installOpts{}, f.installDeps)
+		if code != exitPass {
+			t.Fatalf("clean install exit = %d, want %d", code, exitPass)
+		}
+		if f.savedCfg.WebSearchEnabled {
+			t.Error("without --web-search and persisted off, cfg.WebSearchEnabled must stay false")
+		}
+		if f.searxngSettingsCalls != 0 || f.searxngProofCalls != 0 {
+			t.Errorf("web-search seams must NOT fire when off: searxngSettings=%d searxngProof=%d, want 0/0",
+				f.searxngSettingsCalls, f.searxngProofCalls)
+		}
+	})
+}
+
 func TestInstallCodingAgentFlow(t *testing.T) {
 	units := []orchestrate.Unit{{Name: "villa-llama.container", Text: "x"}}
 	plan := orchestrate.Plan{Changed: units}

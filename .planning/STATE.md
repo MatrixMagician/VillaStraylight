@@ -189,6 +189,7 @@ Earlier (v1.0–v1.4) standing decisions retained:
 
 [From .planning/todos/pending/ — ideas captured during sessions]
 
+- **Add a `--web-search` install flag** (`2026-07-03-add-web-search-install-flag.md`): v1.5 shipped web search with no supported enable path — `villa install` only reads the persisted `web_search_enabled` gate (install.go:492), there's no `--web-search` flag, no `config set` key, and no TUI screen, so today it's hand-edit-config-only. Mirror the v1.4 `--coding-agent` flag. Good `/gsd-quick` candidate.
 - Carryover tech debt (non-blocking, from v1.2 close): extract a shared `rocmpolicy` leaf package (deferred PR-#2 finding, graphmind memory 10e784d6); investigate `rocm-6.4.4-rocwmma` residency FAIL on gfx1151; optional re-pin of the drifted `rocm-6.4.4` rolling tag.
 - Re-verify exact OWUI env-var names at the chosen `@sha256` before Phase 30/31: both `ENABLE_WEB_SEARCH`/`WEB_SEARCH_ENGINE` and the older `ENABLE_RAG_WEB_SEARCH`/`RAG_WEB_SEARCH_ENGINE` families have existed; confirm the `external` loader + `BYPASS_WEB_SEARCH_EMBEDDING_AND_RETRIEVAL` (research gap, SUMMARY.md → Gaps to Address).
 
