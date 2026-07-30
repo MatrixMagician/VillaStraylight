@@ -129,7 +129,9 @@ that package:
   with an absolute host `ModelsDir` (not live `$HOME`) so the golden is stable
   in CI. Crucially the container image digest is sourced **through the backend
   seam** (e.g. `inference.VulkanBackend()`), never hand-typed, so the golden
-  tracks `Backend.Image()` automatically. The v1.1 ROCm backend adds its own
+  tracks `Backend.Image()` automatically. These Vulkan-rendered fixtures pin
+  `backend = "vulkan"` explicitly rather than inheriting `DefaultVillaConfig()`,
+  whose default is now `rocm`. The ROCm backend adds its own
   golden pair — `TestRenderROCmContainerGolden` (the rendered ROCm `.container`)
   and `TestRenderROCmEnvGroupFrozen` (the ROCm env/`--group-add` block frozen
   byte-for-byte). Refreeze with `go test ./internal/orchestrate/... -update`.
@@ -199,7 +201,7 @@ Two high-value invariants are asserted this way:
   asserts `pullIdx < saveIdx < writeIdx < restartIdx`. A no-op swap skips the
   restart entirely (WR-06).
 - **Capture-before-mutate + verbatim rollback** (`internal/backendswap`, the
-  v1.1 ROCm opt-in A/B swap): a backend switch must snapshot the current state
+  v1.1 ROCm A/B swap): a backend switch must snapshot the current state
   before touching anything (`TestCaptureBeforeMutate`), restart **only** the
   inference unit (`TestSwapInferenceOnly`), refuse the swap if the snapshot can't
   be captured (`TestCaptureFailureRefuses`), and on a mid-swap error restore the
@@ -238,7 +240,7 @@ These tests drive frozen fixtures rather than a live server:
   through the `detect` sysfs seam and never hard-codes `card0`.
 - `running_offload_test.go` — the already-running-server verdict: residency
   proven by the journald `load_tensors: Vulkan0 model buffer size = N MiB` line
-  (`Vulkan0` for the Vulkan backend; `ROCm0` for the v1.1 ROCm backend,
+  (`ROCm0` for the default ROCm backend; `Vulkan0` for the Vulkan fallback,
   `TestRunningServerROCmResidency`), corroborated by a point-in-time GTT floor
   (`TestGTTFloorCorroboration`), with `/props` used only as a config-identity
   drift overlay (`TestRunningServerOffloadPropsDrift`). A ROCm "Memory access
@@ -309,7 +311,7 @@ observed run total, not an enforced threshold.
 
 The automated suite is entirely off-hardware. Validating that a recommended
 config actually loads and runs on a real AMD Strix Halo (gfx1151) — including the
-v1.1 ROCm opt-in backend and the honest A/B benchmark — is a **separate, manual
+v1.1 ROCm backend and the honest A/B benchmark — is a **separate, manual
 UAT step** performed against a live host (Phases 8/9/10 ran this on real
 gfx1151). It is not invoked by `go test` and is not required for CI: the unit
 suite proves the parsing, ordering, rendering, and verdict logic against frozen

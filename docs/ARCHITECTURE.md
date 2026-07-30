@@ -9,8 +9,8 @@ Fedora host. It detects the host hardware, recommends a memory-fitting
 model/quant/context from a versioned catalog, gates installs behind a host-readiness
 preflight, renders rootless **Podman Quadlet** units from a single config source of
 truth, and orchestrates two integrated OSS containers — **llama.cpp `llama-server`**
-(OpenAI-compatible inference, **Vulkan RADV by default with an opt-in ROCm 7.2.4
-backend**) and **Open WebUI** (chat) — plus a native, loopback-only Go **control
+(OpenAI-compatible inference, **ROCm 7.2.4 by default with a Vulkan RADV
+fallback**) and **Open WebUI** (chat) — plus a native, loopback-only Go **control
 dashboard**. The Go code is the orchestrator only; the AI services are integrated
 upstream images, never rebuilt. The architectural style is a **layered pipeline of pure
 cores behind injectable host seams**: every package that makes a decision (`detect`,
@@ -24,8 +24,13 @@ calls `os.Exit`.
 
 As of **v1.1**, backend choice is a first-class, polymorphic seam. A single resolver,
 `inference.BackendFor(cfg.Backend)`, maps the persisted `backend` string
-(`""`/`"vulkan"` → Vulkan RADV, `"rocm"` → ROCm 7.2.4) to a `Backend` implementation
-and is the **only** place a concrete backend is chosen. It **fails closed**: an
+(`""`/`"rocm"` → ROCm 7.2.4, `"rocm-6.4.4"` / `"rocm-6.4.4-rocwmma"` → the additive
+digest-pinned ROCm 6.4.4 variants, `"vulkan"` → the Vulkan RADV fallback) to a
+`Backend` implementation and is the **only** place a concrete backend is chosen.
+Because the empty string resolves to ROCm, `inference.IsROCmFamily` — the single
+enumeration of the ROCm-name set that routes the ROCm preflight gate — counts `""` as
+ROCm-family too; the two must agree or an unset config would run ROCm while skipping
+its bring-up gate. It **fails closed**: an
 unknown/typo'd value returns an actionable error rather than silently defaulting to a
 privileged backend. Every inference call site depends on the `Backend` interface, so
 flipping `backend = "rocm"` in `config.toml` re-routes image, device-passthrough args,
@@ -64,8 +69,8 @@ graph TD
     recommend --> catalog
     preflight --> detect
     CLI --> resolver["inference.BackendFor(name)<br/>single fail-closed resolver"]
-    resolver --> bvk["backendVulkan<br/>(RADV, default)"]
-    resolver --> brc["backendROCm<br/>(7.2.4, opt-in)"]
+    resolver --> brc["backendROCm<br/>(7.2.4, default)"]
+    resolver --> bvk["backendVulkan<br/>(RADV, fallback)"]
     bvk -.implements.-> inference["internal/inference<br/>Backend / Runner / ResidencyProof seam"]
     brc -.implements.-> inference
     orchestrate --> inference
@@ -116,7 +121,8 @@ The canonical flow is the `villa install` lifecycle (`cmd/villa/install.go`,
 2. **Recommend** — `recommend.Pick(profile, catalog, overrides)` (a pure function)
    chooses the largest auto-eligible model whose `weight_bytes + kv_cache@ctx +
    headroom ≤ usable_envelope`. It skips bootstrap and `unified_memory_safe:false`
-   entries, defaults the backend to `vulkan`, re-validates manual overrides, and
+   entries, defaults the backend to `rocm` (falling back to `vulkan` only when the
+   host is confidently not ROCm-ready), re-validates manual overrides, and
    degrades to a conservative RAM-fraction floor (or refuses) when the envelope is
    Unknown. Every term of the fit inequality is surfaced on the `Recommendation`.
 3. **Preflight gate** — `preflight.RunWithResources(profile, req)` runs the
@@ -160,7 +166,7 @@ the running-server GPU-offload verdict (keyed on the active backend's residency 
 with a worst-wins overall PASS/WARN/FAIL.
 
 A second v1.1 flow is the **transactional backend switch** (`villa backend set
-<vulkan|rocm>`, `cmd/villa/backend.go`), driven by the pure `backendswap.Run(Deps,
+<rocm|rocm-6.4.4|rocm-6.4.4-rocwmma|vulkan>`, `cmd/villa/backend.go`), driven by the pure `backendswap.Run(Deps,
 target)` state machine (`internal/backendswap/backendswap.go`). It clones the proven
 `modelswap` forward skeleton (fit-guard first, persist-before-unit-work,
 restart-inference-only) and wraps it in a transactional frame:
@@ -205,13 +211,14 @@ the GPU count toward the median/stddev `Stats` and the comparative `ABResult`.
   returns typed BLOCK/WARN-tier PASS/WARN/FAIL results with remediation + provenance.
 - **`inference.BackendFor`** (`internal/inference/backend.go`) — the single,
   fail-closed polymorphism point mapping the config `backend` string to a `Backend`.
-  `""`/`"vulkan"` → `backendVulkan`, `"rocm"` → `backendROCm`; any other value is an
-  error, never a silent default. Every backend call site routes through here.
+  `""`/`"rocm"`/`"rocm-6.4.4"`/`"rocm-6.4.4-rocwmma"` → `backendROCm`, `"vulkan"` →
+  `backendVulkan`; any other value is an error, never a silent default. Every backend
+  call site routes through here.
 - **`inference.Backend`** and **`inference.Runner`** (`internal/inference/inference.go`)
   — the backend-neutral seam. `Backend` (`Name`/`Image`/`ContainerArgs`/`ResidencyProof`)
   and `Runner` (start/stop/health/endpoint/logs) isolate every GPU/podman literal; the
-  Vulkan RADV implementation lives in `backend_vulkan.go`, the opt-in ROCm 7.2.4
-  implementation in `backend_rocm.go`, the podman runner in `runner_podman.go`.
+  default ROCm implementation lives in `backend_rocm.go` (image-parameterized across
+  the three pinned digests), the Vulkan RADV fallback in `backend_vulkan.go`, the podman runner in `runner_podman.go`.
 - **`inference.ResidencyMarkers`** (`internal/inference/inference.go`) — the
   backend-owned, log-shape-only descriptor returned by `Backend.ResidencyProof()`. It
   carries only marker literals (device token e.g. `Vulkan0`/`ROCm0`, device label,
@@ -238,7 +245,7 @@ the GPU count toward the median/stddev `Stats` and the comparative `ABResult`.
   — the JSON-neutral read-model the CLI and dashboard share; folds per-service
   active/health/offload into a worst-wins overall verdict and records loopback posture.
 - **`preflight.RunROCm` / `RunROCmWithPolicy`** (`internal/preflight/checks_rocm.go`) —
-  the opt-in ROCm bring-up gate (gfx1151 confirm, kernel/firmware floors,
+  the ROCm bring-up gate (gfx1151 confirm, kernel/firmware floors,
   `HSA_OVERRIDE_GFX_VERSION` viability), driven by policy data in the `go:embed`-ed
   `rocm-policy.json` (`internal/preflight/floors.go`) so deny-lists are data, not code.
 - **`detect.computeROCmReadiness` / `ROCmReadiness`** (`internal/detect/readiness_rocm.go`)
@@ -282,11 +289,11 @@ internal/
   catalog/            Embedded, schema-versioned model catalog + KV-fit dimensions.
   recommend/          Pure memory-fit model selector (Pick) over detect + catalog.
   preflight/          Pure, reusable host-readiness gate (BLOCK/WARN-tier checks);
-                      opt-in ROCm gate driven by embedded rocm-policy.json.
+                      ROCm bring-up gate driven by embedded rocm-policy.json.
   download/           Verified, resumable, per-shard-checksummed GGUF downloader.
   config/             config.toml store (0600, traversal-guarded); the source of truth.
   inference/          BackendFor resolver + Backend/Runner/ResidencyProof seam:
-                      Vulkan + ROCm backends, podman runner, offload assert.
+                      ROCm (default) + Vulkan backends, podman runner, offload assert.
   orchestrate/        Pure Quadlet Render + sha256 Reconcile + atomic WriteUnits +
                       systemd seam; Open WebUI managed-service render path.
   modelswap/          Guarded swap core (ordering-is-the-security-contract).

@@ -58,7 +58,7 @@ A minimal `config.toml` looks like this:
 model = "qwen3-30b-a3b"
 quant = "UD-Q4_K_M"
 ctx = 131072
-backend = "vulkan"
+backend = "rocm"
 catalog_path = ""
 dashboard_addr = "127.0.0.1"
 dashboard_port = 8888
@@ -72,7 +72,7 @@ chat_port = 3000
 | `model` | string | _(empty until recommended/set)_ | The chosen catalog model id. Resolved through the catalog, never treated as a filesystem path. |
 | `quant` | string | _(empty until recommended/set)_ | The chosen quantization label (e.g. `UD-Q4_K_M`). |
 | `ctx` | int | _(empty/0 until recommended/set)_ | Context length in tokens. Rendered into the llama-server `-c` flag. |
-| `backend` | string | `vulkan` | Inference backend: `vulkan` (Vulkan RADV, default) or `rocm` (ROCm 7.2.4, opt-in). `config set backend=` only accepts `vulkan`; switch to `rocm` with the transactional `villa backend set rocm` command (see [Backend selection](#backend-selection)). |
+| `backend` | string | `rocm` | Inference backend: `rocm` (ROCm 7.2.4, **default**), `rocm-6.4.4`, `rocm-6.4.4-rocwmma`, or `vulkan` (Vulkan RADV, the fallback). `config set backend=` only accepts `vulkan`; every ROCm target must go through the transactional `villa backend set` command (see [Backend selection](#backend-selection)). |
 | `catalog_path` | string | _(empty → embedded seed catalog)_ | Optional path to an external catalog JSON. Empty means "use the embedded seed catalog". |
 | `dashboard_addr` | string | `127.0.0.1` | Loopback bind address for the control dashboard. **Only loopback values are permitted** (see [Required vs optional settings](#required-vs-optional-settings)). |
 | `dashboard_port` | int | `8888` | Host port the control dashboard listens on. |
@@ -102,10 +102,11 @@ value is rejected with a clear error and **nothing is written**. After a success
 > `chat_port`. Those carry their loopback/port defaults and are validated on load;
 > to change them, edit `config.toml` directly.
 
-> Note: `config set backend=` only accepts `vulkan`. Switching to ROCm is a
-> stateful cutover (re-fit, ROCm preflight, regenerate, restart, prove, rollback),
-> so it is driven by `villa backend set rocm` rather than a plain config write —
-> see [Backend selection](#backend-selection).
+> Note: `config set backend=` only accepts `vulkan`. That is not a claim about
+> which backend is preferred — ROCm is the default — it is about which writes are
+> safe as a plain key write. Selecting any ROCm backend is a stateful cutover
+> (re-fit, ROCm preflight, regenerate, restart, prove, rollback), so it is driven by
+> `villa backend set <name>` — see [Backend selection](#backend-selection).
 
 To inspect the active backend and its resolved container image:
 
@@ -124,20 +125,24 @@ setting is *used*:
 - **`model` / `quant` / `ctx`** — required before you can install or run inference.
   `villa recommend --save` populates them from the host's memory envelope; lifecycle
   commands need a resolved model to render the inference unit.
-- **`backend`** — defaults to `vulkan`. Valid persisted values are `vulkan` and
-  `rocm`; the inference resolver (`internal/inference/backend.go` `BackendFor`)
-  **fails closed** on any other value rather than silently coercing it to a default.
-  The plain `config set backend=` writer is intentionally restricted to `vulkan`:
+- **`backend`** — defaults to `rocm`. Valid persisted values are `rocm`,
+  `rocm-6.4.4`, `rocm-6.4.4-rocwmma`, and `vulkan`; the inference resolver
+  (`internal/inference/backend.go` `BackendFor`) **fails closed** on any other value
+  rather than silently coercing it to a default. An absent or empty value resolves to
+  the `rocm` default, and is gated by the ROCm preflight exactly as the explicit name
+  would be. The plain `config set backend=` writer is intentionally restricted to
+  `vulkan` (the one target with no bring-up gate to skip):
 
   ```
-  config set: unsupported backend "rocm" — only "vulkan" is supported in v1
+  config set: refusing to persist backend "rocm" — only "vulkan" may be set here;
+  switch to a ROCm backend (the default) with the transactional `villa backend set rocm`
   ```
 
-  Switching to ROCm is not a plain key write — it is the transactional cutover
-  `villa backend set rocm`, which re-fits the preserved model, runs the ROCm
+  Selecting a ROCm backend is not a plain key write — it is the transactional cutover
+  `villa backend set <name>`, which re-fits the preserved model, runs the ROCm
   preflight, regenerates only the inference unit, restarts, proves the cutover, and
-  rolls back on any failure. The cutover is the only writer that persists
-  `backend = "rocm"`.
+  rolls back on any failure. The cutover is the only writer that persists a ROCm
+  backend name.
 - **`dashboard_addr`** — must denote loopback. The dashboard server **refuses** to
   start on a non-loopback address; only `127.0.0.1`, `::1`, `localhost`, or empty
   (treated as `127.0.0.1`) are allowed. A tampered config cannot make the dashboard
@@ -153,7 +158,7 @@ Defaults are defined in a single place in the source (`internal/config/villaconf
 
 | Setting | Default | Where it comes from |
 |---------|---------|---------------------|
-| `backend` | `vulkan` | `defaultConfig()` (Vulkan RADV default; `rocm` is the opt-in alternative) |
+| `backend` | `rocm` | `defaultConfig()` (ROCm 7.2.4 default; `vulkan` is the RADV fallback) |
 | `dashboard_addr` | `127.0.0.1` | `defaultConfig()` (loopback-only) |
 | `dashboard_port` | `8888` | `defaultConfig()` |
 | `chat_port` | `3000` | `defaultConfig()` |
@@ -188,7 +193,8 @@ The generated Quadlet units embed runtime configuration that is **not** exposed 
 user settings. It is recorded here for transparency.
 
 **Inference (llama-server) runtime flags** — fixed for Strix Halo stability and
-sourced from the backend seam (`internal/inference/backend_vulkan.go`):
+sourced from the backend seam (`internal/inference/backend_rocm.go` /
+`backend_vulkan.go`):
 
 | Flag | Purpose |
 |------|---------|
@@ -206,13 +212,15 @@ The inference container also receives `--device /dev/dri`, `--group-add keep-gro
 but only the loopback host publish `127.0.0.1:8080:8080` is reachable from the host.
 
 **Backend-specific image, devices, and env.** The image, device passthrough, and
-env are the only differences between the two backends; both are owned exclusively by
-the backend seam (`internal/inference/backend_vulkan.go` / `backend_rocm.go`).
+env are the only differences between the backends; all are owned exclusively by
+the backend seam (`internal/inference/backend_rocm.go` / `backend_vulkan.go`).
 
 | Backend | Image (digest-pinned) | Devices | Extra env |
 |---------|-----------------------|---------|-----------|
-| `vulkan` (default) | `docker.io/kyuz0/amd-strix-halo-toolboxes:vulkan-radv@sha256:9a74e5…` | `/dev/dri` | _(none)_ |
-| `rocm` (opt-in) | `docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-7.2.4@sha256:2da150…` | `/dev/kfd` **and** `/dev/dri` | `HSA_OVERRIDE_GFX_VERSION=11.5.1` then `ROCBLAS_USE_HIPBLASLT=1` (order preserved) |
+| `rocm` (default) | `docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-7.2.4@sha256:2da150…` | `/dev/kfd` **and** `/dev/dri` | `HSA_OVERRIDE_GFX_VERSION=11.5.1` then `ROCBLAS_USE_HIPBLASLT=1` (order preserved) |
+| `rocm-6.4.4` | `docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-6.4.4@sha256:c81f30…` | `/dev/kfd` **and** `/dev/dri` | same ordered ROCm env |
+| `rocm-6.4.4-rocwmma` | `docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-6.4.4-rocwmma@sha256:9a9712…` | `/dev/kfd` **and** `/dev/dri` | same ordered ROCm env |
+| `vulkan` (fallback) | `docker.io/kyuz0/amd-strix-halo-toolboxes:vulkan-radv@sha256:9a74e5…` | `/dev/dri` | _(none)_ |
 
 The two ROCm env vars are required for ROCm on gfx1151: `HSA_OVERRIDE_GFX_VERSION=11.5.1`
 makes the HIP runtime target RDNA 3.5, and `ROCBLAS_USE_HIPBLASLT=1` enables the
@@ -266,28 +274,39 @@ configuration varies per machine are:
 
 ### Backend selection
 
-The `backend` key selects the GPU backend the inference unit renders against. Two
+The `backend` key selects the GPU backend the inference unit renders against. Four
 values are honored by the inference resolver (`BackendFor`):
 
-- **`vulkan`** (Vulkan RADV) — the default. Stable and compatible across model
-  sizes; the value `config set` and the empty/absent config resolve to.
-- **`rocm`** (ROCm 7.2.4 / HIP) — the opt-in performance backend. It maps to a
-  different digest-pinned image, adds the `/dev/kfd` device, and sets the ordered
+- **`rocm`** (ROCm 7.2.4 / HIP) — **the default**, and what an empty or absent
+  config resolves to. It adds the `/dev/kfd` device and sets the ordered
   `HSA_OVERRIDE_GFX_VERSION` / `ROCBLAS_USE_HIPBLASLT` env (see
-  [Managed container environment](#managed-container-environment)).
+  [Managed container environment](#managed-container-environment)), so it requires a
+  host that passes the ROCm bring-up gate.
+- **`rocm-6.4.4`** and **`rocm-6.4.4-rocwmma`** — additive digest-pinned ROCm 6.4.4
+  variants, identical to `rocm` apart from the image. Benchmark them with
+  `villa bench --ab --ab-target <name>` rather than assuming a win.
+- **`vulkan`** (Vulkan RADV) — the fallback. Stable and compatible across model
+  sizes, with no ROCm host requirements; the only value `config set` will write.
+
+`villa recommend` recommends `rocm` and only falls back to `vulkan` when the host is
+**confidently** not ROCm-ready — every readiness signal known and at least one known-bad
+(for example a denied `linux-firmware` build or a sub-floor kernel). An unevaluable
+signal never triggers the fallback, so an unprobed host is not silently downgraded; the
+accompanying note names the blocker. That fallback only annotates a *recommendation* —
+it never rewrites a `config.toml` you already chose.
 
 Switching backend is a stateful operation, not a plain config edit:
 
 ```bash
 villa backend show            # inspect the active backend + image
-villa backend set rocm        # transactional cutover to ROCm
+villa backend set vulkan      # transactional cutover to the Vulkan RADV fallback
 villa backend set rocm --dry-run   # preview target/fit/preflight, mutate nothing
-villa backend set vulkan      # switch back
+villa backend set rocm        # switch back to the ROCm default
 ```
 
 `villa backend set <backend>` re-checks the **preserved** model against the target
 memory envelope (refuse-with-remediation if it no longer fits), runs the ROCm
-preflight when the target is `rocm`, captures the prior unit verbatim, persists
+preflight when the target is any ROCm-family backend, captures the prior unit verbatim, persists
 `config.toml` and regenerates **only** the inference unit, restarts it, and **proves**
 the cutover with a real generation probe plus a GPU-residency check within a bounded
 timeout. Any mutate error or a non-passing proof rolls the switch back verbatim — a

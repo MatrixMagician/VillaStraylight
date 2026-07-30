@@ -253,3 +253,28 @@ func runRecommend(t *testing.T, args []string) {
 		t.Fatalf("villa %v: %v\noutput:\n%s", args, err, buf.String())
 	}
 }
+
+// TestRenderRecommendWithheldAdviceExplainsBackendFallback guards the human-render
+// branch for the ONE case where readiness changes the recommended backend: a
+// confidently-not-ROCm-ready host is recommended vulkan instead of the rocm default,
+// and reports advice "" plus a Note naming the blocker. Gating that Note behind a
+// non-empty advice (the shape that was correct while ROCm was opt-in) would print
+// nothing at all and silently move the user off the default backend with no reason.
+func TestRenderRecommendWithheldAdviceExplainsBackendFallback(t *testing.T) {
+	rec := fixtureRecommendation()
+	rec.Backend = "vulkan"
+	rec.ROCmAdvice = "" // withheld: confidently not ROCm-ready
+	rec.ROCmNote = "ROCm: not ready on this host — blocked by kernel floor."
+
+	var buf bytes.Buffer
+	if err := renderRecommend(&buf, rec, nil, false /*human*/, false); err != nil {
+		t.Fatalf("renderRecommend: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "blocked by kernel floor") {
+		t.Errorf("withheld advice must still surface the blocker Note, got:\n%s", out)
+	}
+	if !strings.Contains(out, "vulkan") {
+		t.Errorf("the fallback render must name the recommended backend, got:\n%s", out)
+	}
+}

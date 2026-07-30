@@ -115,12 +115,14 @@ const (
 // rocmAdviceNote is the LOCKED honesty-safe Note copy (RESEARCH Pattern 4 / D-05).
 // It points the user at `villa bench --ab` and deliberately contains none of
 // "faster"/"guaranteed"/"speed-up" — ROCm's win is prompt-processing-weighted and
-// token generation may regress (on-hardware UAT Δtg −11.15). Tested.
-const rocmAdviceNote = "ROCm: worth trying for prompt-heavy workloads — token generation may not improve (and can regress vs vulkan). Verify on your model with: villa bench --ab"
+// token generation may regress (on-hardware UAT Δtg −11.15). Since ROCm is the
+// DEFAULT backend, the copy describes the selected pick rather than pitching an
+// opt-in, and still refuses to claim a win: the honest answer is to measure. Tested.
+const rocmAdviceNote = "ROCm: this host looks ROCm-ready, so the default rocm backend is selected. It is prompt-processing-weighted — token generation may not improve (and can regress vs vulkan). Verify on your model with: villa bench --ab"
 
 // rocmVerifyNote is the verify-with-bench Note: same honesty discipline, but it
 // makes no readiness claim because at least one signal is unevaluable.
-const rocmVerifyNote = "ROCm: readiness could not be fully evaluated on this host — verify whether it helps your model with: villa bench --ab"
+const rocmVerifyNote = "ROCm: readiness could not be fully evaluated on this host, so the default rocm backend is kept (an unproven signal is not treated as a failure). If inference misbehaves, fall back with: villa backend set vulkan. Compare the two with: villa bench --ab"
 
 // Recommendation is the result of Pick — and the --json / Phase-5 dashboard
 // contract (D-05). A golden-file test guards its shape. Every fit term is

@@ -96,8 +96,8 @@ rejected even if tests are green.
   `0` = offload proven (and chat OK), `2` = offload unverifiable (warn), `1` =
   CPU fallback (fail). A model that would silently run on CPU must FAIL loudly,
   not degrade quietly. Preserve this assertion when touching the inference path.
-  As of v1.1 the ROCm backend is an opt-in alternative to the Vulkan default; the
-  same offload-assert contract applies to both, and backend-specific literals stay
+  ROCm is the default backend and Vulkan RADV is the fallback; the same
+  offload-assert contract applies to both, and backend-specific literals stay
   behind the inference seam (see the backend-seam grep-gate above).
 - **Config is the source of truth** — runtime behavior derives from the resolved
   config, not from ad-hoc constants scattered through commands. Generated Quadlet
@@ -136,7 +136,7 @@ There is no issue template configured yet. When filing a bug, include:
 - the exact `villa` command and flags you ran, and the full output;
 - expected vs. actual behavior, and the exit code;
 - your host details — Fedora version, kernel version, GPU (Strix Halo / gfx1151),
-  total/usable memory, Podman version, and the selected backend (Vulkan / ROCm);
+  total/usable memory, Podman version, and the selected backend (`villa backend show`);
 - relevant config (with secrets redacted) and any generated Quadlet unit content.
 
 For feature requests, describe the use case and how it fits the strictly-local,

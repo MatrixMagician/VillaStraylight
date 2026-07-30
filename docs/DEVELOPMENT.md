@@ -89,7 +89,7 @@ under-active-development code is:
   `preflight`, `download`, `config`, `inference`, `orchestrate`, `modelswap`,
   `backendswap`, `bench`, `llm`, `status`, `metrics`, `dashboard`. Each returns typed
   values and contains no CLI behavior. (`backendswap` and `bench` are the v1.1
-  additions: the transactional Vulkan↔ROCm cutover core and the honest A/B benchmark
+  additions: the transactional ROCm↔Vulkan cutover core and the honest A/B benchmark
   core; `internal/llm` is reused from the legacy scaffold as the bench per-request
   timings source — `bench.go` imports it for `llm.Complete`.)
 
@@ -193,8 +193,10 @@ Examples in the tree:
   fixture `RenderInput` uses a **fixed absolute path** (not live `$HOME`) so the golden
   is stable in CI, and the image digest is sourced **through** the backend seam
   (`inference.VulkanBackend()` / the ROCm backend), never hand-typed in the test. The
-  separate `villa-llama-rocm.container.golden` is the proof that the v1.1 ROCm opt-in
+  separate `villa-llama-rocm.container.golden` is the proof that the ROCm backend
   renders its own device/env block without a caller ever typing a backend literal.
+  Note the Vulkan-rendered fixtures pin `backend = "vulkan"` explicitly rather than
+  inheriting `DefaultVillaConfig()`, whose default is now `rocm`.
 - `cmd/villa/recommend_test.go` freezes `villa recommend --json` against
   `cmd/villa/testdata/recommend.golden.json` from a deterministic fixture
   `Recommendation`. The same pattern backs the `detect`, `preflight`, `inference`, and

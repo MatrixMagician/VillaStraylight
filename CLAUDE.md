@@ -16,7 +16,7 @@ below (Project, Technology Stack, etc.):
 
 **In one line:** a single Go CLI (`villa`) that auto-detects an AMD Strix Halo
 (gfx1151) Fedora host, recommends a memory-fitting model/quant/context, generates
-rootless **Podman Quadlet** units, and orchestrates **llama.cpp (Vulkan)**
+rootless **Podman Quadlet** units, and orchestrates **llama.cpp (ROCm)**
 inference + **Open WebUI** chat + a control dashboard — strictly local, zero
 telemetry. Go is the **control plane only**; AI services are integrated OSS
 containers, not rebuilt.
@@ -57,7 +57,7 @@ Go 1.26+. Single module, single static binary built from `./cmd/villa`.
 - `internal/` — `detect` (host probe → typed-Unknown HostProfile; AMD seam in `gpu_amd.go`),
   `recommend` (pure memory-fit `Pick`), `preflight` (reusable BLOCK/WARN gate + `go:embed`
   `rocm-policy.json`), `inference` (`BackendFor` resolver + Backend/Runner/ResidencyProof
-  seam; Vulkan + ROCm), `orchestrate` (Quadlet Render/Reconcile/WriteUnits — the only impure
+  seam; ROCm default + Vulkan fallback), `orchestrate` (Quadlet Render/Reconcile/WriteUnits — the only impure
   module), `backendswap` (transactional switch), `bench` (pure A/B core), plus `status`,
   `dashboard`, `metrics`, `config`, `catalog`, `download`, `modelswap`, `llm`.
   Deeper detail: `docs/ARCHITECTURE.md`, `docs/DEVELOPMENT.md`.
@@ -82,7 +82,7 @@ Go 1.26+. Single module, single static binary built from `./cmd/villa`.
 - **Offload is offload-asserting, never liveness:** a silent/partial CPU fallback is a FAIL
   (`ResidencyProof`), never a false-green.
 
-- **Vulkan RADV is the default; ROCm is strictly opt-in** (`villa backend set rocm`).
+- **ROCm 7.2.4 is the default backend; Vulkan RADV is the fallback** (`villa backend set vulkan`). `BackendFor("")` and `IsROCmFamily("")` must BOTH mean ROCm, or an unset config runs ROCm while skipping the ROCm preflight gate.
 
 <!-- GSD:project-start source:PROJECT.md -->
 
@@ -99,7 +99,7 @@ VillaStraylight is a self-hosted, local AI server stack for privacy-conscious po
 - **Tech stack**: Go for all first-party code (CLI, detection, orchestration, dashboard backend, gateway) — single-language, single static binary, easy self-hosted distribution.
 - **Orchestration**: Podman (rootless) via Quadlet/systemd units — native to Fedora; no Docker dependency.
 - **Platform (v1)**: Fedora Workstation 44+ on AMD Strix Halo only. Architecture must not hard-code assumptions that block a later macOS/Apple-Silicon/Metal backend.
-- **Inference**: llama.cpp `llama-server`, Vulkan backend primary (ROCm optional) — OpenAI-compatible API as the integration contract.
+- **Inference**: llama.cpp `llama-server`, ROCm backend primary (Vulkan RADV fallback) — OpenAI-compatible API as the integration contract.
 - **Privacy/Security**: Strictly local by default; no telemetry from first-party components; outbound limited to image/model pulls.
 - **Performance**: Setup must produce a configuration that actually runs on the detected hardware (right model size/quant/context for the memory envelope) — "runs healthy after install" is the bar.
 - **Integration-first**: Reuse mature OSS (Open WebUI, llama.cpp, later Qdrant/SearXNG); build only the control plane.
@@ -149,7 +149,7 @@ VillaStraylight is a self-hosted, local AI server stack for privacy-conscious po
 ## Configuration
 
 - TOML file at `$XDG_CONFIG_HOME/villa/config.toml` (resolved via `os.UserConfigDir`). Defined by `VillaConfig` in `internal/config/villaconfig.go`.
-- Fields: `model`, `quant`, `ctx`, `backend` (default `vulkan`; `rocm` opt-in), `catalog_path`, `dashboard_addr` (default `127.0.0.1`, loopback-only by construction), `dashboard_port` (default `8888`), `chat_port` (default `3000`).
+- Fields: `model`, `quant`, `ctx`, `backend` (default `rocm`; `rocm-6.4.4`, `rocm-6.4.4-rocwmma`, `vulkan` also valid — note `internal/catalog/seed.json`'s per-entry `backend_default` OVERRIDES `recommend.defaultBackend`, so the two must be kept in step), `catalog_path`, `dashboard_addr` (default `127.0.0.1`, loopback-only by construction), `dashboard_port` (default `8888`), `chat_port` (default `3000`).
 - Read-only by default: `LoadVilla` returns typed defaults when the file is absent; `SaveVilla` (invoked by `recommend --save` / model swap) writes strictly under the XDG dir with mode `0600`, dir `0700`, and a path-traversal guard. Self-heals zeroed dashboard/chat fields on load (never widens the bind off loopback).
 - `internal/catalog/seed.json` - the seed model catalog (`//go:embed seed.json` in `internal/catalog/load.go`). Catalog has a schema version window; an external override path may be supplied via `catalog_path`.
 - `internal/preflight/rocm-policy.json` - ROCm pin policy: image-tag allow/deny, kernel floor, firmware floor/deny, required `HSA_OVERRIDE_GFX_VERSION` (`//go:embed rocm-policy.json` in `internal/preflight/floors.go`).
@@ -170,10 +170,10 @@ VillaStraylight is a self-hosted, local AI server stack for privacy-conscious po
 
 | Purpose | Image | Source file |
 |---------|-------|-------------|
-| Inference (Vulkan RADV, v1 default) | `docker.io/kyuz0/amd-strix-halo-toolboxes:vulkan-radv@sha256:9a74e555…ac7aad` | `internal/inference/backend_vulkan.go` |
-| Inference (ROCm 7.2.4, opt-in/perf) | `docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-7.2.4@sha256:2da150c1…531a89` | `internal/inference/backend_rocm.go` |
-| Inference (ROCm 6.4.4, TG-tuned, opt-in) | `docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-6.4.4@sha256:c81f30a7…f150ec62` | `internal/inference/backend_rocm.go` |
-| Inference (ROCm 6.4.4 rocWMMA, opt-in) | `docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-6.4.4-rocwmma@sha256:9a97129a…43c0141` | `internal/inference/backend_rocm.go` |
+| Inference (Vulkan RADV, fallback) | `docker.io/kyuz0/amd-strix-halo-toolboxes:vulkan-radv@sha256:9a74e555…ac7aad` | `internal/inference/backend_vulkan.go` |
+| Inference (ROCm 7.2.4, DEFAULT) | `docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-7.2.4@sha256:2da150c1…531a89` | `internal/inference/backend_rocm.go` |
+| Inference (ROCm 6.4.4, TG-tuned) | `docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-6.4.4@sha256:c81f30a7…f150ec62` | `internal/inference/backend_rocm.go` |
+| Inference (ROCm 6.4.4 rocWMMA) | `docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-6.4.4-rocwmma@sha256:9a97129a…43c0141` | `internal/inference/backend_rocm.go` |
 | Chat UI (Open WebUI) | `ghcr.io/open-webui/open-webui:main@sha256:7f1b0a1a…a9184e` | `internal/orchestrate/openwebui.go` |
 <!-- GSD:stack-end -->
 
@@ -319,7 +319,7 @@ VillaStraylight is a self-hosted, local AI server stack for privacy-conscious po
 - Pattern: every backend literal lives behind it; callers depend on the interface only.
 - Purpose: map a config `backend` string → `Backend`; fail-closed on unknown values.
 - Examples: `internal/inference/backend.go:21`.
-- Pattern: `"" | "vulkan"` → Vulkan RADV; `"rocm"` → ROCm; anything else → actionable error, NEVER silent fallback.
+- Pattern: `"" | "rocm"` → ROCm 7.2.4 (default); `"rocm-6.4.4"` / `"rocm-6.4.4-rocwmma"` → the pinned 6.4.4 variants; `"vulkan"` → Vulkan RADV fallback; anything else → actionable error, NEVER silent fallback.
 - Purpose: each backend owns its log/journal marker literals (`Vulkan0`/`ROCm0`, device label, fault string); both offload scrapes are parameterized by it.
 - Examples: `internal/inference/backend.go:80`, `offload.go`, `running_offload.go`.
 - Pattern: a future backend slots in without re-rolling offload math; CPU fallback = FAIL, never false-green.

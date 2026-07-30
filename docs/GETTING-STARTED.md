@@ -10,10 +10,12 @@ chat in your browser, inference on your iGPU, a control dashboard — using the
 `llama-server` for inference, Open WebUI for chat) are integrated OSS containers,
 orchestrated through rootless Podman Quadlet units. Nothing leaves your machine.
 
-The default first-run path uses the **Vulkan RADV** backend — stable and
-compatible across model sizes. Once that stack is healthy, you can optionally
-trial the **ROCm/HIP** backend with a transactional switch and an honest A/B
-benchmark; see [Trying ROCm (optional, advanced)](#trying-rocm-optional-advanced).
+The default first-run path uses the **ROCm/HIP** backend. `villa preflight
+--backend rocm` gates it, and `villa recommend` automatically falls back to the
+**Vulkan RADV** backend if your host is confidently not ROCm-ready — so the happy
+path below works either way. You can switch between them at any time with a
+transactional cutover and compare them with an honest A/B benchmark; see
+[Switching backends](#switching-backends).
 
 ## Prerequisites
 
@@ -38,9 +40,16 @@ tells you exactly what is missing — so you do not have to verify them all by h
   ```
   `villa` drives the AI stack through rootless Podman Quadlet/systemd units — there
   is no Docker dependency.
-- **A Vulkan RADV (Mesa) GPU stack** — the default inference backend. If the RADV
-  ICD or `/dev/dri` nodes are missing, `villa preflight` will tell you (check
-  `PRE-01`) and suggest `sudo dnf install mesa-vulkan-drivers`.
+- **A ROCm/HIP GPU stack** — the default inference backend, which also needs
+  `HSA_OVERRIDE_GFX_VERSION=11.5.1` in the runtime environment and a kernel and
+  `linux-firmware` at or above the pinned floors. Check it with
+  `./villa preflight --backend rocm`, which refuses with a concrete remediation on a
+  confidently-bad host rather than letting bring-up fail later.
+- **A Vulkan RADV (Mesa) GPU stack** — the fallback inference backend, and worth
+  having even on ROCm: it is where `villa recommend` and `villa backend set vulkan`
+  land you if ROCm is not viable. If the RADV ICD or `/dev/dri` nodes are missing,
+  `villa preflight` will tell you (check `PRE-01`) and suggest
+  `sudo dnf install mesa-vulkan-drivers`.
 
 You do **not** need to manually verify kernel params, SELinux booleans, or user
 lingering up front — `villa preflight` classifies all of these and `villa install`
@@ -186,21 +195,21 @@ read-only control dashboard. Confirm everything is healthy with:
 `villa status` also reports the active backend and its resolved (digest-pinned)
 container image, so you always know which backend the running stack is on.
 
-## Trying ROCm (optional, advanced)
+## Switching backends
 
-The default backend is **Vulkan RADV**, and it is the only backend exercised on
-the v1.0 happy path above. Vulkan is stable and compatible across model sizes;
-**you do not need to do anything in this section to have a working stack.**
+The default backend is **ROCm/HIP 7.2.4**, which `villa install` brings up for you.
+**You do not need to do anything in this section to have a working stack** — this
+section is for moving between backends after the fact.
 
-v1.1 adds an **opt-in ROCm/HIP backend** as a performance option. ROCm can win on
-token generation at long context, but it is more sensitive to kernel/firmware
-versions and requires a runtime override — so it is strictly opt-in, never the
-first-run default. Only trial it once your Vulkan stack is already healthy
-(`./villa status` is green).
+**Vulkan RADV** is the fallback. It is less sensitive to kernel/firmware versions and
+needs no runtime override, so it is the right target if ROCm is unhealthy on your host
+(`villa recommend` will already have suggested it if the host is confidently not
+ROCm-ready). Two additional digest-pinned variants, `rocm-6.4.4` and
+`rocm-6.4.4-rocwmma`, are also selectable — benchmark them rather than assuming a win.
 
-The switch is **transactional** (capture → mutate → prove → rollback): a failed
-switch is a no-op to the running stack — your Vulkan setup is restored verbatim,
-so trialing ROCm cannot leave you worse off.
+Every switch is **transactional** (capture → mutate → prove → rollback): a failed
+switch is a no-op to the running stack — the previous setup is restored verbatim, so
+trialing a backend cannot leave you worse off.
 
 ### 1. Inspect the active backend
 
@@ -214,21 +223,22 @@ so trialing ROCm cannot leave you worse off.
 against the target envelope), and the ROCm preflight — and writes nothing:
 
 ```bash
-./villa backend set rocm --dry-run
+./villa backend set vulkan --dry-run
 ```
 
-### 3. Switch to ROCm
+### 3. Switch
 
 ```bash
-./villa backend set rocm
+./villa backend set vulkan     # to the RADV fallback
+./villa backend set rocm       # back to the ROCm default
 ```
 
-This re-fit-guards the preserved model, runs the ROCm preflight gate, regenerates
-**only** the inference unit, restarts it, and **proves** the cutover with a real
-generation probe plus a GPU-residency check inside a bounded timeout. If any step
-fails — or the preflight refuses (e.g. a too-old kernel, a denied linux-firmware
-build, or a missing `HSA_OVERRIDE_GFX_VERSION`) — the switch rolls back verbatim
-and your Vulkan stack keeps running. <!-- VERIFY: kernel version, linux-firmware date, and gfx1151 readiness are host facts probed at runtime and cannot be confirmed from the repository alone -->
+This re-fit-guards the preserved model, runs the ROCm preflight gate when the target
+is a ROCm backend, regenerates **only** the inference unit, restarts it, and
+**proves** the cutover with a real generation probe plus a GPU-residency check inside
+a bounded timeout. If any step fails — or the preflight refuses (e.g. a too-old
+kernel, a denied linux-firmware build, or a missing `HSA_OVERRIDE_GFX_VERSION`) — the
+switch rolls back verbatim and the stack you were already running keeps running. <!-- VERIFY: kernel version, linux-firmware date, and gfx1151 readiness are host facts probed at runtime and cannot be confirmed from the repository alone -->
 
 The ROCm preflight is also available standalone (read-only):
 
@@ -250,14 +260,14 @@ backend on exit. Tuning flags: `--reps`/`-n` (counted runs per side, default `5`
 `--warmup` (discarded warm-up runs, default `1`), and `--n-predict` (fixed
 `max_tokens` per run, default `128`).
 
-### 5. Switch back to Vulkan
+### 5. Getting back to a known-good state
 
 ```bash
 ./villa backend set vulkan
 ```
 
-The same transactional guarantees apply. Vulkan RADV is always a safe place to
-return to.
+The same transactional guarantees apply. Vulkan RADV has the fewest host
+requirements, so it is always a safe place to return to if a ROCm backend misbehaves.
 
 ## Common setup issues
 
@@ -273,9 +283,20 @@ first — the table tells you which check failed and prints the fix.
   A present Podman with missing `/etc/subuid` or `/etc/subgid` ranges is a hard
   fail — the remediation line prints the exact `usermod --add-subuids …` command.
 
+- **ROCm bring-up refused (`ROCM-PRE-*`).** Since ROCm is the default backend,
+  `./villa preflight --backend rocm` is worth running before you install. It refuses
+  with a concrete remediation on a confidently-bad host — a sub-floor kernel, a denied
+  `linux-firmware` build, a non-gfx1151 device, or an unset
+  `HSA_OVERRIDE_GFX_VERSION`. Either fix what it names, or use the Vulkan fallback:
+  ```bash
+  ./villa preflight --backend rocm
+  ./villa backend set vulkan     # if ROCm is not viable on this host
+  ```
+
 - **Vulkan RADV not detected (`PRE-01`).** llama.cpp silently falls back to CPU (or
-  fails to load) without a working Vulkan backend. Install the Mesa RADV drivers
-  and confirm the iGPU exposes device nodes:
+  fails to load) without a working Vulkan backend. This matters even on the ROCm
+  default, since Vulkan is the fallback you would switch to. Install the Mesa RADV
+  drivers and confirm the iGPU exposes device nodes:
   ```bash
   sudo dnf install mesa-vulkan-drivers
   ls /dev/dri

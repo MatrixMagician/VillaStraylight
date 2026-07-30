@@ -178,14 +178,23 @@ func renderRecommendTable(w io.Writer, rec recommend.Recommendation, warnings []
 	}
 
 	// Surface the honesty-bounded ROCm advice after the notes, gated on a non-empty
-	// advice value (REC-05 / D-05). The recommended backend stays vulkan; this only
-	// annotates the pick, never changes it. The Note (when present) points at
-	// `villa bench` and never promises a speed-up.
+	// advice value (REC-05 / D-05). ROCm is the DEFAULT backend, so this annotates the
+	// already-selected pick. The Note points at `villa bench` and never promises a
+	// speed-up.
+	//
+	// The withheld case (advice == "") is the confidently-not-ready host, and it is the
+	// ONE case where readiness changes the recommended backend — Pick falls back to
+	// vulkan. It carries a Note naming the blocker instead of an advice value, so it is
+	// rendered on its own branch: gating the Note behind a non-empty advice would print
+	// NOTHING here and silently move the user off the default backend with no reason
+	// given. --json is unaffected (both fields are always stamped).
 	if rec.ROCmAdvice != "" {
 		fmt.Fprintf(w, "\nROCm advice: %s\n", rec.ROCmAdvice)
 		if rec.ROCmNote != "" {
 			fmt.Fprintf(w, "  - %s\n", rec.ROCmNote)
 		}
+	} else if rec.ROCmNote != "" {
+		fmt.Fprintf(w, "\nBackend: %s\n  - %s\n", rec.Backend, rec.ROCmNote)
 	}
 
 	// Coder (agent profile) section (CODER-02, D-06/D-07): the JSON block is

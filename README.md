@@ -1,7 +1,7 @@
 <!-- generated-by: gsd-doc-writer -->
 # VillaStraylight
 
-A single Go CLI (`villa`) that stands up a private, local AI workspace on your own hardware — auto-detecting an AMD Strix Halo (gfx1151) Fedora host, recommending a memory-fitting model/quant/context, generating rootless Podman Quadlet units, and orchestrating llama.cpp (Vulkan) inference plus an Open WebUI chat front-end behind a loopback-only control dashboard. Strictly local, zero telemetry.
+A single Go CLI (`villa`) that stands up a private, local AI workspace on your own hardware — auto-detecting an AMD Strix Halo (gfx1151) Fedora host, recommending a memory-fitting model/quant/context, generating rootless Podman Quadlet units, and orchestrating llama.cpp (ROCm) inference plus an Open WebUI chat front-end behind a loopback-only control dashboard. Strictly local, zero telemetry.
 
 ![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)
 
@@ -9,7 +9,7 @@ VillaStraylight is for privacy-conscious power users who want a ChatGPT/Claude-c
 
 > Status: **v1.5 shipped** (tag `v1.5`). Built milestone by milestone, each addition keeping the zero-telemetry, loopback-only posture:
 > - **v1.0** — Vulkan-only MVP: detect → recommend → install → Open WebUI chat → control dashboard.
-> - **v1.1** — opt-in **ROCm/HIP backend** with a transactional `backend set` switch and an honest A/B `bench`. Vulkan RADV stays the default.
+> - **v1.1** — the **ROCm/HIP backend** with a transactional `backend set` switch and an honest A/B `bench`. (ROCm shipped opt-in here and became the default in a later revision; Vulkan RADV remains selectable as the fallback.)
 > - **v1.2** — operability: `villa doctor`, saved bench `--compare`, cumulative usage, `backup`/`restore`, and a guided TUI install.
 > - **v1.3** — strictly-local **memory & knowledge**: a Qdrant + local-embeddings stack wired into Open WebUI Memory/RAG, plus conversational `recall`.
 > - **v1.4** — an optional strictly-local **terminal coding agent** (Crush) wired over loopback to a fit-guarded coding model, proven zero-outbound at runtime.
@@ -20,7 +20,8 @@ VillaStraylight is for privacy-conscious power users who want a ChatGPT/Claude-c
 - **Go 1.26+** — required to build the `villa` binary (see `go.mod`).
 - **Fedora Workstation 44+** on **AMD Strix Halo (gfx1151)** — the only supported host platform for v1. The architecture leaves room for a future macOS/Apple-Silicon backend, but it is not yet implemented.
 - **Podman v5 (rootless)** with the user socket enabled (`systemctl --user enable --now podman.socket`) — `villa` drives the AI stack through rootless Podman Quadlet/systemd units, not Docker.
-- A **Vulkan RADV** capable GPU stack (Mesa) for the default inference backend. The opt-in **ROCm/HIP** backend additionally requires `HSA_OVERRIDE_GFX_VERSION=11.5.1` in the runtime environment; the ROCm preflight gate refuses bring-up if it is absent.
+- A **ROCm/HIP** capable GPU stack for the default inference backend, with `HSA_OVERRIDE_GFX_VERSION=11.5.1` in the runtime environment — the ROCm preflight gate refuses bring-up if it is absent. ROCm also expects a kernel and `linux-firmware` at or above the pinned floors (`villa preflight --backend rocm` reports both).
+- A **Vulkan RADV** capable GPU stack (Mesa) for the fallback backend. Keep it installed even on ROCm: it is the safe landing spot `villa backend set vulkan` switches to, and `villa recommend` recommends it automatically when the host is confidently not ROCm-ready.
 
 `villa preflight` checks these host requirements (Vulkan ICD + iGPU enumeration, Podman rootless readiness, SELinux/linger state, and disk/memory floors) and tells you what is missing before you install anything.
 
@@ -107,7 +108,8 @@ villa detect                          # print a hardware profile (CPU/arch, iGPU
 villa recommend --alternatives        # show the fit math and other fitting picks
 villa recommend --save                # persist the pick to ~/.config/villa/config.toml
                                       # (recommend reports the backend and an honesty-bounded
-                                      #  ROCm hint; the recommended backend stays vulkan)
+                                      #  ROCm hint; the recommended backend is rocm, falling
+                                      #  back to vulkan only on a confidently not-ROCm-ready host)
 ```
 
 **Validate inference before committing to a full install:**
@@ -129,16 +131,17 @@ villa model swap <name>               # fit-guard, auto-pull, persist config, re
 
 ```bash
 villa backend show                    # active backend (from config) + resolved digest-pinned image tag
-villa backend set rocm                # transactional switch: re-fit-guard, ROCm preflight, restart, prove
-                                      # GPU residency in a bounded timeout — rolls back verbatim on any failure
-villa backend set vulkan --dry-run    # preview target/fit/preflight without mutating anything
+villa backend set vulkan              # transactional switch to the fallback backend: re-fit-guard,
+                                      # restart, prove GPU residency in a bounded timeout —
+                                      # rolls back verbatim on any failure
+villa backend set rocm --dry-run      # preview target/fit/ROCm preflight without mutating anything
 villa bench                           # honest throughput of the running backend: separate
                                       # prompt-processing (pp) and token-generation (tg) tok/s
 villa bench --ab                      # also flip to the other backend, bench it identically,
                                       # restore the original, and report the per-metric A/B delta
 ```
 
-`villa backend set <vulkan|rocm>` is transactional (capture → mutate → prove → rollback): a failed switch is a no-op to the running stack. Vulkan RADV is the default; ROCm is strictly opt-in. `villa bench` flags include `--reps`/`-n` (counted runs per side, default 5), `--warmup` (discarded warm-up runs, default 1), and `--n-predict` (fixed `max_tokens` per run, default 128).
+`villa backend set <rocm|rocm-6.4.4|rocm-6.4.4-rocwmma|vulkan>` is transactional (capture → mutate → prove → rollback): a failed switch is a no-op to the running stack. ROCm 7.2.4 is the default; Vulkan RADV is the fallback and is always a safe target. `villa bench` flags include `--reps`/`-n` (counted runs per side, default 5), `--warmup` (discarded warm-up runs, default 1), and `--n-predict` (fixed `max_tokens` per run, default 128).
 
 **Diagnose, measure, back up (v1.2):**
 
@@ -220,7 +223,7 @@ Key fields (`internal/config/villaconfig.go`):
 | `model` | (from `recommend`) | Chosen catalog model id. |
 | `quant` | (from `recommend`) | Chosen quantization (e.g. `UD-Q4_K_M`). |
 | `ctx` | (from `recommend`) | Context length in tokens. |
-| `backend` | `vulkan` | Inference backend: `vulkan` (RADV, default for gfx1151) or the opt-in `rocm`. Switch it transactionally with `villa backend set`. |
+| `backend` | `rocm` | Inference backend: `rocm` (ROCm 7.2.4, default for gfx1151), `rocm-6.4.4`, `rocm-6.4.4-rocwmma`, or the `vulkan` (RADV) fallback. Switch it transactionally with `villa backend set` — `villa config set backend=` only accepts `vulkan`, since every ROCm target must pass the bring-up gate. |
 | `catalog_path` | (embedded) | Optional path to an external catalog JSON override. |
 | `dashboard_addr` | `127.0.0.1` | Loopback-only bind address for the control dashboard. Never widened to a routable interface. |
 | `dashboard_port` | `8888` | Host port the control dashboard listens on. |
