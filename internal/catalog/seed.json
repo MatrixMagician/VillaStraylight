@@ -15,7 +15,7 @@
       "min_envelope_bytes": 1500000000,
       "tier_gb": 0,
       "unified_memory_safe": true,
-      "backend_default": "vulkan",
+      "backend_default": "rocm",
       "bootstrap": false,
       "shards": [
         {
@@ -39,7 +39,7 @@
       "min_envelope_bytes": 2000000000,
       "tier_gb": 0,
       "unified_memory_safe": true,
-      "backend_default": "vulkan",
+      "backend_default": "rocm",
       "bootstrap": true,
       "shards": [
         {
@@ -63,7 +63,7 @@
       "min_envelope_bytes": 30000000000,
       "tier_gb": 64,
       "unified_memory_safe": true,
-      "backend_default": "vulkan",
+      "backend_default": "rocm",
       "bootstrap": false,
       "shards": [
         {
@@ -87,7 +87,7 @@
       "min_envelope_bytes": 32000000000,
       "tier_gb": 64,
       "unified_memory_safe": true,
-      "backend_default": "vulkan",
+      "backend_default": "rocm",
       "bootstrap": false,
       "shards": [
         {
@@ -111,7 +111,7 @@
       "min_envelope_bytes": 28000000000,
       "tier_gb": 64,
       "unified_memory_safe": true,
-      "backend_default": "vulkan",
+      "backend_default": "rocm",
       "bootstrap": false,
       "role": "coder",
       "agent_ctx": 65536,
@@ -145,7 +145,7 @@
       "min_envelope_bytes": 60000000000,
       "tier_gb": 128,
       "unified_memory_safe": true,
-      "backend_default": "vulkan",
+      "backend_default": "rocm",
       "bootstrap": false,
       "role": "coder",
       "agent_ctx": 131072,
@@ -179,7 +179,7 @@
       "min_envelope_bytes": 45000000000,
       "tier_gb": 96,
       "unified_memory_safe": true,
-      "backend_default": "vulkan",
+      "backend_default": "rocm",
       "bootstrap": false,
       "role": "coder",
       "agent_ctx": 131072,

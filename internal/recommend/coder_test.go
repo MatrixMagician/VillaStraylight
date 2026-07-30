@@ -14,7 +14,7 @@ func coderFitEntry() catalog.CatalogModel {
 	return catalog.CatalogModel{
 		ID: "coder-fit", Quant: "UD-Q4_K_XL", WeightBytes: 18 << 30,
 		NLayers: 48, NKVHeads: 4, HeadDim: 128, KVBytesPerElem: 2,
-		DefaultCtx: 32768, TierGB: 64, UnifiedMemorySafe: true, BackendDefault: "vulkan",
+		DefaultCtx: 32768, TierGB: 64, UnifiedMemorySafe: true, BackendDefault: "rocm",
 		Role: "coder", AgentCtx: 65536,
 	}
 }
@@ -27,7 +27,7 @@ func coderBigEntry() catalog.CatalogModel {
 	return catalog.CatalogModel{
 		ID: "coder-big", Quant: "UD-Q4_K_XL", WeightBytes: 48 << 30,
 		NLayers: 48, NKVHeads: 4, HeadDim: 128, KVBytesPerElem: 2,
-		DefaultCtx: 8192, TierGB: 64, UnifiedMemorySafe: true, BackendDefault: "vulkan",
+		DefaultCtx: 8192, TierGB: 64, UnifiedMemorySafe: true, BackendDefault: "rocm",
 		Role: "coder", AgentCtx: 65536,
 	}
 }
@@ -231,7 +231,7 @@ func TestPickCoderUsesPostReservationEnvelope(t *testing.T) {
 		// W+K = 30,000,000,000 lands between the two 0.88×envelope bounds.
 		ID: "coder-tight", Quant: "UD-Q4_K_XL", WeightBytes: 26778774528,
 		NLayers: 24, NKVHeads: 4, HeadDim: 128, KVBytesPerElem: 2,
-		DefaultCtx: 8192, TierGB: 32, UnifiedMemorySafe: true, BackendDefault: "vulkan",
+		DefaultCtx: 8192, TierGB: 32, UnifiedMemorySafe: true, BackendDefault: "rocm",
 		Role: "coder", AgentCtx: 65536,
 	}
 	cat.Models = append(cat.Models, tight)

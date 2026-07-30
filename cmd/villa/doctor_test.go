@@ -375,9 +375,11 @@ func TestLiveDoctorDepsWiresMemorySeams(t *testing.T) {
 
 // TestLiveDoctorDepsWiresRunROCmImage closes the silently-nil hole in the Option-B
 // image thread-through: liveDoctorDeps() must populate the RunROCmImage seam NON-NIL on
-// a ROCm-family backend (so a denied running image is a confident FAIL via
-// preflight.RunROCmForImage, never the un-evaluated WARN) and leave it NIL for vulkan
-// (the nil-fallback path Aggregate handles by calling preflight.Run). It inspects only
+// a ROCm-family backend — which now INCLUDES the empty/default config, since ROCm 7.2.4
+// is the default backend (so a denied running image is a confident FAIL via
+// preflight.RunROCmForImage, never the un-evaluated WARN) — and leave it NIL for the
+// explicit vulkan opt-out (the nil-fallback path Aggregate handles by calling
+// preflight.Run). It inspects only
 // the constructed Deps func-field for nil-ness — it never invokes the live host probes.
 // The config backend is driven deterministically via XDG_CONFIG_HOME so the test is
 // off-hardware. (The newDoctorDeps() test double leaves RunROCmImage nil ON PURPOSE; that
@@ -385,10 +387,11 @@ func TestLiveDoctorDepsWiresMemorySeams(t *testing.T) {
 func TestLiveDoctorDepsWiresRunROCmImage(t *testing.T) {
 	cases := []struct {
 		name       string
-		backend    string // "" → write no config file (default vulkan)
+		backend    string // "" → write no config file (default rocm)
 		wantNonNil bool
 	}{
-		{"vulkan-default", "", false},
+		{"default-is-rocm", "", true},
+		{"vulkan-opt-out", "vulkan", false},
 		{"rocm", "rocm", true},
 	}
 	for _, tc := range cases {

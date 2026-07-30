@@ -6,7 +6,7 @@
 //
 // Pick is a PURE function (no I/O) so it is exhaustively table-testable. It never
 // auto-selects an entry flagged unified_memory_safe:false (REC-02), never auto-
-// selects the bootstrap entry (D-12), defaults the backend to vulkan for gfx1151
+// selects the bootstrap entry (D-12), defaults the backend to rocm for gfx1151
 // (REC-04), re-validates manual overrides and warns/fails when they don't fit
 // (D-07), and degrades safely to a conservative floor when the envelope is Unknown
 // — refusing only when no safe floor is derivable, never guessing high (D-14).
@@ -21,8 +21,27 @@ import (
 )
 
 // defaultBackend is the inference backend recommended for gfx1151 (REC-04). ROCm
-// is opt-in only and is never auto-selected in Phase 1.
-const defaultBackend = "vulkan"
+// is the default; Vulkan RADV remains selectable as an explicit opt-in fallback.
+const defaultBackend = "rocm"
+
+// fallbackBackend is the backend recommended INSTEAD of the ROCm default when the
+// host is confidently not ROCm-ready (finalizeRecommendation). Vulkan RADV has the
+// widest hardware/driver compatibility, so it is the safe landing spot.
+const fallbackBackend = "vulkan"
+
+// IsROCmFamily reports whether a recommended/persisted backend name is ROCm-family.
+// It deliberately mirrors inference.IsROCmFamily rather than importing it: recommend
+// is a pure fit-math package with no dependency on the inference seam, and the two
+// enumerate the same NAME strings (never an image literal). The empty string counts
+// because it resolves to the default ROCm backend.
+func IsROCmFamily(name string) bool {
+	switch name {
+	case "", "rocm", "rocm-6.4.4", "rocm-6.4.4-rocwmma":
+		return true
+	default:
+		return false
+	}
+}
 
 // Web-search reservation constants (GROUND-03, 31-RESEARCH Assumption A6). The
 // reservation is deliberately CONSERVATIVE — over-reserving keeps the chat model
@@ -74,8 +93,7 @@ const recommendSchemaVersion = 4
 // ROCmAdvice is a typed enum surfaced on the Recommendation (REC-05 / D-05): an
 // honesty-bounded hint about whether the opt-in ROCm backend is worth a benchmark
 // on this host, derived PURELY from HostProfile.rocm_readiness inside Pick (no I/O,
-// no new arg). It NEVER changes the recommended Backend (which stays vulkan,
-// REC-04) and NEVER promises a speed-up — the on-hardware token-gen delta was
+// no new arg). It NEVER promises a speed-up — the on-hardware token-gen delta was
 // negative (Δtg −11.15), so ROCm can REGRESS tg. Empty ("") means "not applicable"
 // (a Known-bad readiness signal withholds advice and names the blocker in a Note).
 type ROCmAdvice string
@@ -373,9 +391,19 @@ func webSearchReservation(web WebSearchInputs) (uint64, []string) {
 // finalizeRecommendation stamps the additive, contract-level fields onto a
 // fully-computed pick: the unconditional SchemaVersion, the D-03 memory fields,
 // the D-07 coder block, and the purely-derived ROCm advice. It runs AFTER
-// Backend is set and NEVER reassigns rec.Backend — advice can only annotate the
-// pick, never auto-switch it (REC-04, T-10-06). It performs no I/O: the advice
-// is folded from p.ROCmReadiness already in hand. EVERY Pick return path —
+// Backend is set. It performs no I/O: the advice is folded from p.ROCmReadiness
+// already in hand.
+//
+// It reassigns rec.Backend in EXACTLY ONE direction: the safe fallback off the ROCm
+// default onto Vulkan RADV when the host is CONFIDENTLY not ROCm-ready (every
+// readiness signal Known and at least one Known-bad — the same withheld-advice
+// condition deriveROCmAdvice reports, whose Note names the blocker). Since ROCm is
+// now the default backend, recommending it to a host that provably cannot run it
+// would hand the user a broken first install. It NEVER goes the other way: no
+// readiness fold can auto-select ROCm over an explicit choice, and an unevaluable
+// signal (the off-hardware default) never triggers the fallback — unknown must not
+// silently downgrade a working ROCm host (no-false-red, mirroring the no-false-green
+// discipline in deriveROCmAdvice). EVERY Pick return path —
 // including the no-envelope refusal — flows through here, so the D-03 memory
 // fields and the coder block are stamped unconditionally (the refusal path
 // passes the conservative-floor block: fits:false / residency:"shared", D-06).
@@ -389,6 +417,13 @@ func finalizeRecommendation(rec Recommendation, p detect.HostProfile, mem Memory
 	rec.ROCmAdvice = advice
 	if note != "" {
 		rec.ROCmNote = note
+	}
+	// Confidently-not-ROCm-ready → fall back to Vulkan RADV (see the doc comment).
+	// deriveROCmAdvice withholds advice ("") ONLY in that all-Known-with-a-blocker
+	// case, so the empty advice is the precise, single-sourced signal here; the
+	// accompanying Note already names the blocker for the user.
+	if advice == "" && IsROCmFamily(rec.Backend) {
+		rec.Backend = fallbackBackend
 	}
 	return rec
 }
@@ -429,7 +464,7 @@ func deriveROCmAdvice(r detect.ROCmReadiness) (ROCmAdvice, string) {
 	// Unknown wins over not-ready (no false-green): only withhold-with-blocker when
 	// every signal is Known and at least one is bad.
 	if !sawUnknown && blocker != "" {
-		return "", fmt.Sprintf("ROCm: not ready on this host — blocked by %s. Staying on vulkan; re-check after resolving it (run villa status).", blocker)
+		return "", fmt.Sprintf("ROCm: not ready on this host — blocked by %s. Falling back to the vulkan backend; re-check after resolving it (run villa status).", blocker)
 	}
 	if sawUnknown {
 		return ROCmAdviceVerifyBench, rocmVerifyNote

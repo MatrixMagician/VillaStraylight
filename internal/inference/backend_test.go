@@ -10,7 +10,9 @@ import "testing"
 // seam-clean (TestSeamGrepGate covers the image-literal leak case).
 
 // TestIsROCmFamily asserts the predicate reports true for all three ROCm-family backend
-// names and false for the default/Vulkan/unknown values — the single enumeration point
+// names AND for the empty string (which BackendFor resolves to the default ROCm backend —
+// the two MUST agree or an unset config would run ROCm while skipping the ROCm gate), and
+// false for the explicit Vulkan opt-out and unknown values — the single enumeration point
 // consumed by the live PreflightROCm gate and the preflight flag router (D-08, 12-02).
 func TestIsROCmFamily(t *testing.T) {
 	cases := []struct {
@@ -20,7 +22,7 @@ func TestIsROCmFamily(t *testing.T) {
 		{"rocm", true},
 		{"rocm-6.4.4", true},
 		{"rocm-6.4.4-rocwmma", true},
-		{"", false},
+		{"", true}, // empty == the default ROCm backend in BackendFor; must be gated as ROCm
 		{"vulkan", false},
 		{"bogus", false},
 		{"ROCM", false}, // case-sensitive: config values are lowercase by construction

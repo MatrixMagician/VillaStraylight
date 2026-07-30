@@ -325,6 +325,10 @@ func TestStatusJSONGolden(t *testing.T) {
 // from config.DefaultVillaConfig — never re-typed literals).
 func memoryStatusCfg() config.VillaConfig {
 	cfg := config.DefaultVillaConfig()
+	// Pin the Vulkan backend explicitly: this fixture is rendered with
+	// inference.VulkanBackend() and asserts against a Vulkan0 residency journal, so it
+	// must NOT inherit whatever DefaultVillaConfig's backend happens to be (now rocm).
+	cfg.Backend = "vulkan"
 	cfg.Model = "qwen3"
 	cfg.Quant = "Q4"
 	cfg.Ctx = 131072
@@ -418,6 +422,9 @@ func TestStatusJSONGoldenMemoryOn(t *testing.T) {
 // appear in the 0644 units).
 func webSearchStatusCfg() config.VillaConfig {
 	cfg := config.DefaultVillaConfig()
+	// Pin the Vulkan backend explicitly (see memoryStatusCfg): rendered with
+	// inference.VulkanBackend() against a Vulkan0 residency journal.
+	cfg.Backend = "vulkan"
 	cfg.Model = "qwen3"
 	cfg.Quant = "Q4"
 	cfg.Ctx = 131072
@@ -511,6 +518,9 @@ func TestStatusJSONGoldenWebSearchOn(t *testing.T) {
 // re-typed literals.
 func codingStatusCfg() config.VillaConfig {
 	cfg := config.DefaultVillaConfig()
+	// Pin the Vulkan backend explicitly (see memoryStatusCfg): rendered with
+	// inference.VulkanBackend() against a Vulkan0 residency journal.
+	cfg.Backend = "vulkan"
 	cfg.Model = "qwen3"
 	cfg.Quant = "Q4"
 	cfg.Ctx = 131072

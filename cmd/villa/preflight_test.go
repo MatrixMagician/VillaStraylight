@@ -255,3 +255,29 @@ func TestLiveMemoryGateOffPath(t *testing.T) {
 		}
 	})
 }
+
+// TestPreflightGatesROCmRouting guards the load-bearing empty-string case in the
+// --backend router. ROCm is now the DEFAULT backend, so inference.IsROCmFamily("")
+// is true (an unset CONFIG value resolves to the default ROCm backend). But the
+// preflight flag's "" means "--backend was not passed", so a bare `villa preflight`
+// must still run the STANDALONE host-prep gate. Folding the guard away would swap the
+// podman/linger/disk/memory BLOCK checks install depends on for the WARN-only ROCm
+// verdict, silently waving through a host with no rootless podman.
+func TestPreflightGatesROCmRouting(t *testing.T) {
+	cases := []struct {
+		flag string
+		want bool
+	}{
+		{"", false}, // flag NOT passed → standalone host-prep gate, despite the rocm default
+		{"rocm", true},
+		{"rocm-6.4.4", true},
+		{"rocm-6.4.4-rocwmma", true},
+		{"vulkan", false},
+		{"bogus", false},
+	}
+	for _, c := range cases {
+		if got := preflightGatesROCm(c.flag); got != c.want {
+			t.Errorf("preflightGatesROCm(%q) = %v, want %v", c.flag, got, c.want)
+		}
+	}
+}

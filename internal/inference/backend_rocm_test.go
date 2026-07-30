@@ -77,7 +77,9 @@ func TestBackendFor(t *testing.T) {
 		wantName    string
 		wantImgFrag string // a digest substring the resolved backend's Image() must contain
 	}{
-		{"", "vulkan", ""},
+		// The empty string is the DEFAULT backend — ROCm 7.2.4, same digest as "rocm".
+		{"", "rocm", "2da150c1"},
+		// vulkan is now the explicit opt-in fallback, still resolvable and unchanged.
 		{"vulkan", "vulkan", ""},
 		// rocm STILL means the unchanged 7.2.4 digest (D-02 coexistence).
 		{"rocm", "rocm", "2da150c1"},

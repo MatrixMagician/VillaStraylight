@@ -36,6 +36,20 @@ func liveMemoryGateResults(profile detect.HostProfile) []preflight.CheckResult {
 	return preflight.RunMemory(profile, preflight.MemoryGateInput{EmbeddingModel: cfg.EmbeddingModel})
 }
 
+// preflightGatesROCm decides whether `villa preflight` runs the ROCm bring-up gate
+// instead of the standalone host-prep gate, from the --backend FLAG value.
+//
+// The explicit empty-string guard is LOAD-BEARING and must not be folded away into a
+// bare inference.IsROCmFamily call. Here "" means "--backend was not passed", but
+// IsROCmFamily("") is true (an unset CONFIG value resolves to the default ROCm
+// backend). Without the guard a bare `villa preflight` would silently run the ROCm
+// gate INSTEAD of the standalone host-prep gate, dropping the podman/linger/disk/
+// memory BLOCK checks that install depends on — a WARN-only ROCm verdict would then
+// wave through a host with no rootless podman at all.
+func preflightGatesROCm(flagValue string) bool {
+	return flagValue != "" && inference.IsROCmFamily(flagValue)
+}
+
 // Exit codes for `villa preflight` (D-04). These are the scriptable contract that
 // Phase 3 install and a future `villa doctor` branch on, so they are named.
 const (
@@ -69,7 +83,7 @@ func newPreflight() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			profile := detect.Probe()
 			var results []preflight.CheckResult
-			if inference.IsROCmFamily(backend) {
+			if preflightGatesROCm(backend) {
 				// ROCm bring-up gate: refuse only confident known-bad hosts; off-hardware
 				// every signal is Unknown → WARN → exit 2 (never a false exit 1). The
 				// family predicate (D-08) routes every ROCm name (rocm, rocm-6.4.4,

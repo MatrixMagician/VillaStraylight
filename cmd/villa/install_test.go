@@ -167,7 +167,7 @@ func newFakeInstallDeps(t *testing.T, units []orchestrate.Unit, plan orchestrate
 		probe: func() detect.HostProfile { return detect.HostProfile{} },
 		pick: func(detect.HostProfile, recommend.Overrides) recommend.Recommendation {
 			return recommend.Recommendation{
-				Model: "qwen2.5-0.5b", Quant: "Q4_K_M", ContextLen: 4096, Backend: "vulkan",
+				Model: "qwen2.5-0.5b", Quant: "Q4_K_M", ContextLen: 4096, Backend: "rocm",
 				WeightBytes:  1 << 30,
 				KVCacheBytes: 1 << 28, HeadroomBytes: 1 << 28, UsableEnvelopeBytes: 8 << 30,
 				Fits: true,
@@ -839,7 +839,7 @@ func TestInstallPersistsConfigBeforeUnits(t *testing.T) {
 		t.Errorf("config must be persisted BEFORE units are written, got order %v", order)
 	}
 	if f.savedCfg.Model != "qwen2.5-0.5b" || f.savedCfg.Quant != "Q4_K_M" ||
-		f.savedCfg.Ctx != 4096 || f.savedCfg.Backend != "vulkan" {
+		f.savedCfg.Ctx != 4096 || f.savedCfg.Backend != "rocm" {
 		t.Errorf("persisted config must hold the recommended selection, got %+v", f.savedCfg)
 	}
 }
@@ -1410,22 +1410,24 @@ func TestInstallPreservesPersistedMemoryConfig(t *testing.T) {
 		t.Errorf("install reset persisted chat_port to %d, want 4444 preserved (WR-02)", f.savedCfg.ChatPort)
 	}
 	// The recommendation-derived fields are still overridden from the rec.
-	if f.savedCfg.Model != "qwen2.5-0.5b" || f.savedCfg.Backend != "vulkan" {
+	if f.savedCfg.Model != "qwen2.5-0.5b" || f.savedCfg.Backend != "rocm" {
 		t.Errorf("install must still override the recommendation-derived fields, got %+v", f.savedCfg)
 	}
 }
 
 // TestInstallPreservesPersistedROCmBackend is the regression for the
-// install-reverts-rocm-to-vulkan debug session: `villa install` (and `villa install
-// --coding-agent`) must PRESERVE a persisted `backend=rocm` opt-in, not silently revert
-// it to vulkan. recommend.Pick always returns the default (vulkan) backend — ROCm is
-// strictly opt-in and never auto-recommended (REC-04) — so the cmd tier must guard the
+// install-reverts-the-chosen-backend debug session: `villa install` (and `villa install
+// --coding-agent`) must PRESERVE whatever backend the config already carries, not silently
+// revert it to the recommendation. ROCm 7.2.4 is now the default backend and Vulkan RADV is
+// the explicit opt-out, so the guard must hold in BOTH directions: a persisted `rocm` stays
+// rocm, and a persisted `vulkan` opt-out stays vulkan rather than being flipped to the ROCm
+// recommendation. recommend.Pick always returns the default (rocm) backend and
+// recommend.Overrides carries no Backend field, so the cmd tier must guard the
 // `cfg.Backend = rec.Backend` assignment (config is the single source of truth for the
-// backend opt-in). The test proves BOTH halves: (a) the rendered villa-llama unit resolves
-// to the ROCm backend (not vulkan-radv), and (b) the persisted cfg keeps backend=rocm; plus
-// a re-install on an unchanged plan is a true no-op on the ROCm choice. The default path
-// (persisted vulkan) must still take the recommendation — the guard only PRESERVES an
-// already-chosen opt-in, it never auto-selects ROCm.
+// backend choice). The test proves BOTH halves: (a) the rendered villa-llama unit resolves
+// to the persisted backend, and (b) the persisted cfg keeps that backend; plus a re-install
+// on an unchanged plan is a true no-op on the ROCm choice, and an UNSET backend still falls
+// through to the recommendation.
 func TestInstallPreservesPersistedROCmBackend(t *testing.T) {
 	persistedRocm := func() *config.VillaConfig {
 		c := config.DefaultVillaConfig()
@@ -1510,21 +1512,48 @@ func TestInstallPreservesPersistedROCmBackend(t *testing.T) {
 		}
 	})
 
-	t.Run("a persisted vulkan default still takes the recommendation (guard preserves only opt-ins)", func(t *testing.T) {
+	t.Run("a persisted vulkan opt-out is preserved against the rocm recommendation", func(t *testing.T) {
 		units := []orchestrate.Unit{{Name: "villa-llama.container", Text: "[Container]\n"}}
 		plan := orchestrate.Plan{Changed: units}
 		f := newFakeInstallDeps(t, units, plan, passChecks())
-		// Default persisted config: backend=vulkan. The recommendation (also vulkan) wins;
-		// the guard must NOT pin a non-opt-in value or block the recommendation flow.
+		// The user deliberately fell back to Vulkan RADV. The recommendation is now rocm,
+		// so an unguarded assignment would silently flip them back onto ROCm on every
+		// re-install — the exact bug this guard exists to prevent, in the other direction.
+		c := config.DefaultVillaConfig()
+		c.Backend = "vulkan"
+		f.persistedConfig = &c
+
 		cmd, _, _ := installTestCmd()
 		if code := runInstall(cmd, installOpts{}, f.installDeps); code != exitPass {
 			t.Fatalf("install exit = %d, want 0", code)
 		}
 		if got := f.renderedInput.Backend.Name(); got != "vulkan" {
-			t.Errorf("default-path install rendered backend %q, want \"vulkan\" from the recommendation", got)
+			t.Errorf("install rendered backend %q, want \"vulkan\" opt-out preserved", got)
 		}
 		if f.savedCfg.Backend != "vulkan" {
-			t.Errorf("default-path install saved backend %q, want \"vulkan\" from the recommendation", f.savedCfg.Backend)
+			t.Errorf("install reverted the persisted vulkan opt-out to %q, want \"vulkan\" preserved", f.savedCfg.Backend)
+		}
+	})
+
+	t.Run("an UNSET persisted backend falls through to the recommendation", func(t *testing.T) {
+		units := []orchestrate.Unit{{Name: "villa-llama.container", Text: "[Container]\n"}}
+		plan := orchestrate.Plan{Changed: units}
+		f := newFakeInstallDeps(t, units, plan, passChecks())
+		// A never-configured install (empty backend string). The guard must NOT pin the
+		// empty value — the recommendation (the rocm default) supplies it.
+		c := config.DefaultVillaConfig()
+		c.Backend = ""
+		f.persistedConfig = &c
+
+		cmd, _, _ := installTestCmd()
+		if code := runInstall(cmd, installOpts{}, f.installDeps); code != exitPass {
+			t.Fatalf("install exit = %d, want 0", code)
+		}
+		if got := f.renderedInput.Backend.Name(); got != "rocm" {
+			t.Errorf("unset-backend install rendered backend %q, want \"rocm\" from the recommendation", got)
+		}
+		if f.savedCfg.Backend != "rocm" {
+			t.Errorf("unset-backend install saved backend %q, want \"rocm\" from the recommendation", f.savedCfg.Backend)
 		}
 	})
 }
@@ -2138,7 +2167,7 @@ func TestInstallCodingAgentFlow(t *testing.T) {
 		// real swap-residency coder fit with a non-zero agent ctx and quant.
 		f.installDeps.pick = func(detect.HostProfile, recommend.Overrides) recommend.Recommendation {
 			return recommend.Recommendation{
-				Model: "qwen2.5-0.5b", Quant: "Q4_K_M", ContextLen: 4096, Backend: "vulkan",
+				Model: "qwen2.5-0.5b", Quant: "Q4_K_M", ContextLen: 4096, Backend: "rocm",
 				WeightBytes: 1 << 30, KVCacheBytes: 1 << 28, HeadroomBytes: 1 << 28,
 				UsableEnvelopeBytes: 8 << 30, Fits: true,
 				Coder: recommend.CoderFit{
@@ -2231,7 +2260,7 @@ func TestInstallCodingAgentFlow(t *testing.T) {
 		// stays false) and the addon refuses at the step-6c shared-residency gate.
 		f.installDeps.pick = func(detect.HostProfile, recommend.Overrides) recommend.Recommendation {
 			return recommend.Recommendation{
-				Model: "qwen2.5-0.5b", Quant: "Q4_K_M", ContextLen: 4096, Backend: "vulkan",
+				Model: "qwen2.5-0.5b", Quant: "Q4_K_M", ContextLen: 4096, Backend: "rocm",
 				WeightBytes: 1 << 30, KVCacheBytes: 1 << 28, HeadroomBytes: 1 << 28,
 				UsableEnvelopeBytes: 8 << 30, Fits: true,
 				Coder: recommend.CoderFit{Fits: false, Residency: recommend.ResidencyShared},

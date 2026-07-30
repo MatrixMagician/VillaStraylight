@@ -190,13 +190,17 @@ func applyConfigKey(errOut io.Writer, cfg *config.VillaConfig, key, val string) 
 	case "quant":
 		cfg.Quant = val
 	case "backend":
-		// Only backends the render path actually honors may be persisted, so the
-		// key cannot lie (WR-01). Vulkan RADV is the sole v1 backend; ROCm is not
-		// wired, so accepting it would silently no-op. Reject unknown values with a
-		// clear error rather than writing a setting that has no effect.
+		// The plain writer may only persist a backend that needs NO bring-up gate, so
+		// the key cannot lie (WR-01). ROCm is now the default backend, but every
+		// ROCm-family value must go through the transactional `villa backend set`
+		// (fit + ROCm preflight + prove + rollback) — persisting it here would skip
+		// those gates. Vulkan RADV is the only ungated value, so it is the only one
+		// this writer accepts; anything else is a clear error, never a silent no-op.
 		b := strings.TrimSpace(val)
 		if b != "vulkan" {
-			fmt.Fprintf(errOut, "config set: unsupported backend %q — only \"vulkan\" is supported in v1\n", val)
+			fmt.Fprintf(errOut, "config set: refusing to persist backend %q — only \"vulkan\" "+
+				"may be set here; switch to a ROCm backend (the default) with the "+
+				"transactional `villa backend set %s`\n", val, strings.TrimSpace(val))
 			return exitBlocked
 		}
 		cfg.Backend = b

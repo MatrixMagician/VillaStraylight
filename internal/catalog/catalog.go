@@ -66,8 +66,9 @@ type CatalogModel struct {
 	// is allowed but warns loudly (D-07).
 	UnifiedMemorySafe bool `json:"unified_memory_safe"`
 
-	// BackendDefault is the recommended backend for this entry; vulkan for
-	// gfx1151 (REC-04).
+	// BackendDefault is the recommended backend for this entry; rocm for
+	// gfx1151 (REC-04). It OVERRIDES recommend's defaultBackend constant when
+	// non-empty, so it must track that default or the catalog silently wins.
 	BackendDefault string `json:"backend_default"`
 
 	// Bootstrap marks the small first-chat model carried forward for Phase 4

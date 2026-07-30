@@ -21,7 +21,7 @@ func fixtureRecommendation() recommend.Recommendation {
 		Model:               "qwen3-35b-a3b-moe-64",
 		Quant:               "UD-Q4_K_M",
 		ContextLen:          131072,
-		Backend:             "vulkan",
+		Backend:             "rocm",
 		WeightBytes:         22000000000,
 		KVCacheBytes:        25769803776,
 		HeadroomBytes:       8053063680,

@@ -296,7 +296,7 @@ func TestBenchABTargetRequiresAB(t *testing.T) {
 // BEFORE any switch. backendswap NoOps a same-backend flip, so without this guard side B
 // would measure the SAME backend as side A and the A/B would report From==To with a
 // meaningless ~noise delta (the v1.2 review finding). The guard compares by resolved
-// image, so a name alias ("" vs "vulkan") is caught, not just an exact string match.
+// image, so a name alias ("" vs "rocm") is caught, not just an exact string match.
 func TestBenchABTargetSameAsCurrentRejected(t *testing.T) {
 	withReachable(t, true)
 	cases := []struct {
@@ -305,7 +305,7 @@ func TestBenchABTargetSameAsCurrentRejected(t *testing.T) {
 		target     string
 	}{
 		{"identical-vulkan", "vulkan", "vulkan"},
-		{"empty-config-aliases-vulkan", "", "vulkan"},
+		{"empty-config-aliases-rocm", "", "rocm"},
 		{"identical-rocm", "rocm", "rocm"},
 	}
 	for _, tc := range cases {

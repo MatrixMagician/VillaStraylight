@@ -75,8 +75,8 @@ func TestLoadMissingReturnsDefaults(t *testing.T) {
 	if got != defaultConfig() {
 		t.Errorf("absent config = %+v, want defaults %+v", got, defaultConfig())
 	}
-	if got.Backend != "vulkan" {
-		t.Errorf("default backend = %q, want vulkan", got.Backend)
+	if got.Backend != "rocm" {
+		t.Errorf("default backend = %q, want rocm (ROCm 7.2.4 is the default backend)", got.Backend)
 	}
 	// The dashboard/chat ports default to loopback:8888 / chat 3000 when absent (D-13/D-12).
 	if got.DashboardAddr != "127.0.0.1" {

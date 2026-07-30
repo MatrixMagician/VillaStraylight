@@ -470,18 +470,17 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 	cfg.Quant = rec.Quant
 	cfg.Ctx = rec.ContextLen
 	// Config is the single source of truth for the backend opt-in. recommend.Pick
-	// always returns the DEFAULT (vulkan) backend — ROCm is strictly opt-in and is
-	// NEVER auto-recommended (REC-04), and recommend.Overrides carries no Backend
-	// field — so a bare `cfg.Backend = rec.Backend` would silently revert a persisted
-	// `backend=rocm` opt-in to vulkan on every re-install (including `villa install
-	// --coding-agent`), re-rendering the villa-llama unit to the vulkan-radv image.
-	// Guard the assignment: PRESERVE a valid persisted ROCm-family opt-in (the
-	// seam-clean inference.IsROCmFamily name set — NAME strings only, never an image
-	// literal, so this stays clear of TestSeamGrepGate), and otherwise take the
-	// recommendation (vulkan default; an empty/unknown persisted value falls through
-	// to the recommendation and the fail-closed inference.BackendFor at render time).
-	// This only PRESERVES an already-chosen opt-in; it never auto-selects ROCm.
-	if !inference.IsROCmFamily(cfg.Backend) {
+	// always returns the DEFAULT (rocm 7.2.4) backend (REC-04), and recommend.Overrides
+	// carries no Backend field — so a bare `cfg.Backend = rec.Backend` would silently
+	// revert a deliberately-chosen non-default backend on every re-install (including
+	// `villa install --coding-agent`), re-rendering the villa-llama unit to the default
+	// image. Guard the assignment: PRESERVE any valid persisted backend the resolver
+	// accepts (a ROCm-family variant OR an explicit `vulkan` opt-out), and otherwise take
+	// the recommendation (the rocm default; an empty/unknown persisted value falls through
+	// to the recommendation and the fail-closed inference.BackendFor at render time). This
+	// only PRESERVES an already-chosen backend; it never re-picks one. It compares NAME
+	// strings only, never an image literal, so it stays clear of TestSeamGrepGate.
+	if !persistedBackendChosen(cfg.Backend) {
 		cfg.Backend = rec.Backend
 	}
 	// AUTHORITATIVE memory gate (Phase-19 / T-19-16): the memory path keys off the
@@ -980,6 +979,20 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 		return exitWarn
 	}
 	return exitPass
+}
+
+// persistedBackendChosen reports whether the persisted config already carries a
+// DELIBERATELY-chosen backend that a re-install must preserve rather than overwrite
+// with the recommendation. True for any ROCm-family name (the default family) and for
+// the explicit "vulkan" opt-out; false for the empty string (never configured) and for
+// any unknown/typo'd value, both of which fall through to the recommendation and the
+// fail-closed inference.BackendFor at render time. It compares NAME strings only —
+// never an image/device literal — so it stays clear of the seam grep gate.
+func persistedBackendChosen(name string) bool {
+	if name == "" {
+		return false
+	}
+	return inference.IsROCmFamily(name) || name == "vulkan"
 }
 
 // agentEnabledForGate reports whether the coding-agent preflight gates should be

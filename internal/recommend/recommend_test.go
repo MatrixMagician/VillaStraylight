@@ -19,27 +19,27 @@ func testCatalog() catalog.Catalog {
 			{
 				ID: "tiny", Quant: "Q4_K_M", WeightBytes: 4 << 30,
 				NLayers: 24, NKVHeads: 4, HeadDim: 128, KVBytesPerElem: 2,
-				DefaultCtx: 8192, TierGB: 16, UnifiedMemorySafe: true, BackendDefault: "vulkan",
+				DefaultCtx: 8192, TierGB: 16, UnifiedMemorySafe: true, BackendDefault: "rocm",
 			},
 			{
 				ID: "mid", Quant: "Q4_K_M", WeightBytes: 40 << 30,
 				NLayers: 48, NKVHeads: 8, HeadDim: 128, KVBytesPerElem: 2,
-				DefaultCtx: 32768, TierGB: 64, UnifiedMemorySafe: true, BackendDefault: "vulkan",
+				DefaultCtx: 32768, TierGB: 64, UnifiedMemorySafe: true, BackendDefault: "rocm",
 			},
 			{
 				ID: "large", Quant: "UD-Q4_K_M", WeightBytes: 90 << 30,
 				NLayers: 64, NKVHeads: 8, HeadDim: 128, KVBytesPerElem: 2,
-				DefaultCtx: 65536, TierGB: 124, UnifiedMemorySafe: true, BackendDefault: "vulkan",
+				DefaultCtx: 65536, TierGB: 124, UnifiedMemorySafe: true, BackendDefault: "rocm",
 			},
 			{
 				ID: "unsafe-but-tiny", Quant: "Q4_K_M", WeightBytes: 2 << 30,
 				NLayers: 16, NKVHeads: 4, HeadDim: 128, KVBytesPerElem: 2,
-				DefaultCtx: 4096, TierGB: 8, UnifiedMemorySafe: false, BackendDefault: "vulkan",
+				DefaultCtx: 4096, TierGB: 8, UnifiedMemorySafe: false, BackendDefault: "rocm",
 			},
 			{
 				ID: "bootstrap", Quant: "Q4_K_M", WeightBytes: 1 << 30,
 				NLayers: 24, NKVHeads: 4, HeadDim: 128, KVBytesPerElem: 2,
-				DefaultCtx: 8192, TierGB: 0, UnifiedMemorySafe: true, Bootstrap: true, BackendDefault: "vulkan",
+				DefaultCtx: 8192, TierGB: 0, UnifiedMemorySafe: true, Bootstrap: true, BackendDefault: "rocm",
 			},
 		},
 	}
@@ -54,7 +54,7 @@ func profileWithEnvelope(env uint64) detect.HostProfile {
 
 // TestPickMultiEnvelopeFitAndOOMGuard asserts that across several envelopes Pick
 // selects a model that fits and NEVER one that exceeds the envelope (OOM guard),
-// and defaults the backend to vulkan.
+// and defaults the backend to rocm (the default backend).
 func TestPickMultiEnvelopeFitAndOOMGuard(t *testing.T) {
 	cat := testCatalog()
 	envelopes := []struct {
@@ -78,8 +78,8 @@ func TestPickMultiEnvelopeFitAndOOMGuard(t *testing.T) {
 			if rec.TotalBytes > rec.UsableEnvelopeBytes {
 				t.Errorf("OOM GUARD violated: total %d > envelope %d (model %q)", rec.TotalBytes, rec.UsableEnvelopeBytes, rec.Model)
 			}
-			if rec.Backend != "vulkan" {
-				t.Errorf("env %s: backend = %q, want vulkan", e.name, rec.Backend)
+			if rec.Backend != "rocm" {
+				t.Errorf("env %s: backend = %q, want rocm", e.name, rec.Backend)
 			}
 			// Fit terms must sum correctly so the command can SHOW the math.
 			if rec.WeightBytes+rec.KVCacheBytes+rec.HeadroomBytes != rec.TotalBytes {
@@ -103,7 +103,7 @@ func TestPickHonorsMinEnvelopeFloor(t *testing.T) {
 				ID: "needs-big-envelope", Quant: "Q4_K_M", WeightBytes: 4 << 30,
 				NLayers: 24, NKVHeads: 4, HeadDim: 128, KVBytesPerElem: 2,
 				DefaultCtx: 8192, MinEnvelopeBytes: 50 << 30,
-				TierGB: 64, UnifiedMemorySafe: true, BackendDefault: "vulkan",
+				TierGB: 64, UnifiedMemorySafe: true, BackendDefault: "rocm",
 			},
 		},
 	}
@@ -285,9 +285,16 @@ func TestPickROCmAdviceDerivation(t *testing.T) {
 				t.Errorf("ROCmAdvice = %q, want %q", rec.ROCmAdvice, c.wantAdvice)
 			}
 
-			// The pick must never be auto-switched away from vulkan by advice (REC-04).
-			if rec.Backend != "vulkan" {
-				t.Errorf("Backend = %q, want vulkan (advice must never auto-switch)", rec.Backend)
+			// The recommended backend follows the advice fold in exactly one direction:
+			// a CONFIDENTLY-not-ready host (advice withheld) falls back off the ROCm
+			// default onto vulkan; every other outcome — including any unevaluable
+			// signal — keeps the rocm default. Advice can never auto-select ROCm.
+			wantBackend := "rocm"
+			if c.wantAdvice == "" {
+				wantBackend = "vulkan"
+			}
+			if rec.Backend != wantBackend {
+				t.Errorf("Backend = %q, want %q (advice %q)", rec.Backend, wantBackend, c.wantAdvice)
 			}
 
 			if c.wantNoteSub != "" && !strings.Contains(rec.ROCmNote, c.wantNoteSub) {
@@ -337,15 +344,16 @@ func TestPickROCmAdviceNoteHonorsHonesty(t *testing.T) {
 
 // TestPickROCmAdviceEmptyWhenReadinessUnset asserts that off-hardware (all
 // readiness signals unset → any-unknown) the advice is verify-with-bench, never a
-// fabricated worth-trying, and the Backend stays vulkan.
+// fabricated worth-trying, and the Backend stays on the rocm default (an unevaluable
+// signal must NEVER trigger the confidently-not-ready vulkan fallback — no false red).
 func TestPickROCmAdviceEmptyWhenReadinessUnset(t *testing.T) {
 	p := profileWithEnvelope(64 << 30) // default ROCmReadiness: all fields zero/unset
 	rec := Pick(p, testCatalog(), Overrides{}, MemoryInputs{}, WebSearchInputs{})
 	if rec.ROCmAdvice != ROCmAdviceVerifyBench {
 		t.Errorf("off-hardware ROCmAdvice = %q, want verify-with-bench", rec.ROCmAdvice)
 	}
-	if rec.Backend != "vulkan" {
-		t.Errorf("Backend = %q, want vulkan", rec.Backend)
+	if rec.Backend != "rocm" {
+		t.Errorf("Backend = %q, want rocm (unknown readiness must not downgrade the default)", rec.Backend)
 	}
 }
 
@@ -663,4 +671,64 @@ func hasNote(notes []string, substr string) bool {
 		}
 	}
 	return false
+}
+
+// TestPickFallsBackToVulkanWhenConfidentlyNotROCmReady guards the one direction in
+// which finalizeRecommendation may reassign rec.Backend. ROCm 7.2.4 is the default
+// backend, so a host that PROVABLY cannot run it (every readiness signal Known, at
+// least one Known-bad) must be recommended the Vulkan RADV fallback instead — handing
+// that host the ROCm default would mean a broken first install. The fallback must NOT
+// fire on any unevaluable signal (no false red: unknown must never downgrade a working
+// ROCm host), and it must never run the other way (advice can never auto-select ROCm).
+func TestPickFallsBackToVulkanWhenConfidentlyNotROCmReady(t *testing.T) {
+	bad := detect.KnownBool(false, "test")
+	unset := detect.UnknownBool("not probed", "")
+
+	confidentlyBad := readinessAllGood()
+	confidentlyBad.RocminfoGfx1151 = bad
+
+	badPlusUnknown := readinessAllGood()
+	badPlusUnknown.RocminfoGfx1151 = bad
+	badPlusUnknown.KernelFloorOK = unset
+
+	cases := []struct {
+		name        string
+		readiness   detect.ROCmReadiness
+		wantBackend string
+	}{
+		{"all-known-good stays on the rocm default", readinessAllGood(), "rocm"},
+		{"confidently not-ready falls back to vulkan", confidentlyBad, "vulkan"},
+		{"a bad signal PLUS an unknown one must NOT fall back (no false red)", badPlusUnknown, "rocm"},
+		{"all-unset (off-hardware) stays on the rocm default", detect.ROCmReadiness{}, "rocm"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			p := profileWithEnvelope(64 << 30)
+			p.ROCmReadiness = c.readiness
+			rec := Pick(p, testCatalog(), Overrides{}, MemoryInputs{}, WebSearchInputs{})
+			if rec.Backend != c.wantBackend {
+				t.Errorf("Backend = %q, want %q", rec.Backend, c.wantBackend)
+			}
+			// The fallback must explain itself: the withheld-advice path carries a Note
+			// naming the blocker, so the user is never silently moved off the default.
+			if c.wantBackend == "vulkan" && rec.ROCmNote == "" {
+				t.Error("a backend fallback must carry a Note naming the blocker, got empty")
+			}
+		})
+	}
+}
+
+// TestPickRefusalPathBackendIsResolvable guards the no-envelope REFUSAL return path:
+// it stamps defaultBackend directly and still flows through finalizeRecommendation, so
+// its Backend must remain a real, resolvable backend name (not left empty or stuck on
+// a stale default) even though no model was picked.
+func TestPickRefusalPathBackendIsResolvable(t *testing.T) {
+	p := detect.HostProfile{} // no envelope and no RAM → refusal
+	rec := Pick(p, testCatalog(), Overrides{}, MemoryInputs{}, WebSearchInputs{})
+	if rec.Model != "" {
+		t.Fatalf("expected the refusal path (empty Model), got %q", rec.Model)
+	}
+	if rec.Backend != "rocm" {
+		t.Errorf("refusal Backend = %q, want the rocm default", rec.Backend)
+	}
 }

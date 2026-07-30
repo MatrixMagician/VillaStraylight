@@ -37,7 +37,8 @@ type VillaConfig struct {
 	Quant string `toml:"quant"`
 	// Ctx is the chosen context length in tokens.
 	Ctx int `toml:"ctx"`
-	// Backend is the inference backend (vulkan by default for gfx1151, REC-04).
+	// Backend is the inference backend (rocm by default for gfx1151, REC-04;
+	// vulkan is the explicit opt-in fallback).
 	Backend string `toml:"backend"`
 	// CatalogPath optionally points at an external catalog override.
 	CatalogPath string `toml:"catalog_path"`
@@ -194,7 +195,7 @@ type VillaConfig struct {
 // dashboard/chat field therefore defaults to loopback:8888 / chat 3000 (D-13/D-12).
 func defaultConfig() VillaConfig {
 	return VillaConfig{
-		Backend:       "vulkan",
+		Backend:       "rocm",
 		DashboardAddr: "127.0.0.1",
 		DashboardPort: 8888,
 		ChatPort:      3000,

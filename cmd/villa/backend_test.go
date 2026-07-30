@@ -156,10 +156,10 @@ func TestBackendRegistered(t *testing.T) {
 
 // TestBackendShow: `backend show` reports the active backend (cfg.Backend) plus its
 // resolved image tag, and --json emits the {backend,image} shape. The empty-config
-// default resolves to vulkan with its pinned image.
+// default resolves to rocm with its pinned image.
 func TestBackendShow(t *testing.T) {
 	// Point config at an empty temp dir so LoadVilla returns the defaults (backend
-	// "vulkan"); no real XDG config is touched.
+	// "rocm"); no real XDG config is touched.
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 
 	t.Run("human table shows backend + image", func(t *testing.T) {
@@ -169,7 +169,7 @@ func TestBackendShow(t *testing.T) {
 			t.Fatalf("expected exit 0, got %d", code)
 		}
 		s := out.String()
-		if !strings.Contains(s, "vulkan") {
+		if !strings.Contains(s, "rocm") {
 			t.Errorf("show output missing the active backend, got %q", s)
 		}
 		if !strings.Contains(s, "image") || !strings.Contains(s, "@sha256:") {
@@ -187,7 +187,7 @@ func TestBackendShow(t *testing.T) {
 		if !strings.Contains(s, `"backend"`) || !strings.Contains(s, `"image"`) {
 			t.Errorf("json output missing backend/image keys, got %q", s)
 		}
-		if !strings.Contains(s, "vulkan") {
+		if !strings.Contains(s, "rocm") {
 			t.Errorf("json output missing the active backend value, got %q", s)
 		}
 	})

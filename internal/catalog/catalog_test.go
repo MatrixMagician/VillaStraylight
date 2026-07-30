@@ -480,7 +480,7 @@ func buildCoderCatalog(entryID string, agentCtx int, d coderDims, sampling strin
       "min_envelope_bytes": 7000000000,
       "tier_gb": 16,
       "unified_memory_safe": true,
-      "backend_default": "vulkan",
+      "backend_default": "rocm",
       "bootstrap": false,
       "role": "coder",
       "agent_ctx": %d,
