@@ -529,7 +529,7 @@ func newBench() *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&ab, "ab", false, "also flip to the other backend (via the transactional backend-set core), bench it with the identical spec, and restore the original — for a per-metric A/B delta")
-	cmd.Flags().StringVar(&abTarget, "ab-target", "", "explicit backend the --ab flip measures against (e.g. rocm-6.4.4, rocm-7.2.4, vulkan) for an arbitrary-pair A/B; requires --ab; empty uses the vulkan<->rocm default")
+	cmd.Flags().StringVar(&abTarget, "ab-target", "", "explicit backend the --ab flip measures against (e.g. rocm-6.4.4, rocm-6.4.4-rocwmma, vulkan) for an arbitrary-pair A/B; requires --ab; empty uses the rocm<->vulkan default flip")
 	cmd.Flags().IntVarP(&reps, "reps", "n", 5, "number of residency-checked (counted) runs per side")
 	cmd.Flags().IntVar(&warmup, "warmup", 1, "number of leading runs measured then discarded (cache/JIT warm)")
 	cmd.Flags().IntVar(&nPredict, "n-predict", 128, "fixed max_tokens every run requests (reproducibility)")

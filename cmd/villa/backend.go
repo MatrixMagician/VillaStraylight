@@ -175,7 +175,7 @@ sampleLoop:
 }
 
 // ---------------------------------------------------------------------------
-// backend noun (BSET-01/02/03): `villa backend set <vulkan|rocm> [--dry-run]` and
+// backend noun (BSET-01/02/03): `villa backend set <rocm|rocm-6.4.4|rocm-6.4.4-rocwmma|vulkan> [--dry-run]` and
 // `villa backend show`. Cloned from the model.go swap noun: RunE returns the mapped
 // exit code (body RETURNS the int so tests assert output+code without a subprocess),
 // the Result→exit mapping mirrors runModelSwap, and the live Deps wire every host
@@ -239,8 +239,8 @@ func runBackendShow(cmd *cobra.Command, asJSON bool) int {
 		return exitBlocked
 	}
 	// Active backend = cfg.Backend (source of truth); resolve fail-closed (D-02). The
-	// resolver normalizes the empty string to the default Vulkan backend; report the
-	// resolved Name() so the empty-config default surfaces as "vulkan".
+	// resolver normalizes the empty string to the default ROCm backend; report the
+	// resolved Name() so the empty-config default surfaces as "rocm".
 	backend, err := inference.BackendFor(cfg.Backend)
 	if err != nil {
 		fmt.Fprintf(errOut, "backend show: resolve backend %q: %v\n", cfg.Backend, err)
@@ -262,7 +262,7 @@ func runBackendShow(cmd *cobra.Command, asJSON bool) int {
 	return exitPass
 }
 
-// newBackendSet builds `villa backend set <vulkan|rocm> [--dry-run]`: the
+// newBackendSet builds `villa backend set <rocm|rocm-6.4.4|rocm-6.4.4-rocwmma|vulkan> [--dry-run]`: the
 // transactional cutover. RunE returns the mapped exit code via os.Exit; the body of
 // runBackendSet returns the int so tests drive it without a subprocess.
 func newBackendSet() *cobra.Command {
@@ -270,9 +270,10 @@ func newBackendSet() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "set <backend>",
 		Short: "Switch the inference backend transactionally (capture → mutate → prove → rollback)",
-		Long: "Switch the inference backend (vulkan|rocm) on the running install: re-check the PRESERVED " +
+		Long: "Switch the inference backend (rocm — the default, rocm-6.4.4, rocm-6.4.4-rocwmma, or the " +
+			"vulkan fallback) on the running install: re-check the PRESERVED " +
 			"model against the target envelope (refuse-with-remediation if it no longer fits), run the ROCm " +
-			"preflight for a rocm target, capture the prior unit verbatim, persist config + regenerate ONLY the " +
+			"preflight for any ROCm-family target, capture the prior unit verbatim, persist config + regenerate ONLY the " +
 			"villa-llama unit + restart it, and PROVE the cutover (real generation probe + GPU-residency proof " +
 			"within a bounded timeout). Any mutate error or a non-pass proof rolls back verbatim — a failed " +
 			"switch is a no-op to the running stack. Exits 0 on switch/no-op, 1 on refusal/error/rollback. " +
