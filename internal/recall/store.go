@@ -24,8 +24,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
+
+	"github.com/MatrixMagician/VillaStraylight/internal/pathsafe"
 )
 
 // recallSchemaVersion is the recall store's OWN self-version, independent of
@@ -131,51 +132,11 @@ func Load(d Deps) (State, error) {
 	return s, nil
 }
 
-// storeRootDir resolves the fixed villa DATA-store root that every durable
-// data-dir artifact (usage.json, bench-reports.jsonl, recall-state.json) lives
-// directly under: $XDG_DATA_HOME/villa, falling back to ~/.local/share/villa then
-// /var/tmp/villa. WriteFileAtomic guards every write path against THIS fixed root
-// rather than against the path's own parent — a `..`-bearing path is only
-// meaningfully rejected when measured against a root the caller does NOT control
-// (WR-05 precedent).
-func storeRootDir() string {
-	if x := os.Getenv("XDG_DATA_HOME"); x != "" {
-		return filepath.Join(x, "villa")
-	}
-	if home, err := os.UserHomeDir(); err == nil {
-		return filepath.Join(home, ".local", "share", "villa")
-	}
-	return filepath.Join("/var/tmp", "villa")
-}
-
 // RecallStatePath resolves the single mutable recall store:
 // $XDG_DATA_HOME/villa/recall-state.json (with the usage-store fallbacks). It
 // lives here so the resolver ships with the contract it serves.
 func RecallStatePath() string {
-	return filepath.Join(storeRootDir(), "recall-state.json")
-}
-
-// assertInsideDir verifies path resolves within dir, rejecting traversal escapes
-// (T-21-02). This is a LOCAL copy of the usage/config/benchstore guard shape —
-// the clone-don't-import rule: importing another store package solely for an
-// unexported guard would widen this pure core's deps.
-func assertInsideDir(path, dir string) error {
-	absDir, err := filepath.Abs(filepath.Clean(dir))
-	if err != nil {
-		return err
-	}
-	absPath, err := filepath.Abs(filepath.Clean(path))
-	if err != nil {
-		return err
-	}
-	rel, err := filepath.Rel(absDir, absPath)
-	if err != nil {
-		return err
-	}
-	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
-		return fmt.Errorf("recall: refusing to write %q outside store dir %q", absPath, absDir)
-	}
-	return nil
+	return filepath.Join(pathsafe.DataRoot(), "recall-state.json")
 }
 
 // WriteFileAtomic writes data to path via a same-dir temp file + os.Rename, so a
@@ -187,45 +148,19 @@ func assertInsideDir(path, dir string) error {
 // it writes the path resolved from storeRootDir, so a legitimate write is never
 // rejected.
 func WriteFileAtomic(path string, data []byte) error {
-	dir := filepath.Dir(path)
-	// Guard against the FIXED store root, not the path's own parent — only then
-	// does a `..`-bearing path get measured against a root the caller does not
-	// control (WR-05). recall-state.json lives directly under this root.
-	if err := assertInsideDir(path, storeRootDir()); err != nil {
-		return err
+	root := pathsafe.DataRoot()
+	// Guard BEFORE MkdirAll, not just inside the write. pathsafe.WriteFileAtomic
+	// checks containment itself, but the directory creation below happens first, so
+	// without this a `..`-bearing path would get a directory created for it outside
+	// the root before the write refused it.
+	if err := pathsafe.Inside(path, root); err != nil {
+		return fmt.Errorf("recall: refusing to write outside the store root: %w", err)
 	}
-	if err := os.MkdirAll(dir, storeDirMode); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), storeDirMode); err != nil {
 		return fmt.Errorf("recall: mkdir store dir: %w", err)
 	}
-	tmp, err := os.CreateTemp(dir, "recall-state-*.json.tmp")
-	if err != nil {
-		return fmt.Errorf("recall: create temp: %w", err)
-	}
-	tmpName := tmp.Name()
-	cleanup := func() { _ = os.Remove(tmpName) }
-
-	if err := tmp.Chmod(storeFileMode); err != nil {
-		_ = tmp.Close()
-		cleanup()
-		return fmt.Errorf("recall: chmod temp: %w", err)
-	}
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
-		cleanup()
-		return fmt.Errorf("recall: write temp: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		cleanup()
-		return fmt.Errorf("recall: close temp: %w", err)
-	}
-	if err := os.Rename(tmpName, path); err != nil {
-		cleanup()
-		return fmt.Errorf("recall: rename temp into place: %w", err)
-	}
-	// Tighten a pre-existing looser file (rename preserves the temp's mode, but be
-	// explicit to mirror the usage/config chmod-tighten discipline).
-	if err := os.Chmod(path, storeFileMode); err != nil {
-		return fmt.Errorf("recall: chmod store file: %w", err)
+	if err := pathsafe.WriteFileAtomic(root, path, data, storeFileMode); err != nil {
+		return fmt.Errorf("recall: %w", err)
 	}
 	return nil
 }

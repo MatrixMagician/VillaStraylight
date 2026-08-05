@@ -20,8 +20,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
+
+	"github.com/MatrixMagician/VillaStraylight/internal/pathsafe"
 )
 
 // savedReportSchemaVersion is the self-version of the on-disk SavedReport contract.
@@ -300,40 +301,14 @@ func Load(d Deps) ([]SavedReport, error) {
 	return out, nil
 }
 
-// benchReportsPath resolves the single append-only JSONL store:
-// $XDG_DATA_HOME/villa/bench-reports.jsonl, falling back to
-// ~/.local/share/villa/... then /var/tmp/villa/... (cloned from model.go:modelsDir).
-// The cmd tier (Plan 02) calls this via the live Deps; it lives here so the resolver
-// ships with the contract it serves.
+// benchReportsPath resolves the single append-only JSONL store, directly under the
+// villa data root: $XDG_DATA_HOME/villa/bench-reports.jsonl, falling back to
+// ~/.local/share/villa/... then /var/tmp/villa/...
+//
+// Nothing in production calls this: the live append writer is wired in the command
+// tier, which resolves the same location through pathsafe.DataRoot. It survives as
+// the pure core's statement of where its store lives, asserted by
+// TestBenchReportsPathXDG. #19 either makes it load-bearing or deletes it.
 func benchReportsPath() string {
-	const file = "bench-reports.jsonl"
-	if x := os.Getenv("XDG_DATA_HOME"); x != "" {
-		return filepath.Join(x, "villa", file)
-	}
-	if home, err := os.UserHomeDir(); err == nil {
-		return filepath.Join(home, ".local", "share", "villa", file)
-	}
-	return filepath.Join("/var/tmp", "villa", file)
-}
-
-// assertInsideDir verifies path resolves within dir, rejecting traversal escapes
-// (T-14-01). This is a LOCAL copy of the config guard shape — internal/config's is
-// unexported and importing config solely for it would widen this pure core's deps.
-func assertInsideDir(path, dir string) error {
-	absDir, err := filepath.Abs(filepath.Clean(dir))
-	if err != nil {
-		return err
-	}
-	absPath, err := filepath.Abs(filepath.Clean(path))
-	if err != nil {
-		return err
-	}
-	rel, err := filepath.Rel(absDir, absPath)
-	if err != nil {
-		return err
-	}
-	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
-		return fmt.Errorf("benchstore: refusing to write %q outside store dir %q", absPath, absDir)
-	}
-	return nil
+	return filepath.Join(pathsafe.DataRoot(), "bench-reports.jsonl")
 }

@@ -26,8 +26,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
+
+	"github.com/MatrixMagician/VillaStraylight/internal/pathsafe"
 )
 
 // verifyStateSchemaVersion is the verify-search store's OWN self-version, independent
@@ -117,50 +118,11 @@ func Load(d Deps) (State, error) {
 	return s, nil
 }
 
-// storeRootDir resolves the fixed villa DATA-store root that every durable data-dir
-// artifact (usage.json, recall-state.json, verify-search-state.json) lives directly
-// under: $XDG_DATA_HOME/villa, falling back to ~/.local/share/villa then /var/tmp/villa.
-// WriteFileAtomic guards every write path against THIS fixed root rather than against
-// the path's own parent — a `..`-bearing path is only meaningfully rejected when
-// measured against a root the caller does NOT control (WR-05 precedent).
-func storeRootDir() string {
-	if x := os.Getenv("XDG_DATA_HOME"); x != "" {
-		return filepath.Join(x, "villa")
-	}
-	if home, err := os.UserHomeDir(); err == nil {
-		return filepath.Join(home, ".local", "share", "villa")
-	}
-	return filepath.Join("/var/tmp", "villa")
-}
-
 // VerifyStatePath resolves the single mutable verify-search store:
 // $XDG_DATA_HOME/villa/verify-search-state.json (with the recall-store fallbacks). It
 // lives here so the resolver ships with the contract it serves.
 func VerifyStatePath() string {
-	return filepath.Join(storeRootDir(), "verify-search-state.json")
-}
-
-// assertInsideDir verifies path resolves within dir, rejecting traversal escapes
-// (T-34-04). This is a LOCAL copy of the recall/usage/config guard shape — the
-// clone-don't-import rule: importing the recall store solely for its unexported guard
-// would widen this pure core's deps.
-func assertInsideDir(path, dir string) error {
-	absDir, err := filepath.Abs(filepath.Clean(dir))
-	if err != nil {
-		return err
-	}
-	absPath, err := filepath.Abs(filepath.Clean(path))
-	if err != nil {
-		return err
-	}
-	rel, err := filepath.Rel(absDir, absPath)
-	if err != nil {
-		return err
-	}
-	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
-		return fmt.Errorf("verifystate: refusing to write %q outside store dir %q", absPath, absDir)
-	}
-	return nil
+	return filepath.Join(pathsafe.DataRoot(), "verify-search-state.json")
 }
 
 // WriteFileAtomic writes data to path via a same-dir temp file + os.Rename, so a crash
@@ -171,45 +133,19 @@ func assertInsideDir(path, dir string) error {
 // the rename. The cmd tier (Plan 01 Task 2) wires this as the live WriteAll seam; it
 // writes the path resolved from storeRootDir, so a legitimate write is never rejected.
 func WriteFileAtomic(path string, data []byte) error {
-	dir := filepath.Dir(path)
-	// Guard against the FIXED store root, not the path's own parent — only then does
-	// a `..`-bearing path get measured against a root the caller does not control
-	// (WR-05). verify-search-state.json lives directly under this root.
-	if err := assertInsideDir(path, storeRootDir()); err != nil {
-		return err
+	root := pathsafe.DataRoot()
+	// Guard BEFORE MkdirAll, not just inside the write. pathsafe.WriteFileAtomic
+	// checks containment itself, but the directory creation below happens first, so
+	// without this a `..`-bearing path would get a directory created for it outside
+	// the root before the write refused it.
+	if err := pathsafe.Inside(path, root); err != nil {
+		return fmt.Errorf("verifystate: refusing to write outside the store root: %w", err)
 	}
-	if err := os.MkdirAll(dir, storeDirMode); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), storeDirMode); err != nil {
 		return fmt.Errorf("verifystate: mkdir store dir: %w", err)
 	}
-	tmp, err := os.CreateTemp(dir, "verify-search-state-*.json.tmp")
-	if err != nil {
-		return fmt.Errorf("verifystate: create temp: %w", err)
-	}
-	tmpName := tmp.Name()
-	cleanup := func() { _ = os.Remove(tmpName) }
-
-	if err := tmp.Chmod(storeFileMode); err != nil {
-		_ = tmp.Close()
-		cleanup()
-		return fmt.Errorf("verifystate: chmod temp: %w", err)
-	}
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
-		cleanup()
-		return fmt.Errorf("verifystate: write temp: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		cleanup()
-		return fmt.Errorf("verifystate: close temp: %w", err)
-	}
-	if err := os.Rename(tmpName, path); err != nil {
-		cleanup()
-		return fmt.Errorf("verifystate: rename temp into place: %w", err)
-	}
-	// Tighten a pre-existing looser file (rename preserves the temp's mode, but be
-	// explicit to mirror the recall/usage/config chmod-tighten discipline).
-	if err := os.Chmod(path, storeFileMode); err != nil {
-		return fmt.Errorf("verifystate: chmod store file: %w", err)
+	if err := pathsafe.WriteFileAtomic(root, path, data, storeFileMode); err != nil {
+		return fmt.Errorf("verifystate: %w", err)
 	}
 	return nil
 }

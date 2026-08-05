@@ -5,6 +5,7 @@ package usage
 
 import (
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -279,8 +280,12 @@ func TestLoadFailsClosed(t *testing.T) {
 	}
 }
 
-// TestUsagePathXDG proves the resolver honors $XDG_DATA_HOME and that assertInsideDir
-// rejects a traversal escape (T-15-01).
+// TestUsagePathXDG proves the resolver honors $XDG_DATA_HOME and that a traversal
+// escape is refused (T-15-01).
+//
+// The guard is exercised through WriteFileAtomic — the production write path — rather
+// than through a package-local predicate. That is where it actually fires, so the
+// test still fails if the guard is dropped during a refactor.
 func TestUsagePathXDG(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("XDG_DATA_HOME", tmp)
@@ -289,12 +294,15 @@ func TestUsagePathXDG(t *testing.T) {
 		t.Errorf("UsagePath() = %q, want %q", got, want)
 	}
 
-	dir := filepath.Join(tmp, "villa")
-	if err := assertInsideDir(filepath.Join(dir, "usage.json"), dir); err != nil {
-		t.Errorf("assertInsideDir rejected an in-dir path: %v", err)
+	if err := WriteFileAtomic(want, []byte("{}")); err != nil {
+		t.Errorf("WriteFileAtomic rejected a path inside the store root: %v", err)
 	}
-	if err := assertInsideDir(filepath.Join(dir, "..", "escape.json"), dir); err == nil {
-		t.Error("assertInsideDir accepted a traversal escape, want rejection")
+	escape := filepath.Join(tmp, "villa", "..", "escape.json")
+	if err := WriteFileAtomic(escape, []byte("{}")); err == nil {
+		t.Error("WriteFileAtomic accepted a traversal escape, want rejection")
+	}
+	if _, err := os.Stat(escape); !os.IsNotExist(err) {
+		t.Errorf("the refused path was created anyway: %v", err)
 	}
 }
 

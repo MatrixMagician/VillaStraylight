@@ -185,12 +185,17 @@ func TestStoreRecallStatePathXDG(t *testing.T) {
 		t.Errorf("RecallStatePath() = %q, want %q", got, want)
 	}
 
-	dir := filepath.Join(tmp, "villa")
-	if err := assertInsideDir(filepath.Join(dir, "recall-state.json"), dir); err != nil {
-		t.Errorf("assertInsideDir rejected an in-dir path: %v", err)
+	// Exercise the guard through WriteFileAtomic (the production write path), so the
+	// test still fails if a refactor drops it.
+	if err := WriteFileAtomic(want, []byte("{}")); err != nil {
+		t.Errorf("WriteFileAtomic rejected a path inside the store root: %v", err)
 	}
-	if err := assertInsideDir(filepath.Join(dir, "..", "escape.json"), dir); err == nil {
-		t.Error("assertInsideDir accepted a traversal escape, want rejection")
+	escape := filepath.Join(tmp, "villa", "..", "escape.json")
+	if err := WriteFileAtomic(escape, []byte("{}")); err == nil {
+		t.Error("WriteFileAtomic accepted a traversal escape, want rejection")
+	}
+	if _, err := os.Stat(escape); !os.IsNotExist(err) {
+		t.Errorf("the refused path was created anyway: %v", err)
 	}
 }
 
