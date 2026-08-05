@@ -1,4 +1,3 @@
-<!-- generated-by: gsd-doc-writer -->
 # VillaStraylight
 
 A single Go CLI (`villa`) that stands up a private, local AI workspace on your own hardware — auto-detecting an AMD Strix Halo (gfx1151) Fedora host, recommending a memory-fitting model/quant/context, generating rootless Podman Quadlet units, and orchestrating llama.cpp (ROCm) inference plus an Open WebUI chat front-end behind a loopback-only control dashboard. Strictly local, zero telemetry.

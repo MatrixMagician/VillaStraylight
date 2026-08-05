@@ -1,4 +1,3 @@
-<!-- generated-by: gsd-doc-writer -->
 # Memory & Knowledge (v1.3)
 
 VillaStraylight wires Open WebUI's **native Memory** and **RAG (document knowledge)**

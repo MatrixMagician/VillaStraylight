@@ -1,4 +1,3 @@
-<!-- generated-by: gsd-doc-writer -->
 # Testing
 
 The `villa` control plane is tested entirely with the Go standard `testing`

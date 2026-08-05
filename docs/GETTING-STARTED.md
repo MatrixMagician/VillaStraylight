@@ -1,4 +1,3 @@
-<!-- generated-by: gsd-doc-writer -->
 # Getting Started
 
 This guide takes you from a clean Fedora host to a running local AI workspace —

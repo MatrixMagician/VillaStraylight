@@ -1,4 +1,3 @@
-<!-- generated-by: gsd-doc-writer -->
 # Contributing to VillaStraylight
 
 VillaStraylight is a single Go CLI (`villa`) that auto-detects an AMD Strix Halo

@@ -1,4 +1,3 @@
-<!-- generated-by: gsd-doc-writer -->
 # Development
 
 This guide is for contributors working on `villa`, the Go control-plane CLI. It
@@ -292,7 +291,6 @@ Before opening a PR:
 5. Keep commits atomic and Conventional-Commits-formatted; push your type-prefixed
    branch and open a PR against `main`.
 
-This project is developed through the GSD workflow, so planning context for a change
-typically lives under `.planning/` — read the relevant phase/plan there to understand
-the intent before modifying a package, and keep your branch and commits scoped to that
-unit of work.
+Read `CLAUDE.md` and the package's own file-level doc comments to understand the
+intent before modifying a package, and keep your branch and commits scoped to a
+single unit of work.

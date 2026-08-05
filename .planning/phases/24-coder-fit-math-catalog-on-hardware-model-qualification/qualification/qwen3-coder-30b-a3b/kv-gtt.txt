@@ -1,9 +1,0 @@
-# KV / GTT measurement (D-09) — captured 2026-06-12T22:48:54Z
-GTT baseline (quiesced): 1930162176 bytes = 1840 MiB
-GTT after load:          26269097984 bytes = 25052 MiB
-GTT delta:               24338935808 bytes = 23211 MiB
-
-# load-log KV / residency lines (offload-asserting, never liveness):
-0.01.145.671 I load_tensors: offloaded 49/49 layers to GPU
-0.01.145.677 I load_tensors:      Vulkan0 model buffer size = 16674.36 MiB
-0.05.414.549 I llama_kv_cache:    Vulkan0 KV buffer size =  6144.00 MiB
