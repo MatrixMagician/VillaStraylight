@@ -1,4 +1,3 @@
-<!-- generated-by: gsd-doc-writer -->
 # Configuration
 
 `villa` is **config-as-source-of-truth**: a single TOML file, `config.toml`, is the
