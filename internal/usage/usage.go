@@ -25,8 +25,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
+
+	"github.com/MatrixMagician/VillaStraylight/internal/pathsafe"
 )
 
 // usageSchemaVersion is the usage store's OWN self-version. It is INDEPENDENT of
@@ -213,51 +214,12 @@ func Load(d Deps) (UsageTotals, error) {
 	return t, nil
 }
 
-// storeRootDir resolves the fixed villa DATA-store root that every durable
-// data-dir artifact (usage.json, bench-reports.jsonl) lives directly under:
-// $XDG_DATA_HOME/villa, falling back to ~/.local/share/villa then /var/tmp/villa
-// (D-02). WriteFileAtomic guards every write path against THIS fixed root rather
-// than against the path's own parent — a `..`-bearing path is only meaningfully
-// rejected when measured against a root the caller does NOT control (WR-05).
-func storeRootDir() string {
-	if x := os.Getenv("XDG_DATA_HOME"); x != "" {
-		return filepath.Join(x, "villa")
-	}
-	if home, err := os.UserHomeDir(); err == nil {
-		return filepath.Join(home, ".local", "share", "villa")
-	}
-	return filepath.Join("/var/tmp", "villa")
-}
-
-// UsagePath resolves the single mutable usage store:
-// $XDG_DATA_HOME/villa/usage.json, falling back to ~/.local/share/villa/usage.json
-// then /var/tmp/villa/usage.json (cloned from benchstore.benchReportsPath; usage is
-// durable accumulated DATA, not config and not disposable cache — D-02). It lives
-// here so the resolver ships with the contract it serves.
+// UsagePath resolves the single mutable usage store, directly under the villa
+// data root: $XDG_DATA_HOME/villa/usage.json, falling back to
+// ~/.local/share/villa/usage.json then /var/tmp/villa/usage.json (D-02). Usage is
+// durable accumulated DATA, not config and not disposable cache.
 func UsagePath() string {
-	return filepath.Join(storeRootDir(), "usage.json")
-}
-
-// assertInsideDir verifies path resolves within dir, rejecting traversal escapes
-// (T-15-01). This is a LOCAL copy of the config/benchstore guard shape — config's is
-// unexported and importing config solely for it would widen this pure core's deps.
-func assertInsideDir(path, dir string) error {
-	absDir, err := filepath.Abs(filepath.Clean(dir))
-	if err != nil {
-		return err
-	}
-	absPath, err := filepath.Abs(filepath.Clean(path))
-	if err != nil {
-		return err
-	}
-	rel, err := filepath.Rel(absDir, absPath)
-	if err != nil {
-		return err
-	}
-	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
-		return fmt.Errorf("usage: refusing to write %q outside store dir %q", absPath, absDir)
-	}
-	return nil
+	return filepath.Join(pathsafe.DataRoot(), "usage.json")
 }
 
 // WriteFileAtomic writes data to path via a same-dir temp file + os.Rename, so a
@@ -271,45 +233,19 @@ func assertInsideDir(path, dir string) error {
 // resolved from storeRootDir / benchstore's matching root, so a legitimate write is
 // never rejected.
 func WriteFileAtomic(path string, data []byte) error {
-	dir := filepath.Dir(path)
-	// Guard against the FIXED store root, not the path's own parent — only then does
-	// a `..`-bearing path get measured against a root the caller does not control
-	// (WR-05). usage.json and bench-reports.jsonl both live directly under this root.
-	if err := assertInsideDir(path, storeRootDir()); err != nil {
-		return err
+	root := pathsafe.DataRoot()
+	// Guard BEFORE MkdirAll, not just inside the write. pathsafe.WriteFileAtomic
+	// checks containment itself, but the directory creation below happens first, so
+	// without this a `..`-bearing path would get a directory created for it outside
+	// the root before the write refused it.
+	if err := pathsafe.Inside(path, root); err != nil {
+		return fmt.Errorf("usage: refusing to write outside the store root: %w", err)
 	}
-	if err := os.MkdirAll(dir, storeDirMode); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), storeDirMode); err != nil {
 		return fmt.Errorf("usage: mkdir store dir: %w", err)
 	}
-	tmp, err := os.CreateTemp(dir, "usage-*.json.tmp")
-	if err != nil {
-		return fmt.Errorf("usage: create temp: %w", err)
-	}
-	tmpName := tmp.Name()
-	cleanup := func() { _ = os.Remove(tmpName) }
-
-	if err := tmp.Chmod(storeFileMode); err != nil {
-		_ = tmp.Close()
-		cleanup()
-		return fmt.Errorf("usage: chmod temp: %w", err)
-	}
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
-		cleanup()
-		return fmt.Errorf("usage: write temp: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		cleanup()
-		return fmt.Errorf("usage: close temp: %w", err)
-	}
-	if err := os.Rename(tmpName, path); err != nil {
-		cleanup()
-		return fmt.Errorf("usage: rename temp into place: %w", err)
-	}
-	// Tighten a pre-existing looser file (rename preserves the temp's mode, but be
-	// explicit to mirror config's chmod-tighten discipline).
-	if err := os.Chmod(path, storeFileMode); err != nil {
-		return fmt.Errorf("usage: chmod store file: %w", err)
+	if err := pathsafe.WriteFileAtomic(root, path, data, storeFileMode); err != nil {
+		return fmt.Errorf("usage: %w", err)
 	}
 	return nil
 }

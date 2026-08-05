@@ -8,7 +8,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -21,6 +20,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 	"github.com/MatrixMagician/VillaStraylight/internal/llm"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
+	"github.com/MatrixMagician/VillaStraylight/internal/pathsafe"
 )
 
 // bench.go is the cmd-tier `villa bench` noun: the live host wiring that drives the
@@ -256,28 +256,23 @@ func liveBenchDeps(ab bool, spec bench.BenchSpec) *bench.Deps {
 // ---------------------------------------------------------------------------
 
 // benchStoreLocation resolves BOTH the single append-only JSONL store path the live
-// writer targets AND the trusted data-home ROOT it must stay under:
-//   - root = $XDG_DATA_HOME (default ~/.local/share, then /var/tmp)
-//   - store = <root>/villa/bench-reports.jsonl
+// writer targets AND the trusted ROOT it must stay under:
+//   - root = the villa data root ($XDG_DATA_HOME/villa, then ~/.local/share/villa,
+//     then /var/tmp/villa)
+//   - store = <root>/bench-reports.jsonl
 //
 // Returning the root separately is what makes the T-14-01 traversal guard MEANINGFUL:
 // the untrusted vector is $XDG_DATA_HOME itself (an attacker-controlled env var could
 // contain `..` or be a relative value and point the store anywhere). The guard
 // (benchAssertStoreUnderRoot) validates the resolved store against this resolved root
-// — NOT against its own parent dir, which by construction can never escape. It mirrors
-// the benchstore.benchReportsPath resolver (unexported in the pure core) and
-// model.go:modelsDir, so the live append path resolves the SAME documented location
-// without importing config/benchstore solely for a helper.
+// — NOT against its own parent dir, which by construction can never escape.
+//
+// The root is now the villa data root rather than the bare data home one level up.
+// The store path is byte-identical either way; the guard is strictly tighter, since a
+// path escaping into a sibling of villa/ is now also refused.
 func benchStoreLocation() (store, root string) {
-	const file = "bench-reports.jsonl"
-	if x := os.Getenv("XDG_DATA_HOME"); x != "" {
-		return filepath.Join(x, "villa", file), x
-	}
-	if home, err := os.UserHomeDir(); err == nil {
-		root = filepath.Join(home, ".local", "share")
-		return filepath.Join(root, "villa", file), root
-	}
-	return filepath.Join("/var/tmp", "villa", file), "/var/tmp"
+	root = pathsafe.DataRoot()
+	return filepath.Join(root, "bench-reports.jsonl"), root
 }
 
 // benchReportsStorePath returns just the resolved store path (for WARN messages). It
@@ -299,27 +294,12 @@ func benchReportsStorePath() string {
 // On rejection the caller skips persistence with a loud-but-non-fatal WARN (bench still
 // exits normally) — consistent with the existing write-failure handling.
 func benchAssertStoreUnderRoot(store, root string) error {
-	if root == "" {
-		return fmt.Errorf("bench: refusing to write store: empty data-home root")
+	if err := pathsafe.AssertRoot(root); err != nil {
+		return fmt.Errorf("bench: refusing to write store "+
+			"(set XDG_DATA_HOME to an absolute path): %w", err)
 	}
-	if !filepath.IsAbs(root) {
-		return fmt.Errorf("bench: refusing to write store: data-home root %q is not absolute "+
-			"(set XDG_DATA_HOME to an absolute path)", root)
-	}
-	absRoot, err := filepath.Abs(filepath.Clean(root))
-	if err != nil {
-		return err
-	}
-	absStore, err := filepath.Abs(filepath.Clean(store))
-	if err != nil {
-		return err
-	}
-	rel, err := filepath.Rel(absRoot, absStore)
-	if err != nil {
-		return err
-	}
-	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
-		return fmt.Errorf("bench: refusing to write %q outside data-home root %q", absStore, absRoot)
+	if err := pathsafe.Inside(store, root); err != nil {
+		return fmt.Errorf("bench: refusing to write outside the data root: %w", err)
 	}
 	return nil
 }

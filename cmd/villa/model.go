@@ -16,6 +16,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 	"github.com/MatrixMagician/VillaStraylight/internal/modelswap"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
+	"github.com/MatrixMagician/VillaStraylight/internal/pathsafe"
 	"github.com/MatrixMagician/VillaStraylight/internal/recommend"
 )
 
@@ -110,17 +111,10 @@ func runModelPull(cmd *cobra.Command, name string) int {
 }
 
 // modelsDir resolves the on-disk models directory: $XDG_DATA_HOME/villa/models
-// (default ~/.local/share/villa/models), per D-08. This mirrors the preflight
-// defaultDataDir XDG logic; downloaded weights live here and Phase 3 bind-mounts
-// the dir read-only into the inference container.
+// (default ~/.local/share/villa/models), per D-08. Downloaded weights live here
+// and Phase 3 bind-mounts the dir read-only into the inference container.
 func modelsDir() string {
-	if x := os.Getenv("XDG_DATA_HOME"); x != "" {
-		return filepath.Join(x, "villa", "models")
-	}
-	if home, err := os.UserHomeDir(); err == nil {
-		return filepath.Join(home, ".local", "share", "villa", "models")
-	}
-	return filepath.Join("/var/tmp", "villa", "models")
+	return filepath.Join(pathsafe.DataRoot(), "models")
 }
 
 // ---------------------------------------------------------------------------

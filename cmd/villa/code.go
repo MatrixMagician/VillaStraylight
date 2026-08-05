@@ -8,13 +8,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"syscall"
 
 	"github.com/spf13/cobra"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/agent"
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
+	"github.com/MatrixMagician/VillaStraylight/internal/pathsafe"
 )
 
 // code.go is the cmd-tier `villa code` agent launcher: the live host wiring that drives
@@ -199,17 +199,11 @@ func crushConfigPath() (string, error) {
 	return filepath.Join(base, "crush", "crush.json"), nil
 }
 
-// agentBinDir resolves the villa-owned bin dir for the Crush binary, cloning the
-// recall storeRootDir fallback chain: $XDG_DATA_HOME/villa/bin → ~/.local/share/villa/bin
-// → /var/tmp/villa/bin. The binary is exec'd from EXACTLY this path (D-05).
+// agentBinDir resolves the villa-owned bin dir for the Crush binary:
+// $XDG_DATA_HOME/villa/bin → ~/.local/share/villa/bin → /var/tmp/villa/bin.
+// The binary is exec'd from EXACTLY this path (D-05).
 func agentBinDir() string {
-	if x := os.Getenv("XDG_DATA_HOME"); x != "" {
-		return filepath.Join(x, "villa", "bin")
-	}
-	if home, err := os.UserHomeDir(); err == nil {
-		return filepath.Join(home, ".local", "share", "villa", "bin")
-	}
-	return filepath.Join("/var/tmp", "villa", "bin")
+	return filepath.Join(pathsafe.DataRoot(), "bin")
 }
 
 // agentBinPath is the EXPLICIT villa-owned Crush binary path — the only path Launch
@@ -237,22 +231,14 @@ func hashFileSHA256(path string) (sum string, present bool, err error) {
 }
 
 // assertWithinDir confirms path resolves inside dir, rejecting traversal escapes — the
-// first-run write guard (T-26-08 sibling). Cleaned + compared as absolute paths.
+// first-run write guard (T-26-08 sibling).
+//
+// The message is deliberately verb-neutral: this guard is shared by the crush-config
+// write, the agent-config write and both restore paths, so a "villa code:" prefix
+// would misattribute three of its four callers.
 func assertWithinDir(path, dir string) error {
-	absDir, err := filepath.Abs(filepath.Clean(dir))
-	if err != nil {
-		return err
-	}
-	absPath, err := filepath.Abs(filepath.Clean(path))
-	if err != nil {
-		return err
-	}
-	rel, err := filepath.Rel(absDir, absPath)
-	if err != nil {
-		return err
-	}
-	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
-		return fmt.Errorf("villa code: refusing to write %q outside %q", absPath, absDir)
+	if err := pathsafe.Inside(path, dir); err != nil {
+		return fmt.Errorf("refusing to write outside %q: %w", dir, err)
 	}
 	return nil
 }

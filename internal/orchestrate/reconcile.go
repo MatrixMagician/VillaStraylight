@@ -6,7 +6,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
+
+	"github.com/MatrixMagician/VillaStraylight/internal/pathsafe"
 )
 
 // reconcile.go is the content-hash idempotency core (CLI-01 / D-06) plus the only
@@ -52,70 +53,12 @@ func Reconcile(units []Unit, unitDir string) (Plan, error) {
 func WriteUnits(plan Plan, unitDir string) error {
 	for _, u := range plan.Changed {
 		target := filepath.Join(unitDir, u.Name)
-		if err := assertInsideDir(target, unitDir); err != nil {
-			return err
-		}
-		if err := atomicWrite(target, []byte(u.Text)); err != nil {
+		// The containment guard is part of the write call, not a separate step
+		// before it, so a unit name resolving outside unitDir cannot be written
+		// even if a future caller forgets to check first.
+		if err := pathsafe.WriteFileAtomic(unitDir, target, []byte(u.Text), unitFileMode); err != nil {
 			return fmt.Errorf("orchestrate: write unit %q: %w", u.Name, err)
 		}
-	}
-	return nil
-}
-
-// atomicWrite writes data to a sibling temp in target's directory, fsyncs it, and
-// renames it over target (same filesystem ⇒ atomic). The temp is removed on any
-// failure so no *.tmp is ever left behind.
-func atomicWrite(target string, data []byte) error {
-	dir := filepath.Dir(target)
-	tmp := target + ".tmp"
-
-	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, unitFileMode)
-	if err != nil {
-		return err
-	}
-	if _, err := f.Write(data); err != nil {
-		_ = f.Close()
-		_ = os.Remove(tmp)
-		return err
-	}
-	if err := f.Sync(); err != nil {
-		_ = f.Close()
-		_ = os.Remove(tmp)
-		return err
-	}
-	if err := f.Close(); err != nil {
-		_ = os.Remove(tmp)
-		return err
-	}
-	if err := os.Rename(tmp, target); err != nil {
-		_ = os.Remove(tmp)
-		return err
-	}
-	// Best-effort dir fsync so the rename is durable; non-fatal if it fails.
-	if df, derr := os.Open(dir); derr == nil {
-		_ = df.Sync()
-		_ = df.Close()
-	}
-	return nil
-}
-
-// assertInsideDir verifies target resolves within dir, rejecting traversal escapes
-// (V12 / T-03-02). Mirrors internal/config/villaconfig.go:assertInsideDir.
-func assertInsideDir(target, dir string) error {
-	absDir, err := filepath.Abs(filepath.Clean(dir))
-	if err != nil {
-		return err
-	}
-	absPath, err := filepath.Abs(filepath.Clean(target))
-	if err != nil {
-		return err
-	}
-	rel, err := filepath.Rel(absDir, absPath)
-	if err != nil {
-		return err
-	}
-	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
-		return fmt.Errorf("orchestrate: refusing to write %q outside unit dir %q", absPath, absDir)
 	}
 	return nil
 }

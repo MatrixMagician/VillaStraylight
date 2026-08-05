@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
+	"github.com/MatrixMagician/VillaStraylight/internal/pathsafe"
 )
 
 // uninstall.go wires `villa uninstall` (CLI-06 / D-11): the flag-driven, correctly
@@ -394,20 +395,8 @@ func removeUnitFileLive(dir, name string) error {
 // WriteUnits guard) so an attacker-influenced unit name can never delete a file
 // outside the unit dir (T-03-23).
 func assertUnitInsideDir(target, dir string) error {
-	absDir, err := filepath.Abs(filepath.Clean(dir))
-	if err != nil {
-		return err
-	}
-	absPath, err := filepath.Abs(filepath.Clean(target))
-	if err != nil {
-		return err
-	}
-	rel, err := filepath.Rel(absDir, absPath)
-	if err != nil {
-		return err
-	}
-	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
-		return fmt.Errorf("uninstall: refusing to remove %q outside unit dir %q", absPath, absDir)
+	if err := pathsafe.Inside(target, dir); err != nil {
+		return fmt.Errorf("uninstall: refusing to remove a path outside %q: %w", dir, err)
 	}
 	return nil
 }

@@ -379,8 +379,13 @@ func TestLoadSkipsUnknownSchemaVersion(t *testing.T) {
 	}
 }
 
-// TestBenchReportsPathXDG proves the path resolver honors XDG_DATA_HOME and that the
-// traversal guard refuses a path resolving outside its dir.
+// TestBenchReportsPathXDG proves the path resolver honors XDG_DATA_HOME.
+//
+// The traversal-guard assertions that used to live here have moved: this package's
+// local guard had no production caller (the live append writer is wired in the
+// command tier), so it was deleted rather than migrated. The guard itself is now
+// asserted where it fires — pathsafe's own tests, and the command tier's
+// TestBenchAssertStoreUnderRoot.
 func TestBenchReportsPathXDG(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("XDG_DATA_HOME", dir)
@@ -388,14 +393,6 @@ func TestBenchReportsPathXDG(t *testing.T) {
 	want := filepath.Join(dir, "villa", "bench-reports.jsonl")
 	if got != want {
 		t.Errorf("benchReportsPath = %q, want %q", got, want)
-	}
-	storeDir := filepath.Dir(want)
-	if err := assertInsideDir(want, storeDir); err != nil {
-		t.Errorf("legit path rejected by guard: %v", err)
-	}
-	escape := filepath.Join(storeDir, "..", "..", "etc", "evil")
-	if err := assertInsideDir(escape, storeDir); err == nil {
-		t.Errorf("traversal guard failed to reject %q", escape)
 	}
 }
 

@@ -33,6 +33,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
 	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
+	"github.com/MatrixMagician/VillaStraylight/internal/pathsafe"
 	"github.com/MatrixMagician/VillaStraylight/internal/recall"
 	"github.com/MatrixMagician/VillaStraylight/internal/usage"
 )
@@ -340,20 +341,8 @@ func runBackup(cmd *cobra.Command, output string, d backup.Deps) int {
 // assertBackupOutputInside verifies the resolved output path stays within its parent
 // dir (T-16-02a tar/output traversal guard), mirroring the config/usage guard shape.
 func assertBackupOutputInside(path, dir string) error {
-	absDir, err := filepath.Abs(filepath.Clean(dir))
-	if err != nil {
-		return err
-	}
-	absPath, err := filepath.Abs(filepath.Clean(path))
-	if err != nil {
-		return err
-	}
-	rel, err := filepath.Rel(absDir, absPath)
-	if err != nil {
-		return err
-	}
-	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
-		return fmt.Errorf("output %q escapes its parent dir %q", absPath, absDir)
+	if err := pathsafe.Inside(path, dir); err != nil {
+		return fmt.Errorf("output escapes its parent dir: %w", err)
 	}
 	return nil
 }
