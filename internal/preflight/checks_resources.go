@@ -7,6 +7,7 @@ import (
 	"syscall"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
+	"github.com/MatrixMagician/VillaStraylight/internal/pathsafe"
 )
 
 // ResourceReq are the thresholds PRE-04 gates on: the install needs at least
@@ -61,16 +62,17 @@ func existingAncestor(path string) string {
 	}
 }
 
-// defaultDataDir is where the install will place model weights — the XDG data dir
-// for villa, defaulting under $HOME. Used as the statfs target for the disk check.
+// defaultDataDir is where the install will place model weights — the villa XDG data
+// dir, defaulting under $HOME. Used as the statfs target for the disk check.
+//
+// This copy previously ended its no-home fallback at /var/tmp, without the villa
+// suffix every other copy used. It now shares pathsafe.DataRoot, so that path is
+// /var/tmp/villa. The measured free space is unchanged either way — liveStatfs walks
+// up to the nearest existing ancestor, and /var/tmp/villa does not exist on that
+// path, so it resolves to /var/tmp and reports the same filesystem. Only the
+// directory named in the check's message and provenance string moves.
 func defaultDataDir() string {
-	if x := os.Getenv("XDG_DATA_HOME"); x != "" {
-		return filepath.Join(x, "villa")
-	}
-	if home, err := os.UserHomeDir(); err == nil {
-		return filepath.Join(home, ".local", "share", "villa")
-	}
-	return "/var/tmp"
+	return pathsafe.DataRoot()
 }
 
 // checkResources is PRE-04 (BLOCK): free disk must clear the model weight size and

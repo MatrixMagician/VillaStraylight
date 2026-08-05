@@ -25,6 +25,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/MatrixMagician/VillaStraylight/internal/pathsafe"
 )
 
 // searxngSettingsFileMode is the mode for the written settings.yml AND searxng.env. It is
@@ -120,49 +122,13 @@ func WriteSearxngSecretEnvTo(dir, name, text string) error {
 // so no .tmp is ever left behind. Same temp->Sync->Close->Rename->dir-fsync ordering as
 // reconcile.go's atomicWrite, differing only in the file mode (0600, not 0644).
 func writeSearxngFile(dir, name, text string) error {
+	// dir is the trusted root (config-dir derived) and name is the untrusted part,
+	// so creating dir up front is safe — the guard inside the write is what refuses
+	// a name that escapes it.
 	if err := os.MkdirAll(dir, searxngSettingsDirMode); err != nil {
 		return err
 	}
 	target := filepath.Join(dir, name)
-	if err := assertInsideDir(target, dir); err != nil {
-		return err
-	}
-	return atomicWriteMode(target, []byte(text), searxngSettingsFileMode)
+	return pathsafe.WriteFileAtomic(dir, target, []byte(text), searxngSettingsFileMode)
 }
 
-// atomicWriteMode mirrors reconcile.go's atomicWrite byte-for-byte in its temp->Sync->Close
-// ->Rename->dir-fsync ordering, but parameterizes the file mode so secret-safe 0600 writes
-// reuse the same proven atomic discipline as the 0644 unit writer without duplicating it.
-func atomicWriteMode(target string, data []byte, mode os.FileMode) error {
-	dir := filepath.Dir(target)
-	tmp := target + ".tmp"
-
-	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, mode)
-	if err != nil {
-		return err
-	}
-	if _, err := f.Write(data); err != nil {
-		_ = f.Close()
-		_ = os.Remove(tmp)
-		return err
-	}
-	if err := f.Sync(); err != nil {
-		_ = f.Close()
-		_ = os.Remove(tmp)
-		return err
-	}
-	if err := f.Close(); err != nil {
-		_ = os.Remove(tmp)
-		return err
-	}
-	if err := os.Rename(tmp, target); err != nil {
-		_ = os.Remove(tmp)
-		return err
-	}
-	// Best-effort dir fsync so the rename is durable; non-fatal if it fails.
-	if df, derr := os.Open(dir); derr == nil {
-		_ = df.Sync()
-		_ = df.Close()
-	}
-	return nil
-}

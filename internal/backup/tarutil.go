@@ -14,7 +14,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
+
+	"github.com/MatrixMagician/VillaStraylight/internal/pathsafe"
 )
 
 // archiveFileMode / archiveDirMode are the owner-only modes for written archive
@@ -189,20 +190,8 @@ func assertEntryInside(name, dir string) error {
 // unexported and importing config solely for it would widen this pure core's
 // deps (same rationale as usage.assertInsideDir).
 func assertInsideDir(path, dir string) error {
-	absDir, err := filepath.Abs(filepath.Clean(dir))
-	if err != nil {
-		return err
-	}
-	absPath, err := filepath.Abs(filepath.Clean(path))
-	if err != nil {
-		return err
-	}
-	rel, err := filepath.Rel(absDir, absPath)
-	if err != nil {
-		return err
-	}
-	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
-		return fmt.Errorf("backup: refusing %q outside dir %q", absPath, absDir)
+	if err := pathsafe.Inside(path, dir); err != nil {
+		return fmt.Errorf("backup: refusing a path outside %q: %w", dir, err)
 	}
 	return nil
 }

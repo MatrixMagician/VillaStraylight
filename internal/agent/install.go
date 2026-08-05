@@ -10,7 +10,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
+
+	"github.com/MatrixMagician/VillaStraylight/internal/pathsafe"
 )
 
 // install.go is the checksum-BEFORE-extract install seam (AGENT-01 live half, D-03)
@@ -153,20 +154,8 @@ func writeBinary(binPath string, r io.Reader) error {
 // seam has no dependency on an unexported downloader helper; both are cleaned and
 // compared as absolute paths.
 func assertInsideBinDir(path, dir string) error {
-	absDir, err := filepath.Abs(filepath.Clean(dir))
-	if err != nil {
-		return err
-	}
-	absPath, err := filepath.Abs(filepath.Clean(path))
-	if err != nil {
-		return err
-	}
-	rel, err := filepath.Rel(absDir, absPath)
-	if err != nil {
-		return err
-	}
-	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
-		return fmt.Errorf("agent: refusing to extract %q outside the villa bin dir %q (path traversal)", absPath, absDir)
+	if err := pathsafe.Inside(path, dir); err != nil {
+		return fmt.Errorf("agent: refusing to extract outside the villa bin dir %q (path traversal): %w", dir, err)
 	}
 	return nil
 }

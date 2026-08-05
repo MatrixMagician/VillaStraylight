@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"text/template"
+
+	"github.com/MatrixMagician/VillaStraylight/internal/pathsafe"
 )
 
 // dashboard_unit.go renders + writes the NATIVE `villa-dashboard.service` systemd
@@ -120,10 +122,7 @@ func WriteDashboardUnit(dir, binaryPath string) error {
 // through the Quadlet Plan/Reconcile path.
 func writeUnitFile(dir, name, text string) error {
 	target := filepath.Join(dir, name)
-	if err := assertInsideDir(target, dir); err != nil {
-		return err
-	}
-	return atomicWrite(target, []byte(text))
+	return pathsafe.WriteFileAtomic(dir, target, []byte(text), unitFileMode)
 }
 
 // userUnitDir is the fixed rootless systemd --user unit directory

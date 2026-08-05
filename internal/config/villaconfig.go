@@ -16,9 +16,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/BurntSushi/toml"
+
+	"github.com/MatrixMagician/VillaStraylight/internal/pathsafe"
 )
 
 // configFileMode is the restrictive file mode for the written config — readable
@@ -539,20 +540,10 @@ func Parse(data []byte) (VillaConfig, error) {
 // assertInsideDir verifies path resolves within dir, rejecting traversal escapes
 // (V12). Both are cleaned and compared as absolute paths.
 func assertInsideDir(path, dir string) error {
-	absDir, err := filepath.Abs(filepath.Clean(dir))
-	if err != nil {
-		return err
-	}
-	absPath, err := filepath.Abs(filepath.Clean(path))
-	if err != nil {
-		return err
-	}
-	rel, err := filepath.Rel(absDir, absPath)
-	if err != nil {
-		return err
-	}
-	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
-		return fmt.Errorf("config: refusing to write %q outside config dir %q", absPath, absDir)
+	if err := pathsafe.Inside(path, dir); err != nil {
+		// Wording note: "outside config dir" is asserted verbatim by
+		// TestSaveRefusesTraversal — keep the substring if you reword this.
+		return fmt.Errorf("config: refusing to write outside config dir %q: %w", dir, err)
 	}
 	return nil
 }
