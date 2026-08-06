@@ -62,7 +62,14 @@ jobs:
       # is lower than the targeted Go version"). The version is pinned rather
       # than floating on `latest` so a future release cannot silently reintroduce
       # that mismatch.
+      #
+      # pull_request only. On a push event there is no base to diff against, so
+      # only-new-issues degenerates to "all issues" and the step fails on the
+      # standing backlog — which is precisely the noise this gate is shaped to
+      # avoid. The workflow triggers on both events, so the condition is what
+      # keeps the lint step meaningful rather than the trigger list.
       - name: lint (new issues only)
+        if: github.event_name == 'pull_request'
         uses: golangci/golangci-lint-action@v8
         with:
           version: v2.12.2
