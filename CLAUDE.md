@@ -114,15 +114,20 @@ VillaStraylight is a self-hosted, local AI server stack for privacy-conscious po
 - `github.com/spf13/cobra` v1.10.2 - CLI command tree for `villa` (`cmd/villa/root.go` + per-verb files). Subcommands: `detect`, `recommend`, `preflight`, `install`, `uninstall`, `up`, `down`, `restart`, `status`, `logs`, `config`, `dashboard`, `model` (`list` / `pull` / `show` / swap), `backend`, `inference`, `bench`.
 - Go standard `testing` package - The only test framework. Table-driven tests, `httptest` servers, and byte-for-byte golden fixtures (`cmd/villa/testdata/*.golden.json`, `internal/orchestrate` rendered-unit goldens, `internal/metrics/testdata/slots.json`). No third-party assertion or mocking library — seams are injected `func` fields.
 - `go build` / `go test` / `go vet` / `gofmt` via `Makefile`.
-- `golangci-lint` (optional; config `.golangci.yml`) - `make lint` runs it if installed, else falls back to `go vet`.
+- `golangci-lint` v2 (config `.golangci.yml`, v2 format) - run by CI on every push and PR, gated to NEW issues so the standing backlog does not block work. `make lint` runs it locally if installed, else falls back to `go vet`.
 
 ### Key Dependencies
 
+Four direct dependencies, and five indirect. Everything else the control plane
+needs comes from the standard library: the dashboard routes on `net/http`'s mux,
+host detection reads procfs and sysfs, and the guided install is a stdin prompt
+loop.
+
 - `github.com/spf13/cobra` v1.10.2 - CLI framework (see above).
 - `github.com/BurntSushi/toml` v1.6.0 - Marshal/unmarshal of `config.toml` (`internal/config/villaconfig.go`). No string interpolation (mitigates injection on write).
-- `github.com/spf13/pflag` v1.0.9 - flag parsing (via cobra).
-- `github.com/inconshreveable/mousetrap` v1.1.0 - cobra Windows helper.
-- `golang.org/x/sys` v0.25.0 - low-level syscalls.
+- `github.com/microcosm-cc/bluemonday` v1.0.27 - HTML sanitiser for the web-search guard layer (`internal/websafe/sanitize.go`): strips all markup from fetched, untrusted page content before it reaches the model.
+- `golang.org/x/text` v0.23.0 - Unicode normalisation (NFKC) in the same guard layer, so an injection cannot hide behind confusable or zero-width characters.
+- Indirect: `spf13/pflag` (via cobra), `inconshreveable/mousetrap` (cobra Windows helper), `aymerick/douceur` + `gorilla/css` + `golang.org/x/net` (via bluemonday).
 
 ### Configuration
 
@@ -175,9 +180,10 @@ VillaStraylight is a self-hosted, local AI server stack for privacy-conscious po
 - `gofmt` (`make fmt` runs `gofmt -w .`). Tabs, standard Go layout.
 - `goimports` enforced via `.golangci.yml` — imports are grouped and ordered.
 - Enabled linters: `errcheck`, `govet`, `ineffassign`, `staticcheck`, `unused`,
-- `run.timeout: 3m`.
-- `errcheck` is disabled for `_test.go` files (the only exclude rule).
-- `make lint` falls back to `go vet` if `golangci-lint` is not installed; CI
+- `errcheck` is disabled for `_test.go` files.
+- `make lint` falls back to `go vet` if `golangci-lint` is not installed. That
+  fallback is a local convenience only: CI runs the real linter (golangci-lint
+  v2, `only-new-issues`), so a missing local binary cannot hide a finding.
 
 ### Core Architectural Conventions
 
