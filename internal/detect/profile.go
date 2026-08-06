@@ -23,8 +23,12 @@ type HostProfile struct {
 	CPUModel Str `json:"cpu_model"`
 	Arch     Str `json:"arch"`
 
-	// Memory. TotalRAMBytes is physical RAM; MemAvailableBytes is the live
-	// kernel MemAvailable. Neither is the GPU envelope (see UsableEnvelopeBytes).
+	// Memory. TotalRAMBytes is the kernel's MemTotal — RAM the kernel can
+	// actually hand out, which is slightly below the physical total because
+	// firmware reservations are already deducted. It is deliberately the smaller,
+	// more honest figure: recommend derives its degraded fallback floor from it,
+	// and that floor must never read high. MemAvailableBytes is the live kernel
+	// MemAvailable. Neither is the GPU envelope (see UsableEnvelopeBytes).
 	TotalRAMBytes     Bytes `json:"total_ram_bytes"`
 	MemAvailableBytes Bytes `json:"mem_available_bytes"`
 

@@ -8,6 +8,7 @@ const (
 	liveDRMRoot         = "/sys/class/drm"
 	liveTTMPagesLimit   = "/sys/module/ttm/parameters/pages_limit"
 	liveProcMeminfo     = "/proc/meminfo"
+	liveProcCPUInfo     = "/proc/cpuinfo"
 	liveKernelOSRelease = "/proc/sys/kernel/osrelease"
 )
 

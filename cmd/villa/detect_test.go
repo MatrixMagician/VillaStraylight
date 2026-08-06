@@ -17,9 +17,9 @@ var update = flag.Bool("update", false, "regenerate golden files")
 // full --json contract shape (D-05 dashboard contract).
 func fixtureProfile() detect.HostProfile {
 	return detect.HostProfile{
-		CPUModel:            detect.KnownStr("AMD RYZEN AI MAX+ 395 w/ Radeon 8060S", "ghw.CPU"),
+		CPUModel:            detect.KnownStr("AMD RYZEN AI MAX+ 395 w/ Radeon 8060S", "/proc/cpuinfo:model name"),
 		Arch:                detect.KnownStr("amd64", "runtime.GOARCH"),
-		TotalRAMBytes:       detect.KnownBytes(137438953472, "ghw.Memory"),
+		TotalRAMBytes:       detect.KnownBytes(137438953472, "/proc/meminfo:MemTotal"),
 		MemAvailableBytes:   detect.KnownBytes(122191437824, "/proc/meminfo:MemAvailable"),
 		IGPUName:            detect.KnownStr("AMD Radeon 8060S Graphics (RADV STRIX_HALO)", "vulkaninfo --summary:deviceName"),
 		IGPUGfxID:           detect.UnknownStr("rocminfo unavailable (gfx id not enumerated)", ""),
@@ -101,7 +101,7 @@ func TestDetectVerboseAddsProvenance(t *testing.T) {
 	if err := renderDetect(&buf, fixtureProfile(), false, true /*verbose*/); err != nil {
 		t.Fatalf("renderDetect: %v", err)
 	}
-	if !bytes.Contains(buf.Bytes(), []byte("(ghw.CPU)")) {
+	if !bytes.Contains(buf.Bytes(), []byte("(/proc/cpuinfo:model name)")) {
 		t.Errorf("verbose table missing provenance source column:\n%s", buf.String())
 	}
 }

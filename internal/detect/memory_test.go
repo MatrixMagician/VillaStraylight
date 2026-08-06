@@ -189,3 +189,66 @@ func TestKernelVersionFromSeam(t *testing.T) {
 		t.Errorf("kernelVersion(missing): Known=true, want false")
 	}
 }
+
+// TestMemTotalFromFixture parses MemTotal from a captured /proc/meminfo, the
+// same file MemAvailable comes from. Both facts now have one source.
+func TestMemTotalFromFixture(t *testing.T) {
+	total := memTotalBytes("testdata/meminfo")
+	if !total.Known {
+		t.Fatalf("memTotalBytes: Known=false, source=%q", total.Source)
+	}
+	const wantBytes = 131150256 * 1024
+	if total.Value != wantBytes {
+		t.Errorf("memTotalBytes: Value=%d, want %d", total.Value, wantBytes)
+	}
+	if !strings.Contains(total.Source, "MemTotal") {
+		t.Errorf("memTotalBytes: Source=%q, want it to name the field it read", total.Source)
+	}
+}
+
+// TestMemTotalDegradesToUnknown is the typed-Unknown contract for the total:
+// an unreadable file, a field that is absent, and a field that is present but
+// unparseable must each yield an Unknown carrying a reason — never a bare zero
+// that a memory-fit decision would read as "no RAM".
+func TestMemTotalDegradesToUnknown(t *testing.T) {
+	dir := t.TempDir()
+
+	missingFile := filepath.Join(dir, "absent")
+	absentField := filepath.Join(dir, "no-memtotal")
+	if err := os.WriteFile(absentField, []byte("MemFree: 123 kB\n"), 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	unparseable := filepath.Join(dir, "bad-memtotal")
+	if err := os.WriteFile(unparseable, []byte("MemTotal:  not-a-number kB\n"), 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	for name, path := range map[string]string{
+		"unreadable":  missingFile,
+		"absent":      absentField,
+		"unparseable": unparseable,
+	} {
+		got := memTotalBytes(path)
+		if got.Known {
+			t.Errorf("%s: Known=true, want Unknown", name)
+		}
+		if got.Value != 0 {
+			t.Errorf("%s: Value=%d, want 0", name, got.Value)
+		}
+		if got.Source == "" {
+			t.Errorf("%s: Source empty, want a reason", name)
+		}
+	}
+}
+
+// TestMemInfoReadsBothFromOneFile pins the consolidation: total and available
+// are two fields of the same file, and a caller gets both from one path.
+func TestMemInfoReadsBothFromOneFile(t *testing.T) {
+	total, available := memInfo("testdata/meminfo")
+	if !total.Known || !available.Known {
+		t.Fatalf("memInfo: total.Known=%v available.Known=%v, want both known", total.Known, available.Known)
+	}
+	if total.Value <= available.Value {
+		t.Errorf("total %d should exceed available %d", total.Value, available.Value)
+	}
+}

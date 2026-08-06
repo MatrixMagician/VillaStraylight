@@ -11,7 +11,7 @@ import (
 func TestConservativeFloorFromRAM(t *testing.T) {
 	const ram uint64 = 128 << 30
 	p := detect.HostProfile{
-		TotalRAMBytes:       detect.KnownBytes(ram, "ghw.Memory"),
+		TotalRAMBytes:       detect.KnownBytes(ram, "/proc/meminfo:MemTotal"),
 		UsableEnvelopeBytes: detect.UnknownBytes("envelope unreadable", ""),
 	}
 	floor, ok := conservativeFloor(p)
@@ -44,7 +44,7 @@ func TestNoFloorWhenNothingKnown(t *testing.T) {
 func TestResolveEnvelopePrefersRealGTT(t *testing.T) {
 	const env uint64 = 62 << 30
 	p := detect.HostProfile{
-		TotalRAMBytes:       detect.KnownBytes(128<<30, "ghw"),
+		TotalRAMBytes:       detect.KnownBytes(128<<30, "/proc/meminfo:MemTotal"),
 		UsableEnvelopeBytes: detect.KnownBytes(env, "mem_info_gtt_total"),
 	}
 	got, degraded, ok := resolveEnvelope(p)
