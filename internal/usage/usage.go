@@ -21,13 +21,9 @@
 package usage
 
 import (
-	"encoding/json"
-	"fmt"
-	"os"
-	"path/filepath"
 	"time"
 
-	"github.com/MatrixMagician/VillaStraylight/internal/pathsafe"
+	"github.com/MatrixMagician/VillaStraylight/internal/jsonstore"
 )
 
 // usageSchemaVersion is the usage store's OWN self-version. It is INDEPENDENT of
@@ -42,14 +38,6 @@ const usageSchemaVersion = 1
 // outside this package, so the manifest's UsageSchemaVersion field can never
 // silently desync from the store's actual schema. No behaviour change.
 func SchemaVersion() int { return usageSchemaVersion }
-
-// storeFileMode / storeDirMode are the owner-only modes the atomic writer enforces
-// on usage.json and its dir (T-15-04 info-disclosure mitigation), mirroring config
-// and benchstore.
-const (
-	storeFileMode os.FileMode = 0o600
-	storeDirMode  os.FileMode = 0o700
-)
 
 // CounterState is the persisted state for ONE monotonic counter of ONE model: the
 // durable Cumulative total and the LastSeenRaw value from the previous scrape (used
@@ -158,94 +146,35 @@ func Fold(prior UsageTotals, sample Sample) UsageTotals {
 	return out
 }
 
-// Deps is the injectable byte-I/O seam (cloned from benchstore.Deps's func-field
-// shape, but with a WHOLE-FILE WriteAll instead of an append — usage is a single
-// mutable doc, not an append-only log). The pure core marshals/parses; these funcs
-// do the actual host I/O so the package is fully testable off-hardware with a
-// buffer-backed Deps. The LIVE WriteAll (wired in Plan 04) calls WriteFileAtomic.
-type Deps struct {
-	// WriteAll writes the whole marshaled store, replacing any prior content.
-	WriteAll func(data []byte) error
-	// ReadAll returns the whole store's bytes, or (nil, nil) when no store exists yet.
-	ReadAll func() ([]byte, error)
-	// Now supplies a clock for callers that want a deterministic timestamp seam.
-	Now func() time.Time
-}
+// GetSchemaVersion and SetSchemaVersion let the shared store stamp and check this
+// document's version without knowing anything else about it.
+func (t *UsageTotals) GetSchemaVersion() int  { return t.SchemaVersion }
+func (t *UsageTotals) SetSchemaVersion(v int) { t.SchemaVersion = v }
 
-// Save stamps the store's own SchemaVersion, marshals the whole document, and writes
-// it via the seam (full-file replace, not append). D-02.
-func Save(d Deps, t UsageTotals) error {
-	if d.WriteAll == nil {
-		return fmt.Errorf("usage: Save: nil WriteAll seam")
-	}
-	t.SchemaVersion = usageSchemaVersion
-	data, err := json.Marshal(t)
-	if err != nil {
-		return fmt.Errorf("usage: marshal store: %w", err)
-	}
-	return d.WriteAll(data)
-}
+// store binds the shared persistence layer to this document, filename and version.
+// Only the PERSISTENCE is shared: the reset-aware counter fold above — the part
+// that makes a monotonic source restarting look like new tokens rather than a
+// negative delta — stays here, where it belongs.
+var store = jsonstore.New[UsageTotals, *UsageTotals]("usage", "usage.json", usageSchemaVersion)
+
+// Deps is the injectable byte-I/O seam, so the package stays testable off-hardware
+// with a buffer-backed Deps.
+type Deps = jsonstore.Deps
+
+// Save stamps the store's own SchemaVersion and writes the whole document via the
+// seam (full-file replace, not append). D-02.
+func Save(d Deps, t UsageTotals) error { return store.Save(d, t) }
 
 // Load reads the store via the seam and fails CLOSED to an empty typed-Unknown
-// UsageTotals (no error, no panic) on an absent store (ReadAll ⇒ nil,nil), a
-// corrupt/unparseable blob, or a schema_version mismatch — never a fabricated total
-// (D-05, T-15-05; mirrors benchstore.Load's fail-closed discipline). An unknown
-// future schema is NEVER reinterpreted as the current version.
-func Load(d Deps) (UsageTotals, error) {
-	if d.ReadAll == nil {
-		return UsageTotals{}, fmt.Errorf("usage: Load: nil ReadAll seam")
-	}
-	data, err := d.ReadAll()
-	if err != nil {
-		return UsageTotals{}, fmt.Errorf("usage: read store: %w", err)
-	}
-	if len(data) == 0 {
-		return UsageTotals{}, nil // absent store ⇒ empty typed-Unknown
-	}
-	var t UsageTotals
-	if err := json.Unmarshal(data, &t); err != nil {
-		return UsageTotals{}, nil // corrupt ⇒ fail closed to empty, never a panic
-	}
-	if t.SchemaVersion != usageSchemaVersion {
-		// Unknown/future schema — fail closed (never reinterpret as the current
-		// version, which could surface a mis-mapped fabricated total).
-		return UsageTotals{}, nil
-	}
-	return t, nil
-}
+// UsageTotals on an absent, corrupt or version-mismatched store — never a
+// fabricated total (D-05, T-15-05).
+func Load(d Deps) (UsageTotals, error) { return store.Load(d) }
 
-// UsagePath resolves the single mutable usage store, directly under the villa
-// data root: $XDG_DATA_HOME/villa/usage.json, falling back to
-// ~/.local/share/villa/usage.json then /var/tmp/villa/usage.json (D-02). Usage is
-// durable accumulated DATA, not config and not disposable cache.
-func UsagePath() string {
-	return filepath.Join(pathsafe.DataRoot(), "usage.json")
-}
+// UsagePath resolves the single mutable usage store, directly under the villa data
+// root. Usage is durable accumulated DATA, not config and not disposable cache.
+func UsagePath() string { return store.Path() }
 
-// WriteFileAtomic writes data to path via a same-dir temp file + os.Rename, so a
-// crash mid-write never leaves a torn usage.json (T-15-02). It guards path against
-// traversal OUT of the fixed villa data-store root (WR-05) — guarding against the
-// path's OWN parent (the prior shape) could never fire, since a path is always
-// inside its own parent. It creates the dir 0700, writes the temp 0600, renames
-// atomically, then tightens a pre-existing looser file to 0600 (T-15-04). The temp
-// is cleaned up on any error before the rename. The dashboard (Plan 04) and restore
-// (Phase 16) wire this as the live data-dir write seam; both write store paths
-// resolved from storeRootDir / benchstore's matching root, so a legitimate write is
-// never rejected.
-func WriteFileAtomic(path string, data []byte) error {
-	root := pathsafe.DataRoot()
-	// Guard BEFORE MkdirAll, not just inside the write. pathsafe.WriteFileAtomic
-	// checks containment itself, but the directory creation below happens first, so
-	// without this a `..`-bearing path would get a directory created for it outside
-	// the root before the write refused it.
-	if err := pathsafe.Inside(path, root); err != nil {
-		return fmt.Errorf("usage: refusing to write outside the store root: %w", err)
-	}
-	if err := os.MkdirAll(filepath.Dir(path), storeDirMode); err != nil {
-		return fmt.Errorf("usage: mkdir store dir: %w", err)
-	}
-	if err := pathsafe.WriteFileAtomic(root, path, data, storeFileMode); err != nil {
-		return fmt.Errorf("usage: %w", err)
-	}
-	return nil
-}
+// WriteFileAtomic is the live data-dir write seam the dashboard and restore wire: a
+// traversal-guarded temp+rename write at 0600 under a 0700 directory, so a crash
+// mid-write never leaves a torn usage.json (T-15-02).
+func WriteFileAtomic(path string, data []byte) error { return store.WriteFileAtomic(path, data) }

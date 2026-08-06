@@ -20,33 +20,13 @@
 package recall
 
 import (
-	"encoding/json"
-	"fmt"
-	"os"
-	"path/filepath"
-	"time"
-
-	"github.com/MatrixMagician/VillaStraylight/internal/pathsafe"
+	"github.com/MatrixMagician/VillaStraylight/internal/jsonstore"
 )
 
 // recallSchemaVersion is the recall store's OWN self-version, independent of
-// status.Report's reportSchemaVersion and NOT golden-frozen. Bump only on an
-// incompatible recall-state.json change.
+// status.Report's reportSchemaVersion and of every other store's, and NOT
+// golden-frozen. Bump only on an incompatible recall-state.json change.
 const recallSchemaVersion = 1
-
-// SchemaVersion exposes the recall store's OWN schema version to the Phase-23
-// backup manifest (the reader-of-record outside this package). The const stays
-// unexported; this accessor is the only way the manifest's field can track the
-// store's actual schema without silently desyncing.
-func SchemaVersion() int { return recallSchemaVersion }
-
-// storeFileMode / storeDirMode are the owner-only modes the atomic writer enforces
-// on recall-state.json and its dir (T-21-01 info-disclosure mitigation), mirroring
-// usage/config/benchstore.
-const (
-	storeFileMode os.FileMode = 0o600
-	storeDirMode  os.FileMode = 0o700
-)
 
 // ChatState is the persisted per-chat index record: WHO the chat belongs to, the
 // OWUI updated_at observed when it was last indexed (epoch SECONDS, as the list
@@ -76,91 +56,35 @@ type State struct {
 	Chats                map[string]ChatState `json:"chats,omitempty"`
 }
 
-// Deps is the injectable byte-I/O seam (cloned from usage.Deps): the pure core
-// marshals/parses; these funcs do the actual host I/O so the package is fully
-// testable off-hardware with a buffer-backed Deps. The LIVE WriteAll (wired in
-// Plan 02's cmd tier) calls WriteFileAtomic(RecallStatePath(), …).
-type Deps struct {
-	// WriteAll writes the whole marshaled store, replacing any prior content.
-	WriteAll func(data []byte) error
-	// ReadAll returns the whole store's bytes, or (nil, nil) when no store exists yet.
-	ReadAll func() ([]byte, error)
-	// Now supplies a clock for callers that want a deterministic timestamp seam.
-	Now func() time.Time
-}
+// GetSchemaVersion and SetSchemaVersion let the shared store stamp and check this
+// document's version without knowing anything else about it.
+func (s *State) GetSchemaVersion() int  { return s.SchemaVersion }
+func (s *State) SetSchemaVersion(v int) { s.SchemaVersion = v }
 
-// Save stamps the store's own SchemaVersion, marshals the whole document, and
-// writes it via the seam (full-file replace, not append). D-05.
-func Save(d Deps, s State) error {
-	if d.WriteAll == nil {
-		return fmt.Errorf("recall: Save: nil WriteAll seam")
-	}
-	s.SchemaVersion = recallSchemaVersion
-	data, err := json.Marshal(s)
-	if err != nil {
-		return fmt.Errorf("recall: marshal state: %w", err)
-	}
-	return d.WriteAll(data)
-}
+// store binds the shared persistence layer to this document, filename and version.
+var store = jsonstore.New[State, *State]("recall", "recall-state.json", recallSchemaVersion)
 
-// Load reads the store via the seam and fails CLOSED to an empty State (no error,
-// no panic) on an absent store (ReadAll ⇒ nil,nil), a corrupt/unparseable blob, or
-// a schema_version mismatch — an empty state means "nothing indexed", NEVER a
-// fabricated index (D-05, T-21-03; verbatim clone of usage.Load's fail-closed
-// semantics). An unknown future schema is NEVER reinterpreted as the current
-// version. A nil ReadAll seam or a real read error remain REAL errors.
-func Load(d Deps) (State, error) {
-	if d.ReadAll == nil {
-		return State{}, fmt.Errorf("recall: Load: nil ReadAll seam")
-	}
-	data, err := d.ReadAll()
-	if err != nil {
-		return State{}, fmt.Errorf("recall: read state: %w", err)
-	}
-	if len(data) == 0 {
-		return State{}, nil // absent store ⇒ empty state ("nothing indexed")
-	}
-	var s State
-	if err := json.Unmarshal(data, &s); err != nil {
-		return State{}, nil // corrupt ⇒ fail closed to empty, never a panic
-	}
-	if s.SchemaVersion != recallSchemaVersion {
-		// Unknown/future schema — fail closed (never reinterpret as the current
-		// version, which could surface a mis-mapped fabricated index).
-		return State{}, nil
-	}
-	return s, nil
-}
+// Deps is the injectable byte-I/O seam, so the package stays testable off-hardware
+// with a buffer-backed Deps.
+type Deps = jsonstore.Deps
 
-// RecallStatePath resolves the single mutable recall store:
-// $XDG_DATA_HOME/villa/recall-state.json (with the usage-store fallbacks). It
-// lives here so the resolver ships with the contract it serves.
-func RecallStatePath() string {
-	return filepath.Join(pathsafe.DataRoot(), "recall-state.json")
-}
+// SchemaVersion exposes the recall store's OWN schema version to the backup
+// manifest (the reader-of-record outside this package), so the manifest's field
+// can never silently desync from the store's actual schema.
+func SchemaVersion() int { return recallSchemaVersion }
 
-// WriteFileAtomic writes data to path via a same-dir temp file + os.Rename, so a
-// crash mid-write never leaves a torn recall-state.json. It guards path against
-// traversal OUT of the fixed villa data-store root (WR-05), creates the dir 0700,
-// writes the temp 0600, renames atomically, then tightens a pre-existing looser
-// file to 0600 (T-21-01/T-21-02). The temp is cleaned up on every error branch
-// before the rename. The cmd tier (Plan 02) wires this as the live WriteAll seam;
-// it writes the path resolved from storeRootDir, so a legitimate write is never
-// rejected.
-func WriteFileAtomic(path string, data []byte) error {
-	root := pathsafe.DataRoot()
-	// Guard BEFORE MkdirAll, not just inside the write. pathsafe.WriteFileAtomic
-	// checks containment itself, but the directory creation below happens first, so
-	// without this a `..`-bearing path would get a directory created for it outside
-	// the root before the write refused it.
-	if err := pathsafe.Inside(path, root); err != nil {
-		return fmt.Errorf("recall: refusing to write outside the store root: %w", err)
-	}
-	if err := os.MkdirAll(filepath.Dir(path), storeDirMode); err != nil {
-		return fmt.Errorf("recall: mkdir store dir: %w", err)
-	}
-	if err := pathsafe.WriteFileAtomic(root, path, data, storeFileMode); err != nil {
-		return fmt.Errorf("recall: %w", err)
-	}
-	return nil
-}
+// Save stamps the schema version and writes the whole document via the seam.
+func Save(d Deps, s State) error { return store.Save(d, s) }
+
+// Load reads the document via the seam, failing CLOSED to an empty State on an
+// absent, corrupt or version-mismatched store — an empty state means "nothing
+// indexed", never a fabricated index (D-05, T-21-03).
+func Load(d Deps) (State, error) { return store.Load(d) }
+
+// RecallStatePath resolves the single mutable recall store under the villa data root.
+func RecallStatePath() string { return store.Path() }
+
+// WriteFileAtomic is the live WriteAll seam the cmd tier wires: a traversal-guarded
+// temp+rename write at 0600 under a 0700 directory, so a crash mid-write never
+// leaves a torn recall-state.json.
+func WriteFileAtomic(path string, data []byte) error { return store.WriteFileAtomic(path, data) }
