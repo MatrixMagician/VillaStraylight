@@ -73,3 +73,69 @@ func TestValueKnownConstructorsAllTypes(t *testing.T) {
 		t.Errorf("UnknownBool produced %+v", bl)
 	}
 }
+
+// TestOptionalSerialisesIdenticallyPerType pins the contract the generic must not
+// break: each of the four spellings marshals to the same shape it always has,
+// with Raw excluded and an absent Source omitted. These literals are the frozen
+// wire form, written out by hand rather than derived from the code under test, so
+// a change to the struct tags fails here rather than silently reshaping --json.
+func TestOptionalSerialisesIdenticallyPerType(t *testing.T) {
+	cases := []struct {
+		name string
+		val  any
+		want string
+	}{
+		{"known bytes", KnownBytes(1024, "/proc/meminfo:MemTotal"),
+			`{"value":1024,"known":true,"source":"/proc/meminfo:MemTotal"}`},
+		{"known str", KnownStr("gfx1151", "rocminfo"),
+			`{"value":"gfx1151","known":true,"source":"rocminfo"}`},
+		{"known int", KnownInt(2, "/dev/dri"),
+			`{"value":2,"known":true,"source":"/dev/dri"}`},
+		{"known bool", KnownBool(true, "rocminfo present"),
+			`{"value":true,"known":true,"source":"rocminfo present"}`},
+		{"unknown str drops raw", UnknownStr("rocminfo unavailable", "junk\n"),
+			`{"value":"","known":false,"source":"rocminfo unavailable"}`},
+		{"unknown int drops raw", UnknownInt("not sampled", "junk\n"),
+			`{"value":0,"known":false,"source":"not sampled"}`},
+		{"unknown bool drops raw", UnknownBool("tool missing", "junk\n"),
+			`{"value":false,"known":false,"source":"tool missing"}`},
+		{"empty source omitted", Bool{Known: true, Value: false},
+			`{"value":false,"known":true}`},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			data, err := json.Marshal(tc.val)
+			if err != nil {
+				t.Fatalf("json.Marshal: %v", err)
+			}
+			if string(data) != tc.want {
+				t.Errorf("marshal = %s, want %s", data, tc.want)
+			}
+		})
+	}
+}
+
+// TestUnknownIsNotAConfidentZero is the distinction the spine exists for: an
+// undetected value must stay distinguishable from a legitimate zero, an empty
+// string and a confident false. Collapsing them would let the recommender read
+// an undetected envelope as an empty one and size against nothing.
+func TestUnknownIsNotAConfidentZero(t *testing.T) {
+	if UnknownBytes("no envelope", "") == KnownBytes(0, "measured zero") {
+		t.Error("an undetected byte count compares equal to a measured zero")
+	}
+	if UnknownStr("no model", "") == KnownStr("", "measured empty") {
+		t.Error("an undetected string compares equal to a measured empty string")
+	}
+	if UnknownBool("not evaluable", "") == KnownBool(false, "confidently absent") {
+		t.Error("an unevaluable signal compares equal to a confident false")
+	}
+
+	// And the Known flag is what carries it, not the value.
+	if u := UnknownBool("tool missing", ""); u.Known {
+		t.Error("UnknownBool reports Known=true")
+	}
+	if k := KnownBool(false, "confidently absent"); !k.Known {
+		t.Error("a confident false reports Known=false")
+	}
+}
