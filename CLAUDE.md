@@ -112,7 +112,6 @@ VillaStraylight is a self-hosted, local AI server stack for privacy-conscious po
 ### Frameworks
 
 - `github.com/spf13/cobra` v1.10.2 - CLI command tree for `villa` (`cmd/villa/root.go` + per-verb files). Subcommands: `detect`, `recommend`, `preflight`, `install`, `uninstall`, `up`, `down`, `restart`, `status`, `logs`, `config`, `dashboard`, `model` (`list` / `pull` / `show` / swap), `backend`, `inference`, `bench`.
-- `github.com/go-chi/chi/v5` v5.3.0 - HTTP router + middleware for the loopback-only control-dashboard backend (`internal/dashboard/server.go`). Middleware chain: RequestID, RealIP, Logger, Recoverer, plus a custom `requireSameOrigin` guard on `/api`.
 - Go standard `testing` package - The only test framework. Table-driven tests, `httptest` servers, and byte-for-byte golden fixtures (`cmd/villa/testdata/*.golden.json`, `internal/orchestrate` rendered-unit goldens, `internal/metrics/testdata/slots.json`). No third-party assertion or mocking library — seams are injected `func` fields.
 - `go build` / `go test` / `go vet` / `gofmt` via `Makefile`.
 - `golangci-lint` (optional; config `.golangci.yml`) - `make lint` runs it if installed, else falls back to `go vet`.
@@ -120,7 +119,6 @@ VillaStraylight is a self-hosted, local AI server stack for privacy-conscious po
 ### Key Dependencies
 
 - `github.com/spf13/cobra` v1.10.2 - CLI framework (see above).
-- `github.com/go-chi/chi/v5` v5.3.0 - Dashboard HTTP router (see above).
 - `github.com/BurntSushi/toml` v1.6.0 - Marshal/unmarshal of `config.toml` (`internal/config/villaconfig.go`). No string interpolation (mitigates injection on write).
 - `github.com/spf13/pflag` v1.0.9 - flag parsing (via cobra).
 - `github.com/inconshreveable/mousetrap` v1.1.0 - cobra Windows helper.
@@ -228,7 +226,7 @@ VillaStraylight is a self-hosted, local AI server stack for privacy-conscious po
 | bench | Pure A/B throughput core; `--ab` composes `backendswap.Run` | `internal/bench/bench.go` |
 | modelswap | Guarded `villa model swap` ordering core (shared by CLI + dashboard) | `internal/modelswap/modelswap.go` |
 | status | Read-model aggregation → frozen `Report` (shared by CLI + dashboard) | `internal/status/status.go` |
-| dashboard | Loopback-only chi server folding `status` core + embedded SPA | `internal/dashboard/server.go`, `api.go` |
+| dashboard | Loopback-only stdlib-mux server folding `status` core + embedded SPA | `internal/dashboard/server.go`, `api.go` |
 | metrics | llama.cpp `/metrics` scrape (pp/tg timings) | `internal/metrics/llamacpp.go` |
 | download | Model weight pull + shard handling | `internal/download/download.go` |
 | config | Single source of truth: XDG `config.toml` load/save (`VillaConfig`) | `internal/config/villaconfig.go` |
@@ -285,7 +283,7 @@ VillaStraylight is a self-hosted, local AI server stack for privacy-conscious po
 - Responsibilities: build the cobra tree (`cmd/villa/root.go`), dispatch to the per-subcommand `run*` function, map returned error to exit 1.
 - Location: `internal/dashboard/server.go` (`NewServer`), launched as a user systemd unit (`villa-dashboard.service`).
 - Triggers: `villa dashboard` / boot via systemd.
-- Responsibilities: loopback-only chi server folding the shared `status` read-model + embedded SPA.
+- Responsibilities: loopback-only `net/http` server folding the shared `status` read-model + embedded SPA.
 
 ### Architectural Constraints
 

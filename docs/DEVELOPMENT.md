@@ -23,9 +23,9 @@ Notes:
 
 - **No `.env` and no config file are required to build or test.** `villa` is read-only
   by default and synthesizes typed defaults when no config exists.
-- The dependency set is small and pure-Go: `cobra` (CLI), `chi` (dashboard
-  HTTP), and `BurntSushi/toml` (config). Hardware detection reads procfs and sysfs
-  directly, with no library. All are vendored
+- The dependency set is small and pure-Go: `cobra` (CLI) and `BurntSushi/toml`
+  (config). The dashboard routes on the standard library mux and hardware detection
+  reads procfs and sysfs directly, so neither needs a library. All are vendored
   through the module graph; run `make tidy` after changing imports.
 - **You do not need a Strix Halo host, Podman, or a GPU to develop.** Every
   host-touching effect (sysfs reads, `podman`, `systemctl`, HTTP probes, downloads,

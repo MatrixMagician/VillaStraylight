@@ -5,21 +5,19 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-
-	"github.com/go-chi/chi/v5"
 )
 
-// guardedRouter mounts requireSameOrigin on an /api subrouter with a POST echo, so the
-// guard can be exercised in isolation (Plan 04's real POST handler lands later, but the
-// guard belongs to the server now — Pitfall 7 / T-05-04).
+// guardedRouter wraps an /api mux in requireSameOrigin with a POST echo, so the
+// guard can be exercised in isolation of the real handlers (Pitfall 7 / T-05-04).
+// It mirrors how the server mounts the guard: once, around the whole API mux.
 func guardedRouter() http.Handler {
-	r := chi.NewRouter()
-	r.Route("/api", func(r chi.Router) {
-		r.Use(requireSameOrigin)
-		r.Get("/status", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
-		r.Post("/models/switch", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
-	})
-	return r
+	api := http.NewServeMux()
+	api.HandleFunc("GET /api/status", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
+	api.HandleFunc("POST /api/models/switch", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
+
+	root := http.NewServeMux()
+	root.Handle("/api/", requireSameOrigin(api))
+	return root
 }
 
 // TestSameOriginGuardRejectsCrossOrigin asserts a non-GET cross-origin request to /api
