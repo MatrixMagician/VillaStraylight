@@ -87,40 +87,27 @@ type Deps struct {
 	// reader per entry. OPTIONAL: when nil, Backup falls back to ReadFile (the
 	// in-memory path) — existing fakes and small entries are unaffected. The live
 	// wiring is os.Open + Stat in cmd/villa.
+	//
+	// It stays separate from ReadFile because it is a genuinely different operation:
+	// a stream rather than a buffer. Collapsing the two would force the multi-GiB
+	// volume entry through a []byte.
 	OpenFile func(path string) (rc io.ReadCloser, size int64, err error)
-	// WriteFileAtomic writes a fixed villa data-STORE artifact (usage.json /
-	// bench-reports.jsonl) via a same-dir temp + rename, 0600 file / 0700 dir,
-	// guarded against escaping the data-store root (clone of usage.WriteFileAtomic,
-	// WR-05). Use it ONLY for store-dir destinations — its store-root guard rejects
-	// any path outside $XDG_DATA_HOME/villa.
-	WriteFileAtomic func(path string, data []byte) error
-	// WriteTempFile stages the extracted OWUI volume tar into the caller-owned
-	// restore TEMP dir (an os.MkdirTemp dir OUTSIDE the data store) before the
-	// podman import, 0600. It is deliberately NOT store-root-guarded: routing this
-	// /tmp staging write through WriteFileAtomic's store guard rejected the
-	// legitimate write and broke restore on a real host. The path is an
-	// internally-resolved mktemp path, never attacker input.
-	WriteTempFile func(path string, data []byte) error
-	// WriteCrushConfig restores the OPTIONAL Phase-28 crush.json entry to the
-	// coding-agent config destination (~/.config/crush/crush.json, OUTSIDE the
-	// villa data-store root — SURF-03/D-08). It is a DISTINCT seam from
-	// WriteFileAtomic precisely because that one is store-root-guarded and would
-	// reject a path outside $XDG_DATA_HOME/villa; the live wiring is the MkdirAll
-	// 0700 + WriteFile 0600 + traversal-guard shape from code.go's WriteConfig. When
-	// nil, a present crush.json entry is reported as re-stageable but not written
-	// (the cmd tier always wires it on an agent-on restore).
-	WriteCrushConfig func(path string, data []byte) error
-	// WriteSearxngSettings restores the OPTIONAL Phase-34 settings.yml entry to the
-	// villa-owned SearXNG config destination ($XDG_CONFIG_HOME/villa/searxng/settings.yml,
-	// OUTSIDE the villa data-STORE root — SURF-07). It is a DISTINCT seam from
-	// WriteFileAtomic precisely because that one is data-store-root-guarded and would
-	// reject a path under $XDG_CONFIG_HOME; the live wiring mirrors
-	// orchestrate.WriteSearxngSettings' MkdirAll 0700 + traversal-guard + atomic 0600
-	// write. The settings.yml holds the rendered SEARXNG_SECRET, so the write MUST force
-	// 0600 and NEVER widen the mode (T-34-05). When nil, a present settings.yml entry is
-	// reported as re-writable but not written (the cmd tier wires it on a web-search-on
-	// restore).
-	WriteSearxngSettings func(path string, data []byte) error
+	// WriteFile writes data to path at 0600 under a 0700 directory, atomically.
+	//
+	// This was five fields — one per destination — which enumerated the caller's
+	// filenames in the seam: the data-store artifacts, the restore temp dir, the
+	// coding-agent config and the metasearch settings. The seam did not need to know
+	// any of that. What actually differs between those destinations is which
+	// containment root applies, and that is the live wiring's business: the data-store
+	// destinations are guarded against escaping $XDG_DATA_HOME/villa, while the
+	// config-dir and temp-dir destinations are guarded within their own parent
+	// (routing those through the store-root guard rejected the legitimate write and
+	// broke restore on a real host).
+	//
+	// The mode is 0600 for every one of them, and must stay 0600: two of these files
+	// hold generated secrets (crush.json's provider key, settings.yml's rendered
+	// SEARXNG_SECRET — T-34-05), so the write must never widen the mode.
+	WriteFile func(path string, data []byte) error
 	// RemoveFile deletes the file at path, TOLERATING an already-absent file (the
 	// live wiring maps os.Remove + os.IsNotExist). It is the verbatim-rollback seam
 	// for a data-dir artifact the FORWARD path newly created where none existed

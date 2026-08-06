@@ -333,20 +333,20 @@ func Restore(d Deps, in RestoreInput) Result {
 		//     prior-restored install. A failed RemoveFile counts as rollback-incomplete.
 		switch {
 		case priorUsageOK:
-			add(d.WriteFileAtomic(in.UsageDestPath, priorUsage), "restore usage.json")
+			add(d.WriteFile(in.UsageDestPath, priorUsage), "restore usage.json")
 		case ex.usagePresent && in.UsageDestPath != "":
 			add(rollbackRemove(d, in.UsageDestPath), "remove restored usage.json")
 		}
 		switch {
 		case priorBenchOK:
-			add(d.WriteFileAtomic(in.BenchDestPath, priorBench), "restore bench-reports.jsonl")
+			add(d.WriteFile(in.BenchDestPath, priorBench), "restore bench-reports.jsonl")
 		case ex.benchPresent && in.BenchDestPath != "":
 			add(rollbackRemove(d, in.BenchDestPath), "remove restored bench-reports.jsonl")
 		}
 		// recall-state.json follows the same verbatim CR-01 rows (Phase 23, D-06).
 		switch {
 		case priorRecallOK:
-			add(d.WriteFileAtomic(in.RecallDestPath, priorRecall), "restore recall-state.json")
+			add(d.WriteFile(in.RecallDestPath, priorRecall), "restore recall-state.json")
 		case ex.recallPresent && in.RecallDestPath != "":
 			add(rollbackRemove(d, in.RecallDestPath), "remove restored recall-state.json")
 		}
@@ -425,12 +425,12 @@ func Restore(d Deps, in RestoreInput) Result {
 		return rolledBack("save", "", fmt.Errorf("save restored config: %w", err), ProveVerdict{})
 	}
 	if ex.usagePresent {
-		if err := d.WriteFileAtomic(in.UsageDestPath, ex.usage); err != nil {
+		if err := d.WriteFile(in.UsageDestPath, ex.usage); err != nil {
 			return rolledBack("data", "", fmt.Errorf("restore usage.json: %w", err), ProveVerdict{})
 		}
 	}
 	if ex.benchPresent {
-		if err := d.WriteFileAtomic(in.BenchDestPath, ex.bench); err != nil {
+		if err := d.WriteFile(in.BenchDestPath, ex.bench); err != nil {
 			return rolledBack("data", "", fmt.Errorf("restore bench-reports.jsonl: %w", err), ProveVerdict{})
 		}
 	}
@@ -438,7 +438,7 @@ func Restore(d Deps, in RestoreInput) Result {
 	// store-root-guarded atomic write covers it (it lives directly under the villa
 	// data root).
 	if ex.recallPresent {
-		if err := d.WriteFileAtomic(in.RecallDestPath, ex.recallState); err != nil {
+		if err := d.WriteFile(in.RecallDestPath, ex.recallState); err != nil {
 			return rolledBack("data", "", fmt.Errorf("restore recall-state.json: %w", err), ProveVerdict{})
 		}
 	}
@@ -477,7 +477,7 @@ func Restore(d Deps, in RestoreInput) Result {
 	}
 	// CLEAN-RECREATE then import the RESTORED owui volume (the whole reason for the
 	// rm→recreate→ensure→import ordering — never merge into a live volume).
-	if err := d.WriteTempFile(in.TempVolumeTar, ex.owuiVolume); err != nil {
+	if err := d.WriteFile(in.TempVolumeTar, ex.owuiVolume); err != nil {
 		return rolledBack("volume", "", fmt.Errorf("stage restored owui volume tar: %w", err), ProveVerdict{})
 	}
 	if err := cleanRecreateThenImport(restoredCfg, in.OpenWebUIVolumeName, in.TempVolumeTar); err != nil {
@@ -488,7 +488,7 @@ func Restore(d Deps, in RestoreInput) Result {
 	// VolumeRm tolerates an absent prior volume (the seam contract), so the
 	// prior-absent cell flows through the same sequence.
 	if ex.qdrantPresent {
-		if err := d.WriteTempFile(in.TempQdrantTar, ex.qdrantVolume); err != nil {
+		if err := d.WriteFile(in.TempQdrantTar, ex.qdrantVolume); err != nil {
 			return rolledBack("volume", "", fmt.Errorf("stage restored qdrant volume tar: %w", err), ProveVerdict{})
 		}
 		if err := cleanRecreateThenImport(restoredCfg, in.QdrantVolumeName, in.TempQdrantTar); err != nil {
@@ -534,26 +534,26 @@ func Restore(d Deps, in RestoreInput) Result {
 }
 
 // writeCrushConfig restores the crush.json entry to the out-of-store-root agent
-// config destination via the dedicated WriteCrushConfig seam (Phase 28,
-// SURF-03/D-08). A nil seam is a restore-incomplete condition surfaced honestly
-// (mirrors rollbackRemove's nil-seam contract) rather than a silent skip.
+// config destination (Phase 28, SURF-03/D-08). A nil seam is a restore-incomplete
+// condition surfaced honestly (mirrors rollbackRemove's nil-seam contract) rather
+// than a silent skip. The named wrapper survives the seam collapse because the
+// honest nil-seam message names the artifact the operator is missing.
 func writeCrushConfig(d Deps, path string, data []byte) error {
-	if d.WriteCrushConfig == nil {
-		return fmt.Errorf("no WriteCrushConfig seam wired — cannot restore crush.json to %q", path)
+	if d.WriteFile == nil {
+		return fmt.Errorf("no WriteFile seam wired — cannot restore crush.json to %q", path)
 	}
-	return d.WriteCrushConfig(path, data)
+	return d.WriteFile(path, data)
 }
 
-// writeSearxngSettings restores the settings.yml entry to the out-of-store-root SearXNG
-// config destination via the dedicated WriteSearxngSettings seam (Phase 34, SURF-07). A
-// nil seam is a restore-incomplete condition surfaced honestly (mirrors writeCrushConfig's
-// nil-seam contract) rather than a silent skip. The seam's live wiring writes 0600 (the
-// entry holds the rendered SEARXNG_SECRET — never widen the mode, T-34-05).
+// writeSearxngSettings restores the settings.yml entry to the out-of-store-root
+// SearXNG config destination (Phase 34, SURF-07). A nil seam is a restore-incomplete
+// condition surfaced honestly. The live wiring writes 0600 — the entry holds the
+// rendered SEARXNG_SECRET, so the mode must never widen (T-34-05).
 func writeSearxngSettings(d Deps, path string, data []byte) error {
-	if d.WriteSearxngSettings == nil {
-		return fmt.Errorf("no WriteSearxngSettings seam wired — cannot restore settings.yml to %q", path)
+	if d.WriteFile == nil {
+		return fmt.Errorf("no WriteFile seam wired — cannot restore settings.yml to %q", path)
 	}
-	return d.WriteSearxngSettings(path, data)
+	return d.WriteFile(path, data)
 }
 
 // rollbackRemove deletes a data-dir artifact the forward path newly created, to
