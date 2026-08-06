@@ -8,7 +8,7 @@ import (
 )
 
 // TestTarWriteReadRoundTrip asserts writeArchive → readArchive round-trips the
-// entries in order (manifest.json FIRST) with their bytes intact (D-03).
+// entries in order (manifest.json FIRST) with their bytes intact.
 func TestTarRoundTrip(t *testing.T) {
 	entries := []archiveEntry{
 		{name: EntryManifest, data: []byte(`{"schema_version":1}`)},
@@ -45,7 +45,7 @@ func TestTarRoundTrip(t *testing.T) {
 }
 
 // TestTarSlipRefusesTraversal asserts readArchive refuses a tar entry whose name
-// escapes the extraction dir via "../" — the tar-slip guard (D-11, T-16-01a),
+// escapes the extraction dir via "../" — the tar-slip guard (a),
 // BEFORE invoking the callback.
 func TestTarSlipRefusesTraversal(t *testing.T) {
 	buf := rawTar(t, "../escape", []byte("evil"))
@@ -63,7 +63,7 @@ func TestTarSlipRefusesTraversal(t *testing.T) {
 }
 
 // TestTarSlipRefusesAbsolute asserts readArchive refuses an absolute-path tar
-// entry (D-11, T-16-01a).
+// entry (a).
 func TestTarSlipRefusesAbsolute(t *testing.T) {
 	buf := rawTar(t, "/etc/passwd", []byte("evil"))
 	called := false
@@ -95,7 +95,7 @@ func TestTarSlipAllowsInDir(t *testing.T) {
 }
 
 // TestReadArchiveEntryCountCapRefuses asserts readArchive refuses an archive with
-// more than maxEntryCount members (WR-04 entry-count bound) before exhausting it.
+// more than maxEntryCount members (entry-count bound) before exhausting it.
 func TestReadArchiveEntryCountCapRefuses(t *testing.T) {
 	var buf bytes.Buffer
 	tw := tar.NewWriter(&buf)

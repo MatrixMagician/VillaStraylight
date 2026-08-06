@@ -1,7 +1,7 @@
 // memory_test.go holds the table-driven tests for the pure internal/memory
-// decision core: Footprint (typed-Unknown embedding footprint, D-02a), Decide
-// (fail-closed enablement-and-fields-valid gate, D-02b), and RenderView (the
-// resolved-values-only orchestrate handoff, D-02c). Every test asserts the
+// decision core: Footprint (typed-Unknown embedding footprint), Decide
+// (fail-closed enablement-and-fields-valid gate), and RenderView (the
+// resolved-values-only orchestrate handoff). Every test asserts the
 // honesty-by-construction invariant: a miss is a typed Unknown (Known=false),
 // NEVER a bare zero, and the gate refuses-with-reason rather than silently
 // defaulting. The package is PURE — these tests do no host I/O.
@@ -36,7 +36,7 @@ func reasonsMention(reasons []string, want string) bool {
 	return false
 }
 
-// TestDecide guards D-02b: the fail-closed enablement-and-fields-valid gate.
+// TestDecide guards: the fail-closed enablement-and-fields-valid gate.
 // Off is a valid state; on+complete is valid; on+any-missing-field is invalid
 // with a reason naming that field; multiple missing fields accumulate reasons.
 // Decide never panics and does no I/O.
@@ -127,10 +127,10 @@ func TestDecideAccumulatesReasons(t *testing.T) {
 	}
 }
 
-// TestRenderView guards D-02c: RenderView maps the cfg memory fields to
+// TestRenderView guards: RenderView maps the cfg memory fields to
 // MemoryRenderInput one-for-one — resolved VALUES only (model id, dim, addr/port
 // pieces). It carries NO composed URL and NO image literal (orchestrate adds
-// those later per D-10).
+// those later per).
 func TestRenderView(t *testing.T) {
 	cfg := validMemoryConfig()
 	got := RenderView(cfg)
@@ -161,11 +161,11 @@ func TestRenderView(t *testing.T) {
 	}
 }
 
-// TestFootprint guards D-02a: the pinned embedding model resolves to a Known
+// TestFootprint guards: the pinned embedding model resolves to a Known
 // byte reservation with provenance, and ANY miss (unknown id or empty string)
 // is a typed Unknown (Known=false) — never a bare-zero sentinel.
 func TestFootprint(t *testing.T) {
-	const wantBytes = uint64(512) << 20 // 512 MiB conservative reservation (D-08)
+	const wantBytes = uint64(512) << 20 // 512 MiB conservative reservation
 
 	tests := []struct {
 		name      string

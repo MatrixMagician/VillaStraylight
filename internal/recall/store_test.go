@@ -1,8 +1,8 @@
 // Package recall store tests guard the recall-state.json persistence discipline
-// cloned from internal/usage: fail-closed Load (D-05 — absent/corrupt/future-schema
+// cloned from internal/usage: fail-closed Load (absent/corrupt/future-schema
 // ⇒ empty state = "nothing indexed", never a fabricated index), version-stamping
-// Save, the atomic 0600/0700 temp+rename writer with traversal guard (T-21-02),
-// and the ids/timestamps-only content discipline (T-21-01 — no chat titles or
+// Save, the atomic 0600/0700 temp+rename writer with traversal guard,
+// and the ids/timestamps-only content discipline (no chat titles or
 // content may ever enter a host-side file).
 package recall
 
@@ -17,8 +17,8 @@ import (
 )
 
 // TestStoreLoadFailsClosed proves Load degrades to an empty State (no error, no
-// panic) on an absent store, a corrupt blob, and a future/unknown schema_version —
-// an empty state means "nothing indexed", never a fabricated index (D-05, T-21-03).
+// panic) on an absent store, a corrupt blob, and a future/unknown schema_version
+// an empty state means "nothing indexed", never a fabricated index.
 // A nil ReadAll seam and a ReadAll I/O error are REAL errors (wrapped), not
 // silently-empty states.
 func TestStoreLoadFailsClosed(t *testing.T) {
@@ -51,7 +51,7 @@ func TestStoreLoadFailsClosed(t *testing.T) {
 		t.Errorf("Load(corrupt) = (%+v, %v), want empty, nil", got, err)
 	}
 
-	// Future/unknown schema: valid JSON, wrong schema_version ⇒ empty, no error —
+	// Future/unknown schema: valid JSON, wrong schema_version ⇒ empty, no error
 	// a future schema is NEVER reinterpreted as the current version.
 	skew := Deps{ReadAll: func() ([]byte, error) {
 		return []byte(`{"schema_version":999,"knowledge_id":"kb1","chats":{"c1":{"user_id":"u1"}}}`), nil
@@ -62,7 +62,7 @@ func TestStoreLoadFailsClosed(t *testing.T) {
 }
 
 // TestStoreSaveLoadRoundTrip proves Save stamps SchemaVersion=1 before marshal and
-// that Load(Save(s)) returns a state identical to the input (D-05). A nil WriteAll
+// that Load(Save(s)) returns a state identical to the input. A nil WriteAll
 // seam is a real error.
 func TestStoreSaveLoadRoundTrip(t *testing.T) {
 	if err := Save(Deps{}, State{}); err == nil {
@@ -118,7 +118,7 @@ func TestStoreSchemaVersionMirrorsConst(t *testing.T) {
 }
 
 // TestStoreStateHasNoContentKeys is the ids/timestamps-only security test
-// (T-21-01, D-05): it marshals a fully-populated State and walks EVERY JSON key
+// it marshals a fully-populated State and walks EVERY JSON key
 // (recursively), asserting none contains a content-bearing token — no chat title,
 // no message content, may ever leak into the host-side recall-state.json.
 func TestStoreStateHasNoContentKeys(t *testing.T) {
@@ -168,7 +168,7 @@ func TestStoreStateHasNoContentKeys(t *testing.T) {
 		lk := strings.ToLower(k)
 		for _, banned := range denied {
 			if strings.Contains(lk, banned) {
-				t.Errorf("marshaled state JSON key %q contains banned content token %q — ids/timestamps/counts only (T-21-01)", k, banned)
+				t.Errorf("marshaled state JSON key %q contains banned content token %q — ids/timestamps/counts only", k, banned)
 			}
 		}
 	}
@@ -176,7 +176,7 @@ func TestStoreStateHasNoContentKeys(t *testing.T) {
 
 // TestStoreRecallStatePathXDG proves the path resolver honors $XDG_DATA_HOME
 // (the fixed villa data-store root) and that assertInsideDir rejects a traversal
-// escape measured against that FIXED root (T-21-02, WR-05 precedent).
+// escape measured against that FIXED root (precedent).
 func TestStoreRecallStatePathXDG(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("XDG_DATA_HOME", tmp)
@@ -259,7 +259,7 @@ func TestStoreWriteFileAtomic(t *testing.T) {
 	assertNoTempFiles(t, filepath.Dir(path))
 }
 
-// assertNoTempFiles fails the test if any recall-state temp file is left in dir —
+// assertNoTempFiles fails the test if any recall-state temp file is left in dir
 // the writer must clean its temp up on every error branch and after every rename.
 func assertNoTempFiles(t *testing.T, dir string) {
 	t.Helper()

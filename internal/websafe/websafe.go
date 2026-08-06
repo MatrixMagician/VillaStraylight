@@ -5,16 +5,16 @@ package websafe
 // scope), the Page value it produces, and the Loader that fetches a batch of URLs
 // under the conservative resource Bounds (defined in ssrf.go) with skip-and-continue.
 //
-// This is the sole producer of OWUI page_content (GUARD-01): every byte that reaches
+// This is the sole producer of OWUI page_content: every byte that reaches
 // OWUI passes through fetchOne, including the (Phase-31 stubbed) guard seam. The core
 // is unit-testable off-hardware because the HTTP client is injected — keeping the
 // "orchestrate is the only intentionally-impure module" invariant (CLAUDE.md).
 //
-// Resource bounds (CONTEXT Area 3, GROUND-01): each body is capped at Bounds.MaxBytes
+// Resource bounds (CONTEXT Area 3): each body is capped at Bounds.MaxBytes
 // (truncate beyond), each fetch is bounded by Bounds.Timeout, in-flight fetches are
 // bounded by Bounds.MaxConcurrent, and only http(s) schemes are fetched. A failed URL
 // is OMITTED (skip-and-continue, honest partial); an all-fail batch returns a non-nil
-// EMPTY slice — never a fabricated page (Phase-30 D-06 honesty).
+// EMPTY slice — never a fabricated page (Phase-30 honesty).
 
 import (
 	"context"
@@ -34,14 +34,14 @@ type Deps struct {
 	Client *http.Client
 }
 
-// Page is one fetched-and-produced page. Content is the GUARD-02/03 sanitized + Unicode-
+// Page is one fetched-and-produced page. Content is the /03 sanitized + Unicode-
 // normalized + provenance-fenced page text, Source is the fetched URL (flows into OWUI's
-// `sources` citation field — GROUND-01), and Title is the same-defanged document title.
+// `sources` citation field), and Title is the same-defanged document title.
 type Page struct {
 	Content string
 	Source  string
 	Title   string
-	// Verdict is the GUARD-04 heuristic injection classifier outcome over the normalized
+	// Verdict is the heuristic injection classifier outcome over the normalized
 	// text (flag-not-block: Detected never drops Content; it is surfaced additively in the
 	// /load response metadata.guard sub-key for Phase 34 to count).
 	Verdict Verdict
@@ -117,7 +117,7 @@ func (l *Loader) Load(ctx context.Context, urls []string) []Page {
 // up front (defense-in-depth; the connect-time Control hook is the authoritative IP
 // check in the injected client), bounds the fetch by Bounds.Timeout, rejects non-2xx,
 // caps the body at Bounds.MaxBytes via io.LimitReader, then runs the raw body through the
-// load-bearing GUARD-02/03/04 pipeline in the order sanitize → normalize → classify →
+// load-bearing /03/04 pipeline in the order sanitize → normalize → classify →
 // fence (sanitize-first on the RAW HTML, classify on the NORMALIZED text so no fence
 // delimiter self-matches — Pitfall 5), USING the verdict (it is stored on Page.Verdict,
 // never discarded). The title is defanged through the same sanitize+normalize path.
@@ -156,7 +156,7 @@ func (l *Loader) fetchOne(ctx context.Context, rawURL string) (Page, error) {
 		return Page{}, err
 	}
 
-	// GUARD-02/03/04 pipeline, load-bearing order (T-32-10):
+	// 03/04 pipeline, load-bearing order:
 	//  1. sanitize  — bluemonday StrictPolicy strips markup off the RAW HTML (+ entity-
 	//                 decode); replaces the old hand-rolled extractText.
 	//  2. normalize — NFKC fold + strip invisible/bidi runes (defangs Trojan-Source +
@@ -172,10 +172,10 @@ func (l *Loader) fetchOne(ctx context.Context, rawURL string) (Page, error) {
 
 	// The title is untrusted web content that reaches model context via metadata.title
 	// (OWUI citation), so it gets the SAME defang as the body (sanitize+normalize) AND is
-	// run through the classifier (WR-01) — title-borne injection (e.g. a forged
+	// run through the classifier — title-borne injection (e.g. a forged
 	// [/UNTRUSTED_WEB_CONTENT] close or "ignore previous instructions" in a <title>) must
 	// not enter metadata unflagged. extractTitle now ignores <title> inside HTML comments
-	// so a commented-out decoy title cannot be scraped over the real one (WR-01/IN-02).
+	// so a commented-out decoy title cannot be scraped over the real one.
 	// We fold the title verdict INTO the page verdict (a title hit flags the page) rather
 	// than fence the title, because metadata.title is a human-facing citation label that
 	// must stay verbatim; classification is what makes title injection visible to Phase 34.
@@ -184,7 +184,7 @@ func (l *Loader) fetchOne(ctx context.Context, rawURL string) (Page, error) {
 
 	fenced, err := fence(clean)
 	if err != nil {
-		// FAIL-CLOSED (WR-02): a fence with no crypto/rand nonce would carry a forgeable
+		// FAIL-CLOSED: a fence with no crypto/rand nonce would carry a forgeable
 		// constant delimiter, defeating the fence's sole security property. Omit the page
 		// (skip-and-continue, honest partial) rather than ship a breakout-able fence.
 		return Page{}, err
@@ -194,16 +194,16 @@ func (l *Loader) fetchOne(ctx context.Context, rawURL string) (Page, error) {
 }
 
 // NOTE: the Phase-31 hand-rolled extractText stripper was DELETED in Phase 32 — the
-// GUARD-02 `sanitize` (bluemonday StrictPolicy, sanitize.go) is now the sole body
+// `sanitize` (bluemonday StrictPolicy, sanitize.go) is now the sole body
 // stripper. sanitize is parser-backed, so it does not suffer the unterminated-'<'
-// blackhole the CR-02 fix guarded against; its never-return-empty posture is covered in
-// sanitize_test.go / normalize_test.go. extractTitle (+ asciiLower) is RETAINED below —
+// blackhole the fix guarded against; its never-return-empty posture is covered in
+// sanitize_test.go / normalize_test.go. extractTitle (+ asciiLower) is RETAINED below
 // it scans the <title> element and is now routed through sanitize+normalize in fetchOne.
 
 // extractTitle returns a best-effort document title from the <title> element, or "" if
 // none is found. Simple substring scan; full parsing is out of scope for Phase 31.
 //
-// CR-01: the case-insensitive search MUST be length-preserving. strings.ToLower is NOT
+// the case-insensitive search MUST be length-preserving. strings.ToLower is NOT
 // byte-length-identical for some Unicode (e.g. U+023A/U+023E grow 2->3 bytes), so
 // computing match indices on a strings.ToLower(body) copy and then slicing the ORIGINAL
 // body with them can index past len(body) -> "slice bounds out of range" panic. The body
@@ -215,7 +215,7 @@ func extractTitle(body []byte) string {
 	orig := string(body)
 	s := asciiLower(orig) // byte-length-identical to orig (only A-Z folded)
 
-	// WR-01: skip <title> elements that live inside an HTML comment. A naive raw scan
+	// skip <title> elements that live inside an HTML comment. A naive raw scan
 	// would pick `<!-- <title>HIDDEN</title> -->` over the real document title, letting
 	// an attacker plant an arbitrary metadata.title. We advance past any comment span
 	// that would otherwise contain the candidate match. blankComments replaces every
@@ -223,7 +223,7 @@ func extractTitle(body []byte) string {
 	// to orig and the indices computed against it remain valid slices into orig.
 	s = blankComments(s)
 
-	// WR-01/IN-02: require a tag terminator after "<title" so "<titlebar>"/"<titlexyz>"
+	// require a tag terminator after "<title" so "<titlebar>"/"<titlexyz>"
 	// cannot match. A real <title> is immediately followed by '>' (no attrs) or
 	// whitespace (before attrs); anything else is a different element name.
 	open := -1
@@ -260,7 +260,7 @@ func extractTitle(body []byte) string {
 
 // blankComments returns a byte-length-identical copy of s with every HTML comment span
 // (`<!-- ... -->`) replaced by spaces, so a <title> hidden inside a comment is not
-// scraped (WR-01). Preserving byte length keeps the indices extractTitle computes against
+// scraped. Preserving byte length keeps the indices extractTitle computes against
 // the result valid as slices into the ORIGINAL body. An unterminated comment blanks to
 // end-of-input (an attacker cannot smuggle a real title after an open-but-unclosed
 // comment). The input is already asciiLower-folded, so the markers are lowercase-safe.
@@ -297,7 +297,7 @@ func blankComments(s string) string {
 // asciiLower returns a byte-length-identical copy of s with ASCII 'A'..'Z' folded to
 // 'a'..'z' and every other byte left untouched. Unlike strings.ToLower it never changes
 // the byte length, so offsets computed against the result remain valid indices into the
-// original string (CR-01). HTML tag names are ASCII, so ASCII-only folding suffices for
+// original string. HTML tag names are ASCII, so ASCII-only folding suffices for
 // case-insensitive tag matching.
 func asciiLower(s string) string {
 	var b []byte

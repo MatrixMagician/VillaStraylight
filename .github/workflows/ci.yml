@@ -1,13 +1,17 @@
-# CI gate for VillaStraylight (Phase 17, INSTALL-02 / SC#4).
+# CI gate for VillaStraylight.
 #
-# This is the supply-chain + CGO-free build gate the guided-TUI capstone needs:
-#   - CGO_ENABLED=0 build proves the single static binary survives the new
-#     charmbracelet/huh dependency (SC#4).
+# The supply-chain + CGO-free build gate:
+#   - CGO_ENABLED=0 build proves the shipped binary stays a single static
+#     artifact. This is load-bearing beyond tidiness: the villa-websafe unit
+#     bind-mounts that binary into a distroless container with no libc, so a
+#     dynamically-linked build fails to exec there.
 #   - go vet + go test mirror `make check` (the pre-commit gate).
 #   - go mod verify is the Go-ecosystem supply-chain integrity gate (go.sum hashes
-#     match the checksum DB) — stronger than registry-existence checking (T-17-SC).
-#   - the bubbletea-v1 grep asserts huh did NOT drag in charm.land/bubbletea/v2,
-#     which would violate D-11 (Pitfall 4 in 17-RESEARCH.md).
+#     match the checksum DB) — stronger than registry-existence checking.
+#   - the TUI-stack grep asserts the guided install stays on the standard library.
+#     It replaces a narrower bubbletea-v1 pin that existed only to stop huh
+#     dragging in a second major version; with the whole stack gone, the honest
+#     assertion is that none of it comes back.
 name: ci
 
 on:
@@ -42,5 +46,15 @@ jobs:
       - name: go mod verify (supply-chain integrity)
         run: go mod verify
 
-      - name: assert bubbletea stays v1 (D-11 / no v2 leak)
-        run: grep -q 'bubbletea v1' go.mod || (echo "bubbletea v2 leaked!" && exit 1)
+      - name: assert the guided install stays on the standard library
+        run: |
+          if grep -qE 'charmbracelet|muesli/termenv' go.mod; then
+            echo "A TUI dependency reappeared in go.mod:"
+            grep -nE 'charmbracelet|muesli/termenv' go.mod
+            echo
+            echo "The guided install is a stdin prompt loop over the standard"
+            echo "library (see cmd/villa/install_wizard.go). If a full-screen UI"
+            echo "is genuinely wanted again, that is a decision to make"
+            echo "deliberately rather than by adding an import."
+            exit 1
+          fi

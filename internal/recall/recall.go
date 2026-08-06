@@ -1,13 +1,13 @@
-// recall.go is the pure plan/diff half of the recall core (D-05, RECALL-03): it
+// recall.go is the pure plan/diff half of the recall core: it
 // computes what the indexer must add, update, and delete by diffing an INJECTED
-// live chat list against the persisted State — the D-05 algebra: new = L∖S,
+// live chat list against the persisted State — the algebra: new = L∖S,
 // changed = live updated_at > state owui_updated_at, deleted = S∖L. An update is
-// the clean-replace primitive of D-04 (remove the old transcript file, upload the
+// the clean-replace primitive of (remove the old transcript file, upload the
 // re-rendered one) — Plan only DECIDES; the cmd tier (Plan 02) performs the REST
 // choreography and resolves FileIDs from state for the deletes.
 //
 // PURE: no I/O, no os/exec, no clock — copy-not-mutate (usage.Fold discipline),
-// deterministic sorted output so run output and tests are byte-stable (D-08).
+// deterministic sorted output so run output and tests are byte-stable.
 package recall
 
 import "sort"
@@ -23,7 +23,7 @@ type ChatRef struct {
 
 // PlanResult is the typed diff verdict: chats to index for the first time (Adds),
 // chats whose live updated_at outran the indexed snapshot (Updates — clean-replace
-// per D-04), and chat ids present in state but gone from the live list (Deletes —
+// per), and chat ids present in state but gone from the live list (Deletes
 // the cmd tier resolves each id's FileID from state to remove it from the KB).
 type PlanResult struct {
 	Adds    []ChatRef
@@ -31,7 +31,7 @@ type PlanResult struct {
 	Deletes []string
 }
 
-// Plan computes the D-05 diff of the injected live chat list against the
+// Plan computes the diff of the injected live chat list against the
 // persisted state: a live chat absent from state.Chats is an Add; present in both
 // with live.UpdatedAt strictly greater than the recorded OWUIUpdatedAt is an
 // Update; a state chat absent from live is a Delete. Equal or older updated_at

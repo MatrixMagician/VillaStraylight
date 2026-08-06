@@ -9,23 +9,23 @@ import (
 )
 
 // maxToolOutput bounds untrusted tool stdout (podman/loginctl) so a runaway or
-// hostile process cannot exhaust memory (threat T-03-04). Mirrors the same bound
+// hostile process cannot exhaust memory (threat). Mirrors the same bound
 // in internal/detect.
 const maxToolOutput = 8 << 10 // 8 KiB
 
-// toolTimeout bounds every runTool invocation (phase-22 WR-02): a wedged tool —
+// toolTimeout bounds every runTool invocation (phase-22): a wedged tool
 // e.g. a hung rootless podman on a stale user socket, a state this product can
 // itself produce — must degrade to an unevaluable ok=false (→ typed-Unknown WARN
-// at the caller, D-15), never hang preflight/install/doctor indefinitely.
+// at the caller), never hang preflight/install/doctor indefinitely.
 const toolTimeout = 10 * time.Second
 
 // runTool invokes a tool with a FIXED argument slice — never `sh -c` with
-// interpolation (threat T-03-01) — bounded BOTH in time (toolTimeout via
-// exec.CommandContext, WR-02) and in memory: stdout is read through a pipe-level
+// interpolation (threat) — bounded BOTH in time (toolTimeout via
+// exec.CommandContext) and in memory: stdout is read through a pipe-level
 // io.LimitReader capped at maxToolOutput, then drained without buffering so a
 // chatty tool can neither exhaust memory nor block on a full pipe. A missing
 // binary yields found=false so the caller can downgrade an unevaluable BLOCK to
-// WARN (D-15). A non-zero exit / timeout yields ok=false with whatever bounded
+// WARN. A non-zero exit / timeout yields ok=false with whatever bounded
 // output was produced (for raw capture).
 func runTool(name string, args ...string) (out string, found, ok bool) {
 	if _, err := exec.LookPath(name); err != nil {

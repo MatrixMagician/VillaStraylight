@@ -10,13 +10,13 @@ import (
 )
 
 // dashboard_unit.go renders + writes the NATIVE `villa-dashboard.service` systemd
-// --user unit (D-03/D-04). Unlike the Quadlet `.container` units (render.go), this is
+// --user unit. Unlike the Quadlet `.container` units (render.go), this is
 // a plain `.service` that runs the villa binary itself — so it lives in
 // ~/.config/systemd/user/, NOT the Quadlet generator dir ~/.config/containers/systemd/
 // (Pitfall 5). It reuses the same pure-render (text/template + execTemplate) and the
 // same atomic, traversal-guarded write (atomicWrite/assertInsideDir) the Quadlet path
 // uses, so the dashboard service is written exactly as safely as a container unit
-// (T-05-15) — temp-in-same-dir + fsync + rename, refusing any path resolving outside
+// — temp-in-same-dir + fsync + rename, refusing any path resolving outside
 // the unit dir.
 
 // DashboardServiceName is the systemd --user unit name for the control dashboard
@@ -106,7 +106,7 @@ func RenderDashboardUnit(binaryPath string) (string, error) {
 
 // WriteDashboardUnit renders the dashboard unit for binaryPath and writes it atomically
 // into dir (the user-unit dir from userUnitDir), reusing the traversal-guarded
-// atomicWrite so the write is exactly as safe as a Quadlet unit write (T-05-15). Only
+// atomicWrite so the write is exactly as safe as a Quadlet unit write. Only
 // the rendered body content changed for the UAT Test 5 fix; the write path is unchanged.
 func WriteDashboardUnit(dir, binaryPath string) error {
 	text, err := RenderDashboardUnit(binaryPath)
@@ -117,7 +117,7 @@ func WriteDashboardUnit(dir, binaryPath string) error {
 }
 
 // writeUnitFile atomically writes text to dir/name, refusing any name that resolves
-// outside dir (assertInsideDir, T-05-15) before any write. It is the single-file
+// outside dir (assertInsideDir) before any write. It is the single-file
 // analog of WriteUnits, used for the native dashboard service that does not flow
 // through the Quadlet Plan/Reconcile path.
 func writeUnitFile(dir, name, text string) error {

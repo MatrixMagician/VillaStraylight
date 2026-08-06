@@ -2,20 +2,20 @@ package main
 
 // verify.go is the thin cobra caller for the `villa verify` verb tree and its first
 // subcommand `villa verify memory` — the runtime firewalled zero-outbound document-upload
-// RAG smoke proof (D-10/D-11/PRIV-05, SC#4). The decision logic (negative-control-first
+// RAG smoke proof. The decision logic (negative-control-first
 // PASS/FAIL) lives in the pure evalRagSmoke core (verify_memory.go); this file keeps ONLY
-// the cobra wiring + exit-code mapping (reusing the AUTHORITATIVE preflight constants —
+// the cobra wiring + exit-code mapping (reusing the AUTHORITATIVE preflight constants
 // exitPass/exitWarn/exitBlocked), the printing, and the live host wiring (liveRagSmoke +
 // the config seams).
 //
-// ON-HARDWARE BY NATURE (D-10): unlike the pure core, this verb needs the LIVE OWUI
+// ON-HARDWARE BY NATURE: unlike the pure core, this verb needs the LIVE OWUI
 // container reachable over its loopback PublishPort AND a host-egress precondition (the
-// public-internet outbound blocked for the duration) supplied by the verification wave —
+// public-internet outbound blocked for the duration) supplied by the verification wave
 // the negative-control probe proves that block is real. It is therefore a dedicated verb
 // rather than a per-install gate (RESEARCH §"Wiring").
 //
 // It is GATED on the PERSISTED memory_enabled (config.LoadVilla().MemoryEnabled). When
-// memory is OFF there is nothing to verify and the command exits 0 with a clear message —
+// memory is OFF there is nothing to verify and the command exits 0 with a clear message
 // this is NOT the silent-skip hazard (the hazard is skipping the proof while memory IS on;
 // that path runs the proof and refuses-with-remediation on FAIL, never a false-green).
 
@@ -32,7 +32,7 @@ import (
 
 // verifyMemoryLoopbackAddr is the host side of the OWUI PublishPort (127.0.0.1:<chat_port>,
 // openWebUIPublishPort = "127.0.0.1:3000:8080"). The RAG drive reaches OWUI over this
-// EXISTING loopback bind — no new host port is opened (D-11). It is a loopback constant,
+// EXISTING loopback bind — no new host port is opened. It is a loopback constant,
 // not a backend/image literal; the port itself is config-resolved (cfg.ChatPort).
 const verifyMemoryLoopbackAddr = "127.0.0.1"
 
@@ -79,7 +79,7 @@ func newVerify() *cobra.Command {
 }
 
 // newVerifyMemory builds `villa verify memory`: the runtime firewalled zero-outbound
-// document-upload RAG smoke proof (D-10/D-11/PRIV-05). It is gated on the persisted
+// document-upload RAG smoke proof. It is gated on the persisted
 // memory_enabled and refuses-with-remediation (exitBlocked) on FAIL. The exit-code mapping
 // lives ENTIRELY in runVerifyMemory (return-not-Exit body; cobra RunE calls os.Exit).
 func newVerifyMemory() *cobra.Command {

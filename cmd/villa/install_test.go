@@ -42,7 +42,7 @@ type fakeInstallDeps struct {
 	// stdoutIsTTY=false) never enter the wizard branch and stay deterministic.
 	wizardCalls int
 	// startOrder records the service names passed to the start seam in invocation
-	// order (D-05: inference strictly before owui). callOrder records cross-seam
+	// order (inference strictly before owui). callOrder records cross-seam
 	// ordering (e.g. ensureModel before the first start, MODEL-04).
 	startOrder []string
 	callOrder  []string
@@ -77,7 +77,7 @@ type fakeInstallDeps struct {
 	// capture let the memory tests assert exactly which memory seams fired.
 	// persistedConfig, when non-nil, is returned by the loadedConfig seam so a test can
 	// prove runInstall SEEDS cfg from the user's persisted config and preserves their
-	// memory/dashboard/chat customizations through saveConfig (WR-02). nil → the seam
+	// memory/dashboard/chat customizations through saveConfig. nil → the seam
 	// returns config.DefaultVillaConfig() (the old seed behavior, unchanged).
 	persistedConfig   *config.VillaConfig
 	memoryEnabled     bool
@@ -105,10 +105,10 @@ type fakeInstallDeps struct {
 	// villa-websafe secret-env writer counter (v1.5 / Phase-31). webSearchEnabled drives this
 	// path too (the websafe.env 0600 bearer is written when web search is on). The counter lets
 	// the web-search tests assert the bearer file is written exactly once (and BEFORE the OWUI
-	// start, which references it via EnvironmentFile= when web search is on — T-31-12).
+	// start, which references it via EnvironmentFile= when web search is on).
 	websafeSecretEnvCalls int
 
-	// Coding-agent (Crush) addon seam controls + counters (v1.4 / INSTALL-03). agentEnabled
+	// Coding-agent (Crush) addon seam controls + counters (v1.4). agentEnabled
 	// drives the loadedAgentEnabled gate seam (default false → the agent path never fires,
 	// so existing install tests stay unchanged). agentCat is the catalog the coderShardFor
 	// resolution reads (default carries a single coder entry so the agent-on tests resolve a
@@ -129,14 +129,14 @@ type fakeInstallDeps struct {
 	agentProofDetail     string
 	renderedAgentEnabled bool
 	// renderedInput captures the orchestrate.RenderInput the render seam received so a
-	// test can assert the coder-serving wiring (CR-01): on --coding-agent the captured
+	// test can assert the coder-serving wiring: on --coding-agent the captured
 	// CodingMode must be non-nil and Cfg.CoderModel/CoderAgentCtx must equal rec.Coder,
 	// while a chat-only install must capture CodingMode == nil + CoderModel == "" (off-path
 	// byte-identical). renderedInputSet guards the zero-value (no render call yet).
 	renderedInput    orchestrate.RenderInput
 	renderedInputSet bool
 	// agentChecksCalls counts invocations of the runAgentChecks preflight-fold seam
-	// (INSTALL-04/D-09): a test asserts it is exactly 1 on an agent-on install and 0 on
+	// a test asserts it is exactly 1 on an agent-on install and 0 on
 	// an agent-off install (the agent-off gate is byte-identical). agentChecks is the
 	// canned []CheckResult the seam returns (default empty → the gate stays a pass).
 	agentChecksCalls int
@@ -258,7 +258,7 @@ func newFakeInstallDeps(t *testing.T, units []orchestrate.Unit, plan orchestrate
 	// so a test can assert the embed GGUF is staged BEFORE the embed service starts and
 	// the Qdrant/embed start ordering (Pitfall 4). The proof seam returns the controllable
 	// verdict and captures its input for assertion.
-	// loadedConfig seeds runInstall's cfg from the persisted config (WR-02). Default to
+	// loadedConfig seeds runInstall's cfg from the persisted config. Default to
 	// the typed defaults (byte-for-byte the old DefaultVillaConfig() seed) so existing
 	// tests are unchanged; persistedConfig lets a test inject a customized on-disk config
 	// to prove install preserves it.
@@ -308,13 +308,13 @@ func newFakeInstallDeps(t *testing.T, units []orchestrate.Unit, plan orchestrate
 	}
 	// villa-websafe 0600 bearer (websafe.env) writer (v1.5 / Phase-31). It records an ordered
 	// event so a test can assert the bearer file is written BEFORE the OWUI start (which
-	// references it via EnvironmentFile= when web search is on — T-31-12) and exactly once.
+	// references it via EnvironmentFile= when web search is on) and exactly once.
 	d.writeWebsafeSecretEnv = func(string, string) error {
 		f.websafeSecretEnvCalls++
 		f.callOrder = append(f.callOrder, "writeWebsafeSecretEnv")
 		return nil
 	}
-	// Coding-agent (Crush) addon seams (v1.4 / INSTALL-03). The gate seam reflects the
+	// Coding-agent (Crush) addon seams (v1.4). The gate seam reflects the
 	// controllable agentEnabled flag (default false → the agent path never fires, so existing
 	// tests are unchanged). The pre-stage/install/render/proof seams record an ordered event
 	// so a test can assert the binary + GGUF are staged and the config rendered BEFORE the
@@ -497,7 +497,7 @@ func TestInstallAutoPullsAbsentModelThenStarts(t *testing.T) {
 }
 
 // TestInstallStartsInferenceBeforeOpenWebUI: on the write path install starts
-// villa-llama.service strictly BEFORE villa-openwebui.service (D-05 ordering) —
+// villa-llama.service strictly BEFORE villa-openwebui.service (ordering)
 // Open WebUI must come up after inference so it can reach a live backend.
 func TestInstallStartsInferenceBeforeOpenWebUI(t *testing.T) {
 	units := []orchestrate.Unit{{Name: "villa-llama.container", Text: "[Container]\n"}}
@@ -509,7 +509,7 @@ func TestInstallStartsInferenceBeforeOpenWebUI(t *testing.T) {
 	if code != exitPass {
 		t.Fatalf("clean install exit = %d, want 0", code)
 	}
-	// inference must start strictly before owui (D-05). Since 05-08 the dashboard is
+	// inference must start strictly before owui. Since 05-08 the dashboard is
 	// reconciled BEFORE the container starts, so we make NO assertion about its position
 	// here — only the inference→owui relative order on the (now 3-service) start list.
 	llamaI, owuiI := -1, -1
@@ -522,11 +522,11 @@ func TestInstallStartsInferenceBeforeOpenWebUI(t *testing.T) {
 		}
 	}
 	if llamaI < 0 || owuiI < 0 || llamaI >= owuiI {
-		t.Fatalf("start-call order = %v, want inference before owui (D-05)", f.startOrder)
+		t.Fatalf("start-call order = %v, want inference before owui", f.startOrder)
 	}
 }
 
-// TestInstallReconcilesDashboardForBootSurvival (Plan 05-05 / D-03/D-04, updated for
+// TestInstallReconcilesDashboardForBootSurvival (Plan 05-05 /, updated for
 // 05-08): install renders+writes+enables+starts the native villa-dashboard.service for
 // boot-survival. Since 05-08 the dashboard is reconciled BEFORE the container starts (the
 // reconcile was hoisted above the no-op early return so it runs on both paths), so this no
@@ -595,7 +595,7 @@ func TestInstallReconcilesDashboardUnitOnNoOpPath(t *testing.T) {
 	if code != exitPass {
 		t.Fatalf("no-op-container + stale-dashboard install exit = %d, want exitPass", code)
 	}
-	// The stale unit was rewritten + enabled, and the dashboard service was (re)started —
+	// The stale unit was rewritten + enabled, and the dashboard service was (re)started
 	// the no-op CONTAINER path STILL reconciled the dashboard (the gap fix).
 	if f.dashWriteCalls != 1 {
 		t.Errorf("stale dashboard unit must be rewritten exactly once, wrote %d times", f.dashWriteCalls)
@@ -678,7 +678,7 @@ func TestInstallDashboardUnitTargetsResolvedBinary(t *testing.T) {
 	}
 }
 
-// TestInstallFailsClosedWhenBinaryUnresolvable (WR-03): when the binary-path resolver
+// TestInstallFailsClosedWhenBinaryUnresolvable: when the binary-path resolver
 // errors, install must FAIL (exitBlocked) and write NO dashboard unit — it must never
 // fall back to a fixed path. This locks the documented "fail closed, no fixed-path
 // fallback" contract on resolveBinaryPath so a regression that swallowed the error and
@@ -1021,7 +1021,7 @@ func TestInstallConsentYesRunsSeamOncePerGap(t *testing.T) {
 
 // TestInstallWarnLingerOfferGoesToStdout: a WARN-tier linger (PRE-03) offer is a
 // non-blocking, optional host-prep — its messaging must go to STDOUT, not stderr,
-// so scripts parsing stderr do not misread it as an error (WR-07). Declining it must
+// so scripts parsing stderr do not misread it as an error. Declining it must
 // not block the install.
 func TestInstallWarnLingerOfferGoesToStdout(t *testing.T) {
 	units := []orchestrate.Unit{{Name: "villa-llama.container", Text: "[Container]\n"}}
@@ -1052,10 +1052,10 @@ func TestInstallWarnLingerOfferGoesToStdout(t *testing.T) {
 	}
 }
 
-// TestInstallDryRunNeverRunsPrivilegedHostPrep (phase-22 WR-05): --dry-run on an
+// TestInstallDryRunNeverRunsPrivilegedHostPrep (phase-22): --dry-run on an
 // interactive TTY with BLOCK (PRE-05) and WARN (PRE-03) gaps and a CONSENTING stub
-// must execute ZERO privileged seams, never prompt, and never enter the wizard —
-// '--dry-run ... writes nothing' is a zero-side-effect contract (ORCH SC#1), and
+// must execute ZERO privileged seams, never prompt, and never enter the wizard
+// '--dry-run... writes nothing' is a zero-side-effect contract (ORCH), and
 // before the fix a consenting interactive dry-run executed setsebool/enable-linger.
 func TestInstallDryRunNeverRunsPrivilegedHostPrep(t *testing.T) {
 	units := []orchestrate.Unit{{Name: "villa-llama.container", Text: "[Container]\n"}}
@@ -1068,7 +1068,7 @@ func TestInstallDryRunNeverRunsPrivilegedHostPrep(t *testing.T) {
 
 	cmd, _, errOut := installTestCmd()
 	code := runInstall(cmd, installOpts{dryRun: true}, f.installDeps)
-	// The unmet BLOCK gap cannot be consented under dry-run, so the run blocks —
+	// The unmet BLOCK gap cannot be consented under dry-run, so the run blocks
 	// the same honest outcome the non-interactive path already had.
 	if code != exitBlocked {
 		t.Fatalf("dry-run with an unmet BLOCK gap exit = %d, want exitBlocked (%d)", code, exitBlocked)
@@ -1161,7 +1161,7 @@ func TestInstallForceOverridesBlock(t *testing.T) {
 
 // TestInstallPostInstallPrintsLoopbackEndpoint: a clean install prints the loopback
 // inference endpoint, the REAL loopback chat URL (Open WebUI is now brought up by
-// install, D-03), and notes the dashboard comes later — with no dead links.
+// install), and notes the dashboard comes later — with no dead links.
 func TestInstallPostInstallPrintsLoopbackEndpoint(t *testing.T) {
 	units := []orchestrate.Unit{{Name: "villa-llama.container", Text: "[Container]\n"}}
 	plan := orchestrate.Plan{Changed: units}
@@ -1186,7 +1186,7 @@ func TestInstallPostInstallPrintsLoopbackEndpoint(t *testing.T) {
 
 // TestInstallNoOpPrintsChatURL: the true-no-op path (units already match config)
 // also points the user at the live chat URL — a re-run still tells you where to
-// chat (D-03 — both callers of printPostInstall emit the real chat URL).
+// chat (both callers of printPostInstall emit the real chat URL).
 func TestInstallNoOpPrintsChatURL(t *testing.T) {
 	units := []orchestrate.Unit{{Name: "villa-llama.container", Text: "[Container]\n"}}
 	plan := orchestrate.Plan{Unchanged: units} // zero Changed = true no-op
@@ -1203,7 +1203,7 @@ func TestInstallNoOpPrintsChatURL(t *testing.T) {
 }
 
 // TestReadiness503ThenReady: a probe returning 503 then 200 resolves to ready
-// (PASS) — 503 is keep-polling, NOT a confident down (Pitfall 2 / WR-07).
+// (PASS) — 503 is keep-polling, NOT a confident down (Pitfall 2).
 func TestReadiness503ThenReady(t *testing.T) {
 	calls := 0
 	probe := func() (int, error) {
@@ -1223,7 +1223,7 @@ func TestReadiness503ThenReady(t *testing.T) {
 }
 
 // TestReadinessTimeoutWarns: a probe that never returns 200 yields a WARN (typed-
-// Unknown) at the deadline, never a confident FAIL (WR-07).
+// Unknown) at the deadline, never a confident FAIL.
 func TestReadinessTimeoutWarns(t *testing.T) {
 	probe := func() (int, error) { return http.StatusServiceUnavailable, nil }
 	r := pollReadiness(context.Background(), probe, 5*time.Millisecond, time.Millisecond)
@@ -1247,7 +1247,7 @@ func TestReadinessTransportErrorWarns(t *testing.T) {
 
 // TestReadinessCancelledContextAbortsBeforeProbe: a context cancelled before the
 // loop starts is observed before any probe runs, returning a WARN immediately
-// (WR-05 — the deadline/cancellation is checked before each probe, not only after).
+// (the deadline/cancellation is checked before each probe, not only after).
 func TestReadinessCancelledContextAbortsBeforeProbe(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // cancel up-front
@@ -1300,7 +1300,7 @@ func TestInstallRegistered(t *testing.T) {
 // (the memory start + proof steps live after the unit write).
 func memoryUnits() ([]orchestrate.Unit, orchestrate.Plan) {
 	// A realistic memory-on plan: Render appends the memory .container units when
-	// MemoryEnabled, so they must be present in the plan for the WR-04 start guard
+	// MemoryEnabled, so they must be present in the plan for the start guard
 	// (which gates the memory-service starts on the units actually being in the plan).
 	units := []orchestrate.Unit{
 		{Name: "villa-llama.container", Text: "[Container]\n"},
@@ -1310,7 +1310,7 @@ func memoryUnits() ([]orchestrate.Unit, orchestrate.Plan) {
 	return units, orchestrate.Plan{Changed: units}
 }
 
-// TestInstallMemoryGateUsesPersistedConfig is the WARNING-1 end-to-end check (T-19-16):
+// TestInstallMemoryGateUsesPersistedConfig is the WARNING-1 end-to-end check:
 // it drives runInstall through the loadedMemoryEnabled seam (the PERSISTED config gate),
 // NOT a hand-built cfg with MemoryEnabled set — so it would catch a gate mistakenly bound
 // to the always-false DefaultVillaConfig() seed. With the seam returning true, the
@@ -1362,16 +1362,16 @@ func TestInstallMemoryGateUsesPersistedConfig(t *testing.T) {
 	})
 }
 
-// TestInstallPreservesPersistedMemoryConfig (WR-02): install must SEED cfg from the
+// TestInstallPreservesPersistedMemoryConfig: install must SEED cfg from the
 // user's persisted config and override ONLY the recommendation-derived fields
 // (Model/Quant/Ctx/Backend) + the MemoryEnabled gate — it must NOT reset the user's
 // customized memory address/port/model/dim fields (or dashboard/chat fields) to seed
 // defaults. A user who set a non-default embed_port / embedding_model in config.toml
 // must keep them after `villa install`. This locks the write-side single-source-of-truth
-// fix (the same class as WR-01 on the render side).
+// fix (the same class as on the render side).
 func TestInstallPreservesPersistedMemoryConfig(t *testing.T) {
-	// A realistic memory-on plan (memory units present) so the WR-04 start guard passes;
-	// this test is about the WR-02 config-preservation, not the start gate.
+	// A realistic memory-on plan (memory units present) so the start guard passes;
+	// this test is about the config-preservation, not the start gate.
 	units, plan := memoryUnits()
 	f := newFakeInstallDeps(t, units, plan, passChecks())
 	f.memoryEnabled = true
@@ -1389,13 +1389,13 @@ func TestInstallPreservesPersistedMemoryConfig(t *testing.T) {
 		t.Fatalf("install exit = %d, want 0", code)
 	}
 
-	// The persisted memory + chat customizations must survive into the saved cfg —
+	// The persisted memory + chat customizations must survive into the saved cfg
 	// install must not have reset them to the seed defaults (nomic.../3000).
 	if f.savedCfg.EmbeddingModel != "custom-embed-model" {
-		t.Errorf("install reset persisted embedding_model to %q, want \"custom-embed-model\" preserved (WR-02)", f.savedCfg.EmbeddingModel)
+		t.Errorf("install reset persisted embedding_model to %q, want \"custom-embed-model\" preserved", f.savedCfg.EmbeddingModel)
 	}
 	if f.savedCfg.ChatPort != 4444 {
-		t.Errorf("install reset persisted chat_port to %d, want 4444 preserved (WR-02)", f.savedCfg.ChatPort)
+		t.Errorf("install reset persisted chat_port to %d, want 4444 preserved", f.savedCfg.ChatPort)
 	}
 	// The recommendation-derived fields are still overridden from the rec.
 	if f.savedCfg.Model != "qwen2.5-0.5b" || f.savedCfg.Backend != "rocm" {
@@ -1628,7 +1628,7 @@ func TestInstallMemoryServices(t *testing.T) {
 	})
 }
 
-// TestInstallMemoryOnButUnitsAbsentFailsClosed (WR-04): when memory is enabled but the
+// TestInstallMemoryOnButUnitsAbsentFailsClosed: when memory is enabled but the
 // memory .container units are absent from the rendered plan (a hypothetical future
 // render/reconcile bug that drops them), install must NOT attempt to start a service
 // systemd has never seen. It must fail closed (exitBlocked) with a CLEAR internal-error
@@ -1636,7 +1636,7 @@ func TestInstallMemoryServices(t *testing.T) {
 // services. This locks the "start gate = unit present in the plan" invariant.
 func TestInstallMemoryOnButUnitsAbsentFailsClosed(t *testing.T) {
 	// A plan that has the inference unit (so the install proceeds to the start phase)
-	// but is MISSING the memory units — the exact gap the WR-04 guard catches.
+	// but is MISSING the memory units — the exact gap the guard catches.
 	units := []orchestrate.Unit{{Name: "villa-llama.container", Text: "[Container]\n"}}
 	plan := orchestrate.Plan{Changed: units}
 	f := newFakeInstallDeps(t, units, plan, passChecks())
@@ -1669,7 +1669,7 @@ func TestEmbedGGUFFilenameSingleSource(t *testing.T) {
 	}
 }
 
-// TestNomicShardValues pins the verified integrity values (PRIV-04/D-07): a typo in the
+// TestNomicShardValues pins the verified integrity values: a typo in the
 // size or SHA256 would let an unverified GGUF through, so they are asserted here.
 func TestNomicShardValues(t *testing.T) {
 	if nomicEmbedShard.SizeBytes != 146146432 {
@@ -1680,7 +1680,7 @@ func TestNomicShardValues(t *testing.T) {
 	}
 }
 
-// TestLiveEmbedModelPresentSizeGuard (IN-03): the embed-model presence check treats the
+// TestLiveEmbedModelPresentSizeGuard: the embed-model presence check treats the
 // GGUF as present only when its on-disk size matches nomicEmbedShard.SizeBytes — a
 // truncated/tampered file is NOT trusted (returns false → re-pull + re-verify). A
 // correctly-sized file is present; an absent file is not present.
@@ -1732,7 +1732,7 @@ func TestInstallMemoryProofPass(t *testing.T) {
 	f.memoryEnabled = true
 	f.memoryProofStatus = preflight.StatusPass
 	// A distinctive PASS detail so the test can prove install prints the verdict's OWN
-	// detail (IN-02), not a re-typed "768-dim …" literal.
+	// detail, not a re-typed "768-dim …" literal.
 	f.memoryProofDetail = "768-dim embeddings + Qdrant writable"
 
 	cmd, out, _ := installTestCmd()
@@ -1746,7 +1746,7 @@ func TestInstallMemoryProofPass(t *testing.T) {
 	if !strings.Contains(out.String(), "memory stack ready") {
 		t.Errorf("a PASS proof must print the ready line, got %q", out.String())
 	}
-	// IN-02: the printed line carries the proof's OWN detail (single-sourced dim), not a
+	// the printed line carries the proof's OWN detail (single-sourced dim), not a
 	// duplicated literal — so a dimension change in the verdict flows through here.
 	if !strings.Contains(out.String(), "memory stack ready: 768-dim embeddings + Qdrant writable") {
 		t.Errorf("a PASS proof must print the verdict's detail, got %q", out.String())
@@ -1838,7 +1838,7 @@ func TestEvalMemoryProof(t *testing.T) {
 	}
 }
 
-// TestQdrantWritableProbeIdempotent (WR-03): a pre-existing villa-probe collection from
+// TestQdrantWritableProbeIdempotent: a pre-existing villa-probe collection from
 // an interrupted prior run must NOT make the writable proof FAIL. The probe issues a
 // best-effort DELETE before the PUT-create, so a fake curl runner that fails a PUT against
 // an existing collection (unless a DELETE preceded it) must yield writable=true, not an
@@ -1891,7 +1891,7 @@ func TestQdrantWritableProbeIdempotent(t *testing.T) {
 		if !writable {
 			t.Fatalf("writable = false, want true (the create succeeded after the pre-DELETE)\ncalls: %v", calls)
 		}
-		// The pre-DELETE must precede the PUT (the idempotency ordering, WR-03).
+		// The pre-DELETE must precede the PUT (the idempotency ordering).
 		delIdx, putIdx := indexOf(calls, "DELETE "+coll), indexOf(calls, "PUT "+coll)
 		if delIdx < 0 || putIdx < 0 || delIdx >= putIdx {
 			t.Errorf("expected a DELETE before the PUT-create, got call order %v", calls)
@@ -1932,7 +1932,7 @@ func indexOf(s []string, v string) int {
 // TestInstallMemoryGateRefusesUnfitHost is the CTRL-06 install half: an opted-in
 // install whose memory host-fitness gate reports a confident shortage refuses-
 // with-remediation (exitBlocked) BEFORE bringing up the memory stack — zero host
-// mutation. With memory off the gate seam never fires (D-06: the memory-off
+// mutation. With memory off the gate seam never fires (the memory-off
 // install path is byte-identical).
 func TestInstallMemoryGateRefusesUnfitHost(t *testing.T) {
 	units := []orchestrate.Unit{{Name: "villa-llama.container", Text: "[Container]\n"}}
@@ -1989,7 +1989,7 @@ func TestInstallMemoryGateRefusesUnfitHost(t *testing.T) {
 	})
 }
 
-// TestEvalAgentProof asserts the coding-agent install-readiness verdict (D-05, T-27-05):
+// TestEvalAgentProof asserts the coding-agent install-readiness verdict:
 // PASS only on a REAL tool-call edit; FAIL on no-edit and on err. A health-200 is NEVER an
 // input — the only signal is the planted read→edit round-trip result.
 func TestEvalAgentProof(t *testing.T) {
@@ -2018,7 +2018,7 @@ func TestEvalAgentProof(t *testing.T) {
 	}
 }
 
-// TestCoderShardSingleSource proves D-04: the staged coder shard and the served coder model
+// TestCoderShardSingleSource proves: the staged coder shard and the served coder model
 // resolve from ONE catalog entry (the recommend-picked id), not two independent literals. It
 // resolves the shard via coderShardFor against the picked rec.Coder.Model, then asserts the
 // resolved entry's id is exactly the served coder id — a single-entry derivation, so the
@@ -2055,7 +2055,7 @@ func TestCoderShardSingleSource(t *testing.T) {
 	}
 }
 
-// TestInstallCodingAgentFlow asserts the --coding-agent gate block (D-01/D-03/D-05): with the
+// TestInstallCodingAgentFlow asserts the --coding-agent gate block: with the
 // flag set the FSL notice prints, the coder GGUF + binary are staged and the config rendered
 // BEFORE the readiness proof, AgentEnabled is persisted, the render sees AgentEnabled=true,
 // and a clean install passes. An agent-off install fires NONE of the agent seams.
@@ -2064,7 +2064,7 @@ func TestCoderShardSingleSource(t *testing.T) {
 // persisted web_search_enabled is false — the mirror of the --coding-agent flag flow. And
 // without the flag (persisted off), the searxng path never fires (byte-identical to v1.4).
 func TestInstallWebSearchFlag(t *testing.T) {
-	// The plan must carry the web-search units so the planHasUnit start-gate (WR-04) passes
+	// The plan must carry the web-search units so the planHasUnit start-gate passes
 	// when web search is on — the real render appends them when WebSearchEnabled=true.
 	webUnits := []orchestrate.Unit{
 		{Name: "villa-llama.container", Text: "x"},
@@ -2132,14 +2132,14 @@ func TestInstallCodingAgentFlow(t *testing.T) {
 			t.Errorf("agent seam counts: coderEnsure=%d binaryInstall=%d render=%d proof=%d, want 1/1/1/1",
 				f.coderEnsureCalls, f.binaryInstallCalls, f.renderCrushCalls, f.agentProofCalls)
 		}
-		// The gate persisted AgentEnabled and the render saw it true (D-01).
+		// The gate persisted AgentEnabled and the render saw it true.
 		if !f.savedCfg.AgentEnabled {
-			t.Error("--coding-agent must persist cfg.AgentEnabled = true (D-01)")
+			t.Error("--coding-agent must persist cfg.AgentEnabled = true")
 		}
 		if !f.renderedAgentEnabled {
 			t.Error("renderCrushConfig must receive cfg.AgentEnabled = true")
 		}
-		// Ordering: stage + render BEFORE the readiness proof (D-05).
+		// Ordering: stage + render BEFORE the readiness proof.
 		if idx(f.callOrder, "renderCrushConfig") > idx(f.callOrder, "agentProof") {
 			t.Errorf("config must be rendered before the readiness proof; callOrder = %v", f.callOrder)
 		}
@@ -2148,7 +2148,7 @@ func TestInstallCodingAgentFlow(t *testing.T) {
 		}
 	})
 
-	t.Run("--coding-agent serves the coder (CR-01): RenderInput.CodingMode != nil + served id == rec.Coder.Model", func(t *testing.T) {
+	t.Run("--coding-agent serves the coder: RenderInput.CodingMode != nil + served id == rec.Coder.Model", func(t *testing.T) {
 		f := newFakeInstallDeps(t, units, plan, passChecks())
 		// Use a REAL catalog coder id so codingModelFile/codingDescriptor (which read the
 		// embedded catalog via modelCatalogPath, not the fake) resolve. rec.Coder carries a
@@ -2179,7 +2179,7 @@ func TestInstallCodingAgentFlow(t *testing.T) {
 		if !f.renderedInputSet {
 			t.Fatal("render seam was never called")
 		}
-		// CR-01: the coder must be SERVED — a non-nil CodingMode descriptor + coder render inputs.
+		// the coder must be SERVED — a non-nil CodingMode descriptor + coder render inputs.
 		if f.renderedInput.CodingMode == nil {
 			t.Error("--coding-agent must thread a non-nil RenderInput.CodingMode (the coder is served)")
 		}
@@ -2236,7 +2236,7 @@ func TestInstallCodingAgentFlow(t *testing.T) {
 		}
 	})
 
-	t.Run("shared-residency coder fit refuses with a swap-only message, NOT free-memory copy (WR-03)", func(t *testing.T) {
+	t.Run("shared-residency coder fit refuses with a swap-only message, NOT free-memory copy", func(t *testing.T) {
 		f := newFakeInstallDeps(t, units, plan, passChecks())
 		// Catalog with no coder entry → coderShardFor would return false, but the shared-
 		// residency branch refuses BEFORE reaching it.
@@ -2268,7 +2268,7 @@ func TestInstallCodingAgentFlow(t *testing.T) {
 		if !strings.Contains(got, "swap-residency coder fit") || !strings.Contains(got, "SHARED residency") {
 			t.Errorf("a shared-residency refusal must explain the swap-only limitation; got:\n%s", got)
 		}
-		// WR-03 cardinal point: the operator must NOT be misdirected toward freeing memory.
+		// cardinal point: the operator must NOT be misdirected toward freeing memory.
 		if strings.Contains(got, "free memory or use a larger-envelope host") {
 			t.Errorf("a shared-residency refusal must NOT use the misleading no-fit free-memory copy; got:\n%s", got)
 		}
@@ -2291,12 +2291,12 @@ func TestInstallCodingAgentFlow(t *testing.T) {
 			t.Errorf("agent-off install must not surface any coding-agent output; got:\n%s", out.String())
 		}
 		if f.savedCfg.AgentEnabled {
-			t.Error("agent-off install must persist AgentEnabled = false (D-01)")
+			t.Error("agent-off install must persist AgentEnabled = false")
 		}
 	})
 }
 
-// TestInstallAgentPreflightFold asserts the INSTALL-04/D-09 preflight fold: the
+// TestInstallAgentPreflightFold asserts the preflight fold: the
 // runAgentChecks seam is appended to the install gate ONLY when the addon is enabled
 // (--coding-agent or persisted agent_enabled), an agent-off install never calls it (the
 // gate stays byte-identical), and an agent BLOCK from the fold refuses the install

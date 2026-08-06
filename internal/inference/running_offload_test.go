@@ -10,9 +10,9 @@ import (
 )
 
 // running_offload_test.go covers the ALREADY-RUNNING-server offload Verdict
-// (D-12/D-13): residency proven by the `load_tensors: Vulkan0 model buffer size
-// = N MiB` journald line (WR-05 — NOT /props), corroborated by a point-in-time
-// mem_info_gtt_used floor (CR-03 — NOT a fragile before/after delta), with /props
+// residency proven by the `load_tensors: Vulkan0 model buffer size
+// = N MiB` journald line (NOT /props), corroborated by a point-in-time
+// mem_info_gtt_used floor (NOT a fragile before/after delta), with /props
 // used only as a config-identity drift overlay. Every signal degrades to a typed
 // Unknown → WARN, never a false PASS.
 
@@ -69,11 +69,11 @@ func TestRunningServerOffloadVerdict(t *testing.T) {
 	}
 }
 
-// TestRunningServerBusySignalFold asserts the D-06 gpu_busy_percent fold: a Known
+// TestRunningServerBusySignalFold asserts the gpu_busy_percent fold: a Known
 // non-zero busy reading CORROBORATES a residency PASS (stays PASS), a Known-ZERO
 // busy reading on a claimed-healthy decode FAILs (silent CPU fallback), and an
 // absent/Unknown busy reading is combine-neutral so a residency-proven Vulkan PASS
-// stays PASS (the regression guard — Vulkan supplies no busy signal, D-07/Q2).
+// stays PASS (the regression guard — Vulkan supplies no busy signal, /Q2).
 func TestRunningServerBusySignalFold(t *testing.T) {
 	vulkanJournal := readFixture(t, "load_tensors_vulkan.txt")
 	drm := t.TempDir()
@@ -113,7 +113,7 @@ func TestRunningServerBusySignalFold(t *testing.T) {
 	}
 }
 
-// TestRunningServerBusyFoldPreservesContract is the CR-01 regression guard: when a Known
+// TestRunningServerBusyFoldPreservesContract is the regression guard: when a Known
 // gpu_busy_percent reading is folded in, the busy signal is a STATUS corroborator only — it
 // MUST NOT overwrite the --json contract's SysfsOffload (the real GTT-floor signal), zero the
 // GTTDeltaBytes calibration record, or nest the Detail string. (Before the fix the re-fold
@@ -142,15 +142,15 @@ func TestRunningServerBusyFoldPreservesContract(t *testing.T) {
 	}
 	// SysfsOffload must remain the GTT-floor signal, NOT the busy signal.
 	if strings.Contains(v.SysfsOffload.Source, "gpu_busy_percent") {
-		t.Errorf("SysfsOffload.Source = %q — busy signal leaked into the sysfs contract slot (CR-01)", v.SysfsOffload.Source)
+		t.Errorf("SysfsOffload.Source = %q — busy signal leaked into the sysfs contract slot", v.SysfsOffload.Source)
 	}
 	// GTTDeltaBytes must keep the floor value, not be zeroed by the busy re-fold.
 	if v.GTTDeltaBytes != gttUsedValue {
-		t.Errorf("GTTDeltaBytes = %d, want %d — busy re-fold zeroed the GTT calibration record (CR-01)", v.GTTDeltaBytes, gttUsedValue)
+		t.Errorf("GTTDeltaBytes = %d, want %d — busy re-fold zeroed the GTT calibration record", v.GTTDeltaBytes, gttUsedValue)
 	}
 	// Detail must carry the busy corroboration without nesting the already-joined string.
 	if strings.Count(v.Detail, "offload proven (log + sysfs)") != 1 {
-		t.Errorf("Detail nests the combined headline (CR-01): %q", v.Detail)
+		t.Errorf("Detail nests the combined headline: %q", v.Detail)
 	}
 	if !strings.Contains(v.Detail, "busy:") {
 		t.Errorf("Detail missing busy corroboration clause: %q", v.Detail)
@@ -226,11 +226,11 @@ func TestRunningServerROCmResidency(t *testing.T) {
 	}
 }
 
-// TestRunningServerROCmBusySignal exercises the D-06 gpu_busy_percent residency signal
+// TestRunningServerROCmBusySignal exercises the gpu_busy_percent residency signal
 // on the ROCm path through the REAL detect.GPUBusyPercentForTest reader (a temp drmRoot
 // gpu_busy_percent fixture): a Known non-zero busy reading CORROBORATES the ROCm0 N/N
 // PASS (stays PASS), and an Unknown/absent busy reading is NEUTRAL-for-PASS — the
-// residency-proven PASS stays PASS, never a false-FAIL (D-07/Q2). (The Known-zero→FAIL
+// residency-proven PASS stays PASS, never a false-FAIL (Q2). (The Known-zero→FAIL
 // rule is unit-proven in Plan 01 Task 2 — TestRunningServerBusySignalFold; the live
 // decode-time FAIL is the Phase-8 follow-on, so no live-decode fixture here.)
 func TestRunningServerROCmBusySignal(t *testing.T) {

@@ -14,11 +14,11 @@ import "strings"
 // 03-RESEARCH A5 confirmed the boolean was not yet a preflight check; it is added
 // here and wired into RunWithResources so install gates on it.
 //
-// Degradation (D-15): if getsebool is missing or its output is unparseable, the
+// Degradation: if getsebool is missing or its output is unparseable, the
 // requirement cannot be EVALUATED and the BLOCK downgrades to a WARN ("could not
 // verify"), never a false PASS — consistent with the rest of the package.
 
-// setseboolRemediation is the exact privileged command install offers (D-04) and
+// setseboolRemediation is the exact privileged command install offers and
 // otherwise prints for copy-paste. It is the single source for both the preflight
 // remediation string and the install consent prompt.
 const setseboolRemediation = "setsebool -P container_use_devices=true"
@@ -35,7 +35,7 @@ type selinuxDeps struct {
 func liveSELinuxDeps() selinuxDeps {
 	return selinuxDeps{
 		getsebool: func() (string, bool, bool) {
-			// Fixed-arg exec (threat T-03-01): getsebool container_use_devices.
+			// Fixed-arg exec (threat): getsebool container_use_devices.
 			return runTool("getsebool", "container_use_devices")
 		},
 	}
@@ -56,7 +56,7 @@ func checkSELinuxContainerDevices(d selinuxDeps) CheckResult {
 	out, found, ok := d.getsebool()
 	if !found {
 		// getsebool absent — could be a non-SELinux host or missing policycoreutils.
-		// Cannot evaluate → WARN, never a false PASS (D-15).
+		// Cannot evaluate → WARN, never a false PASS.
 		return warn(id, name, TierBlock,
 			"getsebool not available — could not verify the container_use_devices boolean",
 			remediation, "exec.LookPath(getsebool)", "")

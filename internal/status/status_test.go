@@ -73,7 +73,7 @@ func newDeps(t *testing.T, units []orchestrate.Unit) Deps {
 		Endpoint:    func() string { return "http://127.0.0.1:8080" },
 		OWUIHealth:  func(string) HealthState { return HealthReady },
 		OWUIService: owuiService,
-		// Dashboard self-row (Plan 05-05 / D-04): a healthy /api/healthz probe by
+		// Dashboard self-row (Plan 05-05): a healthy /api/healthz probe by
 		// default; tests override DashboardHealth to exercise the wedged case.
 		DashboardService: dashboardService,
 		DashboardHealth:  func(string) HealthState { return HealthReady },
@@ -94,7 +94,7 @@ func dashRow(t *testing.T, d Deps) ServiceStatus {
 	return ServiceStatus{}
 }
 
-// TestRunDashboardRow (Plan 05-05 / D-04): Run folds a villa-dashboard.service row
+// TestRunDashboardRow (Plan 05-05): Run folds a villa-dashboard.service row
 // whose Active is its systemd state and whose Health is the bounded /api/healthz
 // probe, with OffloadApplies=false (no GPU offload — never a spurious offload verdict,
 // same treatment as the owui row).
@@ -227,7 +227,7 @@ func TestAggregateWorstWins(t *testing.T) {
 }
 
 // TestActiveStatusMap proves the systemctl is-active → PASS/WARN/FAIL mapping
-// (CR-02): active→PASS; transient/ambiguous/empty→WARN; terminal-bad/errored→FAIL.
+// active→PASS; transient/ambiguous/empty→WARN; terminal-bad/errored→FAIL.
 func TestActiveStatusMap(t *testing.T) {
 	cases := map[string]inference.Status{
 		"active":       inference.StatusPass,
@@ -248,7 +248,7 @@ func TestActiveStatusMap(t *testing.T) {
 }
 
 // TestParsePublishPortIPv6 verifies a bracketed IPv6 loopback bind is classified as
-// loopback rather than misread as exposed (WR-02).
+// loopback rather than misread as exposed.
 func TestParsePublishPortIPv6(t *testing.T) {
 	cases := []struct {
 		val          string
@@ -272,7 +272,7 @@ func TestParsePublishPortIPv6(t *testing.T) {
 }
 
 // TestReadinessFold proves the tri-state fold of the detect rocm_readiness sub-tree
-// honors no-false-green (D-04/D-08): any unevaluable (Unknown) signal short-circuits
+// honors no-false-green: any unevaluable (Unknown) signal short-circuits
 // to "unknown" (never a fabricated "not-ready"); "not-ready" is reported ONLY when
 // every signal is Known and at least one is Known-false; "ready" only when every
 // signal is Known-true. Off-hardware (all-unset) the honest answer is "unknown".
@@ -369,7 +369,7 @@ func rocmUnits(t *testing.T) []orchestrate.Unit {
 	return units
 }
 
-// TestRunROCmResidencyKeysOnResolvedMarkers is the SC#1 correctness PROOF (DASH-06),
+// TestRunROCmResidencyKeysOnResolvedMarkers is the correctness PROOF,
 // exercisable off-hardware: on a rocm-configured install the offload/residency verdict
 // must key on the RESOLVED backend's markers (backendROCm.ResidencyProof() →
 // DeviceToken "ROCm0"), NOT a hardcoded Vulkan default. The fixture journal carries a
@@ -393,7 +393,7 @@ func TestRunROCmResidencyKeysOnResolvedMarkers(t *testing.T) {
 		t.Fatalf("Run err: %v", r.Err())
 	}
 	if r.Backend != "rocm" {
-		t.Fatalf("Report.Backend = %q, want rocm (resolved backend, SC#1)", r.Backend)
+		t.Fatalf("Report.Backend = %q, want rocm (resolved backend)", r.Backend)
 	}
 
 	var inf ServiceStatus
@@ -413,7 +413,7 @@ func TestRunROCmResidencyKeysOnResolvedMarkers(t *testing.T) {
 }
 
 // TestUsageOmittedWhenAbsent proves the typed-Unknown discipline for the cumulative
-// usage field (D-09): when the ReadUsage seam is nil (default stub) OR returns nil
+// usage field: when the ReadUsage seam is nil (default stub) OR returns nil
 // (absent/empty store), Run leaves Report.Usage nil and the marshaled --json OMITS
 // the "usage" key entirely — never a fabricated 0 total. Schema is still 2.
 func TestUsageOmittedWhenAbsent(t *testing.T) {
@@ -442,7 +442,7 @@ func TestUsageOmittedWhenAbsent(t *testing.T) {
 
 // TestUsageSurfacedWhenPresent proves a populated read-only ReadUsage seam surfaces
 // the cumulative totals on the Report and the --json carries the "usage" key plus
-// the current schema_version (D-09; bumped 2→3 by the Phase-23 memory evolution).
+// the current schema_version (bumped 2→3 by the Phase-23 memory evolution).
 func TestUsageSurfacedWhenPresent(t *testing.T) {
 	want := &usage.UsageTotals{
 		SchemaVersion: 1,
@@ -565,7 +565,7 @@ func memRow(t *testing.T, d Deps, svc string) ServiceStatus {
 	return ServiceStatus{}
 }
 
-// TestRunMemoryRowsClassification (D-01, T-23-01): the villa-qdrant/villa-embed
+// TestRunMemoryRowsClassification: the villa-qdrant/villa-embed
 // rows are non-GPU rows cloned from the OWUI branch shape — Health comes from
 // their OWN per-service seams (NEVER from the generic d.Health chat-endpoint
 // probe, the carried Phase-22 false-green), offload is the N/A representation
@@ -600,7 +600,7 @@ func TestRunMemoryRowsClassification(t *testing.T) {
 }
 
 // TestRunMemoryEmbedDownNoFalseGreen is the negative-control proof of the
-// false-green fix (T-23-01): a stopped villa-embed reports Health down — never
+// false-green fix: a stopped villa-embed reports Health down — never
 // PASS borrowed from the healthy chat endpoint — and Aggregate degrades via the
 // HEALTH fold (the N/A offload of an OffloadApplies=false row never folds).
 func TestRunMemoryEmbedDownNoFalseGreen(t *testing.T) {
@@ -640,7 +640,7 @@ func TestRunMemoryNilSeams(t *testing.T) {
 	}
 }
 
-// TestRunMemoryOffReport (D-04): with memory off the report carries NO memory
+// TestRunMemoryOffReport: with memory off the report carries NO memory
 // section (nil pointer, omitempty key absent) and the only contract delta from
 // v2 is the schema version, now 3.
 func TestRunMemoryOffReport(t *testing.T) {
@@ -660,7 +660,7 @@ func TestRunMemoryOffReport(t *testing.T) {
 	}
 }
 
-// TestRunMemorySection (D-02): the memory-on report carries the Memory section —
+// TestRunMemorySection: the memory-on report carries the Memory section
 // embedding identity from cfg plus the typed RecallState mapping: nil seam/nil
 // return → "unknown", zero-value state → "empty", a complete run → "indexed"
 // with count+timestamps verbatim, started-but-never-completed → "incomplete".
@@ -731,7 +731,7 @@ func TestRunMemorySection(t *testing.T) {
 	})
 }
 
-// TestRunMemorySkewField (D-10 status surface): the embedding_skew field is set
+// TestRunMemorySkewField (status surface): the embedding_skew field is set
 // ONLY on a confident mismatch; a match or an unevaluated comparison (no recorded
 // stamp) leaves it empty/omitted — never a green "ok" for an unevaluated state.
 func TestRunMemorySkewField(t *testing.T) {
@@ -768,7 +768,7 @@ func TestRunMemorySkewField(t *testing.T) {
 	})
 }
 
-// --- Phase-28 v4 coding-agent fixtures (D-01..D-04). The coding section is built
+// --- Phase-28 v4 coding-agent fixtures (..). The coding section is built
 // ONLY when cfg.AgentEnabled; identity from cfg, pin/residency/cache from nil-safe
 // seams that degrade typed-Unknown. ---
 
@@ -801,7 +801,7 @@ func newAgentDeps(t *testing.T) Deps {
 
 // TestRunCodingOffReport: an agent-OFF report carries Coding == nil so the
 // omitempty key is absent — the v4 --json differs from v3 only in schema_version
-// (D-02). SchemaVersion is the single 3→4 bump (==4).
+// SchemaVersion is the single 3→4 bump (==4).
 func TestRunCodingOffReport(t *testing.T) {
 	r := Run(newDeps(t, loopbackUnits(t)))
 	if r.Coding != nil {
@@ -819,7 +819,7 @@ func TestRunCodingOffReport(t *testing.T) {
 	}
 }
 
-// TestRunCodingSection (D-01..D-04): the agent-on report carries the Coding
+// TestRunCodingSection (..): the agent-on report carries the Coding
 // section with the LOCKED spellings — identity from cfg, pin tri-state, derived
 // residency, cache pct computed from the seam counts.
 func TestRunCodingSection(t *testing.T) {
@@ -857,7 +857,7 @@ func TestRunCodingSection(t *testing.T) {
 	}
 }
 
-// TestRunCodingPinTriState (D-03): the pin compare is a tri-state — a nil seam OR
+// TestRunCodingPinTriState: the pin compare is a tri-state — a nil seam OR
 // an empty return degrades to "unknown", never a fabricated confident state.
 func TestRunCodingPinTriState(t *testing.T) {
 	cases := []struct {
@@ -883,8 +883,8 @@ func TestRunCodingPinTriState(t *testing.T) {
 	}
 }
 
-// TestRunCodingResidencyTypedUnknown (D-03/SC1): residency is the DERIVED seam
-// value; a nil seam or an empty return leaves it "" so the key is OMITTED —
+// TestRunCodingResidencyTypedUnknown (SC1): residency is the DERIVED seam
+// value; a nil seam or an empty return leaves it "" so the key is OMITTED
 // never a fabricated swap/shared, never read from cfg.
 func TestRunCodingResidencyTypedUnknown(t *testing.T) {
 	t.Run("seam swap → swap", func(t *testing.T) {
@@ -925,7 +925,7 @@ func TestRunCodingResidencyTypedUnknown(t *testing.T) {
 	})
 }
 
-// TestRunCodingCacheGate (D-10): the cache pct is set ONLY when the seam reports
+// TestRunCodingCacheGate: the cache pct is set ONLY when the seam reports
 // ok AND prompt_n>0 — else nil pct + omitted counts (never a fabricated 0%).
 func TestRunCodingCacheGate(t *testing.T) {
 	t.Run("ok + prompt_n>0 → pct computed", func(t *testing.T) {
@@ -965,7 +965,7 @@ func TestRunCodingCacheGate(t *testing.T) {
 		}
 	})
 	t.Run("cache_n>prompt_n (inconsistent sample) → nil pct, omitted counts (never >100%)", func(t *testing.T) {
-		// WR-04: the two counters come from distinct llama.cpp _total series scraped
+		// the two counters come from distinct llama.cpp _total series scraped
 		// independently; a counter skew can yield cache_n>prompt_n, an impossible
 		// >100% ratio. Degrade to the gray Unknown badge (nil pct + omitted counts)
 		// rather than surface a fabricated-looking ratio.
@@ -982,7 +982,7 @@ func TestRunCodingCacheGate(t *testing.T) {
 	})
 }
 
-// --- Phase-34 v5 web-search fixtures (SURF-04). The web_search section is built
+// --- Phase-34 v5 web-search fixtures. The web_search section is built
 // ONLY when cfg.WebSearchEnabled; enabled identity from cfg, the outbound-bounded
 // indicator DERIVED from the cached verify-search result (verifystate.State) with a
 // freshness gate — NEVER from cfg.WebSearchEnabled. searxng/websafe surface as
@@ -1021,7 +1021,7 @@ func staleVerify(verdict string) *verifystate.State {
 
 // futureVerify returns a verifystate.State with the given verdict checked in the FUTURE
 // (a clock-skewed or forged timestamp). time.Since returns a negative age for it, so the
-// freshness gate's lower-bound clamp must treat even a PASS as "unknown" (WR-01 — a
+// freshness gate's lower-bound clamp must treat even a PASS as "unknown" (a
 // future timestamp must be re-proven, never trusted as bounded).
 func futureVerify(verdict string) *verifystate.State {
 	return &verifystate.State{
@@ -1070,7 +1070,7 @@ func wsRow(t *testing.T, r Report, svc string) (ServiceStatus, bool) {
 	return ServiceStatus{}, false
 }
 
-// TestRunWebSearch (SURF-04): the web_search section is present when web search is on
+// TestRunWebSearch: the web_search section is present when web search is on
 // and ABSENT (omitempty) when off; the web-OFF report differs from the v4 contract
 // ONLY in schema_version (the agent-off byte-identical-when-off precedent), and the
 // schema is the single 4→5 bump.
@@ -1124,7 +1124,7 @@ func TestRunWebSearch(t *testing.T) {
 	})
 }
 
-// TestWebSearchOutboundBounded (T-34-08): the outbound-bounded indicator is an honest
+// TestWebSearchOutboundBounded: the outbound-bounded indicator is an honest
 // tri-state DERIVED FROM THE CACHED verify-search result with a freshness gate — green
 // ONLY for a real recent PASS; a real recent non-PASS → "not-bounded"; a stale PASS,
 // an absent store, or a nil seam → "unknown". It is NEVER derived from
@@ -1200,7 +1200,7 @@ func TestWebSearchOutboundBounded(t *testing.T) {
 	})
 }
 
-// TestRunSearxngWebsafeRows (T-34-09): villa-searxng / villa-websafe surface as
+// TestRunSearxngWebsafeRows: villa-searxng / villa-websafe surface as
 // dedicated rows whose Health comes from their OWN in-network seams — NEVER the
 // generic chat-endpoint d.Health probe (the Phase-22 false-green). A nil seam degrades
 // the row to HealthUnknown; both rows are non-GPU (OffloadApplies=false).

@@ -19,16 +19,16 @@ import (
 )
 
 // install_memory.go holds the v1.3 MEMORY-STACK install wiring the `villa install`
-// verb gates on the PERSISTED memory_enabled (D-04/D-07/PRIV-04, INFRA-02):
+// verb gates on the PERSISTED memory_enabled (INFRA-02):
 //
 //   - nomicEmbedShard: the pinned nomic-embed-text-v1.5 Q8_0 GGUF pre-stage source.
 //     With memory on (and not dry-run), install pulls it into the villa-models volume
 //     via the existing internal/download path BEFORE starting villa-embed, and only
 //     when the file is absent (idempotent). This is the single sanctioned outbound
 //     window — a one-time install-time controlled pull; runtime stays ZERO-download
-//     (PRIV-04 / D-07). download.PullModel HEAD-verifies size/etag then streams +
+// download.PullModel HEAD-verifies size/etag then streams +
 //     SHA256-verifies + size-checks + atomically renames, so a half-written/unverified
-//     GGUF is never trusted on disk (T-19-06).
+// GGUF is never trusted on disk.
 //
 //   - the two memory service names started after inference + Open WebUI (Qdrant first
 //     so embed/OWUI peers can reach it, embed after its GGUF is staged — Pitfall 4).
@@ -43,7 +43,7 @@ import (
 // drift (Pitfall 3).
 
 // nomicEmbedShard is the pinned nomic-embed-text-v1.5 Q8_0 GGUF pre-staged into the
-// villa-models volume at install (D-07 pre-stage source; PRIV-04 zero runtime download).
+// villa-models volume at install (pre-stage source; zero runtime download).
 //
 // Provenance: HuggingFace HEAD 2026-06-09 — SizeBytes is X-Linked-Size, SHA256 is the
 // git-LFS oid (X-Linked-Etag, NOT the CDN/Xet chunk ETag — catalog.Shard doc, Pitfall 2).
@@ -70,7 +70,7 @@ const qdrantServiceName = "villa-qdrant.service"
 // embedServiceName is the systemd service the villa-embed .container generates
 // (Quadlet maps villa-embed.container → villa-embed.service). It is started AFTER
 // villa-qdrant and AFTER its GGUF is pre-staged on disk (Pitfall 4) so the embeddings
-// llama-server comes up against a present `-m` file (zero runtime download, PRIV-04).
+// llama-server comes up against a present `-m` file (zero runtime download).
 const embedServiceName = "villa-embed.service"
 
 // embedModelPath is the on-disk path of the pre-staged embed GGUF inside the models
@@ -84,7 +84,7 @@ func embedModelPath(modelsDir string) string {
 // disk AND is intact (the ensureEmbedModel idempotency guard — a present file is never
 // re-pulled, strictly-local). It is the live wiring for the embedModelPresent seam.
 //
-// IN-03 integrity guard: presence requires the on-disk size to MATCH
+// integrity guard: presence requires the on-disk size to MATCH
 // nomicEmbedShard.SizeBytes. A present-but-truncated/tampered file (e.g. a leftover from
 // a kill between rename steps, or manual tampering) would otherwise be treated as
 // "present, never re-pulled" and villa-embed would crash-loop on the bad weight. A size
@@ -104,10 +104,10 @@ func liveEmbedModelPresent(modelsDir string) bool {
 
 // liveEnsureEmbedModel pre-stages nomicEmbedShard into modelsDir via the verified
 // downloader the `model pull`/`model swap` path uses (the pullFn seam), wrapping the
-// shard in a single-shard CatalogModel (D-07). It creates the models dir 0700 first
+// shard in a single-shard CatalogModel. It creates the models dir 0700 first
 // (mirroring liveInstallDeps.ensureModel). download.PullModel does the HEAD size/etag
 // verify → stream → SHA256 + size check → atomic rename, so a half-written or
-// unverified GGUF is never left on disk (T-19-06). It is invoked only when memory is
+// unverified GGUF is never left on disk. It is invoked only when memory is
 // on, not dry-run, and the file is absent.
 func liveEnsureEmbedModel(modelsDir string) error {
 	if mkErr := os.MkdirAll(modelsDir, 0o700); mkErr != nil {
@@ -119,7 +119,7 @@ func liveEnsureEmbedModel(modelsDir string) error {
 
 // liveLoadedConfig returns the PERSISTED config.LoadVilla() so runInstall can SEED cfg
 // from the user's on-disk config (preserving their memory/dashboard/chat fields) rather
-// than the always-default DefaultVillaConfig() seed (WR-02). A load error fails SOFT to
+// than the always-default DefaultVillaConfig seed. A load error fails SOFT to
 // typed defaults: an unreadable/absent config yields the same loopback dashboard/chat +
 // memory-off defaults the DefaultVillaConfig() seed gave, so a first-install host is
 // byte-for-byte unchanged, while a host WITH a persisted config has its customizations
@@ -136,7 +136,7 @@ func liveLoadedConfig() config.VillaConfig {
 // AUTHORITATIVE memory gate source threaded into runInstall (NOT the DefaultVillaConfig()
 // seed, which is false by construction). A config load error fails SOFT to false so a
 // broken config never silently enables the memory stack (an opted-in user must have a
-// readable config). This is the exact fix for the silent-failure risk (T-19-16): the gate
+// readable config). This is the exact fix for the silent-failure risk: the gate
 // reflects the user's opt-in, not the seed's hard-coded false.
 func liveLoadedMemoryEnabled() bool {
 	c, err := config.LoadVilla()
@@ -146,8 +146,8 @@ func liveLoadedMemoryEnabled() bool {
 	return c.MemoryEnabled
 }
 
-// warnRecallEmbeddingSkew is the Phase-23 D-10/D-11 read-only WARN surface for the
-// install memory readiness flow (CTRL-05, T-23-18): when the recall-state stamp
+// warnRecallEmbeddingSkew is the Phase-23 read-only WARN surface for the
+// install memory readiness flow (CTRL-05): when the recall-state stamp
 // records an embedding identity that CONFIDENTLY diverges from the configured one,
 // print a WARN naming both identities, the consequence, and the remediation — and
 // do NOTHING else. Never a block (the caller's exit code is untouched), never a
@@ -172,12 +172,12 @@ func warnRecallEmbeddingSkew(errOut io.Writer, cfg config.VillaConfig, readRecal
 		st.EmbeddingModel, st.EmbeddingDim, cfg.EmbeddingModel, cfg.EmbeddingDim)
 }
 
-// --- Memory-stack readiness proof (Task 2 / D-09, SC#2/SC#3) -----------------
+// --- Memory-stack readiness proof (Task 2) -----------------
 //
 // The proof asserts the memory stack is honestly healthy BEFORE install declares
 // success: an OFFLINE 768-length /v1/embeddings vector (the embedder serves the
 // pre-staged GGUF with no runtime download) AND a Qdrant writable round-trip (PUT +
-// DELETE a 768-dim probe collection — /readyz alone is insufficient for SC#2). A FAIL
+// DELETE a 768-dim probe collection — /readyz alone is insufficient for). A FAIL
 // refuses-with-remediation (the caller returns exitBlocked), NEVER a silent skip or a
 // false-green (honesty-by-construction). It mirrors the installReadiness verdict shape.
 
@@ -192,7 +192,7 @@ type memoryProof struct {
 
 // memoryProofInput carries the resolved memory addresses/ports/model/dim the proof
 // probes (from the persisted config — container-DNS names on villa.network + the pinned
-// 768 dim). Values are config-resolved, never shell-interpolated (T-19-10).
+// 768 dim). Values are config-resolved, never shell-interpolated.
 type memoryProofInput struct {
 	embedAddr    string
 	embedPort    int
@@ -237,21 +237,21 @@ func evalMemoryProof(_ context.Context, embedProbe func() (gotDim int, err error
 }
 
 // memoryProofNetwork is the podman network the proof reaches the container-DNS-only
-// memory services over (villa-embed / villa-qdrant publish NO host port — SC#4/PRIV-01).
+// memory services over (villa-embed / villa-qdrant publish NO host port).
 // It matches orchestrate's NetworkName (the Quadlet villa.network unit's NetworkName=villa);
 // a config-value name, not a backend image/device literal, so it stays seam-clean.
 const memoryProofNetwork = "villa"
 
 // villaProbeCollection is the throwaway 768-dim Qdrant collection the writable round-trip
-// creates and deletes — proving the named volume is writable by the container UID (SC#2),
+// creates and deletes — proving the named volume is writable by the container UID,
 // leaving no stray state behind.
 const villaProbeCollection = "villa-probe"
 
 // liveMemoryProof is the production proof seam: it reaches the container-DNS-only
 // villa-embed / villa-qdrant over villa.network via a one-shot `podman run --rm --network
-// villa` curl (no host port is opened — T-19-11), sourcing the helper image from the
+// villa` curl (no host port is opened), sourcing the helper image from the
 // orchestrate accessor (EmbedImage(), which ships curl) rather than a re-typed image
-// literal (T-19-10, keeps TestSeamGrepGate green). Every podman/curl arg is FIXED; the
+// literal (keeps TestSeamGrepGate green). Every podman/curl arg is FIXED; the
 // JSON body is a constant and the model id is config-resolved, never shell-interpolated.
 func liveMemoryProof(ctx context.Context, in memoryProofInput) memoryProof {
 	helperImage := orchestrate.EmbedImage()
@@ -291,7 +291,7 @@ func liveMemoryProof(ctx context.Context, in memoryProofInput) memoryProof {
 
 	// qdrantProbe asserts /readyz then (DELETE-)PUT + DELETE the probe collection,
 	// delegating the writable round-trip to the pure qdrantWritableProbe so the
-	// idempotency ordering is unit-testable off-hardware (WR-03).
+	// idempotency ordering is unit-testable off-hardware.
 	qdrantProbe := func() (bool, error) {
 		base := fmt.Sprintf("http://%s:%d", in.qdrantAddr, in.qdrantPort)
 		curl := func(args ...string) ([]byte, error) { return runProbeCurl(ctx, helperImage, args...) }
@@ -308,12 +308,12 @@ type probeCurlFn func(args ...string) ([]byte, error)
 
 // qdrantWritableProbe is the PURE Qdrant writable round-trip (unit-testable via an
 // injected probeCurlFn): assert /readyz, then prove the named volume is writable by
-// creating the probe collection and deleting it. It is IDEMPOTENT (WR-03): it issues a
+// creating the probe collection and deleting it. It is IDEMPOTENT: it issues a
 // best-effort DELETE of any STALE probe collection BEFORE the PUT-create, so a leftover
 // villa-probe collection from an interrupted prior run (whose cleanup DELETE never ran)
 // can NOT make the create return a non-2xx and hard-block install on a perfectly writable
 // Qdrant. The pre-DELETE result is intentionally ignored (a no-op on a clean store). Every
-// curl invocation is fixed-arg (no shell interpolation, T-19-10).
+// curl invocation is fixed-arg (no shell interpolation).
 func qdrantWritableProbe(curl probeCurlFn, base string, embeddingDim int) (bool, error) {
 	if _, err := curl("-sf", base+"/readyz"); err != nil {
 		return false, fmt.Errorf("/readyz: %w", err)
@@ -328,7 +328,7 @@ func qdrantWritableProbe(curl probeCurlFn, base string, embeddingDim int) (bool,
 	if err != nil {
 		return false, err
 	}
-	// Idempotency (WR-03): clear any stale leftover collection first (best-effort).
+	// Idempotency: clear any stale leftover collection first (best-effort).
 	_, _ = curl("-sf", "-X", "DELETE", coll)
 	if _, err := curl(
 		"-sf", "-X", "PUT", coll,
@@ -344,10 +344,10 @@ func qdrantWritableProbe(curl probeCurlFn, base string, embeddingDim int) (bool,
 }
 
 // runProbeCurl runs `podman run --rm --network villa <helperImage> curl <args...>` as a
-// FIXED-ARG exec (never a shell, T-19-10) and returns curl's stdout. The helper image is
+// FIXED-ARG exec (never a shell) and returns curl's stdout. The helper image is
 // sourced from the orchestrate accessor (no re-typed image literal). --entrypoint curl
 // runs curl from inside the network so the container-DNS-only services are reachable
-// WITHOUT opening a host port (T-19-11).
+// WITHOUT opening a host port.
 func runProbeCurl(ctx context.Context, helperImage string, curlArgs ...string) ([]byte, error) {
 	args := []string{
 		"run", "--rm",
@@ -374,7 +374,7 @@ func runProbeCurl(ctx context.Context, helperImage string, curlArgs ...string) (
 // villa --entrypoint curl <helperImage> curl <args...>` and additionally returns the numeric
 // process exit code. podman propagates the container process's (curl's) exit code, so callers
 // can distinguish a curl CONNECTION/TIMEOUT failure (6/7/28 — a genuine block) from an
-// infrastructure failure where the container never started or curl was absent (WR-01: "the
+// infrastructure failure where the container never started or curl was absent ("the
 // host was blocked" vs "the probe could not run").
 //
 // The exit code is extracted via errors.As on *exec.ExitError. When the container could not be
@@ -404,7 +404,7 @@ func runProbeCurlCode(ctx context.Context, helperImage string, curlArgs ...strin
 	return out.Bytes(), code, runErr
 }
 
-// extractExitCode is the load-bearing WR-01 exit-code mapping pulled out of runProbeCurlCode so
+// extractExitCode is the load-bearing exit-code mapping pulled out of runProbeCurlCode so
 // it can be anchored by a real-exec test (the full podman-run helper is not driveable off-
 // hardware). It is the SINGLE point that decides "this is a genuine process exit code" vs "the
 // process never started" — the distinction the egress negative control's honesty rests on:

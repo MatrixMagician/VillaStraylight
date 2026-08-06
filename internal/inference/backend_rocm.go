@@ -11,21 +11,22 @@ import (
 // grep gate (seam_test.go) keeps these imperative ROCm literals out of every caller,
 // and the positive TestROCmMarkerPresence asserts the ROCm0/HSA/kfd markers stay HERE.
 //
-// It is a delta over the Vulkan backend (D-09): same mandatory llama-server flags,
+// It is a delta over the Vulkan backend: same mandatory llama-server flags,
 // same loopback host-publish, same read-only model bind — only the image, the device
 // args, the render group, and the ROCm env differ. ContainerArgs is encoded ONLY in
 // Phase 6 (no unit is rendered or run here — render is Phase 7, run is Phase 8).
 
 // The three digest-pinned kyuz0 Strix-Halo ROCm images this seam can select (CLAUDE.md
 // prescribed; RESEARCH §Package Legitimacy Audit: same provenance as the audited Vulkan
-// image — pin the digest, Pitfall 12 / T-6-04 / T-12-01: the rolling tag is silently
+// image — pin the digest, Pitfall 12 / T-6-04 /: the rolling tag is silently
 // rebuilt by kyuz0, the @sha256 digest is not). NEVER the ROCm nightlies tag — it carries
-// the 64 GB allocation-cap bug that blocks large models (D-07; CLAUDE.md "What NOT to Use").
+// the 64 GB allocation-cap bug that blocks large models (CLAUDE.md "What NOT to Use").
 //
 //   - rocmImage724:     the stable ROCm 7.2.4 image — what BackendFor("rocm") still means
-//     (D-02 coexistence, byte-unchanged from v1.1). Resolved on the dev box 2026-06-05.
-//   - rocmImage644:     the TG-tuned ROCm 6.4.4 image (D-05); re-verified live 2026-06-07.
-//   - rocmImage644wmma: the rocWMMA variant of 6.4.4 (D-04/D-05); re-verified 2026-06-07.
+//
+// (coexistence, byte-unchanged from v1.1). Resolved on the dev box 2026-06-05.
+// - rocmImage644: the TG-tuned ROCm 6.4.4 image; re-verified live 2026-06-07.
+// - rocmImage644wmma: the rocWMMA variant of 6.4.4; re-verified 2026-06-07.
 //
 // Both 6.4.4 digests were re-confirmed read-only via
 // `skopeo inspect --no-tags docker://docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-6.4.4[-rocwmma]`
@@ -37,7 +38,7 @@ const (
 	rocmImage644wmma = "docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-6.4.4-rocwmma@sha256:9a97129af2c1a2f0080f234787f6978551a43e354f3eb26a8ebc868f643c0141"
 )
 
-// backendROCm is the ROCm (HIP) Backend implementation, parameterized by image (D-06):
+// backendROCm is the ROCm (HIP) Backend implementation, parameterized by image:
 // the proven 7.2.4 delta — kfd+dri device passthrough, keep-groups, seccomp, loopback
 // host-publish, read-only model bind, ordered HSA/HIPBLASLT env, and the ResidencyProof
 // markers — is shared ROCm-family behaviour; only the digest (and the reported Name)
@@ -60,18 +61,18 @@ func (b backendROCm) Name() string { return b.name }
 func (b backendROCm) Image() string { return b.image }
 
 // ContainerArgs renders the full `podman run` argument slice for one ROCm run. It is
-// a DELTA over backendVulkan.ContainerArgs (D-09): in addition to the shared /dev/dri
+// a DELTA over backendVulkan.ContainerArgs: in addition to the shared /dev/dri
 // device, the keep-groups rootless detail, the seccomp minimum, the loopback host
 // publish, the read-only model bind, and the mandatory llama-server flags, ROCm adds:
 //
 //   - "--device", "/dev/kfd"   — the AMD KFD compute device the HIP runtime opens
 //     (in addition to the /dev/dri render node both backends need).
-//   - ordered env "HSA_OVERRIDE_GFX_VERSION=11.5.1" THEN "ROCBLAS_USE_HIPBLASLT=1" —
+//   - ordered env "HSA_OVERRIDE_GFX_VERSION=11.5.1" THEN "ROCBLAS_USE_HIPBLASLT=1"
 //     the gfx1151 HSA override (required for ROCm to target RDNA 3.5) and the hipBLASLt
 //     opt-in (the long-context throughput win). Order is preserved deliberately.
 //
 // The model name is the catalog-resolved file joined onto the container models dir;
-// it is passed as a fixed exec arg, never interpolated into a shell string (T-02-08).
+// it is passed as a fixed exec arg, never interpolated into a shell string.
 func (b backendROCm) ContainerArgs(spec RunSpec) []string {
 	hostPublish := fmt.Sprintf("%s:%d:%d", hostPublishAddr, serverPort, serverPort)
 	modelBind := fmt.Sprintf("%s:%s:ro,z", spec.ModelsDir, containerModelsDir)
@@ -103,15 +104,15 @@ func (b backendROCm) ContainerArgs(spec RunSpec) []string {
 		"--port", fmt.Sprintf("%d", serverPort),
 	}
 	args = append(args, llamaServerFlags...)
-	// ROCm symmetry (D-01): the IDENTICAL coding-mode delta as the Vulkan backend,
+	// ROCm symmetry: the IDENTICAL coding-mode delta as the Vulkan backend,
 	// rendered through the shared seam helper so both backends emit --jinja / sampling /
-	// --cache-reuse behind the seam. nil ⇒ byte-identical off path (D-02).
+	// --cache-reuse behind the seam. nil ⇒ byte-identical off path.
 	args = appendCodingModeArgs(args, spec.CodingMode)
 	return args
 }
 
 // ResidencyProof returns the ROCm log/journal markers the offload-assert keys on
-// (D-04/D-05) — the ROCm analog of the Vulkan descriptor. The parameterized scrapes
+// — the ROCm analog of the Vulkan descriptor. The parameterized scrapes
 // (offload.go, running_offload.go) consume these without re-rolling the offload math:
 //   - DeviceToken "ROCm0" — the load_tensors buffer-line device token (per Pitfall 2
 //     it must NOT match "ROCm_Host"; the strings.Contains match stays exact enough).

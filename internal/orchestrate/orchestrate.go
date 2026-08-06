@@ -56,11 +56,11 @@ type RenderInput struct {
 	HostVillaPath string
 
 	// CodingMode is the OPTIONAL pre-translated coding-mode render descriptor
-	// (CMODE-01, D-05). nil ⇒ the off path: Render leaves spec.CodingMode nil and the
-	// rendered unit is byte-identical to v1.3 (D-02). Non-nil ⇒ Render sets
+	// nil ⇒ the off path: Render leaves spec.CodingMode nil and the
+	// rendered unit is byte-identical to v1.3. Non-nil ⇒ Render sets
 	// spec.CodingMode and overrides spec.ContextLen with CoderAgentCtx (the single -c,
 	// Pitfall 1). The CALLER (Plan-02 live wiring) resolves the coder catalog entry once
-	// and translates catalog.AgentSampling → inference.Sampling, so the pure renderer —
+	// and translates catalog.AgentSampling → inference.Sampling, so the pure renderer
 	// and internal/inference — never import internal/catalog (clean dependency direction).
 	CodingMode *inference.CodingModeSpec
 	// CoderAgentCtx is the resolved agent context the coder unit is rendered with. Used
@@ -71,7 +71,7 @@ type RenderInput struct {
 
 // Plan is the result of a Reconcile: the rendered units whose on-disk hash differs
 // (or are absent) versus those already identical on disk. An empty Changed slice is
-// a true no-op (CLI-01 idempotency core).
+// a true no-op (idempotency core).
 type Plan struct {
 	// Changed are units that must be (re)written — absent or hash-mismatched on disk.
 	Changed []Unit

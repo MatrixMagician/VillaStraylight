@@ -41,7 +41,7 @@ import (
 const proveTimeout = 5 * time.Minute
 
 // busySampleInterval is how often liveProve re-reads detect.GPUBusyPercent() DURING
-// the generation probe (D-07 / Assumption A2): a single post-probe read can miss a
+// the generation probe (Assumption A2): a single post-probe read can miss a
 // short decode's busy window, so the prove samples repeatedly while tokens stream and
 // keeps the max.
 const busySampleInterval = 100 * time.Millisecond
@@ -56,14 +56,15 @@ const busySampleInterval = 100 * time.Millisecond
 //	(c) residency proof via inference.RunningOffloadVerdict fed the target backend's
 //	    BackendFor(target).ResidencyProof() markers + the SAME concrete liveWeightBytes
 //	    / liveModelFile seams status.go uses, with detect.GPUBusyPercent() sampled
-//	    DURING the decode (D-07).
+//
+// DURING the decode.
 //
 // It maps ONLY inference.StatusPass to backendswap.ProveStatusPass; any other verdict
-// (including ready+health-200-but-residency-FAIL, SC#3) is a "fail" → the core rolls
+// (including ready+health-200-but-residency-FAIL) is a "fail" → the core rolls
 // back. All ROCm/HSA/fault markers stay behind ResidencyProof() — this function is
 // literal-free of them.
 func liveProve(ctx context.Context, target string) backendswap.ProveVerdict {
-	// Resolve the backend fail-closed (D-02): an unknown target is a prove fail, never
+	// Resolve the backend fail-closed: an unknown target is a prove fail, never
 	// a silent fallback. backend.ResidencyProof() is the ONLY source of backend markers.
 	backend, err := inference.BackendFor(target)
 	if err != nil {
@@ -106,7 +107,7 @@ func liveProve(ctx context.Context, target string) backendswap.ProveVerdict {
 	}
 
 	// (b) REAL generation probe, with the live gpu_busy_percent sampled DURING the
-	// decode window (D-07 / Assumption A2 / Open Question 3). Start the probe in a
+	// decode window (Assumption A2 / Open Question 3). Start the probe in a
 	// goroutine and poll detect.GPUBusyPercent() repeatedly while tokens stream, keeping
 	// the max — a single post-probe read can miss a short decode's busy window.
 	chatCh := make(chan inference.ChatResult, 1)
@@ -167,7 +168,7 @@ sampleLoop:
 	})
 
 	// Map ONLY a true StatusPass to ProveStatusPass; everything else (FAIL/WARN, incl.
-	// ready+200-but-residency-FAIL) is a fail → the core rolls back (SC#3).
+	// ready+200-but-residency-FAIL) is a fail → the core rolls back.
 	if v.Status == inference.StatusPass {
 		return backendswap.ProveVerdict{Status: backendswap.ProveStatusPass, Detail: v.Detail}
 	}
@@ -238,7 +239,7 @@ func runBackendShow(cmd *cobra.Command, asJSON bool) int {
 		fmt.Fprintf(errOut, "backend show: load config: %v\n", err)
 		return exitBlocked
 	}
-	// Active backend = cfg.Backend (source of truth); resolve fail-closed (D-02). The
+	// Active backend = cfg.Backend (source of truth); resolve fail-closed. The
 	// resolver normalizes the empty string to the default ROCm backend; report the
 	// resolved Name() so the empty-config default surfaces as "rocm".
 	backend, err := inference.BackendFor(cfg.Backend)
@@ -391,7 +392,7 @@ func liveBackendSwapDeps() *backendswap.Deps {
 				return false, "catalog load failed"
 			}
 			// Memory inputs from the PRESERVED config threaded into the closure
-			// (D-01): the backend-swap fit gate sees the same shrunken envelope.
+			// the backend-swap fit gate sees the same shrunken envelope.
 			rec := recommend.Pick(detect.Probe(), cat, recommend.Overrides{Model: cfg.Model},
 				recommend.MemoryInputs{Enabled: cfg.MemoryEnabled, EmbeddingModel: cfg.EmbeddingModel},
 				webSearchInputsFrom(cfg))
@@ -400,16 +401,16 @@ func liveBackendSwapDeps() *backendswap.Deps {
 			}
 			return false, fmt.Sprintf("needs %d bytes vs %d usable", rec.TotalBytes, rec.UsableEnvelopeBytes)
 		},
-		// PreflightROCm: meaningful only for a ROCm-family target (D-08). For any non-ROCm
+		// PreflightROCm: meaningful only for a ROCm-family target. For any non-ROCm
 		// backend this short-circuits ok=true (zero side effects). For a ROCm-family backend
 		// it resolves the target image and runs the ROCm preflight against the REAL digest,
-		// refusing on the FIRST StatusFail with that check's Detail as the remediation (SC#2).
+		// refusing on the FIRST StatusFail with that check's Detail as the remediation.
 		PreflightROCm: func(cfg config.VillaConfig) (bool, string) {
 			if !inference.IsROCmFamily(cfg.Backend) {
 				return true, ""
 			}
 			// Resolve the target backend so the policy gate evaluates the ACTUAL
-			// digest against imageDeny (SC#2). Fail-closed on an unknown name.
+			// digest against imageDeny. Fail-closed on an unknown name.
 			b, err := inference.BackendFor(cfg.Backend)
 			if err != nil {
 				return false, err.Error()

@@ -98,7 +98,7 @@ func TestHandleMetricsIdle(t *testing.T) {
 	}
 }
 
-// TestHandleMetricsSlotsFailedActivityUnknown is the WR-01 guard: when /metrics succeeds
+// TestHandleMetricsSlotsFailedActivityUnknown is the guard: when /metrics succeeds
 // but /slots fails AND requests_processing==0, the view must NOT claim a confident "Idle".
 // ActivityKnown is false (the UI renders "Activity unknown") and Idle stays false, because
 // the snapshot cannot distinguish idle from generating-between-requests.
@@ -124,10 +124,10 @@ func TestHandleMetricsSlotsFailedActivityUnknown(t *testing.T) {
 		t.Errorf("SlotsKnown=true on a failed /slots scrape, want false")
 	}
 	if v.ActivityKnown {
-		t.Errorf("ActivityKnown=true with /slots unavailable and requests_processing==0, want false (WR-01)")
+		t.Errorf("ActivityKnown=true with /slots unavailable and requests_processing==0, want false")
 	}
 	if v.Idle {
-		t.Errorf("Idle=true asserted without slot corroboration — must degrade to Unknown, not a confident Idle (WR-01)")
+		t.Errorf("Idle=true asserted without slot corroboration — must degrade to Unknown, not a confident Idle")
 	}
 }
 
@@ -157,7 +157,7 @@ func TestHandleMetricsSlotsFailedButGeneratingKnown(t *testing.T) {
 	}
 }
 
-// TestHandleMetricsUnavailable is the D-11 guard: a 404/transport-error collector marks
+// TestHandleMetricsUnavailable is the guard: a 404/transport-error collector marks
 // the panel Available=false with NO fabricated zeros presented as a real rate.
 func TestHandleMetricsUnavailable(t *testing.T) {
 	cfg := metricsConfig(t)
@@ -186,7 +186,7 @@ func TestHandleMetricsUnavailable(t *testing.T) {
 
 // TestHandleGPUMemoryFirst asserts GET /api/gpu returns the unified-memory used/envelope
 // headline (from the injected memory readers) and a busy% that is typed-Unknown
-// (Available=false) when the reader returns Unknown — never a fabricated number (D-06).
+// (Available=false) when the reader returns Unknown — never a fabricated number.
 func TestHandleGPUMemoryFirst(t *testing.T) {
 	cfg := metricsConfig(t)
 	cfg.MemUsed = func() detect.Bytes { return detect.KnownBytes(21<<30, "test") }

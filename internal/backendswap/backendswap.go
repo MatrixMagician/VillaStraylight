@@ -1,7 +1,7 @@
 // Package backendswap is the pure, Deps-injected transactional core for
 // `villa backend set`: the capture→mutate→prove→rollback state-machine that a
 // backend switch on a RUNNING install must go through so a failed or degraded
-// switch is a no-op to the running stack (Phase 8 SC#2/SC#3, BSET-01/BSET-02).
+// switch is a no-op to the running stack (Phase 8, BSET-01/BSET-02).
 //
 // It clones the proven `internal/modelswap` forward skeleton (fit-guard FIRST,
 // persist-before-unit-work, restart-inference-only) and wraps it in a
@@ -43,7 +43,7 @@ const ProveStatusPass = "pass"
 type ProveVerdict struct {
 	// Status is the prove outcome. The cutover succeeds ONLY when Status equals
 	// ProveStatusPass; any other value (including a ready+health-200-but-residency-FAIL
-	// verdict) triggers rollback — is-active/health-200 alone is NEVER success (SC#3).
+	// verdict) triggers rollback — is-active/health-200 alone is NEVER success.
 	Status string
 	// Detail is the human explanation carried into the Result on a non-pass verdict.
 	Detail string
@@ -163,7 +163,7 @@ func Run(d Deps, target string) Result {
 
 	// (3) ROCm preflight gate (BSET-01). The gate MUST see the TARGET backend: the live
 	// seam short-circuits ok=true unless cfg.Backend=="rocm", and a same-backend target is
-	// already a NoOp above — so passing the source cfg (CR-08-01) left preflight.RunROCm
+	// already a NoOp above — so passing the source cfg (01) left preflight.RunROCm
 	// permanently dead on a vulkan→rocm switch, silently skipping the kernel/firmware/
 	// HSA-override safety checks. Pass a snapshot pinned to target (VillaConfig is a flat
 	// value type). A not-ok refuses-with-remediation, zero side effects.
@@ -244,7 +244,7 @@ func Run(d Deps, target string) Result {
 
 	// (6) PROVE the cutover against the already-running server. Switch ONLY on
 	// ProveStatusPass; ANY other verdict (including ready+health-200-but-residency-FAIL,
-	// SC#3) rolls back verbatim — is-active/200 alone is never success.
+	// rolls back verbatim — is-active/200 alone is never success.
 	v := d.Prove(context.Background(), target)
 	if v.Status != ProveStatusPass {
 		return rolledBack("prove", v.Detail, nil, v)

@@ -33,7 +33,7 @@ import (
 const savedReportSchemaVersion = 1
 
 // SavedReportSchemaVersion exposes the bench store's OWN saved-report schema
-// version to the Phase-16 backup manifest (D-09). The const stays unexported (it
+// version to the Phase-16 backup manifest. The const stays unexported (it
 // is the store's private contract self-version); this one-line accessor is the
 // only reader-of-record outside this package, so the manifest's BenchSchemaVersion
 // field can never silently desync from the store's actual schema. No behaviour
@@ -41,7 +41,7 @@ const savedReportSchemaVersion = 1
 func SavedReportSchemaVersion() int { return savedReportSchemaVersion }
 
 // storeFileMode / storeDirMode are the owner-only modes the live append writer (Plan
-// 02) enforces on the JSONL store and its dir (T-14-01/T-14-02 info-disclosure
+// 02) enforces on the JSONL store and its dir (info-disclosure
 // mitigation). They ship here with the path resolver so the contract owns them.
 const (
 	storeFileMode os.FileMode = 0o600
@@ -54,7 +54,7 @@ const (
 //
 // It persists ONLY numeric timings + the reproducible spec (including the FIXED
 // benchPrompt constant) + the host fingerprint — NEVER user prompt text or model
-// response content (T-14-02).
+// response content.
 type SavedReport struct {
 	// CapturedAt is the RFC3339 capture timestamp (stamped from Deps.Now if empty).
 	CapturedAt string `json:"captured_at"`
@@ -152,7 +152,7 @@ func Marshal(r SavedReport) ([]byte, error) {
 
 // Comparable reports whether two fingerprints describe the same measurement subject
 // so a delta between them is meaningful. Two reports are comparable iff Model AND
-// Quant AND Ctx AND HostGfxID all match. Backend is DELIBERATELY NOT a blocker —
+// Quant AND Ctx AND HostGfxID all match. Backend is DELIBERATELY NOT a blocker
 // comparing the SAME model on different backends is the intended use (BENCH-04).
 //
 // An UNKNOWN host (HostGfxID == "") makes the pair NOT comparable even against an
@@ -250,7 +250,7 @@ func Append(d Deps, r SavedReport) error {
 }
 
 // scanBufferMax bounds the per-line scanner buffer so a pathological store line can
-// never exhaust memory (T-14-03 DoS mitigation).
+// never exhaust memory (DoS mitigation).
 const scanBufferMax = 1 << 20 // 1 MiB per line
 
 // Load reads the store via the seam and parses every JSONL line into a SavedReport.

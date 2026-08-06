@@ -4,10 +4,11 @@ import "github.com/spf13/cobra"
 
 // Global persistent flags shared by all villa subcommands.
 //
-//	jsonOut — emit the structured --json contract (the Phase 5 dashboard struct, D-05).
-//	verbose — -v/--verbose: show per-value provenance (which tool/sysfs path, D-08).
-//	force   — reserved for plan 03's preflight override (D-01/D-03); registered now so
-//	          the flag surface is stable from day one.
+// jsonOut — emit the structured --json contract (the Phase 5 dashboard struct).
+// verbose — -v/--verbose: show per-value provenance (which tool/sysfs path).
+// force — reserved for plan 03's preflight override; registered now so
+//
+//	the flag surface is stable from day one.
 var (
 	jsonOut bool
 	verbose bool

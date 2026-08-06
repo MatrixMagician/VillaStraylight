@@ -62,7 +62,7 @@ func TestCPUModelDegradesToUnknown(t *testing.T) {
 	}
 }
 
-// TestCPUModelScanErrorIsLabelled asserts WR-05 for the CPU reader, matching
+// TestCPUModelScanErrorIsLabelled asserts for the CPU reader, matching
 // what memAvailableBytes already guarantees: an I/O failure mid-read is
 // reported as a read error, not mislabelled as a missing field.
 func TestCPUModelScanErrorIsLabelled(t *testing.T) {

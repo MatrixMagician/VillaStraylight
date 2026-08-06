@@ -1,5 +1,5 @@
 // Package inference is the backend-neutral seam for running llama-server and
-// proving GPU offload for VillaStraylight (INF-01/INF-03, D-03/D-09).
+// proving GPU offload for VillaStraylight.
 //
 // It answers one question — "did llama-server actually offload onto the gfx1151
 // iGPU (not silently fall back to CPU)?" — behind two abstractions:
@@ -20,14 +20,14 @@
 // Every offload signal is a typed-Unknown value (detect.Bool / detect.Bytes): a
 // signal that could not be evaluated (unreadable stderr, missing sysfs file)
 // degrades to WARN, which is DISTINCT from a confidently-false offload (FAIL).
-// This is the anti-silent-CPU-fallback contract (D-09).
+// This is the anti-silent-CPU-fallback contract.
 package inference
 
 import "github.com/MatrixMagician/VillaStraylight/internal/detect"
 
 // Runner abstracts how an llama-server instance is started, stopped, readiness-
 // probed, and how its stderr is captured for the offload log-scrape. The exact
-// method set is intentionally small (D-03): callers depend on this interface, not
+// method set is intentionally small: callers depend on this interface, not
 // on podman/Vulkan specifics, so a future ROCm or Metal backend reuses it.
 type Runner interface {
 	// Start launches the server for the given run spec and returns once the
@@ -49,7 +49,7 @@ type Runner interface {
 
 // Backend abstracts which GPU backend applies: the container image, the mandatory
 // runtime flag set, and the device/group/security args needed to expose the iGPU.
-// It is the seam SC#4 protects — every backend literal lives behind it, never in
+// It is the seam protects — every backend literal lives behind it, never in
 // a caller. The Vulkan RADV implementation is backendVulkan in backend_vulkan.go.
 type Backend interface {
 	// Name is a short backend identifier (e.g. "vulkan") for provenance/--json.
@@ -63,7 +63,7 @@ type Backend interface {
 	// publish literal are assembled.
 	ContainerArgs(spec RunSpec) []string
 	// ResidencyProof returns the backend-owned descriptor of the log/journal markers
-	// the offload-assert keys on (D-04). It keeps every backend marker literal
+	// the offload-assert keys on. It keeps every backend marker literal
 	// (Vulkan0 vs ROCm0, the device-init prefix, the abort fault string) BEHIND the
 	// seam: the start-time scrape (offload.go) and the running scrape
 	// (running_offload.go) are both parameterized by it, so a ROCm backend slots in
@@ -72,7 +72,7 @@ type Backend interface {
 }
 
 // ResidencyMarkers is the backend-owned, log-shape-only descriptor that drives BOTH
-// offload-assert scrape paths (D-04). It carries ONLY the journald/stderr marker
+// offload-assert scrape paths. It carries ONLY the journald/stderr marker
 // literals a backend emits — never runtime signals (the gpu_busy_percent reading is
 // a per-run input on RunningOffloadInput, not a per-backend literal). Each backend
 // file owns its own values; the Vulkan implementation reproduces today's hardcoded
@@ -114,40 +114,40 @@ type RunSpec struct {
 	ModelsDir string
 	// ContextLen is the -c context length llama-server is started with. For coding
 	// mode the render layer sets this to the resolved agent ctx (CoderAgentCtx) so the
-	// SINGLE -c carries the agent context — never a second -c (D-01, Pitfall 1).
+	// SINGLE -c carries the agent context — never a second -c (Pitfall 1).
 	ContextLen int
-	// CodingMode is the OPTIONAL coding-mode render descriptor (CMODE-01, D-01/D-02).
+	// CodingMode is the OPTIONAL coding-mode render descriptor.
 	// nil ⇒ off path BY CONSTRUCTION: ContainerArgs emits exactly the v1.3 base args, so
 	// the existing villa-llama*.container goldens are byte-identical. Non-nil ⇒
 	// ContainerArgs appends the tool-calling delta (--jinja, the sampling preset, and
 	// --cache-reuse 256 gated on CacheReuseSafe) behind the backend seam. Populated only
-	// by orchestrate.Render when cfg.CodingMode is true (D-05).
+	// by orchestrate.Render when cfg.CodingMode is true.
 	CodingMode *CodingModeSpec
 }
 
 // CodingModeSpec is the OPTIONAL tool-calling render delta carried on RunSpec
-// (CMODE-01, D-01/D-02/D-03). It is populated only when coding mode is active; when a
-// RunSpec's CodingMode is nil the rendered unit is byte-identical to v1.3 (D-02). The
+// It is populated only when coding mode is active; when a
+// RunSpec's CodingMode is nil the rendered unit is byte-identical to v1.3. The
 // agent context is NOT a field here — it is delivered via RunSpec.ContextLen =
 // AgentCtx so the single -c carries it (Pitfall 1: never a second -c).
 type CodingModeSpec struct {
-	// Sampling is the catalog-qualified agent sampling preset (D-01). nil ⇒ the
+	// Sampling is the catalog-qualified agent sampling preset. nil ⇒ the
 	// sampling flags are omitted (the --jinja toggle still renders). The orchestrate
 	// layer translates catalog.AgentSampling → inference.Sampling so internal/inference
 	// stays free of an internal/catalog import (clean dependency direction).
 	Sampling *Sampling
-	// CacheReuseSafe gates --cache-reuse 256 (D-03, carried from Phase 24). The Go zero
+	// CacheReuseSafe gates --cache-reuse 256 (carried from Phase 24). The Go zero
 	// value false is the FAIL-CLOSED default: --cache-reuse is appended ONLY when the
 	// catalog entry positively declares cache_reuse_safe=true (build-9496-scoped; the
 	// 24-TOOLBOX-DECISION.md Check 3 re-probe gate fires on any toolbox re-pin).
 	CacheReuseSafe bool
 }
 
-// Sampling is the inference-layer mirror of catalog.AgentSampling (D-01). It is defined
+// Sampling is the inference-layer mirror of catalog.AgentSampling. It is defined
 // HERE (not imported from internal/catalog) so the backend seam stays
 // catalog-independent; the orchestrate layer does the catalog→inference translation.
 // The values are formatted into the llama-server sampling flags inside ContainerArgs
-// (%g for the floats, %d for the int) — typed, never shell-interpolated (T-25-03).
+// (%g for the floats, %d for the int) — typed, never shell-interpolated.
 type Sampling struct {
 	Temperature   float64
 	TopP          float64
@@ -163,7 +163,7 @@ const (
 	// StatusPass means offload was positively proven.
 	StatusPass Status = iota
 	// StatusWarn means offload could not be EVALUATED (unreadable stderr / sysfs),
-	// distinct from a confidently-false offload — surfaces uncertainty (D-09).
+	// distinct from a confidently-false offload — surfaces uncertainty.
 	StatusWarn
 	// StatusFail means offload is positively NOT happening (software renderer,
 	// offloaded 0/N, or a ~zero GTT delta) — the silent-CPU-fallback this exists

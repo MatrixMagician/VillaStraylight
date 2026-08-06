@@ -212,9 +212,9 @@ func TestLoadMalformedFallsBack(t *testing.T) {
 }
 
 // TestLoadSeedCoderEntries asserts the schema-v3 seed ships exactly three
-// role:"coder" entries (CODER-01, D-02), each with an agent-profile context,
+// role:"coder" entries (CODER-01), each with an agent-profile context,
 // a repo@revision template-provenance pin, and a single shard whose URL is
-// revision-pinned (`resolve/{40-hex}` — never `resolve/main/`, T-24-01).
+// revision-pinned (`resolve/{40-hex}` — never `resolve/main/`).
 func TestLoadSeedCoderEntries(t *testing.T) {
 	c, _, err := Load("")
 	if err != nil {
@@ -241,10 +241,10 @@ func TestLoadSeedCoderEntries(t *testing.T) {
 		}
 		wantIDs[m.ID] = true
 		if m.AgentCtx <= 0 {
-			t.Errorf("coder entry %q has agent_ctx %d, want > 0 (D-01/D-04)", m.ID, m.AgentCtx)
+			t.Errorf("coder entry %q has agent_ctx %d, want > 0", m.ID, m.AgentCtx)
 		}
 		if m.TemplateProvenance == "" || !strings.Contains(m.TemplateProvenance, "@") {
-			t.Errorf("coder entry %q template_provenance = %q, want non-empty repo@revision pin (D-02)", m.ID, m.TemplateProvenance)
+			t.Errorf("coder entry %q template_provenance = %q, want non-empty repo@revision pin", m.ID, m.TemplateProvenance)
 		}
 		if len(m.Shards) != 1 {
 			t.Errorf("coder entry %q has %d shards, want exactly 1", m.ID, len(m.Shards))
@@ -252,10 +252,10 @@ func TestLoadSeedCoderEntries(t *testing.T) {
 		}
 		u := m.Shards[0].URL
 		if strings.Contains(u, "/resolve/main/") {
-			t.Errorf("coder entry %q shard URL %q uses /resolve/main/ — must be revision-pinned (D-02, T-24-01)", m.ID, u)
+			t.Errorf("coder entry %q shard URL %q uses /resolve/main/ — must be revision-pinned", m.ID, u)
 		}
 		if !revisionURL.MatchString(u) {
-			t.Errorf("coder entry %q shard URL %q lacks a /resolve/{40-hex}/ revision pin (D-02, T-24-01)", m.ID, u)
+			t.Errorf("coder entry %q shard URL %q lacks a /resolve/{40-hex}/ revision pin", m.ID, u)
 		}
 	}
 	if coders != 3 {
@@ -268,9 +268,9 @@ func TestLoadSeedCoderEntries(t *testing.T) {
 	}
 }
 
-// TestCatalogModelFailClosedDefaults asserts the D-01 fail-closed decode
+// TestCatalogModelFailClosedDefaults asserts the fail-closed decode
 // defaults: a CatalogModel decoded from JSON WITHOUT role / cache_reuse_safe
-// keys yields Role == "" (treated as chat) and CacheReuseSafe == false —
+// keys yields Role == "" (treated as chat) and CacheReuseSafe == false
 // absence never widens capability.
 func TestCatalogModelFailClosedDefaults(t *testing.T) {
 	raw := `{"id":"no-coder-keys","quant":"Q4_K_M","weight_bytes":1000}`
@@ -279,10 +279,10 @@ func TestCatalogModelFailClosedDefaults(t *testing.T) {
 		t.Fatalf("unmarshal minimal entry: %v", err)
 	}
 	if m.Role != "" {
-		t.Errorf("absent role decoded as %q, want \"\" (chat, D-01/D-03)", m.Role)
+		t.Errorf("absent role decoded as %q, want \"\" (chat)", m.Role)
 	}
 	if m.CacheReuseSafe {
-		t.Errorf("absent cache_reuse_safe decoded as true, want false (fail-closed, D-01)")
+		t.Errorf("absent cache_reuse_safe decoded as true, want false (fail-closed)")
 	}
 	if m.AgentSampling != nil {
 		t.Errorf("absent agent_sampling decoded non-nil, want nil")
@@ -290,7 +290,7 @@ func TestCatalogModelFailClosedDefaults(t *testing.T) {
 }
 
 // TestLoadSeedChatEntriesUntouched asserts the pre-existing chat entries gained
-// NO coder keys in the v3 bump (D-03 byte-untouched apart from the two
+// NO coder keys in the v3 bump (byte-untouched apart from the two
 // top-level version bumps).
 func TestLoadSeedChatEntriesUntouched(t *testing.T) {
 	c, _, err := Load("")
@@ -301,23 +301,23 @@ func TestLoadSeedChatEntriesUntouched(t *testing.T) {
 	for _, id := range chatIDs {
 		m, ok := c.FindByID(id)
 		if !ok {
-			t.Errorf("seed missing pre-existing chat entry %q (D-03)", id)
+			t.Errorf("seed missing pre-existing chat entry %q", id)
 			continue
 		}
 		if m.Role != "" {
-			t.Errorf("chat entry %q has role %q, want absent/empty (D-03)", id, m.Role)
+			t.Errorf("chat entry %q has role %q, want absent/empty", id, m.Role)
 		}
 		if m.AgentCtx != 0 {
-			t.Errorf("chat entry %q has agent_ctx %d, want absent/0 (D-03)", id, m.AgentCtx)
+			t.Errorf("chat entry %q has agent_ctx %d, want absent/0", id, m.AgentCtx)
 		}
 		if m.CacheReuseSafe {
-			t.Errorf("chat entry %q has cache_reuse_safe true, want absent/false (D-03)", id)
+			t.Errorf("chat entry %q has cache_reuse_safe true, want absent/false", id)
 		}
 		if m.AgentSampling != nil {
-			t.Errorf("chat entry %q has an agent_sampling block, want absent (D-03)", id)
+			t.Errorf("chat entry %q has an agent_sampling block, want absent", id)
 		}
 		if m.TemplateProvenance != "" {
-			t.Errorf("chat entry %q has template_provenance %q, want absent (D-03)", id, m.TemplateProvenance)
+			t.Errorf("chat entry %q has template_provenance %q, want absent", id, m.TemplateProvenance)
 		}
 	}
 }
@@ -337,7 +337,7 @@ func TestLoadSeedCoderVerifiedDims(t *testing.T) {
 		layers, kv, head, agentCtx, tier int
 		cacheReuse                       bool
 	}{
-		// cache_reuse_safe truth-up (24-04 D-09 / FINDING A3): the on-hardware
+		// cache_reuse_safe truth-up (24-04 / FINDING A3): the on-hardware
 		// probe returned true for ALL THREE entries — for the Next hybrids the
 		// reuse is via DeltaNet recurrent-state context checkpoints (75.376 MiB
 		// snapshots), not n_cache_reuse chunk reuse, but --cache-reuse 256 is
@@ -390,7 +390,7 @@ func TestLoadMissingExternalFallsBack(t *testing.T) {
 
 // TestLoadSchema2ExternalFallsBack asserts an external catalog at the previous
 // schema (2) now warns and falls back to the embedded seed — the v1→v2
-// precedent exercised for 2-vs-3 (D-11, exact-match schema window).
+// precedent exercised for 2-vs-3 (exact-match schema window).
 func TestLoadSchema2ExternalFallsBack(t *testing.T) {
 	path := filepath.Join("testdata", "schema2-catalog.json")
 	c, warnings, err := Load(path)
@@ -450,7 +450,7 @@ func TestLoadSchema3ExternalRoundTrip(t *testing.T) {
 }
 
 // coderDims is the set of KV-cache sizing integers a coder entry must carry as
-// positive values; a test case overrides one to exercise the WR-01/WR-02 guard.
+// positive values; a test case overrides one to exercise the guard.
 type coderDims struct {
 	nLayers, nKVHeads, headDim, kvBytesPerElem int
 }
@@ -492,8 +492,8 @@ func buildCoderCatalog(entryID string, agentCtx int, d coderDims, sampling strin
 }
 
 // TestLoadCoderValidationRefusesNeverClamps asserts the ASVS-V5 control on the
-// external-catalog trust boundary (T-24-02): a role:"coder" entry with
-// agent_ctx <= 0, a non-positive KV dimension (WR-01/WR-02), or out-of-range
+// external-catalog trust boundary: a role:"coder" entry with
+// agent_ctx <= 0, a non-positive KV dimension, or out-of-range
 // sampling values causes the WHOLE external catalog to be refused with a warning
 // naming the offending entry id and a fallback to the embedded seed — values are
 // NEVER silently clamped.
@@ -510,12 +510,12 @@ func TestLoadCoderValidationRefusesNeverClamps(t *testing.T) {
 		doc  string
 	}{
 		{"agent_ctx zero", build(0, goodSamplingJSON)},
-		// WR-01: a zeroed/omitted KV dimension collapses the KV term and must be refused.
+		// a zeroed/omitted KV dimension collapses the KV term and must be refused.
 		{"n_layers zero", buildDims(coderDims{0, 8, 128, 2})},
 		{"n_kv_heads zero", buildDims(coderDims{32, 0, 128, 2})},
 		{"head_dim zero", buildDims(coderDims{32, 8, 0, 2})},
 		{"kv_bytes_per_elem zero", buildDims(coderDims{32, 8, 128, 0})},
-		// WR-02: a negative signed dimension (decodes to a huge uint64) must be refused, not silently saturated.
+		// a negative signed dimension (decodes to a huge uint64) must be refused, not silently saturated.
 		{"n_layers negative", buildDims(coderDims{-1, 8, 128, 2})},
 		{"head_dim negative", buildDims(coderDims{32, 8, -1, 2})},
 		{"temperature above 2", build(32768, `{"temperature": 2.5, "top_p": 0.8, "top_k": 20, "repeat_penalty": 1.05}`)},
@@ -552,7 +552,7 @@ func TestLoadCoderValidationRefusesNeverClamps(t *testing.T) {
 	}
 }
 
-// TestLoadCoderAcceptsGreedyTemperature asserts WR-03: a coder entry with
+// TestLoadCoderAcceptsGreedyTemperature asserts: a coder entry with
 // temperature == 0 (greedy/deterministic decoding — llama.cpp treats temp <= 0
 // as greedy) is now ACCEPTED, not refused. The inclusive lower bound is [0, 2];
 // a hand-authored deterministic coder preset must NOT silently fall the whole

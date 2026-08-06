@@ -345,7 +345,7 @@ func TestLoadSkipsCorruptLine(t *testing.T) {
 // UNSTAMPED zero value (0) is SKIPPED — never returned, never fed into Compare as if
 // it were v1. Only a record stamped with the supported savedReportSchemaVersion (1)
 // survives. This guards the very contract record.golden exists to protect: an unknown
-// schema must not be reinterpreted as the current one (WR-01 fail-closed read path).
+// schema must not be reinterpreted as the current one (fail-closed read path).
 func TestLoadSkipsUnknownSchemaVersion(t *testing.T) {
 	// A supported v1 record (deterministicReport stamps SchemaVersion=1 via the ctor).
 	v1, _ := Marshal(deterministicReport())

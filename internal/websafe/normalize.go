@@ -1,6 +1,6 @@
 package websafe
 
-// normalize.go is the GUARD-02 Unicode-security policy: it defangs the sanitized
+// normalize.go is the Unicode-security policy: it defangs the sanitized
 // text by applying NFKC compatibility folding (fullwidth/compatibility variants ->
 // canonical forms) and stripping the dangerous invisible/zero-width and bidirectional
 // control runes (the "Trojan Source" class) BEFORE the text is classified or fenced,
@@ -40,12 +40,12 @@ var invisibleAndBidi = runes.Predicate(func(r rune) bool {
 // invisibleRemover strips the invisible/bidi rune set. runes.Remove returns a
 // STATELESS Transformer whose .String form holds no shared mutable state, so it is
 // safe to call concurrently — unlike a package-level transform.Chain, whose
-// Reset/Transform mutate internal link buffers and race across goroutines (CR-01).
+// Reset/Transform mutate internal link buffers and race across goroutines.
 var invisibleRemover = runes.Remove(invisibleAndBidi)
 
 // normalize applies the NFKC + invisible/bidi-strip pipeline to s.
 //
-// CONCURRENCY (CR-01): normalize is called from up to Bounds.MaxConcurrent fetch
+// CONCURRENCY: normalize is called from up to Bounds.MaxConcurrent fetch
 // goroutines (websafe.go Load → fetchOne). It uses ONLY the stateless string forms
 // (norm.NFKC.String and runes.Transformer.String via transform.String), so there is
 // NO shared mutable transformer to race on. A package-level transform.Chain is
@@ -53,14 +53,14 @@ var invisibleRemover = runes.Remove(invisibleAndBidi)
 // race detector flagged. norm.NFKC and a freshly-spanning runes Transformer are both
 // documented concurrency-safe.
 //
-// CR-02 invariant (websafe.go:163-214): on a transform error it falls back to the
+// invariant (websafe.go:163-214): on a transform error it falls back to the
 // NFKC-folded input and NEVER returns "" for non-empty input — silently blackholing a
 // real citation's content is the exact bug class the codebase fixed.
 func normalize(s string) string {
 	folded := norm.NFKC.String(s) // stateless, concurrency-safe
 	out, _, err := transform.String(invisibleRemover, folded)
 	if err != nil {
-		return folded // never return "" on error — CR-02 anti-pattern (NFKC-folded fallback)
+		return folded // never return "" on error — anti-pattern (NFKC-folded fallback)
 	}
 	return out
 }

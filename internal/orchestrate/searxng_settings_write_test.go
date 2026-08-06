@@ -5,12 +5,12 @@ package orchestrate
 //   - the written settings.yml / searxng.env bytes equal the pure renders
 //     (RenderSearxngSettings / RenderSearxngSecretEnv) — single source of truth;
 //   - both targets resolve inside the villa searxng config dir (assertInsideDir
-//     traversal guard, T-29-06);
+// traversal guard);
 //   - both files are written 0600 and the dir 0700 — the secret env file holds the
-//     live SEARXNG_SECRET so 0600 is load-bearing (T-29-08 / T-29-14);
+// live SEARXNG_SECRET so 0600 is load-bearing;
 //   - the write is atomic (temp -> fsync -> rename), leaving no .tmp remnant and an
-//     intact prior file on a mid-write failure (T-29-07);
-//   - the resolved dir is the villa config dir, NEVER the systemd unit dir (T-29-09);
+// intact prior file on a mid-write failure;
+// - the resolved dir is the villa config dir, NEVER the systemd unit dir;
 //   - the secret env file's host path equals the host side of SearXNGSecretEnvFilePath()
 //     (the EnvironmentFile= path Plan 01's unit references — cross-plan contract).
 
@@ -109,7 +109,7 @@ func TestWriteSearxngFilesMode(t *testing.T) {
 }
 
 // TestWriteSearxngTraversalRefused proves a name resolving OUTSIDE the searxng config
-// dir is refused before any write (assertInsideDir, T-29-06) — for BOTH writers.
+// dir is refused before any write (assertInsideDir) — for BOTH writers.
 func TestWriteSearxngTraversalRefused(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "villa", "searxng")
 	evil := filepath.Join("..", "..", "escape.yml")
@@ -128,7 +128,7 @@ func TestWriteSearxngTraversalRefused(t *testing.T) {
 
 // TestWriteSearxngAtomicNoTmpRemnant proves the writer leaves no .tmp remnant and an
 // intact prior file: a successful re-write over an existing file yields the new bytes
-// and never an orphaned <name>.tmp (T-29-07, atomic temp -> rename).
+// and never an orphaned <name>.tmp (atomic temp -> rename).
 func TestWriteSearxngAtomicNoTmpRemnant(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "villa", "searxng")
 	name, first, err := RenderSearxngSettings(config.VillaConfig{WebSearchEnabled: true})
@@ -194,7 +194,7 @@ func TestWriteSearxngCreatesDir(t *testing.T) {
 
 // TestSearxngSettingsDirLiveResolver proves the LIVE resolver honors $XDG_CONFIG_HOME
 // (via os.UserConfigDir), joins villa/searxng, and is NEVER the systemd unit dir
-// (Pitfall 1 / T-29-09). It also proves the secret-env host path equals the host side of
+// (Pitfall 1). It also proves the secret-env host path equals the host side of
 // SearXNGSecretEnvFilePath() — the EnvironmentFile= path Plan 01's unit references
 // (cross-plan contract).
 func TestSearxngSettingsDirLiveResolver(t *testing.T) {

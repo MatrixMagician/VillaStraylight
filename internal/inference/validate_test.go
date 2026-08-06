@@ -169,7 +169,7 @@ func TestValidatePassNewLogFormat(t *testing.T) {
 	}
 }
 
-// TestValidateStopsPrimaryBeforeCeiling guards CR-01: the ceiling probe runs a
+// TestValidateStopsPrimaryBeforeCeiling guards: the ceiling probe runs a
 // second container that binds the SAME loopback port as the primary, so the primary
 // MUST be torn down before the ceiling runner is created — otherwise the ceiling's
 // readiness poll hits the still-live primary and false-clears (the bug on-hardware
@@ -182,7 +182,7 @@ func TestValidateStopsPrimaryBeforeCeiling(t *testing.T) {
 	ceilingRan := false
 	in.NewCeilingRunner = func(stress RunSpec) Runner {
 		if !fr.stopped {
-			t.Errorf("ceiling runner created while the primary is still running — they share the loopback port (CR-01)")
+			t.Errorf("ceiling runner created while the primary is still running — they share the loopback port")
 		}
 		ceilingRan = true
 		return &fakeProbeRunner{health: detect.KnownBool(true, "/health")}
@@ -198,14 +198,14 @@ func TestValidateStopsPrimaryBeforeCeiling(t *testing.T) {
 }
 
 // TestValidateCPUFallbackFails: llvmpipe stderr (CPU fallback) with a 200/healthy
-// server → FAIL (D-11: responds-but-on-CPU is a FAIL, not PASS).
+// server → FAIL (responds-but-on-CPU is a FAIL, not PASS).
 func TestValidateCPUFallbackFails(t *testing.T) {
 	fr := &fakeRunner{stderr: readFixture(t, "llvmpipe_fail.stderr")}
 	in := baseInput(t, fr)
 
 	v := Validate(context.Background(), in)
 	if v.Status != StatusFail {
-		t.Fatalf("Validate (CPU fallback, healthy server): Status=%v, want FAIL (D-11)", v.Status)
+		t.Fatalf("Validate (CPU fallback, healthy server): Status=%v, want FAIL", v.Status)
 	}
 }
 
@@ -227,7 +227,7 @@ func TestValidateUnknownOffloadWarns(t *testing.T) {
 }
 
 // TestValidateCeilingCliffWarns: offload passes + chat OK, but the ceiling probe
-// reports an OOM cliff → WARN with the cliff reported (not a crash, D-10).
+// reports an OOM cliff → WARN with the cliff reported (not a crash).
 func TestValidateCeilingCliffWarns(t *testing.T) {
 	fr := &fakeRunner{stderr: readFixture(t, "radv_pass.stderr")}
 	in := baseInput(t, fr)
@@ -279,6 +279,6 @@ func TestValidateChatFailWarns(t *testing.T) {
 
 	v := Validate(context.Background(), in)
 	if v.Status == StatusPass {
-		t.Fatalf("Validate (offload ok but chat failed): Status=PASS, want non-PASS (a PASS requires real tokens, D-11)")
+		t.Fatalf("Validate (offload ok but chat failed): Status=PASS, want non-PASS (a PASS requires real tokens)")
 	}
 }

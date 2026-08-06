@@ -1,11 +1,11 @@
 package websafe
 
-// sanitize.go is the GUARD-02 markup-sanitization policy: it reduces raw fetched
+// sanitize.go is the markup-sanitization policy: it reduces raw fetched
 // HTML to plain, model-readable text by stripping every tag/attribute/script via
 // bluemonday's StrictPolicy (an empty allowlist) and then entity-decoding the result.
 //
 // This REPLACES the Phase-31 hand-rolled extractText stripper (which carried the
-// CR-01 DoS-panic and CR-02 content-swallow bugs on attacker-controlled input).
+// DoS-panic and content-swallow bugs on attacker-controlled input).
 // bluemonday is an audited, allowlist-based, parser-backed sanitizer (built on the
 // Go team's golang.org/x/net/html), so the durable replacement is library-backed.
 //
@@ -28,12 +28,12 @@ var strictPolicy = bluemonday.StrictPolicy()
 // sanitize strips all HTML markup from rawHTML (StrictPolicy = empty allowlist) and
 // entity-decodes the sanitizer's output to plain, model-readable text.
 //
-// bluemonday's StrictPolicy emits HTML ENTITIES (&amp;, &lt;, ...) in its output —
+// bluemonday's StrictPolicy emits HTML ENTITIES (&amp;, &lt;, ...) in its output
 // safe HTML is its job, not plain text — so html.UnescapeString is MANDATORY here
 // (Pitfall 1), otherwise the model would read "&amp;" instead of "&".
 //
 // TrimSpace of an all-markup input legitimately yields "" (there was no text); we
-// never blackhole real content (CR-02 anti-pattern) — for any input carrying visible
+// never blackhole real content (anti-pattern) — for any input carrying visible
 // text the text survives.
 func sanitize(rawHTML string) string {
 	return strings.TrimSpace(html.UnescapeString(strictPolicy.Sanitize(rawHTML)))

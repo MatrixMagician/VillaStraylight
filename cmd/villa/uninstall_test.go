@@ -13,14 +13,14 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 )
 
-// uninstall_test.go drives runUninstall entirely through stubs so the D-11 ordering
+// uninstall_test.go drives runUninstall entirely through stubs so the ordering
 // (down → rm units → daemon-reload → rm volumes → optionally rm models →
 // disable-linger), the keep/remove-models choice, the config-toml-preserved
 // invariant, and the SELinux-boolean-NOT-reverted invariant are all asserted with
 // no live podman/systemd/loginctl host.
 
 // fakeUninstallDeps records the ORDER of every host-touching call so the test can
-// assert the D-11 sequence deterministically, plus counters for keep/remove paths.
+// assert the sequence deterministically, plus counters for keep/remove paths.
 type fakeUninstallDeps struct {
 	*uninstallDeps
 	order []string
@@ -32,12 +32,12 @@ type fakeUninstallDeps struct {
 	lingerOff     bool
 	reverts       int // setsebool revert calls — MUST stay 0
 
-	// Dashboard-service teardown (Plan 05-05 / T-05-18): records the disable seam
+	// Dashboard-service teardown (Plan 05-05): records the disable seam
 	// calls and the dashboard unit file removal.
 	dashDisabled    []string
 	removedDashUnit []string
 
-	// Coding-agent teardown (D-10): records the ALWAYS-removed crush binary + crush.json
+	// Coding-agent teardown: records the ALWAYS-removed crush binary + crush.json
 	// seam calls (each must fire exactly once, idempotently). agentBinErr / crushCfgErr
 	// let a test inject a removal error.
 	agentBinRemoved int
@@ -119,7 +119,7 @@ func sampleUnits() []orchestrate.Unit {
 	}
 }
 
-// TestUninstallOrdering asserts the exact D-11 teardown sequence: stop the service,
+// TestUninstallOrdering asserts the exact teardown sequence: stop the service,
 // remove every generated unit file, daemon-reload, remove non-model volumes, then
 // disable linger — in that order.
 func TestUninstallOrdering(t *testing.T) {
@@ -132,7 +132,7 @@ func TestUninstallOrdering(t *testing.T) {
 		t.Fatalf("expected exit %d, got %d (stderr: %s)", exitPass, code, errOut.String())
 	}
 
-	// The container teardown (D-11) sequence: the CONTAINER stop precedes the first
+	// The container teardown sequence: the CONTAINER stop precedes the first
 	// container unit removal; unit removals precede the container daemon-reload; that
 	// reload precedes volume removal; volume removal precedes linger. The dashboard
 	// teardown (stop/disable/remove + its own reload) runs FIRST and is asserted
@@ -165,8 +165,8 @@ func TestUninstallOrdering(t *testing.T) {
 	}
 }
 
-// TestUninstallTearsDownDashboard (Plan 05-05 / T-05-18): uninstall stops, DISABLES
-// (revokes boot-survival), and removes the native villa-dashboard.service unit file —
+// TestUninstallTearsDownDashboard (Plan 05-05): uninstall stops, DISABLES
+// (revokes boot-survival), and removes the native villa-dashboard.service unit file
 // and does so BEFORE the container teardown (it was started last by install). The
 // .service lives outside the Quadlet generator dir, so it needs explicit removal: a
 // daemon-reload alone would leave a stale enabled unit that re-spawns a listener.
@@ -209,9 +209,9 @@ func TestUninstallTearsDownDashboard(t *testing.T) {
 	}
 }
 
-// TestUninstallRemovesAgentArtifacts (D-10): uninstall ALWAYS removes the villa-owned
+// TestUninstallRemovesAgentArtifacts: uninstall ALWAYS removes the villa-owned
 // crush binary + the rendered crush.json, exactly once each, at a deterministic position
-// in the ordered teardown — after the dashboard teardown, before the container stop —
+// in the ordered teardown — after the dashboard teardown, before the container stop
 // regardless of the keep/remove-models choice.
 func TestUninstallRemovesAgentArtifacts(t *testing.T) {
 	dir := t.TempDir()
@@ -249,7 +249,7 @@ func TestUninstallRemovesAgentArtifacts(t *testing.T) {
 	}
 }
 
-// TestUninstallAgentRemovalIdempotent (D-10): an absent crush binary / crush.json is NOT
+// TestUninstallAgentRemovalIdempotent: an absent crush binary / crush.json is NOT
 // an error — a re-uninstall (or an uninstall after an agent-off install) succeeds. The
 // live seams tolerate os.IsNotExist; here the fake seams return nil to model the absent
 // case, and uninstall must still complete cleanly.
@@ -263,7 +263,7 @@ func TestUninstallAgentRemovalIdempotent(t *testing.T) {
 	}
 }
 
-// TestUninstallAgentRemovalErrorAborts (D-10): a genuine removal error (not absence)
+// TestUninstallAgentRemovalErrorAborts: a genuine removal error (not absence)
 // aborts the teardown with a refuse-with-remediation message, mirroring the other
 // host-touching steps' short-circuit discipline.
 func TestUninstallAgentRemovalErrorAborts(t *testing.T) {
@@ -280,7 +280,7 @@ func TestUninstallAgentRemovalErrorAborts(t *testing.T) {
 	}
 }
 
-// TestUninstallAgentTeardownNoConfigTouch (D-10): the agent teardown adds NO seam that
+// TestUninstallAgentTeardownNoConfigTouch: the agent teardown adds NO seam that
 // writes/deletes config.toml — the config-left invariant holds even with the agent
 // removals present. Asserted by the file surviving an uninstall in the same dir.
 func TestUninstallAgentTeardownNoConfigTouch(t *testing.T) {
@@ -449,7 +449,7 @@ func TestUninstallStopFailureShortCircuits(t *testing.T) {
 }
 
 // renderedUninstallUnits renders the REAL stack (5 units incl. villa-openwebui.volume)
-// so the uninstall teardown tests reflect the actual Phase-4 rendered volume set —
+// so the uninstall teardown tests reflect the actual Phase-4 rendered volume set
 // not the hand-built sampleUnits() that predates the owui volume.
 func renderedUninstallUnits(t *testing.T) []orchestrate.Unit {
 	t.Helper()
@@ -458,7 +458,7 @@ func renderedUninstallUnits(t *testing.T) []orchestrate.Unit {
 
 // TestNonModelVolumesIncludesOpenWebUI: once Render() emits villa-openwebui.volume,
 // the reserved nonModelVolumes() seam returns exactly ["villa-openwebui"] and still
-// excludes the bind-mounted villa-models volume (D-11). This is the verify-don't-fork
+// excludes the bind-mounted villa-models volume. This is the verify-don't-fork
 // assertion: nonModelVolumes was already generic, so no code change was required.
 func TestNonModelVolumesIncludesOpenWebUI(t *testing.T) {
 	units := renderedUninstallUnits(t)
@@ -477,7 +477,7 @@ func TestNonModelVolumesIncludesOpenWebUI(t *testing.T) {
 
 // TestUninstallRemovesOpenWebUIVolume: the teardown removeVolumes seam fires with the
 // owui volume (the reserved Phase-3 no-op path now actually removes data), in the
-// correct ordering relative to daemon-reload and linger (D-11 / CHAT-03).
+// correct ordering relative to daemon-reload and linger (CHAT-03).
 func TestUninstallRemovesOpenWebUIVolume(t *testing.T) {
 	dir := t.TempDir()
 	f := newFakeUninstallDeps(t, renderedUninstallUnits(t), dir)
@@ -505,7 +505,7 @@ func TestUninstallRemovesOpenWebUIVolume(t *testing.T) {
 		t.Fatalf("uninstall must NOT remove the model bind-mount volume via removeVolumes; removed=%v", f.removedVols)
 	}
 
-	// Ordering: rmvol after reload, before linger (D-11).
+	// Ordering: rmvol after reload, before linger.
 	pos := func(want string) int {
 		for i, s := range f.order {
 			if s == want {
@@ -519,7 +519,7 @@ func TestUninstallRemovesOpenWebUIVolume(t *testing.T) {
 	}
 }
 
-// TestUninstallStopsOpenWebUIBeforeInference (CR-01): teardown must stop services in
+// TestUninstallStopsOpenWebUIBeforeInference: teardown must stop services in
 // the REVERSE of install's start order — dependents before backends — so the owui
 // container (After=villa-llama.service) is never left running with its declared backend
 // already stopped. Symmetric to TestInstallStartsInferenceBeforeOpenWebUI.

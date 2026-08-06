@@ -3,7 +3,7 @@
 // real usable GTT/unified-memory envelope.
 //
 // Every probe degrades to a typed "Unknown" value (Known=false) on a missing
-// tool or unparseable output — never a bare zero, never a panic (D-13/D-16).
+// tool or unparseable output — never a bare zero, never a panic.
 // This file defines the typed Optional wrappers that are the spine of every
 // HostProfile field.
 package detect
@@ -22,8 +22,8 @@ package detect
 type Optional[T any] struct {
 	Value  T      `json:"value"`
 	Known  bool   `json:"known"`
-	Source string `json:"source,omitempty"` // provenance for -v (D-08), or reason on Unknown
-	Raw    string `json:"-"`                // captured raw output on parse-fail (D-16); never serialized
+	Source string `json:"source,omitempty"` // provenance for -v, or reason on Unknown
+	Raw    string `json:"-"`                // captured raw output on parse-fail; never serialized
 }
 
 // known builds a detected value with its provenance source.

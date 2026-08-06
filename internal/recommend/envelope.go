@@ -10,7 +10,7 @@ import "github.com/MatrixMagician/VillaStraylight/internal/detect"
 const headroomFraction = 0.12
 
 // degradedFloorFraction is the conservative fraction of total RAM used as a
-// fallback envelope when the real GTT envelope is Unknown (D-14, Pitfall 1).
+// fallback envelope when the real GTT envelope is Unknown (Pitfall 1).
 // Strix Halo's default GTT/ttm map is ~50% of RAM, so 50% is a safe floor that
 // never guesses high. When even total RAM is unknown, no floor is derivable and
 // recommend refuses.
@@ -22,7 +22,7 @@ func headroomBytes(envelope uint64) uint64 {
 }
 
 // conservativeFloor derives a safe fallback envelope when the real GTT envelope
-// could not be detected (D-14). It returns a floor of ~50% of total RAM when RAM
+// could not be detected. It returns a floor of ~50% of total RAM when RAM
 // is known, and (0, false) when no safe floor is derivable — in which case the
 // caller must refuse rather than guess high (no OOM by optimism).
 func conservativeFloor(p detect.HostProfile) (uint64, bool) {

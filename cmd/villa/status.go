@@ -33,9 +33,9 @@ import (
 )
 
 // status.go is the thin cobra caller for the offload-asserting `villa status` slice
-// (CLI-03/PRIV-01/PRIV-03). The read-model core — aggregation, the worst-wins fold,
+// The read-model core — aggregation, the worst-wins fold,
 // the publish-port privacy parse, and the frozen --json contract — was extracted to
-// internal/status (Phase-5 DASH-01) so the dashboard backend calls the SAME logic.
+// internal/status so the dashboard backend calls the SAME logic.
 // This file keeps only: the cobra wiring + exit-code mapping, the human table
 // renderer (CLI presentation), and the live host wiring (HTTP/journald/GTT probes)
 // that constructs status.Deps. status_test.go drives runStatus through a stubbed
@@ -110,7 +110,7 @@ func renderStatusTable(w io.Writer, r status.Report, withProvenance bool) {
 	tw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
 	fmt.Fprintf(tw, "overall\t%s\n", r.Overall)
 
-	// Active-backend surface (D-01): backend name always; the digest-pinned image tag
+	// Active-backend surface: backend name always; the digest-pinned image tag
 	// is verbose-only to keep the default table compact (gated behind -v like the
 	// offload provenance). The image string is a value from the resolved backend
 	// (Report.Image), never a literal in this renderer.
@@ -118,16 +118,16 @@ func renderStatusTable(w io.Writer, r status.Report, withProvenance bool) {
 	if withProvenance {
 		fmt.Fprintf(tw, "image\t%s\n", r.Image)
 	}
-	// Live tok/s (D-03): rendered ONLY when present — an idle/unavailable reading is
+	// Live tok/s: rendered ONLY when present — an idle/unavailable reading is
 	// omitted (the seam returned nil), never a fabricated 0. Labeled by the active
 	// backend so the user sees which backend produced the rate.
 	if r.GenTokensPerSec != nil {
 		fmt.Fprintf(tw, "gen tok/s\t%.1f (%s)\n", *r.GenTokensPerSec, r.Backend)
 	}
-	// ROCm-readiness tri-state (D-04): the folded indicator (ready/not-ready/unknown).
+	// ROCm-readiness tri-state: the folded indicator (ready/not-ready/unknown).
 	fmt.Fprintf(tw, "rocm-readiness\t%s\n", r.ROCmReadiness)
 
-	// Cumulative usage (D-09): rendered ONLY when present — an absent/empty store is
+	// Cumulative usage: rendered ONLY when present — an absent/empty store is
 	// omitted (the read-only seam returned nil), never fabricated 0s. Prints the
 	// per-model cumulative prompt/generated token totals.
 	if r.Usage != nil {
@@ -137,7 +137,7 @@ func renderStatusTable(w io.Writer, r status.Report, withProvenance bool) {
 		}
 	}
 
-	// Coding-agent block (Phase-28 SURF-01): rendered ONLY when the agent is
+	// Coding-agent block: rendered ONLY when the agent is
 	// enabled (r.Coding != nil — the section is gated on cfg.AgentEnabled in the
 	// core). Each row degrades honestly: version/model/mode are omitted when their
 	// cfg field is unset; pin is the tri-state ("match"/"mismatch"/"unknown");
@@ -157,12 +157,12 @@ func renderStatusTable(w io.Writer, r status.Report, withProvenance bool) {
 		if c.Mode != "" {
 			fmt.Fprintf(tw, "agent mode\t%s\n", c.Mode)
 		}
-		// Residency is omitted when typed-Unknown (recomputed-from-envelope "") —
+		// Residency is omitted when typed-Unknown (recomputed-from-envelope "")
 		// never rendered as a guessed swap/shared.
 		if c.Residency != "" {
 			fmt.Fprintf(tw, "agent residency\t%s\n", c.Residency)
 		}
-		// Per-model coder usage (USAGE-03): select the coder model's cumulative
+		// Per-model coder usage: select the coder model's cumulative
 		// totals out of the per-model usage store; honest empty state when absent.
 		if r.Usage != nil && c.Model != "" {
 			if m, ok := r.Usage.Models[c.Model]; ok {
@@ -170,7 +170,7 @@ func renderStatusTable(w io.Writer, r status.Report, withProvenance bool) {
 					m.Model, m.Prompt.Cumulative, m.Predicted.Cumulative)
 			}
 		}
-		// Cache effectiveness (USAGE-04): pct + raw ONLY when proven, else
+		// Cache effectiveness: pct + raw ONLY when proven, else
 		// "unavailable" — never a fabricated 0%.
 		if c.CacheEffectivenessPct != nil {
 			fmt.Fprintf(tw, "agent cache\t%.1f%% (%d/%d)\n", *c.CacheEffectivenessPct, c.CacheN, c.PromptN)
@@ -183,7 +183,7 @@ func renderStatusTable(w io.Writer, r status.Report, withProvenance bool) {
 	for _, s := range r.Services {
 		// A service with no GPU offload (OffloadApplies=false, e.g. Open WebUI)
 		// carries a typed N/A Verdict that is EXCLUDED from the worst-wins fold
-		// (D-12). Render it as "N/A" rather than leaking the underlying WARN-typed
+		// Render it as "N/A" rather than leaking the underlying WARN-typed
 		// verdict. The --json contract keeps the full Verdict + OffloadApplies.
 		offloadCell := "N/A"
 		if s.OffloadApplies {
@@ -218,7 +218,7 @@ func renderStatusTable(w io.Writer, r status.Report, withProvenance bool) {
 // footprint. It is replaced wholesale by stubs in status_test.go.
 func liveStatusDeps() (*status.Deps, error) {
 	sys := orchestrate.NewSystemd()
-	// Resolve the backend from config (fail-closed, D-02): the inference endpoint is
+	// Resolve the backend from config (fail-closed): the inference endpoint is
 	// derived from the resolved backend's container runner, never a hardcoded literal.
 	cfg, err := config.LoadVilla()
 	if err != nil {
@@ -246,25 +246,25 @@ func liveStatusDeps() (*status.Deps, error) {
 		WeightBytes: liveWeightBytes,
 		Endpoint:    func() string { return endpoint },
 		OWUIService: openWebUIServiceName,
-		// Dashboard self-row (Plan 05-05 / D-04): the dashboard is a managed, observable
+		// Dashboard self-row (Plan 05-05): the dashboard is a managed, observable
 		// member of the stack. Its addr is the config'd loopback DashboardAddr:Port (read
-		// from config, never hard-coded — D-13); DashboardHealth is a bounded GET to its
+		// from config, never hard-coded); DashboardHealth is a bounded GET to its
 		// own /api/healthz (benign self-recursion, Pitfall 6).
 		DashboardService: orchestrate.DashboardServiceName,
 		DashboardAddr:    liveDashboardAddr(),
 		DashboardHealth:  liveDashboardHealth,
-		// Live tok/s (D-03): REUSE the dashboard-proven metrics collector — no new
+		// Live tok/s: REUSE the dashboard-proven metrics collector — no new
 		// scraper. nil on a failed/absent /metrics scrape or an idle server, so the
 		// figure is omitted (typed-Unknown), NEVER a fabricated 0.
 		GenTokensPerSec: liveGenTokensPerSec,
-		// ROCm-readiness (D-04): CONSUME the already-computed detect rocm_readiness
+		// ROCm-readiness: CONSUME the already-computed detect rocm_readiness
 		// sub-tree; internal/status folds it. Never recompute the signals here.
 		ROCmReadiness: func() detect.ROCmReadiness { return detect.Probe().ROCmReadiness },
-		// Cumulative usage (D-07/D-09): READ-ONLY load of usage.json. The CLI is
+		// Cumulative usage: READ-ONLY load of usage.json. The CLI is
 		// one-shot and NEVER writes the store (the dashboard, Plan 04, is the sole
 		// writer); nil on an absent/empty store so the figure is omitted.
 		ReadUsage: liveReadUsage,
-		// Memory-service rows (Phase-23 D-01/D-03): service names derived from the
+		// Memory-service rows: service names derived from the
 		// orchestrate accessors via the SAME .container → .service derivation doctor
 		// uses — never a typed service-name literal (TestSeamGrepGate walks
 		// cmd/villa). The per-service health probes + recall seam wired here reach
@@ -274,7 +274,7 @@ func liveStatusDeps() (*status.Deps, error) {
 		QdrantHealth:    liveQdrantHealth,
 		EmbedHealth:     liveEmbedHealth,
 		ReadRecallState: liveReadRecallState,
-		// Web-search rows + cached-verify seam (Phase-34 SURF-04): service names
+		// Web-search rows + cached-verify seam: service names
 		// derived from the orchestrate accessors via the SAME .container → .service
 		// derivation doctor uses — never a typed service-name literal (TestSeamGrepGate
 		// walks cmd/villa). The dedicated in-network health probes + the fail-closed
@@ -288,7 +288,7 @@ func liveStatusDeps() (*status.Deps, error) {
 		WebsafeHealth:   liveWebsafeHealth,
 		ReadVerifyState: liveReadVerifyState,
 	}
-	// Coding-agent seams (Phase-28 D-01..D-04): wired ONLY when the agent is
+	// Coding-agent seams (Phase-28..): wired ONLY when the agent is
 	// PERSISTED-enabled (cfg.AgentEnabled). With the agent off the seams stay nil so
 	// the core leaves report.Coding nil (the omitempty key is absent — coding-off
 	// --json is byte-identical to today except schema_version). The dashboard reuses
@@ -301,7 +301,7 @@ func liveStatusDeps() (*status.Deps, error) {
 	return deps, nil
 }
 
-// liveAgentPinMatch is the tri-state policy-pin compare seam (D-03): it hashes the
+// liveAgentPinMatch is the tri-state policy-pin compare seam: it hashes the
 // installed villa-owned Crush binary and compares it to the pinned policy
 // BinarySHA256 via the SAME pure agent.DetectDrift gate `villa code` uses, mapping
 // the report to "match" / "mismatch" / "unknown". Binary absent OR the policy hash
@@ -339,7 +339,7 @@ func liveAgentPinMatch() string {
 	}
 }
 
-// liveAgentResidency is the DERIVED residency seam (D-03/SC1): it RECOMPUTES the
+// liveAgentResidency is the DERIVED residency seam (SC1): it RECOMPUTES the
 // coder fit's residency from the live memory envelope, cloning liveWeightBytes'
 // shape (catalog.Load + detect.Probe + recommend.Pick). It returns "" (typed-
 // Unknown, the residency key is omitted) when the catalog load fails OR the live
@@ -358,7 +358,7 @@ func liveAgentResidency() string {
 	if !profile.UsableEnvelopeBytes.Known {
 		return "" // unevaluable envelope → typed-Unknown, NEVER a fabricated swap/shared
 	}
-	// WR-01: thread the REAL memory inputs (D-01) so the coder fit is computed
+	// thread the REAL memory inputs so the coder fit is computed
 	// against the post-embedding-reservation envelope — matching every other live
 	// caller (backend.go, dashboard.go, inference.go). A memory-blind MemoryInputs{}
 	// would compute against the FULL un-reserved envelope and surface an
@@ -374,7 +374,7 @@ func liveAgentResidency() string {
 	return rec.Coder.Residency
 }
 
-// liveAgentCache is the cache-effectiveness counter seam (D-10): it REUSES the
+// liveAgentCache is the cache-effectiveness counter seam: it REUSES the
 // Plan-02 metrics.ScrapeCacheCounters primitive over the SAME bounded /metrics
 // scrape (no new HTTP request / endpoint literal). It returns (cacheN, promptN,
 // ok) with ok=true ONLY when BOTH counters are Known; an absent/unparseable scrape
@@ -389,13 +389,13 @@ func liveAgentCache(endpoint string) (uint64, uint64, bool) {
 	return sample.CacheN, sample.PromptN, true
 }
 
-// liveReadUsage loads the cumulative-usage store READ-ONLY (D-07): it wires a
+// liveReadUsage loads the cumulative-usage store READ-ONLY: it wires a
 // usage.Deps whose ReadAll reads usage.UsagePath() via os.ReadFile (returning
 // (nil,nil) on a not-yet-created store so usage.Load fails closed to empty) and
 // supplies NO WriteAll seam — the CLI status path can never write usage.json (the
 // dashboard, Plan 04, is the sole writer). It returns a *usage.UsageTotals only when
 // the store holds at least one model entry; an absent/empty/corrupt store yields nil
-// so the Report omits the usage key (typed-Unknown, never a fabricated 0 — D-09).
+// so the Report omits the usage key (typed-Unknown, never a fabricated 0).
 func liveReadUsage() *usage.UsageTotals {
 	path := usage.UsagePath()
 	deps := usage.Deps{
@@ -415,12 +415,12 @@ func liveReadUsage() *usage.UsageTotals {
 		return nil // unreadable store → typed-Unknown (omitted), never a fabricated 0
 	}
 	if len(totals.Models) == 0 {
-		return nil // empty store ⇒ omit the usage key (D-09)
+		return nil // empty store ⇒ omit the usage key
 	}
 	return &totals
 }
 
-// --- Phase-23 memory-service health probes (D-01/D-03, T-23-03/T-23-04) ---
+// --- Phase-23 memory-service health probes ---
 
 // memoryHealthTTL bounds how often the memory-service health pair is re-probed.
 // The probes are podman-run helper containers (runProbeCurl), so the dashboard's
@@ -444,7 +444,7 @@ var memoryProbeExec = liveMemoryProbeExec
 
 // liveMemoryProbeExec routes the probe through runProbeCurl (fixed-arg
 // `podman run --rm --network villa --entrypoint curl <img>` — no shell,
-// T-23-03) and classifies the failure level via the process exit code.
+// and classifies the failure level via the process exit code.
 func liveMemoryProbeExec(ctx context.Context, helperImage string, curlArgs ...string) ([]byte, int, error) {
 	out, err := runProbeCurl(ctx, helperImage, curlArgs...)
 	if err != nil {
@@ -459,7 +459,7 @@ func liveMemoryProbeExec(ctx context.Context, helperImage string, curlArgs ...st
 
 // mapMemoryProbe maps one probe outcome to a HealthState with the typed-Unknown
 // doctrine: an HTTP code written by curl is a CONFIDENT verdict (200→ready,
-// 503→loading — WR-07, anything else→down); a curl-level failure (exit < 125 —
+// 503→loading —, anything else→down); a curl-level failure (exit < 125
 // connect refused/timeout INSIDE villa.network) is a confident down (the network
 // was evaluable, the service was not there); a podman-level failure (exit
 // 125/126/127, or podman absent/unstartable) means the probe itself was
@@ -535,7 +535,7 @@ func liveEmbedHealth(addr string, port int) status.HealthState {
 	return e
 }
 
-// liveReadRecallState loads recall-state.json READ-ONLY (D-02), cloning
+// liveReadRecallState loads recall-state.json READ-ONLY, cloning
 // liveReadUsage's shape over recall.Load: an absent store yields a pointer to
 // the ZERO State — "no index yet" is a CONFIDENT empty, not nil (status renders
 // "empty"); a corrupt/future-schema store fails closed to empty inside
@@ -563,7 +563,7 @@ func liveReadRecallState() *recall.State {
 	return &st
 }
 
-// Package-level web-search-health cache (Phase-34 SURF-04): mutex-guarded, keyed
+// Package-level web-search-health cache: mutex-guarded, keyed
 // only on time (single config per process), mirroring the memory-health pair. One
 // refresh probes BOTH services together so the dashboard poll spawns at most one
 // probe pair per memoryHealthTTL window.
@@ -645,7 +645,7 @@ func mapWebsafeProbe(out []byte, exitCode int, err error) status.HealthState {
 	return status.HealthDown
 }
 
-// liveReadVerifyState loads verify-search-state.json READ-ONLY (SURF-04, T-34-08),
+// liveReadVerifyState loads verify-search-state.json READ-ONLY,
 // cloning liveReadRecallState's shape over verifystate.Load (fail-closed): an absent
 // store yields a pointer to the ZERO State (the status core's freshness gate then reads
 // it as a non-PASS/empty → "unknown", never green); a corrupt/future-schema store fails
@@ -674,7 +674,7 @@ func liveReadVerifyState() *verifystate.State {
 }
 
 // liveGenTokensPerSec reads the live token-generation throughput by REUSING the
-// dashboard's bounded metrics collector (D-03): metrics.ScrapeMetrics +
+// dashboard's bounded metrics collector: metrics.ScrapeMetrics +
 // metrics.IsGenerating. It returns nil — a typed-Unknown the Report omits — on a
 // failed/absent /metrics scrape (404/transport) OR when the server is idle (the
 // gauges are stale snapshots when !IsGenerating), so the surface NEVER shows a
@@ -688,14 +688,14 @@ func liveGenTokensPerSec(endpoint string) *float64 {
 	}
 	slots, _ := metrics.ScrapeSlots(endpoint)
 	if !metrics.IsGenerating(snap, slots) {
-		return nil // idle: gauges are stale snapshots → omit, never a fabricated 0 (D-03)
+		return nil // idle: gauges are stale snapshots → omit, never a fabricated 0
 	}
 	v := snap.GenTokensPerSec
 	return &v
 }
 
 // liveDashboardAddr resolves the dashboard's loopback base URL from config
-// (DashboardAddr:DashboardPort, default 127.0.0.1:8888 — D-13). It reads config so the
+// (DashboardAddr:DashboardPort, default 127.0.0.1:8888). It reads config so the
 // probe target is never hard-coded; a config-load failure falls back to the typed
 // defaults so the status row still probes the conventional loopback address.
 func liveDashboardAddr() string {
@@ -718,7 +718,7 @@ func liveDashboardAddr() string {
 // a status.HealthState: 200 → ready, any other code → loading (up but not confirmed),
 // any transport error / unreachable → down (the wedged-dashboard case). The probe is
 // bounded by statusHTTPTimeout + io.LimitReader so a wedged dashboard can NEVER hang
-// `villa status` despite the benign self-recursion (Pitfall 6 / T-05-16). Note the path
+// `villa status` despite the benign self-recursion (Pitfall 6). Note the path
 // is /api/healthz (the route Plan 02 mounted under /api), not a top-level /healthz.
 func liveDashboardHealth(addr string) status.HealthState {
 	if addr == "" {
@@ -738,7 +738,7 @@ func liveDashboardHealth(addr string) status.HealthState {
 }
 
 // liveHealthProbe maps a single /health GET to a status.HealthState: 200→ready,
-// 503→loading (up but not ready — Unknown, never down, WR-07), any transport
+// 503→loading (up but not ready — Unknown, never down), any transport
 // error / other code → down. The body is bounded by io.LimitReader.
 func liveHealthProbe(endpoint string) status.HealthState {
 	client := &http.Client{Timeout: statusHTTPTimeout}
@@ -761,7 +761,7 @@ func liveHealthProbe(endpoint string) status.HealthState {
 // liveOpenWebUIHealth maps the Open WebUI row's health to a status.HealthState by
 // probing the UPSTREAM llama-server /v1/models (reachable on the host-published
 // 127.0.0.1:8080 — no WEBUI_AUTH friction, RESEARCH A3): a non-empty {"data":[...]}
-// model list → HealthReady (CHAT-01 SC#1); an empty list / non-200 → HealthLoading
+// model list → HealthReady (CHAT-01); an empty list / non-200 → HealthLoading
 // (up but not ready → WARN, never a false PASS); any transport error → HealthUnknown
 // (typed-Unknown → WARN). The body is bounded by io.LimitReader.
 func liveOpenWebUIHealth(endpoint string) status.HealthState {
@@ -788,7 +788,7 @@ func liveOpenWebUIHealth(endpoint string) status.HealthState {
 }
 
 // liveProps fetches and parses llama.cpp /props for the config-identity drift
-// overlay (D-13 — corroboration only, never the residency proof). A transport
+// overlay (corroboration only, never the residency proof). A transport
 // error / unparseable body yields nil (Unknown), which never produces a false PASS
 // or a FAIL in RunningOffloadVerdict. The body is bounded by io.LimitReader.
 func liveProps(endpoint string) *inference.PropsInfo {

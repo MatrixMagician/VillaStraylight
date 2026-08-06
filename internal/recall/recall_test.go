@@ -1,4 +1,4 @@
-// Plan diff tests guard the D-05 algebra (new = L∖S, changed = live updated_at >
+// Plan diff tests guard the algebra (new = L∖S, changed = live updated_at >
 // state owui_updated_at, deleted = S∖L), purity (inputs never mutated), and the
 // deterministic sorted output order that keeps run output and tests stable.
 package recall
@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-// TestPlan is the table-driven proof of the D-05 diff algebra: a live chat absent
+// TestPlan is the table-driven proof of the diff algebra: a live chat absent
 // from state is an Add; present-in-both with a NEWER live updated_at is an Update;
 // equal/older updated_at is untouched; a state chat absent from live is a Delete
 // (by chat id — the cmd tier resolves FileID from state).

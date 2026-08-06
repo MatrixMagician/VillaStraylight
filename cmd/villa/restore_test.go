@@ -1,6 +1,6 @@
 package main
 
-// restore_test.go guards the `villa restore` cmd-tier wiring (BAK-02/BAK-03): the
+// restore_test.go guards the `villa restore` cmd-tier wiring: the
 // positional archive arg is required, --yes bypasses the skew consent gate, a declined
 // consent / a non-pass prove map to the right exit codes, and a Restored result exits
 // 0. The full transactional ordering invariants (clean-recreate-before-import, capture-
@@ -225,13 +225,13 @@ func TestRestoreOffloadFailRollsBack(t *testing.T) {
 	if !bytes.Contains(errOut.Bytes(), []byte("rolled back")) {
 		t.Fatalf("expected a rollback message, got %q", errOut.String())
 	}
-	// A CLEAN rollback must not ask the caller to preserve the temp dir (CR-01).
+	// A CLEAN rollback must not ask the caller to preserve the temp dir.
 	if preserve {
 		t.Fatalf("a complete rollback must not preserve the restore temp dir")
 	}
 }
 
-// TestRestoreRollbackIncompletePreservesTmpDir is the CR-01 cmd-tier regression:
+// TestRestoreRollbackIncompletePreservesTmpDir is the cmd-tier regression:
 // when the rollback did NOT fully complete (here: every VolumeRm fails "in use"),
 // runRestore must report preserveTmp=true and print the preservation notice naming
 // the temp dir — the rollback tars it holds are the ONLY copies of the prior
@@ -251,7 +251,7 @@ func TestRestoreRollbackIncompletePreservesTmpDir(t *testing.T) {
 		t.Fatalf("rollback-incomplete: runRestore = %d, want %d", code, exitBlocked)
 	}
 	if !preserve {
-		t.Fatalf("an INCOMPLETE rollback must preserve the restore temp dir (CR-01)")
+		t.Fatalf("an INCOMPLETE rollback must preserve the restore temp dir")
 	}
 	if !bytes.Contains(errOut.Bytes(), []byte("PRESERVING "+tmpDir)) {
 		t.Fatalf("expected the preservation notice naming %q, got %q", tmpDir, errOut.String())
@@ -307,7 +307,7 @@ func writeTestArchiveMem(t *testing.T, path string, m backup.ManifestInput, cfgT
 	}
 }
 
-// TestRestoreOutputMemoryNotPresent asserts the honest D-07 reporting on a
+// TestRestoreOutputMemoryNotPresent asserts the honest reporting on a
 // memory-FREE backup: the not-present-left-untouched line and the restored-config
 // memory-posture line (Pitfall 5) both print.
 func TestRestoreOutputMemoryNotPresent(t *testing.T) {
@@ -361,7 +361,7 @@ func TestRestoreOutputMemoryRestored(t *testing.T) {
 	}
 }
 
-// TestRestoreWritesWebsafeSecretEnv is the WR-01 regression: Phase 31 makes the restored
+// TestRestoreWritesWebsafeSecretEnv is the regression: Phase 31 makes the restored
 // OWUI + villa-websafe units carry EnvironmentFile={websafe.env} whenever the restored
 // config has web search on. restore only restores config.toml (the 0600 env file lives
 // outside the archive), so the reconcile/start path MUST write that 0600 websafe.env from

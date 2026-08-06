@@ -12,8 +12,8 @@ import (
 // memoryFixtureInput is the deterministic RenderInput the memory-unit goldens are
 // frozen against: identical to fixtureInput() but with the full Phase-18 memory config
 // spine populated and MemoryEnabled=true so Render() appends the three memory units.
-// The image digests are sourced THROUGH the orchestrate managed-service consts (D-02/
-// D-04), never hand-typed in the test.
+// The image digests are sourced THROUGH the orchestrate managed-service consts (
+// never hand-typed in the test.
 func memoryFixtureInput() RenderInput {
 	return RenderInput{
 		Backend: inference.VulkanBackend(),
@@ -57,7 +57,7 @@ func TestRenderQdrant(t *testing.T) {
 
 // TestRenderEmbed: with memory on, the villa-embed.container unit matches its golden
 // byte-for-byte (regen with -update) and carries the load-bearing embeddings Exec +
-// read-only shared-models mount. INFRA-02 / D-05.
+// read-only shared-models mount. INFRA-02 /.
 func TestRenderEmbed(t *testing.T) {
 	units, err := Render(memoryFixtureInput())
 	if err != nil {
@@ -76,7 +76,7 @@ func TestRenderEmbed(t *testing.T) {
 }
 
 // TestRenderByteIdenticalWhenMemoryOff: with memory off, Render returns EXACTLY the
-// existing 5 units and none of the three memory unit names appear (D-11 byte-identity:
+// existing 5 units and none of the three memory unit names appear (byte-identity:
 // the 5 existing goldens stay unchanged, proven by the existing render tests staying
 // green plus this len/name regression).
 func TestRenderByteIdenticalWhenMemoryOff(t *testing.T) {
@@ -96,8 +96,8 @@ func TestRenderByteIdenticalWhenMemoryOff(t *testing.T) {
 	}
 }
 
-// TestMemoryUnitsNoPublishPort: T-19-01 — none of the three memory units publishes a
-// host port (container-DNS only on villa.network, SC#4/D-10).
+// TestMemoryUnitsNoPublishPort: — none of the three memory units publishes a
+// host port (container-DNS only on villa.network).
 func TestMemoryUnitsNoPublishPort(t *testing.T) {
 	units, err := Render(memoryFixtureInput())
 	if err != nil {
@@ -106,7 +106,7 @@ func TestMemoryUnitsNoPublishPort(t *testing.T) {
 	for _, name := range []string{"villa-qdrant.container", "villa-qdrant.volume", "villa-embed.container"} {
 		u := unitByName(t, units, name)
 		if strings.Contains(u.Text, "PublishPort=") {
-			t.Errorf("memory unit %q must not publish a host port (privacy leak, T-19-01):\n%s", name, u.Text)
+			t.Errorf("memory unit %q must not publish a host port (privacy leak):\n%s", name, u.Text)
 		}
 	}
 }
@@ -142,7 +142,7 @@ func TestRenderEightUnitOrderWhenMemoryOn(t *testing.T) {
 
 // TestRenderConsumesMemoryView: Render is keyed off in.Cfg.MemoryEnabled and the
 // rendered memory units carry the config-resolved container-DNS names (villa-qdrant /
-// villa-embed) threaded through the D-11 resolved-values handoff (memory.RenderView).
+// villa-embed) threaded through the resolved-values handoff (memory.RenderView).
 func TestRenderConsumesMemoryView(t *testing.T) {
 	units, err := Render(memoryFixtureInput())
 	if err != nil {
@@ -158,8 +158,8 @@ func TestRenderConsumesMemoryView(t *testing.T) {
 	}
 }
 
-// TestRenderChatSwapLeavesMemoryUnitsByteIdentical (D-09 / SC#3, CTRL-05): a
-// chat-model swap leaves the embedding model and vector collections intact —
+// TestRenderChatSwapLeavesMemoryUnitsByteIdentical (CTRL-05): a
+// chat-model swap leaves the embedding model and vector collections intact
 // proven at the render layer. Two memory-on inputs differing ONLY in the chat
 // model (Cfg.Model/Cfg.Quant plus ModelFile, the catalog-resolved render-input
 // projection of Cfg.Model that liveModelFile derives) must render byte-identical
@@ -198,7 +198,7 @@ func TestRenderChatSwapLeavesMemoryUnitsByteIdentical(t *testing.T) {
 	}
 
 	// The memory stack + every villa-openwebui.* unit must be byte-identical
-	// across the swap (D-09: the swap never touches the embedding model, the
+	// across the swap (the swap never touches the embedding model, the
 	// memory units, or the chat UI's RAG wiring).
 	invariant := []string{
 		"villa-qdrant.container",
@@ -234,7 +234,7 @@ func TestRenderChatSwapLeavesMemoryUnitsByteIdentical(t *testing.T) {
 	}
 }
 
-// TestRenderMemoryUnitsCarryTheSharedIdentity (WR-01): the memory units derive
+// TestRenderMemoryUnitsCarryTheSharedIdentity: the memory units derive
 // their container-DNS identity and the served embed /v1 --port from the SINGLE
 // home of those literals in internal/config, not from a second copy inside
 // orchestrate. The predecessor of this test drove the same invariant through a

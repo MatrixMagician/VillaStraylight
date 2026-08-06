@@ -1,18 +1,18 @@
 // Package agent is the pure, Deps-injected core for VillaStraylight's strictly-
 // local terminal coding agent (Crush v0.76.0): the agent-delivery spine behind
-// the `villa code` launcher verb. It owns four pure concerns (D-01):
+// the `villa code` launcher verb. It owns four pure concerns:
 //
 //   - policy.go : the go:embed Crush pin policy (version + per-platform asset +
 //     tarball/binary SHA-256 + URL template) and the pure VerifyTarball install
-//     gate (AGENT-01, D-02/D-03).
+//     gate (AGENT-01).
 //   - render.go : Render(cfg, probes) → a DETERMINISTIC crush.json derived from
 //     config.toml (both kill switches, exactly one loopback openai-compat
 //     provider, a villa- prefixed non-empty models[], detected-only LSP entries)
-//     (AGENT-02, D-06..D-10).
+//     (AGENT-02..).
 //   - version.go: a verbatim clone of preflight's dotted-version comparator.
 //   - drift.go  : DetectDrift(in) → a report-only DriftReport (binary + config
 //     drift, plus the config-absent first-run signal) that NEVER auto-corrects
-//     (AGENT-04, D-14).
+//     (AGENT-04).
 //
 // Seam discipline (CLAUDE.md / TestSeamGrepGate, which walks internal/):
 // internal/agent imports NEITHER internal/inference NOR internal/detect, and it
@@ -43,10 +43,10 @@ import (
 // process env without depending on the live os.Environ. Defaults to os.Environ.
 var osEnviron = os.Environ
 
-// lockdown env vars (D-11): the belt-and-braces telemetry/autoupdate kill switches
+// lockdown env vars: the belt-and-braces telemetry/autoupdate kill switches
 // set in the launch env BEFORE exec, redundant with the config kill switches (Plan
 // 01 render). They are CONSTANT literals — no user-controlled string is interpolated
-// (T-26-12). DO_NOT_TRACK is the cross-tool privacy convention; the two CRUSH_*
+// DO_NOT_TRACK is the cross-tool privacy convention; the two CRUSH_*
 // vars disable Crush's metrics + provider auto-update at the process level.
 const (
 	envCrushDisableMetrics    = "CRUSH_DISABLE_METRICS=1"
@@ -57,11 +57,11 @@ const (
 // targetPlatformKey is the policy.Assets key for the supported install target. Phase
 // 26 targets linux/amd64 (Fedora/Strix Halo); the policy table is structured to allow
 // a future darwin/arm64 without a code change here. Kept as a fixed constant (NOT a
-// compile-time platform branch) so cmd/villa/code.go and this core stay seam-clean —
+// compile-time platform branch) so cmd/villa/code.go and this core stay seam-clean
 // the seam gate forbids a platform branch outside the inference seam.
 const targetPlatformKey = "linux/amd64"
 
-// KnownLSPServers is the fixed probe list (D-10) and the SINGLE source of truth for
+// KnownLSPServers is the fixed probe list and the SINGLE source of truth for
 // the set of LSP servers villa probes and renders an lsp entry for WHEN found on PATH.
 // Each pair is {crush.json lsp key, server command}. A missing server is a WARN +
 // omitted entry, never a BLOCK (renderLSP / Render owns that degradation).
@@ -69,7 +69,7 @@ const targetPlatformKey = "linux/amd64"
 // Exported so the install/doctor live probe seam (cmd/villa liveLSPProbes) consumes the
 // SAME list — the launcher (villa code) and the install render MUST agree by
 // construction, or every install would render a crush.json that villa code then refuses
-// as ConfigDrift (D-14 is report-only; it assumes the install path is authoritative).
+// as ConfigDrift (is report-only; it assumes the install path is authoritative).
 // The python entry is pyright-langserver (the LSP entry point), NOT pyright (the
 // standalone CLI type-checker — a different binary the Pyright distribution also ships).
 var KnownLSPServers = []struct{ Key, Command string }{
@@ -87,26 +87,26 @@ var KnownLSPServers = []struct{ Key, Command string }{
 // Result — it NEVER os.Exit, NEVER prints, and NEVER execs (the cobra caller maps Result
 // → exit + messages, prints Warnings, THEN performs the single d.Launch).
 //
-// Ordering (D-13/D-14):
+// Ordering:
 //  1. LoadConfig (source of truth) — on error, a non-refusal Err Result.
-//  2. Probe LSP servers via LookPath (references only, never installs — D-10).
+//  2. 2. Probe LSP servers via LookPath (references only, never installs).
 //  3. Render(cfg, probes) → the reference bytes (BOTH the drift-compare target AND
 //     the first-run write payload) + LSP warnings.
 //  4. HashBinary + ReadConfig → DetectDrift.
 //  5. BinaryAbsent → graceful remediation, return WITHOUT writing or launching.
 //  6. ConfigAbsent (first-run) → WriteConfig(reference) then PROCEED to launch (NOT
-//     drift). The ONLY auto-write path, and ONLY when absent (D-14).
+//     drift). The ONLY auto-write path, and ONLY when absent.
 //  7. BinaryDrift || ConfigDrift (present-but-differs) → surface + remediation,
-//     return WITHOUT launching, WITHOUT writing, WITHOUT auto-correcting (D-14).
+//     return WITHOUT launching, WITHOUT writing, WITHOUT auto-correcting.
 //     BinaryDriftUnknown (unpinned sentinel) → carry a WARN, do NOT block (Pitfall 6).
-//  8. Clean / first-run-rendered → build the lockdown env (D-11) into res.LaunchEnv and
+//  8. Clean / first-run-rendered → build the lockdown env into res.LaunchEnv and
 //     set res.ReadyToLaunch. The caller prints Warnings then performs the SINGLE
 //     d.Launch — so a coding-mode-OFF WARN (caller surfaces it; this core NEVER mutates
-//     the toggle — D-12) is shown BEFORE the exec replaces the process.
+//     the toggle) is shown BEFORE the exec replaces the process.
 func Run(d Deps) Result {
 	var res Result
 
-	// (1) Config is the source of truth feeding Render (D-06).
+	// (1) Config is the source of truth feeding Render.
 	cfg, err := d.LoadConfig()
 	if err != nil {
 		res.Err = fmt.Errorf("agent: load config: %w", err)
@@ -114,7 +114,7 @@ func Run(d Deps) Result {
 		return res
 	}
 
-	// (2) Probe LSP servers (references only, never installs — D-10).
+	// (2) Probe LSP servers (references only, never installs).
 	probes := make([]LSPProbe, 0, len(KnownLSPServers))
 	for _, srv := range KnownLSPServers {
 		_, found := d.LookPath(srv.Command)
@@ -161,7 +161,7 @@ func Run(d Deps) Result {
 	})
 
 	// (5) BinaryAbsent → graceful Phase-27 install remediation; never crash, never
-	// write, never launch (D-13).
+	// write, never launch.
 	if report.BinaryAbsent {
 		res.BinaryAbsent = true
 		res.Reason = report.Reason
@@ -169,7 +169,7 @@ func Run(d Deps) Result {
 	}
 
 	// (7a) Present-but-differs binary drift → surface + remediation, never auto-correct
-	// (D-14a). A BinaryDriftUnknown sentinel is NOT a block — it carries a WARN below.
+	// A BinaryDriftUnknown sentinel is NOT a block — it carries a WARN below.
 	if report.BinaryDrift {
 		res.BinaryDrift = true
 		res.Reason = report.Reason
@@ -183,7 +183,7 @@ func Run(d Deps) Result {
 	}
 
 	// (7b) Present-but-differs CONFIG drift → surface + remediation, never auto-correct
-	// (D-14b). Checked BEFORE the absent-render path so a present-but-drifting config is
+	// Checked BEFORE the absent-render path so a present-but-drifting config is
 	// never overwritten.
 	if report.ConfigDrift {
 		res.ConfigDrift = true
@@ -192,7 +192,7 @@ func Run(d Deps) Result {
 	}
 
 	// (6) FIRST-RUN config-absent → render-then-launch (NOT drift). The ONLY auto-write
-	// path, and ONLY when the config is ABSENT (D-14). Write the freshly-rendered
+	// path, and ONLY when the config is ABSENT. Write the freshly-rendered
 	// reference, then PROCEED to launch.
 	if report.ConfigAbsent {
 		if err := d.WriteConfig(reference); err != nil {
@@ -208,7 +208,7 @@ func Run(d Deps) Result {
 	}
 
 	// (8) Clean / first-run-rendered path. Coding-mode-OFF is a WARN, never a mutation
-	// (D-12 — this core holds no toggle write). The caller surfaces it; the launch
+	// (this core holds no toggle write). The caller surfaces it; the launch
 	// still proceeds.
 	if !cfg.CodingMode {
 		res.Warnings = append(res.Warnings, Warning{
@@ -217,9 +217,9 @@ func Run(d Deps) Result {
 		})
 	}
 
-	// Build the lockdown env (D-11) in the pure core (unit-testable) and hand it back
+	// Build the lockdown env in the pure core (unit-testable) and hand it back
 	// as ReadyToLaunch — the caller prints Warnings, THEN performs the single
-	// d.Launch(LaunchEnv) exec (the single launch point, T-26-09/T-26-10). The core
+	// d.Launch(LaunchEnv) exec (the single launch point). The core
 	// does NOT exec here: doing so replaces the process before the command tier can
 	// surface the coding-mode-off / first-run-rendered / lsp-missing Warnings, and
 	// cores never print or exec (architecture invariant). On a normal exec the caller's
@@ -229,10 +229,10 @@ func Run(d Deps) Result {
 	return res
 }
 
-// lockdownEnv builds the belt-and-braces launch env (D-11): the three constant
+// lockdownEnv builds the belt-and-braces launch env: the three constant
 // telemetry/autoupdate kill switches APPENDED to the inherited process env so Crush
 // still sees PATH/HOME/etc. The values are constant literals — nothing user-controlled
-// is interpolated (T-26-12). Extracted from Run so it is independently unit-testable.
+// is interpolated. Extracted from Run so it is independently unit-testable.
 func lockdownEnv() []string {
 	base := osEnviron()
 	return append(base,
@@ -244,7 +244,7 @@ func lockdownEnv() []string {
 
 // Warning is a non-blocking, surfaced-with-remediation signal (typed-Unknown
 // degradation → WARN, never BLOCK). The primary producer is the LSP render: a
-// toolchain server missing from PATH yields a Warning, never an error (D-10).
+// toolchain server missing from PATH yields a Warning, never an error.
 type Warning struct {
 	// Code is a stable machine token (e.g. "lsp_missing", "coding_mode_off").
 	Code string
@@ -261,17 +261,17 @@ type Warning struct {
 // Plan 02. Plan 01 defines ONLY the types so Plan 02 has the contract.
 type Deps struct {
 	// LoadConfig loads the current persisted config (the source of truth feeding
-	// Render — Model / CoderModel / CoderAgentCtx, D-06/D-09).
+	// Render — Model / CoderModel / CoderAgentCtx).
 	LoadConfig func() (config.VillaConfig, error)
-	// LookPath probes the host PATH for an LSP server (D-10) — exec.LookPath in the
+	// LookPath probes the host PATH for an LSP server — exec.LookPath in the
 	// live wiring; references only, NEVER auto-installs. Returns (path, found).
 	LookPath func(bin string) (string, bool)
 	// ReadConfig reads the on-disk ~/.config/crush/crush.json (the config-drift
-	// input, D-14b). Used by the live flow to populate DriftInput.OnDiskConfig /
+	// input). Used by the live flow to populate DriftInput.OnDiskConfig /
 	// ConfigPresent; a not-exist read maps to ConfigPresent=false (first-run).
 	ReadConfig func() ([]byte, bool, error)
 	// HashBinary returns the SHA-256 of the villa-owned binary at
-	// $XDG_DATA_HOME/villa/bin/crush (binary-drift input, D-14a). Returns
+	// $XDG_DATA_HOME/villa/bin/crush (binary-drift input). Returns
 	// (hexSum, present, err); present=false → BinaryAbsent (Phase-27 install remediation).
 	HashBinary func() (string, bool, error)
 	// WriteConfig persists the freshly-rendered crush.json to
@@ -279,8 +279,8 @@ type Deps struct {
 	// in the live wiring). The render output, written on the first-run absent case.
 	WriteConfig func(b []byte) error
 	// Launch execs the villa-owned crush binary with the belt-and-braces lockdown
-	// env (D-11) — syscall.Exec in the live wiring (fixed-arg, no shell). It is
-	// reached ONLY on a clean presence+drift check (D-13).
+	// env — syscall.Exec in the live wiring (fixed-arg, no shell). It is
+	// reached ONLY on a clean presence+drift check.
 	Launch func(env []string) error
 }
 
@@ -291,34 +291,34 @@ type Deps struct {
 type Result struct {
 	// BinaryAbsent is true when the villa-owned crush binary is not installed →
 	// remediation pointing at the Phase-27 install addon (graceful, not a crash,
-	// D-13). Parallels ConfigAbsent.
+	// Parallels ConfigAbsent.
 	BinaryAbsent bool
 	// BinaryDrift is true when the installed binary SHA-256 != the policy
-	// binarySha256 (D-14a) → surface + remediation, NEVER auto-correct.
+	// binarySha256 → surface + remediation, NEVER auto-correct.
 	BinaryDrift bool
 	// ConfigAbsent is true on the FIRST-RUN case: no on-disk crush.json yet. This
 	// is the render-then-launch trigger — DISTINCT from ConfigDrift (it parallels
 	// BinaryAbsent). The caller renders the reference then launches; it does NOT
-	// refuse (D-14).
+	// refuse.
 	ConfigAbsent bool
 	// ConfigDrift is true when an on-disk crush.json is PRESENT but differs
 	// semantically from the freshly-rendered reference (hand-edit / staleness,
-	// D-14b) → surface + remediation, NEVER auto-correct.
+	// → surface + remediation, NEVER auto-correct.
 	ConfigDrift bool
 	// ReadyToLaunch is true when the presence+drift check was clean (and any
 	// first-run render completed): the caller should print Warnings, then exec via
-	// the SINGLE launch point d.Launch(LaunchEnv). The core does NOT exec itself —
+	// the SINGLE launch point d.Launch(LaunchEnv). The core does NOT exec itself
 	// the exec is the caller's final action so advisory Warnings (coding-mode-off,
 	// first-run-rendered, lsp-missing) are surfaced BEFORE the process is replaced
-	// (D-12 surfacing; cores never print or exec — that is the command tier's job).
+	// (surfacing; cores never print or exec — that is the command tier's job).
 	ReadyToLaunch bool
-	// LaunchEnv is the resolved belt-and-braces lockdown env (D-11) the caller passes
+	// LaunchEnv is the resolved belt-and-braces lockdown env the caller passes
 	// to d.Launch. Populated only when ReadyToLaunch is true.
 	LaunchEnv []string
 	// Reason is the human refusal/remediation explanation (empty on a clean launch).
 	Reason string
 	// Warnings carries non-blocking signals (LSP-missing, coding-mode-off) for the
-	// caller to print without blocking the launch (D-10/D-12).
+	// caller to print without blocking the launch.
 	Warnings []Warning
 	// Err is a non-refusal failure (config load / render / write / hash).
 	Err error

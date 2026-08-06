@@ -7,11 +7,11 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// logs.go wires `villa logs [service] [-f]` (CLI-04): show — and optionally follow
+// logs.go wires `villa logs [service] [-f]`: show — and optionally follow
 // — a service's rootless user-journal. The non-follow path uses the bounded
-// orchestrate.JournalText seam (8 KiB io.LimitReader, T-03-13); `-f` streams via
+// orchestrate.JournalText seam (8 KiB io.LimitReader); `-f` streams via
 // the followJournal seam (`journalctl --user -u <svc> -f`, fixed-arg, no shell,
-// T-03-11). The service name is validated against the known unit set BEFORE any
+// The service name is validated against the known unit set BEFORE any
 // journalctl call. runLogs RETURNS the exit code; the RunE wrapper calls os.Exit.
 
 // logsOpts are the per-invocation flags for `villa logs`.
@@ -42,7 +42,7 @@ func newLogs() *cobra.Command {
 
 // runLogs prints (or follows) a service's journal and RETURNS the exit code. With
 // no [service] arg it defaults to the single inference service; with one it
-// validates against the known service set (T-03-11) before any journalctl call.
+// validates against the known service set before any journalctl call.
 func runLogs(cmd *cobra.Command, opts logsOpts, args []string, d *lifecycleDeps) int {
 	out := cmd.OutOrStdout()
 	errOut := cmd.ErrOrStderr()

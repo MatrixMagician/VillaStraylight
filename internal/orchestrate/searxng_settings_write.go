@@ -6,14 +6,14 @@ package orchestrate
 // ($XDG_CONFIG_HOME/villa/searxng), NOT the systemd unit dir (Pitfall 1: systemd would
 // try to parse a non-unit file). They write atomically (temp -> fsync -> rename, the same
 // discipline as reconcile.go's atomicWrite), refuse any target resolving outside the
-// searxng config dir (assertInsideDir, reused from reconcile.go — T-29-06), and write at
+// searxng config dir (assertInsideDir, reused from reconcile.go), and write at
 // mode 0600 / dir 0700.
 //
 // The mode is the load-bearing divergence from WriteUnits: units are world-readable 0644
 // (systemd --user must read them), but settings.yml AND searxng.env stay 0600. The secret
 // env file holds the live SEARXNG_SECRET — 0600 is the ONLY thing keeping it from every
 // local user, and it is the BLOCKER-1 route that keeps the secret out of the 0644 unit
-// (the unit references it via EnvironmentFile=<path> only — T-29-08 / T-29-14 / Pitfall 2).
+// (the unit references it via EnvironmentFile=<path> only — / Pitfall 2).
 //
 // Deliberate file-placement divergence from 29-PATTERNS.md (WARNING 4): PATTERNS framed
 // this as a reconcile.go MODIFY; this plan keeps the searxng-specific impure writers in
@@ -43,7 +43,7 @@ const searxngSettingsDirMode os.FileMode = 0o700
 // $XDG_CONFIG_HOME/villa/searxng (os.UserConfigDir honors $XDG_CONFIG_HOME safely, V12).
 // This is the host side of BOTH the %h/.config/villa/searxng:/etc/searxng:ro,Z settings
 // mount AND the EnvironmentFile= path the .container unit references
-// (SearXNGSecretEnvFilePath). It is NEVER the systemd unit dir (Pitfall 1 / T-29-09).
+// (SearXNGSecretEnvFilePath). It is NEVER the systemd unit dir (Pitfall 1).
 func searxngSettingsDir() (string, error) {
 	base, err := os.UserConfigDir()
 	if err != nil {
@@ -54,16 +54,16 @@ func searxngSettingsDir() (string, error) {
 
 // searxngSettingsFileName is the BARE filename WriteSearxngSettings writes (and
 // RenderSearxngSettings returns). Single-sourced here so the Phase-34 backup/restore
-// path (SURF-07) resolves the SAME file without re-typing the literal.
+// path resolves the SAME file without re-typing the literal.
 const searxngSettingsFileName = "settings.yml"
 
 // SearXNGSettingsFilePath returns the RESOLVED host path of the rendered SearXNG
 // settings.yml, $XDG_CONFIG_HOME/villa/searxng/settings.yml — the exact file
 // WriteSearxngSettings writes at 0600. EXPORTED as the cross-plan provenance contract
-// so the Phase-34 backup/restore path (SURF-07) sources the settings.yml path WITHOUT
+// so the Phase-34 backup/restore path sources the settings.yml path WITHOUT
 // re-typing the dir/filename literals (mirrors how crushConfigPath() is resolved at the
 // cmd tier). The file holds the rendered SEARXNG_SECRET, so restore re-writes it
-// 0600-preserving (never widens the mode — T-34-05).
+// 0600-preserving (never widens the mode).
 func SearXNGSettingsFilePath() (string, error) {
 	dir, err := searxngSettingsDir()
 	if err != nil {
@@ -131,4 +131,3 @@ func writeSearxngFile(dir, name, text string) error {
 	target := filepath.Join(dir, name)
 	return pathsafe.WriteFileAtomic(dir, target, []byte(text), searxngSettingsFileMode)
 }
-

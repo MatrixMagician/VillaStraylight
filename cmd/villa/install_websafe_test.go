@@ -1,10 +1,10 @@
 package main
 
-// install_websafe_test.go drives the Phase-31 villa-websafe install wiring (GUARD-01 /
-// GROUND-01, UAT gap closure). It mirrors install_searxng_test.go's Task-2 install-flow gate
+// install_websafe_test.go drives the Phase-31 villa-websafe install wiring (
+// UAT gap closure). It mirrors install_searxng_test.go's Task-2 install-flow gate
 // for the websafe path: with web search ON, install generates-and-persists the
 // EXTERNAL_WEB_LOADER_API_KEY bearer ONCE, writes the 0600 websafe.env BEFORE the OWUI start
-// (which references it via EnvironmentFile= when web search is on — T-31-12), and starts
+// (which references it via EnvironmentFile= when web search is on), and starts
 // villa-websafe. With web search OFF, NONE of the websafe seams fire (no bearer write, no
 // villa-websafe start) — the install path is byte-identical to v1.4.
 
@@ -35,7 +35,7 @@ func TestInstallWebsafeWiring(t *testing.T) {
 		}
 		// It MUST be written BEFORE the OWUI start: when web search is on the OWUI unit references
 		// the SAME websafe.env via EnvironmentFile=, so `systemctl start` would fail if the file
-		// were absent (the exact UAT gap — T-31-12).
+		// were absent (the exact UAT gap).
 		owuiIdx := indexOf(f.callOrder, "start:"+openWebUIServiceName)
 		if owuiIdx < 0 {
 			t.Fatalf("OWUI start not recorded in callOrder = %v", f.callOrder)

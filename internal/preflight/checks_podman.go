@@ -21,7 +21,7 @@ type podmanDeps struct {
 	subgidPath string
 	// podmanVersion returns podman's --version output, whether the binary was
 	// found, and whether it exited cleanly. A missing binary (found=false) is
-	// unevaluable → WARN downgrade (D-15).
+	// unevaluable → WARN downgrade.
 	podmanVersion func() (out string, found, ok bool)
 	// systemdUserOK reports whether `systemctl --user` is reachable, plus whether
 	// the systemctl binary was found at all.
@@ -64,7 +64,7 @@ func livePodmanDeps() podmanDeps {
 // and the numeric UID — Pitfall 6), and `systemctl --user` must be reachable. Any
 // of these missing means a rootless install cannot proceed.
 //
-// Degradation (D-15): if podman or systemctl is not even installed, the
+// Degradation: if podman or systemctl is not even installed, the
 // requirement cannot be evaluated as "ready vs not-ready" — that is a tooling gap,
 // downgraded to WARN ("could not verify") rather than a confident FAIL. A present
 // podman with absent subuid/subgid entries IS a confident known-bad → FAIL.
@@ -93,8 +93,8 @@ func checkPodmanRootless(d podmanDeps) CheckResult {
 	subgidOK, subgidErr := subuidReady(d.username, d.uid, d.subgidPath)
 
 	// A read/scan error means we could not EVALUATE the range (an I/O failure is
-	// not a confident "no range"); downgrade to WARN per D-15 rather than
-	// manufacturing a false BLOCK FAIL out of a transient error (WR-05).
+	// not a confident "no range"); downgrade to WARN per rather than
+	// manufacturing a false BLOCK FAIL out of a transient error.
 	if subuidErr != nil || subgidErr != nil {
 		errored := d.subuidPath
 		readErr := subuidErr
@@ -139,9 +139,9 @@ func checkPodmanRootless(d podmanDeps) CheckResult {
 // not count as ready.
 //
 // It returns a non-nil error only for a SCAN error (a truncated/interrupted read),
-// which the caller must treat as unevaluable (WARN per D-15) rather than a
+// which the caller must treat as unevaluable (WARN per) rather than a
 // confident "not ready" — an I/O failure must not manufacture a false BLOCK FAIL
-// (WR-05). A genuinely absent file is (false, nil): a confident absence, not an
+// A genuinely absent file is (false, nil): a confident absence, not an
 // error.
 func subuidReady(username, uid, path string) (bool, error) {
 	f, err := os.Open(path) //nolint:gosec // path is a fixed system file or a test seam

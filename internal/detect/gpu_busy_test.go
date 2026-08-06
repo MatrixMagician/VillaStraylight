@@ -7,7 +7,7 @@ import (
 )
 
 // TestGPUBusyPercentFromFixture reads the flat-fixture gpu_busy_percent ("37") via
-// the same flat-root fallback the memory readers use, asserting KnownInt(37) (DASH-03
+// the same flat-root fallback the memory readers use, asserting KnownInt(37) (
 // utilization, typed Int not Bytes).
 func TestGPUBusyPercentFromFixture(t *testing.T) {
 	got := gpuBusyPercent("testdata")
@@ -57,7 +57,7 @@ func TestGPUBusyPercentVendorDiscovery(t *testing.T) {
 }
 
 // TestGPUBusyPercentUnparseableYieldsUnknown asserts a garbage gpu_busy_percent
-// degrades to typed-Unknown — never a fabricated number (D-06 memory-first).
+// degrades to typed-Unknown — never a fabricated number (memory-first).
 func TestGPUBusyPercentUnparseableYieldsUnknown(t *testing.T) {
 	root := t.TempDir()
 	dir := filepath.Join(root, "card1", "device")
@@ -81,7 +81,7 @@ func TestGPUBusyPercentUnparseableYieldsUnknown(t *testing.T) {
 }
 
 // TestGPUBusyPercentMissingYieldsUnknown asserts a card dir with NO gpu_busy_percent
-// file across all candidates → typed-Unknown "not found" (→ "unavailable", D-06).
+// file across all candidates → typed-Unknown "not found" (→ "unavailable").
 func TestGPUBusyPercentMissingYieldsUnknown(t *testing.T) {
 	root := t.TempDir() // empty: no card dirs, no flat busy% file
 	got := gpuBusyPercent(root)

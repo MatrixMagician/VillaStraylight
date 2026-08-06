@@ -14,7 +14,7 @@ var update = flag.Bool("update", false, "regenerate golden files")
 
 // fixtureProfile is a deterministic HostProfile (NOT live hardware) so the
 // golden JSON is stable in CI. It mixes Known and Unknown fields to lock the
-// full --json contract shape (D-05 dashboard contract).
+// full --json contract shape (dashboard contract).
 func fixtureProfile() detect.HostProfile {
 	return detect.HostProfile{
 		CPUModel:            detect.KnownStr("AMD RYZEN AI MAX+ 395 w/ Radeon 8060S", "/proc/cpuinfo:model name"),
@@ -35,9 +35,9 @@ func fixtureProfile() detect.HostProfile {
 		KernelVersion:       detect.KnownStr("7.0.10-201.fc44.x86_64", "/proc/sys/kernel/osrelease"),
 		MesaVersion:         detect.KnownStr("26.0.8", "vulkaninfo --summary:driverVersion"),
 		// rocm_readiness (v1.1, schema 2): mix a Known value (kernel_floor_ok) and an
-		// Unknown value (rocminfo_gfx1151) so the golden locks BOTH serialized shapes —
+		// Unknown value (rocminfo_gfx1151) so the golden locks BOTH serialized shapes
 		// a real bool and an unset (Known=false) Optional that must never read as a
-		// confident false (D-08 no-false-green).
+		// confident false (no-false-green).
 		ROCmReadiness: detect.ROCmReadiness{
 			HSAOverrideViable: detect.UnknownBool("HSA override viability not probed (unevaluable off-hardware)", ""),
 			FirmwareDateOK:    detect.UnknownBool("firmware date not probed (advisory only off-hardware)", ""),
@@ -50,7 +50,7 @@ func fixtureProfile() detect.HostProfile {
 }
 
 // TestJSONGolden asserts `villa detect --json` over the injected fixture profile
-// matches cmd/villa/testdata/detect.golden.json byte-for-byte (D-05 contract
+// matches cmd/villa/testdata/detect.golden.json byte-for-byte (contract
 // stability). Run with -update to regenerate.
 func TestJSONGolden(t *testing.T) {
 	var buf bytes.Buffer

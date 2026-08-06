@@ -90,9 +90,9 @@ func newBackendStub(rec *backendRecorder) *backendswap.Deps {
 }
 
 // TestLivePreflightROCmFamily asserts the LIVE PreflightROCm closure (built in
-// liveBackendSwapDeps) is family-aware (D-08): it short-circuits ok=true for a
+// liveBackendSwapDeps) is family-aware: it short-circuits ok=true for a
 // non-ROCm backend and runs the gate against the RESOLVED target image for every
-// ROCm-family name (SC#2).
+// ROCm-family name.
 //
 // It does NOT assert a fixed ok=true: the kernel and firmware floors are knowable
 // off-hardware (unlike the GPU/HSA signals, which degrade to typed-Unknown WARNs), so
@@ -193,7 +193,7 @@ func TestBackendShow(t *testing.T) {
 	})
 }
 
-// TestBackendSetDryRun: --dry-run previews target/fit/preflight and mutates NOTHING —
+// TestBackendSetDryRun: --dry-run previews target/fit/preflight and mutates NOTHING
 // no SaveConfig / ReconcileAndWrite / Restart / CaptureUnit / Prove (BSET-03).
 func TestBackendSetDryRun(t *testing.T) {
 	rec := &backendRecorder{curBackend: "vulkan", fits: true, preflightOK: true, proveStatus: backendswap.ProveStatusPass}

@@ -42,7 +42,7 @@ func TestParsePromTextExtractsGauges(t *testing.T) {
 	}
 }
 
-// TestParsePromTextStripsLabels is the WR-02 guard: a labeled series
+// TestParsePromTextStripsLabels is the guard: a labeled series
 // (`llamacpp:foo{slot="0"} 1`) must be keyed under its bare metric name so the unlabeled
 // lookup finds it, rather than silently missing and presenting a fabricated 0.0 rate.
 func TestParsePromTextStripsLabels(t *testing.T) {
@@ -69,7 +69,7 @@ func TestParsePromTextStripsLabels(t *testing.T) {
 	// The raw labeled key must NOT survive (it would be a silent miss on the bare lookup).
 	for k := range m {
 		if strings.ContainsRune(k, '{') {
-			t.Errorf("parsePromText leaked a labeled key %q — labels must be stripped (WR-02)", k)
+			t.Errorf("parsePromText leaked a labeled key %q — labels must be stripped", k)
 		}
 	}
 }
@@ -109,7 +109,7 @@ func TestScrapeMetricsFromServer(t *testing.T) {
 	}
 }
 
-// TestScrapeMetrics404IsTypedUnknown is the Pitfall 2 / D-11 guard: a 404 /metrics
+// TestScrapeMetrics404IsTypedUnknown is the Pitfall 2 / guard: a 404 /metrics
 // (the state when --metrics is absent) yields ok=false and a ZERO-VALUE snapshot the
 // handler renders as "unavailable" — never a fabricated/zero rate presented as real.
 func TestScrapeMetrics404IsTypedUnknown(t *testing.T) {
@@ -136,10 +136,10 @@ func TestScrapeMetricsTransportErrorIsTypedUnknown(t *testing.T) {
 	}
 }
 
-// TestScrapeCountersTotal is the USAGE-01 / D-06 counter feed guard. The present case
+// TestScrapeCountersTotal is the counter feed guard. The present case
 // asserts the two monotonic cumulative counters (llamacpp:prompt_tokens_total and
 // llamacpp:tokens_predicted_total) read out of the bounded /metrics scrape as typed
-// uint64 readings with Known=true. The absent case is the D-05 typed-Unknown discipline:
+// uint64 readings with Known=true. The absent case is the typed-Unknown discipline:
 // a body WITHOUT the two _total lines yields Known=false (NOT a fabricated 0), and a 404
 // degrades the whole-scrape availability bool to false.
 func TestScrapeCountersTotal(t *testing.T) {
@@ -170,7 +170,7 @@ func TestScrapeCountersTotal(t *testing.T) {
 		t.Errorf("PredictedTokensTotal = %d (known=%v), want 48913 (known=true)", cs.PredictedTokensTotal, cs.PredictedTokensKnown)
 	}
 
-	// Absent: a body without the two _total lines → Known=false, never a fabricated 0 (D-05).
+	// Absent: a body without the two _total lines → Known=false, never a fabricated 0.
 	absentBody := strings.Join([]string{
 		`# TYPE llamacpp:requests_processing gauge`,
 		`llamacpp:requests_processing 0`,
@@ -212,7 +212,7 @@ func TestScrapeCountersTotal(t *testing.T) {
 // can sever a counter value (e.g. `...predicted_total 1305` from `130572`); the reset-aware
 // fold would mis-read the smaller-but-parseable value as a counter reset and durably
 // corrupt the cumulative total (v1.2 review finding). Refusing the whole over-cap sample is
-// the no-false-data posture (D-05).
+// the no-false-data posture.
 func TestScrapeCountersOversizedBodyUnavailable(t *testing.T) {
 	var b strings.Builder
 	b.WriteString("# TYPE llamacpp:prompt_tokens_total counter\n")
@@ -243,7 +243,7 @@ func TestScrapeCountersOversizedBodyUnavailable(t *testing.T) {
 // branch (Known=false, zero total) for every value that is NOT a trustworthy
 // non-negative exactly-representable integer — NaN, +Inf, -Inf, negative, and an
 // over-bound value above 2^53 — so a garbage /metrics line can never be narrowed into a
-// fabricated durable count (D-05 / WR-02). A normal finite count and an absent key are
+// fabricated durable count. A normal finite count and an absent key are
 // included as the control rows.
 func TestCounterFromMapRejectsNonFinite(t *testing.T) {
 	const name = "llamacpp:prompt_tokens_total"
@@ -283,7 +283,7 @@ func TestCounterFromMapRejectsNonFinite(t *testing.T) {
 
 // TestParseSlotsReadsOnlyNarrowFields asserts the /slots parser counts processing
 // slots and reads ONLY id/n_ctx/is_processing/next_token.n_decoded — never the prompt
-// or sampling params (T-05-08 security: no prompt leakage).
+// or sampling params (security: no prompt leakage).
 func TestParseSlotsReadsOnlyNarrowFields(t *testing.T) {
 	body, err := os.ReadFile("testdata/slots.json")
 	if err != nil {
@@ -319,7 +319,7 @@ func TestParseSlotsReadsOnlyNarrowFields(t *testing.T) {
 
 // TestActiveAndIdleGate asserts the fold: with a processing slot OR
 // requests_processing>0 the stack is "generating"; with neither it is idle so the UI
-// renders "Idle — no active generation." (Pitfall 3 / D-10).
+// renders "Idle — no active generation." (Pitfall 3).
 func TestActiveAndIdleGate(t *testing.T) {
 	body, err := os.ReadFile("testdata/slots.json")
 	if err != nil {
@@ -380,7 +380,7 @@ func TestScrapeSlotsFromServer(t *testing.T) {
 }
 
 // TestScrapeCacheCountersTotal asserts ScrapeCacheCounters surfaces the
-// cache_n/prompt_n pair as a typed-Unknown CacheSample (USAGE-04, D-10): both
+// cache_n/prompt_n pair as a typed-Unknown CacheSample: both
 // present → Known with exact counts; an absent counter → that one Known=false
 // (never a fabricated 0); a 404 → the whole scrape unavailable. The ratio itself is
 // NOT computed here (Plan 03 owns it).
@@ -412,7 +412,7 @@ func TestScrapeCacheCountersTotal(t *testing.T) {
 		t.Errorf("CacheN = %d (known=%v), want 3072 (known=true)", cs.CacheN, cs.CacheKnown)
 	}
 
-	// Only prompt_n present → cache_n Known=false, never a fabricated 0 (D-05).
+	// Only prompt_n present → cache_n Known=false, never a fabricated 0.
 	onlyPrompt := "# TYPE " + mPromptCacheTokensTotal + " counter\n" + mPromptCacheTokensTotal + " 100\n"
 	pSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/metrics" {
@@ -465,7 +465,7 @@ func TestScrapeCacheCountersTotal(t *testing.T) {
 // TestScrapeCacheCountersOversizedBodyUnavailable proves an over-cap /metrics body
 // is refused as UNAVAILABLE (same truncation guard as ScrapeCounters): a counter
 // line severed mid-value by the cap would mis-parse, so the whole sample is dropped
-// rather than folding a partial read (D-05).
+// rather than folding a partial read.
 func TestScrapeCacheCountersOversizedBodyUnavailable(t *testing.T) {
 	var b strings.Builder
 	b.WriteString("# TYPE " + mPromptCacheTokensTotal + " counter\n")
@@ -493,7 +493,7 @@ func TestScrapeCacheCountersOversizedBodyUnavailable(t *testing.T) {
 // TestCacheSampleRejectsNonFinite asserts the cache pair is read through the SAME
 // counterFromMap finiteness guard as the usage counters: a NaN/Inf/negative/over-cap
 // cache_n or prompt_n line degrades to Known=false (never a fabricated durable count),
-// so a garbage /metrics line can never corrupt the surfacing-layer ratio (D-05).
+// so a garbage /metrics line can never corrupt the surfacing-layer ratio.
 func TestCacheSampleRejectsNonFinite(t *testing.T) {
 	for _, c := range []struct {
 		desc      string

@@ -1,6 +1,6 @@
 package websafe
 
-// honesty_test.go enforces the GUARD-04 honesty discipline (T-32-09): the guard layer must
+// honesty_test.go enforces the honesty discipline: the guard layer must
 // never describe itself dishonestly. It clones the directory-walking, regexp content-ban
 // structure of internal/inference/seam_test.go (TestSeamGrepGate) and applies it to the
 // websafe package's own source.
@@ -70,7 +70,7 @@ func TestNoInjectionSafeCopy(t *testing.T) {
 }
 
 // TestMarkdownImageResidualDocumented asserts doc.go documents the browser-side
-// markdown-image zero-click exfil channel as a known residual (T-32-08, accept/documented).
+// markdown-image zero-click exfil channel as a known residual (accept/documented).
 // The residual must be present and framed as NOT closed; if doc.go ever drops or softens
 // this note the honesty contract regresses, so this test pins it.
 func TestMarkdownImageResidualDocumented(t *testing.T) {

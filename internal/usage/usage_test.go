@@ -1,6 +1,6 @@
-// Package usage tests guard the reset-aware fold (D-04), per-model keying (D-03),
-// typed-Unknown no-fold discipline (D-05), the counts-only structural guarantee
-// (D-11), and the XDG atomic store round-trip + traversal guard (D-02).
+// Package usage tests guard the reset-aware fold, per-model keying,
+// typed-Unknown no-fold discipline, the counts-only structural guarantee
+// and the XDG atomic store round-trip + traversal guard.
 package usage
 
 import (
@@ -16,7 +16,7 @@ import (
 // TestFoldResetAware proves the monotonic-then-reset accumulation: a growing raw
 // counter folds the delta into the cumulative total; a BACKWARD step (server
 // restart / backend swap reset the in-memory counter to a low value) is treated as
-// "the whole sample is new", never a negative delta (D-04).
+// "the whole sample is new", never a negative delta.
 func TestFoldResetAware(t *testing.T) {
 	prior := UsageTotals{}
 	prior = Fold(prior, Sample{
@@ -72,7 +72,7 @@ func TestFoldResetAware(t *testing.T) {
 }
 
 // TestFoldPerModel proves two distinct models accumulate independently and that
-// folding one model again leaves the other untouched (D-03 per-model keying).
+// folding one model again leaves the other untouched (per-model keying).
 func TestFoldPerModel(t *testing.T) {
 	tot := UsageTotals{}
 	tot = Fold(tot, Sample{Model: "A", PromptTokensTotal: 10, PromptTokensKnown: true, PredictedTokensTotal: 5, PredictedTokensKnown: true})
@@ -97,7 +97,7 @@ func TestFoldPerModel(t *testing.T) {
 
 // TestFoldTypedUnknown proves a typed-Unknown (absent) counter contributes NO fold
 // and NO LastSeenRaw mutation for that counter, while a Known sibling counter still
-// folds; and an entirely-unknown sample produces NO new/changed model entry (D-05).
+// folds; and an entirely-unknown sample produces NO new/changed model entry.
 func TestFoldTypedUnknown(t *testing.T) {
 	tot := UsageTotals{
 		SchemaVersion: usageSchemaVersion,
@@ -136,7 +136,7 @@ func TestFoldTypedUnknown(t *testing.T) {
 // empty Model only arises when the writer cannot resolve the active model (e.g. a transient
 // config-read error makes the dashboard's liveModelID return ""); folding it would surface
 // a blank-keyed entry carrying real counts in `villa status` and backups (v1.2 review
-// finding — D-03 per-model keying, never a blank key).
+// finding — per-model keying, never a blank key).
 func TestFoldEmptyModelDiscarded(t *testing.T) {
 	prior := UsageTotals{
 		SchemaVersion: usageSchemaVersion,
@@ -160,7 +160,7 @@ func TestFoldEmptyModelDiscarded(t *testing.T) {
 }
 
 // TestUsageTotalsHasNoContentFields is the counts-only structural security test
-// (D-11), mirroring metrics.TestParseSlotsReadsOnlyNarrowFields: it reflects over
+// mirroring metrics.TestParseSlotsReadsOnlyNarrowFields: it reflects over
 // UsageTotals AND ModelUsage allowing ONLY count/identity field names, and asserts
 // the marshaled JSON of a populated store contains none of the content denylist
 // substrings — no prompt/response/content text can ever enter the store.
@@ -257,7 +257,7 @@ func TestStoreRoundTrip(t *testing.T) {
 
 // TestLoadFailsClosed proves Load degrades to an empty typed-Unknown (no error, no
 // panic) on an absent store, a corrupt blob, and a schema-version mismatch — never a
-// fabricated total (D-05, T-15-05).
+// fabricated total.
 func TestLoadFailsClosed(t *testing.T) {
 	// Absent store: ReadAll ⇒ (nil,nil) ⇒ empty UsageTotals, no error.
 	absent := Deps{ReadAll: func() ([]byte, error) { return nil, nil }}
@@ -281,7 +281,7 @@ func TestLoadFailsClosed(t *testing.T) {
 }
 
 // TestUsagePathXDG proves the resolver honors $XDG_DATA_HOME and that a traversal
-// escape is refused (T-15-01).
+// escape is refused.
 //
 // The guard is exercised through WriteFileAtomic — the production write path — rather
 // than through a package-local predicate. That is where it actually fires, so the

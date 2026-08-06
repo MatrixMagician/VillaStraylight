@@ -1,7 +1,7 @@
-// normalize_test.go guards the GUARD-02 Unicode-defang invariants: zero-width and
+// normalize_test.go guards the Unicode-defang invariants: zero-width and
 // bidirectional control runes are stripped, NFKC folds fullwidth variants to ASCII,
 // legitimate non-Latin visible text survives (Pitfall 2 / defang-not-destroy), and a
-// non-empty input never normalizes to "" (CR-02 anti-pattern).
+// non-empty input never normalizes to "" (anti-pattern).
 package websafe
 
 import (
@@ -45,7 +45,7 @@ func TestNormalizePreservesNonLatin(t *testing.T) {
 	cases := []string{
 		"مرحبا بالعالم", // Arabic "hello world"
 		"日本語のテキスト",      // Japanese
-		"Привет мир",     // Cyrillic
+		"Привет мир",    // Cyrillic
 	}
 	for _, in := range cases {
 		got := normalize(in)
@@ -61,7 +61,7 @@ func TestNormalizePreservesNonLatin(t *testing.T) {
 }
 
 // TestNormalizeNeverEmpty asserts a non-empty input never normalizes to "" — the
-// CR-02 content-swallow class. An all-invisible input is the strip-to-empty edge,
+// content-swallow class. An all-invisible input is the strip-to-empty edge,
 // which is acceptable (no visible content); a string with visible content must survive.
 func TestNormalizeNeverEmpty(t *testing.T) {
 	in := "citation text ​ with a zero-width space"

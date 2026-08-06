@@ -1,9 +1,9 @@
 // Package verifystate store tests guard the verify-search-state.json persistence
-// discipline cloned from internal/recall (SURF-04): fail-closed Load (absent /
+// discipline cloned from internal/recall: fail-closed Load (absent /
 // corrupt / future-schema ⇒ empty State = "no verified result", NEVER a fabricated
-// PASS — T-34-01), version-stamping Save, the atomic 0600/0700 temp+rename writer
-// with a traversal guard against the FIXED store root (T-34-04), and the
-// verdict+timestamp-only content discipline (T-34-02 — no query/URL content may
+// PASS), version-stamping Save, the atomic 0600/0700 temp+rename writer
+// with a traversal guard against the FIXED store root, and the
+// verdict+timestamp-only content discipline (no query/URL content may
 // ever enter the host-side file).
 package verifystate
 
@@ -31,8 +31,8 @@ func TestStore(t *testing.T) {
 }
 
 // testStoreLoadFailsClosed proves Load degrades to an empty State (no error, no
-// panic) on an absent store, a corrupt blob, and a future/unknown schema_version —
-// an empty state means "no verified result", never a fabricated PASS (T-34-01). A
+// panic) on an absent store, a corrupt blob, and a future/unknown schema_version
+// an empty state means "no verified result", never a fabricated PASS. A
 // nil ReadAll seam and a ReadAll I/O error are REAL errors (wrapped).
 func testStoreLoadFailsClosed(t *testing.T) {
 	// Nil seam ⇒ error (a programming error, never silent).
@@ -64,7 +64,7 @@ func testStoreLoadFailsClosed(t *testing.T) {
 		t.Errorf("Load(corrupt) = (%+v, %v), want empty, nil", got, err)
 	}
 
-	// Future/unknown schema: valid JSON, wrong schema_version ⇒ empty, no error —
+	// Future/unknown schema: valid JSON, wrong schema_version ⇒ empty, no error
 	// a future schema is NEVER reinterpreted as the current version (so a forged
 	// future-schema "PASS" can never surface as a real verdict).
 	skew := Deps{ReadAll: func() ([]byte, error) {
@@ -137,7 +137,7 @@ func testStoreSchemaVersionMirrorsConst(t *testing.T) {
 }
 
 // testStoreStateHasNoContentKeys is the verdict+timestamp-only security test
-// (T-34-02): it marshals a fully-populated State and walks EVERY JSON key,
+// it marshals a fully-populated State and walks EVERY JSON key,
 // asserting none contains a content-bearing token — no query, no URL, no fetched
 // content may ever leak into the host-side verify-search-state.json.
 func testStoreStateHasNoContentKeys(t *testing.T) {
@@ -161,7 +161,7 @@ func testStoreStateHasNoContentKeys(t *testing.T) {
 		lk := strings.ToLower(k)
 		for _, banned := range denied {
 			if strings.Contains(lk, banned) {
-				t.Errorf("marshaled state JSON key %q contains banned content token %q — verdict/timestamp only (T-34-02)", k, banned)
+				t.Errorf("marshaled state JSON key %q contains banned content token %q — verdict/timestamp only", k, banned)
 			}
 		}
 	}
@@ -169,7 +169,7 @@ func testStoreStateHasNoContentKeys(t *testing.T) {
 
 // testStoreVerifyStatePathXDG proves the path resolver honors $XDG_DATA_HOME (the
 // fixed villa data-store root) and that assertInsideDir rejects a traversal escape
-// measured against that FIXED root (T-34-04).
+// measured against that FIXED root.
 func testStoreVerifyStatePathXDG(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("XDG_DATA_HOME", tmp)
@@ -194,7 +194,7 @@ func testStoreVerifyStatePathXDG(t *testing.T) {
 
 // testStoreWriteFileAtomic proves the atomic writer creates the store dir 0700,
 // writes the file 0600 with the exact bytes, leaves NO temp file behind on success
-// OR on a failed rename, and refuses a path outside the fixed store root (T-34-04).
+// OR on a failed rename, and refuses a path outside the fixed store root.
 func testStoreWriteFileAtomic(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("XDG_DATA_HOME", tmp)
@@ -251,7 +251,7 @@ func testStoreWriteFileAtomic(t *testing.T) {
 	assertNoTempFiles(t, filepath.Dir(path))
 }
 
-// assertNoTempFiles fails the test if any verify-state temp file is left in dir —
+// assertNoTempFiles fails the test if any verify-state temp file is left in dir
 // the writer must clean its temp up on every error branch and after every rename.
 func assertNoTempFiles(t *testing.T, dir string) {
 	t.Helper()

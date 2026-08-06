@@ -1,4 +1,4 @@
-// Package metrics is the VillaStraylight performance collector (Phase-5 DASH-02):
+// Package metrics is the VillaStraylight performance collector:
 // a bounded loopback scrape of llama-server's /metrics (Prometheus text) and /slots
 // (JSON) that feeds the dashboard Performance panel.
 //
@@ -8,10 +8,11 @@
 //     derived from /slots instead.
 //   - the tok/s gauges are last-window snapshots, NOT a live "is generating?" signal
 //     (Pitfall 3) — callers gate "live?" on IsGenerating (requests_processing>0 OR an
-//     is_processing slot) and render "Idle — no active generation." otherwise (D-10).
 //
-// Every scrape is bounded by io.LimitReader (T-05-07) and degrades to a typed-Unknown
-// (ok=false), never a fabricated zero presented as a real reading (D-11).
+// is_processing slot) and render "Idle — no active generation." otherwise.
+//
+// Every scrape is bounded by io.LimitReader and degrades to a typed-Unknown
+// (ok=false), never a fabricated zero presented as a real reading.
 package metrics
 
 import (
@@ -28,13 +29,13 @@ import (
 // never stall the dashboard poll loop.
 const scrapeTimeout = 2 * time.Second
 
-// maxScrapeBody bounds each response body (T-05-07 memory-exhaustion guard), mirroring
+// maxScrapeBody bounds each response body (memory-exhaustion guard), mirroring
 // the 64 KiB cap liveOpenWebUIHealth uses in cmd/villa/status.go.
 const maxScrapeBody = 64 << 10
 
 // PerfSnapshot is the subset of llama-server /metrics gauges the Performance panel
 // reads. Every field is a last-window gauge value; a snapshot is only meaningful as a
-// live rate when IsGenerating reports true (the gauges are stale snapshots when idle —
+// live rate when IsGenerating reports true (the gauges are stale snapshots when idle
 // Pitfall 3). The removed KV-cache-usage ratio gauge is deliberately absent.
 type PerfSnapshot struct {
 	// PromptTokensPerSec is llamacpp:prompt_tokens_seconds — average prompt-eval
@@ -52,21 +53,21 @@ type PerfSnapshot struct {
 // mPromptTokensTotal and mPredictedTokensTotal are the two monotonic cumulative
 // counter NAME literals (declared "Counter:" in llama.cpp's tools/server/README.md).
 // These are the ONLY new metric literals introduced for the cumulative-usage feature
-// (USAGE-01) and — like the existing gauge names above — are confined to this package
-// per D-06's single-home discipline (enforced by the grep gate in 15-VALIDATION.md).
+// and — like the existing gauge names above — are confined to this package
+// per 's single-home discipline (enforced by the grep gate in 15-VALIDATION.md).
 const (
 	mPromptTokensTotal    = "llamacpp:prompt_tokens_total"
 	mPredictedTokensTotal = "llamacpp:tokens_predicted_total"
 )
 
 // mCacheTokensTotal and mPromptCacheTokensTotal are the cache-effectiveness counter
-// NAME literals (USAGE-04 core half, D-10): the llama.cpp prompt-cache reuse pair
+// NAME literals (core half): the llama.cpp prompt-cache reuse pair
 // surfaced for the agent-speed signal. cache_n is the count of prompt tokens served
 // from the KV cache (a cache HIT — the work llama.cpp skipped by reusing a prior
 // prefix); prompt_n is the total prompt tokens the request carried. The Plan-03
 // surfacing layer computes the ratio cache_n/prompt_n (shown ONLY when BOTH are Known
 // AND prompt_n>0) — NEVER a fabricated 0% here. These NAMEs are confined to this
-// package per D-06's single-home metric-literal discipline (grep gate). An absent
+// package per 's single-home metric-literal discipline (grep gate). An absent
 // line (a llama.cpp build that does not emit the pair) degrades to typed-Unknown via
 // counterFromMap — never a fabricated count.
 const (
@@ -80,25 +81,25 @@ const (
 // sibling struct rather than widening PerfSnapshot.
 //
 // Each value carries its own typed-Unknown bool: an absent or unparseable _total line
-// yields Known=false with the total left at its zero value (D-05) — the caller MUST gate
+// yields Known=false with the total left at its zero value — the caller MUST gate
 // on Known and never present the bare 0 as a real reading. Values are uint64 (counts are
 // exact integers; the float64→uint64 narrowing is lossless below 2^53, Pitfall 3).
 type CounterSample struct {
 	// PromptTokensTotal is llamacpp:prompt_tokens_total; valid only when PromptTokensKnown.
 	PromptTokensTotal uint64
-	// PromptTokensKnown is the typed-Unknown signal for PromptTokensTotal (D-05).
+	// PromptTokensKnown is the typed-Unknown signal for PromptTokensTotal.
 	PromptTokensKnown bool
 	// PredictedTokensTotal is llamacpp:tokens_predicted_total; valid only when PredictedTokensKnown.
 	PredictedTokensTotal uint64
-	// PredictedTokensKnown is the typed-Unknown signal for PredictedTokensTotal (D-05).
+	// PredictedTokensKnown is the typed-Unknown signal for PredictedTokensTotal.
 	PredictedTokensKnown bool
 }
 
-// CacheSample is the cache-effectiveness counterpart to CounterSample (USAGE-04
-// core half, D-10): the prompt-cache reuse pair (cache_n / prompt_n) the Plan-03
+// CacheSample is the cache-effectiveness counterpart to CounterSample (
+// core half): the prompt-cache reuse pair (cache_n / prompt_n) the Plan-03
 // surfacing layer turns into the agent-speed cache-hit ratio. Like CounterSample
 // each value carries its OWN typed-Unknown bool — an absent or unparseable line
-// yields Known=false with the count left at zero (D-05), and the caller MUST gate
+// yields Known=false with the count left at zero, and the caller MUST gate
 // on Known and never present the bare 0 as a real reading. The RATIO is NOT
 // computed here: Plan 03 shows cache_n/prompt_n ONLY when BOTH are Known AND
 // prompt_n>0, else the gray Unknown badge — never a fabricated 0%.
@@ -106,12 +107,12 @@ type CacheSample struct {
 	// CacheN is llamacpp cache_n — prompt tokens served from the KV cache (a hit);
 	// valid only when CacheKnown.
 	CacheN uint64
-	// CacheKnown is the typed-Unknown signal for CacheN (D-05).
+	// CacheKnown is the typed-Unknown signal for CacheN.
 	CacheKnown bool
 	// PromptN is llamacpp prompt_n — total prompt tokens the request carried; valid
 	// only when PromptKnown. The ratio's denominator (Plan 03 gates on PromptN>0).
 	PromptN uint64
-	// PromptKnown is the typed-Unknown signal for PromptN (D-05).
+	// PromptKnown is the typed-Unknown signal for PromptN.
 	PromptKnown bool
 }
 
@@ -120,29 +121,29 @@ type CacheSample struct {
 // EXACTLY: above it the strconv.ParseFloat → uint64 narrowing has already silently lost
 // integer precision (two distinct counts could fold identically), so a value over this
 // bound is not a trustworthy count and is dropped rather than folded into the durable
-// total (D-05; defends the CounterSample "lossless below 2^53" claim).
+// total (defends the CounterSample "lossless below 2^53" claim).
 const maxCounterValue = 1 << 53
 
 // counterFromMap reads one cumulative counter out of a parsePromText map via its presence
 // signal: ok=false (absent / unparseable line) ⇒ Known=false with a zero total, never a
-// fabricated 0 presented as a real count (D-05). It then EXPLICITLY rejects every value
+// fabricated 0 presented as a real count. It then EXPLICITLY rejects every value
 // that cannot be a trustworthy non-negative exact integer — NaN, ±Inf, negative, and any
 // value above maxCounterValue (2^53) — by returning the typed-Unknown branch. This matters
 // because `NaN < 0` and `+Inf < 0` are both false, so a bare `v < 0` guard would narrow
 // uint64(NaN)/uint64(+Inf) (implementation-specific garbage) into a fabricated durable
-// count that the additive, reset-aware fold would then make permanent (D-05). Only a finite,
+// count that the additive, reset-aware fold would then make permanent. Only a finite,
 // non-negative, exactly-representable value is narrowed to uint64 and returned Known.
 func counterFromMap(m map[string]float64, name string) (uint64, bool) {
 	v, ok := m[name]
 	if !ok || math.IsNaN(v) || math.IsInf(v, 0) || v < 0 || v > maxCounterValue {
-		return 0, false // typed-Unknown, never a fabricated count (D-05)
+		return 0, false // typed-Unknown, never a fabricated count
 	}
 	return uint64(v), true
 }
 
 // Slot is the NARROW view of one /slots element. It deliberately reads ONLY
 // non-sensitive fields — id, n_ctx, is_processing, and next_token.{n_decoded,n_remain}
-// — and NEVER the prompt or sampling params, which /slots may include (T-05-08:
+// — and NEVER the prompt or sampling params, which /slots may include (
 // no prompt leakage into the perf panel). Adding a prompt/params field here would be a
 // security regression; a structural test asserts the field set.
 type Slot struct {
@@ -163,7 +164,7 @@ type Slot struct {
 // Any Prometheus label block ("{slot=\"0\",…}") is stripped from the metric name before
 // keying so a labeled series (e.g. `llamacpp:foo{slot="0"} 1`) is keyed under the bare
 // metric name `llamacpp:foo` and found by the unlabeled lookup — rather than silently
-// missed and presented as a real 0.0 rate (WR-02 / D-11). The targeted llama.cpp gauges
+// missed and presented as a real 0.0 rate. The targeted llama.cpp gauges
 // are unlabeled in practice; this only hardens against a labeled emission.
 func parsePromText(body string) map[string]float64 {
 	out := map[string]float64{}
@@ -192,9 +193,9 @@ func parsePromText(body string) map[string]float64 {
 
 // ScrapeMetrics fetches endpoint+"/metrics" with a bounded client+body and maps the
 // CONFIRMED current gauges into a PerfSnapshot. A transport error or a non-200 (a 404
-// is the state when --metrics is absent from llamaServerFlags) yields (zero, false) —
+// is the state when --metrics is absent from llamaServerFlags) yields (zero, false)
 // a typed-Unknown the panel renders as "unavailable", NEVER a zero rate shown as real
-// (Pitfall 2 / D-11). It never queries the removed KV-cache-usage gauge (Pitfall 4).
+// (Pitfall 2). It never queries the removed KV-cache-usage gauge (Pitfall 4).
 func ScrapeMetrics(endpoint string) (PerfSnapshot, bool) {
 	client := &http.Client{Timeout: scrapeTimeout}
 	resp, err := client.Get(endpoint + "/metrics")
@@ -218,12 +219,12 @@ func ScrapeMetrics(endpoint string) (PerfSnapshot, bool) {
 // ScrapeCounters is the cumulative-usage sibling of ScrapeMetrics: it surfaces the two
 // monotonic _total counters as a typed-Unknown CounterSample, reusing the SAME bounded
 // request shape (scrapeTimeout client + maxScrapeBody LimitReader + parsePromText) — it
-// adds NO second HTTP request and NO new endpoint/host literal (D-12; T-15-06/T-15-08).
+// adds NO second HTTP request and NO new endpoint/host literal.
 //
 // A transport error or non-200 (a 404 is the state when --metrics is absent) yields
 // (zero, false): the whole scrape is unavailable. On a 200 body, the availability bool is
 // true and each counter's own Known bool reflects its presence in the parsed map — an
-// absent counter degrades to Known=false, never a fabricated 0 (D-05 / T-15-07).
+// absent counter degrades to Known=false, never a fabricated 0.
 func ScrapeCounters(endpoint string) (CounterSample, bool) {
 	client := &http.Client{Timeout: scrapeTimeout}
 	resp, err := client.Get(endpoint + "/metrics")
@@ -239,7 +240,7 @@ func ScrapeCounters(endpoint string) (CounterSample, bool) {
 	// maxScrapeBody can sever a counter line mid-value (`...predicted_total 1305` from
 	// `130572`); that smaller-but-parseable number would be folded by the reset-aware
 	// foldCounter as a COUNTER RESET, durably corrupting the cumulative total. Refuse the
-	// whole sample as unavailable instead of folding a partial read (D-05: no false data).
+	// whole sample as unavailable instead of folding a partial read (no false data).
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxScrapeBody+1))
 	if err != nil || len(body) > maxScrapeBody {
 		return CounterSample{}, false
@@ -255,11 +256,11 @@ func ScrapeCounters(endpoint string) (CounterSample, bool) {
 	}, true
 }
 
-// ScrapeCacheCounters is the cache-effectiveness sibling of ScrapeCounters (USAGE-04
-// core half, D-10): it surfaces the prompt-cache reuse pair (cache_n / prompt_n) as a
+// ScrapeCacheCounters is the cache-effectiveness sibling of ScrapeCounters (
+// core half): it surfaces the prompt-cache reuse pair (cache_n / prompt_n) as a
 // typed-Unknown CacheSample, REUSING the IDENTICAL bounded request shape (scrapeTimeout
 // client + maxScrapeBody+1 LimitReader truncation-refusal + parsePromText) — it adds NO
-// second HTTP request and NO new endpoint/host literal (D-12; T-15-06/T-15-08), so the
+// second HTTP request and NO new endpoint/host literal, so the
 // surfacing layer can read it from the SAME bounded scrape.
 //
 // A transport error or non-200 (a 404 is the state when --metrics is absent) yields
@@ -267,7 +268,7 @@ func ScrapeCounters(endpoint string) (CounterSample, bool) {
 // unavailable (the same truncation guard as ScrapeCounters — a severed counter line
 // would mis-parse). On a 200 body the availability bool is true and each counter's own
 // Known bool reflects its presence in the parsed map — an absent counter degrades to
-// Known=false, never a fabricated 0 (D-05). The RATIO is computed in Plan 03, not here.
+// Known=false, never a fabricated 0. The RATIO is computed in Plan 03, not here.
 func ScrapeCacheCounters(endpoint string) (CacheSample, bool) {
 	client := &http.Client{Timeout: scrapeTimeout}
 	resp, err := client.Get(endpoint + "/metrics")
@@ -280,7 +281,7 @@ func ScrapeCacheCounters(endpoint string) (CacheSample, bool) {
 	}
 	// Same truncation-refusal as ScrapeCounters: read one byte past the cap so an
 	// over-cap body is DETECTED and the whole sample refused rather than folding a
-	// counter line severed mid-value (D-05: no false data).
+	// counter line severed mid-value (no false data).
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxScrapeBody+1))
 	if err != nil || len(body) > maxScrapeBody {
 		return CacheSample{}, false
@@ -298,7 +299,7 @@ func ScrapeCacheCounters(endpoint string) (CacheSample, bool) {
 
 // parseSlots unmarshals a /slots body into the narrow []Slot view. Because Slot only
 // declares the non-sensitive fields, json.Unmarshal discards prompt/params even when
-// the wire body includes them (T-05-08). A malformed body yields (nil, false).
+// the wire body includes them. A malformed body yields (nil, false).
 func parseSlots(body []byte) ([]Slot, bool) {
 	var slots []Slot
 	if err := json.Unmarshal(body, &slots); err != nil {
@@ -338,7 +339,7 @@ func ActiveSlots(slots []Slot) int {
 
 // IsGenerating folds the metrics + slots into the single "is anything generating?" gate
 // the dashboard uses to choose between live tok/s and "Idle — no active generation."
-// (Pitfall 3 / D-10). It is true when requests_processing>0 OR any slot is processing;
+// (Pitfall 3). It is true when requests_processing>0 OR any slot is processing;
 // when false the tok/s gauges are stale snapshots and MUST NOT be presented as a live rate.
 func IsGenerating(snap PerfSnapshot, slots []Slot) bool {
 	if snap.RequestsProcessing > 0 {

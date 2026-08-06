@@ -1,6 +1,6 @@
 package websafe
 
-// fence.go is the GUARD-03 provenance-fence policy: it wraps each page's
+// fence.go is the provenance-fence policy: it wraps each page's
 // sanitized+normalized content in a per-fetch, crypto/rand-nonced delimiter pair,
 // preceded by a preamble declaring the enclosed text untrusted web DATA (not
 // instructions). This is the academic "spotlighting -> delimiting" defense: the
@@ -26,7 +26,7 @@ import (
 // + encoding/hex. NEVER use math/rand here — a predictable nonce is forgeable and would
 // defeat the fence. 64 bits is ample to make forgery infeasible.
 //
-// FAIL-CLOSED (WR-02): the nonce is the fence's SOLE security property — an
+// FAIL-CLOSED: the nonce is the fence's SOLE security property — an
 // unforgeable closing delimiter. If crypto/rand.Read errors, b stays all-zeros and the
 // nonce would be the constant "0000000000000000", which a malicious page can type to
 // break out of the fence. So we PROPAGATE the error rather than emit a forgeable
@@ -45,7 +45,7 @@ func newNonce() (string, error) {
 // pair, with the SAME nonce on both tags. The content appears verbatim between the
 // delimiters (no truncation; never empty for non-empty input).
 //
-// FAIL-CLOSED (WR-02): if the crypto/rand nonce cannot be sourced, fence returns the
+// FAIL-CLOSED: if the crypto/rand nonce cannot be sourced, fence returns the
 // error rather than a fence with a forgeable constant nonce. fetchOne then omits the
 // page (skip-and-continue, honest partial) instead of shipping a breakout-able fence.
 func fence(content string) (string, error) {

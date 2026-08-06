@@ -306,7 +306,7 @@ func TestBenchABUnsetTargetPreservesOther(t *testing.T) {
 
 // TestBenchABExplicitTarget: with spec.ABTarget set to an arbitrary named backend
 // and an original that is NOT its other() opposite, Run flips d.Switch to the NAMED
-// target and ABResult.To equals that target (arbitrary-pair A/B — the SC#3 capability
+// target and ABResult.To equals that target (arbitrary-pair A/B — the capability
 // the v1.1 other() 2-value swap cannot express). From always equals the loaded original.
 func TestBenchABExplicitTarget(t *testing.T) {
 	rec := &benchRecorder{currentBE: "rocm-6.4.4", verdicts: []measureVerdict{

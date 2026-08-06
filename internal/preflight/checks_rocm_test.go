@@ -175,7 +175,7 @@ func TestRunROCmImage(t *testing.T) {
 	}
 }
 
-// TestRunROCmOffHardwareNoFalseFail is the bias-not-to-over-block proof (T-07-02):
+// TestRunROCmOffHardwareNoFalseFail is the bias-not-to-over-block proof:
 // every signal Unknown (a bare off-hardware HostProfile, no image requested) yields
 // ZERO StatusFail. Every ROCm check must be WARN or PASS.
 func TestRunROCmOffHardwareNoFalseFail(t *testing.T) {
@@ -233,7 +233,7 @@ func TestRunROCmUsesEmbeddedPolicy(t *testing.T) {
 
 // TestRunROCmForImageEvaluatesDigest asserts RunROCmForImage threads the resolved
 // target image into the policy gate so checkROCmImage EVALUATES the actual digest
-// against imageDeny (SC#2 / Pitfall 3), rather than the empty-image WARN bypass
+// against imageDeny (Pitfall 3), rather than the empty-image WARN bypass
 // RunROCm uses on the host-prep path. A pinned 6.4.4 digest is NOT denied → PASS.
 func TestRunROCmForImageEvaluatesDigest(t *testing.T) {
 	const img644 = "docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-6.4.4@sha256:c81f30a7fd2641e3ea6ac4c45323ba239dca906ed79cc0dfe5b885f9f150ec62"

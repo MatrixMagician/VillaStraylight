@@ -7,10 +7,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// down.go wires `villa down [service]` (CLI-02): stop the whole stack — or one
-// service — WITHOUT removing any unit file (removal is `uninstall`, D-11). It
+// down.go wires `villa down [service]`: stop the whole stack — or one
+// service — WITHOUT removing any unit file (removal is `uninstall`). It
 // renders the stack only to derive the known service set for arg validation
-// (T-03-11); it never writes a unit. runDown RETURNS the exit code; the RunE
+// it never writes a unit. runDown RETURNS the exit code; the RunE
 // wrapper calls os.Exit.
 
 // newDown builds `villa down [service]`: stop the whole stack or one service.
@@ -32,7 +32,7 @@ func newDown() *cobra.Command {
 
 // runDown stops the targeted service(s) and RETURNS the exit code. It validates an
 // optional [service] arg against the known service set BEFORE any stop fires
-// (T-03-11). It never writes or removes a unit file.
+// It never writes or removes a unit file.
 func runDown(cmd *cobra.Command, args []string, d *lifecycleDeps) int {
 	out := cmd.OutOrStdout()
 	errOut := cmd.ErrOrStderr()

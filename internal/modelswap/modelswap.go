@@ -1,11 +1,11 @@
 // Package modelswap is the extracted `villa model swap` guarded orchestration core
-// (DASH-04): the ordering-is-the-security-contract sequence that resolves a model
+// the ordering-is-the-security-contract sequence that resolves a model
 // through the catalog, refuses a non-fitting target BEFORE any side effect, auto-pulls
 // absent weights, persists config BEFORE unit work, regenerates units, and restarts
 // ONLY the inference service.
 //
 // It was moved VERBATIM out of cmd/villa/model.go runModelSwap (STATE.md [03-05]: the
-// swap ordering IS the security contract, D-09) so the dashboard's POST
+// swap ordering IS the security contract) so the dashboard's POST
 // /api/models/switch handler can call the SAME path the CLI does, not a fork. Run
 // returns a typed Result (not an exit code) so the dashboard handler can branch on it
 // (RESEARCH: "Deps + Run() returning a typed result, not an exit code").
@@ -36,7 +36,7 @@ type Deps struct {
 	SaveConfig func(c config.VillaConfig) error
 	// ReconcileAndWrite renders units from the persisted config and writes only the
 	// changed unit(s). It reports whether anything actually changed so the caller can
-	// skip a needless restart on a no-op swap (WR-06).
+	// skip a needless restart on a no-op swap.
 	ReconcileAndWrite func(c config.VillaConfig) (bool, error)
 	// Restart restarts ONLY the named service (the inference unit).
 	Restart func(service string) error
@@ -68,7 +68,7 @@ type Result struct {
 	// Switched is true when the swap persisted config AND restarted the inference unit.
 	Switched bool
 	// NoOp is true when config was persisted but the units were already up to date, so
-	// no restart was needed (WR-06).
+	// no restart was needed.
 	NoOp bool
 	// FromModel / ToModel are the previous and new model ids (ToModel set on any
 	// resolved target; FromModel from the loaded config).
@@ -77,27 +77,27 @@ type Result struct {
 }
 
 // Run performs the guarded swap and returns a typed Result. Ordering is the security
-// contract (D-09), preserved VERBATIM from the old runModelSwap:
+// contract, preserved VERBATIM from the old runModelSwap:
 // (1) resolve through catalog, (2) fit-guard refuse, (3) auto-pull if absent,
 // (4) SaveVilla BEFORE unit work, (5) reconcileAndWrite, (6) restart ONLY the
-// inference service, skipping the restart on a no-op (WR-06). A failure at any step
+// inference service, skipping the restart on a no-op. A failure at any step
 // short-circuits with no further side effects.
 func Run(d Deps, name string) Result {
 	// (1) Resolve the name THROUGH the catalog — never as a filesystem path
-	// (T-03-18 command-injection / path-traversal guard). Unknown → refuse, zero
+	// (command-injection / path-traversal guard). Unknown → refuse, zero
 	// side effects.
 	m, ok := d.ResolveCatalog(name)
 	if !ok {
 		return Result{Refused: true, Unknown: true, Reason: "unknown model", ToModel: name}
 	}
 
-	// (2) Fit-guard (D-09.1 / T-03-19): refuse a target that won't fit the envelope
+	// (2) Fit-guard: refuse a target that won't fit the envelope
 	// BEFORE any pull/persist/restart — never a silent OOM at container start.
 	if fits, reason := d.Fits(m); !fits {
 		return Result{Refused: true, Reason: reason, ToModel: m.ID}
 	}
 
-	// (3) Auto-pull the verified weights if absent (D-09.2). Reuses the same
+	// (3) Auto-pull the verified weights if absent. Reuses the same
 	// verified/resumable downloader as `model pull`.
 	pulled := false
 	if !d.IsDownloaded(m) {
@@ -107,8 +107,8 @@ func Run(d Deps, name string) Result {
 		pulled = true
 	}
 
-	// (4) Persist the new model to config.toml BEFORE any unit work (D-09.3 /
-	// T-03-21): config is the single source of truth, so it must never lag the
+	// (4) Persist the new model to config.toml BEFORE any unit work (
+	// config is the single source of truth, so it must never lag the
 	// running unit.
 	cfg, err := d.LoadConfig()
 	if err != nil {

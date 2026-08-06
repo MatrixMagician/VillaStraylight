@@ -12,10 +12,10 @@ import (
 //
 // It does NOT re-probe the hardware: it reuses the facts already gathered into the
 // HostProfile by internal/detect (the backend seam). That keeps all Vulkan/DRI
-// knowledge inside the detect package and preserves the backend-neutrality seam —
+// knowledge inside the detect package and preserves the backend-neutrality seam
 // preflight only reasons over typed facts.
 //
-// Degradation (D-15): if the underlying facts are Unknown (vulkaninfo missing,
+// Degradation: if the underlying facts are Unknown (vulkaninfo missing,
 // /dev/dri unreadable — i.e. we could not EVALUATE the requirement), the BLOCK
 // downgrades to WARN ("could not verify") rather than a false hard block. Only a
 // confident known-absence (the ICD or DRI fact is Known and bad) is a true FAIL.
@@ -54,7 +54,7 @@ func checkVulkanIGPU(p detect.HostProfile) CheckResult {
 	}
 
 	// One fact known-good but the other unevaluable → we cannot fully confirm;
-	// surface the uncertainty as WARN rather than claim a clean pass (D-15).
+	// surface the uncertainty as WARN rather than claim a clean pass.
 	if !icdKnown || !driKnown {
 		missing := "Vulkan ICD"
 		if icdKnown {
@@ -73,7 +73,7 @@ func checkVulkanIGPU(p detect.HostProfile) CheckResult {
 		joinProvenance(icd.Source, dri.Source))
 }
 
-// checkKernelFloor is a WARN-tier floor gate (D-02): a kernel below KernelFloor has
+// checkKernelFloor is a WARN-tier floor gate: a kernel below KernelFloor has
 // a documented gfx1151 stability bug; between KernelFloor and KernelTested the host
 // is above the hard floor but below the validated baseline. Kernel version is a
 // FLOOR GATE, never an envelope multiplier (Pitfall 1). Unknown version → WARN.
@@ -106,7 +106,7 @@ func checkKernelFloor(p detect.HostProfile) CheckResult {
 		kv.Source)
 }
 
-// checkFirmwareFloor is a WARN-tier floor gate for linux-firmware (D-02). It can
+// checkFirmwareFloor is a WARN-tier floor gate for linux-firmware. It can
 // only act on what the HostProfile carries; Phase 1 does not probe a firmware date
 // stamp, so this check degrades to an informational WARN noting the known-bad build
 // to avoid (FirmwareDeny) rather than asserting a value it cannot read. The floor
@@ -121,7 +121,7 @@ func checkFirmwareFloor(p detect.HostProfile) CheckResult {
 	remediation := fmt.Sprintf("Ensure linux-firmware ≥ %s and NOT the known-bad %s build (breaks ROCm on Strix Halo).", f.Firmware, f.FirmwareDeny)
 
 	// Phase 1 has no firmware-date fact on the profile; surface the floor as a
-	// WARN-tier advisory (D-15 spirit: cannot evaluate → WARN, never block).
+	// WARN-tier advisory (spirit: cannot evaluate → WARN, never block).
 	return warn(id, name, TierWarn,
 		fmt.Sprintf("firmware version not probed in Phase 1; ensure ≥ %s and avoid %s", f.Firmware, f.FirmwareDeny),
 		remediation,

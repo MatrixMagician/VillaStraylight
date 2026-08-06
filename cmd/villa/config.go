@@ -14,11 +14,11 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 )
 
-// config.go wires `villa config show` and `villa config set key=value` (CLI-05):
+// config.go wires `villa config show` and `villa config set key=value`:
 // inspect the effective config.toml and edit it through the SINGLE traversal-
-// guarded 0600 writer (config.SaveVilla) — never a re-rolled writer (T-03-12).
+// guarded 0600 writer (config.SaveVilla) — never a re-rolled writer.
 // `set` validates the key against the known VillaConfig fields and notes that the
-// change applies on the next `up`/`restart` (reconcile, CLI-05). All host-touching
+// change applies on the next `up`/`restart` (reconcile). All host-touching
 // config access is behind the configDeps seam so config_test.go drives the verbs
 // without touching the user's real XDG config. runX RETURNS the exit code.
 
@@ -142,7 +142,7 @@ func runConfigShow(cmd *cobra.Command, asJSON bool, d *configDeps) int {
 
 // runConfigSet parses key=value, validates the key against the known VillaConfig
 // fields, applies it to the loaded config, persists via the save seam (reusing
-// config.SaveVilla's 0600 + traversal guard — never a re-rolled writer, T-03-12),
+// config.SaveVilla's 0600 + traversal guard — never a re-rolled writer),
 // and notes it applies on the next up/restart. It RETURNS the exit code; an
 // unknown key / malformed arg / bad value blocks (exit 1) and writes nothing.
 func runConfigSet(cmd *cobra.Command, arg string, d *configDeps) int {
@@ -191,7 +191,7 @@ func applyConfigKey(errOut io.Writer, cfg *config.VillaConfig, key, val string) 
 		cfg.Quant = val
 	case "backend":
 		// The plain writer may only persist a backend that needs NO bring-up gate, so
-		// the key cannot lie (WR-01). ROCm is now the default backend, but every
+		// the key cannot lie. ROCm is now the default backend, but every
 		// ROCm-family value must go through the transactional `villa backend set`
 		// (fit + ROCm preflight + prove + rollback) — persisting it here would skip
 		// those gates. Vulkan RADV is the only ungated value, so it is the only one

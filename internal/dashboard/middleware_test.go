@@ -8,7 +8,7 @@ import (
 )
 
 // guardedRouter wraps an /api mux in requireSameOrigin with a POST echo, so the
-// guard can be exercised in isolation of the real handlers (Pitfall 7 / T-05-04).
+// guard can be exercised in isolation of the real handlers (Pitfall 7).
 // It mirrors how the server mounts the guard: once, around the whole API mux.
 func guardedRouter() http.Handler {
 	api := http.NewServeMux()
@@ -21,7 +21,7 @@ func guardedRouter() http.Handler {
 }
 
 // TestSameOriginGuardRejectsCrossOrigin asserts a non-GET cross-origin request to /api
-// is rejected with 403 (CSRF guard, T-05-04). Covers both the Sec-Fetch-Site signal
+// is rejected with 403 (CSRF guard). Covers both the Sec-Fetch-Site signal
 // and the Origin-mismatch fallback, plus the missing-Origin and wrong-Content-Type
 // rejections.
 func TestSameOriginGuardRejectsCrossOrigin(t *testing.T) {
@@ -39,9 +39,9 @@ func TestSameOriginGuardRejectsCrossOrigin(t *testing.T) {
 		{"same-site via sec-fetch", "application/json", "http://127.0.0.1:8888", "same-site", "127.0.0.1:8888", http.StatusForbidden},
 		{"cross-origin via origin mismatch", "application/json", "http://evil.example", "", "127.0.0.1:8888", http.StatusForbidden},
 		{"missing origin and sec-fetch", "application/json", "", "", "127.0.0.1:8888", http.StatusForbidden},
-		// CR-01: Sec-Fetch-Site: none is NOT a same-origin pass; with no Origin it is rejected.
+		// Sec-Fetch-Site: none is NOT a same-origin pass; with no Origin it is rejected.
 		{"sec-fetch none and no origin", "application/json", "", "none", "127.0.0.1:8888", http.StatusForbidden},
-		// CR-01: none with a cross-origin Origin is rejected via the mandatory Origin check.
+		// none with a cross-origin Origin is rejected via the mandatory Origin check.
 		{"sec-fetch none and cross origin", "application/json", "http://evil.example", "none", "127.0.0.1:8888", http.StatusForbidden},
 		{"form content-type", "application/x-www-form-urlencoded", "http://127.0.0.1:8888", "same-origin", "127.0.0.1:8888", http.StatusForbidden},
 	}
@@ -96,8 +96,8 @@ func TestSameOriginGuardAllowsSameOriginJSON(t *testing.T) {
 }
 
 // TestSameOriginGuardNoneFallsBackToOrigin asserts that Sec-Fetch-Site: none does NOT
-// auto-pass (CR-01) but falls through to the Origin check: a present, matching Origin
-// is accepted; loopback hostname/IP variants are treated as equivalent (WR-04).
+// auto-pass but falls through to the Origin check: a present, matching Origin
+// is accepted; loopback hostname/IP variants are treated as equivalent.
 func TestSameOriginGuardNoneFallsBackToOrigin(t *testing.T) {
 	h := guardedRouter()
 
@@ -112,11 +112,11 @@ func TestSameOriginGuardNoneFallsBackToOrigin(t *testing.T) {
 		{"none with matching origin", "http://127.0.0.1:8888", "none", "127.0.0.1:8888", http.StatusOK},
 		// none absent entirely + matching Origin → accepted.
 		{"absent sec-fetch with matching origin", "http://127.0.0.1:8888", "", "127.0.0.1:8888", http.StatusOK},
-		// WR-04: localhost Origin vs 127.0.0.1 Host (loopback equivalence) → accepted.
+		// localhost Origin vs 127.0.0.1 Host (loopback equivalence) → accepted.
 		{"localhost origin vs 127 host", "http://localhost:8888", "none", "127.0.0.1:8888", http.StatusOK},
-		// WR-04: 127.0.0.1 Origin vs localhost Host → accepted.
+		// 127.0.0.1 Origin vs localhost Host → accepted.
 		{"127 origin vs localhost host", "http://127.0.0.1:8888", "none", "localhost:8888", http.StatusOK},
-		// WR-04: case-insensitive host authority → accepted.
+		// case-insensitive host authority → accepted.
 		{"uppercase localhost origin", "http://LOCALHOST:8888", "none", "localhost:8888", http.StatusOK},
 		// Loopback equivalence must NOT cross ports.
 		{"loopback equivalence different port rejected", "http://localhost:9999", "none", "127.0.0.1:8888", http.StatusForbidden},

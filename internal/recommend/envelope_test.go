@@ -7,7 +7,7 @@ import (
 )
 
 // TestConservativeFloorFromRAM asserts that when the GTT envelope is Unknown but
-// total RAM is known, a ~50%-of-RAM floor is derived (D-14).
+// total RAM is known, a ~50%-of-RAM floor is derived.
 func TestConservativeFloorFromRAM(t *testing.T) {
 	const ram uint64 = 128 << 30
 	p := detect.HostProfile{
@@ -28,7 +28,7 @@ func TestConservativeFloorFromRAM(t *testing.T) {
 }
 
 // TestNoFloorWhenNothingKnown asserts that when neither GTT nor RAM is known, no
-// floor is derivable (caller must refuse, D-14).
+// floor is derivable (caller must refuse).
 func TestNoFloorWhenNothingKnown(t *testing.T) {
 	p := detect.HostProfile{
 		TotalRAMBytes:       detect.UnknownBytes("ram unknown", ""),

@@ -2,7 +2,7 @@ package recall
 
 import "testing"
 
-// skew_test.go proves the D-10 embedding-skew comparison's three typed states:
+// skew_test.go proves the embedding-skew comparison's three typed states:
 // an empty recorded stamp is Unknown (no recorded truth ⇒ no alarm — the
 // blockOnNewerStore "not recorded" convention), an exact model+dim match is
 // Match, and ANY divergence (model OR dim) is Mismatch. EmbeddingSkew is THE

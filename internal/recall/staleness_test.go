@@ -1,9 +1,9 @@
-// Staleness tests guard the D-06 typed-Unknown discipline (mirroring
+// Staleness tests guard the typed-Unknown discipline (mirroring
 // memory.Decide): an unevaluable live list yields StaleKnown=false — structurally
 // distinct from "0 stale, current" — while Indexed/LastIndex* still report from
 // villa-side state; a partial run (started stamped, completed empty) is
 // distinguishable from a clean full pass; and the attachment state folds through
-// verbatim (retrieval honesty is part of staleness, Pitfall 2 / T-21-04).
+// verbatim (retrieval honesty is part of staleness, Pitfall 2).
 package recall
 
 import (
@@ -12,7 +12,7 @@ import (
 	"testing"
 )
 
-// TestStaleness is the table-driven proof of Classify's D-06 contract across
+// TestStaleness is the table-driven proof of Classify's contract across
 // known-live counting, typed-Unknown live, partial vs complete runs, deleted-chat
 // counting, attachment folding, and the everything-stale-as-new empty-state case.
 func TestStaleness(t *testing.T) {
@@ -175,7 +175,7 @@ func TestStaleness(t *testing.T) {
 	}
 }
 
-// TestStalenessUnknownIsNotZero pins the structural heart of D-06 (T-21-04): the
+// TestStalenessUnknownIsNotZero pins the structural heart of: the
 // liveKnown=false report differs from a genuinely-current liveKnown=true report
 // ONLY via StaleKnown — so any renderer that checks StaleKnown can never print a
 // stale-count of 0 for an unevaluable live list, and a renderer that ignores it
@@ -197,7 +197,7 @@ func TestStalenessUnknownIsNotZero(t *testing.T) {
 		t.Fatal("unknown-live report has StaleKnown=true — Unknown must be structurally distinct from 0")
 	}
 	if len(unknown.Reasons) == 0 {
-		t.Fatal("unknown-live report carries no reason — the WHY must be named (D-06)")
+		t.Fatal("unknown-live report carries no reason — the WHY must be named")
 	}
 	// Villa-side truths still report even when OWUI is unreachable.
 	if unknown.Indexed != 1 || unknown.LastIndexCompletedAt != "2026-06-10T12:03:21Z" {

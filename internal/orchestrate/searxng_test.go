@@ -11,9 +11,9 @@ import (
 // searxngFixtureInput is the deterministic RenderInput the searxng-unit golden is frozen
 // against: identical to fixtureInput() but with the v1.5 web-search config populated and
 // WebSearchEnabled=true so Render() appends the villa-searxng unit. The image digest is
-// sourced THROUGH the orchestrate managed-service const (SRCH-01), never hand-typed here.
+// sourced THROUGH the orchestrate managed-service const, never hand-typed here.
 // A fixed test secret is set so the unit golden is stable — but the secret VALUE must NOT
-// appear in the rendered 0644 unit (T-29-02), only the EnvironmentFile= path does.
+// appear in the rendered 0644 unit, only the EnvironmentFile= path does.
 func searxngFixtureInput() RenderInput {
 	return RenderInput{
 		Backend: inference.VulkanBackend(),
@@ -22,8 +22,8 @@ func searxngFixtureInput() RenderInput {
 			WebSearchEnabled:     true,
 			SearxngSecret:        "testsecret_must_not_appear_in_the_0644_unit",
 			WebSearchResultCount: 3,
-			// Phase-31 villa-websafe loader identity (WR-01, config-resolved). The bearer
-			// secret VALUE must NOT appear in the rendered 0644 unit (T-31-12) — only the
+			// Phase-31 villa-websafe loader identity (config-resolved). The bearer
+			// secret VALUE must NOT appear in the rendered 0644 unit — only the
 			// EnvironmentFile= path does.
 			WebLoaderSecret: "websafe_testsecret_must_not_appear_in_the_0644_unit",
 		},
@@ -65,7 +65,7 @@ func TestRenderSearxng(t *testing.T) {
 	}
 }
 
-// TestSearxngUnitNoSecretLeak (T-29-02): the rendered .container unit carries NO inline
+// TestSearxngUnitNoSecretLeak: the rendered.container unit carries NO inline
 // secret — no `Environment=SEARXNG_SECRET=` line and NOT the secret value itself; only an
 // `EnvironmentFile=` PATH reference. The secret never lands in the 0644 unit.
 func TestSearxngUnitNoSecretLeak(t *testing.T) {
@@ -78,15 +78,15 @@ func TestSearxngUnitNoSecretLeak(t *testing.T) {
 		t.Errorf("searxng unit carries an inline Environment=SEARXNG_SECRET= literal (T-29-02 leak):\n%s", c.Text)
 	}
 	if strings.Contains(c.Text, "testsecret_must_not_appear_in_the_0644_unit") {
-		t.Errorf("searxng unit leaked the secret VALUE into the 0644 unit (T-29-02):\n%s", c.Text)
+		t.Errorf("searxng unit leaked the secret VALUE into the 0644 unit:\n%s", c.Text)
 	}
 	if !strings.Contains(c.Text, "EnvironmentFile=") {
 		t.Errorf("searxng unit must reference the secret via EnvironmentFile= (path only):\n%s", c.Text)
 	}
 }
 
-// TestSearxngUnitNoPublishPort (T-29-04): the searxng unit publishes NO host port
-// (container-DNS only on villa.network, SC#1).
+// TestSearxngUnitNoPublishPort: the searxng unit publishes NO host port
+// (container-DNS only on villa.network).
 func TestSearxngUnitNoPublishPort(t *testing.T) {
 	units, err := Render(searxngFixtureInput())
 	if err != nil {
@@ -95,14 +95,14 @@ func TestSearxngUnitNoPublishPort(t *testing.T) {
 	c := unitByName(t, units, "villa-searxng.container")
 	for _, bad := range []string{"PublishPort=", "Publish=", "-p "} {
 		if strings.Contains(c.Text, bad) {
-			t.Errorf("searxng unit must not publish a host port (privacy leak, T-29-04): found %q in:\n%s", bad, c.Text)
+			t.Errorf("searxng unit must not publish a host port (privacy leak): found %q in:\n%s", bad, c.Text)
 		}
 	}
 }
 
 // TestRenderSearxngSettings: the settings.yml render matches its golden byte-for-byte and
-// carries the SRCH-01 server/search shape (limiter:false, image_proxy:false,
-// formats:[html,json]) with an EMPTY secret_key (the secret arrives via env, T-29-02).
+// carries the server/search shape (limiter:false, image_proxy:false,
+// formats:[html,json]) with an EMPTY secret_key (the secret arrives via env).
 func TestRenderSearxngSettings(t *testing.T) {
 	_, text, err := RenderSearxngSettings(searxngFixtureInput().Cfg)
 	if err != nil {
@@ -116,10 +116,10 @@ func TestRenderSearxngSettings(t *testing.T) {
 		}
 	}
 	if !strings.Contains(text, `secret_key: ""`) {
-		t.Errorf("settings.yml must render secret_key EMPTY (secret arrives via $SEARXNG_SECRET, T-29-02):\n%s", text)
+		t.Errorf("settings.yml must render secret_key EMPTY (secret arrives via $SEARXNG_SECRET):\n%s", text)
 	}
 	if strings.Contains(text, "testsecret_must_not_appear_in_the_0644_unit") {
-		t.Errorf("settings.yml leaked a secret value (must be empty, T-29-02):\n%s", text)
+		t.Errorf("settings.yml leaked a secret value (must be empty):\n%s", text)
 	}
 }
 
@@ -145,7 +145,7 @@ func TestRenderSearxngSettingsIsNotAUnit(t *testing.T) {
 	}
 }
 
-// TestSearxngEngineAllowlist (SRCH-04): the rendered settings.yml restricts engines via
+// TestSearxngEngineAllowlist: the rendered settings.yml restricts engines via
 // keep_only to EXACTLY the vetted subset (duckduckgo/brave/wikipedia/wikidata) and does
 // NOT inline a full-engine block. The keep_only allowlist is the auditable outbound surface.
 func TestSearxngEngineAllowlist(t *testing.T) {
@@ -173,7 +173,7 @@ func TestSearxngEngineAllowlist(t *testing.T) {
 			t.Errorf("SearxngEngines()[%d] = %q, want %q", i, got[i], want[i])
 		}
 	}
-	// Excluded engines must NOT appear (a too-broad outbound surface is the SRCH-04 risk).
+	// Excluded engines must NOT appear (a too-broad outbound surface is the risk).
 	for _, bad := range []string{"- google", "- bing", "- reddit", "- youtube"} {
 		if strings.Contains(text, bad) {
 			t.Errorf("settings.yml keep_only includes excluded engine line %q (SRCH-04 over-broad):\n%s", bad, text)
@@ -194,7 +194,7 @@ func TestRenderSearxngSecretEnv(t *testing.T) {
 	}
 }
 
-// TestSearxngSecretEnvFilePathContract (T-29-02 cross-plan contract): the EnvironmentFile=
+// TestSearxngSecretEnvFilePathContract (cross-plan contract): the EnvironmentFile=
 // path the unit references is the exported SearXNGSecretEnvFilePath() — the exact path Plan
 // 02 writes at 0600. The unit's EnvironmentFile= line must reference THAT path.
 func TestSearxngSecretEnvFilePathContract(t *testing.T) {
@@ -212,7 +212,7 @@ func TestSearxngSecretEnvFilePathContract(t *testing.T) {
 	}
 }
 
-// TestRenderByteIdenticalWhenWebSearchOff (SC#4 / PRIV-07): with web search off, Render
+// TestRenderByteIdenticalWhenWebSearchOff: with web search off, Render
 // returns EXACTLY the v1.4 units and the searxng unit name does NOT appear. The existing 5
 // (or 8, memory-on) goldens stay unchanged — proven by the existing render/memory tests
 // staying green plus this name regression.
@@ -236,7 +236,7 @@ func TestRenderByteIdenticalWhenWebSearchOff(t *testing.T) {
 
 	// Sanity: turning web search ON adds exactly TWO units (the searxng container then the
 	// villa-websafe container, in that order), strictly appended — the off-render is the
-	// on-render minus those two units (Phase-31 byte-identical-off, SC#4).
+	// on-render minus those two units (Phase-31 byte-identical-off).
 	on, err := Render(searxngFixtureInput())
 	if err != nil {
 		t.Fatalf("Render(on): %v", err)
@@ -252,7 +252,7 @@ func TestRenderByteIdenticalWhenWebSearchOff(t *testing.T) {
 	}
 }
 
-// TestRenderSearxngUsesSharedIdentity (WR-01): the searxng unit derives its
+// TestRenderSearxngUsesSharedIdentity: the searxng unit derives its
 // container-DNS identity from the SINGLE home of that literal in internal/config,
 // not from an orchestrate-local const.
 func TestRenderSearxngUsesSharedIdentity(t *testing.T) {

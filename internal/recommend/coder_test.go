@@ -21,7 +21,7 @@ func coderFitEntry() catalog.CatalogModel {
 
 // coderBigEntry is a role:"coder" entry whose CHAT-path footprint (weights +
 // KV@DefaultCtx + headroom ≈ 56.4 GiB at a 64 GiB envelope) would make it the
-// LARGEST fitting pick if pickBest considered it — the D-03 bit-identical test
+// LARGEST fitting pick if pickBest considered it — the bit-identical test
 // proves it never does.
 func coderBigEntry() catalog.CatalogModel {
 	return catalog.CatalogModel{
@@ -32,7 +32,7 @@ func coderBigEntry() catalog.CatalogModel {
 	}
 }
 
-// testCatalogWithCoder is testCatalog plus coder entries — the D-03 comparison
+// testCatalogWithCoder is testCatalog plus coder entries — the comparison
 // fixture: the chat pick over this catalog must be bit-identical to the chat
 // pick over testCatalog().
 func testCatalogWithCoder() catalog.Catalog {
@@ -41,7 +41,7 @@ func testCatalogWithCoder() catalog.Catalog {
 	return c
 }
 
-// TestPickCoderSwapWhenFits (D-06): with a coder entry whose
+// TestPickCoderSwapWhenFits: with a coder entry whose
 // weights+KV@agent_ctx+headroom fit the envelope, the coder block reports the
 // exact saturating fit terms, Fits=true and Residency="swap".
 func TestPickCoderSwapWhenFits(t *testing.T) {
@@ -65,10 +65,10 @@ func TestPickCoderSwapWhenFits(t *testing.T) {
 		t.Errorf("Coder.Fits = false, want true")
 	}
 	if rec.Coder.Residency != "swap" {
-		t.Errorf("Coder.Residency = %q, want \"swap\" (D-06: fits standalone → swap)", rec.Coder.Residency)
+		t.Errorf("Coder.Residency = %q, want \"swap\" (fits standalone → swap)", rec.Coder.Residency)
 	}
 	// Exact fit terms: KV computed by kvCacheBytes at AgentCtx, headroom from the
-	// envelope, total via the saturating sum — no second formula (D-04/WR-07).
+	// envelope, total via the saturating sum — no second formula.
 	wantKV := kvCacheBytes(entry, entry.AgentCtx)
 	wantHeadroom := headroomBytes(env)
 	wantTotal := addSaturating(addSaturating(entry.WeightBytes, wantKV), wantHeadroom)
@@ -86,7 +86,7 @@ func TestPickCoderSwapWhenFits(t *testing.T) {
 	}
 }
 
-// TestPickCoderSharedWhenNoneFits (D-06): with only an oversized coder entry the
+// TestPickCoderSharedWhenNoneFits: with only an oversized coder entry the
 // block degrades honestly — Fits=false, Residency="shared", empty Model — and
 // the chat pick is unaffected (shared is the floor, never a refusal).
 func TestPickCoderSharedWhenNoneFits(t *testing.T) {
@@ -115,7 +115,7 @@ func TestPickCoderSharedWhenNoneFits(t *testing.T) {
 	}
 }
 
-// TestPickCoderFitAtAgentCtxNeverCtxOverride (D-04): a --ctx override changes
+// TestPickCoderFitAtAgentCtxNeverCtxOverride: a --ctx override changes
 // the CHAT KV only — the coder KV is always computed at the entry's AgentCtx.
 func TestPickCoderFitAtAgentCtxNeverCtxOverride(t *testing.T) {
 	const env = uint64(64 << 30)
@@ -134,7 +134,7 @@ func TestPickCoderFitAtAgentCtxNeverCtxOverride(t *testing.T) {
 	}
 	wantKV := kvCacheBytes(entry, entry.AgentCtx)
 	if small.Coder.KVCacheBytes != wantKV {
-		t.Errorf("Coder.KVCacheBytes = %d with --ctx override, want %d computed at AgentCtx %d (D-04)", small.Coder.KVCacheBytes, wantKV, entry.AgentCtx)
+		t.Errorf("Coder.KVCacheBytes = %d with --ctx override, want %d computed at AgentCtx %d", small.Coder.KVCacheBytes, wantKV, entry.AgentCtx)
 	}
 	if small.Coder.AgentCtx != entry.AgentCtx {
 		t.Errorf("Coder.AgentCtx = %d, want %d (override must not leak into the coder fit)", small.Coder.AgentCtx, entry.AgentCtx)
@@ -144,8 +144,8 @@ func TestPickCoderFitAtAgentCtxNeverCtxOverride(t *testing.T) {
 	}
 }
 
-// TestPickChatBitIdenticalWithCoderEntries (D-03): the chat pick over a catalog
-// WITH coder entries is bit-identical to the same catalog WITHOUT them —
+// TestPickChatBitIdenticalWithCoderEntries: the chat pick over a catalog
+// WITH coder entries is bit-identical to the same catalog WITHOUT them
 // pickBest never selects a role:"coder" entry, even when it would be the
 // largest fitting footprint (coder-big ≈ 56.4 GiB chat-path total at 64 GiB).
 func TestPickChatBitIdenticalWithCoderEntries(t *testing.T) {
@@ -154,7 +154,7 @@ func TestPickChatBitIdenticalWithCoderEntries(t *testing.T) {
 	without := Pick(profileWithEnvelope(env), testCatalog(), Overrides{}, MemoryInputs{}, WebSearchInputs{})
 
 	if with.Model == "coder-fit" || with.Model == "coder-big" {
-		t.Fatalf("pickBest selected a role:\"coder\" entry %q for the chat pick (D-03)", with.Model)
+		t.Fatalf("pickBest selected a role:\"coder\" entry %q for the chat pick", with.Model)
 	}
 	if with.Model != without.Model || with.Quant != without.Quant || with.ContextLen != without.ContextLen {
 		t.Errorf("chat pick differs with coder entries present: %s/%s/%d vs %s/%s/%d",
@@ -172,12 +172,12 @@ func TestPickChatBitIdenticalWithCoderEntries(t *testing.T) {
 	// Alternatives must not carry coder entries either (they come from the same loop).
 	for _, a := range with.Alternatives {
 		if a.Model == "coder-fit" || a.Model == "coder-big" {
-			t.Errorf("alternatives carry a coder entry %q (D-03)", a.Model)
+			t.Errorf("alternatives carry a coder entry %q", a.Model)
 		}
 	}
 }
 
-// TestPickCoderStampedOnRefusal (D-07 / Pitfall 6): the no-envelope refusal
+// TestPickCoderStampedOnRefusal (Pitfall 6): the no-envelope refusal
 // path still stamps the coder block — Fits=false, Residency="shared" — and
 // SchemaVersion 3. A conditional/omitted block would hide the residency basis.
 func TestPickCoderStampedOnRefusal(t *testing.T) {
@@ -203,7 +203,7 @@ func TestPickCoderStampedOnRefusal(t *testing.T) {
 // TestPickOverrideCoderEntryWarnsAndAllows (Open Question 1, resolved
 // warn-and-allow): a --model override naming a coder entry resolves via
 // FindByID, succeeds as the CHAT pick, and appends a loud note naming the
-// entry id and the word "coder" (the unsafe-override D-07 precedent).
+// entry id and the word "coder" (the unsafe-override precedent).
 func TestPickOverrideCoderEntryWarnsAndAllows(t *testing.T) {
 	const env = uint64(64 << 30)
 	rec := Pick(profileWithEnvelope(env), testCatalogWithCoder(), Overrides{Model: "coder-fit"}, MemoryInputs{}, WebSearchInputs{})
@@ -218,7 +218,7 @@ func TestPickOverrideCoderEntryWarnsAndAllows(t *testing.T) {
 	}
 }
 
-// TestPickCoderUsesPostReservationEnvelope (D-05 ordering): the coder fit is
+// TestPickCoderUsesPostReservationEnvelope (ordering): the coder fit is
 // evaluated against the POST-reservation envelope — an entry whose footprint
 // clears the raw envelope but not the reserved one yields residency "shared".
 // Margins: W+K = 30e9; 0.88×raw = 30.24e9 (fits) vs 0.88×(raw−512MiB) =
@@ -243,10 +243,10 @@ func TestPickCoderUsesPostReservationEnvelope(t *testing.T) {
 	}
 
 	// With memory ON the 512 MiB pinned reservation shrinks the envelope FIRST
-	// (D-05) and the same entry no longer fits → shared.
+	// and the same entry no longer fits → shared.
 	on := Pick(profileWithEnvelope(env), cat, Overrides{}, MemoryInputs{Enabled: true, EmbeddingModel: "nomic-embed-text-v1.5"}, WebSearchInputs{})
 	if on.Coder.Residency != "shared" {
-		t.Errorf("memory-on residency = %q, want shared (coder fit must see the post-reservation envelope, D-05)", on.Coder.Residency)
+		t.Errorf("memory-on residency = %q, want shared (coder fit must see the post-reservation envelope)", on.Coder.Residency)
 	}
 	if on.Coder.Fits {
 		t.Errorf("memory-on Coder.Fits = true, want false against the shrunken envelope")
@@ -295,7 +295,7 @@ func TestPickCoderEligibilityGuards(t *testing.T) {
 func TestPickCoderMostCapableWins(t *testing.T) {
 	const env = uint64(64 << 30)
 	rec := Pick(profileWithEnvelope(env), testCatalogWithCoder(), Overrides{}, MemoryInputs{}, WebSearchInputs{})
-	// coder-big @ agent ctx: 48 GiB + 6 GiB KV + 7.68 GiB headroom ≈ 61.7 GiB —
+	// coder-big @ agent ctx: 48 GiB + 6 GiB KV + 7.68 GiB headroom ≈ 61.7 GiB
 	// fits and out-foots coder-fit (≈ 31.7 GiB).
 	if rec.Coder.Model != "coder-big" {
 		t.Errorf("Coder.Model = %q, want the most-capable fitting entry \"coder-big\"", rec.Coder.Model)

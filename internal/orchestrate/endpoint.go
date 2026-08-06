@@ -3,7 +3,7 @@ package orchestrate
 // endpoint.go is the SINGLE source of the in-network villa-llama inference endpoint — the
 // URL a `--network villa` helper container uses to reach villa-llama by its container DNS
 // name. It exists so cmd/villa (the `villa verify agent` egress negative-control sanity
-// probe, WR-01) NEVER re-types a `villa-llama:8080` host literal: the host is composed FROM
+// probe) NEVER re-types a `villa-llama:8080` host literal: the host is composed FROM
 // the render.go containerName constant (the rendered ContainerName= DNS name) and the port
 // FROM the inference server port (inference.ServerPort()), keeping the in-network endpoint in
 // DNS/port lockstep with both the rendered unit and the inference seam (Pitfall 3 / T-4-01).

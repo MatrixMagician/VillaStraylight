@@ -16,7 +16,7 @@ import (
 )
 
 // memoryGateResults returns the OPT-IN memory-stack gates (MEM-PRE-disk /
-// MEM-PRE-headroom, CTRL-06/D-06) to append to the preflight results, or nil
+// MEM-PRE-headroom, CTRL-06) to append to the preflight results, or nil
 // when memory is off — so the memory-off output stays byte-identical (the
 // frozen preflight goldens are the regression net). It is an injectable seam
 // var (the pullFn convention) so tests drive the append without a host config
@@ -24,9 +24,9 @@ import (
 var memoryGateResults = liveMemoryGateResults
 
 // liveMemoryGateResults loads the PERSISTED config FAIL-SOFT (the
-// liveLoadedMemoryEnabled shape: a load error or absent file yields memory-off —
+// liveLoadedMemoryEnabled shape: a load error or absent file yields memory-off
 // a broken config never silently enables gates and never changes the verb's
-// error path or exit code, T-22-08) and, only when memory_enabled, runs the
+// error path or exit code) and, only when memory_enabled, runs the
 // memory host-fitness checks with the configured embedding model.
 func liveMemoryGateResults(profile detect.HostProfile) []preflight.CheckResult {
 	cfg, err := config.LoadVilla()
@@ -50,7 +50,7 @@ func preflightGatesROCm(flagValue string) bool {
 	return flagValue != "" && inference.IsROCmFamily(flagValue)
 }
 
-// Exit codes for `villa preflight` (D-04). These are the scriptable contract that
+// Exit codes for `villa preflight`. These are the scriptable contract that
 // Phase 3 install and a future `villa doctor` branch on, so they are named.
 const (
 	exitPass    = 0 // all checks pass
@@ -62,13 +62,13 @@ const (
 // preflight package, render the tiered results with remediation, and map them to
 // an exit code (0/2/1). With the global --force flag, BLOCK failures are
 // downgraded to "overridden", an auditable override summary is printed, and the
-// command exits 0 (D-01/D-03). The exit-code mapping lives ENTIRELY here — the
-// internal/preflight package never exits or prints (D-18).
+// command exits 0. The exit-code mapping lives ENTIRELY here — the
+// internal/preflight package never exits or prints.
 func newPreflight() *cobra.Command {
 	// backend is a LOCAL preflight flag (not a persistent root flag): when set to
 	// any ROCm-family name (rocm, rocm-6.4.4, rocm-6.4.4-rocwmma) it routes the gate
 	// to the reusable preflight.RunROCm verdict the Phase 8 `backend set` verb
-	// consumes, instead of the standalone host preflight (D-08 family predicate).
+	// consumes, instead of the standalone host preflight (family predicate).
 	var backend string
 	cmd := &cobra.Command{
 		Use:   "preflight",
@@ -86,14 +86,14 @@ func newPreflight() *cobra.Command {
 			if preflightGatesROCm(backend) {
 				// ROCm bring-up gate: refuse only confident known-bad hosts; off-hardware
 				// every signal is Unknown → WARN → exit 2 (never a false exit 1). The
-				// family predicate (D-08) routes every ROCm name (rocm, rocm-6.4.4,
+				// family predicate routes every ROCm name (rocm, rocm-6.4.4,
 				// rocm-6.4.4-rocwmma) to the same gate, not just the literal "rocm".
 				results = preflight.RunROCm(profile)
 			} else {
-				// Standalone host preflight — WARN-only, behaviorally unchanged (D-03).
+				// Standalone host preflight — WARN-only, behaviorally unchanged.
 				results = preflight.Run(profile)
 			}
-			// Opt-in memory-stack gates (CTRL-06/D-06): appended on BOTH branches,
+			// Opt-in memory-stack gates (CTRL-06): appended on BOTH branches,
 			// only when the persisted config enables memory; nil (memory off /
 			// unreadable config) appends nothing — byte-identical off path.
 			results = append(results, memoryGateResults(profile)...)
@@ -136,7 +136,7 @@ func renderPreflight(w io.Writer, results []preflight.CheckResult, asJSON, withP
 	if len(blockFails) > 0 {
 		if forced {
 			// --force: downgrade the blocks to "overridden", print exactly which
-			// blocks were bypassed (auditable, D-01/D-03), and pass with code 2 to
+			// blocks were bypassed (auditable), and pass with code 2 to
 			// still signal "not clean" rather than 0.
 			printOverrideSummary(w, blockFails)
 			return exitWarn
@@ -153,7 +153,7 @@ func renderPreflight(w io.Writer, results []preflight.CheckResult, asJSON, withP
 }
 
 // printOverrideSummary prints the auditable list of BLOCK checks bypassed by
-// --force (D-01/D-03). It is the record of exactly what was overridden.
+// --force. It is the record of exactly what was overridden.
 func printOverrideSummary(w io.Writer, blockFails []preflight.CheckResult) {
 	fmt.Fprintf(w, "\nOverridden BLOCK checks (--force): %d bypassed\n", len(blockFails))
 	for _, r := range blockFails {

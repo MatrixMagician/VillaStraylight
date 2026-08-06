@@ -1,6 +1,6 @@
 package main
 
-// restore.go wires `villa restore <archive>` (BAK-02 / BAK-03): the transactional
+// restore.go wires `villa restore <archive>`: the transactional
 // apply of a backup archive — read+verify -> skew WARN-and-confirm -> capture ->
 // quiesce -> clean-recreate-before-import -> restart -> offload-asserting prove ->
 // rollback-on-failure. The pure transactional state-machine lives in internal/backup
@@ -8,14 +8,14 @@ package main
 // wiring: config restored via config.SaveVilla (atomic temp+rename via
 // pathsafe.WriteFileAtomic, 0600/0700, traversal-guarded — NEVER hand-write), the
 // Open WebUI volume rm/import via the shared cmd-tier fixed-arg
-// podman volume seam (podman_volume.go, D-02), the Quadlet recreate via
+// podman volume seam (podman_volume.go), the Quadlet recreate via
 // orchestrate.Render->Reconcile->WriteUnits->DaemonReload (config is the single source
-// of truth, D-07), EnsureVolume via an explicit `podman volume create` so import never
+// of truth), EnsureVolume via an explicit `podman volume create` so import never
 // hits "no volume with name" (RESEARCH OQ2-RESOLVED), and an offload-asserting Prove
 // composing preflight + a status residency assert (a ready+health-200-but-residency-
-// FAIL maps to a NON-pass -> rollback; D-07). runRestore RETURNS the exit code (the
+// FAIL maps to a NON-pass -> rollback). runRestore RETURNS the exit code (the
 // RunE wrapper calls os.Exit), mirroring runBackup/runUninstall. --json is intentionally
-// NOT implemented this phase (D-13, deferred).
+// NOT implemented this phase (deferred).
 
 import (
 	"context"
@@ -41,7 +41,7 @@ import (
 )
 
 // newRestore builds `villa restore <archive>`: the transactional restore. The archive
-// path is a positional arg; --yes/--force bypass the skew confirmation gate (D-08).
+// path is a positional arg; --yes/--force bypass the skew confirmation gate.
 func newRestore() *cobra.Command {
 	var yes bool
 	cmd := &cobra.Command{
@@ -58,7 +58,7 @@ func newRestore() *cobra.Command {
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			in, d, tmpDir, code := liveRestore(cmd, args[0], yes)
-			// WR-01: clean up the restore temp dir (it holds the exported Open WebUI
+			// clean up the restore temp dir (it holds the exported Open WebUI
 			// volume tar incl. webui.db) on BOTH the success and error paths. os.Exit
 			// skips defers, so remove it explicitly before every exit. tmpDir is empty
 			// when liveRestore returned before creating it (a pre-MkdirTemp error).
@@ -73,7 +73,7 @@ func newRestore() *cobra.Command {
 				return nil
 			}
 			rc, preserveTmp := runRestore(cmd, args[0], in, d, tmpDir)
-			// CR-01: when the rollback did NOT fully complete, tmpDir holds the ONLY
+			// when the rollback did NOT fully complete, tmpDir holds the ONLY
 			// copies of the prior volume data (rollback-owui.tar / rollback-qdrant.tar)
 			// — deleting it would permanently lose the prior chat database. runRestore
 			// already printed the preservation notice + recovery hint.
@@ -96,7 +96,7 @@ func newRestore() *cobra.Command {
 // Restored -> exitPass; Refused -> exitBlocked (a clean fail-closed/decline, zero side
 // effects); RolledBack -> exitBlocked with the honest rollback reason; a bare Err ->
 // exitBlocked. The body RETURNS the int (no os.Exit) so tests assert output + code.
-// preserveTmp reports whether the caller must PRESERVE the restore temp dir (CR-01):
+// preserveTmp reports whether the caller must PRESERVE the restore temp dir:
 // it is true exactly when the rollback did not fully complete — tmpDir then holds the
 // ONLY copies of the prior volume data and deleting it would lose the prior chats.
 func runRestore(cmd *cobra.Command, archivePath string, in backup.RestoreInput, d backup.Deps, tmpDir string) (code int, preserveTmp bool) {
@@ -123,7 +123,7 @@ func runRestore(cmd *cobra.Command, archivePath string, in backup.RestoreInput, 
 			fmt.Fprintf(errOut, "  error:  %v\n", res.Err)
 		}
 		if res.RollbackIncomplete {
-			// CR-01: an incomplete rollback means the captured prior state was NOT
+			// an incomplete rollback means the captured prior state was NOT
 			// fully re-applied — the rollback tars in tmpDir are the only copies of
 			// the prior Open WebUI (webui.db) / Qdrant volume data. Preserve them
 			// and tell the operator how to recover instead of silently deleting.
@@ -140,7 +140,7 @@ func runRestore(cmd *cobra.Command, archivePath string, in backup.RestoreInput, 
 	default: // Restored
 		fmt.Fprintf(out, "restored %s — config + Open WebUI data + usage/bench stores applied, cutover proven\n", archivePath)
 		fmt.Fprintf(out, "note: model weights are not in the backup; if inference fails to start, re-pull with `villa model pull <id>`\n")
-		// Honest Phase-23 memory reporting (D-07/OQ1: report, never extend Prove —
+		// Honest Phase-23 memory reporting (OQ1: report, never extend Prove
 		// the memory stack is NOT covered by the cutover proof; verify it explicitly).
 		if res.QdrantRestored {
 			fmt.Fprintf(out, "memory: Qdrant volume restored — verify with `villa doctor`; if a dimension skew was confirmed at restore, run `villa recall index --rebuild`\n")
@@ -160,7 +160,7 @@ func runRestore(cmd *cobra.Command, archivePath string, in backup.RestoreInput, 
 			posture = "enabled"
 		}
 		fmt.Fprintf(out, "memory stack: %s (restored config); note: a reconcile does not remove stale unit files — bring services up with `villa up`\n", posture)
-		// Honest Phase-28 coding-agent reporting (SURF-03/D-08): report whether the
+		// Honest Phase-28 coding-agent reporting: report whether the
 		// rendered crush.json was restored AND surface the EXCLUDED agent binary
 		// identity for re-stage (the binary bytes were never in the archive, exactly
 		// like model weights — re-download the pinned release; identity verify is
@@ -169,7 +169,7 @@ func runRestore(cmd *cobra.Command, archivePath string, in backup.RestoreInput, 
 		case res.CrushConfigRestored:
 			fmt.Fprintf(out, "coding agent: crush.json restored\n")
 		case res.CrushConfigSkipped:
-			// WR-02: the archive CARRIED crush.json but the current install is
+			// the archive CARRIED crush.json but the current install is
 			// agent-off, so no destination was wired and the entry was NOT applied.
 			// Report the skip honestly — the restored config.toml may believe the
 			// agent is enabled while its crush.json was never restored.
@@ -180,9 +180,9 @@ func runRestore(cmd *cobra.Command, archivePath string, in backup.RestoreInput, 
 		if res.ExcludedAgent != nil {
 			fmt.Fprintf(out, "coding agent: binary not in the backup (identity recorded) — re-stage the pinned release with `villa install --coding-agent` (pinned %s); the re-stage verifies identity and refuses on drift\n", res.ExcludedAgent.Version)
 		}
-		// Honest Phase-34 web-search reporting (SURF-07): report whether the rendered
+		// Honest Phase-34 web-search reporting: report whether the rendered
 		// settings.yml provenance was restored (0600-preserving). Fetched ephemeral web
-		// content was never archived by design (T-34-06).
+		// content was never archived by design.
 		switch {
 		case res.SearxngSettingsRestored:
 			fmt.Fprintf(out, "web search: settings.yml restored\n")
@@ -201,7 +201,7 @@ func runRestore(cmd *cobra.Command, archivePath string, in backup.RestoreInput, 
 // code (with a stderr message already printed) when the archive path or config cannot
 // be resolved BEFORE any side effect. The returned tmpDir is the restore temp dir
 // (holding the extracted/rollback volume tars); the caller MUST remove it after
-// backup.Restore returns (WR-01). tmpDir is "" on every pre-MkdirTemp error path.
+// backup.Restore returns. tmpDir is "" on every pre-MkdirTemp error path.
 func liveRestore(cmd *cobra.Command, archivePath string, bypass bool) (backup.RestoreInput, backup.Deps, string, int) {
 	errOut := cmd.ErrOrStderr()
 
@@ -215,7 +215,7 @@ func liveRestore(cmd *cobra.Command, archivePath string, bypass bool) (backup.Re
 		return backup.RestoreInput{}, backup.Deps{}, "", exitBlocked
 	}
 
-	// Current install facts (BAK-03): seam-sourced digests (never re-typed — D-10),
+	// Current install facts: seam-sourced digests (never re-typed),
 	// accessor-sourced store schema versions, flattened host fingerprint.
 	cfg, err := config.LoadVilla()
 	if err != nil {
@@ -235,7 +235,7 @@ func liveRestore(cmd *cobra.Command, archivePath string, bypass bool) (backup.Re
 		ConfigSchemaVersion: 0, // VillaConfig carries no schema_version field (not recorded).
 		UsageSchemaVersion:  usage.SchemaVersion(),
 		BenchSchemaVersion:  benchstore.SavedReportSchemaVersion(),
-		// Embedding identity for the Phase-23 dimension-skew compare (D-08): config
+		// Embedding identity for the Phase-23 dimension-skew compare: config
 		// is the single source of truth; the recall schema comes from its accessor.
 		EmbeddingModel:      cfg.EmbeddingModel,
 		EmbeddingDim:        cfg.EmbeddingDim,
@@ -243,7 +243,7 @@ func liveRestore(cmd *cobra.Command, archivePath string, bypass bool) (backup.Re
 	}
 
 	// Temp dir (same data-home parent) for the extracted + rollback volume tars. The
-	// caller removes it after backup.Restore returns (WR-01) — it holds the exported
+	// caller removes it after backup.Restore returns — it holds the exported
 	// Open WebUI volume tar, which contains the user's chat database (webui.db).
 	tmpDir, err := os.MkdirTemp("", "villa-restore-*")
 	if err != nil {
@@ -261,10 +261,10 @@ func liveRestore(cmd *cobra.Command, archivePath string, bypass bool) (backup.Re
 		RollbackVolumeTar:   filepath.Join(tmpDir, "rollback-owui.tar"),
 		UsageDestPath:       usage.UsagePath(),
 		BenchDestPath:       benchReportsStorePath(),
-		// Phase-23 qdrant volume + recall-state wiring (D-05/D-07): identities are
-		// seam-sourced; the qdrant tars live in the SAME WR-01-cleaned tmpDir (they
+		// Phase-23 qdrant volume + recall-state wiring: identities are
+		// seam-sourced; the qdrant tars live in the SAME -cleaned tmpDir (they
 		// hold chat-derived vectors, same sensitivity as webui.db); the existence
-		// check is TRI-STATE for restore (WR-02): the core fail-closes when the
+		// check is TRI-STATE for restore: the core fail-closes when the
 		// archive carries a qdrant entry but existence is UNKNOWN — never the
 		// backup-side fail-soft collapse of Unknown into a confident "absent".
 		QdrantVolumeName:  orchestrate.QdrantVolumeName(),
@@ -273,7 +273,7 @@ func liveRestore(cmd *cobra.Command, archivePath string, bypass bool) (backup.Re
 		RecallDestPath:    recall.RecallStatePath(),
 	}
 	in.QdrantVolumeExists, in.QdrantVolumeUnknown = volumeExistsTri(orchestrate.QdrantVolumeName(), errOut)
-	// Phase-28 coding-agent crush.json destination (SURF-03/D-08): wired ONLY when
+	// Phase-28 coding-agent crush.json destination: wired ONLY when
 	// the agent is enabled (the AUTHORITATIVE persisted gate, mirroring the backup
 	// side), so an agent-off restore makes ZERO crush.json writes even if an archive
 	// carries the entry. crushConfigPath() resolves ~/.config/crush/crush.json
@@ -285,12 +285,12 @@ func liveRestore(cmd *cobra.Command, archivePath string, bypass bool) (backup.Re
 			fmt.Fprintf(errOut, "restore: warning: cannot resolve crush.json path (agent config will not be restored): %v\n", perr)
 		}
 	}
-	// Phase-34 web-search settings.yml destination (SURF-07): wired ONLY when web search
+	// Phase-34 web-search settings.yml destination: wired ONLY when web search
 	// is enabled (the AUTHORITATIVE persisted gate, mirroring the backup side), so a
 	// web-search-off restore makes ZERO settings.yml writes even if an archive carries the
 	// entry. SearXNGSettingsFilePath() resolves $XDG_CONFIG_HOME/villa/searxng/settings.yml
 	// (OUTSIDE the data-store root — restored via the dedicated WriteSearxngSettings seam,
-	// 0600-preserving, T-34-05).
+	// 0600-preserving).
 	if cfg.WebSearchEnabled {
 		if settingsPath, perr := orchestrate.SearXNGSettingsFilePath(); perr == nil {
 			in.SearxngSettingsDestPath = settingsPath
@@ -303,7 +303,7 @@ func liveRestore(cmd *cobra.Command, archivePath string, bypass bool) (backup.Re
 
 // liveSkewConsent prints the assembled skew WARN+remediation prompt and reads a y/N
 // answer. A non-interactive session declines (consent is opt-IN — the user must pass
-// --yes/--force to apply over skew non-interactively, D-08). Clones the uninstall.go
+// --yes/--force to apply over skew non-interactively). Clones the uninstall.go
 // stdinIsInteractive + promptConsent gate.
 func liveSkewConsent(prompt string) bool {
 	if !stdinIsInteractive() {
@@ -326,7 +326,7 @@ func liveRestoreDeps() backup.Deps {
 		OpenWebUIServiceName: openWebUIServiceName,
 		InstallServiceName:   installServiceName,
 		// QdrantServiceName mirrors liveBackupDeps: derived from the orchestrate
-		// unit-name accessor, never a re-typed literal (D-05).
+		// unit-name accessor, never a re-typed literal.
 		QdrantServiceName: unitServiceName(orchestrate.QdrantContainerUnitName()),
 		LoadConfig:        config.LoadVilla,
 		SaveConfig:        config.SaveVilla, // atomic temp+rename, 0600/0700, traversal-guarded — NEVER hand-write
@@ -409,7 +409,7 @@ func liveRestoreDeps() backup.Deps {
 			if err != nil {
 				return false, err
 			}
-			// WR-01: write the 0600 websafe.env bearer the restored web-search units
+			// write the 0600 websafe.env bearer the restored web-search units
 			// reference via EnvironmentFile=. Phase 31 makes BOTH the OWUI unit and the
 			// villa-websafe unit carry EnvironmentFile={websafe.env} whenever
 			// cfg.WebSearchEnabled — but restore only restores config.toml, never the 0600
@@ -457,9 +457,9 @@ func liveRestoreDeps() backup.Deps {
 		//
 		// Every destination is 0600 under a 0700 directory, and must stay 0600: both
 		// crush.json and settings.yml carry generated secrets (the provider key and the
-		// rendered SEARXNG_SECRET — T-34-05), so the mode is never widened.
+		// rendered SEARXNG_SECRET), so the mode is never widened.
 		WriteFile: liveRestoreWriteFile,
-		// RemoveFile (CR-01): delete a data-dir artifact the forward path created
+		// RemoveFile: delete a data-dir artifact the forward path created
 		// where none existed before, to restore the prior (absent) state verbatim on
 		// rollback. Tolerate an already-absent file (it is the goal state).
 		RemoveFile: func(path string) error {
@@ -482,7 +482,7 @@ func liveRestoreDeps() backup.Deps {
 // the /tmp staging write was routed through the store writer.
 //
 // The mode is 0600 for every destination and is never widened; two of these files
-// carry generated secrets (T-34-05).
+// carry generated secrets.
 func liveRestoreWriteFile(path string, data []byte) error {
 	if pathsafe.Inside(path, pathsafe.DataRoot()) == nil {
 		return usage.WriteFileAtomic(path, data)
@@ -502,7 +502,7 @@ func liveRestoreWriteFile(path string, data []byte) error {
 }
 
 // liveRestoreProve is the offload-asserting restore-cutover gate (backup.Deps.Prove),
-// composing preflight + a status residency assert (D-07). It FIRST re-runs the ROCm
+// composing preflight + a status residency assert. It FIRST re-runs the ROCm
 // preflight gate for a ROCm-family target (the host-prep gate the restored config must
 // still satisfy); a BLOCK there is a prove FAIL -> rollback. It then reuses the proven
 // liveProve composition (bounded readiness + a REAL generation probe + GPU-residency
@@ -510,7 +510,7 @@ func liveRestoreWriteFile(path string, data []byte) error {
 // backup.ProveVerdict, mapping ONLY a true pass to ProveStatusPass — a
 // ready+health-200-but-residency-FAIL or a silent CPU fallback is a NON-pass -> the
 // core rolls back. All backend markers stay behind the inference seam; this function
-// re-types none. It adds NO new outbound (status no_telemetry preserved — D-12).
+// re-types none. It adds NO new outbound (status no_telemetry preserved).
 func liveRestoreProve(target string) backup.ProveVerdict {
 	// (preflight) For a ROCm-family target, the restored host must still pass the ROCm
 	// preflight against the resolved image digest; a BLOCK is a prove FAIL.
@@ -526,7 +526,7 @@ func liveRestoreProve(target string) backup.ProveVerdict {
 			// In the preflight enum (internal/preflight/preflight.go) BLOCK is a TIER,
 			// not a distinct Status: StatusFail is "a confident known-bad" and is
 			// "only meaningful on TierBlock checks" — a BLOCK-tier check that cannot be
-			// EVALUATED downgrades to StatusWarn (D-15), never StatusFail. So this pairs
+			// EVALUATED downgrades to StatusWarn, never StatusFail. So this pairs
 			// the two conjuncts to mirror the install gate verbatim and stay auditable;
 			// a WARN-tier or could-not-verify result is intentionally NOT a prove fail.
 			if c.Status == preflight.StatusFail && c.Tier == preflight.TierBlock {
@@ -544,7 +544,7 @@ func liveRestoreProve(target string) backup.ProveVerdict {
 }
 
 // restoreWriteWebsafeSecretEnv writes the 0600 websafe.env bearer the restored
-// web-search units reference via EnvironmentFile= (WR-01). It is a no-op when the restored
+// web-search units reference via EnvironmentFile=. It is a no-op when the restored
 // config has web search OFF (byte-identical to a pre-Phase-31 restore). When web search is
 // ON it fails closed with remediation if the restored config carries no bearer (the env
 // file would otherwise be absent and `systemctl start villa-openwebui.service` would fail

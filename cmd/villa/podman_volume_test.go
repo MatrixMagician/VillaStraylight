@@ -1,6 +1,6 @@
 package main
 
-// podman_volume_test.go guards the shared cmd-tier podman VOLUME seam (D-02): the
+// podman_volume_test.go guards the shared cmd-tier podman VOLUME seam: the
 // pure arg-builders are FIXED-ARG argv slices (never a shell string, never
 // interpolation — T-16-02b), and the injectable podmanVolume var is fake-swappable
 // so backup/restore drive off-hardware.
@@ -48,7 +48,7 @@ func TestVolumeArgsNoShellMetachars(t *testing.T) {
 
 // TestVolumeExistsArgsFixed asserts the existence-check argv is the exact
 // fixed-arg form `volume exists <name>` — an argv slice, never a shell string
-// (Phase-23 D-05: backup gates the qdrant entry on this check).
+// (Phase-23: backup gates the qdrant entry on this check).
 func TestVolumeExistsArgsFixed(t *testing.T) {
 	got := volumeExistsArgs("villa-qdrant")
 	want := []string{"volume", "exists", "villa-qdrant"}
@@ -58,7 +58,7 @@ func TestVolumeExistsArgsFixed(t *testing.T) {
 }
 
 // TestClassifyVolumeExists asserts the fail-soft exit-code classification
-// (D-05): exit 0 ⇒ exists; exit 1 ⇒ absent (no warning); any other error ⇒
+// exit 0 ⇒ exists; exit 1 ⇒ absent (no warning); any other error ⇒
 // absent WITH a warning (backup then honestly omits the entry — never a hard
 // failure on an unevaluable check).
 func TestClassifyVolumeExists(t *testing.T) {
@@ -113,7 +113,7 @@ func TestVolumeExistsOverSeam(t *testing.T) {
 	}
 }
 
-// TestVolumeExistsTri asserts the tri-state restore-side helper (WR-02): a nil
+// TestVolumeExistsTri asserts the tri-state restore-side helper: a nil
 // seam error ⇒ exists (not unknown); a generic failure ⇒ UNKNOWN=true with a
 // printed warning — never silently collapsed into a confident "absent" the way
 // the backup-side fail-soft helper does.

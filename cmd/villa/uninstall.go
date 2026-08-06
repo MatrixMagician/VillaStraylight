@@ -15,20 +15,20 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/pathsafe"
 )
 
-// uninstall.go wires `villa uninstall` (CLI-06 / D-11): the flag-driven, correctly
+// uninstall.go wires `villa uninstall`: the flag-driven, correctly
 // ordered teardown of everything `install` registered. The ordering IS the contract
-// (D-11 / 03-RESEARCH Runtime State Inventory):
+// (03-RESEARCH Runtime State Inventory):
 //
 //	down (stop) → remove generated unit files → daemon-reload (the generator drops
 //	the derived .service) → remove non-model volumes → optionally remove models →
 //	disable-linger.
 //
 // Two host-state invariants distinguish uninstall from a blunt `rm -rf`:
-//   - config.toml is LEFT in place — it is user data, not install state (D-11). The
+// - config.toml is LEFT in place — it is user data, not install state. The
 //     verb has NO seam that touches it, so it can never be deleted.
 //   - the SELinux container_use_devices boolean is NOT auto-reverted — it is a
 //     deliberate, persistent (`-P`) host change a user may rely on elsewhere
-//     (T-03-24). The verb SURFACES it (a one-line note) instead of undoing it; there
+// The verb SURFACES it (a one-line note) instead of undoing it; there
 //     is deliberately no boolean-revert seam here.
 //
 // Like every Phase-3 verb, host-touching actions are injectable uninstallDeps fields
@@ -48,8 +48,8 @@ type uninstallOpts struct {
 // host (liveUninstallDeps); the test replaces them with order-recording stubs.
 //
 // Note the deliberate ABSENCE of any config-delete and any boolean-revert seam:
-// uninstall must never delete config.toml (D-11) nor revert the SELinux boolean
-// (T-03-24), so the capability simply does not exist on this struct.
+// uninstall must never delete config.toml nor revert the SELinux boolean
+// so the capability simply does not exist on this struct.
 type uninstallDeps struct {
 	// renderStack yields the generated units (the authoritative file + service set
 	// to tear down) and the unit dir they live in.
@@ -66,7 +66,7 @@ type uninstallDeps struct {
 	removeVolumes func(vols []string) error
 	// removeModels deletes the downloaded GGUF weights (only on --remove-models).
 	removeModels func() error
-	// Dashboard-service teardown seams (Plan 05-05 / T-05-18): the native
+	// Dashboard-service teardown seams (Plan 05-05): the native
 	// villa-dashboard.service lives OUTSIDE the Quadlet generator dir, so a
 	// daemon-reload alone will NOT drop it — it must be explicitly stopped,
 	// DISABLED (boot-survival revoked so it cannot re-spawn on next login), its
@@ -75,7 +75,7 @@ type uninstallDeps struct {
 	userUnitDir         func() (string, error)
 	removeDashboardUnit func(dir, name string) error
 
-	// Coding-agent addon teardown seams (v1.4 / D-10). Both are ALWAYS removed,
+	// Coding-agent addon teardown seams (v1.4). Both are ALWAYS removed,
 	// idempotently (an absent file is NOT an error — a re-uninstall, or an uninstall
 	// after an agent-off install, succeeds):
 	//   - removeAgentBinary removes the villa-owned crush binary at agentBinPath()
@@ -106,7 +106,7 @@ func newUninstall() *cobra.Command {
 		Use:   "uninstall",
 		Short: "Tear down the stack (units, non-model volumes, linger), keeping config.toml",
 		Long: "Stop the stack, remove the generated Quadlet units and non-model volumes, daemon-reload so " +
-			"the derived services disappear, and disable user linger — the ordered reverse of `install` (D-11). " +
+			"the derived services disappear, and disable user linger — the ordered reverse of `install`. " +
 			"config.toml is LEFT in place (it is your data, not install state) and the SELinux " +
 			"container_use_devices boolean is NOT reverted (a deliberate host change — it is surfaced, not undone). " +
 			"Use --remove-models to also delete downloaded weights, or --keep-models to keep them; with neither, " +
@@ -123,14 +123,14 @@ func newUninstall() *cobra.Command {
 	return cmd
 }
 
-// runUninstall performs the D-11 teardown and RETURNS the exit code. Any failure
+// runUninstall performs the teardown and RETURNS the exit code. Any failure
 // short-circuits with no further side effects so a half-torn-down host is never left
 // in a worse state than a clean stop.
 func runUninstall(cmd *cobra.Command, opts uninstallOpts, d *uninstallDeps) int {
 	out := cmd.OutOrStdout()
 	errOut := cmd.ErrOrStderr()
 
-	// Mutually-exclusive flags → exit 1, zero side effects (T-03-22: never ambiguous
+	// Mutually-exclusive flags → exit 1, zero side effects (never ambiguous
 	// about a destructive model deletion).
 	if opts.keepModels && opts.removeModels {
 		fmt.Fprintf(errOut, "uninstall: --keep-models and --remove-models are mutually exclusive\n")
@@ -138,7 +138,7 @@ func runUninstall(cmd *cobra.Command, opts uninstallOpts, d *uninstallDeps) int 
 	}
 
 	// Resolve the model choice BEFORE any teardown so the destructive decision is
-	// settled up front (T-03-22). Flag wins; neither + interactive → prompt;
+	// settled up front. Flag wins; neither + interactive → prompt;
 	// neither + non-interactive → default KEEP (the safe choice) and say so.
 	wipeModels := resolveModelChoice(out, opts, d)
 
@@ -150,7 +150,7 @@ func runUninstall(cmd *cobra.Command, opts uninstallOpts, d *uninstallDeps) int 
 	}
 
 	// (0) Tear down the native control-dashboard .service FIRST (Plan 05-05 /
-	// T-05-18). It was started LAST by install (the dependent observer), so stopping
+	// It was started LAST by install (the dependent observer), so stopping
 	// it first mirrors the reverse-of-start order. Unlike the Quadlet services, its
 	// unit lives OUTSIDE the generator dir, so a daemon-reload will NOT drop it — it
 	// must be explicitly stopped, DISABLED (boot-survival revoked so it cannot
@@ -181,14 +181,14 @@ func runUninstall(cmd *cobra.Command, opts uninstallOpts, d *uninstallDeps) int 
 		return exitBlocked
 	}
 
-	// (0b) Coding-agent addon teardown (v1.4 / D-10): ALWAYS remove the villa-owned
+	// (0b) Coding-agent addon teardown (v1.4): ALWAYS remove the villa-owned
 	// crush binary and the rendered crush.json, in that order, at this deterministic
 	// position — after the dashboard teardown, before the container stop. Ordering IS
-	// the contract (D-10), asserted by uninstall_test.go. Both removals are idempotent
+	// the contract, asserted by uninstall_test.go. Both removals are idempotent
 	// (an absent file is not an error), so a re-uninstall — or an uninstall after an
 	// agent-off install — succeeds. The staged coder GGUF is NOT touched here: it lives
 	// in modelsDir(), governed by the existing keep/remove-models choice (default keep).
-	// config.toml is likewise LEFT — there is no seam that touches it (D-10).
+	// config.toml is likewise LEFT — there is no seam that touches it.
 	if err := d.removeAgentBinary(); err != nil {
 		fmt.Fprintf(errOut, "uninstall: remove coding agent binary failed: %v\n", err)
 		return exitBlocked
@@ -202,10 +202,10 @@ func runUninstall(cmd *cobra.Command, opts uninstallOpts, d *uninstallDeps) int 
 
 	// (1) down: stop every generated service first. A stop failure aborts BEFORE any
 	// file removal — we never leave dangling units after a failed stop. Stop in the
-	// REVERSE of install's start order (CR-01): dependents before their backends, so a
+	// REVERSE of install's start order: dependents before their backends, so a
 	// service is never left running with its declared After= backend already gone (e.g.
 	// villa-openwebui — After=villa-llama.service — is stopped before villa-llama). This
-	// mirrors install's D-05 inference-then-owui start order inverted.
+	// mirrors install's inference-then-owui start order inverted.
 	stopOrder := serviceUnits(units)
 	for i := len(stopOrder) - 1; i >= 0; i-- {
 		svc := stopOrder[i]
@@ -239,7 +239,7 @@ func runUninstall(cmd *cobra.Command, opts uninstallOpts, d *uninstallDeps) int 
 	}
 
 	// (5) optionally remove the downloaded weights (the only step that touches the
-	// expensive model cache — explicit choice required, T-03-22).
+	// expensive model cache — explicit choice required).
 	if wipeModels {
 		if err := d.removeModels(); err != nil {
 			fmt.Fprintf(errOut, "uninstall: remove models failed: %v\n", err)
@@ -257,7 +257,7 @@ func runUninstall(cmd *cobra.Command, opts uninstallOpts, d *uninstallDeps) int 
 	}
 	fmt.Fprintf(out, "disabled user linger\n")
 
-	// Surface — never revert — the deliberate SELinux host change (T-03-24). config
+	// Surface — never revert — the deliberate SELinux host change. config
 	// .toml is likewise left in place; the verb has no seam that touches it. The
 	// revert command is assembled from fragments so the literal acceptance grep
 	// (which asserts the verb makes no boolean-revert CALL) stays at zero (mirrors
@@ -273,7 +273,7 @@ func runUninstall(cmd *cobra.Command, opts uninstallOpts, d *uninstallDeps) int 
 // resolveModelChoice settles whether to delete the model weights: an explicit flag
 // wins; with neither flag, an interactive session is prompted (default No → keep),
 // and a non-interactive session defaults to KEEP (the safe choice) and prints the
-// assumption (T-03-22: never silently delete the expensive cache).
+// assumption (never silently delete the expensive cache).
 func resolveModelChoice(out io.Writer, opts uninstallOpts, d *uninstallDeps) bool {
 	if opts.removeModels {
 		return true
@@ -333,7 +333,7 @@ func liveUninstallDeps() *uninstallDeps {
 		userUnitDir:         orchestrate.UserUnitDir,
 		removeDashboardUnit: removeUnitFileLive,
 
-		// Coding-agent addon teardown (D-10): reuse agentBinPath()/crushConfigPath() from
+		// Coding-agent addon teardown: reuse agentBinPath/crushConfigPath from
 		// code.go (DRY — the same paths install_agent.go stages to) with a traversal-guarded
 		// idempotent os.Remove. ALWAYS removed; an absent file is tolerated.
 		removeAgentBinary: removeAgentBinaryLive,
@@ -348,7 +348,7 @@ func liveUninstallDeps() *uninstallDeps {
 // removeAgentBinaryLive removes the villa-owned crush binary at agentBinPath()
 // ($XDG_DATA_HOME/villa/bin/crush), confining the path inside agentBinDir() before
 // removing (traversal guard, mirroring removeUnitFileLive/assertUnitInsideDir) and
-// tolerating an already-absent file (idempotent re-uninstall — D-10).
+// tolerating an already-absent file (idempotent re-uninstall).
 func removeAgentBinaryLive() error {
 	target := agentBinPath()
 	if err := assertUnitInsideDir(target, agentBinDir()); err != nil {
@@ -362,7 +362,7 @@ func removeAgentBinaryLive() error {
 
 // removeCrushConfigLive removes the rendered crush.json at crushConfigPath()
 // (~/.config/crush/crush.json), confining the path inside its parent dir before
-// removing (traversal guard) and tolerating an already-absent file (idempotent — D-10).
+// removing (traversal guard) and tolerating an already-absent file (idempotent).
 func removeCrushConfigLive() error {
 	target, err := crushConfigPath()
 	if err != nil {
@@ -378,7 +378,7 @@ func removeCrushConfigLive() error {
 }
 
 // removeUnitFileLive removes one generated unit file, refusing any name that escapes
-// the unit dir (traversal guard, T-03-23) and tolerating an already-absent file (an
+// the unit dir (traversal guard) and tolerating an already-absent file (an
 // idempotent re-uninstall is not an error).
 func removeUnitFileLive(dir, name string) error {
 	target := filepath.Join(dir, name)
@@ -393,7 +393,7 @@ func removeUnitFileLive(dir, name string) error {
 
 // assertUnitInsideDir verifies target resolves within dir (mirrors the orchestrate
 // WriteUnits guard) so an attacker-influenced unit name can never delete a file
-// outside the unit dir (T-03-23).
+// outside the unit dir.
 func assertUnitInsideDir(target, dir string) error {
 	if err := pathsafe.Inside(target, dir); err != nil {
 		return fmt.Errorf("uninstall: refusing to remove a path outside %q: %w", dir, err)
@@ -414,7 +414,7 @@ func volumeRmArgs(v string) []string {
 }
 
 // podmanVolumeRm runs `podman <args...>` with a FIXED-ARG exec (never a shell,
-// T-03-25) and returns the trimmed stderr alongside any error so the caller can both
+// and returns the trimmed stderr alongside any error so the caller can both
 // diagnose a genuine failure AND recognise an already-absent volume. It is a
 // package-level var so uninstall_test.go can swap in a fake runner and drive
 // removeVolumesLive with no live podman.
@@ -427,7 +427,7 @@ var podmanVolumeRm = func(args []string) (stderr string, err error) {
 }
 
 // removeVolumesLive removes each named podman volume with a FIXED-ARG exec (never a
-// shell, T-03-25): `podman volume rm --force <name>`. An already-absent volume is
+// shell): `podman volume rm --force <name>`. An already-absent volume is
 // tolerated WITHOUT any unsupported tolerance flag — when podman errors, the trimmed
 // stderr is inspected and a not-found signal ("no such volume" / "no volume with
 // name") is treated as success, preserving idempotent re-uninstall. Any other failure

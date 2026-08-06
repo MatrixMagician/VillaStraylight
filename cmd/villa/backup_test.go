@@ -1,6 +1,6 @@
 package main
 
-// backup_test.go guards the `villa backup` cmd-tier wiring (BAK-01): the default
+// backup_test.go guards the `villa backup` cmd-tier wiring: the default
 // output name is FS-safe (no ':'), an escaping -o is traversal-refused, the bench
 // entry resolves through the existing cmd-tier benchReportsStorePath() resolver, the
 // exit code maps from the orchestrator result, and the live wiring sources the image
@@ -24,7 +24,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/recall"
 )
 
-// TestBackupDefaultNameIsFSSafe asserts the default archive name has no ':' (D-04)
+// TestBackupDefaultNameIsFSSafe asserts the default archive name has no ':'
 // and matches the villa-backup-<timestamp>.tar shape.
 func TestBackupDefaultNameIsFSSafe(t *testing.T) {
 	name := defaultBackupName(time.Date(2026, 6, 7, 14, 22, 33, 0, time.UTC))
@@ -177,7 +177,7 @@ func TestRunBackupWritesArchive(t *testing.T) {
 	}
 }
 
-// TestBackupFailurePreservesPriorArchive is the WR-04 regression: re-using an
+// TestBackupFailurePreservesPriorArchive is the regression: re-using an
 // output path (`villa backup -o villa-latest.tar` from cron) must NEVER destroy
 // the previous archive on a mid-backup failure. Pre-fix, the output was opened
 // O_TRUNC up-front and removed on failure — any failed run left ZERO backups.
@@ -233,7 +233,7 @@ func TestBackupFailurePreservesPriorArchive(t *testing.T) {
 	}
 }
 
-// TestBackupMemoryOffOmitsLeftoverRecallState is the WR-03 regression over the
+// TestBackupMemoryOffOmitsLeftoverRecallState is the regression over the
 // REAL cmd-tier wiring (the pure-core tests pass an empty RecallStatePath and
 // never saw it): a memory-OFF config with a LEFTOVER recall-state.json (memory
 // was previously enabled) must produce an archive WITHOUT the recall-state.json

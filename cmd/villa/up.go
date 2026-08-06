@@ -7,11 +7,11 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// up.go wires `villa up [service]` (CLI-02): reconcile config→units and start the
+// up.go wires `villa up [service]`: reconcile config→units and start the
 // stack — or only the named service. It reuses the Plan-01 orchestrate core and
 // the Plan-02 install reconcile pattern, so an unchanged config is a TRUE no-op
-// (D-06) and a hand-edited config.toml converges exactly the changed units on the
-// next `up` (D-07/CLI-05). --dry-run prints the rendered changed units and writes
+// and a hand-edited config.toml converges exactly the changed units on the
+// next `up`. --dry-run prints the rendered changed units and writes
 // nothing. runUp RETURNS the exit code; the RunE wrapper calls os.Exit.
 
 // upOpts are the per-invocation flags for `villa up`.
@@ -43,9 +43,9 @@ func newUp() *cobra.Command {
 
 // runUp executes the up flow and RETURNS the exit code (0/2/1) — it never calls
 // os.Exit, so tests drive it. It renders the stack, validates an optional
-// [service] arg against the known service set BEFORE any seam fires (T-03-11),
+// [service] arg against the known service set BEFORE any seam fires,
 // reconciles against disk, and starts the targeted service(s). An empty Changed
-// plan is a true no-op (CLI-01/D-06).
+// plan is a true no-op.
 func runUp(cmd *cobra.Command, opts upOpts, args []string, d *lifecycleDeps) int {
 	out := cmd.OutOrStdout()
 	errOut := cmd.ErrOrStderr()
@@ -57,7 +57,7 @@ func runUp(cmd *cobra.Command, opts upOpts, args []string, d *lifecycleDeps) int
 	}
 
 	// Validate the target BEFORE touching disk/systemd so an unknown service fires
-	// zero seam calls (T-03-11).
+	// zero seam calls.
 	targets, ok := resolveTargets(errOut, args, managedServices(units))
 	if !ok {
 		return exitBlocked
@@ -79,7 +79,7 @@ func runUp(cmd *cobra.Command, opts upOpts, args []string, d *lifecycleDeps) int
 		return exitBlocked
 	}
 
-	// Unchanged config is a TRUE no-op (CLI-01/D-06): nothing was written or
+	// Unchanged config is a TRUE no-op: nothing was written or
 	// reloaded, so nothing is (re)started — the running stack already matches.
 	if !changed {
 		fmt.Fprintf(out, "no changes — stack already matches config\n")

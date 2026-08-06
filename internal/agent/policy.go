@@ -9,10 +9,10 @@ import (
 	"strings"
 )
 
-// crushPolicyBytes is the COMPILED-IN Crush pin policy (AGENT-01, D-02). Because
+// crushPolicyBytes is the COMPILED-IN Crush pin policy (AGENT-01). Because
 // it is embedded at build time it is NOT an external/runtime input — a malformed
 // policy is a build-time programming error caught by loadCrushPolicy's panic,
-// never a runtime parse of attacker-controlled data (T-26-05). It carries the
+// never a runtime parse of attacker-controlled data. It carries the
 // pinned version, the per-platform release asset table (name + tarball SHA-256 +
 // size + the extracted-binary SHA-256), and the release URL template. It clones
 // the internal/preflight/floors.go `go:embed rocm-policy.json` shape verbatim.
@@ -23,10 +23,10 @@ var crushPolicyBytes []byte
 // CrushPolicy is the decoded shape of crush-policy.json: a pinned version, a
 // per-platform asset table (keyed "linux/amd64"; the structure allows a future
 // "darwin/arm64"), and the release URL template (with a "{asset}" placeholder).
-// Mirrors the rocm-policy.json flat-JSON minimalism (D-02).
+// Mirrors the rocm-policy.json flat-JSON minimalism.
 type CrushPolicy struct {
 	// Version is the pinned Crush release (e.g. "v0.76.0"). Autoupdate is forced
-	// off by construction (D-04) — there is no upgrade verb this phase.
+	// off by construction — there is no upgrade verb this phase.
 	Version string `json:"version"`
 	// Assets is the per-platform release artifact table, keyed by "<os>/<arch>"
 	// (e.g. "linux/amd64" for the Fedora/Strix Halo target).
@@ -38,18 +38,18 @@ type CrushPolicy struct {
 
 // CrushAsset is one platform's pinned release artifact. SHA256 is the TARBALL
 // checksum (from charmbracelet/crush's published checksums.txt) used by the
-// install-verify gate (D-03); BinarySHA256 is the EXTRACTED-binary checksum used
-// by drift detection (D-14a). These are DIFFERENT values (Pitfall 6): the
+// install-verify gate; BinarySHA256 is the EXTRACTED-binary checksum used
+// by drift detection. These are DIFFERENT values (Pitfall 6): the
 // tarball hash is over the .tar.gz, the binary hash is over the extracted `crush`
 // binary inside it.
 type CrushAsset struct {
 	// Name is the release artifact filename (e.g. "crush_0.76.0_Linux_x86_64.tar.gz").
 	Name string `json:"name"`
-	// SHA256 is the TARBALL checksum (install-verify gate, D-03).
+	// SHA256 is the TARBALL checksum (install-verify gate).
 	SHA256 string `json:"sha256"`
-	// Size is the tarball size in bytes (size-then-checksum verify, D-03).
+	// Size is the tarball size in bytes (size-then-checksum verify).
 	Size uint64 `json:"size"`
-	// BinarySHA256 is the EXTRACTED-binary checksum (drift detection, D-14a /
+	// BinarySHA256 is the EXTRACTED-binary checksum (drift detection, /
 	// Pitfall 6). It starts as the UNPINNED sentinel below; Plan 03 (26-03)
 	// replaces it on-hardware with the real binary SHA-256 (extract the verified
 	// tarball once → sha256sum crush). NOTE: JSON cannot carry comments, so the
@@ -68,7 +68,7 @@ const unpinnedBinarySentinel = "UNPINNED-binary-sha256-set-by-26-03-on-hardware"
 
 // loadCrushPolicy decodes the embedded crush-policy.json. It PANICS on a
 // malformed embed: that is a build-time programming error (the bytes are compiled
-// in, never runtime input — T-26-05), so failing loud at startup is correct and
+// in, never runtime input), so failing loud at startup is correct and
 // there is no attacker-controlled path to this panic. Clones loadROCmPolicy.
 func loadCrushPolicy() CrushPolicy {
 	var p CrushPolicy
@@ -81,17 +81,17 @@ func loadCrushPolicy() CrushPolicy {
 // LoadCrushPolicy is the EXPORTED accessor for the embedded crush-policy.json (the
 // pinned version + per-platform asset table + release URL template). Phase 27's install
 // addon (cmd/villa/install_agent.go) resolves the pinned linux/amd64 asset + URL through
-// it to compose agent.Install (checksum-before-extract, D-03) without re-implementing the
+// it to compose agent.Install (checksum-before-extract) without re-implementing the
 // verified install — keeping asset/URL resolution testable in cmd/villa. It delegates to
-// the unexported loadCrushPolicy, so the panic-on-malformed build-time discipline (T-26-05)
+// the unexported loadCrushPolicy, so the panic-on-malformed build-time discipline
 // is shared by both the package-internal and the exported entry points.
 func LoadCrushPolicy() CrushPolicy {
 	return loadCrushPolicy()
 }
 
-// VerifyTarball is the PURE half of the D-03 install gate (T-26-01): it asserts
+// VerifyTarball is the PURE half of the install gate: it asserts
 // the downloaded tarball bytes match the pinned asset by SIZE then SHA-256
-// (hex-encoded, case-insensitive), refusing-with-remediation on any mismatch —
+// (hex-encoded, case-insensitive), refusing-with-remediation on any mismatch
 // never a silent pass, never a fallback. The live stream-and-place wiring (Plan
 // 02) calls this BEFORE extraction so an unverified/mismatched Crush binary is
 // never placed on disk. It clones the internal/download verify discipline

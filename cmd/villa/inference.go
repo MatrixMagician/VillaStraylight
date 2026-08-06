@@ -19,7 +19,7 @@ import (
 )
 
 // inference.go wires the user-facing close of the Phase-2 slice: the `inference`
-// noun with `run` and `validate` subcommands. The noun is `inference` (D-13) so it
+// noun with `run` and `validate` subcommands. The noun is `inference` so it
 // reads distinctly from the Phase-3 lifecycle verbs (up/down/restart/install/status)
 // and reuses the preflight exit-code contract (0 pass / 2 warn / 1 fail) + the
 // global --json flag. The Verdict→exit mapping + table/JSON rendering live ENTIRELY
@@ -61,7 +61,7 @@ func newInferenceRun() *cobra.Command {
 	}
 }
 
-// newInferenceValidate builds `villa inference validate <name>`: the full slice —
+// newInferenceValidate builds `villa inference validate <name>`: the full slice
 // run + offload assert + chat + the near-max-context ceiling probe.
 func newInferenceValidate() *cobra.Command {
 	return &cobra.Command{
@@ -95,7 +95,7 @@ func runInference(cmd *cobra.Command, name string, withCeiling bool) int {
 		fmt.Fprintf(errOut, "warning: %s\n", w)
 	}
 
-	// Resolve the name THROUGH the catalog — never as a filesystem path (T-02-14).
+	// Resolve the name THROUGH the catalog — never as a filesystem path.
 	m, ok := cat.FindByID(name)
 	if !ok {
 		fmt.Fprintf(errOut, "inference: unknown model %q — run `villa recommend` to see catalog names\n", name)
@@ -114,7 +114,7 @@ func runValidation(ctx context.Context, m catalog.CatalogModel, withCeiling bool
 	// Resolve the backend from config the SAME way every live deps-wiring site does
 	// (config.LoadVilla — A1 resolved). runValidation takes no cfg today, so load it
 	// here rather than invent a signature change. A config-load failure is a FAIL,
-	// never a silent Vulkan default (T-6-07, mirrors the CR-02 refusal below).
+	// never a silent Vulkan default (T-6-07, mirrors the refusal below).
 	cfg, err := config.LoadVilla()
 	if err != nil {
 		return inference.Verdict{
@@ -125,7 +125,7 @@ func runValidation(ctx context.Context, m catalog.CatalogModel, withCeiling bool
 		}
 	}
 	// Fail closed on an unknown/typo'd backend value — BackendFor never coerces to a
-	// silent default (D-02). `backend = "rocm"` flips the whole validate path here.
+	// silent default. `backend = "rocm"` flips the whole validate path here.
 	backend, err := inference.BackendFor(cfg.Backend)
 	if err != nil {
 		return inference.Verdict{
@@ -138,16 +138,16 @@ func runValidation(ctx context.Context, m catalog.CatalogModel, withCeiling bool
 	dir := modelsDir()
 
 	// Recompute the fit terms for THIS model so the ceiling stress math has the
-	// recommend-chosen ctx + envelope (D-10). Probe the host and pick for this model.
+	// recommend-chosen ctx + envelope. Probe the host and pick for this model.
 	profile := detect.Probe()
 	cat := catalog.Catalog{Models: []catalog.CatalogModel{m}}
-	// Memory inputs from the already-loaded persisted config (D-01): the ceiling
+	// Memory inputs from the already-loaded persisted config: the ceiling
 	// stress math sizes against the same shrunken envelope recommend showed.
 	rec := recommend.Pick(profile, cat, recommend.Overrides{Model: m.ID},
 		recommend.MemoryInputs{Enabled: cfg.MemoryEnabled, EmbeddingModel: cfg.EmbeddingModel},
 		webSearchInputsFrom(cfg))
 
-	// Guard the recommend refusal path (CR-02): when the memory envelope is
+	// Guard the recommend refusal path: when the memory envelope is
 	// undeterminable Pick returns a zero Recommendation (Model:"", ContextLen:0,
 	// WeightBytes:0). Starting llama-server with -c 0 and feeding WeightBytes:0 into
 	// the sysfs assert (whose zero-weight guard degrades to WARN) would mask a real
@@ -195,7 +195,7 @@ func runValidation(ctx context.Context, m catalog.CatalogModel, withCeiling bool
 // renderInference writes the Verdict (table or --json) and RETURNS the exit code
 // (it does not call os.Exit) so tests can assert both the output and the mapped
 // code. It is the single place that interprets the Verdict status as an exit code:
-// PASS=0, WARN=2, FAIL=1 — the same scriptable contract as preflight (D-13).
+// PASS=0, WARN=2, FAIL=1 — the same scriptable contract as preflight.
 func renderInference(w io.Writer, v inference.Verdict, asJSON, withProvenance bool) int {
 	if asJSON {
 		enc := json.NewEncoder(w)
@@ -216,7 +216,7 @@ func renderInference(w io.Writer, v inference.Verdict, asJSON, withProvenance bo
 }
 
 // renderInferenceTable writes the verdict as an aligned human table: the status
-// word, the detail, the remediation (on non-PASS), the observed GTT delta, and —
+// word, the detail, the remediation (on non-PASS), the observed GTT delta, and
 // with provenance — the per-signal sources.
 func renderInferenceTable(w io.Writer, v inference.Verdict, withProvenance bool) {
 	tw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)

@@ -1,12 +1,12 @@
 // Package dashboard is the VillaStraylight control dashboard backend (Phase-5
-// DASH-01/DASH-05): a loopback-only HTTP server that serves a read-model JSON
+// a loopback-only HTTP server that serves a read-model JSON
 // API by folding the SHARED internal/status core (never a fork) plus an embedded
 // no-build single-page UI.
 //
-// The server binds 127.0.0.1 explicitly via net.JoinHostPort (Pitfall 6 / PRIV-01,
-// T-05-03) — never ":8888" / "0.0.0.0". The /api routes are read-only GETs in this
+// The server binds 127.0.0.1 explicitly via net.JoinHostPort (Pitfall 6 /,
+// — never ":8888" / "0.0.0.0". The /api routes are read-only GETs in this
 // slice; the single future mutation (POST /api/models/switch, Plan 04) is guarded by
-// construction by the requireSameOrigin guard wrapping the /api mux (T-05-04).
+// construction by the requireSameOrigin guard wrapping the /api mux.
 package dashboard
 
 import (
@@ -29,7 +29,7 @@ import (
 
 // defaultDashboardAddr is the loopback default applied when Config.DashboardAddr is
 // empty, so an unset bind address can never accidentally become the all-interfaces
-// empty host (Pitfall 6 / PRIV-01).
+// empty host (Pitfall 6).
 const defaultDashboardAddr = "127.0.0.1"
 
 // Config is the composed input NewServer needs: the SHARED status read-model seam
@@ -37,30 +37,30 @@ const defaultDashboardAddr = "127.0.0.1"
 // loopback bind address/port.
 type Config struct {
 	// StatusDeps is the injected status read-model seam. handleStatus folds
-	// status.Run(StatusDeps) — the SAME core villa status uses (DASH-01).
+	// status.Run(StatusDeps) — the SAME core villa status uses.
 	StatusDeps status.Deps
-	// ChatPort is the Open WebUI host port the header chat link targets (DASH-05/D-12),
+	// ChatPort is the Open WebUI host port the header chat link targets,
 	// read from config, never hard-coded.
 	ChatPort int
-	// DashboardAddr is the loopback bind address (default 127.0.0.1, PRIV-01).
+	// DashboardAddr is the loopback bind address (default 127.0.0.1).
 	DashboardAddr string
 	// DashboardPort is the host port the dashboard listens on (default 8888).
 	DashboardPort int
 
-	// --- Performance (DASH-02) seams ---------------------------------------
+	// --- Performance seams ---------------------------------------
 	// These are injected func fields (the project's collector seam pattern) so
 	// api_test stubs the metrics scrape without a live llama-server. When nil, the
 	// live wiring fills them in liveDashboardDeps (scraping the inference endpoint).
 
 	// Metrics scrapes llama-server /metrics into a PerfSnapshot; the bool is the
-	// typed-Unknown availability flag (false on a 404/transport error — D-11).
+	// typed-Unknown availability flag (false on a 404/transport error).
 	Metrics func() (metrics.PerfSnapshot, bool)
 	// Slots scrapes llama-server /slots into the narrow []Slot view (bool=available).
 	Slots func() ([]metrics.Slot, bool)
 
-	// --- GPU & Memory (DASH-03) seams --------------------------------------
+	// --- GPU & Memory seams --------------------------------------
 	// Memory-first headline + best-effort busy%, each a typed value so the panel
-	// degrades to "unavailable" rather than a fabricated number (D-06).
+	// degrades to "unavailable" rather than a fabricated number.
 
 	// MemUsed is the unified-memory (GTT) bytes currently in use (the headline used).
 	MemUsed func() detect.Bytes
@@ -69,7 +69,7 @@ type Config struct {
 	// GPUBusy is the best-effort iGPU utilization 0..100 (typed-Unknown when absent).
 	GPUBusy func() detect.Int
 
-	// --- Models (DASH-04) seam ---------------------------------------------
+	// --- Models seam ---------------------------------------------
 	// Models lists the full catalog marked loaded/on-disk/catalog-only with a per-row
 	// Fits flag + fit-detail (the SHARED fit-math, not re-implemented here). The bool is
 	// the availability flag (false on a catalog-load failure → empty list / "No models in
@@ -78,15 +78,15 @@ type Config struct {
 
 	// SwapDeps is the SHARED modelswap.Deps the POST /api/models/switch handler folds:
 	// handleSwitch calls modelswap.Run(SwapDeps, id) VERBATIM — the SAME guarded
-	// resolve→fit→pull→save→regenerate→restart path `villa model swap` uses (DASH-04).
+	// resolve→fit→pull→save→regenerate→restart path `villa model swap` uses.
 	// The live wiring (cmd/villa liveSwapDeps) stays in cmd; the dashboard adds zero swap
 	// logic. A zero value yields an always-refuse swap (no resolver) so a mis-wired Server
 	// never silently fires a swap.
 	SwapDeps modelswap.Deps
 
-	// --- Cumulative usage (USAGE-02 / D-07) writer seams -------------------
+	// --- Cumulative usage writer seams -------------------
 	// The dashboard's /api/metrics scrape path is the SOLE, usageMu-guarded writer of
-	// usage.json (D-07): on each scrape it folds the _total counters + the configured
+	// usage.json: on each scrape it folds the _total counters + the configured
 	// model into the store and atomically writes. These func fields are the injected
 	// store/identity seams so api_test exercises the fold+write off-hardware; the live
 	// wiring (liveDashboardDeps) fills them with usage.Load / usage.WriteFileAtomic over
@@ -99,11 +99,11 @@ type Config struct {
 	WriteUsage func(usage.UsageTotals) error
 	// ModelID returns the configured model id (cfg.Model) used as the per-model fold key;
 	// it is read INSIDE the usageMu critical section so the key cannot drift mid-write
-	// (Pitfall 2 / T-15-14). nil → "" (Fold then keys an empty-id entry — honest no-op).
+	// (Pitfall 2). nil → "" (Fold then keys an empty-id entry — honest no-op).
 	ModelID func() string
 
 	// CounterSample scrapes the two monotonic _total counters (the fold's source) from
-	// the SAME loopback endpoint already scraped for live tok/s — no new outbound (D-12).
+	// the SAME loopback endpoint already scraped for live tok/s — no new outbound.
 	// nil → a typed-Unknown (unavailable) sample, so no counter folds.
 	CounterSample func() (metrics.CounterSample, bool)
 }
@@ -139,10 +139,10 @@ type Server struct {
 	// swapMu serializes POST /api/models/switch so two near-simultaneous swaps can never
 	// interleave the non-atomic modelswap.Run read-modify-write (LoadConfig → SaveConfig →
 	// ReconcileAndWrite → Restart) and corrupt the config↔units source-of-truth invariant
-	// (CR-02). handleSwitch holds it via TryLock and refuses a concurrent switch with 409.
+	// handleSwitch holds it via TryLock and refuses a concurrent switch with 409.
 	swapMu sync.Mutex
 
-	// Cumulative-usage writer seams (USAGE-02 / D-07). Filled from Config; defaulted to
+	// Cumulative-usage writer seams. Filled from Config; defaulted to
 	// honest no-ops when Config leaves them nil so a partially-wired Server never writes
 	// usage.json and never nil-panics in handleMetrics.
 	readUsage     func() usage.UsageTotals
@@ -152,15 +152,15 @@ type Server struct {
 
 	// usageMu serializes the whole read-modify-write of usage.json in handleMetrics so two
 	// concurrent /api/metrics scrapes can never interleave the non-atomic
-	// ReadUsage → Fold → WriteUsage and tear the store (T-15-13). It is a sibling to swapMu
+	// ReadUsage → Fold → WriteUsage and tear the store. It is a sibling to swapMu
 	// (a dedicated mutex, not shared) so a usage fold never blocks a model switch and vice
 	// versa. The model identity (modelID) is captured INSIDE this section so the per-model
-	// fold key cannot drift if config changes mid-write (Pitfall 2 / T-15-14). Unlike
+	// fold key cannot drift if config changes mid-write (Pitfall 2). Unlike
 	// swapMu's TryLock-then-409 (a swap may be safely refused), the usage write uses
 	// Lock/defer-Unlock: a scrape's fold must NOT be silently skipped under contention.
 	//
-	// PRECONDITION (WR-03 / D-07): usageMu serializes writes WITHIN A SINGLE dashboard
-	// PROCESS only. The "sole writer" guarantee (D-07) is enforced by the deployment
+	// PRECONDITION: usageMu serializes writes WITHIN A SINGLE dashboard
+	// PROCESS only. The "sole writer" guarantee is enforced by the deployment
 	// invariant that exactly ONE villa-dashboard.service instance runs — there is NO
 	// cross-process lock on usage.json. A second concurrent writer process (a stray manual
 	// `villa dashboard` alongside the service, or two service instances) would each hold
@@ -172,7 +172,7 @@ type Server struct {
 }
 
 // isLoopbackAddr reports whether a configured DashboardAddr denotes the loopback
-// interface — the only bind the dashboard's PRIV-01 posture permits. An empty value is
+// interface — the only bind the dashboard's posture permits. An empty value is
 // the caller's signal to apply defaultDashboardAddr and is treated as loopback.
 func isLoopbackAddr(addr string) bool {
 	switch addr {
@@ -186,12 +186,12 @@ func isLoopbackAddr(addr string) bool {
 // NewServer constructs a Server from Config, defaulting the bind address to loopback
 // when unset and building the router (route table + same-origin guard + embedded
 // UI). It never binds until ListenAndServe is called. A non-empty, non-loopback
-// DashboardAddr (e.g. "0.0.0.0") is REFUSED with an error so the PRIV-01 loopback
-// posture is enforced by construction, not merely by the empty-string default (IN-03):
+// DashboardAddr (e.g. "0.0.0.0") is REFUSED with an error so the loopback
+// posture is enforced by construction, not merely by the empty-string default:
 // a tampered config can never make the dashboard bind all interfaces.
 func NewServer(cfg Config) (*Server, error) {
 	if !isLoopbackAddr(cfg.DashboardAddr) {
-		return nil, fmt.Errorf("dashboard: refusing non-loopback bind address %q (PRIV-01: only 127.0.0.1, ::1, localhost, or empty are allowed)", cfg.DashboardAddr)
+		return nil, fmt.Errorf("dashboard: refusing non-loopback bind address %q (only 127.0.0.1, ::1, localhost, or empty are allowed)", cfg.DashboardAddr)
 	}
 	addr := cfg.DashboardAddr
 	if addr == "" {
@@ -217,7 +217,7 @@ func NewServer(cfg Config) (*Server, error) {
 
 	// Default any unset collector seam to an always-unavailable / typed-Unknown no-op,
 	// so a Server constructed without the Plan-03 seams still degrades honestly
-	// (panels render "unavailable") instead of nil-panicking in a handler (D-11).
+	// (panels render "unavailable") instead of nil-panicking in a handler.
 	if s.scrapeMetrics == nil {
 		s.scrapeMetrics = func() (metrics.PerfSnapshot, bool) { return metrics.PerfSnapshot{}, false }
 	}
@@ -238,10 +238,10 @@ func NewServer(cfg Config) (*Server, error) {
 	}
 
 	// Default the cumulative-usage writer seams to honest no-ops so a Server constructed
-	// without the USAGE-02 wiring never writes usage.json and never nil-panics in
+	// without the wiring never writes usage.json and never nil-panics in
 	// handleMetrics: ReadUsage → empty store (no prior), WriteUsage → silent no-op (never
-	// writes, D-07), ModelID → "" (Fold keys an empty entry it then discards on no Known
-	// counter), CounterSample → typed-Unknown unavailable (no counter folds, D-05).
+	// writes), ModelID → "" (Fold keys an empty entry it then discards on no Known
+	// counter), CounterSample → typed-Unknown unavailable (no counter folds).
 	if s.readUsage == nil {
 		s.readUsage = func() usage.UsageTotals { return usage.UsageTotals{} }
 	}
@@ -290,14 +290,14 @@ func (s *Server) routes() http.Handler {
 	api := http.NewServeMux()
 	api.HandleFunc("GET /api/status", s.handleStatus)
 	api.HandleFunc("GET /api/healthz", s.handleHealthz)
-	// Performance + GPU read-models (Plan 03, DASH-02/DASH-03). Still GET-only,
+	// Performance + GPU read-models (Plan 03). Still GET-only,
 	// behind the same read path; requireSameOrigin only gates non-GET.
 	api.HandleFunc("GET /api/metrics", s.handleMetrics)
 	api.HandleFunc("GET /api/gpu", s.handleGPU)
-	// Models read-model (Plan 04, DASH-04): the full catalog marked
+	// Models read-model (Plan 04): the full catalog marked
 	// loaded/on-disk/catalog-only with a per-row fit flag. GET-only here.
 	api.HandleFunc("GET /api/models", s.handleModels)
-	// The ONE sanctioned mutation (DASH-04): POST /api/models/switch routes through the
+	// The ONE sanctioned mutation: POST /api/models/switch routes through the
 	// SHARED modelswap.Run core. requireSameOrigin already gates this non-GET (JSON
 	// content-type + same-origin), so a cross-origin POST never reaches the handler
 	// (T-05-11).
@@ -341,9 +341,9 @@ func recoverPanic(next http.Handler) http.Handler {
 	})
 }
 
-// staticHandler serves the embedded no-build single-page UI (D-01). The index "/"
+// staticHandler serves the embedded no-build single-page UI. The index "/"
 // renders the dashboard.html html/template shell with the config'd ChatPort injected
-// into the header chat link (DASH-05/D-12, never hard-coded); html/template
+// into the header chat link (never hard-coded); html/template
 // auto-escapes the value. Every other path (dashboard.css, dashboard.js) is served
 // verbatim from the embedded assets via http.FileServer (mirroring spaHandler).
 func (s *Server) staticHandler() http.Handler {
@@ -369,7 +369,7 @@ func (s *Server) renderShell(w http.ResponseWriter, _ *http.Request) {
 
 // shellData is the html/template view model for dashboard.html.
 type shellData struct {
-	// ChatPort is the Open WebUI host port the header chat link targets (D-12),
+	// ChatPort is the Open WebUI host port the header chat link targets,
 	// read from config so the link is never a hard-coded 3000.
 	ChatPort int
 }
@@ -379,7 +379,7 @@ func (s *Server) Handler() http.Handler { return s.router }
 
 // Addr returns the loopback bind address, built via net.JoinHostPort so it is always
 // host:port with an explicit 127.0.0.1 host — never ":8888"/"0.0.0.0" (Pitfall 6 /
-// PRIV-01, asserted by server_test).
+// asserted by server_test).
 func (s *Server) Addr() string {
 	return net.JoinHostPort(s.dashboardAddr, strconv.Itoa(s.port))
 }

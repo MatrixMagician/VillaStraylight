@@ -1,7 +1,7 @@
 package backup
 
 // checksum.go is the pure per-entry SHA-256 integrity primitive for the backup
-// manifest (D-09) and the restore verify gate (D-08). SHA-256 is used for
+// manifest and the restore verify gate. SHA-256 is used for
 // INTEGRITY, not secrecy — encryption-at-rest is deferred (RESEARCH §Security).
 // No host I/O: it operates over an io.Reader so the caller owns the file/byte
 // handle (the seam).
@@ -15,7 +15,7 @@ import (
 )
 
 // ErrChecksumMismatch is the sentinel a failed verify wraps so callers can
-// classify archive corruption as a fail-closed BLOCK (D-08) rather than a
+// classify archive corruption as a fail-closed BLOCK rather than a
 // generic error.
 var ErrChecksumMismatch = errors.New("backup: checksum mismatch")
 
@@ -34,7 +34,7 @@ func sum(r io.Reader) (string, error) {
 // verify computes the SHA-256 of r and reports a typed mismatch (wrapping
 // ErrChecksumMismatch with the want/got context) when it does not equal want.
 // A mismatch is archive corruption — the caller MUST treat it as a fail-closed
-// BLOCK with zero side effects (D-08).
+// BLOCK with zero side effects.
 func verify(r io.Reader, want string) error {
 	got, err := sum(r)
 	if err != nil {

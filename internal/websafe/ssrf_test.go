@@ -1,5 +1,5 @@
 // ssrf_test.go guards the SSRF reject-set, the connect-time Control hook, the
-// per-hop CheckRedirect re-validation, and the hostname reject-set (GUARD-05).
+// per-hop CheckRedirect re-validation, and the hostname reject-set.
 //
 // These tests are the load-bearing security proof of Phase 31: an SSRF-internal
 // target (loopback / RFC1918 / link-local / metadata / CGNAT / ULA / villa-* host)
@@ -17,7 +17,7 @@ import (
 )
 
 // TestSSRFRejectSet asserts the full CONTEXT Area 3 reject-set blocks and that a
-// public IP passes — ipRejected is the prefix/predicate core of GUARD-05.
+// public IP passes — ipRejected is the prefix/predicate core of.
 func TestSSRFRejectSet(t *testing.T) {
 	rejected := []string{
 		"127.0.0.1",        // loopback v4
@@ -110,7 +110,7 @@ func TestControlConnectTime(t *testing.T) {
 }
 
 // TestSSRFInternalHostCase is the EXPLICIT Phase-33 family-(c) internal-host contract
-// (PRIV-08): the `villa verify search` SSRF assertion proves the shipped GUARD-05 guard
+// the `villa verify search` SSRF assertion proves the shipped guard
 // refuses the cloud-metadata IP, loopback, and the managed-service container-DNS names.
 // It names the verify-search family directly (the broader reject-set is covered by
 // TestSSRFRejectSet/TestHostRejected above; this is the focused security-property pin).

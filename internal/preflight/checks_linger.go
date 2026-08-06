@@ -25,18 +25,18 @@ func liveLingerDeps() lingerDeps {
 	return lingerDeps{
 		username: uname,
 		lingerOutput: func(username string) (string, bool, bool) {
-			// Fixed-arg exec (threat T-03-01): loginctl show-user <user> --property=Linger.
+			// Fixed-arg exec (threat): loginctl show-user <user> --property=Linger.
 			return runTool("loginctl", "show-user", username, "--property=Linger")
 		},
 	}
 }
 
-// checkLinger is PRE-03 (always WARN, D-02): user lingering keeps the rootless
+// checkLinger is PRE-03 (always WARN): user lingering keeps the rootless
 // user manager (and thus the Quadlet-managed services) running across logout /
 // reboot. Without it the stack stops when the user logs out — a boot-survival
 // degradation, NOT an immediate crash, so this is a WARN tier even when off.
 //
-// loginctl missing/unparseable → still WARN (the WARN tier subsumes the D-15
+// loginctl missing/unparseable → still WARN (the WARN tier subsumes the
 // downgrade: an unevaluable WARN is simply a WARN).
 func checkLinger(d lingerDeps) CheckResult {
 	const (

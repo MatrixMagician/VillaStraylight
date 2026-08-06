@@ -80,12 +80,12 @@ func newStatusDeps(t *testing.T, units []orchestrate.Unit) *status.Deps {
 		// override this knob to exercise the empty-list / unreachable branches.
 		OWUIHealth:  func(string) status.HealthState { return status.HealthReady },
 		OWUIService: openWebUIServiceName,
-		// Dashboard self-row (Plan 05-05 / D-04): a healthy /api/healthz by default;
+		// Dashboard self-row (Plan 05-05): a healthy /api/healthz by default;
 		// tests override DashboardHealth for the wedged case.
 		DashboardService: orchestrate.DashboardServiceName,
 		DashboardHealth:  func(string) status.HealthState { return status.HealthReady },
-		// tok/s seam (D-03): default idle → nil (omitted, never a fabricated 0). Tests
-		// override to exercise the generating case. ROCm-readiness seam (D-04): default
+		// tok/s seam: default idle → nil (omitted, never a fabricated 0). Tests
+		// override to exercise the generating case. ROCm-readiness seam: default
 		// all-unset → folds to "unknown" (off-hardware honest default).
 		GenTokensPerSec: func(string) *float64 { return nil },
 		ROCmReadiness:   func() detect.ROCmReadiness { return detect.ROCmReadiness{} },
@@ -121,7 +121,7 @@ func runStatusReport(t *testing.T, d *status.Deps) status.Report {
 }
 
 // TestStatusOpenWebUIHealthProbe exercises the Open WebUI row health branch
-// (D-12 / CHAT-01 SC#1): a non-empty upstream /v1/models → HealthReady → PASS; an
+// (CHAT-01): a non-empty upstream /v1/models → HealthReady → PASS; an
 // empty list → HealthLoading → WARN (never PASS); a transport error/unreachable →
 // typed-Unknown → WARN (never a false PASS, never an over-eager FAIL).
 func TestStatusOpenWebUIHealthProbe(t *testing.T) {
@@ -166,7 +166,7 @@ func TestStatusOpenWebUIHealthProbe(t *testing.T) {
 
 // TestStatusOpenWebUINoFalseOffloadPASS proves the owui row carries no inference
 // offload PASS: it has no GPU offload, so its offload must not be applicable and must
-// not bump the overall verdict to a spurious PASS (D-12).
+// not bump the overall verdict to a spurious PASS.
 func TestStatusOpenWebUINoFalseOffloadPASS(t *testing.T) {
 	d := newStatusDeps(t, loopbackUnits(t))
 	row := owuiRow(t, d)
@@ -194,7 +194,7 @@ func TestStatusOpenWebUINoFalseOffloadPASS(t *testing.T) {
 	}
 }
 
-// TestStatusOpenWebUIActiveFoldsToFail proves CR-02 is intact for the new row: a
+// TestStatusOpenWebUIActiveFoldsToFail proves is intact for the new row: a
 // confidently-down owui unit (active=failed) drives the overall verdict to FAIL.
 func TestStatusOpenWebUIActiveFoldsToFail(t *testing.T) {
 	d := newStatusDeps(t, loopbackUnits(t))
@@ -206,14 +206,14 @@ func TestStatusOpenWebUIActiveFoldsToFail(t *testing.T) {
 	}
 	cmd, _, _ := statusTestCmd()
 	if code := runStatus(cmd, nil, d); code != exitBlocked {
-		t.Fatalf("a confidently-down owui unit must drive overall FAIL (CR-02), got exit %d", code)
+		t.Fatalf("a confidently-down owui unit must drive overall FAIL, got exit %d", code)
 	}
 }
 
 // floatPtr is a test helper for the typed-optional tok/s seam.
 func floatPtr(v float64) *float64 { return &v }
 
-// TestStatusTokensPerSecTypedOptional proves the live tok/s surfaces honestly (D-03):
+// TestStatusTokensPerSecTypedOptional proves the live tok/s surfaces honestly:
 // generating → a value rendered in the table AND labeled by the active backend; idle →
 // omitted (seam returns nil); scrape-unavailable → omitted. NEVER a fabricated 0.
 func TestStatusTokensPerSecTypedOptional(t *testing.T) {
@@ -380,7 +380,7 @@ func newMemoryStatusDeps(t *testing.T) *status.Deps {
 }
 
 // TestStatusJSONGoldenMemoryOn freezes the MEMORY-ON v3 --json contract
-// byte-for-byte (D-04, Plan 23-01 — the milestone's single contract evolution):
+// byte-for-byte (Plan 23-01 — the milestone's single contract evolution):
 // memory rows with per-service health + N/A offload, the memory section with
 // the indexed recall summary, schema_version 3. Run with -update to regenerate.
 func TestStatusJSONGoldenMemoryOn(t *testing.T) {
@@ -472,7 +472,7 @@ func newWebSearchStatusDeps(t *testing.T) *status.Deps {
 }
 
 // TestStatusJSONGoldenWebSearchOn freezes the WEB-SEARCH-ON v5 --json contract byte-for-byte
-// (SURF-04): the villa-searxng/villa-websafe health rows + N/A offload, and the web_search block
+// the villa-searxng/villa-websafe health rows + N/A offload, and the web_search block
 // (enabled, outbound_bounded="unknown" with the timestamp omitted). This protects the field
 // names/order the dashboard JS consumer depends on. Run with -update to regenerate.
 func TestStatusJSONGoldenWebSearchOn(t *testing.T) {
@@ -540,7 +540,7 @@ func newCodingStatusDeps(t *testing.T) *status.Deps {
 }
 
 // TestStatusJSONGoldenCodingOn freezes the AGENT-ON v4 --json contract byte-for-
-// byte (D-01..D-04, the v1.4 milestone's single contract evolution): the coding
+// byte (.., the v1.4 milestone's single contract evolution): the coding
 // section with version/pin/model/mode/residency + the cache ratio, schema_version
 // 4. Run with -update to regenerate (refreeze BOTH status goldens together).
 func TestStatusJSONGoldenCodingOn(t *testing.T) {
@@ -578,7 +578,7 @@ func TestStatusJSONGoldenCodingOn(t *testing.T) {
 // TestStatusTableOffloadNAForNonGPUService proves the human status table renders the
 // OFFLOAD column as "N/A" for a non-GPU service (OffloadApplies=false, e.g. Open WebUI)
 // rather than leaking the underlying WARN-typed N/A Verdict, while a real GPU service
-// still shows its offload verdict (D-12). The --json contract is unaffected.
+// still shows its offload verdict. The --json contract is unaffected.
 func TestStatusTableOffloadNAForNonGPUService(t *testing.T) {
 	report := status.Report{
 		Services: []status.ServiceStatus{
@@ -634,7 +634,7 @@ func TestStatusTableOffloadNAForNonGPUService(t *testing.T) {
 	}
 }
 
-// TestStatusDashboardRow (Plan 05-05 / D-04): `villa status` emits a
+// TestStatusDashboardRow (Plan 05-05): `villa status` emits a
 // villa-dashboard.service row with its active-state + the /api/healthz-derived health
 // and OffloadApplies=false (the human table renders its OFFLOAD as N/A, never a
 // spurious offload verdict). A wedged/unreachable dashboard → a typed-down row that
@@ -783,7 +783,7 @@ func TestStatusExitCodes(t *testing.T) {
 		}
 	})
 
-	t.Run("failed unit → active FAIL → 1 (CR-02)", func(t *testing.T) {
+	t.Run("failed unit → active FAIL → 1", func(t *testing.T) {
 		d := newStatusDeps(t, units)
 		d.IsActive = func(string) (string, error) { return "failed", nil }
 		cmd, _, _ := statusTestCmd()
@@ -792,7 +792,7 @@ func TestStatusExitCodes(t *testing.T) {
 		}
 	})
 
-	t.Run("inactive unit → active FAIL → 1 (CR-02)", func(t *testing.T) {
+	t.Run("inactive unit → active FAIL → 1", func(t *testing.T) {
 		d := newStatusDeps(t, units)
 		d.IsActive = func(string) (string, error) { return "inactive", nil }
 		cmd, _, _ := statusTestCmd()
@@ -801,7 +801,7 @@ func TestStatusExitCodes(t *testing.T) {
 		}
 	})
 
-	t.Run("activating unit → active WARN → 2 (CR-02)", func(t *testing.T) {
+	t.Run("activating unit → active WARN → 2", func(t *testing.T) {
 		d := newStatusDeps(t, units)
 		d.IsActive = func(string) (string, error) { return "activating", nil }
 		d.Health = func(string) status.HealthState { return status.HealthLoading }
@@ -868,7 +868,7 @@ func probeURLOf(curlArgs []string) string {
 	return curlArgs[len(curlArgs)-1]
 }
 
-// TestLiveQdrantHealth proves the typed-Unknown probe mapping (T-23-03 fixed-arg
+// TestLiveQdrantHealth proves the typed-Unknown probe mapping (fixed-arg
 // probe, behavior table): an HTTP code written by curl maps 200→ready,
 // 503→loading, other→down; a curl-level connect failure inside villa.network
 // (exit < 125, no HTTP code) is a CONFIDENT down; a podman-level failure (exit
@@ -918,7 +918,7 @@ func TestLiveQdrantHealth(t *testing.T) {
 
 // TestLiveEmbedHealth proves the embed probe targets /health on the passed
 // addr:port and maps the llama-server 200/503 codes per liveHealthProbe's
-// discipline (200→ready, 503→loading — WR-07, never down while loading).
+// discipline (200→ready, 503→loading —, never down while loading).
 func TestLiveEmbedHealth(t *testing.T) {
 	cases := []struct {
 		name string
@@ -953,7 +953,7 @@ func TestLiveEmbedHealth(t *testing.T) {
 	}
 }
 
-// TestMemoryHealthTTL (OQ2 / T-23-04, Pitfall 2): one refresh probes BOTH
+// TestMemoryHealthTTL (OQ2 /, Pitfall 2): one refresh probes BOTH
 // services together (exactly one podman run per service), and every further
 // call within the TTL window is served from the cache — podman is NOT executed
 // again. This bounds the dashboard's 2.5s-poll churn to one probe pair per
@@ -981,7 +981,7 @@ func TestMemoryHealthTTL(t *testing.T) {
 }
 
 // TestLiveReadRecallState proves the recall-state read seam's typed-Unknown
-// discipline (D-02): an absent state file is a CONFIDENT empty ("no index yet"
+// discipline: an absent state file is a CONFIDENT empty ("no index yet"
 // — pointer to the zero State, NOT nil); a valid store loads verbatim; a
 // corrupt store fails closed to empty via recall.Load (never a fabricated
 // count); a read error other than NotExist yields nil (status renders

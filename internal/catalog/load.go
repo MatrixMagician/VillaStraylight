@@ -11,14 +11,14 @@ import (
 	"strings"
 )
 
-// seedJSON is the embedded default catalog (D-09). It is a single file, not a
+// seedJSON is the embedded default catalog. It is a single file, not a
 // tree, so we embed it directly rather than wrapping an fs.FS.
 //
 //go:embed seed.json
 var seedJSON []byte
 
 // maxCatalogBytes bounds how much of an external catalog file we will read, to
-// defend against a maliciously huge file (DoS, T-02-01 / Security V5). The seed
+// defend against a maliciously huge file (DoS, / Security V5). The seed
 // catalog is a few KB; 1 MiB is a generous ceiling for a hand-curated model list.
 const maxCatalogBytes = 1 << 20 // 1 MiB
 
@@ -30,7 +30,7 @@ const maxCatalogBytes = 1 << 20 // 1 MiB
 // against SupportedSchema. On ANY problem with the external file — bad path,
 // unreadable, malformed JSON, or a schema_version mismatch — Load appends a clear
 // warning string and FALLS BACK to the embedded seed; it never returns an error
-// for these cases and never panics (D-11/D-13). An error is only returned in the
+// for these cases and never panics. An error is only returned in the
 // (should-not-happen) event that the embedded seed itself fails to decode.
 func Load(externalPath string) (Catalog, []string, error) {
 	var warnings []string
@@ -72,12 +72,12 @@ func schemaMismatchWarning(path string, got int) string {
 }
 
 // validateCoderEntries is the input-validation pass for role:"coder" entries on
-// the external-catalog trust boundary (T-24-02, ASVS V5). A coder entry with a
+// the external-catalog trust boundary (ASVS V5). A coder entry with a
 // non-positive agent_ctx, a non-positive KV-cache dimension, or an out-of-range
 // sampling value invalidates the WHOLE external catalog: the caller refuses it
 // with a warning naming the offending entry and falls back to the embedded seed.
 // Out-of-range values are NEVER silently coerced into range, and the catalog is
-// never partially accepted (refuse whole, fail-closed, D-01). The embedded
+// never partially accepted (refuse whole, fail-closed). The embedded
 // seed is exempt — it is compiled in and guarded by its own tests, not by
 // runtime validation.
 func validateCoderEntries(c Catalog) error {
@@ -92,10 +92,10 @@ func validateCoderEntries(c Catalog) error {
 		// kv_bytes_per_elem) are the terms that actually size KV memory in the
 		// coder fit math (internal/recommend/kv.go). A zeroed/omitted dimension
 		// collapses the KV term to 0 and optimistically over-qualifies the entry
-		// (WR-01); a negative int decodes via uint64() into a huge value that
-		// saturates the product to MaxUint64 (WR-02). The single <= 0 guard
+		// a negative int decodes via uint64 into a huge value that
+		// saturates the product to MaxUint64. The single <= 0 guard
 		// catches both — refuse whole and name the offending values, never
-		// silently accept (T-24-02, D-01).
+		// silently accept.
 		if m.NLayers <= 0 || m.NKVHeads <= 0 || m.HeadDim <= 0 || m.KVBytesPerElem <= 0 {
 			return fmt.Errorf("coder entry %q: missing/invalid KV dimension (n_layers=%d n_kv_heads=%d head_dim=%d kv_bytes_per_elem=%d — all must be > 0)",
 				m.ID, m.NLayers, m.NKVHeads, m.HeadDim, m.KVBytesPerElem)
@@ -103,7 +103,7 @@ func validateCoderEntries(c Catalog) error {
 		if s := m.AgentSampling; s != nil {
 			switch {
 			// temperature == 0 is greedy/deterministic decoding (llama.cpp treats
-			// temp <= 0 as greedy) — a legitimate coder preset (WR-03). Only
+			// temp <= 0 as greedy) — a legitimate coder preset. Only
 			// reject negative or > 2; the inclusive lower bound is [0, 2].
 			case s.Temperature < 0 || s.Temperature > 2:
 				return fmt.Errorf("coder entry %q: agent_sampling temperature %g out of range [0, 2]", m.ID, s.Temperature)

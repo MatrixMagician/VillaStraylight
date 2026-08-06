@@ -8,11 +8,11 @@ import (
 )
 
 // systemd.go is the thin os/exec lifecycle seam over the rootless user manager:
-// every call is FIXED-ARG (no shell, no interpolation — threat T-03-01), each tool
+// every call is FIXED-ARG (no shell, no interpolation — threat), each tool
 // is exec.LookPath-probed first and degrades to a typed not-found instead of
 // panicking (mirrors internal/preflight runTool), and the journald read is bounded
 // by an io.LimitReader so an unbounded container log cannot exhaust memory
-// (T-03-06). It deliberately holds NO podman invocation (the backend grep-gate) and
+// It deliberately holds NO podman invocation (the backend grep-gate) and
 // NO /health HTTP poll — the readiness poll lives in the install/up cmd layer (Plan
 // 02/03) so this package stays free of HTTP coupling; only systemd/journal
 // primitives are exposed here.
@@ -23,13 +23,13 @@ import (
 // ~14 KiB into an invocation's oldest-first startup at the `-lv 4` verbosity the
 // backend now requests, so the prior 8 KiB head-window truncated it before the
 // scraper could see it (F-3). 256 KiB comfortably covers startup while still bounding
-// an unbounded container log against memory exhaustion (T-03-06). Other callers are
+// an unbounded container log against memory exhaustion. Other callers are
 // unaffected: is-active output is tiny; `villa logs` simply reads more.
 const maxJournalOutput = 256 << 10 // 256 KiB
 
 // ErrToolNotFound is the typed degradation when a required host tool is absent on
 // PATH — callers downgrade rather than crash (mirrors the preflight found=false
-// contract / D-15).
+// contract).
 type ErrToolNotFound struct{ Tool string }
 
 func (e ErrToolNotFound) Error() string {
@@ -40,7 +40,7 @@ func (e ErrToolNotFound) Error() string {
 // but exited non-zero with no parseable output. It is DISTINCT from ErrToolNotFound
 // (cannot measure at all) so callers can treat an indeterminate-but-bad runtime
 // state as a hard failure while a missing binary stays a can't-measure WARN
-// (CR-02 tighten: empty-stdout-with-error must not collapse to a soft WARN).
+// (tighten: empty-stdout-with-error must not collapse to a soft WARN).
 type ErrCommandFailed struct{ Cmd string }
 
 func (e ErrCommandFailed) Error() string {
@@ -61,7 +61,7 @@ func NewSystemd() Systemd {
 	return Systemd{runCmd: runTool}
 }
 
-// runTool invokes a tool with a FIXED argument slice — never via a shell (T-03-01) —
+// runTool invokes a tool with a FIXED argument slice — never via a shell
 // returning stdout bounded to maxJournalOutput via io.LimitReader. A missing binary
 // yields found=false so the caller degrades; a non-zero exit yields ok=false with
 // whatever bounded output was produced. Mirrors internal/preflight.runTool.
@@ -105,15 +105,15 @@ func (s Systemd) Start(service string) error {
 // effect for boot-survival: `systemctl --user enable <service>` (A4). It is the
 // additive unit-level enable seam — DISTINCT from EnableLinger (which enables the
 // whole user manager to survive logout via loginctl). Fixed-arg, never a shell
-// (T-05-15/T-03-01); a missing systemctl degrades to a typed ErrToolNotFound
-// (mirrors Start). Linger is enabled separately by install (no second call, D-04).
+// a missing systemctl degrades to a typed ErrToolNotFound
+// (mirrors Start). Linger is enabled separately by install (no second call).
 func (s Systemd) Enable(service string) error {
 	_, err := s.run("systemctl", "--user", "enable", service)
 	return err
 }
 
 // Disable reverses Enable, revoking a unit's boot-survival so an uninstalled
-// dashboard cannot re-spawn its listener on the next login (T-05-18):
+// dashboard cannot re-spawn its listener on the next login:
 // `systemctl --user disable <service>`. Fixed-arg, never a shell; a missing
 // systemctl degrades to a typed ErrToolNotFound (mirrors Enable/Stop).
 func (s Systemd) Disable(service string) error {
@@ -140,7 +140,7 @@ func (s Systemd) Restart(service string) error {
 // states are errors: a missing binary (ErrToolNotFound — cannot measure) and an
 // empty stdout WITH a non-zero exit (ErrCommandFailed — the manager/unit errored
 // with no parseable state; distinct so the caller can FAIL rather than soft-WARN,
-// CR-02 tighten).
+// tighten).
 func (s Systemd) IsActive(service string) (string, error) {
 	out, found, ok := s.runCmd("systemctl", "--user", "is-active", service)
 	if !found {
@@ -154,7 +154,7 @@ func (s Systemd) IsActive(service string) (string, error) {
 }
 
 // EnableLinger enables user lingering so the rootless user manager (and the
-// Quadlet services) survive logout/reboot: `loginctl enable-linger <user>` (D-04
+// Quadlet services) survive logout/reboot: `loginctl enable-linger <user>` (
 // consent step).
 func (s Systemd) EnableLinger(user string) error {
 	_, err := s.run("loginctl", "enable-linger", user)

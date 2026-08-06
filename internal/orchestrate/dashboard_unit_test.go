@@ -87,7 +87,7 @@ func TestRenderDashboardUnitQuotesPathWithSpaces(t *testing.T) {
 // `%` is emitted with the `%` doubled (`%%`). systemd expands `%`-specifiers (e.g.
 // %h, %c) in ExecStart REGARDLESS of quoting, so an un-doubled `%` in a legal POSIX
 // path byte mangles the executable token → 203/EXEC at boot — the exact failure class
-// this change set exists to fix (CR-01). `%` is space-free so the path stays unquoted.
+// this change set exists to fix. `%` is space-free so the path stays unquoted.
 func TestRenderDashboardUnitEscapesPercent(t *testing.T) {
 	got, err := RenderDashboardUnit("/home/u/100%cool/villa")
 	if err != nil {
@@ -101,7 +101,7 @@ func TestRenderDashboardUnitEscapesPercent(t *testing.T) {
 
 // TestRenderDashboardUnitEscapesQuotesInQuotedPath asserts that when a path is wrapped
 // in systemd double-quotes (because it contains whitespace), any embedded `"` or `\`
-// is backslash-escaped so the quoted token survives systemd's unquoting intact (WR-01).
+// is backslash-escaped so the quoted token survives systemd's unquoting intact.
 // Without escaping, an embedded quote would prematurely close the token and corrupt argv.
 func TestRenderDashboardUnitEscapesQuotesInQuotedPath(t *testing.T) {
 	got, err := RenderDashboardUnit(`/home/u/a "b"/villa`)
@@ -116,7 +116,7 @@ func TestRenderDashboardUnitEscapesQuotesInQuotedPath(t *testing.T) {
 
 // TestRenderDashboardUnitQuotesBackslashPath asserts a path containing a backslash (a
 // legal filename byte that systemd treats as a C-style escape both inside and outside
-// quotes) is quoted and its backslash doubled, so the literal byte survives (WR-01).
+// quotes) is quoted and its backslash doubled, so the literal byte survives.
 func TestRenderDashboardUnitQuotesBackslashPath(t *testing.T) {
 	got, err := RenderDashboardUnit(`/home/u/a\b/villa`)
 	if err != nil {
@@ -177,7 +177,7 @@ func TestWriteDashboardUnitAtomic(t *testing.T) {
 
 // TestWriteDashboardUnitRefusesTraversal asserts the write is traversal-guarded:
 // a unit dir that the service name would escape is refused before any write (reuses
-// assertInsideDir, T-05-15).
+// assertInsideDir).
 func TestWriteDashboardUnitRefusesTraversal(t *testing.T) {
 	// A target whose name escapes the dir must be refused. We exercise the guard
 	// directly via writeUnitFile since DashboardServiceName is a fixed safe name.

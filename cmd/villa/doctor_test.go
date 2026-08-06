@@ -4,7 +4,7 @@ package main
 // builds doctor.Report fixtures directly (no live host) and asserts the worst-wins exit
 // mapping + the frozen --json contract.
 //
-// CRITICAL (D-04 / Pitfall 1): the exit table asserts exitBlocked (=1) for a residency
+// CRITICAL (Pitfall 1): the exit table asserts exitBlocked (=1) for a residency
 // FAIL and exitWarn (=2) for a drift WARN — mirroring the AUTHORITATIVE preflight
 // constants, NOT the inverted ROADMAP prose. The shared `update` flag is declared in
 // detect_test.go; assertGolden lives in preflight_test.go.
@@ -125,7 +125,7 @@ func TestDoctorExitCodes(t *testing.T) {
 	}
 }
 
-// TestDoctorUnknownOverallFailsClosed (phase-22 WR-04): an unrecognized/empty Overall
+// TestDoctorUnknownOverallFailsClosed (phase-22): an unrecognized/empty Overall
 // (a future Aggregate bug, a hand-built Report, a JSON-roundtripped fixture) must map
 // to exitBlocked — for a health-verdict command, defaulting to "healthy" is the wrong
 // defensive direction (mirrors renderInference's fail-closed default).
@@ -142,8 +142,8 @@ func TestDoctorUnknownOverallFailsClosed(t *testing.T) {
 	}
 }
 
-// TestDoctorJSON freezes doctor's OWN --json contract (D-02/D-09) byte-for-byte. The
-// golden MUST carry "schema_version": 3 (the web-search-fold bump, SURF-06). doctor never extends status.Report's golden.
+// TestDoctorJSON freezes doctor's OWN --json contract byte-for-byte. The
+// golden MUST carry "schema_version": 3 (the web-search-fold bump). doctor never extends status.Report's golden.
 func TestDoctorJSON(t *testing.T) {
 	var buf bytes.Buffer
 	renderDoctor(&buf, healthyReport(), true, false)
@@ -179,7 +179,7 @@ func memoryHealthyReport() doctor.Report {
 }
 
 // memoryResidencyFailReport flips the under-load proof to a confident CPU-fallback
-// FAIL (D-09): MEM-DOC-residency becomes a BLOCK-class FAIL with remediation and
+// FAIL: MEM-DOC-residency becomes a BLOCK-class FAIL with remediation and
 // Overall=="FAIL" → exitBlocked.
 func memoryResidencyFailReport() doctor.Report {
 	r := memoryHealthyReport()
@@ -233,7 +233,7 @@ func TestDoctorMemoryJSON(t *testing.T) {
 	assertGolden(t, "doctor-memory.json.golden", buf.Bytes())
 }
 
-// agentHealthyReport is the healthy AGENT-ON shape (Phase 28-01, SURF-02): the
+// agentHealthyReport is the healthy AGENT-ON shape (Phase 28-01): the
 // memory-on healthy report PLUS the three additive agent findings — a PASS tool-call
 // round-trip, a PASS coder residency under tool-call load, and a clean drift PASS.
 // Overall=="PASS" → exit 0. Findings are data, not schema; the contract bump is the
@@ -249,7 +249,7 @@ func agentHealthyReport() doctor.Report {
 }
 
 // agentToolCallFailReport flips the agent tool-call round-trip to a confident FAIL — a
-// BLOCK-class fault that DOMINATES a healthy-looking HTTP-200 (D-07), Overall=="FAIL" →
+// BLOCK-class fault that DOMINATES a healthy-looking HTTP-200, Overall=="FAIL" →
 // exitBlocked.
 func agentToolCallFailReport() doctor.Report {
 	r := agentHealthyReport()
@@ -267,7 +267,7 @@ func agentToolCallFailReport() doctor.Report {
 // TestDoctorAgentRender freezes the agent-on render shapes: a healthy agent-on report
 // (Overall PASS → exit 0, golden doctor-agent.json.golden) and a confident tool-call FAIL
 // (Overall FAIL → exitBlocked). It proves the additive agent findings render and that an
-// agent FAIL maps to the blocking exit tier (D-07 honesty dominance).
+// agent FAIL maps to the blocking exit tier (honesty dominance).
 func TestDoctorAgentRender(t *testing.T) {
 	var buf bytes.Buffer
 	code := renderDoctor(&buf, agentHealthyReport(), true, false)
@@ -281,12 +281,12 @@ func TestDoctorAgentRender(t *testing.T) {
 
 	var failBuf bytes.Buffer
 	if code := renderDoctor(&failBuf, agentToolCallFailReport(), false, false); code != exitBlocked {
-		t.Errorf("agent tool-call FAIL exit code = %d, want %d (a confident agent FAIL must block — D-07)", code, exitBlocked)
+		t.Errorf("agent tool-call FAIL exit code = %d, want %d (a confident agent FAIL must block)", code, exitBlocked)
 	}
 }
 
 // TestLiveDoctorDepsWiresAgentSeams asserts liveDoctorDeps binds the three agent seams
-// ONLY when the persisted agent_enabled is true (SURF-02, mirroring the memory-seam
+// ONLY when the persisted agent_enabled is true (mirroring the memory-seam
 // wiring): agent off (absent config) → all three nil so the agent-off doctor output is
 // byte-identical; agent on → all three bound. It inspects only the constructed Deps
 // fields — it never invokes the live host probes.
@@ -331,7 +331,7 @@ func TestLiveDoctorDepsWiresAgentSeams(t *testing.T) {
 }
 
 // TestLiveDoctorDepsWiresMemorySeams asserts liveDoctorDeps binds the memory seams
-// ONLY when the persisted memory_enabled is true (D-08/D-09, mirror D-06): memory
+// ONLY when the persisted memory_enabled is true (mirror): memory
 // off (absent config) → both nil so the memory-off doctor output is byte-identical;
 // memory on → both bound. (The old MemoryEnabled/MemoryServices wiring assertions
 // were removed with the doctor offload down-rank — Plan 23-01.) It inspects only
@@ -421,10 +421,10 @@ func TestLiveDoctorDepsWiresRunROCmImage(t *testing.T) {
 	}
 }
 
-// --- Phase 34-04: live web-search residency + egress-proof seams (SURF-06) ---
+// --- Phase 34-04: live web-search residency + egress-proof seams ---
 
 // TestRunSearchResidencyUnderLoadPreconditionGate exercises the read-only precondition
-// gate of the live search-residency proof OFF-HARDWARE (SURF-06, T-34-13): a stub
+// gate of the live search-residency proof OFF-HARDWARE: a stub
 // status.Deps whose IsActive reports the served inference unit as NOT active must yield a
 // typed-Unknown WARN (never a FAIL fabricated from a stack that simply is not running, and
 // never an idle-sampled false-green). doctor NEVER starts a service. This is the
@@ -441,7 +441,7 @@ func TestRunSearchResidencyUnderLoadPreconditionGate(t *testing.T) {
 		t.Fatalf("Status = %v, want StatusWarn (typed-Unknown when the served unit is not active — never a fabricated FAIL)", v.Status)
 	}
 	if v.Remediation == "" {
-		t.Errorf("typed-Unknown verdict must carry a Remediation (D-11)")
+		t.Errorf("typed-Unknown verdict must carry a Remediation")
 	}
 }
 
@@ -468,7 +468,7 @@ func writeVerifyState(t *testing.T, verdict, checkedAt string) {
 }
 
 // TestLiveSearchEgressProofFreshness asserts the doctor egress-proof seam mirrors the
-// status core's freshness gate (T-34-12) with the WR-01 lower-bound clamp: a fresh cached
+// status core's freshness gate with the lower-bound clamp: a fresh cached
 // PASS → StatusPass (outbound bounded); a STALE PASS → StatusWarn (re-prove); and a
 // FUTURE-dated PASS (clock-skewed/forged timestamp, negative age) → StatusWarn, NEVER
 // StatusPass. A future timestamp must be re-proven, never trusted as bounded.
@@ -495,7 +495,7 @@ func TestLiveSearchEgressProofFreshness(t *testing.T) {
 }
 
 // TestLiveDoctorDepsWiresWebSearchSeams asserts liveDoctorDeps binds the two web-search
-// seams ONLY when the persisted web_search_enabled is true (SURF-06, mirroring the memory/
+// seams ONLY when the persisted web_search_enabled is true (mirroring the memory/
 // agent-seam wiring): web off (absent config) → both nil so the web-off doctor output is
 // byte-identical (except the schema bump); web on → both bound. It inspects only the
 // constructed Deps func-fields — it never invokes the live host probes.

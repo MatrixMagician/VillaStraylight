@@ -2,7 +2,7 @@ package detect
 
 import "testing"
 
-// TestComputeROCmReadinessOffHardware asserts the no-false-green guarantee (D-08):
+// TestComputeROCmReadinessOffHardware asserts the no-false-green guarantee:
 // an off-hardware HostProfile (IGPUGfxID Unknown, KernelVersion Known) yields
 // rocminfo_gfx1151 and firmware_date_ok as UNSET (Known==false), NOT a real false,
 // while kernel_floor_ok is a real Known value derived from the known kernel.

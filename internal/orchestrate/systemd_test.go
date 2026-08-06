@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// TestIsActive covers the is-active state read, including the CR-02 tighten: an empty
+// TestIsActive covers the is-active state read, including the tighten: an empty
 // stdout WITH a non-zero exit is ErrCommandFailed (indeterminate-but-bad), DISTINCT
 // from a missing binary (ErrToolNotFound, cannot measure) and from the failed/inactive
 // states (which print their word to stdout and must be returned despite the non-zero
@@ -231,7 +231,7 @@ func TestEnable(t *testing.T) {
 	})
 }
 
-// TestDisable covers the unit-level Disable seam (T-05-18): a fixed-arg
+// TestDisable covers the unit-level Disable seam: a fixed-arg
 // `systemctl --user disable <service>` (never a shell) that revokes boot-survival on
 // uninstall, degrading to ErrToolNotFound when systemctl is absent.
 func TestDisable(t *testing.T) {

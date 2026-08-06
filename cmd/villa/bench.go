@@ -24,14 +24,14 @@ import (
 )
 
 // bench.go is the cmd-tier `villa bench` noun: the live host wiring that drives the
-// pure internal/bench honest-methodology core (Plan 09-02). It holds liveMeasure —
+// pure internal/bench honest-methodology core (Plan 09-02). It holds liveMeasure
 // a clone of backend.go:liveProve that swaps the GenerationProbe for the new
 // llm.Complete per-request timings source while keeping the residency gate — plus the
 // cobra surface (--ab / -n / --warmup / --n-predict / --json), the Result→exit
 // mapping, and liveBenchDeps (the seam-wiring template, --ab Switch/Restore delegating
 // to backendswap.Run, LOCKED — never re-implement switching).
 //
-// CRITICAL — backend-marker discipline (T-09-10): this file must stay LITERAL-FREE of
+// CRITICAL — backend-marker discipline: this file must stay LITERAL-FREE of
 // backend marker tokens (the per-backend residency device token, the HSA override env
 // var, the GPU-fault abort string, and any image/device literal). Every such marker
 // arrives ONLY through inference.BackendFor(target).ResidencyProof(); the cmd/villa-
@@ -41,12 +41,12 @@ import (
 // benchProveTimeout bounds a single measured run (and, by the shared deadline context,
 // the whole measure). It mirrors backend.go's proveTimeout (5m, seeded from inference's
 // defaultReadyTimeout) and carries the same provenance: the load_tensors-hang guard
-// (T-09-08 / Pitfall 3). A run that never completes before this deadline is a VOID run,
+// (Pitfall 3). A run that never completes before this deadline is a VOID run,
 // NEVER an infinite wait.
 const benchProveTimeout = 5 * time.Minute
 
 // benchBusySampleInterval is how often liveMeasure re-reads detect.GPUBusyPercent()
-// DURING the decode window (D-07): a single post-call read can miss a short decode's
+// DURING the decode window: a single post-call read can miss a short decode's
 // busy window, so the measure samples repeatedly while tokens stream and keeps the max.
 const benchBusySampleInterval = 100 * time.Millisecond
 
@@ -67,14 +67,15 @@ const benchPrompt = "Summarize the water cycle in three concise sentences."
 //	(c) residency is proven via inference.RunningOffloadVerdict over the target
 //	    backend's BackendFor(target).ResidencyProof() markers + the SAME concrete
 //	    liveWeightBytes / liveModelFile seams status.go uses, with
-//	    detect.GPUBusyPercent() sampled DURING the decode (D-07).
+//
+// detect.GPUBusyPercent sampled DURING the decode.
 //
 // resident is reported true ONLY for inference.StatusPass; any other verdict (incl. a
 // fast-but-CPU-fallback completion) marks the run VOID so the core excludes it from the
 // band (offload asserted, not assumed). All backend markers stay behind ResidencyProof()
 // — this function is literal-free of them.
 func liveMeasure(ctx context.Context, target string, spec bench.BenchSpec) (bench.RunTimings, bool, string, error) {
-	// Resolve the backend fail-closed (D-02): an unknown target is a measure failure,
+	// Resolve the backend fail-closed: an unknown target is a measure failure,
 	// never a silent fallback. backend.ResidencyProof() is the ONLY source of markers.
 	backend, err := inference.BackendFor(target)
 	if err != nil {
@@ -99,13 +100,13 @@ func liveMeasure(ctx context.Context, target string, spec bench.BenchSpec) (benc
 	// resolved backend's container runner, never a hand-rolled URL.
 	endpoint := inference.NewContainerRunner(backend, inference.RunSpec{}).Endpoint()
 
-	// Bound the WHOLE measure by spec.Timeout (T-09-08). A wedged/CPU-fallback server
+	// Bound the WHOLE measure by spec.Timeout. A wedged/CPU-fallback server
 	// that never returns trips this deadline and is a VOID run, not an infinite wait.
 	deadlineCtx, cancel := context.WithTimeout(ctx, spec.Timeout)
 	defer cancel()
 
 	// (b) REAL completion via llm.Complete, with the live gpu_busy_percent sampled
-	// DURING the decode window (D-07). Start the completion in a goroutine and poll
+	// DURING the decode window. Start the completion in a goroutine and poll
 	// detect.GPUBusyPercent() repeatedly while tokens stream, keeping the max — a single
 	// post-call read can miss a short decode's busy window.
 	client := llm.NewOpenAIClient(llm.Options{
@@ -147,7 +148,7 @@ sampleLoop:
 			}
 			if res.err != nil {
 				// A missing/empty `timings` block is a measurement failure, NOT a 0 tok/s
-				// pass: void the run so it never pollutes the honest band (WR-02 / A1).
+				// pass: void the run so it never pollutes the honest band (A1).
 				if errors.Is(res.err, llm.ErrNoTimings) {
 					return bench.RunTimings{}, false,
 						"server returned no `timings` block (or zero predicted tokens) — " +
@@ -171,7 +172,7 @@ sampleLoop:
 	// then fold journal + GTT floor + the DURING-decode gpu_busy reading + the target
 	// backend's markers into one Verdict. WeightBytes/ConfigModel/ConfigContext mirror
 	// status.go exactly via the concrete liveWeightBytes(cfg)/liveModelFile(cfg)/cfg.Ctx
-	// seams. Markers come ONLY from backend.ResidencyProof() (literal-free, T-09-10).
+	// seams. Markers come ONLY from backend.ResidencyProof (literal-free).
 	journal, _ := orchestrate.NewSystemd().ResidencyJournal(installServiceName)
 	v := inference.RunningOffloadVerdict(inference.RunningOffloadInput{
 		JournalText:    journal,
@@ -195,7 +196,7 @@ sampleLoop:
 }
 
 // liveBenchDeps wires the pure bench core to the real host. Measure is always set
-// (the single-backend, non-disruptive path benches ONLY the running backend, SC#1).
+// (the single-backend, non-disruptive path benches ONLY the running backend).
 // The spec is captured in the Measure closure (the run's flags ride the closure); the
 // caller's SIGINT-cancellable context is threaded through bench.Run into every
 // Measure/Switch/Restore call so a Ctrl-C aborts an in-flight bench, while liveMeasure
@@ -259,7 +260,7 @@ func liveBenchDeps(ab bool, spec bench.BenchSpec) *bench.Deps {
 //     then /var/tmp/villa)
 //   - store = <root>/bench-reports.jsonl
 //
-// Returning the root separately is what makes the T-14-01 traversal guard MEANINGFUL:
+// Returning the root separately is what makes the traversal guard MEANINGFUL:
 // the untrusted vector is $XDG_DATA_HOME itself (an attacker-controlled env var could
 // contain `..` or be a relative value and point the store anywhere). The guard
 // (benchAssertStoreUnderRoot) validates the resolved store against this resolved root
@@ -280,7 +281,7 @@ func benchReportsStorePath() string {
 	return store
 }
 
-// benchAssertStoreUnderRoot is the MEANINGFUL T-14-01 traversal guard. Unlike a check
+// benchAssertStoreUnderRoot is the MEANINGFUL traversal guard. Unlike a check
 // of the store against its own parent dir (which can never escape and is defense-
 // theater), this validates the resolved store against the TRUSTED data-home root — the
 // actual untrusted vector being $XDG_DATA_HOME. It rejects:
@@ -304,7 +305,7 @@ func benchAssertStoreUnderRoot(store, root string) error {
 
 // liveBenchstoreDeps wires the pure benchstore core (Plan 14-01) to the real host
 // filesystem under XDG. It mirrors liveBenchDeps's func-field seam shape. AppendLine is
-// the loud-but-non-fatal write path (T-14-01): assert-inside-dir guard → MkdirAll 0700 →
+// the loud-but-non-fatal write path: assert-inside-dir guard → MkdirAll 0700 →
 // O_APPEND|O_CREATE|O_WRONLY 0600 → append the already-'\n'-terminated line (NEVER a
 // write-whole-file/truncate). ReadAll returns the store bytes, or (nil,nil) when absent
 // (no reports ≠ error; wired now so the seam is complete for Plan 03). Now supplies the
@@ -314,7 +315,7 @@ func liveBenchstoreDeps() benchstore.Deps {
 	dir := filepath.Dir(store)
 	return benchstore.Deps{
 		AppendLine: func(line []byte) error {
-			// MEANINGFUL T-14-01 guard: assert the resolved store stays under the
+			// MEANINGFUL guard: assert the resolved store stays under the
 			// trusted data-home root (rejecting a `..` or non-absolute $XDG_DATA_HOME),
 			// not against its own parent dir (which can never escape). On rejection the
 			// caller surfaces a loud-but-non-fatal WARN; the measurement is unaffected.
@@ -352,7 +353,7 @@ func liveBenchstoreDeps() benchstore.Deps {
 // Quant / Ctx come from config (the single source of truth — never re-derived). The host
 // facts come from detect.Probe(), .Known-guarded: an UNKNOWN gfx id / kernel serializes
 // to the empty sentinel so the Plan-01 Comparable guard treats the pair as NOT comparable
-// (T-14-04: never fabricate host identity). The benched backend is RECORDED for
+// (never fabricate host identity). The benched backend is RECORDED for
 // presentation but is DELIBERATELY not a comparability blocker (Comparable excludes it).
 // NO detect type crosses into benchstore — only plain strings/ints.
 func captureBenchFingerprint(cfg config.VillaConfig, backend string) benchstore.Fingerprint {
@@ -389,7 +390,7 @@ var benchstoreWrite = func(d benchstore.Deps, r benchstore.SavedReport) error {
 // touch quadlet/systemd directly. A clean NoOp (already on target) or a proven Switch
 // is success; any Refused/RolledBack/Err is an error.
 // benchBackendSwap is the package-level indirection the --ab Switch/Restore closures
-// call so bench_test.go can drive the failed-restore WARNING path (WR-01) without a
+// call so bench_test.go can drive the failed-restore WARNING path without a
 // live host. The default is the real runBackendSwap.
 var benchBackendSwap = runBackendSwap
 
@@ -416,8 +417,8 @@ func runBackendSwap(target string) error {
 // ---------------------------------------------------------------------------
 
 // newBench builds the `villa bench` noun. Plain `villa bench` measures ONLY the running
-// backend non-disruptively (SC#1); --ab is the only path that flips, via backendswap.Run,
-// and restores the original (SC#3).
+// backend non-disruptively; --ab is the only path that flips, via backendswap.Run,
+// and restores the original.
 func newBench() *cobra.Command {
 	var (
 		ab        bool
@@ -466,14 +467,14 @@ func newBench() *cobra.Command {
 				return fmt.Errorf("bench: --reps and --n-predict must be >= 1 and --warmup must be >= 0 "+
 					"(got --reps=%d --warmup=%d --n-predict=%d)", reps, warmup, nPredict)
 			}
-			// --ab-target plumbing (Option A, SC#3). The explicit target is only
+			// --ab-target plumbing (Option A). The explicit target is only
 			// meaningful for the --ab flip path: reject it without --ab as a usage error
 			// (clearer UX than silently ignoring it).
 			if abTarget != "" && !ab {
 				return fmt.Errorf("bench: --ab-target requires --ab (the explicit comparison " +
 					"backend is only used by the --ab flip)")
 			}
-			// Fail-closed validation (D-03 / T-12-07): resolve a non-empty --ab-target via
+			// Fail-closed validation: resolve a non-empty --ab-target via
 			// the SINGLE BackendFor resolver BEFORE any switch — a typo is an actionable
 			// error, never a silent flip to a wrong/missing backend.
 			if abTarget != "" {
@@ -542,8 +543,8 @@ func benchMinResident(reps int) int {
 // benchEntry is the `bench --json` shape — the FROZEN Phase-10 read contract. pp and tg
 // tok/s are TWO SEPARATE keys per side (prompt_per_sec / predicted_per_sec with their
 // stddevs), never a blended figure. The AB block (and its per-metric deltas) is present
-// only for --ab. It carries ONLY numeric timings + Kept/Void + the stated conditions —
-// never the prompt or sampling internals beyond the reproducible spec (T-09-07).
+// only for --ab. It carries ONLY numeric timings + Kept/Void + the stated conditions
+// never the prompt or sampling internals beyond the reproducible spec.
 type benchEntry struct {
 	Mode       string          `json:"mode"` // "single" or "ab"
 	Conditions benchConditions `json:"conditions"`
@@ -800,14 +801,14 @@ func savedSideFromStats(backend string, s bench.Stats) benchstore.SavedSide {
 // loads config (the single source of truth), captures the .Known-guarded fingerprint with
 // the benched backend (single: res.Backend; ab: res.AB.From — the original), folds the
 // Result into a SavedReport, and appends it via the live benchstore seam. A config-load
-// failure OR a write failure is LOUD-but-NON-FATAL (T-14-05): a stderr WARN, NEVER a
+// failure OR a write failure is LOUD-but-NON-FATAL: a stderr WARN, NEVER a
 // changed exit code (cloned from liveBenchDeps.Restore). It is called on BOTH the clean
 // and void-exhaustion paths (A5 — persist always, including void runs).
 //
 // A config-load error must SKIP persistence (not swallow): a zero VillaConfig would make
 // captureBenchFingerprint stamp Model=""/Quant=""/Ctx=0, durably persisting a zeroed
 // fingerprint that later auto-selects/compares against another empty-fingerprint record
-// — a quieter "fabricate identity" (WR-04). Skip-with-WARN instead of polluting the store.
+// — a quieter "fabricate identity". Skip-with-WARN instead of polluting the store.
 func persistBenchReport(errOut io.Writer, res bench.Result, ab bool, spec bench.BenchSpec) {
 	cfg, err := config.LoadVilla()
 	if err != nil {

@@ -11,7 +11,7 @@ import (
 // render.go is the PURE, DETERMINISTIC crush.json renderer (AGENT-02). crush.json
 // is a DERIVED artifact of config.toml — regenerated, never hand-edited as the
 // authority (config-as-source-of-truth; drift is flagged in drift.go, never
-// auto-corrected, D-14). It is emitted via stdlib encoding/json with a FIXED
+// auto-corrected). It is emitted via stdlib encoding/json with a FIXED
 // indent + trailing newline so byte-output is stable (Pitfall 4 — config-drift
 // compare depends on render determinism).
 //
@@ -24,11 +24,11 @@ import (
 const (
 	// crushSchema is the verified v0.76.0 schema URL (frozen, 26-RESEARCH.md).
 	crushSchema = "https://charm.land/crush.json"
-	// providerKey is the single villa provider's object key (D-08).
+	// providerKey is the single villa provider's object key.
 	providerKey = "villa"
 	// providerBaseURL is the FIXED loopback inference endpoint (Open-Q1 option ii):
 	// the inference port is the constant serverPort=8080 (internal/inference), NOT a
-	// config field. Loopback-only, consistent with PRIV-01. Not a backend marker.
+	// config field. Loopback-only, consistent with. Not a backend marker.
 	// Drift-guarded against inference.ServerPort() by
 	// cmd/villa.TestCrushProviderPortMatchesInferenceServerPort (the agent seam forbids
 	// importing inference here, so the coupling is asserted from the cmd/villa test tier).
@@ -37,7 +37,7 @@ const (
 	// "local"); MUST be metachar-free (Pitfall 1).
 	providerAPIKey = "local"
 	// modelIDPrefix namespaces the rendered model id so it cannot collide with a
-	// Catwalk built-in id (#2649 shadowing fix, D-09).
+	// Catwalk built-in id (#2649 shadowing fix).
 	modelIDPrefix = "villa-"
 	// defaultContextWindow is the rendered context_window when cfg.CoderAgentCtx is
 	// unset (a sane local default).
@@ -56,13 +56,13 @@ var allowedTools = []string{"view", "edit", "write"}
 
 // disabledTools is the Phase-27 STRIDE outbound-tool denylist rendered into
 // options.disabled_tools (under the OPTIONS block, 26-RESEARCH:158/169): the agent's
-// outbound tools are off by construction (defense-in-depth for PRIV-06 / T-27-21).
+// outbound tools are off by construction (defense-in-depth for).
 // Disabling these does NOT harm the readiness loop, which needs only view/edit/write.
 var disabledTools = []string{"fetch", "agentic_fetch", "download", "sourcegraph"}
 
 // LSPProbe is a resolved host-PATH probe for one LSP server, produced by the live
 // Deps.LookPath seam and consumed PURELY here. Found drives whether the lsp entry
-// is rendered (D-10); a not-found probe yields a WARN and an omitted entry.
+// is rendered; a not-found probe yields a WARN and an omitted entry.
 type LSPProbe struct {
 	// Key is the lsp object key (the language/server name, e.g. "go").
 	Key string
@@ -88,7 +88,7 @@ type crushConfig struct {
 	Permissions *crushPermissions `json:"permissions,omitempty"`
 }
 
-// crushOptions carries both kill switches (D-07) plus the cloud-fallback /
+// crushOptions carries both kill switches plus the cloud-fallback /
 // determinism strengtheners (Pitfall 2/5) and the Phase-27 STRIDE outbound-tool
 // denylist (DisabledTools). disabled_tools is an OPTIONS field in the v0.76.0 frozen
 // schema (26-RESEARCH:158/169) — NOT a top-level key.
@@ -98,13 +98,13 @@ type crushOptions struct {
 	DisableDefaultProviders   bool `json:"disable_default_providers"`
 	AutoLSP                   bool `json:"auto_lsp"`
 	// DisabledTools turns the agent's outbound tools OFF by construction (Phase-27
-	// STRIDE / T-27-21, defense-in-depth for PRIV-06): fetch / agentic_fetch / download
+	// STRIDE /, defense-in-depth for): fetch / agentic_fetch / download
 	// / sourcegraph. Rendered unconditionally — an omitted denylist leaves outbound
 	// tools on (the STRIDE FAIL), so it is NEVER omitempty.
 	DisabledTools []string `json:"disabled_tools"`
 }
 
-// crushProvider is the single villa openai-compat provider block (D-08).
+// crushProvider is the single villa openai-compat provider block.
 type crushProvider struct {
 	Name    string       `json:"name"`
 	Type    string       `json:"type"`
@@ -114,7 +114,7 @@ type crushProvider struct {
 }
 
 // crushModel mirrors the v0.76.0 Model required-field set. Cost fields are 0
-// (local, no cost); id is villa- prefixed (#2649-safe, D-09).
+// (local, no cost); id is villa- prefixed (#2649-safe).
 type crushModel struct {
 	ID                  string  `json:"id"`
 	Name                string  `json:"name"`
@@ -143,7 +143,7 @@ type crushPermissions struct {
 }
 
 // servedModelID derives the served model id from config (the source of truth,
-// D-09): cfg.CoderModel when coding-mode coder is set, else cfg.Model. The
+// cfg.CoderModel when coding-mode coder is set, else cfg.Model. The
 // rendered crush.json model id is this value, villa- prefixed, so it (a) cannot
 // collide with a Catwalk built-in (#2649) and (b) tracks the model the unit
 // advertises (llama.cpp's single-model leniency makes the request model id
@@ -157,8 +157,8 @@ func servedModelID(cfg config.VillaConfig) (id, base string) {
 	return modelIDPrefix + base, base
 }
 
-// Render produces the DETERMINISTIC crush.json bytes from config (D-06) plus the
-// non-blocking LSP warnings (D-10). It is pure: same (cfg, probes) → byte-
+// Render produces the DETERMINISTIC crush.json bytes from config plus the
+// non-blocking LSP warnings. It is pure: same (cfg, probes) → byte-
 // identical output (Pitfall 4). It never returns a blocking error for a missing
 // LSP server — a missing server is a WARN, the entry is omitted.
 func Render(cfg config.VillaConfig, probes []LSPProbe) ([]byte, []Warning, error) {
@@ -188,7 +188,7 @@ func Render(cfg config.VillaConfig, probes []LSPProbe) ([]byte, []Warning, error
 			DisableProviderAutoUpdate: true,          // D-04/D-07
 			DisableDefaultProviders:   true,          // Pitfall 2 — only the villa provider is usable
 			AutoLSP:                   false,         // Pitfall 5 — the lsp block is authoritative
-			DisabledTools:             disabledTools, // Phase-27 STRIDE — outbound tools off (T-27-21)
+			DisabledTools:             disabledTools, // Phase-27 STRIDE — outbound tools off
 		},
 		Providers: map[string]crushProvider{
 			providerKey: {
@@ -216,7 +216,7 @@ func Render(cfg config.VillaConfig, probes []LSPProbe) ([]byte, []Warning, error
 
 // renderLSP emits an lsp entry for each FOUND probe (a fixed-literal command, no
 // $() — Pitfall 1) and a WARN-with-remediation for each not-found probe, OMITTING
-// the entry (D-10 — typed-Unknown degradation, never a BLOCK). Returns a nil map
+// the entry (typed-Unknown degradation, never a BLOCK). Returns a nil map
 // when no server is found so the omitempty `lsp` key disappears (still
 // deterministic).
 func renderLSP(probes []LSPProbe) (map[string]crushLSPEntry, []Warning) {

@@ -24,8 +24,8 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/recommend"
 )
 
-// install.go wires the `villa install` lifecycle verb (CLI-01/07, ORCH-03,
-// PRIV-01): the single command that turns Phase-2's manual `podman run` into a
+// install.go wires the `villa install` lifecycle verb (07, ORCH-03,
+// the single command that turns Phase-2's manual `podman run` into a
 // managed, idempotent, boot-survivable bring-up driven from config.toml.
 //
 // runInstall mirrors runInference's return-code-not-Exit discipline (the cobra
@@ -37,7 +37,7 @@ import (
 // so install_test.go exercises the whole flow without a live GPU/podman/systemd/
 // SELinux/network host.
 //
-// Privileged host-prep (D-04/D-05) is OFFERED per-step with the exact command
+// Privileged host-prep is OFFERED per-step with the exact command
 // shown and run only on explicit y; declined / --json / non-interactive falls
 // back to printing the command and treats the gap as a BLOCK (overridable via the
 // global --force). villa never silently runs a privileged command.
@@ -58,19 +58,19 @@ import (
 // installOpts are the per-invocation flags for `villa install`. --force and --json
 // are read from the global persistent flags (force/jsonOut); --dry-run is local.
 type installOpts struct {
-	// dryRun prints the rendered changed units and writes nothing (ORCH SC#1).
+	// dryRun prints the rendered changed units and writes nothing (ORCH).
 	dryRun bool
 	// force overrides an un-consented BLOCK-tier preflight gap (auditable).
 	force bool
 	// json suppresses interactive consent (a --json run is non-interactive).
 	json bool
 	// noTUI opts out of the guided wizard to the flag-driven install path
-	// (D-01/D-08). Bare `villa install` on a TTY launches the wizard; --no-tui (or
+	// Bare `villa install` on a TTY launches the wizard; --no-tui (or
 	// --json, or a non-TTY stdin/stdout) forces today's flag path verbatim. There is
 	// NO --tui opt-in and NO `villa setup` subcommand — one progressively-enhanced verb.
 	noTUI bool
-	// codingAgent opts INTO the v1.4 coding-agent (Crush) install addon (INSTALL-03 /
-	// D-01): when set, runInstall overrides+persists cfg.AgentEnabled = true before the
+	// codingAgent opts INTO the v1.4 coding-agent (Crush) install addon (
+	// when set, runInstall overrides+persists cfg.AgentEnabled = true before the
 	// gate, then runs the agent pre-stage/install/render/readiness block. A bare
 	// `villa install` (flag unset) gates on the PERSISTED agent_enabled instead.
 	codingAgent bool
@@ -84,7 +84,7 @@ type installOpts struct {
 
 // installReadiness is the readiness-poll verdict (Task 2): PASS once the service
 // is active and /health returns 200, WARN when the poll could not confirm
-// readiness (timeout / typed-Unknown — never a confident FAIL on a 503, WR-07).
+// readiness (timeout / typed-Unknown — never a confident FAIL on a 503).
 type installReadiness struct {
 	status preflight.Status
 	detail string
@@ -96,7 +96,7 @@ type installDeps struct {
 	probe func() detect.HostProfile
 	// pick recommends a fitting model. It takes recommend.Overrides so a wizard
 	// model choice is re-validated through the SINGLE polymorphism point
-	// (recommend.Pick) rather than a forked catalog re-derivation (D-02): the flag
+	// (recommend.Pick) rather than a forked catalog re-derivation: the flag
 	// path passes recommend.Overrides{} (today's behavior, byte-for-byte), the wizard
 	// passes recommend.Overrides{Model: chosen}.
 	pick       func(detect.HostProfile, recommend.Overrides) recommend.Recommendation
@@ -127,7 +127,7 @@ type installDeps struct {
 	enableLinger func(user string) error
 	setsebool    func() error
 
-	// Dashboard-service seams (Plan 05-05 / D-03/D-04): the dashboard is a NATIVE
+	// Dashboard-service seams (Plan 05-05): the dashboard is a NATIVE
 	// systemd --user .service (the villa binary running `villa dashboard`), NOT a
 	// Quadlet .container — so it is rendered+written separately into userUnitDir
 	// (~/.config/systemd/user, NOT the Quadlet dir — Pitfall 5), then enabled (for
@@ -164,7 +164,7 @@ type installDeps struct {
 	consent     func(prompt string) bool
 	pollReady   func(ctx context.Context, endpoint string) installReadiness
 
-	// Memory-stack seams (Phase-19 / D-04/D-07, INFRA-02/PRIV-04). All gated on the
+	// Memory-stack seams (Phase-19 /, INFRA-02). All gated on the
 	// PERSISTED memory_enabled (loadedMemoryEnabled), skipped under --dry-run.
 	//
 	// loadedConfig returns the PERSISTED config.LoadVilla() (fail-soft to typed
@@ -173,7 +173,7 @@ type installDeps struct {
 	// (Model/Quant/Ctx/Backend) and the MemoryEnabled gate — so a user's persisted
 	// memory fields (qdrant_addr/port, embed_addr/port, embedding_model/dim) and the
 	// dashboard/chat fields are PRESERVED through saveConfig, never silently reset to
-	// seed defaults on every install (WR-02). LoadVilla self-heals zeroed dashboard/
+	// seed defaults on every install. LoadVilla self-heals zeroed dashboard/
 	// chat fields, so seeding from it keeps the gap-test:1b loopback-default guarantee
 	// while honoring any persisted customization.
 	loadedConfig func() config.VillaConfig
@@ -181,7 +181,7 @@ type installDeps struct {
 	// config.LoadVilla().MemoryEnabled (fail-soft to false on a load error). It is
 	// threaded into runInstall to set cfg.MemoryEnabled, REPLACING the always-false
 	// DefaultVillaConfig() seed as the memory gate source — so an opted-in user's memory
-	// stack is never silently skipped (T-19-16). This is the one seam the whole memory
+	// stack is never silently skipped. This is the one seam the whole memory
 	// path keys off; binding it to the seed's hard-coded false would be the silent-failure
 	// bug this plan exists to prevent.
 	loadedMemoryEnabled func() bool
@@ -189,30 +189,30 @@ type installDeps struct {
 	// (the ensureEmbedModel idempotency guard — a present file is never re-pulled).
 	embedModelPresent func(modelsDir string) bool
 	// ensureEmbedModel pre-stages the nomic embed GGUF into modelsDir via the verified
-	// download path (D-07), invoked only when memory is on, not dry-run, and absent.
+	// download path, invoked only when memory is on, not dry-run, and absent.
 	ensureEmbedModel func(modelsDir string) error
 	// memoryProofFn asserts the memory stack is healthy: an offline 768-dim
 	// /v1/embeddings vector AND a Qdrant writable round-trip. A FAIL refuses-with-
-	// remediation (exitBlocked), never a silent skip (D-09). Invoked only when memory
+	// remediation (exitBlocked), never a silent skip. Invoked only when memory
 	// is on and not dry-run.
 	memoryProofFn func(ctx context.Context, in memoryProofInput) memoryProof
 	// runMemoryChecks returns the opt-in memory-stack host-fitness gates
 	// (MEM-PRE-disk vector-index disk + MEM-PRE-headroom embedder headroom,
-	// CTRL-06/D-06) appended to the preflight checks when loadedMemoryEnabled
+	// CTRL-06) appended to the preflight checks when loadedMemoryEnabled
 	// reports true — so an unfit host is refused-with-remediation BEFORE the
 	// memory stack comes up. NIL-SAFE: when nil (test doubles), no memory checks
 	// are appended (mirrors the doctor optional-seam pattern).
 	runMemoryChecks func(detect.HostProfile) []preflight.CheckResult
-	// readRecallState reads recall-state.json fail-closed for the Phase-23 D-10
+	// readRecallState reads recall-state.json fail-closed for the Phase-23
 	// skew WARN surface (warnRecallEmbeddingSkew): absent ⇒ empty state ⇒ silent
 	// typed-Unknown; only a real I/O fault errors (also silent — read-only WARN,
-	// D-11). NIL-SAFE: when nil (test doubles), the WARN helper degrades silently
+	// NIL-SAFE: when nil (test doubles), the WARN helper degrades silently
 	// (mirrors the runMemoryChecks optional-seam pattern). Live wiring is the
 	// SHARED liveRecallStateLoad (the same reader `villa recall` uses) so the two
 	// guards can never drift onto different readers.
 	readRecallState func() (recall.State, error)
 
-	// Web-search (SearXNG) seams (v1.5 / Phase-29, SRCH-01). Gated on the PERSISTED
+	// Web-search (SearXNG) seams (v1.5 / Phase-29). Gated on the PERSISTED
 	// web_search_enabled (loadedWebSearchEnabled), skipped under --dry-run. The path is
 	// INDEPENDENT of inference/memory (SearXNG has no dependency on llama/qdrant — it is
 	// started additively after villa.network when gated on).
@@ -229,28 +229,28 @@ type installDeps struct {
 	writeSearxngSettings func(name, text string) error
 	// writeSearxngSecretEnv persists the 0600 SEARXNG_SECRET env file — the unit's
 	// EnvironmentFile= target (Plan 02's writer) — so the secret reaches the container via
-	// the 0600 file, never the 0644 unit (T-29-02). Invoked BEFORE the searxng start.
+	// the 0600 file, never the 0644 unit. Invoked BEFORE the searxng start.
 	writeSearxngSecretEnv func(name, text string) error
 	// searxngProofFn asserts the search service is ready via a REAL format=json query
-	// parsing results[] (never a health-200 — SC#2). A FAIL refuses-with-remediation
+	// parsing results[] (never a health-200). A FAIL refuses-with-remediation
 	// (exitBlocked), never a silent skip. Invoked only when web search is on and not dry-run.
 	searxngProofFn func(ctx context.Context, in searxngProofInput) searxngProof
 
 	// writeWebsafeSecretEnv persists the 0600 EXTERNAL_WEB_LOADER_API_KEY env file — the
 	// EnvironmentFile= target BOTH the villa-websafe AND the OWUI units reference
 	// (WebsafeSecretEnvFilePath, single source) — so the bearer reaches both containers via the
-	// 0600 file, never a 0644 unit (T-31-12). It is gated on the PERSISTED web_search_enabled
+	// 0600 file, never a 0644 unit. It is gated on the PERSISTED web_search_enabled
 	// and MUST be invoked BEFORE the OWUI start (which references it via EnvironmentFile= when
 	// web search is on) AND before the villa-websafe start. Mirrors writeSearxngSecretEnv.
 	writeWebsafeSecretEnv func(name, text string) error
 
-	// Coding-agent (Crush) addon seams (v1.4 / INSTALL-03, D-01/D-02/D-03/D-05). All
+	// Coding-agent (Crush) addon seams (v1.4). All
 	// gated on the PERSISTED agent_enabled (loadedAgentEnabled) unless --coding-agent
 	// overrides it, skipped under --dry-run.
 	//
 	// loadedAgentEnabled returns the AUTHORITATIVE gate value: the persisted
 	// config.LoadVilla().AgentEnabled (fail-soft to false). --coding-agent overrides it
-	// to true before the gate (D-01); a bare install gates on the persisted value.
+	// to true before the gate; a bare install gates on the persisted value.
 	loadedAgentEnabled func() bool
 	// agentCatalog loads the model catalog the coder-shard resolution reads (coderShardFor).
 	// Returns (catalog, false) on a load failure so the gate refuses-with-remediation
@@ -260,22 +260,22 @@ type installDeps struct {
 	// intact (size-gated; a present file is never re-pulled — the idempotency guard).
 	coderModelPresent func(modelsDir string, sh catalog.Shard) bool
 	// ensureCoderModel pre-stages the resolved coder shard into modelsDir via the verified
-	// download path (the single sanctioned outbound window, D-03), invoked only when the
+	// download path (the single sanctioned outbound window), invoked only when the
 	// agent is on, not dry-run, and the file is absent.
 	ensureCoderModel func(modelsDir string, sh catalog.Shard) error
 	// installAgentBinary stages the pinned Crush binary via the checksum-before-extract
-	// agent.Install seam (D-03). Returns the placed binary path.
+	// agent.Install seam. Returns the placed binary path.
 	installAgentBinary func(ctx context.Context) (string, error)
 	// renderCrushConfig composes agent.Render (the restrictive-tools crush.json) and writes
-	// it to the global crush config path (D-06). The render is the security control.
+	// it to the global crush config path. The render is the security control.
 	renderCrushConfig func(cfg config.VillaConfig) error
 	// agentProofFn asserts the agent is ready via a REAL tool-call round-trip (read→edit→
-	// result), PASS/FAIL only — a health-200 is never an input (D-05). A FAIL refuses-with-
+	// result), PASS/FAIL only — a health-200 is never an input. A FAIL refuses-with-
 	// remediation (exitBlocked). Invoked only when the agent is on and not dry-run.
 	agentProofFn func(ctx context.Context) agentProof
 	// runAgentChecks returns the opt-in coding-agent host-fitness gates (AGENT-PRE-disk
 	// staged-footprint disk BLOCK, AGENT-PRE-envelope post-coder fit BLOCK driven by
-	// rec.Coder, AGENT-PRE-cloud-cred env-credential WARN — INSTALL-04/D-09) appended to
+	// rec.Coder, AGENT-PRE-cloud-cred env-credential WARN) appended to
 	// the preflight checks when loadedAgentEnabled reports true — so an unfit host (no
 	// disk, no coder fit) is refused-with-remediation BEFORE the agent is staged. It takes
 	// rec (unlike runMemoryChecks(profile)) because the envelope gate reads rec.Coder and
@@ -285,15 +285,15 @@ type installDeps struct {
 
 	// stdoutIsTTY reports whether stdout is a real terminal — the stdout twin of
 	// interactive() (which checks stdin). huh renders to stdout/stderr, so BOTH must
-	// be a TTY for the styled wizard to make sense (D-01/D-08). The seam wraps the
+	// be a TTY for the styled wizard to make sense. The seam wraps the
 	// stdoutIsTTY() helper from tui_theme.go so tests can inject a fake TTY result.
 	stdoutIsTTY func() bool
 	// wizard runs the guided huh 5-screen install wizard and RETURNS the collected
 	// choices (a model override + per-item privileged consent) — it is a PURE
-	// COLLECTOR (D-01/D-04): it presents the already-computed profile/rec/checks/
+	// COLLECTOR: it presents the already-computed profile/rec/checks/
 	// backend and NEVER executes a host fix. The single gateInstall in runInstall
 	// consumes the collected consent. tests inject a fake returning a canned
-	// wizardResult. NO internal/* core imports huh (D-11); the live impl is liveWizard
+	// wizardResult. NO internal/* core imports huh; the live impl is liveWizard
 	// in install_wizard.go.
 	wizard func(ctx context.Context, in wizardInput) (wizardResult, error)
 }
@@ -305,7 +305,7 @@ const installServiceName = "villa-llama.service"
 // openWebUIServiceName is the systemd service the Open WebUI .container generates
 // (Quadlet maps villa-openwebui.container → villa-openwebui.service, the same
 // .container→.service rule serviceUnits encodes). It is started AFTER inference
-// (D-05) so the chat UI comes up against a live backend.
+// so the chat UI comes up against a live backend.
 const openWebUIServiceName = "villa-openwebui.service"
 
 // websafeServiceName is the systemd service the villa-websafe .container generates (Quadlet
@@ -375,7 +375,7 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 	fmt.Fprintf(out, "selected model %s (ctx %d, %s)\n", rec.Model, rec.ContextLen, gib(rec.WeightBytes))
 
 	// (3) Preflight gate with the concrete model's resource requirement. The
-	// embedding reservation is included (Research Open Question 2 resolved YES —
+	// embedding reservation is included (Research Open Question 2 resolved YES
 	// more honest): the value flows from the pick so memory.Footprint stays the
 	// single source; it is zero when memory is off, leaving the off-path gate
 	// unchanged.
@@ -385,7 +385,7 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 		DataDir:      d.modelsDir(),
 	}
 	checks := d.runChecks(profile, req)
-	// (3a) Opt-in memory-stack gates (CTRL-06/D-06): vector-index disk + embedder
+	// (3a) Opt-in memory-stack gates (CTRL-06): vector-index disk + embedder
 	// headroom are appended ONLY when the persisted memory_enabled is on, so the
 	// memory-off install gate is byte-identical. They flow through the single
 	// gateInstall below — an opted-in install on an unfit host refuses-with-
@@ -393,7 +393,7 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 	if d.loadedMemoryEnabled() && d.runMemoryChecks != nil {
 		checks = append(checks, d.runMemoryChecks(profile)...)
 	}
-	// (3a') Opt-in coding-agent gates (INSTALL-04/D-09): the staged-footprint disk BLOCK,
+	// (3a') Opt-in coding-agent gates: the staged-footprint disk BLOCK,
 	// the post-coder envelope BLOCK (driven by rec.Coder, never re-derived), and the cloud-
 	// credential WARN are appended ONLY when the addon is enabled (the persisted agent_enabled
 	// OR --coding-agent override), so the agent-off install gate is byte-identical. They flow
@@ -404,16 +404,16 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 		checks = append(checks, d.runAgentChecks(profile, rec)...)
 	}
 
-	// (3b) Guided wizard (D-01/D-08) — the PINNED composition. probe/pick/runChecks
+	// (3b) Guided wizard — the PINNED composition. probe/pick/runChecks
 	// (steps 1-3) have already run exactly once; the wizard RECEIVES their results,
 	// COLLECTS a model override + per-item privileged consent, and RETURNS here. It
 	// NEVER runs runGapFix/resolveGap/offerNonBlockingGap itself — the single
 	// gateInstall below consumes the threaded consent, so both paths converge on one
-	// gate execution (SC#1/SC#2; privileged fix at most once; D-04/D-06 preserved).
+	// gate execution (privileged fix at most once; preserved).
 	// nil consentDecisions ⇒ flag path: gateInstall prompts via d.consent as today.
-	// --dry-run never enters the wizard (phase-22 WR-05): the wizard collects
+	// --dry-run never enters the wizard (phase-22): the wizard collects
 	// privileged consent the gate would then EXECUTE, and a dry run has zero side
-	// effects (ORCH SC#1) — there is nothing for consent to apply to.
+	// effects (ORCH) — there is nothing for consent to apply to.
 	var consentDecisions map[string]bool
 	useWizard := d.interactive() && !opts.json && !opts.noTUI && d.stdoutIsTTY() && !opts.dryRun
 	if useWizard {
@@ -467,7 +467,7 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 	// Seed from the PERSISTED config (not DefaultVillaConfig()) so a user's customized
 	// memory fields (qdrant_addr/port, embed_addr/port, embedding_model/dim) and the
 	// dashboard/chat fields survive every install rather than being reset to seed
-	// defaults (WR-02). loadedConfig() fails soft to typed defaults on a load error and
+	// defaults. loadedConfig fails soft to typed defaults on a load error and
 	// LoadVilla self-heals zeroed dashboard/chat fields, so this still guarantees the
 	// loopback dashboard/chat defaults (8888/3000/127.0.0.1, gap test:1b) for a host
 	// with no prior config. Only the recommendation-derived fields are overridden below.
@@ -476,7 +476,7 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 	cfg.Quant = rec.Quant
 	cfg.Ctx = rec.ContextLen
 	// Config is the single source of truth for the backend opt-in. recommend.Pick
-	// always returns the DEFAULT (rocm 7.2.4) backend (REC-04), and recommend.Overrides
+	// always returns the DEFAULT (rocm 7.2.4) backend, and recommend.Overrides
 	// carries no Backend field — so a bare `cfg.Backend = rec.Backend` would silently
 	// revert a deliberately-chosen non-default backend on every re-install (including
 	// `villa install --coding-agent`), re-rendering the villa-llama unit to the default
@@ -489,7 +489,7 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 	if !persistedBackendChosen(cfg.Backend) {
 		cfg.Backend = rec.Backend
 	}
-	// AUTHORITATIVE memory gate (Phase-19 / T-19-16): the memory path keys off the
+	// AUTHORITATIVE memory gate (Phase-19): the memory path keys off the
 	// PERSISTED config.LoadVilla().MemoryEnabled (via the loadedMemoryEnabled seam). It is
 	// the single gate value the pre-stage + start + proof steps read. (Seeding cfg from the
 	// persisted config above already carries the persisted MemoryEnabled; this is an
@@ -511,16 +511,16 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 	if opts.webSearch {
 		cfg.WebSearchEnabled = true
 	}
-	// AUTHORITATIVE coding-agent gate (v1.4 / D-01): the agent path keys off the PERSISTED
+	// AUTHORITATIVE coding-agent gate (v1.4): the agent path keys off the PERSISTED
 	// config.LoadVilla().AgentEnabled (via the loadedAgentEnabled seam). --coding-agent
 	// OVERRIDES it to true and persists it below (saveConfig) so a subsequent bare
 	// `villa install` gates on the now-persisted value. Without the flag, the persisted
-	// value stands — an agent-off install stays byte-identical (D-01).
+	// value stands — an agent-off install stays byte-identical.
 	cfg.AgentEnabled = d.loadedAgentEnabled()
 	if opts.codingAgent {
 		cfg.AgentEnabled = true
-		// CR-01: the --coding-agent addon ENTERS coding-mode at install and SERVES the coder
-		// it stages + gates on (D-02/D-04 single source). Single-source the coder render
+		// the --coding-agent addon ENTERS coding-mode at install and SERVES the coder
+		// it stages + gates on (single source). Single-source the coder render
 		// inputs from the SAME rec.Coder the disk/envelope preflight gates and the staged
 		// shard derive from, so the unit, crush.json, and the readiness proof all agree on the
 		// coder model. Guard against the shared-residency / no-coder-fit case: only enter
@@ -551,7 +551,7 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 	// descriptor, REUSING the proven Phase-25 coding-mode helpers (codingServedTarget /
 	// codingModelFile / codingDescriptor) — the same render path `villa coding-mode enter`
 	// drives, already frozen by villa-llama-coding.container.golden. The catalog→inference
-	// translation stays in the live wiring (the pure renderer never imports internal/catalog, D-05).
+	// translation stays in the live wiring (the pure renderer never imports internal/catalog).
 	renderIn := orchestrate.RenderInput{
 		Backend:       backend,
 		Cfg:           cfg,
@@ -587,7 +587,7 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 	}
 
 	// (5) --dry-run: print the changed unit text and stop — write nothing, pull
-	// nothing, persist nothing (ORCH SC#1: a dry run has zero side effects).
+	// nothing, persist nothing (ORCH: a dry run has zero side effects).
 	if opts.dryRun {
 		if len(plan.Changed) == 0 {
 			fmt.Fprintf(out, "dry-run: no changes — units already match config\n")
@@ -615,11 +615,11 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 	}
 
 	// (6b) Pre-stage the embedding GGUF into villa-models BEFORE starting villa-embed
-	// (Phase-19 / D-07, PRIV-04). Gated on the PERSISTED memory_enabled (cfg.MemoryEnabled,
+	// (Phase-19). Gated on the PERSISTED memory_enabled (cfg.MemoryEnabled,
 	// resolved via loadedMemoryEnabled above), skipped under --dry-run, and idempotent: a
 	// present file is never re-pulled. This is the one-time install-time controlled pull
 	// (the single sanctioned outbound window) so the embeddings runtime is ZERO-download.
-	// download.PullModel verifies size + SHA256 before the atomic rename (T-19-06), so a
+	// download.PullModel verifies size + SHA256 before the atomic rename, so a
 	// half-written/unverified GGUF is never trusted; a pull failure refuses-with-remediation.
 	if cfg.MemoryEnabled && !opts.dryRun && !d.embedModelPresent(d.modelsDir()) {
 		fmt.Fprintf(out, "embedding model %s not present — downloading...\n", nomicEmbedShard.Filename)
@@ -631,29 +631,29 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 	}
 
 	// (6c) Pre-stage the coding-agent (Crush) addon BEFORE persisting config + starting
-	// the stack (v1.4 / INSTALL-03, D-01/D-02/D-03). Gated on cfg.AgentEnabled (the
+	// the stack (v1.4). Gated on cfg.AgentEnabled (the
 	// persisted gate, or --coding-agent override) and skipped under --dry-run (that path
 	// returned far above). The steps, in order: surface the FSL-1.1-MIT notice; resolve the
 	// coder GGUF shard from the recommend-picked catalog entry (refuse-with-remediation when
-	// no coder fits — D-02); presence-skip else pre-stage it via the single sanctioned
-	// outbound window (D-03); stage the pinned, checksum-verified Crush binary (D-03); render
-	// the locked-down crush.json (the restrictive-tools security control, T-27-21). The
+	// no coder fits); presence-skip else pre-stage it via the single sanctioned
+	// outbound window; stage the pinned, checksum-verified Crush binary; render
+	// the locked-down crush.json (the restrictive-tools security control). The
 	// readiness proof (a real tool-call round-trip) runs AFTER the stack is up (step 10c).
 	var coderShard catalog.Shard
 	if cfg.AgentEnabled && !opts.dryRun {
 		// (a) FSL-1.1-MIT consent notice — informational, printed BEFORE staging the binary.
 		fmt.Fprintf(out, "%s\n", agentLicenseNotice())
 
-		// (b) Resolve the coder GGUF from the picked catalog entry (D-02/D-04 single source):
+		// (b) Resolve the coder GGUF from the picked catalog entry (single source):
 		// the staged filename and the served -m path derive from ONE entry, never a literal.
 		cat, ok := d.agentCatalog()
 		if !ok {
 			fmt.Fprintf(errOut, "install: cannot load the model catalog to resolve the coder model — re-run `villa install --coding-agent` once the catalog is readable.\n")
 			return exitBlocked
 		}
-		// WR-03: distinguish a SHARED-residency coder fit from a genuine no-fit. When the
+		// distinguish a SHARED-residency coder fit from a genuine no-fit. When the
 		// recommender derived residency "shared" (rec.Coder.Residency == residencyShared, i.e. a
-		// coder DOES fit but only by riding the chat endpoint, not standalone), the v1.4 addon —
+		// coder DOES fit but only by riding the chat endpoint, not standalone), the v1.4 addon
 		// which serves a dedicated SWAP-residency coder — cannot stage it. That is a deliberate
 		// v1.4 swap-only limitation, NOT a memory shortfall, so emit a refusal that says so
 		// rather than the "free memory / use a larger host" copy (which misdirects an operator
@@ -671,7 +671,7 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 		coderShard = sh
 
 		// (c) Pre-stage the coder GGUF (idempotent, size-gated). The single sanctioned
-		// outbound window for the coder weight; download.PullModel verifies before use (T-27-01).
+		// outbound window for the coder weight; download.PullModel verifies before use.
 		if !d.coderModelPresent(d.modelsDir(), coderShard) {
 			fmt.Fprintf(out, "coder model %s not present — downloading...\n", coderShard.Filename)
 			if err := d.ensureCoderModel(d.modelsDir(), coderShard); err != nil {
@@ -681,7 +681,7 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 			fmt.Fprintf(out, "coder model %s downloaded and verified\n", coderShard.Filename)
 		}
 
-		// (d) Stage the pinned Crush binary (checksum-before-extract, D-03 — never re-implemented).
+		// (d) Stage the pinned Crush binary (checksum-before-extract, — never re-implemented).
 		binPath, err := d.installAgentBinary(cmd.Context())
 		if err != nil {
 			fmt.Fprintf(errOut, "install: stage coding-agent binary failed: %v\n", err)
@@ -698,8 +698,8 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 	}
 
 	// (7) Persist the chosen selection to config.toml BEFORE any unit work (F-2 /
-	// D-09 spirit): config is the single source of truth, so install-written units
-	// must derive from the same persisted config the lifecycle verbs render from —
+	// spirit): config is the single source of truth, so install-written units
+	// must derive from the same persisted config the lifecycle verbs render from
 	// otherwise post-install `villa up`/`restart` resolve an empty model and FAIL,
 	// and a follow-up reconcile is never a true no-op.
 	if err := d.saveConfig(cfg); err != nil {
@@ -751,13 +751,13 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 	fmt.Fprintf(out, "started %s\n", installServiceName)
 
 	// (9a) Generate-and-persist the EXTERNAL_WEB_LOADER_API_KEY bearer ONCE and write the 0600
-	// websafe.env BEFORE the OWUI start (v1.5 / Phase-31 GUARD-01 / GROUND-01), gated on the
+	// websafe.env BEFORE the OWUI start (v1.5 / Phase-31), gated on the
 	// PERSISTED web_search_enabled. This MUST precede the OWUI start: when web search is on the
 	// OWUI unit references the SAME websafe.env via EnvironmentFile= (WebsafeSecretEnvFilePath),
 	// and `systemctl start` fails if that EnvironmentFile target is absent. The villa-websafe
 	// service itself is started further below alongside searxng (its planHasUnit gate). The
 	// secret VALUE only ever lands in this 0600 file — never the 0644 unit, a log line, or
-	// stdout. Mirrors the searxng secret-env path (generate-once + 0600 EnvironmentFile, T-31-12).
+	// stdout. Mirrors the searxng secret-env path (generate-once + 0600 EnvironmentFile).
 	if cfg.WebSearchEnabled {
 		// Generate-and-persist the bearer ONCE on first opt-in BEFORE rendering the env file so
 		// the EnvironmentFile target exists and is non-empty (a re-install reuses the same bearer
@@ -776,7 +776,7 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 		}
 		// Write the 0600 bearer env file — the EnvironmentFile= target BOTH the OWUI unit (started
 		// next) and the villa-websafe unit reference. The secret VALUE only ever lands in this
-		// 0600 file (T-31-12).
+		// 0600 file.
 		envName, envText := orchestrate.RenderWebsafeSecretEnv(cfg.WebLoaderSecret)
 		if werr := d.writeWebsafeSecretEnv(envName, envText); werr != nil {
 			fmt.Fprintf(errOut, "install: write websafe secret env failed: %v\n", werr)
@@ -784,7 +784,7 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 		}
 	}
 
-	// Start Open WebUI AFTER inference (D-05): the chat UI must come up against a
+	// Start Open WebUI AFTER inference: the chat UI must come up against a
 	// live backend, and the recommended model is already ensured present above
 	// (step 6, MODEL-04) so the model picker is populated on first visit.
 	if err := d.start(openWebUIServiceName); err != nil {
@@ -795,12 +795,12 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 
 	// (9b) Start the memory stack AFTER inference + Open WebUI, gated on the PERSISTED
 	// memory_enabled (Phase-19 / INFRA-02). Qdrant FIRST so the embedder/OWUI peers can
-	// reach the vector store, then villa-embed (its GGUF is already pre-staged above —
+	// reach the vector store, then villa-embed (its GGUF is already pre-staged above
 	// Pitfall 4). Each start failure refuses-with-remediation (exitBlocked), mirroring the
 	// inference/OWUI start handling. Skipped under --dry-run (the dry-run path returns far above).
 	//
 	// The start is gated on the memory .container units being PRESENT in the written plan
-	// (plan.Changed ∪ plan.Unchanged), not solely on cfg.MemoryEnabled (WR-04). With memory
+	// (plan.Changed ∪ plan.Unchanged), not solely on cfg.MemoryEnabled. With memory
 	// on, Render appends those units and reconcile diffs them in, so today they are always
 	// present — but if a future change ever lets MemoryEnabled be true while the units are
 	// filtered out of the plan (a swallowed partial render, a reconcile that drops them), we
@@ -827,15 +827,15 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 	}
 
 	// (9c) Start the SearXNG web-search service, gated on the PERSISTED web_search_enabled
-	// (v1.5 / Phase-29 SRCH-01). INDEPENDENT of inference/memory (SearXNG has no dependency
+	// (v1.5 / Phase-29). INDEPENDENT of inference/memory (SearXNG has no dependency
 	// on llama/qdrant — it only needs villa.network, already attached). Each step
 	// refuses-with-remediation (exitBlocked). Skipped under --dry-run (that path returned
 	// far above).
 	//
 	// Order within the block (BEFORE the start, so the container has its config + secret on
 	// first boot — Pitfall 3):
-	//   1. Gate the START on the rendered unit being PRESENT in the written plan (WR-04 /
-	//      T-29-13): never `systemctl start villa-searxng.service` for a unit systemd has
+	// 1. Gate the START on the rendered unit being PRESENT in the written plan (
+	// never `systemctl start villa-searxng.service` for a unit systemd has
 	//      never seen — fail closed with an INTERNAL-ERROR remediation, not a raw "Unit not
 	//      found", if web search is on but the unit is absent from the plan (a render/
 	//      reconcile bug). With web search on, Render appends the unit, so today it is always
@@ -847,7 +847,7 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 	//   3. Write BOTH config artifacts the unit needs: the rendered settings.yml (mounted
 	//      read-only at /etc/searxng) and the 0600 secret env file (the EnvironmentFile=
 	//      target — the secret reaches the container via this 0600 file, NEVER an inline
-	//      literal in the 0644 unit — BLOCKER 1 / T-29-02).
+	// literal in the 0644 unit — BLOCKER 1).
 	if cfg.WebSearchEnabled {
 		if !planHasUnit(plan, orchestrate.SearXNGContainerUnitName()) {
 			fmt.Fprintf(errOut, "install: INTERNAL ERROR: web search is enabled but the searxng unit (%s) is absent from the rendered plan — refusing to start a service systemd has never seen. This is a render/reconcile bug; please re-run `villa install`, and if it persists, file an issue.\n",
@@ -869,7 +869,7 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 			}
 		}
 		// (a) settings.yml (mounted ro at /etc/searxng) — the file that enables the json
-		// format + the bounded engine allowlist (SRCH-04). The render is the single source
+		// format + the bounded engine allowlist. The render is the single source
 		// of truth (RenderSearxngSettings); the writer persists exactly those bytes.
 		settingsName, settingsText, rerr := orchestrate.RenderSearxngSettings(cfg)
 		if rerr != nil {
@@ -880,7 +880,7 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 			fmt.Fprintf(errOut, "install: write searxng settings failed: %v\n", werr)
 			return exitBlocked
 		}
-		// (b) the 0600 secret env file — the EnvironmentFile= target (T-29-02). The secret
+		// (b) the 0600 secret env file — the EnvironmentFile= target. The secret
 		// VALUE only ever lands in this 0600 file, never the 0644 unit.
 		envName, envText := orchestrate.RenderSearxngSecretEnv(cfg.SearxngSecret)
 		if werr := d.writeSearxngSecretEnv(envName, envText); werr != nil {
@@ -895,7 +895,7 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 
 		// villa-websafe (grounded-fetch loader, Phase-31): its 0600 websafe.env bearer was already
 		// written above (step 9a, BEFORE the OWUI start that also references it). Gate the START on
-		// the rendered unit being PRESENT in the written plan (WR-04 backstop): never `systemctl
+		// the rendered unit being PRESENT in the written plan (backstop): never `systemctl
 		// start villa-websafe.service` for a unit systemd has never seen — fail closed with an
 		// INTERNAL-ERROR remediation, not a raw "Unit not found". With web search on, Render
 		// appends the unit, so today it is always present; the gate is the fail-closed backstop.
@@ -915,14 +915,14 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 	ready := d.pollReady(cmd.Context(), d.endpoint())
 	printPostInstall(out, d.endpoint(), ready)
 
-	// (10b) Memory-stack readiness proof (Phase-19 / D-09, SC#2/SC#3): an OFFLINE
+	// (10b) Memory-stack readiness proof (Phase-19): an OFFLINE
 	// 768-dim /v1/embeddings vector AND a Qdrant writable round-trip. Gated on the
 	// PERSISTED memory_enabled (cfg.MemoryEnabled); skipped under --dry-run (that path
 	// returned far above). A FAIL refuses-with-remediation (exitBlocked) — never a
 	// silent skip / false-green (honesty-by-construction). A PASS prints a ready line
 	// and folds into the existing PASS/WARN verdict.
 	if cfg.MemoryEnabled {
-		// (10b-pre) Phase-23 D-10 skew WARN (CTRL-05, read-only, D-11): if the
+		// (10b-pre) Phase-23 skew WARN (CTRL-05, read-only): if the
 		// recall-state stamp records an embedding identity that confidently
 		// diverges from the configured one, warn-with-remediation BEFORE the proof
 		// — the operator learns retrieval is corrupt even if the proof then fails.
@@ -941,20 +941,20 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 			fmt.Fprintf(errOut, "install: memory stack not ready: %s\n", proof.detail)
 			return exitBlocked
 		}
-		// Print the proof's own detail (IN-02) rather than re-typing the "768-dim …"
+		// Print the proof's own detail rather than re-typing the "768-dim …"
 		// figure as a literal — the dimension is single-sourced in the verdict
 		// (evalMemoryProof, from cfg.EmbeddingDim), so a dim change can't leave this stale.
 		fmt.Fprintf(out, "memory stack ready: %s\n", proof.detail)
 	}
 
-	// (10b2) Web-search readiness proof (v1.5 / Phase-29 SRCH-01, SC#2): a REAL format=json
+	// (10b2) Web-search readiness proof (v1.5 / Phase-29): a REAL format=json
 	// query parsing results[], NOT a health-200 (the project's "offload-asserting, never
 	// liveness" principle). Gated on the PERSISTED web_search_enabled (cfg.WebSearchEnabled);
 	// skipped under --dry-run (that path returned far above). A FAIL refuses-with-remediation
 	// (exitBlocked) — never a silent skip / false-green (honesty-by-construction). A PASS
 	// prints a ready line and folds into the existing PASS/WARN verdict. The proof probes the
 	// SAME config.SearxngAddr/SearxngPort the rendered unit's container-DNS identity derives from
-	// (WR-01), so it can never probe a different target than what runs.
+	// so it can never probe a different target than what runs.
 	if cfg.WebSearchEnabled {
 		proof := d.searxngProofFn(cmd.Context(), searxngProofInput{
 			searxngAddr: config.SearxngAddr,
@@ -967,7 +967,7 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 		fmt.Fprintf(out, "search service ready: %s\n", proof.detail)
 	}
 
-	// (10c) Coding-agent readiness proof (v1.4 / D-05, T-27-05): a REAL `crush run`
+	// (10c) Coding-agent readiness proof (v1.4): a REAL `crush run`
 	// tool-call round-trip (plant a file → ask the agent to edit it → assert the edit),
 	// NOT a health-200. Gated on cfg.AgentEnabled; skipped under --dry-run (that path
 	// returned far above). A FAIL refuses-with-remediation (exitBlocked) — never a silent
@@ -992,7 +992,7 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 // with the recommendation. True for any ROCm-family name (the default family) and for
 // the explicit "vulkan" opt-out; false for the empty string (never configured) and for
 // any unknown/typo'd value, both of which fall through to the recommendation and the
-// fail-closed inference.BackendFor at render time. It compares NAME strings only —
+// fail-closed inference.BackendFor at render time. It compares NAME strings only
 // never an image/device literal — so it stays clear of the seam grep gate.
 func persistedBackendChosen(name string) bool {
 	if name == "" {
@@ -1017,7 +1017,7 @@ func agentEnabledForGate(opts installOpts, d *installDeps) bool {
 // planHasUnit reports whether a unit with the given name is present in the reconciled
 // plan — in either Changed (must (re)write) or Unchanged (already on disk). The install
 // flow uses it to gate the memory-service starts on the memory .container units actually
-// being part of the written plan (WR-04), so a memory-on install never `systemctl start`s
+// being part of the written plan, so a memory-on install never `systemctl start`s
 // a unit systemd has never seen.
 func planHasUnit(plan orchestrate.Plan, name string) bool {
 	for _, u := range plan.Changed {
@@ -1048,7 +1048,7 @@ func planHasUnit(plan orchestrate.Plan, name string) bool {
 // no-op" guarantee (no daemon-reload, no restart, exit code unperturbed).
 //
 // The running villa binary path is resolved fail-closed via resolveBinaryPath (no
-// ~/.local/bin/villa fallback, WR-03) on this path too: an unresolvable binary fails the
+// ~/.local/bin/villa fallback) on this path too: an unresolvable binary fails the
 // install closed rather than writing a unit that points at an attacker-plantable fixed path.
 func reconcileDashboardUnit(out, errOut io.Writer, d *installDeps) int {
 	// Resolve the user-unit dir (NOT the Quadlet dir — Pitfall 5).
@@ -1060,7 +1060,7 @@ func reconcileDashboardUnit(out, errOut io.Writer, d *installDeps) int {
 	// Resolve the running villa binary's absolute, symlink-collapsed path for ExecStart
 	// (UAT Test 5 fix). A resolution failure is fatal — we do NOT fall back to the old
 	// fixed ~/.local/bin/villa, which is the exact path that produced 203/EXEC at boot
-	// when the install flow never deployed the binary (WR-03, fail-closed).
+	// when the install flow never deployed the binary (fail-closed).
 	binPath, err := d.resolveBinaryPath()
 	if err != nil {
 		fmt.Fprintf(errOut, "install: cannot resolve the villa binary path for the dashboard unit: %v\n", err)
@@ -1115,11 +1115,11 @@ func reconcileDashboardUnit(out, errOut io.Writer, d *installDeps) int {
 
 // gateInstall applies the preflight verdict to the install: WARN checks are
 // printed; BLOCK gaps (FAIL or a WARN-downgraded BLOCK-tier with remediation) are
-// OFFERED for consented host-prep (D-04). It returns (exitCode, proceed). proceed
+// OFFERED for consented host-prep. It returns (exitCode, proceed). proceed
 // is false when a BLOCK gap is neither consented nor --force'd.
 //
 // consents threads a pre-collected decision map (gap-id → y/n) from the wizard
-// path (D-04): a recorded decision is honored WITHOUT re-prompting stdin (huh
+// path: a recorded decision is honored WITHOUT re-prompting stdin (huh
 // already consumed it); an unrecorded id (or a nil map, the flag path) falls
 // through to today's d.consent prompt byte-for-byte. gateInstall runs EXACTLY ONCE
 // per install, so a privileged fix runs AT MOST ONCE regardless of path.
@@ -1133,10 +1133,10 @@ func gateInstall(out, errOut io.Writer, checks []preflight.CheckResult, opts ins
 			switch {
 			case safeAutoFix(c.ID):
 				// A non-privileged safe fix auto-runs with a visible notice and NO consent
-				// (D-04/D-05) — but only when interactive, not --json, and not --dry-run
-				// (a dry run has zero side effects, WR-05). It never consumes a consents
+				// — but only when interactive, not --json, and not --dry-run
+				// (a dry run has zero side effects). It never consumes a consents
 				// entry. With no current safe fix (safeAutoFix is false for PRE-03/PRE-05)
-				// this branch is a behavior no-op today; it is the forward-looking D-05
+				// this branch is a behavior no-op today; it is the forward-looking
 				// classifier.
 				if opts.json || opts.dryRun || !d.interactive() {
 					fmt.Fprintf(out, "warning: [%s] %s — %s\n", c.ID, c.Detail, c.Remediation)
@@ -1153,10 +1153,10 @@ func gateInstall(out, errOut io.Writer, checks []preflight.CheckResult, opts ins
 				// install must resolve via consent — not a clean pass.
 				unmet = append(unmet, c)
 			case hasAutomatedFix(c.ID):
-				// A WARN-tier gap with an automated privileged fix (linger off, D-04):
+				// A WARN-tier gap with an automated privileged fix (linger off):
 				// OFFER the consented fix, but never block if declined — it is boot-
 				// survival, not an immediate crash. Route this NON-blocking offer to
-				// stdout (WR-07) so scripts parsing stderr do not misread a soft,
+				// stdout so scripts parsing stderr do not misread a soft,
 				// optional host-prep offer as an error. The BLOCK-gap path below keeps
 				// its stderr wording.
 				offerNonBlockingGap(out, c, opts, consents, d)
@@ -1208,7 +1208,7 @@ func resolveGap(out, errOut io.Writer, c preflight.CheckResult, opts installOpts
 	cmdStr := remediationCommand(c, d.username())
 	fmt.Fprintf(errOut, "\nhost-prep needed: [%s] %s\n  command: %s\n", c.ID, c.Detail, cmdStr)
 
-	// --dry-run NEVER mutates the host (phase-22 WR-05 / ORCH SC#1): treat it
+	// --dry-run NEVER mutates the host (phase-22 / ORCH): treat it
 	// exactly like the non-interactive path — print the command, never prompt,
 	// never run the privileged seam. Checked FIRST so even a (stale) threaded
 	// consent can never execute host-prep under a flag sold as side-effect-free.
@@ -1218,7 +1218,7 @@ func resolveGap(out, errOut io.Writer, c preflight.CheckResult, opts installOpts
 	}
 
 	// Wizard path: a pre-collected decision (huh already consumed stdin) is honored
-	// WITHOUT re-prompting (D-04). A recorded `true` runs the same fixed-arg seam as
+	// WITHOUT re-prompting. A recorded `true` runs the same fixed-arg seam as
 	// the consented stdin path; a recorded `false` is a decline (same return/messaging).
 	if decision, recorded := consents[c.ID]; consents != nil && recorded {
 		if !decision {
@@ -1238,7 +1238,7 @@ func resolveGap(out, errOut io.Writer, c preflight.CheckResult, opts installOpts
 		return true
 	}
 
-	// Non-interactive / --json / no TTY → never prompt; print + block (D-04/D-05).
+	// Non-interactive / --json / no TTY → never prompt; print + block.
 	if opts.json || !d.interactive() {
 		fmt.Fprintf(errOut, "  (non-interactive — run the command above, then re-run `villa install`)\n")
 		return false
@@ -1249,7 +1249,7 @@ func resolveGap(out, errOut io.Writer, c preflight.CheckResult, opts installOpts
 		return false
 	}
 
-	// Consented → run the matching fixed-arg seam (never a shell, T-03-08).
+	// Consented → run the matching fixed-arg seam (never a shell).
 	if err := runGapFix(c, d); err != nil {
 		fmt.Fprintf(errOut, "  host-prep failed: %v — run the command manually, then re-run `villa install`\n", err)
 		return false
@@ -1259,9 +1259,9 @@ func resolveGap(out, errOut io.Writer, c preflight.CheckResult, opts installOpts
 }
 
 // offerNonBlockingGap handles a WARN-tier gap with an automated privileged fix
-// (e.g. PRE-03 linger): it OFFERS the consented fix but never blocks if declined —
+// (e.g. PRE-03 linger): it OFFERS the consented fix but never blocks if declined
 // this is boot-survival, not an immediate crash. Unlike resolveGap (the BLOCK path,
-// which writes to stderr), every message here goes to stdout (WR-07) so a soft,
+// which writes to stderr), every message here goes to stdout so a soft,
 // optional offer is never misread as an error by scripts parsing stderr. It returns
 // whether the fix was consented-and-applied (informational; the caller never blocks
 // on the result).
@@ -1269,14 +1269,14 @@ func offerNonBlockingGap(out io.Writer, c preflight.CheckResult, opts installOpt
 	cmdStr := remediationCommand(c, d.username())
 	fmt.Fprintf(out, "\noptional host-prep (boot survival): [%s] %s\n  command: %s\n", c.ID, c.Detail, cmdStr)
 
-	// --dry-run NEVER mutates the host (phase-22 WR-05 / ORCH SC#1): print the
+	// --dry-run NEVER mutates the host (phase-22 / ORCH): print the
 	// command, never prompt, never run the privileged seam (mirrors resolveGap).
 	if opts.dryRun {
 		fmt.Fprintf(out, "  (dry-run — optional; run the command above to enable boot survival)\n")
 		return false
 	}
 
-	// Wizard path: honor a pre-collected decision without re-prompting (D-04). A
+	// Wizard path: honor a pre-collected decision without re-prompting. A
 	// recorded `true` runs the same fixed-arg seam; a recorded `false` is a skip.
 	if decision, recorded := consents[c.ID]; consents != nil && recorded {
 		if !decision {
@@ -1302,7 +1302,7 @@ func offerNonBlockingGap(out io.Writer, c preflight.CheckResult, opts installOpt
 		return false
 	}
 
-	// Consented → run the matching fixed-arg seam (never a shell, T-03-08).
+	// Consented → run the matching fixed-arg seam (never a shell).
 	if err := runGapFix(c, d); err != nil {
 		fmt.Fprintf(out, "  host-prep failed: %v — run the command manually if you want boot survival; install continues.\n", err)
 		return false
@@ -1326,7 +1326,7 @@ func runGapFix(c preflight.CheckResult, d *installDeps) error {
 }
 
 // hasAutomatedFix reports whether a check ID has a consented privileged seam
-// install can offer to run (D-04). Only these are offered; everything else is a
+// install can offer to run. Only these are offered; everything else is a
 // printed remediation hint.
 func hasAutomatedFix(id string) bool {
 	switch id {
@@ -1338,9 +1338,9 @@ func hasAutomatedFix(id string) bool {
 }
 
 // safeAutoFix reports whether a check ID has a NON-privileged automated fix that
-// may auto-run with a visible notice and NO consent (D-05). It returns false for
+// may auto-run with a visible notice and NO consent. It returns false for
 // both current fixes — [ASSUMED] PRE-05 (setsebool -P) and PRE-03 (loginctl
-// enable-linger) are PRIVILEGED, so they stay consent-gated (D-04: villa never
+// enable-linger) are PRIVILEGED, so they stay consent-gated (villa never
 // silently runs a privileged command; enable-linger stays privileged per the
 // RESEARCH "Open Questions (RESOLVED)" interpretation 1). This is a forward-looking
 // classifier — with no current safe fix it is a behavior no-op on the present check
@@ -1397,22 +1397,22 @@ func gibUsableEnvelope(b detect.Bytes) string {
 	return strconv.FormatFloat(g, 'g', -1, 64) + " GiB"
 }
 
-// chatURL is the loopback chat (Open WebUI) URL printed post-install (D-03/D-04):
+// chatURL is the loopback chat (Open WebUI) URL printed post-install:
 // the host side of the owui PublishPort (127.0.0.1:3000:8080, openWebUIPublishPort
-// in internal/orchestrate). Loopback-only — never a LAN/0.0.0.0 address (PRIV-01).
+// in internal/orchestrate). Loopback-only — never a LAN/0.0.0.0 address.
 const chatURL = "http://127.0.0.1:3000"
 
 // dashboardURL is the loopback control-dashboard URL printed post-install. It is the
 // config default (DashboardAddr 127.0.0.1 / DashboardPort 8888); the dashboard now
-// comes up as a managed boot-surviving service in this install (Plan 05-05 / D-03),
-// so there is no dead link. Loopback-only (PRIV-01).
+// comes up as a managed boot-surviving service in this install (Plan 05-05),
+// so there is no dead link. Loopback-only.
 const dashboardURL = "http://127.0.0.1:8888"
 
 // printPostInstall prints the loopback inference endpoint + the readiness verdict,
-// the real loopback chat URL (Open WebUI is brought up by this install, D-03), and
+// the real loopback chat URL (Open WebUI is brought up by this install), and
 // the real loopback control-dashboard URL (the dashboard is now a managed
-// boot-surviving service brought up by this install, Plan 05-05 / D-03 — no dead
-// links). The endpoint is sourced from the backend seam (T-03-10), never retyped.
+// boot-surviving service brought up by this install, Plan 05-05 / — no dead
+// links). The endpoint is sourced from the backend seam, never retyped.
 func printPostInstall(out io.Writer, endpoint string, ready installReadiness) {
 	fmt.Fprintf(out, "\ninference endpoint: %s\n", endpoint)
 	switch ready.status {
@@ -1435,7 +1435,7 @@ func printPostInstall(out io.Writer, endpoint string, ready installReadiness) {
 func liveInstallDeps() (*installDeps, error) {
 	sys := orchestrate.NewSystemd()
 	uname := installUsername()
-	// Resolve the backend from config (fail-closed, D-02) for the post-install endpoint
+	// Resolve the backend from config (fail-closed) for the post-install endpoint
 	// line — derived from the resolved backend's container runner, never a literal. A
 	// load failure or unknown-backend value blocks install rather than defaulting.
 	cfg, err := config.LoadVilla()
@@ -1450,7 +1450,7 @@ func liveInstallDeps() (*installDeps, error) {
 
 	// resolveCatalogModel maps a recommendation to its catalog entry — the single
 	// place the model-id → catalog lookup happens for both the on-disk check and
-	// the pull, so install never fabricates a weight path (WR-08, mirrors swap).
+	// the pull, so install never fabricates a weight path (mirrors swap).
 	resolveCatalogModel := func(rec recommend.Recommendation) (catalog.CatalogModel, bool) {
 		cat, _, err := catalog.Load(modelCatalogPath)
 		if err != nil {
@@ -1467,12 +1467,12 @@ func liveInstallDeps() (*installDeps, error) {
 				return recommend.Recommendation{}
 			}
 			// Thread the PERSISTED memory inputs (fail-soft) so an opted-in install
-			// recommends against the shrunken envelope (D-01; Pitfall 3 — a
+			// recommends against the shrunken envelope (Pitfall 3 — a
 			// memory-blind install pick defeats CTRL-01).
 			return recommend.Pick(p, cat, ov, liveLoadedMemoryInputs(), liveLoadedWebSearchInputs())
 		},
 		modelFile: func(rec recommend.Recommendation) (string, error) {
-			// A catalog load failure or an unknown model id is a hard error (WR-08):
+			// A catalog load failure or an unknown model id is a hard error:
 			// fabricating "<model>.gguf" would generate a container whose -m points at
 			// a non-existent file that only fails at runtime after install reports
 			// success. Block here so install surfaces the resolution failure instead.
@@ -1544,8 +1544,8 @@ func liveInstallDeps() (*installDeps, error) {
 
 		// Memory-stack seams (Phase-19). The gate keys off the PERSISTED config
 		// (liveLoadedMemoryEnabled → config.LoadVilla().MemoryEnabled, fail-soft to false),
-		// NOT the DefaultVillaConfig() seed (T-19-16). Pre-stage + presence reuse the same
-		// verified download path and models dir as the chat-model ensureModel above (D-07).
+		// NOT the DefaultVillaConfig seed. Pre-stage + presence reuse the same
+		// verified download path and models dir as the chat-model ensureModel above.
 		loadedConfig:        liveLoadedConfig,
 		loadedMemoryEnabled: liveLoadedMemoryEnabled,
 		embedModelPresent:   liveEmbedModelPresent,
@@ -1556,30 +1556,30 @@ func liveInstallDeps() (*installDeps, error) {
 		runMemoryChecks: func(p detect.HostProfile) []preflight.CheckResult {
 			return preflight.RunMemory(p, preflight.MemoryGateInput{EmbeddingModel: liveLoadedConfig().EmbeddingModel})
 		},
-		// Phase-23 D-10 skew WARN reader: the SHARED fail-closed recall-state
+		// Phase-23 skew WARN reader: the SHARED fail-closed recall-state
 		// loader `villa recall` uses (one reader, never a re-rolled second one).
 		readRecallState: liveRecallStateLoad,
 
-		// Web-search (SearXNG) seams (v1.5 / Phase-29 SRCH-01). The gate keys off the
+		// Web-search (SearXNG) seams (v1.5 / Phase-29). The gate keys off the
 		// PERSISTED config (liveLoadedWebSearchEnabled → config.LoadVilla().WebSearchEnabled,
 		// fail-soft to false), NOT the DefaultVillaConfig() seed. The settings.yml + 0600
 		// secret env writers are the Phase-29 Plan-02 orchestrate writers (the secret reaches
-		// the container via the 0600 EnvironmentFile, never the 0644 unit — T-29-02). The proof
-		// is the real format=json query (liveSearxngProof), never a health-200 (SC#2).
+		// the container via the 0600 EnvironmentFile, never the 0644 unit). The proof
+		// is the real format=json query (liveSearxngProof), never a health-200.
 		loadedWebSearchEnabled: liveLoadedWebSearchEnabled,
 		writeSearxngSettings:   orchestrate.WriteSearxngSettings,
 		writeSearxngSecretEnv:  orchestrate.WriteSearxngSecretEnv,
 		searxngProofFn:         liveSearxngProof,
 		// villa-websafe 0600 bearer (websafe.env) writer — the EnvironmentFile= target BOTH the
 		// villa-websafe AND the OWUI units reference (WebsafeSecretEnvFilePath). The secret reaches
-		// both containers via the 0600 file, never the 0644 unit (T-31-12). Mirrors the searxng
+		// both containers via the 0600 file, never the 0644 unit. Mirrors the searxng
 		// secret-env writer wiring above.
 		writeWebsafeSecretEnv: orchestrate.WriteWebsafeSecretEnv,
 
-		// Coding-agent (Crush) addon seams (v1.4 / INSTALL-03). The gate keys off the
+		// Coding-agent (Crush) addon seams (v1.4). The gate keys off the
 		// PERSISTED config (liveLoadedAgentEnabled → config.LoadVilla().AgentEnabled,
 		// fail-soft to false); --coding-agent overrides it. Pre-stage reuses the same
-		// verified download path + models dir as the chat/embed models (D-03); the binary
+		// verified download path + models dir as the chat/embed models; the binary
 		// install + render compose the Phase-26/Task-1 seams, never re-implemented.
 		loadedAgentEnabled: liveLoadedAgentEnabled,
 		agentCatalog: func() (catalog.Catalog, bool) {
@@ -1596,7 +1596,7 @@ func liveInstallDeps() (*installDeps, error) {
 		agentProofFn: func(ctx context.Context) agentProof {
 			return evalAgentProof(liveAgentToolCallProbe(ctx))
 		},
-		// Coding-agent preflight gates (INSTALL-04/D-09). The closure resolves the staged
+		// Coding-agent preflight gates. The closure resolves the staged
 		// footprint (coder GGUF SizeBytes + the pinned binary asset.Size) from the SAME
 		// catalog entry + policy pin the install flow stages, so the disk gate can never
 		// drift from what is actually written; statfs reuses the same syscall.Statfs path
@@ -1629,7 +1629,7 @@ func liveInstallDeps() (*installDeps, error) {
 // package-private to preflight, so the cmd-tier agent gate carries its own copy). It
 // walks up to an existing ancestor so a not-yet-created models dir still reports its
 // filesystem's free space. A statfs error → ok=false → the disk check degrades to a
-// typed-Unknown WARN (never a false BLOCK, D-09).
+// typed-Unknown WARN (never a false BLOCK).
 func liveAgentStatfs(path string) (uint64, bool) {
 	p := existingAncestorDir(path)
 	var st syscall.Statfs_t

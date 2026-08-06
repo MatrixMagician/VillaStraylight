@@ -14,7 +14,7 @@ import (
 
 // TestEvalAgentVerify table-drives the PURE runtime zero-outbound coding-agent proof core
 // over its five outcomes, mirroring TestEvalRagSmoke (cmd/villa/verify_memory_test.go). The
-// load-bearing invariants it locks (PRIV-06, D-07/D-08, honesty-by-construction):
+// load-bearing invariants it locks (honesty-by-construction):
 //
 //   - The egress negative-control is asserted FIRST: a probe that could not RUN (err) is a
 //     FAIL ("could not run the egress negative-control probe"), and an external host that WAS
@@ -109,7 +109,7 @@ func TestEvalAgentVerify(t *testing.T) {
 // control fails (either the probe errored OR an external host was reachable), neither the
 // agent task NOR the llama-down control may run. If the agent task ran, a host that never
 // actually blocked egress could still produce a green by completing the task — exactly the
-// false-green PRIV-06 forbids. Spies record whether each downstream control was invoked.
+// false-green forbids. Spies record whether each downstream control was invoked.
 func TestEvalAgentVerifyNegativeControlFirst(t *testing.T) {
 	t.Run("probe error short-circuits before the agent task", func(t *testing.T) {
 		taskRan, llamaDownRan := false, false
@@ -160,20 +160,22 @@ func TestEvalAgentVerifyNegativeControlFirst(t *testing.T) {
 	})
 }
 
-// TestClassifyEgressProbe is the WR-01 false-green / false-FAIL guard at the live-closure
+// TestClassifyEgressProbe is the false-green / false-FAIL guard at the live-closure
 // classification granularity (the live podman/curl exec is not driveable off-hardware, so the
 // closure delegates the verdict math to this pure classifier). The truth table it locks:
 //
 //   - ANY sanity-probe error → an infrastructure FAIL (err != nil), regardless of the external
 //     result. A wholesale-broken probe environment (missing image/network, podman daemon error,
-//     curl absent, villa-llama down) must NEVER read as blocked=true (the false-green WR-01
-//     forbids — the negative control is the FIRST gate).
-//   - sanity ok + a curl CONNECTION/TIMEOUT exit (6 could-not-resolve, 7 failed-to-connect,
-//     28 operation-timeout) → blocked=true (the external host is genuinely unreachable).
-//   - sanity ok + exit 0 (external host reachable) → blocked=false (egress is NOT blocked).
-//   - sanity ok + an UNCLASSIFIED non-zero exit (e.g. 127 curl-absent) or a never-started
-//     container (a non-ExitError failure, exit code <0) → an infrastructure FAIL (err != nil),
-//     NOT blocked=true. "The probe could not run" is distinct from "the host was blocked".
+//
+// curl absent, villa-llama down) must NEVER read as blocked=true (the false-green
+//
+//	  forbids — the negative control is the FIRST gate).
+//	- sanity ok + a curl CONNECTION/TIMEOUT exit (6 could-not-resolve, 7 failed-to-connect,
+//	  28 operation-timeout) → blocked=true (the external host is genuinely unreachable).
+//	- sanity ok + exit 0 (external host reachable) → blocked=false (egress is NOT blocked).
+//	- sanity ok + an UNCLASSIFIED non-zero exit (e.g. 127 curl-absent) or a never-started
+//	  container (a non-ExitError failure, exit code <0) → an infrastructure FAIL (err != nil),
+//	  NOT blocked=true. "The probe could not run" is distinct from "the host was blocked".
 func TestClassifyEgressProbe(t *testing.T) {
 	cases := []struct {
 		name         string
@@ -244,7 +246,7 @@ func TestClassifyEgressProbe(t *testing.T) {
 			if (err != nil) != tc.wantErr {
 				t.Errorf("err = %v, wantErr = %t", err, tc.wantErr)
 			}
-			// The cardinal WR-01 invariant: an infra failure must NEVER be reported as blocked.
+			// The cardinal invariant: an infra failure must NEVER be reported as blocked.
 			if tc.wantErr && blocked {
 				t.Errorf("an infrastructure failure must never read as blocked=true (false-green)")
 			}
@@ -276,7 +278,7 @@ func TestEvalAgentVerifyInfraErrorFails(t *testing.T) {
 	}
 }
 
-// TestRestoreLlamaWarning is the WR-06 message guard. A nil restore error yields NO warning
+// TestRestoreLlamaWarning is the message guard. A nil restore error yields NO warning
 // (an empty string — the clean path emits nothing). A non-nil restore error yields a warning
 // that names the service was left stopped AND carries the LITERAL manual remediation
 // `systemctl --user start villa-llama.service` so the operator can recover by hand.
@@ -296,7 +298,7 @@ func TestRestoreLlamaWarning(t *testing.T) {
 	}
 }
 
-// TestLlamaDownRestore is the WR-06 behaviour guard at the control granularity. The llama-down
+// TestLlamaDownRestore is the behaviour guard at the control granularity. The llama-down
 // control STOPS villa-llama, runs the task, then ALWAYS attempts to restore (Start) — and on a
 // restore failure it must SURFACE the Start error (never swallow it), while still having
 // ATTEMPTED the restore on every path. Driven via injected stop/start/task func seams (no live
@@ -351,7 +353,7 @@ func TestLlamaDownRestore(t *testing.T) {
 
 // TestVerifyAgentRegistered asserts `villa verify agent` is registered under the `verify`
 // parent next to `verify memory` (a missing subcommand is a silent regression of the runtime
-// PRIV-06 gate).
+// gate).
 func TestVerifyAgentRegistered(t *testing.T) {
 	verify := newVerify()
 	var foundAgent, foundMemory bool

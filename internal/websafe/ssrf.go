@@ -1,6 +1,6 @@
 // Package websafe is the pure, off-hardware-unit-testable fetch core that is the
-// sole producer of OWUI page_content (GUARD-01) with a comprehensive SSRF guard
-// (GUARD-05) and the verified OWUI external-loader HTTP contract glue (GROUND-01).
+// sole producer of OWUI page_content with a comprehensive SSRF guard
+// and the verified OWUI external-loader HTTP contract glue.
 //
 // This package is a PURE core (CLAUDE.md: orchestrate is the only intentionally-impure
 // module). It constructs an *http.Client but performs no network I/O at package scope;
@@ -58,7 +58,7 @@ func DefaultBounds() Bounds {
 	}
 }
 
-// rejectPrefixes is the SSRF reject-set (CONTEXT Area 3, GUARD-05): loopback v4/v6,
+// rejectPrefixes is the SSRF reject-set (CONTEXT Area 3): loopback v4/v6,
 // all RFC1918 private ranges, link-local v4 (incl. the 169.254.169.254 cloud-metadata
 // IP) + v6, CGNAT, ULA v6, "this network", and the v4-mapped-v6 range (catches a
 // mapped-internal address). netip.Prefix.Contains is the allocation-free membership test.
@@ -105,7 +105,7 @@ func ipRejected(ip netip.Addr) bool {
 }
 
 // hostRejected blocks internal service names regardless of DNS resolution
-// (defense-in-depth per GUARD-05 and CONTEXT Area 3): "localhost", any "villa-" prefix
+// (defense-in-depth per and CONTEXT Area 3): "localhost", any "villa-" prefix
 // (the managed-service container-DNS names), and any ".network"/".localhost" suffix.
 // This is a name-based backstop; the authoritative check is the connect-time control
 // hook on the resolved IP. The comparison is case-insensitive.

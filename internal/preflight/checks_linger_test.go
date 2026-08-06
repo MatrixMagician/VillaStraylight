@@ -42,7 +42,7 @@ func TestCheckLinger(t *testing.T) {
 		}
 	})
 
-	t.Run("loginctl missing warns (D-15) and stays WARN tier", func(t *testing.T) {
+	t.Run("loginctl missing warns and stays WARN tier", func(t *testing.T) {
 		d := lingerDeps{username: "oliverh", lingerOutput: func(string) (string, bool, bool) { return "", false, false }}
 		got := checkLinger(d)
 		if got.Tier != TierWarn || got.Status != StatusWarn {

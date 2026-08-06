@@ -30,7 +30,7 @@ func resourceResult(t *testing.T, results []CheckResult) CheckResult {
 	return CheckResult{}
 }
 
-// TestRunGatesOnFloorNotEnvelope is the WR-02/WR-03 regression: standalone
+// TestRunGatesOnFloorNotEnvelope is the regression: standalone
 // `villa preflight` must gate free memory/disk on the smallest-installable-model
 // FLOOR, not the full GTT envelope. A host with only ~40 GiB free RAM (far below a
 // 62 GiB envelope, but ample for a real model) must PASS — the envelope-based gate

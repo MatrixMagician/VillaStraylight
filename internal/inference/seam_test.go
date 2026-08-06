@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-// TestSeamGrepGate enforces Phase-2 Success Criterion 4 (D-03/SC#4, INF-03): no
+// TestSeamGrepGate enforces Phase-2 Success Criterion 4: no
 // IMPERATIVE/RUNTIME backend assumption leaks outside the seam. The seam is
 // internal/inference/ + internal/detect/gpu_amd.go; everywhere else in internal/
 // must be backend-neutral so a future ROCm/Metal backend (and macOS) drops in
@@ -29,10 +29,10 @@ import (
 //	(c) container DEVICE args (--device /dev/dri, --group-add, keep-groups),
 //	(d) `podman` PROCESS invocations (exec.Command("podman", …) / "podman" run|stop|logs).
 //
-// SC#4 intent (no silent CPU/Linux assumption in callers) is preserved, not
+// intent (no silent CPU/Linux assumption in callers) is preserved, not
 // relaxed: every one of these is an imperative behavior, not a printed finding.
-// codingModeFlagPattern is the SINGLE source for the CMODE-01 coding-mode llama-server
-// flag-leak regex (D-02/SC#4). The --jinja / --cache-reuse / sampling literals are the
+// codingModeFlagPattern is the SINGLE source for the coding-mode llama-server
+// flag-leak regex. The --jinja / --cache-reuse / sampling literals are the
 // same seam class as the existing llamaServerFlags: they MUST live ONLY in
 // backend_vulkan.go / backend_rocm.go (the appendCodingModeArgs helper). This regex
 // forbids them in any non-seam internal/* file AND in cmd/villa. It anchors on the
@@ -57,7 +57,7 @@ func TestSeamGrepGate(t *testing.T) {
 	// .go files outside the seam.
 	patterns := map[string]*regexp.Regexp{
 		"runtime.GOOS / GOOS branch": regexp.MustCompile(`runtime\.GOOS|GOOS\s*==`),
-		// CMODE-01 coding-mode flag literals (D-02/SC#4): --jinja / --cache-reuse /
+		// coding-mode flag literals: --jinja / --cache-reuse /
 		// sampling MUST stay behind the inference seam (appendCodingModeArgs). A leak into
 		// any non-seam internal/* file fails CI. Added in the SAME commit as the literals.
 		"coding-mode llama-server flags": codingModeFlagPattern(),
@@ -74,7 +74,7 @@ func TestSeamGrepGate(t *testing.T) {
 		// consts — it carries no image/device imperative. `rocm-6\.4\.4` covers BOTH the
 		// plain tag and the rocm-6.4.4-rocwmma suffix superset. The new image digest
 		// literals still land ONLY in the seam (backend_rocm.go), and the regex extended
-		// in the SAME commit (D-10/SC#4/T-12-02); the kyuz0|docker.io/ alternatives remain
+		// in the SAME commit; the kyuz0|docker.io/ alternatives remain
 		// an un-anchored backstop that catches any image string regardless of tag.
 		"container image literal": regexp.MustCompile(`kyuz0|docker\.io/|server-vulkan|:rocm-7\.2\.4|rocm-7\.2\.4@|:rocm-6\.4\.4|rocm-6\.4\.4@|rocm7-nightlies`),
 		"container device args":   regexp.MustCompile(`--device\s+/dev/dri|--group-add|keep-groups`),
@@ -116,21 +116,21 @@ func TestSeamGrepGate(t *testing.T) {
 	// The seam: paths allowed to hold these imperative literals.
 	isSeam := func(rel string) bool {
 		rel = filepath.ToSlash(rel)
-		// orchestrate/memory.go (Phase-19 D-10): the villa-qdrant + villa-embed
+		// orchestrate/memory.go: the villa-qdrant + villa-embed
 		// MANAGED-SERVICE image literals (docker.io/qdrant/…, docker.io/kyuz0/… == the
 		// embed image) live here, the SAME category as openWebUIImage — NOT a
 		// GPU-backend token. The two docker.io/ literals would trip the "container
 		// image literal" regex without this allowlist; it is extended in the SAME
 		// commit as the consts, mirroring the 12-02 ROCm-tag same-commit precedent.
-		// orchestrate/searxng.go (Phase-29 SRCH-01): the villa-searxng MANAGED-SERVICE
+		// orchestrate/searxng.go: the villa-searxng MANAGED-SERVICE
 		// image literal (ghcr.io/searxng/searxng@sha256:…) lives here, the SAME category
 		// as openWebUIImage / qdrantImage — NOT a GPU-backend token. The ghcr.io/ literal
 		// would trip the "container image literal" regex without this allowlist; it is
 		// extended in the SAME commit as the const, mirroring the orchestrate/memory.go
 		// precedent (Pitfall 5).
-		// orchestrate/websafe.go (Phase-31 GUARD-01/GROUND-01): the villa-websafe
+		// orchestrate/websafe.go: the villa-websafe
 		// MANAGED-SERVICE base-image literal (gcr.io/distroless/static-debian12@sha256:…)
-		// lives here, the SAME category as openWebUIImage / qdrantImage / searxngImage —
+		// lives here, the SAME category as openWebUIImage / qdrantImage / searxngImage
 		// NOT a GPU-backend token. The gcr.io/ distroless literal would trip the "container
 		// image literal" regex without this allowlist; it is extended in the SAME commit as
 		// the const, mirroring the orchestrate/searxng.go precedent (Pitfall 5).
@@ -168,7 +168,7 @@ func TestSeamGrepGate(t *testing.T) {
 	// podman (lifecycle up/down/logs, uninstall volume rm — fixed-arg, never a shell).
 	// So the "podman invocation" pattern does NOT apply here. What MUST stay out of
 	// cmd/villa is any INFERENCE-BACKEND assumption — a platform branch, a container
-	// IMAGE/DEVICE literal, or a raw backend MARKER token (ROCm0/HSA-override/fault) —
+	// IMAGE/DEVICE literal, or a raw backend MARKER token (ROCm0/HSA-override/fault)
 	// so the Plan-02 `cmd/villa/backend.go` noun (and every sibling) composes the
 	// backendswap core + the EXPORTED inference prove primitives WITHOUT retyping a
 	// backend literal. This makes the cmd-tier literal-free property a COMMITTED
@@ -181,7 +181,7 @@ func TestSeamGrepGate(t *testing.T) {
 		// and the memory-access-fault marker MUST live behind the inference seam
 		// (backend_rocm.go), never in a cmd/villa caller.
 		"backend marker literal": regexp.MustCompile(`ROCm0|HSA_OVERRIDE_GFX_VERSION|Memory access fault`),
-		// CMODE-01 coding-mode flag literals: the cmd-tier guard. The Plan-02
+		// coding-mode flag literals: the cmd-tier guard. The Plan-02
 		// cmd/villa/coding-mode.go noun composes the codingmode core + the orchestrate
 		// render delta WITHOUT retyping --jinja / --cache-reuse / sampling — those land
 		// only in backend_*.go. This key is added to cmdPatterns EXPLICITLY (cmdPatterns
@@ -221,7 +221,7 @@ func render() []string { return []string{"llama-server", "--jinja", "--cache-reu
 	}
 }
 
-// TestROCmMarkerPresence is the POSITIVE grep-gate (D-10): the ROCm backend's
+// TestROCmMarkerPresence is the POSITIVE grep-gate: the ROCm backend's
 // privilege/residency literals MUST live in backend_rocm.go (the seam), so a refactor
 // that drops or relocates them fails CI. It gates on "ROCm0" (NOT "ggml_cuda" — that
 // init prefix is SHARED with the CUDA path and would not distinguish a dropped ROCm
@@ -236,7 +236,7 @@ func TestROCmMarkerPresence(t *testing.T) {
 	src := string(data)
 	for _, want := range []string{"ROCm0", "HSA_OVERRIDE_GFX_VERSION", "/dev/kfd"} {
 		if !strings.Contains(src, want) {
-			t.Errorf("backend_rocm.go is missing required ROCm marker %q (the seam must hold it — D-10)", want)
+			t.Errorf("backend_rocm.go is missing required ROCm marker %q (the seam must hold it)", want)
 		}
 	}
 }

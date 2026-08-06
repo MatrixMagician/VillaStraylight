@@ -1,6 +1,6 @@
-// sanitize_test.go guards the GUARD-02 markup-sanitization invariants: StrictPolicy
+// sanitize_test.go guards the markup-sanitization invariants: StrictPolicy
 // strips ALL tags/scripts, the output is entity-DECODED plain text (Pitfall 1), and an
-// all-markup input trims to empty without panicking (CR-01/CR-02 robustness).
+// all-markup input trims to empty without panicking (robustness).
 package websafe
 
 import (
@@ -12,10 +12,10 @@ import (
 // decoded to literal characters (entity-decode is mandatory for model-readable text).
 func TestSanitizeStripsMarkup(t *testing.T) {
 	cases := []struct {
-		name    string
-		in      string
-		want    string
-		absent  []string // substrings that MUST NOT appear in the output
+		name   string
+		in     string
+		want   string
+		absent []string // substrings that MUST NOT appear in the output
 	}{
 		{
 			// StrictPolicy strips tags WITHOUT inserting separators, so adjacent
@@ -51,7 +51,7 @@ func TestSanitizeStripsMarkup(t *testing.T) {
 
 // TestSanitizeAllMarkupTrimsEmpty asserts an input that is purely markup yields an
 // empty (whitespace-trimmed) string and never panics — there was no visible text to
-// preserve, which is distinct from blackholing real content (CR-02).
+// preserve, which is distinct from blackholing real content.
 func TestSanitizeAllMarkupTrimsEmpty(t *testing.T) {
 	if got := sanitize(`<div></div>`); got != "" {
 		t.Errorf("sanitize(all-markup) = %q, want \"\"", got)

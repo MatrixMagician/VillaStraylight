@@ -1,10 +1,10 @@
-// recall_live.go is the live REST drive surface for `villa recall` (RECALL-01/02/03):
+// recall_live.go is the live REST drive surface for `villa recall` (02/03):
 // thin fixed-arg curl wrappers over the EXISTING loopback Open WebUI PublishPort,
 // reusing the Phase-20 primitives in verify_memory.go — mintAdminToken,
 // runLoopbackCurl(Stdin), pollFileProcessed, discoverChatModel — never copying them
-// (D-01). No new host port is opened; all traffic is 127.0.0.1:<chat_port>.
+// No new host port is opened; all traffic is 127.0.0.1:<chat_port>.
 //
-// Honesty invariants carried from the Phase-20 seam (T-20-09 / T-21-06/-08/-11):
+// Honesty invariants carried from the Phase-20 seam (-08/-11):
 //
 //   - Every request is a fixed-arg exec.CommandContext curl — no shell, ever.
 //     JSON bodies are built via json.Marshal only; URLs are composed from the
@@ -12,16 +12,17 @@
 //     stdin multipart (`-F file=@-`), never argv or a temp file.
 //   - Every error is wrapped with the endpoint name; an empty id in a 200 body is
 //     an ERROR carrying the (truncated) raw body for diagnosis — never a silent skip.
-//   - Indexing writes go ONLY through OWUI's knowledge/files REST pipeline (D-02);
+//   - Indexing writes go ONLY through OWUI's knowledge/files REST pipeline;
 //     villa never writes Qdrant directly. Clean-replace uses
 //     `knowledge/{id}/file/remove?delete_file=true` (vectors deleted by file_id AND
 //     hash); --rebuild uses the id-preserving `knowledge/{id}/reset` — NEVER
 //     `DELETE /knowledge/{id}/delete`, which strips the KB from every model's
-//     meta.knowledge (D-04).
-//   - The attach step (D-03, RECALL-02) is an idempotent read-merge-write of the
+//
+// meta.knowledge.
+//   - The attach step is an idempotent read-merge-write of the
 //     served model's Model row: GET → merge the recall KB into meta.knowledge
 //     preserving every other meta key the operator may have set → update-or-create.
-//   - Identity is the existing villa-verify@localhost admin service account (D-09);
+//   - Identity is the existing villa-verify@localhost admin service account;
 //     the JWT is held in memory only, never persisted.
 //
 // NO image/backend literals live here (loopback URLs and OWUI endpoint paths are not
@@ -41,7 +42,7 @@ import (
 
 // recallKnowledgeName is the villa-managed Knowledge collection's name — the
 // find-or-create key owuiEnsureKnowledge matches on, and the `name` field of the
-// meta.knowledge attachment item (D-02).
+// meta.knowledge attachment item.
 const recallKnowledgeName = "Villa Recall — Past Conversations"
 
 // recallKnowledgeDescription is the villa-managed collection's description (set
@@ -50,7 +51,7 @@ const recallKnowledgeName = "Villa Recall — Past Conversations"
 const recallKnowledgeDescription = "villa-managed semantic index of past Open WebUI conversations (villa recall)"
 
 // recallServiceAccountEmail is the ONE identity the indexer deterministically
-// excludes from the chat universe (D-09): villa's own verify/admin service account
+// excludes from the chat universe: villa's own verify/admin service account
 // (the same fixed credential mintAdminToken signs in with). All remaining human
 // users on this single-operator box are the operator.
 const recallServiceAccountEmail = "villa-verify@localhost"
@@ -84,12 +85,12 @@ func truncateBody(out []byte) string {
 }
 
 // bearerHeader composes the Authorization header value from a minted JWT. The token
-// is an API-returned value held in memory only (D-09).
+// is an API-returned value held in memory only.
 func bearerHeader(token string) string { return "Authorization: Bearer " + token }
 
 // owuiUser is one item of the admin users list (GET /api/v1/users/): the id the
 // chats-list endpoint is keyed by, the email the service-account exclusion matches
-// on (D-09), and the role (informational).
+// on, and the role (informational).
 type owuiUser struct {
 	ID    string `json:"id"`
 	Email string `json:"email"`
@@ -97,7 +98,7 @@ type owuiUser struct {
 }
 
 // owuiListUsers enumerates ALL users via the admin endpoint `GET /api/v1/users/?page=N`
-// (D-09). Pages are fetched until one is empty or contributes no new ids (the
+// Pages are fetched until one is empty or contributes no new ids (the
 // dedupe guard also terminates against a server that ignores `page`). Any failure
 // is an error — an index run cannot proceed on a partial user universe.
 func owuiListUsers(ctx context.Context, base, token string) ([]owuiUser, error) {
@@ -136,7 +137,7 @@ func owuiListUsers(ctx context.Context, base, token string) ([]owuiUser, error) 
 // True and no folder/pinned filtering applies (Pitfall 1; the self-list
 // `GET /api/v1/chats/` silently under-indexes and is NEVER used). 60 items/page;
 // a short page terminates. Items map to recall.ChatRef (id + updated_at epoch
-// seconds) — no titles, no content (T-21-01).
+// seconds) — no titles, no content.
 func owuiListUserChats(ctx context.Context, base, token, userID string) ([]recall.ChatRef, error) {
 	auth := bearerHeader(token)
 	var refs []recall.ChatRef
@@ -195,7 +196,7 @@ func owuiGetChat(ctx context.Context, base, token, chatID string) (recall.ChatDo
 }
 
 // owuiEnsureKnowledge finds-or-creates the villa-managed Knowledge collection
-// (D-02): list existing KBs (`GET /api/v1/knowledge/`) and return the id of the one
+// list existing KBs (`GET /api/v1/knowledge/`) and return the id of the one
 // matching name; else `POST /api/v1/knowledge/create`. Find-or-create keeps re-runs
 // AND state-file-loss recovery idempotent — a lost recall-state.json never spawns a
 // second collection.
@@ -266,8 +267,8 @@ func owuiEnsureKnowledge(ctx context.Context, base, token, name, description str
 }
 
 // owuiUploadTranscript pushes one rendered transcript into the recall KB via the
-// proven three-step pipeline (D-02): multipart upload to `POST /api/v1/files/` with
-// the content on STDIN (`-F file=@-` — never argv, never a temp file, T-21-06),
+// proven three-step pipeline: multipart upload to `POST /api/v1/files/` with
+// the content on STDIN (`-F file=@-` — never argv, never a temp file),
 // poll `GET /api/v1/files/{id}/process/status` until chunk→embed→store completes
 // (a timeout is an ERROR, never a skip — Pitfall 6), then
 // `POST /api/v1/knowledge/{kbID}/file/add`. Returns the OWUI file id the
@@ -302,7 +303,7 @@ func owuiUploadTranscript(ctx context.Context, base, token, kbID, filename, cont
 		"-H", "Content-Type: application/json", "-H", auth,
 		"-d", string(aBody),
 	); err != nil {
-		// WR-03: the file was uploaded and embedded but never joined the KB, so the
+		// the file was uploaded and embedded but never joined the KB, so the
 		// clean-replace/delete path (which keys off recorded KB FileIDs) can never
 		// reach it and it (plus its Qdrant vectors) would orphan-accumulate on every
 		// retry. file/remove needs KB membership the file does not yet have, so
@@ -317,7 +318,7 @@ func owuiUploadTranscript(ctx context.Context, base, token, kbID, filename, cont
 
 // owuiDeleteFile removes a stand-alone uploaded file (and its vectors) via
 // `DELETE /api/v1/files/{id}` — the cleanup path for a file that was uploaded and
-// embedded but never joined a KB (WR-03). Unlike owuiRemoveKnowledgeFile it does
+// embedded but never joined a KB. Unlike owuiRemoveKnowledgeFile it does
 // NOT require KB membership.
 func owuiDeleteFile(ctx context.Context, base, token, fileID string) error {
 	auth := bearerHeader(token)
@@ -330,7 +331,7 @@ func owuiDeleteFile(ctx context.Context, base, token, fileID string) error {
 	return nil
 }
 
-// owuiRemoveKnowledgeFile is the clean-replace/delete primitive (D-04):
+// owuiRemoveKnowledgeFile is the clean-replace/delete primitive:
 // `POST /api/v1/knowledge/{kbID}/file/remove?delete_file=true` — confirmed
 // leak-free on the pinned digest (vectors deleted by file_id AND content hash, the
 // per-file vector collection dropped, the file row deleted).
@@ -350,7 +351,7 @@ func owuiRemoveKnowledgeFile(ctx context.Context, base, token, kbID, fileID stri
 	return nil
 }
 
-// owuiResetKnowledge is the --rebuild primitive (D-04):
+// owuiResetKnowledge is the --rebuild primitive:
 // `POST /api/v1/knowledge/{kbID}/reset` drops the KB's vector collection and clears
 // its file list while KEEPING the KB id — so the served model's meta.knowledge
 // attachment survives. NEVER `DELETE /knowledge/{id}/delete` (it strips the KB from
@@ -367,7 +368,7 @@ func owuiResetKnowledge(ctx context.Context, base, token, kbID string) error {
 }
 
 // knowledgeItem is the modern meta.knowledge attachment item shape the pinned
-// digest's chat middleware injects into every completion's files (RECALL-02). The
+// digest's chat middleware injects into every completion's files. The
 // legacy collection_name(s) shapes are deliberately never emitted.
 func knowledgeItem(kbID, kbName string) map[string]any {
 	return map[string]any{"type": "collection", "id": kbID, "name": kbName}
@@ -375,8 +376,8 @@ func knowledgeItem(kbID, kbName string) map[string]any {
 
 // mergeKnowledgeIntoRow merges the recall KB attachment item into an existing Model
 // row's meta.knowledge, deduplicating by KB id and PRESERVING every other meta key
-// (and every other top-level row field) the operator may have set in the UI —
-// read-merge-write, never clobber (T-21-10 / Pitfall: attach must not erase an
+// (and every other top-level row field) the operator may have set in the UI
+// read-merge-write, never clobber (Pitfall: attach must not erase an
 // operator-set description/capabilities). It returns the same row, updated.
 func mergeKnowledgeIntoRow(row map[string]any, kbID, kbName string) map[string]any {
 	meta, _ := row["meta"].(map[string]any)
@@ -399,8 +400,8 @@ func mergeKnowledgeIntoRow(row map[string]any, kbID, kbName string) map[string]a
 	return row
 }
 
-// attachKnowledgeRow is the idempotent read-merge-write attach choreography (D-03,
-// RECALL-02) over injected row operations, unit-testable off-hardware
+// attachKnowledgeRow is the idempotent read-merge-write attach choreography (
+// over injected row operations, unit-testable off-hardware
 // (TestRecallAttach): if the served model's Model row exists, merge the recall KB
 // into its meta.knowledge (preserving foreign keys) and update; if absent, create a
 // fresh row with id == the SERVED base model id and base_model_id null — the shape
@@ -435,7 +436,7 @@ func attachKnowledgeRow(
 			return recall.AttachmentUnknown, fmt.Errorf("models/create: %w", err)
 		}
 	}
-	// WR-04 (Pitfall 2): a 200 from update/create is NOT proof the merge persisted —
+	// (Pitfall 2): a 200 from update/create is NOT proof the merge persisted
 	// OWUI can reshape or silently drop meta.knowledge (legacy vs modern collection
 	// shapes), leaving retrieval OFF while the index reports "attached". Re-GET the
 	// row and confirm the recall KB id actually landed in meta.knowledge before
@@ -455,7 +456,7 @@ func attachKnowledgeRow(
 }
 
 // rowHasKnowledgeID reports whether a Model row's meta.knowledge contains an item
-// with the given KB id (the WR-04 attach-verification predicate). It tolerates the
+// with the given KB id (the attach-verification predicate). It tolerates the
 // untyped map[string]any shape getRow returns and never panics on a missing/
 // mis-shaped meta.
 func rowHasKnowledgeID(row map[string]any, kbID string) bool {
@@ -526,7 +527,7 @@ func owuiAttachKnowledge(ctx context.Context, base, token, servedModelID, kbID, 
 }
 
 // owuiAttachmentState answers `recall status`'s retrieval question with the typed
-// AttachmentState verdict (D-06, Pitfall 2): discover the SERVED model (reuse
+// AttachmentState verdict (Pitfall 2): discover the SERVED model (reuse
 // discoverChatModel), GET its Model row, and report Attached when the recall KB id
 // is in meta.knowledge, Missing when OWUI is reachable but the row/attachment is
 // confidently absent (the post-model-swap detach case), and Unknown when discovery

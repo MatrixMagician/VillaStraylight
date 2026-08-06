@@ -1,4 +1,4 @@
-// transcript.go is the pure per-chat transcript renderer (D-04, RECALL-01): it
+// transcript.go is the pure per-chat transcript renderer: it
 // turns one Open WebUI chat document into the role-labeled text file the indexer
 // uploads to the recall knowledge base. The canonical thread is reconstructed by
 // walking history.currentId back through parentId with a visited-set cycle guard
@@ -9,8 +9,8 @@
 // user/assistant messages is SKIPPED via ok=false so the caller can RECORD the
 // skip — never a silent drop.
 //
-// PURE: string transformation only — no I/O, no os/exec, no eval (T-21-05); the
-// curl bytes are parsed by the cmd tier into these JSON-tagged types (D-08).
+// PURE: string transformation only — no I/O, no os/exec, no eval; the
+// curl bytes are parsed by the cmd tier into these JSON-tagged types.
 package recall
 
 import (
@@ -49,7 +49,7 @@ type ChatMsg struct {
 
 // linearThread reconstructs the canonical linear conversation by walking from
 // currentID back through each message's ParentID (visited-set cycle guard, so
-// corrupt or malicious chat JSON can never hang the walk — T-21-05), then
+// corrupt or malicious chat JSON can never hang the walk), then
 // reversing to chronological order. Mirrors OWUI's get_message_list verbatim.
 func linearThread(messages map[string]ChatMsg, currentID string) []ChatMsg {
 	var out []ChatMsg
@@ -79,7 +79,7 @@ const (
 
 // stripReasoning removes every <details type="reasoning"…>…</details> span from
 // s, including multiple blocks; an UNCLOSED block is stripped to the end of the
-// string (fail toward dropping thought text, never toward indexing it —
+// string (fail toward dropping thought text, never toward indexing it
 // Pitfall 5). The result is whitespace-trimmed.
 func stripReasoning(s string) string {
 	var b strings.Builder
@@ -100,13 +100,13 @@ func stripReasoning(s string) string {
 	return strings.TrimSpace(b.String())
 }
 
-// RenderTranscript renders one chat as the D-04 transcript document: a header of
+// RenderTranscript renders one chat as the transcript document: a header of
 // "# <title>" and "# <ISO-8601 of created_at> — Open WebUI chat <chat-id>", then
 // the chronological user/assistant turns as "user: …" / "assistant: …" with
 // reasoning blocks stripped from assistant content and non-chat roles omitted.
 // ok=false signals an unreconstructable chat (missing currentId, empty/orphaned
 // message map, or no user/assistant turn at all) — the caller must RECORD the
-// skip; a skip is never a silent drop (D-04).
+// skip; a skip is never a silent drop.
 func RenderTranscript(c ChatDoc) (string, bool) {
 	thread := linearThread(c.History.Messages, c.History.CurrentID)
 
@@ -136,7 +136,7 @@ func RenderTranscript(c ChatDoc) (string, bool) {
 }
 
 // TranscriptFilename is the deterministic per-chat upload filename
-// (villa-recall-<chat-id>.txt, D-04) the clean-replace flow keys on; chat ids are
+// (villa-recall-<chat-id>.txt) the clean-replace flow keys on; chat ids are
 // API-returned values, never user input.
 func TranscriptFilename(chatID string) string {
 	return "villa-recall-" + chatID + ".txt"

@@ -14,8 +14,8 @@ import (
 // MinDiskBytes of free space at DataDir (for model weights) and at least
 // MinMemBytes of available memory (the model's runtime requirement). Standalone
 // `villa preflight` (Run) is model-agnostic and supplies the smallest-installable-
-// model FLOORS here (not the full GTT envelope, which would over-block — WR-02/
-// WR-03); Phase 3 install supplies real per-model weights+KV+headroom numbers via
+// model FLOORS here (not the full GTT envelope, which would over-block — /
+// Phase 3 install supplies real per-model weights+KV+headroom numbers via
 // RunWithResources.
 type ResourceReq struct {
 	MinDiskBytes uint64
@@ -29,7 +29,7 @@ type ResourceReq struct {
 type statfsFunc func(path string) (freeBytes uint64, ok bool)
 
 // liveStatfs reads real free space via syscall.Statfs — structured, locale-proof,
-// and NOT shelling to `df` ("Don't Hand-Roll", T-03-01). It walks up to an
+// and NOT shelling to `df` ("Don't Hand-Roll"). It walks up to an
 // existing ancestor so a not-yet-created data dir still reports its filesystem's
 // free space.
 func liveStatfs(path string) (uint64, bool) {
@@ -80,7 +80,7 @@ func defaultDataDir() string {
 // space. Free disk comes from syscall.Statfs (the injected seam) and free memory
 // from the HostProfile's MemAvailableBytes (the live kernel MemAvailable).
 //
-// Degradation (D-15): if a requirement is unknown (a zero threshold because the
+// Degradation: if a requirement is unknown (a zero threshold because the
 // envelope was Unknown, or MemAvailable/statfs unreadable), that sub-check cannot
 // be evaluated and downgrades to WARN rather than a false BLOCK. A confidently
 // insufficient resource is a true FAIL.

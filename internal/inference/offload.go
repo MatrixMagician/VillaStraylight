@@ -9,7 +9,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
 )
 
-// This file implements the dual offload assert (D-09): two INDEPENDENT signals,
+// This file implements the dual offload assert: two INDEPENDENT signals,
 // both required for a PASS, that together catch the silent-CPU-fallback this whole
 // phase exists to prevent. Either alone is foolable — a server can log a GPU device
 // yet offload nothing, or sysfs can move for unrelated reasons — so a PASS requires
@@ -49,7 +49,7 @@ const (
 )
 
 // scrapeOffloadLog parses captured llama-server stderr for the markers that prove a
-// real Vulkan GPU was selected (D-09.1), rejecting software renderers
+// real Vulkan GPU was selected, rejecting software renderers
 // (llvmpipe/softpipe/lavapipe/swrast via the reused detect.IsSoftwareRendererName).
 // It accepts BOTH llama-server log formats, because the kyuz0 image auto-rebuilds on
 // llama.cpp master and the format drifted:
@@ -61,7 +61,7 @@ const (
 //     GFX1151) (…)" with NO "offloaded N/N" line emitted at the default verbosity.
 //
 // The log signal's claim is "a real RADV GPU was enumerated and selected (not a
-// software renderer)". It is deliberately ONE of the two independent D-09 signals:
+// software renderer)". It is deliberately ONE of the two independent signals:
 // the sysfs GTT-used delta (offloadSysfsDelta) is what proves the weights actually
 // became resident on that device. Both are required for a PASS, so a real-device log
 // + a ~zero sysfs delta still FAILs (GPU present but unused) — coverage the dropped
@@ -97,7 +97,7 @@ func scrapeOffloadLog(stderr string, m ResidencyMarkers) OffloadResult {
 		deviceName = name
 		// Only the Vulkan backend has a software-renderer (llvmpipe) ICD analog; a
 		// backend with no such analog (ROCm) sets RejectSoftwareRenderer=false so this
-		// check is skipped (D-05).
+		// check is skipped.
 		if m.RejectSoftwareRenderer && detect.IsSoftwareRendererName(name) {
 			softwareDevice = name
 		}
@@ -161,7 +161,7 @@ func scrapeOffloadLog(stderr string, m ResidencyMarkers) OffloadResult {
 		}
 	}
 
-	// Partial offload "offloaded N/M" with 0 < N < M → confident FAIL (D-06 / Pitfall 3:
+	// Partial offload "offloaded N/M" with 0 < N < M → confident FAIL (Pitfall 3:
 	// today's scrape only caught offloaded==0, but a partial offload is also a CPU
 	// fallback for the un-offloaded layers). This is GATED on sawOffloadLine && total > 0
 	// so a Vulkan auto-fit run (no "offloaded N/N" line emitted, so total stays 0) still
@@ -175,7 +175,7 @@ func scrapeOffloadLog(stderr string, m ResidencyMarkers) OffloadResult {
 	}
 
 	// A real RADV device was enumerated and selected → log signal PASS. The sysfs
-	// delta is the second, independent residency proof (D-09).
+	// delta is the second, independent residency proof.
 	if sawVulkanDevice {
 		if sawOffloadLine {
 			return OffloadResult{
@@ -225,7 +225,7 @@ func parseOffloadedLayers(line string) (offloaded, total int, ok bool) {
 }
 
 // offloadSysfsDelta classifies the GTT-used before/after delta against the model
-// weight (D-09.2, A1 band). If either read is a typed Unknown the signal degrades
+// weight (A1 band). If either read is a typed Unknown the signal degrades
 // to WARN (never FAIL). The observed delta is recorded for Phase-5 calibration.
 //
 //   - delta ≥ 0.5×weight        → PASS
@@ -291,7 +291,7 @@ func offloadSysfsDelta(before, after detect.Bytes, weightBytes uint64) OffloadRe
 	}
 }
 
-// combineOffload is the dual-assert combiner (D-09): a PASS requires BOTH signals
+// combineOffload is the dual-assert combiner: a PASS requires BOTH signals
 // to PASS. Any FAIL → FAIL (FAIL dominates Unknown). Otherwise any Unknown → WARN.
 // The resulting Verdict carries both typed signals and the observed sysfs delta for
 // the --json contract.

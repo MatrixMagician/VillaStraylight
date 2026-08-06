@@ -1,15 +1,15 @@
 // staleness.go is the typed-Unknown staleness classification of the recall core
-// (D-06, RECALL-03), mirroring memory.Decide's typed-verdict + accumulated-reasons
+// mirroring memory.Decide's typed-verdict + accumulated-reasons
 // shape: Unknown is a DISTINCT state, never a zero. An unevaluable live chat list
 // (OWUI unreachable, listing failed) yields StaleKnown=false with a reason naming
 // WHY — the rendering layer must print "Unknown — could not evaluate", never
-// "0 stale, current" (T-21-04) — while Indexed and the LastIndex* stamps still
+// "0 stale, current" — while Indexed and the LastIndex* stamps still
 // report from the persisted State (they are villa-side truths that hold even when
 // OWUI is down). A partial index run (started stamped, completed empty) is
 // structurally distinguishable from a clean full pass via CompleteRun (Pitfall 8).
 //
 // PURE: no I/O, no clock — the live list, its evaluability, the attachment state,
-// and the persisted State are all injected (D-08).
+// and the persisted State are all injected.
 package recall
 
 // AttachmentState is the typed verdict of "is the recall knowledge base attached
@@ -19,7 +19,7 @@ type AttachmentState string
 
 // The three attachment verdicts: attached (KB present in the served model's
 // meta.knowledge), missing (confidently absent — retrieval is OFF), and unknown
-// (OWUI/model discovery unevaluable — distinct from missing, D-06).
+// (OWUI/model discovery unevaluable — distinct from missing).
 const (
 	AttachmentAttached AttachmentState = "attached"
 	AttachmentMissing  AttachmentState = "missing"
@@ -29,7 +29,7 @@ const (
 // Report is the typed staleness verdict. The diff counts (New/Changed/Deleted/
 // Stale) are ONLY meaningful when StaleKnown is true — a renderer must check
 // StaleKnown before printing them, because a false carries counts of 0 that mean
-// "could not evaluate", never "current" (D-06). Indexed, the LastIndex* stamps,
+// "could not evaluate", never "current". Indexed, the LastIndex* stamps,
 // and CompleteRun are villa-side truths populated from State unconditionally.
 type Report struct {
 	Indexed              int
@@ -55,9 +55,9 @@ func CompleteRun(state State) bool {
 	return state.LastIndexCompletedAt != "" && state.LastIndexCompletedAt >= state.LastIndexStartedAt
 }
 
-// Classify computes the honest staleness report for `recall status` (D-06):
+// Classify computes the honest staleness report for `recall status`:
 // villa-side truths (Indexed, LastIndex*, CompleteRun) come from state
-// unconditionally; the diff counts reuse Plan (never a second copy of the D-05
+// unconditionally; the diff counts reuse Plan (never a second copy of the
 // algebra) when liveKnown, and degrade to StaleKnown=false with an explanatory
 // reason when the live list could not be evaluated. The attachment verdict folds
 // through verbatim. PURE — no I/O, never panics.
@@ -79,15 +79,15 @@ func Classify(live []ChatRef, liveKnown bool, attachment AttachmentState, state 
 	}
 
 	if !liveKnown {
-		// The live list is unevaluable: stale/new/changed/deleted are Unknown —
-		// could not evaluate — NOT 0-and-current (D-06, T-21-04).
+		// The live list is unevaluable: stale/new/changed/deleted are Unknown
+		// could not evaluate — NOT 0-and-current.
 		r.StaleKnown = false
 		r.Reasons = append(r.Reasons,
 			"could not list chats from Open WebUI — the stale count is Unknown, not 0 (indexed/last-indexed still report from villa-side state)")
 		return r
 	}
 
-	p := Plan(live, state) // reuse the D-05 algebra — never duplicate it
+	p := Plan(live, state) // reuse the algebra — never duplicate it
 	r.New = len(p.Adds)
 	r.Changed = len(p.Updates)
 	r.Deleted = len(p.Deletes)

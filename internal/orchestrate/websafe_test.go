@@ -11,7 +11,7 @@ import (
 // websafe_test.go guards the Phase-31 villa-websafe managed-service render: the gated
 // unit golden, the seam-locked distroless image, the config-resolved network identity, the
 // read-only host-binary bind-mount, the fixed-token websafe-serve Exec, the no-host-port
-// PRIV-01 posture, and the 0600 bearer EnvironmentFile secret discipline (T-31-12). It
+// posture, and the 0600 bearer EnvironmentFile secret discipline. It
 // reuses searxngFixtureInput() (WebSearchEnabled, websafe fields + HostVillaPath populated)
 // so the websafe unit renders deterministically.
 
@@ -19,7 +19,7 @@ import (
 // byte-for-byte (regen with -update) and carries the config-resolved container-DNS identity,
 // the EnvironmentFile= secret reference (path only), the read-only host-binary bind-mount,
 // the fixed-token websafe-serve Exec, and the digest-pinned distroless image — with NO host
-// port (GUARD-01 service shape).
+// port (service shape).
 func TestRenderWebsafe(t *testing.T) {
 	units, err := Render(searxngFixtureInput())
 	if err != nil {
@@ -48,7 +48,7 @@ func TestRenderWebsafe(t *testing.T) {
 	}
 }
 
-// TestWebsafeUnitNoSecretLeak (T-31-12): the rendered .container unit carries NO inline
+// TestWebsafeUnitNoSecretLeak: the rendered.container unit carries NO inline
 // secret — no `Environment=EXTERNAL_WEB_LOADER_API_KEY=` line and NOT the secret value
 // itself; only an `EnvironmentFile=` PATH reference. The secret never lands in the 0644 unit.
 func TestWebsafeUnitNoSecretLeak(t *testing.T) {
@@ -61,14 +61,14 @@ func TestWebsafeUnitNoSecretLeak(t *testing.T) {
 		t.Errorf("websafe unit carries an inline Environment=EXTERNAL_WEB_LOADER_API_KEY= literal (T-31-12 leak):\n%s", c.Text)
 	}
 	if strings.Contains(c.Text, "websafe_testsecret_must_not_appear_in_the_0644_unit") {
-		t.Errorf("websafe unit leaked the secret VALUE into the 0644 unit (T-31-12):\n%s", c.Text)
+		t.Errorf("websafe unit leaked the secret VALUE into the 0644 unit:\n%s", c.Text)
 	}
 	if !strings.Contains(c.Text, "EnvironmentFile=") {
 		t.Errorf("websafe unit must reference the secret via EnvironmentFile= (path only):\n%s", c.Text)
 	}
 }
 
-// TestWebsafeUnitNoPublishPort (PRIV-01): the websafe unit publishes NO host port
+// TestWebsafeUnitNoPublishPort: the websafe unit publishes NO host port
 // (container-DNS only on villa.network).
 func TestWebsafeUnitNoPublishPort(t *testing.T) {
 	units, err := Render(searxngFixtureInput())
@@ -78,12 +78,12 @@ func TestWebsafeUnitNoPublishPort(t *testing.T) {
 	c := unitByName(t, units, "villa-websafe.container")
 	for _, bad := range []string{"PublishPort=", "Publish=", "-p "} {
 		if strings.Contains(c.Text, bad) {
-			t.Errorf("websafe unit must not publish a host port (privacy leak, PRIV-01): found %q in:\n%s", bad, c.Text)
+			t.Errorf("websafe unit must not publish a host port (privacy leak): found %q in:\n%s", bad, c.Text)
 		}
 	}
 }
 
-// TestWebsafeSecretEnvFilePathContract (T-31-12 cross-plan contract): the EnvironmentFile=
+// TestWebsafeSecretEnvFilePathContract (cross-plan contract): the EnvironmentFile=
 // path the websafe unit references is the exported WebsafeSecretEnvFilePath() — the exact
 // path Plan 02 writes at 0600. The unit's EnvironmentFile= line must reference THAT path.
 func TestWebsafeSecretEnvFilePathContract(t *testing.T) {
@@ -114,7 +114,7 @@ func TestRenderWebsafeSecretEnv(t *testing.T) {
 	}
 }
 
-// TestRenderWebsafeUsesSharedIdentity (WR-01): the websafe unit derives its
+// TestRenderWebsafeUsesSharedIdentity: the websafe unit derives its
 // container-DNS identity and its Exec --port from the SINGLE home of those literals
 // in internal/config, not from an orchestrate-local const.
 func TestRenderWebsafeUsesSharedIdentity(t *testing.T) {

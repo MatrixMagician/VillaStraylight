@@ -107,7 +107,7 @@ func TestPreflightBlockedWithoutForce(t *testing.T) {
 	}
 }
 
-// TestPreflightConfirmedAbsentGPUBlocks is the WR-04 end-to-end regression: a
+// TestPreflightConfirmedAbsentGPUBlocks is the end-to-end regression: a
 // CONFIRMED-absent Vulkan ICD and an empty /dev/dri enumeration (the probe ran and
 // found nothing — KnownStr("") / KnownInt(0)) must drive PRE-01 to a BLOCK FAIL and
 // map to exit 1, NOT downgrade to WARN/exit 2. This is the silent-CPU-fallback gate.
@@ -163,7 +163,7 @@ func TestPreflightBackendROCmOffHardware(t *testing.T) {
 }
 
 // TestPreflightStandalonePathUnchanged confirms the default (no --backend) path
-// still renders the v1.0 PRE-0N host checks and not the ROCm rows (D-03).
+// still renders the v1.0 PRE-0N host checks and not the ROCm rows.
 func TestPreflightStandalonePathUnchanged(t *testing.T) {
 	var buf bytes.Buffer
 	renderPreflight(&buf, passResults(), false, false, false)
@@ -183,7 +183,7 @@ func TestPreflightJSONMode(t *testing.T) {
 	}
 }
 
-// TestPreflightMemoryGateAppendsRows is the CTRL-06/D-06 memory-ON half: with
+// TestPreflightMemoryGateAppendsRows is the CTRL-06/ memory-ON half: with
 // the memory gate seam reporting enabled, the rendered preflight output carries
 // the MEM-PRE-disk + MEM-PRE-headroom rows AFTER the standalone results,
 // flowing through the unchanged renderPreflight + exit constants.
@@ -212,8 +212,8 @@ func TestPreflightMemoryGateAppendsRows(t *testing.T) {
 	}
 }
 
-// TestLiveMemoryGateOffPath is the CTRL-06/D-06/T-22-08 memory-OFF half: an
-// absent config (fail-soft) and a persisted memory-off config both yield nil —
+// TestLiveMemoryGateOffPath is the CTRL-06/ memory-OFF half: an
+// absent config (fail-soft) and a persisted memory-off config both yield nil
 // nothing is appended, so the memory-off output stays byte-identical to v1.2
 // (the frozen preflight goldens are the net) and the verb gains no error path.
 // The memory-ON live path returns exactly the two MEM-PRE checks in order.
@@ -229,7 +229,7 @@ func TestLiveMemoryGateOffPath(t *testing.T) {
 		t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 		cfg := config.DefaultVillaConfig()
 		if cfg.MemoryEnabled {
-			t.Fatal("DefaultVillaConfig must be memory-off (D-04)")
+			t.Fatal("DefaultVillaConfig must be memory-off")
 		}
 		if err := config.SaveVilla(cfg); err != nil {
 			t.Fatalf("save config: %v", err)

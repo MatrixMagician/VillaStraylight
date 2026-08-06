@@ -1,19 +1,19 @@
 package main
 
-// backup.go wires `villa backup` (BAK-01): a single self-describing local .tar of
+// backup.go wires `villa backup`: a single self-describing local.tar of
 // the recreatable workspace state — config.toml + the Open WebUI data volume +
 // usage.json + the single bench-reports.jsonl + a manifest of versions, both image
-// digests (seam-sourced — never a literal, D-10), store schema versions
+// digests (seam-sourced — never a literal), store schema versions
 // (accessor-sourced), per-entry SHA-256 checksums, and the excluded model
-// identities for re-pull. Model WEIGHTS are excluded (re-pullable; BAK-01).
+// identities for re-pull. Model WEIGHTS are excluded (re-pullable).
 //
 // The pure quiesce→export→assemble→restart orchestration lives in internal/backup
 // (Backup); this file is the thin cobra caller + liveBackupDeps wiring: podman
-// volume export via the shared cmd-tier fixed-arg seam (podman_volume.go, D-02),
+// volume export via the shared cmd-tier fixed-arg seam (podman_volume.go),
 // service stop/start via orchestrate.NewSystemd, file reads via os.ReadFile, and
 // the 0600 traversal-guarded output file the archive is written to. runBackup
 // RETURNS the exit code (the RunE wrapper calls os.Exit), mirroring runUninstall.
-// --json is intentionally NOT implemented this phase (D-13, deferred).
+// --json is intentionally NOT implemented this phase (deferred).
 
 import (
 	"fmt"
@@ -38,7 +38,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/usage"
 )
 
-// backupTimestamp returns an FS-safe timestamp for the default archive name (D-04):
+// backupTimestamp returns an FS-safe timestamp for the default archive name:
 // no ':' (which is illegal on some filesystems and confuses shells) — RFC3339-basic
 // with colons replaced, e.g. 20260607T142233Z.
 func backupTimestamp(t time.Time) string {
@@ -51,7 +51,7 @@ func defaultBackupName(t time.Time) string {
 	return fmt.Sprintf("villa-backup-%s.tar", backupTimestamp(t))
 }
 
-// newBackup builds `villa backup`: produce the single self-describing .tar (BAK-01).
+// newBackup builds `villa backup`: produce the single self-describing.tar.
 func newBackup() *cobra.Command {
 	var output string
 	cmd := &cobra.Command{
@@ -78,7 +78,7 @@ func newBackup() *cobra.Command {
 // gathers the seam-/accessor-sourced BackupInput, drives the pure Backup orchestrator
 // over liveBackupDeps, and RETURNS the exit code. The archive is assembled in a
 // same-dir temp file and renamed onto the destination only after a fully-successful
-// write (WR-04): a mid-backup failure removes only the temp — a pre-existing archive
+// write: a mid-backup failure removes only the temp — a pre-existing archive
 // at the output path is never truncated or deleted.
 func runBackup(cmd *cobra.Command, output string, d backup.Deps) int {
 	out := cmd.OutOrStdout()
@@ -107,7 +107,7 @@ func runBackup(cmd *cobra.Command, output string, d backup.Deps) int {
 		return exitBlocked
 	}
 
-	// Resolve the inference image digest from the SEAM (never a literal — D-10).
+	// Resolve the inference image digest from the SEAM (never a literal).
 	be, err := inference.BackendFor(cfg.Backend)
 	if err != nil {
 		fmt.Fprintf(errOut, "backup: %v\n", err)
@@ -122,7 +122,7 @@ func runBackup(cmd *cobra.Command, output string, d backup.Deps) int {
 	}
 
 	// Stage the archive in a SAME-DIR temp file and os.Rename it onto absOut only
-	// after a fully-successful assembly (review WR-04): re-using an output path
+	// after a fully-successful assembly (review): re-using an output path
 	// (e.g. a cron'd `villa backup -o ~/backups/villa-latest.tar`) must NEVER
 	// destroy the PREVIOUS archive on a mid-backup failure — the old
 	// O_TRUNC-then-remove flow left the operator with ZERO backups whenever any
@@ -142,7 +142,7 @@ func runBackup(cmd *cobra.Command, output string, d backup.Deps) int {
 	tmpVol, err := os.CreateTemp(parent, ".villa-owui-vol-*.tar")
 	if err != nil {
 		_ = f.Close()
-		_ = os.Remove(tmpOutPath) // the prior archive at absOut stays untouched (WR-04)
+		_ = os.Remove(tmpOutPath) // the prior archive at absOut stays untouched
 		fmt.Fprintf(errOut, "backup: temp volume file: %v\n", err)
 		return exitBlocked
 	}
@@ -150,7 +150,7 @@ func runBackup(cmd *cobra.Command, output string, d backup.Deps) int {
 	_ = tmpVol.Close()
 	defer func() { _ = os.Remove(tmpVolPath) }()
 
-	// Optional Phase-23 qdrant volume entry (D-05): gated on cfg.MemoryEnabled AND a
+	// Optional Phase-23 qdrant volume entry: gated on cfg.MemoryEnabled AND a
 	// fail-soft existence check over the podmanVolume seam — memory off or volume
 	// absent means the entry is honestly omitted (and the core makes ZERO qdrant
 	// Deps calls). The temp tar clones the OWUI same-dir frame above; it holds
@@ -163,7 +163,7 @@ func runBackup(cmd *cobra.Command, output string, d backup.Deps) int {
 		tmpQdrant, err := os.CreateTemp(parent, ".villa-memory-vol-*.tar")
 		if err != nil {
 			_ = f.Close()
-			_ = os.Remove(tmpOutPath) // the prior archive at absOut stays untouched (WR-04)
+			_ = os.Remove(tmpOutPath) // the prior archive at absOut stays untouched
 			fmt.Fprintf(errOut, "backup: temp qdrant volume file: %v\n", err)
 			return exitBlocked
 		}
@@ -192,21 +192,21 @@ func runBackup(cmd *cobra.Command, output string, d backup.Deps) int {
 		FileMissing:         os.IsNotExist,
 	}
 	if includeQdrant {
-		// Seam-sourced volume identity — NEVER a literal here (D-05).
+		// Seam-sourced volume identity — NEVER a literal here.
 		in.QdrantVolumeName = orchestrate.QdrantVolumeName()
 		in.TempQdrantTar = tmpQdrantPath
 	}
 	if cfg.MemoryEnabled {
-		// RecallStatePath is gated on cfg.MemoryEnabled (review WR-03), mirroring
+		// RecallStatePath is gated on cfg.MemoryEnabled (review), mirroring
 		// the qdrant entry: a memory-OFF backup must produce an archive IDENTICAL
 		// to the v1 layout even when a leftover recall-state.json exists from a
 		// previously-enabled memory stack. Including the orphan entry while the
 		// manifest omits recall_schema_version would let it escape the fail-closed
 		// blockOnNewerStore gate on restore. An absent file is still skipped by the
-		// core's optional-entry FileMissing logic (D-06).
+		// core's optional-entry FileMissing logic.
 		in.RecallStatePath = recall.RecallStatePath()
 		// Manifest embedding identity + recall store schema, recorded ONLY on a
-		// memory-on backup (D-06/D-08): config is the single source of truth for the
+		// memory-on backup: config is the single source of truth for the
 		// embedding model/dim; the recall schema comes from its accessor. A
 		// memory-off backup omits all three (the "not recorded" convention) — note
 		// cfg self-heals embedding defaults even when memory is off, so this gate is
@@ -216,7 +216,7 @@ func runBackup(cmd *cobra.Command, output string, d backup.Deps) int {
 		in.RecallSchemaVersion = recall.SchemaVersion()
 	}
 	if cfg.AgentEnabled {
-		// Phase-28 coding-agent coverage (SURF-03/D-08), agent-on ONLY: the rendered
+		// Phase-28 coding-agent coverage, agent-on ONLY: the rendered
 		// crush.json goes INTO the archive (sourced from crushConfigPath() — an absent
 		// file is skipped by the core's FileMissing logic), and the agent binary
 		// IDENTITY (on-disk sha256 + pinned version + policy pin sha256) is recorded in
@@ -227,7 +227,7 @@ func runBackup(cmd *cobra.Command, output string, d backup.Deps) int {
 		} else {
 			fmt.Fprintf(errOut, "backup: warning: cannot resolve crush.json path (agent config not archived): %v\n", perr)
 		}
-		// On-disk binary identity (the BinaryAbsent signal degrades to an empty sha —
+		// On-disk binary identity (the BinaryAbsent signal degrades to an empty sha
 		// the identity record is still written from the pinned policy version/pin).
 		binSHA, _, herr := hashFileSHA256(agentBinPath())
 		if herr != nil {
@@ -241,12 +241,12 @@ func runBackup(cmd *cobra.Command, output string, d backup.Deps) int {
 		}
 	}
 	if cfg.WebSearchEnabled {
-		// Phase-34 web-search coverage (SURF-07), web-search-on ONLY: the rendered
+		// Phase-34 web-search coverage, web-search-on ONLY: the rendered
 		// SearXNG settings.yml provenance goes INTO the archive (sourced from
 		// orchestrate.SearXNGSettingsFilePath() — an absent file is skipped by the core's
 		// FileMissing logic). The WebSearchEnabled GATE itself is already archived via
 		// config.toml; this is the settings.yml provenance only. Fetched EPHEMERAL web
-		// content is NEVER archived (T-34-06). A web-search-off backup leaves
+		// content is NEVER archived. A web-search-off backup leaves
 		// SearxngSettingsPath empty so the archive stays v3-identical.
 		if settingsPath, perr := orchestrate.SearXNGSettingsFilePath(); perr == nil {
 			in.SearxngSettingsPath = settingsPath
@@ -263,7 +263,7 @@ func runBackup(cmd *cobra.Command, output string, d backup.Deps) int {
 	}
 	if rerr != nil {
 		// Remove only the torn TEMP file — a pre-existing archive at absOut is
-		// preserved (WR-04): a failed backup must never destroy the previous one.
+		// preserved: a failed backup must never destroy the previous one.
 		_ = os.Remove(tmpOutPath)
 		fmt.Fprintf(errOut, "backup: failed at %s: %v\n", res.FailedStep, rerr)
 		return exitBlocked
@@ -278,7 +278,7 @@ func runBackup(cmd *cobra.Command, output string, d backup.Deps) int {
 	}
 
 	fmt.Fprintf(out, "backup written to %s\n", absOut)
-	// Surface a failed best-effort service restart (IN-01): the backup succeeded,
+	// Surface a failed best-effort service restart: the backup succeeded,
 	// but a service is likely down — warn rather than exit 0 silently.
 	if res.RestartWarning != "" {
 		fmt.Fprintf(errOut, "warning: %s\n", res.RestartWarning)
@@ -292,7 +292,7 @@ func runBackup(cmd *cobra.Command, output string, d backup.Deps) int {
 	}
 	switch {
 	case in.RecallStatePath == "":
-		// Memory off ⇒ the entry was never offered to the core (WR-03 gate).
+		// Memory off ⇒ the entry was never offered to the core (gate).
 		fmt.Fprintf(out, "memory: recall state not included (memory disabled)\n")
 	default:
 		if _, serr := os.Stat(in.RecallStatePath); serr == nil {
@@ -307,7 +307,7 @@ func runBackup(cmd *cobra.Command, output string, d backup.Deps) int {
 			fmt.Fprintf(out, "  - %s (quant %s, ctx %s)\n", m.ID, m.Quant, m.Ctx)
 		}
 	}
-	// Honest coding-agent reporting (Phase 28, SURF-03/D-08): the rendered crush.json
+	// Honest coding-agent reporting (Phase 28): the rendered crush.json
 	// is archived (if present); the agent binary is identity-recorded for re-stage but
 	// its bytes are EXCLUDED, exactly like model weights.
 	switch {
@@ -320,9 +320,9 @@ func runBackup(cmd *cobra.Command, output string, d backup.Deps) int {
 			fmt.Fprintf(out, "coding agent: crush.json not included (no rendered crush.json)\n")
 		}
 	}
-	// Honest web-search reporting (Phase 34, SURF-07): the rendered settings.yml
+	// Honest web-search reporting (Phase 34): the rendered settings.yml
 	// provenance is archived (if present). Fetched ephemeral web content is never
-	// archived by design (T-34-06).
+	// archived by design.
 	switch {
 	case in.SearxngSettingsPath == "":
 		fmt.Fprintf(out, "web search: not included (web search disabled)\n")
@@ -371,7 +371,7 @@ func knownOrEmpty(known bool, v string) string {
 }
 
 // excludedModelIdentities records the IDENTITY of the model weight the backup
-// excludes (BAK-01), sourced from config (the single source of truth) so restore can
+// excludes, sourced from config (the single source of truth) so restore can
 // report it for re-pull. Identity only — never any content. An empty config model
 // yields no record.
 func excludedModelIdentities(cfg config.VillaConfig) []backup.ExcludedModel {
@@ -414,7 +414,7 @@ func liveBackupDeps() backup.Deps {
 			return nil
 		},
 		ReadFile: os.ReadFile,
-		// OpenFile is the WR-06 streaming seam: the exported volume tars (the one
+		// OpenFile is the streaming seam: the exported volume tars (the one
 		// entry class that can reach many GiB) are checksummed and tar-copied via
 		// io.Copy from this reader instead of being buffered whole in memory.
 		OpenFile: func(path string) (io.ReadCloser, int64, error) {

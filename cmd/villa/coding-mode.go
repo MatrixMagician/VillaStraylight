@@ -23,7 +23,7 @@ import (
 // coding-mode liveProve twin (the cutover gate, ConfigContext = the resolved agent ctx),
 // the cobra surface (enter/exit), the Result→exit mapping, and liveCodingModeDeps.
 //
-// CRITICAL — backend-marker discipline (T-25-07): this file must stay LITERAL-FREE of
+// CRITICAL — backend-marker discipline: this file must stay LITERAL-FREE of
 // backend marker tokens (the per-backend residency device token, the HSA override env
 // var, the GPU-fault abort string, and any image/device literal) AND of coding-flag
 // literals (--jinja / --cache-reuse / sampling). Backend markers arrive ONLY through
@@ -32,14 +32,14 @@ import (
 // TestSeamGrepGate WALKS cmd/villa and fails CI on any such leak. Do NOT paste markers
 // or coding flags here.
 //
-// Decisions realized: D-06 (explicit verb shape coding-mode enter|exit; NOT `villa code`),
-// D-08 (exit symmetric to enter), D-09 (under-load prove; idle-green is never green),
-// D-10 (swap vs shared surfaced, never silently degraded).
+// Decisions realized: (explicit verb shape coding-mode enter|exit; NOT `villa code`),
+// (exit symmetric to enter), (under-load prove; idle-green is never green),
+// (swap vs shared surfaced, never silently degraded).
 
 // codingProveTimeout bounds the cutover readiness poll (and, by the shared deadline
 // context, the whole prove). It mirrors backend.go's proveTimeout provenance (seeded
 // from inference's defaultReadyTimeout) — a server that never becomes ready before this
-// deadline is a PROVE FAIL → rollback, NEVER an infinite wait (D-09).
+// deadline is a PROVE FAIL → rollback, NEVER an infinite wait.
 const codingProveTimeout = 5 * time.Minute
 
 // liveCodingProve is the injected cutover gate (codingmode.Deps.Prove). It is a TWIN of
@@ -53,17 +53,18 @@ const codingProveTimeout = 5 * time.Minute
 //	(b) a REAL generation probe via inference.GenerationProbe (tokens>0), with
 //	    detect.GPUBusyPercent() sampled DURING the decode (kept max),
 //	(c) residency proof via inference.RunningOffloadVerdict fed the backend's
-//	    ResidencyProof() markers — markers stay behind the seam (T-25-07).
+//
+// ResidencyProof markers — markers stay behind the seam.
 //
 // It maps ONLY inference.StatusPass → codingmode.ProveStatusPass; any other verdict
-// (including ready+health-200-but-residency-FAIL, D-09) is a "fail" → the core rolls back.
+// (including ready+health-200-but-residency-FAIL) is a "fail" → the core rolls back.
 func liveCodingProve(ctx context.Context, _ codingmode.Direction) codingmode.ProveVerdict {
 	cfg, err := config.LoadVilla()
 	if err != nil {
 		return codingmode.ProveVerdict{Status: "fail", Detail: "load config: " + err.Error()}
 	}
 
-	// Resolve the backend fail-closed (D-02): an unknown backend is a prove fail, never a
+	// Resolve the backend fail-closed: an unknown backend is a prove fail, never a
 	// silent fallback. backend.ResidencyProof() is the ONLY source of backend markers.
 	backend, err := inference.BackendFor(cfg.Backend)
 	if err != nil {
@@ -134,7 +135,7 @@ sampleLoop:
 
 	// (c) Residency proof under load. ConfigContext = servedCtx (the resolved AgentCtx for
 	// coding mode, Pitfall 4) so the residency fit-math matches the rendered single -c.
-	// Markers come ONLY from backend.ResidencyProof() (keeps this file literal-free, T-25-07).
+	// Markers come ONLY from backend.ResidencyProof (keeps this file literal-free).
 	journal, _ := orchestrate.NewSystemd().ResidencyJournal(installServiceName)
 	v := inference.RunningOffloadVerdict(inference.RunningOffloadInput{
 		JournalText:    journal,
@@ -158,7 +159,7 @@ sampleLoop:
 const codingBusySampleInterval = 100 * time.Millisecond
 
 // codingServedTarget returns the model id + ctx the running unit serves: the coder model
-// at the resolved agent ctx when coding mode is on (D-10 swap), otherwise the chat model
+// at the resolved agent ctx when coding mode is on (swap), otherwise the chat model
 // at the chat ctx. On shared residency (CoderModel empty) the chat model is served with
 // the agent-ctx render delta, so the served model is the chat model but the served ctx is
 // the resolved agent ctx.
@@ -201,7 +202,7 @@ func codingWeightBytes(_ config.VillaConfig, servedModel string) uint64 {
 }
 
 // ---------------------------------------------------------------------------
-// coding-mode noun (CMODE-02, D-06): `villa coding-mode enter` / `villa coding-mode exit`.
+// coding-mode noun: `villa coding-mode enter` / `villa coding-mode exit`.
 // Two explicit subcommands — NOT `villa code` (reserved for the Phase-26 agent launcher).
 // Cloned from the backend.go set noun: RunE returns the mapped exit code (body RETURNS
 // the int so tests assert output+code without a subprocess), and the Result→exit mapping
@@ -265,7 +266,7 @@ func newCodingModeExit() *cobra.Command {
 
 // runCodingMode delegates to codingmode.Run and maps the typed Result to exit codes +
 // messages (clone of runBackendSet). It surfaces the residency mode (swap vs shared) on a
-// successful enter so a shared cutover is never silently presented as a swap (D-10), and
+// successful enter so a shared cutover is never silently presented as a swap, and
 // the honest rollback-incomplete Reason verbatim on a rollback (Pitfall 5). The body
 // returns the int (no os.Exit) so tests assert output+code.
 func runCodingMode(cmd *cobra.Command, dir codingmode.Direction, d *codingmode.Deps) int {
@@ -310,7 +311,7 @@ func runCodingMode(cmd *cobra.Command, dir codingmode.Direction, d *codingmode.D
 		return exitPass
 	default: // Switched
 		if dir == codingmode.Enter {
-			// Surface the residency mode so shared is never silent (D-10).
+			// Surface the residency mode so shared is never silent.
 			switch res.Residency {
 			case codingmode.ResidencyShared:
 				fmt.Fprintf(out, "entered coding mode (shared residency: tool-calling render delta applied to the chat model %q — no model swap) — %s restarted, cutover proven under load\n",
@@ -341,7 +342,7 @@ func liveCodingModeDeps() *codingmode.Deps {
 		LoadConfig:         config.LoadVilla,
 		SaveConfig:         config.SaveVilla,
 		// ResolveCoder: compose recommend.Pick(...).Coder (the agent-ctx fit-math + residency
-		// verdict, D-04/D-10) — fit-guard FIRST (Pitfall 4). A non-fitting coder at agent ctx
+		// verdict) — fit-guard FIRST (Pitfall 4). A non-fitting coder at agent ctx
 		// is a refuse-with-remediation; the residency verdict (swap/shared) is a PURE fit-math
 		// output, never a preference.
 		ResolveCoder: func(cfg config.VillaConfig) (codingmode.CoderTarget, bool, string) {
@@ -350,11 +351,11 @@ func liveCodingModeDeps() *codingmode.Deps {
 				return codingmode.CoderTarget{}, false, "catalog load failed"
 			}
 			// Persisted memory inputs (fail-soft): the coder fit must see the same shrunken
-			// envelope the user was recommended (D-01/D-05 ordering).
+			// envelope the user was recommended (ordering).
 			rec := recommend.Pick(detect.Probe(), cat, recommend.Overrides{}, liveLoadedMemoryInputs(), liveLoadedWebSearchInputs())
 			coder := rec.Coder
 			if coder.Residency == codingmode.ResidencyShared {
-				// Shared residency (D-10): no coder fits standalone — apply render-delta-only on
+				// Shared residency: no coder fits standalone — apply render-delta-only on
 				// the chat endpoint. Still a valid enter target (NOT a refusal); surfaced as shared.
 				return codingmode.CoderTarget{
 					AgentCtx:  coder.AgentCtx,
@@ -412,7 +413,7 @@ func liveCodingModeDeps() *codingmode.Deps {
 		// resolve the coder catalog entry by cfg.CoderModel (swap) or serve the chat model
 		// (shared), translate catalog.AgentSampling → inference.Sampling, and populate
 		// RenderInput.CodingMode + CoderAgentCtx (the catalog import lives HERE, never in the
-		// pure renderer — D-05). When off, leave them nil ⇒ off-path render is byte-identical.
+		// pure renderer). When off, leave them nil ⇒ off-path render is byte-identical.
 		ReconcileAndWrite: func(c config.VillaConfig) (bool, error) {
 			dir, err := quadletUnitDir()
 			if err != nil {
@@ -478,10 +479,10 @@ func liveCodingModeDeps() *codingmode.Deps {
 }
 
 // codingDescriptor builds the inference.CodingModeSpec render descriptor from the served
-// coder catalog entry (D-05 translation point — the catalog→inference translation lives in
+// coder catalog entry (translation point — the catalog→inference translation lives in
 // the live wiring, never in the pure renderer). It resolves the served entry, translates
 // its catalog.AgentSampling → inference.Sampling, and carries the fail-closed
-// CacheReuseSafe gate (D-03). No coding-flag literals here — those live behind the seam.
+// CacheReuseSafe gate. No coding-flag literals here — those live behind the seam.
 func codingDescriptor(_ config.VillaConfig, servedModel string) (*inference.CodingModeSpec, error) {
 	cat, _, err := catalog.Load(modelCatalogPath)
 	if err != nil {

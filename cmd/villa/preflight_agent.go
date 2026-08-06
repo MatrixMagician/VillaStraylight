@@ -9,7 +9,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/recommend"
 )
 
-// preflight_agent.go is the v1.4 CODING-AGENT preflight gate (INSTALL-04 / D-09):
+// preflight_agent.go is the v1.4 CODING-AGENT preflight gate:
 // runAgentChecks appends honest agent-specific CheckResults to the existing install
 // gate, but ONLY when the addon is enabled (the caller — install.go — gates the fold
 // on loadedAgentEnabled, so an agent-off preflight stays byte-identical). It is the
@@ -17,16 +17,16 @@ import (
 // because the preflight `pass`/`warn`/`fail` builders are package-private and the
 // agent gate needs the recommendation (rec.Coder) + the staged-footprint size that the
 // install flow already resolves. It builds CheckResult literals directly, exactly as
-// the agent gate's honest-gating decision D-09 requires:
+// the agent gate's honest-gating decision requires:
 //
 //   - disk BLOCK         — free bytes < (staged coder GGUF + pinned binary) → TierBlock/
 //     StatusFail (refuse-with-remediation). An unprobeable free-disk signal degrades to
-//     a typed-Unknown WARN, NEVER a false BLOCK (the D-09 honesty rule).
+// a typed-Unknown WARN, NEVER a false BLOCK (the honesty rule).
 //   - envelope BLOCK     — rec.Coder.Fits == false → TierBlock/StatusFail at agent ctx;
 //     the basis is READ from rec.Coder (TotalBytes/Residency), NEVER re-derived (the
 //     anti-pattern guard — the gate cannot drift from the Phase-24 pickCoder output).
 //   - cloud-credential   — a present cloud-LLM provider key in the env → TierWarn naming
-//     the var(s) + the neutralization; absence → a single PASS. NEVER a BLOCK (D-09):
+// the var(s) + the neutralization; absence → a single PASS. NEVER a BLOCK:
 //     the rendered loopback-only provider + disable_default_providers + the egress proof
 //     already neutralize a stray key structurally; preflight only SURFACES the risk.
 //
@@ -81,7 +81,7 @@ type agentCheckInput struct {
 	lookupEnv func(key string) (string, bool)
 }
 
-// runAgentChecks is the PURE D-09 honest-gating surface: it maps the resolved agent
+// runAgentChecks is the PURE honest-gating surface: it maps the resolved agent
 // facts to a stable-ordered []preflight.CheckResult (disk, envelope, cloud-credential).
 // It is unit-testable off-hardware via the injected seams and reads rec.Coder WITHOUT
 // re-deriving the fit. The caller (install.go) appends the result to the install gate
@@ -98,7 +98,7 @@ func runAgentChecks(profile detect.HostProfile, rec recommend.Recommendation, in
 // agentDiskCheck is AGENT-PRE-disk (BLOCK): free disk at the models dir must clear the
 // staged coder GGUF + pinned binary footprint, or the pre-stage fills the disk. A
 // confident shortage is a FAIL (refuse-with-remediation); an unprobeable free-disk
-// signal (statfs failed) degrades to a typed-Unknown WARN — NEVER a false BLOCK (D-09).
+// signal (statfs failed) degrades to a typed-Unknown WARN — NEVER a false BLOCK.
 func agentDiskCheck(in agentCheckInput) preflight.CheckResult {
 	const name = "Coding-agent staging disk space"
 	freeDisk, ok := in.statfs(in.dataDir)
@@ -138,7 +138,7 @@ func agentDiskCheck(in agentCheckInput) preflight.CheckResult {
 
 // agentEnvelopeCheck is AGENT-PRE-envelope (BLOCK): the host must fit the coder at its
 // agent-profile context. The verdict is READ from rec.Coder (the Phase-24 pickCoder
-// output) — NEVER re-derived (D-09; the explicit anti-pattern). rec.Coder.Fits == false
+// output) — NEVER re-derived (the explicit anti-pattern). rec.Coder.Fits == false
 // (the no-fit / "shared" residency) is the BLOCK basis; Fits == true is a PASS, with the
 // detail citing rec.Coder.TotalBytes + the residency so the basis is single-sourced.
 func agentEnvelopeCheck(rec recommend.Recommendation) preflight.CheckResult {
@@ -168,7 +168,7 @@ func agentEnvelopeCheck(rec recommend.Recommendation) preflight.CheckResult {
 }
 
 // agentCloudCredCheck is AGENT-PRE-cloud-cred (WARN): a present cloud-LLM provider key
-// in the environment is the silent-fallback risk surface (D-09 / Pitfall 2). Presence →
+// in the environment is the silent-fallback risk surface (Pitfall 2). Presence →
 // a WARN naming the found var(s) + the neutralization; absence → a single PASS. It is
 // NEVER a BLOCK — the rendered loopback-only provider + disable_default_providers + the
 // egress proof already neutralize a stray key structurally; preflight only surfaces it.

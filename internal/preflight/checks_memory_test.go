@@ -24,13 +24,13 @@ func memGateInput(model string, minDisk uint64, root volumeRootFn, statfs statfs
 	}
 }
 
-// pinnedEmbedModel is the D-08 pinned embedding model id whose footprint is a
+// pinnedEmbedModel is the pinned embedding model id whose footprint is a
 // Known 512 MiB — the headroom tests pivot around it.
 const pinnedEmbedModel = "nomic-embed-text-v1.5"
 
 // TestRunMemoryOrderAndIDs guards the stable check ordering contract: RunMemory
 // returns exactly [MEM-PRE-disk, MEM-PRE-headroom], both TierBlock, so tables
-// and goldens downstream are deterministic (D-06).
+// and goldens downstream are deterministic.
 func TestRunMemoryOrderAndIDs(t *testing.T) {
 	p := memProfile(64*gib, true)
 	in := memGateInput(pinnedEmbedModel, gib, volumeRootReturning("/tmp", true), statfsReturning(100*gib, true))
@@ -49,7 +49,7 @@ func TestRunMemoryOrderAndIDs(t *testing.T) {
 }
 
 // TestRunMemoryDefaultDiskFloor guards the live-default binding: a zero
-// MinDiskBytes resolves to the named 1 GiB minVectorDiskFloorBytes const —
+// MinDiskBytes resolves to the named 1 GiB minVectorDiskFloorBytes const
 // never an accidental always-pass zero floor.
 func TestRunMemoryDefaultDiskFloor(t *testing.T) {
 	p := memProfile(64*gib, true)
@@ -72,7 +72,7 @@ func TestRunMemoryDefaultDiskFloor(t *testing.T) {
 }
 
 // TestCheckVectorDisk pins every MEM-PRE-disk branch: PASS, confident-shortage
-// FAIL, resolver-unevaluable WARN, statfs-unevaluable WARN (D-06/D-07) — and
+// FAIL, resolver-unevaluable WARN, statfs-unevaluable WARN — and
 // that every non-PASS row carries refuse-with-remediation text.
 func TestCheckVectorDisk(t *testing.T) {
 	p := memProfile(64*gib, true)
@@ -105,7 +105,7 @@ func TestCheckVectorDisk(t *testing.T) {
 		}
 	})
 
-	t.Run("resolver failure downgrades to WARN (typed-Unknown, D-07)", func(t *testing.T) {
+	t.Run("resolver failure downgrades to WARN (typed-Unknown)", func(t *testing.T) {
 		in := memGateInput(pinnedEmbedModel, gib, volumeRootReturning("", false), statfsReturning(10*gib, true))
 		got := RunMemory(p, in)[0]
 		if got.Tier != TierBlock || got.Status != StatusWarn {
@@ -119,7 +119,7 @@ func TestCheckVectorDisk(t *testing.T) {
 		}
 	})
 
-	t.Run("statfs failure downgrades to WARN (typed-Unknown, D-07)", func(t *testing.T) {
+	t.Run("statfs failure downgrades to WARN (typed-Unknown)", func(t *testing.T) {
 		in := memGateInput(pinnedEmbedModel, gib, volumeRootReturning("/volroot", true), statfsReturning(0, false))
 		got := RunMemory(p, in)[0]
 		if got.Tier != TierBlock || got.Status != StatusWarn {
@@ -135,7 +135,7 @@ func TestCheckVectorDisk(t *testing.T) {
 }
 
 // TestCheckEmbedHeadroom pins every MEM-PRE-headroom branch: PASS, confident
-// shortage FAIL, Unknown-MemAvailable WARN, and the D-02 conservative-default
+// shortage FAIL, Unknown-MemAvailable WARN, and the conservative-default
 // floor for an unrecognized embedding model — never a zero floor, never a
 // false-green.
 func TestCheckEmbedHeadroom(t *testing.T) {
@@ -167,7 +167,7 @@ func TestCheckEmbedHeadroom(t *testing.T) {
 		}
 	})
 
-	t.Run("Unknown MemAvailable downgrades to WARN with provenance (D-07)", func(t *testing.T) {
+	t.Run("Unknown MemAvailable downgrades to WARN with provenance", func(t *testing.T) {
 		root, statfs := diskOK()
 		in := memGateInput(pinnedEmbedModel, gib, root, statfs)
 		got := RunMemory(memProfile(0, false), in)[1]
@@ -179,7 +179,7 @@ func TestCheckEmbedHeadroom(t *testing.T) {
 		}
 	})
 
-	t.Run("running-context shortage downgrades to WARN, never a double-counted FAIL (WR-03)", func(t *testing.T) {
+	t.Run("running-context shortage downgrades to WARN, never a double-counted FAIL", func(t *testing.T) {
 		root, statfs := diskOK()
 		in := memGateInput(pinnedEmbedModel, gib, root, statfs)
 		in.EmbedderActive = true
@@ -205,7 +205,7 @@ func TestCheckEmbedHeadroom(t *testing.T) {
 		}
 	})
 
-	t.Run("unrecognized model evaluates against the conservative default floor (D-02)", func(t *testing.T) {
+	t.Run("unrecognized model evaluates against the conservative default floor", func(t *testing.T) {
 		root, statfs := diskOK()
 		in := memGateInput("no-such-embedder", gib, root, statfs)
 		floor := memory.ConservativeFootprintBytes()

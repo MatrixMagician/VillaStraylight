@@ -18,7 +18,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/usage"
 )
 
-// dashboard.go is the thin cobra caller for `villa dashboard` (DASH-01/DASH-05): it
+// dashboard.go is the thin cobra caller for `villa dashboard`: it
 // loads the loopback dashboard/chat ports from config, composes the SHARED
 // internal/status read-model seam (the same status.Deps `villa status` uses — never a
 // fork), and serves the loopback-only HTTP dashboard. The server (stdlib mux, /api,
@@ -38,7 +38,7 @@ type dashboardDeps struct {
 	// listener is bound; the live wiring calls (*dashboard.Server).ListenAndServe.
 	Serve func(*dashboard.Server) error
 
-	// Performance (DASH-02) + GPU (DASH-03) collector seams the dashboard folds into
+	// Performance + GPU collector seams the dashboard folds into
 	// /api/metrics + /api/gpu. Live wiring scrapes the inference endpoint and reads
 	// amdgpu sysfs; nil seams default (in dashboard.NewServer) to honest "unavailable".
 	Metrics     func() (metrics.PerfSnapshot, bool)
@@ -48,21 +48,21 @@ type dashboardDeps struct {
 	GPUBusy     func() detect.Int
 
 	// Models lists the catalog marked loaded/on-disk/catalog-only with a per-row fit
-	// flag (DASH-04). The live wiring reuses the SAME catalog+config+recommend.Pick
+	// flag. The live wiring reuses the SAME catalog+config+recommend.Pick
 	// fit-math the CLI does; the bool is the availability flag (false on a catalog-load
 	// failure → "No models in catalog").
 	Models func() ([]dashboard.ModelView, bool)
 
 	// SwapDeps is the SHARED guarded swap core the POST /api/models/switch handler folds
-	// (DASH-04). The live wiring is liveSwapDeps() — the IDENTICAL deps `villa model swap`
+	// The live wiring is liveSwapDeps — the IDENTICAL deps `villa model swap`
 	// uses, so the dashboard switch routes through the same security contract.
 	SwapDeps modelswap.Deps
 
-	// Cumulative-usage writer seams (USAGE-02 / D-07). The dashboard /api/metrics scrape
+	// Cumulative-usage writer seams. The dashboard /api/metrics scrape
 	// is the SOLE writer of usage.json: ReadUsage loads the fold's prior, WriteUsage
 	// atomically persists the folded store, ModelID supplies the per-model key (cfg.Model),
 	// and CounterSample scrapes the two monotonic _total counters from the SAME endpoint
-	// already scraped for live tok/s (no new outbound, D-12). Nil seams default (in
+	// already scraped for live tok/s (no new outbound). Nil seams default (in
 	// dashboard.NewServer) to honest no-ops that never write.
 	ReadUsage     func() usage.UsageTotals
 	WriteUsage    func(usage.UsageTotals) error
@@ -79,7 +79,7 @@ func newDashboard() *cobra.Command {
 		Use:   "dashboard",
 		Short: "Serve the loopback-only control dashboard (read-only health + chat link)",
 		Long: "Serve the VillaStraylight control dashboard on 127.0.0.1:<dashboard_port> (loopback only, " +
-			"never all interfaces — PRIV-01). The dashboard folds the SAME internal/status read-model " +
+			"never all interfaces). The dashboard folds the SAME internal/status read-model " +
 			"`villa status` uses (not a fork) and links to Open WebUI on the configured chat port. " +
 			"Strictly local, zero telemetry.",
 		Args: cobra.NoArgs,
@@ -147,7 +147,7 @@ func liveDashboardDeps() (*dashboardDeps, error) {
 	// The inference endpoint is the SAME loopback URL the status seam probes (derived
 	// from the config-resolved backend's container runner, never hard-coded), so
 	// /api/metrics scrapes the exact server villa status reports on. liveStatusDeps is
-	// the SINGLE backend-resolution point (D-03/D-02 fail-closed) — reuse its Endpoint
+	// the SINGLE backend-resolution point (fail-closed) — reuse its Endpoint
 	// rather than resolve the backend a second time.
 	statusDeps, err := liveStatusDeps()
 	if err != nil {
@@ -165,27 +165,27 @@ func liveDashboardDeps() (*dashboardDeps, error) {
 
 		// GPU & Memory (memory-first): the GTT-used headline + the usable unified-memory
 		// envelope (from the authoritative HostProfile envelope, never MemTotal) + the
-		// best-effort iGPU busy% (typed-Unknown → "unavailable" when absent, D-06).
+		// best-effort iGPU busy% (typed-Unknown → "unavailable" when absent).
 		MemUsed:     detect.GTTUsedBytes,
 		MemEnvelope: func() detect.Bytes { return detect.Probe().UsableEnvelopeBytes },
 		GPUBusy:     detect.GPUBusyPercent,
 
-		// Models (DASH-04): the catalog-vs-config list + the SHARED fit-math.
+		// Models: the catalog-vs-config list + the SHARED fit-math.
 		Models: liveModelsView,
 
-		// Swap (DASH-04): the IDENTICAL guarded swap deps `villa model swap` uses, so the
+		// Swap: the IDENTICAL guarded swap deps `villa model swap` uses, so the
 		// dashboard POST routes through the same resolve→fit→pull→save→regenerate→restart
 		// security contract — never a fork.
 		SwapDeps: *liveSwapDeps(),
 
-		// Cumulative usage (USAGE-02 / D-07): the dashboard /api/metrics scrape is the SOLE
+		// Cumulative usage: the dashboard /api/metrics scrape is the SOLE
 		// writer of usage.json. ReadUsage loads the fold's prior via usage.Load over
 		// usage.UsagePath(); WriteUsage persists the folded store via the atomic temp+rename
 		// usage.WriteFileAtomic over the SAME path. ModelID re-reads cfg.Model from config at
 		// scrape time (config is the single source of truth; the dashboard server reads it
 		// inside the usageMu section so the per-model key cannot drift — Pitfall 2). The
-		// counter scrape reuses the SAME loopback `endpoint` already scraped for live tok/s —
-		// no new outbound (D-12).
+		// counter scrape reuses the SAME loopback `endpoint` already scraped for live tok/s
+		// no new outbound.
 		ReadUsage:     liveReadUsageTotals,
 		WriteUsage:    liveWriteUsage,
 		ModelID:       liveModelID,
@@ -196,7 +196,7 @@ func liveDashboardDeps() (*dashboardDeps, error) {
 // liveUsageDeps builds the usage byte-I/O seam over the live store path: ReadAll reads
 // usage.UsagePath() ((nil,nil) when absent so Load fails closed to empty), and WriteAll
 // is the atomic temp+rename usage.WriteFileAtomic. The dashboard is the SOLE writer
-// (D-07), so this WriteAll seam is wired ONLY here (never in the status read path).
+// so this WriteAll seam is wired ONLY here (never in the status read path).
 func liveUsageDeps() usage.Deps {
 	path := usage.UsagePath()
 	return usage.Deps{
@@ -224,7 +224,7 @@ func liveReadUsageTotals() usage.UsageTotals {
 
 // liveWriteUsage atomically persists the folded store via usage.Save (full-file replace,
 // temp+rename, 0600/0700, traversal-guarded). The dashboard server calls this inside the
-// usageMu critical section (T-15-13) and treats a returned error as loud-but-non-fatal
+// usageMu critical section and treats a returned error as loud-but-non-fatal
 // (T-15-17).
 func liveWriteUsage(t usage.UsageTotals) error {
 	return usage.Save(liveUsageDeps(), t)
@@ -242,7 +242,7 @@ func liveModelID() string {
 	return cfg.Model
 }
 
-// liveModelsView composes the Models read-model (DASH-04): it loads the catalog and the
+// liveModelsView composes the Models read-model: it loads the catalog and the
 // persisted config (the source of truth for the loaded model), then for each catalog entry
 // marks loaded (== cfg.Model) / on-disk (weights present) / catalog-only and computes the
 // per-row fit verdict by reusing recommend.Pick over the entry — the SAME fit-math
@@ -261,14 +261,14 @@ func liveModelsView() ([]dashboard.ModelView, bool) {
 	}
 
 	profile := detect.Probe()
-	// Memory inputs from the fail-soft cfg load above (D-01): the dashboard's
+	// Memory inputs from the fail-soft cfg load above: the dashboard's
 	// per-model fit column reflects the same shrunken envelope recommend uses
 	// (a load error left cfg zero-valued — memory off).
 	mem := recommend.MemoryInputs{Enabled: cfg.MemoryEnabled, EmbeddingModel: cfg.EmbeddingModel}
 	views := make([]dashboard.ModelView, 0, len(cat.Models))
 	for _, m := range cat.Models {
 		// Reuse recommend.Pick fit-math by overriding to this entry (the same override
-		// path liveSwapDeps.Fits uses, recommend.go / D-07) — never new envelope math.
+		// path liveSwapDeps.Fits uses, recommend.go) — never new envelope math.
 		rec := recommend.Pick(profile, cat, recommend.Overrides{Model: m.ID}, mem, webSearchInputsFrom(cfg))
 		views = append(views, dashboard.ModelView{
 			ID:        m.ID,
@@ -293,7 +293,7 @@ func modelOnDisk(m catalog.CatalogModel) bool {
 // fitDetail renders the confirm-dialog fit-verdict line from a Recommendation: the
 // fitting form ("Fits: {total} ≤ {envelope} — {headroom} headroom at {ctx} context.") or
 // the won't-fit reason ("needs {total} vs {envelope} usable"). It reuses recommend's
-// already-computed fit terms (D-06) — no new math.
+// already-computed fit terms — no new math.
 func fitDetail(rec recommend.Recommendation) string {
 	if rec.Fits {
 		return fmt.Sprintf("Fits: %s ≤ %s — %s headroom at %d context.",

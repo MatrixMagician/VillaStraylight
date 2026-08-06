@@ -1,4 +1,4 @@
-// Transcript renderer tests guard the D-04 contract: the canonical thread is the
+// Transcript renderer tests guard the contract: the canonical thread is the
 // history.currentId → parentId chain walk (NEVER the stale flat chat.messages
 // view), with a visited-set cycle guard; reasoning <details> blocks are stripped
 // from assistant content (Pitfall 5); a chat with no reconstructable
@@ -31,7 +31,7 @@ func testDoc() ChatDoc {
 }
 
 // TestRenderTranscriptChainWalk proves the renderer reconstructs chronological
-// order by walking currentId back through parentId and reversing (D-04 — mirrors
+// order by walking currentId back through parentId and reversing (mirrors
 // OWUI's own get_message_list), and renders the title + ISO-date header followed
 // by role-labeled turns.
 func TestRenderTranscriptChainWalk(t *testing.T) {
@@ -53,7 +53,7 @@ func TestRenderTranscriptChainWalk(t *testing.T) {
 }
 
 // TestRenderTranscriptCycleGuard proves a parentId cycle terminates (visited-set
-// guard, T-21-05) and renders each message exactly once in walk-then-reverse
+// guard) and renders each message exactly once in walk-then-reverse
 // order — malicious or corrupt chat JSON can never hang the renderer.
 func TestRenderTranscriptCycleGuard(t *testing.T) {
 	doc := ChatDoc{
@@ -83,7 +83,7 @@ func TestRenderTranscriptCycleGuard(t *testing.T) {
 
 // TestRenderTranscriptStripsReasoning proves <details type="reasoning"…>…</details>
 // blocks are removed from assistant content — single, multiple, and UNCLOSED
-// (strip to end) — so chain-of-thought never bloats the index (Pitfall 5, D-04).
+// (strip to end) — so chain-of-thought never bloats the index (Pitfall 5).
 func TestRenderTranscriptStripsReasoning(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -140,7 +140,7 @@ func TestRenderTranscriptStripsReasoning(t *testing.T) {
 }
 
 // TestRenderTranscriptSkips proves ok=false (the SKIP signal the caller must
-// record — never a silent drop, D-04) for every unreconstructable shape: missing
+// record — never a silent drop) for every unreconstructable shape: missing
 // currentId, currentId absent from the map, an empty messages map, and a thread
 // containing no user/assistant role at all.
 func TestRenderTranscriptSkips(t *testing.T) {
@@ -188,7 +188,7 @@ func TestRenderTranscriptSkips(t *testing.T) {
 
 // TestRenderTranscriptSkipsNonChatRoles proves non-user/assistant roles inside an
 // otherwise-valid thread are omitted from the rendered turns while the
-// user/assistant turns around them survive (D-04).
+// user/assistant turns around them survive.
 func TestRenderTranscriptSkipsNonChatRoles(t *testing.T) {
 	doc := ChatDoc{
 		ID:    "c1",
@@ -215,7 +215,7 @@ func TestRenderTranscriptSkipsNonChatRoles(t *testing.T) {
 }
 
 // TestTranscriptFilename proves the deterministic per-chat filename contract
-// (D-04: villa-recall-<chat-id>.txt) the clean-replace flow keys on.
+// (villa-recall-<chat-id>.txt) the clean-replace flow keys on.
 func TestTranscriptFilename(t *testing.T) {
 	if got, want := TranscriptFilename("abc-123"), "villa-recall-abc-123.txt"; got != want {
 		t.Errorf("TranscriptFilename = %q, want %q", got, want)

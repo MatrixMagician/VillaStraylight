@@ -14,13 +14,13 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/pathsafe"
 )
 
-// install.go is the checksum-BEFORE-extract install seam (AGENT-01 live half, D-03)
+// install.go is the checksum-BEFORE-extract install seam (AGENT-01 live half)
 // for the pinned Crush binary. It is the package-local half of the install flow:
 // it streams the downloaded asset bytes while rolling a SHA-256, asserts the
 // pinned size AND checksum (via the pure VerifyTarball gate) BEFORE any extraction,
 // then extracts ONLY the `crush` binary entry into the villa-owned bin dir, confined
-// by a traversal guard. It NEVER shells out to `tar` (T-26-08) and NEVER places an
-// unverified binary on disk (T-26-07). Phase 27 wires this into the `villa install`
+// by a traversal guard. It NEVER shells out to `tar` and NEVER places an
+// unverified binary on disk. Phase 27 wires this into the `villa install`
 // addon; Plan 26-02 ships the verified seam + tests.
 //
 // It clones internal/download's discipline (size-then-EqualFold-checksum fail-closed
@@ -44,7 +44,7 @@ const (
 // pinned asset (size THEN SHA-256, via VerifyTarball) BEFORE any extraction, and on
 // a verify-pass extracts ONLY the `crush` binary entry into binDir as binDir/crush
 // (0755), confined by an assertInsideDir traversal guard. It refuses-with-remediation
-// on a checksum/size mismatch and NEVER extracts unverified bytes (D-03/T-26-07).
+// on a checksum/size mismatch and NEVER extracts unverified bytes.
 //
 // The whole tarball is buffered (bounded by asset.Size + a small slack) so the
 // checksum can be asserted over the COMPLETE payload before a single byte is
@@ -60,14 +60,14 @@ func Install(asset CrushAsset, r io.Reader, binDir string) (string, error) {
 		return "", fmt.Errorf("agent: read Crush tarball: %w", err)
 	}
 
-	// (1) VERIFY BEFORE EXTRACT (D-03). VerifyTarball asserts size then SHA-256,
+	// (1) VERIFY BEFORE EXTRACT. VerifyTarball asserts size then SHA-256,
 	// refusing-with-remediation on any mismatch. No extraction happens until this
-	// passes — an unverified/forged tarball never reaches the tar reader (T-26-07).
+	// passes — an unverified/forged tarball never reaches the tar reader.
 	if err := VerifyTarball(asset, got); err != nil {
 		return "", err
 	}
 
-	// (2) Extract ONLY the crush binary, confined to binDir (T-26-08).
+	// (2) Extract ONLY the crush binary, confined to binDir.
 	if err := os.MkdirAll(binDir, binDirMode); err != nil {
 		return "", fmt.Errorf("agent: create bin dir %q: %w", binDir, err)
 	}
@@ -80,7 +80,7 @@ func Install(asset CrushAsset, r io.Reader, binDir string) (string, error) {
 
 // extractCrushBinary reads the verified gzip-tar bytes and writes ONLY the `crush`
 // binary entry to binDir/crush (0755). Every tar entry path is confined by
-// assertInsideBinDir (rejecting `..`/absolute escapes, T-26-08) and only a regular
+// assertInsideBinDir (rejecting `..`/absolute escapes) and only a regular
 // file whose base name is `crush` is placed; all other entries are skipped. It uses
 // stdlib archive/tar + compress/gzip, NEVER a shell `tar`.
 func extractCrushBinary(tarball []byte, binDir string) (string, error) {
@@ -101,7 +101,7 @@ func extractCrushBinary(tarball []byte, binDir string) (string, error) {
 		}
 
 		// Confine EVERY entry name before acting on it — reject `..`/absolute escapes
-		// even for entries we ultimately skip (defense-in-depth, T-26-08).
+		// even for entries we ultimately skip (defense-in-depth).
 		cleanName := filepath.Clean(hdr.Name)
 		target := filepath.Join(binDir, cleanName)
 		if err := assertInsideBinDir(target, binDir); err != nil {
@@ -150,7 +150,7 @@ func writeBinary(binPath string, r io.Reader) error {
 }
 
 // assertInsideBinDir verifies path resolves within dir, rejecting traversal escapes
-// (T-26-08). Cloned verbatim from internal/download.assertInsideDir so the install
+// Cloned verbatim from internal/download.assertInsideDir so the install
 // seam has no dependency on an unexported downloader helper; both are cleaned and
 // compared as absolute paths.
 func assertInsideBinDir(path, dir string) error {

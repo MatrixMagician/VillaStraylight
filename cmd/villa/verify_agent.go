@@ -12,9 +12,9 @@ import (
 )
 
 // verify_agent.go holds the v1.4 CODING-AGENT RUNTIME strictly-local proof — the headline
-// PRIV-06 honesty gate. Install-time green is NOT sufficient: a coding agent could phone home
+// honesty gate. Install-time green is NOT sufficient: a coding agent could phone home
 // at runtime (telemetry / outbound tools) OR silently resolve to a cloud provider when the
-// local inference endpoint is down. `villa verify agent` proves BOTH clauses of PRIV-06 in
+// local inference endpoint is down. `villa verify agent` proves BOTH clauses of in
 // one verb, negative-control-FIRST:
 //
 //  1. ctrl1 — an external host MUST be UNREACHABLE under the host egress block (proving the
@@ -46,8 +46,8 @@ import (
 // is NO WARN and NO skip path — an unevaluable result (a context-bounded driver returning an
 // error / a timeout) is a FAIL (honesty-by-construction, mirrors evalRagSmoke).
 //
-// Negative-control FIRST (PRIV-06): asserting zero-outbound by absence alone is a false-
-// green, so egress must be proven actually blocked BEFORE the agent task is even trusted —
+// Negative-control FIRST: asserting zero-outbound by absence alone is a false-
+// green, so egress must be proven actually blocked BEFORE the agent task is even trusted
 // agentTask is not invoked until the negative control passes. A probe that could not RUN
 // (err) → FAIL refusing to declare zero-outbound; an external host that WAS reachable
 // (blocked == false) → FAIL that egress is not blocked.
@@ -112,7 +112,7 @@ const (
 	curlExitOperationTimeout = 28
 )
 
-// classifyEgressProbe is the PURE WR-01 classifier the live egressBlocked closure delegates
+// classifyEgressProbe is the PURE classifier the live egressBlocked closure delegates
 // its verdict math to (the live podman/curl exec is not driveable off-hardware; this is). It
 // distinguishes a genuinely-blocked external host from a probe that could not RUN — the core
 // honesty fix for the negative-control-FIRST gate.
@@ -167,30 +167,34 @@ func classifyReachabilityProbe(sanityErr error, externalExitCode int, externalEr
 // negative-control egress probe with the host-side crush-run drivers, then calls the pure
 // evalAgentVerify.
 //
-//   - egressBlocked: a TWO-LAYER negative control (WR-01). FIRST a positive in-network sanity
+//   - egressBlocked: a TWO-LAYER negative control. FIRST a positive in-network sanity
 //     probe to villa-llama by container DNS (orchestrate.LlamaInNetworkEndpoint()) proves the
 //     probe environment works; if it fails the control FAILs ("could not run the probe"),
 //     never false-greens as blocked. THEN a negative external probe (runProbeCurlCode) is
 //     classified by curl exit code via classifyEgressProbe: a CONNECTION/TIMEOUT exit (6/7/28)
 //     → genuinely blocked; exit 0 → not blocked; any other failure → infrastructure FAIL. The
 //     helper image is sourced from orchestrate.EmbedImage() and the in-network URL from
-//     orchestrate.LlamaInNetworkEndpoint() — NO re-typed image/host literal (T-27-15,
-//     TestSeamGrepGate green).
 //
-//   - agentTask: the Plan-01 host-side crush-run read→edit round-trip driver
-//     (liveAgentToolCallProbe) over the loopback inference endpoint, bounded by ctx (a
-//     timeout → err → FAIL, never a hang masquerading as success). DRY — the same planted-
-//     file mechanism the install readiness probe uses.
+// orchestrate.LlamaInNetworkEndpoint — NO re-typed image/host literal (
 //
-//   - llamaDownTask: STOPS villa-llama.service via the injected systemd Stop seam, runs the
-//     SAME crush-run task, then RESTORES the service (Start) in a deferred restore regardless
-//     of outcome (T-27-16 — the service is never left stopped), and reports whether the agent
-//     answered. An answer with inference down is the cloud-fallback smoking gun.
+//	  TestSeamGrepGate green).
+//
+//	- agentTask: the Plan-01 host-side crush-run read→edit round-trip driver
+//	  (liveAgentToolCallProbe) over the loopback inference endpoint, bounded by ctx (a
+//	  timeout → err → FAIL, never a hang masquerading as success). DRY — the same planted-
+//	  file mechanism the install readiness probe uses.
+//
+//	- llamaDownTask: STOPS villa-llama.service via the injected systemd Stop seam, runs the
+//	  SAME crush-run task, then RESTORES the service (Start) in a deferred restore regardless
+//
+// of outcome (the service is never left stopped), and reports whether the agent
+//
+//	answered. An answer with inference down is the cloud-fallback smoking gun.
 func liveAgentVerify(ctx context.Context, deps verifyAgentDeps) memoryProof {
 	helperImage := orchestrate.EmbedImage()
 
 	egressBlocked := func() (bool, error) {
-		// WR-01: the negative control is the FIRST gate, so a BROKEN probe environment must
+		// the negative control is the FIRST gate, so a BROKEN probe environment must
 		// FAIL the control, never false-green as "blocked". Two layers, the in-network sanity
 		// probe being the primary robust mechanism:
 		//
@@ -211,12 +215,12 @@ func liveAgentVerify(ctx context.Context, deps verifyAgentDeps) memoryProof {
 		//     failure mode (container never started, curl absent, unclassified non-zero) is an
 		//     infrastructure failure → error (→ FAIL). Exit 0 (reachable) → blocked=false.
 		//
-		//     WR-02: this probe deliberately OMITS curl's -f (fail-on-HTTP-error). The negative
+		// this probe deliberately OMITS curl's -f (fail-on-HTTP-error). The negative
 		//     control's question is reachability, not HTTP status: a host that answers with a
 		//     4xx/5xx (rate-limit, captcha, transient outage) is demonstrably REACHABLE, so egress
 		//     is OPEN and the gate MUST fail as "not blocked". With -f, that response would be
 		//     curl exit 22 → the classifier's default (infra-failure) branch, excusing an open-
-		//     egress host as a probe problem (a false-negative on the PRIV-06 security assertion).
+		// egress host as a probe problem (a false-negative on the security assertion).
 		//     Dropping -f makes ANY HTTP response (including 4xx/5xx) return exit 0 ⇒ blocked=false,
 		//     so a reachable-but-erroring host correctly reads as egress-open. The fail-closed
 		//     property is preserved: a true connection/timeout still exits 6/7/28 → blocked=true,
@@ -230,8 +234,8 @@ func liveAgentVerify(ctx context.Context, deps verifyAgentDeps) memoryProof {
 	task := deps.agentTaskFn(ctx)
 	agentTask := func() (bool, error) { return task() }
 
-	// WR-06: capture the restore (Start) error so a failed restore is SURFACED, never swallowed
-	// (T-27-16 "never left stopped"). The deferred Start inside runLlamaDownControl always
+	// capture the restore (Start) error so a failed restore is SURFACED, never swallowed
+	// ("never left stopped"). The deferred Start inside runLlamaDownControl always
 	// ATTEMPTS the restore; its error is recorded here and folded into the verdict below.
 	var restoreErr error
 	llamaDownTask := func() (bool, error) {
@@ -246,7 +250,7 @@ func liveAgentVerify(ctx context.Context, deps verifyAgentDeps) memoryProof {
 
 	proof := evalAgentVerify(egressBlocked, agentTask, llamaDownTask)
 
-	// WR-06: a restore failure means the verb that deliberately stopped a core service did NOT
+	// a restore failure means the verb that deliberately stopped a core service did NOT
 	// cleanly pass — villa-llama may be left down. DOWNGRADE a would-be PASS to FAIL and surface
 	// the manual remediation; if the proof already FAILed, append the warning so the operator
 	// still hears that the service may be stopped.
@@ -263,8 +267,8 @@ func liveAgentVerify(ctx context.Context, deps verifyAgentDeps) memoryProof {
 // runLlamaDownControl runs the llama-down negative control as a PURE orchestration over
 // injected seams (so the restore-failure path is unit-testable off-hardware): STOP villa-llama,
 // run the SAME crush-run task, then ALWAYS attempt to restore (deferred Start) regardless of
-// the task outcome — and SURFACE the restore (Start) error instead of swallowing it (WR-06 /
-// T-27-16). It reports whether the agent ANSWERED with inference down (the cloud-fallback
+// the task outcome — and SURFACE the restore (Start) error instead of swallowing it (
+// It reports whether the agent ANSWERED with inference down (the cloud-fallback
 // smoking gun) and the captured restore error.
 //
 // A stop failure short-circuits: if the service could not even be stopped there is no
@@ -282,7 +286,7 @@ func runLlamaDownControl(stop, start func() error, task func() (bool, error)) (a
 	return answered, restoreErr
 }
 
-// restoreLlamaWarning builds the WR-06 operator-facing warning for a FAILED villa-llama restore
+// restoreLlamaWarning builds the operator-facing warning for a FAILED villa-llama restore
 // after the llama-down control. A nil error yields no warning (the clean path is silent). A
 // non-nil error yields a message that names the service was left stopped and carries the
 // LITERAL manual remediation `systemctl --user start <service>` so the operator can recover by
@@ -325,7 +329,7 @@ func liveVerifyAgentDeps() verifyAgentDeps {
 }
 
 // newVerifyAgent builds `villa verify agent`: the runtime strictly-local coding-agent proof
-// (PRIV-06). It is gated on the persisted agent_enabled and refuses-with-remediation
+// It is gated on the persisted agent_enabled and refuses-with-remediation
 // (exitBlocked) on FAIL. The exit-code mapping lives ENTIRELY in runVerifyAgent (return-not-
 // Exit body; cobra RunE calls os.Exit), mirroring newVerifyMemory.
 func newVerifyAgent() *cobra.Command {

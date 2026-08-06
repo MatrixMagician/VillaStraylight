@@ -23,7 +23,7 @@ import (
 
 // readinessTimeout bounds the total readiness poll so an unreachable / never-ready
 // server cannot hang install — on timeout the verdict is a typed-Unknown WARN, not
-// a confident FAIL (WR-07).
+// a confident FAIL.
 const readinessTimeout = 90 * time.Second
 
 // readinessInterval is the gap between readiness probes.
@@ -33,7 +33,7 @@ const readinessInterval = 2 * time.Second
 const readinessHTTPTimeout = 3 * time.Second
 
 // liveSetsebool runs the consented SELinux fix as a FIXED-ARG exec (never a shell,
-// T-03-08): `setsebool -P container_use_devices=true`. The boolean name is a
+// `setsebool -P container_use_devices=true`. The boolean name is a
 // constant, not interpolated from user input.
 func liveSetsebool() error {
 	if _, err := exec.LookPath("setsebool"); err != nil {
@@ -45,7 +45,7 @@ func liveSetsebool() error {
 
 // stdinIsInteractive reports whether stdin is a TTY (so consent prompting is
 // meaningful). A piped / redirected stdin is treated as non-interactive →
-// install prints the command and blocks instead of prompting (D-04/D-05).
+// install prints the command and blocks instead of prompting.
 func stdinIsInteractive() bool {
 	fi, err := os.Stdin.Stat()
 	if err != nil {
@@ -56,7 +56,7 @@ func stdinIsInteractive() bool {
 
 // promptConsent prints the prompt to stderr and reads a single line from stdin,
 // returning true only on an explicit y/yes (case-insensitive). Anything else
-// (including EOF / empty) is a decline — consent is opt-IN per D-04.
+// (including EOF / empty) is a decline — consent is opt-IN per.
 func promptConsent(prompt string) bool {
 	fmt.Fprint(os.Stderr, prompt)
 	r := bufio.NewReader(os.Stdin)
@@ -72,7 +72,7 @@ func liveReadinessPoll(ctx context.Context, endpoint string) installReadiness {
 	client := &http.Client{Timeout: readinessHTTPTimeout}
 	probe := func() (int, error) {
 		// Build the request with ctx so a cancelled/expired context aborts an
-		// in-flight probe rather than running to the client's own timeout (WR-05).
+		// in-flight probe rather than running to the client's own timeout.
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint+"/health", nil)
 		if err != nil {
 			return 0, err
@@ -91,7 +91,7 @@ func liveReadinessPoll(ctx context.Context, endpoint string) installReadiness {
 // pollReadiness is the pure readiness-poll loop (Task 2): it repeatedly calls
 // probe until it returns HTTP 200 (→ PASS) or the deadline elapses. A 503 (the
 // server is up but still loading the model) is "keep polling", NOT a confident
-// down (Pitfall 2 / WR-07). On deadline with no 200 it returns a typed-Unknown
+// down (Pitfall 2). On deadline with no 200 it returns a typed-Unknown
 // WARN — never a confident FAIL. probe returns (statusCode, err); a transport
 // error or a non-200/503 status is also keep-polling until the deadline.
 func pollReadiness(ctx context.Context, probe func() (int, error), timeout, interval time.Duration) installReadiness {
@@ -102,7 +102,7 @@ func pollReadiness(ctx context.Context, probe func() (int, error), timeout, inte
 		// Check the deadline/cancellation BEFORE each probe (as well as after) so a
 		// probe that could take up to one full HTTP timeout cannot push the total
 		// wall-clock past the budget, and a context cancelled between probes aborts
-		// promptly (WR-05).
+		// promptly.
 		if time.Now().After(deadline) {
 			return installReadiness{status: preflight.StatusWarn, detail: lastDetail}
 		}
@@ -119,7 +119,7 @@ func pollReadiness(ctx context.Context, probe func() (int, error), timeout, inte
 		case code == http.StatusOK:
 			return installReadiness{status: preflight.StatusPass, detail: "server is ready (/health 200)"}
 		case code == http.StatusServiceUnavailable:
-			// 503: server is up but still loading — keep polling, never down (WR-07).
+			// 503: server is up but still loading — keep polling, never down.
 			lastDetail = "server is up but still loading the model (/health 503) — waiting"
 		default:
 			lastDetail = fmt.Sprintf("not ready yet (/health %d)", code)

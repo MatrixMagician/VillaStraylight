@@ -8,7 +8,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 )
 
-// TestRenderOpenWebUIExternalLoaderWiring (Phase-31 GUARD-01/GROUND-01/02): with web search
+// TestRenderOpenWebUIExternalLoaderWiring (Phase-31 /02): with web search
 // on, the OWUI unit carries the external-loader wiring — WEB_LOADER_ENGINE=external, the
 // config-composed EXTERNAL_WEB_LOADER_URL ending in the Plan-01 /load path, BYPASS flipped
 // to False (native embed→retrieve back on), and the retrieval-fix key. Each key is bound to
@@ -50,7 +50,7 @@ func TestRenderOpenWebUIExternalLoaderWiring(t *testing.T) {
 	}
 }
 
-// TestRenderOpenWebUIExternalLoaderURLUsesSharedIdentity (WR-01): the
+// TestRenderOpenWebUIExternalLoaderURLUsesSharedIdentity: the
 // EXTERNAL_WEB_LOADER_URL host:port is composed from the SINGLE home of the
 // villa-websafe identity in internal/config, not from an orchestrate-local const,
 // and the path is the single-source Plan-01 /load route.
@@ -66,7 +66,7 @@ func TestRenderOpenWebUIExternalLoaderURLUsesSharedIdentity(t *testing.T) {
 	}
 }
 
-// TestRenderOpenWebUIBearerViaEnvironmentFile (T-31-12): with web search on, the OWUI unit
+// TestRenderOpenWebUIBearerViaEnvironmentFile: with web search on, the OWUI unit
 // references the EXTERNAL_WEB_LOADER_API_KEY bearer via a 0600 EnvironmentFile= (the SAME
 // websafe.env file the villa-websafe unit references) — NEVER an inline Environment= line,
 // and the secret VALUE never lands in the 0644 unit. Search-OFF: no EnvironmentFile= at all
@@ -85,7 +85,7 @@ func TestRenderOpenWebUIBearerViaEnvironmentFile(t *testing.T) {
 		t.Errorf("web search on: OWUI unit carries an inline Environment=EXTERNAL_WEB_LOADER_API_KEY= (T-31-12 leak):\n%s", c.Text)
 	}
 	if strings.Contains(c.Text, "websafe_testsecret_must_not_appear_in_the_0644_unit") {
-		t.Errorf("web search on: OWUI unit leaked the bearer VALUE into the 0644 unit (T-31-12):\n%s", c.Text)
+		t.Errorf("web search on: OWUI unit leaked the bearer VALUE into the 0644 unit:\n%s", c.Text)
 	}
 
 	off, err := Render(fixtureInput())
@@ -101,7 +101,7 @@ func TestRenderOpenWebUIBearerViaEnvironmentFile(t *testing.T) {
 // TestOpenWebUIImageAccessor asserts the exported OpenWebUIImage() accessor
 // returns the same digest-pinned value as the unexported managed-service const,
 // so the Phase-16 backup manifest can source the OWUI digest through the seam
-// without re-typing the literal (D-10).
+// without re-typing the literal.
 func TestOpenWebUIImageAccessor(t *testing.T) {
 	got := OpenWebUIImage()
 	if got != openWebUIImage {
@@ -113,7 +113,7 @@ func TestOpenWebUIImageAccessor(t *testing.T) {
 	}
 }
 
-// --- Phase 33: PRIV-09 / PRIV-07 regression assertions (assert-only) ---------
+// --- Phase 33: regression assertions (assert-only) ---------
 //
 // These guards LOCK the already-shipped invariants Phase 33 depends on; they ASSERT, never
 // modify (re-adding the env keys or re-freezing the golden would break the existing
@@ -121,7 +121,7 @@ func TestOpenWebUIImageAccessor(t *testing.T) {
 // this phase — these tests fail loudly if a future change silently drops the outbound-kill
 // env or widens the web-search-OFF render.
 
-// TestOWUIKillEnvPresentBothViewsPRIV09 (PRIV-09) asserts the SIX outbound-kill env keys are
+// TestOWUIKillEnvPresentBothViewsPRIV09 asserts the SIX outbound-kill env keys are
 // present in BOTH the web-search-OFF and web-search-ON rendered villa-openwebui.container
 // units — a dedicated, self-documenting guard that the kill-set is never silently dropped or
 // gated behind the web-search toggle. The keys live UNCONDITIONALLY in the base env block of
@@ -159,7 +159,7 @@ func TestOWUIKillEnvPresentBothViewsPRIV09(t *testing.T) {
 	}
 }
 
-// TestOWUIWebOffByteIdenticalPRIV07 (PRIV-07) asserts the web-search-OFF OWUI render stays
+// TestOWUIWebOffByteIdenticalPRIV07 asserts the web-search-OFF OWUI render stays
 // byte-identical to the v1.4 villa-openwebui.container.golden — opting into web search must
 // be the ONLY thing that changes the unit (no silent scope reduction of the opt-in). It
 // reuses the EXISTING golden (goldenCompare); it does NOT re-freeze it.
