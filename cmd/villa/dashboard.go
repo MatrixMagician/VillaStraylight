@@ -112,7 +112,7 @@ func runDashboard(cmd *cobra.Command, _ []string, d *dashboardDeps) int {
 	srv, err := dashboard.NewServer(dashboard.Config{
 		StatusDeps:    d.StatusDeps,
 		ChatPort:      cfg.ChatPort,
-		DashboardAddr: cfg.DashboardAddr,
+		DashboardAddr: config.DashboardAddr,
 		DashboardPort: cfg.DashboardPort,
 		Metrics:       d.Metrics,
 		Slots:         d.Slots,

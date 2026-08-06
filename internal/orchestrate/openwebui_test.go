@@ -1,8 +1,11 @@
 package orchestrate
 
 import (
+	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/MatrixMagician/VillaStraylight/internal/config"
 )
 
 // TestRenderOpenWebUIExternalLoaderWiring (Phase-31 GUARD-01/GROUND-01/02): with web search
@@ -47,22 +50,19 @@ func TestRenderOpenWebUIExternalLoaderWiring(t *testing.T) {
 	}
 }
 
-// TestRenderOpenWebUIExternalLoaderURLConfigDriven (WR-01): the EXTERNAL_WEB_LOADER_URL
-// host:port is composed from the resolved cfg.WebsafeAddr/cfg.WebsafePort, NOT an
-// orchestrate-local const. A non-default addr+port must surface, and the path is the
-// single-source Plan-01 /load route.
-func TestRenderOpenWebUIExternalLoaderURLConfigDriven(t *testing.T) {
-	in := searxngFixtureInput()
-	in.Cfg.WebsafeAddr = "villa-websafe-custom"
-	in.Cfg.WebsafePort = 9099
-	units, err := Render(in)
+// TestRenderOpenWebUIExternalLoaderURLUsesSharedIdentity (WR-01): the
+// EXTERNAL_WEB_LOADER_URL host:port is composed from the SINGLE home of the
+// villa-websafe identity in internal/config, not from an orchestrate-local const,
+// and the path is the single-source Plan-01 /load route.
+func TestRenderOpenWebUIExternalLoaderURLUsesSharedIdentity(t *testing.T) {
+	units, err := Render(searxngFixtureInput())
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
 	c := unitByName(t, units, "villa-openwebui.container")
-	want := "Environment=EXTERNAL_WEB_LOADER_URL=http://villa-websafe-custom:9099/load"
+	want := fmt.Sprintf("Environment=EXTERNAL_WEB_LOADER_URL=http://%s:%d/load", config.WebsafeAddr, config.WebsafePort)
 	if !strings.Contains(c.Text, want) {
-		t.Errorf("OWUI EXTERNAL_WEB_LOADER_URL not composed from the config-resolved websafe host:port (rendered from a const?):\nwant substring %q\n%s", want, c.Text)
+		t.Errorf("OWUI EXTERNAL_WEB_LOADER_URL not composed from the shared websafe host:port:\nwant substring %q\n%s", want, c.Text)
 	}
 }
 

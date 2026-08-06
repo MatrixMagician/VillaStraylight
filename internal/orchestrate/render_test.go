@@ -2,6 +2,7 @@ package orchestrate
 
 import (
 	"flag"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -413,24 +414,21 @@ func TestRenderOpenWebUIWebSearchContainerGolden(t *testing.T) {
 	goldenCompare(t, "villa-openwebui.container.websearch.golden", c.Text)
 }
 
-// TestRenderOpenWebUIWebSearchConfigDriven (WR-01): the OWUI SEARXNG_QUERY_URL host:port is
-// composed from the resolved cfg.SearxngAddr/cfg.SearxngPort, NOT an orchestrate-local const.
-// A non-default addr+port must surface in the rendered SEARXNG_QUERY_URL. Do NOT couple any
-// assertion to OWUI forwarding &format=json from the URL (Pitfall 1: at this digest OWUI
-// strips the URL query string and supplies format=json itself — the suffix is frozen for SC#1
-// literal compliance only, not relied on for grounding).
-func TestRenderOpenWebUIWebSearchConfigDriven(t *testing.T) {
-	in := searxngFixtureInput()
-	in.Cfg.SearxngAddr = "villa-searxng-custom"
-	in.Cfg.SearxngPort = 9090
-	units, err := Render(in)
+// TestRenderOpenWebUIWebSearchUsesSharedIdentity (WR-01): the OWUI SEARXNG_QUERY_URL
+// host:port is composed from the SINGLE home of the SearXNG identity in internal/config,
+// not from an orchestrate-local const. Do NOT couple any assertion to OWUI forwarding
+// &format=json from the URL (Pitfall 1: at this digest OWUI strips the URL query string
+// and supplies format=json itself — the suffix is frozen for SC#1 literal compliance
+// only, not relied on for grounding).
+func TestRenderOpenWebUIWebSearchUsesSharedIdentity(t *testing.T) {
+	units, err := Render(searxngFixtureInput())
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
 	c := unitByName(t, units, "villa-openwebui.container")
-	want := "Environment=SEARXNG_QUERY_URL=http://villa-searxng-custom:9090/search?q=<query>&format=json"
+	want := fmt.Sprintf("Environment=SEARXNG_QUERY_URL=http://%s:%d/search?q=<query>&format=json", config.SearxngAddr, config.SearxngPort)
 	if !strings.Contains(c.Text, want) {
-		t.Errorf("OWUI SEARXNG_QUERY_URL not composed from the config-resolved host:port (rendered from a const?):\nwant substring %q\n%s", want, c.Text)
+		t.Errorf("OWUI SEARXNG_QUERY_URL not composed from the shared host:port:\nwant substring %q\n%s", want, c.Text)
 	}
 }
 

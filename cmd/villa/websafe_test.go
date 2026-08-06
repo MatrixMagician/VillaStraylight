@@ -201,10 +201,8 @@ func TestWebsafeServiceInLifecycleSet(t *testing.T) {
 		Backend: inference.VulkanBackend(),
 		Cfg: config.VillaConfig{
 			Model: "qwen3-35b-a3b-moe-64", Quant: "UD-Q4_K_M", Ctx: 131072, Backend: "vulkan",
-			WebSearchEnabled: true,
-			SearxngAddr:      "villa-searxng", SearxngPort: 8080, SearxngSecret: "s",
+			WebSearchEnabled:     true,
 			WebSearchResultCount: 3,
-			WebsafeAddr:          "villa-websafe", WebsafePort: 8090, WebLoaderSecret: "b",
 		},
 		ModelFile:     "qwen3-35b-a3b-moe-64.gguf",
 		ModelsDir:     "/home/villa/.local/share/villa/models",

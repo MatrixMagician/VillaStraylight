@@ -59,7 +59,6 @@ quant = "UD-Q4_K_M"
 ctx = 131072
 backend = "rocm"
 catalog_path = ""
-dashboard_addr = "127.0.0.1"
 dashboard_port = 8888
 chat_port = 3000
 ```
@@ -73,7 +72,6 @@ chat_port = 3000
 | `ctx` | int | _(empty/0 until recommended/set)_ | Context length in tokens. Rendered into the llama-server `-c` flag. |
 | `backend` | string | `rocm` | Inference backend: `rocm` (ROCm 7.2.4, **default**), `rocm-6.4.4`, `rocm-6.4.4-rocwmma`, or `vulkan` (Vulkan RADV, the fallback). `config set backend=` only accepts `vulkan`; every ROCm target must go through the transactional `villa backend set` command (see [Backend selection](#backend-selection)). |
 | `catalog_path` | string | _(empty → embedded seed catalog)_ | Optional path to an external catalog JSON. Empty means "use the embedded seed catalog". |
-| `dashboard_addr` | string | `127.0.0.1` | Loopback bind address for the control dashboard. **Only loopback values are permitted** (see [Required vs optional settings](#required-vs-optional-settings)). |
 | `dashboard_port` | int | `8888` | Host port the control dashboard listens on. |
 | `chat_port` | int | `3000` | Host port Open WebUI is published on; also the target of the dashboard's "chat" link. |
 
@@ -97,9 +95,16 @@ value is rejected with a clear error and **nothing is written**. After a success
 `set`, `villa` reminds you that the change applies on the next
 `villa up` / `villa restart` (reconcile).
 
-> Note: `config set` does not expose `dashboard_addr`, `dashboard_port`, or
-> `chat_port`. Those carry their loopback/port defaults and are validated on load;
-> to change them, edit `config.toml` directly.
+> Note: `config set` does not expose `dashboard_port` or `chat_port`. Those carry
+> their port defaults and are validated on load; to change them, edit `config.toml`
+> directly.
+>
+> The dashboard's bind address and the in-network service addresses and ports are
+> **not settings** — they are constants in `internal/config`. Nothing could set
+> them (the `set` allowlist never accepted them, and the loader healed any
+> hand-edited value straight back), and widening them off loopback or off the
+> private container network is a privacy violation rather than a preference. A
+> config file still carrying the old keys loads fine; they are ignored.
 
 > Note: `config set backend=` only accepts `vulkan`. That is not a claim about
 > which backend is preferred — ROCm is the default — it is about which writes are
@@ -142,10 +147,10 @@ setting is *used*:
   preflight, regenerates only the inference unit, restarts, proves the cutover, and
   rolls back on any failure. The cutover is the only writer that persists a ROCm
   backend name.
-- **`dashboard_addr`** — must denote loopback. The dashboard server **refuses** to
-  start on a non-loopback address; only `127.0.0.1`, `::1`, `localhost`, or empty
-  (treated as `127.0.0.1`) are allowed. A tampered config cannot make the dashboard
-  bind all interfaces — this is enforced by construction, not just by the default.
+- **The dashboard bind address** — is the loopback constant `127.0.0.1`, and the
+  server additionally **refuses** to start on a non-loopback address. A config can
+  no longer express a bind address at all, so it cannot make the dashboard bind
+  all interfaces.
 - **`dashboard_port` / `chat_port`** — a value of `0` is treated as "unset" and
   self-healed back to the default (`8888` / `3000`) on the next load, because port
   `0` is never a valid intended value for a long-running service.
@@ -158,7 +163,6 @@ Defaults are defined in a single place in the source (`internal/config/villaconf
 | Setting | Default | Where it comes from |
 |---------|---------|---------------------|
 | `backend` | `rocm` | `defaultConfig()` (ROCm 7.2.4 default; `vulkan` is the RADV fallback) |
-| `dashboard_addr` | `127.0.0.1` | `defaultConfig()` (loopback-only) |
 | `dashboard_port` | `8888` | `defaultConfig()` |
 | `chat_port` | `3000` | `defaultConfig()` |
 | `catalog_path` | _(empty)_ → embedded seed catalog | `internal/catalog` falls back to the compiled-in `seed.json` |

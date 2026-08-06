@@ -143,7 +143,7 @@ func Render(in RenderInput) ([]Unit, error) {
 	// golden. mv is computed ONCE here (memory.RenderView is pure, cheap, identical) and
 	// reused by the memory-stack branch below.
 	mv := memory.RenderView(in.Cfg) // D-11 resolved-values handoff (Phase-18 spine)
-	owuiContainerText, err := execTemplate(tmpl, "openwebui.container.tmpl", buildOpenWebUIView(mv, in.Cfg.MemoryEnabled, in.Cfg.WebSearchEnabled, in.Cfg.SearxngAddr, in.Cfg.SearxngPort, in.Cfg.WebSearchResultCount, in.Cfg.WebsafeAddr, in.Cfg.WebsafePort))
+	owuiContainerText, err := execTemplate(tmpl, "openwebui.container.tmpl", buildOpenWebUIView(mv, in.Cfg.MemoryEnabled, in.Cfg.WebSearchEnabled, config.SearxngAddr, config.SearxngPort, in.Cfg.WebSearchResultCount, config.WebsafeAddr, config.WebsafePort))
 	if err != nil {
 		return nil, err
 	}
@@ -212,7 +212,7 @@ func Render(in RenderInput) ([]Unit, error) {
 	// v1.4 output (the 13 existing goldens stay unchanged), proven by the negative test.
 	// Like Open WebUI / the memory stack, the searxng view is a dedicated managed-service
 	// render path (searxng.go) that BYPASSES parseContainerArgs (no GPU device/group/exec
-	// args). The container-DNS identity (cfg.SearxngAddr) is threaded FROM resolved config
+	// args). The container-DNS identity (config.SearxngAddr) is threaded FROM resolved config
 	// (WR-01) so the rendered service can never diverge from what Plan 03's readiness proof
 	// probes. The render does NOT thread the secret: the unit references it only via the
 	// EnvironmentFile= path baked by buildSearxngView (the secret value lives in config +
@@ -220,7 +220,7 @@ func Render(in RenderInput) ([]Unit, error) {
 	// settings.yml is NOT a Unit (Pitfall 1: it must not land in the systemd unit dir) — it
 	// is produced by the separate RenderSearxngSettings helper that Plan 02's writer consumes.
 	if in.Cfg.WebSearchEnabled {
-		searxngContainerText, err := execTemplate(tmpl, "searxng.container.tmpl", buildSearxngView(in.Cfg.SearxngAddr))
+		searxngContainerText, err := execTemplate(tmpl, "searxng.container.tmpl", buildSearxngView(config.SearxngAddr))
 		if err != nil {
 			return nil, err
 		}
@@ -231,13 +231,13 @@ func Render(in RenderInput) ([]Unit, error) {
 		// both the web-search stack), never mutating the shared `units` slice or any shared
 		// view before this point (Pitfall 6 byte-identical-off discipline). The host villa
 		// binary PATH (in.HostVillaPath) is bind-mounted read-only and the container-DNS
-		// identity (cfg.WebsafeAddr) + in-network port (cfg.WebsafePort) are threaded FROM
+		// identity (config.WebsafeAddr) + in-network port (config.WebsafePort) are threaded FROM
 		// resolved config (WR-01) so the rendered service can never diverge from what OWUI's
 		// EXTERNAL_WEB_LOADER_URL composes. The render does NOT thread the secret: the unit
 		// references it only via the EnvironmentFile= path baked by buildWebsafeView (the
 		// secret value lives in config + the 0600 env file Plan 02 writes, never in this 0644
 		// unit — T-31-12).
-		websafeContainerText, err := execTemplate(tmpl, "websafe.container.tmpl", buildWebsafeView(in.Cfg.WebsafeAddr, in.HostVillaPath, in.Cfg.WebsafePort))
+		websafeContainerText, err := execTemplate(tmpl, "websafe.container.tmpl", buildWebsafeView(config.WebsafeAddr, in.HostVillaPath, config.WebsafePort))
 		if err != nil {
 			return nil, err
 		}

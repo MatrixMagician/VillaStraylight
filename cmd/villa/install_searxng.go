@@ -79,7 +79,7 @@ type searxngProof struct {
 }
 
 // searxngProofInput carries the config-resolved SearXNG container-DNS address + in-network
-// port the proof probes. These are sourced from cfg.SearxngAddr/SearxngPort (WR-01) — the
+// port the proof probes. These are sourced from config.SearxngAddr/SearxngPort (WR-01) — the
 // SAME values the rendered unit's container-DNS identity derives from — so the proof can
 // never probe a different target than what actually runs. Values are config-resolved,
 // never shell-interpolated (T-29-10).

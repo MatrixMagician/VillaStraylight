@@ -55,7 +55,7 @@ func WebsafeImage() string { return websafeImage }
 
 // villa-websafe stable Quadlet identity (this project's unit-name contract, asserted by the
 // golden — it leaks no GPU/image assumption). The CONTAINER-DNS name is NOT a const here:
-// it is config-resolved (cfg.WebsafeAddr) and threaded into buildWebsafeView (WR-01), so
+// it is config-resolved (config.WebsafeAddr) and threaded into buildWebsafeView (WR-01), so
 // config is the single source of truth for the service's network identity.
 const websafeContainerUnitName = "villa-websafe.container"
 

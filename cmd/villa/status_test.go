@@ -83,7 +83,6 @@ func newStatusDeps(t *testing.T, units []orchestrate.Unit) *status.Deps {
 		// Dashboard self-row (Plan 05-05 / D-04): a healthy /api/healthz by default;
 		// tests override DashboardHealth for the wedged case.
 		DashboardService: orchestrate.DashboardServiceName,
-		DashboardAddr:    "http://127.0.0.1:8888",
 		DashboardHealth:  func(string) status.HealthState { return status.HealthReady },
 		// tok/s seam (D-03): default idle → nil (omitted, never a fabricated 0). Tests
 		// override to exercise the generating case. ROCm-readiness seam (D-04): default
@@ -429,12 +428,8 @@ func webSearchStatusCfg() config.VillaConfig {
 	cfg.Quant = "Q4"
 	cfg.Ctx = 131072
 	cfg.WebSearchEnabled = true
-	cfg.SearxngAddr = "villa-searxng"
-	cfg.SearxngPort = 8080
 	cfg.SearxngSecret = "testsecret_must_not_appear_in_the_0644_unit"
 	cfg.WebSearchResultCount = 3
-	cfg.WebsafeAddr = "villa-websafe"
-	cfg.WebsafePort = 8090
 	cfg.WebLoaderSecret = "websafe_testsecret_must_not_appear_in_the_0644_unit"
 	return cfg
 }

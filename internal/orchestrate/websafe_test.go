@@ -1,8 +1,11 @@
 package orchestrate
 
 import (
+	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/MatrixMagician/VillaStraylight/internal/config"
 )
 
 // websafe_test.go guards the Phase-31 villa-websafe managed-service render: the gated
@@ -111,22 +114,19 @@ func TestRenderWebsafeSecretEnv(t *testing.T) {
 	}
 }
 
-// TestRenderWebsafeIsConfigDriven (WR-01): the websafe unit derives its container-DNS
-// identity from cfg.WebsafeAddr and its Exec --port from cfg.WebsafePort via the resolved
-// config — NOT an orchestrate-local const. A non-default addr+port must surface in the unit.
-func TestRenderWebsafeIsConfigDriven(t *testing.T) {
-	in := searxngFixtureInput()
-	in.Cfg.WebsafeAddr = "villa-websafe-custom"
-	in.Cfg.WebsafePort = 9099
-	units, err := Render(in)
+// TestRenderWebsafeUsesSharedIdentity (WR-01): the websafe unit derives its
+// container-DNS identity and its Exec --port from the SINGLE home of those literals
+// in internal/config, not from an orchestrate-local const.
+func TestRenderWebsafeUsesSharedIdentity(t *testing.T) {
+	units, err := Render(searxngFixtureInput())
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
 	c := unitByName(t, units, "villa-websafe.container")
-	if !strings.Contains(c.Text, "ContainerName=villa-websafe-custom") {
-		t.Errorf("websafe unit did not render the config-resolved ContainerName=villa-websafe-custom (rendered from a const?):\n%s", c.Text)
+	if !strings.Contains(c.Text, "ContainerName="+config.WebsafeAddr) {
+		t.Errorf("websafe unit did not render ContainerName=%s from the shared constant:\n%s", config.WebsafeAddr, c.Text)
 	}
-	if !strings.Contains(c.Text, "--port 9099") {
-		t.Errorf("websafe unit did not render the config-resolved Exec --port 9099 (rendered from a const?):\n%s", c.Text)
+	if !strings.Contains(c.Text, fmt.Sprintf("--port %d", config.WebsafePort)) {
+		t.Errorf("websafe unit did not render Exec --port %d from the shared constant:\n%s", config.WebsafePort, c.Text)
 	}
 }

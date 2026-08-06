@@ -28,7 +28,7 @@ func dashboardTestCmd() (*cobra.Command, *bytes.Buffer, *bytes.Buffer) {
 func stubDashboardDeps(serve func(*dashboard.Server) error) *dashboardDeps {
 	return &dashboardDeps{
 		LoadConfig: func() (config.VillaConfig, error) {
-			return config.VillaConfig{DashboardAddr: "127.0.0.1", DashboardPort: 8888, ChatPort: 3000}, nil
+			return config.VillaConfig{DashboardPort: 8888, ChatPort: 3000}, nil
 		},
 		StatusDeps: status.Deps{},
 		Serve:      serve,
