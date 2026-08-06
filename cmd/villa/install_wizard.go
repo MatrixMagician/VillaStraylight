@@ -1,12 +1,14 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"os"
+	"strconv"
 	"strings"
-
-	"github.com/charmbracelet/huh"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
 	"github.com/MatrixMagician/VillaStraylight/internal/inference"
@@ -14,77 +16,131 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/recommend"
 )
 
-// install_wizard.go is the command-tier huh wizard front-end for `villa install`
+// install_wizard.go is the command-tier guided front-end for `villa install`
 // (INSTALL-01): PURE PRESENTATION + a PURE COLLECTOR. It composes the existing
 // cores (recommend.Pick output, internal/preflight CheckResults, inference.Backend
-// accessors) and the shared tui_theme.go styling; it imports NO decision logic and
-// NEVER executes a host fix — it calls neither runGapFix nor resolveGap nor
-// offerNonBlockingGap. The single gateInstall in runInstall consumes the consent it
-// collects, so probe/pick/runChecks/gate each run exactly once for both paths.
+// accessors); it imports NO decision logic and NEVER executes a host fix — it calls
+// neither runGapFix nor resolveGap nor offerNonBlockingGap. The single gateInstall
+// in runInstall consumes the consent it collects, so probe/pick/runChecks/gate each
+// run exactly once for both paths.
 //
-// It lives in cmd/villa/ by constraint: huh/lipgloss are presentation and NO
-// internal/* core may import them (D-11). It renders no backend or image literal —
-// backend names reach it as an inference.Backend and are shown via Name()/Image()
-// accessors (TestSeamGrepGate walks cmd/villa). Decisions: D-01 (TUI default verb),
-// D-02 (pick-from-alternatives, computes nothing), D-04 (privileged consent only),
-// D-07 (final review confirm defaults to Cancel), D-11 (huh confined to cmd/villa).
+// It is a stdin prompt loop over the standard library. It was a full-screen TUI
+// built on huh/bubbletea/lipgloss/termenv, which were four direct dependencies and
+// roughly twenty indirect ones serving this one flow. Of its five screens only two
+// ever collected input, and the three display screens already composed their content
+// with fmt.Fprintf into a string — so the framework was rendering text this file had
+// already produced.
+//
+// What it asks is unchanged, and is the whole interactive surface of an install:
+//
+//  1. which model, from the memory-fitting shortlist;
+//  2. consent per privileged host-prep gap, showing the exact command first;
+//  3. a final confirm that defaults to Cancel.
+//
+// Quant and context are deliberately NOT questions: recommend.Pick derives them from
+// the measured memory envelope, and offering them would invite a configuration that
+// does not fit.
+//
+// It renders no backend or image literal — backend names reach it as an
+// inference.Backend and are shown via Name()/Image() accessors (TestSeamGrepGate
+// walks cmd/villa). Decisions: D-01 (guided default verb), D-02 (pick-from-
+// alternatives, computes nothing), D-04 (privileged consent only), D-07 (final
+// confirm defaults to Cancel).
 
-// wizardInput carries ONLY what the wizard renders — every field is already
-// computed by runInstall (steps 1-3); the wizard computes none of them.
+// wizardInput carries ONLY what the prompt loop renders — every field is already
+// computed by runInstall (steps 1-3); it computes none of them.
 type wizardInput struct {
-	// profile is the probed host (screen 1 detected-host summary).
+	// profile is the probed host (the detected-host summary).
 	profile detect.HostProfile
-	// rec is the recommendation from d.pick (screen 2 recommended option + review).
+	// rec is the recommendation from d.pick (the recommended option + review).
 	rec recommend.Recommendation
-	// alternatives are the other fitting picks (= rec.Alternatives) offered in screen 2.
+	// alternatives are the other fitting picks (= rec.Alternatives) offered in the
+	// model question.
 	alternatives []recommend.Alternative
-	// checks are the preflight results rendered in screen 3 (gap rows + consent).
+	// checks are the preflight results rendered before the consent questions.
 	checks []preflight.CheckResult
-	// backend is the resolved backend for the review screen — rendered via its
+	// backend is the resolved backend for the review — rendered via its
 	// Name()/Image() accessors ONLY, never a re-typed image literal.
 	backend inference.Backend
-	// colorEnabled threads the D-09 color gate into villaTheme.
+	// colorEnabled threads the D-09 colour gate through. With colour off the glyph
+	// column falls back to [OK]/[WARN]/[BLOCK], which is also what a non-TTY gets.
 	colorEnabled bool
 }
 
-// wizardResult is what the wizard COLLECTS — and NOTHING that executes a fix.
+// wizardResult is what the loop COLLECTS — and NOTHING that executes a fix.
 type wizardResult struct {
 	// modelOverride is the chosen catalog model id; empty = keep the recommended pick.
 	// runInstall re-validates it through the single pick seam (recommend.Overrides).
 	modelOverride string
 	// consentDecisions records per-item privileged consent keyed by check ID (gap-id
-	// → y/n) collected in screen 3. gateInstall honors these without re-prompting.
+	// → y/n). gateInstall honors these without re-prompting.
 	consentDecisions map[string]bool
 }
 
-// errWizardCancelled is the sentinel a Cancel/decline on the final Install confirm
-// returns so runInstall maps it to a clean, non-mutating abort (D-07).
+// errWizardCancelled is the sentinel a Cancel/decline on the final confirm returns
+// so runInstall maps it to a clean, non-mutating abort (D-07).
 var errWizardCancelled = errors.New("install wizard cancelled")
 
-// liveWizard builds and runs the huh 5-screen form against the real TTY and RETURNS
-// the collected choices. It runs NO host fix — it presents in.rec/in.checks/in.backend
-// and returns the model override + per-item consent. An Esc/Ctrl+C (form error) or a
-// Cancel on the Install confirm returns an error so runInstall aborts with no mutation.
+// liveWizard runs the guided install against the real terminal and RETURNS the
+// collected choices. It runs NO host fix.
 func liveWizard(ctx context.Context, in wizardInput) (wizardResult, error) {
-	chosen := in.rec.Model // default to the recommended pick (empty override unless changed)
-	consents := map[string]bool{}
-	var doInstall bool // defaults false → focus the safe "Cancel" choice (D-07)
+	return runWizard(ctx, in, os.Stdin, os.Stdout)
+}
 
-	var holders []*gapConsentValue
-	form := buildWizardForm(in, &chosen, &holders, &doInstall)
-	if err := form.RunWithContext(ctx); err != nil {
-		// Esc / Ctrl+C / I/O abort — runInstall maps this to a clean non-zero return.
+// runWizard is the testable core: the same loop against injected streams, so the
+// whole flow is drivable from a test with no TTY.
+//
+// A closed or exhausted input stream is an abort, never an implied yes — the final
+// confirm and every consent question default to the safe answer.
+func runWizard(ctx context.Context, in wizardInput, stdin io.Reader, stdout io.Writer) (wizardResult, error) {
+	p := &prompter{in: bufio.NewReader(stdin), out: stdout, ctx: ctx}
+
+	// 1/4 — detected host (display only).
+	p.section(1, 4, "Detected host")
+	p.print(detectedHostSummary(in.profile, in.backend))
+
+	// 2/4 — the model question, the one genuinely open choice.
+	p.section(2, 4, "Confirm your model")
+	chosen, err := p.chooseModel(in.rec, in.alternatives)
+	if err != nil {
 		return wizardResult{}, err
 	}
-	if !doInstall {
-		// Deliberate Cancel on the final confirm — no mutation (D-07).
-		return wizardResult{}, errWizardCancelled
+
+	// 3/4 — preflight results, then one consent per privileged gap.
+	p.section(3, 4, "Preflight results")
+	p.print(preflightSummary(in.checks, !in.colorEnabled))
+
+	consents := map[string]bool{}
+	for _, c := range in.checks {
+		if !privilegedGap(c) {
+			continue
+		}
+		cmdStr := remediationCommand(c, hostUsername(in.profile))
+		p.print("")
+		p.print(fmt.Sprintf("  %s\n  command: %s", c.Detail, cmdStr))
+		ok, err := p.confirm(fmt.Sprintf("Run privileged host-prep for [%s]?", c.ID), false)
+		if err != nil {
+			return wizardResult{}, err
+		}
+		consents[c.ID] = ok
 	}
 
-	// Reconcile each privileged-gap decision (written by huh into the holder's val)
-	// into the consents map. gateInstall honors these without re-prompting (D-04).
-	for _, h := range holders {
-		consents[h.id] = h.val
+	// 4/4 — review, then the final confirm. It defaults to Cancel (D-07).
+	//
+	// The review reflects the model actually CHOSEN, not the recommended one. The
+	// previous wizard rendered the recommendation here regardless of the selection,
+	// so an operator who picked an alternative was asked to confirm a summary naming
+	// a different model than the one about to be installed.
+	p.section(4, 4, "Review — villa will install:")
+	p.print(reviewBlock(in, chosen))
+	p.print("")
+	proceed, err := p.confirm(
+		"Install: this will pull images, write Quadlet units, and start services. Proceed?", false)
+	if err != nil {
+		return wizardResult{}, err
+	}
+	if !proceed {
+		return wizardResult{}, errWizardCancelled
 	}
 
 	// Empty override when the user kept the recommended pick (so runInstall does not
@@ -96,108 +152,145 @@ func liveWizard(ctx context.Context, in wizardInput) (wizardResult, error) {
 	return wizardResult{modelOverride: override, consentDecisions: consents}, nil
 }
 
-// gapConsentValue is a per-privileged-gap decision pointer bound into a huh.Confirm.
-// huh writes the user's y/n into `val` during the form run; the caller (liveWizard /
-// tests) reconciles each holder into the consents map after the form completes. This
-// keeps each Confirm self-contained while the map stays authoritative — no globals.
-type gapConsentValue struct {
-	id  string
-	val bool
+// prompter is the small stdin/stdout question loop the guided install is built from.
+type prompter struct {
+	in  *bufio.Reader
+	out io.Writer
+	ctx context.Context
 }
 
-// buildWizardForm composes the 5 UI-SPEC screens as huh groups, binding the Select
-// into `chosen`, each privileged-gap Confirm into a fresh gapConsentValue appended to
-// `*holders`, and the final Install Confirm into `doInstall`. It is split out so tests
-// (Plan 03) can drive it via WithInput/WithAccessible/WithOutput without a live TTY,
-// then reconcile *holders into a consents map exactly as liveWizard does. ascii mirrors
-// the no-color path so the glyph column falls back to [OK]/[WARN]/[BLOCK].
-func buildWizardForm(in wizardInput, chosen *string, holders *[]*gapConsentValue, doInstall *bool) *huh.Form {
-	ascii := !in.colorEnabled
-	groups := []*huh.Group{
-		// Screen 1/5 — detected host (read-only).
-		huh.NewGroup(
-			huh.NewNote().
-				Title(stepHeader(1, 5, in.colorEnabled) + " Detected host").
-				Description(detectedHostSummary(in.profile, in.backend)),
-		),
-		// Screen 2/5 — confirm / adjust model (D-02). Options = recommended + alternatives.
-		huh.NewGroup(
-			huh.NewSelect[string]().
-				Title(stepHeader(2, 5, in.colorEnabled) + " Confirm your model").
-				Description("Pick the recommended model or another memory-fitting catalog pick.").
-				Options(modelOptions(in.rec, in.alternatives)...).
-				Value(chosen),
-		),
+// errWizardAborted is returned when input ends (EOF/Ctrl-D) or the context is
+// cancelled (Ctrl-C) before a question is answered. It is distinct from a
+// deliberate Cancel, and both leave the host untouched.
+var errWizardAborted = errors.New("install wizard aborted")
+
+func (p *prompter) print(s string) { fmt.Fprintln(p.out, s) }
+
+// section prints the "n/total Title" step header the flow is paced by.
+func (p *prompter) section(n, total int, title string) {
+	fmt.Fprintf(p.out, "\n%d/%d  %s\n\n", n, total, title)
+}
+
+// readLine returns the next answer, or errWizardAborted when input ends or the
+// context is cancelled. It never treats an absent answer as consent.
+func (p *prompter) readLine() (string, error) {
+	if err := p.ctx.Err(); err != nil {
+		return "", errWizardAborted
+	}
+	line, err := p.in.ReadString('\n')
+	if err != nil {
+		// A final line without a trailing newline is still a real answer.
+		if line != "" {
+			return strings.TrimSpace(line), nil
+		}
+		return "", errWizardAborted
+	}
+	return strings.TrimSpace(line), nil
+}
+
+// confirm asks a yes/no question. def is the answer an empty line takes, and it is
+// false at every call site: the safe choice must never require typing.
+func (p *prompter) confirm(question string, def bool) (bool, error) {
+	hint := "y/N"
+	if def {
+		hint = "Y/n"
+	}
+	for {
+		fmt.Fprintf(p.out, "%s [%s] ", question, hint)
+		answer, err := p.readLine()
+		if err != nil {
+			return false, err
+		}
+		switch strings.ToLower(answer) {
+		case "":
+			return def, nil
+		case "y", "yes":
+			return true, nil
+		case "n", "no":
+			return false, nil
+		default:
+			p.print("  please answer y or n")
+		}
+	}
+}
+
+// chooseModel offers the recommended pick plus the memory-fitting alternatives and
+// returns the chosen catalog id (D-02). The answer is an index into a constrained
+// list, never free text, so an unknown model id cannot be introduced here.
+func (p *prompter) chooseModel(rec recommend.Recommendation, alts []recommend.Alternative) (string, error) {
+	options := modelOptions(rec, alts)
+	for i, o := range options {
+		fmt.Fprintf(p.out, "  %d) %s\n", i+1, o.label)
+	}
+	if len(options) == 1 {
+		// Nothing to choose between; state the pick rather than posing a question
+		// with one answer.
+		p.print("")
+		return options[0].id, nil
 	}
 
-	// Screen 3/5 — preflight gate. PASS/WARN/auto-fix rows are a read-only Note; each
-	// privileged BLOCK gap gets a per-item Confirm binding into consents[id] (D-04).
-	gapFields := []huh.Field{
-		huh.NewNote().
-			Title(stepHeader(3, 5, in.colorEnabled) + " Preflight results").
-			Description(preflightSummary(in.checks, ascii)),
-	}
-	for _, c := range in.checks {
-		if !privilegedGap(c) {
+	for {
+		fmt.Fprintf(p.out, "\nSelect a model [1-%d, default 1]: ", len(options))
+		answer, err := p.readLine()
+		if err != nil {
+			return "", err
+		}
+		if answer == "" {
+			return options[0].id, nil
+		}
+		n, convErr := strconv.Atoi(answer)
+		if convErr != nil || n < 1 || n > len(options) {
+			fmt.Fprintf(p.out, "  please enter a number between 1 and %d\n", len(options))
 			continue
 		}
-		cmdStr := remediationCommand(c, hostUsername(in.profile))
-		// A fresh holder per privileged gap, defaulting to decline (false) so an
-		// un-touched gap is never silently run. huh writes the user's y/n into &h.val.
-		h := &gapConsentValue{id: c.ID, val: false}
-		*holders = append(*holders, h)
-		gapFields = append(gapFields,
-			huh.NewConfirm().
-				Title(fmt.Sprintf("Run privileged host-prep for [%s]?", c.ID)).
-				Description(fmt.Sprintf("%s\ncommand: %s", c.Detail, cmdStr)).
-				Affirmative("Run it").
-				Negative("Skip").
-				Value(&h.val),
-		)
+		return options[n-1].id, nil
 	}
-	groups = append(groups, huh.NewGroup(gapFields...))
-
-	// Screen 4/5 — final review + the single Install confirm (D-07). Focus defaults to
-	// Cancel because doInstall starts false.
-	groups = append(groups,
-		huh.NewGroup(
-			huh.NewNote().
-				Title(stepHeader(4, 5, in.colorEnabled)+" Review — villa will install:").
-				Description(reviewBlock(in)),
-			huh.NewConfirm().
-				Title("Install: this will pull images, write Quadlet units, and start services. Proceed?").
-				Affirmative("Install").
-				Negative("Cancel").
-				Value(doInstall),
-		),
-	)
-
-	return huh.NewForm(groups...).
-		WithTheme(villaTheme(in.colorEnabled)).
-		WithKeyMap(villaKeyMap())
 }
 
-// detectedHostSummary renders the typed-Unknown host facts (UI-SPEC screen 1): a
-// missing fact renders faint as "unknown", never a fabricated 0 (D-03 backend=vulkan
-// via the resolved accessor).
+// modelOption is one offered pick: the line shown, and the catalog id it resolves to.
+type modelOption struct {
+	label string
+	id    string
+}
+
+// modelOptions builds the offered list from the recommended pick (labelled
+// "recommended") plus the memory-fitting alternatives (D-02). Each line is
+// model · quant · ctx; the value is the catalog model id (constrained, never free text).
+func modelOptions(rec recommend.Recommendation, alts []recommend.Alternative) []modelOption {
+	opts := []modelOption{{
+		label: fmt.Sprintf("%s · %s · ctx %d  (recommended)", rec.Model, rec.Quant, rec.ContextLen),
+		id:    rec.Model,
+	}}
+	for _, a := range alts {
+		if a.Model == rec.Model {
+			continue
+		}
+		opts = append(opts, modelOption{
+			label: fmt.Sprintf("%s · %s · ctx %d", a.Model, a.Quant, a.ContextLen),
+			id:    a.Model,
+		})
+	}
+	return opts
+}
+
+// detectedHostSummary renders the typed-Unknown host facts: a missing fact renders
+// as "unknown", never a fabricated 0.
 func detectedHostSummary(p detect.HostProfile, backend inference.Backend) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "CPU:      %s\n", strOrUnknown(p.CPUModel))
-	fmt.Fprintf(&b, "memory:   %s usable envelope\n", bytesOrUnknown(p.UsableEnvelopeBytes))
-	fmt.Fprintf(&b, "iGPU:     %s (%s)\n", strOrUnknown(p.IGPUName), strOrUnknown(p.IGPUGfxID))
-	fmt.Fprintf(&b, "kernel:   %s\n", strOrUnknown(p.KernelVersion))
-	fmt.Fprintf(&b, "backend:  %s", backend.Name())
+	fmt.Fprintf(&b, "%sCPU:      %s\n", blockIndent, strOrUnknown(p.CPUModel))
+	fmt.Fprintf(&b, "%smemory:   %s usable envelope\n", blockIndent, bytesOrUnknown(p.UsableEnvelopeBytes))
+	fmt.Fprintf(&b, "%siGPU:     %s (%s)\n", blockIndent, strOrUnknown(p.IGPUName), strOrUnknown(p.IGPUGfxID))
+	fmt.Fprintf(&b, "%skernel:   %s\n", blockIndent, strOrUnknown(p.KernelVersion))
+	fmt.Fprintf(&b, "%sbackend:  %s", blockIndent, backend.Name())
 
-	// Typed-Unknown advisory (17-UI-SPEC.md:196): when ANY rendered fact is not Known,
-	// append the contracted help-tier note as a trailing line. The check mirrors the
-	// exact unknown-conditions the renderers use — strOrUnknown also treats an empty
-	// Value as unknown, so reuse it via strKnown. The advisory AUGMENTS the bare
-	// per-field "unknown" tokens, never replaces them. Help-tier styling (faint), not
-	// accent — this is advisory, not status. Pure presentation; no decision logic.
+	// Typed-Unknown advisory: when ANY rendered fact is not Known, append the
+	// contracted note. The check mirrors the exact unknown-conditions the renderers
+	// use, so the advisory and the per-field tokens can never disagree. The advisory
+	// AUGMENTS the bare "unknown" tokens, never replaces them.
 	if !strKnown(p.CPUModel) || !p.UsableEnvelopeBytes.Known ||
 		!strKnown(p.IGPUName) || !strKnown(p.KernelVersion) {
-		fmt.Fprintf(&b, "\n%s", mutedStyle().Render(
-			"Some host facts could not be probed; villa will pick conservatively. Run villa detect for detail."))
+		fmt.Fprintf(&b, "\n\n  Some host facts could not be probed; villa will pick conservatively. "+
+			"Run villa detect for detail.")
 	}
 	return b.String()
 }
@@ -207,42 +300,17 @@ func detectedHostSummary(p detect.HostProfile, backend inference.Backend) string
 // the per-field renderer can never disagree about what counts as "unknown".
 func strKnown(s detect.Str) bool { return s.Known && s.Value != "" }
 
-// modelOptions builds the Select options from the recommended pick (labelled
-// "recommended") plus the memory-fitting alternatives (D-02). Each line is
-// model · quant · ctx; the value is the catalog model id (constrained, never free text).
-func modelOptions(rec recommend.Recommendation, alts []recommend.Alternative) []huh.Option[string] {
-	opts := []huh.Option[string]{
-		huh.NewOption(
-			fmt.Sprintf("%s · %s · ctx %d  (recommended)", rec.Model, rec.Quant, rec.ContextLen),
-			rec.Model,
-		),
-	}
-	for _, a := range alts {
-		if a.Model == rec.Model {
-			continue
-		}
-		opts = append(opts, huh.NewOption(
-			fmt.Sprintf("%s · %s · ctx %d", a.Model, a.Quant, a.ContextLen),
-			a.Model,
-		))
-	}
-	return opts
-}
-
-// preflightSummary renders one row per check (UI-SPEC Preflight Gap States): glyph +
-// bold status word + name + remediation. It is informational text — the wizard records
-// consent via the per-item Confirms, it does not run any fix here.
+// preflightSummary renders one row per check: glyph + status word + name +
+// remediation. It is informational — consent is collected by the questions that
+// follow, and no fix runs here.
 func preflightSummary(checks []preflight.CheckResult, ascii bool) string {
 	if len(checks) == 0 {
-		return "no preflight checks to report"
+		return blockIndent + "no preflight checks to report"
 	}
 	var b strings.Builder
 	for i, c := range checks {
 		tier, word := statusWord(c)
-		glyph := statusGlyph(tier, ascii)
-		// blockIndent prefixes the row so the glyph/word/name column sits 2 cells
-		// under the (flush) "Preflight results" heading (UI-SPEC `block` token).
-		fmt.Fprintf(&b, "%s%s %s  %s", blockIndent, glyph, statusStyle(tier).Render(word), c.Name)
+		fmt.Fprintf(&b, "%s%s %s  %s", blockIndent, statusGlyph(tier, ascii), word, c.Name)
 		if c.Status != preflight.StatusPass && c.Remediation != "" {
 			fmt.Fprintf(&b, " — %s", c.Remediation)
 		}
@@ -254,14 +322,25 @@ func preflightSummary(checks []preflight.CheckResult, ascii bool) string {
 }
 
 // reviewBlock lists the chosen model/quant/ctx, the backend name, the image that will
-// be pulled (Name()/Image() accessors — NEVER a re-typed literal), and the install side
-// effects (UI-SPEC Copywriting "Review — villa will install:").
-func reviewBlock(in wizardInput) string {
-	// Each `key: value` line is prefixed with blockIndent so the review detail lines
-	// sit 2 cells under the (flush) "Review — villa will install:" heading (UI-SPEC
-	// `block` token); the heading itself (the Note title) stays flush.
+// be pulled (Name()/Image() accessors — NEVER a re-typed literal), and the install
+// side effects.
+//
+// chosen is the catalog id the operator selected; when it differs from the
+// recommendation the alternative's own quant and context are shown, because those
+// are what will be installed. An empty chosen means the recommended pick.
+func reviewBlock(in wizardInput, chosen string) string {
+	model, quant, ctx := in.rec.Model, in.rec.Quant, in.rec.ContextLen
+	if chosen != "" && chosen != in.rec.Model {
+		for _, a := range in.alternatives {
+			if a.Model == chosen {
+				model, quant, ctx = a.Model, a.Quant, a.ContextLen
+				break
+			}
+		}
+	}
+
 	var b strings.Builder
-	fmt.Fprintf(&b, "%smodel:      %s · %s · ctx %d\n", blockIndent, in.rec.Model, in.rec.Quant, in.rec.ContextLen)
+	fmt.Fprintf(&b, "%smodel:      %s · %s · ctx %d\n", blockIndent, model, quant, ctx)
 	fmt.Fprintf(&b, "%sbackend:    %s\n", blockIndent, in.backend.Name())
 	fmt.Fprintf(&b, "%swill pull:  %s\n", blockIndent, in.backend.Image())
 	fmt.Fprintf(&b, "%swill write: rootless Podman Quadlet units (config-derived)\n", blockIndent)
@@ -270,8 +349,7 @@ func reviewBlock(in wizardInput) string {
 }
 
 // privilegedGap reports whether a check is a privileged BLOCK/WARN gap that needs
-// per-item consent in screen 3 — it has an automated (privileged) fix and is NOT a
-// safe auto-fix. safeAutoFix is false for both current fixes, so PRE-03/PRE-05 qualify.
+// per-item consent — it has an automated (privileged) fix and is NOT a safe auto-fix.
 func privilegedGap(c preflight.CheckResult) bool {
 	if c.Status == preflight.StatusPass {
 		return false
@@ -296,10 +374,10 @@ func statusWord(c preflight.CheckResult) (statusTier, string) {
 
 // hostUsername resolves the username for a remediation command string in the review/
 // gap text. The HostProfile carries no username, so it reuses the same installUsername
-// resolution the live path uses — display only (the wizard never runs the command).
+// resolution the live path uses — display only (the loop never runs the command).
 func hostUsername(detect.HostProfile) string { return installUsername() }
 
-// strOrUnknown renders a typed-Unknown Str as its value or the faint "unknown" token
+// strOrUnknown renders a typed-Unknown Str as its value or the "unknown" token
 // (never a fabricated empty string), per the detect typed-Unknown contract.
 func strOrUnknown(s detect.Str) string {
 	if !s.Known || s.Value == "" {

@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"strings"
 	"testing"
@@ -20,8 +21,8 @@ import (
 // non-TTY) bypass it, the wizard- and flag-path config.toml are byte-identical
 // (SC#1/SC#2), a BLOCK-gap + privileged-consent scenario through the LIVE
 // composition runs the privileged seam at most once with the preserved 0/2/1
-// verdict (zero on denial, D-04/D-06), the live huh form drives in accessible
-// mode, and safeAutoFix returns false for both current privileged fixes (D-05).
+// verdict (zero on denial, D-04/D-06), the prompt loop drives from a scripted
+// stdin, and safeAutoFix returns false for both current privileged fixes (D-05).
 // There is NO install golden — assertions are exit code + seam call-counts +
 // strings.Contains (Patterns "Test via buffered cobra.Command, no golden").
 
@@ -212,19 +213,21 @@ func TestInstallWizardPathRunsGateOnce(t *testing.T) {
 	})
 }
 
-// TestInstallWizardAccessibleDriver drives the REAL huh form (not the fake seam)
-// off-hardware via accessible mode: WithInput(scriptedReader) + WithOutput(io.Discard)
-// + WithAccessible(true). It feeds line-based answers (Pitfall 2 — NOT raw ANSI
-// arrows): the model Select reads a 1-based option index, each privileged-gap
-// Confirm and the final Install Confirm read y/n. It then asserts the bound
-// chosen / consents / doInstall hold the scripted selections. WithOutput(io.Discard)
-// because huh renders to STDERR by default (Pitfall 1).
-func TestInstallWizardAccessibleDriver(t *testing.T) {
+// TestWizardPromptLoopDriver drives the whole guided install off-hardware by
+// scripting stdin, which is what the prompt loop replaced the accessible-mode form
+// runner with. The script answers, in the order the loop asks:
+//
+//	"2" → the alternative model rather than the recommended pick
+//	"y" → consent to the one privileged host-prep gap
+//	"y" → the final Install confirm
+//
+// It asserts the three things the loop exists to collect: the model override, the
+// per-gap consent keyed by check ID, and that it did not abort.
+func TestWizardPromptLoopDriver(t *testing.T) {
 	backend, err := inference.BackendFor("vulkan")
 	if err != nil {
 		t.Fatalf("resolve backend: %v", err)
 	}
-	// rec + one alternative so the Select has two options (recommended=1, alt=2).
 	rec := recommend.Recommendation{
 		Model: "qwen2.5-0.5b", Quant: "Q4_K_M", ContextLen: 4096, Backend: "vulkan",
 		Alternatives: []recommend.Alternative{
@@ -235,46 +238,134 @@ func TestInstallWizardAccessibleDriver(t *testing.T) {
 		profile:      detect.HostProfile{},
 		rec:          rec,
 		alternatives: rec.Alternatives,
-		// One privileged BLOCK gap (PRE-05) so screen 3 gets one Confirm.
+		// One privileged BLOCK gap (PRE-05) so the loop asks exactly one consent.
 		checks:       []preflight.CheckResult{seloffCheck()},
 		backend:      backend,
 		colorEnabled: false,
 	}
 
-	var chosen string
-	var holders []*gapConsentValue
-	var doInstall bool
-	form := buildWizardForm(in, &chosen, &holders, &doInstall)
+	var out strings.Builder
+	res, err := runWizard(context.Background(), in, strings.NewReader("2\ny\ny\n"), &out)
+	if err != nil {
+		t.Fatalf("runWizard: %v", err)
+	}
+	if res.modelOverride != "qwen2.5-1.5b" {
+		t.Errorf("modelOverride = %q, want the scripted alternative %q", res.modelOverride, "qwen2.5-1.5b")
+	}
+	if got, ok := res.consentDecisions["PRE-05"]; !ok || !got {
+		t.Errorf("consentDecisions = %v, want PRE-05=true", res.consentDecisions)
+	}
+	// The exact remediation command must be shown BEFORE the consent question — an
+	// operator consents to a specific command, not to an unnamed "host-prep".
+	if !strings.Contains(out.String(), "command: ") {
+		t.Errorf("the privileged-gap question did not show its command:\n%s", out.String())
+	}
+}
 
-	// Accessible-mode script, one line per visited field in order:
-	//   screen 2 Select → "2" (the alternative qwen2.5-1.5b)
-	//   screen 3 PRE-05 Confirm → "y" (run the privileged host-prep)
-	//   screen 4 Install Confirm → "y" (proceed)
-	// Notes consume no input. huh's accessible runner builds a FRESH bufio.Scanner
-	// per field over the same reader; a plain strings.Reader hands the whole script
-	// to the first field's scanner buffer, starving later fields (they fall back to
-	// defaults). lineReader returns at most one line per Read so each field's scanner
-	// only ever buffers its own line — the off-hardware analog of typing answers one
-	// at a time at the prompt.
-	form = form.WithInput(&lineReader{lines: []string{"2", "y", "y"}}).WithOutput(io.Discard).WithAccessible(true)
-	if err := form.Run(); err != nil {
-		t.Fatalf("accessible-mode form.Run: %v", err)
+// TestWizardKeepsRecommendedPick asserts an empty answer takes the recommended
+// model and reports NO override, so runInstall does not needlessly re-run Pick.
+func TestWizardKeepsRecommendedPick(t *testing.T) {
+	backend, err := inference.BackendFor("vulkan")
+	if err != nil {
+		t.Fatalf("resolve backend: %v", err)
+	}
+	rec := recommend.Recommendation{
+		Model: "qwen2.5-0.5b", Quant: "Q4_K_M", ContextLen: 4096, Backend: "vulkan",
+		Alternatives: []recommend.Alternative{{Model: "qwen2.5-1.5b", Quant: "Q4_K_M", ContextLen: 8192}},
+	}
+	in := wizardInput{rec: rec, alternatives: rec.Alternatives, backend: backend}
+
+	var out strings.Builder
+	res, err := runWizard(context.Background(), in, strings.NewReader("\ny\n"), &out)
+	if err != nil {
+		t.Fatalf("runWizard: %v", err)
+	}
+	if res.modelOverride != "" {
+		t.Errorf("modelOverride = %q, want empty (kept the recommended pick)", res.modelOverride)
+	}
+}
+
+// TestWizardCancelAndAbortNeverConsent is the safety property: neither a declined
+// final confirm, nor an input stream that simply ends, may be read as approval.
+// Both must return an error so runInstall aborts without mutating the host.
+func TestWizardCancelAndAbortNeverConsent(t *testing.T) {
+	backend, err := inference.BackendFor("vulkan")
+	if err != nil {
+		t.Fatalf("resolve backend: %v", err)
+	}
+	rec := recommend.Recommendation{Model: "qwen2.5-0.5b", Quant: "Q4_K_M", ContextLen: 4096}
+	base := wizardInput{rec: rec, backend: backend, checks: []preflight.CheckResult{seloffCheck()}}
+
+	cases := map[string]struct {
+		script  string
+		wantErr error
+	}{
+		// consent y, then decline the install confirm.
+		"declined install confirm": {"y\nn\n", errWizardCancelled},
+		// EOF at the consent question: no answer is NOT a yes.
+		"input ends at consent": {"", errWizardAborted},
+		// consent y, then EOF before the final confirm.
+		"input ends at final confirm": {"y\n", errWizardAborted},
+		// An empty line at the final confirm takes the default, which is Cancel.
+		"empty answer defaults to cancel": {"y\n\n", errWizardCancelled},
 	}
 
-	if chosen != "qwen2.5-1.5b" {
-		t.Errorf("scripted Select bound chosen=%q, want the alternative %q", chosen, "qwen2.5-1.5b")
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			var out strings.Builder
+			res, err := runWizard(context.Background(), base, strings.NewReader(tc.script), &out)
+			if !errors.Is(err, tc.wantErr) {
+				t.Fatalf("err = %v, want %v", err, tc.wantErr)
+			}
+			if res.modelOverride != "" || len(res.consentDecisions) != 0 {
+				t.Errorf("an aborted run returned collected choices %+v — it must collect nothing", res)
+			}
+		})
 	}
-	if !doInstall {
-		t.Errorf("scripted final Install confirm bound doInstall=%v, want true", doInstall)
+}
+
+// TestWizardCancelledContextAborts proves Ctrl-C (a cancelled context) aborts
+// rather than falling through to a default answer.
+func TestWizardCancelledContextAborts(t *testing.T) {
+	backend, err := inference.BackendFor("vulkan")
+	if err != nil {
+		t.Fatalf("resolve backend: %v", err)
 	}
-	// Reconcile the holders into a consents map exactly as liveWizard does, then
-	// assert the scripted privileged-gap decision bound true.
-	consents := map[string]bool{}
-	for _, h := range holders {
-		consents[h.id] = h.val
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	in := wizardInput{rec: recommend.Recommendation{Model: "m", Quant: "q", ContextLen: 1}, backend: backend}
+	var out strings.Builder
+	if _, err := runWizard(ctx, in, strings.NewReader("y\ny\n"), &out); !errors.Is(err, errWizardAborted) {
+		t.Errorf("cancelled context err = %v, want errWizardAborted", err)
 	}
-	if got, ok := consents["PRE-05"]; !ok || !got {
-		t.Errorf("scripted PRE-05 confirm bound consents=%v, want PRE-05=true", consents)
+}
+
+// TestWizardRejectsOutOfRangeSelection asserts a bad model answer re-asks rather
+// than silently taking a default — a mistyped number must not choose a model.
+func TestWizardRejectsOutOfRangeSelection(t *testing.T) {
+	backend, err := inference.BackendFor("vulkan")
+	if err != nil {
+		t.Fatalf("resolve backend: %v", err)
+	}
+	rec := recommend.Recommendation{
+		Model: "qwen2.5-0.5b", Quant: "Q4_K_M", ContextLen: 4096,
+		Alternatives: []recommend.Alternative{{Model: "qwen2.5-1.5b", Quant: "Q4_K_M", ContextLen: 8192}},
+	}
+	in := wizardInput{rec: rec, alternatives: rec.Alternatives, backend: backend}
+
+	var out strings.Builder
+	// "9" is out of range and "abc" is not a number; both must be re-asked, then "2"
+	// is accepted.
+	res, err := runWizard(context.Background(), in, strings.NewReader("9\nabc\n2\ny\n"), &out)
+	if err != nil {
+		t.Fatalf("runWizard: %v", err)
+	}
+	if res.modelOverride != "qwen2.5-1.5b" {
+		t.Errorf("modelOverride = %q, want %q after the invalid answers were re-asked", res.modelOverride, "qwen2.5-1.5b")
+	}
+	if !strings.Contains(out.String(), "please enter a number between 1 and 2") {
+		t.Errorf("an out-of-range answer was not re-asked:\n%s", out.String())
 	}
 }
 
@@ -318,7 +409,7 @@ func TestReviewBlockIndent(t *testing.T) {
 		rec:     recommend.Recommendation{Model: "qwen2.5-0.5b", Quant: "Q4_K_M", ContextLen: 4096, Backend: "vulkan"},
 		backend: backend,
 	}
-	got := reviewBlock(in)
+	got := reviewBlock(in, "")
 	for _, line := range strings.Split(got, "\n") {
 		if line == "" {
 			continue
@@ -488,5 +579,42 @@ func TestSafeAutoFixReturnsFalseForPrivilegedFixes(t *testing.T) {
 		if safeAutoFix(id) {
 			t.Errorf("safeAutoFix(%q) = true, want false (privileged → consent-gated, D-05/D-04)", id)
 		}
+	}
+}
+
+// TestReviewBlockShowsTheChosenModel is the fix for a real defect the previous
+// wizard carried: an operator who picked an alternative was shown a review naming
+// the RECOMMENDED model, and asked to confirm an install of something else. The
+// review must describe what will actually be installed, including that
+// alternative's own quant and context.
+func TestReviewBlockShowsTheChosenModel(t *testing.T) {
+	backend, err := inference.BackendFor("vulkan")
+	if err != nil {
+		t.Fatalf("resolve backend: %v", err)
+	}
+	in := wizardInput{
+		rec: recommend.Recommendation{Model: "recommended-model", Quant: "Q4_K_M", ContextLen: 131072},
+		alternatives: []recommend.Alternative{
+			{Model: "chosen-model", Quant: "Q3_K_XL", ContextLen: 8192},
+		},
+		backend: backend,
+	}
+
+	got := reviewBlock(in, "chosen-model")
+	if !strings.Contains(got, "chosen-model") {
+		t.Errorf("review does not name the chosen model:\n%s", got)
+	}
+	if strings.Contains(got, "recommended-model") {
+		t.Errorf("review still names the recommended model after an override:\n%s", got)
+	}
+	// The alternative's OWN quant and context must be shown, not the recommendation's.
+	if !strings.Contains(got, "Q3_K_XL") || !strings.Contains(got, "ctx 8192") {
+		t.Errorf("review shows the recommendation's quant/ctx instead of the chosen model's:\n%s", got)
+	}
+
+	// Keeping the recommended pick still reviews the recommendation.
+	kept := reviewBlock(in, "")
+	if !strings.Contains(kept, "recommended-model") || !strings.Contains(kept, "ctx 131072") {
+		t.Errorf("review of the kept recommendation is wrong:\n%s", kept)
 	}
 }
