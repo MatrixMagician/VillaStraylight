@@ -21,7 +21,7 @@ import (
 // dashboard.go is the thin cobra caller for `villa dashboard` (DASH-01/DASH-05): it
 // loads the loopback dashboard/chat ports from config, composes the SHARED
 // internal/status read-model seam (the same status.Deps `villa status` uses — never a
-// fork), and serves the loopback-only HTTP dashboard. The server (chi router, /api,
+// fork), and serves the loopback-only HTTP dashboard. The server (stdlib mux, /api,
 // embedded UI, same-origin guard) lives in internal/dashboard; this file keeps only
 // the cobra wiring + the live host composition. dashboard_test.go drives runDashboard
 // through a stubbed serve dep.

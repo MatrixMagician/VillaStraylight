@@ -271,7 +271,7 @@ type switchResponse struct {
 // V5 / T-05-12). The same-origin + JSON-content-type middleware (Plan 02) already gated
 // this non-GET request, so a cross-origin POST never reaches here (T-05-11).
 func (s *Server) handleSwitch(w http.ResponseWriter, r *http.Request) {
-	// Serialize swaps: chi serves handlers concurrently, and modelswap.Run is a
+	// Serialize swaps: net/http serves handlers concurrently, and modelswap.Run is a
 	// non-atomic read-modify-write of the config↔units source of truth (CR-02). A second
 	// switch arriving while one is in flight is refused with 409 Conflict rather than
 	// allowed to interleave — matching the UI's single in-flight `switching` model.

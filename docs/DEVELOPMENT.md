@@ -25,8 +25,9 @@ Notes:
   by default and synthesizes typed defaults when no config exists. The `.env.example`
   at the repo root belongs to the legacy reference-only scaffold (see below), not to
   the `villa` control plane.
-- The dependency set is small and pure-Go: `cobra` (CLI), `chi` (dashboard
-  HTTP), `ghw` (hardware detection), and `BurntSushi/toml` (config). All are vendored
+- The dependency set is small and pure-Go: `cobra` (CLI), `ghw` (hardware
+  detection), and `BurntSushi/toml` (config). The dashboard routes on the standard
+  library mux, so it needs no router. All are vendored
   through the module graph; run `make tidy` after changing imports.
 - **You do not need a Strix Halo host, Podman, or a GPU to develop.** Every
   host-touching effect (sysfs reads, `podman`, `systemctl`, HTTP probes, downloads,

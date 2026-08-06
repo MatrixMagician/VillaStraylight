@@ -62,7 +62,7 @@ graph TD
     CLI --> backendswap["internal/backendswap<br/>transactional capture→prove→rollback"]
     CLI --> bench["internal/bench<br/>honest A/B core (pure)"]
     CLI --> status["internal/status<br/>read-model aggregation"]
-    CLI --> dashboard["internal/dashboard<br/>loopback chi dashboard"]
+    CLI --> dashboard["internal/dashboard<br/>loopback dashboard"]
 
     recommend --> detect
     recommend --> catalog
@@ -262,8 +262,8 @@ the GPU count toward the median/stddev `Stats` and the comparative `ABResult`.
   (`internal/bench/bench.go`) — the pure honest-A/B benchmark core. `--ab` composes
   `backendswap.Run` (never re-implements switching); each kept run is residency-proven so
   CPU-fallback runs are excluded from the median/stddev comparison.
-- **`dashboard.Server`** (`internal/dashboard/server.go`) — the loopback-only `chi`
-  control dashboard; constructed to refuse any non-loopback bind, serves a read-only
+- **`dashboard.Server`** (`internal/dashboard/server.go`) — the loopback-only
+  `net/http` control dashboard; constructed to refuse any non-loopback bind, serves a read-only
   JSON API over the shared `status` core plus the `metrics` perf scrape, with the one
   sanctioned mutation (`POST /api/models/switch`) routed through `modelswap.Run`.
 
@@ -300,7 +300,7 @@ internal/
   bench/              Pure honest-A/B benchmark core (--ab composes backendswap).
   status/             Shared read-model aggregation (CLI + dashboard, never forked).
   metrics/            Bounded llama-server /metrics + /slots scrape for the perf panel.
-  dashboard/          Loopback-only chi control dashboard backend + embedded UI.
+  dashboard/          Loopback-only control dashboard backend + embedded UI.
   llm/                Reference-only scaffold remnant (OpenAI-compatible SSE client).
 web/                  Legacy embedded React UI (reference-only).
 ```

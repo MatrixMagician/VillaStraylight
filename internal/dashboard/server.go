@@ -1,25 +1,24 @@
 // Package dashboard is the VillaStraylight control dashboard backend (Phase-5
-// DASH-01/DASH-05): a loopback-only chi HTTP server that serves a read-model JSON
+// DASH-01/DASH-05): a loopback-only HTTP server that serves a read-model JSON
 // API by folding the SHARED internal/status core (never a fork) plus an embedded
 // no-build single-page UI.
 //
 // The server binds 127.0.0.1 explicitly via net.JoinHostPort (Pitfall 6 / PRIV-01,
 // T-05-03) — never ":8888" / "0.0.0.0". The /api routes are read-only GETs in this
 // slice; the single future mutation (POST /api/models/switch, Plan 04) is guarded by
-// construction by the requireSameOrigin middleware on the /api subrouter (T-05-04).
+// construction by the requireSameOrigin guard wrapping the /api mux (T-05-04).
 package dashboard
 
 import (
 	"fmt"
 	"html/template"
 	"io/fs"
+	"log"
 	"net"
 	"net/http"
+	"runtime/debug"
 	"strconv"
 	"sync"
-
-	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/chi/v5/middleware"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
 	"github.com/MatrixMagician/VillaStraylight/internal/metrics"
@@ -109,7 +108,7 @@ type Config struct {
 	CounterSample func() (metrics.CounterSample, bool)
 }
 
-// Server holds the composed dashboard configuration and exposes the chi handler and
+// Server holds the composed dashboard configuration and exposes the HTTP handler and
 // the loopback bind address. It performs no I/O until ListenAndServe.
 type Server struct {
 	statusDeps    status.Deps
@@ -185,7 +184,7 @@ func isLoopbackAddr(addr string) bool {
 }
 
 // NewServer constructs a Server from Config, defaulting the bind address to loopback
-// when unset and building the chi router (route table + middleware chain + embedded
+// when unset and building the router (route table + same-origin guard + embedded
 // UI). It never binds until ListenAndServe is called. A non-empty, non-loopback
 // DashboardAddr (e.g. "0.0.0.0") is REFUSED with an error so the PRIV-01 loopback
 // posture is enforced by construction, not merely by the empty-string default (IN-03):
@@ -274,41 +273,60 @@ func NewServer(cfg Config) (*Server, error) {
 	return s, nil
 }
 
-// routes builds the chi router mirroring internal/server's middleware chain but with
-// a READ-ONLY route table (no chat/SSE route, no AllowedOrigins CORS block). The /api
-// subrouter carries the requireSameOrigin guard so any future non-GET (Plan 04's POST)
-// is rejected cross-origin by construction; GET routes are unaffected.
+// routes builds the READ-ONLY route table on the standard library's mux, which has
+// carried method-and-pattern routing since Go 1.22 — enough for all seven routes here.
+//
+// Only two wrappers survive. requireSameOrigin gates every /api route and nothing
+// else: it is the dashboard's browser-facing trust boundary, so it is applied to the
+// API mux as a whole rather than per route, and a route added later cannot be added
+// outside it. recoverPanic is kept because a panicking handler would otherwise take
+// down the long-lived dashboard service.
+//
+// Real-IP extraction and request-ID correlation are deliberately absent. The bind is
+// 127.0.0.1 by construction, so a forwarded-for header carries no information a
+// loopback server should trust, and there is no second process to correlate an ID
+// with on a single-user local machine.
 func (s *Server) routes() http.Handler {
-	r := chi.NewRouter()
-	r.Use(middleware.RequestID)
-	r.Use(middleware.RealIP)
-	r.Use(middleware.Logger)
-	r.Use(middleware.Recoverer)
+	api := http.NewServeMux()
+	api.HandleFunc("GET /api/status", s.handleStatus)
+	api.HandleFunc("GET /api/healthz", s.handleHealthz)
+	// Performance + GPU read-models (Plan 03, DASH-02/DASH-03). Still GET-only,
+	// behind the same read path; requireSameOrigin only gates non-GET.
+	api.HandleFunc("GET /api/metrics", s.handleMetrics)
+	api.HandleFunc("GET /api/gpu", s.handleGPU)
+	// Models read-model (Plan 04, DASH-04): the full catalog marked
+	// loaded/on-disk/catalog-only with a per-row fit flag. GET-only here.
+	api.HandleFunc("GET /api/models", s.handleModels)
+	// The ONE sanctioned mutation (DASH-04): POST /api/models/switch routes through the
+	// SHARED modelswap.Run core. requireSameOrigin already gates this non-GET (JSON
+	// content-type + same-origin), so a cross-origin POST never reaches the handler
+	// (T-05-11).
+	api.HandleFunc("POST /api/models/switch", s.handleSwitch)
 
-	r.Route("/api", func(r chi.Router) {
-		// requireSameOrigin is a no-op for GET/HEAD and rejects cross-origin
-		// non-GET (the Plan 04 mutation) with 403 (T-05-04 / Pitfall 7).
-		r.Use(requireSameOrigin)
-		r.Get("/status", s.handleStatus)
-		r.Get("/healthz", s.handleHealthz)
-		// Performance + GPU read-models (Plan 03, DASH-02/DASH-03). Still GET-only,
-		// behind the same read path; requireSameOrigin only gates non-GET.
-		r.Get("/metrics", s.handleMetrics)
-		r.Get("/gpu", s.handleGPU)
-		// Models read-model (Plan 04, DASH-04): the full catalog marked
-		// loaded/on-disk/catalog-only with a per-row fit flag. GET-only here.
-		r.Get("/models", s.handleModels)
-		// The ONE sanctioned mutation (DASH-04): POST /models/switch routes through the
-		// SHARED modelswap.Run core. requireSameOrigin (above) already gates this non-GET
-		// (JSON content-type + same-origin), so a cross-origin POST never reaches the
-		// handler (T-05-11).
-		r.Post("/models/switch", s.handleSwitch)
+	root := http.NewServeMux()
+	// "/api/" claims the whole API subtree, so an unmatched path under it is answered
+	// by the API mux (404/405) rather than falling through to the UI handler.
+	root.Handle("/api/", requireSameOrigin(api))
+	// Embedded single-page UI. Mirrors spaHandler: fs.Sub + http.FileServer with a
+	// fallback to the html/template shell.
+	root.Handle("/", s.staticHandler())
+
+	return recoverPanic(root)
+}
+
+// recoverPanic turns a panicking handler into a 500 instead of a dead server. The
+// dashboard runs as a long-lived user service, so an unhandled panic in one request
+// would otherwise end the process and take the UI down until systemd restarted it.
+func recoverPanic(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
+			if rec := recover(); rec != nil {
+				log.Printf("dashboard: panic serving %s %s: %v\n%s", r.Method, r.URL.Path, rec, debug.Stack())
+				http.Error(w, "internal server error", http.StatusInternalServerError)
+			}
+		}()
+		next.ServeHTTP(w, r)
 	})
-
-	// Embedded single-page UI (built in Task 2). Mirrors spaHandler: fs.Sub +
-	// http.FileServer with a fallback to the html/template shell.
-	r.Handle("/*", s.staticHandler())
-	return r
 }
 
 // staticHandler serves the embedded no-build single-page UI (D-01). The index "/"
@@ -344,7 +362,7 @@ type shellData struct {
 	ChatPort int
 }
 
-// Handler returns the composed chi handler (for httptest and ListenAndServe).
+// Handler returns the composed handler (for httptest and ListenAndServe).
 func (s *Server) Handler() http.Handler { return s.router }
 
 // Addr returns the loopback bind address, built via net.JoinHostPort so it is always
