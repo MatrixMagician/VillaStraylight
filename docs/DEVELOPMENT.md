@@ -99,15 +99,24 @@ under-active-development code is:
 | go vet | (none) | `make vet` |
 | golangci-lint | `.golangci.yml` (repo root) | `make lint` (falls back to `go vet` if golangci-lint is not installed) |
 
-`golangci-lint` is **optional** — the `Makefile` and `.golangci.yml` are written so a
-contributor without it installed still gets `go vet` coverage via `make lint`. To run
-the full linter set locally, install golangci-lint and run `make lint`.
+`golangci-lint` is optional **locally** — `make lint` falls back to `go vet` when the
+binary is absent. It is not optional in CI: every push and pull request runs
+golangci-lint v2 against `.golangci.yml`.
 
-The enabled linters (`.golangci.yml`) are: `errcheck`, `govet`, `ineffassign`,
-`staticcheck`, `unused`, `gofmt`, `goimports`, `misspell`, and `revive`. Test files
-are excluded from `errcheck` (an `issues.exclude-rules` entry on `_test\.go`), so
-table tests may ignore returned errors where it aids readability; non-test code may
-not. The lint run has a 3-minute timeout.
+That CI step is gated with `only-new-issues`, so it reports findings introduced by
+the change rather than the standing backlog. The backlog is real (about 70 findings
+at the time of writing) and clearing it is a separate, deliberate piece of work;
+failing every PR on it would only teach contributors to ignore the linter.
+
+The config is **v2 format**. Under v2 the `errcheck`, `govet`, `ineffassign`,
+`staticcheck` and `unused` set is enabled by default and is no longer listed;
+`misspell` and `revive` are the explicit additions, and `gofmt`/`goimports` moved to
+the `formatters` block. Test files stay excluded from `errcheck`, so table tests may
+ignore returned errors where it aids readability; non-test code may not.
+
+A v1-format config is silently unusable by a v2 binary — it fails to load rather than
+linting nothing quietly — so run `golangci-lint migrate` if you ever hit
+"unsupported version of the configuration".
 
 ## Testing conventions
 
