@@ -42,8 +42,8 @@ import (
 //
 // Resolved on the gfx1151 dev box (Plan 04 Task 1, 2026-06-19) after confirming the static
 // binary: `file ./villa` (built CGO_ENABLED=0 via `make build-static`) reports "statically
-// linked", and `villa detect` runs correctly CGO-free (ghw reads /proc + /sys; no cgo needed
-// on Linux — Pitfall 5 cleared, no alpine fallback required). The bind-mounted villa binary
+// linked", and `villa detect` runs correctly CGO-free (detection reads /proc + /sys; no cgo
+// needed on Linux — Pitfall 5 cleared, no alpine fallback required). The bind-mounted villa binary
 // MUST therefore be the static build; web-search opt-in requires `make build-static`.
 const websafeImage = "gcr.io/distroless/static-debian12@sha256:b669b9df05a88a085fefed6520c6d2268aabacf3008b149ddf877e752ae89400"
 

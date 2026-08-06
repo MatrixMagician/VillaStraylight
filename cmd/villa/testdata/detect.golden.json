@@ -2,7 +2,7 @@
   "cpu_model": {
     "value": "AMD RYZEN AI MAX+ 395 w/ Radeon 8060S",
     "known": true,
-    "source": "ghw.CPU"
+    "source": "/proc/cpuinfo:model name"
   },
   "arch": {
     "value": "amd64",
@@ -12,7 +12,7 @@
   "total_ram_bytes": {
     "value": 137438953472,
     "known": true,
-    "source": "ghw.Memory"
+    "source": "/proc/meminfo:MemTotal"
   },
   "mem_available_bytes": {
     "value": 122191437824,
