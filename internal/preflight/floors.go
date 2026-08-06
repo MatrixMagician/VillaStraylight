@@ -15,7 +15,7 @@ import (
 // reshaping any check (Assumption A1; RESEARCH anti-pattern "hard-coding floors").
 //
 // These are WARN-tier gates: a host below a tested baseline still boots and runs,
-// it is just less validated — so the checks they back never BLOCK (D-02).
+// it is just less validated — so the checks they back never BLOCK.
 
 // KernelFloor is the minimum kernel version with the gfx1151 stability fix.
 // Below this, the iGPU has a documented stability bug (CLAUDE.md version table).
@@ -23,14 +23,14 @@ const KernelFloor = "6.18.4"
 
 // KernelTested is the kernel baseline the project has actually validated against.
 // Between KernelFloor and KernelTested the host is "above the hard floor but below
-// the tested baseline" — exactly the WARN case D-02 describes.
+// the tested baseline" — exactly the WARN case describes.
 const KernelTested = "6.18.9"
 
 // MesaFloor is the minimum Mesa/RADV version for reliable Vulkan on gfx1151. The
 // value is intentionally conservative; Mesa version parsing is best-effort and a
-// parse miss WARNs rather than blocks (D-15).
+// parse miss WARNs rather than blocks.
 //
-// TODO(phase-2): no check consumes MesaFloor yet (IN-02). Wiring one needs a
+// TODO(phase-2): no check consumes MesaFloor yet. Wiring one needs a
 // design decision that must NOT be guessed here: detect.MesaVersion is currently
 // parsed from vulkaninfo's `driverVersion` line (the Vulkan DRIVER version), which
 // is a DIFFERENT numbering scheme from a Mesa RELEASE number like "25.0.0". A
@@ -73,8 +73,8 @@ type Floor struct {
 // rocmPolicyBytes is the COMPILED-IN ROCm/version policy. Because it is embedded
 // at build time it is NOT an external/runtime input — a malformed policy is a
 // build-time error caught by loadROCmPolicy's panic, never a runtime parse of
-// attacker-controlled data (Security V5 / T-07-03). It carries the v1.0 version
-// floors (re-sourced into Floors() as a no-op migration, D-04/D-05) plus the new
+// attacker-controlled data (Security V5). It carries the v1.0 version
+// floors (re-sourced into Floors as a no-op migration) plus the new
 // ROCm denylists and required HSA override the RunROCm checks gate on.
 //
 //go:embed rocm-policy.json
@@ -83,7 +83,7 @@ var rocmPolicyBytes []byte
 // ROCmPolicy is the decoded shape of rocm-policy.json. It bundles the migrated
 // v1.0 version floors with the new ROCm-specific policy data (firmware/image
 // denylists, the required HSA override value) so a floor or denylist entry can be
-// corrected in one place — the embedded JSON — without reshaping any check (D-04).
+// corrected in one place — the embedded JSON — without reshaping any check.
 type ROCmPolicy struct {
 	// KernelFloor is the minimum kernel with the gfx1151 stability fix (6.18.4).
 	KernelFloor string `json:"kernelFloor"`
@@ -106,7 +106,7 @@ type ROCmPolicy struct {
 
 // loadROCmPolicy decodes the embedded rocm-policy.json. It PANICS on a malformed
 // embed: that is a build-time programming error (the bytes are compiled in, never
-// runtime input — T-07-03), so failing loud at startup is correct and there is no
+// runtime input), so failing loud at startup is correct and there is no
 // attacker-controlled path to this panic.
 func loadROCmPolicy() ROCmPolicy {
 	var p ROCmPolicy
@@ -117,7 +117,7 @@ func loadROCmPolicy() ROCmPolicy {
 }
 
 // Floors returns the current version-floor data, sourced from the embedded
-// rocm-policy.json (D-04/D-05). The returned values are byte-identical to the
+// rocm-policy.json. The returned values are byte-identical to the
 // KernelFloor/KernelTested/MesaFloor/FirmwareFloor/FirmwareDeny constants — the
 // migration is a deliberate behavior no-op. FirmwareDeny is collapsed to the
 // FIRST denylist entry to preserve the existing scalar Floor.FirmwareDeny shape

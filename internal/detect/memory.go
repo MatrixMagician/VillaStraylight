@@ -88,7 +88,7 @@ func amdSysfsCardDirs(drmRoot string) []string {
 	return amd
 }
 
-// gttTotalBytes reads mem_info_gtt_total — the authoritative live GTT ceiling —
+// gttTotalBytes reads mem_info_gtt_total — the authoritative live GTT ceiling
 // from the AMD card under drmRoot. This is THE usable-envelope source; it is
 // never MemTotal and never the BIOS VRAM carve-out (Pitfall 1).
 func gttTotalBytes(drmRoot string) Bytes {
@@ -97,7 +97,7 @@ func gttTotalBytes(drmRoot string) Bytes {
 
 // gttUsedBytes reads mem_info_gtt_used — the live GTT (unified-memory) bytes
 // currently in use — from the AMD card under drmRoot. It is the before/after
-// signal for the Phase-2 offload delta assert (D-09.2): with --no-mmap, a model's
+// signal for the Phase-2 offload delta assert: with --no-mmap, a model's
 // weights become resident in GTT, so a positive used-delta across container start
 // proves real iGPU offload. It inherits vendor-0x1002 discovery + typed-Unknown
 // degradation from readAMDCardBytes for free, and never hard-codes card0.
@@ -106,7 +106,7 @@ func gttUsedBytes(drmRoot string) Bytes {
 }
 
 // vramUsedBytes reads mem_info_vram_used — the live BIOS-VRAM-carveout bytes in
-// use — a secondary offload-delta signal alongside gttUsedBytes (D-09.2). Same
+// use — a secondary offload-delta signal alongside gttUsedBytes. Same
 // typed-Unknown contract.
 func vramUsedBytes(drmRoot string) Bytes {
 	return readAMDCardBytes(drmRoot, "mem_info_vram_used", 1, "unparseable vram_used", "mem_info_vram_used not found")
@@ -114,7 +114,7 @@ func vramUsedBytes(drmRoot string) Bytes {
 
 // GTTUsedBytes reads the LIVE amdgpu mem_info_gtt_used from the real host DRM root.
 // It is the production before/after offload-delta signal the Phase-2 inference
-// validate verb folds into its Verdict (D-09.2): with --no-mmap a model's weights
+// validate verb folds into its Verdict: with --no-mmap a model's weights
 // become resident in GTT, so a positive used-delta across container start proves
 // real iGPU offload. It inherits vendor-0x1002 discovery + typed-Unknown degradation
 // from readAMDCardBytes (never card0, never a bare zero on a missing file).

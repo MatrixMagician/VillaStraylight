@@ -16,19 +16,19 @@ import (
 )
 
 // install_wizard_test.go is the automated half of the Phase-17 test map
-// (INSTALL-01/02). It proves the phase's observable signals off-hardware: the
+// (02). It proves the phase's observable signals off-hardware: the
 // wizard fires on a TTY, the three fallback conditions (--no-tui / --json /
 // non-TTY) bypass it, the wizard- and flag-path config.toml are byte-identical
-// (SC#1/SC#2), a BLOCK-gap + privileged-consent scenario through the LIVE
+// a BLOCK-gap + privileged-consent scenario through the LIVE
 // composition runs the privileged seam at most once with the preserved 0/2/1
-// verdict (zero on denial, D-04/D-06), the prompt loop drives from a scripted
-// stdin, and safeAutoFix returns false for both current privileged fixes (D-05).
+// verdict (zero on denial), the prompt loop drives from a scripted
+// stdin, and safeAutoFix returns false for both current privileged fixes.
 // There is NO install golden — assertions are exit code + seam call-counts +
 // strings.Contains (Patterns "Test via buffered cobra.Command, no golden").
 
 // TestInstallWizardFires: on a TTY (interactive stdin + stdout TTY, no --json,
 // no --no-tui) the wizard seam is invoked exactly once and install completes
-// with exitPass (Observable signal 1 / SC#3). The default fake wizard returns an
+// with exitPass (Observable signal 1). The default fake wizard returns an
 // empty wizardResult (no override, nil consent), so the install proceeds through
 // the single gate exactly as the flag path does.
 func TestInstallWizardFires(t *testing.T) {
@@ -50,8 +50,8 @@ func TestInstallWizardFires(t *testing.T) {
 
 // TestInstallGateBypassesWizard: each of --no-tui, --json, and a non-TTY stdout
 // bypasses the wizard seam (0 invocations) and runs the flag path (the install
-// still writes units + persists config). This is Observable signal 2 / SC#3 — the
-// graceful fallback that keeps the existing flag path verbatim (INSTALL-02).
+// still writes units + persists config). This is Observable signal 2 / — the
+// graceful fallback that keeps the existing flag path verbatim.
 func TestInstallGateBypassesWizard(t *testing.T) {
 	units := []orchestrate.Unit{{Name: "villa-llama.container", Text: "[Container]\n"}}
 	plan := orchestrate.Plan{Changed: units}
@@ -93,7 +93,7 @@ func TestInstallGateBypassesWizard(t *testing.T) {
 }
 
 // TestWizardConfigMatchesFlagPath: the config.toml the wizard path persists is
-// byte-identical to the flag path's for identical inputs (SC#1/SC#2). Both paths
+// byte-identical to the flag path's for identical inputs. Both paths
 // receive the same recommendation (the fake wizard returns an empty override +
 // nil consent), so they converge on the single gateInstall and persist the same
 // VillaConfig. Drives both through runInstall and compares the captured savedCfg.
@@ -126,9 +126,9 @@ func TestWizardConfigMatchesFlagPath(t *testing.T) {
 		t.Fatalf("flag-path setup error: wizard fired %d times, want 0", ff.wizardCalls)
 	}
 
-	// SC#1/SC#2: the persisted config.toml is byte-identical across both paths.
+	// the persisted config.toml is byte-identical across both paths.
 	if fw.savedCfg != ff.savedCfg {
-		t.Errorf("wizard-path config %+v must byte-match flag-path config %+v (SC#1/SC#2)", fw.savedCfg, ff.savedCfg)
+		t.Errorf("wizard-path config %+v must byte-match flag-path config %+v", fw.savedCfg, ff.savedCfg)
 	}
 }
 
@@ -148,7 +148,7 @@ func TestInstallWizardPathRunsGateOnce(t *testing.T) {
 
 	// failConsent fails the test if the gate ever falls back to the stdin prompt on
 	// the threaded wizard path — the recorded decision must be honored WITHOUT a
-	// re-prompt (D-04).
+	// re-prompt.
 	failConsent := func(prompt string) bool {
 		t.Errorf("d.consent must NOT be called on the threaded wizard path (re-prompt for %q)", prompt)
 		return false
@@ -200,7 +200,7 @@ func TestInstallWizardPathRunsGateOnce(t *testing.T) {
 
 		cmd, _, _ := installTestCmd()
 		code := runInstall(cmd, installOpts{}, f.installDeps)
-		// A denied BLOCK gap with no --force → exitBlocked, no mutation (D-04).
+		// A denied BLOCK gap with no --force → exitBlocked, no mutation.
 		if code != exitBlocked {
 			t.Fatalf("consent-denied wizard install exit = %d, want exitBlocked (%d)", code, exitBlocked)
 		}
@@ -569,7 +569,7 @@ func TestDetectedHostSummaryTypedUnknownAdvisory(t *testing.T) {
 	})
 }
 
-// TestSafeAutoFixReturnsFalseForPrivilegedFixes pins the conservative D-05
+// TestSafeAutoFixReturnsFalseForPrivilegedFixes pins the conservative
 // classification (interpretation 1): both current fixes — PRE-05 (setsebool -P)
 // and PRE-03 (loginctl enable-linger) — are PRIVILEGED and so are NOT safe to
 // auto-run. safeAutoFix must return false for both; a future reclassification to
@@ -577,7 +577,7 @@ func TestDetectedHostSummaryTypedUnknownAdvisory(t *testing.T) {
 func TestSafeAutoFixReturnsFalseForPrivilegedFixes(t *testing.T) {
 	for _, id := range []string{"PRE-03", "PRE-05"} {
 		if safeAutoFix(id) {
-			t.Errorf("safeAutoFix(%q) = true, want false (privileged → consent-gated, D-05/D-04)", id)
+			t.Errorf("safeAutoFix(%q) = true, want false (privileged → consent-gated)", id)
 		}
 	}
 }

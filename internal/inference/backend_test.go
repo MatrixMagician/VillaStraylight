@@ -4,16 +4,16 @@ import "testing"
 
 // backend_test.go covers the resolver-adjacent predicates in backend.go that do NOT
 // belong to a single backend impl. TestIsROCmFamily guards IsROCmFamily — the single
-// place the ROCm-family NAME set is enumerated (D-08). Every caller that used to compare
+// place the ROCm-family NAME set is enumerated. Every caller that used to compare
 // `== "rocm"` must route through this predicate so a new ROCm digest is gated identically;
 // it holds only backend NAME strings (config values), never an image literal, so it stays
 // seam-clean (TestSeamGrepGate covers the image-literal leak case).
 
 // TestIsROCmFamily asserts the predicate reports true for all three ROCm-family backend
-// names AND for the empty string (which BackendFor resolves to the default ROCm backend —
+// names AND for the empty string (which BackendFor resolves to the default ROCm backend
 // the two MUST agree or an unset config would run ROCm while skipping the ROCm gate), and
 // false for the explicit Vulkan opt-out and unknown values — the single enumeration point
-// consumed by the live PreflightROCm gate and the preflight flag router (D-08, 12-02).
+// consumed by the live PreflightROCm gate and the preflight flag router (12-02).
 func TestIsROCmFamily(t *testing.T) {
 	cases := []struct {
 		name string

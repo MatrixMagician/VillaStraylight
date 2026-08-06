@@ -14,18 +14,18 @@ import (
 // disabling the outbound tools does NOT harm the readiness/verify loop, which needs
 // only view/edit/write (27-RESEARCH A3 / Pitfall 5). An omitted allowed_tools makes
 // Crush prompt (blocks readiness); an omitted disabled_tools leaves outbound tools on
-// (the STRIDE FAIL, T-27-21) — so both are asserted present, never optional.
+// (the STRIDE FAIL) — so both are asserted present, never optional.
 
 // wantAllowedTools is the pinned restrictive allowlist (the readiness loop's needs).
 var wantAllowedTools = []string{"view", "edit", "write"}
 
-// wantDisabledTools is the pinned outbound-tool denylist (defense-in-depth, PRIV-06).
+// wantDisabledTools is the pinned outbound-tool denylist (defense-in-depth).
 var wantDisabledTools = []string{"fetch", "agentic_fetch", "download", "sourcegraph"}
 
 // TestRenderRestrictiveTools asserts the Phase-27 security pass: the rendered crush.json
 // carries permissions.allowed_tools (top-level) == view/edit/write AND options.disabled_tools
 // (under options) == fetch/agentic_fetch/download/sourcegraph. Both placements are decoded
-// from the rendered bytes and checked exactly (T-27-21 STRIDE mitigation).
+// from the rendered bytes and checked exactly (STRIDE mitigation).
 func TestRenderRestrictiveTools(t *testing.T) {
 	got, _, err := Render(renderTestConfig(), renderTestProbes())
 	if err != nil {
@@ -48,7 +48,7 @@ func TestRenderRestrictiveTools(t *testing.T) {
 			parsed.Permissions.AllowedTools, wantAllowedTools)
 	}
 	if !equalStrings(parsed.Options.DisabledTools, wantDisabledTools) {
-		t.Errorf("options.disabled_tools = %v, want %v (outbound tools off by construction, T-27-21)",
+		t.Errorf("options.disabled_tools = %v, want %v (outbound tools off by construction)",
 			parsed.Options.DisabledTools, wantDisabledTools)
 	}
 }

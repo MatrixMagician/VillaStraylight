@@ -14,8 +14,8 @@ import (
 // host. It asserts the ordering contract (capture STRICTLY before any mutation,
 // Pitfall 5), the verbatim rollback (RestoreUnit with the captured priorUnit), the
 // prove-gate (switch ONLY on ProveStatusPass — is-active/200 alone is never success,
-// D-09), the same-state NoOp (zero side effects, D-06), exit symmetry (D-08), and
-// swap-vs-shared residency surfacing (never silently degrade, D-10). It mirrors the
+// the same-state NoOp (zero side effects), exit symmetry, and
+// swap-vs-shared residency surfacing (never silently degrade). It mirrors the
 // backendswap swapRecorder + callOrder discipline.
 
 const installService = "villa-llama.service"
@@ -166,12 +166,12 @@ func TestEnter(t *testing.T) {
 	if res.FromModel != "chat-model" || res.ToModel != "coder-model" {
 		t.Errorf("From/To models wrong: from=%q to=%q", res.FromModel, res.ToModel)
 	}
-	// SaveConfig persisted the coding fields resolved at enter (D-04).
+	// SaveConfig persisted the coding fields resolved at enter.
 	if !rec.saved.CodingMode || rec.saved.CoderModel != "coder-model" ||
 		rec.saved.CoderQuant != "Q4" || rec.saved.CoderAgentCtx != 65536 {
 		t.Errorf("enter must persist CodingMode=true + resolved coder fields, got %+v", rec.saved)
 	}
-	// D-08: cfg.Model (the durable chat model) is NEVER overwritten — the served coder
+	// cfg.Model (the durable chat model) is NEVER overwritten — the served coder
 	// model lives in CoderModel so exit reverts by clearing the coder fields. Surfaced
 	// ToModel still names the coder (the served model) for the user.
 	if rec.saved.Model != "chat-model" {
@@ -238,7 +238,7 @@ func TestProveFailRollback(t *testing.T) {
 }
 
 // TestIdleGreenNotSuccess: any non-ProveStatusPass verdict (incl. ready+health-200-but-
-// residency-FAIL) triggers rollback. Idle-green is never green (D-09).
+// residency-FAIL) triggers rollback. Idle-green is never green.
 func TestIdleGreenNotSuccess(t *testing.T) {
 	rec := enterStub()
 	rec.proveStatus = "ready+200 but residency FAIL" // any non-pass sentinel
@@ -295,7 +295,7 @@ func TestRollbackIncompleteReported(t *testing.T) {
 }
 
 // TestExitRestoresChat: exit from coding mode runs the SAME (capture→mutate→prove→
-// rollback) frame (D-08) and persists CodingMode=false, clearing the coder fields. It is
+// rollback) frame and persists CodingMode=false, clearing the coder fields. It is
 // symmetric to enter, NOT a bare flip — capture fired before save.
 func TestExitRestoresChat(t *testing.T) {
 	rec := enterStub()
@@ -310,7 +310,7 @@ func TestExitRestoresChat(t *testing.T) {
 	if rec.saved.CodingMode || rec.saved.CoderModel != "" || rec.saved.CoderAgentCtx != 0 {
 		t.Errorf("exit must persist CodingMode=false + cleared coder fields, got %+v", rec.saved)
 	}
-	// The durable chat model is restored as the served model (config-derived, D-08).
+	// The durable chat model is restored as the served model (config-derived).
 	if rec.saved.Model != "chat-model" {
 		t.Errorf("exit must keep the durable chat model served, got %q", rec.saved.Model)
 	}
@@ -318,7 +318,7 @@ func TestExitRestoresChat(t *testing.T) {
 	capIdx := indexOf(rec.callOrder, "capture")
 	saveIdx := indexOf(rec.callOrder, "save")
 	if capIdx < 0 || saveIdx < 0 || !(capIdx < saveIdx) {
-		t.Errorf("exit must capture before mutating (symmetric frame, D-08), got %v", rec.callOrder)
+		t.Errorf("exit must capture before mutating (symmetric frame), got %v", rec.callOrder)
 	}
 	// Exit must not resolve a coder target (no model selection on exit).
 	if rec.resolveCalled {
@@ -327,7 +327,7 @@ func TestExitRestoresChat(t *testing.T) {
 }
 
 // TestExitProveFailRollback: an exit whose prove fails rolls back verbatim to the coding
-// unit+config — exit is held to the SAME prove gate as enter (D-08/D-09).
+// unit+config — exit is held to the SAME prove gate as enter.
 func TestExitProveFailRollback(t *testing.T) {
 	rec := enterStub()
 	rec.currentCoding = true
@@ -405,7 +405,7 @@ func TestCaptureFailureRefuses(t *testing.T) {
 // TestSharedResidencyRenderDeltaOnly: in shared residency the enter path applies the
 // render delta to the EXISTING chat model WITHOUT a model change (no swap, no pull),
 // still transactional + proved, and surfaces the shared mode distinctly — it NEVER
-// silently degrades swap→shared (D-10).
+// silently degrades swap→shared.
 func TestSharedResidencyRenderDeltaOnly(t *testing.T) {
 	rec := enterStub()
 	rec.downloaded = false // would force a pull IF it were a swap
@@ -417,7 +417,7 @@ func TestSharedResidencyRenderDeltaOnly(t *testing.T) {
 	if res.Residency != ResidencyShared {
 		t.Errorf("shared residency must be surfaced distinctly, got %q", res.Residency)
 	}
-	// No model change on shared (D-10): the served model + To stay the chat model.
+	// No model change on shared: the served model + To stay the chat model.
 	if res.ToModel != "chat-model" || rec.saved.Model != "chat-model" {
 		t.Errorf("shared residency must NOT change the served model, got To=%q saved.Model=%q", res.ToModel, rec.saved.Model)
 	}

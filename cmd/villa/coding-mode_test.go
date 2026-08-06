@@ -17,8 +17,8 @@ import (
 // coding-mode_test.go exercises the cobra caller's mapping of codingmode.Result to exit
 // codes + messages (the transactional ORDERING + rollback are asserted in
 // internal/codingmode): refused→1, switched→0, rolled-back→1, no-op→0, plus the
-// swap-vs-shared success surfacing (D-10). It also holds the structural no-auto-flip guard
-// (D-06): nothing mutates coding_mode outside internal/codingmode.Run.
+// swap-vs-shared success surfacing. It also holds the structural no-auto-flip guard
+// nothing mutates coding_mode outside internal/codingmode.Run.
 
 // codingRecorder records the side-effecting seam calls so the exit-mapping tests can
 // drive runCodingMode through a fake *codingmode.Deps without a live host.
@@ -80,7 +80,7 @@ func swapCoder() codingmode.CoderTarget {
 }
 
 // TestCodingModeEnterSwapExit0 — a proven swap enter exits 0 and surfaces the swap
-// residency (chat → coder) in the success line (D-10).
+// residency (chat → coder) in the success line.
 func TestCodingModeEnterSwapExit0(t *testing.T) {
 	rec := &codingRecorder{resolveOK: true, downloaded: true, coder: swapCoder()}
 	cmd, out, _ := newTestCmd()
@@ -101,7 +101,7 @@ func TestCodingModeEnterSwapExit0(t *testing.T) {
 }
 
 // TestCodingModeEnterSharedSurfaced — a shared-residency enter exits 0 and EXPLICITLY
-// surfaces that no model swap happened (never silently degrade swap→shared, D-10).
+// surfaces that no model swap happened (never silently degrade swap→shared).
 func TestCodingModeEnterSharedSurfaced(t *testing.T) {
 	rec := &codingRecorder{resolveOK: true, coder: codingmode.CoderTarget{AgentCtx: 32768, Residency: codingmode.ResidencyShared}}
 	cmd, out, _ := newTestCmd()
@@ -173,7 +173,7 @@ func TestCodingModeExitExit0(t *testing.T) {
 }
 
 // TestCodingModeNounRegistered — the `coding-mode` noun with enter/exit is wired into the
-// root command tree (D-06).
+// root command tree.
 func TestCodingModeNounRegistered(t *testing.T) {
 	root := newRoot()
 	var cm *cobra.Command
@@ -193,12 +193,12 @@ func TestCodingModeNounRegistered(t *testing.T) {
 	if !have["enter"] || !have["exit"] {
 		t.Errorf("coding-mode must have enter AND exit subcommands, got %v", have)
 	}
-	// D-06: `villa code` (the Phase-26 agent launcher) is a SIBLING of coding-mode on
+	// `villa code` (the Phase-26 agent launcher) is a SIBLING of coding-mode on
 	// the root tree, NOT a coding-mode subcommand — the launcher and the mode-flip verb
 	// are distinct surfaces. (Phase 26 ships `villa code`; before Phase 26 it did not
 	// exist. The invariant that survives is the separation, asserted here.)
 	if have["code"] {
-		t.Errorf("`villa code` must NOT be a coding-mode subcommand — it is a root-level sibling (D-06)")
+		t.Errorf("`villa code` must NOT be a coding-mode subcommand — it is a root-level sibling")
 	}
 }
 
@@ -209,12 +209,12 @@ func TestCodingModeNounRegistered(t *testing.T) {
 // render-descriptor pointer field of the same name (orchestrate.RenderInput.CodingMode /
 // inference.RunSpec.CodingMode, which are assigned a *CodingModeSpec, never a bool). The
 // structural guard asserts the toggle is mutated NOWHERE outside codingmode.Run — proving
-// the mode never auto-flips (D-06 / T-25-09).
+// the mode never auto-flips.
 var codingModeMutationPattern = regexp.MustCompile(`CodingMode\s*=\s*(true|false)\b|CodingMode:\s*(true|false)\b`)
 
 // TestNoAutoFlipStructuralGuard walks cmd/villa + internal/ and asserts that
 // coding_mode/CodingMode is mutated NOWHERE outside internal/codingmode/codingmode.Run.
-// This is the explicit-verb-only invariant (D-06 / T-25-09): the mode must change ONLY via
+// This is the explicit-verb-only invariant: the mode must change ONLY via
 // the verb, never auto-flipped by a caller. Allowed sites: codingmode.go (the core that
 // owns the mutation), the config field declaration/marshal (villaconfig.go), and test
 // files (which legitimately CONSTRUCT configs with CodingMode set).
@@ -230,13 +230,13 @@ func TestNoAutoFlipStructuralGuard(t *testing.T) {
 		case strings.HasSuffix(rel, "internal/config/villaconfig.go"):
 			return true // the field declaration + marshal omit-when-off path
 		case strings.HasSuffix(base, "install.go"):
-			// CR-01 (Phase 27-05): `villa install --coding-agent` is a sanctioned one-shot
+			// (Phase 27-05): `villa install --coding-agent` is a sanctioned one-shot
 			// coding-mode ENTRY surface — the install addon brings the agent up PROVEN-READY by
 			// serving the staged coder, so it single-sources cfg.CodingMode from a real
 			// rec.Coder fit (never a preference, never an auto-flip on a bare `villa install`:
 			// the assignment is gated on opts.codingAgent && rec.Coder.Model != ""). The runtime
-			// toggle remains the explicit `villa coding-mode enter|exit` verb (D-04/D-06); this
-			// is install-time entry, not a runtime auto-flip. Honesty-by-construction (D-05)
+			// toggle remains the explicit `villa coding-mode enter|exit` verb; this
+			// is install-time entry, not a runtime auto-flip. Honesty-by-construction
 			// requires the readiness proof to exercise the model crush.json advertises.
 			return true
 		case strings.HasSuffix(base, "_test.go"):
@@ -264,7 +264,7 @@ func TestNoAutoFlipStructuralGuard(t *testing.T) {
 				return rerr
 			}
 			if codingModeMutationPattern.Match(b) {
-				t.Errorf("coding_mode auto-flip guard (D-06): %s mutates CodingMode outside codingmode.Run — the mode must change ONLY via the explicit verb", path)
+				t.Errorf("coding_mode auto-flip guard: %s mutates CodingMode outside codingmode.Run — the mode must change ONLY via the explicit verb", path)
 			}
 			return nil
 		})

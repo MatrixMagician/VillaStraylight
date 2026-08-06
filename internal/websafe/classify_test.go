@@ -1,4 +1,4 @@
-// classify_test.go holds the per-function GUARD-04 smoke/unit cases: detect-on-known-
+// classify_test.go holds the per-function smoke/unit cases: detect-on-known-
 // attack (recall), no-flag-on-benign (precision guard against over-flagging), case-
 // insensitivity, and the flag-not-block contract (classify returns ONLY a Verdict and
 // never mutates content). The full frozen recall/precision corpus eval is Plan 02.
@@ -94,7 +94,7 @@ func TestClassifyFlagNotBlock(t *testing.T) {
 	// here; the seam (Plan 03) keeps Page.Content regardless of Detected.
 }
 
-// TestClassifyRoleMarkerLineAnchored is the WR-03 regression: the bare "system:" /
+// TestClassifyRoleMarkerLineAnchored is the regression: the bare "system:" /
 // "assistant:" / "user:" role markers must flag ONLY in a line-leading (turn-spoof)
 // position, never embedded in benign prose. Pre-fix these were plain Contains substrings
 // that over-matched "Operating System: Linux" etc.

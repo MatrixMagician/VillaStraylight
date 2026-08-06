@@ -1,4 +1,4 @@
-// Package preflight is the REUSABLE host-prep gate for VillaStraylight (D-18).
+// Package preflight is the REUSABLE host-prep gate for VillaStraylight.
 //
 // It answers one question per host requirement — "is this machine ready to safely
 // install and run the local AI stack?" — and returns the answers as typed,
@@ -6,16 +6,16 @@
 // os.Exit and NEVER prints. Exit-code mapping, table/JSON rendering, and the
 // --force override summary all live in the command layer (cmd/villa/preflight.go),
 // so Phase 3 `install` and a future `villa doctor` can reuse the exact same checks
-// without inheriting any CLI behavior (Pitfall 5, D-18).
+// without inheriting any CLI behavior (Pitfall 5).
 //
-// Two tiers (D-02):
+// Two tiers:
 //   - TierBlock  — a wrong answer crashes/OOMs the install (missing Vulkan ICD /
 //     no enumerated iGPU, free disk < model size, free memory < envelope).
 //   - TierWarn   — degrades or affects boot-survival but does not immediately
 //     crash (user lingering off, kernel/firmware below the tested baseline, ROCm
 //     absent — Vulkan is the default so that is informational).
 //
-// Degradation rule (D-15): a TierBlock check that cannot be EVALUATED (a tool is
+// Degradation rule: a TierBlock check that cannot be EVALUATED (a tool is
 // missing, output is unparseable, a fact is Unknown) downgrades to a WARN
 // ("could not verify — proceed with caution") rather than a false hard block. It
 // surfaces uncertainty (exit 2) instead of either crashing or silently passing.
@@ -27,7 +27,7 @@ package preflight
 
 import "github.com/MatrixMagician/VillaStraylight/internal/detect"
 
-// Tier classifies how seriously a failed check should be treated (D-02).
+// Tier classifies how seriously a failed check should be treated.
 type Tier int
 
 const (
@@ -59,7 +59,7 @@ const (
 	StatusPass Status = iota
 	// StatusWarn means the requirement is not satisfied but the failure is
 	// non-blocking — either an inherently WARN-tier check, or a BLOCK-tier check
-	// that could not be evaluated and was downgraded per D-15.
+	// that could not be evaluated and was downgraded per.
 	StatusWarn
 	// StatusFail means a BLOCK-tier requirement is positively NOT satisfied (a
 	// confident known-bad). StatusFail is only meaningful on TierBlock checks.
@@ -100,11 +100,11 @@ type CheckResult struct {
 	// Provenance records which tool / path / fact produced this result, for -v.
 	Provenance string `json:"provenance"`
 	// Raw captures untrusted raw output when a parse failed, surfaced under -v
-	// (mirrors detect's D-16 contract). Never serialized to the --json contract.
+	// (mirrors detect's contract). Never serialized to the --json contract.
 	Raw string `json:"-"`
 }
 
-// Standalone-preflight resource FLOORS (WR-02/WR-03).
+// Standalone-preflight resource FLOORS.
 //
 // Model-agnostic `villa preflight` cannot know which model the user will install,
 // so it must NOT gate on the full GTT envelope (~62.5 GiB) — a model needs only
@@ -123,7 +123,7 @@ const (
 	// minModelDiskFloorBytes is a conservative smallest-installable-model disk
 	// floor, sized to the catalog's ~1.2 GB bootstrap model weights plus margin.
 	// The disk requirement is model WEIGHT size — never the runtime memory
-	// envelope (weights and RAM are unrelated quantities, WR-03).
+	// envelope (weights and RAM are unrelated quantities).
 	minModelDiskFloorBytes uint64 = 2 << 30 // 2 GiB
 )
 
@@ -134,7 +134,7 @@ const (
 // Because standalone `villa preflight` is model-agnostic, its resource thresholds
 // are the smallest-installable-model FLOORS (free memory ≥ a minimal runnable
 // floor; free disk ≥ the smallest model's weight size) — NOT the full GTT envelope,
-// which would over-block capable hosts (WR-02/WR-03). Phase 3 install supplies the
+// which would over-block capable hosts. Phase 3 install supplies the
 // real per-model `weights + KV + headroom` numbers via RunWithResources.
 //
 // Ordering is stable (PRE-01, PRE-02, PRE-03, PRE-04, then the WARN-tier
@@ -142,9 +142,9 @@ const (
 func Run(p detect.HostProfile) []CheckResult {
 	return RunWithResources(p, ResourceReq{
 		// Disk: the smallest installable model's weight size (plus margin), NOT the
-		// envelope — weights and RAM are unrelated quantities (WR-03).
+		// envelope — weights and RAM are unrelated quantities.
 		MinDiskBytes: minModelDiskFloorBytes,
-		// Memory: a minimal runnable floor, NOT the full envelope (WR-02). A host
+		// Memory: a minimal runnable floor, NOT the full envelope. A host
 		// below this cannot run even the smallest catalog model.
 		MinMemBytes: minRunnableMemFloorBytes,
 		// Default to the data dir the install will populate.

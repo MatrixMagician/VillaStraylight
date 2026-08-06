@@ -15,7 +15,7 @@ import (
 
 // fixtureRecommendation is a deterministic Recommendation (NOT live hardware) so
 // the golden JSON is stable in CI. It locks the full --json / dashboard contract
-// (D-05), including all four fit terms.
+// including all four fit terms.
 func fixtureRecommendation() recommend.Recommendation {
 	return recommend.Recommendation{
 		Model:               "qwen3-35b-a3b-moe-64",
@@ -30,7 +30,7 @@ func fixtureRecommendation() recommend.Recommendation {
 		Fits:                true,
 		Degraded:            false,
 		Notes:               []string{},
-		// The coder block surfaces unconditionally (D-07, no omitempty) and is
+		// The coder block surfaces unconditionally (no omitempty) and is
 		// POPULATED here so the frozen bytes exercise the full schema-3 shape:
 		// a fitting agent-profile pick with residency "swap".
 		Coder: recommend.CoderFit{
@@ -44,14 +44,14 @@ func fixtureRecommendation() recommend.Recommendation {
 			Fits:          true,
 			Residency:     "swap",
 		},
-		// SchemaVersion surfaces unconditionally in --json (D-06/D-07). The fixture
+		// SchemaVersion surfaces unconditionally in --json. The fixture
 		// builds the struct directly (it does not call Pick), so it pins the contract
 		// version explicitly; advice fields stay empty (no readiness fixture) and so
-		// remain absent under omitempty. Schema 2 (Phase 22, D-03): the append-only
+		// remain absent under omitempty. Schema 2 (Phase 22): the append-only
 		// embedding_reservation_bytes + memory_considered keys surface as zero/false
-		// here — the memory-off contract shape. Schema 3 (Phase 24, D-07): the
+		// here — the memory-off contract shape. Schema 3 (Phase 24): the
 		// append-only coder block lands directly above schema_version. Schema 4
-		// (Phase 31, GROUND-03): the append-only web_search_reservation_bytes key
+		// (Phase 31): the append-only web_search_reservation_bytes key
 		// surfaces as 0 here (web-search-off contract shape) directly above
 		// schema_version.
 		WebSearchReservationBytes: 0,
@@ -60,7 +60,7 @@ func fixtureRecommendation() recommend.Recommendation {
 }
 
 // TestRecommendJSONGolden asserts `villa recommend --json` over the injected
-// fixture matches cmd/villa/testdata/recommend.golden.json byte-for-byte (D-05).
+// fixture matches cmd/villa/testdata/recommend.golden.json byte-for-byte.
 // Run with -update to regenerate.
 func TestRecommendJSONGolden(t *testing.T) {
 	var buf bytes.Buffer
@@ -90,7 +90,7 @@ func TestRecommendJSONGolden(t *testing.T) {
 }
 
 // TestRecommendTableShowsFitMath asserts the default table surfaces all four fit
-// terms and the ≤ comparison (D-06 — math is SHOWN, not just applied), plus the
+// terms and the ≤ comparison (math is SHOWN, not just applied), plus the
 // coder (agent profile) section: model id, agent ctx, fits glyph and residency
 // when a coder entry fits.
 func TestRecommendTableShowsFitMath(t *testing.T) {
@@ -111,7 +111,7 @@ func TestRecommendTableShowsFitMath(t *testing.T) {
 
 // TestRecommendTableCoderNoFitLine asserts the compact honest rendering when no
 // coder entry fits: a single line stating no coder model fits and residency is
-// "shared" — the JSON block is always stamped (D-07) but the table stays terse.
+// "shared" — the JSON block is always stamped but the table stays terse.
 func TestRecommendTableCoderNoFitLine(t *testing.T) {
 	rec := fixtureRecommendation()
 	rec.Coder = recommend.CoderFit{Fits: false, Residency: "shared"}
@@ -132,7 +132,7 @@ func TestRecommendTableCoderNoFitLine(t *testing.T) {
 
 // TestRecommendSaveWritesOnlyWithFlag drives the real command and asserts that a
 // plain `recommend` writes NO config file while `recommend --save` writes one
-// (D-20). XDG_CONFIG_HOME is redirected to a temp dir so the user's real config
+// XDG_CONFIG_HOME is redirected to a temp dir so the user's real config
 // is never touched.
 func TestRecommendSaveWritesOnlyWithFlag(t *testing.T) {
 	tmp := t.TempDir()
@@ -142,7 +142,7 @@ func TestRecommendSaveWritesOnlyWithFlag(t *testing.T) {
 	// Plain recommend: must NOT write config.
 	runRecommend(t, []string{"recommend", "--json"})
 	if _, err := os.Stat(cfgPath); !os.IsNotExist(err) {
-		t.Errorf("plain recommend wrote config (or stat err %v) — must be read-only (D-20)", err)
+		t.Errorf("plain recommend wrote config (or stat err %v) — must be read-only", err)
 	}
 
 	// recommend --save: must write config under XDG.
@@ -160,7 +160,7 @@ func TestRecommendSaveWritesOnlyWithFlag(t *testing.T) {
 // writes a config.toml whose BYTES carry dashboard_port=8888 / chat_port=3000
 // (never the dashboard-breaking zeros), proving the writer fix is independent of
 // load-time normalization (Task 1). It then round-trips via LoadVillaFrom and
-// asserts the loaded ports are 8888/3000 and the bind stays loopback (PRIV-01).
+// asserts the loaded ports are 8888/3000 and the bind stays loopback.
 func TestSaveRecommendationPreservesDashboardPorts(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", tmp)

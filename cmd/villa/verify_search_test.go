@@ -1,6 +1,6 @@
 package main
 
-// verify_search_test.go pins the TESTABLE SPINE of `villa verify search` (PRIV-08, SC2):
+// verify_search_test.go pins the TESTABLE SPINE of `villa verify search` (SC2):
 // the PURE three-state PASS/FAIL/REJECT verdict core, the curl-exit classifier, and the
 // two in-process assertion families that need no live host — (b) planted-injection page
 // stripped+fenced+flagged via the shipped websafe guard, and (c) SSRF internal-host
@@ -41,7 +41,7 @@ func goodSSRF() bool                    { return true }
 func goodSecret() (bool, error)         { return true, nil }
 
 // TestEvalSearchVerify table-drives the PURE three-state bounded-outbound proof core over
-// every outcome, mirroring TestEvalAgentVerify. The locked invariants (PRIV-08 / SC2):
+// every outcome, mirroring TestEvalAgentVerify. The locked invariants (SC2):
 //
 //   - The positive control (allowlist reachable) and the negative control (canary
 //     reachable UNGUARDED) are asserted FIRST; a broken/unroutable environment is a
@@ -297,7 +297,7 @@ func TestSearchInjectionFlagged(t *testing.T) {
 }
 
 // TestSearchLivePlantedInjectionFlagged proves the LIVE family-(b) wiring is genuinely
-// non-vacuous (CR-02): driving the shipped websafe guard against the PRODUCTION planted
+// non-vacuous: driving the shipped websafe guard against the PRODUCTION planted
 // page (searchPlantedInjectionPage) through the PRODUCTION in-process transport
 // (plantedPageRoundTripper) yields stripped+fenced+flagged — i.e. the live clause CAN PASS.
 // The previous live clause fetched a benign allowlist URL, which is never flagged, so it
@@ -316,7 +316,7 @@ func TestSearchLivePlantedInjectionFlagged(t *testing.T) {
 	}
 }
 
-// TestSearchLiveInjectionFlagsBenignFalse pins the OTHER half of non-vacuity (CR-02): a
+// TestSearchLiveInjectionFlagsBenignFalse pins the OTHER half of non-vacuity: a
 // BENIGN page (no active markup, no injection imperative) is NOT flagged — which is exactly
 // why the old live clause (a live fetch of benign Wikipedia) could only ever FAIL. This
 // documents that the live clause MUST use a planted input, never a benign upstream.
@@ -349,7 +349,7 @@ func TestSearchSSRF(t *testing.T) {
 
 // --- Plan 02: live seam + cobra wiring tests --------------------------------
 
-// TestSearchSecretQuery pins the family-(d) live driver (PRIV-08 / T-33-10) off-hardware via
+// TestSearchSecretQuery pins the family-(d) live driver off-hardware via
 // an injected fake curl-exit seam (the SAME boundary runProbeCurlCode is driven through — no
 // network, no live bound). It is the load-bearing exfil case: the secret in the query string
 // MUST be contained under the bound; if it escapes the verdict FAILs, never a fabricated PASS.
@@ -424,12 +424,12 @@ func TestSecretExfilURLCarriesTokenInQuery(t *testing.T) {
 // TestNftBoundRuleset asserts the rendered ruleset is the on-hardware-verified architecture-A
 // shape (Plan 03): a FORWARD-hook drop scoped to the villa bridge interface, established,related
 // accepted, and one `ip daddr`/`ip6 daddr <ip> accept` per validated allowlist IP for BOTH
-// families (WR-02), with a trailing iifname-scoped drop catching everything else — built from
+// families, with a trailing iifname-scoped drop catching everything else — built from
 // netip.Addr values (no shell-composed string). The bridge ifname is quoted via %q.
 func TestNftBoundRuleset(t *testing.T) {
 	rs := nftBoundRuleset("podman3", []netip.Addr{
 		netip.MustParseAddr("198.51.100.7"), // v4
-		netip.MustParseAddr("2001:db8::1"),  // v6 (WR-02: must emit an ip6 daddr accept)
+		netip.MustParseAddr("2001:db8::1"),  // v6 (must emit an ip6 daddr accept)
 	})
 	for _, want := range []string{
 		"table inet villabound",
@@ -471,7 +471,7 @@ func TestNftBridgeIfPattern(t *testing.T) {
 	}
 }
 
-// TestResolveCurlPin pins the WR-04 TOCTOU-close pin builder: it prefers a v4 address (the villa
+// TestResolveCurlPin pins the TOCTOU-close pin builder: it prefers a v4 address (the villa
 // bridge is v4-only), falls back to v6 when no v4 resolved, emits a single fixed --resolve arg
 // pair, and yields no args for an empty allow set.
 func TestResolveCurlPin(t *testing.T) {
@@ -498,7 +498,7 @@ func TestResolveCurlPin(t *testing.T) {
 }
 
 // TestVerifySearchRegistered asserts `villa verify search` is registered under the `verify`
-// parent next to memory/agent (a missing subcommand is a silent regression of the PRIV-08 gate).
+// parent next to memory/agent (a missing subcommand is a silent regression of the gate).
 func TestVerifySearchRegistered(t *testing.T) {
 	verify := newVerify()
 	var foundSearch, foundMemory, foundAgent bool
@@ -594,7 +594,7 @@ func TestRunVerifySearchExit(t *testing.T) {
 }
 
 // TestVerifySearchPersists proves runVerifySearch persists the proof verdict best-effort
-// via the injectable persistFn seam (SURF-04): for each of the three verdicts the captured
+// via the injectable persistFn seam: for each of the three verdicts the captured
 // State.Verdict matches verdictName for that status and CheckedAt is populated, AND a persist
 // FAILURE never changes the verb's exit code (the proof verdict stays authoritative).
 func TestVerifySearchPersists(t *testing.T) {

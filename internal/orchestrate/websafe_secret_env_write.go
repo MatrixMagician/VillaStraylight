@@ -15,7 +15,7 @@ package orchestrate
 // (systemd --user must read them), but websafe.env stays 0600. The secret env file holds the
 // live EXTERNAL_WEB_LOADER_API_KEY bearer — 0600 is the ONLY thing keeping it from every local
 // user, and it is the route that keeps the secret out of the 0644 unit (BOTH the villa-websafe
-// AND the OWUI unit reference it via EnvironmentFile=<path> only — T-31-12).
+// AND the OWUI unit reference it via EnvironmentFile=<path> only).
 //
 // The resolved path equals the host side of WebsafeSecretEnvFilePath() — the EnvironmentFile=
 // path both the villa-websafe and OWUI units reference — so the live secret reaches the
@@ -45,7 +45,7 @@ func websafeSecretEnvDir() (string, error) {
 // traversal-guarded + 0600 into the live villa websafe config dir. Its resolved path equals
 // the host side of WebsafeSecretEnvFilePath() — the EnvironmentFile= path both the
 // villa-websafe and OWUI units reference — so the live secret reaches the containers WITHOUT
-// ever landing in the 0644 unit (T-31-12). Mirrors WriteSearxngSecretEnv exactly, only the
+// ever landing in the 0644 unit. Mirrors WriteSearxngSecretEnv exactly, only the
 // target dir differs (websafe, not searxng).
 func WriteWebsafeSecretEnv(name, text string) error {
 	dir, err := websafeSecretEnvDir()

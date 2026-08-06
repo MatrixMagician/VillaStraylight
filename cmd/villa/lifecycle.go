@@ -17,13 +17,13 @@ import (
 // (`up`/`down`/`restart`/`logs`). They reuse the Plan-01 orchestrate core
 // (Render→Reconcile→WriteUnits→Systemd) and the Plan-02 install reconcile pattern,
 // so editing config.toml and re-running `up`/`restart` converges exactly the
-// changed units (D-06/D-07/CLI-05). Every host-touching action is an injectable
+// changed units. Every host-touching action is an injectable
 // field on lifecycleDeps so lifecycle_test.go drives the whole flow with no live
 // podman/systemd/journald host; runX RETURNS the exit code (0/2/1) — the cobra
 // RunE wrapper calls os.Exit — mirroring runInstall/runModelPull.
 //
 // Service names flow into fixed-arg systemctl/journalctl calls only AFTER being
-// validated against the known unit set (T-03-11): an unknown service is refused
+// validated against the known unit set: an unknown service is refused
 // before any seam fires, so a CLI arg can never be shell-injected or target an
 // arbitrary unit.
 
@@ -97,7 +97,7 @@ func hostVillaPath() string {
 // serviceUnits returns the systemd service names a rendered stack produces. Only
 // .container units map to a service (Quadlet villa-llama.container →
 // villa-llama.service); .network/.volume units are not services. This is the
-// authoritative known-service set every verb validates an arg against (T-03-11).
+// authoritative known-service set every verb validates an arg against.
 func serviceUnits(units []orchestrate.Unit) []string {
 	var svcs []string
 	for _, u := range units {
@@ -110,7 +110,7 @@ func serviceUnits(units []orchestrate.Unit) []string {
 
 // managedServices returns the FULL managed-service set for the lifecycle verbs: the
 // .container-derived services (serviceUnits) PLUS the native control-dashboard
-// .service (Plan 05-05 / D-04). serviceUnits only covers Quadlet .container units, so
+// service (Plan 05-05). serviceUnits only covers Quadlet.container units, so
 // the dashboard — a native systemd --user .service with no .container — must be
 // appended separately to make it a first-class up/down/restart target. The dashboard
 // is appended LAST so a whole-stack `up` starts it after the containers and a
@@ -198,7 +198,7 @@ func liveLifecycleDeps() *lifecycleDeps {
 }
 
 // followJournalLive streams a service's user journal with `journalctl --user -u
-// <service> -f` as a FIXED-ARG exec (never a shell, T-03-11). The service name is
+// <service> -f` as a FIXED-ARG exec (never a shell). The service name is
 // validated by the caller against the known unit set before this is reached. The
 // stream is bounded only by the user's interactive Ctrl-C (a follow is explicit),
 // so it wires stdout/stderr straight through rather than buffering.
@@ -215,7 +215,7 @@ func followJournalLive(service string) error {
 // liveModelFile resolves the on-disk GGUF filename for the config'd model through
 // the catalog (never as a path). It mirrors the install.go modelFile closure so
 // the lifecycle verbs render the same Exec= model path install wrote. A catalog load
-// failure or an unknown model id is a hard error (WR-08) — fabricating
+// failure or an unknown model id is a hard error — fabricating
 // "<model>.gguf" would render a container whose -m points at a non-existent file
 // that fails only at runtime after install reports success, so block here instead.
 func liveModelFile(cfg config.VillaConfig) (string, error) {

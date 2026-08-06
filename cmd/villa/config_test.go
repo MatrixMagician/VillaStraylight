@@ -107,7 +107,7 @@ func TestConfigSetCtxParsesInt(t *testing.T) {
 }
 
 // TestConfigSetBackendValid: `config set backend=vulkan` is accepted (the only
-// supported v1 backend) and persisted (WR-01).
+// supported v1 backend) and persisted.
 func TestConfigSetBackendValid(t *testing.T) {
 	f := newFakeConfigDeps(fixtureConfig())
 	cmd, _, _ := lifecycleTestCmd()
@@ -121,7 +121,7 @@ func TestConfigSetBackendValid(t *testing.T) {
 }
 
 // TestConfigSetBackendUnknownBlocks: `config set backend=rocm` exits 1 and never
-// writes — the key must not lie by persisting a backend no render path honors (WR-01).
+// writes — the key must not lie by persisting a backend no render path honors.
 func TestConfigSetBackendUnknownBlocks(t *testing.T) {
 	f := newFakeConfigDeps(fixtureConfig())
 	cmd, _, errOut := lifecycleTestCmd()

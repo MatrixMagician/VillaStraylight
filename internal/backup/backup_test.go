@@ -38,7 +38,7 @@ func baseCurrent() CurrentInstall {
 	}
 }
 
-// TestSkewClassification is the table-driven BAK-03 / D-08 classifier test.
+// TestSkewClassification is the table-driven classifier test.
 func TestSkewClassification(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -82,7 +82,7 @@ func TestSkewClassification(t *testing.T) {
 			wantField: "usage_schema_version",
 		},
 		{
-			// D-08: a confident embedding model/dim mismatch is exactly ONE
+			// a confident embedding model/dim mismatch is exactly ONE
 			// WARN-and-confirm finding (never silent, never auto-reindex).
 			name: "embedding model+dim mismatch -> 1 embedding WARN",
 			mutate: func(m *Manifest, c *CurrentInstall) {
@@ -103,7 +103,7 @@ func TestSkewClassification(t *testing.T) {
 		},
 		{
 			// Typed-Unknown: an old/memory-off backup never recorded an embedding
-			// model — "not recorded" must NOT raise a false alarm (D-08).
+			// model — "not recorded" must NOT raise a false alarm.
 			name: "old backup without embedding fields -> NO warning",
 			mutate: func(m *Manifest, c *CurrentInstall) {
 				c.EmbeddingModel, c.EmbeddingDim = "nomic-embed-text-v1.5", 768
@@ -208,7 +208,7 @@ func TestSkewMatchingNoFindings(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Backup() orchestrator tests (BAK-01, D-05). A fakeBackupDeps records the call
+// Backup orchestrator tests. A fakeBackupDeps records the call
 // ordering and serves canned bytes so the pure quiesce→export→assemble flow is
 // driven with no live host.
 // ---------------------------------------------------------------------------
@@ -419,7 +419,7 @@ func TestBackupAssemblesArchive(t *testing.T) {
 }
 
 // TestBackupAgentOnAddsCrushConfigAndExcludedAgent asserts an agent-on backup
-// (SURF-03/D-08) adds the crush.json entry INTO the archive (checksummed like
+// adds the crush.json entry INTO the archive (checksummed like
 // every member) and records the EXCLUDED agent binary IDENTITY in the manifest
 // (sha256 + version + pin) — while the agent binary BYTES are NEVER an archive
 // entry (mirroring the excluded model weights).
@@ -475,7 +475,7 @@ func TestBackupAgentOnAddsCrushConfigAndExcludedAgent(t *testing.T) {
 // TestBackupAgentOffIsLayoutIdentical asserts an agent-off backup (no
 // CrushConfigPath, no agent identity) records ZERO agent entries and a nil
 // ExcludedAgent — the archive layout is identical to the pre-Phase-28 v2 backup
-// (SURF-03/D-08: the bump only widens the contract for an agent-ON backup).
+// (the bump only widens the contract for an agent-ON backup).
 func TestBackupAgentOffIsLayoutIdentical(t *testing.T) {
 	f := newFakeBackupDeps()
 	f.files["/cfg/config.toml"] = []byte("model = \"x\"\n")
@@ -532,7 +532,7 @@ func TestBackupAgentOnSkipsAbsentCrushConfig(t *testing.T) {
 }
 
 // TestBackupSearxngSettings asserts the OPTIONAL Phase-34 web-search settings.yml
-// provenance entry (SURF-07) behaves exactly like the crush.json optional entry:
+// provenance entry behaves exactly like the crush.json optional entry:
 // present-when-set, absent-when-empty (web off), FileMissing-skipped-when-absent,
 // and the manifest stamps its OWN schema version 4 in every case (the manifest
 // stamps its own version, never a caller-supplied one).
@@ -559,7 +559,7 @@ func TestBackupSearxngSettings(t *testing.T) {
 			t.Fatalf("web-search-on backup missing %q entry: %v", EntrySearxngSettings, archiveNames(t, out.Bytes()))
 		}
 		m := manifestFromArchive(t, out.Bytes())
-		// settings.yml carries a checksum like every other member (T-34-07).
+		// settings.yml carries a checksum like every other member.
 		csum := map[string]bool{}
 		for _, e := range m.Entries {
 			csum[e.Name] = e.SHA256 != ""
@@ -623,7 +623,7 @@ func TestBackupSearxngSettings(t *testing.T) {
 	})
 }
 
-// TestBackupExcludesEphemeral is the NEGATIVE assertion guarding SURF-07/T-34-06:
+// TestBackupExcludesEphemeral is the NEGATIVE assertion guarding:
 // a web-search-on backup archives ONLY the rendered settings.yml CONFIG provenance
 // and NEVER any fetched/ephemeral web content — no query log, no fetched-URL log,
 // no per-page content key. The backup core exposes exactly one web-search source
@@ -673,7 +673,7 @@ func TestBackupExcludesEphemeral(t *testing.T) {
 }
 
 // TestBackupDeferredRestartFiresOnExportError asserts the OWUI service is restarted
-// (best-effort defer) even when the volume export fails mid-backup (D-05).
+// (best-effort defer) even when the volume export fails mid-backup.
 func TestBackupDeferredRestartFiresOnExportError(t *testing.T) {
 	f := newFakeBackupDeps()
 	f.exportErr = errors.New("export boom")
@@ -698,7 +698,7 @@ func TestBackupDeferredRestartFiresOnExportError(t *testing.T) {
 // TestSkewEmbeddingRemediationNamesConsequenceAndFix asserts the embedding
 // SkewWarning's Remediation names BOTH the consequence (retrieval corrupt until
 // re-index) and the fix (`villa recall index --rebuild` after restore, or align
-// embedding_model/embedding_dim in config.toml) — D-08 refuse-with-remediation.
+// embedding_model/embedding_dim in config.toml) — refuse-with-remediation.
 func TestSkewEmbeddingRemediationNamesConsequenceAndFix(t *testing.T) {
 	m := baseManifest()
 	m.EmbeddingModel, m.EmbeddingDim = "nomic-embed-text-v1.5", 768
@@ -722,7 +722,7 @@ func TestSkewEmbeddingRemediationNamesConsequenceAndFix(t *testing.T) {
 
 // memoryBackupInput extends baseBackupInput with the memory-on optional sources:
 // the qdrant volume export + recall-state.json entries and the manifest embedding
-// fields (D-05/D-06). Names deliberately avoid the real service/volume literals —
+// fields. Names deliberately avoid the real service/volume literals
 // they are seam-sourced by the cmd tier, never typed in this core.
 func memoryBackupInput(w io.Writer) BackupInput {
 	in := baseBackupInput(w)
@@ -736,7 +736,7 @@ func memoryBackupInput(w io.Writer) BackupInput {
 }
 
 // TestBackupQdrantQuiesceOrderingAndEntries asserts the memory-on forward path
-// (D-05/D-06, Pitfall 3): Stop(qdrant) strictly before VolumeExport(qdrant
+// (Pitfall 3): Stop(qdrant) strictly before VolumeExport(qdrant
 // volume) strictly before Start(qdrant) — a live export of a running Qdrant can
 // tear RocksDB/WAL state — and that the archive carries the two optional entries
 // with checksums plus the manifest embedding fields.
@@ -798,7 +798,7 @@ func TestBackupQdrantQuiesceOrderingAndEntries(t *testing.T) {
 
 // TestBackupQdrantRestartFailureFoldsIntoWarning asserts a failed best-effort
 // Start of the qdrant service NEVER fails the backup — it folds into
-// RestartWarning (the OWUI IN-01 convention extended to the second quiesce frame).
+// RestartWarning (the OWUI convention extended to the second quiesce frame).
 func TestBackupQdrantRestartFailureFoldsIntoWarning(t *testing.T) {
 	f := newFakeBackupDeps()
 	f.files["/cfg/config.toml"] = []byte("model = \"x\"\n")
@@ -817,7 +817,7 @@ func TestBackupQdrantRestartFailureFoldsIntoWarning(t *testing.T) {
 // TestBackupMemoryOffZeroQdrantCalls asserts a memory-off backup (empty
 // QdrantVolumeName/TempQdrantTar) makes ZERO qdrant Deps calls and assembles
 // exactly the v1.2 entry set — the only delta is the manifest fields, all
-// omitted (D-07 zero-touch discipline on the backup side).
+// omitted (zero-touch discipline on the backup side).
 func TestBackupMemoryOffZeroQdrantCalls(t *testing.T) {
 	f := newFakeBackupDeps()
 	f.files["/cfg/config.toml"] = []byte("model = \"x\"\n")
@@ -878,7 +878,7 @@ func manifestFromArchive(t *testing.T, b []byte) Manifest {
 	return Manifest{}
 }
 
-// TestBackupStreamsVolumeTars is the WR-06 regression for the backup side: with
+// TestBackupStreamsVolumeTars is the regression for the backup side: with
 // the OpenFile seam wired (the live cmd-tier shape), the two volume tar entries
 // are STREAMED — ReadFile is never called for their paths, so a multi-GiB qdrant
 // export is never buffered whole in memory — and the assembled archive still
@@ -908,7 +908,7 @@ func TestBackupStreamsVolumeTars(t *testing.T) {
 	// The volume tars must STREAM via OpenFile — never a whole-file ReadFile.
 	for _, c := range f.calls {
 		if c == "read:"+in.TempVolumeTar || c == "read:"+in.TempQdrantTar {
-			t.Fatalf("volume tars must stream via OpenFile, not ReadFile (WR-06); calls %v", f.calls)
+			t.Fatalf("volume tars must stream via OpenFile, not ReadFile; calls %v", f.calls)
 		}
 	}
 	for _, want := range []string{"open:" + in.TempVolumeTar, "open:" + in.TempQdrantTar} {

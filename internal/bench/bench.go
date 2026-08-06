@@ -7,7 +7,7 @@
 //
 // The methodology this core enforces:
 //   - a Warmup run is measured then DISCARDED (never counted in stats);
-//   - each measured run is residency-checked through the injected Measure verdict —
+//   - each measured run is residency-checked through the injected Measure verdict
 //     a run with resident==false is VOID (excluded from Kept, counted in Void),
 //     never substituted as a slow pass (offload asserted, not assumed);
 //   - the measured loop is bounded by an attempt cap so an all-void host can never
@@ -57,7 +57,7 @@ type BenchSpec struct {
 	// void-exhaustion WARN rather than a confident delta.
 	MinResident int
 	// ABTarget, when non-empty, is the explicit backend the --ab flip measures
-	// against (Option A, SC#3) — enabling an arbitrary-pair A/B (e.g. rocm-6.4.4 vs
+	// against (Option A) — enabling an arbitrary-pair A/B (e.g. rocm-6.4.4 vs
 	// rocm-7.2.4) the v1.1 2-value swap cannot express. Empty falls back to the v1.1
 	// other(orig) 2-value swap for back-compat (vulkan<->rocm). It is a configuration
 	// VALUE supplied (and fail-closed validated) by the cmd tier; this pure core never

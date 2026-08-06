@@ -1,17 +1,17 @@
 // Package verifystate is the persisted record of the LAST real
-// `villa verify search` outcome (SURF-04): verdict and timestamp only, written
+// `villa verify search` outcome: verdict and timestamp only, written
 // after the heavy netns/nft bounded-outbound proof runs so status, doctor and the
 // dashboard can surface an honest record of the result WITHOUT re-running the
 // proof on every poll.
 //
 // Verdict and timestamp ONLY — never a query, a URL, or fetched web content
-// (T-34-02). The file lives host-side and must not become a content leak.
+// The file lives host-side and must not become a content leak.
 //
 // Persistence is internal/jsonstore, shared with the recall store. What matters
 // here and is NOT shared: this store's own schema version, and the fail-closed
 // Load that turns an absent, corrupt or future-schema file into an EMPTY state.
 // Empty means "no verified result" and must never be readable as a fabricated
-// PASS (T-34-01). The cached PASS becomes the outbound-bounded indicator (with a
+// PASS. The cached PASS becomes the outbound-bounded indicator (with a
 // freshness check) downstream; it must NEVER be derived from a config bool.
 package verifystate
 
@@ -24,7 +24,7 @@ import (
 // golden-frozen. Bump only on an incompatible verify-search-state.json change.
 const verifyStateSchemaVersion = 1
 
-// State is the whole verify-search-state.json document (schema v1, SURF-04): the
+// State is the whole verify-search-state.json document (schema v1): the
 // LAST real proof verdict and WHEN it was checked. Verdict is the verdictName
 // vocabulary ("PASS"/"FAIL"/"REJECT"); CheckedAt is an RFC3339 UTC timestamp.
 type State struct {

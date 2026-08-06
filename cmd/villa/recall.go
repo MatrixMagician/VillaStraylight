@@ -1,20 +1,20 @@
-// recall.go is the thin cobra caller for the `villa recall` verb tree (D-07,
-// RECALL-01/02/03): `recall index [--rebuild]` choreographs the chats→Knowledge
+// recall.go is the thin cobra caller for the `villa recall` verb tree (
+// 02/03): `recall index [--rebuild]` choreographs the chats→Knowledge
 // indexing pipeline and `recall status` reports honest staleness. The DECISION
-// logic lives in the pure internal/recall core (Plan diff D-05, RenderTranscript
-// D-04, Classify D-06, Load/Save state); this file keeps ONLY the cobra wiring,
+// logic lives in the pure internal/recall core (Plan diff, RenderTranscript
+// Classify, Load/Save state); this file keeps ONLY the cobra wiring,
 // the ordered run bodies (return-not-Exit, modelswap-style numbered steps with
 // short-circuit refuse-with-remediation), the exit-code mapping (the AUTHORITATIVE
 // preflight constants), and the live host wiring (recallDeps → recall_live.go
 // drives + the recall-state.json byte-I/O seam).
 //
-// GATE DELTA vs `verify memory` (D-07): with the memory stack OFF (or the memory
+// GATE DELTA vs `verify memory`: with the memory stack OFF (or the memory
 // config invalid per memory.Decide), BOTH verbs refuse-with-remediation and return
 // exitBlocked — an EXPLICIT index/status request can never honestly no-op (verify
 // memory's memory-off exit-0 is "nothing to verify"; recall's memory-off is "you
 // asked for something that needs the stack you haven't enabled").
 //
-// Honesty invariants (D-06/Pitfall 8): state is persisted INCREMENTALLY after
+// Honesty invariants (Pitfall 8): state is persisted INCREMENTALLY after
 // every chat so a mid-run failure never loses completed work;
 // last_index_completed_at is stamped ONLY on a clean full pass; `recall status`
 // renders an unevaluable live list as the LITERAL "Unknown — could not evaluate",
@@ -54,7 +54,7 @@ type recallDeps struct {
 	// stamps (live: liveLoadedConfig).
 	loadedConfig func() config.VillaConfig
 	// mintToken mints the admin JWT over loopback (live: mintAdminToken — the
-	// existing villa-verify@localhost service-account seam, D-09).
+	// existing villa-verify@localhost service-account seam).
 	mintToken func(ctx context.Context, base string) (string, error)
 	// owuiHealthy is the cheap pre-mutation reachability gate (live: owuiHealthy).
 	owuiHealthy func(ctx context.Context, base string) error
@@ -70,12 +70,12 @@ type recallDeps struct {
 	// owuiUploadTranscript with the size-aware recallUploadTimeout).
 	uploadTranscript func(ctx context.Context, base, token, kbID, filename, content string) (string, error)
 	// removeKnowledgeFile is the clean-replace/delete primitive (live:
-	// owuiRemoveKnowledgeFile — file/remove?delete_file=true, D-04).
+	// owuiRemoveKnowledgeFile — file/remove?delete_file=true).
 	removeKnowledgeFile func(ctx context.Context, base, token, kbID, fileID string) error
 	// resetKnowledge is the id-preserving --rebuild primitive (live: owuiResetKnowledge).
 	resetKnowledge func(ctx context.Context, base, token, kbID string) error
 	// attachKnowledge asserts the served model's meta.knowledge attachment (live:
-	// owuiAttachKnowledge — idempotent read-merge-write, D-03/RECALL-02).
+	// owuiAttachKnowledge — idempotent read-merge-write).
 	attachKnowledge func(ctx context.Context, base, token, servedModelID, kbID, kbName string) (recall.AttachmentState, error)
 	// attachmentState answers status's retrieval question (live: owuiAttachmentState).
 	attachmentState func(ctx context.Context, base, token, kbID string) recall.AttachmentState
@@ -125,7 +125,7 @@ func liveRecallDeps() recallDeps {
 // liveRecallStateLoad is the SHARED fail-closed recall-state.json reader (the
 // "recall-state read: use recall.Load" rule — never a second JSON reader): an
 // absent store reads as the empty state ("nothing indexed", typed-Unknown for the
-// D-10 skew guards), a corrupt/future-schema blob fail-closes to empty inside
+// skew guards), a corrupt/future-schema blob fail-closes to empty inside
 // recall.Load, and only a real I/O fault surfaces as an error. It is the live
 // wiring for BOTH recallDeps.readState and installDeps.readRecallState (the
 // Phase-23 install WARN surface) so the two guards can never drift onto
@@ -140,7 +140,7 @@ func liveRecallStateLoad() (recall.State, error) {
 	}})
 }
 
-// newRecall builds the `villa recall` parent command (D-07).
+// newRecall builds the `villa recall` parent command.
 func newRecall() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "recall",
@@ -174,7 +174,7 @@ func newRecallIndex() *cobra.Command {
 			"in every new chat. State persists after EVERY chat — a failed run never loses " +
 			"completed work; re-run to resume. --rebuild resets the collection (id-preserving) " +
 			"and re-indexes everything.\n\n" +
-			"SINGLE-OPERATOR ASSUMPTION (D-09): recall pools EVERY non-service user's chats into " +
+			"SINGLE-OPERATOR ASSUMPTION: recall pools EVERY non-service user's chats into " +
 			"ONE shared collection attached to the served model — every user could then retrieve " +
 			"every other user's conversations. On a box with more than one human user the run " +
 			"REFUSES unless you pass --i-understand-shared-recall to acknowledge the cross-user " +
@@ -211,7 +211,7 @@ func newRecallStatus() *cobra.Command {
 	}
 }
 
-// recallGate is the shared D-07 enablement gate for both verbs: the persisted
+// recallGate is the shared enablement gate for both verbs: the persisted
 // memory_enabled AND memory.Decide's fields-valid verdict must both hold. A
 // refusal prints remediation to errOut and reports block=true — the deliberate
 // delta from verify memory's memory-off exit-0 (an explicit recall request can
@@ -231,7 +231,7 @@ func recallGate(verb string, deps recallDeps, errOut interface{ Write([]byte) (i
 }
 
 // recallLiveChats builds the live chat universe: every user EXCEPT the
-// villa-verify@localhost service account (D-09 — the only identity villa can
+// villa-verify@localhost service account (the only identity villa can
 // deterministically exclude; all remaining human users on this single-operator box
 // are the operator), each listed via the admin archived-inclusive endpoint
 // (Pitfall 1). Any listing failure is an error — never a partial universe.
@@ -243,9 +243,9 @@ func recallLiveChats(ctx context.Context, deps recallDeps, base, token string) (
 	return recallChatsForUsers(ctx, deps, base, token, users)
 }
 
-// recallHumanUsers returns the users that are NOT the villa service account (D-09)
+// recallHumanUsers returns the users that are NOT the villa service account
 // — the operator(s) whose chats recall would pool into the shared collection. The
-// WR-05 single-operator guard counts these.
+// single-operator guard counts these.
 func recallHumanUsers(users []owuiUser) []owuiUser {
 	var humans []owuiUser
 	for _, u := range users {
@@ -258,7 +258,7 @@ func recallHumanUsers(users []owuiUser) []owuiUser {
 }
 
 // recallChatsForUsers builds the chat universe across the given users, excluding
-// the service account (D-09). Any per-user listing failure is an error — never a
+// the service account. Any per-user listing failure is an error — never a
 // partial universe.
 func recallChatsForUsers(ctx context.Context, deps recallDeps, base, token string, users []owuiUser) ([]recall.ChatRef, error) {
 	var live []recall.ChatRef
@@ -275,7 +275,7 @@ func recallChatsForUsers(ctx context.Context, deps recallDeps, base, token strin
 	return live, nil
 }
 
-// chatOutcome is the typed result of indexing one chat (WR-02): the caller
+// chatOutcome is the typed result of indexing one chat: the caller
 // increments its run counters from this verdict directly, never by checking
 // state.Chats presence after the fact (which an unrelated future mutation could
 // silently flip, miscounting the operator-facing summary line).
@@ -287,15 +287,15 @@ const (
 	// outcomeUploaded — the transcript was (re-)uploaded and recorded in state.
 	outcomeUploaded
 	// outcomeSkipped — the chat was unrenderable; its stale entry was dropped and
-	// the skip recorded (never a silent drop, D-04).
+	// the skip recorded (never a silent drop).
 	outcomeSkipped
 )
 
 // runRecallIndex is the ordered index pipeline (modelswap-style numbered steps,
 // each short-circuiting with a refuse-with-remediation naming the failed step):
 // gate → reachability → token → users + single-operator guard (a refusal is
-// SIDE-EFFECT-FREE: it runs BEFORE any state/KB mutation — review WR-01) →
-// state+KB (reset on --rebuild; started stamped, completed CLEARED, persisted —
+// SIDE-EFFECT-FREE: it runs BEFORE any state/KB mutation — review) →
+// state+KB (reset on --rebuild; started stamped, completed CLEARED, persisted
 // a crash mid-run must read as a partial run) →
 // chat list (service account excluded) → Plan diff → sequential execute with
 // per-chat incremental persist (Deletes, then Updates as remove-old→render→
@@ -307,7 +307,7 @@ func runRecallIndex(cmd *cobra.Command, _ []string, deps recallDeps, rebuild, sh
 	errOut := cmd.ErrOrStderr()
 	ctx := cmd.Context()
 
-	// (1) GATE (D-07): memory off OR invalid ⇒ exitBlocked, never a no-op.
+	// (1) GATE: memory off OR invalid ⇒ exitBlocked, never a no-op.
 	cfg, blocked := recallGate("index", deps, errOut)
 	if blocked {
 		return exitBlocked
@@ -321,15 +321,15 @@ func runRecallIndex(cmd *cobra.Command, _ []string, deps recallDeps, rebuild, sh
 		return exitBlocked
 	}
 
-	// (3) TOKEN (D-09): the existing admin service-account JWT, in memory only.
+	// (3) TOKEN: the existing admin service-account JWT, in memory only.
 	token, err := deps.mintToken(ctx, base)
 	if err != nil {
 		fmt.Fprintf(errOut, "recall index: could not mint the admin token (%v) — check the Open WebUI service account, then re-run.\n", err)
 		return exitBlocked
 	}
 
-	// (3a) LIST USERS + SINGLE-OPERATOR GUARD (WR-05/D-09, hoisted per the
-	// Phase-23 review WR-01): a refusal must be SIDE-EFFECT-FREE, so the guard
+	// (3a) LIST USERS + SINGLE-OPERATOR GUARD (hoisted per the
+	// Phase-23 review): a refusal must be SIDE-EFFECT-FREE, so the guard
 	// runs BEFORE any state/KB mutation below — previously a refused --rebuild
 	// had already reset the collection, and every refused run had already
 	// re-stamped the embedding identity for an index pass that never happened
@@ -354,13 +354,13 @@ func runRecallIndex(cmd *cobra.Command, _ []string, deps recallDeps, rebuild, sh
 
 	// (4) STATE + KB: fail-closed read; --rebuild resets the KB (id-preserving)
 	// and clears the chats map; ensure the KB; stamp started, CLEAR completed,
-	// persist — a crash from here on reads as a partial run (D-06/Pitfall 8).
+	// persist — a crash from here on reads as a partial run (Pitfall 8).
 	state, err := deps.readState()
 	if err != nil {
 		fmt.Fprintf(errOut, "recall index: could not read recall-state.json (%v) — fix the data dir, then re-run.\n", err)
 		return exitBlocked
 	}
-	// (4a) D-10 SKEW GUARD (Phase-23, T-23-15/T-23-16): compare the RECORDED
+	// (4a) SKEW GUARD (Phase-23): compare the RECORDED
 	// embedding identity against config IMMEDIATELY after the fail-closed read and
 	// BEFORE any state mutation — the stamp overwrite below would destroy the
 	// recorded truth and make the skew undetectable forever (Pitfall 6).
@@ -390,7 +390,7 @@ func runRecallIndex(cmd *cobra.Command, _ []string, deps recallDeps, rebuild, sh
 	}
 	state.KnowledgeID = kbID
 	state.KnowledgeName = recallKnowledgeName
-	state.EmbeddingModel = cfg.EmbeddingModel // Phase-23 skew guards (D-05)
+	state.EmbeddingModel = cfg.EmbeddingModel // Phase-23 skew guards
 	state.EmbeddingDim = cfg.EmbeddingDim
 	state.LastIndexStartedAt = deps.now().UTC().Format(time.RFC3339)
 	state.LastIndexCompletedAt = ""
@@ -402,7 +402,7 @@ func runRecallIndex(cmd *cobra.Command, _ []string, deps recallDeps, rebuild, sh
 		return exitBlocked
 	}
 
-	// (5) LIST (D-09): build the complete chat universe over the users already
+	// (5) LIST: build the complete chat universe over the users already
 	// fetched (and guard-cleared) at step (3a) — service account excluded; any
 	// listing failure refuses — an index run cannot proceed on a partial universe.
 	live, err := recallChatsForUsers(ctx, deps, base, token, users)
@@ -411,11 +411,11 @@ func runRecallIndex(cmd *cobra.Command, _ []string, deps recallDeps, rebuild, sh
 		return exitBlocked
 	}
 
-	// (6) PLAN (D-05): the pure diff decides; the rest of this body only executes.
+	// (6) PLAN: the pure diff decides; the rest of this body only executes.
 	plan := recall.Plan(live, state)
 
 	// (7) EXECUTE sequentially (never parallel — RESEARCH anti-pattern), state
-	// persisted after EVERY chat (D-06): completed work is never lost.
+	// persisted after EVERY chat: completed work is never lost.
 	var added, updated, deleted, skipped int
 	persist := func() bool {
 		if err := deps.writeState(state); err != nil {
@@ -424,10 +424,10 @@ func runRecallIndex(cmd *cobra.Command, _ []string, deps recallDeps, rebuild, sh
 		}
 		return true
 	}
-	// indexChat clean-replaces one chat (D-04): remove the OLD transcript first
+	// indexChat clean-replaces one chat: remove the OLD transcript first
 	// (Updates), then fetch → render → upload → record + persist. An unrenderable
 	// chat is a RECORDED skip that drops any stale entry — never a silent drop. It
-	// returns a TYPED outcome (WR-02) so the caller increments counters from the
+	// returns a TYPED outcome so the caller increments counters from the
 	// actual operation result, never by presence-after-the-fact in state.Chats
 	// (which an unrelated future mutation could silently flip).
 	indexChat := func(ref recall.ChatRef, oldFileID string) chatOutcome {
@@ -437,7 +437,7 @@ func runRecallIndex(cmd *cobra.Command, _ []string, deps recallDeps, rebuild, sh
 				return outcomeFail
 			}
 			// The OLD transcript is now gone from the KB. From here on, ANY failure
-			// must leave the chat re-qualifying on the next run (WR-01): a stale
+			// must leave the chat re-qualifying on the next run: a stale
 			// state entry still claiming FileID=old would make Plan see neither an
 			// Add nor an Update, so the removed transcript would never be
 			// re-uploaded — the chat would be silently absent from retrieval while
@@ -515,21 +515,21 @@ func runRecallIndex(cmd *cobra.Command, _ []string, deps recallDeps, rebuild, sh
 		}
 	}
 
-	// (8) ATTACH (D-03, RECALL-02): idempotently wire the recall KB into the
+	// (8) ATTACH: idempotently wire the recall KB into the
 	// SERVED model's meta.knowledge — an index without retrieval wiring does not
-	// satisfy RECALL-02, so a failure here is a FAILURE, never a warning.
+	// satisfy, so a failure here is a FAILURE, never a warning.
 	served, err := deps.discoverModel(ctx, base, token)
 	if err != nil {
 		fmt.Fprintf(errOut, "recall index: FAILED discovering the served model (%v) — retrieval is NOT wired; check villa-llama/Open WebUI, then re-run.\n", err)
 		return exitBlocked
 	}
 	if _, err := deps.attachKnowledge(ctx, base, token, served, kbID, recallKnowledgeName); err != nil {
-		fmt.Fprintf(errOut, "recall index: FAILED attaching the recall collection to model %q (%v) — retrieval is NOT wired (RECALL-02); re-run `villa recall index`.\n", served, err)
+		fmt.Fprintf(errOut, "recall index: FAILED attaching the recall collection to model %q (%v) — retrieval is NOT wired; re-run `villa recall index`.\n", served, err)
 		return exitBlocked
 	}
 
-	// (9) STAMP: only the clean full pass earns last_index_completed_at (D-06,
-	// CR-01). Reconcile that EVERY planned Add and Update was either uploaded or
+	// (9) STAMP: only the clean full pass earns last_index_completed_at (
+	// Reconcile that EVERY planned Add and Update was either uploaded or
 	// recorded-as-skipped in THIS run before stamping complete — not merely that no
 	// loop returned early. An incomplete pass (e.g. a chat that became unrenderable
 	// AND was clean-replace-removed but not re-uploaded) must stay structurally
@@ -550,7 +550,7 @@ func runRecallIndex(cmd *cobra.Command, _ []string, deps recallDeps, rebuild, sh
 	return exitPass
 }
 
-// runRecallStatus is the honest staleness report (D-06): villa-side truths
+// runRecallStatus is the honest staleness report: villa-side truths
 // (indexed, last-index stamps, complete-vs-partial) always render from state; the
 // stale breakdown renders ONLY when the live chat list was evaluable — any
 // mint/list failure degrades to the LITERAL "Unknown — could not evaluate" at
@@ -562,7 +562,7 @@ func runRecallStatus(cmd *cobra.Command, _ []string, deps recallDeps) int {
 	errOut := cmd.ErrOrStderr()
 	ctx := cmd.Context()
 
-	// GATE — identical to index (D-07): an explicit status request on a disabled
+	// GATE — identical to index: an explicit status request on a disabled
 	// stack is refused, never answered with fabricated zeros.
 	cfg, blocked := recallGate("status", deps, errOut)
 	if blocked {
@@ -571,7 +571,7 @@ func runRecallStatus(cmd *cobra.Command, _ []string, deps recallDeps) int {
 
 	state, err := deps.readState()
 	if err != nil {
-		// WR-06: a real state-file I/O error (recall.Load already fail-closes a
+		// a real state-file I/O error (recall.Load already fail-closes a
 		// corrupt blob to empty state, so this only fires on e.g. a permissions
 		// fault) is a hard, unevaluable condition — exitBlocked, identical to the
 		// index path. exitWarn is reserved for the typed-Unknown live-list case
@@ -581,7 +581,7 @@ func runRecallStatus(cmd *cobra.Command, _ []string, deps recallDeps) int {
 	}
 
 	// Build the LIVE list; liveKnown=false on ANY failure — never a partial
-	// false-current (D-06). Attachment is evaluated only with a minted token.
+	// false-current. Attachment is evaluated only with a minted token.
 	base := fmt.Sprintf("http://%s:%d", verifyMemoryLoopbackAddr, cfg.ChatPort)
 	var live []recall.ChatRef
 	liveKnown := false

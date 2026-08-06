@@ -64,7 +64,7 @@ func TestGlyphsAreDistinctPerTier(t *testing.T) {
 	}
 }
 
-// TestColorEnabledRespectsNoColor drives the D-09 env gate: NO_COLOR or TERM=dumb
+// TestColorEnabledRespectsNoColor drives the env gate: NO_COLOR or TERM=dumb
 // must force the degraded path regardless of anything else. Under `go test` stdout
 // is a pipe, so colorEnabled() is false either way here; the assertion that matters
 // is that setting either variable can never turn colour ON.

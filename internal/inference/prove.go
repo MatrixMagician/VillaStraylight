@@ -38,7 +38,7 @@ func PollHealth(ctx context.Context, endpoint string, timeout time.Duration) det
 
 // GenerationProbe sends a real, small chat completion to the ALREADY-running
 // server's <endpoint>/v1/chat/completions through the REUSED internal/llm
-// OpenAIClient (D-04 — reuse, never rebuild) and reports the streamed token result.
+// OpenAIClient (reuse, never rebuild) and reports the streamed token result.
 // It is the EXPORTED real generation probe; it starts NO container (unlike Validate)
 // so a `villa backend set` cutover can prove generation against the server it just
 // restarted. It delegates straight to the package-private chatProbe. Plan-02

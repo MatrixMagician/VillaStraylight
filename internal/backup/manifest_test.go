@@ -8,7 +8,7 @@ import (
 )
 
 // TestManifestJSONRoundTrip asserts a built Manifest survives a JSON
-// marshal/unmarshal unchanged (the on-disk manifest.json contract, D-09).
+// marshal/unmarshal unchanged (the on-disk manifest.json contract).
 func TestManifestJSONRoundTrip(t *testing.T) {
 	in := ManifestInput{
 		CreatedAt:           "2026-06-07T19:52:28Z",
@@ -46,7 +46,7 @@ func TestManifestJSONRoundTrip(t *testing.T) {
 }
 
 // TestManifestSchemaVersionIsLastField asserts schema_version is the LAST field
-// in the JSON document (append-only contract — new fields go ABOVE it, D-09;
+// in the JSON document (append-only contract — new fields go ABOVE it,;
 // mirrors usage.UsageTotals). A raw-key-order scan catches an accidental
 // reorder.
 func TestManifestSchemaVersionIsLastField(t *testing.T) {
@@ -100,7 +100,7 @@ func TestExcludedModelHasNoContentFields(t *testing.T) {
 }
 
 // TestManifestV2MemoryEntryConsts asserts the Phase-23 optional-entry names are
-// exactly qdrant-volume.tar / recall-state.json (D-05).
+// exactly qdrant-volume.tar / recall-state.json.
 func TestManifestV2MemoryEntryConsts(t *testing.T) {
 	if EntryQdrantVolume != "qdrant-volume.tar" {
 		t.Fatalf("EntryQdrantVolume = %q, want qdrant-volume.tar", EntryQdrantVolume)
@@ -111,7 +111,7 @@ func TestManifestV2MemoryEntryConsts(t *testing.T) {
 }
 
 // TestManifestSchemaVersionIsV4 asserts the manifest's own schema version is 4
-// (the Phase-34 SURF-07 append-only bump: v4 adds the OPTIONAL settings.yml
+// (the Phase-34 append-only bump: v4 adds the OPTIONAL settings.yml
 // web-search provenance entry; old villas fail closed on a v4 backup, v3/v2/v1
 // backups stay restorable because the gate is m.SchemaVersion <=
 // backupSchemaVersion). The Phase-28 v3 crush.json entry stays present.
@@ -130,7 +130,7 @@ func TestManifestSchemaVersionIsV4(t *testing.T) {
 // TestExcludedAgentHasNoContentFields is the structural narrow-field / no-content
 // security test for the Phase-28 ExcludedAgent identity record (cloned from
 // TestExcludedModelHasNoContentFields): it must carry ONLY sha256 / version /
-// pin sha256 — identity only, NEVER any prompt/response/content text (T-28-02-02).
+// pin sha256 — identity only, NEVER any prompt/response/content text (02).
 // It asserts both the allow-set of Go field names AND a JSON-key denylist on a
 // marshaled instance.
 func TestExcludedAgentHasNoContentFields(t *testing.T) {
@@ -157,7 +157,7 @@ func TestExcludedAgentHasNoContentFields(t *testing.T) {
 }
 
 // TestManifestExcludedAgentThreadsAndOmits asserts BuildManifest threads the
-// Phase-28 ExcludedAgent through (SURF-03/D-08) AND that an agent-off manifest
+// Phase-28 ExcludedAgent through AND that an agent-off manifest
 // (nil ExcludedAgent) OMITS the excluded_agent key entirely (omitempty — an
 // agent-off backup never carries a fabricated agent claim, keeping the archive
 // v2-layout-identical), and that ExcludedAgent stays tail-appended ABOVE
@@ -195,7 +195,7 @@ func TestManifestExcludedAgentThreadsAndOmits(t *testing.T) {
 
 // TestManifestEmbeddingFieldsThreadAndOmit asserts BuildManifest threads the
 // memory-on embedding_model/embedding_dim/recall_schema_version fields through
-// (D-06/D-08) AND that a memory-off manifest OMITS all three keys entirely
+// AND that a memory-off manifest OMITS all three keys entirely
 // (omitempty — old/memory-off backups never carry a fabricated embedding claim,
 // the typed-Unknown "not recorded" convention).
 func TestManifestEmbeddingFieldsThreadAndOmit(t *testing.T) {

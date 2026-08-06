@@ -8,7 +8,7 @@ import (
 )
 
 // pullShards downloads + verifies every shard of m into modelsDir, generalizing
-// downloadFile over the shard set (D-06). A model is acceptable only when ALL
+// downloadFile over the shard set. A model is acceptable only when ALL
 // shards are present and each is individually checksum+size verified; if any one
 // shard is missing or mismatched, the whole model is rejected (the error from the
 // first failing shard is returned). A single-shard model is the degenerate

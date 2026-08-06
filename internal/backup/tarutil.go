@@ -1,10 +1,10 @@
 package backup
 
-// tarutil.go is the pure outer-tar (single plain POSIX .tar, D-03) assembly and
-// extraction primitive, plus the tar-slip traversal guard (D-11). It operates
+// tarutil.go is the pure outer-tar (single plain POSIX.tar) assembly and
+// extraction primitive, plus the tar-slip traversal guard. It operates
 // over an injected io.Writer / io.Reader so the file handles stay a cmd-tier
 // seam; the tar logic itself is deterministic and host-I/O-free. The
-// assertInsideDir guard is cloned (NOT imported) from config.assertInsideDir —
+// assertInsideDir guard is cloned (NOT imported) from config.assertInsideDir
 // importing config solely for an unexported guard would widen this pure core's
 // deps, exactly as internal/usage cloned the same shape.
 
@@ -19,19 +19,19 @@ import (
 )
 
 // archiveFileMode / archiveDirMode are the owner-only modes for written archive
-// entries and any created extraction dir (D-11), mirroring
+// entries and any created extraction dir, mirroring
 // usage.storeFileMode/storeDirMode.
 const (
 	archiveFileMode os.FileMode = 0o600
 	archiveDirMode  os.FileMode = 0o700
 )
 
-// Bounded-read caps for the UNTRUSTED read path (WR-04). readArchive holds every
+// Bounded-read caps for the UNTRUSTED read path. readArchive holds every
 // entry in memory (config/usage/bench are small; the Open WebUI volume tar can be
 // large but is bounded), so an attacker-crafted or accidentally-huge .tar must NOT
 // be read unboundedly into RAM — an OOM is an availability failure, not mere
 // slowness. These mirror the bounded-read discipline benchstore.Load uses (its
-// 1 MiB/line scanner cap, T-14-03), sized GENEROUSLY here because the OWUI volume
+// 1 MiB/line scanner cap), sized GENEROUSLY here because the OWUI volume
 // entry legitimately holds a real chat database:
 //   - maxEntryBytes caps a SINGLE entry body.
 //   - maxArchiveBytes caps the SUM of all entry bodies.
@@ -49,14 +49,14 @@ const (
 
 // archiveEntry is one outer-tar member: its archive name and EITHER its
 // in-memory bytes (data, the default — manifest/config/usage/bench are small)
-// OR a streaming source (open+size, review WR-06 — the volume tars can be many
+// OR a streaming source (open+size, review — the volume tars can be many
 // GiB and must never be buffered whole). When open is non-nil it wins: the body
 // is io.Copy'd from a fresh reader at assembly time and data is ignored.
 type archiveEntry struct {
 	name string
 	data []byte
 	// open yields a FRESH reader over the entry body for the streaming path
-	// (WR-06); size is the byte count recorded in the tar header. The source is
+	// size is the byte count recorded in the tar header. The source is
 	// an internally-owned temp export file, so a size drift between the checksum
 	// pass and assembly is a hard error (the recorded SHA-256 would no longer
 	// match — writeArchive enforces the exact byte count).
@@ -86,7 +86,7 @@ func writeArchive(w io.Writer, entries []archiveEntry) error {
 			return fmt.Errorf("backup: write tar header %q: %w", e.name, err)
 		}
 		if e.open != nil {
-			// Streaming body (WR-06): copy from a fresh reader; the byte count
+			// Streaming body: copy from a fresh reader; the byte count
 			// MUST equal the size recorded at checksum time — a drift means the
 			// manifest SHA-256 no longer describes the written body.
 			rc, err := e.open()
@@ -119,7 +119,7 @@ func writeArchive(w io.Writer, entries []archiveEntry) error {
 // readArchive iterates the tar in r in stream order, validating EVERY entry name
 // with the tar-slip guard (relative to a notional extraction root) BEFORE
 // invoking fn — so a malicious "../escape" or absolute-path entry is refused with
-// an error naming the entry, before any caller side effect (D-11). fn receives
+// an error naming the entry, before any caller side effect. fn receives
 // the validated name and the entry bytes; an error from fn (or the guard) aborts
 // the iteration.
 func readArchive(r io.Reader, fn func(name string, data []byte) error) error {
@@ -136,19 +136,19 @@ func readArchive(r io.Reader, fn func(name string, data []byte) error) error {
 		if err != nil {
 			return fmt.Errorf("backup: read tar: %w", err)
 		}
-		// Entry-count cap (WR-04): refuse an absurd member count before reading bodies.
+		// Entry-count cap: refuse an absurd member count before reading bodies.
 		count++
 		if count > maxEntryCount {
 			return fmt.Errorf("backup: archive has more than %d entries — refusing (possible hostile or malformed tar)", maxEntryCount)
 		}
 		// Validate the entry name against a notional extraction dir so the same
 		// filepath.Rel escape check the live extractor uses also fails here, with the
-		// archive even partially trusted (D-11). "." stands in for "the extraction
+		// archive even partially trusted. "." stands in for "the extraction
 		// root"; the joined dst must resolve inside it.
 		if err := assertEntryInside(hdr.Name, "."); err != nil {
 			return fmt.Errorf("backup: refusing tar entry %q: %w", hdr.Name, err)
 		}
-		// Bounded per-entry read (WR-04): cap a single body at maxEntryBytes via an
+		// Bounded per-entry read: cap a single body at maxEntryBytes via an
 		// io.LimitReader of maxEntryBytes+1 — if the read yields more than
 		// maxEntryBytes, the entry is over-bound and we refuse. This caps memory even
 		// for a header that lies about Size (we never trust hdr.Size for allocation).
@@ -159,7 +159,7 @@ func readArchive(r io.Reader, fn func(name string, data []byte) error) error {
 		if int64(len(data)) > maxEntryBytes {
 			return fmt.Errorf("backup: tar entry %q exceeds the %d-byte per-entry cap — refusing", hdr.Name, maxEntryBytes)
 		}
-		// Total-archive cap (WR-04): the SUM of all entry bodies must stay bounded.
+		// Total-archive cap: the SUM of all entry bodies must stay bounded.
 		totalBytes += int64(len(data))
 		if totalBytes > maxArchiveBytes {
 			return fmt.Errorf("backup: archive exceeds the %d-byte total cap — refusing", maxArchiveBytes)
@@ -172,7 +172,7 @@ func readArchive(r io.Reader, fn func(name string, data []byte) error) error {
 
 // assertEntryInside validates that an archive entry NAME, when joined under dir,
 // resolves inside dir — refusing traversal escapes ("../x") and absolute paths.
-// It is the per-entry tar-slip guard (D-11), cloned from config.assertInsideDir.
+// It is the per-entry tar-slip guard, cloned from config.assertInsideDir.
 //
 // An absolute entry name is rejected explicitly FIRST: filepath.Join cleans a
 // leading separator away ("/etc/passwd" → "etc/passwd"), so without this guard
@@ -186,7 +186,7 @@ func assertEntryInside(name, dir string) error {
 }
 
 // assertInsideDir verifies path resolves within dir, rejecting traversal escapes
-// (D-11). Cloned (not imported) from config.assertInsideDir — config's is
+// Cloned (not imported) from config.assertInsideDir — config's is
 // unexported and importing config solely for it would widen this pure core's
 // deps (same rationale as usage.assertInsideDir).
 func assertInsideDir(path, dir string) error {

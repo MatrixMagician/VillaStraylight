@@ -47,7 +47,7 @@ func TestCheckResources(t *testing.T) {
 		}
 	})
 
-	t.Run("unknown MemAvailable downgrades to WARN (D-15)", func(t *testing.T) {
+	t.Run("unknown MemAvailable downgrades to WARN", func(t *testing.T) {
 		p := memProfile(0, false)
 		req := ResourceReq{MinDiskBytes: 30 * gib, MinMemBytes: 32 * gib, DataDir: "/tmp"}
 		got := checkResources(p, req, statfsReturning(100*gib, true))
@@ -56,7 +56,7 @@ func TestCheckResources(t *testing.T) {
 		}
 	})
 
-	t.Run("zero envelope threshold downgrades to WARN (D-15)", func(t *testing.T) {
+	t.Run("zero envelope threshold downgrades to WARN", func(t *testing.T) {
 		p := memProfile(64*gib, true)
 		req := ResourceReq{MinDiskBytes: 0, MinMemBytes: 0, DataDir: "/tmp"}
 		got := checkResources(p, req, statfsReturning(100*gib, true))
@@ -65,7 +65,7 @@ func TestCheckResources(t *testing.T) {
 		}
 	})
 
-	t.Run("statfs failure downgrades to WARN (D-15)", func(t *testing.T) {
+	t.Run("statfs failure downgrades to WARN", func(t *testing.T) {
 		p := memProfile(64*gib, true)
 		req := ResourceReq{MinDiskBytes: 30 * gib, MinMemBytes: 32 * gib, DataDir: "/nonexistent"}
 		got := checkResources(p, req, statfsReturning(0, false))

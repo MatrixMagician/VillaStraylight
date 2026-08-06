@@ -5,17 +5,19 @@
 // testable by construction — no host I/O ever runs here.
 //
 // Invariants guarded (DOCTOR-01/02/03):
-//   - TestRemediationPresent       — every non-PASS Finding carries non-empty Remediation (D-11).
+// - TestRemediationPresent — every non-PASS Finding carries non-empty Remediation.
 //   - TestOffloadFailDominatesHealth — a confident offload FAIL dominates a HealthReady,
 //     yielding a BLOCK-class FAIL Finding and Report.Overall=="FAIL" (Pitfall 3: no
 //     false-green over a health-200).
 //   - TestDriftWarn                — a non-empty Plan.Changed yields a drift WARN Finding and
 //     Report.Overall=="WARN" (DOCTOR-03).
 //   - TestDriftReadErrorDegrades   — a DriftPlan read error (absent unit dir) yields a
-//     typed-Unknown WARN Finding, never a panic (D-08).
+//
+// typed-Unknown WARN Finding, never a panic.
 //   - TestDownStackWarnsNotBlocks  — a confidently-down service (HealthDown) folds to a
-//     WARN-tier WARN Finding and Report.Overall=="WARN", never a blocking FAIL (D-08 /
-//     CR-01: a stopped stack is exit-2, not exit-1).
+//
+// WARN-tier WARN Finding and Report.Overall=="WARN", never a blocking FAIL (
+// a stopped stack is exit-2, not exit-1).
 //
 // NOTE: this file deliberately types NO backend marker literal (Vulkan0/ROCm0/image
 // tags). Offload Verdicts are constructed opaquely via inference.Verdict only, so
@@ -87,7 +89,7 @@ func rocmDoctorDeps() Deps {
 	}
 	// Probe Known-good gfx1151 + a kernel at/above the policy floor so the two
 	// Probe-DRIVEN ROCm host-prep checks (ROCM-PRE-gfx / ROCM-PRE-kernel) PASS. That
-	// isolates the three STRUCTURALLY typed-Unknown WARNs the supersession targets —
+	// isolates the three STRUCTURALLY typed-Unknown WARNs the supersession targets
 	// ROCM-PRE-firmware/-hsa/-image (checks_rocm.go:66-67 hardcode firmware/hsa as
 	// UnknownStr; RunROCm passes an empty image) — which are exactly the live-UAT WARNs.
 	d.Probe = func() detect.HostProfile {
@@ -222,7 +224,7 @@ func nonPassFindings(r Report) []Finding {
 
 // TestRemediationPresent: a Report built from a Deps with BOTH a drift Plan AND an
 // offload-FAIL service must have every non-PASS Finding carrying non-empty Remediation
-// (DOCTOR-02 / D-11).
+// (DOCTOR-02).
 func TestRemediationPresent(t *testing.T) {
 	d := newDoctorDeps()
 	d.StatusReport = func() status.Report {
@@ -306,7 +308,7 @@ func TestDriftWarn(t *testing.T) {
 
 // TestDriftReadErrorDegrades: a DriftPlan returning a read error (e.g. absent unit
 // dir on a never-installed host) must yield a typed-Unknown WARN Finding with
-// remediation, never a panic and never a false PASS (D-08).
+// remediation, never a panic and never a false PASS.
 func TestDriftReadErrorDegrades(t *testing.T) {
 	d := newDoctorDeps()
 	d.DriftPlan = func() (orchestrate.Plan, error) {
@@ -328,7 +330,7 @@ func TestDriftReadErrorDegrades(t *testing.T) {
 	}
 }
 
-// --- Phase 22-03: memory-stack fold (D-08/D-09) + offload down-rank (Pitfall 1) ---
+// --- Phase 22-03: memory-stack fold + offload down-rank (Pitfall 1) ---
 
 // memoryServiceNames are the systemd .service names of the two memory-stack managed
 // services as the status fold names them (Quadlet villa-qdrant.container →
@@ -399,10 +401,10 @@ func findingByID(r Report, id string) (Finding, bool) {
 }
 
 // TestMemoryOffNoMemoryFindings: with every new memory Deps field nil/zero (the
-// memory-off default — mirror D-06), Aggregate emits NO memory finding at all: no
+// memory-off default — mirror), Aggregate emits NO memory finding at all: no
 // MEM-PRE-* checks, no MEM-DOC-residency (a nil proof seam NEVER PASSes by default).
 // Together with every pre-existing test in this file passing unchanged, this is the
-// memory-off byte-identical guard (D-08/D-09 nil/zero-safety).
+// memory-off byte-identical guard (nil/zero-safety).
 func TestMemoryOffNoMemoryFindings(t *testing.T) {
 	r := Aggregate(newDoctorDeps())
 	for _, id := range []string{"MEM-PRE-disk", "MEM-PRE-headroom", "MEM-DOC-residency"} {
@@ -418,7 +420,7 @@ func TestMemoryOffNoMemoryFindings(t *testing.T) {
 
 // TestMemoryChecksFoldedFailRaisesOverall: a non-nil RunMemoryChecks seam has its
 // CheckResults folded as findings via findingFromCheck and ranked worst-wins like
-// every other check — a confident MEM-PRE-headroom FAIL raises Overall to FAIL (D-08).
+// every other check — a confident MEM-PRE-headroom FAIL raises Overall to FAIL.
 func TestMemoryChecksFoldedFailRaisesOverall(t *testing.T) {
 	d := memoryDoctorDeps()
 	d.RunMemoryChecks = func(detect.HostProfile) []preflight.CheckResult {
@@ -443,7 +445,7 @@ func TestMemoryChecksFoldedFailRaisesOverall(t *testing.T) {
 		t.Errorf("MEM-PRE-headroom = (status %s, tier %s), want (FAIL, BLOCK)", f.Status, f.Tier)
 	}
 	if f.Remediation == "" {
-		t.Error("MEM-PRE-headroom FAIL has empty Remediation (D-11)")
+		t.Error("MEM-PRE-headroom FAIL has empty Remediation")
 	}
 	if df, ok := findingByID(r, "MEM-PRE-disk"); !ok || df.Status != "PASS" {
 		t.Errorf("expected a PASS MEM-PRE-disk finding alongside the FAIL; got %+v (found=%v)", df, ok)
@@ -452,7 +454,7 @@ func TestMemoryChecksFoldedFailRaisesOverall(t *testing.T) {
 
 // TestResidencyUnderLoadFailBlocks: a confident StatusFail Verdict from the
 // residency-under-embedding-load proof maps to a BLOCK-class FAIL MEM-DOC-residency
-// finding with non-empty remediation, raising Overall to FAIL (D-09 — a confident CPU
+// finding with non-empty remediation, raising Overall to FAIL (a confident CPU
 // fallback under embedding load is the silent-degradation fault, never a false-green).
 func TestResidencyUnderLoadFailBlocks(t *testing.T) {
 	d := memoryDoctorDeps()
@@ -472,7 +474,7 @@ func TestResidencyUnderLoadFailBlocks(t *testing.T) {
 		t.Errorf("MEM-DOC-residency = (status %s, tier %s), want (FAIL, BLOCK)", f.Status, f.Tier)
 	}
 	if f.Remediation == "" {
-		t.Error("MEM-DOC-residency FAIL has empty Remediation (D-11)")
+		t.Error("MEM-DOC-residency FAIL has empty Remediation")
 	}
 	if f.Name != "Chat-model residency under embedding load" {
 		t.Errorf("MEM-DOC-residency Name = %q, want the D-09 contract name", f.Name)
@@ -482,7 +484,7 @@ func TestResidencyUnderLoadFailBlocks(t *testing.T) {
 // TestResidencyUnderLoadWarnDegrades: an unevaluable proof (StatusWarn — stack down,
 // scrape failed, drive could not complete) degrades to a typed-Unknown WARN-tier WARN
 // with the upstream detail preserved and a non-empty fallback remediation — never a
-// false-green PASS and never a blocking FAIL (D-09/D-10).
+// false-green PASS and never a blocking FAIL.
 func TestResidencyUnderLoadWarnDegrades(t *testing.T) {
 	d := memoryDoctorDeps()
 	d.ResidencyUnderLoad = func() inference.Verdict {
@@ -501,7 +503,7 @@ func TestResidencyUnderLoadWarnDegrades(t *testing.T) {
 		t.Errorf("MEM-DOC-residency = (status %s, tier %s), want (WARN, WARN)", f.Status, f.Tier)
 	}
 	if f.Remediation == "" {
-		t.Error("MEM-DOC-residency WARN has empty Remediation (D-11)")
+		t.Error("MEM-DOC-residency WARN has empty Remediation")
 	}
 	if f.Detail == "" {
 		t.Error("MEM-DOC-residency WARN dropped the upstream 'could not evaluate' detail")
@@ -534,7 +536,7 @@ func TestHealthyMemoryOnOverallPass(t *testing.T) {
 
 // TestMemoryServiceDownWarns is the negative control of the v3 reclassification: a
 // stopped villa-embed surfaces through its HEALTH finding (down → WARN — a down
-// stack is an expected operational state, D-08), never a false PASS and never an
+// stack is an expected operational state), never a false PASS and never an
 // offload finding.
 func TestMemoryServiceDownWarns(t *testing.T) {
 	d := memoryDoctorDeps()
@@ -562,7 +564,7 @@ func TestMemoryServiceDownWarns(t *testing.T) {
 	}
 }
 
-// TestErroredStatusReportDegradesToWarn (phase-22 CR-01): an ERRORED status read-model
+// TestErroredStatusReportDegradesToWarn (phase-22): an ERRORED status read-model
 // (status.Run's zero-value Report with err set — reachable on any host whose config/
 // model/backend/render fails, e.g. a never-installed box) must degrade to ONE
 // typed-Unknown WARN "stack" finding — NEVER the fabricated confident loopback
@@ -579,7 +581,7 @@ func TestErroredStatusReportDegradesToWarn(t *testing.T) {
 
 	r := Aggregate(d)
 	if r.Overall == "FAIL" {
-		t.Fatalf("Overall = FAIL — an unevaluable status read-model must never fabricate a blocking fault (CR-01)")
+		t.Fatalf("Overall = FAIL — an unevaluable status read-model must never fabricate a blocking fault")
 	}
 	if hasFinding(r, "loopback") {
 		t.Error("errored read-model fabricated a loopback finding from the zero-value LoopbackOnly=false")
@@ -592,7 +594,7 @@ func TestErroredStatusReportDegradesToWarn(t *testing.T) {
 		t.Errorf("stack finding = (status %s, tier %s), want (WARN, %s)", f.Status, f.Tier, tierWarn)
 	}
 	if f.Remediation == "" {
-		t.Error("stack WARN has empty Remediation (D-11)")
+		t.Error("stack WARN has empty Remediation")
 	}
 	if !strings.Contains(f.Detail, "not found in catalog") {
 		t.Errorf("stack WARN detail %q must carry the real status.Run error cause", f.Detail)
@@ -607,10 +609,10 @@ func TestErroredStatusReportDegradesToWarn(t *testing.T) {
 
 // TestDownStackWarnsNotBlocks: a confidently-down service (Health==HealthDown, no
 // offload signal) must fold to a WARN-tier WARN health Finding and Report.Overall=="WARN"
-// — NEVER a blocking FAIL. A stopped stack is an expected operational state (D-08): it
+// — NEVER a blocking FAIL. A stopped stack is an expected operational state: it
 // maps to exit 2 (warning), not exit 1 (blocking fault), which is reserved for the silent-
 // degradation faults (offload FAIL over a health-200, preflight BLOCK, loopback breach).
-// Regression guard for CR-01 (phase-13 code review).
+// Regression guard for (phase-13 code review).
 func TestDownStackWarnsNotBlocks(t *testing.T) {
 	d := newDoctorDeps()
 	d.StatusReport = func() status.Report {
@@ -626,7 +628,7 @@ func TestDownStackWarnsNotBlocks(t *testing.T) {
 
 	r := Aggregate(d)
 	if r.Overall != "WARN" {
-		t.Fatalf("Overall = %q, want WARN (a down stack is a WARN, never a blocking FAIL — D-08/CR-01)", r.Overall)
+		t.Fatalf("Overall = %q, want WARN (a down stack is a WARN, never a blocking FAIL)", r.Overall)
 	}
 	// No finding may be a blocking-tier FAIL: FAIL ⟺ BLOCK-class invariant means a down
 	// stack must not escalate doctor to the blocking exit tier.
@@ -644,7 +646,7 @@ func TestDownStackWarnsNotBlocks(t *testing.T) {
 				t.Errorf("down health finding = (status %s, tier %s), want (WARN, %s)", f.Status, f.Tier, tierWarn)
 			}
 			if f.Remediation == "" {
-				t.Error("down health finding has empty Remediation (D-11)")
+				t.Error("down health finding has empty Remediation")
 			}
 		}
 	}
@@ -653,7 +655,7 @@ func TestDownStackWarnsNotBlocks(t *testing.T) {
 	}
 }
 
-// --- Phase 28-01: coding-agent fold (SURF-02, D-06/D-07) ---
+// --- Phase 28-01: coding-agent fold ---
 
 // TestDoctorSchemaVersionAgentFold: the doctor --json contract self-version reached 2 when
 // the agent findings were folded in (Phase 28-01). Phase 34-04 bumped it append-only 2→3
@@ -668,7 +670,7 @@ func TestDoctorSchemaVersionAgentFold(t *testing.T) {
 }
 
 // TestAgentToolCallFindingSwitch is the offload-FAIL-dominates truth table for the
-// tool-call round-trip mapper (D-07 clone of residencyUnderLoadFinding): Pass → BLOCK/PASS,
+// tool-call round-trip mapper (clone of residencyUnderLoadFinding): Pass → BLOCK/PASS,
 // Fail → BLOCK/FAIL+remediation, Warn → WARN/WARN+remediation (typed-Unknown, never a
 // false-green PASS).
 func TestAgentToolCallFindingSwitch(t *testing.T) {
@@ -693,7 +695,7 @@ func TestAgentToolCallFindingSwitch(t *testing.T) {
 				t.Errorf("(tier %s, status %s), want (%s, %s)", f.Tier, f.Status, c.wantTier, c.wantStatus)
 			}
 			if c.wantRemed && f.Remediation == "" {
-				t.Errorf("non-PASS finding has empty Remediation (D-11)")
+				t.Errorf("non-PASS finding has empty Remediation")
 			}
 			if !c.wantRemed && f.Status == statusPass && f.Remediation != "" {
 				t.Errorf("PASS finding carries a Remediation %q", f.Remediation)
@@ -703,7 +705,7 @@ func TestAgentToolCallFindingSwitch(t *testing.T) {
 }
 
 // TestAgentResidencyFindingSwitch is the same offload-FAIL-dominates truth table for the
-// agent under-load residency mapper (D-07 honesty dominance): a confident StatusFail is a
+// agent under-load residency mapper (honesty dominance): a confident StatusFail is a
 // BLOCK-class FAIL that dominates a healthy-looking HTTP-200; an unevaluable signal → WARN.
 func TestAgentResidencyFindingSwitch(t *testing.T) {
 	cases := []struct {
@@ -727,7 +729,7 @@ func TestAgentResidencyFindingSwitch(t *testing.T) {
 				t.Errorf("(tier %s, status %s), want (%s, %s)", f.Tier, f.Status, c.wantTier, c.wantStatus)
 			}
 			if c.wantRemed && f.Remediation == "" {
-				t.Errorf("non-PASS finding has empty Remediation (D-11)")
+				t.Errorf("non-PASS finding has empty Remediation")
 			}
 		})
 	}
@@ -832,7 +834,7 @@ func TestAgentOffNoAgentFindings(t *testing.T) {
 }
 
 // TestAgentToolCallFoldedFailRaisesOverall: a confident StatusFail tool-call verdict folds
-// worst-wins to Overall==FAIL (an agent FAIL dominates a healthy-looking stack — D-07).
+// worst-wins to Overall==FAIL (an agent FAIL dominates a healthy-looking stack).
 func TestAgentToolCallFoldedFailRaisesOverall(t *testing.T) {
 	d := agentDoctorDeps()
 	d.AgentToolCall = func() inference.Verdict {
@@ -869,7 +871,7 @@ func TestAgentResidencyFoldedFailRaisesOverall(t *testing.T) {
 
 // TestAgentDriftFoldedWarn: a non-nil AgentDrift seam reporting BinaryDrift folds the
 // drift findings worst-wins; the clean memory+agent stack drops to WARN (drift is a WARN,
-// never auto-corrected — D-14).
+// never auto-corrected).
 func TestAgentDriftFoldedWarn(t *testing.T) {
 	d := agentDoctorDeps()
 	d.AgentDrift = func() agent.DriftReport {
@@ -895,10 +897,10 @@ func TestAgentCleanDriftPasses(t *testing.T) {
 	}
 }
 
-// --- Phase 34-04: web-search fold (SURF-06, reportSchemaVersion 2→3) ---
+// --- Phase 34-04: web-search fold (reportSchemaVersion 2→3) ---
 
 // TestDoctorSchemaVersionIsThree: doctor's OWN --json contract self-version was bumped
-// append-only 2→3 when the web-search findings were folded in (SURF-06). The const is the
+// append-only 2→3 when the web-search findings were folded in. The const is the
 // single source of truth — Aggregate stamps it on every Report. INDEPENDENT of status's
 // reportSchemaVersion (5).
 func TestDoctorSchemaVersionIsThree(t *testing.T) {
@@ -940,7 +942,7 @@ func TestAggregateWebSearch(t *testing.T) {
 }
 
 // TestSearchEgressFinding is the tri-state truth table for the egress-proof mapper
-// (T-34-12): a cached verify PASS+fresh → ready (PASS, no remediation); a real recent
+// a cached verify PASS+fresh → ready (PASS, no remediation); a real recent
 // non-PASS → degraded-with-reason (FAIL/WARN + remediation); a stale/absent cache →
 // typed-Unknown WARN + remediation. The Verdict is consumed opaquely (the cmd-tier
 // closure does the freshness mapping), so the switch mirrors offloadFinding's grammar.
@@ -965,7 +967,7 @@ func TestSearchEgressFinding(t *testing.T) {
 				t.Errorf("Status = %q, want %q", f.Status, c.wantStatus)
 			}
 			if c.wantRemed && f.Remediation == "" {
-				t.Errorf("non-PASS egress finding has empty Remediation (D-11)")
+				t.Errorf("non-PASS egress finding has empty Remediation")
 			}
 			if !c.wantRemed && f.Remediation != "" {
 				t.Errorf("PASS egress finding carries a Remediation %q", f.Remediation)
@@ -975,7 +977,7 @@ func TestSearchEgressFinding(t *testing.T) {
 }
 
 // TestSearchResidencyFinding is the offload-FAIL-dominates truth table for the
-// residency-under-search-load mapper (T-34-13): a confident CPU-fallback Verdict is a
+// residency-under-search-load mapper: a confident CPU-fallback Verdict is a
 // BLOCK-class FAIL that DOMINATES a healthy-looking HTTP-200 (never an idle-sampled
 // false-green); a not-in-flight / unevaluable Verdict → typed-Unknown WARN.
 func TestSearchResidencyFinding(t *testing.T) {
@@ -1000,7 +1002,7 @@ func TestSearchResidencyFinding(t *testing.T) {
 				t.Errorf("(tier %s, status %s), want (%s, %s)", f.Tier, f.Status, c.wantTier, c.wantStatus)
 			}
 			if c.wantRemed && f.Remediation == "" {
-				t.Errorf("non-PASS residency finding has empty Remediation (D-11)")
+				t.Errorf("non-PASS residency finding has empty Remediation")
 			}
 		})
 	}
@@ -1008,7 +1010,7 @@ func TestSearchResidencyFinding(t *testing.T) {
 
 // TestSearchResidencyFoldedFailDominatesHealth proves the no-false-green invariant at the
 // Aggregate level: a confident CPU-fallback search-residency Verdict folds worst-wins to
-// Overall==FAIL even over an all-healthy HTTP-200 stack (T-34-13).
+// Overall==FAIL even over an all-healthy HTTP-200 stack.
 func TestSearchResidencyFoldedFailDominatesHealth(t *testing.T) {
 	d := newDoctorDeps() // healthy HTTP-200 stack
 	d.SearchResidencyUnderLoad = func() inference.Verdict {
@@ -1025,7 +1027,7 @@ func TestSearchResidencyFoldedFailDominatesHealth(t *testing.T) {
 }
 
 // TestWebSearchFindingsHaveRemediation asserts EVERY non-PASS web-search finding carries a
-// non-empty Remediation (D-11), across the egress and residency mappers' non-PASS branches.
+// non-empty Remediation, across the egress and residency mappers' non-PASS branches.
 func TestWebSearchFindingsHaveRemediation(t *testing.T) {
 	d := newDoctorDeps()
 	d.SearchEgressProof = func() inference.Verdict {
@@ -1041,7 +1043,7 @@ func TestWebSearchFindingsHaveRemediation(t *testing.T) {
 			t.Fatalf("finding %q missing", id)
 		}
 		if f.Status != statusPass && f.Remediation == "" {
-			t.Errorf("non-PASS web-search finding %q has empty Remediation (D-11)", id)
+			t.Errorf("non-PASS web-search finding %q has empty Remediation", id)
 		}
 	}
 }

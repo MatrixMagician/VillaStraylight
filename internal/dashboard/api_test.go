@@ -62,7 +62,7 @@ func stubStatusDeps(t *testing.T) status.Deps {
 
 // TestHandleStatusFoldsSharedCore asserts GET /api/status returns 200 with a body
 // byte-equal to json.Marshal(status.Run(stubbedDeps)) — the SAME frozen Report the
-// CLI serializes (DASH-01, not a forked serialization).
+// CLI serializes (not a forked serialization).
 func TestHandleStatusFoldsSharedCore(t *testing.T) {
 	deps := stubStatusDeps(t)
 	srv := mustNewServer(t, Config{StatusDeps: deps, ChatPort: 3000, DashboardAddr: "127.0.0.1", DashboardPort: 8888})
@@ -100,7 +100,7 @@ func TestHandleStatusFoldsSharedCore(t *testing.T) {
 // TestHandleStatusCarriesBackendIdentity asserts GET /api/status carries the Phase-10
 // backend-identity fields (backend, image, rocm_readiness) that handleStatus serves
 // VERBATIM from the shared status.Report — they ride for free the moment Plan 10-01 lands
-// them on Report (DASH-06 / D-01: backend identity lives on /api/status, not /api/metrics).
+// them on Report (backend identity lives on /api/status, not /api/metrics).
 // The dashboard JS composes report.backend (label) with the /api/metrics tok/s (number).
 func TestHandleStatusCarriesBackendIdentity(t *testing.T) {
 	deps := stubStatusDeps(t)
@@ -145,7 +145,7 @@ func TestHandleStatusCarriesBackendIdentity(t *testing.T) {
 		t.Fatalf("rocm_readiness = %q, want %q", got.ROCmReadiness, want.ROCmReadiness)
 	}
 	// With no ROCmReadiness seam wired, the honest off-hardware default is "unknown"
-	// (no-false-green, D-04) — the JS renders the gray "ROCm readiness unknown" badge.
+	// (no-false-green) — the JS renders the gray "ROCm readiness unknown" badge.
 	if got.ROCmReadiness != status.ROCmUnknown {
 		t.Fatalf("rocm_readiness with no seam = %q, want %q (no-false-green default)", got.ROCmReadiness, status.ROCmUnknown)
 	}
@@ -193,7 +193,7 @@ func stubMemoryStatusDeps(t *testing.T) status.Deps {
 	return d
 }
 
-// TestHandleStatusMemoryPassthrough (CTRL-02 / D-03) asserts handleStatus passes the
+// TestHandleStatusMemoryPassthrough (CTRL-02) asserts handleStatus passes the
 // v3 memory field through UNTOUCHED from the shared status core — the dashboard JS
 // reads report.memory off the existing /api/status poll, no new endpoint or fork:
 //   - memory-ON deps → the body carries a "memory" object with the exact JSON keys
@@ -247,7 +247,7 @@ func TestHandleStatusMemoryPassthrough(t *testing.T) {
 			t.Fatalf("decode body: %v\n%s", err, rec.Body.String())
 		}
 		if _, present := raw["memory"]; present {
-			t.Fatalf("memory-off /api/status body must OMIT the \"memory\" key (omitempty-nil, D-04); body=%s", rec.Body.String())
+			t.Fatalf("memory-off /api/status body must OMIT the \"memory\" key (omitempty-nil); body=%s", rec.Body.String())
 		}
 		var schemaVersion int
 		if err := json.Unmarshal(raw["schema_version"], &schemaVersion); err != nil {
@@ -260,7 +260,7 @@ func TestHandleStatusMemoryPassthrough(t *testing.T) {
 }
 
 // TestHandleMetricsShapeUnchanged asserts GET /api/metrics serializes ONLY the
-// metricsView read-model and carries NO backend-identity key (D-01: identity lives on
+// metricsView read-model and carries NO backend-identity key (identity lives on
 // /api/status, the number on /api/metrics; the UI composes them). This pins the metrics
 // surface so Phase 10 cannot leak backend identity into it. With no live scrape the view
 // is the typed-Unknown {"available":false,...} shape, which still must expose exactly the
@@ -286,14 +286,14 @@ func TestHandleMetricsShapeUnchanged(t *testing.T) {
 		t.Fatalf("decode body: %v\n%s", err, rec.Body.String())
 	}
 
-	// No backend identity may appear on the metrics surface (D-01 / T-10-10).
+	// No backend identity may appear on the metrics surface.
 	for _, forbidden := range []string{"backend", "image", "rocm_readiness", "schema_version"} {
 		if _, present := raw[forbidden]; present {
-			t.Fatalf("/api/metrics must NOT carry %q (identity belongs on /api/status, D-01); body=%s", forbidden, rec.Body.String())
+			t.Fatalf("/api/metrics must NOT carry %q (identity belongs on /api/status); body=%s", forbidden, rec.Body.String())
 		}
 	}
 
-	// The metricsView shape is the frozen DASH-02 contract — the keys the dashboard JS
+	// The metricsView shape is the frozen contract — the keys the dashboard JS
 	// renderPerformance reads. Assert the present keys are a subset of this set (latency_ms
 	// is omitempty, so it may be absent in the unavailable view).
 	allowed := map[string]bool{
@@ -312,7 +312,7 @@ func TestHandleMetricsShapeUnchanged(t *testing.T) {
 		}
 	}
 	// The unavailable-scrape view must still decode into metricsView with available=false
-	// (no fabricated zeros surfaced as real, D-11) — proving the shape is intact.
+	// (no fabricated zeros surfaced as real) — proving the shape is intact.
 	var view metricsView
 	if err := json.Unmarshal(rec.Body.Bytes(), &view); err != nil {
 		t.Fatalf("body does not decode into metricsView (shape changed): %v\n%s", err, rec.Body.String())
@@ -325,7 +325,7 @@ func TestHandleMetricsShapeUnchanged(t *testing.T) {
 // TestHandleModelsListsCatalogWithFit asserts GET /api/models returns the full catalog
 // with each entry marked loaded/on-disk/catalog-only and a fits flag from the SHARED
 // fit seam — a fitting+loaded entry, a non-fitting entry (fits=false so the UI can
-// disable Switch, D-08), serialized via the injected Models seam (not re-implemented).
+// disable Switch), serialized via the injected Models seam (not re-implemented).
 func TestHandleModelsListsCatalogWithFit(t *testing.T) {
 	want := []ModelView{
 		{ID: "qwen3", Quant: "Q4", Loaded: true, OnDisk: true, Fits: true, FitDetail: "Fits: 21.0 GiB ≤ 120.0 GiB — 99.0 GiB headroom at 131072 context."},
@@ -478,7 +478,7 @@ func TestHandleSwitchFittingRoutesThroughModelswap(t *testing.T) {
 }
 
 // TestHandleSwitchConcurrentRefusedWith409 asserts that while one swap is in flight, a
-// second concurrent POST is refused with 409 Conflict (CR-02) rather than allowed to
+// second concurrent POST is refused with 409 Conflict rather than allowed to
 // interleave the non-atomic modelswap.Run read-modify-write. The first request's Restart
 // blocks on a gate so the second request provably races it while the swap mutex is held.
 func TestHandleSwitchConcurrentRefusedWith409(t *testing.T) {
@@ -594,7 +594,7 @@ func TestHandleSwitchUnknownRefusesNoSideEffect(t *testing.T) {
 }
 
 // TestHandleSwitchNonFittingRefuses asserts a POST for a non-fitting model is refused by
-// the fit-guard (D-08) with no side effect — the dashboard never fires a swap the core
+// the fit-guard with no side effect — the dashboard never fires a swap the core
 // would reject.
 func TestHandleSwitchNonFittingRefuses(t *testing.T) {
 	var called []string
@@ -618,7 +618,7 @@ func TestHandleSwitchNonFittingRefuses(t *testing.T) {
 }
 
 // TestHandleSwitchCrossOriginBlocked asserts a cross-origin POST is rejected 403 by the
-// middleware and NEVER reaches modelswap.Run (no side effect) — T-05-11 CSRF guard.
+// middleware and NEVER reaches modelswap.Run (no side effect) — CSRF guard.
 func TestHandleSwitchCrossOriginBlocked(t *testing.T) {
 	var called []string
 	srv := mustNewServer(t, Config{
@@ -668,7 +668,7 @@ func TestHandleSwitchGetRejected(t *testing.T) {
 	}
 }
 
-// TestHandleHealthz asserts GET /healthz returns 200 with a tiny ok JSON (the D-04
+// TestHandleHealthz asserts GET /healthz returns 200 with a tiny ok JSON (the
 // self-reachability signal Plan 05's status row probes).
 func TestHandleHealthz(t *testing.T) {
 	srv := mustNewServer(t, Config{StatusDeps: stubStatusDeps(t), ChatPort: 3000, DashboardAddr: "127.0.0.1", DashboardPort: 8888})
@@ -727,16 +727,20 @@ func getMetrics(t *testing.T, srv *Server) {
 }
 
 // TestMetricsWritesUsage asserts the dashboard /api/metrics handler is the SOLE,
-// usageMu-guarded writer of the usage store (USAGE-02 / D-07): each scrape folds the two
+// usageMu-guarded writer of the usage store: each scrape folds the two
 // monotonic _total counters keyed by the in-section ModelID and atomically writes. It
 // proves, end-to-end through the handler:
 //   - the fold runs with the stub counters keyed by "m1" (sole-writer);
 //   - a SECOND scrape whose raw counter went DOWN (server restart reset) continues the
-//     cumulative total reset-aware rather than dropping to the new low raw count (D-04
-//     through the handler);
-//   - a typed-Unknown counter (Known=false) contributes NO fold (no fabricated 0, D-05);
+//
+// cumulative total reset-aware rather than dropping to the new low raw count (
+//
+//	through the handler);
+//
+// - a typed-Unknown counter (Known=false) contributes NO fold (no fabricated 0);
 //   - the live metricsView JSON is byte-identical to the pre-change unavailable shape
-//     (the fold is additive — it adds NO field to the live response, D-10).
+//
+// (the fold is additive — it adds NO field to the live response).
 func TestMetricsWritesUsage(t *testing.T) {
 	probe := &usageProbe{}
 	// counter is mutated between requests to simulate a counter reset on the 2nd scrape.
@@ -787,7 +791,7 @@ func TestMetricsWritesUsage(t *testing.T) {
 	}
 	got = probe.read()
 	mu = got.Models["m1"]
-	// D-04 reset-aware THROUGH the handler: a backward step counts the whole new sample
+	// reset-aware THROUGH the handler: a backward step counts the whole new sample
 	// (100+30, 40+10), never a negative delta and never a drop to the low raw count.
 	if mu.Prompt.Cumulative != 130 || mu.Predicted.Cumulative != 50 {
 		t.Fatalf("after reset scrape, cumulative = prompt %d / generated %d, want 130 / 50 (reset-aware continuation)",
@@ -796,7 +800,7 @@ func TestMetricsWritesUsage(t *testing.T) {
 
 	// --- Request 3: prompt counter typed-Unknown (Known=false) → NOT folded ---------
 	counter = metrics.CounterSample{
-		PromptTokensTotal: 0, PromptTokensKnown: false, // absent → no fold for prompt (D-05)
+		PromptTokensTotal: 0, PromptTokensKnown: false, // absent → no fold for prompt
 		PredictedTokensTotal: 60, PredictedTokensKnown: true,
 	}
 	getMetrics(t, srv)
@@ -812,7 +816,7 @@ func TestMetricsWritesUsage(t *testing.T) {
 		t.Fatalf("generated should continue from raw 10→60 (+50) = 100, got %d", mu.Predicted.Cumulative)
 	}
 
-	// --- Live metricsView unchanged: the fold adds NO field to the live response (D-10) ---
+	// --- Live metricsView unchanged: the fold adds NO field to the live response ---
 	req := httptest.NewRequest(http.MethodGet, "/api/metrics", nil)
 	rec := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rec, req)
@@ -826,7 +830,7 @@ func TestMetricsWritesUsage(t *testing.T) {
 		t.Fatalf("live metricsView changed by the usage fold:\n got=%s\nwant=%s", rec.Body.String(), want)
 	}
 
-	// --- Counter scrape entirely unavailable → NO fold, NO write (D-05) -------------
+	// --- Counter scrape entirely unavailable → NO fold, NO write -------------
 	priorWrites := probe.written
 	counterOK = false
 	getMetrics(t, srv)
@@ -837,7 +841,7 @@ func TestMetricsWritesUsage(t *testing.T) {
 
 // TestStatusUsageSurfaced asserts the dashboard surfaces cumulative totals through the
 // SAME status.Report.usage field (Plan 03) over the existing /api/status handler — NO new
-// endpoint (D-10). A populated ReadUsage seam on status.Deps yields a /api/status body
+// endpoint. A populated ReadUsage seam on status.Deps yields a /api/status body
 // carrying the "usage" key; a nil-returning seam omits it (typed-Unknown, never a
 // fabricated 0).
 func TestStatusUsageSurfaced(t *testing.T) {

@@ -1,14 +1,14 @@
 package main
 
 // podman_volume.go is the SHARED cmd-tier fixed-arg podman VOLUME seam used by the
-// Phase-16 backup/restore flow (D-02). It clones the seam-gate-proven pattern of
+// Phase-16 backup/restore flow. It clones the seam-gate-proven pattern of
 // uninstall.go's podmanVolumeRm: a package-level injectable `podmanVolume` var that
 // runs `exec.Command("podman", args...)` with FIXED ARGS (never a shell, never
 // interpolation — T-16-02b) plus the pure arg-builders the regression tests assert
 // against. Volume names are config/catalog-resolved constants, so no untrusted
 // string is ever shell-interpolated. Adding the export/import vars here (rather than
 // a new impure internal module) keeps internal/orchestrate the ONLY intentionally
-// impure first-party module (D-02).
+// impure first-party module.
 
 import (
 	"bytes"
@@ -38,14 +38,14 @@ func volumeImportArgs(name, src string) []string {
 
 // volumeExistsArgs builds the FIXED-ARG argv for the volume existence check:
 // `volume exists <name>` (exit 0 = exists, exit 1 = absent). Pure builder
-// (asserted by the argv equality test) — Phase-23 D-05: backup gates the
+// (asserted by the argv equality test) — Phase-23: backup gates the
 // optional qdrant entry on this check.
 func volumeExistsArgs(name string) []string {
 	return []string{"volume", "exists", name}
 }
 
 // volumeExists reports whether the named podman volume exists via the injectable
-// podmanVolume seam, FAIL-SOFT (D-05): exit 0 ⇒ true; exit 1 ⇒ false; a missing
+// podmanVolume seam, FAIL-SOFT: exit 0 ⇒ true; exit 1 ⇒ false; a missing
 // podman binary or any other failure ⇒ false WITH a printed warning — backup
 // then simply omits the entry honestly rather than hard-failing on an
 // unevaluable check (the typed-Unknown degradation discipline).
@@ -60,7 +60,7 @@ func volumeExists(name string, errOut io.Writer) bool {
 }
 
 // volumeExistsTri is the TRI-STATE existence check for DESTRUCTIVE callers
-// (restore — Phase-23 review WR-02): exists / absent / UNKNOWN. Unlike the
+// (restore — Phase-23 review): exists / absent / UNKNOWN. Unlike the
 // fail-soft volumeExists (which collapses an unevaluable check into a confident
 // "absent" — the right direction for backup, where the entry is honestly
 // omitted), restore selects its capture/quiesce/rollback shape from this signal:
@@ -94,7 +94,7 @@ func classifyVolumeExists(err error) (exists, warn bool) {
 	return false, true
 }
 
-// podmanVolume runs `podman <args...>` with a FIXED-ARG exec (never a shell —
+// podmanVolume runs `podman <args...>` with a FIXED-ARG exec (never a shell
 // T-16-02b) and returns the trimmed stderr alongside any error so callers can both
 // diagnose a genuine failure AND recognise an already-absent volume. It is a
 // package-level var so backup/restore tests can swap in a fake runner and drive the

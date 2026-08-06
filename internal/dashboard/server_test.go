@@ -7,7 +7,7 @@ import (
 )
 
 // mustNewServer constructs a Server, failing the test on a (loopback-validation or
-// asset) error so the common happy-path tests stay terse. The IN-03 non-loopback
+// asset) error so the common happy-path tests stay terse. The non-loopback
 // refusal is asserted directly against NewServer in TestNewServerRefusesNonLoopback.
 func mustNewServer(t *testing.T, cfg Config) *Server {
 	t.Helper()
@@ -20,7 +20,7 @@ func mustNewServer(t *testing.T, cfg Config) *Server {
 
 // TestServerAddrIsLoopback asserts the http.Server.Addr is built via
 // net.JoinHostPort(DashboardAddr, port) with a 127.0.0.1 default — NEVER ":8888"
-// or "0.0.0.0" (Pitfall 6 / PRIV-01 / T-05-03). This is the privacy-posture test
+// or "0.0.0.0" (Pitfall 6). This is the privacy-posture test
 // the threat register requires.
 func TestServerAddrIsLoopback(t *testing.T) {
 	srv := mustNewServer(t, Config{StatusDeps: stubStatusDeps(t), ChatPort: 3000, DashboardAddr: "127.0.0.1", DashboardPort: 8888})
@@ -55,8 +55,8 @@ func TestServerAddrDefaultsLoopback(t *testing.T) {
 
 // TestNewServerRefusesNonLoopback asserts NewServer REFUSES a non-loopback bind address
 // (e.g. "0.0.0.0") with an error rather than constructing a Server that would bind all
-// interfaces — enforcing the PRIV-01 posture by construction, not merely by the
-// empty-string default (IN-03). The loopback aliases must still succeed.
+// interfaces — enforcing the posture by construction, not merely by the
+// empty-string default. The loopback aliases must still succeed.
 func TestNewServerRefusesNonLoopback(t *testing.T) {
 	refused := []string{"0.0.0.0", "::", "192.168.1.10", "0.0.0.0:9999"}
 	for _, addr := range refused {

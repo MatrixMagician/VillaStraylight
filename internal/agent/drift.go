@@ -5,20 +5,20 @@ import (
 	"strings"
 )
 
-// drift.go is the PURE drift detector (AGENT-04, D-14). It is handed bytes/hashes
+// drift.go is the PURE drift detector (AGENT-04). It is handed bytes/hashes
 // plus a freshly-rendered reference and returns a REPORT ONLY — it has NO write,
-// NO repair, and NO auto-correct path anywhere (D-14: present-but-differs is
+// NO repair, and NO auto-correct path anywhere (present-but-differs is
 // surfaced, never silently rewritten). The live filesystem reads + binary hash
 // are injected via Deps.ReadConfig / Deps.HashBinary (Plan 02); this core does
 // zero I/O.
 //
 // Two drift signals, both surfaced with remediation, never auto-corrected:
 //
-//	(a) binary drift  — installed binary SHA-256 != policy binarySha256 (D-14a).
+// (a) binary drift — installed binary SHA-256 != policy binarySha256.
 //	    Compares against the BINARY hash, NEVER the tarball checksum (Pitfall 6).
 //	    When the policy binary hash is the UNPINNED sentinel (Plan 03 not yet run),
 //	    it degrades to a typed-Unknown WARN (BinaryDriftUnknown), never a false FAIL.
-//	(b) config drift  — on-disk crush.json semantically != freshly-rendered (D-14b).
+// (b) config drift — on-disk crush.json semantically != freshly-rendered.
 //	    Parsed-semantic compare (canonicalize → bytes.Equal) so a whitespace-only
 //	    re-save is NOT drift, while a semantic edit IS (Pitfall 4).
 //
@@ -52,11 +52,11 @@ type DriftInput struct {
 // DriftReport is the report-only outcome. Every non-clean signal carries a Reason
 // (refuse-or-remediation); ConfigAbsent carries an INFORMATIONAL reason only (the
 // caller auto-renders, it does not refuse). There is no field, and no method, that
-// mutates anything (D-14 — report only).
+// mutates anything (report only).
 type DriftReport struct {
-	// BinaryAbsent: the binary is not installed → Phase-27 install remediation (D-13).
+	// BinaryAbsent: the binary is not installed → Phase-27 install remediation.
 	BinaryAbsent bool
-	// BinaryDrift: installed binary SHA-256 != policy binarySha256 (D-14a) →
+	// BinaryDrift: installed binary SHA-256 != policy binarySha256 →
 	// surface + remediation, never auto-correct.
 	BinaryDrift bool
 	// BinaryDriftUnknown: the policy binary hash is the unpinned sentinel/empty, so
@@ -67,7 +67,7 @@ type DriftReport struct {
 	// from ConfigDrift; parallels BinaryAbsent). Not a refusal.
 	ConfigAbsent bool
 	// ConfigDrift: on-disk crush.json present but semantically differs from the
-	// rendered reference (D-14b) → surface + remediation, never auto-correct.
+	// rendered reference → surface + remediation, never auto-correct.
 	ConfigDrift bool
 	// Reason is the human refusal/remediation/informational explanation (empty when
 	// every signal is clean).
@@ -75,7 +75,7 @@ type DriftReport struct {
 }
 
 // DetectDrift compares the installed binary + on-disk config against the pinned
-// policy + freshly-rendered reference and returns a REPORT ONLY (D-14). It never
+// policy + freshly-rendered reference and returns a REPORT ONLY. It never
 // writes, never repairs.
 func DetectDrift(in DriftInput) DriftReport {
 	var r DriftReport

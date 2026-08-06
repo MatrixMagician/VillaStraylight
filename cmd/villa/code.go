@@ -23,22 +23,22 @@ import (
 // path helpers (agentBinPath / crushConfigPath).
 //
 // CRITICAL — discipline this file MUST honor:
-//   - backend-marker-free (T-26-09 / TestSeamGrepGate walks cmd/villa): no container
+// - backend-marker-free (TestSeamGrepGate walks cmd/villa): no container
 //     image/device literal, no GPU residency/HSA/fault marker, no coding-mode llama
 //     flags. `villa code` launches against the ALREADY-served loopback endpoint; it
 //     renders no inference units and resolves no backend.
 //   - NO coding-flag literal: this file assigns the coding toggle NOWHERE — neither a
 //     boolean assignment nor a struct-literal field for it appears here (the
-//     no-auto-flip structural guard anchors on those boolean-literal forms —
-//     D-12/T-26-13). `villa code` NEVER mutates the coding toggle; a coding-mode-OFF
+//     no-auto-flip structural guard anchors on those boolean-literal forms
+// `villa code` NEVER mutates the coding toggle; a coding-mode-OFF
 //     config (read-only) is a WARN (pointing at `villa coding-mode enter`), never a
 //     flip — the launch still proceeds.
-//   - explicit villa-owned exec (D-05): Launch execs the EXPLICIT agentBinPath(),
+// - explicit villa-owned exec: Launch execs the EXPLICIT agentBinPath,
 //     NEVER a PATH lookup, so a user-installed `crush` on PATH cannot be hijacked.
 //
-// Decisions realized: AGENT-03 (belt-and-braces env lockdown before exec, D-11),
-// D-05 (explicit villa-owned binary), D-13 (binary-absent + present-but-differs drift
-// remediation, never a crash, never auto-correct), D-12 (no auto-flip; coding-off WARN).
+// Decisions realized: AGENT-03 (belt-and-braces env lockdown before exec),
+// (explicit villa-owned binary), (binary-absent + present-but-differs drift
+// remediation, never a crash, never auto-correct), (no auto-flip; coding-off WARN).
 
 // newCode builds the `villa code` launcher verb. It is a sibling of `villa coding-mode`
 // (NOT a subcommand): `villa coding-mode enter|exit` flips the running stack; `villa
@@ -70,7 +70,7 @@ func newCode() *cobra.Command {
 // a subprocess). The first-run config-absent render is handled INSIDE agent.Run (it
 // writes via Deps.WriteConfig then launches); runCode only reports the typed outcome.
 // LSP warnings (and the first-run-rendered / binary-drift-unknown / coding-off WARNs)
-// print to stderr as advisory (D-10), never blocking the launch.
+// print to stderr as advisory, never blocking the launch.
 func runCode(cmd *cobra.Command, d *agent.Deps) int {
 	out := cmd.OutOrStdout()
 	errOut := cmd.ErrOrStderr()
@@ -100,7 +100,7 @@ func runCode(cmd *cobra.Command, d *agent.Deps) int {
 		fmt.Fprintf(errOut, "villa code: failed — %s: %v\n", res.Reason, res.Err)
 		return exitBlocked
 	case res.ReadyToLaunch:
-		// Warnings were printed above — NOW perform the single launch (D-12: the
+		// Warnings were printed above — NOW perform the single launch (the
 		// coding-mode-off / first-run-rendered / lsp-missing WARNs are surfaced BEFORE
 		// the process is replaced). d.Launch is the SINGLE launch point; on a real exec
 		// it replaces the process and never returns, so the lines below are reached only
@@ -118,16 +118,16 @@ func runCode(cmd *cobra.Command, d *agent.Deps) int {
 }
 
 // liveAgentDeps wires the agent core to the real host (clone of liveCodingModeDeps):
-// config load, the LSP PATH probe (references only — never installs, D-10), the on-disk
+// config load, the LSP PATH probe (references only — never installs), the on-disk
 // crush.json read with the configPresent flag DetectDrift uses to distinguish absent
 // from drift, the villa-owned binary hash, the first-run config writer (the ONLY
-// auto-write path — D-14, only when ABSENT), and the syscall.Exec launcher of the
-// EXPLICIT villa-owned path (D-05, fixed-arg, no shell). Every host action is a seam so
+// auto-write path —, only when ABSENT), and the syscall.Exec launcher of the
+// EXPLICIT villa-owned path (fixed-arg, no shell). Every host action is a seam so
 // code_test.go drives runCode without a live host.
 func liveAgentDeps() *agent.Deps {
 	return &agent.Deps{
 		LoadConfig: config.LoadVilla,
-		// LookPath references the host PATH; it NEVER installs (D-10).
+		// LookPath references the host PATH; it NEVER installs.
 		LookPath: func(bin string) (string, bool) {
 			p, err := exec.LookPath(bin)
 			return p, err == nil
@@ -149,14 +149,14 @@ func liveAgentDeps() *agent.Deps {
 			return b, true, nil
 		},
 		// HashBinary returns the SHA-256 of the villa-owned binary; present=false when
-		// it is absent (feeds BinaryAbsent → Phase-27 remediation, D-13).
+		// it is absent (feeds BinaryAbsent → Phase-27 remediation).
 		HashBinary: func() (string, bool, error) {
 			sum, present, err := hashFileSHA256(agentBinPath())
 			return sum, present, err
 		},
 		// WriteConfig persists the first-run rendered crush.json (MkdirAll 0700 +
 		// WriteFile 0600), traversal-guarded against the crush config dir. Invoked by
-		// agent.Run ONLY on the config-absent path (D-14: never overwrites an existing file).
+		// agent.Run ONLY on the config-absent path (never overwrites an existing file).
 		WriteConfig: func(b []byte) error {
 			path, err := crushConfigPath()
 			if err != nil {
@@ -174,9 +174,9 @@ func liveAgentDeps() *agent.Deps {
 			}
 			return nil
 		},
-		// Launch execs the EXPLICIT villa-owned binary with the lockdown env (D-05/D-11):
+		// Launch execs the EXPLICIT villa-owned binary with the lockdown env:
 		// fixed-arg, no shell, NEVER a PATH lookup — a user-installed crush on PATH cannot
-		// be hijacked (T-26-09). On success the process image is replaced and this never
+		// be hijacked. On success the process image is replaced and this never
 		// returns; a returned error is a launch failure.
 		Launch: func(env []string) error {
 			bin := agentBinPath()
@@ -201,13 +201,13 @@ func crushConfigPath() (string, error) {
 
 // agentBinDir resolves the villa-owned bin dir for the Crush binary:
 // $XDG_DATA_HOME/villa/bin → ~/.local/share/villa/bin → /var/tmp/villa/bin.
-// The binary is exec'd from EXACTLY this path (D-05).
+// The binary is exec'd from EXACTLY this path.
 func agentBinDir() string {
 	return filepath.Join(pathsafe.DataRoot(), "bin")
 }
 
 // agentBinPath is the EXPLICIT villa-owned Crush binary path — the only path Launch
-// ever execs (D-05).
+// ever execs.
 func agentBinPath() string {
 	return filepath.Join(agentBinDir(), "crush")
 }
@@ -231,7 +231,7 @@ func hashFileSHA256(path string) (sum string, present bool, err error) {
 }
 
 // assertWithinDir confirms path resolves inside dir, rejecting traversal escapes — the
-// first-run write guard (T-26-08 sibling).
+// first-run write guard (sibling).
 //
 // The message is deliberately verb-neutral: this guard is shared by the crush-config
 // write, the agent-config write and both restore paths, so a "villa code:" prefix

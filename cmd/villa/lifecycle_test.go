@@ -105,7 +105,7 @@ func TestLifecycleUpReconcilesAndStartsWholeStack(t *testing.T) {
 
 // TestLifecycleUpModelFileErrorBlocks: when the model file cannot be resolved (bad
 // catalog / unknown id), `up` blocks BEFORE writing or starting anything rather than
-// rendering a container whose -m points at a fabricated, non-existent GGUF (WR-08).
+// rendering a container whose -m points at a fabricated, non-existent GGUF.
 func TestLifecycleUpModelFileErrorBlocks(t *testing.T) {
 	units := twoUnitStack()
 	plan := orchestrate.Plan{Changed: units}
@@ -128,7 +128,7 @@ func TestLifecycleUpModelFileErrorBlocks(t *testing.T) {
 }
 
 // TestLifecycleUpUnchangedIsNoOp: `up` with an empty Changed plan writes nothing,
-// reloads nothing, starts nothing, and exits 0 (true no-op, CLI-01/D-06).
+// reloads nothing, starts nothing, and exits 0 (true no-op).
 func TestLifecycleUpUnchangedIsNoOp(t *testing.T) {
 	units := twoUnitStack()
 	plan := orchestrate.Plan{Unchanged: units}

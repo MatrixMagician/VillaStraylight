@@ -6,14 +6,14 @@ import (
 )
 
 // TestRunnerInterface asserts the container runner satisfies Runner at compile time
-// (no Vulkan/Linux/podman type leaks to callers — INF-03). A var _ assertion also
+// (no Vulkan/Linux/podman type leaks to callers). A var _ assertion also
 // lives in runner_podman.go; this makes the contract explicit in the test surface.
 func TestRunnerInterface(t *testing.T) {
 	var _ Runner = NewContainerRunner(VulkanBackend(), RunSpec{})
 	var _ Backend = VulkanBackend()
 }
 
-// TestLoopbackPublish is the INF-02 / T-02-07 bind-address assertion: the Vulkan
+// TestLoopbackPublish is the bind-address assertion: the Vulkan
 // backend's rendered podman arg slice must host-publish 127.0.0.1:8080:8080
 // (loopback-only) and must NEVER host-publish a 0.0.0.0:-prefixed mapping. The
 // container-internal --host 0.0.0.0 is fine (it is not a host publish); the gate is

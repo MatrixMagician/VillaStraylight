@@ -31,7 +31,7 @@ var modelCatalogPath string
 
 // newModel builds the `villa model` noun and its `pull <name>` subcommand. The
 // noun name is chosen to NOT collide with the Phase-3 lifecycle verbs
-// (up/down/restart/install/status) — D-13.
+// (up/down/restart/install/status).
 func newModel() *cobra.Command {
 	model := &cobra.Command{
 		Use:   "model",
@@ -80,7 +80,7 @@ func runModelPull(cmd *cobra.Command, name string) int {
 	}
 
 	// Resolve the name THROUGH the catalog — never treat the arg as a filesystem
-	// path (V5 / T-02-04 command-injection + path-traversal guard).
+	// path (V5 / command-injection + path-traversal guard).
 	m, ok := cat.FindByID(name)
 	if !ok {
 		fmt.Fprintf(errOut, "model pull: unknown model %q — run `villa recommend` to see catalog names\n", name)
@@ -111,14 +111,14 @@ func runModelPull(cmd *cobra.Command, name string) int {
 }
 
 // modelsDir resolves the on-disk models directory: $XDG_DATA_HOME/villa/models
-// (default ~/.local/share/villa/models), per D-08. Downloaded weights live here
+// (default ~/.local/share/villa/models). Downloaded weights live here
 // and Phase 3 bind-mounts the dir read-only into the inference container.
 func modelsDir() string {
 	return filepath.Join(pathsafe.DataRoot(), "models")
 }
 
 // ---------------------------------------------------------------------------
-// model list (MODEL-01 / D-10): distinguish available (catalog) from loaded
+// model list (MODEL-01): distinguish available (catalog) from loaded
 // (the model the current inference unit was generated with, read from config).
 // ---------------------------------------------------------------------------
 
@@ -153,7 +153,7 @@ type modelListEntry struct {
 }
 
 // newModelList builds `villa model list`: print every catalog model marked
-// "available", with the config'd model marked "loaded" (D-10). --json supported.
+// "available", with the config'd model marked "loaded". --json supported.
 func newModelList() *cobra.Command {
 	var asJSON bool
 	cmd := &cobra.Command{
@@ -220,7 +220,7 @@ func runModelList(cmd *cobra.Command, opts listOpts, d *listDeps) int {
 }
 
 // ---------------------------------------------------------------------------
-// model swap (MODEL-03 / D-09): fit-guard → auto-pull → persist-config-FIRST →
+// model swap (MODEL-03): fit-guard → auto-pull → persist-config-FIRST →
 // regenerate-and-restart-inference-only. Reuses recommend.Pick (fit-math),
 // download.PullModel (verified pull), config.SaveVilla (source of truth), and the
 // Plan-01 orchestrate render/reconcile/write + systemd seam — no new envelope
@@ -229,7 +229,7 @@ func runModelList(cmd *cobra.Command, opts listOpts, d *listDeps) int {
 
 // newModelSwap builds `villa model swap <name>`: refuse a non-fitting target,
 // auto-pull if absent, persist config FIRST, then regenerate + restart only the
-// inference unit (MODEL-03 / D-09).
+// inference unit (MODEL-03).
 func newModelSwap() *cobra.Command {
 	return &cobra.Command{
 		Use:   "swap <name>",
@@ -248,7 +248,7 @@ func newModelSwap() *cobra.Command {
 }
 
 // runModelSwap performs the swap and RETURNS the exit code. The ordering-is-the-
-// security-contract sequence (D-09) lives in modelswap.Run; this caller maps the
+// security-contract sequence lives in modelswap.Run; this caller maps the
 // typed modelswap.Result to the human messages it used to print and to exit codes
 // (refuse/err→1, switched/no-op→0).
 func runModelSwap(cmd *cobra.Command, name string, d *modelswap.Deps) int {
@@ -321,9 +321,9 @@ func liveSwapDeps() *modelswap.Deps {
 			}
 			// Reuse recommend.Pick fit-math by overriding to the swap target; the
 			// override path re-validates the fit against the detected envelope and
-			// sets Fits=false when it won't fit (recommend.go:188-192 / D-07).
+			// sets Fits=false when it won't fit (recommend.go:188-192).
 			// Persisted memory inputs (fail-soft): swap fit re-validation must see
-			// the same shrunken envelope the user was recommended (D-01).
+			// the same shrunken envelope the user was recommended.
 			rec := recommend.Pick(detect.Probe(), cat, recommend.Overrides{Model: m.ID}, liveLoadedMemoryInputs(), liveLoadedWebSearchInputs())
 			if rec.Fits {
 				return true, ""

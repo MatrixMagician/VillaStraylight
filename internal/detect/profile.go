@@ -11,7 +11,7 @@ package detect
 const hostProfileSchemaVersion = 2
 
 // HostProfile is the structured result of Probe — the single source of truth for
-// `villa detect --json` AND the struct the Phase 5 dashboard consumes (D-05).
+// `villa detect --json` AND the struct the Phase 5 dashboard consumes.
 //
 // Field names are deliberate and stable: the dashboard reads them verbatim, so
 // the golden JSON test guards this contract. Every field is a typed Optional
@@ -56,7 +56,7 @@ type HostProfile struct {
 
 	// ROCmReadiness is the v1.1 (schema 2) ROCm opt-in readiness sub-tree the
 	// dashboard and Phase-10 recommend consume. It is appended AFTER the GPU block
-	// (D-06) as a strictly additive contract change; nothing above it moved.
+	// as a strictly additive contract change; nothing above it moved.
 	ROCmReadiness ROCmReadiness `json:"rocm_readiness"`
 
 	// SchemaVersion is the HostProfile contract self-version. It MUST stay the
@@ -67,7 +67,7 @@ type HostProfile struct {
 // ROCmReadiness is the nested ROCm opt-in readiness signal added in v1.1 (schema
 // 2, DET-04). Every field is a typed-Optional Bool (value.go) so an undetectable
 // off-hardware signal serializes as UNSET (Known=false), distinct from a real
-// false — the no-false-green guarantee (D-08). It is backend-neutral by NAME only
+// false — the no-false-green guarantee. It is backend-neutral by NAME only
 // in the sense that it is computed by readiness_rocm.go from already-bounded
 // HostProfile facts plus the resolved image (any ROCm-specific host probe lives
 // behind the gpu_amd.go seam).

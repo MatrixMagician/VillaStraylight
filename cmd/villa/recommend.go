@@ -26,8 +26,8 @@ type recommendFlags struct {
 }
 
 // newRecommend builds `villa recommend`: probe the host, load the catalog,
-// compute a single fitting pick with the fit math shown (D-06), re-validate any
-// overrides (D-07), and — only with --save — persist the pick to config (D-20).
+// compute a single fitting pick with the fit math shown, re-validate any
+// overrides, and — only with --save — persist the pick to config.
 func newRecommend() *cobra.Command {
 	var f recommendFlags
 
@@ -43,9 +43,9 @@ func newRecommend() *cobra.Command {
 
 			// Resolve the catalog source: an explicit --catalog flag wins; otherwise
 			// fall back to a saved cfg.CatalogPath so a persisted external-catalog
-			// choice is honored without re-passing the flag (D-09, IN-03). A missing
-			// config is not an error (read-only default, D-20). The SAME fail-soft
-			// load sources the persisted memory inputs (D-01): a load error threads
+			// choice is honored without re-passing the flag. A missing
+			// config is not an error (read-only default). The SAME fail-soft
+			// load sources the persisted memory inputs: a load error threads
 			// the zero value (memory off), never an error-path change.
 			catalogPath := f.catalogPath
 			var mem recommend.MemoryInputs
@@ -75,7 +75,7 @@ func newRecommend() *cobra.Command {
 
 			if f.save {
 				// Persist the resolved catalog path (flag or inherited) so a future
-				// run reuses it (IN-03).
+				// run reuses it.
 				return saveRecommendation(cmd.OutOrStdout(), rec, catalogPath)
 			}
 			return nil
@@ -93,9 +93,9 @@ func newRecommend() *cobra.Command {
 	return cmd
 }
 
-// saveRecommendation writes the pick to config (the ONLY config writer, D-20). A
+// saveRecommendation writes the pick to config (the ONLY config writer). A
 // refusal (empty Model) is not persisted. catalogPath is persisted so a saved
-// external-catalog choice is reused on the next run (IN-03); empty means "use the
+// external-catalog choice is reused on the next run; empty means "use the
 // embedded catalog" and round-trips as an empty field.
 func saveRecommendation(w io.Writer, rec recommend.Recommendation, catalogPath string) error {
 	if rec.Model == "" {
@@ -121,7 +121,7 @@ func saveRecommendation(w io.Writer, rec recommend.Recommendation, catalogPath s
 
 // renderRecommend writes the recommendation to w. Separated from RunE so the
 // golden test can inject a fixture Recommendation and capture exact JSON bytes
-// (D-05 dashboard-contract guard).
+// (dashboard-contract guard).
 func renderRecommend(w io.Writer, rec recommend.Recommendation, warnings []string, asJSON, withAlternatives bool) error {
 	if asJSON {
 		enc := json.NewEncoder(w)
@@ -151,13 +151,13 @@ func renderRecommendTable(w io.Writer, rec recommend.Recommendation, warnings []
 	}
 	fmt.Fprintln(w)
 
-	// Show the fit math explicitly (D-06).
+	// Show the fit math explicitly.
 	tw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
 	fmt.Fprintf(tw, "  model_bytes\t%s\n", gib(rec.WeightBytes))
 	fmt.Fprintf(tw, "+ KV-cache @ ctx %d\t%s\n", rec.ContextLen, gib(rec.KVCacheBytes))
 	fmt.Fprintf(tw, "+ headroom\t%s\n", gib(rec.HeadroomBytes))
 	fmt.Fprintf(tw, "= total\t%s\n", gib(rec.TotalBytes))
-	// Embed-reservation row gated on a non-zero value (D-03 / Pitfall 4, the
+	// Embed-reservation row gated on a non-zero value (Pitfall 4, the
 	// ROCmAdvice gated-line pattern) so memory-off table output stays byte-identical.
 	if rec.EmbeddingReservationBytes > 0 {
 		fmt.Fprintf(tw, "− embed reservation\t%s\n", gib(rec.EmbeddingReservationBytes))
@@ -178,7 +178,7 @@ func renderRecommendTable(w io.Writer, rec recommend.Recommendation, warnings []
 	}
 
 	// Surface the honesty-bounded ROCm advice after the notes, gated on a non-empty
-	// advice value (REC-05 / D-05). ROCm is the DEFAULT backend, so this annotates the
+	// advice value. ROCm is the DEFAULT backend, so this annotates the
 	// already-selected pick. The Note points at `villa bench` and never promises a
 	// speed-up.
 	//
@@ -197,7 +197,7 @@ func renderRecommendTable(w io.Writer, rec recommend.Recommendation, warnings []
 		fmt.Fprintf(w, "\nBackend: %s\n  - %s\n", rec.Backend, rec.ROCmNote)
 	}
 
-	// Coder (agent profile) section (CODER-02, D-06/D-07): the JSON block is
+	// Coder (agent profile) section (CODER-02): the JSON block is
 	// ALWAYS stamped, but the human table renders compactly — the full fit
 	// inequality when a coder entry fits (residency "swap"), one honest line
 	// when none does (residency "shared", the agent rides the chat endpoint).
@@ -233,7 +233,7 @@ func renderRecommendTable(w io.Writer, rec recommend.Recommendation, warnings []
 }
 
 // liveLoadedMemoryInputs returns the PERSISTED memory inputs for recommend.Pick
-// (D-01): the memory_enabled gate + embedding model id from config.LoadVilla().
+// the memory_enabled gate + embedding model id from config.LoadVilla.
 // A config load error fails SOFT to the zero value (memory off — byte-identical
 // math), mirroring liveLoadedMemoryEnabled (install_memory.go): a broken config
 // never silently enables the reservation and never changes an error path.
@@ -245,7 +245,7 @@ func liveLoadedMemoryInputs() recommend.MemoryInputs {
 	return recommend.MemoryInputs{Enabled: c.MemoryEnabled, EmbeddingModel: c.EmbeddingModel}
 }
 
-// webSearchInputsFrom builds the recommend web-search reservation inputs (GROUND-03) from a
+// webSearchInputsFrom builds the recommend web-search reservation inputs from a
 // loaded config: the web_search_enabled gate + the operator-tunable result count. TopK and
 // ChunkSizeChars have no config field, so they are left zero and recommend falls back to the
 // OWUI defaults (3/1000) — never a silent zero when enabled. When web search is off this is
@@ -259,7 +259,7 @@ func webSearchInputsFrom(c config.VillaConfig) recommend.WebSearchInputs {
 }
 
 // liveLoadedWebSearchInputs returns the PERSISTED web-search inputs for recommend.Pick
-// (GROUND-03), mirroring liveLoadedMemoryInputs: a config load error fails SOFT to the zero
+// mirroring liveLoadedMemoryInputs: a config load error fails SOFT to the zero
 // value (web search off — byte-identical math), so a broken config never silently enables the
 // reservation and never changes an error path.
 func liveLoadedWebSearchInputs() recommend.WebSearchInputs {

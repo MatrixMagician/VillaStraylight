@@ -1,4 +1,4 @@
-// fence_test.go guards the GUARD-03 provenance-fence invariants: the data-not-
+// fence_test.go guards the provenance-fence invariants: the data-not-
 // instructions preamble is present, BOTH delimiter tags carry the SAME nonce within a
 // call (non-forgeable closing tag), the content survives verbatim, and two calls
 // produce DIFFERENT nonces (crypto/rand uniqueness, not a static delimiter).
@@ -44,7 +44,7 @@ func TestFenceNonced(t *testing.T) {
 	}
 }
 
-// TestFenceNonceUnique asserts two separate calls produce two DIFFERENT nonces —
+// TestFenceNonceUnique asserts two separate calls produce two DIFFERENT nonces
 // proving the nonce is crypto/rand-sourced, not a static (forgeable) delimiter.
 func TestFenceNonceUnique(t *testing.T) {
 	out1, err1 := fence("a")
@@ -62,7 +62,7 @@ func TestFenceNonceUnique(t *testing.T) {
 	}
 }
 
-// TestVerdictJSON asserts the Verdict zero value marshals to {"detected":false} —
+// TestVerdictJSON asserts the Verdict zero value marshals to {"detected":false}
 // Rules is omitted when empty (the metadata.guard contract threaded by Plan 03).
 func TestVerdictJSON(t *testing.T) {
 	b, err := json.Marshal(Verdict{})

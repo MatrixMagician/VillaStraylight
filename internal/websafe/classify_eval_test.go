@@ -1,6 +1,6 @@
 package websafe
 
-// classify_eval_test.go is the GUARD-04 must-WIN evaluation: it measures the heuristic
+// classify_eval_test.go is the must-WIN evaluation: it measures the heuristic
 // classifier's RECALL on a held-out adversarial corpus and its PRECISION on a benign
 // corpus against thresholds frozen as package-level consts BEFORE any rule tuning
 // (32-RESEARCH Open Question 1 RESOLVED — pre-declare the gate, then tune the rules to
@@ -23,7 +23,7 @@ import (
 	"testing"
 )
 
-// minRecall and minPrecision are the FROZEN must-WIN thresholds for the GUARD-04
+// minRecall and minPrecision are the FROZEN must-WIN thresholds for the
 // classifier. They are declared here as consts, pinned before rule tuning, and must
 // never be lowered to make a failing eval pass (the rules/corpus are the tuning surface).
 const (

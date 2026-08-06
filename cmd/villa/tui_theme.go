@@ -43,7 +43,7 @@ func stdoutIsTTY() bool {
 	return (fi.Mode() & os.ModeCharDevice) != 0
 }
 
-// colorEnabled is the explicit D-09 gate: colour (and the Unicode glyph column) is
+// colorEnabled is the explicit gate: colour (and the Unicode glyph column) is
 // on only when NO_COLOR is unset, TERM is not "dumb", and stdout is a TTY.
 //
 // The guided install threads this into the glyph choice, so an operator who sets

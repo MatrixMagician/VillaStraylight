@@ -13,17 +13,17 @@ import (
 // This file holds the three READINESS/LIVENESS probes the validate orchestrator
 // sequences, all of them backend-neutral (no podman/image/device literals — those
 // stay behind the Backend/Runner seam). None of them is the offload verdict: the
-// offload assert (offload.go, D-09) is what proves the iGPU engaged. These probes
+// offload assert (offload.go) is what proves the iGPU engaged. These probes
 // answer the adjacent questions:
 //
 //   - pollHealth          — is the server READY to take requests? (Pitfall 5: this
 //     is a readiness gate ONLY, never the offload verdict.)
 //   - chatProbe           — does a REAL chat completion return tokens through the
-//     reused internal/llm OpenAIClient? (D-04 — reuse, do NOT rebuild the client.)
+// reused internal/llm OpenAIClient? (reuse, do NOT rebuild the client.)
 //   - contextCeilingProbe — does a SECOND run at the envelope-ceiling ctx clear, or
 //     does it hit the OOM/long-context cliff? It CLASSIFIES an OOM/hang/timeout as a
 //     reported finding and tears the container down — it NEVER propagates the cliff
-//     as a crash (D-10, Pitfall 4).
+// as a crash (Pitfall 4).
 
 // pollInterval is the default gap between readiness polls.
 const pollInterval = 250 * time.Millisecond
@@ -91,7 +91,7 @@ func probeHealthOnce(ctx context.Context, client *http.Client, url string) bool 
 }
 
 // chatProbe sends a real, small chat completion to <endpoint>/v1/chat/completions
-// through the REUSED internal/llm OpenAIClient (D-04 — the gateway is reused, never
+// through the REUSED internal/llm OpenAIClient (the gateway is reused, never
 // rebuilt) and collects the streamed token deltas. A non-200 / stream error is
 // reported as a failure detail, never a panic.
 func chatProbe(ctx context.Context, endpoint, modelID string) ChatResult {
@@ -131,7 +131,7 @@ const chatProbePrompt = "Reply with the single word: ok"
 const chatProbeTimeout = 60 * time.Second
 
 // CeilingResult is the typed outcome of the context-ceiling stress probe. It is a
-// CLASSIFIED finding, never a propagated error (D-10): an OOM/hang at the ceiling is
+// CLASSIFIED finding, never a propagated error: an OOM/hang at the ceiling is
 // information the user wants ("your context ceiling is here"), not a validation
 // crash.
 type CeilingResult struct {
@@ -162,7 +162,7 @@ var ceilingOOMMarkers = []string{
 
 // contextCeilingProbe starts a SECOND inference run (via the provided Runner — the
 // caller wires a fresh --rm container Runner at the stress spec) at a near-ceiling
-// context and CLASSIFIES the outcome (D-10, Pitfall 4):
+// context and CLASSIFIES the outcome (Pitfall 4):
 //
 //   - became ready before timeout                  → PASS (the ceiling clears)
 //   - Start failed                                 → WARN finding (could not probe)
@@ -170,7 +170,7 @@ var ceilingOOMMarkers = []string{
 //   - never ready + no marker (hung)               → WARN hang finding
 //
 // In EVERY case the Runner is torn down (deferred Stop) — a hung/OOM ceiling
-// container is never left running (T-02-12). It never returns an error: the cliff is
+// container is never left running. It never returns an error: the cliff is
 // the finding, not a crash.
 func contextCeilingProbe(ctx context.Context, runner Runner, stress RunSpec, readyTimeout, interval time.Duration) CeilingResult {
 	res := CeilingResult{StressCtx: stress.ContextLen}
@@ -267,10 +267,10 @@ func lineAround(s string, idx int) string {
 }
 
 // stressContextFor derives a near-ceiling stress context from the recommend-computed
-// fit terms (D-10 reuse of the recommend KV/headroom math WITHOUT importing its
+// fit terms (reuse of the recommend KV/headroom math WITHOUT importing its
 // internals): KV scales LINEARLY with ctx, so kv(stress) = kvAtRecCtx · stress/recCtx.
 // It returns the largest ctx whose modelled total weight + kv(stress) + headroom
-// still fits the envelope — the context the run would sit right under the ceiling at —
+// still fits the envelope — the context the run would sit right under the ceiling at
 // BOUNDED by the model's trained max context (maxCtx, the catalog default_ctx).
 //
 // The maxCtx cap is load-bearing: for a small model the per-token KV is tiny, so the

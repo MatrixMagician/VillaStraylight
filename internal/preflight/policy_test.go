@@ -3,7 +3,7 @@ package preflight
 import "testing"
 
 // TestLoadROCmPolicyMatchesV1Floors is the behavior-no-op proof for the floors
-// migration (D-04/D-05): the values loaded from the embedded rocm-policy.json MUST
+// migration: the values loaded from the embedded rocm-policy.json MUST
 // equal the documented v1.0 constants byte-for-byte. If this drifts, the migration
 // silently changed a preflight verdict — the loader is wrong, not the test.
 func TestLoadROCmPolicyMatchesV1Floors(t *testing.T) {

@@ -1,7 +1,7 @@
 package backup
 
 // restore_test.go drives the pure transactional Restore() state-machine off-hardware
-// with a fakeDeps recorder, asserting the BAK-02/BAK-03 invariants:
+// with a fakeDeps recorder, asserting the invariants:
 //   - a SHA-256 verify failure / incompatible manifest schema → Refused, ZERO mutate calls
 //   - a fail-closed BLOCK skew → Refused
 //   - a WARN skew with consent denied → Refused (and --yes/Bypass proceeds)
@@ -51,10 +51,10 @@ type recDeps struct {
 	readFileErr     map[string]error
 
 	// searxngWrites captures the path→bytes the WriteSearxngSettings seam received
-	// (Phase 34, SURF-07), so a test can assert the restored content. When
+	// (Phase 34), so a test can assert the restored content. When
 	// searxngRealWriteDir is set, the seam ALSO performs a REAL on-disk write under that
 	// dir at 0600 (mirroring the live wiring) so a test can assert the actual file mode
-	// (T-34-05) — the pure core can't reach the cmd-tier closure otherwise.
+	// — the pure core can't reach the cmd-tier closure otherwise.
 	searxngWrites       map[string][]byte
 	searxngRealWriteDir string
 
@@ -146,7 +146,7 @@ func (r *recDeps) deps() Deps {
 				}
 				r.searxngWrites[p] = append([]byte(nil), data...)
 				// Optional REAL on-disk write at 0600 so a test can assert the file mode
-				// (T-34-05) — the seam mirrors the live cmd-tier wiring's MkdirAll 0700 +
+				// — the seam mirrors the live cmd-tier wiring's MkdirAll 0700 +
 				// WriteFile 0600 discipline.
 				if r.searxngRealWriteDir != "" {
 					if err := os.MkdirAll(r.searxngRealWriteDir, 0o700); err != nil {
@@ -287,7 +287,7 @@ func hasMutate(calls []string) bool {
 
 // rawMultiTar assembles a tar from explicit (name, data) members in the GIVEN
 // order, bypassing buildArchive's manifest-first/checksum discipline so the
-// read-side WR-02/WR-03 guards (duplicate / extra / out-of-order entries) are
+// read-side guards (duplicate / extra / out-of-order entries) are
 // exercised directly.
 func rawMultiTar(t *testing.T, members []archiveEntry) []byte {
 	t.Helper()
@@ -321,7 +321,7 @@ func manifestJSONFor(t *testing.T, entries []archiveEntry) []byte {
 }
 
 // TestRestoreDuplicateEntryRefuses asserts a duplicate non-manifest entry name is
-// refused at verify with ZERO side effects (WR-02).
+// refused at verify with ZERO side effects.
 func TestRestoreDuplicateEntryRefuses(t *testing.T) {
 	cfg := validCfgTOML
 	owui := []byte("owui-data")
@@ -345,7 +345,7 @@ func TestRestoreDuplicateEntryRefuses(t *testing.T) {
 }
 
 // TestRestoreExtraEntryRefuses asserts an entry NOT listed in the manifest is
-// refused at verify with ZERO side effects (WR-02 exact-set).
+// refused at verify with ZERO side effects (exact-set).
 func TestRestoreExtraEntryRefuses(t *testing.T) {
 	cfg := validCfgTOML
 	owui := []byte("owui-data")
@@ -368,7 +368,7 @@ func TestRestoreExtraEntryRefuses(t *testing.T) {
 }
 
 // TestRestoreManifestNotFirstRefuses asserts an archive whose first member is NOT
-// manifest.json is refused at verify with ZERO side effects (WR-03).
+// manifest.json is refused at verify with ZERO side effects.
 func TestRestoreManifestNotFirstRefuses(t *testing.T) {
 	cfg := validCfgTOML
 	owui := []byte("owui-data")
@@ -517,7 +517,7 @@ func TestRestoreMutateErrorRollsBackAndReImportsCaptured(t *testing.T) {
 	}
 }
 
-// TestRestoreTempVolumeStagingFailureRollsBack is the on-hardware WR-05 regression:
+// TestRestoreTempVolumeStagingFailureRollsBack is the on-hardware regression:
 // staging the extracted OWUI volume tar must go through the UNguarded WriteTempFile
 // seam (a /tmp path outside the data store), NOT the store-root-guarded
 // WriteFileAtomic — the latter rejected the legitimate /tmp write and failed every
@@ -544,10 +544,10 @@ func TestRestoreTempVolumeStagingFailureRollsBack(t *testing.T) {
 	}
 }
 
-// TestRestoreRollbackRemovesForwardCreatedDataArtifacts is the CR-01 regression:
+// TestRestoreRollbackRemovesForwardCreatedDataArtifacts is the regression:
 // the prior install has NO usage.json / bench-reports.jsonl, the archive CARRIES
 // both, a post-write step fails (volume import), and rollback must REMOVE the
-// forward-created data-dir artifacts to restore the prior (absent) state verbatim —
+// forward-created data-dir artifacts to restore the prior (absent) state verbatim
 // never leave restored-from-archive data on disk after a "rollback".
 func TestRestoreRollbackRemovesForwardCreatedDataArtifacts(t *testing.T) {
 	arch := buildArchive(t, baseManifest(), validCfgTOML, []byte("owui-data"), []byte("usage-from-archive"), []byte("bench-from-archive"), false)
@@ -590,7 +590,7 @@ func TestRestoreRollbackRemovesForwardCreatedDataArtifacts(t *testing.T) {
 }
 
 // TestRestoreRollbackRemoveFailureReportsIncomplete asserts a FAILED RemoveFile
-// during rollback is counted as rollback-incomplete (honest reporting, CR-01).
+// during rollback is counted as rollback-incomplete (honest reporting).
 func TestRestoreRollbackRemoveFailureReportsIncomplete(t *testing.T) {
 	arch := buildArchive(t, baseManifest(), validCfgTOML, []byte("owui-data"), []byte("usage-from-archive"), nil, false)
 	r, in := baseInput(t, arch)
@@ -625,7 +625,7 @@ func TestRestoreRollbackStepErrorReportsIncomplete(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Phase-23 qdrant volume + recall-state restore (D-07/D-08): the MANDATORY 2×2
+// Phase-23 qdrant volume + recall-state restore: the MANDATORY 2×2
 // {entry present/absent} × {current volume present/absent} matrix, rollback
 // symmetry by failure injection, and the recall-state.json forward/rollback rows.
 // ---------------------------------------------------------------------------
@@ -676,7 +676,7 @@ func buildArchiveMem(t *testing.T, m Manifest, cfgTOML, owui, qdrant, recallStat
 
 // memInput extends baseInput with the qdrant volume + recall-state destinations.
 // Names deliberately avoid the real volume literal — they are seam-sourced by the
-// cmd tier (D-05).
+// cmd tier.
 func memInput(t *testing.T, arch []byte, volExists bool) (*recDeps, RestoreInput) {
 	t.Helper()
 	r, in := baseInput(t, arch)
@@ -689,7 +689,7 @@ func memInput(t *testing.T, arch []byte, volExists bool) (*recDeps, RestoreInput
 }
 
 // qdrantCalls filters the recorded seam calls down to anything naming the qdrant
-// volume or service (the D-07 zero-touch assertion filter).
+// volume or service (the zero-touch assertion filter).
 func qdrantCalls(calls []string) []string {
 	var out []string
 	for _, c := range calls {
@@ -715,7 +715,7 @@ func indexAfter(calls []string, prefix string, from int) int {
 var memCfgTOML = []byte("model = \"m\"\nbackend = \"vulkan\"\nctx = 4096\nmemory_enabled = true\n")
 
 // TestRestoreQdrantMatrix drives ALL FOUR {entry present/absent} ×
-// {current volume present/absent} cells (D-07, Pitfall 4) on the happy path and
+// {current volume present/absent} cells (Pitfall 4) on the happy path and
 // asserts the per-cell seam-call contracts:
 //   - present+exists: capture(qdrant) BEFORE mutate; forward clean-recreate
 //     ordering VolumeRm < ReconcileAndWrite < EnsureVolume < VolumeImport on the
@@ -751,8 +751,8 @@ func TestRestoreQdrantMatrix(t *testing.T) {
 			}
 
 			if !tt.entry {
-				// D-07 zero-touch: a memory-free backup NEVER touches qdrant state
-				// regardless of what exists on the host (T-23-09).
+				// zero-touch: a memory-free backup NEVER touches qdrant state
+				// regardless of what exists on the host.
 				if qc := qdrantCalls(r.calls); len(qc) != 0 {
 					t.Fatalf("entry-absent cell must make ZERO qdrant calls, got %v", qc)
 				}
@@ -804,7 +804,7 @@ func TestRestoreQdrantMatrix(t *testing.T) {
 // TestRestoreQdrantForwardFailureRollsBackBothVolumes injects a non-pass prove
 // AFTER the full forward apply (both volumes imported) and asserts the rollback
 // restores BOTH volumes through the SAME clean-recreate ordering from their
-// rollback tars (D-07 rollback symmetry).
+// rollback tars (rollback symmetry).
 func TestRestoreQdrantForwardFailureRollsBackBothVolumes(t *testing.T) {
 	arch := buildArchiveMem(t, baseManifest(), validCfgTOML, []byte("owui-data"), []byte("qdrant-data"), nil)
 	r, in := memInput(t, arch, true)
@@ -993,7 +993,7 @@ func TestRestoreResultMemoryFlags(t *testing.T) {
 }
 
 // TestRestoreV1ManifestStillRestores is the backward-compat fixture for the
-// backupSchemaVersion 1→2 bump (D-04 doctrine): a v1 archive (SchemaVersion 1,
+// backupSchemaVersion 1→2 bump (doctrine): a v1 archive (SchemaVersion 1,
 // no memory entries, no embedding fields) must restore cleanly under the v2
 // gate (m.SchemaVersion <= backupSchemaVersion) with no false skew alarm and
 // zero qdrant calls.
@@ -1027,7 +1027,7 @@ func TestRestoreNonPassProveRollsBack(t *testing.T) {
 	}
 }
 
-// TestRestoreProveFailRollbackQuiescesBeforeVolumeRm is the CR-01 regression with
+// TestRestoreProveFailRollbackQuiescesBeforeVolumeRm is the regression with
 // LIVE-HOST FIDELITY the no-op fakes lacked: on a real host a RUNNING container
 // holds its volume, so `podman volume rm` fails "volume is in use" unless the
 // owning service is stopped first. The forward path starts Open WebUI (and
@@ -1097,7 +1097,7 @@ func TestRestoreProveFailRollbackQuiescesBeforeVolumeRm(t *testing.T) {
 	}
 }
 
-// TestRestoreQdrantExistsUnknownFailsClosed is the WR-02 regression: when the
+// TestRestoreQdrantExistsUnknownFailsClosed is the regression: when the
 // archive carries a qdrant entry but the current volume's existence could NOT be
 // evaluated (the tri-state check's unknown cell — a transient podman failure),
 // the restore must REFUSE before any mutation. Pre-fix, the fail-soft check
@@ -1135,7 +1135,7 @@ func TestRestoreQdrantExistsUnknownFailsClosed(t *testing.T) {
 }
 
 // TestRestoreRollbackIncompleteSetsFlag asserts the Result.RollbackIncomplete flag
-// (CR-01) mirrors the honest rollback-incomplete Reason, so the cmd tier can
+// mirrors the honest rollback-incomplete Reason, so the cmd tier can
 // preserve the rollback tars without string-matching the Reason text.
 func TestRestoreRollbackIncompleteSetsFlag(t *testing.T) {
 	arch := buildArchive(t, baseManifest(), validCfgTOML, []byte("owui-data"), nil, nil, false)
@@ -1158,7 +1158,7 @@ func TestRestoreRollbackIncompleteSetsFlag(t *testing.T) {
 }
 
 // buildAgentArchive assembles a valid archive that includes the OPTIONAL Phase-28
-// crush.json entry and an ExcludedAgent manifest record (SURF-03/D-08), with the
+// crush.json entry and an ExcludedAgent manifest record, with the
 // manifest-first + correct per-entry SHA-256 discipline so the verify pass passes.
 func buildAgentArchive(t *testing.T, m Manifest, cfgTOML, owui, crush []byte) []byte {
 	t.Helper()
@@ -1198,7 +1198,7 @@ func buildAgentArchive(t *testing.T, m Manifest, cfgTOML, owui, crush []byte) []
 }
 
 // TestRestoreAgentOnRestoresCrushAndReportsExcludedAgent asserts an agent-on
-// archive (SURF-03/D-08) restores the crush.json via the dedicated
+// archive restores the crush.json via the dedicated
 // WriteCrushConfig seam AND surfaces the EXCLUDED agent binary identity on the
 // Result for the operator to re-stage (re-download the pinned release).
 func TestRestoreAgentOnRestoresCrushAndReportsExcludedAgent(t *testing.T) {
@@ -1250,7 +1250,7 @@ func TestRestoreAgentOffNoCrushNoExcludedAgent(t *testing.T) {
 	}
 }
 
-// TestRestoreAgentOnArchiveOntoAgentOffInstallSkipsCrush asserts WR-02: an
+// TestRestoreAgentOnArchiveOntoAgentOffInstallSkipsCrush asserts: an
 // agent-ON archive (carries crush.json) restored onto an agent-OFF current
 // install (no CrushConfigDestPath wired) does NOT write crush.json, reports
 // CrushConfigRestored=false (no false-green) AND CrushConfigSkipped=true so the
@@ -1280,7 +1280,7 @@ func TestRestoreAgentOnArchiveOntoAgentOffInstallSkipsCrush(t *testing.T) {
 
 // TestRestoreAgentIdentityDriftFailsClosed asserts a TAMPERED crush.json entry
 // (whose bytes do not match the manifest's recorded SHA-256) is a fail-closed
-// BLOCK with ZERO side effects (SURF-03/D-08; T-28-02-01) — the same verify gate
+// BLOCK with ZERO side effects (-01) — the same verify gate
 // every archive member is held to. The agent identity record is verified by the
 // same SHA-256 pass; a drifted entry must never be applied.
 func TestRestoreAgentIdentityDriftFailsClosed(t *testing.T) {
@@ -1304,7 +1304,7 @@ func TestRestoreAgentIdentityDriftFailsClosed(t *testing.T) {
 }
 
 // buildSearxngArchive assembles a valid archive that includes the OPTIONAL Phase-34
-// settings.yml entry (SURF-07), with the manifest-first + correct per-entry SHA-256
+// settings.yml entry, with the manifest-first + correct per-entry SHA-256
 // discipline so the verify pass passes. A nil settings omits the entry (web-off backup).
 func buildSearxngArchive(t *testing.T, m Manifest, cfgTOML, owui, settings []byte) []byte {
 	t.Helper()
@@ -1343,15 +1343,18 @@ func buildSearxngArchive(t *testing.T, m Manifest, cfgTOML, owui, settings []byt
 	return buf.Bytes()
 }
 
-// TestRestoreSearxngSettings asserts the OPTIONAL Phase-34 settings.yml entry (SURF-07)
+// TestRestoreSearxngSettings asserts the OPTIONAL Phase-34 settings.yml entry
 // behaves exactly like the crush.json optional entry on restore:
 //   - present + a destination wired (web-search-on current install) → re-written through
-//     the dedicated WriteSearxngSettings seam at mode EXACTLY 0600 (T-34-05, never widened)
+//
+// the dedicated WriteSearxngSettings seam at mode EXACTLY 0600 (never widened)
 //   - present but NO destination wired (web-search-off current install) → NOT applied,
-//     reported as SearxngSettingsSkipped (no false-green, WR-02 mirror)
+//
+// reported as SearxngSettingsSkipped (no false-green, mirror)
 //   - absent from the archive → not-present (ZERO WriteSearxngSettings calls)
 //   - the entry is SHA-256-verified through the SAME verify path as every member: a
-//     tampered settings.yml is a fail-closed Refused with zero side effects (T-34-07)
+//
+// tampered settings.yml is a fail-closed Refused with zero side effects
 func TestRestoreSearxngSettings(t *testing.T) {
 	const settingsBody = "use_default_settings: true\nserver:\n  secret_key: rendered-secret\n"
 
@@ -1378,7 +1381,7 @@ func TestRestoreSearxngSettings(t *testing.T) {
 		if got := string(r.searxngWrites[dest]); got != settingsBody {
 			t.Fatalf("restored settings.yml content mismatch: got %q want %q", got, settingsBody)
 		}
-		// The load-bearing mode assertion (T-34-05): the restored file is EXACTLY 0600,
+		// The load-bearing mode assertion: the restored file is EXACTLY 0600,
 		// never widened — it holds the rendered SEARXNG_SECRET.
 		fi, err := os.Stat(filepath.Join(r.searxngRealWriteDir, "settings.yml"))
 		if err != nil {

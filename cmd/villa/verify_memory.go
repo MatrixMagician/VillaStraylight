@@ -14,12 +14,12 @@ import (
 )
 
 // verify_memory.go holds the v1.3 RUNTIME firewalled zero-outbound document-upload RAG
-// smoke proof — the headline PRIV-05 / SC#4 honesty gate (D-08/D-10/D-11). Install-time
+// smoke proof — the headline honesty gate. Install-time
 // green is NOT sufficient: Open WebUI lazily fetches embed/reranker/Whisper models from
 // HuggingFace at RUNTIME on first RAG use, and ChromaDB posts PostHog telemetry. This
 // proof drives a REAL document upload through the OWUI REST RAG path (upload → chunk →
 // embed via villa-embed → store in Qdrant → retrieve → cite) entirely over villa.network
-// (D-08) WHILE host egress is blocked, paired with a negative-control external probe that
+// WHILE host egress is blocked, paired with a negative-control external probe that
 // MUST fail. Asserting zero-outbound by ABSENCE alone is a false-green; the negative
 // control proves egress is actually blocked, not merely unused (honesty-by-construction).
 //
@@ -35,16 +35,16 @@ import (
 //  4. Fixed-arg podman/curl exec — reuses runProbeCurl (install_memory.go) for the
 //     negative control; the loopback drive uses a fixed-arg host-side curl. No shell.
 //
-// MEM-03 / D-07 (auto-extraction default-OFF): the drive uses the STANDARD (non-agentic)
+// (auto-extraction default-OFF): the drive uses the STANDARD (non-agentic)
 // chat path — a plain POST /api/chat/completions with files:[{type:collection,id}] so the
 // knowledge is auto-injected WITH citations. villa NEVER enables Native Function Calling
 // nor installs a memory filter; keeping the RAG path on the standard citation-bearing route
-// is exactly what enforces MEM-03's default-off auto-extraction.
+// is exactly what enforces 's default-off auto-extraction.
 
 // ragSmokeInput carries the resolved loopback OWUI address/port the RAG drive reaches over
-// the EXISTING PublishPort (127.0.0.1:<chat_port>, no new host port — D-11), plus the
+// the EXISTING PublishPort (127.0.0.1:<chat_port>, no new host port), plus the
 // planted question and the fact whose only source is the uploaded document. Values are
-// config-resolved, never shell-interpolated (T-20-09). It mirrors memoryProofInput.
+// config-resolved, never shell-interpolated. It mirrors memoryProofInput.
 type ragSmokeInput struct {
 	owuiAddr string
 	owuiPort int
@@ -57,8 +57,8 @@ type ragSmokeInput struct {
 // PASS/FAIL verdict. There is NO WARN and NO skip path — an unevaluable result is a FAIL
 // (honesty-by-construction, mirrors evalMemoryProof).
 //
-// Negative-control FIRST (PRIV-05 / T-20-07): asserting zero-outbound by absence alone is a
-// false-green, so egress must be proven actually blocked BEFORE the drive is even trusted —
+// Negative-control FIRST: asserting zero-outbound by absence alone is a
+// false-green, so egress must be proven actually blocked BEFORE the drive is even trusted
 // the upload drive is not invoked until the negative control passes. A probe that could not
 // RUN (err) → FAIL refusing to declare zero-outbound; an external host that WAS reachable
 // (blocked == false) → FAIL that egress is not blocked.
@@ -116,28 +116,32 @@ const ragSmokeProcessTimeout = 60 * time.Second
 
 // liveRagSmoke is the production runtime-RAG-smoke seam (on-hardware by nature: it needs the
 // live OWUI container + a host-egress precondition supplied by the verification wave). It
-// mirrors liveMemoryProof's four-layer shape, driving the D-08 local upload→chunk→embed→
+// mirrors liveMemoryProof's four-layer shape, driving the local upload→chunk→embed→
 // retrieve→cite path end-to-end and composing the negative-control egress probe, then calls
 // the pure evalRagSmoke.
 //
 //   - egressBlocked: a negative-control external probe via the EXISTING runProbeCurl (fixed-
 //     arg `podman run --rm --network villa --entrypoint curl <helperImage> curl -sf
 //     --max-time 5 https://huggingface.co/`). The helper image is sourced from
-//     orchestrate.EmbedImage() — NO re-typed image literal (T-20-09, TestSeamGrepGate green).
-//     `blocked := err != nil`: a REACHABLE external host means egress is NOT blocked, so the
-//     proof FAILs; a probe that cannot run surfaces as the egressBlocked error → FAIL.
 //
-//   - uploadCite: drives the OWUI REST RAG path over the loopback PublishPort
-//     (http://127.0.0.1:<chat_port>, no new host port — D-11) via a fixed-arg HOST-side curl
-//     runner (the loopback PublishPort is reached from the host, NOT from inside
-//     villa.network, so runProbeCurl's --network villa is wrong for this leg). Sequence
-//     (RESEARCH §"Driving the OWUI RAG path"): signin (fallback signup first-user-admin) →
-//     knowledge/create → files/ (multipart) + poll process/status → knowledge/{id}/file/add
-//     → chat/completions with files:[{type:collection,id}] → assert fact + citation.
+// orchestrate.EmbedImage — NO re-typed image literal (TestSeamGrepGate green).
+//
+//	  `blocked := err != nil`: a REACHABLE external host means egress is NOT blocked, so the
+//	  proof FAILs; a probe that cannot run surfaces as the egressBlocked error → FAIL.
+//
+//	- uploadCite: drives the OWUI REST RAG path over the loopback PublishPort
+//
+// (http://127.0.0.1:<chat_port>, no new host port) via a fixed-arg HOST-side curl
+//
+//	runner (the loopback PublishPort is reached from the host, NOT from inside
+//	villa.network, so runProbeCurl's --network villa is wrong for this leg). Sequence
+//	(RESEARCH §"Driving the OWUI RAG path"): signin (fallback signup first-user-admin) →
+//	knowledge/create → files/ (multipart) + poll process/status → knowledge/{id}/file/add
+//	→ chat/completions with files:[{type:collection,id}] → assert fact + citation.
 //
 // Native Function Calling stays OFF in the drive (a plain chat/completions request, not an
-// agentic tool-calling request) so knowledge is auto-injected WITH citations (Pitfall 5) —
-// which is exactly what enforces MEM-03's auto-extraction-default-off (villa never enables
+// agentic tool-calling request) so knowledge is auto-injected WITH citations (Pitfall 5)
+// which is exactly what enforces 's auto-extraction-default-off (villa never enables
 // Agentic/Native FC nor installs a memory filter).
 func liveRagSmoke(ctx context.Context, in ragSmokeInput) memoryProof {
 	helperImage := orchestrate.EmbedImage()
@@ -168,7 +172,7 @@ func liveRagSmoke(ctx context.Context, in ragSmokeInput) memoryProof {
 // derives `cited` from the response's citation/source metadata (the exact field name is
 // confirmed on-hardware in Plan 03 — A6; both candidate fields sources/citations are
 // checked and the raw body is returned on a parse miss). All URLs are composed from `base`;
-// all curl args are fixed; no shell interpolation (T-20-09).
+// all curl args are fixed; no shell interpolation.
 func driveRagUploadCite(ctx context.Context, base, question, wantFact string) (string, bool, error) {
 	token, err := mintAdminToken(ctx, base)
 	if err != nil {
@@ -237,7 +241,7 @@ func driveRagUploadCite(ctx context.Context, base, question, wantFact string) (s
 	}
 
 	// 5) Plain (non-agentic) chat/completions with the collection attached so OWUI auto-
-	// injects the retrieved chunks WITH citations (Native FC stays OFF — MEM-03).
+	// injects the retrieved chunks WITH citations (Native FC stays OFF).
 	// OWUI's /api/chat/completions REQUIRES a model id; discover one over loopback (the
 	// served model id is the GGUF filename, not the config `model` slug) — a missing model
 	// is an HTTP 400, never a silent skip. stream is a real bool, not the string "false".
@@ -417,8 +421,8 @@ func parseChatAnswerAndCitation(out []byte) (answer string, cited bool) {
 
 // runLoopbackCurl runs a fixed-arg `curl` against the loopback OWUI PublishPort as a plain
 // host process (NOT inside villa.network — the PublishPort is a HOST loopback bind, so
-// runProbeCurl's --network villa would not reach it, T-20-10). Every arg is fixed; no shell
-// (T-20-09). It returns curl's stdout.
+// runProbeCurl's --network villa would not reach it). Every arg is fixed; no shell
+// It returns curl's stdout.
 func runLoopbackCurl(ctx context.Context, curlArgs ...string) ([]byte, error) {
 	return runLoopbackCurlStdin(ctx, "", curlArgs...)
 }

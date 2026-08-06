@@ -159,7 +159,7 @@ func TestCompleteParamsOnWire(t *testing.T) {
 // TestCompleteVoidsAbsentTimings proves an otherwise-successful 200 response whose
 // `timings` block is absent (or decodes to an all-zero predicted_n/predicted_per_second)
 // is signalled as ErrNoTimings — NOT returned as a valid 0 tok/s sample. This is the
-// WR-02 honest-band guard: a missing timings block must void the run, never pollute the
+// honest-band guard: a missing timings block must void the run, never pollute the
 // median with a fabricated 0 (RESEARCH A1).
 func TestCompleteVoidsAbsentTimings(t *testing.T) {
 	cases := map[string]string{

@@ -1,12 +1,12 @@
 // memory.go provides the two config-consuming halves of the pure internal/memory
-// decision core: Decide (the fail-closed enablement-and-fields-valid gate, D-02b)
-// and RenderView (the resolved-values-only orchestrate handoff, D-02c).
+// decision core: Decide (the fail-closed enablement-and-fields-valid gate)
+// and RenderView (the resolved-values-only orchestrate handoff).
 //
 // Decide is the validation BOUNDARY for ANY config.VillaConfig — including one
 // constructed directly (not via config.LoadVilla). memory-on with any
 // missing/invalid field is refused-with-reason (Valid:false), mirroring the
 // recommend/preflight refuse-with-Notes discipline. It NEVER silently defaults a
-// bad field and NEVER panics (T-18-03).
+// bad field and NEVER panics.
 //
 // Reachability note (honest accounting): the load path runs config.normalizeVilla
 // FIRST, which fills only empty/zero memory fields with defaults — so on that path
@@ -20,15 +20,15 @@
 // RenderView is the recommend->orchestrate handoff: it carries ONLY resolved
 // values (model id, dim, container-DNS addr/port PIECES). It composes no URL and
 // holds no container-image literal — orchestrate builds the endpoint URLs and
-// owns the image identity later (D-10 / openwebui.go precedent).
+// owns the image identity later (openwebui.go precedent).
 //
 // PURE: no I/O, no os/exec, no container-image literal — TestSeamGrepGate stays
-// green over internal/memory (D-01/SC#2).
+// green over internal/memory.
 package memory
 
 import "github.com/MatrixMagician/VillaStraylight/internal/config"
 
-// Decision is the typed result of the enablement-and-fields-valid gate (D-02b).
+// Decision is the typed result of the enablement-and-fields-valid gate.
 // Enabled mirrors cfg.MemoryEnabled; Valid is true when the configuration is a
 // coherent state (memory off, OR memory on with every required field present and
 // valid); Reasons enumerates each refusal when Valid is false (fail-closed: all
@@ -39,13 +39,13 @@ type Decision struct {
 	Reasons []string
 }
 
-// Decide is the fail-closed enablement-and-fields-valid gate (D-02b). Memory off
+// Decide is the fail-closed enablement-and-fields-valid gate. Memory off
 // is a valid state ({Enabled:false, Valid:true}, no reasons). Memory on validates
 // every required field — embedding model non-empty; embedding dim > 0 (the
-// load-bearing pinned value, D-03); qdrant addr non-empty + port in 1..65535;
+// load-bearing pinned value); qdrant addr non-empty + port in 1..65535;
 // embed addr non-empty + port in 1..65535 — accumulating a user-facing reason per
 // offending field and returning {Enabled:true, Valid:len(reasons)==0,
-// Reasons:reasons}. It does NO I/O and NEVER panics (PURE, T-18-03).
+// Reasons:reasons}. It does NO I/O and NEVER panics (PURE).
 func Decide(cfg config.VillaConfig) Decision {
 	if !cfg.MemoryEnabled {
 		return Decision{Enabled: false, Valid: true}
@@ -66,11 +66,11 @@ func Decide(cfg config.VillaConfig) Decision {
 }
 
 // MemoryRenderInput is the resolved-values-only recommend->orchestrate handoff
-// (D-02c). It carries the memory-stack endpoint PIECES — the embedding model id
+// It carries the memory-stack endpoint PIECES — the embedding model id
 // and dimension plus the container-DNS addr/port pairs for Qdrant and villa-embed
 // — and NOTHING ELSE: no composed URL, no container-image literal. orchestrate
 // composes "http://villa-embed:8080/v1" and "http://villa-qdrant:6333" from these
-// pieces and owns the image identity itself, later (D-10).
+// pieces and owns the image identity itself, later.
 type MemoryRenderInput struct {
 	EmbeddingModel string
 	EmbeddingDim   int
@@ -80,7 +80,7 @@ type MemoryRenderInput struct {
 	EmbedPort      int
 }
 
-// RenderView maps the cfg memory fields one-for-one into a MemoryRenderInput —
+// RenderView maps the cfg memory fields one-for-one into a MemoryRenderInput
 // resolved VALUES only (addr/port pieces, never composed URLs; never an image
 // literal). It is PURE and does no validation (callers gate with Decide first).
 func RenderView(cfg config.VillaConfig) MemoryRenderInput {

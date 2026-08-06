@@ -14,7 +14,7 @@ import (
 
 // TestEvalRagSmoke table-drives the PURE runtime zero-outbound RAG-smoke core over the six
 // outcomes, mirroring TestEvalMemoryProof (cmd/villa/install_test.go). The load-bearing
-// invariants it locks (D-10, PRIV-05, honesty-by-construction):
+// invariants it locks (honesty-by-construction):
 //
 //   - The egress negative-control is asserted FIRST: a probe that could not RUN (err) is a
 //     FAIL ("refusing to declare zero-outbound"), and an external host that WAS reachable
@@ -98,7 +98,7 @@ func TestEvalRagSmoke(t *testing.T) {
 // TestEvalRagSmokeNegativeControlFirst is the false-green guard: when the egress
 // negative-control fails (either the probe errored OR an external host was reachable), the
 // upload drive MUST NOT run. If it did, a host that never actually blocked egress could
-// still produce a green by completing the RAG path — exactly the false-green PRIV-05
+// still produce a green by completing the RAG path — exactly the false-green
 // forbids. A spy records whether uploadCite was invoked.
 func TestEvalRagSmokeNegativeControlFirst(t *testing.T) {
 	const wantFact = "fact"
@@ -169,7 +169,7 @@ func TestRunVerifyMemoryGate(t *testing.T) {
 			loadedMemoryEnabled: func() bool { return true },
 			loadedConfig:        func() config.VillaConfig { return config.DefaultVillaConfig() },
 			ragSmokeFn: func(_ context.Context, in ragSmokeInput) memoryProof {
-				// The drive must target the loopback PublishPort (no new host port, D-11).
+				// The drive must target the loopback PublishPort (no new host port).
 				if in.owuiAddr != verifyMemoryLoopbackAddr {
 					t.Errorf("owuiAddr = %q, want loopback %q", in.owuiAddr, verifyMemoryLoopbackAddr)
 				}

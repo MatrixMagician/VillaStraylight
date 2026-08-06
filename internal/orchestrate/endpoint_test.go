@@ -9,7 +9,7 @@ import (
 )
 
 // TestLlamaInNetworkEndpoint locks the single-source in-network villa-llama endpoint
-// (WR-01). The accessor is the ONE place cmd/villa sources the in-network sanity-probe
+// The accessor is the ONE place cmd/villa sources the in-network sanity-probe
 // target, so it must (a) equal the current rendered shape (http://villa-llama:8080/v1)
 // AND (b) be built in DNS/port lockstep — the host comes from the orchestrate
 // containerName constant (the rendered ContainerName= DNS name) and the port from the

@@ -5,12 +5,12 @@ import (
 	"testing"
 )
 
-// containerargs_coding_test.go covers the CMODE-01 coding-mode render delta appended
-// inside ContainerArgs behind the backend seam (D-01/D-02/D-03). The invariants:
-//   - spec.CodingMode == nil ⇒ args byte-identical to the v1.3 base (off-path, D-02);
-//   - non-nil ⇒ --jinja + the sampling preset + --cache-reuse 256 (gated, D-03),
+// containerargs_coding_test.go covers the coding-mode render delta appended
+// inside ContainerArgs behind the backend seam. The invariants:
+// - spec.CodingMode == nil ⇒ args byte-identical to the v1.3 base (off-path);
+// - non-nil ⇒ --jinja + the sampling preset + --cache-reuse 256 (gated),
 //     appended AFTER llamaServerFlags, with NO second -c (Pitfall 1);
-//   - CacheReuseSafe == false ⇒ --cache-reuse ABSENT (fail-closed, D-03).
+// - CacheReuseSafe == false ⇒ --cache-reuse ABSENT (fail-closed).
 // Both backends (Vulkan + ROCm) render the delta — the table runs against each.
 
 // codingBackends is the set of seam backends the delta must be symmetric across.
@@ -71,7 +71,7 @@ func flagValue(args []string, flag string) string {
 func TestCodingModeArgs(t *testing.T) {
 	for name, b := range codingBackends(t) {
 		t.Run(name, func(t *testing.T) {
-			// Off path: CodingMode nil ⇒ byte-identical to the base args (D-02).
+			// Off path: CodingMode nil ⇒ byte-identical to the base args.
 			off := b.ContainerArgs(baseSpec())
 			if indexOf(off, "--jinja") != -1 {
 				t.Errorf("[%s] off-path args leaked --jinja: %v", name, off)
@@ -130,7 +130,7 @@ func TestCodingModeArgs(t *testing.T) {
 }
 
 // TestCacheReuseGate asserts --cache-reuse is fail-closed (absent when CacheReuseSafe is
-// false, D-03) and that a nil Sampling omits the sampling flags but keeps --jinja.
+// false) and that a nil Sampling omits the sampling flags but keeps --jinja.
 func TestCacheReuseGate(t *testing.T) {
 	for name, b := range codingBackends(t) {
 		t.Run(name, func(t *testing.T) {

@@ -5,12 +5,12 @@
 // The guard layer is four cooperating transforms applied in the production fetch order
 // sanitize -> normalize -> classify -> fence:
 //
-//   - sanitize  (GUARD-02): strip all markup via bluemonday StrictPolicy + entity-decode.
-//   - normalize (GUARD-02): NFKC fold + remove invisible/zero-width and bidi control runes.
-//   - classify  (GUARD-04): heuristic multi-word rule-family matcher returning a Verdict.
-//   - fence     (GUARD-03): wrap the cleaned text in a crypto/rand-nonced provenance fence.
+// - sanitize: strip all markup via bluemonday StrictPolicy + entity-decode.
+// - normalize: NFKC fold + remove invisible/zero-width and bidi control runes.
+// - classify: heuristic multi-word rule-family matcher returning a Verdict.
+// - fence: wrap the cleaned text in a crypto/rand-nonced provenance fence.
 //
-// HONESTY POSTURE (GUARD-04, binding): this layer REDUCES and FLAGS prompt injection; it
+// HONESTY POSTURE (binding): this layer REDUCES and FLAGS prompt injection; it
 // does NOT eliminate it. The classifier is a flag-not-block tripwire — a Detected verdict
 // annotates the response metadata, but the sanitized and fenced content is returned
 // regardless. A heuristic rule set has finite recall: a novel phrasing can pass undetected.

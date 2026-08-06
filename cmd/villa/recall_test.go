@@ -43,7 +43,7 @@ func renderableChatDoc(id string) recall.ChatDoc {
 // recallDeps over an in-memory state store plus an ordered call trace. writeState
 // DEEP-COPIES the chats map so the persisted snapshot cannot alias the run body's
 // working state — the incremental-persist assertions are only honest if a missed
-// persist call is actually observable (D-06).
+// persist call is actually observable.
 type fakeRecallEnv struct {
 	deps  recallDeps
 	calls []string
@@ -164,7 +164,7 @@ func hasCallPrefix(calls []string, prefix string) bool {
 	return false
 }
 
-// TestRecallGate locks the D-07 delta from `verify memory`: with the memory stack
+// TestRecallGate locks the delta from `verify memory`: with the memory stack
 // OFF (persisted memory_enabled=false) BOTH recall verbs return exitBlocked with a
 // remediation on stderr, and NO drive function runs — an explicit index/status
 // request never honestly no-ops (unlike verify memory's exit-0 "nothing to
@@ -234,12 +234,12 @@ func TestRecallGate(t *testing.T) {
 }
 
 // TestRecallIndexOrdering locks the run pipeline's ordering and honesty contract
-// (D-01/D-06/Pitfall 7/8): reachability failure short-circuits before any token or
+// (Pitfall 7/8): reachability failure short-circuits before any token or
 // KB work; a per-chat failure mid-run leaves the ALREADY-COMPLETED chats persisted
 // (incremental persist) with last_index_completed_at NOT stamped and attach never
 // reached; a clean full pass stamps completed, excludes the service account
-// (D-09), and runs attach strictly AFTER the per-chat loop; an unrenderable chat
-// is a RECORDED skip, never a silent drop or a run failure (D-04).
+// and runs attach strictly AFTER the per-chat loop; an unrenderable chat
+// is a RECORDED skip, never a silent drop or a run failure.
 func TestRecallIndexOrdering(t *testing.T) {
 	t.Run("reachability failure short-circuits before token and KB work", func(t *testing.T) {
 		env := newFakeRecallEnv()
@@ -291,7 +291,7 @@ func TestRecallIndexOrdering(t *testing.T) {
 			t.Errorf("mid-run failure exit = %d, want exitBlocked (%d)", code, exitBlocked)
 		}
 		if _, ok := env.state.Chats["c1"]; !ok {
-			t.Errorf("chat c1 completed BEFORE the failure and must be persisted (incremental persist, D-06); state = %+v", env.state)
+			t.Errorf("chat c1 completed BEFORE the failure and must be persisted (incremental persist); state = %+v", env.state)
 		}
 		if _, ok := env.state.Chats["c2"]; ok {
 			t.Errorf("the failed chat c2 must NOT be recorded as indexed")
@@ -327,7 +327,7 @@ func TestRecallIndexOrdering(t *testing.T) {
 			t.Errorf("a clean full pass must stamp last_index_completed_at >= started; state = %+v", env.state)
 		}
 		if callIndex(env.calls, "listChats:u-svc") != -1 {
-			t.Errorf("the villa-verify@localhost service account must be excluded from listing (D-09); calls = %v", env.calls)
+			t.Errorf("the villa-verify@localhost service account must be excluded from listing; calls = %v", env.calls)
 		}
 		attachAt := callIndex(env.calls, "attach")
 		lastUpload := lastCallIndex(env.calls, "upload:"+recall.TranscriptFilename("c2"))
@@ -372,12 +372,12 @@ func TestRecallIndexOrdering(t *testing.T) {
 			t.Errorf("the renderable chat must still be indexed after a sibling skip")
 		}
 		if !strings.Contains(out.String(), "skipped") {
-			t.Errorf("the run summary must RECORD the skip (never silent, D-04); stdout = %q", out.String())
+			t.Errorf("the run summary must RECORD the skip (never silent); stdout = %q", out.String())
 		}
 	})
 }
 
-// TestRecallCleanReplace locks the D-04 clean-replace discipline: a CHANGED chat is
+// TestRecallCleanReplace locks the clean-replace discipline: a CHANGED chat is
 // re-indexed by remove-old-transcript-file-THEN-re-upload (delete-then-re-add — the
 // remove must precede the upload so stale vectors never coexist with fresh ones),
 // and a DELETED chat drives the file remove and drops its state entry.
@@ -408,7 +408,7 @@ func TestRecallCleanReplace(t *testing.T) {
 		removeAt := callIndex(env.calls, "remove:old-f1")
 		uploadAt := callIndex(env.calls, "upload:"+recall.TranscriptFilename("c1"))
 		if removeAt == -1 || uploadAt == -1 || removeAt > uploadAt {
-			t.Errorf("clean-replace must remove the OLD file before re-uploading (D-04); calls = %v", env.calls)
+			t.Errorf("clean-replace must remove the OLD file before re-uploading; calls = %v", env.calls)
 		}
 		got := env.state.Chats["c1"]
 		if got.OWUIUpdatedAt != 200 || got.FileID == "old-f1" || got.FileID == "" {
@@ -441,11 +441,11 @@ func TestRecallCleanReplace(t *testing.T) {
 	})
 }
 
-// TestRecallSingleOperatorGuard locks WR-05: recall pools EVERY human user's chats
+// TestRecallSingleOperatorGuard locks: recall pools EVERY human user's chats
 // into one shared collection, so on a box with more than one human user the index
 // run REFUSES (fail-closed) until the operator passes --i-understand-shared-recall.
 // A single human user proceeds; the service account never counts toward the human
-// total (D-09).
+// total.
 func TestRecallSingleOperatorGuard(t *testing.T) {
 	twoHumans := func(env *fakeRecallEnv) {
 		env.deps.listUsers = func(context.Context, string, string) ([]owuiUser, error) {
@@ -497,8 +497,8 @@ func TestRecallSingleOperatorGuard(t *testing.T) {
 		}
 	})
 
-	t.Run("multi-human refusal with --rebuild is side-effect-free (WR-01)", func(t *testing.T) {
-		// Phase-23 review WR-01: a refusal must be SIDE-EFFECT-FREE. Pre-fix, the
+	t.Run("multi-human refusal with --rebuild is side-effect-free", func(t *testing.T) {
+		// Phase-23 review: a refusal must be SIDE-EFFECT-FREE. Pre-fix, the
 		// guard ran AFTER the state/KB step, so a refused --rebuild had already
 		// reset (wiped) the collection, ensureKnowledge had created the KB, and the
 		// state had been persisted with the started stamp + the CONFIGURED embedding
@@ -544,7 +544,7 @@ func TestRecallSingleOperatorGuard(t *testing.T) {
 	})
 }
 
-// TestRecallCleanReplaceFailureClearsState locks WR-01: clean-replace removes the
+// TestRecallCleanReplaceFailureClearsState locks: clean-replace removes the
 // OLD transcript BEFORE upload, so on ANY failure AFTER the remove the stale state
 // entry must be cleared (FileID="" / OWUIUpdatedAt=0, persisted) — otherwise the
 // next Plan sees neither an Add nor an Update and the removed transcript is never
@@ -612,7 +612,7 @@ func TestRecallCleanReplaceFailureClearsState(t *testing.T) {
 	}
 }
 
-// TestRecallIncompletePassNotStamped locks CR-01: the completed stamp is gated on a
+// TestRecallIncompletePassNotStamped locks: the completed stamp is gated on a
 // reconciliation that every planned Add+Update was uploaded-or-skipped this run
 // (done == expected). A clean pass over a renderable Add reconciles and stamps; the
 // reconciliation must hold for the run to earn last_index_completed_at.
@@ -646,23 +646,23 @@ func TestRecallIncompletePassNotStamped(t *testing.T) {
 	if env.state.LastIndexCompletedAt == "" {
 		t.Errorf("a reconciled clean pass (done == expected) must stamp last_index_completed_at; state = %+v", env.state)
 	}
-	// The summary must reflect 1 added + 1 skipped (counters from typed outcome, WR-02).
+	// The summary must reflect 1 added + 1 skipped (counters from typed outcome).
 	if !strings.Contains(out.String(), "1 added") || !strings.Contains(out.String(), "1 skipped") {
 		t.Errorf("counters must come from the typed outcome (1 added, 1 skipped); out = %q", out.String())
 	}
 }
 
-// TestRecallAttach locks the D-03 idempotent read-merge-write attach
+// TestRecallAttach locks the idempotent read-merge-write attach
 // (attachKnowledgeRow): an EXISTING Model row is updated with the recall KB merged
 // into meta.knowledge while every foreign meta key the operator set is preserved
-// (T-21-10 — never clobber) and the KB item is deduplicated by id; an ABSENT row is
+// (never clobber) and the KB item is deduplicated by id; an ABSENT row is
 // created with the served-model override shape (id == served, base_model_id null).
 func TestRecallAttach(t *testing.T) {
 	const kbID = "kb1"
 
 	t.Run("merges into an existing row preserving foreign meta keys", func(t *testing.T) {
-		// Stateful fakes (WR-04): getRow returns the CURRENT stored row, so the
-		// post-update re-GET verification sees the merge that updateRow persisted —
+		// Stateful fakes: getRow returns the CURRENT stored row, so the
+		// post-update re-GET verification sees the merge that updateRow persisted
 		// exactly the live read-merge-write-then-verify cycle.
 		stored := map[string]any{
 			"id": "served.gguf",
@@ -760,7 +760,7 @@ func TestRecallAttach(t *testing.T) {
 	})
 
 	t.Run("a silent detach (update returns 200 but the KB does not land) is NOT reported attached", func(t *testing.T) {
-		// WR-04 / Pitfall 2: updateRow succeeds (HTTP 200) but OWUI dropped/reshaped
+		// Pitfall 2: updateRow succeeds (HTTP 200) but OWUI dropped/reshaped
 		// meta.knowledge, so the re-GET shows the recall KB absent. attach must
 		// return a not-Attached verdict WITH an error so the index run fails
 		// honestly instead of stamping a false green.
@@ -787,7 +787,7 @@ func TestRecallAttach(t *testing.T) {
 	})
 }
 
-// TestRecallStatus locks the D-06 typed-Unknown status contract: an unevaluable
+// TestRecallStatus locks the typed-Unknown status contract: an unevaluable
 // live list renders the LITERAL "Unknown — could not evaluate" (never a numeric
 // stale count — Unknown ≠ 0) at exitWarn; a confidently-missing attachment is
 // surfaced with the re-run hint (Pitfall 2: model swap silently detaches recall);
@@ -831,7 +831,7 @@ func TestRecallStatus(t *testing.T) {
 			t.Errorf("unevaluable status exit = %d, want exitWarn (%d)", code, exitWarn)
 		}
 		if !strings.Contains(out.String(), "Unknown — could not evaluate") {
-			t.Errorf("an unevaluable live list must render the literal Unknown (D-06); out = %q", out.String())
+			t.Errorf("an unevaluable live list must render the literal Unknown; out = %q", out.String())
 		}
 		if strings.Contains(out.String(), "(new ") {
 			t.Errorf("numeric stale counts must NEVER render when the live list is unevaluable; out = %q", out.String())
@@ -858,7 +858,7 @@ func TestRecallStatus(t *testing.T) {
 		}
 	})
 
-	t.Run("a real state-read I/O error blocks (WR-06), never a soft warn", func(t *testing.T) {
+	t.Run("a real state-read I/O error blocks, never a soft warn", func(t *testing.T) {
 		env := newFakeRecallEnv()
 		env.deps.readState = func() (recall.State, error) {
 			return recall.State{}, errors.New("permission denied")
@@ -895,7 +895,7 @@ func TestRecallStatus(t *testing.T) {
 	})
 }
 
-// TestRecallRebuild locks the --rebuild contract (D-04): the run drives the
+// TestRecallRebuild locks the --rebuild contract: the run drives the
 // id-preserving knowledge reset BEFORE any re-index work, clears the prior chats
 // map (so every live chat re-indexes as an Add — no per-chat removes against the
 // already-reset KB), and persists a fresh full index.
@@ -944,7 +944,7 @@ func TestRecallRebuild(t *testing.T) {
 }
 
 // skewedRecallCfg returns a memory-on config whose embedding identity confidently
-// diverges from the nomic/768 stamp the skew tests record — the D-10 mismatch
+// diverges from the nomic/768 stamp the skew tests record — the mismatch
 // fixture (model AND dim differ; either alone would also be a mismatch).
 func skewedRecallCfg() config.VillaConfig {
 	c := config.DefaultVillaConfig()
@@ -954,8 +954,8 @@ func skewedRecallCfg() config.VillaConfig {
 	return c
 }
 
-// TestRecallIndexSkewGuard locks the D-10 fail-closed refusal at the ONE verb that
-// mutates the index (CTRL-05, T-23-15/T-23-16): a confident embedding model/dim
+// TestRecallIndexSkewGuard locks the fail-closed refusal at the ONE verb that
+// mutates the index (CTRL-05): a confident embedding model/dim
 // mismatch between the recall-state stamp and config REFUSES (exitBlocked,
 // refuse-with-remediation) BEFORE any state mutation — the stamp is the recorded
 // truth and must survive the refusal (Pitfall 6). --rebuild is the sanctioned

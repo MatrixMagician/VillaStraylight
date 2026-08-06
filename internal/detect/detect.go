@@ -14,7 +14,7 @@ const (
 
 // Probe reads the host and assembles a HostProfile. It never errors and never
 // panics: any missing tool or unparseable output becomes a typed Unknown field
-// (D-13). This is the compose-and-return orchestrator (cf. server.New()).
+// This is the compose-and-return orchestrator (cf. server.New).
 func Probe() HostProfile {
 	cpuModel, arch := cpuInfo()
 	totalRAM, memAvail := memInfo(liveProcMeminfo)
@@ -32,7 +32,7 @@ func Probe() HostProfile {
 
 	// rocm_readiness (v1.1, schema 2): computed from already-bounded facts (gfx-id,
 	// kernel, ROCm substrate, probed firmware date) + the resolved ROCm image.
-	// Undetectable off-hardware signals stay UNSET (D-08); the image policy is
+	// Undetectable off-hardware signals stay UNSET; the image policy is
 	// config-driven, not a host probe (Pitfall 5). All host I/O (firmwareDateProbe's
 	// rpm exec) and the field literals live behind the gpu_amd.go seam — Probe() only
 	// wires them, matching how it already threads gpu.gfxID / resolvedROCmImage().

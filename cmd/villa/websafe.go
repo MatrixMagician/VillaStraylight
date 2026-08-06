@@ -12,12 +12,12 @@ import (
 )
 
 // websafe.go is the thin cobra caller for the HIDDEN `villa websafe-serve` subcommand
-// (Phase-31 GUARD-01/GROUND-01): the internal container entrypoint that runs inside the
+// the internal container entrypoint that runs inside the
 // villa-websafe Quadlet container (the host villa binary bind-mounted read-only). It builds
 // the internal/websafe pure fetch core behind the live SSRF-guarded SafeClient and serves
 // the verified OWUI external-loader HTTP contract (the /load handler) on a container-internal
 // socket. It is NOT user-facing — OWUI reaches it over villa.network by container DNS only
-// (no host port, PRIV-01); the bearer comes from the 0600 EnvironmentFile the unit mounts
+// (no host port); the bearer comes from the 0600 EnvironmentFile the unit mounts
 // (EXTERNAL_WEB_LOADER_API_KEY in the container env), never the 0644 unit.
 //
 // Mirroring dashboard.go: the cobra RunE wires liveWebsafeDeps() then os.Exit(runWebsafe(...));
@@ -53,7 +53,7 @@ func newWebsafe() *cobra.Command {
 		Hidden: true,
 		Short:  "Serve the OWUI external web-loader (internal; runs inside the villa-websafe container)",
 		Long: "Serve the VillaStraylight web-safe loader: the SSRF-guarded, bounded fetch core that is " +
-			"the sole producer of Open WebUI page_content (GUARD-01). This is an INTERNAL container " +
+			"the sole producer of Open WebUI page_content. This is an INTERNAL container " +
 			"entrypoint — OWUI reaches it over villa.network by container DNS only (no host port). Not a " +
 			"user-facing command.",
 		Args: cobra.NoArgs,
@@ -67,7 +67,7 @@ func newWebsafe() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().String("host", "0.0.0.0", "container-internal bind host (never a host port; PRIV-01)")
+	cmd.Flags().String("host", "0.0.0.0", "container-internal bind host (never a host port)")
 	cmd.Flags().Int("port", 8090, "container-internal listen port")
 	return cmd
 }
@@ -118,7 +118,7 @@ func runWebsafe(cmd *cobra.Command, _ []string, d *websafeDeps) int {
 
 // liveWebsafeDeps wires websafeDeps to the real container runtime: the SSRF-guarded
 // SafeClient over the conservative DefaultBounds (so the connect-time Control hook validates
-// every dialed IP, GUARD-05), the Bearer read from the container env EXTERNAL_WEB_LOADER_API_KEY
+// every dialed IP), the Bearer read from the container env EXTERNAL_WEB_LOADER_API_KEY
 // (sourced from the 0600 EnvironmentFile the villa-websafe unit mounts — never the 0644 unit),
 // and a Serve that binds the container-internal socket via http.ListenAndServe.
 func liveWebsafeDeps() (*websafeDeps, error) {

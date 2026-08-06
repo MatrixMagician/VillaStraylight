@@ -112,7 +112,7 @@ func TestMemAvailableUnreadableYieldsUnknown(t *testing.T) {
 	}
 }
 
-// TestMemAvailableScanErrorYieldsUnknown asserts WR-05: a read/scan error (here
+// TestMemAvailableScanErrorYieldsUnknown asserts: a read/scan error (here
 // induced by opening a directory, which os.Open allows but bufio.Scan errors on)
 // degrades to a typed Unknown labeled as a read error — never a silent
 // "MemAvailable not found" mislabeling of an I/O failure.

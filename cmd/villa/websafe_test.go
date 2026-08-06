@@ -104,7 +104,7 @@ func TestRunWebsafeCleanStartAndContractRoundTrip(t *testing.T) {
 }
 
 // TestRunWebsafeBearerEnforced: a request WITHOUT the configured Bearer is rejected with 401
-// before any fetch (GUARD-01 spoofing mitigation, T-31-15).
+// before any fetch (spoofing mitigation).
 func TestRunWebsafeBearerEnforced(t *testing.T) {
 	cmd, _, _ := websafeTestCmd()
 

@@ -10,11 +10,11 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/pathsafe"
 )
 
-// reconcile.go is the content-hash idempotency core (CLI-01 / D-06) plus the only
+// reconcile.go is the content-hash idempotency core plus the only
 // filesystem writer. Reconcile is pure (sha256 render-vs-disk compare); WriteUnits
 // is the impure half — it writes a sibling temp in the SAME dir then os.Rename
 // (atomic, mirrors internal/download), and refuses any target resolving outside the
-// unit dir (assertInsideDir, mirrors internal/config; threats T-03-02/T-03-03).
+// unit dir (assertInsideDir, mirrors internal/config; threats).
 
 // unitFileMode is the mode for written unit files — non-secret (the secret config
 // stays 0600 in internal/config), world-readable so systemd --user can read them.
@@ -47,8 +47,8 @@ func Reconcile(units []Unit, unitDir string) (Plan, error) {
 
 // WriteUnits writes every Changed unit atomically into unitDir: render to
 // <name>.tmp in the SAME directory, fsync, then os.Rename to <name> so a half-
-// written unit is never observable (T-03-03). Each target is traversal-guarded —
-// a unit name resolving outside unitDir is refused before any write (T-03-02).
+// written unit is never observable. Each target is traversal-guarded
+// a unit name resolving outside unitDir is refused before any write.
 // Unchanged units are left untouched (no spurious daemon-reload/restart).
 func WriteUnits(plan Plan, unitDir string) error {
 	for _, u := range plan.Changed {

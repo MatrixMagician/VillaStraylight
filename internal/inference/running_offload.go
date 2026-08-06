@@ -10,22 +10,22 @@ import (
 )
 
 // running_offload.go answers the SAME silent-CPU-fallback question as offload.go
-// (D-09) but for an ALREADY-RUNNING server, where the Phase-2 before/after GTT
+// but for an ALREADY-RUNNING server, where the Phase-2 before/after GTT
 // delta is impossible (the server is up; there is no "before"). It reuses the
 // inference.Verdict (PASS/WARN/FAIL + typed-Unknown) vocabulary and combineOffload
-// verbatim (D-12) — it does NOT re-roll the offload math.
+// verbatim — it does NOT re-roll the offload math.
 //
 // The two carried-in Phase-2 hardening findings are closed here:
 //
-//   - WR-05: auto-fit llama.cpp builds emit no "offloaded N/N" line, so a device
+// -: auto-fit llama.cpp builds emit no "offloaded N/N" line, so a device
 //     line proves only ENUMERATION, not per-layer RESIDENCY. The load-bearing
 //     residency proof is instead the higher-verbosity journald line
 //     "load_tensors: Vulkan0 model buffer size = N MiB" — a non-zero Vulkan0 model
 //     buffer means real weight bytes are resident on the Vulkan device. llama.cpp
 //     /props is explicitly NOT the placement proof (Pitfall 1): it is folded in
 //     only as a config-identity (drift) corroboration overlay.
-//   - CR-03: mem_info_gtt_used is a host-wide counter, so a fragile before/after
-//     delta is unreliable on a long-running host. Instead a POINT-IN-TIME floor —
+// -: mem_info_gtt_used is a host-wide counter, so a fragile before/after
+//     delta is unreliable on a long-running host. Instead a POINT-IN-TIME floor
 //     used ≥ the model's weight footprint — corroborates residency.
 //
 // This file is PURE: it accepts the journal text, the parsed /props, and the
@@ -35,7 +35,7 @@ import (
 
 // RunningOffloadInput is the pure input to RunningOffloadVerdict: the recovered
 // journal text (residency), the parsed /props (config-identity corroboration), the
-// point-in-time GTT-used reading (CR-03 floor), and the model's expected weight
+// point-in-time GTT-used reading (floor), and the model's expected weight
 // footprint plus the configured model/context for the drift overlay.
 type RunningOffloadInput struct {
 	// JournalText is the bounded user-journal text of the inference service, scanned
@@ -45,7 +45,7 @@ type RunningOffloadInput struct {
 	// config-drift overlay. nil means /props was unavailable (Unknown → never a
 	// false PASS, never a FAIL — it is corroboration only).
 	Props *PropsInfo
-	// GTTUsedBytes is the point-in-time mem_info_gtt_used reading (CR-03 floor),
+	// GTTUsedBytes is the point-in-time mem_info_gtt_used reading (floor),
 	// already read by the cmd layer through detect.GTTUsedBytes.
 	GTTUsedBytes detect.Bytes
 	// WeightBytes is the loaded model's expected on-disk weight footprint (from the
@@ -57,17 +57,17 @@ type RunningOffloadInput struct {
 	ConfigModel   string
 	ConfigContext int
 
-	// Markers is the backend-owned residency descriptor (D-04/D-05). The running
+	// Markers is the backend-owned residency descriptor. The running
 	// scrape keys its device-token match and fault scan on it instead of hardcoded
 	// "Vulkan0" literals, so a ROCm backend slots in (Plan 02) without re-rolling the
 	// offload math. The cmd layer sets it from BackendFor(cfg.Backend).ResidencyProof().
 	Markers ResidencyMarkers
-	// GPUBusyPercent is the point-in-time sysfs gpu_busy_percent reading (D-06), read
+	// GPUBusyPercent is the point-in-time sysfs gpu_busy_percent reading, read
 	// by the cmd layer via detect.GPUBusyPercent. It is folded through combineOffload
 	// as a residency CORROBORATOR: Known non-zero corroborates a PASS, Known-zero on a
 	// claimed-healthy decode FAILs (silent CPU fallback), absent/Unknown is
 	// combine-neutral (the fold is SKIPPED — Vulkan supplies no busy signal so its
-	// verdict stays byte-identical). The live decode-time read lands in Phase 8 (D-07);
+	// verdict stays byte-identical). The live decode-time read lands in Phase 8;
 	// Phase 6 wires the input + verdict logic, fixture-driven.
 	GPUBusyPercent detect.Int
 }
@@ -94,19 +94,21 @@ const (
 )
 
 // scrapeLoadTensorsResidency parses the journal for the load_tensors device-buffer
-// residency line (WR-05), keyed on the backend-owned ResidencyMarkers (D-05) so the
+// residency line, keyed on the backend-owned ResidencyMarkers so the
 // scrape is backend-neutral. It transfers the offload.go scrapeOffloadLog
 // bufio.Scanner skeleton:
 //
 //   - a non-empty m.FaultString found anywhere in the journal                → FAIL
-//     (an abort VOIDS residency BEFORE the buffer-line switch, D-06). Empty
-//     FaultString (Vulkan) makes this a no-op → Vulkan stays byte-identical.
-//   - a "load_tensors: ... <DeviceToken> model buffer size = N MiB" with N>0 → PASS
-//     (real weight bytes resident on the GPU device)
-//   - the same line with N == 0, OR only a CPU buffer line and no DeviceToken → FAIL
-//     (the silent-CPU-fallback this exists to catch)
-//   - no load_tensors buffer line at all / empty journal                     → WARN
-//     (typed-Unknown — could not evaluate; NEVER a false PASS)
+//
+// (an abort VOIDS residency BEFORE the buffer-line switch). Empty
+//
+//	  FaultString (Vulkan) makes this a no-op → Vulkan stays byte-identical.
+//	- a "load_tensors: ... <DeviceToken> model buffer size = N MiB" with N>0 → PASS
+//	  (real weight bytes resident on the GPU device)
+//	- the same line with N == 0, OR only a CPU buffer line and no DeviceToken → FAIL
+//	  (the silent-CPU-fallback this exists to catch)
+//	- no load_tensors buffer line at all / empty journal                     → WARN
+//	  (typed-Unknown — could not evaluate; NEVER a false PASS)
 func scrapeLoadTensorsResidency(journal string, m ResidencyMarkers) OffloadResult {
 	if strings.TrimSpace(journal) == "" {
 		return OffloadResult{
@@ -131,7 +133,7 @@ func scrapeLoadTensorsResidency(journal string, m ResidencyMarkers) OffloadResul
 		}
 	}
 
-	// Fault scan FIRST (D-06): an abort marker voids residency before any buffer-line
+	// Fault scan FIRST: an abort marker voids residency before any buffer-line
 	// PASS. Empty FaultString (Vulkan) skips this entirely → byte-identical.
 	if m.FaultString != "" && strings.Contains(journal, m.FaultString) {
 		return OffloadResult{
@@ -223,7 +225,7 @@ func parseBufferMiB(line string) (mib float64, ok bool) {
 }
 
 // gttFloor classifies the POINT-IN-TIME mem_info_gtt_used reading against the
-// model's weight footprint (CR-03 — a floor, NOT a before/after delta). With
+// model's weight footprint (a floor, NOT a before/after delta). With
 // --no-mmap the weights are resident in unified memory, so a healthy running server
 // must show at least the weight footprint in GTT-used.
 //
@@ -263,13 +265,13 @@ func gttFloor(used detect.Bytes, weight uint64) OffloadResult {
 }
 
 // gpuBusyFloor classifies the point-in-time sysfs gpu_busy_percent reading as a
-// residency CORROBORATOR (D-06), mirroring gttFloor's typed-Unknown discipline:
+// residency CORROBORATOR, mirroring gttFloor's typed-Unknown discipline:
 //
 //   - busy.Known && busy.Value > 0  → PASS (a real decode is using the GPU)
 //   - busy.Known && busy.Value == 0 → FAIL (a claimed-healthy decode at 0% busy is a
 //     silent CPU fallback, R1)
 //   - !busy.Known                   → PASS-equivalent typed-Unknown (NEVER WARN).
-//     combineOffload has NO neutral state — a WARN would downgrade every Vulkan PASS —
+//     combineOffload has NO neutral state — a WARN would downgrade every Vulkan PASS
 //     so the caller SKIPS folding this case entirely; this branch returns a
 //     PASS-equivalent result only as a defensive fallback if invoked unconditionally.
 //
@@ -277,7 +279,7 @@ func gttFloor(used detect.Bytes, weight uint64) OffloadResult {
 func gpuBusyFloor(busy detect.Int) OffloadResult {
 	if !busy.Known {
 		// Defensive: the caller does NOT fold this case (see RunningOffloadVerdict).
-		// If invoked anyway it must be PASS-equivalent, never WARN (D-07/Q2): an
+		// If invoked anyway it must be PASS-equivalent, never WARN (Q2): an
 		// unavailable busy reading must not flip a residency-proven PASS.
 		return OffloadResult{
 			Status: StatusPass,
@@ -300,7 +302,7 @@ func gpuBusyFloor(busy detect.Int) OffloadResult {
 }
 
 // verdictAsResult collapses an already-combined Verdict back into a single
-// OffloadResult so the busy signal can be re-folded through combineOffload (D-06)
+// OffloadResult so the busy signal can be re-folded through combineOffload
 // WITHOUT re-rolling the combine math. It preserves the residency+floor Status and
 // the load-scrape Signal as the carried typed-Unknown.
 func verdictAsResult(v Verdict) OffloadResult {
@@ -317,7 +319,7 @@ func verdictAsResult(v Verdict) OffloadResult {
 // reused combineOffload discipline (any FAIL→FAIL; else any Unknown→WARN; else
 // PASS). The journald residency scrape is the load-bearing "log" signal; the
 // point-in-time GTT floor is the "sysfs" signal. The sysfs gpu_busy_percent reading
-// is folded as a residency corroborator (D-06) — but only when Known: an
+// is folded as a residency corroborator — but only when Known: an
 // absent/Unknown busy reading is combine-neutral (the fold is SKIPPED, never a WARN,
 // since combineOffload has no neutral state and a WARN would break the byte-identical
 // Vulkan guard). The /props response is folded in ONLY as a config-identity drift
@@ -330,7 +332,7 @@ func RunningOffloadVerdict(in RunningOffloadInput) Verdict {
 
 	v := combineOffload(residency, floor)
 
-	// D-06 busy-signal fold — CONDITIONAL on a Known reading. When the busy reading is
+	// busy-signal fold — CONDITIONAL on a Known reading. When the busy reading is
 	// Unknown/absent (e.g. Vulkan, which supplies none), SKIP the fold entirely so the
 	// verdict is exactly residency+floor and stays byte-identical. When Known, re-fold
 	// the already-combined verdict with the busy signal through combineOffload (reused,
@@ -346,7 +348,7 @@ func RunningOffloadVerdict(in RunningOffloadInput) Verdict {
 		// combineOffload unconditionally overwrites SysfsOffload + GTTDeltaBytes from its
 		// second argument, so re-folding through it would clobber the real point-in-time
 		// GTT-floor signal, zero the GTTDeltaBytes calibration record, and nest the Detail
-		// string (CR-01). The busy reading is a residency CORROBORATOR, not the sysfs
+		// string. The busy reading is a residency CORROBORATOR, not the sysfs
 		// contract signal — keep LogOffload/SysfsOffload/GTTDeltaBytes as residency+floor.
 		folded := combineOffload(verdictAsResult(v), busy)
 		if folded.Status != v.Status {
@@ -360,7 +362,7 @@ func RunningOffloadVerdict(in RunningOffloadInput) Verdict {
 	}
 	v.Provenance = provenance
 
-	// /props config-identity drift overlay (T-03-15). Only ever downgrades a PASS to
+	// props config-identity drift overlay. Only ever downgrades a PASS to
 	// WARN on a CONFIRMED mismatch; it is never a residency proof and never a FAIL.
 	if drift := propsDrift(in.Props, in.ConfigModel, in.ConfigContext); drift != "" {
 		if v.Status == StatusPass {

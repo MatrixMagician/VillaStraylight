@@ -36,9 +36,9 @@ func TestKVCacheBytesFormula(t *testing.T) {
 	}
 }
 
-// TestKVCacheBytesSaturatesOnOverflow (phase-22 WR-07): an absurd ctx whose
+// TestKVCacheBytesSaturatesOnOverflow (phase-22): an absurd ctx whose
 // five-term product exceeds 2^64 must SATURATE to MaxUint64, never wrap mod 2^64
-// to a small value that would defeat the D-07 fit re-validation (silent OOM).
+// to a small value that would defeat the fit re-validation (silent OOM).
 func TestKVCacheBytesSaturatesOnOverflow(t *testing.T) {
 	m := catalog.CatalogModel{NLayers: 48, NKVHeads: 8, HeadDim: 128, KVBytesPerElem: 2}
 	// Multiplier 2*48*8*128*2 = 196,608; ctx ≈ 9.4e13 wraps a naive product.

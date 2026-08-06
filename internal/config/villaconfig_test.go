@@ -17,15 +17,15 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 		Quant:         "UD-Q4_K_M",
 		Ctx:           131072,
 		Backend:       "vulkan",
-		CatalogPath:   "/srv/catalogs/newer.json", // persisted external-catalog choice (IN-03)
-		DashboardPort: 8888,                       // D-13 dashboard port
-		ChatPort:      3000,                       // D-12 chat link target
-		// Memory fields (D-04/D-08): populate with the inert defaults so the
+		CatalogPath:   "/srv/catalogs/newer.json", // persisted external-catalog choice
+		DashboardPort: 8888,                       // dashboard port
+		ChatPort:      3000,                       // chat link target
+		// Memory fields: populate with the inert defaults so the
 		// full-literal equality assertion survives the schema extension.
 		MemoryEnabled:  false,
 		EmbeddingModel: "nomic-embed-text-v1.5",
 		EmbeddingDim:   768,
-		// Web-search fields (v1.5, SRCH-01): populate with the inert defaults so the
+		// Web-search fields: populate with the inert defaults so the
 		// full-literal equality assertion survives the schema extension (mirrors the
 		// memory-field treatment above). normalizeVilla self-heals these on load.
 		WebSearchEnabled:     false,
@@ -56,7 +56,7 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 }
 
 // TestLoadMissingReturnsDefaults asserts Load on an absent file returns typed
-// defaults (backend vulkan) with no error — read-only by default (D-20).
+// defaults (backend vulkan) with no error — read-only by default.
 func TestLoadMissingReturnsDefaults(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "villa")
 	got, err := LoadVillaFrom(dir)
@@ -69,7 +69,7 @@ func TestLoadMissingReturnsDefaults(t *testing.T) {
 	if got.Backend != "rocm" {
 		t.Errorf("default backend = %q, want rocm (ROCm 7.2.4 is the default backend)", got.Backend)
 	}
-	// The dashboard/chat ports default to 8888 / chat 3000 when absent (D-13/D-12).
+	// The dashboard/chat ports default to 8888 / chat 3000 when absent.
 	// The bind address is no longer persisted: it is the DashboardAddr constant.
 	if DashboardAddr != "127.0.0.1" {
 		t.Errorf("DashboardAddr = %q, want 127.0.0.1 (loopback-only)", DashboardAddr)
@@ -153,7 +153,7 @@ chat_port = 4000
 }
 
 // TestDefaultConfigDashboardFields asserts defaultConfig() seeds the dashboard/chat
-// port defaults directly (D-13/D-12), independent of file I/O. The bind address is
+// port defaults directly, independent of file I/O. The bind address is
 // no longer among them — it is the DashboardAddr constant, asserted separately.
 func TestDefaultConfigDashboardFields(t *testing.T) {
 	d := defaultConfig()
@@ -168,7 +168,7 @@ func TestDefaultConfigDashboardFields(t *testing.T) {
 // values themselves must not drift: the addresses are the container-DNS names the
 // rendered units and the in-network probes both resolve, and widening any of them
 // off the private network (or off loopback, for the dashboard) is the privacy
-// violation the fields were never allowed to express (PRIV-01).
+// violation the fields were never allowed to express.
 func TestServiceIdentityConstants(t *testing.T) {
 	cases := []struct {
 		name string
@@ -193,7 +193,7 @@ func TestServiceIdentityConstants(t *testing.T) {
 }
 
 // memoryDefaults captures the inert default-OFF memory state defaultConfig()
-// must seed (D-04/D-08): MemoryEnabled false, the pinned embedding model/dim, and
+// must seed: MemoryEnabled false, the pinned embedding model/dim, and
 // the container-DNS-only Qdrant/embed endpoints (never a routable host bind).
 func memoryDefaults() VillaConfig {
 	return VillaConfig{
@@ -204,12 +204,12 @@ func memoryDefaults() VillaConfig {
 }
 
 // TestDefaultConfigMemoryFields asserts defaultConfig() seeds the memory defaults
-// directly (the SINGLE home of those literals, D-05), independent of file I/O.
-// MemoryEnabled defaults false (D-04); the rest are inert until opt-in.
+// directly (the SINGLE home of those literals), independent of file I/O.
+// MemoryEnabled defaults false; the rest are inert until opt-in.
 func TestDefaultConfigMemoryFields(t *testing.T) {
 	d := defaultConfig()
 	if d.MemoryEnabled {
-		t.Errorf("defaultConfig() MemoryEnabled = true, want false (default-OFF, D-04)")
+		t.Errorf("defaultConfig MemoryEnabled = true, want false (default-OFF)")
 	}
 	if d.EmbeddingModel != "nomic-embed-text-v1.5" {
 		t.Errorf("default EmbeddingModel = %q, want nomic-embed-text-v1.5", d.EmbeddingModel)
@@ -222,7 +222,7 @@ func TestDefaultConfigMemoryFields(t *testing.T) {
 }
 
 // TestLoadMemoryDefaultsOff asserts a v1.2-style config.toml carrying NO memory
-// keys loads with memory defaulted-OFF and the coherent inert defaults (SC#1).
+// keys loads with memory defaulted-OFF and the coherent inert defaults.
 func TestLoadMemoryDefaultsOff(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "villa")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -245,7 +245,7 @@ chat_port = 3000
 		t.Fatalf("LoadVillaFrom: %v", err)
 	}
 	if got.MemoryEnabled {
-		t.Errorf("v1.2 config loaded MemoryEnabled = true, want false (default-OFF, SC#1)")
+		t.Errorf("v1.2 config loaded MemoryEnabled = true, want false (default-OFF)")
 	}
 	wantMem := memoryDefaults()
 	if got.EmbeddingModel != wantMem.EmbeddingModel || got.EmbeddingDim != wantMem.EmbeddingDim {
@@ -273,7 +273,7 @@ func TestLoadMissingReturnsMemoryDefaults(t *testing.T) {
 // TestNormalizeMemorySelfHeal asserts an on-disk config with zeroed/empty memory
 // fields self-heals on load to the defaultConfig() values via normalizeVilla
 // (mirrors TestLoadNormalizesZeroPorts). The fill derives from defaultConfig()
-// (single source) and NEVER widens a bind (T-18-02 / PRIV-01).
+// (single source) and NEVER widens a bind.
 func TestNormalizeMemorySelfHeal(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "villa")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -314,7 +314,7 @@ embed_port = 0
 
 // TestEndpointsNeverWidenBind asserts the service endpoints are container-DNS
 // names on the private network and the dashboard is loopback — never a routable
-// or all-interfaces bind (T-18-02 / PRIV-01).
+// or all-interfaces bind.
 //
 // This used to be a property of normalizeVilla, which healed a hand-edited value
 // back to the default. It is now stronger: there is no value to hand-edit, so the
@@ -365,13 +365,13 @@ embed_port = 9090
 	// already on disk keep loading.
 }
 
-// TestMemoryByteIdentical proves SC#1's load-path half (D-05): loading a v1.2
+// TestMemoryByteIdentical proves 's load-path half: loading a v1.2
 // config.toml that carries NO memory keys self-heals the IN-MEMORY struct to the
 // memory-off defaults WITHOUT mutating the on-disk file. The guarantee is the
 // ABSENCE of a memory save path in Phase 18 — load is read-only. Re-reading the
 // file bytes after load must equal the original bytes. The test deliberately does
 // NOT call SaveVilla/SaveVillaTo: manufacturing memory keys would be the very
-// regression SC#1 forbids (Pitfall 1: BurntSushi/toml emits type-zero keys).
+// regression forbids (Pitfall 1: BurntSushi/toml emits type-zero keys).
 func TestMemoryByteIdentical(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "villa")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -458,7 +458,7 @@ func TestSaveRefusesTraversal(t *testing.T) {
 	}
 }
 
-// TestMemorySaveOmitsKeysWhenDisabled guards SC#1 on the SAVE path (the gap a
+// TestMemorySaveOmitsKeysWhenDisabled guards on the SAVE path (the gap a
 // load-only test cannot see): a save-bearing command on a memory-off install must
 // NOT introduce any memory_* key on disk, even though the in-memory struct carries
 // non-zero memory defaults. marshalVilla zeroes the memory fields when disabled so
@@ -512,10 +512,10 @@ func TestMemorySaveOmitsKeysWhenDisabled(t *testing.T) {
 	}
 }
 
-// TestCodingModeSaveOmitsKeysWhenDisabled is the coding-mode (Phase-25 D-04) twin of
+// TestCodingModeSaveOmitsKeysWhenDisabled is the coding-mode twin of
 // TestMemorySaveOmitsKeysWhenDisabled: on a non-coding install a save-bearing command
 // must NOT introduce any coding_mode / coder_* key on disk (byte-identical off-path,
-// D-02/D-04). marshalVilla zeroes the coder_* fields when CodingMode==false so the
+// marshalVilla zeroes the coder_* fields when CodingMode==false so the
 // ,omitempty tags drop all four keys. When coding mode is ON every field is written and
 // round-trips. The coder_* fields hold the model/quant/agent_ctx RESOLVED AT ENTER.
 func TestCodingModeSaveOmitsKeysWhenDisabled(t *testing.T) {
@@ -610,10 +610,10 @@ chat_port = 3000
 	}
 }
 
-// TestAgentEnabledSaveOmitsKeyWhenDisabled is the v1.4 coding-agent (Phase-27 D-01)
+// TestAgentEnabledSaveOmitsKeyWhenDisabled is the v1.4 coding-agent
 // twin of the memory/coding omit-when-off tests: on a non-agent install a save-bearing
 // command must NOT introduce the agent_enabled key on disk (byte-identical off-path,
-// D-01). AgentEnabled is a plain bool with ,omitempty, so a default-false marshal drops
+// AgentEnabled is a plain bool with,omitempty, so a default-false marshal drops
 // the key with no marshalVilla zeroing. When the agent addon is ON the key is written
 // and round-trips.
 func TestAgentEnabledSaveOmitsKeyWhenDisabled(t *testing.T) {
@@ -665,12 +665,12 @@ func TestAgentEnabledSaveOmitsKeyWhenDisabled(t *testing.T) {
 func TestAgentEnabledNotSelfHealed(t *testing.T) {
 	got := normalizeVilla(VillaConfig{})
 	if got.AgentEnabled {
-		t.Errorf("normalizeVilla widened AgentEnabled to true, want false (not self-healed, D-01)")
+		t.Errorf("normalizeVilla widened AgentEnabled to true, want false (not self-healed)")
 	}
 }
 
 // TestDefaultConfigWebSearchFields asserts defaultConfig() seeds the web-search defaults
-// directly (the SINGLE home of those literals, SRCH-01), independent of file I/O.
+// directly (the SINGLE home of those literals), independent of file I/O.
 // WebSearchEnabled defaults false; the addr/port are the container-DNS-only endpoint;
 // the secret has no default (generated at opt-in).
 func TestDefaultConfigWebSearchFields(t *testing.T) {
@@ -686,7 +686,7 @@ func TestDefaultConfigWebSearchFields(t *testing.T) {
 	}
 }
 
-// TestWebSearchSaveOmitsKeysWhenDisabled is the web-search (v1.5, SC#4/PRIV-07) twin of
+// TestWebSearchSaveOmitsKeysWhenDisabled is the web-search twin of
 // the memory/coding omit-when-off tests: on a non-web-search install a save-bearing
 // command must NOT introduce any web-search key on disk, even though the in-memory struct
 // carries non-zero searxng defaults. marshalVilla zeroes the searxng fields when disabled
@@ -755,7 +755,7 @@ func TestWebSearchSaveOmitsKeysWhenDisabled(t *testing.T) {
 // TestWebSearchNormalizeSelfHeal asserts normalizeVilla fills a zero SearxngPort and an
 // empty SearxngAddr from defaultConfig() (mirrors TestNormalizeMemorySelfHeal) while NEVER
 // self-healing WebSearchEnabled (a deliberate bool) or SearxngSecret (a generated secret
-// with no default). The addr fill only ever yields the container-DNS name (PRIV-01).
+// with no default). The addr fill only ever yields the container-DNS name.
 func TestWebSearchNormalizeSelfHeal(t *testing.T) {
 	got := normalizeVilla(VillaConfig{WebSearchEnabled: true})
 	if !got.WebSearchEnabled {
@@ -821,7 +821,7 @@ func TestGenerateSearxngSecretUsesCryptoRand(t *testing.T) {
 
 // TestDefaultConfigWebsafeFields asserts the v1.5 (GROUND/GUARD) websafe defaults:
 // the addr/port are the SINGLE home of villa-websafe:8090 (container-DNS only,
-// PRIV-01), and the bearer secret + host binary path have NO default (captured /
+// and the bearer secret + host binary path have NO default (captured /
 // generated at opt-in, never a hardcoded literal).
 func TestDefaultConfigWebsafeFields(t *testing.T) {
 	d := defaultConfig()
@@ -900,7 +900,7 @@ func TestWebsafeSaveOmitsKeysWhenDisabled(t *testing.T) {
 // TestWebsafeNormalizeSelfHeal asserts normalizeVilla fills a zero WebsafePort and an
 // empty WebsafeAddr from defaultConfig() (mirrors the SearXNG self-heal) while NEVER
 // self-healing WebLoaderSecret (a generated secret) or HostVillaPath (a captured host
-// path). The addr fill only ever yields the container-DNS name (PRIV-01).
+// path). The addr fill only ever yields the container-DNS name.
 func TestWebsafeNormalizeSelfHeal(t *testing.T) {
 	got := normalizeVilla(VillaConfig{WebSearchEnabled: true})
 	if got.WebLoaderSecret != "" {

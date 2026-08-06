@@ -7,7 +7,7 @@ import (
 
 // assetsFS embeds the no-build single-page UI (HTML shell + one CSS file + vanilla
 // JS) so `villa dashboard` ships as a pure `go build` static binary — NO node/npm
-// toolchain (D-01). `all:assets` includes dotfiles for completeness, mirroring the
+// toolchain. `all:assets` includes dotfiles for completeness, mirroring the
 // legacy web/embed.go //go:embed all:dist idiom.
 //
 //go:embed all:assets

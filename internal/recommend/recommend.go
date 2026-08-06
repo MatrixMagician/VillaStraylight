@@ -2,14 +2,14 @@
 // single memory-safe Recommendation: a model/quant/context/backend that provably
 // fits the usable memory envelope (model_bytes + KV-cache@ctx + headroom ≤
 // usable_envelope), with every term of that inequality surfaced so the CLI can
-// SHOW the user why it fits (D-06).
+// SHOW the user why it fits.
 //
 // Pick is a PURE function (no I/O) so it is exhaustively table-testable. It never
-// auto-selects an entry flagged unified_memory_safe:false (REC-02), never auto-
-// selects the bootstrap entry (D-12), defaults the backend to rocm for gfx1151
-// (REC-04), re-validates manual overrides and warns/fails when they don't fit
-// (D-07), and degrades safely to a conservative floor when the envelope is Unknown
-// — refusing only when no safe floor is derivable, never guessing high (D-14).
+// auto-selects an entry flagged unified_memory_safe:false, never auto-
+// selects the bootstrap entry, defaults the backend to rocm for gfx1151
+// re-validates manual overrides and warns/fails when they don't fit
+// and degrades safely to a conservative floor when the envelope is Unknown
+// — refusing only when no safe floor is derivable, never guessing high.
 package recommend
 
 import (
@@ -20,7 +20,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/memory"
 )
 
-// defaultBackend is the inference backend recommended for gfx1151 (REC-04). ROCm
+// defaultBackend is the inference backend recommended for gfx1151. ROCm
 // is the default; Vulkan RADV remains selectable as an explicit opt-in fallback.
 const defaultBackend = "rocm"
 
@@ -43,7 +43,7 @@ func IsROCmFamily(name string) bool {
 	}
 }
 
-// Web-search reservation constants (GROUND-03, 31-RESEARCH Assumption A6). The
+// Web-search reservation constants (31-RESEARCH Assumption A6). The
 // reservation is deliberately CONSERVATIVE — over-reserving keeps the chat model
 // GPU-resident under search load; on-hardware tuning of these is deferred to
 // Phase 33/34 (STATE.md unmeasured-ctx blocker). They are the SINGLE home of the
@@ -72,7 +72,7 @@ const (
 	webSafetyFactorX10 = 15
 	// maxWeb* clamp pathological (hand-edited config.toml) tuning values so the reservation
 	// products cannot overflow uint64 and wrap to a SMALL under-reservation (which would let
-	// a search-on host silently CPU-fall-back — the exact GROUND-03 failure the reservation
+	// a search-on host silently CPU-fall-back — the exact failure the reservation
 	// exists to prevent). Clamping UP-TO the max over-reserves (fail-closed), never under.
 	// The maxima are far above any sane OWUI config yet keep every product well below 2^64.
 	maxWebTopK           = 100
@@ -82,15 +82,15 @@ const (
 
 // recommendSchemaVersion is the Recommendation contract self-version. It is the
 // LAST tagged field of Recommendation and surfaces unconditionally in --json so
-// dashboards can gate on additive growth (D-06/D-07). Bumped 1→2 when the
+// dashboards can gate on additive growth. Bumped 1→2 when the
 // append-only embedding_reservation_bytes + memory_considered fields landed
-// (Phase 22, D-03). Bumped 2→3 when the append-only coder block landed
-// (Phase 24, D-07). Bumped 3->4 when the append-only web_search_reservation_bytes
-// field landed (Phase 31, GROUND-03) -- the single sanctioned recommend contract
+// (Phase 22). Bumped 2→3 when the append-only coder block landed
+// (Phase 24). Bumped 3->4 when the append-only web_search_reservation_bytes
+// field landed (Phase 31) -- the single sanctioned recommend contract
 // bump for Phase 31.
 const recommendSchemaVersion = 4
 
-// ROCmAdvice is a typed enum surfaced on the Recommendation (REC-05 / D-05): an
+// ROCmAdvice is a typed enum surfaced on the Recommendation: an
 // honesty-bounded hint about whether the opt-in ROCm backend is worth a benchmark
 // on this host, derived PURELY from HostProfile.rocm_readiness inside Pick (no I/O,
 // no new arg). It NEVER promises a speed-up — the on-hardware token-gen delta was
@@ -101,7 +101,7 @@ type ROCmAdvice string
 const (
 	// ROCmAdviceReady is reserved for a host that is fully validated as ROCm-ready.
 	// Phase 10 derives only worth-trying / verify-with-bench / withheld from the
-	// readiness fold; the const is defined for contract completeness (D-05).
+	// readiness fold; the const is defined for contract completeness.
 	ROCmAdviceReady ROCmAdvice = "ready"
 	// ROCmAdviceWorthTrying means every readiness signal is Known-good — ROCm is
 	// worth a benchmark, but the advice still points at `villa bench` and never
@@ -112,7 +112,7 @@ const (
 	ROCmAdviceVerifyBench ROCmAdvice = "verify-with-bench"
 )
 
-// rocmAdviceNote is the LOCKED honesty-safe Note copy (RESEARCH Pattern 4 / D-05).
+// rocmAdviceNote is the LOCKED honesty-safe Note copy (RESEARCH Pattern 4).
 // It points the user at `villa bench --ab` and deliberately contains none of
 // "faster"/"guaranteed"/"speed-up" — ROCm's win is prompt-processing-weighted and
 // token generation may regress (on-hardware UAT Δtg −11.15). Since ROCm is the
@@ -125,8 +125,8 @@ const rocmAdviceNote = "ROCm: this host looks ROCm-ready, so the default rocm ba
 const rocmVerifyNote = "ROCm: readiness could not be fully evaluated on this host, so the default rocm backend is kept (an unproven signal is not treated as a failure). If inference misbehaves, fall back with: villa backend set vulkan. Compare the two with: villa bench --ab"
 
 // Recommendation is the result of Pick — and the --json / Phase-5 dashboard
-// contract (D-05). A golden-file test guards its shape. Every fit term is
-// populated so the command layer can render the full inequality (D-06).
+// contract. A golden-file test guards its shape. Every fit term is
+// populated so the command layer can render the full inequality.
 type Recommendation struct {
 	// The pick. Model is empty only on a refusal (no safe envelope).
 	Model      string `json:"model"`
@@ -134,7 +134,7 @@ type Recommendation struct {
 	ContextLen int    `json:"context_len"`
 	Backend    string `json:"backend"`
 
-	// The four fit terms plus the ceiling and verdict (D-06): the user can see
+	// The four fit terms plus the ceiling and verdict: the user can see
 	// WeightBytes + KVCacheBytes + HeadroomBytes = TotalBytes ≤ UsableEnvelopeBytes.
 	WeightBytes         uint64 `json:"weight_bytes"`
 	KVCacheBytes        uint64 `json:"kv_cache_bytes"`
@@ -142,7 +142,7 @@ type Recommendation struct {
 	TotalBytes          uint64 `json:"total_bytes"`
 	UsableEnvelopeBytes uint64 `json:"usable_envelope_bytes"`
 
-	// Fits is the verdict; Degraded marks a conservative-floor estimate (D-14).
+	// Fits is the verdict; Degraded marks a conservative-floor estimate.
 	Fits     bool `json:"fits"`
 	Degraded bool `json:"degraded"`
 
@@ -150,43 +150,43 @@ type Recommendation struct {
 	// override-doesn't-fit warnings, and refusal reasons.
 	Notes []string `json:"notes"`
 
-	// Alternatives are other fitting picks (surfaced behind --alternatives, D-06).
+	// Alternatives are other fitting picks (surfaced behind --alternatives).
 	Alternatives []Alternative `json:"alternatives,omitempty"`
 
 	// ROCmAdvice + ROCmNote are the tail-appended, honesty-bounded ROCm hint
-	// (REC-05 / D-05), derived purely from HostProfile.rocm_readiness inside Pick.
+	// derived purely from HostProfile.rocm_readiness inside Pick.
 	// Both are omitempty so the contract is unchanged when advice is not applicable.
-	// They NEVER change Backend (REC-04) and NEVER promise a speed-up.
+	// They NEVER change Backend and NEVER promise a speed-up.
 	ROCmAdvice ROCmAdvice `json:"rocm_advice,omitempty"`
 	ROCmNote   string     `json:"rocm_note,omitempty"`
 
 	// EmbeddingReservationBytes is the embedding-model footprint subtracted from
-	// the envelope BEFORE the chat-model fit when memory is enabled (D-01/D-03).
+	// the envelope BEFORE the chat-model fit when memory is enabled.
 	// Zero when memory is off — the off-path JSON shape changes only by this key.
 	EmbeddingReservationBytes uint64 `json:"embedding_reservation_bytes"`
 
 	// MemoryConsidered marks whether the memory reservation was applied to this
-	// pick (D-03): true whenever memory inputs were enabled — including refusals,
+	// pick: true whenever memory inputs were enabled — including refusals,
 	// which honestly report the reservation they would have applied.
 	MemoryConsidered bool `json:"memory_considered"`
 
-	// Coder is the agent-profile coder fit + derived residency mode (D-06): the
+	// Coder is the agent-profile coder fit + derived residency mode: the
 	// fit is computed at each coder entry's catalog agent_ctx against the
 	// post-reservation envelope. It is ALWAYS stamped — including on refusals,
 	// where it carries fits:false / residency:"shared" — and deliberately NOT
-	// omitempty so the residency basis is never hidden (D-07, Pitfall 6).
+	// omitempty so the residency basis is never hidden (Pitfall 6).
 	Coder CoderFit `json:"coder"`
 
 	// WebSearchReservationBytes is the web-search RAG-injection budget subtracted
 	// from the envelope BEFORE the chat-model fit when web search is enabled
-	// (GROUND-03), mirroring EmbeddingReservationBytes. It is reserved AFTER the
+	// mirroring EmbeddingReservationBytes. It is reserved AFTER the
 	// embedding reservation and BEFORE pickBest/pickOverride so a search-enabled
 	// envelope cannot silently CPU-fall-back. Zero when web search is off — the
 	// off-path JSON shape changes only by this key (byte-identical-off intent).
 	WebSearchReservationBytes uint64 `json:"web_search_reservation_bytes"`
 
 	// SchemaVersion is the Recommendation contract self-version and MUST stay the
-	// LAST tagged field (append-only discipline; new fields go above it, D-06/D-07).
+	// LAST tagged field (append-only discipline; new fields go above it).
 	SchemaVersion int `json:"schema_version"`
 }
 
@@ -198,7 +198,7 @@ type Alternative struct {
 	TotalBytes uint64 `json:"total_bytes"`
 }
 
-// Overrides are user-supplied selections (REC-03 / D-07). A zero value means
+// Overrides are user-supplied selections. A zero value means
 // "unset" for that field.
 type Overrides struct {
 	Model string
@@ -207,7 +207,7 @@ type Overrides struct {
 }
 
 // MemoryInputs carries the memory-stack inputs Pick reserves BEFORE the
-// chat-model fit (D-01). The zero value means memory off — provably
+// chat-model fit. The zero value means memory off — provably
 // byte-identical math to the pre-memory contract. Pure-core rule: callers (the
 // cmd tier) load config and thread these explicitly; Pick never loads config.
 type MemoryInputs struct {
@@ -215,12 +215,12 @@ type MemoryInputs struct {
 	// config load error threads the zero value, never an error-path change.
 	Enabled bool
 	// EmbeddingModel is the persisted embedding model id whose footprint is
-	// reserved; an unrecognized id reserves the conservative default (D-02).
+	// reserved; an unrecognized id reserves the conservative default.
 	EmbeddingModel string
 }
 
 // WebSearchInputs carries the web-search RAG inputs Pick reserves BEFORE the
-// chat-model fit, AFTER the embedding reservation (GROUND-03). The zero value
+// chat-model fit, AFTER the embedding reservation. The zero value
 // means web search off — provably byte-identical math to the pre-web-search
 // contract. Pure-core rule: callers (the cmd tier) load config and thread these
 // explicitly; Pick never loads config. Mirrors MemoryInputs exactly.
@@ -242,8 +242,8 @@ type WebSearchInputs struct {
 // Pick selects the single best fitting model for the host, applies and re-
 // validates any overrides, and returns a fully-populated Recommendation. When
 // memory is enabled the embedding-model footprint is reserved off the envelope
-// FIRST (D-01) so the fit verdict, headroom, OOM guard and UsableEnvelopeBytes
-// all see the shrunken value (SC#1).
+// FIRST so the fit verdict, headroom, OOM guard and UsableEnvelopeBytes
+// all see the shrunken value.
 func Pick(p detect.HostProfile, c catalog.Catalog, ov Overrides, mem MemoryInputs, web WebSearchInputs) Recommendation {
 	reservation, memNotes := memoryReservation(mem)
 	webRes, webNotes := webSearchReservation(web)
@@ -251,9 +251,9 @@ func Pick(p detect.HostProfile, c catalog.Catalog, ov Overrides, mem MemoryInput
 	envelope, degraded, ok := resolveEnvelope(p)
 	if !ok {
 		// No usable envelope and no safe floor derivable — refuse rather than
-		// guess high (D-14). Empty Model signals the refusal. The refusal still
-		// stamps both reservations as computed (honest surface, D-03/GROUND-03)
-		// and the conservative-floor coder block (D-06/D-07: swap requires a
+		// guess high. Empty Model signals the refusal. The refusal still
+		// stamps both reservations as computed (honest surface)
+		// and the conservative-floor coder block (swap requires a
 		// PROVEN fit, so a refusal stamps fits:false / residency:"shared").
 		return finalizeRecommendation(Recommendation{
 			Backend: defaultBackend,
@@ -261,7 +261,7 @@ func Pick(p detect.HostProfile, c catalog.Catalog, ov Overrides, mem MemoryInput
 		}, p, mem, reservation, webRes, sharedCoderFit())
 	}
 
-	// D-01 / GROUND-03: the envelope shrinks by BOTH reservations BEFORE the
+	// the envelope shrinks by BOTH reservations BEFORE the
 	// degraded note and BEFORE pickOverride/pickBest. Never wrap a uint64 — the
 	// combined reservation is summed with saturating add (a saturated sum can
 	// never be < envelope), and a total at or above the envelope clamps to 0 and
@@ -276,13 +276,13 @@ func Pick(p detect.HostProfile, c catalog.Catalog, ov Overrides, mem MemoryInput
 	notes := combineNotes(memNotes, webNotes)
 	if degraded {
 		notes = append(notes, fmt.Sprintf(
-			"DEGRADED ESTIMATE: real GTT envelope unknown; sized against a conservative %.0f%%-of-RAM floor (%s). Verify before relying on this pick (D-14).",
+			"DEGRADED ESTIMATE: real GTT envelope unknown; sized against a conservative %.0f%%-of-RAM floor (%s). Verify before relying on this pick.",
 			degradedFloorFraction*100, humanGiB(envelope)))
 	}
 
-	// The coder fit runs against the POST-reservation envelope (D-05 ordering:
+	// The coder fit runs against the POST-reservation envelope (ordering:
 	// envelope → reservation → chat fit → coder fit) and is locked to each
-	// entry's agent_ctx — pickCoder takes no Overrides by construction (D-04).
+	// entry's agent_ctx — pickCoder takes no Overrides by construction.
 	coder := pickCoder(c, envelope)
 
 	// An explicit --model override takes precedence and is re-validated.
@@ -306,9 +306,9 @@ func combineNotes(a, b []string) []string {
 	return out
 }
 
-// memoryReservation resolves the D-01 embedding reservation from the memory
+// memoryReservation resolves the embedding reservation from the memory
 // inputs: zero with no notes when memory is off; the pinned footprint when the
-// model id is recognized; the conservative default plus an honest D-02 note
+// model id is recognized; the conservative default plus an honest note
 // naming the model when the footprint is typed-Unknown — NEVER a silent 0
 // reservation. The byte value flows only from internal/memory (single source).
 func memoryReservation(mem MemoryInputs) (uint64, []string) {
@@ -321,11 +321,11 @@ func memoryReservation(mem MemoryInputs) (uint64, []string) {
 	}
 	reserved := memory.ConservativeFootprintBytes()
 	return reserved, []string{fmt.Sprintf(
-		"RESERVED CONSERVATIVELY: no pinned footprint for embedding model %q — reserving the conservative default %s before the chat-model fit (D-02).",
+		"RESERVED CONSERVATIVELY: no pinned footprint for embedding model %q — reserving the conservative default %s before the chat-model fit.",
 		mem.EmbeddingModel, humanGiB(reserved))}
 }
 
-// webSearchReservation resolves the GROUND-03 web-search RAG-injection budget from
+// webSearchReservation resolves the web-search RAG-injection budget from
 // the web inputs: zero with no notes when web search is off (so the off-envelope
 // fit stays byte-identical to v1.4); otherwise a CONSERVATIVE byte reservation
 // derived from the A6 formula, returned with an honest budget note naming it.
@@ -363,7 +363,7 @@ func webSearchReservation(web WebSearchInputs) (uint64, []string) {
 	}
 
 	// Clamp pathological hand-edited tuning to conservative maxima before the products below,
-	// so an absurd value cannot overflow uint64 and wrap to a small under-reservation (GROUND-03).
+	// so an absurd value cannot overflow uint64 and wrap to a small under-reservation.
 	if topK > maxWebTopK {
 		topK = maxWebTopK
 	}
@@ -386,13 +386,13 @@ func webSearchReservation(web WebSearchInputs) (uint64, []string) {
 	reserved := (rawTokens * webBytesPerCtxToken * webSafetyFactorX10) / 10
 
 	return reserved, []string{fmt.Sprintf(
-		"RESERVED for web-search: holding back %s before the chat-model fit for the web-RAG injection budget (top-K %d × %d-char chunks + %d citations) so a search-on envelope cannot silently CPU-fall-back (GROUND-03).",
+		"RESERVED for web-search: holding back %s before the chat-model fit for the web-RAG injection budget (top-K %d × %d-char chunks + %d citations) so a search-on envelope cannot silently CPU-fall-back.",
 		humanGiB(reserved), topK, chunkChars, resultCount)}
 }
 
 // finalizeRecommendation stamps the additive, contract-level fields onto a
-// fully-computed pick: the unconditional SchemaVersion, the D-03 memory fields,
-// the D-07 coder block, and the purely-derived ROCm advice. It runs AFTER
+// fully-computed pick: the unconditional SchemaVersion, the memory fields,
+// the coder block, and the purely-derived ROCm advice. It runs AFTER
 // Backend is set. It performs no I/O: the advice is folded from p.ROCmReadiness
 // already in hand.
 //
@@ -405,10 +405,10 @@ func webSearchReservation(web WebSearchInputs) (uint64, []string) {
 // readiness fold can auto-select ROCm over an explicit choice, and an unevaluable
 // signal (the off-hardware default) never triggers the fallback — unknown must not
 // silently downgrade a working ROCm host (no-false-red, mirroring the no-false-green
-// discipline in deriveROCmAdvice). EVERY Pick return path —
-// including the no-envelope refusal — flows through here, so the D-03 memory
+// discipline in deriveROCmAdvice). EVERY Pick return path
+// including the no-envelope refusal — flows through here, so the memory
 // fields and the coder block are stamped unconditionally (the refusal path
-// passes the conservative-floor block: fits:false / residency:"shared", D-06).
+// passes the conservative-floor block: fits:false / residency:"shared").
 func finalizeRecommendation(rec Recommendation, p detect.HostProfile, mem MemoryInputs, reservation, webRes uint64, coder CoderFit) Recommendation {
 	rec.SchemaVersion = recommendSchemaVersion
 	rec.EmbeddingReservationBytes = reservation
@@ -431,9 +431,9 @@ func finalizeRecommendation(rec Recommendation, p detect.HostProfile, mem Memory
 }
 
 // deriveROCmAdvice folds the five detect.ROCmReadiness signals into the honesty-
-// bounded advice + Note (D-05 / RESEARCH Pattern 4). It mirrors
+// bounded advice + Note (RESEARCH Pattern 4). It mirrors
 // status.foldROCmReadiness's Known-first, worst-wins discipline (any unevaluable
-// signal → unknown wins over a confidently-bad one; no-false-green, D-04/D-08):
+// signal → unknown wins over a confidently-bad one; no-false-green):
 //
 //   - all five Known-good        → worth-trying + the locked honesty-safe Note
 //   - any signal unevaluable     → verify-with-bench + the verify Note
@@ -487,18 +487,18 @@ func pickBest(c catalog.Catalog, ov Overrides, envelope uint64, degraded bool, n
 		m := c.Models[i]
 		if m.Role == "coder" {
 			continue // chat path excludes coder entries — absent role ⇒ chat;
-			// coder entries are sized separately by pickCoder (D-03)
+			// coder entries are sized separately by pickCoder
 		}
 		if m.Bootstrap {
-			continue // never auto-select the bootstrap entry (D-12)
+			continue // never auto-select the bootstrap entry
 		}
 		if !m.UnifiedMemorySafe {
-			continue // never auto-select a unified-memory-unsafe entry (REC-02)
+			continue // never auto-select a unified-memory-unsafe entry
 		}
 		if m.MinEnvelopeBytes > 0 && envelope < m.MinEnvelopeBytes {
 			continue // secondary floor guard: model declares a minimum envelope it
 			// needs to run acceptably; skip it when the host is below that floor
-			// even if the raw weights+KV+headroom math would otherwise fit (IN-01).
+			// even if the raw weights+KV+headroom math would otherwise fit.
 		}
 		ctx := effectiveCtx(m, ov)
 		total := m.WeightBytes + kvCacheBytes(m, ctx) + headroom
@@ -555,14 +555,14 @@ func pickOverride(c catalog.Catalog, ov Overrides, envelope uint64, degraded boo
 	}
 
 	if !m.UnifiedMemorySafe {
-		notes = append(notes, fmt.Sprintf("WARNING: model %q is flagged unified_memory_safe:false — it is known to misbehave on unified memory; using it only because you overrode (D-07)", m.ID))
+		notes = append(notes, fmt.Sprintf("WARNING: model %q is flagged unified_memory_safe:false — it is known to misbehave on unified memory; using it only because you overrode", m.ID))
 	}
 	if m.Role == "coder" {
-		// Warn-and-allow (Open Question 1, the D-07 override philosophy): a
+		// Warn-and-allow (Open Question 1, the override philosophy): a
 		// coder entry can be forced onto the CHAT pick, but loudly. The chat KV
 		// for an override still uses effectiveCtx — only pickCoder is
-		// agent_ctx-locked (D-04).
-		notes = append(notes, fmt.Sprintf("WARNING: model %q is a role:\"coder\" entry — using it as the CHAT pick only because you overrode (D-07); the coder fit/residency is computed separately at its agent profile", m.ID))
+		// agent_ctx-locked.
+		notes = append(notes, fmt.Sprintf("WARNING: model %q is a role:\"coder\" entry — using it as the CHAT pick only because you overrode; the coder fit/residency is computed separately at its agent profile", m.ID))
 	}
 	if ov.Quant != "" && ov.Quant != m.Quant {
 		notes = append(notes, fmt.Sprintf("note: override quant %q differs from the catalog entry's %q; fit math uses the catalog entry's dimensions", ov.Quant, m.Quant))
@@ -575,7 +575,7 @@ func pickOverride(c catalog.Catalog, ov Overrides, envelope uint64, degraded boo
 	}
 	if !rec.Fits {
 		rec.Notes = append(rec.Notes, fmt.Sprintf(
-			"WARNING: your override does NOT fit — %s needed vs %s usable envelope; it will likely OOM. Reduce --ctx or pick a smaller model (D-07).",
+			"WARNING: your override does NOT fit — %s needed vs %s usable envelope; it will likely OOM. Reduce --ctx or pick a smaller model.",
 			humanGiB(rec.TotalBytes), humanGiB(envelope)))
 	}
 	return rec
@@ -586,7 +586,7 @@ func pickOverride(c catalog.Catalog, ov Overrides, envelope uint64, degraded boo
 func buildRecommendation(m catalog.CatalogModel, ctx int, envelope uint64, degraded bool, notes []string) Recommendation {
 	kv := kvCacheBytes(m, ctx)
 	headroom := headroomBytes(envelope)
-	// Saturating sum (WR-07): a saturated KV term (absurd --ctx) must keep the
+	// Saturating sum: a saturated KV term (absurd --ctx) must keep the
 	// total at MaxUint64 — a wrapped-small total would flip Fits true and feed a
 	// silent OOM into the rendered unit's -c and the ceiling stress math.
 	total := addSaturating(addSaturating(m.WeightBytes, kv), headroom)

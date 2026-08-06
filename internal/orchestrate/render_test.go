@@ -86,10 +86,10 @@ func TestRenderContainerGolden(t *testing.T) {
 }
 
 // codingFixtureInput is the deterministic RenderInput the coding-mode-ON golden is
-// frozen against (CMODE-01, D-05). It mirrors fixtureInput() but carries the pre-
+// frozen against. It mirrors fixtureInput but carries the pre-
 // translated coding-mode descriptor + the resolved agent ctx on RenderInput — exactly
 // what the Plan-02 live wiring will populate after resolving the coder catalog entry.
-// cfg.CodingMode + cfg.Coder* are set too (the persisted source of truth, D-04), though
+// cfg.CodingMode + cfg.Coder* are set too (the persisted source of truth), though
 // it is RenderInput.CodingMode that drives the render delta. The flag spellings baked
 // into the golden are A1-confirmed against build-9496 (llama-server --help).
 func codingFixtureInput(cacheReuseSafe bool) RenderInput {
@@ -113,7 +113,7 @@ func codingFixtureInput(cacheReuseSafe bool) RenderInput {
 // unit matches the NEW append-only villa-llama-coding.container.golden byte-for-byte. The
 // Exec line carries -c 65536 (the agent ctx, NOT the chat 131072), --jinja, the sampling
 // preset, and --cache-reuse 256 (CacheReuseSafe=true). The off-path goldens are NOT
-// regenerated — append-only discipline (D-02).
+// regenerated — append-only discipline.
 func TestRenderCodingMode(t *testing.T) {
 	units, err := Render(codingFixtureInput(true))
 	if err != nil {
@@ -141,7 +141,7 @@ func TestRenderCodingMode(t *testing.T) {
 }
 
 // TestRenderCodingModeFailClosedCacheReuse: with the coder entry CacheReuseSafe=false,
-// the on-path Exec line OMITS --cache-reuse (fail-closed render, D-03) while still
+// the on-path Exec line OMITS --cache-reuse (fail-closed render) while still
 // carrying --jinja + the sampling preset.
 func TestRenderCodingModeFailClosedCacheReuse(t *testing.T) {
 	units, err := Render(codingFixtureInput(false))
@@ -162,7 +162,7 @@ func TestRenderCodingModeFailClosedCacheReuse(t *testing.T) {
 
 // TestRenderCodingModeOffPathUnchanged is the regression guard proving the delta is
 // opt-in: with RenderInput.CodingMode == nil the off-path container golden is unchanged
-// and still passes byte-for-byte (D-02). This is the same fixture as
+// and still passes byte-for-byte. This is the same fixture as
 // TestRenderContainerGolden but asserted here alongside the coding cases so a reviewer
 // sees the opt-in contract in one place.
 func TestRenderCodingModeOffPathUnchanged(t *testing.T) {
@@ -199,7 +199,7 @@ func rocmFixtureInput(t *testing.T) RenderInput {
 // TestRenderROCmContainerGolden: the rendered ROCm .container equals
 // testdata/villa-llama-rocm.container.golden byte-for-byte (regen with -update). The
 // golden's delta over the Vulkan golden is exactly image + /dev/kfd + render group +
-// HSA/hipBLASLt env (ROCM-03 / D-09) — a reviewer diffs the two units to see it.
+// HSA/hipBLASLt env (ROCM-03) — a reviewer diffs the two units to see it.
 func TestRenderROCmContainerGolden(t *testing.T) {
 	units, err := Render(rocmFixtureInput(t))
 	if err != nil {
@@ -230,7 +230,7 @@ func rocm644FixtureInput(t *testing.T) RenderInput {
 // TestRenderROCm644ContainerGolden: the rendered rocm-6.4.4 .container equals the
 // ADDITIVE testdata/villa-llama-rocm-6.4.4.container.golden byte-for-byte. This is a
 // NEW fixture (not a refreeze of the Vulkan/7.2.4 goldens, which stay byte-frozen
-// per D-09). Its Description= must show the honest "ROCm 6.4.4 (HIP)" label, NOT the
+// per). Its Description= must show the honest "ROCm 6.4.4 (HIP)" label, NOT the
 // misleading "Vulkan RADV" default (Pitfall 2).
 func TestRenderROCm644ContainerGolden(t *testing.T) {
 	units, err := Render(rocm644FixtureInput(t))
@@ -340,7 +340,7 @@ func TestInstallSectionPresent(t *testing.T) {
 	}
 }
 
-// TestRenderFiveUnitOrder: Render grows from 3 to 5 units (D-02) in a fixed
+// TestRenderFiveUnitOrder: Render grows from 3 to 5 units in a fixed
 // deterministic order — callers and goldens depend on this exact sequence.
 func TestRenderFiveUnitOrder(t *testing.T) {
 	units, err := Render(fixtureInput())
@@ -377,8 +377,8 @@ func TestRenderOpenWebUIContainerGolden(t *testing.T) {
 }
 
 // TestRenderOpenWebUIMemoryContainerGolden: the memory-ON villa-openwebui.container
-// unit matches its dedicated golden byte-for-byte (Phase-20 D-05). This is the single
-// deliberate re-freeze target for the appended D-09 RAG/Qdrant/memory env block (24
+// unit matches its dedicated golden byte-for-byte. This is the single
+// deliberate re-freeze target for the appended RAG/Qdrant/memory env block (24
 // Environment= lines incl. ENABLE_PERSISTENT_CONFIG=False). The memory-OFF golden
 // (TestRenderOpenWebUIContainerGolden above) MUST stay byte-identical — do NOT regen
 // it; only this memory golden is intentionally re-frozen with -update.
@@ -392,7 +392,7 @@ func TestRenderOpenWebUIMemoryContainerGolden(t *testing.T) {
 }
 
 // TestRenderOpenWebUIWebSearchContainerGolden: the web-search-ON villa-openwebui.container
-// unit matches its dedicated golden byte-for-byte (Phase-30 D-08, SC#1). This is the single
+// unit matches its dedicated golden byte-for-byte. This is the single
 // deliberate re-freeze target for the appended web-search env block (ENABLE_WEB_SEARCH=True,
 // WEB_SEARCH_ENGINE=searxng, SEARXNG_QUERY_URL, WEB_SEARCH_RESULT_COUNT) + a single trailing
 // ENABLE_PERSISTENT_CONFIG=False. The memory-OFF / memory-ON goldens MUST stay byte-identical
@@ -414,11 +414,11 @@ func TestRenderOpenWebUIWebSearchContainerGolden(t *testing.T) {
 	goldenCompare(t, "villa-openwebui.container.websearch.golden", c.Text)
 }
 
-// TestRenderOpenWebUIWebSearchUsesSharedIdentity (WR-01): the OWUI SEARXNG_QUERY_URL
+// TestRenderOpenWebUIWebSearchUsesSharedIdentity: the OWUI SEARXNG_QUERY_URL
 // host:port is composed from the SINGLE home of the SearXNG identity in internal/config,
 // not from an orchestrate-local const. Do NOT couple any assertion to OWUI forwarding
 // &format=json from the URL (Pitfall 1: at this digest OWUI strips the URL query string
-// and supplies format=json itself — the suffix is frozen for SC#1 literal compliance
+// and supplies format=json itself — the suffix is frozen for literal compliance
 // only, not relied on for grounding).
 func TestRenderOpenWebUIWebSearchUsesSharedIdentity(t *testing.T) {
 	units, err := Render(searxngFixtureInput())
@@ -432,9 +432,9 @@ func TestRenderOpenWebUIWebSearchUsesSharedIdentity(t *testing.T) {
 	}
 }
 
-// TestRenderOpenWebUIPersistentConfigSingleEmit (Phase-30 D-04, Pitfall 2): the load-bearing
+// TestRenderOpenWebUIPersistentConfigSingleEmit (Phase-30, Pitfall 2): the load-bearing
 // ENABLE_PERSISTENT_CONFIG=False is emitted EXACTLY once, as the LAST Environment= line, for
-// BOTH web-on/memory-off (searxngFixtureInput) AND memory-on/web-off (memoryFixtureInput) —
+// BOTH web-on/memory-off (searxngFixtureInput) AND memory-on/web-off (memoryFixtureInput)
 // catching a duplicate (one emit per group) or a drop (omitted when web is on but memory off).
 func TestRenderOpenWebUIPersistentConfigSingleEmit(t *testing.T) {
 	cases := []struct {
@@ -482,25 +482,25 @@ func TestRenderOpenWebUIVolumeGolden(t *testing.T) {
 	goldenCompare(t, "villa-openwebui.volume.golden", v.Text)
 }
 
-// TestRenderOpenWebUITelemetryFrozen is the PRIV-02 re-audit-on-bump guard (D-07): it
+// TestRenderOpenWebUITelemetryFrozen is the re-audit-on-bump guard: it
 // asserts every telemetry-kill var AND every connection var is present in the rendered
 // Open WebUI unit. A deliberate single-env-line removal in the template turns it red,
 // forcing a re-audit of the privacy posture on any image bump. It complements the
 // container golden (which catches ANY drift) by documenting the load-bearing intent
 // and surviving incidental whitespace edits.
 func TestRenderOpenWebUITelemetryFrozen(t *testing.T) {
-	// Bidirectional freeze (WR-02): derive the expected env from the single source of
+	// Bidirectional freeze: derive the expected env from the single source of
 	// truth (buildOpenWebUIView), require EVERY Key=Value line is rendered, AND assert
 	// the rendered unit carries EXACTLY that many Environment= lines. A subset check
 	// would let a contributor add/drop a var (e.g. a new telemetry channel, or dropping
 	// OPENAI_API_KEY) without tripping this guard — only the byte golden would catch it.
-	// Counting + full-set matching makes the PRIV-02 re-audit-on-bump guarantee real,
+	// Counting + full-set matching makes the re-audit-on-bump guarantee real,
 	// not merely decorative.
 	//
-	// Phase-20 (D-05) memory-aware re-audit: the env set now depends on memory_enabled.
+	// Phase-20 memory-aware re-audit: the env set now depends on memory_enabled.
 	// Assert BOTH views against the SAME buildOpenWebUIView source of truth — the
 	// memory-ON unit carries exactly the memory-ON view's lines (24, incl. the appended
-	// D-09 block + ENABLE_PERSISTENT_CONFIG=False) and the memory-OFF unit carries
+	// block + ENABLE_PERSISTENT_CONFIG=False) and the memory-OFF unit carries
 	// exactly the 11 baseline lines (byte-identical to the v1.2 golden). This re-confirms
 	// the telemetry-kill posture (ANONYMIZED_TELEMETRY/DO_NOT_TRACK/SCARF_NO_ANALYTICS/
 	// OFFLINE_MODE/HF_HUB_OFFLINE) survives in BOTH views.
@@ -520,7 +520,7 @@ func TestRenderOpenWebUITelemetryFrozen(t *testing.T) {
 			env:  buildOpenWebUIView(memory.RenderView(memoryFixtureInput().Cfg), true, false, "", 0, 0, "", 0).Env,
 		},
 		{
-			// Phase-30 SC#4 drift guard: the web-search-on view binds every web-search
+			// Phase-30 drift guard: the web-search-on view binds every web-search
 			// KEY to buildOpenWebUIView's output. Because the loop below asserts each
 			// Key=Value line is rendered AND that Environment= line COUNT == len(env),
 			// an env-name regression (e.g. reverting ENABLE_WEB_SEARCH to the old
@@ -533,7 +533,7 @@ func TestRenderOpenWebUITelemetryFrozen(t *testing.T) {
 		},
 	}
 
-	// Telemetry-kill set that MUST survive in BOTH views (D-05 re-audit).
+	// Telemetry-kill set that MUST survive in BOTH views (re-audit).
 	telemetryKill := []string{
 		"Environment=ANONYMIZED_TELEMETRY=False",
 		"Environment=DO_NOT_TRACK=True",
@@ -570,7 +570,7 @@ func TestRenderOpenWebUITelemetryFrozen(t *testing.T) {
 }
 
 // TestRenderOpenWebUILoopbackOnly: the Open WebUI unit publishes loopback only
-// (127.0.0.1:3000:8080) and contains no 0.0.0.0: host-publish (PRIV-01 continuity, D-04).
+// (127.0.0.1:3000:8080) and contains no 0.0.0.0: host-publish (continuity).
 func TestRenderOpenWebUILoopbackOnly(t *testing.T) {
 	units, err := Render(fixtureInput())
 	if err != nil {
@@ -586,7 +586,7 @@ func TestRenderOpenWebUILoopbackOnly(t *testing.T) {
 }
 
 // TestRenderOpenWebUIVolumeMount: the container mounts the named :Z data volume at
-// /app/backend/data (D-11), and the volume unit is a plain named volume with no bind
+// app/backend/data, and the volume unit is a plain named volume with no bind
 // fields.
 func TestRenderOpenWebUIVolumeMount(t *testing.T) {
 	units, err := Render(fixtureInput())
@@ -608,7 +608,7 @@ func TestRenderOpenWebUIVolumeMount(t *testing.T) {
 
 // TestRenderedPublishLoopbackOnly: the rendered .container publishes loopback only
 // (127.0.0.1) and contains no 0.0.0.0: host-publish substring (mirrors Phase-2
-// TestLoopbackPublish; ORCH-04/PRIV-01).
+// TestLoopbackPublish; ORCH-04).
 func TestRenderedPublishLoopbackOnly(t *testing.T) {
 	units, err := Render(fixtureInput())
 	if err != nil {
@@ -626,7 +626,7 @@ func TestRenderedPublishLoopbackOnly(t *testing.T) {
 // TestBackendLabelROCmFamily asserts backendLabel maps each ROCm-family name to a
 // distinct, honest ROCm Description= label (Pitfall 2) — a 6.4.4 unit must NOT
 // fall through to the misleading "Vulkan RADV" default — while the Vulkan default
-// and the existing rocm-7.2.4 label stay byte-unchanged (D-09 additivity).
+// and the existing rocm-7.2.4 label stay byte-unchanged (additivity).
 func TestBackendLabelROCmFamily(t *testing.T) {
 	cases := map[string]string{
 		"rocm":               "ROCm 7.2.4 (HIP)",

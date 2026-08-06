@@ -1,8 +1,8 @@
 package main
 
 // install_searxng.go holds the v1.5 WEB-SEARCH (SearXNG) readiness proof the `villa
-// install` verb runs when the PERSISTED web_search_enabled is true (Phase-29 SRCH-01,
-// SC#2). It is a near-verbatim clone of the shipped install_memory.go readiness-by-real-
+// install` verb runs when the PERSISTED web_search_enabled is true (Phase-29,
+// It is a near-verbatim clone of the shipped install_memory.go readiness-by-real-
 // query seam:
 //
 //   - evalSearxngProof: the PURE verdict core (unit-testable off-hardware via an injected
@@ -11,16 +11,16 @@ package main
 //     cannot answer a query is a confident known-bad).
 //
 //   - liveSearxngProof: the production seam reusing the runProbeCurl podman-over-
-//     villa.network helper VERBATIM (no host port — T-29-12; helper image from
+// villa.network helper VERBATIM (no host port —; helper image from
 //     orchestrate.EmbedImage() so no re-typed image literal trips TestSeamGrepGate). It
 //     issues a REAL `GET /search?q=…&format=json` query with FIXED args + --data-urlencode
-//     (no shell interpolation — T-29-10), parses results[], and runs a bounded cold-start
+// (no shell interpolation), parses results[], and runs a bounded cold-start
 //     retry loop to absorb transient single-engine timeouts before declaring FAIL.
 //
 // Readiness is the REAL format=json query parsing results[] — NEVER a /healthz 200 (the
 // project's "offload-asserting, never liveness" principle; honesty-by-construction). An
 // HTTP 200 carrying {"results": []} because every upstream engine timed out is NOT a
-// healthy instance and FAILs with remediation (Open Q2 / T-29-11).
+// healthy instance and FAILs with remediation (Open Q2).
 
 import (
 	"context"
@@ -33,7 +33,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/preflight"
 )
 
-// liveLoadedWebSearchEnabled returns the PERSISTED config.LoadVilla().WebSearchEnabled —
+// liveLoadedWebSearchEnabled returns the PERSISTED config.LoadVilla().WebSearchEnabled
 // the AUTHORITATIVE web-search gate source threaded into runInstall (NOT the
 // DefaultVillaConfig() seed, which is false by construction). A config load error fails
 // SOFT to false so a broken/absent config never silently enables the search stack (an
@@ -49,12 +49,12 @@ func liveLoadedWebSearchEnabled() bool {
 
 // searxngServiceName is the systemd service the villa-searxng .container generates
 // (Quadlet maps villa-searxng.container → villa-searxng.service). Its start is gated on
-// the rendered unit being present in the written plan (WR-04) and on the PERSISTED
+// the rendered unit being present in the written plan and on the PERSISTED
 // web_search_enabled; the readiness proof below asserts it actually answers a query.
 const searxngServiceName = "villa-searxng.service"
 
 // searxngProbeQuery is the well-known probe query the readiness proof issues. A generic
-// phrase a healthy general/reference engine (the SRCH-04 keep_only allowlist) reliably
+// phrase a healthy general/reference engine (the keep_only allowlist) reliably
 // answers, so a populated results[] is a genuine end-to-end signal (network → searxng →
 // upstream engine → parsed JSON), not a contrived empty hit.
 const searxngProbeQuery = "villa readiness probe"
@@ -79,10 +79,10 @@ type searxngProof struct {
 }
 
 // searxngProofInput carries the config-resolved SearXNG container-DNS address + in-network
-// port the proof probes. These are sourced from config.SearxngAddr/SearxngPort (WR-01) — the
+// port the proof probes. These are sourced from config.SearxngAddr/SearxngPort — the
 // SAME values the rendered unit's container-DNS identity derives from — so the proof can
 // never probe a different target than what actually runs. Values are config-resolved,
-// never shell-interpolated (T-29-10).
+// never shell-interpolated.
 type searxngProofInput struct {
 	searxngAddr string
 	searxngPort int
@@ -123,7 +123,7 @@ func (r searxngResult) hasAnswer() bool {
 //
 //   - a probe error (endpoint unreachable) on the FINAL attempt → FAIL("did not answer …")
 //     naming `systemctl --user status <svc>` + re-run `villa install`.
-//   - a parseable response with NO answer (number_of_results == 0 AND len(results) == 0 —
+//   - a parseable response with NO answer (number_of_results == 0 AND len(results) == 0
 //     every upstream engine may have timed out) on the FINAL attempt → FAIL("returned no
 //     results …") with the engine-allowlist + service remediation.
 //   - a parseable response WITH an answer (≥1 result OR number_of_results>0), tolerating a
@@ -154,11 +154,11 @@ func evalSearxngProof(probe func() (searxngResult, error)) searxngProof {
 
 // liveSearxngProof is the production proof seam: it reaches the container-DNS-only
 // villa-searxng over villa.network via the runProbeCurl one-shot `podman run --rm
-// --network villa --entrypoint curl` helper (no host port is opened — T-29-12), sourcing
+// --network villa --entrypoint curl` helper (no host port is opened), sourcing
 // the helper image from the orchestrate accessor (EmbedImage(), which ships curl) rather
-// than a re-typed image literal (T-29-12, keeps TestSeamGrepGate green). The query is
+// than a re-typed image literal (keeps TestSeamGrepGate green). The query is
 // issued FIXED-ARG with --data-urlencode for BOTH q= and format=json — the query string is
-// NEVER concatenated into the URL (T-29-10 / V5 fixed-arg discipline). A small fixed delay
+// NEVER concatenated into the URL (V5 fixed-arg discipline). A small fixed delay
 // separates cold-start retries; the verdict is decided by the pure evalSearxngProof.
 func liveSearxngProof(ctx context.Context, in searxngProofInput) searxngProof {
 	helperImage := orchestrate.EmbedImage()
@@ -177,7 +177,7 @@ func liveSearxngProof(ctx context.Context, in searxngProofInput) searxngProof {
 		}
 		attempt++
 		// Fixed-arg GET with --data-urlencode for q= and format=json — never concatenated
-		// into the URL, never a shell (T-29-10). -sf makes curl fail on a non-2xx so an
+		// into the URL, never a shell. -sf makes curl fail on a non-2xx so an
 		// unreachable / erroring endpoint surfaces as a probe error, not a parsed empty.
 		out, err := runProbeCurl(ctx, helperImage,
 			"-sf", "-G", url,

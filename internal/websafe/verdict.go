@@ -1,6 +1,6 @@
 package websafe
 
-// verdict.go defines the GUARD-04 Verdict value type: the flag-not-block outcome of
+// verdict.go defines the Verdict value type: the flag-not-block outcome of
 // the heuristic injection classifier. It is an exported sibling value type (mirroring
 // the Page struct) so the seam rewire (Plan 03) can thread it onto Page.Verdict and
 // into the /load response metadata.guard contract that Phase 34 surfaces as counters.
@@ -17,7 +17,7 @@ type Verdict struct {
 	Rules    []string `json:"rules,omitempty"`
 }
 
-// mergeVerdicts folds two verdicts (body + title, WR-01) into one: Detected is the OR of
+// mergeVerdicts folds two verdicts (body + title) into one: Detected is the OR of
 // both, and Rules is the union with duplicate family names removed, preserving the
 // deterministic injectionRuleOrder iteration that produced each input (so the merged
 // Rules slice stays stable for the metadata.guard contract). It NEVER drops content — a

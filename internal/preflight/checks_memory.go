@@ -1,13 +1,13 @@
 // checks_memory.go implements the OPT-IN memory-stack host-fitness gates
-// (CTRL-06, D-06/D-07): MEM-PRE-disk proves the rootless Podman volume storage
+// (CTRL-06): MEM-PRE-disk proves the rootless Podman volume storage
 // root (where the Qdrant vector index lives) clears a free-disk floor, and
 // MEM-PRE-headroom proves free memory clears the embedding-model footprint
 // reservation. Both are TierBlock with refuse-with-remediation on every non-PASS
 // result. A confident shortage is a FAIL; an unevaluable probe (podman missing,
 // statfs error, Unknown MemAvailable) is a typed-Unknown WARN — never a false
-// hard block, never a false-green (D-15 discipline).
+// hard block, never a false-green (discipline).
 //
-// Emission is the CALLER's decision (D-06): RunMemory is a separate exported
+// Emission is the CALLER's decision: RunMemory is a separate exported
 // runner the cmd tier appends only when memory_enabled — Run/RunWithResources
 // and the frozen PRE-01..07 sequence are untouched, so the memory-off preflight
 // output stays byte-identical. This package never loads config (pure-core rule).
@@ -34,11 +34,11 @@ const minVectorDiskFloorBytes uint64 = 1 << 30 // 1 GiB
 type volumeRootFn func() (path string, ok bool)
 
 // liveVolumeRoot resolves the rootless Podman volume storage root (live-verified
-// shape: ~/.local/share/containers/storage/volumes — NEVER hardcoded, D-07) by
+// shape: ~/.local/share/containers/storage/volumes — NEVER hardcoded) by
 // asking podman itself through the package's bounded fixed-arg runTool seam
-// (T-22-05: no shell, stdout capped at maxToolOutput; the output is used ONLY as
+// (no shell, stdout capped at maxToolOutput; the output is used ONLY as
 // a statfs path, never executed or interpolated). A missing podman, non-zero
-// exit, or empty output yields ok=false so the check downgrades to WARN (D-15).
+// exit, or empty output yields ok=false so the check downgrades to WARN.
 func liveVolumeRoot() (string, bool) {
 	out, found, ok := runTool("podman", "system", "info", "--format", "{{.Store.VolumePath}}")
 	if !found || !ok {
@@ -57,7 +57,7 @@ func liveVolumeRoot() (string, bool) {
 // zero MinDiskBytes are bound to live defaults by RunMemory.
 type MemoryGateInput struct {
 	// EmbeddingModel is the configured embedding model id whose footprint
-	// (memory.Footprint, single source D-01/D-02) sets the headroom floor.
+	// (memory.Footprint, single source) sets the headroom floor.
 	EmbeddingModel string
 	// MinDiskBytes is the free-disk floor at the volume root; 0 means the
 	// minVectorDiskFloorBytes default.
@@ -66,8 +66,8 @@ type MemoryGateInput struct {
 	VolumeRoot volumeRootFn
 	// Statfs reads free bytes at a path (nil → the package's liveStatfs).
 	Statfs statfsFunc
-	// EmbedderActive marks the RUNNING-context mode (phase-22 WR-03): the caller
-	// (doctor, D-08) has verified the embed service is already active, so its own
+	// EmbedderActive marks the RUNNING-context mode (phase-22): the caller
+	// (doctor) has verified the embed service is already active, so its own
 	// footprint is ALREADY subtracted from MemAvailable. In that context demanding
 	// MemAvailable >= reservation would double-count the reservation and fabricate
 	// a blocking fault on a perfectly healthy memory-tight host — a headroom
@@ -80,7 +80,7 @@ type MemoryGateInput struct {
 // checkVectorDisk is MEM-PRE-disk (BLOCK): free disk at the rootless Podman
 // volume storage root — where the Qdrant vector index lives — must clear the
 // floor or indexing fills the disk. Confident shortage → FAIL; unresolvable
-// root or failed statfs → typed-Unknown WARN (D-07).
+// root or failed statfs → typed-Unknown WARN.
 func checkVectorDisk(in MemoryGateInput) CheckResult {
 	const (
 		id   = "MEM-PRE-disk"
@@ -118,9 +118,9 @@ func checkVectorDisk(in MemoryGateInput) CheckResult {
 // checkEmbedHeadroom is MEM-PRE-headroom (BLOCK): free memory must clear the
 // embedding-model footprint reservation or the embedder OOMs the shared gfx1151
 // unified-memory pool. The floor comes from memory.Footprint (single source);
-// an unrecognized model falls back to memory.ConservativeFootprintBytes() (D-02
+// an unrecognized model falls back to memory.ConservativeFootprintBytes (
 // — never a zero floor) and the check still evaluates. Unknown MemAvailable →
-// typed-Unknown WARN with the probe's provenance (D-07).
+// typed-Unknown WARN with the probe's provenance.
 func checkEmbedHeadroom(p detect.HostProfile, in MemoryGateInput) CheckResult {
 	const (
 		id   = "MEM-PRE-headroom"
@@ -132,7 +132,7 @@ func checkEmbedHeadroom(p detect.HostProfile, in MemoryGateInput) CheckResult {
 	floor := fp.Value
 	floorProvenance := fp.Source
 	if !fp.Known {
-		// D-02: unrecognized embedding model → conservative default, never 0.
+		// unrecognized embedding model → conservative default, never 0.
 		floor = memory.ConservativeFootprintBytes()
 		floorProvenance = "memory.ConservativeFootprintBytes (no pinned footprint for " + in.EmbeddingModel + ")"
 	}
@@ -147,7 +147,7 @@ func checkEmbedHeadroom(p detect.HostProfile, in MemoryGateInput) CheckResult {
 
 	if p.MemAvailableBytes.Value < floor {
 		if in.EmbedderActive {
-			// Running-context (WR-03): the embedder is already resident, so its
+			// Running-context: the embedder is already resident, so its
 			// consumption is already inside MemAvailable — a shortage here is low
 			// system headroom, NOT "no room to start the embedder". A confident
 			// FAIL would double-count the reservation and break the DOCTOR-01
@@ -171,7 +171,7 @@ func checkEmbedHeadroom(p detect.HostProfile, in MemoryGateInput) CheckResult {
 // bind to live defaults (liveVolumeRoot, liveStatfs, minVectorDiskFloorBytes).
 // It is pure beyond the injected probes: no os.Exit, no printing, no config
 // load — whether these checks are EMITTED at all is the caller's decision
-// (D-06), keyed on memory_enabled in the cmd tier.
+// keyed on memory_enabled in the cmd tier.
 func RunMemory(p detect.HostProfile, in MemoryGateInput) []CheckResult {
 	if in.VolumeRoot == nil {
 		in.VolumeRoot = liveVolumeRoot

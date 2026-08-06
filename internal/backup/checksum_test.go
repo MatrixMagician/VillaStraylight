@@ -9,7 +9,7 @@ import (
 )
 
 // TestChecksumSumDeterministic asserts sum returns the lowercase-hex SHA-256 of
-// the input and is deterministic for the same bytes (D-09).
+// the input and is deterministic for the same bytes.
 func TestChecksumSumDeterministic(t *testing.T) {
 	payload := []byte("villa backup entry bytes")
 	want := hex.EncodeToString(func() []byte { h := sha256.Sum256(payload); return h[:] }())
@@ -34,7 +34,7 @@ func TestChecksumSumDeterministic(t *testing.T) {
 }
 
 // TestChecksumVerifyMatch asserts verify accepts a reader whose hash equals the
-// recorded one (the restore happy path, D-08).
+// recorded one (the restore happy path).
 func TestChecksumVerifyMatch(t *testing.T) {
 	payload := "round-trips deterministically"
 	want, err := sum(strings.NewReader(payload))
@@ -48,7 +48,7 @@ func TestChecksumVerifyMatch(t *testing.T) {
 
 // TestChecksumVerifyMismatch asserts verify reports a typed ErrChecksumMismatch
 // when the content does not match the recorded checksum — the fail-closed BLOCK
-// signal on archive corruption (D-08).
+// signal on archive corruption.
 func TestChecksumVerifyMismatch(t *testing.T) {
 	err := verify(strings.NewReader("tampered bytes"), "0000")
 	if err == nil {

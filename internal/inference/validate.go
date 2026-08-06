@@ -11,11 +11,11 @@ import (
 
 // validate.go is the offload-asserting orchestrator: it sequences a real inference
 // run into a single typed Verdict, the frozen Phase-3 status / Phase-5 dashboard
-// contract (D-11). Like internal/preflight it is a PURE LIBRARY — it NEVER calls
+// contract. Like internal/preflight it is a PURE LIBRARY — it NEVER calls
 // os.Exit and NEVER prints; the command layer (cmd/villa/inference.go) maps the
 // Verdict to an exit code and a table/JSON. Phase 3 install reuses Validate as-is.
 //
-// The contract it enforces (D-11): health is OFFLOAD-ASSERTING, not liveness. A
+// The contract it enforces: health is OFFLOAD-ASSERTING, not liveness. A
 // server that answers /health and even streams tokens but ran on the CPU
 // (llvmpipe / offloaded 0/N / ~zero GTT delta) is a FAIL, not a PASS. Uncertainty
 // (an unreadable stderr or sysfs read) degrades to WARN — never a false-green.
@@ -42,7 +42,7 @@ type ValidateInput struct {
 	// ContextLen is the recommend-chosen context the primary run starts at.
 	ContextLen int
 
-	// The recommend-computed fit terms (reused for the ceiling stress math, D-10).
+	// The recommend-computed fit terms (reused for the ceiling stress math).
 	WeightBytes   uint64
 	KVCacheBytes  uint64 // KV cache at ContextLen
 	HeadroomBytes uint64
@@ -53,12 +53,12 @@ type ValidateInput struct {
 	Runner Runner
 	// NewCeilingRunner builds a SECOND Runner at the near-ceiling stress spec. It is
 	// a factory (not a Runner) so the ceiling run is independent of the primary one
-	// and can be torn down separately (D-10, T-02-12). If nil, the ceiling probe is
+	// and can be torn down separately. If nil, the ceiling probe is
 	// skipped (run-only / no-ceiling mode).
 	NewCeilingRunner func(stress RunSpec) Runner
 
 	// ReadGTTUsed reads the live amdgpu mem_info_gtt_used (the before/after offload
-	// delta signal, D-09.2). Injected so tests replay a fixture delta and production
+	// delta signal). Injected so tests replay a fixture delta and production
 	// wires detect.GTTUsedBytes. Called once before Start and once after readiness.
 	ReadGTTUsed func() detect.Bytes
 
@@ -66,7 +66,7 @@ type ValidateInput struct {
 	ReadyTimeout time.Duration
 	PollInterval time.Duration
 
-	// Markers is the backend-owned residency descriptor (D-04/D-05) the start-time
+	// Markers is the backend-owned residency descriptor the start-time
 	// log scrape keys on instead of hardcoded Vulkan literals. The caller (Plan 03)
 	// sets it from BackendFor(cfg.Backend).ResidencyProof(); the zero value yields an
 	// all-empty descriptor (no device match) — callers MUST supply it.
@@ -76,16 +76,17 @@ type ValidateInput struct {
 // Validate runs the full offload-asserting sequence and folds every signal into a
 // single typed Verdict. It is side-effect-pure beyond the injected Runner/reader
 // seams and never errors: an unevaluable step becomes a WARN, a confirmed CPU
-// fallback a FAIL (D-11).
+// fallback a FAIL.
 //
-// Sequence (D-09/D-10/D-11):
+// Sequence:
 //  1. read GTT-used BEFORE start
 //  2. Runner.Start at the recommend ctx; defer Stop (always tears down)
 //  3. pollHealth to readiness (readiness gate only, Pitfall 5)
 //  4. read GTT-used AFTER + capture stderr
-//  5. dual offload assert: log-scrape AND sysfs delta, both required (D-09)
-//  6. chatProbe a real completion (D-04 reuse)
-//  7. contextCeilingProbe at the envelope ceiling (D-10)
+//
+// 5. dual offload assert: log-scrape AND sysfs delta, both required
+// 6. chatProbe a real completion (reuse)
+// 7. contextCeilingProbe at the envelope ceiling
 //  8. combine → Verdict (PASS needs offload PASS + chat tokens; CPU fallback FAIL
 //     even when /health=200; Unknown signal or ceiling cliff → WARN)
 func Validate(ctx context.Context, in ValidateInput) Verdict {
@@ -124,16 +125,16 @@ func Validate(ctx context.Context, in ValidateInput) Verdict {
 	after := in.ReadGTTUsed()
 	stderr, _ := in.Runner.Logs()
 
-	// (5) The dual offload assert (D-09): both signals required for a PASS.
+	// (5) The dual offload assert: both signals required for a PASS.
 	logRes := scrapeOffloadLog(stderr, in.Markers)
 	sysRes := offloadSysfsDelta(before, after, in.WeightBytes)
 	offload := combineOffload(logRes, sysRes)
 
-	// (6) Real chat completion (D-04 reuse). Even if offload PASSed, a run that
+	// (6) Real chat completion (reuse). Even if offload PASSed, a run that
 	// cannot return tokens is not a clean PASS.
 	chat := chatProbe(ctx, in.Runner.Endpoint(), in.Model.ID)
 
-	// (6.5) Stop the primary BEFORE the ceiling probe (CR-01). The ceiling runs a
+	// (6.5) Stop the primary BEFORE the ceiling probe. The ceiling runs a
 	// second container that binds the SAME loopback port; if the primary is still up
 	// the ceiling container cannot bind it, and its readiness poll would instead hit
 	// the live primary on that port and FALSE-CLEAR. All primary signals (offload +
@@ -141,7 +142,7 @@ func Validate(ctx context.Context, in ValidateInput) Verdict {
 	// deferred Stop remains as an idempotent safety net for the early-return paths.
 	_ = in.Runner.Stop()
 
-	// (7) Near-ceiling stress probe (D-10) — classified finding, never a crash.
+	// (7) Near-ceiling stress probe — classified finding, never a crash.
 	ceiling := runCeiling(ctx, in)
 
 	// (8) Fold all signals into the final verdict.
@@ -181,14 +182,15 @@ func runCeiling(ctx context.Context, in ValidateInput) CeilingResult {
 
 // foldVerdict combines the dual-offload verdict, the chat probe, and the ceiling
 // finding into the final Verdict, preserving the offload signals + observed GTT
-// delta for the --json contract (D-11).
+// delta for the --json contract.
 //
 // Precedence (FAIL dominates, then WARN):
-//   - offload FAIL (confirmed CPU fallback)      → FAIL (even if /health=200, D-11)
+// - offload FAIL (confirmed CPU fallback) → FAIL (even if /health=200)
 //   - offload WARN (unevaluable signal)          → WARN
 //   - chat not OK (no tokens)                    → WARN (offload proven but liveness
 //     unconfirmed — never a silent PASS)
-//   - ceiling cliff (OOM/hang finding)           → WARN (D-10)
+//
+// - ceiling cliff (OOM/hang finding) → WARN
 //   - else                                       → PASS (offload proven + real tokens
 //   - ceiling cleared)
 func foldVerdict(offload Verdict, chat ChatResult, ceiling CeilingResult) Verdict {

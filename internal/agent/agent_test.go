@@ -18,7 +18,7 @@ import (
 var update = flag.Bool("update", false, "regenerate golden crush.json fixtures")
 
 // TestPolicyLoad verifies the embedded crush-policy.json decodes to the FROZEN
-// v0.76.0 pin (AGENT-01, D-02): the pinned version, the linux/amd64 asset name,
+// v0.76.0 pin (AGENT-01): the pinned version, the linux/amd64 asset name,
 // its tarball SHA-256, and its size. Guards against an accidental edit to the
 // compiled-in policy data drifting the install gate off the verified release.
 func TestPolicyLoad(t *testing.T) {
@@ -57,7 +57,7 @@ func TestPolicyLoad(t *testing.T) {
 }
 
 // TestPolicyLoadPanicsOnMalformed asserts the decode path panics on malformed
-// policy bytes (build-time data, never runtime input — T-26-05). It exercises the
+// policy bytes (build-time data, never runtime input). It exercises the
 // SAME unmarshal-or-panic discipline via a helper rather than corrupting the real
 // embed.
 func TestPolicyLoadPanicsOnMalformed(t *testing.T) {
@@ -73,9 +73,9 @@ func TestPolicyLoadPanicsOnMalformed(t *testing.T) {
 	t.Fatal("malformed bytes unmarshaled without error — unreachable")
 }
 
-// TestChecksumGate verifies the pure D-03 install gate (T-26-01): VerifyTarball
+// TestChecksumGate verifies the pure install gate: VerifyTarball
 // passes ONLY when both size and hex SHA-256 match the pinned asset (case-
-// insensitive), and refuses-with-remediation on a checksum OR size mismatch —
+// insensitive), and refuses-with-remediation on a checksum OR size mismatch
 // never a silent pass.
 func TestChecksumGate(t *testing.T) {
 	body := []byte("the pinned crush tarball bytes (fixture)")
@@ -149,7 +149,7 @@ func TestVersionCompare(t *testing.T) {
 }
 
 // renderTestConfig is the fixed config the render tests/golden are pinned to. Using
-// CoderModel exercises the coding-mode served-id derivation (D-09).
+// CoderModel exercises the coding-mode served-id derivation.
 func renderTestConfig() config.VillaConfig {
 	return config.VillaConfig{
 		Model:         "qwen3-30b",
@@ -159,7 +159,7 @@ func renderTestConfig() config.VillaConfig {
 }
 
 // renderTestProbes pins the LSP probe inputs: gopls FOUND, pyright MISSING (so the
-// golden exercises both the rendered-entry and WARN-and-omit paths, D-10).
+// golden exercises both the rendered-entry and WARN-and-omit paths).
 func renderTestProbes() []LSPProbe {
 	return []LSPProbe{
 		{Key: "go", Command: "gopls", Found: true},
@@ -206,7 +206,7 @@ func TestRenderGolden(t *testing.T) {
 
 // TestRenderContract asserts the rendered JSON satisfies the locked contract:
 // both kill switches set; exactly ONE openai-compat provider at the loopback
-// base_url with a non-empty models[] whose id is villa- prefixed (D-07/D-08/D-09).
+// base_url with a non-empty models[] whose id is villa- prefixed.
 func TestRenderContract(t *testing.T) {
 	got, _, err := Render(renderTestConfig(), renderTestProbes())
 	if err != nil {
@@ -253,7 +253,7 @@ func TestRenderContract(t *testing.T) {
 	}
 }
 
-// TestLSPMissingWarn asserts D-10: a not-found server WARNs and OMITS the entry; a
+// TestLSPMissingWarn asserts: a not-found server WARNs and OMITS the entry; a
 // found server renders a fixed-literal command and emits no warning; Render never
 // returns a blocking error for a missing LSP server.
 func TestLSPMissingWarn(t *testing.T) {
@@ -293,7 +293,7 @@ func TestLSPMissingWarn(t *testing.T) {
 
 // TestRenderNoMetachars asserts NO rendered value contains a shell metacharacter
 // sequence ($(, backtick, ${) — Crush $(...)-expands config values at load
-// (Pitfall 1 / T-26-02); every villa-rendered value MUST be metachar-free.
+// (Pitfall 1); every villa-rendered value MUST be metachar-free.
 func TestRenderNoMetachars(t *testing.T) {
 	got, _, err := Render(renderTestConfig(), renderTestProbes())
 	if err != nil {
@@ -311,7 +311,7 @@ const (
 	otherBinSHA  = "2222222222222222222222222222222222222222222222222222222222222222"
 )
 
-// TestBinaryDrift asserts D-14a: a mismatched installed binary hash is a confident
+// TestBinaryDrift asserts: a mismatched installed binary hash is a confident
 // BinaryDrift; equal hashes are clean; an UNPINNED policy hash degrades to a
 // typed-Unknown WARN (BinaryDriftUnknown), never a false drift (Pitfall 6).
 func TestBinaryDrift(t *testing.T) {
@@ -380,7 +380,7 @@ func TestBinaryDrift(t *testing.T) {
 	})
 }
 
-// TestConfigAbsent asserts D-14: ConfigPresent=false is the FIRST-RUN render
+// TestConfigAbsent asserts: ConfigPresent=false is the FIRST-RUN render
 // trigger (ConfigAbsent), DISTINCT from ConfigDrift, and an absent config is never
 // compared against the rendered reference (no false drift).
 func TestConfigAbsent(t *testing.T) {
@@ -397,7 +397,7 @@ func TestConfigAbsent(t *testing.T) {
 	}
 }
 
-// TestConfigDrift asserts D-14b + Pitfall 4: a present config that semantically
+// TestConfigDrift asserts + Pitfall 4: a present config that semantically
 // differs is ConfigDrift; a whitespace-only re-save of identical semantics is NOT
 // drift (parsed-semantic compare).
 func TestConfigDrift(t *testing.T) {

@@ -7,7 +7,7 @@ package detect
 // rocmImagePolicyOK / kernelMeetsROCmFloor), so the inference TestSeamGrepGate
 // stays green.
 //
-// The discipline is the no-false-green guarantee (D-08): a field is a real
+// The discipline is the no-false-green guarantee: a field is a real
 // KnownBool ONLY when the underlying fact is Known; an undetectable off-hardware
 // signal yields UnknownBool(reason, raw), which serializes as UNSET (Known=false)
 // — distinct from a confident real false. Off-hardware (rocminfo absent →
@@ -17,7 +17,7 @@ package detect
 // computeROCmReadiness builds the ROCmReadiness sub-tree from the assembled
 // HostProfile facts (gfx-id, kernel, ROCm substrate presence, probed firmware date)
 // and the resolved ROCm image string. Each field returns KnownBool only when its
-// source fact is Known; otherwise UnknownBool (no-false-green, D-08).
+// source fact is Known; otherwise UnknownBool (no-false-green).
 func computeROCmReadiness(gfxID Str, kernel Str, rocmPresent Bool, firmwareDate Str, resolvedImage string) ROCmReadiness {
 	return ROCmReadiness{
 		HSAOverrideViable: hsaOverrideViable(gfxID, rocmPresent),
@@ -31,7 +31,7 @@ func computeROCmReadiness(gfxID Str, kernel Str, rocmPresent Bool, firmwareDate 
 // rocminfoGfx1151 reports whether rocminfo enumerated the gfx1151 target. It is
 // KnownBool ONLY when IGPUGfxID is Known (rocminfo ran and produced a gfx id);
 // off-hardware rocminfo is absent → IGPUGfxID Unknown → this is UnknownBool, NOT a
-// real false (no-false-green, D-08).
+// real false (no-false-green).
 func rocminfoGfx1151(gfxID Str) Bool {
 	if !gfxID.Known {
 		return UnknownBool("rocminfo gfx id not enumerated (rocm readiness unevaluable)", gfxID.Raw)
@@ -54,7 +54,7 @@ func kernelFloorOK(kernel Str) Bool {
 // It is KnownBool ONLY when the date was successfully probed (firmwareDateProbe
 // returned a parseable YYYYMMDD KnownStr); off-hardware (rpm absent or an unparseable
 // VERSION) the date is Unknown → UnknownBool (UNSET), never a fabricated false
-// (no-false-green, D-08). The floor/denylist literals live behind the gpu_amd.go seam
+// (no-false-green). The floor/denylist literals live behind the gpu_amd.go seam
 // (firmwareDatePolicyOK), so this backend-neutral file carries no firmware literal.
 func firmwareDateOK(date Str) Bool {
 	if !date.Known {
@@ -66,13 +66,13 @@ func firmwareDateOK(date Str) Bool {
 // hsaOverrideViable reports whether the HSA_OVERRIDE_GFX_VERSION=11.5.1 workaround
 // applies on this host. It is a PURE derivation from host facts — gfx id must be
 // gfx1151 and the ROCm substrate (rocminfo) must be present — with NO I/O and, by
-// design, NO read of os.Getenv("HSA_OVERRIDE_GFX_VERSION") (D-03 / Pitfall 4: the env
+// design, NO read of os.Getenv("HSA_OVERRIDE_GFX_VERSION") (Pitfall 4: the env
 // var is not a viability signal and must not be inspected/logged).
 //
 // Known-ness is gated on gfxID.Known, NOT on rocmPresent: rocmPresent is always Known
 // (rocminfo present/absent is a confident fact), so gating on it could never preserve
 // the off-hardware UNSET. When the gfx id is unknown the viability is unevaluable →
-// UnknownBool (UNSET), never a fabricated false (no-false-green, D-08 / Assumptions A1).
+// UnknownBool (UNSET), never a fabricated false (no-false-green, / Assumptions A1).
 func hsaOverrideViable(gfxID Str, rocmPresent Bool) Bool {
 	if !gfxID.Known {
 		return UnknownBool("HSA override viability unevaluable (gfx id not enumerated)", gfxID.Raw)

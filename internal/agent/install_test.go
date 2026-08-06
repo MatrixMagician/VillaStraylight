@@ -12,8 +12,8 @@ import (
 )
 
 // install_test.go drives the Plan-02 live half of the agent core: agent.Run's
-// absent/first-run-render/drift/clean flow (D-13/D-14, AGENT-03/AGENT-04) and the
-// checksum-before-extract install seam (D-03, AGENT-01). Every host effect is an
+// absent/first-run-render/drift/clean flow (AGENT-03/AGENT-04) and the
+// checksum-before-extract install seam (AGENT-01). Every host effect is an
 // injected Deps func field / an in-memory reader, so the whole flow is driven
 // off-hardware.
 
@@ -70,7 +70,7 @@ func renderedRef(t *testing.T, cfg config.VillaConfig) []byte {
 }
 
 // TestRunBinaryAbsent — a not-present binary yields BinaryAbsent + a Phase-27 install
-// remediation Reason; NO Launch, NO WriteConfig (D-13).
+// remediation Reason; NO Launch, NO WriteConfig.
 func TestRunBinaryAbsent(t *testing.T) {
 	rec := &runRecorder{
 		cfg:        config.VillaConfig{Model: "qwen3", CodingMode: true},
@@ -126,7 +126,7 @@ func TestRunFirstRunRendersThenLaunches(t *testing.T) {
 }
 
 // TestRunDriftSurfaced — a PRESENT-but-differing config surfaces ConfigDrift +
-// remediation; Launch NOT called; WriteConfig NOT called (D-14 — present-but-differs
+// remediation; Launch NOT called; WriteConfig NOT called (present-but-differs
 // is never auto-corrected).
 func TestRunDriftSurfaced(t *testing.T) {
 	rec := &runRecorder{
@@ -185,7 +185,7 @@ func TestRunLaunchesClean(t *testing.T) {
 }
 
 // TestRunCodingModeOffWarns — cfg.CodingMode=false adds a coding_mode_off WARN but
-// STILL launches (D-12; Run never mutates the toggle).
+// STILL launches (Run never mutates the toggle).
 func TestRunCodingModeOffWarns(t *testing.T) {
 	cfg := config.VillaConfig{Model: "qwen3", CodingMode: false}
 	rec := &runRecorder{
@@ -197,7 +197,7 @@ func TestRunCodingModeOffWarns(t *testing.T) {
 	}
 	res := Run(rec.deps())
 	if !res.ReadyToLaunch {
-		t.Fatalf("coding-mode-off must still be ReadyToLaunch (D-12); res=%+v", res)
+		t.Fatalf("coding-mode-off must still be ReadyToLaunch; res=%+v", res)
 	}
 	if !hasWarning(res.Warnings, "coding_mode_off") {
 		t.Errorf("coding-mode-off did not carry a coding_mode_off WARN; warnings=%+v", res.Warnings)

@@ -7,8 +7,8 @@ import (
 )
 
 // backend_rocm_test.go covers the ROCm backend (backend_rocm.go) and the BackendFor
-// resolver (backend.go): the kfd+dri/render/ordered-env ContainerArgs delta (D-09),
-// the digest-pinned rocm-7.2.4 image (T-6-04), and the fail-closed resolver (D-01/D-02,
+// resolver (backend.go): the kfd+dri/render/ordered-env ContainerArgs delta,
+// the digest-pinned rocm-7.2.4 image (T-6-04), and the fail-closed resolver (
 // T-6-03). These are Contains-style guards, NOT a byte-golden — the rendered-unit
 // byte-golden is Phase 7.
 
@@ -40,7 +40,7 @@ func TestROCmContainerArgs(t *testing.T) {
 		}
 	}
 
-	// The HSA override must precede the hipBLASLt opt-in (ordered env, D-09).
+	// The HSA override must precede the hipBLASLt opt-in (ordered env).
 	hsaIdx := strings.Index(joined, "HSA_OVERRIDE_GFX_VERSION=11.5.1")
 	hipIdx := strings.Index(joined, "ROCBLAS_USE_HIPBLASLT=1")
 	if hsaIdx < 0 || hipIdx < 0 || hsaIdx > hipIdx {
@@ -49,7 +49,7 @@ func TestROCmContainerArgs(t *testing.T) {
 }
 
 // TestROCmImageDigestPinned asserts the ROCm image is digest-pinned: an `@sha256:`
-// prefix followed by a 64-hex-char digest (T-6-04 supply-chain pin). Passes now —
+// prefix followed by a 64-hex-char digest (T-6-04 supply-chain pin). Passes now
 // the digest is the resolved real one, no placeholder.
 func TestROCmImageDigestPinned(t *testing.T) {
 	b, err := BackendFor("rocm")
@@ -67,10 +67,10 @@ func TestROCmImageDigestPinned(t *testing.T) {
 }
 
 // TestBackendFor asserts the resolver maps "" and "vulkan" to the Vulkan backend,
-// "rocm" to the ROCm 7.2.4 backend (unchanged digest — D-02 coexistence), the two new
-// "rocm-6.4.4"/"rocm-6.4.4-rocwmma" keys to their digest-pinned ROCm backends (D-01),
+// "rocm" to the ROCm 7.2.4 backend (unchanged digest — coexistence), the two new
+// "rocm-6.4.4"/"rocm-6.4.4-rocwmma" keys to their digest-pinned ROCm backends,
 // and FAILS CLOSED on an unknown value: a nil Backend + a non-nil error naming the bad
-// value, NEVER a silent Vulkan fallback (D-03, T-6-03 / T-12-03).
+// value, NEVER a silent Vulkan fallback (T-6-03).
 func TestBackendFor(t *testing.T) {
 	ok := []struct {
 		name        string
@@ -81,9 +81,9 @@ func TestBackendFor(t *testing.T) {
 		{"", "rocm", "2da150c1"},
 		// vulkan is now the explicit opt-in fallback, still resolvable and unchanged.
 		{"vulkan", "vulkan", ""},
-		// rocm STILL means the unchanged 7.2.4 digest (D-02 coexistence).
+		// rocm STILL means the unchanged 7.2.4 digest (coexistence).
 		{"rocm", "rocm", "2da150c1"},
-		// The two new digest-pinned ROCm backends (D-01/D-05).
+		// The two new digest-pinned ROCm backends.
 		{"rocm-6.4.4", "rocm-6.4.4", "sha256:c81f30a7"},
 		{"rocm-6.4.4-rocwmma", "rocm-6.4.4-rocwmma", "sha256:9a97129a"},
 	}
@@ -106,7 +106,7 @@ func TestBackendFor(t *testing.T) {
 	}
 
 	// Fail-closed: unknown → (nil, error) whose message names the bad value AND the
-	// four valid options (D-03 fail-closed; the widened error must still name them all).
+	// four valid options (fail-closed; the widened error must still name them all).
 	t.Run("unknown fails closed", func(t *testing.T) {
 		b, err := BackendFor("cuda")
 		if err == nil {

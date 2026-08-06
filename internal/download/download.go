@@ -1,5 +1,5 @@
 // Package download implements `villa model pull`'s on-disk acquisition of a
-// catalog-resolved GGUF (MODEL-02, D-05/D-06). villa downloads the file itself via
+// catalog-resolved GGUF (MODEL-02). villa downloads the file itself via
 // the Go standard library — it does NOT delegate to llama.cpp `-hf` — so the
 // resume/atomic/per-shard-checksum guarantees are owned here and are runner-
 // agnostic and independently testable.
@@ -15,14 +15,14 @@
 //     existing .part bytes on resume.
 //  4. On completion assert total-written == shard.SizeBytes AND hex(sum) ==
 //     shard.SHA256.
-//  5. On match os.Rename(.part, final) — atomic on the same filesystem (D-06).
+//  5. On match os.Rename(.part, final) — atomic on the same filesystem.
 //     On mismatch os.Remove(.part) and return an error — never leave a half-written
 //     model on disk.
 //
 // Integrity is verified ONLY against shard.SHA256 (= HF X-Linked-Etag, the git-LFS
 // oid), NEVER the CDN/Xet chunk ETag (Pitfall 2). The canonical HF URL is the only
 // URL logged; the resolved cas-bridge signed redirect target (which carries a
-// signature) is never logged (Pitfall 8 / signed-URL-leak threat T-02-03).
+// signature) is never logged (Pitfall 8 / signed-URL-leak threat).
 package download
 
 import (
@@ -44,11 +44,11 @@ import (
 )
 
 // partSuffix is appended to the final filename while a download is in flight. The
-// final path appears only after SHA256 + size both verify (atomic rename, D-06).
+// final path appears only after SHA256 + size both verify (atomic rename).
 const partSuffix = ".part"
 
 // maxErrBody bounds how much of an unexpected HTTP error body we read into an
-// error message, so a hostile/huge response cannot exhaust memory (T-02-05). This
+// error message, so a hostile/huge response cannot exhaust memory. This
 // mirrors the bounded-read discipline in internal/catalog/load.go.
 const maxErrBody = 8 << 10 // 8 KiB
 
@@ -71,7 +71,7 @@ func PullModel(ctx context.Context, m catalog.CatalogModel, modelsDir string) er
 // resume from any existing .part via Range, stream+hash, verify SHA256+size, and
 // atomically rename on success (deleting the .part and erroring on any mismatch).
 func downloadFile(ctx context.Context, client httpDoer, sh catalog.Shard, modelsDir string) (err error) {
-	// Confine the final path inside modelsDir BEFORE any write (T-02-02). The
+	// Confine the final path inside modelsDir BEFORE any write. The
 	// catalog filename is untrusted enough to guard against `..`/absolute escapes.
 	finalPath := filepath.Join(modelsDir, sh.Filename)
 	if confErr := assertInsideDir(finalPath, modelsDir); confErr != nil {
@@ -112,7 +112,7 @@ func downloadFile(ctx context.Context, client httpDoer, sh catalog.Shard, models
 		return dlErr
 	}
 
-	// (4) Verify size then checksum. On ANY mismatch, delete the partial (D-06).
+	// (4) Verify size then checksum. On ANY mismatch, delete the partial.
 	if uint64(written) != sh.SizeBytes {
 		_ = os.Remove(partPath)
 		return fmt.Errorf("download: %s size mismatch: got %d bytes, want %d", sh.Filename, written, sh.SizeBytes)
@@ -123,7 +123,7 @@ func downloadFile(ctx context.Context, client httpDoer, sh catalog.Shard, models
 		return fmt.Errorf("download: %s checksum mismatch: got %s, want %s", sh.Filename, gotSum, sh.SHA256)
 	}
 
-	// (5) Atomic rename — the final path appears only now (same filesystem, D-06).
+	// (5) Atomic rename — the final path appears only now (same filesystem).
 	if rnErr := os.Rename(partPath, finalPath); rnErr != nil {
 		_ = os.Remove(partPath)
 		return fmt.Errorf("download: rename %s: %w", sh.Filename, rnErr)
@@ -232,7 +232,7 @@ func streamToPart(ctx context.Context, client httpDoer, sh catalog.Shard, partPa
 }
 
 // snippet reads a bounded prefix of an error body for inclusion in an error
-// message (T-02-05 — never read an unbounded response into memory).
+// message (never read an unbounded response into memory).
 func snippet(r io.Reader) string {
 	b, _ := io.ReadAll(io.LimitReader(r, maxErrBody))
 	return strings.TrimSpace(string(b))
@@ -246,7 +246,7 @@ func drainClose(rc io.ReadCloser) {
 }
 
 // assertInsideDir verifies path resolves within dir, rejecting traversal escapes
-// (T-02-02). Copied verbatim from internal/config so the downloader has no
+// Copied verbatim from internal/config so the downloader has no
 // dependency on an unexported config helper; both are cleaned and compared as
 // absolute paths.
 func assertInsideDir(path, dir string) error {

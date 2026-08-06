@@ -11,13 +11,13 @@ import (
 )
 
 // install_agent_test.go covers the pure resolution + presence seams of the v1.4
-// coding-agent install addon (Task 2): coderShardFor (catalog-resolved, no literal —
-// D-02/D-04) and liveCoderModelPresent (size-gated integrity, mirroring the embed
+// coding-agent install addon (Task 2): coderShardFor (catalog-resolved, no literal
+// and liveCoderModelPresent (size-gated integrity, mirroring the embed
 // analog). The download/binary-install/readiness wiring is host-touching and is
 // exercised through the install flow tests (install_test.go).
 
 // TestCoderShard asserts coderShardFor resolves the picked coder entry's Shards[0] by id
-// (D-02) and returns (zero, false) when no coder fits or the entry/shard is absent — it
+// and returns (zero, false) when no coder fits or the entry/shard is absent — it
 // is NOT a hard-coded literal (the explicit anti-pattern the memory analog's nomicEmbedShard
 // would be for coder).
 func TestCoderShard(t *testing.T) {
@@ -69,7 +69,7 @@ func TestCoderShard(t *testing.T) {
 // TestCoderModelPresent asserts liveCoderModelPresent treats the staged GGUF as present
 // only when it exists AND its on-disk size matches the resolved shard's SizeBytes — a
 // truncated/tampered file is NOT trusted (returns false → re-pull + re-verify), the same
-// integrity guard as liveEmbedModelPresent (IN-03).
+// integrity guard as liveEmbedModelPresent.
 func TestCoderModelPresent(t *testing.T) {
 	sh := catalog.Shard{Filename: "qwen3-coder.Q4.gguf", SizeBytes: 1024}
 
@@ -97,12 +97,12 @@ func TestCoderModelPresent(t *testing.T) {
 	})
 }
 
-// TestAgentProbeReplaced asserts the WR-05 replacement contract: the readiness probe (and,
+// TestAgentProbeReplaced asserts the replacement contract: the readiness probe (and,
 // via the shared liveAgentToolCallProbe driver, `villa verify agent`'s agentTask) declares
 // success ONLY on a real semantic replace of TOKEN_A with TOKEN_B — never on the mere
 // presence of TOKEN_B. An append (TOKEN_A still present), a transcript line echoing both
 // tokens, the unedited file, or empty/unrelated content must all be FALSE. This proves the
-// false-green is gone off-hardware, without execing a live crush binary (D-05 honesty).
+// false-green is gone off-hardware, without execing a live crush binary (honesty).
 func TestAgentProbeReplaced(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -130,7 +130,7 @@ func TestAgentProbeReplaced(t *testing.T) {
 // probe seam (liveLSPProbes) and the `villa code` launcher (agent.Run over
 // agent.KnownLSPServers) MUST probe the SAME {key, command} set, or every
 // `villa install --coding-agent` would render a crush.json that `villa code` then refuses
-// as ConfigDrift (D-14 is report-only). The Key/Command sequence is host-independent
+// as ConfigDrift (is report-only). The Key/Command sequence is host-independent
 // (only Found varies with PATH), so this asserts the mapping exactly. It also pins the
 // python entry to pyright-langserver (the LSP entry point), guarding the specific
 // pyright-vs-pyright-langserver fork that this test was added to close.

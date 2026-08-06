@@ -8,9 +8,9 @@ import (
 )
 
 // TestShellRendersChatLinkFromConfig asserts the served index (the html/template
-// shell) renders the header chat link using the CONFIG'd ChatPort (DASH-05/D-12),
+// shell) renders the header chat link using the CONFIG'd ChatPort,
 // not a hard-coded 3000, and carries rel="noopener noreferrer" against
-// reverse-tabnabbing (T-05-05).
+// reverse-tabnabbing.
 func TestShellRendersChatLinkFromConfig(t *testing.T) {
 	srv := mustNewServer(t, Config{StatusDeps: stubStatusDeps(t), ChatPort: 4242, DashboardAddr: "127.0.0.1", DashboardPort: 8888})
 
@@ -40,8 +40,8 @@ func TestShellRendersChatLinkFromConfig(t *testing.T) {
 }
 
 // TestStaticAssetsServed asserts the embedded dashboard.css and dashboard.js are
-// served verbatim (pure go build, embed.FS — D-01) and that the JS carries the
-// visibilitychange pause + /api/status poll (D-05).
+// served verbatim (pure go build, embed.FS) and that the JS carries the
+// visibilitychange pause + /api/status poll.
 func TestStaticAssetsServed(t *testing.T) {
 	srv := mustNewServer(t, Config{StatusDeps: stubStatusDeps(t), ChatPort: 3000, DashboardAddr: "127.0.0.1", DashboardPort: 8888})
 

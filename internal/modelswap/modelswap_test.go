@@ -11,9 +11,9 @@ import (
 )
 
 // modelswap_test.go holds the swap-ordering asserts relocated from cmd/villa
-// model_test.go — the security contract (D-09 / STATE.md [03-05]): resolve(catalog) →
+// model_test.go — the security contract (STATE.md [03-05]): resolve(catalog) →
 // fit-guard → auto-pull → SaveVilla BEFORE reconcileAndWrite → restart ONLY the
-// inference service, skipping the restart on a no-op (WR-06). Run is driven through
+// inference service, skipping the restart on a no-op. Run is driven through
 // stubbed Deps with no live host; the typed Result is asserted directly.
 
 const installService = "villa-llama.service"
@@ -27,7 +27,7 @@ type swapRecorder struct {
 	restarted         []string
 	downloaded        map[string]bool // models considered already-on-disk
 	fitOverrides      map[string]bool // model id -> Fits result
-	reconcileNoChange bool            // make reconcileAndWrite report "nothing changed" (WR-06)
+	reconcileNoChange bool            // make reconcileAndWrite report "nothing changed"
 }
 
 func newSwapStub(rec *swapRecorder) Deps {
@@ -93,7 +93,7 @@ func TestSwapResolvesThroughCatalog(t *testing.T) {
 }
 
 // TestSwapFitGuardFirst: a non-fitting model is refused BEFORE any pull/save/restart
-// (fit-guard first, D-09.1).
+// (fit-guard first).
 func TestSwapFitGuardFirst(t *testing.T) {
 	rec := &swapRecorder{
 		downloaded:   map[string]bool{"toobig-model": true},
@@ -118,11 +118,11 @@ func TestSwapFitGuardFirst(t *testing.T) {
 // pull → SaveVilla called BEFORE reconcileAndWrite → restart targets ONLY the
 // inference service (the ordering contract).
 //
-// Phase-23 D-09 / SC#3 (CTRL-05): the restarted slice records EVERY Restart call;
-// asserting len==1 with InstallServiceName pins the restart SCOPE of a chat swap —
+// Phase-23 (CTRL-05): the restarted slice records EVERY Restart call;
+// asserting len==1 with InstallServiceName pins the restart SCOPE of a chat swap
 // the memory services (villa-qdrant / villa-embed) and Open WebUI are never
 // restarted. The Deps surface itself is the other half of the guarantee: Restart
-// is the ONLY service mutator on the struct (no Stop/Start/Reload field exists —
+// is the ONLY service mutator on the struct (no Stop/Start/Reload field exists
 // a compile-time truth pinned by TestSwapDepsSurfaceRestartIsOnlyServiceMutator
 // below). Because the dashboard's POST /api/models/switch handler (handleSwitch)
 // calls this same modelswap.Run verbatim, the scope is permanent for the CLI AND
@@ -166,12 +166,12 @@ func TestSwapSaveBeforeReconcileAndInferenceOnlyRestart(t *testing.T) {
 	}
 }
 
-// TestSwapDepsSurfaceRestartIsOnlyServiceMutator (D-09 / CTRL-05): the Deps struct
+// TestSwapDepsSurfaceRestartIsOnlyServiceMutator (CTRL-05): the Deps struct
 // is the injection surface for EVERY host-touching action the swap can perform, so
 // pinning its exact field set makes the restart scope structural: Restart is the
 // only service mutator (there is no Stop/Start/Reload/Down field a future change
 // could quietly call for the memory stack). Adding ANY new field to Deps breaks
-// this test, forcing a conscious D-09 review. Because the dashboard handleSwitch
+// this test, forcing a conscious review. Because the dashboard handleSwitch
 // drives the same Run/Deps, this pin covers both the CLI and the dashboard.
 func TestSwapDepsSurfaceRestartIsOnlyServiceMutator(t *testing.T) {
 	want := map[string]bool{
@@ -226,7 +226,7 @@ func TestSwapAlreadyDownloadedSkipsPull(t *testing.T) {
 }
 
 // TestSwapNoOpSkipsRestart: a no-op (units already up to date) persists config but
-// skips the restart (WR-06).
+// skips the restart.
 func TestSwapNoOpSkipsRestart(t *testing.T) {
 	rec := &swapRecorder{
 		downloaded:        map[string]bool{"fits-model": true},

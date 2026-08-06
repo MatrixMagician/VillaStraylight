@@ -11,15 +11,15 @@
 //     live in the command layer (cmd/villa/doctor.go), so the worst-wins fold is
 //     unit-testable off-hardware.
 //   - Every host touch is an injected Deps func-field — there is no host I/O here.
-//   - doctor owns its OWN Report type and its OWN golden (D-02). It only READS the
+//   - doctor owns its OWN Report type and its OWN golden. It only READS the
 //     byte-frozen status.Report; it never extends or mutates it.
-//   - COMPOSITION ONLY (D-01): it never re-implements a probe a shipped core produces.
+//   - COMPOSITION ONLY: it never re-implements a probe a shipped core produces.
 //   - Backend marker literals stay behind the inference seam: doctor consumes
 //     inference.Verdict values OPAQUELY (Status/Detail/Remediation only) and routes
 //     ROCm-family backends via inference.IsROCmFamily — never typing Vulkan0/ROCm0/
 //     image tags (TestSeamGrepGate walks internal/).
 //
-// Severity / exit mapping (D-04, Pitfall 1 — the shipped preflight constants are
+// Severity / exit mapping (Pitfall 1 — the shipped preflight constants are
 // AUTHORITATIVE, NOT the inverted ROADMAP prose): a confident BLOCK-class FAIL
 // (preflight BLOCK FAIL, a confident residency/offload FAIL) → the blocked tier
 // (exit 1); a WARN (preflight WARN, config-vs-disk drift, a typed-Unknown /
@@ -49,16 +49,16 @@ const (
 	statusFail = "FAIL"
 )
 
-// reportSchemaVersion is doctor's OWN --json contract self-version (D-09), distinct
+// reportSchemaVersion is doctor's OWN --json contract self-version, distinct
 // from status.reportSchemaVersion. Bumped append-only on any additive change to the
 // doctor Report contract.
 //
 // Version history (append-only — never renumber a shipped version):
 //   - v1: the original host-prep + running-stack + drift + memory fold.
-//   - v2: the coding-agent fold (Phase 28-01, SURF-02) — additive agent findings
+//   - v2: the coding-agent fold (Phase 28-01) — additive agent findings
 //     (agent-tool-call / agent-residency / agent-binary-drift / agent-config-drift).
 //     No existing field changed shape; agent-off output is byte-identical except this bump.
-//   - v3: the web-search fold (Phase 34-04, SURF-06) — additive web-search findings
+//   - v3: the web-search fold (Phase 34-04) — additive web-search findings
 //     (search-egress / search-residency). searxng/websafe service readiness is composed
 //     from the status read-model rows (no new finding type). No existing field changed
 //     shape; web-search-OFF output is byte-identical except this bump (nil seams emit no
@@ -89,9 +89,9 @@ func supersededROCmHostPrepID(id string) bool {
 }
 
 // Finding is doctor's normalized, renderable health finding — a doctor-OWNED wrapper
-// (mirroring preflight.CheckResult's field set, D-02 spirit) so doctor's golden never
+// (mirroring preflight.CheckResult's field set, spirit) so doctor's golden never
 // couples to an upstream struct. Every non-PASS Finding MUST carry a non-empty
-// Remediation (D-11).
+// Remediation.
 type Finding struct {
 	// ID is a short stable identifier for the finding (e.g. "drift", "offload").
 	ID string `json:"id"`
@@ -103,7 +103,7 @@ type Finding struct {
 	Status string `json:"status"`
 	// Detail is a one-line human explanation.
 	Detail string `json:"detail"`
-	// Remediation is an actionable hint for a non-PASS result (D-11). Empty on PASS.
+	// Remediation is an actionable hint for a non-PASS result. Empty on PASS.
 	Remediation string `json:"remediation"`
 	// Provenance records which composed core / signal produced this finding, for -v.
 	Provenance string `json:"provenance"`
@@ -112,14 +112,14 @@ type Finding struct {
 	Raw string `json:"-"`
 }
 
-// Report is doctor's OWN aggregated --json contract. It is NOT status.Report (D-02).
+// Report is doctor's OWN aggregated --json contract. It is NOT status.Report.
 type Report struct {
 	// Findings is every normalized finding from the composed cores + the drift check.
 	Findings []Finding `json:"findings"`
 	// Overall is the worst-wins verdict string: PASS | WARN | FAIL.
 	Overall string `json:"overall"`
 	// SchemaVersion is the contract self-version. It MUST stay the LAST tagged field
-	// (append-only; new tagged fields go above it). =1 from day one (D-09).
+	// (append-only; new tagged fields go above it). =1 from day one.
 	SchemaVersion int `json:"schema_version"`
 }
 
@@ -138,7 +138,7 @@ type Deps struct {
 	StatusReport func() status.Report
 	// DriftPlan renders units from config and Reconciles them against the on-disk unit
 	// dir, returning the Plan (the core decides drift). It NEVER writes units. A read
-	// error (absent unit dir) degrades to a typed-Unknown WARN finding (D-08).
+	// error (absent unit dir) degrades to a typed-Unknown WARN finding.
 	DriftPlan func() (orchestrate.Plan, error)
 	// Backend is the configured backend name, routing the ROCm-family preflight gate
 	// via inference.IsROCmFamily.
@@ -153,37 +153,37 @@ type Deps struct {
 	// back to preflight.RunROCm(profile) exactly as before.
 	RunROCmImage func(detect.HostProfile) []preflight.CheckResult
 	// RunMemoryChecks is the opt-in memory host gate (preflight.RunMemory bound by
-	// the cmd tier — D-08, composition over re-implementation): the vector-disk +
+	// the cmd tier —, composition over re-implementation): the vector-disk +
 	// embedder-headroom CheckResults are folded via findingFromCheck and ranked
 	// worst-wins exactly like every other check. NIL-SAFE: when nil (memory off)
 	// no memory check finding is emitted and output stays byte-identical.
 	RunMemoryChecks func(detect.HostProfile) []preflight.CheckResult
 	// ResidencyUnderLoad is the chat-model residency-under-embedding-load proof
-	// (D-09): the cmd tier drives a REAL /v1/embeddings workload and samples the
+	// the cmd tier drives a REAL /v1/embeddings workload and samples the
 	// chat model's GTT/journal residency MID-DRIVE, returning the Verdict consumed
 	// OPAQUELY here (Status/Detail/Remediation only — seam-clean). NIL-SAFE: when
 	// nil (memory off) NO MEM-DOC-residency finding is emitted at all — never a
-	// PASS-by-default (no-false-green, D-09/D-10).
+	// PASS-by-default (no-false-green).
 	ResidencyUnderLoad func() inference.Verdict
-	// AgentToolCall is the coding-agent tool-call round-trip proof (SURF-02, D-07):
+	// AgentToolCall is the coding-agent tool-call round-trip proof:
 	// the cmd tier drives a REAL read→edit `crush run` round-trip and maps its
 	// completion to an inference.Verdict consumed OPAQUELY here (Status/Detail/
 	// Remediation only — seam-clean). NIL-SAFE: when nil (agent off) NO agent-tool-call
 	// finding is emitted at all — never a PASS-by-default (no-false-green).
 	AgentToolCall func() inference.Verdict
 	// AgentResidencyUnderLoad is the coder-model residency-under-tool-call-load proof
-	// (SURF-02, D-07): the cmd tier samples the served CODER model's GTT/journal
+	// the cmd tier samples the served CODER model's GTT/journal
 	// residency MID-DRIVE under a real tool-call workload, returning the Verdict
 	// consumed OPAQUELY here. NIL-SAFE: when nil (agent off) NO agent-residency finding
-	// is emitted at all — never a PASS-by-default (D-07 honesty dominance).
+	// is emitted at all — never a PASS-by-default (honesty dominance).
 	AgentResidencyUnderLoad func() inference.Verdict
 	// AgentDrift is the binary/version + config drift report from internal/agent
-	// (SURF-02, D-14): the cmd tier feeds the installed-binary SHA + on-disk crush.json
+	// the cmd tier feeds the installed-binary SHA + on-disk crush.json
 	// + freshly-rendered reference to agent.DetectDrift and hands back the report-only
-	// outcome. It is surfaced, NEVER auto-corrected (D-14). NIL-SAFE: when nil (agent
+	// outcome. It is surfaced, NEVER auto-corrected. NIL-SAFE: when nil (agent
 	// off) NO agent drift finding is emitted at all.
 	AgentDrift func() agent.DriftReport
-	// SearchEgressProof is the web-search egress-proof seam (SURF-06, T-34-12): the cmd
+	// SearchEgressProof is the web-search egress-proof seam: the cmd
 	// tier reads the CACHED `villa verify search` result (verifystate.Load) and maps it to
 	// a tri-state inference.Verdict consumed OPAQUELY here (Status/Detail/Remediation only
 	// — seam-clean): a fresh cached PASS → StatusPass (ready); a real recent non-PASS →
@@ -191,15 +191,15 @@ type Deps struct {
 	// NEVER a config-bool-derived PASS). NIL-SAFE: when nil (web search off) NO search-egress
 	// finding is emitted at all — never a PASS-by-default (no-false-green).
 	SearchEgressProof func() inference.Verdict
-	// SearchResidencyUnderLoad is the chat-model residency-under-SEARCH-load proof (SURF-06,
-	// T-34-13): the cmd tier drives a bounded search-augmented chat workload (with villa-searxng
+	// SearchResidencyUnderLoad is the chat-model residency-under-SEARCH-load proof (
+	// the cmd tier drives a bounded search-augmented chat workload (with villa-searxng
 	// /villa-websafe up) and samples the served model's GTT/journal residency MID-DRIVE,
 	// returning the Verdict consumed OPAQUELY here. A confident CPU fallback under search load
 	// is a BLOCK-class FAIL that DOMINATES a healthy-looking HTTP-200; a not-in-flight /
 	// unevaluable signal → typed-Unknown WARN (never an idle-sampled false-green). NIL-SAFE:
 	// when nil (web search off) NO search-residency finding is emitted at all.
 	//
-	// SCOPE OMISSION (SURF-06, accepted limit): guard health has NO host-side source — the
+	// SCOPE OMISSION (accepted limit): guard health has NO host-side source — the
 	// per-request guard metadata lives in-container only, with no host aggregate. Building a
 	// guard counter/health pipeline = NEW behavior = OUT OF SCOPE for this surfacing phase, so
 	// NO guard-health finding is emitted (a documented omission, never a fabricated PASS/0).
@@ -257,8 +257,8 @@ func Aggregate(d Deps) Report {
 		findings = append(findings, findingFromCheck(c))
 	}
 
-	// 1b. MEMORY HOST GATE (D-08): fold the opt-in vector-disk/headroom checks
-	// (preflight.RunMemory, bound by the cmd tier) verbatim via findingFromCheck —
+	// 1b. MEMORY HOST GATE: fold the opt-in vector-disk/headroom checks
+	// (preflight.RunMemory, bound by the cmd tier) verbatim via findingFromCheck
 	// no new aggregation logic; they rank worst-wins like every other check. A nil
 	// seam (memory off) emits nothing, keeping the off path byte-identical.
 	if d.RunMemoryChecks != nil {
@@ -268,8 +268,8 @@ func Aggregate(d Deps) Report {
 	}
 
 	// 2. RUNNING-STACK HEALTH — fold the status read-model. A confident offload FAIL
-	// becomes a BLOCK-class FAIL that DOMINATES a HealthReady (Pitfall 3 / D-05); a
-	// HealthDown / unevaluable signal degrades to a typed-Unknown WARN (D-06/D-08).
+	// becomes a BLOCK-class FAIL that DOMINATES a HealthReady (Pitfall 3); a
+	// HealthDown / unevaluable signal degrades to a typed-Unknown WARN.
 	//
 	// rocmResidencyProven keys the residency-supersession step (4a) below: it is true
 	// only when the configured backend is ROCm-family AND some service has OffloadApplies
@@ -279,8 +279,8 @@ func Aggregate(d Deps) Report {
 	rocmResidencyProven := false
 	report := d.StatusReport()
 	if err := report.Err(); err != nil {
-		// 2-pre. ERRORED READ-MODEL (phase-22 CR-01): status.Run returns an errored
-		// ZERO-VALUE Report (LoopbackOnly=false, no Services) on any internal failure —
+		// 2-pre. ERRORED READ-MODEL (phase-22): status.Run returns an errored
+		// ZERO-VALUE Report (LoopbackOnly=false, no Services) on any internal failure
 		// config load, ModelFile resolution, BackendFor, Render. That zero value is an
 		// UNEVALUABLE signal, not an observation: folding it would FABRICATE a confident
 		// loopback "privacy breach" BLOCK FAIL on (e.g.) a never-installed host whose
@@ -305,7 +305,7 @@ func Aggregate(d Deps) Report {
 				Name:        "Loopback-only bind",
 				Tier:        tierBlock,
 				Status:      statusFail,
-				Detail:      "a published port binds a non-loopback address (privacy breach, PRIV-01)",
+				Detail:      "a published port binds a non-loopback address (privacy breach)",
 				Remediation: "re-run `villa install` to regenerate loopback-only units, then `villa down && villa up`",
 				Provenance:  "status.Report.LoopbackOnly",
 			})
@@ -321,7 +321,7 @@ func Aggregate(d Deps) Report {
 		}
 	}
 
-	// 2b. RESIDENCY UNDER EMBEDDING LOAD (D-09): the chat model must SURVIVE a real
+	// 2b. RESIDENCY UNDER EMBEDDING LOAD: the chat model must SURVIVE a real
 	// embedding workload — a silent eviction to CPU under import load is the exact
 	// false-green this phase exists to catch. The proof seam is nil when memory is
 	// off: no finding is emitted at all (never a PASS-by-default). The Verdict is
@@ -330,12 +330,12 @@ func Aggregate(d Deps) Report {
 		findings = append(findings, residencyUnderLoadFinding(d.ResidencyUnderLoad()))
 	}
 
-	// 2c. CODING-AGENT FOLD (SURF-02, D-06/D-07): when the agent is enabled the cmd tier
+	// 2c. CODING-AGENT FOLD: when the agent is enabled the cmd tier
 	// binds the three agent seams; each NIL seam (agent off) emits NO finding (never a
 	// PASS-by-default — agent-off output stays byte-identical except the schema bump). A
 	// confident agent tool-call / residency FAIL folds worst-wins and DOMINATES a
 	// healthy-looking HTTP-200 (the offload-FAIL-dominates switch, cloned below). Drift is
-	// surfaced as WARN-with-remediation, never auto-corrected (D-14).
+	// surfaced as WARN-with-remediation, never auto-corrected.
 	if d.AgentToolCall != nil {
 		findings = append(findings, agentToolCallFinding(d.AgentToolCall()))
 	}
@@ -346,13 +346,13 @@ func Aggregate(d Deps) Report {
 		findings = append(findings, agentDriftFindings(d.AgentDrift())...)
 	}
 
-	// 2d. WEB-SEARCH FOLD (SURF-06, T-34-12/T-34-13): when web search is enabled the cmd
+	// 2d. WEB-SEARCH FOLD: when web search is enabled the cmd
 	// tier binds the two web-search seams; each NIL seam (web off) emits NO finding (never a
 	// PASS-by-default — web-off output stays byte-identical except the schema bump). The
 	// egress-proof finding is a tri-state derived from the CACHED `villa verify search`
-	// result (NEVER a config bool, T-34-12); the residency finding is offload-asserting — a
+	// result (NEVER a config bool); the residency finding is offload-asserting — a
 	// confident CPU fallback under search load folds worst-wins and DOMINATES a healthy-looking
-	// HTTP-200 (T-34-13, the offload-FAIL-dominates switch cloned below). searxng/websafe
+	// HTTP-200 (the offload-FAIL-dominates switch cloned below). searxng/websafe
 	// service READINESS needs NO finding here — status.Run already surfaces dedicated
 	// villa-searxng/villa-websafe rows (Plan 03) folded by the healthFinding loop in step 2.
 	// Guard health is a documented OMISSION (no host-side source — accepted scope limit).
@@ -364,8 +364,8 @@ func Aggregate(d Deps) Report {
 	}
 
 	// 3. DRIFT — config-vs-disk drift is independent of running-stack health: even a
-	// fully-healthy stack on stale units is a WARN (Pitfall 4 / D-05/D-10). A read
-	// error (absent/unreadable unit dir) degrades to a typed-Unknown WARN (D-08).
+	// fully-healthy stack on stale units is a WARN (Pitfall 4). A read
+	// error (absent/unreadable unit dir) degrades to a typed-Unknown WARN.
 	plan, err := d.DriftPlan()
 	switch {
 	case err != nil:
@@ -431,7 +431,7 @@ func Aggregate(d Deps) Report {
 	// typed-Unknown offload WARN. Phase 23 (Plan 23-01) fixed the classification at
 	// the source: memory rows are OffloadApplies=false in status.Run, so the
 	// offloadFinding gate above (`if s.OffloadApplies`) never creates an
-	// offload:<memory-svc> finding and the down-rank was unreachable dead code —
+	// offload:<memory-svc> finding and the down-rank was unreachable dead code
 	// deleted, together with the MemoryEnabled/MemoryServices Deps fields that
 	// existed only to key it.)
 	worst := 0
@@ -475,7 +475,7 @@ func findingFromCheck(c preflight.CheckResult) Finding {
 
 // healthFinding maps a service's mapped health to a WARN-tier finding: HealthReady →
 // PASS; HealthDown → WARN (a down/stopped stack is an expected, visible operational
-// state, not a blocking fault — D-08 / the package contract reserves the blocking
+// state, not a blocking fault — / the package contract reserves the blocking
 // tier for the silent-degradation faults: a confident offload FAIL over a health-200,
 // a preflight BLOCK, or a loopback breach); loading / unknown → typed-Unknown WARN
 // (up-but-not-confirmed). Every branch stays in tierWarn, so a health signal NEVER
@@ -504,9 +504,9 @@ func healthFinding(s status.ServiceStatus) Finding {
 }
 
 // offloadFinding maps a service's running offload Verdict (consumed OPAQUELY) into a
-// doctor Finding. A confident inference.StatusFail becomes a BLOCK-class FAIL (D-05)
+// doctor Finding. A confident inference.StatusFail becomes a BLOCK-class FAIL
 // that dominates a HealthReady (Pitfall 3 — no false-green over a health-200); an
-// unevaluable StatusWarn degrades to a typed-Unknown WARN (D-06/D-08); a proven
+// unevaluable StatusWarn degrades to a typed-Unknown WARN; a proven
 // StatusPass is a PASS.
 func offloadFinding(s status.ServiceStatus) Finding {
 	v := s.Offload // inference.Verdict — read Status/Detail/Remediation ONLY (seam-clean)
@@ -535,7 +535,7 @@ func offloadFinding(s status.ServiceStatus) Finding {
 
 // residencyUnderLoadFinding maps the chat-model residency-under-embedding-load proof
 // Verdict (consumed OPAQUELY — Status/Detail/Remediation only, seam-clean) into a
-// doctor Finding, copying offloadFinding's switch (D-09): a confident CPU fallback
+// doctor Finding, copying offloadFinding's switch: a confident CPU fallback
 // under embedding load is a BLOCK-class FAIL (the silent-degradation fault this
 // finding exists to catch); an unevaluable proof (stack down, scrape failed, drive
 // could not complete) degrades to a typed-Unknown WARN — NEVER a false-green PASS.
@@ -567,7 +567,7 @@ func residencyUnderLoadFinding(v inference.Verdict) Finding {
 
 // agentToolCallFinding maps the coding-agent tool-call round-trip proof Verdict (consumed
 // OPAQUELY — Status/Detail/Remediation only, seam-clean) into a doctor Finding, cloning
-// offloadFinding's offload-FAIL-dominates switch (D-07): a confident StatusFail (the agent
+// offloadFinding's offload-FAIL-dominates switch: a confident StatusFail (the agent
 // could not complete a real read→edit `crush run` round-trip) is a BLOCK-class FAIL that
 // DOMINATES a healthy-looking HTTP-200 — never a false-green; an unevaluable proof
 // degrades to a typed-Unknown WARN. Emitted only when Deps.AgentToolCall is non-nil.
@@ -598,7 +598,7 @@ func agentToolCallFinding(v inference.Verdict) Finding {
 
 // agentResidencyFinding maps the coder-model residency-under-tool-call-load proof Verdict
 // (consumed OPAQUELY) into a doctor Finding, using the IDENTICAL offload-FAIL-dominates
-// switch (D-07 honesty dominance): a confident CPU fallback of the CODER model under
+// switch (honesty dominance): a confident CPU fallback of the CODER model under
 // tool-call load is a BLOCK-class FAIL that dominates a health-200; an unevaluable proof
 // degrades to a typed-Unknown WARN — NEVER a false-green PASS. Emitted only when
 // Deps.AgentResidencyUnderLoad is non-nil.
@@ -627,8 +627,8 @@ func agentResidencyFinding(v inference.Verdict) Finding {
 	return f
 }
 
-// searchEgressFinding maps the web-search egress-proof Verdict (SURF-06, T-34-12) into a
-// doctor Finding. The Verdict is consumed OPAQUELY (Status/Detail/Remediation only —
+// searchEgressFinding maps the web-search egress-proof Verdict into a
+// doctor Finding. The Verdict is consumed OPAQUELY (Status/Detail/Remediation only
 // seam-clean): the cmd tier has already mapped the CACHED `villa verify search` result to
 // a tri-state (PASS+fresh → StatusPass "ready"; a real recent non-PASS → StatusFail
 // "degraded-with-reason"; stale/absent → StatusWarn typed-Unknown). This switch mirrors
@@ -636,7 +636,7 @@ func agentResidencyFinding(v inference.Verdict) Finding {
 // real, confident security-property FAILURE (a verify search that did NOT pass) — a
 // BLOCK-class FAIL, never swallowed; a stale/absent cache is a WARN-tier typed-Unknown
 // (the property must be re-proven, never trusted indefinitely — and never a config-bool
-// PASS). Every non-PASS branch carries a Remediation (D-11). Emitted only when
+// PASS). Every non-PASS branch carries a Remediation. Emitted only when
 // Deps.SearchEgressProof is non-nil.
 func searchEgressFinding(v inference.Verdict) Finding {
 	f := Finding{
@@ -658,7 +658,7 @@ func searchEgressFinding(v inference.Verdict) Finding {
 		f.Remediation = nonEmpty(v.Remediation, "the last `villa verify search` did not pass — re-run `villa verify search` and check `villa logs`")
 	default: // StatusWarn — no fresh evaluable proof (stale/absent cache)
 		// typed-Unknown: a security property must be re-proven, NEVER trusted from a stale
-		// cache and NEVER inferred from cfg.WebSearchEnabled (T-34-12).
+		// cache and NEVER inferred from cfg.WebSearchEnabled.
 		f.Tier = tierWarn
 		f.Status = statusWarn
 		f.Remediation = nonEmpty(v.Remediation, "no fresh verified outbound-bounded result — run `villa verify search`, then re-run `villa doctor`")
@@ -667,7 +667,7 @@ func searchEgressFinding(v inference.Verdict) Finding {
 }
 
 // searchResidencyFinding maps the chat-model residency-under-SEARCH-load proof Verdict
-// (SURF-06, T-34-13) into a doctor Finding, using the IDENTICAL offload-FAIL-dominates
+// into a doctor Finding, using the IDENTICAL offload-FAIL-dominates
 // switch (the project's offload-asserting invariant applied to the search path): a confident
 // CPU fallback of the served model under search load is a BLOCK-class FAIL that DOMINATES a
 // health-200 — never a false-green; a not-in-flight / unevaluable proof degrades to a
@@ -698,14 +698,15 @@ func searchResidencyFinding(v inference.Verdict) Finding {
 	return f
 }
 
-// agentDriftFindings maps a report-only agent.DriftReport (D-14) into doctor Findings.
+// agentDriftFindings maps a report-only agent.DriftReport into doctor Findings.
 // Drift is SURFACED, never auto-corrected: each non-clean signal is a WARN-with-remediation,
 // never a BLOCK FAIL (a drifted/absent binary or hand-edited config is an operator decision,
 // not a silent-degradation fault). The honesty discipline:
 //   - BinaryAbsent           → WARN + Phase-27 install remediation (agent-binary-drift).
 //   - BinaryDriftUnknown     → typed-Unknown WARN (the policy hash is not yet pinned).
-//   - BinaryDrift            → WARN + re-install remediation (never auto-corrected, D-14a).
-//   - ConfigDrift            → WARN + review/re-render remediation (never overwritten, D-14b).
+//
+// - BinaryDrift → WARN + re-install remediation (never auto-corrected).
+// - ConfigDrift → WARN + review/re-render remediation (never overwritten).
 //   - ConfigAbsent ALONE     → NO finding (the first-run render trigger, parallels BinaryAbsent
 //     — NOT drift; emitting a finding here would mis-report a false drift at the first run).
 //   - all clean              → a single PASS finding (agent-drift).
@@ -781,7 +782,7 @@ func agentDriftFindings(r agent.DriftReport) []Finding {
 }
 
 // nonEmpty returns the upstream remediation when present, else a doctor default — so
-// every non-PASS finding always carries actionable text (D-11).
+// every non-PASS finding always carries actionable text.
 func nonEmpty(upstream, fallback string) string {
 	if upstream != "" {
 		return upstream

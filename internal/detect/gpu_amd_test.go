@@ -36,7 +36,7 @@ func TestVulkanDeviceGarbageYieldsUnknown(t *testing.T) {
 	}
 }
 
-// TestVulkanDeviceSkipsCPUWhenEnumeratedFirst is the WR-01 regression: the
+// TestVulkanDeviceSkipsCPUWhenEnumeratedFirst is the regression: the
 // llvmpipe CPU software renderer enumerates as GPU0 (BEFORE the RADV iGPU at GPU1).
 // vulkanDevice must select the real iGPU, never the CPU fallback — reporting the
 // software renderer as the GPU is the exact silent-CPU-fallback failure mode the
@@ -117,7 +117,7 @@ func TestDriNodesFromFixture(t *testing.T) {
 	}
 }
 
-// TestDriNodesEmptyIsKnownAbsent asserts the WR-04 contract: a readable-but-empty
+// TestDriNodesEmptyIsKnownAbsent asserts the contract: a readable-but-empty
 // /dev/dri is a CONFIDENT known-absence (KnownInt(0)) — distinct from "could not
 // enumerate" — so PRE-01 can BLOCK-FAIL on a genuinely invisible iGPU.
 func TestDriNodesEmptyIsKnownAbsent(t *testing.T) {
@@ -132,7 +132,7 @@ func TestDriNodesEmptyIsKnownAbsent(t *testing.T) {
 
 // TestDriNodesUnreadableYieldsUnknown asserts that an absent/unreadable /dev/dri
 // root is Unknown ("could not enumerate") — distinct from empty — so PRE-01
-// downgrades to WARN per D-15 rather than a false block.
+// downgrades to WARN per rather than a false block.
 func TestDriNodesUnreadableYieldsUnknown(t *testing.T) {
 	_, count := driNodes(filepath.Join(t.TempDir(), "does-not-exist"))
 	if count.Known {
@@ -149,7 +149,7 @@ func TestVulkanICDPresence(t *testing.T) {
 	if got := vulkanICD(icd); !got.Known || got.Value != icd {
 		t.Errorf("vulkanICD(present): got %+v", got)
 	}
-	// WR-04: manifest absent but its directory is readable → CONFIDENT known-
+	// manifest absent but its directory is readable → CONFIDENT known-
 	// absence (Known=true, empty value) so PRE-01 can BLOCK-FAIL.
 	if got := vulkanICD(filepath.Join(dir, "absent.json")); !got.Known || got.Value != "" {
 		t.Errorf("vulkanICD(absent, dir readable): got %+v, want Known empty (known-absence)", got)
@@ -160,7 +160,7 @@ func TestVulkanICDPresence(t *testing.T) {
 	}
 }
 
-// TestParseGfxIDFromFixture is the IN-05 regression: rocminfo output contains
+// TestParseGfxIDFromFixture is the regression: rocminfo output contains
 // several "gfx"-bearing lines (the ISA name "amdgcn-amd-amdhsa--gfx1151" and an
 // ISA block with its own "Name:" key) — the parser must anchor on the agent's
 // bare "Name: gfx1151" field and return exactly "gfx1151", never an ISA token.
@@ -210,7 +210,7 @@ func TestParseGfxIDGarbageYieldsUnknown(t *testing.T) {
 func TestRocmAbsentNeverPanics(t *testing.T) {
 	got := rocmPresent()
 	if !got.Known {
-		t.Errorf("rocmPresent: Known=false, want a confident true/false (D-02)")
+		t.Errorf("rocmPresent: Known=false, want a confident true/false")
 	}
 }
 

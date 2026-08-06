@@ -25,7 +25,7 @@ func newTestCmd() (*cobra.Command, *bytes.Buffer, *bytes.Buffer) {
 }
 
 // TestModelPullUnknownNameRejected: an unknown catalog name exits non-zero and is
-// never interpreted as a filesystem path (V5 / T-02-04).
+// never interpreted as a filesystem path (V5).
 func TestModelPullUnknownNameRejected(t *testing.T) {
 	cmd, _, errOut := newTestCmd()
 	// A name that would be a path-traversal attempt must still be a clean lookup miss.
@@ -94,7 +94,7 @@ func TestModelPullDownloadFailure(t *testing.T) {
 }
 
 // TestModelPullRegistered: the `model pull` verb is wired into the command tree
-// and does not collide with a Phase-3 lifecycle verb name (D-13).
+// and does not collide with a Phase-3 lifecycle verb name.
 func TestModelPullRegistered(t *testing.T) {
 	root := newRoot()
 	model, _, err := root.Find([]string{"model"})
@@ -135,7 +135,7 @@ type swapRecorder struct {
 	downloaded   map[string]bool // models considered already-on-disk
 	fitOverrides map[string]bool // model id -> Fits result for recommend stub
 	// reconcileNoChange, when true, makes the reconcileAndWrite stub report "nothing
-	// changed" so the no-op-swap-skips-restart path (WR-06) is exercisable.
+	// changed" so the no-op-swap-skips-restart path is exercisable.
 	reconcileNoChange bool
 }
 
@@ -185,7 +185,7 @@ func newSwapStub(rec *swapRecorder) *modelswap.Deps {
 }
 
 // TestModelListLoadedVsAvailable: the config'd model is marked "loaded"; the rest
-// are "available" (D-10 / MODEL-01).
+// are "available" (MODEL-01).
 func TestModelListLoadedVsAvailable(t *testing.T) {
 	d := &listDeps{
 		loadCatalog: func() (catalog.Catalog, []string, error) { return catalog.Load("") },
@@ -291,7 +291,7 @@ func TestModelSwapExitMapping(t *testing.T) {
 		}
 	})
 
-	t.Run("no-op reconcile → exit 0 + 'no restart needed' (WR-06)", func(t *testing.T) {
+	t.Run("no-op reconcile → exit 0 + 'no restart needed'", func(t *testing.T) {
 		rec := &swapRecorder{
 			downloaded:        map[string]bool{"fits-model": true},
 			fitOverrides:      map[string]bool{"fits-model": true},

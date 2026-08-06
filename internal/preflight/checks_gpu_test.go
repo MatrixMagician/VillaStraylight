@@ -22,7 +22,7 @@ func TestCheckVulkanIGPU(t *testing.T) {
 			wantStatus: StatusPass,
 		},
 		{
-			name:       "both unknown downgrades to WARN not FAIL (D-15)",
+			name:       "both unknown downgrades to WARN not FAIL",
 			icd:        detect.UnknownStr("RADV ICD manifest absent", ""),
 			driCount:   detect.UnknownInt("/dev/dri empty or absent", ""),
 			wantTier:   TierBlock,

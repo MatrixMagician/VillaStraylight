@@ -1,27 +1,27 @@
 // Package catalog provides the versioned model catalog that `villa recommend`
 // reads to choose a fitting model/quant/context. The default catalog is embedded
-// in the binary via go:embed (D-09); an external override path may be supplied
+// in the binary via go:embed; an external override path may be supplied
 // (config key or `--catalog`) and is schema-version-checked with a graceful
-// fallback to the embedded seed (D-11/D-13) — a version mismatch or a malformed
+// fallback to the embedded seed — a version mismatch or a malformed
 // external file warns but never crashes.
 //
 // The schema carries the per-model dimensions the KV-cache fit math needs
 // (n_layers / n_kv_heads / head_dim / kv_bytes_per_elem), a unified_memory_safe
-// flag (entries flagged false are never auto-selected on gfx1151, REC-02), and a
-// bootstrap flag for the small first-chat model carried forward for Phase 4 (D-12,
+// flag (entries flagged false are never auto-selected on gfx1151), and a
+// bootstrap flag for the small first-chat model carried forward for Phase 4 (
 // presence only — never auto-selected in Phase 1).
 package catalog
 
 // SupportedSchema is the catalog schema_version this binary understands. An
 // external catalog whose schema_version differs is rejected with a warning and
-// the embedded seed is used instead (D-11). Bump this only on an incompatible
+// the embedded seed is used instead. Bump this only on an incompatible
 // schema change.
 //
-// v2 (Phase 2, D-07): adds the per-shard download metadata each CatalogModel
+// v2 (Phase 2): adds the per-shard download metadata each CatalogModel
 // carries (Shards: URL + expected SHA256 + expected size) so `villa model pull`
 // can download+verify a GGUF without delegating to llama.cpp -hf (MODEL-02).
 //
-// v3 (Phase 24, D-01): adds the optional coder-role fields each CatalogModel
+// v3 (Phase 24): adds the optional coder-role fields each CatalogModel
 // may carry (role, agent_ctx, cache_reuse_safe, agent_sampling,
 // template_provenance) so the coder fit stage and the Phase-25 render can
 // consume qualified coding-model entries (CODER-01). All five are optional
@@ -62,48 +62,48 @@ type CatalogModel struct {
 	TierGB           int    `json:"tier_gb"`
 
 	// UnifiedMemorySafe gates auto-selection: entries flagged false are never
-	// auto-picked on gfx1151 (REC-02). A user --model override of a flagged model
-	// is allowed but warns loudly (D-07).
+	// auto-picked on gfx1151. A user --model override of a flagged model
+	// is allowed but warns loudly.
 	UnifiedMemorySafe bool `json:"unified_memory_safe"`
 
 	// BackendDefault is the recommended backend for this entry; rocm for
-	// gfx1151 (REC-04). It OVERRIDES recommend's defaultBackend constant when
+	// gfx1151. It OVERRIDES recommend's defaultBackend constant when
 	// non-empty, so it must track that default or the catalog silently wins.
 	BackendDefault string `json:"backend_default"`
 
 	// Bootstrap marks the small first-chat model carried forward for Phase 4
-	// (D-12). It is present in the Phase-1 catalog but never auto-selected.
+	// It is present in the Phase-1 catalog but never auto-selected.
 	Bootstrap bool `json:"bootstrap"`
 
-	// Role marks what the entry is for (schema v3, D-01). Absent/empty means
-	// chat (D-03 — pre-v3 entries are untouched and stay chat); "coder" marks
+	// Role marks what the entry is for (schema v3). Absent/empty means
+	// chat (pre-v3 entries are untouched and stay chat); "coder" marks
 	// an entry the coder fit stage may select. Absence never widens capability.
 	Role string `json:"role,omitempty"`
 
-	// AgentCtx is the agent-profile context window (schema v3, D-01/D-04): the
+	// AgentCtx is the agent-profile context window (schema v3): the
 	// ctx the coder fit math is computed at AND the value Phase 25 renders into
 	// --ctx-size for coding mode. It is independent of default_ctx and is NEVER
 	// overridden by the chat-only --ctx flag.
 	AgentCtx int `json:"agent_ctx,omitempty"`
 
 	// CacheReuseSafe marks whether llama.cpp --cache-reuse is proven safe for
-	// this entry (schema v3, D-01). The Go zero value false is the fail-closed
+	// this entry (schema v3). The Go zero value false is the fail-closed
 	// default: absence means NOT safe. Only the on-hardware qualification probe
-	// licenses true (D-09) — never an upstream claim.
+	// licenses true — never an upstream claim.
 	CacheReuseSafe bool `json:"cache_reuse_safe,omitempty"`
 
 	// AgentSampling is the qualified sampling preset for agentic/tool-call use
-	// (schema v3, D-01). A pointer so an absent block stays absent on re-encode
-	// (chat entries emit no key, D-03).
+	// (schema v3). A pointer so an absent block stays absent on re-encode
+	// (chat entries emit no key).
 	AgentSampling *AgentSampling `json:"agent_sampling,omitempty"`
 
 	// TemplateProvenance pins where the chat template came from (schema v3,
-	// D-01/D-02): the HuggingFace repo@revision plus the template origin. The
+	// the HuggingFace repo@revision plus the template origin. The
 	// embedded GGUF chat template is part of the qualified artifact — a repo
-	// re-upload under the same quant name is a different artifact (T-24-01).
+	// re-upload under the same quant name is a different artifact.
 	TemplateProvenance string `json:"template_provenance,omitempty"`
 
-	// Shards is the per-shard download manifest (schema v2, D-05/D-06). A
+	// Shards is the per-shard download manifest (schema v2). A
 	// single-file model is the degenerate one-element case; large quants split
 	// into the HuggingFace `-00001-of-0000N.gguf` convention carry one Shard per
 	// file. `villa model pull` downloads + checksum-verifies every shard and
@@ -116,7 +116,7 @@ type CatalogModel struct {
 // SHA256 is the file's git-LFS oid (HF `X-Linked-Etag` — NOT the CDN/Xet chunk
 // ETag, Pitfall 2), and SizeBytes is the exact content length (`X-Linked-Size`).
 // Filename is the on-disk name the downloader writes inside the models dir; it is
-// confined with a path-traversal guard before any write (T-02-02).
+// confined with a path-traversal guard before any write.
 type Shard struct {
 	URL       string `json:"url"`
 	Filename  string `json:"filename"`
@@ -125,7 +125,7 @@ type Shard struct {
 }
 
 // AgentSampling is the qualified sampling preset for a coder entry (schema v3,
-// D-01). The seed values come from the model card's recommended agentic/coding
+// The seed values come from the model card's recommended agentic/coding
 // preset and are checked during on-hardware qualification (A4) — they are
 // catalog data, not runtime-tunable knobs.
 type AgentSampling struct {

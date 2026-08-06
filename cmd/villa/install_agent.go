@@ -17,17 +17,17 @@ import (
 )
 
 // install_agent.go holds the v1.4 CODING-AGENT install addon wiring the `villa install`
-// verb gates on the PERSISTED agent_enabled (D-01, INSTALL-03) — the Crush twin of
+// verb gates on the PERSISTED agent_enabled — the Crush twin of
 // install_memory.go. It mirrors the memory addon seam-for-seam with ONE structural delta:
 // the coder GGUF is a CATALOG ENTRY resolved from the recommend-picked coder id, NOT a
-// hard-coded literal like nomicEmbedShard — so D-02 (pick selects) and D-04 (single source:
+// hard-coded literal like nomicEmbedShard — so (pick selects) and (single source:
 // the staged filename and the served -m path derive from the SAME entry) hold by construction.
 //
-//   - coderShardFor: resolves the picked coder entry's Shards[0] (D-02/D-04) — never a literal.
+// - coderShardFor: resolves the picked coder entry's Shards[0] — never a literal.
 //   - liveCoderModelPresent / liveEnsureCoderModel: idempotent size-gated presence-skip +
-//     the single sanctioned outbound window (pullFn == download.PullModel, D-03).
+// the single sanctioned outbound window (pullFn == download.PullModel).
 //   - liveInstallAgentBinary: COMPOSES the Phase-26 agent.Install (checksum-before-extract,
-//     D-03) with the policy-resolved pinned asset/URL — never re-implements the verify.
+// with the policy-resolved pinned asset/URL — never re-implements the verify.
 //   - liveRenderCrushConfig: COMPOSES the Task-1 agent.Render (restrictive tools) + writes
 //     the rendered crush.json to crushConfigPath() — never a new JSON encoder.
 //
@@ -35,12 +35,12 @@ import (
 // probe (Task 3) live below the binary/model seams.
 
 // coderShardFor resolves the GGUF shard to pre-stage for the recommend-picked coder model
-// (D-02/D-04): it scans the catalog for the entry whose ID == rec.Coder.Model and returns
+// it scans the catalog for the entry whose ID == rec.Coder.Model and returns
 // its Shards[0] (coder entries are single-shard — catalog FROZEN, Phase 24). It returns
 // (zero, false) when no coder fits (empty id), the id is absent, or the entry carries no
 // shards. This is the explicit ANTI-pattern guard: the shard is RESOLVED from the picked
 // entry, never a hard-coded coderShard literal — eliminating a drift/forgery surface
-// (T-27-03) and making the staged filename single-source with the served -m path.
+// and making the staged filename single-source with the served -m path.
 func coderShardFor(rec recommend.Recommendation, cat catalog.Catalog) (catalog.Shard, bool) {
 	if rec.Coder.Model == "" {
 		return catalog.Shard{}, false // no coder fit (shared residency) — nothing to stage
@@ -55,7 +55,7 @@ func coderShardFor(rec recommend.Recommendation, cat catalog.Catalog) (catalog.S
 
 // liveCoderModelPresent reports whether the pre-staged coder GGUF already exists on disk
 // AND is intact (the ensureCoderModel idempotency guard — a present file is never re-pulled).
-// It clones liveEmbedModelPresent's IN-03 integrity guard parameterized by the resolved
+// It clones liveEmbedModelPresent's integrity guard parameterized by the resolved
 // shard: presence requires the on-disk size to MATCH sh.SizeBytes, so a truncated/tampered
 // file is treated as absent and re-pulled (then re-verified by download.PullModel) rather
 // than trusting a corrupt weight. A cheap stat-only guard; it does NOT re-hash on every install.
@@ -71,11 +71,11 @@ func liveCoderModelPresent(modelsDir string, sh catalog.Shard) bool {
 
 // liveEnsureCoderModel pre-stages the resolved coder shard into modelsDir via the verified
 // downloader the `model pull`/`model swap` path uses (the pullFn seam == download.PullModel),
-// wrapping the shard in a single-shard CatalogModel (D-03). It creates the models dir 0700
+// wrapping the shard in a single-shard CatalogModel. It creates the models dir 0700
 // first (mirroring liveEnsureEmbedModel). download.PullModel does the HEAD size/etag verify
 // → stream → SHA256 + size check → atomic rename, so a half-written or unverified GGUF is
-// never left on disk (T-27-01). This is the single sanctioned outbound window for the coder
-// weight: a one-time install-time controlled pull; runtime stays ZERO-download (D-03).
+// never left on disk. This is the single sanctioned outbound window for the coder
+// weight: a one-time install-time controlled pull; runtime stays ZERO-download.
 func liveEnsureCoderModel(modelsDir string, sh catalog.Shard) error {
 	if mkErr := os.MkdirAll(modelsDir, 0o700); mkErr != nil {
 		return mkErr
@@ -85,12 +85,12 @@ func liveEnsureCoderModel(modelsDir string, sh catalog.Shard) error {
 }
 
 // liveInstallAgentBinary COMPOSES the Phase-26 checksum-before-extract install seam
-// (agent.Install) — it NEVER re-implements the verify/extract (D-03). It resolves the
+// (agent.Install) — it NEVER re-implements the verify/extract. It resolves the
 // pinned linux/amd64 asset + release URL from the EXPORTED policy loader (agent.LoadCrushPolicy,
 // the single source of the pin), GETs the tarball over a bounded HTTP request, then hands
 // the response body to agent.Install, which buffers it bounded by asset.Size, asserts size
 // THEN SHA-256 via VerifyTarball BEFORE any extraction, and places ONLY the `crush` binary
-// at agentBinDir()/crush (T-27-02). An unverified/mismatched tarball is never extracted.
+// at agentBinDir/crush. An unverified/mismatched tarball is never extracted.
 //
 // The asset/URL resolution is kept HERE (testable in cmd/villa) rather than inside the
 // agent package so a future asset rename or URL template change is exercised by the install
@@ -115,7 +115,7 @@ func liveInstallAgentBinary(ctx context.Context) (string, error) {
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("install: download Crush %s: unexpected HTTP status %s", asset.Name, resp.Status)
 	}
-	// agent.Install bounds the read by asset.Size+1, verifies size THEN SHA-256 (D-03),
+	// agent.Install bounds the read by asset.Size+1, verifies size THEN SHA-256,
 	// and extracts ONLY the crush binary — checksum-BEFORE-extract, never a partial place.
 	binPath, err := agent.Install(asset, resp.Body, agentBinDir())
 	if err != nil {
@@ -128,9 +128,9 @@ func liveInstallAgentBinary(ctx context.Context) (string, error) {
 // with the WriteConfig discipline, persisting the rendered config to crushConfigPath()
 // (~/.config/crush/crush.json — the global config Crush itself reads). It does NOT write a
 // new JSON encoder: Render owns the deterministic byte-output (the source of truth derived
-// from config.toml, D-06), and the write mirrors liveAgentDeps.WriteConfig (MkdirAll 0700 +
+// from config.toml), and the write mirrors liveAgentDeps.WriteConfig (MkdirAll 0700 +
 // WriteFile 0600, traversal-guarded). LSP probes resolve the host PATH (references only,
-// never auto-installs, D-10); a missing server is a WARN-and-omit, never a blocking error.
+// never auto-installs); a missing server is a WARN-and-omit, never a blocking error.
 func liveRenderCrushConfig(cfg config.VillaConfig) error {
 	b, _, err := agent.Render(cfg, liveLSPProbes())
 	if err != nil {
@@ -154,13 +154,13 @@ func liveRenderCrushConfig(cfg config.VillaConfig) error {
 }
 
 // liveLSPProbes resolves the fixed set of supported LSP servers on the host PATH for the
-// crush.json render (D-10). It references PATH only — it NEVER auto-installs (the Render
+// crush.json render. It references PATH only — it NEVER auto-installs (the Render
 // contract: a not-found server is a WARN and an omitted lsp entry).
 //
-// It iterates agent.KnownLSPServers — the SAME source the `villa code` launcher probes —
+// It iterates agent.KnownLSPServers — the SAME source the `villa code` launcher probes
 // so the install render and the launcher's drift-compare reference agree by construction.
 // Forking this list (e.g. python pyright vs pyright-langserver) would render a crush.json
-// that `villa code` then permanently refuses as ConfigDrift (D-14 is report-only).
+// that `villa code` then permanently refuses as ConfigDrift (is report-only).
 func liveLSPProbes() []agent.LSPProbe {
 	probes := make([]agent.LSPProbe, 0, len(agent.KnownLSPServers))
 	for _, s := range agent.KnownLSPServers {
@@ -183,7 +183,7 @@ var lookPathFn = func(bin string) (string, bool) {
 // liveLoadedMemoryEnabled). A config load error fails SOFT to false so a broken config never
 // silently enables the agent addon (an opted-in user must have a readable config). A bare
 // `villa install` therefore gates on the persisted value, while `--coding-agent` overrides
-// it to true before the gate (D-01).
+// it to true before the gate.
 func liveLoadedAgentEnabled() bool {
 	c, err := config.LoadVilla()
 	if err != nil {
@@ -208,11 +208,11 @@ func agentLicenseNotice() string {
 		"config locally."
 }
 
-// --- Install readiness: tool-call round-trip verdict (D-05) ------------------
+// --- Install readiness: tool-call round-trip verdict ------------------
 //
 // The proof asserts the coding agent is HONESTLY ready BEFORE install declares success:
 // a REAL `crush run` tool-call round-trip (read a planted file → edit it → result), not a
-// health-200. A health-200 / no-edit is a false-green and FAILS (D-05, T-27-05). A FAIL
+// health-200. A health-200 / no-edit is a false-green and FAILS. A FAIL
 // refuses-with-remediation (the caller returns exitBlocked), never a silent skip.
 
 // agentProof is the install-readiness verdict for the coding agent (the agentProof twin of
@@ -225,7 +225,7 @@ type agentProof struct {
 }
 
 // evalAgentProof is the PURE readiness core (unit-testable off-hardware via the injected
-// toolCall): it maps the SINGLE tool-call outcome to a verdict (D-05). A health-200 is NEVER
+// toolCall): it maps the SINGLE tool-call outcome to a verdict. A health-200 is NEVER
 // an input — the only signal is whether the agent performed the planted edit:
 //   - err            → FAIL (the round-trip could not run; re-run `villa install --coding-agent`)
 //   - !edited        → FAIL (the agent ran but did not edit — verify the coding-mode --jinja unit)
@@ -250,7 +250,7 @@ func evalAgentProof(toolCall func() (edited bool, err error)) agentProof {
 // agentProbePrompt / agentProbeToken{A,B} are the planted read→edit round-trip payload the
 // readiness driver uses: a temp file is planted containing TOKEN_A, the agent is asked to
 // replace TOKEN_A with TOKEN_B, and success is the file now containing TOKEN_B (a REAL edit,
-// D-05). The tokens are fixed, metachar-free constants (no shell interpolation, T-27-06).
+// The tokens are fixed, metachar-free constants (no shell interpolation).
 // The on-hardware payload (exact prompt phrasing) is confirmed in Plan 04; these are the
 // pinned defaults the live driver uses.
 const (
@@ -261,7 +261,7 @@ const (
 )
 
 // liveAgentToolCallProbe is the host-side `crush run` driver for the readiness verdict
-// (D-05): it plants a file containing TOKEN_A in a fresh temp working dir, execs the
+// it plants a file containing TOKEN_A in a fresh temp working dir, execs the
 // EXPLICIT villa-owned crush binary (agentBinPath()) fixed-arg with the constant prompt,
 // and reports edited == the file now containing TOKEN_B. It is fixed-arg (no shell, no image
 // literal — host binary exec only, so TestSeamGrepGate stays green) and bounded by the
@@ -282,7 +282,7 @@ func liveAgentToolCallProbe(ctx context.Context) func() (bool, error) {
 
 		// Fixed-arg exec of the villa-owned binary in the probe working dir: `crush run
 		// "<prompt>"`. NEVER a PATH lookup (a user-installed crush cannot be hijacked,
-		// T-26-09) and NEVER a shell. A non-zero exit is surfaced as the round-trip error.
+		// and NEVER a shell. A non-zero exit is surfaced as the round-trip error.
 		cmd := exec.CommandContext(ctx, agentBinPath(), "run", agentProbePrompt) //nolint:gosec // fixed-arg, villa-owned binary, constant prompt
 		cmd.Dir = workDir
 		if runErr := cmd.Run(); runErr != nil {
@@ -297,11 +297,11 @@ func liveAgentToolCallProbe(ctx context.Context) func() (bool, error) {
 	}
 }
 
-// agentProbeReplaced is the WR-05 readiness predicate: the round-trip is a REPLACE of TOKEN_A
+// agentProbeReplaced is the readiness predicate: the round-trip is a REPLACE of TOKEN_A
 // with TOKEN_B, so success requires TOKEN_B present AND TOKEN_A absent. Presence-only
 // (Contains(TOKEN_B)) false-greened an append, a partial write, or a tool writing a
 // transcript/confirmation echoing TOKEN_B into the workdir — none of which is a real semantic
-// replace (D-05 honesty). Factored out as a pure helper so the contract is asserted by an
+// replace (honesty). Factored out as a pure helper so the contract is asserted by an
 // off-hardware truth-table test without execing a live crush binary.
 func agentProbeReplaced(content string) bool {
 	return strings.Contains(content, agentProbeTokenB) && !strings.Contains(content, agentProbeTokenA)

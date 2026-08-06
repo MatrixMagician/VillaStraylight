@@ -15,7 +15,7 @@ import (
 // A grep gate in the plan asserts these tokens appear nowhere else in the package.
 
 // maxToolOutput bounds how much untrusted tool stdout we read/capture, so a
-// runaway vulkaninfo/rocminfo cannot exhaust memory (threat T-01-02).
+// runaway vulkaninfo/rocminfo cannot exhaust memory (threat).
 const maxToolOutput = 8 << 10 // 8 KiB
 
 // radeonICDPath is the Mesa RADV ICD manifest. Its existence is the primary,
@@ -59,7 +59,7 @@ func probeGPU() gpuInfo {
 // is the primary GPU signal (preferred over text-scraping vulkaninfo). driRoot
 // is a seam so tests can point at testdata/.
 //
-// It distinguishes "ran and found nothing" from "could not run" (WR-04, D-15):
+// It distinguishes "ran and found nothing" from "could not run":
 //   - directory present but EMPTY → KnownInt(0): a confident known-absence the
 //     PRE-01 BLOCK gate must hard-FAIL on (the iGPU is genuinely not visible).
 //   - directory absent/unreadable → UnknownInt: the probe could not be evaluated,
@@ -87,7 +87,7 @@ func driNodes(driRoot string) ([]string, Int) {
 // vulkanICD reports the RADV ICD manifest path. icdPath is a seam for fixture
 // testing.
 //
-// It distinguishes "ran and found nothing" from "could not run" (WR-04, D-15):
+// It distinguishes "ran and found nothing" from "could not run":
 //   - manifest absent but its directory is readable → KnownStr(""): a confident
 //     known-absence the PRE-01 BLOCK gate must hard-FAIL on.
 //   - the manifest's directory cannot even be read (e.g. permission error) →
@@ -137,7 +137,7 @@ type vulkanDeviceBlock struct {
 // isSoftware reports whether this block is a CPU software renderer (by deviceType
 // or by a known software-renderer deviceName). Device enumeration order is NOT
 // guaranteed to put the real GPU first, so callers must filter on this, not pick
-// the first block (WR-01).
+// the first block.
 func (b vulkanDeviceBlock) isSoftware() bool {
 	if strings.Contains(strings.ToUpper(b.deviceType), "CPU") {
 		return true
@@ -189,8 +189,8 @@ func parseVulkanDeviceBlocks(vulkaninfoOutput string) []vulkanDeviceBlock {
 
 // firstRealGPUBlock returns the first non-software GPU block, or nil if every
 // enumerated device is a CPU software renderer (or none enumerated). Selecting the
-// real GPU — explicitly skipping CPU renderers regardless of enumeration order —
-// is the core WR-01 fix.
+// real GPU — explicitly skipping CPU renderers regardless of enumeration order
+// is the core fix.
 func firstRealGPUBlock(blocks []vulkanDeviceBlock) *vulkanDeviceBlock {
 	for i := range blocks {
 		if blocks[i].deviceName == "" {
@@ -208,10 +208,10 @@ func firstRealGPUBlock(blocks []vulkanDeviceBlock) *vulkanDeviceBlock {
 // explicitly skipping CPU software renderers (llvmpipe/softpipe/lavapipe/swrast and
 // any PHYSICAL_DEVICE_TYPE_CPU). Device enumeration order is not guaranteed to put
 // the RADV iGPU first, so picking the first deviceName line would silently report
-// the CPU fallback as the GPU (WR-01, Pitfall 3). If only a software renderer is
+// the CPU fallback as the GPU (Pitfall 3). If only a software renderer is
 // present, that is NOT a usable GPU → typed Unknown (never the CPU device).
 //
-// It is tolerant: a parse miss yields typed Unknown with captured raw (D-15/D-16),
+// It is tolerant: a parse miss yields typed Unknown with captured raw,
 // never "absent". vulkaninfoOutput is the already-read tool output (so tests pass
 // fixture bytes; production passes the live capture).
 func vulkanDevice(vulkaninfoOutput string) Str {
@@ -233,7 +233,7 @@ func vulkanDevice(vulkaninfoOutput string) Str {
 }
 
 // runTool invokes a tool with a FIXED argument slice (never sh -c, threat
-// T-01-01) and returns its combined output bounded to maxToolOutput bytes. A
+// and returns its combined output bounded to maxToolOutput bytes. A
 // missing binary or non-zero exit yields ok=false; the bounded output is still
 // returned for raw capture.
 func runTool(name string, args ...string) (out string, ok bool) {
@@ -378,10 +378,10 @@ var rocmFirmwareDeny = []string{"20251125"}
 
 // firmwareDateProbe reads the installed linux-firmware package version via a
 // FIXED-ARG rpm query (never sh -c; the package name is a constant literal so there
-// is no command-injection surface, threat T-11-01 / ASVS V5). The Fedora
+// is no command-injection surface, threat / ASVS V5). The Fedora
 // linux-firmware VERSION is a YYYYMMDD date stamp (live-verified: 20260519).
 //
-// No-false-green (D-08 / T-11-03): rpm absent or non-zero → UnknownStr; output that
+// No-false-green: rpm absent or non-zero → UnknownStr; output that
 // is not a parseable YYYYMMDD stamp (e.g. a rawhide/snapshot string) → UnknownStr.
 // Only a clean 8-digit date returns KnownStr, so an unprobeable firmware never
 // fabricates a verdict.
@@ -429,7 +429,7 @@ func firmwareDatePolicyOK(date string) bool {
 
 // rocmPresent reports whether rocminfo is installed. ROCm is the opt-in
 // performance backend (Vulkan is the gfx1151 default), so absence is a confident
-// false, not Unknown — informational, never blocking here (D-02/D-15).
+// false, not Unknown — informational, never blocking here.
 func rocmPresent() Bool {
 	if _, err := exec.LookPath("rocminfo"); err != nil {
 		return KnownBool(false, "rocminfo not on PATH")
@@ -448,8 +448,8 @@ func liveVulkanDevice() Str {
 
 // mesaVersion extracts the Mesa/RADV driverVersion from vulkaninfo output, scoped
 // to the REAL GPU block (skipping CPU software renderers) so it never reports the
-// llvmpipe driver version (WR-01). This gates Vulkan reliability in preflight;
-// parse-fail degrades to Unknown (D-15).
+// llvmpipe driver version. This gates Vulkan reliability in preflight;
+// parse-fail degrades to Unknown.
 func mesaVersion(vulkaninfoOutput string) Str {
 	blocks := parseVulkanDeviceBlocks(vulkaninfoOutput)
 	if gpu := firstRealGPUBlock(blocks); gpu != nil && gpu.driverVersion != "" {
@@ -470,7 +470,7 @@ func liveMesaVersion() Str {
 // isGfxTargetID reports whether s is a bare gfx target ID of the form "gfx" + at
 // least one digit (e.g. "gfx1151"), with no trailing junk. This rejects ISA-name
 // lines like "amdgcn-amd-amdhsa--gfx1151" (which carry a prefix) and instruction-
-// set blocks, anchoring igpuGfxID on the marketing Name field (IN-05).
+// set blocks, anchoring igpuGfxID on the marketing Name field.
 func isGfxTargetID(s string) bool {
 	if !strings.HasPrefix(s, "gfx") {
 		return false
@@ -491,7 +491,7 @@ func isGfxTargetID(s string) bool {
 // available, else Unknown. The iGPU still functions on Vulkan without rocminfo,
 // so absence is informational.
 //
-// It anchors on the `Name:` field whose value is a BARE gfx target ID (IN-05),
+// It anchors on the `Name:` field whose value is a BARE gfx target ID,
 // rather than accepting any "gfx"-bearing line — rocminfo output contains many
 // such lines (ISA names like "amdgcn-amd-amdhsa--gfx1151", instruction-set blocks)
 // and the first match is not guaranteed to be the marketing Name field.
@@ -505,7 +505,7 @@ func igpuGfxID() Str {
 
 // parseGfxID extracts the bare gfx target ID from rocminfo output. It is the
 // testable seam for igpuGfxID (tests pass fixture bytes). A parse miss degrades to
-// typed Unknown with the raw captured (D-16), never a panic.
+// typed Unknown with the raw captured, never a panic.
 func parseGfxID(rocminfoOutput string) Str {
 	sc := bufio.NewScanner(strings.NewReader(rocminfoOutput))
 	for sc.Scan() {
@@ -525,9 +525,9 @@ func parseGfxID(rocminfoOutput string) Str {
 }
 
 // GPUBusyPercent reads the LIVE amdgpu gpu_busy_percent (0..100) from the real host
-// DRM root — the DASH-03 iGPU utilization headline's best-effort overlay. amd-smi /
+// DRM root — the iGPU utilization headline's best-effort overlay. amd-smi /
 // rocm-smi report N/A for gfx1151 (ROCm #6035), so kernel sysfs is the source of
-// truth (CLAUDE.md "never amd-smi"). The value is BEST-EFFORT (D-06, memory-first):
+// truth (CLAUDE.md "never amd-smi"). The value is BEST-EFFORT (memory-first):
 // it degrades to typed-Unknown ("Unavailable" in the panel) on a missing/garbage file
 // rather than ever fabricating a number. It inherits the vendor-0x1002 discovery
 // (never card0) + typed-Unknown shape from the memory readers' seam.
@@ -543,7 +543,7 @@ func GPUBusyPercentForTest(drmRoot string) Int { return gpuBusyPercent(drmRoot) 
 // a percentage, not a byte count): vendor-0x1002 card discovery via amdSysfsCardDirs
 // (NEVER card0), with the flat drmRoot appended as a fixture fallback. A parse error →
 // UnknownInt with the offending raw captured; not found across every candidate →
-// UnknownInt "not found" (→ "unavailable", D-06). It never panics and never returns a
+// UnknownInt "not found" (→ "unavailable"). It never panics and never returns a
 // bare zero as a real reading.
 func gpuBusyPercent(drmRoot string) Int {
 	candidates := amdSysfsCardDirs(drmRoot)

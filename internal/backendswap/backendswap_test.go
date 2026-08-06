@@ -14,7 +14,7 @@ import (
 // live host. It asserts the ordering contract (capture STRICTLY before any
 // mutation, Pitfall 4), the verbatim rollback (RestoreUnit with the captured
 // priorUnit), the prove-gate (switch ONLY on ProveStatusPass — is-active/200 alone
-// is never success, SC#3), the refuse-with-remediation paths (fit/preflight leave
+// is never success), the refuse-with-remediation paths (fit/preflight leave
 // ZERO side effects), and restart-inference-only. It mirrors the modelswap
 // swapRecorder + callOrder discipline ([03-05]).
 
@@ -39,7 +39,7 @@ type swapRecorder struct {
 	fitReason      string // remediation reason on a non-fit
 	preflightOK    bool   // PreflightROCm result
 	preflight      string // remediation reason on a preflight block
-	preflightSawBE string // backend the PreflightROCm gate actually received (CR-08-01 guard)
+	preflightSawBE string // backend the PreflightROCm gate actually received (01 guard)
 	captureErr     error  // CaptureUnit error (uncapturable prior unit)
 	saveErr        error  // SaveConfig error (mutate failure)
 	writeErr       error  // ReconcileAndWrite error (mutate failure)
@@ -250,7 +250,7 @@ func TestProveGate(t *testing.T) {
 
 // TestActiveNotSuccess: a verdict that is "ready+200 but residency FAIL" — any
 // non-ProveStatusPass value — triggers rollback. is-active/health-200 alone is
-// never success (SC#3).
+// never success.
 func TestActiveNotSuccess(t *testing.T) {
 	rec := passStub()
 	rec.proveStatus = "ready+200 but residency FAIL" // any non-pass sentinel
@@ -301,7 +301,7 @@ func TestRefuseProveFlightROCm(t *testing.T) {
 // cfg.Backend=="rocm", and a same-backend target is already a NoOp upstream — so passing
 // the source cfg leaves preflight.RunROCm permanently dead on a vulkan→rocm switch,
 // silently skipping the kernel/firmware/HSA-override safety checks BSET-01 requires
-// (CR-08-01). This asserts the gate is handed Backend=="rocm" on a vulkan→rocm switch.
+// (01). This asserts the gate is handed Backend=="rocm" on a vulkan→rocm switch.
 func TestPreflightSeesTargetBackend(t *testing.T) {
 	rec := passStub() // current backend "vulkan", switching to "rocm"
 	if res := Run(newSwapStub(rec), "rocm"); res.Refused {

@@ -155,7 +155,7 @@ func TestBenchRegistered(t *testing.T) {
 }
 
 // TestBenchFlagValidation proves the bounded-int flags are rejected at the cobra
-// boundary (WR-04 / RESEARCH Security Domain V5): --reps/--n-predict < 1 and --warmup < 0
+// boundary (RESEARCH Security Domain V5): --reps/--n-predict < 1 and --warmup < 0
 // return a clear usage error BEFORE any run (never a confusing void-exhaustion WARN or an
 // out-of-contract negative max_tokens on the wire). The validation runs before runBench's
 // os.Exit, so executing with bad flags returns the error in-process.
@@ -231,7 +231,7 @@ func TestBenchABTargetPlumbed(t *testing.T) {
 
 // TestBenchABTargetFailClosed proves an unknown --ab-target is rejected fail-closed
 // (BackendFor validation) with an actionable error BEFORE any switch is attempted — the
-// benchRun seam is NEVER reached on a bogus target (D-03, T-12-07: a typo is an error,
+// benchRun seam is NEVER reached on a bogus target (a typo is an error,
 // never a silent flip).
 func TestBenchABTargetFailClosed(t *testing.T) {
 	withReachable(t, true)
@@ -470,7 +470,7 @@ func TestBenchABRestoresOriginal(t *testing.T) {
 }
 
 // TestBenchABFailedRestoreWarns proves a failed restore-to-original in the live --ab
-// Restore closure is made LOUD (WR-01 / RESEARCH Pitfall 4): it prints a WARNING with
+// Restore closure is made LOUD (RESEARCH Pitfall 4): it prints a WARNING with
 // recovery guidance to stderr and propagates the error, rather than silently leaving the
 // user on the non-default backend. It drives the real liveBenchDeps Restore closure with
 // a stubbed benchBackendSwap that fails, capturing os.Stderr.
@@ -573,7 +573,7 @@ func TestBenchJSONNoBlendedKey(t *testing.T) {
 // TestBenchstoreWriteAppendsGrowing proves the live append seam (liveBenchstoreDeps)
 // writes one JSONL line per call to $XDG_DATA_HOME/villa/bench-reports.jsonl, the store
 // grows append-only (a second call does NOT truncate the first), and the file mode is
-// 0600 under a 0700 dir (T-14-01/T-14-02 owner-only).
+// 0600 under a 0700 dir (owner-only).
 func TestBenchstoreWriteAppendsGrowing(t *testing.T) {
 	dataHome := t.TempDir()
 	t.Setenv("XDG_DATA_HOME", dataHome)
@@ -650,7 +650,7 @@ func TestBenchstoreWriteReadAllRoundTrips(t *testing.T) {
 }
 
 // TestBenchstoreWriteTraversalRefused proves the append seam refuses to write outside
-// the villa data dir (T-14-01): with XDG_DATA_HOME pointed at a temp dir, a store path
+// the villa data dir: with XDG_DATA_HOME pointed at a temp dir, a store path
 // is confined under <xdg>/villa, so no traversal escape can land a write elsewhere. We
 // drive the guard by setting XDG_DATA_HOME to a path whose villa subdir cannot be the
 // parent of an escaping target — exercised via Append on a crafted Deps is covered in the
@@ -673,7 +673,7 @@ func TestBenchstoreWriteConfinedToDataDir(t *testing.T) {
 	}
 }
 
-// TestBenchAssertStoreUnderRoot proves the MEANINGFUL T-14-01 guard (WR-02): unlike the
+// TestBenchAssertStoreUnderRoot proves the MEANINGFUL guard: unlike the
 // previous inert check (store against its own parent dir, which can never escape), the
 // guard validates the resolved store against the TRUSTED data-home root — the actual
 // untrusted vector being $XDG_DATA_HOME. A legit absolute root passes; an empty root, a
@@ -726,7 +726,7 @@ func TestBenchstoreWriteRejectsNonAbsoluteXDG(t *testing.T) {
 // at the cmd tier from config + .Known-guarded detect.Probe(): config-sourced
 // model/quant/ctx are carried verbatim, the benched backend is recorded, and the host
 // gfx id / kernel are ONLY populated when detect's typed-Optional .Known is true — an
-// UNKNOWN host fact serializes to the empty sentinel, NEVER a fabricated value (T-14-04).
+// UNKNOWN host fact serializes to the empty sentinel, NEVER a fabricated value.
 // This is hardware-agnostic: on gfx1151 the probe is Known (value carried); off-hardware
 // it is Unknown (""). Either way the captured field must EXACTLY match the .Known guard.
 func TestBenchFingerprintHonorsKnownGuard(t *testing.T) {
@@ -873,7 +873,7 @@ func TestBenchPersistABOneRecord(t *testing.T) {
 
 // TestBenchWriteNonFatal proves a benchstore write error is LOUD-but-NON-FATAL: runBench
 // returns the SAME exit code it would without persistence (exitPass for a clean run) and
-// writes a WARN to stderr — the measurement exit code is unchanged (T-14-05 availability).
+// writes a WARN to stderr — the measurement exit code is unchanged (availability).
 func TestBenchWriteNonFatal(t *testing.T) {
 	withReachable(t, true)
 	withConfiguredBackend(t, "vulkan")
@@ -897,7 +897,7 @@ func TestBenchWriteNonFatal(t *testing.T) {
 	}
 }
 
-// TestBenchPersistSkipsOnConfigLoadError proves persistBenchReport (WR-04) does NOT
+// TestBenchPersistSkipsOnConfigLoadError proves persistBenchReport does NOT
 // swallow a config.LoadVilla error: on a malformed config it SKIPS persistence — the
 // benchstore write-hook NEVER fires — with a loud-but-non-fatal WARN, rather than durably
 // persisting a zeroed (Model=""/Quant=""/Ctx=0) fingerprint that could later auto-select

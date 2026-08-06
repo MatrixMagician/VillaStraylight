@@ -1,6 +1,6 @@
 // loader_test.go guards the additive /load metadata.guard widening (Plan 32-03, Task 2).
 //
-// INVARIANT (T-32-13 contract integrity): the verdict is surfaced under a NEW nested
+// INVARIANT (contract integrity): the verdict is surfaced under a NEW nested
 // metadata.guard sub-key {detected, rules} WITHOUT renaming or dropping the verified OWUI
 // contract tags — every element still carries top-level page_content + metadata, and
 // metadata still carries source (the citation URL) and title. The handler still ALWAYS

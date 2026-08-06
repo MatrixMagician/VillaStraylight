@@ -35,7 +35,7 @@ func fitCoder() recommend.Recommendation {
 
 // TestAgentPreflightDiskBlock proves the disk BLOCK tier: when free disk is
 // confidently below the staged GGUF + binary footprint → TierBlock/StatusFail
-// (refuse-with-remediation), never a WARN. (D-09)
+// (refuse-with-remediation), never a WARN.
 func TestAgentPreflightDiskBlock(t *testing.T) {
 	rec := fitCoder()
 	in := agentCheckInput{
@@ -71,7 +71,7 @@ func TestAgentPreflightDiskPass(t *testing.T) {
 }
 
 // TestAgentPreflightDiskUnprobeableWARN proves the typed-Unknown rule: an
-// unprobeable free-disk signal degrades to a WARN, NEVER a false BLOCK/FAIL. (D-09)
+// unprobeable free-disk signal degrades to a WARN, NEVER a false BLOCK/FAIL.
 func TestAgentPreflightDiskUnprobeableWARN(t *testing.T) {
 	rec := fitCoder()
 	in := agentCheckInput{
@@ -91,7 +91,7 @@ func TestAgentPreflightDiskUnprobeableWARN(t *testing.T) {
 
 // TestAgentPreflightEnvelopeBlock proves the post-coder envelope BLOCK: when
 // rec.Coder.Fits == false the host cannot fit the coder at agent ctx → TierBlock/
-// StatusFail, with the detail driven by rec.Coder (never re-derived). (D-09)
+// StatusFail, with the detail driven by rec.Coder (never re-derived).
 func TestAgentPreflightEnvelopeBlock(t *testing.T) {
 	rec := recommend.Recommendation{
 		Coder: recommend.CoderFit{
@@ -129,7 +129,7 @@ func TestAgentPreflightEnvelopePass(t *testing.T) {
 }
 
 // TestAgentPreflightCloudCredWARN proves a present cloud-LLM credential is a WARN
-// naming the var(s) + the neutralization — NEVER a BLOCK. (D-09)
+// naming the var(s) + the neutralization — NEVER a BLOCK.
 func TestAgentPreflightCloudCredWARN(t *testing.T) {
 	rec := fitCoder()
 	present := map[string]string{"ANTHROPIC_API_KEY": "sk-ant-xxxx"}
@@ -144,7 +144,7 @@ func TestAgentPreflightCloudCredWARN(t *testing.T) {
 		t.Fatalf("present credential: want TierWarn/StatusWarn, got %s/%s", cred.Tier, cred.Status)
 	}
 	if cred.Tier == preflight.TierBlock {
-		t.Fatalf("a credential must NEVER be a BLOCK (D-09)")
+		t.Fatalf("a credential must NEVER be a BLOCK")
 	}
 	if !strings.Contains(cred.Detail, "ANTHROPIC_API_KEY") {
 		t.Errorf("cloud-cred WARN must name the found var; detail = %q", cred.Detail)

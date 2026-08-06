@@ -1,6 +1,6 @@
 package backup
 
-// backup.go holds the PURE skew comparison (BAK-03 / D-08): it compares a backup
+// backup.go holds the PURE skew comparison: it compares a backup
 // Manifest against the CURRENT install and classifies each difference as either a
 // WARN-and-confirm finding (legitimate skew that does NOT block — e.g. a newer
 // villa restoring an older backup) or a fail-closed BLOCK (corruption /
@@ -17,7 +17,7 @@ import (
 // BackupInput is the plain-data drive for the pure Backup orchestrator. The cmd
 // tier (liveBackupDeps) gathers everything host-derived — the seam-sourced image
 // digests (inference.BackendFor(cfg.Backend).Image() / orchestrate.OpenWebUIImage()
-// — NEVER a literal, D-10), the accessor-sourced store schema versions
+// — NEVER a literal), the accessor-sourced store schema versions
 // (usage.SchemaVersion() / benchstore.SavedReportSchemaVersion()), the resolved
 // data-dir artifact paths, the build-stamped villa version, the flattened host
 // facts, and the excluded-model identities — then Backup() executes the pure
@@ -35,7 +35,7 @@ type BackupInput struct {
 
 	// InferenceImage / OpenWebUIImage are the seam-sourced digest-pinned images. The
 	// caller sources them from the seam; Backup carries them through to the manifest
-	// (never a re-typed literal — D-10).
+	// (never a re-typed literal).
 	InferenceImage string
 	OpenWebUIImage string
 
@@ -67,19 +67,19 @@ type BackupInput struct {
 	UsagePath        string
 	BenchReportsPath string
 
-	// ExcludedModels are the identities of the excluded model weights (BAK-01),
+	// ExcludedModels are the identities of the excluded model weights,
 	// recorded in the manifest for re-pull. Identity only.
 	ExcludedModels []ExcludedModel
 
 	// CrushConfigPath is the resolved source path for the OPTIONAL Phase-28
-	// crush.json archive entry (SURF-03/D-08): the RENDERED coding-agent config.
+	// crush.json archive entry: the RENDERED coding-agent config.
 	// The cmd tier sets it ONLY on an agent-on backup (crushConfigPath()); empty
 	// means agent off → the entry is never offered to the core (archive stays
 	// v2-layout-identical). An absent file at a non-empty path is skipped via
 	// FileMissing exactly like the other optional entries.
 	CrushConfigPath string
 	// AgentBinarySHA256 / AgentVersion / AgentPinSHA256 are the IDENTITY of the
-	// EXCLUDED coding-agent binary (SURF-03/D-08), supplied by the cmd tier
+	// EXCLUDED coding-agent binary, supplied by the cmd tier
 	// (hashFileSHA256(agentBinPath()) + the pinned policy version + the policy's
 	// pinned binary SHA-256). Identity only — the binary bytes are NEVER archived.
 	// Set ONLY on an agent-on backup; when all three are empty the manifest records
@@ -89,19 +89,19 @@ type BackupInput struct {
 	AgentPinSHA256    string
 
 	// QdrantVolumeName / TempQdrantTar drive the OPTIONAL Phase-23 qdrant volume
-	// export (D-05): when BOTH are non-empty, Backup quiesces Deps.QdrantServiceName
+	// export: when BOTH are non-empty, Backup quiesces Deps.QdrantServiceName
 	// around VolumeExport(QdrantVolumeName, TempQdrantTar) and appends the
 	// qdrant-volume.tar entry. The cmd tier gates them on cfg.MemoryEnabled AND a
 	// fail-soft `podman volume exists` check; empty means memory off / volume
 	// absent — ZERO qdrant Deps calls, archive identical to the v1 layout.
 	// QdrantVolumeName is seam-sourced (orchestrate.QdrantVolumeName()) — never a
-	// literal (D-05).
+	// literal.
 	QdrantVolumeName string
 	TempQdrantTar    string
 	// RecallStatePath is the resolved recall-state.json source path (the OPTIONAL
-	// recall-state.json entry, D-06; recall.RecallStatePath() at the cmd tier). An
+	// recall-state.json entry,; recall.RecallStatePath at the cmd tier). An
 	// absent file is skipped via FileMissing like the other optional entries. The
-	// cmd tier gates it on cfg.MemoryEnabled (review WR-03), mirroring the qdrant
+	// cmd tier gates it on cfg.MemoryEnabled (review), mirroring the qdrant
 	// pair: empty means memory off, so a memory-off archive stays v1-identical
 	// even when a leftover recall-state.json exists on disk — otherwise the entry
 	// would ship without a manifest recall_schema_version and escape the
@@ -109,7 +109,7 @@ type BackupInput struct {
 	RecallStatePath string
 
 	// EmbeddingModel / EmbeddingDim / RecallSchemaVersion are the Phase-23 manifest
-	// fields (D-06/D-08): config-sourced embedding identity + dimension and the
+	// fields: config-sourced embedding identity + dimension and the
 	// accessor-sourced recall store schema version. The cmd tier sets them ONLY on
 	// a memory-on backup; zero values are omitted from the manifest ("not
 	// recorded" — never a fabricated claim).
@@ -118,13 +118,13 @@ type BackupInput struct {
 	RecallSchemaVersion int
 
 	// SearxngSettingsPath is the resolved source path for the OPTIONAL Phase-34
-	// web-search settings.yml archive entry (SURF-07): the RENDERED SearXNG
+	// web-search settings.yml archive entry: the RENDERED SearXNG
 	// provenance ($XDG_CONFIG_HOME/villa/searxng/settings.yml). The cmd tier sets it
 	// ONLY on a web-search-on backup (gated on cfg.WebSearchEnabled); empty means web
 	// search off, so the entry is never offered to the core and the archive stays
 	// v3-layout-identical. An absent file at a non-empty path is skipped via
 	// FileMissing exactly like the other optional entries. Fetched EPHEMERAL web
-	// content is NEVER a source here — only this CONFIG provenance crosses (T-34-06).
+	// content is NEVER a source here — only this CONFIG provenance crosses.
 	SearxngSettingsPath string
 
 	// FileMissing classifies a ReadFile error as a tolerable absent-file (skip the
@@ -133,7 +133,7 @@ type BackupInput struct {
 	FileMissing func(error) bool
 }
 
-// Backup is the PURE backup orchestrator over the injected Deps (BAK-01, D-05). It
+// Backup is the PURE backup orchestrator over the injected Deps. It
 // executes the quiesce ordering RESEARCH §OWUI Quiesce mandates and assembles the
 // single plain .tar:
 //
@@ -156,10 +156,10 @@ func Backup(d Deps, in BackupInput) (retRes Result, retErr error) {
 	}
 
 	// (1) Quiesce: stop OWUI for a clean SQLite copy, defer best-effort restart so the
-	// service is restored even if a later step errors (D-05). The restart stays
+	// service is restored even if a later step errors. The restart stays
 	// best-effort (it NEVER fails the backup), but a failed restart is now SURFACED
 	// via retRes.RestartWarning so the cmd tier can warn the user to run `villa up`
-	// (IN-01). The named return retRes is what every `return` below populates, so the
+	// The named return retRes is what every `return` below populates, so the
 	// defer (which runs ONLY after a successful Stop) annotates whichever Result is
 	// actually returned — without ever turning a successful backup into a failure.
 	if err := d.Stop(d.OpenWebUIServiceName); err != nil {
@@ -183,13 +183,13 @@ func Backup(d Deps, in BackupInput) (retRes Result, retErr error) {
 		}
 	}()
 
-	// (2) Export ONLY the Open WebUI volume (model weights excluded — BAK-01).
+	// (2) Export ONLY the Open WebUI volume (model weights excluded).
 	if err := d.VolumeExport(in.OpenWebUIVolumeName, in.TempVolumeTar); err != nil {
 		return Result{Err: fmt.Errorf("backup: volume export %s: %w", in.OpenWebUIVolumeName, err), FailedStep: "volume"},
 			fmt.Errorf("backup: volume export %s: %w", in.OpenWebUIVolumeName, err)
 	}
 
-	// (2b) OPTIONAL qdrant volume export (Phase 23, D-05). Gated on BOTH
+	// (2b) OPTIONAL qdrant volume export (Phase 23). Gated on BOTH
 	// QdrantVolumeName and TempQdrantTar being non-empty (memory on AND volume
 	// present — decided by the cmd tier; empty ⇒ ZERO qdrant Deps calls). Clone of
 	// the OWUI quiesce frame: Stop the qdrant service so the export never copies a
@@ -228,19 +228,19 @@ func Backup(d Deps, in BackupInput) (retRes Result, retErr error) {
 		{EntryBenchReports, in.BenchReportsPath, false},
 		{EntryQdrantVolume, in.TempQdrantTar, false},
 		{EntryRecallState, in.RecallStatePath, false},
-		// The OPTIONAL Phase-28 coding-agent config (SURF-03/D-08): present only on
+		// The OPTIONAL Phase-28 coding-agent config: present only on
 		// an agent-on backup (the cmd tier passes CrushConfigPath=""  when the agent
 		// is off, skipping the row). An absent file at a non-empty path is tolerated
 		// via FileMissing like the other optional entries — agent-on but no rendered
 		// crush.json on disk skips the entry rather than failing the backup. The
 		// agent BINARY is NEVER an entry — only its identity (ExcludedAgent) below.
 		{EntryCrushConfig, in.CrushConfigPath, false},
-		// The OPTIONAL Phase-34 web-search settings.yml provenance (SURF-07):
+		// The OPTIONAL Phase-34 web-search settings.yml provenance:
 		// present only on a web-search-on backup (the cmd tier passes
 		// SearxngSettingsPath="" when web search is off, skipping the row). An absent
 		// file at a non-empty path is tolerated via FileMissing exactly like the
 		// other optional entries. NO entry is ever added for fetched/ephemeral web
-		// content — only this rendered CONFIG provenance crosses (T-34-06).
+		// content — only this rendered CONFIG provenance crosses.
 		{EntrySearxngSettings, in.SearxngSettingsPath, false},
 	}
 
@@ -254,7 +254,7 @@ func Backup(d Deps, in BackupInput) (retRes Result, retErr error) {
 			}
 			continue
 		}
-		// WR-06 streaming path: the two VOLUME TAR entries are the only members
+		// streaming path: the two VOLUME TAR entries are the only members
 		// that realistically grow to many GiB (a populated Qdrant store on a
 		// memory-tight host). When the OpenFile seam is wired, checksum them via
 		// a streaming io.Copy pass and register a streaming archiveEntry that
@@ -309,7 +309,7 @@ func Backup(d Deps, in BackupInput) (retRes Result, retErr error) {
 		checksums = append(checksums, EntryChecksum{Name: s.entry, SHA256: csum})
 	}
 
-	// Record the EXCLUDED coding-agent binary IDENTITY (SURF-03/D-08), agent-on
+	// Record the EXCLUDED coding-agent binary IDENTITY, agent-on
 	// ONLY (clone of the ExcludedModels weights exclusion). It is gated on the cmd
 	// tier having supplied an identity (any of the three fields non-empty); an
 	// agent-off backup leaves all three empty so excludedAgent stays nil and the
@@ -356,7 +356,7 @@ func Backup(d Deps, in BackupInput) (retRes Result, retErr error) {
 }
 
 // CurrentInstall is the plain-data snapshot of the running install that a backup
-// Manifest is compared against (BAK-03). The cmd tier gathers these: the current
+// Manifest is compared against. The cmd tier gathers these: the current
 // villa version (build-stamped), the current inference + OWUI image digests
 // (seam-sourced via inference.BackendFor(...).Image() / orchestrate.OpenWebUIImage()
 // — never re-typed), the current host fingerprint (from detect), the current
@@ -373,7 +373,7 @@ type CurrentInstall struct {
 	BenchSchemaVersion  int
 	// EmbeddingModel / EmbeddingDim are the CURRENT install's embedding identity
 	// (cfg.EmbeddingModel / cfg.EmbeddingDim — config is the single source of
-	// truth) for the Phase-23 dimension-skew compare (D-08). Plain values so this
+	// truth) for the Phase-23 dimension-skew compare. Plain values so this
 	// core stays free of config-field coupling beyond the caller's snapshot.
 	EmbeddingModel string
 	EmbeddingDim   int
@@ -382,12 +382,12 @@ type CurrentInstall struct {
 	// imports no recall, mirroring the usage/bench plain-int convention).
 	RecallSchemaVersion int
 	// ChecksumFailed is set by the caller when a per-entry SHA-256 verify failed
-	// (archive corruption) — CompareSkew turns it into a fail-closed BLOCK (D-08).
+	// (archive corruption) — CompareSkew turns it into a fail-closed BLOCK.
 	ChecksumFailed bool
 }
 
 // SkewWarning is one WARN-and-confirm finding: the field that differs, a
-// human-readable detail, and named remediation text (D-08). It does NOT block —
+// human-readable detail, and named remediation text. It does NOT block
 // the caller prints it and requires explicit y/N confirmation (--yes bypass).
 type SkewWarning struct {
 	Field       string
@@ -405,7 +405,7 @@ type SkewVerdict struct {
 }
 
 // CompareSkew classifies the difference between a backup Manifest m and the
-// current install cur (pure; BAK-03 / D-08), per the RESEARCH §Skew Detection
+// current install cur (pure), per the RESEARCH §Skew Detection
 // table:
 //
 //	BLOCK (fail-closed, no apply):
@@ -426,7 +426,7 @@ type SkewVerdict struct {
 func CompareSkew(m Manifest, cur CurrentInstall) SkewVerdict {
 	var v SkewVerdict
 
-	// --- fail-closed BLOCK checks (D-08) ------------------------------------
+	// --- fail-closed BLOCK checks ------------------------------------
 	if cur.ChecksumFailed {
 		v.Block = true
 		v.BlockReason = "archive integrity check failed (SHA-256 mismatch) — refusing to restore a corrupt backup"
@@ -485,7 +485,7 @@ func CompareSkew(m Manifest, cur CurrentInstall) SkewVerdict {
 			Remediation: "backed up on a different host — if Open WebUI cannot read its data after restore, run `podman unshare chown -R $(id -u):$(id -g) <mountpoint>` and ensure the :Z relabel",
 		})
 	}
-	// Embedding model/dimension skew (Phase 23, D-08): a CONFIDENT mismatch between
+	// Embedding model/dimension skew (Phase 23): a CONFIDENT mismatch between
 	// the manifest-recorded embedding identity and the current install means the
 	// backup's vectors were embedded under a different model/dimension — retrieval
 	// is silently corrupt after restore until a re-index. Exactly ONE warning for

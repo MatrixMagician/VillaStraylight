@@ -12,7 +12,7 @@ import (
 )
 
 // handleStatus folds the SHARED internal/status read-model and serializes the frozen
-// Report (RESEARCH Pattern 2 / DASH-01). It calls status.Run(s.statusDeps) — the SAME
+// Report (RESEARCH Pattern 2). It calls status.Run(s.statusDeps) — the SAME
 // core villa status uses — and never re-implements the worst-wins aggregation; the
 // json tags are the frozen --json contract, so a dashboard consumer sees byte-identical
 // Report shape to `villa status --json`.
@@ -21,19 +21,19 @@ func (s *Server) handleStatus(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, report)
 }
 
-// healthzResponse is the tiny self-reachability body the D-04 status row probes
+// healthzResponse is the tiny self-reachability body the status row probes
 // (Plan 05 GETs /healthz to record the dashboard's own liveness).
 type healthzResponse struct {
 	OK bool `json:"ok"`
 }
 
 // handleHealthz returns 200 + {"ok":true} — the dashboard's own reachability signal
-// (D-04). It touches no host state; reaching this handler is itself the liveness proof.
+// It touches no host state; reaching this handler is itself the liveness proof.
 func (s *Server) handleHealthz(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, healthzResponse{OK: true})
 }
 
-// metricsView is the Performance panel JSON read-model (DASH-02). It carries the
+// metricsView is the Performance panel JSON read-model. It carries the
 // gen/prompt tok/s, the A5 prompt-eval latency, the active-slot count, and the two
 // honesty flags: Idle (the gauges are stale snapshots → render "Idle — no active
 // generation.") and Available (the scrape failed → render "unavailable", never zeros).
@@ -54,31 +54,31 @@ type metricsView struct {
 	SlotsKnown bool `json:"slots_known"`
 	// Idle is true ONLY when activity is confidently known to be idle (ActivityKnown &&
 	// not generating) — the UI shows "Idle — no active generation." It is never a
-	// confident claim when ActivityKnown is false (WR-01).
+	// confident claim when ActivityKnown is false.
 	Idle bool `json:"idle"`
 	// ActivityKnown reports whether the idle/generating state is a real measurement.
 	// It is true when /slots was read (slot processing is authoritative) OR when
 	// requests_processing>0 definitively says generating. When /slots failed AND
 	// requests_processing==0, the snapshot cannot distinguish "idle" from "generating
 	// between requests", so this is false and the UI renders activity as Unknown rather
-	// than a fabricated "Idle" (WR-01 / D-10/D-11).
+	// than a fabricated "Idle".
 	ActivityKnown bool `json:"activity_known"`
 	// Available is false on a 404/transport-error scrape — the UI shows "unavailable"
-	// and NEVER the zero-valued fields as if they were real (D-11).
+	// and NEVER the zero-valued fields as if they were real.
 	Available bool `json:"available"`
 }
 
 // handleMetrics folds the metrics collector (/metrics + /slots) into the Performance
-// read-model (DASH-02). A failed /metrics scrape marks the panel unavailable with NO
-// fabricated zeros (D-11); a successful-but-not-generating snapshot sets Idle so the UI
-// renders "Idle — no active generation." (Pitfall 3 / D-10) rather than a stale rate.
+// read-model. A failed /metrics scrape marks the panel unavailable with NO
+// fabricated zeros; a successful-but-not-generating snapshot sets Idle so the UI
+// renders "Idle — no active generation." (Pitfall 3) rather than a stale rate.
 func (s *Server) handleMetrics(w http.ResponseWriter, _ *http.Request) {
-	// SOLE-WRITER hook (USAGE-02 / D-07): fold the cumulative _total counters into
+	// SOLE-WRITER hook: fold the cumulative _total counters into
 	// usage.json on every scrape. This is done FIRST and independently of the live-view
 	// scrape result so the cumulative store accumulates from the monotonic counters even
 	// when the rate-gauge view is idle (the counters and gauges share the same scrape, but
 	// the counters are meaningful regardless of generation activity). It is loud-but-non-
-	// fatal: a write error never changes the live metrics response (T-15-17).
+	// fatal: a write error never changes the live metrics response.
 	s.foldUsage()
 
 	snap, ok := s.scrapeMetrics()
@@ -89,14 +89,14 @@ func (s *Server) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 	}
 	// /slots is independent; its absence only drops the slot signal, not the whole panel.
 	// Carry the availability bool so a failed /slots scrape degrades the activity state to
-	// Unknown rather than a confident "Idle" (WR-01).
+	// Unknown rather than a confident "Idle".
 	slots, slotsOK := s.scrapeSlots()
 
 	generating := metrics.IsGenerating(snap, slots)
 	// Activity is a real measurement only when /slots was read (slot processing is
 	// authoritative) OR when requests_processing>0 definitively says generating. With
 	// /slots unavailable AND requests_processing==0 the snapshot cannot tell idle from
-	// "between requests mid-generation", so we report ActivityKnown=false (WR-01).
+	// "between requests mid-generation", so we report ActivityKnown=false.
 	activityKnown := slotsOK || generating
 	view := metricsView{
 		GenTokensPerSec:    snap.GenTokensPerSec,
@@ -116,33 +116,33 @@ func (s *Server) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, view)
 }
 
-// foldUsage is the SOLE, usageMu-guarded writer of usage.json (USAGE-02 / D-07). On each
+// foldUsage is the SOLE, usageMu-guarded writer of usage.json. On each
 // /api/metrics scrape it scrapes the two monotonic _total counters (the SAME loopback
-// endpoint as the live tok/s view — no new outbound, D-12), folds them into the persisted
+// endpoint as the live tok/s view — no new outbound), folds them into the persisted
 // per-model store via the reset-aware pure usage.Fold core (Plan 01), and atomically
 // writes the result.
 //
-// The model identity is captured INSIDE the locked section (Pitfall 2 / T-15-14) so the
+// The model identity is captured INSIDE the locked section (Pitfall 2) so the
 // per-model fold key cannot drift if config changes between scrapes. A typed-Unknown
 // counter (Known=false) is carried through to usage.Sample so the pure fold skips it,
-// never writing a fabricated 0 (D-05). The whole read-modify-write is serialized by
-// usageMu so concurrent scrapes cannot tear the store (T-15-13).
+// never writing a fabricated 0. The whole read-modify-write is serialized by
+// usageMu so concurrent scrapes cannot tear the store.
 //
 // It is loud-but-non-fatal: an unavailable counter scrape simply folds nothing, and a
 // WriteUsage error is intentionally discarded so a write failure NEVER changes the live
-// /api/metrics response (T-15-17, mirroring the benchstore non-fatal-write discipline).
+// api/metrics response (mirroring the benchstore non-fatal-write discipline).
 func (s *Server) foldUsage() {
 	sample, ok := s.counterSample()
 	if !ok {
 		// The whole counter scrape was unavailable (404 / transport error) — no fold, no
-		// write (typed-Unknown, never a fabricated 0). D-05.
+		// write (typed-Unknown, never a fabricated 0)..
 		return
 	}
 
 	s.usageMu.Lock()
 	defer s.usageMu.Unlock()
 
-	// Capture identity INSIDE the critical section (Pitfall 2 / T-15-14): the per-model
+	// Capture identity INSIDE the critical section (Pitfall 2): the per-model
 	// fold key is read here, not at handler entry, so a concurrent config change cannot
 	// mis-key the fold mid-write.
 	model := s.modelID()
@@ -156,14 +156,14 @@ func (s *Server) foldUsage() {
 		PredictedTokensKnown: sample.PredictedTokensKnown,
 		CapturedAt:           time.Now(),
 	})
-	// Loud-but-non-fatal (T-15-17): a write error must NOT change the live metrics view.
+	// Loud-but-non-fatal: a write error must NOT change the live metrics view.
 	_ = s.writeUsage(next)
 }
 
-// gpuView is the GPU & Memory panel JSON read-model (DASH-03), MEMORY-FIRST: the
+// gpuView is the GPU & Memory panel JSON read-model, MEMORY-FIRST: the
 // unified-memory used-vs-envelope headline is always the lead, and the iGPU busy% is a
 // best-effort overlay that degrades to BusyAvailable=false ("Unavailable" badge) when
-// the sysfs reader returns typed-Unknown (D-06) — never a fabricated number. Each
+// the sysfs reader returns typed-Unknown — never a fabricated number. Each
 // memory figure carries its own Known flag so an undetected envelope renders honestly
 // rather than as 0 bytes.
 type gpuView struct {
@@ -173,14 +173,14 @@ type gpuView struct {
 	MemEnvelopeKnown bool   `json:"mem_envelope_known"`
 	// BusyPercent is the iGPU utilization 0..100; only meaningful when BusyAvailable.
 	BusyPercent int `json:"busy_percent"`
-	// BusyAvailable is false when gpu_busy_percent is missing/garbage (D-06) — the UI
+	// BusyAvailable is false when gpu_busy_percent is missing/garbage — the UI
 	// shows the gray "Unavailable" badge + "GPU utilization isn't reliably reported on
 	// this hardware." rather than a confident wrong number.
 	BusyAvailable bool `json:"busy_available"`
 }
 
 // handleGPU folds the existing memory readers (GTT-used headline + usable envelope) and
-// the best-effort detect.GPUBusyPercent into the memory-first GPU read-model (DASH-03).
+// the best-effort detect.GPUBusyPercent into the memory-first GPU read-model.
 // Busy% degrades to a typed-Unknown "unavailable" overlay; the memory headline is the
 // lead and carries per-figure Known flags so an undetected value never renders as 0.
 func (s *Server) handleGPU(w http.ResponseWriter, _ *http.Request) {
@@ -199,9 +199,9 @@ func (s *Server) handleGPU(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, view)
 }
 
-// ModelView is one row of the Models panel read-model (DASH-04): a catalog entry marked
+// ModelView is one row of the Models panel read-model: a catalog entry marked
 // loaded / on-disk / catalog-only plus a Fits flag from the SHARED modelswap fit seam so
-// the UI can disable the Switch button on a non-fitting target (D-08), and a FitDetail
+// the UI can disable the Switch button on a non-fitting target, and a FitDetail
 // string the confirm dialog shows (the fit-verdict line). The shape mirrors
 // cmd/villa/model.go modelListEntry ({ID,Quant,Loaded}) extended with the on-disk/fit
 // fields; the values are computed in the live Models seam (cmd/villa), never here.
@@ -213,7 +213,7 @@ type ModelView struct {
 	// OnDisk is true when the weights are already downloaded (no pull needed to switch).
 	OnDisk bool `json:"on_disk"`
 	// Fits is the SHARED fit-seam verdict; false → the UI renders Switch disabled
-	// ("Won't fit") so the dashboard never fires a swap the core would reject (D-08).
+	// ("Won't fit") so the dashboard never fires a swap the core would reject.
 	Fits bool `json:"fits"`
 	// FitDetail is the human fit-verdict line the confirm dialog shows (headroom at the
 	// configured context when fitting; the won't-fit reason otherwise).
@@ -221,7 +221,7 @@ type ModelView struct {
 }
 
 // handleModels serves the full catalog marked loaded/on-disk/catalog-only with a per-row
-// fit flag (DASH-04), folding the injected Models seam — it does NOT re-implement the
+// fit flag, folding the injected Models seam — it does NOT re-implement the
 // catalog/config read or the fit-math (those live in the shared cmd/villa wiring reusing
 // runModelList's shape + recommend.Pick). An unavailable seam (catalog load failed)
 // degrades to an empty list so the UI shows the "No models in catalog" empty state rather
@@ -247,7 +247,7 @@ type switchRequest struct {
 type switchResponse struct {
 	Switched bool `json:"switched"`
 	// NoOp is true when config was persisted but the units were already up to date
-	// (no restart needed, WR-06) — the UI treats it as a successful switch.
+	// (no restart needed) — the UI treats it as a successful switch.
 	NoOp bool `json:"no_op"`
 	// Refused is true on a clean policy rejection (unknown id or won't-fit) — the UI
 	// shows reason without entering the Switching… state.
@@ -263,16 +263,16 @@ type switchResponse struct {
 	Reason string `json:"reason,omitempty"`
 }
 
-// handleSwitch is the ONE sanctioned dashboard mutation (DASH-04). It decodes the narrow
+// handleSwitch is the ONE sanctioned dashboard mutation. It decodes the narrow
 // {model} body and calls modelswap.Run(s.swapDeps, body.Model) VERBATIM — the SAME guarded
 // path `villa model swap` uses — then maps the typed Result to HTTP. It performs NO swap
 // logic itself (no resolve/fit/pull/save/restart): modelswap.Run resolves the id THROUGH
 // the catalog and refuses unknown/non-fitting targets before any side effect (Security
-// V5 / T-05-12). The same-origin + JSON-content-type middleware (Plan 02) already gated
-// this non-GET request, so a cross-origin POST never reaches here (T-05-11).
+// V5). The same-origin + JSON-content-type middleware (Plan 02) already gated
+// this non-GET request, so a cross-origin POST never reaches here.
 func (s *Server) handleSwitch(w http.ResponseWriter, r *http.Request) {
 	// Serialize swaps: net/http serves handlers concurrently, and modelswap.Run is a
-	// non-atomic read-modify-write of the config↔units source of truth (CR-02). A second
+	// non-atomic read-modify-write of the config↔units source of truth. A second
 	// switch arriving while one is in flight is refused with 409 Conflict rather than
 	// allowed to interleave — matching the UI's single in-flight `switching` model.
 	if !s.swapMu.TryLock() {
@@ -316,7 +316,7 @@ func (s *Server) handleSwitch(w http.ResponseWriter, r *http.Request) {
 		resp.Reason = "unknown model"
 		writeJSON(w, http.StatusNotFound, resp)
 	case res.Refused:
-		// Won't fit the envelope — refused before any side effect (D-08).
+		// Won't fit the envelope — refused before any side effect.
 		writeJSON(w, http.StatusUnprocessableEntity, resp)
 	case res.Err != nil:
 		// A step failed (pull/save/reconcile/restart) — surface it as a server error with

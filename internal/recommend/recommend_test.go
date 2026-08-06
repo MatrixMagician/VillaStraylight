@@ -90,7 +90,7 @@ func TestPickMultiEnvelopeFitAndOOMGuard(t *testing.T) {
 }
 
 // TestPickHonorsMinEnvelopeFloor asserts the MinEnvelopeBytes secondary floor
-// guard (IN-01): a model whose declared minimum envelope exceeds the host's
+// guard: a model whose declared minimum envelope exceeds the host's
 // envelope is NOT auto-selected, even when the raw weights+KV+headroom math fits.
 func TestPickHonorsMinEnvelopeFloor(t *testing.T) {
 	cat := catalog.Catalog{
@@ -131,7 +131,7 @@ func TestPickNeverAutoSelectsUnsafe(t *testing.T) {
 }
 
 // TestPickNeverAutoSelectsBootstrap asserts the bootstrap entry is carried but
-// never auto-selected (D-12).
+// never auto-selected.
 func TestPickNeverAutoSelectsBootstrap(t *testing.T) {
 	rec := Pick(profileWithEnvelope(200<<30), testCatalog(), Overrides{}, MemoryInputs{}, WebSearchInputs{})
 	if rec.Model == "bootstrap" {
@@ -140,7 +140,7 @@ func TestPickNeverAutoSelectsBootstrap(t *testing.T) {
 }
 
 // TestOverrideUnsafeAllowedWithWarning asserts a --model override of an unsafe
-// entry is allowed but adds a loud warning Note (D-07).
+// entry is allowed but adds a loud warning Note.
 func TestOverrideUnsafeAllowedWithWarning(t *testing.T) {
 	rec := Pick(profileWithEnvelope(64<<30), testCatalog(), Overrides{Model: "unsafe-but-tiny"}, MemoryInputs{}, WebSearchInputs{})
 	if rec.Model != "unsafe-but-tiny" {
@@ -152,7 +152,7 @@ func TestOverrideUnsafeAllowedWithWarning(t *testing.T) {
 }
 
 // TestOverrideHugeCtxRevalidatedAndFails asserts an override that breaks the fit
-// sets Fits=false with a warning Note (D-07).
+// sets Fits=false with a warning Note.
 func TestOverrideHugeCtxRevalidatedAndFails(t *testing.T) {
 	rec := Pick(profileWithEnvelope(64<<30), testCatalog(), Overrides{Model: "large", Ctx: 100_000_000}, MemoryInputs{}, WebSearchInputs{})
 	if rec.Model != "large" {
@@ -169,10 +169,10 @@ func TestOverrideHugeCtxRevalidatedAndFails(t *testing.T) {
 	}
 }
 
-// TestOverrideAbsurdCtxNeverWrapsToFit (phase-22 WR-07): a --ctx so large the
+// TestOverrideAbsurdCtxNeverWrapsToFit (phase-22): a --ctx so large the
 // five-term KV product would wrap mod 2^64 to a SMALL total must still re-validate
 // to Fits=false with the override-doesnt-fit warning — overflow must never defeat
-// the D-07 "never a silent OOM" guard. ctx=2^50 makes the naive product wrap (the
+// the "never a silent OOM" guard. ctx=2^50 makes the naive product wrap (the
 // test catalog's mid multiplier is 196,608); the saturating math pins MaxUint64.
 func TestOverrideAbsurdCtxNeverWrapsToFit(t *testing.T) {
 	rec := Pick(profileWithEnvelope(64<<30), testCatalog(), Overrides{Model: "mid", Ctx: 1 << 50}, MemoryInputs{}, WebSearchInputs{})
@@ -191,7 +191,7 @@ func TestOverrideAbsurdCtxNeverWrapsToFit(t *testing.T) {
 }
 
 // TestDegradedFloorWhenEnvelopeUnknown asserts a degraded recommendation with a
-// prominent Note when the envelope is Unknown but RAM is known (D-14).
+// prominent Note when the envelope is Unknown but RAM is known.
 func TestDegradedFloorWhenEnvelopeUnknown(t *testing.T) {
 	p := detect.HostProfile{
 		TotalRAMBytes:       detect.KnownBytes(128<<30, "/proc/meminfo:MemTotal"),
@@ -213,7 +213,7 @@ func TestDegradedFloorWhenEnvelopeUnknown(t *testing.T) {
 }
 
 // TestRefusalWhenNoFloor asserts Pick refuses (empty Model + Note) when neither
-// envelope nor RAM is known — never guesses high (D-14).
+// envelope nor RAM is known — never guesses high.
 func TestRefusalWhenNoFloor(t *testing.T) {
 	p := detect.HostProfile{
 		TotalRAMBytes:       detect.UnknownBytes("ram unknown", ""),
@@ -239,7 +239,7 @@ func readinessAllGood() detect.ROCmReadiness {
 	}
 }
 
-// TestPickROCmAdviceDerivation is the advice-derivation table (D-05): all-good →
+// TestPickROCmAdviceDerivation is the advice-derivation table: all-good →
 // worth-trying, any-unknown → verify-with-bench, any Known-bad → withheld (empty)
 // + a blocker Note. The advice is derived purely inside Pick from the
 // HostProfile.rocm_readiness already in hand — no new I/O, no new Pick argument.
@@ -254,7 +254,7 @@ func TestPickROCmAdviceDerivation(t *testing.T) {
 	// Every signal Known with one bad → withheld (confidently not-ready, names blocker).
 	oneBad := readinessAllGood()
 	oneBad.KernelFloorOK = bad
-	// Mix bad + unknown: per D-04 no-false-green, UNKNOWN wins over not-ready, so a
+	// Mix bad + unknown: per no-false-green, UNKNOWN wins over not-ready, so a
 	// single unevaluable signal keeps the host at verify-with-bench (never a
 	// confidently-withheld "not ready"). This guards the worst-wins ordering.
 	badAndUnknown := readinessAllGood()
@@ -319,7 +319,7 @@ func TestPickROCmAdviceDerivation(t *testing.T) {
 // TestPickROCmAdviceNoteHonorsHonesty asserts the worth-trying advice Note points
 // the user to verification ("verify" + "bench") and never promises a speed-up
 // (no "faster"/"guaranteed"/"speed-up") — the on-hardware token-gen delta was
-// −11.15, so ROCm can REGRESS tg (T-10-05).
+// −11.15, so ROCm can REGRESS tg.
 func TestPickROCmAdviceNoteHonorsHonesty(t *testing.T) {
 	p := profileWithEnvelope(64 << 30)
 	p.ROCmReadiness = readinessAllGood()
@@ -357,7 +357,7 @@ func TestPickROCmAdviceEmptyWhenReadinessUnset(t *testing.T) {
 	}
 }
 
-// TestPickMemoryReservation is the D-01/D-02/D-03 reservation matrix: memory off
+// TestPickMemoryReservation is the reservation matrix: memory off
 // (zero-value MemoryInputs) leaves the math byte-identical with zero/false new
 // fields; a pinned embedding model shrinks the envelope BEFORE the fit by exactly
 // its footprint; an unrecognized model id reserves the conservative default with
@@ -367,7 +367,7 @@ func TestPickROCmAdviceEmptyWhenReadinessUnset(t *testing.T) {
 func TestPickMemoryReservation(t *testing.T) {
 	const env = uint64(64 << 30)
 	const pinnedModel = "nomic-embed-text-v1.5"
-	const pinnedFootprint = uint64(536870912) // 512 MiB — the D-08 pinned reservation
+	const pinnedFootprint = uint64(536870912) // 512 MiB — the pinned reservation
 	cat := testCatalog()
 
 	t.Run("memory off: zero-value inputs leave envelope untouched, fields zero/false", func(t *testing.T) {
@@ -393,7 +393,7 @@ func TestPickMemoryReservation(t *testing.T) {
 		mem := MemoryInputs{Enabled: true, EmbeddingModel: pinnedModel}
 		rec := Pick(profileWithEnvelope(env), cat, Overrides{}, mem, WebSearchInputs{})
 		if want := env - pinnedFootprint; rec.UsableEnvelopeBytes != want {
-			t.Errorf("UsableEnvelopeBytes = %d, want envelope−footprint %d (envelope shrinks FIRST, SC#1)", rec.UsableEnvelopeBytes, want)
+			t.Errorf("UsableEnvelopeBytes = %d, want envelope−footprint %d (envelope shrinks FIRST)", rec.UsableEnvelopeBytes, want)
 		}
 		if rec.EmbeddingReservationBytes != pinnedFootprint {
 			t.Errorf("EmbeddingReservationBytes = %d, want %d", rec.EmbeddingReservationBytes, pinnedFootprint)
@@ -451,7 +451,7 @@ func TestPickMemoryReservation(t *testing.T) {
 	})
 }
 
-// TestWebSearchReservation is the GROUND-03 web-search reservation unit matrix
+// TestWebSearchReservation is the web-search reservation unit matrix
 // for the webSearchReservation helper (mirrors memoryReservation): off →
 // (0, nil) so the off-envelope fit is byte-identical to v1.4; on → a non-zero
 // conservative byte value derived from the A6 formula
@@ -527,7 +527,7 @@ func TestWebSearchReservation(t *testing.T) {
 	})
 }
 
-// TestPickWebSearchReservation is the GROUND-03 reservation-before-fit matrix
+// TestPickWebSearchReservation is the reservation-before-fit matrix
 // for Pick: web off leaves the math byte-identical (zero new field); web on
 // shrinks the envelope by the web reservation BEFORE the chat fit; memory AND
 // web both shrink the envelope (combined); a combined reservation >= envelope
@@ -555,7 +555,7 @@ func TestPickWebSearchReservation(t *testing.T) {
 		wantRes, _ := webSearchReservation(web)
 		rec := Pick(profileWithEnvelope(env), cat, Overrides{}, MemoryInputs{}, web)
 		if want := env - wantRes; rec.UsableEnvelopeBytes != want {
-			t.Errorf("UsableEnvelopeBytes = %d, want envelope−webRes %d (envelope shrinks FIRST, GROUND-03)", rec.UsableEnvelopeBytes, want)
+			t.Errorf("UsableEnvelopeBytes = %d, want envelope−webRes %d (envelope shrinks FIRST)", rec.UsableEnvelopeBytes, want)
 		}
 		if rec.WebSearchReservationBytes != wantRes {
 			t.Errorf("WebSearchReservationBytes = %d, want %d", rec.WebSearchReservationBytes, wantRes)
@@ -628,7 +628,7 @@ func TestPickOverrideWeightInvariance(t *testing.T) {
 }
 
 // TestPickRefusalStampsMemoryFields asserts finalizeRecommendation stamps the
-// D-03 fields on the no-envelope refusal path too: memory-on refusals report
+// fields on the no-envelope refusal path too: memory-on refusals report
 // MemoryConsidered=true and the reservation as computed (honest surface);
 // memory-off refusals report zero/false. SchemaVersion is 3 on both.
 func TestPickRefusalStampsMemoryFields(t *testing.T) {

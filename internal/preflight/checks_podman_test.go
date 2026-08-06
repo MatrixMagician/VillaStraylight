@@ -62,7 +62,7 @@ func TestCheckPodmanRootless(t *testing.T) {
 		}
 	})
 
-	t.Run("podman missing downgrades to WARN (D-15)", func(t *testing.T) {
+	t.Run("podman missing downgrades to WARN", func(t *testing.T) {
 		d := okPodman(present, present, "oliverh", "1000")
 		d.podmanVersion = func() (string, bool, bool) { return "", false, false }
 		got := checkPodmanRootless(d)
@@ -71,7 +71,7 @@ func TestCheckPodmanRootless(t *testing.T) {
 		}
 	})
 
-	t.Run("systemctl missing downgrades to WARN (D-15)", func(t *testing.T) {
+	t.Run("systemctl missing downgrades to WARN", func(t *testing.T) {
 		d := okPodman(present, present, "oliverh", "1000")
 		d.systemdUserOK = func() (bool, bool) { return false, false }
 		got := checkPodmanRootless(d)
@@ -100,7 +100,7 @@ func TestSubuidReady(t *testing.T) {
 	}
 }
 
-// TestSubuidReadyScanErrorIsUnevaluable asserts WR-05: a read/scan error (here
+// TestSubuidReadyScanErrorIsUnevaluable asserts: a read/scan error (here
 // induced by opening a directory, which scans into an "is a directory" error) is
 // reported as (false, err) — distinct from a confident "not ready" — so the caller
 // can WARN rather than manufacture a false BLOCK FAIL.
@@ -116,7 +116,7 @@ func TestSubuidReadyScanErrorIsUnevaluable(t *testing.T) {
 }
 
 // TestCheckPodmanRootlessScanErrorWarns asserts that a subuid read error downgrades
-// PRE-02 to WARN (D-15), never a false FAIL (WR-05).
+// PRE-02 to WARN, never a false FAIL.
 func TestCheckPodmanRootlessScanErrorWarns(t *testing.T) {
 	dir := t.TempDir() // unreadable-as-file path → scan error in subuidReady.
 	d := okPodman(dir, dir, "oliverh", "1000")

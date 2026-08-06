@@ -1,6 +1,6 @@
 package main
 
-// install_searxng_test.go drives the Phase-29 SearXNG readiness proof (SRCH-01, SC#2):
+// install_searxng_test.go drives the Phase-29 SearXNG readiness proof:
 // the PURE evalSearxngProof verdict core (unit-testable off-hardware via an injected
 // probe) and the install-flow wiring (Task 2). Readiness is the REAL format=json query
 // parsing results[] — never a health-200 (the project's offload-asserting, never
@@ -17,7 +17,7 @@ import (
 )
 
 // searxngUnits builds a realistic web-search-on plan: Render appends the searxng
-// .container unit when WebSearchEnabled, so it MUST be present in the plan for the WR-04
+// container unit when WebSearchEnabled, so it MUST be present in the plan for the
 // start guard (which gates the searxng start on the unit actually being in the plan).
 func searxngUnits() ([]orchestrate.Unit, orchestrate.Plan) {
 	units := []orchestrate.Unit{
@@ -54,7 +54,7 @@ func fakeSearxngProbe(seq []searxngProbeResult, calls *int) func() (searxngResul
 }
 
 // TestSearxngProofPassOnRealResults: a probe returning parseable JSON with ≥1 result and
-// number_of_results>0 → StatusPass. This is the honest signal SC#2 demands — a real
+// number_of_results>0 → StatusPass. This is the honest signal demands — a real
 // engine answer, not a health-200.
 func TestSearxngProofPassOnRealResults(t *testing.T) {
 	calls := 0
@@ -212,7 +212,7 @@ func TestInstallWebSearchWiring(t *testing.T) {
 		if ei := indexOf(f.callOrder, "writeSearxngSecretEnv"); ei < 0 || ei > startIdx {
 			t.Errorf("the secret env file must be written BEFORE the searxng start (env idx=%d, start idx=%d); callOrder = %v", ei, startIdx, f.callOrder)
 		}
-		// The proof probes the config-resolved addr/port (WR-01).
+		// The proof probes the config-resolved addr/port.
 		if f.searxngProofIn.searxngAddr == "" || f.searxngProofIn.searxngPort == 0 {
 			t.Errorf("the proof must probe the config-resolved addr/port, got %+v", f.searxngProofIn)
 		}
@@ -234,10 +234,10 @@ func TestInstallWebSearchWiring(t *testing.T) {
 		}
 	})
 
-	t.Run("web search on but unit absent from plan: fails closed (WR-04)", func(t *testing.T) {
+	t.Run("web search on but unit absent from plan: fails closed", func(t *testing.T) {
 		// A web-search-on install whose searxng unit is NOT in the rendered plan must fail
 		// closed with an INTERNAL-ERROR remediation — never `systemctl start` a unit systemd
-		// has never seen (T-29-13).
+		// has never seen.
 		units := []orchestrate.Unit{{Name: "villa-llama.container", Text: "[Container]\n"}}
 		plan := orchestrate.Plan{Changed: units}
 		f := newFakeInstallDeps(t, units, plan, passChecks())

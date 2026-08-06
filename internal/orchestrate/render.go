@@ -91,14 +91,14 @@ func Render(in RenderInput) ([]Unit, error) {
 		ContextLen:    in.Cfg.Ctx,
 	}
 
-	// D-05 single point: turn "coding_mode=true in config" into the rendered tool-calling
+	// single point: turn "coding_mode=true in config" into the rendered tool-calling
 	// unit. The CALLER (Plan-02 live wiring) resolves the coder catalog entry from
 	// cfg.CoderModel and translates catalog.AgentSampling → inference.Sampling, handing
 	// Render the already-translated descriptor on RenderInput — so the pure renderer never
 	// imports internal/catalog. When the descriptor is present, the single -c carries the
 	// resolved agent ctx (Pitfall 1: spec.ContextLen = CoderAgentCtx, never a second -c).
 	// When absent (in.CodingMode == nil) spec is left exactly as v1.3, so the off-path
-	// goldens are byte-identical BY CONSTRUCTION (D-02).
+	// goldens are byte-identical BY CONSTRUCTION.
 	if in.CodingMode != nil {
 		spec.CodingMode = in.CodingMode
 		spec.ContextLen = in.CoderAgentCtx
@@ -131,18 +131,18 @@ func Render(in RenderInput) ([]Unit, error) {
 		return nil, err
 	}
 
-	// Open WebUI is the 4th/5th unit (D-02): a dedicated managed-service render path
+	// Open WebUI is the 4th/5th unit: a dedicated managed-service render path
 	// (openwebui.go) — NOT the inference Backend seam. Pitfall 4: routing it through
 	// parseContainerArgs would trip that helper's defensive all-fields-non-empty check
 	// (Open WebUI has no device/group/exec args). The owui view reuses networkAttach so
 	// it joins villa.network unchanged — the Phase-3 forward-compat scaffold pays off.
 	//
-	// Phase-20 (D-04): Open WebUI is now memory-aware. The OWUI env block grows only
-	// when memory_enabled=true — the D-09 RAG/Qdrant/memory group is appended from the
+	// Phase-20: Open WebUI is now memory-aware. The OWUI env block grows only
+	// when memory_enabled=true — the RAG/Qdrant/memory group is appended from the
 	// resolved render-view (mv); with memory off the unit is byte-identical to the v1.2
 	// golden. mv is computed ONCE here (memory.RenderView is pure, cheap, identical) and
 	// reused by the memory-stack branch below.
-	mv := memory.RenderView(in.Cfg) // D-11 resolved-values handoff (Phase-18 spine)
+	mv := memory.RenderView(in.Cfg) // resolved-values handoff (Phase-18 spine)
 	owuiContainerText, err := execTemplate(tmpl, "openwebui.container.tmpl", buildOpenWebUIView(mv, in.Cfg.MemoryEnabled, in.Cfg.WebSearchEnabled, config.SearxngAddr, config.SearxngPort, in.Cfg.WebSearchResultCount, config.WebsafeAddr, config.WebsafePort))
 	if err != nil {
 		return nil, err
@@ -162,24 +162,24 @@ func Render(in RenderInput) ([]Unit, error) {
 		{Name: openWebUIVolumeUnitName, Text: owuiVolumeText},
 	}
 
-	// v1.3 memory stack (D-11): the two new managed services + the durable Qdrant
+	// v1.3 memory stack: the two new managed services + the durable Qdrant
 	// volume are appended ONLY when memory_enabled=true. With memory off this branch is
 	// skipped and the returned slice is byte-identical to the v1.2 5-unit output (the 5
-	// existing goldens stay unchanged — Phase-18 SC#1 continuity). Like Open WebUI, the
+	// existing goldens stay unchanged — Phase-18 continuity). Like Open WebUI, the
 	// villa-qdrant / villa-embed views are a dedicated managed-service render path
 	// (memory.go) and BYPASS parseContainerArgs (Pitfall 4: no GPU device/group/exec
 	// args for that helper's defensive all-fields-non-empty check). memory.RenderView
-	// is the D-11 resolved-values-only handoff (model id, dim, addr/port PIECES; no
+	// is the resolved-values-only handoff (model id, dim, addr/port PIECES; no
 	// image literal — orchestrate owns the image consts). The memory units render
 	// their container-DNS identity (mv.QdrantAddr / mv.EmbedAddr) and the served
 	// embed --port (mv.EmbedPort) FROM these resolved config values — config is the
-	// single source of truth (WR-01), so the units can never silently diverge from
+	// single source of truth, so the units can never silently diverge from
 	// what the readiness proof probes (which also reads cfg). EmbeddingDim/
 	// EmbeddingModel are NOT rendered into any unit (the Qdrant collection dim is an
 	// OWUI-runtime concern, not a unit field); their single source stays config,
 	// consumed by the proof + Phase 23.
 	if in.Cfg.MemoryEnabled {
-		// mv is the hoisted render-view computed once above (Phase-20 D-04); reused
+		// mv is the hoisted render-view computed once above; reused
 		// here so memory.RenderView runs exactly once per Render.
 		qdrantContainerText, err := execTemplate(tmpl, "qdrant.container.tmpl", buildQdrantView(mv.QdrantAddr))
 		if err != nil {
@@ -193,7 +193,7 @@ func Render(in RenderInput) ([]Unit, error) {
 		// (surfaced via the exported EmbedGGUFFilename() that Plan 19-02's drift test
 		// binds — Pitfall 3) so it can never drift from the pre-staged Shard.Filename.
 		// The container-DNS name (mv.EmbedAddr) and the served /v1 --port (mv.EmbedPort)
-		// come from the resolved config (WR-01) so they match the proof's probe target.
+		// come from the resolved config so they match the proof's probe target.
 		embedContainerText, err := execTemplate(tmpl, "embed.container.tmpl", buildEmbedView(embedGGUFFilename, mv.EmbedAddr, mv.EmbedPort))
 		if err != nil {
 			return nil, err
@@ -205,18 +205,18 @@ func Render(in RenderInput) ([]Unit, error) {
 		)
 	}
 
-	// v1.5 web-search stack (SRCH-01): the single villa-searxng managed service is
+	// v1.5 web-search stack: the single villa-searxng managed service is
 	// appended ONLY when web_search_enabled=true, STRICTLY AFTER the memory branch and
-	// never mutating the shared `units` slice or any shared view (Pitfall 6 / SC#4). With
+	// never mutating the shared `units` slice or any shared view (Pitfall 6). With
 	// web search off this branch is skipped and the returned slice is byte-identical to the
 	// v1.4 output (the 13 existing goldens stay unchanged), proven by the negative test.
 	// Like Open WebUI / the memory stack, the searxng view is a dedicated managed-service
 	// render path (searxng.go) that BYPASSES parseContainerArgs (no GPU device/group/exec
 	// args). The container-DNS identity (config.SearxngAddr) is threaded FROM resolved config
-	// (WR-01) so the rendered service can never diverge from what Plan 03's readiness proof
+	// so the rendered service can never diverge from what Plan 03's readiness proof
 	// probes. The render does NOT thread the secret: the unit references it only via the
 	// EnvironmentFile= path baked by buildSearxngView (the secret value lives in config +
-	// the 0600 env file Plan 02 writes, never in this 0644 unit — T-29-02 / Pitfall 2). The
+	// the 0600 env file Plan 02 writes, never in this 0644 unit — / Pitfall 2). The
 	// settings.yml is NOT a Unit (Pitfall 1: it must not land in the systemd unit dir) — it
 	// is produced by the separate RenderSearxngSettings helper that Plan 02's writer consumes.
 	if in.Cfg.WebSearchEnabled {
@@ -226,17 +226,17 @@ func Render(in RenderInput) ([]Unit, error) {
 		}
 		units = append(units, Unit{Name: searxngContainerUnitName, Text: searxngContainerText})
 
-		// Phase-31 (GUARD-01/GROUND-01): the villa-websafe loader is appended STRICTLY
+		// Phase-31: the villa-websafe loader is appended STRICTLY
 		// AFTER the searxng unit, inside the SAME web-search gate (websafe and SearXNG are
 		// both the web-search stack), never mutating the shared `units` slice or any shared
 		// view before this point (Pitfall 6 byte-identical-off discipline). The host villa
 		// binary PATH (in.HostVillaPath) is bind-mounted read-only and the container-DNS
 		// identity (config.WebsafeAddr) + in-network port (config.WebsafePort) are threaded FROM
-		// resolved config (WR-01) so the rendered service can never diverge from what OWUI's
+		// resolved config so the rendered service can never diverge from what OWUI's
 		// EXTERNAL_WEB_LOADER_URL composes. The render does NOT thread the secret: the unit
 		// references it only via the EnvironmentFile= path baked by buildWebsafeView (the
 		// secret value lives in config + the 0600 env file Plan 02 writes, never in this 0644
-		// unit — T-31-12).
+		// unit).
 		websafeContainerText, err := execTemplate(tmpl, "websafe.container.tmpl", buildWebsafeView(config.WebsafeAddr, in.HostVillaPath, config.WebsafePort))
 		if err != nil {
 			return nil, err
@@ -252,9 +252,9 @@ func Render(in RenderInput) ([]Unit, error) {
 // config dir mounted read-only at /etc/searxng. It is a SEPARATE pure helper — NOT part of
 // the Render() []Unit slice — because settings.yml is a config FILE, not a systemd unit
 // (rendering it into the unit dir would make systemd's generator choke, Pitfall 1). The
-// engine allowlist is the single-source vetted subset (SRCH-04); secret_key renders empty
+// engine allowlist is the single-source vetted subset; secret_key renders empty
 // (the live value arrives via $SEARXNG_SECRET from the EnvironmentFile, never written into
-// this 0644-capable file — T-29-02 / Pitfall 2). cfg is accepted for forward symmetry with
+// this 0644-capable file — / Pitfall 2). cfg is accepted for forward symmetry with
 // the unit render's config-driven identity; the rendered content is config-derived.
 func RenderSearxngSettings(cfg config.VillaConfig) (name, text string, err error) {
 	tmpl, err := template.ParseFS(quadletFS, "quadlet/*.tmpl")
@@ -272,7 +272,7 @@ func RenderSearxngSettings(cfg config.VillaConfig) (name, text string, err error
 // searxng .container unit references via EnvironmentFile= (SearXNGSecretEnvFilePath). It is
 // the SINGLE source of the env-file FORMAT (a fixed `SEARXNG_SECRET=<value>` line, no shell
 // interpolation) — Plan 02's writer emits exactly these bytes at 0600. It is NOT a Unit
-// (the secret must never land in the 0644 unit dir — T-29-02). The secret value is the
+// (the secret must never land in the 0644 unit dir). The secret value is the
 // crypto/rand secret from config.SearxngSecret; it is NEVER logged.
 func RenderSearxngSecretEnv(secret string) (name, text string) {
 	return searxngSecretEnvName(), searxngSecretEnvBody(secret)
@@ -283,7 +283,7 @@ func RenderSearxngSecretEnv(secret string) (name, text string) {
 // EnvironmentFile= (WebsafeSecretEnvFilePath). It is the SINGLE source of the env-file FORMAT
 // (a fixed `EXTERNAL_WEB_LOADER_API_KEY=<value>` line, no shell interpolation) — Plan 02's
 // writer emits exactly these bytes at 0600. It is NOT a Unit (the secret must never land in
-// the 0644 unit dir — T-31-12). The secret value is the crypto/rand bearer from
+// the 0644 unit dir). The secret value is the crypto/rand bearer from
 // config.WebLoaderSecret; it is NEVER logged. Mirrors RenderSearxngSecretEnv.
 func RenderWebsafeSecretEnv(secret string) (name, text string) {
 	return websafeSecretEnvName(), websafeSecretEnvBody(secret)
@@ -329,7 +329,7 @@ func parseContainerArgs(image string, args []string) (containerView, error) {
 	)
 
 	// Walk the run flags, mapping each to its Quadlet key. Value-bearing flags
-	// consume the following token; valueless run sub-args (run/--rm) are ignored —
+	// consume the following token; valueless run sub-args (run/--rm) are ignored
 	// Quadlet supplies them.
 	for i := 0; i < len(flags); i++ {
 		switch flags[i] {
@@ -374,7 +374,7 @@ func parseContainerArgs(image string, args []string) (containerView, error) {
 	cv.Exec = strings.Join(exec, " ")
 
 	// Defensive: every imperative field must have been sourced from the seam. Device
-	// and group are slices (≥1 element required); Env is intentionally NOT checked —
+	// and group are slices (≥1 element required); Env is intentionally NOT checked
 	// the Vulkan backend legitimately emits zero env, and requiring it would break the
 	// Vulkan path (RESEARCH Pitfall 1).
 	if len(cv.AddDevice) == 0 || len(cv.GroupAdd) == 0 || cv.PublishPort == "" ||

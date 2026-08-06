@@ -19,7 +19,7 @@ func writeUnitsToDir(t *testing.T, dir string, units []Unit) {
 }
 
 // TestReconcileNoOpAndDiff (table): identical on-disk units → Plan.Changed empty;
-// a flipped model → Plan.Changed == exactly the container unit (CLI-01 core).
+// a flipped model → Plan.Changed == exactly the container unit (core).
 func TestReconcileNoOpAndDiff(t *testing.T) {
 	base, err := Render(fixtureInput())
 	if err != nil {

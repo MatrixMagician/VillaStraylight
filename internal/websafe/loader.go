@@ -1,6 +1,6 @@
 package websafe
 
-// loader.go is the verified OWUI external-loader HTTP contract glue (GROUND-01).
+// loader.go is the verified OWUI external-loader HTTP contract glue.
 //
 // When OWUI is configured with WEB_LOADER_ENGINE=external it POSTs the SearXNG result
 // URLs to villa-websafe and expects back a JSON array of produced pages:
@@ -17,19 +17,19 @@ package websafe
 //
 // Contract details VERIFIED at the pinned OWUI digest (commit 02dc3e6):
 //   - metadata.source flows into OWUI's top-level `sources` citation field, so it MUST
-//     carry the fetched URL (GROUND-01 inline citations to live URLs).
+// carry the fetched URL (inline citations to live URLs).
 //   - OWUI calls response.raise_for_status(): a non-2xx aborts the WHOLE loader batch.
 //     Therefore per-URL failures are represented by OMITTING that URL from the array
 //     (skip-and-continue, done by Loader.Load); the handler ALWAYS returns 200 with a
 //     (possibly empty, non-nil) array — never a non-2xx for a per-URL failure.
 //
-// Phase-32 ADDITIVE widening (T-32-13): metadata gains a nested `guard` sub-key carrying
-// the GUARD-04 verdict {detected, rules} from Page.Verdict. This is the ONLY safe change —
+// Phase-32 ADDITIVE widening: metadata gains a nested `guard` sub-key carrying
+// the verdict {detected, rules} from Page.Verdict. This is the ONLY safe change
 // the verified page_content / metadata / source / title tags are NOT renamed. OWUI ignores
 // unknown metadata keys (Assumption A3), so the widening is contract-safe; Phase 34
 // surfaces these as counters. The widening is guarded by TestLoadMetadataGuard.
 //
-// The handler is the GUARD-01 sole-producer boundary: every byte OWUI embeds or shows
+// The handler is the sole-producer boundary: every byte OWUI embeds or shows
 // the model passes through Loader.fetchOne (incl. the Phase-31-stubbed guard seam).
 //
 // This file is TestSeamGrepGate-clean: it composes no container-image / host-identity
@@ -77,7 +77,7 @@ type Server struct {
 
 // NewServer constructs a Server over the given Loader and expected Bearer secret. An
 // empty secret means any villa.network caller is accepted (documented posture); the
-// recommended GUARD-01 posture supplies a real secret in Plan 03.
+// recommended posture supplies a real secret in Plan 03.
 func NewServer(loader *Loader, secret string) *Server {
 	return &Server{loader: loader, secret: secret}
 }
@@ -134,9 +134,9 @@ func (s *Server) HandleLoad(w http.ResponseWriter, r *http.Request) {
 		out = append(out, LoadResponse{
 			PageContent: p.Content,
 			Metadata: map[string]any{
-				"source": p.Source, // → OWUI top-level `sources` citation (GROUND-01)
+				"source": p.Source, // → OWUI top-level `sources` citation
 				"title":  p.Title,
-				// ADDITIVE GUARD-04 verdict (T-32-13): a nested sub-key ALONGSIDE the
+				// ADDITIVE verdict: a nested sub-key ALONGSIDE the
 				// verified contract tags; OWUI ignores unknown metadata keys (A3). Always
 				// present (detected:false for benign pages) so Phase 34 can count it.
 				"guard": map[string]any{

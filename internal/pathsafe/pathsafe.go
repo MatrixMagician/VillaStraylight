@@ -92,7 +92,7 @@ func DataRoot() string {
 // then renames it into place. The file ends up at mode whether or not it already
 // existed at a looser one.
 //
-// path must resolve inside root, which is checked before anything is created —
+// path must resolve inside root, which is checked before anything is created
 // root is a parameter rather than an internal default so the guard cannot be
 // forgotten at a call site.
 //

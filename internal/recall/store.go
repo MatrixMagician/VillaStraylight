@@ -1,22 +1,22 @@
-// Package recall is the pure conversational-recall core for Phase 21 (D-08): the
+// Package recall is the pure conversational-recall core for Phase 21: the
 // plan/diff algebra deciding what to add/update/delete in the Open WebUI recall
-// knowledge base (D-05), the role-labeled per-chat transcript renderer (D-04), the
-// typed-Unknown staleness classification (D-06), and the recall-state.json store.
+// knowledge base, the role-labeled per-chat transcript renderer, the
+// typed-Unknown staleness classification, and the recall-state.json store.
 //
 // PURE BY CONSTRUCTION: no os/exec, no network, no container-image or backend
-// literal — TestSeamGrepGate stays green over this package (D-08). All host I/O
+// literal — TestSeamGrepGate stays green over this package. All host I/O
 // arrives via the injectable byte-I/O Deps seam; the only filesystem-touching
 // functions (WriteFileAtomic and the path resolvers) exist so the cmd tier can
 // wire the LIVE WriteAll/ReadAll seam, mirroring internal/usage exactly.
 //
 // store.go persists recall-state.json — ids/timestamps/counts ONLY, never chat
-// titles or content (T-21-01; the state file lives host-side and must not become
+// titles or content (the state file lives host-side and must not become
 // a content leak). The store discipline is CLONED (not imported — the established
 // clone-don't-import rule, usage.go:243) from internal/usage: own schema_version
 // with a fail-closed Load (absent/corrupt/future-schema ⇒ empty state = "nothing
-// indexed", NEVER a fabricated index — D-05, T-21-03), version-stamping Save, and
+// indexed", NEVER a fabricated index), version-stamping Save, and
 // the atomic 0600/0700 temp+rename writer guarded against traversal OUT of the
-// fixed $XDG_DATA_HOME/villa root (T-21-02, WR-05 precedent). RECALL-03.
+// fixed $XDG_DATA_HOME/villa root (precedent)..
 package recall
 
 import (
@@ -32,7 +32,7 @@ const recallSchemaVersion = 1
 // OWUI updated_at observed when it was last indexed (epoch SECONDS, as the list
 // API returns), WHICH transcript file currently represents it in the knowledge
 // base, and WHEN villa indexed it (RFC3339 UTC). Ids and timestamps only — no
-// title, no content (T-21-01).
+// title, no content.
 type ChatState struct {
 	UserID        string `json:"user_id"`
 	OWUIUpdatedAt int64  `json:"owui_updated_at"`
@@ -40,11 +40,11 @@ type ChatState struct {
 	IndexedAt     string `json:"indexed_at"`
 }
 
-// State is the whole recall-state.json document (schema v1, D-05): the recall
+// State is the whole recall-state.json document (schema v1): the recall
 // knowledge-base identity, the embedding model/dim skew guards (Phase-23), the
 // last index run stamps (LastIndexCompletedAt is ONLY stamped on a clean full
-// pass — D-06 partial-run honesty), and the per-chat index records keyed by chat
-// id. Ids/timestamps/counts only — never chat titles or content (T-21-01).
+// pass — partial-run honesty), and the per-chat index records keyed by chat
+// id. Ids/timestamps/counts only — never chat titles or content.
 type State struct {
 	SchemaVersion        int                  `json:"schema_version"`
 	KnowledgeID          string               `json:"knowledge_id"`
@@ -78,7 +78,7 @@ func Save(d Deps, s State) error { return store.Save(d, s) }
 
 // Load reads the document via the seam, failing CLOSED to an empty State on an
 // absent, corrupt or version-mismatched store — an empty state means "nothing
-// indexed", never a fabricated index (D-05, T-21-03).
+// indexed", never a fabricated index.
 func Load(d Deps) (State, error) { return store.Load(d) }
 
 // RecallStatePath resolves the single mutable recall store under the villa data root.

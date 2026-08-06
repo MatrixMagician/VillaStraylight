@@ -4,11 +4,11 @@ package detect
 // /proc/cpuinfo and /proc/meminfo are line-oriented "key: value" files, and both
 // must degrade the same way: an unreadable file, an absent key and an interrupted
 // read are three distinct answers, and none of them may become a bare zero or a
-// panic (D-13/D-16).
+// panic.
 //
 // The scan lives here so the distinction that is easiest to get wrong — a read
 // that fails partway is not the same as a key that is not there, and neither is
-// the same as a file that would not open (WR-05) — is made once rather than
+// the same as a file that would not open — is made once rather than
 // remembered at each reader.
 
 import (

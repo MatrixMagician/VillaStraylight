@@ -14,10 +14,10 @@ import (
 // This file holds the ONLY `podman` invocations in internal/ outside the detect
 // AMD seam. The runner shells to the rootless `podman` CLI with fixed-arg
 // exec.Command (no `sh -c`, no socket/bindings dependency — Phase-1 security
-// baseline, T-02-08), the way internal/detect/gpu_amd.go runTool does.
+// baseline), the way internal/detect/gpu_amd.go runTool does.
 
 // maxLogOutput bounds how much untrusted llama-server stderr we capture for the
-// log-scrape, so a runaway/hostile process cannot exhaust memory (T-02-09; mirrors
+// log-scrape, so a runaway/hostile process cannot exhaust memory (mirrors
 // internal/detect maxToolOutput / internal/preflight's io.LimitReader bound).
 const maxLogOutput = 8 << 10 // 8 KiB
 
@@ -35,7 +35,7 @@ type containerRunner struct {
 	captured bool
 	started  bool
 	client   *http.Client
-	cmd      *exec.Cmd // the `podman run` child, reaped in Stop (WR-01)
+	cmd      *exec.Cmd // the `podman run` child, reaped in Stop
 }
 
 // Compile-time assertion that containerRunner satisfies Runner.
@@ -63,9 +63,9 @@ func (r *containerRunner) Start(spec RunSpec) error {
 	args := r.backend.ContainerArgs(spec) // fixed-arg slice; no shell interpolation
 	cmd := exec.Command("podman", args...)
 
-	// Bound the stderr capture so a runaway log cannot exhaust memory (T-02-09).
+	// Bound the stderr capture so a runaway log cannot exhaust memory.
 	// The writer is mutex-guarded so the os/exec copier goroutine can write while
-	// Logs() reads the buffer mid-run (CR-04).
+	// Logs reads the buffer mid-run.
 	cmd.Stderr = &r.stderr
 	if err := cmd.Start(); err != nil {
 		return err
@@ -85,7 +85,7 @@ func (r *containerRunner) Stop() error {
 	// Fixed-arg stop of the named container; --rm removes it on stop.
 	_ = exec.Command("podman", "stop", "-t", "5", r.spec.ContainerName).Run()
 	// Reap the `podman run` child so we leak neither a zombie process nor its
-	// stderr-copier goroutine (WR-01); Wait also blocks until the copier finishes,
+	// stderr-copier goroutine; Wait also blocks until the copier finishes,
 	// quiescing the capture buffer. Guarded so a second Stop (the deferred safety
 	// net) is a no-op rather than a double-Wait panic.
 	if r.cmd != nil {
@@ -124,9 +124,9 @@ func (r *containerRunner) Logs() (string, bool) {
 
 // boundedWriter caps how many bytes are written into its buffer, silently
 // discarding the overflow (the io.Writer analogue of the io.LimitReader bound the
-// detect/preflight tool capture uses, T-02-09). It is mutex-guarded so the os/exec
+// detect/preflight tool capture uses). It is mutex-guarded so the os/exec
 // stderr-copier goroutine (Write) and Logs() (String) can touch the buffer
-// concurrently while the container is live without racing (CR-04).
+// concurrently while the container is live without racing.
 type boundedWriter struct {
 	mu    sync.Mutex
 	buf   bytes.Buffer

@@ -17,7 +17,7 @@ import (
 )
 
 // install_wizard.go is the command-tier guided front-end for `villa install`
-// (INSTALL-01): PURE PRESENTATION + a PURE COLLECTOR. It composes the existing
+// PURE PRESENTATION + a PURE COLLECTOR. It composes the existing
 // cores (recommend.Pick output, internal/preflight CheckResults, inference.Backend
 // accessors); it imports NO decision logic and NEVER executes a host fix — it calls
 // neither runGapFix nor resolveGap nor offerNonBlockingGap. The single gateInstall
@@ -43,8 +43,8 @@ import (
 //
 // It renders no backend or image literal — backend names reach it as an
 // inference.Backend and are shown via Name()/Image() accessors (TestSeamGrepGate
-// walks cmd/villa). Decisions: D-01 (guided default verb), D-02 (pick-from-
-// alternatives, computes nothing), D-04 (privileged consent only), D-07 (final
+// walks cmd/villa). Decisions: (guided default verb), (pick-from-
+// alternatives, computes nothing), (privileged consent only), (final
 // confirm defaults to Cancel).
 
 // wizardInput carries ONLY what the prompt loop renders — every field is already
@@ -62,7 +62,7 @@ type wizardInput struct {
 	// backend is the resolved backend for the review — rendered via its
 	// Name()/Image() accessors ONLY, never a re-typed image literal.
 	backend inference.Backend
-	// colorEnabled threads the D-09 colour gate through. With colour off the glyph
+	// colorEnabled threads the colour gate through. With colour off the glyph
 	// column falls back to [OK]/[WARN]/[BLOCK], which is also what a non-TTY gets.
 	colorEnabled bool
 }
@@ -78,7 +78,7 @@ type wizardResult struct {
 }
 
 // errWizardCancelled is the sentinel a Cancel/decline on the final confirm returns
-// so runInstall maps it to a clean, non-mutating abort (D-07).
+// so runInstall maps it to a clean, non-mutating abort.
 var errWizardCancelled = errors.New("install wizard cancelled")
 
 // liveWizard runs the guided install against the real terminal and RETURNS the
@@ -125,7 +125,7 @@ func runWizard(ctx context.Context, in wizardInput, stdin io.Reader, stdout io.W
 		consents[c.ID] = ok
 	}
 
-	// 4/4 — review, then the final confirm. It defaults to Cancel (D-07).
+	// 4/4 — review, then the final confirm. It defaults to Cancel.
 	//
 	// The review reflects the model actually CHOSEN, not the recommended one. The
 	// previous wizard rendered the recommendation here regardless of the selection,
@@ -215,7 +215,7 @@ func (p *prompter) confirm(question string, def bool) (bool, error) {
 }
 
 // chooseModel offers the recommended pick plus the memory-fitting alternatives and
-// returns the chosen catalog id (D-02). The answer is an index into a constrained
+// returns the chosen catalog id. The answer is an index into a constrained
 // list, never free text, so an unknown model id cannot be introduced here.
 func (p *prompter) chooseModel(rec recommend.Recommendation, alts []recommend.Alternative) (string, error) {
 	options := modelOptions(rec, alts)
@@ -254,7 +254,7 @@ type modelOption struct {
 }
 
 // modelOptions builds the offered list from the recommended pick (labelled
-// "recommended") plus the memory-fitting alternatives (D-02). Each line is
+// "recommended") plus the memory-fitting alternatives. Each line is
 // model · quant · ctx; the value is the catalog model id (constrained, never free text).
 func modelOptions(rec recommend.Recommendation, alts []recommend.Alternative) []modelOption {
 	opts := []modelOption{{

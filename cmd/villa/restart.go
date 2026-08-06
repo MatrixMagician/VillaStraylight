@@ -7,8 +7,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// restart.go wires `villa restart [service]` (CLI-02): reconcile config→units
-// FIRST (so a hand-edited config.toml is applied on restart, D-07/CLI-05) then
+// restart.go wires `villa restart [service]`: reconcile config→units
+// FIRST (so a hand-edited config.toml is applied on restart) then
 // restart the whole stack — or one service. runRestart RETURNS the exit code; the
 // RunE wrapper calls os.Exit.
 
@@ -32,7 +32,7 @@ func newRestart() *cobra.Command {
 
 // runRestart reconciles (applies any config edit) then restarts the targeted
 // service(s) and RETURNS the exit code. It validates an optional [service] arg
-// against the known service set BEFORE any seam fires (T-03-11).
+// against the known service set BEFORE any seam fires.
 func runRestart(cmd *cobra.Command, args []string, d *lifecycleDeps) int {
 	out := cmd.OutOrStdout()
 	errOut := cmd.ErrOrStderr()
@@ -48,7 +48,7 @@ func runRestart(cmd *cobra.Command, args []string, d *lifecycleDeps) int {
 		return exitBlocked
 	}
 
-	// Reconcile first so a config edit is applied on restart (D-07/CLI-05).
+	// Reconcile first so a config edit is applied on restart.
 	plan, err := d.reconcile(units, unitDir)
 	if err != nil {
 		fmt.Fprintf(errOut, "restart: reconcile failed: %v\n", err)

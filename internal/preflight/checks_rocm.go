@@ -11,12 +11,12 @@ import (
 // the host-fitness verdict the Phase 8 `backend set rocm` verb consumes, and is
 // demoable now off-hardware via `villa preflight --backend rocm`.
 //
-// It reuses the existing CheckResult / Tier / Status vocabulary (D-01) — there is
+// It reuses the existing CheckResult / Tier / Status vocabulary — there is
 // NO new verdict type. Every ROCm signal is a TierBlock check, but it FAILs ONLY on
-// a POSITIVELY-detected known-bad state (D-02/D-15): a confidently-wrong fact. Any
+// a POSITIVELY-detected known-bad state: a confidently-wrong fact. Any
 // unevaluable signal (a fact is Unknown, a thing is not probed off-hardware)
 // degrades to WARN ("could not verify"), NEVER StatusFail — biased not to
-// over-block a genuinely-working host (T-07-02). Off-hardware almost every signal
+// over-block a genuinely-working host. Off-hardware almost every signal
 // is Unknown, so the whole verdict is WARN/PASS and exit 2, never a false exit 1.
 //
 // The CheckResult.IDs use a NON-COLLIDING `ROCM-PRE-*` scheme so they never clash
@@ -41,7 +41,7 @@ func RunROCm(p detect.HostProfile) []CheckResult {
 
 // RunROCmForImage is RunROCm with the RESOLVED target image threaded into the gate
 // so checkROCmImage evaluates the ACTUAL digest against imageDeny instead of
-// WARNing "no image requested" (SC#2 / Pitfall 3). Callers pass
+// WARNing "no image requested" (Pitfall 3). Callers pass
 // BackendFor(target).Image() so a denied image is refused-with-remediation rather
 // than passing the gate unevaluated. RunROCm itself is left unchanged: the
 // standalone host-prep path has no requested image and keeps the empty-image WARN.
@@ -62,7 +62,7 @@ func RunROCmForImage(p detect.HostProfile, image string) []CheckResult {
 //
 // Ordering is stable (gfx, kernel, firmware, hsa, image) for deterministic tables.
 func RunROCmWithPolicy(p detect.HostProfile, pol ROCmPolicy, requestedImage string) []CheckResult {
-	// Not probed in v1.0 → typed-Unknown → WARN off-hardware (D-15).
+	// Not probed in v1.0 → typed-Unknown → WARN off-hardware.
 	firmware := detect.UnknownStr("firmware date not probed in Phase 1", "")
 	hsa := detect.UnknownStr("HSA_OVERRIDE_GFX_VERSION not probed in Phase 1", "")
 	return []CheckResult{
@@ -130,7 +130,7 @@ func checkROCmFirmware(fw detect.Str, pol ROCmPolicy) CheckResult {
 	remediation := fmt.Sprintf("Install linux-firmware ≥ %s and NOT the known-bad build(s) %s (breaks ROCm on Strix Halo).", floor, denied)
 
 	// The firmware date is not a probed HostProfile field in v1.0; off-hardware it
-	// arrives typed-Unknown, so degrade to a WARN advisory (D-15) naming the denied
+	// arrives typed-Unknown, so degrade to a WARN advisory naming the denied
 	// build rather than asserting a value we cannot read.
 	if !fw.Known || fw.Value == "" {
 		return warn(idROCmFirmware, name, TierBlock,
@@ -147,7 +147,7 @@ func checkROCmFirmware(fw detect.Str, pol ROCmPolicy) CheckResult {
 	// Floor advisory: a firmware date BELOW the known-good baseline is not on the
 	// denylist (so not a confident FAIL), but the detect-side readiness gate
 	// (firmwareDateOK, >= floor) marks it not-ready. Without this the preflight
-	// gate gives sub-floor firmware a clean PASS while detect reports it false —
+	// gate gives sub-floor firmware a clean PASS while detect reports it false
 	// the two surfaces disagree. Surface it as a WARN so they agree, while keeping
 	// the denylist as the ONLY hard FAIL (biased against over-blocking).
 	if floor != "" && isFirmwareDate(fw.Value) && compareVersions(fw.Value, floor) < 0 {
@@ -200,7 +200,7 @@ func checkROCmHSA(hsa detect.Str, pol ROCmPolicy) CheckResult {
 // checkROCmImage is CONFIG/REQUEST-driven, not a host probe (Pitfall 5): it FAILs
 // only when the requested/resolved image string is Known (non-empty) AND matches a
 // policy image-denylist entry (a nightly tag reintroducing the 64 GB allocation
-// cap, T-07-01). An empty request (standalone / off-hardware, nothing requested)
+// cap). An empty request (standalone / off-hardware, nothing requested)
 // degrades to WARN. The in-tree digest-pinned stable image passes.
 //
 // The denied tag literals are POLICY DATA in rocm-policy.json (pol.ImageDeny), not

@@ -144,7 +144,7 @@ func TestOffloadSysfsDelta(t *testing.T) {
 	}
 	// weightBytes==0 must NOT fail-open to PASS: the band collapses to 0, so a
 	// large delta would otherwise be reported as proven offload off an unknown
-	// weight. Degrade to typed-Unknown WARN instead (D-09.2 contract).
+	// weight. Degrade to typed-Unknown WARN instead (contract).
 	zeroWeight := offloadSysfsDelta(before, readSysfsBytes(t, "gtt_after_pass"), 0)
 	if zeroWeight.Status != StatusWarn {
 		t.Errorf("sysfs delta (weightBytes==0): Status=%v, want WARN (must not fail-open to PASS)", zeroWeight.Status)
@@ -156,7 +156,7 @@ func TestOffloadSysfsDelta(t *testing.T) {
 
 // TestOffloadVerdict: combined dual-assert is PASS only when BOTH log-scrape AND
 // sysfs delta pass; if either is FAIL → FAIL; if either is Unknown (and neither
-// FAIL) → WARN (D-09).
+// FAIL) → WARN.
 func TestOffloadVerdict(t *testing.T) {
 	before := readSysfsBytes(t, "gtt_before")
 	markers := VulkanBackend().ResidencyProof()

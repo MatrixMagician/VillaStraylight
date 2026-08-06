@@ -14,7 +14,7 @@ import (
 
 // vulkanImage is the digest-pinned kyuz0 Strix-Halo Vulkan RADV image (CLAUDE.md
 // prescribed; RESEARCH §Package Legitimacy Audit: approved, pin digest — Pitfall 12 /
-// T-02-10: the tag is silently rebuilt, the digest is not). Resolved on the dev box
+// the tag is silently rebuilt, the digest is not). Resolved on the dev box
 // 2026-06-04 via `podman pull docker.io/kyuz0/amd-strix-halo-toolboxes:vulkan-radv`.
 const vulkanImage = "docker.io/kyuz0/amd-strix-halo-toolboxes:vulkan-radv@sha256:9a74e555c45864352a4077528836988d448e9f030fbab9f7376ea1c603ac7aad"
 
@@ -22,7 +22,7 @@ const vulkanImage = "docker.io/kyuz0/amd-strix-halo-toolboxes:vulkan-radv@sha256
 const containerModelsDir = "/models"
 
 // loopbackHostPublish is the host-published port mapping: loopback-only, NEVER
-// 0.0.0.0 (INF-02 / T-02-07). The container side is 0.0.0.0:8080 (container-internal
+// 0.0.0.0. The container side is 0.0.0.0:8080 (container-internal
 // only); only 127.0.0.1 is reachable from the host network. TestLoopbackPublish
 // asserts the rendered args contain this and no 0.0.0.0:-prefixed host publish.
 const (
@@ -35,7 +35,7 @@ const (
 // memory), -fa 1 is flash-attention (stability + KV memory), --no-mmap keeps
 // weights resident in unified memory.
 //
-// `-lv 4` raises the llama-server log verbosity (F-3 / WR-05): the kyuz0 vulkan-radv
+// `-lv 4` raises the llama-server log verbosity (F-3): the kyuz0 vulkan-radv
 // image suppresses the load-bearing residency lines below its default threshold, so
 // at the default verbosity only the `device_info`/`- Vulkan0` enumeration prints and
 // the running-server offload assert (cmd/villa status → inference.RunningOffloadVerdict)
@@ -45,9 +45,9 @@ const (
 // info WITHOUT the per-tensor debug flood `-lv 5` pulls in (~1500 create_tensor/
 // assigned-to-device lines + a misleading first-pass `0.00 MiB` estimate).
 //
-// `--metrics` exposes the llama-server Prometheus `/metrics` endpoint (Phase-5 DASH-02
+// `--metrics` exposes the llama-server Prometheus `/metrics` endpoint (Phase-5
 // perf panel). Without it `/metrics` 404s; it is a fixed exec arg (no shell, no
-// injection surface) published only on the existing loopback PublishPort (T-05-01:
+// injection surface) published only on the existing loopback PublishPort (
 // no new port/bind). Adding it is a DELIBERATE rendered-unit golden change (Pitfall 2)
 // — DISTINCT from the byte-frozen status --json golden, which must NOT change.
 var llamaServerFlags = []string{"-ngl", "999", "-fa", "1", "--no-mmap", "-lv", "4", "--metrics"}
@@ -72,12 +72,12 @@ func (backendVulkan) Image() string { return vulkanImage }
 // single assembly point for every backend literal: the /dev/dri device passthrough,
 // --group-add keep-groups (the load-bearing rootless detail that keeps the host
 // render/video GIDs inside the container so renderD128 is accessible), the
-// kyuz0-documented seccomp=unconfined minimum (T-02-06), the loopback host publish
-// (T-02-07), the read-only model bind (:ro,z — z for the dedicated XDG models dir,
+// kyuz0-documented seccomp=unconfined minimum, the loopback host publish
+// the read-only model bind (:ro,z — z for the dedicated XDG models dir,
 // never :Z on a shared path), and the mandatory llama-server flags.
 //
 // The model name is the catalog-resolved file joined onto the container models dir;
-// it is passed as a fixed exec arg, never interpolated into a shell string (T-02-08).
+// it is passed as a fixed exec arg, never interpolated into a shell string.
 func (backendVulkan) ContainerArgs(spec RunSpec) []string {
 	hostPublish := fmt.Sprintf("%s:%d:%d", hostPublishAddr, serverPort, serverPort)
 	modelBind := fmt.Sprintf("%s:%s:ro,z", spec.ModelsDir, containerModelsDir)
@@ -103,15 +103,15 @@ func (backendVulkan) ContainerArgs(spec RunSpec) []string {
 	return args
 }
 
-// appendCodingModeArgs appends the CMODE-01 tool-calling render delta to args, behind
-// the backend seam (D-01/D-02/D-03). It is shared by both backend ContainerArgs paths
+// appendCodingModeArgs appends the tool-calling render delta to args, behind
+// the backend seam. It is shared by both backend ContainerArgs paths
 // (Vulkan + ROCm) so the delta stays symmetric and the --jinja / --cache-reuse /
 // sampling flag LITERALS live in exactly one place inside the seam (TestSeamGrepGate
 // locks them here). cm == nil ⇒ the args are returned UNCHANGED, so the off path is
-// byte-identical to v1.3 BY CONSTRUCTION (D-02). The agent ctx is carried by the single
+// byte-identical to v1.3 BY CONSTRUCTION. The agent ctx is carried by the single
 // -c already in the base args (spec.ContextLen = AgentCtx) — this delta NEVER emits a
 // second -c (Pitfall 1). Sampling values are typed float/int formatted with %g/%d,
-// never interpolated into a shell string (T-25-03).
+// never interpolated into a shell string.
 func appendCodingModeArgs(args []string, cm *CodingModeSpec) []string {
 	if cm == nil {
 		return args
@@ -125,7 +125,7 @@ func appendCodingModeArgs(args []string, cm *CodingModeSpec) []string {
 			"--repeat-penalty", fmt.Sprintf("%g", s.RepeatPenalty))
 	}
 	// --cache-reuse is appended ONLY when the catalog entry positively declares
-	// cache_reuse_safe=true (D-03). The Go zero value false is the fail-closed default.
+	// cache_reuse_safe=true. The Go zero value false is the fail-closed default.
 	if cm.CacheReuseSafe {
 		args = append(args, "--cache-reuse", "256")
 	}
@@ -133,8 +133,8 @@ func appendCodingModeArgs(args []string, cm *CodingModeSpec) []string {
 }
 
 // ResidencyProof returns the Vulkan RADV log/journal markers the offload-assert keys
-// on (D-04/D-05). These values reproduce today's hardcoded literals BYTE-FOR-BYTE so
-// the descriptor refactor is a behavior no-op for the existing Vulkan tests (SC#4):
+// on. These values reproduce today's hardcoded literals BYTE-FOR-BYTE so
+// the descriptor refactor is a behavior no-op for the existing Vulkan tests:
 //   - DeviceToken "Vulkan0" — the load_tensors buffer-line device token.
 //   - DeviceLabel "- Vulkan" — the device_info enumeration prefix.
 //   - StartLogDevicePrefix "ggml_vulkan:" — the older single-line device-init prefix.

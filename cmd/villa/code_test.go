@@ -15,9 +15,9 @@ import (
 
 // code_test.go exercises the `villa code` cmd-tier mapping of agent.Run's Result to
 // exit codes + messages, driving runCode through a fake *agent.Deps without a live
-// host: the lockdown env (D-11), the first-run config-absent render-then-launch, the
-// binary-absent + present-but-differs drift remediation (D-13/D-14), and the
-// coding-mode-OFF WARN that STILL launches (D-12). The no-auto-flip structural guard +
+// host: the lockdown env, the first-run config-absent render-then-launch, the
+// binary-absent + present-but-differs drift remediation, and the
+// coding-mode-OFF WARN that STILL launches. The no-auto-flip structural guard +
 // the seam grep gate (asserting code.go holds no CodingMode literal and no backend
 // marker) live in coding-mode_test.go / internal/inference and are run alongside.
 
@@ -110,7 +110,7 @@ func newCodeCmd() (*cobra.Command, *bytes.Buffer, *bytes.Buffer) {
 const pinnedPolicyBinSHA = "4fd811f68c05da6c8d11fd1d5b6298a75ecc38a6c105a342b74e080cce8342b4"
 
 // TestCodeLockdownEnv — on the clean path a fake Launch captures the env; it MUST
-// contain the three lockdown vars (D-11).
+// contain the three lockdown vars.
 func TestCodeLockdownEnv(t *testing.T) {
 	cfg := config.VillaConfig{Model: "qwen3", CodingMode: true}
 	rec := &codeRecorder{cfg: cfg, binPresent: true, binSHA: pinnedPolicyBinSHA, configPresent: true, onDisk: renderRef(t, cfg)}
@@ -152,7 +152,7 @@ func TestCodeFirstRunRenders(t *testing.T) {
 }
 
 // TestCodeBinaryAbsent — a not-present binary exits blocked with stderr remediation
-// mentioning the install addon; Launch + WriteConfig NOT called (D-13).
+// mentioning the install addon; Launch + WriteConfig NOT called.
 func TestCodeBinaryAbsent(t *testing.T) {
 	rec := &codeRecorder{cfg: config.VillaConfig{Model: "qwen3", CodingMode: true}, binPresent: false}
 	cmd, _, errOut := newCodeCmd()
@@ -172,7 +172,7 @@ func TestCodeBinaryAbsent(t *testing.T) {
 }
 
 // TestCodeDriftSurfaced — a present-but-differs config exits blocked with remediation;
-// Launch + WriteConfig NOT called (D-14).
+// Launch + WriteConfig NOT called.
 func TestCodeDriftSurfaced(t *testing.T) {
 	rec := &codeRecorder{
 		cfg:           config.VillaConfig{Model: "qwen3", CodingMode: true},
@@ -198,7 +198,7 @@ func TestCodeDriftSurfaced(t *testing.T) {
 }
 
 // TestCodeCodingModeOffWarns — cfg.CodingMode=false emits a stderr WARN pointing at
-// `villa coding-mode enter` AND still launches (D-12).
+// `villa coding-mode enter` AND still launches.
 func TestCodeCodingModeOffWarns(t *testing.T) {
 	cfg := config.VillaConfig{Model: "qwen3", CodingMode: false}
 	rec := &codeRecorder{cfg: cfg, binPresent: true, binSHA: pinnedPolicyBinSHA, configPresent: true, onDisk: renderRef(t, cfg)}
@@ -208,7 +208,7 @@ func TestCodeCodingModeOffWarns(t *testing.T) {
 		t.Fatalf("runCode exit = %d, want %d (coding-off still launches)", code, exitPass)
 	}
 	if len(rec.launchCalls) != 1 {
-		t.Errorf("Launch must still be called on coding-mode-off (D-12)")
+		t.Errorf("Launch must still be called on coding-mode-off")
 	}
 	if !strings.Contains(errOut.String(), "coding-mode enter") {
 		t.Errorf("stderr %q does not point at `villa coding-mode enter`", errOut.String())

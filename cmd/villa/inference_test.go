@@ -32,7 +32,7 @@ func warnVerdict() inference.Verdict {
 	return v
 }
 
-// failVerdict is a FAIL fixture (exit 1): confirmed CPU fallback (D-11).
+// failVerdict is a FAIL fixture (exit 1): confirmed CPU fallback.
 func failVerdict() inference.Verdict {
 	return inference.Verdict{
 		Status:       inference.StatusFail,
@@ -45,7 +45,7 @@ func failVerdict() inference.Verdict {
 }
 
 // TestInferenceExitCodes: PASS→0, WARN→2, FAIL→1 (the scriptable contract reused
-// from preflight, D-13).
+// from preflight).
 func TestInferenceExitCodes(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -68,7 +68,7 @@ func TestInferenceExitCodes(t *testing.T) {
 }
 
 // TestInferenceJSONGolden freezes the --json Verdict shape — the Phase-3 status /
-// Phase-5 dashboard contract (D-11). A change to the emitted JSON must be a
+// Phase-5 dashboard contract. A change to the emitted JSON must be a
 // deliberate -update, never an accident.
 func TestInferenceJSONGolden(t *testing.T) {
 	cases := []struct {
@@ -104,7 +104,7 @@ func TestInferenceTableContainsVerdict(t *testing.T) {
 
 // TestInferenceRegistered asserts the `inference` noun is wired into the root
 // command tree with run + validate subcommands and does not collide with the
-// Phase-3 lifecycle verbs (D-13).
+// Phase-3 lifecycle verbs.
 func TestInferenceRegistered(t *testing.T) {
 	root := newRoot()
 	var inf *cobraCommandShim
@@ -130,9 +130,9 @@ func TestInferenceRegistered(t *testing.T) {
 	// All Phase-3 lifecycle verbs have now landed: `install` (03-02),
 	// `up`/`down`/`restart`/`logs`/`config` (03-03), and `status` (03-04). The
 	// former forward-guard against an unregistered `status` is satisfied — assert it
-	// is present (the last reserved verb to land, D-13).
+	// is present (the last reserved verb to land).
 	if !hasStatus {
-		t.Errorf("Phase-3 `status` verb must be registered (Plan 03-04, D-13)")
+		t.Errorf("Phase-3 `status` verb must be registered (Plan 03-04)")
 	}
 }
 

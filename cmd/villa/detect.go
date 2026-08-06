@@ -30,7 +30,7 @@ func newDetect() *cobra.Command {
 }
 
 // renderDetect writes the profile to w. It is separated from RunE so the golden
-// test can inject a fixture profile and capture the exact JSON bytes (the D-05
+// test can inject a fixture profile and capture the exact JSON bytes (the
 // dashboard-contract guard).
 func renderDetect(w io.Writer, p detect.HostProfile, asJSON, withProvenance bool) error {
 	if asJSON {

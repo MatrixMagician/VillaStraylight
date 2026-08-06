@@ -9,8 +9,8 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/recall"
 )
 
-// install_memory_test.go — Phase-23 D-10/D-11 read-only WARN surface tests
-// (CTRL-05, T-23-18): `villa install`'s memory readiness flow WARNs (with
+// install_memory_test.go — Phase-23 read-only WARN surface tests
+// (CTRL-05): `villa install`'s memory readiness flow WARNs (with
 // remediation) on a CONFIDENT embedding model/dim mismatch between the recall-state
 // stamp and the configured identity — and does NOTHING else: never a block, never
 // an exit-code change, never a state write, never an auto-reindex. The comparison
@@ -21,7 +21,7 @@ import (
 // controllable recall-state seam and asserts the WARN matrix: confident mismatch ⇒
 // one WARN line with remediation, everything else (empty stamp, matching stamp,
 // unreadable state, memory off) ⇒ silence. Exit codes and the memory proof flow
-// are unchanged in every case (read-only, D-11).
+// are unchanged in every case (read-only).
 func TestInstallMemorySkewWarn(t *testing.T) {
 	stamped := recall.State{
 		KnowledgeID:    "kb1",
@@ -55,8 +55,8 @@ func TestInstallMemorySkewWarn(t *testing.T) {
 				t.Errorf("install skew WARN must contain %q; stderr = %q", want, msg)
 			}
 		}
-		// Read-only (D-11): exactly one state read, the proof still ran, and no extra
-		// mutation fired (the seam surface offers no recall-state writer at all —
+		// Read-only: exactly one state read, the proof still ran, and no extra
+		// mutation fired (the seam surface offers no recall-state writer at all
 		// saveConfig's single call is install's own config persist, unrelated).
 		if reads != 1 {
 			t.Errorf("readRecallState calls = %d, want exactly 1", reads)
@@ -151,7 +151,7 @@ func TestInstallMemorySkewWarn(t *testing.T) {
 	})
 }
 
-// TestExtractExitCode anchors the WR-01 load-bearing exit-code mapping that runProbeCurlCode
+// TestExtractExitCode anchors the load-bearing exit-code mapping that runProbeCurlCode
 // relies on to tell a genuine block (curl CONNECTION/TIMEOUT exit 6/7/28) from "the probe
 // could not run" (-1). The classifier (classifyEgressProbe) is exhaustively tested with
 // SYNTHETIC codes; this test anchors the extraction itself against the REAL os/exec runtime so
