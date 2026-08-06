@@ -55,10 +55,17 @@ jobs:
       # backlog of pre-existing findings, and failing every PR on those would
       # train contributors to ignore the linter. New code is held to the config;
       # the backlog is a separate, deliberate cleanup.
+      #
+      # v8 of the action is the first that defaults to a golangci-lint v2 binary;
+      # v6 pins a v1.6x build compiled with go1.24, which refuses a module
+      # targeting go1.26.2 ("the Go language version used to build golangci-lint
+      # is lower than the targeted Go version"). The version is pinned rather
+      # than floating on `latest` so a future release cannot silently reintroduce
+      # that mismatch.
       - name: lint (new issues only)
-        uses: golangci/golangci-lint-action@v6
+        uses: golangci/golangci-lint-action@v8
         with:
-          version: latest
+          version: v2.12.2
           only-new-issues: true
 
       - name: assert the guided install stays on the standard library
