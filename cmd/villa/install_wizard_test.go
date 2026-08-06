@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"io"
 	"strings"
 	"testing"
 
@@ -422,28 +421,6 @@ func TestReviewBlockIndent(t *testing.T) {
 	if !strings.Contains(got, backend.Image()) {
 		t.Errorf("review block must render backend.Image() via the accessor, got:\n%s", got)
 	}
-}
-
-// lineReader hands out exactly one scripted line (newline-terminated) per Read
-// call, then io.EOF. huh's accessible-mode runner constructs a fresh bufio.Scanner
-// for every field over the SAME input reader; a strings.Reader would let the first
-// field's scanner buffer the entire script and starve the rest. By returning one
-// line per Read, each per-field scanner reads only its own answer — modelling a user
-// typing one prompt at a time. It is the canonical headless-driver input for the
-// accessible-mode form test (Pitfall 2).
-type lineReader struct {
-	lines []string
-	i     int
-}
-
-func (lr *lineReader) Read(p []byte) (int, error) {
-	if lr.i >= len(lr.lines) {
-		return 0, io.EOF
-	}
-	line := lr.lines[lr.i] + "\n"
-	lr.i++
-	n := copy(p, line)
-	return n, nil
 }
 
 // TestInstallNoFitEmitsContractedEmptyState proves the no-fit branch (recommend

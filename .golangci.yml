@@ -1,22 +1,43 @@
-# Optional: install golangci-lint to use `make lint`. Without it, `make lint`
-# falls back to `go vet`.
-run:
-  timeout: 3m
-
+# golangci-lint configuration.
+#
+# This file was v1-format and therefore silently unloadable by golangci-lint v2:
+# `golangci-lint run` failed with "unsupported version of the configuration"
+# rather than linting anything. Since `make lint` falls back to `go vet` when the
+# binary is absent, and CI never ran the linter at all, nothing surfaced that.
+# Migrated with `golangci-lint migrate`, and CI now runs it so the config cannot
+# rot unnoticed again.
+#
+# errcheck/govet/ineffassign/staticcheck/unused are enabled by default in v2 and
+# no longer need listing; misspell and revive are the additions. errcheck stays
+# excluded for _test.go, as before: a test that ignores a cleanup error is noise,
+# not a finding.
+version: "2"
 linters:
   enable:
-    - errcheck
-    - govet
-    - ineffassign
-    - staticcheck
-    - unused
-    - gofmt
-    - goimports
     - misspell
     - revive
-
-issues:
-  exclude-rules:
-    - path: _test\.go
-      linters:
-        - errcheck
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    rules:
+      - linters:
+          - errcheck
+        path: _test\.go
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$

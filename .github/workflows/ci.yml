@@ -46,6 +46,21 @@ jobs:
       - name: go mod verify (supply-chain integrity)
         run: go mod verify
 
+      # The repo carried a .golangci.yml that no CI step ever ran, and `make
+      # lint` silently falls back to `go vet` when the binary is absent — so the
+      # config sat unloadable (v1 format under a v2 binary) without anything
+      # noticing. It runs here now so that cannot recur.
+      #
+      # only-new-issues gates the DIFF rather than the tree: there is a standing
+      # backlog of pre-existing findings, and failing every PR on those would
+      # train contributors to ignore the linter. New code is held to the config;
+      # the backlog is a separate, deliberate cleanup.
+      - name: lint (new issues only)
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          only-new-issues: true
+
       - name: assert the guided install stays on the standard library
         run: |
           if grep -qE 'charmbracelet|muesli/termenv' go.mod; then
