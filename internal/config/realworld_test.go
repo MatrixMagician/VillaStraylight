@@ -22,7 +22,7 @@ import (
 //
 // The literal below is a real config.toml carrying all nine removed keys.
 func TestRealWorldConfigSurvivesSaveRoundTrip(t *testing.T) {
-	const real = `model = "qwen3.6-35b-a3b"
+	const onDisk = `model = "qwen3.6-35b-a3b"
 quant = "UD-Q4_K_M"
 ctx = 131072
 backend = "rocm"
@@ -51,7 +51,7 @@ web_loader_secret = "fedcba9876543210fedcba9876543210fedcba9876543210fedcba98765
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(real), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(onDisk), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
