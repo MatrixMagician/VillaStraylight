@@ -317,13 +317,25 @@ func (s *Server) routes() http.Handler {
 // recoverPanic turns a panicking handler into a 500 instead of a dead server. The
 // dashboard runs as a long-lived user service, so an unhandled panic in one request
 // would otherwise end the process and take the UI down until systemd restarted it.
+//
+// http.ErrAbortHandler is re-panicked rather than swallowed: it is the sentinel a
+// handler raises to abandon a response deliberately, and net/http suppresses its
+// own log for it. Treating it as a crash would turn an intentional abort into a
+// spurious 500 and a stack trace. This matches what the router's own recoverer did.
 func recoverPanic(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
-			if rec := recover(); rec != nil {
-				log.Printf("dashboard: panic serving %s %s: %v\n%s", r.Method, r.URL.Path, rec, debug.Stack())
-				http.Error(w, "internal server error", http.StatusInternalServerError)
+			rec := recover()
+			if rec == nil {
+				return
 			}
+			if rec == http.ErrAbortHandler {
+				panic(rec)
+			}
+			log.Printf("dashboard: panic serving %s %s: %v\n%s", r.Method, r.URL.Path, rec, debug.Stack())
+			// If the handler already began writing, the status is long gone and
+			// this only appends to the body; the log above is the real record.
+			http.Error(w, "internal server error", http.StatusInternalServerError)
 		}()
 		next.ServeHTTP(w, r)
 	})

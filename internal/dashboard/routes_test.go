@@ -131,3 +131,27 @@ func TestPanicIsRecovered(t *testing.T) {
 		t.Errorf("panicking handler = %d, want 500", rec.Code)
 	}
 }
+
+// TestAbortHandlerPanicIsNotSwallowed guards the one panic that must NOT become a
+// 500: http.ErrAbortHandler is the sentinel a handler raises to abandon a response
+// deliberately, and net/http suppresses its own log for it. Swallowing it would
+// turn an intentional abort into a spurious 500 and a stack trace.
+func TestAbortHandlerPanicIsNotSwallowed(t *testing.T) {
+	abort := http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		panic(http.ErrAbortHandler)
+	})
+
+	defer func() {
+		switch rec := recover(); rec {
+		case nil:
+			t.Error("ErrAbortHandler was swallowed; it must propagate to net/http")
+		case http.ErrAbortHandler:
+			// Propagated, as it must be.
+		default:
+			t.Errorf("propagated %v, want http.ErrAbortHandler", rec)
+		}
+	}()
+
+	rec := httptest.NewRecorder()
+	recoverPanic(abort).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+}
