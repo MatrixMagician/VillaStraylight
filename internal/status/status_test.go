@@ -76,7 +76,6 @@ func newDeps(t *testing.T, units []orchestrate.Unit) Deps {
 		// Dashboard self-row (Plan 05-05 / D-04): a healthy /api/healthz probe by
 		// default; tests override DashboardHealth to exercise the wedged case.
 		DashboardService: dashboardService,
-		DashboardAddr:    "http://127.0.0.1:8888",
 		DashboardHealth:  func(string) HealthState { return HealthReady },
 	}
 }
@@ -997,10 +996,6 @@ func webSearchCfg() config.VillaConfig {
 	cfg.Quant = "Q4"
 	cfg.Ctx = 131072
 	cfg.WebSearchEnabled = true
-	cfg.SearxngAddr = "villa-searxng"
-	cfg.SearxngPort = 8080
-	cfg.WebsafeAddr = "villa-websafe"
-	cfg.WebsafePort = 8090
 	return cfg
 }
 

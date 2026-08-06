@@ -20,15 +20,11 @@ func searxngFixtureInput() RenderInput {
 		Cfg: config.VillaConfig{
 			Model: "qwen3-35b-a3b-moe-64", Quant: "UD-Q4_K_M", Ctx: 131072, Backend: "vulkan",
 			WebSearchEnabled:     true,
-			SearxngAddr:          "villa-searxng",
-			SearxngPort:          8080,
 			SearxngSecret:        "testsecret_must_not_appear_in_the_0644_unit",
 			WebSearchResultCount: 3,
 			// Phase-31 villa-websafe loader identity (WR-01, config-resolved). The bearer
 			// secret VALUE must NOT appear in the rendered 0644 unit (T-31-12) — only the
 			// EnvironmentFile= path does.
-			WebsafeAddr:     "villa-websafe",
-			WebsafePort:     8090,
 			WebLoaderSecret: "websafe_testsecret_must_not_appear_in_the_0644_unit",
 		},
 		ModelFile: "qwen3-35b-a3b-moe-64.gguf",
@@ -256,18 +252,16 @@ func TestRenderByteIdenticalWhenWebSearchOff(t *testing.T) {
 	}
 }
 
-// TestRenderSearxngIsConfigDriven (WR-01): the searxng unit derives its container-DNS
-// identity from cfg.SearxngAddr via the resolved config — NOT an orchestrate-local const.
-// A non-default addr must surface in the unit text.
-func TestRenderSearxngIsConfigDriven(t *testing.T) {
-	in := searxngFixtureInput()
-	in.Cfg.SearxngAddr = "villa-searxng-custom"
-	units, err := Render(in)
+// TestRenderSearxngUsesSharedIdentity (WR-01): the searxng unit derives its
+// container-DNS identity from the SINGLE home of that literal in internal/config,
+// not from an orchestrate-local const.
+func TestRenderSearxngUsesSharedIdentity(t *testing.T) {
+	units, err := Render(searxngFixtureInput())
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
 	c := unitByName(t, units, "villa-searxng.container")
-	if !strings.Contains(c.Text, "ContainerName=villa-searxng-custom") {
-		t.Errorf("searxng unit did not render the config-resolved ContainerName=villa-searxng-custom (rendered from a const?):\n%s", c.Text)
+	if !strings.Contains(c.Text, "ContainerName="+config.SearxngAddr) {
+		t.Errorf("searxng unit did not render ContainerName=%s from the shared constant:\n%s", config.SearxngAddr, c.Text)
 	}
 }

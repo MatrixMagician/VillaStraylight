@@ -21,10 +21,6 @@ func validMemoryConfig() config.VillaConfig {
 		MemoryEnabled:  true,
 		EmbeddingModel: "nomic-embed-text-v1.5",
 		EmbeddingDim:   768,
-		QdrantAddr:     "villa-qdrant",
-		QdrantPort:     6333,
-		EmbedAddr:      "villa-embed",
-		EmbedPort:      8080,
 	}
 }
 
@@ -79,50 +75,6 @@ func TestDecide(t *testing.T) {
 			wantReason:  "embedding_dim",
 		},
 		{
-			name:        "on + empty qdrant addr is invalid",
-			mutate:      func(c *config.VillaConfig) { c.QdrantAddr = "" },
-			wantEnabled: true,
-			wantValid:   false,
-			wantReason:  "qdrant_addr",
-		},
-		{
-			name:        "on + non-positive qdrant port is invalid",
-			mutate:      func(c *config.VillaConfig) { c.QdrantPort = 0 },
-			wantEnabled: true,
-			wantValid:   false,
-			wantReason:  "qdrant_port",
-		},
-		{
-			name:        "on + empty embed addr is invalid",
-			mutate:      func(c *config.VillaConfig) { c.EmbedAddr = "" },
-			wantEnabled: true,
-			wantValid:   false,
-			wantReason:  "embed_addr",
-		},
-		{
-			name:        "on + non-positive embed port is invalid",
-			mutate:      func(c *config.VillaConfig) { c.EmbedPort = 0 },
-			wantEnabled: true,
-			wantValid:   false,
-			wantReason:  "embed_port",
-		},
-		{
-			// WR-03: a port above the TCP range survives normalizeVilla (which only
-			// heals the zero value), so this refusal is reachable on the load path.
-			name:        "on + out-of-range qdrant port (>65535) is invalid",
-			mutate:      func(c *config.VillaConfig) { c.QdrantPort = 70000 },
-			wantEnabled: true,
-			wantValid:   false,
-			wantReason:  "qdrant_port",
-		},
-		{
-			name:        "on + out-of-range embed port (>65535) is invalid",
-			mutate:      func(c *config.VillaConfig) { c.EmbedPort = 99999 },
-			wantEnabled: true,
-			wantValid:   false,
-			wantReason:  "embed_port",
-		},
-		{
 			// Reachable after normalize: it heals dim==0 to the default but leaves a
 			// negative value untouched, so Decide is the authoritative dim guard.
 			name:        "on + negative embedding dim is invalid",
@@ -155,20 +107,20 @@ func TestDecide(t *testing.T) {
 }
 
 // TestDecideAccumulatesReasons guards the fail-closed "surface ALL problems"
-// behavior: multiple missing fields accumulate multiple reasons in one pass.
+// behavior: multiple bad fields accumulate multiple reasons in one pass rather
+// than the first one winning.
 func TestDecideAccumulatesReasons(t *testing.T) {
 	cfg := validMemoryConfig()
 	cfg.EmbeddingModel = ""
 	cfg.EmbeddingDim = 0
-	cfg.QdrantAddr = ""
 	got := Decide(cfg)
 	if got.Valid {
-		t.Fatalf("Decide() with 3 bad fields should be invalid, got valid")
+		t.Fatalf("Decide() with 2 bad fields should be invalid, got valid")
 	}
-	if len(got.Reasons) < 3 {
-		t.Errorf("Decide() should accumulate >=3 reasons, got %d: %v", len(got.Reasons), got.Reasons)
+	if len(got.Reasons) < 2 {
+		t.Errorf("Decide() should accumulate >=2 reasons, got %d: %v", len(got.Reasons), got.Reasons)
 	}
-	for _, want := range []string{"embedding_model", "embedding_dim", "qdrant_addr"} {
+	for _, want := range []string{"embedding_model", "embedding_dim"} {
 		if !reasonsMention(got.Reasons, want) {
 			t.Errorf("Decide() reasons %v missing %q", got.Reasons, want)
 		}
@@ -188,17 +140,17 @@ func TestRenderView(t *testing.T) {
 	if got.EmbeddingDim != cfg.EmbeddingDim {
 		t.Errorf("EmbeddingDim = %d, want %d", got.EmbeddingDim, cfg.EmbeddingDim)
 	}
-	if got.QdrantAddr != cfg.QdrantAddr {
-		t.Errorf("QdrantAddr = %q, want %q", got.QdrantAddr, cfg.QdrantAddr)
+	if got.QdrantAddr != config.QdrantAddr {
+		t.Errorf("QdrantAddr = %q, want %q", got.QdrantAddr, config.QdrantAddr)
 	}
-	if got.QdrantPort != cfg.QdrantPort {
-		t.Errorf("QdrantPort = %d, want %d", got.QdrantPort, cfg.QdrantPort)
+	if got.QdrantPort != config.QdrantPort {
+		t.Errorf("QdrantPort = %d, want %d", got.QdrantPort, config.QdrantPort)
 	}
-	if got.EmbedAddr != cfg.EmbedAddr {
-		t.Errorf("EmbedAddr = %q, want %q", got.EmbedAddr, cfg.EmbedAddr)
+	if got.EmbedAddr != config.EmbedAddr {
+		t.Errorf("EmbedAddr = %q, want %q", got.EmbedAddr, config.EmbedAddr)
 	}
-	if got.EmbedPort != cfg.EmbedPort {
-		t.Errorf("EmbedPort = %d, want %d", got.EmbedPort, cfg.EmbedPort)
+	if got.EmbedPort != config.EmbedPort {
+		t.Errorf("EmbedPort = %d, want %d", got.EmbedPort, config.EmbedPort)
 	}
 	// The addrs are container-DNS pieces, never a composed/routable URL — a bare
 	// name contains no ":" (which would imply a scheme separator or host:port).

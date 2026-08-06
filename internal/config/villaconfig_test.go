@@ -18,7 +18,6 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 		Ctx:           131072,
 		Backend:       "vulkan",
 		CatalogPath:   "/srv/catalogs/newer.json", // persisted external-catalog choice (IN-03)
-		DashboardAddr: "127.0.0.1",                // D-13 loopback dashboard bind
 		DashboardPort: 8888,                       // D-13 dashboard port
 		ChatPort:      3000,                       // D-12 chat link target
 		// Memory fields (D-04/D-08): populate with the inert defaults so the
@@ -26,22 +25,14 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 		MemoryEnabled:  false,
 		EmbeddingModel: "nomic-embed-text-v1.5",
 		EmbeddingDim:   768,
-		QdrantAddr:     "villa-qdrant",
-		QdrantPort:     6333,
-		EmbedAddr:      "villa-embed",
-		EmbedPort:      8080,
 		// Web-search fields (v1.5, SRCH-01): populate with the inert defaults so the
 		// full-literal equality assertion survives the schema extension (mirrors the
 		// memory-field treatment above). normalizeVilla self-heals these on load.
 		WebSearchEnabled:     false,
-		SearxngAddr:          "villa-searxng",
-		SearxngPort:          8080,
 		WebSearchResultCount: 3, // inert default so the full-literal equality survives the schema extension (normalizeVilla self-heals 0 -> 3 on load)
 		// villa-websafe fields (v1.5, GROUND/GUARD): inert addr/port defaults so the
 		// full-literal equality survives the schema extension (normalizeVilla self-heals
 		// "" / 0 -> villa-websafe / 8090 on load). The secret/path stay empty (not self-healed).
-		WebsafeAddr: "villa-websafe",
-		WebsafePort: 8090,
 	}
 	if err := SaveVillaTo(dir, want); err != nil {
 		t.Fatalf("SaveVillaTo: %v", err)
@@ -78,9 +69,10 @@ func TestLoadMissingReturnsDefaults(t *testing.T) {
 	if got.Backend != "rocm" {
 		t.Errorf("default backend = %q, want rocm (ROCm 7.2.4 is the default backend)", got.Backend)
 	}
-	// The dashboard/chat ports default to loopback:8888 / chat 3000 when absent (D-13/D-12).
-	if got.DashboardAddr != "127.0.0.1" {
-		t.Errorf("default DashboardAddr = %q, want 127.0.0.1 (loopback-only)", got.DashboardAddr)
+	// The dashboard/chat ports default to 8888 / chat 3000 when absent (D-13/D-12).
+	// The bind address is no longer persisted: it is the DashboardAddr constant.
+	if DashboardAddr != "127.0.0.1" {
+		t.Errorf("DashboardAddr = %q, want 127.0.0.1 (loopback-only)", DashboardAddr)
 	}
 	if got.DashboardPort != 8888 {
 		t.Errorf("default DashboardPort = %d, want 8888", got.DashboardPort)
@@ -121,9 +113,6 @@ chat_port = 0
 	if got.ChatPort != 3000 {
 		t.Errorf("zeroed ChatPort self-heal = %d, want 3000", got.ChatPort)
 	}
-	if got.DashboardAddr != "127.0.0.1" {
-		t.Errorf("empty DashboardAddr self-heal = %q, want 127.0.0.1 (loopback-only)", got.DashboardAddr)
-	}
 	// The real selection must survive normalization untouched.
 	if got.Model != "qwen3-35b-a3b-moe-64" || got.Quant != "UD-Q4_K_M" || got.Ctx != 131072 || got.Backend != "vulkan" {
 		t.Errorf("normalization mangled the real selection: %+v", got)
@@ -154,19 +143,52 @@ chat_port = 4000
 	if err != nil {
 		t.Fatalf("LoadVillaFrom: %v", err)
 	}
-	if got.DashboardPort != 9999 || got.ChatPort != 4000 || got.DashboardAddr != "::1" {
-		t.Errorf("normalization overrode explicit values: got {%q, %d, %d}, want {::1, 9999, 4000}",
-			got.DashboardAddr, got.DashboardPort, got.ChatPort)
+	if got.DashboardPort != 9999 || got.ChatPort != 4000 {
+		t.Errorf("normalization overrode explicit values: got {%d, %d}, want {9999, 4000}",
+			got.DashboardPort, got.ChatPort)
 	}
+	// The dashboard_addr key in that file is one of the nine that no longer exist.
+	// It must be ignored rather than rejected: a config already on disk carrying the
+	// old keys has to keep loading.
 }
 
 // TestDefaultConfigDashboardFields asserts defaultConfig() seeds the dashboard/chat
-// loopback defaults directly (D-13/D-12), independent of file I/O.
+// port defaults directly (D-13/D-12), independent of file I/O. The bind address is
+// no longer among them — it is the DashboardAddr constant, asserted separately.
 func TestDefaultConfigDashboardFields(t *testing.T) {
 	d := defaultConfig()
-	if d.DashboardAddr != "127.0.0.1" || d.DashboardPort != 8888 || d.ChatPort != 3000 {
-		t.Errorf("defaultConfig() dashboard fields = {%q, %d, %d}, want {127.0.0.1, 8888, 3000}",
-			d.DashboardAddr, d.DashboardPort, d.ChatPort)
+	if d.DashboardPort != 8888 || d.ChatPort != 3000 {
+		t.Errorf("defaultConfig() dashboard fields = {%d, %d}, want {8888, 3000}",
+			d.DashboardPort, d.ChatPort)
+	}
+}
+
+// TestServiceIdentityConstants pins the nine values that used to be persisted
+// config keys. They moved to constants because nothing could set them, and the
+// values themselves must not drift: the addresses are the container-DNS names the
+// rendered units and the in-network probes both resolve, and widening any of them
+// off the private network (or off loopback, for the dashboard) is the privacy
+// violation the fields were never allowed to express (PRIV-01).
+func TestServiceIdentityConstants(t *testing.T) {
+	cases := []struct {
+		name string
+		got  any
+		want any
+	}{
+		{"DashboardAddr", DashboardAddr, "127.0.0.1"},
+		{"QdrantAddr", QdrantAddr, "villa-qdrant"},
+		{"QdrantPort", QdrantPort, 6333},
+		{"EmbedAddr", EmbedAddr, "villa-embed"},
+		{"EmbedPort", EmbedPort, 8080},
+		{"SearxngAddr", SearxngAddr, "villa-searxng"},
+		{"SearxngPort", SearxngPort, 8080},
+		{"WebsafeAddr", WebsafeAddr, "villa-websafe"},
+		{"WebsafePort", WebsafePort, 8090},
+	}
+	for _, tc := range cases {
+		if tc.got != tc.want {
+			t.Errorf("%s = %v, want %v (the value the removed config key resolved to)", tc.name, tc.got, tc.want)
+		}
 	}
 }
 
@@ -178,10 +200,6 @@ func memoryDefaults() VillaConfig {
 		MemoryEnabled:  false,
 		EmbeddingModel: "nomic-embed-text-v1.5",
 		EmbeddingDim:   768,
-		QdrantAddr:     "villa-qdrant",
-		QdrantPort:     6333,
-		EmbedAddr:      "villa-embed",
-		EmbedPort:      8080,
 	}
 }
 
@@ -199,14 +217,8 @@ func TestDefaultConfigMemoryFields(t *testing.T) {
 	if d.EmbeddingDim != 768 {
 		t.Errorf("default EmbeddingDim = %d, want 768 (pinned, no Matryoshka truncation)", d.EmbeddingDim)
 	}
-	if d.QdrantAddr != "villa-qdrant" || d.QdrantPort != 6333 {
-		t.Errorf("default Qdrant endpoint = {%q, %d}, want {villa-qdrant, 6333} (container-DNS only)",
-			d.QdrantAddr, d.QdrantPort)
-	}
-	if d.EmbedAddr != "villa-embed" || d.EmbedPort != 8080 {
-		t.Errorf("default embed endpoint = {%q, %d}, want {villa-embed, 8080} (container-DNS only)",
-			d.EmbedAddr, d.EmbedPort)
-	}
+	// The Qdrant and embed endpoints are no longer defaults on this struct: they are
+	// constants, asserted by TestServiceIdentityConstants.
 }
 
 // TestLoadMemoryDefaultsOff asserts a v1.2-style config.toml carrying NO memory
@@ -236,9 +248,7 @@ chat_port = 3000
 		t.Errorf("v1.2 config loaded MemoryEnabled = true, want false (default-OFF, SC#1)")
 	}
 	wantMem := memoryDefaults()
-	if got.EmbeddingModel != wantMem.EmbeddingModel || got.EmbeddingDim != wantMem.EmbeddingDim ||
-		got.QdrantAddr != wantMem.QdrantAddr || got.QdrantPort != wantMem.QdrantPort ||
-		got.EmbedAddr != wantMem.EmbedAddr || got.EmbedPort != wantMem.EmbedPort {
+	if got.EmbeddingModel != wantMem.EmbeddingModel || got.EmbeddingDim != wantMem.EmbeddingDim {
 		t.Errorf("v1.2 config did not get inert memory defaults:\n got %+v\nwant %+v", got, wantMem)
 	}
 	// The v1.2 selection must survive untouched.
@@ -300,31 +310,23 @@ embed_port = 0
 	if got.EmbeddingDim != wantMem.EmbeddingDim {
 		t.Errorf("zeroed EmbeddingDim self-heal = %d, want %d", got.EmbeddingDim, wantMem.EmbeddingDim)
 	}
-	if got.QdrantAddr != wantMem.QdrantAddr || got.QdrantPort != wantMem.QdrantPort {
-		t.Errorf("zeroed Qdrant endpoint self-heal = {%q, %d}, want {%q, %d} (container-DNS only)",
-			got.QdrantAddr, got.QdrantPort, wantMem.QdrantAddr, wantMem.QdrantPort)
-	}
-	if got.EmbedAddr != wantMem.EmbedAddr || got.EmbedPort != wantMem.EmbedPort {
-		t.Errorf("zeroed embed endpoint self-heal = {%q, %d}, want {%q, %d} (container-DNS only)",
-			got.EmbedAddr, got.EmbedPort, wantMem.EmbedAddr, wantMem.EmbedPort)
-	}
 }
 
-// TestMemoryNeverWidensBind asserts normalizeVilla fills empty endpoint addrs ONLY
-// with the container-DNS default name — it never substitutes a routable/widened
-// bind (T-18-02 / PRIV-01), mirroring the dashboard_addr loopback rule.
-func TestMemoryNeverWidensBind(t *testing.T) {
-	got := normalizeVilla(VillaConfig{MemoryEnabled: true})
-	if got.QdrantAddr != "villa-qdrant" {
-		t.Errorf("empty QdrantAddr filled with %q, want container-DNS villa-qdrant (never a routable bind)", got.QdrantAddr)
-	}
-	if got.EmbedAddr != "villa-embed" {
-		t.Errorf("empty EmbedAddr filled with %q, want container-DNS villa-embed (never a routable bind)", got.EmbedAddr)
-	}
-	for _, addr := range []string{got.QdrantAddr, got.EmbedAddr} {
-		if strings.Contains(addr, "0.0.0.0") || addr == "" {
-			t.Errorf("endpoint addr %q widened/zeroed — PRIV-01 violation", addr)
+// TestEndpointsNeverWidenBind asserts the service endpoints are container-DNS
+// names on the private network and the dashboard is loopback — never a routable
+// or all-interfaces bind (T-18-02 / PRIV-01).
+//
+// This used to be a property of normalizeVilla, which healed a hand-edited value
+// back to the default. It is now stronger: there is no value to hand-edit, so the
+// only way to widen a bind is to change the constant, which this test refuses.
+func TestEndpointsNeverWidenBind(t *testing.T) {
+	for _, addr := range []string{QdrantAddr, EmbedAddr, SearxngAddr, WebsafeAddr, DashboardAddr} {
+		if addr == "" || strings.Contains(addr, "0.0.0.0") || addr == "::" {
+			t.Errorf("endpoint addr %q is widened or empty — PRIV-01 violation", addr)
 		}
+	}
+	if DashboardAddr != "127.0.0.1" {
+		t.Errorf("DashboardAddr = %q, want loopback", DashboardAddr)
 	}
 }
 
@@ -355,11 +357,12 @@ embed_port = 9090
 	if err != nil {
 		t.Fatalf("LoadVillaFrom: %v", err)
 	}
-	if !got.MemoryEnabled || got.EmbeddingModel != "custom-embed-model" || got.EmbeddingDim != 1024 ||
-		got.QdrantAddr != "my-qdrant" || got.QdrantPort != 7777 ||
-		got.EmbedAddr != "my-embed" || got.EmbedPort != 9090 {
+	if !got.MemoryEnabled || got.EmbeddingModel != "custom-embed-model" || got.EmbeddingDim != 1024 {
 		t.Errorf("normalization overrode explicit memory values: %+v", got)
 	}
+	// The qdrant_*/embed_* keys in that file are among the nine that no longer
+	// exist. They are ignored rather than rejected, which is what lets a config
+	// already on disk keep loading.
 }
 
 // TestMemoryByteIdentical proves SC#1's load-path half (D-05): loading a v1.2
@@ -459,10 +462,11 @@ func TestSaveRefusesTraversal(t *testing.T) {
 // load-only test cannot see): a save-bearing command on a memory-off install must
 // NOT introduce any memory_* key on disk, even though the in-memory struct carries
 // non-zero memory defaults. marshalVilla zeroes the memory fields when disabled so
-// the ,omitempty tags drop all seven keys. When memory is ON, every key is written.
+// the ,omitempty tags drop all three remaining keys. When memory is ON, every key
+// is written. (The endpoint keys are no longer persisted at all — they are
+// constants — so they can never appear on either side.)
 func TestMemorySaveOmitsKeysWhenDisabled(t *testing.T) {
-	memKeys := []string{"memory_enabled", "embedding_model", "embedding_dim",
-		"qdrant_addr", "qdrant_port", "embed_addr", "embed_port"}
+	memKeys := []string{"memory_enabled", "embedding_model", "embedding_dim"}
 
 	// Memory OFF: a config seeded from typed defaults (non-zero memory fields).
 	off := DefaultVillaConfig() // MemoryEnabled == false, memory fields at defaults
@@ -674,10 +678,6 @@ func TestDefaultConfigWebSearchFields(t *testing.T) {
 	if d.WebSearchEnabled {
 		t.Errorf("defaultConfig() WebSearchEnabled = true, want false (default-OFF)")
 	}
-	if d.SearxngAddr != "villa-searxng" || d.SearxngPort != 8080 {
-		t.Errorf("default searxng endpoint = {%q, %d}, want {villa-searxng, 8080} (container-DNS only)",
-			d.SearxngAddr, d.SearxngPort)
-	}
 	if d.SearxngSecret != "" {
 		t.Errorf("default SearxngSecret = %q, want empty (generated at opt-in, never a hardcoded default)", d.SearxngSecret)
 	}
@@ -693,7 +693,7 @@ func TestDefaultConfigWebSearchFields(t *testing.T) {
 // so the ,omitempty/,omitzero tags drop all four keys. When web search is ON, every key
 // is written and round-trips.
 func TestWebSearchSaveOmitsKeysWhenDisabled(t *testing.T) {
-	webKeys := []string{"web_search_enabled", "searxng_addr", "searxng_port", "searxng_secret", "web_search_result_count"}
+	webKeys := []string{"web_search_enabled", "searxng_secret", "web_search_result_count"}
 
 	// Web search OFF: a config seeded from typed defaults (non-zero searxng fields). Seed a
 	// secret too, to prove the off-path zeroing is the gate (not mere absence).
@@ -761,12 +761,6 @@ func TestWebSearchNormalizeSelfHeal(t *testing.T) {
 	if !got.WebSearchEnabled {
 		t.Errorf("WebSearchEnabled = false, want true (explicit opt-in must survive)")
 	}
-	if got.SearxngAddr != "villa-searxng" {
-		t.Errorf("empty SearxngAddr self-heal = %q, want container-DNS villa-searxng (never a routable bind)", got.SearxngAddr)
-	}
-	if got.SearxngPort != 8080 {
-		t.Errorf("zeroed SearxngPort self-heal = %d, want 8080", got.SearxngPort)
-	}
 	if got.SearxngSecret != "" {
 		t.Errorf("SearxngSecret was self-healed to %q, want empty (a generated secret has no default)", got.SearxngSecret)
 	}
@@ -831,10 +825,6 @@ func TestGenerateSearxngSecretUsesCryptoRand(t *testing.T) {
 // generated at opt-in, never a hardcoded literal).
 func TestDefaultConfigWebsafeFields(t *testing.T) {
 	d := defaultConfig()
-	if d.WebsafeAddr != "villa-websafe" || d.WebsafePort != 8090 {
-		t.Errorf("default websafe endpoint = {%q, %d}, want {villa-websafe, 8090} (container-DNS only)",
-			d.WebsafeAddr, d.WebsafePort)
-	}
 	if d.WebLoaderSecret != "" {
 		t.Errorf("default WebLoaderSecret = %q, want empty (generated at opt-in, never a hardcoded default)", d.WebLoaderSecret)
 	}
@@ -850,7 +840,7 @@ func TestDefaultConfigWebsafeFields(t *testing.T) {
 // drop all four keys. When web search is ON, the addr/port (and the secret/path when set)
 // are written and round-trip.
 func TestWebsafeSaveOmitsKeysWhenDisabled(t *testing.T) {
-	websafeKeys := []string{"websafe_addr", "websafe_port", "web_loader_secret", "host_villa_path"}
+	websafeKeys := []string{"web_loader_secret", "host_villa_path"}
 
 	// Web search OFF: seed a secret + host path to prove the off-path zeroing is the gate.
 	off := DefaultVillaConfig() // WebSearchEnabled == false, websafe fields at defaults
@@ -913,12 +903,6 @@ func TestWebsafeSaveOmitsKeysWhenDisabled(t *testing.T) {
 // path). The addr fill only ever yields the container-DNS name (PRIV-01).
 func TestWebsafeNormalizeSelfHeal(t *testing.T) {
 	got := normalizeVilla(VillaConfig{WebSearchEnabled: true})
-	if got.WebsafeAddr != "villa-websafe" {
-		t.Errorf("empty WebsafeAddr self-heal = %q, want container-DNS villa-websafe (never a routable bind)", got.WebsafeAddr)
-	}
-	if got.WebsafePort != 8090 {
-		t.Errorf("zeroed WebsafePort self-heal = %d, want 8090", got.WebsafePort)
-	}
 	if got.WebLoaderSecret != "" {
 		t.Errorf("WebLoaderSecret was self-healed to %q, want empty (a generated secret has no default)", got.WebLoaderSecret)
 	}

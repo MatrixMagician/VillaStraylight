@@ -519,23 +519,11 @@ func memoryHealthSnapshot(qAddr string, qPort int, eAddr string, ePort int) (sta
 	return memoryHealthQdrant, memoryHealthEmbed
 }
 
-// liveMemoryTargets resolves both memory-service probe targets from config (the
-// single source of truth); a load failure falls back to the typed defaults so a
-// probe target is never fabricated ad hoc.
-func liveMemoryTargets() config.VillaConfig {
-	cfg, err := config.LoadVilla()
-	if err != nil {
-		return config.DefaultVillaConfig()
-	}
-	return cfg
-}
-
 // liveQdrantHealth probes the Qdrant /readyz endpoint in-network (TTL-cached
-// pair refresh). The sibling embed target comes from config so one refresh
-// covers both rows.
+// pair refresh). The sibling embed target is the in-network constant, so one
+// refresh covers both rows.
 func liveQdrantHealth(addr string, port int) status.HealthState {
-	cfg := liveMemoryTargets()
-	q, _ := memoryHealthSnapshot(addr, port, cfg.EmbedAddr, cfg.EmbedPort)
+	q, _ := memoryHealthSnapshot(addr, port, config.EmbedAddr, config.EmbedPort)
 	return q
 }
 
@@ -543,8 +531,7 @@ func liveQdrantHealth(addr string, port int) status.HealthState {
 // in-network (TTL-cached pair refresh) with the 200→ready / 503→loading
 // mapping of liveHealthProbe.
 func liveEmbedHealth(addr string, port int) status.HealthState {
-	cfg := liveMemoryTargets()
-	_, e := memoryHealthSnapshot(cfg.QdrantAddr, cfg.QdrantPort, addr, port)
+	_, e := memoryHealthSnapshot(config.QdrantAddr, config.QdrantPort, addr, port)
 	return e
 }
 
@@ -605,23 +592,11 @@ func webSearchHealthSnapshot(sxAddr string, sxPort int, wsAddr string, wsPort in
 	return webSearchHealthSearxng, webSearchHealthWebsafe
 }
 
-// liveWebSearchTargets resolves both web-search probe targets from config (the single
-// source of truth); a load failure falls back to the typed defaults so a probe target
-// is never fabricated ad hoc (mirrors liveMemoryTargets).
-func liveWebSearchTargets() config.VillaConfig {
-	cfg, err := config.LoadVilla()
-	if err != nil {
-		return config.DefaultVillaConfig()
-	}
-	return cfg
-}
-
 // liveSearxngHealth probes the SearXNG /healthz endpoint in-network (TTL-cached pair
-// refresh). The sibling websafe target comes from config so one refresh covers both
-// rows.
+// refresh). The sibling websafe target is the in-network constant, so one refresh
+// covers both rows.
 func liveSearxngHealth(addr string, port int) status.HealthState {
-	cfg := liveWebSearchTargets()
-	sx, _ := webSearchHealthSnapshot(addr, port, cfg.WebsafeAddr, cfg.WebsafePort)
+	sx, _ := webSearchHealthSnapshot(addr, port, config.WebsafeAddr, config.WebsafePort)
 	return sx
 }
 
@@ -629,8 +604,7 @@ func liveSearxngHealth(addr string, port int) status.HealthState {
 // refresh) via mapWebsafeProbe (any HTTP response = up; the loader has no dedicated
 // health route, only POST /load).
 func liveWebsafeHealth(addr string, port int) status.HealthState {
-	cfg := liveWebSearchTargets()
-	_, ws := webSearchHealthSnapshot(cfg.SearxngAddr, cfg.SearxngPort, addr, port)
+	_, ws := webSearchHealthSnapshot(config.SearxngAddr, config.SearxngPort, addr, port)
 	return ws
 }
 
@@ -729,7 +703,7 @@ func liveDashboardAddr() string {
 	if err != nil {
 		return "http://127.0.0.1:8888"
 	}
-	addr := cfg.DashboardAddr
+	addr := config.DashboardAddr
 	if addr == "" {
 		addr = "127.0.0.1"
 	}

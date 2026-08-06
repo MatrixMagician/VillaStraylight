@@ -29,6 +29,51 @@ const configFileMode os.FileMode = 0o600
 // configDirMode is the mode for the created villa config directory.
 const configDirMode os.FileMode = 0o700
 
+// Service identity on the private container network, and the dashboard's bind
+// address. These were persisted config fields until it became clear none could
+// vary: `config set` never accepted them, the load-time normaliser healed any
+// hand-edited value straight back to these constants, and the in-network services
+// publish no host port, so the numbers were invisible from outside villa.network
+// anyway.
+//
+// They are constants rather than settings because widening them is a privacy
+// violation, not a preference (PRIV-01):
+//
+//   - the addresses are container-DNS names on the private network, never routable
+//     host binds;
+//   - the ports are in-network only;
+//   - the dashboard binds loopback by construction and is documented as never
+//     widenable.
+//
+// This is the single home of each literal (D-05/D-06). A config file still
+// carrying the old keys loads fine — unknown keys are ignored — and the values it
+// carried were, by construction, these same ones.
+const (
+	// DashboardAddr is the loopback-only bind address for the control dashboard
+	// (D-13). NEVER bind all interfaces (PRIV-01).
+	DashboardAddr = "127.0.0.1"
+
+	// QdrantAddr is the container-DNS name of the Qdrant vector store (D-06).
+	QdrantAddr = "villa-qdrant"
+	// QdrantPort is the in-network Qdrant REST port (D-06).
+	QdrantPort = 6333
+	// EmbedAddr is the container-DNS name of the dedicated villa-embed
+	// llama-server (D-06/D-07).
+	EmbedAddr = "villa-embed"
+	// EmbedPort is the in-network villa-embed OpenAI /v1 port (D-06/D-07).
+	EmbedPort = 8080
+
+	// SearxngAddr is the container-DNS name of the SearXNG metasearch service.
+	SearxngAddr = "villa-searxng"
+	// SearxngPort is the in-network SearXNG port the readiness proof probes.
+	SearxngPort = 8080
+
+	// WebsafeAddr is the container-DNS name of the villa-websafe loader.
+	WebsafeAddr = "villa-websafe"
+	// WebsafePort is the in-network port the villa-websafe loader listens on.
+	WebsafePort = 8090
+)
+
 // VillaConfig is the persisted recommend selection that later phases (Phase 3
 // install) derive Quadlet units from. Fields are TOML-tagged and typed.
 type VillaConfig struct {
@@ -43,9 +88,6 @@ type VillaConfig struct {
 	Backend string `toml:"backend"`
 	// CatalogPath optionally points at an external catalog override.
 	CatalogPath string `toml:"catalog_path"`
-	// DashboardAddr is the loopback-only bind address for the control dashboard
-	// (D-13). Default "127.0.0.1"; NEVER bind all interfaces (PRIV-01).
-	DashboardAddr string `toml:"dashboard_addr"`
 	// DashboardPort is the host port the control dashboard listens on (D-13).
 	// Default 8888.
 	DashboardPort int `toml:"dashboard_port"`
@@ -71,19 +113,6 @@ type VillaConfig struct {
 	// Default 768. Changing it corrupts existing Qdrant vectors (no auto-reindex);
 	// it is recorded here as the anchor for the Phase-23 memory-aware swap guard.
 	EmbeddingDim int `toml:"embedding_dim,omitzero"`
-	// QdrantAddr is the container-DNS name of the Qdrant vector store on
-	// villa.network (D-06). Default "villa-qdrant"; NEVER a routable host bind
-	// (PRIV-01) — Qdrant publishes no host port.
-	QdrantAddr string `toml:"qdrant_addr,omitempty"`
-	// QdrantPort is the in-network Qdrant REST port (D-06). Default 6333.
-	QdrantPort int `toml:"qdrant_port,omitzero"`
-	// EmbedAddr is the container-DNS name of the dedicated villa-embed
-	// llama-server on villa.network (D-06/D-07). Default "villa-embed"; NEVER a
-	// routable host bind (PRIV-01).
-	EmbedAddr string `toml:"embed_addr,omitempty"`
-	// EmbedPort is the in-network villa-embed OpenAI /v1 port (D-06/D-07).
-	// Default 8080.
-	EmbedPort int `toml:"embed_port,omitzero"`
 
 	// --- Coding-mode fields (v1.4, CMODE-01 / D-02/D-04) ---
 	// These follow the v1.3 memory-stack precedent EXACTLY: append-only, all
@@ -138,14 +167,6 @@ type VillaConfig struct {
 	// toggle (mirrors MemoryEnabled / CodingMode / AgentEnabled) — false is a meaningful
 	// explicit choice, so it is NOT self-healed in normalizeVilla.
 	WebSearchEnabled bool `toml:"web_search_enabled,omitempty"`
-	// SearxngAddr is the container-DNS name of the SearXNG metasearch service on
-	// villa.network. Default "villa-searxng"; NEVER a routable host bind (PRIV-01) —
-	// SearXNG publishes no host port.
-	SearxngAddr string `toml:"searxng_addr,omitempty"`
-	// SearxngPort is the in-network SearXNG port the readiness proof probes. Default 8080.
-	// Tagged ,omitzero (NOT ,omitempty) to match the v1.3 memory int precedent
-	// (qdrant_port/embed_port): BurntSushi/toml only drops a zero int with omitzero.
-	SearxngPort int `toml:"searxng_port,omitzero"`
 	// SearxngSecret is the SearXNG secret_key (its session/CSRF crypto seed, V3/V6),
 	// generated ONCE via crypto/rand at first opt-in and persisted at 0600 (config.toml).
 	// It is NEVER rendered into any 0644 file (unit/settings.yml) — it reaches the
@@ -170,15 +191,6 @@ type VillaConfig struct {
 	// meaningful default). marshalVilla zeroes all four when web search is off so an existing
 	// install is byte-identical on disk until opt-in (SC#4 / PRIV-07).
 
-	// WebsafeAddr is the container-DNS name of the villa-websafe loader on villa.network.
-	// Default "villa-websafe"; NEVER a routable host bind (PRIV-01) — villa-websafe publishes
-	// no host port. Tagged ,omitempty (mirrors SearxngAddr).
-	WebsafeAddr string `toml:"websafe_addr,omitempty"`
-	// WebsafePort is the in-network port the villa-websafe loader listens on (composed into
-	// the OWUI EXTERNAL_WEB_LOADER_URL by Plan 03). Default 8090. Tagged ,omitzero (NOT
-	// ,omitempty) to match the SearxngPort/embed_port int precedent: BurntSushi/toml only
-	// drops a zero int with omitzero, which the byte-identical-off guarantee depends on.
-	WebsafePort int `toml:"websafe_port,omitzero"`
 	// WebLoaderSecret is the EXTERNAL_WEB_LOADER_API_KEY bearer shared between OWUI and
 	// villa-websafe (T-31-08), generated ONCE via crypto/rand at first opt-in and persisted at
 	// 0600. It is NEVER rendered into any 0644 file — it reaches the containers via a 0600
@@ -197,7 +209,6 @@ type VillaConfig struct {
 func defaultConfig() VillaConfig {
 	return VillaConfig{
 		Backend:       "rocm",
-		DashboardAddr: "127.0.0.1",
 		DashboardPort: 8888,
 		ChatPort:      3000,
 		// Memory stack defaults — the SINGLE home of these literals (D-05). The
@@ -206,16 +217,10 @@ func defaultConfig() VillaConfig {
 		MemoryEnabled:  false,
 		EmbeddingModel: "nomic-embed-text-v1.5",
 		EmbeddingDim:   768,
-		QdrantAddr:     "villa-qdrant",
-		QdrantPort:     6333,
-		EmbedAddr:      "villa-embed",
-		EmbedPort:      8080,
 		// Web-search stack defaults (v1.5, SRCH-01) — the SINGLE home of these literals.
 		// The stack is OFF by default; the addr is a container-DNS name on villa.network
 		// only (PRIV-01). The secret has no default (generated at opt-in).
 		WebSearchEnabled: false,
-		SearxngAddr:      "villa-searxng",
-		SearxngPort:      8080,
 		// Result-count default (D-05): conservative 3 ahead of Phase 31's ctx-budget
 		// reservation. The SINGLE home of this literal; the other three sites derive it.
 		WebSearchResultCount: 3,
@@ -223,13 +228,11 @@ func defaultConfig() VillaConfig {
 		// is a container-DNS name on villa.network only (PRIV-01); the port is the in-network
 		// loader port. The bearer secret + host binary path have NO default (generated /
 		// captured at opt-in).
-		WebsafeAddr: "villa-websafe",
-		WebsafePort: 8090,
 	}
 }
 
 // normalizeVilla treats the dashboard/chat service fields' type-zero values
-// (DashboardPort==0, ChatPort==0, DashboardAddr=="") as "unset → default" and
+// (DashboardPort==0, ChatPort==0) as "unset → default" and
 // fills them from defaultConfig(). This self-heals an already-broken on-disk
 // config on the next load (gap test:1b): BurntSushi/toml sets a key present in
 // the file even when its value is the type zero, so a partial writer that emitted
@@ -262,38 +265,11 @@ func normalizeVilla(cfg VillaConfig) VillaConfig {
 	if cfg.ChatPort == 0 {
 		cfg.ChatPort = d.ChatPort
 	}
-	if cfg.DashboardAddr == "" {
-		cfg.DashboardAddr = d.DashboardAddr
-	}
 	if cfg.EmbeddingModel == "" {
 		cfg.EmbeddingModel = d.EmbeddingModel
 	}
 	if cfg.EmbeddingDim == 0 {
 		cfg.EmbeddingDim = d.EmbeddingDim
-	}
-	if cfg.QdrantAddr == "" {
-		cfg.QdrantAddr = d.QdrantAddr
-	}
-	if cfg.QdrantPort == 0 {
-		cfg.QdrantPort = d.QdrantPort
-	}
-	if cfg.EmbedAddr == "" {
-		cfg.EmbedAddr = d.EmbedAddr
-	}
-	if cfg.EmbedPort == 0 {
-		cfg.EmbedPort = d.EmbedPort
-	}
-	// Web-search endpoint self-heal (v1.5): a zero SearxngPort or empty SearxngAddr is
-	// treated as "unset -> default" and filled from the SAME defaultConfig() source
-	// (never a re-hard-coded literal). For the addr this only ever fills the container-DNS
-	// default name (villa-searxng) — it NEVER widens to a routable bind (PRIV-01).
-	// WebSearchEnabled (a deliberate bool) and SearxngSecret (a generated secret with no
-	// meaningful default) are NOT self-healed.
-	if cfg.SearxngAddr == "" {
-		cfg.SearxngAddr = d.SearxngAddr
-	}
-	if cfg.SearxngPort == 0 {
-		cfg.SearxngPort = d.SearxngPort
 	}
 	// Result-count self-heal (v1.5, D-05): a zero WebSearchResultCount is treated as
 	// "unset -> default" and filled from the SAME defaultConfig() source (never a
@@ -301,18 +277,8 @@ func normalizeVilla(cfg VillaConfig) VillaConfig {
 	if cfg.WebSearchResultCount == 0 {
 		cfg.WebSearchResultCount = d.WebSearchResultCount
 	}
-	// villa-websafe endpoint self-heal (v1.5): a zero WebsafePort or empty WebsafeAddr is
-	// treated as "unset -> default" and filled from the SAME defaultConfig() source (never a
-	// re-hard-coded literal). For the addr this only ever fills the container-DNS default name
-	// (villa-websafe) — it NEVER widens to a routable bind (PRIV-01). WebLoaderSecret (a
-	// generated bearer) and HostVillaPath (a captured host path) are NOT self-healed — neither
-	// has a meaningful default.
-	if cfg.WebsafeAddr == "" {
-		cfg.WebsafeAddr = d.WebsafeAddr
-	}
-	if cfg.WebsafePort == 0 {
-		cfg.WebsafePort = d.WebsafePort
-	}
+	// WebLoaderSecret (a generated bearer) and HostVillaPath (a captured host path) are
+	// NOT self-healed — neither has a meaningful default.
 	return cfg
 }
 
@@ -382,10 +348,6 @@ func marshalVilla(c VillaConfig) ([]byte, error) {
 	if !c.MemoryEnabled {
 		c.EmbeddingModel = ""
 		c.EmbeddingDim = 0
-		c.QdrantAddr = ""
-		c.QdrantPort = 0
-		c.EmbedAddr = ""
-		c.EmbedPort = 0
 	}
 	// Coding-mode omit-when-off (v1.4, D-02/D-04): when coding mode is disabled the
 	// resolved coder_* fields are zeroed on this by-value copy so the ,omitempty tags
@@ -404,16 +366,12 @@ func marshalVilla(c VillaConfig) ([]byte, error) {
 	// the memory/coder blocks above). The fields are re-applied by normalizeVilla on the
 	// next load (addr/port) or re-written by the opt-in path (the generated secret).
 	if !c.WebSearchEnabled {
-		c.SearxngAddr = ""
-		c.SearxngPort = 0
 		c.SearxngSecret = ""
 		c.WebSearchResultCount = 0
 		// villa-websafe loader fields (v1.5, SC#4/PRIV-07): zeroed on this by-value copy so
 		// the ,omitempty/,omitzero tags drop all four websafe keys — an off install gains NO
 		// websafe keys on disk (byte-identical-off). addr/port are re-applied by normalizeVilla
 		// on the next load; the secret/path are re-written by the opt-in path.
-		c.WebsafeAddr = ""
-		c.WebsafePort = 0
 		c.WebLoaderSecret = ""
 		c.HostVillaPath = ""
 	}
