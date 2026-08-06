@@ -951,3 +951,70 @@ func TestGenerateWebLoaderSecret(t *testing.T) {
 		t.Errorf("two GenerateWebLoaderSecret calls returned the same value %q — not high-entropy", a)
 	}
 }
+
+// TestSaveIsAtomicUnderWriteFailure is the durability gate for the one file the
+// whole control plane treats as authoritative. A save that cannot complete
+// must leave the config that was already on disk intact, never a truncated or
+// empty one — the loader fails closed on unparseable input, so a torn write is a
+// control plane that refuses to run until the file is repaired by hand.
+//
+// The failure is induced by making the config directory unwritable after seeding
+// a config. A whole-file write still truncates the existing file in that state
+// (write permission lives on the file, not on its directory), whereas a
+// temp-plus-rename writer cannot even create its temp file and so fails with the
+// prior config untouched. That difference is exactly the guarantee under test.
+func TestSaveIsAtomicUnderWriteFailure(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: directory permissions do not deny writes")
+	}
+	dir := filepath.Join(t.TempDir(), "villa")
+
+	prior := DefaultVillaConfig()
+	prior.Model = "the-config-already-on-disk"
+	if err := SaveVillaTo(dir, prior); err != nil {
+		t.Fatalf("seed SaveVillaTo: %v", err)
+	}
+	path := filepath.Join(dir, "config.toml")
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read seeded config: %v", err)
+	}
+
+	// Deny new entries in the directory, so the write cannot land. The mode is
+	// restored via t.Cleanup so TempDir can remove the tree afterwards.
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatalf("chmod dir read-only: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, configDirMode) })
+
+	next := DefaultVillaConfig()
+	next.Model = "the-config-that-never-landed"
+	if err := SaveVillaTo(dir, next); err == nil {
+		t.Fatal("SaveVillaTo into an unwritable directory returned nil; expected a write failure")
+	}
+
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("prior config unreadable after the failed save: %v", err)
+	}
+	if len(after) == 0 {
+		t.Fatal("prior config was truncated to zero bytes by a failed save")
+	}
+	if string(after) != string(before) {
+		t.Errorf("prior config changed under a failed save:\nbefore: %q\nafter:  %q", before, after)
+	}
+
+	// A failed save must not litter the directory with a partial file either.
+	if err := os.Chmod(dir, configDirMode); err != nil {
+		t.Fatalf("restore dir mode: %v", err)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("ReadDir: %v", err)
+	}
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".tmp") {
+			t.Errorf("failed save left a temp remnant %q", e.Name())
+		}
+	}
+}

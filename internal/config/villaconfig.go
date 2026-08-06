@@ -451,34 +451,18 @@ func GenerateWebLoaderSecret() (string, error) {
 // SaveVilla writes the config as TOML under the XDG config dir with 0600 perms.
 // It marshals via marshalVilla (no string interpolation, T-02-03) and refuses
 // to write outside the villa config dir (path-traversal guard, T-02-02/V12).
+//
+// The write is atomic: config.toml is the single source of truth and holds
+// values that exist nowhere else — the SearXNG secret and the web-loader bearer
+// are generated once and never re-derivable — so an interrupted write must leave
+// the previous config intact rather than a truncated file the fail-closed loader
+// would refuse.
 func SaveVilla(c VillaConfig) error {
 	dir, err := villaConfigDir()
 	if err != nil {
 		return err
 	}
-	path := filepath.Join(dir, "config.toml")
-
-	if err := assertInsideDir(path, dir); err != nil {
-		return err
-	}
-
-	if err := os.MkdirAll(dir, configDirMode); err != nil {
-		return fmt.Errorf("config: create config dir %q: %w", dir, err)
-	}
-
-	data, err := marshalVilla(c)
-	if err != nil {
-		return fmt.Errorf("config: marshal: %w", err)
-	}
-
-	if err := os.WriteFile(path, data, configFileMode); err != nil {
-		return fmt.Errorf("config: write %q: %w", path, err)
-	}
-	// Tighten perms even if the file pre-existed with a looser mode.
-	if err := os.Chmod(path, configFileMode); err != nil {
-		return fmt.Errorf("config: chmod %q: %w", path, err)
-	}
-	return nil
+	return saveVillaTo(dir, c)
 }
 
 // SaveVillaTo is the testable core of SaveVilla: it writes c to a config.toml
@@ -486,21 +470,43 @@ func SaveVilla(c VillaConfig) error {
 // calls SaveVilla; tests pass a temp dir to exercise the traversal guard without
 // touching the user's real XDG config.
 func SaveVillaTo(dir string, c VillaConfig) error {
-	path := filepath.Join(dir, "config.toml")
-	if err := assertInsideDir(path, dir); err != nil {
+	return saveVillaTo(dir, c)
+}
+
+// saveVillaTo is the single write path both exported savers share, so neither can
+// drift from the other's guarantees: traversal-guarded, 0700 directory, 0600 file,
+// and atomic.
+//
+// dir is made absolute first because the shared writer requires an absolute
+// containment root — a relative root cannot bound anything, and refusing it is
+// what stops a relative XDG value from reaching a write.
+func saveVillaTo(dir string, c VillaConfig) error {
+	absDir, err := filepath.Abs(dir)
+	if err != nil {
+		return fmt.Errorf("config: resolve config dir %q: %w", dir, err)
+	}
+	path := filepath.Join(absDir, "config.toml")
+
+	// Kept as a separate up-front check, ahead of the writer's own containment
+	// guard, because it is what produces the "outside config dir" wording the
+	// traversal test asserts verbatim.
+	if err := assertInsideDir(path, absDir); err != nil {
 		return err
 	}
-	if err := os.MkdirAll(dir, configDirMode); err != nil {
-		return fmt.Errorf("config: create config dir %q: %w", dir, err)
+
+	if err := os.MkdirAll(absDir, configDirMode); err != nil {
+		return fmt.Errorf("config: create config dir %q: %w", absDir, err)
 	}
+
 	data, err := marshalVilla(c)
 	if err != nil {
 		return fmt.Errorf("config: marshal: %w", err)
 	}
-	if err := os.WriteFile(path, data, configFileMode); err != nil {
+
+	if err := pathsafe.WriteFileAtomic(absDir, path, data, configFileMode); err != nil {
 		return fmt.Errorf("config: write %q: %w", path, err)
 	}
-	return os.Chmod(path, configFileMode)
+	return nil
 }
 
 // LoadVillaFrom reads config.toml from dir (the testable counterpart to

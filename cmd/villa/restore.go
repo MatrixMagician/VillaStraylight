@@ -5,8 +5,9 @@ package main
 // quiesce -> clean-recreate-before-import -> restart -> offload-asserting prove ->
 // rollback-on-failure. The pure transactional state-machine lives in internal/backup
 // (Restore); this file is the thin cobra caller + liveRestoreDeps / liveRestoreInput
-// wiring: config restored via config.SaveVilla (atomic 0600/0700, traversal-guarded —
-// NEVER hand-write), the Open WebUI volume rm/import via the shared cmd-tier fixed-arg
+// wiring: config restored via config.SaveVilla (atomic temp+rename via
+// pathsafe.WriteFileAtomic, 0600/0700, traversal-guarded — NEVER hand-write), the
+// Open WebUI volume rm/import via the shared cmd-tier fixed-arg
 // podman volume seam (podman_volume.go, D-02), the Quadlet recreate via
 // orchestrate.Render->Reconcile->WriteUnits->DaemonReload (config is the single source
 // of truth, D-07), EnsureVolume via an explicit `podman volume create` so import never
@@ -313,7 +314,7 @@ func liveSkewConsent(prompt string) bool {
 }
 
 // liveRestoreDeps wires the pure backup.Restore seam to the real host: config
-// load/save (SaveVilla — atomic 0600/0700, traversal-guarded), the shared fixed-arg
+// load/save (SaveVilla — atomic temp+rename, 0600/0700, traversal-guarded), the shared fixed-arg
 // podman volume export/import/rm + an explicit ensure-create, the Quadlet recreate
 // (Render->Reconcile->WriteUnits->DaemonReload from the restored config), the systemd
 // stop/start/restart seam, atomic data-dir writes via usage.WriteFileAtomic, and the
@@ -327,7 +328,7 @@ func liveRestoreDeps() backup.Deps {
 		// unit-name accessor, never a re-typed literal (D-05).
 		QdrantServiceName: unitServiceName(orchestrate.QdrantContainerUnitName()),
 		LoadConfig:        config.LoadVilla,
-		SaveConfig:        config.SaveVilla, // atomic 0600/0700, traversal-guarded — NEVER hand-write
+		SaveConfig:        config.SaveVilla, // atomic temp+rename, 0600/0700, traversal-guarded — NEVER hand-write
 		VolumeExport: func(name, outPath string) error {
 			if err := requirePodman(); err != nil {
 				return err
