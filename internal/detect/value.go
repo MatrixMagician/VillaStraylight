@@ -8,67 +8,72 @@
 // HostProfile field.
 package detect
 
-// Bytes is an optional byte-count value with provenance.
+// Optional is a detected value with provenance, or the typed absence of one.
 //
-// Known distinguishes "couldn't detect" (Known=false) from a legitimate zero
-// (Known=true, Value=0), so --json consumers (the Phase 5 dashboard) and the
-// recommender never mistake an undetected envelope for an empty one.
-type Bytes struct {
-	Value  uint64 `json:"value"`
+// Known is the distinction the whole spine exists to preserve: "couldn't
+// detect" (Known=false) is not the same answer as a legitimate zero, an empty
+// string, or a confident false (Known=true with that value). --json consumers
+// (the dashboard) and the recommender must never read an undetected envelope as
+// an empty one, so no probe may collapse the two.
+//
+// The four concrete spellings below are aliases rather than distinct types, so
+// every existing construction site and field declaration keeps compiling and the
+// serialised form is unchanged.
+type Optional[T any] struct {
+	Value  T      `json:"value"`
 	Known  bool   `json:"known"`
 	Source string `json:"source,omitempty"` // provenance for -v (D-08), or reason on Unknown
 	Raw    string `json:"-"`                // captured raw output on parse-fail (D-16); never serialized
 }
 
-// KnownBytes wraps a successfully detected byte count with its provenance source.
-func KnownBytes(v uint64, src string) Bytes { return Bytes{Value: v, Known: true, Source: src} }
+// known builds a detected value with its provenance source.
+func known[T any](v T, src string) Optional[T] {
+	return Optional[T]{Value: v, Known: true, Source: src}
+}
 
-// UnknownBytes records an undetected byte count: reason explains why (surfaced in
-// normal output), raw captures the offending probe output (surfaced under -v).
-func UnknownBytes(reason, raw string) Bytes { return Bytes{Known: false, Source: reason, Raw: raw} }
+// unknown records an undetected value: reason explains why (surfaced in normal
+// output), raw captures the offending probe output (surfaced under -v).
+func unknown[T any](reason, raw string) Optional[T] {
+	return Optional[T]{Known: false, Source: reason, Raw: raw}
+}
+
+// Bytes is an optional byte-count value with provenance.
+type Bytes = Optional[uint64]
 
 // Str is an optional string value with provenance.
-type Str struct {
-	Value  string `json:"value"`
-	Known  bool   `json:"known"`
-	Source string `json:"source,omitempty"`
-	Raw    string `json:"-"`
-}
-
-// KnownStr wraps a successfully detected string with its provenance source.
-func KnownStr(v, src string) Str { return Str{Value: v, Known: true, Source: src} }
-
-// UnknownStr records an undetected string (reason + captured raw output).
-func UnknownStr(reason, raw string) Str { return Str{Known: false, Source: reason, Raw: raw} }
+type Str = Optional[string]
 
 // Int is an optional integer value with provenance.
-type Int struct {
-	Value  int    `json:"value"`
-	Known  bool   `json:"known"`
-	Source string `json:"source,omitempty"`
-	Raw    string `json:"-"`
-}
-
-// KnownInt wraps a successfully detected integer with its provenance source.
-func KnownInt(v int, src string) Int { return Int{Value: v, Known: true, Source: src} }
-
-// UnknownInt records an undetected integer (reason + captured raw output).
-func UnknownInt(reason, raw string) Int { return Int{Known: false, Source: reason, Raw: raw} }
+type Int = Optional[int]
 
 // Bool is an optional boolean value with provenance.
 //
 // A Known=true Bool carries a real true/false answer; an Unknown Bool means the
 // signal could not be evaluated (e.g. a tool was missing), which is distinct
 // from a confidently-false answer.
-type Bool struct {
-	Value  bool   `json:"value"`
-	Known  bool   `json:"known"`
-	Source string `json:"source,omitempty"`
-	Raw    string `json:"-"`
-}
+type Bool = Optional[bool]
+
+// KnownBytes wraps a successfully detected byte count with its provenance source.
+func KnownBytes(v uint64, src string) Bytes { return known(v, src) }
+
+// UnknownBytes records an undetected byte count: reason explains why (surfaced in
+// normal output), raw captures the offending probe output (surfaced under -v).
+func UnknownBytes(reason, raw string) Bytes { return unknown[uint64](reason, raw) }
+
+// KnownStr wraps a successfully detected string with its provenance source.
+func KnownStr(v, src string) Str { return known(v, src) }
+
+// UnknownStr records an undetected string (reason + captured raw output).
+func UnknownStr(reason, raw string) Str { return unknown[string](reason, raw) }
+
+// KnownInt wraps a successfully detected integer with its provenance source.
+func KnownInt(v int, src string) Int { return known(v, src) }
+
+// UnknownInt records an undetected integer (reason + captured raw output).
+func UnknownInt(reason, raw string) Int { return unknown[int](reason, raw) }
 
 // KnownBool wraps a successfully evaluated boolean with its provenance source.
-func KnownBool(v bool, src string) Bool { return Bool{Value: v, Known: true, Source: src} }
+func KnownBool(v bool, src string) Bool { return known(v, src) }
 
 // UnknownBool records an unevaluated boolean (reason + captured raw output).
-func UnknownBool(reason, raw string) Bool { return Bool{Known: false, Source: reason, Raw: raw} }
+func UnknownBool(reason, raw string) Bool { return unknown[bool](reason, raw) }

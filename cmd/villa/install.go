@@ -308,6 +308,12 @@ const installServiceName = "villa-llama.service"
 // (D-05) so the chat UI comes up against a live backend.
 const openWebUIServiceName = "villa-openwebui.service"
 
+// websafeServiceName is the systemd service the villa-websafe .container generates (Quadlet
+// maps villa-websafe.container → villa-websafe.service). Its start is gated on the rendered
+// unit being present in the written plan AND on the PERSISTED web_search_enabled, and it is
+// started only AFTER the 0600 websafe.env secret file is written (its EnvironmentFile= target).
+const websafeServiceName = "villa-websafe.service"
+
 // newInstall builds `villa install`: detect → recommend → preflight gate →
 // consented host-prep → render → reconcile → write → daemon-reload → start →
 // readiness poll, idempotent and --dry-run aware.
@@ -924,12 +930,12 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 		// typed-Unknown (warnRecallEmbeddingSkew).
 		warnRecallEmbeddingSkew(errOut, cfg, d.readRecallState)
 		proof := d.memoryProofFn(cmd.Context(), memoryProofInput{
-			embedAddr:    cfg.EmbedAddr,
-			embedPort:    cfg.EmbedPort,
+			embedAddr:    config.EmbedAddr,
+			embedPort:    config.EmbedPort,
 			embedModel:   cfg.EmbeddingModel,
 			embeddingDim: cfg.EmbeddingDim,
-			qdrantAddr:   cfg.QdrantAddr,
-			qdrantPort:   cfg.QdrantPort,
+			qdrantAddr:   config.QdrantAddr,
+			qdrantPort:   config.QdrantPort,
 		})
 		if proof.status == preflight.StatusFail {
 			fmt.Fprintf(errOut, "install: memory stack not ready: %s\n", proof.detail)
@@ -947,12 +953,12 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 	// skipped under --dry-run (that path returned far above). A FAIL refuses-with-remediation
 	// (exitBlocked) — never a silent skip / false-green (honesty-by-construction). A PASS
 	// prints a ready line and folds into the existing PASS/WARN verdict. The proof probes the
-	// SAME cfg.SearxngAddr/SearxngPort the rendered unit's container-DNS identity derives from
+	// SAME config.SearxngAddr/SearxngPort the rendered unit's container-DNS identity derives from
 	// (WR-01), so it can never probe a different target than what runs.
 	if cfg.WebSearchEnabled {
 		proof := d.searxngProofFn(cmd.Context(), searxngProofInput{
-			searxngAddr: cfg.SearxngAddr,
-			searxngPort: cfg.SearxngPort,
+			searxngAddr: config.SearxngAddr,
+			searxngPort: config.SearxngPort,
 		})
 		if proof.status == preflight.StatusFail {
 			fmt.Fprintf(errOut, "install: search service not ready: %s\n", proof.detail)

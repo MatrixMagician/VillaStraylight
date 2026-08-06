@@ -1,71 +1,68 @@
 package detect
 
 import (
-	"bufio"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
-
-	"github.com/jaypipes/ghw"
 )
 
 // pageSize is the assumed page size for the ttm.pages_limit cross-check (amdgpu
 // reports pages_limit in 4 KiB pages on x86-64).
 const pageSize = 4096
 
-// memInfo returns total physical RAM (via ghw) and the live MemAvailable (hand
-// parsed from /proc/meminfo). Neither is the GPU envelope — see usableEnvelope.
+// memInfo returns total physical RAM and the live MemAvailable, both parsed
+// from /proc/meminfo. Neither is the GPU envelope — see usableEnvelope.
+//
+// Both come from the same file: MemAvailable always did, because a DMI-derived
+// "usable" figure is not the live kernel number preflight needs, and MemTotal
+// now joins it rather than arriving from a separate inventory library sitting a
+// line above it.
 func memInfo(procMeminfoPath string) (total Bytes, available Bytes) {
-	mem, err := ghw.Memory()
-	if err != nil || mem == nil || mem.TotalPhysicalBytes <= 0 {
-		reason := "ghw memory total unavailable"
-		if err != nil {
-			reason = "ghw.Memory error"
-		}
-		total = UnknownBytes(reason, errString(err))
-	} else {
-		total = KnownBytes(uint64(mem.TotalPhysicalBytes), "ghw.Memory")
-	}
+	return memTotalBytes(procMeminfoPath), memAvailableBytes(procMeminfoPath)
+}
 
-	available = memAvailableBytes(procMeminfoPath)
-	return total, available
+// memTotalBytes parses the MemTotal line of /proc/meminfo (reported in kB).
+//
+// MemTotal is kernel-visible RAM, which is slightly below the physical total a
+// DMI read reports because firmware reservations are already deducted. That is
+// the more honest number for a memory-fit decision: it is memory the kernel can
+// actually hand out.
+func memTotalBytes(path string) Bytes {
+	return meminfoField(path, "MemTotal")
 }
 
 // memAvailableBytes parses the MemAvailable line of /proc/meminfo (reported in
-// kB). We hand-parse this because ghw's "usable" is DMI-derived, not the live
-// kernel MemAvailable that preflight's free-memory check needs.
+// kB) — the live kernel figure preflight's free-memory check needs.
 func memAvailableBytes(path string) Bytes {
-	f, err := os.Open(path)
-	if err != nil {
-		return UnknownBytes("meminfo unreadable", errString(err))
-	}
-	defer f.Close()
+	return meminfoField(path, "MemAvailable")
+}
 
-	sc := bufio.NewScanner(f)
-	for sc.Scan() {
-		line := sc.Text()
-		if !strings.HasPrefix(line, "MemAvailable:") {
-			continue
-		}
-		fields := strings.Fields(line)
-		// Expected shape: "MemAvailable:  123456 kB"
-		if len(fields) < 2 {
-			return UnknownBytes("MemAvailable malformed", line)
-		}
-		kb, err := strconv.ParseUint(fields[1], 10, 64)
-		if err != nil {
-			return UnknownBytes("MemAvailable unparseable", line)
-		}
-		return KnownBytes(kb*1024, path+":MemAvailable")
+// meminfoField parses one "<Field>: <n> kB" line of a /proc/meminfo-shaped file
+// into bytes, degrading to a typed Unknown with a reason at every failure — an
+// unreadable file, a malformed or unparseable line, an interrupted read, or an
+// absent field. It never returns a bare zero.
+func meminfoField(path, field string) Bytes {
+	line, res, err := findLine(path, field+":")
+	switch res {
+	case lineUnopenable:
+		return UnknownBytes("meminfo unreadable", errString(err))
+	case lineReadFailed:
+		return UnknownBytes("meminfo read error", errString(err))
+	case lineAbsent:
+		return UnknownBytes(field+" not found", "")
 	}
-	// A scan error (truncated/interrupted read) is otherwise indistinguishable
-	// from a clean EOF; surface it as the real reason instead of mislabeling an
-	// I/O failure as "MemAvailable not found" (WR-05, D-16).
-	if err := sc.Err(); err != nil {
-		return UnknownBytes("meminfo read error", err.Error())
+
+	fields := strings.Fields(line)
+	// Expected shape: "MemAvailable:  123456 kB"
+	if len(fields) < 2 {
+		return UnknownBytes(field+" malformed", line)
 	}
-	return UnknownBytes("MemAvailable not found", "")
+	kb, err := strconv.ParseUint(fields[1], 10, 64)
+	if err != nil {
+		return UnknownBytes(field+" unparseable", line)
+	}
+	return KnownBytes(kb*1024, path+":"+field)
 }
 
 // amdSysfsCardDirs returns the device directories of AMD DRM cards (vendor

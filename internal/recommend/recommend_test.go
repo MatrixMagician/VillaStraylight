@@ -194,7 +194,7 @@ func TestOverrideAbsurdCtxNeverWrapsToFit(t *testing.T) {
 // prominent Note when the envelope is Unknown but RAM is known (D-14).
 func TestDegradedFloorWhenEnvelopeUnknown(t *testing.T) {
 	p := detect.HostProfile{
-		TotalRAMBytes:       detect.KnownBytes(128<<30, "ghw"),
+		TotalRAMBytes:       detect.KnownBytes(128<<30, "/proc/meminfo:MemTotal"),
 		UsableEnvelopeBytes: detect.UnknownBytes("envelope unreadable", ""),
 	}
 	rec := Pick(p, testCatalog(), Overrides{}, MemoryInputs{}, WebSearchInputs{})

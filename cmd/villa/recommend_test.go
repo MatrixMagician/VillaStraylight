@@ -194,9 +194,6 @@ func TestSaveRecommendationPreservesDashboardPorts(t *testing.T) {
 	if got.DashboardPort != 8888 || got.ChatPort != 3000 {
 		t.Errorf("round-trip ports = {dash %d, chat %d}, want {8888, 3000}", got.DashboardPort, got.ChatPort)
 	}
-	if got.DashboardAddr != "127.0.0.1" {
-		t.Errorf("round-trip DashboardAddr = %q, want 127.0.0.1 (loopback-only, PRIV-01)", got.DashboardAddr)
-	}
 	// The saved selection fields must still be present.
 	if got.Model == "" || got.Backend == "" {
 		t.Errorf("round-trip dropped the recommendation: %+v", got)
@@ -235,7 +232,7 @@ chat_port = 0
 		t.Fatalf("resolved DashboardPort is still 0 — dashboard would bind :0")
 	}
 	// The exact string the dashboard command prints (minus scheme).
-	addr := net.JoinHostPort(cfg.DashboardAddr, strconv.Itoa(cfg.DashboardPort))
+	addr := net.JoinHostPort(config.DashboardAddr, strconv.Itoa(cfg.DashboardPort))
 	if addr != "127.0.0.1:8888" {
 		t.Errorf("resolved dashboard address = %q, want 127.0.0.1:8888 (never :0)", addr)
 	}

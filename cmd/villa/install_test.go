@@ -1380,10 +1380,7 @@ func TestInstallPreservesPersistedMemoryConfig(t *testing.T) {
 	// chat port, as if the user hand-edited config.toml.
 	persisted := config.DefaultVillaConfig()
 	persisted.MemoryEnabled = true
-	persisted.EmbedPort = 9090
 	persisted.EmbeddingModel = "custom-embed-model"
-	persisted.QdrantPort = 7333
-	persisted.QdrantAddr = "villa-qdrant-custom"
 	persisted.ChatPort = 4444
 	f.persistedConfig = &persisted
 
@@ -1393,18 +1390,9 @@ func TestInstallPreservesPersistedMemoryConfig(t *testing.T) {
 	}
 
 	// The persisted memory + chat customizations must survive into the saved cfg —
-	// install must not have reset them to the seed defaults (8080/nomic.../6333/3000).
-	if f.savedCfg.EmbedPort != 9090 {
-		t.Errorf("install reset persisted embed_port to %d, want 9090 preserved (WR-02)", f.savedCfg.EmbedPort)
-	}
+	// install must not have reset them to the seed defaults (nomic.../3000).
 	if f.savedCfg.EmbeddingModel != "custom-embed-model" {
 		t.Errorf("install reset persisted embedding_model to %q, want \"custom-embed-model\" preserved (WR-02)", f.savedCfg.EmbeddingModel)
-	}
-	if f.savedCfg.QdrantPort != 7333 {
-		t.Errorf("install reset persisted qdrant_port to %d, want 7333 preserved (WR-02)", f.savedCfg.QdrantPort)
-	}
-	if f.savedCfg.QdrantAddr != "villa-qdrant-custom" {
-		t.Errorf("install reset persisted qdrant_addr to %q, want preserved (WR-02)", f.savedCfg.QdrantAddr)
 	}
 	if f.savedCfg.ChatPort != 4444 {
 		t.Errorf("install reset persisted chat_port to %d, want 4444 preserved (WR-02)", f.savedCfg.ChatPort)

@@ -463,7 +463,7 @@ func runResidencyUnderLoad(cfg config.VillaConfig, sd *status.Deps) inference.Ve
 			fmt.Sprintf("the embed drive body could not be built (%v)", err),
 			"re-run `villa doctor`")
 	}
-	url := fmt.Sprintf("http://%s:%d/v1/embeddings", cfg.EmbedAddr, cfg.EmbedPort)
+	url := fmt.Sprintf("http://%s:%d/v1/embeddings", config.EmbedAddr, config.EmbedPort)
 	helperImage := orchestrate.EmbedImage()
 
 	ctx, cancel := context.WithTimeout(context.Background(), residencyProofBudget)

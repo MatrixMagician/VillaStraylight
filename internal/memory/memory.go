@@ -58,18 +58,9 @@ func Decide(cfg config.VillaConfig) Decision {
 	if cfg.EmbeddingDim <= 0 {
 		reasons = append(reasons, "embedding_dim must be a positive integer (the pinned embedding dimension is load-bearing; changing it corrupts existing vectors)")
 	}
-	if cfg.QdrantAddr == "" {
-		reasons = append(reasons, "qdrant_addr is empty (the in-network Qdrant container-DNS name is required when memory is enabled)")
-	}
-	if cfg.QdrantPort <= 0 || cfg.QdrantPort > 65535 {
-		reasons = append(reasons, "qdrant_port must be a valid TCP port in 1..65535 (the in-network Qdrant REST port is required when memory is enabled)")
-	}
-	if cfg.EmbedAddr == "" {
-		reasons = append(reasons, "embed_addr is empty (the in-network villa-embed container-DNS name is required when memory is enabled)")
-	}
-	if cfg.EmbedPort <= 0 || cfg.EmbedPort > 65535 {
-		reasons = append(reasons, "embed_port must be a valid TCP port in 1..65535 (the in-network villa-embed OpenAI /v1 port is required when memory is enabled)")
-	}
+	// The Qdrant and villa-embed endpoints are no longer validated here: they are
+	// constants, so there is no unset or out-of-range value left to reject. Only the
+	// two fields a user can actually get wrong remain.
 
 	return Decision{Enabled: true, Valid: len(reasons) == 0, Reasons: reasons}
 }
@@ -96,9 +87,9 @@ func RenderView(cfg config.VillaConfig) MemoryRenderInput {
 	return MemoryRenderInput{
 		EmbeddingModel: cfg.EmbeddingModel,
 		EmbeddingDim:   cfg.EmbeddingDim,
-		QdrantAddr:     cfg.QdrantAddr,
-		QdrantPort:     cfg.QdrantPort,
-		EmbedAddr:      cfg.EmbedAddr,
-		EmbedPort:      cfg.EmbedPort,
+		QdrantAddr:     config.QdrantAddr,
+		QdrantPort:     config.QdrantPort,
+		EmbedAddr:      config.EmbedAddr,
+		EmbedPort:      config.EmbedPort,
 	}
 }

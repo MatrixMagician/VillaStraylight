@@ -96,10 +96,8 @@ func probeHealthOnce(ctx context.Context, client *http.Client, url string) bool 
 // reported as a failure detail, never a panic.
 func chatProbe(ctx context.Context, endpoint, modelID string) ChatResult {
 	client := llm.NewOpenAIClient(llm.Options{
-		BaseURL:      strings.TrimRight(endpoint, "/") + "/v1",
-		APIKey:       "local",
-		DefaultModel: modelID,
-		Timeout:      chatProbeTimeout,
+		BaseURL: strings.TrimRight(endpoint, "/") + "/v1",
+		Timeout: chatProbeTimeout,
 	})
 
 	var (
@@ -107,6 +105,7 @@ func chatProbe(ctx context.Context, endpoint, modelID string) ChatResult {
 		sb     strings.Builder
 	)
 	err := client.StreamChat(ctx, llm.ChatRequest{
+		Model:    modelID,
 		Messages: []llm.Message{{Role: llm.RoleUser, Content: chatProbePrompt}},
 	}, func(delta string) error {
 		if delta != "" {

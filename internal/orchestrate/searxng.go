@@ -46,7 +46,7 @@ func SearXNGImage() string { return searxngImage }
 
 // SearXNG stable Quadlet identity (this project's unit-name contract, asserted by the
 // golden — it leaks no GPU/image assumption). The CONTAINER-DNS name is NOT a const
-// here: it is config-resolved (cfg.SearxngAddr) and threaded into buildSearxngView
+// here: it is config-resolved (config.SearxngAddr) and threaded into buildSearxngView
 // (WR-01), so config is the single source of truth for the service's network identity.
 const searxngContainerUnitName = "villa-searxng.container"
 

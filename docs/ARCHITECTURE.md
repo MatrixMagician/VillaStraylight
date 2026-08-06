@@ -301,11 +301,5 @@ internal/
   status/             Shared read-model aggregation (CLI + dashboard, never forked).
   metrics/            Bounded llama-server /metrics + /slots scrape for the perf panel.
   dashboard/          Loopback-only control dashboard backend + embedded UI.
-  llm/                Reference-only scaffold remnant (OpenAI-compatible SSE client).
-web/                  Legacy embedded React UI (reference-only).
+  llm/                OpenAI-compatible SSE + non-streaming client (the bench timings source).
 ```
-
-The `internal/llm` and `web/` trees are remnants of an earlier exploratory scaffold
-(an embedded-UI OpenAI-compatible proxy). They are superseded by the `villa` control
-plane and integrated Open WebUI; they are kept as a parts bin and are not part of the
-current architecture.

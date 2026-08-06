@@ -55,8 +55,10 @@ type ProveVerdict struct {
 type Deps struct {
 	// LoadConfig loads the current persisted config (the source of truth).
 	LoadConfig func() (config.VillaConfig, error)
-	// SaveConfig persists a config to config.toml via config.SaveVilla (atomic,
-	// 0600/0700, traversal-guarded — NEVER hand-write TOML; D-07).
+	// SaveConfig persists a config to config.toml via config.SaveVilla (atomic
+	// temp+rename, 0600/0700, traversal-guarded — NEVER hand-write TOML; D-07).
+	// The atomicity matters most here: a torn write during a restore would destroy
+	// both the config being restored and the one already on disk.
 	SaveConfig func(c config.VillaConfig) error
 
 	// VolumeExport exports the named podman volume to the file at out via the

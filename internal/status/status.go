@@ -650,7 +650,7 @@ func Run(d Deps) Report {
 			// N/A representation excluded from the worst-wins fold.
 			ss.Health = HealthUnknown
 			if d.QdrantHealth != nil {
-				ss.Health = d.QdrantHealth(cfg.QdrantAddr, cfg.QdrantPort)
+				ss.Health = d.QdrantHealth(config.QdrantAddr, config.QdrantPort)
 			}
 			ss.Offload = naOffloadVerdict()
 			ss.OffloadApplies = false
@@ -664,7 +664,7 @@ func Run(d Deps) Report {
 			// as the qdrant row — own health seam, N/A offload, no fold.
 			ss.Health = HealthUnknown
 			if d.EmbedHealth != nil {
-				ss.Health = d.EmbedHealth(cfg.EmbedAddr, cfg.EmbedPort)
+				ss.Health = d.EmbedHealth(config.EmbedAddr, config.EmbedPort)
 			}
 			ss.Offload = naOffloadVerdict()
 			ss.OffloadApplies = false
@@ -681,7 +681,7 @@ func Run(d Deps) Report {
 			// from the worst-wins fold.
 			ss.Health = HealthUnknown
 			if d.SearxngHealth != nil {
-				ss.Health = d.SearxngHealth(cfg.SearxngAddr, cfg.SearxngPort)
+				ss.Health = d.SearxngHealth(config.SearxngAddr, config.SearxngPort)
 			}
 			ss.Offload = naOffloadVerdict()
 			ss.OffloadApplies = false
@@ -696,7 +696,7 @@ func Run(d Deps) Report {
 			// fold. A nil seam degrades to HealthUnknown.
 			ss.Health = HealthUnknown
 			if d.WebsafeHealth != nil {
-				ss.Health = d.WebsafeHealth(cfg.WebsafeAddr, cfg.WebsafePort)
+				ss.Health = d.WebsafeHealth(config.WebsafeAddr, config.WebsafePort)
 			}
 			ss.Offload = naOffloadVerdict()
 			ss.OffloadApplies = false

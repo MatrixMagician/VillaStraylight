@@ -127,7 +127,8 @@ func runBackup(cmd *cobra.Command, output string, d backup.Deps) int {
 	// destroy the PREVIOUS archive on a mid-backup failure — the old
 	// O_TRUNC-then-remove flow left the operator with ZERO backups whenever any
 	// later step failed. Same temp+rename discipline as config.SaveVilla /
-	// usage.WriteFileAtomic; CreateTemp creates the file 0600 (owner-only).
+	// usage.WriteFileAtomic, both of which write through pathsafe.WriteFileAtomic;
+	// CreateTemp creates the file 0600 (owner-only).
 	// Created here so a failure short-circuits before any service quiesce.
 	f, err := os.CreateTemp(parent, ".villa-backup-*.tar")
 	if err != nil {

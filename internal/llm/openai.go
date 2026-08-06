@@ -25,10 +25,8 @@ var ErrNoTimings = errors.New("llm: response carried no usable timings block")
 // server-sent-event streaming. It works with Ollama, llama.cpp's server, vLLM,
 // LM Studio, and the OpenAI API itself.
 type OpenAIClient struct {
-	baseURL      string
-	apiKey       string
-	defaultModel string
-	httpClient   *http.Client
+	baseURL    string
+	httpClient *http.Client
 }
 
 // NewOpenAIClient builds a client from Options.
@@ -38,10 +36,8 @@ func NewOpenAIClient(opts Options) *OpenAIClient {
 		timeout = 120 * time.Second
 	}
 	return &OpenAIClient{
-		baseURL:      strings.TrimRight(opts.BaseURL, "/"),
-		apiKey:       opts.APIKey,
-		defaultModel: opts.DefaultModel,
-		httpClient:   &http.Client{Timeout: timeout},
+		baseURL:    strings.TrimRight(opts.BaseURL, "/"),
+		httpClient: &http.Client{Timeout: timeout},
 	}
 }
 
@@ -98,10 +94,7 @@ type completeResponse struct {
 func (c *OpenAIClient) StreamChat(ctx context.Context, req ChatRequest, onDelta StreamFunc) error {
 	model := req.Model
 	if model == "" {
-		model = c.defaultModel
-	}
-	if model == "" {
-		return fmt.Errorf("llm: no model specified and no default configured")
+		return fmt.Errorf("llm: no model specified")
 	}
 	if len(req.Messages) == 0 {
 		return fmt.Errorf("llm: messages must not be empty")
@@ -118,9 +111,6 @@ func (c *OpenAIClient) StreamChat(ctx context.Context, req ChatRequest, onDelta 
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Accept", "text/event-stream")
-	if c.apiKey != "" {
-		httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
-	}
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
@@ -144,10 +134,7 @@ func (c *OpenAIClient) StreamChat(ctx context.Context, req ChatRequest, onDelta 
 func (c *OpenAIClient) Complete(ctx context.Context, req ChatRequest, nPredict int, seed int, temp float64) (Timings, error) {
 	model := req.Model
 	if model == "" {
-		model = c.defaultModel
-	}
-	if model == "" {
-		return Timings{}, fmt.Errorf("llm: no model specified and no default configured")
+		return Timings{}, fmt.Errorf("llm: no model specified")
 	}
 	if len(req.Messages) == 0 {
 		return Timings{}, fmt.Errorf("llm: messages must not be empty")
@@ -171,9 +158,6 @@ func (c *OpenAIClient) Complete(ctx context.Context, req ChatRequest, nPredict i
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Accept", "application/json")
-	if c.apiKey != "" {
-		httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
-	}
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {

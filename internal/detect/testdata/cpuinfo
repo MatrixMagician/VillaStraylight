@@ -1,0 +1,19 @@
+processor	: 0
+vendor_id	: AuthenticAMD
+cpu family	: 26
+model		: 112
+model name	: AMD RYZEN AI MAX+ 395 w/ Radeon 8060S
+stepping	: 0
+microcode	: 0xb700037
+cpu MHz		: 3542.113
+cache size	: 1024 KB
+physical id	: 0
+siblings	: 32
+core id		: 0
+
+processor	: 1
+vendor_id	: AuthenticAMD
+cpu family	: 26
+model		: 112
+model name	: AMD RYZEN AI MAX+ 395 w/ Radeon 8060S
+stepping	: 0

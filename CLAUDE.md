@@ -24,17 +24,6 @@ containers, not rebuilt.
 
 **Shipped:** v1.0 MVP, v1.1 (ROCm Opt-In Backend), v1.2 (Operability), v1.3 (Memory & Knowledge), and v1.4 (Coding Agent) are complete and tagged on `main`. The `villa` control plane is implemented under `cmd/villa/` + `internal/`.
 
-## Legacy scaffold (reference-only — NOT the current architecture)
-
-An earlier exploratory scaffold left reference-only remnants in the repo —
-`internal/llm` (an OpenAI-compatible SSE/streaming client) and `web/` (an embedded
-React UI), plus the root `.env.example`. **This is superseded** — the product
-integrates Open WebUI for chat and a `villa` control plane for orchestration; a
-custom chat UI is explicitly out of scope (see the Project section below). Treat
-this code as a parts bin: its `internal/llm` SSE streaming / OpenAI-compatible
-client may be cannibalized for the gateway, but do not extend it as the app.
-Don't let its layout constrain the architecture.
-
 ## Build, run & test
 
 ```bash
@@ -130,19 +119,15 @@ VillaStraylight is a self-hosted, local AI server stack for privacy-conscious po
 ### Key Dependencies
 
 - `github.com/spf13/cobra` v1.10.2 - CLI framework (see above).
-- `github.com/jaypipes/ghw` v0.24.0 - Root-less hardware detection: CPU/arch (`ghw.CPU()` in `internal/detect/cpu.go`) and total physical memory (`ghw.Memory()` in `internal/detect/memory.go`). Never hard-errors on missing perms.
 - `github.com/BurntSushi/toml` v1.6.0 - Marshal/unmarshal of `config.toml` (`internal/config/villaconfig.go`). No string interpolation (mitigates injection on write).
-- `github.com/jaypipes/pcidb` v1.1.1 - PCI ID -> human name (transitive via ghw).
 - `github.com/spf13/pflag` v1.0.9 - flag parsing (via cobra).
 - `github.com/inconshreveable/mousetrap` v1.1.0 - cobra Windows helper.
-- `github.com/go-ole/go-ole` v1.2.6, `github.com/yusufpapurcu/wmi` v1.2.4 - ghw Windows backends (not exercised on the Fedora target).
-- `golang.org/x/sys` v0.25.0 - low-level syscalls (via ghw).
-- `gopkg.in/yaml.v3` v3.0.1, `howett.net/plist` - ghw transitive parsers.
+- `golang.org/x/sys` v0.25.0 - low-level syscalls.
 
 ### Configuration
 
 - TOML file at `$XDG_CONFIG_HOME/villa/config.toml` (resolved via `os.UserConfigDir`). Defined by `VillaConfig` in `internal/config/villaconfig.go`.
-- Fields: `model`, `quant`, `ctx`, `backend` (default `rocm`; `rocm-6.4.4`, `rocm-6.4.4-rocwmma`, `vulkan` also valid — note `internal/catalog/seed.json`'s per-entry `backend_default` OVERRIDES `recommend.defaultBackend`, so the two must be kept in step), `catalog_path`, `dashboard_addr` (default `127.0.0.1`, loopback-only by construction), `dashboard_port` (default `8888`), `chat_port` (default `3000`).
+- Fields: `model`, `quant`, `ctx`, `backend` (default `rocm`; `rocm-6.4.4`, `rocm-6.4.4-rocwmma`, `vulkan` also valid — note `internal/catalog/seed.json`'s per-entry `backend_default` OVERRIDES `recommend.defaultBackend`, so the two must be kept in step), `catalog_path`, `dashboard_port` (default `8888`), `chat_port` (default `3000`).
 - Read-only by default: `LoadVilla` returns typed defaults when the file is absent; `SaveVilla` (invoked by `recommend --save` / model swap) writes strictly under the XDG dir with mode `0600`, dir `0700`, and a path-traversal guard. Self-heals zeroed dashboard/chat fields on load (never widens the bind off loopback).
 - `internal/catalog/seed.json` - the seed model catalog (`//go:embed seed.json` in `internal/catalog/load.go`). Catalog has a schema version window; an external override path may be supplied via `catalog_path`.
 - `internal/preflight/rocm-policy.json` - ROCm pin policy: image-tag allow/deny, kernel floor, firmware floor/deny, required `HSA_OVERRIDE_GFX_VERSION` (`//go:embed rocm-policy.json` in `internal/preflight/floors.go`).

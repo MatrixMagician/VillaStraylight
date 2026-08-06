@@ -224,7 +224,6 @@ Key fields (`internal/config/villaconfig.go`):
 | `ctx` | (from `recommend`) | Context length in tokens. |
 | `backend` | `rocm` | Inference backend: `rocm` (ROCm 7.2.4, default for gfx1151), `rocm-6.4.4`, `rocm-6.4.4-rocwmma`, or the `vulkan` (RADV) fallback. Switch it transactionally with `villa backend set` — `villa config set backend=` only accepts `vulkan`, since every ROCm target must pass the bring-up gate. |
 | `catalog_path` | (embedded) | Optional path to an external catalog JSON override. |
-| `dashboard_addr` | `127.0.0.1` | Loopback-only bind address for the control dashboard. Never widened to a routable interface. |
 | `dashboard_port` | `8888` | Host port the control dashboard listens on. |
 | `chat_port` | `3000` | Host port Open WebUI is published on (the dashboard's chat link target). |
 
@@ -249,8 +248,6 @@ make clean      # remove build artifacts
 ```
 
 The CLI entry point is `cmd/villa/main.go`; the control-plane libraries live under `internal/` (`detect`, `recommend`, `catalog`, `preflight`, `download`, `inference`, `orchestrate`, `modelswap`, `backendswap`, `bench`, `benchstore`, `status`, `dashboard`, `metrics`, `config`, `doctor`, `usage`, `backup`, `memory`, `recall`, `codingmode`, `agent`, `websafe`, `verifystate`).
-
-> Note: an earlier exploratory scaffold left reference-only remnants in the tree — `internal/llm` (an OpenAI-compatible SSE client, cannibalized for the gateway) and `web/` (an embedded React UI). They are superseded by the `villa` control plane plus integrated Open WebUI and are not part of the current architecture.
 
 ## License
 
