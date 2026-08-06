@@ -128,43 +128,46 @@ func (r *recDeps) deps() Deps {
 			}
 			return nil, errors.New("not found: " + p)
 		},
-		WriteFileAtomic: func(p string, data []byte) error {
-			r.log("WriteFileAtomic:" + p)
-			return r.writeFileErr
-		},
-		WriteTempFile: func(p string, data []byte) error {
-			r.log("WriteTempFile:" + p)
-			return r.writeTempErr
+		// WriteFile is now ONE seam, so the fake routes on the destination to keep the
+		// per-artifact call log the assertions read. That mirrors the live wiring, which
+		// also picks its containment guard by destination.
+		WriteFile: func(p string, data []byte) error {
+			switch {
+			case strings.HasSuffix(p, "crush.json"):
+				r.log("WriteCrushConfig:" + p)
+				return r.writeCrushErr
+			case strings.HasSuffix(p, "settings.yml"):
+				r.log("WriteSearxngSettings:" + p)
+				if r.writeSearxngErr != nil {
+					return r.writeSearxngErr
+				}
+				if r.searxngWrites == nil {
+					r.searxngWrites = map[string][]byte{}
+				}
+				r.searxngWrites[p] = append([]byte(nil), data...)
+				// Optional REAL on-disk write at 0600 so a test can assert the file mode
+				// (T-34-05) — the seam mirrors the live cmd-tier wiring's MkdirAll 0700 +
+				// WriteFile 0600 discipline.
+				if r.searxngRealWriteDir != "" {
+					if err := os.MkdirAll(r.searxngRealWriteDir, 0o700); err != nil {
+						return err
+					}
+					if err := os.WriteFile(filepath.Join(r.searxngRealWriteDir, "settings.yml"), data, 0o600); err != nil {
+						return err
+					}
+				}
+				return nil
+			case strings.HasPrefix(p, "/tmp/"):
+				r.log("WriteTempFile:" + p)
+				return r.writeTempErr
+			default:
+				r.log("WriteFileAtomic:" + p)
+				return r.writeFileErr
+			}
 		},
 		RemoveFile: func(p string) error {
 			r.log("RemoveFile:" + p)
 			return r.removeFileErr
-		},
-		WriteCrushConfig: func(p string, data []byte) error {
-			r.log("WriteCrushConfig:" + p)
-			return r.writeCrushErr
-		},
-		WriteSearxngSettings: func(p string, data []byte) error {
-			r.log("WriteSearxngSettings:" + p)
-			if r.writeSearxngErr != nil {
-				return r.writeSearxngErr
-			}
-			if r.searxngWrites == nil {
-				r.searxngWrites = map[string][]byte{}
-			}
-			r.searxngWrites[p] = append([]byte(nil), data...)
-			// Optional REAL on-disk write at 0600 so a test can assert the file mode
-			// (T-34-05) — the seam mirrors the live cmd-tier wiring's MkdirAll 0700 +
-			// WriteFile 0600 discipline.
-			if r.searxngRealWriteDir != "" {
-				if err := os.MkdirAll(r.searxngRealWriteDir, 0o700); err != nil {
-					return err
-				}
-				if err := os.WriteFile(filepath.Join(r.searxngRealWriteDir, "settings.yml"), data, 0o600); err != nil {
-					return err
-				}
-			}
-			return nil
 		},
 		DaemonReload: func() error { return nil },
 		Prove: func(target string) ProveVerdict {

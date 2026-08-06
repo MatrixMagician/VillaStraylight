@@ -85,8 +85,7 @@ func fakeRestoreDeps(prove backup.ProveVerdict) backup.Deps {
 		Start:                func(string) error { return nil },
 		Restart:              func(string) error { return nil },
 		ReadFile:             func(string) ([]byte, error) { return nil, os.ErrNotExist },
-		WriteFileAtomic:      func(string, []byte) error { return nil },
-		WriteTempFile:        func(string, []byte) error { return nil },
+		WriteFile:            func(string, []byte) error { return nil },
 		DaemonReload:         func() error { return nil },
 		Prove:                func(string) backup.ProveVerdict { return prove },
 	}

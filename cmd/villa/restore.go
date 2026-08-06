@@ -34,6 +34,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
 	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
+	"github.com/MatrixMagician/VillaStraylight/internal/pathsafe"
 	"github.com/MatrixMagician/VillaStraylight/internal/preflight"
 	"github.com/MatrixMagician/VillaStraylight/internal/recall"
 	"github.com/MatrixMagician/VillaStraylight/internal/usage"
@@ -437,17 +438,27 @@ func liveRestoreDeps() backup.Deps {
 			}
 			return true, nil
 		},
-		DaemonReload:    sys.DaemonReload,
-		Stop:            sys.Stop,
-		Start:           sys.Start,
-		Restart:         sys.Restart,
-		ReadFile:        os.ReadFile,
-		WriteFileAtomic: usage.WriteFileAtomic,
-		// WriteTempFile stages the extracted OWUI volume tar in the restore temp dir
-		// (an os.MkdirTemp dir OUTSIDE the villa data store), so it must NOT use the
-		// store-root-guarded usage.WriteFileAtomic (that guard rejects /tmp paths and
-		// broke restore on a real host). MkdirTemp made the dir 0700; the tar is 0600.
-		WriteTempFile: func(path string, data []byte) error { return os.WriteFile(path, data, 0o600) },
+		DaemonReload: sys.DaemonReload,
+		Stop:         sys.Stop,
+		Start:        sys.Start,
+		Restart:      sys.Restart,
+		ReadFile:     os.ReadFile,
+		// WriteFile is the ONE write seam the restore core drives, for every
+		// destination it restores. The core does not choose the guard — this wiring
+		// does, by destination, which is why collapsing the five per-filename fields
+		// lost nothing:
+		//
+		//   - a path under the villa data store goes through the store-root-guarded
+		//     atomic writer (usage.WriteFileAtomic);
+		//   - every other path (the restore temp dir, ~/.config/crush/crush.json, the
+		//     villa SearXNG settings.yml) is guarded within its OWN parent instead.
+		//     Routing those through the store-root guard rejected the legitimate write
+		//     and broke restore on a real host, which is why the distinction exists.
+		//
+		// Every destination is 0600 under a 0700 directory, and must stay 0600: both
+		// crush.json and settings.yml carry generated secrets (the provider key and the
+		// rendered SEARXNG_SECRET — T-34-05), so the mode is never widened.
+		WriteFile: liveRestoreWriteFile,
 		// RemoveFile (CR-01): delete a data-dir artifact the forward path created
 		// where none existed before, to restore the prior (absent) state verbatim on
 		// rollback. Tolerate an already-absent file (it is the goal state).
@@ -457,46 +468,37 @@ func liveRestoreDeps() backup.Deps {
 			}
 			return nil
 		},
-		// WriteCrushConfig restores the OPTIONAL crush.json entry to ~/.config/crush/
-		// (OUTSIDE the villa data-store root — SURF-03/D-08), so it must NOT use the
-		// store-root-guarded usage.WriteFileAtomic. It mirrors code.go's WriteConfig
-		// discipline: traversal-guard the path within its dir, MkdirAll 0700, WriteFile
-		// 0600. The path is the XDG-resolved crush config path, never user input.
-		WriteCrushConfig: func(path string, data []byte) error {
-			dir := filepath.Dir(path)
-			if err := assertWithinDir(path, dir); err != nil {
-				return err
-			}
-			if err := os.MkdirAll(dir, 0o700); err != nil {
-				return fmt.Errorf("restore: create crush config dir: %w", err)
-			}
-			if err := os.WriteFile(path, data, 0o600); err != nil {
-				return fmt.Errorf("restore: write crush.json: %w", err)
-			}
-			return nil
-		},
-		// WriteSearxngSettings restores the OPTIONAL settings.yml entry to
-		// $XDG_CONFIG_HOME/villa/searxng/ (OUTSIDE the villa data-store root — SURF-07),
-		// so it must NOT use the store-root-guarded usage.WriteFileAtomic. It mirrors the
-		// WriteCrushConfig discipline AND orchestrate.WriteSearxngSettings' 0600 mode:
-		// traversal-guard the path within its dir, MkdirAll 0700, WriteFile 0600. The mode
-		// is FORCED 0600 because the file holds the rendered SEARXNG_SECRET — never widen
-		// it (T-34-05). The path is the XDG-resolved settings.yml path, never user input.
-		WriteSearxngSettings: func(path string, data []byte) error {
-			dir := filepath.Dir(path)
-			if err := assertWithinDir(path, dir); err != nil {
-				return err
-			}
-			if err := os.MkdirAll(dir, 0o700); err != nil {
-				return fmt.Errorf("restore: create searxng config dir: %w", err)
-			}
-			if err := os.WriteFile(path, data, 0o600); err != nil {
-				return fmt.Errorf("restore: write settings.yml: %w", err)
-			}
-			return nil
-		},
 		Prove: liveRestoreProve,
 	}
+}
+
+// liveRestoreWriteFile writes one restored artifact at 0600 under a 0700 directory,
+// picking the containment guard from the destination.
+//
+// A path inside the villa data store goes through the store-root-guarded atomic
+// writer. Anything else — the restore temp dir, the coding-agent config, the SearXNG
+// settings — is guarded within its own parent instead, because the store-root guard
+// would reject it: that mismatch is exactly what broke restore on a real host when
+// the /tmp staging write was routed through the store writer.
+//
+// The mode is 0600 for every destination and is never widened; two of these files
+// carry generated secrets (T-34-05).
+func liveRestoreWriteFile(path string, data []byte) error {
+	if pathsafe.Inside(path, pathsafe.DataRoot()) == nil {
+		return usage.WriteFileAtomic(path, data)
+	}
+
+	dir := filepath.Dir(path)
+	if err := assertWithinDir(path, dir); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("restore: create dir for %s: %w", filepath.Base(path), err)
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		return fmt.Errorf("restore: write %s: %w", filepath.Base(path), err)
+	}
+	return nil
 }
 
 // liveRestoreProve is the offload-asserting restore-cutover gate (backup.Deps.Prove),
