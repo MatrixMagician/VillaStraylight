@@ -26,7 +26,8 @@ Notes:
   at the repo root belongs to the legacy reference-only scaffold (see below), not to
   the `villa` control plane.
 - The dependency set is small and pure-Go: `cobra` (CLI), `chi` (dashboard
-  HTTP), `ghw` (hardware detection), and `BurntSushi/toml` (config). All are vendored
+  HTTP), and `BurntSushi/toml` (config). Hardware detection reads procfs and sysfs
+  directly, with no library. All are vendored
   through the module graph; run `make tidy` after changing imports.
 - **You do not need a Strix Halo host, Podman, or a GPU to develop.** Every
   host-touching effect (sysfs reads, `podman`, `systemctl`, HTTP probes, downloads,

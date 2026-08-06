@@ -1,7 +1,6 @@
 package detect
 
 import (
-	"bufio"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -30,51 +29,40 @@ func memInfo(procMeminfoPath string) (total Bytes, available Bytes) {
 // the more honest number for a memory-fit decision: it is memory the kernel can
 // actually hand out.
 func memTotalBytes(path string) Bytes {
-	return meminfoField(path, "MemTotal:")
+	return meminfoField(path, "MemTotal")
 }
 
 // memAvailableBytes parses the MemAvailable line of /proc/meminfo (reported in
 // kB) — the live kernel figure preflight's free-memory check needs.
 func memAvailableBytes(path string) Bytes {
-	return meminfoField(path, "MemAvailable:")
+	return meminfoField(path, "MemAvailable")
 }
 
 // meminfoField parses one "<Field>: <n> kB" line of a /proc/meminfo-shaped file
 // into bytes, degrading to a typed Unknown with a reason at every failure — an
 // unreadable file, a malformed or unparseable line, an interrupted read, or an
 // absent field. It never returns a bare zero.
-func meminfoField(path, prefix string) Bytes {
-	f, err := os.Open(path) //nolint:gosec // fixed procfs path, or a test fixture
-	if err != nil {
+func meminfoField(path, field string) Bytes {
+	line, res, err := findLine(path, field+":")
+	switch res {
+	case lineUnopenable:
 		return UnknownBytes("meminfo unreadable", errString(err))
+	case lineReadFailed:
+		return UnknownBytes("meminfo read error", errString(err))
+	case lineAbsent:
+		return UnknownBytes(field+" not found", "")
 	}
-	defer f.Close()
 
-	field := strings.TrimSuffix(prefix, ":")
-	sc := bufio.NewScanner(f)
-	for sc.Scan() {
-		line := sc.Text()
-		if !strings.HasPrefix(line, prefix) {
-			continue
-		}
-		fields := strings.Fields(line)
-		// Expected shape: "MemAvailable:  123456 kB"
-		if len(fields) < 2 {
-			return UnknownBytes(field+" malformed", line)
-		}
-		kb, err := strconv.ParseUint(fields[1], 10, 64)
-		if err != nil {
-			return UnknownBytes(field+" unparseable", line)
-		}
-		return KnownBytes(kb*1024, path+":"+field)
+	fields := strings.Fields(line)
+	// Expected shape: "MemAvailable:  123456 kB"
+	if len(fields) < 2 {
+		return UnknownBytes(field+" malformed", line)
 	}
-	// A scan error (truncated/interrupted read) is otherwise indistinguishable
-	// from a clean EOF; surface it as the real reason instead of mislabeling an
-	// I/O failure as "not found" (WR-05, D-16).
-	if err := sc.Err(); err != nil {
-		return UnknownBytes("meminfo read error", err.Error())
+	kb, err := strconv.ParseUint(fields[1], 10, 64)
+	if err != nil {
+		return UnknownBytes(field+" unparseable", line)
 	}
-	return UnknownBytes(field+" not found", "")
+	return KnownBytes(kb*1024, path+":"+field)
 }
 
 // amdSysfsCardDirs returns the device directories of AMD DRM cards (vendor

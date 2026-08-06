@@ -1,8 +1,6 @@
 package detect
 
 import (
-	"bufio"
-	"os"
 	"runtime"
 	"strings"
 )
@@ -12,13 +10,16 @@ import (
 //
 // The architecture comes from the Go runtime, which cannot fail. The model
 // string is the "model name" field of /proc/cpuinfo — the same procfs the
-// memory probe already parses by hand, read directly rather than through a
+// memory probe already parses, read directly rather than through a
 // cross-platform inventory library whose PCI-ID database and Windows backends
 // never execute on the Fedora target.
 func cpuInfo() (model Str, arch Str) {
 	arch = KnownStr(runtime.GOARCH, "runtime.GOARCH")
 	return cpuModel(liveProcCPUInfo), arch
 }
+
+// cpuModelField is the /proc/cpuinfo key holding the human-readable CPU name.
+const cpuModelField = "model name"
 
 // cpuModel parses the first "model name" line of a /proc/cpuinfo-shaped file.
 // The path is a seam so tests can point it at a fixture.
@@ -27,32 +28,25 @@ func cpuInfo() (model Str, arch Str) {
 // the first is enough; a host with heterogeneous sockets would need more, and is
 // out of scope for a Strix Halo target.
 func cpuModel(path string) Str {
-	f, err := os.Open(path) //nolint:gosec // fixed procfs path, or a test fixture
-	if err != nil {
+	line, res, err := findLine(path, cpuModelField)
+	switch res {
+	case lineUnopenable:
 		return UnknownStr("cpuinfo unreadable", errString(err))
+	case lineReadFailed:
+		return UnknownStr("cpuinfo read error", errString(err))
+	case lineAbsent:
+		return UnknownStr("cpuinfo "+cpuModelField+" not found", "")
 	}
-	defer f.Close()
 
-	sc := bufio.NewScanner(f)
-	for sc.Scan() {
-		line := sc.Text()
-		key, value, found := strings.Cut(line, ":")
-		if !found || strings.TrimSpace(key) != "model name" {
-			continue
-		}
-		name := strings.TrimSpace(value)
-		if name == "" {
-			return UnknownStr("cpuinfo model name blank", line)
-		}
-		return KnownStr(name, path+":model name")
+	_, value, ok := strings.Cut(line, ":")
+	if !ok {
+		return UnknownStr("cpuinfo "+cpuModelField+" malformed", line)
 	}
-	// A scan error is otherwise indistinguishable from a clean EOF; surface the
-	// real reason rather than mislabeling an I/O failure as a missing field
-	// (the same distinction memAvailableBytes draws, WR-05/D-16).
-	if err := sc.Err(); err != nil {
-		return UnknownStr("cpuinfo read error", err.Error())
+	name := strings.TrimSpace(value)
+	if name == "" {
+		return UnknownStr("cpuinfo "+cpuModelField+" blank", line)
 	}
-	return UnknownStr("cpuinfo model name not found", "")
+	return KnownStr(name, path+":"+cpuModelField)
 }
 
 // errString renders an error for the Raw capture field without panicking on nil.

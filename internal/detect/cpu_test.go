@@ -1,9 +1,15 @@
 package detect
 
+// cpu_test.go guards the /proc/cpuinfo CPU-model reader and the runtime-sourced
+// architecture: the fixture parse, the typed-Unknown degradation at every failure
+// path (unreadable, absent, blank, mid-read I/O error), and the one fact that
+// cannot fail. It mirrors memory_test.go's coverage of the sibling procfs reader.
+
 import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -63,6 +69,15 @@ func TestCPUModelScanErrorIsLabelled(t *testing.T) {
 	got := cpuModel(t.TempDir()) // a directory: open succeeds, scan errors.
 	if got.Known {
 		t.Errorf("cpuModel(scan error): Known=true, want Unknown")
+	}
+	if !strings.Contains(got.Source, "read error") {
+		t.Errorf("cpuModel(scan error): Source=%q, want a read-error reason distinct from a missing field", got.Source)
+	}
+
+	// And the three failure modes must stay distinguishable from one another.
+	unopenable := cpuModel(filepath.Join(t.TempDir(), "absent"))
+	if unopenable.Source == got.Source {
+		t.Errorf("an unopenable file and a failed read share the reason %q", got.Source)
 	}
 }
 

@@ -132,14 +132,10 @@ VillaStraylight is a self-hosted, local AI server stack for privacy-conscious po
 
 - `github.com/spf13/cobra` v1.10.2 - CLI framework (see above).
 - `github.com/go-chi/chi/v5` v5.3.0 - Dashboard HTTP router (see above).
-- `github.com/jaypipes/ghw` v0.24.0 - Root-less hardware detection: CPU/arch (`ghw.CPU()` in `internal/detect/cpu.go`) and total physical memory (`ghw.Memory()` in `internal/detect/memory.go`). Never hard-errors on missing perms.
 - `github.com/BurntSushi/toml` v1.6.0 - Marshal/unmarshal of `config.toml` (`internal/config/villaconfig.go`). No string interpolation (mitigates injection on write).
-- `github.com/jaypipes/pcidb` v1.1.1 - PCI ID -> human name (transitive via ghw).
 - `github.com/spf13/pflag` v1.0.9 - flag parsing (via cobra).
 - `github.com/inconshreveable/mousetrap` v1.1.0 - cobra Windows helper.
-- `github.com/go-ole/go-ole` v1.2.6, `github.com/yusufpapurcu/wmi` v1.2.4 - ghw Windows backends (not exercised on the Fedora target).
-- `golang.org/x/sys` v0.25.0 - low-level syscalls (via ghw).
-- `gopkg.in/yaml.v3` v3.0.1, `howett.net/plist` - ghw transitive parsers.
+- `golang.org/x/sys` v0.25.0 - low-level syscalls.
 
 ### Configuration
 

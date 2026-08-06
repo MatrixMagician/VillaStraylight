@@ -101,7 +101,7 @@ typed `detect.Known*` / `detect.Unknown*` constructors so a test can express
 
 ```go
 p := detect.HostProfile{
-    TotalRAMBytes:       detect.KnownBytes(128<<30, "ghw.Memory"),
+    TotalRAMBytes:       detect.KnownBytes(128<<30, "/proc/meminfo:MemTotal"),
     UsableEnvelopeBytes: detect.UnknownBytes("envelope unreadable", ""),
 }
 floor, ok := conservativeFloor(p)
