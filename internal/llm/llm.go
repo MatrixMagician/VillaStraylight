@@ -23,8 +23,8 @@ type Message struct {
 
 // ChatRequest is a provider-agnostic chat completion request.
 type ChatRequest struct {
-	// Model is optional; the client falls back to its configured default.
-	Model    string    `json:"model,omitempty"`
+	// Model names the model to run; it is required.
+	Model    string    `json:"model"`
 	Messages []Message `json:"messages"`
 }
 
@@ -34,8 +34,6 @@ type StreamFunc func(delta string) error
 
 // Options configures an OpenAI-compatible client.
 type Options struct {
-	BaseURL      string
-	APIKey       string
-	DefaultModel string
-	Timeout      time.Duration
+	BaseURL string
+	Timeout time.Duration
 }

@@ -22,9 +22,7 @@ make build          # builds ./villa
 Notes:
 
 - **No `.env` and no config file are required to build or test.** `villa` is read-only
-  by default and synthesizes typed defaults when no config exists. The `.env.example`
-  at the repo root belongs to the legacy reference-only scaffold (see below), not to
-  the `villa` control plane.
+  by default and synthesizes typed defaults when no config exists.
 - The dependency set is small and pure-Go: `cobra` (CLI), `chi` (dashboard
   HTTP), `ghw` (hardware detection), and `BurntSushi/toml` (config). All are vendored
   through the module graph; run `make tidy` after changing imports.
@@ -89,21 +87,8 @@ under-active-development code is:
   `backendswap`, `bench`, `llm`, `status`, `metrics`, `dashboard`. Each returns typed
   values and contains no CLI behavior. (`backendswap` and `bench` are the v1.1
   additions: the transactional ROCm↔Vulkan cutover core and the honest A/B benchmark
-  core; `internal/llm` is reused from the legacy scaffold as the bench per-request
+  core; `internal/llm` is the OpenAI-compatible client the bench uses as its per-request
   timings source — `bench.go` imports it for `llm.Complete`.)
-
-### Legacy reference-only scaffold — do not extend
-
-The following trees are an earlier exploratory scaffold (an embedded-React-UI,
-OpenAI-compatible proxy). It is **superseded** by the `villa` control plane and
-integrated Open WebUI, and is kept only as a parts bin:
-
-- `internal/llm/` (an OpenAI-compatible SSE client)
-- `web/` (an embedded React UI)
-- the root `.env.example`
-
-Do not add features to these packages or let their layout constrain new work. New
-code belongs under `cmd/villa` and `internal/<new-or-existing-package>`.
 
 ## Code style
 

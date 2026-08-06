@@ -15,9 +15,6 @@ func TestStreamChatAssemblesDeltas(t *testing.T) {
 		if r.URL.Path != "/chat/completions" {
 			t.Errorf("unexpected path %q", r.URL.Path)
 		}
-		if got := r.Header.Get("Authorization"); got != "Bearer secret" {
-			t.Errorf("Authorization = %q, want Bearer secret", got)
-		}
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(http.StatusOK)
 		// Two content chunks, a keep-alive, then DONE.
@@ -28,10 +25,11 @@ func TestStreamChatAssemblesDeltas(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	client := NewOpenAIClient(Options{BaseURL: srv.URL, APIKey: "secret", DefaultModel: "test-model"})
+	client := NewOpenAIClient(Options{BaseURL: srv.URL})
 
 	var sb strings.Builder
 	err := client.StreamChat(context.Background(), ChatRequest{
+		Model:    "test-model",
 		Messages: []Message{{Role: RoleUser, Content: "hi"}},
 	}, func(delta string) error {
 		sb.WriteString(delta)
@@ -51,8 +49,9 @@ func TestStreamChatUpstreamError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	client := NewOpenAIClient(Options{BaseURL: srv.URL, DefaultModel: "test-model"})
+	client := NewOpenAIClient(Options{BaseURL: srv.URL})
 	err := client.StreamChat(context.Background(), ChatRequest{
+		Model:    "test-model",
 		Messages: []Message{{Role: RoleUser, Content: "hi"}},
 	}, func(string) error { return nil })
 	if err == nil {
@@ -92,8 +91,9 @@ func TestCompleteParsesTimings(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	client := NewOpenAIClient(Options{BaseURL: srv.URL, DefaultModel: "test-model"})
+	client := NewOpenAIClient(Options{BaseURL: srv.URL})
 	tm, err := client.Complete(context.Background(), ChatRequest{
+		Model:    "test-model",
 		Messages: []Message{{Role: RoleUser, Content: "hi"}},
 	}, 128, 7, 0.0)
 	if err != nil {
@@ -133,8 +133,9 @@ func TestCompleteParamsOnWire(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	client := NewOpenAIClient(Options{BaseURL: srv.URL, DefaultModel: "test-model"})
+	client := NewOpenAIClient(Options{BaseURL: srv.URL})
 	if _, err := client.Complete(context.Background(), ChatRequest{
+		Model:    "test-model",
 		Messages: []Message{{Role: RoleUser, Content: "hi"}},
 	}, 256, 99, 0.7); err != nil {
 		t.Fatalf("Complete returned error: %v", err)
@@ -175,8 +176,9 @@ func TestCompleteVoidsAbsentTimings(t *testing.T) {
 			}))
 			defer srv.Close()
 
-			client := NewOpenAIClient(Options{BaseURL: srv.URL, DefaultModel: "test-model"})
+			client := NewOpenAIClient(Options{BaseURL: srv.URL})
 			_, err := client.Complete(context.Background(), ChatRequest{
+				Model:    "test-model",
 				Messages: []Message{{Role: RoleUser, Content: "hi"}},
 			}, 128, 7, 0.0)
 			if !errors.Is(err, ErrNoTimings) {
@@ -193,8 +195,9 @@ func TestCompleteUpstreamError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	client := NewOpenAIClient(Options{BaseURL: srv.URL, DefaultModel: "test-model"})
+	client := NewOpenAIClient(Options{BaseURL: srv.URL})
 	_, err := client.Complete(context.Background(), ChatRequest{
+		Model:    "test-model",
 		Messages: []Message{{Role: RoleUser, Content: "hi"}},
 	}, 16, 1, 0.0)
 	if err == nil {

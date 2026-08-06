@@ -109,10 +109,8 @@ func liveMeasure(ctx context.Context, target string, spec bench.BenchSpec) (benc
 	// detect.GPUBusyPercent() repeatedly while tokens stream, keeping the max — a single
 	// post-call read can miss a short decode's busy window.
 	client := llm.NewOpenAIClient(llm.Options{
-		BaseURL:      endpoint,
-		APIKey:       "local",
-		DefaultModel: cfg.Model,
-		Timeout:      spec.Timeout,
+		BaseURL: endpoint,
+		Timeout: spec.Timeout,
 	})
 	req := llm.ChatRequest{
 		Model:    cfg.Model,

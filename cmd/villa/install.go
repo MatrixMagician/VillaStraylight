@@ -308,6 +308,12 @@ const installServiceName = "villa-llama.service"
 // (D-05) so the chat UI comes up against a live backend.
 const openWebUIServiceName = "villa-openwebui.service"
 
+// websafeServiceName is the systemd service the villa-websafe .container generates (Quadlet
+// maps villa-websafe.container → villa-websafe.service). Its start is gated on the rendered
+// unit being present in the written plan AND on the PERSISTED web_search_enabled, and it is
+// started only AFTER the 0600 websafe.env secret file is written (its EnvironmentFile= target).
+const websafeServiceName = "villa-websafe.service"
+
 // newInstall builds `villa install`: detect → recommend → preflight gate →
 // consented host-prep → render → reconcile → write → daemon-reload → start →
 // readiness poll, idempotent and --dry-run aware.
