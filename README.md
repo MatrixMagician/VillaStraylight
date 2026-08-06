@@ -250,8 +250,6 @@ make clean      # remove build artifacts
 
 The CLI entry point is `cmd/villa/main.go`; the control-plane libraries live under `internal/` (`detect`, `recommend`, `catalog`, `preflight`, `download`, `inference`, `orchestrate`, `modelswap`, `backendswap`, `bench`, `benchstore`, `status`, `dashboard`, `metrics`, `config`, `doctor`, `usage`, `backup`, `memory`, `recall`, `codingmode`, `agent`, `websafe`, `verifystate`).
 
-> Note: an earlier exploratory scaffold left reference-only remnants in the tree — `internal/llm` (an OpenAI-compatible SSE client, cannibalized for the gateway) and `web/` (an embedded React UI). They are superseded by the `villa` control plane plus integrated Open WebUI and are not part of the current architecture.
-
 ## License
 
 MIT — see [LICENSE](LICENSE).

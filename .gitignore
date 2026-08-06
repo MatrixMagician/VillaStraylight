@@ -8,14 +8,13 @@
 # Env / secrets
 .env
 
-# Node / frontend
-web/node_modules/
-web/*.tsbuildinfo
-# tsc -b emits these next to vite.config.ts; they are build artifacts
-web/vite.config.js
-web/vite.config.d.ts
+# Screenshots captured during phase UAT — evidence, not source.
+/phase*.png
 
-# Built frontend assets — regenerate with `make web`. The embed directive needs
-# web/dist to exist, so web/dist/.gitkeep is tracked while build output is not.
-web/dist/*
-!web/dist/.gitkeep
+# Tool scratch output: the graphify export and the browser-automation
+# working directory. Both are regenerable and neither belongs in the tree.
+/graphify-out/
+/.playwright-mcp/
+
+# Editor / local tooling directories
+/.vscode/

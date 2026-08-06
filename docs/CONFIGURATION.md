@@ -17,10 +17,6 @@ The configuration surface has three layers:
    but you change them by changing `config.toml` (or upgrading `villa`), not by
    editing the units.
 
-> Note: a legacy `.env.example` (with `VS_*` variables) exists at the repository
-> root. It belongs to the superseded reference scaffold (the `internal/llm` + `web/`
-> remnants) and is **not** read by the `villa` CLI. Ignore it for `villa` configuration.
-
 ## Environment variables
 
 The first-party `villa` CLI is **not** configured through environment variables —

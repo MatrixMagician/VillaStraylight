@@ -24,17 +24,6 @@ containers, not rebuilt.
 
 **Shipped:** v1.0 MVP, v1.1 (ROCm Opt-In Backend), v1.2 (Operability), v1.3 (Memory & Knowledge), and v1.4 (Coding Agent) are complete and tagged on `main`. The `villa` control plane is implemented under `cmd/villa/` + `internal/`.
 
-## Legacy scaffold (reference-only — NOT the current architecture)
-
-An earlier exploratory scaffold left reference-only remnants in the repo —
-`internal/llm` (an OpenAI-compatible SSE/streaming client) and `web/` (an embedded
-React UI), plus the root `.env.example`. **This is superseded** — the product
-integrates Open WebUI for chat and a `villa` control plane for orchestration; a
-custom chat UI is explicitly out of scope (see the Project section below). Treat
-this code as a parts bin: its `internal/llm` SSE streaming / OpenAI-compatible
-client may be cannibalized for the gateway, but do not extend it as the app.
-Don't let its layout constrain the architecture.
-
 ## Build, run & test
 
 ```bash
