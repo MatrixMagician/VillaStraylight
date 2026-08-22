@@ -18,18 +18,10 @@ import (
 // restart / backend swap reset the in-memory counter to a low value) is treated as
 // "the whole sample is new", never a negative delta.
 func TestFoldResetAware(t *testing.T) {
-	prior := UsageTotals{}
-	prior = Fold(prior, Sample{
-		Model:                "m1",
-		PromptTokensTotal:    100,
-		PromptTokensKnown:    true,
-		PredictedTokensTotal: 100,
-		PredictedTokensKnown: true,
-	})
-	// Re-seat the prior to last_seen=100 by folding once more at the same raw value
-	// is not what we want; instead set up the documented scenario directly: prior
-	// cumulative=100/last_seen=100, then sample raw=150.
-	prior = UsageTotals{
+	// The scenario is set up directly rather than by folding into it: a fold that
+	// re-seats last_seen would itself be the behaviour under test, so building the
+	// prior state by hand keeps the assertion about ONE fold.
+	prior := UsageTotals{
 		SchemaVersion: usageSchemaVersion,
 		Models: map[string]ModelUsage{
 			"m1": {
