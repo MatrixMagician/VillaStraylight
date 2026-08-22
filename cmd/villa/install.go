@@ -124,6 +124,22 @@ type installDeps struct {
 
 	daemonReload func() error
 	start        func(service string) error
+	// Rollback seams (ADR-0003). Install is transactional: it captures before
+	// mutating and restores on failure, like the three swap cores. These are the
+	// effects the restore performs, and they exist ONLY for that path — the forward
+	// path never stops a service or removes a unit.
+	//
+	// NIL-SAFE: a nil seam makes the corresponding restore step a no-op, which the
+	// core reports as an incomplete rollback rather than as a clean restoration.
+	stop       func(service string) error
+	readUnit   func(dir, name string) (string, bool)
+	removeUnit func(dir, name string) error
+	// configExists reports whether a config was on disk BEFORE this install. It is
+	// the difference between restoring the operator's prior config and removing one
+	// this install created on a clean host.
+	configExists func() bool
+	// removeConfig deletes the config this install wrote on a clean host.
+	removeConfig func() error
 	isActive     func(service string) (string, error)
 	enableLinger func(user string) error
 	setsebool    func() error
@@ -653,6 +669,73 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 		fmt.Fprintf(out, "coding-agent config rendered (outbound tools disabled, loopback provider only)\n")
 	}
 
+	// (6z) CAPTURE the prior state BEFORE the first mutation (ADR-0003). Install is
+	// transactional like the three swap cores: it captures, mutates, proves, and
+	// restores verbatim when a mutation or a proof fails. Everything after this
+	// point that changes the host is recorded in `mutated`, and any failure below
+	// routes through `refuse`, which undoes exactly what was done.
+	//
+	// The capture is the config, the unit files, and which services were running.
+	// Model weights are deliberately NOT captured, so a failed install leaves them
+	// and a retry does not re-download tens of gigabytes.
+	priorUnits := map[string]string{}
+	for _, u := range append(append([]orchestrate.Unit{}, plan.Changed...), plan.Unchanged...) {
+		if d.readUnit != nil {
+			if text, ok := d.readUnit(unitDir, u.Name); ok {
+				priorUnits[u.Name] = text
+			}
+		}
+	}
+	// The running set covers every service install may start, not only those in the
+	// rendered plan. A service install starts but did not capture would be stopped by
+	// a rollback even though it was running beforehand — turning a failed re-install
+	// into an outage of a service the run never needed to touch.
+	priorRunning := map[string]bool{}
+	if d.isActive != nil {
+		for _, svc := range []string{
+			installServiceName,
+			openWebUIServiceName,
+			qdrantServiceName,
+			embedServiceName,
+			searxngServiceName,
+			websafeServiceName,
+			orchestrate.DashboardServiceName,
+		} {
+			if state, aerr := d.isActive(svc); aerr == nil && state == "active" {
+				priorRunning[svc] = true
+			}
+		}
+	}
+	hadConfig := d.configExists == nil || d.configExists()
+	prior := install.CapturePrior(cfg, hadConfig, priorUnits, priorRunning)
+
+	var mutated install.Mutations
+
+	// refuse rolls the host back to the captured state and returns the exit code.
+	// A rollback that could not fully complete is reported honestly rather than as a
+	// clean restoration: a wrong "restored" claim tells the operator to stop looking.
+	refuse := func(format string, args ...any) int {
+		fmt.Fprintf(errOut, format, args...)
+		res := install.Rollback(install.RollbackDeps{
+			StopService:  d.stop,
+			StartService: d.start,
+			WriteUnit: func(name, text string) error {
+				return writeUnitText(unitDir, name, text)
+			},
+			RemoveUnit: func(name string) error {
+				if d.removeUnit == nil {
+					return fmt.Errorf("no unit-removal seam wired")
+				}
+				return d.removeUnit(unitDir, name)
+			},
+			SaveConfig:   d.saveConfig,
+			RemoveConfig: d.removeConfig,
+			DaemonReload: d.daemonReload,
+		}, prior, mutated)
+		fmt.Fprintf(errOut, "install: %s\n", res.Reason())
+		return exitBlocked
+	}
+
 	// (7) Persist the chosen selection to config.toml BEFORE any unit work (F-2 /
 	// spirit): config is the single source of truth, so install-written units
 	// must derive from the same persisted config the lifecycle verbs render from
@@ -660,8 +743,9 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 	// and a follow-up reconcile is never a true no-op.
 	if err := d.saveConfig(cfg); err != nil {
 		fmt.Fprintf(errOut, "install: persist config: %v\n", err)
-		return exitBlocked
+		return exitBlocked // nothing mutated yet: the save is the first mutation
 	}
+	mutated.RecordConfigSave()
 
 	// (7b) Reconcile the native control-dashboard unit on BOTH the no-op and write
 	// paths (UAT Test 5 / 05-08 gap close), mirroring the ensureModel + saveConfig
@@ -673,7 +757,7 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 	// decouples the two lifecycles; reconcileDashboardUnit is itself idempotent (a
 	// matching unit triggers zero writes/reloads/restarts), so this stays a true no-op
 	// when nothing changed.
-	if code := reconcileDashboardUnit(out, errOut, d); code != exitPass {
+	if code := reconcileDashboardUnit(out, errOut, d, mutated.RecordStart); code != exitPass {
 		return code
 	}
 
@@ -712,20 +796,21 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 	var performed []string
 
 	if err := d.writeUnits(plan, unitDir); err != nil {
-		fmt.Fprintf(errOut, "install: write units failed: %v\n", err)
-		return exitBlocked
+		return refuse("install: write units failed: %v\n", err)
+	}
+	for _, u := range plan.Changed {
+		mutated.RecordUnit(u.Name)
 	}
 	fmt.Fprintf(out, "wrote %d unit(s) to %s\n", len(plan.Changed), unitDir)
 	if err := d.daemonReload(); err != nil {
-		fmt.Fprintf(errOut, "install: daemon-reload failed: %v\n", err)
-		return exitBlocked
+		return refuse("install: daemon-reload failed: %v\n", err)
 	}
 	if err := d.start(installServiceName); err != nil {
-		fmt.Fprintf(errOut, "install: start %s failed: %v\n", installServiceName, err)
-		return exitBlocked
+		return refuse("install: start %s failed: %v\n", installServiceName, err)
 	}
 	fmt.Fprintf(out, "started %s\n", installServiceName)
 	performed = append(performed, installServiceName)
+	mutated.RecordStart(installServiceName)
 
 	// (9a) Generate-and-persist the EXTERNAL_WEB_LOADER_API_KEY bearer ONCE and write the 0600
 	// websafe.env BEFORE the OWUI start (v1.5 / Phase-31), gated on the
@@ -765,11 +850,11 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 	// live backend, and the recommended model is already ensured present above
 	// (step 6, MODEL-04) so the model picker is populated on first visit.
 	if err := d.start(openWebUIServiceName); err != nil {
-		fmt.Fprintf(errOut, "install: start %s failed: %v\n", openWebUIServiceName, err)
-		return exitBlocked
+		return refuse("install: start %s failed: %v\n", openWebUIServiceName, err)
 	}
 	fmt.Fprintf(out, "started %s\n", openWebUIServiceName)
 	performed = append(performed, openWebUIServiceName)
+	mutated.RecordStart(openWebUIServiceName)
 
 	// (9b) Start the memory stack AFTER inference + Open WebUI, gated on the PERSISTED
 	// memory_enabled (Phase-19 / INFRA-02). Qdrant FIRST so the embedder/OWUI peers can
@@ -788,22 +873,21 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 	if gates.Memory {
 		if !install.UnitPresent(plan, orchestrate.QdrantContainerUnitName()) ||
 			!install.UnitPresent(plan, orchestrate.EmbedContainerUnitName()) {
-			fmt.Fprintf(errOut, "install: INTERNAL ERROR: memory is enabled but the memory units (%s, %s) are absent from the rendered plan — refusing to start a service systemd has never seen. This is a render/reconcile bug; please re-run `villa install`, and if it persists, file an issue.\n",
+			return refuse("install: INTERNAL ERROR: memory is enabled but the memory units (%s, %s) are absent from the rendered plan — refusing to start a service systemd has never seen. This is a render/reconcile bug; please re-run `villa install`, and if it persists, file an issue.\n",
 				orchestrate.QdrantContainerUnitName(), orchestrate.EmbedContainerUnitName())
-			return exitBlocked
 		}
 		if err := d.start(qdrantServiceName); err != nil {
-			fmt.Fprintf(errOut, "install: start %s failed: %v\n", qdrantServiceName, err)
-			return exitBlocked
+			return refuse("install: start %s failed: %v\n", qdrantServiceName, err)
 		}
 		fmt.Fprintf(out, "started %s\n", qdrantServiceName)
 		performed = append(performed, qdrantServiceName)
+		mutated.RecordStart(qdrantServiceName)
 		if err := d.start(embedServiceName); err != nil {
-			fmt.Fprintf(errOut, "install: start %s failed: %v\n", embedServiceName, err)
-			return exitBlocked
+			return refuse("install: start %s failed: %v\n", embedServiceName, err)
 		}
 		fmt.Fprintf(out, "started %s\n", embedServiceName)
 		performed = append(performed, embedServiceName)
+		mutated.RecordStart(embedServiceName)
 	}
 
 	// (9c) Start the SearXNG web-search service, gated on the PERSISTED web_search_enabled
@@ -830,9 +914,8 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 	// literal in the 0644 unit — BLOCKER 1).
 	if gates.WebSearch {
 		if !install.UnitPresent(plan, orchestrate.SearXNGContainerUnitName()) {
-			fmt.Fprintf(errOut, "install: INTERNAL ERROR: web search is enabled but the searxng unit (%s) is absent from the rendered plan — refusing to start a service systemd has never seen. This is a render/reconcile bug; please re-run `villa install`, and if it persists, file an issue.\n",
+			return refuse("install: INTERNAL ERROR: web search is enabled but the searxng unit (%s) is absent from the rendered plan — refusing to start a service systemd has never seen. This is a render/reconcile bug; please re-run `villa install`, and if it persists, file an issue.\\n",
 				orchestrate.SearXNGContainerUnitName())
-			return exitBlocked
 		}
 		// Generate-and-persist the secret ONCE on first opt-in (Pitfall 3) BEFORE rendering
 		// the env file so the unit's EnvironmentFile target exists and is non-empty.
@@ -868,11 +951,11 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 			return exitBlocked
 		}
 		if err := d.start(searxngServiceName); err != nil {
-			fmt.Fprintf(errOut, "install: start %s failed: %v\n", searxngServiceName, err)
-			return exitBlocked
+			return refuse("install: start %s failed: %v\n", searxngServiceName, err)
 		}
 		fmt.Fprintf(out, "started %s\n", searxngServiceName)
 		performed = append(performed, searxngServiceName)
+		mutated.RecordStart(searxngServiceName)
 
 		// villa-websafe (grounded-fetch loader, Phase-31): its 0600 websafe.env bearer was already
 		// written above (step 9a, BEFORE the OWUI start that also references it). Gate the START on
@@ -881,16 +964,15 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 		// INTERNAL-ERROR remediation, not a raw "Unit not found". With web search on, Render
 		// appends the unit, so today it is always present; the gate is the fail-closed backstop.
 		if !install.UnitPresent(plan, orchestrate.WebsafeContainerUnitName()) {
-			fmt.Fprintf(errOut, "install: INTERNAL ERROR: web search is enabled but the websafe unit (%s) is absent from the rendered plan — refusing to start a service systemd has never seen. This is a render/reconcile bug; please re-run `villa install`, and if it persists, file an issue.\n",
+			return refuse("install: INTERNAL ERROR: web search is enabled but the websafe unit (%s) is absent from the rendered plan — refusing to start a service systemd has never seen. This is a render/reconcile bug; please re-run `villa install`, and if it persists, file an issue.\\n",
 				orchestrate.WebsafeContainerUnitName())
-			return exitBlocked
 		}
 		if err := d.start(websafeServiceName); err != nil {
-			fmt.Fprintf(errOut, "install: start %s failed: %v\n", websafeServiceName, err)
-			return exitBlocked
+			return refuse("install: start %s failed: %v\n", websafeServiceName, err)
 		}
 		fmt.Fprintf(out, "started %s\n", websafeServiceName)
 		performed = append(performed, websafeServiceName)
+		mutated.RecordStart(websafeServiceName)
 	}
 
 	// (10) Poll readiness (503=keep-polling, timeout→WARN — Task 2 wiring).
@@ -920,8 +1002,7 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 			qdrantPort:   config.QdrantPort,
 		})
 		if proof.status == preflight.StatusFail {
-			fmt.Fprintf(errOut, "install: memory stack not ready: %s\n", proof.detail)
-			return exitBlocked
+			return refuse("install: memory stack not ready: %s\n", proof.detail)
 		}
 		// Print the proof's own detail rather than re-typing the "768-dim …"
 		// figure as a literal — the dimension is single-sourced in the verdict
@@ -943,8 +1024,7 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 			searxngPort: config.SearxngPort,
 		})
 		if proof.status == preflight.StatusFail {
-			fmt.Fprintf(errOut, "install: search service not ready: %s\n", proof.detail)
-			return exitBlocked
+			return refuse("install: search service not ready: %s\n", proof.detail)
 		}
 		fmt.Fprintf(out, "search service ready: %s\n", proof.detail)
 	}
@@ -957,8 +1037,7 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 	if gates.Agent {
 		proof := d.agentProofFn(cmd.Context())
 		if proof.status == preflight.StatusFail {
-			fmt.Fprintf(errOut, "install: coding agent not ready: %s\n", proof.detail)
-			return exitBlocked
+			return refuse("install: coding agent not ready: %s\n", proof.detail)
 		}
 		fmt.Fprintf(out, "coding agent ready: %s\n", proof.detail)
 	}
@@ -1009,7 +1088,12 @@ func persistedBackendChosen(name string) bool {
 // The running villa binary path is resolved fail-closed via resolveBinaryPath (no
 // ~/.local/bin/villa fallback) on this path too: an unresolvable binary fails the
 // install closed rather than writing a unit that points at an attacker-plantable fixed path.
-func reconcileDashboardUnit(out, errOut io.Writer, d *installDeps) int {
+// reconcileDashboardUnit renders, writes and starts the native dashboard unit.
+//
+// recordStart notes the start as a mutation so a later rollback stops the dashboard
+// too. Without it, a failed install left the dashboard running against units it had
+// just removed.
+func reconcileDashboardUnit(out, errOut io.Writer, d *installDeps, recordStart func(string)) int {
 	// Resolve the user-unit dir (NOT the Quadlet dir — Pitfall 5).
 	udir, err := d.userUnitDir()
 	if err != nil {
@@ -1069,6 +1153,9 @@ func reconcileDashboardUnit(out, errOut io.Writer, d *installDeps) int {
 		return exitBlocked
 	}
 	fmt.Fprintf(out, "started %s (boot-survival enabled)\n", orchestrate.DashboardServiceName)
+	if recordStart != nil {
+		recordStart(orchestrate.DashboardServiceName)
+	}
 	return exitPass
 }
 
@@ -1478,6 +1565,40 @@ func liveInstallDeps() (*installDeps, error) {
 		unitDir:      quadletUnitDir,
 		daemonReload: sys.DaemonReload,
 		start:        sys.Start,
+		stop:         sys.Stop,
+		readUnit: func(dir, name string) (string, bool) {
+			b, rerr := os.ReadFile(filepath.Join(dir, name))
+			if rerr != nil {
+				return "", false
+			}
+			return string(b), true
+		},
+		removeUnit: func(dir, name string) error {
+			rerr := os.Remove(filepath.Join(dir, name))
+			if rerr != nil && !os.IsNotExist(rerr) {
+				return rerr
+			}
+			return nil
+		},
+		configExists: func() bool {
+			path, perr := config.Path()
+			if perr != nil {
+				return false
+			}
+			_, serr := os.Stat(path)
+			return serr == nil
+		},
+		removeConfig: func() error {
+			path, perr := config.Path()
+			if perr != nil {
+				return perr
+			}
+			rerr := os.Remove(path)
+			if rerr != nil && !os.IsNotExist(rerr) {
+				return rerr
+			}
+			return nil
+		},
 		isActive:     sys.IsActive,
 		enableLinger: sys.EnableLinger,
 		setsebool:    liveSetsebool,
@@ -1669,4 +1790,16 @@ func installUsername() string {
 		return u.Username
 	}
 	return os.Getenv("USER")
+}
+
+// writeUnitText restores one unit file's prior contents during a rollback. It is
+// separate from the forward path's writeUnits seam because rollback restores a
+// captured TEXT rather than re-rendering from config: re-rendering would produce
+// whatever the current config says, which is exactly the config the rollback is
+// about to undo.
+func writeUnitText(dir, name, text string) error {
+	if err := assertWithinDir(filepath.Join(dir, name), dir); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dir, name), []byte(text), 0o644) //nolint:gosec // unit files are world-readable by design; secrets live in 0600 env files
 }

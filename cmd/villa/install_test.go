@@ -81,8 +81,22 @@ type fakeInstallDeps struct {
 	// returns config.DefaultVillaConfig() (the old seed behavior, unchanged).
 	// configLoadErr, when non-nil, makes the loadedConfig seam FAIL, so a test can prove
 	// an unreadable config.toml refuses instead of installing from seed defaults.
-	persistedConfig   *config.VillaConfig
-	configLoadErr     error
+	persistedConfig *config.VillaConfig
+	configLoadErr   error
+	// Rollback fixtures (ADR-0003). activeState is what isActive reports during the
+	// capture: "inactive" is a clean host, "active" a re-install over a running
+	// stack. priorUnits are the unit files present before this install; a unit absent
+	// here that install wrote is REMOVED on rollback rather than restored.
+	activeState       string
+	priorUnits        map[string]string
+	priorConfigExists bool
+	// Recorders for what the rollback actually undid.
+	stopOrder     []string
+	removedUnits  []string
+	configRemoved bool
+	// Injected rollback-step failures, for the incomplete-rollback reporting path.
+	stopErr           error
+	removeUnitErr     error
 	memoryEnabled     bool
 	embedPresent      bool
 	embedEnsureCalls  int
@@ -149,7 +163,12 @@ type fakeInstallDeps struct {
 func newFakeInstallDeps(t *testing.T, units []orchestrate.Unit, plan orchestrate.Plan, checks []preflight.CheckResult) *fakeInstallDeps {
 	t.Helper()
 	f := &fakeInstallDeps{
-		downloaded: true, embedPresent: true, memoryProofStatus: preflight.StatusPass,
+		// The default world is a re-install over a running stack: that is what the
+		// existing tests describe, and it keeps them unchanged.
+		activeState:       "active",
+		priorConfigExists: true,
+		priorUnits:        map[string]string{},
+		downloaded:        true, embedPresent: true, memoryProofStatus: preflight.StatusPass,
 		searxngProofStatus: preflight.StatusPass,
 		coderPresent:       true, agentProofStatus: preflight.StatusPass,
 		// Default agent catalog carries a single coder entry whose id matches the default
@@ -218,7 +237,29 @@ func newFakeInstallDeps(t *testing.T, units []orchestrate.Unit, plan orchestrate
 		f.callOrder = append(f.callOrder, "start:"+service)
 		return nil
 	}
-	d.isActive = func(string) (string, error) { return "active", nil }
+	d.isActive = func(string) (string, error) { return f.activeState, nil }
+	// Rollback seams (ADR-0003): record what the restore undoes so a test can assert
+	// the host is left as it was found, rather than merely that a code was returned.
+	d.stop = func(service string) error {
+		f.stopOrder = append(f.stopOrder, service)
+		f.callOrder = append(f.callOrder, "stop:"+service)
+		return f.stopErr
+	}
+	d.readUnit = func(_, name string) (string, bool) {
+		text, ok := f.priorUnits[name]
+		return text, ok
+	}
+	d.removeUnit = func(_, name string) error {
+		f.removedUnits = append(f.removedUnits, name)
+		f.callOrder = append(f.callOrder, "removeUnit:"+name)
+		return f.removeUnitErr
+	}
+	d.configExists = func() bool { return f.priorConfigExists }
+	d.removeConfig = func() error {
+		f.configRemoved = true
+		f.callOrder = append(f.callOrder, "removeConfig")
+		return nil
+	}
 	d.enableLinger = func(string) error { f.lingerCalls++; return nil }
 	d.setsebool = func() error { f.seboolCalls++; return nil }
 	// Dashboard-service seams (Plan 05-05): render/write the native unit, then
@@ -2404,5 +2445,129 @@ func TestInstallRefusesUnreadableConfig(t *testing.T) {
 	}
 	if !strings.Contains(msg, "config.toml") {
 		t.Errorf("refusal must carry actionable remediation naming config.toml, got %q", msg)
+	}
+}
+
+// TestInstallRollsBackOnAFailedProof is the behaviour change of ADR-0003, asserted
+// where it matters: on the host, not on the return value.
+//
+// Install proves as thoroughly as the swap cores, but a failure used to leave
+// whatever it had already written and started in place. A stack that started four
+// services and then failed its readiness proof is running-but-unproven, which is
+// indistinguishable from a healthy one to every ordinary check.
+func TestInstallRollsBackOnAFailedProof(t *testing.T) {
+	units, plan := memoryUnits()
+
+	t.Run("a failed memory proof stops what it started", func(t *testing.T) {
+		f := newFakeInstallDeps(t, units, plan, passChecks())
+		f.memoryEnabled = true
+		f.memoryProofStatus = preflight.StatusFail
+		f.memoryProofDetail = "embeddings returned 0 dimensions"
+		// A clean host: nothing was running or configured before.
+		f.activeState = "inactive"
+		f.priorConfigExists = false
+
+		cmd, _, errOut := installTestCmd()
+		code := runInstall(cmd, installOpts{}, f.installDeps)
+
+		if code != exitBlocked {
+			t.Fatalf("a failed proof must refuse, exit = %d", code)
+		}
+		if len(f.stopOrder) == 0 {
+			t.Error("a failed proof must stop the services install started — a running-but-unproven stack is the false-green this prevents")
+		}
+		for _, started := range f.startOrder {
+			stopped := false
+			for _, s := range f.stopOrder {
+				if s == started {
+					stopped = true
+				}
+			}
+			if !stopped {
+				t.Errorf("service %q was started and left running after a failed proof; stops = %v", started, f.stopOrder)
+			}
+		}
+		if !strings.Contains(errOut.String(), "embeddings returned 0 dimensions") {
+			t.Errorf("the refusal must carry the proof's detail, got %q", errOut.String())
+		}
+	})
+
+	t.Run("a clean host is restored to nothing", func(t *testing.T) {
+		f := newFakeInstallDeps(t, units, plan, passChecks())
+		f.memoryEnabled = true
+		f.memoryProofStatus = preflight.StatusFail
+		f.activeState = "inactive"
+		f.priorConfigExists = false
+		f.priorUnits = map[string]string{} // no prior units: a first install
+
+		cmd, _, _ := installTestCmd()
+		runInstall(cmd, installOpts{}, f.installDeps)
+
+		if len(f.removedUnits) == 0 {
+			t.Error("a failed first install must remove the units it wrote (ADR-0003)")
+		}
+		if !f.configRemoved {
+			t.Error("a failed first install must remove the config it wrote — leaving one would make a later `villa up` try to bring up units that are gone")
+		}
+	})
+
+	t.Run("a re-install restores the prior stack instead of removing it", func(t *testing.T) {
+		f := newFakeInstallDeps(t, units, plan, passChecks())
+		f.memoryEnabled = true
+		f.memoryProofStatus = preflight.StatusFail
+		f.activeState = "active"
+		f.priorConfigExists = true
+		f.priorUnits = map[string]string{}
+		for _, u := range units {
+			f.priorUnits[u.Name] = "[Container]\nImage=prior\n"
+		}
+
+		cmd, _, _ := installTestCmd()
+		runInstall(cmd, installOpts{}, f.installDeps)
+
+		for _, removed := range f.removedUnits {
+			if removed == "villa-llama.container" {
+				t.Error("a unit that existed before must be RESTORED, never removed — a failed upgrade must leave the working install")
+			}
+		}
+		if f.configRemoved {
+			t.Error("a re-install must never delete the operator's config")
+		}
+		// The prior stack was running, so rollback restarts rather than leaving it down.
+		if len(f.stopOrder) > 0 {
+			t.Errorf("services running before the install must not be left stopped; stops = %v", f.stopOrder)
+		}
+	})
+}
+
+// TestInstallReportsAnIncompleteRollbackHonestly is the reporting path the ticket
+// names. A rollback step that itself failed must never be presented as a clean
+// restoration: a wrong "restored" claim tells the operator to stop looking.
+func TestInstallReportsAnIncompleteRollbackHonestly(t *testing.T) {
+	units, plan := memoryUnits()
+
+	f := newFakeInstallDeps(t, units, plan, passChecks())
+	f.memoryEnabled = true
+	f.memoryProofStatus = preflight.StatusFail
+	f.activeState = "inactive"
+	f.priorConfigExists = false
+	f.stopErr = errors.New("unit is masked")
+	f.removeUnitErr = errors.New("read-only filesystem")
+
+	cmd, _, errOut := installTestCmd()
+	code := runInstall(cmd, installOpts{}, f.installDeps)
+
+	if code != exitBlocked {
+		t.Fatalf("exit = %d, want exitBlocked", code)
+	}
+	msg := errOut.String()
+	if !strings.Contains(msg, "did not fully complete") {
+		t.Errorf("an incomplete rollback must not claim a clean restoration, got %q", msg)
+	}
+	if !strings.Contains(msg, "indeterminate state") {
+		t.Errorf("the operator must be told the stack is indeterminate, got %q", msg)
+	}
+	if !strings.Contains(msg, "villa-llama") {
+		t.Errorf("the report must name what could not be undone, got %q", msg)
 	}
 }
