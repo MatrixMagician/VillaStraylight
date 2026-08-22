@@ -3,7 +3,6 @@ package status
 import (
 	"encoding/json"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -24,10 +23,7 @@ import (
 // with no live podman/systemd/journald. The byte-frozen `status --json` golden stays
 // in cmd/villa (the contract pass criterion lives next to the cobra wiring).
 
-const owuiService = "villa-openwebui.service"
-
-// statusFixtureWeight matches the Vulkan0 residency fixture so the GTT floor clears.
-const statusFixtureWeight = 21504 * 1024 * 1024
+const owuiService = StubOWUIService
 
 // loopbackUnits renders the real stack via orchestrate.Render so the privacy
 // assertion reflects the actual generated PublishPort=127.0.0.1 mechanism.
@@ -45,42 +41,19 @@ func loopbackUnits(t *testing.T) []orchestrate.Unit {
 	return units
 }
 
-// newDeps builds fully-stubbed Deps: a healthy residency journal, a matching /props,
-// a GTT reading that clears the floor, and the rendered loopback stack.
+// newDeps builds the shared healthy-stack stub. The builder lives in the package's
+// testdeps.go so the dashboard and command tiers use the SAME definition of healthy;
+// there used to be three copies of it that had already drifted apart.
 func newDeps(t *testing.T, units []orchestrate.Unit) Deps {
 	t.Helper()
-	drm := t.TempDir()
-	if err := os.WriteFile(filepath.Join(drm, "mem_info_gtt_used"), []byte("23068672000\n"), 0o644); err != nil {
-		t.Fatal(err)
+	d, err := StubDeps(t.TempDir(), units)
+	if err != nil {
+		t.Fatalf("stub deps: %v", err)
 	}
-	return Deps{
-		LoadConfig: func() (config.VillaConfig, error) {
-			return config.VillaConfig{Model: "qwen3", Quant: "Q4", Ctx: 131072, Backend: "vulkan"}, nil
-		},
-		ModelFile: func(config.VillaConfig) (string, error) { return "qwen3.gguf", nil },
-		ModelsDir: func() string { return "/home/villa/.local/share/villa/models" },
-		Render:    func(orchestrate.RenderInput) ([]orchestrate.Unit, error) { return units, nil },
-		IsActive:  func(string) (string, error) { return "active", nil },
-		Health:    func(string) HealthState { return HealthReady },
-		JournalText: func(string) (string, bool) {
-			return "load_tensors:      Vulkan0 model buffer size = 21504.49 MiB\n", true
-		},
-		Props: func(string) *inference.PropsInfo {
-			return &inference.PropsInfo{ModelPath: "/models/qwen3.gguf", NCtx: 131072}
-		},
-		GTTUsed:     func() detect.Bytes { return detect.GTTUsedBytesForTest(drm) },
-		WeightBytes: func(config.VillaConfig) uint64 { return statusFixtureWeight },
-		Endpoint:    func() string { return "http://127.0.0.1:8080" },
-		OWUIHealth:  func(string) HealthState { return HealthReady },
-		OWUIService: owuiService,
-		// Dashboard self-row (Plan 05-05): a healthy /api/healthz probe by
-		// default; tests override DashboardHealth to exercise the wedged case.
-		DashboardService: dashboardService,
-		DashboardHealth:  func(string) HealthState { return HealthReady },
-	}
+	return d
 }
 
-const dashboardService = "villa-dashboard.service"
+const dashboardService = StubDashboardService
 
 // dashRow finds the dashboard self-row in a freshly-run report.
 func dashRow(t *testing.T, d Deps) ServiceStatus {
@@ -120,7 +93,7 @@ func TestRunDashboardRow(t *testing.T) {
 // asserted in the cmd layer where the real HTTP probe lives).
 func TestRunDashboardWedged(t *testing.T) {
 	d := newDeps(t, loopbackUnits(t))
-	d.DashboardHealth = func(string) HealthState { return HealthDown }
+	d.Services = WithServiceHealth(d.Services, StubDashboardService, HealthDown)
 	row := dashRow(t, d)
 
 	if row.Health != HealthDown {
@@ -199,7 +172,7 @@ func TestAggregateWorstWins(t *testing.T) {
 
 	t.Run("503 health → WARN", func(t *testing.T) {
 		d := newDeps(t, units)
-		d.Health = func(string) HealthState { return HealthLoading }
+		d.Services = WithServiceHealth(d.Services, StubInferenceService, HealthLoading)
 		if got := Aggregate(Run(d)); got != inference.StatusWarn {
 			t.Fatalf("Aggregate = %v, want WARN", got)
 		}
@@ -535,10 +508,10 @@ func newMemoryDeps(t *testing.T) Deps {
 	t.Helper()
 	d := newDeps(t, memoryUnits(t))
 	d.LoadConfig = func() (config.VillaConfig, error) { return memoryCfg(), nil }
-	d.QdrantService = qdrantService
-	d.EmbedService = embedService
-	d.QdrantHealth = func(string, int) HealthState { return HealthReady }
-	d.EmbedHealth = func(string, int) HealthState { return HealthReady }
+	d.Services = append(d.Services,
+		Service{Unit: qdrantService, Kind: Managed, Probe: func() HealthState { return HealthReady }},
+		Service{Unit: embedService, Kind: Managed, Probe: func() HealthState { return HealthReady }},
+	)
 	d.ReadRecallState = func() *recall.State {
 		return &recall.State{
 			EmbeddingModel:       "nomic-embed-text-v1.5",
@@ -574,9 +547,9 @@ func TestRunMemoryRowsClassification(t *testing.T) {
 	d := newMemoryDeps(t)
 	// Poison the generic chat-endpoint probe: if a memory row consulted it, it
 	// would read down. The rows must still read from their own seams.
-	d.Health = func(string) HealthState { return HealthDown }
-	d.QdrantHealth = func(string, int) HealthState { return HealthReady }
-	d.EmbedHealth = func(string, int) HealthState { return HealthLoading }
+	d.Services = WithServiceHealth(d.Services, StubInferenceService, HealthDown)
+	d.Services = WithServiceHealth(d.Services, qdrantService, HealthReady)
+	d.Services = WithServiceHealth(d.Services, embedService, HealthLoading)
 
 	q := memRow(t, d, qdrantService)
 	e := memRow(t, d, embedService)
@@ -605,7 +578,7 @@ func TestRunMemoryRowsClassification(t *testing.T) {
 // HEALTH fold (the N/A offload of an OffloadApplies=false row never folds).
 func TestRunMemoryEmbedDownNoFalseGreen(t *testing.T) {
 	d := newMemoryDeps(t)
-	d.EmbedHealth = func(string, int) HealthState { return HealthDown }
+	d.Services = WithServiceHealth(d.Services, embedService, HealthDown)
 
 	r := Run(d)
 	var e ServiceStatus
@@ -629,8 +602,7 @@ func TestRunMemoryEmbedDownNoFalseGreen(t *testing.T) {
 // (typed-Unknown WARN) — never a fabricated ready and never a borrowed probe.
 func TestRunMemoryNilSeams(t *testing.T) {
 	d := newMemoryDeps(t)
-	d.QdrantHealth = nil
-	d.EmbedHealth = nil
+	d.Services = WithoutProbe(d.Services, qdrantService, embedService)
 
 	if got := memRow(t, d, qdrantService).Health; got != HealthUnknown {
 		t.Errorf("nil QdrantHealth seam → Health = %q, want unknown", got)
@@ -1051,10 +1023,10 @@ func newWebSearchDeps(t *testing.T) Deps {
 	}
 	d := newDeps(t, units)
 	d.LoadConfig = func() (config.VillaConfig, error) { return wsCfg, nil }
-	d.SearxngService = "villa-searxng.service"
-	d.WebsafeService = "villa-websafe.service"
-	d.SearxngHealth = func(string, int) HealthState { return HealthReady }
-	d.WebsafeHealth = func(string, int) HealthState { return HealthReady }
+	d.Services = append(d.Services,
+		Service{Unit: "villa-searxng.service", Kind: Managed, Probe: func() HealthState { return HealthReady }},
+		Service{Unit: "villa-websafe.service", Kind: Managed, Probe: func() HealthState { return HealthReady }},
+	)
 	d.ReadVerifyState = func() *verifystate.State { return freshVerify("PASS") }
 	return d
 }
@@ -1207,11 +1179,19 @@ func TestWebSearchOutboundBounded(t *testing.T) {
 func TestRunSearxngWebsafeRows(t *testing.T) {
 	t.Run("dedicated seams used; generic Health NOT called", func(t *testing.T) {
 		d := newWebSearchDeps(t)
+		// The inference probe is poisoned with a distinct sentinel: if any managed row
+		// borrowed it, that row would read ready instead of its own verdict. Each
+		// service owning its probe is what makes the false-green unrepresentable.
 		genericCalled := false
-		d.Health = func(string) HealthState { genericCalled = true; return HealthReady }
+		d.Services = WithServiceHealth(d.Services, StubInferenceService, HealthReady)
+		for i := range d.Services {
+			if d.Services[i].Unit == StubInferenceService {
+				d.Services[i].Probe = func() HealthState { genericCalled = true; return HealthReady }
+			}
+		}
 		// Distinct sentinels prove each row used its OWN seam, not the chat probe.
-		d.SearxngHealth = func(string, int) HealthState { return HealthLoading }
-		d.WebsafeHealth = func(string, int) HealthState { return HealthDown }
+		d.Services = WithServiceHealth(d.Services, "villa-searxng.service", HealthLoading)
+		d.Services = WithServiceHealth(d.Services, "villa-websafe.service", HealthDown)
 		r := Run(d)
 		sx, ok := wsRow(t, r, "villa-searxng.service")
 		if !ok {
@@ -1242,8 +1222,7 @@ func TestRunSearxngWebsafeRows(t *testing.T) {
 
 	t.Run("nil seam → HealthUnknown", func(t *testing.T) {
 		d := newWebSearchDeps(t)
-		d.SearxngHealth = nil
-		d.WebsafeHealth = nil
+		d.Services = WithoutProbe(d.Services, "villa-searxng.service", "villa-websafe.service")
 		r := Run(d)
 		if sx, ok := wsRow(t, r, "villa-searxng.service"); !ok || sx.Health != HealthUnknown {
 			t.Errorf("nil searxng seam must degrade to HealthUnknown, got %+v ok=%v", sx, ok)

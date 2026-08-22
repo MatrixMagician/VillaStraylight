@@ -374,8 +374,6 @@ type Deps struct {
 	Render     func(orchestrate.RenderInput) ([]orchestrate.Unit, error)
 
 	IsActive    func(service string) (string, error)
-	Health      func(endpoint string) HealthState
-	OWUIHealth  func(endpoint string) HealthState
 	JournalText func(service string) (string, bool)
 	Props       func(endpoint string) *inference.PropsInfo
 	GTTUsed     func() detect.Bytes
@@ -404,41 +402,16 @@ type Deps struct {
 	// seam is treated as "no reading" (Run guards it, leaving Usage nil).
 	ReadUsage func() *usage.UsageTotals
 
-	// OWUIService is the villa-openwebui.service unit name the owui-row branch
-	// targets. It is a Deps field so internal/status need not import the
-	// cmd-layer install.go constant (which would create a package-main cycle).
-	OWUIService string
+	// Services is the stack's services: which units exist, how each is probed, and
+	// whether its offload counts. It replaces seven same-shaped health probes and
+	// the six service names they belonged to.
+	//
+	// The names are Deps values, not literals here, so internal/status never
+	// re-types a unit name (which would also create a cycle back to package main).
+	// Required input is visible in the type: a service with no Probe reports
+	// Unknown, rather than a nil field silently producing a row that looks answered.
+	Services []Service
 
-	// Dashboard self-row seams (Plan 05-05). The control dashboard is a NATIVE
-	// systemd --user service (not a Quadlet .container), so it is NOT derived from the
-	// rendered units — it is folded as an explicit extra row: its systemd active-state
-	// plus a bounded GET to its own /api/healthz. Like the owui row it has no GPU
-	// offload, so its offload is the N/A representation EXCLUDED from the worst-wins
-	// fold (OffloadApplies=false). DashboardService is empty when the caller does not
-	// want a dashboard row (e.g. a legacy caller), in which case Run skips it.
-	DashboardService string
-	// DashboardAddr is the loopback base URL of the dashboard (e.g.
-	// http://127.0.0.1:8888) passed to DashboardHealth. The probe itself is the
-	// cmd-layer seam (bounded Timeout + io.LimitReader) so internal/status stays free
-	// of HTTP coupling and a wedged dashboard can never hang Run (Pitfall 6).
-	DashboardAddr   string
-	DashboardHealth func(addr string) HealthState
-
-	// Memory-service rows. QdrantService/EmbedService
-	// are the villa-qdrant.service / villa-embed.service unit names the
-	// memory-row branches target — Deps fields (like OWUIService) so
-	// internal/status never re-types a unit literal; the cmd tier derives them
-	// from the orchestrate accessors. Empty when the caller renders no memory
-	// stack, in which case the branches never match.
-	QdrantService string
-	EmbedService  string
-	// QdrantHealth/EmbedHealth are the per-service in-network health probes
-	// (cmd-tier podman-run curl, TTL-cached) taking the config-resolved
-	// container-DNS addr + port. These rows must NEVER borrow the generic
-	// d.Health(chat endpoint) probe — that was the Phase-22 false-green. A nil
-	// seam degrades the row to HealthUnknown (typed-Unknown, never fabricated).
-	QdrantHealth func(addr string, port int) HealthState
-	EmbedHealth  func(addr string, port int) HealthState
 	// ReadRecallState is the READ-ONLY recall-state.json seam, wired in
 	// liveStatusDeps over recall.Load (fail-closed). It returns a pointer to the
 	// loaded (possibly zero/empty) State, or nil when the store is unreadable
@@ -452,20 +425,6 @@ type Deps struct {
 	// is rendered; ReadVerifyState is consulted ONLY when web search is enabled (Run
 	// gates on cfg.WebSearchEnabled).
 
-	// SearxngService/WebsafeService are the villa-searxng.service / villa-websafe.service
-	// unit names the web-search-row branches target — Deps fields (like OWUIService /
-	// QdrantService) so internal/status never re-types a unit literal; the cmd tier
-	// derives them from the orchestrate accessors. Empty when the caller renders no
-	// web-search stack, in which case the branches never match.
-	SearxngService string
-	WebsafeService string
-	// SearxngHealth/WebsafeHealth are the per-service in-network health probes
-	// (cmd-tier podman-run curl, TTL-cached) taking the config-resolved container-DNS
-	// addr + port. These rows must NEVER borrow the generic d.Health(chat endpoint)
-	// probe — that was the Phase-22 false-green. A nil seam degrades the row
-	// to HealthUnknown (typed-Unknown, never fabricated).
-	SearxngHealth func(addr string, port int) HealthState
-	WebsafeHealth func(addr string, port int) HealthState
 	// ReadVerifyState is the READ-ONLY cached verify-search-result seam,
 	// wired in liveStatusDeps over verifystate.Load (fail-closed). It returns a pointer
 	// to the loaded State, or nil when the store is absent/unreadable — the
@@ -618,99 +577,40 @@ func Run(d Deps) Report {
 	}
 
 	weight := d.WeightBytes(cfg)
-	for _, svc := range serviceUnits(units) {
-		ss := ServiceStatus{Service: svc}
 
-		active, aerr := d.IsActive(svc)
+	// activeState resolves one unit's systemd active-state, keeping the three
+	// outcomes distinct: a parseable state, a systemctl that RAN but errored with no
+	// state (indeterminate-but-bad, which must drive FAIL rather than a soft WARN),
+	// and a state that could not be measured at all (e.g. systemctl absent), which
+	// must never become a false FAIL.
+	activeState := func(unit string) string {
+		active, aerr := d.IsActive(unit)
 		switch {
 		case aerr == nil:
-			ss.Active = active
+			return active
 		case errors.As(aerr, &orchestrate.ErrCommandFailed{}):
-			// systemctl ran but the unit/manager errored with no parseable state
-			// indeterminate-but-bad, must drive FAIL not a soft WARN (tighten).
-			ss.Active = activeErrored
+			return activeErrored
 		default:
-			// Cannot measure at all (e.g. systemctl missing) — never a false FAIL.
-			ss.Active = "unknown"
+			return "unknown"
 		}
+	}
 
-		if svc == d.OWUIService {
-			// Open WebUI row (CHAT-01): health = reachability + a
-			// NON-EMPTY upstream model list. It has no GPU offload, so its offload
-			// is the N/A representation that does NOT fold into the overall verdict.
-			ss.Health = d.OWUIHealth(endpoint)
+	// row builds one service row. The kind decides the offload treatment, which is
+	// the ONE thing that genuinely differs between services: only the inference
+	// service runs the model, so only its verdict folds into the overall status.
+	// Every managed service carries the N/A representation, excluded from the fold.
+	row := func(svc Service) ServiceStatus {
+		ss := ServiceStatus{Service: svc.Unit, Active: activeState(svc.Unit)}
+		if svc.Kind != Inference {
+			ss.Health = svc.health()
 			ss.Offload = naOffloadVerdict()
 			ss.OffloadApplies = false
 			ss.OffloadOK = false
-			report.Services = append(report.Services, ss)
-			continue
+			return ss
 		}
 
-		if svc == d.QdrantService && d.QdrantService != "" {
-			// Qdrant row: a non-GPU managed service with
-			// its OWN per-service health probe — never the generic chat-endpoint
-			// d.Health probe (that was the carried false-green). Offload is the
-			// N/A representation excluded from the worst-wins fold.
-			ss.Health = HealthUnknown
-			if d.QdrantHealth != nil {
-				ss.Health = d.QdrantHealth(config.QdrantAddr, config.QdrantPort)
-			}
-			ss.Offload = naOffloadVerdict()
-			ss.OffloadApplies = false
-			ss.OffloadOK = false
-			report.Services = append(report.Services, ss)
-			continue
-		}
-
-		if svc == d.EmbedService && d.EmbedService != "" {
-			// villa-embed row: same non-GPU classification
-			// as the qdrant row — own health seam, N/A offload, no fold.
-			ss.Health = HealthUnknown
-			if d.EmbedHealth != nil {
-				ss.Health = d.EmbedHealth(config.EmbedAddr, config.EmbedPort)
-			}
-			ss.Offload = naOffloadVerdict()
-			ss.OffloadApplies = false
-			ss.OffloadOK = false
-			report.Services = append(report.Services, ss)
-			continue
-		}
-
-		if svc == d.SearxngService && d.SearxngService != "" {
-			// villa-searxng row: a non-GPU managed
-			// service with its OWN in-network health probe — never the generic
-			// chat-endpoint d.Health probe (the Phase-22 false-green). A nil seam
-			// degrades to HealthUnknown. Offload is the N/A representation excluded
-			// from the worst-wins fold.
-			ss.Health = HealthUnknown
-			if d.SearxngHealth != nil {
-				ss.Health = d.SearxngHealth(config.SearxngAddr, config.SearxngPort)
-			}
-			ss.Offload = naOffloadVerdict()
-			ss.OffloadApplies = false
-			ss.OffloadOK = false
-			report.Services = append(report.Services, ss)
-			continue
-		}
-
-		if svc == d.WebsafeService && d.WebsafeService != "" {
-			// villa-websafe row: same non-GPU
-			// classification as the searxng row — own health seam, N/A offload, no
-			// fold. A nil seam degrades to HealthUnknown.
-			ss.Health = HealthUnknown
-			if d.WebsafeHealth != nil {
-				ss.Health = d.WebsafeHealth(config.WebsafeAddr, config.WebsafePort)
-			}
-			ss.Offload = naOffloadVerdict()
-			ss.OffloadApplies = false
-			ss.OffloadOK = false
-			report.Services = append(report.Services, ss)
-			continue
-		}
-
-		ss.Health = d.Health(endpoint)
-
-		journal, _ := d.JournalText(svc)
+		ss.Health = svc.health()
+		journal, _ := d.JournalText(svc.Unit)
 		ss.Offload = inference.RunningOffloadVerdict(inference.RunningOffloadInput{
 			JournalText:   journal,
 			Props:         d.Props(endpoint),
@@ -719,43 +619,34 @@ func Run(d Deps) Report {
 			ConfigModel:   modelFile,
 			ConfigContext: cfg.Ctx,
 			Markers:       backend.ResidencyProof(),
-			// GPUBusyPercent left Unknown (busy fold skipped) — the live decode-time
-			// gpu_busy_percent read lands in Phase 8; Phase 6 wires the input.
+			// GPUBusyPercent left Unknown (the busy fold is skipped): the decode-time
+			// read belongs to the residency proof, which drives its own workload.
 		})
 		ss.OffloadApplies = true
 		ss.OffloadOK = ss.Offload.Status == inference.StatusPass
-		report.Services = append(report.Services, ss)
+		return ss
 	}
 
-	// Dashboard self-row (Plan 05-05): the control dashboard is a managed,
-	// observable member of the stack, but a NATIVE systemd --user service — not a
-	// Quadlet .container — so it is NOT in serviceUnits(units). Fold it as an explicit
-	// extra row AFTER the container rows: its systemd active-state plus a bounded
-	// /api/healthz probe (the seam is the cmd-layer bounded GET, so a wedged dashboard
-	// cannot hang Run — Pitfall 6). Like the owui row it has NO GPU offload, so its
-	// offload is the N/A representation EXCLUDED from the worst-wins fold
-	// (OffloadApplies=false): it never records a spurious offload PASS nor a false
-	// offload FAIL. Skipped when no DashboardService is configured.
-	if d.DashboardService != "" {
-		ds := ServiceStatus{Service: d.DashboardService}
-		active, aerr := d.IsActive(d.DashboardService)
-		switch {
-		case aerr == nil:
-			ds.Active = active
-		case errors.As(aerr, &orchestrate.ErrCommandFailed{}):
-			ds.Active = activeErrored
-		default:
-			ds.Active = "unknown"
+	// Rendered rows, in unit order.
+	for _, unit := range serviceUnits(units) {
+		svc, ok := findService(d.Services, unit)
+		if !ok {
+			// A rendered unit with no configured service still gets a row, probed by
+			// nothing: reporting Unknown is honest, and omitting the row would hide a
+			// running service from the operator.
+			svc = Service{Unit: unit, Kind: Managed}
 		}
-		if d.DashboardHealth != nil {
-			ds.Health = d.DashboardHealth(d.DashboardAddr)
-		} else {
-			ds.Health = HealthUnknown
+		report.Services = append(report.Services, row(svc))
+	}
+
+	// Always-row services, AFTER the rendered ones. The dashboard is a managed,
+	// observable member of the stack but a native systemd service rather than a
+	// Quadlet container, so it never appears in the rendered units.
+	for _, svc := range d.Services {
+		if !svc.AlwaysRow {
+			continue
 		}
-		ds.Offload = naOffloadVerdict()
-		ds.OffloadApplies = false
-		ds.OffloadOK = false
-		report.Services = append(report.Services, ds)
+		report.Services = append(report.Services, row(svc))
 	}
 
 	report.Overall = Aggregate(report).String()

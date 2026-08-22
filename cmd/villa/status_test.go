@@ -30,9 +30,6 @@ import (
 // (all-PASS→0, any-WARN→2, any-FAIL→1; 503→loading→WARN not FAIL). The read-model unit
 // asserts (Aggregate/ActiveStatus/parsePublishPort) live in internal/status.
 
-// statusFixtureWeight matches the Vulkan0 residency fixture so the GTT floor clears.
-const statusFixtureWeight = 21504 * 1024 * 1024
-
 // loopbackUnits renders the real stack via orchestrate.Render so the golden + the
 // privacy assertion reflect the actual generated PublishPort=127.0.0.1 mechanism.
 func loopbackUnits(t *testing.T) []orchestrate.Unit {
@@ -49,47 +46,24 @@ func loopbackUnits(t *testing.T) []orchestrate.Unit {
 	return units
 }
 
-// newStatusDeps builds a fully-stubbed status.Deps: a healthy residency journal, a
-// matching /props, a GTT reading that clears the floor, and the rendered loopback
-// stack. Knobs override the health probe / journal / props per test.
+// newStatusDeps returns the SHARED healthy-stack stub, plus the two cmd-tier seams
+// the core's own tests do not need.
+//
+// The forty-line copy that used to live here was one of three, and they had already
+// drifted: this one and the dashboard's disagreed about the GTT reading and the
+// model weight, so the same core was covered against different worlds. The
+// definition of a healthy stack now lives once, in internal/status.
 func newStatusDeps(t *testing.T, units []orchestrate.Unit) *status.Deps {
 	t.Helper()
-	drm := t.TempDir()
-	if err := os.WriteFile(filepath.Join(drm, "mem_info_gtt_used"), []byte("23068672000\n"), 0o644); err != nil {
-		t.Fatal(err)
+	d, err := status.StubDeps(t.TempDir(), units)
+	if err != nil {
+		t.Fatalf("stub deps: %v", err)
 	}
-	return &status.Deps{
-		LoadConfig: func() (config.VillaConfig, error) {
-			return config.VillaConfig{Model: "qwen3", Quant: "Q4", Ctx: 131072, Backend: "vulkan"}, nil
-		},
-		ModelFile: func(config.VillaConfig) (string, error) { return "qwen3.gguf", nil },
-		ModelsDir: func() string { return "/home/villa/.local/share/villa/models" },
-		Render:    func(orchestrate.RenderInput) ([]orchestrate.Unit, error) { return units, nil },
-		IsActive:  func(string) (string, error) { return "active", nil },
-		Health:    func(string) status.HealthState { return status.HealthReady },
-		JournalText: func(string) (string, bool) {
-			return "load_tensors:      Vulkan0 model buffer size = 21504.49 MiB\n", true
-		},
-		Props: func(string) *inference.PropsInfo {
-			return &inference.PropsInfo{ModelPath: "/models/qwen3.gguf", NCtx: 131072}
-		},
-		GTTUsed:     func() detect.Bytes { return detect.GTTUsedBytesForTest(drm) },
-		WeightBytes: func(config.VillaConfig) uint64 { return statusFixtureWeight },
-		Endpoint:    func() string { return "http://127.0.0.1:8080" },
-		// Default owui probe: upstream /v1/models is non-empty → HealthReady. Tests
-		// override this knob to exercise the empty-list / unreachable branches.
-		OWUIHealth:  func(string) status.HealthState { return status.HealthReady },
-		OWUIService: openWebUIServiceName,
-		// Dashboard self-row (Plan 05-05): a healthy /api/healthz by default;
-		// tests override DashboardHealth for the wedged case.
-		DashboardService: orchestrate.DashboardServiceName,
-		DashboardHealth:  func(string) status.HealthState { return status.HealthReady },
-		// tok/s seam: default idle → nil (omitted, never a fabricated 0). Tests
-		// override to exercise the generating case. ROCm-readiness seam: default
-		// all-unset → folds to "unknown" (off-hardware honest default).
-		GenTokensPerSec: func(string) *float64 { return nil },
-		ROCmReadiness:   func() detect.ROCmReadiness { return detect.ROCmReadiness{} },
-	}
+	// tok/s: idle by default, so the figure is omitted rather than fabricated as 0.
+	// ROCm readiness: all-unset folds to "unknown", the honest off-hardware default.
+	d.GenTokensPerSec = func(string) *float64 { return nil }
+	d.ROCmReadiness = func() detect.ROCmReadiness { return detect.ROCmReadiness{} }
+	return &d
 }
 
 // owuiRow finds the villa-openwebui.service row in a freshly-run report.
@@ -129,7 +103,7 @@ func TestStatusOpenWebUIHealthProbe(t *testing.T) {
 
 	t.Run("non-empty /v1/models → owui Health ready (PASS)", func(t *testing.T) {
 		d := newStatusDeps(t, units)
-		d.OWUIHealth = func(string) status.HealthState { return status.HealthReady }
+		d.Services = status.WithServiceHealth(d.Services, status.StubOWUIService, status.HealthReady)
 		row := owuiRow(t, d)
 		if row.Health != status.HealthReady {
 			t.Fatalf("owui Health = %q, want %q", row.Health, status.HealthReady)
@@ -141,7 +115,7 @@ func TestStatusOpenWebUIHealthProbe(t *testing.T) {
 
 	t.Run("empty /v1/models → owui Health loading (WARN, never PASS)", func(t *testing.T) {
 		d := newStatusDeps(t, units)
-		d.OWUIHealth = func(string) status.HealthState { return status.HealthLoading }
+		d.Services = status.WithServiceHealth(d.Services, status.StubOWUIService, status.HealthLoading)
 		row := owuiRow(t, d)
 		if row.Health == status.HealthReady {
 			t.Fatalf("empty model list must NOT be HealthReady (no false PASS)")
@@ -153,7 +127,7 @@ func TestStatusOpenWebUIHealthProbe(t *testing.T) {
 
 	t.Run("unreachable owui → typed-Unknown → WARN (never false PASS, never over-eager FAIL)", func(t *testing.T) {
 		d := newStatusDeps(t, units)
-		d.OWUIHealth = func(string) status.HealthState { return status.HealthUnknown }
+		d.Services = status.WithServiceHealth(d.Services, status.StubOWUIService, status.HealthUnknown)
 		row := owuiRow(t, d)
 		if row.Health == status.HealthReady {
 			t.Fatalf("unreachable owui must NOT be HealthReady (no false PASS)")
@@ -360,10 +334,12 @@ func newMemoryStatusDeps(t *testing.T) *status.Deps {
 	t.Helper()
 	d := newStatusDeps(t, memoryLoopbackUnits(t))
 	d.LoadConfig = func() (config.VillaConfig, error) { return memoryStatusCfg(), nil }
-	d.QdrantService = unitServiceName(orchestrate.QdrantContainerUnitName())
-	d.EmbedService = unitServiceName(orchestrate.EmbedContainerUnitName())
-	d.QdrantHealth = func(string, int) status.HealthState { return status.HealthReady }
-	d.EmbedHealth = func(string, int) status.HealthState { return status.HealthReady }
+	d.Services = append(d.Services,
+		status.Service{Unit: unitServiceName(orchestrate.QdrantContainerUnitName()), Kind: status.Managed,
+			Probe: func() status.HealthState { return status.HealthReady }},
+		status.Service{Unit: unitServiceName(orchestrate.EmbedContainerUnitName()), Kind: status.Managed,
+			Probe: func() status.HealthState { return status.HealthReady }},
+	)
 	d.ReadRecallState = func() *recall.State {
 		return &recall.State{
 			EmbeddingModel:       "nomic-embed-text-v1.5",
@@ -463,10 +439,12 @@ func newWebSearchStatusDeps(t *testing.T) *status.Deps {
 	t.Helper()
 	d := newStatusDeps(t, webSearchLoopbackUnits(t))
 	d.LoadConfig = func() (config.VillaConfig, error) { return webSearchStatusCfg(), nil }
-	d.SearxngService = unitServiceName(orchestrate.SearXNGContainerUnitName())
-	d.WebsafeService = unitServiceName(orchestrate.WebsafeContainerUnitName())
-	d.SearxngHealth = func(string, int) status.HealthState { return status.HealthReady }
-	d.WebsafeHealth = func(string, int) status.HealthState { return status.HealthReady }
+	d.Services = append(d.Services,
+		status.Service{Unit: unitServiceName(orchestrate.SearXNGContainerUnitName()), Kind: status.Managed,
+			Probe: func() status.HealthState { return status.HealthReady }},
+		status.Service{Unit: unitServiceName(orchestrate.WebsafeContainerUnitName()), Kind: status.Managed,
+			Probe: func() status.HealthState { return status.HealthReady }},
+	)
 	d.ReadVerifyState = func() *verifystate.State { return nil }
 	return d
 }
@@ -681,7 +659,7 @@ func TestStatusDashboardRow(t *testing.T) {
 
 	t.Run("wedged dashboard → typed-down (never a confident PASS), status does not hang", func(t *testing.T) {
 		d := newStatusDeps(t, units)
-		d.DashboardHealth = func(string) status.HealthState { return status.HealthDown }
+		d.Services = status.WithServiceHealth(d.Services, status.StubDashboardService, status.HealthDown)
 		report := runStatusReport(t, d)
 		var row status.ServiceStatus
 		for _, s := range report.Services {
@@ -747,7 +725,7 @@ func TestStatusExitCodes(t *testing.T) {
 
 	t.Run("503 health → loading → WARN (2), not FAIL", func(t *testing.T) {
 		d := newStatusDeps(t, units)
-		d.Health = func(string) status.HealthState { return status.HealthLoading }
+		d.Services = status.WithServiceHealth(d.Services, status.StubInferenceService, status.HealthLoading)
 		cmd, _, _ := statusTestCmd()
 		if code := runStatus(cmd, nil, d); code != exitWarn {
 			t.Fatalf("503 loading exit = %d, want %d (WARN, not a confident FAIL)", code, exitWarn)
@@ -776,7 +754,7 @@ func TestStatusExitCodes(t *testing.T) {
 
 	t.Run("health down → FAIL → 1", func(t *testing.T) {
 		d := newStatusDeps(t, units)
-		d.Health = func(string) status.HealthState { return status.HealthDown }
+		d.Services = status.WithServiceHealth(d.Services, status.StubInferenceService, status.HealthDown)
 		cmd, _, _ := statusTestCmd()
 		if code := runStatus(cmd, nil, d); code != exitBlocked {
 			t.Fatalf("health-down exit = %d, want %d (FAIL)", code, exitBlocked)
@@ -804,7 +782,7 @@ func TestStatusExitCodes(t *testing.T) {
 	t.Run("activating unit → active WARN → 2", func(t *testing.T) {
 		d := newStatusDeps(t, units)
 		d.IsActive = func(string) (string, error) { return "activating", nil }
-		d.Health = func(string) status.HealthState { return status.HealthLoading }
+		d.Services = status.WithServiceHealth(d.Services, status.StubInferenceService, status.HealthLoading)
 		cmd, _, _ := statusTestCmd()
 		if code := runStatus(cmd, nil, d); code != exitWarn {
 			t.Fatalf("activating-unit exit = %d, want %d (active WARN)", code, exitWarn)

@@ -12,7 +12,6 @@ import (
 
 	"github.com/MatrixMagician/VillaStraylight/internal/catalog"
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
-	"github.com/MatrixMagician/VillaStraylight/internal/detect"
 	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 	"github.com/MatrixMagician/VillaStraylight/internal/metrics"
 	"github.com/MatrixMagician/VillaStraylight/internal/modelswap"
@@ -22,10 +21,12 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/usage"
 )
 
-// stubStatusDeps builds a fully-stubbed status.Deps that renders the real stack
-// and reports every service healthy/active, so status.Run returns a deterministic
-// Report the dashboard handler can serialize. It mirrors cmd/villa/status_test.go's
-// newStatusDeps but trimmed to what the dashboard needs.
+// stubStatusDeps returns the SHARED healthy-stack stub over the real rendered
+// units, so the dashboard handler serializes a deterministic Report.
+//
+// The forty-line copy that used to live here disagreed with the status package's
+// own copy about the GTT reading and the model weight, so the two tiers covered the
+// same core against different worlds. There is one definition now.
 func stubStatusDeps(t *testing.T) status.Deps {
 	t.Helper()
 	units, err := orchestrate.Render(orchestrate.RenderInput{
@@ -37,27 +38,11 @@ func stubStatusDeps(t *testing.T) status.Deps {
 	if err != nil {
 		t.Fatalf("render: %v", err)
 	}
-	return status.Deps{
-		LoadConfig: func() (config.VillaConfig, error) {
-			return config.VillaConfig{Model: "qwen3", Quant: "Q4", Ctx: 131072, Backend: "vulkan"}, nil
-		},
-		ModelFile:  func(config.VillaConfig) (string, error) { return "qwen3.gguf", nil },
-		ModelsDir:  func() string { return "/home/villa/.local/share/villa/models" },
-		Render:     func(orchestrate.RenderInput) ([]orchestrate.Unit, error) { return units, nil },
-		IsActive:   func(string) (string, error) { return "active", nil },
-		Health:     func(string) status.HealthState { return status.HealthReady },
-		OWUIHealth: func(string) status.HealthState { return status.HealthReady },
-		JournalText: func(string) (string, bool) {
-			return "load_tensors:      Vulkan0 model buffer size = 21504.49 MiB\n", true
-		},
-		Props: func(string) *inference.PropsInfo {
-			return &inference.PropsInfo{ModelPath: "/models/qwen3.gguf", NCtx: 131072}
-		},
-		GTTUsed:     func() detect.Bytes { return detect.UnknownBytes("stub", "") },
-		WeightBytes: func(config.VillaConfig) uint64 { return 0 },
-		Endpoint:    func() string { return "http://127.0.0.1:8080" },
-		OWUIService: "villa-openwebui.service",
+	d, err := status.StubDeps(t.TempDir(), units)
+	if err != nil {
+		t.Fatalf("stub deps: %v", err)
 	}
+	return d
 }
 
 // TestHandleStatusFoldsSharedCore asserts GET /api/status returns 200 with a body
@@ -175,10 +160,12 @@ func stubMemoryStatusDeps(t *testing.T) status.Deps {
 	d := stubStatusDeps(t)
 	d.LoadConfig = func() (config.VillaConfig, error) { return cfg, nil }
 	d.Render = func(orchestrate.RenderInput) ([]orchestrate.Unit, error) { return units, nil }
-	d.QdrantService = "villa-qdrant.service"
-	d.EmbedService = "villa-embed.service"
-	d.QdrantHealth = func(string, int) status.HealthState { return status.HealthReady }
-	d.EmbedHealth = func(string, int) status.HealthState { return status.HealthReady }
+	d.Services = append(d.Services,
+		status.Service{Unit: "villa-qdrant.service", Kind: status.Managed,
+			Probe: func() status.HealthState { return status.HealthReady }},
+		status.Service{Unit: "villa-embed.service", Kind: status.Managed,
+			Probe: func() status.HealthState { return status.HealthReady }},
+	)
 	d.ReadRecallState = func() *recall.State {
 		return &recall.State{
 			EmbeddingModel:       "nomic-embed-text-v1.5",

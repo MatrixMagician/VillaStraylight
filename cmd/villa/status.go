@@ -234,8 +234,6 @@ func liveStatusDeps() (*status.Deps, error) {
 		ModelsDir:  modelsDir,
 		Render:     orchestrate.Render,
 		IsActive:   sys.IsActive,
-		Health:     liveHealthProbe,
-		OWUIHealth: liveOpenWebUIHealth,
 		// ResidencyJournal (not JournalText) — the offload assert needs the CURRENT
 		// invocation's startup, where the load_tensors residency line lives; the
 		// whole-unit journal's oldest bytes are stale prior-start output (F-3).
@@ -244,14 +242,14 @@ func liveStatusDeps() (*status.Deps, error) {
 		GTTUsed:     detect.GTTUsedBytes,
 		WeightBytes: liveWeightBytes,
 		Endpoint:    func() string { return endpoint },
-		OWUIService: openWebUIServiceName,
-		// Dashboard self-row (Plan 05-05): the dashboard is a managed, observable
-		// member of the stack. Its addr is the config'd loopback DashboardAddr:Port (read
-		// from config, never hard-coded); DashboardHealth is a bounded GET to its
-		// own /api/healthz (benign self-recursion, Pitfall 6).
-		DashboardService: orchestrate.DashboardServiceName,
-		DashboardAddr:    liveDashboardAddr(),
-		DashboardHealth:  liveDashboardHealth,
+		// The stack's services, as ONE list. Unit names are derived from the
+		// orchestrate accessors via the same .container → .service derivation doctor
+		// uses, never a typed service-name literal (the seam gate walks cmd/villa).
+		//
+		// Every managed service gets its OWN probe. Borrowing the inference
+		// endpoint's health probe for a managed service was a real false-green: a
+		// healthy chat model made a down vector store read as ready.
+		Services: liveStatusServices(endpoint),
 		// Live tok/s: REUSE the dashboard-proven metrics collector — no new
 		// scraper. nil on a failed/absent /metrics scrape or an idle server, so the
 		// figure is omitted (typed-Unknown), NEVER a fabricated 0.
@@ -262,29 +260,8 @@ func liveStatusDeps() (*status.Deps, error) {
 		// Cumulative usage: READ-ONLY load of usage.json. The CLI is
 		// one-shot and NEVER writes the store (the dashboard, Plan 04, is the sole
 		// writer); nil on an absent/empty store so the figure is omitted.
-		ReadUsage: liveReadUsage,
-		// Memory-service rows: service names derived from the
-		// orchestrate accessors via the SAME .container → .service derivation doctor
-		// uses — never a typed service-name literal (TestSeamGrepGate walks
-		// cmd/villa). The per-service health probes + recall seam wired here reach
-		// the dashboard verbatim (dashboard.go wires *liveStatusDeps() unchanged).
-		QdrantService:   unitServiceName(orchestrate.QdrantContainerUnitName()),
-		EmbedService:    unitServiceName(orchestrate.EmbedContainerUnitName()),
-		QdrantHealth:    liveQdrantHealth,
-		EmbedHealth:     liveEmbedHealth,
+		ReadUsage:       liveReadUsage,
 		ReadRecallState: liveReadRecallState,
-		// Web-search rows + cached-verify seam: service names
-		// derived from the orchestrate accessors via the SAME .container → .service
-		// derivation doctor uses — never a typed service-name literal (TestSeamGrepGate
-		// walks cmd/villa). The dedicated in-network health probes + the fail-closed
-		// ReadVerifyState seam wired here reach the dashboard verbatim (dashboard.go
-		// wires *liveStatusDeps() unchanged). The outbound-bounded indicator is derived
-		// in the status core from this cached result with a freshness gate — NEVER from
-		// cfg.WebSearchEnabled.
-		SearxngService:  unitServiceName(orchestrate.SearXNGContainerUnitName()),
-		WebsafeService:  unitServiceName(orchestrate.WebsafeContainerUnitName()),
-		SearxngHealth:   liveSearxngHealth,
-		WebsafeHealth:   liveWebsafeHealth,
 		ReadVerifyState: liveReadVerifyState,
 	}
 	// Coding-agent seams (Phase-28..): wired ONLY when the agent is
@@ -820,4 +797,68 @@ func liveWeightBytes(cfg config.VillaConfig) uint64 {
 	// the memory reservation.
 	rec := recommend.Pick(detect.Probe(), cat, recommend.Overrides{Model: cfg.Model}, recommend.MemoryInputs{}, recommend.WebSearchInputs{})
 	return rec.WeightBytes
+}
+
+// liveStatusServices is the stack's services as ONE list: the inference service,
+// the chat UI, the four optional-subsystem services, and the dashboard.
+//
+// This replaced seven same-shaped health probes and the six service names they
+// belonged to, spread across the status seam struct. Adding a subsystem to status
+// is now one entry here instead of a name, a probe and a report branch across three
+// files.
+//
+// Unit names come from the orchestrate accessors via the same .container → .service
+// derivation doctor uses, so no service-name literal is typed in the command tier.
+//
+// Every managed service carries its OWN probe. That is not stylistic: borrowing the
+// inference endpoint's health probe for a managed service was a real false-green,
+// where a healthy chat model made a down vector store read as ready.
+func liveStatusServices(endpoint string) []status.Service {
+	return []status.Service{
+		{
+			// The inference service is the ONLY one whose offload verdict folds into
+			// the overall status: it is the only one running the model.
+			Unit:  installServiceName,
+			Kind:  status.Inference,
+			Probe: func() status.HealthState { return liveHealthProbe(endpoint) },
+		},
+		{
+			// The chat UI's health is reachability AND a non-empty upstream model
+			// list. Reachability alone would report ready while it could not reach a
+			// model at all.
+			Unit:  openWebUIServiceName,
+			Kind:  status.Managed,
+			Probe: func() status.HealthState { return liveOpenWebUIHealth(endpoint) },
+		},
+		{
+			Unit:  unitServiceName(orchestrate.QdrantContainerUnitName()),
+			Kind:  status.Managed,
+			Probe: func() status.HealthState { return liveQdrantHealth(config.QdrantAddr, config.QdrantPort) },
+		},
+		{
+			Unit:  unitServiceName(orchestrate.EmbedContainerUnitName()),
+			Kind:  status.Managed,
+			Probe: func() status.HealthState { return liveEmbedHealth(config.EmbedAddr, config.EmbedPort) },
+		},
+		{
+			Unit:  unitServiceName(orchestrate.SearXNGContainerUnitName()),
+			Kind:  status.Managed,
+			Probe: func() status.HealthState { return liveSearxngHealth(config.SearxngAddr, config.SearxngPort) },
+		},
+		{
+			Unit:  unitServiceName(orchestrate.WebsafeContainerUnitName()),
+			Kind:  status.Managed,
+			Probe: func() status.HealthState { return liveWebsafeHealth(config.WebsafeAddr, config.WebsafePort) },
+		},
+		{
+			// The dashboard is a native systemd --user service, not a Quadlet
+			// container, so it never appears in the rendered units and needs an
+			// explicit row. Its probe is a bounded GET to its own /api/healthz, which
+			// is a benign self-recursion the timeout keeps from hanging status.
+			Unit:      orchestrate.DashboardServiceName,
+			Kind:      status.Managed,
+			AlwaysRow: true,
+			Probe:     func() status.HealthState { return liveDashboardHealth(liveDashboardAddr()) },
+		},
+	}
 }
