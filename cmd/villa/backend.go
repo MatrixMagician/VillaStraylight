@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"time"
 
 	"github.com/spf13/cobra"
 
@@ -19,6 +18,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/preflight"
 	"github.com/MatrixMagician/VillaStraylight/internal/prove"
 	"github.com/MatrixMagician/VillaStraylight/internal/recommend"
+	"github.com/MatrixMagician/VillaStraylight/internal/residency"
 )
 
 // backend.go is the cmd-tier `villa backend` noun: the live host wiring that drives
@@ -33,147 +33,66 @@ import (
 // 08-01-03-extended TestSeamGrepGate now WALKS cmd/villa and fails CI on any such leak.
 // Do NOT paste markers here.
 
-// proveTimeout bounds the cutover readiness poll (and, by the shared deadline
-// context, the whole prove). It is seeded from inference's defaultReadyTimeout (5m)
-// and documented as the load_tensors-hang guard (Pitfall 2 / T-8-07): a server that
-// never becomes ready before this deadline is a PROVE FAIL → rollback, NEVER an
-// infinite wait. inference does not export defaultReadyTimeout, so the value is
-// mirrored here as a named const with that provenance.
-const proveTimeout = 5 * time.Minute
+// liveResidencyDeps wires the residency drive protocol to the real host. It is the
+// ONE binding of internal/residency's seams to the live primitives, shared by every
+// caller that proves residency, so no two proofs can drift onto different readers.
+func liveResidencyDeps() residency.Deps {
+	return residency.Deps{
+		PollHealth: inference.PollHealth,
+		Generate:   inference.GenerationProbe,
+		GPUBusy:    detect.GPUBusyPercent,
+		GTTUsed:    detect.GTTUsedBytes,
+		// The INVOCATION-scoped journal (ResidencyJournal), never the whole-unit
+		// journal, whose oldest bytes are stale prior-start output.
+		Journal: orchestrate.NewSystemd().ResidencyJournal,
+		Fold:    inference.RunningOffloadVerdict,
+	}
+}
 
-// busySampleInterval is how often liveProve re-reads detect.GPUBusyPercent() DURING
-// the generation probe (Assumption A2): a single post-probe read can miss a
-// short decode's busy window, so the prove samples repeatedly while tokens stream and
-// keeps the max.
-const busySampleInterval = 100 * time.Millisecond
-
-// liveProve is the injected cutover gate (backendswap.Deps.Prove). It probes the
-// ALREADY-running villa-llama.service (no --rm container) and returns a backendswap
-// verdict the transactional core gates on. It composes THREE required gates inside a
-// single bounded deadline:
+// liveProve is the injected cutover gate (backendswap.Deps.Prove). It resolves what
+// is being proven — the target backend, the served model file and the chat ctx — and
+// hands it to the shared residency drive protocol, which owns the three gates
+// (bounded readiness, a real generation probe, the residency fold) and the
+// Unknown-versus-negative rule.
 //
-//	(a) bounded readiness via the EXPORTED inference.PollHealth (Pitfall 2 timeout),
-//	(b) a REAL generation probe via the EXPORTED inference.GenerationProbe (tokens>0),
-//	(c) residency proof via inference.RunningOffloadVerdict fed the target backend's
-//	    BackendFor(target).ResidencyProof() markers + the SAME concrete liveWeightBytes
-//	    / liveModelFile seams status.go uses, with detect.GPUBusyPercent() sampled
+// Resolution failures are prove FAILs, never a silent fallback: an unknown backend,
+// an unreadable config or an unresolvable model file each refuse here, before the
+// protocol runs.
 //
-// DURING the decode.
-//
-// It maps ONLY inference.StatusPass to prove.StatusPass; any other verdict
-// (including ready+health-200-but-residency-FAIL) is a "fail" → the core rolls
-// back. All ROCm/HSA/fault markers stay behind ResidencyProof() — this function is
-// literal-free of them.
+// All ROCm/HSA/fault markers stay behind BackendFor(target).ResidencyProof() — this
+// function is literal-free of them (T-8-11).
 func liveProve(ctx context.Context, target string) prove.Verdict {
-	// Resolve the backend fail-closed: an unknown target is a prove fail, never
-	// a silent fallback. backend.ResidencyProof() is the ONLY source of backend markers.
 	backend, err := inference.BackendFor(target)
 	if err != nil {
 		return prove.Verdict{Status: prove.StatusFail, Detail: err.Error()}
 	}
 
-	// Load the source of truth for the residency seams (ConfigModel/ConfigContext) and
-	// the probe's model id. A config-load failure is a prove fail.
+	// The source of truth for the residency seams (ConfigModel/ConfigContext) and the
+	// probe's model id.
 	cfg, err := config.LoadVilla()
 	if err != nil {
 		return prove.Verdict{Status: prove.StatusFail, Detail: "load config: " + err.Error()}
 	}
 
-	// Resolve the catalog-resolved GGUF filename ONCE for ConfigModel — the SAME
-	// concrete seam status.go uses (cmd/villa/lifecycle.go liveModelFile), never a
-	// placeholder. Its error is a prove fail.
+	// The catalog-resolved GGUF FILENAME for ConfigModel — the SAME concrete seam
+	// status.go uses (liveModelFile), never a placeholder. The /props drift overlay
+	// compares against the model FILE, so the catalog id would make it misfire.
 	modelFile, err := liveModelFile(cfg)
 	if err != nil {
 		return prove.Verdict{Status: prove.StatusFail, Detail: "resolve model file: " + err.Error()}
 	}
 
-	// Derive the inference endpoint the SAME way the status path does (mirror
-	// status.go:150): the resolved backend's container runner, never a hand-rolled URL.
-	endpoint := inference.NewContainerRunner(backend, inference.RunSpec{}).Endpoint()
-
-	// Bound the WHOLE prove by proveTimeout (Pitfall 2 / T-8-07). A never-ready server
-	// trips this deadline and is a FAIL, not an infinite wait.
-	deadlineCtx, cancel := context.WithTimeout(ctx, proveTimeout)
-	defer cancel()
-
-	// (a) Bounded readiness. PollHealth is the EXPORTED non-container readiness gate
-	// over the already-running server; a 200 means "accepting requests", not "offload
-	// happened" — that is gate (c). Never-ready before the deadline → FAIL.
-	ready := inference.PollHealth(deadlineCtx, endpoint, proveTimeout)
-	if !ready.Known || !ready.Value {
-		return prove.Verdict{
-			Status: prove.StatusFail,
-			Detail: "not ready before timeout (possible load_tensors hang or CPU-fallback stall)",
-		}
-	}
-
-	// (b) REAL generation probe, with the live gpu_busy_percent sampled DURING the
-	// decode window (Assumption A2 / Open Question 3). Start the probe in a
-	// goroutine and poll detect.GPUBusyPercent() repeatedly while tokens stream, keeping
-	// the max — a single post-probe read can miss a short decode's busy window.
-	chatCh := make(chan inference.ChatResult, 1)
-	go func() {
-		chatCh <- inference.GenerationProbe(deadlineCtx, endpoint, cfg.Model)
-	}()
-
-	maxBusy := detect.UnknownInt("gpu_busy_percent not sampled during probe", "")
-	ticker := time.NewTicker(busySampleInterval)
-	defer ticker.Stop()
-sampleLoop:
-	for {
-		// Sample once up front and on every tick so even a very short decode gets at
-		// least one in-flight read.
-		if b := detect.GPUBusyPercent(); b.Known && (!maxBusy.Known || b.Value > maxBusy.Value) {
-			maxBusy = b
-		}
-		select {
-		case chat := <-chatCh:
-			// One last read at completion, then stop sampling.
-			if b := detect.GPUBusyPercent(); b.Known && (!maxBusy.Known || b.Value > maxBusy.Value) {
-				maxBusy = b
-			}
-			if !chat.OK || chat.Tokens == 0 {
-				detail := "generation probe returned no tokens"
-				if chat.Detail != "" {
-					detail = "generation probe failed: " + chat.Detail
-				}
-				return prove.Verdict{Status: prove.StatusFail, Detail: detail}
-			}
-			break sampleLoop
-		case <-ticker.C:
-			// keep sampling
-		case <-deadlineCtx.Done():
-			return prove.Verdict{
-				Status: prove.StatusFail,
-				Detail: "generation probe did not complete before timeout (possible load_tensors hang or CPU-fallback stall)",
-			}
-		}
-	}
-
-	// (c) Residency proof. Read the INVOCATION-scoped journal (F-3 — ResidencyJournal,
-	// not the whole-unit journal whose oldest bytes are stale prior-start output), then
-	// fold the journal + GTT floor + the DURING-probe gpu_busy reading + the target
-	// backend's markers into one Verdict. WeightBytes/ConfigModel/ConfigContext mirror
-	// internal/status/status.go exactly via the concrete liveWeightBytes(cfg)/
-	// liveModelFile(cfg)/cfg.Ctx seams — never placeholders. Markers come ONLY from
-	// backend.ResidencyProof() (keeps this file literal-free, T-8-11).
-	journal, _ := orchestrate.NewSystemd().ResidencyJournal(installServiceName)
-	v := inference.RunningOffloadVerdict(inference.RunningOffloadInput{
-		JournalText:    journal,
-		GTTUsedBytes:   detect.GTTUsedBytes(),
-		GPUBusyPercent: maxBusy,
-		WeightBytes:    liveWeightBytes(cfg),
-		ConfigModel:    modelFile,
-		ConfigContext:  cfg.Ctx,
-		Markers:        backend.ResidencyProof(),
+	return residency.ProveCutover(ctx, liveResidencyDeps(), residency.Target{
+		// The endpoint is derived the SAME way the status path does: the resolved
+		// backend's container runner, never a hand-rolled URL.
+		Endpoint:    inference.NewContainerRunner(backend, inference.RunSpec{}).Endpoint(),
+		Service:     installServiceName,
+		ModelID:     cfg.Model,
+		ModelFile:   modelFile,
+		ContextLen:  cfg.Ctx,
+		WeightBytes: liveWeightBytes(cfg),
+		Markers:     backend.ResidencyProof(),
 	})
-
-	// Map ONLY a true StatusPass to ProveStatusPass; everything else (FAIL/WARN, incl.
-	// ready+200-but-residency-FAIL) is a fail → the core rolls back.
-	if v.Status == inference.StatusPass {
-		return prove.Verdict{Status: prove.StatusPass, Detail: v.Detail}
-	}
-	return prove.Verdict{Status: prove.StatusFail, Detail: v.Detail}
 }
 
 // ---------------------------------------------------------------------------
