@@ -73,6 +73,12 @@ type Deps struct {
 	// Unknown. That is deliberate: an unreadable journal is an ABSENT signal, never
 	// evidence that offload did not happen.
 	Journal func(service string) (text string, found bool)
+	// Props reads the llama.cpp /props response for the config-identity drift
+	// overlay. OPTIONAL: nil means /props was not consulted, which the fold treats
+	// as Unknown — it is corroboration only, never the residency proof itself. The
+	// under-load proofs wire it from the status seams so every signal flows through
+	// the same readers the status fold uses.
+	Props func() *inference.PropsInfo
 	// Fold turns the gathered signals into the residency verdict. Live wiring is
 	// inference.RunningOffloadVerdict. It is a seam so a test can drive the protocol
 	// against a chosen verdict without constructing journal text.

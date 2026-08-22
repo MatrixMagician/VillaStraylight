@@ -35,6 +35,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/memory"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 	"github.com/MatrixMagician/VillaStraylight/internal/preflight"
+	"github.com/MatrixMagician/VillaStraylight/internal/residency"
 	"github.com/MatrixMagician/VillaStraylight/internal/status"
 )
 
@@ -364,15 +365,64 @@ func residencyDriveText() string {
 	return strings.Repeat("villa residency-under-load drive probe text; ", 44)
 }
 
-// residencyUnevaluable builds the typed-Unknown WARN Verdict every unmet precondition
-// and unevaluable drive degrades to: never a false-green PASS, never a
-// FAIL fabricated from a signal that could not be evaluated.
-func residencyUnevaluable(detail, remediation string) inference.Verdict {
-	return inference.Verdict{
-		Status:      inference.StatusWarn,
-		Detail:      "could not evaluate residency under embedding load — " + detail,
-		Remediation: remediation,
+// residencyDepsFrom binds the residency drive protocol's seams to the SAME status
+// seams the status fold reads, so no doctor proof can drift onto a different reader.
+// The under-load proofs supply their own workload; PollHealth/Generate/GPUBusy are
+// unused by that path and stay nil.
+func residencyDepsFrom(sd *status.Deps) residency.Deps {
+	return residency.Deps{
+		Journal: sd.JournalText,
+		GTTUsed: sd.GTTUsed,
+		Props:   func() *inference.PropsInfo { return sd.Props(sd.Endpoint()) },
+		Fold:    inference.RunningOffloadVerdict,
 	}
+}
+
+// residencyTargetFor resolves WHAT a doctor proof is proving: the served model file,
+// the served ctx, the weight footprint and the backend's markers. Every resolution
+// failure is a typed-Unknown WARN carrying the caller's wording, never a FAIL
+// fabricated from a signal that could not be evaluated.
+//
+// The model FILE, not the catalog id, is what the /props and journal identity checks
+// compare against; passing the id would make the drift overlay misfire the moment it
+// evaluates.
+func residencyTargetFor(cfg config.VillaConfig, sd *status.Deps, subject string) (residency.Target, *inference.Verdict) {
+	backend, err := inference.BackendFor(cfg.Backend)
+	if err != nil {
+		v := residency.Unevaluable(
+			fmt.Sprintf("could not evaluate %s — the configured backend could not be resolved (%v)", subject, err),
+			"fix the backend field in config.toml (`villa backend set`), then re-run `villa doctor`")
+		return residency.Target{}, &v
+	}
+	modelFile, err := sd.ModelFile(cfg)
+	if err != nil {
+		v := residency.Unevaluable(
+			fmt.Sprintf("could not evaluate %s — the served model could not be resolved (%v)", subject, err),
+			"fix the model field in config.toml (`villa model swap`), then re-run `villa doctor`")
+		return residency.Target{}, &v
+	}
+	return residency.Target{
+		Service:     installServiceName,
+		ModelFile:   modelFile,
+		ContextLen:  cfg.Ctx,
+		WeightBytes: sd.WeightBytes(cfg),
+		Markers:     backend.ResidencyProof(),
+	}, nil
+}
+
+// requireActive is doctor's read-only precondition gate: doctor NEVER starts a
+// service, so an inactive unit degrades to a typed-Unknown WARN naming it, never a
+// FAIL fabricated from a stack that simply is not running.
+func requireActive(sd *status.Deps, subject string, services ...string) *inference.Verdict {
+	for _, svc := range services {
+		if state, err := sd.IsActive(svc); err != nil || state != "active" {
+			v := residency.Unevaluable(
+				fmt.Sprintf("could not evaluate %s — %s is not active", subject, svc),
+				fmt.Sprintf("check `systemctl --user status %s`; run `villa up` if the stack is stopped, then re-run `villa doctor`", svc))
+			return &v
+		}
+	}
+	return nil
 }
 
 // liveResidencyUnderLoad builds the live proof seam liveDoctorDeps binds when
@@ -414,142 +464,75 @@ func liveResidencyUnderLoad(cfg config.VillaConfig, sd *status.Deps) func() infe
 //	   model's residency, not the drive's success; a confident residency FAIL always
 //	   stands.
 func runResidencyUnderLoad(cfg config.VillaConfig, sd *status.Deps) inference.Verdict {
-	// (1) precondition gate — strictly read-only, degrade to WARN.
+	const subject = "residency under embedding load"
+
+	// (1) Precondition gate — strictly read-only; doctor never starts a service.
 	if dec := memory.Decide(cfg); !dec.Enabled || !dec.Valid {
-		return residencyUnevaluable(
-			"the memory stack is not enabled/valid in config",
+		return residency.Unevaluable(
+			"could not evaluate "+subject+" — the memory stack is not enabled/valid in config",
 			"fix the memory_* fields in config.toml (see `villa preflight`), then re-run `villa doctor`")
 	}
-	chatService := installServiceName
-	for _, svc := range []string{
-		chatService,
+	embedService := unitServiceName(orchestrate.EmbedContainerUnitName())
+	if v := requireActive(sd, subject,
+		installServiceName,
 		unitServiceName(orchestrate.QdrantContainerUnitName()),
-		unitServiceName(orchestrate.EmbedContainerUnitName()),
-	} {
-		state, err := sd.IsActive(svc)
-		if err != nil || state != "active" {
-			return residencyUnevaluable(
-				fmt.Sprintf("%s is not active", svc),
-				fmt.Sprintf("check `systemctl --user status %s`; run `villa up` if the stack is stopped, then re-run `villa doctor`", svc))
-		}
+		embedService,
+	); v != nil {
+		return *v
 	}
-	backend, err := inference.BackendFor(cfg.Backend)
-	if err != nil {
-		return residencyUnevaluable(
-			fmt.Sprintf("the configured backend could not be resolved (%v)", err),
-			"fix the backend field in config.toml (`villa backend set`), then re-run `villa doctor`")
-	}
-	// Resolve the catalog-resolved GGUF FILENAME for ConfigModel (phase-22,
-	// mirroring liveProve and the status core): the journal/props identity checks
-	// compare against the model FILE, not the catalog id — passing cfg.Model here
-	// would make the /props drift overlay misfire the moment it evaluates. The seam
-	// is sd.ModelFile (liveModelFile in the live wiring), the same source the status
-	// fold uses. An unresolvable model degrades to a typed-Unknown WARN.
-	modelFile, err := sd.ModelFile(cfg)
-	if err != nil {
-		return residencyUnevaluable(
-			fmt.Sprintf("the configured model could not be resolved (%v)", err),
-			"fix the model field in config.toml (`villa model swap`), then re-run `villa doctor`")
+	target, warn := residencyTargetFor(cfg, sd, subject)
+	if warn != nil {
+		return *warn
 	}
 
-	// (2) The bounded embed-load drive. The body is JSON-marshaled (model id never
-	// interpolated into a command string) and reused verbatim for
-	// every request; the URL host:port composition mirrors liveMemoryProof.
+	// (2) The bounded embed-load drive. The body is JSON-marshaled (the model id is
+	// never interpolated into a command string) and reused verbatim for every request.
 	body, err := json.Marshal(map[string]any{
 		"input":           residencyDriveText(),
 		"model":           cfg.EmbeddingModel,
 		"encoding_format": "float",
 	})
 	if err != nil {
-		return residencyUnevaluable(
-			fmt.Sprintf("the embed drive body could not be built (%v)", err),
+		return residency.Unevaluable(
+			fmt.Sprintf("could not evaluate %s — the embed drive body could not be built (%v)", subject, err),
 			"re-run `villa doctor`")
 	}
 	url := fmt.Sprintf("http://%s:%d/v1/embeddings", config.EmbedAddr, config.EmbedPort)
 	helperImage := orchestrate.EmbedImage()
 
-	ctx, cancel := context.WithTimeout(context.Background(), residencyProofBudget)
-	defer cancel()
+	// (3) Drive and sample. Embed requests are cheap and uniform, so the load evidence
+	// is the WARMUP — the embedder has demonstrably completed real requests — rather
+	// than a settle deadline no request that short would survive.
+	res := residency.UnderLoad(context.Background(), residencyDepsFrom(sd), target, residency.Load{
+		Drive: func(ctx context.Context) error {
+			_, derr := runProbeCurl(ctx, helperImage,
+				"-sf", "-X", "POST", url,
+				"-H", "Content-Type: application/json",
+				"-d", string(body),
+			)
+			return derr
+		},
+		Rounds:         residencyDriveRequests,
+		Warmup:         residencySampleAfter,
+		RoundTimeout:   residencyRequestTimeout,
+		Budget:         residencyProofBudget,
+		DriveAllRounds: true,
+	})
 
-	// (2)+(3) Drive sequentially; sample under DEMONSTRATED in-flight work (Pitfall 6,
-	// phase-22). The old shape (a fully-buffered producer goroutine + a sample
-	// triggered the instant completion #residencySampleAfter arrived) could sample in
-	// the idle gap BETWEEN two sequential requests — at best at the margin of load.
-	// Now the sample request itself is launched asynchronously and the journal/GTT
-	// read happens while that request is verifiably in flight; the request is then
-	// JOINED before the loop continues, so no --rm probe container ever outlives this
-	// call.
-	var (
-		completed, driveErrs int
-		sampled              bool
-		verdict              inference.Verdict
-	)
-	for i := 0; i < residencyDriveRequests; i++ {
-		if ctx.Err() != nil {
-			break // parent budget exhausted — stop driving
-		}
-		reqCtx, reqCancel := context.WithTimeout(ctx, residencyRequestTimeout)
-		if !sampled && completed >= residencySampleAfter {
-			// Launch this drive request in flight, sample MID-REQUEST, then join it.
-			done := make(chan error, 1)
-			go func() {
-				_, derr := runProbeCurl(reqCtx, helperImage,
-					"-sf", "-X", "POST", url,
-					"-H", "Content-Type: application/json",
-					"-d", string(body),
-				)
-				done <- derr
-			}()
-			// The sample input set IS the liveStatusDeps input set: every
-			// signal flows through the SAME sd seams the status fold uses
-			// JournalText, Props (the /props config-identity drift overlay),
-			// GTTUsed, WeightBytes — keyed on the catalog-resolved GGUF filename.
-			journal, _ := sd.JournalText(chatService)
-			verdict = inference.RunningOffloadVerdict(inference.RunningOffloadInput{
-				JournalText:   journal,
-				Props:         sd.Props(sd.Endpoint()),
-				GTTUsedBytes:  sd.GTTUsed(),
-				WeightBytes:   sd.WeightBytes(cfg),
-				ConfigModel:   modelFile,
-				ConfigContext: cfg.Ctx,
-				Markers:       backend.ResidencyProof(),
-			})
-			sampled = true
-			derr := <-done // JOIN: the sampled request never outlives the call
-			reqCancel()
-			completed++
-			if derr != nil {
-				driveErrs++
-			}
-			continue
-		}
-		_, derr := runProbeCurl(reqCtx, helperImage,
-			"-sf", "-X", "POST", url,
-			"-H", "Content-Type: application/json",
-			"-d", string(body),
-		)
-		reqCancel()
-		completed++
-		if derr != nil {
-			driveErrs++
-		}
+	// (4) Map the outcome honestly. A drive that never reached the sample, and a PASS
+	// sampled under a faltering drive, are both unevaluable: the embedder was not
+	// exercised, so the PASS was not proven. A confident FAIL stands on its own.
+	if !res.Sampled {
+		return residency.Unevaluable(
+			fmt.Sprintf("could not evaluate %s — the embed drive could not complete (%d of %d requests finished before the budget)", subject, res.Completed, res.Rounds),
+			fmt.Sprintf("check `systemctl --user status %s` and `villa logs`, then re-run `villa doctor`", embedService))
 	}
-
-	// (4) Drive complete (all requests joined). Map the outcome honestly.
-	if !sampled {
-		return residencyUnevaluable(
-			fmt.Sprintf("the embed drive could not complete (%d of %d requests finished before the budget)", completed, residencyDriveRequests),
-			fmt.Sprintf("check `systemctl --user status %s` and `villa logs`, then re-run `villa doctor`", unitServiceName(orchestrate.EmbedContainerUnitName())))
+	if res.DriveFaltered() {
+		return residency.Unevaluable(
+			fmt.Sprintf("could not evaluate %s — the embed drive could not complete (%d of %d requests failed)", subject, res.DriveErrs, res.Rounds),
+			fmt.Sprintf("check `systemctl --user status %s` and `villa logs`, then re-run `villa doctor`", embedService))
 	}
-	if driveErrs > 0 && verdict.Status == inference.StatusPass {
-		// The workload did not fully exercise the embedder — a PASS sampled under a
-		// faltering drive is not a proven PASS (no false-green); a confident FAIL or
-		// an already-WARN verdict stands on its own.
-		return residencyUnevaluable(
-			fmt.Sprintf("the embed drive could not complete (%d of %d requests failed)", driveErrs, residencyDriveRequests),
-			fmt.Sprintf("check `systemctl --user status %s` and `villa logs`, then re-run `villa doctor`", unitServiceName(orchestrate.EmbedContainerUnitName())))
-	}
-	return verdict
+	return res.Verdict
 }
 
 // agentProofBudget bounds the WHOLE coding-agent tool-call round-trip (read→edit `crush
@@ -686,116 +669,54 @@ func liveSearchResidencyUnderLoad(cfg config.VillaConfig, sd *status.Deps) func(
 //     can be caught in flight within the bounded rounds / budget, degrade to a typed-Unknown
 //     WARN (never an idle-sampled verdict). A confident CPU fallback under search load → FAIL.
 func runSearchResidencyUnderLoad(cfg config.VillaConfig, sd *status.Deps) inference.Verdict {
-	chatService := installServiceName // the served inference unit
-	// The served unit + the web-search services must all be active (read-only gate).
-	for _, svc := range []string{
-		chatService,
+	const subject = "residency under search load"
+
+	// The served unit AND the web-search services must all be active (read-only gate).
+	if v := requireActive(sd, subject,
+		installServiceName,
 		unitServiceName(orchestrate.SearXNGContainerUnitName()),
 		unitServiceName(orchestrate.WebsafeContainerUnitName()),
-	} {
-		if state, err := sd.IsActive(svc); err != nil || state != "active" {
-			return agentUnevaluable(
-				fmt.Sprintf("could not evaluate residency under search load — %s is not active", svc),
-				fmt.Sprintf("check `systemctl --user status %s`; run `villa up` if the stack is stopped, then re-run `villa doctor`", svc))
-		}
+	); v != nil {
+		return *v
 	}
-	backend, err := inference.BackendFor(cfg.Backend)
-	if err != nil {
-		return agentUnevaluable(
-			fmt.Sprintf("could not evaluate residency under search load — the configured backend could not be resolved (%v)", err),
-			"fix the backend field in config.toml (`villa backend set`), then re-run `villa doctor`")
-	}
-	// The served model FILE (sd.ModelFile resolves cfg.Model). The /props + journal identity
-	// checks compare against the model FILE, mirroring runAgentResidencyUnderLoad.
-	modelFile, err := sd.ModelFile(cfg)
-	if err != nil {
-		return agentUnevaluable(
-			fmt.Sprintf("could not evaluate residency under search load — the served model could not be resolved (%v)", err),
-			"fix the model field in config.toml (`villa model swap`), then re-run `villa doctor`")
+	target, warn := residencyTargetFor(cfg, sd, subject)
+	if warn != nil {
+		return *warn
 	}
 
-	// The bounded chat-completion drive payload (model id JSON-marshaled, never interpolated).
+	// The bounded chat-completion drive payload (model id JSON-marshaled, never
+	// interpolated). It is the cheapest honest drive that keeps villa-llama decoding
+	// under search load.
 	body, err := searchResidencyDriveBody(cfg.Model)
 	if err != nil {
-		return agentUnevaluable(
-			fmt.Sprintf("could not evaluate residency under search load — the chat drive body could not be built (%v)", err),
+		return residency.Unevaluable(
+			fmt.Sprintf("could not evaluate %s — the chat drive body could not be built (%v)", subject, err),
 			"re-run `villa doctor`")
 	}
 	url := orchestrate.LlamaInNetworkEndpoint() + "/chat/completions"
 	helperImage := orchestrate.EmbedImage()
 
-	ctx, cancel := context.WithTimeout(context.Background(), agentProofBudget)
-	defer cancel()
-
-	// Drive sequential rounds and sample ONLY while a round is verifiably IN FLIGHT,
-	// mirroring runAgentResidencyUnderLoad's in-flight discipline. A round that completes
-	// before the settle deadline is too fast to have loaded the model under observation — it
-	// is joined and the next round driven; if no round can be caught in flight, degrade to a
-	// typed-Unknown WARN rather than return an idle-sampled verdict.
-	var (
-		sampled bool
-		verdict inference.Verdict
-	)
-	for round := 0; round < searchResidencyDriveRounds && !sampled; round++ {
-		if ctx.Err() != nil {
-			break // parent budget exhausted — stop driving
-		}
-		done := make(chan struct{})
-		go func() {
-			_, _ = runProbeCurl(ctx, helperImage,
+	res := residency.UnderLoad(context.Background(), residencyDepsFrom(sd), target, residency.Load{
+		Drive: func(ctx context.Context) error {
+			// Drive-only: the FAIL signal here is residency, not the chat round.
+			_, derr := runProbeCurl(ctx, helperImage,
 				"-sf", "-X", "POST", url,
 				"-H", "Content-Type: application/json",
 				"-d", string(body),
-			) // drive-only; the FAIL signal here is residency, not the chat round
-			close(done)
-		}()
+			)
+			return derr
+		},
+		Rounds: searchResidencyDriveRounds,
+		Settle: searchResidencySettle,
+		Budget: agentProofBudget,
+	})
 
-		settle := time.NewTimer(searchResidencySettle)
-		select {
-		case <-done:
-			// The chat round finished before it could be sampled under load — too fast to
-			// prove residency-under-load. Do NOT sample idle; drive the next round.
-			settle.Stop()
-			continue
-		case <-ctx.Done():
-			settle.Stop()
-			<-done // JOIN: never let a probe outlive the call
-		case <-settle.C:
-			// The round is verifiably still IN FLIGHT — sample now, over the EXACT
-			// liveStatusDeps input set (every signal through the same sd seams the status
-			// fold uses), keyed on the served GGUF filename.
-			journal, _ := sd.JournalText(chatService)
-			verdict = inference.RunningOffloadVerdict(inference.RunningOffloadInput{
-				JournalText:   journal,
-				Props:         sd.Props(sd.Endpoint()),
-				GTTUsedBytes:  sd.GTTUsed(),
-				WeightBytes:   sd.WeightBytes(cfg),
-				ConfigModel:   modelFile,
-				ConfigContext: cfg.Ctx,
-				Markers:       backend.ResidencyProof(),
-			})
-			sampled = true
-			<-done // JOIN: the sampled chat round never outlives the call
-		}
+	if !res.Sampled {
+		return residency.Unevaluable(
+			"could not evaluate "+subject+" — no search-augmented chat round stayed in flight long enough to sample residency under load",
+			"check `systemctl --user status "+installServiceName+"` and `villa logs`; ensure the stack (incl. villa-searxng/villa-websafe) is up (`villa up`), then re-run `villa doctor`")
 	}
-
-	if !sampled {
-		return agentUnevaluable(
-			"could not evaluate residency under search load — no search-augmented chat round stayed in flight long enough to sample residency under load",
-			"check `systemctl --user status "+chatService+"` and `villa logs`; ensure the stack (incl. villa-searxng/villa-websafe) is up (`villa up`), then re-run `villa doctor`")
-	}
-	return verdict
-}
-
-// agentUnevaluable builds the typed-Unknown WARN Verdict every unmet precondition /
-// unevaluable agent drive degrades to: never a false-green PASS, never a
-// FAIL fabricated from a signal that could not be evaluated.
-func agentUnevaluable(detail, remediation string) inference.Verdict {
-	return inference.Verdict{
-		Status:      inference.StatusWarn,
-		Detail:      detail,
-		Remediation: remediation,
-	}
+	return res.Verdict
 }
 
 // liveAgentToolCallVerdict builds the tool-call round-trip seam liveDoctorDeps
@@ -857,97 +778,39 @@ func liveAgentResidencyUnderLoad(cfg config.VillaConfig, sd *status.Deps) func()
 // round is JOINED so no agent process outlives the call; if no round can be caught in
 // flight within the bounded rounds / budget, it degrades to a typed-Unknown WARN.
 func runAgentResidencyUnderLoad(cfg config.VillaConfig, sd *status.Deps) inference.Verdict {
-	chatService := installServiceName // the served inference unit (coder under coding mode)
-	if state, err := sd.IsActive(chatService); err != nil || state != "active" {
-		return agentUnevaluable(
-			fmt.Sprintf("could not evaluate coder residency under tool-call load — %s is not active", chatService),
-			fmt.Sprintf("check `systemctl --user status %s`; run `villa up` if the stack is stopped, then re-run `villa doctor`", chatService))
+	const subject = "coder residency under tool-call load"
+
+	// The served inference unit (the coder under coding mode) must be active.
+	if v := requireActive(sd, subject, installServiceName); v != nil {
+		return *v
 	}
-	backend, err := inference.BackendFor(cfg.Backend)
-	if err != nil {
-		return agentUnevaluable(
-			fmt.Sprintf("could not evaluate coder residency under tool-call load — the configured backend could not be resolved (%v)", err),
-			"fix the backend field in config.toml (`villa backend set`), then re-run `villa doctor`")
-	}
-	// The served model FILE (sd.ModelFile resolves cfg.Model — the coder GGUF under coding
-	// mode). The /props + journal identity checks compare against the model FILE.
-	modelFile, err := sd.ModelFile(cfg)
-	if err != nil {
-		return agentUnevaluable(
-			fmt.Sprintf("could not evaluate coder residency under tool-call load — the served model could not be resolved (%v)", err),
-			"fix the model field in config.toml (`villa model swap` / `villa coding-mode enter`), then re-run `villa doctor`")
+	target, warn := residencyTargetFor(cfg, sd, subject)
+	if warn != nil {
+		return *warn
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), agentProofBudget)
-	defer cancel()
+	res := residency.UnderLoad(context.Background(), residencyDepsFrom(sd), target, residency.Load{
+		Drive: func(ctx context.Context) error {
+			// The REUSED read→edit `crush run` probe (install_agent.go), never
+			// re-rolled here. Drive-only: the FAIL signal is residency, not the
+			// round-trip, which liveAgentToolCallVerdict reports separately.
+			_, derr := liveAgentToolCallProbe(ctx)()
+			return derr
+		},
+		Rounds: agentResidencyDriveRounds,
+		Settle: agentResidencySettle,
+		Budget: agentProofBudget,
+	})
 
-	// Drive sequential tool-call rounds and sample ONLY while a round is verifiably IN
-	// FLIGHT, mirroring runResidencyUnderLoad's phase-22 in-flight
-	// discipline. The old shape launched ONE round and sampled immediately — if the
-	// probe exited fast (binary errors, non-zero exit, or a trivial round-trip), the
-	// GTT/journal was read with the coder IDLE, masking a CPU-fallback-under-load
-	// (the exact silent degradation this seam exists to catch) as a false-green PASS.
-	//
-	// For each round: launch the probe async, wait agentResidencySettle for the coder
-	// to demonstrably start working, then sample ONLY IF the round is still running.
-	// A round that already completed by the settle deadline was too fast to sample
-	// under load — it is joined and the next round is driven. If no round can be
-	// caught in flight within the bounded rounds / budget, degrade to a typed-Unknown
-	// WARN rather than returning an idle-sampled verdict.
-	var (
-		sampled bool
-		verdict inference.Verdict
-	)
-	for round := 0; round < agentResidencyDriveRounds && !sampled; round++ {
-		if ctx.Err() != nil {
-			break // parent budget exhausted — stop driving
-		}
-		done := make(chan struct{})
-		go func() {
-			_, _ = liveAgentToolCallProbe(ctx)() // drive-only; the FAIL signal here is residency, not the round-trip
-			close(done)
-		}()
-
-		settle := time.NewTimer(agentResidencySettle)
-		select {
-		case <-done:
-			// The round-trip finished before it could be sampled under load — too fast
-			// to prove residency-under-load. Do NOT sample idle; drive the next round.
-			settle.Stop()
-			continue
-		case <-ctx.Done():
-			settle.Stop()
-			<-done // JOIN: never let a probe outlive the call
-			break
-		case <-settle.C:
-			// The round is verifiably still IN FLIGHT — sample now, over the EXACT
-			// liveStatusDeps input set (every signal through the same sd seams the
-			// status fold uses), keyed on the served coder GGUF filename.
-			journal, _ := sd.JournalText(chatService)
-			verdict = inference.RunningOffloadVerdict(inference.RunningOffloadInput{
-				JournalText:   journal,
-				Props:         sd.Props(sd.Endpoint()),
-				GTTUsedBytes:  sd.GTTUsed(),
-				WeightBytes:   sd.WeightBytes(cfg),
-				ConfigModel:   modelFile,
-				ConfigContext: cfg.Ctx,
-				Markers:       backend.ResidencyProof(),
-			})
-			sampled = true
-			<-done // JOIN: the sampled tool-call round never outlives the call
-		}
-	}
-
-	if !sampled {
-		// No round stayed in flight long enough to sample (every round exited before
-		// the settle deadline, or the budget was exhausted) — the "under load"
-		// precondition was never met. Degrade to a typed-Unknown WARN rather than
-		// return an idle-sampled verdict that could mask a CPU-fallback-under-load.
-		return agentUnevaluable(
-			"could not evaluate coder residency under tool-call load — no tool-call round-trip stayed in flight long enough to sample residency under load",
+	if !res.Sampled {
+		// No round stayed in flight long enough to sample, so the "under load"
+		// precondition was never met. An idle-sampled verdict could mask exactly the
+		// CPU-fallback-under-load this seam exists to catch.
+		return residency.Unevaluable(
+			"could not evaluate "+subject+" — no tool-call round-trip stayed in flight long enough to sample residency under load",
 			"check `villa verify agent` and `villa logs` — the agent may be erroring or exiting before it loads the coder model; ensure the stack is up (`villa up`), then re-run `villa doctor`")
 	}
-	return verdict
+	return res.Verdict
 }
 
 // liveAgentDrift builds the drift seam: a closure that assembles the pure
