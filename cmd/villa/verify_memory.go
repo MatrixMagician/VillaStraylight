@@ -174,217 +174,60 @@ func liveRagSmoke(ctx context.Context, in ragSmokeInput) memoryProof {
 // checked and the raw body is returned on a parse miss). All URLs are composed from `base`;
 // all curl args are fixed; no shell interpolation.
 func driveRagUploadCite(ctx context.Context, base, question, wantFact string) (string, bool, error) {
-	token, err := mintAdminToken(ctx, base)
+	owui := liveOpenWebUIClient(base)
+
+	token, err := liveOpenWebUISignIn(ctx, owui)
 	if err != nil {
 		return "", false, fmt.Errorf("mint admin token: %w", err)
 	}
-	auth := "Authorization: Bearer " + token
 
-	// 1) Create a Knowledge collection → id.
-	kBody, err := json.Marshal(map[string]any{
-		"name":        "villa-verify-memory",
-		"description": "villa verify memory runtime RAG smoke",
-	})
+	// (1) A collection to retrieve from.
+	kbID, err := owui.EnsureKnowledge(ctx, token, ragSmokeKnowledgeName, ragSmokeKnowledgeDescription)
 	if err != nil {
 		return "", false, err
 	}
-	kOut, err := runLoopbackCurl(ctx,
-		"-sf", "-X", "POST", base+"/api/v1/knowledge/create",
-		"-H", "Content-Type: application/json", "-H", auth,
-		"-d", string(kBody),
-	)
-	if err != nil {
-		return "", false, fmt.Errorf("knowledge/create: %w", err)
-	}
-	var kResp struct {
-		ID string `json:"id"`
-	}
-	if jerr := json.Unmarshal(kOut, &kResp); jerr != nil || kResp.ID == "" {
-		return "", false, fmt.Errorf("knowledge/create returned no id (%v): %s", jerr, string(kOut))
-	}
 
-	// 2) Upload the planted doc (multipart) → file id. The doc's only content is the planted
-	// fact, so a correct answer can ONLY come from retrieval (not the base model's priors).
+	// (2) Upload the planted doc and wait for chunk-embed-store. Its ONLY content is
+	// the planted fact, so a correct answer can only come from retrieval, never from
+	// the base model's priors. A processing timeout is an error, never a skip.
 	docText := fmt.Sprintf("VillaStraylight runtime RAG smoke document.\n\n%s\n", wantFact)
-	fOut, err := runLoopbackCurlStdin(ctx, docText,
-		"-sf", "-X", "POST", base+"/api/v1/files/",
-		"-H", auth,
-		"-F", "file=@-;filename=villa-verify.txt;type=text/plain",
-	)
-	if err != nil {
-		return "", false, fmt.Errorf("files/ upload: %w", err)
-	}
-	var fResp struct {
-		ID string `json:"id"`
-	}
-	if jerr := json.Unmarshal(fOut, &fResp); jerr != nil || fResp.ID == "" {
-		return "", false, fmt.Errorf("files/ upload returned no id (%v): %s", jerr, string(fOut))
-	}
-
-	// 3) Poll process/status until the file is chunked + embedded + stored (a timeout is an
-	// ERROR, never a silent skip — Pitfall 6).
-	if perr := pollFileProcessed(ctx, base, auth, fResp.ID, ragSmokeProcessTimeout); perr != nil {
-		return "", false, fmt.Errorf("file processing: %w", perr)
-	}
-
-	// 4) Attach the processed file to the collection.
-	aBody, err := json.Marshal(map[string]any{"file_id": fResp.ID})
-	if err != nil {
+	if _, err := owui.UploadToKnowledge(ctx, token, kbID, "villa-verify.txt", docText, ragSmokeProcessTimeout); err != nil {
 		return "", false, err
 	}
-	if _, err := runLoopbackCurl(ctx,
-		"-sf", "-X", "POST", base+"/api/v1/knowledge/"+kResp.ID+"/file/add",
-		"-H", "Content-Type: application/json", "-H", auth,
-		"-d", string(aBody),
-	); err != nil {
-		return "", false, fmt.Errorf("knowledge/file/add: %w", err)
-	}
 
-	// 5) Plain (non-agentic) chat/completions with the collection attached so OWUI auto-
-	// injects the retrieved chunks WITH citations (Native FC stays OFF).
-	// OWUI's /api/chat/completions REQUIRES a model id; discover one over loopback (the
-	// served model id is the GGUF filename, not the config `model` slug) — a missing model
-	// is an HTTP 400, never a silent skip. stream is a real bool, not the string "false".
-	model, err := discoverChatModel(ctx, base, auth)
+	// (3) A plain, non-agentic completion with the collection attached, so the chat UI
+	// auto-injects the retrieved chunks WITH citations (native function calling stays
+	// off). The completion requires a model id, and the served id is the GGUF
+	// filename rather than the config slug, so it is discovered rather than assumed.
+	model, err := owui.DiscoverModel(ctx, token)
 	if err != nil {
 		return "", false, fmt.Errorf("discover chat model: %w", err)
 	}
-	cBody, err := json.Marshal(map[string]any{
+	body, err := json.Marshal(map[string]any{
 		"model":    model,
 		"messages": []map[string]string{{"role": "user", "content": question}},
-		"files":    []map[string]any{{"type": "collection", "id": kResp.ID}},
-		"stream":   false,
+		"files":    []map[string]any{{"type": "collection", "id": kbID}},
+		"stream":   false, // a real bool, not the string "false"
 	})
 	if err != nil {
 		return "", false, err
 	}
-	cOut, err := runLoopbackCurl(ctx,
-		"-sf", "-X", "POST", base+"/api/chat/completions",
-		"-H", "Content-Type: application/json", "-H", auth,
-		"-d", string(cBody),
-	)
+	out, err := owui.ChatCompletion(ctx, token, body)
 	if err != nil {
-		return "", false, fmt.Errorf("chat/completions: %w", err)
+		return "", false, err
 	}
 
-	answer, cited := parseChatAnswerAndCitation(cOut)
+	answer, cited := parseChatAnswerAndCitation(out)
 	return answer, cited, nil
 }
 
-// mintAdminToken obtains an admin Bearer token over loopback: POST /api/v1/auths/signin,
-// falling back to /api/v1/auths/signup (first-user-becomes-admin on a fresh DB — A5). The
-// credentials are fixed-arg JSON, never shell-interpolated. The on-hardware step seeds the
-// admin account (or the same fixed credentials are used for the fresh-DB signup path).
-func mintAdminToken(ctx context.Context, base string) (string, error) {
-	cred, err := json.Marshal(map[string]string{
-		"email":    "villa-verify@localhost",
-		"password": "villa-verify-memory",
-	})
-	if err != nil {
-		return "", err
-	}
-	extract := func(out []byte) (string, bool) {
-		var r struct {
-			Token string `json:"token"`
-		}
-		if json.Unmarshal(out, &r) == nil && r.Token != "" {
-			return r.Token, true
-		}
-		return "", false
-	}
-	// signin first (seeded admin).
-	if out, err := runLoopbackCurl(ctx,
-		"-sf", "-X", "POST", base+"/api/v1/auths/signin",
-		"-H", "Content-Type: application/json",
-		"-d", string(cred),
-	); err == nil {
-		if tok, ok := extract(out); ok {
-			return tok, nil
-		}
-	}
-	// fallback: signup (first user becomes admin on a fresh DB — A5). Add a name field.
-	sBody, err := json.Marshal(map[string]string{
-		"name":     "villa-verify",
-		"email":    "villa-verify@localhost",
-		"password": "villa-verify-memory",
-	})
-	if err != nil {
-		return "", err
-	}
-	out, err := runLoopbackCurl(ctx,
-		"-sf", "-X", "POST", base+"/api/v1/auths/signup",
-		"-H", "Content-Type: application/json",
-		"-d", string(sBody),
-	)
-	if err != nil {
-		return "", fmt.Errorf("signin and signup both failed: %w", err)
-	}
-	if tok, ok := extract(out); ok {
-		return tok, nil
-	}
-	return "", fmt.Errorf("signup returned no token: %s", string(out))
-}
-
-// discoverChatModel returns an available chat model id from OWUI over loopback
-// (GET /api/models → data[].id). OWUI requires `model` on /api/chat/completions, and the
-// served id is the GGUF filename (e.g. "Qwen3.6-...gguf"), not the config `model` slug, so
-// it must be discovered at runtime. An empty list is an ERROR (the RAG drive cannot run),
-// never a silent skip. The first id is sufficient — villa runs a single chat model.
-func discoverChatModel(ctx context.Context, base, auth string) (string, error) {
-	out, err := runLoopbackCurl(ctx, "-sf", "-H", auth, base+"/api/models")
-	if err != nil {
-		return "", err
-	}
-	var r struct {
-		Data []struct {
-			ID string `json:"id"`
-		} `json:"data"`
-	}
-	if jerr := json.Unmarshal(out, &r); jerr != nil {
-		return "", fmt.Errorf("parse /api/models (%v): %s", jerr, string(out))
-	}
-	for _, m := range r.Data {
-		if m.ID != "" {
-			return m.ID, nil
-		}
-	}
-	return "", fmt.Errorf("no chat model available from /api/models: %s", string(out))
-}
-
-// pollFileProcessed polls GET /api/v1/files/{id}/process/status until processing completes
-// or the caller-supplied timeout elapses. A timeout is returned as an ERROR (the RAG path
-// did not complete) — NEVER a silent skip (Pitfall 6). Each poll is a fixed-arg loopback
-// curl. The timeout is parameterized so the recall indexer can pass a size-aware allowance
-// for long transcripts (recallUploadTimeout) while the verify-memory smoke proof keeps its
-// fixed ragSmokeProcessTimeout — one poll loop, two callers (Phase-21 Pattern 1).
-func pollFileProcessed(ctx context.Context, base, auth, fileID string, timeout time.Duration) error {
-	deadline := time.Now().Add(timeout)
-	url := base + "/api/v1/files/" + fileID + "/process/status"
-	for {
-		out, err := runLoopbackCurl(ctx, "-sf", "-H", auth, url)
-		if err == nil {
-			var r struct {
-				Status string `json:"status"`
-			}
-			if json.Unmarshal(out, &r) == nil {
-				switch strings.ToLower(r.Status) {
-				case "completed", "done", "success", "processed":
-					return nil
-				case "failed", "error":
-					return fmt.Errorf("processing reported status %q", r.Status)
-				}
-			}
-		}
-		if time.Now().After(deadline) {
-			return fmt.Errorf("timed out after %s waiting for file %s to process", timeout, fileID)
-		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(time.Second):
-		}
-	}
-}
+// ragSmokeKnowledgeName / ragSmokeKnowledgeDescription identify the collection the
+// smoke proof retrieves from. EnsureKnowledge finds-or-creates by name, so a re-run
+// reuses the collection instead of accumulating one per verification.
+const (
+	ragSmokeKnowledgeName        = "villa-verify-memory"
+	ragSmokeKnowledgeDescription = "villa verify memory runtime RAG smoke"
+)
 
 // parseChatAnswerAndCitation extracts the assistant answer text and whether the response
 // carried citation/source metadata. The exact citation field name is confirmed on-hardware
@@ -419,16 +262,14 @@ func parseChatAnswerAndCitation(out []byte) (answer string, cited bool) {
 	return answer, cited
 }
 
-// runLoopbackCurl runs a fixed-arg `curl` against the loopback OWUI PublishPort as a plain
-// host process (NOT inside villa.network — the PublishPort is a HOST loopback bind, so
-// runProbeCurl's --network villa would not reach it). Every arg is fixed; no shell
-// It returns curl's stdout.
-func runLoopbackCurl(ctx context.Context, curlArgs ...string) ([]byte, error) {
-	return runLoopbackCurlStdin(ctx, "", curlArgs...)
-}
-
-// runLoopbackCurlStdin is runLoopbackCurl with an optional stdin payload (used for the
-// multipart `-F file=@-` upload so the planted doc never touches a temp file or the shell).
+// runLoopbackCurlStdin runs a fixed-arg curl against the loopback chat-UI PublishPort
+// as a plain host process, with an optional stdin payload. The stdin path carries the
+// multipart `-F file=@-` upload, so document content never touches argv, a temp file
+// or a shell.
+//
+// It is the ONE host-side loopback exec, and its only caller is the Open WebUI
+// transport adapter (openwebui_live.go). Everything that used to build curl
+// invocations against the chat UI by hand now goes through the protocol module.
 func runLoopbackCurlStdin(ctx context.Context, stdin string, curlArgs ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, "curl", curlArgs...) // fixed args; no shell
 	if stdin != "" {

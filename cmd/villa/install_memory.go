@@ -344,44 +344,25 @@ func qdrantWritableProbe(curl probeCurlFn, base string, embeddingDim int) (bool,
 	return true, nil
 }
 
-// runProbeCurl runs `podman run --rm --network villa <helperImage> curl <args...>` as a
-// FIXED-ARG exec (never a shell) and returns curl's stdout. The helper image is
-// sourced from the orchestrate accessor (no re-typed image literal). --entrypoint curl
-// runs curl from inside the network so the container-DNS-only services are reachable
-// WITHOUT opening a host port.
-func runProbeCurl(ctx context.Context, helperImage string, curlArgs ...string) ([]byte, error) {
-	args := []string{
-		"run", "--rm",
-		"--network", memoryProofNetwork,
-		"--entrypoint", "curl",
-		helperImage,
-	}
-	args = append(args, curlArgs...)
-	cmd := exec.CommandContext(ctx, "podman", args...) // fixed args; no shell
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		if stderr.Len() > 0 {
-			return nil, fmt.Errorf("%w: %s", err, stderr.String())
-		}
-		return nil, err
-	}
-	return stdout.Bytes(), nil
-}
-
-// runProbeCurlCode is the exit-code-aware sibling of runProbeCurl (additive — runProbeCurl is
-// unchanged for its existing callers). It runs the SAME fixed-arg `podman run --rm --network
-// villa --entrypoint curl <helperImage> curl <args...>` and additionally returns the numeric
-// process exit code. podman propagates the container process's (curl's) exit code, so callers
-// can distinguish a curl CONNECTION/TIMEOUT failure (6/7/28 — a genuine block) from an
-// infrastructure failure where the container never started or curl was absent ("the
-// host was blocked" vs "the probe could not run").
+// runProbeCurlCode runs `podman run --rm --network villa --entrypoint curl
+// <helperImage> curl <args...>` as a FIXED-ARG exec (never a shell) and returns
+// curl's stdout together with the process exit code.
 //
-// The exit code is extracted via errors.As on *exec.ExitError. When the container could not be
-// started at all (a non-ExitError failure — e.g. podman missing/daemon error), the exit code
-// is reported as -1 (never a curl exit value), so the caller treats it as infrastructure, not
-// a block.
+// It is the ONE in-network probe strategy. There used to be three: this one, a
+// return-only-stdout twin that was otherwise byte-identical, and a third in the
+// status path that called the twin and then re-derived the exit code the twin had
+// discarded. Two of them are gone; runProbeCurl below is a thin convenience over
+// this for the callers that genuinely do not care about the code.
+//
+// The helper image is sourced from the orchestrate accessor (no re-typed image
+// literal), and --entrypoint curl runs curl from INSIDE villa.network, so the
+// container-DNS-only services are reachable without opening a host port.
+//
+// The exit code is what makes the egress negative control honest. podman propagates
+// the container process's (curl's) exit code, so a curl CONNECTION/TIMEOUT (6/7/28)
+// reads as a genuine block, while a container that never started reports -1 and must
+// be read as infrastructure — "the probe could not run", never "the host was
+// blocked".
 func runProbeCurlCode(ctx context.Context, helperImage string, curlArgs ...string) (stdout []byte, exitCode int, err error) {
 	args := []string{
 		"run", "--rm",
@@ -403,6 +384,13 @@ func runProbeCurlCode(ctx context.Context, helperImage string, curlArgs ...strin
 		return out.Bytes(), code, fmt.Errorf("%w: %s", runErr, stderr.String())
 	}
 	return out.Bytes(), code, runErr
+}
+
+// runProbeCurl is runProbeCurlCode for the callers that only need stdout and an
+// error. It exists so those call sites stay readable, not as a second strategy.
+func runProbeCurl(ctx context.Context, helperImage string, curlArgs ...string) ([]byte, error) {
+	out, _, err := runProbeCurlCode(ctx, helperImage, curlArgs...)
+	return out, err
 }
 
 // extractExitCode is the load-bearing exit-code mapping pulled out of runProbeCurlCode so

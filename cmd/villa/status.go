@@ -3,13 +3,11 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"os"
-	"os/exec"
 	"strconv"
 	"strings"
 	"sync"
@@ -436,26 +434,13 @@ const memoryHealthTTL = 15 * time.Second
 // parent context adds allowance for podman's own container startup.
 const memoryProbeTimeout = 10 * time.Second
 
-// memoryProbeExec is the injectable podman-probe seam (runProbeCurl convention):
-// it runs the fixed-arg in-network curl and returns curl's stdout, the process
-// exit code (0 success; -1 when podman could not start at all), and the error.
-// Package-level var so status_test.go runs the mapping/TTL tests hermetically.
-var memoryProbeExec = liveMemoryProbeExec
-
-// liveMemoryProbeExec routes the probe through runProbeCurl (fixed-arg
-// `podman run --rm --network villa --entrypoint curl <img>` — no shell,
-// and classifies the failure level via the process exit code.
-func liveMemoryProbeExec(ctx context.Context, helperImage string, curlArgs ...string) ([]byte, int, error) {
-	out, err := runProbeCurl(ctx, helperImage, curlArgs...)
-	if err != nil {
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
-			return out, exitErr.ExitCode(), err
-		}
-		return out, -1, err // podman could not be started at all (absent/unrunnable)
-	}
-	return out, 0, nil
-}
+// memoryProbeExec is the injectable podman-probe seam. It is bound to the SHARED
+// runProbeCurlCode rather than to a local wrapper: the status path used to call the
+// stdout-only helper and then re-derive the exit code that helper had just
+// discarded, which was a third way of doing the same thing and could drift from the
+// other two. Package-level var so status_test.go runs the mapping/TTL tests
+// hermetically.
+var memoryProbeExec = runProbeCurlCode
 
 // mapMemoryProbe maps one probe outcome to a HealthState with the typed-Unknown
 // doctrine: an HTTP code written by curl is a CONFIDENT verdict (200→ready,
