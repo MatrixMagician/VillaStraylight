@@ -72,7 +72,7 @@ Go 1.26+. Single module, single static binary built from `./cmd/villa`.
 - **Offload is offload-asserting, never liveness:** a silent/partial CPU fallback is a FAIL
   (`ResidencyProof`), never a false-green.
 
-- **ROCm 7.2.4 is the default backend; Vulkan RADV is the fallback** (`villa backend set vulkan`). `BackendFor("")` and `IsROCmFamily("")` must BOTH mean ROCm, or an unset config runs ROCm while skipping the ROCm preflight gate.
+- **ROCm 7.2.4 is the default inference backend; Vulkan RADV is the fallback** (`villa backend set vulkan`). `BackendFor("")` and `IsROCmFamily("")` must BOTH mean ROCm, or an unset config runs ROCm while skipping the ROCm preflight gate.
 
 ## Project
 
@@ -84,10 +84,10 @@ VillaStraylight is a self-hosted, local AI server stack for privacy-conscious po
 
 ### Constraints
 
-- **Tech stack**: Go for all first-party code (CLI, detection, orchestration, dashboard backend, gateway) — single-language, single static binary, easy self-hosted distribution.
+- **Tech stack**: Go for all first-party code (CLI, detection, orchestration, dashboard server, gateway) — single-language, single static binary, easy self-hosted distribution.
 - **Orchestration**: Podman (rootless) via Quadlet/systemd units — native to Fedora; no Docker dependency.
-- **Platform (v1)**: Fedora Workstation 44+ on AMD Strix Halo only. Architecture must not hard-code assumptions that block a later macOS/Apple-Silicon/Metal backend.
-- **Inference**: llama.cpp `llama-server`, ROCm backend primary (Vulkan RADV fallback) — OpenAI-compatible API as the integration contract.
+- **Platform (v1)**: Fedora Workstation 44+ on AMD Strix Halo only. Architecture must not hard-code assumptions that block a later macOS/Apple-Silicon/Metal inference backend.
+- **Inference**: llama.cpp `llama-server`, ROCm inference backend primary (Vulkan RADV fallback) — OpenAI-compatible API as the integration contract.
 - **Privacy/Security**: Strictly local by default; no telemetry from first-party components; outbound limited to image/model pulls.
 - **Performance**: Setup must produce a configuration that actually runs on the detected hardware (right model size/quant/context for the memory envelope) — "runs healthy after install" is the bar.
 - **Integration-first**: Reuse mature OSS (Open WebUI, llama.cpp, later Qdrant/SearXNG); build only the control plane.
@@ -96,7 +96,7 @@ VillaStraylight is a self-hosted, local AI server stack for privacy-conscious po
 
 ### Languages
 
-- Go 1.26.2 - All first-party code: the `villa` CLI (`cmd/villa/`), hardware detection, recommendation engine, Podman/Quadlet orchestration, dashboard backend, and the OpenAI-compatible inference client. Single-language by constraint (single static binary).
+- Go 1.26.2 - All first-party code: the `villa` CLI (`cmd/villa/`), hardware detection, recommendation engine, Podman/Quadlet orchestration, dashboard server, and the OpenAI-compatible inference client. Single-language by constraint (single static binary).
 - HTML / CSS / JavaScript - The no-build, embedded control-dashboard single-page UI (`internal/dashboard/assets/dashboard.html`, `dashboard.css`, `dashboard.js`). Served verbatim via `go:embed`; there is no JS toolchain/bundler in the `villa` path.
 - TOML - Persisted CLI configuration format (`$XDG_CONFIG_HOME/villa/config.toml`).
 - JSON - The embedded model catalog (`internal/catalog/seed.json`), the ROCm pin policy (`internal/preflight/rocm-policy.json`), and golden test fixtures.
@@ -240,7 +240,7 @@ loop.
 ### Pattern Overview
 
 - **Pure cores, impure edges.** Cores never call `os.Exit` and never print. They return typed values (`Recommendation`, `[]CheckResult`, `Verdict`, `Result`, `Report`); the command tier maps those to exit codes and tables/JSON.
-- **Single polymorphism point for backends.** `inference.BackendFor(name)` is the only place a backend string becomes a concrete implementation; everything else depends on the `Backend` interface.
+- **Single polymorphism point for inference backends.** `inference.BackendFor(name)` is the only place a config `backend` string becomes a concrete implementation; everything else depends on the `Backend` interface.
 - **Config is the single source of truth.** `config.toml` drives recommend → orchestrate; Quadlet units are regenerated from config, never hand-edited as the authority.
 - **Honesty-by-construction.** Every probe degrades to a typed `Unknown` (`detect.Bool`/`detect.Bytes`) → WARN, which is DISTINCT from a confident negative → FAIL. CPU fallback is never reported as success.
 - **Composition over re-implementation.** `bench --ab` composes `backendswap.Run`; `dashboard` composes `status` and `modelswap`; nothing forks a proven core.
@@ -269,7 +269,7 @@ loop.
 
 ### Key Abstractions
 
-- Purpose: which GPU backend applies (image, runtime flags, device args, residency markers).
+- Purpose: which inference backend applies (image, runtime flags, device args, residency markers).
 - Examples: `internal/inference/backend_vulkan.go`, `backend_rocm.go`.
 - Pattern: every backend literal lives behind it; callers depend on the interface only.
 - Purpose: map a config `backend` string → `Backend`; fail-closed on unknown values.
@@ -277,7 +277,7 @@ loop.
 - Pattern: `"" | "rocm"` → ROCm 7.2.4 (default); `"rocm-6.4.4"` / `"rocm-6.4.4-rocwmma"` → the pinned 6.4.4 variants; `"vulkan"` → Vulkan RADV fallback; anything else → actionable error, NEVER silent fallback.
 - Purpose: each backend owns its log/journal marker literals (`Vulkan0`/`ROCm0`, device label, fault string); both offload scrapes are parameterized by it.
 - Examples: `internal/inference/backend.go:80`, `offload.go`, `running_offload.go`.
-- Pattern: a future backend slots in without re-rolling offload math; CPU fallback = FAIL, never false-green.
+- Pattern: a future inference backend slots in without re-rolling offload math; CPU fallback = FAIL, never false-green.
 - Purpose: drive host-touching flows from tests without a live host.
 - Examples: `internal/backendswap/backendswap.go`, `internal/bench/bench.go`, `internal/modelswap/modelswap.go`, `internal/status/status.go`.
 - Pattern: every host action is a `func` field; the live wiring is a `live*Deps()` closure in `cmd/villa`.
