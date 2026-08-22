@@ -26,7 +26,7 @@ inference + **Open WebUI** chat + a control dashboard — strictly local, zero
 telemetry. Go is the **control plane only**; AI services are integrated OSS
 containers, not rebuilt.
 
-**Shipped:** v1.0 MVP, v1.1 (ROCm Opt-In Backend), v1.2 (Operability), v1.3 (Memory & Knowledge), v1.4 (Coding Agent), and v1.5 (Web Search — Grounded & Guarded) are complete and tagged on `main`. The `villa` control plane is implemented under `cmd/villa/` + `internal/`.
+**Shipped:** v1.0 MVP, v1.1 (ROCm Opt-In Backend), v1.2 (Operability), v1.3 (Memory & Knowledge), v1.4 (Coding Agent), v1.5 (Web Search — Grounded & Guarded), and v1.6 (structural consolidation + a transactional install) are complete and tagged on `main`. The `villa` control plane is implemented under `cmd/villa/` + `internal/`.
 
 ## Build, run & test
 
@@ -280,11 +280,17 @@ loop.
 | metrics | llama.cpp `/metrics` scrape (pp/tg timings) | `internal/metrics/llamacpp.go` |
 | download | Model weight pull + shard handling | `internal/download/download.go` |
 | config | Single source of truth: XDG `config.toml` load/save (`VillaConfig`) | `internal/config/villaconfig.go` |
+| prove | The ONE cutover verdict the three transactional cores gate on | `internal/prove/prove.go` |
+| residency | The residency-proof drive protocol (idle + under-load), seamed for tests | `internal/residency/residency.go`, `underload.go` |
+| openwebui | The Open WebUI HTTP protocol, seamed at the transport; endpoint paths live here and nowhere else | `internal/openwebui/*.go` |
+| subsystem | The four optional-subsystem gates: is this subsystem on? | `internal/subsystem/subsystem.go` |
+| verify | The verify family's shape: gate → drive → resolve → exit code | `internal/verify/verify.go` |
+| install | Install's decisions, its mutate-and-start ordering, and its transaction | `internal/install/*.go` |
 
-This table covers the v1.0–v1.2 spine. The v1.3–v1.5 packages (`memory`, `recall`,
-`agent`, `codingmode`, `websafe`, `doctor`, `backup`, `usage`, `pathsafe`,
-`jsonstore`, `benchstore`, `verifystate`) follow the same pure-core + `Deps` shape —
-see the code map above and `docs/ARCHITECTURE.md`.
+This table covers the v1.0–v1.2 spine plus the v1.6 consolidation modules. The
+v1.3–v1.5 packages (`memory`, `recall`, `agent`, `codingmode`, `websafe`, `doctor`,
+`backup`, `usage`, `pathsafe`, `jsonstore`, `benchstore`, `verifystate`) follow the
+same pure-core + `Deps` shape — see the code map above and `docs/ARCHITECTURE.md`.
 
 ### Pattern Overview
 
@@ -292,7 +298,9 @@ see the code map above and `docs/ARCHITECTURE.md`.
 - **Single polymorphism point for inference backends.** `inference.BackendFor(name)` is the only place a config `backend` string becomes a concrete implementation; everything else depends on the `Backend` interface.
 - **Config is the single source of truth.** `config.toml` drives recommend → orchestrate; Quadlet units are regenerated from config, never hand-edited as the authority.
 - **Honesty-by-construction.** Every probe degrades to a typed `Unknown` (`detect.Bool`/`detect.Bytes`) → WARN, which is DISTINCT from a confident negative → FAIL. CPU fallback is never reported as success.
-- **Composition over re-implementation.** `bench --ab` composes `backendswap.Run`; `dashboard` composes `status` and `modelswap`; nothing forks a proven core.
+- **Composition over re-implementation.** `bench --ab` composes `backendswap.Run`; `dashboard` composes `status` and `modelswap`; nothing forks a proven core. v1.6 applied this to the five shapes that HAD been forked: the residency proof (five copies), the Open WebUI protocol (twelve renamed seams), the subsystem gates (read directly in 20+ files), the verify shape (three copies), and install's decisions.
+- **A gate is answered once.** `subsystem.MemoryOn`/`WebSearchOn`/`AgentOn`/`CodingModeOn` are the only places a subsystem flag is read as a predicate; a test fails the build if that is bypassed. Enablement is a pure function of an already-loaded config, so one command cannot observe two answers in a single run.
+- **Every stack-mutating flow is transactional.** The three swap cores AND `villa install` (ADR-0003) capture before mutating and restore on failure, reporting honestly when a rollback could not complete.
 
 ### Layers, data flow & key abstractions
 

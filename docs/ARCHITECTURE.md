@@ -109,7 +109,12 @@ a third sibling `Backend` implementation behind `BackendFor` without touching ca
 ## Data flow
 
 The canonical flow is the `villa install` lifecycle (`cmd/villa/install.go`,
-`runInstall`), which composes the pure cores in order:
+`runInstall`), which composes the pure cores in order. Since v1.6 install is
+**transactional** (ADR-0003): it captures the prior state before the first mutation
+and restores it if a mutation or a proof fails, so a failed install never leaves a
+running-but-unproven stack. Its decisions — gate resolution, plan assembly, and the
+mutate-and-start ORDER — live in `internal/install`; the command tier performs the
+effects and renders output.
 
 1. **Detect** — `detect.Probe()` reads `/proc/meminfo`, `/sys/class/drm`,
    `/sys/module/ttm/parameters/pages_limit`, `/proc/sys/kernel/osrelease`, and the AMD
@@ -132,6 +137,13 @@ The canonical flow is the `villa install` lifecycle (`cmd/villa/install.go`,
    downgrades to WARN. BLOCK gaps are offered as **per-step consented privileged
    host-prep** (`setsebool`, `loginctl enable-linger`) — never run silently —
    overridable with `--force`.
+3a. **Resolve gates** — `install.ResolveGates` folds the persisted config with this
+   run's opt-in flags into one answer for the four optional subsystems, read by the
+   preflight gate, the pre-stage step, the render and the proofs. A flag turns a
+   subsystem ON and persists that choice; nothing on the command line turns one OFF.
+3b. **Capture** — the prior config, the unit files, and which services were running.
+   Model weights are deliberately NOT captured, so a failed install leaves them and a
+   retry does not re-download tens of gigabytes.
 4. **Ensure model + persist config** — the recommended GGUF is auto-pulled if absent
    via `internal/download` (HEAD-verify → resumable `.part` → per-shard SHA256 →
    atomic rename), then the chosen `model/quant/ctx/backend` plus the
@@ -152,9 +164,16 @@ The canonical flow is the `villa install` lifecycle (`cmd/villa/install.go`,
    `villa-llama.service`, then `villa-openwebui.service`. The native control-dashboard
    unit is reconciled separately into `~/.config/systemd/user`, enabled for
    boot-survival, and started.
-8. **Readiness poll** — the command layer polls the loopback inference endpoint's
-   `/health` (503 = still loading → keep polling; timeout → WARN, never a confident
-   FAIL), then prints the inference endpoint, the chat URL, and the dashboard URL.
+8. **Readiness poll + proofs** — the command layer polls the loopback inference
+   endpoint's `/health` (503 = still loading → keep polling; timeout → WARN, never a
+   confident FAIL), then runs the enabled subsystems' readiness proofs, then prints
+   the inference endpoint, the chat URL, and the dashboard URL.
+9. **Rollback on failure** — any failure after the capture, INCLUDING a failed proof,
+   restores the host: services install started are stopped, units it wrote are
+   restored or removed, and the config is restored or removed. On a clean host it
+   restores to nothing; on a re-install the prior stack is restored, so a failed
+   upgrade leaves the working install running. A rollback step that itself fails is
+   reported honestly as incomplete rather than claimed as a clean restoration.
 
 The day-to-day verbs (`up`/`down`/`restart`/`logs` in `cmd/villa/lifecycle.go`) reuse
 the same Render→Reconcile→WriteUnits→Systemd core, so hand-editing `config.toml` and
@@ -185,9 +204,16 @@ restart-inference-only) and wraps it in a transactional frame:
    to the running stack.
 
 `backendswap` is deliberately literal-free of backend marker tokens and imports neither
-`internal/inference` nor `internal/detect`; the prove verdict is a local value type
-(`ProveVerdict`/`ProveStatusPass`) and the real markers arrive only through the injected
-`Prove` seam wired in `cmd/villa`.
+`internal/inference` nor `internal/detect`; the prove verdict is `prove.Verdict`
+(`internal/prove`, shared with `codingmode` and `backup` since v1.6 — it imports nothing,
+which is what keeps the cores free of those imports) and the real markers arrive only
+through the injected `Prove` seam wired in `cmd/villa`.
+
+The drive behind that seam is `internal/residency`: `Prove` for the idle-cutover proof and
+`UnderLoad` for the doctor proofs that must sample while a real workload runs. The
+Unknown-versus-negative rule is part of that module's interface — an unevaluable signal is a
+Warn, a contradicted one a Fail, and `residency.Cutover` is the single named boundary where
+the transactional callers collapse both to non-pass.
 
 The **honest A/B benchmark** (`villa bench [--ab]`, `cmd/villa/bench.go`) is the pure
 `bench.Run(ctx, Deps, BenchSpec)` core (`internal/bench/bench.go`). Without `--ab` it
