@@ -6,13 +6,14 @@ A single Go CLI (`villa`) that stands up a private, local AI workspace on your o
 
 VillaStraylight is for privacy-conscious power users who want a ChatGPT/Claude-class experience that runs entirely on their own machine, with no data leaving the box. `villa` is the **control plane only** — the AI services (llama.cpp `llama-server`, Open WebUI, the optional Qdrant + local-embeddings memory stack, and the optional SearXNG web-search service) are integrated OSS components, not rebuilt; the optional coding agent is the pinned, checksum-verified Crush binary.
 
-> Status: **v1.5 shipped** (tag `v1.5`). Built milestone by milestone, each addition keeping the zero-telemetry, loopback-only posture:
+> Status: **v1.6 shipped** (tag `v1.6`). Built milestone by milestone, each addition keeping the zero-telemetry, loopback-only posture:
 > - **v1.0** — Vulkan-only MVP: detect → recommend → install → Open WebUI chat → control dashboard.
 > - **v1.1** — the **ROCm/HIP backend** with a transactional `backend set` switch and an honest A/B `bench`. (ROCm shipped opt-in here and became the default in a later revision; Vulkan RADV remains selectable as the fallback.)
 > - **v1.2** — operability: `villa doctor`, saved bench `--compare`, cumulative usage, `backup`/`restore`, and a guided TUI install.
 > - **v1.3** — strictly-local **memory & knowledge**: a Qdrant + local-embeddings stack wired into Open WebUI Memory/RAG, plus conversational `recall`.
 > - **v1.4** — an optional strictly-local **terminal coding agent** (Crush) wired over loopback to a fit-guarded coding model, proven zero-outbound at runtime.
 > - **v1.5** — opt-in **web-search grounding**: a containerized SearXNG wired into Open WebUI's native web search, with grounded fetch → embed → cite through an SSRF-guarded, injection-guarding `villa-websafe` loader. Strictly opt-in / default-OFF (byte-identical to v1.4 when disabled); outbound is provably bounded (`villa verify search`) and prompt injection is reduced-and-flagged, never claimed eliminated.
+> - **v1.6** — **structural consolidation, and a transactional install.** The residency proof, the Open WebUI protocol, the subsystem gates, the verify shape and install's decisions each became one module instead of being re-implemented per caller. The behavioural change: `villa install` now captures before mutating and rolls back on failure (ADR-0003), so a failed install no longer leaves a running-but-unproven stack — the one stack-mutating flow that was outside the capture-prove-rollback discipline. Config-load seams that silently defaulted now fail closed.
 
 ## Requirements
 
