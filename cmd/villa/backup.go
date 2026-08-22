@@ -8,7 +8,7 @@ package main
 // identities for re-pull. Model WEIGHTS are excluded (re-pullable).
 //
 // The pure quiesce→export→assemble→restart orchestration lives in internal/backup
-// (Backup); this file is the thin cobra caller + liveBackupDeps wiring: podman
+// (Backup); this file is the thin cobra caller + liveDeps wiring: podman
 // volume export via the shared cmd-tier fixed-arg seam (podman_volume.go),
 // service stop/start via orchestrate.NewSystemd, file reads via os.ReadFile, and
 // the 0600 traversal-guarded output file the archive is written to. runBackup
@@ -66,7 +66,7 @@ func newBackup() *cobra.Command {
 			"the current directory; override with -o/--output. Strictly local — no data leaves the box.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			code := runBackup(cmd, output, liveBackupDeps())
+			code := runBackup(cmd, output, liveDeps())
 			os.Exit(code)
 			return nil
 		},
@@ -77,11 +77,11 @@ func newBackup() *cobra.Command {
 
 // runBackup resolves the output path (traversal-guarded against its parent dir),
 // gathers the seam-/accessor-sourced BackupInput, drives the pure Backup orchestrator
-// over liveBackupDeps, and RETURNS the exit code. The archive is assembled in a
+// over liveDeps, and RETURNS the exit code. The archive is assembled in a
 // same-dir temp file and renamed onto the destination only after a fully-successful
 // write: a mid-backup failure removes only the temp — a pre-existing archive
 // at the output path is never truncated or deleted.
-func runBackup(cmd *cobra.Command, output string, d backup.BackupDeps) int {
+func runBackup(cmd *cobra.Command, output string, d backup.Deps) int {
 	out := cmd.OutOrStdout()
 	errOut := cmd.ErrOrStderr()
 
@@ -391,12 +391,12 @@ func excludedModelIdentities(cfg config.VillaConfig) []backup.ExcludedModel {
 	}}
 }
 
-// liveBackupDeps wires the pure backup.Backup seam to the real host: service
+// liveDeps wires the pure backup.Backup seam to the real host: service
 // stop/start via orchestrate.NewSystemd, podman volume export via the shared
 // fixed-arg cmd-tier seam (podman_volume.go), and file reads via os.ReadFile.
-func liveBackupDeps() backup.BackupDeps {
+func liveDeps() backup.Deps {
 	sys := orchestrate.NewSystemd()
-	return backup.BackupDeps{
+	return backup.Deps{
 		OpenWebUIServiceName: openWebUIServiceName,
 		// QdrantServiceName is derived from the orchestrate unit-name accessor (the
 		// same unitServiceName mapping doctor/status use) — never a re-typed literal

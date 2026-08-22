@@ -24,8 +24,9 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/prove"
 )
 
-// BackupDeps is the injectable seam set for the BACKUP core — and only the
-// backup core. Every host-touching action is a func field so the whole
+// Deps is the injectable seam set for the BACKUP core — and only the
+// backup core. It keeps the unqualified name because backup is what this package
+// is named for; the restore half is RestoreDeps. Every host-touching action is a func field so the whole
 // quiesce→export→assemble flow is driven from *_test.go without a live host.
 //
 // It is deliberately separate from RestoreDeps: backup captures, restore
@@ -33,7 +34,7 @@ import (
 // every backup test populate fields the backup core cannot reach, and hid three
 // fields (Restart, DaemonReload, InstallServiceName) that no core read at all.
 // Each core now declares exactly what it reads.
-type BackupDeps struct {
+type Deps struct {
 	// VolumeExport exports the named podman volume to the file at out via the
 	// cmd-tier fixed-arg `podman volume export` seam.
 	VolumeExport func(name, out string) error

@@ -121,11 +121,11 @@ func decode(name string, out []byte, v any) error {
 
 // truncate bounds a raw response body embedded in an error detail.
 func truncate(out []byte) string {
-	const max = 512
-	if len(out) <= max {
+	const limit = 512
+	if len(out) <= limit {
 		return string(out)
 	}
-	return string(out[:max]) + "…(truncated)"
+	return string(out[:limit]) + "…(truncated)"
 }
 
 // jsonBody marshals a request body. It exists so no caller hand-builds JSON.

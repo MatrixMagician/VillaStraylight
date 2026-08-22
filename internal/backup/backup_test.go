@@ -208,13 +208,13 @@ func TestSkewMatchingNoFindings(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Backup orchestrator tests. A fakeBackupDeps records the call
+// Backup orchestrator tests. A fakeDeps records the call
 // ordering and serves canned bytes so the pure quiesce→export→assemble flow is
 // driven with no live host.
 // ---------------------------------------------------------------------------
 
-// fakeBackupDeps records the seam call order and serves canned file bytes.
-type fakeBackupDeps struct {
+// fakeDeps records the seam call order and serves canned file bytes.
+type fakeDeps struct {
 	calls       []string          // ordered seam-call log
 	files       map[string][]byte // path -> bytes for ReadFile
 	exportErr   error             // injected VolumeExport failure
@@ -222,12 +222,12 @@ type fakeBackupDeps struct {
 	startErrs   map[string]error  // injected Start failure keyed by service name
 }
 
-func newFakeBackupDeps() *fakeBackupDeps {
-	return &fakeBackupDeps{files: map[string][]byte{}}
+func newFakeDeps() *fakeDeps {
+	return &fakeDeps{files: map[string][]byte{}}
 }
 
-func (f *fakeBackupDeps) deps() BackupDeps {
-	return BackupDeps{
+func (f *fakeDeps) deps() Deps {
+	return Deps{
 		OpenWebUIServiceName: "villa-openwebui.service",
 		QdrantServiceName:    "qdrant.service",
 		Stop: func(s string) error {
@@ -311,7 +311,7 @@ func archiveNames(t *testing.T, b []byte) []string {
 // volume), and that the manifest carries the injected seam digests + accessor-
 // sourced store schema versions + excluded-model identities.
 func TestBackupAssemblesArchive(t *testing.T) {
-	f := newFakeBackupDeps()
+	f := newFakeDeps()
 	f.files["/cfg/config.toml"] = []byte("model = \"x\"\n")
 	f.files["/data/usage.json"] = []byte(`{"schema_version":3}`)
 	f.files["/data/bench-reports.jsonl"] = []byte(`{"schema_version":4}` + "\n")
@@ -424,7 +424,7 @@ func TestBackupAssemblesArchive(t *testing.T) {
 // (sha256 + version + pin) — while the agent binary BYTES are NEVER an archive
 // entry (mirroring the excluded model weights).
 func TestBackupAgentOnAddsCrushConfigAndExcludedAgent(t *testing.T) {
-	f := newFakeBackupDeps()
+	f := newFakeDeps()
 	f.files["/cfg/config.toml"] = []byte("model = \"x\"\n")
 	f.files["/crush/crush.json"] = []byte(`{"provider":"local"}`)
 
@@ -477,7 +477,7 @@ func TestBackupAgentOnAddsCrushConfigAndExcludedAgent(t *testing.T) {
 // ExcludedAgent — the archive layout is identical to the pre-Phase-28 v2 backup
 // (the bump only widens the contract for an agent-ON backup).
 func TestBackupAgentOffIsLayoutIdentical(t *testing.T) {
-	f := newFakeBackupDeps()
+	f := newFakeDeps()
 	f.files["/cfg/config.toml"] = []byte("model = \"x\"\n")
 	f.files["/data/usage.json"] = []byte(`{"schema_version":3}`)
 	f.files["/data/bench-reports.jsonl"] = []byte(`{"schema_version":4}` + "\n")
@@ -504,7 +504,7 @@ func TestBackupAgentOffIsLayoutIdentical(t *testing.T) {
 // shape. The ExcludedAgent identity is still recorded (the binary identity is
 // independent of the config file's presence).
 func TestBackupAgentOnSkipsAbsentCrushConfig(t *testing.T) {
-	f := newFakeBackupDeps()
+	f := newFakeDeps()
 	f.files["/cfg/config.toml"] = []byte("model = \"x\"\n")
 	// NOTE: /crush/crush.json deliberately NOT seeded — ReadFile returns ErrNotExist.
 
@@ -538,7 +538,7 @@ func TestBackupAgentOnSkipsAbsentCrushConfig(t *testing.T) {
 // stamps its own version, never a caller-supplied one).
 func TestBackupSearxngSettings(t *testing.T) {
 	t.Run("present when set", func(t *testing.T) {
-		f := newFakeBackupDeps()
+		f := newFakeDeps()
 		f.files["/cfg/config.toml"] = []byte("model = \"x\"\n")
 		f.files["/searxng/settings.yml"] = []byte("use_default_settings: true\n")
 
@@ -577,7 +577,7 @@ func TestBackupSearxngSettings(t *testing.T) {
 	})
 
 	t.Run("skipped when empty (web off)", func(t *testing.T) {
-		f := newFakeBackupDeps()
+		f := newFakeDeps()
 		f.files["/cfg/config.toml"] = []byte("model = \"x\"\n")
 
 		in := baseBackupInput(nil)
@@ -602,7 +602,7 @@ func TestBackupSearxngSettings(t *testing.T) {
 	})
 
 	t.Run("FileMissing-skipped when absent", func(t *testing.T) {
-		f := newFakeBackupDeps()
+		f := newFakeDeps()
 		f.files["/cfg/config.toml"] = []byte("model = \"x\"\n")
 		// NOTE: /searxng/settings.yml deliberately NOT seeded — ReadFile returns ErrNotExist.
 
@@ -630,7 +630,7 @@ func TestBackupSearxngSettings(t *testing.T) {
 // field (SearxngSettingsPath); there is no input or archive entry for ephemeral
 // content, by construction.
 func TestBackupExcludesEphemeral(t *testing.T) {
-	f := newFakeBackupDeps()
+	f := newFakeDeps()
 	f.files["/cfg/config.toml"] = []byte("model = \"x\"\n")
 	f.files["/searxng/settings.yml"] = []byte("use_default_settings: true\n")
 
@@ -675,7 +675,7 @@ func TestBackupExcludesEphemeral(t *testing.T) {
 // TestBackupDeferredRestartFiresOnExportError asserts the OWUI service is restarted
 // (best-effort defer) even when the volume export fails mid-backup.
 func TestBackupDeferredRestartFiresOnExportError(t *testing.T) {
-	f := newFakeBackupDeps()
+	f := newFakeDeps()
 	f.exportErr = errors.New("export boom")
 
 	var out bytes.Buffer
@@ -741,7 +741,7 @@ func memoryBackupInput(w io.Writer) BackupInput {
 // tear RocksDB/WAL state — and that the archive carries the two optional entries
 // with checksums plus the manifest embedding fields.
 func TestBackupQdrantQuiesceOrderingAndEntries(t *testing.T) {
-	f := newFakeBackupDeps()
+	f := newFakeDeps()
 	f.files["/cfg/config.toml"] = []byte("model = \"x\"\n")
 	f.files["/data/usage.json"] = []byte(`{"schema_version":3}`)
 	f.files["/data/bench-reports.jsonl"] = []byte(`{"schema_version":4}` + "\n")
@@ -800,7 +800,7 @@ func TestBackupQdrantQuiesceOrderingAndEntries(t *testing.T) {
 // Start of the qdrant service NEVER fails the backup — it folds into
 // RestartWarning (the OWUI convention extended to the second quiesce frame).
 func TestBackupQdrantRestartFailureFoldsIntoWarning(t *testing.T) {
-	f := newFakeBackupDeps()
+	f := newFakeDeps()
 	f.files["/cfg/config.toml"] = []byte("model = \"x\"\n")
 	f.startErrs = map[string]error{"qdrant.service": errors.New("qdrant start boom")}
 
@@ -819,7 +819,7 @@ func TestBackupQdrantRestartFailureFoldsIntoWarning(t *testing.T) {
 // exactly the v1.2 entry set — the only delta is the manifest fields, all
 // omitted (zero-touch discipline on the backup side).
 func TestBackupMemoryOffZeroQdrantCalls(t *testing.T) {
-	f := newFakeBackupDeps()
+	f := newFakeDeps()
 	f.files["/cfg/config.toml"] = []byte("model = \"x\"\n")
 	f.files["/data/usage.json"] = []byte(`{"schema_version":3}`)
 	f.files["/data/bench-reports.jsonl"] = []byte(`{"schema_version":4}` + "\n")
@@ -885,7 +885,7 @@ func manifestFromArchive(t *testing.T, b []byte) Manifest {
 // carries manifest checksums that VERIFY against the streamed bodies (the
 // restore-side fail-closed gate stays sound).
 func TestBackupStreamsVolumeTars(t *testing.T) {
-	f := newFakeBackupDeps()
+	f := newFakeDeps()
 	f.files["/cfg/config.toml"] = []byte("model = \"x\"\n")
 	f.files["/data/recall-state.json"] = []byte(`{"schema_version":1}`)
 
@@ -965,7 +965,7 @@ func TestBackupStreamsVolumeTars(t *testing.T) {
 // TestBackupSkipsAbsentDataDirArtifacts asserts an absent usage.json / bench file
 // is skipped (not fatal): the archive still assembles with the present entries.
 func TestBackupSkipsAbsentDataDirArtifacts(t *testing.T) {
-	f := newFakeBackupDeps()
+	f := newFakeDeps()
 	f.files["/cfg/config.toml"] = []byte("model = \"x\"\n")
 	// usage.json and bench-reports.jsonl deliberately absent.
 

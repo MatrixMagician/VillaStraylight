@@ -15,7 +15,7 @@ import (
 )
 
 // BackupInput is the plain-data drive for the pure Backup orchestrator. The cmd
-// tier (liveBackupDeps) gathers everything host-derived — the seam-sourced image
+// tier (liveDeps) gathers everything host-derived — the seam-sourced image
 // digests (inference.BackendFor(cfg.Backend).Image() / orchestrate.OpenWebUIImage()
 // — NEVER a literal), the accessor-sourced store schema versions
 // (usage.SchemaVersion() / benchstore.SavedReportSchemaVersion()), the resolved
@@ -150,7 +150,7 @@ type BackupInput struct {
 // The villa-models volume is NEVER exported. Backup runs no subprocess (links the
 // exec package NOT at all) and carries no image literal — every effect is a Deps
 // func field.
-func Backup(d BackupDeps, in BackupInput) (retRes Result, retErr error) {
+func Backup(d Deps, in BackupInput) (retRes Result, retErr error) {
 	if in.OutputWriter == nil {
 		return Result{Err: fmt.Errorf("backup: nil output writer"), FailedStep: "write"}, fmt.Errorf("backup: nil output writer")
 	}

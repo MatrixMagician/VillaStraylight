@@ -67,12 +67,12 @@ func TestBenchEntryResolvesViaCmdResolver(t *testing.T) {
 	}
 }
 
-// fakeRunBackupDeps builds a backup.BackupDeps whose VolumeExport writes a stub tar and
+// fakeRunDeps builds a backup.Deps whose VolumeExport writes a stub tar and
 // whose ReadFile serves canned bytes, so runBackup is driven end-to-end with no live
 // podman/systemd.
-func fakeRunBackupDeps(t *testing.T, files map[string][]byte) backup.BackupDeps {
+func fakeRunDeps(t *testing.T, files map[string][]byte) backup.Deps {
 	t.Helper()
-	return backup.BackupDeps{
+	return backup.Deps{
 		OpenWebUIServiceName: openWebUIServiceName,
 		Stop:                 func(string) error { return nil },
 		Start:                func(string) error { return nil },
@@ -130,7 +130,7 @@ func TestRunBackupWritesArchive(t *testing.T) {
 	outPath := filepath.Join(outDir, "b.tar")
 
 	cmd, _, errOut := newBackupTestCmd()
-	code := runBackup(cmd, outPath, fakeRunBackupDeps(t, files))
+	code := runBackup(cmd, outPath, fakeRunDeps(t, files))
 	if code != exitPass {
 		t.Fatalf("runBackup exit = %d, want %d; stderr=%q", code, exitPass, errOut.String())
 	}
@@ -204,7 +204,7 @@ func TestBackupFailurePreservesPriorArchive(t *testing.T) {
 
 	// A deps whose volume export fails mid-backup (after the output would already
 	// have been truncated under the old flow).
-	d := fakeRunBackupDeps(t, map[string][]byte{})
+	d := fakeRunDeps(t, map[string][]byte{})
 	d.VolumeExport = func(_, _ string) error { return errors.New("export boom") }
 
 	cmd, _, errOut := newBackupTestCmd()
@@ -268,7 +268,7 @@ func TestBackupMemoryOffOmitsLeftoverRecallState(t *testing.T) {
 	files := map[string][]byte{cfgPath: []byte("model = \"m\"\n")}
 	outPath := filepath.Join(t.TempDir(), "b.tar")
 	cmd, out, errOut := newBackupTestCmd()
-	code := runBackup(cmd, outPath, fakeRunBackupDeps(t, files))
+	code := runBackup(cmd, outPath, fakeRunDeps(t, files))
 	if code != exitPass {
 		t.Fatalf("runBackup exit = %d, want %d; stderr=%q", code, exitPass, errOut.String())
 	}

@@ -325,7 +325,7 @@ func liveRestoreDeps() backup.RestoreDeps {
 	sys := orchestrate.NewSystemd()
 	return backup.RestoreDeps{
 		OpenWebUIServiceName: openWebUIServiceName,
-		// QdrantServiceName mirrors liveBackupDeps: derived from the orchestrate
+		// QdrantServiceName mirrors liveDeps: derived from the orchestrate
 		// unit-name accessor, never a re-typed literal.
 		QdrantServiceName: unitServiceName(orchestrate.QdrantContainerUnitName()),
 		LoadConfig:        config.LoadVilla,

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-	"testing"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/openwebui"
 	"github.com/MatrixMagician/VillaStraylight/internal/recall"
@@ -253,31 +252,3 @@ func (f *fakeOWUI) transport() openwebui.Transport {
 
 // client builds a protocol client over this fake.
 func (f *fakeOWUI) client() *openwebui.Client { return openwebui.New(f.transport()) }
-
-// attachedKB reports the knowledge id currently attached to the model row, or "".
-func (f *fakeOWUI) attachedKB() string {
-	meta, _ := f.modelRow["meta"].(map[string]any)
-	if meta == nil {
-		return ""
-	}
-	items, _ := meta["knowledge"].([]any)
-	for _, it := range items {
-		if m, ok := it.(map[string]any); ok {
-			if id, _ := m["id"].(string); id != "" {
-				return id
-			}
-		}
-	}
-	return ""
-}
-
-// assertCalled fails unless the named operation appears in the trace.
-func (f *fakeOWUI) assertCalled(t *testing.T, op string) {
-	t.Helper()
-	for _, c := range f.calls {
-		if c == op {
-			return
-		}
-	}
-	t.Errorf("expected the protocol to call %q; trace was %v", op, f.calls)
-}

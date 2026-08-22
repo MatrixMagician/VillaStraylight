@@ -53,10 +53,6 @@ type fakeRecallEnv struct {
 	state recall.State
 }
 
-// calls exposes the protocol trace, so assertions read the same as before the
-// seam collapsed.
-func (e *fakeRecallEnv) callsOf() []string { return e.owui.calls }
-
 func copyRecallState(s recall.State) recall.State {
 	cp := s
 	if s.Chats != nil {
