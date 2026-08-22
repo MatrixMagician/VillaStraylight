@@ -47,7 +47,7 @@ type verifyMemoryDeps struct {
 	// loadedConfig resolves the loopback OWUI port + the question/fact (live:
 	// liveLoadedConfig). The planted doc/fact + question are the on-hardware seed the
 	// verification wave supplies; here they are resolved-but-overridable defaults.
-	loadedConfig func() config.VillaConfig
+	loadedConfig func() (config.VillaConfig, error)
 	// ragSmokeFn drives the runtime RAG smoke proof (live: liveRagSmoke). Injecting it
 	// makes the gated run path unit-testable without a live container or host egress.
 	ragSmokeFn func(ctx context.Context, in ragSmokeInput) memoryProof
@@ -117,7 +117,14 @@ func runVerifyMemory(cmd *cobra.Command, _ []string, deps verifyMemoryDeps) int 
 		return exitPass
 	}
 
-	cfg := deps.loadedConfig()
+	// A config that cannot be READ is a refusal, not a zero config: the RAG smoke
+	// probe would otherwise be aimed at the seed default chat port and report its
+	// result as a verdict on the user's stack.
+	cfg, err := deps.loadedConfig()
+	if err != nil {
+		fmt.Fprintf(errOut, "verify memory: cannot read config.toml (%v) — fix or remove it, then re-run.\n", err)
+		return exitBlocked
+	}
 
 	// The planted question + the fact whose ONLY source is the uploaded document (so a
 	// correct answer can only come from retrieval, not the base model's priors). The

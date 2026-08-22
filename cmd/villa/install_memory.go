@@ -119,17 +119,18 @@ func liveEnsureEmbedModel(modelsDir string) error {
 
 // liveLoadedConfig returns the PERSISTED config.LoadVilla() so runInstall can SEED cfg
 // from the user's on-disk config (preserving their memory/dashboard/chat fields) rather
-// than the always-default DefaultVillaConfig seed. A load error fails SOFT to
-// typed defaults: an unreadable/absent config yields the same loopback dashboard/chat +
-// memory-off defaults the DefaultVillaConfig() seed gave, so a first-install host is
-// byte-for-byte unchanged, while a host WITH a persisted config has its customizations
-// honored through saveConfig. LoadVilla self-heals zeroed dashboard/chat fields.
-func liveLoadedConfig() config.VillaConfig {
-	c, err := config.LoadVilla()
-	if err != nil {
-		return config.DefaultVillaConfig()
-	}
-	return c
+// than the always-default DefaultVillaConfig seed. LoadVilla self-heals zeroed
+// dashboard/chat fields, and an ABSENT config is not an error there — it returns the
+// typed defaults — so a first-install host is byte-for-byte unchanged.
+//
+// A load error PROPAGATES. It used to fail soft to typed defaults, which meant a
+// hand-edited or unreadable config.toml installed from defaults instead of refusing:
+// install would render and write Quadlet units, and persist a config, from input it had
+// just failed to read. The repo convention for untrusted input is to fail closed —
+// error, never a silent default — and this is the seam where a silent default is most
+// expensive.
+func liveLoadedConfig() (config.VillaConfig, error) {
+	return config.LoadVilla()
 }
 
 // liveLoadedMemoryEnabled returns the PERSISTED config.LoadVilla().MemoryEnabled — the

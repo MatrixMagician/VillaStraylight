@@ -167,8 +167,8 @@ type installDeps struct {
 	// Memory-stack seams (Phase-19 /, INFRA-02). All gated on the
 	// PERSISTED memory_enabled (loadedMemoryEnabled), skipped under --dry-run.
 	//
-	// loadedConfig returns the PERSISTED config.LoadVilla() (fail-soft to typed
-	// defaults on a load error). runInstall SEEDS cfg from this instead of
+	// loadedConfig returns the PERSISTED config.LoadVilla(), PROPAGATING a load
+	// error. runInstall SEEDS cfg from this instead of
 	// DefaultVillaConfig(), then overrides ONLY the recommendation-derived fields
 	// (Model/Quant/Ctx/Backend) and the MemoryEnabled gate — so a user's persisted
 	// memory fields (qdrant_addr/port, embed_addr/port, embedding_model/dim) and the
@@ -176,7 +176,7 @@ type installDeps struct {
 	// seed defaults on every install. LoadVilla self-heals zeroed dashboard/
 	// chat fields, so seeding from it keeps the gap-test:1b loopback-default guarantee
 	// while honoring any persisted customization.
-	loadedConfig func() config.VillaConfig
+	loadedConfig func() (config.VillaConfig, error)
 	// loadedMemoryEnabled returns the AUTHORITATIVE gate value: the persisted
 	// config.LoadVilla().MemoryEnabled (fail-soft to false on a load error). It is
 	// threaded into runInstall to set cfg.MemoryEnabled, REPLACING the always-false
@@ -202,7 +202,11 @@ type installDeps struct {
 	// reports true — so an unfit host is refused-with-remediation BEFORE the
 	// memory stack comes up. NIL-SAFE: when nil (test doubles), no memory checks
 	// are appended (mirrors the doctor optional-seam pattern).
-	runMemoryChecks func(detect.HostProfile) []preflight.CheckResult
+	//
+	// The embedding model comes in as an argument, from the config loaded ONCE at
+	// step 0, so this gate cannot re-read (and re-swallow) config.toml behind the
+	// refusal above.
+	runMemoryChecks func(p detect.HostProfile, embeddingModel string) []preflight.CheckResult
 	// readRecallState reads recall-state.json fail-closed for the Phase-23
 	// skew WARN surface (warnRecallEmbeddingSkew): absent ⇒ empty state ⇒ silent
 	// typed-Unknown; only a real I/O fault errors (also silent — read-only WARN,
@@ -357,6 +361,25 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 	out := cmd.OutOrStdout()
 	errOut := cmd.ErrOrStderr()
 
+	// (0) Load the PERSISTED config FIRST, and REFUSE if it cannot be read.
+	//
+	// This seam used to fail soft to typed defaults, so an unreadable or hand-edited
+	// config.toml was silently replaced by seed values and install went on to render
+	// units, write them, and persist a config from input it had failed to read —
+	// discarding the user's memory/dashboard/chat customizations without saying so.
+	// The convention for untrusted input is to fail closed: error, never a silent
+	// default. An ABSENT config is NOT an error (LoadVilla returns typed defaults), so
+	// a first install on a clean host is unaffected.
+	//
+	// It is loaded here, before the host probe, so the refusal costs nothing and one
+	// read serves both the memory host-fitness gate below and the cfg seed at step 4.
+	cfg, err := d.loadedConfig()
+	if err != nil {
+		fmt.Fprintf(errOut, "install: cannot read the persisted config: %v\n", err)
+		fmt.Fprintln(errOut, "install: refusing to install from defaults — that would overwrite your persisted settings with seed values. Fix or remove config.toml, then re-run.")
+		return exitBlocked
+	}
+
 	// (1) Detect the host.
 	profile := d.probe()
 
@@ -391,7 +414,7 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 	// gateInstall below — an opted-in install on an unfit host refuses-with-
 	// remediation BEFORE the memory stack comes up.
 	if d.loadedMemoryEnabled() && d.runMemoryChecks != nil {
-		checks = append(checks, d.runMemoryChecks(profile)...)
+		checks = append(checks, d.runMemoryChecks(profile, cfg.EmbeddingModel)...)
 	}
 	// (3a') Opt-in coding-agent gates: the staged-footprint disk BLOCK,
 	// the post-coder envelope BLOCK (driven by rec.Coder, never re-derived), and the cloud-
@@ -464,14 +487,13 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 		fmt.Fprintf(errOut, "install: cannot resolve the Quadlet unit dir: %v\n", err)
 		return exitBlocked
 	}
-	// Seed from the PERSISTED config (not DefaultVillaConfig()) so a user's customized
-	// memory fields (qdrant_addr/port, embed_addr/port, embedding_model/dim) and the
-	// dashboard/chat fields survive every install rather than being reset to seed
-	// defaults. loadedConfig fails soft to typed defaults on a load error and
-	// LoadVilla self-heals zeroed dashboard/chat fields, so this still guarantees the
-	// loopback dashboard/chat defaults (8888/3000/127.0.0.1, gap test:1b) for a host
-	// with no prior config. Only the recommendation-derived fields are overridden below.
-	cfg := d.loadedConfig()
+	// cfg was seeded from the PERSISTED config at step 0 (not DefaultVillaConfig()) so a
+	// user's customized memory fields (qdrant_addr/port, embed_addr/port,
+	// embedding_model/dim) and the dashboard/chat fields survive every install rather
+	// than being reset to seed defaults. LoadVilla self-heals zeroed dashboard/chat
+	// fields and treats an ABSENT config as the typed defaults, so the loopback
+	// dashboard/chat defaults (8888/3000/127.0.0.1, gap test:1b) still hold for a host
+	// with no prior config. Only the recommendation-derived fields are overridden here.
 	cfg.Model = rec.Model
 	cfg.Quant = rec.Quant
 	cfg.Ctx = rec.ContextLen
@@ -1551,10 +1573,10 @@ func liveInstallDeps() (*installDeps, error) {
 		embedModelPresent:   liveEmbedModelPresent,
 		ensureEmbedModel:    liveEnsureEmbedModel,
 		memoryProofFn:       liveMemoryProof,
-		// Memory host-fitness gates (CTRL-06): the embedding model comes from the
-		// same persisted fail-soft config source as the rest of the memory path.
-		runMemoryChecks: func(p detect.HostProfile) []preflight.CheckResult {
-			return preflight.RunMemory(p, preflight.MemoryGateInput{EmbeddingModel: liveLoadedConfig().EmbeddingModel})
+		// Memory host-fitness gates (CTRL-06): the embedding model is passed in from the
+		// config runInstall loaded once, and refused on, at step 0.
+		runMemoryChecks: func(p detect.HostProfile, embeddingModel string) []preflight.CheckResult {
+			return preflight.RunMemory(p, preflight.MemoryGateInput{EmbeddingModel: embeddingModel})
 		},
 		// Phase-23 skew WARN reader: the SHARED fail-closed recall-state
 		// loader `villa recall` uses (one reader, never a re-rolled second one).

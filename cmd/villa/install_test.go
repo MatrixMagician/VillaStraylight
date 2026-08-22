@@ -79,7 +79,10 @@ type fakeInstallDeps struct {
 	// prove runInstall SEEDS cfg from the user's persisted config and preserves their
 	// memory/dashboard/chat customizations through saveConfig. nil → the seam
 	// returns config.DefaultVillaConfig() (the old seed behavior, unchanged).
+	// configLoadErr, when non-nil, makes the loadedConfig seam FAIL, so a test can prove
+	// an unreadable config.toml refuses instead of installing from seed defaults.
 	persistedConfig   *config.VillaConfig
+	configLoadErr     error
 	memoryEnabled     bool
 	embedPresent      bool
 	embedEnsureCalls  int
@@ -262,11 +265,14 @@ func newFakeInstallDeps(t *testing.T, units []orchestrate.Unit, plan orchestrate
 	// the typed defaults (byte-for-byte the old DefaultVillaConfig() seed) so existing
 	// tests are unchanged; persistedConfig lets a test inject a customized on-disk config
 	// to prove install preserves it.
-	d.loadedConfig = func() config.VillaConfig {
-		if f.persistedConfig != nil {
-			return *f.persistedConfig
+	d.loadedConfig = func() (config.VillaConfig, error) {
+		if f.configLoadErr != nil {
+			return config.VillaConfig{}, f.configLoadErr
 		}
-		return config.DefaultVillaConfig()
+		if f.persistedConfig != nil {
+			return *f.persistedConfig, nil
+		}
+		return config.DefaultVillaConfig(), nil
 	}
 	d.loadedMemoryEnabled = func() bool { return f.memoryEnabled }
 	d.embedModelPresent = func(string) bool {
@@ -1949,7 +1955,7 @@ func TestInstallMemoryGateRefusesUnfitHost(t *testing.T) {
 		f := newFakeInstallDeps(t, units, plan, passChecks())
 		f.memoryEnabled = true
 		gateCalls := 0
-		f.installDeps.runMemoryChecks = func(detect.HostProfile) []preflight.CheckResult {
+		f.installDeps.runMemoryChecks = func(detect.HostProfile, string) []preflight.CheckResult {
 			gateCalls++
 			return []preflight.CheckResult{memDiskFail}
 		}
@@ -1976,7 +1982,7 @@ func TestInstallMemoryGateRefusesUnfitHost(t *testing.T) {
 
 	t.Run("memory-off install never invokes the gate", func(t *testing.T) {
 		f := newFakeInstallDeps(t, units, plan, passChecks())
-		f.installDeps.runMemoryChecks = func(detect.HostProfile) []preflight.CheckResult {
+		f.installDeps.runMemoryChecks = func(detect.HostProfile, string) []preflight.CheckResult {
 			t.Error("memory-off install must NOT run the memory host-fitness gate")
 			return nil
 		}
@@ -2358,4 +2364,39 @@ func idx(s []string, v string) int {
 		}
 	}
 	return -1
+}
+
+// TestInstallRefusesUnreadableConfig locks the fail-closed config-load seam: when
+// config.toml cannot be READ, install refuses with remediation instead of quietly
+// installing from seed defaults.
+//
+// The distinction that makes this load-bearing is that an ABSENT config is NOT a load
+// error — LoadVilla returns typed defaults for it — so this only fires on a config that
+// exists and is unreadable or malformed, exactly the case where defaulting would
+// discard the user's persisted memory/dashboard/chat settings. The assertion is on side
+// effects, not just the exit code: nothing may be rendered, written, started, or
+// persisted from input install failed to read.
+func TestInstallRefusesUnreadableConfig(t *testing.T) {
+	units := []orchestrate.Unit{{Name: "villa-llama.container", Text: "[Container]\n"}}
+	plan := orchestrate.Plan{Changed: units}
+	f := newFakeInstallDeps(t, units, plan, passChecks())
+	f.configLoadErr = errors.New(`config: parse "/home/u/.config/villa/config.toml": bare keys cannot contain '"'`)
+
+	cmd, _, errOut := installTestCmd()
+	code := runInstall(cmd, installOpts{}, f.installDeps)
+
+	if code != exitBlocked {
+		t.Fatalf("unreadable config: exit = %d, want exitBlocked (%d)", code, exitBlocked)
+	}
+	if f.writeCalls != 0 || f.saveCalls != 0 || f.startCalls != 0 || f.reloadCalls != 0 {
+		t.Errorf("a refused install must not mutate the host: write=%d save=%d start=%d reload=%d",
+			f.writeCalls, f.saveCalls, f.startCalls, f.reloadCalls)
+	}
+	msg := errOut.String()
+	if !strings.Contains(msg, "cannot read the persisted config") {
+		t.Errorf("refusal must name the cause, got %q", msg)
+	}
+	if !strings.Contains(msg, "config.toml") {
+		t.Errorf("refusal must carry actionable remediation naming config.toml, got %q", msg)
+	}
 }

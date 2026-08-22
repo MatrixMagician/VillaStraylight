@@ -42,7 +42,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 	"github.com/MatrixMagician/VillaStraylight/internal/verifystate"
 	"github.com/MatrixMagician/VillaStraylight/internal/websafe"
@@ -323,9 +322,6 @@ type searchVerifyDeps struct {
 	// to false so a broken config never silently claims web search is on). Already shipped
 	// read-only here.
 	loadedWebSearchEnabled func() bool
-	// loadedConfig resolves the allowlist host(s) the bound permits (live:
-	// liveLoadedConfig). Read-only.
-	loadedConfig func() config.VillaConfig
 	// verifyFn drives the bounded-outbound proof (live: liveSearchVerify). Injecting it
 	// makes the gated cobra run path unit-testable without a host.
 	verifyFn func(ctx context.Context, deps searchVerifyDeps) searchProof
@@ -344,11 +340,15 @@ type searchVerifyDeps struct {
 // redeclaration), exactly as the curl-exit constants are shared from verify_agent.go.
 
 // liveVerifySearchDeps wires searchVerifyDeps to the real host: the persisted web-search
-// gate, the persisted config, and the production liveSearchVerify seam.
+// gate and the production liveSearchVerify seam.
+//
+// It carried a loadedConfig seam that swallowed its load error and that nothing read —
+// the allowlist host it was documented to resolve is a constant in liveSearchVerify. A
+// seam that silently defaults and is never consulted is worse than absent, so it is
+// gone rather than made to fail closed.
 func liveVerifySearchDeps() searchVerifyDeps {
 	return searchVerifyDeps{
 		loadedWebSearchEnabled: liveLoadedWebSearchEnabled,
-		loadedConfig:           liveLoadedConfig,
 		verifyFn:               liveSearchVerify,
 		persistFn:              liveVerifyStatePersist,
 	}

@@ -52,7 +52,7 @@ type recallDeps struct {
 	loadedMemoryEnabled func() bool
 	// loadedConfig resolves the loopback chat port + the embedding model/dim skew
 	// stamps (live: liveLoadedConfig).
-	loadedConfig func() config.VillaConfig
+	loadedConfig func() (config.VillaConfig, error)
 	// mintToken mints the admin JWT over loopback (live: mintAdminToken — the
 	// existing villa-verify@localhost service-account seam).
 	mintToken func(ctx context.Context, base string) (string, error)
@@ -217,7 +217,15 @@ func newRecallStatus() *cobra.Command {
 // delta from verify memory's memory-off exit-0 (an explicit recall request can
 // never honestly no-op).
 func recallGate(verb string, deps recallDeps, errOut interface{ Write([]byte) (int, error) }) (config.VillaConfig, bool) {
-	cfg := deps.loadedConfig()
+	// A config that cannot be READ is a refusal, not a zero config. Recall keys its
+	// chat port and its embedding model/dim skew stamps off this value; answering from
+	// seed defaults would probe the wrong port and compare against the wrong embedding
+	// model, and report the result as if it were the user's stack.
+	cfg, err := deps.loadedConfig()
+	if err != nil {
+		fmt.Fprintf(errOut, "recall %s: cannot read config.toml (%v) — fix or remove it, then re-run.\n", verb, err)
+		return cfg, true
+	}
 	d := memory.Decide(cfg)
 	if !deps.loadedMemoryEnabled() || !d.Enabled {
 		fmt.Fprintf(errOut, "recall %s: the memory stack is not enabled — recall requires it: set memory_enabled=true in config.toml and run `villa install`, then re-run.\n", verb)

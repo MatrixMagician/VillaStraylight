@@ -66,10 +66,10 @@ func newFakeRecallEnv() *fakeRecallEnv {
 	fixedNow := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
 	env.deps = recallDeps{
 		loadedMemoryEnabled: func() bool { return true },
-		loadedConfig: func() config.VillaConfig {
+		loadedConfig: func() (config.VillaConfig, error) {
 			c := config.DefaultVillaConfig()
 			c.MemoryEnabled = true
-			return c
+			return c, nil
 		},
 		mintToken: func(context.Context, string) (string, error) {
 			env.calls = append(env.calls, "mint")
@@ -174,7 +174,7 @@ func TestRecallGate(t *testing.T) {
 	t.Run("memory off blocks recall index without running any drive", func(t *testing.T) {
 		env := newFakeRecallEnv()
 		env.deps.loadedMemoryEnabled = func() bool { return false }
-		env.deps.loadedConfig = func() config.VillaConfig { return config.DefaultVillaConfig() }
+		env.deps.loadedConfig = func() (config.VillaConfig, error) { return config.DefaultVillaConfig(), nil }
 		cmd := newRecallCmd()
 		var out, errOut bytes.Buffer
 		cmd.SetOut(&out)
@@ -193,7 +193,7 @@ func TestRecallGate(t *testing.T) {
 	t.Run("memory off blocks recall status without running any drive", func(t *testing.T) {
 		env := newFakeRecallEnv()
 		env.deps.loadedMemoryEnabled = func() bool { return false }
-		env.deps.loadedConfig = func() config.VillaConfig { return config.DefaultVillaConfig() }
+		env.deps.loadedConfig = func() (config.VillaConfig, error) { return config.DefaultVillaConfig(), nil }
 		cmd := newRecallCmd()
 		var out, errOut bytes.Buffer
 		cmd.SetOut(&out)
@@ -211,11 +211,11 @@ func TestRecallGate(t *testing.T) {
 
 	t.Run("enabled but invalid memory config blocks via memory.Decide", func(t *testing.T) {
 		env := newFakeRecallEnv()
-		env.deps.loadedConfig = func() config.VillaConfig {
+		env.deps.loadedConfig = func() (config.VillaConfig, error) {
 			c := config.DefaultVillaConfig()
 			c.MemoryEnabled = true
 			c.EmbeddingDim = -1 // survives normalize; Decide refuses it
-			return c
+			return c, nil
 		}
 		cmd := newRecallCmd()
 		var out, errOut bytes.Buffer
@@ -946,12 +946,12 @@ func TestRecallRebuild(t *testing.T) {
 // skewedRecallCfg returns a memory-on config whose embedding identity confidently
 // diverges from the nomic/768 stamp the skew tests record — the mismatch
 // fixture (model AND dim differ; either alone would also be a mismatch).
-func skewedRecallCfg() config.VillaConfig {
+func skewedRecallCfg() (config.VillaConfig, error) {
 	c := config.DefaultVillaConfig()
 	c.MemoryEnabled = true
 	c.EmbeddingModel = "other-embed-model"
 	c.EmbeddingDim = 512
-	return c
+	return c, nil
 }
 
 // TestRecallIndexSkewGuard locks the fail-closed refusal at the ONE verb that
