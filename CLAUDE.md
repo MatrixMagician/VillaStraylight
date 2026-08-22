@@ -11,6 +11,10 @@ Conventions, Architecture below) and in `docs/`:
 - `docs/DEVELOPMENT.md` — build, test, and contribution workflow
 - `docs/CONFIGURATION.md` — every `config.toml` field and its effect
 - `docs/GETTING-STARTED.md`, `docs/MEMORY.md`, `docs/TESTING.md`
+- `CONTEXT.md` — the domain glossary (ubiquitous language); use its terms in
+  issues, tests and proposals rather than drifting to synonyms
+- `docs/adr/` — accepted architecture decisions; read the ones touching your area
+  before changing it, and surface a contradiction rather than silently overriding
 
 Historical planning artifacts (milestone history, retrospectives, per-phase
 research) were removed from the working tree; they remain in git history.
@@ -22,17 +26,23 @@ inference + **Open WebUI** chat + a control dashboard — strictly local, zero
 telemetry. Go is the **control plane only**; AI services are integrated OSS
 containers, not rebuilt.
 
-**Shipped:** v1.0 MVP, v1.1 (ROCm Opt-In Backend), v1.2 (Operability), v1.3 (Memory & Knowledge), and v1.4 (Coding Agent) are complete and tagged on `main`. The `villa` control plane is implemented under `cmd/villa/` + `internal/`.
+**Shipped:** v1.0 MVP, v1.1 (ROCm Opt-In Backend), v1.2 (Operability), v1.3 (Memory & Knowledge), v1.4 (Coding Agent), and v1.5 (Web Search — Grounded & Guarded) are complete and tagged on `main`. The `villa` control plane is implemented under `cmd/villa/` + `internal/`.
 
 ## Build, run & test
 
 ```bash
-make build   # go build -o ./villa ./cmd/villa
-make run     # go run ./cmd/villa
-make test    # go test ./...
-make check   # vet + test (pre-commit gate)
-make lint    # golangci-lint if installed, else go vet
+make build         # go build -o ./villa ./cmd/villa (version-stamped)
+make build-static  # CGO-free static build — the SC#4 gate CI enforces
+make run           # go run ./cmd/villa
+make test          # go test ./...
+make test-race     # go test -race ./... (cgo test-only; the binary stays CGO-free)
+make check         # vet + test + test-race (pre-commit gate)
+make lint          # golangci-lint if installed, else go vet
 ```
+
+CI runs `make check`'s equivalents plus `CGO_ENABLED=0 go build`, `go mod verify`,
+and a grep asserting no TUI dependency returns. `make check` alone does NOT cover
+the CGO-free build — run `make build-static` before pushing if you touched imports.
 
 Go 1.26+. Single module, single static binary built from `./cmd/villa`.
 
@@ -40,16 +50,27 @@ Go 1.26+. Single module, single static binary built from `./cmd/villa`.
 
 **Code map** (Go is the control plane only — AI services are OSS containers):
 
-- `cmd/villa/` — cobra CLI, one file per subcommand (detect, recommend, preflight,
-  install, up/down/restart/logs, status, model, backend, bench, dashboard, uninstall).
+- `cmd/villa/` — cobra CLI, one file per subcommand. The tree is assembled in one
+  place, `newRoot` in `root.go`: detect, recommend, preflight, model, inference,
+  install, up/down/restart/logs, config, status, doctor, verify, recall, dashboard,
+  websafe, backend, coding-mode, code, bench, backup, restore, uninstall.
   Host effects live behind injectable `live*Deps` seams (`grep -rn "func live" cmd/villa`).
 
 - `internal/` — `detect` (host probe → typed-Unknown HostProfile; AMD seam in `gpu_amd.go`),
   `recommend` (pure memory-fit `Pick`), `preflight` (reusable BLOCK/WARN gate + `go:embed`
   `rocm-policy.json`), `inference` (`BackendFor` resolver + Backend/Runner/ResidencyProof
-  seam; ROCm default + Vulkan fallback), `orchestrate` (Quadlet Render/Reconcile/WriteUnits — the only impure
-  module), `backendswap` (transactional switch), `bench` (pure A/B core), plus `status`,
+  seam; ROCm default + Vulkan fallback), `orchestrate` (Quadlet Render/Reconcile/WriteUnits — the
+  `podman`/`systemctl` seam), `backendswap` (transactional switch), `bench` (pure A/B core), plus `status`,
   `dashboard`, `metrics`, `config`, `catalog`, `download`, `modelswap`, `llm`.
+
+  The v1.3–v1.5 packages follow the same pure-core shape: `memory` + `recall`
+  (memory-stack decision spine and the chat-index plan/diff algebra), `agent` +
+  `codingmode` (the `villa code` delivery spine and the transactional
+  enter/exit state machine), `websafe` (the web-search injection guard —
+  sanitize/normalize/fence/classify; it reduces and FLAGS, and never claims safe),
+  `doctor` (read-only runtime twin of preflight), `backup` (pure manifest-skew
+  comparison), `usage` (reset-aware Fold over llama.cpp's monotonic token totals),
+  and the persistence trio `pathsafe` / `jsonstore` / `benchstore` + `verifystate`.
   Deeper detail: `docs/ARCHITECTURE.md`, `docs/DEVELOPMENT.md`.
 
 **Conventions & gotchas (non-obvious — read before editing):**
@@ -111,10 +132,10 @@ VillaStraylight is a self-hosted, local AI server stack for privacy-conscious po
 
 ### Frameworks
 
-- `github.com/spf13/cobra` v1.10.2 - CLI command tree for `villa` (`cmd/villa/root.go` + per-verb files). Subcommands: `detect`, `recommend`, `preflight`, `install`, `uninstall`, `up`, `down`, `restart`, `status`, `logs`, `config`, `dashboard`, `model` (`list` / `pull` / `show` / swap), `backend`, `inference`, `bench`.
+- `github.com/spf13/cobra` v1.10.2 - CLI command tree for `villa` (`cmd/villa/root.go` + per-verb files). Subcommands: see the code map above — `newRoot` in `cmd/villa/root.go` is the single authoritative list.
 - Go standard `testing` package - The only test framework. Table-driven tests, `httptest` servers, and byte-for-byte golden fixtures (`cmd/villa/testdata/*.golden.json`, `internal/orchestrate` rendered-unit goldens, `internal/metrics/testdata/slots.json`). No third-party assertion or mocking library — seams are injected `func` fields.
 - `go build` / `go test` / `go vet` / `gofmt` via `Makefile`.
-- `golangci-lint` v2 (config `.golangci.yml`, v2 format) - run by CI on every push and PR, gated to NEW issues so the standing backlog does not block work. `make lint` runs it locally if installed, else falls back to `go vet`.
+- `golangci-lint` v2 (config `.golangci.yml`, v2 format) - run by CI on PULL REQUESTS ONLY, gated to NEW issues so the standing backlog does not block work. The pull_request restriction is load-bearing: `only-new-issues` has no base to diff against on a push event, silently degrades to linting the whole tree, and then fails on that same backlog. `make lint` runs it locally if installed, else falls back to `go vet`.
 
 ### Key Dependencies
 
@@ -138,7 +159,7 @@ loop.
 - `internal/preflight/rocm-policy.json` - ROCm pin policy: image-tag allow/deny, kernel floor, firmware floor/deny, required `HSA_OVERRIDE_GFX_VERSION` (`//go:embed rocm-policy.json` in `internal/preflight/floors.go`).
 - `internal/orchestrate/quadlet/*.tmpl` - Quadlet unit `text/template`s (`//go:embed quadlet/*.tmpl` in `internal/orchestrate/render.go`): `container.tmpl`, `network.tmpl`, `volume.tmpl`, `openwebui.container.tmpl`, `openwebui.volume.tmpl`.
 - `internal/dashboard/assets/` - embedded dashboard UI (`//go:embed all:assets` in `internal/dashboard/embed.go`); `dashboard.html` is parsed as an `html/template` shell (chat-link port injected), css/js served verbatim.
-- `Makefile` targets: `help`, `run`, `build` (-> `./villa`), `test`, `vet`, `fmt`, `lint`, `check` (vet+test), `tidy`, `clean`.
+- `Makefile` targets: `help`, `run`, `build` (-> `./villa`), `build-static` (SC#4 CGO-free gate), `test`, `test-race`, `vet`, `fmt`, `lint`, `check` (vet+test+test-race), `tidy`, `clean`.
 - `.golangci.yml` - linter config (used by `make lint`).
 
 ### Platform Requirements
@@ -163,24 +184,29 @@ loop.
 
 ### Naming Patterns
 
-- Lowercase, no underscores for source: `value.go`, `backend.go`, `running_offload.go`
-- Tests mirror their source file with `_test.go`: `backend.go` → `backend_test.go`,
-- Topic-grouped check files in `internal/preflight`: `checks_gpu.go`,
-- Standard Go `CamelCase` (exported) / `camelCase` (unexported).
-- **`live*Deps` constructors** wire a pure core's `Deps` struct to the real host.
-- **`*ForTest` helpers** expose an internal seam to tests in another package
-- **`fake*Deps` types** are test doubles for a command's `Deps`:
-- Short receiver names (`b backendVulkan`, `r CheckResult`); descriptive locals.
-- The golden `-update` flag is a package-level `var update = flag.Bool(...)`
-- Typed `Optional` wrappers (`Bytes`/`Str`/`Int`/`Bool`) instead of bare
-- Interface seams named for the role: `Backend`, `Deps`, `RenderInput`,
+- Tests mirror their source file: `backend.go` → `backend_test.go`. Topic-grouped
+  check files in `internal/preflight`: `checks_gpu.go`, `checks_memory.go`,
+  `checks_podman.go`, `checks_linger.go`, `checks_resources.go`.
+- **`live*Deps` constructors** wire a pure core's `Deps` struct to the real host;
+  they live in `cmd/villa` and are the only place host I/O is bound.
+- **`fake*Deps` types** are test doubles for those same `Deps` structs — the reason
+  every command is testable off-hardware.
+- **`*ForTest` helpers** (`GTTUsedBytesForTest`, `rocmMarkersForTest`) expose one
+  internal seam to tests in another package, rather than widening the real API.
+- Typed `Optional` wrappers instead of bare zero values: `detect.Bytes`/`Str`/`Int`/
+  `Bool` are aliases of `Optional[T]` (`internal/detect/value.go`), so "unknown" is
+  a distinct state from "zero" — this is what makes typed-Unknown degradation work.
+- The golden `-update` flag is a package-level `var update = flag.Bool("update", …)`
+  per test package (`cmd/villa/detect_test.go`, `internal/orchestrate/render_test.go`).
 
 ### Code Style
 
 - `gofmt` (`make fmt` runs `gofmt -w .`). Tabs, standard Go layout.
 - `goimports` enforced via `.golangci.yml` — imports are grouped and ordered.
-- Enabled linters: `errcheck`, `govet`, `ineffassign`, `staticcheck`, `unused`,
-- `errcheck` is disabled for `_test.go` files.
+- Linters: the golangci-lint v2 defaults (`errcheck`, `govet`, `ineffassign`,
+  `staticcheck`, `unused`) plus `misspell` and `revive`. `revive` is the noisiest
+  of them against the standing backlog — new code is expected to satisfy it.
+- `errcheck` is disabled for `_test.go` files (the only exclusion rule).
 - `make lint` falls back to `go vet` if `golangci-lint` is not installed. That
   fallback is a local convenience only: CI runs the real linter (golangci-lint
   v2, `only-new-issues`), so a missing local binary cannot hide a finding.
@@ -189,29 +215,47 @@ loop.
 
 #### Pure-core + injectable-seam
 
-- Pure logic lives in `internal/*` cores (no host I/O): `detect`, `recommend`,
+- Pure logic lives in `internal/*` cores that do no host I/O of their own — they
+  take typed input and return typed values, never printing and never calling `os.Exit`.
 - Host effects (exec, Unix sockets, `/sys`, filesystem) are injected via a `Deps`
-- `internal/orchestrate` is the **only intentionally impure** module (it shells to
+  struct of `func` fields, wired to the real host by a `live*Deps()` closure in `cmd/villa`.
+- `internal/orchestrate` is the **intentionally impure orchestration module** — it
+  shells to `podman`/`systemctl` and writes Quadlet units. It is no longer the only
+  first-party code that touches the filesystem: `internal/pathsafe` is the shared
+  filesystem seam (path containment, XDG data-root resolution, atomic writes) and
+  `internal/jsonstore` the JSON-document persistence layer on top of it, used by
+  `benchstore`, `verifystate` and the memory stores. Everything else routes through
+  those two rather than calling `os` directly.
 - Consequence: every command is testable off-hardware by passing a `fake*Deps`.
 
 ### Error Handling
 
-- Return errors up; wrap with context using `fmt.Errorf(... %w ...)` (~60 of ~96
-- **Fail closed** on untrusted input (hand-edited config): error, never a silent
+- Return errors up; wrap with context using `fmt.Errorf("...: %w", err)`. Only the
+  command tier turns an error into an exit code.
+- **Fail closed** on untrusted input (a hand-edited config, an unknown backend
+  string): return an actionable error, never a silent default or fallback.
 - **Refuse-with-remediation** in preflight: every non-PASS `CheckResult` carries a
+  `Remediation` hint and a `Provenance` string, so a refusal always tells the user
+  what to do next and where the finding came from.
 
 ### Comments
 
-- Every file opens with a package/file-level doc comment stating its role and the
-- Decision/requirement IDs (`D-NN`, `REQ-*`, `SC#N`, `T-6-03`) are the canonical
-- Test functions carry a doc comment explaining the invariant being guarded and
+- Every file opens with a package- or file-level doc comment stating its role and
+  the invariant it upholds. Match that density when adding a file.
+- Decision/requirement IDs (`D-NN`, `REQ-*`, `SC#N`, `GUARD-NN`, `PRIV-NN`) are the
+  canonical cross-reference between code, tests and docs — carry them through.
+- Test functions carry a doc comment naming the invariant being guarded, so a
+  failure reads as a broken promise rather than a broken assertion.
 
 ### Function & Module Design
 
-- **`Deps` struct injection**: a command's host dependencies are a struct of
-- **Thin cobra callers**: `cmd/villa/*.go` commands are thin wrappers that call
+- **`Deps` struct injection**: a command's host dependencies are a struct of `func`
+  fields, not an interface hierarchy — one implementation live, one fake in tests.
+- **Thin cobra callers**: `cmd/villa/*.go` commands parse flags, call one core, and
+  render. Decision logic in a cobra `RunE` is a smell.
 - **Single polymorphism point**: choose a concrete backend only via `BackendFor`.
-- Exports: package APIs are deliberately narrow; test-only access goes through
+- Exports: package APIs are deliberately narrow; test-only access goes through a
+  `*ForTest` helper rather than exporting the real symbol.
 
 ## Architecture
 
@@ -237,6 +281,11 @@ loop.
 | download | Model weight pull + shard handling | `internal/download/download.go` |
 | config | Single source of truth: XDG `config.toml` load/save (`VillaConfig`) | `internal/config/villaconfig.go` |
 
+This table covers the v1.0–v1.2 spine. The v1.3–v1.5 packages (`memory`, `recall`,
+`agent`, `codingmode`, `websafe`, `doctor`, `backup`, `usage`, `pathsafe`,
+`jsonstore`, `benchstore`, `verifystate`) follow the same pure-core + `Deps` shape —
+see the code map above and `docs/ARCHITECTURE.md`.
+
 ### Pattern Overview
 
 - **Pure cores, impure edges.** Cores never call `os.Exit` and never print. They return typed values (`Recommendation`, `[]CheckResult`, `Verdict`, `Result`, `Report`); the command tier maps those to exit codes and tables/JSON.
@@ -245,42 +294,21 @@ loop.
 - **Honesty-by-construction.** Every probe degrades to a typed `Unknown` (`detect.Bool`/`detect.Bytes`) → WARN, which is DISTINCT from a confident negative → FAIL. CPU fallback is never reported as success.
 - **Composition over re-implementation.** `bench --ab` composes `backendswap.Run`; `dashboard` composes `status` and `modelswap`; nothing forks a proven core.
 
-### Layers
+### Layers, data flow & key abstractions
 
-- Purpose: cobra command tree, flag parsing, exit-code mapping, rendering, `live*Deps` wiring.
-- Location: `cmd/villa/*.go`, one file per subcommand (`detect.go`, `install.go`, `backend.go`, …); tree assembled in `cmd/villa/root.go` (`newRoot`), entry `cmd/villa/main.go`.
-- Depends on: every pure core via `live*Deps()` closures.
-- Used by: end user (the `villa` binary).
-- Purpose: all decision logic and host-state aggregation, behind injectable seams.
-- Location: `internal/detect`, `recommend`, `catalog`, `preflight`, `inference`, `backendswap`, `bench`, `modelswap`, `status`, `metrics`, `download`, `config`.
-- Depends on: each other along the pipeline (recommend → catalog+detect; status → detect+inference+orchestrate); never on cobra.
-- Used by: the command tier and (for status/modelswap) the dashboard.
-- Purpose: turn config + proven `Backend` into rootless Podman Quadlet units, reconcile against disk, write atomically, drive user systemd.
-- Location: `internal/orchestrate/`. `render.go`/`reconcile.go` are PURE; only `systemd.go` and `WriteUnits` (in `render.go`) touch the host.
-- Depends on: `config`, `inference`.
-- Used by: install/lifecycle commands, `backendswap`, `status`.
-- Purpose: run integrated OSS AI containers (`villa-llama`, `villa-openwebui`) plus `villa-dashboard.service`, networked over `villa.network`, models on `villa-models.volume`.
+`docs/ARCHITECTURE.md` carries these properly — component diagram, data flow, key
+abstractions, and the directory-structure rationale. The one-line shape: command
+tier (`cmd/villa/*.go`) → pure cores (`internal/*`) → orchestration
+(`internal/orchestrate`) → the running OSS containers plus
+`villa-dashboard.service`, networked over `villa.network` with models on
+`villa-models.volume`. The unit set is `villa-llama`, `villa-openwebui`,
+`villa-qdrant` + `villa-embed` (v1.3 RAG), and `villa-searxng` + `villa-websafe`
+(v1.5 web search) — the last of which bind-mounts the `villa` binary into a
+distroless container, which is why the CGO-free build gate is load-bearing.
 
-### Data Flow
-
-#### A/B benchmark
-
-- Persistent state lives in `config.toml` (the single source of truth) and on-disk Quadlet units (regenerated from config). Cores hold no global mutable state; the dashboard server guards its one cached value with a `sync` mutex.
-
-### Key Abstractions
-
-- Purpose: which inference backend applies (image, runtime flags, device args, residency markers).
-- Examples: `internal/inference/backend_vulkan.go`, `backend_rocm.go`.
-- Pattern: every backend literal lives behind it; callers depend on the interface only.
-- Purpose: map a config `backend` string → `Backend`; fail-closed on unknown values.
-- Examples: `internal/inference/backend.go:21`.
-- Pattern: `"" | "rocm"` → ROCm 7.2.4 (default); `"rocm-6.4.4"` / `"rocm-6.4.4-rocwmma"` → the pinned 6.4.4 variants; `"vulkan"` → Vulkan RADV fallback; anything else → actionable error, NEVER silent fallback.
-- Purpose: each backend owns its log/journal marker literals (`Vulkan0`/`ROCm0`, device label, fault string); both offload scrapes are parameterized by it.
-- Examples: `internal/inference/backend.go:80`, `offload.go`, `running_offload.go`.
-- Pattern: a future inference backend slots in without re-rolling offload math; CPU fallback = FAIL, never false-green.
-- Purpose: drive host-touching flows from tests without a live host.
-- Examples: `internal/backendswap/backendswap.go`, `internal/bench/bench.go`, `internal/modelswap/modelswap.go`, `internal/status/status.go`.
-- Pattern: every host action is a `func` field; the live wiring is a `live*Deps()` closure in `cmd/villa`.
+Persistent state lives in `config.toml` (the single source of truth) and in on-disk
+Quadlet units regenerated from it. Cores hold no global mutable state; the dashboard
+server guards its one cached value with a `sync` mutex.
 
 ### Entry Points
 
@@ -294,7 +322,7 @@ loop.
 ### Architectural Constraints
 
 - **Backend literals are seam-locked.** Container image/device/`podman`/marker literals MUST live in `internal/inference/` (and `internal/detect/gpu_amd.go`). Enforced by `TestSeamGrepGate` (`internal/inference/seam_test.go`) over both `internal/` and `cmd/villa`.
-- **orchestrate is the ONLY impure first-party module.** Filesystem + `os/exec` touch is confined to `internal/orchestrate/systemd.go` + `WriteUnits`. Render/Reconcile must stay pure.
+- **Impurity is confined to named seams.** `os/exec` touch lives in `internal/orchestrate/systemd.go`; unit writing in `WriteUnits`; all other filesystem access goes through `internal/pathsafe` (containment + atomic writes) and `internal/jsonstore`. Render/Reconcile must stay pure, and a core must not reach for `os` directly.
 - **No silent CPU fallback.** Offload assert requires BOTH log-scrape AND sysfs GTT-delta; an unevaluable signal → WARN, a confident absence → FAIL.
 - **Loopback-only binds.** Dashboard binds `127.0.0.1` via `net.JoinHostPort`; never `:port`/`0.0.0.0` (PRIV-01, `internal/dashboard/server.go`).
 - **No shell interpolation.** All host commands are fixed-arg `exec.Command`; model names are catalog-resolved, never shell-interpolated.
