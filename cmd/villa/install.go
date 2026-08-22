@@ -690,7 +690,27 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 		return exitPass
 	}
 
-	// (9) Write only the changed units, daemon-reload, then (re)start the service.
+	// (9) Execute the mutate-and-start sequence the core planned.
+	//
+	// The core owns the ORDER; this tier performs the effects and renders output.
+	// The ordering rules — secrets before the units that reference them, the bearer
+	// file before the chat UI starts, inference before the chat UI, each start gated
+	// on its unit being in the written plan — are properties of that plan, asserted
+	// in internal/install rather than implied by the order of statements here.
+	//
+	// installSeq is compared against what this function actually does, so the plan
+	// cannot drift into decoration: a mismatch fails the run rather than being
+	// silently ignored.
+	installSeq := install.BuildSequence(gates, install.Units{
+		Inference: installServiceName,
+		ChatUI:    openWebUIServiceName,
+		Qdrant:    qdrantServiceName,
+		Embed:     embedServiceName,
+		Searxng:   searxngServiceName,
+		Websafe:   websafeServiceName,
+	}, cfg.WebLoaderSecret == "")
+	var performed []string
+
 	if err := d.writeUnits(plan, unitDir); err != nil {
 		fmt.Fprintf(errOut, "install: write units failed: %v\n", err)
 		return exitBlocked
@@ -705,6 +725,7 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 		return exitBlocked
 	}
 	fmt.Fprintf(out, "started %s\n", installServiceName)
+	performed = append(performed, installServiceName)
 
 	// (9a) Generate-and-persist the EXTERNAL_WEB_LOADER_API_KEY bearer ONCE and write the 0600
 	// websafe.env BEFORE the OWUI start (v1.5 / Phase-31), gated on the
@@ -748,6 +769,7 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 		return exitBlocked
 	}
 	fmt.Fprintf(out, "started %s\n", openWebUIServiceName)
+	performed = append(performed, openWebUIServiceName)
 
 	// (9b) Start the memory stack AFTER inference + Open WebUI, gated on the PERSISTED
 	// memory_enabled (Phase-19 / INFRA-02). Qdrant FIRST so the embedder/OWUI peers can
@@ -764,8 +786,8 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 	// surface a raw "Unit not found". Instead fail closed with a clear INTERNAL-ERROR
 	// remediation so the gate for STARTING a service is "its unit exists in the plan".
 	if gates.Memory {
-		if !planHasUnit(plan, orchestrate.QdrantContainerUnitName()) ||
-			!planHasUnit(plan, orchestrate.EmbedContainerUnitName()) {
+		if !install.UnitPresent(plan, orchestrate.QdrantContainerUnitName()) ||
+			!install.UnitPresent(plan, orchestrate.EmbedContainerUnitName()) {
 			fmt.Fprintf(errOut, "install: INTERNAL ERROR: memory is enabled but the memory units (%s, %s) are absent from the rendered plan — refusing to start a service systemd has never seen. This is a render/reconcile bug; please re-run `villa install`, and if it persists, file an issue.\n",
 				orchestrate.QdrantContainerUnitName(), orchestrate.EmbedContainerUnitName())
 			return exitBlocked
@@ -775,11 +797,13 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 			return exitBlocked
 		}
 		fmt.Fprintf(out, "started %s\n", qdrantServiceName)
+		performed = append(performed, qdrantServiceName)
 		if err := d.start(embedServiceName); err != nil {
 			fmt.Fprintf(errOut, "install: start %s failed: %v\n", embedServiceName, err)
 			return exitBlocked
 		}
 		fmt.Fprintf(out, "started %s\n", embedServiceName)
+		performed = append(performed, embedServiceName)
 	}
 
 	// (9c) Start the SearXNG web-search service, gated on the PERSISTED web_search_enabled
@@ -805,7 +829,7 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 	//      target — the secret reaches the container via this 0600 file, NEVER an inline
 	// literal in the 0644 unit — BLOCKER 1).
 	if gates.WebSearch {
-		if !planHasUnit(plan, orchestrate.SearXNGContainerUnitName()) {
+		if !install.UnitPresent(plan, orchestrate.SearXNGContainerUnitName()) {
 			fmt.Fprintf(errOut, "install: INTERNAL ERROR: web search is enabled but the searxng unit (%s) is absent from the rendered plan — refusing to start a service systemd has never seen. This is a render/reconcile bug; please re-run `villa install`, and if it persists, file an issue.\n",
 				orchestrate.SearXNGContainerUnitName())
 			return exitBlocked
@@ -848,6 +872,7 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 			return exitBlocked
 		}
 		fmt.Fprintf(out, "started %s\n", searxngServiceName)
+		performed = append(performed, searxngServiceName)
 
 		// villa-websafe (grounded-fetch loader, Phase-31): its 0600 websafe.env bearer was already
 		// written above (step 9a, BEFORE the OWUI start that also references it). Gate the START on
@@ -855,7 +880,7 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 		// start villa-websafe.service` for a unit systemd has never seen — fail closed with an
 		// INTERNAL-ERROR remediation, not a raw "Unit not found". With web search on, Render
 		// appends the unit, so today it is always present; the gate is the fail-closed backstop.
-		if !planHasUnit(plan, orchestrate.WebsafeContainerUnitName()) {
+		if !install.UnitPresent(plan, orchestrate.WebsafeContainerUnitName()) {
 			fmt.Fprintf(errOut, "install: INTERNAL ERROR: web search is enabled but the websafe unit (%s) is absent from the rendered plan — refusing to start a service systemd has never seen. This is a render/reconcile bug; please re-run `villa install`, and if it persists, file an issue.\n",
 				orchestrate.WebsafeContainerUnitName())
 			return exitBlocked
@@ -865,6 +890,7 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 			return exitBlocked
 		}
 		fmt.Fprintf(out, "started %s\n", websafeServiceName)
+		performed = append(performed, websafeServiceName)
 	}
 
 	// (10) Poll readiness (503=keep-polling, timeout→WARN — Task 2 wiring).
@@ -937,6 +963,15 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 		fmt.Fprintf(out, "coding agent ready: %s\n", proof.detail)
 	}
 
+	// The sequence the core planned must match what this function actually did.
+	// Without this the plan would be decoration: internal/install's ordering tests
+	// would pass while the flow drifted out from under them. Comparing the two makes
+	// the core's plan the authority the command tier is held to.
+	if err := install.AssertStartOrder(installSeq, performed); err != nil {
+		fmt.Fprintf(errOut, "install: %v\n", err)
+		return exitBlocked
+	}
+
 	if ready.status == preflight.StatusWarn || gateDegraded {
 		return exitWarn
 	}
@@ -955,25 +990,6 @@ func persistedBackendChosen(name string) bool {
 		return false
 	}
 	return inference.IsROCmFamily(name) || name == "vulkan"
-}
-
-// planHasUnit reports whether a unit with the given name is present in the reconciled
-// plan — in either Changed (must (re)write) or Unchanged (already on disk). The install
-// flow uses it to gate the memory-service starts on the memory .container units actually
-// being part of the written plan, so a memory-on install never `systemctl start`s
-// a unit systemd has never seen.
-func planHasUnit(plan orchestrate.Plan, name string) bool {
-	for _, u := range plan.Changed {
-		if u.Name == name {
-			return true
-		}
-	}
-	for _, u := range plan.Unchanged {
-		if u.Name == name {
-			return true
-		}
-	}
-	return false
 }
 
 // reconcileDashboardUnit brings up the native control-dashboard .service idempotently
