@@ -498,17 +498,18 @@ func liveRestoreWriteFile(path string, data []byte) error {
 	return nil
 }
 
-// liveRestoreProve is the offload-asserting restore-cutover gate (backup.RestoreDeps.Prove),
-// composing preflight + a status residency assert. It FIRST re-runs the ROCm
-// preflight gate for a ROCm-family target (the host-prep gate the restored config must
-// still satisfy); a BLOCK there is a prove FAIL -> rollback. It then reuses the proven
-// liveProve composition (bounded readiness + a REAL generation probe + GPU-residency
-// proof with gpu_busy sampled DURING the decode) and RETURNS ITS VERDICT AS IS —
-// both sides now speak the one prove.Verdict, so there is no field-by-field copy to
-// get wrong. A ready+health-200-but-residency-FAIL or a silent CPU fallback stays a
-// NON-pass, so the core rolls back. All backend markers stay behind the inference
-// seam; this function re-types none. It adds NO new outbound (status no_telemetry
-// preserved).
+// liveRestoreProve is the offload-asserting restore-cutover gate (backup.RestoreDeps.Prove).
+// It adds the ONE thing restore proves that the other cutovers do not: a ROCm-family
+// target must still satisfy the ROCm preflight gate against the resolved image digest,
+// because the restored config may describe a host-prep state this host no longer has.
+// A BLOCK there is a prove FAIL -> rollback.
+//
+// Residency itself is proven by liveProve, which drives the shared
+// internal/residency protocol. Restore neither re-implements the drive nor copies its
+// verdict field by field any more: both sides speak the one prove.Verdict, so a
+// ready+health-200-but-residency-FAIL or a silent CPU fallback stays a non-pass and the
+// core rolls back. All backend markers stay behind the inference seam. It adds NO new
+// outbound (status no_telemetry preserved).
 func liveRestoreProve(target string) prove.Verdict {
 	// (preflight) For a ROCm-family target, the restored host must still pass the ROCm
 	// preflight against the resolved image digest; a BLOCK is a prove FAIL.

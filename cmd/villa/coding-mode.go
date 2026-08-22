@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"time"
 
 	"github.com/spf13/cobra"
 
@@ -17,6 +16,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 	"github.com/MatrixMagician/VillaStraylight/internal/prove"
 	"github.com/MatrixMagician/VillaStraylight/internal/recommend"
+	"github.com/MatrixMagician/VillaStraylight/internal/residency"
 )
 
 // coding-mode.go is the cmd-tier `villa coding-mode` noun: the live host wiring that
@@ -37,127 +37,46 @@ import (
 // (exit symmetric to enter), (under-load prove; idle-green is never green),
 // (swap vs shared surfaced, never silently degraded).
 
-// codingProveTimeout bounds the cutover readiness poll (and, by the shared deadline
-// context, the whole prove). It mirrors backend.go's proveTimeout provenance (seeded
-// from inference's defaultReadyTimeout) — a server that never becomes ready before this
-// deadline is a PROVE FAIL → rollback, NEVER an infinite wait.
-const codingProveTimeout = 5 * time.Minute
-
-// liveCodingProve is the injected cutover gate (codingmode.Deps.Prove). It is a TWIN of
-// backend.go's liveProve, differing ONLY in two coding-mode specifics (Pattern, Pitfall
-// 4): the served model is resolved from cfg.CoderModel (the swapped coder weights) when
-// coding mode is on, and ConfigContext is set to the resolved AgentCtx (cfg.CoderAgentCtx,
-// the rendered single -c) so the residency fit-math matches the agent-ctx KV — NOT
-// cfg.Ctx (the chat ctx). It composes the SAME three gates inside one bounded deadline:
+// liveCodingProve is the injected cutover gate (codingmode.Deps.Prove). It resolves
+// what coding mode is proving and hands it to the shared residency drive protocol,
+// which owns the three gates and the Unknown-versus-negative rule.
 //
-//	(a) bounded readiness via inference.PollHealth,
-//	(b) a REAL generation probe via inference.GenerationProbe (tokens>0), with
-//	    detect.GPUBusyPercent() sampled DURING the decode (kept max),
-//	(c) residency proof via inference.RunningOffloadVerdict fed the backend's
+// Coding mode differs from the chat-side proof in exactly two Target fields
+// (Pitfall 4): the SERVED model is cfg.CoderModel when coding mode is on with swap
+// residency, and the served context is the resolved AgentCtx (the rendered single
+// -c), NOT cfg.Ctx. Proving the chat model at the chat ctx would compare the
+// residency fit-math against the wrong KV. That difference was previously expressed
+// by a 71-line copy of the protocol; it is now two field values.
 //
-// ResidencyProof markers — markers stay behind the seam.
-//
-// It maps ONLY inference.StatusPass → prove.StatusPass; any other verdict
-// (including ready+health-200-but-residency-FAIL) is a "fail" → the core rolls back.
+// Backend markers arrive ONLY through BackendFor(cfg.Backend).ResidencyProof(), so
+// this file stays literal-free of them.
 func liveCodingProve(ctx context.Context, _ codingmode.Direction) prove.Verdict {
 	cfg, err := config.LoadVilla()
 	if err != nil {
 		return prove.Verdict{Status: prove.StatusFail, Detail: "load config: " + err.Error()}
 	}
 
-	// Resolve the backend fail-closed: an unknown backend is a prove fail, never a
-	// silent fallback. backend.ResidencyProof() is the ONLY source of backend markers.
 	backend, err := inference.BackendFor(cfg.Backend)
 	if err != nil {
 		return prove.Verdict{Status: prove.StatusFail, Detail: err.Error()}
 	}
 
-	// Resolve the SERVED model file + ConfigContext for the residency seams. When coding
-	// mode is on, the rendered unit serves cfg.CoderModel at cfg.CoderAgentCtx (the single
-	// -c, Pitfall 1). The probe + residency proof must key on the SAME served model/ctx the
-	// unit was rendered with, otherwise the fit-math would compare against the chat KV.
 	servedModel, servedCtx := codingServedTarget(cfg)
 	modelFile, err := codingModelFile(cfg, servedModel)
 	if err != nil {
 		return prove.Verdict{Status: prove.StatusFail, Detail: "resolve model file: " + err.Error()}
 	}
 
-	endpoint := inference.NewContainerRunner(backend, inference.RunSpec{}).Endpoint()
-
-	deadlineCtx, cancel := context.WithTimeout(ctx, codingProveTimeout)
-	defer cancel()
-
-	// (a) Bounded readiness. Never-ready before the deadline → FAIL.
-	ready := inference.PollHealth(deadlineCtx, endpoint, codingProveTimeout)
-	if !ready.Known || !ready.Value {
-		return prove.Verdict{
-			Status: prove.StatusFail,
-			Detail: "not ready before timeout (possible load_tensors hang or CPU-fallback stall)",
-		}
-	}
-
-	// (b) REAL generation probe against the served model, with gpu_busy sampled DURING the
-	// decode window (kept max — a single post-probe read can miss a short decode's window).
-	chatCh := make(chan inference.ChatResult, 1)
-	go func() {
-		chatCh <- inference.GenerationProbe(deadlineCtx, endpoint, servedModel)
-	}()
-
-	maxBusy := detect.UnknownInt("gpu_busy_percent not sampled during probe", "")
-	ticker := time.NewTicker(codingBusySampleInterval)
-	defer ticker.Stop()
-sampleLoop:
-	for {
-		if b := detect.GPUBusyPercent(); b.Known && (!maxBusy.Known || b.Value > maxBusy.Value) {
-			maxBusy = b
-		}
-		select {
-		case chat := <-chatCh:
-			if b := detect.GPUBusyPercent(); b.Known && (!maxBusy.Known || b.Value > maxBusy.Value) {
-				maxBusy = b
-			}
-			if !chat.OK || chat.Tokens == 0 {
-				detail := "generation probe returned no tokens"
-				if chat.Detail != "" {
-					detail = "generation probe failed: " + chat.Detail
-				}
-				return prove.Verdict{Status: prove.StatusFail, Detail: detail}
-			}
-			break sampleLoop
-		case <-ticker.C:
-			// keep sampling
-		case <-deadlineCtx.Done():
-			return prove.Verdict{
-				Status: prove.StatusFail,
-				Detail: "generation probe did not complete before timeout (possible load_tensors hang or CPU-fallback stall)",
-			}
-		}
-	}
-
-	// (c) Residency proof under load. ConfigContext = servedCtx (the resolved AgentCtx for
-	// coding mode, Pitfall 4) so the residency fit-math matches the rendered single -c.
-	// Markers come ONLY from backend.ResidencyProof (keeps this file literal-free).
-	journal, _ := orchestrate.NewSystemd().ResidencyJournal(installServiceName)
-	v := inference.RunningOffloadVerdict(inference.RunningOffloadInput{
-		JournalText:    journal,
-		GTTUsedBytes:   detect.GTTUsedBytes(),
-		GPUBusyPercent: maxBusy,
-		WeightBytes:    codingWeightBytes(cfg, servedModel),
-		ConfigModel:    modelFile,
-		ConfigContext:  servedCtx,
-		Markers:        backend.ResidencyProof(),
+	return residency.ProveCutover(ctx, liveResidencyDeps(), residency.Target{
+		Endpoint:    inference.NewContainerRunner(backend, inference.RunSpec{}).Endpoint(),
+		Service:     installServiceName,
+		ModelID:     servedModel,
+		ModelFile:   modelFile,
+		ContextLen:  servedCtx,
+		WeightBytes: codingWeightBytes(cfg, servedModel),
+		Markers:     backend.ResidencyProof(),
 	})
-
-	if v.Status == inference.StatusPass {
-		return prove.Verdict{Status: prove.StatusPass, Detail: v.Detail}
-	}
-	return prove.Verdict{Status: prove.StatusFail, Detail: v.Detail}
 }
-
-// codingBusySampleInterval mirrors backend.go's busySampleInterval (re-declared here so
-// the coding noun is self-contained). How often liveCodingProve re-reads
-// detect.GPUBusyPercent() DURING the generation probe.
-const codingBusySampleInterval = 100 * time.Millisecond
 
 // codingServedTarget returns the model id + ctx the running unit serves: the coder model
 // at the resolved agent ctx when coding mode is on (swap), otherwise the chat model
