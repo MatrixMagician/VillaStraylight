@@ -37,6 +37,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/preflight"
 	"github.com/MatrixMagician/VillaStraylight/internal/prove"
 	"github.com/MatrixMagician/VillaStraylight/internal/recall"
+	"github.com/MatrixMagician/VillaStraylight/internal/subsystem"
 	"github.com/MatrixMagician/VillaStraylight/internal/usage"
 )
 
@@ -278,7 +279,7 @@ func liveRestore(cmd *cobra.Command, archivePath string, bypass bool) (backup.Re
 	// side), so an agent-off restore makes ZERO crush.json writes even if an archive
 	// carries the entry. crushConfigPath() resolves ~/.config/crush/crush.json
 	// (OUTSIDE the data-store root — restored via the dedicated WriteCrushConfig seam).
-	if cfg.AgentEnabled {
+	if subsystem.AgentOn(cfg) {
 		if crushPath, perr := crushConfigPath(); perr == nil {
 			in.CrushConfigDestPath = crushPath
 		} else {
@@ -291,7 +292,7 @@ func liveRestore(cmd *cobra.Command, archivePath string, bypass bool) (backup.Re
 	// entry. SearXNGSettingsFilePath() resolves $XDG_CONFIG_HOME/villa/searxng/settings.yml
 	// (OUTSIDE the data-store root — restored via the dedicated WriteSearxngSettings seam,
 	// 0600-preserving).
-	if cfg.WebSearchEnabled {
+	if subsystem.WebSearchOn(cfg) {
 		if settingsPath, perr := orchestrate.SearXNGSettingsFilePath(); perr == nil {
 			in.SearxngSettingsDestPath = settingsPath
 		} else {
@@ -548,7 +549,7 @@ func liveRestoreProve(target string) prove.Verdict {
 // in restore_test.go (the env-file render/write path is proven in orchestrate tests; this
 // helper guards the restore GATE — write-on, fail-closed-on-missing-secret, no-op-off).
 func restoreWriteWebsafeSecretEnv(c config.VillaConfig, writeEnv func(name, text string) error) error {
-	if !c.WebSearchEnabled {
+	if !subsystem.WebSearchOn(c) {
 		return nil
 	}
 	if c.WebLoaderSecret == "" {

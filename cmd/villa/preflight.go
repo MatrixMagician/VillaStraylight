@@ -13,6 +13,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
 	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 	"github.com/MatrixMagician/VillaStraylight/internal/preflight"
+	"github.com/MatrixMagician/VillaStraylight/internal/subsystem"
 )
 
 // memoryGateResults returns the OPT-IN memory-stack gates (MEM-PRE-disk /
@@ -30,7 +31,7 @@ var memoryGateResults = liveMemoryGateResults
 // memory host-fitness checks with the configured embedding model.
 func liveMemoryGateResults(profile detect.HostProfile) []preflight.CheckResult {
 	cfg, err := config.LoadVilla()
-	if err != nil || !cfg.MemoryEnabled {
+	if err != nil || !subsystem.MemoryOn(cfg) {
 		return nil
 	}
 	return preflight.RunMemory(profile, preflight.MemoryGateInput{EmbeddingModel: cfg.EmbeddingModel})

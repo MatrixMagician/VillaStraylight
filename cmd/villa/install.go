@@ -22,6 +22,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/preflight"
 	"github.com/MatrixMagician/VillaStraylight/internal/recall"
 	"github.com/MatrixMagician/VillaStraylight/internal/recommend"
+	"github.com/MatrixMagician/VillaStraylight/internal/subsystem"
 )
 
 // install.go wires the `villa install` lifecycle verb (07, ORCH-03,
@@ -581,7 +582,7 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 		ModelsDir:     d.modelsDir(),
 		HostVillaPath: hostVillaPath(),
 	}
-	if cfg.CodingMode {
+	if subsystem.CodingModeOn(cfg) {
 		servedModel, _ := codingServedTarget(cfg)
 		coderModelFile, mferr := codingModelFile(cfg, servedModel)
 		if mferr != nil {
@@ -643,7 +644,7 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 	// (the single sanctioned outbound window) so the embeddings runtime is ZERO-download.
 	// download.PullModel verifies size + SHA256 before the atomic rename, so a
 	// half-written/unverified GGUF is never trusted; a pull failure refuses-with-remediation.
-	if cfg.MemoryEnabled && !opts.dryRun && !d.embedModelPresent(d.modelsDir()) {
+	if subsystem.MemoryOn(cfg) && !opts.dryRun && !d.embedModelPresent(d.modelsDir()) {
 		fmt.Fprintf(out, "embedding model %s not present — downloading...\n", nomicEmbedShard.Filename)
 		if err := d.ensureEmbedModel(d.modelsDir()); err != nil {
 			fmt.Fprintf(errOut, "install: pre-stage embedding model %s failed: %v\n", nomicEmbedShard.Filename, err)
@@ -662,7 +663,7 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 	// the locked-down crush.json (the restrictive-tools security control). The
 	// readiness proof (a real tool-call round-trip) runs AFTER the stack is up (step 10c).
 	var coderShard catalog.Shard
-	if cfg.AgentEnabled && !opts.dryRun {
+	if subsystem.AgentOn(cfg) && !opts.dryRun {
 		// (a) FSL-1.1-MIT consent notice — informational, printed BEFORE staging the binary.
 		fmt.Fprintf(out, "%s\n", agentLicenseNotice())
 
@@ -780,7 +781,7 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 	// service itself is started further below alongside searxng (its planHasUnit gate). The
 	// secret VALUE only ever lands in this 0600 file — never the 0644 unit, a log line, or
 	// stdout. Mirrors the searxng secret-env path (generate-once + 0600 EnvironmentFile).
-	if cfg.WebSearchEnabled {
+	if subsystem.WebSearchOn(cfg) {
 		// Generate-and-persist the bearer ONCE on first opt-in BEFORE rendering the env file so
 		// the EnvironmentFile target exists and is non-empty (a re-install reuses the same bearer
 		// rather than churning the OWUI⇄websafe trust).
@@ -829,7 +830,7 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 	// must NOT `systemctl start villa-qdrant.service` for a unit systemd has never seen and
 	// surface a raw "Unit not found". Instead fail closed with a clear INTERNAL-ERROR
 	// remediation so the gate for STARTING a service is "its unit exists in the plan".
-	if cfg.MemoryEnabled {
+	if subsystem.MemoryOn(cfg) {
 		if !planHasUnit(plan, orchestrate.QdrantContainerUnitName()) ||
 			!planHasUnit(plan, orchestrate.EmbedContainerUnitName()) {
 			fmt.Fprintf(errOut, "install: INTERNAL ERROR: memory is enabled but the memory units (%s, %s) are absent from the rendered plan — refusing to start a service systemd has never seen. This is a render/reconcile bug; please re-run `villa install`, and if it persists, file an issue.\n",
@@ -870,7 +871,7 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 	//      read-only at /etc/searxng) and the 0600 secret env file (the EnvironmentFile=
 	//      target — the secret reaches the container via this 0600 file, NEVER an inline
 	// literal in the 0644 unit — BLOCKER 1).
-	if cfg.WebSearchEnabled {
+	if subsystem.WebSearchOn(cfg) {
 		if !planHasUnit(plan, orchestrate.SearXNGContainerUnitName()) {
 			fmt.Fprintf(errOut, "install: INTERNAL ERROR: web search is enabled but the searxng unit (%s) is absent from the rendered plan — refusing to start a service systemd has never seen. This is a render/reconcile bug; please re-run `villa install`, and if it persists, file an issue.\n",
 				orchestrate.SearXNGContainerUnitName())
@@ -943,7 +944,7 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 	// returned far above). A FAIL refuses-with-remediation (exitBlocked) — never a
 	// silent skip / false-green (honesty-by-construction). A PASS prints a ready line
 	// and folds into the existing PASS/WARN verdict.
-	if cfg.MemoryEnabled {
+	if subsystem.MemoryOn(cfg) {
 		// (10b-pre) Phase-23 skew WARN (CTRL-05, read-only): if the
 		// recall-state stamp records an embedding identity that confidently
 		// diverges from the configured one, warn-with-remediation BEFORE the proof
@@ -977,7 +978,7 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 	// prints a ready line and folds into the existing PASS/WARN verdict. The proof probes the
 	// SAME config.SearxngAddr/SearxngPort the rendered unit's container-DNS identity derives from
 	// so it can never probe a different target than what runs.
-	if cfg.WebSearchEnabled {
+	if subsystem.WebSearchOn(cfg) {
 		proof := d.searxngProofFn(cmd.Context(), searxngProofInput{
 			searxngAddr: config.SearxngAddr,
 			searxngPort: config.SearxngPort,
@@ -994,7 +995,7 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 	// NOT a health-200. Gated on cfg.AgentEnabled; skipped under --dry-run (that path
 	// returned far above). A FAIL refuses-with-remediation (exitBlocked) — never a silent
 	// skip / false-green (honesty-by-construction). A health-200 is never an input.
-	if cfg.AgentEnabled {
+	if subsystem.AgentOn(cfg) {
 		proof := d.agentProofFn(cmd.Context())
 		if proof.status == preflight.StatusFail {
 			fmt.Fprintf(errOut, "install: coding agent not ready: %s\n", proof.detail)

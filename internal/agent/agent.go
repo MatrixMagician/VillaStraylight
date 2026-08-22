@@ -36,6 +36,7 @@ import (
 	"os"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
+	"github.com/MatrixMagician/VillaStraylight/internal/subsystem"
 )
 
 // osEnviron is the inherited-environment source for lockdownEnv, a package var seam
@@ -210,7 +211,7 @@ func Run(d Deps) Result {
 	// (8) Clean / first-run-rendered path. Coding-mode-OFF is a WARN, never a mutation
 	// (this core holds no toggle write). The caller surfaces it; the launch
 	// still proceeds.
-	if !cfg.CodingMode {
+	if !subsystem.CodingModeOn(cfg) {
 		res.Warnings = append(res.Warnings, Warning{
 			Code: "coding_mode_off",
 			Msg:  "coding mode is OFF — the running stack may not be serving the coder model; run `villa coding-mode enter` to flip it. Launching against the current endpoint anyway.",

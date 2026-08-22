@@ -31,6 +31,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 	"github.com/MatrixMagician/VillaStraylight/internal/preflight"
+	"github.com/MatrixMagician/VillaStraylight/internal/subsystem"
 )
 
 // liveLoadedWebSearchEnabled returns the PERSISTED config.LoadVilla().WebSearchEnabled
@@ -44,7 +45,7 @@ func liveLoadedWebSearchEnabled() bool {
 	if err != nil {
 		return false
 	}
-	return c.WebSearchEnabled
+	return subsystem.WebSearchOn(c)
 }
 
 // searxngServiceName is the systemd service the villa-searxng .container generates

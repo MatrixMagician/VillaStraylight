@@ -16,6 +16,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 	"github.com/MatrixMagician/VillaStraylight/internal/preflight"
 	"github.com/MatrixMagician/VillaStraylight/internal/recall"
+	"github.com/MatrixMagician/VillaStraylight/internal/subsystem"
 )
 
 // install_memory.go holds the v1.3 MEMORY-STACK install wiring the `villa install`
@@ -144,7 +145,7 @@ func liveLoadedMemoryEnabled() bool {
 	if err != nil {
 		return false
 	}
-	return c.MemoryEnabled
+	return subsystem.MemoryOn(c)
 }
 
 // warnRecallEmbeddingSkew is the Phase-23 read-only WARN surface for the

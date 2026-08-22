@@ -37,6 +37,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/preflight"
 	"github.com/MatrixMagician/VillaStraylight/internal/residency"
 	"github.com/MatrixMagician/VillaStraylight/internal/status"
+	"github.com/MatrixMagician/VillaStraylight/internal/subsystem"
 )
 
 // newDoctor builds `villa doctor`: a read-only, one-shot health diagnosis of the RUNNING
@@ -211,7 +212,7 @@ func liveDoctorDeps() (doctor.Deps, error) {
 		memChecks func(detect.HostProfile) []preflight.CheckResult
 		memProof  func() inference.Verdict
 	)
-	if cfg.MemoryEnabled {
+	if subsystem.MemoryOn(cfg) {
 		embeddingModel := cfg.EmbeddingModel
 		embedService := unitServiceName(orchestrate.EmbedContainerUnitName())
 		// composition over re-implementation: the memory host gate IS
@@ -247,7 +248,7 @@ func liveDoctorDeps() (doctor.Deps, error) {
 		agentResidency func() inference.Verdict
 		agentDrift     func() agent.DriftReport
 	)
-	if cfg.AgentEnabled {
+	if subsystem.AgentOn(cfg) {
 		agentToolCall = liveAgentToolCallVerdict(cfg)
 		agentResidency = liveAgentResidencyUnderLoad(cfg, sd)
 		agentDrift = liveAgentDrift(cfg)
@@ -263,7 +264,7 @@ func liveDoctorDeps() (doctor.Deps, error) {
 		searchEgress    func() inference.Verdict
 		searchResidency func() inference.Verdict
 	)
-	if cfg.WebSearchEnabled {
+	if subsystem.WebSearchOn(cfg) {
 		searchEgress = liveSearchEgressProof()
 		searchResidency = liveSearchResidencyUnderLoad(cfg, sd)
 	}

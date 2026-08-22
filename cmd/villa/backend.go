@@ -19,6 +19,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/prove"
 	"github.com/MatrixMagician/VillaStraylight/internal/recommend"
 	"github.com/MatrixMagician/VillaStraylight/internal/residency"
+	"github.com/MatrixMagician/VillaStraylight/internal/subsystem"
 )
 
 // backend.go is the cmd-tier `villa backend` noun: the live host wiring that drives
@@ -314,7 +315,7 @@ func liveBackendSwapDeps() *backendswap.Deps {
 			// Memory inputs from the PRESERVED config threaded into the closure
 			// the backend-swap fit gate sees the same shrunken envelope.
 			rec := recommend.Pick(detect.Probe(), cat, recommend.Overrides{Model: cfg.Model},
-				recommend.MemoryInputs{Enabled: cfg.MemoryEnabled, EmbeddingModel: cfg.EmbeddingModel},
+				recommend.MemoryInputs{Enabled: subsystem.MemoryOn(cfg), EmbeddingModel: cfg.EmbeddingModel},
 				webSearchInputsFrom(cfg))
 			if rec.Fits {
 				return true, ""

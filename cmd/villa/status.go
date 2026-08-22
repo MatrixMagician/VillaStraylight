@@ -26,6 +26,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/recall"
 	"github.com/MatrixMagician/VillaStraylight/internal/recommend"
 	"github.com/MatrixMagician/VillaStraylight/internal/status"
+	"github.com/MatrixMagician/VillaStraylight/internal/subsystem"
 	"github.com/MatrixMagician/VillaStraylight/internal/usage"
 	"github.com/MatrixMagician/VillaStraylight/internal/verifystate"
 )
@@ -291,7 +292,7 @@ func liveStatusDeps() (*status.Deps, error) {
 	// the core leaves report.Coding nil (the omitempty key is absent — coding-off
 	// --json is byte-identical to today except schema_version). The dashboard reuses
 	// *liveStatusDeps() verbatim, so the Agent panel is fed for free.
-	if cfg.AgentEnabled {
+	if subsystem.AgentOn(cfg) {
 		deps.AgentPinMatch = liveAgentPinMatch
 		deps.AgentResidency = liveAgentResidency
 		deps.AgentCache = func() (uint64, uint64, bool) { return liveAgentCache(endpoint) }
@@ -367,7 +368,7 @@ func liveAgentResidency() string {
 		return "" // cfg load failed → typed-Unknown rather than a memory-blind guess
 	}
 	rec := recommend.Pick(profile, cat, recommend.Overrides{},
-		recommend.MemoryInputs{Enabled: cfg.MemoryEnabled, EmbeddingModel: cfg.EmbeddingModel},
+		recommend.MemoryInputs{Enabled: subsystem.MemoryOn(cfg), EmbeddingModel: cfg.EmbeddingModel},
 		webSearchInputsFrom(cfg))
 	return rec.Coder.Residency
 }

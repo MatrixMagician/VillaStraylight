@@ -23,6 +23,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 	"github.com/MatrixMagician/VillaStraylight/internal/recall"
+	"github.com/MatrixMagician/VillaStraylight/internal/subsystem"
 	"github.com/MatrixMagician/VillaStraylight/internal/usage"
 	"github.com/MatrixMagician/VillaStraylight/internal/verifystate"
 )
@@ -592,7 +593,7 @@ func Run(d Deps) Report {
 	// The embedding identity comes from cfg (single source of truth);
 	// the recall summary degrades typed-Unknown: a nil seam or an unreadable
 	// store ⇒ "unknown" with NO fabricated counts/timestamps.
-	if cfg.MemoryEnabled {
+	if subsystem.MemoryOn(cfg) {
 		report.Memory = memoryInfo(cfg, d.ReadRecallState)
 	}
 	// Coding-agent section: populated ONLY when the agent is
@@ -602,7 +603,7 @@ func Run(d Deps) Report {
 	// pin/residency/cache degrade typed-Unknown via their seams: a nil seam or an
 	// unevaluable signal yields "unknown" pin / omitted residency / omitted cache
 	// NEVER a fabricated match/swap/0%.
-	if cfg.AgentEnabled {
+	if subsystem.AgentOn(cfg) {
 		report.Coding = codingInfo(cfg, d.AgentPinMatch, d.AgentResidency, d.AgentCache)
 	}
 	// Web-search section: populated ONLY when web search is
@@ -612,7 +613,7 @@ func Run(d Deps) Report {
 	// typed-Unknown via the cached verify seam: a nil seam, an absent store, OR a
 	// stale PASS yields "unknown" — NEVER a fabricated PASS, NEVER derived from
 	// cfg.WebSearchEnabled.
-	if cfg.WebSearchEnabled {
+	if subsystem.WebSearchOn(cfg) {
 		report.WebSearch = webSearchInfo(d.ReadVerifyState)
 	}
 
@@ -829,7 +830,7 @@ func codingInfo(
 		Model:    cfg.CoderModel,
 		PinMatch: PinUnknown,
 	}
-	if cfg.CodingMode {
+	if subsystem.CodingModeOn(cfg) {
 		ci.Mode = "coding"
 	}
 	// Tri-state pin compare: a nil seam or an empty return is typed-Unknown.

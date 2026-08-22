@@ -26,7 +26,10 @@
 // green over internal/memory.
 package memory
 
-import "github.com/MatrixMagician/VillaStraylight/internal/config"
+import (
+	"github.com/MatrixMagician/VillaStraylight/internal/config"
+	"github.com/MatrixMagician/VillaStraylight/internal/subsystem"
+)
 
 // Decision is the typed result of the enablement-and-fields-valid gate.
 // Enabled mirrors cfg.MemoryEnabled; Valid is true when the configuration is a
@@ -47,7 +50,10 @@ type Decision struct {
 // offending field and returning {Enabled:true, Valid:len(reasons)==0,
 // Reasons:reasons}. It does NO I/O and NEVER panics (PURE).
 func Decide(cfg config.VillaConfig) Decision {
-	if !cfg.MemoryEnabled {
+	// The enablement question is answered by the subsystem gate, not by reading the
+	// flag here. Decide owns VALIDITY — whether the memory fields are coherent — and
+	// composing the two is what keeps "off" and "on but misconfigured" distinct.
+	if !subsystem.MemoryOn(cfg) {
 		return Decision{Enabled: false, Valid: true}
 	}
 

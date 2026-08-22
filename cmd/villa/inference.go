@@ -16,6 +16,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
 	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 	"github.com/MatrixMagician/VillaStraylight/internal/recommend"
+	"github.com/MatrixMagician/VillaStraylight/internal/subsystem"
 )
 
 // inference.go wires the user-facing close of the Phase-2 slice: the `inference`
@@ -144,7 +145,7 @@ func runValidation(ctx context.Context, m catalog.CatalogModel, withCeiling bool
 	// Memory inputs from the already-loaded persisted config: the ceiling
 	// stress math sizes against the same shrunken envelope recommend showed.
 	rec := recommend.Pick(profile, cat, recommend.Overrides{Model: m.ID},
-		recommend.MemoryInputs{Enabled: cfg.MemoryEnabled, EmbeddingModel: cfg.EmbeddingModel},
+		recommend.MemoryInputs{Enabled: subsystem.MemoryOn(cfg), EmbeddingModel: cfg.EmbeddingModel},
 		webSearchInputsFrom(cfg))
 
 	// Guard the recommend refusal path: when the memory envelope is

@@ -14,6 +14,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/preflight"
 	"github.com/MatrixMagician/VillaStraylight/internal/recommend"
+	"github.com/MatrixMagician/VillaStraylight/internal/subsystem"
 )
 
 // install_agent.go holds the v1.4 CODING-AGENT install addon wiring the `villa install`
@@ -189,7 +190,7 @@ func liveLoadedAgentEnabled() bool {
 	if err != nil {
 		return false
 	}
-	return c.AgentEnabled
+	return subsystem.AgentOn(c)
 }
 
 // --- FSL-1.1-MIT consent notice (install-addon obligation) -------------------

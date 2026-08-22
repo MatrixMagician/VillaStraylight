@@ -35,6 +35,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 	"github.com/MatrixMagician/VillaStraylight/internal/pathsafe"
 	"github.com/MatrixMagician/VillaStraylight/internal/recall"
+	"github.com/MatrixMagician/VillaStraylight/internal/subsystem"
 	"github.com/MatrixMagician/VillaStraylight/internal/usage"
 )
 
@@ -155,7 +156,7 @@ func runBackup(cmd *cobra.Command, output string, d backup.BackupDeps) int {
 	// absent means the entry is honestly omitted (and the core makes ZERO qdrant
 	// Deps calls). The temp tar clones the OWUI same-dir frame above; it holds
 	// chat-derived vectors, so it is removed on every exit path.
-	includeQdrant := cfg.MemoryEnabled && volumeExists(orchestrate.QdrantVolumeName(), errOut)
+	includeQdrant := subsystem.MemoryOn(cfg) && volumeExists(orchestrate.QdrantVolumeName(), errOut)
 	tmpQdrantPath := ""
 	if includeQdrant {
 		// Temp-name pattern deliberately avoids the volume literal (the seam-grep
@@ -196,7 +197,7 @@ func runBackup(cmd *cobra.Command, output string, d backup.BackupDeps) int {
 		in.QdrantVolumeName = orchestrate.QdrantVolumeName()
 		in.TempQdrantTar = tmpQdrantPath
 	}
-	if cfg.MemoryEnabled {
+	if subsystem.MemoryOn(cfg) {
 		// RecallStatePath is gated on cfg.MemoryEnabled (review), mirroring
 		// the qdrant entry: a memory-OFF backup must produce an archive IDENTICAL
 		// to the v1 layout even when a leftover recall-state.json exists from a
@@ -215,7 +216,7 @@ func runBackup(cmd *cobra.Command, output string, d backup.BackupDeps) int {
 		in.EmbeddingDim = cfg.EmbeddingDim
 		in.RecallSchemaVersion = recall.SchemaVersion()
 	}
-	if cfg.AgentEnabled {
+	if subsystem.AgentOn(cfg) {
 		// Phase-28 coding-agent coverage, agent-on ONLY: the rendered
 		// crush.json goes INTO the archive (sourced from crushConfigPath() — an absent
 		// file is skipped by the core's FileMissing logic), and the agent binary
@@ -240,7 +241,7 @@ func runBackup(cmd *cobra.Command, output string, d backup.BackupDeps) int {
 			in.AgentPinSHA256 = asset.BinarySHA256
 		}
 	}
-	if cfg.WebSearchEnabled {
+	if subsystem.WebSearchOn(cfg) {
 		// Phase-34 web-search coverage, web-search-on ONLY: the rendered
 		// SearXNG settings.yml provenance goes INTO the archive (sourced from
 		// orchestrate.SearXNGSettingsFilePath() — an absent file is skipped by the core's

@@ -49,6 +49,7 @@ import (
 
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/prove"
+	"github.com/MatrixMagician/VillaStraylight/internal/subsystem"
 )
 
 // Residency mode values. These mirror recommend's residency vocabulary but are
@@ -225,7 +226,7 @@ func Run(d Deps, dir Direction) Result {
 		return Result{Refused: true, FailedStep: "load config", Err: err, Direction: dir}
 	}
 	wantCoding := dir == Enter
-	if cfg.CodingMode == wantCoding {
+	if subsystem.CodingModeOn(cfg) == wantCoding {
 		return Result{NoOp: true, Direction: dir, FromModel: cfg.Model}
 	}
 

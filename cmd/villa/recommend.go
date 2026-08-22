@@ -12,6 +12,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
 	"github.com/MatrixMagician/VillaStraylight/internal/recommend"
+	"github.com/MatrixMagician/VillaStraylight/internal/subsystem"
 )
 
 // recommend command flags. These are command-local (not persistent) so they only
@@ -242,7 +243,7 @@ func liveLoadedMemoryInputs() recommend.MemoryInputs {
 	if err != nil {
 		return recommend.MemoryInputs{}
 	}
-	return recommend.MemoryInputs{Enabled: c.MemoryEnabled, EmbeddingModel: c.EmbeddingModel}
+	return recommend.MemoryInputs{Enabled: subsystem.MemoryOn(c), EmbeddingModel: c.EmbeddingModel}
 }
 
 // webSearchInputsFrom builds the recommend web-search reservation inputs from a
@@ -253,7 +254,7 @@ func liveLoadedMemoryInputs() recommend.MemoryInputs {
 // Pure (config-in), so call sites that already hold a cfg avoid a second LoadVilla.
 func webSearchInputsFrom(c config.VillaConfig) recommend.WebSearchInputs {
 	return recommend.WebSearchInputs{
-		Enabled:     c.WebSearchEnabled,
+		Enabled:     subsystem.WebSearchOn(c),
 		ResultCount: c.WebSearchResultCount,
 	}
 }

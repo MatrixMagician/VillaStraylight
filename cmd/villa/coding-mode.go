@@ -17,6 +17,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/prove"
 	"github.com/MatrixMagician/VillaStraylight/internal/recommend"
 	"github.com/MatrixMagician/VillaStraylight/internal/residency"
+	"github.com/MatrixMagician/VillaStraylight/internal/subsystem"
 )
 
 // coding-mode.go is the cmd-tier `villa coding-mode` noun: the live host wiring that
@@ -84,7 +85,7 @@ func liveCodingProve(ctx context.Context, _ codingmode.Direction) prove.Verdict 
 // the agent-ctx render delta, so the served model is the chat model but the served ctx is
 // the resolved agent ctx.
 func codingServedTarget(cfg config.VillaConfig) (model string, ctx int) {
-	if cfg.CodingMode {
+	if subsystem.CodingModeOn(cfg) {
 		ctx = cfg.CoderAgentCtx
 		if cfg.CoderModel != "" {
 			return cfg.CoderModel, ctx // swap residency: coder served
@@ -355,7 +356,7 @@ func liveCodingModeDeps() *codingmode.Deps {
 				ModelsDir:     modelsDir(),
 				HostVillaPath: hostVillaPath(),
 			}
-			if c.CodingMode {
+			if subsystem.CodingModeOn(c) {
 				spec, derr := codingDescriptor(c, servedModel)
 				if derr != nil {
 					return false, derr
