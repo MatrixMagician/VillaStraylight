@@ -15,6 +15,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
 	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
+	"github.com/MatrixMagician/VillaStraylight/internal/prove"
 	"github.com/MatrixMagician/VillaStraylight/internal/recommend"
 )
 
@@ -56,19 +57,19 @@ const codingProveTimeout = 5 * time.Minute
 //
 // ResidencyProof markers — markers stay behind the seam.
 //
-// It maps ONLY inference.StatusPass → codingmode.ProveStatusPass; any other verdict
+// It maps ONLY inference.StatusPass → prove.StatusPass; any other verdict
 // (including ready+health-200-but-residency-FAIL) is a "fail" → the core rolls back.
-func liveCodingProve(ctx context.Context, _ codingmode.Direction) codingmode.ProveVerdict {
+func liveCodingProve(ctx context.Context, _ codingmode.Direction) prove.Verdict {
 	cfg, err := config.LoadVilla()
 	if err != nil {
-		return codingmode.ProveVerdict{Status: "fail", Detail: "load config: " + err.Error()}
+		return prove.Verdict{Status: prove.StatusFail, Detail: "load config: " + err.Error()}
 	}
 
 	// Resolve the backend fail-closed: an unknown backend is a prove fail, never a
 	// silent fallback. backend.ResidencyProof() is the ONLY source of backend markers.
 	backend, err := inference.BackendFor(cfg.Backend)
 	if err != nil {
-		return codingmode.ProveVerdict{Status: "fail", Detail: err.Error()}
+		return prove.Verdict{Status: prove.StatusFail, Detail: err.Error()}
 	}
 
 	// Resolve the SERVED model file + ConfigContext for the residency seams. When coding
@@ -78,7 +79,7 @@ func liveCodingProve(ctx context.Context, _ codingmode.Direction) codingmode.Pro
 	servedModel, servedCtx := codingServedTarget(cfg)
 	modelFile, err := codingModelFile(cfg, servedModel)
 	if err != nil {
-		return codingmode.ProveVerdict{Status: "fail", Detail: "resolve model file: " + err.Error()}
+		return prove.Verdict{Status: prove.StatusFail, Detail: "resolve model file: " + err.Error()}
 	}
 
 	endpoint := inference.NewContainerRunner(backend, inference.RunSpec{}).Endpoint()
@@ -89,8 +90,8 @@ func liveCodingProve(ctx context.Context, _ codingmode.Direction) codingmode.Pro
 	// (a) Bounded readiness. Never-ready before the deadline → FAIL.
 	ready := inference.PollHealth(deadlineCtx, endpoint, codingProveTimeout)
 	if !ready.Known || !ready.Value {
-		return codingmode.ProveVerdict{
-			Status: "fail",
+		return prove.Verdict{
+			Status: prove.StatusFail,
 			Detail: "not ready before timeout (possible load_tensors hang or CPU-fallback stall)",
 		}
 	}
@@ -120,14 +121,14 @@ sampleLoop:
 				if chat.Detail != "" {
 					detail = "generation probe failed: " + chat.Detail
 				}
-				return codingmode.ProveVerdict{Status: "fail", Detail: detail}
+				return prove.Verdict{Status: prove.StatusFail, Detail: detail}
 			}
 			break sampleLoop
 		case <-ticker.C:
 			// keep sampling
 		case <-deadlineCtx.Done():
-			return codingmode.ProveVerdict{
-				Status: "fail",
+			return prove.Verdict{
+				Status: prove.StatusFail,
 				Detail: "generation probe did not complete before timeout (possible load_tensors hang or CPU-fallback stall)",
 			}
 		}
@@ -148,9 +149,9 @@ sampleLoop:
 	})
 
 	if v.Status == inference.StatusPass {
-		return codingmode.ProveVerdict{Status: codingmode.ProveStatusPass, Detail: v.Detail}
+		return prove.Verdict{Status: prove.StatusPass, Detail: v.Detail}
 	}
-	return codingmode.ProveVerdict{Status: "fail", Detail: v.Detail}
+	return prove.Verdict{Status: prove.StatusFail, Detail: v.Detail}
 }
 
 // codingBusySampleInterval mirrors backend.go's busySampleInterval (re-declared here so

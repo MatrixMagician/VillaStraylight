@@ -24,30 +24,8 @@ import (
 	"context"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
+	"github.com/MatrixMagician/VillaStraylight/internal/prove"
 )
-
-// ProveStatusPass is this package's own success sentinel for a cutover prove
-// verdict. The cmd layer (Plan 02) sets ProveVerdict.Status to this constant when
-// — and ONLY when — inference.StatusPass is reached (a real generation probe AND
-// a positive residency proof). This is the package's OWN status sentinel, not a
-// backend token: keeping the success marker here (rather than importing
-// inference.StatusPass) is exactly what keeps backendswap free of inference/detect
-// imports and of backend literals.
-const ProveStatusPass = "pass"
-
-// ProveVerdict is the LOCAL prove outcome the cutover gates on. It is defined here
-// (not imported from inference) so backendswap imports neither inference nor
-// detect and stays literal-free of backend markers. The cmd layer composes the
-// real verdict (PollHealth + GenerationProbe + RunningOffloadVerdict) and maps it
-// into this value, setting Status to ProveStatusPass only on a true pass.
-type ProveVerdict struct {
-	// Status is the prove outcome. The cutover succeeds ONLY when Status equals
-	// ProveStatusPass; any other value (including a ready+health-200-but-residency-FAIL
-	// verdict) triggers rollback — is-active/health-200 alone is NEVER success.
-	Status string
-	// Detail is the human explanation carried into the Result on a non-pass verdict.
-	Detail string
-}
 
 // Deps is the injectable seam set for the transactional core. Every host-touching
 // action is a field so backendswap_test.go drives the whole capture→mutate→prove→
@@ -84,9 +62,9 @@ type Deps struct {
 	// forward cutover and on the rollback re-ready.
 	Restart func(service string) error
 	// Prove is the injected cutover gate: it probes the ALREADY-running server and
-	// returns a verdict. The core switches ONLY on ProveStatusPass. All backend
+	// returns a verdict. The core switches ONLY on prove.StatusPass. All backend
 	// markers (residency/override/fault/image) live behind this seam — never in this package.
-	Prove func(ctx context.Context, target string) ProveVerdict
+	Prove func(ctx context.Context, target string) prove.Verdict
 	// InstallServiceName is the inference service the switch restarts (and ONLY that
 	// service). A Deps field so backendswap need not import the cmd-layer constant.
 	InstallServiceName string
@@ -99,7 +77,7 @@ type Result struct {
 	// backend is NoOp, not Refused; a fit/preflight/capture rejection is Refused).
 	Refused bool
 	// Switched is true when the cutover persisted config, restarted the inference
-	// unit, AND the Prove verdict was ProveStatusPass.
+	// unit, AND the Prove verdict was prove.StatusPass.
 	Switched bool
 	// RolledBack is true when a mutate error or a non-pass Prove verdict triggered a
 	// verbatim restore of the captured prior unit+config. It stays true even when a
@@ -123,7 +101,7 @@ type Result struct {
 	ToBackend   string
 	// Prove carries the cutover verdict (on both a Switched and a prove-triggered
 	// RolledBack result) for the caller to surface.
-	Prove ProveVerdict
+	Prove prove.Verdict
 }
 
 // Run performs the guarded, transactional backend switch and returns a typed
@@ -138,7 +116,7 @@ type Result struct {
 //	    snapshot (Pitfall 4). An uncapturable prior unit refuses without mutating.
 //	(5) MUTATE: cfg.Backend = target; SaveConfig; ReconcileAndWrite; Restart ONLY
 //	    the inference service. ANY error here rolls back verbatim.
-//	(6) PROVE: switch ONLY on ProveStatusPass; any other verdict rolls back verbatim.
+//	(6) PROVE: switch ONLY on prove.StatusPass; any other verdict rolls back verbatim.
 //
 // Steps (5)/(6) rollback are hardened in task 08-01-02; this file already wires the
 // full transactional frame.
@@ -211,7 +189,7 @@ func Run(d Deps, target string) Result {
 
 	// rolledBack assembles a RolledBack Result, folding in an honest rollback-incomplete
 	// message when the restore did not fully succeed (Pitfall 5).
-	rolledBack := func(failedStep, reason string, origErr error, v ProveVerdict) Result {
+	rolledBack := func(failedStep, reason string, origErr error, v prove.Verdict) Result {
 		ok, rbDetail := rollback()
 		r := Result{
 			RolledBack:  true,
@@ -233,20 +211,20 @@ func Run(d Deps, target string) Result {
 	// (5) MUTATE. ANY error here rolls back verbatim to the captured prior unit+config.
 	cfg.Backend = target
 	if err := d.SaveConfig(cfg); err != nil {
-		return rolledBack("save", "", err, ProveVerdict{})
+		return rolledBack("save", "", err, prove.Verdict{})
 	}
 	if _, err := d.ReconcileAndWrite(cfg); err != nil {
-		return rolledBack("write", "", err, ProveVerdict{})
+		return rolledBack("write", "", err, prove.Verdict{})
 	}
 	if err := d.Restart(d.InstallServiceName); err != nil {
-		return rolledBack("restart", "", err, ProveVerdict{})
+		return rolledBack("restart", "", err, prove.Verdict{})
 	}
 
 	// (6) PROVE the cutover against the already-running server. Switch ONLY on
-	// ProveStatusPass; ANY other verdict (including ready+health-200-but-residency-FAIL,
+	// prove.StatusPass; ANY other verdict (including ready+health-200-but-residency-FAIL,
 	// rolls back verbatim — is-active/200 alone is never success.
 	v := d.Prove(context.Background(), target)
-	if v.Status != ProveStatusPass {
+	if !v.Pass() {
 		return rolledBack("prove", v.Detail, nil, v)
 	}
 	return Result{Switched: true, Prove: v, FromBackend: from, ToBackend: target}

@@ -17,6 +17,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 	"github.com/MatrixMagician/VillaStraylight/internal/preflight"
+	"github.com/MatrixMagician/VillaStraylight/internal/prove"
 	"github.com/MatrixMagician/VillaStraylight/internal/recommend"
 )
 
@@ -59,23 +60,23 @@ const busySampleInterval = 100 * time.Millisecond
 //
 // DURING the decode.
 //
-// It maps ONLY inference.StatusPass to backendswap.ProveStatusPass; any other verdict
+// It maps ONLY inference.StatusPass to prove.StatusPass; any other verdict
 // (including ready+health-200-but-residency-FAIL) is a "fail" → the core rolls
 // back. All ROCm/HSA/fault markers stay behind ResidencyProof() — this function is
 // literal-free of them.
-func liveProve(ctx context.Context, target string) backendswap.ProveVerdict {
+func liveProve(ctx context.Context, target string) prove.Verdict {
 	// Resolve the backend fail-closed: an unknown target is a prove fail, never
 	// a silent fallback. backend.ResidencyProof() is the ONLY source of backend markers.
 	backend, err := inference.BackendFor(target)
 	if err != nil {
-		return backendswap.ProveVerdict{Status: "fail", Detail: err.Error()}
+		return prove.Verdict{Status: prove.StatusFail, Detail: err.Error()}
 	}
 
 	// Load the source of truth for the residency seams (ConfigModel/ConfigContext) and
 	// the probe's model id. A config-load failure is a prove fail.
 	cfg, err := config.LoadVilla()
 	if err != nil {
-		return backendswap.ProveVerdict{Status: "fail", Detail: "load config: " + err.Error()}
+		return prove.Verdict{Status: prove.StatusFail, Detail: "load config: " + err.Error()}
 	}
 
 	// Resolve the catalog-resolved GGUF filename ONCE for ConfigModel — the SAME
@@ -83,7 +84,7 @@ func liveProve(ctx context.Context, target string) backendswap.ProveVerdict {
 	// placeholder. Its error is a prove fail.
 	modelFile, err := liveModelFile(cfg)
 	if err != nil {
-		return backendswap.ProveVerdict{Status: "fail", Detail: "resolve model file: " + err.Error()}
+		return prove.Verdict{Status: prove.StatusFail, Detail: "resolve model file: " + err.Error()}
 	}
 
 	// Derive the inference endpoint the SAME way the status path does (mirror
@@ -100,8 +101,8 @@ func liveProve(ctx context.Context, target string) backendswap.ProveVerdict {
 	// happened" — that is gate (c). Never-ready before the deadline → FAIL.
 	ready := inference.PollHealth(deadlineCtx, endpoint, proveTimeout)
 	if !ready.Known || !ready.Value {
-		return backendswap.ProveVerdict{
-			Status: "fail",
+		return prove.Verdict{
+			Status: prove.StatusFail,
 			Detail: "not ready before timeout (possible load_tensors hang or CPU-fallback stall)",
 		}
 	}
@@ -136,14 +137,14 @@ sampleLoop:
 				if chat.Detail != "" {
 					detail = "generation probe failed: " + chat.Detail
 				}
-				return backendswap.ProveVerdict{Status: "fail", Detail: detail}
+				return prove.Verdict{Status: prove.StatusFail, Detail: detail}
 			}
 			break sampleLoop
 		case <-ticker.C:
 			// keep sampling
 		case <-deadlineCtx.Done():
-			return backendswap.ProveVerdict{
-				Status: "fail",
+			return prove.Verdict{
+				Status: prove.StatusFail,
 				Detail: "generation probe did not complete before timeout (possible load_tensors hang or CPU-fallback stall)",
 			}
 		}
@@ -170,9 +171,9 @@ sampleLoop:
 	// Map ONLY a true StatusPass to ProveStatusPass; everything else (FAIL/WARN, incl.
 	// ready+200-but-residency-FAIL) is a fail → the core rolls back.
 	if v.Status == inference.StatusPass {
-		return backendswap.ProveVerdict{Status: backendswap.ProveStatusPass, Detail: v.Detail}
+		return prove.Verdict{Status: prove.StatusPass, Detail: v.Detail}
 	}
-	return backendswap.ProveVerdict{Status: "fail", Detail: v.Detail}
+	return prove.Verdict{Status: prove.StatusFail, Detail: v.Detail}
 }
 
 // ---------------------------------------------------------------------------

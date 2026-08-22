@@ -12,6 +12,7 @@ import (
 
 	"github.com/MatrixMagician/VillaStraylight/internal/codingmode"
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
+	"github.com/MatrixMagician/VillaStraylight/internal/prove"
 )
 
 // coding-mode_test.go exercises the cobra caller's mapping of codingmode.Result to exit
@@ -64,13 +65,13 @@ func newCodingStub(rec *codingRecorder) *codingmode.Deps {
 			rec.restarted = append(rec.restarted, service)
 			return nil
 		},
-		Prove: func(_ context.Context, _ codingmode.Direction) codingmode.ProveVerdict {
+		Prove: func(_ context.Context, _ codingmode.Direction) prove.Verdict {
 			rec.proved++
 			status := rec.proveStatus
 			if status == "" {
-				status = codingmode.ProveStatusPass
+				status = prove.StatusPass
 			}
-			return codingmode.ProveVerdict{Status: status, Detail: rec.proveDetai}
+			return prove.Verdict{Status: status, Detail: rec.proveDetai}
 		},
 	}
 }

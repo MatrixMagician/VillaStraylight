@@ -27,7 +27,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/MatrixMagician/VillaStraylight/internal/backendswap"
 	"github.com/MatrixMagician/VillaStraylight/internal/backup"
 	"github.com/MatrixMagician/VillaStraylight/internal/benchstore"
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
@@ -36,6 +35,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 	"github.com/MatrixMagician/VillaStraylight/internal/pathsafe"
 	"github.com/MatrixMagician/VillaStraylight/internal/preflight"
+	"github.com/MatrixMagician/VillaStraylight/internal/prove"
 	"github.com/MatrixMagician/VillaStraylight/internal/recall"
 	"github.com/MatrixMagician/VillaStraylight/internal/usage"
 )
@@ -503,18 +503,19 @@ func liveRestoreWriteFile(path string, data []byte) error {
 // preflight gate for a ROCm-family target (the host-prep gate the restored config must
 // still satisfy); a BLOCK there is a prove FAIL -> rollback. It then reuses the proven
 // liveProve composition (bounded readiness + a REAL generation probe + GPU-residency
-// proof with gpu_busy sampled DURING the decode) and maps its verdict into a
-// backup.ProveVerdict, mapping ONLY a true pass to ProveStatusPass — a
-// ready+health-200-but-residency-FAIL or a silent CPU fallback is a NON-pass -> the
-// core rolls back. All backend markers stay behind the inference seam; this function
-// re-types none. It adds NO new outbound (status no_telemetry preserved).
-func liveRestoreProve(target string) backup.ProveVerdict {
+// proof with gpu_busy sampled DURING the decode) and RETURNS ITS VERDICT AS IS —
+// both sides now speak the one prove.Verdict, so there is no field-by-field copy to
+// get wrong. A ready+health-200-but-residency-FAIL or a silent CPU fallback stays a
+// NON-pass, so the core rolls back. All backend markers stay behind the inference
+// seam; this function re-types none. It adds NO new outbound (status no_telemetry
+// preserved).
+func liveRestoreProve(target string) prove.Verdict {
 	// (preflight) For a ROCm-family target, the restored host must still pass the ROCm
 	// preflight against the resolved image digest; a BLOCK is a prove FAIL.
 	if inference.IsROCmFamily(target) {
 		be, err := inference.BackendFor(target)
 		if err != nil {
-			return backup.ProveVerdict{Status: "fail", Detail: err.Error()}
+			return prove.Verdict{Status: prove.StatusFail, Detail: err.Error()}
 		}
 		for _, c := range preflight.RunROCmForImage(detect.Probe(), be.Image()) {
 			// Fail the prove on the BLOCK tier using the EXACT canonical predicate
@@ -527,17 +528,13 @@ func liveRestoreProve(target string) backup.ProveVerdict {
 			// the two conjuncts to mirror the install gate verbatim and stay auditable;
 			// a WARN-tier or could-not-verify result is intentionally NOT a prove fail.
 			if c.Status == preflight.StatusFail && c.Tier == preflight.TierBlock {
-				return backup.ProveVerdict{Status: "fail", Detail: "ROCm preflight: " + c.Detail}
+				return prove.Verdict{Status: prove.StatusFail, Detail: "ROCm preflight: " + c.Detail}
 			}
 		}
 	}
 
 	// (status residency) Bounded readiness + real generation probe + GPU-residency proof.
-	v := liveProve(context.Background(), target)
-	if v.Status == backendswap.ProveStatusPass { // a true offload-honest pass
-		return backup.ProveVerdict{Status: backup.ProveStatusPass, Detail: v.Detail}
-	}
-	return backup.ProveVerdict{Status: "fail", Detail: v.Detail}
+	return liveProve(context.Background(), target)
 }
 
 // restoreWriteWebsafeSecretEnv writes the 0600 websafe.env bearer the restored

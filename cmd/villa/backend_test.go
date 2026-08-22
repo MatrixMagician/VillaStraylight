@@ -11,6 +11,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
 	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 	"github.com/MatrixMagician/VillaStraylight/internal/preflight"
+	"github.com/MatrixMagician/VillaStraylight/internal/prove"
 )
 
 // backendRecorder records the side-effecting backendswap.Deps seam calls so the
@@ -82,9 +83,9 @@ func newBackendStub(rec *backendRecorder) *backendswap.Deps {
 			rec.restarted = append(rec.restarted, service)
 			return nil
 		},
-		Prove: func(_ context.Context, target string) backendswap.ProveVerdict {
+		Prove: func(_ context.Context, target string) prove.Verdict {
 			rec.proved = append(rec.proved, target)
-			return backendswap.ProveVerdict{Status: rec.proveStatus, Detail: rec.proveDetail}
+			return prove.Verdict{Status: rec.proveStatus, Detail: rec.proveDetail}
 		},
 	}
 }
@@ -196,7 +197,7 @@ func TestBackendShow(t *testing.T) {
 // TestBackendSetDryRun: --dry-run previews target/fit/preflight and mutates NOTHING
 // no SaveConfig / ReconcileAndWrite / Restart / CaptureUnit / Prove (BSET-03).
 func TestBackendSetDryRun(t *testing.T) {
-	rec := &backendRecorder{curBackend: "vulkan", fits: true, preflightOK: true, proveStatus: backendswap.ProveStatusPass}
+	rec := &backendRecorder{curBackend: "vulkan", fits: true, preflightOK: true, proveStatus: prove.StatusPass}
 	d := newBackendStub(rec)
 	cmd, out, _ := newTestCmd()
 
@@ -239,7 +240,7 @@ func TestBackendSetExitMapping(t *testing.T) {
 	})
 
 	t.Run("switched (prove pass) → exit 0", func(t *testing.T) {
-		rec := &backendRecorder{curBackend: "vulkan", fits: true, preflightOK: true, proveStatus: backendswap.ProveStatusPass}
+		rec := &backendRecorder{curBackend: "vulkan", fits: true, preflightOK: true, proveStatus: prove.StatusPass}
 		d := newBackendStub(rec)
 		cmd, out, _ := newTestCmd()
 		code := runBackendSet(cmd, "rocm", false, d)

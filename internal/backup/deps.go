@@ -21,31 +21,8 @@ import (
 	"io"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
+	"github.com/MatrixMagician/VillaStraylight/internal/prove"
 )
-
-// ProveStatusPass is this package's OWN success sentinel for a restore-cutover
-// prove verdict. The cmd layer (later plans) sets ProveVerdict.Status to this
-// constant when — and ONLY when — a real generation probe AND a positive
-// residency proof both pass. Keeping the success marker here (rather than
-// importing inference.StatusPass) is exactly what keeps backup free of
-// inference/detect imports and of backend literals (mirrors
-// backendswap.ProveStatusPass).
-const ProveStatusPass = "pass"
-
-// ProveVerdict is the LOCAL prove outcome the restore cutover gates on. It is
-// defined here (not imported from inference) so backup imports neither inference
-// nor detect and stays literal-free of backend markers. The cmd layer composes
-// the real verdict (preflight + status residency) and maps it into this value,
-// setting Status to ProveStatusPass only on a true pass — a ready+health-200-
-// but-residency-FAIL verdict is NEVER success (offload-asserting).
-type ProveVerdict struct {
-	// Status is the prove outcome. The cutover succeeds ONLY when Status equals
-	// ProveStatusPass; any other value triggers rollback. A silent CPU fallback
-	// MUST map to a non-pass status.
-	Status string
-	// Detail is the human explanation carried into the Result on a non-pass verdict.
-	Detail string
-}
 
 // BackupDeps is the injectable seam set for the BACKUP core — and only the
 // backup core. Every host-touching action is a func field so the whole
@@ -167,9 +144,9 @@ type RestoreDeps struct {
 
 	// Prove is the injected, offload-asserting restore-cutover gate: it re-runs
 	// preflight + asserts status residency on the already-running stack and returns
-	// a verdict. The core switches to success ONLY on ProveStatusPass. All backend
+	// a verdict. The core switches to success ONLY on prove.StatusPass. All backend
 	// markers live behind this seam — never in this package.
-	Prove func(target string) ProveVerdict
+	Prove func(target string) prove.Verdict
 
 	// OpenWebUIServiceName is the service identity the flow quiesces/restarts. A
 	// Deps field so the pure core need not import cmd-layer constants (mirrors
@@ -192,7 +169,7 @@ type Result struct {
 	// state, or a declined skew confirmation).
 	Refused bool
 	// Restored is true when a restore fully applied AND the Prove verdict was
-	// ProveStatusPass.
+	// prove.StatusPass.
 	Restored bool
 	// RolledBack is true when a mutate error or a non-pass Prove verdict triggered
 	// a verbatim restore of the captured prior state. It stays TRUE even when a
@@ -219,7 +196,7 @@ type Result struct {
 	FailedStep string
 	// Prove carries the cutover verdict (on a Restored or a prove-triggered
 	// RolledBack result) for the caller to surface.
-	Prove ProveVerdict
+	Prove prove.Verdict
 	// RestartWarning is a non-fatal advisory set when the post-backup best-effort
 	// restart of Open WebUI failed. The backup itself still succeeded (the
 	// archive was written); this only flags that the service is likely DOWN and the

@@ -23,6 +23,7 @@ import (
 	"testing"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
+	"github.com/MatrixMagician/VillaStraylight/internal/prove"
 )
 
 // recDeps is the order-recording fake Deps + the canned outcomes each seam returns.
@@ -58,7 +59,7 @@ type recDeps struct {
 	searxngWrites       map[string][]byte
 	searxngRealWriteDir string
 
-	prove ProveVerdict
+	prove prove.Verdict
 }
 
 func (r *recDeps) log(s string) { r.calls = append(r.calls, s) }
@@ -164,7 +165,7 @@ func (r *recDeps) deps() RestoreDeps {
 			r.log("RemoveFile:" + p)
 			return r.removeFileErr
 		},
-		Prove: func(target string) ProveVerdict {
+		Prove: func(target string) prove.Verdict {
 			r.log("Prove:" + target)
 			return r.prove
 		},
@@ -232,7 +233,7 @@ func opener(b []byte) func() (io.ReadCloser, error) {
 // validCfgTOML is a minimal config.toml the restore parses into a VillaConfig.
 var validCfgTOML = []byte("model = \"m\"\nbackend = \"vulkan\"\nctx = 4096\n")
 
-func passVerdict() ProveVerdict { return ProveVerdict{Status: ProveStatusPass} }
+func passVerdict() prove.Verdict { return prove.Verdict{Status: prove.StatusPass} }
 
 // baseInput builds a RestoreInput over the archive bytes with a matching Current
 // (no skew) and a pass prove, plus a recorder.
@@ -556,7 +557,7 @@ func TestRestoreRollbackRemovesForwardCreatedDataArtifacts(t *testing.T) {
 	// forward path wrote the archive's usage.json/bench-reports.jsonl, WITHOUT breaking
 	// the rollback path itself (a volumeImportErr would also fail the rollback re-import
 	// and mask the clean-remove assertion).
-	r.prove = ProveVerdict{Status: "fail", Detail: "residency FAIL"}
+	r.prove = prove.Verdict{Status: prove.StatusFail, Detail: "residency FAIL"}
 
 	res := Restore(r.deps(), in)
 	if !res.RolledBack {
@@ -802,7 +803,7 @@ func TestRestoreQdrantMatrix(t *testing.T) {
 func TestRestoreQdrantForwardFailureRollsBackBothVolumes(t *testing.T) {
 	arch := buildArchiveMem(t, baseManifest(), validCfgTOML, []byte("owui-data"), []byte("qdrant-data"), nil)
 	r, in := memInput(t, arch, true)
-	r.prove = ProveVerdict{Status: "fail", Detail: "residency FAIL"}
+	r.prove = prove.Verdict{Status: prove.StatusFail, Detail: "residency FAIL"}
 
 	res := Restore(r.deps(), in)
 	if !res.RolledBack {
@@ -865,7 +866,7 @@ func TestRestoreQdrantForwardFailureRollsBackBothVolumes(t *testing.T) {
 func TestRestoreQdrantPriorAbsentRollbackRemovesForwardCreatedVolume(t *testing.T) {
 	arch := buildArchiveMem(t, baseManifest(), validCfgTOML, []byte("owui-data"), []byte("qdrant-data"), nil)
 	r, in := memInput(t, arch, false /* volume absent */)
-	r.prove = ProveVerdict{Status: "fail", Detail: "residency FAIL"}
+	r.prove = prove.Verdict{Status: prove.StatusFail, Detail: "residency FAIL"}
 
 	res := Restore(r.deps(), in)
 	if !res.RolledBack {
@@ -898,7 +899,7 @@ func TestRestoreRecallStateForwardAndRollback(t *testing.T) {
 		arch := buildArchiveMem(t, baseManifest(), validCfgTOML, []byte("owui-data"), nil, []byte("recall-state-from-archive"))
 		r, in := memInput(t, arch, false)
 		r.readFileErr = map[string]error{in.RecallDestPath: errors.New("not found")}
-		r.prove = ProveVerdict{Status: "fail", Detail: "residency FAIL"}
+		r.prove = prove.Verdict{Status: prove.StatusFail, Detail: "residency FAIL"}
 
 		res := Restore(r.deps(), in)
 		if !res.RolledBack {
@@ -920,7 +921,7 @@ func TestRestoreRecallStateForwardAndRollback(t *testing.T) {
 		arch := buildArchiveMem(t, baseManifest(), validCfgTOML, []byte("owui-data"), nil, []byte("recall-state-from-archive"))
 		r, in := memInput(t, arch, false)
 		r.readFile[in.RecallDestPath] = []byte("prior-recall-state")
-		r.prove = ProveVerdict{Status: "fail", Detail: "residency FAIL"}
+		r.prove = prove.Verdict{Status: prove.StatusFail, Detail: "residency FAIL"}
 
 		res := Restore(r.deps(), in)
 		if !res.RolledBack {
@@ -1011,12 +1012,12 @@ func TestRestoreV1ManifestStillRestores(t *testing.T) {
 func TestRestoreNonPassProveRollsBack(t *testing.T) {
 	arch := buildArchive(t, baseManifest(), validCfgTOML, []byte("owui-data"), nil, nil, false)
 	r, in := baseInput(t, arch)
-	r.prove = ProveVerdict{Status: "fail", Detail: "residency FAIL (CPU fallback)"}
+	r.prove = prove.Verdict{Status: prove.StatusFail, Detail: "residency FAIL (CPU fallback)"}
 	res := Restore(r.deps(), in)
 	if !res.RolledBack || res.FailedStep != "prove" {
 		t.Fatalf("want RolledBack at prove on a non-pass verdict, got %+v", res)
 	}
-	if res.Prove.Status == ProveStatusPass {
+	if res.Prove.Pass() {
 		t.Fatalf("prove verdict must be carried through (non-pass), got %+v", res.Prove)
 	}
 }
@@ -1033,7 +1034,7 @@ func TestRestoreNonPassProveRollsBack(t *testing.T) {
 func TestRestoreProveFailRollbackQuiescesBeforeVolumeRm(t *testing.T) {
 	arch := buildArchiveMem(t, baseManifest(), validCfgTOML, []byte("owui-data"), []byte("qdrant-data"), nil)
 	r, in := memInput(t, arch, true /* prior qdrant volume exists */)
-	r.prove = ProveVerdict{Status: "fail", Detail: "residency FAIL (CPU fallback)"}
+	r.prove = prove.Verdict{Status: prove.StatusFail, Detail: "residency FAIL (CPU fallback)"}
 
 	running := map[string]bool{
 		"villa-openwebui.service": true,
@@ -1144,7 +1145,7 @@ func TestRestoreRollbackIncompleteSetsFlag(t *testing.T) {
 	// A clean rollback leaves the flag false.
 	arch = buildArchive(t, baseManifest(), validCfgTOML, []byte("owui-data"), nil, nil, false)
 	r2, in2 := baseInput(t, arch)
-	r2.prove = ProveVerdict{Status: "fail", Detail: "residency FAIL"}
+	r2.prove = prove.Verdict{Status: prove.StatusFail, Detail: "residency FAIL"}
 	res = Restore(r2.deps(), in2)
 	if !res.RolledBack || res.RollbackIncomplete {
 		t.Fatalf("a clean rollback must leave RollbackIncomplete false, got %+v", res)

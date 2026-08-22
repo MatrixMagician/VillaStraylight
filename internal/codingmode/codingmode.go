@@ -24,7 +24,7 @@
 //
 //	mutate→prove→rollback) discipline — not a bare coding_mode=false write.
 //
-// -: the cutover succeeds ONLY on ProveStatusPass (a real generation probe AND
+// -: the cutover succeeds ONLY on prove.StatusPass (a real generation probe AND
 //
 //	a positive residency proof under load). A silent/partial CPU fallback or a
 //	ready+health-200-but-residency-FAIL verdict rolls back — idle-green is never green.
@@ -48,16 +48,8 @@ import (
 	"context"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
+	"github.com/MatrixMagician/VillaStraylight/internal/prove"
 )
-
-// ProveStatusPass is this package's OWN success sentinel for a cutover prove verdict
-// (cloned from backendswap — NOT imported from inference.StatusPass). The cmd layer
-// (Task 2) sets ProveVerdict.Status to this constant when — and ONLY when
-// inference.StatusPass is reached (a real generation probe AND a positive residency
-// proof under load). Keeping the success marker here (rather than importing
-// inference.StatusPass) is exactly what keeps codingmode free of inference/detect
-// imports and of backend literals.
-const ProveStatusPass = "pass"
 
 // Residency mode values. These mirror recommend's residency vocabulary but are
 // re-declared LOCALLY so codingmode imports neither internal/recommend nor
@@ -88,20 +80,6 @@ func (d Direction) String() string {
 		return "exit"
 	}
 	return "enter"
-}
-
-// ProveVerdict is the LOCAL prove outcome the cutover gates on. It is defined here
-// (not imported from inference) so codingmode imports neither inference nor detect and
-// stays literal-free of backend markers. The cmd layer composes the real verdict
-// (PollHealth + GenerationProbe + RunningOffloadVerdict) and maps it into this value,
-// setting Status to ProveStatusPass only on a true pass.
-type ProveVerdict struct {
-	// Status is the prove outcome. The cutover succeeds ONLY when Status equals
-	// ProveStatusPass; any other value (including a ready+health-200-but-residency-FAIL
-	// verdict) triggers rollback — is-active/health-200 alone is NEVER success.
-	Status string
-	// Detail is the human explanation carried into the Result on a non-pass verdict.
-	Detail string
 }
 
 // CoderTarget is the resolved enter-time coder selection: the catalog-resolved model
@@ -163,9 +141,9 @@ type Deps struct {
 	// cutover and on the rollback re-ready.
 	Restart func(service string) error
 	// Prove is the injected cutover gate: it probes the ALREADY-running server under load
-	// and returns a verdict. The core switches ONLY on ProveStatusPass. All backend
+	// and returns a verdict. The core switches ONLY on prove.StatusPass. All backend
 	// markers (residency/override/fault/image) live behind this seam — never in this package.
-	Prove func(ctx context.Context, dir Direction) ProveVerdict
+	Prove func(ctx context.Context, dir Direction) prove.Verdict
 	// InstallServiceName is the inference service the cutover restarts (and ONLY that
 	// service). A Deps field so codingmode need not import the cmd-layer constant.
 	InstallServiceName string
@@ -178,7 +156,7 @@ type Result struct {
 	// target is NoOp, not Refused; a fit/capture rejection is Refused).
 	Refused bool
 	// Switched is true when the cutover persisted config, restarted the inference unit,
-	// AND the Prove verdict was ProveStatusPass.
+	// AND the Prove verdict was prove.StatusPass.
 	Switched bool
 	// RolledBack is true when a mutate error or a non-pass Prove verdict triggered a
 	// verbatim restore of the captured prior unit+config. It stays true even when a
@@ -208,7 +186,7 @@ type Result struct {
 	Residency string
 	// Prove carries the cutover verdict (on both a Switched and a prove-triggered
 	// RolledBack result) for the caller to surface.
-	Prove ProveVerdict
+	Prove prove.Verdict
 }
 
 // Run performs the guarded, transactional coding-mode cutover and returns a typed
@@ -233,7 +211,7 @@ type Result struct {
 //	(4) MUTATE: set cfg coding fields (enter) / restore prior chat model + CodingMode=false
 //	    (exit) → SaveConfig → ReconcileAndWrite → Restart ONLY the inference service. ANY
 //	    error here rolls back verbatim.
-//	(5) PROVE: switch ONLY on ProveStatusPass; any other verdict (incl. ready+health-200-
+//	(5) PROVE: switch ONLY on prove.StatusPass; any other verdict (incl. ready+health-200-
 //
 // but-residency-FAIL) rolls back verbatim — idle-green is never green.
 //
@@ -312,7 +290,7 @@ func Run(d Deps, dir Direction) Result {
 
 	// rolledBack assembles a RolledBack Result, folding in an honest rollback-incomplete
 	// message when the restore did not fully succeed (Pitfall 5). Cloned VERBATIM.
-	rolledBack := func(failedStep, reason string, origErr error, v ProveVerdict) Result {
+	rolledBack := func(failedStep, reason string, origErr error, v prove.Verdict) Result {
 		ok, rbDetail := rollback()
 		r := Result{
 			RolledBack: true,
@@ -362,20 +340,20 @@ func Run(d Deps, dir Direction) Result {
 	}
 
 	if err := d.SaveConfig(cfg); err != nil {
-		return rolledBack("save", "", err, ProveVerdict{})
+		return rolledBack("save", "", err, prove.Verdict{})
 	}
 	if _, err := d.ReconcileAndWrite(cfg); err != nil {
-		return rolledBack("write", "", err, ProveVerdict{})
+		return rolledBack("write", "", err, prove.Verdict{})
 	}
 	if err := d.Restart(d.InstallServiceName); err != nil {
-		return rolledBack("restart", "", err, ProveVerdict{})
+		return rolledBack("restart", "", err, prove.Verdict{})
 	}
 
 	// (5) PROVE the cutover against the already-running server UNDER LOAD. Switch ONLY on
-	// ProveStatusPass; ANY other verdict (including ready+health-200-but-residency-FAIL,
+	// prove.StatusPass; ANY other verdict (including ready+health-200-but-residency-FAIL,
 	// rolls back verbatim — is-active/200 alone is never success.
 	v := d.Prove(context.Background(), dir)
-	if v.Status != ProveStatusPass {
+	if !v.Pass() {
 		return rolledBack("prove", v.Detail, nil, v)
 	}
 	return Result{

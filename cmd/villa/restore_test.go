@@ -23,6 +23,7 @@ import (
 
 	"github.com/MatrixMagician/VillaStraylight/internal/backup"
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
+	"github.com/MatrixMagician/VillaStraylight/internal/prove"
 )
 
 // writeTestArchive builds a valid backup .tar on disk (manifest FIRST + correct
@@ -70,7 +71,7 @@ func writeTestArchive(t *testing.T, path string, m backup.ManifestInput, cfgTOML
 // fakeRestoreDeps returns a backup.RestoreDeps whose seams are all no-op successes, plus the
 // canned prove verdict. The capture LoadConfig returns a vulkan config so rollback has
 // a prior to restore.
-func fakeRestoreDeps(prove backup.ProveVerdict) backup.RestoreDeps {
+func fakeRestoreDeps(verdict prove.Verdict) backup.RestoreDeps {
 	return backup.RestoreDeps{
 		OpenWebUIServiceName: openWebUIServiceName,
 		LoadConfig:           func() (config.VillaConfig, error) { return config.VillaConfig{Backend: "vulkan", Model: "m"}, nil },
@@ -84,7 +85,7 @@ func fakeRestoreDeps(prove backup.ProveVerdict) backup.RestoreDeps {
 		Start:                func(string) error { return nil },
 		ReadFile:             func(string) ([]byte, error) { return nil, os.ErrNotExist },
 		WriteFile:            func(string, []byte) error { return nil },
-		Prove:                func(string) backup.ProveVerdict { return prove },
+		Prove:                func(string) prove.Verdict { return verdict },
 	}
 }
 
@@ -157,7 +158,7 @@ func TestRestoreHappyPathExitsPass(t *testing.T) {
 	writeTestArchive(t, arch, matchingManifestInput(), restoreCfgTOML, []byte("owui"))
 
 	cmd, out, errOut := newRestoreTestCmd()
-	code, _ := runRestore(cmd, arch, baseRestoreInput(t, arch), fakeRestoreDeps(backup.ProveVerdict{Status: backup.ProveStatusPass}), "")
+	code, _ := runRestore(cmd, arch, baseRestoreInput(t, arch), fakeRestoreDeps(prove.Verdict{Status: prove.StatusPass}), "")
 	if code != exitPass {
 		t.Fatalf("runRestore = %d, want %d; stderr=%q", code, exitPass, errOut.String())
 	}
@@ -178,7 +179,7 @@ func TestRestoreConsentDeniedExitsBlocked(t *testing.T) {
 	in.Consent = func(string) bool { return false }
 
 	cmd, _, errOut := newRestoreTestCmd()
-	code, _ := runRestore(cmd, arch, in, fakeRestoreDeps(backup.ProveVerdict{Status: backup.ProveStatusPass}), "")
+	code, _ := runRestore(cmd, arch, in, fakeRestoreDeps(prove.Verdict{Status: prove.StatusPass}), "")
 	if code != exitBlocked {
 		t.Fatalf("declined consent: runRestore = %d, want %d", code, exitBlocked)
 	}
@@ -200,7 +201,7 @@ func TestRestoreYesBypassesConsent(t *testing.T) {
 	in.Bypass = true
 
 	cmd, _, errOut := newRestoreTestCmd()
-	code, _ := runRestore(cmd, arch, in, fakeRestoreDeps(backup.ProveVerdict{Status: backup.ProveStatusPass}), "")
+	code, _ := runRestore(cmd, arch, in, fakeRestoreDeps(prove.Verdict{Status: prove.StatusPass}), "")
 	if code != exitPass {
 		t.Fatalf("--yes over WARN skew: runRestore = %d, want %d; stderr=%q", code, exitPass, errOut.String())
 	}
@@ -215,7 +216,7 @@ func TestRestoreOffloadFailRollsBack(t *testing.T) {
 
 	cmd, _, errOut := newRestoreTestCmd()
 	code, preserve := runRestore(cmd, arch, baseRestoreInput(t, arch),
-		fakeRestoreDeps(backup.ProveVerdict{Status: "fail", Detail: "residency FAIL (CPU fallback)"}), "")
+		fakeRestoreDeps(prove.Verdict{Status: prove.StatusFail, Detail: "residency FAIL (CPU fallback)"}), "")
 	if code != exitBlocked {
 		t.Fatalf("offload-FAIL prove: runRestore = %d, want %d", code, exitBlocked)
 	}
@@ -238,7 +239,7 @@ func TestRestoreRollbackIncompletePreservesTmpDir(t *testing.T) {
 	arch := filepath.Join(dir, "b.tar")
 	writeTestArchive(t, arch, matchingManifestInput(), restoreCfgTOML, []byte("owui"))
 
-	d := fakeRestoreDeps(backup.ProveVerdict{Status: "fail", Detail: "residency FAIL"})
+	d := fakeRestoreDeps(prove.Verdict{Status: prove.StatusFail, Detail: "residency FAIL"})
 	d.VolumeRm = func(string) error { return errors.New("volume is being used") }
 
 	tmpDir := t.TempDir()
@@ -313,7 +314,7 @@ func TestRestoreOutputMemoryNotPresent(t *testing.T) {
 	writeTestArchive(t, arch, matchingManifestInput(), restoreCfgTOML, []byte("owui"))
 
 	cmd, out, errOut := newRestoreTestCmd()
-	code, _ := runRestore(cmd, arch, baseRestoreInput(t, arch), fakeRestoreDeps(backup.ProveVerdict{Status: backup.ProveStatusPass}), "")
+	code, _ := runRestore(cmd, arch, baseRestoreInput(t, arch), fakeRestoreDeps(prove.Verdict{Status: prove.StatusPass}), "")
 	if code != exitPass {
 		t.Fatalf("runRestore = %d, want %d; stderr=%q", code, exitPass, errOut.String())
 	}
@@ -343,7 +344,7 @@ func TestRestoreOutputMemoryRestored(t *testing.T) {
 	in.RecallDestPath = filepath.Join(tmp, "recall-state.json")
 
 	cmd, out, errOut := newRestoreTestCmd()
-	code, _ := runRestore(cmd, arch, in, fakeRestoreDeps(backup.ProveVerdict{Status: backup.ProveStatusPass}), "")
+	code, _ := runRestore(cmd, arch, in, fakeRestoreDeps(prove.Verdict{Status: prove.StatusPass}), "")
 	if code != exitPass {
 		t.Fatalf("runRestore = %d, want %d; stderr=%q", code, exitPass, errOut.String())
 	}
@@ -434,7 +435,7 @@ func TestRestoreCorruptArchiveBlocks(t *testing.T) {
 	}
 
 	cmd, _, _ := newRestoreTestCmd()
-	code, _ := runRestore(cmd, arch, baseRestoreInput(t, arch), fakeRestoreDeps(backup.ProveVerdict{Status: backup.ProveStatusPass}), "")
+	code, _ := runRestore(cmd, arch, baseRestoreInput(t, arch), fakeRestoreDeps(prove.Verdict{Status: prove.StatusPass}), "")
 	if code != exitBlocked {
 		t.Fatalf("corrupt archive: runRestore = %d, want %d", code, exitBlocked)
 	}

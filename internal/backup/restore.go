@@ -20,7 +20,7 @@ package backup
 // forward apply AND the rollback path, so stale chats/webui.db never leak through.
 //
 // It links NO inference and NO detect package: the prove sentinel
-// (ProveStatusPass) is this package's OWN local value, so the backend-marker seam
+// (prove.StatusPass) is this package's OWN local value, so the backend-marker seam
 // discipline (TestSeamGrepGate) holds. Every host effect is a Deps func field; the
 // whole flow is driven from restore_test.go without a live host.
 
@@ -30,6 +30,7 @@ import (
 	"io"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
+	"github.com/MatrixMagician/VillaStraylight/internal/prove"
 )
 
 // RestoreInput is the plain-data drive for the pure Restore orchestrator. The cmd
@@ -182,7 +183,7 @@ type extracted struct {
 //	(5) MUTATE (any error → rollback): SaveConfig(restored) → restore data-dir files →
 //	    CLEAN-RECREATE owui volume (VolumeRm → ReconcileAndWrite → EnsureVolume) →
 //	    VolumeImport(extracted owui tar) → Start.
-//	(6) PROVE: switch to success ONLY on ProveStatusPass; any other verdict → rollback.
+//	(6) PROVE: switch to success ONLY on prove.StatusPass; any other verdict → rollback.
 //
 // The rollback path re-applies the captured set through the SAME clean-recreate
 // ordering (VolumeRm → ReconcileAndWrite(prior cfg) → EnsureVolume → VolumeImport
@@ -390,7 +391,7 @@ func Restore(d RestoreDeps, in RestoreInput) Result {
 
 	// rolledBack assembles a RolledBack Result, folding in an honest
 	// rollback-incomplete message when the restore did not fully succeed (Pitfall 5).
-	rolledBack := func(failedStep, reason string, origErr error, v ProveVerdict) Result {
+	rolledBack := func(failedStep, reason string, origErr error, v prove.Verdict) Result {
 		rbOK, rbDetail := rollback()
 		r := Result{
 			RolledBack: true,
@@ -410,7 +411,7 @@ func Restore(d RestoreDeps, in RestoreInput) Result {
 	// (4) QUIESCE the Open WebUI service for a clean volume swap. A stop failure
 	// is a pre-mutate error → rollback (which best-effort re-readies).
 	if err := d.Stop(d.OpenWebUIServiceName); err != nil {
-		return rolledBack("quiesce", "", fmt.Errorf("stop %s: %w", d.OpenWebUIServiceName, err), ProveVerdict{})
+		return rolledBack("quiesce", "", fmt.Errorf("stop %s: %w", d.OpenWebUIServiceName, err), prove.Verdict{})
 	}
 	// Quiesce the qdrant service too (Phase 23, Pitfall 3): a RUNNING qdrant holds
 	// its volume (the live VolumeRm would fail in-use) and could write mid-swap.
@@ -418,22 +419,22 @@ func Restore(d RestoreDeps, in RestoreInput) Result {
 	// running qdrant service to stop (its unit may not even exist).
 	if ex.qdrantPresent && in.QdrantVolumeExists {
 		if err := d.Stop(d.QdrantServiceName); err != nil {
-			return rolledBack("quiesce", "", fmt.Errorf("stop %s: %w", d.QdrantServiceName, err), ProveVerdict{})
+			return rolledBack("quiesce", "", fmt.Errorf("stop %s: %w", d.QdrantServiceName, err), prove.Verdict{})
 		}
 	}
 
 	// (5) MUTATE. ANY error here rolls back verbatim from the captured set.
 	if err := d.SaveConfig(restoredCfg); err != nil {
-		return rolledBack("save", "", fmt.Errorf("save restored config: %w", err), ProveVerdict{})
+		return rolledBack("save", "", fmt.Errorf("save restored config: %w", err), prove.Verdict{})
 	}
 	if ex.usagePresent {
 		if err := d.WriteFile(in.UsageDestPath, ex.usage); err != nil {
-			return rolledBack("data", "", fmt.Errorf("restore usage.json: %w", err), ProveVerdict{})
+			return rolledBack("data", "", fmt.Errorf("restore usage.json: %w", err), prove.Verdict{})
 		}
 	}
 	if ex.benchPresent {
 		if err := d.WriteFile(in.BenchDestPath, ex.bench); err != nil {
-			return rolledBack("data", "", fmt.Errorf("restore bench-reports.jsonl: %w", err), ProveVerdict{})
+			return rolledBack("data", "", fmt.Errorf("restore bench-reports.jsonl: %w", err), prove.Verdict{})
 		}
 	}
 	// recall-state.json restores like the usage/bench rows (Phase 23): the
@@ -441,7 +442,7 @@ func Restore(d RestoreDeps, in RestoreInput) Result {
 	// data root).
 	if ex.recallPresent {
 		if err := d.WriteFile(in.RecallDestPath, ex.recallState); err != nil {
-			return rolledBack("data", "", fmt.Errorf("restore recall-state.json: %w", err), ProveVerdict{})
+			return rolledBack("data", "", fmt.Errorf("restore recall-state.json: %w", err), prove.Verdict{})
 		}
 	}
 	// Restore the OPTIONAL crush.json (Phase 28) through the dedicated
@@ -459,7 +460,7 @@ func Restore(d RestoreDeps, in RestoreInput) Result {
 	crushSkipped := ex.crushPresent && in.CrushConfigDestPath == ""
 	if crushWritten {
 		if err := writeCrushConfig(d, in.CrushConfigDestPath, ex.crushConfig); err != nil {
-			return rolledBack("data", "", fmt.Errorf("restore crush.json: %w", err), ProveVerdict{})
+			return rolledBack("data", "", fmt.Errorf("restore crush.json: %w", err), prove.Verdict{})
 		}
 	}
 	// Restore the OPTIONAL settings.yml (Phase 34) through the dedicated
@@ -474,16 +475,16 @@ func Restore(d RestoreDeps, in RestoreInput) Result {
 	searxngSettingsSkipped := ex.searxngSettingsPresent && in.SearxngSettingsDestPath == ""
 	if searxngSettingsWritten {
 		if err := writeSearxngSettings(d, in.SearxngSettingsDestPath, ex.searxngSettings); err != nil {
-			return rolledBack("data", "", fmt.Errorf("restore settings.yml: %w", err), ProveVerdict{})
+			return rolledBack("data", "", fmt.Errorf("restore settings.yml: %w", err), prove.Verdict{})
 		}
 	}
 	// CLEAN-RECREATE then import the RESTORED owui volume (the whole reason for the
 	// rm→recreate→ensure→import ordering — never merge into a live volume).
 	if err := d.WriteFile(in.TempVolumeTar, ex.owuiVolume); err != nil {
-		return rolledBack("volume", "", fmt.Errorf("stage restored owui volume tar: %w", err), ProveVerdict{})
+		return rolledBack("volume", "", fmt.Errorf("stage restored owui volume tar: %w", err), prove.Verdict{})
 	}
 	if err := cleanRecreateThenImport(restoredCfg, in.OpenWebUIVolumeName, in.TempVolumeTar); err != nil {
-		return rolledBack("volume", "", err, ProveVerdict{})
+		return rolledBack("volume", "", err, prove.Verdict{})
 	}
 	// Forward qdrant apply (Phase 23): SAME clean-recreate ordering for the
 	// second volume — never a merge-import. Gated on the entry being present;
@@ -491,14 +492,14 @@ func Restore(d RestoreDeps, in RestoreInput) Result {
 	// prior-absent cell flows through the same sequence.
 	if ex.qdrantPresent {
 		if err := d.WriteFile(in.TempQdrantTar, ex.qdrantVolume); err != nil {
-			return rolledBack("volume", "", fmt.Errorf("stage restored qdrant volume tar: %w", err), ProveVerdict{})
+			return rolledBack("volume", "", fmt.Errorf("stage restored qdrant volume tar: %w", err), prove.Verdict{})
 		}
 		if err := cleanRecreateThenImport(restoredCfg, in.QdrantVolumeName, in.TempQdrantTar); err != nil {
-			return rolledBack("volume", "", err, ProveVerdict{})
+			return rolledBack("volume", "", err, prove.Verdict{})
 		}
 	}
 	if err := d.Start(d.OpenWebUIServiceName); err != nil {
-		return rolledBack("restart", "", fmt.Errorf("start %s: %w", d.OpenWebUIServiceName, err), ProveVerdict{})
+		return rolledBack("restart", "", fmt.Errorf("start %s: %w", d.OpenWebUIServiceName, err), prove.Verdict{})
 	}
 	// Restart the qdrant service we quiesced (symmetric with its Stop gate). On the
 	// prior-absent cell nothing was stopped — the operator brings the (possibly
@@ -506,15 +507,15 @@ func Restore(d RestoreDeps, in RestoreInput) Result {
 	// caller.
 	if ex.qdrantPresent && in.QdrantVolumeExists {
 		if err := d.Start(d.QdrantServiceName); err != nil {
-			return rolledBack("restart", "", fmt.Errorf("start %s: %w", d.QdrantServiceName, err), ProveVerdict{})
+			return rolledBack("restart", "", fmt.Errorf("start %s: %w", d.QdrantServiceName, err), prove.Verdict{})
 		}
 	}
 
 	// (6) PROVE the restored stack offload-honestly. Switch to success ONLY on
-	// ProveStatusPass; ANY other verdict (incl. ready+health-200-but-residency-FAIL)
+	// prove.StatusPass; ANY other verdict (incl. ready+health-200-but-residency-FAIL)
 	// rolls back verbatim — is-active/200 alone is NEVER success.
 	v := d.Prove(restoredCfg.Backend)
-	if v.Status != ProveStatusPass {
+	if !v.Pass() {
 		return rolledBack("prove", v.Detail, nil, v)
 	}
 	return Result{

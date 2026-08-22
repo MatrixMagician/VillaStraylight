@@ -8,12 +8,13 @@ import (
 	"testing"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
+	"github.com/MatrixMagician/VillaStraylight/internal/prove"
 )
 
 // codingmode_test.go drives the transactional core through a fake Deps with no live
 // host. It asserts the ordering contract (capture STRICTLY before any mutation,
 // Pitfall 5), the verbatim rollback (RestoreUnit with the captured priorUnit), the
-// prove-gate (switch ONLY on ProveStatusPass — is-active/200 alone is never success,
+// prove-gate (switch ONLY on prove.StatusPass — is-active/200 alone is never success,
 // the same-state NoOp (zero side effects), exit symmetry, and
 // swap-vs-shared residency surfacing (never silently degrade). It mirrors the
 // backendswap swapRecorder + callOrder discipline.
@@ -48,7 +49,7 @@ type modeRecorder struct {
 	saveErr       error       // SaveConfig error (mutate failure)
 	writeErr      error       // ReconcileAndWrite error (mutate failure)
 	restartErr    error       // first Restart error (mutate failure)
-	proveStatus   string      // Prove verdict Status (ProveStatusPass = pass)
+	proveStatus   string      // Prove verdict Status (prove.StatusPass = pass)
 	proveDetail   string      // Prove verdict Detail
 	restoreErr    error       // RestoreUnit error during rollback (rollback-incomplete)
 	rbRestartErr  error       // Restart error during rollback (rollback-incomplete)
@@ -117,12 +118,12 @@ func newModeStub(rec *modeRecorder) Deps {
 			}
 			return rec.rbRestartErr
 		},
-		Prove: func(_ context.Context, _ Direction) ProveVerdict {
+		Prove: func(_ context.Context, _ Direction) prove.Verdict {
 			status := rec.proveStatus
 			if status == "" {
-				status = ProveStatusPass
+				status = prove.StatusPass
 			}
-			return ProveVerdict{Status: status, Detail: rec.proveDetail}
+			return prove.Verdict{Status: status, Detail: rec.proveDetail}
 		},
 	}
 }
@@ -147,7 +148,7 @@ func enterStub() *modeRecorder {
 		resolveOK:     true,
 		downloaded:    true,
 		coder:         CoderTarget{Model: "coder-model", Quant: "Q4", AgentCtx: 65536, Residency: ResidencySwap},
-		proveStatus:   ProveStatusPass,
+		proveStatus:   prove.StatusPass,
 	}
 }
 
@@ -237,7 +238,7 @@ func TestProveFailRollback(t *testing.T) {
 	}
 }
 
-// TestIdleGreenNotSuccess: any non-ProveStatusPass verdict (incl. ready+health-200-but-
+// TestIdleGreenNotSuccess: any non-prove.StatusPass verdict (incl. ready+health-200-but-
 // residency-FAIL) triggers rollback. Idle-green is never green.
 func TestIdleGreenNotSuccess(t *testing.T) {
 	rec := enterStub()

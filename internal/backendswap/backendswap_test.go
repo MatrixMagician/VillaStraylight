@@ -8,12 +8,13 @@ import (
 	"testing"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
+	"github.com/MatrixMagician/VillaStraylight/internal/prove"
 )
 
 // backendswap_test.go drives the transactional core through a fake Deps with no
 // live host. It asserts the ordering contract (capture STRICTLY before any
 // mutation, Pitfall 4), the verbatim rollback (RestoreUnit with the captured
-// priorUnit), the prove-gate (switch ONLY on ProveStatusPass — is-active/200 alone
+// priorUnit), the prove-gate (switch ONLY on prove.StatusPass — is-active/200 alone
 // is never success), the refuse-with-remediation paths (fit/preflight leave
 // ZERO side effects), and restart-inference-only. It mirrors the modelswap
 // swapRecorder + callOrder discipline ([03-05]).
@@ -44,7 +45,7 @@ type swapRecorder struct {
 	saveErr        error  // SaveConfig error (mutate failure)
 	writeErr       error  // ReconcileAndWrite error (mutate failure)
 	restartErr     error  // first Restart error (mutate failure)
-	proveStatus    string // Prove verdict Status (ProveStatusPass = pass)
+	proveStatus    string // Prove verdict Status (prove.StatusPass = pass)
 	proveDetail    string // Prove verdict Detail
 	restoreErr     error  // RestoreUnit error during rollback (rollback-incomplete)
 	rbRestartErr   error  // Restart error during rollback (rollback-incomplete)
@@ -110,12 +111,12 @@ func newSwapStub(rec *swapRecorder) Deps {
 			}
 			return rec.rbRestartErr
 		},
-		Prove: func(_ context.Context, _ string) ProveVerdict {
+		Prove: func(_ context.Context, _ string) prove.Verdict {
 			status := rec.proveStatus
 			if status == "" {
-				status = ProveStatusPass
+				status = prove.StatusPass
 			}
-			return ProveVerdict{Status: status, Detail: rec.proveDetail}
+			return prove.Verdict{Status: status, Detail: rec.proveDetail}
 		},
 	}
 }
@@ -133,7 +134,7 @@ func indexOf(order []string, want string) int {
 
 // passStub is the baseline happy-path recorder: fits, preflight ok, prove pass.
 func passStub() *swapRecorder {
-	return &swapRecorder{fitOK: true, preflightOK: true, proveStatus: ProveStatusPass}
+	return &swapRecorder{fitOK: true, preflightOK: true, proveStatus: prove.StatusPass}
 }
 
 // TestCaptureBeforeMutate: capture index is STRICTLY less than the save and write
@@ -249,7 +250,7 @@ func TestProveGate(t *testing.T) {
 }
 
 // TestActiveNotSuccess: a verdict that is "ready+200 but residency FAIL" — any
-// non-ProveStatusPass value — triggers rollback. is-active/health-200 alone is
+// non-prove.StatusPass value — triggers rollback. is-active/health-200 alone is
 // never success.
 func TestActiveNotSuccess(t *testing.T) {
 	rec := passStub()
