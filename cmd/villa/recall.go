@@ -38,6 +38,7 @@ import (
 
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/memory"
+	"github.com/MatrixMagician/VillaStraylight/internal/openwebui"
 	"github.com/MatrixMagician/VillaStraylight/internal/recall"
 )
 
@@ -53,35 +54,13 @@ type recallDeps struct {
 	// loadedConfig resolves the loopback chat port + the embedding model/dim skew
 	// stamps (live: liveLoadedConfig).
 	loadedConfig func() (config.VillaConfig, error)
-	// mintToken mints the admin JWT over loopback (live: mintAdminToken — the
-	// existing villa-verify@localhost service-account seam).
-	mintToken func(ctx context.Context, base string) (string, error)
-	// owuiHealthy is the cheap pre-mutation reachability gate (live: owuiHealthy).
-	owuiHealthy func(ctx context.Context, base string) error
-	// listUsers enumerates all users via the admin endpoint (live: owuiListUsers).
-	listUsers func(ctx context.Context, base, token string) ([]owuiUser, error)
-	// listUserChats lists one user's COMPLETE chat universe (live: owuiListUserChats).
-	listUserChats func(ctx context.Context, base, token, userID string) ([]recall.ChatRef, error)
-	// getChat fetches one full chat document (live: owuiGetChat).
-	getChat func(ctx context.Context, base, token, chatID string) (recall.ChatDoc, error)
-	// ensureKnowledge finds-or-creates the recall KB (live: owuiEnsureKnowledge).
-	ensureKnowledge func(ctx context.Context, base, token, name, description string) (string, error)
-	// uploadTranscript runs upload→poll→add for one transcript (live:
-	// owuiUploadTranscript with the size-aware recallUploadTimeout).
-	uploadTranscript func(ctx context.Context, base, token, kbID, filename, content string) (string, error)
-	// removeKnowledgeFile is the clean-replace/delete primitive (live:
-	// owuiRemoveKnowledgeFile — file/remove?delete_file=true).
-	removeKnowledgeFile func(ctx context.Context, base, token, kbID, fileID string) error
-	// resetKnowledge is the id-preserving --rebuild primitive (live: owuiResetKnowledge).
-	resetKnowledge func(ctx context.Context, base, token, kbID string) error
-	// attachKnowledge asserts the served model's meta.knowledge attachment (live:
-	// owuiAttachKnowledge — idempotent read-merge-write).
-	attachKnowledge func(ctx context.Context, base, token, servedModelID, kbID, kbName string) (recall.AttachmentState, error)
-	// attachmentState answers status's retrieval question (live: owuiAttachmentState).
-	attachmentState func(ctx context.Context, base, token, kbID string) recall.AttachmentState
-	// discoverModel resolves the SERVED model id (live: discoverChatModel wrapped
-	// with the bearer header — the GGUF filename, not the config slug).
-	discoverModel func(ctx context.Context, base, token string) (string, error)
+	// client builds the Open WebUI protocol client for a base URL. It is ONE seam
+	// where there were twelve, each of which had been a one-to-one rename of a
+	// function defined beside it. A test fakes the transport underneath this and
+	// gets the whole protocol; it no longer stubs a dozen named functions.
+	client func(base string) *openwebui.Client
+	// signIn mints the admin JWT over loopback, held in memory only.
+	signIn func(ctx context.Context, c *openwebui.Client) (string, error)
 	// readState loads recall-state.json fail-closed (live: recall.Load over os.ReadFile).
 	readState func() (recall.State, error)
 	// writeState persists the state atomically (live: recall.Save over WriteFileAtomic).
@@ -96,23 +75,9 @@ func liveRecallDeps() recallDeps {
 	return recallDeps{
 		loadedMemoryEnabled: liveLoadedMemoryEnabled,
 		loadedConfig:        liveLoadedConfig,
-		mintToken:           mintAdminToken,
-		owuiHealthy:         owuiHealthy,
-		listUsers:           owuiListUsers,
-		listUserChats:       owuiListUserChats,
-		getChat:             owuiGetChat,
-		ensureKnowledge:     owuiEnsureKnowledge,
-		uploadTranscript: func(ctx context.Context, base, token, kbID, filename, content string) (string, error) {
-			return owuiUploadTranscript(ctx, base, token, kbID, filename, content, recallUploadTimeout(content))
-		},
-		removeKnowledgeFile: owuiRemoveKnowledgeFile,
-		resetKnowledge:      owuiResetKnowledge,
-		attachKnowledge:     owuiAttachKnowledge,
-		attachmentState:     owuiAttachmentState,
-		discoverModel: func(ctx context.Context, base, token string) (string, error) {
-			return discoverChatModel(ctx, base, bearerHeader(token))
-		},
-		readState: liveRecallStateLoad,
+		client:              liveOpenWebUIClient,
+		signIn:              liveOpenWebUISignIn,
+		readState:           liveRecallStateLoad,
 		writeState: func(s recall.State) error {
 			return recall.Save(recall.Deps{WriteAll: func(data []byte) error {
 				return recall.WriteFileAtomic(recall.RecallStatePath(), data)
@@ -243,21 +208,21 @@ func recallGate(verb string, deps recallDeps, errOut interface{ Write([]byte) (i
 // deterministically exclude; all remaining human users on this single-operator box
 // are the operator), each listed via the admin archived-inclusive endpoint
 // (Pitfall 1). Any listing failure is an error — never a partial universe.
-func recallLiveChats(ctx context.Context, deps recallDeps, base, token string) ([]recall.ChatRef, error) {
-	users, err := deps.listUsers(ctx, base, token)
+func recallLiveChats(ctx context.Context, c *openwebui.Client, token string) ([]recall.ChatRef, error) {
+	users, err := c.ListUsers(ctx, token)
 	if err != nil {
 		return nil, err
 	}
-	return recallChatsForUsers(ctx, deps, base, token, users)
+	return recallChatsForUsers(ctx, c, token, users)
 }
 
 // recallHumanUsers returns the users that are NOT the villa service account
 // — the operator(s) whose chats recall would pool into the shared collection. The
 // single-operator guard counts these.
-func recallHumanUsers(users []owuiUser) []owuiUser {
-	var humans []owuiUser
+func recallHumanUsers(users []openwebui.User) []openwebui.User {
+	var humans []openwebui.User
 	for _, u := range users {
-		if u.Email == recallServiceAccountEmail {
+		if u.Email == owuiServiceAccountEmail {
 			continue
 		}
 		humans = append(humans, u)
@@ -268,13 +233,13 @@ func recallHumanUsers(users []owuiUser) []owuiUser {
 // recallChatsForUsers builds the chat universe across the given users, excluding
 // the service account. Any per-user listing failure is an error — never a
 // partial universe.
-func recallChatsForUsers(ctx context.Context, deps recallDeps, base, token string, users []owuiUser) ([]recall.ChatRef, error) {
+func recallChatsForUsers(ctx context.Context, c *openwebui.Client, token string, users []openwebui.User) ([]recall.ChatRef, error) {
 	var live []recall.ChatRef
 	for _, u := range users {
-		if u.Email == recallServiceAccountEmail {
+		if u.Email == owuiServiceAccountEmail {
 			continue
 		}
-		chats, err := deps.listUserChats(ctx, base, token, u.ID)
+		chats, err := c.ListUserChats(ctx, token, u.ID)
 		if err != nil {
 			return nil, err
 		}
@@ -323,14 +288,15 @@ func runRecallIndex(cmd *cobra.Command, _ []string, deps recallDeps, rebuild, sh
 
 	// (2) REACHABILITY (Pitfall 7): knowledge/create needs villa-embed up behind
 	// OWUI — refuse BEFORE any mutating step, naming the services to check.
-	base := fmt.Sprintf("http://%s:%d", verifyMemoryLoopbackAddr, cfg.ChatPort)
-	if err := deps.owuiHealthy(ctx, base); err != nil {
+	base := owuiLoopbackBase(cfg.ChatPort)
+	owui := deps.client(base)
+	if err := owui.Health(ctx); err != nil {
 		fmt.Fprintf(errOut, "recall index: Open WebUI is not reachable at %s (%v) — check `systemctl --user status villa-openwebui.service` and the villa-embed service, then re-run.\n", base, err)
 		return exitBlocked
 	}
 
 	// (3) TOKEN: the existing admin service-account JWT, in memory only.
-	token, err := deps.mintToken(ctx, base)
+	token, err := deps.signIn(ctx, owui)
 	if err != nil {
 		fmt.Fprintf(errOut, "recall index: could not mint the admin token (%v) — check the Open WebUI service account, then re-run.\n", err)
 		return exitBlocked
@@ -344,7 +310,7 @@ func runRecallIndex(cmd *cobra.Command, _ []string, deps recallDeps, rebuild, sh
 	// (destroying the recorded truth the skew guard depends on). The token is
 	// the only dependency, so this is the earliest the guard can run; the
 	// fetched users are reused for the chat listing at step (5).
-	users, err := deps.listUsers(ctx, base, token)
+	users, err := owui.ListUsers(ctx, token)
 	if err != nil {
 		fmt.Fprintf(errOut, "recall index: FAILED listing users (%v) — check Open WebUI, then re-run.\n", err)
 		return exitBlocked
@@ -384,14 +350,14 @@ func runRecallIndex(cmd *cobra.Command, _ []string, deps recallDeps, rebuild, sh
 	}
 	if rebuild {
 		if state.KnowledgeID != "" {
-			if err := deps.resetKnowledge(ctx, base, token, state.KnowledgeID); err != nil {
+			if err := owui.ResetKnowledge(ctx, token, state.KnowledgeID); err != nil {
 				fmt.Fprintf(errOut, "recall index: FAILED at knowledge/reset (%v) — re-run `villa recall index --rebuild`.\n", err)
 				return exitBlocked
 			}
 		}
 		state.Chats = nil
 	}
-	kbID, err := deps.ensureKnowledge(ctx, base, token, recallKnowledgeName, recallKnowledgeDescription)
+	kbID, err := owui.EnsureKnowledge(ctx, token, recallKnowledgeName, recallKnowledgeDescription)
 	if err != nil {
 		fmt.Fprintf(errOut, "recall index: FAILED at ensure-knowledge (%v) — check Open WebUI and villa-embed, then re-run.\n", err)
 		return exitBlocked
@@ -413,7 +379,7 @@ func runRecallIndex(cmd *cobra.Command, _ []string, deps recallDeps, rebuild, sh
 	// (5) LIST: build the complete chat universe over the users already
 	// fetched (and guard-cleared) at step (3a) — service account excluded; any
 	// listing failure refuses — an index run cannot proceed on a partial universe.
-	live, err := recallChatsForUsers(ctx, deps, base, token, users)
+	live, err := recallChatsForUsers(ctx, owui, token, users)
 	if err != nil {
 		fmt.Fprintf(errOut, "recall index: FAILED listing chats (%v) — check Open WebUI, then re-run.\n", err)
 		return exitBlocked
@@ -440,7 +406,7 @@ func runRecallIndex(cmd *cobra.Command, _ []string, deps recallDeps, rebuild, sh
 	// (which an unrelated future mutation could silently flip).
 	indexChat := func(ref recall.ChatRef, oldFileID string) chatOutcome {
 		if oldFileID != "" {
-			if err := deps.removeKnowledgeFile(ctx, base, token, kbID, oldFileID); err != nil {
+			if err := owui.RemoveKnowledgeFile(ctx, token, kbID, oldFileID); err != nil {
 				fmt.Fprintf(errOut, "recall index: FAILED at chat %s (knowledge/file/remove: %v) — completed work is persisted; re-run `villa recall index` to resume.\n", ref.ID, err)
 				return outcomeFail
 			}
@@ -459,7 +425,7 @@ func runRecallIndex(cmd *cobra.Command, _ []string, deps recallDeps, rebuild, sh
 				return outcomeFail
 			}
 		}
-		doc, err := deps.getChat(ctx, base, token, ref.ID)
+		doc, err := owui.GetChat(ctx, token, ref.ID)
 		if err != nil {
 			fmt.Fprintf(errOut, "recall index: FAILED at chat %s (get: %v) — completed work is persisted; re-run `villa recall index` to resume.\n", ref.ID, err)
 			return outcomeFail
@@ -472,7 +438,7 @@ func runRecallIndex(cmd *cobra.Command, _ []string, deps recallDeps, rebuild, sh
 			}
 			return outcomeSkipped
 		}
-		fileID, err := deps.uploadTranscript(ctx, base, token, kbID, recall.TranscriptFilename(ref.ID), text)
+		fileID, err := owui.UploadToKnowledge(ctx, token, kbID, recall.TranscriptFilename(ref.ID), text, recallUploadTimeout(text))
 		if err != nil {
 			fmt.Fprintf(errOut, "recall index: FAILED at chat %s (upload: %v) — completed work is persisted; re-run `villa recall index` to resume.\n", ref.ID, err)
 			return outcomeFail
@@ -491,7 +457,7 @@ func runRecallIndex(cmd *cobra.Command, _ []string, deps recallDeps, rebuild, sh
 
 	for _, id := range plan.Deletes {
 		if prior, ok := state.Chats[id]; ok && prior.FileID != "" {
-			if err := deps.removeKnowledgeFile(ctx, base, token, kbID, prior.FileID); err != nil {
+			if err := owui.RemoveKnowledgeFile(ctx, token, kbID, prior.FileID); err != nil {
 				fmt.Fprintf(errOut, "recall index: FAILED at chat %s (knowledge/file/remove: %v) — completed work is persisted; re-run `villa recall index` to resume.\n", id, err)
 				return exitBlocked
 			}
@@ -526,12 +492,12 @@ func runRecallIndex(cmd *cobra.Command, _ []string, deps recallDeps, rebuild, sh
 	// (8) ATTACH: idempotently wire the recall KB into the
 	// SERVED model's meta.knowledge — an index without retrieval wiring does not
 	// satisfy, so a failure here is a FAILURE, never a warning.
-	served, err := deps.discoverModel(ctx, base, token)
+	served, err := owui.DiscoverModel(ctx, token)
 	if err != nil {
 		fmt.Fprintf(errOut, "recall index: FAILED discovering the served model (%v) — retrieval is NOT wired; check villa-llama/Open WebUI, then re-run.\n", err)
 		return exitBlocked
 	}
-	if _, err := deps.attachKnowledge(ctx, base, token, served, kbID, recallKnowledgeName); err != nil {
+	if _, err := owui.AttachKnowledge(ctx, token, served, kbID, recallKnowledgeName); err != nil {
 		fmt.Fprintf(errOut, "recall index: FAILED attaching the recall collection to model %q (%v) — retrieval is NOT wired; re-run `villa recall index`.\n", served, err)
 		return exitBlocked
 	}
@@ -590,17 +556,17 @@ func runRecallStatus(cmd *cobra.Command, _ []string, deps recallDeps) int {
 
 	// Build the LIVE list; liveKnown=false on ANY failure — never a partial
 	// false-current. Attachment is evaluated only with a minted token.
-	base := fmt.Sprintf("http://%s:%d", verifyMemoryLoopbackAddr, cfg.ChatPort)
+	owui := deps.client(owuiLoopbackBase(cfg.ChatPort))
 	var live []recall.ChatRef
 	liveKnown := false
 	attachment := recall.AttachmentUnknown
-	if token, err := deps.mintToken(ctx, base); err == nil {
-		if chats, err := recallLiveChats(ctx, deps, base, token); err == nil {
+	if token, err := deps.signIn(ctx, owui); err == nil {
+		if chats, err := recallLiveChats(ctx, owui, token); err == nil {
 			live = chats
 			liveKnown = true
 		}
 		if state.KnowledgeID != "" {
-			attachment = deps.attachmentState(ctx, base, token, state.KnowledgeID)
+			attachment = owui.AttachmentStateFor(ctx, token, state.KnowledgeID)
 		} else {
 			// No KB recorded ⇒ nothing can be attached — confidently missing
 			// (a first `villa recall index` creates and attaches it).

@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
+	"github.com/MatrixMagician/VillaStraylight/internal/openwebui"
 	"github.com/MatrixMagician/VillaStraylight/internal/recall"
 )
 
@@ -45,10 +46,16 @@ func renderableChatDoc(id string) recall.ChatDoc {
 // working state — the incremental-persist assertions are only honest if a missed
 // persist call is actually observable.
 type fakeRecallEnv struct {
-	deps  recallDeps
-	calls []string
+	deps recallDeps
+	// owui is the ONE fake the protocol runs against. Its trace replaces the
+	// per-function call log the twelve stubbed seams used to keep.
+	owui  *fakeOWUI
 	state recall.State
 }
+
+// calls exposes the protocol trace, so assertions read the same as before the
+// seam collapsed.
+func (e *fakeRecallEnv) callsOf() []string { return e.owui.calls }
 
 func copyRecallState(s recall.State) recall.State {
 	cp := s
@@ -62,7 +69,7 @@ func copyRecallState(s recall.State) recall.State {
 }
 
 func newFakeRecallEnv() *fakeRecallEnv {
-	env := &fakeRecallEnv{}
+	env := &fakeRecallEnv{owui: newFakeOWUI()}
 	fixedNow := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
 	env.deps = recallDeps{
 		loadedMemoryEnabled: func() bool { return true },
@@ -71,60 +78,13 @@ func newFakeRecallEnv() *fakeRecallEnv {
 			c.MemoryEnabled = true
 			return c, nil
 		},
-		mintToken: func(context.Context, string) (string, error) {
-			env.calls = append(env.calls, "mint")
-			return "tok", nil
-		},
-		owuiHealthy: func(context.Context, string) error {
-			env.calls = append(env.calls, "health")
-			return nil
-		},
-		listUsers: func(context.Context, string, string) ([]owuiUser, error) {
-			env.calls = append(env.calls, "listUsers")
-			return []owuiUser{
-				{ID: "u1", Email: "operator@local.test", Role: "admin"},
-				{ID: "u-svc", Email: recallServiceAccountEmail, Role: "admin"},
-			}, nil
-		},
-		listUserChats: func(_ context.Context, _, _, userID string) ([]recall.ChatRef, error) {
-			env.calls = append(env.calls, "listChats:"+userID)
-			return nil, nil
-		},
-		getChat: func(_ context.Context, _, _, chatID string) (recall.ChatDoc, error) {
-			env.calls = append(env.calls, "getChat:"+chatID)
-			return renderableChatDoc(chatID), nil
-		},
-		ensureKnowledge: func(_ context.Context, _, _, _, _ string) (string, error) {
-			env.calls = append(env.calls, "ensureKB")
-			return "kb1", nil
-		},
-		uploadTranscript: func(_ context.Context, _, _, _, filename, _ string) (string, error) {
-			env.calls = append(env.calls, "upload:"+filename)
-			return "file-" + filename, nil
-		},
-		removeKnowledgeFile: func(_ context.Context, _, _, _, fileID string) error {
-			env.calls = append(env.calls, "remove:"+fileID)
-			return nil
-		},
-		resetKnowledge: func(_ context.Context, _, _, kbID string) error {
-			env.calls = append(env.calls, "reset:"+kbID)
-			return nil
-		},
-		attachKnowledge: func(_ context.Context, _, _, _, _, _ string) (recall.AttachmentState, error) {
-			env.calls = append(env.calls, "attach")
-			return recall.AttachmentAttached, nil
-		},
-		attachmentState: func(_ context.Context, _, _, _ string) recall.AttachmentState {
-			env.calls = append(env.calls, "attachState")
-			return recall.AttachmentAttached
-		},
-		discoverModel: func(context.Context, string, string) (string, error) {
-			env.calls = append(env.calls, "discover")
-			return "served.gguf", nil
+		client: func(string) *openwebui.Client { return env.owui.client() },
+		signIn: func(ctx context.Context, c *openwebui.Client) (string, error) {
+			return c.SignIn(ctx, owuiServiceAccountEmail, owuiServiceAccountPassword, owuiServiceAccountName)
 		},
 		readState: func() (recall.State, error) { return copyRecallState(env.state), nil },
 		writeState: func(s recall.State) error {
-			env.calls = append(env.calls, "persist")
+			env.owui.log("persist")
 			env.state = copyRecallState(s)
 			return nil
 		},
@@ -185,8 +145,8 @@ func TestRecallGate(t *testing.T) {
 		if errOut.Len() == 0 || !strings.Contains(errOut.String(), "memory") {
 			t.Errorf("refusal must carry a remediation naming the memory stack; stderr = %q", errOut.String())
 		}
-		if len(env.calls) != 0 {
-			t.Errorf("no drive function may run when memory is off; calls = %v", env.calls)
+		if len(env.owui.calls) != 0 {
+			t.Errorf("no drive function may run when memory is off; calls = %v", env.owui.calls)
 		}
 	})
 
@@ -204,8 +164,8 @@ func TestRecallGate(t *testing.T) {
 		if errOut.Len() == 0 {
 			t.Errorf("refusal must print a remediation to stderr")
 		}
-		if len(env.calls) != 0 {
-			t.Errorf("no drive function may run when memory is off; calls = %v", env.calls)
+		if len(env.owui.calls) != 0 {
+			t.Errorf("no drive function may run when memory is off; calls = %v", env.owui.calls)
 		}
 	})
 
@@ -227,8 +187,8 @@ func TestRecallGate(t *testing.T) {
 		if !strings.Contains(errOut.String(), "embedding_dim") {
 			t.Errorf("refusal must surface the Decide reason; stderr = %q", errOut.String())
 		}
-		if len(env.calls) != 0 {
-			t.Errorf("no drive function may run on an invalid config; calls = %v", env.calls)
+		if len(env.owui.calls) != 0 {
+			t.Errorf("no drive function may run on an invalid config; calls = %v", env.owui.calls)
 		}
 	})
 }
@@ -243,10 +203,7 @@ func TestRecallGate(t *testing.T) {
 func TestRecallIndexOrdering(t *testing.T) {
 	t.Run("reachability failure short-circuits before token and KB work", func(t *testing.T) {
 		env := newFakeRecallEnv()
-		env.deps.owuiHealthy = func(context.Context, string) error {
-			env.calls = append(env.calls, "health")
-			return errors.New("connection refused")
-		}
+		env.owui.unhealthy = true
 		cmd := newRecallCmd()
 		var out, errOut bytes.Buffer
 		cmd.SetOut(&out)
@@ -255,34 +212,19 @@ func TestRecallIndexOrdering(t *testing.T) {
 			t.Errorf("unreachable-OWUI exit = %d, want exitBlocked (%d)", code, exitBlocked)
 		}
 		for _, banned := range []string{"mint", "ensureKB", "listUsers"} {
-			if callIndex(env.calls, banned) != -1 {
-				t.Errorf("%s ran after a failed reachability gate; calls = %v", banned, env.calls)
+			if callIndex(env.owui.calls, banned) != -1 {
+				t.Errorf("%s ran after a failed reachability gate; calls = %v", banned, env.owui.calls)
 			}
 		}
-		if hasCallPrefix(env.calls, "upload:") {
-			t.Errorf("an upload ran after a failed reachability gate; calls = %v", env.calls)
+		if hasCallPrefix(env.owui.calls, "upload:") {
+			t.Errorf("an upload ran after a failed reachability gate; calls = %v", env.owui.calls)
 		}
 	})
 
 	t.Run("per-chat failure keeps completed chats persisted and never stamps completed", func(t *testing.T) {
 		env := newFakeRecallEnv()
-		env.deps.listUserChats = func(_ context.Context, _, _, userID string) ([]recall.ChatRef, error) {
-			env.calls = append(env.calls, "listChats:"+userID)
-			if userID != "u1" {
-				return nil, nil
-			}
-			return []recall.ChatRef{
-				{ID: "c1", UserID: "u1", UpdatedAt: 100},
-				{ID: "c2", UserID: "u1", UpdatedAt: 100},
-			}, nil
-		}
-		env.deps.uploadTranscript = func(_ context.Context, _, _, _, filename, _ string) (string, error) {
-			env.calls = append(env.calls, "upload:"+filename)
-			if strings.Contains(filename, "c2") {
-				return "", errors.New("embed backend 500")
-			}
-			return "file-" + filename, nil
-		}
+		env.owui.setChats("u1", recall.ChatRef{ID: "c1", UserID: "u1", UpdatedAt: 100}, recall.ChatRef{ID: "c2", UserID: "u1", UpdatedAt: 100})
+		env.owui.failUploadFor = "c2"
 		cmd := newRecallCmd()
 		var out, errOut bytes.Buffer
 		cmd.SetOut(&out)
@@ -302,20 +244,18 @@ func TestRecallIndexOrdering(t *testing.T) {
 		if !strings.Contains(errOut.String(), "c2") {
 			t.Errorf("the failure must name the failed chat; stderr = %q", errOut.String())
 		}
-		if callIndex(env.calls, "attach") != -1 {
-			t.Errorf("attach ran despite a failed per-chat loop")
+		if hasCallPrefix(env.owui.calls, "attach") {
+			t.Errorf("attach ran despite a failed per-chat loop; calls = %v", env.owui.calls)
 		}
 	})
 
 	t.Run("clean pass stamps completed, excludes the service account, attaches after the loop", func(t *testing.T) {
 		env := newFakeRecallEnv()
-		env.deps.listUserChats = func(_ context.Context, _, _, userID string) ([]recall.ChatRef, error) {
-			env.calls = append(env.calls, "listChats:"+userID)
-			return []recall.ChatRef{
-				{ID: "c1", UserID: userID, UpdatedAt: 100},
-				{ID: "c2", UserID: userID, UpdatedAt: 100},
-			}, nil
-		}
+		env.owui.setChats("u1",
+			recall.ChatRef{ID: "c1", UserID: "u1", UpdatedAt: 100},
+			recall.ChatRef{ID: "c2", UserID: "u1", UpdatedAt: 100},
+		)
+
 		cmd := newRecallCmd()
 		var out, errOut bytes.Buffer
 		cmd.SetOut(&out)
@@ -326,13 +266,13 @@ func TestRecallIndexOrdering(t *testing.T) {
 		if env.state.LastIndexCompletedAt == "" || env.state.LastIndexCompletedAt < env.state.LastIndexStartedAt {
 			t.Errorf("a clean full pass must stamp last_index_completed_at >= started; state = %+v", env.state)
 		}
-		if callIndex(env.calls, "listChats:u-svc") != -1 {
-			t.Errorf("the villa-verify@localhost service account must be excluded from listing; calls = %v", env.calls)
+		if callIndex(env.owui.calls, "listChats:u-svc") != -1 {
+			t.Errorf("the villa-verify@localhost service account must be excluded from listing; calls = %v", env.owui.calls)
 		}
-		attachAt := callIndex(env.calls, "attach")
-		lastUpload := lastCallIndex(env.calls, "upload:"+recall.TranscriptFilename("c2"))
+		attachAt := callIndex(env.owui.calls, "attachCreate")
+		lastUpload := lastCallIndex(env.owui.calls, "upload:"+recall.TranscriptFilename("c2"))
 		if attachAt == -1 || lastUpload == -1 || attachAt < lastUpload {
-			t.Errorf("attach must run AFTER the per-chat loop; calls = %v", env.calls)
+			t.Errorf("attach must run AFTER the per-chat loop; calls = %v", env.owui.calls)
 		}
 		if !strings.Contains(out.String(), "added") {
 			t.Errorf("a clean pass must print a run summary; stdout = %q", out.String())
@@ -341,23 +281,8 @@ func TestRecallIndexOrdering(t *testing.T) {
 
 	t.Run("unrenderable chat is a recorded skip, not a failure or silent drop", func(t *testing.T) {
 		env := newFakeRecallEnv()
-		env.deps.listUserChats = func(_ context.Context, _, _, userID string) ([]recall.ChatRef, error) {
-			env.calls = append(env.calls, "listChats:"+userID)
-			if userID != "u1" {
-				return nil, nil
-			}
-			return []recall.ChatRef{
-				{ID: "c1", UserID: "u1", UpdatedAt: 100},
-				{ID: "c2", UserID: "u1", UpdatedAt: 100},
-			}, nil
-		}
-		env.deps.getChat = func(_ context.Context, _, _, chatID string) (recall.ChatDoc, error) {
-			env.calls = append(env.calls, "getChat:"+chatID)
-			if chatID == "c1" {
-				return recall.ChatDoc{ID: chatID}, nil // no history → RenderTranscript ok=false
-			}
-			return renderableChatDoc(chatID), nil
-		}
+		env.owui.setChats("u1", recall.ChatRef{ID: "c1", UserID: "u1", UpdatedAt: 100}, recall.ChatRef{ID: "c2", UserID: "u1", UpdatedAt: 100})
+		env.owui.docs["c1"] = recall.ChatDoc{ID: "c1"} // no history → RenderTranscript ok=false
 		cmd := newRecallCmd()
 		var out, errOut bytes.Buffer
 		cmd.SetOut(&out)
@@ -391,13 +316,7 @@ func TestRecallCleanReplace(t *testing.T) {
 				"c1": {UserID: "u1", OWUIUpdatedAt: 100, FileID: "old-f1", IndexedAt: "2026-06-09T00:00:00Z"},
 			},
 		}
-		env.deps.listUserChats = func(_ context.Context, _, _, userID string) ([]recall.ChatRef, error) {
-			env.calls = append(env.calls, "listChats:"+userID)
-			if userID != "u1" {
-				return nil, nil
-			}
-			return []recall.ChatRef{{ID: "c1", UserID: "u1", UpdatedAt: 200}}, nil // newer → Update
-		}
+		env.owui.setChats("u1", recall.ChatRef{ID: "c1", UserID: "u1", UpdatedAt: 200})
 		cmd := newRecallCmd()
 		var out, errOut bytes.Buffer
 		cmd.SetOut(&out)
@@ -405,10 +324,10 @@ func TestRecallCleanReplace(t *testing.T) {
 		if code := runRecallIndex(cmd, nil, env.deps, false, false); code != exitPass {
 			t.Fatalf("update run exit = %d, want exitPass; stderr = %q", code, errOut.String())
 		}
-		removeAt := callIndex(env.calls, "remove:old-f1")
-		uploadAt := callIndex(env.calls, "upload:"+recall.TranscriptFilename("c1"))
+		removeAt := callIndex(env.owui.calls, "remove:old-f1")
+		uploadAt := callIndex(env.owui.calls, "upload:"+recall.TranscriptFilename("c1"))
 		if removeAt == -1 || uploadAt == -1 || removeAt > uploadAt {
-			t.Errorf("clean-replace must remove the OLD file before re-uploading; calls = %v", env.calls)
+			t.Errorf("clean-replace must remove the OLD file before re-uploading; calls = %v", env.owui.calls)
 		}
 		got := env.state.Chats["c1"]
 		if got.OWUIUpdatedAt != 200 || got.FileID == "old-f1" || got.FileID == "" {
@@ -432,8 +351,8 @@ func TestRecallCleanReplace(t *testing.T) {
 		if code := runRecallIndex(cmd, nil, env.deps, false, false); code != exitPass {
 			t.Fatalf("delete run exit = %d, want exitPass; stderr = %q", code, errOut.String())
 		}
-		if callIndex(env.calls, "remove:old-f2") == -1 {
-			t.Errorf("a deleted chat must drive knowledge/file/remove for its recorded file id; calls = %v", env.calls)
+		if callIndex(env.owui.calls, "remove:old-f2") == -1 {
+			t.Errorf("a deleted chat must drive knowledge/file/remove for its recorded file id; calls = %v", env.owui.calls)
 		}
 		if _, ok := env.state.Chats["c2"]; ok {
 			t.Errorf("a deleted chat's state entry must be dropped")
@@ -448,13 +367,10 @@ func TestRecallCleanReplace(t *testing.T) {
 // total.
 func TestRecallSingleOperatorGuard(t *testing.T) {
 	twoHumans := func(env *fakeRecallEnv) {
-		env.deps.listUsers = func(context.Context, string, string) ([]owuiUser, error) {
-			env.calls = append(env.calls, "listUsers")
-			return []owuiUser{
-				{ID: "u1", Email: "operator@local.test", Role: "admin"},
-				{ID: "u2", Email: "guest@local.test", Role: "user"},
-				{ID: "u-svc", Email: recallServiceAccountEmail, Role: "admin"},
-			}, nil
+		env.owui.users = []openwebui.User{
+			{ID: "u1", Email: "operator@local.test", Role: "admin"},
+			{ID: "u2", Email: "guest@local.test", Role: "user"},
+			{ID: "u-svc", Email: owuiServiceAccountEmail, Role: "admin"},
 		}
 	}
 
@@ -471,11 +387,11 @@ func TestRecallSingleOperatorGuard(t *testing.T) {
 		if !strings.Contains(errOut.String(), "--i-understand-shared-recall") {
 			t.Errorf("the refusal must name the override flag (remediation); stderr = %q", errOut.String())
 		}
-		if hasCallPrefix(env.calls, "listChats:") {
-			t.Errorf("no user's chats may be listed once the guard refuses; calls = %v", env.calls)
+		if hasCallPrefix(env.owui.calls, "listChats:") {
+			t.Errorf("no user's chats may be listed once the guard refuses; calls = %v", env.owui.calls)
 		}
-		if hasCallPrefix(env.calls, "upload:") || callIndex(env.calls, "attach") != -1 {
-			t.Errorf("nothing may be uploaded or attached after the guard refuses; calls = %v", env.calls)
+		if hasCallPrefix(env.owui.calls, "upload:") || callIndex(env.owui.calls, "attach") != -1 {
+			t.Errorf("nothing may be uploaded or attached after the guard refuses; calls = %v", env.owui.calls)
 		}
 	})
 
@@ -489,11 +405,11 @@ func TestRecallSingleOperatorGuard(t *testing.T) {
 		if code := runRecallIndex(cmd, nil, env.deps, false, true); code != exitPass {
 			t.Fatalf("multi-human index WITH ack exit = %d, want exitPass (%d); stderr = %q", code, exitPass, errOut.String())
 		}
-		if callIndex(env.calls, "listChats:u1") == -1 || callIndex(env.calls, "listChats:u2") == -1 {
-			t.Errorf("with the ack flag both humans' chats must be listed; calls = %v", env.calls)
+		if callIndex(env.owui.calls, "listChats:u1") == -1 || callIndex(env.owui.calls, "listChats:u2") == -1 {
+			t.Errorf("with the ack flag both humans' chats must be listed; calls = %v", env.owui.calls)
 		}
-		if callIndex(env.calls, "listChats:u-svc") != -1 {
-			t.Errorf("the service account must still be excluded even with the ack; calls = %v", env.calls)
+		if callIndex(env.owui.calls, "listChats:u-svc") != -1 {
+			t.Errorf("the service account must still be excluded even with the ack; calls = %v", env.owui.calls)
 		}
 	})
 
@@ -518,14 +434,14 @@ func TestRecallSingleOperatorGuard(t *testing.T) {
 		if code := runRecallIndex(cmd, nil, env.deps, true /* --rebuild */, false); code != exitBlocked {
 			t.Fatalf("multi-human --rebuild exit = %d, want exitBlocked (%d)", code, exitBlocked)
 		}
-		if hasCallPrefix(env.calls, "reset:") {
-			t.Errorf("a refused --rebuild must NOT have reset the collection; calls = %v", env.calls)
+		if hasCallPrefix(env.owui.calls, "reset:") {
+			t.Errorf("a refused --rebuild must NOT have reset the collection; calls = %v", env.owui.calls)
 		}
-		if callIndex(env.calls, "ensureKB") != -1 {
-			t.Errorf("a refusal must NOT create the KB; calls = %v", env.calls)
+		if callIndex(env.owui.calls, "ensureKB") != -1 {
+			t.Errorf("a refusal must NOT create the KB; calls = %v", env.owui.calls)
 		}
-		if callIndex(env.calls, "persist") != -1 {
-			t.Errorf("a refusal must NOT persist state (stamp overwrite); calls = %v", env.calls)
+		if callIndex(env.owui.calls, "persist") != -1 {
+			t.Errorf("a refusal must NOT persist state (stamp overwrite); calls = %v", env.owui.calls)
 		}
 		if st := env.state; st.EmbeddingModel != "nomic-embed-text-v1.5" || st.EmbeddingDim != 768 {
 			t.Errorf("the recorded embedding stamp must survive a refusal, got %q/%d", st.EmbeddingModel, st.EmbeddingDim)
@@ -559,18 +475,9 @@ func TestRecallCleanReplaceFailureClearsState(t *testing.T) {
 			"c1": {UserID: "u1", OWUIUpdatedAt: 100, FileID: "old-f1", IndexedAt: "2026-06-09T00:00:00Z"},
 		},
 	}
-	env.deps.listUserChats = func(_ context.Context, _, _, userID string) ([]recall.ChatRef, error) {
-		env.calls = append(env.calls, "listChats:"+userID)
-		if userID != "u1" {
-			return nil, nil
-		}
-		return []recall.ChatRef{{ID: "c1", UserID: "u1", UpdatedAt: 200}}, nil // newer → Update
-	}
+	env.owui.setChats("u1", recall.ChatRef{ID: "c1", UserID: "u1", UpdatedAt: 200})
 	// The remove succeeds; the re-upload then fails — the classic mid-step failure.
-	env.deps.uploadTranscript = func(_ context.Context, _, _, _, filename, _ string) (string, error) {
-		env.calls = append(env.calls, "upload:"+filename)
-		return "", errors.New("embed backend 500")
-	}
+	env.owui.errs["upload"] = errors.New("embed backend 500")
 	cmd := newRecallCmd()
 	var out, errOut bytes.Buffer
 	cmd.SetOut(&out)
@@ -578,8 +485,8 @@ func TestRecallCleanReplaceFailureClearsState(t *testing.T) {
 	if code := runRecallIndex(cmd, nil, env.deps, false, false); code != exitBlocked {
 		t.Fatalf("remove-then-fail exit = %d, want exitBlocked (%d)", code, exitBlocked)
 	}
-	if callIndex(env.calls, "remove:old-f1") == -1 {
-		t.Fatalf("the old transcript must have been removed first; calls = %v", env.calls)
+	if callIndex(env.owui.calls, "remove:old-f1") == -1 {
+		t.Fatalf("the old transcript must have been removed first; calls = %v", env.owui.calls)
 	}
 	got, ok := env.state.Chats["c1"]
 	if !ok {
@@ -618,24 +525,8 @@ func TestRecallCleanReplaceFailureClearsState(t *testing.T) {
 // reconciliation must hold for the run to earn last_index_completed_at.
 func TestRecallIncompletePassNotStamped(t *testing.T) {
 	env := newFakeRecallEnv()
-	env.deps.listUserChats = func(_ context.Context, _, _, userID string) ([]recall.ChatRef, error) {
-		env.calls = append(env.calls, "listChats:"+userID)
-		if userID != "u1" {
-			return nil, nil
-		}
-		// One renderable Add + one unrenderable Add (recorded skip): both reconcile.
-		return []recall.ChatRef{
-			{ID: "c1", UserID: "u1", UpdatedAt: 100},
-			{ID: "c2", UserID: "u1", UpdatedAt: 100},
-		}, nil
-	}
-	env.deps.getChat = func(_ context.Context, _, _, chatID string) (recall.ChatDoc, error) {
-		env.calls = append(env.calls, "getChat:"+chatID)
-		if chatID == "c2" {
-			return recall.ChatDoc{ID: chatID}, nil // unrenderable → skip
-		}
-		return renderableChatDoc(chatID), nil
-	}
+	env.owui.setChats("u1", recall.ChatRef{ID: "c1", UserID: "u1", UpdatedAt: 100}, recall.ChatRef{ID: "c2", UserID: "u1", UpdatedAt: 100})
+	env.owui.docs["c2"] = recall.ChatDoc{ID: "c2"} // unrenderable → skip
 	cmd := newRecallCmd()
 	var out, errOut bytes.Buffer
 	cmd.SetOut(&out)
@@ -650,141 +541,6 @@ func TestRecallIncompletePassNotStamped(t *testing.T) {
 	if !strings.Contains(out.String(), "1 added") || !strings.Contains(out.String(), "1 skipped") {
 		t.Errorf("counters must come from the typed outcome (1 added, 1 skipped); out = %q", out.String())
 	}
-}
-
-// TestRecallAttach locks the idempotent read-merge-write attach
-// (attachKnowledgeRow): an EXISTING Model row is updated with the recall KB merged
-// into meta.knowledge while every foreign meta key the operator set is preserved
-// (never clobber) and the KB item is deduplicated by id; an ABSENT row is
-// created with the served-model override shape (id == served, base_model_id null).
-func TestRecallAttach(t *testing.T) {
-	const kbID = "kb1"
-
-	t.Run("merges into an existing row preserving foreign meta keys", func(t *testing.T) {
-		// Stateful fakes: getRow returns the CURRENT stored row, so the
-		// post-update re-GET verification sees the merge that updateRow persisted
-		// exactly the live read-merge-write-then-verify cycle.
-		stored := map[string]any{
-			"id": "served.gguf",
-			"meta": map[string]any{
-				"description": "keep me",
-				"knowledge": []any{
-					map[string]any{"type": "collection", "id": "other-kb", "name": "Other"},
-				},
-			},
-			"params": map[string]any{"temperature": 0.5},
-		}
-		var updated map[string]any
-		createRan := false
-		getRow := func() (map[string]any, bool, error) { return stored, true, nil }
-		updateRow := func(row map[string]any) error { updated = row; stored = row; return nil }
-		createRow := func(map[string]any) error { createRan = true; return nil }
-
-		state, err := attachKnowledgeRow(getRow, updateRow, createRow, "served.gguf", kbID, recallKnowledgeName)
-		if err != nil || state != recall.AttachmentAttached {
-			t.Fatalf("attach = (%v, %v), want (attached, nil)", state, err)
-		}
-		if createRan {
-			t.Errorf("create must not run when the row exists (Pitfall 3: MODEL_ID_TAKEN)")
-		}
-		meta, _ := updated["meta"].(map[string]any)
-		if meta == nil || meta["description"] != "keep me" {
-			t.Errorf("foreign meta keys must be preserved (read-merge-write); meta = %v", meta)
-		}
-		items, _ := meta["knowledge"].([]any)
-		if len(items) != 2 {
-			t.Fatalf("knowledge must carry the prior item AND the recall KB; items = %v", items)
-		}
-		found := false
-		for _, it := range items {
-			if m, ok := it.(map[string]any); ok && m["id"] == kbID {
-				found = true
-			}
-		}
-		if !found {
-			t.Errorf("the recall KB item must be merged into meta.knowledge; items = %v", items)
-		}
-		if p, _ := updated["params"].(map[string]any); p == nil || p["temperature"] != 0.5 {
-			t.Errorf("foreign top-level row fields must survive the merge; params = %v", updated["params"])
-		}
-	})
-
-	t.Run("deduplicates the recall KB by id on re-attach", func(t *testing.T) {
-		stored := map[string]any{
-			"id": "served.gguf",
-			"meta": map[string]any{
-				"knowledge": []any{
-					map[string]any{"type": "collection", "id": kbID, "name": recallKnowledgeName},
-				},
-			},
-		}
-		var updated map[string]any
-		getRow := func() (map[string]any, bool, error) { return stored, true, nil }
-		updateRow := func(row map[string]any) error { updated = row; stored = row; return nil }
-		createRow := func(map[string]any) error { return nil }
-
-		if _, err := attachKnowledgeRow(getRow, updateRow, createRow, "served.gguf", kbID, recallKnowledgeName); err != nil {
-			t.Fatalf("re-attach errored: %v", err)
-		}
-		meta, _ := updated["meta"].(map[string]any)
-		items, _ := meta["knowledge"].([]any)
-		if len(items) != 1 {
-			t.Errorf("re-attach must not duplicate the KB item (idempotent); items = %v", items)
-		}
-	})
-
-	t.Run("creates the override row when absent", func(t *testing.T) {
-		var stored map[string]any
-		exists := false
-		var created map[string]any
-		updateRan := false
-		getRow := func() (map[string]any, bool, error) { return stored, exists, nil }
-		updateRow := func(map[string]any) error { updateRan = true; return nil }
-		createRow := func(row map[string]any) error { created = row; stored = row; exists = true; return nil }
-
-		state, err := attachKnowledgeRow(getRow, updateRow, createRow, "served.gguf", kbID, recallKnowledgeName)
-		if err != nil || state != recall.AttachmentAttached {
-			t.Fatalf("attach = (%v, %v), want (attached, nil)", state, err)
-		}
-		if updateRan {
-			t.Errorf("update must not run when the row is absent")
-		}
-		if created["id"] != "served.gguf" || created["base_model_id"] != nil {
-			t.Errorf("the created row must override the SERVED model (id == served, base_model_id null); row = %v", created)
-		}
-		meta, _ := created["meta"].(map[string]any)
-		items, _ := meta["knowledge"].([]any)
-		if len(items) != 1 {
-			t.Errorf("the created row must carry the recall KB in meta.knowledge; items = %v", items)
-		}
-	})
-
-	t.Run("a silent detach (update returns 200 but the KB does not land) is NOT reported attached", func(t *testing.T) {
-		// Pitfall 2: updateRow succeeds (HTTP 200) but OWUI dropped/reshaped
-		// meta.knowledge, so the re-GET shows the recall KB absent. attach must
-		// return a not-Attached verdict WITH an error so the index run fails
-		// honestly instead of stamping a false green.
-		// getRow returns a FRESH row each call (as the live server re-read does), so
-		// the in-place merge of the first row never pollutes the verify re-GET. The
-		// server still reports an empty meta.knowledge → the merge did not land.
-		getRow := func() (map[string]any, bool, error) {
-			return map[string]any{
-				"id":   "served.gguf",
-				"meta": map[string]any{"knowledge": []any{}},
-			}, true, nil
-		}
-		// updateRow lies: it returns success but does NOT persist the merge.
-		updateRow := func(map[string]any) error { return nil }
-		createRow := func(map[string]any) error { return nil }
-
-		state, err := attachKnowledgeRow(getRow, updateRow, createRow, "served.gguf", kbID, recallKnowledgeName)
-		if err == nil {
-			t.Fatalf("a silent detach must return an error; got state=%v err=nil", state)
-		}
-		if state == recall.AttachmentAttached {
-			t.Errorf("a silent detach must NOT be reported attached; state = %v", state)
-		}
-	})
 }
 
 // TestRecallStatus locks the typed-Unknown status contract: an unevaluable
@@ -807,22 +563,19 @@ func TestRecallStatus(t *testing.T) {
 		}
 	}
 	liveCurrent := func(env *fakeRecallEnv) {
-		env.deps.listUserChats = func(_ context.Context, _, _, userID string) ([]recall.ChatRef, error) {
-			env.calls = append(env.calls, "listChats:"+userID)
-			if userID != "u1" {
-				return nil, nil
-			}
-			return []recall.ChatRef{{ID: "c1", UserID: "u1", UpdatedAt: 100}}, nil
+		env.owui.setChats("u1", recall.ChatRef{ID: "c1", UserID: "u1", UpdatedAt: 100})
+		// The served model row carries the recall collection: retrieval is wired.
+		env.owui.modelRow = map[string]any{
+			"id":   "served.gguf",
+			"meta": map[string]any{"knowledge": []any{map[string]any{"id": "kb1"}}},
 		}
 	}
 
 	t.Run("listing failure renders Unknown at exitWarn, never stale 0", func(t *testing.T) {
 		env := newFakeRecallEnv()
 		env.state = completeState()
-		env.deps.listUserChats = func(_ context.Context, _, _, userID string) ([]recall.ChatRef, error) {
-			env.calls = append(env.calls, "listChats:"+userID)
-			return nil, errors.New("OWUI down")
-		}
+		env.owui.errs["listChats"] = errors.New("OWUI down")
+
 		cmd := newRecallCmd()
 		var out, errOut bytes.Buffer
 		cmd.SetOut(&out)
@@ -842,10 +595,9 @@ func TestRecallStatus(t *testing.T) {
 		env := newFakeRecallEnv()
 		env.state = completeState()
 		liveCurrent(env)
-		env.deps.attachmentState = func(_ context.Context, _, _, _ string) recall.AttachmentState {
-			env.calls = append(env.calls, "attachState")
-			return recall.AttachmentMissing
-		}
+		// The served model row exists but carries no attachment: the post-model-swap
+		// detach case, which must read as confidently Missing rather than Unknown.
+		env.owui.modelRow = map[string]any{"id": "served.gguf", "meta": map[string]any{}}
 		cmd := newRecallCmd()
 		var out, errOut bytes.Buffer
 		cmd.SetOut(&out)
@@ -908,14 +660,7 @@ func TestRecallRebuild(t *testing.T) {
 			"c1": {UserID: "u1", OWUIUpdatedAt: 200, FileID: "old-f1", IndexedAt: "2026-06-09T00:00:00Z"},
 		},
 	}
-	env.deps.listUserChats = func(_ context.Context, _, _, userID string) ([]recall.ChatRef, error) {
-		env.calls = append(env.calls, "listChats:"+userID)
-		if userID != "u1" {
-			return nil, nil
-		}
-		// updated_at UNCHANGED vs state — only the cleared map makes this re-index.
-		return []recall.ChatRef{{ID: "c1", UserID: "u1", UpdatedAt: 200}}, nil
-	}
+	env.owui.setChats("u1", recall.ChatRef{ID: "c1", UserID: "u1", UpdatedAt: 200})
 	cmd := newRecallCmd()
 	var out, errOut bytes.Buffer
 	cmd.SetOut(&out)
@@ -923,16 +668,16 @@ func TestRecallRebuild(t *testing.T) {
 	if code := runRecallIndex(cmd, nil, env.deps, true, false); code != exitPass {
 		t.Fatalf("rebuild exit = %d, want exitPass; stderr = %q", code, errOut.String())
 	}
-	resetAt := callIndex(env.calls, "reset:kb1")
-	uploadAt := callIndex(env.calls, "upload:"+recall.TranscriptFilename("c1"))
+	resetAt := callIndex(env.owui.calls, "reset:kb1")
+	uploadAt := callIndex(env.owui.calls, "upload:"+recall.TranscriptFilename("c1"))
 	if resetAt == -1 || uploadAt == -1 || resetAt > uploadAt {
-		t.Errorf("--rebuild must reset the KB (id-preserving) BEFORE re-indexing; calls = %v", env.calls)
+		t.Errorf("--rebuild must reset the KB (id-preserving) BEFORE re-indexing; calls = %v", env.owui.calls)
 	}
 	if uploadAt == -1 {
-		t.Errorf("an unchanged chat must still re-index after --rebuild (cleared state); calls = %v", env.calls)
+		t.Errorf("an unchanged chat must still re-index after --rebuild (cleared state); calls = %v", env.owui.calls)
 	}
-	if callIndex(env.calls, "remove:old-f1") != -1 {
-		t.Errorf("no per-chat remove may run against an already-reset KB; calls = %v", env.calls)
+	if callIndex(env.owui.calls, "remove:old-f1") != -1 {
+		t.Errorf("no per-chat remove may run against an already-reset KB; calls = %v", env.owui.calls)
 	}
 	got := env.state.Chats["c1"]
 	if got.FileID == "" || got.FileID == "old-f1" {
@@ -996,11 +741,11 @@ func TestRecallIndexSkewGuard(t *testing.T) {
 		}
 		// Pitfall 6: the refusal must run BEFORE any state mutation — zero persists,
 		// no KB ensure/reset, and the recorded stamp survives verbatim.
-		if callIndex(env.calls, "persist") != -1 {
-			t.Errorf("a skew refusal must never persist state; calls = %v", env.calls)
+		if callIndex(env.owui.calls, "persist") != -1 {
+			t.Errorf("a skew refusal must never persist state; calls = %v", env.owui.calls)
 		}
-		if callIndex(env.calls, "ensureKB") != -1 || hasCallPrefix(env.calls, "reset:") {
-			t.Errorf("a skew refusal must fire no KB mutation; calls = %v", env.calls)
+		if callIndex(env.owui.calls, "ensureKB") != -1 || hasCallPrefix(env.owui.calls, "reset:") {
+			t.Errorf("a skew refusal must fire no KB mutation; calls = %v", env.owui.calls)
 		}
 		if st := env.state; st.EmbeddingModel != "nomic-embed-text-v1.5" || st.EmbeddingDim != 768 {
 			t.Errorf("the recorded stamp must survive the refusal, got %q/%d", st.EmbeddingModel, st.EmbeddingDim)
@@ -1035,8 +780,8 @@ func TestRecallIndexSkewGuard(t *testing.T) {
 		if code := runRecallIndex(cmd, nil, env.deps, true, false); code != exitPass {
 			t.Fatalf("--rebuild skew run exit = %d, want exitPass (the sanctioned re-index, OQ4); stderr = %q", code, errOut.String())
 		}
-		if callIndex(env.calls, "reset:kb1") == -1 {
-			t.Errorf("--rebuild must id-preservingly reset the KB; calls = %v", env.calls)
+		if callIndex(env.owui.calls, "reset:kb1") == -1 {
+			t.Errorf("--rebuild must id-preservingly reset the KB; calls = %v", env.owui.calls)
 		}
 		if st := env.state; st.EmbeddingModel != "other-embed-model" || st.EmbeddingDim != 512 {
 			t.Errorf("the fresh stamp must record the NEW identity, got %q/%d", st.EmbeddingModel, st.EmbeddingDim)
