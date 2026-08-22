@@ -22,12 +22,15 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 
 	"github.com/spf13/cobra"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/preflight"
+	"github.com/MatrixMagician/VillaStraylight/internal/subsystem"
+	"github.com/MatrixMagician/VillaStraylight/internal/verify"
 )
 
 // verifyMemoryLoopbackAddr is the host side of the OWUI PublishPort (127.0.0.1:<chat_port>,
@@ -40,10 +43,6 @@ const verifyMemoryLoopbackAddr = "127.0.0.1"
 // is testable off-hardware (mirrors doctor.Deps / the install memoryProofFn seam). The live
 // wiring is liveVerifyMemoryDeps.
 type verifyMemoryDeps struct {
-	// loadedMemoryEnabled is the AUTHORITATIVE memory gate source — the PERSISTED
-	// config.LoadVilla().MemoryEnabled (live: liveLoadedMemoryEnabled, failing soft to
-	// false so a broken config never silently claims memory is on). Reused from install.
-	loadedMemoryEnabled func() bool
 	// loadedConfig resolves the loopback OWUI port + the question/fact (live:
 	// liveLoadedConfig). The planted doc/fact + question are the on-hardware seed the
 	// verification wave supplies; here they are resolved-but-overridable defaults.
@@ -57,9 +56,8 @@ type verifyMemoryDeps struct {
 // the persisted config, and the production liveRagSmoke seam.
 func liveVerifyMemoryDeps() verifyMemoryDeps {
 	return verifyMemoryDeps{
-		loadedMemoryEnabled: liveLoadedMemoryEnabled,
-		loadedConfig:        liveLoadedConfig,
-		ragSmokeFn:          liveRagSmoke,
+		loadedConfig: liveLoadedConfig,
+		ragSmokeFn:   liveRagSmoke,
 	}
 }
 
@@ -112,40 +110,59 @@ func runVerifyMemory(cmd *cobra.Command, _ []string, deps verifyMemoryDeps) int 
 	out := cmd.OutOrStdout()
 	errOut := cmd.ErrOrStderr()
 
-	if !deps.loadedMemoryEnabled() {
-		fmt.Fprintln(out, "verify memory: the memory stack is not enabled (memory_enabled=false) — nothing to verify. Enable it with `villa install` after opting in, then re-run.")
-		return exitPass
-	}
-
 	// A config that cannot be READ is a refusal, not a zero config: the RAG smoke
 	// probe would otherwise be aimed at the seed default chat port and report its
-	// result as a verdict on the user's stack.
-	cfg, err := deps.loadedConfig()
-	if err != nil {
-		fmt.Fprintf(errOut, "verify memory: cannot read config.toml (%v) — fix or remove it, then re-run.\n", err)
+	// result as a verdict on the user's stack. It is read BEFORE the gate because the
+	// gate itself is a config field.
+	cfg, cerr := deps.loadedConfig()
+	if cerr != nil {
+		fmt.Fprintf(errOut, "verify memory: cannot read config.toml (%v) — fix or remove it, then re-run.\n", cerr)
 		return exitBlocked
 	}
 
-	// The planted question + the fact whose ONLY source is the uploaded document (so a
-	// correct answer can only come from retrieval, not the base model's priors). The
-	// verification wave seeds the matching doc; these defaults are the seam contract.
-	const (
-		ragSmokeQuestion = "What is the VillaStraylight runtime RAG smoke verification token?"
-		ragSmokeWantFact = "VILLA-RAG-SMOKE-TOKEN-7741"
-	)
+	outcome := verify.Run(verify.Subject{
+		Name:            "verify memory",
+		Enabled:         func() bool { return subsystem.MemoryOn(cfg) },
+		DisabledMessage: "the memory stack is not enabled (memory_enabled=false) — nothing to verify. Enable it with `villa install` after opting in, then re-run.",
+		FailLabel:       "runtime zero-outbound RAG proof",
+		Prove: func() verify.Proof {
+			// The planted question plus the fact whose ONLY source is the uploaded
+			// document, so a correct answer can only come from retrieval rather than
+			// from the base model's priors.
+			const (
+				ragSmokeQuestion = "What is the VillaStraylight runtime RAG smoke verification token?"
+				ragSmokeWantFact = "VILLA-RAG-SMOKE-TOKEN-7741"
+			)
+			proof := deps.ragSmokeFn(cmd.Context(), ragSmokeInput{
+				owuiAddr: verifyMemoryLoopbackAddr,
+				owuiPort: cfg.ChatPort,
+				question: ragSmokeQuestion,
+				wantFact: ragSmokeWantFact,
+			})
+			return memoryProofOutcome(proof)
+		},
+	})
 
-	in := ragSmokeInput{
-		owuiAddr: verifyMemoryLoopbackAddr,
-		owuiPort: cfg.ChatPort,
-		question: ragSmokeQuestion,
-		wantFact: ragSmokeWantFact,
-	}
+	return renderVerifyOutcome(out, errOut, outcome)
+}
 
-	proof := deps.ragSmokeFn(cmd.Context(), in)
-	if proof.status == preflight.StatusFail {
-		fmt.Fprintf(errOut, "verify memory: runtime zero-outbound RAG proof FAILED: %s\n", proof.detail)
-		return exitBlocked
+// memoryProofOutcome maps the memory proof onto the shared verdict. The memory proof
+// has no reject case: its drive either completes or fails.
+func memoryProofOutcome(p memoryProof) verify.Proof {
+	if p.status == preflight.StatusFail {
+		return verify.Proof{Status: verify.Fail, Detail: p.detail}
 	}
-	fmt.Fprintf(out, "verify memory: %s\n", proof.detail)
-	return exitPass
+	return verify.Proof{Status: verify.Pass, Detail: p.detail}
+}
+
+// renderVerifyOutcome prints one verify outcome and maps it to an exit code. It is
+// the single rendering point for the family, so the three verbs cannot drift onto
+// different exit codes for the same verdict.
+func renderVerifyOutcome(out, errOut io.Writer, o verify.Outcome) int {
+	dst := out
+	if o.ToStderr {
+		dst = errOut
+	}
+	fmt.Fprintln(dst, o.Message)
+	return verify.ExitCode(o.Status, exitPass, exitBlocked, exitWarn)
 }

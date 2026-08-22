@@ -9,6 +9,7 @@ import (
 
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 	"github.com/MatrixMagician/VillaStraylight/internal/preflight"
+	"github.com/MatrixMagician/VillaStraylight/internal/verify"
 )
 
 // verify_agent.go holds the v1.4 CODING-AGENT RUNTIME strictly-local proof — the headline
@@ -361,19 +362,18 @@ func newVerifyAgent() *cobra.Command {
 // remediation detail to stderr and returns exitBlocked; a PASS prints the proof detail and
 // returns exitPass. It mirrors runVerifyMemory's gate + exit mapping.
 func runVerifyAgent(cmd *cobra.Command, _ []string, deps verifyAgentDeps) int {
-	out := cmd.OutOrStdout()
-	errOut := cmd.ErrOrStderr()
-
-	if !deps.loadedAgentEnabled() {
-		fmt.Fprintln(out, "verify agent: the coding agent is not enabled (agent_enabled=false) — nothing to verify. Enable it with `villa install --coding-agent`, then re-run.")
-		return exitPass
-	}
-
-	proof := deps.verifyFn(cmd.Context(), deps)
-	if proof.status == preflight.StatusFail {
-		fmt.Fprintf(errOut, "verify agent: runtime strictly-local agent proof FAILED: %s\n", proof.detail)
-		return exitBlocked
-	}
-	fmt.Fprintf(out, "verify agent: %s\n", proof.detail)
-	return exitPass
+	outcome := verify.Run(verify.Subject{
+		Name:            "verify agent",
+		Enabled:         deps.loadedAgentEnabled,
+		DisabledMessage: "the coding agent is not enabled (agent_enabled=false) — nothing to verify. Enable it with `villa install --coding-agent`, then re-run.",
+		FailLabel:       "runtime strictly-local agent proof",
+		Prove: func() verify.Proof {
+			proof := deps.verifyFn(cmd.Context(), deps)
+			if proof.status == preflight.StatusFail {
+				return verify.Proof{Status: verify.Fail, Detail: proof.detail}
+			}
+			return verify.Proof{Status: verify.Pass, Detail: proof.detail}
+		},
+	})
+	return renderVerifyOutcome(cmd.OutOrStdout(), cmd.ErrOrStderr(), outcome)
 }

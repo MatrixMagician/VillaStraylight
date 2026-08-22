@@ -43,6 +43,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
+	"github.com/MatrixMagician/VillaStraylight/internal/verify"
 	"github.com/MatrixMagician/VillaStraylight/internal/verifystate"
 	"github.com/MatrixMagician/VillaStraylight/internal/websafe"
 )
@@ -718,26 +719,37 @@ func newVerifySearch() *cobra.Command {
 func runVerifySearch(cmd *cobra.Command, _ []string, deps searchVerifyDeps) int {
 	out := cmd.OutOrStdout()
 	errOut := cmd.ErrOrStderr()
-
 	asJSON, _ := cmd.Flags().GetBool("json")
 
-	if !deps.loadedWebSearchEnabled() {
+	// The proof is captured so the --json render and the state persist both see the
+	// verdict the core resolved, rather than re-deriving it.
+	var proof searchProof
+
+	outcome := verify.Run(verify.Subject{
+		Name:            "verify search",
+		Enabled:         deps.loadedWebSearchEnabled,
+		DisabledMessage: "web search is not enabled (web_search_enabled=false) — nothing to verify. Enable it with `villa install` after opting in, then re-run.",
+		FailLabel:       "bounded-outbound proof",
+		RejectLabel:     "bounded-outbound proof",
+		Prove: func() verify.Proof {
+			proof = deps.verifyFn(cmd.Context(), deps)
+			return searchProofOutcome(proof)
+		},
+	})
+
+	if outcome.Status == verify.Skip {
 		if asJSON {
 			_ = renderVerifySearchJSON(out, searchProof{status: searchPass, detail: "web search is not enabled (web_search_enabled=false) — nothing to verify"})
 			return exitPass
 		}
-		fmt.Fprintln(out, "verify search: web search is not enabled (web_search_enabled=false) — nothing to verify. Enable it with `villa install` after opting in, then re-run.")
+		fmt.Fprintln(out, outcome.Message)
 		return exitPass
 	}
 
-	proof := deps.verifyFn(cmd.Context(), deps)
-
-	// Persist the verdict best-effort (the ONE new write of Phase 34): the cached
-	// result is the source of the outbound-bounded indicator surfaced downstream. This stays
-	// OUT of the pure evalSearchVerify core (which does ZERO host I/O); it is a side effect
-	// of the cmd-tier run path only. A persist failure NEVER changes the exit code (the proof
-	// verdict is authoritative) — at most it surfaces a best-effort warning on stderr, mirroring
-	// the backup RestartWarning posture. A nil persistFn seam is a no-op.
+	// Persist the verdict best-effort: the cached result is the source of the
+	// outbound-bounded indicator surfaced downstream. A persist failure NEVER changes
+	// the exit code — the proof verdict is authoritative — at most it surfaces a
+	// warning on stderr. A nil seam is a no-op.
 	if deps.persistFn != nil {
 		if err := deps.persistFn(verifystate.State{
 			Verdict:   verdictName(proof.status),
@@ -749,23 +761,24 @@ func runVerifySearch(cmd *cobra.Command, _ []string, deps searchVerifyDeps) int 
 
 	if asJSON {
 		_ = renderVerifySearchJSON(out, proof)
+		return verify.ExitCode(outcome.Status, exitPass, exitBlocked, exitWarn)
 	}
+	return renderVerifyOutcome(out, errOut, outcome)
+}
 
-	switch proof.status {
+// searchProofOutcome maps the search verdict onto the shared one.
+//
+// REJECT stays a distinct outcome rather than collapsing into pass or fail. That is
+// the negative-control-first rule the bounded-outbound proof rests on: an egress
+// block that could not be shown to be effective is rejected, never reported as
+// holding, and never reported as broken either — nothing was proven.
+func searchProofOutcome(p searchProof) verify.Proof {
+	switch p.status {
 	case searchFail:
-		if !asJSON {
-			fmt.Fprintf(errOut, "verify search: bounded-outbound proof FAILED: %s\n", proof.detail)
-		}
-		return exitBlocked
+		return verify.Proof{Status: verify.Fail, Detail: p.detail}
 	case searchReject:
-		if !asJSON {
-			fmt.Fprintf(errOut, "verify search: bounded-outbound proof could not be conducted (REJECT): %s\n", proof.detail)
-		}
-		return exitWarn
+		return verify.Proof{Status: verify.Reject, Detail: p.detail}
 	default:
-		if !asJSON {
-			fmt.Fprintf(out, "verify search: %s\n", proof.detail)
-		}
-		return exitPass
+		return verify.Proof{Status: verify.Pass, Detail: p.detail}
 	}
 }

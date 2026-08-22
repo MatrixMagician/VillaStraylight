@@ -145,8 +145,11 @@ func TestRunVerifyMemoryGate(t *testing.T) {
 	t.Run("memory off exits 0 without running the proof", func(t *testing.T) {
 		proofRan := false
 		deps := verifyMemoryDeps{
-			loadedMemoryEnabled: func() bool { return false },
-			loadedConfig:        func() (config.VillaConfig, error) { return config.DefaultVillaConfig(), nil },
+			loadedConfig: func() (config.VillaConfig, error) {
+				cfg := config.DefaultVillaConfig()
+				cfg.MemoryEnabled = false
+				return cfg, nil
+			},
 			ragSmokeFn: func(context.Context, ragSmokeInput) memoryProof {
 				proofRan = true
 				return memoryProof{status: preflight.StatusPass}
@@ -166,8 +169,11 @@ func TestRunVerifyMemoryGate(t *testing.T) {
 
 	t.Run("memory on FAIL returns exitBlocked with remediation", func(t *testing.T) {
 		deps := verifyMemoryDeps{
-			loadedMemoryEnabled: func() bool { return true },
-			loadedConfig:        func() (config.VillaConfig, error) { return config.DefaultVillaConfig(), nil },
+			loadedConfig: func() (config.VillaConfig, error) {
+				cfg := config.DefaultVillaConfig()
+				cfg.MemoryEnabled = true
+				return cfg, nil
+			},
 			ragSmokeFn: func(_ context.Context, in ragSmokeInput) memoryProof {
 				// The drive must target the loopback PublishPort (no new host port).
 				if in.owuiAddr != verifyMemoryLoopbackAddr {
@@ -190,8 +196,11 @@ func TestRunVerifyMemoryGate(t *testing.T) {
 
 	t.Run("memory on PASS returns exitPass", func(t *testing.T) {
 		deps := verifyMemoryDeps{
-			loadedMemoryEnabled: func() bool { return true },
-			loadedConfig:        func() (config.VillaConfig, error) { return config.DefaultVillaConfig(), nil },
+			loadedConfig: func() (config.VillaConfig, error) {
+				cfg := config.DefaultVillaConfig()
+				cfg.MemoryEnabled = true
+				return cfg, nil
+			},
 			ragSmokeFn: func(context.Context, ragSmokeInput) memoryProof {
 				return memoryProof{status: preflight.StatusPass, detail: "document upload retrieved + cited with zero outbound"}
 			},
