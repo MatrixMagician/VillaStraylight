@@ -269,12 +269,20 @@ func newFakeInstallDeps(t *testing.T, units []orchestrate.Unit, plan orchestrate
 		if f.configLoadErr != nil {
 			return config.VillaConfig{}, f.configLoadErr
 		}
+		cfg := config.DefaultVillaConfig()
 		if f.persistedConfig != nil {
-			return *f.persistedConfig, nil
+			cfg = *f.persistedConfig
 		}
-		return config.DefaultVillaConfig(), nil
+		// The subsystem gates are PART of the persisted config, which is how
+		// production reads them. They used to arrive through three separate seams
+		// that each re-read config.toml, so a test could describe a world the real
+		// flow could never observe: a config saying memory is off while the gate seam
+		// said it was on.
+		cfg.MemoryEnabled = f.memoryEnabled
+		cfg.WebSearchEnabled = f.webSearchEnabled
+		cfg.AgentEnabled = f.agentEnabled
+		return cfg, nil
 	}
-	d.loadedMemoryEnabled = func() bool { return f.memoryEnabled }
 	d.embedModelPresent = func(string) bool {
 		f.embedPresentCalls++
 		return f.embedPresent
@@ -295,7 +303,6 @@ func newFakeInstallDeps(t *testing.T, units []orchestrate.Unit, plan orchestrate
 	// are unchanged). The settings + secret-env writers record an ordered event so a test can
 	// assert BOTH config files are written BEFORE the searxng start (Pitfall 3). The proof
 	// seam returns the controllable verdict and captures its input for assertion.
-	d.loadedWebSearchEnabled = func() bool { return f.webSearchEnabled }
 	d.writeSearxngSettings = func(string, string) error {
 		f.searxngSettingsCalls++
 		f.callOrder = append(f.callOrder, "writeSearxngSettings")
@@ -325,7 +332,6 @@ func newFakeInstallDeps(t *testing.T, units []orchestrate.Unit, plan orchestrate
 	// tests are unchanged). The pre-stage/install/render/proof seams record an ordered event
 	// so a test can assert the binary + GGUF are staged and the config rendered BEFORE the
 	// readiness proof, and the proof seam returns the controllable verdict.
-	d.loadedAgentEnabled = func() bool { return f.agentEnabled }
 	d.agentCatalog = func() (catalog.Catalog, bool) { return f.agentCat, f.agentCatOK }
 	d.coderModelPresent = func(string, catalog.Shard) bool {
 		f.coderPresentCalls++

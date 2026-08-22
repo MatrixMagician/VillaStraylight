@@ -18,11 +18,11 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
 	"github.com/MatrixMagician/VillaStraylight/internal/inference"
+	"github.com/MatrixMagician/VillaStraylight/internal/install"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 	"github.com/MatrixMagician/VillaStraylight/internal/preflight"
 	"github.com/MatrixMagician/VillaStraylight/internal/recall"
 	"github.com/MatrixMagician/VillaStraylight/internal/recommend"
-	"github.com/MatrixMagician/VillaStraylight/internal/subsystem"
 )
 
 // install.go wires the `villa install` lifecycle verb (07, ORCH-03,
@@ -166,7 +166,7 @@ type installDeps struct {
 	pollReady   func(ctx context.Context, endpoint string) installReadiness
 
 	// Memory-stack seams (Phase-19 /, INFRA-02). All gated on the
-	// PERSISTED memory_enabled (loadedMemoryEnabled), skipped under --dry-run.
+	// resolved memory gate, skipped under --dry-run.
 	//
 	// loadedConfig returns the PERSISTED config.LoadVilla(), PROPAGATING a load
 	// error. runInstall SEEDS cfg from this instead of
@@ -178,14 +178,6 @@ type installDeps struct {
 	// chat fields, so seeding from it keeps the gap-test:1b loopback-default guarantee
 	// while honoring any persisted customization.
 	loadedConfig func() (config.VillaConfig, error)
-	// loadedMemoryEnabled returns the AUTHORITATIVE gate value: the persisted
-	// config.LoadVilla().MemoryEnabled (fail-soft to false on a load error). It is
-	// threaded into runInstall to set cfg.MemoryEnabled, REPLACING the always-false
-	// DefaultVillaConfig() seed as the memory gate source — so an opted-in user's memory
-	// stack is never silently skipped. This is the one seam the whole memory
-	// path keys off; binding it to the seed's hard-coded false would be the silent-failure
-	// bug this plan exists to prevent.
-	loadedMemoryEnabled func() bool
 	// embedModelPresent reports whether the pre-staged embed GGUF is already on disk
 	// (the ensureEmbedModel idempotency guard — a present file is never re-pulled).
 	embedModelPresent func(modelsDir string) bool
@@ -199,8 +191,8 @@ type installDeps struct {
 	memoryProofFn func(ctx context.Context, in memoryProofInput) memoryProof
 	// runMemoryChecks returns the opt-in memory-stack host-fitness gates
 	// (MEM-PRE-disk vector-index disk + MEM-PRE-headroom embedder headroom,
-	// CTRL-06) appended to the preflight checks when loadedMemoryEnabled
-	// reports true — so an unfit host is refused-with-remediation BEFORE the
+	// CTRL-06) appended to the preflight checks when the resolved memory gate
+	// is on — so an unfit host is refused-with-remediation BEFORE the
 	// memory stack comes up. NIL-SAFE: when nil (test doubles), no memory checks
 	// are appended (mirrors the doctor optional-seam pattern).
 	//
@@ -217,17 +209,6 @@ type installDeps struct {
 	// guards can never drift onto different readers.
 	readRecallState func() (recall.State, error)
 
-	// Web-search (SearXNG) seams (v1.5 / Phase-29). Gated on the PERSISTED
-	// web_search_enabled (loadedWebSearchEnabled), skipped under --dry-run. The path is
-	// INDEPENDENT of inference/memory (SearXNG has no dependency on llama/qdrant — it is
-	// started additively after villa.network when gated on).
-	//
-	// loadedWebSearchEnabled returns the AUTHORITATIVE gate value: the persisted
-	// config.LoadVilla().WebSearchEnabled (fail-soft to false on a load error) — NOT the
-	// DefaultVillaConfig() seed (false by construction). A config load error fails SOFT to
-	// false so a broken config never silently enables the search stack (mirrors
-	// loadedMemoryEnabled). This is the one seam the whole web-search path keys off.
-	loadedWebSearchEnabled func() bool
 	// writeSearxngSettings persists the rendered settings.yml into the villa-owned searxng
 	// config dir mounted read-only at /etc/searxng (Plan 02's atomic, traversal-guarded,
 	// 0600 writer). Invoked BEFORE the searxng start so the container reads it on first boot.
@@ -249,14 +230,6 @@ type installDeps struct {
 	// web search is on) AND before the villa-websafe start. Mirrors writeSearxngSecretEnv.
 	writeWebsafeSecretEnv func(name, text string) error
 
-	// Coding-agent (Crush) addon seams (v1.4). All
-	// gated on the PERSISTED agent_enabled (loadedAgentEnabled) unless --coding-agent
-	// overrides it, skipped under --dry-run.
-	//
-	// loadedAgentEnabled returns the AUTHORITATIVE gate value: the persisted
-	// config.LoadVilla().AgentEnabled (fail-soft to false). --coding-agent overrides it
-	// to true before the gate; a bare install gates on the persisted value.
-	loadedAgentEnabled func() bool
 	// agentCatalog loads the model catalog the coder-shard resolution reads (coderShardFor).
 	// Returns (catalog, false) on a load failure so the gate refuses-with-remediation
 	// rather than fabricating a shard.
@@ -281,7 +254,7 @@ type installDeps struct {
 	// runAgentChecks returns the opt-in coding-agent host-fitness gates (AGENT-PRE-disk
 	// staged-footprint disk BLOCK, AGENT-PRE-envelope post-coder fit BLOCK driven by
 	// rec.Coder, AGENT-PRE-cloud-cred env-credential WARN) appended to
-	// the preflight checks when loadedAgentEnabled reports true — so an unfit host (no
+	// the preflight checks when the resolved agent gate is on — so an unfit host (no
 	// disk, no coder fit) is refused-with-remediation BEFORE the agent is staged. It takes
 	// rec (unlike runMemoryChecks(profile)) because the envelope gate reads rec.Coder and
 	// the disk gate sizes from the picked coder shard. NIL-SAFE: when nil (test doubles), no
@@ -387,7 +360,7 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 	// (2) Recommend a concrete model. A refusal (empty Model / zero ctx / zero
 	// weight) is a clear FAIL — never start llama-server with -c 0 / no fit.
 	rec := d.pick(profile, recommend.Overrides{})
-	if rec.Model == "" || rec.ContextLen <= 0 || rec.WeightBytes == 0 {
+	if !install.RecommendationUsable(rec) {
 		// Emit the contracted empty-state copy (17-UI-SPEC.md:195) verbatim, with the
 		// `<N> GiB` token substituted from the detected usable envelope. A typed-Unknown
 		// envelope renders "unknown GiB usable" (never a fabricated 0). This branch fires
@@ -403,18 +376,28 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 	// more honest): the value flows from the pick so memory.Footprint stays the
 	// single source; it is zero when memory is off, leaving the off-path gate
 	// unchanged.
+	fit := install.ResourceFit(rec)
 	req := preflight.ResourceReq{
-		MinDiskBytes: rec.WeightBytes,
-		MinMemBytes:  rec.WeightBytes + rec.KVCacheBytes + rec.HeadroomBytes + rec.EmbeddingReservationBytes,
+		MinDiskBytes: fit.MinDiskBytes,
+		MinMemBytes:  fit.MinMemBytes,
 		DataDir:      d.modelsDir(),
 	}
+	// Resolve the optional-subsystem gates ONCE, before anything is gated or
+	// rendered. The preflight gate, the pre-stage step, the render and the proofs all
+	// read them; resolving per step is how the same flag came to be read eleven times
+	// in this one flow, with the risk that two steps disagree.
+	gates := install.ResolveGates(cfg, install.Opts{
+		CodingAgent: opts.codingAgent,
+		WebSearch:   opts.webSearch,
+	}, rec)
+
 	checks := d.runChecks(profile, req)
 	// (3a) Opt-in memory-stack gates (CTRL-06): vector-index disk + embedder
 	// headroom are appended ONLY when the persisted memory_enabled is on, so the
 	// memory-off install gate is byte-identical. They flow through the single
 	// gateInstall below — an opted-in install on an unfit host refuses-with-
 	// remediation BEFORE the memory stack comes up.
-	if d.loadedMemoryEnabled() && d.runMemoryChecks != nil {
+	if gates.Memory && d.runMemoryChecks != nil {
 		checks = append(checks, d.runMemoryChecks(profile, cfg.EmbeddingModel)...)
 	}
 	// (3a') Opt-in coding-agent gates: the staged-footprint disk BLOCK,
@@ -424,7 +407,7 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 	// through the SAME gateInstall below — an unfit host (no disk, no coder fit) is refused-
 	// with-remediation BEFORE the agent is staged. agentEnabledForGate folds the --coding-agent
 	// override into the persisted gate so a first-time `--coding-agent` run is gated too.
-	if agentEnabledForGate(opts, d) && d.runAgentChecks != nil {
+	if install.GateAgentChecks(gates) && d.runAgentChecks != nil {
 		checks = append(checks, d.runAgentChecks(profile, rec)...)
 	}
 
@@ -488,75 +471,25 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 		fmt.Fprintf(errOut, "install: cannot resolve the Quadlet unit dir: %v\n", err)
 		return exitBlocked
 	}
-	// cfg was seeded from the PERSISTED config at step 0 (not DefaultVillaConfig()) so a
-	// user's customized memory fields (qdrant_addr/port, embed_addr/port,
-	// embedding_model/dim) and the dashboard/chat fields survive every install rather
-	// than being reset to seed defaults. LoadVilla self-heals zeroed dashboard/chat
-	// fields and treats an ABSENT config as the typed defaults, so the loopback
-	// dashboard/chat defaults (8888/3000/127.0.0.1, gap test:1b) still hold for a host
-	// with no prior config. Only the recommendation-derived fields are overridden here.
-	cfg.Model = rec.Model
-	cfg.Quant = rec.Quant
-	cfg.Ctx = rec.ContextLen
-	// Config is the single source of truth for the backend opt-in. recommend.Pick
-	// always returns the DEFAULT (rocm 7.2.4) backend, and recommend.Overrides
-	// carries no Backend field — so a bare `cfg.Backend = rec.Backend` would silently
-	// revert a deliberately-chosen non-default backend on every re-install (including
-	// `villa install --coding-agent`), re-rendering the villa-llama unit to the default
-	// image. Guard the assignment: PRESERVE any valid persisted backend the resolver
-	// accepts (a ROCm-family variant OR an explicit `vulkan` opt-out), and otherwise take
-	// the recommendation (the rocm default; an empty/unknown persisted value falls through
-	// to the recommendation and the fail-closed inference.BackendFor at render time). This
-	// only PRESERVES an already-chosen backend; it never re-picks one. It compares NAME
-	// strings only, never an image literal, so it stays clear of TestSeamGrepGate.
-	if !persistedBackendChosen(cfg.Backend) {
-		cfg.Backend = rec.Backend
-	}
-	// AUTHORITATIVE memory gate (Phase-19): the memory path keys off the
-	// PERSISTED config.LoadVilla().MemoryEnabled (via the loadedMemoryEnabled seam). It is
-	// the single gate value the pre-stage + start + proof steps read. (Seeding cfg from the
-	// persisted config above already carries the persisted MemoryEnabled; this is an
-	// explicit re-bind through the dedicated gate seam so the gate source stays a single,
-	// testable seam regardless of how cfg was seeded.)
-	cfg.MemoryEnabled = d.loadedMemoryEnabled()
-	// AUTHORITATIVE web-search gate (v1.5 / Phase-29): the web-search path keys off the
-	// PERSISTED config.LoadVilla().WebSearchEnabled (via the loadedWebSearchEnabled seam,
-	// fail-soft to false). It is the single gate value the searxng start + proof steps read.
-	// NIL-SAFE: a test double / pre-Phase-29 wiring leaves the seam nil → web search off →
-	// the searxng path is byte-identical to a v1.4 install (no start, no proof, no writes).
-	if d.loadedWebSearchEnabled != nil {
-		cfg.WebSearchEnabled = d.loadedWebSearchEnabled()
-	}
-	// --web-search OVERRIDES the persisted gate to true and persists it below (saveConfig),
-	// mirroring --coding-agent, so a first-time `villa install --web-search` brings the stack
-	// up and a subsequent bare `villa install` gates on the now-persisted value. Without the
-	// flag, the persisted value stands — a web-search-off install stays byte-identical to v1.4.
-	if opts.webSearch {
-		cfg.WebSearchEnabled = true
-	}
-	// AUTHORITATIVE coding-agent gate (v1.4): the agent path keys off the PERSISTED
-	// config.LoadVilla().AgentEnabled (via the loadedAgentEnabled seam). --coding-agent
-	// OVERRIDES it to true and persists it below (saveConfig) so a subsequent bare
-	// `villa install` gates on the now-persisted value. Without the flag, the persisted
-	// value stands — an agent-off install stays byte-identical.
-	cfg.AgentEnabled = d.loadedAgentEnabled()
-	if opts.codingAgent {
-		cfg.AgentEnabled = true
-		// the --coding-agent addon ENTERS coding-mode at install and SERVES the coder
-		// it stages + gates on (single source). Single-source the coder render
-		// inputs from the SAME rec.Coder the disk/envelope preflight gates and the staged
-		// shard derive from, so the unit, crush.json, and the readiness proof all agree on the
-		// coder model. Guard against the shared-residency / no-coder-fit case: only enter
-		// coding-mode for a REAL swap-residency coder fit (rec.Coder.Model != "") so a future
-		// shared-residency path can never serve an empty -m. (When empty, the coder-fit refusal
-		// at step 6c already blocks the addon before the stack starts.)
-		if rec.Coder.Model != "" {
-			cfg.CoderModel = rec.Coder.Model
-			cfg.CoderQuant = rec.Coder.Quant
-			cfg.CoderAgentCtx = rec.Coder.AgentCtx
-			cfg.CodingMode = true
-		}
-	}
+	// Assemble the install plan: the config this run persists and renders from,
+	// derived in the pure core from the persisted config, the recommendation and the
+	// resolved gates. It SEEDS from the persisted config rather than from defaults, so
+	// a user's customised memory, dashboard and chat fields survive every install.
+	//
+	// The backend is guarded rather than assigned: the recommender always returns the
+	// default and carries no backend override, so an unconditional assignment would
+	// silently revert a deliberately-chosen backend on every re-install. The core
+	// compares backend NAMES only, never an image literal.
+	//
+	// A wizard model override has already been folded into rec above, so the plan is
+	// byte-identical between the wizard and flag paths.
+	installPlan := install.AssemblePlan(cfg, install.Opts{
+		CodingAgent: opts.codingAgent,
+		WebSearch:   opts.webSearch,
+	}, rec, persistedBackendChosen)
+	cfg = installPlan.Config
+	gates = installPlan.Gates
+
 	modelFile, err := d.modelFile(rec)
 	if err != nil {
 		fmt.Fprintf(errOut, "install: resolve model file: %v\n", err)
@@ -582,7 +515,7 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 		ModelsDir:     d.modelsDir(),
 		HostVillaPath: hostVillaPath(),
 	}
-	if subsystem.CodingModeOn(cfg) {
+	if gates.CodingMode {
 		servedModel, _ := codingServedTarget(cfg)
 		coderModelFile, mferr := codingModelFile(cfg, servedModel)
 		if mferr != nil {
@@ -639,12 +572,12 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 
 	// (6b) Pre-stage the embedding GGUF into villa-models BEFORE starting villa-embed
 	// (Phase-19). Gated on the PERSISTED memory_enabled (cfg.MemoryEnabled,
-	// resolved via loadedMemoryEnabled above), skipped under --dry-run, and idempotent: a
+	// resolved once above), skipped under --dry-run, and idempotent: a
 	// present file is never re-pulled. This is the one-time install-time controlled pull
 	// (the single sanctioned outbound window) so the embeddings runtime is ZERO-download.
 	// download.PullModel verifies size + SHA256 before the atomic rename, so a
 	// half-written/unverified GGUF is never trusted; a pull failure refuses-with-remediation.
-	if subsystem.MemoryOn(cfg) && !opts.dryRun && !d.embedModelPresent(d.modelsDir()) {
+	if gates.Memory && !opts.dryRun && !d.embedModelPresent(d.modelsDir()) {
 		fmt.Fprintf(out, "embedding model %s not present — downloading...\n", nomicEmbedShard.Filename)
 		if err := d.ensureEmbedModel(d.modelsDir()); err != nil {
 			fmt.Fprintf(errOut, "install: pre-stage embedding model %s failed: %v\n", nomicEmbedShard.Filename, err)
@@ -663,7 +596,7 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 	// the locked-down crush.json (the restrictive-tools security control). The
 	// readiness proof (a real tool-call round-trip) runs AFTER the stack is up (step 10c).
 	var coderShard catalog.Shard
-	if subsystem.AgentOn(cfg) && !opts.dryRun {
+	if gates.Agent && !opts.dryRun {
 		// (a) FSL-1.1-MIT consent notice — informational, printed BEFORE staging the binary.
 		fmt.Fprintf(out, "%s\n", agentLicenseNotice())
 
@@ -781,7 +714,7 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 	// service itself is started further below alongside searxng (its planHasUnit gate). The
 	// secret VALUE only ever lands in this 0600 file — never the 0644 unit, a log line, or
 	// stdout. Mirrors the searxng secret-env path (generate-once + 0600 EnvironmentFile).
-	if subsystem.WebSearchOn(cfg) {
+	if gates.WebSearch {
 		// Generate-and-persist the bearer ONCE on first opt-in BEFORE rendering the env file so
 		// the EnvironmentFile target exists and is non-empty (a re-install reuses the same bearer
 		// rather than churning the OWUI⇄websafe trust).
@@ -830,7 +763,7 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 	// must NOT `systemctl start villa-qdrant.service` for a unit systemd has never seen and
 	// surface a raw "Unit not found". Instead fail closed with a clear INTERNAL-ERROR
 	// remediation so the gate for STARTING a service is "its unit exists in the plan".
-	if subsystem.MemoryOn(cfg) {
+	if gates.Memory {
 		if !planHasUnit(plan, orchestrate.QdrantContainerUnitName()) ||
 			!planHasUnit(plan, orchestrate.EmbedContainerUnitName()) {
 			fmt.Fprintf(errOut, "install: INTERNAL ERROR: memory is enabled but the memory units (%s, %s) are absent from the rendered plan — refusing to start a service systemd has never seen. This is a render/reconcile bug; please re-run `villa install`, and if it persists, file an issue.\n",
@@ -871,7 +804,7 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 	//      read-only at /etc/searxng) and the 0600 secret env file (the EnvironmentFile=
 	//      target — the secret reaches the container via this 0600 file, NEVER an inline
 	// literal in the 0644 unit — BLOCKER 1).
-	if subsystem.WebSearchOn(cfg) {
+	if gates.WebSearch {
 		if !planHasUnit(plan, orchestrate.SearXNGContainerUnitName()) {
 			fmt.Fprintf(errOut, "install: INTERNAL ERROR: web search is enabled but the searxng unit (%s) is absent from the rendered plan — refusing to start a service systemd has never seen. This is a render/reconcile bug; please re-run `villa install`, and if it persists, file an issue.\n",
 				orchestrate.SearXNGContainerUnitName())
@@ -944,7 +877,7 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 	// returned far above). A FAIL refuses-with-remediation (exitBlocked) — never a
 	// silent skip / false-green (honesty-by-construction). A PASS prints a ready line
 	// and folds into the existing PASS/WARN verdict.
-	if subsystem.MemoryOn(cfg) {
+	if gates.Memory {
 		// (10b-pre) Phase-23 skew WARN (CTRL-05, read-only): if the
 		// recall-state stamp records an embedding identity that confidently
 		// diverges from the configured one, warn-with-remediation BEFORE the proof
@@ -978,7 +911,7 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 	// prints a ready line and folds into the existing PASS/WARN verdict. The proof probes the
 	// SAME config.SearxngAddr/SearxngPort the rendered unit's container-DNS identity derives from
 	// so it can never probe a different target than what runs.
-	if subsystem.WebSearchOn(cfg) {
+	if gates.WebSearch {
 		proof := d.searxngProofFn(cmd.Context(), searxngProofInput{
 			searxngAddr: config.SearxngAddr,
 			searxngPort: config.SearxngPort,
@@ -995,7 +928,7 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 	// NOT a health-200. Gated on cfg.AgentEnabled; skipped under --dry-run (that path
 	// returned far above). A FAIL refuses-with-remediation (exitBlocked) — never a silent
 	// skip / false-green (honesty-by-construction). A health-200 is never an input.
-	if subsystem.AgentOn(cfg) {
+	if gates.Agent {
 		proof := d.agentProofFn(cmd.Context())
 		if proof.status == preflight.StatusFail {
 			fmt.Fprintf(errOut, "install: coding agent not ready: %s\n", proof.detail)
@@ -1022,19 +955,6 @@ func persistedBackendChosen(name string) bool {
 		return false
 	}
 	return inference.IsROCmFamily(name) || name == "vulkan"
-}
-
-// agentEnabledForGate reports whether the coding-agent preflight gates should be
-// appended: true when --coding-agent was passed (a first-time opt-in, which
-// runInstall persists below) OR when the PERSISTED agent_enabled is on. This folds the
-// override into the gate so a `villa install --coding-agent` on a host with no prior
-// agent_enabled is STILL gated (disk/envelope checked before staging), matching how
-// cfg.AgentEnabled is resolved later in runInstall (loadedAgentEnabled || codingAgent).
-func agentEnabledForGate(opts installOpts, d *installDeps) bool {
-	if opts.codingAgent {
-		return true
-	}
-	return d.loadedAgentEnabled != nil && d.loadedAgentEnabled()
 }
 
 // planHasUnit reports whether a unit with the given name is present in the reconciled
@@ -1569,11 +1489,10 @@ func liveInstallDeps() (*installDeps, error) {
 		// (liveLoadedMemoryEnabled → config.LoadVilla().MemoryEnabled, fail-soft to false),
 		// NOT the DefaultVillaConfig seed. Pre-stage + presence reuse the same
 		// verified download path and models dir as the chat-model ensureModel above.
-		loadedConfig:        liveLoadedConfig,
-		loadedMemoryEnabled: liveLoadedMemoryEnabled,
-		embedModelPresent:   liveEmbedModelPresent,
-		ensureEmbedModel:    liveEnsureEmbedModel,
-		memoryProofFn:       liveMemoryProof,
+		loadedConfig:      liveLoadedConfig,
+		embedModelPresent: liveEmbedModelPresent,
+		ensureEmbedModel:  liveEnsureEmbedModel,
+		memoryProofFn:     liveMemoryProof,
 		// Memory host-fitness gates (CTRL-06): the embedding model is passed in from the
 		// config runInstall loaded once, and refused on, at step 0.
 		runMemoryChecks: func(p detect.HostProfile, embeddingModel string) []preflight.CheckResult {
@@ -1589,10 +1508,9 @@ func liveInstallDeps() (*installDeps, error) {
 		// secret env writers are the Phase-29 Plan-02 orchestrate writers (the secret reaches
 		// the container via the 0600 EnvironmentFile, never the 0644 unit). The proof
 		// is the real format=json query (liveSearxngProof), never a health-200.
-		loadedWebSearchEnabled: liveLoadedWebSearchEnabled,
-		writeSearxngSettings:   orchestrate.WriteSearxngSettings,
-		writeSearxngSecretEnv:  orchestrate.WriteSearxngSecretEnv,
-		searxngProofFn:         liveSearxngProof,
+		writeSearxngSettings:  orchestrate.WriteSearxngSettings,
+		writeSearxngSecretEnv: orchestrate.WriteSearxngSecretEnv,
+		searxngProofFn:        liveSearxngProof,
 		// villa-websafe 0600 bearer (websafe.env) writer — the EnvironmentFile= target BOTH the
 		// villa-websafe AND the OWUI units reference (WebsafeSecretEnvFilePath). The secret reaches
 		// both containers via the 0600 file, never the 0644 unit. Mirrors the searxng
@@ -1604,7 +1522,6 @@ func liveInstallDeps() (*installDeps, error) {
 		// fail-soft to false); --coding-agent overrides it. Pre-stage reuses the same
 		// verified download path + models dir as the chat/embed models; the binary
 		// install + render compose the Phase-26/Task-1 seams, never re-implemented.
-		loadedAgentEnabled: liveLoadedAgentEnabled,
 		agentCatalog: func() (catalog.Catalog, bool) {
 			cat, _, err := catalog.Load(modelCatalogPath)
 			if err != nil {
