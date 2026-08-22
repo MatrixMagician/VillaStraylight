@@ -63,11 +63,10 @@ type recDeps struct {
 
 func (r *recDeps) log(s string) { r.calls = append(r.calls, s) }
 
-// deps builds a backup.Deps wired to the recorder.
-func (r *recDeps) deps() Deps {
-	return Deps{
+// deps builds a backup.RestoreDeps wired to the recorder.
+func (r *recDeps) deps() RestoreDeps {
+	return RestoreDeps{
 		OpenWebUIServiceName: "villa-openwebui.service",
-		InstallServiceName:   "villa-llama.service",
 		QdrantServiceName:    "qdrant.service",
 		LoadConfig: func() (config.VillaConfig, error) {
 			r.log("LoadConfig")
@@ -110,10 +109,6 @@ func (r *recDeps) deps() Deps {
 		Start: func(s string) error {
 			r.log("Start:" + s)
 			return r.startErr
-		},
-		Restart: func(s string) error {
-			r.log("Restart:" + s)
-			return nil
 		},
 		ReadFile: func(p string) ([]byte, error) {
 			if r.readFileErr != nil {
@@ -169,7 +164,6 @@ func (r *recDeps) deps() Deps {
 			r.log("RemoveFile:" + p)
 			return r.removeFileErr
 		},
-		DaemonReload: func() error { return nil },
 		Prove: func(target string) ProveVerdict {
 			r.log("Prove:" + target)
 			return r.prove

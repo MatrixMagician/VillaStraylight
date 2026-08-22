@@ -67,12 +67,12 @@ func TestBenchEntryResolvesViaCmdResolver(t *testing.T) {
 	}
 }
 
-// fakeRunBackupDeps builds a backup.Deps whose VolumeExport writes a stub tar and
+// fakeRunBackupDeps builds a backup.BackupDeps whose VolumeExport writes a stub tar and
 // whose ReadFile serves canned bytes, so runBackup is driven end-to-end with no live
 // podman/systemd.
-func fakeRunBackupDeps(t *testing.T, files map[string][]byte) backup.Deps {
+func fakeRunBackupDeps(t *testing.T, files map[string][]byte) backup.BackupDeps {
 	t.Helper()
-	return backup.Deps{
+	return backup.BackupDeps{
 		OpenWebUIServiceName: openWebUIServiceName,
 		Stop:                 func(string) error { return nil },
 		Start:                func(string) error { return nil },

@@ -99,7 +99,7 @@ func newRestore() *cobra.Command {
 // preserveTmp reports whether the caller must PRESERVE the restore temp dir:
 // it is true exactly when the rollback did not fully complete — tmpDir then holds the
 // ONLY copies of the prior volume data and deleting it would lose the prior chats.
-func runRestore(cmd *cobra.Command, archivePath string, in backup.RestoreInput, d backup.Deps, tmpDir string) (code int, preserveTmp bool) {
+func runRestore(cmd *cobra.Command, archivePath string, in backup.RestoreInput, d backup.RestoreDeps, tmpDir string) (code int, preserveTmp bool) {
 	out := cmd.OutOrStdout()
 	errOut := cmd.ErrOrStderr()
 
@@ -202,17 +202,17 @@ func runRestore(cmd *cobra.Command, archivePath string, in backup.RestoreInput, 
 // be resolved BEFORE any side effect. The returned tmpDir is the restore temp dir
 // (holding the extracted/rollback volume tars); the caller MUST remove it after
 // backup.Restore returns. tmpDir is "" on every pre-MkdirTemp error path.
-func liveRestore(cmd *cobra.Command, archivePath string, bypass bool) (backup.RestoreInput, backup.Deps, string, int) {
+func liveRestore(cmd *cobra.Command, archivePath string, bypass bool) (backup.RestoreInput, backup.RestoreDeps, string, int) {
 	errOut := cmd.ErrOrStderr()
 
 	absArchive, err := filepath.Abs(filepath.Clean(archivePath))
 	if err != nil {
 		fmt.Fprintf(errOut, "restore: bad archive path %q: %v\n", archivePath, err)
-		return backup.RestoreInput{}, backup.Deps{}, "", exitBlocked
+		return backup.RestoreInput{}, backup.RestoreDeps{}, "", exitBlocked
 	}
 	if _, err := os.Stat(absArchive); err != nil {
 		fmt.Fprintf(errOut, "restore: cannot read archive %q: %v\n", absArchive, err)
-		return backup.RestoreInput{}, backup.Deps{}, "", exitBlocked
+		return backup.RestoreInput{}, backup.RestoreDeps{}, "", exitBlocked
 	}
 
 	// Current install facts: seam-sourced digests (never re-typed),
@@ -220,12 +220,12 @@ func liveRestore(cmd *cobra.Command, archivePath string, bypass bool) (backup.Re
 	cfg, err := config.LoadVilla()
 	if err != nil {
 		fmt.Fprintf(errOut, "restore: load config: %v\n", err)
-		return backup.RestoreInput{}, backup.Deps{}, "", exitBlocked
+		return backup.RestoreInput{}, backup.RestoreDeps{}, "", exitBlocked
 	}
 	be, err := inference.BackendFor(cfg.Backend)
 	if err != nil {
 		fmt.Fprintf(errOut, "restore: resolve backend %q: %v\n", cfg.Backend, err)
-		return backup.RestoreInput{}, backup.Deps{}, "", exitBlocked
+		return backup.RestoreInput{}, backup.RestoreDeps{}, "", exitBlocked
 	}
 	cur := backup.CurrentInstall{
 		VillaVersion:        villaVersion(),
@@ -248,7 +248,7 @@ func liveRestore(cmd *cobra.Command, archivePath string, bypass bool) (backup.Re
 	tmpDir, err := os.MkdirTemp("", "villa-restore-*")
 	if err != nil {
 		fmt.Fprintf(errOut, "restore: temp dir: %v\n", err)
-		return backup.RestoreInput{}, backup.Deps{}, "", exitBlocked
+		return backup.RestoreInput{}, backup.RestoreDeps{}, "", exitBlocked
 	}
 
 	in := backup.RestoreInput{
@@ -320,11 +320,10 @@ func liveSkewConsent(prompt string) bool {
 // (Render->Reconcile->WriteUnits->DaemonReload from the restored config), the systemd
 // stop/start/restart seam, atomic data-dir writes via usage.WriteFileAtomic, and the
 // offload-asserting liveRestoreProve as the cutover gate.
-func liveRestoreDeps() backup.Deps {
+func liveRestoreDeps() backup.RestoreDeps {
 	sys := orchestrate.NewSystemd()
-	return backup.Deps{
+	return backup.RestoreDeps{
 		OpenWebUIServiceName: openWebUIServiceName,
-		InstallServiceName:   installServiceName,
 		// QdrantServiceName mirrors liveBackupDeps: derived from the orchestrate
 		// unit-name accessor, never a re-typed literal.
 		QdrantServiceName: unitServiceName(orchestrate.QdrantContainerUnitName()),
@@ -438,11 +437,9 @@ func liveRestoreDeps() backup.Deps {
 			}
 			return true, nil
 		},
-		DaemonReload: sys.DaemonReload,
-		Stop:         sys.Stop,
-		Start:        sys.Start,
-		Restart:      sys.Restart,
-		ReadFile:     os.ReadFile,
+		Stop:     sys.Stop,
+		Start:    sys.Start,
+		ReadFile: os.ReadFile,
 		// WriteFile is the ONE write seam the restore core drives, for every
 		// destination it restores. The core does not choose the guard — this wiring
 		// does, by destination, which is why collapsing the five per-filename fields
@@ -501,7 +498,7 @@ func liveRestoreWriteFile(path string, data []byte) error {
 	return nil
 }
 
-// liveRestoreProve is the offload-asserting restore-cutover gate (backup.Deps.Prove),
+// liveRestoreProve is the offload-asserting restore-cutover gate (backup.RestoreDeps.Prove),
 // composing preflight + a status residency assert. It FIRST re-runs the ROCm
 // preflight gate for a ROCm-family target (the host-prep gate the restored config must
 // still satisfy); a BLOCK there is a prove FAIL -> rollback. It then reuses the proven

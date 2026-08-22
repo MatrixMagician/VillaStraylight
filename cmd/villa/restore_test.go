@@ -5,7 +5,7 @@ package main
 // consent / a non-pass prove map to the right exit codes, and a Restored result exits
 // 0. The full transactional ordering invariants (clean-recreate-before-import, capture-
 // before-mutate, rollback) are covered by the PURE internal/backup restore_test.go;
-// this file asserts the cobra surface + Result->exit mapping over a fake backup.Deps.
+// this file asserts the cobra surface + Result->exit mapping over a fake backup.RestoreDeps.
 
 import (
 	"archive/tar"
@@ -67,13 +67,12 @@ func writeTestArchive(t *testing.T, path string, m backup.ManifestInput, cfgTOML
 	}
 }
 
-// fakeRestoreDeps returns a backup.Deps whose seams are all no-op successes, plus the
+// fakeRestoreDeps returns a backup.RestoreDeps whose seams are all no-op successes, plus the
 // canned prove verdict. The capture LoadConfig returns a vulkan config so rollback has
 // a prior to restore.
-func fakeRestoreDeps(prove backup.ProveVerdict) backup.Deps {
-	return backup.Deps{
+func fakeRestoreDeps(prove backup.ProveVerdict) backup.RestoreDeps {
+	return backup.RestoreDeps{
 		OpenWebUIServiceName: openWebUIServiceName,
-		InstallServiceName:   installServiceName,
 		LoadConfig:           func() (config.VillaConfig, error) { return config.VillaConfig{Backend: "vulkan", Model: "m"}, nil },
 		SaveConfig:           func(config.VillaConfig) error { return nil },
 		VolumeExport:         func(_, _ string) error { return nil },
@@ -83,10 +82,8 @@ func fakeRestoreDeps(prove backup.ProveVerdict) backup.Deps {
 		ReconcileAndWrite:    func(config.VillaConfig) (bool, error) { return true, nil },
 		Stop:                 func(string) error { return nil },
 		Start:                func(string) error { return nil },
-		Restart:              func(string) error { return nil },
 		ReadFile:             func(string) ([]byte, error) { return nil, os.ErrNotExist },
 		WriteFile:            func(string, []byte) error { return nil },
-		DaemonReload:         func() error { return nil },
 		Prove:                func(string) backup.ProveVerdict { return prove },
 	}
 }

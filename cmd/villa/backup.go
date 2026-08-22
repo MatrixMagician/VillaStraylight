@@ -80,7 +80,7 @@ func newBackup() *cobra.Command {
 // same-dir temp file and renamed onto the destination only after a fully-successful
 // write: a mid-backup failure removes only the temp — a pre-existing archive
 // at the output path is never truncated or deleted.
-func runBackup(cmd *cobra.Command, output string, d backup.Deps) int {
+func runBackup(cmd *cobra.Command, output string, d backup.BackupDeps) int {
 	out := cmd.OutOrStdout()
 	errOut := cmd.ErrOrStderr()
 
@@ -393,9 +393,9 @@ func excludedModelIdentities(cfg config.VillaConfig) []backup.ExcludedModel {
 // liveBackupDeps wires the pure backup.Backup seam to the real host: service
 // stop/start via orchestrate.NewSystemd, podman volume export via the shared
 // fixed-arg cmd-tier seam (podman_volume.go), and file reads via os.ReadFile.
-func liveBackupDeps() backup.Deps {
+func liveBackupDeps() backup.BackupDeps {
 	sys := orchestrate.NewSystemd()
-	return backup.Deps{
+	return backup.BackupDeps{
 		OpenWebUIServiceName: openWebUIServiceName,
 		// QdrantServiceName is derived from the orchestrate unit-name accessor (the
 		// same unitServiceName mapping doctor/status use) — never a re-typed literal

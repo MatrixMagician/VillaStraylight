@@ -150,7 +150,7 @@ type BackupInput struct {
 // The villa-models volume is NEVER exported. Backup runs no subprocess (links the
 // exec package NOT at all) and carries no image literal — every effect is a Deps
 // func field.
-func Backup(d Deps, in BackupInput) (retRes Result, retErr error) {
+func Backup(d BackupDeps, in BackupInput) (retRes Result, retErr error) {
 	if in.OutputWriter == nil {
 		return Result{Err: fmt.Errorf("backup: nil output writer"), FailedStep: "write"}, fmt.Errorf("backup: nil output writer")
 	}

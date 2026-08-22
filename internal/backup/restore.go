@@ -187,7 +187,7 @@ type extracted struct {
 // The rollback path re-applies the captured set through the SAME clean-recreate
 // ordering (VolumeRm → ReconcileAndWrite(prior cfg) → EnsureVolume → VolumeImport
 // of the captured tar) so a rollback never merge-imports into a live volume either.
-func Restore(d Deps, in RestoreInput) Result {
+func Restore(d RestoreDeps, in RestoreInput) Result {
 	// (1) READ+VERIFY — pure, zero side effects. A verify failure or an
 	// unreadable/incompatible manifest is a fail-closed BLOCK BEFORE any mutate.
 	ex, verr := readAndVerify(in)
@@ -540,7 +540,7 @@ func Restore(d Deps, in RestoreInput) Result {
 // condition surfaced honestly (mirrors rollbackRemove's nil-seam contract) rather
 // than a silent skip. The named wrapper survives the seam collapse because the
 // honest nil-seam message names the artifact the operator is missing.
-func writeCrushConfig(d Deps, path string, data []byte) error {
+func writeCrushConfig(d RestoreDeps, path string, data []byte) error {
 	if d.WriteFile == nil {
 		return fmt.Errorf("no WriteFile seam wired — cannot restore crush.json to %q", path)
 	}
@@ -551,7 +551,7 @@ func writeCrushConfig(d Deps, path string, data []byte) error {
 // SearXNG config destination (Phase 34). A nil seam is a restore-incomplete
 // condition surfaced honestly. The live wiring writes 0600 — the entry holds the
 // rendered SEARXNG_SECRET, so the mode must never widen.
-func writeSearxngSettings(d Deps, path string, data []byte) error {
+func writeSearxngSettings(d RestoreDeps, path string, data []byte) error {
 	if d.WriteFile == nil {
 		return fmt.Errorf("no WriteFile seam wired — cannot restore settings.yml to %q", path)
 	}
@@ -562,7 +562,7 @@ func writeSearxngSettings(d Deps, path string, data []byte) error {
 // restore the prior (absent) state verbatim. It requires the RemoveFile
 // seam: a nil seam is itself a rollback-incomplete condition (the forward-created
 // file cannot be removed), surfaced honestly rather than silently left on disk.
-func rollbackRemove(d Deps, path string) error {
+func rollbackRemove(d RestoreDeps, path string) error {
 	if d.RemoveFile == nil {
 		return fmt.Errorf("no RemoveFile seam wired — cannot remove forward-created %q", path)
 	}
@@ -572,7 +572,7 @@ func rollbackRemove(d Deps, path string) error {
 // captureFile reads a current data-dir artifact for the rollback set via Deps.ReadFile.
 // An absent/unreadable file yields ok=false (the rollback then simply does not restore
 // it — it was not there to begin with), never a hard failure.
-func captureFile(d Deps, path string) (data []byte, ok bool) {
+func captureFile(d RestoreDeps, path string) (data []byte, ok bool) {
 	if path == "" {
 		return nil, false
 	}

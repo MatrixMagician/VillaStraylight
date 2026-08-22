@@ -226,8 +226,8 @@ func newFakeBackupDeps() *fakeBackupDeps {
 	return &fakeBackupDeps{files: map[string][]byte{}}
 }
 
-func (f *fakeBackupDeps) deps() Deps {
-	return Deps{
+func (f *fakeBackupDeps) deps() BackupDeps {
+	return BackupDeps{
 		OpenWebUIServiceName: "villa-openwebui.service",
 		QdrantServiceName:    "qdrant.service",
 		Stop: func(s string) error {

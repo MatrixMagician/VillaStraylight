@@ -47,12 +47,61 @@ type ProveVerdict struct {
 	Detail string
 }
 
-// Deps is the injectable seam set for the transactional backup/restore core.
-// Every host-touching action is a func field so the whole capture→quiesce→
-// swap→restart→prove→rollback flow is driven from *_test.go with a fakeDeps,
-// without a live host. The live wiring (liveBackupDeps / liveRestoreDeps) lives
-// in cmd/villa (later plans). Mirrors backendswap.Deps.
-type Deps struct {
+// BackupDeps is the injectable seam set for the BACKUP core — and only the
+// backup core. Every host-touching action is a func field so the whole
+// quiesce→export→assemble flow is driven from *_test.go without a live host.
+//
+// It is deliberately separate from RestoreDeps: backup captures, restore
+// mutates, and the two need genuinely different seams. One shared struct made
+// every backup test populate fields the backup core cannot reach, and hid three
+// fields (Restart, DaemonReload, InstallServiceName) that no core read at all.
+// Each core now declares exactly what it reads.
+type BackupDeps struct {
+	// VolumeExport exports the named podman volume to the file at out via the
+	// cmd-tier fixed-arg `podman volume export` seam.
+	VolumeExport func(name, out string) error
+
+	// ReadFile returns the whole bytes of the file at path (or an error). Used to
+	// read config.toml / usage.json / bench-reports.jsonl when assembling the
+	// archive.
+	ReadFile func(path string) ([]byte, error)
+	// OpenFile opens a source file for STREAMING reads (reader + size), used for
+	// the LARGE volume-tar entries (openwebui-volume.tar / qdrant-volume.tar — the
+	// one entry that realistically grows to many GiB of vectors) so their bytes are
+	// never buffered whole in memory: the checksum pass streams via io.Copy and the
+	// tar assembly streams a fresh reader per entry. OPTIONAL: when nil, Backup
+	// falls back to ReadFile (the in-memory path). The live wiring is os.Open +
+	// Stat in cmd/villa.
+	//
+	// It stays separate from ReadFile because it is a genuinely different operation:
+	// a stream rather than a buffer. Collapsing the two would force the multi-GiB
+	// volume entry through a []byte.
+	OpenFile func(path string) (rc io.ReadCloser, size int64, err error)
+
+	// Stop / Start drive ONLY the named user systemd service (orchestrate.Systemd
+	// seam). Quiesce stops villa-openwebui.service before a volume export and
+	// starts it after.
+	Stop  func(service string) error
+	Start func(service string) error
+
+	// OpenWebUIServiceName is the service identity the flow quiesces/restarts. A
+	// Deps field so the pure core need not import cmd-layer constants (mirrors
+	// backendswap.InstallServiceName).
+	OpenWebUIServiceName string
+	// QdrantServiceName is the qdrant service identity the Phase-23 memory-on
+	// backup quiesces around its volume export (Stop → export → deferred Start;
+	// Pitfall 3 torn-RocksDB/WAL guard). Seam-sourced by the cmd tier (derived
+	// from orchestrate.QdrantContainerUnitName()) — never a literal here, so the
+	// core stays free of service-name literals (mirrors OpenWebUIServiceName).
+	QdrantServiceName string
+}
+
+// RestoreDeps is the injectable seam set for the RESTORE core — and only the
+// restore core. Every host-touching action is a func field so the whole
+// capture→quiesce→swap→restart→prove→rollback flow is driven from *_test.go with
+// a fake, without a live host. The live wiring (liveRestoreDeps) lives in
+// cmd/villa. Mirrors backendswap.Deps.
+type RestoreDeps struct {
 	// LoadConfig loads the current persisted config (the source of truth).
 	LoadConfig func() (config.VillaConfig, error)
 	// SaveConfig persists a config to config.toml via config.SaveVilla (atomic
@@ -63,7 +112,7 @@ type Deps struct {
 
 	// VolumeExport exports the named podman volume to the file at out via the
 	// cmd-tier fixed-arg `podman volume export` seam. Used to capture the
-	// current Open WebUI volume (backup + rollback-capture).
+	// current Open WebUI volume (rollback-capture).
 	VolumeExport func(name, out string) error
 	// VolumeImport imports the tar at src into the named (already-recreated, clean)
 	// podman volume via `podman volume import`. import MERGES, so the volume
@@ -78,22 +127,9 @@ type Deps struct {
 	EnsureVolume func(name string) error
 
 	// ReadFile returns the whole bytes of the file at path (or an error). Used to
-	// read config.toml / usage.json / bench-reports.jsonl when assembling the
-	// archive and to read captured rollback artifacts.
+	// read the current config.toml / usage.json / bench-reports.jsonl when
+	// capturing prior state, and to read captured rollback artifacts.
 	ReadFile func(path string) ([]byte, error)
-	// OpenFile opens a source file for STREAMING reads (reader + size), used by
-	// Backup for the LARGE volume-tar entries (openwebui-volume.tar /
-	// qdrant-volume.tar — the one entry that realistically grows to many GiB of
-	// vectors) so their bytes are never buffered whole in memory (review):
-	// the checksum pass streams via io.Copy and the tar assembly streams a fresh
-	// reader per entry. OPTIONAL: when nil, Backup falls back to ReadFile (the
-	// in-memory path) — existing fakes and small entries are unaffected. The live
-	// wiring is os.Open + Stat in cmd/villa.
-	//
-	// It stays separate from ReadFile because it is a genuinely different operation:
-	// a stream rather than a buffer. Collapsing the two would force the multi-GiB
-	// volume entry through a []byte.
-	OpenFile func(path string) (rc io.ReadCloser, size int64, err error)
 	// WriteFile writes data to path at 0600 under a 0700 directory, atomically.
 	//
 	// This was five fields — one per destination — which enumerated the caller's
@@ -117,20 +153,17 @@ type Deps struct {
 	// genuine remove failure (e.g. permissions) counts as rollback-incomplete.
 	RemoveFile func(path string) error
 
-	// Stop / Start / Restart drive ONLY the named user systemd service
-	// (orchestrate.Systemd seam). Quiesce stops villa-openwebui.service before a
-	// volume export and restarts it after.
-	Stop    func(service string) error
-	Start   func(service string) error
-	Restart func(service string) error
+	// Stop / Start drive ONLY the named user systemd service (orchestrate.Systemd
+	// seam). Quiesce stops villa-openwebui.service before the volume swap and
+	// starts it after.
+	Stop  func(service string) error
+	Start func(service string) error
 
 	// ReconcileAndWrite renders Quadlet units from the persisted config and writes
 	// the changed unit(s); the live closure performs the daemon-reload internally.
 	// It re-establishes the Open WebUI volume unit from restored config — config is
 	// the single source of truth. Reports whether anything changed.
 	ReconcileAndWrite func(c config.VillaConfig) (changed bool, err error)
-	// DaemonReload reloads the user systemd manager.
-	DaemonReload func() error
 
 	// Prove is the injected, offload-asserting restore-cutover gate: it re-runs
 	// preflight + asserts status residency on the already-running stack and returns
@@ -138,14 +171,13 @@ type Deps struct {
 	// markers live behind this seam — never in this package.
 	Prove func(target string) ProveVerdict
 
-	// OpenWebUIServiceName / InstallServiceName are the service identities the flow
-	// quiesces/restarts. Deps fields so the pure core need not import cmd-layer
-	// constants (mirrors backendswap.InstallServiceName).
+	// OpenWebUIServiceName is the service identity the flow quiesces/restarts. A
+	// Deps field so the pure core need not import cmd-layer constants (mirrors
+	// backendswap.InstallServiceName).
 	OpenWebUIServiceName string
-	InstallServiceName   string
 	// QdrantServiceName is the qdrant service identity the Phase-23 memory-on
-	// backup quiesces around its volume export (Stop → export → deferred Start;
-	// Pitfall 3 torn-RocksDB/WAL guard). Seam-sourced by the cmd tier (derived
+	// restore quiesces around its volume swap (Pitfall 3 torn-RocksDB/WAL guard).
+	// Seam-sourced by the cmd tier (derived
 	// from orchestrate.QdrantContainerUnitName()) — never a literal here, so the
 	// core stays free of service-name literals (mirrors OpenWebUIServiceName).
 	QdrantServiceName string
