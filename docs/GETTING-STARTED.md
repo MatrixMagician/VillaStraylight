@@ -79,7 +79,8 @@ The `Makefile` targets are thin wrappers around the Go toolchain. If you prefer 
 to use `make`, the equivalents are:
 
 ```bash
-go build -o villa ./cmd/villa     # same as `make build`
+go build -ldflags "-X main.version=$(git describe --tags --always --dirty)" \
+  -o villa ./cmd/villa            # same as `make build` (which stamps the version)
 go run ./cmd/villa <subcommand>   # same as `make run`
 ```
 
@@ -97,9 +98,10 @@ touches your host.
 
 `villa preflight` is read-only. It runs the host-prep gate — Vulkan ICD + iGPU
 enumeration (`PRE-01`), Podman rootless readiness (`PRE-02`), user lingering
-(`PRE-03`), free disk/memory (`PRE-04`), and the SELinux `container_use_devices`
-boolean (`PRE-05`) — and classifies each result as a **BLOCK** or **WARN**. It maps
-the worst result to an exit code:
+(`PRE-03`), free disk/memory (`PRE-04`), the SELinux `container_use_devices`
+boolean (`PRE-05`), and two WARN-tier version floors, the kernel (`PRE-06`) and
+`linux-firmware` (`PRE-07`) — and classifies each result as a **BLOCK** or **WARN**.
+It maps the worst result to an exit code:
 
 | Exit code | Meaning |
 |-----------|---------|
@@ -237,7 +239,7 @@ is a ROCm backend, regenerates **only** the inference unit, restarts it, and
 **proves** the cutover with a real generation probe plus a GPU-residency check inside
 a bounded timeout. If any step fails — or the preflight refuses (e.g. a too-old
 kernel, a denied linux-firmware build, or a missing `HSA_OVERRIDE_GFX_VERSION`) — the
-switch rolls back verbatim and the stack you were already running keeps running. <!-- VERIFY: kernel version, linux-firmware date, and gfx1151 readiness are host facts probed at runtime and cannot be confirmed from the repository alone -->
+switch rolls back verbatim and the stack you were already running keeps running.
 
 The ROCm preflight is also available standalone (read-only):
 
@@ -316,6 +318,16 @@ first — the table tells you which check failed and prints the fix.
   loginctl enable-linger "$USER"
   ```
 
+- **It installed clean, but something is wrong now.** `villa preflight` answers
+  "can this host install?" — it is not the tool for a stack that already came up.
+  For that, run the read-only runtime twin:
+  ```bash
+  ./villa doctor
+  ```
+  It reports host conditions, per-service health, the GPU-offload proof, and
+  config-vs-disk drift (a unit on disk that no longer matches `config.toml` —
+  usually a hand-edit, which `villa up` will overwrite on the next reconcile).
+
 - **No fitting configuration / recommend refused.** If `villa install` reports the
   memory envelope is undeterminable, run `./villa detect` to confirm the GPU and
   memory envelope are visible, then `./villa recommend` to inspect the fit math.
@@ -327,13 +339,50 @@ first — the table tells you which check failed and prints the fix.
 
 ## Next steps
 
-- **[README.md](../README.md)** — the full command reference (model management,
-  inference validation, the lifecycle verbs `up` / `down` / `restart` / `logs`,
-  and the v1.1 `backend` / `bench` verbs).
+### Docs
+
+- **[README.md](../README.md)** — the full command reference: model management,
+  inference validation, and the lifecycle verbs `up` / `down` / `restart` / `logs`.
 - **[CONFIGURATION.md](CONFIGURATION.md)** — the `config.toml` surface (model,
-  quant, ctx, backend, dashboard/chat ports), where it lives
+  quant, ctx, backend, dashboard/chat ports, the resident set), where it lives
   (`~/.config/villa/config.toml`), how to inspect or change it with
   `villa config show` / `villa config set`, the backend-selection rules, and the
   ROCm bring-up policy (version floors, denylists, required override).
+- **[MEMORY.md](MEMORY.md)** — the memory and knowledge stack in full.
 - **[ARCHITECTURE.md](ARCHITECTURE.md)** — how the control plane, the generated
   Quadlet units, and the integrated OSS containers fit together.
+
+### What else the stack can do
+
+Everything below is **off by default and opt-in** — the install you just did is
+byte-identical whether or not these exist. Each is enabled by setting its
+`config.toml` key and re-running `villa install` — the guided install deliberately
+does **not** prompt for them, and `villa config set` does not write them — and each
+is proven at runtime rather than assumed.
+
+| Subsystem | What it adds | Start here |
+|-----------|--------------|------------|
+| **Memory & knowledge** | Cross-chat memory plus cited answers from your own documents, embedded and stored locally in Qdrant — no cloud embedding API. | `memory_enabled=true`, then [MEMORY.md](MEMORY.md) |
+| **Recall** | Indexes your past conversations so new chats retrieve what you discussed weeks ago, by meaning, with citations. | `villa recall index` / `villa recall status` |
+| **Coding agent** | A strictly-local terminal coding agent (a locked-down Crush) talking to your own model. | `villa code` |
+| **Coding mode** | Flips the running stack to a tool-calling configuration tuned for that agent, and back — a transactional cutover, so a failed flip is a no-op. | `villa coding-mode enter` / `exit` |
+| **Web search** | Grounded answers from the web through a local SearXNG, with a guard that sanitizes fetched pages and **flags** prompt-injection patterns (it never claims content is safe). | `web_search_enabled=true` |
+| **Resident set** | Holds several models loaded at once, each on its own loopback port, instead of restarting inference to swap between them. | `villa model resident ls` / `add` |
+| **Backup & restore** | The whole workspace — config, Open WebUI data, usage and bench stores — to one local `.tar`, and back transactionally. | `villa backup` / `villa restore <archive>` |
+
+### Proving it, rather than trusting it
+
+The privacy claims are runtime-asserted, not install-time assumptions. Each of
+these drives the real path and fails honestly — an unevaluable result is a
+failure, never a false green:
+
+```bash
+./villa doctor           # is this installed stack still healthy?
+./villa verify memory    # the RAG path retrieves and cites with ZERO outbound
+./villa verify search    # web-search outbound is BOUNDED to the sanctioned allowlist
+./villa verify agent     # the coding agent runs with no silent cloud fallback
+```
+
+`villa verify memory` and `villa verify search` are negative-control-first: they
+require host egress to be blocked for the run, and a control that cannot fail
+proves nothing. See [MEMORY.md](MEMORY.md#proving-zero-outbound-with-villa-verify-memory).
