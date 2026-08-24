@@ -291,8 +291,8 @@ func runBackup(cmd *cobra.Command, output string, d backup.Deps) int {
 	} else {
 		fmt.Fprintf(out, "memory: Qdrant volume not included (memory disabled or volume absent)\n")
 	}
-	switch {
-	case in.RecallStatePath == "":
+	switch in.RecallStatePath {
+	case "":
 		// Memory off ⇒ the entry was never offered to the core (gate).
 		fmt.Fprintf(out, "memory: recall state not included (memory disabled)\n")
 	default:
@@ -311,8 +311,8 @@ func runBackup(cmd *cobra.Command, output string, d backup.Deps) int {
 	// Honest coding-agent reporting (Phase 28): the rendered crush.json
 	// is archived (if present); the agent binary is identity-recorded for re-stage but
 	// its bytes are EXCLUDED, exactly like model weights.
-	switch {
-	case in.CrushConfigPath == "":
+	switch in.CrushConfigPath {
+	case "":
 		fmt.Fprintf(out, "coding agent: not included (agent disabled)\n")
 	default:
 		if _, serr := os.Stat(in.CrushConfigPath); serr == nil {
@@ -324,8 +324,8 @@ func runBackup(cmd *cobra.Command, output string, d backup.Deps) int {
 	// Honest web-search reporting (Phase 34): the rendered settings.yml
 	// provenance is archived (if present). Fetched ephemeral web content is never
 	// archived by design.
-	switch {
-	case in.SearxngSettingsPath == "":
+	switch in.SearxngSettingsPath {
+	case "":
 		fmt.Fprintf(out, "web search: not included (web search disabled)\n")
 	default:
 		if _, serr := os.Stat(in.SearxngSettingsPath); serr == nil {

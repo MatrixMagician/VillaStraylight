@@ -253,9 +253,9 @@ func TestVoidExhaustionWarn(t *testing.T) {
 		t.Errorf("a void-exhausted result must not report MinResident kept runs, got Kept=%d", res.Single.Kept)
 	}
 	// The attempt budget is bounded — it must not loop forever on all-void.
-	cap := 2*3 + 0
-	if rec.measureCalls > cap {
-		t.Errorf("measured runs %d exceeded the attempt cap %d (must be bounded)", rec.measureCalls, cap)
+	attemptBudget := 2*3 + 0
+	if rec.measureCalls > attemptBudget {
+		t.Errorf("measured runs %d exceeded the attempt cap %d (must be bounded)", rec.measureCalls, attemptBudget)
 	}
 }
 
@@ -376,7 +376,8 @@ func TestBenchABRestoresOriginal(t *testing.T) {
 			restoreIdx = i
 		}
 	}
-	if switchIdx < 0 || restoreIdx < 0 || !(switchIdx < restoreIdx) {
+	restoreAfterSwitch := switchIdx >= 0 && restoreIdx >= 0 && switchIdx < restoreIdx
+	if !restoreAfterSwitch {
 		t.Errorf("Restore(orig) must follow the Switch(other), got order %v", rec.callOrder)
 	}
 }

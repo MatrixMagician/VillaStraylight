@@ -71,7 +71,7 @@ func newConfigShow() *cobra.Command {
 		Short: "Print the effective configuration",
 		Long:  "Print the effective config.toml (typed defaults when absent) as a table, or as JSON with --json.",
 		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			code := runConfigShow(cmd, jsonOut, liveConfigDeps())
 			os.Exit(code)
 			return nil

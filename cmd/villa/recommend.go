@@ -39,7 +39,7 @@ func newRecommend() *cobra.Command {
 			"recommendation, showing the fit math (model_bytes + KV-cache@ctx + headroom ≤ usable_envelope). " +
 			"Overrides (--model/--quant/--ctx) are re-validated against the envelope. Read-only unless --save.",
 		Args: cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			profile := detect.Probe()
 
 			// Resolve the catalog source: an explicit --catalog flag wins; otherwise

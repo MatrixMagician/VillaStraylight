@@ -81,7 +81,7 @@ func newPreflight() *cobra.Command {
 			"rocm-6.4.4-rocwmma) it gates ROCm bring-up instead (refuse-with-remediation on a " +
 			"confident known-bad host). Read-only.",
 		Args: cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			profile := detect.Probe()
 			var results []preflight.CheckResult
 			if preflightGatesROCm(backend) {

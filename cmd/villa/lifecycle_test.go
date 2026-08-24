@@ -110,7 +110,7 @@ func TestLifecycleUpModelFileErrorBlocks(t *testing.T) {
 	units := twoUnitStack()
 	plan := orchestrate.Plan{Changed: units}
 	f := newFakeLifecycleDeps(t, units, plan)
-	f.lifecycleDeps.modelFile = func(config.VillaConfig) (string, error) {
+	f.modelFile = func(config.VillaConfig) (string, error) {
 		return "", errors.New("model \"ghost\" is not in the catalog")
 	}
 

@@ -122,7 +122,7 @@ func hostRejected(host string) bool {
 // TOCTOU (a public hostname that resolves to an internal IP is caught on the resolved
 // IP, not the trusted hostname). It splits host:port, parses the IP, and returns an
 // SSRF error when ipRejected.
-func control(network, address string, _ syscall.RawConn) error {
+func control(_, address string, _ syscall.RawConn) error {
 	host, _, err := net.SplitHostPort(address)
 	if err != nil {
 		return err

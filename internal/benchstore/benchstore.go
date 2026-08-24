@@ -18,7 +18,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 	"time"
 
@@ -39,14 +38,6 @@ const savedReportSchemaVersion = 1
 // field can never silently desync from the store's actual schema. No behaviour
 // change. The store is a SINGLE append-only bench-reports.jsonl.
 func SavedReportSchemaVersion() int { return savedReportSchemaVersion }
-
-// storeFileMode / storeDirMode are the owner-only modes the live append writer (Plan
-// 02) enforces on the JSONL store and its dir (info-disclosure
-// mitigation). They ship here with the path resolver so the contract owns them.
-const (
-	storeFileMode os.FileMode = 0o600
-	storeDirMode  os.FileMode = 0o700
-)
 
 // SavedReport is ONE saved bench report — a single JSONL line in the store. The
 // field ORDER is part of the byte-frozen contract (record.golden encodes it): new

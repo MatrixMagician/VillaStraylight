@@ -213,8 +213,8 @@ func benchN(ctx context.Context, d Deps, spec BenchSpec, side string) (Stats, bo
 	void := 0
 	// Bounded attempt budget so all-void runs terminate (Pitfall 5): allow up to one
 	// retry per requested rep before declaring void-exhaustion.
-	cap := 2 * spec.Reps
-	for attempts := 0; len(kept) < spec.Reps && attempts < cap; attempts++ {
+	attemptBudget := 2 * spec.Reps
+	for attempts := 0; len(kept) < spec.Reps && attempts < attemptBudget; attempts++ {
 		t, resident, _, err := d.Measure(ctx)
 		if err != nil || !resident {
 			void++

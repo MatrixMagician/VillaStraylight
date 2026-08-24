@@ -35,8 +35,8 @@ func TestInstallWizardFires(t *testing.T) {
 	units := []orchestrate.Unit{{Name: "villa-llama.container", Text: "[Container]\n"}}
 	plan := orchestrate.Plan{Changed: units}
 	f := newFakeInstallDeps(t, units, plan, passChecks())
-	f.installDeps.interactive = func() bool { return true }
-	f.installDeps.stdoutIsTTY = func() bool { return true }
+	f.interactive = func() bool { return true }
+	f.stdoutIsTTY = func() bool { return true }
 
 	cmd, _, _ := installTestCmd()
 	code := runInstall(cmd, installOpts{}, f.installDeps)
@@ -73,8 +73,8 @@ func TestInstallGateBypassesWizard(t *testing.T) {
 			f := newFakeInstallDeps(t, units, plan, passChecks())
 			// interactive stdin is true for all cases so the ONLY thing turning the
 			// wizard off is the bypass condition under test.
-			f.installDeps.interactive = func() bool { return true }
-			f.installDeps.stdoutIsTTY = func() bool { return tc.tty }
+			f.interactive = func() bool { return true }
+			f.stdoutIsTTY = func() bool { return tc.tty }
 
 			cmd, _, _ := installTestCmd()
 			code := runInstall(cmd, tc.opts, f.installDeps)
@@ -104,8 +104,8 @@ func TestWizardConfigMatchesFlagPath(t *testing.T) {
 	// Wizard path: interactive + TTY, no --no-tui → the wizard seam fires (empty
 	// override, nil consent), then the single gate persists the recommended config.
 	fw := newFakeInstallDeps(t, units, plan, passChecks())
-	fw.installDeps.interactive = func() bool { return true }
-	fw.installDeps.stdoutIsTTY = func() bool { return true }
+	fw.interactive = func() bool { return true }
+	fw.stdoutIsTTY = func() bool { return true }
 	cmdW, _, _ := installTestCmd()
 	if code := runInstall(cmdW, installOpts{}, fw.installDeps); code != exitPass {
 		t.Fatalf("wizard-path install exit = %d, want exitPass", code)
@@ -116,8 +116,8 @@ func TestWizardConfigMatchesFlagPath(t *testing.T) {
 
 	// Flag path: --no-tui forces today's flag path verbatim.
 	ff := newFakeInstallDeps(t, units, plan, passChecks())
-	ff.installDeps.interactive = func() bool { return true }
-	ff.installDeps.stdoutIsTTY = func() bool { return true }
+	ff.interactive = func() bool { return true }
+	ff.stdoutIsTTY = func() bool { return true }
 	cmdF, _, _ := installTestCmd()
 	if code := runInstall(cmdF, installOpts{noTUI: true}, ff.installDeps); code != exitPass {
 		t.Fatalf("flag-path install exit = %d, want exitPass", code)
@@ -157,11 +157,11 @@ func TestInstallWizardPathRunsGateOnce(t *testing.T) {
 	t.Run("consent-granted-runs-seam-once", func(t *testing.T) {
 		// A single BLOCK-tier privileged gap (SELinux off → PRE-05 → d.setsebool).
 		f := newFakeInstallDeps(t, units, plan, []preflight.CheckResult{seloffCheck()})
-		f.installDeps.interactive = func() bool { return true }
-		f.installDeps.stdoutIsTTY = func() bool { return true }
-		f.installDeps.consent = failConsent
+		f.interactive = func() bool { return true }
+		f.stdoutIsTTY = func() bool { return true }
+		f.consent = failConsent
 		// The wizard seam simulates the real collector's output: consent GRANTED.
-		f.installDeps.wizard = func(context.Context, wizardInput) (wizardResult, error) {
+		f.wizard = func(context.Context, wizardInput) (wizardResult, error) {
 			f.wizardCalls++
 			return wizardResult{consentDecisions: map[string]bool{"PRE-05": true}}, nil
 		}
@@ -189,11 +189,11 @@ func TestInstallWizardPathRunsGateOnce(t *testing.T) {
 
 	t.Run("consent-denied-never-runs-seam-and-blocks", func(t *testing.T) {
 		f := newFakeInstallDeps(t, units, plan, []preflight.CheckResult{seloffCheck()})
-		f.installDeps.interactive = func() bool { return true }
-		f.installDeps.stdoutIsTTY = func() bool { return true }
-		f.installDeps.consent = failConsent
+		f.interactive = func() bool { return true }
+		f.stdoutIsTTY = func() bool { return true }
+		f.consent = failConsent
 		// The wizard seam returns consent DENIED for the BLOCK gap.
-		f.installDeps.wizard = func(context.Context, wizardInput) (wizardResult, error) {
+		f.wizard = func(context.Context, wizardInput) (wizardResult, error) {
 			f.wizardCalls++
 			return wizardResult{consentDecisions: map[string]bool{"PRE-05": false}}, nil
 		}
@@ -435,11 +435,11 @@ func TestInstallNoFitEmitsContractedEmptyState(t *testing.T) {
 		units := []orchestrate.Unit{{Name: "villa-llama.container", Text: "[Container]\n"}}
 		plan := orchestrate.Plan{Changed: units}
 		f := newFakeInstallDeps(t, units, plan, passChecks())
-		f.installDeps.probe = func() detect.HostProfile {
+		f.probe = func() detect.HostProfile {
 			return detect.HostProfile{UsableEnvelopeBytes: env}
 		}
 		// A refusing pick: empty Model is a clear no-fit.
-		f.installDeps.pick = func(detect.HostProfile, recommend.Overrides) recommend.Recommendation {
+		f.pick = func(detect.HostProfile, recommend.Overrides) recommend.Recommendation {
 			return recommend.Recommendation{}
 		}
 		return f.installDeps, nil

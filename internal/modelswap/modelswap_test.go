@@ -157,7 +157,8 @@ func TestSwapSaveBeforeReconcileAndInferenceOnlyRestart(t *testing.T) {
 			restartIdx = i
 		}
 	}
-	if !(pullIdx < saveIdx && saveIdx < writeIdx && writeIdx < restartIdx) {
+	swapInOrder := pullIdx < saveIdx && saveIdx < writeIdx && writeIdx < restartIdx
+	if !swapInOrder {
 		t.Errorf("expected pull<save<write<restart, got %v", rec.callOrder)
 	}
 	// ONLY the inference unit is restarted (network/volume untouched).

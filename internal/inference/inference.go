@@ -214,11 +214,6 @@ type Verdict struct {
 	Raw string `json:"-"`
 }
 
-// pass builds a passing Verdict.
-func pass(detail, provenance string) Verdict {
-	return Verdict{Status: StatusPass, Detail: detail, Provenance: provenance}
-}
-
 // warn builds a WARN Verdict with a remediation hint.
 func warn(detail, remediation, provenance, raw string) Verdict {
 	return Verdict{Status: StatusWarn, Detail: detail, Remediation: remediation, Provenance: provenance, Raw: raw}

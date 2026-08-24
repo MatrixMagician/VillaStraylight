@@ -34,7 +34,7 @@ func TestInstallMemorySkewWarn(t *testing.T) {
 		f := newFakeInstallDeps(t, units, plan, passChecks())
 		f.memoryEnabled = true
 		reads := 0
-		f.installDeps.readRecallState = func() (recall.State, error) {
+		f.readRecallState = func() (recall.State, error) {
 			reads++
 			return stamped, nil
 		}
@@ -70,7 +70,7 @@ func TestInstallMemorySkewWarn(t *testing.T) {
 		units, plan := memoryUnits()
 		f := newFakeInstallDeps(t, units, plan, passChecks())
 		f.memoryEnabled = true
-		f.installDeps.readRecallState = func() (recall.State, error) {
+		f.readRecallState = func() (recall.State, error) {
 			return recall.State{}, nil // nothing recorded (fresh install / pre-stamp store)
 		}
 
@@ -87,7 +87,7 @@ func TestInstallMemorySkewWarn(t *testing.T) {
 		units, plan := memoryUnits()
 		f := newFakeInstallDeps(t, units, plan, passChecks())
 		f.memoryEnabled = true
-		f.installDeps.readRecallState = func() (recall.State, error) {
+		f.readRecallState = func() (recall.State, error) {
 			return recall.State{EmbeddingModel: "nomic-embed-text-v1.5", EmbeddingDim: 768}, nil
 		}
 
@@ -104,7 +104,7 @@ func TestInstallMemorySkewWarn(t *testing.T) {
 		units, plan := memoryUnits()
 		f := newFakeInstallDeps(t, units, plan, passChecks())
 		f.memoryEnabled = true
-		f.installDeps.readRecallState = func() (recall.State, error) {
+		f.readRecallState = func() (recall.State, error) {
 			return recall.State{}, errors.New("permission denied")
 		}
 
@@ -122,7 +122,7 @@ func TestInstallMemorySkewWarn(t *testing.T) {
 		f := newFakeInstallDeps(t, units, plan, passChecks())
 		f.memoryEnabled = false
 		reads := 0
-		f.installDeps.readRecallState = func() (recall.State, error) {
+		f.readRecallState = func() (recall.State, error) {
 			reads++
 			return stamped, nil
 		}

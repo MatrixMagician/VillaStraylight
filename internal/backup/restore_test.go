@@ -471,7 +471,8 @@ func TestRestoreHappyPathCleanRecreateBeforeImport(t *testing.T) {
 	if iRm == -1 || iRec == -1 || iEns == -1 || iImp == -1 {
 		t.Fatalf("missing a clean-recreate seam call: %v", r.calls)
 	}
-	if !(iRm < iRec && iRec < iEns && iEns < iImp) {
+	cleanRecreateInOrder := iRm < iRec && iRec < iEns && iEns < iImp
+	if !cleanRecreateInOrder {
 		t.Fatalf("want VolumeRm<ReconcileAndWrite<EnsureVolume<VolumeImport, got rm=%d rec=%d ens=%d imp=%d (%v)",
 			iRm, iRec, iEns, iImp, r.calls)
 	}
@@ -761,7 +762,8 @@ func TestRestoreQdrantMatrix(t *testing.T) {
 				t.Fatalf("missing a qdrant clean-recreate call: %v", r.calls)
 			}
 			iRec := indexAfter(r.calls, "ReconcileAndWrite", iRm)
-			if !(iRm < iRec && iRec < iEns && iEns < iImp) {
+			cleanRecreateInOrder := iRm < iRec && iRec < iEns && iEns < iImp
+			if !cleanRecreateInOrder {
 				t.Fatalf("want VolumeRm<ReconcileAndWrite<EnsureVolume<VolumeImport on qdrant, got rm=%d rec=%d ens=%d imp=%d (%v)",
 					iRm, iRec, iEns, iImp, r.calls)
 			}
@@ -853,7 +855,8 @@ func TestRestoreQdrantForwardFailureRollsBackBothVolumes(t *testing.T) {
 	iFirstRm := indexOf(r.calls, "VolumeRm:qdrant-vol")
 	iSecondRm := indexAfter(r.calls, "VolumeRm:qdrant-vol", iFirstRm+1)
 	iRbImp := indexOf(r.calls, "VolumeImport:qdrant-vol:"+in.RollbackQdrantTar)
-	if !(iSecondRm != -1 && iSecondRm < iRbImp) {
+	rollbackImportAfterOwnRm := iSecondRm != -1 && iSecondRm < iRbImp
+	if !rollbackImportAfterOwnRm {
 		t.Fatalf("rollback qdrant import must be preceded by its own clean-recreate VolumeRm; calls %v", r.calls)
 	}
 }

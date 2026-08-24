@@ -124,7 +124,7 @@ func selectComparePair(reports []benchstore.SavedReport) (benchstore.SavedReport
 //     delta but flags that side not-authoritative (advisory, not a refusal — exit stays 0).
 //
 // It NEVER calls bench.Run, benchstoreWrite, or any backend swap.
-func runBenchCompare(cmd *cobra.Command, list, compare, asJSON bool, d benchstore.Deps) int {
+func runBenchCompare(cmd *cobra.Command, list, _, asJSON bool, d benchstore.Deps) int {
 	out := cmd.OutOrStdout()
 	errOut := cmd.ErrOrStderr()
 

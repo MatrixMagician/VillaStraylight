@@ -151,7 +151,8 @@ func TestCaptureBeforeMutate(t *testing.T) {
 	if capIdx < 0 || saveIdx < 0 || writeIdx < 0 {
 		t.Fatalf("expected capture, save, write all recorded, got %v", rec.callOrder)
 	}
-	if !(capIdx < saveIdx && capIdx < writeIdx) {
+	captureFirst := capIdx < saveIdx && capIdx < writeIdx
+	if !captureFirst {
 		t.Errorf("capture must precede save AND write, got order %v", rec.callOrder)
 	}
 }
@@ -223,7 +224,8 @@ func TestRollbackVerbatim(t *testing.T) {
 	// Restore precedes the config-restore, reload, and the rollback restart.
 	restoreIdx := indexOf(rec.callOrder, "restore")
 	reloadIdx := indexOf(rec.callOrder, "daemon-reload")
-	if restoreIdx < 0 || reloadIdx < 0 || !(restoreIdx < reloadIdx) {
+	restoreBeforeReload := restoreIdx >= 0 && reloadIdx >= 0 && restoreIdx < reloadIdx
+	if !restoreBeforeReload {
 		t.Errorf("expected restore before daemon-reload in rollback, got %v", rec.callOrder)
 	}
 	// The prior config was re-saved (Backend back to vulkan).

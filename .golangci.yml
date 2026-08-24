@@ -27,10 +27,28 @@ linters:
       - linters:
           - errcheck
         path: _test\.go
+      # revive's unused-parameter is a false positive by construction in tests.
+      # The fakes here implement fixed Deps-seam signatures, so an unused
+      # parameter cannot be dropped, and its name is the only place the seam's
+      # contract is legible at the call site. Renaming ~24 of them to `_` would
+      # cost real information to satisfy a check that cannot apply here.
+      - linters:
+          - revive
+        path: _test\.go
+        text: unused-parameter
     paths:
       - third_party$
       - builtin$
       - examples$
+issues:
+  # Report every occurrence, not a sample. golangci-lint defaults to
+  # max-same-issues: 3 and max-issues-per-linter: 50, which showed this tree 67
+  # findings when it had 171. Anyone triaging a cleanup off that number plans
+  # against a backlog that is not the real one, and a repeated finding looks
+  # fixed after three edits. A count that is not the count is worse than no
+  # count.
+  max-same-issues: 0
+  max-issues-per-linter: 0
 formatters:
   enable:
     - gofmt
