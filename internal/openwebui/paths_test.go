@@ -27,10 +27,11 @@ import (
 // paths, since answering by path is what makes it a transport fake rather than a
 // stub, so _test.go files are excluded.
 func TestNoEndpointLiteralsOutsideThisPackage(t *testing.T) {
-	// The owned prefixes: the versioned API subtree, the model list and the
-	// completions route. Each is anchored to a leading quote so a bare mention in
-	// prose does not match — the gate is about emitted strings, not documentation.
-	owned := regexp.MustCompile(`"/api/v1/|"/api/models"|"/api/chat/completions"`)
+	// The owned prefixes: the versioned API subtree, the model list, the completions
+	// route and the admin openai-config subtree. Each is anchored to a leading quote so
+	// a bare mention in prose does not match — the gate is about emitted strings, not
+	// documentation.
+	owned := regexp.MustCompile(`"/api/v1/|"/api/models"|"/api/chat/completions"|"/openai/`)
 
 	cmdTier := filepath.Join("..", "..", "cmd", "villa")
 	entries, err := os.ReadDir(cmdTier)
