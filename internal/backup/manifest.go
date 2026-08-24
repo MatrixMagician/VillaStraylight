@@ -139,7 +139,7 @@ type HostFingerprint struct {
 }
 
 // Manifest is the self-describing backup document. Fields are APPEND-ONLY
-// with SchemaVersion as the LAST field (mirrors usage.UsageTotals /
+// with SchemaVersion as the LAST field (mirrors usage.Totals /
 // benchstore) — new fields append ABOVE it; bump backupSchemaVersion on a
 // breaking change.
 type Manifest struct {

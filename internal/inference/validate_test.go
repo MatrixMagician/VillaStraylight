@@ -54,8 +54,8 @@ func healthyChatServer(t *testing.T) *httptest.Server {
 }
 
 // testModel is a small fixture catalog model (0.5B-ish) for the orchestrator math.
-func testModel() catalog.CatalogModel {
-	return catalog.CatalogModel{
+func testModel() catalog.Model {
+	return catalog.Model{
 		ID:             "qwen2.5-0.5b",
 		WeightBytes:    491400032,
 		NLayers:        24,

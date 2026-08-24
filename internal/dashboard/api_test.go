@@ -390,20 +390,20 @@ func stubSwapDeps(known string, fits bool, called *[]string) modelswap.Deps {
 	rec := func(step string) { *called = append(*called, step) }
 	return modelswap.Deps{
 		InstallServiceName: "villa-llama.service",
-		ResolveCatalog: func(name string) (catalog.CatalogModel, bool) {
+		ResolveCatalog: func(name string) (catalog.Model, bool) {
 			if name == known {
-				return catalog.CatalogModel{ID: name, Quant: "Q4"}, true
+				return catalog.Model{ID: name, Quant: "Q4"}, true
 			}
-			return catalog.CatalogModel{}, false
+			return catalog.Model{}, false
 		},
-		Fits: func(catalog.CatalogModel) (bool, string) {
+		Fits: func(catalog.Model) (bool, string) {
 			if fits {
 				return true, ""
 			}
 			return false, "needs 80.0 GiB vs 60.0 GiB usable"
 		},
-		IsDownloaded: func(catalog.CatalogModel) bool { return true },
-		Pull:         func(catalog.CatalogModel) error { rec("pull"); return nil },
+		IsDownloaded: func(catalog.Model) bool { return true },
+		Pull:         func(catalog.Model) error { rec("pull"); return nil },
 		LoadConfig:   func() (config.VillaConfig, error) { return config.VillaConfig{Model: "old"}, nil },
 		SaveConfig:   func(config.VillaConfig) error { rec("save"); return nil },
 		ReconcileAndWrite: func(config.VillaConfig) (bool, error) {
@@ -478,12 +478,12 @@ func TestHandleSwitchConcurrentRefusedWith409(t *testing.T) {
 
 	deps := modelswap.Deps{
 		InstallServiceName: "villa-llama.service",
-		ResolveCatalog: func(name string) (catalog.CatalogModel, bool) {
-			return catalog.CatalogModel{ID: name, Quant: "Q4"}, true
+		ResolveCatalog: func(name string) (catalog.Model, bool) {
+			return catalog.Model{ID: name, Quant: "Q4"}, true
 		},
-		Fits:         func(catalog.CatalogModel) (bool, string) { return true, "" },
-		IsDownloaded: func(catalog.CatalogModel) bool { return true },
-		Pull:         func(catalog.CatalogModel) error { return nil },
+		Fits:         func(catalog.Model) (bool, string) { return true, "" },
+		IsDownloaded: func(catalog.Model) bool { return true },
+		Pull:         func(catalog.Model) error { return nil },
 		LoadConfig:   func() (config.VillaConfig, error) { return config.VillaConfig{Model: "old"}, nil },
 		SaveConfig:   func(config.VillaConfig) error { rec("save"); return nil },
 		ReconcileAndWrite: func(config.VillaConfig) (bool, error) {
@@ -684,17 +684,17 @@ func TestHandleHealthz(t *testing.T) {
 // handler (reset-aware continuation is proven across requests, not just in the pure core).
 type usageProbe struct {
 	mu      sync.Mutex
-	store   usage.UsageTotals
+	store   usage.Totals
 	written int
 }
 
-func (p *usageProbe) read() usage.UsageTotals {
+func (p *usageProbe) read() usage.Totals {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.store
 }
 
-func (p *usageProbe) write(t usage.UsageTotals) error {
+func (p *usageProbe) write(t usage.Totals) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.store = t
@@ -834,8 +834,8 @@ func TestMetricsWritesUsage(t *testing.T) {
 func TestStatusUsageSurfaced(t *testing.T) {
 	// --- Present: a populated store surfaces the usage key on /api/status -----------
 	deps := stubStatusDeps(t)
-	deps.ReadUsage = func() *usage.UsageTotals {
-		return &usage.UsageTotals{
+	deps.ReadUsage = func() *usage.Totals {
+		return &usage.Totals{
 			SchemaVersion: 1,
 			Models: map[string]usage.ModelUsage{
 				"qwen3": {
@@ -865,7 +865,7 @@ func TestStatusUsageSurfaced(t *testing.T) {
 
 	// --- Absent: a nil-returning seam omits the usage key (typed-Unknown) -----------
 	depsNil := stubStatusDeps(t)
-	depsNil.ReadUsage = func() *usage.UsageTotals { return nil }
+	depsNil.ReadUsage = func() *usage.Totals { return nil }
 	srvNil := mustNewServer(t, Config{StatusDeps: depsNil, ChatPort: 3000, DashboardAddr: "127.0.0.1", DashboardPort: 8888})
 
 	reqNil := httptest.NewRequest(http.MethodGet, "/api/status", nil)

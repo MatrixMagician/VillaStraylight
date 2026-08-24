@@ -261,8 +261,8 @@ func (f *fakeDeps) deps() Deps {
 	}
 }
 
-func baseBackupInput(w io.Writer) BackupInput {
-	return BackupInput{
+func baseBackupInput(w io.Writer) Input {
+	return Input{
 		CreatedAt:           "2026-06-07T00:00:00Z",
 		VillaVersion:        "v1.2.0",
 		Host:                HostFingerprint{Arch: "amd64", IGPU: "gfx1151", Kernel: "6.18.4"},
@@ -726,7 +726,7 @@ func TestSkewEmbeddingRemediationNamesConsequenceAndFix(t *testing.T) {
 // the qdrant volume export + recall-state.json entries and the manifest embedding
 // fields. Names deliberately avoid the real service/volume literals
 // they are seam-sourced by the cmd tier, never typed in this core.
-func memoryBackupInput(w io.Writer) BackupInput {
+func memoryBackupInput(w io.Writer) Input {
 	in := baseBackupInput(w)
 	in.QdrantVolumeName = "qdrant-vol"
 	in.TempQdrantTar = "/tmp/qdrant-vol.tar"

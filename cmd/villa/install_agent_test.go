@@ -27,7 +27,7 @@ func TestCoderShard(t *testing.T) {
 		SHA256:    "abc123",
 		SizeBytes: 18_000_000_000,
 	}
-	cat := catalog.Catalog{Models: []catalog.CatalogModel{
+	cat := catalog.Catalog{Models: []catalog.Model{
 		{ID: "qwen3-chat-30b"}, // a chat entry with no shards — must be skipped
 		{ID: "qwen3-coder-30b-a3b", Role: "coder", Shards: []catalog.Shard{coderShard}},
 		{ID: "qwen3-coder-no-shard", Role: "coder"}, // coder but no shards — must not resolve

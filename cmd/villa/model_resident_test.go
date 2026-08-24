@@ -50,7 +50,7 @@ func (r *residentRecorder) mutated() bool {
 // residentFixture is the tunable fake host a test builds its deps from.
 type residentFixture struct {
 	cfg    config.VillaConfig
-	models map[string]catalog.CatalogModel
+	models map[string]catalog.Model
 	fits   map[string]recommend.Recommendation
 	// diskUnits is the unit-file text already on disk, keyed by unit filename.
 	diskUnits map[string]string
@@ -79,7 +79,7 @@ func newResidentFixture() *residentFixture {
 	const gib = uint64(1) << 30
 	f := &residentFixture{
 		cfg: config.VillaConfig{Model: testPrimary, Quant: "Q4", Ctx: 8192, Backend: "rocm"},
-		models: map[string]catalog.CatalogModel{
+		models: map[string]catalog.Model{
 			testPrimary:   {ID: testPrimary, Quant: "Q4", DefaultCtx: 8192},
 			testCandidate: {ID: testCandidate, Quant: "Q8", DefaultCtx: 4096},
 			"third-model": {ID: "third-model", Quant: "Q8", DefaultCtx: 4096},
@@ -112,16 +112,16 @@ func (f *residentFixture) deps() (*residentDeps, *residentRecorder) {
 			rec.saved = append(rec.saved, c)
 			return nil
 		},
-		resolveCatalog: func(id string) (catalog.CatalogModel, bool) {
+		resolveCatalog: func(id string) (catalog.Model, bool) {
 			m, ok := f.models[id]
 			return m, ok
 		},
-		fit: func(m catalog.CatalogModel, _ int) recommend.Recommendation {
+		fit: func(m catalog.Model, _ int) recommend.Recommendation {
 			return f.fits[m.ID]
 		},
 		primaryPort:  func() int { return 8080 },
-		isDownloaded: func(catalog.CatalogModel) bool { return true },
-		pull: func(m catalog.CatalogModel) error {
+		isDownloaded: func(catalog.Model) bool { return true },
+		pull: func(m catalog.Model) error {
 			rec.pulled = append(rec.pulled, m.ID)
 			return nil
 		},

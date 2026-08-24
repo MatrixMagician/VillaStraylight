@@ -17,11 +17,11 @@ package catalog
 // the embedded seed is used instead. Bump this only on an incompatible
 // schema change.
 //
-// v2 (Phase 2): adds the per-shard download metadata each CatalogModel
+// v2 (Phase 2): adds the per-shard download metadata each Model
 // carries (Shards: URL + expected SHA256 + expected size) so `villa model pull`
 // can download+verify a GGUF without delegating to llama.cpp -hf (MODEL-02).
 //
-// v3 (Phase 24): adds the optional coder-role fields each CatalogModel
+// v3 (Phase 24): adds the optional coder-role fields each Model
 // may carry (role, agent_ctx, cache_reuse_safe, agent_sampling,
 // template_provenance) so the coder fit stage and the Phase-25 render can
 // consume qualified coding-model entries (CODER-01). All five are optional
@@ -31,12 +31,12 @@ const SupportedSchema = 3
 // Catalog is the top-level catalog document. schema_version gates parser
 // compatibility; catalog_version is informational data-freshness metadata.
 type Catalog struct {
-	SchemaVersion  int            `json:"schema_version"`
-	CatalogVersion string         `json:"catalog_version"`
-	Models         []CatalogModel `json:"models"`
+	SchemaVersion  int     `json:"schema_version"`
+	CatalogVersion string  `json:"catalog_version"`
+	Models         []Model `json:"models"`
 }
 
-// CatalogModel is a single catalog entry. The byte/dimension fields are the
+// Model is a single catalog entry. The byte/dimension fields are the
 // inputs to the recommend fit math (model_bytes + KV-cache@ctx + headroom ≤
 // usable_envelope).
 //
@@ -45,7 +45,7 @@ type Catalog struct {
 // the fit-math MECHANISM — they must be replaced with real GGUF metadata for each
 // pinned model at catalog-authoring time. The mechanism (schema + KV math) is HIGH
 // confidence; the seed numbers are not.
-type CatalogModel struct {
+type Model struct {
 	ID          string `json:"id"`
 	DisplayName string `json:"display_name"`
 	Quant       string `json:"quant"`
@@ -136,11 +136,11 @@ type AgentSampling struct {
 }
 
 // FindByID returns the model with the given id and whether it was found.
-func (c Catalog) FindByID(id string) (CatalogModel, bool) {
+func (c Catalog) FindByID(id string) (Model, bool) {
 	for _, m := range c.Models {
 		if m.ID == id {
 			return m, true
 		}
 	}
-	return CatalogModel{}, false
+	return Model{}, false
 }

@@ -57,10 +57,10 @@ type ModelUsage struct {
 	LastSeen  string       `json:"last_seen,omitempty"`
 }
 
-// UsageTotals is the whole-store document: per-model cumulative usage keyed by model
+// Totals is the whole-store document: per-model cumulative usage keyed by model
 // id, plus the store's own independent SchemaVersion. This is the single mutable JSON
 // doc written via full-file atomic temp+rename (NOT an append-only log).
-type UsageTotals struct {
+type Totals struct {
 	Models        map[string]ModelUsage `json:"models,omitempty"`
 	SchemaVersion int                   `json:"schema_version"`
 }
@@ -112,7 +112,7 @@ func foldCounter(prior CounterState, sampleRaw uint64) CounterState {
 // LastSeenRaw mutation). An entirely-unknown sample (both counters unknown) produces
 // NO new or changed model entry. Fold is pure: it returns an updated copy and never
 // mutates the input store.
-func Fold(prior UsageTotals, sample Sample) UsageTotals {
+func Fold(prior Totals, sample Sample) Totals {
 	// A sample with no Known counter — or no model identity to attribute counts to
 	// contributes nothing; never fabricate or MIS-KEY an entry. An empty Model only
 	// arises when the writer could not resolve the active model (e.g. a transient
@@ -123,7 +123,7 @@ func Fold(prior UsageTotals, sample Sample) UsageTotals {
 		return prior
 	}
 
-	out := UsageTotals{
+	out := Totals{
 		SchemaVersion: usageSchemaVersion,
 		Models:        make(map[string]ModelUsage, len(prior.Models)+1),
 	}
@@ -148,14 +148,14 @@ func Fold(prior UsageTotals, sample Sample) UsageTotals {
 
 // GetSchemaVersion and SetSchemaVersion let the shared store stamp and check this
 // document's version without knowing anything else about it.
-func (t *UsageTotals) GetSchemaVersion() int  { return t.SchemaVersion }
-func (t *UsageTotals) SetSchemaVersion(v int) { t.SchemaVersion = v }
+func (t *Totals) GetSchemaVersion() int  { return t.SchemaVersion }
+func (t *Totals) SetSchemaVersion(v int) { t.SchemaVersion = v }
 
 // store binds the shared persistence layer to this document, filename and version.
 // Only the PERSISTENCE is shared: the reset-aware counter fold above — the part
 // that makes a monotonic source restarting look like new tokens rather than a
 // negative delta — stays here, where it belongs.
-var store = jsonstore.New[UsageTotals, *UsageTotals]("usage", "usage.json", usageSchemaVersion)
+var store = jsonstore.New[Totals, *Totals]("usage", "usage.json", usageSchemaVersion)
 
 // Deps is the injectable byte-I/O seam, so the package stays testable off-hardware
 // with a buffer-backed Deps.
@@ -163,16 +163,16 @@ type Deps = jsonstore.Deps
 
 // Save stamps the store's own SchemaVersion and writes the whole document via the
 // seam (full-file replace, not append)..
-func Save(d Deps, t UsageTotals) error { return store.Save(d, t) }
+func Save(d Deps, t Totals) error { return store.Save(d, t) }
 
 // Load reads the store via the seam and fails CLOSED to an empty typed-Unknown
-// UsageTotals on an absent, corrupt or version-mismatched store — never a
+// Totals on an absent, corrupt or version-mismatched store — never a
 // fabricated total.
-func Load(d Deps) (UsageTotals, error) { return store.Load(d) }
+func Load(d Deps) (Totals, error) { return store.Load(d) }
 
-// UsagePath resolves the single mutable usage store, directly under the villa data
+// Path resolves the single mutable usage store, directly under the villa data
 // root. Usage is durable accumulated DATA, not config and not disposable cache.
-func UsagePath() string { return store.Path() }
+func Path() string { return store.Path() }
 
 // WriteFileAtomic is the live data-dir write seam the dashboard and restore wire: a
 // traversal-guarded temp+rename write at 0600 under a 0700 directory, so a crash

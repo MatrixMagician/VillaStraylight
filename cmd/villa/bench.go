@@ -74,7 +74,7 @@ const benchPrompt = "Summarize the water cycle in three concise sentences."
 // fast-but-CPU-fallback completion) marks the run VOID so the core excludes it from the
 // band (offload asserted, not assumed). All backend markers stay behind ResidencyProof()
 // — this function is literal-free of them.
-func liveMeasure(ctx context.Context, target string, spec bench.BenchSpec) (bench.RunTimings, bool, string, error) {
+func liveMeasure(ctx context.Context, target string, spec bench.Spec) (bench.RunTimings, bool, string, error) {
 	// Resolve the backend fail-closed: an unknown target is a measure failure,
 	// never a silent fallback. backend.ResidencyProof() is the ONLY source of markers.
 	backend, err := inference.BackendFor(target)
@@ -205,7 +205,7 @@ sampleLoop:
 // backendswap.Run (the LOCKED Phase-8 transactional core, never re-implemented) and
 // the original backend is restored on every exit path. For plain `villa bench`,
 // Switch/Restore/LoadConfig stay nil so the core takes the single-backend branch.
-func liveBenchDeps(ab bool, spec bench.BenchSpec) *bench.Deps {
+func liveBenchDeps(ab bool, spec bench.Spec) *bench.Deps {
 	d := &bench.Deps{
 		// Measure benches the currently-configured (running) backend. liveMeasure
 		// re-loads cfg each call so an --ab flip is observed on the next side.
@@ -446,7 +446,7 @@ func newBench() *cobra.Command {
 			// BENCH-04 read-only --compare/--list dispatch. These paths NEVER run a
 			// benchmark and NEVER touch the backend, so they reject combination with the
 			// live-measurement flags at the cobra boundary (clone of the --ab-target-requires
-			// --ab precedent shape below). Validate BEFORE building the BenchSpec.
+			// --ab precedent shape below). Validate BEFORE building the bench.Spec.
 			if asCompare || asList {
 				if asCompare && asList {
 					return fmt.Errorf("bench: --compare and --list are mutually exclusive — pick one")
@@ -492,7 +492,7 @@ func newBench() *cobra.Command {
 						"DIFFERENT backends (omit --ab-target to compare against the default, or name a different backend)", abTarget)
 				}
 			}
-			spec := bench.BenchSpec{
+			spec := bench.Spec{
 				Reps:        reps,
 				Warmup:      warmup,
 				Prompt:      benchPrompt,
@@ -585,23 +585,23 @@ type benchAB struct {
 }
 
 // benchRun is the package-level indirection RunE calls so bench_test.go can capture the
-// constructed BenchSpec (asserting --ab-target plumbing) and assert the fail-closed
+// constructed bench.Spec (asserting --ab-target plumbing) and assert the fail-closed
 // validation NEVER reaches the run — all without firing os.Exit or touching a live host.
 // The default runs the real runBench and os.Exit(code)s (the bench noun maps its result to
 // a process exit code); a test override returns the captured code without exiting.
-var benchRun = func(cmd *cobra.Command, spec bench.BenchSpec, ab, asJSON bool, d *bench.Deps) int {
+var benchRun = func(cmd *cobra.Command, spec bench.Spec, ab, asJSON bool, d *bench.Deps) int {
 	code := runBench(cmd, spec, ab, asJSON, d)
 	os.Exit(code)
 	return code // unreachable in the default; satisfies the signature for test overrides
 }
 
-// runBench builds the BenchSpec from flags, pre-checks a reachable endpoint
+// runBench builds the bench.Spec from flags, pre-checks a reachable endpoint
 // (refuse-with-remediation if none), runs the pure bench core, and maps the typed
 // Result to an exit code + rendered output. The body RETURNS the int (no os.Exit) so
 // tests assert output+code without a subprocess. Exit mapping: no running endpoint →
 // exitBlocked (1); void-exhaustion → exitWarn (2); clean delta → exitPass (0); a
 // non-methodology Err (e.g. an --ab LoadConfig/flip error) → exitBlocked.
-func runBench(cmd *cobra.Command, spec bench.BenchSpec, ab, asJSON bool, d *bench.Deps) int {
+func runBench(cmd *cobra.Command, spec bench.Spec, ab, asJSON bool, d *bench.Deps) int {
 	out := cmd.OutOrStdout()
 	errOut := cmd.ErrOrStderr()
 
@@ -696,7 +696,7 @@ var benchEndpointReachable = func() bool {
 
 // benchEntryFromResult maps the pure bench.Result into the typed --json/render entry,
 // carrying pp and tg SEPARATELY end-to-end.
-func benchEntryFromResult(res bench.Result, ab bool, spec bench.BenchSpec) benchEntry {
+func benchEntryFromResult(res bench.Result, ab bool, spec bench.Spec) benchEntry {
 	conds := benchConditions{
 		Warmup:   spec.Warmup,
 		Reps:     spec.Reps,
@@ -747,7 +747,7 @@ func sideFromStats(backend string, s bench.Stats) benchSide {
 // SavedAB per-metric deltas, the VoidExhausted/Reason residency-void state, and the
 // cmd-tier-captured Fingerprint. The benched backend is carried via fp.Backend (set by the
 // caller) and the side labels; no backend marker literal is introduced here.
-func savedReportFromResult(res bench.Result, ab bool, spec bench.BenchSpec, fp benchstore.Fingerprint) benchstore.SavedReport {
+func savedReportFromResult(res bench.Result, ab bool, spec bench.Spec, fp benchstore.Fingerprint) benchstore.SavedReport {
 	savedSpec := benchstore.SavedSpec{
 		Prompt:   spec.Prompt,
 		Reps:     spec.Reps,
@@ -809,7 +809,7 @@ func savedSideFromStats(backend string, s bench.Stats) benchstore.SavedSide {
 // captureBenchFingerprint stamp Model=""/Quant=""/Ctx=0, durably persisting a zeroed
 // fingerprint that later auto-selects/compares against another empty-fingerprint record
 // — a quieter "fabricate identity". Skip-with-WARN instead of polluting the store.
-func persistBenchReport(errOut io.Writer, res bench.Result, ab bool, spec bench.BenchSpec) {
+func persistBenchReport(errOut io.Writer, res bench.Result, ab bool, spec bench.Spec) {
 	cfg, err := config.LoadVilla()
 	if err != nil {
 		fmt.Fprintf(errOut,

@@ -128,7 +128,7 @@ func TestDecideAccumulatesReasons(t *testing.T) {
 }
 
 // TestRenderView guards: RenderView maps the cfg memory fields to
-// MemoryRenderInput one-for-one — resolved VALUES only (model id, dim, addr/port
+// RenderInput one-for-one — resolved VALUES only (model id, dim, addr/port
 // pieces). It carries NO composed URL and NO image literal (orchestrate adds
 // those later per).
 func TestRenderView(t *testing.T) {

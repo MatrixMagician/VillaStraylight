@@ -58,14 +58,14 @@ const residentListSchemaVersion = 1
 type residentDeps struct {
 	loadConfig     func() (config.VillaConfig, error)
 	saveConfig     func(config.VillaConfig) error
-	resolveCatalog func(id string) (catalog.CatalogModel, bool)
+	resolveCatalog func(id string) (catalog.Model, bool)
 	// fit returns the recommend fit math for m at ctx (ctx 0 = the catalog default).
 	// It is the ONLY footprint estimator these verbs use.
-	fit func(m catalog.CatalogModel, ctx int) recommend.Recommendation
+	fit func(m catalog.Model, ctx int) recommend.Recommendation
 	// primaryPort is the host port the primary inference unit publishes on.
 	primaryPort  func() int
-	isDownloaded func(m catalog.CatalogModel) bool
-	pull         func(m catalog.CatalogModel) error
+	isDownloaded func(m catalog.Model) bool
+	pull         func(m catalog.Model) error
 	renderUnits  func(cfg config.VillaConfig) ([]orchestrate.Unit, error)
 	unitDir      func() (string, error)
 	reconcile    func(units []orchestrate.Unit, dir string) (orchestrate.Plan, error)
@@ -683,14 +683,14 @@ func liveResidentDeps() *residentDeps {
 	return &residentDeps{
 		loadConfig: config.LoadVilla,
 		saveConfig: config.SaveVilla,
-		resolveCatalog: func(id string) (catalog.CatalogModel, bool) {
+		resolveCatalog: func(id string) (catalog.Model, bool) {
 			cat, _, err := catalog.Load(modelCatalogPath)
 			if err != nil {
-				return catalog.CatalogModel{}, false
+				return catalog.Model{}, false
 			}
 			return cat.FindByID(id)
 		},
-		fit: func(m catalog.CatalogModel, ctx int) recommend.Recommendation {
+		fit: func(m catalog.Model, ctx int) recommend.Recommendation {
 			cat, _, err := catalog.Load(modelCatalogPath)
 			if err != nil {
 				return recommend.Recommendation{}
@@ -701,11 +701,11 @@ func liveResidentDeps() *residentDeps {
 			return recommend.Pick(detect.Probe(), cat, recommend.Overrides{Model: m.ID, Ctx: ctx}, liveLoadedMemoryInputs(), liveLoadedWebSearchInputs())
 		},
 		primaryPort: inference.ServerPort,
-		isDownloaded: func(m catalog.CatalogModel) bool {
+		isDownloaded: func(m catalog.Model) bool {
 			_, err := os.Stat(filepath.Join(modelsDir(), primaryModelFile(m)))
 			return err == nil
 		},
-		pull: func(m catalog.CatalogModel) error {
+		pull: func(m catalog.Model) error {
 			dir := modelsDir()
 			if mkErr := os.MkdirAll(dir, 0o700); mkErr != nil {
 				return mkErr

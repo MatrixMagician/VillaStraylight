@@ -135,12 +135,12 @@ type Report struct {
 
 	// Usage is the cumulative per-model token totals read (read-only) from the usage
 	// store (usage.json) — the Phase-15 surface. It is a
-	// *usage.UsageTotals + omitempty so an absent/empty store OMITS the key entirely:
+	// *usage.Totals + omitempty so an absent/empty store OMITS the key entirely:
 	// a typed-Unknown, NEVER a fabricated 0 total. The CLI populates it via a
 	// read-only ReadUsage seam (usage.Load only — the CLI never writes the store);
 	// the dashboard (Plan 04) reads the SAME field through handleStatus, no new endpoint
 	// Tail-appended above SchemaVersion (append-only; nothing above moved).
-	Usage *usage.UsageTotals `json:"usage,omitempty"`
+	Usage *usage.Totals `json:"usage,omitempty"`
 
 	// Memory is the v1.3 memory-stack summary: the active
 	// embedding identity (from cfg, the single source of truth), the typed
@@ -400,13 +400,13 @@ type Deps struct {
 	ROCmReadiness func() detect.ROCmReadiness
 
 	// ReadUsage is the READ-ONLY cumulative-usage seam, wired in
-	// liveStatusDeps to a usage.Load over usage.UsagePath(). It returns the loaded
-	// *usage.UsageTotals, or nil when the store is absent/empty so Run OMITS the Usage
+	// liveStatusDeps to a usage.Load over usage.Path(). It returns the loaded
+	// *usage.Totals, or nil when the store is absent/empty so Run OMITS the Usage
 	// field (typed-Unknown, never a fabricated 0). It MUST never write usage.json — the
 	// CLI is one-shot and read-only; the dashboard (Plan 04) is the sole writer.
 	// internal/status stays free of filesystem coupling; status_test.go stubs it. A nil
 	// seam is treated as "no reading" (Run guards it, leaving Usage nil).
-	ReadUsage func() *usage.UsageTotals
+	ReadUsage func() *usage.Totals
 
 	// Services is the stack's services: which units exist, how each is probed, and
 	// whether its offload counts. It replaces seven same-shaped health probes and

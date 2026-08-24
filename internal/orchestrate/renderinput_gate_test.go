@@ -41,7 +41,8 @@ func walkRenderInputSites(t *testing.T, root string) {
 		}
 		text := string(src)
 		// Qualified only: an unqualified RenderInput{ inside this package sits next to
-		// the field declaration, and the loose form also matches MemoryRenderInput.
+		// the field declaration, and the loose form also matches the memory package's
+		// identically-named RenderInput.
 		const site = "orchestrate.RenderInput{"
 		for i := 0; ; {
 			at := strings.Index(text[i:], site)

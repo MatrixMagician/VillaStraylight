@@ -71,13 +71,13 @@ func Decide(cfg config.VillaConfig) Decision {
 	return Decision{Enabled: true, Valid: len(reasons) == 0, Reasons: reasons}
 }
 
-// MemoryRenderInput is the resolved-values-only recommend->orchestrate handoff
+// RenderInput is the resolved-values-only recommend->orchestrate handoff
 // It carries the memory-stack endpoint PIECES — the embedding model id
 // and dimension plus the container-DNS addr/port pairs for Qdrant and villa-embed
 // — and NOTHING ELSE: no composed URL, no container-image literal. orchestrate
 // composes "http://villa-embed:8080/v1" and "http://villa-qdrant:6333" from these
 // pieces and owns the image identity itself, later.
-type MemoryRenderInput struct {
+type RenderInput struct {
 	EmbeddingModel string
 	EmbeddingDim   int
 	QdrantAddr     string
@@ -86,11 +86,11 @@ type MemoryRenderInput struct {
 	EmbedPort      int
 }
 
-// RenderView maps the cfg memory fields one-for-one into a MemoryRenderInput
+// RenderView maps the cfg memory fields one-for-one into a RenderInput
 // resolved VALUES only (addr/port pieces, never composed URLs; never an image
 // literal). It is PURE and does no validation (callers gate with Decide first).
-func RenderView(cfg config.VillaConfig) MemoryRenderInput {
-	return MemoryRenderInput{
+func RenderView(cfg config.VillaConfig) RenderInput {
+	return RenderInput{
 		EmbeddingModel: cfg.EmbeddingModel,
 		EmbeddingDim:   cfg.EmbeddingDim,
 		QdrantAddr:     config.QdrantAddr,

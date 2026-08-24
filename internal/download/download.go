@@ -62,7 +62,7 @@ type httpDoer interface {
 // error unless all shards are present and individually checksum+size verified. A
 // single-file model is the degenerate one-shard case. modelsDir must already
 // exist (the caller creates it 0700).
-func PullModel(ctx context.Context, m catalog.CatalogModel, modelsDir string) error {
+func PullModel(ctx context.Context, m catalog.Model, modelsDir string) error {
 	client := &http.Client{} // no Timeout: multi-GB downloads are bounded by ctx, not a wall clock
 	return pullShards(ctx, client, m, modelsDir)
 }

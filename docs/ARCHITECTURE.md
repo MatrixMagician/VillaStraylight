@@ -216,7 +216,7 @@ Warn, a contradicted one a Fail, and `residency.Cutover` is the single named bou
 the transactional callers collapse both to non-pass.
 
 The **honest A/B benchmark** (`villa bench [--ab]`, `cmd/villa/bench.go`) is the pure
-`bench.Run(ctx, Deps, BenchSpec)` core (`internal/bench/bench.go`). Without `--ab` it
+`bench.Run(ctx, Deps, Spec)` core (`internal/bench/bench.go`). Without `--ab` it
 measures the current backend non-disruptively; with `--ab` it **composes**
 `backendswap.Run` to flip backends rather than re-implementing any switching — the
 switching logic stays locked in the one transactional core. Each measured run is gated
@@ -263,7 +263,7 @@ the GPU count toward the median/stddev `Stats` and the comparative `ABResult`.
   — the persisted `config.toml` selection (model/quant/ctx/backend + dashboard/chat
   ports), written 0600 with a path-traversal guard; the single source of truth the
   units render from.
-- **`catalog.Catalog` / `CatalogModel`** (`internal/catalog/catalog.go`) — the embedded,
+- **`catalog.Catalog` / `catalog.Model`** (`internal/catalog/catalog.go`) — the embedded,
   schema-versioned model catalog carrying the per-model KV-fit dimensions, the
   `unified_memory_safe` flag, and per-shard download metadata.
 - **`status.Report` / `status.Run` / `status.Aggregate`** (`internal/status/status.go`)
@@ -284,7 +284,7 @@ the GPU count toward the median/stddev `Stats` and the comparative `ABResult`.
   capture→mutate→prove→rollback state machine for `villa backend set`. Imports neither
   `inference` nor `detect`; markers and the real prove verdict arrive only through the
   injected `Prove` seam wired in `cmd/villa/backend.go`.
-- **`bench.Run`** + `BenchSpec` / `Stats` / `ABResult` / `Result`
+- **`bench.Run`** + `Spec` / `Stats` / `ABResult` / `Result`
   (`internal/bench/bench.go`) — the pure honest-A/B benchmark core. `--ab` composes
   `backendswap.Run` (never re-implements switching); each kept run is residency-proven so
   CPU-fallback runs are excluded from the median/stddev comparison.

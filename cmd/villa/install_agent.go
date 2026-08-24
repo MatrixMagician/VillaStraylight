@@ -72,7 +72,7 @@ func liveCoderModelPresent(modelsDir string, sh catalog.Shard) bool {
 
 // liveEnsureCoderModel pre-stages the resolved coder shard into modelsDir via the verified
 // downloader the `model pull`/`model swap` path uses (the pullFn seam == download.PullModel),
-// wrapping the shard in a single-shard CatalogModel. It creates the models dir 0700
+// wrapping the shard in a single-shard catalog.Model. It creates the models dir 0700
 // first (mirroring liveEnsureEmbedModel). download.PullModel does the HEAD size/etag verify
 // → stream → SHA256 + size check → atomic rename, so a half-written or unverified GGUF is
 // never left on disk. This is the single sanctioned outbound window for the coder
@@ -81,7 +81,7 @@ func liveEnsureCoderModel(modelsDir string, sh catalog.Shard) error {
 	if mkErr := os.MkdirAll(modelsDir, 0o700); mkErr != nil {
 		return mkErr
 	}
-	m := catalog.CatalogModel{Shards: []catalog.Shard{sh}}
+	m := catalog.Model{Shards: []catalog.Shard{sh}}
 	return pullFn(context.Background(), m, modelsDir)
 }
 

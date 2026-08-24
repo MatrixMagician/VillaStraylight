@@ -16,7 +16,7 @@ package orchestrate
 // APPENDED after the existing entries (append-only). The appended group is
 // byte-frozen by villa-openwebui.container.memory.golden + the memory-aware
 // TestRenderOpenWebUITelemetryFrozen. All endpoint values are composed from
-// the memory.MemoryRenderInput pieces (QdrantAddr/QdrantPort/EmbedAddr/EmbedPort/
+// the memory.RenderInput pieces (QdrantAddr/QdrantPort/EmbedAddr/EmbedPort/
 // EmbeddingModel) with fmt — NO re-typed villa-qdrant/villa-embed/port host literals,
 // so TestSeamGrepGate stays green (these are config-sourced values, not GPU/image
 // tokens).
@@ -155,7 +155,7 @@ type openWebUIVolumeView struct {
 // existing networkAttach ("villa.network") so Open WebUI joins the Phase-3 network
 // unchanged. WEBUI_AUTH stays True: the first visit creates a local admin
 // account persisted in the durable volume — do NOT set it False.
-func buildOpenWebUIView(mv memory.MemoryRenderInput, memoryEnabled bool, webSearchEnabled bool, searxngAddr string, searxngPort int, webSearchResultCount int, websafeAddr string, websafePort int, residentNames []string) openWebUIView {
+func buildOpenWebUIView(mv memory.RenderInput, memoryEnabled bool, webSearchEnabled bool, searxngAddr string, searxngPort int, webSearchResultCount int, websafeAddr string, websafePort int, residentNames []string) openWebUIView {
 	// Connection: reach inference over villa.network by container DNS (NOT localhost /
 	// host.containers.internal), at its internal port. Open WebUI accepts EITHER the
 	// singular OPENAI_API_BASE_URL/OPENAI_API_KEY pair or the ';'-separated plural

@@ -56,9 +56,9 @@ func Save(d Deps, s State) error { return store.Save(d, s) }
 // absent, corrupt or version-mismatched store — never a fabricated PASS.
 func Load(d Deps) (State, error) { return store.Load(d) }
 
-// VerifyStatePath resolves the single mutable verify-search store under the villa
+// Path resolves the single mutable verify-search store under the villa
 // data root.
-func VerifyStatePath() string { return store.Path() }
+func Path() string { return store.Path() }
 
 // WriteFileAtomic is the live WriteAll seam the cmd tier wires: a traversal-guarded
 // temp+rename write at 0600 under a 0700 directory.

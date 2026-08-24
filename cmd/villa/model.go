@@ -306,14 +306,14 @@ func liveSwapDeps() *modelswap.Deps {
 	return &modelswap.Deps{
 		InstallServiceName: installServiceName,
 		LoadConfig:         config.LoadVilla,
-		ResolveCatalog: func(name string) (catalog.CatalogModel, bool) {
+		ResolveCatalog: func(name string) (catalog.Model, bool) {
 			cat, _, err := catalog.Load(modelCatalogPath)
 			if err != nil {
-				return catalog.CatalogModel{}, false
+				return catalog.Model{}, false
 			}
 			return cat.FindByID(name)
 		},
-		Fits: func(m catalog.CatalogModel) (bool, string) {
+		Fits: func(m catalog.Model) (bool, string) {
 			cat, _, err := catalog.Load(modelCatalogPath)
 			if err != nil {
 				return false, "catalog load failed"
@@ -330,12 +330,12 @@ func liveSwapDeps() *modelswap.Deps {
 			reason := fmt.Sprintf("needs %d bytes vs %d usable", rec.TotalBytes, rec.UsableEnvelopeBytes)
 			return false, reason
 		},
-		IsDownloaded: func(m catalog.CatalogModel) bool {
+		IsDownloaded: func(m catalog.Model) bool {
 			path := filepath.Join(modelsDir(), primaryModelFile(m))
 			_, err := os.Stat(path)
 			return err == nil
 		},
-		Pull: func(m catalog.CatalogModel) error {
+		Pull: func(m catalog.Model) error {
 			dir := modelsDir()
 			if mkErr := os.MkdirAll(dir, 0o700); mkErr != nil {
 				return mkErr

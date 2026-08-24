@@ -36,8 +36,8 @@ func newSwapStub(rec *swapRecorder) Deps {
 		LoadConfig: func() (config.VillaConfig, error) {
 			return config.VillaConfig{Model: "current-model", Backend: "vulkan"}, nil
 		},
-		ResolveCatalog: func(name string) (catalog.CatalogModel, bool) {
-			known := map[string]catalog.CatalogModel{
+		ResolveCatalog: func(name string) (catalog.Model, bool) {
+			known := map[string]catalog.Model{
 				"fits-model":    {ID: "fits-model", Quant: "Q4", DefaultCtx: 4096},
 				"fits-undl":     {ID: "fits-undl", Quant: "Q4", DefaultCtx: 4096},
 				"toobig-model":  {ID: "toobig-model", Quant: "Q4", DefaultCtx: 4096},
@@ -46,7 +46,7 @@ func newSwapStub(rec *swapRecorder) Deps {
 			m, ok := known[name]
 			return m, ok
 		},
-		Fits: func(m catalog.CatalogModel) (bool, string) {
+		Fits: func(m catalog.Model) (bool, string) {
 			if rec.fitOverrides != nil {
 				if ok := rec.fitOverrides[m.ID]; !ok {
 					return false, "won't fit envelope (test)"
@@ -54,10 +54,10 @@ func newSwapStub(rec *swapRecorder) Deps {
 			}
 			return true, ""
 		},
-		IsDownloaded: func(m catalog.CatalogModel) bool {
+		IsDownloaded: func(m catalog.Model) bool {
 			return rec.downloaded[m.ID]
 		},
-		Pull: func(m catalog.CatalogModel) error {
+		Pull: func(m catalog.Model) error {
 			rec.callOrder = append(rec.callOrder, "pull:"+m.ID)
 			rec.pulled = append(rec.pulled, m.ID)
 			return nil
@@ -255,7 +255,7 @@ func TestSwapPullFailureIsErrNotRefuse(t *testing.T) {
 		fitOverrides: map[string]bool{"fits-undl": true},
 	}
 	d := newSwapStub(rec)
-	d.Pull = func(catalog.CatalogModel) error { return errors.New("checksum mismatch") }
+	d.Pull = func(catalog.Model) error { return errors.New("checksum mismatch") }
 	res := Run(d, "fits-undl")
 	if res.Refused {
 		t.Errorf("a pull failure is an Err, not a Refused")

@@ -76,7 +76,7 @@ func newBackup() *cobra.Command {
 }
 
 // runBackup resolves the output path (traversal-guarded against its parent dir),
-// gathers the seam-/accessor-sourced BackupInput, drives the pure Backup orchestrator
+// gathers the seam-/accessor-sourced backup.Input, drives the pure Backup orchestrator
 // over liveDeps, and RETURNS the exit code. The archive is assembled in a
 // same-dir temp file and renamed onto the destination only after a fully-successful
 // write: a mid-backup failure removes only the temp — a pre-existing archive
@@ -173,7 +173,7 @@ func runBackup(cmd *cobra.Command, output string, d backup.Deps) int {
 		defer func() { _ = os.Remove(tmpQdrantPath) }()
 	}
 
-	in := backup.BackupInput{
+	in := backup.Input{
 		CreatedAt:           time.Now().UTC().Format(time.RFC3339),
 		VillaVersion:        villaVersion(),
 		Host:                liveHostFingerprint(),
@@ -187,7 +187,7 @@ func runBackup(cmd *cobra.Command, output string, d backup.Deps) int {
 		OpenWebUIVolumeName: orchestrate.OpenWebUIVolumeName(),
 		TempVolumeTar:       tmpVolPath,
 		ConfigPath:          cfgPath,
-		UsagePath:           usage.UsagePath(),
+		UsagePath:           usage.Path(),
 		BenchReportsPath:    benchReportsStorePath(),
 		ExcludedModels:      excludedModelIdentities(cfg),
 		FileMissing:         os.IsNotExist,
@@ -205,7 +205,7 @@ func runBackup(cmd *cobra.Command, output string, d backup.Deps) int {
 		// manifest omits recall_schema_version would let it escape the fail-closed
 		// blockOnNewerStore gate on restore. An absent file is still skipped by the
 		// core's optional-entry FileMissing logic.
-		in.RecallStatePath = recall.RecallStatePath()
+		in.RecallStatePath = recall.StatePath()
 		// Manifest embedding identity + recall store schema, recorded ONLY on a
 		// memory-on backup: config is the single source of truth for the
 		// embedding model/dim; the recall schema comes from its accessor. A

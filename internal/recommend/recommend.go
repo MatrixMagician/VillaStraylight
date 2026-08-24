@@ -479,7 +479,7 @@ func deriveROCmAdvice(r detect.ROCmReadiness) (ROCmAdvice, string) {
 func pickBest(c catalog.Catalog, ov Overrides, envelope uint64, degraded bool, notes []string) Recommendation {
 	headroom := headroomBytes(envelope)
 
-	var best *catalog.CatalogModel
+	var best *catalog.Model
 	var bestTotal uint64
 	var alts []Alternative
 
@@ -583,7 +583,7 @@ func pickOverride(c catalog.Catalog, ov Overrides, envelope uint64, degraded boo
 
 // buildRecommendation computes all fit terms for model m at ctx and assembles the
 // Recommendation (without touching alternatives/override-specific notes).
-func buildRecommendation(m catalog.CatalogModel, ctx int, envelope uint64, degraded bool, notes []string) Recommendation {
+func buildRecommendation(m catalog.Model, ctx int, envelope uint64, degraded bool, notes []string) Recommendation {
 	kv := kvCacheBytes(m, ctx)
 	headroom := headroomBytes(envelope)
 	// Saturating sum: a saturated KV term (absurd --ctx) must keep the
@@ -614,7 +614,7 @@ func buildRecommendation(m catalog.CatalogModel, ctx int, envelope uint64, degra
 
 // effectiveCtx returns the context length to size against: the override when set
 // and positive, else the model's default.
-func effectiveCtx(m catalog.CatalogModel, ov Overrides) int {
+func effectiveCtx(m catalog.Model, ov Overrides) int {
 	if ov.Ctx > 0 {
 		return ov.Ctx
 	}

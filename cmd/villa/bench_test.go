@@ -132,8 +132,8 @@ func withConfiguredBackend(t *testing.T, backend string) {
 }
 
 // benchSpec is the deterministic spec the cmd-layer tests run under.
-func benchSpec(reps, warmup int) bench.BenchSpec {
-	return bench.BenchSpec{
+func benchSpec(reps, warmup int) bench.Spec {
+	return bench.Spec{
 		Reps:        reps,
 		Warmup:      warmup,
 		Prompt:      benchPrompt,
@@ -186,7 +186,7 @@ func TestBenchFlagValidation(t *testing.T) {
 	}
 }
 
-// TestBenchABTargetPlumbed proves the --ab-target flag is plumbed into BenchSpec.ABTarget:
+// TestBenchABTargetPlumbed proves the --ab-target flag is plumbed into bench.Spec.ABTarget:
 // `villa bench --ab --ab-target rocm-6.4.4` reaches runBench with spec.ABTarget ==
 // "rocm-6.4.4"; omitting --ab-target leaves spec.ABTarget == "" (the other() default).
 // It captures the spec via the benchRun seam so no os.Exit fires.
@@ -205,9 +205,9 @@ func TestBenchABTargetPlumbed(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			var gotSpec bench.BenchSpec
+			var gotSpec bench.Spec
 			prev := benchRun
-			benchRun = func(_ *cobra.Command, spec bench.BenchSpec, _ bool, _ bool, _ *bench.Deps) int {
+			benchRun = func(_ *cobra.Command, spec bench.Spec, _ bool, _ bool, _ *bench.Deps) int {
 				gotSpec = spec
 				return exitPass
 			}
@@ -237,7 +237,7 @@ func TestBenchABTargetFailClosed(t *testing.T) {
 	withReachable(t, true)
 	reached := false
 	prev := benchRun
-	benchRun = func(_ *cobra.Command, _ bench.BenchSpec, _ bool, _ bool, _ *bench.Deps) int {
+	benchRun = func(_ *cobra.Command, _ bench.Spec, _ bool, _ bool, _ *bench.Deps) int {
 		reached = true
 		return exitPass
 	}
@@ -268,7 +268,7 @@ func TestBenchABTargetRequiresAB(t *testing.T) {
 	withReachable(t, true)
 	reached := false
 	prev := benchRun
-	benchRun = func(_ *cobra.Command, _ bench.BenchSpec, _ bool, _ bool, _ *bench.Deps) int {
+	benchRun = func(_ *cobra.Command, _ bench.Spec, _ bool, _ bool, _ *bench.Deps) int {
 		reached = true
 		return exitPass
 	}
@@ -313,7 +313,7 @@ func TestBenchABTargetSameAsCurrentRejected(t *testing.T) {
 			withConfiguredBackend(t, tc.configured)
 			reached := false
 			prev := benchRun
-			benchRun = func(_ *cobra.Command, _ bench.BenchSpec, _ bool, _ bool, _ *bench.Deps) int {
+			benchRun = func(_ *cobra.Command, _ bench.Spec, _ bool, _ bool, _ *bench.Deps) int {
 				reached = true
 				return exitPass
 			}

@@ -257,7 +257,7 @@ func TestBackupMemoryOffOmitsLeftoverRecallState(t *testing.T) {
 	}
 
 	// The leftover recall-state.json a previously-enabled memory stack left behind.
-	rsPath := recall.RecallStatePath()
+	rsPath := recall.StatePath()
 	if err := os.MkdirAll(filepath.Dir(rsPath), 0o700); err != nil {
 		t.Fatal(err)
 	}

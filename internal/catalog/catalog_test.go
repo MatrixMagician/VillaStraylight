@@ -269,12 +269,12 @@ func TestLoadSeedCoderEntries(t *testing.T) {
 }
 
 // TestCatalogModelFailClosedDefaults asserts the fail-closed decode
-// defaults: a CatalogModel decoded from JSON WITHOUT role / cache_reuse_safe
+// defaults: a Model decoded from JSON WITHOUT role / cache_reuse_safe
 // keys yields Role == "" (treated as chat) and CacheReuseSafe == false
 // absence never widens capability.
 func TestCatalogModelFailClosedDefaults(t *testing.T) {
 	raw := `{"id":"no-coder-keys","quant":"Q4_K_M","weight_bytes":1000}`
-	var m CatalogModel
+	var m Model
 	if err := json.Unmarshal([]byte(raw), &m); err != nil {
 		t.Fatalf("unmarshal minimal entry: %v", err)
 	}

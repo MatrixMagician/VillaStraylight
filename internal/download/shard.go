@@ -18,7 +18,7 @@ import (
 // -of-0000N set, and pullShards requires every enumerated shard to download and
 // verify. A manifest missing a shard cannot be fixed up here — it is the catalog's
 // contract that the shard list is complete.
-func pullShards(ctx context.Context, client httpDoer, m catalog.CatalogModel, modelsDir string) error {
+func pullShards(ctx context.Context, client httpDoer, m catalog.Model, modelsDir string) error {
 	if len(m.Shards) == 0 {
 		return fmt.Errorf("%w: %s", errNoShards, m.ID)
 	}

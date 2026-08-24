@@ -90,13 +90,13 @@ type Config struct {
 	// model into the store and atomically writes. These func fields are the injected
 	// store/identity seams so api_test exercises the fold+write off-hardware; the live
 	// wiring (liveDashboardDeps) fills them with usage.Load / usage.WriteFileAtomic over
-	// usage.UsagePath and cfg.Model. When nil, NewServer defaults each to an honest
+	// usage.Path and cfg.Model. When nil, NewServer defaults each to an honest
 	// no-op so a partially-wired Server never writes and never panics.
 
-	// ReadUsage loads the persisted store (the fold's prior). nil → empty UsageTotals.
-	ReadUsage func() usage.UsageTotals
+	// ReadUsage loads the persisted store (the fold's prior). nil → empty usage.Totals.
+	ReadUsage func() usage.Totals
 	// WriteUsage atomically writes the folded store. nil → a no-op (never writes).
-	WriteUsage func(usage.UsageTotals) error
+	WriteUsage func(usage.Totals) error
 	// ModelID returns the configured model id (cfg.Model) used as the per-model fold key;
 	// it is read INSIDE the usageMu critical section so the key cannot drift mid-write
 	// (Pitfall 2). nil → "" (Fold then keys an empty-id entry — honest no-op).
@@ -145,8 +145,8 @@ type Server struct {
 	// Cumulative-usage writer seams. Filled from Config; defaulted to
 	// honest no-ops when Config leaves them nil so a partially-wired Server never writes
 	// usage.json and never nil-panics in handleMetrics.
-	readUsage     func() usage.UsageTotals
-	writeUsage    func(usage.UsageTotals) error
+	readUsage     func() usage.Totals
+	writeUsage    func(usage.Totals) error
 	modelID       func() string
 	counterSample func() (metrics.CounterSample, bool)
 
@@ -243,10 +243,10 @@ func NewServer(cfg Config) (*Server, error) {
 	// writes), ModelID → "" (Fold keys an empty entry it then discards on no Known
 	// counter), CounterSample → typed-Unknown unavailable (no counter folds).
 	if s.readUsage == nil {
-		s.readUsage = func() usage.UsageTotals { return usage.UsageTotals{} }
+		s.readUsage = func() usage.Totals { return usage.Totals{} }
 	}
 	if s.writeUsage == nil {
-		s.writeUsage = func(usage.UsageTotals) error { return nil }
+		s.writeUsage = func(usage.Totals) error { return nil }
 	}
 	if s.modelID == nil {
 		s.modelID = func() string { return "" }

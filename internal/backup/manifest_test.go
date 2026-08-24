@@ -47,7 +47,7 @@ func TestManifestJSONRoundTrip(t *testing.T) {
 
 // TestManifestSchemaVersionIsLastField asserts schema_version is the LAST field
 // in the JSON document (append-only contract — new fields go ABOVE it,;
-// mirrors usage.UsageTotals). A raw-key-order scan catches an accidental
+// mirrors usage.Totals). A raw-key-order scan catches an accidental
 // reorder.
 func TestManifestSchemaVersionIsLastField(t *testing.T) {
 	m := BuildManifest(ManifestInput{
