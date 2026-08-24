@@ -23,10 +23,11 @@ Notes:
 
 - **No `.env` and no config file are required to build or test.** `villa` is read-only
   by default and synthesizes typed defaults when no config exists.
-- The dependency set is small and pure-Go: `cobra` (CLI) and `BurntSushi/toml`
-  (config). The dashboard routes on the standard library mux and hardware detection
-  reads procfs and sysfs directly, so neither needs a library. All are vendored
-  through the module graph; run `make tidy` after changing imports.
+- The dependency set is small and pure-Go — four direct requires in `go.mod`, which is
+  the list. Everything else comes from the standard library: the dashboard routes on
+  `net/http`'s mux, hardware detection reads procfs and sysfs directly, and the guided
+  install is a stdin prompt loop. Run `make tidy` after changing imports, and justify
+  any new dependency against the single-static-binary goal.
 - **You do not need a Strix Halo host, Podman, or a GPU to develop.** Every
   host-touching effect (sysfs reads, `podman`, `systemctl`, HTTP probes, downloads,
   file writes) is injected behind a function seam or an interface, so the full
@@ -78,19 +79,25 @@ restart is almost always the reason.
 The repo follows the standard Go `cmd/` + `internal/` split. The first-party,
 under-active-development code is:
 
-- `cmd/villa/` — the cobra CLI: one file per subcommand (`detect.go`, `recommend.go`,
-  `preflight.go`, `model.go`, `install.go` (+ `install_hostprep.go`),
-  `up.go`/`down.go`/`restart.go`/`logs.go` (shared wiring in `lifecycle.go`),
-  `status.go`, `dashboard.go`, `config.go`, `backend.go`, `bench.go`, `uninstall.go`)
-  plus `root.go` and the live-wiring of each package's seams. This is the only layer
+- `cmd/villa/` — the cobra CLI, one file per subcommand plus `root.go` and the
+  live-wiring of each package's seams. `newRoot` in `root.go` is the authoritative
+  command list; `ls cmd/villa/*.go` is the file list. A few shapes are worth knowing
+  before you go looking: `up`/`down`/`restart`/`logs` share their wiring in
+  `lifecycle.go`, and the larger verbs split across files by concern rather than by
+  noun (`install.go` + `install_hostprep.go` + `install_memory.go` + …,
+  `verify.go` + `verify_agent.go` + `verify_memory.go` + …). This is the only layer
   that prints, maps verdicts to exit codes, and calls `os.Exit`.
-- `internal/` — the pure / seam-injected libraries: `detect`, `catalog`, `recommend`,
-  `preflight`, `download`, `config`, `inference`, `orchestrate`, `modelswap`,
-  `backendswap`, `bench`, `llm`, `status`, `metrics`, `dashboard`. Each returns typed
-  values and contains no CLI behavior. (`backendswap` and `bench` are the v1.1
-  additions: the transactional ROCm↔Vulkan cutover core and the honest A/B benchmark
-  core; `internal/llm` is the OpenAI-compatible client the bench uses as its per-request
-  timings source — `bench.go` imports it for `llm.Complete`.)
+- `internal/` — the pure / seam-injected libraries. Each returns typed values and
+  contains no CLI behavior. `ls internal/` is the list and the code map in `CLAUDE.md`
+  says what each one owns in a line; `docs/ARCHITECTURE.md` carries the layering and
+  the key abstractions. Three groupings orient you: the v1.0–v1.2 spine (`detect`,
+  `catalog`, `recommend`, `preflight`, `download`, `config`, `inference`,
+  `orchestrate`, `modelswap`, `backendswap`, `bench`, `llm`, `status`, `metrics`,
+  `dashboard`), the v1.3–v1.5 feature cores (`memory`, `recall`, `agent`,
+  `codingmode`, `websafe`, `doctor`, `backup`, `usage`), and the shared plumbing —
+  `prove`, `residency`, `openwebui`, `subsystem`, `verify` and `install`, the six
+  the v1.6 consolidation extracted from forked copies, plus `residentset` and the
+  persistence layer `pathsafe` / `jsonstore` / `benchstore` / `verifystate`.
 
 ## Code style
 
@@ -163,14 +170,11 @@ the network. Two idioms appear:
   **The `live*Deps` convention.** Every command's real host wiring is built by a single
   constructor named `live<Noun>Deps` that fills the deps struct with the genuinely
   host-touching functions; the rest of the file is pure decision logic that takes the
-  struct as a parameter. The current constructors are `liveInstallDeps`,
-  `liveStatusDeps`, `liveDashboardDeps`, `liveLifecycleDeps`, `liveConfigDeps`,
-  `liveListDeps`, `liveSwapDeps`, `liveUninstallDeps`, plus the v1.1 additions
-  `liveBackendSwapDeps` (`cmd/villa/backend.go`) and `liveBenchDeps`
-  (`cmd/villa/bench.go`). Individual injected effects follow the same `live*` prefix
+  struct as a parameter. Individual injected effects follow the same `live*` prefix
   (e.g. `liveProve`, `liveMeasure`, `liveModelFile`, `liveWeightBytes`,
-  `liveReadinessPoll`, `liveLingerDeps`). To find every host boundary in the cmd
-  tier, `grep -rn "func live" cmd/villa/*.go`. When you add a subcommand, mirror this:
+  `liveReadinessPoll`). Do not look for a list here — it goes stale every time a verb
+  is added. `grep -rn "func live" cmd/villa` is the enumeration, and it IS the map of
+  every host boundary in the cmd tier. When you add a subcommand, mirror this:
   one `live<Noun>Deps` constructor, a deps struct of function fields, and a test that
   swaps each field for a fake.
 
@@ -191,10 +195,11 @@ go test ./cmd/villa/... -update
 
 Examples in the tree:
 
-- `internal/orchestrate/render_test.go` freezes each rendered Quadlet unit
-  (`villa-llama.container`, `villa-llama-rocm.container`, `villa.network`,
-  `villa-models.volume`, `villa-openwebui.container`/`.volume`, and the native
-  `villa-dashboard.service`) against `internal/orchestrate/testdata/*.golden`. The
+- `internal/orchestrate/render_test.go` freezes every rendered Quadlet unit — one
+  golden per unit the stack can write, plus per-variant fixtures where a flag changes
+  the output (`villa-openwebui.container.memory`/`.websearch`/`.resident`) — against
+  `internal/orchestrate/testdata/*.golden`. `ls internal/orchestrate/testdata/` is the
+  current set. The
   fixture `RenderInput` uses a **fixed absolute path** (not live `$HOME`) so the golden
   is stable in CI, and the image digest is sourced **through** the backend seam
   (`inference.VulkanBackend()` / the ROCm backend), never hand-typed in the test. The
@@ -224,19 +229,27 @@ if an **imperative backend leak** appears outside the sanctioned seam
 (`internal/inference/` and `internal/detect/gpu_amd.go`). As of v1.1 it walks **two**
 trees with two pattern sets:
 
-**Walk 1 — every non-test `.go` under `internal/`.** Four gated patterns:
+**Walk 1 — every non-test `.go` under `internal/`.** Five gated patterns:
 
 - `runtime.GOOS` / `GOOS ==` platform branching,
-- the container **image** literal — `kyuz0`, `docker.io/`, `server-vulkan`, and now the
-  ROCm tags `rocm-7.2.4` / `rocm7-nightlies` (added for explicit intent: a ROCm image
-  tag leaking outside the seam must fail CI),
+- the container **image** literal — `kyuz0`, `docker.io/`, `server-vulkan`, and the
+  ROCm tags (`rocm-7.2.4`, `rocm-6.4.4` — which covers the `-rocwmma` suffix too — and
+  `rocm7-nightlies`). Note these are anchored to the IMAGE context (`:tag` / `tag@`),
+  so a bare backend NAME as a config value — `case "rocm-6.4.4":` in `render.go`, a
+  `--backend` help line — is deliberately not a hit,
 - container **device** args (`--device /dev/dri`, `--group-add`, `keep-groups`),
-- `podman` process invocations (`exec.Command("podman", …)`, `"podman" run|stop|logs`).
+- `podman` process invocations (`exec.Command("podman", …)`, `"podman" run|stop|logs`),
+- **coding-mode llama-server flags** (`codingModeFlagPattern`): the quoted literals
+  `"--jinja"`, `"--cache-reuse"`, `"--repeat-penalty"`. These belong only to
+  `appendCodingModeArgs` in the two backend files. The anchor on a leading double-quote
+  is what lets a doc comment discuss `--cache-reuse` as prose without tripping the gate.
 
 **Walk 2 — every non-test `.go` under `cmd/villa`.** The cmd tier *legitimately* invokes
 `podman` (lifecycle up/down/logs, uninstall volume rm — fixed-arg, never a shell), so the
-`podman` pattern does **not** apply here. Instead it gates the three inference-backend
-patterns above **plus** a `backend marker literal` pattern: `ROCm0`,
+`podman` pattern does **not** apply here. Instead it gates the other four patterns
+above — including the coding-mode flags, which the single `codingModeFlagPattern`
+helper feeds to both walks so adding it to one map cannot leave the other unguarded —
+**plus** a `backend marker literal` pattern: `ROCm0`,
 `HSA_OVERRIDE_GFX_VERSION`, and `Memory access fault`. These raw backend markers must
 arrive in a cmd-tier caller only through `inference.BackendFor(target).ResidencyProof()`
 — `cmd/villa/backend.go` and `cmd/villa/bench.go` carry explicit "literal-free" header
