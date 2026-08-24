@@ -1,5 +1,8 @@
 BINARY := villa
 PKG := ./...
+# LINT_BASE is what `make lint` diffs against to find NEW issues, mirroring CI's
+# only-new-issues gate. The standing backlog is deliberately not a local blocker.
+LINT_BASE ?= origin/main
 
 # gofmt is shipped with the toolchain but is not guaranteed on $PATH (some Go
 # installs expose `go` only). Resolve it from GOROOT so `make fmt` works
@@ -53,8 +56,17 @@ fmt: ## Format Go code
 	$(GOFMT) -w .
 
 .PHONY: lint
-lint: ## Run golangci-lint if installed, else fall back to vet
-	@command -v golangci-lint >/dev/null 2>&1 && golangci-lint run || (echo "golangci-lint not found; running go vet" && go vet $(PKG))
+lint: ## Lint this branch's NEW issues the way CI does; LINT_ALL=1 lints the whole tree
+	@if ! command -v golangci-lint >/dev/null 2>&1; then \
+		echo "golangci-lint not found; running go vet"; \
+		go vet $(PKG); \
+		exit $$?; \
+	fi; \
+	if [ -n "$(LINT_ALL)" ]; then \
+		golangci-lint run; \
+	else \
+		golangci-lint run --new-from-merge-base=$(LINT_BASE); \
+	fi
 
 .PHONY: check
 check: vet test test-race ## Run vet + tests (incl. the -race gate, CR-01/WR-04)
