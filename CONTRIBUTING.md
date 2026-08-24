@@ -124,10 +124,12 @@ rather than relying on review to catch a regression.
   core invariants above are affected. If output fixtures changed, say so.
 - **Scope discipline**: keep changes focused on the stated goal; avoid unrelated
   refactors in the same PR.
-- **Merge flow**: work lands on `main` via a GitHub pull request (v1.0 shipped as
-  PR #1, v1.1 as PR #2). Releases are tagged on `main` (`v1.0`, `v1.1`). There is
-  no CI configured in this repository yet, so the build, test, and lint gates above
-  are the contributor's responsibility to run locally before requesting a merge.
+- **Merge flow**: work lands on `main` via a GitHub pull request; releases are
+  tagged on `main` (`v1.0` through `v1.6` so far). `.github/workflows/ci.yml` runs
+  on every push and pull request — the CGO-free static build, vet + test, the
+  `-race` gate, `go mod verify`, the TUI-stack grep, and golangci-lint on pull
+  requests. Run the gates above locally anyway: a red CI after the fact costs more
+  than `make check` did.
 
 ## Issue reporting
 
