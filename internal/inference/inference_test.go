@@ -1,15 +1,24 @@
 package inference
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 )
 
-// TestRunnerInterface asserts the container runner satisfies Runner at compile time
-// (no Vulkan/Linux/podman type leaks to callers). A var _ assertion also
-// lives in runner_podman.go; this makes the contract explicit in the test surface.
-func TestRunnerInterface(t *testing.T) {
-	var _ Runner = NewContainerRunner(VulkanBackend(), RunSpec{})
+// TestNewContainerRunnerReturnsTheInterface guards the promise that no concrete
+// podman/Vulkan type reaches a caller. The compile-time `var _ Runner` in
+// runner_podman.go asserts the other half, that containerRunner satisfies Runner,
+// and would keep passing if this constructor went back to returning the concrete
+// pointer. Only the declared return type stops the leak, so that is what is checked.
+func TestNewContainerRunnerReturnsTheInterface(t *testing.T) {
+	out := reflect.TypeOf(NewContainerRunner).Out(0)
+	if out.Kind() != reflect.Interface {
+		t.Fatalf("NewContainerRunner returns %s (kind %s); it must return the Runner interface so no concrete type leaks to callers", out, out.Kind())
+	}
+	if out != reflect.TypeOf((*Runner)(nil)).Elem() {
+		t.Fatalf("NewContainerRunner returns interface %s, want Runner", out)
+	}
 }
 
 // TestLoopbackPublish is the bind-address assertion: the Vulkan
