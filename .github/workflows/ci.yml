@@ -68,11 +68,19 @@ jobs:
       # standing backlog — which is precisely the noise this gate is shaped to
       # avoid. The workflow triggers on both events, so the condition is what
       # keeps the lint step meaningful rather than the trigger list.
+      # The pin lives in .golangci-version and nowhere else. `make lint` reads the
+      # same file and runs that exact version via `go run`, so a contributor's
+      # distro package cannot disagree with CI about what is clean. Bumping the
+      # linter is a one-line change to that file.
+      - name: resolve the pinned golangci-lint version
+        id: lintver
+        run: echo "version=$(cat .golangci-version)" >> "$GITHUB_OUTPUT"
+
       - name: lint (new issues only)
         if: github.event_name == 'pull_request'
         uses: golangci/golangci-lint-action@v8
         with:
-          version: v2.12.2
+          version: ${{ steps.lintver.outputs.version }}
           only-new-issues: true
 
       - name: assert the guided install stays on the standard library
