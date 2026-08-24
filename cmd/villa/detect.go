@@ -22,7 +22,7 @@ func newDetect() *cobra.Command {
 		Short: "Print a hardware profile of this host",
 		Long:  "Detect CPU/arch, the AMD iGPU, Vulkan/ROCm backend availability, total RAM, and the real usable GTT envelope. Read-only.",
 		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			profile := detect.Probe()
 			return renderDetect(cmd.OutOrStdout(), profile, jsonOut, verbose)
 		},

@@ -274,9 +274,10 @@ func Render(in RenderInput) ([]Unit, error) {
 // (rendering it into the unit dir would make systemd's generator choke, Pitfall 1). The
 // engine allowlist is the single-source vetted subset; secret_key renders empty
 // (the live value arrives via $SEARXNG_SECRET from the EnvironmentFile, never written into
-// this 0644-capable file — / Pitfall 2). cfg is accepted for forward symmetry with
-// the unit render's config-driven identity; the rendered content is config-derived.
-func RenderSearxngSettings(cfg config.VillaConfig) (name, text string, err error) {
+// this 0644-capable file — / Pitfall 2). The config argument is accepted for forward
+// symmetry with the unit render's config-driven identity; the rendered content is
+// config-derived.
+func RenderSearxngSettings(_ config.VillaConfig) (name, text string, err error) {
 	tmpl, err := template.ParseFS(quadletFS, "quadlet/*.tmpl")
 	if err != nil {
 		return "", "", fmt.Errorf("orchestrate: parse templates: %w", err)

@@ -266,7 +266,7 @@ func liveCodingModeDeps() *codingmode.Deps {
 		// verdict) — fit-guard FIRST (Pitfall 4). A non-fitting coder at agent ctx
 		// is a refuse-with-remediation; the residency verdict (swap/shared) is a PURE fit-math
 		// output, never a preference.
-		ResolveCoder: func(cfg config.VillaConfig) (codingmode.CoderTarget, bool, string) {
+		ResolveCoder: func(_ config.VillaConfig) (codingmode.CoderTarget, bool, string) {
 			cat, _, err := catalog.Load(modelCatalogPath)
 			if err != nil {
 				return codingmode.CoderTarget{}, false, "catalog load failed"

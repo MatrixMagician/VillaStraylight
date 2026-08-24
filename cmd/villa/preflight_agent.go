@@ -87,7 +87,7 @@ type agentCheckInput struct {
 // re-deriving the fit. The caller (install.go) appends the result to the install gate
 // ONLY when the addon is enabled, so the checks flow through the SAME gateInstall and
 // inherit refuse-with-remediation while agent-off preflight stays byte-identical.
-func runAgentChecks(profile detect.HostProfile, rec recommend.Recommendation, in agentCheckInput) []preflight.CheckResult {
+func runAgentChecks(_ detect.HostProfile, rec recommend.Recommendation, in agentCheckInput) []preflight.CheckResult {
 	return []preflight.CheckResult{
 		agentDiskCheck(in),
 		agentEnvelopeCheck(rec),

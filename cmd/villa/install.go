@@ -326,7 +326,7 @@ func newInstall() *cobra.Command {
 			"loopback inference endpoint. Re-running with unchanged config is a true no-op. --dry-run prints " +
 			"the rendered units and writes nothing (no pull, no config write). Strictly local.",
 		Args: cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			deps, err := liveInstallDeps()
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "install: %v\n", err)

@@ -186,7 +186,7 @@ func renderStatusTable(w io.Writer, r status.Report, withProvenance bool) {
 		// verdict. The --json contract keeps the full Verdict + OffloadApplies.
 		offloadCell := "N/A"
 		if s.OffloadApplies {
-			offloadCell = fmt.Sprintf("%s", s.Offload.Status)
+			offloadCell = s.Offload.Status.String()
 		}
 		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", s.Service, s.Active, s.Health, offloadCell)
 	}

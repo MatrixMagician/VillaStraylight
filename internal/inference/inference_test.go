@@ -10,7 +10,6 @@ import (
 // lives in runner_podman.go; this makes the contract explicit in the test surface.
 func TestRunnerInterface(t *testing.T) {
 	var _ Runner = NewContainerRunner(VulkanBackend(), RunSpec{})
-	var _ Backend = VulkanBackend()
 }
 
 // TestLoopbackPublish is the bind-address assertion: the Vulkan

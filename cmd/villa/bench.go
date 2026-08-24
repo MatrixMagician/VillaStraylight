@@ -533,11 +533,11 @@ func benchMinResident(reps int) int {
 	if reps <= 1 {
 		return 1
 	}
-	min := (reps + 1) / 2
-	if min < 1 {
-		min = 1
+	floor := (reps + 1) / 2
+	if floor < 1 {
+		floor = 1
 	}
-	return min
+	return floor
 }
 
 // benchEntry is the `bench --json` shape — the FROZEN Phase-10 read contract. pp and tg

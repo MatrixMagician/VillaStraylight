@@ -160,7 +160,8 @@ func TestUninstallOrdering(t *testing.T) {
 	reloadI := last("reload") // the container daemon-reload (after the dashboard's)
 	rmvolI := first("rmvol")
 	lingerI := first("linger")
-	if !(stopI >= 0 && rmunitI > stopI && reloadI > rmunitI && rmvolI > reloadI && lingerI > rmvolI) {
+	teardownInOrder := stopI >= 0 && rmunitI > stopI && reloadI > rmunitI && rmvolI > reloadI && lingerI > rmvolI
+	if !teardownInOrder {
 		t.Fatalf("D-11 ordering violated: %v", f.order)
 	}
 }
@@ -201,10 +202,12 @@ func TestUninstallTearsDownDashboard(t *testing.T) {
 	containerStopI := idx("stop:villa-llama.service")
 
 	// stop → disable → remove the dashboard, and all before the container stop.
-	if !(dashStopI >= 0 && dashDisableI > dashStopI && dashRmI > dashDisableI) {
+	dashboardTornDownInOrder := dashStopI >= 0 && dashDisableI > dashStopI && dashRmI > dashDisableI
+	if !dashboardTornDownInOrder {
 		t.Fatalf("dashboard teardown order (stop→disable→remove) violated: %v", f.order)
 	}
-	if !(containerStopI > dashRmI) {
+	dashboardBeforeContainers := containerStopI > dashRmI
+	if !dashboardBeforeContainers {
 		t.Fatalf("dashboard must be torn down before the container services: %v", f.order)
 	}
 }
@@ -241,10 +244,12 @@ func TestUninstallRemovesAgentArtifacts(t *testing.T) {
 	containerStopI := idx("stop:villa-llama.service")
 
 	// Deterministic position: after the dashboard removal, before the container stop.
-	if !(binI > dashRmI && cfgI > dashRmI) {
+	agentRemovedAfterDashboard := binI > dashRmI && cfgI > dashRmI
+	if !agentRemovedAfterDashboard {
 		t.Fatalf("agent removals must run AFTER the dashboard teardown: %v", f.order)
 	}
-	if !(binI < containerStopI && cfgI < containerStopI) {
+	agentRemovedBeforeContainerStop := binI < containerStopI && cfgI < containerStopI
+	if !agentRemovedBeforeContainerStop {
 		t.Fatalf("agent removals must run BEFORE the container stop: %v", f.order)
 	}
 }
@@ -336,7 +341,8 @@ func TestUninstallRemoveModels(t *testing.T) {
 		}
 		return -1
 	}
-	if !(pos("rmvol") < pos("rmmodels") && pos("rmmodels") < pos("linger")) {
+	modelRemovalInOrder := pos("rmvol") < pos("rmmodels") && pos("rmmodels") < pos("linger")
+	if !modelRemovalInOrder {
 		t.Fatalf("model removal ordering wrong: %v", f.order)
 	}
 }
@@ -437,7 +443,6 @@ func TestUninstallStopFailureShortCircuits(t *testing.T) {
 	dir := t.TempDir()
 	f := newFakeUninstallDeps(t, sampleUnits(), dir)
 	f.stop = func(string) error { return errors.New("stop boom") }
-	f.uninstallDeps.stop = f.stop
 	cmd, _, _ := uninstallTestCmd()
 
 	if code := runUninstall(cmd, uninstallOpts{keepModels: true}, f.uninstallDeps); code != exitBlocked {
@@ -514,7 +519,8 @@ func TestUninstallRemovesOpenWebUIVolume(t *testing.T) {
 		}
 		return -1
 	}
-	if !(pos("reload") < pos("rmvol") && pos("rmvol") < pos("linger")) {
+	volumeRemovalInOrder := pos("reload") < pos("rmvol") && pos("rmvol") < pos("linger")
+	if !volumeRemovalInOrder {
 		t.Fatalf("owui volume removal ordering wrong: %v", f.order)
 	}
 }

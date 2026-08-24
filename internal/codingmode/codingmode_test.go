@@ -139,6 +139,22 @@ func indexOf(order []string, want string) int {
 	return -1
 }
 
+// precedes reports whether first and every one of rest are present in order, with
+// first ahead of each of them. Naming the ordering positively keeps each caller's
+// guard a single negation instead of a negated conjunction the reader has to invert.
+func precedes(order []string, first string, rest ...string) bool {
+	firstIdx := indexOf(order, first)
+	if firstIdx < 0 {
+		return false
+	}
+	for _, want := range rest {
+		if i := indexOf(order, want); i < 0 || firstIdx >= i {
+			return false
+		}
+	}
+	return true
+}
+
 // enterStub is the baseline happy-path recorder for ENTER: chat→coder, swap residency,
 // fits, downloaded, prove pass.
 func enterStub() *modeRecorder {
@@ -179,10 +195,7 @@ func TestEnter(t *testing.T) {
 		t.Errorf("swap enter must NOT overwrite the durable chat model; got cfg.Model=%q", rec.saved.Model)
 	}
 	// Capture STRICTLY before mutate (Pitfall 5).
-	capIdx := indexOf(rec.callOrder, "capture")
-	saveIdx := indexOf(rec.callOrder, "save")
-	writeIdx := indexOf(rec.callOrder, "write")
-	if capIdx < 0 || saveIdx < 0 || writeIdx < 0 || !(capIdx < saveIdx && capIdx < writeIdx) {
+	if !precedes(rec.callOrder, "capture", "save", "write") {
 		t.Errorf("capture must precede save AND write, got order %v", rec.callOrder)
 	}
 	// Inference-only restart.
@@ -203,9 +216,7 @@ func TestEnterAutoPullsAbsentCoder(t *testing.T) {
 	if len(rec.pulled) != 1 || rec.pulled[0] != "coder-model" {
 		t.Errorf("absent swap coder must be pulled, got %v", rec.pulled)
 	}
-	pullIdx := indexOf(rec.callOrder, "pull")
-	capIdx := indexOf(rec.callOrder, "capture")
-	if pullIdx < 0 || capIdx < 0 || !(pullIdx < capIdx) {
+	if !precedes(rec.callOrder, "pull", "capture") {
 		t.Errorf("pull must precede capture, got %v", rec.callOrder)
 	}
 }
@@ -228,9 +239,7 @@ func TestProveFailRollback(t *testing.T) {
 	if rec.saved.CodingMode {
 		t.Errorf("rollback must SaveConfig(priorCfg) restoring CodingMode=false, got %+v", rec.saved)
 	}
-	restoreIdx := indexOf(rec.callOrder, "restore")
-	reloadIdx := indexOf(rec.callOrder, "daemon-reload")
-	if restoreIdx < 0 || reloadIdx < 0 || !(restoreIdx < reloadIdx) {
+	if !precedes(rec.callOrder, "restore", "daemon-reload") {
 		t.Errorf("expected restore before daemon-reload in rollback, got %v", rec.callOrder)
 	}
 	if rec.restarted[len(rec.restarted)-1] != installService {
@@ -316,9 +325,7 @@ func TestExitRestoresChat(t *testing.T) {
 		t.Errorf("exit must keep the durable chat model served, got %q", rec.saved.Model)
 	}
 	// Symmetric, not a bare flip: capture STRICTLY before save (the transactional frame).
-	capIdx := indexOf(rec.callOrder, "capture")
-	saveIdx := indexOf(rec.callOrder, "save")
-	if capIdx < 0 || saveIdx < 0 || !(capIdx < saveIdx) {
+	if !precedes(rec.callOrder, "capture", "save") {
 		t.Errorf("exit must capture before mutating (symmetric frame), got %v", rec.callOrder)
 	}
 	// Exit must not resolve a coder target (no model selection on exit).

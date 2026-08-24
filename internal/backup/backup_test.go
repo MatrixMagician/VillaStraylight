@@ -326,19 +326,21 @@ func TestBackupAssemblesArchive(t *testing.T) {
 	// deferred restart) fires last.
 	stopIdx, exportIdx, startIdx := -1, -1, -1
 	for i, c := range f.calls {
-		switch {
-		case c == "stop:villa-openwebui.service":
+		switch c {
+		case "stop:villa-openwebui.service":
 			stopIdx = i
-		case c == "export:villa-openwebui":
+		case "export:villa-openwebui":
 			exportIdx = i
-		case c == "start:villa-openwebui.service":
+		case "start:villa-openwebui.service":
 			startIdx = i
 		}
 	}
-	if !(stopIdx >= 0 && exportIdx > stopIdx) {
+	stopBeforeExport := stopIdx >= 0 && exportIdx > stopIdx
+	if !stopBeforeExport {
 		t.Fatalf("expected stop before export, calls=%v", f.calls)
 	}
-	if !(startIdx > exportIdx) {
+	restartAfterExport := startIdx > exportIdx
+	if !restartAfterExport {
 		t.Fatalf("expected deferred restart (start) after export, calls=%v", f.calls)
 	}
 
@@ -766,10 +768,12 @@ func TestBackupQdrantQuiesceOrderingAndEntries(t *testing.T) {
 			startIdx = i
 		}
 	}
-	if !(stopIdx >= 0 && exportIdx > stopIdx) {
+	stopBeforeExport := stopIdx >= 0 && exportIdx > stopIdx
+	if !stopBeforeExport {
 		t.Fatalf("expected Stop(qdrant) before VolumeExport(qdrant), calls=%v", f.calls)
 	}
-	if !(startIdx > exportIdx) {
+	restartAfterExport := startIdx > exportIdx
+	if !restartAfterExport {
 		t.Fatalf("expected deferred Start(qdrant) after its export, calls=%v", f.calls)
 	}
 

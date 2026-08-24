@@ -64,7 +64,7 @@ func TestNormalizePreservesNonLatin(t *testing.T) {
 // content-swallow class. An all-invisible input is the strip-to-empty edge,
 // which is acceptable (no visible content); a string with visible content must survive.
 func TestNormalizeNeverEmpty(t *testing.T) {
-	in := "citation text ​ with a zero-width space"
+	in := "citation text \u200b with a zero-width space"
 	if got := normalize(in); got == "" {
 		t.Errorf("normalize(%q) = \"\", want non-empty (CR-02 invariant)", in)
 	}

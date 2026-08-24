@@ -694,7 +694,7 @@ func TestInstallDashboardUnitTargetsResolvedBinary(t *testing.T) {
 
 	// Wire the real resolver into the fake so we exercise the production resolution
 	// path (os.Executable→EvalSymlinks→Abs) rather than a hand-fed constant.
-	f.installDeps.resolveBinaryPath = resolveDashboardBinaryPath
+	f.resolveBinaryPath = resolveDashboardBinaryPath
 
 	cmd, _, _ := installTestCmd()
 	if code := runInstall(cmd, installOpts{}, f.installDeps); code != exitPass {
@@ -741,7 +741,7 @@ func TestInstallFailsClosedWhenBinaryUnresolvable(t *testing.T) {
 	units := []orchestrate.Unit{{Name: "villa-llama.container", Text: "[Container]\n"}}
 	plan := orchestrate.Plan{Changed: units}
 	f := newFakeInstallDeps(t, units, plan, passChecks())
-	f.installDeps.resolveBinaryPath = func() (string, error) {
+	f.resolveBinaryPath = func() (string, error) {
 		return "", errors.New("os.Executable: boom")
 	}
 
@@ -813,7 +813,7 @@ func TestInstallOpenWebUIStartFailureBlocks(t *testing.T) {
 	units := []orchestrate.Unit{{Name: "villa-llama.container", Text: "[Container]\n"}}
 	plan := orchestrate.Plan{Changed: units}
 	f := newFakeInstallDeps(t, units, plan, passChecks())
-	f.installDeps.start = func(service string) error {
+	f.start = func(service string) error {
 		f.startCalls++
 		f.startOrder = append(f.startOrder, service)
 		if service == "villa-openwebui.service" {
@@ -840,7 +840,7 @@ func TestInstallPullFailureBlocks(t *testing.T) {
 	plan := orchestrate.Plan{Changed: units}
 	f := newFakeInstallDeps(t, units, plan, passChecks())
 	f.downloaded = false
-	f.installDeps.ensureModel = func(recommend.Recommendation) error {
+	f.ensureModel = func(recommend.Recommendation) error {
 		f.pullCalls++
 		return errors.New("sha256 mismatch")
 	}
@@ -869,13 +869,13 @@ func TestInstallPersistsConfigBeforeUnits(t *testing.T) {
 
 	// Order guard: record the call order of saveConfig vs writeUnits.
 	var order []string
-	f.installDeps.saveConfig = func(c config.VillaConfig) error {
+	f.saveConfig = func(c config.VillaConfig) error {
 		f.saveCalls++
 		f.savedCfg = c
 		order = append(order, "save")
 		return nil
 	}
-	f.installDeps.writeUnits = func(orchestrate.Plan, string) error {
+	f.writeUnits = func(orchestrate.Plan, string) error {
 		f.writeCalls++
 		order = append(order, "write")
 		return nil
@@ -911,7 +911,7 @@ func TestInstallPersistedConfigIsReconcileNoOp(t *testing.T) {
 
 	// Capture the exact cfg install rendered the units FROM.
 	var renderedFrom config.VillaConfig
-	f.installDeps.render = func(in orchestrate.RenderInput) ([]orchestrate.Unit, error) {
+	f.render = func(in orchestrate.RenderInput) ([]orchestrate.Unit, error) {
 		renderedFrom = in.Cfg
 		return units, nil
 	}
@@ -943,7 +943,7 @@ func TestInstallBlockWithoutConsentExits1(t *testing.T) {
 			Remediation: "run `setsebool -P container_use_devices=true`."},
 	}
 	f := newFakeInstallDeps(t, units, plan, checks)
-	f.installDeps.consent = func(string) bool { return false } // declined
+	f.consent = func(string) bool { return false } // declined
 
 	cmd, _, errOut := installTestCmd()
 	code := runInstall(cmd, installOpts{}, f.installDeps)
@@ -1054,8 +1054,8 @@ func TestInstallConsentYesRunsSeamOncePerGap(t *testing.T) {
 	plan := orchestrate.Plan{Changed: units}
 	checks := []preflight.CheckResult{seloffCheck(), lingeroffCheck()}
 	f := newFakeInstallDeps(t, units, plan, checks)
-	f.installDeps.interactive = func() bool { return true }
-	f.installDeps.consent = func(string) bool { return true } // approve every gap
+	f.interactive = func() bool { return true }
+	f.consent = func(string) bool { return true } // approve every gap
 
 	cmd, _, _ := installTestCmd()
 	code := runInstall(cmd, installOpts{}, f.installDeps)
@@ -1082,8 +1082,8 @@ func TestInstallWarnLingerOfferGoesToStdout(t *testing.T) {
 	plan := orchestrate.Plan{Changed: units}
 	// Only the WARN-tier linger gap (no BLOCK gaps) so the run is not blocked.
 	f := newFakeInstallDeps(t, units, plan, []preflight.CheckResult{lingeroffCheck()})
-	f.installDeps.interactive = func() bool { return true }
-	f.installDeps.consent = func(string) bool { return false } // decline the optional offer
+	f.interactive = func() bool { return true }
+	f.consent = func(string) bool { return false } // decline the optional offer
 
 	cmd, out, errOut := installTestCmd()
 	code := runInstall(cmd, installOpts{}, f.installDeps)
@@ -1115,10 +1115,10 @@ func TestInstallDryRunNeverRunsPrivilegedHostPrep(t *testing.T) {
 	units := []orchestrate.Unit{{Name: "villa-llama.container", Text: "[Container]\n"}}
 	plan := orchestrate.Plan{Changed: units}
 	f := newFakeInstallDeps(t, units, plan, []preflight.CheckResult{seloffCheck(), lingeroffCheck()})
-	f.installDeps.interactive = func() bool { return true }
-	f.installDeps.stdoutIsTTY = func() bool { return true } // wizard-eligible TTY
+	f.interactive = func() bool { return true }
+	f.stdoutIsTTY = func() bool { return true } // wizard-eligible TTY
 	consentCalls := 0
-	f.installDeps.consent = func(string) bool { consentCalls++; return true } // would consent!
+	f.consent = func(string) bool { consentCalls++; return true } // would consent!
 
 	cmd, _, errOut := installTestCmd()
 	code := runInstall(cmd, installOpts{dryRun: true}, f.installDeps)
@@ -1150,8 +1150,8 @@ func TestInstallConsentNoBlocksAndNeverRunsSeam(t *testing.T) {
 	units := []orchestrate.Unit{{Name: "villa-llama.container", Text: "[Container]\n"}}
 	plan := orchestrate.Plan{Changed: units}
 	f := newFakeInstallDeps(t, units, plan, []preflight.CheckResult{seloffCheck()})
-	f.installDeps.interactive = func() bool { return true }
-	f.installDeps.consent = func(string) bool { return false } // decline
+	f.interactive = func() bool { return true }
+	f.consent = func(string) bool { return false } // decline
 
 	cmd, _, errOut := installTestCmd()
 	code := runInstall(cmd, installOpts{}, f.installDeps)
@@ -1172,9 +1172,9 @@ func TestInstallNonInteractiveBlocksAndNeverPrompts(t *testing.T) {
 	units := []orchestrate.Unit{{Name: "villa-llama.container", Text: "[Container]\n"}}
 	plan := orchestrate.Plan{Changed: units}
 	f := newFakeInstallDeps(t, units, plan, []preflight.CheckResult{seloffCheck()})
-	f.installDeps.interactive = func() bool { return false }
+	f.interactive = func() bool { return false }
 	consentCalls := 0
-	f.installDeps.consent = func(string) bool { consentCalls++; return true }
+	f.consent = func(string) bool { consentCalls++; return true }
 
 	cmd, _, errOut := installTestCmd()
 	code := runInstall(cmd, installOpts{}, f.installDeps)
@@ -1198,7 +1198,7 @@ func TestInstallForceOverridesBlock(t *testing.T) {
 	units := []orchestrate.Unit{{Name: "villa-llama.container", Text: "[Container]\n"}}
 	plan := orchestrate.Plan{Changed: units}
 	f := newFakeInstallDeps(t, units, plan, []preflight.CheckResult{seloffCheck()})
-	f.installDeps.interactive = func() bool { return false }
+	f.interactive = func() bool { return false }
 
 	cmd, out, _ := installTestCmd()
 	code := runInstall(cmd, installOpts{force: true}, f.installDeps)
@@ -1325,7 +1325,7 @@ func TestInstallReadinessWarnYieldsExit2(t *testing.T) {
 	units := []orchestrate.Unit{{Name: "villa-llama.container", Text: "[Container]\n"}}
 	plan := orchestrate.Plan{Changed: units}
 	f := newFakeInstallDeps(t, units, plan, passChecks())
-	f.installDeps.pollReady = func(context.Context, string) installReadiness {
+	f.pollReady = func(context.Context, string) installReadiness {
 		return installReadiness{status: preflight.StatusWarn, detail: "server did not become ready before the timeout"}
 	}
 
@@ -1623,7 +1623,8 @@ func TestInstallMemoryServices(t *testing.T) {
 		if ensureIdx < 0 || qIdx < 0 || eIdx < 0 {
 			t.Fatalf("missing expected events in callOrder = %v", f.callOrder)
 		}
-		if !(ensureIdx < eIdx && qIdx < eIdx) {
+		embedStartsLast := ensureIdx < eIdx && qIdx < eIdx
+		if !embedStartsLast {
 			t.Errorf("ordering wrong: ensure(%d) and qdrant(%d) must precede embed(%d); callOrder = %v", ensureIdx, qIdx, eIdx, f.callOrder)
 		}
 	})
@@ -2003,7 +2004,7 @@ func TestInstallMemoryGateRefusesUnfitHost(t *testing.T) {
 		f := newFakeInstallDeps(t, units, plan, passChecks())
 		f.memoryEnabled = true
 		gateCalls := 0
-		f.installDeps.runMemoryChecks = func(detect.HostProfile, string) []preflight.CheckResult {
+		f.runMemoryChecks = func(detect.HostProfile, string) []preflight.CheckResult {
 			gateCalls++
 			return []preflight.CheckResult{memDiskFail}
 		}
@@ -2030,7 +2031,7 @@ func TestInstallMemoryGateRefusesUnfitHost(t *testing.T) {
 
 	t.Run("memory-off install never invokes the gate", func(t *testing.T) {
 		f := newFakeInstallDeps(t, units, plan, passChecks())
-		f.installDeps.runMemoryChecks = func(detect.HostProfile, string) []preflight.CheckResult {
+		f.runMemoryChecks = func(detect.HostProfile, string) []preflight.CheckResult {
 			t.Error("memory-off install must NOT run the memory host-fitness gate")
 			return nil
 		}
@@ -2207,7 +2208,7 @@ func TestInstallCodingAgentFlow(t *testing.T) {
 		// Use a REAL catalog coder id so codingModelFile/codingDescriptor (which read the
 		// embedded catalog via modelCatalogPath, not the fake) resolve. rec.Coder carries a
 		// real swap-residency coder fit with a non-zero agent ctx and quant.
-		f.installDeps.pick = func(detect.HostProfile, recommend.Overrides) recommend.Recommendation {
+		f.pick = func(detect.HostProfile, recommend.Overrides) recommend.Recommendation {
 			return recommend.Recommendation{
 				Model: "qwen2.5-0.5b", Quant: "Q4_K_M", ContextLen: 4096, Backend: "rocm",
 				WeightBytes: 1 << 30, KVCacheBytes: 1 << 28, HeadroomBytes: 1 << 28,
@@ -2300,7 +2301,7 @@ func TestInstallCodingAgentFlow(t *testing.T) {
 		// residency coder, so the addon refuses with the swap-only message — NOT the misleading
 		// "free memory / use a larger host" copy. Coding-mode is NOT entered (cfg.CodingMode
 		// stays false) and the addon refuses at the step-6c shared-residency gate.
-		f.installDeps.pick = func(detect.HostProfile, recommend.Overrides) recommend.Recommendation {
+		f.pick = func(detect.HostProfile, recommend.Overrides) recommend.Recommendation {
 			return recommend.Recommendation{
 				Model: "qwen2.5-0.5b", Quant: "Q4_K_M", ContextLen: 4096, Backend: "rocm",
 				WeightBytes: 1 << 30, KVCacheBytes: 1 << 28, HeadroomBytes: 1 << 28,

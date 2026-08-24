@@ -19,8 +19,7 @@ import (
 )
 
 // archiveFileMode / archiveDirMode are the owner-only modes for written archive
-// entries and any created extraction dir, mirroring
-// usage.storeFileMode/storeDirMode.
+// entries and any created extraction dir.
 const (
 	archiveFileMode os.FileMode = 0o600
 	archiveDirMode  os.FileMode = 0o700

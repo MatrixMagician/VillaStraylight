@@ -150,7 +150,8 @@ func evalSearchVerify(
 
 	// 4) In-process families (b)/(c)/(d) — any violation is a security FAIL.
 	stripped, fenced, flagged := injectionFlagged()
-	if !(stripped && fenced && flagged) {
+	defanged := stripped && fenced && flagged
+	if !defanged {
 		return fail(fmt.Sprintf("the planted-injection page was NOT stripped+fenced+flagged (stripped=%t, fenced=%t, flagged=%t) — the websafe guard did not defang untrusted web content; FAILS verification. Inspect internal/websafe, then re-run `villa verify search`", stripped, fenced, flagged))
 	}
 	if !ssrfBlocked() {
@@ -487,7 +488,7 @@ func resolveCurlPin(host string, port int, allow []netip.Addr) []string {
 // false PASS). The helper image comes ONLY from orchestrate.EmbedImage() (no re-typed
 // literal — TestSeamGrepGate); every exec is fixed-arg; the nft ruleset is fed on STDIN
 // (no shell). curl -f is OMITTED on BOTH reachability and the secret-query probe.
-func liveSearchVerify(ctx context.Context, deps searchVerifyDeps) searchProof {
+func liveSearchVerify(ctx context.Context, _ searchVerifyDeps) searchProof {
 	helperImage := orchestrate.EmbedImage()
 
 	allowlistURL := "https://" + searchAllowlistHost + "/"

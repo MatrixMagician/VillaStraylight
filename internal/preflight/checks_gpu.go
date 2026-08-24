@@ -112,7 +112,7 @@ func checkKernelFloor(p detect.HostProfile) CheckResult {
 // to avoid (FirmwareDeny) rather than asserting a value it cannot read. The floor
 // data is externalized so a later probe can wire a real comparison without
 // reshaping the check.
-func checkFirmwareFloor(p detect.HostProfile) CheckResult {
+func checkFirmwareFloor(_ detect.HostProfile) CheckResult {
 	const (
 		id   = "PRE-07"
 		name = "linux-firmware floor"
