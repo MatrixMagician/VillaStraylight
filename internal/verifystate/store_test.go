@@ -174,8 +174,8 @@ func testStoreVerifyStatePathXDG(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("XDG_DATA_HOME", tmp)
 	want := filepath.Join(tmp, "villa", "verify-search-state.json")
-	if got := VerifyStatePath(); got != want {
-		t.Errorf("VerifyStatePath() = %q, want %q", got, want)
+	if got := Path(); got != want {
+		t.Errorf("Path() = %q, want %q", got, want)
 	}
 
 	// Exercise the guard through WriteFileAtomic (the production write path), so the
@@ -198,7 +198,7 @@ func testStoreVerifyStatePathXDG(t *testing.T) {
 func testStoreWriteFileAtomic(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("XDG_DATA_HOME", tmp)
-	path := VerifyStatePath()
+	path := Path()
 	data := []byte(`{"schema_version":1,"verdict":"PASS","checked_at":"2026-06-21T19:00:00Z"}`)
 
 	if err := WriteFileAtomic(path, data); err != nil {

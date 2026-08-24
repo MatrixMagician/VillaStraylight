@@ -260,7 +260,7 @@ func liveRestore(cmd *cobra.Command, archivePath string, bypass bool) (backup.Re
 		OpenWebUIVolumeName: orchestrate.OpenWebUIVolumeName(),
 		TempVolumeTar:       filepath.Join(tmpDir, "restore-owui.tar"),
 		RollbackVolumeTar:   filepath.Join(tmpDir, "rollback-owui.tar"),
-		UsageDestPath:       usage.UsagePath(),
+		UsageDestPath:       usage.Path(),
 		BenchDestPath:       benchReportsStorePath(),
 		// Phase-23 qdrant volume + recall-state wiring: identities are
 		// seam-sourced; the qdrant tars live in the SAME -cleaned tmpDir (they
@@ -271,7 +271,7 @@ func liveRestore(cmd *cobra.Command, archivePath string, bypass bool) (backup.Re
 		QdrantVolumeName:  orchestrate.QdrantVolumeName(),
 		TempQdrantTar:     filepath.Join(tmpDir, "restore-qdrant.tar"),
 		RollbackQdrantTar: filepath.Join(tmpDir, "rollback-qdrant.tar"),
-		RecallDestPath:    recall.RecallStatePath(),
+		RecallDestPath:    recall.StatePath(),
 	}
 	in.QdrantVolumeExists, in.QdrantVolumeUnknown = volumeExistsTri(orchestrate.QdrantVolumeName(), errOut)
 	// Phase-28 coding-agent crush.json destination: wired ONLY when

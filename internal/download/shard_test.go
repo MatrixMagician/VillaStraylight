@@ -46,7 +46,7 @@ func TestShardsAllPresentVerify(t *testing.T) {
 			SizeBytes: uint64(len(b)),
 		})
 	}
-	m := catalog.CatalogModel{ID: "three-shard", Shards: shards}
+	m := catalog.Model{ID: "three-shard", Shards: shards}
 	if err := pullShards(context.Background(), http.DefaultClient, m, dir); err != nil {
 		t.Fatalf("pullShards: %v", err)
 	}
@@ -74,7 +74,7 @@ func TestShardsRejectMissing(t *testing.T) {
 		SHA256:    sha256Hex([]byte("missing")),
 		SizeBytes: 7,
 	}
-	m := catalog.CatalogModel{ID: "two-shard-missing", Shards: []catalog.Shard{sh1, sh2}}
+	m := catalog.Model{ID: "two-shard-missing", Shards: []catalog.Shard{sh1, sh2}}
 	if err := pullShards(context.Background(), http.DefaultClient, m, dir); err == nil {
 		t.Fatal("expected rejection when a shard is missing, got nil")
 	}
@@ -93,7 +93,7 @@ func TestShardsRejectMismatch(t *testing.T) {
 	srvBad := rangeServer(t, bad, wrong, int64(len(bad)))
 	sh2 := catalog.Shard{URL: srvBad.URL, Filename: filepathName(2, 2), SHA256: wrong, SizeBytes: uint64(len(bad))}
 
-	m := catalog.CatalogModel{ID: "two-shard-mismatch", Shards: []catalog.Shard{sh1, sh2}}
+	m := catalog.Model{ID: "two-shard-mismatch", Shards: []catalog.Shard{sh1, sh2}}
 	if err := pullShards(context.Background(), http.DefaultClient, m, dir); err == nil {
 		t.Fatal("expected rejection when a shard mismatches, got nil")
 	}
@@ -104,7 +104,7 @@ func TestShardsSingle(t *testing.T) {
 	dir := t.TempDir()
 	body := []byte("the only shard")
 	srv := rangeServer(t, body, sha256Hex(body), int64(len(body)))
-	m := catalog.CatalogModel{ID: "single", Shards: []catalog.Shard{makeShard(srv.URL, "only.gguf", body)}}
+	m := catalog.Model{ID: "single", Shards: []catalog.Shard{makeShard(srv.URL, "only.gguf", body)}}
 	if err := pullShards(context.Background(), http.DefaultClient, m, dir); err != nil {
 		t.Fatalf("pullShards(single): %v", err)
 	}
@@ -116,7 +116,7 @@ func TestShardsSingle(t *testing.T) {
 // TestPullModelEmptyRejected: a model with no shards is rejected.
 func TestPullModelEmptyRejected(t *testing.T) {
 	dir := t.TempDir()
-	m := catalog.CatalogModel{ID: "no-shards"}
+	m := catalog.Model{ID: "no-shards"}
 	if err := PullModel(context.Background(), m, dir); err == nil {
 		t.Fatal("expected rejection for a model with zero shards")
 	}

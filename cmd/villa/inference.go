@@ -111,7 +111,7 @@ func runInference(cmd *cobra.Command, name string, withCeiling bool) int {
 // Runner + Vulkan Backend, resolves the recommend-chosen ctx + fit terms, wires the
 // live sysfs GTT reader and a ceiling Runner factory, and calls the pure
 // inference.Validate. It is the validateFn default (replaced in tests).
-func runValidation(ctx context.Context, m catalog.CatalogModel, withCeiling bool) inference.Verdict {
+func runValidation(ctx context.Context, m catalog.Model, withCeiling bool) inference.Verdict {
 	// Resolve the backend from config the SAME way every live deps-wiring site does
 	// (config.LoadVilla — A1 resolved). runValidation takes no cfg today, so load it
 	// here rather than invent a signature change. A config-load failure is a FAIL,
@@ -141,7 +141,7 @@ func runValidation(ctx context.Context, m catalog.CatalogModel, withCeiling bool
 	// Recompute the fit terms for THIS model so the ceiling stress math has the
 	// recommend-chosen ctx + envelope. Probe the host and pick for this model.
 	profile := detect.Probe()
-	cat := catalog.Catalog{Models: []catalog.CatalogModel{m}}
+	cat := catalog.Catalog{Models: []catalog.Model{m}}
 	// Memory inputs from the already-loaded persisted config: the ceiling
 	// stress math sizes against the same shrunken envelope recommend showed.
 	rec := recommend.Pick(profile, cat, recommend.Overrides{Model: m.ID},
@@ -254,7 +254,7 @@ func boolSignal(b detect.Bool) string {
 // primaryModelFile resolves the on-disk GGUF filename for a model (prefers the first
 // shard's filename, falls back to <id>.gguf). It mirrors the inference package
 // helper so the verb can name the bound file without importing an internal helper.
-func primaryModelFile(m catalog.CatalogModel) string {
+func primaryModelFile(m catalog.Model) string {
 	if len(m.Shards) > 0 && m.Shards[0].Filename != "" {
 		return m.Shards[0].Filename
 	}

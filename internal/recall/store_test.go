@@ -181,8 +181,8 @@ func TestStoreRecallStatePathXDG(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("XDG_DATA_HOME", tmp)
 	want := filepath.Join(tmp, "villa", "recall-state.json")
-	if got := RecallStatePath(); got != want {
-		t.Errorf("RecallStatePath() = %q, want %q", got, want)
+	if got := StatePath(); got != want {
+		t.Errorf("StatePath() = %q, want %q", got, want)
 	}
 
 	// Exercise the guard through WriteFileAtomic (the production write path), so the
@@ -206,7 +206,7 @@ func TestStoreRecallStatePathXDG(t *testing.T) {
 func TestStoreWriteFileAtomic(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("XDG_DATA_HOME", tmp)
-	path := RecallStatePath()
+	path := StatePath()
 	data := []byte(`{"schema_version":1}`)
 
 	if err := WriteFileAtomic(path, data); err != nil {

@@ -81,8 +81,8 @@ func Save(d Deps, s State) error { return store.Save(d, s) }
 // indexed", never a fabricated index.
 func Load(d Deps) (State, error) { return store.Load(d) }
 
-// RecallStatePath resolves the single mutable recall store under the villa data root.
-func RecallStatePath() string { return store.Path() }
+// StatePath resolves the single mutable recall store under the villa data root.
+func StatePath() string { return store.Path() }
 
 // WriteFileAtomic is the live WriteAll seam the cmd tier wires: a traversal-guarded
 // temp+rename write at 0600 under a 0700 directory, so a crash mid-write never

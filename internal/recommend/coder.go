@@ -66,7 +66,7 @@ func sharedCoderFit() CoderFit {
 func pickCoder(c catalog.Catalog, envelope uint64) CoderFit {
 	headroom := headroomBytes(envelope)
 
-	var best *catalog.CatalogModel
+	var best *catalog.Model
 	var bestTotal uint64
 
 	for i := range c.Models {

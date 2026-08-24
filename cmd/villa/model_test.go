@@ -47,9 +47,9 @@ func TestModelPullSuccess(t *testing.T) {
 	origPull := pullFn
 	t.Cleanup(func() { pullFn = origPull })
 
-	var gotModel catalog.CatalogModel
+	var gotModel catalog.Model
 	var gotDir string
-	pullFn = func(_ context.Context, m catalog.CatalogModel, dir string) error {
+	pullFn = func(_ context.Context, m catalog.Model, dir string) error {
 		gotModel = m
 		gotDir = dir
 		return nil
@@ -78,7 +78,7 @@ func TestModelPullSuccess(t *testing.T) {
 func TestModelPullDownloadFailure(t *testing.T) {
 	origPull := pullFn
 	t.Cleanup(func() { pullFn = origPull })
-	pullFn = func(_ context.Context, _ catalog.CatalogModel, _ string) error {
+	pullFn = func(_ context.Context, _ catalog.Model, _ string) error {
 		return errors.New("checksum mismatch")
 	}
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
@@ -145,8 +145,8 @@ func newSwapStub(rec *swapRecorder) *modelswap.Deps {
 		LoadConfig: func() (config.VillaConfig, error) {
 			return config.VillaConfig{Model: "current-model", Backend: "vulkan"}, nil
 		},
-		ResolveCatalog: func(name string) (catalog.CatalogModel, bool) {
-			known := map[string]catalog.CatalogModel{
+		ResolveCatalog: func(name string) (catalog.Model, bool) {
+			known := map[string]catalog.Model{
 				"fits-model":    {ID: "fits-model", Quant: "Q4", DefaultCtx: 4096},
 				"fits-undl":     {ID: "fits-undl", Quant: "Q4", DefaultCtx: 4096},
 				"toobig-model":  {ID: "toobig-model", Quant: "Q4", DefaultCtx: 4096},
@@ -155,7 +155,7 @@ func newSwapStub(rec *swapRecorder) *modelswap.Deps {
 			m, ok := known[name]
 			return m, ok
 		},
-		Fits: func(m catalog.CatalogModel) (bool, string) {
+		Fits: func(m catalog.Model) (bool, string) {
 			if rec.fitOverrides != nil {
 				if ok := rec.fitOverrides[m.ID]; !ok {
 					return false, "won't fit envelope (test)"
@@ -163,10 +163,10 @@ func newSwapStub(rec *swapRecorder) *modelswap.Deps {
 			}
 			return true, ""
 		},
-		IsDownloaded: func(m catalog.CatalogModel) bool {
+		IsDownloaded: func(m catalog.Model) bool {
 			return rec.downloaded[m.ID]
 		},
-		Pull: func(m catalog.CatalogModel) error {
+		Pull: func(m catalog.Model) error {
 			rec.pulled = append(rec.pulled, m.ID)
 			return nil
 		},

@@ -367,14 +367,14 @@ func liveAgentCache(endpoint string) (uint64, uint64, bool) {
 }
 
 // liveReadUsage loads the cumulative-usage store READ-ONLY: it wires a
-// usage.Deps whose ReadAll reads usage.UsagePath() via os.ReadFile (returning
+// usage.Deps whose ReadAll reads usage.Path() via os.ReadFile (returning
 // (nil,nil) on a not-yet-created store so usage.Load fails closed to empty) and
 // supplies NO WriteAll seam — the CLI status path can never write usage.json (the
-// dashboard, Plan 04, is the sole writer). It returns a *usage.UsageTotals only when
+// dashboard, Plan 04, is the sole writer). It returns a *usage.Totals only when
 // the store holds at least one model entry; an absent/empty/corrupt store yields nil
 // so the Report omits the usage key (typed-Unknown, never a fabricated 0).
-func liveReadUsage() *usage.UsageTotals {
-	path := usage.UsagePath()
+func liveReadUsage() *usage.Totals {
+	path := usage.Path()
 	deps := usage.Deps{
 		ReadAll: func() ([]byte, error) {
 			b, err := os.ReadFile(path)
@@ -507,7 +507,7 @@ func liveEmbedHealth(addr string, port int) status.HealthState {
 // yields nil so status renders "unknown" (typed-Unknown). It supplies NO
 // WriteAll seam — the status path can never write the store.
 func liveReadRecallState() *recall.State {
-	path := recall.RecallStatePath()
+	path := recall.StatePath()
 	deps := recall.Deps{
 		ReadAll: func() ([]byte, error) {
 			b, err := os.ReadFile(path)
@@ -617,7 +617,7 @@ func mapWebsafeProbe(out []byte, exitCode int, err error) status.HealthState {
 // than NotExist yields nil so the indicator stays "unknown" (typed-Unknown). It supplies
 // NO WriteAll seam — the status path can never write the store.
 func liveReadVerifyState() *verifystate.State {
-	path := verifystate.VerifyStatePath()
+	path := verifystate.Path()
 	deps := verifystate.Deps{
 		ReadAll: func() ([]byte, error) {
 			b, err := os.ReadFile(path)

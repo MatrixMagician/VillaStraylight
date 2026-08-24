@@ -14,7 +14,7 @@ import (
 	"io"
 )
 
-// BackupInput is the plain-data drive for the pure Backup orchestrator. The cmd
+// Input is the plain-data drive for the pure Backup orchestrator. The cmd
 // tier (liveDeps) gathers everything host-derived — the seam-sourced image
 // digests (inference.BackendFor(cfg.Backend).Image() / orchestrate.OpenWebUIImage()
 // — NEVER a literal), the accessor-sourced store schema versions
@@ -24,7 +24,7 @@ import (
 // quiesce→export→assemble→restart ordering over the injected Deps. Backup imports
 // NEITHER inference NOR detect NOR any image literal, so TestSeamGrepGate stays
 // green.
-type BackupInput struct {
+type Input struct {
 	// CreatedAt is the RFC3339 backup timestamp (caller-supplied so the pure core
 	// performs no clock I/O).
 	CreatedAt string
@@ -99,7 +99,7 @@ type BackupInput struct {
 	QdrantVolumeName string
 	TempQdrantTar    string
 	// RecallStatePath is the resolved recall-state.json source path (the OPTIONAL
-	// recall-state.json entry,; recall.RecallStatePath at the cmd tier). An
+	// recall-state.json entry,; recall.StatePath at the cmd tier). An
 	// absent file is skipped via FileMissing like the other optional entries. The
 	// cmd tier gates it on cfg.MemoryEnabled (review), mirroring the qdrant
 	// pair: empty means memory off, so a memory-off archive stays v1-identical
@@ -150,7 +150,7 @@ type BackupInput struct {
 // The villa-models volume is NEVER exported. Backup runs no subprocess (links the
 // exec package NOT at all) and carries no image literal — every effect is a Deps
 // func field.
-func Backup(d Deps, in BackupInput) (retRes Result, retErr error) {
+func Backup(d Deps, in Input) (retRes Result, retErr error) {
 	if in.OutputWriter == nil {
 		return Result{Err: fmt.Errorf("backup: nil output writer"), FailedStep: "write"}, fmt.Errorf("backup: nil output writer")
 	}

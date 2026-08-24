@@ -21,7 +21,7 @@ func TestFoldResetAware(t *testing.T) {
 	// The scenario is set up directly rather than by folding into it: a fold that
 	// re-seats last_seen would itself be the behaviour under test, so building the
 	// prior state by hand keeps the assertion about ONE fold.
-	prior := UsageTotals{
+	prior := Totals{
 		SchemaVersion: usageSchemaVersion,
 		Models: map[string]ModelUsage{
 			"m1": {
@@ -66,7 +66,7 @@ func TestFoldResetAware(t *testing.T) {
 // TestFoldPerModel proves two distinct models accumulate independently and that
 // folding one model again leaves the other untouched (per-model keying).
 func TestFoldPerModel(t *testing.T) {
-	tot := UsageTotals{}
+	tot := Totals{}
 	tot = Fold(tot, Sample{Model: "A", PromptTokensTotal: 10, PromptTokensKnown: true, PredictedTokensTotal: 5, PredictedTokensKnown: true})
 	tot = Fold(tot, Sample{Model: "B", PromptTokensTotal: 100, PromptTokensKnown: true, PredictedTokensTotal: 50, PredictedTokensKnown: true})
 
@@ -91,7 +91,7 @@ func TestFoldPerModel(t *testing.T) {
 // and NO LastSeenRaw mutation for that counter, while a Known sibling counter still
 // folds; and an entirely-unknown sample produces NO new/changed model entry.
 func TestFoldTypedUnknown(t *testing.T) {
-	tot := UsageTotals{
+	tot := Totals{
 		SchemaVersion: usageSchemaVersion,
 		Models: map[string]ModelUsage{
 			"m1": {
@@ -117,7 +117,7 @@ func TestFoldTypedUnknown(t *testing.T) {
 	}
 
 	// Entirely-unknown sample for a NEW model ⇒ no new entry created.
-	got2 := Fold(UsageTotals{}, Sample{Model: "ghost", PromptTokensKnown: false, PredictedTokensKnown: false})
+	got2 := Fold(Totals{}, Sample{Model: "ghost", PromptTokensKnown: false, PredictedTokensKnown: false})
 	if _, ok := got2.Models["ghost"]; ok {
 		t.Fatalf("entirely-unknown sample created a model entry %q, want none", "ghost")
 	}
@@ -130,7 +130,7 @@ func TestFoldTypedUnknown(t *testing.T) {
 // a blank-keyed entry carrying real counts in `villa status` and backups (v1.2 review
 // finding — per-model keying, never a blank key).
 func TestFoldEmptyModelDiscarded(t *testing.T) {
-	prior := UsageTotals{
+	prior := Totals{
 		SchemaVersion: usageSchemaVersion,
 		Models: map[string]ModelUsage{
 			"m1": {Model: "m1", Prompt: CounterState{Cumulative: 100, LastSeenRaw: 100}},
@@ -153,7 +153,7 @@ func TestFoldEmptyModelDiscarded(t *testing.T) {
 
 // TestUsageTotalsHasNoContentFields is the counts-only structural security test
 // mirroring metrics.TestParseSlotsReadsOnlyNarrowFields: it reflects over
-// UsageTotals AND ModelUsage allowing ONLY count/identity field names, and asserts
+// Totals AND ModelUsage allowing ONLY count/identity field names, and asserts
 // the marshaled JSON of a populated store contains none of the content denylist
 // substrings — no prompt/response/content text can ever enter the store.
 func TestUsageTotalsHasNoContentFields(t *testing.T) {
@@ -161,11 +161,11 @@ func TestUsageTotalsHasNoContentFields(t *testing.T) {
 		"Models":        true,
 		"SchemaVersion": true,
 	}
-	stTot := reflect.TypeOf(UsageTotals{})
+	stTot := reflect.TypeOf(Totals{})
 	for i := 0; i < stTot.NumField(); i++ {
 		name := stTot.Field(i).Name
 		if !allowedTotals[name] {
-			t.Errorf("UsageTotals has unexpected field %q — counts-only: no prompt/response/content fields", name)
+			t.Errorf("Totals has unexpected field %q — counts-only: no prompt/response/content fields", name)
 		}
 	}
 
@@ -194,7 +194,7 @@ func TestUsageTotalsHasNoContentFields(t *testing.T) {
 	}
 
 	// Marshaled JSON denylist: a populated store must not contain any content word.
-	populated := UsageTotals{
+	populated := Totals{
 		SchemaVersion: usageSchemaVersion,
 		Models: map[string]ModelUsage{
 			"m1": {
@@ -207,7 +207,7 @@ func TestUsageTotalsHasNoContentFields(t *testing.T) {
 	}
 	blob, err := json.Marshal(populated)
 	if err != nil {
-		t.Fatalf("marshal populated UsageTotals: %v", err)
+		t.Fatalf("marshal populated Totals: %v", err)
 	}
 	for _, banned := range []string{"prompt_text", "response", "content", "text", "messages"} {
 		if strings.Contains(string(blob), banned) {
@@ -226,7 +226,7 @@ func TestStoreRoundTrip(t *testing.T) {
 		Now:      func() time.Time { return time.Unix(0, 0).UTC() },
 	}
 
-	in := UsageTotals{
+	in := Totals{
 		Models: map[string]ModelUsage{
 			"m1": {Model: "m1", Prompt: CounterState{Cumulative: 11, LastSeenRaw: 11}, Predicted: CounterState{Cumulative: 22, LastSeenRaw: 22}},
 			"m2": {Model: "m2", Prompt: CounterState{Cumulative: 33, LastSeenRaw: 33}, Predicted: CounterState{Cumulative: 44, LastSeenRaw: 44}},
@@ -251,7 +251,7 @@ func TestStoreRoundTrip(t *testing.T) {
 // panic) on an absent store, a corrupt blob, and a schema-version mismatch — never a
 // fabricated total.
 func TestLoadFailsClosed(t *testing.T) {
-	// Absent store: ReadAll ⇒ (nil,nil) ⇒ empty UsageTotals, no error.
+	// Absent store: ReadAll ⇒ (nil,nil) ⇒ empty Totals, no error.
 	absent := Deps{ReadAll: func() ([]byte, error) { return nil, nil }}
 	if got, err := Load(absent); err != nil || len(got.Models) != 0 {
 		t.Errorf("Load(absent) = (%+v, %v), want empty, nil", got, err)
@@ -282,8 +282,8 @@ func TestUsagePathXDG(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("XDG_DATA_HOME", tmp)
 	want := filepath.Join(tmp, "villa", "usage.json")
-	if got := UsagePath(); got != want {
-		t.Errorf("UsagePath() = %q, want %q", got, want)
+	if got := Path(); got != want {
+		t.Errorf("Path() = %q, want %q", got, want)
 	}
 
 	if err := WriteFileAtomic(want, []byte("{}")); err != nil {

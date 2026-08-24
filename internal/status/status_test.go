@@ -406,7 +406,7 @@ func TestUsageOmittedWhenAbsent(t *testing.T) {
 
 	t.Run("seam returns nil (empty store) → usage omitted", func(t *testing.T) {
 		d := newDeps(t, loopbackUnits(t))
-		d.ReadUsage = func() *usage.UsageTotals { return nil }
+		d.ReadUsage = func() *usage.Totals { return nil }
 		r := Run(d)
 		if r.Usage != nil {
 			t.Fatalf("a nil-returning ReadUsage seam must leave Usage nil, got %+v", r.Usage)
@@ -419,7 +419,7 @@ func TestUsageOmittedWhenAbsent(t *testing.T) {
 // the cumulative totals on the Report and the --json carries the "usage" key plus
 // the current schema_version (bumped 2→3 by the Phase-23 memory evolution).
 func TestUsageSurfacedWhenPresent(t *testing.T) {
-	want := &usage.UsageTotals{
+	want := &usage.Totals{
 		SchemaVersion: 1,
 		Models: map[string]usage.ModelUsage{
 			"qwen3": {
@@ -430,7 +430,7 @@ func TestUsageSurfacedWhenPresent(t *testing.T) {
 		},
 	}
 	d := newDeps(t, loopbackUnits(t))
-	d.ReadUsage = func() *usage.UsageTotals { return want }
+	d.ReadUsage = func() *usage.Totals { return want }
 
 	r := Run(d)
 	if r.Usage == nil {

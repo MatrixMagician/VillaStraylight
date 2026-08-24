@@ -445,12 +445,12 @@ func TestRunSearchResidencyUnderLoadPreconditionGate(t *testing.T) {
 	}
 }
 
-// writeVerifyState persists a verifystate.State at the live VerifyStatePath under the
+// writeVerifyState persists a verifystate.State at the live verifystate.Path under the
 // test's XDG_DATA_HOME so liveSearchEgressProof (which reads the real store) can be driven
 // off-hardware. Callers MUST t.Setenv("XDG_DATA_HOME", …) before calling.
 func writeVerifyState(t *testing.T, verdict, checkedAt string) {
 	t.Helper()
-	path := verifystate.VerifyStatePath()
+	path := verifystate.Path()
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatalf("mkdir verify-state dir: %v", err)
 	}

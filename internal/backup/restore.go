@@ -107,7 +107,7 @@ type RestoreInput struct {
 	// A memory-free archive ignores it (zero qdrant calls either way).
 	QdrantVolumeUnknown bool
 	// RecallDestPath is the resolved recall-state.json destination
-	// (recall.RecallStatePath() at the cmd tier) for the OPTIONAL recall-state
+	// (recall.StatePath() at the cmd tier) for the OPTIONAL recall-state
 	// entry — restored through the same WriteFileAtomic/rollbackRemove rows as
 	// usage/bench (the file lives directly under the villa data root, so the
 	// store-root guard covers it).

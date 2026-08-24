@@ -23,7 +23,7 @@ import (
 // catalog dimensions) would otherwise wrap mod 2^64 to a SMALL total and defeat
 // the fit re-validation — exactly the silent-OOM guard this math exists to
 // provide. A saturated KV can never compare ≤ envelope, so Fits stays false.
-func kvCacheBytes(m catalog.CatalogModel, ctx int) uint64 {
+func kvCacheBytes(m catalog.Model, ctx int) uint64 {
 	if ctx <= 0 {
 		return 0
 	}

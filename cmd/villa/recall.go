@@ -80,7 +80,7 @@ func liveRecallDeps() recallDeps {
 		readState:           liveRecallStateLoad,
 		writeState: func(s recall.State) error {
 			return recall.Save(recall.Deps{WriteAll: func(data []byte) error {
-				return recall.WriteFileAtomic(recall.RecallStatePath(), data)
+				return recall.WriteFileAtomic(recall.StatePath(), data)
 			}}, s)
 		},
 		now: time.Now,
@@ -97,7 +97,7 @@ func liveRecallDeps() recallDeps {
 // different readers.
 func liveRecallStateLoad() (recall.State, error) {
 	return recall.Load(recall.Deps{ReadAll: func() ([]byte, error) {
-		data, err := os.ReadFile(recall.RecallStatePath())
+		data, err := os.ReadFile(recall.StatePath())
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil, nil // absent store ⇒ empty state ("nothing indexed")
 		}

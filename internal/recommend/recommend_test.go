@@ -15,7 +15,7 @@ func testCatalog() catalog.Catalog {
 	return catalog.Catalog{
 		SchemaVersion:  catalog.SupportedSchema,
 		CatalogVersion: "test",
-		Models: []catalog.CatalogModel{
+		Models: []catalog.Model{
 			{
 				ID: "tiny", Quant: "Q4_K_M", WeightBytes: 4 << 30,
 				NLayers: 24, NKVHeads: 4, HeadDim: 128, KVBytesPerElem: 2,
@@ -96,7 +96,7 @@ func TestPickHonorsMinEnvelopeFloor(t *testing.T) {
 	cat := catalog.Catalog{
 		SchemaVersion:  catalog.SupportedSchema,
 		CatalogVersion: "test",
-		Models: []catalog.CatalogModel{
+		Models: []catalog.Model{
 			{
 				// Raw footprint fits a 20 GiB envelope, but it declares it needs at
 				// least 50 GiB to run acceptably — so it must be skipped.

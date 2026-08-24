@@ -10,8 +10,8 @@ import (
 // coderFitEntry is a role:"coder" catalog entry that comfortably fits a 64 GiB
 // envelope at its agent ctx: 18 GiB weights + ~6 GiB KV@65536 + ~7.68 GiB
 // headroom ≈ 31.7 GiB.
-func coderFitEntry() catalog.CatalogModel {
-	return catalog.CatalogModel{
+func coderFitEntry() catalog.Model {
+	return catalog.Model{
 		ID: "coder-fit", Quant: "UD-Q4_K_XL", WeightBytes: 18 << 30,
 		NLayers: 48, NKVHeads: 4, HeadDim: 128, KVBytesPerElem: 2,
 		DefaultCtx: 32768, TierGB: 64, UnifiedMemorySafe: true, BackendDefault: "rocm",
@@ -23,8 +23,8 @@ func coderFitEntry() catalog.CatalogModel {
 // KV@DefaultCtx + headroom ≈ 56.4 GiB at a 64 GiB envelope) would make it the
 // LARGEST fitting pick if pickBest considered it — the bit-identical test
 // proves it never does.
-func coderBigEntry() catalog.CatalogModel {
-	return catalog.CatalogModel{
+func coderBigEntry() catalog.Model {
+	return catalog.Model{
 		ID: "coder-big", Quant: "UD-Q4_K_XL", WeightBytes: 48 << 30,
 		NLayers: 48, NKVHeads: 4, HeadDim: 128, KVBytesPerElem: 2,
 		DefaultCtx: 8192, TierGB: 64, UnifiedMemorySafe: true, BackendDefault: "rocm",
@@ -226,7 +226,7 @@ func TestPickOverrideCoderEntryWarnsAndAllows(t *testing.T) {
 func TestPickCoderUsesPostReservationEnvelope(t *testing.T) {
 	const env = uint64(32 << 30) // raw envelope
 	cat := testCatalog()
-	tight := catalog.CatalogModel{
+	tight := catalog.Model{
 		// KV@65536 = 2×24×4×128×65536×2 = 3,221,225,472; weights chosen so
 		// W+K = 30,000,000,000 lands between the two 0.88×envelope bounds.
 		ID: "coder-tight", Quant: "UD-Q4_K_XL", WeightBytes: 26778774528,

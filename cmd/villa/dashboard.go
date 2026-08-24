@@ -64,8 +64,8 @@ type dashboardDeps struct {
 	// and CounterSample scrapes the two monotonic _total counters from the SAME endpoint
 	// already scraped for live tok/s (no new outbound). Nil seams default (in
 	// dashboard.NewServer) to honest no-ops that never write.
-	ReadUsage     func() usage.UsageTotals
-	WriteUsage    func(usage.UsageTotals) error
+	ReadUsage     func() usage.Totals
+	WriteUsage    func(usage.Totals) error
 	ModelID       func() string
 	CounterSample func() (metrics.CounterSample, bool)
 }
@@ -180,7 +180,7 @@ func liveDashboardDeps() (*dashboardDeps, error) {
 
 		// Cumulative usage: the dashboard /api/metrics scrape is the SOLE
 		// writer of usage.json. ReadUsage loads the fold's prior via usage.Load over
-		// usage.UsagePath(); WriteUsage persists the folded store via the atomic temp+rename
+		// usage.Path(); WriteUsage persists the folded store via the atomic temp+rename
 		// usage.WriteFileAtomic over the SAME path. ModelID re-reads cfg.Model from config at
 		// scrape time (config is the single source of truth; the dashboard server reads it
 		// inside the usageMu section so the per-model key cannot drift — Pitfall 2). The
@@ -194,11 +194,11 @@ func liveDashboardDeps() (*dashboardDeps, error) {
 }
 
 // liveUsageDeps builds the usage byte-I/O seam over the live store path: ReadAll reads
-// usage.UsagePath() ((nil,nil) when absent so Load fails closed to empty), and WriteAll
+// usage.Path() ((nil,nil) when absent so Load fails closed to empty), and WriteAll
 // is the atomic temp+rename usage.WriteFileAtomic. The dashboard is the SOLE writer
 // so this WriteAll seam is wired ONLY here (never in the status read path).
 func liveUsageDeps() usage.Deps {
-	path := usage.UsagePath()
+	path := usage.Path()
 	return usage.Deps{
 		ReadAll: func() ([]byte, error) {
 			data, err := os.ReadFile(path)
@@ -212,12 +212,12 @@ func liveUsageDeps() usage.Deps {
 }
 
 // liveReadUsageTotals loads the persisted store as the fold's prior. usage.Load fails
-// closed to an empty UsageTotals on an absent/corrupt/schema-skew store (Plan 01), so a
+// closed to an empty usage.Totals on an absent/corrupt/schema-skew store (Plan 01), so a
 // read failure degrades the fold to a fresh accumulation rather than panicking.
-func liveReadUsageTotals() usage.UsageTotals {
+func liveReadUsageTotals() usage.Totals {
 	t, err := usage.Load(liveUsageDeps())
 	if err != nil {
-		return usage.UsageTotals{}
+		return usage.Totals{}
 	}
 	return t
 }
@@ -226,7 +226,7 @@ func liveReadUsageTotals() usage.UsageTotals {
 // temp+rename, 0600/0700, traversal-guarded). The dashboard server calls this inside the
 // usageMu critical section and treats a returned error as loud-but-non-fatal
 // (T-15-17).
-func liveWriteUsage(t usage.UsageTotals) error {
+func liveWriteUsage(t usage.Totals) error {
 	return usage.Save(liveUsageDeps(), t)
 }
 
@@ -284,7 +284,7 @@ func liveModelsView() ([]dashboard.ModelView, bool) {
 
 // modelOnDisk reports whether a catalog model's primary weight file is already
 // downloaded (mirrors liveSwapDeps.IsDownloaded so the dashboard and swap agree).
-func modelOnDisk(m catalog.CatalogModel) bool {
+func modelOnDisk(m catalog.Model) bool {
 	path := filepath.Join(modelsDir(), primaryModelFile(m))
 	_, err := os.Stat(path)
 	return err == nil

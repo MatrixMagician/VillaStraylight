@@ -24,14 +24,14 @@ import (
 // live host. The live wiring (liveSwapDeps) stays in cmd/villa.
 type Deps struct {
 	LoadConfig     func() (config.VillaConfig, error)
-	ResolveCatalog func(name string) (catalog.CatalogModel, bool)
+	ResolveCatalog func(name string) (catalog.Model, bool)
 	// Fits reports whether m fits the usable envelope (reuse recommend fit-math)
 	// and a human reason when it does not — never a silent OOM at container start.
-	Fits func(m catalog.CatalogModel) (bool, string)
+	Fits func(m catalog.Model) (bool, string)
 	// IsDownloaded reports whether the model's weights are already on disk.
-	IsDownloaded func(m catalog.CatalogModel) bool
+	IsDownloaded func(m catalog.Model) bool
 	// Pull auto-downloads the verified weights (reuse download.PullModel).
-	Pull func(m catalog.CatalogModel) error
+	Pull func(m catalog.Model) error
 	// SaveConfig persists the new model to config.toml (the source of truth).
 	SaveConfig func(c config.VillaConfig) error
 	// ReconcileAndWrite renders units from the persisted config and writes only the

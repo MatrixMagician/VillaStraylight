@@ -105,7 +105,7 @@ func liveEmbedModelPresent(modelsDir string) bool {
 
 // liveEnsureEmbedModel pre-stages nomicEmbedShard into modelsDir via the verified
 // downloader the `model pull`/`model swap` path uses (the pullFn seam), wrapping the
-// shard in a single-shard CatalogModel. It creates the models dir 0700 first
+// shard in a single-shard catalog.Model. It creates the models dir 0700 first
 // (mirroring liveInstallDeps.ensureModel). download.PullModel does the HEAD size/etag
 // verify → stream → SHA256 + size check → atomic rename, so a half-written or
 // unverified GGUF is never left on disk. It is invoked only when memory is
@@ -114,7 +114,7 @@ func liveEnsureEmbedModel(modelsDir string) error {
 	if mkErr := os.MkdirAll(modelsDir, 0o700); mkErr != nil {
 		return mkErr
 	}
-	m := catalog.CatalogModel{Shards: []catalog.Shard{nomicEmbedShard}}
+	m := catalog.Model{Shards: []catalog.Shard{nomicEmbedShard}}
 	return pullFn(context.Background(), m, modelsDir)
 }
 

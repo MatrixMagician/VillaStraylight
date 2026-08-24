@@ -360,12 +360,12 @@ func liveVerifySearchDeps() searchVerifyDeps {
 // verifystate.Save over a WriteAll that wraps the traversal-guarded atomic writer at the
 // fixed verify-search-state.json path. It is best-effort — the caller discards
 // its error for the exit code (the proof verdict is authoritative). The path is resolved
-// from verifystate.VerifyStatePath so the traversal guard never rejects a
+// from verifystate.Path so the traversal guard never rejects a
 // legitimate write.
 func liveVerifyStatePersist(s verifystate.State) error {
 	return verifystate.Save(verifystate.Deps{
 		WriteAll: func(data []byte) error {
-			return verifystate.WriteFileAtomic(verifystate.VerifyStatePath(), data)
+			return verifystate.WriteFileAtomic(verifystate.Path(), data)
 		},
 	}, s)
 }

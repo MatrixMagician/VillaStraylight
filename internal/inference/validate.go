@@ -33,7 +33,7 @@ const defaultCeilingTimeout = 5 * time.Minute
 // container or live /sys read happens inside this package in CI.
 type ValidateInput struct {
 	// Model is the catalog-resolved entry being validated (dims feed the math).
-	Model catalog.CatalogModel
+	Model catalog.Model
 	// ModelsDir is the host directory holding the GGUF, bind-mounted read-only into
 	// the container. It MUST flow through to the RunSpec the Runner is started with;
 	// an empty value renders an invalid `-v :/models` bind and the container never
@@ -231,7 +231,7 @@ func foldVerdict(offload Verdict, chat ChatResult, ceiling CeilingResult) Verdic
 // primaryModelFile resolves the on-disk GGUF filename for a model. It prefers the
 // first shard's filename (the Plan-01 download manifest) and falls back to the model
 // ID when no shard metadata is present (test fixtures).
-func primaryModelFile(m catalog.CatalogModel) string {
+func primaryModelFile(m catalog.Model) string {
 	if len(m.Shards) > 0 && m.Shards[0].Filename != "" {
 		return m.Shards[0].Filename
 	}

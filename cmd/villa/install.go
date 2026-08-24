@@ -1503,10 +1503,10 @@ func liveInstallDeps() (*installDeps, error) {
 	// resolveCatalogModel maps a recommendation to its catalog entry — the single
 	// place the model-id → catalog lookup happens for both the on-disk check and
 	// the pull, so install never fabricates a weight path (mirrors swap).
-	resolveCatalogModel := func(rec recommend.Recommendation) (catalog.CatalogModel, bool) {
+	resolveCatalogModel := func(rec recommend.Recommendation) (catalog.Model, bool) {
 		cat, _, err := catalog.Load(modelCatalogPath)
 		if err != nil {
-			return catalog.CatalogModel{}, false
+			return catalog.Model{}, false
 		}
 		return cat.FindByID(rec.Model)
 	}

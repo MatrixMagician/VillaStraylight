@@ -15,7 +15,7 @@
 //     Result is an honest void-exhaustion WARN (VoidExhausted), not a confident band;
 //   - prompt-processing (pp) and token-generation (tg) are carried SEPARATELY
 //     end-to-end — two median+stddev figures, never blended into one slice or number;
-//   - for `--ab`, the IDENTICAL BenchSpec is applied to both sides and the original
+//   - for `--ab`, the IDENTICAL Spec is applied to both sides and the original
 //     backend is ALWAYS restored on every exit path via a defer registered BEFORE
 //     the flip (success / mid-AB error / panic-unwind all restore).
 //
@@ -34,9 +34,9 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 )
 
-// BenchSpec is the identical, reproducible benchmark configuration applied to a
+// Spec is the identical, reproducible benchmark configuration applied to a
 // single backend or — byte-for-byte — to BOTH sides of an --ab comparison.
-type BenchSpec struct {
+type Spec struct {
 	// Reps is the number of RESIDENT (counted) runs to collect per side.
 	Reps int
 	// Warmup is the number of leading runs measured then discarded (caches/JIT
@@ -101,7 +101,7 @@ type Deps struct {
 	// cobra layer uses to announce progress ("Benchmarking vulkan…") and the seam
 	// bench_test.go uses to assert both --ab sides receive a byte-identical spec. It
 	// is purely observational — it fires no host action and may be nil.
-	OnSideStart func(side string, spec BenchSpec)
+	OnSideStart func(side string, spec Spec)
 }
 
 // Stats are the per-side, per-metric aggregates over the KEPT (resident) runs. pp
@@ -200,7 +200,7 @@ const (
 // forever). resident==false (or a Measure error) increments Void and is excluded;
 // kept runs are folded into per-metric Stats. The boolean reports whether the floor
 // (spec.MinResident) was met.
-func benchN(ctx context.Context, d Deps, spec BenchSpec, side string) (Stats, bool) {
+func benchN(ctx context.Context, d Deps, spec Spec, side string) (Stats, bool) {
 	if d.OnSideStart != nil {
 		d.OnSideStart(side, spec)
 	}
@@ -239,7 +239,7 @@ func benchN(ctx context.Context, d Deps, spec BenchSpec, side string) (Stats, bo
 // The per-run load_tensors-hang timeout is still derived inside the live Measure wiring
 // (context.WithTimeout over this ctx), so caller cancellation and the per-run deadline
 // compose rather than conflict.
-func Run(ctx context.Context, d Deps, spec BenchSpec) Result {
+func Run(ctx context.Context, d Deps, spec Spec) Result {
 	// Single-backend path.
 	if d.Switch == nil || d.Restore == nil {
 		st, enough := benchN(ctx, d, spec, "single")

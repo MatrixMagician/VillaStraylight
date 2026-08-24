@@ -180,7 +180,7 @@ func newFakeInstallDeps(t *testing.T, units []orchestrate.Unit, plan orchestrate
 		// Phase-25 coder-serving helpers reused on the --coding-agent render path) read the
 		// embedded catalog via modelCatalogPath, NOT this fake, so the served coder id must
 		// be a genuine catalog entry for the default agent-on flow to render.
-		agentCat: catalog.Catalog{Models: []catalog.CatalogModel{
+		agentCat: catalog.Catalog{Models: []catalog.Model{
 			{ID: "qwen3-coder-30b-a3b", Role: "coder", Shards: []catalog.Shard{
 				{Filename: "qwen3-coder-30b-a3b.gguf", SizeBytes: 4096},
 			}},
@@ -2079,7 +2079,7 @@ func TestEvalAgentProof(t *testing.T) {
 // resolved entry's id is exactly the served coder id — a single-entry derivation, so the
 // staged filename and the served -m path can never drift.
 func TestCoderShardSingleSource(t *testing.T) {
-	cat := catalog.Catalog{Models: []catalog.CatalogModel{
+	cat := catalog.Catalog{Models: []catalog.Model{
 		{ID: "qwen3-chat", Role: ""},
 		{ID: "qwen3-coder-30b", Role: "coder", Shards: []catalog.Shard{
 			{Filename: "qwen3-coder-30b.Q4.gguf", SizeBytes: 18_000_000_000},
@@ -2095,7 +2095,7 @@ func TestCoderShardSingleSource(t *testing.T) {
 	}
 	// Find the entry coderShardFor resolved from and assert it is the SAME entry whose id is
 	// the served coder model — one entry drives both the staged filename and the served id.
-	var servedEntry catalog.CatalogModel
+	var servedEntry catalog.Model
 	for _, m := range cat.Models {
 		if m.ID == rec.Coder.Model {
 			servedEntry = m
@@ -2220,7 +2220,7 @@ func TestInstallCodingAgentFlow(t *testing.T) {
 			}
 		}
 		// Catalog the coderShardFor pre-stage resolves against must carry the same id.
-		f.agentCat = catalog.Catalog{Models: []catalog.CatalogModel{
+		f.agentCat = catalog.Catalog{Models: []catalog.Model{
 			{ID: "qwen3-coder-30b-a3b", Role: "coder", Shards: []catalog.Shard{
 				{Filename: "qwen3-coder-30b-a3b.gguf", SizeBytes: 4096},
 			}},
@@ -2295,7 +2295,7 @@ func TestInstallCodingAgentFlow(t *testing.T) {
 		f := newFakeInstallDeps(t, units, plan, passChecks())
 		// Catalog with no coder entry → coderShardFor would return false, but the shared-
 		// residency branch refuses BEFORE reaching it.
-		f.agentCat = catalog.Catalog{Models: []catalog.CatalogModel{{ID: "qwen3-chat"}}}
+		f.agentCat = catalog.Catalog{Models: []catalog.Model{{ID: "qwen3-chat"}}}
 		// rec.Coder is a SHARED-residency fit (Residency "shared", empty Model). A coder DOES
 		// fit conceptually (riding the chat endpoint) but v1.4 only serves a dedicated swap-
 		// residency coder, so the addon refuses with the swap-only message — NOT the misleading

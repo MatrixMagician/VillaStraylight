@@ -109,9 +109,9 @@ func TestSchemaVersionIsAlwaysStamped(t *testing.T) {
 // one must not be readable as another.
 func TestStoresKeepSeparateVersionsAndPaths(t *testing.T) {
 	paths := map[string]string{
-		"verifystate": verifystate.VerifyStatePath(),
-		"recall":      recall.RecallStatePath(),
-		"usage":       usage.UsagePath(),
+		"verifystate": verifystate.Path(),
+		"recall":      recall.StatePath(),
+		"usage":       usage.Path(),
 	}
 	seen := map[string]string{}
 	for name, p := range paths {
@@ -143,7 +143,7 @@ func TestUsageBytesUnchanged(t *testing.T) {
 		ReadAll:  func() ([]byte, error) { return buf, nil },
 	}
 
-	totals := usage.UsageTotals{
+	totals := usage.Totals{
 		Models: map[string]usage.ModelUsage{
 			"qwen3": {
 				Prompt:    usage.CounterState{Cumulative: 100, LastSeenRaw: 40},
