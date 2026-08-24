@@ -55,6 +55,12 @@ Which GPU stack llama.cpp runs on — ROCm or Vulkan — and the image, flags,
 device args and log markers that come with it. Always qualified.
 _Avoid_: backend (unqualified), driver, runtime, GPU mode
 
+**Resident set**:
+The models held loaded at once, each in its own slot on its own loopback port,
+instead of the inference unit restarting to trade one for another. Admission
+decides what may join and what is evicted; holding is the opposite of swapping.
+_Avoid_: model pool, loaded models, multi-model, hot models, swap
+
 **Offload**:
 Running the model's layers on the iGPU rather than the CPU.
 _Avoid_: acceleration, GPU mode, hardware inference

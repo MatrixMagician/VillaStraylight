@@ -14,12 +14,12 @@ dashboard**. The Go code is the orchestrator only; the AI services are integrate
 upstream images, never rebuilt. The architectural style is a **layered pipeline of pure
 cores behind injectable host seams**: every package that makes a decision (`detect`,
 `recommend`, `preflight`, `inference.BackendFor`, `orchestrate.Render`,
-`orchestrate.Reconcile`, `status`, `modelswap`, `backendswap`, `bench`) is a pure,
-table-testable library that returns a typed value; all host-touching effects (sysfs
-reads, `podman`, `systemctl`, HTTP probes, downloads, file writes) are injected as
-function seams or confined to a small number of clearly-marked impure files. The command
-layer (`cmd/villa`) is the only place that prints, maps verdicts to exit codes, and
-calls `os.Exit`.
+`orchestrate.Reconcile`, `status`, `modelswap`, `backendswap`, `bench`,
+`residentset`) is a pure, table-testable library that returns a typed value; all
+host-touching effects (sysfs reads, `podman`, `systemctl`, HTTP probes, downloads,
+file writes) are injected as function seams or confined to a small number of
+clearly-marked impure files. The command layer (`cmd/villa`) is the only place that
+prints, maps verdicts to exit codes, and calls `os.Exit`.
 
 As of **v1.1**, backend choice is a first-class, polymorphic seam. A single resolver,
 `inference.BackendFor(cfg.Backend)`, maps the persisted `backend` string
@@ -59,6 +59,7 @@ graph TD
     CLI --> config["internal/config<br/>config.toml store (0600)"]
     CLI --> orchestrate["internal/orchestrate<br/>Render → Reconcile → WriteUnits + systemd seam"]
     CLI --> modelswap["internal/modelswap<br/>guarded swap core"]
+    CLI --> residentset["internal/residentset<br/>resident-set admission control (pure)"]
     CLI --> backendswap["internal/backendswap<br/>transactional capture→prove→rollback"]
     CLI --> bench["internal/bench<br/>honest A/B core (pure)"]
     CLI --> status["internal/status<br/>read-model aggregation"]
@@ -78,6 +79,8 @@ graph TD
     modelswap --> config
     modelswap --> download
     modelswap --> orchestrate
+    residentset -.cmd composes.-> recommend
+    residentset -.cmd composes.-> orchestrate
     backendswap -.cmd composes.-> orchestrate
     backendswap -.cmd composes.-> config
     bench -.--ab composes.-> backendswap
@@ -279,6 +282,19 @@ the GPU count toward the median/stddev `Stats` and the comparative `ABResult`.
 - **`modelswap.Run`** (`internal/modelswap/modelswap.go`) — the guarded swap core where
   ordering is the security contract: resolve-through-catalog → fit-guard refuse →
   auto-pull → persist config → reconcile/write → restart only the inference service.
+- **`residentset.Admit`** + `Slot` / `Set` / `Plan` / `Policy` / `Refusal`
+  (`internal/residentset/admit.go`) — the admission control for holding several models
+  resident at once instead of restarting the inference unit to swap one for another
+  (`villa model resident ls|add|rm`). Returns `NoOp` when the workload is already
+  resident, a plain `Add` when it fits, `Add`+`Evict` of least-recently-used
+  non-`Primary` slots when it fits only after eviction, or a `Refusal`. It does no host
+  I/O, reads no clock (`Slot.Order` is caller-supplied recency), and mutates neither the
+  `Set` nor its `Slots` — so a caller may run it speculatively to preview a plan.
+  Mirroring the `Render`/`Reconcile` split it is the planning half only; there is no
+  impure "carry out the `Plan`" counterpart in the package. It decides what MAY join and
+  nothing else: `recommend.Pick` owns what a candidate COSTS and
+  `orchestrate.ResidentUnitName` owns what its unit is called. `cmd/villa/model_resident.go`
+  composes all three under the shared `install` transaction and re-derives none of them.
 - **`backendswap.Run`** + `Deps` / `ProveVerdict` / `Result`
   (`internal/backendswap/backendswap.go`) — the pure, Deps-injected transactional
   capture→mutate→prove→rollback state machine for `villa backend set`. Imports neither
