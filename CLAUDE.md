@@ -206,7 +206,9 @@ loop.
 - Linters: the golangci-lint v2 defaults (`errcheck`, `govet`, `ineffassign`,
   `staticcheck`, `unused`) plus `misspell` and `revive`. `revive` is the noisiest
   of them against the standing backlog — new code is expected to satisfy it.
-- `errcheck` is disabled for `_test.go` files (the only exclusion rule).
+- Two exclusion rules, both scoped to `_test.go`: `errcheck` is disabled there,
+  and so is `revive`'s `unused-parameter` (test doubles must keep the seam's
+  parameter names to satisfy a fixed `Deps` signature).
 - `make lint` runs the pinned linter via `go run …@$(GOLANGCI_VERSION)`, where the
   version comes from `.golangci-version` — the single place the pin lives, read by
   the CI workflow too, so a contributor's distro package cannot disagree with CI
