@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -923,7 +924,7 @@ func TestInstallPersistedConfigIsReconcileNoOp(t *testing.T) {
 	// The no-op guarantee: install persisted the SAME cfg it rendered the on-disk
 	// units from. A lifecycle verb (up/restart) renders from this persisted cfg, so
 	// it reproduces the identical units → its reconcile is a true no-op (units match).
-	if f.savedCfg != renderedFrom {
+	if !reflect.DeepEqual(f.savedCfg, renderedFrom) {
 		t.Errorf("persisted cfg %+v must equal the cfg install rendered from %+v — otherwise a follow-up up/restart would diff and not be a no-op", f.savedCfg, renderedFrom)
 	}
 	if f.savedCfg.Model == "" {

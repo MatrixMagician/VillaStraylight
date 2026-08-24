@@ -26,5 +26,27 @@ import (
 // inference.ServerPort()) means a container rename or a port change updates this endpoint
 // automatically — no hand-typed host literal can drift from the rendered ContainerName=.
 func LlamaInNetworkEndpoint() string {
-	return fmt.Sprintf("http://%s:%d/v1", containerName, inference.ServerPort())
+	return inNetworkEndpoint(containerName)
+}
+
+// inNetworkEndpoint composes the OpenAI-compatible base URL for ANY llama-server on
+// villa.network from its container DNS name. Resident slots share the primary's
+// container-internal port (each has its own netns), so they share this composition
+// too — which is what keeps every endpoint the Open WebUI env lists in port lockstep
+// with the inference seam.
+// ResidentInNetworkEndpoint composes the OpenAI-compatible base URL for one resident
+// slot, from the same container-name and port composition the rendered unit uses. It
+// exists so a caller reconciling Open WebUI's stored connection list cannot re-type a
+// URL that the renderer might later change: the env line and the reconciled document
+// are composed by the same two functions.
+func ResidentInNetworkEndpoint(model string) (string, error) {
+	name, err := ResidentUnitName(model)
+	if err != nil {
+		return "", err
+	}
+	return inNetworkEndpoint(name), nil
+}
+
+func inNetworkEndpoint(host string) string {
+	return fmt.Sprintf("http://%s:%d/v1", host, inference.ServerPort())
 }

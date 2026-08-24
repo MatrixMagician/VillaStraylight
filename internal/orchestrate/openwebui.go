@@ -43,9 +43,17 @@ package orchestrate
 import (
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/memory"
 )
+
+// noAuthAPIKey is the required-but-ignored placeholder Open WebUI needs to register an
+// OpenAI-compatible connection: llama.cpp performs NO auth. It is NOT a secret — it is
+// the well-known no-auth sentinel, frozen by the container goldens and the telemetry
+// test. One resident set repeats it once per endpoint, which is why it is a constant
+// rather than an inline literal.
+const noAuthAPIKey = "sk-no-key-required"
 
 // openWebUIImage is the digest-pinned Open WebUI chat-UI image (CLAUDE.md prescribed:
 // ghcr.io/open-webui/open-webui:main, pin a digest). Resolved on the dev box
@@ -72,6 +80,12 @@ func OpenWebUIImage() string { return openWebUIImage }
 // accessor keeps the volume-name a single source of truth behind the orchestrate
 // seam (config is the single source of truth — never a re-typed literal in cmd).
 func OpenWebUIVolumeName() string { return openWebUIVolumeName }
+
+// OpenWebUIContainerUnitName returns the villa-openwebui .container unit filename,
+// mirroring WebsafeContainerUnitName. It is EXPORTED because the chat UI's connection
+// env lists every resident endpoint, so the command tier must be able to ask whether a
+// resident change actually rewrote this unit before it restarts the service.
+func OpenWebUIContainerUnitName() string { return openWebUIContainerUnitName }
 
 // Open WebUI stable Quadlet identities (this project's unit-name/volume contract,
 // asserted by the goldens — they leak no GPU/image assumption).
@@ -141,11 +155,28 @@ type openWebUIVolumeView struct {
 // existing networkAttach ("villa.network") so Open WebUI joins the Phase-3 network
 // unchanged. WEBUI_AUTH stays True: the first visit creates a local admin
 // account persisted in the durable volume — do NOT set it False.
-func buildOpenWebUIView(mv memory.MemoryRenderInput, memoryEnabled bool, webSearchEnabled bool, searxngAddr string, searxngPort int, webSearchResultCount int, websafeAddr string, websafePort int) openWebUIView {
+func buildOpenWebUIView(mv memory.MemoryRenderInput, memoryEnabled bool, webSearchEnabled bool, searxngAddr string, searxngPort int, webSearchResultCount int, websafeAddr string, websafePort int, residentNames []string) openWebUIView {
+	// Connection: reach inference over villa.network by container DNS (NOT localhost /
+	// host.containers.internal), at its internal port. Open WebUI accepts EITHER the
+	// singular OPENAI_API_BASE_URL/OPENAI_API_KEY pair or the ';'-separated plural
+	// OPENAI_API_BASE_URLS/OPENAI_API_KEYS. The plural form is emitted ONLY when a
+	// resident slot exists, so a stack with no resident set renders the env block
+	// unchanged; the primary is always the first entry.
+	baseURLKey, baseURLValue := "OPENAI_API_BASE_URL", inNetworkEndpoint(containerName)
+	apiKeyKey, apiKeyValue := "OPENAI_API_KEY", noAuthAPIKey
+	if len(residentNames) > 0 {
+		urls := []string{baseURLValue}
+		keys := []string{noAuthAPIKey}
+		for _, name := range residentNames {
+			urls = append(urls, inNetworkEndpoint(name))
+			keys = append(keys, noAuthAPIKey)
+		}
+		baseURLKey, baseURLValue = "OPENAI_API_BASE_URLS", strings.Join(urls, ";")
+		apiKeyKey, apiKeyValue = "OPENAI_API_KEYS", strings.Join(keys, ";")
+	}
+
 	env := []envPair{
-		// Connection: reach inference over villa.network by container DNS
-		// (NOT localhost / host.containers.internal), at its internal port 8080.
-		{Key: "OPENAI_API_BASE_URL", Value: "http://" + containerName + ":8080/v1"},
+		{Key: baseURLKey, Value: baseURLValue},
 		{Key: "ENABLE_OPENAI_API", Value: "True"},
 		{Key: "ENABLE_OLLAMA_API", Value: "False"},
 		// Required-but-ignored placeholder: llama.cpp's OpenAI-compatible
@@ -154,7 +185,7 @@ func buildOpenWebUIView(mv memory.MemoryRenderInput, memoryEnabled bool, webSear
 		// frozen by the container golden + the telemetry test. (The sk- shape can
 		// trip secret scanners; the value is deliberately the well-known no-auth
 		// placeholder, not a credential.)
-		{Key: "OPENAI_API_KEY", Value: "sk-no-key-required"},
+		{Key: apiKeyKey, Value: apiKeyValue},
 		// Telemetry kill-set — frozen by the telemetry test.
 		{Key: "ANONYMIZED_TELEMETRY", Value: "False"},
 		{Key: "DO_NOT_TRACK", Value: "True"},
@@ -196,7 +227,7 @@ func buildOpenWebUIView(mv memory.MemoryRenderInput, memoryEnabled bool, webSear
 			// OpenAI client needs a non-empty key field. This is NOT a secret — it is
 			// the well-known no-auth sentinel, frozen by the memory golden + the
 			// telemetry test.
-			envPair{Key: "RAG_OPENAI_API_KEY", Value: "sk-no-key-required"},
+			envPair{Key: "RAG_OPENAI_API_KEY", Value: noAuthAPIKey},
 			// The pinned embedding model id served by villa-embed; sourced
 			// from mv (config is the single source of truth, never re-typed).
 			envPair{Key: "RAG_EMBEDDING_MODEL", Value: mv.EmbeddingModel},

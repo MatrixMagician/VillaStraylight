@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -50,7 +51,7 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadVillaFrom: %v", err)
 	}
-	if got != want {
+	if !reflect.DeepEqual(got, want) {
 		t.Errorf("round-trip mismatch:\n got %+v\nwant %+v", got, want)
 	}
 }
@@ -63,7 +64,7 @@ func TestLoadMissingReturnsDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadVillaFrom(absent): %v", err)
 	}
-	if got != defaultConfig() {
+	if !reflect.DeepEqual(got, defaultConfig()) {
 		t.Errorf("absent config = %+v, want defaults %+v", got, defaultConfig())
 	}
 	if got.Backend != "rocm" {
@@ -265,7 +266,7 @@ func TestLoadMissingReturnsMemoryDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadVillaFrom(absent): %v", err)
 	}
-	if got != defaultConfig() {
+	if !reflect.DeepEqual(got, defaultConfig()) {
 		t.Errorf("absent config = %+v, want defaults %+v", got, defaultConfig())
 	}
 }
@@ -433,7 +434,7 @@ func TestPathUnderUserConfigDir(t *testing.T) {
 		t.Fatalf("Path: %v", err)
 	}
 	want := filepath.Join(base, "villa", "config.toml")
-	if got != want {
+	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Path() = %q, want %q", got, want)
 	}
 }
@@ -507,7 +508,7 @@ func TestMemorySaveOmitsKeysWhenDisabled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadVillaFrom(on): %v", err)
 	}
-	if got != on {
+	if !reflect.DeepEqual(got, on) {
 		t.Errorf("memory-on round-trip mismatch:\n got %+v\nwant %+v", got, on)
 	}
 }
@@ -569,7 +570,7 @@ func TestCodingModeSaveOmitsKeysWhenDisabled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadVillaFrom(on): %v", err)
 	}
-	if got != on {
+	if !reflect.DeepEqual(got, on) {
 		t.Errorf("coding-on round-trip mismatch:\n got %+v\nwant %+v", got, on)
 	}
 }
@@ -747,7 +748,7 @@ func TestWebSearchSaveOmitsKeysWhenDisabled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadVillaFrom(on): %v", err)
 	}
-	if got != on {
+	if !reflect.DeepEqual(got, on) {
 		t.Errorf("web-search-on round-trip mismatch:\n got %+v\nwant %+v", got, on)
 	}
 }
@@ -892,7 +893,7 @@ func TestWebsafeSaveOmitsKeysWhenDisabled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadVillaFrom(on): %v", err)
 	}
-	if got != on {
+	if !reflect.DeepEqual(got, on) {
 		t.Errorf("websafe-on round-trip mismatch:\n got %+v\nwant %+v", got, on)
 	}
 }
@@ -1000,5 +1001,47 @@ func TestSaveIsAtomicUnderWriteFailure(t *testing.T) {
 		if strings.HasSuffix(e.Name(), ".tmp") {
 			t.Errorf("failed save left a temp remnant %q", e.Name())
 		}
+	}
+}
+
+// TestResidentSaveOmitsKeyWhenEmpty asserts a save from a config with no resident
+// slots writes NO resident key at all, so an existing install's config.toml is
+// byte-identical until the user actually adds a secondary model.
+func TestResidentSaveOmitsKeyWhenEmpty(t *testing.T) {
+	cfg := DefaultVillaConfig()
+	cfg.Model = "qwen3-35b-a3b-moe-64"
+	dir := filepath.Join(t.TempDir(), "villa")
+	if err := SaveVillaTo(dir, cfg); err != nil {
+		t.Fatalf("SaveVillaTo: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "config.toml"))
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+	if strings.Contains(string(data), "resident") {
+		t.Errorf("empty-resident save wrote a resident key (byte-identical break):\n%s", data)
+	}
+}
+
+// TestResidentRoundTrip asserts a configured resident slot round-trips through save
+// and load with every field intact — the host port above all, since it is stated in
+// config precisely so it is never re-derived from list position.
+func TestResidentRoundTrip(t *testing.T) {
+	cfg := DefaultVillaConfig()
+	cfg.Model = "qwen3-35b-a3b-moe-64"
+	cfg.Resident = []ResidentModel{
+		{Model: "qwen3.6-35b-a3b", Quant: "UD-Q4_K_M", Ctx: 32768, Port: 8081},
+		{Model: "gemma3-12b", Quant: "UD-Q5_K_M", Ctx: 8192, Port: 8082},
+	}
+	dir := filepath.Join(t.TempDir(), "villa")
+	if err := SaveVillaTo(dir, cfg); err != nil {
+		t.Fatalf("SaveVillaTo: %v", err)
+	}
+	got, err := LoadVillaFrom(dir)
+	if err != nil {
+		t.Fatalf("LoadVillaFrom: %v", err)
+	}
+	if !reflect.DeepEqual(got, cfg) {
+		t.Errorf("resident round-trip mismatch:\n got %+v\nwant %+v", got, cfg)
 	}
 }

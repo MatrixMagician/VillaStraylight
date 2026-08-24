@@ -37,6 +37,10 @@ const (
 // containerView is the parsed-from-the-seam data the container template renders.
 // Every imperative field is sourced out of ContainerArgs/Image(), never literal.
 type containerView struct {
+	// UnitFileName is the .container filename this unit is written as, rendered into
+	// the header comment. It is a field rather than the fixed containerUnitName
+	// because a resident slot renders the same template under its own filename.
+	UnitFileName  string
 	ContainerName string
 	Image         string
 	Network       string
@@ -113,6 +117,13 @@ func Render(in RenderInput) ([]Unit, error) {
 	// Description line stays byte-identical to today's golden (ROCM-03 additivity).
 	cv.BackendLabel = backendLabel(in.Backend.Name())
 
+	// Resolved up-front because two consumers need it: the resident .container units
+	// below, and Open WebUI's endpoint env, which must list every resident slot.
+	residentNames, err := residentContainerNames(in.Resident)
+	if err != nil {
+		return nil, err
+	}
+
 	tmpl, err := template.ParseFS(quadletFS, "quadlet/*.tmpl")
 	if err != nil {
 		return nil, fmt.Errorf("orchestrate: parse templates: %w", err)
@@ -143,7 +154,7 @@ func Render(in RenderInput) ([]Unit, error) {
 	// golden. mv is computed ONCE here (memory.RenderView is pure, cheap, identical) and
 	// reused by the memory-stack branch below.
 	mv := memory.RenderView(in.Cfg) // resolved-values handoff (Phase-18 spine)
-	owuiContainerText, err := execTemplate(tmpl, "openwebui.container.tmpl", buildOpenWebUIView(mv, in.Cfg.MemoryEnabled, in.Cfg.WebSearchEnabled, config.SearxngAddr, config.SearxngPort, in.Cfg.WebSearchResultCount, config.WebsafeAddr, config.WebsafePort))
+	owuiContainerText, err := execTemplate(tmpl, "openwebui.container.tmpl", buildOpenWebUIView(mv, in.Cfg.MemoryEnabled, in.Cfg.WebSearchEnabled, config.SearxngAddr, config.SearxngPort, in.Cfg.WebSearchResultCount, config.WebsafeAddr, config.WebsafePort, residentNames))
 	if err != nil {
 		return nil, err
 	}
@@ -161,6 +172,15 @@ func Render(in RenderInput) ([]Unit, error) {
 		{Name: openWebUIContainerUnitName, Text: owuiContainerText},
 		{Name: openWebUIVolumeUnitName, Text: owuiVolumeText},
 	}
+
+	// Resident secondary models are appended STRICTLY after the fixed five and BEFORE
+	// the memory and web-search blocks. The position is arbitrary but fixed: the
+	// goldens and the reconcile plan are order-sensitive, so it may not move.
+	residentUnits, err := renderResidentUnits(tmpl, in, residentNames, cv.PublishPort, cv.BackendLabel)
+	if err != nil {
+		return nil, err
+	}
+	units = append(units, residentUnits...)
 
 	// v1.3 memory stack: the two new managed services + the durable Qdrant
 	// volume are appended ONLY when memory_enabled=true. With memory off this branch is
@@ -295,6 +315,7 @@ func RenderWebsafeSecretEnv(secret string) (name, text string) {
 // security, publish, and bind literals are READ from the slice, never re-typed.
 func parseContainerArgs(image string, args []string) (containerView, error) {
 	cv := containerView{
+		UnitFileName:  containerUnitName,
 		ContainerName: containerName,
 		Image:         image,
 		Network:       networkAttach,
