@@ -717,7 +717,14 @@ func liveResidentDeps() *residentDeps {
 		reconcile:   orchestrate.Reconcile,
 		writeUnits:  orchestrate.WriteUnits,
 		readUnit: func(dir, name string) (string, bool) {
-			b, err := os.ReadFile(filepath.Join(dir, name)) //nolint:gosec // dir is the traversal-guarded quadlet unit dir
+			// Containment is checked, not asserted: removeUnit directly below takes the
+			// same dir and name and guards them, and a read that only claims safety in a
+			// comment drifts from its sibling the moment either caller changes.
+			path := filepath.Join(dir, name)
+			if err := assertWithinDir(path, dir); err != nil {
+				return "", false
+			}
+			b, err := os.ReadFile(path)
 			if err != nil {
 				return "", false
 			}
