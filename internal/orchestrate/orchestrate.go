@@ -67,6 +67,14 @@ type RenderInput struct {
 	// ONLY when CodingMode != nil, where it overrides Cfg.Ctx as the single -c value
 	// (Pitfall 1: the agent ctx is carried by the existing -c, never a second one).
 	CoderAgentCtx int
+
+	// Resident are the OPTIONAL secondary resident models, one extra .container each.
+	// Empty ⇒ the off path by construction: no extra unit is rendered and Open WebUI
+	// keeps its singular endpoint env, so the rendered stack is byte-identical to a
+	// stack with no resident set. The CALLER resolves each config.ResidentModel's
+	// catalog id to a GGUF filename and hands over the resolved descriptor, so the
+	// pure renderer never imports internal/catalog (the CodingMode precedent above).
+	Resident []ResidentUnit
 }
 
 // Plan is the result of a Reconcile: the rendered units whose on-disk hash differs

@@ -70,6 +70,76 @@ chat_port = 3000
 | `catalog_path` | string | _(empty → embedded seed catalog)_ | Optional path to an external catalog JSON. Empty means "use the embedded seed catalog". |
 | `dashboard_port` | int | `8888` | Host port the control dashboard listens on. |
 | `chat_port` | int | `3000` | Host port Open WebUI is published on; also the target of the dashboard's "chat" link. |
+| `resident` | array of tables | _(absent)_ | Zero or more `[[resident]]` slots: secondary models held loaded alongside `model`. Absent until `villa model resident add` writes one. See [The resident set](#the-resident-set). |
+
+### The resident set
+
+`model` names the **primary** model, the one `villa-llama.service` runs. A stack may
+also hold **resident** models: extra `llama-server` instances kept loaded at the same
+time, each in its own container on its own host loopback port, so switching between
+them in the chat UI costs no cold load. Every resident slot is one `[[resident]]` table:
+
+```toml
+model = "qwen3-30b-a3b"
+quant = "UD-Q4_K_M"
+ctx = 131072
+backend = "rocm"
+
+[[resident]]
+model = "qwen2.5-0.5b"
+quant = "Q8_0"
+ctx = 4096
+port = 8081
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `model` | string | The slot's catalog model id. Resolved through the catalog, never treated as a filesystem path. It is also the sole source of the slot's unit name, so two slots may not share one. |
+| `quant` | string | The slot's quantization label. Omitted when empty. |
+| `ctx` | int | The slot's own context length in tokens — its single llama-server `-c`. Independent of the primary's `ctx`. Omitted when zero. |
+| `port` | int | The **host** loopback port this slot publishes on (`127.0.0.1:<port>`). Stated explicitly rather than derived from list position, so removing a middle slot does not renumber — and therefore rewrite and restart — every slot after it. Omitted when zero. |
+
+Each slot renders one extra Quadlet unit, `villa-llama-<slug>.container`, where
+`<slug>` is the model id lowercased with every character outside `[a-z0-9-]` folded to
+`-`. The chat UI's connection env lists the primary endpoint plus every resident one,
+so the resident set is visible in Open WebUI as additional models.
+
+The key is **append-only and optional**: a config with no resident slot carries no
+`resident` key at all and renders a byte-identical stack to one that never had the
+feature.
+
+#### Managing slots
+
+Edit the resident set through the CLI rather than by hand — the commands are the only
+writers that check the set actually fits:
+
+```bash
+villa model resident ls              # primary + every slot, with port, unit and state
+villa model resident ls --json       # machine-readable, schema-versioned
+villa model resident add <model-id>  # fit-guard, allocate a port, auto-pull, start
+villa model resident rm <model-id>   # drop the slot, regenerate, stop the orphan
+```
+
+`add` sizes the candidate with the same memory-fit math `villa recommend` uses,
+asks the admission core whether the whole set still fits the usable envelope, and
+**refuses with a remediation** when it does not — nothing is written, downloaded or
+started on a refusal. It allocates the lowest free host port at or above `8081`,
+skipping the primary's port and every port a slot already claims, so a removal's gap
+is reused before the range grows.
+
+`rm` refuses the primary: it is not a resident slot, and changing it is
+`villa model swap <name>`.
+
+Both are transactional in the sense the rest of the stack is (ADR-0003): the prior
+config and unit files are captured before the first mutation and restored verbatim on
+any later failure, and a restore that could not itself complete is reported as
+incomplete rather than as a clean rollback.
+
+> A hand-edited `resident` block is untrusted input and fails closed. Two slots
+> sharing a host port, a slot claiming the primary's port, two slots slugging to the
+> same unit name, or a model id with no usable unit-name characters are each refused
+> at render time with an actionable error — never rendered into units that podman
+> would start and immediately kill.
 
 ### Inspecting and editing the config
 
@@ -86,7 +156,9 @@ villa config set model=qwen3-30b-a3b
 ```
 
 `config set` accepts only the keys `model`, `quant`, `ctx`, `backend`,
-`catalog_path`. An unknown key, a non-positive `ctx`, or an unsupported `backend`
+`catalog_path`. The `resident` array is not among them — a slot carries a port and a
+memory cost, so it is written only by `villa model resident add` / `rm`, which check
+the fit first. An unknown key, a non-positive `ctx`, or an unsupported `backend`
 value is rejected with a clear error and **nothing is written**. After a successful
 `set`, `villa` reminds you that the change applies on the next
 `villa up` / `villa restart` (reconcile).

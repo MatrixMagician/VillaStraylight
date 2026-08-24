@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -126,7 +127,7 @@ func TestWizardConfigMatchesFlagPath(t *testing.T) {
 	}
 
 	// the persisted config.toml is byte-identical across both paths.
-	if fw.savedCfg != ff.savedCfg {
+	if !reflect.DeepEqual(fw.savedCfg, ff.savedCfg) {
 		t.Errorf("wizard-path config %+v must byte-match flag-path config %+v", fw.savedCfg, ff.savedCfg)
 	}
 }

@@ -202,6 +202,36 @@ type VillaConfig struct {
 	// serves the loader (Area 1). It is NEVER shell-interpolated. Empty until opt-in; NOT
 	// self-healed (a captured host path has no meaningful default).
 	HostVillaPath string `toml:"host_villa_path,omitempty"`
+
+	// --- Resident set fields ---
+	// Tail-appended and append-only, like every optional block above it: nothing
+	// declared earlier moves, and a nil/empty Resident is dropped by ,omitempty so an
+	// existing install gains NO resident key on disk until the user adds one.
+
+	// Resident lists the secondary models held resident alongside Model. Holding a
+	// second model loaded costs memory but avoids a cold load on every switch, which
+	// is the whole reason this list exists rather than a swap verb. Whether a
+	// proposed set actually FITS the memory envelope is decided by
+	// internal/residentset, never by this struct.
+	Resident []ResidentModel `toml:"resident,omitempty"`
+}
+
+// ResidentModel is one secondary model held resident alongside VillaConfig.Model.
+// It is a TOML array-of-tables entry ([[resident]]), so the fields carry the same
+// omitempty/omitzero discipline as the flat optional blocks: BurntSushi/toml drops a
+// zero int only under ,omitzero, never ,omitempty.
+type ResidentModel struct {
+	// Model is the catalog model id for this slot.
+	Model string `toml:"model"`
+	// Quant is the chosen quantization for this slot.
+	Quant string `toml:"quant,omitempty"`
+	// Ctx is this slot's own context length in tokens.
+	Ctx int `toml:"ctx,omitzero"`
+	// Port is the HOST loopback port this slot publishes on. It is stated
+	// explicitly rather than derived from list position: a derived port would
+	// renumber every later slot when a middle entry is removed, rewriting and
+	// restarting units that did not change.
+	Port int `toml:"port,omitzero"`
 }
 
 // defaultConfig is the typed default returned when no config file exists. An absent

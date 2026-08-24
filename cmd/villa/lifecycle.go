@@ -66,12 +66,20 @@ func (d *lifecycleDeps) renderStack() (units []orchestrate.Unit, unitDir string,
 	if err != nil {
 		return nil, "", fmt.Errorf("resolve backend: %w", err)
 	}
+	// Resident slots are threaded through so up/restart regenerate the SAME unit set
+	// `villa model resident` wrote. Without them a reconcile drops every resident
+	// endpoint from the chat UI's env and leaves the resident units unmanaged.
+	resident, err := liveResidentUnits(cfg)
+	if err != nil {
+		return nil, "", fmt.Errorf("resolve resident models: %w", err)
+	}
 	units, err = d.render(orchestrate.RenderInput{
 		Backend:       backend,
 		Cfg:           cfg,
 		ModelFile:     modelFile,
 		ModelsDir:     d.modelsDir(),
 		HostVillaPath: hostVillaPath(),
+		Resident:      resident,
 	})
 	if err != nil {
 		return nil, "", fmt.Errorf("render: %w", err)

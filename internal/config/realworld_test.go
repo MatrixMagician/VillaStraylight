@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -95,7 +96,7 @@ web_loader_secret = "fedcba9876543210fedcba9876543210fedcba9876543210fedcba98765
 	if err != nil {
 		t.Fatalf("reload after save: %v", err)
 	}
-	if back != cfg {
+	if !reflect.DeepEqual(back, cfg) {
 		t.Errorf("save→load is not identity:\n got %+v\nwant %+v", back, cfg)
 	}
 }

@@ -33,6 +33,14 @@ const (
 	pathKnowledge       = "/api/v1/knowledge/"
 	pathKnowledgeCreate = "/api/v1/knowledge/create"
 
+	// pathOpenAIConfig reads the OpenAI-compatible connection list; pathOpenAIConfigUpdate
+	// upserts it. Both are admin-only. They are the ONLY way to change the endpoint list
+	// on an install that has already booted once: OPENAI_API_BASE_URLS is a
+	// PersistentConfig variable, read from the environment on first launch and from the
+	// database forever after.
+	pathOpenAIConfig       = "/openai/config"
+	pathOpenAIConfigUpdate = "/openai/config/update"
+
 	// pathModelRow reads one Model row; pathModelUpdate writes it; pathModelCreate
 	// creates a fresh one.
 	pathModelRow    = "/api/v1/models/model"
