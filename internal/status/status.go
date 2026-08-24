@@ -370,8 +370,14 @@ func foldROCmReadiness(r detect.ROCmReadiness) ROCmReadinessIndicator {
 type Deps struct {
 	LoadConfig func() (config.VillaConfig, error)
 	ModelFile  func(config.VillaConfig) (string, error)
-	ModelsDir  func() string
-	Render     func(orchestrate.RenderInput) ([]orchestrate.Unit, error)
+	// ResidentUnits resolves each configured resident slot's catalog model id to
+	// its GGUF filename. It is a seam for the same reason ModelFile is: internal/status
+	// must not import internal/catalog to turn a model id into a weight file. Run
+	// fails closed if cfg.Resident is non-empty and this is nil, because a silently
+	// residentless render under-reports the stack.
+	ResidentUnits func(config.VillaConfig) ([]orchestrate.ResidentUnit, error)
+	ModelsDir     func() string
+	Render        func(orchestrate.RenderInput) ([]orchestrate.Unit, error)
 
 	IsActive    func(service string) (string, error)
 	JournalText func(service string) (string, bool)
@@ -501,11 +507,23 @@ func Run(d Deps) Report {
 	if err != nil {
 		return Report{Overall: inference.StatusFail.String(), NoTelemetry: noTelemetryStatement, err: err}
 	}
+
+	var resident []orchestrate.ResidentUnit
+	if d.ResidentUnits != nil {
+		resident, err = d.ResidentUnits(cfg)
+		if err != nil {
+			return Report{Overall: inference.StatusFail.String(), NoTelemetry: noTelemetryStatement, err: err}
+		}
+	} else if len(cfg.Resident) > 0 {
+		return Report{Overall: inference.StatusFail.String(), NoTelemetry: noTelemetryStatement, err: errors.New("status: the ResidentUnits seam is unwired while the config declares resident slots; the report would under-report the stack by omitting every resident service and its published port")}
+	}
+
 	units, err := d.Render(orchestrate.RenderInput{
 		Backend:   backend,
 		Cfg:       cfg,
 		ModelFile: modelFile,
 		ModelsDir: d.ModelsDir(),
+		Resident:  resident,
 	})
 	if err != nil {
 		return Report{Overall: inference.StatusFail.String(), NoTelemetry: noTelemetryStatement, err: err}
