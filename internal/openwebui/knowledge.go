@@ -103,7 +103,7 @@ func (c *Client) GetChat(ctx context.Context, token, chatID string) (recall.Chat
 		} `json:"chat"`
 	}
 	if jerr := jsonUnmarshal(out, &resp); jerr != nil || resp.ID == "" {
-		return recall.ChatDoc{}, fmt.Errorf("chats/{id} get returned no parseable chat (%v): %s", jerr, truncate(out))
+		return recall.ChatDoc{}, fmt.Errorf("chats/{id} get returned no parseable chat (%v): %s", jerr, bodyDetail(out))
 	}
 	return recall.ChatDoc{
 		ID:        resp.ID,
@@ -171,7 +171,7 @@ func (c *Client) EnsureKnowledge(ctx context.Context, token, name, description s
 		ID string `json:"id"`
 	}
 	if jerr := jsonUnmarshal(out, &created); jerr != nil || created.ID == "" {
-		return "", fmt.Errorf("knowledge/create returned no id (%v): %s", jerr, truncate(out))
+		return "", fmt.Errorf("knowledge/create returned no id (%v): %s", jerr, bodyDetail(out))
 	}
 	return created.ID, nil
 }
@@ -195,7 +195,7 @@ func (c *Client) UploadFile(ctx context.Context, token, filename, content string
 		ID string `json:"id"`
 	}
 	if jerr := jsonUnmarshal(out, &resp); jerr != nil || resp.ID == "" {
-		return "", fmt.Errorf("files/ upload returned no id (%v): %s", jerr, truncate(out))
+		return "", fmt.Errorf("files/ upload returned no id (%v): %s", jerr, bodyDetail(out))
 	}
 	if perr := c.PollProcessed(ctx, token, resp.ID, timeout); perr != nil {
 		return "", fmt.Errorf("file processing: %w", perr)
