@@ -355,18 +355,19 @@ first — the table tells you which check failed and prints the fix.
 ### What else the stack can do
 
 Everything below is **off by default and opt-in** — the install you just did is
-byte-identical whether or not these exist. Each is enabled by setting its
-`config.toml` key and re-running `villa install` — the guided install deliberately
-does **not** prompt for them, and `villa config set` does not write them — and each
-is proven at runtime rather than assumed.
+byte-identical whether or not these exist, and each is proven at runtime rather than
+assumed. How you turn one on differs by subsystem — the "Start here" column is the
+actual enable path, not a suggestion. What none of them are is a `villa config set`
+key: its allowlist is `model` / `quant` / `ctx` / `backend` / `catalog_path`, and the
+guided install deliberately does not prompt for subsystems either.
 
 | Subsystem | What it adds | Start here |
 |-----------|--------------|------------|
-| **Memory & knowledge** | Cross-chat memory plus cited answers from your own documents, embedded and stored locally in Qdrant — no cloud embedding API. | `memory_enabled=true`, then [MEMORY.md](MEMORY.md) |
+| **Memory & knowledge** | Cross-chat memory plus cited answers from your own documents, embedded and stored locally in Qdrant — no cloud embedding API. | Set `memory_enabled=true` in `config.toml`, then `villa install` — the one gate with no flag. See [MEMORY.md](MEMORY.md) |
 | **Recall** | Indexes your past conversations so new chats retrieve what you discussed weeks ago, by meaning, with citations. | `villa recall index` / `villa recall status` |
-| **Coding agent** | A strictly-local terminal coding agent (a locked-down Crush) talking to your own model. | `villa code` |
+| **Coding agent** | A strictly-local terminal coding agent (a locked-down Crush) talking to your own model. | `villa install --coding-agent` to install it (persists the gate), then `villa code` |
 | **Coding mode** | Flips the running stack to a tool-calling configuration tuned for that agent, and back — a transactional cutover, so a failed flip is a no-op. | `villa coding-mode enter` / `exit` |
-| **Web search** | Grounded answers from the web through a local SearXNG, with a guard that sanitizes fetched pages and **flags** prompt-injection patterns (it never claims content is safe). | `web_search_enabled=true` |
+| **Web search** | Grounded answers from the web through a local SearXNG, with a guard that sanitizes fetched pages and **flags** prompt-injection patterns (it never claims content is safe). | `villa install --web-search` (persists the gate) |
 | **Resident set** | Holds several models loaded at once, each on its own loopback port, instead of restarting inference to swap between them. | `villa model resident ls` / `add` |
 | **Backup & restore** | The whole workspace — config, Open WebUI data, usage and bench stores — to one local `.tar`, and back transactionally. | `villa backup` / `villa restore <archive>` |
 
