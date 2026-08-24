@@ -1,4 +1,4 @@
-# Memory & Knowledge (v1.3)
+# Memory & Knowledge
 
 VillaStraylight wires Open WebUI's **native Memory** and **RAG (document knowledge)**
 to a strictly-local vector stack: `villa-qdrant` (the vector store) and `villa-embed`
@@ -11,9 +11,12 @@ Everything in this document runs **on the box** — the assistant remembers fact
 answers from your uploaded documents with **zero data leaving the host**. The runtime
 proof of that claim is [`villa verify memory`](#proving-zero-outbound-with-villa-verify-memory).
 
-> **Enabling memory.** Set `memory_enabled=true` (via `villa recommend --save`, the
-> install wizard, or by editing `config.toml`) and run `villa install`. Memory off is
-> byte-identical to a v1.2 install; nothing changes until you opt in.
+> **Enabling memory.** Set `memory_enabled=true` in `config.toml` and run
+> `villa install`. It is a hand-edited key by design: the guided install does not
+> prompt for it and `villa config set` does not write it, so the memory stack is
+> never turned on as a side effect of another command. With memory off
+> the rendered stack is byte-identical to one that never had the feature; nothing
+> changes until you opt in.
 
 ---
 
