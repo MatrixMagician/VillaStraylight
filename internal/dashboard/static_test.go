@@ -64,3 +64,61 @@ func TestStaticAssetsServed(t *testing.T) {
 		}
 	}
 }
+
+// TestShellCarriesTheIDsThePollLoopWrites asserts the served shell ships every mount
+// point dashboard.js writes into. The two files are coupled by bare string ids with no
+// compiler between them: drop an id from the shell and the panel silently stops
+// updating — the page still renders, still polls, and still shows its honest
+// placeholder, so nothing fails. This test is that missing compiler.
+func TestShellCarriesTheIDsThePollLoopWrites(t *testing.T) {
+	srv := mustNewServer(t, Config{StatusDeps: stubStatusDeps(t), ChatPort: 3000, DashboardAddr: "127.0.0.1", DashboardPort: 8888})
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("index code = %d, want 200", rec.Code)
+	}
+	shell := rec.Body.String()
+
+	for _, id := range []string{
+		// Global.
+		"connection-banner", "overall-verdict",
+		// Status strip (DASH-07) — the read-model over the existing polls.
+		"strip-verdict-dot", "strip-verdict-sub",
+		"strip-model", "strip-model-sub",
+		"strip-mem", "strip-mem-bar", "strip-mem-fill",
+		"strip-gen", "strip-gen-sub",
+		// Panels. health-rows takes the service rows, health-backend the backend
+		// identity rows — two columns, two owners (renderHealth / renderBackend).
+		"health-rows", "health-backend",
+		"performance-body", "gpu-body", "models-body", "models-count",
+		// Hidden-until-data subsystem panels + their bodies.
+		"memory-panel", "memory-body",
+		"agent-panel", "agent-body",
+		"web-search-panel", "web-search-body",
+		// The guarded switch dialog (the single sanctioned write).
+		"switch-dialog", "switch-dialog-title", "switch-dialog-fit",
+		"switch-cancel", "switch-confirm",
+	} {
+		if !strings.Contains(shell, `id="`+id+`"`) {
+			t.Errorf("shell is missing id=%q — dashboard.js writes into it and would silently no-op", id)
+		}
+	}
+
+	// The three optional panels must ship hidden: an install with the subsystem off
+	// renders no trace of it (CTRL-02 / D-03 / D-05, hidden-until-data).
+	for _, panel := range []string{"memory-panel", "agent-panel", "web-search-panel"} {
+		idx := strings.Index(shell, `id="`+panel+`"`)
+		if idx < 0 {
+			continue // already reported above
+		}
+		tag := shell[idx:]
+		if end := strings.Index(tag, ">"); end >= 0 {
+			tag = tag[:end]
+		}
+		if !strings.Contains(tag, "hidden") {
+			t.Errorf("%s does not ship hidden — a subsystem-off install would render an empty panel", panel)
+		}
+	}
+}

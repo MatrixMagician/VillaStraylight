@@ -1,11 +1,17 @@
 /* dashboard.css — the single hand-written stylesheet for the VillaStraylight control
    dashboard. Plain CSS custom properties (no preprocessor, no utility framework, no
-   runtime CSS-in-JS) per the UI-SPEC design contract. Dark-by-default single theme. */
+   runtime CSS-in-JS) per the UI-SPEC design contract. Dark-by-default single theme.
+
+   Layout contract (v1.7): the page has three tiers, loudest first — a status strip
+   carrying the four glanceable figures, then the panel grid, then rows. Nothing in
+   here fabricates a value: every honest-Unknown state renders through the same
+   .badge-unknown / .muted vocabulary the renderers already emit. */
 
 :root {
   /* Color — 60 / 30 / 10 split. */
   --bg-dominant: #0F1115;   /* page background (60%) */
   --bg-secondary: #1A1D24;  /* cards / header / panels (30%) */
+  --bg-raised: #20242D;     /* one step above panel — the status-strip tiles only */
   --accent: #3B82F6;        /* reserved: chat link, Switch button, focus rings (10%) */
   --destructive: #EF4444;   /* restart warning + connection-lost banner */
 
@@ -13,6 +19,7 @@
   --text-primary: #E6E8EC;
   --text-muted: #9AA0AA;
   --border: #2A2E37;
+  --hairline: rgba(42, 46, 55, 0.75);
   --status-ready: #22C55E;  /* PASS */
   --status-warn: #F59E0B;   /* WARN / loading / restarting */
   --status-down: #EF4444;   /* FAIL */
@@ -54,38 +61,59 @@ html, body {
   border-radius: 4px;
 }
 
+/* Section micro-label — the tier between a panel heading and its rows. */
+.eyebrow {
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin: 0 0 10px;
+}
+
 /* ---- Connection-lost banner (D-11) ---- */
 .connection-banner {
   background: var(--destructive);
   color: #fff;
   text-align: center;
-  padding: var(--space-sm) var(--space-md);
+  padding: 9px var(--space-md);
   font-weight: 600;
+  font-size: 14px;
 }
 .connection-banner[hidden] { display: none; }
 
-/* ---- Header ---- */
+/* ---- Header — wordmark left, chat right. The verdict lives in the strip. ---- */
 .header {
   display: flex;
   align-items: center;
   gap: var(--space-md);
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border);
-  padding: var(--space-md) var(--space-lg);
+  padding: 14px var(--space-lg);
 }
 .header-title {
-  font-size: 28px;          /* Display */
+  font-size: 19px;
   font-weight: 600;
-  line-height: 1.2;
+  line-height: 1.15;
+  letter-spacing: -0.01em;
   margin: 0;
+}
+.header-sub {
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
 }
 .chat-link {
   margin-left: auto;        /* right-align */
   color: var(--accent);
   text-decoration: none;
   font-weight: 600;
+  font-size: 15px;
   display: inline-flex;
   align-items: center;
+  gap: var(--space-sm);
   min-height: 44px;         /* 44px hit target */
   padding: 0 var(--space-md);
   border: 1px solid var(--accent);
@@ -97,94 +125,162 @@ html, body {
 .content {
   max-width: var(--max-width);
   margin: 0 auto;
-  padding: var(--space-2xl) var(--space-lg);
+  padding: 28px var(--space-lg) 40px;
   display: flex;
   flex-direction: column;
-  gap: var(--space-xl);     /* gap between top-level sections */
+  gap: 22px;
 }
+
+/* ---- Status strip — the one loud tier (DASH-07) ---- */
+.strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+.tile {
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 13px var(--space-md) 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  min-height: 98px;
+}
+.tile-value {
+  font-size: 25px;
+  font-weight: 600;
+  line-height: 1.1;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.015em;
+  overflow-wrap: anywhere;
+}
+.tile-value.sm { font-size: 19px; }
+.tile-value.md { font-size: 21px; }
+.tile-sub {
+  font-size: 13px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  margin-top: auto;
+  overflow-wrap: anywhere;
+}
+.tile-verdict { display: flex; align-items: center; gap: 9px; }
+
+/* ---- Panel grids ---- */
+.grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 22px; }
+.grid3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 22px; }
+.split { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 28px; }
+
+/* The optional-subsystem group collapses entirely — heading included — when all three
+   panels are still hidden, so a memory/agent/web-search-OFF install renders no trace
+   of them (the hidden-until-data contract, CTRL-02 / D-03 / D-05). */
+.subsystems { display: none; }
+.subsystems:has(> .grid3 > .panel:not([hidden])) { display: block; }
 
 /* ---- Panels ---- */
 .panel {
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: 8px;
-  padding: var(--space-lg);
+  padding: 18px 20px 16px;
 }
 .panel-heading {
-  font-size: 20px;          /* Heading */
+  font-size: 16px;
   font-weight: 600;
   line-height: 1.2;
-  margin: 0 0 var(--space-md);
+  margin: 0 0 14px;
+  padding-bottom: 11px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
-/* ---- Health rows ---- */
+/* ---- Rows: health rows and metric rows share one box ---- */
 .health-rows {
   display: flex;
   flex-direction: column;
-  gap: var(--space-sm);
 }
-.health-row {
+.health-row,
+.metric-row {
   display: flex;
   align-items: center;
-  gap: var(--space-md);
-  padding: var(--space-sm) 0;
-  border-top: 1px solid var(--border);
+  gap: 12px;
+  min-height: 38px;
+  padding: 5px 0;
+  border-top: 1px solid var(--hairline);
 }
-.health-row:first-child { border-top: none; }
-.health-service { font-weight: 600; }
+.health-rows > .health-row:first-child,
+.health-rows > .metric-row:first-child,
+.metric-row:first-child { border-top: none; }
+
+/* Never let a long value squeeze a label to zero width and shatter it per-character. */
+.health-service { font-family: var(--font-mono); font-size: 14px; font-weight: 600; white-space: nowrap; }
 .health-detail {
   margin-left: auto;
   color: var(--text-muted);
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
-  font-size: 14px;          /* Label */
+  font-size: 14px;
+  text-align: right;
+  overflow-wrap: anywhere;
 }
+/* A badge takes the right-hand slot; a detail that follows one sits beside it rather
+   than fighting it for the same auto margin. */
+.health-row > .badge,
+.metric-row > .badge { margin-left: auto; }
+.health-row > .badge ~ .health-detail { margin-left: 0; }
+/* A value too long to share a line with its label (the digest-pinned image tag) gets
+   the line to itself rather than fighting the label for it. */
+.health-row-stacked { flex-direction: column; align-items: flex-start; gap: 3px; }
+.health-row-stacked > .health-detail { margin-left: 0; text-align: left; font-size: 12.5px; }
 
-/* ---- Status dot + badge ---- */
-.status-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  flex: 0 0 auto;
-  background: var(--status-unknown);
-}
-.status-dot.ready { background: var(--status-ready); }
-.status-dot.warn  { background: var(--status-warn); }
-.status-dot.down  { background: var(--status-down); }
-.status-dot.unknown { background: var(--status-unknown); }
-
-.badge {
-  font-size: 14px;          /* Label */
-  font-weight: 400;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  padding: var(--space-xs) var(--space-sm);
-  border-radius: 4px;
-  border: 1px solid var(--border);
-}
-.badge-ready   { color: var(--status-ready);  border-color: var(--status-ready); }
-.badge-warn    { color: var(--status-warn);   border-color: var(--status-warn); }
-.badge-down    { color: var(--status-down);   border-color: var(--status-down); }
-.badge-unknown { color: var(--status-unknown);border-color: var(--status-unknown); }
-
-.muted { color: var(--text-muted); margin: 0; }
-
-/* ---- Metric rows (Performance / GPU panels) ---- */
-.metric-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-md);
-  padding: var(--space-sm) 0;
-  border-top: 1px solid var(--border);
-}
-.metric-row:first-child { border-top: none; }
-.metric-label { color: var(--text-muted); }
+.metric-label { color: var(--text-muted); font-size: 15px; }
 .metric-value {
   margin-left: auto;
   font-family: var(--font-mono);
   /* tabular-nums so 2–3s polling updates never cause horizontal jitter. */
   font-variant-numeric: tabular-nums;
+  font-size: 14px;
+  text-align: right;
+  overflow-wrap: anywhere;
 }
+
+.muted { color: var(--text-muted); margin: 9px 0 0; font-size: 13px; line-height: 1.45; max-width: 64ch; }
+/* Cumulative token totals are a different tier from the live tok/s rows above them. */
+.cumulative-group { margin-top: var(--space-md); padding-top: 14px; border-top: 1px solid var(--border); }
+.health-rows .muted, .metric-row + .muted { margin-top: 9px; }
+
+/* ---- Status dot + badge ---- */
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+  background: var(--status-unknown);
+}
+.status-dot.ready   { background: var(--status-ready);   box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.15); }
+.status-dot.warn    { background: var(--status-warn);    box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.15); }
+.status-dot.down    { background: var(--status-down);    box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.15); }
+.status-dot.unknown { background: var(--status-unknown); box-shadow: 0 0 0 3px rgba(107, 114, 128, 0.15); }
+
+.badge {
+  font-size: 11.5px;        /* Label */
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 3px var(--space-sm);
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.badge-ready   { color: var(--status-ready);   border-color: rgba(34, 197, 94, 0.45);  background: rgba(34, 197, 94, 0.10); }
+.badge-warn    { color: var(--status-warn);    border-color: rgba(245, 158, 11, 0.45); background: rgba(245, 158, 11, 0.10); }
+.badge-down    { color: var(--status-down);    border-color: rgba(239, 68, 68, 0.45);  background: rgba(239, 68, 68, 0.10); }
+.badge-unknown { color: var(--status-unknown); border-color: rgba(107, 114, 128, 0.5); background: rgba(107, 114, 128, 0.10); }
 
 /* ---- Unified-memory bar (GPU & Memory, memory-first headline) ---- */
 .mem-bar {
@@ -194,16 +290,22 @@ html, body {
   border: 1px solid var(--border);
   border-radius: 5px;
   overflow: hidden;
-  margin-bottom: var(--space-sm);
+  margin-bottom: 12px;
 }
+.mem-bar[hidden] { display: none; }
 .mem-bar-fill {
   height: 100%;
   /* Neutral status color, NOT the reserved accent (accent stays for chat/Switch/focus). */
   background: var(--status-ready);
 }
+/* Near the envelope the bar must not be colour-only: the strip pairs this with a
+   "near envelope" badge so the warning survives a greyscale or colour-blind read. */
+.mem-bar-fill.warn { background: var(--status-warn); }
+.tile .mem-bar { height: 8px; margin: auto 0 0; }
 
-/* Stale-while-revalidating (D-11): dim last-good values on a failed poll. */
-.stale { opacity: 0.55; }
+/* Stale-while-revalidating (D-11): dim last-good values on a failed poll. Kept above
+   0.7 so muted text stays over the 3:1 contrast floor while it reads as stale. */
+.stale { opacity: 0.72; }
 
 /* ---- Models panel (DASH-04) ---- */
 .models-list {
@@ -213,47 +315,48 @@ html, body {
 .model-row {
   display: flex;
   align-items: center;
-  gap: var(--space-md);
-  padding: var(--space-sm) var(--space-md);
-  border-top: 1px solid var(--border);
+  gap: 14px;
+  padding: 7px 12px;
+  border-top: 1px solid var(--hairline);
   /* Reserve the accent left-border width so loaded vs non-loaded rows align. */
   border-left: 3px solid transparent;
+  border-radius: 0 6px 6px 0;
 }
 .model-row:first-child { border-top: none; }
 /* Loaded-model indicator: the accent left-border (a reserved-accent use, UI-SPEC). */
-.model-loaded { border-left: 3px solid var(--accent); }
+.model-loaded { border-left-color: var(--accent); background: rgba(59, 130, 246, 0.055); }
 
 .model-id-col {
   display: flex;
   flex-direction: column;
-  gap: var(--space-xs);
+  gap: 2px;
+  min-width: 0;
 }
-.model-id { font-weight: 600; }
+.model-id { font-weight: 600; font-size: 15px; overflow-wrap: anywhere; }
 .model-quant {
   color: var(--text-muted);
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
-  font-size: 14px;          /* Label */
+  font-size: 13px;          /* Label */
 }
 
-/* model state badges reuse the neutral badge frame; loaded gets a subtle accent tint
-   (still within the reserved loaded-row accent family), on-disk stays neutral. */
+/* Model state badges reuse the neutral badge frame; loaded gets the accent (still
+   within the reserved loaded-row accent family). "on disk" and "catalog" are KNOWN
+   states, so they take the neutral frame — badge-unknown stays reserved for a genuine
+   typed-Unknown, which is the only thing it may ever mean. */
 .model-badge-loaded {
   color: var(--accent);
-  border-color: var(--accent);
+  border-color: rgba(59, 130, 246, 0.45);
+  background: rgba(59, 130, 246, 0.10);
   margin-left: auto;
 }
-.model-badge-ondisk {
-  color: var(--text-muted);
-  border-color: var(--border);
-  margin-left: auto;
-}
-.model-badge-spacer { margin-left: auto; }
+.model-badge-ondisk { margin-left: auto; }
 
 .model-fit-note {
-  font-size: 14px;          /* Label */
-  padding: 0 var(--space-md) var(--space-sm);
+  font-size: 13px;          /* Label */
+  padding: 0 12px 8px 15px;
   margin: 0;
+  max-width: none;
 }
 .model-empty-heading {
   font-weight: 600;
@@ -265,13 +368,14 @@ html, body {
   min-height: 44px;         /* 44px hit target */
   padding: 0 var(--space-md);
   border-radius: 6px;
-  font-size: 16px;          /* Body */
+  font-size: 14px;
   font-weight: 600;
   font-family: var(--font-sans);
   cursor: pointer;
   border: 1px solid var(--border);
   background: transparent;
   color: var(--text-primary);
+  white-space: nowrap;
 }
 .btn-primary {
   background: var(--accent);
@@ -285,9 +389,11 @@ html, body {
   color: var(--text-primary);
 }
 .btn-secondary:hover { background: rgba(255, 255, 255, 0.04); }
+/* Non-fitting / loaded / in-flight: muted, non-accent, not clickable. Listed AFTER
+   .btn-primary so a disabled primary drops the accent fill instead of keeping it —
+   muted grey on accent blue is 1.38:1 and still reads as the page's one live action. */
 .btn-disabled,
 .btn:disabled {
-  /* Non-fitting / loaded / in-flight: muted, non-accent, not clickable. */
   background: transparent;
   border-color: var(--border);
   color: var(--text-muted);
@@ -300,10 +406,11 @@ html, body {
   background: var(--bg-secondary);
   color: var(--text-primary);
   border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: var(--space-lg);
+  border-radius: 10px;
+  padding: 22px;
   max-width: 480px;
   width: calc(100% - var(--space-2xl));
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55);
 }
 .switch-dialog::backdrop {
   background: rgba(0, 0, 0, 0.6);
@@ -311,20 +418,20 @@ html, body {
 .switch-dialog-form {
   display: flex;
   flex-direction: column;
-  gap: var(--space-md);
+  gap: 14px;
   margin: 0;
 }
 .switch-dialog-title {
-  font-size: 20px;          /* Heading */
+  font-size: 18px;
   font-weight: 600;
-  line-height: 1.2;
+  line-height: 1.25;
   margin: 0;
 }
 .switch-dialog-fit {
   margin: 0;
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
-  font-size: 14px;          /* Label */
+  font-size: 13px;          /* Label */
   color: var(--text-muted);
 }
 /* The restart warning — destructive red (UI-SPEC reserves red for this + the banner). */
@@ -332,12 +439,34 @@ html, body {
   margin: 0;
   color: var(--destructive);
   font-weight: 600;
+  font-size: 14px;
+  line-height: 1.45;
+  display: flex;
+  gap: 9px;
+  align-items: flex-start;
 }
+.switch-dialog-warning svg { flex: 0 0 auto; margin-top: 2px; }
 .switch-dialog-actions {
   display: flex;
   justify-content: flex-end;
-  gap: var(--space-sm);
-  margin-top: var(--space-sm);
+  gap: 10px;
+  margin-top: var(--space-xs);
+}
+
+/* ---- Narrow viewports. Everything above assumes a desktop width; without this the
+   4-up strip and the model rows both overflow at phone width. ---- */
+@media (max-width: 620px) {
+  .header { padding: 12px var(--space-md); }
+  .content { padding: 18px 14px 32px; gap: var(--space-md); }
+  .strip { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .grid, .grid3, .split { grid-template-columns: minmax(0, 1fr); gap: var(--space-md); }
+  .panel { padding: var(--space-md) 14px 14px; }
+  .tile-value, .tile-value.sm, .tile-value.md { font-size: 17px; }
+  .health-row, .metric-row { flex-wrap: wrap; row-gap: var(--space-xs); }
+  .health-service { font-size: 13px; }
+  .badge { white-space: normal; }
+  .model-row { flex-wrap: wrap; row-gap: 10px; }
+  .model-switch { width: 100%; margin-left: 0; }
 }
 
 /* Reduced motion: no spinner churn / transition jitter. */
