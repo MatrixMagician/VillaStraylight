@@ -4,6 +4,12 @@ PKG := ./...
 # only-new-issues gate. The standing backlog is deliberately not a local blocker.
 LINT_BASE ?= origin/main
 
+# GOLANGCI_VERSION comes from .golangci-version, the SINGLE place the pin lives.
+# The CI workflow reads the same file, so local and CI cannot drift onto different
+# linters and disagree about what is clean.
+GOLANGCI_VERSION := $(shell cat .golangci-version)
+GOLANGCI := go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_VERSION)
+
 # gofmt is shipped with the toolchain but is not guaranteed on $PATH (some Go
 # installs expose `go` only). Resolve it from GOROOT so `make fmt` works
 # regardless of PATH, and stays version-matched to the active toolchain.
@@ -56,16 +62,11 @@ fmt: ## Format Go code
 	$(GOFMT) -w .
 
 .PHONY: lint
-lint: ## Lint this branch's NEW issues the way CI does; LINT_ALL=1 lints the whole tree
-	@if ! command -v golangci-lint >/dev/null 2>&1; then \
-		echo "golangci-lint not found; running go vet"; \
-		go vet $(PKG); \
-		exit $$?; \
-	fi; \
-	if [ -n "$(LINT_ALL)" ]; then \
-		golangci-lint run; \
+lint: ## Lint this branch's NEW issues at the pinned version; LINT_ALL=1 lints the whole tree
+	@if [ -n "$(LINT_ALL)" ]; then \
+		$(GOLANGCI) run; \
 	else \
-		golangci-lint run --new-from-merge-base=$(LINT_BASE); \
+		$(GOLANGCI) run --new-from-merge-base=$(LINT_BASE); \
 	fi
 
 .PHONY: check
