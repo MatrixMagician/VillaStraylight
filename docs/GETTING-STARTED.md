@@ -79,7 +79,8 @@ The `Makefile` targets are thin wrappers around the Go toolchain. If you prefer 
 to use `make`, the equivalents are:
 
 ```bash
-go build -o villa ./cmd/villa     # same as `make build`
+go build -ldflags "-X main.version=$(git describe --tags --always --dirty)" \
+  -o villa ./cmd/villa            # same as `make build` (which stamps the version)
 go run ./cmd/villa <subcommand>   # same as `make run`
 ```
 
@@ -97,9 +98,10 @@ touches your host.
 
 `villa preflight` is read-only. It runs the host-prep gate — Vulkan ICD + iGPU
 enumeration (`PRE-01`), Podman rootless readiness (`PRE-02`), user lingering
-(`PRE-03`), free disk/memory (`PRE-04`), and the SELinux `container_use_devices`
-boolean (`PRE-05`) — and classifies each result as a **BLOCK** or **WARN**. It maps
-the worst result to an exit code:
+(`PRE-03`), free disk/memory (`PRE-04`), the SELinux `container_use_devices`
+boolean (`PRE-05`), and two WARN-tier version floors, the kernel (`PRE-06`) and
+`linux-firmware` (`PRE-07`) — and classifies each result as a **BLOCK** or **WARN**.
+It maps the worst result to an exit code:
 
 | Exit code | Meaning |
 |-----------|---------|
@@ -237,7 +239,7 @@ is a ROCm backend, regenerates **only** the inference unit, restarts it, and
 **proves** the cutover with a real generation probe plus a GPU-residency check inside
 a bounded timeout. If any step fails — or the preflight refuses (e.g. a too-old
 kernel, a denied linux-firmware build, or a missing `HSA_OVERRIDE_GFX_VERSION`) — the
-switch rolls back verbatim and the stack you were already running keeps running. <!-- VERIFY: kernel version, linux-firmware date, and gfx1151 readiness are host facts probed at runtime and cannot be confirmed from the repository alone -->
+switch rolls back verbatim and the stack you were already running keeps running.
 
 The ROCm preflight is also available standalone (read-only):
 

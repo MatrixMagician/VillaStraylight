@@ -246,7 +246,7 @@ hardware.
 
 The list of selectable models comes from a **catalog**. By default `villa` uses an
 embedded seed catalog compiled into the binary (`internal/catalog/seed.json`,
-`schema_version` 2). You can point `villa recommend` at an external catalog:
+`schema_version` 3). You can point `villa recommend` at an external catalog:
 
 ```bash
 villa recommend --catalog /path/to/catalog.json --save
@@ -409,7 +409,7 @@ Unknown, or a probe not run off-hardware) degrades to a WARN, never a false refu
 Of these signals, the linux-firmware date is probed on-host (from `rpm`) for the
 ROCm-readiness sub-tree of `villa detect`, while the running `HSA_OVERRIDE_GFX_VERSION`
 env is not read from the host environment — the cutover sets it inside the container
-rather than depending on the user's shell. <!-- VERIFY: kernel version, linux-firmware date, and gfx1151 device id reflect the actual host; these host facts are probed at runtime and are not discoverable from the repository alone -->
+rather than depending on the user's shell.
 
 The `mesaFloor`/`firmwareFloor`/`firmwareDeny`/`kernelFloor`/`kernelTested` values
 are also the source for the version-floor data the non-ROCm host preflight uses
