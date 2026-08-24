@@ -37,7 +37,7 @@ make run           # go run ./cmd/villa
 make test          # go test ./...
 make test-race     # go test -race ./... (cgo test-only; the binary stays CGO-free)
 make check         # vet + test + test-race (pre-commit gate)
-make lint          # golangci-lint if installed, else go vet
+make lint          # golangci-lint on THIS branch's new issues (LINT_ALL=1 for the whole tree)
 ```
 
 CI runs `make check`'s equivalents plus `CGO_ENABLED=0 go build`, `go mod verify`,
@@ -135,7 +135,7 @@ VillaStraylight is a self-hosted, local AI server stack for privacy-conscious po
 - `github.com/spf13/cobra` v1.10.2 - CLI command tree for `villa` (`cmd/villa/root.go` + per-verb files). Subcommands: see the code map above — `newRoot` in `cmd/villa/root.go` is the single authoritative list.
 - Go standard `testing` package - The only test framework. Table-driven tests, `httptest` servers, and byte-for-byte golden fixtures (`cmd/villa/testdata/*.golden.json`, `internal/orchestrate` rendered-unit goldens, `internal/metrics/testdata/slots.json`). No third-party assertion or mocking library — seams are injected `func` fields.
 - `go build` / `go test` / `go vet` / `gofmt` via `Makefile`.
-- `golangci-lint` v2 (config `.golangci.yml`, v2 format) - run by CI on PULL REQUESTS ONLY, gated to NEW issues so the standing backlog does not block work. The pull_request restriction is load-bearing: `only-new-issues` has no base to diff against on a push event, silently degrades to linting the whole tree, and then fails on that same backlog. `make lint` runs it locally if installed, else falls back to `go vet`.
+- `golangci-lint` v2 (config `.golangci.yml`, v2 format) - run by CI on PULL REQUESTS ONLY, gated to NEW issues so the standing backlog does not block work. The pull_request restriction is load-bearing: `only-new-issues` has no base to diff against on a push event, silently degrades to linting the whole tree, and then fails on that same backlog. `make lint` mirrors that gate locally, diffing against `LINT_BASE` (default `origin/main`); `make LINT_ALL=1 lint` lints the whole tree and surfaces the standing backlog.
 
 ### Key Dependencies
 
@@ -207,9 +207,12 @@ loop.
   `staticcheck`, `unused`) plus `misspell` and `revive`. `revive` is the noisiest
   of them against the standing backlog — new code is expected to satisfy it.
 - `errcheck` is disabled for `_test.go` files (the only exclusion rule).
-- `make lint` falls back to `go vet` if `golangci-lint` is not installed. That
-  fallback is a local convenience only: CI runs the real linter (golangci-lint
-  v2, `only-new-issues`), so a missing local binary cannot hide a finding.
+- `make lint` falls back to `go vet` ONLY when `golangci-lint` is genuinely
+  absent, and a real lint failure now propagates as a non-zero exit. It used to
+  do neither: the target was `command -v … && golangci-lint run || (echo "not
+  found" && go vet)`, and in `A && B || C` a FAILURE of B runs C, so any finding
+  printed "golangci-lint not found" and then exited 0 behind a passing vet. The
+  gate could never fail, and it misreported why. Do not reintroduce that shape.
 
 ### Core Architectural Conventions
 
