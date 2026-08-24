@@ -2,7 +2,9 @@ package status
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -1246,5 +1248,119 @@ func TestRunErrPropagates(t *testing.T) {
 	}
 	if r.Overall != inference.StatusFail.String() {
 		t.Errorf("Overall on load error = %q, want FAIL", r.Overall)
+	}
+}
+
+// residentCfg is the one-resident-slot world the resident tests share.
+func residentCfg() config.VillaConfig {
+	return config.VillaConfig{
+		Model: "qwen3", Quant: "Q4", Ctx: 131072, Backend: "vulkan",
+		Resident: []config.ResidentModel{{Model: "coder-x", Quant: "Q4", Ctx: 4096, Port: 8081}},
+	}
+}
+
+// residentDeps wires the healthy stub to the REAL renderer so the report is derived
+// from the units the stack would actually generate, resident slots included.
+func residentDeps(t *testing.T, cfg config.VillaConfig) Deps {
+	t.Helper()
+	d := newDeps(t, nil)
+	d.LoadConfig = func() (config.VillaConfig, error) { return cfg, nil }
+	d.ResidentUnits = func(c config.VillaConfig) ([]orchestrate.ResidentUnit, error) {
+		units := make([]orchestrate.ResidentUnit, 0, len(c.Resident))
+		for _, r := range c.Resident {
+			units = append(units, orchestrate.ResidentUnit{
+				Model: r.Model, ModelFile: r.Model + ".gguf", Ctx: r.Ctx, Port: r.Port,
+			})
+		}
+		return units, nil
+	}
+	d.Render = orchestrate.Render
+	return d
+}
+
+// TestRunReportsResidentServices guards the promise that report.Services names every
+// service the generated stack has. A configured resident slot must show up in
+// `villa status` and the dashboard Health panel, not only as a unit file on disk.
+func TestRunReportsResidentServices(t *testing.T) {
+	unit, err := orchestrate.ResidentUnitName("coder-x")
+	if err != nil {
+		t.Fatalf("ResidentUnitName: %v", err)
+	}
+	var got []string
+	for _, s := range Run(residentDeps(t, residentCfg())).Services {
+		if s.Service == unit+".service" {
+			return
+		}
+		got = append(got, s.Service)
+	}
+	t.Fatalf("report.Services omits the resident slot %q; got %v", unit+".service", got)
+}
+
+// TestRunResidentPortsReachTheLoopbackAssertion guards the promise that
+// report.LoopbackOnly is asserted over the COMPLETE published-port set: a resident
+// slot publishes its own host port, so its binding must be in report.Ports before
+// the posture is computed. PortBinding carries no host port, so the count is what
+// distinguishes a complete set from a short one.
+func TestRunResidentPortsReachTheLoopbackAssertion(t *testing.T) {
+	cfg := residentCfg()
+	base := Run(residentDeps(t, config.VillaConfig{Model: cfg.Model, Quant: cfg.Quant, Ctx: cfg.Ctx, Backend: cfg.Backend}))
+	withResident := Run(residentDeps(t, cfg))
+	if len(withResident.Ports) != len(base.Ports)+len(cfg.Resident) {
+		t.Fatalf("Ports = %d with %d resident slots, want %d (base %d): the loopback posture is asserted over a short set",
+			len(withResident.Ports), len(cfg.Resident), len(base.Ports)+len(cfg.Resident), len(base.Ports))
+	}
+	if !withResident.LoopbackOnly {
+		t.Errorf("LoopbackOnly = false; the resident unit publishes on loopback like every other unit")
+	}
+}
+
+// TestRunFailsClosedOnUnwiredResidentSeam guards the promise that an unwired seam is
+// reported, never absorbed: a config declaring resident slots against a nil
+// ResidentUnits must FAIL naming the seam rather than silently render a short stack.
+func TestRunFailsClosedOnUnwiredResidentSeam(t *testing.T) {
+	d := residentDeps(t, residentCfg())
+	d.ResidentUnits = nil
+	r := Run(d)
+	if r.Overall != inference.StatusFail.String() {
+		t.Fatalf("Overall = %q, want FAIL on an unwired ResidentUnits seam", r.Overall)
+	}
+	if r.Err() == nil || !strings.Contains(r.Err().Error(), "ResidentUnits") {
+		t.Fatalf("Err() = %v, want an error naming the ResidentUnits seam", r.Err())
+	}
+	if r.Services != nil || r.Ports != nil {
+		t.Errorf("FAIL report carries partial rows (%d services, %d ports)", len(r.Services), len(r.Ports))
+	}
+}
+
+// TestRunResidentSeamErrorFailsWholeReport guards the promise that an unresolvable
+// resident slot is a whole-report FAIL, matching the ModelFile and BackendFor shape,
+// rather than a report missing one service row.
+func TestRunResidentSeamErrorFailsWholeReport(t *testing.T) {
+	d := residentDeps(t, residentCfg())
+	d.ResidentUnits = func(config.VillaConfig) ([]orchestrate.ResidentUnit, error) {
+		return nil, os.ErrNotExist
+	}
+	r := Run(d)
+	if r.Overall != inference.StatusFail.String() {
+		t.Fatalf("Overall = %q, want FAIL on a ResidentUnits error", r.Overall)
+	}
+	if !errors.Is(r.Err(), os.ErrNotExist) {
+		t.Fatalf("Err() = %v, want the seam error propagated", r.Err())
+	}
+	if r.Services != nil || r.Ports != nil {
+		t.Errorf("FAIL report carries partial rows (%d services, %d ports)", len(r.Services), len(r.Ports))
+	}
+}
+
+// TestRunResidentlessReportIsUnchanged guards the additivity claim: with no resident
+// slots configured, threading the seam through Run produces exactly the report an
+// unwired seam produced, so every existing caller and golden is untouched.
+func TestRunResidentlessReportIsUnchanged(t *testing.T) {
+	cfg := config.VillaConfig{Model: "qwen3", Quant: "Q4", Ctx: 131072, Backend: "vulkan"}
+	wired := Run(residentDeps(t, cfg))
+	d := residentDeps(t, cfg)
+	d.ResidentUnits = nil
+	if unwired := Run(d); !reflect.DeepEqual(wired, unwired) {
+		t.Fatalf("resident-less report differs once the seam is wired:\n wired = %+v\n unwired = %+v", wired, unwired)
 	}
 }

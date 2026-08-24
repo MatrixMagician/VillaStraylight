@@ -229,11 +229,12 @@ func liveStatusDeps() (*status.Deps, error) {
 	}
 	endpoint := inference.NewContainerRunner(backend, inference.RunSpec{}).Endpoint()
 	deps := &status.Deps{
-		LoadConfig: config.LoadVilla,
-		ModelFile:  liveModelFile,
-		ModelsDir:  modelsDir,
-		Render:     orchestrate.Render,
-		IsActive:   sys.IsActive,
+		LoadConfig:    config.LoadVilla,
+		ModelFile:     liveModelFile,
+		ResidentUnits: liveResidentUnits,
+		ModelsDir:     modelsDir,
+		Render:        orchestrate.Render,
+		IsActive:      sys.IsActive,
 		// ResidencyJournal (not JournalText) — the offload assert needs the CURRENT
 		// invocation's startup, where the load_tensors residency line lives; the
 		// whole-unit journal's oldest bytes are stale prior-start output (F-3).

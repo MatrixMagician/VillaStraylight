@@ -56,6 +56,9 @@ func StubDeps(tempDir string, units []orchestrate.Unit) (Deps, error) {
 			return config.VillaConfig{Model: "qwen3", Quant: "Q4", Ctx: 131072, Backend: "vulkan"}, nil
 		},
 		ModelFile: func(config.VillaConfig) (string, error) { return "qwen3.gguf", nil },
+		ResidentUnits: func(config.VillaConfig) ([]orchestrate.ResidentUnit, error) {
+			return nil, nil
+		},
 		ModelsDir: func() string { return "/home/villa/.local/share/villa/models" },
 		Render:    func(orchestrate.RenderInput) ([]orchestrate.Unit, error) { return units, nil },
 		IsActive:  func(string) (string, error) { return "active", nil },
