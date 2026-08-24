@@ -43,17 +43,32 @@ Run `vet` plus the suite together (the pre-commit gate):
 
 ```bash
 make check
-# equivalent to: go vet ./... && go test ./...
+# equivalent to: go vet ./... && go test ./... && CGO_ENABLED=1 go test -race ./...
 ```
 
-Run the linters (optional — requires `golangci-lint`; falls back to `go vet`
-when it is not installed):
+Run the race detector on its own:
+
+```bash
+make test-race
+# CGO_ENABLED=1 go test -race ./...
+```
+
+This is a required gate, not an optional extra (CR-01/WR-04). `internal/websafe`
+is the project's one intentionally-concurrent pure core — `Loader.Load` fans out
+fetch goroutines — so its concurrency invariants MUST be guarded under `-race`, and
+the whole tree is run that way so any future concurrent core is covered too. Note
+this is the one target that enables cgo, and only for the TEST binary: `build` and
+`build-static` keep `CGO_ENABLED=0`, so the shipped `villa` stays a CGO-free static
+binary.
+
+Run the linter:
 
 ```bash
 make lint
-# golangci-lint run, configured by .golangci.yml
-# (errcheck, govet, ineffassign, staticcheck, unused, gofmt, goimports,
-#  misspell, revive)
+# the version pinned in .golangci-version, fetched via `go run` — nothing
+# needs to be on PATH. Configured by .golangci.yml (errcheck, govet,
+# ineffassign, staticcheck, unused, gofmt, goimports, misspell, revive).
+# Diffs against origin/main; `make LINT_ALL=1 lint` lints the whole tree.
 ```
 
 Run a single package:
@@ -86,10 +101,10 @@ watch-mode target — the suite is a single fast `go test ./...` run.
 
 The suite is organised by the package under test (`<pkg>_test.go` files sit
 beside their production code in the same package, so tests can reach unexported
-functions). Test files span the control-plane packages — `cmd/villa`,
-`internal/{recommend, preflight, detect, orchestrate, inference, modelswap,
-backendswap, bench, status, dashboard, catalog, config, metrics, download, llm}`.
-Several distinct testing patterns recur across the tree:
+functions). Test files span `cmd/villa` and essentially every package under
+`internal/` — `find . -name '*_test.go' -printf '%h\n' | sort -u` is the current
+list, and the code map in `CLAUDE.md` says what each package owns. Several distinct
+testing patterns recur across the tree:
 
 ### Table-driven unit tests
 
@@ -156,18 +171,26 @@ to hold backend literals — is `internal/inference/` plus
 `internal/detect/gpu_amd.go`. The gate runs two walks:
 
 - **Walk 1 — `internal/`:** every non-test `.go` file outside the seam is matched
-  against four imperative-leak patterns:
+  against five imperative-leak patterns:
   - `runtime.GOOS` / `GOOS ==` platform branching,
-  - container **image** literals (`kyuz0`, `docker.io/`, `server-vulkan`, and —
-    added for v1.1 — `rocm-7.2.4`, `rocm7-nightlies` so a ROCm tag leaking out
-    of the seam also fails),
+  - container **image** literals (`kyuz0`, `docker.io/`, `server-vulkan`, and the
+    ROCm tags `rocm-7.2.4` / `rocm-6.4.4` / `rocm7-nightlies`). These anchor on the
+    IMAGE context (`:tag` / `tag@`), so a bare backend NAME as a config value —
+    `case "rocm-6.4.4":` in `render.go` — is deliberately not a hit,
   - container **device** args (`--device /dev/dri`, `--group-add`,
     `keep-groups`),
-  - `podman` **process** invocations (`exec.Command("podman", …)`).
+  - `podman` **process** invocations (`exec.Command("podman", …)`),
+  - **coding-mode llama-server flags** (`codingModeFlagPattern`): the quoted
+    literals `"--jinja"`, `"--cache-reuse"`, `"--repeat-penalty"`, which belong
+    only to `appendCodingModeArgs` in the two backend files. The anchor on a
+    leading double-quote is what lets a doc comment discuss `--cache-reuse` as
+    prose without tripping the gate.
 - **Walk 2 — `cmd/villa`:** the OS-orchestration tier legitimately invokes
   podman, so the `podman` pattern is dropped here, but it adds a **backend
   marker** pattern (`ROCm0`, `HSA_OVERRIDE_GFX_VERSION`, `Memory access fault`)
-  alongside the platform/image/device patterns. This keeps the v1.1 cmd-tier
+  alongside the platform/image/device/coding-mode patterns — a single
+  `codingModeFlagPattern` helper feeds both walks, so adding it to one map cannot
+  leave the other unguarded. This keeps the v1.1 cmd-tier
   composers (`cmd/villa/backend.go` and siblings) free of any retyped backend
   literal — they compose the `backendswap` core plus the exported inference
   prove primitives instead.
@@ -290,6 +313,9 @@ original backend/config after the run (`TestBenchABRestoresOriginal`).
   so failures report the caller's line.
 - **Temp dirs:** use `t.TempDir()` for any path a fake needs to write into — it
   is auto-cleaned and unique per test.
+- **Concurrency:** if your code starts a goroutine, its test must pass under
+  `make test-race`, not just `make test`. `make check` runs both, so a data race
+  fails the pre-commit gate and CI's race step alike.
 
 ## Coverage requirements
 
@@ -302,9 +328,15 @@ go test ./... -cover
 go test ./... -coverprofile=cover.out && go tool cover -html=cover.out
 ```
 
-For reference, a full `go test ./...` run exercises roughly 380+ test functions
-across the 16 control-plane packages (50-plus `_test.go` files), but this is an
-observed run total, not an enforced threshold.
+The suite is large and grows with every verb, so this doc does not carry a count
+that would go stale. To take one:
+
+```bash
+find . -name '*_test.go' | wc -l                      # test files
+grep -rh '^func Test' --include='*_test.go' . | wc -l # test functions
+```
+
+Whatever those print is an observed total, not an enforced threshold.
 
 ## On-hardware UAT
 
@@ -319,15 +351,25 @@ detected hardware.
 
 ## CI integration
 
-No CI/CD pipeline is currently configured — there is no `.github/workflows/`
-directory in the repository, so tests are not yet run automatically on push or
-pull request. The intended local gate before committing is:
+`.github/workflows/ci.yml` runs on **every push and pull request**. It needs no
+services, secrets, or GPU — the suite is off-hardware by design, so it runs on a
+standard Linux runner. Six gates, in order:
+
+| Step | What it proves |
+|------|----------------|
+| CGO-free static build (SC#4) | `CGO_ENABLED=0 go build ./...`. Load-bearing beyond tidiness: the `villa-websafe` unit bind-mounts this binary into a distroless container with no libc, so a dynamically-linked build fails to exec there. |
+| vet + test | `go vet ./... && go test ./...`, mirroring the first half of `make check`. |
+| race gate (CR-01) | The whole tree under `-race`, mirroring `make test-race`. |
+| `go mod verify` | Supply-chain integrity — `go.sum` hashes match the checksum DB. Stronger than registry-existence checking. |
+| lint (new issues only) | golangci-lint at the version in `.golangci-version`, gated `if: github.event_name == 'pull_request'`. That restriction is load-bearing: on a push there is no base for `only-new-issues` to diff against, so the action would silently degrade to linting the whole tree. |
+| TUI-stack grep | Asserts the guided install stays on the standard library — no `huh`/`bubbletea`/`lipgloss` reappearing in `go.mod`. |
+
+The local gate that mirrors it:
 
 ```bash
-make check   # go vet ./... && go test ./...
-make lint    # golangci-lint (optional; falls back to go vet)
+make check         # vet + test + test-race
+make lint          # the new-issues gate
+make build-static  # the SC#4 CGO-free build — `make check` does NOT cover it
 ```
 
-When a CI workflow is added, `make check` (or `go vet ./... && go test ./...`),
-optionally with `make lint`, is the command it should run; the suite needs no
-services, secrets, or GPU and therefore runs on any standard Linux runner.
+There is no coverage step in CI, matching the absence of a configured threshold.
