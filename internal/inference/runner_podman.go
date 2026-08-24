@@ -42,7 +42,10 @@ type containerRunner struct {
 var _ Runner = (*containerRunner)(nil)
 
 // NewContainerRunner builds a container Runner for the given backend and run spec.
-func NewContainerRunner(backend Backend, spec RunSpec) *containerRunner {
+// It returns the Runner interface rather than the concrete type: containerRunner's
+// entire exported method set IS Runner, so the interface loses no capability, and
+// exporting the struct would publish a type whose only use is to be a Runner.
+func NewContainerRunner(backend Backend, spec RunSpec) Runner {
 	return &containerRunner{
 		backend: backend,
 		spec:    spec,
