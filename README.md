@@ -33,7 +33,7 @@ VillaStraylight targets AMD Strix Halo's **unified memory** — the CPU and iGPU
 
 Many guides statically partition memory between the CPU and iGPU (e.g. locking 32 GB for video). That is a waste. With **unified dynamic memory**, the GPU can access nearly all system RAM (up to ~124 GB) on demand, while keeping the flexibility to use it for the CPU when needed.
 
-> **Performance note:** Benchmarking by Lars Urban ([Issue #66](https://github.com/MatrixMagician/VillaStraylight/issues/66)) shows a **5–12% performance increase** from setting `amd_iommu=off` instead of the previously recommended pass-through mode.
+> **Performance note:** Benchmarking by Lars Urban shows a **5–12% performance increase** from setting `amd_iommu=off` instead of the previously recommended pass-through mode.
 
 ### Apply the parameters
 
