@@ -1,6 +1,6 @@
 // dashboard.js — the no-build vanilla-JS poll loop for the VillaStraylight control
 // dashboard (D-01: no framework). It polls /api/status every ~2500ms, pauses when the
-// tab is hidden (visibilitychange / D-05), renders the Health rows + header verdict
+// tab is hidden (visibilitychange / D-05), renders the status strip + Health rows + verdict
 // using the project's ready/loading/down/unknown + PASS/WARN/FAIL vocabulary, and on a
 // failed poll keeps last-good values dimmed while showing the single global red
 // connection banner (D-11), auto-clearing on reconnect. A typed-Unknown signal renders
@@ -15,6 +15,7 @@
   var banner = document.getElementById("connection-banner");
   var verdictEl = document.getElementById("overall-verdict");
   var healthRows = document.getElementById("health-rows");
+  var healthBackend = document.getElementById("health-backend");
   var perfBody = document.getElementById("performance-body");
   var gpuBody = document.getElementById("gpu-body");
   var modelsBody = document.getElementById("models-body");
@@ -37,12 +38,20 @@
   // label (D-01: identity lives in /api/status, never in /api/metrics). null/"" = unknown,
   // in which case the tok/s row appends no label and the Health badge reads "unavailable".
   var lastBackend = null;
+  // lastQuant holds the LOADED row's quant from the most recent /api/models poll — the
+  // only place the quant is exposed (the frozen /api/status contract carries model but
+  // no quant). null = not yet observed, in which case the strip's model tile shows the
+  // backend alone rather than a fabricated quant.
+  var lastQuant = null;
   // cumulativeBox is the stable child container of #performance-body that holds the
   // cumulative-usage rows (USAGE-02 / D-10). It lives BESIDE the live tok/s rows in the
   // same Performance panel, but is owned by the /api/status poll (renderCumulativeUsage),
   // NOT by renderPerformance — which clears #performance-body on every /api/metrics poll.
   // renderPerformance re-appends this box after its clear so the two never clobber.
   var cumulativeBox = null;
+  // cumulativeGroup wraps the box with its "Cumulative usage" label, so the label
+  // survives renderCumulativeUsage clearing the box on every status poll.
+  var cumulativeGroup = null;
   // switching holds the id of the model a switch is in-flight for (drives the row's
   // disabled "Switching…" state until polling shows the new model loaded). null = idle.
   var switching = null;
@@ -86,6 +95,13 @@
   // 1284907 → "1,284,907") for the cumulative-usage rows (UI-SPEC value format). It
   // renders in the existing .metric-value mono tabular-nums class, so the grouped number
   // never reflows across the poll. Counts only — never a rate, never a fabricated 0.
+  // fmtGiBNum renders the bare GiB figure with no unit suffix, for the strip's memory
+  // tile where the used/envelope pair shares one unit — "25.2 GiB / 124.0 GiB" wraps in
+  // a quarter-width tile, "25.2 / 124.0 GiB" does not.
+  function fmtGiBNum(n) {
+    return (n / (1024 * 1024 * 1024)).toFixed(1);
+  }
+
   function groupThousands(n) {
     return Number(n).toLocaleString("en-US");
   }
@@ -96,14 +112,20 @@
   // /api/metrics re-render (D-10: cumulative rides the /api/status poll, additive).
   function ensureCumulativeBox() {
     if (!perfBody) { return null; }
-    if (cumulativeBox && cumulativeBox.parentNode === perfBody) {
-      return cumulativeBox;
-    }
-    if (!cumulativeBox) {
+    if (!cumulativeGroup) {
+      cumulativeGroup = document.createElement("div");
+      cumulativeGroup.className = "cumulative-group";
+      var label = document.createElement("p");
+      label.className = "eyebrow";
+      label.textContent = "Cumulative usage";
+      cumulativeGroup.appendChild(label);
       cumulativeBox = document.createElement("div");
       cumulativeBox.id = "cumulative-usage";
+      cumulativeGroup.appendChild(cumulativeBox);
     }
-    perfBody.appendChild(cumulativeBox);
+    if (cumulativeGroup.parentNode !== perfBody) {
+      perfBody.appendChild(cumulativeGroup);
+    }
     return cumulativeBox;
   }
 
@@ -139,6 +161,94 @@
       case "FAIL": return "down";
       default: return "unknown";
     }
+  }
+
+  // --- Status strip (DASH-07) ---------------------------------------------
+  // The strip is a READ-MODEL over the three polls the panels already run — it adds no
+  // endpoint, no fetch and no probe. Every tile degrades to the same typed-Unknown copy
+  // its panel uses ("unavailable" / "unknown"), never a fabricated 0 or a false green.
+
+  // setText sets an element's text by id, or does nothing when the id is absent.
+  function setText(id, text) {
+    var el = document.getElementById(id);
+    if (el) { el.textContent = text; }
+  }
+
+  // renderStripStack fills the Stack + Model tiles from the /api/status report. It is
+  // NOT called from the poll's catch path: a failed status poll keeps the last-good
+  // tiles under the global stale dimming (D-11).
+  function renderStripStack(report) {
+    var dot = document.getElementById("strip-verdict-dot");
+    if (dot) { dot.className = "status-dot " + overallClass(report && report.overall); }
+
+    var svcs = (report && report.services) || [];
+    if (svcs.length === 0) {
+      setText("strip-verdict-sub", "No services in the generated stack.");
+    } else {
+      var notReady = 0;
+      svcs.forEach(function (s) { if (s.health !== "ready") { notReady++; } });
+      setText("strip-verdict-sub", notReady === 0
+        ? svcs.length + " services ready"
+        : notReady + " of " + svcs.length + " services not ready");
+    }
+
+    // Model identity — omitted (never guessed) when the report carries no model.
+    setText("strip-model", (report && report.model) || "unavailable");
+    var sub = [];
+    if (lastQuant) { sub.push(lastQuant); }
+    if (report && report.backend) { sub.push(report.backend); }
+    setText("strip-model-sub", sub.join(" \u00b7 "));
+  }
+
+  // renderStripMemory fills the Unified memory tile from /api/gpu, honoring the same
+  // Known flags renderGPU does: without BOTH a used and an envelope reading the bar is
+  // hidden and the tile reads "unavailable" — never a bar drawn from a guessed total.
+  function renderStripMemory(g) {
+    var bar = document.getElementById("strip-mem-bar");
+    var fill = document.getElementById("strip-mem-fill");
+    if (g && g.mem_used_known && g.mem_envelope_known && g.mem_envelope_bytes > 0) {
+      var pct = Math.max(0, Math.min(100, (g.mem_used_bytes / g.mem_envelope_bytes) * 100));
+      setText("strip-mem", fmtGiBNum(g.mem_used_bytes) + " / " + fmtBytes(g.mem_envelope_bytes));
+      if (fill) {
+        fill.style.width = pct.toFixed(1) + "%";
+        fill.className = pct >= 90 ? "mem-bar-fill warn" : "mem-bar-fill";
+      }
+      if (bar) {
+        bar.hidden = false;
+        bar.setAttribute("aria-valuenow", pct.toFixed(0));
+        bar.setAttribute("aria-valuetext", fmtBytes(g.mem_used_bytes) + " of " + fmtBytes(g.mem_envelope_bytes));
+      }
+      return;
+    }
+    if (g && g.mem_used_known) {
+      setText("strip-mem", fmtBytes(g.mem_used_bytes));
+    } else {
+      setText("strip-mem", "unavailable");
+    }
+    if (bar) { bar.hidden = true; }
+  }
+
+  // renderStripGeneration fills the Generation tile from /api/metrics, mirroring
+  // renderPerformanceLive's honesty branches exactly: unavailable scrape, unknown
+  // activity, idle, and only then a live rate.
+  function renderStripGeneration(m) {
+    if (!m || !m.available) {
+      setText("strip-gen", "unavailable");
+      setText("strip-gen-sub", "");
+      return;
+    }
+    if (!m.activity_known) {
+      setText("strip-gen", "unknown");
+      setText("strip-gen-sub", "slot status unavailable");
+      return;
+    }
+    if (m.idle) {
+      setText("strip-gen", "Idle");
+      setText("strip-gen-sub", "no active generation");
+      return;
+    }
+    setText("strip-gen", (m.gen_tokens_per_sec || 0).toFixed(1) + " tok/s");
+    setText("strip-gen-sub", "prompt " + (m.prompt_tokens_per_sec || 0).toFixed(1) + " tok/s");
   }
 
   // --- Rendering ----------------------------------------------------------
@@ -214,7 +324,8 @@
   // the established XSS-safe DOM idiom (renderHealth / renderGPU). Backend identity is
   // sourced from the /api/status poll (report.backend/report.image), not /api/metrics (D-01).
   function renderBackend(backend, image, readiness) {
-    if (!healthRows) { return; }
+    if (!healthBackend) { return; }
+    healthBackend.textContent = "";
 
     // Active backend row (element 1). When backend is present, show the resolved name
     // verbatim; when absent/empty, show a gray "unavailable" badge — never a literal default.
@@ -235,13 +346,13 @@
       backendBadge.textContent = "unavailable";
       backendRow.appendChild(backendBadge);
     }
-    healthRows.appendChild(backendRow);
+    healthBackend.appendChild(backendRow);
 
     // Active image row (element 1). OMIT the row entirely when the image tag is unset — the
     // honest empty state is no row, not a placeholder. Monospace tabular via .health-detail.
     if (image) {
       var imageRow = document.createElement("div");
-      imageRow.className = "health-row";
+      imageRow.className = "health-row health-row-stacked";
       var imageLabel = document.createElement("span");
       imageLabel.className = "health-service";
       imageLabel.textContent = "image";
@@ -250,7 +361,7 @@
       imageVal.textContent = image;
       imageRow.appendChild(imageLabel);
       imageRow.appendChild(imageVal);
-      healthRows.appendChild(imageRow);
+      healthBackend.appendChild(imageRow);
     }
 
     // ROCm-readiness badge (element 3) — mirrors the GPU busy_available honest-Unknown
@@ -266,9 +377,9 @@
     readinessBadge.className = "badge badge-" + readinessClass(readiness);
     readinessBadge.textContent = readinessLabel(readiness);
     readinessRow.appendChild(readinessBadge);
-    healthRows.appendChild(readinessRow);
+    healthBackend.appendChild(readinessRow);
     if (readinessClass(readiness) === "unknown") {
-      healthRows.appendChild(mutedP("ROCm readiness can't be evaluated on this host."));
+      healthBackend.appendChild(mutedP("ROCm readiness can't be evaluated on this host."));
     }
   }
 
@@ -511,10 +622,12 @@
   function renderPerformance(m) {
     perfBody.textContent = "";
     if (!m || !m.available) {
+      renderStripGeneration(m);
       perfBody.appendChild(mutedP("Unavailable"));
       ensureCumulativeBox();
       return;
     }
+    renderStripGeneration(m);
     renderPerformanceLive(m);
     // Re-attach the cumulative-usage block (owned by the /api/status poll) AFTER the live
     // rows so it survives this /api/metrics re-render and stays in the same panel (D-10).
@@ -618,6 +731,7 @@
   // overlay that shows the gray "Unavailable" badge + the caption when the sysfs reader
   // returns typed-Unknown (D-06) — never a fabricated number.
   function renderGPU(g) {
+    renderStripMemory(g);
     gpuBody.textContent = "";
     if (!g) {
       gpuBody.appendChild(mutedP("Unavailable"));
@@ -629,8 +743,14 @@
       var pct = Math.max(0, Math.min(100, (g.mem_used_bytes / g.mem_envelope_bytes) * 100));
       var bar = document.createElement("div");
       bar.className = "mem-bar";
+      // A colour change alone is not a signal: expose the value to AT as well.
+      bar.setAttribute("role", "progressbar");
+      bar.setAttribute("aria-label", "Unified memory used");
+      bar.setAttribute("aria-valuemin", "0");
+      bar.setAttribute("aria-valuemax", "100");
+      bar.setAttribute("aria-valuenow", pct.toFixed(0));
       var fill = document.createElement("div");
-      fill.className = "mem-bar-fill";
+      fill.className = pct >= 90 ? "mem-bar-fill warn" : "mem-bar-fill";
       fill.style.width = pct.toFixed(1) + "%";
       bar.appendChild(fill);
       gpuBody.appendChild(bar);
@@ -684,6 +804,16 @@
       return;
     }
 
+    var count = document.getElementById("models-count");
+    if (count) {
+      count.textContent = models.length + " in catalog";
+      count.hidden = false;
+    }
+    // The loaded row is the only place the active model's quant is exposed; stash it
+    // for the strip's model tile (the frozen /api/status contract carries no quant).
+    lastQuant = null;
+    models.forEach(function (m) { if (m.loaded && m.quant) { lastQuant = m.quant; } });
+
     var list = document.createElement("div");
     list.className = "models-list";
 
@@ -713,10 +843,9 @@
       } else if (m.on_disk) {
         row.appendChild(modelBadge("on disk", "model-badge-ondisk"));
       } else {
-        // catalog-only: a spacer keeps the Switch column aligned.
-        var spacer = document.createElement("span");
-        spacer.className = "model-badge-spacer";
-        row.appendChild(spacer);
+        // catalog-only: a NAMED state, not an empty spacer — an absent badge is
+        // invisible to a screen reader and indistinguishable from a render bug.
+        row.appendChild(modelBadge("catalog", "model-badge-ondisk"));
       }
 
       // Switch action (the single sanctioned write). Disabled for the loaded row, for a
@@ -893,6 +1022,7 @@
       .then(function (report) {
         setConnected(true);
         renderVerdict(report.overall);
+        renderStripStack(report);
         renderHealth(report.services);
         // Stash the active backend for the Performance tok/s label (D-01: identity lives in
         // /api/status, never /api/metrics) and append the backend/image rows + readiness

@@ -15,77 +15,134 @@
   </div>
 
   <header class="header" role="banner">
-    <h1 class="header-title">VillaStraylight</h1>
-    <span id="overall-verdict" class="badge badge-unknown" aria-live="polite">unavailable</span>
+    <div>
+      <h1 class="header-title">VillaStraylight</h1>
+      <span class="header-sub">Control dashboard</span>
+    </div>
     <a class="chat-link"
        href="http://127.0.0.1:{{.ChatPort}}"
        target="_blank"
-       rel="noopener noreferrer">Open Chat ↗</a>
+       rel="noopener noreferrer">Open Chat
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M7 17 17 7" />
+        <path d="M9 7h8v8" />
+      </svg>
+    </a>
   </header>
 
   <main class="content">
-    <!-- Health (DASH-01) — filled by the poll loop from /api/status. -->
+    <!-- Status strip (DASH-07) — the four figures worth a glance, lifted out of the
+         panel stack. It adds NO endpoint: stack/model ride the /api/status poll,
+         memory rides /api/gpu, throughput rides /api/metrics. Each tile ships with
+         the honest "unavailable" placeholder its panel would render. -->
+    <div class="strip">
+      <div class="tile">
+        <p class="eyebrow" style="margin: 0">Stack</p>
+        <div class="tile-verdict">
+          <span id="strip-verdict-dot" class="status-dot unknown"></span>
+          <span id="overall-verdict" class="badge badge-unknown" aria-live="polite">unavailable</span>
+        </div>
+        <span class="tile-sub" id="strip-verdict-sub"></span>
+      </div>
+      <div class="tile">
+        <p class="eyebrow" style="margin: 0">Model</p>
+        <span class="tile-value sm" id="strip-model">unavailable</span>
+        <span class="tile-sub" id="strip-model-sub"></span>
+      </div>
+      <div class="tile">
+        <p class="eyebrow" style="margin: 0">Unified memory</p>
+        <span class="tile-value md" id="strip-mem">unavailable</span>
+        <div class="mem-bar" id="strip-mem-bar" role="progressbar"
+             aria-label="Unified memory used" aria-valuemin="0" aria-valuemax="100" hidden>
+          <div class="mem-bar-fill" id="strip-mem-fill" style="width: 0%"></div>
+        </div>
+      </div>
+      <div class="tile">
+        <p class="eyebrow" style="margin: 0">Generation</p>
+        <span class="tile-value md" id="strip-gen">unavailable</span>
+        <span class="tile-sub" id="strip-gen-sub"></span>
+      </div>
+    </div>
+
+    <!-- Health (DASH-01 / DASH-06) — service rows and backend identity are two
+         different questions, so they get two columns instead of one flat list.
+         Both are filled by the poll loop from /api/status. -->
     <section class="panel" id="health-panel" aria-labelledby="health-heading">
       <h2 class="panel-heading" id="health-heading">Health</h2>
-      <div id="health-rows" class="health-rows">
-        <p class="muted">Loading service status…</p>
+      <div class="split">
+        <div>
+          <p class="eyebrow">Services</p>
+          <div id="health-rows" class="health-rows">
+            <p class="muted">Loading service status…</p>
+          </div>
+        </div>
+        <div>
+          <p class="eyebrow">Inference backend</p>
+          <div id="health-backend" class="health-rows">
+            <p class="muted">Loading backend…</p>
+          </div>
+        </div>
       </div>
     </section>
 
-    <!-- Performance (DASH-02) — filled by the poll loop from /api/metrics. -->
-    <section class="panel" id="performance-panel" aria-labelledby="performance-heading" data-mount="performance">
-      <h2 class="panel-heading" id="performance-heading">Performance</h2>
-      <div id="performance-body">
-        <p class="muted">Idle — no active generation.</p>
-      </div>
-    </section>
+    <div class="grid">
+      <!-- Performance (DASH-02) — filled by the poll loop from /api/metrics. -->
+      <section class="panel" id="performance-panel" aria-labelledby="performance-heading">
+        <h2 class="panel-heading" id="performance-heading">Performance</h2>
+        <div id="performance-body">
+          <p class="muted">Idle — no active generation.</p>
+        </div>
+      </section>
 
-    <!-- GPU & Memory (DASH-03) — memory-first; filled from /api/gpu. Mount point for Plan 04 below. -->
-    <section class="panel" id="gpu-panel" aria-labelledby="gpu-heading" data-mount="gpu">
-      <h2 class="panel-heading" id="gpu-heading">GPU &amp; Memory</h2>
-      <div id="gpu-body">
-        <p class="muted">Unavailable</p>
-      </div>
-    </section>
+      <!-- GPU & Memory (DASH-03) — memory-first; filled from /api/gpu. -->
+      <section class="panel" id="gpu-panel" aria-labelledby="gpu-heading">
+        <h2 class="panel-heading" id="gpu-heading">GPU &amp; Memory</h2>
+        <div id="gpu-body">
+          <p class="muted">Unavailable</p>
+        </div>
+      </section>
+    </div>
 
     <!-- Models (DASH-04) — full catalog (loaded / on-disk / catalog-only) with the
          guarded Switch action; filled by the poll loop from /api/models. -->
-    <section class="panel" id="models-panel" aria-labelledby="models-heading" data-mount="models">
-      <h2 class="panel-heading" id="models-heading">Models</h2>
+    <section class="panel" id="models-panel" aria-labelledby="models-heading">
+      <h2 class="panel-heading" id="models-heading">Models
+        <span class="badge" id="models-count" hidden></span>
+      </h2>
       <div id="models-body">
         <p class="muted">Loading models…</p>
       </div>
     </section>
 
-    <!-- Memory (CTRL-02) — ships hidden (the connection-banner[hidden] precedent); the
-         poll loop unhides it ONLY when report.memory is present (memory_enabled=true).
-         Memory-off dashboards render pixel-identical to v1.2 (D-03: no new fetch or
-         endpoint — the panel reads report.memory from the existing /api/status poll). -->
-    <section class="panel" id="memory-panel" aria-labelledby="memory-heading" hidden>
-      <h2 class="panel-heading" id="memory-heading">Memory</h2>
-      <div id="memory-body"></div>
-    </section>
+    <!-- The optional subsystems. Each panel ships hidden (the connection-banner[hidden]
+         precedent) and the poll loop unhides it ONLY when its field is present on the
+         existing /api/status report — no new fetch, endpoint or probe (CTRL-02 / D-03,
+         SURF-01 / D-05, SURF-05). The group heading collapses with them via :has(), so a
+         subsystems-off install renders no trace of this block at all. -->
+    <div class="subsystems">
+      <p class="eyebrow">Optional subsystems</p>
+      <div class="grid3">
+        <!-- Memory (CTRL-02) — reads report.memory. -->
+        <section class="panel" id="memory-panel" aria-labelledby="memory-heading" hidden>
+          <h2 class="panel-heading" id="memory-heading">Memory</h2>
+          <div id="memory-body"></div>
+        </section>
 
-    <!-- Agent (SURF-01 / D-05) — ships hidden (the memory-panel precedent); the poll
-         loop unhides it ONLY when report.coding is present (agent_enabled=true). Agent-off
-         dashboards render pixel-identical to v1.3 (D-05: no new fetch or endpoint — the
-         panel reads report.coding from the existing /api/status poll). Mirrors the Memory
-         panel chrome verbatim (28-UI-SPEC.md §Static shell). -->
-    <section class="panel" id="agent-panel" aria-labelledby="agent-heading" hidden>
-      <h2 class="panel-heading" id="agent-heading">Agent</h2>
-      <div id="agent-body"></div>
-    </section>
+        <!-- Agent (SURF-01 / D-05) — reads report.coding. -->
+        <section class="panel" id="agent-panel" aria-labelledby="agent-heading" hidden>
+          <h2 class="panel-heading" id="agent-heading">Agent</h2>
+          <div id="agent-body"></div>
+        </section>
 
-    <!-- Web Search (SURF-05) — ships hidden (the memory-panel / agent-panel precedent);
-         the poll loop unhides it ONLY when report.web_search is present
-         (web_search_enabled=true). Web-search-off dashboards render pixel-identical
-         to v1.4 (CTRL-02/D-03: no new fetch or endpoint — the panel reads
-         report.web_search from the existing /api/status poll). XSS-safe: all
-         server/web-derived values via textContent, never innerHTML. -->
-    <section class="panel" id="web-search-panel" aria-labelledby="web-search-heading" hidden>
-      <h2 class="panel-heading" id="web-search-heading">Web Search</h2>
-      <div id="web-search-body"></div>
-    </section>
+        <!-- Web Search (SURF-05) — reads report.web_search. XSS-safe: all
+             server/web-derived values via textContent, never innerHTML. -->
+        <section class="panel" id="web-search-panel" aria-labelledby="web-search-heading" hidden>
+          <h2 class="panel-heading" id="web-search-heading">Web Search</h2>
+          <div id="web-search-body"></div>
+        </section>
+      </div>
+    </div>
   </main>
 
   <!-- Guarded switch confirm dialog (D-08): a native <dialog> traps focus, Esc cancels,
@@ -97,7 +154,13 @@
       <h3 class="switch-dialog-title" id="switch-dialog-title">Switch model?</h3>
       <p class="switch-dialog-fit" id="switch-dialog-fit"></p>
       <p class="switch-dialog-warning" id="switch-dialog-warning">
-        This restarts inference — chat is briefly unavailable while the model reloads.
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M10.3 3.6 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.6a2 2 0 0 0-3.4 0Z" />
+          <path d="M12 9v4" />
+          <path d="M12 17h.01" />
+        </svg>
+        <span>This restarts inference — chat is briefly unavailable while the model reloads.</span>
       </p>
       <div class="switch-dialog-actions">
         <button type="button" class="btn btn-secondary" id="switch-cancel" value="cancel">Cancel</button>
