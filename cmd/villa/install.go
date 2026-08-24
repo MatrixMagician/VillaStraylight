@@ -524,12 +524,18 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 	// codingModelFile / codingDescriptor) — the same render path `villa coding-mode enter`
 	// drives, already frozen by villa-llama-coding.container.golden. The catalog→inference
 	// translation stays in the live wiring (the pure renderer never imports internal/catalog).
+	resident, err := liveResidentUnits(cfg)
+	if err != nil {
+		fmt.Fprintf(errOut, "install: resolve resident set: %v\n", err)
+		return exitBlocked
+	}
 	renderIn := orchestrate.RenderInput{
 		Backend:       backend,
 		Cfg:           cfg,
 		ModelFile:     modelFile,
 		ModelsDir:     d.modelsDir(),
 		HostVillaPath: hostVillaPath(),
+		Resident:      resident,
 	}
 	if gates.CodingMode {
 		servedModel, _ := codingServedTarget(cfg)

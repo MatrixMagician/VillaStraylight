@@ -349,12 +349,17 @@ func liveCodingModeDeps() *codingmode.Deps {
 			if err != nil {
 				return false, err
 			}
+			resident, err := liveResidentUnits(c)
+			if err != nil {
+				return false, err
+			}
 			in := orchestrate.RenderInput{
 				Backend:       backend,
 				Cfg:           c,
 				ModelFile:     modelFile,
 				ModelsDir:     modelsDir(),
 				HostVillaPath: hostVillaPath(),
+				Resident:      resident,
 			}
 			if subsystem.CodingModeOn(c) {
 				spec, derr := codingDescriptor(c, servedModel)

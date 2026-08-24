@@ -29,9 +29,8 @@ var pullFn = download.PullModel
 // source is in one place.
 var modelCatalogPath string
 
-// newModel builds the `villa model` noun and its `pull <name>` subcommand. The
-// noun name is chosen to NOT collide with the Phase-3 lifecycle verbs
-// (up/down/restart/install/status).
+// newModel builds the `villa model` noun and its subcommands. The noun name is chosen
+// to NOT collide with the Phase-3 lifecycle verbs (up/down/restart/install/status).
 func newModel() *cobra.Command {
 	model := &cobra.Command{
 		Use:   "model",
@@ -39,7 +38,7 @@ func newModel() *cobra.Command {
 		Long:  "Manage the GGUF model weights villa downloads into the local models dir. Strictly local; the only outbound traffic is the model pull itself.",
 		Args:  cobra.NoArgs,
 	}
-	model.AddCommand(newModelPull(), newModelList(), newModelSwap())
+	model.AddCommand(newModelPull(), newModelList(), newModelSwap(), newModelResident())
 	return model
 }
 
@@ -357,12 +356,20 @@ func liveSwapDeps() *modelswap.Deps {
 			if err != nil {
 				return false, err
 			}
+			// Resident slots are threaded through so a primary swap regenerates the
+			// SAME unit set the resident verbs wrote: without them the chat UI's
+			// endpoint env silently reverts to the primary alone.
+			resident, err := liveResidentUnits(c)
+			if err != nil {
+				return false, err
+			}
 			units, err := orchestrate.Render(orchestrate.RenderInput{
 				Backend:       backend,
 				Cfg:           c,
 				ModelFile:     modelFile,
 				ModelsDir:     modelsDir(),
 				HostVillaPath: hostVillaPath(),
+				Resident:      resident,
 			})
 			if err != nil {
 				return false, err

@@ -298,12 +298,17 @@ func liveDoctorDeps() (doctor.Deps, error) {
 			if err != nil {
 				return orchestrate.Plan{}, fmt.Errorf("resolve model file: %w", err)
 			}
+			resident, err := liveResidentUnits(c)
+			if err != nil {
+				return orchestrate.Plan{}, fmt.Errorf("resolve resident set: %w", err)
+			}
 			units, err := orchestrate.Render(orchestrate.RenderInput{
 				Backend:       backend,
 				Cfg:           c,
 				ModelFile:     modelFile,
 				ModelsDir:     modelsDir(),
 				HostVillaPath: hostVillaPath(),
+				Resident:      resident,
 			})
 			if err != nil {
 				return orchestrate.Plan{}, fmt.Errorf("render units: %w", err)

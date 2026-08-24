@@ -395,12 +395,17 @@ func liveRestoreDeps() backup.RestoreDeps {
 			if err != nil {
 				return false, err
 			}
+			resident, err := liveResidentUnits(c)
+			if err != nil {
+				return false, err
+			}
 			units, err := orchestrate.Render(orchestrate.RenderInput{
 				Backend:       backend,
 				Cfg:           c,
 				ModelFile:     modelFile,
 				ModelsDir:     modelsDir(),
 				HostVillaPath: hostVillaPath(),
+				Resident:      resident,
 			})
 			if err != nil {
 				return false, err
