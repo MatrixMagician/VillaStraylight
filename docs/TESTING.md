@@ -205,6 +205,47 @@ the ROCm backend's privilege/residency literals (`ROCm0`,
 `HSA_OVERRIDE_GFX_VERSION`, `/dev/kfd`) **do** still live in `backend_rocm.go`,
 so a refactor that drops or relocates them also fails CI.
 
+### Grep-gate docs tests
+
+`cmd/villa/docs_gate_test.go` applies the same shape to **prose**. Three tests
+walk every `.md` in the repo and fail the build on a statement the tree has
+stopped supporting:
+
+- **`TestDocsLinkedPathsExist`** — every repo-relative markdown link resolves on
+  disk. External URLs and in-page anchors are out of scope (this test does no
+  network I/O).
+- **`TestDocsMakeTargetsExist`** — every `` `make <target>` `` the docs tell a
+  contributor to run is a target the `Makefile` defines. A `VAR=value` prefix is
+  skipped, so `` `make LINT_ALL=1 lint` `` resolves to `lint`.
+- **`TestDocsNoRetiredClaims`** — a line-scoped denylist of claims that were
+  **true once**. Each entry carries the reason it was retired, which is what the
+  failure prints, and `retiredClaims` in the test is the list — it is deliberately
+  not restated here. It was seeded from the claims a full audit of this repo
+  found still asserted, one of which had survived in **four** files long after
+  the behaviour it described was deleted.
+
+Each claim requires several tokens to co-occur **on one line** and carries an
+`unless` list, so a doc can still discuss a retired behaviour historically —
+which these docs deliberately do, to stop it being reintroduced — without
+tripping the gate.
+
+> **When you retire a behaviour, add its claim to `retiredClaims` in the same
+> commit that removes it.** That is the only way the gate stays ahead of the
+> docs rather than recording what someone already had to find by hand.
+
+**What this gate does NOT catch — read before trusting it.** It sees *dead
+references* and *retired claims*, both decidable from the tree. It cannot see an
+enumeration that has gone incomplete, a description that is simply wrong, or
+prose that is stale but self-consistent: "the suite has 380 test functions" when
+there are 1110 does not trip it, and neither does a package list naming 24 of 34.
+Those still need someone reading the doc against the code. The structural defence
+against that class is not a test — it is to stop writing enumerations into prose,
+which is why the docs now point at `ls internal/`, `newRoot`, and
+`grep -rn "func live" cmd/villa` instead of restating them.
+
+It needs no CI wiring: it is an ordinary Go test, so `make test`, `make check`,
+and CI's existing `go test ./...` step all run it.
+
 ### Dependency-seam (fake) tests
 
 Command handlers that would otherwise touch a live host are tested through an
