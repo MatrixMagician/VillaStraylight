@@ -60,7 +60,8 @@ Go 1.26+. Single module, single static binary built from `./cmd/villa`.
   `recommend` (pure memory-fit `Pick`), `preflight` (reusable BLOCK/WARN gate + `go:embed`
   `rocm-policy.json`), `inference` (`BackendFor` resolver + Backend/Runner/ResidencyProof
   seam; ROCm default + Vulkan fallback), `orchestrate` (Quadlet Render/Reconcile/WriteUnits — the
-  `podman`/`systemctl` seam), `backendswap` (transactional switch), `bench` (pure A/B core), plus `status`,
+  `podman`/`systemctl` seam), `backendswap` (transactional switch), `bench` (pure A/B core),
+  `residentset` (pure admission control for holding several models loaded at once), plus `status`,
   `dashboard`, `metrics`, `config`, `catalog`, `download`, `modelswap`, `llm`.
 
   The v1.3–v1.5 packages follow the same pure-core shape: `memory` + `recall`
@@ -135,7 +136,8 @@ VillaStraylight is a self-hosted, local AI server stack for privacy-conscious po
 - `github.com/spf13/cobra` v1.10.2 - CLI command tree for `villa` (`cmd/villa/root.go` + per-verb files). Subcommands: see the code map above — `newRoot` in `cmd/villa/root.go` is the single authoritative list.
 - Go standard `testing` package - The only test framework. Table-driven tests, `httptest` servers, and byte-for-byte golden fixtures (`cmd/villa/testdata/*.golden.json`, `internal/orchestrate` rendered-unit goldens, `internal/metrics/testdata/slots.json`). No third-party assertion or mocking library — seams are injected `func` fields.
 - `go build` / `go test` / `go vet` / `gofmt` via `Makefile`.
-- `golangci-lint` v2 (config `.golangci.yml`, v2 format) - run by CI on PULL REQUESTS ONLY, gated to NEW issues so the standing backlog does not block work. The pull_request restriction is load-bearing: `only-new-issues` has no base to diff against on a push event, silently degrades to linting the whole tree, and then fails on that same backlog. `make lint` mirrors that gate locally at the SAME pinned version (`.golangci-version`), diffing against `LINT_BASE` (default `origin/main`); `make LINT_ALL=1 lint` lints the whole tree and surfaces the standing backlog.
+- `golangci-lint` v2 (config `.golangci.yml`, v2 format) - run by CI on PULL REQUESTS ONLY, gated to NEW issues. The pull_request restriction is load-bearing: `only-new-issues` has no base to diff against on a push event, silently degrades to linting the whole tree, and then fails on that same backlog. `make lint` mirrors that gate locally at the SAME pinned version (`.golangci-version`), diffing against `LINT_BASE` (default `origin/main`); `make LINT_ALL=1 lint` lints the whole tree — as of PR #61 that is **0 issues**, so the
+  new-issues gate is a floor to hold, not a workaround around a backlog. Do not reintroduce one.
 
 ### Key Dependencies
 
@@ -153,7 +155,7 @@ loop.
 ### Configuration
 
 - TOML file at `$XDG_CONFIG_HOME/villa/config.toml` (resolved via `os.UserConfigDir`). Defined by `VillaConfig` in `internal/config/villaconfig.go`.
-- Fields: `model`, `quant`, `ctx`, `backend` (default `rocm`; `rocm-6.4.4`, `rocm-6.4.4-rocwmma`, `vulkan` also valid — note `internal/catalog/seed.json`'s per-entry `backend_default` OVERRIDES `recommend.defaultBackend`, so the two must be kept in step), `catalog_path`, `dashboard_port` (default `8888`), `chat_port` (default `3000`).
+- Core fields: `model`, `quant`, `ctx`, `backend` (default `rocm`; `rocm-6.4.4`, `rocm-6.4.4-rocwmma`, `vulkan` also valid — note `internal/catalog/seed.json`'s per-entry `backend_default` OVERRIDES `recommend.defaultBackend`, so the two must be kept in step), `catalog_path`, `dashboard_port` (default `8888`), `chat_port` (default `3000`). The subsystem fields (`memory_enabled`/`embedding_*`, `coding_mode`/`coder_*`, `agent_enabled`, `web_search_*`) and `resident []ResidentModel` are all `omitempty` — `VillaConfig` in `internal/config/villaconfig.go` is the list, not this line.
 - Read-only by default: `LoadVilla` returns typed defaults when the file is absent; `SaveVilla` (invoked by `recommend --save` / model swap) writes strictly under the XDG dir with mode `0600`, dir `0700`, and a path-traversal guard. Self-heals zeroed dashboard/chat fields on load (never widens the bind off loopback).
 - `internal/catalog/seed.json` - the seed model catalog (`//go:embed seed.json` in `internal/catalog/load.go`). Catalog has a schema version window; an external override path may be supplied via `catalog_path`.
 - `internal/preflight/rocm-policy.json` - ROCm pin policy: image-tag allow/deny, kernel floor, firmware floor/deny, required `HSA_OVERRIDE_GFX_VERSION` (`//go:embed rocm-policy.json` in `internal/preflight/floors.go`).
@@ -205,7 +207,7 @@ loop.
 - `goimports` enforced via `.golangci.yml` — imports are grouped and ordered.
 - Linters: the golangci-lint v2 defaults (`errcheck`, `govet`, `ineffassign`,
   `staticcheck`, `unused`) plus `misspell` and `revive`. `revive` is the noisiest
-  of them against the standing backlog — new code is expected to satisfy it.
+  of them; the tree is currently clean — new code is expected to satisfy it.
 - Two exclusion rules, both scoped to `_test.go`: `errcheck` is disabled there,
   and so is `revive`'s `unused-parameter` (test doubles must keep the seam's
   parameter names to satisfy a fixed `Deps` signature).
@@ -282,6 +284,7 @@ loop.
 | orchestrate | Render Quadlet units (pure) + reconcile + host-touching systemd seam | `internal/orchestrate/*.go` |
 | backendswap | Transactional `villa backend set` (capture→prove→cutover→rollback) | `internal/backendswap/backendswap.go` |
 | bench | Pure A/B throughput core; `--ab` composes `backendswap.Run` | `internal/bench/bench.go` |
+| residentset | Pure `Admit()` → `Plan`/`Refusal` for the resident model set (LRU evict, no host I/O) | `internal/residentset/admit.go` |
 | modelswap | Guarded `villa model swap` ordering core (shared by CLI + dashboard) | `internal/modelswap/modelswap.go` |
 | status | Read-model aggregation → frozen `Report` (shared by CLI + dashboard) | `internal/status/status.go` |
 | dashboard | Loopback-only stdlib-mux server folding `status` core + embedded SPA | `internal/dashboard/server.go`, `api.go` |
@@ -317,7 +320,8 @@ abstractions, and the directory-structure rationale. The one-line shape: command
 tier (`cmd/villa/*.go`) → pure cores (`internal/*`) → orchestration
 (`internal/orchestrate`) → the running OSS containers plus
 `villa-dashboard.service`, networked over `villa.network` with models on
-`villa-models.volume`. The unit set is `villa-llama`, `villa-openwebui`,
+`villa-models.volume`. The unit set is `villa-llama` (plus one `villa-llama-<slug>`
+per resident model, named by `orchestrate.ResidentUnitName`), `villa-openwebui`,
 `villa-qdrant` + `villa-embed` (v1.3 RAG), and `villa-searxng` + `villa-websafe`
 (v1.5 web search) — the last of which bind-mounts the `villa` binary into a
 distroless container, which is why the CGO-free build gate is load-bearing.
