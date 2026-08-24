@@ -134,7 +134,7 @@ VillaStraylight is a self-hosted, local AI server stack for privacy-conscious po
 ### Frameworks
 
 - `github.com/spf13/cobra` v1.10.2 - CLI command tree for `villa` (`cmd/villa/root.go` + per-verb files). Subcommands: see the code map above — `newRoot` in `cmd/villa/root.go` is the single authoritative list.
-- Go standard `testing` package - The only test framework. Table-driven tests, `httptest` servers, and byte-for-byte golden fixtures (`cmd/villa/testdata/*.golden.json`, `internal/orchestrate` rendered-unit goldens, `internal/metrics/testdata/slots.json`). No third-party assertion or mocking library — seams are injected `func` fields.
+- Go standard `testing` package - The only test framework. Table-driven tests, `httptest` servers, and byte-for-byte golden fixtures (`cmd/villa/testdata/*.golden*`, `internal/orchestrate` rendered-unit goldens, `internal/metrics/testdata/slots.json`). No third-party assertion or mocking library — seams are injected `func` fields.
 - `go build` / `go test` / `go vet` / `gofmt` via `Makefile`.
 - `golangci-lint` v2 (config `.golangci.yml`, v2 format) - run by CI on PULL REQUESTS ONLY, gated to NEW issues. The pull_request restriction is load-bearing: `only-new-issues` has no base to diff against on a push event, silently degrades to linting the whole tree, and then fails on that same backlog. `make lint` mirrors that gate locally at the SAME pinned version (`.golangci-version`), diffing against `LINT_BASE` (default `origin/main`); `make LINT_ALL=1 lint` lints the whole tree — as of PR #61 that is **0 issues**, so the
   new-issues gate is a floor to hold, not a workaround around a backlog. Do not reintroduce one.
@@ -159,7 +159,7 @@ loop.
 - Read-only by default: `LoadVilla` returns typed defaults when the file is absent; `SaveVilla` (invoked by `recommend --save` / model swap) writes strictly under the XDG dir with mode `0600`, dir `0700`, and a path-traversal guard. Self-heals zeroed dashboard/chat fields on load (never widens the bind off loopback).
 - `internal/catalog/seed.json` - the seed model catalog (`//go:embed seed.json` in `internal/catalog/load.go`). Catalog has a schema version window; an external override path may be supplied via `catalog_path`.
 - `internal/preflight/rocm-policy.json` - ROCm pin policy: image-tag allow/deny, kernel floor, firmware floor/deny, required `HSA_OVERRIDE_GFX_VERSION` (`//go:embed rocm-policy.json` in `internal/preflight/floors.go`).
-- `internal/orchestrate/quadlet/*.tmpl` - Quadlet unit `text/template`s (`//go:embed quadlet/*.tmpl` in `internal/orchestrate/render.go`): `container.tmpl`, `network.tmpl`, `volume.tmpl`, `openwebui.container.tmpl`, `openwebui.volume.tmpl`.
+- `internal/orchestrate/quadlet/*.tmpl` - Quadlet unit `text/template`s (`//go:embed quadlet/*.tmpl` in `internal/orchestrate/render.go`): one per service — `ls internal/orchestrate/quadlet/` is the list, not this line.
 - `internal/dashboard/assets/` - embedded dashboard UI (`//go:embed all:assets` in `internal/dashboard/embed.go`); `dashboard.html` is parsed as an `html/template` shell (chat-link port injected), css/js served verbatim.
 - `Makefile` targets: `help`, `run`, `build` (-> `./villa`), `build-static` (SC#4 CGO-free gate), `test`, `test-race`, `vet`, `fmt`, `lint`, `check` (vet+test+test-race), `tidy`, `clean`.
 - `.golangci.yml` - linter config (used by `make lint`).
@@ -346,7 +346,7 @@ server guards its one cached value with a `sync` mutex.
 - **No silent CPU fallback.** Offload assert requires BOTH log-scrape AND sysfs GTT-delta; an unevaluable signal → WARN, a confident absence → FAIL.
 - **Loopback-only binds.** Dashboard binds `127.0.0.1` via `net.JoinHostPort`; never `:port`/`0.0.0.0` (PRIV-01, `internal/dashboard/server.go`).
 - **No shell interpolation.** All host commands are fixed-arg `exec.Command`; model names are catalog-resolved, never shell-interpolated.
-- **`--json`/dashboard contracts are byte-frozen.** Evolve append-only + bump schema version; golden tests guard them (`cmd/villa/testdata/*.json.golden`).
+- **`--json`/dashboard contracts are byte-frozen.** Evolve append-only + bump schema version; golden tests guard them (`cmd/villa/testdata/*.golden*` — most end `.golden`, a couple `.golden.json`; nothing ends `.json.golden`).
 - **No telemetry.** First-party components emit none; outbound limited to image/model pulls (asserted in `status`).
 - **Single static binary.** No Podman full-bindings dependency; Podman is controlled via fixed-arg CLI / REST-over-socket.
 
