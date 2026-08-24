@@ -21,8 +21,8 @@
 //
 // # Honesty invariants carried from the original seam
 //
-//   - An empty id in a 200 body is an ERROR carrying the truncated raw body for
-//     diagnosis, never a silent skip.
+//   - An empty id in a 200 body is an ERROR carrying the response's shape and size
+//     for diagnosis, never a silent skip and never the body's content.
 //   - Unknown is distinct from Missing. An unevaluable attachment state is never
 //     reported as a confident absence.
 //   - Indexing writes go ONLY through the knowledge/files pipeline; villa never
@@ -30,6 +30,7 @@
 package openwebui
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -110,22 +111,55 @@ func (c *Client) do(ctx context.Context, name string, req Request) ([]byte, erro
 	return out, nil
 }
 
-// decode parses a JSON response, reporting a parse miss with the truncated raw body
-// so a failure stays diagnosable without dumping hundreds of KiB to stderr.
+// decode parses a JSON response, reporting the body's SHAPE and SIZE rather than its
+// content. The bodies this package parses include a user's whole chat transcript and
+// an auth response. These errors surface on the operator's own stderr, so echoing one
+// is not a live breach; what it removes is PERSISTENCE, the transcript or credential
+// outliving the moment in scrollback, a captured log, or a pasted bug report.
+//
+// The json error itself is retained deliberately. json.UnmarshalTypeError and
+// json.SyntaxError carry type names, struct field paths and byte offsets, never
+// payload values. The ONE exception is that a SyntaxError names a single offending
+// character, which is a byte of the body; it is kept because it is the most useful
+// part of a syntax error and one character cannot meaningfully carry a secret. So the
+// error is body-shaped, not strictly content-free.
 func decode(name string, out []byte, v any) error {
 	if err := json.Unmarshal(out, v); err != nil {
-		return fmt.Errorf("parse %s (%v): %s", name, err, truncate(out))
+		return fmt.Errorf("parse %s: %v (%s)", name, err, bodyDetail(out))
 	}
 	return nil
 }
 
-// truncate bounds a raw response body embedded in an error detail.
-func truncate(out []byte) string {
-	const limit = 512
-	if len(out) <= limit {
-		return string(out)
+// bodyDetail is the one phrasing every parse diagnostic in this package uses for a
+// response it could not read. It pairs the size with the shape so a caller cannot
+// reach for the classifier and forget the size, and so no site has to decide for
+// itself how much of a body is safe to show. The answer is none of it.
+func bodyDetail(out []byte) string {
+	return fmt.Sprintf("response was %d bytes, %s", len(out), bodyShape(out))
+}
+
+// bodyShape classifies a response body by STRUCTURE alone, so a diagnostic can say
+// what came back without reproducing any of it. It never returns a byte of out.
+//
+// The two signals are the first non-whitespace byte and a json.Valid check. Validity
+// gates whether the body is called JSON at all, so a truncated object is reported as
+// non-JSON text rather than overclaimed as an object.
+func bodyShape(out []byte) string {
+	trimmed := bytes.TrimSpace(out)
+	switch {
+	case len(trimmed) == 0:
+		return "an empty body"
+	case !json.Valid(trimmed):
+		if trimmed[0] == '<' {
+			return "an HTML document"
+		}
+		return "non-JSON text"
+	case trimmed[0] == '{':
+		return "a JSON object"
+	case trimmed[0] == '[':
+		return "a JSON array"
 	}
-	return string(out[:limit]) + "…(truncated)"
+	return "a JSON scalar"
 }
 
 // jsonBody marshals a request body. It exists so no caller hand-builds JSON.
@@ -180,7 +214,7 @@ func (c *Client) SignIn(ctx context.Context, email, password, name string) (stri
 	}
 	tok, ok := extract(out)
 	if !ok {
-		return "", fmt.Errorf("signup returned no token: %s", truncate(out))
+		return "", fmt.Errorf("signup returned no token: %s", bodyDetail(out))
 	}
 	return tok, nil
 }
@@ -205,7 +239,7 @@ func (c *Client) DiscoverModel(ctx context.Context, token string) (string, error
 			return m.ID, nil
 		}
 	}
-	return "", fmt.Errorf("no chat model available from /api/models: %s", truncate(out))
+	return "", fmt.Errorf("no chat model available from /api/models: %s", bodyDetail(out))
 }
 
 // ChatCompletion posts a chat completion and returns the raw response body for the

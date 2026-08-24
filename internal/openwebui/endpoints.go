@@ -194,10 +194,8 @@ func (c *Client) SyncEndpoints(ctx context.Context, token string, want []string)
 		return EndpointSync{}, err
 	}
 	var current Config
-	if jerr := jsonUnmarshal(out, &current); jerr != nil {
-		// Deliberately not decode(): its diagnostic embeds the raw body, and this
-		// body carries the user's API keys.
-		return EndpointSync{}, fmt.Errorf("parse openai/config: %w (response body withheld: it carries API keys)", jerr)
+	if derr := decode("openai/config", out, &current); derr != nil {
+		return EndpointSync{}, derr
 	}
 
 	next, changed := ReconcileEndpoints(current, want)
