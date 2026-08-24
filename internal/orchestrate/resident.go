@@ -49,7 +49,7 @@ type ResidentUnit struct {
 func residentSlug(model string) string {
 	out := make([]byte, 0, len(model))
 	for _, r := range strings.ToLower(model) {
-		if !('a' <= r && r <= 'z' || '0' <= r && r <= '9' || r == '-') {
+		if !slugRune(r) {
 			r = '-'
 		}
 		if r == '-' && (len(out) == 0 || out[len(out)-1] == '-') {
@@ -74,6 +74,13 @@ func ResidentUnitName(model string) (string, error) {
 		return "", fmt.Errorf("orchestrate: resident model %q has no usable unit-name characters", model)
 	}
 	return containerName + "-" + slug, nil
+}
+
+// slugRune reports whether r may appear verbatim in a unit-name slug. Naming the
+// allowed set positively keeps the caller's guard a single negation instead of a
+// negated three-way disjunction the reader has to invert in their head.
+func slugRune(r rune) bool {
+	return 'a' <= r && r <= 'z' || '0' <= r && r <= '9' || r == '-'
 }
 
 // residentContainerNames maps each resident entry to its container/DNS name. It fails

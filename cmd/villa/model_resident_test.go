@@ -187,7 +187,7 @@ func (f *residentFixture) deps() (*residentDeps, *residentRecorder) {
 	// call. The tests that exercise rollback point the unit dir at a temp dir so that
 	// write lands somewhere harmless, or inject rollbackWr to make it fail.
 	if f.rollbackWr != nil {
-		d.removeUnit = func(_, name string) error { return f.rollbackWr }
+		d.removeUnit = func(_, _ string) error { return f.rollbackWr }
 	}
 	return d, rec
 }
