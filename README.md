@@ -33,7 +33,7 @@ VillaStraylight targets AMD Strix Halo's **unified memory** — the CPU and iGPU
 
 Many guides statically partition memory between the CPU and iGPU (e.g. locking 32 GB for video). That is a waste. With **unified dynamic memory**, the GPU can access nearly all system RAM (up to ~124 GB) on demand, while keeping the flexibility to use it for the CPU when needed.
 
-> **Performance note:** Benchmarking by Lars Urban ([Issue #66](https://github.com/MatrixMagician/VillaStraylight/issues/66)) shows a **5–12% performance increase** from setting `amd_iommu=off` instead of the previously recommended pass-through mode.
+> **Performance note:** Benchmarking by Lars Urban shows a **5–12% performance increase** from setting `amd_iommu=off` instead of the previously recommended pass-through mode.
 
 ### Apply the parameters
 
@@ -126,6 +126,23 @@ villa model list                      # list catalog models and the currently lo
 villa model pull <name>               # download and verify a GGUF model into the local models dir
 villa model swap <name>               # fit-guard, auto-pull, persist config, restart inference
 ```
+
+**Hold several models loaded at once:**
+
+```bash
+villa model resident ls               # the primary plus every resident slot: port, unit, state
+villa model resident add <name>       # fit-guard the whole set, allocate a loopback port,
+                                      # auto-pull, render one more unit, start it
+villa model resident rm <name>        # drop the slot, regenerate, stop the orphaned unit
+```
+
+A resident slot is a second `llama-server` kept loaded on its own host loopback port, so
+switching between models in the chat UI costs no cold load — the alternative to `model
+swap`, not a variant of it. `add` sizes the candidate with the same fit math `villa
+recommend` uses, asks whether the whole set still fits the envelope, and **refuses with a
+remediation** when it does not: nothing is written, downloaded, or started on a refusal.
+Both verbs are transactional (ADR-0003) and the chat UI lists every resident endpoint
+alongside the primary. See [CONFIGURATION.md](docs/CONFIGURATION.md#the-resident-set).
 
 **Switch and benchmark the inference backend (v1.1):**
 
@@ -238,17 +255,21 @@ Common tasks are wired into the `Makefile`:
 
 ```bash
 make run        # run the villa CLI via `go run ./cmd/villa`
-make build      # build ./villa
+make build      # build ./villa (version-stamped)
+make build-static # the CGO-free static build CI enforces (SC#4)
 make test       # go test ./...
+make test-race  # the race gate (CR-01): CGO_ENABLED=1 go test -race ./...
 make vet        # go vet ./...
 make fmt        # gofmt -w .
-make lint       # golangci-lint if installed, else go vet
-make check      # vet + test
+make lint       # golangci-lint at the version pinned in .golangci-version,
+                # fetched via `go run` — nothing needs to be on PATH. Reports this
+                # branch's NEW issues; LINT_ALL=1 lints the whole tree.
+make check      # vet + test + test-race (the pre-commit gate)
 make tidy       # go mod tidy
 make clean      # remove build artifacts
 ```
 
-The CLI entry point is `cmd/villa/main.go`; the control-plane libraries live under `internal/` (`detect`, `recommend`, `catalog`, `preflight`, `download`, `inference`, `orchestrate`, `modelswap`, `backendswap`, `bench`, `benchstore`, `status`, `dashboard`, `metrics`, `config`, `doctor`, `usage`, `backup`, `memory`, `recall`, `codingmode`, `agent`, `websafe`, `verifystate`).
+The CLI entry point is `cmd/villa/main.go`; the control-plane libraries live under `internal/` — `ls internal/` is the list, and the code map in [CLAUDE.md](CLAUDE.md) says what each one owns in a line. [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) carries the layering, and [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) the build/test/lint loop in full.
 
 ## License
 
