@@ -42,12 +42,14 @@ self-documented target list.
 | Command | What it runs | Notes |
 |---------|--------------|-------|
 | `make run` | `go run ./cmd/villa` | Runs the CLI in place; pass args after `--` (e.g. `go run ./cmd/villa detect`). |
-| `make build` | `go build -o villa ./cmd/villa` | Produces the single static `./villa` binary. |
+| `make build` | `go build -ldflags "-X main.version=$(VERSION)" -o villa ./cmd/villa` | Produces the single static `./villa` binary, version-stamped from `git describe`. |
 | `make test` | `go test ./...` | Runs the full test suite across all packages. |
-| `make vet` | `go vet ./...` | Static checks; also the `make lint` fallback. |
+| `make test-race` | `CGO_ENABLED=1 go test -race ./...` | The race gate (CR-01/WR-04). cgo is enabled for the TEST run only — the shipped binary stays CGO-free. |
+| `make build-static` | `CGO_ENABLED=0 go build …` | The SC#4 CGO-free gate CI enforces. `make check` does NOT cover it — run this before pushing if you touched imports. |
+| `make vet` | `go vet ./...` | Static checks; the first half of `make check`. |
 | `make fmt` | `gofmt -w .` | Formats the tree in place. |
-| `make lint` | `golangci-lint run`, else `go vet ./...` | Uses golangci-lint if it is on `PATH`; otherwise falls back to `go vet` with a notice. |
-| `make check` | `make vet` + `make test` | The pre-commit gate — run this before pushing. |
+| `make lint` | pinned `golangci-lint run --new-from-merge-base=$(LINT_BASE)` | Runs the version in `.golangci-version` via `go run` — nothing needs to be on `PATH`. Diffs against `origin/main` to mirror CI's new-issues gate; `make LINT_ALL=1 lint` lints the whole tree. |
+| `make check` | `make vet` + `make test` + `make test-race` | The pre-commit gate — run this before pushing. Note it does NOT check formatting or the static build. |
 | `make tidy` | `go mod tidy` | Run after adding/removing imports. |
 | `make clean` | `rm -rf bin villa` | Removes build artifacts. |
 
@@ -68,7 +70,6 @@ go build -o ./villa ./cmd/villa            # or: make build
 systemctl --user restart villa-dashboard.service   # required to load new dashboard code
 ```
 
-<!-- VERIFY: villa-dashboard.service is installed as a user unit on a real host; the unit and DashboardServiceName are confirmed in-repo, the systemctl --user restart step is host behavior -->
 If you are iterating on dashboard backend code and your changes do not appear, this
 restart is almost always the reason.
 
@@ -97,22 +98,32 @@ under-active-development code is:
 |------|--------|-----------|
 | gofmt | (none) | `make fmt` |
 | go vet | (none) | `make vet` |
-| golangci-lint | `.golangci.yml` (repo root) | `make lint` (falls back to `go vet` if golangci-lint is not installed) |
+| golangci-lint | `.golangci.yml` + the pin in `.golangci-version` | `make lint` (fetched via `go run`; no local install needed) |
 
-`golangci-lint` is optional **locally** — `make lint` falls back to `go vet` when the
-binary is absent. It is not optional in CI: every push and pull request runs
-golangci-lint v2 against `.golangci.yml`.
+`make lint` needs nothing installed: it runs the version pinned in `.golangci-version`
+through `go run`, which is the single place that pin lives — the CI workflow reads the
+same file, so local and CI cannot drift onto different linters and disagree about what
+is clean.
 
-That CI step is gated with `only-new-issues`, so it reports findings introduced by
-the change rather than the standing backlog. The backlog is real (about 70 findings
-at the time of writing) and clearing it is a separate, deliberate piece of work;
-failing every PR on it would only teach contributors to ignore the linter.
+There is deliberately **no fall back to `go vet`**. The target used to be
+`command -v … && golangci-lint run || (echo "not found" && go vet)`, and in
+`A && B || C` a *failure* of B runs C — so any real finding printed "golangci-lint not
+found" and exited 0 behind a passing vet. The gate could never fail and it misreported
+why. Do not reintroduce that shape.
+
+In CI the lint step runs on **pull requests only**, gated with `only-new-issues`. That
+restriction is load-bearing: on a push event there is no base to diff against, so the
+action silently degrades to linting the whole tree. The whole tree is currently clean —
+`make LINT_ALL=1 lint` reports 0 issues — so the new-issues gate is a floor to hold
+rather than a workaround around a backlog.
 
 The config is **v2 format**. Under v2 the `errcheck`, `govet`, `ineffassign`,
 `staticcheck` and `unused` set is enabled by default and is no longer listed;
 `misspell` and `revive` are the explicit additions, and `gofmt`/`goimports` moved to
-the `formatters` block. Test files stay excluded from `errcheck`, so table tests may
-ignore returned errors where it aids readability; non-test code may not.
+the `formatters` block. Two exclusions are scoped to `_test.go`: `errcheck`, so table
+tests may ignore returned errors where it aids readability, and `revive`'s
+`unused-parameter`, because test doubles must keep a seam's parameter names to satisfy
+a fixed `Deps` signature. Non-test code gets neither.
 
 A v1-format config is silently unusable by a v2 binary — it fails to load rather than
 linting nothing quietly — so run `golangci-lint migrate` if you ever hit
@@ -261,8 +272,10 @@ and verdict (PASS/WARN/FAIL, typed-Unknown degradation) should be table-covered.
 
 ## Branch and commit conventions
 
-There is no `CONTRIBUTING.md` or `.github/` template in the repo; the conventions below
-are the ones the existing history actually follows.
+[`CONTRIBUTING.md`](../CONTRIBUTING.md) is the authority on standards, required gates
+and PR expectations; the conventions below are the branch/commit shapes the existing
+history actually follows, which it does not cover. There are no `.github/` issue or PR
+templates.
 
 - **Default branch:** `main`.
 - **Branch naming:** type-prefixed, kebab-case, scoped to the work — e.g.
@@ -279,11 +292,14 @@ are the ones the existing history actually follows.
 Before opening a PR:
 
 1. `make fmt` — format the tree.
-2. `make check` — runs `go vet` + the full test suite (the minimum gate).
-3. `make lint` — run golangci-lint if you have it installed.
-4. If you changed rendered units or `--json` output, run the relevant `-update` and
+2. `make check` — `go vet` + the full suite + the `-race` gate (the minimum gate).
+3. `make lint` — the new-issues gate; needs nothing installed.
+4. `make build-static` — if you touched imports. `make check` does not cover the
+   CGO-free build, and the `villa-websafe` unit bind-mounts the binary into a
+   distroless container with no libc, so a dynamically-linked build fails to exec.
+5. If you changed rendered units or `--json` output, run the relevant `-update` and
    commit the regenerated goldens **with** the code change so reviewers see the diff.
-5. Keep commits atomic and Conventional-Commits-formatted; push your type-prefixed
+6. Keep commits atomic and Conventional-Commits-formatted; push your type-prefixed
    branch and open a PR against `main`.
 
 Read `CLAUDE.md` and the package's own file-level doc comments to understand the

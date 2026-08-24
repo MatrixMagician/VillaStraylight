@@ -21,7 +21,7 @@ The short version, run from the repo root:
 make build   # build the villa CLI to ./villa
 make run     # run the control-plane CLI directly (go run ./cmd/villa)
 make test    # run the Go test suite
-make check   # go vet + tests (the minimum a PR must pass)
+make check   # go vet + tests + the -race gate (the minimum a PR must pass)
 ```
 
 Run `make help` to list all available targets.
@@ -37,10 +37,11 @@ Run `make help` to list all available targets.
 - **Vetting**: `go vet` must be clean (`make vet`).
 - **Linting**: the project uses `golangci-lint` (config in `.golangci.yml`) with
   `errcheck`, `govet`, `ineffassign`, `staticcheck`, `unused`, `gofmt`,
-  `goimports`, `misspell`, and `revive` enabled. Run `make lint`. If
-  `golangci-lint` is not installed, `make lint` falls back to `go vet`; install
-  `golangci-lint` to run the full set locally. `errcheck` is relaxed in
-  `_test.go` files only.
+  `goimports`, `misspell`, and `revive` enabled. Run `make lint` — it needs nothing
+  installed, fetching the version pinned in `.golangci-version` via `go run`.
+  It deliberately has NO `go vet` fallback: the old target could never fail, because
+  in `A && B || C` a failing lint ran the fallback and exited 0. `errcheck` and
+  `revive`'s `unused-parameter` are relaxed in `_test.go` files only.
 
 ## Tests a PR must pass
 
