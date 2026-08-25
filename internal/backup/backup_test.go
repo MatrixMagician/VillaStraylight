@@ -7,7 +7,7 @@ import (
 	"errors"
 	"io"
 	"os"
-	"sort"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -978,9 +978,9 @@ func TestBackupSkipsAbsentDataDirArtifacts(t *testing.T) {
 		t.Fatalf("Backup err with absent optional files: %v", err)
 	}
 	names := archiveNames(t, out.Bytes())
-	sort.Strings(names)
+	slices.Sort(names)
 	wantSet := []string{EntryConfig, EntryManifest, EntryOpenWebUIVolume}
-	sort.Strings(wantSet)
+	slices.Sort(wantSet)
 	if len(names) != len(wantSet) {
 		t.Fatalf("expected only present entries %v, got %v", wantSet, names)
 	}
