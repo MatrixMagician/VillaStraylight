@@ -117,6 +117,12 @@ func TestCompareVersions(t *testing.T) {
 		{"7.0.10-201.fc44.x86_64", "6.18.4", 1},
 		{"6.18.9-300.fc44", "6.18.9", 0},
 		{"6.18", "6.18.4", -1},
+		// A missing trailing segment is a zero, not "shorter sorts first". A
+		// lexicographic slice compare would call these -1/+1 and turn an
+		// at-the-floor kernel into a false BLOCK.
+		{"6.18.0", "6.18", 0},
+		{"6.18", "6.18.0", 0},
+		{"6.18", "6.18.0.0", 0},
 	}
 	for _, tc := range tests {
 		if got := compareVersions(tc.a, tc.b); got != tc.want {

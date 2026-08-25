@@ -140,6 +140,9 @@ func TestVersionCompare(t *testing.T) {
 		{"v0.76.1", "v0.76.0", 1},
 		{"0.76.0-rc1", "0.76.0", 0}, // suffix stops the segment; numeric portions equal
 		{"1.0.0", "0.999.999", 1},
+		// A missing trailing segment is a zero, not "shorter sorts first".
+		{"0.76.0", "0.76", 0},
+		{"0.76", "0.76.0", 0},
 	}
 	for _, c := range cases {
 		if got := compareVersions(c.a, c.b); got != c.want {
