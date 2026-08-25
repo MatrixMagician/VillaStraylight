@@ -409,8 +409,7 @@ func runProbeCurl(ctx context.Context, helperImage string, curlArgs ...string) (
 //
 // runErr == nil is not this function's concern (the caller short-circuits to 0 before calling).
 func extractExitCode(runErr error) int {
-	var exitErr *exec.ExitError
-	if errors.As(runErr, &exitErr) {
+	if exitErr, ok := errors.AsType[*exec.ExitError](runErr); ok {
 		return exitErr.ExitCode()
 	}
 	return -1

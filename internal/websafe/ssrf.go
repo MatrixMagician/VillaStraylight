@@ -25,6 +25,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -96,12 +97,7 @@ func ipRejected(ip netip.Addr) bool {
 		ip.IsUnspecified() {
 		return true
 	}
-	for _, p := range rejectPrefixes {
-		if p.Contains(ip) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(rejectPrefixes, func(p netip.Prefix) bool { return p.Contains(ip) })
 }
 
 // hostRejected blocks internal service names regardless of DNS resolution

@@ -6,7 +6,10 @@
 // caller decides to run it).
 package residentset
 
-import "sort"
+import (
+	"cmp"
+	"slices"
+)
 
 // Admit decides whether candidate may join s: NoOp when it is already
 // resident, a plain Add when it fits without evicting anything, an
@@ -96,7 +99,7 @@ func planEvictions(slots []Slot, used, candidateBytes, available uint64) (evicte
 			evictable = append(evictable, s)
 		}
 	}
-	sort.SliceStable(evictable, func(i, j int) bool { return evictable[i].Order < evictable[j].Order })
+	slices.SortStableFunc(evictable, func(a, b Slot) int { return cmp.Compare(a.Order, b.Order) })
 
 	for _, s := range evictable {
 		if used-freed+candidateBytes <= available {

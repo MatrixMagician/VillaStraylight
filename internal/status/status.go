@@ -603,14 +603,13 @@ func Run(d Deps) Report {
 	// must never become a false FAIL.
 	activeState := func(unit string) string {
 		active, aerr := d.IsActive(unit)
-		switch {
-		case aerr == nil:
+		if aerr == nil {
 			return active
-		case errors.As(aerr, &orchestrate.ErrCommandFailed{}):
-			return activeErrored
-		default:
-			return "unknown"
 		}
+		if _, ok := errors.AsType[orchestrate.ErrCommandFailed](aerr); ok {
+			return activeErrored
+		}
+		return "unknown"
 	}
 
 	// row builds one service row. The kind decides the offload treatment, which is
@@ -893,7 +892,7 @@ func HealthStatus(h HealthState) inference.Status {
 func publishedPorts(units []orchestrate.Unit) []PortBinding {
 	var ports []PortBinding
 	for _, u := range units {
-		for _, line := range strings.Split(u.Text, "\n") {
+		for line := range strings.SplitSeq(u.Text, "\n") {
 			line = strings.TrimSpace(line)
 			val, ok := strings.CutPrefix(line, "PublishPort=")
 			if !ok {

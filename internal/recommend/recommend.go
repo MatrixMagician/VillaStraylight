@@ -13,6 +13,7 @@
 package recommend
 
 import (
+	"cmp"
 	"fmt"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/catalog"
@@ -591,10 +592,7 @@ func buildRecommendation(m catalog.Model, ctx int, envelope uint64, degraded boo
 	// silent OOM into the rendered unit's -c and the ceiling stress math.
 	total := addSaturating(addSaturating(m.WeightBytes, kv), headroom)
 
-	backend := m.BackendDefault
-	if backend == "" {
-		backend = defaultBackend
-	}
+	backend := cmp.Or(m.BackendDefault, defaultBackend)
 
 	return Recommendation{
 		Model:               m.ID,

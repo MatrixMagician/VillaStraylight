@@ -2,7 +2,7 @@ package bench
 
 import (
 	"math"
-	"sort"
+	"slices"
 )
 
 // stats.go holds the stdlib-only aggregation helpers. There is no stats library in
@@ -23,8 +23,8 @@ func median(xs []float64) float64 {
 	if n == 0 {
 		return 0
 	}
-	s := append([]float64(nil), xs...)
-	sort.Float64s(s)
+	s := slices.Clone(xs)
+	slices.Sort(s)
 	if n%2 == 1 {
 		return s[n/2]
 	}

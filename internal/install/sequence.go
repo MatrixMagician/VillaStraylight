@@ -1,6 +1,10 @@
 package install
 
-import "github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
+import (
+	"slices"
+
+	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
+)
 
 // sequence.go owns install's mutate-and-start ordering.
 //
@@ -180,17 +184,8 @@ func BuildSequence(gates Gates, u Units, secretNeeded bool) Sequence {
 // never seen — gating on the subsystem flag alone would do exactly that on a host
 // where the render produced no such unit.
 func UnitPresent(plan orchestrate.Plan, unitName string) bool {
-	for _, u := range plan.Changed {
-		if u.Name == unitName {
-			return true
-		}
-	}
-	for _, u := range plan.Unchanged {
-		if u.Name == unitName {
-			return true
-		}
-	}
-	return false
+	named := func(u orchestrate.Unit) bool { return u.Name == unitName }
+	return slices.ContainsFunc(plan.Changed, named) || slices.ContainsFunc(plan.Unchanged, named)
 }
 
 // AssertStartOrder checks that the services actually started match the sequence the
@@ -220,10 +215,8 @@ func AssertStartOrder(seq Sequence, performed []string) error {
 		}
 		if found == -1 {
 			// Either unplanned, or out of order relative to what came before.
-			for i := 0; i < at; i++ {
-				if planned[i] == got {
-					return &OrderError{Planned: planned, Performed: performed, Service: got, Reason: "started out of the planned order"}
-				}
+			if slices.Contains(planned[:at], got) {
+				return &OrderError{Planned: planned, Performed: performed, Service: got, Reason: "started out of the planned order"}
 			}
 			return &OrderError{Planned: planned, Performed: performed, Service: got, Reason: "started but never planned"}
 		}

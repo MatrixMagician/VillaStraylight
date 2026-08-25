@@ -1,5 +1,7 @@
 package main
 
+import "cmp"
+
 // version.go provides the build-stamped villa binary version (Phase 16, /
 // OQ1). No version constant existed before this phase; the backup manifest's
 // villa_version field (and the version-skew compare) needs a single source.
@@ -16,8 +18,5 @@ var version = "dev"
 // manifest.villa_version and the version-skew comparison. It never
 // returns empty: an unstamped build reports "dev".
 func villaVersion() string {
-	if version == "" {
-		return "dev"
-	}
-	return version
+	return cmp.Or(version, "dev")
 }
