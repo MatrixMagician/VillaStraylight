@@ -2,6 +2,7 @@ package detect
 
 import (
 	"bufio"
+	"cmp"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -322,11 +323,7 @@ func kernelMeetsROCmFloor(kernelVersion string) bool {
 // new semantics) because detect cannot import preflight without a cycle.
 func compareVersionSegments(a, b string) int {
 	as, bs := splitNumericSegments(a), splitNumericSegments(b)
-	n := len(as)
-	if len(bs) > n {
-		n = len(bs)
-	}
-	for i := 0; i < n; i++ {
+	for i := range max(len(as), len(bs)) {
 		var av, bv int
 		if i < len(as) {
 			av = as[i]
@@ -334,11 +331,8 @@ func compareVersionSegments(a, b string) int {
 		if i < len(bs) {
 			bv = bs[i]
 		}
-		if av < bv {
-			return -1
-		}
-		if av > bv {
-			return 1
+		if c := cmp.Compare(av, bv); c != 0 {
+			return c
 		}
 	}
 	return 0
@@ -350,7 +344,7 @@ func splitNumericSegments(v string) []int {
 	var out []int
 	for _, seg := range strings.Split(v, ".") {
 		n := 0
-		for i := 0; i < len(seg); i++ {
+		for i := range len(seg) {
 			ch := seg[i]
 			if ch < '0' || ch > '9' {
 				break
@@ -405,7 +399,7 @@ func isYYYYMMDD(s string) bool {
 	if len(s) != 8 {
 		return false
 	}
-	for i := 0; i < len(s); i++ {
+	for i := range len(s) {
 		if s[i] < '0' || s[i] > '9' {
 			return false
 		}

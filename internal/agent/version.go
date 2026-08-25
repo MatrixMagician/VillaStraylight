@@ -1,7 +1,9 @@
 package agent
 
+import "cmp"
+
 // version.go is a VERBATIM clone of internal/preflight/floors.go's
-// compareVersions + splitVersion (lines 141-206). It compares the pinned policy
+// compareVersions + splitVersion. It compares the pinned policy
 // version against the installed `crush --version` output for presence/drift
 // checks. Cloned (not imported) so internal/agent takes no dependency on the
 // preflight package and the comparator stays unexported/internal here. The
@@ -17,11 +19,7 @@ package agent
 func compareVersions(a, b string) int {
 	as := splitVersion(a)
 	bs := splitVersion(b)
-	n := len(as)
-	if len(bs) > n {
-		n = len(bs)
-	}
-	for i := 0; i < n; i++ {
+	for i := range max(len(as), len(bs)) {
 		var av, bv int
 		if i < len(as) {
 			av = as[i]
@@ -29,11 +27,8 @@ func compareVersions(a, b string) int {
 		if i < len(bs) {
 			bv = bs[i]
 		}
-		if av < bv {
-			return -1
-		}
-		if av > bv {
-			return 1
+		if c := cmp.Compare(av, bv); c != 0 {
+			return c
 		}
 	}
 	return 0
@@ -45,6 +40,8 @@ func splitVersion(v string) []int {
 	var out []int
 	cur := 0
 	inNum := false
+	// Not a range-over-int loop: the skip-ahead below advances i past a
+	// non-numeric run, which a range loop would discard.
 	for i := 0; i < len(v); i++ {
 		ch := v[i]
 		if ch >= '0' && ch <= '9' {
