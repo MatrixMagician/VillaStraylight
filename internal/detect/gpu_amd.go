@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -114,12 +115,9 @@ func vulkanICD(icdPath string) Str {
 // stack exists to catch (Pitfall 3) — they must never be reported as the iGPU.
 func isSoftwareRendererName(name string) bool {
 	lower := strings.ToLower(name)
-	for _, sw := range []string{"llvmpipe", "softpipe", "lavapipe", "swrast"} {
-		if strings.Contains(lower, sw) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc([]string{"llvmpipe", "softpipe", "lavapipe", "swrast"}, func(sw string) bool {
+		return strings.Contains(lower, sw)
+	})
 }
 
 // IsSoftwareRendererName is the exported reuse seam for the Phase-2 offload
@@ -342,7 +340,7 @@ func compareVersionSegments(a, b string) int {
 // segment at the first non-digit so distro suffixes don't corrupt a floor compare.
 func splitNumericSegments(v string) []int {
 	var out []int
-	for _, seg := range strings.Split(v, ".") {
+	for seg := range strings.SplitSeq(v, ".") {
 		n := 0
 		for i := range len(seg) {
 			ch := seg[i]
@@ -413,10 +411,8 @@ func isYYYYMMDD(s string) bool {
 // ordering and REUSES compareVersionSegments (no new comparator). It returns a bare
 // bool; the Bool wrapping happens in readiness_rocm.go's firmwareDateOK.
 func firmwareDatePolicyOK(date string) bool {
-	for _, denied := range rocmFirmwareDeny {
-		if date == denied {
-			return false
-		}
+	if slices.Contains(rocmFirmwareDeny, date) {
+		return false
 	}
 	return compareVersionSegments(date, rocmFirmwareFloor) >= 0
 }

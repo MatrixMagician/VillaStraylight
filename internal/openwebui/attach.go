@@ -3,6 +3,7 @@ package openwebui
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/recall"
 )
@@ -52,12 +53,10 @@ func mergeKnowledgeIntoRow(row map[string]any, kbID, kbName string) map[string]a
 // hasKnowledgeID reports whether an untyped meta.knowledge list contains the id. It
 // tolerates the untyped shape the API returns and never panics on a mis-shaped meta.
 func hasKnowledgeID(items []any, kbID string) bool {
-	for _, it := range items {
-		if m, ok := it.(map[string]any); ok && m["id"] == kbID {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(items, func(it any) bool {
+		m, ok := it.(map[string]any)
+		return ok && m["id"] == kbID
+	})
 }
 
 // rowHasKnowledgeID is hasKnowledgeID over a whole row.

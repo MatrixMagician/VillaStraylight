@@ -15,6 +15,7 @@ package recall
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 )
@@ -63,10 +64,7 @@ func linearThread(messages map[string]ChatMsg, currentID string) []ChatMsg {
 		out = append(out, m)
 		id = m.ParentID
 	}
-	// reverse → chronological
-	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
-		out[i], out[j] = out[j], out[i]
-	}
+	slices.Reverse(out) // chronological
 	return out
 }
 

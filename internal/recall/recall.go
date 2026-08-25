@@ -10,7 +10,10 @@
 // deterministic sorted output so run output and tests are byte-stable.
 package recall
 
-import "sort"
+import (
+	"cmp"
+	"slices"
+)
 
 // ChatRef is one live chat as the Open WebUI list API reports it: the chat id,
 // the owning user id, and updated_at in epoch SECONDS (the list endpoint's unit).
@@ -57,8 +60,9 @@ func Plan(live []ChatRef, state State) PlanResult {
 		}
 	}
 
-	sort.Slice(out.Adds, func(i, j int) bool { return out.Adds[i].ID < out.Adds[j].ID })
-	sort.Slice(out.Updates, func(i, j int) bool { return out.Updates[i].ID < out.Updates[j].ID })
-	sort.Strings(out.Deletes)
+	byID := func(a, b ChatRef) int { return cmp.Compare(a.ID, b.ID) }
+	slices.SortFunc(out.Adds, byID)
+	slices.SortFunc(out.Updates, byID)
+	slices.Sort(out.Deletes)
 	return out
 }

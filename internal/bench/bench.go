@@ -205,7 +205,7 @@ func benchN(ctx context.Context, d Deps, spec Spec, side string) (Stats, bool) {
 		d.OnSideStart(side, spec)
 	}
 	// Warmup: measure then discard (not residency-gated, never counted).
-	for i := 0; i < spec.Warmup; i++ {
+	for range spec.Warmup {
 		_, _, _, _ = d.Measure(ctx)
 	}
 

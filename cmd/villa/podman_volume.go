@@ -87,8 +87,7 @@ func classifyVolumeExists(err error) (exists, warn bool) {
 	if err == nil {
 		return true, false
 	}
-	var ee *exec.ExitError
-	if errors.As(err, &ee) && ee.ExitCode() == 1 {
+	if ee, ok := errors.AsType[*exec.ExitError](err); ok && ee.ExitCode() == 1 {
 		return false, false
 	}
 	return false, true

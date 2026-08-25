@@ -135,7 +135,7 @@ func (r searxngResult) hasAnswer() bool {
 func evalSearxngProof(probe func() (searxngResult, error)) searxngProof {
 	var lastErr error
 	var got searxngResult
-	for attempt := 0; attempt < searxngProofRetries; attempt++ {
+	for range searxngProofRetries {
 		got, lastErr = probe()
 		if lastErr == nil && got.hasAnswer() {
 			return searxngProof{status: preflight.StatusPass, detail: fmt.Sprintf("real format=json query returned %d result(s)", len(got.Results))}
