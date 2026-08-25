@@ -1,6 +1,7 @@
 package preflight
 
 import (
+	"cmp"
 	_ "embed"
 	"encoding/json"
 	"fmt"
@@ -146,11 +147,7 @@ func Floors() Floor {
 func compareVersions(a, b string) int {
 	as := splitVersion(a)
 	bs := splitVersion(b)
-	n := len(as)
-	if len(bs) > n {
-		n = len(bs)
-	}
-	for i := 0; i < n; i++ {
+	for i := range max(len(as), len(bs)) {
 		var av, bv int
 		if i < len(as) {
 			av = as[i]
@@ -158,11 +155,8 @@ func compareVersions(a, b string) int {
 		if i < len(bs) {
 			bv = bs[i]
 		}
-		if av < bv {
-			return -1
-		}
-		if av > bv {
-			return 1
+		if c := cmp.Compare(av, bv); c != 0 {
+			return c
 		}
 	}
 	return 0
@@ -174,6 +168,8 @@ func splitVersion(v string) []int {
 	var out []int
 	cur := 0
 	inNum := false
+	// Not a range-over-int loop: the skip-ahead below advances i past a
+	// non-numeric run, which a range loop would discard.
 	for i := 0; i < len(v); i++ {
 		ch := v[i]
 		if ch >= '0' && ch <= '9' {
