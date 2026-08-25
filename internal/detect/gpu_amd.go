@@ -315,10 +315,16 @@ func kernelMeetsROCmFloor(kernelVersion string) bool {
 }
 
 // compareVersionSegments compares two dotted numeric version strings, returning
-// -1/0/+1. Each segment stops at the first non-digit so distro suffixes
-// (e.g. "-300.fc44") don't break the compare. It deliberately mirrors preflight's
-// compareVersions/splitVersion; the comparator is re-expressed (not re-rolled with
-// new semantics) because detect cannot import preflight without a cycle.
+// -1/0/+1. It reads one value per dotted segment, taking that segment's leading
+// digit run, so a segment with no leading digit contributes zero and a distro
+// suffix (e.g. "-300.fc44") does not break the compare. A missing trailing
+// segment counts as zero rather than sorting before its longer prefix-mate.
+//
+// It is NOT interchangeable with preflight's compareVersions, despite the shared
+// shape. That one walks characters rather than segments, and reads "1.2-3.4" as
+// [1 2 0 4] where this reads [1 2 4]. TestCompareVersionSegmentsDivergesFromPreflight
+// pins the difference. The duplication exists because detect cannot import
+// preflight without a cycle.
 func compareVersionSegments(a, b string) int {
 	as, bs := splitNumericSegments(a), splitNumericSegments(b)
 	for i := range max(len(as), len(bs)) {
@@ -336,8 +342,10 @@ func compareVersionSegments(a, b string) int {
 	return 0
 }
 
-// splitNumericSegments turns "6.18.9-300.fc44.x86_64" into [6 18 9], stopping each
-// segment at the first non-digit so distro suffixes don't corrupt a floor compare.
+// splitNumericSegments turns "6.18.9-300.fc44.x86_64" into [6 18 9 0 0], taking
+// each dotted segment's leading digit run so a distro suffix contributes zero
+// rather than corrupting a floor compare. The trailing zeros are load-bearing.
+// They are what makes a missing segment compare equal rather than lower.
 func splitNumericSegments(v string) []int {
 	var out []int
 	for seg := range strings.SplitSeq(v, ".") {

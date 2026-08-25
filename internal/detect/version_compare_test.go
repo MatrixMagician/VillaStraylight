@@ -38,10 +38,15 @@ func TestCompareVersionSegmentsZeroPads(t *testing.T) {
 // TestCompareVersionSegmentsDivergesFromPreflight records where this comparator
 // and preflight's compareVersions disagree, so the divergence stays a known,
 // asserted fact instead of a surprise. preflight's splitVersion emits a zero for
-// the segment a mid-string suffix truncates, so it reads "1.2-3.4" as [1 2 0 4];
-// splitNumericSegments splits on "." first and reads it as [1 2 4]. Real kernel
-// and firmware strings never carry a non-numeric suffix outside the last
-// segment, which is why the two have agreed in practice.
+// the segment a mid-string suffix truncates, so it reads "1.2-3.4" as [1 2 0 4].
+// splitNumericSegments splits on "." first and reads it as [1 2 4].
+//
+// The parsed values do diverge on real input. A Fedora rawhide kernel such as
+// "6.19.0-0.rc1.20260101git1234.5.fc45.x86_64" splits to nine segments here and
+// eight there. No VERDICT can diverge, because the ROCm kernel floor is three
+// segments, so the compare is decided at indices 0 to 2 while the divergence
+// starts at index 3. Flipping a verdict would need a non-numeric run inside
+// segment 0 or 1, which no kernel version has.
 func TestCompareVersionSegmentsDivergesFromPreflight(t *testing.T) {
 	if got := compareVersionSegments("1.2-3.4", "1.2.0.4"); got != 1 {
 		t.Errorf("compareVersionSegments(%q, %q) = %d, want 1", "1.2-3.4", "1.2.0.4", got)

@@ -162,8 +162,10 @@ func compareVersions(a, b string) int {
 	return 0
 }
 
-// splitVersion turns "6.18.9-300.fc44.x86_64" into [6 18 9], stopping each
-// segment at the first non-digit so distro suffixes don't break the compare.
+// splitVersion turns "6.18.9-300.fc44.x86_64" into [6 18 9 0 0], stopping each
+// segment at the first non-digit so distro suffixes don't break the compare. The
+// trailing zeros are load-bearing. They are what makes a missing segment compare
+// equal rather than lower.
 func splitVersion(v string) []int {
 	var out []int
 	cur := 0
