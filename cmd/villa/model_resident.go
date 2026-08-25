@@ -23,6 +23,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -666,12 +667,7 @@ func allocResidentPort(primaryPort int, slots []config.ResidentModel) int {
 // deliberately narrower than install.UnitPresent, which also scans the unchanged half:
 // the chat UI is restarted only when its unit ACTUALLY changed.
 func unitsContain(units []orchestrate.Unit, name string) bool {
-	for _, u := range units {
-		if u.Name == name {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(units, func(u orchestrate.Unit) bool { return u.Name == name })
 }
 
 // liveResidentDeps wires the resident verbs to the real host, reusing the seams the

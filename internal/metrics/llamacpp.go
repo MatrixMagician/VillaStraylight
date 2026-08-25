@@ -168,7 +168,7 @@ type Slot struct {
 // are unlabeled in practice; this only hardens against a labeled emission.
 func parsePromText(body string) map[string]float64 {
 	out := map[string]float64{}
-	for _, line := range strings.Split(body, "\n") {
+	for line := range strings.SplitSeq(body, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue

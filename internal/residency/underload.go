@@ -99,7 +99,7 @@ func UnderLoad(ctx context.Context, d Deps, t Target, l Load) LoadResult {
 	defer cancel()
 
 	res := LoadResult{Rounds: l.Rounds}
-	for round := 0; round < l.Rounds; round++ {
+	for range l.Rounds {
 		if ctx.Err() != nil {
 			break // budget exhausted — stop driving
 		}

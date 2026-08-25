@@ -21,6 +21,7 @@
 package usage
 
 import (
+	"maps"
 	"time"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/jsonstore"
@@ -127,9 +128,7 @@ func Fold(prior Totals, sample Sample) Totals {
 		SchemaVersion: usageSchemaVersion,
 		Models:        make(map[string]ModelUsage, len(prior.Models)+1),
 	}
-	for k, v := range prior.Models {
-		out.Models[k] = v
-	}
+	maps.Copy(out.Models, prior.Models)
 
 	mu := out.Models[sample.Model]
 	mu.Model = sample.Model

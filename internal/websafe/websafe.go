@@ -301,7 +301,7 @@ func blankComments(s string) string {
 // case-insensitive tag matching.
 func asciiLower(s string) string {
 	var b []byte
-	for i := 0; i < len(s); i++ {
+	for i := range len(s) {
 		c := s[i]
 		if c >= 'A' && c <= 'Z' {
 			if b == nil {
