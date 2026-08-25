@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"syscall"
 
@@ -685,7 +686,7 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 	// Model weights are deliberately NOT captured, so a failed install leaves them
 	// and a retry does not re-download tens of gigabytes.
 	priorUnits := map[string]string{}
-	for _, u := range append(append([]orchestrate.Unit{}, plan.Changed...), plan.Unchanged...) {
+	for _, u := range slices.Concat(plan.Changed, plan.Unchanged) {
 		if d.readUnit != nil {
 			if text, ok := d.readUnit(unitDir, u.Name); ok {
 				priorUnits[u.Name] = text
