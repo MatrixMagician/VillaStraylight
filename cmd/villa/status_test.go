@@ -184,9 +184,6 @@ func TestStatusOpenWebUIActiveFoldsToFail(t *testing.T) {
 	}
 }
 
-// floatPtr is a test helper for the typed-optional tok/s seam.
-func floatPtr(v float64) *float64 { return &v }
-
 // TestStatusTokensPerSecTypedOptional proves the live tok/s surfaces honestly:
 // generating → a value rendered in the table AND labeled by the active backend; idle →
 // omitted (seam returns nil); scrape-unavailable → omitted. NEVER a fabricated 0.
@@ -195,7 +192,7 @@ func TestStatusTokensPerSecTypedOptional(t *testing.T) {
 
 	t.Run("generating → value rendered + labeled by backend", func(t *testing.T) {
 		d := newStatusDeps(t, units)
-		d.GenTokensPerSec = func(string) *float64 { return floatPtr(12.3) }
+		d.GenTokensPerSec = func(string) *float64 { return new(12.3) }
 		report := runStatusReport(t, d)
 		if report.GenTokensPerSec == nil {
 			t.Fatalf("generating server must surface a tok/s reading (got nil)")

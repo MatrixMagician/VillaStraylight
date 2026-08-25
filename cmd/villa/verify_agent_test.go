@@ -381,7 +381,7 @@ func TestVerifyAgentRegistered(t *testing.T) {
 func TestRunVerifyAgentGate(t *testing.T) {
 	newCmd := func() *cobra.Command {
 		c := &cobra.Command{}
-		c.SetContext(context.Background())
+		c.SetContext(t.Context())
 		return c
 	}
 

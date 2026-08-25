@@ -491,7 +491,7 @@ func TestBenchABFailedRestoreWarns(t *testing.T) {
 	t.Cleanup(func() { os.Stderr = prevStderr })
 
 	d := liveBenchDeps(true, benchSpec(3, 1))
-	restoreErr := d.Restore(context.Background(), "vulkan")
+	restoreErr := d.Restore(t.Context(), "vulkan")
 
 	_ = w.Close()
 	var buf bytes.Buffer

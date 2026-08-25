@@ -190,7 +190,7 @@ func TestSwapDepsSurfaceRestartIsOnlyServiceMutator(t *testing.T) {
 	if tp.NumField() != len(want) {
 		t.Fatalf("Deps has %d fields, want %d — a new seam was added; review it against D-09 (chat swap must never mutate the memory stack) before extending this pin", tp.NumField(), len(want))
 	}
-	for i := 0; i < tp.NumField(); i++ {
+	for i := range tp.NumField() {
 		name := tp.Field(i).Name
 		if !want[name] {
 			t.Errorf("unexpected Deps field %q — review against D-09 before extending this pin", name)

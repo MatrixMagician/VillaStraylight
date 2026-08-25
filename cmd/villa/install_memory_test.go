@@ -180,8 +180,7 @@ func TestExtractExitCode(t *testing.T) {
 		if runErr == nil {
 			t.Fatalf("expected a non-nil run error for a nonexistent binary")
 		}
-		var exitErr *exec.ExitError
-		if errors.As(runErr, &exitErr) {
+		if _, ok := errors.AsType[*exec.ExitError](runErr); ok {
 			t.Fatalf("a nonexistent binary must NOT surface as *exec.ExitError; got %T", runErr)
 		}
 		if got := extractExitCode(runErr); got != -1 {

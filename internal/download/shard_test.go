@@ -1,7 +1,6 @@
 package download
 
 import (
-	"context"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -47,7 +46,7 @@ func TestShardsAllPresentVerify(t *testing.T) {
 		})
 	}
 	m := catalog.Model{ID: "three-shard", Shards: shards}
-	if err := pullShards(context.Background(), http.DefaultClient, m, dir); err != nil {
+	if err := pullShards(t.Context(), http.DefaultClient, m, dir); err != nil {
 		t.Fatalf("pullShards: %v", err)
 	}
 	for i := range bodies {
@@ -75,7 +74,7 @@ func TestShardsRejectMissing(t *testing.T) {
 		SizeBytes: 7,
 	}
 	m := catalog.Model{ID: "two-shard-missing", Shards: []catalog.Shard{sh1, sh2}}
-	if err := pullShards(context.Background(), http.DefaultClient, m, dir); err == nil {
+	if err := pullShards(t.Context(), http.DefaultClient, m, dir); err == nil {
 		t.Fatal("expected rejection when a shard is missing, got nil")
 	}
 }
@@ -94,7 +93,7 @@ func TestShardsRejectMismatch(t *testing.T) {
 	sh2 := catalog.Shard{URL: srvBad.URL, Filename: filepathName(2, 2), SHA256: wrong, SizeBytes: uint64(len(bad))}
 
 	m := catalog.Model{ID: "two-shard-mismatch", Shards: []catalog.Shard{sh1, sh2}}
-	if err := pullShards(context.Background(), http.DefaultClient, m, dir); err == nil {
+	if err := pullShards(t.Context(), http.DefaultClient, m, dir); err == nil {
 		t.Fatal("expected rejection when a shard mismatches, got nil")
 	}
 }
@@ -105,7 +104,7 @@ func TestShardsSingle(t *testing.T) {
 	body := []byte("the only shard")
 	srv := rangeServer(t, body, sha256Hex(body), int64(len(body)))
 	m := catalog.Model{ID: "single", Shards: []catalog.Shard{makeShard(srv.URL, "only.gguf", body)}}
-	if err := pullShards(context.Background(), http.DefaultClient, m, dir); err != nil {
+	if err := pullShards(t.Context(), http.DefaultClient, m, dir); err != nil {
 		t.Fatalf("pullShards(single): %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "only.gguf")); err != nil {
@@ -117,7 +116,7 @@ func TestShardsSingle(t *testing.T) {
 func TestPullModelEmptyRejected(t *testing.T) {
 	dir := t.TempDir()
 	m := catalog.Model{ID: "no-shards"}
-	if err := PullModel(context.Background(), m, dir); err == nil {
+	if err := PullModel(t.Context(), m, dir); err == nil {
 		t.Fatal("expected rejection for a model with zero shards")
 	}
 }

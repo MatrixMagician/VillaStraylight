@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"strings"
 	"testing"
 
@@ -46,7 +45,7 @@ func TestNoAccidentalConsent(t *testing.T) {
 	}
 
 	for _, script := range hostile {
-		res, err := runWizard(context.Background(), in, strings.NewReader(script), &strings.Builder{})
+		res, err := runWizard(t.Context(), in, strings.NewReader(script), &strings.Builder{})
 		consented := res.consentDecisions["PRE-05"]
 
 		switch script {

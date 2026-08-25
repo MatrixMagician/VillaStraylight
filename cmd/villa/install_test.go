@@ -1267,7 +1267,7 @@ func TestReadiness503ThenReady(t *testing.T) {
 		}
 		return http.StatusOK, nil
 	}
-	r := pollReadiness(context.Background(), probe, time.Second, time.Millisecond)
+	r := pollReadiness(t.Context(), probe, time.Second, time.Millisecond)
 	if r.status != preflight.StatusPass {
 		t.Fatalf("503-then-200 status = %v, want PASS (detail=%q)", r.status, r.detail)
 	}
@@ -1280,7 +1280,7 @@ func TestReadiness503ThenReady(t *testing.T) {
 // Unknown) at the deadline, never a confident FAIL.
 func TestReadinessTimeoutWarns(t *testing.T) {
 	probe := func() (int, error) { return http.StatusServiceUnavailable, nil }
-	r := pollReadiness(context.Background(), probe, 5*time.Millisecond, time.Millisecond)
+	r := pollReadiness(t.Context(), probe, 5*time.Millisecond, time.Millisecond)
 	if r.status != preflight.StatusWarn {
 		t.Fatalf("timeout status = %v, want WARN (not FAIL)", r.status)
 	}
@@ -1293,7 +1293,7 @@ func TestReadinessTimeoutWarns(t *testing.T) {
 // polling (server may still be coming up), resolving to WARN at the deadline.
 func TestReadinessTransportErrorWarns(t *testing.T) {
 	probe := func() (int, error) { return 0, errors.New("connection refused") }
-	r := pollReadiness(context.Background(), probe, 5*time.Millisecond, time.Millisecond)
+	r := pollReadiness(t.Context(), probe, 5*time.Millisecond, time.Millisecond)
 	if r.status != preflight.StatusWarn {
 		t.Fatalf("transport-error status = %v, want WARN", r.status)
 	}
@@ -1303,7 +1303,7 @@ func TestReadinessTransportErrorWarns(t *testing.T) {
 // loop starts is observed before any probe runs, returning a WARN immediately
 // (the deadline/cancellation is checked before each probe, not only after).
 func TestReadinessCancelledContextAbortsBeforeProbe(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	cancel() // cancel up-front
 	probed := false
 	probe := func() (int, error) {
@@ -1882,7 +1882,7 @@ func TestEvalMemoryProof(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			embedProbe := func() (int, error) { return tc.embedDim, tc.embedErr }
 			qdrantProbe := func() (bool, error) { return tc.writable, tc.qdrantErr }
-			got := evalMemoryProof(context.Background(), embedProbe, qdrantProbe, wantDim)
+			got := evalMemoryProof(t.Context(), embedProbe, qdrantProbe, wantDim)
 			if got.status != tc.wantStatus {
 				t.Errorf("status = %v, want %v (detail %q)", got.status, tc.wantStatus, got.detail)
 			}

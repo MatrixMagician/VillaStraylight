@@ -1,7 +1,6 @@
 package inference
 
 import (
-	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -114,7 +113,7 @@ func TestValidatePass(t *testing.T) {
 	// A delta well above 0.5×weight (491400032) → sysfs PASS.
 	in.ReadGTTUsed = gttSeam(detect.KnownBytes(1<<30, "before"), detect.KnownBytes(1<<30+400<<20, "after"))
 
-	v := Validate(context.Background(), in)
+	v := Validate(t.Context(), in)
 	if v.Status != StatusPass {
 		t.Fatalf("Validate: Status=%v, want PASS (detail=%q)", v.Status, v.Detail)
 	}
@@ -138,7 +137,7 @@ func TestValidatePassesModelsDirToRunner(t *testing.T) {
 	in := baseInput(t, fr)
 	in.ModelsDir = modelsDir
 
-	_ = Validate(context.Background(), in)
+	_ = Validate(t.Context(), in)
 
 	if !fr.started {
 		t.Fatal("Validate must Start the runner")
@@ -160,7 +159,7 @@ func TestValidatePassNewLogFormat(t *testing.T) {
 	// A delta ~2× weight (observed live: 983621632 vs 491400032) → sysfs PASS.
 	in.ReadGTTUsed = gttSeam(detect.KnownBytes(1<<30, "before"), detect.KnownBytes(1<<30+983621632, "after"))
 
-	v := Validate(context.Background(), in)
+	v := Validate(t.Context(), in)
 	if v.Status != StatusPass {
 		t.Fatalf("Validate (new device_info log fmt + real GTT delta): Status=%v, want PASS (detail=%q)", v.Status, v.Detail)
 	}
@@ -188,7 +187,7 @@ func TestValidateStopsPrimaryBeforeCeiling(t *testing.T) {
 		return &fakeProbeRunner{health: detect.KnownBool(true, "/health")}
 	}
 
-	v := Validate(context.Background(), in)
+	v := Validate(t.Context(), in)
 	if !ceilingRan {
 		t.Fatal("ceiling probe never ran")
 	}
@@ -203,7 +202,7 @@ func TestValidateCPUFallbackFails(t *testing.T) {
 	fr := &fakeRunner{stderr: readFixture(t, "llvmpipe_fail.stderr")}
 	in := baseInput(t, fr)
 
-	v := Validate(context.Background(), in)
+	v := Validate(t.Context(), in)
 	if v.Status != StatusFail {
 		t.Fatalf("Validate (CPU fallback, healthy server): Status=%v, want FAIL", v.Status)
 	}
@@ -217,7 +216,7 @@ func TestValidateUnknownOffloadWarns(t *testing.T) {
 	// Keep sysfs evaluable+passing so the WARN comes from the Unknown log signal.
 	in.ReadGTTUsed = gttSeam(detect.KnownBytes(1<<30, "before"), detect.KnownBytes(1<<30+400<<20, "after"))
 
-	v := Validate(context.Background(), in)
+	v := Validate(t.Context(), in)
 	if v.Status != StatusWarn {
 		t.Fatalf("Validate (Unknown offload signal): Status=%v, want WARN", v.Status)
 	}
@@ -240,7 +239,7 @@ func TestValidateCeilingCliffWarns(t *testing.T) {
 		}
 	}
 
-	v := Validate(context.Background(), in)
+	v := Validate(t.Context(), in)
 	if v.Status != StatusWarn {
 		t.Fatalf("Validate (ceiling cliff): Status=%v, want WARN (offload+chat fine, ceiling cliff is a finding)", v.Status)
 	}
@@ -277,7 +276,7 @@ func TestValidateChatFailWarns(t *testing.T) {
 		Markers:          VulkanBackend().ResidencyProof(),
 	}
 
-	v := Validate(context.Background(), in)
+	v := Validate(t.Context(), in)
 	if v.Status == StatusPass {
 		t.Fatalf("Validate (offload ok but chat failed): Status=PASS, want non-PASS (a PASS requires real tokens)")
 	}

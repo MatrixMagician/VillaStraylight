@@ -301,7 +301,7 @@ func TestParseSlotsReadsOnlyNarrowFields(t *testing.T) {
 	// the only fields are ID, NCtx, IsProcessing, NextToken{NDecoded,NRemain}.
 	st := reflect.TypeOf(Slot{})
 	allowed := map[string]bool{"ID": true, "NCtx": true, "IsProcessing": true, "NextToken": true}
-	for i := 0; i < st.NumField(); i++ {
+	for i := range st.NumField() {
 		name := st.Field(i).Name
 		if !allowed[name] {
 			t.Errorf("Slot has unexpected field %q — only non-sensitive fields may be read (no prompt/params)", name)

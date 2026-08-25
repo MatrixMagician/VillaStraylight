@@ -79,7 +79,7 @@ func TestManifestSchemaVersionIsLastField(t *testing.T) {
 func TestExcludedModelHasNoContentFields(t *testing.T) {
 	allowed := map[string]bool{"ID": true, "Quant": true, "Ctx": true, "Source": true}
 	st := reflect.TypeOf(ExcludedModel{})
-	for i := 0; i < st.NumField(); i++ {
+	for i := range st.NumField() {
 		name := st.Field(i).Name
 		if !allowed[name] {
 			t.Errorf("ExcludedModel has unexpected field %q — identity only, no prompt/content", name)
@@ -136,7 +136,7 @@ func TestManifestSchemaVersionIsV4(t *testing.T) {
 func TestExcludedAgentHasNoContentFields(t *testing.T) {
 	allowed := map[string]bool{"SHA256": true, "Version": true, "PinSHA256": true}
 	st := reflect.TypeOf(ExcludedAgent{})
-	for i := 0; i < st.NumField(); i++ {
+	for i := range st.NumField() {
 		name := st.Field(i).Name
 		if !allowed[name] {
 			t.Errorf("ExcludedAgent has unexpected field %q — identity only, no prompt/content", name)

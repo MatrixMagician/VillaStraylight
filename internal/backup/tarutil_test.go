@@ -99,7 +99,7 @@ func TestTarSlipAllowsInDir(t *testing.T) {
 func TestReadArchiveEntryCountCapRefuses(t *testing.T) {
 	var buf bytes.Buffer
 	tw := tar.NewWriter(&buf)
-	for i := 0; i < maxEntryCount+1; i++ {
+	for i := range maxEntryCount + 1 {
 		name := "e" + string(rune('a'+i%26)) + string(rune('0'+i/26))
 		body := []byte("x")
 		if err := tw.WriteHeader(&tar.Header{Name: name, Mode: 0o600, Size: int64(len(body)), Format: tar.FormatPAX}); err != nil {

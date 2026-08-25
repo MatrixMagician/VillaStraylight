@@ -1,7 +1,6 @@
 package llm
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -28,7 +27,7 @@ func TestStreamChatAssemblesDeltas(t *testing.T) {
 	client := NewOpenAIClient(Options{BaseURL: srv.URL})
 
 	var sb strings.Builder
-	err := client.StreamChat(context.Background(), ChatRequest{
+	err := client.StreamChat(t.Context(), ChatRequest{
 		Model:    "test-model",
 		Messages: []Message{{Role: RoleUser, Content: "hi"}},
 	}, func(delta string) error {
@@ -50,7 +49,7 @@ func TestStreamChatUpstreamError(t *testing.T) {
 	defer srv.Close()
 
 	client := NewOpenAIClient(Options{BaseURL: srv.URL})
-	err := client.StreamChat(context.Background(), ChatRequest{
+	err := client.StreamChat(t.Context(), ChatRequest{
 		Model:    "test-model",
 		Messages: []Message{{Role: RoleUser, Content: "hi"}},
 	}, func(string) error { return nil })
@@ -64,10 +63,10 @@ func TestStreamChatUpstreamError(t *testing.T) {
 
 func TestStreamChatRequiresModelAndMessages(t *testing.T) {
 	client := NewOpenAIClient(Options{BaseURL: "http://unused"})
-	if err := client.StreamChat(context.Background(), ChatRequest{Messages: []Message{{Role: RoleUser, Content: "hi"}}}, func(string) error { return nil }); err == nil {
+	if err := client.StreamChat(t.Context(), ChatRequest{Messages: []Message{{Role: RoleUser, Content: "hi"}}}, func(string) error { return nil }); err == nil {
 		t.Error("expected error when no model is set, got nil")
 	}
-	if err := client.StreamChat(context.Background(), ChatRequest{Model: "m"}, func(string) error { return nil }); err == nil {
+	if err := client.StreamChat(t.Context(), ChatRequest{Model: "m"}, func(string) error { return nil }); err == nil {
 		t.Error("expected error when messages empty, got nil")
 	}
 }
@@ -92,7 +91,7 @@ func TestCompleteParsesTimings(t *testing.T) {
 	defer srv.Close()
 
 	client := NewOpenAIClient(Options{BaseURL: srv.URL})
-	tm, err := client.Complete(context.Background(), ChatRequest{
+	tm, err := client.Complete(t.Context(), ChatRequest{
 		Model:    "test-model",
 		Messages: []Message{{Role: RoleUser, Content: "hi"}},
 	}, 128, 7, 0.0)
@@ -134,7 +133,7 @@ func TestCompleteParamsOnWire(t *testing.T) {
 	defer srv.Close()
 
 	client := NewOpenAIClient(Options{BaseURL: srv.URL})
-	if _, err := client.Complete(context.Background(), ChatRequest{
+	if _, err := client.Complete(t.Context(), ChatRequest{
 		Model:    "test-model",
 		Messages: []Message{{Role: RoleUser, Content: "hi"}},
 	}, 256, 99, 0.7); err != nil {
@@ -177,7 +176,7 @@ func TestCompleteVoidsAbsentTimings(t *testing.T) {
 			defer srv.Close()
 
 			client := NewOpenAIClient(Options{BaseURL: srv.URL})
-			_, err := client.Complete(context.Background(), ChatRequest{
+			_, err := client.Complete(t.Context(), ChatRequest{
 				Model:    "test-model",
 				Messages: []Message{{Role: RoleUser, Content: "hi"}},
 			}, 128, 7, 0.0)
@@ -196,7 +195,7 @@ func TestCompleteUpstreamError(t *testing.T) {
 	defer srv.Close()
 
 	client := NewOpenAIClient(Options{BaseURL: srv.URL})
-	_, err := client.Complete(context.Background(), ChatRequest{
+	_, err := client.Complete(t.Context(), ChatRequest{
 		Model:    "test-model",
 		Messages: []Message{{Role: RoleUser, Content: "hi"}},
 	}, 16, 1, 0.0)
@@ -216,7 +215,7 @@ func TestCompleteUpstreamError(t *testing.T) {
 // TestCompleteRequiresModel proves the same no-model guard StreamChat enforces.
 func TestCompleteRequiresModel(t *testing.T) {
 	client := NewOpenAIClient(Options{BaseURL: "http://unused"})
-	_, err := client.Complete(context.Background(), ChatRequest{
+	_, err := client.Complete(t.Context(), ChatRequest{
 		Messages: []Message{{Role: RoleUser, Content: "hi"}},
 	}, 16, 1, 0.0)
 	if err == nil {

@@ -51,11 +51,11 @@ func TestIsActive(t *testing.T) {
 			}
 			switch tc.wantErr.(type) {
 			case ErrCommandFailed:
-				if !errors.As(err, &ErrCommandFailed{}) {
+				if _, ok := errors.AsType[ErrCommandFailed](err); !ok {
 					t.Fatalf("IsActive err = %v, want ErrCommandFailed", err)
 				}
 			case ErrToolNotFound:
-				if !errors.As(err, &ErrToolNotFound{}) {
+				if _, ok := errors.AsType[ErrToolNotFound](err); !ok {
 					t.Fatalf("IsActive err = %v, want ErrToolNotFound", err)
 				}
 			}
@@ -216,7 +216,7 @@ func TestEnable(t *testing.T) {
 			return "", false, false // systemctl not on PATH
 		}}
 		err := s.Enable(svc)
-		if !errors.As(err, &ErrToolNotFound{}) {
+		if _, ok := errors.AsType[ErrToolNotFound](err); !ok {
 			t.Fatalf("Enable err = %v, want ErrToolNotFound", err)
 		}
 	})
@@ -263,7 +263,8 @@ func TestDisable(t *testing.T) {
 		s := Systemd{runCmd: func(name string, args ...string) (string, bool, bool) {
 			return "", false, false
 		}}
-		if err := s.Disable(svc); !errors.As(err, &ErrToolNotFound{}) {
+		err := s.Disable(svc)
+		if _, ok := errors.AsType[ErrToolNotFound](err); !ok {
 			t.Fatalf("Disable err = %v, want ErrToolNotFound", err)
 		}
 	})

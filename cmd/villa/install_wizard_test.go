@@ -245,7 +245,7 @@ func TestWizardPromptLoopDriver(t *testing.T) {
 	}
 
 	var out strings.Builder
-	res, err := runWizard(context.Background(), in, strings.NewReader("2\ny\ny\n"), &out)
+	res, err := runWizard(t.Context(), in, strings.NewReader("2\ny\ny\n"), &out)
 	if err != nil {
 		t.Fatalf("runWizard: %v", err)
 	}
@@ -276,7 +276,7 @@ func TestWizardKeepsRecommendedPick(t *testing.T) {
 	in := wizardInput{rec: rec, alternatives: rec.Alternatives, backend: backend}
 
 	var out strings.Builder
-	res, err := runWizard(context.Background(), in, strings.NewReader("\ny\n"), &out)
+	res, err := runWizard(t.Context(), in, strings.NewReader("\ny\n"), &out)
 	if err != nil {
 		t.Fatalf("runWizard: %v", err)
 	}
@@ -313,7 +313,7 @@ func TestWizardCancelAndAbortNeverConsent(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			var out strings.Builder
-			res, err := runWizard(context.Background(), base, strings.NewReader(tc.script), &out)
+			res, err := runWizard(t.Context(), base, strings.NewReader(tc.script), &out)
 			if !errors.Is(err, tc.wantErr) {
 				t.Fatalf("err = %v, want %v", err, tc.wantErr)
 			}
@@ -331,7 +331,7 @@ func TestWizardCancelledContextAborts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve backend: %v", err)
 	}
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 
 	in := wizardInput{rec: recommend.Recommendation{Model: "m", Quant: "q", ContextLen: 1}, backend: backend}
@@ -357,7 +357,7 @@ func TestWizardRejectsOutOfRangeSelection(t *testing.T) {
 	var out strings.Builder
 	// "9" is out of range and "abc" is not a number; both must be re-asked, then "2"
 	// is accepted.
-	res, err := runWizard(context.Background(), in, strings.NewReader("9\nabc\n2\ny\n"), &out)
+	res, err := runWizard(t.Context(), in, strings.NewReader("9\nabc\n2\ny\n"), &out)
 	if err != nil {
 		t.Fatalf("runWizard: %v", err)
 	}

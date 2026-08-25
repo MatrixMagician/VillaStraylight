@@ -201,7 +201,7 @@ func TestSyncEndpointsIsIdempotent(t *testing.T) {
 	s := newConfigServer(t, wire(true, []string{villaPrimary}, []string{NoAuthAPIKey}, nil))
 	want := []string{villaPrimary, villaResident}
 
-	first, err := s.client().SyncEndpoints(context.Background(), "tok", want)
+	first, err := s.client().SyncEndpoints(t.Context(), "tok", want)
 	if err != nil {
 		t.Fatalf("first sync: %v", err)
 	}
@@ -209,7 +209,7 @@ func TestSyncEndpointsIsIdempotent(t *testing.T) {
 		t.Fatal("the first sync must write: the resident endpoint was missing")
 	}
 
-	second, err := s.client().SyncEndpoints(context.Background(), "tok", want)
+	second, err := s.client().SyncEndpoints(t.Context(), "tok", want)
 	if err != nil {
 		t.Fatalf("second sync: %v", err)
 	}
@@ -233,7 +233,7 @@ func TestAUserAddedEndpointSurvives(t *testing.T) {
 		[]string{userEndpoint, villaPrimary, secondUserEndpoint},
 		[]string{userKey, NoAuthAPIKey, "sk-second"}, nil))
 
-	if _, err := s.client().SyncEndpoints(context.Background(), "tok",
+	if _, err := s.client().SyncEndpoints(t.Context(), "tok",
 		[]string{villaPrimary, villaResident}); err != nil {
 		t.Fatalf("sync: %v", err)
 	}
@@ -253,7 +253,7 @@ func TestACarriedOverEndpointKeepsItsKey(t *testing.T) {
 		[]string{userEndpoint, villaPrimary},
 		[]string{userKey, NoAuthAPIKey}, nil))
 
-	if _, err := s.client().SyncEndpoints(context.Background(), "tok",
+	if _, err := s.client().SyncEndpoints(t.Context(), "tok",
 		[]string{villaPrimary, villaResident}); err != nil {
 		t.Fatalf("sync: %v", err)
 	}
@@ -284,7 +284,7 @@ func TestPerConnectionConfigFollowsItsEndpointAcrossAReorder(t *testing.T) {
 		[]string{NoAuthAPIKey, userKey, NoAuthAPIKey},
 		map[string]string{"0": residentCfg, "1": userCfg, "2": primaryCfg}))
 
-	if _, err := s.client().SyncEndpoints(context.Background(), "tok",
+	if _, err := s.client().SyncEndpoints(t.Context(), "tok",
 		[]string{villaPrimary, villaResident}); err != nil {
 		t.Fatalf("sync: %v", err)
 	}
@@ -373,7 +373,7 @@ func TestSyncEndpointsFailsClosedOnAnUntrustworthyResponse(t *testing.T) {
 			t.Cleanup(srv.Close)
 
 			got, err := New(httpTransport(srv.URL)).SyncEndpoints(
-				context.Background(), "tok", []string{villaPrimary})
+				t.Context(), "tok", []string{villaPrimary})
 			if err == nil {
 				t.Fatalf("an untrustworthy response must be an error; got %+v", got)
 			}
