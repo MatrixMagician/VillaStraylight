@@ -337,7 +337,7 @@ func runResidentAdd(cmd *cobra.Command, id string, d *residentDeps) int {
 	}
 
 	next := cfg
-	next.Resident = append(append([]config.ResidentModel(nil), cfg.Resident...), config.ResidentModel{
+	next.Resident = append(slices.Clone(cfg.Resident), config.ResidentModel{
 		Model: candidate.Model,
 		Quant: candidate.Quant,
 		Ctx:   candidate.Ctx,

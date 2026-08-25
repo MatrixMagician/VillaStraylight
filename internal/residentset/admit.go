@@ -73,7 +73,7 @@ func Admit(s Set, candidate Slot, policy Policy) (Plan, Refusal) {
 func findCollision(slots []Slot, candidate Slot) (reason RefusalReason, remediation string, collided bool) {
 	ports := make(map[int]bool, len(slots)+1)
 	units := make(map[string]bool, len(slots)+1)
-	all := append(append([]Slot(nil), slots...), candidate)
+	all := append(slices.Clone(slots), candidate)
 	for _, s := range all {
 		if ports[s.Port] {
 			return ReasonPortUnitCollision, "two resident slots cannot share a port — assign the candidate a distinct loopback port", true
