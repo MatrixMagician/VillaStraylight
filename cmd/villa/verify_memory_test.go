@@ -138,7 +138,7 @@ func TestEvalRagSmokeNegativeControlFirst(t *testing.T) {
 func TestRunVerifyMemoryGate(t *testing.T) {
 	newCmd := func() *cobra.Command {
 		c := &cobra.Command{}
-		c.SetContext(context.Background())
+		c.SetContext(t.Context())
 		return c
 	}
 

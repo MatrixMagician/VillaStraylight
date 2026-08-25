@@ -162,7 +162,7 @@ func TestUsageTotalsHasNoContentFields(t *testing.T) {
 		"SchemaVersion": true,
 	}
 	stTot := reflect.TypeOf(Totals{})
-	for i := 0; i < stTot.NumField(); i++ {
+	for i := range stTot.NumField() {
 		name := stTot.Field(i).Name
 		if !allowedTotals[name] {
 			t.Errorf("Totals has unexpected field %q — counts-only: no prompt/response/content fields", name)
@@ -176,7 +176,7 @@ func TestUsageTotalsHasNoContentFields(t *testing.T) {
 		"LastSeen":  true,
 	}
 	stModel := reflect.TypeOf(ModelUsage{})
-	for i := 0; i < stModel.NumField(); i++ {
+	for i := range stModel.NumField() {
 		name := stModel.Field(i).Name
 		if !allowedModel[name] {
 			t.Errorf("ModelUsage has unexpected field %q — counts-only: no prompt/response/content fields", name)
@@ -186,7 +186,7 @@ func TestUsageTotalsHasNoContentFields(t *testing.T) {
 	// CounterState carries only the two count integers.
 	allowedCounter := map[string]bool{"Cumulative": true, "LastSeenRaw": true}
 	stCounter := reflect.TypeOf(CounterState{})
-	for i := 0; i < stCounter.NumField(); i++ {
+	for i := range stCounter.NumField() {
 		name := stCounter.Field(i).Name
 		if !allowedCounter[name] {
 			t.Errorf("CounterState has unexpected field %q — counts-only", name)

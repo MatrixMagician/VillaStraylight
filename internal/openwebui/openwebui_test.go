@@ -9,7 +9,6 @@ package openwebui
 // moment it was printed in: scrollback, a captured log, a pasted bug report.
 
 import (
-	"context"
 	"fmt"
 	"strings"
 	"testing"
@@ -100,7 +99,7 @@ func TestDecodeStaysDiagnosable(t *testing.T) {
 // body reopens the whole hole, so this is a sweep rather than a spot check.
 func TestNoParseDiagnosticReproducesAResponseBody(t *testing.T) {
 	const secret = "SQUIRREL-hunter2-JWT"
-	ctx := context.Background()
+	ctx := t.Context()
 
 	for _, tc := range []struct {
 		site string

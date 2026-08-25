@@ -197,7 +197,7 @@ func TestWarmupDiscarded(t *testing.T) {
 		{t: RunTimings{PromptPerSec: 200, PredictedPerSec: 20}, resident: true},
 		{t: RunTimings{PromptPerSec: 300, PredictedPerSec: 30}, resident: true},
 	}}
-	res := Run(context.Background(), newBenchStub(rec), Spec{Reps: 3, Warmup: 1, MinResident: 3})
+	res := Run(t.Context(), newBenchStub(rec), Spec{Reps: 3, Warmup: 1, MinResident: 3})
 	if rec.measureCalls != 4 {
 		t.Errorf("expected 1 warmup + 3 measured = 4 Measure calls, got %d", rec.measureCalls)
 	}
@@ -222,7 +222,7 @@ func TestVoidNonResident(t *testing.T) {
 		{t: RunTimings{PromptPerSec: 200, PredictedPerSec: 20}, resident: true},
 		{t: RunTimings{PromptPerSec: 300, PredictedPerSec: 30}, resident: true},
 	}}
-	res := Run(context.Background(), newBenchStub(rec), Spec{Reps: 3, Warmup: 0, MinResident: 3})
+	res := Run(t.Context(), newBenchStub(rec), Spec{Reps: 3, Warmup: 0, MinResident: 3})
 	if res.Single.Kept != 3 {
 		t.Errorf("Kept = %d, want 3 (only resident runs)", res.Single.Kept)
 	}
@@ -242,7 +242,7 @@ func TestVoidExhaustionWarn(t *testing.T) {
 	rec := &benchRecorder{verdicts: []measureVerdict{
 		{t: RunTimings{PromptPerSec: 1, PredictedPerSec: 1}, resident: false}, // every run voids
 	}}
-	res := Run(context.Background(), newBenchStub(rec), Spec{Reps: 3, Warmup: 0, MinResident: 3})
+	res := Run(t.Context(), newBenchStub(rec), Spec{Reps: 3, Warmup: 0, MinResident: 3})
 	if !res.VoidExhausted {
 		t.Fatalf("all-void runs must set VoidExhausted=true, got %+v", res)
 	}
@@ -268,7 +268,7 @@ func TestIdenticalSpecBothSides(t *testing.T) {
 	// via a Switch boundary. Instead, assert through the recorder's specs slice,
 	// which Run fills per side.
 	spec := Spec{Reps: 2, Warmup: 1, Prompt: "hello", NPredict: 16, Seed: 7, Temp: 0.0, MinResident: 1}
-	res := Run(context.Background(), d, spec)
+	res := Run(t.Context(), d, spec)
 	if res.AB == nil {
 		t.Fatalf("--ab Run must produce an ABResult, got %+v", res)
 	}
@@ -289,7 +289,7 @@ func TestBenchABUnsetTargetPreservesOther(t *testing.T) {
 		{t: RunTimings{PromptPerSec: 100, PredictedPerSec: 10}, resident: true},
 	}}
 	d := newBenchABStub(rec, nil)
-	res := Run(context.Background(), d, Spec{Reps: 1, Warmup: 0, MinResident: 1}) // ABTarget unset
+	res := Run(t.Context(), d, Spec{Reps: 1, Warmup: 0, MinResident: 1}) // ABTarget unset
 	if res.AB == nil {
 		t.Fatalf("--ab Run must produce an ABResult, got %+v", res)
 	}
@@ -313,7 +313,7 @@ func TestBenchABExplicitTarget(t *testing.T) {
 		{t: RunTimings{PromptPerSec: 100, PredictedPerSec: 10}, resident: true},
 	}}
 	d := newBenchABStub(rec, nil)
-	res := Run(context.Background(), d, Spec{Reps: 1, Warmup: 0, MinResident: 1, ABTarget: "rocm-7.2.4"})
+	res := Run(t.Context(), d, Spec{Reps: 1, Warmup: 0, MinResident: 1, ABTarget: "rocm-7.2.4"})
 	if res.AB == nil {
 		t.Fatalf("--ab Run must produce an ABResult, got %+v", res)
 	}
@@ -336,7 +336,7 @@ func TestBenchABDeltasNeverBlended(t *testing.T) {
 		{t: RunTimings{PromptPerSec: 150, PredictedPerSec: 25}, resident: true}, // side B (after switch)
 	}}
 	d := newBenchABStub(rec, nil)
-	res := Run(context.Background(), d, Spec{Reps: 1, Warmup: 0, MinResident: 1, ABTarget: "rocm-7.2.4"})
+	res := Run(t.Context(), d, Spec{Reps: 1, Warmup: 0, MinResident: 1, ABTarget: "rocm-7.2.4"})
 	if res.AB == nil {
 		t.Fatalf("--ab Run must produce an ABResult, got %+v", res)
 	}
@@ -357,7 +357,7 @@ func TestBenchABRestoresOriginal(t *testing.T) {
 		{t: RunTimings{}, resident: false, err: context.DeadlineExceeded},
 	}}
 	d := newBenchABStub(rec, nil)
-	res := Run(context.Background(), d, Spec{Reps: 1, Warmup: 0, MinResident: 1})
+	res := Run(t.Context(), d, Spec{Reps: 1, Warmup: 0, MinResident: 1})
 	_ = res
 	last := lastOp(rec.callOrder, "restore:")
 	if last != "restore:vulkan" {

@@ -10,7 +10,6 @@ package websafe
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -51,7 +50,7 @@ func TestLoadHappyPath(t *testing.T) {
 	defer srv.Close()
 
 	l := testLoader(DefaultBounds())
-	pages := l.Load(context.Background(), []string{srv.URL})
+	pages := l.Load(t.Context(), []string{srv.URL})
 	if len(pages) != 1 {
 		t.Fatalf("Load returned %d pages, want 1", len(pages))
 	}
@@ -76,7 +75,7 @@ func TestFetchBounds(t *testing.T) {
 
 		b := DefaultBounds()
 		l := testLoader(b)
-		pages := l.Load(context.Background(), []string{srv.URL})
+		pages := l.Load(t.Context(), []string{srv.URL})
 		if len(pages) != 1 {
 			t.Fatalf("Load returned %d pages, want 1", len(pages))
 		}
@@ -102,7 +101,7 @@ func TestFetchBounds(t *testing.T) {
 		b.Timeout = 50 * time.Millisecond
 		l := testLoader(b)
 		start := time.Now()
-		pages := l.Load(context.Background(), []string{srv.URL})
+		pages := l.Load(t.Context(), []string{srv.URL})
 		if elapsed := time.Since(start); elapsed > 5*time.Second {
 			t.Errorf("Load took %v, want bounded by timeout", elapsed)
 		}
@@ -113,7 +112,7 @@ func TestFetchBounds(t *testing.T) {
 
 	t.Run("non-http-scheme-omitted", func(t *testing.T) {
 		l := testLoader(DefaultBounds())
-		pages := l.Load(context.Background(), []string{"file:///etc/passwd", "ftp://x/y"})
+		pages := l.Load(t.Context(), []string{"file:///etc/passwd", "ftp://x/y"})
 		if len(pages) != 0 {
 			t.Errorf("Load returned %d pages, want 0 (non-http(s) schemes omitted)", len(pages))
 		}
@@ -136,7 +135,7 @@ func TestSkipAndContinue(t *testing.T) {
 
 	t.Run("mixed-batch-returns-survivors", func(t *testing.T) {
 		urls := []string{good.URL, bad.URL, good.URL}
-		pages := l.Load(context.Background(), urls)
+		pages := l.Load(t.Context(), urls)
 		if len(pages) != 2 {
 			t.Fatalf("Load returned %d pages, want 2 (the 2 good URLs)", len(pages))
 		}
@@ -148,7 +147,7 @@ func TestSkipAndContinue(t *testing.T) {
 	})
 
 	t.Run("all-fail-returns-non-nil-empty", func(t *testing.T) {
-		pages := l.Load(context.Background(), []string{bad.URL, bad.URL})
+		pages := l.Load(t.Context(), []string{bad.URL, bad.URL})
 		if pages == nil {
 			t.Error("Load returned nil, want non-nil empty slice (honest no-results)")
 		}
@@ -158,7 +157,7 @@ func TestSkipAndContinue(t *testing.T) {
 	})
 
 	t.Run("empty-input-returns-non-nil-empty", func(t *testing.T) {
-		pages := l.Load(context.Background(), nil)
+		pages := l.Load(t.Context(), nil)
 		if pages == nil {
 			t.Error("Load(nil) returned nil, want non-nil empty slice")
 		}
@@ -382,7 +381,7 @@ func TestLoadRaceBatch(t *testing.T) {
 		urls[i] = srv.URL
 	}
 	l := testLoader(DefaultBounds())
-	pages := l.Load(context.Background(), urls)
+	pages := l.Load(t.Context(), urls)
 	if len(pages) != len(urls) {
 		t.Fatalf("Load returned %d pages, want %d", len(pages), len(urls))
 	}

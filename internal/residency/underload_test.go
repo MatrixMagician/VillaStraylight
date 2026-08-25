@@ -86,7 +86,7 @@ func TestUnderLoadNeverSamplesIdle(t *testing.T) {
 		r := &loadRecorder{durations: []time.Duration{0}} // every round returns instantly
 		f := newFakeDeps()
 
-		got := UnderLoad(context.Background(), loadDeps(r, f), target(), Load{
+		got := UnderLoad(t.Context(), loadDeps(r, f), target(), Load{
 			Drive:  r.drive,
 			Rounds: 3,
 			Settle: 50 * time.Millisecond,
@@ -111,7 +111,7 @@ func TestUnderLoadNeverSamplesIdle(t *testing.T) {
 		r := &loadRecorder{durations: []time.Duration{200 * time.Millisecond}}
 		f := newFakeDeps()
 
-		got := UnderLoad(context.Background(), loadDeps(r, f), target(), Load{
+		got := UnderLoad(t.Context(), loadDeps(r, f), target(), Load{
 			Drive:  r.drive,
 			Rounds: 3,
 			Settle: 20 * time.Millisecond,
@@ -136,7 +136,7 @@ func TestUnderLoadNeverSamplesIdle(t *testing.T) {
 		r := &loadRecorder{durations: []time.Duration{0, 0, 200 * time.Millisecond}}
 		f := newFakeDeps()
 
-		got := UnderLoad(context.Background(), loadDeps(r, f), target(), Load{
+		got := UnderLoad(t.Context(), loadDeps(r, f), target(), Load{
 			Drive:  r.drive,
 			Rounds: 4,
 			Settle: 20 * time.Millisecond,
@@ -160,7 +160,7 @@ func TestUnderLoadJoinsEveryRound(t *testing.T) {
 		r := &loadRecorder{durations: []time.Duration{100 * time.Millisecond}}
 		f := newFakeDeps()
 
-		UnderLoad(context.Background(), loadDeps(r, f), target(), Load{
+		UnderLoad(t.Context(), loadDeps(r, f), target(), Load{
 			Drive:  r.drive,
 			Rounds: 2,
 			Settle: 10 * time.Millisecond,
@@ -178,7 +178,7 @@ func TestUnderLoadJoinsEveryRound(t *testing.T) {
 		r := &loadRecorder{durations: []time.Duration{time.Second}}
 		f := newFakeDeps()
 
-		UnderLoad(context.Background(), loadDeps(r, f), target(), Load{
+		UnderLoad(t.Context(), loadDeps(r, f), target(), Load{
 			Drive:  r.drive,
 			Rounds: 2,
 			Settle: 30 * time.Millisecond,
@@ -206,7 +206,7 @@ func TestUnderLoadWarmupSamplesAfterRealWork(t *testing.T) {
 	r := &loadRecorder{durations: []time.Duration{50 * time.Millisecond}}
 	f := newFakeDeps()
 
-	got := UnderLoad(context.Background(), loadDeps(r, f), target(), Load{
+	got := UnderLoad(t.Context(), loadDeps(r, f), target(), Load{
 		Drive:          r.drive,
 		Rounds:         5,
 		Warmup:         2,
@@ -266,7 +266,7 @@ func TestUnderLoadCountsDriveErrors(t *testing.T) {
 	}
 	f := newFakeDeps()
 
-	got := UnderLoad(context.Background(), loadDeps(r, f), target(), Load{
+	got := UnderLoad(t.Context(), loadDeps(r, f), target(), Load{
 		Drive:  r.drive,
 		Rounds: 3,
 		Settle: 20 * time.Millisecond,
@@ -290,7 +290,7 @@ func TestUnderLoadFoldsTheTargetAndProps(t *testing.T) {
 	d := loadDeps(r, f)
 	d.Props = func() *inference.PropsInfo { return props }
 
-	UnderLoad(context.Background(), d, target(), Load{
+	UnderLoad(t.Context(), d, target(), Load{
 		Drive:  r.drive,
 		Rounds: 2,
 		Settle: 10 * time.Millisecond,

@@ -1,7 +1,6 @@
 package download
 
 import (
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -81,7 +80,7 @@ func TestResume(t *testing.T) {
 	}
 
 	sh := makeShard(srv.URL, "model.gguf", body)
-	if err := downloadFile(context.Background(), srv.Client(), sh, dir); err != nil {
+	if err := downloadFile(t.Context(), srv.Client(), sh, dir); err != nil {
 		t.Fatalf("downloadFile: %v", err)
 	}
 	got, err := os.ReadFile(final)
@@ -110,7 +109,7 @@ func TestVerifyRejectsMismatch(t *testing.T) {
 		SHA256:    wrong, // catalog expects the wrong hash → downloaded bytes won't match
 		SizeBytes: uint64(len(body)),
 	}
-	err := downloadFile(context.Background(), srv.Client(), sh, dir)
+	err := downloadFile(t.Context(), srv.Client(), sh, dir)
 	if err == nil {
 		t.Fatal("expected a checksum-mismatch error, got nil")
 	}
@@ -135,7 +134,7 @@ func TestVerifyRejectsSizeMismatch(t *testing.T) {
 		SHA256:    sha256Hex(body),
 		SizeBytes: uint64(len(body)) + 100, // wrong expected size
 	}
-	if err := downloadFile(context.Background(), srv.Client(), sh, dir); err == nil {
+	if err := downloadFile(t.Context(), srv.Client(), sh, dir); err == nil {
 		t.Fatal("expected a size-mismatch error, got nil")
 	}
 	if _, err := os.Stat(filepath.Join(dir, "model.gguf")); !os.IsNotExist(err) {
@@ -177,7 +176,7 @@ func TestAtomicRename(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	sh := makeShard(srv.URL, final, body)
-	if err := downloadFile(context.Background(), srv.Client(), sh, dir); err != nil {
+	if err := downloadFile(t.Context(), srv.Client(), sh, dir); err != nil {
 		t.Fatalf("downloadFile: %v", err)
 	}
 	if _, err := os.Stat(finalPath); err != nil {
@@ -193,7 +192,7 @@ func TestRejectsTraversalFilename(t *testing.T) {
 	srv := rangeServer(t, body, sha256Hex(body), 1)
 	for _, name := range []string{"../escape.gguf", "../../etc/passwd", "/abs/model.gguf"} {
 		sh := catalog.Shard{URL: srv.URL, Filename: name, SHA256: sha256Hex(body), SizeBytes: 1}
-		if err := downloadFile(context.Background(), srv.Client(), sh, dir); err == nil {
+		if err := downloadFile(t.Context(), srv.Client(), sh, dir); err == nil {
 			t.Errorf("filename %q: expected path-confinement rejection, got nil", name)
 		}
 	}

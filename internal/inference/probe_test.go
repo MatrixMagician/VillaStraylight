@@ -1,7 +1,6 @@
 package inference
 
 import (
-	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -37,7 +36,7 @@ func TestChatProbe(t *testing.T) {
 		}))
 		defer srv.Close()
 
-		res := chatProbe(context.Background(), srv.URL, "qwen2.5-0.5b")
+		res := chatProbe(t.Context(), srv.URL, "qwen2.5-0.5b")
 		if !res.OK {
 			t.Fatalf("chatProbe: OK=false, want true (detail=%q)", res.Detail)
 		}
@@ -55,7 +54,7 @@ func TestChatProbe(t *testing.T) {
 		}))
 		defer srv.Close()
 
-		res := chatProbe(context.Background(), srv.URL, "qwen2.5-0.5b")
+		res := chatProbe(t.Context(), srv.URL, "qwen2.5-0.5b")
 		if res.OK {
 			t.Errorf("chatProbe: OK=true on a non-200 chat, want false")
 		}
@@ -70,13 +69,13 @@ func TestChatProbe(t *testing.T) {
 // (Unknown), not a crash.
 func TestPollHealth(t *testing.T) {
 	t.Run("503 then 200 is ready", func(t *testing.T) {
-		var calls int32
+		var calls atomic.Int32
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.URL.Path != "/health" {
 				http.NotFound(w, r)
 				return
 			}
-			n := atomic.AddInt32(&calls, 1)
+			n := calls.Add(1)
 			if n < 3 {
 				http.Error(w, `{"status":"loading model"}`, http.StatusServiceUnavailable)
 				return
@@ -86,7 +85,7 @@ func TestPollHealth(t *testing.T) {
 		}))
 		defer srv.Close()
 
-		ready := pollHealth(context.Background(), srv.Client(), srv.URL, 3*time.Second, 10*time.Millisecond)
+		ready := pollHealth(t.Context(), srv.Client(), srv.URL, 3*time.Second, 10*time.Millisecond)
 		if !ready.Known || !ready.Value {
 			t.Fatalf("pollHealth: ready=%+v, want Known+true after 503→200", ready)
 		}
@@ -98,7 +97,7 @@ func TestPollHealth(t *testing.T) {
 		}))
 		defer srv.Close()
 
-		ready := pollHealth(context.Background(), srv.Client(), srv.URL, 150*time.Millisecond, 10*time.Millisecond)
+		ready := pollHealth(t.Context(), srv.Client(), srv.URL, 150*time.Millisecond, 10*time.Millisecond)
 		if ready.Known {
 			t.Errorf("pollHealth: Known=true on a never-ready server, want Unknown (could not evaluate readiness)")
 		}
@@ -112,15 +111,15 @@ type fakeProbeRunner struct {
 	health   detect.Bool
 	logs     string
 	endpoint string
-	stopped  int32
+	stopped  atomic.Int32
 }
 
 func (f *fakeProbeRunner) Start(spec RunSpec) error { return f.startErr }
-func (f *fakeProbeRunner) Stop() error              { atomic.AddInt32(&f.stopped, 1); return nil }
+func (f *fakeProbeRunner) Stop() error              { f.stopped.Add(1); return nil }
 func (f *fakeProbeRunner) Health() detect.Bool      { return f.health }
 func (f *fakeProbeRunner) Endpoint() string         { return f.endpoint }
 func (f *fakeProbeRunner) Logs() (string, bool)     { return f.logs, f.logs != "" }
-func (f *fakeProbeRunner) didStop() bool            { return atomic.LoadInt32(&f.stopped) > 0 }
+func (f *fakeProbeRunner) didStop() bool            { return f.stopped.Load() > 0 }
 
 // TestContextProbe: a ceiling container that "fails to allocate" (stderr marker) or
 // never reaches /health before timeout is CLASSIFIED as an OOM/hang finding (typed
@@ -133,7 +132,7 @@ func TestContextProbe(t *testing.T) {
 			health: detect.UnknownBool("never became ready", ""),
 			logs:   "ggml_vulkan: Device memory allocation of 12884901888 bytes failed\nfailed to allocate buffer",
 		}
-		res := contextCeilingProbe(context.Background(), fr, stressSpec, 100*time.Millisecond, 10*time.Millisecond)
+		res := contextCeilingProbe(t.Context(), fr, stressSpec, 100*time.Millisecond, 10*time.Millisecond)
 		if res.Status != StatusWarn {
 			t.Errorf("ceiling OOM: Status=%v, want WARN (classified finding, not crash/PASS)", res.Status)
 		}
@@ -150,7 +149,7 @@ func TestContextProbe(t *testing.T) {
 			health: detect.UnknownBool("never became ready", ""),
 			logs:   "loading model...\nstill loading",
 		}
-		res := contextCeilingProbe(context.Background(), fr, stressSpec, 100*time.Millisecond, 10*time.Millisecond)
+		res := contextCeilingProbe(t.Context(), fr, stressSpec, 100*time.Millisecond, 10*time.Millisecond)
 		if res.Status != StatusWarn {
 			t.Errorf("ceiling hang: Status=%v, want WARN", res.Status)
 		}
@@ -164,7 +163,7 @@ func TestContextProbe(t *testing.T) {
 
 	t.Run("clears the ceiling when healthy", func(t *testing.T) {
 		fr := &fakeProbeRunner{health: detect.KnownBool(true, "/health")}
-		res := contextCeilingProbe(context.Background(), fr, stressSpec, 100*time.Millisecond, 10*time.Millisecond)
+		res := contextCeilingProbe(t.Context(), fr, stressSpec, 100*time.Millisecond, 10*time.Millisecond)
 		if res.Status != StatusPass {
 			t.Errorf("ceiling clears: Status=%v, want PASS", res.Status)
 		}
@@ -178,7 +177,7 @@ func TestContextProbe(t *testing.T) {
 
 	t.Run("start failure is classified, not propagated as a crash", func(t *testing.T) {
 		fr := &fakeProbeRunner{startErr: fmt.Errorf("podman: no such image")}
-		res := contextCeilingProbe(context.Background(), fr, stressSpec, 100*time.Millisecond, 10*time.Millisecond)
+		res := contextCeilingProbe(t.Context(), fr, stressSpec, 100*time.Millisecond, 10*time.Millisecond)
 		if res.Status != StatusWarn {
 			t.Errorf("ceiling start-fail: Status=%v, want WARN (classified)", res.Status)
 		}

@@ -9,7 +9,6 @@
 package websafe
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -108,7 +107,7 @@ func TestLoadMetadataGuardAlwaysPresent(t *testing.T) {
 	defer benign.Close()
 
 	loader := NewLoader(Deps{Client: &http.Client{Timeout: DefaultBounds().Timeout}}, DefaultBounds())
-	pages := loader.Load(context.Background(), []string{benign.URL})
+	pages := loader.Load(t.Context(), []string{benign.URL})
 	if len(pages) != 1 {
 		t.Fatalf("Load returned %d pages, want 1", len(pages))
 	}

@@ -95,7 +95,7 @@ func TestAttachPreservesForeignKeys(t *testing.T) {
 		"params": map[string]any{"temperature": 0.5},
 	}}
 
-	state, err := New(s.transport()).AttachKnowledge(context.Background(), "tok", testServed, testKB, testKBName)
+	state, err := New(s.transport()).AttachKnowledge(t.Context(), "tok", testServed, testKB, testKBName)
 	if err != nil || state != recall.AttachmentAttached {
 		t.Fatalf("attach = (%v, %v), want (attached, nil)", state, err)
 	}
@@ -128,7 +128,7 @@ func TestAttachIsIdempotent(t *testing.T) {
 		},
 	}}
 
-	if _, err := New(s.transport()).AttachKnowledge(context.Background(), "tok", testServed, testKB, testKBName); err != nil {
+	if _, err := New(s.transport()).AttachKnowledge(t.Context(), "tok", testServed, testKB, testKBName); err != nil {
 		t.Fatalf("re-attach errored: %v", err)
 	}
 	meta, _ := s.lastWrite["meta"].(map[string]any)
@@ -143,7 +143,7 @@ func TestAttachIsIdempotent(t *testing.T) {
 func TestAttachCreatesTheOverrideRowWhenAbsent(t *testing.T) {
 	s := &rowServer{} // no row
 
-	state, err := New(s.transport()).AttachKnowledge(context.Background(), "tok", testServed, testKB, testKBName)
+	state, err := New(s.transport()).AttachKnowledge(t.Context(), "tok", testServed, testKB, testKBName)
 	if err != nil || state != recall.AttachmentAttached {
 		t.Fatalf("attach = (%v, %v), want (attached, nil)", state, err)
 	}
@@ -169,7 +169,7 @@ func TestSilentDetachIsNotReportedAttached(t *testing.T) {
 		dropWrites: true,
 	}
 
-	state, err := New(s.transport()).AttachKnowledge(context.Background(), "tok", testServed, testKB, testKBName)
+	state, err := New(s.transport()).AttachKnowledge(t.Context(), "tok", testServed, testKB, testKBName)
 	if err == nil {
 		t.Fatalf("a silent detach must return an error; got state=%v err=nil", state)
 	}
@@ -191,21 +191,21 @@ func TestAttachmentStateDistinguishesUnknownFromMissing(t *testing.T) {
 			"id":   testServed,
 			"meta": map[string]any{"knowledge": []any{map[string]any{"id": testKB}}},
 		}}
-		if got := New(s.transport()).AttachmentStateFor(context.Background(), "tok", testKB); got != recall.AttachmentAttached {
+		if got := New(s.transport()).AttachmentStateFor(t.Context(), "tok", testKB); got != recall.AttachmentAttached {
 			t.Errorf("state = %v, want attached", got)
 		}
 	})
 
 	t.Run("row present without the collection is confidently Missing", func(t *testing.T) {
 		s := &rowServer{row: map[string]any{"id": testServed, "meta": map[string]any{}}}
-		if got := New(s.transport()).AttachmentStateFor(context.Background(), "tok", testKB); got != recall.AttachmentMissing {
+		if got := New(s.transport()).AttachmentStateFor(t.Context(), "tok", testKB); got != recall.AttachmentMissing {
 			t.Errorf("state = %v, want missing — the post-model-swap detach case", got)
 		}
 	})
 
 	t.Run("row absent, service reachable, is confidently Missing", func(t *testing.T) {
 		s := &rowServer{}
-		if got := New(s.transport()).AttachmentStateFor(context.Background(), "tok", testKB); got != recall.AttachmentMissing {
+		if got := New(s.transport()).AttachmentStateFor(t.Context(), "tok", testKB); got != recall.AttachmentMissing {
 			t.Errorf("state = %v, want missing", got)
 		}
 	})
@@ -214,7 +214,7 @@ func TestAttachmentStateDistinguishesUnknownFromMissing(t *testing.T) {
 		down := func(_ context.Context, _ Request) ([]byte, error) {
 			return nil, fmt.Errorf("connection refused")
 		}
-		if got := New(down).AttachmentStateFor(context.Background(), "tok", testKB); got != recall.AttachmentUnknown {
+		if got := New(down).AttachmentStateFor(t.Context(), "tok", testKB); got != recall.AttachmentUnknown {
 			t.Errorf("state = %v, want unknown — an unreachable service is not evidence of a detach", got)
 		}
 	})

@@ -104,7 +104,7 @@ func TestUnevaluableSignalWarnsAndContradictedFails(t *testing.T) {
 		f := newFakeDeps()
 		f.verdict = inference.Verdict{Status: inference.StatusWarn, Detail: "journal carried no load_tensors line"}
 
-		v := Prove(context.Background(), f.deps(), target())
+		v := Prove(t.Context(), f.deps(), target())
 
 		if v.Status != inference.StatusWarn {
 			t.Fatalf("an unevaluable residency signal must WARN, got %v (%q)", v.Status, v.Detail)
@@ -118,7 +118,7 @@ func TestUnevaluableSignalWarnsAndContradictedFails(t *testing.T) {
 		f := newFakeDeps()
 		f.verdict = inference.Verdict{Status: inference.StatusFail, Detail: "CPU buffer only — silent CPU fallback"}
 
-		v := Prove(context.Background(), f.deps(), target())
+		v := Prove(t.Context(), f.deps(), target())
 
 		if v.Status != inference.StatusFail {
 			t.Fatalf("a contradicted residency signal must FAIL, got %v (%q)", v.Status, v.Detail)
@@ -162,7 +162,7 @@ func TestNeverReadyFailsBeforeProbing(t *testing.T) {
 			f := newFakeDeps()
 			f.ready = tc.ready
 
-			v := Prove(context.Background(), f.deps(), target())
+			v := Prove(t.Context(), f.deps(), target())
 
 			if v.Status != inference.StatusFail {
 				t.Fatalf("a never-ready server must FAIL, got %v", v.Status)
@@ -193,7 +193,7 @@ func TestTokenlessProbeFailsAndNeverFolds(t *testing.T) {
 			f := newFakeDeps()
 			f.chat = tc.chat
 
-			v := Prove(context.Background(), f.deps(), target())
+			v := Prove(t.Context(), f.deps(), target())
 
 			if v.Status != inference.StatusFail {
 				t.Fatalf("a tokenless probe must FAIL, got %v", v.Status)
@@ -221,7 +221,7 @@ func TestSamplesBusyDuringTheDecodeAndKeepsMax(t *testing.T) {
 		detect.KnownInt(0, "post-decode idle"),
 	}
 
-	Prove(context.Background(), f.deps(), target())
+	Prove(t.Context(), f.deps(), target())
 
 	if f.foldCalls != 1 {
 		t.Fatalf("fold called %d times, want 1", f.foldCalls)
@@ -244,7 +244,7 @@ func TestUnreadableJournalIsUnknownNotNegative(t *testing.T) {
 	f.journalFound = false
 	f.verdict = inference.Verdict{Status: inference.StatusWarn, Detail: "residency could not be evaluated"}
 
-	v := Prove(context.Background(), f.deps(), target())
+	v := Prove(t.Context(), f.deps(), target())
 
 	if f.foldCalls != 1 {
 		t.Fatalf("an unreadable journal must still reach the fold, called %d times", f.foldCalls)
@@ -271,7 +271,7 @@ func TestTargetDrivesTheProtocol(t *testing.T) {
 	tgt.Service = "villa-llama.service"
 	tgt.Markers = inference.ResidencyMarkers{DeviceToken: "TEST0", FaultString: "TEST-ABORT"}
 
-	Prove(context.Background(), f.deps(), tgt)
+	Prove(t.Context(), f.deps(), tgt)
 
 	if f.polled != tgt.Endpoint {
 		t.Errorf("polled %q, want the target endpoint %q", f.polled, tgt.Endpoint)
@@ -309,7 +309,7 @@ func TestDeadlineFailsRatherThanHanging(t *testing.T) {
 	tgt.ReadyTimeout = 30 * time.Millisecond
 
 	start := time.Now()
-	v := Prove(context.Background(), f.deps(), tgt)
+	v := Prove(t.Context(), f.deps(), tgt)
 	elapsed := time.Since(start)
 
 	if v.Status != inference.StatusFail {
@@ -327,13 +327,13 @@ func TestDeadlineFailsRatherThanHanging(t *testing.T) {
 // transactional callers use.
 func TestProveCutoverIsProveThenMap(t *testing.T) {
 	f := newFakeDeps()
-	if got := ProveCutover(context.Background(), f.deps(), target()); got.Status != prove.StatusPass {
+	if got := ProveCutover(t.Context(), f.deps(), target()); got.Status != prove.StatusPass {
 		t.Errorf("a proven stack must commit the cutover, got %+v", got)
 	}
 
 	f = newFakeDeps()
 	f.verdict = inference.Verdict{Status: inference.StatusWarn, Detail: "unevaluable"}
-	if got := ProveCutover(context.Background(), f.deps(), target()); got.Pass() {
+	if got := ProveCutover(t.Context(), f.deps(), target()); got.Pass() {
 		t.Error("an unevaluable residency verdict must not commit the cutover")
 	}
 }

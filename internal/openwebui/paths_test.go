@@ -81,7 +81,7 @@ func TestFakeTransportDrivesTheWholeProtocol(t *testing.T) {
 	users, err := New(fakeJSON(map[string]string{
 		pathUsersPage(1): `{"users":[{"id":"u1","email":"a@b"},{"id":"u2","email":"c@d"}]}`,
 		pathUsersPage(2): `{"users":[]}`,
-	})).ListUsers(context.Background(), "tok")
+	})).ListUsers(t.Context(), "tok")
 	if err != nil {
 		t.Fatalf("ListUsers: %v", err)
 	}
@@ -103,7 +103,7 @@ func TestPaginationTerminatesAgainstAServerIgnoringPage(t *testing.T) {
 	var users []User
 	var err error
 	go func() {
-		users, err = New(sameEveryPage).ListUsers(context.Background(), "tok")
+		users, err = New(sameEveryPage).ListUsers(t.Context(), "tok")
 		close(done)
 	}()
 	select {
@@ -145,7 +145,7 @@ func TestKnowledgeListAcceptsBothServedShapes(t *testing.T) {
 				return []byte(`{"items":[]}`), nil
 			}
 
-			id, err := New(transport).EnsureKnowledge(context.Background(), "tok", name, "d")
+			id, err := New(transport).EnsureKnowledge(t.Context(), "tok", name, "d")
 			if err != nil {
 				t.Fatalf("EnsureKnowledge: %v", err)
 			}
@@ -180,7 +180,7 @@ func TestOrphanedUploadIsCleanedUp(t *testing.T) {
 		return nil, fmt.Errorf("unrouted %q", req.Path)
 	}
 
-	_, err := New(transport).UploadToKnowledge(context.Background(), "tok", "kb1", "t.txt", "body", time.Minute)
+	_, err := New(transport).UploadToKnowledge(t.Context(), "tok", "kb1", "t.txt", "body", time.Minute)
 	if err == nil {
 		t.Fatal("a failed add must surface as an error")
 	}
@@ -213,7 +213,7 @@ func TestProcessingTimeoutIsAnError(t *testing.T) {
 		},
 	)
 
-	_, err := c.UploadFile(context.Background(), "tok", "t.txt", "body", time.Minute)
+	_, err := c.UploadFile(t.Context(), "tok", "t.txt", "body", time.Minute)
 	if err == nil {
 		t.Fatal("a processing timeout must be an error — the document was not indexed")
 	}
@@ -232,7 +232,7 @@ func TestFailedProcessingStatusIsAnError(t *testing.T) {
 		return []byte(`{"status":"failed"}`), nil
 	}
 
-	_, err := New(failed).UploadFile(context.Background(), "tok", "t.txt", "body", time.Minute)
+	_, err := New(failed).UploadFile(t.Context(), "tok", "t.txt", "body", time.Minute)
 	if err == nil || !strings.Contains(err.Error(), `status "failed"`) {
 		t.Errorf("a failed processing status must be reported as such, got %v", err)
 	}
@@ -243,7 +243,7 @@ func TestFailedProcessingStatusIsAnError(t *testing.T) {
 func TestEmptyIDInA200IsAnError(t *testing.T) {
 	empty := func(_ context.Context, _ Request) ([]byte, error) { return []byte(`{"id":""}`), nil }
 
-	if _, err := New(empty).EnsureKnowledge(context.Background(), "tok", "n", "d"); err == nil {
+	if _, err := New(empty).EnsureKnowledge(t.Context(), "tok", "n", "d"); err == nil {
 		t.Error("an empty id in a 200 body must be an error, never a silent skip")
 	}
 }

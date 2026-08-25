@@ -16,7 +16,7 @@ func TestNewContainerRunnerReturnsTheInterface(t *testing.T) {
 	if out.Kind() != reflect.Interface {
 		t.Fatalf("NewContainerRunner returns %s (kind %s); it must return the Runner interface so no concrete type leaks to callers", out, out.Kind())
 	}
-	if out != reflect.TypeOf((*Runner)(nil)).Elem() {
+	if out != reflect.TypeFor[Runner]() {
 		t.Fatalf("NewContainerRunner returns interface %s, want Runner", out)
 	}
 }
@@ -42,7 +42,7 @@ func TestLoopbackPublish(t *testing.T) {
 
 	// (b) No host publish may be 0.0.0.0:-prefixed. Scan the value following every
 	// -p / --publish flag; the host side is the segment before the first ':'.
-	for i := 0; i < len(args)-1; i++ {
+	for i := range len(args) - 1 {
 		if args[i] != "-p" && args[i] != "--publish" {
 			continue
 		}
@@ -60,7 +60,7 @@ func TestLoopbackPublish(t *testing.T) {
 // containsPublish reports whether args contains a -p/--publish flag with the given
 // mapping value.
 func containsPublish(args []string, mapping string) bool {
-	for i := 0; i < len(args)-1; i++ {
+	for i := range len(args) - 1 {
 		if (args[i] == "-p" || args[i] == "--publish") && args[i+1] == mapping {
 			return true
 		}
