@@ -17,6 +17,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/pinstate"
+	"github.com/MatrixMagician/VillaStraylight/internal/prune"
 	"github.com/MatrixMagician/VillaStraylight/internal/subsystem"
 	"github.com/MatrixMagician/VillaStraylight/internal/updatecheck"
 	"github.com/MatrixMagician/VillaStraylight/internal/updateflow"
@@ -621,5 +622,184 @@ func TestACurrentSubsystemIsNeverATarget(t *testing.T) {
 	}
 	if got := targetsFor(report, nil); len(got) != 0 {
 		t.Errorf("a current and a skipped subsystem produced targets: %v", got)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Prune
+// ---------------------------------------------------------------------------
+
+// TestOnlyCommittedSubsystemsArePruned is the guard around the only image-deleting
+// code in this project.
+//
+// A ROLLED-BACK subsystem's "previous" is the image it was just RESTORED to, so
+// removing it would delete what the stack is now running. An untried one has no
+// previous at all. Only a committed subsystem has genuinely moved off an image.
+func TestOnlyCommittedSubsystemsArePruned(t *testing.T) {
+	got := prunable(updateflow.Result{
+		Halted: true,
+		Subsystems: []updateflow.SubsystemResult{
+			{Subsystem: subsystem.Inference, Outcome: updateflow.Committed,
+				Previous: map[string]string{"backend-vulkan-radv": "old-backend"}},
+			{Subsystem: subsystem.Memory, Outcome: updateflow.RolledBackFail,
+				// The image memory was just restored TO. Pruning it would delete
+				// what the stack is running right now.
+				Previous: map[string]string{"qdrant": "old-qdrant"},
+				Proof:    updateflow.Proof{Status: updateflow.ProofFail, Detail: "verify memory failed"}},
+			{Subsystem: subsystem.Chat, Outcome: updateflow.RolledBackReject,
+				Previous: map[string]string{"open-webui": "old-owui"}},
+			{Subsystem: subsystem.Agent, Outcome: updateflow.NotTried},
+			{Subsystem: subsystem.WebSearch, Outcome: updateflow.RefusedUnhealthy},
+		},
+	})
+
+	if len(got) != 1 || got[0].Subsystem != subsystem.Inference {
+		names := []subsystem.Kind{}
+		for _, s := range got {
+			names = append(names, s.Subsystem)
+		}
+		t.Errorf("prune would consider %v, want only the committed subsystem — a rolled-back subsystem's "+
+			"previous is the image it was just restored to", names)
+	}
+}
+
+// TestACommittedSubsystemWithNoPreviousIsNotPruned: nothing was superseded, so
+// there is nothing to consider and no plan to print.
+func TestACommittedSubsystemWithNoPreviousIsNotPruned(t *testing.T) {
+	got := prunable(updateflow.Result{
+		Subsystems: []updateflow.SubsystemResult{
+			{Subsystem: subsystem.Memory, Outcome: updateflow.Committed},
+		},
+	})
+	if len(got) != 0 {
+		t.Errorf("a committed subsystem with no recorded previous was offered to prune: %v", got)
+	}
+}
+
+// TestAFailedRemovalIsAWarnNotAFailedUpdate.
+//
+// Prune runs AFTER the proof passed and the pin committed, so the update has
+// already succeeded. A cleanup failure leaves MORE safety, not less: the image that
+// could not be removed is exactly the inert leftover ADR-0003 says harms nothing.
+// The wording must not read as a failed update.
+func TestAFailedRemovalIsAWarnNotAFailedUpdate(t *testing.T) {
+	var b bytes.Buffer
+	// Drive the narration with a plan whose removal will fail, by pointing the
+	// removal at a reference podman cannot possibly hold.
+	printPrunePlan(context.Background(), &b, subsystem.Memory, prune.Plan{
+		Decisions: []prune.Decision{{
+			Ref:    "example.invalid/never-pulled@sha256:0000",
+			Action: prune.Remove,
+			Reason: "no current pin and no retained previous references it",
+		}},
+	})
+	got := b.String()
+
+	if !strings.Contains(got, "WARN") {
+		t.Errorf("a failed removal is not a WARN:\n%s", got)
+	}
+	if !strings.Contains(got, "The update itself succeeded") {
+		t.Errorf("a failed removal does not say the update succeeded:\n%s", got)
+	}
+	if strings.Contains(got, "FAIL") || strings.Contains(got, "rolling back") {
+		t.Errorf("a failed removal reads as a failed update:\n%s", got)
+	}
+}
+
+// TestARetentionIsReportedWithItsReason: prune sometimes no-ops right after a
+// successful update because the digest is still referenced elsewhere. Silent, that
+// looks like a bug — the user sees the old image on disk with no way to know that
+// keeping it was correct.
+func TestARetentionIsReportedWithItsReason(t *testing.T) {
+	var b bytes.Buffer
+	printPrunePlan(context.Background(), &b, subsystem.Memory, prune.Plan{
+		Decisions: []prune.Decision{{
+			Ref:    "docker.io/example/toolboxes@sha256:shared",
+			Action: prune.Retain,
+			Reason: "still referenced by the current pin for backend-vulkan-radv",
+		}},
+	})
+	got := b.String()
+
+	if !strings.Contains(got, "retained") {
+		t.Errorf("the retention is not labelled:\n%s", got)
+	}
+	if !strings.Contains(got, "still referenced by") {
+		t.Errorf("the retention does not say why:\n%s", got)
+	}
+}
+
+// TestABlockedPlanSkipsRatherThanRemoving: an unreadable store means villa cannot
+// tell what is referenced, and the narration must say it skipped rather than imply
+// there was nothing to do.
+func TestABlockedPlanSkipsRatherThanRemoving(t *testing.T) {
+	var b bytes.Buffer
+	printPrunePlan(context.Background(), &b, subsystem.Memory, prune.Plan{
+		Blocked:       true,
+		BlockedReason: "villa could not read its record of which images are in use",
+	})
+	got := b.String()
+
+	if !strings.Contains(got, "skipped") {
+		t.Errorf("a blocked plan is not reported as skipped:\n%s", got)
+	}
+	if !strings.Contains(got, "could not read") {
+		t.Errorf("a blocked plan does not say why:\n%s", got)
+	}
+}
+
+// TestAMissingPreviousIsSurfacedAsIncompleteProtection: someone running `podman
+// image prune` by hand loses rollback protection, and villa proceeding as though it
+// still had a safety net would be claiming a guarantee it cannot honour.
+func TestAMissingPreviousIsSurfacedAsIncompleteProtection(t *testing.T) {
+	var b bytes.Buffer
+	printPrunePlan(context.Background(), &b, subsystem.Chat, prune.Plan{
+		Decisions: []prune.Decision{{
+			Ref:    "ghcr.io/example/owui@sha256:gone",
+			Action: prune.MissingPrevious,
+			Reason: "recorded as the known-good previous for chat, but it is no longer in the image store — something removed it outside villa",
+		}},
+	})
+	got := b.String()
+
+	if !strings.Contains(got, "rollback protection for chat is incomplete") {
+		t.Errorf("a missing previous is not surfaced as incomplete protection:\n%s", got)
+	}
+	if !strings.Contains(got, "outside villa") {
+		t.Errorf("the warning does not say something removed it outside villa:\n%s", got)
+	}
+}
+
+// TestTheOnlyImageDeletionIsGuarded: `podman image rm` must appear exactly once in
+// the tree, must not carry --force, and must not be reachable from any other verb.
+//
+// --force would remove an image a container is still using, which is the exact
+// failure reference counting exists to prevent. If podman says the image is in use,
+// that is a signal villa's own record was wrong, and the right response is to leave
+// it alone and warn.
+func TestTheOnlyImageDeletionIsGuarded(t *testing.T) {
+	found := 0
+	for _, name := range cmdGoFiles(t) {
+		src := readCmdSource(t, name)
+		if !strings.Contains(src, `"image", "rm"`) {
+			continue
+		}
+		found++
+		if name != "update_apply.go" {
+			t.Errorf("%s deletes a container image; the only deletion in this project belongs to the update prune step", name)
+		}
+		if strings.Contains(src, `"--force"`) || strings.Contains(src, "--force") {
+			t.Errorf("%s passes --force to an image removal; that would delete an image a container is still using, "+
+				"which is exactly what reference counting exists to prevent", name)
+		}
+	}
+	if found != 1 {
+		t.Errorf("found %d image-removal sites, want exactly one", found)
+	}
+
+	// And `villa uninstall` still removes no images — ADR-0004 licenses removal for
+	// update only.
+	if strings.Contains(readCmdSource(t, "uninstall.go"), `"image", "rm"`) {
+		t.Error("uninstall removes container images; ADR-0004 licenses removal for `villa update` only")
 	}
 }

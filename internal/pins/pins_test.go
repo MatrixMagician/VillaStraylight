@@ -251,12 +251,12 @@ func digestRefs(src string) []string {
 				break
 			}
 			rest = rest[open+1:]
-			close := strings.Index(rest, `"`)
-			if close < 0 {
+			end := strings.Index(rest, `"`)
+			if end < 0 {
 				break
 			}
-			lit := rest[:close]
-			rest = rest[close+1:]
+			lit := rest[:end]
+			rest = rest[end+1:]
 			if strings.Contains(lit, "@sha256:") && strings.Contains(lit, "/") {
 				refs = append(refs, lit)
 			}

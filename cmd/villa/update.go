@@ -60,6 +60,11 @@ type updateDeps struct {
 	// ReferencedRefs is the set of pins nothing may remove, used by --dry-run to
 	// forecast the reference-counted prune outcome before it happens.
 	ReferencedRefs func() map[string]bool
+	// Prune releases superseded images after a committed update. It is a seam so a
+	// test can assert that prune NEVER runs on a halted run, which is the property
+	// that keeps the only image-deleting code in the project away from a stack in
+	// an uncertain state.
+	Prune func(ctx context.Context, w io.Writer, res updateflow.Result)
 }
 
 // liveUpdateDeps wires the real host.
@@ -78,6 +83,7 @@ func liveUpdateDeps() updateDeps {
 			return err == nil && active == "active"
 		},
 		FlowDeps: liveUpdateFlowDeps,
+		Prune:    runPrune,
 		ReferencedRefs: func() map[string]bool {
 			refs, _, err := pinstate.ReferencedRefs(livePinStateDeps())
 			if err != nil {
@@ -282,7 +288,17 @@ func apply(cmd *cobra.Command, d updateDeps, report updatecheck.Report, selected
 	if ctx.Err() != nil {
 		return exitInterrupted
 	}
-	return printApplyResult(out, errOut, res)
+
+	code := printApplyResult(out, errOut, res)
+
+	// Prune runs AFTER the proofs have passed and the pins are committed, and its
+	// outcome never changes the exit code. That is the one place fail-soft is right
+	// in this lifecycle: the update has already succeeded, and a failure to reclaim
+	// disk leaves MORE safety, not less.
+	if d.Prune != nil {
+		d.Prune(ctx, out, res)
+	}
+	return code
 }
 
 // networkVerdict turns a transport failure into a could-not-check verdict.

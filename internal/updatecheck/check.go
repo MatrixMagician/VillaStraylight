@@ -393,10 +393,10 @@ func summaryLine(r Report) string {
 	if r.Summary == nil {
 		return ""
 	}
-	switch {
-	case r.Summary.Updatable == 0:
+	switch r.Summary.Updatable {
+	case 0:
 		return "Everything installed is at the pin the manifest offers."
-	case r.Summary.Updatable == 1:
+	case 1:
 		return "1 subsystem has updates available."
 	default:
 		return sortableCount(r.Summary.Updatable) + " subsystems have updates available."

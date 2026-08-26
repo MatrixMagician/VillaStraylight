@@ -21,7 +21,6 @@ import (
 	"fmt"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
-	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 	"github.com/MatrixMagician/VillaStraylight/internal/preflight"
 	"github.com/MatrixMagician/VillaStraylight/internal/prove"
 	"github.com/MatrixMagician/VillaStraylight/internal/subsystem"
@@ -142,14 +141,4 @@ func fromVerifyProof(p verify.Proof) updateflow.Proof {
 	default:
 		return updateflow.Proof{Status: updateflow.ProofReject, Detail: p.Detail}
 	}
-}
-
-// liveBackendImage resolves the active backend's image through the seam, for the
-// pull step. It exists so the apply path never re-types a backend literal.
-func liveBackendImage(cfg config.VillaConfig) (string, error) {
-	b, err := inference.BackendFor(cfg.Backend)
-	if err != nil {
-		return "", err
-	}
-	return b.Image(), nil
 }

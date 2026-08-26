@@ -30,6 +30,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 	"github.com/MatrixMagician/VillaStraylight/internal/pins"
 	"github.com/MatrixMagician/VillaStraylight/internal/pinstate"
+	"github.com/MatrixMagician/VillaStraylight/internal/prune"
 	"github.com/MatrixMagician/VillaStraylight/internal/subsystem"
 	"github.com/MatrixMagician/VillaStraylight/internal/updatecheck"
 	"github.com/MatrixMagician/VillaStraylight/internal/updateflow"
@@ -88,7 +89,7 @@ func perSubsystemBudget(k subsystem.Kind) time.Duration {
 // the Open WebUI protocol probes for chat, and verify memory / search / agent for
 // the addons. A second implementation of any of them would be a second opinion
 // about whether the stack works.
-func liveUpdateFlowDeps(ctx context.Context) updateflow.Deps {
+func liveUpdateFlowDeps(context.Context) updateflow.Deps {
 	sys := orchestrate.NewSystemd()
 
 	return updateflow.Deps{
@@ -113,8 +114,8 @@ func liveUpdateFlowDeps(ctx context.Context) updateflow.Deps {
 			return liveMutate(c, sys, k, refs)
 		},
 
-		Restore: func(c context.Context, k subsystem.Kind, cap updateflow.Capture) error {
-			return liveRestoreSubsystem(c, sys, k, cap)
+		Restore: func(c context.Context, k subsystem.Kind, snapshot updateflow.Capture) error {
+			return liveRestoreSubsystem(c, sys, k, snapshot)
 		},
 
 		Commit: func(k subsystem.Kind, refs map[string]string, previous pinstate.Previous) error {
@@ -168,7 +169,7 @@ var liveProofFuncs = map[subsystem.Kind]func(context.Context) updateflow.Proof{}
 // Verbatim, because a re-render is not a restore: it would reproduce today's
 // template against today's config, which is not what was proven.
 func liveCapture(k subsystem.Kind) (updateflow.Capture, error) {
-	cap := updateflow.Capture{
+	snapshot := updateflow.Capture{
 		Refs:  map[string]string{},
 		Units: map[string][]byte{},
 	}
@@ -179,7 +180,7 @@ func liveCapture(k subsystem.Kind) (updateflow.Capture, error) {
 	}
 	r := resolverFor(state)
 	for _, res := range r.For(k) {
-		cap.Refs[string(res.Component)] = res.Current.Ref
+		snapshot.Refs[string(res.Component)] = res.Current.Ref
 	}
 
 	dir, err := quadletUnitDir()
@@ -198,16 +199,16 @@ func liveCapture(k subsystem.Kind) (updateflow.Capture, error) {
 			}
 			return updateflow.Capture{}, fmt.Errorf("capture %s: %w", name, err)
 		}
-		cap.Units[name] = data
+		snapshot.Units[name] = data
 	}
 
 	cfg, err := config.LoadVilla()
 	if err != nil {
 		return updateflow.Capture{}, fmt.Errorf("capture config: %w", err)
 	}
-	cap.Config = fmt.Sprintf("%+v", cfg)
+	snapshot.Config = fmt.Sprintf("%+v", cfg)
 
-	return cap, nil
+	return snapshot, nil
 }
 
 // liveMutate records the new pins, re-renders, and restarts the subsystem's
@@ -217,6 +218,16 @@ func liveCapture(k subsystem.Kind) (updateflow.Capture, error) {
 // that is the whole loop the resolver migration closed. On any later failure the
 // rollback rewrites the store from the captured tuple.
 func liveMutate(ctx context.Context, sys orchestrate.Systemd, k subsystem.Kind, refs map[string]string) error {
+	// The agent's pin is a checksummed binary, not an image in a unit, so its
+	// mutation is a file move rather than a render-and-restart. The superseded
+	// binary is retained as a sibling BEFORE the new one lands, which is the
+	// file-shaped version of capture-before-mutate.
+	if k == subsystem.Agent {
+		if err := retainCrushPrevious(); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("retain the previous Crush binary: %w", err)
+		}
+	}
+
 	if err := writeEffectivePins(refs); err != nil {
 		return fmt.Errorf("record the new pins: %w", err)
 	}
@@ -245,8 +256,8 @@ func liveMutate(ctx context.Context, sys orchestrate.Systemd, k subsystem.Kind, 
 }
 
 // liveRestore puts the captured tuple back, verbatim, and restarts.
-func liveRestoreSubsystem(ctx context.Context, sys orchestrate.Systemd, k subsystem.Kind, cap updateflow.Capture) error {
-	if err := writeEffectivePins(cap.Refs); err != nil {
+func liveRestoreSubsystem(ctx context.Context, sys orchestrate.Systemd, k subsystem.Kind, snapshot updateflow.Capture) error {
+	if err := writeEffectivePins(snapshot.Refs); err != nil {
 		return fmt.Errorf("restore the prior pins: %w", err)
 	}
 
@@ -255,7 +266,7 @@ func liveRestoreSubsystem(ctx context.Context, sys orchestrate.Systemd, k subsys
 		return err
 	}
 	var changed []orchestrate.Unit
-	for name, data := range cap.Units {
+	for name, data := range snapshot.Units {
 		changed = append(changed, orchestrate.Unit{Name: name, Text: string(data)})
 	}
 	if len(changed) > 0 {
@@ -527,9 +538,6 @@ func printHaltSummary(w io.Writer, res updateflow.Result) {
 // Refusals that happen before anything is attempted
 // ---------------------------------------------------------------------------
 
-// errStackNotRunning is REFUSAL #1.
-var errStackNotRunning = errors.New("the stack is not running")
-
 // printStoppedStackRefusal explains why apply needs a running stack and check does
 // not.
 //
@@ -677,4 +685,190 @@ func livePullImage(ctx context.Context, ref string) error {
 		return fmt.Errorf("podman pull %s: %w: %s", ref, err, strings.TrimSpace(string(out)))
 	}
 	return nil
+}
+
+// ---------------------------------------------------------------------------
+// Prune: the only step in this project that deletes a container image
+// ---------------------------------------------------------------------------
+
+// runPrune releases superseded images after a committed update.
+//
+// A FAILED PRUNE IS A WARN, NEVER A ROLLBACK. This is the one step in the lifecycle
+// where fail-soft is correct, and the reason is precise: prune runs AFTER the
+// post-mutation proof has already passed, so the update has succeeded before prune
+// is attempted. Rolling back a proven-good update because a cleanup step failed
+// would be perverse — and the failure leaves MORE safety, not less. An image that
+// could not be removed is exactly the inert leftover ADR-0003 says harms nothing.
+//
+// Everywhere else in this lifecycle the posture is the opposite: an unprovable
+// component rolls back rather than committing on evidence villa does not have.
+func runPrune(ctx context.Context, w io.Writer, res updateflow.Result) {
+	state, err := pinstate.Load(livePinStateDeps())
+	known := err == nil
+	if err != nil {
+		state = pinstate.State{}
+	}
+	// An EMPTY store is not a known reference set either — see ADR-0004 and
+	// pinstate.ReferencedRefs. Reusing that reading here keeps the two packages
+	// from drifting into different answers about the same document.
+	if _, refsKnown, rerr := pinstate.ReferencedRefs(livePinStateDeps()); rerr != nil || !refsKnown {
+		known = false
+	}
+
+	for _, s := range prunable(res) {
+		// The agent's previous is a FILE, not an image: the Crush binary has no
+		// digest and no image store, so it is retained as a sibling file by the
+		// existing install seam rather than reference-counted here. Reference
+		// counting over image references would have nothing to count.
+		if s.Subsystem == subsystem.Agent {
+			printAgentRetention(w, s)
+			continue
+		}
+		plan := prune.Decide(prune.Input{
+			State:      state,
+			StateKnown: known,
+			Superseded: s.Previous,
+			Subsystem:  s.Subsystem,
+			Present:    liveImagePresent,
+		})
+		printPrunePlan(ctx, w, s.Subsystem, plan)
+	}
+}
+
+// prunable is the subsystems whose superseded images may be considered.
+//
+// ONLY the committed ones, and only those with a recorded previous. A rolled-back
+// subsystem's "previous" is the image it was just RESTORED to — removing that would
+// delete what the stack is now running. An untried one has no previous at all.
+//
+// It is a named function rather than a condition inside the loop so a test can
+// assert the selection directly. A test that re-derived the rule would pass against
+// a version that had the rule backwards.
+func prunable(res updateflow.Result) []updateflow.SubsystemResult {
+	var out []updateflow.SubsystemResult
+	for _, s := range res.Subsystems {
+		if s.Outcome.Committed() && len(s.Previous) > 0 {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// printPrunePlan acts on a plan and narrates it.
+//
+// EVERY outcome is printed, including the no-ops. A prune that silently does
+// nothing right after a successful update looks like a bug — the user sees the old
+// image still on disk and has no way to know that keeping it was the correct and
+// deliberate answer.
+func printPrunePlan(ctx context.Context, w io.Writer, k subsystem.Kind, plan prune.Plan) {
+	if plan.Blocked {
+		fmt.Fprintf(w, "\n  pruning previous (%s) ............................ skipped\n", k)
+		fmt.Fprintf(w, "    %s\n", plan.BlockedReason)
+		return
+	}
+
+	for _, d := range plan.Decisions {
+		switch d.Action {
+		case prune.Retain:
+			fmt.Fprintf(w, "\n  pruning previous (%s) ............................ retained\n", k)
+			fmt.Fprintf(w, "    %s — %s\n", shortRef(d.Ref), d.Reason)
+
+		case prune.MissingPrevious:
+			// Surfaced, not fail-softed: rollback protection is incomplete and the
+			// user is the only one who can decide what to do about it.
+			fmt.Fprintf(w, "\n  WARNING: rollback protection for %s is incomplete.\n", k)
+			fmt.Fprintf(w, "    %s is %s\n", shortRef(d.Ref), d.Reason)
+
+		case prune.Remove:
+			if err := liveRemoveImage(ctx, d.Ref); err != nil {
+				// A WARN. The update succeeded and is running; villa merely could
+				// not reclaim the disk. It must not read as a failed update.
+				fmt.Fprintf(w, "\n  pruning previous (%s) ............................ WARN\n", k)
+				fmt.Fprintf(w, "    could not remove %s: %v\n"+
+					"    The update itself succeeded and is running normally. The image is still\n"+
+					"    on disk, which is harmless — it is simply disk villa could not reclaim.\n",
+					shortRef(d.Ref), err)
+				continue
+			}
+			fmt.Fprintf(w, "\n  pruning previous (%s) ............................ removed\n", k)
+			fmt.Fprintf(w, "    %s — %s\n", shortRef(d.Ref), d.Reason)
+		}
+	}
+}
+
+// liveImagePresent reports whether an image reference is in the local store.
+//
+// A failure to ask is treated as PRESENT, not absent. Reporting "your rollback
+// image is gone" because podman was momentarily unavailable would be a false alarm
+// about a safety property, and a false alarm about safety is worse than silence:
+// it teaches the user to ignore the real one.
+func liveImagePresent(ref string) bool {
+	cmd := exec.Command("podman", "image", "exists", ref) // fixed args; no shell
+	if err := cmd.Run(); err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			// A clean non-zero exit is podman's confident "no".
+			return false
+		}
+		// podman missing, or some other failure to ASK. Not evidence of absence.
+		return true
+	}
+	return true
+}
+
+// liveRemoveImage deletes one image.
+//
+// THE ONLY IMAGE DELETION IN THIS PROJECT. It is reached only for a reference the
+// pure core has decided nothing in the store references — never on a bare digest, a
+// pattern, or anything villa did not itself record.
+//
+// Deliberately NOT --force. A force would remove an image a container is still
+// using, which is the exact failure reference counting exists to prevent; if podman
+// says the image is in use, that is a signal villa's own record was wrong, and the
+// right response is to leave it alone and warn.
+func liveRemoveImage(ctx context.Context, ref string) error {
+	cmd := exec.CommandContext(ctx, "podman", "image", "rm", ref) // fixed args; no shell, no --force
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+// crushPreviousPath is where the superseded Crush binary is retained.
+//
+// A SIBLING FILE beside the live one, in villa's own bin directory: the agent's
+// pin is a checksummed release asset rather than a container image, so there is no
+// image store to reference-count and no digest to count references over. Keeping
+// the prior binary next to the current one is the file-shaped version of the same
+// one-previous rule.
+func crushPreviousPath() string { return agentBinPath() + ".previous" }
+
+// retainCrushPrevious moves the superseded Crush binary aside as the known-good
+// previous.
+//
+// It is a RENAME, not a copy, so there is never a moment where the retention has
+// doubled the disk cost, and never a torn half-copy if the process dies midway. A
+// pre-existing .previous is replaced: one previous, exactly as for the images.
+func retainCrushPrevious() error {
+	live := agentBinPath()
+	if _, err := os.Stat(live); err != nil {
+		return err
+	}
+	prev := crushPreviousPath()
+	_ = os.Remove(prev) // the one it displaces; absence is not an error
+	return os.Rename(live, prev)
+}
+
+// printAgentRetention narrates the agent's file-shaped retention.
+func printAgentRetention(w io.Writer, s updateflow.SubsystemResult) {
+	if _, err := os.Stat(crushPreviousPath()); err == nil {
+		fmt.Fprintf(w, "\n  retaining previous (%s) .......................... done\n", s.Subsystem)
+		fmt.Fprintf(w, "    the superseded binary is kept beside the current one as the known-good previous\n")
+		return
+	}
+	// SURFACED, not silent: the same honesty the image path applies to a missing
+	// recorded previous. A user whose rollback binary is absent should know.
+	fmt.Fprintf(w, "\n  WARNING: rollback protection for %s is incomplete.\n", s.Subsystem)
+	fmt.Fprintf(w, "    No previous Crush binary was retained, so there is nothing to roll back to.\n")
 }
