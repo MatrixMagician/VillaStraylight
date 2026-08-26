@@ -25,12 +25,18 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/pins"
 	"github.com/MatrixMagician/VillaStraylight/internal/pinstate"
 	"github.com/MatrixMagician/VillaStraylight/internal/updatefetch"
+	"github.com/MatrixMagician/VillaStraylight/internal/updateflow"
 )
 
 // updateHarness drives one runUpdate call and captures both streams.
 type updateHarness struct {
 	out, errOut bytes.Buffer
 	saved       *pinstate.State
+	// stackRunning defaults false, which is the stopped-stack refusal — the state
+	// an apply test has to opt OUT of rather than into, so a test that forgets gets
+	// the safe answer.
+	stackRunning bool
+	flowDeps     updateflow.Deps
 }
 
 // run invokes the check path with an injected fetch result.
@@ -42,12 +48,15 @@ func (h *updateHarness) run(t *testing.T, cfg config.VillaConfig, state pinstate
 	cmd.SetContext(context.Background())
 
 	deps := updateDeps{
-		LoadConfig:   func() (config.VillaConfig, error) { return cfg, nil },
-		LoadPinState: func() (pinstate.State, error) { return state, nil },
-		SavePinState: func(s pinstate.State) error { h.saved = &s; return nil },
-		Fetch:        func(context.Context) (updatefetch.Fetched, error) { return fetched, fetchErr },
-		Now:          func() time.Time { return time.Date(2026, 8, 26, 12, 0, 0, 0, time.UTC) },
-		VillaVersion: func() string { return "v1.7" },
+		StackRunning:   func() bool { return h.stackRunning },
+		FlowDeps:       func(context.Context) updateflow.Deps { return h.flowDeps },
+		ReferencedRefs: func() map[string]bool { return nil },
+		LoadConfig:     func() (config.VillaConfig, error) { return cfg, nil },
+		LoadPinState:   func() (pinstate.State, error) { return state, nil },
+		SavePinState:   func(s pinstate.State) error { h.saved = &s; return nil },
+		Fetch:          func(context.Context) (updatefetch.Fetched, error) { return fetched, fetchErr },
+		Now:            func() time.Time { return time.Date(2026, 8, 26, 12, 0, 0, 0, time.UTC) },
+		VillaVersion:   func() string { return "v1.7" },
 	}
 	return runUpdate(cmd, args, deps, flags)
 }
@@ -188,18 +197,19 @@ func TestABuildWithNoKeyRefusesRatherThanReportingCurrent(t *testing.T) {
 	}
 }
 
-// TestApplyIsRefusedWithAPointerAtCheck: the verb must not half-exist. A bare
-// `villa update` that silently did nothing would be worse than one that says what
-// works today.
-func TestApplyIsRefusedWithAPointerAtCheck(t *testing.T) {
+// TestApplyWithNoManifestTakesTheSameRejectPath: villa does not know what to apply,
+// and "could not check" is the honest answer whichever verb asked. Inventing a
+// second wording for it would let one of the two drift into something that reads
+// like "nothing to do".
+func TestApplyWithNoManifestTakesTheSameRejectPath(t *testing.T) {
 	var h updateHarness
 	code := h.run(t, config.VillaConfig{Backend: "vulkan"}, pinstate.State{}, updatefetch.Fetched{}, nil, nil, updateFlags{})
 
 	if code != exitBlocked {
 		t.Errorf("exit = %d, want %d", code, exitBlocked)
 	}
-	if !strings.Contains(h.text(), "--check") {
-		t.Errorf("the refusal does not point at what does work:\n%s", h.text())
+	if !strings.Contains(h.text(), `This is not "you are up to date"`) {
+		t.Errorf("apply with no manifest does not refuse the up-to-date misreading:\n%s", h.text())
 	}
 }
 

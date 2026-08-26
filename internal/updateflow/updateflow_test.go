@@ -422,9 +422,9 @@ func TestPerSubsystemBudgetsAreUsed(t *testing.T) {
 	d := r.deps()
 
 	var budgeted []subsystem.Kind
-	d.Budget = func(k subsystem.Kind) context.Context {
+	d.Budget = func(c context.Context, k subsystem.Kind) (context.Context, context.CancelFunc) {
 		budgeted = append(budgeted, k)
-		return context.Background()
+		return context.WithCancel(c)
 	}
 
 	targets := []Target{

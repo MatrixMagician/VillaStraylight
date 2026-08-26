@@ -172,7 +172,12 @@ type Deps struct {
 	// Budget is the per-subsystem time budget. PER SUBSYSTEM and not global: a
 	// total cap would make failures depend on ordering, so the last subsystem gets
 	// blamed for time the first four spent.
-	Budget func(k subsystem.Kind) context.Context
+	//
+	// It returns a context AND its cancel, so the budget is released as soon as the
+	// subsystem finishes rather than lingering until the whole run ends. A signature
+	// that returned only the context would leak a timer per subsystem, which go vet
+	// catches and which would matter on a run that halts early.
+	Budget func(ctx context.Context, k subsystem.Kind) (context.Context, context.CancelFunc)
 	// Now supplies the capture timestamp.
 	Now func() string
 }
@@ -265,7 +270,9 @@ func runOne(ctx context.Context, d Deps, t Target) SubsystemResult {
 	// consume the time a later one needs and then have the later one blamed.
 	subCtx := ctx
 	if d.Budget != nil {
-		subCtx = d.Budget(t.Subsystem)
+		var cancel context.CancelFunc
+		subCtx, cancel = d.Budget(ctx, t.Subsystem)
+		defer cancel()
 	}
 
 	// (1) PROVE THE CURRENT STATE. Strictly first, and strictly before the capture,

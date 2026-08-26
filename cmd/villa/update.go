@@ -27,10 +27,12 @@ import (
 
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/manifestverify"
+	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 	"github.com/MatrixMagician/VillaStraylight/internal/pinstate"
 	"github.com/MatrixMagician/VillaStraylight/internal/subsystem"
 	"github.com/MatrixMagician/VillaStraylight/internal/updatecheck"
 	"github.com/MatrixMagician/VillaStraylight/internal/updatefetch"
+	"github.com/MatrixMagician/VillaStraylight/internal/updateflow"
 )
 
 // updateDeps is the injectable host surface for the check path. Every field is a
@@ -50,6 +52,14 @@ type updateDeps struct {
 	Now func() time.Time
 	// VillaVersion is this binary's version.
 	VillaVersion func() string
+	// StackRunning reports whether the inference service is up. It gates the apply
+	// path only: --check works on a stopped stack because it changes nothing.
+	StackRunning func() bool
+	// FlowDeps builds the transactional core's seam set for this run.
+	FlowDeps func(ctx context.Context) updateflow.Deps
+	// ReferencedRefs is the set of pins nothing may remove, used by --dry-run to
+	// forecast the reference-counted prune outcome before it happens.
+	ReferencedRefs func() map[string]bool
 }
 
 // liveUpdateDeps wires the real host.
@@ -63,17 +73,30 @@ func liveUpdateDeps() updateDeps {
 		},
 		Now:          time.Now,
 		VillaVersion: villaVersion,
+		StackRunning: func() bool {
+			active, err := orchestrate.NewSystemd().IsActive(installServiceName)
+			return err == nil && active == "active"
+		},
+		FlowDeps: liveUpdateFlowDeps,
+		ReferencedRefs: func() map[string]bool {
+			refs, _, err := pinstate.ReferencedRefs(livePinStateDeps())
+			if err != nil {
+				return nil
+			}
+			return refs
+		},
 	}
 }
 
 // newUpdate builds `villa update`.
 func newUpdate() *cobra.Command {
 	var check bool
+	var dryRun bool
 	var fromRegistries bool
 
 	cmd := &cobra.Command{
 		Use:   "update [subsystem...]",
-		Short: "Check for newer pins for the components this host runs",
+		Short: "Update the pinned components this host runs, or check what is available",
 		Long: "Compare the pins this host runs against the signed pin manifest villa publishes, and report.\n\n" +
 			"--check is read-only and works on a STOPPED stack, because it changes nothing. That is a real\n" +
 			"asymmetry with applying an update, which needs a running stack to prove each subsystem before\n" +
@@ -82,15 +105,20 @@ func newUpdate() *cobra.Command {
 			"opportunistically — status is polled by the dashboard, so an opportunistic check there would\n" +
 			"mean network access on a UI refresh loop. status and doctor show the LAST RECORDED check and\n" +
 			"its age; they never trigger a live one.\n\n" +
+			"Applying proves each subsystem BEFORE and after it changes it, and commits one subsystem\n" +
+			"before starting the next, halting on the first failure — so a failure reverts only that\n" +
+			"subsystem and the ones already committed stay committed.\n\n" +
 			"Arguments are subsystem names (inference, chat, memory, search, agent), never container names:\n" +
 			"the proof unit is what `villa verify` proves, so memory moves as Qdrant plus the embedder.",
 		Args: cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			os.Exit(runUpdate(cmd, args, liveUpdateDeps(), updateFlags{check: check, fromRegistries: fromRegistries}))
+			os.Exit(runUpdate(cmd, args, liveUpdateDeps(), updateFlags{check: check, dryRun: dryRun, fromRegistries: fromRegistries}))
 			return nil
 		},
 	}
 
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false,
+		"show the ordered plan and what would be pruned, changing nothing")
 	cmd.Flags().BoolVar(&check, "check", false, "report available updates without changing anything (works on a stopped stack)")
 	cmd.Flags().BoolVar(&fromRegistries, "from-registries", false,
 		"ask each registry directly instead of reading the signed manifest. THIS REVEALS WHICH ADDONS YOU HAVE ENABLED: "+
@@ -103,6 +131,7 @@ func newUpdate() *cobra.Command {
 // updateFlags carries the parsed flags into the testable body.
 type updateFlags struct {
 	check          bool
+	dryRun         bool
 	fromRegistries bool
 }
 
@@ -127,11 +156,9 @@ func runUpdate(cmd *cobra.Command, args []string, d updateDeps, flags updateFlag
 		}
 	}
 
-	if !flags.check {
-		fmt.Fprint(errOut, "Applying updates is not implemented yet.\n\n"+
-			"  villa update --check    report what is available, changing nothing\n\n"+
-			"Checking works today and is read-only. Applying will land with the transactional\n"+
-			"per-subsystem update flow, which proves each subsystem before and after it changes it.\n")
+	selected, serr := selectedSubsystems(args)
+	if serr != nil {
+		printUnknownSubsystem(errOut, args[0])
 		return exitBlocked
 	}
 
@@ -204,7 +231,58 @@ func runUpdate(cmd *cobra.Command, args []string, d updateDeps, flags updateFlag
 		}
 	}
 
-	return emit(out, errOut, report, jsonOut)
+	if flags.check {
+		return emit(out, errOut, report, jsonOut)
+	}
+	return apply(cmd, d, report, selected, flags)
+}
+
+// apply is the mutating half: it derives the work from the SAME report --check
+// prints, so the two verbs can never disagree about what would be updated.
+//
+// It refuses on a stopped stack. `update` proves each subsystem before and after it
+// changes it, and it cannot prove a subsystem that is not running. Starting services
+// the operator deliberately stopped, proving against them, then stopping them again
+// is a lot of unrequested state change — and if the restore-to-stopped step failed,
+// update would have left the stack running when it found it down.
+func apply(cmd *cobra.Command, d updateDeps, report updatecheck.Report, selected map[subsystem.Kind]bool, flags updateFlags) int {
+	out := cmd.OutOrStdout()
+	errOut := cmd.ErrOrStderr()
+	ctx := cmd.Context()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	if report.Result != updatecheck.ResultChecked {
+		// Villa does not know what to apply. This takes the same Reject path as
+		// --check, because "could not check" is the honest answer either way and
+		// inventing a second wording for it would let one of them drift.
+		printReject(errOut, report)
+		return exitBlocked
+	}
+
+	targets := targetsFor(report, selected)
+	if len(targets) == 0 {
+		fmt.Fprint(out, "\nNothing to update. Every selected subsystem is at the pin the manifest offers.\n")
+		return exitPass
+	}
+
+	if flags.dryRun {
+		printUpdateDryRun(out, targets, d.ReferencedRefs())
+		return exitPass
+	}
+
+	// REFUSAL #1, before anything is attempted.
+	if !d.StackRunning() {
+		printStoppedStackRefusal(errOut)
+		return exitBlocked
+	}
+
+	res := updateflow.Run(ctx, d.FlowDeps(ctx), targets)
+	if ctx.Err() != nil {
+		return exitInterrupted
+	}
+	return printApplyResult(out, errOut, res)
 }
 
 // networkVerdict turns a transport failure into a could-not-check verdict.
