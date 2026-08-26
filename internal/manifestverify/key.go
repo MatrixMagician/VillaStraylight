@@ -16,22 +16,17 @@ package manifestverify
 // write access" — the exact property this arrangement exists to avoid. See
 // docs/RELEASING.md § Key custody.
 //
-// # The unset state is honest, not broken
+// # The unset state fails closed, and that still matters
 //
-// No keypair has been generated yet: that is an open item for a human, recorded in
-// the spec, because it must happen on a machine that is not this one and not CI.
-// Until it does, publicKeyHex is empty, and an empty key means villa can verify
-// NOTHING — every manifest is refused for a bad signature and every host falls back
-// to compiled-in pins.
+// A key IS set below. But the empty case stays reachable — a fork that strips it, a
+// build made before one was generated — so the behaviour is worth stating: an empty
+// key means villa can verify NOTHING, so every manifest is refused and every host
+// falls back to compiled-in pins.
 //
-// That is the correct behaviour for the unset state, and it is worth being explicit
-// about why. The alternative failure mode — treating "no key configured" as "skip
-// the signature check" — would turn a missing key into an open door, and it would
-// do so silently, on every host, at exactly the moment nobody was looking. A villa
-// that can check nothing is strictly better than a villa that accepts anything.
-//
-// To set it: run `villa-manifest-sign keygen`, which prints the public key, and
-// paste the hex here in the same release that publishes the first manifest.
+// The alternative would be catastrophic. Treating "no key configured" as "skip the
+// signature check" would turn a missing key into an open door, silently, on every
+// host, at exactly the moment nobody was looking. A villa that can check nothing is
+// strictly better than a villa that accepts anything.
 
 import (
 	"crypto/ed25519"
@@ -39,8 +34,14 @@ import (
 )
 
 // publicKeyHex is the hex-encoded ed25519 public key manifests are verified
-// against. Empty until a keypair is generated offline — see the file doc.
-const publicKeyHex = ""
+// against. Its private half was generated offline on the maintainer's machine by
+// `villa-manifest-sign keygen` and has never been in this repository, in CI, or in
+// any secrets store — see docs/RELEASING.md § Key custody.
+//
+// Rotating it is a RELEASE, not a config change, and that is the point: a key a
+// running villa could be talked into changing would make the whole scheme
+// decorative. See the note above on why the empty value fails closed.
+const publicKeyHex = "d9d4cba59b62a7bc614c493610cf21a5f2cefed49bd7e5a74b730f419c918451"
 
 // PublicKey returns the compiled-in verification key, or nil when none is set.
 //
