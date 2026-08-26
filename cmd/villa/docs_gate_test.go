@@ -248,3 +248,59 @@ func containsAny(s string, subs []string) bool {
 	}
 	return false
 }
+
+// updateOutboundClaim is the SINGLE source of the dishonest-outbound regex for
+// `villa update`. It is the docs-side twin of internal/websafe's injection-honesty
+// gate: that one bans "injection-safe"/"immune"/"blocks injection" because the web
+// guard flags and never blocks (ADR-0002); this one bans claims that update
+// contacts nothing, because update demonstrably reaches the network.
+//
+// WHAT UPDATE ACTUALLY DOES, and why a blanket claim is always wrong: the check
+// phase is one HTTPS GET to the release endpoint, made by villa; the fetch phase is
+// `podman pull` against the registries in the compiled-in allowlist — gigabytes,
+// multiple hosts, performed by PODMAN rather than by villa. A sentence that covers
+// both with one figure is true of villa's process and false of the operation, which
+// is the exact class of error where the accounting code is not the code doing the
+// work. So the two claims are stated separately in README.md, and this gate stops a
+// future contributor collapsing them back into a comfortable one-liner.
+//
+// SCOPING, deliberately narrow. The patterns anchor on update/`villa update` in the
+// SAME line as the offending claim, so the gate cannot fire on the memory stack's
+// legitimate "adds zero new outbound" (which is true: memory is a loopback vector
+// store) or on the v1.4 coding agent's "proven zero-outbound at runtime" (also
+// true, and proven by `villa verify agent`). Those are different subsystems making
+// different, earned claims. A gate that flagged them would be noise a reviewer
+// learns to ignore, which is worse than no gate — the same reasoning
+// TestSeamGrepGate's scoping comment records.
+func updateOutboundClaim() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)update[^.\n]*\b(fully offline|works offline|contacts nothing|reaches nothing|no outbound|zero outbound|without network|no network access)\b`)
+}
+
+// TestDocsUpdateOutboundHonesty fails when a doc claims `villa update` does not
+// reach the network. Update contacts the release endpoint on check and every
+// pinned registry on fetch; the honest framing is two separate bounded claims, not
+// an absence.
+//
+// This is load-bearing rather than editorial, for the reason ADR-0002 gives about
+// the injection guard: the operator's trust is calibrated by what the docs claim,
+// and a claim that overstates the bound is worse than a claim that admits it. A
+// user who believes update is offline will not think about when it last checked,
+// which is precisely the thing they must think about — villa never checks on its
+// own, so staleness is the operator's job to notice.
+func TestDocsUpdateOutboundHonesty(t *testing.T) {
+	pattern := updateOutboundClaim()
+	for _, doc := range markdownFiles(t) {
+		data, err := os.ReadFile(filepath.Join(repoRoot, doc))
+		if err != nil {
+			t.Fatalf("read %s: %v", doc, err)
+		}
+		for n, line := range strings.Split(string(data), "\n") {
+			if pattern.MatchString(line) {
+				t.Errorf("%s:%d claims `villa update` reaches nothing, which is false — "+
+					"check is one GET to the release endpoint, fetch is `podman pull` against "+
+					"the pinned registries. State the two bounds separately instead.\n    line: %s",
+					doc, n+1, strings.TrimSpace(line))
+			}
+		}
+	}
+}
