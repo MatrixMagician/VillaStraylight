@@ -127,6 +127,11 @@ func newUpdate() *cobra.Command {
 			"Applying proves each subsystem BEFORE and after it changes it, and commits one subsystem\n" +
 			"before starting the next, halting on the first failure — so a failure reverts only that\n" +
 			"subsystem and the ones already committed stay committed.\n\n" +
+			"chat and memory keep their state in a data volume, so for them the image is not the thing\n" +
+			"being changed. They are STOPPED while their data is copied, then updated, then started — a\n" +
+			"copy taken from under a running service is a torn one. That copy is part of the rollback\n" +
+			"target, so a rollback restores the data as well as the pin. Villa will not update a\n" +
+			"subsystem whose data it could not copy. Use --dry-run to see the disk this needs.\n\n" +
 			"Arguments are subsystem names (inference, chat, memory, search, agent), never container names:\n" +
 			"the proof unit is what `villa verify` proves, so memory moves as Qdrant plus the embedder.",
 		Args: cobra.ArbitraryArgs,
@@ -137,7 +142,7 @@ func newUpdate() *cobra.Command {
 	}
 
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false,
-		"show the ordered plan and what would be pruned, changing nothing")
+		"show the ordered plan, the disk each data snapshot needs, and what would be pruned, changing nothing")
 	cmd.Flags().BoolVar(&check, "check", false, "report available updates without changing anything (works on a stopped stack)")
 	cmd.Flags().BoolVar(&fromRegistries, "from-registries", false,
 		"ask each registry directly instead of reading the signed manifest. THIS REVEALS WHICH ADDONS YOU HAVE ENABLED: "+
