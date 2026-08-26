@@ -161,7 +161,7 @@ func newCodingModeEnter() *cobra.Command {
 			"refusal/error/rollback. Already in coding mode is a clean no-op.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			code := runCodingMode(cmd, codingmode.Enter, liveCodingModeDeps())
+			code := runCodingMode(cmd, codingmode.Enter, liveCodingModeDeps(cmdContext(cmd)))
 			os.Exit(code)
 			return nil
 		},
@@ -178,7 +178,7 @@ func newCodingModeExit() *cobra.Command {
 			"on exit/no-op, 1 on error/rollback. Already in chat mode is a clean no-op.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			code := runCodingMode(cmd, codingmode.Exit, liveCodingModeDeps())
+			code := runCodingMode(cmd, codingmode.Exit, liveCodingModeDeps(cmdContext(cmd)))
 			os.Exit(code)
 			return nil
 		},
@@ -256,7 +256,11 @@ func runCodingMode(cmd *cobra.Command, dir codingmode.Direction, d *codingmode.D
 // translates catalog.AgentSampling → inference.Sampling into RenderInput when coding), the
 // systemd reload/restart seam, and liveCodingProve as the cutover gate. Every host-touching
 // action is a seam so coding-mode_test.go drives the flow without a live host.
-func liveCodingModeDeps() *codingmode.Deps {
+//
+// ctx is the command's SIGINT/SIGTERM-cancelled context, captured by the Pull
+// closure so Ctrl-C can interrupt the multi-GB coder-weight transfer. Cancelling
+// mid-stream is safe: the partial ".part" file is kept and resumed via HTTP Range.
+func liveCodingModeDeps(ctx context.Context) *codingmode.Deps {
 	sys := orchestrate.NewSystemd()
 	return &codingmode.Deps{
 		InstallServiceName: installServiceName,
@@ -319,7 +323,7 @@ func liveCodingModeDeps() *codingmode.Deps {
 			if mkErr := os.MkdirAll(dir, 0o700); mkErr != nil {
 				return mkErr
 			}
-			return pullFn(context.Background(), m, dir)
+			return pullFn(ctx, m, dir)
 		},
 		// CaptureUnit: read the verbatim prior villa-llama.container bytes from the quadlet
 		// unit dir (traversal-bounded by construction).

@@ -248,7 +248,7 @@ func newModelSwap() *cobra.Command {
 			"restart ONLY the inference service. Exits 0 on success, 1 on refusal/failure.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			code := runModelSwap(cmd, args[0], liveSwapDeps())
+			code := runModelSwap(cmd, args[0], liveSwapDeps(cmdContext(cmd)))
 			os.Exit(code)
 			return nil
 		},
@@ -310,7 +310,12 @@ func runModelSwap(cmd *cobra.Command, name string, d *modelswap.Deps) int {
 // recommend fit-math, the on-disk weight check, the verified downloader (via the
 // pullFn seam), config.SaveVilla, and the Plan-01 orchestrate render/reconcile/write
 // + systemd restart seam — exactly the seams the context note names, no new math.
-func liveSwapDeps() *modelswap.Deps {
+//
+// ctx is the command's SIGINT/SIGTERM-cancelled context, captured by the Pull
+// closure. A swap pull is multi-GB, so without it Ctrl-C could not interrupt the
+// transfer. Cancelling mid-stream is safe: download.PullModel keeps the partial
+// ".part" file and resumes it via HTTP Range on the next run.
+func liveSwapDeps(ctx context.Context) *modelswap.Deps {
 	sys := orchestrate.NewSystemd()
 	return &modelswap.Deps{
 		InstallServiceName: installServiceName,
@@ -349,7 +354,7 @@ func liveSwapDeps() *modelswap.Deps {
 			if mkErr := os.MkdirAll(dir, 0o700); mkErr != nil {
 				return mkErr
 			}
-			return pullFn(context.Background(), m, dir)
+			return pullFn(ctx, m, dir)
 		},
 		SaveConfig: config.SaveVilla,
 		ReconcileAndWrite: func(c config.VillaConfig) (bool, error) {

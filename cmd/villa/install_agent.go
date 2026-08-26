@@ -78,12 +78,14 @@ func liveCoderModelPresent(modelsDir string, sh catalog.Shard) bool {
 // → stream → SHA256 + size check → atomic rename, so a half-written or unverified GGUF is
 // never left on disk. This is the single sanctioned outbound window for the coder
 // weight: a one-time install-time controlled pull; runtime stays ZERO-download.
-func liveEnsureCoderModel(modelsDir string, sh catalog.Shard) error {
+// ctx is the command's cancellation context, so Ctrl-C interrupts the transfer;
+// the partial ".part" file survives and resumes via HTTP Range.
+func liveEnsureCoderModel(ctx context.Context, modelsDir string, sh catalog.Shard) error {
 	if mkErr := os.MkdirAll(modelsDir, 0o700); mkErr != nil {
 		return mkErr
 	}
 	m := catalog.Model{Shards: []catalog.Shard{sh}}
-	return pullFn(context.Background(), m, modelsDir)
+	return pullFn(ctx, m, modelsDir)
 }
 
 // agentDownloadClient returns the HTTP client for the one-time Crush tarball pull.

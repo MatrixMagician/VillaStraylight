@@ -86,7 +86,7 @@ func newDashboard() *cobra.Command {
 			"Strictly local, zero telemetry.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			deps, err := liveDashboardDeps()
+			deps, err := liveDashboardDeps(cmdContext(cmd))
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "dashboard: %v\n", err)
 				os.Exit(exitBlocked)
@@ -145,7 +145,13 @@ func runDashboard(cmd *cobra.Command, _ []string, d *dashboardDeps) int {
 // liveDashboardDeps wires dashboardDeps to the real host: config.LoadVilla, the live
 // status read-model seam (reusing liveStatusDeps so the dashboard and the CLI fold the
 // IDENTICAL core), and a Serve that binds the loopback socket.
-func liveDashboardDeps() (*dashboardDeps, error) {
+//
+// ctx is the process-lifetime context: it stops Serve on SIGTERM, and it also
+// bounds the multi-GB pull a POST /api/models/switch can start, so a stop signal
+// does not leave that transfer running past the graceful-shutdown window. Aborting
+// a pull is safe and does not corrupt state — the partial ".part" file is kept and
+// resumed via HTTP Range, and the config save happens only AFTER the pull succeeds.
+func liveDashboardDeps(ctx context.Context) (*dashboardDeps, error) {
 	// The inference endpoint is the SAME loopback URL the status seam probes (derived
 	// from the config-resolved backend's container runner, never hard-coded), so
 	// /api/metrics scrapes the exact server villa status reports on. liveStatusDeps is
@@ -178,7 +184,7 @@ func liveDashboardDeps() (*dashboardDeps, error) {
 		// Swap: the IDENTICAL guarded swap deps `villa model swap` uses, so the
 		// dashboard POST routes through the same resolve→fit→pull→save→regenerate→restart
 		// security contract — never a fork.
-		SwapDeps: *liveSwapDeps(),
+		SwapDeps: *liveSwapDeps(ctx),
 
 		// Cumulative usage: the dashboard /api/metrics scrape is the SOLE
 		// writer of usage.json. ReadUsage loads the fold's prior via usage.Load over

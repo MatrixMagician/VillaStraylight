@@ -160,7 +160,7 @@ func newModelResidentLs() *cobra.Command {
 			"loopback port, systemd unit, and current unit state. Read-only: nothing is written or started.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			os.Exit(runResidentLs(cmd, asJSON, liveResidentDeps()))
+			os.Exit(runResidentLs(cmd, asJSON, liveResidentDeps(cmdContext(cmd))))
 			return nil
 		},
 	}
@@ -179,7 +179,7 @@ func newModelResidentAdd() *cobra.Command {
 			"units and start the new one. Transactional: any failure after the first mutation is rolled back.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			os.Exit(runResidentAdd(cmd, args[0], liveResidentDeps()))
+			os.Exit(runResidentAdd(cmd, args[0], liveResidentDeps(cmdContext(cmd))))
 			return nil
 		},
 	}
@@ -195,7 +195,7 @@ func newModelResidentRm() *cobra.Command {
 			"refused here — switch it with `villa model swap`. Transactional, like add.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			os.Exit(runResidentRm(cmd, args[0], liveResidentDeps()))
+			os.Exit(runResidentRm(cmd, args[0], liveResidentDeps(cmdContext(cmd))))
 			return nil
 		},
 	}
@@ -674,7 +674,11 @@ func unitsContain(units []orchestrate.Unit, name string) bool {
 // rest of the CLI already uses: the catalog, recommend.Pick, the verified downloader
 // behind pullFn, config.SaveVilla, the orchestrate render/reconcile/write core, and
 // the systemd seam. Nothing here is new machinery.
-func liveResidentDeps() *residentDeps {
+//
+// ctx is the command's SIGINT/SIGTERM-cancelled context, captured by the pull
+// closure so Ctrl-C can interrupt the multi-GB transfer `resident add` may start.
+// Cancelling mid-stream is safe: the partial ".part" file is kept and resumed.
+func liveResidentDeps(ctx context.Context) *residentDeps {
 	sys := orchestrate.NewSystemd()
 	return &residentDeps{
 		loadConfig: config.LoadVilla,
@@ -706,7 +710,7 @@ func liveResidentDeps() *residentDeps {
 			if mkErr := os.MkdirAll(dir, 0o700); mkErr != nil {
 				return mkErr
 			}
-			return pullFn(context.Background(), m, dir)
+			return pullFn(ctx, m, dir)
 		},
 		renderUnits: liveRenderUnits,
 		unitDir:     quadletUnitDir,

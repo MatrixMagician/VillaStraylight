@@ -328,7 +328,7 @@ func newInstall() *cobra.Command {
 			"the rendered units and writes nothing (no pull, no config write). Strictly local.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			deps, err := liveInstallDeps()
+			deps, err := liveInstallDeps(cmdContext(cmd))
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "install: %v\n", err)
 				os.Exit(exitBlocked)
@@ -1485,7 +1485,14 @@ func printPostInstall(out io.Writer, endpoint string, ready installReadiness) {
 // seam, the SELinux/linger privileged seams, the verified model downloader + the
 // 0600 config writer (F-1/F-2, mirroring model swap), and the readiness poll
 // (Task 2). It is replaced wholesale by stubs in install_test.go.
-func liveInstallDeps() (*installDeps, error) {
+//
+// ctx is the command's SIGINT/SIGTERM-cancelled context, captured by the closures
+// that pull weights (the main model, the embed GGUF, the coder shard). Install is
+// the longest-running command in the tool and every one of those transfers is
+// multi-GB, so without it Ctrl-C could not interrupt a download. Cancelling
+// mid-stream is safe: download.PullModel keeps the partial ".part" file and
+// resumes it via HTTP Range on the next run.
+func liveInstallDeps(ctx context.Context) (*installDeps, error) {
 	sys := orchestrate.NewSystemd()
 	uname := installUsername()
 	// Resolve the backend from config (fail-closed) for the post-install endpoint
@@ -1562,7 +1569,7 @@ func liveInstallDeps() (*installDeps, error) {
 			if mkErr := os.MkdirAll(dir, 0o700); mkErr != nil {
 				return mkErr
 			}
-			return pullFn(context.Background(), m, dir)
+			return pullFn(ctx, m, dir)
 		},
 		saveConfig:   config.SaveVilla,
 		runChecks:    preflight.RunWithResources,
@@ -1635,7 +1642,7 @@ func liveInstallDeps() (*installDeps, error) {
 		// verified download path and models dir as the chat-model ensureModel above.
 		loadedConfig:      liveLoadedConfig,
 		embedModelPresent: liveEmbedModelPresent,
-		ensureEmbedModel:  liveEnsureEmbedModel,
+		ensureEmbedModel:  func(modelsDir string) error { return liveEnsureEmbedModel(ctx, modelsDir) },
 		memoryProofFn:     liveMemoryProof,
 		// Memory host-fitness gates (CTRL-06): the embedding model is passed in from the
 		// config runInstall loaded once, and refused on, at step 0.
@@ -1673,8 +1680,10 @@ func liveInstallDeps() (*installDeps, error) {
 			}
 			return cat, true
 		},
-		coderModelPresent:  liveCoderModelPresent,
-		ensureCoderModel:   liveEnsureCoderModel,
+		coderModelPresent: liveCoderModelPresent,
+		ensureCoderModel: func(modelsDir string, sh catalog.Shard) error {
+			return liveEnsureCoderModel(ctx, modelsDir, sh)
+		},
 		installAgentBinary: liveInstallAgentBinary,
 		renderCrushConfig:  liveRenderCrushConfig,
 		agentProofFn: func(ctx context.Context) agentProof {

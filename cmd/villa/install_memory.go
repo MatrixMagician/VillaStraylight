@@ -110,12 +110,14 @@ func liveEmbedModelPresent(modelsDir string) bool {
 // verify → stream → SHA256 + size check → atomic rename, so a half-written or
 // unverified GGUF is never left on disk. It is invoked only when memory is
 // on, not dry-run, and the file is absent.
-func liveEnsureEmbedModel(modelsDir string) error {
+// ctx is the command's cancellation context, so Ctrl-C interrupts the transfer;
+// the partial ".part" file survives and resumes via HTTP Range.
+func liveEnsureEmbedModel(ctx context.Context, modelsDir string) error {
 	if mkErr := os.MkdirAll(modelsDir, 0o700); mkErr != nil {
 		return mkErr
 	}
 	m := catalog.Model{Shards: []catalog.Shard{nomicEmbedShard}}
-	return pullFn(context.Background(), m, modelsDir)
+	return pullFn(ctx, m, modelsDir)
 }
 
 // liveLoadedConfig returns the PERSISTED config.LoadVilla() so runInstall can SEED cfg
