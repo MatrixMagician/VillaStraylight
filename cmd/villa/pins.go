@@ -130,3 +130,12 @@ func livePinnedRender(in orchestrate.RenderInput) ([]orchestrate.Unit, error) {
 	in.Pin = livePinFunc(r)
 	return orchestrate.Render(in)
 }
+
+// resolverFor builds a resolver over an already-loaded pin state.
+//
+// It exists so the update verbs bind the same join every render does, without
+// re-reading the store: those verbs have already loaded the state to read its
+// serial and CheckedAt, and loading it twice invites the two reads disagreeing.
+func resolverFor(state pinstate.State) pinresolve.Resolver {
+	return pinresolve.New(state)
+}

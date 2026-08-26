@@ -3,6 +3,7 @@ package status
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"reflect"
 	"strings"
@@ -448,8 +449,9 @@ func TestUsageSurfacedWhenPresent(t *testing.T) {
 	if !strings.Contains(s, `"usage"`) {
 		t.Errorf("populated --json must carry the usage key; got:\n%s", s)
 	}
-	if !strings.Contains(s, `"schema_version":5`) {
-		t.Errorf("--json must carry schema_version 5; got:\n%s", s)
+	wantSchema := fmt.Sprintf(`"schema_version":%d`, reportSchemaVersion)
+	if !strings.Contains(s, wantSchema) {
+		t.Errorf("--json must carry %s; got:\n%s", wantSchema, s)
 	}
 }
 
@@ -622,8 +624,8 @@ func TestRunMemoryOffReport(t *testing.T) {
 	if r.Memory != nil {
 		t.Fatalf("memory-off report must carry Memory == nil, got %+v", r.Memory)
 	}
-	if r.SchemaVersion != 5 {
-		t.Errorf("SchemaVersion = %d, want 5", r.SchemaVersion)
+	if r.SchemaVersion != reportSchemaVersion {
+		t.Errorf("SchemaVersion = %d, want %d", r.SchemaVersion, reportSchemaVersion)
 	}
 	blob, err := json.Marshal(r)
 	if err != nil {
@@ -781,8 +783,8 @@ func TestRunCodingOffReport(t *testing.T) {
 	if r.Coding != nil {
 		t.Fatalf("agent-off report must carry Coding == nil, got %+v", r.Coding)
 	}
-	if r.SchemaVersion != 5 {
-		t.Errorf("SchemaVersion = %d, want 5 (single bump)", r.SchemaVersion)
+	if r.SchemaVersion != reportSchemaVersion {
+		t.Errorf("SchemaVersion = %d, want %d (a single bump per contract change)", r.SchemaVersion, reportSchemaVersion)
 	}
 	blob, err := json.Marshal(r)
 	if err != nil {
@@ -1057,8 +1059,8 @@ func TestRunWebSearch(t *testing.T) {
 		if !r.WebSearch.Enabled {
 			t.Errorf("Enabled = false, want true (section built only when web search on)")
 		}
-		if r.SchemaVersion != 5 {
-			t.Errorf("SchemaVersion = %d, want 5", r.SchemaVersion)
+		if r.SchemaVersion != reportSchemaVersion {
+			t.Errorf("SchemaVersion = %d, want %d", r.SchemaVersion, reportSchemaVersion)
 		}
 		blob, err := json.Marshal(r)
 		if err != nil {
@@ -1074,8 +1076,8 @@ func TestRunWebSearch(t *testing.T) {
 		if r.WebSearch != nil {
 			t.Fatalf("web-search-off report must carry WebSearch == nil, got %+v", r.WebSearch)
 		}
-		if r.SchemaVersion != 5 {
-			t.Errorf("SchemaVersion = %d, want 5 (single 4→5 bump)", r.SchemaVersion)
+		if r.SchemaVersion != reportSchemaVersion {
+			t.Errorf("SchemaVersion = %d, want %d (a single bump per contract change)", r.SchemaVersion, reportSchemaVersion)
 		}
 		blob, err := json.Marshal(r)
 		if err != nil {
@@ -1084,16 +1086,19 @@ func TestRunWebSearch(t *testing.T) {
 		if strings.Contains(string(blob), `"web_search"`) {
 			t.Errorf("web-search-off --json must OMIT the web_search key (omitempty pointer); got:\n%s", blob)
 		}
-		// Prove byte-identity-except-schema: re-serialize with schema forced to 4 and
-		// compare to a hand-rebuilt v4 blob (same report, schema_version swapped). The
-		// ONLY allowed delta is the schema_version literal.
-		on5 := string(blob)
-		as4 := strings.Replace(on5, `"schema_version":5`, `"schema_version":4`, 1)
-		if as4 == on5 {
-			t.Fatalf("expected a schema_version:5 token to rewrite; blob:\n%s", on5)
+		// Prove byte-identity-except-schema: re-serialize with the schema forced to
+		// the PREVIOUS version and compare. The only allowed delta is the
+		// schema_version literal. Both versions are derived from the symbol so this
+		// keeps holding across bumps instead of pinning one historical pair.
+		current := string(blob)
+		prior := strings.Replace(current,
+			fmt.Sprintf(`"schema_version":%d`, reportSchemaVersion),
+			fmt.Sprintf(`"schema_version":%d`, reportSchemaVersion-1), 1)
+		if prior == current {
+			t.Fatalf("expected a schema_version:%d token to rewrite; blob:\n%s", reportSchemaVersion, current)
 		}
-		if strings.Count(as4, `"schema_version"`) != 1 {
-			t.Errorf("expected exactly one schema_version key; got:\n%s", as4)
+		if strings.Count(prior, `"schema_version"`) != 1 {
+			t.Errorf("expected exactly one schema_version key; got:\n%s", prior)
 		}
 	})
 }
