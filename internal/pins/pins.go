@@ -73,6 +73,11 @@ const (
 // strong sense: it is written into the pin state store and into signed manifests,
 // so renaming one silently orphans a host's effective pin and re-points it at the
 // vetted default. Add ids; do not rename them.
+//
+// The five render-path ids are DERIVED from orchestrate's constants rather than
+// re-typed, because the render path resolves an effective pin under the same string
+// this table names it by. Re-typing would let a rename land on one side only, which
+// fails no build and orphans every host's recorded pin for that component.
 type ComponentID string
 
 const (
@@ -86,17 +91,17 @@ const (
 	// rollback landing spot.
 	BackendVulkan ComponentID = "backend-vulkan-radv"
 	// OpenWebUI is the chat UI image.
-	OpenWebUI ComponentID = "open-webui"
+	OpenWebUI ComponentID = orchestrate.ComponentOpenWebUI
 	// Qdrant is the vector store image.
-	Qdrant ComponentID = "qdrant"
+	Qdrant ComponentID = orchestrate.ComponentQdrant
 	// Embedder is the image villa-embed serves the embeddings llama-server from.
 	// Its pin is byte-identical to BackendVulkan's today and is deliberately a
 	// separate component: one image, two roles, and the roles may diverge.
-	Embedder ComponentID = "embedder"
+	Embedder ComponentID = orchestrate.ComponentEmbedder
 	// SearXNG is the metasearch service image.
-	SearXNG ComponentID = "searxng"
+	SearXNG ComponentID = orchestrate.ComponentSearXNG
 	// Websafe is the distroless base the web-guard loader container runs on.
-	Websafe ComponentID = "websafe-base"
+	Websafe ComponentID = orchestrate.ComponentWebsafe
 	// Crush is the coding-agent binary — the one pinned component that is not a
 	// container image.
 	Crush ComponentID = "crush"

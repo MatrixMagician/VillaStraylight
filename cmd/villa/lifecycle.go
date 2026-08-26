@@ -190,7 +190,7 @@ func liveLifecycleDeps() *lifecycleDeps {
 		loadConfig: config.LoadVilla,
 		modelFile:  liveModelFile,
 		modelsDir:  modelsDir,
-		render:     orchestrate.Render,
+		render:     livePinnedRender,
 		reconcile:  orchestrate.Reconcile,
 		writeUnits: orchestrate.WriteUnits,
 		unitDir:    quadletUnitDir,

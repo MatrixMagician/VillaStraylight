@@ -233,7 +233,7 @@ func liveStatusDeps() (*status.Deps, error) {
 		ModelFile:     liveModelFile,
 		ResidentUnits: liveResidentUnits,
 		ModelsDir:     modelsDir,
-		Render:        orchestrate.Render,
+		Render:        livePinnedRender,
 		IsActive:      sys.IsActive,
 		// ResidencyJournal (not JournalText) — the offload assert needs the CURRENT
 		// invocation's startup, where the load_tensors residency line lives; the

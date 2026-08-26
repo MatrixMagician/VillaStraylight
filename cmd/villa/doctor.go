@@ -311,7 +311,7 @@ func liveDoctorDeps(ctx context.Context) (doctor.Deps, error) {
 			if err != nil {
 				return orchestrate.Plan{}, fmt.Errorf("resolve resident set: %w", err)
 			}
-			units, err := orchestrate.Render(orchestrate.RenderInput{
+			units, err := livePinnedRender(orchestrate.RenderInput{
 				Backend:       backend,
 				Cfg:           c,
 				ModelFile:     modelFile,

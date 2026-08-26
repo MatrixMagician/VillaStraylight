@@ -399,7 +399,7 @@ func liveRestoreDeps() backup.RestoreDeps {
 			if err != nil {
 				return false, err
 			}
-			units, err := orchestrate.Render(orchestrate.RenderInput{
+			units, err := livePinnedRender(orchestrate.RenderInput{
 				Backend:       backend,
 				Cfg:           c,
 				ModelFile:     modelFile,

@@ -1573,7 +1573,7 @@ func liveInstallDeps(ctx context.Context) (*installDeps, error) {
 		},
 		saveConfig:   config.SaveVilla,
 		runChecks:    preflight.RunWithResources,
-		render:       orchestrate.Render,
+		render:       livePinnedRender,
 		reconcile:    orchestrate.Reconcile,
 		writeUnits:   orchestrate.WriteUnits,
 		unitDir:      quadletUnitDir,
