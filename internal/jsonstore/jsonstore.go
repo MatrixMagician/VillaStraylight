@@ -92,10 +92,6 @@ func New[T any, PT interface {
 	return Store[T, PT]{name: name, filename: filename, schemaVersion: schemaVersion}
 }
 
-// SchemaVersion returns this store's own schema version, so a reader outside the
-// owning package (the backup manifest) can track it without desyncing.
-func (s Store[T, PT]) SchemaVersion() int { return s.schemaVersion }
-
 // Path resolves the single mutable document: <data root>/<filename>.
 func (s Store[T, PT]) Path() string {
 	return filepath.Join(pathsafe.DataRoot(), s.filename)
@@ -151,12 +147,24 @@ func (s Store[T, PT]) Load(d Deps) (T, error) {
 // crash mid-write never leaves a torn document. It is the live WriteAll seam the
 // cmd tier wires.
 //
-// The containment guard runs BEFORE the directory is created, not only inside the
-// write: pathsafe.WriteFileAtomic checks containment itself, but the MkdirAll below
-// happens first, so without this a `..`-bearing path would get a directory created
-// for it outside the root before the write refused it.
+// BOTH guards run BEFORE the directory is created, and that ordering is the point.
+// pathsafe.WriteFileAtomic performs the same two checks itself, but the MkdirAll
+// below happens first, so a guard deferred to the write would fire only after the
+// traversal had already created directories as a side effect:
+//
+//   - AssertRoot rejects an empty or RELATIVE $XDG_DATA_HOME. A relative root
+//     resolves against whatever the process CWD happens to be, and — because the
+//     store path is derived from that same relative root — the containment check
+//     passes: both sides resolve under the CWD. So Inside alone lets a relative
+//     $XDG_DATA_HOME through, and the MkdirAll silently scatters a `villa/` tree
+//     into the working directory before pathsafe finally refuses the write.
+//   - Inside rejects a path escaping the (now known-absolute) root.
 func (s Store[T, PT]) WriteFileAtomic(path string, data []byte) error {
 	root := pathsafe.DataRoot()
+	if err := pathsafe.AssertRoot(root); err != nil {
+		return fmt.Errorf("%s: refusing to write under an unusable data root "+
+			"(set XDG_DATA_HOME to an absolute path): %w", s.name, err)
+	}
 	if err := pathsafe.Inside(path, root); err != nil {
 		return fmt.Errorf("%s: refusing to write outside the store root: %w", s.name, err)
 	}
