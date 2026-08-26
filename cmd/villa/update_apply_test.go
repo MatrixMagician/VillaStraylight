@@ -11,6 +11,8 @@ package main
 import (
 	"bytes"
 	"context"
+	"fmt"
+	"io"
 	"strings"
 	"testing"
 
@@ -801,5 +803,74 @@ func TestTheOnlyImageDeletionIsGuarded(t *testing.T) {
 	// update only.
 	if strings.Contains(readCmdSource(t, "uninstall.go"), `"image", "rm"`) {
 		t.Error("uninstall removes container images; ADR-0004 licenses removal for `villa update` only")
+	}
+}
+
+// TestPruneOutputFollowsTheRunsStream: one run is one report, and it must not be
+// split across two streams.
+//
+// A halted run narrates to stderr. Sending prune's lines to stdout regardless would
+// mean `villa update > log` captured the retention notes while the failure they
+// belong to went to the terminal — the reader gets half a story in each place.
+//
+// Found on hardware: the call site passed `out` unconditionally.
+func TestPruneOutputFollowsTheRunsStream(t *testing.T) {
+	run := func(halted bool) (stdout, stderr string) {
+		var outBuf, errBuf bytes.Buffer
+		cmd := &cobra.Command{}
+		cmd.SetOut(&outBuf)
+		cmd.SetErr(&errBuf)
+		cmd.SetContext(context.Background())
+
+		outcome := updateflow.Committed
+		proof := updateflow.Proof{Status: updateflow.ProofPass}
+		if halted {
+			outcome = updateflow.RolledBackFail
+			proof = updateflow.Proof{Status: updateflow.ProofFail, Detail: "probe"}
+		}
+
+		d := updateDeps{
+			StackRunning: func() bool { return true },
+			FlowDeps: func(context.Context) updateflow.Deps {
+				return updateflow.Deps{
+					ProveCurrent: func(context.Context, subsystem.Kind) updateflow.Proof {
+						return updateflow.Proof{Status: updateflow.ProofPass}
+					},
+					CaptureState: func(subsystem.Kind) (updateflow.Capture, error) {
+						return updateflow.Capture{Refs: map[string]string{"qdrant": "old"}}, nil
+					},
+					Mutate:   func(context.Context, subsystem.Kind, map[string]string) error { return nil },
+					ProveNew: func(context.Context, subsystem.Kind) updateflow.Proof { return proof },
+					Restore:  func(context.Context, subsystem.Kind, updateflow.Capture) error { return nil },
+					ProveRestored: func(context.Context, subsystem.Kind) updateflow.Proof {
+						return updateflow.Proof{Status: updateflow.ProofPass}
+					},
+					Commit: func(subsystem.Kind, map[string]string, pinstate.Previous) error { return nil },
+				}
+			},
+			ReferencedRefs: func() map[string]bool { return nil },
+			Prune: func(_ context.Context, w io.Writer, _ updateflow.Result) {
+				fmt.Fprint(w, "PRUNE-MARKER\n")
+			},
+		}
+		_ = outcome
+		apply(cmd, d, updatableReport(), nil, updateFlags{})
+		return outBuf.String(), errBuf.String()
+	}
+
+	// A successful run: everything on stdout.
+	stdout, stderr := run(false)
+	if !strings.Contains(stdout, "PRUNE-MARKER") {
+		t.Errorf("on a successful run prune did not write to stdout:\nstdout=%q\nstderr=%q", stdout, stderr)
+	}
+
+	// A halted run: prune follows the narration to stderr.
+	stdout, stderr = run(true)
+	if strings.Contains(stdout, "PRUNE-MARKER") {
+		t.Errorf("on a HALTED run prune wrote to stdout while the failure went to stderr; "+
+			"one run is one report and must not be split across two streams:\nstdout=%q", stdout)
+	}
+	if !strings.Contains(stderr, "PRUNE-MARKER") {
+		t.Errorf("on a halted run prune did not follow the narration to stderr:\nstderr=%q", stderr)
 	}
 }

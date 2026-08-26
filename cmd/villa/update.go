@@ -295,8 +295,17 @@ func apply(cmd *cobra.Command, d updateDeps, report updatecheck.Report, selected
 	// outcome never changes the exit code. That is the one place fail-soft is right
 	// in this lifecycle: the update has already succeeded, and a failure to reclaim
 	// disk leaves MORE safety, not less.
+	//
+	// Its output follows the RUN's stream, not stdout unconditionally. A halted run
+	// narrates to stderr, so sending prune's lines to stdout would split one report
+	// across two streams — and `villa update > log` would capture the retention
+	// notes while the failure they belong to went elsewhere.
 	if d.Prune != nil {
-		d.Prune(ctx, out, res)
+		pruneOut := out
+		if res.Halted {
+			pruneOut = errOut
+		}
+		d.Prune(ctx, pruneOut, res)
 	}
 	return code
 }
