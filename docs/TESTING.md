@@ -236,12 +236,15 @@ tripping the gate.
 **What this gate does NOT catch — read before trusting it.** It sees *dead
 references* and *retired claims*, both decidable from the tree. It cannot see an
 enumeration that has gone incomplete, a description that is simply wrong, or
-prose that is stale but self-consistent: "the suite has 380 test functions" when
-there are 1110 does not trip it, and neither does a package list naming 24 of 34.
-Those still need someone reading the doc against the code. The structural defence
-against that class is not a test — it is to stop writing enumerations into prose,
-which is why the docs now point at `ls internal/`, `newRoot`, and
-`grep -rn "func live" cmd/villa` instead of restating them.
+prose that is stale but self-consistent: a sentence naming a test-function count
+that the suite has since grown past does not trip it, and neither does a package
+list naming 24 of the packages that exist. (This paragraph used to demonstrate
+the point with two live numbers, and both had rotted by the next release — which
+demonstrates it better than the numbers did.) Those still need someone reading
+the doc against the code. The structural defence against that class is not a test
+— it is to stop writing enumerations into prose, which is why the docs now point
+at `ls internal/`, `newRoot`, and `grep -rn "func live" cmd/villa` instead of
+restating them.
 
 It needs no CI wiring: it is an ordinary Go test, so `make test`, `make check`,
 and CI's existing `go test ./...` step all run it.

@@ -372,6 +372,28 @@ guided install deliberately does not prompt for subsystems either.
 | **Resident set** | Holds several models loaded at once, each on its own loopback port, instead of restarting inference to swap between them. | `villa model resident ls` / `add` |
 | **Backup & restore** | The whole workspace — config, Open WebUI data, usage and bench stores — to one local `.tar`, and back transactionally. | `villa backup` / `villa restore <archive>` |
 
+### Keeping it current
+
+`villa update` moves the digest pins the stack runs, one subsystem at a time,
+proving each **before and after** it changes it. It is on-command only: nothing
+polls, and `status` and `doctor` show the last recorded check and its age rather
+than triggering a new one.
+
+```bash
+villa update --check      # read-only; works on a stopped stack
+villa update --dry-run    # the ordered plan, the download total and the snapshot disk
+villa update              # apply, halting on the first failure
+```
+
+Chat and memory keep their state in a data volume, so those two are stopped while
+their data is copied before they are changed, and a rollback restores that data
+alongside the pin — `--dry-run` states the disk this needs before it is spent.
+
+Until a signed pin manifest is published, `--check` honestly reports that it
+**could not check** and the stack runs the pins compiled into the binary. That is
+deliberately not the same as reporting you are up to date. See
+[RELEASING.md](RELEASING.md).
+
 ### Proving it, rather than trusting it
 
 The privacy claims are runtime-asserted, not install-time assumptions. Each of

@@ -32,7 +32,7 @@ inference + **Open WebUI** chat + a control dashboard — strictly local, zero
 telemetry. Go is the **control plane only**; AI services are integrated OSS
 containers, not rebuilt.
 
-**Shipped:** v1.0 MVP, v1.1 (ROCm Opt-In Backend), v1.2 (Operability), v1.3 (Memory & Knowledge), v1.4 (Coding Agent), v1.5 (Web Search — Grounded & Guarded), v1.6 (structural consolidation + a transactional install), and v1.7 (the resident set, a lint gate that can fail, and docs that match the tree) are complete and tagged on `main`. v1.8 (`villa update` — the transactional check → fetch → prove → prune lifecycle) is implemented on `main`, with the manifest signing key generated and compiled in. Publishing a first manifest is gated on re-vetting the drifted pins, not on code. The `villa` control plane is implemented under `cmd/villa/` + `internal/`.
+**Shipped:** v1.0 MVP, v1.1 (ROCm Opt-In Backend), v1.2 (Operability), v1.3 (Memory & Knowledge), v1.4 (Coding Agent), v1.5 (Web Search — Grounded & Guarded), v1.6 (structural consolidation + a transactional install), v1.7 (the resident set, a lint gate that can fail, and docs that match the tree), and v1.8 (`villa update` — the transactional check → fetch → prove → prune lifecycle) are complete and tagged on `main`. The manifest signing key is generated and compiled in; publishing a first manifest is gated on re-vetting the drifted pins, not on code, so until then `--check` honestly reports it could not check. The `villa` control plane is implemented under `cmd/villa/` + `internal/`.
 
 ## Build, run & test
 

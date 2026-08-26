@@ -3,11 +3,16 @@
 How a villa release is cut, and how the signed pin manifest that `villa update`
 depends on is published.
 
-> Status: the **release-artifact** half is implemented
-> (`.github/workflows/release.yml`). The **pin-manifest** half describes the agreed
-> procedure for v1.8 and cannot be completed until the manifest format ships with
-> the implementation — the key custody steps below are the parts a human must do,
-> and they are deliberately not automated.
+> Status: **both halves are implemented as of v1.8.** The release artifact is built
+> by `.github/workflows/release.yml`; the manifest format, its allowlist check and
+> the offline signer ship as `internal/manifest`, `internal/manifestverify` and
+> `cmd/villa-manifest-sign`, and the public key is compiled in. What remains
+> outstanding is not code: **no manifest has been published yet**, because
+> publishing one means asserting on hardware that its pins are vetted (steps 3 and
+> 4), and eight of ten had drifted at the last measurement. Until then every
+> install runs the compiled-in pins and `villa update --check` honestly reports
+> that it could not check. The key custody steps below are deliberately not
+> automated.
 
 ## Why any of this is unusual
 

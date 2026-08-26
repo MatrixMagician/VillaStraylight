@@ -45,11 +45,22 @@ this verdict is **backend-neutral**: offload-assert keys on the active backend's
 `ResidencyProof()` markers, so CPU fallback is positively classified FAIL regardless of
 backend — never a false-green.
 
+As of **v1.8**, a pin is likewise two values rather than one. Every component the
+stack runs is pinned by digest, and those pins used to be compile-time constants — so
+"what villa vetted" and "what this host runs" could not differ and could not be
+distinguished. They are now separate: the **vetted** pin is compiled into `pins.Table`
+and cannot be absent, the **effective** pin lives in `pinstate` on the host and
+routinely is, and `pinresolve` is the single place they meet. `villa update` is the
+verb that moves one to the other, transactionally, proving each subsystem before and
+after it changes it. The same typed-Unknown discipline governs its report: a check
+that could not be conducted is a `Reject`, which is a different claim from "you are up
+to date" and is never rendered as one.
+
 ## Component diagram
 
 ```mermaid
 graph TD
-    CLI["cmd/villa (cobra CLI)<br/>detect · recommend · preflight · model · install<br/>up · down · restart · logs · status · dashboard<br/>backend · bench · uninstall"]
+    CLI["cmd/villa (cobra CLI)<br/>detect · recommend · preflight · model · install<br/>up · down · restart · logs · status · dashboard<br/>backend · bench · update · uninstall"]
 
     CLI --> detect["internal/detect<br/>HostProfile probe (typed-Unknown)<br/>+ ROCm readiness"]
     CLI --> catalog["internal/catalog<br/>embedded model catalog + fit dims"]
@@ -64,6 +75,9 @@ graph TD
     CLI --> bench["internal/bench<br/>honest A/B core (pure)"]
     CLI --> status["internal/status<br/>read-model aggregation"]
     CLI --> dashboard["internal/dashboard<br/>loopback dashboard"]
+    CLI --> updateflow["internal/updateflow<br/>per-subsystem transaction (pure)<br/>prove current → capture → mutate → prove → commit"]
+    CLI --> updatecheck["internal/updatecheck<br/>the read-only report (pure)"]
+    CLI --> pinresolve["internal/pinresolve<br/>vetted vs effective, resolved"]
 
     recommend --> detect
     recommend --> catalog
@@ -90,6 +104,18 @@ graph TD
     dashboard --> status
     dashboard --> modelswap
     dashboard --> metrics["internal/metrics<br/>llama-server /metrics + /slots scrape"]
+
+    pinresolve --> pins["internal/pins<br/>VETTED pins, compiled in"]
+    pinresolve --> pinstate["internal/pinstate<br/>EFFECTIVE pins + retained previous"]
+    updatecheck --> pinresolve
+    updatecheck --> manifestverify["internal/manifestverify<br/>ed25519 + serial + expiry + allowlist"]
+    manifestverify --> manifest["internal/manifest<br/>pin-manifest wire format"]
+    updatecheck -.composes.-> updatefetch["internal/updatefetch<br/>the ONE outbound GET"]
+    updateflow --> pinstate
+    updateflow -.cmd composes.-> orchestrate
+    updateflow -.cmd composes.-> prune["internal/prune<br/>reference-counted image removal"]
+    updateflow -.cmd composes.-> snapshotprune["internal/snapshotprune<br/>data-snapshot retention"]
+    orchestrate --> pinresolve
 
     orchestrate -.writes.-> quadlet["~/.config/containers/systemd<br/>*.container/.network/.volume"]
     orchestrate -.systemctl --user.-> systemd["rootless user systemd"]
@@ -308,6 +334,48 @@ the GPU count toward the median/stddev `Stats` and the comparative `ABResult`.
   `net/http` control dashboard; constructed to refuse any non-loopback bind, serves a read-only
   JSON API over the shared `status` core plus the `metrics` perf scrape, with the one
   sanctioned mutation (`POST /api/models/switch`) routed through `modelswap.Run`.
+- **`pins.Table`** and **`pinstate.State`** (`internal/pins/pins.go`,
+  `internal/pinstate/store.go`) — the two halves of what a pin is. The VETTED pin is
+  compiled in and is a build-time fact that cannot be absent; the EFFECTIVE pin is on
+  the host and is a runtime fact that routinely is. They live in separate packages
+  because they FAIL differently, and merging them would blur a thing that cannot fail
+  with a thing that does. `pinstate` also carries the retained known-good `Previous`
+  per subsystem, and inverts `jsonstore`'s absent-means-empty reading in the two places
+  where the zero value points the wrong way: the anti-downgrade serial floor and the
+  prune reference set (ADR-0004).
+- **`pinresolve.Resolve`** (`internal/pinresolve/resolve.go`) — where the two meet, and
+  the single answer to "what should this component run?". Pure over an injected table
+  plus state; rendered units derive their image through it rather than through a
+  constant, and a test fails the build if a cmd verb calls `orchestrate.Render`
+  directly.
+- **`manifest.Manifest`** + **`manifestverify.Verify`** (`internal/manifest`,
+  `internal/manifestverify`) — the signed pin-manifest wire format and the four gates it
+  must clear: ed25519 signature over the **verbatim** bytes, a serial at or above the
+  anti-downgrade floor, an unexpired `valid_until`, and an allowlist that lets a
+  manifest supply new *values* only. It can never introduce a component, a registry
+  host, a pin shape, or a URL template. A signature proves authorship, not currency,
+  which is why expiry and serial are separate checks rather than implied by it.
+- **`updatecheck.Run`** + **`updatefetch.Fetch`** (`internal/updatecheck/check.go`,
+  `internal/updatefetch/fetch.go`) — the read-only report and the one outbound request
+  a check makes. The report's load-bearing value is `Reject`: "villa could not check"
+  is a different claim from "you are up to date", and only one of them was observed.
+- **`updateflow.Run`** + `Deps` / `Target` / `Capture` / `Outcome`
+  (`internal/updateflow/updateflow.go`) — the pure, Deps-injected per-subsystem
+  transaction. It clones `backendswap`'s frame and adds the two things updating needs
+  that a swap did not: it proves the CURRENT state first, so a pre-existing failure is
+  a refusal rather than an update failure villa did not cause; and for a subsystem that
+  owns persistent state (`subsystem.OwnsPersistentState`) the mutation becomes a stopped
+  window — stop → snapshot → mutate → start — whose rollback restores the data as well
+  as the pin. The stop is load-bearing: a volume exported from under a running service
+  is a torn copy.
+- **`prune.Decide`** and **`snapshotprune.Decide`** (`internal/prune/prune.go`,
+  `internal/snapshotprune/snapshotprune.go`) — the only code in this project that
+  deletes a container image, and the only code that deletes a data snapshot. Both are
+  pure decisions over the store, both refuse when the store is unreadable (an empty
+  reference set reads as "delete freely", which is the one reading that could break a
+  running stack), and a failure in either is a WARN rather than a rollback — the single
+  place fail-soft is correct, because cleanup runs after the update has already
+  succeeded.
 
 ## Directory structure rationale
 

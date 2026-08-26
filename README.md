@@ -6,7 +6,7 @@ A single Go CLI (`villa`) that stands up a private, local AI workspace on your o
 
 VillaStraylight is for privacy-conscious power users who want a ChatGPT/Claude-class experience that runs entirely on their own machine, with no data leaving the box. `villa` is the **control plane only** — the AI services (llama.cpp `llama-server`, Open WebUI, the optional Qdrant + local-embeddings memory stack, and the optional SearXNG web-search service) are integrated OSS components, not rebuilt; the optional coding agent is the pinned, checksum-verified Crush binary.
 
-> Status: **v1.7 shipped** (tag `v1.7`). Built milestone by milestone, each addition keeping the zero-telemetry, loopback-only posture:
+> Status: **v1.8 shipped** (tag `v1.8`). Built milestone by milestone, each addition keeping the zero-telemetry, loopback-only posture:
 > - **v1.0** — Vulkan-only MVP: detect → recommend → install → Open WebUI chat → control dashboard.
 > - **v1.1** — the **ROCm/HIP backend** with a transactional `backend set` switch and an honest A/B `bench`. (ROCm shipped opt-in here and became the default in a later revision; Vulkan RADV remains selectable as the fallback.)
 > - **v1.2** — operability: `villa doctor`, saved bench `--compare`, cumulative usage, `backup`/`restore`, and a guided TUI install.
@@ -15,6 +15,7 @@ VillaStraylight is for privacy-conscious power users who want a ChatGPT/Claude-c
 > - **v1.5** — opt-in **web-search grounding**: a containerized SearXNG wired into Open WebUI's native web search, with grounded fetch → embed → cite through an SSRF-guarded, injection-guarding `villa-websafe` loader. Strictly opt-in / default-OFF (byte-identical to v1.4 when disabled); outbound is provably bounded (`villa verify search`) and prompt injection is reduced-and-flagged, never claimed eliminated.
 > - **v1.6** — **structural consolidation, and a transactional install.** The residency proof, the Open WebUI protocol, the subsystem gates, the verify shape and install's decisions each became one module instead of being re-implemented per caller. The behavioural change: `villa install` now captures before mutating and rolls back on failure (ADR-0003), so a failed install no longer leaves a running-but-unproven stack — the one stack-mutating flow that was outside the capture-prove-rollback discipline. Config-load seams that silently defaulted now fail closed.
 > - **v1.7** — **the resident set, a lint gate that can fail, and docs that match the tree.** `villa model resident` holds several models loaded at once, each on its own loopback port, so switching between them costs no cold load — the alternative to `model swap` rather than a variant of it, fit-guarded across the whole set and transactional (ADR-0003). The dashboard was rebuilt around a status strip. `make lint` was repaired: the old target ran its `go vet` fallback when the LINT failed, so the gate could never fail and misreported why; the linter is now pinned in one place and the standing backlog is 0. Every document was audited against the tree — the claims that had quietly stopped being true are gone, the enumerations that go stale now point at their authority, and a docs grep-gate fails the build on a dead reference or a retired claim.
+> - **v1.8** — **`villa update`: the transactional check → fetch → prove → prune lifecycle.** Every pin was a compile-time constant, so "a newer version exists" had no representation anywhere in the tree — and eight of ten pins had already drifted. A pin is now two values: the VETTED pin villa shipped and the EFFECTIVE pin this host runs. New pins arrive in an ed25519-signed manifest that may supply values only, never a new component, registry or URL, and that is refused below a serial it has already seen. Applying proves each subsystem **before and after** it changes it, one subsystem at a time: a pre-existing failure is a refusal rather than an update failure villa did not cause, and an unprovable new image rolls back with villa saying it *may* be fine rather than claiming it is broken. A live incident then proved that for chat and memory the **image is not the state being changed** — their data is — so those two are stopped while their volume is snapshotted, and a rollback restores the data alongside the pin.
 
 ## Requirements
 
@@ -230,12 +231,7 @@ villa config set model=<id>           # set a key (model, quant, ctx, backend, c
 villa uninstall                       # tear down units, non-model volumes, and linger — keeps config.toml
 ```
 
-## Keeping the stack current (v1.8, planned)
-
-> Status: **specified, not yet implemented.** The design is settled across the
-> tickets on [the v1.8 map](https://github.com/MatrixMagician/VillaStraylight/issues/83);
-> this section documents the agreed behaviour so the outbound claims are on the
-> record before the code lands.
+## Keeping the stack current
 
 Every component the stack runs is pinned by digest — the backend images, Open
 WebUI, Qdrant, the embedder, SearXNG, the websafe base, and the checksum-verified
@@ -244,7 +240,7 @@ forward.
 
 ```bash
 villa update --check                  # read-only: what is current, what has moved; works on a stopped stack
-villa update --dry-run                # the ordered plan and the download total; changes nothing
+villa update --dry-run                # the ordered plan, the download total and the snapshot disk; changes nothing
 villa update                          # apply, one subsystem at a time, each proven before it commits
 villa update <subsystem>              # apply to one of: inference, chat, memory, search, agent
 ```

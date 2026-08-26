@@ -90,14 +90,17 @@ under-active-development code is:
 - `internal/` — the pure / seam-injected libraries. Each returns typed values and
   contains no CLI behavior. `ls internal/` is the list and the code map in `CLAUDE.md`
   says what each one owns in a line; `docs/ARCHITECTURE.md` carries the layering and
-  the key abstractions. Three groupings orient you: the v1.0–v1.2 spine (`detect`,
+  the key abstractions. Four groupings orient you: the v1.0–v1.2 spine (`detect`,
   `catalog`, `recommend`, `preflight`, `download`, `config`, `inference`,
   `orchestrate`, `modelswap`, `backendswap`, `bench`, `llm`, `status`, `metrics`,
   `dashboard`), the v1.3–v1.5 feature cores (`memory`, `recall`, `agent`,
-  `codingmode`, `websafe`, `doctor`, `backup`, `usage`), and the shared plumbing —
-  `prove`, `residency`, `openwebui`, `subsystem`, `verify` and `install`, the six
-  the v1.6 consolidation extracted from forked copies, plus `residentset` and the
-  persistence layer `pathsafe` / `jsonstore` / `benchstore` / `verifystate`.
+  `codingmode`, `websafe`, `doctor`, `backup`, `usage`), the v1.8 pin-and-update
+  spine (`pins`, `pinstate`, `pinresolve`, `manifest`, `manifestverify`,
+  `updatecheck`, `updatefetch`, `updateflow`, `prune`, `snapshotprune`), and the
+  shared plumbing — `prove`, `residency`, `openwebui`, `subsystem`, `verify` and
+  `install`, the six the v1.6 consolidation extracted from forked copies, plus
+  `residentset` and the persistence layer `pathsafe` / `jsonstore` / `benchstore` /
+  `verifystate`.
 
 ## Code style
 

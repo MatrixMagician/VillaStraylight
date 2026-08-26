@@ -102,7 +102,8 @@ _Avoid_: error/warning, fatal/nonfatal, critical/minor
 **Swap**:
 A transactional change to a running stack — of inference backend, model, or
 coding mode — that captures state first and restores it verbatim on any failure.
-_Avoid_: switch, change, update, migration
+Distinct from an **update**, which moves pins rather than selections.
+_Avoid_: switch, change, migration
 
 **pp / tg**:
 Prompt-processing and token-generation throughput. Reported separately, never
@@ -140,3 +141,61 @@ _Avoid_: filter, sanitiser, injection blocker, firewall
 The proven limit on what the stack may reach off-box — image and model pulls,
 and nothing else.
 _Avoid_: network policy, egress rules, firewall
+
+### Pins and updating
+
+**Pin**:
+The exact version of one component the stack runs — a digest, a version tag, or
+a checksummed asset. Never a floating tag.
+_Avoid_: version, tag, image, release
+
+**Vetted pin**:
+The pin villa shipped, compiled into the binary. It is a claim about hardware:
+someone proved it on a gfx1151 box. A digest that merely resolves is not vetted.
+_Avoid_: default pin, shipped version, baseline
+
+**Effective pin**:
+The pin this host is actually running, recorded after a proven update. Equal to
+the vetted pin on a fresh install; they diverge only when an update commits.
+_Avoid_: current version, installed pin, actual
+
+**Pin manifest**:
+The signed document that offers new pin values. It may supply values only —
+never a new component, registry, pin shape, or URL.
+_Avoid_: update feed, release JSON, index
+
+**Subsystem**:
+The unit an update moves and proves as a whole — inference, chat, memory,
+search, agent. It is the verify verb's scope, so memory means Qdrant plus the
+embedder.
+_Avoid_: service, container, component (for this sense)
+
+**Owned persistent state**:
+The mutable data volume a subsystem's state actually lives in — chat's and
+memory's. For a subsystem that owns it, the image is not the state being
+changed. A read-only mount is never owned state.
+_Avoid_: data, storage, persistence, volume (unqualified)
+
+**Data snapshot**:
+The copy of a subsystem's owned state, exported while the service is stopped,
+and part of its rollback target. Taken from a running service it is torn, which
+is worse than none.
+_Avoid_: backup, dump, export, copy
+
+**Refusal**:
+Villa declining to act because it cannot vouch for the outcome — an
+already-unhealthy subsystem, data it could not snapshot. Distinct from a
+failure: nothing was changed and villa did not cause it.
+_Avoid_: error, abort, rejection (for this sense)
+
+**Reject**:
+A proof or check that could not be conducted. Never a confident negative: the
+thing may be perfectly fine and villa cannot show it. "Could not check" is not
+"up to date".
+_Avoid_: fail, unknown, error, inconclusive
+
+**Rollback incomplete**:
+A rollback that itself failed, so villa does not know what is running. Never
+reported as a clean rollback, and never accompanied by a claim the stack is
+untouched.
+_Avoid_: partial rollback, degraded restore, partial failure
