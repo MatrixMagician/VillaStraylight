@@ -373,7 +373,7 @@ func liveCodingModeDeps(ctx context.Context) *codingmode.Deps {
 				in.CodingMode = spec
 				in.CoderAgentCtx = c.CoderAgentCtx
 			}
-			units, err := orchestrate.Render(in)
+			units, err := livePinnedRender(in)
 			if err != nil {
 				return false, err
 			}

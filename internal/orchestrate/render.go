@@ -154,7 +154,7 @@ func Render(in RenderInput) ([]Unit, error) {
 	// golden. mv is computed ONCE here (memory.RenderView is pure, cheap, identical) and
 	// reused by the memory-stack branch below.
 	mv := memory.RenderView(in.Cfg) // resolved-values handoff (Phase-18 spine)
-	owuiContainerText, err := execTemplate(tmpl, "openwebui.container.tmpl", buildOpenWebUIView(mv, in.Cfg.MemoryEnabled, in.Cfg.WebSearchEnabled, config.SearxngAddr, config.SearxngPort, in.Cfg.WebSearchResultCount, config.WebsafeAddr, config.WebsafePort, residentNames))
+	owuiContainerText, err := execTemplate(tmpl, "openwebui.container.tmpl", buildOpenWebUIView(in.pinOr(ComponentOpenWebUI, openWebUIImage), mv, in.Cfg.MemoryEnabled, in.Cfg.WebSearchEnabled, config.SearxngAddr, config.SearxngPort, in.Cfg.WebSearchResultCount, config.WebsafeAddr, config.WebsafePort, residentNames))
 	if err != nil {
 		return nil, err
 	}
@@ -201,7 +201,7 @@ func Render(in RenderInput) ([]Unit, error) {
 	if in.Cfg.MemoryEnabled {
 		// mv is the hoisted render-view computed once above; reused
 		// here so memory.RenderView runs exactly once per Render.
-		qdrantContainerText, err := execTemplate(tmpl, "qdrant.container.tmpl", buildQdrantView(mv.QdrantAddr))
+		qdrantContainerText, err := execTemplate(tmpl, "qdrant.container.tmpl", buildQdrantView(in.pinOr(ComponentQdrant, qdrantImage), mv.QdrantAddr))
 		if err != nil {
 			return nil, err
 		}
@@ -214,7 +214,7 @@ func Render(in RenderInput) ([]Unit, error) {
 		// binds — Pitfall 3) so it can never drift from the pre-staged Shard.Filename.
 		// The container-DNS name (mv.EmbedAddr) and the served /v1 --port (mv.EmbedPort)
 		// come from the resolved config so they match the proof's probe target.
-		embedContainerText, err := execTemplate(tmpl, "embed.container.tmpl", buildEmbedView(embedGGUFFilename, mv.EmbedAddr, mv.EmbedPort))
+		embedContainerText, err := execTemplate(tmpl, "embed.container.tmpl", buildEmbedView(in.pinOr(ComponentEmbedder, embedImage), embedGGUFFilename, mv.EmbedAddr, mv.EmbedPort))
 		if err != nil {
 			return nil, err
 		}
@@ -240,7 +240,7 @@ func Render(in RenderInput) ([]Unit, error) {
 	// settings.yml is NOT a Unit (Pitfall 1: it must not land in the systemd unit dir) — it
 	// is produced by the separate RenderSearxngSettings helper that Plan 02's writer consumes.
 	if in.Cfg.WebSearchEnabled {
-		searxngContainerText, err := execTemplate(tmpl, "searxng.container.tmpl", buildSearxngView(config.SearxngAddr))
+		searxngContainerText, err := execTemplate(tmpl, "searxng.container.tmpl", buildSearxngView(in.pinOr(ComponentSearXNG, searxngImage), config.SearxngAddr))
 		if err != nil {
 			return nil, err
 		}
@@ -257,7 +257,7 @@ func Render(in RenderInput) ([]Unit, error) {
 		// references it only via the EnvironmentFile= path baked by buildWebsafeView (the
 		// secret value lives in config + the 0600 env file Plan 02 writes, never in this 0644
 		// unit).
-		websafeContainerText, err := execTemplate(tmpl, "websafe.container.tmpl", buildWebsafeView(config.WebsafeAddr, in.HostVillaPath, config.WebsafePort))
+		websafeContainerText, err := execTemplate(tmpl, "websafe.container.tmpl", buildWebsafeView(in.pinOr(ComponentWebsafe, websafeImage), config.WebsafeAddr, in.HostVillaPath, config.WebsafePort))
 		if err != nil {
 			return nil, err
 		}

@@ -240,8 +240,12 @@ func TestHandleStatusMemoryPassthrough(t *testing.T) {
 		if err := json.Unmarshal(raw["schema_version"], &schemaVersion); err != nil {
 			t.Fatalf("decode schema_version: %v", err)
 		}
-		if schemaVersion != 5 {
-			t.Fatalf("schema_version = %d, want 5 (the Plan 34-03 v5 contract)", schemaVersion)
+		// The dashboard's contract IS the status report's, so this binds the
+		// symbol rather than re-typing the number. A hard-coded copy makes every
+		// append-only bump edit a dashboard test for no reason, which trains the
+		// next person to edit it without reading it.
+		if schemaVersion != status.SchemaVersion() {
+			t.Fatalf("schema_version = %d, want %d (the dashboard serves the status report's contract)", schemaVersion, status.SchemaVersion())
 		}
 	})
 }

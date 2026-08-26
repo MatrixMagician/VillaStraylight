@@ -13,9 +13,10 @@ Conventions, Architecture below) and in `docs/`:
 - `docs/GETTING-STARTED.md`, `docs/MEMORY.md`, `docs/TESTING.md`
 - `docs/RELEASING.md` — how a release is cut and how the signed pin manifest is
   published; the signing key is offline by design and must never reach CI
-- `docs/spec/v1.8-villa-update.md` — the accepted, not-yet-implemented `villa
-  update` design: read it before touching pins, and note §7's two migration
-  hazards (most `EmbedImage()` callers are probe helpers, not pins)
+- `docs/spec/v1.8-villa-update.md` — the `villa update` design, now implemented:
+  read it before touching pins. Note §7.1's migration hazard — most
+  `EmbedImage()` callers are probe helpers, NOT pins, and a mechanical rewrite of
+  that accessor would drag the probe machinery into the update path
 - `CONTEXT.md` — the domain glossary (ubiquitous language); use its terms in
   issues, tests and proposals rather than drifting to synonyms
 - `docs/adr/` — accepted architecture decisions; read the ones touching your area
@@ -31,7 +32,7 @@ inference + **Open WebUI** chat + a control dashboard — strictly local, zero
 telemetry. Go is the **control plane only**; AI services are integrated OSS
 containers, not rebuilt.
 
-**Shipped:** v1.0 MVP, v1.1 (ROCm Opt-In Backend), v1.2 (Operability), v1.3 (Memory & Knowledge), v1.4 (Coding Agent), v1.5 (Web Search — Grounded & Guarded), v1.6 (structural consolidation + a transactional install), and v1.7 (the resident set, a lint gate that can fail, and docs that match the tree) are complete and tagged on `main`. The `villa` control plane is implemented under `cmd/villa/` + `internal/`.
+**Shipped:** v1.0 MVP, v1.1 (ROCm Opt-In Backend), v1.2 (Operability), v1.3 (Memory & Knowledge), v1.4 (Coding Agent), v1.5 (Web Search — Grounded & Guarded), v1.6 (structural consolidation + a transactional install), and v1.7 (the resident set, a lint gate that can fail, and docs that match the tree) are complete and tagged on `main`. v1.8 (`villa update` — the transactional check → fetch → prove → prune lifecycle) is implemented on `main`; the signing keypair is the one outstanding human step. The `villa` control plane is implemented under `cmd/villa/` + `internal/`.
 
 ## Build, run & test
 
@@ -302,6 +303,15 @@ loop.
 | subsystem | The four optional-subsystem gates: is this subsystem on? | `internal/subsystem/subsystem.go` |
 | verify | The verify family's shape: gate → drive → resolve → exit code | `internal/verify/verify.go` |
 | install | Install's decisions, its mutate-and-start ordering, and its transaction | `internal/install/*.go` |
+| pins | The compiled-in, enumerable pin registry: schema, allowlist, fallback, serial floor | `internal/pins/pins.go` |
+| pinstate | What THIS host runs: effective pins, retained tuples, serial, CheckedAt | `internal/pinstate/store.go` |
+| pinresolve | The one answer to "what should this component run?" — effective, else vetted | `internal/pinresolve/resolve.go` |
+| manifest | The signed pin-manifest wire format; signature over VERBATIM published bytes | `internal/manifest/manifest.go` |
+| manifestverify | Signature + monotonic serial + expiry: a signature proves authorship, not currency | `internal/manifestverify/*.go` |
+| updatecheck | The read-only report, and the Reject that must not read as up-to-date | `internal/updatecheck/check.go` |
+| updatefetch | The ONE outbound request a check makes; strictly on-command | `internal/updatefetch/fetch.go` |
+| updateflow | The per-subsystem transaction: prove current → capture → mutate → prove → commit | `internal/updateflow/updateflow.go` |
+| prune | Reference-counted image removal — the only image deletion in this project | `internal/prune/prune.go` |
 
 This table covers the v1.0–v1.2 spine plus the v1.6 consolidation modules. The
 v1.3–v1.5 packages (`memory`, `recall`, `agent`, `codingmode`, `websafe`, `doctor`,
@@ -316,7 +326,11 @@ same pure-core + `Deps` shape — see the code map above and `docs/ARCHITECTURE.
 - **Honesty-by-construction.** Every probe degrades to a typed `Unknown` (`detect.Bool`/`detect.Bytes`) → WARN, which is DISTINCT from a confident negative → FAIL. CPU fallback is never reported as success.
 - **Composition over re-implementation.** `bench --ab` composes `backendswap.Run`; `dashboard` composes `status` and `modelswap`; nothing forks a proven core. v1.6 applied this to the five shapes that HAD been forked: the residency proof (five copies), the Open WebUI protocol (twelve renamed seams), the subsystem gates (read directly in 20+ files), the verify shape (three copies), and install's decisions.
 - **A gate is answered once.** `subsystem.MemoryOn`/`WebSearchOn`/`AgentOn`/`CodingModeOn` are the only places a subsystem flag is read as a predicate; a test fails the build if that is bypassed. Enablement is a pure function of an already-loaded config, so one command cannot observe two answers in a single run.
-- **Every stack-mutating flow is transactional.** The three swap cores AND `villa install` (ADR-0003) capture before mutating and restore on failure, reporting honestly when a rollback could not complete.
+- **Every stack-mutating flow is transactional.** The three swap cores, `villa install` (ADR-0003) AND `villa update` capture before mutating and restore on failure, reporting honestly when a rollback could not complete. `update` adds a step the swaps never needed: it proves the CURRENT state first, so a pre-existing failure is a refusal rather than an update failure villa did not cause.
+
+- **A pin is two values.** The VETTED pin (compiled into `pins.Table`, a build-time fact that cannot be absent) and the EFFECTIVE pin (in `pinstate`, what this host runs, a runtime fact that routinely is). They are separate packages because they FAIL differently; `pinresolve` is where they meet. Rendered units derive their image through `livePinnedRender`, never a constant — a test fails the build if any cmd verb calls `orchestrate.Render` directly.
+
+- **Checks are strictly on-command.** Nothing polls for updates and no other verb checks opportunistically; `status` and `doctor` read the LAST RECORDED check and its age. This is what keeps "zero telemetry" unqualified — if checks ever become automatic, that claim must change with them.
 
 ### Layers, data flow & key abstractions
 

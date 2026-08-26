@@ -105,13 +105,16 @@ type websafeView struct {
 // via os.Executable() at install time and threaded through RenderInput — NEVER
 // shell-interpolated) read-only with the LOWERCASE :ro,z SHARED SELinux label (the
 // memory.go embedModelMount precedent for a read-only shared bind, NOT the :Z private label
-// durable data volumes use). The image, the EnvironmentFile path, and the :ro,z label stay
-// genuine pinned managed-service constants (the secret VALUE is deliberately NOT threaded
-// into the view — the render never reads it).
-func buildWebsafeView(websafeAddr, hostVillaPath string, websafePort int) websafeView {
+// durable data volumes use). The EnvironmentFile path and the :ro,z label stay
+// render-time constants (the secret VALUE is deliberately NOT threaded into the view
+// — the render never reads it).
+//
+// image is the RESOLVED pin — the effective one this host recorded, or the vetted
+// websafeImage when it has none.
+func buildWebsafeView(image, websafeAddr, hostVillaPath string, websafePort int) websafeView {
 	return websafeView{
 		ContainerName: websafeAddr,
-		Image:         websafeImage,
+		Image:         image,
 		Network:       networkAttach,
 		SecretEnvFile: websafeSecretEnvFilePath,
 		BinaryMount:   hostVillaPath + ":/usr/local/bin/villa:ro,z",

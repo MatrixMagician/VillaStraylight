@@ -75,7 +75,61 @@ type RenderInput struct {
 	// catalog id to a GGUF filename and hands over the resolved descriptor, so the
 	// pure renderer never imports internal/catalog (the CodingMode precedent above).
 	Resident []ResidentUnit
+
+	// Pin resolves a managed-service component to the image this host should
+	// actually run, returning "" for "use the compiled-in pin".
+	//
+	// It exists because a pin stopped being a compile-time constant: `villa update`
+	// records an EFFECTIVE pin per component, and a rendered unit that ignored it
+	// would make the whole update path a no-op. A nil Pin — the zero value, and what
+	// every pre-update caller passes — means every component resolves to its vetted
+	// pin, so the rendered units are byte-identical to before this field existed.
+	//
+	// It is a FUNC rather than a resolved map because Render must not import the
+	// resolver: that package reads the pin state store, and this one is the pure
+	// renderer. The same reason memory.RenderView hands over resolved values rather
+	// than a config, and the same reason RenderInput carries a resolved
+	// CodingModeSpec rather than a catalog entry.
+	//
+	// The INFERENCE backend is deliberately NOT resolved through this func. It
+	// already flows through in.Backend, which is the seam that owns every image
+	// literal, so its pin is applied by wrapping that Backend (inference.Repinned)
+	// before Render is called. Routing it here as well would give one component two
+	// paths to a pin, and eventually two answers.
+	Pin func(component string) string
 }
+
+// pinOr returns the effective pin for a component, or the compiled-in fallback when
+// no Pin seam was supplied or it has no opinion.
+//
+// One helper, five call sites, so the "nil means vetted" rule is written once. Five
+// inline nil checks would be five chances to write one of them backwards, and a
+// backwards one renders a unit with an empty Image=.
+func (in RenderInput) pinOr(component, fallback string) string {
+	if in.Pin == nil {
+		return fallback
+	}
+	if ref := in.Pin(component); ref != "" {
+		return ref
+	}
+	return fallback
+}
+
+// The component ids the render path resolves an effective pin under.
+//
+// They live here, beside the units that consume them, and internal/pins derives its
+// ComponentID values from these constants rather than re-typing the strings. That
+// direction is forced — pins imports orchestrate, not the other way round — and it
+// is also the right one: the id names a thing this package renders, so a rename
+// that misses one end fails to compile instead of silently orphaning a host's
+// recorded effective pin.
+const (
+	ComponentQdrant    = "qdrant"
+	ComponentEmbedder  = "embedder"
+	ComponentOpenWebUI = "open-webui"
+	ComponentSearXNG   = "searxng"
+	ComponentWebsafe   = "websafe-base"
+)
 
 // Plan is the result of a Reconcile: the rendered units whose on-disk hash differs
 // (or are absent) versus those already identical on disk. An empty Changed slice is

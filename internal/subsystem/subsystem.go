@@ -1,12 +1,18 @@
-// Package subsystem answers one question for each optional part of the stack: is
-// this subsystem on?
+// Package subsystem names every part of the stack, and answers one question about
+// each: is this subsystem on?
 //
-// The four optional subsystems are the memory stack, web search, the coding agent,
+// Four subsystems are OPTIONAL — the memory stack, web search, the coding agent,
 // and coding mode. Each is gated by a bool in config, and each bool was read
 // directly in dozens of places across more than twenty files — the install path
 // alone read the memory flag eleven times. An authoritative decision module existed
 // for memory and had two callers, so it failed the deletion test: deleting it would
 // have changed almost nothing, because nearly every read site bypassed it.
+//
+// Two are ALWAYS ON — inference and chat. They carry no config gate because the
+// stack is not the stack without them. They are named here anyway so that code
+// which needs to key something by subsystem (the pin table, `villa update`) has one
+// vocabulary for the concept rather than inventing a second one for the two the
+// gates happened not to cover.
 //
 // This package is where a gate is answered. Understanding one no longer requires a
 // tour of eleven files.
@@ -33,9 +39,14 @@ package subsystem
 
 import "github.com/MatrixMagician/VillaStraylight/internal/config"
 
-// Kind names one optional subsystem. It exists so the gates can be enumerated —
-// status, doctor and install all walk the same four — rather than each caller
+// Kind names one subsystem. It exists so the gates can be enumerated — status,
+// doctor and install all walk the same optional four — rather than each caller
 // hard-coding its own list and drifting when a fifth arrives.
+//
+// Members are iota-numbered, so the always-on pair is APPENDED rather than
+// inserted at the head where it reads more naturally. Inserting would silently
+// renumber every existing value, and a Kind is a map key in the pin state store.
+// Ordering that reads well is not worth a renumber.
 type Kind int
 
 const (
@@ -47,6 +58,12 @@ const (
 	Agent
 	// CodingMode is the running stack flipped to a tool-calling configuration.
 	CodingMode
+	// Inference is llama.cpp serving the chat model on the inference backend. It is
+	// always on: a stack without it serves nothing.
+	Inference
+	// Chat is the Open WebUI chat surface. It is always on: `villa install` renders
+	// its unit unconditionally.
+	Chat
 )
 
 // String renders the subsystem's name for messages and logs.
@@ -60,6 +77,10 @@ func (k Kind) String() string {
 		return "coding agent"
 	case CodingMode:
 		return "coding mode"
+	case Inference:
+		return "inference"
+	case Chat:
+		return "chat"
 	}
 	return "unknown"
 }
@@ -76,13 +97,49 @@ func (k Kind) ConfigKey() string {
 		return "agent_enabled"
 	case CodingMode:
 		return "coding_mode"
+	case Inference, Chat:
+		// DELIBERATE: an always-on subsystem has no config key, because there is no
+		// flag an operator could edit to change the answer. The empty string is the
+		// honest return, and callers rendering remediation must treat it as "there is
+		// nothing to edit" rather than as a missing case.
+		return ""
 	}
 	return ""
 }
 
-// All is every optional subsystem, in the order the stack reports them. A caller
+// AlwaysOn reports whether this subsystem has no gate at all.
+//
+// It exists so a caller can tell "on because the operator enabled it" from "on
+// because it cannot be off" without re-deriving the list. A reporter that prints
+// "enabled" beside inference is technically true and useless.
+func (k Kind) AlwaysOn() bool {
+	switch k {
+	case Inference, Chat:
+		return true
+	case Memory, WebSearch, Agent, CodingMode:
+		return false
+	}
+	return false
+}
+
+// All is every OPTIONAL subsystem, in the order the stack reports them. A caller
 // that needs to walk the gates ranges over this rather than writing its own list.
+//
+// DELIBERATE: All was NOT widened to include the always-on pair. Enabled walks it,
+// and every existing caller of Enabled asks "which addons did the operator turn
+// on?" — a question whose honest answer never includes inference. Widening it would
+// have made status, doctor and install each report two subsystems nobody enabled,
+// silently, with no compile error to catch it. Every is the all-subsystems list.
 var All = []Kind{Memory, WebSearch, Agent, CodingMode}
+
+// Every is every subsystem, optional and always-on alike, in stack order:
+// inference first because nothing runs without it, then chat, then the addons.
+//
+// This is the list a caller walks when it needs to name subsystems rather than to
+// ask which are enabled — the pin table keys its entries by this vocabulary. The
+// order here is presentation order and is deliberately NOT the iota order, which
+// exists only to keep stored values stable.
+var Every = []Kind{Inference, Chat, Memory, WebSearch, Agent, CodingMode}
 
 // On reports whether the named subsystem is enabled in this config.
 //
@@ -99,6 +156,13 @@ func On(cfg config.VillaConfig, k Kind) bool {
 		return cfg.AgentEnabled
 	case CodingMode:
 		return cfg.CodingMode
+	case Inference, Chat:
+		// TRUE BY CONSTRUCTION, not a stub. Inference and chat have no config bool
+		// because `villa install` renders both units unconditionally: there is no
+		// reachable state in which the stack is installed and either is off. If one
+		// ever becomes optional it gains a config field like every other gate, and
+		// this case moves up to join them.
+		return true
 	}
 	return false
 }

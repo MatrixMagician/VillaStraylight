@@ -22,6 +22,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
 	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
+	"github.com/MatrixMagician/VillaStraylight/internal/pinstate"
 	"github.com/MatrixMagician/VillaStraylight/internal/recall"
 	"github.com/MatrixMagician/VillaStraylight/internal/subsystem"
 	"github.com/MatrixMagician/VillaStraylight/internal/usage"
@@ -175,6 +176,22 @@ type Report struct {
 	// nothing above moved). Part of the v5 bump — the phase's ONLY contract change.
 	WebSearch *WebSearchInfo `json:"web_search,omitempty"`
 
+	// Updates is the v1.8 update-check summary: the LAST RECORDED `villa update
+	// --check`, never a live one.
+	//
+	// That distinction is the whole point of the field. status is polled by the
+	// dashboard, so checking here would mean network access on a UI refresh loop —
+	// telemetry-shaped even with an innocent payload, and enough to make "zero
+	// telemetry" a qualified claim rather than an unqualified one. This surface
+	// READS a record villa wrote when the operator ran the check, and triggers
+	// nothing.
+	//
+	// It is always present, unlike the optional-subsystem sections, because
+	// NEVER CHECKED is its own state and must be visible. An omitted section would
+	// read as "nothing to report", which is exactly the "you are up to date"
+	// misreading the whole verb is built to refuse.
+	Updates UpdatesInfo `json:"updates"`
+
 	// SchemaVersion is the Report contract self-version. It MUST stay the
 	// LAST tagged field (append-only; new tagged fields go above it, the unexported
 	// err stays after it and never serializes).
@@ -199,9 +216,43 @@ type Report struct {
 // 5 (Phase-34) tail-appends the web-search section (*WebSearchInfo,
 // omitted when web search is off) ABOVE SchemaVersion — the v1.5 milestone's SINGLE
 // contract evolution; with web search off the v5 output differs from v4 ONLY in
-// schema_version. It is itself a tail-appended additive marker; bumped on
+// schema_version. Version 6 (v1.8) tail-appends the update-check
+// section (UpdatesInfo) ABOVE SchemaVersion. Unlike the optional-subsystem
+// sections it is NOT omitempty: never-checked is a state that must be visible,
+// and an omitted section would read as "nothing to report". It is
+// itself a tail-appended additive marker; bumped on
 // any additive change to the Report --json contract.
-const reportSchemaVersion = 5
+const reportSchemaVersion = 6
+
+// SchemaVersion exposes the Report contract's own version to downstream readers
+// (the dashboard serves this same document), so a consumer binds one symbol rather
+// than re-typing the number and drifting from it on the next append-only bump.
+func SchemaVersion() int { return reportSchemaVersion }
+
+// UpdatesInfo is the v1.8 update-check summary. It is a READ of the last recorded
+// check; nothing in this type causes one.
+//
+// State is a three-way answer, and the three are genuinely different facts:
+//
+//	"never_checked"  villa has never completed a check on this host
+//	"checked"        villa checked, and the counts below are real
+//
+// Never-checked is NOT "0 available". Collapsing them would let a host that has
+// never asked report the same thing as one that asked and found nothing, which is
+// the absent-is-not-zero discipline verifystate already applies to a verify verdict.
+type UpdatesInfo struct {
+	State string `json:"state"`
+	// CheckedAt is when the last check completed, RFC3339 UTC. Omitted when none has.
+	CheckedAt string `json:"checked_at,omitempty"`
+	// AgeDays is how stale that answer is. It is surfaced ALWAYS, even when fresh,
+	// because villa traded automation away for honest staleness and this is where
+	// that trade shows up. Omitted only when there is no check to age.
+	AgeDays *int `json:"age_days,omitempty"`
+	// Available is how many subsystems had updates at that check. A POINTER so it
+	// is null rather than 0 when villa has never checked — a script reading it must
+	// not mistake "unknown" for "none".
+	Available *int `json:"available,omitempty"`
+}
 
 // VerifyFreshnessWindow bounds how recent a persisted `villa verify search` PASS must
 // be to surface as the green "bounded" outbound indicator (Open Q3). A PASS
@@ -441,6 +492,17 @@ type Deps struct {
 	// cfg.WebSearchEnabled.
 	ReadVerifyState func() *verifystate.State
 
+	// ReadPinState is the READ-ONLY pin-state seam, wired in liveStatusDeps over
+	// pinstate.Load (fail-closed). It supplies the LAST RECORDED update check.
+	//
+	// READ-ONLY is load-bearing here in a way it is not for the other stores. This
+	// seam must never fetch, and the reason is specific: status is polled by the
+	// dashboard, so a check triggered here would be network access on a UI refresh
+	// loop. That is telemetry-shaped even with an innocent payload, and it would
+	// make "zero telemetry" a qualified claim. A nil seam or an unreadable store
+	// yields never-checked, which is its own visible state — never "0 available".
+	ReadPinState func() *pinstate.State
+
 	// --- Coding-agent seams (Phase-28..). All nil-safe: a nil seam
 	// degrades to typed-Unknown (no fabricated value), mirroring the
 	// ReadUsage/ReadRecallState contract. They are consulted ONLY when the agent
@@ -593,6 +655,10 @@ func Run(d Deps) Report {
 	if subsystem.WebSearchOn(cfg) {
 		report.WebSearch = webSearchInfo(d.ReadVerifyState)
 	}
+	// Update-check section: ALWAYS populated, unlike the optional-subsystem
+	// sections above, because never-checked is a state that must be visible. This
+	// READS the recorded check and triggers nothing — see the ReadPinState doc.
+	report.Updates = updatesInfo(d.ReadPinState)
 
 	weight := d.WeightBytes(cfg)
 
@@ -954,3 +1020,56 @@ func allLoopback(ports []PortBinding) bool {
 	}
 	return true
 }
+
+// updatesInfo folds the LAST RECORDED update check into the report.
+//
+// It reads and never fetches. status is polled by the dashboard, so a live check
+// here would put network access on a UI refresh loop — telemetry-shaped even with
+// an innocent payload — which is why the seam is a store read and there is no
+// transport in sight.
+//
+// NEVER CHECKED IS ITS OWN STATE, not "0 available". A host that has never asked
+// and a host that asked and found nothing are different facts, and only the second
+// is knowledge. Available is a pointer so the first serialises as null rather than
+// a 0 a script would read as "you are current" — the same absent-is-not-zero
+// discipline verifystate applies to a verify verdict.
+func updatesInfo(readPinState func() *pinstate.State) UpdatesInfo {
+	never := UpdatesInfo{State: UpdatesNeverChecked}
+	if readPinState == nil {
+		return never // no seam ⇒ never checked, never a fabricated count
+	}
+	st := readPinState()
+	if st == nil || st.CheckedAt == "" {
+		return never // absent/unreadable store ⇒ never checked
+	}
+	checked, err := time.Parse(time.RFC3339, st.CheckedAt)
+	if err != nil {
+		return never // an unparseable timestamp is not a check villa can date
+	}
+
+	// The age is surfaced ALWAYS, even when fresh. Villa traded automation away for
+	// honest staleness, and this is where that trade is visible: "last checked 146
+	// days ago" is the signal that replaced a timer.
+	days := int(time.Since(checked).Hours() / 24)
+	if days < 0 {
+		// A future-dated check (clock skew, or a store copied from another machine)
+		// cannot be aged. Reporting a negative staleness would be worse than
+		// reporting none, so it degrades to zero days with the timestamp still shown.
+		days = 0
+	}
+	return UpdatesInfo{
+		State:     UpdatesChecked,
+		CheckedAt: st.CheckedAt,
+		AgeDays:   &days,
+	}
+}
+
+// The two update-check states. They are constants rather than bare strings because
+// they are part of the frozen --json contract and are read by the dashboard.
+const (
+	// UpdatesNeverChecked: villa has never completed a check on this host. NOT the
+	// same as "no updates available".
+	UpdatesNeverChecked = "never_checked"
+	// UpdatesChecked: villa checked, and CheckedAt/AgeDays are real.
+	UpdatesChecked = "checked"
+)

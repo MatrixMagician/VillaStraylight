@@ -773,7 +773,7 @@ func liveRenderUnits(cfg config.VillaConfig) ([]orchestrate.Unit, error) {
 	if err != nil {
 		return nil, err
 	}
-	return orchestrate.Render(orchestrate.RenderInput{
+	return livePinnedRender(orchestrate.RenderInput{
 		Backend:       backend,
 		Cfg:           cfg,
 		ModelFile:     modelFile,

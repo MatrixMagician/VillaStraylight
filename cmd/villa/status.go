@@ -23,6 +23,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 	"github.com/MatrixMagician/VillaStraylight/internal/metrics"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
+	"github.com/MatrixMagician/VillaStraylight/internal/pinstate"
 	"github.com/MatrixMagician/VillaStraylight/internal/recall"
 	"github.com/MatrixMagician/VillaStraylight/internal/recommend"
 	"github.com/MatrixMagician/VillaStraylight/internal/status"
@@ -199,6 +200,16 @@ func renderStatusTable(w io.Writer, r status.Report, withProvenance bool) {
 		fmt.Fprintf(tw, "  port %s\t%s:%s\n", p.ContainerPort, p.HostAddr, mark)
 	}
 	fmt.Fprintf(tw, "telemetry\t%s\n", r.NoTelemetry)
+	// Update check: the LAST RECORDED one. Rendering it here triggers nothing —
+	// status is polled by the dashboard, so a live check would be network access on
+	// a UI refresh loop.
+	//
+	// Never-checked is its OWN line, not "0 available". A host that has never asked
+	// and a host that asked and found nothing are different facts, and printing them
+	// the same way is exactly the "you are up to date" misreading the update verb
+	// exists to refuse. The AGE is always shown, even when fresh, because villa
+	// traded automation away for honest staleness and this is where that shows up.
+	fmt.Fprintf(tw, "updates\t%s\n", updatesLine(r.Updates))
 	if withProvenance {
 		for _, s := range r.Services {
 			fmt.Fprintf(tw, "\n%s offload\t%s\n", s.Service, s.Offload.Detail)
@@ -233,8 +244,18 @@ func liveStatusDeps() (*status.Deps, error) {
 		ModelFile:     liveModelFile,
 		ResidentUnits: liveResidentUnits,
 		ModelsDir:     modelsDir,
-		Render:        orchestrate.Render,
-		IsActive:      sys.IsActive,
+		Render:        livePinnedRender,
+		// READ-ONLY, and deliberately so: this surfaces the last recorded update
+		// check and must never trigger a live one. status is polled by the
+		// dashboard, so a fetch here would be network access on a UI refresh loop.
+		ReadPinState: func() *pinstate.State {
+			st, err := pinstate.Load(livePinStateDeps())
+			if err != nil {
+				return nil // unreadable ⇒ never-checked, never a fabricated count
+			}
+			return &st
+		},
+		IsActive: sys.IsActive,
 		// ResidencyJournal (not JournalText) — the offload assert needs the CURRENT
 		// invocation's startup, where the load_tensors residency line lives; the
 		// whole-unit journal's oldest bytes are stale prior-start output (F-3).
@@ -863,3 +884,43 @@ func liveStatusServices(endpoint string) []status.Service {
 		},
 	}
 }
+
+// updatesLine renders the passive update-check surface.
+//
+// Three distinct readings, because they are three distinct facts:
+//
+//	never checked                        villa has never asked
+//	last checked 3 days ago              villa asked recently
+//	last checked 146 days ago — run …    villa asked, but long enough ago to matter
+//
+// The staleness nudge appears past updateStaleDays because at that point the recorded
+// answer is not evidence about today. It is a nudge and not a warning: nothing is
+// wrong with a host that has not checked, and treating staleness as a fault would
+// pressure users toward the automatic checking villa deliberately does not do.
+func updatesLine(u status.UpdatesInfo) string {
+	if u.State != status.UpdatesChecked || u.AgeDays == nil {
+		return "never checked — run `villa update --check`"
+	}
+	days := *u.AgeDays
+	unit := "days"
+	if days == 1 {
+		unit = "day"
+	}
+	line := fmt.Sprintf("last checked %d %s ago", days, unit)
+	if days == 0 {
+		line = "last checked today"
+	}
+	if days >= updateStaleDays {
+		line += " — run `villa update --check`"
+	}
+	return line
+}
+
+// updateStaleDays is when a recorded check stops being evidence about today.
+//
+// A month, chosen to be comfortably longer than any reasonable manifest publishing
+// cadence and comfortably shorter than the months-long valid_until window. Being
+// wrong in either direction is mild: too short nags, too long stays quiet — and the
+// age itself is always printed regardless, so the number only decides when villa
+// adds a nudge, never whether the user can see the truth.
+const updateStaleDays = 30

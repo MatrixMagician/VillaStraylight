@@ -136,5 +136,8 @@
     "enabled": true,
     "outbound_bounded": "unknown"
   },
-  "schema_version": 5
+  "updates": {
+    "state": "never_checked"
+  },
+  "schema_version": 6
 }

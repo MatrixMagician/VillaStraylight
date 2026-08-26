@@ -99,5 +99,8 @@
     "cache_n": 84,
     "prompt_n": 200
   },
-  "schema_version": 5
+  "updates": {
+    "state": "never_checked"
+  },
+  "schema_version": 6
 }

@@ -112,18 +112,33 @@ new pin's floors before mutating anything.
 
 ### 5. Build the manifest
 
+Generate it from the compiled-in table rather than writing one by hand — every id,
+registry and shape is then correct by construction, and the allowlist check has
+nothing to catch except the values you deliberately changed:
+
+```bash
+go build -o villa-manifest-sign ./cmd/villa-manifest-sign
+./villa-manifest-sign build --serial 3 --valid-until 180d > pins.json
+```
+
+`--valid-until` takes an RFC3339 timestamp or a bare day count (`180d`). The day
+form exists because the window is measured in months and Go durations top out at
+hours; doing calendar arithmetic by hand is how a six-**day** window ships when six
+months was meant.
+
 The manifest is the serialised form of the compiled-in pin table. Per component it
-carries the subsystem, the component id, the pin shape (`version_tag` /
-`rolling_digest` / `checksummed_asset`), the pin value, the registry host, and
-floors where the component has them. Plus, at document level:
+carries the component id, the pin shape (`version_tag` / `rolling_digest` /
+`checksummed_asset`), the pin value, the registry host, and floors where the
+component has them. Plus, at document level:
 
 - **`serial`** — a monotonically increasing integer. Villa refuses a manifest whose
   serial is below the last one it saw, so this is the anti-downgrade floor.
   **Allocate it as a simple counter and never reuse or regress it**; if two
   manifests ever share a serial, the newer one is unusable on any host that saw
-  the older.
+  the older. `build` refuses a zero serial: zero means "no floor".
 - **`valid_until`** — after this, villa treats the manifest as **absent** and falls
-  back to compiled-in pins.
+  back to compiled-in pins. `build` refuses to omit it: a manifest with no expiry
+  can be frozen and served forever.
 
 **Pick a generous `valid_until`: months, not days.** Expiry is fail-closed, so
 nothing breaks — but because `--check` stays silent rather than falling back to
@@ -133,20 +148,47 @@ strictly on-command, a user with a lapsed manifest gets no signal at all and has
 to think to run `--check` to discover why. The window length is a user-visible
 safety parameter, not hygiene.
 
-**Check before publishing that the manifest would not be refused on allowlist
-grounds.** It may supply new *values* only, for components the compiled-in table
-already names; it may never introduce a component, a registry host, or a URL
-template. A manifest that violates this is refused on every host, so catch it at
-publish time rather than in the field.
+Edit the generated `pins.json` to carry the pins you re-vetted in step 4, then
+check it before signing:
+
+```bash
+./villa-manifest-sign check pins.json
+```
+
+A manifest may supply new *values* only, for components the compiled-in table
+already names; it may never introduce a component, a registry host, a shape, or a
+URL template. A manifest that violates this is refused on **every** host, so
+`check` catches it here rather than in the field. It reports every problem at once,
+not the first — fixing one refusal per round trip is how the sixth one ships.
+
+`check` needs no key, so you can iterate on a draft without unlocking one.
 
 ### 6. Sign it, offline
 
 ```bash
 # On the machine that holds the key — NOT in CI, NOT on a shared runner.
-villa-manifest-sign --key ~/.villa-signing/ed25519.key pins.json > pins.json.sig
+./villa-manifest-sign sign --key ~/.villa-signing/ed25519.key pins.json
 ```
 
-Then attach `pins.json` and `pins.json.sig` to the release.
+This re-runs the allowlist check and refuses to sign on any violation, then writes
+`pins.json.sig` beside the manifest. Attach both to the release.
+
+The signature covers the manifest file **verbatim**, byte for byte as published.
+Villa never re-serialises a manifest before verifying it, so do not reformat
+`pins.json` after signing — even a trailing newline invalidates the signature.
+Verbatim signing is deliberate: canonicalising instead would require both ends to
+agree on key ordering and number formatting, and a mismatch there fails
+verification for no visible reason, which is indistinguishable from an attack.
+
+If you do not yet have a key:
+
+```bash
+./villa-manifest-sign keygen --out ~/.villa-signing
+```
+
+It writes `ed25519.key` at 0600 and prints the public key to compile into villa. It
+refuses to overwrite an existing key — see Key custody below for why that is
+unrecoverable.
 
 ## Key custody
 

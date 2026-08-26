@@ -39,7 +39,13 @@ func QdrantImage() string { return qdrantImage }
 // but it is NOT a reference into the inference backend seam — keeping it a separate
 // managed-service const keeps TestSeamGrepGate semantics clean (a managed-service image,
 // not a GPU-backend token).
-// == vulkanImage
+//
+// ENFORCEMENT: that equality is asserted by TestEmbedderAndVulkanShareOneVettedPin in
+// internal/pins/drift_test.go, which compares both VETTED pins through the table's
+// accessors. It used to be a bare `// == vulkanImage` line, which nothing checked —
+// advancing one literal and not the other silently made the claim false. If the two
+// roles legitimately diverge, delete that test; a deleted test is visible in a diff
+// in a way an unenforced comment never was.
 const embedImage = "docker.io/kyuz0/amd-strix-halo-toolboxes:vulkan-radv@sha256:9a74e555c45864352a4077528836988d448e9f030fbab9f7376ea1c603ac7aad"
 
 // EmbedImage returns the digest-pinned villa-embed image (mirrors QdrantImage()/
@@ -146,14 +152,16 @@ type embedView struct {
 // buildQdrantView assembles the Qdrant container view. ContainerName is the
 // config-resolved Qdrant container-DNS name (qdrantAddr, threaded from
 // memory.RenderView(in.Cfg) — the single source of truth) so the rendered unit's
-// identity derives from config, NEVER an orchestrate-local const. The
-// image and the :Z volume mount stay genuine pinned managed-service constants:
-// there is no config field for them and the :Z SELinux label is a deliberate
-// render-time decision, not a config value.
-func buildQdrantView(qdrantAddr string) qdrantView {
+// identity derives from config, NEVER an orchestrate-local const.
+//
+// image is the RESOLVED pin — the effective one this host recorded, or the vetted
+// qdrantImage when it has none. It is a parameter rather than the const it used to
+// be because a pin stopped being a compile-time fact once `villa update` could move
+// one. The :Z volume mount stays a render-time decision, not a config value.
+func buildQdrantView(image, qdrantAddr string) qdrantView {
 	return qdrantView{
 		ContainerName: qdrantAddr,
-		Image:         qdrantImage,
+		Image:         image,
 		Network:       networkAttach,
 		Volume:        qdrantVolumeMount,
 	}
@@ -171,12 +179,12 @@ func buildQdrantVolumeView() qdrantVolumeView {
 // single source of truth. The ggufFilename is the single source of truth
 // (embedGGUFFilename, surfaced via EmbedGGUFFilename()) shared with the Plan-19-02
 // pre-stage Shard.Filename (Pitfall 3) — it is threaded as a parameter so both
-// ends bind one symbol. The image and the :ro,z shared-models mount stay genuine
-// pinned managed-service constants (no config field for them).
-func buildEmbedView(ggufFilename, embedAddr string, embedPort int) embedView {
+// ends bind one symbol. image is the RESOLVED pin (see buildQdrantView). The :ro,z
+// shared-models mount stays a render-time decision (no config field for it).
+func buildEmbedView(image, ggufFilename, embedAddr string, embedPort int) embedView {
 	return embedView{
 		ContainerName: embedAddr,
-		Image:         embedImage,
+		Image:         image,
 		Network:       networkAttach,
 		Volume:        embedModelMount,
 		Exec:          buildEmbedExec(ggufFilename, embedPort),

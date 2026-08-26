@@ -122,13 +122,16 @@ type settingsYmlView struct {
 // buildSearxngView assembles the SearXNG container view. ContainerName is the
 // config-resolved container-DNS name (searxngAddr, threaded from in.Cfg — the single
 // source of truth) so the rendered unit's identity derives from config, NEVER an
-// orchestrate-local const. The image, the EnvironmentFile path, and the :Z settings mount
-// stay genuine pinned managed-service constants (no config field for them; the secret
-// VALUE is deliberately NOT threaded into the view — the render never reads it).
-func buildSearxngView(searxngAddr string) searxngView {
+// orchestrate-local const. The EnvironmentFile path and the :Z settings mount stay
+// render-time constants (no config field for them; the secret VALUE is deliberately
+// NOT threaded into the view — the render never reads it).
+//
+// image is the RESOLVED pin — the effective one this host recorded, or the vetted
+// searxngImage when it has none.
+func buildSearxngView(image, searxngAddr string) searxngView {
 	return searxngView{
 		ContainerName: searxngAddr,
-		Image:         searxngImage,
+		Image:         image,
 		Network:       networkAttach,
 		SecretEnvFile: searxngSecretEnvFilePath,
 		SettingsMount: searxngSettingsMount,
