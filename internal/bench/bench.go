@@ -206,6 +206,9 @@ func benchN(ctx context.Context, d Deps, spec Spec, side string) (Stats, bool) {
 	}
 	// Warmup: measure then discard (not residency-gated, never counted).
 	for range spec.Warmup {
+		if ctx.Err() != nil {
+			return statsOf(nil), false
+		}
 		_, _, _, _ = d.Measure(ctx)
 	}
 
@@ -215,6 +218,14 @@ func benchN(ctx context.Context, d Deps, spec Spec, side string) (Stats, bool) {
 	// retry per requested rep before declaring void-exhaustion.
 	attemptBudget := 2 * spec.Reps
 	for attempts := 0; len(kept) < spec.Reps && attempts < attemptBudget; attempts++ {
+		// Stop as soon as the caller cancels (Ctrl-C). Without this check a
+		// cancelled run keeps calling Measure until the whole attempt budget is
+		// burned: each call fails fast on the dead context and counts as VOID, so
+		// an interrupt was reported as a residency problem ("insufficient
+		// residency-checked runs") rather than as the interrupt it was.
+		if ctx.Err() != nil {
+			break
+		}
 		t, resident, _, err := d.Measure(ctx)
 		if err != nil || !resident {
 			void++
@@ -234,12 +245,22 @@ func benchN(ctx context.Context, d Deps, spec Spec, side string) (Stats, bool) {
 // are set it runs the --ab comparison, applying the IDENTICAL spec to both sides and
 // ALWAYS restoring the original backend on every exit path.
 //
-// ctx is the caller's context — cobra installs a SIGINT-cancelled one (cmd.Context())
-// so a Ctrl-C propagates into the in-flight Measure/Switch/Restore and aborts the loop.
-// The per-run load_tensors-hang timeout is still derived inside the live Measure wiring
-// (context.WithTimeout over this ctx), so caller cancellation and the per-run deadline
-// compose rather than conflict.
+// ctx is the caller's context. main wires it to a SIGINT/SIGTERM-cancelled one and
+// passes it via ExecuteContext, so cmd.Context() carries the cancellation into the
+// in-flight Measure/Switch/Restore and aborts the loop. (Cobra's plain Execute()
+// would fill an un-cancellable context.Background(); the cancellation is main's
+// doing, not cobra's.) The per-run load_tensors-hang timeout is still derived inside
+// the live Measure wiring (context.WithTimeout over this ctx), so caller
+// cancellation and the per-run deadline compose rather than conflict.
 func Run(ctx context.Context, d Deps, spec Spec) Result {
+	// Normalize a nil context at the boundary. cobra's cmd.Context() returns nil
+	// for a Command that was never Execute()d, which is exactly how the cmd-tier
+	// tests construct one, so a nil can reach here from an otherwise valid caller.
+	// Treating it as "no cancellation" keeps the cancellation checks below a simple
+	// ctx.Err() rather than a nil-guard repeated at every use.
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	// Single-backend path.
 	if d.Switch == nil || d.Restore == nil {
 		st, enough := benchN(ctx, d, spec, "single")

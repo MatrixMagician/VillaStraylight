@@ -381,3 +381,74 @@ func TestBenchABRestoresOriginal(t *testing.T) {
 		t.Errorf("Restore(orig) must follow the Switch(other), got order %v", rec.callOrder)
 	}
 }
+
+// TestCancelStopsMeasuringPromptly pins the Ctrl-C path in the measurement loop.
+//
+// The attempt budget is 2*Reps, and a cancelled Measure fails fast and counts as
+// VOID. Before benchN checked the context, an interrupt therefore did not stop the
+// bench at all: it spun through the entire remaining budget calling Measure on a
+// dead context, so a Ctrl-C on a `--reps 20` run still issued 40 doomed attempts
+// before reporting the interrupt as a residency problem.
+//
+// Cancelling after the first run must leave the loop immediately: exactly one
+// Measure call, no budget burn.
+func TestCancelStopsMeasuringPromptly(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	rec := &benchRecorder{verdicts: []measureVerdict{
+		{t: RunTimings{PromptPerSec: 100, PredictedPerSec: 10}, resident: true},
+	}}
+	d := newBenchStub(rec)
+	inner := d.Measure
+	d.Measure = func(c context.Context) (RunTimings, bool, string, error) {
+		// Interrupt arrives while the first run is in flight.
+		cancel()
+		return inner(c)
+	}
+
+	Run(ctx, d, Spec{Reps: 20, Warmup: 0, MinResident: 20})
+
+	if rec.measureCalls != 1 {
+		t.Fatalf("a cancelled bench made %d Measure calls, want 1 — the loop must abandon "+
+			"the attempt budget on Ctrl-C rather than burning it on a dead context",
+			rec.measureCalls)
+	}
+}
+
+// TestCancelStopsWarmupPromptly is the warmup-phase sibling: a Ctrl-C during the
+// discarded warmup runs must abandon them too, not run every one against a dead
+// context before reaching the measured loop.
+func TestCancelStopsWarmupPromptly(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel() // already interrupted before the bench starts
+
+	rec := &benchRecorder{verdicts: []measureVerdict{
+		{t: RunTimings{PromptPerSec: 100, PredictedPerSec: 10}, resident: true},
+	}}
+	Run(ctx, newBenchStub(rec), Spec{Reps: 5, Warmup: 5, MinResident: 5})
+
+	if rec.measureCalls != 0 {
+		t.Fatalf("a pre-cancelled bench made %d Measure calls, want 0", rec.measureCalls)
+	}
+}
+
+// TestRunToleratesNilContext pins the boundary normalization in Run.
+//
+// cobra's cmd.Context() returns nil for a Command that was never Execute()d, which
+// is how the cmd-tier tests construct one. Once the measurement loop started
+// consulting ctx.Err(), a nil context turned that into a nil-pointer panic — a
+// crash reachable from a legitimate caller. Run normalizes nil to Background so the
+// bench still runs to completion.
+func TestRunToleratesNilContext(t *testing.T) {
+	rec := &benchRecorder{verdicts: []measureVerdict{
+		{t: RunTimings{PromptPerSec: 100, PredictedPerSec: 10}, resident: true},
+	}}
+	//nolint:staticcheck // SA1012 is the point: a nil ctx must not panic here.
+	res := Run(nil, newBenchStub(rec), Spec{Reps: 1, Warmup: 1, MinResident: 1})
+
+	if res.Single.Kept != 1 {
+		t.Fatalf("nil-context run kept %d runs, want 1", res.Single.Kept)
+	}
+	if res.VoidExhausted {
+		t.Error("a resident run under a nil context must not be void-exhausted")
+	}
+}
