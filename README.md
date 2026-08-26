@@ -1,6 +1,6 @@
 # VillaStraylight
 
-A single Go CLI (`villa`) that stands up a private, local AI workspace on your own hardware — auto-detecting an AMD Strix Halo (gfx1151) Fedora host, recommending a memory-fitting model/quant/context, generating rootless Podman Quadlet units, and orchestrating llama.cpp (ROCm) inference plus an Open WebUI chat front-end behind a loopback-only control dashboard. Strictly local, zero telemetry.
+A single Go CLI (`villa`) that stands up a private, local AI workspace on your own hardware — auto-detecting an AMD Strix Halo (gfx1151) Fedora host, recommending a memory-fitting model/quant/context, generating rootless Podman Quadlet units, and orchestrating llama.cpp (ROCm) inference plus an Open WebUI chat front-end behind a loopback-only control dashboard. Inference is local, and there is zero telemetry: outbound happens only when you run a command that fetches something (a model pull, an image pull, an update check), never on a timer and never in the background.
 
 ![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)
 
@@ -229,6 +229,70 @@ villa config show                     # print the effective config.toml
 villa config set model=<id>           # set a key (model, quant, ctx, backend, catalog_path); applies on next up/restart
 villa uninstall                       # tear down units, non-model volumes, and linger — keeps config.toml
 ```
+
+## Keeping the stack current (v1.8, planned)
+
+> Status: **specified, not yet implemented.** The design is settled across the
+> tickets on [the v1.8 map](https://github.com/MatrixMagician/VillaStraylight/issues/83);
+> this section documents the agreed behaviour so the outbound claims are on the
+> record before the code lands.
+
+Every component the stack runs is pinned by digest — the backend images, Open
+WebUI, Qdrant, the embedder, SearXNG, the websafe base, and the checksum-verified
+Crush binary. `villa update` is the transactional verb that moves those pins
+forward.
+
+```bash
+villa update --check                  # read-only: what is current, what has moved; works on a stopped stack
+villa update --dry-run                # the ordered plan and the download total; changes nothing
+villa update                          # apply, one subsystem at a time, each proven before it commits
+villa update <subsystem>              # apply to one of: inference, chat, memory, search, agent
+```
+
+Each subsystem is proven **before and after** it changes: villa refuses to start
+against an already-unhealthy subsystem (that is a refusal, not an update failure),
+and rolls back verbatim if the new version cannot be proven. An unprovable
+component is not treated as a broken one — villa says the new version *may* be
+fine and that it cannot show that it is, then restores what was running. One
+known-good previous is retained per subsystem so a rollback has somewhere to land;
+see [ADR-0004](docs/adr/0004-villa-update-prunes-images-that-install-never-would.md).
+
+### What update sends, in two parts
+
+These are two different operations with two different footprints, so they are
+stated separately rather than averaged into one comfortable sentence.
+
+**The check** is one HTTPS GET to this project's release endpoint, made by `villa`
+itself, to fetch a signed manifest of current pins. No request body, no cookies,
+no credentials, no identifier — nothing that describes your host, your models, or
+your usage. If the manifest is absent, expired, or fails its signature check,
+villa reports that it **could not check** and falls back to the pins compiled into
+the binary. That is deliberately not the same as reporting that you are up to
+date, and villa will not say the latter when it means the former.
+
+**The fetch** is `podman pull` against the registries named in the compiled-in
+allowlist — gigabytes, several hosts, and performed by Podman on villa's
+instruction rather than by villa itself. What bounds it is the allowlist: a
+manifest may supply new *values* for components villa already knows, and can never
+introduce a component, a registry host, or a URL template. Villa can promise the
+set of hosts it will contact; it cannot promise the volume, and does not pretend
+the fetch is as small as the check.
+
+**Neither happens unless you ask.** There is no timer, and no command checks
+opportunistically on your behalf — `villa status`, `villa doctor` and the
+dashboard display the *last recorded* check and its age, and never trigger a new
+one. The trade is deliberate and has a cost worth knowing: villa will not tell you
+an update exists unless you run the command, so "last checked 146 days ago" is a
+prompt you have to act on yourself.
+
+`villa update --check --from-registries` asks each registry directly instead of
+using the manifest. It is opt-in because it contacts one endpoint per installed
+component, which reveals to those registries which addons you have enabled. The
+manifest check does not.
+
+`villa` itself is reported but never self-applied: `--check` will tell you a newer
+release exists and print the command to install it, and will not replace the
+binary it is running from.
 
 ## Configuration
 

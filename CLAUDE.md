@@ -11,6 +11,8 @@ Conventions, Architecture below) and in `docs/`:
 - `docs/DEVELOPMENT.md` — build, test, and contribution workflow
 - `docs/CONFIGURATION.md` — every `config.toml` field and its effect
 - `docs/GETTING-STARTED.md`, `docs/MEMORY.md`, `docs/TESTING.md`
+- `docs/RELEASING.md` — how a release is cut and how the signed pin manifest is
+  published; the signing key is offline by design and must never reach CI
 - `CONTEXT.md` — the domain glossary (ubiquitous language); use its terms in
   issues, tests and proposals rather than drifting to synonyms
 - `docs/adr/` — accepted architecture decisions; read the ones touching your area

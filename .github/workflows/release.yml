@@ -1,0 +1,85 @@
+# Release workflow: builds the static villa binary on a tag and attaches it to the
+# GitHub release, with a checksums file.
+#
+# WHY THIS EXISTS. Releases v1.0 through v1.7 were tagged and published with ZERO
+# assets — the project shipped source only, and `docs/GETTING-STARTED.md` tells you
+# to `make build-static && install -m 0755 ./villa ~/.local/bin/villa`. That is fine
+# for a source install and impossible for anything that needs to verify what it
+# fetched.
+#
+# v1.8's `villa update` needs a release artifact for two reasons:
+#
+#   1. The signed pin manifest carries villa's own version and the release-asset
+#      checksum, so `--check` can report "a newer villa exists" honestly. There has
+#      to be an asset to checksum.
+#   2. `--check` prints an install command. Pointing at an artifact is a materially
+#      better answer than "clone the repo and build it".
+#
+# WHAT THIS DELIBERATELY DOES NOT DO. It does not sign the pin manifest. That key
+# is offline by design (see docs/RELEASING.md) and must never reach CI — a signing
+# key in GitHub Actions is a key every workflow-write can reach, which would make
+# the manifest exactly as trustworthy as repo write access, and the whole point of
+# the ed25519 anchor is that it is NOT that.
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-attach:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Tags are needed for `git describe` — the Makefile derives VERSION from
+          # it, and a shallow clone would stamp the binary "dev" on a real release.
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.2"
+
+      # The same CGO-free build the CI gate enforces. It is load-bearing beyond
+      # tidiness: villa-websafe bind-mounts this binary into a distroless container
+      # with no libc, so a dynamically-linked build fails to exec there.
+      - name: Build the static binary
+        run: make build-static
+
+      # Fail loudly if the stamp did not take. A release asset reporting "dev"
+      # would break the version comparison `villa update --check` depends on, and
+      # it is far cheaper to catch here than in a user's manifest check.
+      #
+      # There is no `villa version` SUBCOMMAND — the version rides on cobra's
+      # rootCmd.Version (cmd/villa/root.go), so `--version` is the accessor.
+      - name: Verify the version stamp
+        run: |
+          set -euo pipefail
+          stamped="$(./villa --version)"
+          echo "stamped version: ${stamped}"
+          case "${stamped}" in
+            *dev*|"") echo "::error::binary is not version-stamped (got '${stamped}') — refusing to publish an asset that cannot be compared"; exit 1 ;;
+            *dirty*)  echo "::error::binary was built from a dirty tree (got '${stamped}') — a release asset must correspond to the tag"; exit 1 ;;
+          esac
+
+      - name: Name the asset and checksum it
+        id: package
+        run: |
+          set -euo pipefail
+          asset="villa_${GITHUB_REF_NAME}_linux_amd64"
+          mv ./villa "${asset}"
+          sha256sum "${asset}" > checksums.txt
+          echo "asset=${asset}" >> "${GITHUB_OUTPUT}"
+          cat checksums.txt
+
+      - name: Attach to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "${GITHUB_REF_NAME}" \
+            "${{ steps.package.outputs.asset }}" checksums.txt \
+            --clobber
