@@ -28,6 +28,30 @@ Under `update` the image **is the subject of the transaction**. The operation is
 the state being changed, and therefore the state a rollback must restore. An
 update that does not capture the prior image has no rollback target at all.
 
+> **Correction, from a live incident: the image is not always the state being
+> changed.** The paragraph above is true of the backends, SearXNG and the websafe
+> base, whose images carry no data of their own. It is **false of Open WebUI and
+> Qdrant**, which own a mutable data volume. A real `villa update chat` on gfx1151
+> migrated Open WebUI's SQLite `config` table from `id/data/version` to
+> `key/value`; the retained image could not roll that back, because the image was
+> never the thing that changed. The restore put the old digest onto a database it
+> could no longer read, and it crash-looped 24 times.
+>
+> The reasoning below is untouched by this — reference counting, one previous, and
+> WARN-on-failed-prune are all still right, and are the decisions this ADR was
+> written to make. What the incident changed is the **premise about scope**: for a
+> component that owns persistent state, "the state a rollback must restore" is the
+> image **plus its data**. That is now what the retained tuple carries, and the
+> capture and restore of the data half are described in
+> [the v1.8 spec](../spec/v1.8-villa-update.md) §5.5 and §5.6.
+>
+> The transferable lesson is not about one image. **A rolling tag on a stateful
+> component carries migration risk on every rebuild.** Open WebUI is pinned
+> `:main`, so nothing announces that a schema moved — the digest simply changes and
+> the data changes with it. A version-tagged stateful component (Qdrant, at
+> `v1.18.2-unprivileged`) at least signals the possibility. A future decision to
+> pin a stateful component to a rolling tag should be made knowing that.
+
 The same reasoning that made ADR-0003 keep images is what makes this ADR keep one
 previous rather than pruning eagerly. Expensive to re-acquire is not a reason to
 avoid deleting *any* image; it is a reason to keep the one you might need. The
@@ -50,6 +74,13 @@ transactional swaps already perform (`internal/backendswap` captures *"the
 verbatim prior `villa-llama.container` bytes and the prior VillaConfig… STRICTLY
 BEFORE any mutation"*). A digest alone is not restorable: weeks later the image
 may still be present while the unit renders differently or the config has moved on.
+
+For a subsystem that **owns persistent state** the tuple carries a fourth member: a
+**data snapshot**, exported while the service is stopped. Chat and memory are the
+two, and for them the three members above are not a rollback target at all — a
+forward data migration makes the retained image unusable on its own. The stop is
+load-bearing rather than incidental: a volume exported from under a running service
+is a torn copy, which is a safety net that only fails when used.
 
 Recording it explicitly rather than inferring it is load-bearing. An inferred
 previous — whatever other villa-ish image happens to be in the store — would let
@@ -139,4 +170,16 @@ absent-means-empty reading must not be applied naively.
 
 An operator who prunes images by hand can still break rollback protection. Villa
 detects and reports this rather than preventing it; the image store is the
-operator's, and villa's claim is limited to what it can see.
+operator's, and villa's claim is limited to what it can see. The same is true of
+the data snapshots, which live under villa's data root and are equally removable by
+hand — a recorded snapshot that has gone missing is surfaced for the same reason a
+missing image is.
+
+One consequence of the correction above is stricter than anything else in this ADR:
+**a stateful subsystem whose data villa could not snapshot is not updated at all.**
+That is the opposite posture from the WARN-on-failed-prune rule, and deliberately
+so. Prune runs after the update has already succeeded, so its failure leaves more
+safety; a failed capture runs *before* any mutation, so proceeding would mutate
+data with nothing to go back to — which is exactly what produced the incident. The
+accepted cost is that a full disk or an unavailable Podman blocks updating chat and
+memory entirely.

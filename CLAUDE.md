@@ -312,6 +312,7 @@ loop.
 | updatefetch | The ONE outbound request a check makes; strictly on-command | `internal/updatefetch/fetch.go` |
 | updateflow | The per-subsystem transaction: prove current → capture → mutate → prove → commit | `internal/updateflow/updateflow.go` |
 | prune | Reference-counted image removal — the only image deletion in this project | `internal/prune/prune.go` |
+| snapshotprune | Data-snapshot retention — the only snapshot deletion in this project | `internal/snapshotprune/snapshotprune.go` |
 
 This table covers the v1.0–v1.2 spine plus the v1.6 consolidation modules. The
 v1.3–v1.5 packages (`memory`, `recall`, `agent`, `codingmode`, `websafe`, `doctor`,
@@ -327,6 +328,8 @@ same pure-core + `Deps` shape — see the code map above and `docs/ARCHITECTURE.
 - **Composition over re-implementation.** `bench --ab` composes `backendswap.Run`; `dashboard` composes `status` and `modelswap`; nothing forks a proven core. v1.6 applied this to the five shapes that HAD been forked: the residency proof (five copies), the Open WebUI protocol (twelve renamed seams), the subsystem gates (read directly in 20+ files), the verify shape (three copies), and install's decisions.
 - **A gate is answered once.** `subsystem.MemoryOn`/`WebSearchOn`/`AgentOn`/`CodingModeOn` are the only places a subsystem flag is read as a predicate; a test fails the build if that is bypassed. Enablement is a pure function of an already-loaded config, so one command cannot observe two answers in a single run.
 - **Every stack-mutating flow is transactional.** The three swap cores, `villa install` (ADR-0003) AND `villa update` capture before mutating and restore on failure, reporting honestly when a rollback could not complete. `update` adds a step the swaps never needed: it proves the CURRENT state first, so a pre-existing failure is a refusal rather than an update failure villa did not cause.
+
+- **The image is not always the state being changed.** Chat and memory own a mutable data volume (`subsystem.OwnsPersistentState`), so their update is a stopped window — stop → snapshot → mutate → start — and their rollback restores the data as well as the pin. The stop is load-bearing: a volume exported from under a running service is a torn copy. A failed capture REFUSES, unlike the failed prune/cleanup that WARNs, because a capture failure happens before any mutation while cleanup happens after the update already succeeded.
 
 - **A pin is two values.** The VETTED pin (compiled into `pins.Table`, a build-time fact that cannot be absent) and the EFFECTIVE pin (in `pinstate`, what this host runs, a runtime fact that routinely is). They are separate packages because they FAIL differently; `pinresolve` is where they meet. Rendered units derive their image through `livePinnedRender`, never a constant — a test fails the build if any cmd verb calls `orchestrate.Render` directly.
 

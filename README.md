@@ -257,6 +257,15 @@ fine and that it cannot show that it is, then restores what was running. One
 known-good previous is retained per subsystem so a rollback has somewhere to land;
 see [ADR-0004](docs/adr/0004-villa-update-prunes-images-that-install-never-would.md).
 
+**Chat and memory keep their state in a data volume, so for them the image is not
+the thing being changed.** An update can migrate a schema forward, after which the
+old image can no longer read it — so those two are stopped, their volume is
+exported, and only then are they mutated. The snapshot is part of the rollback
+target: a rollback restores the data alongside the pin, and then re-proves. A
+volume villa could not snapshot is not updated at all, because mutating data with
+nothing to go back to is the failure this exists to prevent. `--dry-run` states the
+disk each snapshot needs before it is spent.
+
 ### What update sends, in two parts
 
 These are two different operations with two different footprints, so they are

@@ -4,6 +4,15 @@ For [Prototype: the villa update CLI surface and output](https://github.com/Matr
 
 **These are mock transcripts, not implementation.** Every digest, timing and version below is invented except where it reflects the real drift [Research](https://github.com/MatrixMagician/VillaStraylight/issues/85) measured on 2026-08-26. React to the shapes; the decisions they encode are already closed.
 
+> **What shipping changed, recorded here rather than by rewriting the mocks.** A live
+> incident showed that for chat and memory the image is not the state being changed —
+> their data is. Those two subsystems are now **stopped** while their data volume is
+> snapshotted, so the real transcripts carry two lines the mocks below do not
+> (`snapshotting chat data (service stopped)` and, on a rollback, `restoring chat
+> data`), and `--dry-run` states the disk each snapshot needs. The shapes below are
+> otherwise unchanged. See [ADR-0004](../adr/0004-villa-update-prunes-images-that-install-never-would.md)
+> and [the spec](../spec/v1.8-villa-update.md) §5.6.
+
 ## What the closed tickets force
 
 Before the transcripts, the constraints they have to satisfy:
