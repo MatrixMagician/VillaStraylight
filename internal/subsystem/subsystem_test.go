@@ -167,6 +167,83 @@ func TestModuleIsLoadBearing(t *testing.T) {
 	}
 }
 
+// TestAlwaysOnSubsystemsAreOnForAZeroConfig guards the honesty of the always-on
+// answer. Inference and chat have no config bool, so "is inference on?" must be
+// true even for a config that has never been written — an install renders both
+// units unconditionally, and a false here would let a caller skip the one
+// subsystem the stack cannot run without.
+func TestAlwaysOnSubsystemsAreOnForAZeroConfig(t *testing.T) {
+	zero := config.VillaConfig{}
+	for _, k := range []Kind{Inference, Chat} {
+		if !On(zero, k) {
+			t.Errorf("%v reads off for a zero config; it is on by construction", k)
+		}
+		if !k.AlwaysOn() {
+			t.Errorf("%v.AlwaysOn() = false; it has no gate to turn off", k)
+		}
+		if key := k.ConfigKey(); key != "" {
+			t.Errorf("%v.ConfigKey() = %q, want empty — there is no flag to edit", k, key)
+		}
+	}
+}
+
+// TestEveryNamesAllSubsystemsExactlyOnce is what the pin table depends on: a list
+// it can key entries by. A duplicate would double-count a component and a gap would
+// make a pinned component unnameable, so both are checked rather than assumed.
+func TestEveryNamesAllSubsystemsExactlyOnce(t *testing.T) {
+	seen := map[Kind]bool{}
+	for _, k := range Every {
+		if seen[k] {
+			t.Errorf("Every names %v twice", k)
+		}
+		seen[k] = true
+		if k.String() == "unknown" {
+			t.Errorf("Every names a Kind with no String(): %d", int(k))
+		}
+	}
+	for _, k := range All {
+		if !seen[k] {
+			t.Errorf("Every omits the optional subsystem %v", k)
+		}
+	}
+	if !seen[Inference] || !seen[Chat] {
+		t.Error("Every omits an always-on subsystem")
+	}
+}
+
+// TestAllStaysTheOptionalSet is the decision guard for the widening.
+//
+// All was deliberately NOT widened, because Enabled walks it and every caller of
+// Enabled asks "which addons did the operator turn on?". Widening it would make
+// status, doctor and install each report inference and chat as enabled addons, with
+// no compile error to catch it. If a future change widens All, this test fails and
+// forces the caller audit that decision needs.
+func TestAllStaysTheOptionalSet(t *testing.T) {
+	for _, k := range All {
+		if k.AlwaysOn() {
+			t.Errorf("All contains the always-on subsystem %v; Enabled would report it as an enabled addon", k)
+		}
+	}
+	// Enabled over a fully-enabled config must still return exactly the optional
+	// set, never the always-on pair.
+	cfg := config.VillaConfig{MemoryEnabled: true, WebSearchEnabled: true, AgentEnabled: true, CodingMode: true}
+	if got := len(Enabled(cfg)); got != len(All) {
+		t.Errorf("Enabled returned %d subsystems for a fully-enabled config, want %d", got, len(All))
+	}
+}
+
+// TestKindValuesAreStable pins the iota numbering. A Kind is a map key in the pin
+// state store, so an inserted member would silently renumber every value already
+// written to disk and re-point one subsystem's effective pin at another.
+func TestKindValuesAreStable(t *testing.T) {
+	want := map[Kind]int{Memory: 0, WebSearch: 1, Agent: 2, CodingMode: 3, Inference: 4, Chat: 5}
+	for k, n := range want {
+		if int(k) != n {
+			t.Errorf("%v = %d, want %d — a member was inserted rather than appended, renumbering stored values", k, int(k), n)
+		}
+	}
+}
+
 // itoa avoids pulling strconv in for one call in a test.
 func itoa(n int) string {
 	if n == 0 {

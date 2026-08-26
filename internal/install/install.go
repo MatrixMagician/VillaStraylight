@@ -69,6 +69,12 @@ func (g Gates) On(k subsystem.Kind) bool {
 		return g.Agent
 	case subsystem.CodingMode:
 		return g.CodingMode
+	case subsystem.Inference, subsystem.Chat:
+		// Always on: an install renders both units unconditionally, so there is no
+		// resolved gate to hold and nothing a flag could turn off. Answered here
+		// rather than falling through to the default so a reader is not left
+		// wondering whether the case was forgotten.
+		return true
 	}
 	return false
 }
