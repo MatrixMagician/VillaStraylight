@@ -19,6 +19,7 @@ import (
 	"runtime/debug"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
 	"github.com/MatrixMagician/VillaStraylight/internal/metrics"
@@ -31,6 +32,18 @@ import (
 // empty, so an unset bind address can never accidentally become the all-interfaces
 // empty host (Pitfall 6).
 const defaultDashboardAddr = "127.0.0.1"
+
+// Server read deadlines. readHeaderTimeout bounds how long a connected peer may
+// take to send its request headers, which is the slowloris window; idleTimeout
+// bounds how long an idle keep-alive connection is held afterwards.
+//
+// Both are generous by web standards because every legitimate client here is on
+// loopback (the browser on this machine): the values need only be short enough to
+// reclaim a stalled connection, not to tune throughput.
+const (
+	readHeaderTimeout = 10 * time.Second
+	idleTimeout       = 120 * time.Second
+)
 
 // Config is the composed input NewServer needs: the SHARED status read-model seam
 // (the same status.Deps the CLI wires), the chat link target port, and the
@@ -386,10 +399,30 @@ func (s *Server) Addr() string {
 
 // ListenAndServe binds the loopback address and serves the dashboard until the
 // listener errors. The Addr is loopback-only by construction (Addr()).
+//
+// The two timeouts bound a client that connects and then stalls. Without a
+// ReadHeaderTimeout a peer can hold a connection open indefinitely by dribbling
+// request headers, and since Go's default server has no read deadline at all,
+// enough such connections exhaust the process (the classic slowloris). Loopback-only
+// binding narrows who can do that to a local process, but the dashboard is
+// long-lived (a systemd unit), so a stuck local client should not be able to wedge
+// it either.
+//
+// Deliberately NO WriteTimeout: it is an absolute deadline on the whole response,
+// and POST /api/models/switch legitimately runs long (it reconciles units and
+// restarts the inference service). A WriteTimeout would cut that off mid-swap,
+// turning a slow-but-correct switch into a failure.
 func (s *Server) ListenAndServe() error {
-	srv := &http.Server{
-		Addr:    s.Addr(),
-		Handler: s.router,
+	return s.httpServer().ListenAndServe()
+}
+
+// httpServer builds the configured http.Server. It is separate from ListenAndServe
+// so a test can assert the deadlines are actually set without binding a socket.
+func (s *Server) httpServer() *http.Server {
+	return &http.Server{
+		Addr:              s.Addr(),
+		Handler:           s.router,
+		ReadHeaderTimeout: readHeaderTimeout,
+		IdleTimeout:       idleTimeout,
 	}
-	return srv.ListenAndServe()
 }

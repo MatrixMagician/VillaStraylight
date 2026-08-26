@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/agent"
 	"github.com/MatrixMagician/VillaStraylight/internal/catalog"
@@ -85,6 +86,28 @@ func liveEnsureCoderModel(modelsDir string, sh catalog.Shard) error {
 	return pullFn(context.Background(), m, modelsDir)
 }
 
+// agentDownloadClient returns the HTTP client for the one-time Crush tarball pull.
+//
+// It is a dedicated client rather than http.DefaultClient for two reasons. First,
+// DefaultClient is process-global mutable state shared with every other caller, so
+// tuning it here would silently change unrelated requests. Second, and the actual
+// bug: DefaultClient has NO timeout, so a release host that accepts the connection
+// and then stalls hangs `villa install` forever with no output and no way past it
+// except Ctrl-C.
+//
+// The timeout is a whole-request deadline covering connect through body read. That
+// is safe here, unlike for model weights, because the asset is a single ~30 MiB
+// binary rather than a multi-GB GGUF (internal/download deliberately sets no client
+// timeout for exactly that reason and bounds itself by context instead).
+func agentDownloadClient() *http.Client {
+	return &http.Client{Timeout: agentDownloadTimeout}
+}
+
+// agentDownloadTimeout bounds the whole Crush tarball download. Generous enough for
+// the pinned asset on a slow link, short enough that a wedged host fails with a
+// clear error instead of hanging the install indefinitely.
+const agentDownloadTimeout = 5 * time.Minute
+
 // liveInstallAgentBinary COMPOSES the Phase-26 checksum-before-extract install seam
 // (agent.Install) — it NEVER re-implements the verify/extract. It resolves the
 // pinned linux/amd64 asset + release URL from the EXPORTED policy loader (agent.LoadCrushPolicy,
@@ -108,7 +131,7 @@ func liveInstallAgentBinary(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("install: build Crush download request: %w", err)
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := agentDownloadClient().Do(req)
 	if err != nil {
 		return "", fmt.Errorf("install: download Crush %s: %w", asset.Name, err)
 	}

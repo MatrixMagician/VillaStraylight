@@ -80,3 +80,37 @@ func TestNewServerRefusesNonLoopback(t *testing.T) {
 		})
 	}
 }
+
+// TestServerHasReadDeadlines pins the slowloris guard on the dashboard's listener.
+//
+// Go's zero-value http.Server has NO read deadline, so a peer that connects and
+// then dribbles request headers holds the connection indefinitely; enough of those
+// wedge the process. The dashboard is a long-lived systemd unit, so it must not be
+// wedgeable by a stuck local client.
+//
+// WriteTimeout is asserted ABSENT on purpose: POST /api/models/switch reconciles
+// units and restarts the inference service, so an absolute response deadline would
+// cut off a slow-but-correct model swap.
+func TestServerHasReadDeadlines(t *testing.T) {
+	s, err := NewServer(Config{DashboardPort: 8888, ChatPort: 3000})
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	srv := s.httpServer()
+
+	if srv.ReadHeaderTimeout <= 0 {
+		t.Error("ReadHeaderTimeout must be set — without it a stalled client holds a " +
+			"connection open indefinitely (slowloris)")
+	}
+	if srv.IdleTimeout <= 0 {
+		t.Error("IdleTimeout must be set so idle keep-alive connections are reclaimed")
+	}
+	if srv.WriteTimeout != 0 {
+		t.Errorf("WriteTimeout must stay unset (got %v): POST /api/models/switch restarts "+
+			"the inference service and legitimately outruns any fixed response deadline",
+			srv.WriteTimeout)
+	}
+	if srv.Addr != s.Addr() {
+		t.Errorf("server Addr = %q, want the loopback-only %q", srv.Addr, s.Addr())
+	}
+}

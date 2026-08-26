@@ -5,6 +5,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -24,6 +25,17 @@ import (
 // runWebsafe RETURNS the exit code (no os.Exit in the body) so websafe_test.go drives it with
 // a stubbed Serve + a stub HTTP client (no live network). internal/websafe stays pure (the
 // HTTP client is injected via its Deps seam) — orchestrate remains the only impure module.
+
+// Read deadlines for the container-internal loader socket.
+//
+// websafeReadHeaderTimeout bounds how long a connected peer may take to send its
+// request headers (the slowloris window). It is set above websafe.DefaultBounds().
+// Timeout (10s per fetch) so it can never be the thing that cuts off a legitimate
+// caller. websafeIdleTimeout bounds an idle keep-alive connection afterwards.
+const (
+	websafeReadHeaderTimeout = 30 * time.Second
+	websafeIdleTimeout       = 120 * time.Second
+)
 
 // websafeDeps are the injectable seams runWebsafe drives, so the test can stub the HTTP
 // client, the bearer, and the serve call without binding a real socket or hitting the network.
@@ -120,13 +132,40 @@ func runWebsafe(cmd *cobra.Command, _ []string, d *websafeDeps) int {
 // SafeClient over the conservative DefaultBounds (so the connect-time Control hook validates
 // every dialed IP), the Bearer read from the container env EXTERNAL_WEB_LOADER_API_KEY
 // (sourced from the 0600 EnvironmentFile the villa-websafe unit mounts — never the 0644 unit),
-// and a Serve that binds the container-internal socket via http.ListenAndServe.
+// and a Serve that binds the container-internal socket.
+//
+// Serve builds an explicit http.Server rather than calling http.ListenAndServe so the
+// read deadlines below are set. http.ListenAndServe uses a zero-value server, which has
+// NO read deadline at all: a peer that connects and dribbles request headers holds a
+// connection indefinitely, and enough of them wedge the loader (slowloris). This service
+// binds 0.0.0.0 inside the container and is reachable by anything on villa.network, so it
+// is the more exposed of villa's two servers even though no host port is published.
+//
+// Deliberately NO WriteTimeout: /load performs bounded outbound fetches (Bounds.Timeout
+// per fetch, MaxConcurrent in flight), so a legitimate response can take a while. The
+// fetch bounds already cap that work; an absolute write deadline would cut off a
+// correct-but-slow batch. ReadHeaderTimeout is set well above Bounds.Timeout for the
+// same reason.
 func liveWebsafeDeps() (*websafeDeps, error) {
 	bounds := websafe.DefaultBounds()
 	return &websafeDeps{
 		Client: websafe.SafeClient(bounds),
 		Bounds: bounds,
 		Secret: os.Getenv("EXTERNAL_WEB_LOADER_API_KEY"),
-		Serve:  func(addr string, h http.Handler) error { return http.ListenAndServe(addr, h) },
+		Serve: func(addr string, h http.Handler) error {
+			return websafeHTTPServer(addr, h).ListenAndServe()
+		},
 	}, nil
+}
+
+// websafeHTTPServer builds the configured loader http.Server. It is separate from
+// the Serve closure so a test can assert the deadlines are actually set on the
+// PRODUCTION server without binding a socket.
+func websafeHTTPServer(addr string, h http.Handler) *http.Server {
+	return &http.Server{
+		Addr:              addr,
+		Handler:           h,
+		ReadHeaderTimeout: websafeReadHeaderTimeout,
+		IdleTimeout:       websafeIdleTimeout,
+	}
 }

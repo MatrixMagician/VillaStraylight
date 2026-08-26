@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -235,5 +237,77 @@ func TestWebsafeServiceInLifecycleSet(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("villa-websafe.service not in managedServices: %v", managed)
+	}
+}
+
+// TestWebsafeServeSetsReadDeadlines pins the slowloris guard on the loader socket.
+//
+// The live Serve seam previously called http.ListenAndServe, which uses a
+// zero-value http.Server with NO read deadline. This service binds 0.0.0.0 inside
+// the container and is reachable by anything on villa.network, so a peer that
+// connects and dribbles headers could hold connections open until the loader is
+// wedged.
+//
+// The seam takes (addr, handler) and blocks, so the assertion drives the PRODUCTION
+// server builder against a real loopback listener and measures the behaviour: a
+// connection that sends NOTHING must be closed by the server rather than held
+// forever. Only the deadline VALUES are shortened, to keep the test fast.
+func TestWebsafeServeSetsReadDeadlines(t *testing.T) {
+	srv := websafeHTTPServer("127.0.0.1:0", http.NewServeMux())
+
+	// The production builder must set both deadlines; that is the regression this
+	// pins. Shorten them afterwards so the test does not wait 30s for the close.
+	if srv.ReadHeaderTimeout <= 0 {
+		t.Fatal("ReadHeaderTimeout must be set on the loader server — without it a " +
+			"stalled peer on villa.network holds a connection open indefinitely (slowloris)")
+	}
+	if srv.IdleTimeout <= 0 {
+		t.Error("IdleTimeout must be set so idle keep-alive connections are reclaimed")
+	}
+	// No WriteTimeout: /load performs bounded outbound fetches, so a legitimate
+	// response can outrun any fixed absolute deadline.
+	if srv.WriteTimeout != 0 {
+		t.Errorf("WriteTimeout must stay unset (got %v): /load's bounded fetches already "+
+			"cap the work, and an absolute deadline would cut off a correct slow batch",
+			srv.WriteTimeout)
+	}
+	srv.ReadHeaderTimeout = 150 * time.Millisecond
+	srv.IdleTimeout = 150 * time.Millisecond
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer ln.Close()
+	go srv.Serve(ln) //nolint:errcheck // stopped by the deferred srv.Close
+	defer srv.Close()
+
+	conn, err := net.Dial("tcp", ln.Addr().String())
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.Close()
+
+	// Send no headers at all, then read: a server WITH a header deadline closes the
+	// connection (EOF); one without blocks until the test's own deadline.
+	if err := conn.SetReadDeadline(time.Now().Add(3 * time.Second)); err != nil {
+		t.Fatalf("set deadline: %v", err)
+	}
+	buf := make([]byte, 1)
+	_, err = conn.Read(buf)
+	if err == nil {
+		t.Fatal("server sent data to a client that never sent a request")
+	}
+	var ne net.Error
+	if errors.As(err, &ne) && ne.Timeout() {
+		t.Fatal("a header-less connection was held open past the read deadline — " +
+			"ReadHeaderTimeout is not in effect (slowloris)")
+	}
+
+	// The header deadline must exceed the per-fetch bound, or it could cut off a
+	// legitimate caller rather than only a stalled one.
+	if websafeReadHeaderTimeout <= websafe.DefaultBounds().Timeout {
+		t.Errorf("websafeReadHeaderTimeout (%v) must exceed the per-fetch Bounds.Timeout (%v)",
+			websafeReadHeaderTimeout, websafe.DefaultBounds().Timeout)
 	}
 }
