@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"net"
@@ -63,7 +64,7 @@ func TestRunWebsafeCleanStartAndContractRoundTrip(t *testing.T) {
 		Client: up.Client(),
 		Bounds: websafe.DefaultBounds(),
 		Secret: "topsecret",
-		Serve: func(_ string, h http.Handler) error {
+		Serve: func(_ context.Context, _ string, h http.Handler) error {
 			handler = h
 			return nil
 		},
@@ -115,7 +116,7 @@ func TestRunWebsafeBearerEnforced(t *testing.T) {
 		Client: http.DefaultClient,
 		Bounds: websafe.DefaultBounds(),
 		Secret: "topsecret",
-		Serve:  func(_ string, h http.Handler) error { handler = h; return nil },
+		Serve:  func(_ context.Context, _ string, h http.Handler) error { handler = h; return nil },
 	}
 	if code := runWebsafe(cmd, nil, d); code != exitPass {
 		t.Fatalf("runWebsafe = %d, want exitPass", code)
@@ -137,7 +138,7 @@ func TestRunWebsafeServeError(t *testing.T) {
 		Client: http.DefaultClient,
 		Bounds: websafe.DefaultBounds(),
 		Secret: "topsecret", // non-empty so we reach the serve path, not the empty-bearer refusal
-		Serve:  func(string, http.Handler) error { return errors.New("bind: address in use") },
+		Serve:  func(context.Context, string, http.Handler) error { return errors.New("bind: address in use") },
 	}
 	if code := runWebsafe(cmd, nil, d); code != exitBlocked {
 		t.Fatalf("runWebsafe on serve error = %d, want exitBlocked", code)
@@ -157,7 +158,7 @@ func TestRunWebsafeRefusesEmptyBearer(t *testing.T) {
 		Client: http.DefaultClient,
 		Bounds: websafe.DefaultBounds(),
 		Secret: "", // empty → must refuse before binding
-		Serve:  func(string, http.Handler) error { served = true; return nil },
+		Serve:  func(context.Context, string, http.Handler) error { served = true; return nil },
 	}
 	if code := runWebsafe(cmd, nil, d); code != exitBlocked {
 		t.Fatalf("runWebsafe with empty bearer = %d, want exitBlocked", code)
@@ -309,5 +310,36 @@ func TestWebsafeServeSetsReadDeadlines(t *testing.T) {
 	if websafeReadHeaderTimeout <= websafe.DefaultBounds().Timeout {
 		t.Errorf("websafeReadHeaderTimeout (%v) must exceed the per-fetch Bounds.Timeout (%v)",
 			websafeReadHeaderTimeout, websafe.DefaultBounds().Timeout)
+	}
+}
+
+// TestServeUntilCancelledStopsOnCancel pins the systemd-stop path for the websafe
+// loader, mirroring TestServeStopsOnContextCancel for the dashboard.
+//
+// websafe-serve is a long-lived unit stopped with SIGTERM, which main turns into a
+// cancelled command context. If the serve call ignored that context the process
+// would keep serving until systemd escalated to SIGKILL at TimeoutStopSec. A clean
+// stop must also report nil, since runWebsafe maps a non-nil error to a blocked exit.
+func TestServeUntilCancelledStopsOnCancel(t *testing.T) {
+	// Port 0 takes an ephemeral port from the kernel, so a real listener is bound
+	// (exercising the production path) without colliding with a running loader.
+	srv := websafeHTTPServer("127.0.0.1:0", http.NewServeMux())
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- serveUntilCancelled(ctx, srv) }()
+
+	cancel()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Errorf("serveUntilCancelled after cancel = %v, want nil — a graceful stop is "+
+				"not a failure, and a non-nil error makes `villa websafe-serve` exit blocked "+
+				"on an ordinary `systemctl stop`", err)
+		}
+	case <-time.After(websafeShutdownGrace + 5*time.Second):
+		t.Fatal("serveUntilCancelled did not return after its context was cancelled — the " +
+			"loader would swallow SIGTERM and hang until systemd escalated to SIGKILL")
 	}
 }

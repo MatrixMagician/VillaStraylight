@@ -10,6 +10,7 @@
 package dashboard
 
 import (
+	"context"
 	"fmt"
 	"html/template"
 	"io/fs"
@@ -44,6 +45,11 @@ const (
 	readHeaderTimeout = 10 * time.Second
 	idleTimeout       = 120 * time.Second
 )
+
+// shutdownGrace is how long in-flight requests get to finish after a stop signal
+// before the server closes anyway. It is well inside systemd's default 90s
+// TimeoutStopSec, so a stop never escalates to SIGKILL.
+const shutdownGrace = 5 * time.Second
 
 // Config is the composed input NewServer needs: the SHARED status read-model seam
 // (the same status.Deps the CLI wires), the chat link target port, and the
@@ -413,7 +419,37 @@ func (s *Server) Addr() string {
 // restarts the inference service). A WriteTimeout would cut that off mid-swap,
 // turning a slow-but-correct switch into a failure.
 func (s *Server) ListenAndServe() error {
-	return s.httpServer().ListenAndServe()
+	return s.Serve(context.Background())
+}
+
+// Serve runs the dashboard until the listener errors or ctx is cancelled.
+//
+// On cancellation it shuts down gracefully: the listener closes, in-flight
+// requests are given shutdownGrace to finish, and Serve returns nil rather than
+// the http.ErrServerClosed that Shutdown induces (a clean stop is not a failure,
+// and the cmd tier maps a non-nil error to a blocked exit).
+//
+// Honouring the context matters because this process is a systemd unit: systemd
+// stops it with SIGTERM, and main cancels this context on that signal. A server
+// that ignored the context would sit through the stop until systemd's timeout
+// escalated to SIGKILL, turning every `systemctl stop` into a 90-second wait.
+func (s *Server) Serve(ctx context.Context) error {
+	srv := s.httpServer()
+
+	errCh := make(chan error, 1)
+	go func() { errCh <- srv.ListenAndServe() }()
+
+	select {
+	case err := <-errCh:
+		return err
+	case <-ctx.Done():
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownGrace)
+		defer cancel()
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			return err
+		}
+		return nil
+	}
 }
 
 // httpServer builds the configured http.Server. It is separate from ListenAndServe

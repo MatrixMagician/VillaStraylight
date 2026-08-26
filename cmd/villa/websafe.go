@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"net/http"
@@ -35,6 +36,11 @@ import (
 const (
 	websafeReadHeaderTimeout = 30 * time.Second
 	websafeIdleTimeout       = 120 * time.Second
+	// websafeShutdownGrace is how long an in-flight /load may finish after a stop
+	// signal. It exceeds the per-fetch Bounds.Timeout (10s) so a fetch already in
+	// progress can complete, and stays well inside systemd's default 90s
+	// TimeoutStopSec so a stop never escalates to SIGKILL.
+	websafeShutdownGrace = 15 * time.Second
 )
 
 // websafeDeps are the injectable seams runWebsafe drives, so the test can stub the HTTP
@@ -52,7 +58,7 @@ type websafeDeps struct {
 	Secret string
 	// Serve binds the socket at addr and serves the handler until it errors. Stubbed in tests
 	// so no real listener is bound; the live wiring is http.ListenAndServe.
-	Serve func(addr string, h http.Handler) error
+	Serve func(ctx context.Context, addr string, h http.Handler) error
 }
 
 // newWebsafe builds the HIDDEN `villa websafe-serve` subcommand: the internal container
@@ -121,7 +127,7 @@ func runWebsafe(cmd *cobra.Command, _ []string, d *websafeDeps) int {
 
 	fmt.Fprintf(out, "villa websafe-serve listening on http://%s (container-internal)\n", addr)
 
-	if err := d.Serve(addr, srv.Handler()); err != nil {
+	if err := d.Serve(cmdContext(cmd), addr, srv.Handler()); err != nil {
 		fmt.Fprintf(errOut, "websafe: serve: %v\n", err)
 		return exitBlocked
 	}
@@ -152,10 +158,34 @@ func liveWebsafeDeps() (*websafeDeps, error) {
 		Client: websafe.SafeClient(bounds),
 		Bounds: bounds,
 		Secret: os.Getenv("EXTERNAL_WEB_LOADER_API_KEY"),
-		Serve: func(addr string, h http.Handler) error {
-			return websafeHTTPServer(addr, h).ListenAndServe()
+		Serve: func(ctx context.Context, addr string, h http.Handler) error {
+			return serveUntilCancelled(ctx, websafeHTTPServer(addr, h))
 		},
 	}, nil
+}
+
+// serveUntilCancelled runs srv until it errors or ctx is cancelled, shutting down
+// gracefully on cancellation and reporting a clean stop as nil.
+//
+// This mirrors (*dashboard.Server).Serve. Both processes are systemd units stopped
+// with SIGTERM, and main cancels the command context on that signal; a server that
+// ignored it would sit through the stop until systemd escalated to SIGKILL,
+// turning every `systemctl stop` into a 90-second wait.
+func serveUntilCancelled(ctx context.Context, srv *http.Server) error {
+	errCh := make(chan error, 1)
+	go func() { errCh <- srv.ListenAndServe() }()
+
+	select {
+	case err := <-errCh:
+		return err
+	case <-ctx.Done():
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), websafeShutdownGrace)
+		defer cancel()
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			return err
+		}
+		return nil
+	}
 }
 
 // websafeHTTPServer builds the configured loader http.Server. It is separate from

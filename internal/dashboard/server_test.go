@@ -1,9 +1,11 @@
 package dashboard
 
 import (
+	"context"
 	"net"
 	"strings"
 	"testing"
+	"time"
 )
 
 // mustNewServer constructs a Server, failing the test on a (loopback-validation or
@@ -112,5 +114,40 @@ func TestServerHasReadDeadlines(t *testing.T) {
 	}
 	if srv.Addr != s.Addr() {
 		t.Errorf("server Addr = %q, want the loopback-only %q", srv.Addr, s.Addr())
+	}
+}
+
+// TestServeStopsOnContextCancel pins the systemd-stop path.
+//
+// The dashboard runs as a long-lived unit that systemd stops with SIGTERM, and main
+// turns that signal into a cancelled command context. Before Serve existed, the run
+// body called ListenAndServe and blocked forever regardless of the context, so the
+// process swallowed the first SIGTERM and kept serving until systemd escalated to
+// SIGKILL at TimeoutStopSec (90s by default) — measured alive 32s after a TERM.
+//
+// A cancelled context must therefore return, and return NIL: a clean stop is not a
+// failure, and the cmd tier maps a non-nil error to a blocked exit code.
+func TestServeStopsOnContextCancel(t *testing.T) {
+	// Port 0 asks the kernel for an ephemeral port, so the test binds a real
+	// listener (exercising the actual serve path) without colliding with a
+	// dashboard the developer may have running on 8888.
+	s := mustNewServer(t, Config{StatusDeps: stubStatusDeps(t), ChatPort: 3000, DashboardPort: 0})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- s.Serve(ctx) }()
+
+	cancel()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Errorf("Serve after cancel = %v, want nil — a graceful stop is not a failure, "+
+				"and a non-nil error makes `villa dashboard` exit blocked on an ordinary "+
+				"`systemctl stop`", err)
+		}
+	case <-time.After(shutdownGrace + 5*time.Second):
+		t.Fatal("Serve did not return after its context was cancelled — the process would " +
+			"swallow SIGTERM and hang until systemd's TimeoutStopSec escalated to SIGKILL")
 	}
 }

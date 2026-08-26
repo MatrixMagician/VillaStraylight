@@ -61,20 +61,6 @@ func newModelPull() *cobra.Command {
 	}
 }
 
-// pullContext returns the cobra command's context, falling back to Background when
-// it is nil.
-//
-// cmd.Context() is nil for a Command that was never Execute()d, which is how the
-// cmd-tier tests construct one, so the fallback keeps a direct runModelPull call
-// working while the live path (main's ExecuteContext) supplies the real
-// SIGINT/SIGTERM-cancelled context.
-func pullContext(cmd *cobra.Command) context.Context {
-	if ctx := cmd.Context(); ctx != nil {
-		return ctx
-	}
-	return context.Background()
-}
-
 // runModelPull performs the pull and RETURNS the exit code (it does not call
 // os.Exit) so tests can assert both output and the mapped code without spawning a
 // subprocess. All printing + exit mapping lives here; the downloader stays a pure
@@ -115,7 +101,7 @@ func runModelPull(cmd *cobra.Command, name string) int {
 	// partially-written ".part" file in place on a stream error and seeds the hash
 	// from it on the next run, so an interrupted pull continues via HTTP Range
 	// rather than restarting. Only a size/checksum MISMATCH deletes the partial.
-	if dlErr := pullFn(pullContext(cmd), m, modelsDir); dlErr != nil {
+	if dlErr := pullFn(cmdContext(cmd), m, modelsDir); dlErr != nil {
 		fmt.Fprintf(errOut, "model pull: %s failed: %v\n", m.ID, dlErr)
 		return exitBlocked
 	}

@@ -1,6 +1,24 @@
 package main
 
-import "github.com/spf13/cobra"
+import (
+	"context"
+
+	"github.com/spf13/cobra"
+)
+
+// cmdContext returns the command's context, falling back to Background when it is
+// nil.
+//
+// cobra leaves Context() nil on a Command that was never Execute()d, which is how
+// the cmd-tier tests construct one. The live path (main's ExecuteContext) always
+// supplies the real SIGINT/SIGTERM-cancelled context, so this fallback only ever
+// applies to a directly-invoked run body.
+func cmdContext(cmd *cobra.Command) context.Context {
+	if ctx := cmd.Context(); ctx != nil {
+		return ctx
+	}
+	return context.Background()
+}
 
 // Global persistent flags shared by all villa subcommands.
 //

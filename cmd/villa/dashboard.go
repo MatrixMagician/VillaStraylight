@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -34,9 +35,10 @@ type dashboardDeps struct {
 	// StatusDeps is the composed SHARED status read-model seam the dashboard folds
 	// (the same wiring villa status uses). It is a value so the server holds a copy.
 	StatusDeps status.Deps
-	// Serve runs the constructed server until it errors. Stubbed in tests so no real
-	// listener is bound; the live wiring calls (*dashboard.Server).ListenAndServe.
-	Serve func(*dashboard.Server) error
+	// Serve runs the constructed server until it errors or the context is cancelled.
+	// Stubbed in tests so no real listener is bound; the live wiring calls
+	// (*dashboard.Server).Serve, which shuts down gracefully on cancellation.
+	Serve func(context.Context, *dashboard.Server) error
 
 	// Performance + GPU collector seams the dashboard folds into
 	// /api/metrics + /api/gpu. Live wiring scrapes the inference endpoint and reads
@@ -133,7 +135,7 @@ func runDashboard(cmd *cobra.Command, _ []string, d *dashboardDeps) int {
 
 	fmt.Fprintf(out, "villa dashboard listening on http://%s\n", srv.Addr())
 
-	if err := d.Serve(srv); err != nil {
+	if err := d.Serve(cmdContext(cmd), srv); err != nil {
 		fmt.Fprintf(errOut, "dashboard: serve: %v\n", err)
 		return exitBlocked
 	}
@@ -157,7 +159,7 @@ func liveDashboardDeps() (*dashboardDeps, error) {
 	return &dashboardDeps{
 		LoadConfig: config.LoadVilla,
 		StatusDeps: *statusDeps,
-		Serve:      func(s *dashboard.Server) error { return s.ListenAndServe() },
+		Serve:      func(ctx context.Context, s *dashboard.Server) error { return s.Serve(ctx) },
 
 		// Performance: bounded /metrics + /slots scrapes of the inference endpoint.
 		Metrics: func() (metrics.PerfSnapshot, bool) { return metrics.ScrapeMetrics(endpoint) },

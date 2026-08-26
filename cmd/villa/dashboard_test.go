@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -25,13 +26,17 @@ func dashboardTestCmd() (*cobra.Command, *bytes.Buffer, *bytes.Buffer) {
 
 // stubDashboardDeps builds dashboardDeps with a config loader and a no-bind Serve stub
 // so runDashboard can be driven without opening a real socket.
+//
+// The stub keeps its context-free shape: every caller here asserts on whether Serve
+// ran and what it returned, not on the context, so the adapter drops it rather than
+// making each test thread a parameter it does not use.
 func stubDashboardDeps(serve func(*dashboard.Server) error) *dashboardDeps {
 	return &dashboardDeps{
 		LoadConfig: func() (config.VillaConfig, error) {
 			return config.VillaConfig{DashboardPort: 8888, ChatPort: 3000}, nil
 		},
 		StatusDeps: status.Deps{},
-		Serve:      serve,
+		Serve:      func(_ context.Context, s *dashboard.Server) error { return serve(s) },
 	}
 }
 
