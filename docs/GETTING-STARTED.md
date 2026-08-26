@@ -108,6 +108,7 @@ It maps the worst result to an exit code:
 | `0` | All checks passed. |
 | `2` | Passed with warnings (or a `--force`-overridden block). |
 | `1` | A blocking check failed — fix it (or re-run with `--force` to override, auditable). |
+| `130` | Interrupted with Ctrl-C. Applies to every `villa` command, not just preflight. |
 
 Each non-passing row prints a remediation command, so you can resolve gaps before
 installing anything. Add `-v` to see the provenance (which tool or `/sys` path)

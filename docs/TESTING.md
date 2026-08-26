@@ -287,6 +287,14 @@ These tests also pin the exit-code contract used by the cobra layer
 | `0` (`exitPass`) | all checks pass |
 | `1` (`exitBlocked`) | an un-overridden BLOCK check failed |
 | `2` (`exitWarn`) | passed with warnings (or an overridden block) |
+| `130` (`exitInterrupted`) | SIGINT/SIGTERM during the run (128+SIGINT) |
+
+`exitInterrupted` is tree-wide rather than preflight-specific: `main` runs the
+command tree under a signal-cancelled context, so a Ctrl-C unwinds through each
+command's cleanup (notably `bench --ab`'s deferred backend restore) instead of
+killing the process mid-flip. It is deliberately distinct from the verdict codes
+above so a scripted caller can tell an interrupt from a BLOCK. See
+`cmd/villa/main_test.go`.
 
 ### Offload-assertion tests
 
