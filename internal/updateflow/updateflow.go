@@ -174,6 +174,14 @@ type Capture struct {
 	// persistent state and taken only inside the stopped window. Its zero value is
 	// the honest reading for a stateless subsystem, whose image IS the state.
 	Data pinstate.DataSnapshot
+	// PriorSnapshot is the snapshot the CURRENT retained tuple already points at,
+	// read at capture time.
+	//
+	// It is not part of the rollback point — it is the one the rollback point will
+	// displace once this update commits. It is read here because by the time cleanup
+	// runs the store holds the new tuple, and the displaced path would be
+	// unrecoverable.
+	PriorSnapshot pinstate.DataSnapshot
 }
 
 // Deps is the injectable seam set. Every field is a host effect.
@@ -256,6 +264,14 @@ type SubsystemResult struct {
 	// a stateless subsystem, which is the honest "there was no data to take" rather
 	// than a missing field.
 	Snapshot pinstate.DataSnapshot
+	// SupersededSnapshot is the snapshot the committed one DISPLACED: the retained
+	// tuple's data from before this update.
+	//
+	// It is carried out rather than re-read from the store afterwards because by
+	// then the store has already been overwritten with the new tuple, and the
+	// displaced path would be unrecoverable. It is the input to the cleanup that
+	// enforces one snapshot per stateful subsystem.
+	SupersededSnapshot pinstate.DataSnapshot
 	// RollbackIncomplete is true when a rollback step ITSELF failed. It is separate
 	// from the outcome because "villa put it back" and "villa tried to put it back
 	// and could not" are different things a user must be told apart (ADR-0003).
@@ -517,6 +533,10 @@ func finishAfterMutation(ctx context.Context, d Deps, sr SubsystemResult, captur
 		sr.Previous = capture.Refs
 		sr.Err = err
 		sr.FailedStep = "commit"
+		// SupersededSnapshot is deliberately left ZERO here. The commit did not
+		// land, so the store's retained tuple still points at the old snapshot —
+		// it was never displaced, and removing it would delete the live rollback
+		// target on the strength of an update villa failed to record.
 		return sr
 	}
 
@@ -524,6 +544,7 @@ func finishAfterMutation(ctx context.Context, d Deps, sr SubsystemResult, captur
 	sr.Proof = p
 	sr.Committed = t.Pins
 	sr.Previous = capture.Refs
+	sr.SupersededSnapshot = capture.PriorSnapshot
 	return sr
 }
 

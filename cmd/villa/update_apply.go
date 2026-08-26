@@ -201,6 +201,12 @@ func liveCapture(k subsystem.Kind) (updateflow.Capture, error) {
 	for _, res := range r.For(k) {
 		snapshot.Refs[string(res.Component)] = res.Current.Ref
 	}
+	// The snapshot the CURRENT retained tuple points at, read now because by the
+	// time cleanup runs the store holds this update's tuple instead and the
+	// displaced path would be unrecoverable.
+	if prev, ok := state.PreviousFor(k); ok {
+		snapshot.PriorSnapshot = prev.Data
+	}
 
 	dir, err := quadletUnitDir()
 	if err != nil {
@@ -695,17 +701,35 @@ func targetsFor(r updatecheck.Report, selected map[subsystem.Kind]bool) []update
 }
 
 // printDryRun shows the ordered plan without changing anything.
-func printUpdateDryRun(w io.Writer, targets []updateflow.Target, refs map[string]bool) {
+func printUpdateDryRun(w io.Writer, targets []updateflow.Target, refs map[string]bool, sizes map[subsystem.Kind]int64) {
 	if len(targets) == 0 {
 		fmt.Fprint(w, "\nNothing to update. Every installed subsystem is at the pin the manifest offers.\n")
 		return
 	}
 
 	fmt.Fprintf(w, "\nWould update %d subsystem(s), in this order:\n\n", len(targets))
+	var snapshotTotal int64
+	var measured bool
 	for i, t := range targets {
 		fmt.Fprintf(w, "  %d. %s\n", i+1, t.Subsystem)
 		for id, ref := range t.Pins {
 			fmt.Fprintf(w, "       pull    %s  %s\n", id, shortRef(ref))
+		}
+		// The stopped window and its disk cost, stated BEFORE it is spent. On a
+		// small disk the snapshot size is a decision input, and discovering it
+		// afterwards is discovering it too late.
+		if t.Subsystem.OwnsPersistentState() {
+			if n, ok := sizes[t.Subsystem]; ok {
+				snapshotTotal += n
+				measured = true
+				fmt.Fprintf(w, "       stop    %s, so its data can be copied cleanly\n", t.Subsystem)
+				fmt.Fprintf(w, "       snapshot the %s data volume  (about %s of disk)\n", t.Subsystem, humanBytes(n))
+			} else {
+				// OMITTED, not zero. Zero is a claim about a cost, and villa did
+				// not measure one.
+				fmt.Fprintf(w, "       stop    %s, so its data can be copied cleanly\n", t.Subsystem)
+				fmt.Fprintf(w, "       snapshot the %s data volume  (size unknown — villa could not measure it)\n", t.Subsystem)
+			}
 		}
 		fmt.Fprintf(w, "       prove   before and after (the proof runs twice)\n")
 		fmt.Fprintf(w, "       retain  the current pins as the known-good previous\n")
@@ -715,6 +739,12 @@ func printUpdateDryRun(w io.Writer, targets []updateflow.Target, refs map[string
 		for id := range t.Pins {
 			fmt.Fprintf(w, "       prune   %s\n", pruneForecast(id, refs))
 		}
+	}
+	if measured {
+		// The total, because a per-subsystem figure does not answer "do I have room
+		// for this run?" — which is the question the number exists to answer.
+		fmt.Fprintf(w, "\nSnapshots would need about %s of disk while this run is in flight.\n"+
+			"Each superseded snapshot is released once its update is proven and committed.\n", humanBytes(snapshotTotal))
 	}
 	fmt.Fprint(w, "\nNothing has been changed.\n")
 }

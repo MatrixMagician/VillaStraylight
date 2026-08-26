@@ -65,6 +65,17 @@ type updateDeps struct {
 	// that keeps the only image-deleting code in the project away from a stack in
 	// an uncertain state.
 	Prune func(ctx context.Context, w io.Writer, res updateflow.Result)
+	// SnapshotCleanup releases superseded DATA snapshots after a committed update.
+	// It is a separate seam from Prune for the same reason it is a separate
+	// package: it is the only code in the project that deletes a data snapshot, and
+	// a test must be able to assert it never runs on a rolled-back subsystem, whose
+	// snapshot is the data the stack was just restored from.
+	SnapshotCleanup func(w io.Writer, res updateflow.Result)
+	// SnapshotSizes reports the current on-disk size of each stateful subsystem's
+	// data volume, so --dry-run can state the disk cost BEFORE it is spent.
+	// Discovering that a snapshot needed 2.8 GB afterwards is discovering it too
+	// late.
+	SnapshotSizes func() map[subsystem.Kind]int64
 }
 
 // liveUpdateDeps wires the real host.
@@ -82,8 +93,10 @@ func liveUpdateDeps() updateDeps {
 			active, err := orchestrate.NewSystemd().IsActive(installServiceName)
 			return err == nil && active == "active"
 		},
-		FlowDeps: liveUpdateFlowDeps,
-		Prune:    runPrune,
+		FlowDeps:        liveUpdateFlowDeps,
+		Prune:           runPrune,
+		SnapshotCleanup: runSnapshotCleanup,
+		SnapshotSizes:   liveSnapshotSizes,
 		ReferencedRefs: func() map[string]bool {
 			refs, _, err := pinstate.ReferencedRefs(livePinStateDeps())
 			if err != nil {
@@ -274,7 +287,7 @@ func apply(cmd *cobra.Command, d updateDeps, report updatecheck.Report, selected
 	}
 
 	if flags.dryRun {
-		printUpdateDryRun(out, targets, d.ReferencedRefs())
+		printUpdateDryRun(out, targets, d.ReferencedRefs(), snapshotSizes(d))
 		return exitPass
 	}
 
@@ -307,7 +320,30 @@ func apply(cmd *cobra.Command, d updateDeps, report updatecheck.Report, selected
 		}
 		d.Prune(ctx, pruneOut, res)
 	}
+	// The snapshot cleanup follows the same rules and the same stream: after the
+	// proofs, never changing the exit code, and never on a subsystem that rolled
+	// back — which the seam itself enforces, since that is where the live rollback
+	// target lives.
+	if d.SnapshotCleanup != nil {
+		cleanupOut := out
+		if res.Halted {
+			cleanupOut = errOut
+		}
+		d.SnapshotCleanup(cleanupOut, res)
+	}
 	return code
+}
+
+// snapshotSizes reads the per-subsystem snapshot cost, tolerating an unwired seam.
+//
+// A nil map is the honest "villa could not measure it", which --dry-run renders as
+// an unknown rather than as zero. Printing "0 B" for a volume villa could not stat
+// would understate a cost the user is about to pay.
+func snapshotSizes(d updateDeps) map[subsystem.Kind]int64 {
+	if d.SnapshotSizes == nil {
+		return nil
+	}
+	return d.SnapshotSizes()
 }
 
 // networkVerdict turns a transport failure into a could-not-check verdict.

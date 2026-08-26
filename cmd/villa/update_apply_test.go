@@ -405,7 +405,7 @@ func TestTheDryRunForecastsTheReferenceCountedPrune(t *testing.T) {
 	printUpdateDryRun(&b, []updateflow.Target{{
 		Subsystem: subsystem.Memory,
 		Pins:      map[string]string{"embedder": "example.invalid/embed@sha256:new"},
-	}}, nil)
+	}}, nil, nil)
 	got := b.String()
 
 	if !strings.Contains(got, "still referenced by another component") {

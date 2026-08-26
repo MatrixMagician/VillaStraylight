@@ -83,10 +83,10 @@ func TestTheDataIsRestoredWhileTheSubsystemIsStopped(t *testing.T) {
 			break
 		}
 	}
-	if lastStop < 0 || !(lastStop < restoreData) {
+	if lastStop < 0 || lastStop >= restoreData {
 		t.Errorf("steps = %v: the data was imported into a running service, which half-restores it", r.steps)
 	}
-	if lastStart < 0 || !(restoreData < lastStart) {
+	if lastStart < 0 || restoreData >= lastStart {
 		t.Errorf("steps = %v: the services were started before the data was restored", r.steps)
 	}
 }
@@ -106,7 +106,7 @@ func TestTheDataIsRestoredBeforeTheReProof(t *testing.T) {
 	if restoreData < 0 || reProof < 0 {
 		t.Fatalf("steps = %v", r.steps)
 	}
-	if !(restoreData < reProof) {
+	if restoreData >= reProof {
 		t.Errorf("steps = %v: the restored state was proven before its data went back, so the proof observed the migrated data", r.steps)
 	}
 }

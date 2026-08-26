@@ -71,13 +71,13 @@ func TestTheSnapshotIsTakenInsideTheStoppedWindow(t *testing.T) {
 			if stop < 0 || snap < 0 || mutate < 0 || start < 0 {
 				t.Fatalf("steps = %v; the stopped window is missing a step", r.steps)
 			}
-			if !(stop < snap) {
+			if stop >= snap {
 				t.Errorf("steps = %v: the snapshot was taken before the stop, so it is a torn copy of a running service", r.steps)
 			}
-			if !(snap < mutate) {
+			if snap >= mutate {
 				t.Errorf("steps = %v: the data was mutated before it was snapshotted — the rollback target is the migrated data, not the original", r.steps)
 			}
-			if !(mutate < start) {
+			if mutate >= start {
 				t.Errorf("steps = %v: the services were started before the mutation landed", r.steps)
 			}
 		})
@@ -298,6 +298,66 @@ func TestAStatefulSubsystemWithNoWindowWiredRefuses(t *testing.T) {
 	}
 	if indexOf(r.steps, "mutate") >= 0 {
 		t.Error("a subsystem with no snapshot seam was mutated anyway")
+	}
+}
+
+// TestTheDisplacedSnapshotIsCarriedOutForCleanup.
+//
+// Retention is one snapshot per stateful subsystem, and enforcing it means removing
+// the one this update displaced. That path must be carried OUT of the run, because
+// by the time cleanup looks the store holds the new tuple and the displaced path is
+// unrecoverable.
+func TestTheDisplacedSnapshotIsCarriedOutForCleanup(t *testing.T) {
+	prior := pinstate.DataSnapshot{Volume: "villa-openwebui", Path: "/snap/chat-old.tar", Bytes: 260_000_000}
+
+	r := newRecorder()
+	r.captured.PriorSnapshot = prior
+	r.snapshot = pinstate.DataSnapshot{Volume: "villa-openwebui", Path: "/snap/chat-new.tar", Bytes: 267_000_000}
+
+	res := Run(context.Background(), r.deps(), []Target{chatTarget()})
+	sr := res.Subsystems[0]
+
+	if sr.SupersededSnapshot.Path != prior.Path {
+		t.Errorf("the displaced snapshot is %q, want %q — cleanup has nothing to remove", sr.SupersededSnapshot.Path, prior.Path)
+	}
+	// The retained tuple points at the NEW snapshot, so the two are never confused:
+	// one is the live rollback target and the other is the disk to reclaim.
+	if r.previous["chat"].Data.Path != "/snap/chat-new.tar" {
+		t.Errorf("the retained tuple points at %q, not the snapshot this update took", r.previous["chat"].Data.Path)
+	}
+}
+
+// TestAFailedCommitDoesNotOfferTheDisplacedSnapshotForRemoval.
+//
+// The commit did not land, so the store's retained tuple still points at the old
+// snapshot. It was never displaced, and removing it would delete the live rollback
+// target on the strength of an update villa failed to record.
+func TestAFailedCommitDoesNotOfferTheDisplacedSnapshotForRemoval(t *testing.T) {
+	r := newRecorder()
+	r.captured.PriorSnapshot = pinstate.DataSnapshot{Volume: "villa-openwebui", Path: "/snap/chat-old.tar", Bytes: 1}
+	r.commitErr = errors.New("pin-state.json is read-only")
+
+	res := Run(context.Background(), r.deps(), []Target{chatTarget()})
+	sr := res.Subsystems[0]
+
+	if sr.Outcome != Committed {
+		t.Fatalf("outcome = %q; a bookkeeping failure must not undo a proven-good state", sr.Outcome)
+	}
+	if sr.SupersededSnapshot.Taken() {
+		t.Errorf("a failed commit offered %q for removal, but the store still points at it", sr.SupersededSnapshot.Path)
+	}
+}
+
+// TestARollbackOffersNothingForRemoval: a rolled-back subsystem's snapshot is the
+// data it was just restored FROM.
+func TestARollbackOffersNothingForRemoval(t *testing.T) {
+	r := newRecorder()
+	r.captured.PriorSnapshot = pinstate.DataSnapshot{Volume: "villa-openwebui", Path: "/snap/chat-old.tar", Bytes: 1}
+	r.proveNew = Proof{Status: ProofFail, Detail: "probe failed"}
+
+	res := Run(context.Background(), r.deps(), []Target{chatTarget()})
+	if res.Subsystems[0].SupersededSnapshot.Taken() {
+		t.Error("a rolled-back subsystem offered a snapshot for removal")
 	}
 }
 

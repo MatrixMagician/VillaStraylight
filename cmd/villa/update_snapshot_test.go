@@ -18,6 +18,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/pinstate"
 	"github.com/MatrixMagician/VillaStraylight/internal/subsystem"
@@ -156,7 +157,6 @@ func TestAFailedSnapshotDoesNotDisplaceTheRetainedOne(t *testing.T) {
 		t.Fatalf("first snapshot: %v", err)
 	}
 	_ = seen
-
 	// The next attempt fails after writing part of a tar.
 	orig := podmanVolume
 	podmanVolume = func(args []string) (string, error) {
@@ -194,23 +194,31 @@ func TestSnapshottingAStatelessSubsystemIsAnError(t *testing.T) {
 	}
 }
 
-// TestSnapshotPathIsPerSubsystemAndStable: one snapshot per stateful subsystem,
-// matching the one-previous rule the images already follow.
+// TestSnapshotPathIsUniquePerCaptureAndPerSubsystem.
 //
-// A timestamped or digest-keyed name would accumulate silently, which on memory's
-// 2.8 GB snapshots fills a disk without anyone deciding to.
-func TestSnapshotPathIsPerSubsystemAndStable(t *testing.T) {
+// UNIQUE PER CAPTURE, deliberately. A stable per-subsystem name would have a new
+// export overwrite the retained one at the moment it is written — before the new
+// update has been proven, and therefore at the exact moment the old snapshot is
+// still the only rollback target villa has. Retention is enforced by removing the
+// superseded snapshot after a proven commit, never by letting a write clobber it.
+func TestSnapshotPathIsUniquePerCaptureAndPerSubsystem(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
+
+	earlier := snapshotStamp(time.Date(2026, 8, 26, 12, 0, 0, 0, time.UTC))
+	later := snapshotStamp(time.Date(2026, 8, 26, 13, 0, 0, 0, time.UTC))
 
 	seen := map[string]subsystem.Kind{}
 	for _, k := range subsystem.Stateful() {
-		p := snapshotPath(k)
+		p := snapshotPath(k, earlier)
 		if p == "" {
 			t.Errorf("%v owns persistent state but has no snapshot path", k)
 			continue
 		}
-		if p != snapshotPath(k) {
-			t.Errorf("%v's snapshot path is not stable across calls", k)
+		if p != snapshotPath(k, earlier) {
+			t.Errorf("%v's snapshot path is not stable for one capture", k)
+		}
+		if p == snapshotPath(k, later) {
+			t.Errorf("%v's later capture reuses the earlier path %q, so it would clobber the live rollback target", k, p)
 		}
 		if other, clash := seen[p]; clash {
 			t.Errorf("%v and %v share the snapshot path %q; one would overwrite the other's rollback target", k, other, p)
@@ -218,9 +226,14 @@ func TestSnapshotPathIsPerSubsystemAndStable(t *testing.T) {
 		seen[p] = k
 	}
 	for _, k := range subsystem.Every {
-		if !k.OwnsPersistentState() && snapshotPath(k) != "" {
-			t.Errorf("%v owns no persistent state but has a snapshot path %q", k, snapshotPath(k))
+		if !k.OwnsPersistentState() && snapshotPath(k, earlier) != "" {
+			t.Errorf("%v owns no persistent state but has a snapshot path %q", k, snapshotPath(k, earlier))
 		}
+	}
+	// The stamp sorts chronologically, so `ls` in the snapshot directory reads as a
+	// history rather than as an unordered pile.
+	if earlier >= later {
+		t.Errorf("stamps %q and %q do not sort chronologically", earlier, later)
 	}
 }
 
