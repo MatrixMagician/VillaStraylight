@@ -513,6 +513,10 @@ func TestAStoppedStackRefusesBeforeAnythingIsAttempted(t *testing.T) {
 // TestApplyRunsTheStateMachineOnARunningStack is the positive control for the test
 // above: with the stack up, the flow actually runs. Without this, a guard that
 // refused unconditionally would pass every other assertion here.
+//
+// The report is memory's, which owns persistent state, so the fake deps wire the
+// stopped window too. A fake that omitted it would exercise the refusal path rather
+// than the happy one, which is the core failing closed exactly as designed.
 func TestApplyRunsTheStateMachineOnARunningStack(t *testing.T) {
 	var proven []subsystem.Kind
 	d := updateDeps{
@@ -525,6 +529,11 @@ func TestApplyRunsTheStateMachineOnARunningStack(t *testing.T) {
 				},
 				CaptureState: func(subsystem.Kind) (updateflow.Capture, error) { return updateflow.Capture{}, nil },
 				Mutate:       func(context.Context, subsystem.Kind, map[string]string) error { return nil },
+				Stop:         func(context.Context, subsystem.Kind) error { return nil },
+				SnapshotData: func(context.Context, subsystem.Kind) (pinstate.DataSnapshot, error) {
+					return pinstate.DataSnapshot{Volume: "villa-qdrant", Path: "/snap/memory.tar", Bytes: 2_800_000_000}, nil
+				},
+				Start: func(context.Context, subsystem.Kind) error { return nil },
 				ProveNew: func(context.Context, subsystem.Kind) updateflow.Proof {
 					return updateflow.Proof{Status: updateflow.ProofPass}
 				},
@@ -544,6 +553,11 @@ func TestApplyRunsTheStateMachineOnARunningStack(t *testing.T) {
 	}
 	if !strings.Contains(got, "Updated 1 subsystem(s)") {
 		t.Errorf("a successful apply does not report what it did:\n%s", got)
+	}
+	// The snapshot's disk cost is stated, because it is real disk the user just
+	// spent and a safety property nobody can see is one nobody can check.
+	if !strings.Contains(got, "2.8 GB") {
+		t.Errorf("the snapshot's disk cost is not narrated:\n%s", got)
 	}
 }
 
@@ -839,7 +853,15 @@ func TestPruneOutputFollowsTheRunsStream(t *testing.T) {
 					CaptureState: func(subsystem.Kind) (updateflow.Capture, error) {
 						return updateflow.Capture{Refs: map[string]string{"qdrant": "old"}}, nil
 					},
-					Mutate:   func(context.Context, subsystem.Kind, map[string]string) error { return nil },
+					Mutate: func(context.Context, subsystem.Kind, map[string]string) error { return nil },
+					// The report is memory's, which owns persistent state, so the
+					// stopped window is wired: without it the core refuses and this
+					// test would exercise a refusal rather than the stream split.
+					Stop: func(context.Context, subsystem.Kind) error { return nil },
+					SnapshotData: func(context.Context, subsystem.Kind) (pinstate.DataSnapshot, error) {
+						return pinstate.DataSnapshot{Volume: "villa-qdrant", Path: "/snap/memory.tar", Bytes: 1}, nil
+					},
+					Start:    func(context.Context, subsystem.Kind) error { return nil },
 					ProveNew: func(context.Context, subsystem.Kind) updateflow.Proof { return proof },
 					Restore:  func(context.Context, subsystem.Kind, updateflow.Capture) error { return nil },
 					ProveRestored: func(context.Context, subsystem.Kind) updateflow.Proof {

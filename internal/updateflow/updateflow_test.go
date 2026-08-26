@@ -28,12 +28,16 @@ type recorder struct {
 	proveNew      Proof
 	proveRestored Proof
 
-	captureErr error
-	pullErr    error
-	mutateErr  error
-	restoreErr error
-	commitErr  error
+	captureErr  error
+	pullErr     error
+	mutateErr   error
+	restoreErr  error
+	commitErr   error
+	stopErr     error
+	snapshotErr error
+	startErr    error
 
+	snapshot  pinstate.DataSnapshot
 	captured  Capture
 	committed map[string]map[string]string
 	previous  map[string]pinstate.Previous
@@ -48,6 +52,12 @@ func newRecorder() *recorder {
 			Refs:   map[string]string{"qdrant": "old-qdrant"},
 			Units:  map[string][]byte{"villa-qdrant.container": []byte("[Container]\nImage=old\n")},
 			Config: "model = \"x\"\n",
+		},
+		snapshot: pinstate.DataSnapshot{
+			Volume:  "villa-qdrant",
+			Path:    "/data/villa/snapshots/memory-2026.tar",
+			Bytes:   2_800_000_000,
+			TakenAt: "2026-08-26T12:00:00Z",
 		},
 		committed: map[string]map[string]string{},
 		previous:  map[string]pinstate.Previous{},
@@ -73,6 +83,18 @@ func (r *recorder) deps() Deps {
 		Mutate: func(context.Context, subsystem.Kind, map[string]string) error {
 			r.log("mutate")
 			return r.mutateErr
+		},
+		Stop: func(context.Context, subsystem.Kind) error {
+			r.log("stop")
+			return r.stopErr
+		},
+		SnapshotData: func(context.Context, subsystem.Kind) (pinstate.DataSnapshot, error) {
+			r.log("snapshot")
+			return r.snapshot, r.snapshotErr
+		},
+		Start: func(context.Context, subsystem.Kind) error {
+			r.log("start")
+			return r.startErr
 		},
 		ProveNew: func(context.Context, subsystem.Kind) Proof {
 			r.log("prove-new")
@@ -122,11 +144,16 @@ func stepsEqual(got, want []string) bool {
 // PROVE-CURRENT COMES FIRST, before the capture. That ordering is the design: a
 // pre-check after the capture would still work, but a pre-check after the MUTATION
 // would be worthless, and only an explicit assertion stops the steps drifting.
+//
+// Memory owns persistent state, so its mutation is the stopped WINDOW: the snapshot
+// falls between the stop and the mutate. A snapshot taken while the service runs is
+// a torn copy, which is a safety net that only fails when used, so the position of
+// that step inside the window is asserted rather than merely its presence.
 func TestHappyPathOrder(t *testing.T) {
 	r := newRecorder()
 	res := Run(context.Background(), r.deps(), []Target{memoryTarget()})
 
-	want := []string{"prove-current", "capture", "pull", "mutate", "prove-new", "commit"}
+	want := []string{"prove-current", "capture", "pull", "stop", "snapshot", "mutate", "start", "prove-new", "commit"}
 	if !stepsEqual(r.steps, want) {
 		t.Errorf("steps = %v, want %v", r.steps, want)
 	}
@@ -251,7 +278,7 @@ func TestAPostMutationFailRollsBackAndIsDistinguishable(t *testing.T) {
 
 	res := Run(context.Background(), r.deps(), []Target{memoryTarget()})
 
-	want := []string{"prove-current", "capture", "pull", "mutate", "prove-new", "restore", "prove-restored"}
+	want := []string{"prove-current", "capture", "pull", "stop", "snapshot", "mutate", "start", "prove-new", "restore", "prove-restored"}
 	if !stepsEqual(r.steps, want) {
 		t.Errorf("steps = %v, want %v", r.steps, want)
 	}

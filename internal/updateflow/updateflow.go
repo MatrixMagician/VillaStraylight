@@ -34,6 +34,35 @@
 // and it matters: "did not become healthy within 90s" is a different claim from "is
 // broken", and only the first was observed.
 //
+// # For a stateful subsystem the mutation is a WINDOW, not an instant
+//
+// The rollback tuple is complete for a component whose image IS the state being
+// changed. For chat and memory it is not: their state lives in a volume, and a
+// forward data migration makes the retained image an unusable rollback target. So
+// those two get a data snapshot, and taking it turns the mutation from a single
+// atomic restart into an explicit window:
+//
+//	stop → snapshot → mutate → start
+//
+// THE STOP IS LOAD-BEARING, not incidental. A volume exported from under a running
+// service is a torn copy — `villa backup` already stops Open WebUI for exactly this
+// reason. A snapshot that cannot be restored is worse than no snapshot, because it
+// is a safety net that only fails when used. Measured on hardware, exporting the
+// 2.3 GB Qdrant volume takes about two seconds against a restart that was happening
+// anyway.
+//
+// A CAPTURE FAILURE IS A REFUSAL. Mutating state villa could not snapshot is
+// precisely what produced the incident, so a full disk or an unavailable Podman
+// blocks updating a stateful subsystem entirely. That cost is accepted, stated, and
+// not to be softened later.
+//
+// Every path out of the stopped window starts the services again. The stop is
+// villa's, so leaving a subsystem down because the snapshot errored would turn a
+// refusal into an outage.
+//
+// A STATELESS SUBSYSTEM KEEPS THE ATOMIC RESTART. Adding a stopped window to
+// inference buys nothing and doubles the most expensive restart in the stack.
+//
 // # One subsystem at a time, halting on the first failure
 //
 // Not one transaction. Each subsystem is proven and committed before the next
@@ -141,6 +170,10 @@ type Capture struct {
 	Units map[string][]byte
 	// Config is the serialised config the pins were proven under.
 	Config string
+	// Data is the exported data volume, present only for a subsystem that owns
+	// persistent state and taken only inside the stopped window. Its zero value is
+	// the honest reading for a stateless subsystem, whose image IS the state.
+	Data pinstate.DataSnapshot
 }
 
 // Deps is the injectable seam set. Every field is a host effect.
@@ -158,7 +191,24 @@ type Deps struct {
 	Pull func(ctx context.Context, refs map[string]string) error
 	// Mutate writes the new pins into the rendered units and restarts the
 	// subsystem's services. ANY error rolls back.
+	//
+	// For a stateful subsystem it runs INSIDE the stopped window, so the services
+	// it would restart are already down and Start brings them back afterwards. The
+	// caller's implementation restarts either way, which is idempotent against a
+	// stopped unit.
 	Mutate func(ctx context.Context, k subsystem.Kind, refs map[string]string) error
+	// Stop stops the subsystem's services, opening the window in which a volume can
+	// be exported cleanly. It is called ONLY for a subsystem that owns persistent
+	// state; a stateless one keeps its single atomic restart.
+	Stop func(ctx context.Context, k subsystem.Kind) error
+	// SnapshotData exports the subsystem's data volume while it is stopped. An
+	// error REFUSES the update with nothing mutated — the same rule the capture
+	// already follows, for the same reason: there would be nothing to go back to.
+	SnapshotData func(ctx context.Context, k subsystem.Kind) (pinstate.DataSnapshot, error)
+	// Start starts the subsystem's services, closing the window. EVERY path out of
+	// the stopped window calls it, including the failing ones: villa stopped the
+	// services, so leaving them down would turn a refusal into an outage.
+	Start func(ctx context.Context, k subsystem.Kind) error
 	// ProveNew proves the mutated subsystem. Only a true pass commits.
 	ProveNew func(ctx context.Context, k subsystem.Kind) Proof
 	// Restore puts the captured tuple back, verbatim.
@@ -193,6 +243,11 @@ type SubsystemResult struct {
 	// target, on a committed subsystem.
 	Committed map[string]string
 	Previous  map[string]string
+	// Snapshot is the data snapshot taken inside the stopped window, carried out to
+	// the caller so the narration can state what it cost. It is the ZERO VALUE for
+	// a stateless subsystem, which is the honest "there was no data to take" rather
+	// than a missing field.
+	Snapshot pinstate.DataSnapshot
 	// RollbackIncomplete is true when a rollback step ITSELF failed. It is separate
 	// from the outcome because "villa put it back" and "villa tried to put it back
 	// and could not" are different things a user must be told apart (ADR-0003).
@@ -313,14 +368,113 @@ func runOne(ctx context.Context, d Deps, t Target) SubsystemResult {
 	}
 
 	// (4) MUTATE. From here on, any failure rolls back.
+	//
+	// For a subsystem that owns persistent state this is a WINDOW rather than an
+	// instant: stop → snapshot → mutate → start. The stop is what makes the export
+	// a clean copy rather than a torn one, and a snapshot that cannot be restored
+	// is worse than no snapshot at all.
+	if t.Subsystem.OwnsPersistentState() {
+		return runStatefulMutation(subCtx, d, sr, capture, t)
+	}
+
 	if err := d.Mutate(subCtx, t.Subsystem, t.Pins); err != nil {
 		return rollback(subCtx, d, sr, capture,
 			Proof{Status: ProofReject, Detail: fmt.Sprintf("the subsystem could not be moved to the new pins: %v", err)},
 			RolledBackReject, err, "mutate")
 	}
 
+	return finishAfterMutation(subCtx, d, sr, capture, t)
+}
+
+// runStatefulMutation is the stopped window for a subsystem whose data, not whose
+// image, is the state being changed.
+//
+//	stop → snapshot → mutate → start → prove new → commit
+//
+// A failure BEFORE the mutation refuses with nothing changed and the services
+// running again. A failure at or after the mutation rolls back, which is why the
+// start happens before the proof rather than as part of it.
+func runStatefulMutation(ctx context.Context, d Deps, sr SubsystemResult, capture Capture, t Target) SubsystemResult {
+	if d.Stop == nil || d.SnapshotData == nil || d.Start == nil {
+		// A stateful subsystem with no window wired would silently take the
+		// stateless path and mutate data it never snapshotted — the exact shape of
+		// the incident. Refusing is the only honest answer.
+		sr.Outcome = RefusedUnhealthy
+		sr.FailedStep = "snapshot"
+		sr.Err = errors.New("no data-snapshot seam is wired for a subsystem that owns persistent state")
+		sr.Proof = Proof{Status: ProofReject, Detail: "villa cannot snapshot this subsystem's data, so it will not mutate it"}
+		return sr
+	}
+
+	if err := d.Stop(ctx, t.Subsystem); err != nil {
+		// Nothing has been mutated and the window never opened. Villa still starts
+		// the services, because a partial stop may have taken some of them down.
+		startErr := d.Start(ctx, t.Subsystem)
+		sr.Outcome = RefusedUnhealthy
+		sr.FailedStep = "stop"
+		sr.Err = joinStartErr(err, startErr)
+		sr.RollbackIncomplete = startErr != nil
+		sr.Proof = Proof{Status: ProofReject, Detail: "the subsystem could not be stopped, so its data could not be snapshotted and nothing was changed"}
+		return sr
+	}
+
+	snapshot, err := d.SnapshotData(ctx, t.Subsystem)
+	if err != nil {
+		// A REFUSAL, not a warning. Mutating state villa could not snapshot is what
+		// produced the incident this window exists to prevent. Nothing is mutated,
+		// and the services come back up.
+		startErr := d.Start(ctx, t.Subsystem)
+		sr.Outcome = RefusedUnhealthy
+		sr.FailedStep = "snapshot"
+		sr.Err = joinStartErr(err, startErr)
+		sr.RollbackIncomplete = startErr != nil
+		sr.Proof = Proof{Status: ProofReject, Detail: fmt.Sprintf("the current data could not be captured for rollback, so nothing was changed: %v", err)}
+		return sr
+	}
+	capture.Data = snapshot
+	sr.Snapshot = snapshot
+
+	if err := d.Mutate(ctx, t.Subsystem, t.Pins); err != nil {
+		// Past the point of no return: the mutation may have written pins and
+		// re-rendered units before it failed. Start the services so the rollback's
+		// re-proof has something to observe, then roll back.
+		if startErr := d.Start(ctx, t.Subsystem); startErr != nil {
+			err = errors.Join(err, fmt.Errorf("the services could not be started again: %w", startErr))
+		}
+		return rollback(ctx, d, sr, capture,
+			Proof{Status: ProofReject, Detail: fmt.Sprintf("the subsystem could not be moved to the new pins: %v", err)},
+			RolledBackReject, err, "mutate")
+	}
+
+	if err := d.Start(ctx, t.Subsystem); err != nil {
+		// The mutation landed but the subsystem is down, so the post-mutation proof
+		// cannot run. That is a Reject and it rolls back, which is the same posture
+		// as an unprovable new image.
+		return rollback(ctx, d, sr, capture,
+			Proof{Status: ProofReject, Detail: fmt.Sprintf("the subsystem could not be started after the update: %v", err)},
+			RolledBackReject, err, "start")
+	}
+
+	return finishAfterMutation(ctx, d, sr, capture, t)
+}
+
+// joinStartErr folds a failed restart of villa's OWN stop into the cause.
+//
+// It is separate wording because the two failures mean different things: the first
+// says why villa refused, the second says the subsystem is down and villa put it
+// there. A user needs both, and the second is the more urgent one.
+func joinStartErr(cause, startErr error) error {
+	if startErr == nil {
+		return cause
+	}
+	return errors.Join(cause, fmt.Errorf("THE SERVICES ARE STILL STOPPED: villa stopped them to take the snapshot and could not start them again: %w", startErr))
+}
+
+// finishAfterMutation proves the new state and commits, the half of the transaction
+// that is identical whether or not there was a stopped window.
+func finishAfterMutation(ctx context.Context, d Deps, sr SubsystemResult, capture Capture, t Target) SubsystemResult {
 	// (5) PROVE THE NEW STATE. ONLY a true pass commits.
-	p := d.ProveNew(subCtx, t.Subsystem)
+	p := d.ProveNew(ctx, t.Subsystem)
 	if !p.Pass() {
 		outcome := RolledBackFail
 		if p.Status != ProofFail {
@@ -329,7 +483,7 @@ func runOne(ctx context.Context, d Deps, t Target) SubsystemResult {
 			// and only one of them was observed.
 			outcome = RolledBackReject
 		}
-		return rollback(subCtx, d, sr, capture, p, outcome, nil, "prove")
+		return rollback(ctx, d, sr, capture, p, outcome, nil, "prove")
 	}
 
 	// (6) COMMIT. The pin becomes effective and the captured tuple becomes the
@@ -338,6 +492,7 @@ func runOne(ctx context.Context, d Deps, t Target) SubsystemResult {
 		Refs:   capture.Refs,
 		Units:  capture.Units,
 		Config: capture.Config,
+		Data:   capture.Data,
 	}
 	if d.Now != nil {
 		previous.CapturedAt = d.Now()

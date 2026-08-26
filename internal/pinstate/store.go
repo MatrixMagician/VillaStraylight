@@ -54,6 +54,37 @@ import (
 // other store's. Bump only on an incompatible pin-state.json change.
 const pinStateSchemaVersion = 1
 
+// DataSnapshot is the exported copy of a stateful subsystem's data volume, taken
+// while its services were stopped.
+//
+// It is part of the rollback tuple for exactly the subsystems whose IMAGE is not
+// the state being changed. Chat and memory own a mutable volume, and a forward data
+// migration makes the retained image an unusable rollback target on its own: a real
+// `villa update chat` migrated Open WebUI's SQLite schema forward, and restoring the
+// old digest onto the migrated database crash-looped it.
+//
+// Path, not bytes. The tar is gigabytes (memory's measured 2.8 GB), and pin-state
+// is a small JSON document read on nearly every command — inlining the data would
+// make every status read pay for it.
+type DataSnapshot struct {
+	// Volume is the podman named volume the snapshot was exported from, recorded so
+	// a restore imports into the volume it came from rather than one derived
+	// afresh from a declaration that may have moved since.
+	Volume string `json:"volume"`
+	// Path is where the exported tar lives.
+	Path string `json:"path"`
+	// Bytes is the snapshot's size on disk. Recorded because it is a real disk cost
+	// a user is entitled to see, and because a zero-byte snapshot is a broken
+	// rollback target that should be visible rather than inferred.
+	Bytes int64 `json:"bytes,omitempty"`
+	// TakenAt is when the export completed, RFC3339 UTC.
+	TakenAt string `json:"taken_at,omitempty"`
+}
+
+// Taken reports whether a snapshot was actually recorded. A stateless subsystem's
+// tuple carries the zero value, which is the honest "there was no data to take".
+func (d DataSnapshot) Taken() bool { return d.Path != "" }
+
 // Previous is the known-good state a SUBSYSTEM can be rolled back to.
 //
 // Per subsystem, not per component, because the subsystem is the proof unit: one
@@ -78,6 +109,11 @@ type Previous struct {
 	Units map[string][]byte `json:"units,omitempty"`
 	// Config is the serialised config the pins were proven under.
 	Config string `json:"config,omitempty"`
+	// Data is the exported data volume for a subsystem that owns persistent state.
+	// It is the ZERO VALUE for a stateless subsystem, which is correct rather than
+	// missing: the backends, SearXNG and the websafe base have no data of their own,
+	// so their image genuinely IS the state a rollback restores.
+	Data DataSnapshot `json:"data,omitempty"`
 	// CapturedAt is when the tuple was taken, RFC3339 UTC.
 	CapturedAt string `json:"captured_at,omitempty"`
 }

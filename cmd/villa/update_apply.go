@@ -114,6 +114,21 @@ func liveUpdateFlowDeps(context.Context) updateflow.Deps {
 			return liveMutate(c, sys, k, refs)
 		},
 
+		// The stopped window, wired only because the CORE decides when to use it:
+		// these three run for a subsystem that owns persistent state and are never
+		// reached for one whose image is the state being changed.
+		Stop: func(c context.Context, k subsystem.Kind) error {
+			return liveSubsystemStop(c, sys, k)
+		},
+
+		SnapshotData: func(c context.Context, k subsystem.Kind) (pinstate.DataSnapshot, error) {
+			return liveSnapshotData(c, k)
+		},
+
+		Start: func(c context.Context, k subsystem.Kind) error {
+			return liveSubsystemStart(c, sys, k)
+		},
+
 		Restore: func(c context.Context, k subsystem.Kind, snapshot updateflow.Capture) error {
 			return liveRestoreSubsystem(c, sys, k, snapshot)
 		},
@@ -412,6 +427,7 @@ func printSubsystemNarration(w io.Writer, s updateflow.SubsystemResult) {
 	case updateflow.Committed:
 		fmt.Fprint(w, "  proving current state ............................ pass\n")
 		fmt.Fprint(w, "  capturing rollback point ......................... done\n")
+		printSnapshotLine(w, s)
 		fmt.Fprint(w, "  applying the new pins ............................ done\n")
 		fmt.Fprint(w, "  proving new state ................................ pass\n")
 		fmt.Fprint(w, "  committing effective pin ......................... done\n")
@@ -421,9 +437,13 @@ func printSubsystemNarration(w io.Writer, s updateflow.SubsystemResult) {
 		}
 
 	case updateflow.RefusedUnhealthy:
-		// REFUSAL #2: an already-unhealthy subsystem. A pre-existing failure is not
-		// an update failure, and villa says so rather than claiming a failure it did
-		// not cause — or rolling back to a state that was already broken.
+		// REFUSAL #2: an already-unhealthy subsystem — or, for a stateful one, data
+		// villa could not snapshot. Both leave the stack untouched, and both are
+		// emphatically not update failures.
+		if s.FailedStep == "snapshot" || s.FailedStep == "stop" {
+			printSnapshotRefusal(w, s)
+			return
+		}
 		fmt.Fprintf(w, "  proving current state ............................ REFUSED\n\n")
 		fmt.Fprintf(w, "    %s was not healthy before the update was attempted.\n"+
 			"    Nothing has been changed.\n\n", s.Subsystem)
@@ -439,6 +459,7 @@ func printSubsystemNarration(w io.Writer, s updateflow.SubsystemResult) {
 		// confident, because villa observed something broken.
 		fmt.Fprint(w, "  proving current state ............................ pass\n")
 		fmt.Fprint(w, "  capturing rollback point ......................... done\n")
+		printSnapshotLine(w, s)
 		fmt.Fprint(w, "  applying the new pins ............................ done\n")
 		fmt.Fprint(w, "  proving new state ................................ FAIL\n\n")
 		if s.Proof.Detail != "" {
@@ -452,6 +473,7 @@ func printSubsystemNarration(w io.Writer, s updateflow.SubsystemResult) {
 		// what actually happened is that villa could not tell.
 		fmt.Fprint(w, "  proving current state ............................ pass\n")
 		fmt.Fprint(w, "  capturing rollback point ......................... done\n")
+		printSnapshotLine(w, s)
 		fmt.Fprint(w, "  applying the new pins ............................ done\n")
 		fmt.Fprint(w, "  proving new state ................................ REJECT\n\n")
 		fmt.Fprint(w, "    The new state could not be proven.\n\n")
@@ -463,6 +485,52 @@ func printSubsystemNarration(w io.Writer, s updateflow.SubsystemResult) {
 		printRollbackLines(w, s)
 		printMarkerDriftPointer(w, s)
 	}
+}
+
+// printSnapshotLine reports the data snapshot for a subsystem that owns persistent
+// state, and prints NOTHING for one that does not.
+//
+// The size is stated because it is a real disk cost the user just paid — memory's
+// measured snapshot is 2.8 GB — and because a snapshot nobody can see is a safety
+// property nobody can check.
+func printSnapshotLine(w io.Writer, s updateflow.SubsystemResult) {
+	if !s.Snapshot.Taken() {
+		return
+	}
+	fmt.Fprintf(w, "  snapshotting %s data (service stopped) ......... %s\n",
+		s.Subsystem, humanBytes(s.Snapshot.Bytes))
+}
+
+// printSnapshotRefusal is the refusal a stateful subsystem gets when villa could
+// not take its data snapshot.
+//
+// It reads differently from the already-unhealthy refusal on purpose: nothing was
+// wrong with the subsystem, and nothing is wrong with the new image. Villa declined
+// because it could not build a rollback target, and the remedy is disk or podman
+// rather than `villa doctor`.
+func printSnapshotRefusal(w io.Writer, s updateflow.SubsystemResult) {
+	fmt.Fprint(w, "  proving current state ............................ pass\n")
+	fmt.Fprint(w, "  capturing rollback point ......................... done\n")
+	fmt.Fprintf(w, "  snapshotting %s data ............................ REFUSED\n\n", s.Subsystem)
+	if s.Proof.Detail != "" {
+		fmt.Fprintf(w, "    %s\n\n", s.Proof.Detail)
+	}
+	fmt.Fprintf(w, "    %s keeps its state in a data volume, so the image alone is not a\n"+
+		"    rollback target: an update can migrate the data forward, and the old\n"+
+		"    image can no longer read it. Villa will not mutate data it could not\n"+
+		"    snapshot.\n\n", s.Subsystem)
+	if s.RollbackIncomplete {
+		// Villa stopped the services and could not start them again. That is worse
+		// than the refusal it accompanies, so it is stated last and loudest.
+		fmt.Fprintf(w, "    THIS SUBSYSTEM IS STOPPED. Villa stopped it to take the snapshot and\n"+
+			"    could not start it again: %v\n\n"+
+			"    villa up          start the stack\n"+
+			"    villa doctor      diagnose it first if that fails\n\n", s.Err)
+		return
+	}
+	fmt.Fprintf(w, "    Nothing has been changed and %s is running again.\n\n"+
+		"    df -h ~           the snapshot needs room for the whole data volume\n"+
+		"    villa doctor      diagnose the current stack\n", s.Subsystem)
 }
 
 // printRollbackLines renders the rollback and its re-proof.
