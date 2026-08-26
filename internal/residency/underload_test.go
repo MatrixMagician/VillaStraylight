@@ -323,3 +323,52 @@ func TestUnevaluableIsAWarnNeverAFail(t *testing.T) {
 		t.Error("an unevaluable verdict must carry remediation")
 	}
 }
+
+// TestUnderLoadStopsOnACancelledContext pins the interrupt contract the doctor
+// proofs depend on.
+//
+// A residency proof drives a live stack for up to its Budget (60-90s in `villa
+// doctor`), and doctor runs three of them. That whole window is only interruptible
+// if a cancelled PARENT context stops the round loop, so this asserts the loop
+// checks the context rather than only its own budget timer: no round may be
+// launched, and no sample may be folded, once the caller has cancelled.
+//
+// Aborting is safe here because a residency proof is read-only — it drives requests
+// and reads journal/props, mutating nothing.
+func TestUnderLoadStopsOnACancelledContext(t *testing.T) {
+	r := &loadRecorder{durations: []time.Duration{time.Hour}} // a round that would never finish on its own
+	f := newFakeDeps()
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	done := make(chan LoadResult, 1)
+	go func() {
+		done <- UnderLoad(ctx, loadDeps(r, f), target(), Load{
+			Drive:  r.drive,
+			Rounds: 3,
+			Settle: time.Hour,
+			// A budget far longer than the test's patience: if the loop returns, it is
+			// because it honoured the context, not because the budget elapsed.
+			Budget: time.Hour,
+		})
+	}()
+
+	select {
+	case got := <-done:
+		if r.launched != 0 {
+			t.Errorf("launched %d rounds under an already-cancelled context, want 0 — a "+
+				"cancelled `villa doctor` must not keep driving the stack", r.launched)
+		}
+		if got.Sampled {
+			t.Error("an interrupted proof must not report a sample it never took")
+		}
+		if f.foldCalls != 0 {
+			t.Errorf("folded a verdict %d times under a cancelled context — an interrupted "+
+				"proof must not produce a residency verdict", f.foldCalls)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("UnderLoad ignored its cancelled context and blocked on the drive — " +
+			"Ctrl-C could not interrupt a `villa doctor` residency proof")
+	}
+}

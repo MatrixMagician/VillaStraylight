@@ -58,7 +58,7 @@ func newDoctor() *cobra.Command {
 			"unit files are written or created.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			deps, err := liveDoctorDeps()
+			deps, err := liveDoctorDeps(cmdContext(cmd))
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "doctor: %v\n", err)
 				os.Exit(exitBlocked)
@@ -167,7 +167,16 @@ func unitDirReadOnly() (string, error) {
 // and constructs a DriftPlan closure that renders units from config and Reconciles them
 // against the on-disk unit dir, returning the Plan WITHOUT ever writing (no WriteUnits).
 // It is replaced wholesale by stubbed doctor.Report fixtures in doctor_test.go.
-func liveDoctorDeps() (doctor.Deps, error) {
+//
+// ctx is the command's SIGINT/SIGTERM-cancelled context, captured by the proof
+// seams below. Without it `villa doctor` could not be interrupted: the three
+// residency proofs drive a live stack for up to residencyProofBudget /
+// agentProofBudget (60-90s) each, and the agent tool-call probe adds another 90s,
+// so a Ctrl-C landed on a command that kept running for minutes. Cancelling is
+// safe by construction — doctor is read-only and mutates nothing, so an aborted
+// run leaves no half-applied state, and the podman probe containers are
+// exec.CommandContext children that die with the context rather than outliving it.
+func liveDoctorDeps(ctx context.Context) (doctor.Deps, error) {
 	sd, err := liveStatusDeps()
 	if err != nil {
 		return doctor.Deps{}, err
@@ -234,7 +243,7 @@ func liveDoctorDeps() (doctor.Deps, error) {
 				EmbedderActive: embedActive,
 			})
 		}
-		memProof = liveResidencyUnderLoad(cfg, sd)
+		memProof = liveResidencyUnderLoad(ctx, cfg, sd)
 	}
 	// Coding-agent seams (mirroring the cfg.MemoryEnabled
 	// conditional above): bound ONLY when the persisted agent_enabled is true; all
@@ -249,8 +258,8 @@ func liveDoctorDeps() (doctor.Deps, error) {
 		agentDrift     func() agent.DriftReport
 	)
 	if subsystem.AgentOn(cfg) {
-		agentToolCall = liveAgentToolCallVerdict(cfg)
-		agentResidency = liveAgentResidencyUnderLoad(cfg, sd)
+		agentToolCall = liveAgentToolCallVerdict(ctx, cfg)
+		agentResidency = liveAgentResidencyUnderLoad(ctx, cfg, sd)
 		agentDrift = liveAgentDrift(cfg)
 	}
 	// Web-search seams (mirroring the cfg.AgentEnabled conditional
@@ -266,7 +275,7 @@ func liveDoctorDeps() (doctor.Deps, error) {
 	)
 	if subsystem.WebSearchOn(cfg) {
 		searchEgress = liveSearchEgressProof()
-		searchResidency = liveSearchResidencyUnderLoad(cfg, sd)
+		searchResidency = liveSearchResidencyUnderLoad(ctx, cfg, sd)
 	}
 	return doctor.Deps{
 		Probe:                    detect.Probe,
@@ -435,8 +444,8 @@ func requireActive(sd *status.Deps, subject string, services ...string) *inferen
 // memory is enabled: a closure returning the chat-model residency Verdict sampled
 // DURING a real embed-load drive. It is constructed (not run) at wiring time; the
 // drive/sample only fire when doctor.Aggregate invokes the seam.
-func liveResidencyUnderLoad(cfg config.VillaConfig, sd *status.Deps) func() inference.Verdict {
-	return func() inference.Verdict { return runResidencyUnderLoad(cfg, sd) }
+func liveResidencyUnderLoad(ctx context.Context, cfg config.VillaConfig, sd *status.Deps) func() inference.Verdict {
+	return func() inference.Verdict { return runResidencyUnderLoad(ctx, cfg, sd) }
 }
 
 // runResidencyUnderLoad is the live under-load residency proof (the live half of
@@ -469,7 +478,7 @@ func liveResidencyUnderLoad(cfg config.VillaConfig, sd *status.Deps) func() infe
 //	   PASS to WARN ("embed drive could not complete") — the FAIL signal is the CHAT
 //	   model's residency, not the drive's success; a confident residency FAIL always
 //	   stands.
-func runResidencyUnderLoad(cfg config.VillaConfig, sd *status.Deps) inference.Verdict {
+func runResidencyUnderLoad(ctx context.Context, cfg config.VillaConfig, sd *status.Deps) inference.Verdict {
 	const subject = "residency under embedding load"
 
 	// (1) Precondition gate — strictly read-only; doctor never starts a service.
@@ -509,7 +518,7 @@ func runResidencyUnderLoad(cfg config.VillaConfig, sd *status.Deps) inference.Ve
 	// (3) Drive and sample. Embed requests are cheap and uniform, so the load evidence
 	// is the WARMUP — the embedder has demonstrably completed real requests — rather
 	// than a settle deadline no request that short would survive.
-	res := residency.UnderLoad(context.Background(), residencyDepsFrom(sd), target, residency.Load{
+	res := residency.UnderLoad(ctx, residencyDepsFrom(sd), target, residency.Load{
 		Drive: func(ctx context.Context) error {
 			_, derr := runProbeCurl(ctx, helperImage,
 				"-sf", "-X", "POST", url,
@@ -651,8 +660,8 @@ func liveSearchEgressProof() func() inference.Verdict {
 // bounded chat completion (the cheapest honest drive that keeps villa-llama decoding under
 // search load) instead of the crush-run tool-call probe. It is constructed (not run) at
 // wiring time; the drive/sample only fire when doctor.Aggregate invokes the seam.
-func liveSearchResidencyUnderLoad(cfg config.VillaConfig, sd *status.Deps) func() inference.Verdict {
-	return func() inference.Verdict { return runSearchResidencyUnderLoad(cfg, sd) }
+func liveSearchResidencyUnderLoad(ctx context.Context, cfg config.VillaConfig, sd *status.Deps) func() inference.Verdict {
+	return func() inference.Verdict { return runSearchResidencyUnderLoad(ctx, cfg, sd) }
 }
 
 // runSearchResidencyUnderLoad is the live under-SEARCH-load residency proof for the served
@@ -674,7 +683,7 @@ func liveSearchResidencyUnderLoad(cfg config.VillaConfig, sd *status.Deps) func(
 //  3. JOIN + HONESTY: every sampled round is JOINED so no probe outlives the call; if no round
 //     can be caught in flight within the bounded rounds / budget, degrade to a typed-Unknown
 //     WARN (never an idle-sampled verdict). A confident CPU fallback under search load → FAIL.
-func runSearchResidencyUnderLoad(cfg config.VillaConfig, sd *status.Deps) inference.Verdict {
+func runSearchResidencyUnderLoad(ctx context.Context, cfg config.VillaConfig, sd *status.Deps) inference.Verdict {
 	const subject = "residency under search load"
 
 	// The served unit AND the web-search services must all be active (read-only gate).
@@ -702,7 +711,7 @@ func runSearchResidencyUnderLoad(cfg config.VillaConfig, sd *status.Deps) infere
 	url := orchestrate.LlamaInNetworkEndpoint() + "/chat/completions"
 	helperImage := orchestrate.EmbedImage()
 
-	res := residency.UnderLoad(context.Background(), residencyDepsFrom(sd), target, residency.Load{
+	res := residency.UnderLoad(ctx, residencyDepsFrom(sd), target, residency.Load{
 		Drive: func(ctx context.Context) error {
 			// Drive-only: the FAIL signal here is residency, not the chat round.
 			_, derr := runProbeCurl(ctx, helperImage,
@@ -734,9 +743,9 @@ func runSearchResidencyUnderLoad(cfg config.VillaConfig, sd *status.Deps) infere
 // exit) → StatusFail (a confident failure to drive the agent is a real fault, not an
 // unevaluable signal — the agent IS enabled). It is constructed (not run) at wiring time;
 // the drive only fires when doctor.Aggregate invokes the seam.
-func liveAgentToolCallVerdict(_ config.VillaConfig) func() inference.Verdict {
+func liveAgentToolCallVerdict(parent context.Context, _ config.VillaConfig) func() inference.Verdict {
 	return func() inference.Verdict {
-		ctx, cancel := context.WithTimeout(context.Background(), agentProofBudget)
+		ctx, cancel := context.WithTimeout(parent, agentProofBudget)
 		defer cancel()
 		completed, err := liveAgentToolCallProbe(ctx)()
 		if err != nil {
@@ -769,8 +778,8 @@ func liveAgentToolCallVerdict(_ config.VillaConfig) func() inference.Verdict {
 // mode, per distinct served model). Every unmet precondition / unevaluable drive
 // degrades to a typed-Unknown WARN; a confident CPU fallback of the coder under load is the
 // silent-degradation FAIL this seam exists to catch (consumed opaquely by the core).
-func liveAgentResidencyUnderLoad(cfg config.VillaConfig, sd *status.Deps) func() inference.Verdict {
-	return func() inference.Verdict { return runAgentResidencyUnderLoad(cfg, sd) }
+func liveAgentResidencyUnderLoad(ctx context.Context, cfg config.VillaConfig, sd *status.Deps) func() inference.Verdict {
+	return func() inference.Verdict { return runAgentResidencyUnderLoad(ctx, cfg, sd) }
 }
 
 // runAgentResidencyUnderLoad is the live under-tool-call-load residency proof for the
@@ -783,7 +792,7 @@ func liveAgentResidencyUnderLoad(cfg config.VillaConfig, sd *status.Deps) func()
 // sampled idle, which could mask a CPU-fallback-under-load false-green). Every sampled
 // round is JOINED so no agent process outlives the call; if no round can be caught in
 // flight within the bounded rounds / budget, it degrades to a typed-Unknown WARN.
-func runAgentResidencyUnderLoad(cfg config.VillaConfig, sd *status.Deps) inference.Verdict {
+func runAgentResidencyUnderLoad(ctx context.Context, cfg config.VillaConfig, sd *status.Deps) inference.Verdict {
 	const subject = "coder residency under tool-call load"
 
 	// The served inference unit (the coder under coding mode) must be active.
@@ -795,7 +804,7 @@ func runAgentResidencyUnderLoad(cfg config.VillaConfig, sd *status.Deps) inferen
 		return *warn
 	}
 
-	res := residency.UnderLoad(context.Background(), residencyDepsFrom(sd), target, residency.Load{
+	res := residency.UnderLoad(ctx, residencyDepsFrom(sd), target, residency.Load{
 		Drive: func(ctx context.Context) error {
 			// The REUSED read→edit `crush run` probe (install_agent.go), never
 			// re-rolled here. Drive-only: the FAIL signal is residency, not the

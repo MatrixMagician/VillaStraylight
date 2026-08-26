@@ -313,9 +313,9 @@ func TestLiveDoctorDepsWiresAgentSeams(t *testing.T) {
 				}
 			}
 
-			d, err := liveDoctorDeps()
+			d, err := liveDoctorDeps(t.Context())
 			if err != nil {
-				t.Fatalf("liveDoctorDeps() error = %v", err)
+				t.Fatalf("liveDoctorDeps(t.Context()) error = %v", err)
 			}
 			if got := d.AgentToolCall != nil; got != tc.wantBound {
 				t.Errorf("AgentToolCall non-nil = %v, want %v", got, tc.wantBound)
@@ -359,9 +359,9 @@ func TestLiveDoctorDepsWiresMemorySeams(t *testing.T) {
 				}
 			}
 
-			d, err := liveDoctorDeps()
+			d, err := liveDoctorDeps(t.Context())
 			if err != nil {
-				t.Fatalf("liveDoctorDeps() error = %v", err)
+				t.Fatalf("liveDoctorDeps(t.Context()) error = %v", err)
 			}
 			if got := d.RunMemoryChecks != nil; got != tc.wantBound {
 				t.Errorf("RunMemoryChecks non-nil = %v, want %v", got, tc.wantBound)
@@ -374,7 +374,7 @@ func TestLiveDoctorDepsWiresMemorySeams(t *testing.T) {
 }
 
 // TestLiveDoctorDepsWiresRunROCmImage closes the silently-nil hole in the Option-B
-// image thread-through: liveDoctorDeps() must populate the RunROCmImage seam NON-NIL on
+// image thread-through: liveDoctorDeps(t.Context()) must populate the RunROCmImage seam NON-NIL on
 // a ROCm-family backend — which now INCLUDES the empty/default config, since ROCm 7.2.4
 // is the default backend (so a denied running image is a confident FAIL via
 // preflight.RunROCmForImage, never the un-evaluated WARN) — and leave it NIL for the
@@ -409,9 +409,9 @@ func TestLiveDoctorDepsWiresRunROCmImage(t *testing.T) {
 				}
 			}
 
-			d, err := liveDoctorDeps()
+			d, err := liveDoctorDeps(t.Context())
 			if err != nil {
-				t.Fatalf("liveDoctorDeps() error = %v", err)
+				t.Fatalf("liveDoctorDeps(t.Context()) error = %v", err)
 			}
 			got := d.RunROCmImage != nil
 			if got != tc.wantNonNil {
@@ -436,7 +436,7 @@ func TestRunSearchResidencyUnderLoadPreconditionGate(t *testing.T) {
 		// BEFORE any podman drive runs (off-hardware safe).
 		IsActive: func(string) (string, error) { return "inactive", nil },
 	}
-	v := runSearchResidencyUnderLoad(config.VillaConfig{Backend: "vulkan", WebSearchEnabled: true}, sd)
+	v := runSearchResidencyUnderLoad(t.Context(), config.VillaConfig{Backend: "vulkan", WebSearchEnabled: true}, sd)
 	if v.Status != inference.StatusWarn {
 		t.Fatalf("Status = %v, want StatusWarn (typed-Unknown when the served unit is not active — never a fabricated FAIL)", v.Status)
 	}
@@ -522,9 +522,9 @@ func TestLiveDoctorDepsWiresWebSearchSeams(t *testing.T) {
 				}
 			}
 
-			d, err := liveDoctorDeps()
+			d, err := liveDoctorDeps(t.Context())
 			if err != nil {
-				t.Fatalf("liveDoctorDeps() error = %v", err)
+				t.Fatalf("liveDoctorDeps(t.Context()) error = %v", err)
 			}
 			if got := d.SearchEgressProof != nil; got != tc.wantBound {
 				t.Errorf("SearchEgressProof non-nil = %v, want %v", got, tc.wantBound)
