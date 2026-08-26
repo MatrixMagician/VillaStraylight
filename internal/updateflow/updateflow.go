@@ -213,6 +213,14 @@ type Deps struct {
 	ProveNew func(ctx context.Context, k subsystem.Kind) Proof
 	// Restore puts the captured tuple back, verbatim.
 	Restore func(ctx context.Context, k subsystem.Kind, c Capture) error
+	// RestoreData imports the data snapshot back into the subsystem's volume, and
+	// is called ONLY while the subsystem is stopped.
+	//
+	// It REPLACES rather than merges. `podman volume import` merges into existing
+	// contents, so importing a pre-migration snapshot over a migrated volume would
+	// leave a hybrid of both schemas — worse than either, and undetectable until
+	// something reads the wrong half.
+	RestoreData func(ctx context.Context, k subsystem.Kind, d pinstate.DataSnapshot) error
 	// ProveRestored re-proves the restored state, so "rolled back" is a
 	// DEMONSTRATED claim rather than an assumption. ADR-0003 requires honesty when
 	// a rollback is incomplete; proving it is how that honesty is earned.
@@ -395,10 +403,11 @@ func runOne(ctx context.Context, d Deps, t Target) SubsystemResult {
 // running again. A failure at or after the mutation rolls back, which is why the
 // start happens before the proof rather than as part of it.
 func runStatefulMutation(ctx context.Context, d Deps, sr SubsystemResult, capture Capture, t Target) SubsystemResult {
-	if d.Stop == nil || d.SnapshotData == nil || d.Start == nil {
-		// A stateful subsystem with no window wired would silently take the
+	if d.Stop == nil || d.SnapshotData == nil || d.Start == nil || d.RestoreData == nil {
+		// A stateful subsystem with an incomplete window would silently take the
 		// stateless path and mutate data it never snapshotted — the exact shape of
-		// the incident. Refusing is the only honest answer.
+		// the incident. All FOUR seams are required together, because a snapshot
+		// nothing can restore is not a rollback target.
 		sr.Outcome = RefusedUnhealthy
 		sr.FailedStep = "snapshot"
 		sr.Err = errors.New("no data-snapshot seam is wired for a subsystem that owns persistent state")
@@ -436,11 +445,10 @@ func runStatefulMutation(ctx context.Context, d Deps, sr SubsystemResult, captur
 
 	if err := d.Mutate(ctx, t.Subsystem, t.Pins); err != nil {
 		// Past the point of no return: the mutation may have written pins and
-		// re-rendered units before it failed. Start the services so the rollback's
-		// re-proof has something to observe, then roll back.
-		if startErr := d.Start(ctx, t.Subsystem); startErr != nil {
-			err = errors.Join(err, fmt.Errorf("the services could not be started again: %w", startErr))
-		}
+		// re-rendered units before it failed. The services stay DOWN into the
+		// rollback, which owns the window from here — it restores the data volume
+		// while stopped and starts them once the whole tuple is back. Starting them
+		// here only to stop them again would churn the service for no gain.
 		return rollback(ctx, d, sr, capture,
 			Proof{Status: ProofReject, Detail: fmt.Sprintf("the subsystem could not be moved to the new pins: %v", err)},
 			RolledBackReject, err, "mutate")
@@ -531,12 +539,71 @@ func rollback(ctx context.Context, d Deps, sr SubsystemResult, capture Capture,
 	sr.Err = cause
 	sr.FailedStep = step
 
+	// The DATA half, for a subsystem that owns persistent state and got as far as
+	// having a snapshot taken.
+	//
+	// It mirrors the capture, for the same reason: stop → restore volume → restore
+	// pin and unit → start. Importing into a volume a running service holds open is
+	// how you get a half-restored database, which is the state this whole lifecycle
+	// exists to avoid. On hardware villa got everything else right and still could
+	// not undo the schema migration, because it had never captured the data — this
+	// is the step that completes that rollback.
+	//
+	// The stop is unconditional here rather than conditional on the subsystem still
+	// running: `systemctl stop` on a stopped unit is a no-op, and guessing whether
+	// the failing path left it up would be a second opinion about state villa
+	// already knows how to assert.
+	restoredData := false
+	if capture.Data.Taken() && d.RestoreData != nil {
+		if d.Stop != nil {
+			if err := d.Stop(ctx, sr.Subsystem); err != nil {
+				// Without the stop the import would run against a live service.
+				// Refusing to import is right: a half-restored volume is worse than
+				// a migrated one, because it looks readable and is not.
+				sr.RollbackIncomplete = true
+				sr.Err = errors.Join(cause, fmt.Errorf("the subsystem could not be stopped to restore its data, so the data was left as the update made it: %w", err))
+				return sr
+			}
+		}
+		if err := d.RestoreData(ctx, sr.Subsystem, capture.Data); err != nil {
+			// THE WORST STATE IN THE LIFECYCLE: the data is whatever the failed
+			// import left, and villa cannot say what that is. It never reads as a
+			// clean rollback (ADR-0003).
+			sr.RollbackIncomplete = true
+			sr.Err = errors.Join(cause, fmt.Errorf("the data volume could not be restored: %w", err))
+			if d.Start != nil {
+				if startErr := d.Start(ctx, sr.Subsystem); startErr != nil {
+					sr.Err = errors.Join(sr.Err, fmt.Errorf("the services could not be started again: %w", startErr))
+				}
+			}
+			return sr
+		}
+		restoredData = true
+	}
+
 	if err := d.Restore(ctx, sr.Subsystem, capture); err != nil {
 		// The restore itself failed. This is the worst state and must never be
 		// reported as a clean rollback.
 		sr.RollbackIncomplete = true
 		sr.Err = errors.Join(cause, fmt.Errorf("rollback failed: %w", err))
+		if restoredData && d.Start != nil {
+			// Villa opened the window, so it closes it even on the way out.
+			if startErr := d.Start(ctx, sr.Subsystem); startErr != nil {
+				sr.Err = errors.Join(sr.Err, fmt.Errorf("the services could not be started again: %w", startErr))
+			}
+		}
 		return sr
+	}
+
+	if restoredData && d.Start != nil {
+		// Close the window BEFORE the re-proof: a proof cannot observe a stopped
+		// service, and reporting rollback-incomplete because villa never restarted
+		// what it stopped would blame the restore for villa's own omission.
+		if err := d.Start(ctx, sr.Subsystem); err != nil {
+			sr.RollbackIncomplete = true
+			sr.Err = errors.Join(cause, fmt.Errorf("the data and pin were restored but the subsystem could not be started: %w", err))
+			return sr
+		}
 	}
 
 	// Re-prove. A restored state that cannot be proven is still rollback-incomplete:

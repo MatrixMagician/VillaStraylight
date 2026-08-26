@@ -227,23 +227,29 @@ func TestASnapshotIsRecordedBesideTheDigestAndUnits(t *testing.T) {
 	}
 }
 
-// TestAFailedMutationInsideTheWindowStartsTheServicesBeforeRollingBack.
+// TestAFailedMutationInsideTheWindowRollsBackWithoutChurningTheService.
 //
-// The rollback re-proves the restored state, and a proof cannot observe a stopped
-// service. Leaving the subsystem down would turn every rollback inside the window
-// into a rollback-incomplete for a reason that had nothing to do with the restore.
-func TestAFailedMutationInsideTheWindowStartsTheServicesBeforeRollingBack(t *testing.T) {
+// The services stay down from the failed mutation straight into the rollback,
+// which owns the window from there: it restores the data volume while stopped and
+// starts them once the whole tuple is back. Starting them between the two only to
+// stop them again would churn the service for no gain, and would briefly serve the
+// half-applied state the rollback exists to undo.
+func TestAFailedMutationInsideTheWindowRollsBackWithoutChurningTheService(t *testing.T) {
 	r := newRecorder()
 	r.mutateErr = errors.New("render failed")
 
 	res := Run(context.Background(), r.deps(), []Target{chatTarget()})
 
-	want := []string{"prove-current", "capture", "pull", "stop", "snapshot", "mutate", "start", "restore", "prove-restored"}
+	want := []string{"prove-current", "capture", "pull", "stop", "snapshot", "mutate",
+		"stop", "restore-data", "restore", "start", "prove-restored"}
 	if !stepsEqual(r.steps, want) {
 		t.Errorf("steps = %v, want %v", r.steps, want)
 	}
 	if res.Subsystems[0].Outcome != RolledBackReject {
 		t.Errorf("outcome = %q, want rolled_back_reject", res.Subsystems[0].Outcome)
+	}
+	if res.Subsystems[0].RollbackIncomplete {
+		t.Error("a clean rollback was reported as incomplete")
 	}
 }
 

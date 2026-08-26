@@ -133,6 +133,10 @@ func liveUpdateFlowDeps(context.Context) updateflow.Deps {
 			return liveRestoreSubsystem(c, sys, k, snapshot)
 		},
 
+		RestoreData: func(c context.Context, k subsystem.Kind, snap pinstate.DataSnapshot) error {
+			return liveRestoreData(c, k, snap)
+		},
+
 		Commit: func(k subsystem.Kind, refs map[string]string, previous pinstate.Previous) error {
 			return liveCommit(k, refs, previous)
 		},
@@ -545,6 +549,13 @@ func printRollbackLines(w io.Writer, s updateflow.SubsystemResult) {
 			"    THIS SUBSYSTEM MAY NOT BE RUNNING. Run `villa doctor` before anything else.\n\n", s.Err)
 		return
 	}
+	if s.Snapshot.Taken() {
+		// Said explicitly, because "rolled back" used to mean the pin alone. A user
+		// whose schema was migrated forward needs to know the DATA went back too —
+		// that is the difference between this rollback and the one that crash-looped.
+		fmt.Fprintf(w, "  restoring %s data (service stopped) ............ %s\n",
+			s.Subsystem, humanBytes(s.Snapshot.Bytes))
+	}
 	fmt.Fprint(w, "  rolling back ..................................... done\n")
 	fmt.Fprint(w, "  re-proving restored state ........................ pass\n")
 }
@@ -611,12 +622,18 @@ func printHaltSummary(w io.Writer, res updateflow.Result) {
 		//
 		// A rollback that could not be proven means villa does NOT know what the
 		// subsystem is running. Saying so is the whole point of ADR-0003.
+		//
+		// Villa now snapshots and restores the data for a subsystem that owns it,
+		// so THIS path means the data restore itself did not complete. That is a
+		// worse state than the incident's, not a better one: the volume holds
+		// whatever a failed import left.
 		fmt.Fprint(w, "\n  A ROLLBACK DID NOT COMPLETE, so villa cannot tell you what state this\n"+
 			"  stack is in. Do not assume it is running what it was before.\n\n"+
 			"  villa doctor      diagnose the current stack, before anything else\n\n"+
-			"  Some upgrades migrate their data forward. When that happens the previous\n"+
-			"  version can no longer read it, so restoring the old pin is not enough on\n"+
-			"  its own — restoring the data it was proven against may also be needed.\n")
+			"  A subsystem that keeps its state in a data volume is snapshotted before\n"+
+			"  it is changed, and that snapshot is restored on rollback. When the restore\n"+
+			"  itself does not complete, the data is whatever the failed restore left —\n"+
+			"  the snapshot is still on disk and is the last known-good copy.\n")
 	} else {
 		fmt.Fprint(w, "\n  Your stack is running exactly what it was before this command.\n"+
 			"  Nothing was committed.\n")

@@ -534,6 +534,9 @@ func TestApplyRunsTheStateMachineOnARunningStack(t *testing.T) {
 					return pinstate.DataSnapshot{Volume: "villa-qdrant", Path: "/snap/memory.tar", Bytes: 2_800_000_000}, nil
 				},
 				Start: func(context.Context, subsystem.Kind) error { return nil },
+				RestoreData: func(context.Context, subsystem.Kind, pinstate.DataSnapshot) error {
+					return nil
+				},
 				ProveNew: func(context.Context, subsystem.Kind) updateflow.Proof {
 					return updateflow.Proof{Status: updateflow.ProofPass}
 				},
@@ -864,6 +867,9 @@ func TestPruneOutputFollowsTheRunsStream(t *testing.T) {
 					Start:    func(context.Context, subsystem.Kind) error { return nil },
 					ProveNew: func(context.Context, subsystem.Kind) updateflow.Proof { return proof },
 					Restore:  func(context.Context, subsystem.Kind, updateflow.Capture) error { return nil },
+					RestoreData: func(context.Context, subsystem.Kind, pinstate.DataSnapshot) error {
+						return nil
+					},
 					ProveRestored: func(context.Context, subsystem.Kind) updateflow.Proof {
 						return updateflow.Proof{Status: updateflow.ProofPass}
 					},
@@ -933,10 +939,16 @@ func TestAnIncompleteRollbackNeverClaimsTheStackIsUntouched(t *testing.T) {
 	if !strings.Contains(got, "villa doctor") {
 		t.Errorf("the summary does not point at doctor:\n%s", got)
 	}
-	// The data-migration hazard is named, because "restore the old pin" is not
-	// sufficient advice when the new version migrated the data forward.
-	if !strings.Contains(got, "migrate their data forward") {
-		t.Errorf("the summary does not warn that a forward data migration can make a pin rollback insufficient:\n%s", got)
+	// The data hazard is still named, because "restore the old pin" was never
+	// sufficient advice for a subsystem whose data was migrated forward. Villa now
+	// snapshots and restores that data, so reaching THIS path means the data
+	// restore itself did not complete — and the summary must say where the last
+	// known-good copy is rather than leaving the user to guess.
+	if !strings.Contains(got, "data volume") {
+		t.Errorf("the summary does not explain what happened to the subsystem's data:\n%s", got)
+	}
+	if !strings.Contains(got, "snapshot is still on disk") {
+		t.Errorf("the summary does not say the snapshot survives as the last known-good copy:\n%s", got)
 	}
 }
 

@@ -28,14 +28,19 @@ type recorder struct {
 	proveNew      Proof
 	proveRestored Proof
 
-	captureErr  error
-	pullErr     error
-	mutateErr   error
-	restoreErr  error
-	commitErr   error
-	stopErr     error
-	snapshotErr error
-	startErr    error
+	captureErr     error
+	pullErr        error
+	mutateErr      error
+	restoreErr     error
+	commitErr      error
+	stopErr        error
+	snapshotErr    error
+	startErr       error
+	restoreDataErr error
+
+	// restoredFrom is the snapshot the rollback imported, so a test can assert the
+	// data went back to what was captured rather than merely that a call happened.
+	restoredFrom pinstate.DataSnapshot
 
 	snapshot  pinstate.DataSnapshot
 	captured  Capture
@@ -103,6 +108,11 @@ func (r *recorder) deps() Deps {
 		Restore: func(context.Context, subsystem.Kind, Capture) error {
 			r.log("restore")
 			return r.restoreErr
+		},
+		RestoreData: func(_ context.Context, _ subsystem.Kind, snap pinstate.DataSnapshot) error {
+			r.log("restore-data")
+			r.restoredFrom = snap
+			return r.restoreDataErr
 		},
 		ProveRestored: func(context.Context, subsystem.Kind) Proof {
 			r.log("prove-restored")
@@ -278,7 +288,11 @@ func TestAPostMutationFailRollsBackAndIsDistinguishable(t *testing.T) {
 
 	res := Run(context.Background(), r.deps(), []Target{memoryTarget()})
 
-	want := []string{"prove-current", "capture", "pull", "stop", "snapshot", "mutate", "start", "prove-new", "restore", "prove-restored"}
+	// Memory owns persistent state, so the rollback restores the DATA as well as
+	// the pin, and does it inside its own stopped window. The retained image alone
+	// could not undo a schema the update migrated forward.
+	want := []string{"prove-current", "capture", "pull", "stop", "snapshot", "mutate", "start", "prove-new",
+		"stop", "restore-data", "restore", "start", "prove-restored"}
 	if !stepsEqual(r.steps, want) {
 		t.Errorf("steps = %v, want %v", r.steps, want)
 	}
@@ -316,7 +330,9 @@ func TestAPostMutationRejectRollsBackAndIsNOTAFail(t *testing.T) {
 		t.Error("an unprovable image was reported as a broken one; only one of those was observed")
 	}
 	// It still rolls back. A transaction cannot commit on evidence it does not have.
-	if !stepsEqual(r.steps[len(r.steps)-2:], []string{"restore", "prove-restored"}) {
+	// Memory owns persistent state, so its rollback closes with the start that
+	// reopens the window's services before the re-proof observes them.
+	if !stepsEqual(r.steps[len(r.steps)-2:], []string{"start", "prove-restored"}) {
 		t.Errorf("a Reject did not roll back: %v", r.steps)
 	}
 	if len(r.committed) != 0 {
@@ -348,7 +364,7 @@ func TestAMutateErrorRollsBack(t *testing.T) {
 	if sr.Outcome != RolledBackReject || sr.FailedStep != "mutate" {
 		t.Errorf("outcome = %q / step = %q", sr.Outcome, sr.FailedStep)
 	}
-	if !stepsEqual(r.steps[len(r.steps)-2:], []string{"restore", "prove-restored"}) {
+	if !stepsEqual(r.steps[len(r.steps)-3:], []string{"restore", "start", "prove-restored"}) {
 		t.Errorf("a mutate failure did not roll back: %v", r.steps)
 	}
 }

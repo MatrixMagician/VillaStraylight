@@ -15,9 +15,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/MatrixMagician/VillaStraylight/internal/pinstate"
 	"github.com/MatrixMagician/VillaStraylight/internal/subsystem"
 )
 
@@ -269,5 +271,201 @@ func TestSnapshotRefusesWithoutPodman(t *testing.T) {
 	var exitErr *exec.ExitError
 	if errors.As(err, &exitErr) {
 		t.Errorf("the refusal came from running podman rather than from finding it absent: %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// The restore half
+// ---------------------------------------------------------------------------
+
+// restoreEnv fakes podman for the restore path, recording every argv in order so
+// the clean-recreate SEQUENCE is assertable rather than merely its steps.
+func restoreEnv(t *testing.T, fail map[string]error) *[][]string {
+	t.Helper()
+	binDir := t.TempDir()
+	stub := filepath.Join(binDir, "podman")
+	if err := os.WriteFile(stub, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatalf("write podman stub: %v", err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	var calls [][]string
+	orig := podmanVolume
+	podmanVolume = func(args []string) (string, error) {
+		calls = append(calls, args)
+		if err, bad := fail[args[1]]; bad {
+			return err.Error(), err
+		}
+		return "", nil
+	}
+	t.Cleanup(func() { podmanVolume = orig })
+	return &calls
+}
+
+// tarOnDisk writes a stand-in snapshot and returns the record pointing at it.
+func tarOnDisk(t *testing.T, vol string) pinstate.DataSnapshot {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), vol+".tar")
+	if err := os.WriteFile(path, []byte("snapshot"), 0o600); err != nil {
+		t.Fatalf("write snapshot: %v", err)
+	}
+	return pinstate.DataSnapshot{Volume: vol, Path: path, Bytes: 8, TakenAt: "2026-08-26T12:00:00Z"}
+}
+
+// verbs flattens the recorded argv list to its podman subcommands.
+func verbs(calls [][]string) []string {
+	out := make([]string, 0, len(calls))
+	for _, c := range calls {
+		out = append(out, c[1])
+	}
+	return out
+}
+
+// namesVolume reports whether an argv targets the given volume. The name's
+// position varies by verb (`volume rm --force <name>` against `volume import
+// <name> <src>`), so the assertion checks membership rather than a fixed index.
+func namesVolume(argv []string, vol string) bool {
+	for _, a := range argv {
+		if a == vol {
+			return true
+		}
+	}
+	return false
+}
+
+// TestTheRestoreReplacesRatherThanMerges is the load-bearing ordering assertion.
+//
+// `podman volume import` MERGES into existing contents and does not auto-create,
+// so importing a pre-migration snapshot straight over a migrated volume leaves a
+// hybrid of both schemas — worse than either, because it looks readable. The
+// clean-recreate ordering is what makes the restore a replace.
+func TestTheRestoreReplacesRatherThanMerges(t *testing.T) {
+	calls := restoreEnv(t, nil)
+	snap := tarOnDisk(t, "villa-openwebui")
+
+	if err := liveRestoreData(context.Background(), subsystem.Chat, snap); err != nil {
+		t.Fatalf("liveRestoreData: %v", err)
+	}
+
+	got := verbs(*calls)
+	want := []string{"rm", "create", "import"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("podman verbs = %v, want %v — an import without the rm+create merges into the migrated volume", got, want)
+	}
+	for _, c := range *calls {
+		if c[0] != "volume" {
+			t.Errorf("argv %v does not target a volume", c)
+		}
+		if !namesVolume(c, "villa-openwebui") {
+			t.Errorf("argv %v does not name the volume the snapshot came from", c)
+		}
+	}
+	last := (*calls)[len(*calls)-1]
+	if last[3] != snap.Path {
+		t.Errorf("the import read %q, not the recorded snapshot %q", last[3], snap.Path)
+	}
+}
+
+// TestTheRestoreImportsIntoTheVolumeTheSnapshotCameFrom.
+//
+// The volume comes from the SNAPSHOT record, not from today's declaration. If a
+// future change moved a subsystem's volume, importing into the new name would
+// restore nothing and orphan the old data.
+func TestTheRestoreImportsIntoTheVolumeTheSnapshotCameFrom(t *testing.T) {
+	calls := restoreEnv(t, nil)
+	snap := tarOnDisk(t, "villa-openwebui-from-an-older-villa")
+
+	if err := liveRestoreData(context.Background(), subsystem.Chat, snap); err != nil {
+		t.Fatalf("liveRestoreData: %v", err)
+	}
+	for _, c := range *calls {
+		if !namesVolume(c, "villa-openwebui-from-an-older-villa") {
+			t.Errorf("argv %v ignores the volume the snapshot records", c)
+		}
+	}
+}
+
+// TestAnAbsentVolumeIsToleratedOnTheRemove: clean-recreate is idempotent, and
+// `podman volume rm` has no tolerance flag, so the not-found stderr is inspected
+// exactly as the restore path already does.
+func TestAnAbsentVolumeIsToleratedOnTheRemove(t *testing.T) {
+	calls := restoreEnv(t, map[string]error{"rm": errors.New("no such volume")})
+	snap := tarOnDisk(t, "villa-qdrant")
+
+	if err := liveRestoreData(context.Background(), subsystem.Memory, snap); err != nil {
+		t.Fatalf("an already-absent volume failed the restore: %v", err)
+	}
+	if got := verbs(*calls); !reflect.DeepEqual(got, []string{"rm", "create", "import"}) {
+		t.Errorf("podman verbs = %v; the restore did not continue past an absent volume", got)
+	}
+}
+
+// TestAMissingSnapshotRefusesBeforeTheVolumeIsTouched.
+//
+// Someone cleared disk by hand and the rollback target is gone. Removing the
+// volume and importing nothing would destroy the user's current data in the name
+// of restoring it, so villa must not reach the rm at all.
+func TestAMissingSnapshotRefusesBeforeTheVolumeIsTouched(t *testing.T) {
+	calls := restoreEnv(t, nil)
+	snap := pinstate.DataSnapshot{Volume: "villa-openwebui", Path: filepath.Join(t.TempDir(), "gone.tar")}
+
+	err := liveRestoreData(context.Background(), subsystem.Chat, snap)
+	if err == nil {
+		t.Fatal("a missing snapshot was restored anyway")
+	}
+	if len(*calls) != 0 {
+		t.Errorf("the volume was touched despite a missing snapshot: %v", *calls)
+	}
+}
+
+// TestAnEmptySnapshotRefusesBeforeTheVolumeIsTouched: a zero-byte tar restores
+// into an empty volume, silently discarding the data at the moment it is most
+// needed.
+func TestAnEmptySnapshotRefusesBeforeTheVolumeIsTouched(t *testing.T) {
+	calls := restoreEnv(t, nil)
+	path := filepath.Join(t.TempDir(), "empty.tar")
+	if err := os.WriteFile(path, nil, 0o600); err != nil {
+		t.Fatalf("write empty tar: %v", err)
+	}
+
+	err := liveRestoreData(context.Background(), subsystem.Chat, pinstate.DataSnapshot{Volume: "villa-openwebui", Path: path})
+	if err == nil {
+		t.Fatal("an empty snapshot was restored anyway")
+	}
+	if !strings.Contains(err.Error(), "empty") {
+		t.Errorf("the error does not name the empty snapshot: %v", err)
+	}
+	if len(*calls) != 0 {
+		t.Errorf("the volume was removed before the empty snapshot was noticed: %v", *calls)
+	}
+}
+
+// TestAFailedImportIsReportedRatherThanSwallowed: this is the worst state in the
+// lifecycle, and the core turns it into rollback-incomplete. It must arrive as an
+// error rather than a silent success.
+func TestAFailedImportIsReportedRatherThanSwallowed(t *testing.T) {
+	restoreEnv(t, map[string]error{"import": errors.New("unexpected EOF")})
+	snap := tarOnDisk(t, "villa-qdrant")
+
+	err := liveRestoreData(context.Background(), subsystem.Memory, snap)
+	if err == nil {
+		t.Fatal("a failed import reported success")
+	}
+	if !strings.Contains(err.Error(), "import") {
+		t.Errorf("the error does not name the failed import: %v", err)
+	}
+}
+
+// TestRestoringAnUntakenSnapshotIsAnError: the flow never calls this without a
+// snapshot, so reaching it means a miswiring. A quiet success would look like a
+// completed data rollback that never happened.
+func TestRestoringAnUntakenSnapshotIsAnError(t *testing.T) {
+	calls := restoreEnv(t, nil)
+
+	if err := liveRestoreData(context.Background(), subsystem.Chat, pinstate.DataSnapshot{}); err == nil {
+		t.Error("restoring an untaken snapshot reported success")
+	}
+	if len(*calls) != 0 {
+		t.Errorf("the volume was touched for an untaken snapshot: %v", *calls)
 	}
 }

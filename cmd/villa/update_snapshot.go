@@ -154,6 +154,73 @@ func liveSnapshotData(ctx context.Context, k subsystem.Kind) (pinstate.DataSnaps
 	}, nil
 }
 
+// liveRestoreData imports a data snapshot back into the subsystem's volume,
+// REPLACING what is there.
+//
+// `podman volume import` MERGES into existing contents and does NOT auto-create the
+// volume — `internal/backup/restore.go` already records both facts. A naive import
+// over a migrated volume therefore leaves a hybrid of the old and new schemas,
+// which is worse than either: the migrated volume is at least self-consistent, and
+// a hybrid fails only once something reads the wrong half.
+//
+// So this clones the proven clean-recreate ordering rather than inventing one:
+//
+//	rm (not-found tolerant) → create → import
+//
+// It is called ONLY while the subsystem is stopped. `podman volume rm` fails on a
+// volume a running container holds, so a live service would turn the rollback into
+// a failure at its most dangerous moment.
+func liveRestoreData(ctx context.Context, k subsystem.Kind, snap pinstate.DataSnapshot) error {
+	if !snap.Taken() {
+		return fmt.Errorf("%s has no recorded data snapshot to restore", k)
+	}
+	if err := requirePodman(); err != nil {
+		return err
+	}
+
+	// SURFACE a snapshot that has gone missing rather than fail-softing it. Someone
+	// clearing disk by hand has removed the rollback target, and continuing would
+	// clean-recreate the volume and import nothing — deleting the user's data in the
+	// name of restoring it.
+	info, err := os.Stat(snap.Path)
+	if err != nil {
+		return fmt.Errorf("the recorded %s snapshot is not readable at %s, so the data cannot be restored: %w", k, snap.Path, err)
+	}
+	if info.Size() == 0 {
+		return fmt.Errorf("the recorded %s snapshot at %s is empty, so restoring it would discard the current data", k, snap.Path)
+	}
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+
+	// The volume the SNAPSHOT came from, not one re-derived from today's
+	// declaration. If a future change moved a subsystem's volume, importing into the
+	// new name would restore nothing and leave the old data orphaned.
+	vol := snap.Volume
+	if vol == "" {
+		return fmt.Errorf("the recorded %s snapshot names no volume, so villa cannot tell where to restore it", k)
+	}
+
+	// (1) REMOVE, tolerating an already-absent volume: clean-recreate is idempotent,
+	// and `podman volume rm` has no tolerance flag, so the not-found stderr is
+	// inspected exactly as the restore path already does.
+	if stderr, err := podmanVolume(volumeRmArgs(vol)); err != nil && !isVolumeNotFound(stderr) {
+		return fmt.Errorf("podman volume rm %s: %w: %s", vol, err, stderr)
+	}
+
+	// (2) CREATE explicitly, because import does not auto-create.
+	if stderr, err := podmanVolume([]string{"volume", "create", vol}); err != nil && !isVolumeAlreadyExists(stderr) {
+		return fmt.Errorf("podman volume create %s: %w: %s", vol, err, stderr)
+	}
+
+	// (3) IMPORT into the now-empty volume, so this is a replace rather than a
+	// merge.
+	if stderr, err := podmanVolume(volumeImportArgs(vol, snap.Path)); err != nil {
+		return fmt.Errorf("podman volume import %s: %w: %s", vol, err, stderr)
+	}
+	return nil
+}
+
 // humanBytes renders a snapshot size the way a person reads a disk cost.
 //
 // Base 1000, matching what `df` and the disk vendors report, because the number is
