@@ -331,3 +331,64 @@ func TestModelSwapExitMapping(t *testing.T) {
 		}
 	})
 }
+
+// TestModelPullUsesTheCommandContext pins that a Ctrl-C can actually interrupt a
+// weight download.
+//
+// `villa model pull` is the longest-running command in the tree — a multi-GB
+// transfer — and it passed context.Background() to the downloader, so the
+// SIGINT-cancelled context main installs never reached the transfer and a Ctrl-C
+// could not stop it. The pull must observe the command's own context.
+func TestModelPullUsesTheCommandContext(t *testing.T) {
+	origPull := pullFn
+	t.Cleanup(func() { pullFn = origPull })
+
+	var gotCtx context.Context
+	pullFn = func(ctx context.Context, _ catalog.Model, _ string) error {
+		gotCtx = ctx
+		return nil
+	}
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cmd, _, _ := newTestCmd()
+	cmd.SetContext(ctx)
+
+	if code := runModelPull(cmd, "qwen2.5-0.5b"); code != exitPass {
+		t.Fatalf("pull exit = %d, want %d", code, exitPass)
+	}
+	if gotCtx == nil {
+		t.Fatal("downloader received a nil context")
+	}
+
+	// Cancelling the command's context must be visible to the downloader — that is
+	// the whole point of threading it through.
+	cancel()
+	if gotCtx.Err() == nil {
+		t.Fatal("the downloader's context did not observe the command's cancellation — " +
+			"a Ctrl-C cannot interrupt a multi-GB model pull")
+	}
+}
+
+// TestModelPullToleratesNilCommandContext keeps the direct-call path working: a
+// cobra Command that was never Execute()d has a nil Context(), and the pull must
+// fall back to Background rather than handing nil to the downloader.
+func TestModelPullToleratesNilCommandContext(t *testing.T) {
+	origPull := pullFn
+	t.Cleanup(func() { pullFn = origPull })
+
+	var gotCtx context.Context
+	pullFn = func(ctx context.Context, _ catalog.Model, _ string) error {
+		gotCtx = ctx
+		return nil
+	}
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+
+	cmd, _, _ := newTestCmd() // never Execute()d → cmd.Context() is nil
+	if code := runModelPull(cmd, "qwen2.5-0.5b"); code != exitPass {
+		t.Fatalf("pull exit = %d, want %d", code, exitPass)
+	}
+	if gotCtx == nil {
+		t.Fatal("downloader received a nil context from a never-executed command")
+	}
+}
