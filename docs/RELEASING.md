@@ -48,19 +48,28 @@ separately if you touched imports. The binary must stay CGO-free because
 
 ### 2. Tag
 
+The release notes live in the **annotated tag**, which is where every release from
+v1.0 on has carried them. The workflow reads the tag's subject as the release title
+and its body as the notes, so a lightweight tag fails the run rather than silently
+publishing a generated changelog.
+
 ```bash
-git tag v1.8
+git tag -a v1.8            # write the notes in the editor, subject line first
 git push origin v1.8
 ```
 
 The tag triggers `.github/workflows/release.yml`, which builds the static binary,
-**refuses to publish an unstamped or dirty build**, and attaches
-`villa_v1.8_linux_amd64` plus `checksums.txt` to the release.
+**refuses to publish an unstamped or dirty build**, creates the release from the tag
+if it does not exist yet, and attaches `villa_v1.8_linux_amd64` plus `checksums.txt`.
 
 The refusal matters: `VERSION` comes from `git describe`, so a shallow clone or a
 dirty tree yields something like `v1.7-21-g4f9b4f6-dirty`. An asset reporting that
 would break the version comparison `villa update --check` performs, and it is far
 cheaper to fail the workflow than to ship it.
+
+Both halves of the attach step are idempotent — create is skipped when the release
+exists, upload uses `--clobber` — so re-running a partially failed workflow
+converges rather than erroring.
 
 ## Publishing the pin manifest
 

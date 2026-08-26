@@ -5,7 +5,7 @@
 # assets — the project shipped source only, and `docs/GETTING-STARTED.md` tells you
 # to `make build-static && install -m 0755 ./villa ~/.local/bin/villa`. That is fine
 # for a source install and impossible for anything that needs to verify what it
-# fetched.
+# fetched. v1.8 is the first release to carry a binary.
 #
 # v1.8's `villa update` needs a release artifact for two reasons:
 #
@@ -76,10 +76,42 @@ jobs:
           echo "asset=${asset}" >> "${GITHUB_OUTPUT}"
           cat checksums.txt
 
+      # CREATE-IF-ABSENT, then upload. `gh release upload` fails with "release not
+      # found" when the tag has no release yet, which is the normal state for a
+      # tag-triggered run: pushing the tag starts this workflow immediately, so
+      # nothing has had a chance to create one. v1.8 hit exactly that — the binary
+      # built and stamped correctly and the upload was the only step that failed.
+      #
+      # The notes come from the ANNOTATED TAG (--notes-from-tag) rather than being
+      # written here. The tag message is already where this project's release notes
+      # live (see `git tag -l --format='%(contents)' v1.7`), and generating a second
+      # set in CI would give one release two descriptions that drift apart.
+      #
+      # Both halves are idempotent, so a re-run after a partial failure converges:
+      # create is skipped when the release exists, and upload --clobber replaces an
+      # asset already there.
       - name: Attach to the release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          set -euo pipefail
+          if ! gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            echo "no release for ${GITHUB_REF_NAME} yet — creating it from the annotated tag"
+            # The TITLE is the tag's subject line, matching how v1.0–v1.7 were
+            # published ("v1.7 — the resident set, …") rather than a bare "v1.8".
+            # An empty subject means the tag is lightweight and carries no notes,
+            # which is a mistake worth failing on rather than papering over with a
+            # generated changelog.
+            title="$(git tag -l --format='%(contents:subject)' "${GITHUB_REF_NAME}")"
+            if [ -z "${title}" ]; then
+              echo "::error::${GITHUB_REF_NAME} is a lightweight tag with no message — release notes live in the annotated tag (see docs/RELEASING.md)"
+              exit 1
+            fi
+            gh release create "${GITHUB_REF_NAME}" \
+              --title "${title}" \
+              --notes-from-tag \
+              --verify-tag
+          fi
           gh release upload "${GITHUB_REF_NAME}" \
             "${{ steps.package.outputs.asset }}" checksums.txt \
             --clobber
