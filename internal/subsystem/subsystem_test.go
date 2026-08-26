@@ -244,6 +244,92 @@ func TestKindValuesAreStable(t *testing.T) {
 	}
 }
 
+// TestOwnedStateIsTheWholeMapping asserts EVERY subsystem's answer, not just the
+// two that say yes.
+//
+// A spot-check on chat and memory would pass against a version that returned true
+// for everything, which is the failure that matters: snapshotting inference would
+// try to export a volume it does not own, and snapshotting the models volume would
+// copy tens of gigabytes of weights `update` is explicitly not responsible for. The
+// negatives are the assertion.
+func TestOwnedStateIsTheWholeMapping(t *testing.T) {
+	want := map[Kind]string{
+		Inference:  "",
+		Chat:       "villa-openwebui",
+		Memory:     "villa-qdrant",
+		WebSearch:  "",
+		Agent:      "",
+		CodingMode: "",
+	}
+	if len(want) != len(Every) {
+		t.Fatalf("the mapping covers %d subsystems but Every names %d — a new subsystem must declare whether it owns state", len(want), len(Every))
+	}
+	for _, k := range Every {
+		vol, owns := k.StateVolume()
+		wantVol, ok := want[k]
+		if !ok {
+			t.Fatalf("%v is not in the expected mapping", k)
+		}
+		if owns != (wantVol != "") {
+			t.Errorf("%v OwnsPersistentState = %v, want %v", k, owns, wantVol != "")
+		}
+		if vol != wantVol {
+			t.Errorf("%v StateVolume = %q, want %q", k, vol, wantVol)
+		}
+		if owns != k.OwnsPersistentState() {
+			t.Errorf("%v: StateVolume and OwnsPersistentState disagree", k)
+		}
+	}
+}
+
+// TestStatefulWalksTheDeclaration: Stateful() is exactly the subsystems that own
+// state, in Every order, and never anything else.
+//
+// The ORDER matters because the update flow applies subsystems in Every order, so
+// a stateful list in a different order would snapshot in an order the apply never
+// uses and make a test's ordering assertion meaningless.
+func TestStatefulWalksTheDeclaration(t *testing.T) {
+	got := Stateful()
+	if len(got) != 2 {
+		t.Fatalf("Stateful() = %v, want exactly chat and memory", got)
+	}
+	if got[0] != Chat || got[1] != Memory {
+		t.Errorf("Stateful() = %v, want [chat memory] — Every order, chat before memory", got)
+	}
+	for _, k := range got {
+		if !k.OwnsPersistentState() {
+			t.Errorf("Stateful() names %v, which does not own persistent state", k)
+		}
+	}
+}
+
+// TestReadOnlyMountsAreNotOwnedState is the negative gate on the declaration.
+//
+// villa-embed and villa-llama mount the models volume read-only and villa-websafe
+// bind-mounts the villa binary read-only. None is state its subsystem owns, and
+// naming any of them here would point a snapshot at model weights `update` must
+// never touch. This fails if the models volume ever appears in the mapping.
+func TestReadOnlyMountsAreNotOwnedState(t *testing.T) {
+	forbidden := map[string]string{
+		"villa-models": "the shared model store is mounted read-only and holds weights update never touches",
+	}
+	for _, k := range Every {
+		vol, owns := k.StateVolume()
+		if !owns {
+			continue
+		}
+		if why, bad := forbidden[vol]; bad {
+			t.Errorf("%v declares %q as owned state: %s", k, vol, why)
+		}
+	}
+	if Inference.OwnsPersistentState() {
+		t.Error("inference declares owned state; its models mount is read-only")
+	}
+	if WebSearch.OwnsPersistentState() {
+		t.Error("web search declares owned state; the websafe binary mount is read-only and SearXNG's settings are a read-only bind")
+	}
+}
+
 // itoa avoids pulling strconv in for one call in a test.
 func itoa(n int) string {
 	if n == 0 {

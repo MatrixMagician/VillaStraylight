@@ -17,6 +17,19 @@
 // This package is where a gate is answered. Understanding one no longer requires a
 // tour of eleven files.
 //
+// # The second question: does this subsystem own persistent state?
+//
+// Enablement is not the only fact that belongs to a subsystem rather than to a
+// caller. `villa update` used to treat every subsystem as though its IMAGE were the
+// state being changed — true for the backends, SearXNG and the websafe base, false
+// for chat and memory, which own a mutable volume and whose real state is the data.
+// A live update migrated Open WebUI's schema forward and the retained image could
+// not roll it back.
+//
+// So OwnsPersistentState / StateVolume live here, beside the gates, for the same
+// reason the gates do: it is a property of the subsystem, and a hardcoded pair in
+// the update path would go stale the moment a sixth subsystem gained a volume.
+//
 // # What a gate is, and is not
 //
 // A gate answers "is this subsystem on", nothing more. It is NOT the validity check
@@ -120,6 +133,68 @@ func (k Kind) AlwaysOn() bool {
 		return false
 	}
 	return false
+}
+
+// stateVolumes is the podman NAMED volume each stateful subsystem owns.
+//
+// A subsystem is in this map when the state being changed is its DATA rather than
+// its image. That distinction was invisible until an update proved it: a real
+// `villa update chat` migrated Open WebUI's SQLite config table forward, and the
+// retained image could not roll that back, because the image was never the thing
+// that changed.
+//
+// MUTABLE OWNED STATE ONLY, which is narrower than "mounts a volume". villa-embed
+// and villa-llama mount the models volume READ-ONLY and villa-websafe bind-mounts
+// the villa binary read-only; none of those is state the subsystem owns, none can
+// be migrated forward by an image bump, and model weights are explicitly outside
+// what `update` touches. A read-only mount must never appear here.
+//
+// The names are re-declared rather than read from internal/orchestrate because
+// orchestrate imports THIS package — the dependency only runs one way. They are
+// bound to the rendered reality by a cross-package drift test in
+// internal/orchestrate, the same shape as the one that binds the embed GGUF
+// filename, so the declaration cannot quietly disagree with what is mounted.
+var stateVolumes = map[Kind]string{
+	Chat:   "villa-openwebui",
+	Memory: "villa-qdrant",
+}
+
+// StateVolume reports the podman named volume this subsystem's persistent state
+// lives in, and whether it owns any at all.
+//
+// The two returns come together on purpose: a caller cannot read a volume name
+// without having been told whether there is one, so "snapshot the empty string"
+// is not a reachable mistake. It is a property of the subsystem in the same way
+// ConfigKey is, so a caller binds a symbol rather than re-typing a volume name.
+func (k Kind) StateVolume() (name string, owns bool) {
+	v, ok := stateVolumes[k]
+	return v, ok
+}
+
+// OwnsPersistentState reports whether the state this subsystem changes lives in a
+// volume rather than in its image.
+//
+// It is the question the update lifecycle asks: a subsystem that owns persistent
+// state needs its data captured before it is mutated, because restoring the prior
+// digest onto migrated data restores something that was never proven.
+func (k Kind) OwnsPersistentState() bool {
+	_, owns := k.StateVolume()
+	return owns
+}
+
+// Stateful is every subsystem that owns persistent state, in Every order.
+//
+// It exists so a caller walks the declaration rather than hardcoding the pair —
+// which is precisely what would go stale the moment a sixth subsystem gains a
+// volume, silently and with no compile error to catch it.
+func Stateful() []Kind {
+	var out []Kind
+	for _, k := range Every {
+		if k.OwnsPersistentState() {
+			out = append(out, k)
+		}
+	}
+	return out
 }
 
 // All is every OPTIONAL subsystem, in the order the stack reports them. A caller
