@@ -39,7 +39,13 @@ func QdrantImage() string { return qdrantImage }
 // but it is NOT a reference into the inference backend seam — keeping it a separate
 // managed-service const keeps TestSeamGrepGate semantics clean (a managed-service image,
 // not a GPU-backend token).
-// == vulkanImage
+//
+// ENFORCEMENT: that equality is asserted by TestEmbedderAndVulkanShareOneVettedPin in
+// internal/pins/drift_test.go, which compares both VETTED pins through the table's
+// accessors. It used to be a bare `// == vulkanImage` line, which nothing checked —
+// advancing one literal and not the other silently made the claim false. If the two
+// roles legitimately diverge, delete that test; a deleted test is visible in a diff
+// in a way an unenforced comment never was.
 const embedImage = "docker.io/kyuz0/amd-strix-halo-toolboxes:vulkan-radv@sha256:9a74e555c45864352a4077528836988d448e9f030fbab9f7376ea1c603ac7aad"
 
 // EmbedImage returns the digest-pinned villa-embed image (mirrors QdrantImage()/
