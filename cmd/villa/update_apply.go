@@ -502,8 +502,11 @@ func printHaltSummary(w io.Writer, res updateflow.Result) {
 	fmt.Fprint(w, "\nStopped.\n\n")
 
 	tw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
-	committed := 0
+	committed, incomplete := 0, 0
 	for _, s := range res.Subsystems {
+		if s.RollbackIncomplete {
+			incomplete++
+		}
 		switch s.Outcome {
 		case updateflow.Committed:
 			committed++
@@ -528,6 +531,24 @@ func printHaltSummary(w io.Writer, res updateflow.Result) {
 		fmt.Fprintf(w, "\n  The %d committed subsystem(s) were each PROVEN before commit and are\n"+
 			"  running normally. Re-run `villa update` after investigating; the committed\n"+
 			"  subsystems will be skipped as already current.\n", committed)
+	} else if incomplete > 0 {
+		// NEVER claim the stack is untouched when a rollback did not complete.
+		//
+		// Found on hardware: an Open WebUI update migrated its SQLite schema
+		// forward, the old image could not read the migrated database, and the
+		// restore put the old digest back onto a database it could no longer
+		// open. Villa correctly reported ROLLBACK INCOMPLETE — and then printed
+		// "your stack is running exactly what it was before this command", which
+		// was false and was the most reassuring line on the screen.
+		//
+		// A rollback that could not be proven means villa does NOT know what the
+		// subsystem is running. Saying so is the whole point of ADR-0003.
+		fmt.Fprint(w, "\n  A ROLLBACK DID NOT COMPLETE, so villa cannot tell you what state this\n"+
+			"  stack is in. Do not assume it is running what it was before.\n\n"+
+			"  villa doctor      diagnose the current stack, before anything else\n\n"+
+			"  Some upgrades migrate their data forward. When that happens the previous\n"+
+			"  version can no longer read it, so restoring the old pin is not enough on\n"+
+			"  its own — restoring the data it was proven against may also be needed.\n")
 	} else {
 		fmt.Fprint(w, "\n  Your stack is running exactly what it was before this command.\n"+
 			"  Nothing was committed.\n")

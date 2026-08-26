@@ -874,3 +874,63 @@ func TestPruneOutputFollowsTheRunsStream(t *testing.T) {
 		t.Errorf("on a halted run prune did not follow the narration to stderr:\nstderr=%q", stderr)
 	}
 }
+
+// TestAnIncompleteRollbackNeverClaimsTheStackIsUntouched is a regression test for
+// the most dangerous line villa printed on hardware.
+//
+// A real Open WebUI update migrated its SQLite schema forward. The old image could
+// not read the migrated database, so restoring the old pin restored a container
+// that crash-looped. Villa correctly reported ROLLBACK INCOMPLETE — and then
+// printed "Your stack is running exactly what it was before this command", which
+// was false, and was the most reassuring sentence on the screen.
+//
+// A rollback that could not be proven means villa does NOT know what is running.
+// Claiming otherwise is precisely the false-green ADR-0003 exists to forbid.
+func TestAnIncompleteRollbackNeverClaimsTheStackIsUntouched(t *testing.T) {
+	got, code := renderResult(updateflow.Result{
+		Halted: true,
+		Subsystems: []updateflow.SubsystemResult{{
+			Subsystem:          subsystem.Chat,
+			Outcome:            updateflow.RolledBackReject,
+			Proof:              updateflow.Proof{Status: updateflow.ProofReject, Detail: "health probe did not answer"},
+			RollbackIncomplete: true,
+			Err:                errRollbackForTest,
+		}},
+	})
+
+	if code != exitBlocked {
+		t.Errorf("exit = %d, want %d", code, exitBlocked)
+	}
+	if strings.Contains(got, "running exactly what it was before this command") {
+		t.Errorf("an INCOMPLETE rollback claimed the stack is untouched — villa cannot know that, "+
+			"and this was the most reassuring line on the screen during a real outage:\n%s", got)
+	}
+	if !strings.Contains(got, "villa cannot tell you what state this") {
+		t.Errorf("the summary does not admit villa cannot tell what state the stack is in:\n%s", got)
+	}
+	if !strings.Contains(got, "villa doctor") {
+		t.Errorf("the summary does not point at doctor:\n%s", got)
+	}
+	// The data-migration hazard is named, because "restore the old pin" is not
+	// sufficient advice when the new version migrated the data forward.
+	if !strings.Contains(got, "migrate their data forward") {
+		t.Errorf("the summary does not warn that a forward data migration can make a pin rollback insufficient:\n%s", got)
+	}
+}
+
+// TestACleanRollbackStillReassures: the honest reassurance must survive. A rollback
+// that COMPLETED and was re-proven genuinely does leave the stack as it was, and
+// saying so is what stops exit 1 reading as a disaster.
+func TestACleanRollbackStillReassures(t *testing.T) {
+	got, _ := renderResult(updateflow.Result{
+		Halted: true,
+		Subsystems: []updateflow.SubsystemResult{{
+			Subsystem: subsystem.Chat,
+			Outcome:   updateflow.RolledBackFail,
+			Proof:     updateflow.Proof{Status: updateflow.ProofFail, Detail: "probe failed"},
+		}},
+	})
+	if !strings.Contains(got, "running exactly what it was before this command") {
+		t.Errorf("a CLEAN rollback lost its reassurance; exit 1 would read as a disaster:\n%s", got)
+	}
+}

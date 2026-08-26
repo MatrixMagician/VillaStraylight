@@ -29,6 +29,8 @@ package updatefetch
 
 import (
 	"context"
+	"crypto/ed25519"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"net/http"
@@ -103,12 +105,48 @@ func Fetch(ctx context.Context, d Deps) (Fetched, error) {
 		return Fetched{Host: Host()}, nil
 	}
 
-	sig, err := d.Get(ctx, signatureURL)
+	sigText, err := d.Get(ctx, signatureURL)
 	if err != nil {
 		return Fetched{}, fmt.Errorf("updatefetch: fetch signature: %w", err)
 	}
 
+	// The published signature is HEX TEXT — that is what villa-manifest-sign writes,
+	// so a detached .sig is inspectable and diffable rather than a binary blob. It
+	// is decoded HERE, at the transport boundary, because this package owns the wire
+	// format and the verifier owns the cryptography.
+	//
+	// Handing the undecoded ASCII to ed25519.Verify does not error, it just returns
+	// false — so the failure surfaces as "the signature does not verify", which
+	// reads exactly like a tampered manifest. That cost a real debugging detour on
+	// hardware, which is why the decode failure below is a DISTINCT, named error.
+	sig, err := decodeSignature(sigText)
+	if err != nil {
+		return Fetched{}, err
+	}
+
 	return Fetched{Manifest: data, Signature: sig, Host: Host()}, nil
+}
+
+// decodeSignature turns the published hex text into the raw bytes ed25519 needs.
+//
+// A malformed signature is its own error rather than a silent empty slice. An
+// empty or truncated signature would fail verification identically to a tampered
+// manifest, and those are different problems: one means "distrust this download",
+// the other means "the publisher's tooling is broken".
+func decodeSignature(text []byte) ([]byte, error) {
+	trimmed := strings.TrimSpace(string(text))
+	if trimmed == "" {
+		return nil, fmt.Errorf("updatefetch: the manifest signature is empty")
+	}
+	sig, err := hex.DecodeString(trimmed)
+	if err != nil {
+		return nil, fmt.Errorf("updatefetch: the manifest signature is not valid hex: %w", err)
+	}
+	if len(sig) != ed25519.SignatureSize {
+		return nil, fmt.Errorf("updatefetch: the manifest signature is %d bytes, want %d",
+			len(sig), ed25519.SignatureSize)
+	}
+	return sig, nil
 }
 
 // Host is the single host a check contacts.

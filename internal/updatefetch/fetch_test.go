@@ -12,6 +12,9 @@ package updatefetch
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"encoding/hex"
 	"net/url"
 	"os"
 	"strings"
@@ -19,6 +22,18 @@ import (
 
 	"github.com/MatrixMagician/VillaStraylight/internal/pins"
 )
+
+// wellFormedSignature is a syntactically valid detached signature: 64 bytes of hex,
+// the shape villa-manifest-sign publishes.
+//
+// The fixtures here used "deadbeef" until the wire-format validation landed. That
+// is not a signature any signer could emit, and a fixture that cannot exist in the
+// field is exactly what let the hex-decode bug reach hardware. These tests care
+// about REQUEST SHAPE rather than cryptography, so the bytes need not verify — but
+// they must be a shape the transport would really see.
+func wellFormedSignature() []byte {
+	return []byte(strings.Repeat("ab", ed25519.SignatureSize) + "\n")
+}
 
 // recordingDeps counts requests and remembers every URL, so a fan-out is
 // impossible to miss.
@@ -43,7 +58,7 @@ func recordingDeps(body map[string][]byte) (*[]string, Deps) {
 func TestACheckContactsExactlyOneHost(t *testing.T) {
 	seen, deps := recordingDeps(map[string][]byte{
 		manifestURL:  []byte(`{"schema_version":1}`),
-		signatureURL: []byte("deadbeef"),
+		signatureURL: wellFormedSignature(),
 	})
 
 	if _, err := Fetch(context.Background(), deps); err != nil {
@@ -75,7 +90,7 @@ func TestACheckContactsExactlyOneHost(t *testing.T) {
 func TestNoRequestNamesAComponent(t *testing.T) {
 	seen, deps := recordingDeps(map[string][]byte{
 		manifestURL:  []byte(`{"schema_version":1}`),
-		signatureURL: []byte("deadbeef"),
+		signatureURL: wellFormedSignature(),
 	})
 	if _, err := Fetch(context.Background(), deps); err != nil {
 		t.Fatalf("Fetch: %v", err)
@@ -215,4 +230,68 @@ func readSource(t *testing.T, name string) string {
 		b.WriteString("\n")
 	}
 	return b.String()
+}
+
+// TestTheSignatureIsDecodedFromHex is a regression test for a bug found by running
+// the real thing on hardware.
+//
+// villa-manifest-sign writes the detached signature as HEX TEXT, so a .sig file is
+// inspectable and diffable. Fetch previously handed those ASCII bytes straight to
+// the verifier, which expects 64 RAW bytes — and ed25519.Verify does not error on a
+// wrong-length signature, it returns false. So every genuine manifest failed with
+// "the signature does not verify", which reads exactly like a tampered download.
+//
+// The round trip is asserted end to end here: sign real bytes, publish the hex the
+// way the tool does, fetch, and verify. Nothing in this test decodes by hand — that
+// hand-decoding in the earlier probes is precisely what masked the bug.
+func TestTheSignatureIsDecodedFromHex(t *testing.T) {
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	manifestBytes := []byte(`{"schema_version":1,"serial":1}`)
+	rawSig := ed25519.Sign(priv, manifestBytes)
+
+	// Exactly what villa-manifest-sign writes: hex plus a trailing newline.
+	published := []byte(hex.EncodeToString(rawSig) + "\n")
+
+	_, deps := recordingDeps(map[string][]byte{
+		manifestURL:  manifestBytes,
+		signatureURL: published,
+	})
+	got, err := Fetch(context.Background(), deps)
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+
+	if len(got.Signature) != ed25519.SignatureSize {
+		t.Fatalf("fetched signature is %d bytes, want %d — the published hex was not decoded",
+			len(got.Signature), ed25519.SignatureSize)
+	}
+	if !ed25519.Verify(pub, got.Manifest, got.Signature) {
+		t.Error("a correctly-signed manifest did not verify after a round trip through Fetch")
+	}
+}
+
+// TestAMalformedSignatureIsItsOwnError: an empty or truncated signature fails
+// verification identically to a tampered manifest, and those are different
+// problems. One means "distrust this download", the other means "the publisher's
+// tooling is broken".
+func TestAMalformedSignatureIsItsOwnError(t *testing.T) {
+	cases := map[string][]byte{
+		"empty":        []byte("   \n"),
+		"not hex":      []byte("zzzznothex\n"),
+		"wrong length": []byte("abcd\n"),
+	}
+	for name, sig := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, deps := recordingDeps(map[string][]byte{
+				manifestURL:  []byte(`{"schema_version":1}`),
+				signatureURL: sig,
+			})
+			if _, err := Fetch(context.Background(), deps); err == nil {
+				t.Errorf("a %s signature was accepted; it would later fail verification and read as a tampered manifest", name)
+			}
+		})
+	}
 }
