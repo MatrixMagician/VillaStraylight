@@ -1,11 +1,11 @@
 # Paper prototype: the `villa update` CLI surface
 
-For [Prototype: the villa update CLI surface and output](https://github.com/MatrixMagician/VillaStraylight/issues/90), on the map [v1.8 — villa update](https://github.com/MatrixMagician/VillaStraylight/issues/83).
+For [Prototype: the villa update CLI surface and output](https://github.com/MatrixMagician/VillaStraylight/issues/90), on the map [v1.8, villa update](https://github.com/MatrixMagician/VillaStraylight/issues/83).
 
-**These are mock transcripts, not implementation.** Every digest, timing and version below is invented except where it reflects the real drift [Research](https://github.com/MatrixMagician/VillaStraylight/issues/85) measured on 2026-08-26. React to the shapes; the decisions they encode are already closed.
+**These are mock transcripts, not implementation.** Every digest below is invented, as is every timing and version, except where it reflects the real drift [Research](https://github.com/MatrixMagician/VillaStraylight/issues/85) measured on 2026-08-26. React to the shapes; the decisions they encode are already closed.
 
 > **What shipping changed, recorded here rather than by rewriting the mocks.** A live
-> incident showed that for chat and memory the image is not the state being changed —
+> incident showed that for chat and memory the image is not the state being changed,
 > their data is. Those two subsystems are now **stopped** while their data volume is
 > snapshotted, so the real transcripts carry two lines the mocks below do not
 > (`snapshotting chat data (service stopped)` and, on a rollback, `restoring chat
@@ -34,7 +34,7 @@ Before the transcripts, the constraints they have to satisfy:
 
 ## Exit codes
 
-Reuses `doctor`/`preflight`'s established vocabulary rather than inventing one — `cmd/villa/doctor.go`: *"a confident BLOCK-class FAIL → exitBlocked (=1); any WARN / drift / typed-Unknown → exitWarn (=2); all healthy → exitPass (=0)"*.
+Reuses `doctor`/`preflight`'s established vocabulary rather than inventing one (`cmd/villa/doctor.go`): *"a confident BLOCK-class FAIL → exitBlocked (=1); any WARN / drift / typed-Unknown → exitWarn (=2); all healthy → exitPass (=0)"*.
 
 | Code | `villa update --check` | `villa update` (apply) |
 |---|---|---|
@@ -43,13 +43,13 @@ Reuses `doctor`/`preflight`'s established vocabulary rather than inventing one �
 | `1` | **could not check** (no valid manifest, refused downgrade) | a subsystem failed its proof and rolled back, or the run was refused |
 | `130` | Ctrl-C | Ctrl-C |
 
-**The `2`-means-updates-available choice is deliberate and worth reacting to.** It makes `villa update --check` usable in a script (`if villa update --check; then` is "you are current"), and it matches `doctor`'s "something wants your attention" reading of `2`. The alternative — `0` whether or not updates exist — makes the common case scriptless.
+**The `2`-means-updates-available choice is deliberate and worth reacting to.** It makes `villa update --check` usable in a script (`if villa update --check; then` is "you are current"), and it matches `doctor`'s "something wants your attention" reading of `2`. The alternative, `0` whether or not updates exist, makes the common case scriptless.
 
 **Note the asymmetry:** for `--check`, `1` means *villa could not answer*. For apply, `1` means *villa answered and it went wrong*. Both are "confident BLOCK-class", but a reader could reasonably expect `--check` to exit `1` when updates exist. It does not.
 
 ---
 
-## 1. `villa update --check` — the ordinary case
+## 1. `villa update --check`: the ordinary case
 
 Everything current except two subsystems. Reflects the real 2026-08-26 drift.
 
@@ -83,12 +83,12 @@ exit 2
 
 **Choices to react to:**
 
-- **"rebuilt" vs "new version"** is the distinction [Research](https://github.com/MatrixMagician/VillaStraylight/issues/85) insisted on. `rocm-7.2.4` moving digest is *the same declared version, rebuilt upstream* — not a version bump. Flattening both into "update available" would be the dishonest shortcut.
+- **"rebuilt" vs "new version"** is the distinction [Research](https://github.com/MatrixMagician/VillaStraylight/issues/85) insisted on. `rocm-7.2.4` moving digest is *the same declared version, rebuilt upstream*, not a version bump. Flattening both into "update available" would be the dishonest shortcut.
 - **Short digests (8 chars).** Full digests are unreadable in a table. The `--json` output carries them in full.
-- **The `villa` row is deliberately awkward** — [#86](https://github.com/MatrixMagician/VillaStraylight/issues/86) decided report-but-never-apply, so the row states that inline and the remediation is printed separately. **This is the weakest part of the design and the most worth your reaction.** It may be better as a separate stanza below the table rather than a row that lies about being actionable.
+- **The `villa` row is deliberately awkward**, [#86](https://github.com/MatrixMagician/VillaStraylight/issues/86) decided report-but-never-apply, so the row states that inline and the remediation is printed separately. **This is the weakest part of the design and the most worth your reaction.** It may be better as a separate stanza below the table rather than a row that lies about being actionable.
 - **Vetted is absent from this view.** With effective == vetted for every row here, showing a third column would be noise. It appears only when they diverge (§2).
 
-## 2. `--check` after a partial update — vetted and effective diverge
+## 2. `--check` after a partial update: the vetted and the effective pin diverge
 
 ```
 $ villa update --check
@@ -115,7 +115,7 @@ exit 2
 - **The third column appears only when it earns its place.** Divergence is the interesting state, so the table grows a column exactly when there is something to see.
 - **Skipped rows are present but empty.** [#84](https://github.com/MatrixMagician/VillaStraylight/issues/84) decided disabled components are skipped *with a stated reason*; omitting the row entirely would hide the decision. The alternative is a footnote, which is quieter but easier to miss.
 
-## 3. `--check` with no valid manifest — the Reject
+## 3. `--check` with no valid manifest: the Reject
 
 The state [#87](https://github.com/MatrixMagician/VillaStraylight/issues/87) cares most about. **This must not read like "you are up to date".**
 
@@ -144,7 +144,7 @@ exit 1
 
 **Choices to react to:**
 
-- **The phrase "This is not 'you are up to date'" is doing real work.** It names the misreading and refuses it. Verbose, deliberately — this is a Reject and the cost of being misread is a user believing they are current for months.
+- **The phrase "This is not 'you are up to date'" is doing real work.** It names the misreading and refuses it. Verbose, deliberately: this is a Reject and the cost of being misread is a user believing they are current for months.
 - **The opt-in states its cost inline**, per [#87](https://github.com/MatrixMagician/VillaStraylight/issues/87)'s requirement that `--from-registries` surface the fingerprint consequence at the point of use, not only in docs.
 - **"146 days ago"** exists because [#87](https://github.com/MatrixMagician/VillaStraylight/issues/87) made staleness the honest signal in place of automation.
 
@@ -174,10 +174,10 @@ exit 1
 
 **Choices to react to:**
 
-- **"The signature verified. The content is older."** Separating these matters — a user who sees "refused" may assume a broken signature and go looking for the wrong problem.
+- **"The signature verified. The content is older."** Separating these matters: a user who sees "refused" may assume a broken signature and go looking for the wrong problem.
 - **No automatic override flag.** A `--allow-downgrade` would be the obvious affordance and is deliberately absent: an attacker who can serve you a manifest can also read your docs. Making it a manual store edit keeps it deliberate.
 
-## 5. `villa update` — the apply flow
+## 5. `villa update`: the apply flow
 
 Two subsystems, both proven, one prune shared. The narration [#89](https://github.com/MatrixMagician/VillaStraylight/issues/89) requires: two proofs per subsystem.
 
@@ -218,11 +218,11 @@ exit 0
 **Choices to react to:**
 
 - **"proving current state" comes first**, per [#89](https://github.com/MatrixMagician/VillaStraylight/issues/89)'s prove-before-mutate. It has to be visibly *before* the capture so it does not read as part of the update.
-- **Prune has two distinct outcomes on screen** — `retained` (this is the new known-good previous) and `removed` (the one before it, now unreferenced). [#88](https://github.com/MatrixMagician/VillaStraylight/issues/88)'s one-previous rule is legible from the output alone.
-- **The residency proof's cost is not hidden.** 18.4s + 21.7s for inference — ADR-0001 calls the proof "the expensive part", and the output owns it.
+- **Prune has two distinct outcomes on screen**, `retained` (this is the new known-good previous) and `removed` (the one before it, now unreferenced). [#88](https://github.com/MatrixMagician/VillaStraylight/issues/88)'s one-previous rule is legible from the output alone.
+- **The residency proof's cost is not hidden.** 18.4s + 21.7s for inference; ADR-0001 calls the proof "the expensive part", and the output owns it.
 - **The villa line is a footer**, not a row. Compare §1's table row. **Which is better is a real open question for you.**
 
-## 6. Apply, halting on a Reject — the marker-drift case
+## 6. Apply, halting on a Reject: the marker-drift case
 
 The failure ADR-0001 predicted: a rebuilt image whose logs no longer match villa's markers. [#89](https://github.com/MatrixMagician/VillaStraylight/issues/89) decided this is a Reject that rolls back.
 
@@ -268,7 +268,7 @@ exit 1
 
 - **"This image may be perfectly fine."** [#89](https://github.com/MatrixMagician/VillaStraylight/issues/89)'s wording verbatim. A Reject is not a Fail, and the user must not conclude upstream shipped a broken image.
 - **Re-proving after rollback.** The restored state is proven, so "rolled back" is a demonstrated claim rather than an assumption. ADR-0003 demands honesty when rollback is incomplete; proving it is how that is earned.
-- **"chat and memory were not attempted"** — [#89](https://github.com/MatrixMagician/VillaStraylight/issues/89)'s halt-on-first-failure made visible, so the user knows the scope of what did not happen.
+- **"chat and memory were not attempted"**, [#89](https://github.com/MatrixMagician/VillaStraylight/issues/89)'s halt-on-first-failure made visible, so the user knows the scope of what did not happen.
 - **Pointing at the issue tracker is unusual for this CLI.** Justified here because marker drift is genuinely a defect in the shipped pin, not something the operator can fix. React to whether that is a step too far.
 
 ## 7. Apply, halting mid-sequence with earlier subsystems committed
@@ -314,7 +314,7 @@ exit 1
 **Choices to react to:**
 
 - **The three-state summary block** is the most important output in this document. It is the answer to "what state am I in?", which the user will ask immediately.
-- **This is a FAIL, not a Reject** — `verify memory` ran and the property did not hold, so the wording is confident where §6's was careful.
+- **This is a FAIL, not a Reject.** `verify memory` ran and the property did not hold, so the wording is confident where §6's was careful.
 - **Reassurance is explicit.** Exit `1` on a run that committed two subsystems could read as "everything is broken". It is not, and the output says so.
 
 ## 8. Refusals before anything happens
@@ -380,7 +380,7 @@ Warning: rollback protection is incomplete.
 Continue? [y/N]
 ```
 
-**Choice to react to:** this is the **one prompt** in the whole surface. Everything else refuses or proceeds. It could equally be a WARN that proceeds unattended, since the fresh capture still happens — the prompt may be over-cautious. **Worth your reaction**, especially since a prompt breaks non-interactive use.
+**Choice to react to:** this is the **one prompt** in the whole surface. Everything else refuses or proceeds. It could equally be a WARN that proceeds unattended; since the fresh capture still happens, the prompt may be over-cautious. **Worth your reaction**, especially since a prompt breaks non-interactive use.
 
 ## 9. `--dry-run`
 
@@ -414,7 +414,7 @@ exit 0
 
 **Choices to react to:**
 
-- **The reference-counted prune is visible before it happens** — "nothing: still referenced by the embedder" is [#88](https://github.com/MatrixMagician/VillaStraylight/issues/88)'s shared-digest hazard rendered as a plain sentence, and it pre-empts "why is the old image still there?".
+- **The reference-counted prune is visible before it happens**, "nothing: still referenced by the embedder" is [#88](https://github.com/MatrixMagician/VillaStraylight/issues/88)'s shared-digest hazard rendered as a plain sentence, and it pre-empts "why is the old image still there?".
 - **"runs twice"** makes the doubled proof cost explicit rather than a surprise in the timings.
 - **Download total up front**, since 5.3 GB is a decision input on a metered connection.
 
@@ -488,7 +488,7 @@ The Reject case, which a script must not mistake for "current":
 
 **Choices to react to:**
 
-- **`"result": "could_not_check"` with `"summary": null`** — a script reading `summary.updatable` gets a null rather than a `0` that reads as "current". The absent-is-not-zero discipline `verifystate` already applies.
+- **`"result": "could_not_check"` with `"summary": null`**, a script reading `summary.updatable` gets a null rather than a `0` that reads as "current". The absent-is-not-zero discipline `verifystate` already applies.
 - **`"change"` is an enum**, not a boolean: `rebuilt` / `new_version` / `none`. The `--json` consumer gets the same distinction the human does.
 - **`pin_shape`** is exposed so a consumer can tell why a `rebuilt` is not a version bump.
 
@@ -517,7 +517,7 @@ Subsystems: inference, chat, memory, search, agent
 exit 1
 ```
 
-**Choice to react to:** the error teaches the model rather than just rejecting. The allowlist from [#86](https://github.com/MatrixMagician/VillaStraylight/issues/86) makes this checkable — the CLI validates against a known set, not a free-form string.
+**Choice to react to:** the error teaches the model rather than just rejecting. The allowlist from [#86](https://github.com/MatrixMagician/VillaStraylight/issues/86) makes this checkable: the CLI validates against a known set, not a free-form string.
 
 ## 12. Passive surfaces
 

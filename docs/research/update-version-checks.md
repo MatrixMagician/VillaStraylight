@@ -1,6 +1,6 @@
 # How local-first tools check upstream versions without telemetry
 
-Findings for [Research: how local-first tools check upstream versions without telemetry](https://github.com/MatrixMagician/VillaStraylight/issues/85), on the map [Wayfinder map: v1.8 — villa update](https://github.com/MatrixMagician/VillaStraylight/issues/83).
+Findings for [Research: how local-first tools check upstream versions without telemetry](https://github.com/MatrixMagician/VillaStraylight/issues/85), on the map [Wayfinder map: v1.8, villa update](https://github.com/MatrixMagician/VillaStraylight/issues/83).
 
 Every claim below was verified against the live endpoint on 2026-08-26 from the gfx1151 dev box, not read from a write-up. Commands are reproducible as given.
 
@@ -11,7 +11,7 @@ Every claim below was verified against the live endpoint on 2026-08-26 from the 
 1. **Every component villa pins can be checked anonymously, over HTTPS, with no account and no identifying payload.** No component forces a credentialled or telemetry-bearing path.
 2. **A registry check is a `HEAD` returning one header.** `docker-content-digest` is the whole answer; no layer is fetched, so a check costs roughly a kilobyte rather than the gigabytes a pull costs.
 3. **`podman auto-update` is not available to villa**, and this is structural, not a preference. It requires a fully-qualified *tag* reference and is documented as incompatible with pinning by ID/digest. Villa pins digests, so this mechanism is out.
-4. **All but two of villa's pins have already drifted** — eight of ten, including every rolling ref and three of four backend images. The check is not hypothetical: `vulkan-radv` was rebuilt hours before this research ran.
+4. **All but two of villa's pins have already drifted**: eight of ten, including every rolling ref and three of four backend images. The check is not hypothetical: `vulkan-radv` was rebuilt hours before this research ran.
 5. **Version-tag components cannot be checked by tag→digest at all.** `tags/list` is unordered and, for the backend repo, 97% noise. "Newest" requires client-side parsing of a namespace villa does not control.
 6. **Registries see the client IP by construction, and Docker Hub echoes it back.** This is the outbound fact [Outbound honesty](https://github.com/MatrixMagician/VillaStraylight/issues/87) must reckon with.
 
@@ -35,7 +35,7 @@ Pinned values from the tree versus what the tag resolves to now:
 Two observations that matter more than the individual rows:
 
 - **`vulkan-radv` was rebuilt at 2026-08-26T13:10:45Z**, minutes-to-hours before this check (`skopeo inspect` `Created` field). The upstream publishes continuously.
-- **A drifted digest on a `-rocwmma`-style tag is not the same event as a drifted `:main`.** `rocm-6.4.4` moving means the *same declared ROCm version* was rebuilt — an upstream rebuild under a stable name, not a version bump. See "What a moved digest means" below.
+- **A drifted digest on a `-rocwmma`-style tag is not the same event as a drifted `:main`.** `rocm-6.4.4` moving means the *same declared ROCm version* was rebuilt, an upstream rebuild under a stable name, not a version bump. See "What a moved digest means" below.
 
 ## Mechanism 1: OCI registry manifest resolution
 
@@ -43,7 +43,7 @@ The core operation is `HEAD /v2/<name>/manifests/<reference>` with an `Accept` h
 
 ### docker.io (backend images, Qdrant)
 
-Requires an anonymous bearer token first — a public, unauthenticated exchange:
+Requires an anonymous bearer token first, a public, unauthenticated exchange:
 
 ```bash
 TOK=$(curl -sS "https://auth.docker.io/token?service=registry.docker.io&scope=repository:kyuz0/amd-strix-halo-toolboxes:pull" | jq -r .token)
@@ -81,7 +81,7 @@ Verified: `HTTP/2 200`, `content-type: application/vnd.oci.image.index.v1+json`,
 
 ### gcr.io (distroless websafe base)
 
-**No token step at all** — the plain request succeeds:
+**No token step at all**, the plain request succeeds:
 
 ```bash
 curl -sS -I -H "Accept: ..." "https://gcr.io/v2/distroless/static-debian12/manifests/nonroot"
@@ -99,7 +99,7 @@ skopeo inspect --no-tags docker://docker.io/kyuz0/amd-strix-halo-toolboxes:vulka
 # → .Digest = sha256:f0c7b61f…, .Created = 2026-08-26T13:10:45Z
 ```
 
-It handles all three auth flows uniformly and yields `Created` as a bonus. **Trade-off:** it is an external binary dependency and a subprocess, against villa's single-static-binary posture. Direct HTTPS from Go needs no new dependency (`net/http` suffices) and keeps the outbound surface visible in villa's own code, which matters for #87. Recommendation: **direct HTTPS in Go, with skopeo remaining the documented manual cross-check** — a `verify`-style claim can then be reproduced by hand.
+It handles all three auth flows uniformly and yields `Created` as a bonus. **Trade-off:** it is an external binary dependency and a subprocess, against villa's single-static-binary posture. Direct HTTPS from Go needs no new dependency (`net/http` suffices) and keeps the outbound surface visible in villa's own code, which matters for #87. Recommendation: **direct HTTPS in Go, with skopeo remaining the documented manual cross-check**: a `verify`-style claim can then be reproduced by hand.
 
 ## Mechanism 2: tag enumeration, and why it fails for version tags
 
@@ -114,8 +114,8 @@ rocm-7.2.2, rocm-7.2.3, rocm-7.2.4
 
 Three problems, all disqualifying for automated selection:
 
-1. **The list is not ordered by version.** Qdrant's `tags/list` ends with `v1.9.0-unprivileged` … `v1.9.7-unprivileged`, all *older* than the pinned `v1.18.2`. Taking the tail gives a downgrade.
-2. **Ordering requires semver parsing villa would have to own.** Note `rocm-7.14` in that list: naive numeric comparison ranks it below `rocm-7.2.4`, and it is genuinely ambiguous whether it means 7.14 (newer) or a typo'd 7.1.4. There is also `vulkan-radv-perfromance` — a **misspelled tag** shipped upstream. This namespace is not machine-trustworthy.
+1. **The list is not ordered by version.** Qdrant's `tags/list` ends with `v1.9.0-unprivileged` ... `v1.9.7-unprivileged`, all *older* than the pinned `v1.18.2`. Taking the tail gives a downgrade.
+2. **Ordering requires semver parsing villa would have to own.** Note `rocm-7.14` in that list: naive numeric comparison ranks it below `rocm-7.2.4`, and it is genuinely ambiguous whether it means 7.14 (newer) or a typo'd 7.1.4. There is also `vulkan-radv-perfromance`, a **misspelled tag** shipped upstream. This namespace is not machine-trustworthy.
 3. **Nothing in a tag name states host requirements.** This is the constraint [Scope](https://github.com/MatrixMagician/VillaStraylight/issues/84) already handed to [Trust model](https://github.com/MatrixMagician/VillaStraylight/issues/86): a registry can report that `rocm-7.14` exists, but not the kernel/Mesa floors it needs. Floors are a claim about what was tested on hardware.
 
 **Conclusion: tag enumeration can inform a human curator; it cannot drive an automated update.** For ROCm and Vulkan the "what version should we be on" decision is irreducibly curatorial. This is direct support for the hybrid (c) option in #86.
@@ -126,11 +126,11 @@ Three problems, all disqualifying for automated selection:
 curl -sS "https://api.github.com/repos/charmbracelet/crush/releases/latest"
 ```
 
-Verified: `tag_name: v0.91.1` (pinned: **v0.76.0** — 15 minor versions behind). Assets include `crush_0.91.1_Linux_x86_64.tar.gz`, `checksums.txt`, `checksums.txt.sigstore.json`, and an SBOM.
+Verified: `tag_name: v0.91.1` (pinned: **v0.76.0**: 15 minor versions behind). Assets include `crush_0.91.1_Linux_x86_64.tar.gz`, `checksums.txt`, `checksums.txt.sigstore.json`, and an SBOM.
 
-**Rate limit: 60 requests/hour unauthenticated, per IP** (`x-ratelimit-limit: 60`). One component, one request per check — comfortable, but an order of magnitude tighter than Docker Hub, and shared with anything else on that IP hitting the GitHub API.
+**Rate limit: 60 requests/hour unauthenticated, per IP** (`x-ratelimit-limit: 60`). One component, one request per check, comfortable, but an order of magnitude tighter than Docker Hub, and shared with anything else on that IP hitting the GitHub API.
 
-The verify story is **better than what villa currently uses**. `checksums.txt` gives the tarball SHA-256 (`4d85889585023f587bd11dcd69954bfcc573e43ff03b78664e747282f8770d5f` for v0.91.1), matching the `sha256`/`binarySha256` fields `crush-policy.json` already carries. Villa's existing checksum-before-extract gate transfers to a new version with no redesign — only the values change.
+The verify story is **better than what villa currently uses**. `checksums.txt` gives the tarball SHA-256 (`4d85889585023f587bd11dcd69954bfcc573e43ff03b78664e747282f8770d5f` for v0.91.1), matching the `sha256`/`binarySha256` fields `crush-policy.json` already carries. Villa's existing checksum-before-extract gate transfers to a new version with no redesign, only the values change.
 
 ## Mechanism 4: signatures and attestation
 
@@ -138,7 +138,7 @@ The verify story is **better than what villa currently uses**. `checksums.txt` g
 - **`cosign` is not installed on the dev box** (`which cosign` → not found), and adding it contradicts the single-static-binary posture. Verifying a sigstore bundle in-process needs a Go dependency (`sigstore-go`), which is a real dependency decision, not a free win.
 - **Recommendation: out of scope for v1.8, and worth stating as a deliberate deferral.** The pinned-checksum model already gives villa integrity for the artifact it *intends* to fetch. Sigstore raises trust in *upstream authorship*, which only becomes load-bearing under option (b) of #86 where villa auto-resolves pins it never vetted. Under a curated model, the human curator is the trust anchor and a compiled-in checksum is the mechanism.
 
-## Mechanism 5: podman auto-update — ruled out structurally
+## Mechanism 5: podman auto-update, ruled out structurally
 
 `man podman-auto-update` on this box, verbatim:
 
@@ -146,7 +146,7 @@ The verify story is **better than what villa currently uses**. `checksums.txt` g
 
 Villa's units are digest-pinned, so `podman auto-update` cannot resolve them. Beyond that, its whole model conflicts with the house pattern:
 
-- It is driven by `podman-auto-update.timer`, **daily at midnight** — automatic, unattended outbound, the opposite of on-command.
+- It is driven by `podman-auto-update.timer`, **daily at midnight**, automatic, unattended outbound, the opposite of on-command.
 - It pulls and **restarts the unit** on any digest change, with no prove step and no residency proof. Under ADR-0003 that is mutate-without-prove.
 - `--dry-run` exists and is a genuinely good precedent for `villa update --check`'s read-only shape, but the surrounding machinery is unusable.
 
@@ -154,8 +154,8 @@ Villa's units are digest-pinned, so `podman auto-update` cannot resolve them. Be
 
 ## Mechanism 6: Renovate and Flatpak, briefly
 
-- **Renovate** solves exactly villa's problem — digest-pinned refs, updated by a bot that opens a PR with the new digest — but it solves it **in the repo, not on the host**. That is precisely option (a)/(c) in #86: pins stay compile-time, and a *tooling* step refreshes them before a villa release. Worth noting that if #86 lands on curated pins, Renovate is the obvious way to keep the curator's list fresh without hand-running `skopeo`.
-- **Flatpak** pulls from a signed OSTree remote with a summary file listing current commits per ref, and verifies GPG on the metadata. The transferable idea is the **signed manifest of current versions** — one fetch, covering every component, authenticated as a unit. That is the shape a villa-published pin manifest (hybrid (c)) would take, and it collapses N registry round-trips into one fetch from an origin villa controls.
+- **Renovate** solves exactly villa's problem, digest-pinned refs, updated by a bot that opens a PR with the new digest, but it solves it **in the repo, not on the host**. That is precisely option (a)/(c) in #86: pins stay compile-time, and a *tooling* step refreshes them before a villa release. Worth noting that if #86 lands on curated pins, Renovate is the obvious way to keep the curator's list fresh without hand-running `skopeo`.
+- **Flatpak** pulls from a signed OSTree remote with a summary file listing current commits per ref, and verifies GPG on the metadata. The transferable idea is the **signed manifest of current versions**, one fetch, covering every component, authenticated as a unit. That is the shape a villa-published pin manifest (hybrid (c)) would take, and it collapses N registry round-trips into one fetch from an origin villa controls.
 
 ## What a moved digest means, per pin shape
 
@@ -164,10 +164,10 @@ This distinction is the research's main contribution to #86 and #90, because it 
 | Pin shape | Components | A moved digest means | Check mechanism |
 |---|---|---|---|
 | Rolling tag | Open WebUI `:main`, SearXNG, distroless | **New upstream build.** Expected, frequent, no version to name. | tag→digest HEAD, sufficient on its own |
-| Version tag | ROCm 7.2.4 / 6.4.4, vulkan-radv, Qdrant | **The same declared version was rebuilt.** Not a version bump — the maintainer moved a stable name. | tag→digest detects the rebuild; a *version* bump needs curation |
+| Version tag | ROCm 7.2.4 / 6.4.4, vulkan-radv, Qdrant | **The same declared version was rebuilt.** Not a version bump, the maintainer moved a stable name. | tag→digest detects the rebuild; a *version* bump needs curation |
 | Checksummed asset | Crush | **New release** with new checksums. | Releases API, then existing checksum gate |
 
-The middle row is the uncomfortable one and deserves an explicit decision in #86 or #89. `rocm-7.2.4` drifting from `sha256:2da150c1…` to `sha256:1e666bff…` means **the image villa validated on hardware is no longer the image that tag names**, while nothing about "ROCm 7.2.4" changed. Adopting it silently would discard the on-hardware validation the current pin represents — and the tree already anticipates this hazard: `rocm-policy.json` carries `imageDeny: ["rocm7-nightlies"]` and `firmwareDeny: ["20251125"]`, evidence that upstream has shipped bad builds under respectable names before.
+The middle row is the uncomfortable one and deserves an explicit decision in #86 or #89. `rocm-7.2.4` drifting from `sha256:2da150c1…` to `sha256:1e666bff…` means **the image villa validated on hardware is no longer the image that tag names**, while nothing about "ROCm 7.2.4" changed. Adopting it silently would discard the on-hardware validation the current pin represents, and the tree already anticipates this hazard: `rocm-policy.json` carries `imageDeny: ["rocm7-nightlies"]` and `firmwareDeny: ["20251125"]`, evidence that upstream has shipped bad builds under respectable names before.
 
 So "an update is available" is genuinely ambiguous for four of villa's components, and `--check` should not flatten a rebuild and a version bump into one word.
 
@@ -187,7 +187,7 @@ Per full `villa update --check` of every in-scope component:
 
 Two honest caveats for #87 to weigh:
 
-1. **The set of images asked about is itself a fingerprint.** Anyone correlating requests across `kyuz0/amd-strix-halo-toolboxes` + `qdrant` + `searxng` + `open-webui` could infer "this is a VillaStraylight install", and the subset asked about leaks *which addons are enabled*. Faint, but real, and it follows directly from [Scope](https://github.com/MatrixMagician/VillaStraylight/issues/84)'s installed-footprint decision — asking only about what you run means the question describes what you run.
+1. **The set of images asked about is itself a fingerprint.** Anyone correlating requests across `kyuz0/amd-strix-halo-toolboxes` + `qdrant` + `searxng` + `open-webui` could infer "this is a VillaStraylight install", and the subset asked about leaks *which addons are enabled*. Faint, but real, and it follows directly from [Scope](https://github.com/MatrixMagician/VillaStraylight/issues/84)'s installed-footprint decision, asking only about what you run means the question describes what you run.
 2. **A per-component check reveals more than a single manifest fetch would.** A villa-published pin manifest (hybrid (c)) would be **one** request revealing only "a villa is checking for updates", not which components are installed. That is a genuine privacy argument for (c) over (b), independent of the floors argument.
 
 ## Recommendations

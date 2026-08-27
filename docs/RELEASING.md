@@ -67,8 +67,8 @@ dirty tree yields something like `v1.7-21-g4f9b4f6-dirty`. An asset reporting th
 would break the version comparison `villa update --check` performs, and it is far
 cheaper to fail the workflow than to ship it.
 
-Both halves of the attach step are idempotent — create is skipped when the release
-exists, upload uses `--clobber` — so re-running a partially failed workflow
+Both halves of the attach step are idempotent (create is skipped when the release
+exists, upload uses `--clobber`), so re-running a partially failed workflow
 converges rather than erroring.
 
 ## Publishing the pin manifest
@@ -95,7 +95,7 @@ actually has:
 
 | Component | Proof |
 |---|---|
-| backend image | `villa backend set <target>` — a real generation probe **and** the residency proof |
+| backend image | `villa backend set <target>`, a real generation probe **and** the residency proof |
 | Open WebUI | `villa status` protocol probes |
 | Qdrant + embedder | `villa verify memory` |
 | SearXNG + websafe | `villa verify search` |
@@ -118,7 +118,7 @@ fails the residency proof:
 Shipping it regardless would push a release-blocking defect onto users, who cannot
 fix it locally.
 
-For a ROCm pin, also confirm the **floors** still hold — `kernelFloor`,
+For a ROCm pin, also confirm the **floors** still hold: `kernelFloor`,
 `mesaFloor`, `firmwareFloor` in `internal/preflight/rocm-policy.json`. A newer
 ROCm image can demand a newer kernel or Mesa than the shipped floors encode, and
 floors travel with the pin: `villa update` re-runs the preflight gate against the
@@ -126,7 +126,7 @@ new pin's floors before mutating anything.
 
 ### 5. Build the manifest
 
-Generate it from the compiled-in table rather than writing one by hand — every id,
+Generate it from the compiled-in table rather than writing one by hand: every id,
 registry and shape is then correct by construction, and the allowlist check has
 nothing to catch except the values you deliberately changed:
 
@@ -145,17 +145,17 @@ carries the component id, the pin shape (`version_tag` / `rolling_digest` /
 `checksummed_asset`), the pin value, the registry host, and floors where the
 component has them. Plus, at document level:
 
-- **`serial`** — a monotonically increasing integer. Villa refuses a manifest whose
+- **`serial`**, a monotonically increasing integer. Villa refuses a manifest whose
   serial is below the last one it saw, so this is the anti-downgrade floor.
   **Allocate it as a simple counter and never reuse or regress it**; if two
   manifests ever share a serial, the newer one is unusable on any host that saw
   the older. `build` refuses a zero serial: zero means "no floor".
-- **`valid_until`** — after this, villa treats the manifest as **absent** and falls
+- **`valid_until`**, after which villa treats the manifest as **absent** and falls
   back to compiled-in pins. `build` refuses to omit it: a manifest with no expiry
   can be frozen and served forever.
 
 **Pick a generous `valid_until`: months, not days.** Expiry is fail-closed, so
-nothing breaks — but because `--check` stays silent rather than falling back to
+nothing breaks, but because `--check` stays silent rather than falling back to
 per-component registry checks, an expired manifest ends update signalling
 entirely for every install until you publish again. Combined with checks being
 strictly on-command, a user with a lapsed manifest gets no signal at all and has
@@ -173,9 +173,9 @@ A manifest may supply new *values* only, for components the compiled-in table
 already names; it may never introduce a component, a registry host, a shape, or a
 URL template. A manifest that violates this is refused on **every** host, so
 `check` catches it here rather than in the field. It reports every problem at once,
-not the first — fixing one refusal per round trip is how the sixth one ships.
+not the first, fixing one refusal per round trip is how the sixth one ships.
 
-`check` needs no key, so you can iterate on a draft without unlocking one.
+`check` needs no key, so you can iterate on a draft without one.
 
 ### 6. Sign it, offline
 
@@ -189,7 +189,7 @@ This re-runs the allowlist check and refuses to sign on any violation, then writ
 
 The signature covers the manifest file **verbatim**, byte for byte as published.
 Villa never re-serialises a manifest before verifying it, so do not reformat
-`pins.json` after signing — even a trailing newline invalidates the signature.
+`pins.json` after signing: even a trailing newline invalidates the signature.
 Verbatim signing is deliberate: canonicalising instead would require both ends to
 agree on key ordering and number formatting, and a mismatch there fails
 verification for no visible reason, which is indistinguishable from an attack.
@@ -201,7 +201,7 @@ If you do not yet have a key:
 ```
 
 It writes `ed25519.key` at 0600 and prints the public key to compile into villa. It
-refuses to overwrite an existing key — see Key custody below for why that is
+refuses to overwrite an existing key; see Key custody below for why that is
 unrecoverable.
 
 ## Key custody
@@ -216,9 +216,9 @@ cannot be repaired by a config change.
   ships carrying a new embedded public key. Existing installs keep working on
   compiled-in pins; they simply stop learning about new ones.
 - **If it is exposed**, an attacker can forge pins for every install until a new
-  villa ships with a new key. The blast radius is bounded by the allowlist — a
+  villa ships with a new key. The blast radius is bounded by the allowlist: a
   forged manifest can move you to a bad *version of a component you already run*,
-  and cannot introduce a new component, registry, or URL — and the prove step still
+  and cannot introduce a new component, registry, or URL, and the prove step still
   has to pass. Bounded is not harmless.
 
 **Rotation** rides along with releases: a villa release can carry both the
@@ -239,5 +239,5 @@ the measurement and the method.
 
 Refreshing them is steps 3 and 4 above, applied to the constants in the tree,
 followed by an ordinary release. A pin in the compiled-in table carries the same
-claim as one in a manifest — proven on gfx1151 — so it earns that claim the same
+claim as one in a manifest, proven on gfx1151, so it earns that claim the same
 way.

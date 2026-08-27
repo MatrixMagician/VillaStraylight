@@ -3,15 +3,15 @@
 `villa` is **config-as-source-of-truth**: a single TOML file, `config.toml`, is the
 authoritative input that lifecycle commands (`villa install`, `villa up`,
 `villa restart`) render Podman Quadlet units from. The control plane never edits
-units by hand — it regenerates them from `config.toml` and reconciles the result.
+units by hand: it regenerates them from `config.toml` and reconciles the result.
 
 The configuration surface has three layers:
 
-1. **`config.toml`** — the persisted selection (model, quant, context, backend,
+1. **`config.toml`**: the persisted selection (model, quant, context, backend,
    ports, dashboard bind). This is the only file you edit.
-2. **Global CLI flags** — runtime-only switches (`--json`, `--verbose`, `--force`,
+2. **Global CLI flags**: runtime-only switches (`--json`, `--verbose`, `--force`,
    `--catalog`) that do not persist.
-3. **Generated/managed container env** — the llama-server runtime flags and the
+3. **Generated/managed container env**: the llama-server runtime flags and the
    Open WebUI environment block. These are **derived constants**, not user
    settings; they are documented here so you know what the rendered units contain,
    but you change them by changing `config.toml` (or upgrading `villa`), not by
@@ -19,7 +19,7 @@ The configuration surface has three layers:
 
 ## Environment variables
 
-The first-party `villa` CLI is **not** configured through environment variables —
+The first-party `villa` CLI is **not** configured through environment variables;
 its settings live in `config.toml`. Only a small number of standard XDG base-directory
 variables influence where `villa` reads and writes files.
 
@@ -29,7 +29,7 @@ variables influence where `villa` reads and writes files.
 | `XDG_DATA_HOME` | Optional | `~/.local/share` | Base dir for downloaded model weights (`$XDG_DATA_HOME/villa/models`). When unset, falls back to `~/.local/share/villa/models`, and if the home dir cannot be resolved, `/var/tmp/villa/models`. |
 
 The Open WebUI **container** sets its own environment block (telemetry kill-set,
-OpenAI base URL, auth) — see [Managed container environment](#managed-container-environment).
+OpenAI base URL, auth); see [Managed container environment](#managed-container-environment).
 Those values are emitted into the generated Quadlet unit by `villa`; they are not
 read from your shell.
 
@@ -96,8 +96,8 @@ port = 8081
 |-------|------|-------------|
 | `model` | string | The slot's catalog model id. Resolved through the catalog, never treated as a filesystem path. It is also the sole source of the slot's unit name, so two slots may not share one. |
 | `quant` | string | The slot's quantization label. Omitted when empty. |
-| `ctx` | int | The slot's own context length in tokens — its single llama-server `-c`. Independent of the primary's `ctx`. Omitted when zero. |
-| `port` | int | The **host** loopback port this slot publishes on (`127.0.0.1:<port>`). Stated explicitly rather than derived from list position, so removing a middle slot does not renumber — and therefore rewrite and restart — every slot after it. Omitted when zero. |
+| `ctx` | int | The slot's own context length in tokens (its single llama-server `-c`). Independent of the primary's `ctx`. Omitted when zero. |
+| `port` | int | The **host** loopback port this slot publishes on (`127.0.0.1:<port>`). Stated explicitly rather than derived from list position, so removing a middle slot does not renumber, and therefore rewrite and restart, every slot after it. Omitted when zero. |
 
 Each slot renders one extra Quadlet unit, `villa-llama-<slug>.container`, where
 `<slug>` is the model id lowercased with every character outside `[a-z0-9-]` folded to
@@ -110,7 +110,7 @@ feature.
 
 #### Managing slots
 
-Edit the resident set through the CLI rather than by hand — the commands are the only
+Edit the resident set through the CLI rather than by hand: the commands are the only
 writers that check the set actually fits:
 
 ```bash
@@ -122,7 +122,7 @@ villa model resident rm <model-id>   # drop the slot, regenerate, stop the orpha
 
 `add` sizes the candidate with the same memory-fit math `villa recommend` uses,
 asks the admission core whether the whole set still fits the usable envelope, and
-**refuses with a remediation** when it does not — nothing is written, downloaded or
+**refuses with a remediation** when it does not: nothing is written, downloaded or
 started on a refusal. It allocates the lowest free host port at or above `8081`,
 skipping the primary's port and every port a slot already claims, so a removal's gap
 is reused before the range grows.
@@ -138,7 +138,7 @@ incomplete rather than as a clean rollback.
 > A hand-edited `resident` block is untrusted input and fails closed. Two slots
 > sharing a host port, a slot claiming the primary's port, two slots slugging to the
 > same unit name, or a model id with no usable unit-name characters are each refused
-> at render time with an actionable error — never rendered into units that podman
+> at render time with an actionable error, never rendered into units that podman
 > would start and immediately kill.
 
 ### Inspecting and editing the config
@@ -156,7 +156,7 @@ villa config set model=qwen3-30b-a3b
 ```
 
 `config set` accepts only the keys `model`, `quant`, `ctx`, `backend`,
-`catalog_path`. The `resident` array is not among them — a slot carries a port and a
+`catalog_path`. The `resident` array is not among them: a slot carries a port and a
 memory cost, so it is written only by `villa model resident add` / `rm`, which check
 the fit first. An unknown key, a non-positive `ctx`, or an unsupported `backend`
 value is rejected with a clear error and **nothing is written**. After a successful
@@ -168,17 +168,17 @@ value is rejected with a clear error and **nothing is written**. After a success
 > directly.
 >
 > The dashboard's bind address and the in-network service addresses and ports are
-> **not settings** — they are constants in `internal/config`. Nothing could set
+> **not settings**: they are constants in `internal/config`. Nothing could set
 > them (the `set` allowlist never accepted them, and the loader healed any
 > hand-edited value straight back), and widening them off loopback or off the
 > private container network is a privacy violation rather than a preference. A
 > config file still carrying the old keys loads fine; they are ignored.
 
 > Note: `config set backend=` only accepts `vulkan`. That is not a claim about
-> which backend is preferred — ROCm is the default — it is about which writes are
+> which backend is preferred (ROCm is the default); it is about which writes are
 > safe as a plain key write. Selecting any ROCm backend is a stateful cutover
 > (re-fit, ROCm preflight, regenerate, restart, prove, rollback), so it is driven by
-> `villa backend set <name>` — see [Backend selection](#backend-selection).
+> `villa backend set <name>`; see [Backend selection](#backend-selection).
 
 To inspect the active backend and its resolved container image:
 
@@ -189,15 +189,15 @@ villa backend show --json   # { "backend": "...", "image": "..." }
 
 ## Required vs optional settings
 
-Nothing in `config.toml` is required for `villa` to **start** — an absent file
+Nothing in `config.toml` is required for `villa` to **start**: an absent file
 yields typed defaults, and the read-only commands (`detect`, `recommend`,
 `config show`) run with no config at all. Requirements only apply at the point a
 setting is *used*:
 
-- **`model` / `quant` / `ctx`** — required before you can install or run inference.
+- **`model` / `quant` / `ctx`**, required before you can install or run inference.
   `villa recommend --save` populates them from the host's memory envelope; lifecycle
   commands need a resolved model to render the inference unit.
-- **`backend`** — defaults to `rocm`. Valid persisted values are `rocm`,
+- **`backend`**, defaults to `rocm`. Valid persisted values are `rocm`,
   `rocm-6.4.4`, `rocm-6.4.4-rocwmma`, and `vulkan`; the inference resolver
   (`internal/inference/backend.go` `BackendFor`) **fails closed** on any other value
   rather than silently coercing it to a default. An absent or empty value resolves to
@@ -205,21 +205,21 @@ setting is *used*:
   would be. The plain `config set backend=` writer is intentionally restricted to
   `vulkan` (the one target with no bring-up gate to skip):
 
-  ```
+  ```text
   config set: refusing to persist backend "rocm" — only "vulkan" may be set here;
   switch to a ROCm backend (the default) with the transactional `villa backend set rocm`
   ```
 
-  Selecting a ROCm backend is not a plain key write — it is the transactional cutover
+  Selecting a ROCm backend is the transactional cutover
   `villa backend set <name>`, which re-fits the preserved model, runs the ROCm
   preflight, regenerates only the inference unit, restarts, proves the cutover, and
   rolls back on any failure. The cutover is the only writer that persists a ROCm
   backend name.
-- **The dashboard bind address** — is the loopback constant `127.0.0.1`, and the
+- **The dashboard bind address** is the loopback constant `127.0.0.1`, and the
   server additionally **refuses** to start on a non-loopback address. A config can
   no longer express a bind address at all, so it cannot make the dashboard bind
   all interfaces.
-- **`dashboard_port` / `chat_port`** — a value of `0` is treated as "unset" and
+- For **`dashboard_port` / `chat_port`**, a value of `0` is treated as "unset" and
   self-healed back to the default (`8888` / `3000`) on the next load, because port
   `0` is never a valid intended value for a long-running service.
 
@@ -238,7 +238,7 @@ Defaults are defined in a single place in the source (`internal/config/villaconf
 | Config file path | `$XDG_CONFIG_HOME/villa/config.toml` → `~/.config/villa/config.toml` | `internal/config` `Path()` |
 | Quadlet units directory | `$XDG_CONFIG_HOME/containers/systemd/` → `~/.config/containers/systemd/` | `cmd/villa/install.go` `quadletUnitDir()` |
 
-`model`, `quant`, and `ctx` have **no static default** — they are zero/empty until
+`model`, `quant`, and `ctx` have **no static default**: they are zero/empty until
 `villa recommend --save` (or `villa config set`) populates them from the detected
 hardware.
 
@@ -263,7 +263,7 @@ seed** rather than failing.
 The generated Quadlet units embed runtime configuration that is **not** exposed as
 user settings. It is recorded here for transparency.
 
-**Inference (llama-server) runtime flags** — fixed for Strix Halo stability and
+**Inference (llama-server) runtime flags** are fixed for Strix Halo stability and
 sourced from the backend seam (`internal/inference/backend_rocm.go` /
 `backend_vulkan.go`):
 
@@ -298,11 +298,11 @@ makes the HIP runtime target RDNA 3.5, and `ROCBLAS_USE_HIPBLASLT=1` enables the
 hipBLASLt path (the long-context throughput win). Both backends share the same
 mandatory llama-server flags, the loopback host publish, the read-only model bind,
 and `--group-add keep-groups` (which is what grants the rootless user's render/video
-groups access to the GPU devices — never combine it with another `--group-add`).
+groups access to the GPU devices, never combine it with another `--group-add`).
 The ROCm nightly tag is **never** used (it carries the 64 GB allocation-cap bug);
-the denied tag is enforced by policy — see [ROCm bring-up policy](#rocm-bring-up-policy).
+the denied tag is enforced by policy; see [ROCm bring-up policy](#rocm-bring-up-policy).
 
-**Open WebUI environment block** — emitted as ordered `Environment=` entries in the
+The **Open WebUI environment block** is emitted as ordered `Environment=` entries in the
 generated unit (`internal/orchestrate/openwebui.go`). The order is fixed and
 load-bearing:
 
@@ -330,17 +330,17 @@ is digest-pinned (`ghcr.io/open-webui/open-webui:main@sha256:...`).
 config files (`.env.development`, etc.). It targets a single local host. The ways
 configuration varies per machine are:
 
-- **XDG base directories** — Setting `XDG_CONFIG_HOME` / `XDG_DATA_HOME` relocates
+- **XDG base directories.** Setting `XDG_CONFIG_HOME` / `XDG_DATA_HOME` relocates
   the config file, the generated Quadlet units, and the models directory. This is
   the primary mechanism for running an isolated `villa` instance (for example, in a
   test harness): every host-touching path is derived from these, and the test code
   paths (`LoadVillaFrom` / `SaveVillaTo`, the injectable `configDeps` and lifecycle
   seams) point them at a temporary directory.
-- **Per-host recommendation** — `villa recommend` reads the detected hardware
+- **Per-host recommendation.** `villa recommend` reads the detected hardware
   (memory envelope, GPU) and produces a model/quant/context that fits *that* host;
   `--save` writes it to `config.toml`. The same binary therefore produces a
   different `config.toml` on a 64 GB vs a 128 GB machine.
-- **External catalog override** — `catalog_path` (or `--catalog`) lets a host use a
+- **External catalog override.** `catalog_path` (or `--catalog`) lets a host use a
   curated model list different from the embedded seed.
 
 ### Backend selection
@@ -348,22 +348,22 @@ configuration varies per machine are:
 The `backend` key selects the GPU backend the inference unit renders against. Four
 values are honored by the inference resolver (`BackendFor`):
 
-- **`rocm`** (ROCm 7.2.4 / HIP) — **the default**, and what an empty or absent
+- **`rocm`** (ROCm 7.2.4 / HIP) is **the default**, and what an empty or absent
   config resolves to. It adds the `/dev/kfd` device and sets the ordered
   `HSA_OVERRIDE_GFX_VERSION` / `ROCBLAS_USE_HIPBLASLT` env (see
   [Managed container environment](#managed-container-environment)), so it requires a
   host that passes the ROCm bring-up gate.
-- **`rocm-6.4.4`** and **`rocm-6.4.4-rocwmma`** — additive digest-pinned ROCm 6.4.4
+- **`rocm-6.4.4`** and **`rocm-6.4.4-rocwmma`** are additive digest-pinned ROCm 6.4.4
   variants, identical to `rocm` apart from the image. Benchmark them with
   `villa bench --ab --ab-target <name>` rather than assuming a win.
-- **`vulkan`** (Vulkan RADV) — the fallback. Stable and compatible across model
+- **`vulkan`** (Vulkan RADV) is the fallback. Stable and compatible across model
   sizes, with no ROCm host requirements; the only value `config set` will write.
 
 `villa recommend` recommends `rocm` and only falls back to `vulkan` when the host is
-**confidently** not ROCm-ready — every readiness signal known and at least one known-bad
+**confidently** not ROCm-ready: every readiness signal known and at least one known-bad
 (for example a denied `linux-firmware` build or a sub-floor kernel). An unevaluable
 signal never triggers the fallback, so an unprobed host is not silently downgraded; the
-accompanying note names the blocker. That fallback only annotates a *recommendation* —
+accompanying note names the blocker. That fallback only annotates a *recommendation*;
 it never rewrites a `config.toml` you already chose.
 
 Switching backend is a stateful operation, not a plain config edit:
@@ -380,7 +380,7 @@ memory envelope (refuse-with-remediation if it no longer fits), runs the ROCm
 preflight when the target is any ROCm-family backend, captures the prior unit verbatim, persists
 `config.toml` and regenerates **only** the inference unit, restarts it, and **proves**
 the cutover with a real generation probe plus a GPU-residency check within a bounded
-timeout. Any mutate error or a non-passing proof rolls the switch back verbatim — a
+timeout. Any mutate error or a non-passing proof rolls the switch back verbatim: a
 failed switch is a no-op to the running stack. `--dry-run` previews the target, the
 fit verdict, and the preflight without writing, regenerating, or restarting anything.
 
@@ -408,7 +408,7 @@ positively-detected known-bad fact. Anything it cannot evaluate (a host fact tha
 Unknown, or a probe not run off-hardware) degrades to a WARN, never a false refusal.
 Of these signals, the linux-firmware date is probed on-host (from `rpm`) for the
 ROCm-readiness sub-tree of `villa detect`, while the running `HSA_OVERRIDE_GFX_VERSION`
-env is not read from the host environment — the cutover sets it inside the container
+env is not read from the host environment: the cutover sets it inside the container
 rather than depending on the user's shell.
 
 The `mesaFloor`/`firmwareFloor`/`firmwareDeny`/`kernelFloor`/`kernelTested` values
