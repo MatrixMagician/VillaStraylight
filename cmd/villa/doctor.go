@@ -425,20 +425,9 @@ func residencyTargetFor(cfg config.VillaConfig, sd *status.Deps, subject string)
 	}, nil
 }
 
-// requireActive is doctor's read-only precondition gate: doctor NEVER starts a
-// service, so an inactive unit degrades to a typed-Unknown WARN naming it, never a
-// FAIL fabricated from a stack that simply is not running.
-func requireActive(sd *status.Deps, subject string, services ...string) *inference.Verdict {
-	for _, svc := range services {
-		if state, err := sd.IsActive(svc); err != nil || state != "active" {
-			v := residency.Unevaluable(
-				fmt.Sprintf("could not evaluate %s — %s is not active", subject, svc),
-				fmt.Sprintf("check `systemctl --user status %s`; run `villa up` if the stack is stopped, then re-run `villa doctor`", svc))
-			return &v
-		}
-	}
-	return nil
-}
+// The read-only precondition gate (doctor NEVER starts a service; an inactive
+// unit degrades to a typed-Unknown WARN naming it, never a fabricated FAIL)
+// lives in residency.ProveUnderLoad, stated once for every under-load proof.
 
 // liveResidencyUnderLoad builds the live proof seam liveDoctorDeps binds when
 // memory is enabled: a closure returning the chat-model residency Verdict sampled
@@ -481,24 +470,14 @@ func liveResidencyUnderLoad(ctx context.Context, cfg config.VillaConfig, sd *sta
 func runResidencyUnderLoad(ctx context.Context, cfg config.VillaConfig, sd *status.Deps) inference.Verdict {
 	const subject = "residency under embedding load"
 
-	// (1) Precondition gate — strictly read-only; doctor never starts a service.
+	// (1) Memory-specific precondition — strictly read-only; the shared gate
+	// (services active) and honesty mapping live in residency.ProveUnderLoad.
 	if dec := memory.Decide(cfg); !dec.Enabled || !dec.Valid {
 		return residency.Unevaluable(
 			"could not evaluate "+subject+" — the memory stack is not enabled/valid in config",
 			"fix the memory_* fields in config.toml (see `villa preflight`), then re-run `villa doctor`")
 	}
 	embedService := unitServiceName(orchestrate.EmbedContainerUnitName())
-	if v := requireActive(sd, subject,
-		installServiceName,
-		unitServiceName(orchestrate.QdrantContainerUnitName()),
-		embedService,
-	); v != nil {
-		return *v
-	}
-	target, warn := residencyTargetFor(cfg, sd, subject)
-	if warn != nil {
-		return *warn
-	}
 
 	// (2) The bounded embed-load drive. The body is JSON-marshaled (the model id is
 	// never interpolated into a command string) and reused verbatim for every request.
@@ -515,39 +494,48 @@ func runResidencyUnderLoad(ctx context.Context, cfg config.VillaConfig, sd *stat
 	url := fmt.Sprintf("http://%s:%d/v1/embeddings", config.EmbedAddr, config.EmbedPort)
 	helperImage := orchestrate.EmbedImage()
 
-	// (3) Drive and sample. Embed requests are cheap and uniform, so the load evidence
-	// is the WARMUP — the embedder has demonstrably completed real requests — rather
-	// than a settle deadline no request that short would survive.
-	res := residency.UnderLoad(ctx, residencyDepsFrom(sd), target, residency.Load{
-		Drive: func(ctx context.Context) error {
-			_, derr := runProbeCurl(ctx, helperImage,
-				"-sf", "-X", "POST", url,
-				"-H", "Content-Type: application/json",
-				"-d", string(body),
-			)
-			return derr
+	// (3) Drive and sample via the shared proof shape. Embed requests are cheap and
+	// uniform, so the load evidence is the WARMUP — the embedder has demonstrably
+	// completed real requests — rather than a settle deadline no request that short
+	// would survive; a PASS sampled under a faltering drive is degraded (Faltered),
+	// because the embedder was not exercised.
+	return residency.ProveUnderLoad(ctx, residencyDepsFrom(sd), residency.ProofSpec{
+		Subject:  subject,
+		IsActive: sd.IsActive,
+		Services: []string{
+			installServiceName,
+			unitServiceName(orchestrate.QdrantContainerUnitName()),
+			embedService,
 		},
-		Rounds:         residencyDriveRequests,
-		Warmup:         residencySampleAfter,
-		RoundTimeout:   residencyRequestTimeout,
-		Budget:         residencyProofBudget,
-		DriveAllRounds: true,
+		ResolveTarget: func() (residency.Target, *inference.Verdict) {
+			return residencyTargetFor(cfg, sd, subject)
+		},
+		Load: residency.Load{
+			Drive: func(ctx context.Context) error {
+				_, derr := runProbeCurl(ctx, helperImage,
+					"-sf", "-X", "POST", url,
+					"-H", "Content-Type: application/json",
+					"-d", string(body),
+				)
+				return derr
+			},
+			Rounds:         residencyDriveRequests,
+			Warmup:         residencySampleAfter,
+			RoundTimeout:   residencyRequestTimeout,
+			Budget:         residencyProofBudget,
+			DriveAllRounds: true,
+		},
+		Unsampled: func(r residency.LoadResult) inference.Verdict {
+			return residency.Unevaluable(
+				fmt.Sprintf("could not evaluate %s — the embed drive could not complete (%d of %d requests finished before the budget)", subject, r.Completed, r.Rounds),
+				fmt.Sprintf("check `systemctl --user status %s` and `villa logs`, then re-run `villa doctor`", embedService))
+		},
+		Faltered: func(r residency.LoadResult) inference.Verdict {
+			return residency.Unevaluable(
+				fmt.Sprintf("could not evaluate %s — the embed drive could not complete (%d of %d requests failed)", subject, r.DriveErrs, r.Rounds),
+				fmt.Sprintf("check `systemctl --user status %s` and `villa logs`, then re-run `villa doctor`", embedService))
+		},
 	})
-
-	// (4) Map the outcome honestly. A drive that never reached the sample, and a PASS
-	// sampled under a faltering drive, are both unevaluable: the embedder was not
-	// exercised, so the PASS was not proven. A confident FAIL stands on its own.
-	if !res.Sampled {
-		return residency.Unevaluable(
-			fmt.Sprintf("could not evaluate %s — the embed drive could not complete (%d of %d requests finished before the budget)", subject, res.Completed, res.Rounds),
-			fmt.Sprintf("check `systemctl --user status %s` and `villa logs`, then re-run `villa doctor`", embedService))
-	}
-	if res.DriveFaltered() {
-		return residency.Unevaluable(
-			fmt.Sprintf("could not evaluate %s — the embed drive could not complete (%d of %d requests failed)", subject, res.DriveErrs, res.Rounds),
-			fmt.Sprintf("check `systemctl --user status %s` and `villa logs`, then re-run `villa doctor`", embedService))
-	}
-	return res.Verdict
 }
 
 // agentProofBudget bounds the WHOLE coding-agent tool-call round-trip (read→edit `crush
@@ -686,19 +674,6 @@ func liveSearchResidencyUnderLoad(ctx context.Context, cfg config.VillaConfig, s
 func runSearchResidencyUnderLoad(ctx context.Context, cfg config.VillaConfig, sd *status.Deps) inference.Verdict {
 	const subject = "residency under search load"
 
-	// The served unit AND the web-search services must all be active (read-only gate).
-	if v := requireActive(sd, subject,
-		installServiceName,
-		unitServiceName(orchestrate.SearXNGContainerUnitName()),
-		unitServiceName(orchestrate.WebsafeContainerUnitName()),
-	); v != nil {
-		return *v
-	}
-	target, warn := residencyTargetFor(cfg, sd, subject)
-	if warn != nil {
-		return *warn
-	}
-
 	// The bounded chat-completion drive payload (model id JSON-marshaled, never
 	// interpolated). It is the cheapest honest drive that keeps villa-llama decoding
 	// under search load.
@@ -711,27 +686,40 @@ func runSearchResidencyUnderLoad(ctx context.Context, cfg config.VillaConfig, sd
 	url := orchestrate.LlamaInNetworkEndpoint() + "/chat/completions"
 	helperImage := orchestrate.EmbedImage()
 
-	res := residency.UnderLoad(ctx, residencyDepsFrom(sd), target, residency.Load{
-		Drive: func(ctx context.Context) error {
-			// Drive-only: the FAIL signal here is residency, not the chat round.
-			_, derr := runProbeCurl(ctx, helperImage,
-				"-sf", "-X", "POST", url,
-				"-H", "Content-Type: application/json",
-				"-d", string(body),
-			)
-			return derr
+	// The shared proof shape carries the read-only gate (villa-llama AND the
+	// web-search services active) and the unsampled honesty mapping; the settle
+	// discipline samples only a round verifiably IN FLIGHT.
+	return residency.ProveUnderLoad(ctx, residencyDepsFrom(sd), residency.ProofSpec{
+		Subject:  subject,
+		IsActive: sd.IsActive,
+		Services: []string{
+			installServiceName,
+			unitServiceName(orchestrate.SearXNGContainerUnitName()),
+			unitServiceName(orchestrate.WebsafeContainerUnitName()),
 		},
-		Rounds: searchResidencyDriveRounds,
-		Settle: searchResidencySettle,
-		Budget: agentProofBudget,
+		ResolveTarget: func() (residency.Target, *inference.Verdict) {
+			return residencyTargetFor(cfg, sd, subject)
+		},
+		Load: residency.Load{
+			Drive: func(ctx context.Context) error {
+				// Drive-only: the FAIL signal here is residency, not the chat round.
+				_, derr := runProbeCurl(ctx, helperImage,
+					"-sf", "-X", "POST", url,
+					"-H", "Content-Type: application/json",
+					"-d", string(body),
+				)
+				return derr
+			},
+			Rounds: searchResidencyDriveRounds,
+			Settle: searchResidencySettle,
+			Budget: agentProofBudget,
+		},
+		Unsampled: func(residency.LoadResult) inference.Verdict {
+			return residency.Unevaluable(
+				"could not evaluate "+subject+" — no search-augmented chat round stayed in flight long enough to sample residency under load",
+				"check `systemctl --user status "+installServiceName+"` and `villa logs`; ensure the stack (incl. villa-searxng/villa-websafe) is up (`villa up`), then re-run `villa doctor`")
+		},
 	})
-
-	if !res.Sampled {
-		return residency.Unevaluable(
-			"could not evaluate "+subject+" — no search-augmented chat round stayed in flight long enough to sample residency under load",
-			"check `systemctl --user status "+installServiceName+"` and `villa logs`; ensure the stack (incl. villa-searxng/villa-websafe) is up (`villa up`), then re-run `villa doctor`")
-	}
-	return res.Verdict
 }
 
 // liveAgentToolCallVerdict builds the tool-call round-trip seam liveDoctorDeps
@@ -795,37 +783,37 @@ func liveAgentResidencyUnderLoad(ctx context.Context, cfg config.VillaConfig, sd
 func runAgentResidencyUnderLoad(ctx context.Context, cfg config.VillaConfig, sd *status.Deps) inference.Verdict {
 	const subject = "coder residency under tool-call load"
 
-	// The served inference unit (the coder under coding mode) must be active.
-	if v := requireActive(sd, subject, installServiceName); v != nil {
-		return *v
-	}
-	target, warn := residencyTargetFor(cfg, sd, subject)
-	if warn != nil {
-		return *warn
-	}
-
-	res := residency.UnderLoad(ctx, residencyDepsFrom(sd), target, residency.Load{
-		Drive: func(ctx context.Context) error {
-			// The REUSED read→edit `crush run` probe (install_agent.go), never
-			// re-rolled here. Drive-only: the FAIL signal is residency, not the
-			// round-trip, which liveAgentToolCallVerdict reports separately.
-			_, derr := liveAgentToolCallProbe(ctx)()
-			return derr
+	// The shared proof shape carries the read-only gate (the served inference unit —
+	// the coder under coding mode — must be active) and the unsampled honesty
+	// mapping; the settle discipline samples only a round verifiably IN FLIGHT.
+	return residency.ProveUnderLoad(ctx, residencyDepsFrom(sd), residency.ProofSpec{
+		Subject:  subject,
+		IsActive: sd.IsActive,
+		Services: []string{installServiceName},
+		ResolveTarget: func() (residency.Target, *inference.Verdict) {
+			return residencyTargetFor(cfg, sd, subject)
 		},
-		Rounds: agentResidencyDriveRounds,
-		Settle: agentResidencySettle,
-		Budget: agentProofBudget,
+		Load: residency.Load{
+			Drive: func(ctx context.Context) error {
+				// The REUSED read→edit `crush run` probe (install_agent.go), never
+				// re-rolled here. Drive-only: the FAIL signal is residency, not the
+				// round-trip, which liveAgentToolCallVerdict reports separately.
+				_, derr := liveAgentToolCallProbe(ctx)()
+				return derr
+			},
+			Rounds: agentResidencyDriveRounds,
+			Settle: agentResidencySettle,
+			Budget: agentProofBudget,
+		},
+		Unsampled: func(residency.LoadResult) inference.Verdict {
+			// No round stayed in flight long enough to sample, so the "under load"
+			// precondition was never met. An idle-sampled verdict could mask exactly
+			// the CPU-fallback-under-load this seam exists to catch.
+			return residency.Unevaluable(
+				"could not evaluate "+subject+" — no tool-call round-trip stayed in flight long enough to sample residency under load",
+				"check `villa verify agent` and `villa logs` — the agent may be erroring or exiting before it loads the coder model; ensure the stack is up (`villa up`), then re-run `villa doctor`")
+		},
 	})
-
-	if !res.Sampled {
-		// No round stayed in flight long enough to sample, so the "under load"
-		// precondition was never met. An idle-sampled verdict could mask exactly the
-		// CPU-fallback-under-load this seam exists to catch.
-		return residency.Unevaluable(
-			"could not evaluate "+subject+" — no tool-call round-trip stayed in flight long enough to sample residency under load",
-			"check `villa verify agent` and `villa logs` — the agent may be erroring or exiting before it loads the coder model; ensure the stack is up (`villa up`), then re-run `villa doctor`")
-	}
-	return res.Verdict
 }
 
 // liveAgentDrift builds the drift seam: a closure that assembles the pure
