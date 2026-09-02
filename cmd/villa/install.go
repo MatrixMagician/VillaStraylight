@@ -379,8 +379,8 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 	// read serves both the memory host-fitness gate below and the cfg seed at step 4.
 	cfg, err := d.loadedConfig()
 	if err != nil {
-		return blockf("install: cannot read the persisted config: %v\n", err)
-		fmt.Fprintln(errOut, "install: refusing to install from defaults — that would overwrite your persisted settings with seed values. Fix or remove config.toml, then re-run.")
+		fmt.Fprintf(errOut, "install: cannot read the persisted config: %v\n", err)
+		return blockf("install: refusing to install from defaults — that would overwrite your persisted settings with seed values. Fix or remove config.toml, then re-run.\n")
 	}
 
 	// (1) Detect the host.
