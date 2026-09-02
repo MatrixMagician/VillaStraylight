@@ -18,8 +18,9 @@
 // plan assembly: the config that will be persisted and rendered from, derived from
 // the recommendation and those gates.
 //
-// Mutation is NOT here. Rendering, writing and starting stay in the command tier for
-// now, and move in a later change.
+// The flow that composes them is here too (flow.go, ADR-0005): Run drives the whole
+// install through injected Deps and returns a typed Result; the command tier wires
+// the live host and maps the outcome to an exit code.
 //
 // PURE: no I/O, no os/exec, no container-image literal.
 package install
@@ -39,6 +40,16 @@ type Opts struct {
 	// WebSearch opts into the web-search addon, with the same persist-and-inherit
 	// behaviour as CodingAgent.
 	WebSearch bool
+	// DryRun prints the rendered changed units and mutates NOTHING: no write, no
+	// pull, no persist, no privileged host-prep, no wizard.
+	DryRun bool
+	// Force overrides an un-consented BLOCK-tier host-prep gap (auditable); the
+	// run then degrades to WARN even on a clean bring-up.
+	Force bool
+	// JSON marks a non-interactive run: no consent prompt, no wizard.
+	JSON bool
+	// NoTUI skips the guided wizard for the flag-driven path.
+	NoTUI bool
 }
 
 // Gates is which optional subsystems this run treats as on.
@@ -125,7 +136,9 @@ type Plan struct {
 	BackendPreserved bool
 }
 
-// AssemblePlan derives the config this install will persist and render from.
+// AssemblePlan derives the config this install will persist and render from. It
+// takes the gates the caller already resolved rather than resolving its own, so a
+// run cannot hold two answers.
 //
 // It SEEDS from the persisted config rather than from defaults, so a user's
 // customised memory, dashboard and chat fields survive every install instead of
@@ -138,8 +151,7 @@ type Plan struct {
 // the inference unit to the default image. A valid persisted choice is PRESERVED;
 // an empty or unrecognised value falls through to the recommendation. The comparison
 // is on backend NAMES only, never an image literal.
-func AssemblePlan(cfg config.VillaConfig, opts Opts, rec recommend.Recommendation, backendChosen func(string) bool) Plan {
-	gates := ResolveGates(cfg, opts, rec)
+func AssemblePlan(cfg config.VillaConfig, gates Gates, rec recommend.Recommendation, backendChosen func(string) bool) Plan {
 
 	plan := Plan{Config: cfg, Gates: gates}
 	plan.Config.Model = rec.Model

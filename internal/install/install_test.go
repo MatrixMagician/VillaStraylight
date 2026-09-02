@@ -132,7 +132,7 @@ func TestPlanPreservesPersistedCustomisation(t *testing.T) {
 		MemoryEnabled:  true,
 	}
 
-	plan := AssemblePlan(persisted, Opts{}, fit(), chosen)
+	plan := AssemblePlan(persisted, ResolveGates(persisted, Opts{}, fit()), fit(), chosen)
 
 	if plan.Config.EmbeddingModel != "custom-embed" || plan.Config.EmbeddingDim != 1024 {
 		t.Errorf("install reset the persisted embedding identity: %+v", plan.Config)
@@ -145,7 +145,8 @@ func TestPlanPreservesPersistedCustomisation(t *testing.T) {
 // TestPlanTakesTheRecommendedSelection: the model, quant and context always come
 // from the recommendation, since that is what install just fitted to the host.
 func TestPlanTakesTheRecommendedSelection(t *testing.T) {
-	plan := AssemblePlan(config.VillaConfig{Model: "old", Quant: "old", Ctx: 1}, Opts{}, fit(), chosen)
+	old := config.VillaConfig{Model: "old", Quant: "old", Ctx: 1}
+	plan := AssemblePlan(old, ResolveGates(old, Opts{}, fit()), fit(), chosen)
 	rec := fit()
 	if plan.Config.Model != rec.Model || plan.Config.Quant != rec.Quant || plan.Config.Ctx != rec.ContextLen {
 		t.Errorf("plan must carry the recommended selection, got %+v", plan.Config)
@@ -159,7 +160,7 @@ func TestPlanTakesTheRecommendedSelection(t *testing.T) {
 // re-render the inference unit to the default image.
 func TestBackendChoiceIsPreservedNotReverted(t *testing.T) {
 	t.Run("a deliberately-chosen backend survives a re-install", func(t *testing.T) {
-		plan := AssemblePlan(config.VillaConfig{Backend: "vulkan"}, Opts{}, fit(), chosen)
+		plan := AssemblePlan(config.VillaConfig{Backend: "vulkan"}, ResolveGates(config.VillaConfig{Backend: "vulkan"}, Opts{}, fit()), fit(), chosen)
 		if plan.Config.Backend != "vulkan" {
 			t.Errorf("Backend = %q, want the persisted vulkan preserved", plan.Config.Backend)
 		}
@@ -169,14 +170,14 @@ func TestBackendChoiceIsPreservedNotReverted(t *testing.T) {
 	})
 
 	t.Run("adding an addon does not revert the backend", func(t *testing.T) {
-		plan := AssemblePlan(config.VillaConfig{Backend: "vulkan"}, Opts{CodingAgent: true}, coderFit(), chosen)
+		plan := AssemblePlan(config.VillaConfig{Backend: "vulkan"}, ResolveGates(config.VillaConfig{Backend: "vulkan"}, Opts{CodingAgent: true}, coderFit()), coderFit(), chosen)
 		if plan.Config.Backend != "vulkan" {
 			t.Errorf("`install --coding-agent` reverted the backend to %q", plan.Config.Backend)
 		}
 	})
 
 	t.Run("an unset backend takes the recommendation", func(t *testing.T) {
-		plan := AssemblePlan(config.VillaConfig{}, Opts{}, fit(), chosen)
+		plan := AssemblePlan(config.VillaConfig{}, ResolveGates(config.VillaConfig{}, Opts{}, fit()), fit(), chosen)
 		if plan.Config.Backend != fit().Backend {
 			t.Errorf("Backend = %q, want the recommended %q", plan.Config.Backend, fit().Backend)
 		}
@@ -186,7 +187,7 @@ func TestBackendChoiceIsPreservedNotReverted(t *testing.T) {
 	})
 
 	t.Run("an unrecognised persisted backend falls through to the recommendation", func(t *testing.T) {
-		plan := AssemblePlan(config.VillaConfig{Backend: "bogus"}, Opts{}, fit(), chosen)
+		plan := AssemblePlan(config.VillaConfig{Backend: "bogus"}, ResolveGates(config.VillaConfig{Backend: "bogus"}, Opts{}, fit()), fit(), chosen)
 		if plan.Config.Backend != fit().Backend {
 			t.Errorf("Backend = %q, want the recommendation for an unrecognised value", plan.Config.Backend)
 		}
@@ -198,7 +199,7 @@ func TestBackendChoiceIsPreservedNotReverted(t *testing.T) {
 // recommendation the disk and envelope gates were computed from.
 func TestPlanCarriesTheCoderIdentity(t *testing.T) {
 	rec := coderFit()
-	plan := AssemblePlan(config.VillaConfig{}, Opts{CodingAgent: true}, rec, chosen)
+	plan := AssemblePlan(config.VillaConfig{}, ResolveGates(config.VillaConfig{}, Opts{CodingAgent: true}, rec), rec, chosen)
 
 	if !plan.Config.CodingMode {
 		t.Fatal("the addon with a coder fit must enter coding mode")
@@ -231,7 +232,7 @@ func TestPlanGatesMatchTheConfigItWrites(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			plan := AssemblePlan(tc.cfg, tc.opts, tc.rec, chosen)
+			plan := AssemblePlan(tc.cfg, ResolveGates(tc.cfg, tc.opts, tc.rec), tc.rec, chosen)
 			if got := subsystem.MemoryOn(plan.Config); got != plan.Gates.Memory {
 				t.Errorf("memory: config says %v, gates say %v", got, plan.Gates.Memory)
 			}

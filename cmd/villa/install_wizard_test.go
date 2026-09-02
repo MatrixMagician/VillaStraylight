@@ -1,217 +1,23 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"errors"
-	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
 	"github.com/MatrixMagician/VillaStraylight/internal/inference"
-	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 	"github.com/MatrixMagician/VillaStraylight/internal/preflight"
 	"github.com/MatrixMagician/VillaStraylight/internal/recommend"
 )
 
-// install_wizard_test.go is the automated half of the Phase-17 test map
-// (02). It proves the phase's observable signals off-hardware: the
-// wizard fires on a TTY, the three fallback conditions (--no-tui / --json /
-// non-TTY) bypass it, the wizard- and flag-path config.toml are byte-identical
-// a BLOCK-gap + privileged-consent scenario through the LIVE
-// composition runs the privileged seam at most once with the preserved 0/2/1
-// verdict (zero on denial), the prompt loop drives from a scripted
-// stdin, and safeAutoFix returns false for both current privileged fixes.
-// There is NO install golden — assertions are exit code + seam call-counts +
-// strings.Contains (Patterns "Test via buffered cobra.Command, no golden").
-
-// TestInstallWizardFires: on a TTY (interactive stdin + stdout TTY, no --json,
-// no --no-tui) the wizard seam is invoked exactly once and install completes
-// with exitPass (Observable signal 1). The default fake wizard returns an
-// empty wizardResult (no override, nil consent), so the install proceeds through
-// the single gate exactly as the flag path does.
-func TestInstallWizardFires(t *testing.T) {
-	units := []orchestrate.Unit{{Name: "villa-llama.container", Text: "[Container]\n"}}
-	plan := orchestrate.Plan{Changed: units}
-	f := newFakeInstallDeps(t, units, plan, passChecks())
-	f.interactive = func() bool { return true }
-	f.stdoutIsTTY = func() bool { return true }
-
-	cmd, _, _ := installTestCmd()
-	code := runInstall(cmd, installOpts{}, f.installDeps)
-	if code != exitPass {
-		t.Fatalf("wizard-path install exit = %d, want exitPass (%d)", code, exitPass)
-	}
-	if f.wizardCalls != 1 {
-		t.Errorf("wizard seam fired %d times on a TTY, want exactly 1", f.wizardCalls)
-	}
-}
-
-// TestInstallGateBypassesWizard: each of --no-tui, --json, and a non-TTY stdout
-// bypasses the wizard seam (0 invocations) and runs the flag path (the install
-// still writes units + persists config). This is Observable signal 2 / — the
-// graceful fallback that keeps the existing flag path verbatim.
-func TestInstallGateBypassesWizard(t *testing.T) {
-	units := []orchestrate.Unit{{Name: "villa-llama.container", Text: "[Container]\n"}}
-	plan := orchestrate.Plan{Changed: units}
-
-	cases := []struct {
-		name string
-		opts installOpts
-		tty  bool // stdoutIsTTY result
-	}{
-		// --no-tui: interactive TTY but the user opted out of the wizard.
-		{name: "no-tui", opts: installOpts{noTUI: true}, tty: true},
-		// --json: a JSON run is non-interactive; the wizard must never fire.
-		{name: "json", opts: installOpts{json: true}, tty: true},
-		// non-TTY stdout: piped/redirected output → no styled wizard.
-		{name: "non-tty-stdout", opts: installOpts{}, tty: false},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			f := newFakeInstallDeps(t, units, plan, passChecks())
-			// interactive stdin is true for all cases so the ONLY thing turning the
-			// wizard off is the bypass condition under test.
-			f.interactive = func() bool { return true }
-			f.stdoutIsTTY = func() bool { return tc.tty }
-
-			cmd, _, _ := installTestCmd()
-			code := runInstall(cmd, tc.opts, f.installDeps)
-			if code != exitPass {
-				t.Fatalf("%s bypass exit = %d, want exitPass (%d)", tc.name, code, exitPass)
-			}
-			if f.wizardCalls != 0 {
-				t.Errorf("%s must bypass the wizard, but the seam fired %d times", tc.name, f.wizardCalls)
-			}
-			// The flag path ran: config persisted + units written (the happy-path seams).
-			if f.saveCalls != 1 || f.writeCalls != 1 {
-				t.Errorf("%s must run the flag path (save=1 write=1), got save=%d write=%d", tc.name, f.saveCalls, f.writeCalls)
-			}
-		})
-	}
-}
-
-// TestWizardConfigMatchesFlagPath: the config.toml the wizard path persists is
-// byte-identical to the flag path's for identical inputs. Both paths
-// receive the same recommendation (the fake wizard returns an empty override +
-// nil consent), so they converge on the single gateInstall and persist the same
-// VillaConfig. Drives both through runInstall and compares the captured savedCfg.
-func TestWizardConfigMatchesFlagPath(t *testing.T) {
-	units := []orchestrate.Unit{{Name: "villa-llama.container", Text: "[Container]\n"}}
-	plan := orchestrate.Plan{Changed: units}
-
-	// Wizard path: interactive + TTY, no --no-tui → the wizard seam fires (empty
-	// override, nil consent), then the single gate persists the recommended config.
-	fw := newFakeInstallDeps(t, units, plan, passChecks())
-	fw.interactive = func() bool { return true }
-	fw.stdoutIsTTY = func() bool { return true }
-	cmdW, _, _ := installTestCmd()
-	if code := runInstall(cmdW, installOpts{}, fw.installDeps); code != exitPass {
-		t.Fatalf("wizard-path install exit = %d, want exitPass", code)
-	}
-	if fw.wizardCalls != 1 {
-		t.Fatalf("wizard-path setup error: wizard fired %d times, want 1", fw.wizardCalls)
-	}
-
-	// Flag path: --no-tui forces today's flag path verbatim.
-	ff := newFakeInstallDeps(t, units, plan, passChecks())
-	ff.interactive = func() bool { return true }
-	ff.stdoutIsTTY = func() bool { return true }
-	cmdF, _, _ := installTestCmd()
-	if code := runInstall(cmdF, installOpts{noTUI: true}, ff.installDeps); code != exitPass {
-		t.Fatalf("flag-path install exit = %d, want exitPass", code)
-	}
-	if ff.wizardCalls != 0 {
-		t.Fatalf("flag-path setup error: wizard fired %d times, want 0", ff.wizardCalls)
-	}
-
-	// the persisted config.toml is byte-identical across both paths.
-	if !reflect.DeepEqual(fw.savedCfg, ff.savedCfg) {
-		t.Errorf("wizard-path config %+v must byte-match flag-path config %+v", fw.savedCfg, ff.savedCfg)
-	}
-}
-
-// TestInstallWizardPathRunsGateOnce is the single-gate / consent-threading guard
-// (Blocker 3). It drives runInstall on the WIZARD path through the LIVE composition:
-// the wizard SEAM stands in for the huh run (which needs a TTY) and returns the
-// collected consent decisions, but the REST of the composition — the single
-// gateInstall consuming the threaded map → resolveGap → runGapFix → d.setsebool —
-// runs for real. It proves: (a) on consent-granted the privileged seam fires
-// EXACTLY once (no double-gate, no wizard-side execution) with the preserved
-// 0/2/1 verdict; (b) on consent-denied the seam fires ZERO times and the install
-// exits blocked; and (c) d.consent is NEVER re-invoked on the threaded path (huh
-// already consumed stdin) — a fail-the-test consent stub proves no re-prompt.
-func TestInstallWizardPathRunsGateOnce(t *testing.T) {
-	units := []orchestrate.Unit{{Name: "villa-llama.container", Text: "[Container]\n"}}
-	plan := orchestrate.Plan{Changed: units}
-
-	// failConsent fails the test if the gate ever falls back to the stdin prompt on
-	// the threaded wizard path — the recorded decision must be honored WITHOUT a
-	// re-prompt.
-	failConsent := func(prompt string) bool {
-		t.Errorf("d.consent must NOT be called on the threaded wizard path (re-prompt for %q)", prompt)
-		return false
-	}
-
-	t.Run("consent-granted-runs-seam-once", func(t *testing.T) {
-		// A single BLOCK-tier privileged gap (SELinux off → PRE-05 → d.setsebool).
-		f := newFakeInstallDeps(t, units, plan, []preflight.CheckResult{seloffCheck()})
-		f.interactive = func() bool { return true }
-		f.stdoutIsTTY = func() bool { return true }
-		f.consent = failConsent
-		// The wizard seam simulates the real collector's output: consent GRANTED.
-		f.wizard = func(context.Context, wizardInput) (wizardResult, error) {
-			f.wizardCalls++
-			return wizardResult{consentDecisions: map[string]bool{"PRE-05": true}}, nil
-		}
-
-		cmd, _, _ := installTestCmd()
-		code := runInstall(cmd, installOpts{}, f.installDeps)
-		// Preserved verdict: a consented-and-applied BLOCK gap on a clean bring-up is
-		// the same exitPass the flag-path TestInstallConsentYesRunsSeamOncePerGap asserts.
-		if code != exitPass {
-			t.Fatalf("consent-granted wizard install exit = %d, want exitPass (%d)", code, exitPass)
-		}
-		if f.wizardCalls != 1 {
-			t.Errorf("wizard seam fired %d times, want exactly 1", f.wizardCalls)
-		}
-		// The privileged seam ran EXACTLY once — via the single gateInstall→resolveGap→
-		// runGapFix path, never twice (no double-gate, no wizard-side execution).
-		if f.seboolCalls != 1 {
-			t.Errorf("setsebool invoked %d times on the wizard path, want exactly 1 (single gate)", f.seboolCalls)
-		}
-		// The gap was satisfied → install proceeded to write + start.
-		if f.writeCalls != 1 {
-			t.Errorf("consent-granted wizard install must write units once, wrote %d times", f.writeCalls)
-		}
-	})
-
-	t.Run("consent-denied-never-runs-seam-and-blocks", func(t *testing.T) {
-		f := newFakeInstallDeps(t, units, plan, []preflight.CheckResult{seloffCheck()})
-		f.interactive = func() bool { return true }
-		f.stdoutIsTTY = func() bool { return true }
-		f.consent = failConsent
-		// The wizard seam returns consent DENIED for the BLOCK gap.
-		f.wizard = func(context.Context, wizardInput) (wizardResult, error) {
-			f.wizardCalls++
-			return wizardResult{consentDecisions: map[string]bool{"PRE-05": false}}, nil
-		}
-
-		cmd, _, _ := installTestCmd()
-		code := runInstall(cmd, installOpts{}, f.installDeps)
-		// A denied BLOCK gap with no --force → exitBlocked, no mutation.
-		if code != exitBlocked {
-			t.Fatalf("consent-denied wizard install exit = %d, want exitBlocked (%d)", code, exitBlocked)
-		}
-		if f.seboolCalls != 0 {
-			t.Errorf("denied gap must NOT run setsebool, ran %d times", f.seboolCalls)
-		}
-		if f.writeCalls != 0 || f.startCalls != 0 {
-			t.Errorf("a blocked wizard install must not write/start: write=%d start=%d", f.writeCalls, f.startCalls)
-		}
-	})
-}
+// install_wizard_test.go tests the command-tier prompt loop and its rendering:
+// the scripted-stdin driver, the safe defaults (cancel/abort never consent), the
+// re-ask on a bad answer, and the block-indented summary/review blocks. The wizard
+// GATE (fires on a TTY, bypassed by --no-tui/--json/non-TTY, converges with the
+// flag path, threads consent through the single gate) is proven at the Run
+// interface in internal/install/flow_wizard_test.go.
 
 // TestWizardPromptLoopDriver drives the whole guided install off-hardware by
 // scripting stdin, which is what the prompt loop replaced the accessible-mode form
@@ -424,56 +230,6 @@ func TestReviewBlockIndent(t *testing.T) {
 	}
 }
 
-// TestInstallNoFitEmitsContractedEmptyState proves the no-fit branch (recommend
-// refused) emits the EXACT 17-UI-SPEC.md:195 empty-state copy verbatim — the
-// usable-GiB envelope figure substituted from profile.UsableEnvelopeBytes, the
-// "(--no-tui shows the same result.)" parity note, and exitBlocked preserved.
-// A Known envelope renders the numeric GiB figure; a typed-Unknown envelope
-// renders "unknown GiB usable" (never a fabricated 0).
-func TestInstallNoFitEmitsContractedEmptyState(t *testing.T) {
-	refuse := func(env detect.Bytes) (*installDeps, *bytes.Buffer) {
-		units := []orchestrate.Unit{{Name: "villa-llama.container", Text: "[Container]\n"}}
-		plan := orchestrate.Plan{Changed: units}
-		f := newFakeInstallDeps(t, units, plan, passChecks())
-		f.probe = func() detect.HostProfile {
-			return detect.HostProfile{UsableEnvelopeBytes: env}
-		}
-		// A refusing pick: empty Model is a clear no-fit.
-		f.pick = func(detect.HostProfile, recommend.Overrides) recommend.Recommendation {
-			return recommend.Recommendation{}
-		}
-		return f.installDeps, nil
-	}
-
-	t.Run("known-envelope-renders-numeric-gib", func(t *testing.T) {
-		d, _ := refuse(detect.KnownBytes(8<<30, "mem_info_gtt_total"))
-		cmd, _, errOut := installTestCmd()
-		code := runInstall(cmd, installOpts{}, d)
-		if code != exitBlocked {
-			t.Fatalf("no-fit exit = %d, want exitBlocked (%d)", code, exitBlocked)
-		}
-		got := errOut.String()
-		want := "No catalog model fits the detected memory envelope (8 GiB usable). Free memory or supply a larger-envelope host, then re-run villa install. (--no-tui shows the same result.)"
-		if !strings.Contains(got, want) {
-			t.Errorf("no-fit output missing contracted empty-state copy.\n got: %q\nwant substring: %q", got, want)
-		}
-	})
-
-	t.Run("unknown-envelope-renders-unknown", func(t *testing.T) {
-		d, _ := refuse(detect.UnknownBytes("no gtt probe", ""))
-		cmd, _, errOut := installTestCmd()
-		code := runInstall(cmd, installOpts{}, d)
-		if code != exitBlocked {
-			t.Fatalf("no-fit exit = %d, want exitBlocked (%d)", code, exitBlocked)
-		}
-		got := errOut.String()
-		want := "No catalog model fits the detected memory envelope (unknown GiB usable). Free memory or supply a larger-envelope host, then re-run villa install. (--no-tui shows the same result.)"
-		if !strings.Contains(got, want) {
-			t.Errorf("typed-Unknown no-fit output missing contracted copy.\n got: %q\nwant substring: %q", got, want)
-		}
-	})
-}
-
 // TestDetectedHostSummaryTypedUnknownAdvisory proves detectedHostSummary appends
 // the EXACT 17-UI-SPEC.md:196 typed-Unknown advisory as a trailing line IFF at
 // least one rendered host fact is not Known — and omits it entirely when every
@@ -545,19 +301,6 @@ func TestDetectedHostSummaryTypedUnknownAdvisory(t *testing.T) {
 			})
 		}
 	})
-}
-
-// TestSafeAutoFixReturnsFalseForPrivilegedFixes pins the conservative
-// classification (interpretation 1): both current fixes — PRE-05 (setsebool -P)
-// and PRE-03 (loginctl enable-linger) — are PRIVILEGED and so are NOT safe to
-// auto-run. safeAutoFix must return false for both; a future reclassification to
-// true must be a deliberate, test-visible change.
-func TestSafeAutoFixReturnsFalseForPrivilegedFixes(t *testing.T) {
-	for _, id := range []string{"PRE-03", "PRE-05"} {
-		if safeAutoFix(id) {
-			t.Errorf("safeAutoFix(%q) = true, want false (privileged → consent-gated)", id)
-		}
-	}
 }
 
 // TestReviewBlockShowsTheChosenModel is the fix for a real defect the previous

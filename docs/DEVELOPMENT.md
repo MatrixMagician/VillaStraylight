@@ -153,15 +153,15 @@ the network. Two idioms appear:
 - **Interface seams** in library packages, e.g. `inference.Backend` and
   `inference.Runner` (`internal/inference/inference.go`). Tests pass a fake
   implementation.
-- **Struct-of-function-fields seams** in the command layer: the larger commands hold
-  their effects as overridable function fields. For example `cmd/villa/install_test.go`
-  builds the install dependencies struct and replaces each effect with a fake:
+- **Struct-of-function-fields seams**: a flow holds its effects as overridable
+  function fields on a `Deps` struct. For example `internal/install/fake_test.go`
+  builds `install.Deps` and replaces each effect with a fake:
 
   ```go
-  d.ensureModel = func(recommend.Recommendation) error { /* record + stub */ }
-  d.saveConfig  = func(c config.VillaConfig) error { f.saveCalls++; f.savedCfg = c; return nil }
-  d.writeUnits  = func(orchestrate.Plan, string) error { f.writeCalls++; return nil }
-  d.daemonReload = func() error { f.reloadCalls++; return nil }
+  d.EnsureModel = func(recommend.Recommendation) error { /* record + stub */ }
+  d.SaveConfig  = func(c config.VillaConfig) error { f.saveCalls++; f.savedCfg = c; return nil }
+  d.WriteUnits  = func(orchestrate.Plan, string) error { f.writeCalls++; return nil }
+  d.DaemonReload = func() error { f.reloadCalls++; return nil }
   ```
 
   Tests then assert on the recorded call counts and captured values (e.g. that config

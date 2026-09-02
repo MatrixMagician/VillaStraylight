@@ -14,7 +14,6 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/catalog"
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/preflight"
-	"github.com/MatrixMagician/VillaStraylight/internal/recommend"
 	"github.com/MatrixMagician/VillaStraylight/internal/subsystem"
 )
 
@@ -22,10 +21,10 @@ import (
 // verb gates on the PERSISTED agent_enabled — the Crush twin of
 // install_memory.go. It mirrors the memory addon seam-for-seam with ONE structural delta:
 // the coder GGUF is a CATALOG ENTRY resolved from the recommend-picked coder id, NOT a
-// hard-coded literal like nomicEmbedShard — so (pick selects) and (single source:
+// hard-coded literal like install.NomicEmbedShard — so (pick selects) and (single source:
 // the staged filename and the served -m path derive from the SAME entry) hold by construction.
 //
-// - coderShardFor: resolves the picked coder entry's Shards[0] — never a literal.
+// - install.CoderShardFor: resolves the picked coder entry's Shards[0] — never a literal.
 //   - liveCoderModelPresent / liveEnsureCoderModel: idempotent size-gated presence-skip +
 // the single sanctioned outbound window (pullFn == download.PullModel).
 //   - liveInstallAgentBinary: COMPOSES the Phase-26 agent.Install (checksum-before-extract,
@@ -35,25 +34,6 @@ import (
 //
 // The FSL-1.1-MIT notice, the evalAgentProof readiness verdict, and the host-side tool-call
 // probe (Task 3) live below the binary/model seams.
-
-// coderShardFor resolves the GGUF shard to pre-stage for the recommend-picked coder model
-// it scans the catalog for the entry whose ID == rec.Coder.Model and returns
-// its Shards[0] (coder entries are single-shard — catalog FROZEN, Phase 24). It returns
-// (zero, false) when no coder fits (empty id), the id is absent, or the entry carries no
-// shards. This is the explicit ANTI-pattern guard: the shard is RESOLVED from the picked
-// entry, never a hard-coded coderShard literal — eliminating a drift/forgery surface
-// and making the staged filename single-source with the served -m path.
-func coderShardFor(rec recommend.Recommendation, cat catalog.Catalog) (catalog.Shard, bool) {
-	if rec.Coder.Model == "" {
-		return catalog.Shard{}, false // no coder fit (shared residency) — nothing to stage
-	}
-	for _, m := range cat.Models {
-		if m.ID == rec.Coder.Model && len(m.Shards) > 0 {
-			return m.Shards[0], true
-		}
-	}
-	return catalog.Shard{}, false // picked id absent / entry has no shards → refuse-with-remediation
-}
 
 // liveCoderModelPresent reports whether the pre-staged coder GGUF already exists on disk
 // AND is intact (the ensureCoderModel idempotency guard — a present file is never re-pulled).
@@ -216,22 +196,6 @@ func liveLoadedAgentEnabled() bool {
 		return false
 	}
 	return subsystem.AgentOn(c)
-}
-
-// --- FSL-1.1-MIT consent notice (install-addon obligation) -------------------
-
-// agentLicenseNotice returns the one-line FSL-1.1-MIT notice surfaced before the Crush
-// binary is staged (27-RESEARCH § FSL consent text). It is INFORMATIONAL, not a click-
-// through EULA — the user already invoked --coding-agent. It mirrors how villa already
-// surfaces honest notices (the no-telemetry line, the SELinux note). The load-bearing
-// content is the license fact: FSL-1.1-MIT, non-compete, each version → MIT two years
-// after release; villa installs a pinned, checksum-verified release and renders config locally.
-func agentLicenseNotice() string {
-	return "The coding agent (Crush, charmbracelet) is distributed under the Functional Source " +
-		"License v1.1 (FSL-1.1-MIT): you may use, modify, and redistribute it for any purpose " +
-		"except offering a competing commercial service; each version becomes MIT-licensed two " +
-		"years after release. villa installs a pinned, checksum-verified release and renders its " +
-		"config locally."
 }
 
 // --- Install readiness: tool-call round-trip verdict ------------------

@@ -168,6 +168,13 @@ type retiredClaim struct {
 
 var retiredClaims = []retiredClaim{
 	{
+		label:  "the install flow is a function in the command tier",
+		wants:  []string{"runinstall", "composes"},
+		unless: []string{"adr-0005", "moved", "used to"},
+		why: "ADR-0005 moved the flow behind install.Run in internal/install/flow.go; " +
+			"cmd/villa/install.go wires Deps and renders the Result.",
+	},
+	{
 		label:  "`make lint` falls back to `go vet`",
 		wants:  []string{"make lint", "go vet"},
 		unless: []string{"no fall back", "no `go vet` fallback", "could never fail", "deliberately"},

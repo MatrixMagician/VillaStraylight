@@ -251,11 +251,15 @@ and CI's existing `go test ./...` step all run it.
 
 ### Dependency-seam (fake) tests
 
-Command handlers that would otherwise touch a live host are tested through an
-injectable `*Deps` struct whose fields are functions. Each test wires a fake
-`installDeps` / `lifecycleDeps` / `modelswap.Deps` / `listDeps` to stubs and uses
+Flows that would otherwise touch a live host are tested through an injectable
+`Deps` struct whose fields are functions. Each test wires a fake
+`install.Deps` / `lifecycleDeps` / `modelswap.Deps` / `listDeps` to stubs and uses
 counters and a recorded call order to assert **exactly which seams fired**:
-idempotency, consent, model-pull, config-persist, restart targeting.
+idempotency, consent, model-pull, config-persist, restart targeting. The install
+flow's tests live beside the flow (`internal/install/flow_test.go` and siblings)
+and drive `install.Run` directly; `cmd/villa/install_test.go` keeps only the
+live-adapter tests (the readiness poll, the proof evaluators, the binary-path
+resolver).
 
 Two high-value invariants are asserted this way:
 
@@ -276,9 +280,9 @@ Two high-value invariants are asserted this way:
   (`TestNoOpSameBackend`); ROCm is gated behind a fit guard and a prove-flight
   (`TestRefuseFitGuard`, `TestRefuseProveFlightROCm`, `TestProveGate`).
 - **Block-before-side-effects** (`cmd/villa/lifecycle_test.go`,
-  `install_test.go`): when an upstream step fails (e.g. the model file cannot be
-  resolved from the catalog), the handler must return the blocked exit code
-  having fired **zero** write/reload/start seams; it must never render a
+  `internal/install/flow_test.go`): when an upstream step fails (e.g. the model
+  file cannot be resolved from the catalog), the flow must return the blocked
+  outcome having fired **zero** write/reload/start seams; it must never render a
   container whose `-m` points at a fabricated GGUF (WR-08). Counters assert
   `writeCalls == 0 && reloadCalls == 0 && len(startCalls) == 0`.
 

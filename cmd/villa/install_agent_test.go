@@ -7,18 +7,19 @@ import (
 
 	"github.com/MatrixMagician/VillaStraylight/internal/agent"
 	"github.com/MatrixMagician/VillaStraylight/internal/catalog"
+	"github.com/MatrixMagician/VillaStraylight/internal/install"
 	"github.com/MatrixMagician/VillaStraylight/internal/recommend"
 )
 
 // install_agent_test.go covers the pure resolution + presence seams of the v1.4
-// coding-agent install addon (Task 2): coderShardFor (catalog-resolved, no literal
+// coding-agent install addon (Task 2): install.CoderShardFor (catalog-resolved, no literal)
 // and liveCoderModelPresent (size-gated integrity, mirroring the embed
 // analog). The download/binary-install/readiness wiring is host-touching and is
 // exercised through the install flow tests (install_test.go).
 
-// TestCoderShard asserts coderShardFor resolves the picked coder entry's Shards[0] by id
+// TestCoderShard asserts install.CoderShardFor resolves the picked coder entry's Shards[0] by id
 // and returns (zero, false) when no coder fits or the entry/shard is absent — it
-// is NOT a hard-coded literal (the explicit anti-pattern the memory analog's nomicEmbedShard
+// is NOT a hard-coded literal (the explicit anti-pattern the memory analog's install.NomicEmbedShard
 // would be for coder).
 func TestCoderShard(t *testing.T) {
 	coderShard := catalog.Shard{
@@ -35,33 +36,33 @@ func TestCoderShard(t *testing.T) {
 
 	t.Run("resolves the picked entry's Shards[0]", func(t *testing.T) {
 		rec := recommend.Recommendation{Coder: recommend.CoderFit{Model: "qwen3-coder-30b-a3b"}}
-		got, ok := coderShardFor(rec, cat)
+		got, ok := install.CoderShardFor(rec, cat)
 		if !ok {
-			t.Fatal("coderShardFor returned ok=false for a present coder entry, want true")
+			t.Fatal("CoderShardFor returned ok=false for a present coder entry, want true")
 		}
 		if got != coderShard {
-			t.Errorf("coderShardFor = %+v, want the picked entry's Shards[0] %+v", got, coderShard)
+			t.Errorf("CoderShardFor = %+v, want the picked entry's Shards[0] %+v", got, coderShard)
 		}
 	})
 
 	t.Run("no coder fit (empty id) → false", func(t *testing.T) {
 		rec := recommend.Recommendation{Coder: recommend.CoderFit{Model: ""}}
-		if _, ok := coderShardFor(rec, cat); ok {
-			t.Error("coderShardFor returned ok=true for an empty coder model id, want false")
+		if _, ok := install.CoderShardFor(rec, cat); ok {
+			t.Error("CoderShardFor returned ok=true for an empty coder model id, want false")
 		}
 	})
 
 	t.Run("picked id absent from catalog → false", func(t *testing.T) {
 		rec := recommend.Recommendation{Coder: recommend.CoderFit{Model: "not-in-catalog"}}
-		if _, ok := coderShardFor(rec, cat); ok {
-			t.Error("coderShardFor returned ok=true for an id absent from the catalog, want false")
+		if _, ok := install.CoderShardFor(rec, cat); ok {
+			t.Error("CoderShardFor returned ok=true for an id absent from the catalog, want false")
 		}
 	})
 
 	t.Run("entry present but no shards → false", func(t *testing.T) {
 		rec := recommend.Recommendation{Coder: recommend.CoderFit{Model: "qwen3-coder-no-shard"}}
-		if _, ok := coderShardFor(rec, cat); ok {
-			t.Error("coderShardFor returned ok=true for an entry with no shards, want false")
+		if _, ok := install.CoderShardFor(rec, cat); ok {
+			t.Error("CoderShardFor returned ok=true for an entry with no shards, want false")
 		}
 	})
 }

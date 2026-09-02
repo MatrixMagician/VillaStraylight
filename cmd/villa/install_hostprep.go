@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/MatrixMagician/VillaStraylight/internal/install"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 	"github.com/MatrixMagician/VillaStraylight/internal/preflight"
 )
@@ -68,7 +69,7 @@ func promptConsent(prompt string) bool {
 // liveReadinessPoll polls the server for readiness until the timeout, using the
 // default HTTP client. It is the production pollReady seam (Task 2 logic lives in
 // pollReadiness so it is unit-testable with a stub probe).
-func liveReadinessPoll(ctx context.Context, endpoint string) installReadiness {
+func liveReadinessPoll(ctx context.Context, endpoint string) install.Proof {
 	client := &http.Client{Timeout: readinessHTTPTimeout}
 	probe := func() (int, error) {
 		// Build the request with ctx so a cancelled/expired context aborts an
@@ -94,7 +95,7 @@ func liveReadinessPoll(ctx context.Context, endpoint string) installReadiness {
 // down (Pitfall 2). On deadline with no 200 it returns a typed-Unknown
 // WARN — never a confident FAIL. probe returns (statusCode, err); a transport
 // error or a non-200/503 status is also keep-polling until the deadline.
-func pollReadiness(ctx context.Context, probe func() (int, error), timeout, interval time.Duration) installReadiness {
+func pollReadiness(ctx context.Context, probe func() (int, error), timeout, interval time.Duration) install.Proof {
 	deadline := time.Now().Add(timeout)
 	var lastDetail = "server did not become ready before the timeout"
 
@@ -104,11 +105,11 @@ func pollReadiness(ctx context.Context, probe func() (int, error), timeout, inte
 		// wall-clock past the budget, and a context cancelled between probes aborts
 		// promptly.
 		if time.Now().After(deadline) {
-			return installReadiness{status: preflight.StatusWarn, detail: lastDetail}
+			return install.Proof{Status: preflight.StatusWarn, Detail: lastDetail}
 		}
 		select {
 		case <-ctx.Done():
-			return installReadiness{status: preflight.StatusWarn, detail: "readiness poll cancelled: " + ctx.Err().Error()}
+			return install.Proof{Status: preflight.StatusWarn, Detail: "readiness poll cancelled: " + ctx.Err().Error()}
 		default:
 		}
 
@@ -117,7 +118,7 @@ func pollReadiness(ctx context.Context, probe func() (int, error), timeout, inte
 		case err != nil:
 			lastDetail = fmt.Sprintf("not ready yet (%v)", err)
 		case code == http.StatusOK:
-			return installReadiness{status: preflight.StatusPass, detail: "server is ready (/health 200)"}
+			return install.Proof{Status: preflight.StatusPass, Detail: "server is ready (/health 200)"}
 		case code == http.StatusServiceUnavailable:
 			// 503: server is up but still loading — keep polling, never down.
 			lastDetail = "server is up but still loading the model (/health 503) — waiting"
@@ -127,12 +128,12 @@ func pollReadiness(ctx context.Context, probe func() (int, error), timeout, inte
 
 		if time.Now().After(deadline) {
 			// Timed out without a 200: typed-Unknown → WARN, not a confident FAIL.
-			return installReadiness{status: preflight.StatusWarn, detail: lastDetail}
+			return install.Proof{Status: preflight.StatusWarn, Detail: lastDetail}
 		}
 
 		select {
 		case <-ctx.Done():
-			return installReadiness{status: preflight.StatusWarn, detail: "readiness poll cancelled: " + ctx.Err().Error()}
+			return install.Proof{Status: preflight.StatusWarn, Detail: "readiness poll cancelled: " + ctx.Err().Error()}
 		case <-time.After(interval):
 		}
 	}

@@ -302,7 +302,7 @@ loop.
 | openwebui | The Open WebUI HTTP protocol, seamed at the transport; endpoint paths live here and nowhere else | `internal/openwebui/*.go` |
 | subsystem | The four optional-subsystem gates: is this subsystem on? | `internal/subsystem/subsystem.go` |
 | verify | The verify family's shape: gate → drive → resolve → exit code | `internal/verify/verify.go` |
-| install | Install's decisions, its mutate-and-start ordering, and its transaction | `internal/install/*.go` |
+| install | The whole install flow behind `Run(ctx, Deps, Opts) Result`: decisions, ordering, transaction, narration via `Emit` | `internal/install/*.go` |
 | pins | The compiled-in, enumerable pin registry: schema, allowlist, fallback, serial floor | `internal/pins/pins.go` |
 | pinstate | What THIS host runs: effective pins, retained tuples, serial, CheckedAt | `internal/pinstate/store.go` |
 | pinresolve | The one answer to "what should this component run?" — effective, else vetted | `internal/pinresolve/resolve.go` |

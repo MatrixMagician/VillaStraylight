@@ -12,6 +12,7 @@ import (
 
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
 	"github.com/MatrixMagician/VillaStraylight/internal/inference"
+	"github.com/MatrixMagician/VillaStraylight/internal/install"
 	"github.com/MatrixMagician/VillaStraylight/internal/preflight"
 	"github.com/MatrixMagician/VillaStraylight/internal/recommend"
 )
@@ -83,8 +84,16 @@ var errWizardCancelled = errors.New("install wizard cancelled")
 
 // liveWizard runs the guided install against the real terminal and RETURNS the
 // collected choices. It runs NO host fix.
-func liveWizard(ctx context.Context, in wizardInput) (wizardResult, error) {
-	return runWizard(ctx, in, os.Stdin, os.Stdout)
+func liveWizard(ctx context.Context, in install.WizardInput) (install.WizardResult, error) {
+	res, err := runWizard(ctx, wizardInput{
+		profile:      in.Profile,
+		rec:          in.Rec,
+		alternatives: in.Rec.Alternatives,
+		checks:       in.Checks,
+		backend:      in.Backend,
+		colorEnabled: colorEnabled(),
+	}, os.Stdin, os.Stdout)
+	return install.WizardResult{ModelOverride: res.modelOverride, Consents: res.consentDecisions}, err
 }
 
 // runWizard is the testable core: the same loop against injected streams, so the
@@ -115,7 +124,7 @@ func runWizard(ctx context.Context, in wizardInput, stdin io.Reader, stdout io.W
 		if !privilegedGap(c) {
 			continue
 		}
-		cmdStr := remediationCommand(c, hostUsername(in.profile))
+		cmdStr := install.RemediationCommand(c, hostUsername(in.profile))
 		p.print("")
 		p.print(fmt.Sprintf("  %s\n  command: %s", c.Detail, cmdStr))
 		ok, err := p.confirm(fmt.Sprintf("Run privileged host-prep for [%s]?", c.ID), false)
@@ -354,7 +363,7 @@ func privilegedGap(c preflight.CheckResult) bool {
 	if c.Status == preflight.StatusPass {
 		return false
 	}
-	return hasAutomatedFix(c.ID) && !safeAutoFix(c.ID)
+	return install.HasAutomatedFix(c.ID) && !install.SafeAutoFix(c.ID)
 }
 
 // statusWord maps a CheckResult to its (tier, word) for the row renderer.

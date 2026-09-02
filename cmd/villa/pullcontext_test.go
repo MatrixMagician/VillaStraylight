@@ -69,7 +69,7 @@ func TestEveryWeightPullObservesItsCommandContext(t *testing.T) {
 			if err != nil {
 				return err
 			}
-			return d.ensureModel(recommend.Recommendation{Model: modelID})
+			return d.EnsureModel(recommend.Recommendation{Model: modelID})
 		}},
 	}
 

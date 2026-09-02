@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,16 +12,16 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/catalog"
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/inprobe"
+	"github.com/MatrixMagician/VillaStraylight/internal/install"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 	"github.com/MatrixMagician/VillaStraylight/internal/preflight"
-	"github.com/MatrixMagician/VillaStraylight/internal/recall"
 	"github.com/MatrixMagician/VillaStraylight/internal/subsystem"
 )
 
 // install_memory.go holds the v1.3 MEMORY-STACK install wiring the `villa install`
 // verb gates on the PERSISTED memory_enabled (INFRA-02):
 //
-//   - nomicEmbedShard: the pinned nomic-embed-text-v1.5 Q8_0 GGUF pre-stage source.
+//   - install.NomicEmbedShard: the pinned nomic-embed-text-v1.5 Q8_0 GGUF pre-stage source.
 //     With memory on (and not dry-run), install pulls it into the villa-models volume
 //     via the existing internal/download path BEFORE starting villa-embed, and only
 //     when the file is absent (idempotent). This is the single sanctioned outbound
@@ -38,29 +37,10 @@ import (
 //     Task-2 half).
 //
 // The served `-m` path and this pre-stage filename are ONE source of truth: the embed
-// Quadlet Exec uses orchestrate.EmbedGGUFFilename(); nomicEmbedShard.Filename MUST equal
+// Quadlet Exec uses orchestrate.EmbedGGUFFilename(); install.NomicEmbedShard.Filename MUST equal
 // it (asserted unconditionally by TestEmbedGGUFFilenameSingleSource — no literal
 // fallback). Binding both ends to the one exported accessor makes them impossible to
 // drift (Pitfall 3).
-
-// nomicEmbedShard is the pinned nomic-embed-text-v1.5 Q8_0 GGUF pre-staged into the
-// villa-models volume at install (pre-stage source; zero runtime download).
-//
-// Provenance: HuggingFace HEAD 2026-06-09 — SizeBytes is X-Linked-Size, SHA256 is the
-// git-LFS oid (X-Linked-Etag, NOT the CDN/Xet chunk ETag — catalog.Shard doc, Pitfall 2).
-// The URL is the canonical resolve/main GGUF; download.PullModel verifies size + SHA256
-// before the atomic rename, so the file on disk is exactly this content or absent.
-//
-// The Filename is the on-disk name villa-embed serves via its `-m /models/<filename>`
-// Exec; it MUST equal orchestrate.EmbedGGUFFilename() (the single source of truth bound
-// at render time) so the staged file and the served path can never drift (Pitfall 3,
-// asserted unconditionally by TestEmbedGGUFFilenameSingleSource).
-var nomicEmbedShard = catalog.Shard{
-	URL:       "https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/main/nomic-embed-text-v1.5.Q8_0.gguf",
-	Filename:  "nomic-embed-text-v1.5.Q8_0.gguf",
-	SHA256:    "3e24342164b3d94991ba9692fdc0dd08e3fd7362e0aacc396a9a5c54a544c3b7",
-	SizeBytes: 146146432,
-}
 
 // qdrantServiceName is the systemd service the villa-qdrant .container generates
 // (Quadlet maps villa-qdrant.container → villa-qdrant.service). It is started BEFORE
@@ -75,10 +55,10 @@ const qdrantServiceName = "villa-qdrant.service"
 const embedServiceName = "villa-embed.service"
 
 // embedModelPath is the on-disk path of the pre-staged embed GGUF inside the models
-// dir. The filename is nomicEmbedShard.Filename (== orchestrate.EmbedGGUFFilename(),
+// dir. The filename is install.NomicEmbedShard.Filename (== orchestrate.EmbedGGUFFilename(),
 // the single source of truth — Pitfall 3); join with the resolved models dir.
 func embedModelPath(modelsDir string) string {
-	return filepath.Join(modelsDir, nomicEmbedShard.Filename)
+	return filepath.Join(modelsDir, install.NomicEmbedShard.Filename)
 }
 
 // liveEmbedModelPresent reports whether the pre-staged embed GGUF already exists on
@@ -86,7 +66,7 @@ func embedModelPath(modelsDir string) string {
 // re-pulled, strictly-local). It is the live wiring for the embedModelPresent seam.
 //
 // integrity guard: presence requires the on-disk size to MATCH
-// nomicEmbedShard.SizeBytes. A present-but-truncated/tampered file (e.g. a leftover from
+// install.NomicEmbedShard.SizeBytes. A present-but-truncated/tampered file (e.g. a leftover from
 // a kill between rename steps, or manual tampering) would otherwise be treated as
 // "present, never re-pulled" and villa-embed would crash-loop on the bad weight. A size
 // mismatch → not present → the verified download path re-pulls (download.PullModel then
@@ -100,10 +80,10 @@ func liveEmbedModelPresent(modelsDir string) bool {
 	// A size mismatch means a truncated/tampered file → treat as absent so it is re-pulled
 	// and re-verified, rather than trusting a corrupt weight. fi.Size() is non-negative for
 	// a regular file, so the uint64 conversion is safe.
-	return fi.Size() >= 0 && uint64(fi.Size()) == nomicEmbedShard.SizeBytes
+	return fi.Size() >= 0 && uint64(fi.Size()) == install.NomicEmbedShard.SizeBytes
 }
 
-// liveEnsureEmbedModel pre-stages nomicEmbedShard into modelsDir via the verified
+// liveEnsureEmbedModel pre-stages install.NomicEmbedShard into modelsDir via the verified
 // downloader the `model pull`/`model swap` path uses (the pullFn seam), wrapping the
 // shard in a single-shard catalog.Model. It creates the models dir 0700 first
 // (mirroring liveInstallDeps.ensureModel). download.PullModel does the HEAD size/etag
@@ -116,7 +96,7 @@ func liveEnsureEmbedModel(ctx context.Context, modelsDir string) error {
 	if mkErr := os.MkdirAll(modelsDir, 0o700); mkErr != nil {
 		return mkErr
 	}
-	m := catalog.Model{Shards: []catalog.Shard{nomicEmbedShard}}
+	m := catalog.Model{Shards: []catalog.Shard{install.NomicEmbedShard}}
 	return pullFn(ctx, m, modelsDir)
 }
 
@@ -148,32 +128,6 @@ func liveLoadedMemoryEnabled() bool {
 		return false
 	}
 	return subsystem.MemoryOn(c)
-}
-
-// warnRecallEmbeddingSkew is the Phase-23 read-only WARN surface for the
-// install memory readiness flow (CTRL-05): when the recall-state stamp
-// records an embedding identity that CONFIDENTLY diverges from the configured one,
-// print a WARN naming both identities, the consequence, and the remediation — and
-// do NOTHING else. Never a block (the caller's exit code is untouched), never a
-// state write, never a service mutation, never an auto-reindex (the Phase-22
-// diagnose-don't-mutate posture). The comparison is the single Plan 23-01 helper
-// (recall.EmbeddingSkew) — never re-rolled here. Typed-Unknown discipline: a nil
-// seam (test doubles), an unreadable state (real I/O fault), or an empty stamp all
-// degrade SILENTLY — no recorded truth means no alarm, and an unevaluable signal
-// is never escalated to a fabricated warning.
-func warnRecallEmbeddingSkew(errOut io.Writer, cfg config.VillaConfig, readRecallState func() (recall.State, error)) {
-	if readRecallState == nil {
-		return // seam absent (mirrors the doctor optional-seam pattern) — silent
-	}
-	st, err := readRecallState()
-	if err != nil {
-		return // unevaluable read ⇒ typed-Unknown ⇒ silent (never a fabricated alarm, never a block)
-	}
-	if recall.EmbeddingSkew(st, cfg.EmbeddingModel, cfg.EmbeddingDim) != recall.SkewMismatch {
-		return // match or empty stamp (SkewUnknown) — nothing to warn about
-	}
-	fmt.Fprintf(errOut, "install: WARN: the recall index was built with %s (dim %d) but config now says %s (dim %d) — retrieval from the existing collection is corrupt until re-index; run `villa recall index --rebuild` to re-index, or revert embedding_model/embedding_dim in config.toml.\n",
-		st.EmbeddingModel, st.EmbeddingDim, cfg.EmbeddingModel, cfg.EmbeddingDim)
 }
 
 // --- Memory-stack readiness proof (Task 2) -----------------

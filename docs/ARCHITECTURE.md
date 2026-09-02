@@ -137,13 +137,15 @@ a third sibling `Backend` implementation behind `BackendFor` without touching ca
 
 ## Data flow
 
-The canonical flow is the `villa install` lifecycle (`cmd/villa/install.go`,
-`runInstall`), which composes the pure cores in order. Since v1.6 install is
-**transactional** (ADR-0003): it captures the prior state before the first mutation
-and restores it if a mutation or a proof fails, so a failed install never leaves a
-running-but-unproven stack. Its decisions, gate resolution, plan assembly, and the
-mutate-and-start ORDER, live in `internal/install`; the command tier performs the
-effects and renders output.
+The canonical flow is the `villa install` lifecycle, `install.Run` in
+`internal/install/flow.go`, which composes the pure cores in order and returns a
+typed `Result` (ADR-0005). Since v1.6 install is **transactional** (ADR-0003): it
+captures the prior state before the first mutation and restores it if a mutation
+or a proof fails, so a failed install never leaves a running-but-unproven stack.
+The whole flow, gate resolution, plan assembly, the mutate-and-start ORDER and the
+transaction, lives in `internal/install`; the command tier (`cmd/villa/install.go`)
+wires the live host into `install.Deps` and renders the narration lines the flow
+emits through its `Emit` seam.
 
 1. **Detect**: `detect.Probe()` reads `/proc/meminfo`, `/sys/class/drm`,
    `/sys/module/ttm/parameters/pages_limit`, `/proc/sys/kernel/osrelease`, and the AMD
