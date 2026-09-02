@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/spf13/cobra"
 
@@ -813,11 +812,10 @@ func TestStatusExitCodes(t *testing.T) {
 // the podman invocation is routed through the injectable memoryProbeExec seam;
 // no live podman/network is touched. ---
 
-// resetMemoryHealthCache clears the TTL cache so each test starts cold.
+// resetMemoryHealthCache clears the TTL caches so each test starts cold.
 func resetMemoryHealthCache() {
-	memoryHealthMu.Lock()
-	memoryHealthAt = time.Time{}
-	memoryHealthMu.Unlock()
+	memoryHealthCache.Reset()
+	webSearchHealthCache.Reset()
 }
 
 // swapMemoryProbeExec installs a fake probe runner and restores it (plus a cold

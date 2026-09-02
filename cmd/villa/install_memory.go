@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -13,6 +12,7 @@ import (
 
 	"github.com/MatrixMagician/VillaStraylight/internal/catalog"
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
+	"github.com/MatrixMagician/VillaStraylight/internal/inprobe"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 	"github.com/MatrixMagician/VillaStraylight/internal/preflight"
 	"github.com/MatrixMagician/VillaStraylight/internal/recall"
@@ -382,7 +382,7 @@ func runProbeCurlCode(ctx context.Context, helperImage string, curlArgs ...strin
 	if runErr == nil {
 		return out.Bytes(), 0, nil
 	}
-	code := extractExitCode(runErr)
+	code := inprobe.ExitCode(runErr)
 	if stderr.Len() > 0 {
 		return out.Bytes(), code, fmt.Errorf("%w: %s", runErr, stderr.String())
 	}
@@ -394,25 +394,4 @@ func runProbeCurlCode(ctx context.Context, helperImage string, curlArgs ...strin
 func runProbeCurl(ctx context.Context, helperImage string, curlArgs ...string) ([]byte, error) {
 	out, _, err := runProbeCurlCode(ctx, helperImage, curlArgs...)
 	return out, err
-}
-
-// extractExitCode is the load-bearing exit-code mapping pulled out of runProbeCurlCode so
-// it can be anchored by a real-exec test (the full podman-run helper is not driveable off-
-// hardware). It is the SINGLE point that decides "this is a genuine process exit code" vs "the
-// process never started" — the distinction the egress negative control's honesty rests on:
-//
-//   - runErr is an *exec.ExitError (the process ran and exited non-zero): return its ExitCode().
-//     podman propagates the container process's (curl's) exit code unchanged, so a curl
-//     CONNECTION/TIMEOUT (6/7/28) surfaces here and the classifier reads it as a genuine block.
-//   - runErr is anything else (binary missing, podman daemon error, context cancel/timeout — a
-//     non-ExitError failure): the process never produced an exit code, so return -1. The caller
-//     MUST treat -1 as infrastructure ("the probe could not run"), NEVER as a curl exit value
-//     and NEVER as a block (classifyEgressProbe's default branch).
-//
-// runErr == nil is not this function's concern (the caller short-circuits to 0 before calling).
-func extractExitCode(runErr error) int {
-	if exitErr, ok := errors.AsType[*exec.ExitError](runErr); ok {
-		return exitErr.ExitCode()
-	}
-	return -1
 }

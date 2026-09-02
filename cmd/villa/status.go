@@ -9,8 +9,6 @@ import (
 	"net/http"
 	"os"
 	"strconv"
-	"strings"
-	"sync"
 	"text/tabwriter"
 	"time"
 
@@ -21,6 +19,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
 	"github.com/MatrixMagician/VillaStraylight/internal/inference"
+	"github.com/MatrixMagician/VillaStraylight/internal/inprobe"
 	"github.com/MatrixMagician/VillaStraylight/internal/metrics"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 	"github.com/MatrixMagician/VillaStraylight/internal/pinstate"
@@ -440,68 +439,42 @@ const memoryProbeTimeout = 10 * time.Second
 // discarded, which was a third way of doing the same thing and could drift from the
 // other two. Package-level var so status_test.go runs the mapping/TTL tests
 // hermetically.
-var memoryProbeExec = runProbeCurlCode
+var memoryProbeExec inprobe.Exec = runProbeCurlCode
 
-// mapMemoryProbe maps one probe outcome to a HealthState with the typed-Unknown
-// doctrine: an HTTP code written by curl is a CONFIDENT verdict (200→ready,
-// 503→loading —, anything else→down); a curl-level failure (exit < 125
-// connect refused/timeout INSIDE villa.network) is a confident down (the network
-// was evaluable, the service was not there); a podman-level failure (exit
-// 125/126/127, or podman absent/unstartable) means the probe itself was
-// unevaluable → HealthUnknown, NEVER a fabricated confident state.
-func mapMemoryProbe(out []byte, exitCode int, err error) status.HealthState {
-	if err != nil {
-		if exitCode >= 125 || exitCode < 0 {
-			return status.HealthUnknown // podman-level: could not evaluate the probe
-		}
-		return status.HealthDown // curl-level: evaluated in-network, service unreachable
-	}
-	switch strings.TrimSpace(string(out)) {
-	case "200":
-		return status.HealthReady
-	case "503":
-		return status.HealthLoading
-	default:
-		return status.HealthDown
+// statusProber is the in-network HTTP-code prober for the status rows: the
+// typed-Unknown mapping doctrine lives in internal/inprobe (stated once, tested
+// there); this binds it to the live exec seam, the orchestrate helper-image
+// accessor (no re-typed literal), and the status timeouts.
+func statusProber() inprobe.Prober {
+	return inprobe.Prober{
+		Exec: func(ctx context.Context, img string, args ...string) ([]byte, int, error) {
+			return memoryProbeExec(ctx, img, args...)
+		},
+		Image:   func() string { return orchestrate.EmbedImage() }, // probe helper, never a pin (spec §7.1)
+		Timeout: memoryProbeTimeout,
+		MaxTime: statusHTTPTimeout,
 	}
 }
 
-// probeMemoryURL runs one bounded in-network probe against url: curl writes ONLY
-// the HTTP code (-s -o /dev/null -w %%{http_code}) with --max-time mirroring
-// statusHTTPTimeout, under a parent context bound. The helper image is the
-// orchestrate accessor (no re-typed literal).
+// probeMemoryURL runs one bounded in-network probe against url via the shared
+// prober (curl writes ONLY the HTTP code; 200→ready, 503→loading — the
+// inprobe.MapCoded doctrine).
 func probeMemoryURL(url string) status.HealthState {
-	ctx, cancel := context.WithTimeout(context.Background(), memoryProbeTimeout)
-	defer cancel()
-	out, code, err := memoryProbeExec(ctx, orchestrate.EmbedImage(),
-		"-s", "-o", "/dev/null", "-w", "%{http_code}",
-		"--max-time", strconv.Itoa(int(statusHTTPTimeout/time.Second)),
-		url)
-	return mapMemoryProbe(out, code, err)
+	return statusProber().Coded(url)
 }
 
-// Package-level memory-health cache (OQ2): mutex-guarded, keyed only on time
-// (single config per process). One refresh probes BOTH services together so the
-// dashboard poll spawns at most one probe pair per memoryHealthTTL window.
-var (
-	memoryHealthMu     sync.Mutex
-	memoryHealthAt     time.Time
-	memoryHealthQdrant status.HealthState
-	memoryHealthEmbed  status.HealthState
-)
+// memoryHealthCache is the TTL-bounded pair cache (OQ2): one refresh probes BOTH
+// services together so the dashboard poll spawns at most one probe pair per
+// memoryHealthTTL window (the inprobe.PairCache discipline).
+var memoryHealthCache = &inprobe.PairCache{TTL: memoryHealthTTL}
 
 // memoryHealthSnapshot returns the cached (qdrant, embed) health pair,
 // refreshing BOTH probes together when the TTL window has lapsed.
 func memoryHealthSnapshot(qAddr string, qPort int, eAddr string, ePort int) (status.HealthState, status.HealthState) {
-	memoryHealthMu.Lock()
-	defer memoryHealthMu.Unlock()
-	if !memoryHealthAt.IsZero() && time.Since(memoryHealthAt) < memoryHealthTTL {
-		return memoryHealthQdrant, memoryHealthEmbed
-	}
-	memoryHealthQdrant = probeMemoryURL("http://" + net.JoinHostPort(qAddr, strconv.Itoa(qPort)) + "/readyz")
-	memoryHealthEmbed = probeMemoryURL("http://" + net.JoinHostPort(eAddr, strconv.Itoa(ePort)) + "/health")
-	memoryHealthAt = time.Now()
-	return memoryHealthQdrant, memoryHealthEmbed
+	return memoryHealthCache.Pair(func() (status.HealthState, status.HealthState) {
+		return probeMemoryURL("http://" + net.JoinHostPort(qAddr, strconv.Itoa(qPort)) + "/readyz"),
+			probeMemoryURL("http://" + net.JoinHostPort(eAddr, strconv.Itoa(ePort)) + "/health")
+	})
 }
 
 // liveQdrantHealth probes the Qdrant /readyz endpoint in-network (TTL-cached
@@ -548,33 +521,22 @@ func liveReadRecallState() *recall.State {
 	return &st
 }
 
-// Package-level web-search-health cache: mutex-guarded, keyed
-// only on time (single config per process), mirroring the memory-health pair. One
-// refresh probes BOTH services together so the dashboard poll spawns at most one
-// probe pair per memoryHealthTTL window.
-var (
-	webSearchHealthMu      sync.Mutex
-	webSearchHealthAt      time.Time
-	webSearchHealthSearxng status.HealthState
-	webSearchHealthWebsafe status.HealthState
-)
+// Package-level web-search-health pair cache: mirrors the memory-health pair
+// (the inprobe.PairCache discipline) so one refresh probes BOTH services
+// together per memoryHealthTTL window.
+var webSearchHealthCache = &inprobe.PairCache{TTL: memoryHealthTTL}
 
 // webSearchHealthSnapshot returns the cached (searxng, websafe) health pair,
 // refreshing BOTH probes together when the TTL window has lapsed. SearXNG exposes a
 // standard /healthz (200→ready); the villa-websafe loader serves only its single
-// POST /load route, so a liveness GET is mapped via mapWebsafeProbe (any HTTP
+// POST /load route, so a liveness GET is mapped via inprobe.MapLiveness (any HTTP
 // response = up; connect refused = down) — never the searxng 200-only mapping that
 // would mis-read websafe's 401/400/405 as down.
 func webSearchHealthSnapshot(sxAddr string, sxPort int, wsAddr string, wsPort int) (status.HealthState, status.HealthState) {
-	webSearchHealthMu.Lock()
-	defer webSearchHealthMu.Unlock()
-	if !webSearchHealthAt.IsZero() && time.Since(webSearchHealthAt) < memoryHealthTTL {
-		return webSearchHealthSearxng, webSearchHealthWebsafe
-	}
-	webSearchHealthSearxng = probeMemoryURL("http://" + net.JoinHostPort(sxAddr, strconv.Itoa(sxPort)) + "/healthz")
-	webSearchHealthWebsafe = probeWebsafeURL("http://" + net.JoinHostPort(wsAddr, strconv.Itoa(wsPort)) + "/load")
-	webSearchHealthAt = time.Now()
-	return webSearchHealthSearxng, webSearchHealthWebsafe
+	return webSearchHealthCache.Pair(func() (status.HealthState, status.HealthState) {
+		return probeMemoryURL("http://" + net.JoinHostPort(sxAddr, strconv.Itoa(sxPort)) + "/healthz"),
+			probeWebsafeURL("http://" + net.JoinHostPort(wsAddr, strconv.Itoa(wsPort)) + "/load")
+	})
 }
 
 // liveSearxngHealth probes the SearXNG /healthz endpoint in-network (TTL-cached pair
@@ -595,39 +557,12 @@ func liveWebsafeHealth(addr string, port int) status.HealthState {
 
 // probeWebsafeURL runs one bounded in-network liveness probe against the villa-websafe
 // loader. Because the loader exposes ONLY a POST /load route (no /healthz), a GET
-// elicits a 401/400/405 — all of which prove the server is UP. mapWebsafeProbe treats
-// ANY HTTP code curl wrote as "ready" and only a curl-/podman-level failure as
+// elicits a 401/400/405 — all of which prove the server is UP. inprobe.MapLiveness
+// treats ANY HTTP code curl wrote as "ready" and only a curl-/podman-level failure as
 // down/unknown — never the searxng 200-only mapping (which would false-negative every
 // healthy websafe).
 func probeWebsafeURL(url string) status.HealthState {
-	ctx, cancel := context.WithTimeout(context.Background(), memoryProbeTimeout)
-	defer cancel()
-	out, code, err := memoryProbeExec(ctx, orchestrate.EmbedImage(),
-		"-s", "-o", "/dev/null", "-w", "%{http_code}",
-		"--max-time", strconv.Itoa(int(statusHTTPTimeout/time.Second)),
-		url)
-	return mapWebsafeProbe(out, code, err)
-}
-
-// mapWebsafeProbe maps a villa-websafe liveness-probe outcome with the typed-Unknown
-// doctrine, adapted for a server with NO health route: ANY HTTP code curl wrote means
-// the server answered (→ready); a curl-level failure (connect refused/timeout inside
-// villa.network) is a confident down; a podman-level failure (exit ≥125 or <0) is
-// unevaluable → HealthUnknown, NEVER a fabricated confident state.
-func mapWebsafeProbe(out []byte, exitCode int, err error) status.HealthState {
-	if err != nil {
-		if exitCode >= 125 || exitCode < 0 {
-			return status.HealthUnknown // podman-level: could not evaluate the probe
-		}
-		return status.HealthDown // curl-level: evaluated in-network, service unreachable
-	}
-	if code := strings.TrimSpace(string(out)); code != "" && code != "000" {
-		// The loader answered with an HTTP status (200/400/401/405) — it is UP. curl
-		// writes "000" when it got no HTTP response despite exit 0 (rare); treat that
-		// as down, never a fabricated ready.
-		return status.HealthReady
-	}
-	return status.HealthDown
+	return statusProber().Liveness(url)
 }
 
 // liveReadVerifyState loads verify-search-state.json READ-ONLY,

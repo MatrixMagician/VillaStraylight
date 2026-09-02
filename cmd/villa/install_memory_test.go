@@ -2,7 +2,6 @@ package main
 
 import (
 	"errors"
-	"os/exec"
 	"strings"
 	"testing"
 
@@ -147,44 +146,6 @@ func TestInstallMemorySkewWarn(t *testing.T) {
 		}
 		if strings.Contains(errOut.String(), "recall index") {
 			t.Errorf("a nil seam must be silent; stderr = %q", errOut.String())
-		}
-	})
-}
-
-// TestExtractExitCode anchors the load-bearing exit-code mapping that runProbeCurlCode
-// relies on to tell a genuine block (curl CONNECTION/TIMEOUT exit 6/7/28) from "the probe
-// could not run" (-1). The classifier (classifyEgressProbe) is exhaustively tested with
-// SYNTHETIC codes; this test anchors the extraction itself against the REAL os/exec runtime so
-// a future Go/exec behavior drift in the *exec.ExitError → ExitCode() path (or the never-started
-// non-ExitError path) is caught here rather than silently miscategorizing a timeout as a block
-// (or vice-versa) at runtime on the host. It uses a real fixed-arg command, never a shell of the
-// production helper, so it stays hermetic and off-hardware (no podman/curl needed).
-func TestExtractExitCode(t *testing.T) {
-	t.Run("process ran and exited non-zero → its real exit code (anchors errors.As/ExitCode)", func(t *testing.T) {
-		// A real process that exits with a known non-zero status (mirrors curl 6/7/28 — a genuine
-		// connection/timeout block surfacing as the container process's exit code).
-		runErr := exec.Command("sh", "-c", "exit 7").Run()
-		if runErr == nil {
-			t.Fatalf("expected a non-nil run error for `sh -c 'exit 7'`")
-		}
-		if got := extractExitCode(runErr); got != 7 {
-			t.Errorf("extractExitCode(exit-7 error) = %d, want 7", got)
-		}
-	})
-
-	t.Run("binary never started → -1, NEVER a curl exit value (infra, never a block)", func(t *testing.T) {
-		// A binary that does not exist never produces a process exit code; cmd.Run returns a
-		// non-*exec.ExitError (an *exec.Error / *fs.PathError), exactly the never-started case
-		// (podman missing / daemon error) the classifier must read as infrastructure, not a block.
-		runErr := exec.Command("villa-no-such-binary-extractexitcode-xyzzy").Run()
-		if runErr == nil {
-			t.Fatalf("expected a non-nil run error for a nonexistent binary")
-		}
-		if _, ok := errors.AsType[*exec.ExitError](runErr); ok {
-			t.Fatalf("a nonexistent binary must NOT surface as *exec.ExitError; got %T", runErr)
-		}
-		if got := extractExitCode(runErr); got != -1 {
-			t.Errorf("extractExitCode(never-started error) = %d, want -1", got)
 		}
 	})
 }
