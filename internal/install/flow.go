@@ -245,7 +245,8 @@ func Run(ctx context.Context, d Deps, opts Opts) Result {
 		}
 		w, werr := d.Wizard(ctx, WizardInput{Profile: profile, Rec: rec, Checks: checks, Backend: backend})
 		if werr != nil {
-			warn("Install cancelled — no changes were made. Re-run villa install, or villa install --no-tui for the flag-driven path.\n")
+			// Esc / Ctrl+C / Cancel: a clean abort, nothing written, pulled or persisted.
+			return block("Install cancelled — no changes were made. Re-run villa install, or villa install --no-tui for the flag-driven path.\n")
 		}
 		// A chosen override is re-validated through the SAME pick seam so the rec is
 		// byte-identical to the flag path's. Checks are host-prep, not re-run.
@@ -273,6 +274,10 @@ func Run(ctx context.Context, d Deps, opts Opts) Result {
 	if err != nil {
 		return block("install: cannot resolve the Quadlet unit dir: %v\n", err)
 	}
+	// persisted is the config as it was BEFORE this run's plan is applied: it is
+	// what a rollback restores. Capturing the assembled config instead would
+	// "restore" this run's model, quant and context over the operator's.
+	persisted := cfg
 	plan := AssemblePlan(cfg, gates, rec, PersistedBackendChosen)
 	cfg = plan.Config
 
@@ -404,7 +409,7 @@ func Run(ctx context.Context, d Deps, opts Opts) Result {
 		}
 	}
 	hadConfig := d.ConfigExists == nil || d.ConfigExists()
-	prior := CapturePrior(cfg, hadConfig, priorUnits, priorRunning)
+	prior := CapturePrior(persisted, hadConfig, priorUnits, priorRunning)
 	var mutated Mutations
 
 	// refuse rolls the host back to the captured state. An incomplete restore is
@@ -445,7 +450,7 @@ func Run(ctx context.Context, d Deps, opts Opts) Result {
 	// (7b) Reconcile the native dashboard unit on BOTH paths, so a re-install with
 	// unchanged containers still repairs it. Idempotent: a matching unit is a no-op.
 	if err := reconcileDashboard(d, say, mutated.RecordStart); err != nil {
-		return block("install: %v\n", err)
+		return refuse("install: %v\n", err)
 	}
 
 	// (8) True no-op: reached only AFTER the weights, config and dashboard unit are
@@ -493,16 +498,16 @@ func Run(ctx context.Context, d Deps, opts Opts) Result {
 		if cfg.WebLoaderSecret == "" {
 			secret, gerr := config.GenerateWebLoaderSecret()
 			if gerr != nil {
-				return block("install: generate web loader secret failed: %v\n", gerr)
+				return refuse("install: generate web loader secret failed: %v\n", gerr)
 			}
 			cfg.WebLoaderSecret = secret
 			if serr := d.SaveConfig(cfg); serr != nil {
-				return block("install: persist web loader secret failed: %v\n", serr)
+				return refuse("install: persist web loader secret failed: %v\n", serr)
 			}
 		}
 		envName, envText := orchestrate.RenderWebsafeSecretEnv(cfg.WebLoaderSecret)
 		if werr := d.WriteWebsafeSecretEnv(envName, envText); werr != nil {
-			return block("install: write websafe secret env failed: %v\n", werr)
+			return refuse("install: write websafe secret env failed: %v\n", werr)
 		}
 	}
 
@@ -537,23 +542,23 @@ func Run(ctx context.Context, d Deps, opts Opts) Result {
 		if cfg.SearxngSecret == "" {
 			secret, gerr := config.GenerateSearxngSecret()
 			if gerr != nil {
-				return block("install: generate searxng secret failed: %v\n", gerr)
+				return refuse("install: generate searxng secret failed: %v\n", gerr)
 			}
 			cfg.SearxngSecret = secret
 			if serr := d.SaveConfig(cfg); serr != nil {
-				return block("install: persist searxng secret failed: %v\n", serr)
+				return refuse("install: persist searxng secret failed: %v\n", serr)
 			}
 		}
 		settingsName, settingsText, rerr := orchestrate.RenderSearxngSettings(cfg)
 		if rerr != nil {
-			return block("install: render searxng settings failed: %v\n", rerr)
+			return refuse("install: render searxng settings failed: %v\n", rerr)
 		}
 		if werr := d.WriteSearxngSettings(settingsName, settingsText); werr != nil {
-			return block("install: write searxng settings failed: %v\n", werr)
+			return refuse("install: write searxng settings failed: %v\n", werr)
 		}
 		envName, envText := orchestrate.RenderSearxngSecretEnv(cfg.SearxngSecret)
 		if werr := d.WriteSearxngSecretEnv(envName, envText); werr != nil {
-			return block("install: write searxng secret env failed: %v\n", werr)
+			return refuse("install: write searxng secret env failed: %v\n", werr)
 		}
 		if err := start(units.Searxng); err != nil {
 			return refuse("install: start %s failed: %v\n", units.Searxng, err)
@@ -595,8 +600,10 @@ func Run(ctx context.Context, d Deps, opts Opts) Result {
 		say("coding agent ready: %s\n", proof.Detail)
 	}
 
+	// A violation here is a flow bug, found after every mutation ran, so it rolls
+	// back like any other post-capture failure.
 	if err := AssertStartOrder(seq, performed); err != nil {
-		return block("install: %v\n", err)
+		return refuse("install: %v\n", err)
 	}
 
 	res.ReadinessWarn = ready.Status == preflight.StatusWarn

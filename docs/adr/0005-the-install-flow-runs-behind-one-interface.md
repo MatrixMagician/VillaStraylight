@@ -51,3 +51,10 @@ verdicts stay cmd-side types because the verify family shares them, and the live
 wiring adapts each to a `Proof` at the seam. The flow's host-prep gate
 (`gateInstall` and its consent helpers) moves with the flow; the wizard keeps
 calling the remediation helpers, now exported from the core.
+
+Moving the flow behind a transactional interface exposed three sites where a
+post-mutation failure was treated as a pre-mutation block, so ADR-0003's rollback
+never ran: the web-search secret and settings writes after the units were started,
+and the dashboard reconcile after the config save. They now refuse, which rolls
+back. A wizard cancel, documented as an abort, fell through into the gate; it now
+blocks before any mutation.

@@ -306,7 +306,8 @@ func TestInstallDashboardUnitTargetsResolvedBinary(t *testing.T) {
 
 // TestInstallFailsClosedWhenBinaryUnresolvable: when the binary-path resolver
 // errors, install must FAIL and write NO dashboard unit — it must never fall back
-// to a fixed path.
+// to a fixed path. The failure lands AFTER the config save, so it is a Refused
+// (rolled back), not a Blocked.
 func TestInstallFailsClosedWhenBinaryUnresolvable(t *testing.T) {
 	units := []orchestrate.Unit{{Name: "villa-llama.container", Text: "[Container]\n"}}
 	plan := orchestrate.Plan{Changed: units}
@@ -314,8 +315,8 @@ func TestInstallFailsClosedWhenBinaryUnresolvable(t *testing.T) {
 	f.ResolveBinaryPath = func() (string, error) { return "", errors.New("os.Executable: boom") }
 
 	res, _, errOut := f.runResult(Opts{})
-	if res.Outcome != Blocked {
-		t.Fatalf("outcome = %q, want %q when the binary path is unresolvable", res.Outcome, Blocked)
+	if res.Outcome != Refused {
+		t.Fatalf("outcome = %q, want %q when the binary path is unresolvable", res.Outcome, Refused)
 	}
 	if res.Outcome.ExitCode() != exitBlocked {
 		t.Fatalf("exit = %d, want exitBlocked (%d)", res.Outcome.ExitCode(), exitBlocked)
@@ -1640,4 +1641,121 @@ func TestRunGatesResolvedOnce(t *testing.T) {
 	if checksCalls != 1 || memCalls != 1 || f.agentChecksCalls != 1 {
 		t.Errorf("gates must each resolve once: checks=%d memory=%d agent=%d", checksCalls, memCalls, f.agentChecksCalls)
 	}
+}
+
+// TestRunWizardCancelBlocksBeforeMutation: Esc / Ctrl+C in the wizard is a clean
+// abort — Blocked, the contracted "no changes were made" line, and NOT ONE mutating
+// seam called. (The old flow fell through the cancel and carried on.)
+func TestRunWizardCancelBlocksBeforeMutation(t *testing.T) {
+	units := []orchestrate.Unit{{Name: "villa-llama.container", Text: "[Container]\n"}}
+	plan := orchestrate.Plan{Changed: units}
+	f := newFakeDeps(t, units, plan, passChecks())
+	f.Interactive = func() bool { return true }
+	f.StdoutIsTTY = func() bool { return true }
+	f.Wizard = func(context.Context, WizardInput) (WizardResult, error) {
+		f.wizardCalls++
+		return WizardResult{}, errors.New("cancelled")
+	}
+
+	res, _, errOut := f.runResult(Opts{})
+	if res.Outcome != Blocked {
+		t.Fatalf("outcome = %q, want %q", res.Outcome, Blocked)
+	}
+	if f.wizardCalls != 1 {
+		t.Errorf("wizard calls = %d, want 1", f.wizardCalls)
+	}
+	if !strings.Contains(errOut.String(), "Install cancelled — no changes were made.") {
+		t.Errorf("a cancel must print the contracted line, got %q", errOut.String())
+	}
+	if f.saveCalls != 0 || f.writeCalls != 0 || f.startCalls != 0 || f.pullCalls != 0 || f.dashWriteCalls != 0 {
+		t.Errorf("a cancelled wizard must not mutate: save=%d write=%d start=%d pull=%d dash=%d",
+			f.saveCalls, f.writeCalls, f.startCalls, f.pullCalls, f.dashWriteCalls)
+	}
+}
+
+// TestRunPostMutationWriteFailuresRollBack: a write that fails AFTER mutation began
+// is a Refused with a rollback, never a Blocked that leaves the half-written stack:
+// a searxng settings write failure stops the inference it started, and a dashboard
+// user-unit-dir failure right after the config save restores the config.
+func TestRunPostMutationWriteFailuresRollBack(t *testing.T) {
+	t.Run("searxng settings write failure stops what was started", func(t *testing.T) {
+		units, plan := webUnits()
+		f := newFakeDeps(t, units, plan, passChecks())
+		f.activeState = "inactive" // a clean host, so a started service is stopped, not restarted
+		f.WriteSearxngSettings = func(string, string) error { return errors.New("read-only filesystem") }
+
+		res, _, _ := f.runResult(Opts{WebSearch: true})
+		if res.Outcome != Refused {
+			t.Fatalf("outcome = %q, want %q", res.Outcome, Refused)
+		}
+		if !contains(f.callOrder, "stop:"+installServiceName) {
+			t.Errorf("the rollback must stop the inference it started; callOrder = %v", f.callOrder)
+		}
+		if res.RollbackReason == "" {
+			t.Error("a Refused result must carry the rollback's reason")
+		}
+		if !strings.Contains(res.Reason, "write searxng settings failed") {
+			t.Errorf("Reason = %q, want the failed write named", res.Reason)
+		}
+	})
+
+	for _, tc := range []struct {
+		name string
+		fail func(f *fakeDeps)
+		want string
+	}{
+		{"websafe secret env", func(f *fakeDeps) {
+			f.WriteWebsafeSecretEnv = func(string, string) error { return errors.New("read-only filesystem") }
+		}, "write websafe secret env failed"},
+		{"searxng secret env", func(f *fakeDeps) {
+			f.WriteSearxngSecretEnv = func(string, string) error { return errors.New("read-only filesystem") }
+		}, "write searxng secret env failed"},
+	} {
+		t.Run(tc.name+" write failure stops what was started", func(t *testing.T) {
+			units, plan := webUnits()
+			f := newFakeDeps(t, units, plan, passChecks())
+			f.activeState = "inactive"
+			tc.fail(f)
+
+			res, _, _ := f.runResult(Opts{WebSearch: true})
+			if res.Outcome != Refused {
+				t.Fatalf("outcome = %q, want %q", res.Outcome, Refused)
+			}
+			if !contains(f.callOrder, "stop:"+installServiceName) {
+				t.Errorf("the rollback must stop the inference it started; callOrder = %v", f.callOrder)
+			}
+			if !strings.Contains(res.Reason, tc.want) {
+				t.Errorf("Reason = %q, want %q named", res.Reason, tc.want)
+			}
+		})
+	}
+
+	t.Run("dashboard user-unit-dir failure after the config save restores the config", func(t *testing.T) {
+		units := []orchestrate.Unit{{Name: "villa-llama.container", Text: "[Container]\n"}}
+		plan := orchestrate.Plan{Changed: units}
+		f := newFakeDeps(t, units, plan, passChecks())
+		persisted := config.DefaultVillaConfig()
+		persisted.ChatPort = 4444
+		f.persistedConfig = &persisted
+		f.UserUnitDir = func() (string, error) { return "", errors.New("no HOME") }
+
+		res, _, _ := f.runResult(Opts{})
+		if res.Outcome != Refused {
+			t.Fatalf("outcome = %q, want %q", res.Outcome, Refused)
+		}
+		if f.saveCalls != 2 {
+			t.Fatalf("saveCalls = %d, want 2 (the install's save, then the rollback's restore)", f.saveCalls)
+		}
+		// The restore re-saves the config as it was BEFORE this run, verbatim: the
+		// persisted customisations AND the persisted model/quant/ctx. The old
+		// cmd-tier flow captured after the plan was applied, so a rollback "restored"
+		// the new recommendation over the operator's model.
+		want, _ := f.LoadConfig()
+		if !reflect.DeepEqual(f.savedCfg, want) {
+			t.Errorf("the rollback must restore the persisted config verbatim:\n got %+v\nwant %+v", f.savedCfg, want)
+		}
+		if f.writeCalls != 0 || f.startCalls != 0 {
+			t.Errorf("nothing past the dashboard reconcile may run: write=%d start=%d", f.writeCalls, f.startCalls)
+		}
+	})
 }
