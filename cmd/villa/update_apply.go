@@ -36,52 +36,6 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/updateflow"
 )
 
-// subsystemUnits maps a subsystem to the Quadlet units and services that move with
-// it.
-//
-// The grouping is the PROOF UNIT, not a convenience: one `verify memory` proves
-// Qdrant and the embedder together, so they capture, mutate and roll back together.
-// Splitting them would produce a pairing with no proof and no meaning.
-func subsystemUnits(k subsystem.Kind) (units []string, services []string) {
-	switch k {
-	case subsystem.Inference:
-		return []string{"villa-llama.container"}, []string{installServiceName}
-	case subsystem.Chat:
-		return []string{"villa-openwebui.container"}, []string{openWebUIServiceName}
-	case subsystem.Memory:
-		return []string{"villa-qdrant.container", "villa-embed.container"},
-			[]string{qdrantServiceName, embedServiceName}
-	case subsystem.WebSearch:
-		return []string{"villa-searxng.container", "villa-websafe.container"},
-			[]string{searxngServiceName, websafeServiceName}
-	case subsystem.Agent:
-		// The Crush binary is a file, not a unit: nothing to render and nothing to
-		// restart. It is still a subsystem because `verify agent` proves it.
-		return nil, nil
-	}
-	return nil, nil
-}
-
-// perSubsystemBudget is how long one subsystem gets.
-//
-// PER SUBSYSTEM, deliberately, with no global cap: a total cap would make failures
-// depend on ordering, so the last subsystem gets blamed for time the first four
-// spent. The values mirror what each proof already costs — inference carries the
-// residency proof, which ADR-0001 calls the expensive part, and it runs twice.
-func perSubsystemBudget(k subsystem.Kind) time.Duration {
-	switch k {
-	case subsystem.Inference:
-		return 10 * time.Minute
-	case subsystem.Chat:
-		return 3 * time.Minute
-	case subsystem.Memory, subsystem.WebSearch:
-		return 5 * time.Minute
-	case subsystem.Agent:
-		return 3 * time.Minute
-	}
-	return 5 * time.Minute
-}
-
 // liveUpdateFlowDeps wires the state machine to the real host.
 //
 // The proofs are the ones each subsystem ALREADY has, reused verbatim rather than
@@ -146,7 +100,7 @@ func liveUpdateFlowDeps(context.Context) updateflow.Deps {
 		// deadline. The core defers the cancel, so a run that halts early releases
 		// the remaining timers instead of leaking one per subsystem.
 		Budget: func(c context.Context, k subsystem.Kind) (context.Context, context.CancelFunc) {
-			return context.WithTimeout(c, perSubsystemBudget(k))
+			return context.WithTimeout(c, k.UpdateBudget())
 		},
 
 		Now: func() string { return time.Now().UTC().Format(time.RFC3339) },
@@ -212,7 +166,7 @@ func liveCapture(k subsystem.Kind) (updateflow.Capture, error) {
 	if err != nil {
 		return updateflow.Capture{}, err
 	}
-	units, _ := subsystemUnits(k)
+	units, _ := k.Units()
 	for _, name := range units {
 		data, err := os.ReadFile(filepath.Join(dir, name))
 		if err != nil {
@@ -268,7 +222,7 @@ func liveMutate(ctx context.Context, sys orchestrate.Systemd, k subsystem.Kind, 
 		return err
 	}
 
-	_, services := subsystemUnits(k)
+	_, services := k.Units()
 	for _, svc := range services {
 		if ctx.Err() != nil {
 			return ctx.Err()
@@ -303,7 +257,7 @@ func liveRestoreSubsystem(ctx context.Context, sys orchestrate.Systemd, k subsys
 		return err
 	}
 
-	_, services := subsystemUnits(k)
+	_, services := k.Units()
 	for _, svc := range services {
 		if ctx.Err() != nil {
 			return ctx.Err()

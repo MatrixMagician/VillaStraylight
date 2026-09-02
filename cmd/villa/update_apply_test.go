@@ -354,46 +354,6 @@ func TestACommitFailureWarnsWithoutReadingAsAFailedUpdate(t *testing.T) {
 	}
 }
 
-// TestSubsystemsMoveAsTheirProofUnit: the proof unit is the verify verb's scope, so
-// memory's units and services are Qdrant AND the embedder. Splitting them would
-// produce a pairing with no proof and no meaning.
-func TestSubsystemsMoveAsTheirProofUnit(t *testing.T) {
-	units, services := subsystemUnits(subsystem.Memory)
-	if len(units) != 2 || len(services) != 2 {
-		t.Errorf("memory moves %d units / %d services, want both halves of the pairing", len(units), len(services))
-	}
-	units, services = subsystemUnits(subsystem.WebSearch)
-	if len(units) != 2 || len(services) != 2 {
-		t.Errorf("web search moves %d units / %d services, want SearXNG and the web guard together", len(units), len(services))
-	}
-	// The agent is a binary, not a unit: nothing to render and nothing to restart.
-	units, services = subsystemUnits(subsystem.Agent)
-	if len(units) != 0 || len(services) != 0 {
-		t.Errorf("the agent subsystem renders units (%v/%v); the Crush binary is a file", units, services)
-	}
-}
-
-// TestBudgetsArePerSubsystemAndNonZero: a total cap would make failures depend on
-// ordering, so the last subsystem gets blamed for time the first four spent.
-func TestBudgetsArePerSubsystemAndNonZero(t *testing.T) {
-	seen := map[string]bool{}
-	for _, k := range subsystem.Every {
-		if k == subsystem.CodingMode {
-			continue
-		}
-		b := perSubsystemBudget(k)
-		if b <= 0 {
-			t.Errorf("%v has a non-positive budget", k)
-		}
-		seen[b.String()] = true
-	}
-	// Inference gets the longest, because the residency proof is the expensive part
-	// and it runs twice.
-	if perSubsystemBudget(subsystem.Inference) <= perSubsystemBudget(subsystem.Chat) {
-		t.Error("inference does not get a longer budget than chat, despite running the residency proof twice")
-	}
-}
-
 // TestTheDryRunForecastsTheReferenceCountedPrune.
 //
 // Reference counting is a SAFETY property, not tidiness: the embedder and the vulkan

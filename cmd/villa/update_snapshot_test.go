@@ -244,7 +244,7 @@ func TestSnapshotPathIsUniquePerCaptureAndPerSubsystem(t *testing.T) {
 // The start half matters more: villa stopped them, so every one must come back.
 func TestStopAndStartCoverEveryServiceTheSubsystemOwns(t *testing.T) {
 	for _, k := range subsystem.Stateful() {
-		_, services := subsystemUnits(k)
+		_, services := k.Units()
 		if len(services) == 0 {
 			t.Errorf("%v owns persistent state but no services, so nothing would be stopped before its volume is exported", k)
 		}

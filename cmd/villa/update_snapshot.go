@@ -77,7 +77,7 @@ func snapshotStamp(now time.Time) string {
 // clean SQLite copy". The measured cost is about two seconds for the 2.3 GB Qdrant
 // volume, against a restart that was happening anyway.
 func liveSubsystemStop(ctx context.Context, sys orchestrate.Systemd, k subsystem.Kind) error {
-	_, services := subsystemUnits(k)
+	_, services := k.Units()
 	for _, svc := range services {
 		if ctx.Err() != nil {
 			return ctx.Err()
@@ -100,7 +100,7 @@ func liveSubsystemStop(ctx context.Context, sys orchestrate.Systemd, k subsystem
 // leaves chat stopped is villa's outage rather than the user's. The parameter is
 // kept so the signature matches the Deps seam it satisfies.
 func liveSubsystemStart(_ context.Context, sys orchestrate.Systemd, k subsystem.Kind) error {
-	_, services := subsystemUnits(k)
+	_, services := k.Units()
 	var errs []error
 	for _, svc := range services {
 		if err := sys.Start(svc); err != nil {
