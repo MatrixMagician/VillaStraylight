@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strconv"
+	"strings"
 	"syscall"
 
 	"github.com/spf13/cobra"
@@ -352,6 +353,18 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 	out := cmd.OutOrStdout()
 	errOut := cmd.ErrOrStderr()
 
+	// res is the typed outcome of this run (internal/install's Result). The flow
+	// still streams its progress as it happens — a model pull cannot be narrated
+	// after the fact — but every terminal return derives its exit code from the
+	// Result, so the outcome-to-exit-code contract lives in ONE tested place.
+	var res install.Result
+	// blockf prints a pre-mutation stop and records it: Blocked, nothing to roll
+	// back. It replaces the print-then-return-exitBlocked pair at every site.
+	blockf := func(format string, args ...any) int {
+		fmt.Fprintf(errOut, format, args...)
+		return res.Block(strings.TrimSuffix(fmt.Sprintf(format, args...), "\n"))
+	}
+
 	// (0) Load the PERSISTED config FIRST, and REFUSE if it cannot be read.
 	//
 	// This seam used to fail soft to typed defaults, so an unreadable or hand-edited
@@ -366,9 +379,8 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 	// read serves both the memory host-fitness gate below and the cfg seed at step 4.
 	cfg, err := d.loadedConfig()
 	if err != nil {
-		fmt.Fprintf(errOut, "install: cannot read the persisted config: %v\n", err)
+		return blockf("install: cannot read the persisted config: %v\n", err)
 		fmt.Fprintln(errOut, "install: refusing to install from defaults — that would overwrite your persisted settings with seed values. Fix or remove config.toml, then re-run.")
-		return exitBlocked
 	}
 
 	// (1) Detect the host.
@@ -383,8 +395,7 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 		// envelope renders "unknown GiB usable" (never a fabricated 0). This branch fires
 		// BEFORE the wizard is evaluated, so it covers both the flag and wizard paths from
 		// one emission point — the parenthetical confirms the --no-tui path is identical.
-		fmt.Fprintf(errOut, "No catalog model fits the detected memory envelope (%s usable). Free memory or supply a larger-envelope host, then re-run villa install. (--no-tui shows the same result.)\n", gibUsableEnvelope(profile.UsableEnvelopeBytes))
-		return exitBlocked
+		return blockf("No catalog model fits the detected memory envelope (%s usable). Free memory or supply a larger-envelope host, then re-run villa install. (--no-tui shows the same result.)\n", gibUsableEnvelope(profile.UsableEnvelopeBytes))
 	}
 	fmt.Fprintf(out, "selected model %s (ctx %d, %s)\n", rec.Model, rec.ContextLen, gib(rec.WeightBytes))
 
@@ -446,7 +457,7 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 		// flag path rather than aborting the install.
 		backend, berr := inference.BackendFor(rec.Backend)
 		if berr != nil {
-			fmt.Fprintf(errOut, "install: resolve backend for wizard: %v — falling back to the flag path\n", berr)
+			return blockf("install: resolve backend for wizard: %v — falling back to the flag path\n", berr)
 		} else {
 			res, werr := d.wizard(cmd.Context(), wizardInput{
 				profile:      profile,
@@ -460,7 +471,6 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 				// Esc / Ctrl+C / Cancel → clean abort: no mutation, nothing written,
 				// pulled, or persisted. Return a non-zero code (never os.Exit here).
 				fmt.Fprintf(errOut, "Install cancelled — no changes were made. Re-run villa install, or villa install --no-tui for the flag-driven path.\n")
-				return exitBlocked
 			}
 			// Re-validate a chosen model override through the SAME single pick seam
 			// (the pinned override mechanism) so the resulting rec is byte-identical to
@@ -476,17 +486,17 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 
 	gateCode, ok := gateInstall(out, errOut, checks, opts, consentDecisions, d)
 	if !ok {
+		res.Outcome = install.Blocked
 		return gateCode
 	}
 	// A forced-override gate degrades the final verdict to WARN even on an
 	// otherwise-clean bring-up: the host-prep gap was bypassed, not satisfied.
-	gateDegraded := gateCode == exitWarn
+	res.GateDegraded = gateCode == exitWarn
 
 	// (4) Render the units from config + backend, then reconcile against disk.
 	unitDir, err := d.unitDir()
 	if err != nil {
-		fmt.Fprintf(errOut, "install: cannot resolve the Quadlet unit dir: %v\n", err)
-		return exitBlocked
+		return blockf("install: cannot resolve the Quadlet unit dir: %v\n", err)
 	}
 	// Assemble the install plan: the config this run persists and renders from,
 	// derived in the pure core from the persisted config, the recommendation and the
@@ -509,13 +519,11 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 
 	modelFile, err := d.modelFile(rec)
 	if err != nil {
-		fmt.Fprintf(errOut, "install: resolve model file: %v\n", err)
-		return exitBlocked
+		return blockf("install: resolve model file: %v\n", err)
 	}
 	backend, err := inference.BackendFor(cfg.Backend)
 	if err != nil {
-		fmt.Fprintf(errOut, "install: resolve backend: %v\n", err)
-		return exitBlocked
+		return blockf("install: resolve backend: %v\n", err)
 	}
 	// Build the render input. On the chat-only path this is byte-identical to v1.3 (CodingMode
 	// stays nil → orchestrate.Render off-path unchanged → the v1.3 unit goldens are untouched).
@@ -527,8 +535,7 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 	// translation stays in the live wiring (the pure renderer never imports internal/catalog).
 	resident, err := liveResidentUnits(cfg)
 	if err != nil {
-		fmt.Fprintf(errOut, "install: resolve resident set: %v\n", err)
-		return exitBlocked
+		return blockf("install: resolve resident set: %v\n", err)
 	}
 	renderIn := orchestrate.RenderInput{
 		Backend:       backend,
@@ -542,13 +549,11 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 		servedModel, _ := codingServedTarget(cfg)
 		coderModelFile, mferr := codingModelFile(cfg, servedModel)
 		if mferr != nil {
-			fmt.Fprintf(errOut, "install: resolve coder model file: %v\n", mferr)
-			return exitBlocked
+			return blockf("install: resolve coder model file: %v\n", mferr)
 		}
 		spec, derr := codingDescriptor(cfg, servedModel)
 		if derr != nil {
-			fmt.Fprintf(errOut, "install: build coding-mode descriptor: %v\n", derr)
-			return exitBlocked
+			return blockf("install: build coding-mode descriptor: %v\n", derr)
 		}
 		renderIn.ModelFile = coderModelFile
 		renderIn.CodingMode = spec
@@ -556,27 +561,26 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 	}
 	units, err := d.render(renderIn)
 	if err != nil {
-		fmt.Fprintf(errOut, "install: render failed: %v\n", err)
-		return exitBlocked
+		return blockf("install: render failed: %v\n", err)
 	}
 	plan, err := d.reconcile(units, unitDir)
 	if err != nil {
-		fmt.Fprintf(errOut, "install: reconcile failed: %v\n", err)
-		return exitBlocked
+		return blockf("install: reconcile failed: %v\n", err)
 	}
 
 	// (5) --dry-run: print the changed unit text and stop — write nothing, pull
 	// nothing, persist nothing (ORCH: a dry run has zero side effects).
 	if opts.dryRun {
+		res.Outcome = install.DryRun
 		if len(plan.Changed) == 0 {
 			fmt.Fprintf(out, "dry-run: no changes — units already match config\n")
-			return exitPass
+			return res.Outcome.ExitCode()
 		}
 		for _, u := range plan.Changed {
 			fmt.Fprintf(out, "# %s\n%s\n", u.Name, u.Text)
 		}
 		fmt.Fprintf(out, "dry-run: %d unit(s) would be written (nothing written, no model pulled, no config persisted)\n", len(plan.Changed))
-		return exitPass
+		return res.Outcome.ExitCode()
 	}
 
 	// (6) Ensure the recommended model is present BEFORE starting the unit (F-1).
@@ -587,8 +591,7 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 	if !d.modelDownloaded(rec) {
 		fmt.Fprintf(out, "model %s not present — downloading...\n", rec.Model)
 		if err := d.ensureModel(rec); err != nil {
-			fmt.Fprintf(errOut, "install: download model %s failed: %v\n", rec.Model, err)
-			return exitBlocked
+			return blockf("install: download model %s failed: %v\n", rec.Model, err)
 		}
 		fmt.Fprintf(out, "model %s downloaded and verified\n", rec.Model)
 	}
@@ -603,8 +606,7 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 	if gates.Memory && !opts.dryRun && !d.embedModelPresent(d.modelsDir()) {
 		fmt.Fprintf(out, "embedding model %s not present — downloading...\n", nomicEmbedShard.Filename)
 		if err := d.ensureEmbedModel(d.modelsDir()); err != nil {
-			fmt.Fprintf(errOut, "install: pre-stage embedding model %s failed: %v\n", nomicEmbedShard.Filename, err)
-			return exitBlocked
+			return blockf("install: pre-stage embedding model %s failed: %v\n", nomicEmbedShard.Filename, err)
 		}
 		fmt.Fprintf(out, "embedding model %s downloaded and verified\n", nomicEmbedShard.Filename)
 	}
@@ -627,8 +629,7 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 		// the staged filename and the served -m path derive from ONE entry, never a literal.
 		cat, ok := d.agentCatalog()
 		if !ok {
-			fmt.Fprintf(errOut, "install: cannot load the model catalog to resolve the coder model — re-run `villa install --coding-agent` once the catalog is readable.\n")
-			return exitBlocked
+			return blockf("install: cannot load the model catalog to resolve the coder model — re-run `villa install --coding-agent` once the catalog is readable.\n")
 		}
 		// distinguish a SHARED-residency coder fit from a genuine no-fit. When the
 		// recommender derived residency "shared" (rec.Coder.Residency == residencyShared, i.e. a
@@ -639,13 +640,11 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 		// who may have ample memory). The generic no-fit copy below is reserved for a coder that
 		// is genuinely absent from the catalog (coderShardFor false with a non-shared residency).
 		if rec.Coder.Residency == recommend.ResidencyShared {
-			fmt.Fprintf(errOut, "install: the coding-agent addon currently requires a swap-residency coder fit, but this host only supports SHARED residency (the coder would ride the chat endpoint), which v1.4 does not yet serve as a dedicated agent — so the addon cannot be staged. This is a swap-only limitation, not a memory shortfall; freeing memory will not help. (The chat stack is unaffected.)\n")
-			return exitBlocked
+			return blockf("install: the coding-agent addon currently requires a swap-residency coder fit, but this host only supports SHARED residency (the coder would ride the chat endpoint), which v1.4 does not yet serve as a dedicated agent — so the addon cannot be staged. This is a swap-only limitation, not a memory shortfall; freeing memory will not help. (The chat stack is unaffected.)\n")
 		}
 		sh, ok := coderShardFor(rec, cat)
 		if !ok {
-			fmt.Fprintf(errOut, "install: no coder model fits the detected memory envelope, so the coding-agent addon cannot be staged — free memory or use a larger-envelope host, then re-run `villa install --coding-agent`. (The chat stack is unaffected.)\n")
-			return exitBlocked
+			return blockf("install: no coder model fits the detected memory envelope, so the coding-agent addon cannot be staged — free memory or use a larger-envelope host, then re-run `villa install --coding-agent`. (The chat stack is unaffected.)\n")
 		}
 		coderShard = sh
 
@@ -654,8 +653,7 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 		if !d.coderModelPresent(d.modelsDir(), coderShard) {
 			fmt.Fprintf(out, "coder model %s not present — downloading...\n", coderShard.Filename)
 			if err := d.ensureCoderModel(d.modelsDir(), coderShard); err != nil {
-				fmt.Fprintf(errOut, "install: pre-stage coder model %s failed: %v\n", coderShard.Filename, err)
-				return exitBlocked
+				return blockf("install: pre-stage coder model %s failed: %v\n", coderShard.Filename, err)
 			}
 			fmt.Fprintf(out, "coder model %s downloaded and verified\n", coderShard.Filename)
 		}
@@ -663,15 +661,13 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 		// (d) Stage the pinned Crush binary (checksum-before-extract, — never re-implemented).
 		binPath, err := d.installAgentBinary(cmd.Context())
 		if err != nil {
-			fmt.Fprintf(errOut, "install: stage coding-agent binary failed: %v\n", err)
-			return exitBlocked
+			return blockf("install: stage coding-agent binary failed: %v\n", err)
 		}
 		fmt.Fprintf(out, "coding agent installed and verified at %s\n", binPath)
 
 		// (e) Render the locked-down crush.json (the restrictive-tools security control).
 		if err := d.renderCrushConfig(cfg); err != nil {
-			fmt.Fprintf(errOut, "install: render coding-agent config failed: %v\n", err)
-			return exitBlocked
+			return blockf("install: render coding-agent config failed: %v\n", err)
 		}
 		fmt.Fprintf(out, "coding-agent config rendered (outbound tools disabled, loopback provider only)\n")
 	}
@@ -723,7 +719,7 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 	// clean restoration: a wrong "restored" claim tells the operator to stop looking.
 	refuse := func(format string, args ...any) int {
 		fmt.Fprintf(errOut, format, args...)
-		res := install.Rollback(install.RollbackDeps{
+		rb := install.Rollback(install.RollbackDeps{
 			StopService:  d.stop,
 			StartService: d.start,
 			WriteUnit: func(name, text string) error {
@@ -739,8 +735,8 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 			RemoveConfig: d.removeConfig,
 			DaemonReload: d.daemonReload,
 		}, prior, mutated)
-		fmt.Fprintf(errOut, "install: %s\n", res.Reason())
-		return exitBlocked
+		fmt.Fprintf(errOut, "install: %s\n", rb.Reason())
+		return res.Refuse(strings.TrimSuffix(fmt.Sprintf(format, args...), "\n"), rb.Reason())
 	}
 
 	// (7) Persist the chosen selection to config.toml BEFORE any unit work (F-2 /
@@ -749,8 +745,7 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 	// otherwise post-install `villa up`/`restart` resolve an empty model and FAIL,
 	// and a follow-up reconcile is never a true no-op.
 	if err := d.saveConfig(cfg); err != nil {
-		fmt.Fprintf(errOut, "install: persist config: %v\n", err)
-		return exitBlocked // nothing mutated yet: the save is the first mutation
+		return blockf("install: persist config: %v\n", err) // nothing mutated yet: the save is the first mutation
 	}
 	mutated.RecordConfigSave()
 
@@ -775,10 +770,8 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 	if len(plan.Changed) == 0 {
 		fmt.Fprintf(out, "no changes — stack already matches config\n")
 		printPostInstall(out, d.endpoint(), installReadiness{status: preflight.StatusPass, detail: "unchanged"})
-		if gateDegraded {
-			return exitWarn
-		}
-		return exitPass
+		res.Outcome = install.NoChange
+		return res.Finish().ExitCode()
 	}
 
 	// (9) Execute the mutate-and-start sequence the core planned.
@@ -834,13 +827,11 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 		if cfg.WebLoaderSecret == "" {
 			secret, gerr := config.GenerateWebLoaderSecret()
 			if gerr != nil {
-				fmt.Fprintf(errOut, "install: generate web loader secret failed: %v\n", gerr)
-				return exitBlocked
+				return blockf("install: generate web loader secret failed: %v\n", gerr)
 			}
 			cfg.WebLoaderSecret = secret
 			if serr := d.saveConfig(cfg); serr != nil {
-				fmt.Fprintf(errOut, "install: persist web loader secret failed: %v\n", serr)
-				return exitBlocked
+				return blockf("install: persist web loader secret failed: %v\n", serr)
 			}
 		}
 		// Write the 0600 bearer env file — the EnvironmentFile= target BOTH the OWUI unit (started
@@ -848,8 +839,7 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 		// 0600 file.
 		envName, envText := orchestrate.RenderWebsafeSecretEnv(cfg.WebLoaderSecret)
 		if werr := d.writeWebsafeSecretEnv(envName, envText); werr != nil {
-			fmt.Fprintf(errOut, "install: write websafe secret env failed: %v\n", werr)
-			return exitBlocked
+			return blockf("install: write websafe secret env failed: %v\n", werr)
 		}
 	}
 
@@ -929,13 +919,11 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 		if cfg.SearxngSecret == "" {
 			secret, gerr := config.GenerateSearxngSecret()
 			if gerr != nil {
-				fmt.Fprintf(errOut, "install: generate searxng secret failed: %v\n", gerr)
-				return exitBlocked
+				return blockf("install: generate searxng secret failed: %v\n", gerr)
 			}
 			cfg.SearxngSecret = secret
 			if serr := d.saveConfig(cfg); serr != nil {
-				fmt.Fprintf(errOut, "install: persist searxng secret failed: %v\n", serr)
-				return exitBlocked
+				return blockf("install: persist searxng secret failed: %v\n", serr)
 			}
 		}
 		// (a) settings.yml (mounted ro at /etc/searxng) — the file that enables the json
@@ -943,19 +931,16 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 		// of truth (RenderSearxngSettings); the writer persists exactly those bytes.
 		settingsName, settingsText, rerr := orchestrate.RenderSearxngSettings(cfg)
 		if rerr != nil {
-			fmt.Fprintf(errOut, "install: render searxng settings failed: %v\n", rerr)
-			return exitBlocked
+			return blockf("install: render searxng settings failed: %v\n", rerr)
 		}
 		if werr := d.writeSearxngSettings(settingsName, settingsText); werr != nil {
-			fmt.Fprintf(errOut, "install: write searxng settings failed: %v\n", werr)
-			return exitBlocked
+			return blockf("install: write searxng settings failed: %v\n", werr)
 		}
 		// (b) the 0600 secret env file — the EnvironmentFile= target. The secret
 		// VALUE only ever lands in this 0600 file, never the 0644 unit.
 		envName, envText := orchestrate.RenderSearxngSecretEnv(cfg.SearxngSecret)
 		if werr := d.writeSearxngSecretEnv(envName, envText); werr != nil {
-			fmt.Fprintf(errOut, "install: write searxng secret env failed: %v\n", werr)
-			return exitBlocked
+			return blockf("install: write searxng secret env failed: %v\n", werr)
 		}
 		if err := d.start(searxngServiceName); err != nil {
 			return refuse("install: start %s failed: %v\n", searxngServiceName, err)
@@ -1054,14 +1039,11 @@ func runInstall(cmd *cobra.Command, opts installOpts, d *installDeps) int {
 	// would pass while the flow drifted out from under them. Comparing the two makes
 	// the core's plan the authority the command tier is held to.
 	if err := install.AssertStartOrder(installSeq, performed); err != nil {
-		fmt.Fprintf(errOut, "install: %v\n", err)
-		return exitBlocked
+		return blockf("install: %v\n", err)
 	}
 
-	if ready.status == preflight.StatusWarn || gateDegraded {
-		return exitWarn
-	}
-	return exitPass
+	res.ReadinessWarn = ready.status == preflight.StatusWarn
+	return res.Finish().ExitCode()
 }
 
 // persistedBackendChosen reports whether the persisted config already carries a
