@@ -189,6 +189,8 @@ sampleLoop:
 		PredictedPerSec: timings.PredictedPerSec,
 		PromptN:         timings.PromptN,
 		PredictedN:      timings.PredictedN,
+		DraftN:          timings.DraftN,
+		DraftAccepted:   timings.DraftNAccepted,
 	}
 	// resident ONLY for a true StatusPass; anything else (incl. ready+200-but-residency-
 	// FAIL, the silent CPU fallback) marks this run VOID (offload asserted, not assumed).
@@ -571,6 +573,13 @@ type benchSide struct {
 	PredictedStddev float64 `json:"predicted_per_sec_stddev"`
 	Kept            int     `json:"kept"`
 	Void            int     `json:"void"`
+	// DraftAcceptance is the median draft acceptance (accepted/drafted), present
+	// ONLY when Drafted > 0 — nil on the off path so the existing bench.json.golden/
+	// bench-compare.json.golden stay byte-identical (append-only, #119).
+	DraftAcceptance *float64 `json:"draft_acceptance,omitempty"`
+	// Drafted is the number of runs that actually drafted; omitted (zero value) on
+	// the off path for the same byte-identical reason.
+	Drafted int `json:"drafted,omitempty"`
 }
 
 // benchAB is the two-sided comparison: each side's band + the per-metric deltas (B − A,
@@ -729,8 +738,10 @@ func benchEntryFromResult(res bench.Result, ab bool, spec bench.Spec) benchEntry
 }
 
 // sideFromStats folds one side's pure Stats into the typed benchSide (pp/tg separate).
+// DraftAcceptance is populated ONLY when s.Drafted > 0 — a nil pointer (and the
+// omitempty "drafted" key) on the off path keeps the frozen goldens byte-identical.
 func sideFromStats(backend string, s bench.Stats) benchSide {
-	return benchSide{
+	side := benchSide{
 		Backend:         backend,
 		PromptPerSec:    s.MedianPP,
 		PromptStddev:    s.StddevPP,
@@ -738,7 +749,13 @@ func sideFromStats(backend string, s bench.Stats) benchSide {
 		PredictedStddev: s.StddevTG,
 		Kept:            s.Kept,
 		Void:            s.Void,
+		Drafted:         s.Drafted,
 	}
+	if s.Drafted > 0 {
+		acc := s.MedianAcceptance
+		side.DraftAcceptance = &acc
+	}
+	return side
 }
 
 // savedReportFromResult folds the SAME pure bench.Result data benchEntryFromResult maps
@@ -845,6 +862,12 @@ func renderBench(w io.Writer, e benchEntry) {
 		fmt.Fprintf(w, "  pp tok/s: %8.2f ± %.2f\n", s.PromptPerSec, s.PromptStddev)
 		fmt.Fprintf(w, "  tg tok/s: %8.2f ± %.2f\n", s.PredictedPerSec, s.PredictedStddev)
 		fmt.Fprintf(w, "  kept=%d void=%d\n", s.Kept, s.Void)
+		// The acceptance line only appears for a side that actually drafted — a tg
+		// number without it cannot be compared across prompts (#119), but printing
+		// it unconditionally would break the off-path byte-identical goldens.
+		if s.DraftAcceptance != nil {
+			fmt.Fprintf(w, "  acceptance: %.1f%% (drafted=%d)\n", *s.DraftAcceptance*100, s.Drafted)
+		}
 	}
 
 	if e.Mode == "ab" && e.AB != nil {

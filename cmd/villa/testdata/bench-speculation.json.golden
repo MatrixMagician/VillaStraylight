@@ -1,0 +1,21 @@
+{
+  "mode": "single",
+  "conditions": {
+    "warmup": 0,
+    "reps": 2,
+    "n_predict": 128,
+    "seed": 42,
+    "temp": 0
+  },
+  "single": {
+    "backend": "vulkan",
+    "prompt_per_sec": 120,
+    "prompt_per_sec_stddev": 0,
+    "predicted_per_sec": 40,
+    "predicted_per_sec_stddev": 0,
+    "kept": 2,
+    "void": 0,
+    "draft_acceptance": 0.82,
+    "drafted": 2
+  }
+}
