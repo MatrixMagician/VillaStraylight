@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/MatrixMagician/VillaStraylight/internal/catalog"
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
 )
 
@@ -50,7 +51,8 @@ func TestValidateProjectorDowngradesPass(t *testing.T) {
 	fr := &fakeRunner{stderr: readFixture(t, "rocm_devinfo_pass.stderr")}
 	in := baseInput(t, fr)
 	in.Markers = rocmMarkersForTest(t)
-	in.Projector = true
+	in.Vision = true
+	in.Model.Projector = &catalog.Sidecar{Shards: []catalog.Shard{{Filename: "vision-mmproj-F16.gguf"}}, WeightBytes: 1 << 30, Provenance: "test"}
 
 	v := Validate(t.Context(), in)
 	if v.Status != StatusWarn {
@@ -59,10 +61,27 @@ func TestValidateProjectorDowngradesPass(t *testing.T) {
 	if !strings.Contains(v.Detail, "projector") {
 		t.Errorf("Detail = %q, want the projector finding appended", v.Detail)
 	}
+	if fr.startSpec.Projector != "vision-mmproj-F16.gguf" {
+		t.Errorf("the validate run started without the projector it then expects in the log: RunSpec.Projector = %q", fr.startSpec.Projector)
+	}
+}
+
+// TestValidateVisionWithoutProjectorIsInert asserts vision on for an entry that
+// ships no projector runs text-only and never warns about an absent line.
+func TestValidateVisionWithoutProjectorIsInert(t *testing.T) {
+	fr := &fakeRunner{stderr: readFixture(t, "rocm_devinfo_pass.stderr")}
+	in := baseInput(t, fr)
+	in.Markers = rocmMarkersForTest(t)
+	in.ReadGTTUsed = gttSeam(detect.KnownBytes(1<<30, "before"), detect.KnownBytes(1<<30+400<<20, "after"))
+	in.Vision = true
+	v := Validate(t.Context(), in)
+	if v.Status != StatusPass || strings.Contains(v.Detail, "projector") || fr.startSpec.Projector != "" {
+		t.Errorf("Status = %v, Detail = %q, RunSpec.Projector = %q; want a plain PASS with no projector", v.Status, v.Detail, fr.startSpec.Projector)
+	}
 }
 
 // TestValidateProjectorOffLeavesVerdictsUnchanged asserts the scrape is inert
-// until the config says vision is on: the same run with Projector false must
+// until the config says vision is on: the same run with Vision false must
 // produce a byte-identical Verdict, which is what keeps every text-only stack's
 // output unchanged by this field existing.
 func TestValidateProjectorOffLeavesVerdictsUnchanged(t *testing.T) {
@@ -71,16 +90,17 @@ func TestValidateProjectorOffLeavesVerdictsUnchanged(t *testing.T) {
 		in := baseInput(t, fr)
 		in.Markers = rocmMarkersForTest(t)
 		in.ReadGTTUsed = gttSeam(detect.KnownBytes(1<<30, "before"), detect.KnownBytes(1<<30+400<<20, "after"))
-		in.Projector = projector
+		in.Vision = projector
+		in.Model.Projector = &catalog.Sidecar{Shards: []catalog.Shard{{Filename: "vision-mmproj-F16.gguf"}}, WeightBytes: 1 << 30, Provenance: "test"}
 		return Validate(t.Context(), in)
 	}
 	for _, fixture := range []string{"rocm_devinfo_pass.stderr", "rocm_projector_pass.stderr"} {
 		off := run(false, fixture)
 		if off.Status != StatusPass {
-			t.Fatalf("%s with Projector false: Status = %v, want PASS (detail %q)", fixture, off.Status, off.Detail)
+			t.Fatalf("%s with Vision false: Status = %v, want PASS (detail %q)", fixture, off.Status, off.Detail)
 		}
 		if strings.Contains(off.Detail, "projector") {
-			t.Errorf("%s with Projector false: detail mentions the projector: %q", fixture, off.Detail)
+			t.Errorf("%s with Vision false: detail mentions the projector: %q", fixture, off.Detail)
 		}
 	}
 	if on := run(true, "rocm_projector_pass.stderr"); on.Status != StatusPass {

@@ -72,10 +72,23 @@ type ValidateInput struct {
 	// all-empty descriptor (no device match) — callers MUST supply it.
 	Markers ResidencyMarkers
 
-	// Projector says a vision projector is EXPECTED in this run's log. Set from
-	// cfg.Vision by the caller. False leaves every verdict byte-identical: the
-	// projector scrape is not run at all, so a text-only stack is unaffected.
-	Projector bool
+	// Vision is the persisted vision decision (cfg.Vision). When it is on and the
+	// entry ships a projector, the run is started WITH that projector, exactly as
+	// the rendered unit is, and its load line is expected in the log. Off, or an
+	// entry without a projector, leaves every verdict byte-identical: the projector
+	// scrape is not run at all, so a text-only stack is unaffected.
+	Vision bool
+}
+
+// projectorFile is the projector the run carries: the entry's first projector
+// shard when vision is on, else "". It is the ONE place the validate run and
+// the projector scrape agree on whether a projector is in play, so the verb can
+// never start a text-only run and then warn that the projector line is absent.
+func projectorFile(in ValidateInput) string {
+	if !in.Vision || in.Model.Projector == nil || len(in.Model.Projector.Shards) == 0 {
+		return ""
+	}
+	return in.Model.Projector.Shards[0].Filename
 }
 
 // Validate runs the full offload-asserting sequence and folds every signal into a
@@ -152,7 +165,7 @@ func Validate(ctx context.Context, in ValidateInput) Verdict {
 
 	// (8) Fold all signals into the final verdict.
 	v := foldVerdict(offload, chat, ceiling)
-	if in.Projector {
+	if projectorFile(in) != "" {
 		v = foldProjector(v, scrapeProjectorLog(stderr, in.Markers))
 	}
 	return v
@@ -181,6 +194,7 @@ func spec(in ValidateInput) RunSpec {
 		ModelFile:     primaryModelFile(in.Model),
 		ModelsDir:     in.ModelsDir,
 		ContextLen:    in.ContextLen,
+		Projector:     projectorFile(in),
 	}
 }
 
