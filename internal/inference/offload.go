@@ -199,6 +199,36 @@ func scrapeOffloadLog(stderr string, m ResidencyMarkers) OffloadResult {
 	}
 }
 
+// scrapeProjectorLog reads the vision projector's start-time load line. It is
+// deliberately NOT one of the two residency signals (ADR-0001 is untouched): the
+// projector's device says how fast images encode, not whether the model's weights
+// are resident, so its worst outcome here is a WARN.
+//
+//   - "CLIP using <device token> backend"  → PASS, the projector is on the GPU
+//   - "CLIP using CPU backend"             → WARN, a confident but non-fatal finding
+//   - no clip_ctx line at all              → WARN Unknown (could not evaluate)
+func scrapeProjectorLog(stderr string, m ResidencyMarkers) OffloadResult {
+	if m.DeviceToken != "" && strings.Contains(stderr, "CLIP using "+m.DeviceToken+" backend") {
+		return OffloadResult{
+			Status: StatusPass,
+			Signal: detect.KnownBool(true, "clip_ctx backend line"),
+			Detail: "projector loaded on " + m.DeviceToken,
+		}
+	}
+	if strings.Contains(stderr, "CLIP using CPU backend") {
+		return OffloadResult{
+			Status: StatusWarn,
+			Signal: detect.KnownBool(false, "clip_ctx backend line"),
+			Detail: "projector loaded on the CPU: image encoding will be slow",
+		}
+	}
+	return OffloadResult{
+		Status: StatusWarn,
+		Signal: detect.UnknownBool("no clip_ctx line in stderr", ""),
+		Detail: "projector load line absent from stderr",
+	}
+}
+
 // parseOffloadedLayers extracts N and total from a "offloaded N/N layers to GPU"
 // line. Returns ok=false on a shape it cannot parse.
 func parseOffloadedLayers(line string) (offloaded, total int, ok bool) {

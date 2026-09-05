@@ -71,6 +71,11 @@ type ValidateInput struct {
 	// sets it from BackendFor(cfg.Backend).ResidencyProof(); the zero value yields an
 	// all-empty descriptor (no device match) — callers MUST supply it.
 	Markers ResidencyMarkers
+
+	// Projector says a vision projector is EXPECTED in this run's log. Set from
+	// cfg.Vision by the caller. False leaves every verdict byte-identical: the
+	// projector scrape is not run at all, so a text-only stack is unaffected.
+	Projector bool
 }
 
 // Validate runs the full offload-asserting sequence and folds every signal into a
@@ -146,7 +151,27 @@ func Validate(ctx context.Context, in ValidateInput) Verdict {
 	ceiling := runCeiling(ctx, in)
 
 	// (8) Fold all signals into the final verdict.
-	return foldVerdict(offload, chat, ceiling)
+	v := foldVerdict(offload, chat, ceiling)
+	if in.Projector {
+		v = foldProjector(v, scrapeProjectorLog(stderr, in.Markers))
+	}
+	return v
+}
+
+// foldProjector folds the projector finding into an already-decided verdict. It
+// only ever softens: a FAIL is left alone (the model's residency is the finding
+// that matters), and a projector WARN takes a PASS down to WARN so a run that was
+// asked for vision and could not prove it is never reported clean.
+func foldProjector(v Verdict, p OffloadResult) Verdict {
+	if v.Status == StatusFail {
+		return v
+	}
+	v.Detail = fmt.Sprintf("%s; projector: %s", v.Detail, p.Detail)
+	if p.Status == StatusWarn && v.Status == StatusPass {
+		v.Status = StatusWarn
+		v.Remediation = "vision is on but the projector's load line was not proven on the GPU — check the projector file is present in the models dir and re-run"
+	}
+	return v
 }
 
 // spec builds the primary RunSpec from the input.
