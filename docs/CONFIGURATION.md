@@ -70,6 +70,7 @@ chat_port = 3000
 | `catalog_path` | string | _(empty → embedded seed catalog)_ | Optional path to an external catalog JSON. Empty means "use the embedded seed catalog". |
 | `dashboard_port` | int | `8888` | Host port the control dashboard listens on. |
 | `chat_port` | int | `3000` | Host port Open WebUI is published on; also the target of the dashboard's "chat" link. |
+| `speculation` | string | _(absent → off)_ | Speculative-decoding mode of the inference unit: `off`, or `ngram` for llama-server's `ngram-mod`. An absent key renders speculation off, which is what every install predating the key carries. `config set` does not accept it: turning it on is a stateful cutover driven by `villa speculation set` (see [Speculation](#speculation)). A hand-edited value outside this vocabulary, `draft` included, is refused on load. |
 | `resident` | array of tables | _(absent)_ | Zero or more `[[resident]]` slots: secondary models held loaded alongside `model`. Absent until `villa model resident add` writes one. See [The resident set](#the-resident-set). |
 
 ### The resident set
@@ -158,7 +159,9 @@ villa config set model=qwen3-30b-a3b
 `config set` accepts only the keys `model`, `quant`, `ctx`, `backend`,
 `catalog_path`. The `resident` array is not among them: a slot carries a port and a
 memory cost, so it is written only by `villa model resident add` / `rm`, which check
-the fit first. An unknown key, a non-positive `ctx`, or an unsupported `backend`
+the fit first. Nor is `speculation`, for the same reason `backend` is restricted:
+turning it on is a cutover, so it is written by `villa speculation set` (see
+[Speculation](#speculation)). An unknown key, a non-positive `ctx`, or an unsupported `backend`
 value is rejected with a clear error and **nothing is written**. After a successful
 `set`, `villa` reminds you that the change applies on the next
 `villa up` / `villa restart` (reconcile).
@@ -383,6 +386,43 @@ the cutover with a real generation probe plus a GPU-residency check within a bou
 timeout. Any mutate error or a non-passing proof rolls the switch back verbatim: a
 failed switch is a no-op to the running stack. `--dry-run` previews the target, the
 fit verdict, and the preflight without writing, regenerating, or restarting anything.
+
+### Speculation
+
+The `speculation` key selects the speculative-decoding mode the inference unit is
+started with. Two values are honored, and an absent key means off:
+
+- **`off`** renders no speculation flag at all.
+- **`ngram`** renders llama-server's `--spec-type ngram-mod`. It downloads nothing
+  and costs no memory: the drafts come from n-grams of the context itself.
+
+`ngram` is neutral on a prompt the server has not seen and up to 2.8x on repeated
+output, which is what `villa code` produces. It is offered only for a catalog entry
+carrying a measurement that licensed it (`ngram_safe` plus an `ngram_provenance`
+naming the probe); asking for it on an entry without one is a refusal, never a
+silent downgrade to off. `villa recommend` shows the mode it resolved, and
+`--save` and `villa install` persist it exactly as they persist the backend.
+
+`draft` is deliberately not a value. A draft sidecar was measured and lost on every
+catalog entry, so the config vocabulary refuses it rather than accepting a setting
+that does nothing. The numbers and the reasoning are in
+[ADR-0006](adr/0006-speculation-is-a-persisted-mode-behind-the-inference-seam.md).
+
+Switching the mode is a stateful operation on the same transaction as a backend
+switch:
+
+```bash
+villa speculation show              # the persisted mode (off when unset)
+villa speculation show --json       # { "speculation": "..." }
+villa speculation set ngram --dry-run   # preview target/fit, mutate nothing
+villa speculation set ngram         # transactional cutover
+villa speculation set off           # turn it back off
+```
+
+`villa speculation set <mode>` re-checks the served model against the target mode,
+captures the prior unit verbatim, persists `config.toml` and regenerates **only** the
+inference unit, restarts it, and proves the cutover. Any mutate error or a
+non-passing proof rolls back verbatim.
 
 ### ROCm bring-up policy
 

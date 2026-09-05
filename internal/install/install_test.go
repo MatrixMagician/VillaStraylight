@@ -298,3 +298,14 @@ func TestResourceFitIncludesTheEmbeddingReservation(t *testing.T) {
 		t.Errorf("a memory-off fit must not reserve embedding bytes, got %d", off.MinMemBytes)
 	}
 }
+
+// TestAssemblePlanCarriesSpeculation asserts the install persists the speculation
+// mode the recommendation resolved, the same way it persists the backend, so a
+// first install renders the unit the recommendation described.
+func TestAssemblePlanCarriesSpeculation(t *testing.T) {
+	rec := recommend.Recommendation{Model: "m", Quant: "q", ContextLen: 4096, Backend: "rocm", Speculation: "ngram"}
+	plan := AssemblePlan(config.VillaConfig{}, Gates{}, rec, nil)
+	if plan.Config.Speculation != "ngram" {
+		t.Errorf("plan speculation = %q, want ngram", plan.Config.Speculation)
+	}
+}

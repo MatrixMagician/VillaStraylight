@@ -641,3 +641,64 @@ func TestBackendLabelROCmFamily(t *testing.T) {
 		}
 	}
 }
+
+// speculationFixtureInput mirrors fixtureInput/rocmFixtureInput but carries the
+// speculation descriptor, exactly what livePinnedRender populates once the config
+// names a mode. cfg.Speculation is set too (the persisted source of truth), though
+// it is RenderInput.Speculation that drives the render delta.
+func speculationFixtureInput(t *testing.T, backend string) RenderInput {
+	t.Helper()
+	in := fixtureInput()
+	if backend == "rocm" {
+		in = rocmFixtureInput(t)
+	}
+	in.Cfg.Speculation = config.SpeculationNgram
+	in.Speculation = &inference.SpeculationSpec{Mode: config.SpeculationNgram}
+	return in
+}
+
+// TestRenderSpeculationVulkan: the Vulkan unit rendered with the ngram descriptor
+// matches the new append-only golden. The off-path goldens are NOT regenerated.
+func TestRenderSpeculationVulkan(t *testing.T) {
+	units, err := Render(speculationFixtureInput(t, "vulkan"))
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	goldenCompare(t, "villa-llama-ngram.container.golden", unitByName(t, units, "villa-llama.container").Text)
+}
+
+// TestRenderSpeculationROCm: the same delta on the ROCm unit.
+func TestRenderSpeculationROCm(t *testing.T) {
+	units, err := Render(speculationFixtureInput(t, "rocm"))
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	goldenCompare(t, "villa-llama-rocm-ngram.container.golden", unitByName(t, units, "villa-llama.container").Text)
+}
+
+// TestRenderNilSpeculationIsByteIdentical asserts a nil descriptor renders the
+// existing unit unchanged. That is what keeps a v1.8 install, which has no
+// speculation key at all, from being restarted by an upgrade.
+func TestRenderNilSpeculationIsByteIdentical(t *testing.T) {
+	units, err := Render(fixtureInput())
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	goldenCompare(t, "villa-llama.container.golden", unitByName(t, units, "villa-llama.container").Text)
+}
+
+// TestRenderResidentUnitsIgnoreSpeculation asserts a resident slot renders with
+// speculation off even when the primary unit has it on: a resident model has no
+// qualification of its own in the render input, so claiming one would be a guess.
+func TestRenderResidentUnitsIgnoreSpeculation(t *testing.T) {
+	in := speculationFixtureInput(t, "vulkan")
+	in.Resident = []ResidentUnit{{Model: "alt", ModelFile: "alt.gguf", Ctx: 8192, Port: 8081}}
+	units, err := Render(in)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	u := unitByName(t, units, "villa-llama-alt.container")
+	if strings.Contains(u.Text, "ngram-mod") {
+		t.Errorf("resident unit carries the speculation delta:\n%s", u.Text)
+	}
+}

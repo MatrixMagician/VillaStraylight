@@ -1020,3 +1020,24 @@ func TestLiveReadRecallState(t *testing.T) {
 		}
 	})
 }
+
+// TestStatusTableShowsSpeculation asserts the table names the speculation mode
+// right after the backend row: the two together are what the inference unit was
+// started with.
+func TestStatusTableShowsSpeculation(t *testing.T) {
+	var buf bytes.Buffer
+	r := status.Report{Backend: "rocm", Speculation: "ngram"}
+	renderStatusTable(&buf, r, false)
+	got := buf.String()
+	backendAt := strings.Index(got, "backend")
+	specAt := strings.Index(got, "speculation")
+	if backendAt < 0 || specAt < 0 {
+		t.Fatalf("table missing a backend or speculation row:\n%s", got)
+	}
+	if specAt < backendAt {
+		t.Errorf("speculation row precedes the backend row:\n%s", got)
+	}
+	if !strings.Contains(got, "ngram") {
+		t.Errorf("table does not name the mode:\n%s", got)
+	}
+}

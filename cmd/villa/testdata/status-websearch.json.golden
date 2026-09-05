@@ -139,5 +139,6 @@
   "updates": {
     "state": "never_checked"
   },
-  "schema_version": 6
+  "speculation": "off",
+  "schema_version": 7
 }

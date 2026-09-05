@@ -68,6 +68,13 @@ type RenderInput struct {
 	// (Pitfall 1: the agent ctx is carried by the existing -c, never a second one).
 	CoderAgentCtx int
 
+	// Speculation is the OPTIONAL pre-resolved speculation descriptor (ADR-0006).
+	// nil ⇒ the off path: Render leaves spec.Speculation nil and the rendered unit
+	// is byte-identical to one from before this field existed. The CALLER resolves
+	// the served catalog entry's qualification against the persisted mode, so the
+	// pure renderer never imports internal/catalog (the CodingMode precedent above).
+	Speculation *inference.SpeculationSpec
+
 	// Resident are the OPTIONAL secondary resident models, one extra .container each.
 	// Empty ⇒ the off path by construction: no extra unit is rendered and Open WebUI
 	// keeps its singular endpoint env, so the rendered stack is byte-identical to a

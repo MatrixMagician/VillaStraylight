@@ -214,7 +214,8 @@ func applyConfigKey(errOut io.Writer, cfg *config.VillaConfig, key, val string) 
 		}
 		cfg.Ctx = n
 	default:
-		fmt.Fprintf(errOut, "config set: unknown key %q — valid keys: model, quant, ctx, backend, catalog_path\n", key)
+		fmt.Fprintf(errOut, "config set: unknown key %q — valid keys: model, quant, ctx, backend, catalog_path "+
+			"(speculation is set with `villa speculation set`)\n", key)
 		return exitBlocked
 	}
 	return exitPass

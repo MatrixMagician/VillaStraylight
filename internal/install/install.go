@@ -164,6 +164,11 @@ func AssemblePlan(cfg config.VillaConfig, gates Gates, rec recommend.Recommendat
 		plan.Config.Backend = rec.Backend
 	}
 
+	// The speculation mode is assigned unconditionally, unlike the backend: the
+	// recommender DOES carry a speculation override, so rec.Speculation already is
+	// the persisted choice re-resolved against the served entry.
+	plan.Config.Speculation = rec.Speculation
+
 	plan.Config.MemoryEnabled = gates.Memory
 	plan.Config.WebSearchEnabled = gates.WebSearch
 	plan.Config.AgentEnabled = gates.Agent

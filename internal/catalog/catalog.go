@@ -26,7 +26,10 @@ package catalog
 // template_provenance) so the coder fit stage and the Phase-25 render can
 // consume qualified coding-model entries (CODER-01). All five are optional
 // with fail-closed absence semantics: an entry without them is a chat entry.
-const SupportedSchema = 3
+// v4 (ADR-0006): adds the optional ngram speculation qualification
+// (ngram_safe, ngram_provenance). Both are optional with fail-closed absence
+// semantics: an entry without them is not qualified for speculation.
+const SupportedSchema = 4
 
 // Catalog is the top-level catalog document. schema_version gates parser
 // compatibility; catalog_version is informational data-freshness metadata.
@@ -102,6 +105,17 @@ type Model struct {
 	// embedded GGUF chat template is part of the qualified artifact — a repo
 	// re-upload under the same quant name is a different artifact.
 	TemplateProvenance string `json:"template_provenance,omitempty"`
+
+	// NgramSafe qualifies this entry for the ngram speculation mode (schema v4,
+	// ADR-0006). Fail-closed: absence means unqualified, and the flag is licensed
+	// only by an on-hardware measurement recorded in NgramProvenance, never by an
+	// upstream claim.
+	NgramSafe bool `json:"ngram_safe,omitempty"`
+
+	// NgramProvenance names the measurement that licensed NgramSafe: the host, the
+	// image and llama.cpp build, the date, and the numbers. The load refuses an
+	// entry that claims the qualification without it.
+	NgramProvenance string `json:"ngram_provenance,omitempty"`
 
 	// Shards is the per-shard download manifest (schema v2). A
 	// single-file model is the degenerate one-element case; large quants split

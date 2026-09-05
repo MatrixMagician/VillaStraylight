@@ -175,7 +175,7 @@ func TestSeamGateForbidsCodingFlagsInCmdFixture(t *testing.T) {
 	fixture := `package main
 func leak() []string { return []string{"--jinja", "--cache-reuse", "256"} }
 `
-	re := codingModeFlagPattern()
+	re := seamFlagPattern()
 	if !re.MatchString(fixture) {
 		t.Errorf("coding-mode flag pattern failed to catch a --jinja/--cache-reuse leak in a cmd-tier fixture: %s", fixture)
 	}

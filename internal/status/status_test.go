@@ -1369,3 +1369,28 @@ func TestRunResidentlessReportIsUnchanged(t *testing.T) {
 		t.Fatalf("resident-less report differs once the seam is wired:\n wired = %+v\n unwired = %+v", wired, unwired)
 	}
 }
+
+// TestReportCarriesSpeculation asserts the report names the persisted speculation
+// mode, and that an unset config reads as "off" rather than as an empty string: the
+// operator's question is what the unit is running, and unset runs off.
+func TestReportCarriesSpeculation(t *testing.T) {
+	for _, tc := range []struct{ persisted, want string }{
+		{"", "off"},
+		{"off", "off"},
+		{"ngram", "ngram"},
+	} {
+		t.Run("persisted="+tc.persisted, func(t *testing.T) {
+			d := newDeps(t, loopbackUnits(t))
+			base := d.LoadConfig
+			d.LoadConfig = func() (config.VillaConfig, error) {
+				cfg, err := base()
+				cfg.Speculation = tc.persisted
+				return cfg, err
+			}
+			r := Run(d)
+			if r.Speculation != tc.want {
+				t.Errorf("Speculation = %q, want %q", r.Speculation, tc.want)
+			}
+		})
+	}
+}

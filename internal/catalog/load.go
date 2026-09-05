@@ -43,6 +43,9 @@ func Load(externalPath string) (Catalog, []string, error) {
 		} else if ext.SchemaVersion != SupportedSchema {
 			warnings = append(warnings, schemaMismatchWarning(externalPath, ext.SchemaVersion))
 			// fall through to embedded seed below
+		} else if verr := validateNgramEntries(ext); verr != nil {
+			warnings = append(warnings, fmt.Sprintf("catalog: external catalog %q rejected (%v) — using embedded seed", externalPath, verr))
+			// fall through to embedded seed below
 		} else if verr := validateCoderEntries(ext); verr != nil {
 			warnings = append(warnings, fmt.Sprintf("catalog: external catalog %q rejected (%v) — using embedded seed", externalPath, verr))
 			// fall through to embedded seed below
@@ -114,6 +117,20 @@ func validateCoderEntries(c Catalog) error {
 			case s.RepeatPenalty <= 0 || s.RepeatPenalty > 3:
 				return fmt.Errorf("coder entry %q: agent_sampling repeat_penalty %g out of range (0, 3]", m.ID, s.RepeatPenalty)
 			}
+		}
+	}
+	return nil
+}
+
+// validateNgramEntries is the fail-closed qualification check on the same trust
+// boundary: ngram_safe is a claim about a measurement, so an entry that declares
+// it without naming one invalidates the WHOLE external catalog. Refusing beats
+// accepting a qualification nobody took, because the qualification is what decides
+// whether villa will render a speculation flag at all.
+func validateNgramEntries(c Catalog) error {
+	for _, m := range c.Models {
+		if m.NgramSafe && m.NgramProvenance == "" {
+			return fmt.Errorf("entry %q: ngram_safe is set with no ngram_provenance (the measurement that licensed it)", m.ID)
 		}
 	}
 	return nil

@@ -52,6 +52,9 @@ func TestStaticAssetsServed(t *testing.T) {
 		{"/dashboard.css", "--bg-dominant"},
 		{"/dashboard.js", "visibilitychange"},
 		{"/dashboard.js", "/api/status"},
+		// The speculation health row: the dashboard reports the persisted mode
+		// alongside the backend, so a stack running speculation says so.
+		{"/dashboard.js", "report.speculation"},
 	} {
 		req := httptest.NewRequest(http.MethodGet, tc.path, nil)
 		rec := httptest.NewRecorder()

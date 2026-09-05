@@ -17,6 +17,7 @@ import (
 	"fmt"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/catalog"
+	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
 	"github.com/MatrixMagician/VillaStraylight/internal/memory"
 )
@@ -89,7 +90,8 @@ const (
 // (Phase 24). Bumped 3->4 when the append-only web_search_reservation_bytes
 // field landed (Phase 31) -- the single sanctioned recommend contract
 // bump for Phase 31.
-const recommendSchemaVersion = 4
+// Bumped 4->5 when the append-only speculation field landed (ADR-0006).
+const recommendSchemaVersion = 5
 
 // ROCmAdvice is a typed enum surfaced on the Recommendation: an
 // honesty-bounded hint about whether the opt-in ROCm backend is worth a benchmark
@@ -186,6 +188,12 @@ type Recommendation struct {
 	// off-path JSON shape changes only by this key (byte-identical-off intent).
 	WebSearchReservationBytes uint64 `json:"web_search_reservation_bytes"`
 
+	// Speculation is the resolved speculation mode for this pick (ADR-0006): the
+	// requested value when it is honourable, else what the entry's qualification
+	// licenses. Empty on a refusal that named no model, since no entry's
+	// qualification could have resolved one.
+	Speculation string `json:"speculation"`
+
 	// SchemaVersion is the Recommendation contract self-version and MUST stay the
 	// LAST tagged field (append-only discipline; new fields go above it).
 	SchemaVersion int `json:"schema_version"`
@@ -205,6 +213,33 @@ type Overrides struct {
 	Model string
 	Quant string
 	Ctx   int
+	// Speculation is the persisted or requested speculation mode. Empty lets the
+	// picked entry's qualification decide.
+	Speculation string
+}
+
+// ResolveSpeculation answers what speculation mode a pick of m should run, and
+// whether the answer honours what was asked. An unset request is resolved from the
+// entry's qualification; an explicit request for a mode the entry is not qualified
+// for is a REFUSAL (ok false), never a silent downgrade to off, because an operator
+// who asked for speculation and got none would have no way to tell.
+func ResolveSpeculation(m catalog.Model, requested string) (mode, note string, ok bool) {
+	switch requested {
+	case "":
+		if m.NgramSafe {
+			return config.SpeculationNgram, fmt.Sprintf("speculation: ngram (ngram-mod is qualified for %s: %s)", m.ID, m.NgramProvenance), true
+		}
+		return config.SpeculationOff, fmt.Sprintf("speculation: off (%s has no qualified ngram measurement)", m.ID), true
+	case config.SpeculationOff:
+		return config.SpeculationOff, "", true
+	case config.SpeculationNgram:
+		if m.NgramSafe {
+			return config.SpeculationNgram, fmt.Sprintf("speculation: ngram (ngram-mod is qualified for %s: %s)", m.ID, m.NgramProvenance), true
+		}
+		return config.SpeculationOff, fmt.Sprintf("speculation: ngram requested but %s is not qualified for it; refusing", m.ID), false
+	default:
+		return config.SpeculationOff, fmt.Sprintf("speculation: %q is not a known mode (off, ngram, or unset); refusing", requested), false
+	}
 }
 
 // MemoryInputs carries the memory-stack inputs Pick reserves BEFORE the
@@ -526,7 +561,7 @@ func pickBest(c catalog.Catalog, ov Overrides, envelope uint64, degraded bool, n
 	}
 
 	ctx := effectiveCtx(*best, ov)
-	rec := buildRecommendation(*best, ctx, envelope, degraded, notes)
+	rec := buildRecommendation(*best, ov, ctx, envelope, degraded, notes)
 	// Alternatives = the other fitting picks (exclude the chosen one).
 	for _, a := range alts {
 		if a.Model == best.ID && a.ContextLen == ctx {
@@ -570,7 +605,7 @@ func pickOverride(c catalog.Catalog, ov Overrides, envelope uint64, degraded boo
 	}
 
 	ctx := effectiveCtx(m, ov)
-	rec := buildRecommendation(m, ctx, envelope, degraded, notes)
+	rec := buildRecommendation(m, ov, ctx, envelope, degraded, notes)
 	if ov.Quant != "" {
 		rec.Quant = ov.Quant
 	}
@@ -584,7 +619,7 @@ func pickOverride(c catalog.Catalog, ov Overrides, envelope uint64, degraded boo
 
 // buildRecommendation computes all fit terms for model m at ctx and assembles the
 // Recommendation (without touching alternatives/override-specific notes).
-func buildRecommendation(m catalog.Model, ctx int, envelope uint64, degraded bool, notes []string) Recommendation {
+func buildRecommendation(m catalog.Model, ov Overrides, ctx int, envelope uint64, degraded bool, notes []string) Recommendation {
 	kv := kvCacheBytes(m, ctx)
 	headroom := headroomBytes(envelope)
 	// Saturating sum: a saturated KV term (absurd --ctx) must keep the
@@ -593,6 +628,11 @@ func buildRecommendation(m catalog.Model, ctx int, envelope uint64, degraded boo
 	total := addSaturating(addSaturating(m.WeightBytes, kv), headroom)
 
 	backend := cmp.Or(m.BackendDefault, defaultBackend)
+
+	spec, specNote, specOK := ResolveSpeculation(m, ov.Speculation)
+	if specNote != "" {
+		notes = append(notes, specNote)
+	}
 
 	return Recommendation{
 		Model:               m.ID,
@@ -604,9 +644,12 @@ func buildRecommendation(m catalog.Model, ctx int, envelope uint64, degraded boo
 		HeadroomBytes:       headroom,
 		TotalBytes:          total,
 		UsableEnvelopeBytes: envelope,
-		Fits:                total <= envelope,
-		Degraded:            degraded,
-		Notes:               notes,
+		// An unhonourable speculation request fails the fit outright: the pick
+		// villa would install is not the one that was asked for.
+		Fits:        total <= envelope && specOK,
+		Degraded:    degraded,
+		Notes:       notes,
+		Speculation: spec,
 	}
 }
 

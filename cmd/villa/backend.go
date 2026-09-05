@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -270,7 +271,7 @@ func runBackendSet(cmd *cobra.Command, target string, dryRun bool, d *backendswa
 		// folds in an honest rollback-incomplete message when the restore did not fully
 		// complete (Pitfall 5).
 		fmt.Fprintf(errOut, "backend set: switch to %s failed at %q — rolled back; prior backend (%s) restored\n",
-			target, res.FailedStep, res.FromBackend)
+			target, res.FailedStep, res.From)
 		if res.Reason != "" {
 			fmt.Fprintf(errOut, "  detail: %s\n", res.Reason)
 		}
@@ -287,7 +288,7 @@ func runBackendSet(cmd *cobra.Command, target string, dryRun bool, d *backendswa
 		return exitPass
 	default: // Switched
 		fmt.Fprintf(out, "switched backend %s -> %s — config persisted, %s regenerated and restarted, cutover proven\n",
-			res.FromBackend, res.ToBackend, installServiceName)
+			res.From, res.To, installServiceName)
 		return exitPass
 	}
 }
@@ -314,11 +315,21 @@ func liveBackendSwapDeps() *backendswap.Deps {
 			}
 			// Memory inputs from the PRESERVED config threaded into the closure
 			// the backend-swap fit gate sees the same shrunken envelope.
-			rec := recommend.Pick(detect.Probe(), cat, recommend.Overrides{Model: cfg.Model},
+			// The speculation mode is threaded from the SAME config, so
+			// `speculation set` gets ResolveSpeculation's refusal for an unqualified
+			// entry back through this gate as a non-fit with the note as the reason.
+			rec := recommend.Pick(detect.Probe(), cat, recommend.Overrides{Model: cfg.Model, Speculation: cfg.Speculation},
 				recommend.MemoryInputs{Enabled: subsystem.MemoryOn(cfg), EmbeddingModel: cfg.EmbeddingModel},
 				webSearchInputsFrom(cfg))
 			if rec.Fits {
 				return true, ""
+			}
+			// A speculation refusal is a non-fit with no memory shortfall, so report
+			// its note rather than a byte count that is not the problem.
+			for _, n := range rec.Notes {
+				if strings.HasPrefix(n, "speculation: ") && strings.HasSuffix(n, "refusing") {
+					return false, n
+				}
 			}
 			return false, fmt.Sprintf("needs %d bytes vs %d usable", rec.TotalBytes, rec.UsableEnvelopeBytes)
 		},

@@ -114,6 +114,7 @@ func renderStatusTable(w io.Writer, r status.Report, withProvenance bool) {
 	// offload provenance). The image string is a value from the resolved backend
 	// (Report.Image), never a literal in this renderer.
 	fmt.Fprintf(tw, "backend\t%s\n", r.Backend)
+	fmt.Fprintf(tw, "speculation\t%s\n", r.Speculation)
 	if withProvenance {
 		fmt.Fprintf(tw, "image\t%s\n", r.Image)
 	}

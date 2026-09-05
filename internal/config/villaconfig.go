@@ -203,6 +203,11 @@ type VillaConfig struct {
 	// self-healed (a captured host path has no meaningful default).
 	HostVillaPath string `toml:"host_villa_path,omitempty"`
 
+	// Speculation is the persisted speculative-decoding mode of the inference unit
+	// (ADR-0006). Empty means the recommendation has not resolved it yet and renders
+	// off, which is what an install predating this field carries.
+	Speculation string `toml:"speculation,omitempty"`
+
 	// --- Resident set fields ---
 	// Tail-appended and append-only, like every optional block above it: nothing
 	// declared earlier moves, and a nil/empty Resident is dropped by ,omitempty so an
@@ -232,6 +237,32 @@ type ResidentModel struct {
 	// renumber every later slot when a middle entry is removed, rewriting and
 	// restarting units that did not change.
 	Port int `toml:"port,omitzero"`
+}
+
+// Speculation modes. The vocabulary is closed: `draft` is deliberately absent
+// (ADR-0006 measured it slower on every catalog entry), so a config asking for it
+// is refused rather than accepted as a value that does nothing.
+const (
+	// SpeculationOff renders no speculation flag at all.
+	SpeculationOff = "off"
+	// SpeculationNgram is llama-server's ngram-mod speculative decoder.
+	SpeculationNgram = "ngram"
+)
+
+// ValidSpeculation reports whether s is a speculation mode villa implements. The
+// empty string is valid and means unresolved.
+func ValidSpeculation(s string) bool {
+	return s == "" || s == SpeculationOff || s == SpeculationNgram
+}
+
+// validateVilla rejects a parsed config carrying a value villa cannot render, so
+// an unknown mode is a refusal at the boundary rather than a silent downgrade to
+// off. It runs on every parse path, before normalizeVilla.
+func validateVilla(cfg VillaConfig) error {
+	if !ValidSpeculation(cfg.Speculation) {
+		return fmt.Errorf("config: speculation %q is not a known mode (off, ngram, or unset)", cfg.Speculation)
+	}
+	return nil
 }
 
 // defaultConfig is the typed default returned when no config file exists. An absent
@@ -359,6 +390,9 @@ func LoadVilla() (VillaConfig, error) {
 	cfg := defaultConfig()
 	if err := toml.Unmarshal(data, &cfg); err != nil {
 		return VillaConfig{}, fmt.Errorf("config: parse %q: %w", path, err)
+	}
+	if err := validateVilla(cfg); err != nil {
+		return VillaConfig{}, err
 	}
 	// Self-heal a config whose dashboard/chat fields were persisted as zeros by
 	// an older partial writer (gap test:1b) — never widens the bind.
@@ -512,6 +546,9 @@ func LoadVillaFrom(dir string) (VillaConfig, error) {
 	if err := toml.Unmarshal(data, &cfg); err != nil {
 		return VillaConfig{}, fmt.Errorf("config: parse %q: %w", path, err)
 	}
+	if err := validateVilla(cfg); err != nil {
+		return VillaConfig{}, err
+	}
 	// Self-heal zeroed dashboard/chat fields on load (gap test:1b); loopback-only.
 	return normalizeVilla(cfg), nil
 }
@@ -527,6 +564,9 @@ func Parse(data []byte) (VillaConfig, error) {
 	cfg := defaultConfig()
 	if err := toml.Unmarshal(data, &cfg); err != nil {
 		return VillaConfig{}, fmt.Errorf("config: parse bytes: %w", err)
+	}
+	if err := validateVilla(cfg); err != nil {
+		return VillaConfig{}, err
 	}
 	return normalizeVilla(cfg), nil
 }

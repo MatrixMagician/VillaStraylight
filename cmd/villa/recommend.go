@@ -51,12 +51,14 @@ func newRecommend() *cobra.Command {
 			catalogPath := f.catalogPath
 			var mem recommend.MemoryInputs
 			var web recommend.WebSearchInputs
+			var speculation string
 			if cfg, err := config.LoadVilla(); err == nil {
 				if catalogPath == "" {
 					catalogPath = cfg.CatalogPath
 				}
 				mem = recommend.MemoryInputs{Enabled: cfg.MemoryEnabled, EmbeddingModel: cfg.EmbeddingModel}
 				web = webSearchInputsFrom(cfg)
+				speculation = cfg.Speculation
 			}
 
 			cat, warnings, err := catalog.Load(catalogPath)
@@ -65,9 +67,10 @@ func newRecommend() *cobra.Command {
 			}
 
 			rec := recommend.Pick(profile, cat, recommend.Overrides{
-				Model: f.model,
-				Quant: f.quant,
-				Ctx:   f.ctx,
+				Model:       f.model,
+				Quant:       f.quant,
+				Ctx:         f.ctx,
+				Speculation: speculation,
 			}, mem, web)
 
 			if err := renderRecommend(cmd.OutOrStdout(), rec, warnings, jsonOut, f.alternatives); err != nil {
@@ -111,6 +114,7 @@ func saveRecommendation(w io.Writer, rec recommend.Recommendation, catalogPath s
 	c.Quant = rec.Quant
 	c.Ctx = rec.ContextLen
 	c.Backend = rec.Backend
+	c.Speculation = rec.Speculation
 	c.CatalogPath = catalogPath
 	if err := config.SaveVilla(c); err != nil {
 		return fmt.Errorf("recommend --save: %w", err)
@@ -147,6 +151,7 @@ func renderRecommendTable(w io.Writer, rec recommend.Recommendation, warnings []
 
 	fmt.Fprintf(w, "Recommended: %s  (quant %s, ctx %d, backend %s)\n",
 		rec.Model, rec.Quant, rec.ContextLen, rec.Backend)
+	fmt.Fprintf(w, "  speculation: %s\n", rec.Speculation)
 	if rec.Degraded {
 		fmt.Fprintln(w, "  [DEGRADED ESTIMATE — see notes]")
 	}

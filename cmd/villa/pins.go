@@ -13,13 +13,18 @@ package main
 // feeds it.
 
 import (
+	"cmp"
+	"fmt"
 	"os"
 
+	"github.com/MatrixMagician/VillaStraylight/internal/catalog"
+	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 	"github.com/MatrixMagician/VillaStraylight/internal/pinresolve"
 	"github.com/MatrixMagician/VillaStraylight/internal/pins"
 	"github.com/MatrixMagician/VillaStraylight/internal/pinstate"
+	"github.com/MatrixMagician/VillaStraylight/internal/recommend"
 )
 
 // livePinStateDeps wires the pin state store to the real filesystem, mirroring the
@@ -128,7 +133,49 @@ func livePinnedRender(in orchestrate.RenderInput) ([]orchestrate.Unit, error) {
 	r := liveResolver()
 	in.Backend = livePinnedBackend(r, in.Backend)
 	in.Pin = livePinFunc(r)
+	if in.Speculation == nil {
+		spec, err := liveSpeculation(in.Cfg, in.CodingMode != nil)
+		if err != nil {
+			return nil, err
+		}
+		in.Speculation = spec
+	}
 	return orchestrate.Render(in)
+}
+
+// liveSpeculation turns the persisted mode plus the served catalog entry into the
+// render descriptor, the catalog-to-inference translation the pure renderer cannot
+// do itself (the codingDescriptor precedent).
+//
+// It is the ONE place config becomes a speculation descriptor, so a config asking
+// for a mode the served entry is not qualified for is a refusal here rather than a
+// silent downgrade at each render site (ADR-0006). An off or unset mode returns nil
+// without reading the catalog at all: a stack that asked for nothing must still
+// render when the catalog is unreadable.
+func liveSpeculation(cfg config.VillaConfig, coding bool) (*inference.SpeculationSpec, error) {
+	if cfg.Speculation == "" || cfg.Speculation == config.SpeculationOff {
+		return nil, nil
+	}
+	served := cfg.Model
+	if coding {
+		served = cfg.CoderModel
+	}
+	cat, _, err := catalog.Load(cmp.Or(modelCatalogPath, cfg.CatalogPath))
+	if err != nil {
+		return nil, fmt.Errorf("load model catalog: %w", err)
+	}
+	m, ok := cat.FindByID(served)
+	if !ok {
+		return nil, fmt.Errorf("speculation: served model %q is not in the catalog", served)
+	}
+	mode, note, ok := recommend.ResolveSpeculation(m, cfg.Speculation)
+	if !ok {
+		return nil, fmt.Errorf("speculation: %s", note)
+	}
+	if mode == config.SpeculationOff {
+		return nil, nil
+	}
+	return &inference.SpeculationSpec{Mode: config.SpeculationNgram}, nil
 }
 
 // resolverFor builds a resolver over an already-loaded pin state.
