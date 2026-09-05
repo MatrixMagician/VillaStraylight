@@ -59,7 +59,7 @@ Go 1.26+. Single module, single static binary built from `./cmd/villa`.
 - `cmd/villa/` — cobra CLI, one file per subcommand. The tree is assembled in one
   place, `newRoot` in `root.go`: detect, recommend, preflight, model, inference,
   install, up/down/restart/logs, config, status, doctor, verify, recall, dashboard,
-  websafe, backend, coding-mode, code, bench, backup, restore, uninstall.
+  websafe, backend, speculation, coding-mode, code, bench, backup, restore, uninstall.
   Host effects live behind injectable `live*Deps` seams (`grep -rn "func live" cmd/villa`).
 
 - `internal/` — `detect` (host probe → typed-Unknown HostProfile; AMD seam in `gpu_amd.go`),
@@ -161,7 +161,8 @@ loop.
 ### Configuration
 
 - TOML file at `$XDG_CONFIG_HOME/villa/config.toml` (resolved via `os.UserConfigDir`). Defined by `VillaConfig` in `internal/config/villaconfig.go`.
-- Core fields: `model`, `quant`, `ctx`, `backend` (default `rocm`; `rocm-6.4.4`, `rocm-6.4.4-rocwmma`, `vulkan` also valid — note `internal/catalog/seed.json`'s per-entry `backend_default` OVERRIDES `recommend.defaultBackend`, so the two must be kept in step), `catalog_path`, `dashboard_port` (default `8888`), `chat_port` (default `3000`). The subsystem fields (`memory_enabled`/`embedding_*`, `coding_mode`/`coder_*`, `agent_enabled`, `web_search_*`) and `resident []ResidentModel` are all `omitempty` — `VillaConfig` in `internal/config/villaconfig.go` is the list, not this line.
+- Core fields: `model`, `quant`, `ctx`, `speculation` (`off`/`ngram`, unset renders
+  off; written by `villa speculation set`, never `config set`), `backend` (default `rocm`; `rocm-6.4.4`, `rocm-6.4.4-rocwmma`, `vulkan` also valid — note `internal/catalog/seed.json`'s per-entry `backend_default` OVERRIDES `recommend.defaultBackend`, so the two must be kept in step), `catalog_path`, `dashboard_port` (default `8888`), `chat_port` (default `3000`). The subsystem fields (`memory_enabled`/`embedding_*`, `coding_mode`/`coder_*`, `agent_enabled`, `web_search_*`) and `resident []ResidentModel` are all `omitempty` — `VillaConfig` in `internal/config/villaconfig.go` is the list, not this line.
 - Read-only by default: `LoadVilla` returns typed defaults when the file is absent; `SaveVilla` (invoked by `recommend --save` / model swap) writes strictly under the XDG dir with mode `0600`, dir `0700`, and a path-traversal guard. Self-heals zeroed dashboard/chat fields on load (never widens the bind off loopback).
 - `internal/catalog/seed.json` - the seed model catalog (`//go:embed seed.json` in `internal/catalog/load.go`). Catalog has a schema version window; an external override path may be supplied via `catalog_path`.
 - `internal/preflight/rocm-policy.json` - ROCm pin policy: image-tag allow/deny, kernel floor, firmware floor/deny, required `HSA_OVERRIDE_GFX_VERSION` (`//go:embed rocm-policy.json` in `internal/preflight/floors.go`).

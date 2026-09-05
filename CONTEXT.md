@@ -61,6 +61,12 @@ instead of the inference unit restarting to trade one for another. Admission
 decides what may join and what is evicted; holding is the opposite of swapping.
 _Avoid_: model pool, loaded models, multi-model, hot models, swap
 
+**Speculation**:
+The speculative-decoding mode of the inference unit. `ngram` is llama-server's
+ngram-mod, which drafts from the context itself; a mode is offered only for a
+catalog entry carrying a measurement that licensed it.
+_Avoid_: spec decoding, lookahead, draft mode, speculative sampling
+
 **Offload**:
 Running the model's layers on the iGPU rather than the CPU.
 _Avoid_: acceleration, GPU mode, hardware inference
@@ -100,8 +106,9 @@ surfaced and passable.
 _Avoid_: error/warning, fatal/nonfatal, critical/minor
 
 **Swap**:
-A transactional change to a running stack — of inference backend, model, or
-coding mode — that captures state first and restores it verbatim on any failure.
+A transactional change to a running stack — of inference backend, model, coding
+mode, or speculation mode — that captures state first and restores it verbatim on
+any failure.
 Distinct from an **update**, which moves pins rather than selections.
 _Avoid_: switch, change, migration
 

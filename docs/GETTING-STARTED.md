@@ -271,6 +271,28 @@ backend on exit. Tuning flags: `--reps`/`-n` (counted runs per side, default `5`
 The same transactional guarantees apply. Vulkan RADV has the fewest host
 requirements, so it is always a safe place to return to if a ROCm backend misbehaves.
 
+## Turning speculation on
+
+`villa recommend` prints a `speculation` line with the mode it resolved for the
+picked model: `ngram` when the catalog entry carries a measurement that qualified
+it, `off` otherwise. `--save` and `villa install` persist whatever it resolved, so
+a fresh install already runs the mode the recommendation showed you. On an install
+that predates the setting the key is simply absent, which renders speculation off
+and leaves the unit unchanged. To turn it on afterwards:
+
+```bash
+./villa speculation show               # the persisted mode (off when unset)
+./villa speculation set ngram --dry-run   # preview the target and the fit
+./villa speculation set ngram          # transactional cutover, rolls back on failure
+```
+
+`ngram` is llama-server's `ngram-mod`: it drafts tokens from n-grams of the context
+itself, so it downloads nothing and costs no memory. It is roughly neutral on a
+prompt the server has not seen and up to 2.8x on repeated output, which is what
+`villa code` produces. Asking for it on a model with no qualified measurement is a
+refusal rather than a silent downgrade. See
+[CONFIGURATION.md](CONFIGURATION.md#speculation) for the vocabulary.
+
 ## Common setup issues
 
 Most first-run problems are exactly the things `villa preflight` flags. Run it
