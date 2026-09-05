@@ -61,11 +61,11 @@ func TestLoadSeedDownloadMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load(\"\"): unexpected error: %v", err)
 	}
-	if SupportedSchema != 3 {
-		t.Fatalf("SupportedSchema = %d, want 3 (schema bumped for coder-role fields, Phase 24 D-01)", SupportedSchema)
+	if SupportedSchema != 4 {
+		t.Fatalf("SupportedSchema = %d, want 4 (schema bumped for the ngram qualification, ADR-0006)", SupportedSchema)
 	}
-	if c.SchemaVersion != 3 {
-		t.Errorf("embedded seed schema_version = %d, want 3", c.SchemaVersion)
+	if c.SchemaVersion != 4 {
+		t.Errorf("embedded seed schema_version = %d, want 4", c.SchemaVersion)
 	}
 	for _, m := range c.Models {
 		if len(m.Shards) == 0 {
@@ -220,8 +220,8 @@ func TestLoadSeedCoderEntries(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load(\"\"): unexpected error: %v", err)
 	}
-	if SupportedSchema != 3 {
-		t.Fatalf("SupportedSchema = %d, want 3 (schema bumped for coder-role fields, Phase 24 D-01)", SupportedSchema)
+	if SupportedSchema != 4 {
+		t.Fatalf("SupportedSchema = %d, want 4 (schema bumped for the ngram qualification, ADR-0006)", SupportedSchema)
 	}
 	wantIDs := map[string]bool{
 		"qwen3-coder-30b-a3b": false,
@@ -464,7 +464,7 @@ func goodCoderDims() coderDims { return coderDims{32, 8, 128, 2} }
 // from the case under test. Shared by the refuse-whole and accept tests below.
 func buildCoderCatalog(entryID string, agentCtx int, d coderDims, sampling string) string {
 	return fmt.Sprintf(`{
-  "schema_version": 3,
+  "schema_version": 4,
   "catalog_version": "test.invalid-coder",
   "models": [
     {
