@@ -110,3 +110,18 @@ func TestSpeculationProveFailureRollsBack(t *testing.T) {
 		t.Errorf("config left at %q after rollback, want the prior off", rec.saved.Speculation)
 	}
 }
+
+// TestSpeculationProvesTheBackend: the cutover proof is a residency proof of the
+// backend the mutated config runs, never of the speculation target. Proving "ngram"
+// as a backend name failed BackendFor and rolled every live swap back (found on the
+// dev host).
+func TestSpeculationProvesTheBackend(t *testing.T) {
+	rec := passStub()
+	res := RunSpeculation(specStub(rec, config.SpeculationOff), config.SpeculationNgram)
+	if !res.Switched {
+		t.Fatalf("res = %+v, want Switched", res)
+	}
+	if rec.proveSaw != "rocm" {
+		t.Errorf("Prove saw target %q, want the config backend \"rocm\"", rec.proveSaw)
+	}
+}

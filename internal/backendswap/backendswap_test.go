@@ -29,6 +29,7 @@ var priorUnitBytes = []byte("[Container]\nImage=prior\nExec=llama-server --prior
 // ordering (capture < save/write; RestoreUnit precedes the rollback Restart) and
 // that ONLY the inference service is restarted.
 type swapRecorder struct {
+	proveSaw  string
 	callOrder []string
 	saved     config.VillaConfig
 	restarted []string
@@ -111,7 +112,8 @@ func newSwapStub(rec *swapRecorder) Deps {
 			}
 			return rec.rbRestartErr
 		},
-		Prove: func(_ context.Context, _ string) prove.Verdict {
+		Prove: func(_ context.Context, target string) prove.Verdict {
+			rec.proveSaw = target
 			status := rec.proveStatus
 			if status == "" {
 				status = prove.StatusPass
