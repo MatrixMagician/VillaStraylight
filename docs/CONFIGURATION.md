@@ -71,6 +71,7 @@ chat_port = 3000
 | `dashboard_port` | int | `8888` | Host port the control dashboard listens on. |
 | `chat_port` | int | `3000` | Host port Open WebUI is published on; also the target of the dashboard's "chat" link. |
 | `speculation` | string | _(absent → off)_ | Speculative-decoding mode of the inference unit: `off`, or `ngram` for llama-server's `ngram-mod`. An absent key renders speculation off, which is what every install predating the key carries. `config set` does not accept it: turning it on is a stateful cutover driven by `villa speculation set` (see [Speculation](#speculation)). A hand-edited value outside this vocabulary, `draft` included, is refused on load. |
+| `vision` | bool | _(absent → false)_ | Whether the inference unit is started with the model's vision projector, so an image attached in Open WebUI is answered. True only when a `villa recommend --save` or a `villa install` resolved a projector that fits the envelope and pulled it — the projector file must be on disk before a unit can reference it, which is why this is persisted rather than read back from the catalog. An absent key renders no projector flag, which is what every install predating the key carries. |
 | `resident` | array of tables | _(absent)_ | Zero or more `[[resident]]` slots: secondary models held loaded alongside `model`. Absent until `villa model resident add` writes one. See [The resident set](#the-resident-set). |
 
 ### The resident set

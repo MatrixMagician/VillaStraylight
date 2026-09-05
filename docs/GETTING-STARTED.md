@@ -294,6 +294,17 @@ prompt the server has not seen and up to 2.8x on repeated output, which is what
 refusal rather than a silent downgrade. See
 [CONFIGURATION.md](CONFIGURATION.md#speculation) for the vocabulary.
 
+## Attaching an image in chat
+
+Some catalog entries ship a vision projector, a companion file pulled and verified
+with the model. When it fits the envelope alongside the model and the KV cache,
+`villa recommend` shows it as its own `+ vision projector` row and prints
+`Vision: yes`; `--save` and `villa install` persist that and pull the projector with
+the weights. Run `./villa status` and read the `vision` row: on `yes`, attach a
+screenshot or photo to a message in Open WebUI and ask about it. When the projector
+did not fit, the recommendation says so in a note and `Vision: no` — the model still
+runs, text-only, and an attached image will not be looked at.
+
 ## Common setup issues
 
 Most first-run problems are exactly the things `villa preflight` flags. Run it
