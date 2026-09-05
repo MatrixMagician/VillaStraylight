@@ -117,6 +117,12 @@ type Model struct {
 	// entry that claims the qualification without it.
 	NgramProvenance string `json:"ngram_provenance,omitempty"`
 
+	// Projector is the OPTIONAL vision projector sidecar. Absent means the entry is
+	// text-only, and absence is the only thing that ever turns vision off by itself:
+	// a projector on disk is what a rendered --mmproj needs, so the persisted
+	// config.Vision decision is what gates the render, not this field alone.
+	Projector *Sidecar `json:"projector,omitempty"`
+
 	// Shards is the per-shard download manifest (schema v2). A
 	// single-file model is the degenerate one-element case; large quants split
 	// into the HuggingFace `-00001-of-0000N.gguf` convention carry one Shard per
@@ -136,6 +142,29 @@ type Shard struct {
 	Filename  string `json:"filename"`
 	SHA256    string `json:"sha256"`
 	SizeBytes uint64 `json:"size_bytes"`
+}
+
+// Sidecar is a companion GGUF pulled and verified with the model — today the
+// vision projector. WeightBytes is what the fit must reserve (the server's
+// worst-case runtime estimate), which is NOT the sum of the shards' on-disk sizes.
+// Provenance names the on-hardware exercise that licenses it; the load refuses a
+// sidecar that claims one without naming it.
+type Sidecar struct {
+	Shards      []Shard `json:"shards"`
+	WeightBytes uint64  `json:"weight_bytes"`
+	Provenance  string  `json:"provenance"`
+}
+
+// AllShards is the full download manifest for m: the model's own shards followed
+// by its sidecar's. `villa model pull` iterates this, so a model that claims
+// vision can never be left on disk without its projector.
+func (m Model) AllShards() []Shard {
+	if m.Projector == nil || len(m.Projector.Shards) == 0 {
+		return m.Shards
+	}
+	all := make([]Shard, 0, len(m.Shards)+len(m.Projector.Shards))
+	all = append(all, m.Shards...)
+	return append(all, m.Projector.Shards...)
 }
 
 // AgentSampling is the qualified sampling preset for a coder entry (schema v3,

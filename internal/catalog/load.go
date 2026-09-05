@@ -46,6 +46,9 @@ func Load(externalPath string) (Catalog, []string, error) {
 		} else if verr := validateNgramEntries(ext); verr != nil {
 			warnings = append(warnings, fmt.Sprintf("catalog: external catalog %q rejected (%v) — using embedded seed", externalPath, verr))
 			// fall through to embedded seed below
+		} else if verr := validateSidecars(ext); verr != nil {
+			warnings = append(warnings, fmt.Sprintf("catalog: external catalog %q rejected (%v) — using embedded seed", externalPath, verr))
+			// fall through to embedded seed below
 		} else if verr := validateCoderEntries(ext); verr != nil {
 			warnings = append(warnings, fmt.Sprintf("catalog: external catalog %q rejected (%v) — using embedded seed", externalPath, verr))
 			// fall through to embedded seed below
@@ -131,6 +134,29 @@ func validateNgramEntries(c Catalog) error {
 	for _, m := range c.Models {
 		if m.NgramSafe && m.NgramProvenance == "" {
 			return fmt.Errorf("entry %q: ngram_safe is set with no ngram_provenance (the measurement that licensed it)", m.ID)
+		}
+	}
+	return nil
+}
+
+// validateSidecars is the fail-closed guard on the same trust boundary for a
+// declared sidecar. Each of the three refusals is a promise villa could not keep:
+// no shards means nothing to pull, a zero weight_bytes means the fit reserves
+// nothing for a projector the server will still allocate for, and an empty
+// provenance means nobody exercised it on this hardware.
+func validateSidecars(c Catalog) error {
+	for _, m := range c.Models {
+		p := m.Projector
+		if p == nil {
+			continue
+		}
+		switch {
+		case len(p.Shards) == 0:
+			return fmt.Errorf("entry %q: projector declares no shards to download", m.ID)
+		case p.WeightBytes == 0:
+			return fmt.Errorf("entry %q: projector weight_bytes is 0 (the fit would reserve nothing for it)", m.ID)
+		case p.Provenance == "":
+			return fmt.Errorf("entry %q: projector has no provenance (the on-hardware exercise that licensed it)", m.ID)
 		}
 	}
 	return nil
