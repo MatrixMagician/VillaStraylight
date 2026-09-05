@@ -309,3 +309,14 @@ func TestAssemblePlanCarriesSpeculation(t *testing.T) {
 		t.Errorf("plan speculation = %q, want ngram", plan.Config.Speculation)
 	}
 }
+
+// TestAssemblePlanCarriesVision asserts the install persists the vision decision
+// the recommendation resolved, so the projector the install pulled and the unit it
+// renders agree about whether this stack has vision.
+func TestAssemblePlanCarriesVision(t *testing.T) {
+	rec := recommend.Recommendation{Model: "m", Quant: "q", ContextLen: 4096, Backend: "rocm", Vision: true}
+	plan := AssemblePlan(config.VillaConfig{}, Gates{}, rec, nil)
+	if !plan.Config.Vision {
+		t.Errorf("plan vision = false, want true")
+	}
+}
