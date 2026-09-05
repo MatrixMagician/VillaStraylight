@@ -2,6 +2,7 @@ package preflight
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
 )
@@ -104,6 +105,104 @@ func checkKernelFloor(p detect.HostProfile) CheckResult {
 	return pass(id, name, TierWarn,
 		fmt.Sprintf("kernel %s meets the tested baseline %s", kv.Value, f.KernelTested),
 		kv.Source)
+}
+
+// computeDeviceGroupsRemediation is the default PRE-08 remediation: the invoking
+// user is missing the group membership the render/video device nodes require.
+const computeDeviceGroupsRemediation = "add your user to the render and video groups (`sudo usermod -aG render,video $USER`), then log out and log back in — the new groups apply only to a new login; confirm with `id -nG`"
+
+// computeDeviceDriverRemediation is the PRE-08 remediation for a confidently
+// ABSENT /dev/kfd (the amdgpu module never created the node) — pointing at group
+// membership here would send the user chasing a fix that cannot help.
+const computeDeviceDriverRemediation = "``/dev/kfd`` is absent: the amdgpu kernel module is not loaded or KFD is disabled; check `lsmod | grep amdgpu` and `dmesg | grep -i kfd`"
+
+// computeDeviceRemediation picks the driver remediation when source names a
+// confidently-ABSENT device (the module never created the node — no group fix
+// can help), else the general render/video groups remediation.
+func computeDeviceRemediation(source string) string {
+	if strings.HasSuffix(source, detect.AccessAbsent) {
+		return computeDeviceDriverRemediation
+	}
+	return computeDeviceGroupsRemediation
+}
+
+// checkComputeDeviceAccess is PRE-08 (BLOCK): the invoking user must be able to
+// open /dev/kfd (ROCm-family backends only) and at least one DRM render node for
+// read+write, or a container that will never see the iGPU gets installed and the
+// failure surfaces later as a unit that will not start. It reuses the detect
+// probes (KFDAccess/RenderNodeAccess) rather than re-checking the filesystem
+// itself — preflight stays a pure function of the HostProfile.
+//
+// The render node is required on EVERY backend (Vulkan and ROCm both need it); a
+// confident known-absence there is always a real BLOCK fail. /dev/kfd is
+// required only when requireKFD is true (ROCm-family bring-up): on the Vulkan
+// fallback a denied/absent /dev/kfd is informational only, noted in the Detail.
+//
+// Degradation mirrors PRE-01: neither fact evaluable → WARN "could not verify";
+// one evaluable and good, the other unevaluable → WARN "partially verified".
+func checkComputeDeviceAccess(p detect.HostProfile, requireKFD bool) CheckResult {
+	const (
+		id   = "PRE-08"
+		name = "compute device access"
+	)
+
+	kfd := p.KFDAccess
+	render := p.RenderNodeAccess
+
+	// Unevaluable: neither fact is Known → we cannot verify at all; downgrade to WARN.
+	if !kfd.Known && !render.Known {
+		return warn(id, name, TierBlock,
+			"could not verify /dev/kfd or render node access",
+			computeDeviceGroupsRemediation,
+			joinProvenance(kfd.Source, render.Source),
+			joinRaw(kfd.Raw, render.Raw))
+	}
+
+	// A confident known-false render node is always a real BLOCK fail: every
+	// backend needs at least one accessible render node.
+	if render.Known && !render.Value {
+		return fail(id, name,
+			"render node is not accessible as this user",
+			computeDeviceRemediation(render.Source),
+			render.Source, render.Raw)
+	}
+
+	// A confident known-false /dev/kfd is a BLOCK fail only when this backend
+	// requires it (ROCm-family bring-up); Vulkan never touches /dev/kfd.
+	if requireKFD && kfd.Known && !kfd.Value {
+		return fail(id, name,
+			"/dev/kfd is not accessible as this user",
+			computeDeviceRemediation(kfd.Source),
+			kfd.Source, kfd.Raw)
+	}
+
+	// One fact known, the other unevaluable → we cannot fully confirm; surface
+	// the uncertainty as WARN rather than claim a clean pass.
+	if !kfd.Known || !render.Known {
+		missing := "/dev/kfd access"
+		if kfd.Known {
+			missing = "render node access"
+		}
+		return warn(id, name, TierBlock,
+			fmt.Sprintf("partially verified: %s could not be evaluated", missing),
+			computeDeviceGroupsRemediation,
+			joinProvenance(kfd.Source, render.Source),
+			joinRaw(kfd.Raw, render.Raw))
+	}
+
+	// Both facts are Known at this point. On a backend that does not require
+	// /dev/kfd (Vulkan), a confidently-false KFD is informational only — the
+	// render node alone is sufficient, so note KFD's state in the detail rather
+	// than blocking on a device this backend never opens.
+	if !requireKFD && !kfd.Value {
+		return pass(id, name, TierBlock,
+			fmt.Sprintf("%s is readable and writable; kfd: %s, informational on this backend", render.Source, kfd.Source),
+			joinProvenance(kfd.Source, render.Source))
+	}
+
+	return pass(id, name, TierBlock,
+		fmt.Sprintf("%s and %s are readable and writable", kfd.Source, render.Source),
+		joinProvenance(kfd.Source, render.Source))
 }
 
 // checkFirmwareFloor is a WARN-tier floor gate for linux-firmware. It can

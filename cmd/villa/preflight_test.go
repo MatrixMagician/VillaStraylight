@@ -20,6 +20,7 @@ func passResults() []preflight.CheckResult {
 		{ID: "PRE-02", Name: "Podman rootless-ready", Tier: preflight.TierBlock, Status: preflight.StatusPass, Detail: "podman present; subuid/subgid mapped; systemd --user reachable", Provenance: "podman --version"},
 		{ID: "PRE-03", Name: "User lingering enabled", Tier: preflight.TierWarn, Status: preflight.StatusPass, Detail: "lingering is enabled", Provenance: "loginctl"},
 		{ID: "PRE-04", Name: "Free disk + free memory", Tier: preflight.TierBlock, Status: preflight.StatusPass, Detail: "free memory and disk sufficient", Provenance: "statfs"},
+		{ID: "PRE-08", Name: "compute device access", Tier: preflight.TierBlock, Status: preflight.StatusPass, Detail: "/dev/kfd and /dev/dri/renderD128 are readable and writable", Provenance: "/dev/kfd; /dev/dri/renderD128"},
 	}
 }
 

@@ -45,7 +45,13 @@ func fixtureProfile() detect.HostProfile {
 			RocminfoGfx1151:   detect.UnknownBool("rocminfo gfx id not enumerated (rocm readiness unevaluable)", ""),
 			ImagePolicyOK:     detect.KnownBool(true, "pinned stable ROCm image"),
 		},
-		SchemaVersion: 2,
+		// kfd_access / render_node_access (v1.9, schema 3, issue #120): mix a Known
+		// value (RenderNodeAccess) and an Unknown value (KFDAccess) so the golden
+		// locks both serialized shapes — a real bool and an unset (Known=false)
+		// Optional that must never read as a confident false (no-false-green).
+		KFDAccess:        detect.UnknownBool("cannot probe /dev/kfd", "operation not permitted"),
+		RenderNodeAccess: detect.KnownBool(true, "/dev/dri/renderD128"),
+		SchemaVersion:    3,
 	}
 }
 

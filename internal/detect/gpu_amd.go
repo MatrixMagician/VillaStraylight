@@ -3,12 +3,14 @@ package detect
 import (
 	"bufio"
 	"cmp"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 )
 
 // This file is the BACKEND SEAM: it is the only file in internal/detect allowed
@@ -29,17 +31,87 @@ const radeonICDPath = "/usr/share/vulkan/icd.d/radeon_icd.x86_64.json"
 // no backend-specific path literals.
 const liveDRIRoot = "/dev/dri"
 
+// liveKFDPath is the ROCm compute-device node whose access PRE-08 gates: the
+// amdgpu kernel driver exposes it only when the module is loaded, and the
+// invoking user needs it read+write to bring up ROCm at all.
+const liveKFDPath = "/dev/kfd"
+
+// AccessAbsent / AccessDenied are the vocabulary preflight reads off a device-
+// access Bool's Source when the value is a confident false: distinct reasons so
+// PRE-08 can point remediation at the driver (module not loaded) for the former,
+// vs at group membership for the latter, rather than a single generic message.
+const (
+	AccessAbsent = "absent"
+	AccessDenied = "permission denied"
+)
+
+// accessReadWrite is R_OK|W_OK for syscall.Access — spelled out so this file
+// carries no new module dependency.
+const accessReadWrite uint32 = 4 | 2
+
+// deviceAccess probes read+write access to path AS THE INVOKING USER via a
+// plain syscall.Access check — no exec, so the probe is deterministic and cheap
+// (REQ-11). ENOENT is a confident absence (the driver did not create the node,
+// e.g. amdgpu/KFD not loaded), distinct from EACCES/EPERM (the node exists but
+// this user lacks group membership). Any other error is unevaluable → Unknown,
+// never a false confident verdict.
+func deviceAccess(path string) Bool {
+	err := syscall.Access(path, accessReadWrite)
+	switch {
+	case err == nil:
+		return KnownBool(true, path)
+	case errors.Is(err, syscall.ENOENT):
+		return KnownBool(false, path+": "+AccessAbsent)
+	case errors.Is(err, syscall.EACCES), errors.Is(err, syscall.EPERM):
+		return KnownBool(false, path+": "+AccessDenied)
+	default:
+		return UnknownBool("cannot probe "+path, err.Error())
+	}
+}
+
+// renderNodeAccess probes read+write access to at least one DRM render node
+// under driRoot, mirroring driNodes' Known/Unknown split: an unstattable root is
+// unevaluable (Unknown); a stattable root with no render* nodes is a confident
+// known-absence; any one accessible node is enough to pass. If every enumerated
+// node is confidently inaccessible the check FAILs naming the first; if none of
+// them could even be evaluated, that uncertainty wins over a fabricated denial.
+func renderNodeAccess(driRoot string) Bool {
+	if _, err := os.Stat(driRoot); err != nil {
+		return UnknownBool(driRoot+" unreadable (could not enumerate)", errString(err))
+	}
+	nodes, _ := filepath.Glob(filepath.Join(driRoot, "render*"))
+	if len(nodes) == 0 {
+		return KnownBool(false, driRoot+"/render*: "+AccessAbsent)
+	}
+	unknownCount := 0
+	for _, n := range nodes {
+		access := deviceAccess(n)
+		if access.Known && access.Value {
+			return KnownBool(true, n)
+		}
+		if !access.Known {
+			unknownCount++
+		}
+	}
+	if unknownCount == len(nodes) {
+		return UnknownBool("could not probe any render node under "+driRoot, "")
+	}
+	return KnownBool(false, nodes[0]+": "+AccessDenied)
+}
+
 // gpuInfo bundles every backend-specific (Vulkan/ROCm/DRI/AMD) detection result.
 // detect.go consumes this struct and never names a backend itself, keeping the
 // HostProfile assembly backend-neutral (the Phase 2 Backend seam).
 type gpuInfo struct {
-	deviceName  Str
-	gfxID       Str
-	icdPath     Str
-	driNodes    []string
-	driCount    Int
-	rocmPresent Bool
-	mesaVersion Str
+	deviceName   Str
+	gfxID        Str
+	icdPath      Str
+	driNodes     []string
+	driCount     Int
+	rocmPresent  Bool
+	mesaVersion  Str
+	kfdAccess    Bool
+	renderAccess Bool
 }
 
 // probeGPU performs all live backend probing behind the seam and returns a
@@ -47,13 +119,15 @@ type gpuInfo struct {
 func probeGPU() gpuInfo {
 	names, count := driNodes(liveDRIRoot)
 	return gpuInfo{
-		deviceName:  liveVulkanDevice(),
-		gfxID:       igpuGfxID(),
-		icdPath:     vulkanICD(radeonICDPath),
-		driNodes:    names,
-		driCount:    count,
-		rocmPresent: rocmPresent(),
-		mesaVersion: liveMesaVersion(),
+		deviceName:   liveVulkanDevice(),
+		gfxID:        igpuGfxID(),
+		icdPath:      vulkanICD(radeonICDPath),
+		driNodes:     names,
+		driCount:     count,
+		rocmPresent:  rocmPresent(),
+		mesaVersion:  liveMesaVersion(),
+		kfdAccess:    deviceAccess(liveKFDPath),
+		renderAccess: renderNodeAccess(liveDRIRoot),
 	}
 }
 

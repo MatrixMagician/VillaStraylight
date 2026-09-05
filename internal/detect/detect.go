@@ -57,6 +57,8 @@ func Probe() HostProfile {
 		KernelVersion:       kernel,
 		MesaVersion:         gpu.mesaVersion,
 		ROCmReadiness:       rocmReadiness,
+		KFDAccess:           gpu.kfdAccess,
+		RenderNodeAccess:    gpu.renderAccess,
 		SchemaVersion:       hostProfileSchemaVersion,
 	}
 }

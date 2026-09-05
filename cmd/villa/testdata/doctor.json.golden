@@ -10,6 +10,15 @@
       "provenance": "icd; /dev/dri"
     },
     {
+      "id": "PRE-08",
+      "name": "compute device access",
+      "tier": "BLOCK",
+      "status": "PASS",
+      "detail": "/dev/kfd and /dev/dri/renderD128 are readable and writable",
+      "remediation": "",
+      "provenance": "/dev/kfd; /dev/dri/renderD128"
+    },
+    {
       "id": "health:villa-llama",
       "name": "villa-llama health",
       "tier": "WARN",
@@ -38,5 +47,5 @@
     }
   ],
   "overall": "PASS",
-  "schema_version": 3
+  "schema_version": 4
 }

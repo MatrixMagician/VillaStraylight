@@ -115,12 +115,12 @@ func TestCheckFirmwareFloorIsWarnAdvisory(t *testing.T) {
 // never the render/video groups one.
 func TestCheckComputeDeviceAccess(t *testing.T) {
 	tests := []struct {
-		name                     string
-		kfd                      detect.Bool
-		render                   detect.Bool
-		requireKFD               bool
-		wantStatus               Status
-		wantDetailContains       string
+		name                    string
+		kfd                     detect.Bool
+		render                  detect.Bool
+		requireKFD              bool
+		wantStatus              Status
+		wantDetailContains      string
 		wantRemediationContains string
 	}{
 		{
@@ -131,12 +131,12 @@ func TestCheckComputeDeviceAccess(t *testing.T) {
 			wantStatus: StatusPass,
 		},
 		{
-			name:                     "kfd denied on rocm fails with groups remediation",
-			kfd:                      detect.KnownBool(false, "/dev/kfd: "+detect.AccessDenied),
-			render:                   detect.KnownBool(true, "/dev/dri/renderD128"),
-			requireKFD:               true,
-			wantStatus:               StatusFail,
-			wantRemediationContains:  "usermod -aG render,video",
+			name:                    "kfd denied on rocm fails with groups remediation",
+			kfd:                     detect.KnownBool(false, "/dev/kfd: "+detect.AccessDenied),
+			render:                  detect.KnownBool(true, "/dev/dri/renderD128"),
+			requireKFD:              true,
+			wantStatus:              StatusFail,
+			wantRemediationContains: "usermod -aG render,video",
 		},
 		{
 			name:               "kfd denied on vulkan passes with kfd noted in detail",
@@ -161,12 +161,12 @@ func TestCheckComputeDeviceAccess(t *testing.T) {
 			wantStatus: StatusWarn,
 		},
 		{
-			name:                     "kfd absent on rocm fails with driver remediation not groups",
-			kfd:                      detect.KnownBool(false, "/dev/kfd: "+detect.AccessAbsent),
-			render:                   detect.KnownBool(true, "/dev/dri/renderD128"),
-			requireKFD:               true,
-			wantStatus:               StatusFail,
-			wantRemediationContains:  "amdgpu kernel module",
+			name:                    "kfd absent on rocm fails with driver remediation not groups",
+			kfd:                     detect.KnownBool(false, "/dev/kfd: "+detect.AccessAbsent),
+			render:                  detect.KnownBool(true, "/dev/dri/renderD128"),
+			requireKFD:              true,
+			wantStatus:              StatusFail,
+			wantRemediationContains: "amdgpu kernel module",
 		},
 	}
 

@@ -60,7 +60,10 @@ func RunROCmForImage(p detect.HostProfile, image string) []CheckResult {
 // the table test can inject a Known known-bad to exercise the FAIL branch and a
 // future probe can wire a real value without reshaping the check.
 //
-// Ordering is stable (gfx, kernel, firmware, hsa, image) for deterministic tables.
+// Ordering is stable (gfx, kernel, firmware, hsa, image, then PRE-08) for
+// deterministic tables. PRE-08 keeps its shared (non-ROCM-PRE-*) id: it is the
+// SAME check RunWithResources appends, requiring /dev/kfd here since ROCm-family
+// bring-up needs it.
 func RunROCmWithPolicy(p detect.HostProfile, pol ROCmPolicy, requestedImage string) []CheckResult {
 	// Not probed in v1.0 → typed-Unknown → WARN off-hardware.
 	firmware := detect.UnknownStr("firmware date not probed in Phase 1", "")
@@ -71,6 +74,7 @@ func RunROCmWithPolicy(p detect.HostProfile, pol ROCmPolicy, requestedImage stri
 		checkROCmFirmware(firmware, pol),
 		checkROCmHSA(hsa, pol),
 		checkROCmImage(requestedImage, pol),
+		checkComputeDeviceAccess(p, true),
 	}
 }
 

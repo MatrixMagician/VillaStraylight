@@ -8,7 +8,11 @@ package detect
 // was added AFTER the GPU block; no existing v1 field was renamed, retyped, or
 // reordered. Consumers (dashboard, Phase-10 recommend) read schema_version to
 // detect the v1.1 contract.
-const hostProfileSchemaVersion = 2
+//
+// v3 (issue #120, PRE-08): APPEND-ONLY bump — KFDAccess and RenderNodeAccess were
+// added AFTER rocm_readiness and BEFORE schema_version; no existing field was
+// renamed, retyped, or reordered.
+const hostProfileSchemaVersion = 3
 
 // HostProfile is the structured result of Probe — the single source of truth for
 // `villa detect --json` AND the struct the Phase 5 dashboard consumes.
@@ -58,6 +62,15 @@ type HostProfile struct {
 	// dashboard and Phase-10 recommend consume. It is appended AFTER the GPU block
 	// as a strictly additive contract change; nothing above it moved.
 	ROCmReadiness ROCmReadiness `json:"rocm_readiness"`
+
+	// KFDAccess and RenderNodeAccess are the v1.9 (schema 3, issue #120) compute
+	// device access probes: can THIS invoking user open /dev/kfd and at least one
+	// DRM render node for read+write, as opposed to whether the devices merely
+	// exist. PRE-08 gates on these before an install writes anything, rather than
+	// letting a missing group membership surface as a failed unit start. Both are
+	// appended AFTER rocm_readiness as a strictly additive contract change.
+	KFDAccess        Bool `json:"kfd_access"`
+	RenderNodeAccess Bool `json:"render_node_access"`
 
 	// SchemaVersion is the HostProfile contract self-version. It MUST stay the
 	// LAST field of HostProfile (append-only discipline; new fields go above it).
