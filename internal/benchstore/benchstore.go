@@ -29,7 +29,17 @@ import (
 // SchemaVersion (the append-only discipline cloned from detect.hostProfileSchemaVersion).
 // The record golden (testdata/record.golden) freezes this contract BEFORE any live
 // writer exists, so the on-disk format can never silently drift into a migration.
-const savedReportSchemaVersion = 1
+//
+// v2 (#119b) added SavedSide.DraftAcceptance/Drafted and Fingerprint.Speculation —
+// purely additive over v1, which is why Load (below) keeps reading v1 lines rather
+// than treating them as an unknown schema.
+const savedReportSchemaVersion = 2
+
+// savedReportSchemaVersionMin is the oldest on-disk schema Load still parses. v1
+// records predate the #119b draft/speculation fields; they decode to that struct's
+// zero values (nil DraftAcceptance, empty Speculation), which is exactly the "off"
+// state those fields represent, so a v1 line needs no migration.
+const savedReportSchemaVersionMin = 1
 
 // SavedReportSchemaVersion exposes the bench store's OWN saved-report schema
 // version to the Phase-16 backup manifest. The const stays unexported (it
@@ -94,6 +104,13 @@ type SavedSide struct {
 	PredictedStddev float64 `json:"predicted_per_sec_stddev"`
 	Kept            int     `json:"kept"`
 	Void            int     `json:"void"`
+	// DraftAcceptance is the median draft acceptance (accepted/drafted), present
+	// ONLY when Drafted > 0 (#119b, v2) — nil on the off path so a v1 record and an
+	// off v2 record marshal byte-identically.
+	DraftAcceptance *float64 `json:"draft_acceptance,omitempty"`
+	// Drafted is the number of runs that actually drafted; omitted (zero) on the
+	// off path for the same byte-identical reason.
+	Drafted int `json:"drafted,omitempty"`
 }
 
 // SavedAB is the two-sided comparison: each side's band + the per-metric deltas
@@ -120,6 +137,11 @@ type Fingerprint struct {
 	Backend       string `json:"backend"`
 	HostGfxID     string `json:"host_gfx_id"`
 	KernelVersion string `json:"kernel_version,omitempty"`
+	// Speculation is the persisted speculation mode (config.SpeculationOff/Ngram)
+	// the report ran under (#119b, v2). Empty means off — the SAME value a v1
+	// record decodes to (the key was absent) — so an off v2 report and a v1 report
+	// are Comparable, never spuriously flagged as a speculation mismatch.
+	Speculation string `json:"speculation,omitempty"`
 }
 
 // NewSavedReport stamps the current schema version onto a report. The cmd tier may
@@ -163,6 +185,13 @@ func Comparable(a, b Fingerprint) (bool, []string) {
 	}
 	if a.HostGfxID == "" || b.HostGfxID == "" || a.HostGfxID != b.HostGfxID {
 		diff = append(diff, "host")
+	}
+	// A speculation mismatch makes the delta meaningless the same way a backend swap
+	// does NOT: unlike Backend, this IS a comparability blocker — comparing an
+	// ngram-drafting run against an off run would attribute the whole speedup to the
+	// backend rather than to speculation.
+	if a.Speculation != b.Speculation {
+		diff = append(diff, "speculation")
 	}
 	return len(diff) == 0, diff
 }
@@ -274,14 +303,13 @@ func Load(d Deps) ([]SavedReport, error) {
 		if err := json.Unmarshal(line, &r); err != nil {
 			continue // fail closed per line — skip and keep going
 		}
-		if r.SchemaVersion != savedReportSchemaVersion {
-			// Unknown/future schema — skip (fail closed). The golden-frozen
-			// schema_version contract gates migrations; a future v2 record (or a
-			// hand-edited JSON-valid-but-semantically-wrong line) must NEVER be
-			// parsed as v1 and fed into Compare, which could emit a misleading
-			// pp/tg delta from mis-mapped fields. If forward-compat reads are ever
-			// desired, gate on r.SchemaVersion <= savedReportSchemaVersion AND add
-			// an explicit migration — never reinterpret an unknown version as v1.
+		if r.SchemaVersion < savedReportSchemaVersionMin || r.SchemaVersion > savedReportSchemaVersion {
+			// Unknown schema — skip (fail closed). v1 through the current version
+			// are a supported WINDOW (v2's #119b fields are purely additive, so a v1
+			// line decodes to their "off" zero values with no migration needed); a
+			// FUTURE version (or a hand-edited JSON-valid-but-semantically-wrong
+			// line) must NEVER be parsed as if it were a supported one, which could
+			// emit a misleading pp/tg delta from mis-mapped fields.
 			continue
 		}
 		out = append(out, r)

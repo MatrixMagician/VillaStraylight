@@ -368,6 +368,13 @@ func captureBenchFingerprint(cfg config.VillaConfig, backend string) benchstore.
 	if hp.KernelVersion.Known {
 		kver = hp.KernelVersion.Value
 	}
+	// Normalize "off" to "" so an off v2 fingerprint matches a pre-#119b v1 record
+	// (whose Speculation key was simply absent, decoding to "") — see
+	// benchstore.Fingerprint.Speculation.
+	spec := cfg.Speculation
+	if spec == config.SpeculationOff {
+		spec = ""
+	}
 	return benchstore.Fingerprint{
 		Model:         cfg.Model,
 		Quant:         cfg.Quant,
@@ -375,6 +382,7 @@ func captureBenchFingerprint(cfg config.VillaConfig, backend string) benchstore.
 		Backend:       backend,
 		HostGfxID:     gfx,
 		KernelVersion: kver,
+		Speculation:   spec,
 	}
 }
 
@@ -801,9 +809,10 @@ func savedReportFromResult(res bench.Result, ab bool, spec bench.Spec, fp benchs
 }
 
 // savedSideFromStats folds one side's pure Stats into the benchstore SavedSide (pp/tg
-// separate). It mirrors sideFromStats exactly so the on-disk numbers match `bench --json`.
+// separate). It mirrors sideFromStats exactly so the on-disk numbers match `bench --json`,
+// including DraftAcceptance populated ONLY when s.Drafted > 0.
 func savedSideFromStats(backend string, s bench.Stats) benchstore.SavedSide {
-	return benchstore.SavedSide{
+	side := benchstore.SavedSide{
 		Backend:         backend,
 		PromptPerSec:    s.MedianPP,
 		PromptStddev:    s.StddevPP,
@@ -811,7 +820,13 @@ func savedSideFromStats(backend string, s bench.Stats) benchstore.SavedSide {
 		PredictedStddev: s.StddevTG,
 		Kept:            s.Kept,
 		Void:            s.Void,
+		Drafted:         s.Drafted,
 	}
+	if s.Drafted > 0 {
+		acc := s.MedianAcceptance
+		side.DraftAcceptance = &acc
+	}
+	return side
 }
 
 // persistBenchReport fires the BENCH-03 write-hook AFTER a successful measurement: it
