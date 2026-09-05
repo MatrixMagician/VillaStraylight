@@ -153,6 +153,25 @@ func TestConfigSetUnknownKeyBlocks(t *testing.T) {
 	}
 }
 
+// TestConfigSetSpeculationPointsAtTheVerb asserts `speculation` is refused here and
+// the refusal names the verb that owns it — persisting the mode without the fit
+// guard and the transactional restart would let config describe a stack that was
+// never proved.
+func TestConfigSetSpeculationPointsAtTheVerb(t *testing.T) {
+	f := newFakeConfigDeps(fixtureConfig())
+	cmd, _, errOut := lifecycleTestCmd()
+	code := runConfigSet(cmd, "speculation=ngram", f.configDeps)
+	if code != exitBlocked {
+		t.Fatalf("config set speculation exit = %d, want 1", code)
+	}
+	if f.saveCalls != 0 {
+		t.Errorf("speculation must not write here, saved %d times", f.saveCalls)
+	}
+	if !strings.Contains(errOut.String(), "villa speculation set") {
+		t.Errorf("refusal should name `villa speculation set`, got %q", errOut.String())
+	}
+}
+
 // TestConfigSetBadCtxBlocks: a non-integer ctx value exits 1 and never writes.
 func TestConfigSetBadCtxBlocks(t *testing.T) {
 	f := newFakeConfigDeps(fixtureConfig())
