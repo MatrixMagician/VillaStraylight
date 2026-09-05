@@ -1041,3 +1041,32 @@ func TestStatusTableShowsSpeculation(t *testing.T) {
 		t.Errorf("table does not name the mode:\n%s", got)
 	}
 }
+
+// TestStatusTableShowsVision asserts the table answers "can I attach an image"
+// right after the speculation row, in the same yes/no vocabulary the rest of the
+// table uses.
+func TestStatusTableShowsVision(t *testing.T) {
+	for _, tc := range []struct {
+		on   bool
+		want string
+	}{{false, "no"}, {true, "yes"}} {
+		var buf bytes.Buffer
+		renderStatusTable(&buf, status.Report{Backend: "rocm", Speculation: "ngram", Vision: tc.on}, false)
+		got := buf.String()
+		var row string
+		for _, line := range strings.Split(got, "\n") {
+			if strings.HasPrefix(line, "vision") {
+				row = line
+			}
+		}
+		if row == "" {
+			t.Fatalf("table has no vision row:\n%s", got)
+		}
+		if !strings.HasSuffix(strings.TrimSpace(row), tc.want) {
+			t.Errorf("vision row = %q, want it to end %q", row, tc.want)
+		}
+		if specAt, visionAt := strings.Index(got, "speculation"), strings.Index(got, "vision"); visionAt < specAt {
+			t.Errorf("vision row precedes the speculation row:\n%s", got)
+		}
+	}
+}
