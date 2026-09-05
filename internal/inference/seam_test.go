@@ -31,8 +31,9 @@ import (
 //
 // intent (no silent CPU/Linux assumption in callers) is preserved, not
 // relaxed: every one of these is an imperative behavior, not a printed finding.
-// codingModeFlagPattern is the SINGLE source for the coding-mode llama-server
-// flag-leak regex. The --jinja / --cache-reuse / sampling literals are the
+// seamFlagPattern is the SINGLE source for the llama-server flag-leak regex
+// covering the two optional render deltas.
+// The --jinja / --cache-reuse / sampling literals are the
 // same seam class as the existing llamaServerFlags: they MUST live ONLY in
 // backend_vulkan.go / backend_rocm.go (the appendCodingModeArgs helper). This regex
 // forbids them in any non-seam internal/* file AND in cmd/villa. It anchors on the
@@ -48,8 +49,11 @@ import (
 // (e.g. catalog.go's "whether llama.cpp --cache-reuse is proven safe" — that is DATA
 // describing the cache_reuse_safe field, the same class the gate's top-of-file scoping
 // comment deliberately excludes; flagging it would weaken the gate into noise).
-func codingModeFlagPattern() *regexp.Regexp {
-	return regexp.MustCompile(`"--jinja"|"--cache-reuse"|"--repeat-penalty"`)
+// The speculation delta joins them on the same terms: "--spec-type" and its
+// "ngram-mod" value are emitted by appendSpeculationArgs and must never appear in
+// a caller, which is what would let a verb decide a mode the render did not.
+func seamFlagPattern() *regexp.Regexp {
+	return regexp.MustCompile(`"--jinja"|"--cache-reuse"|"--repeat-penalty"|"--spec-type"|"ngram-mod"`)
 }
 
 func TestSeamGrepGate(t *testing.T) {
@@ -60,7 +64,7 @@ func TestSeamGrepGate(t *testing.T) {
 		// coding-mode flag literals: --jinja / --cache-reuse /
 		// sampling MUST stay behind the inference seam (appendCodingModeArgs). A leak into
 		// any non-seam internal/* file fails CI. Added in the SAME commit as the literals.
-		"coding-mode llama-server flags": codingModeFlagPattern(),
+		"coding-mode and speculation llama-server flags": seamFlagPattern(),
 		// kyuz0|docker.io/ already bind BOTH the Vulkan and the ROCm image tokens (the
 		// rocm image is docker.io/kyuz0/…:rocm-7.2.4@sha256:…). The rocm tag alternatives
 		// are added for EXPLICIT intent — a ROCm image tag leaking outside the seam must
@@ -187,7 +191,7 @@ func TestSeamGrepGate(t *testing.T) {
 		// only in backend_*.go. This key is added to cmdPatterns EXPLICITLY (cmdPatterns
 		// selectively copies named keys and does NOT inherit new patterns entries), so the
 		// cmd/villa walk is a REAL guarantee, not a vacuous one (SC1).
-		"coding-mode llama-server flags": codingModeFlagPattern(),
+		"coding-mode and speculation llama-server flags": seamFlagPattern(),
 	}
 
 	cmdRoot := "../../cmd/villa" // relative to internal/inference
