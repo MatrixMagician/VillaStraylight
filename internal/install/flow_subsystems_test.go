@@ -345,3 +345,35 @@ func TestInstallWebsafeWiring(t *testing.T) {
 		}
 	})
 }
+
+// TestInstallWebSearchRefusalsEndInNewline guards the two INTERNAL ERROR backstops
+// that fire when a web-search unit is missing from the rendered plan: the refusal
+// must terminate the stderr line with a real newline, not the two bytes `\n`
+// (#118). The refusals fire rarely, which is how the escaped terminator survived.
+func TestInstallWebSearchRefusalsEndInNewline(t *testing.T) {
+	for _, tc := range []struct {
+		missing string
+	}{
+		{missing: orchestrate.SearXNGContainerUnitName()},
+		{missing: orchestrate.WebsafeContainerUnitName()},
+	} {
+		t.Run(tc.missing, func(t *testing.T) {
+			units, _ := searxngUnits()
+			units = slices.DeleteFunc(units, func(u orchestrate.Unit) bool { return u.Name == tc.missing })
+			f := newFakeDeps(t, units, orchestrate.Plan{Changed: units}, passChecks())
+			f.webSearchEnabled = true
+
+			code, _, errOut := f.run(Opts{})
+			if code == exitPass {
+				t.Fatalf("a missing %s must refuse, got exitPass", tc.missing)
+			}
+			out := errOut.String()
+			if !strings.Contains(out, "INTERNAL ERROR") {
+				t.Fatalf("expected the INTERNAL ERROR refusal on stderr, got %q", out)
+			}
+			if strings.Contains(out, `\n`) || !strings.HasSuffix(out, "\n") {
+				t.Errorf("refusal must end in a real newline, got %q", out)
+			}
+		})
+	}
+}
