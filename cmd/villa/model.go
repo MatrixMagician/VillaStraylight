@@ -106,14 +106,17 @@ func runModelPull(cmd *cobra.Command, name string) int {
 		return exitBlocked
 	}
 
+	// AllShards, not Shards: the projector was pulled and verified too, so the
+	// count and the byte total must say so or the line under-reports the download.
+	all := m.AllShards()
 	var totalBytes uint64
-	for _, s := range m.Shards {
+	for _, s := range all {
 		totalBytes += s.SizeBytes
 	}
-	if len(m.Shards) == 1 {
-		fmt.Fprintf(out, "pulled %s -> %s (%d bytes, verified)\n", m.ID, filepath.Join(modelsDir, m.Shards[0].Filename), totalBytes)
+	if len(all) == 1 {
+		fmt.Fprintf(out, "pulled %s -> %s (%d bytes, verified)\n", m.ID, filepath.Join(modelsDir, all[0].Filename), totalBytes)
 	} else {
-		fmt.Fprintf(out, "pulled %s -> %s (%d shards, %d bytes, verified)\n", m.ID, modelsDir, len(m.Shards), totalBytes)
+		fmt.Fprintf(out, "pulled %s -> %s (%d shards, %d bytes, verified)\n", m.ID, modelsDir, len(all), totalBytes)
 	}
 	return exitPass
 }
