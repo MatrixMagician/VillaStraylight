@@ -327,7 +327,7 @@ func liveBackendSwapDeps() *backendswap.Deps {
 			// A speculation refusal is a non-fit with no memory shortfall, so report
 			// its note rather than a byte count that is not the problem.
 			for _, n := range rec.Notes {
-				if strings.HasPrefix(n, "speculation: ") {
+				if strings.HasPrefix(n, "speculation: ") && strings.HasSuffix(n, "refusing") {
 					return false, n
 				}
 			}

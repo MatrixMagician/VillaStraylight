@@ -238,7 +238,7 @@ func ResolveSpeculation(m catalog.Model, requested string) (mode, note string, o
 		}
 		return config.SpeculationOff, fmt.Sprintf("speculation: ngram requested but %s is not qualified for it; refusing", m.ID), false
 	default:
-		return config.SpeculationOff, fmt.Sprintf("speculation: %q is not a known mode (off, ngram, or unset)", requested), false
+		return config.SpeculationOff, fmt.Sprintf("speculation: %q is not a known mode (off, ngram, or unset); refusing", requested), false
 	}
 }
 
