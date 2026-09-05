@@ -84,6 +84,13 @@ func downloadFile(ctx context.Context, client httpDoer, sh catalog.Shard, models
 	}
 	partPath := finalPath + partSuffix
 
+	// A shard already on disk at the catalog's size is not fetched again. The
+	// sidecar made "some of the entry's files are present" a normal state, and
+	// the primary shard is 20+ GB.
+	if fi, statErr := os.Stat(finalPath); statErr == nil && uint64(fi.Size()) == sh.SizeBytes {
+		return nil
+	}
+
 	// (1) HEAD defense-in-depth: confirm upstream still advertises the size+etag we
 	// recorded in the catalog, before pulling gigabytes.
 	if headErr := headVerify(ctx, client, sh); headErr != nil {
