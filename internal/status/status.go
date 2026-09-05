@@ -13,6 +13,7 @@
 package status
 
 import (
+	"cmp"
 	"errors"
 	"strings"
 	"time"
@@ -192,6 +193,11 @@ type Report struct {
 	// misreading the whole verb is built to refuse.
 	Updates UpdatesInfo `json:"updates"`
 
+	// Speculation is the persisted speculation mode of the inference unit
+	// (ADR-0006). It reads "off" when the config names no mode, because an unset
+	// config renders speculation off and the operator asked what is running.
+	Speculation string `json:"speculation"`
+
 	// SchemaVersion is the Report contract self-version. It MUST stay the
 	// LAST tagged field (append-only; new tagged fields go above it, the unexported
 	// err stays after it and never serializes).
@@ -222,7 +228,9 @@ type Report struct {
 // and an omitted section would read as "nothing to report". It is
 // itself a tail-appended additive marker; bumped on
 // any additive change to the Report --json contract.
-const reportSchemaVersion = 6
+// Version 7 (ADR-0006) tail-appends the speculation mode ABOVE SchemaVersion; an
+// unset config reports "off", so the v7 output differs from v6 by that one key.
+const reportSchemaVersion = 7
 
 // SchemaVersion exposes the Report contract's own version to downstream readers
 // (the dashboard serves this same document), so a consumer binds one symbol rather
@@ -608,6 +616,7 @@ func Run(d Deps) Report {
 	// on this. Sourced from the same cfg as Backend/Image; omitempty omits it when unset
 	// (typed-Unknown, never a fabricated identity).
 	report.Model = cfg.Model
+	report.Speculation = cmp.Or(cfg.Speculation, config.SpeculationOff)
 	report.SchemaVersion = reportSchemaVersion
 	// Live tok/s: typed-optional via the seam — nil on idle/unavailable so it
 	// serializes as omitted, never a fabricated 0. Guard a nil seam defensively.

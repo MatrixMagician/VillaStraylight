@@ -323,7 +323,7 @@
   // All server values (backend, image) are set via textContent — NEVER innerHTML — matching
   // the established XSS-safe DOM idiom (renderHealth / renderGPU). Backend identity is
   // sourced from the /api/status poll (report.backend/report.image), not /api/metrics (D-01).
-  function renderBackend(backend, image, readiness) {
+  function renderBackend(backend, image, readiness, speculation) {
     if (!healthBackend) { return; }
     healthBackend.textContent = "";
 
@@ -347,6 +347,20 @@
       backendRow.appendChild(backendBadge);
     }
     healthBackend.appendChild(backendRow);
+
+    // Speculation row: the mode the inference unit was started with, reported
+    // beside the backend because the two together describe how it decodes.
+    var specRow = document.createElement("div");
+    specRow.className = "health-row";
+    var specLabel = document.createElement("span");
+    specLabel.className = "health-service";
+    specLabel.textContent = "speculation";
+    specRow.appendChild(specLabel);
+    var specVal = document.createElement("span");
+    specVal.className = "health-detail";
+    specVal.textContent = speculation || "off";
+    specRow.appendChild(specVal);
+    healthBackend.appendChild(specRow);
 
     // Active image row (element 1). OMIT the row entirely when the image tag is unset — the
     // honest empty state is no row, not a placeholder. Monospace tabular via .health-detail.
@@ -1028,7 +1042,7 @@
         // /api/status, never /api/metrics) and append the backend/image rows + readiness
         // badge into the Health panel after the service rows.
         lastBackend = report.backend || null;
-        renderBackend(report.backend, report.image, report.rocm_readiness);
+        renderBackend(report.backend, report.image, report.rocm_readiness, report.speculation);
         // Cumulative usage rides the SAME /api/status poll (USAGE-02 / D-10) — no new
         // endpoint, no new fetch. Render it into the stable #cumulative-usage block inside
         // the Performance panel from report.usage (typed-Unknown muted copy when absent).
