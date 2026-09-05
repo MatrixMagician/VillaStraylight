@@ -55,7 +55,40 @@ func fixtureRecommendation() recommend.Recommendation {
 		// surfaces as 0 here (web-search-off contract shape) directly above
 		// schema_version.
 		WebSearchReservationBytes: 0,
-		SchemaVersion:             4,
+		// Schema 5 (ADR-0006): the append-only speculation key lands directly above
+		// schema_version, carrying a real resolved mode so the frozen bytes show one.
+		Speculation:   "ngram",
+		SchemaVersion: 5,
+	}
+}
+
+// TestRecommendTableShowsSpeculation asserts the resolved mode is visible in the
+// default table: it is a persisted decision `--save` is about to make, so it must
+// not be --json-only.
+func TestRecommendTableShowsSpeculation(t *testing.T) {
+	var buf bytes.Buffer
+	if err := renderRecommend(&buf, fixtureRecommendation(), nil, false /*table*/, false); err != nil {
+		t.Fatalf("renderRecommend: %v", err)
+	}
+	if !strings.Contains(buf.String(), "speculation") || !strings.Contains(buf.String(), "ngram") {
+		t.Errorf("table output should name the resolved speculation mode, got:\n%s", buf.String())
+	}
+}
+
+// TestSaveRecommendationPersistsSpeculation asserts `--save` writes the resolved
+// mode, so the render funnel reads back the mode the recommendation showed.
+func TestSaveRecommendationPersistsSpeculation(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	var buf bytes.Buffer
+	if err := saveRecommendation(&buf, fixtureRecommendation(), ""); err != nil {
+		t.Fatalf("saveRecommendation: %v", err)
+	}
+	cfg, err := config.LoadVilla()
+	if err != nil {
+		t.Fatalf("LoadVilla: %v", err)
+	}
+	if cfg.Speculation != "ngram" {
+		t.Errorf("persisted speculation = %q, want ngram", cfg.Speculation)
 	}
 }
 
