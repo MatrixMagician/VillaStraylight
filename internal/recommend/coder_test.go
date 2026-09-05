@@ -195,8 +195,8 @@ func TestPickCoderStampedOnRefusal(t *testing.T) {
 	if rec.Coder.Residency != "shared" {
 		t.Errorf("refusal Coder.Residency = %q, want \"shared\" (D-06 conservative floor)", rec.Coder.Residency)
 	}
-	if rec.SchemaVersion != 5 {
-		t.Errorf("refusal SchemaVersion = %d, want 5", rec.SchemaVersion)
+	if rec.SchemaVersion != 6 {
+		t.Errorf("refusal SchemaVersion = %d, want 6", rec.SchemaVersion)
 	}
 }
 

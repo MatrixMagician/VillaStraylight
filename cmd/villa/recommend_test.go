@@ -57,8 +57,14 @@ func fixtureRecommendation() recommend.Recommendation {
 		WebSearchReservationBytes: 0,
 		// Schema 5 (ADR-0006): the append-only speculation key lands directly above
 		// schema_version, carrying a real resolved mode so the frozen bytes show one.
-		Speculation:   "ngram",
-		SchemaVersion: 5,
+		Speculation: "ngram",
+		// Schema 6: the append-only projector_bytes + vision keys land directly
+		// above schema_version. They surface as 0/false here — the text-only
+		// contract shape, which is what keeps the diff append-only rather than
+		// restating total_bytes.
+		ProjectorBytes: 0,
+		Vision:         false,
+		SchemaVersion:  6,
 	}
 }
 
