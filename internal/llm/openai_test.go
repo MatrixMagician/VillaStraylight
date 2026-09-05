@@ -187,6 +187,58 @@ func TestCompleteVoidsAbsentTimings(t *testing.T) {
 	}
 }
 
+// TestCompleteParsesDraftFields proves Complete decodes the pinned llama-server's
+// (b9536) draft_n/draft_n_accepted timings fields when speculation is active, and
+// that both fields are absent-safe (decode to 0, never an error) when the response
+// carries no draft counters — the request the ngram cache never fired on (#119).
+func TestCompleteParsesDraftFields(t *testing.T) {
+	cases := []struct {
+		name           string
+		body           string
+		wantDraftN     int
+		wantDraftAccep int
+	}{
+		{
+			name: "drafts present",
+			body: `{"timings":{"predicted_n":128,"predicted_per_second":40.0,` +
+				`"draft_n":248,"draft_n_accepted":207}}`,
+			wantDraftN:     248,
+			wantDraftAccep: 207,
+		},
+		{
+			name:           "drafts absent (no speculation for this request)",
+			body:           `{"timings":{"predicted_n":128,"predicted_per_second":40.0}}`,
+			wantDraftN:     0,
+			wantDraftAccep: 0,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(tc.body))
+			}))
+			defer srv.Close()
+
+			client := NewOpenAIClient(Options{BaseURL: srv.URL})
+			tm, err := client.Complete(t.Context(), ChatRequest{
+				Model:    "test-model",
+				Messages: []Message{{Role: RoleUser, Content: "hi"}},
+			}, 128, 7, 0.0)
+			if err != nil {
+				t.Fatalf("Complete returned error: %v", err)
+			}
+			if tm.DraftN != tc.wantDraftN {
+				t.Errorf("DraftN = %d, want %d", tm.DraftN, tc.wantDraftN)
+			}
+			if tm.DraftNAccepted != tc.wantDraftAccep {
+				t.Errorf("DraftNAccepted = %d, want %d", tm.DraftNAccepted, tc.wantDraftAccep)
+			}
+		})
+	}
+}
+
 // TestCompleteUpstreamError proves a non-200 yields a bounded-snippet error, no panic.
 func TestCompleteUpstreamError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

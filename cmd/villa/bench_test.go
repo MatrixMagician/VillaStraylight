@@ -567,6 +567,206 @@ func TestBenchJSONNoBlendedKey(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// #119b: draft acceptance reported beside pp/tg when speculation drafted.
+// ---------------------------------------------------------------------------
+
+// TestSideFromStatsAcceptance proves sideFromStats folds bench.Stats.MedianAcceptance
+// into benchSide.DraftAcceptance ONLY when Drafted > 0 (a nil pointer, and the
+// omitempty "drafted" key absent, on the off path) — the byte-identical-off-path
+// invariant the existing bench.json.golden/bench-compare.json.golden already pin.
+func TestSideFromStatsAcceptance(t *testing.T) {
+	off := sideFromStats("vulkan", bench.Stats{MedianPP: 100, MedianTG: 40, Drafted: 0})
+	if off.DraftAcceptance != nil {
+		t.Errorf("off path: DraftAcceptance = %v, want nil", *off.DraftAcceptance)
+	}
+	if off.Drafted != 0 {
+		t.Errorf("off path: Drafted = %d, want 0", off.Drafted)
+	}
+
+	drafted := sideFromStats("vulkan", bench.Stats{MedianPP: 100, MedianTG: 40, MedianAcceptance: 0.82, Drafted: 3})
+	if drafted.DraftAcceptance == nil {
+		t.Fatal("drafted path: DraftAcceptance = nil, want a populated pointer")
+	}
+	if *drafted.DraftAcceptance != 0.82 {
+		t.Errorf("DraftAcceptance = %v, want 0.82", *drafted.DraftAcceptance)
+	}
+	if drafted.Drafted != 3 {
+		t.Errorf("Drafted = %d, want 3", drafted.Drafted)
+	}
+}
+
+// draftBenchDeps builds a single-backend *bench.Deps whose every measured run drafts
+// with the given accepted/total counts — a minimal stand-in for newBenchStub (which
+// has no draft knobs) so this test does not have to retrofit draft fields onto every
+// existing cannedTimings{pp, tg} literal in this file.
+func draftBenchDeps(pp, tg float64, draftN, draftAccepted int) *bench.Deps {
+	return &bench.Deps{
+		Measure: func(_ context.Context) (bench.RunTimings, bool, string, error) {
+			return bench.RunTimings{
+				PromptPerSec:    pp,
+				PredictedPerSec: tg,
+				DraftN:          draftN,
+				DraftAccepted:   draftAccepted,
+			}, true, "", nil
+		},
+	}
+}
+
+// TestBenchTableAcceptanceColumn proves the human table prints an acceptance line
+// ONLY when the run actually drafted, and omits it entirely on the off path (the
+// existing byte-for-byte human-output assertions elsewhere must keep passing).
+func TestBenchTableAcceptanceColumn(t *testing.T) {
+	withReachable(t, true)
+	withConfiguredBackend(t, "vulkan")
+
+	cmd, out, _ := benchTestCmd()
+	code := runBench(cmd, benchSpec(2, 0), false, false, draftBenchDeps(120, 40, 200, 164))
+	if code != exitPass {
+		t.Fatalf("drafted run exit = %d, want %d", code, exitPass)
+	}
+	if !strings.Contains(out.String(), "acceptance") {
+		t.Errorf("a drafted run must render an acceptance line, got %q", out.String())
+	}
+
+	cmd2, out2, _ := benchTestCmd()
+	code2 := runBench(cmd2, benchSpec(2, 0), false, false, draftBenchDeps(120, 40, 0, 0))
+	if code2 != exitPass {
+		t.Fatalf("off-path run exit = %d, want %d", code2, exitPass)
+	}
+	if strings.Contains(out2.String(), "acceptance") {
+		t.Errorf("an undrafted run must NOT render an acceptance line, got %q", out2.String())
+	}
+}
+
+// TestBenchSpeculationJSONGolden freezes the drafted-run --json contract: with
+// speculation active, `single.draft_acceptance` and `single.drafted` are present
+// append-only alongside the existing pp/tg keys. Run with -update to regenerate.
+func TestBenchSpeculationJSONGolden(t *testing.T) {
+	withReachable(t, true)
+	withConfiguredBackend(t, "vulkan")
+	cmd, out, _ := benchTestCmd()
+
+	code := runBench(cmd, benchSpec(2, 0), false, true, draftBenchDeps(120, 40, 200, 164))
+	if code != exitPass {
+		t.Fatalf("drafted --json exit = %d, want %d (out: %s)", code, exitPass, out.String())
+	}
+
+	golden := filepath.Join("testdata", "bench-speculation.json.golden")
+	if *update {
+		if err := os.MkdirAll("testdata", 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(golden, out.Bytes(), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		t.Logf("updated %s", golden)
+		return
+	}
+	want, err := os.ReadFile(golden)
+	if err != nil {
+		t.Fatalf("read golden (run with -update to create): %v", err)
+	}
+	if !bytes.Equal(out.Bytes(), want) {
+		t.Errorf("bench --json (drafted) does not match golden.\n--- got ---\n%s\n--- want ---\n%s", out.String(), want)
+	}
+}
+
+// TestCaptureBenchFingerprintSpeculation proves the fingerprint's Speculation field
+// is set from config, normalizing BOTH "" (unset) and the explicit "off" mode to the
+// empty string — the convention that lets an old pre-#119b record and an off v2
+// record compare as the same protocol (benchstore.Comparable).
+func TestCaptureBenchFingerprintSpeculation(t *testing.T) {
+	cases := []struct {
+		cfgSpeculation string
+		want           string
+	}{
+		{"", ""},
+		{config.SpeculationOff, ""},
+		{config.SpeculationNgram, config.SpeculationNgram},
+	}
+	for _, tc := range cases {
+		t.Run(tc.cfgSpeculation+"->"+tc.want, func(t *testing.T) {
+			cfg := config.VillaConfig{Model: "qwen3", Speculation: tc.cfgSpeculation}
+			fp := captureBenchFingerprint(cfg, "vulkan")
+			if fp.Speculation != tc.want {
+				t.Errorf("Speculation = %q, want %q", fp.Speculation, tc.want)
+			}
+		})
+	}
+}
+
+// TestSavedSideFromStatsAcceptance mirrors TestSideFromStatsAcceptance for the
+// persisted benchstore.SavedSide: DraftAcceptance is populated ONLY when Drafted > 0.
+func TestSavedSideFromStatsAcceptance(t *testing.T) {
+	off := savedSideFromStats("vulkan", bench.Stats{MedianPP: 100, MedianTG: 40, Drafted: 0})
+	if off.DraftAcceptance != nil {
+		t.Errorf("off path: DraftAcceptance = %v, want nil", *off.DraftAcceptance)
+	}
+
+	drafted := savedSideFromStats("vulkan", bench.Stats{MedianPP: 100, MedianTG: 40, MedianAcceptance: 0.6, Drafted: 2})
+	if drafted.DraftAcceptance == nil || *drafted.DraftAcceptance != 0.6 {
+		t.Errorf("DraftAcceptance = %v, want a pointer to 0.6", drafted.DraftAcceptance)
+	}
+	if drafted.Drafted != 2 {
+		t.Errorf("Drafted = %d, want 2", drafted.Drafted)
+	}
+}
+
+// TestBenchPersistABSpeculationIdentical proves an --ab persisted report's
+// fingerprint carries ONE speculation value shared by both sides — the backend swap
+// never touches speculation, so both sides of an A/B necessarily ran under the SAME
+// persisted mode (#119b step 5). The report has exactly one Fingerprint, so this is
+// really a construction guarantee; the test pins it against regression (e.g. a future
+// per-side fingerprint split that forgets to keep them equal).
+func TestBenchPersistABSpeculationIdentical(t *testing.T) {
+	withReachable(t, true)
+	got := withBenchstoreWrite(t, nil)
+
+	cfgHome := t.TempDir()
+	villaDir := filepath.Join(cfgHome, "villa")
+	if err := os.MkdirAll(villaDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	toml := "model = \"qwen3\"\nbackend = \"vulkan\"\nspeculation = \"ngram\"\n"
+	if err := os.WriteFile(filepath.Join(villaDir, "config.toml"), []byte(toml), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("XDG_CONFIG_HOME", cfgHome)
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+
+	rec := &benchRecorder{}
+	d := newBenchStub(rec, true, "vulkan", cannedTimings{100, 40}, cannedTimings{150, 60}, true, 0)
+	cmd, _, _ := benchTestCmd()
+
+	if code := runBench(cmd, benchSpec(3, 1), true, false, d); code != exitPass {
+		t.Fatalf("clean ab exit = %d, want %d (exitPass)", code, exitPass)
+	}
+	if len(*got) != 1 {
+		t.Fatalf("--ab must persist ONE record, persisted %d", len(*got))
+	}
+	if (*got)[0].Fingerprint.Speculation != "ngram" {
+		t.Errorf("persisted AB fingerprint speculation = %q, want %q (the one mode both sides ran)",
+			(*got)[0].Fingerprint.Speculation, "ngram")
+	}
+}
+
+// TestBenchOffPathGoldensUnchanged is a documentation-grade guard: the two existing
+// frozen goldens (both off-path — no side ever drafts) must NOT gain the new
+// draft_acceptance/drafted keys, so a byte-diff of either golden against this
+// assertion is the fastest signal that the append-only discipline slipped.
+func TestBenchOffPathGoldensUnchanged(t *testing.T) {
+	for _, golden := range []string{"bench.json.golden", "bench-compare.json.golden"} {
+		data, err := os.ReadFile(filepath.Join("testdata", golden))
+		if err != nil {
+			t.Fatalf("read %s: %v", golden, err)
+		}
+		if bytes.Contains(data, []byte("draft_acceptance")) || bytes.Contains(data, []byte(`"drafted"`)) {
+			t.Errorf("%s is an off-path golden and must not carry the new draft keys", golden)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
 // BENCH-03 persistence: live benchstore append seam + cmd-tier fingerprint capture
 // ---------------------------------------------------------------------------
 

@@ -16,8 +16,11 @@ var update = flag.Bool("update", false, "update golden files")
 
 // deterministicReport builds a fully-populated single-mode SavedReport with a fixed
 // CapturedAt so the record golden is byte-stable. VoidExhausted=true + Reason set so
-// the residency-void state is exercised in the frozen contract.
+// the residency-void state is exercised in the frozen contract. #119b: the schema-2
+// fixture also drafts (DraftAcceptance/Drafted populated) and carries a speculation
+// mode in the fingerprint, so the frozen record exercises every new v2 field.
 func deterministicReport() SavedReport {
+	acceptance := 0.82
 	return NewSavedReport(SavedReport{
 		CapturedAt: "2026-06-07T12:00:00Z",
 		Mode:       "single",
@@ -37,6 +40,8 @@ func deterministicReport() SavedReport {
 			PredictedStddev: 0.75,
 			Kept:            5,
 			Void:            0,
+			DraftAcceptance: &acceptance,
+			Drafted:         5,
 		},
 		VoidExhausted: true,
 		Reason:        "only 2 of 5 runs were resident",
@@ -47,19 +52,44 @@ func deterministicReport() SavedReport {
 			Backend:       "vulkan",
 			HostGfxID:     "gfx1151",
 			KernelVersion: "6.18.4",
+			Speculation:   "ngram",
 		},
 	})
 }
 
-// TestSchemaVersion locks the on-disk contract self-version at 1 (BENCH-03) and
-// proves NewSavedReport stamps it, mirroring detect/profile_test.go.
+// TestSchemaVersion locks the on-disk contract self-version at 2 (#119b: draft
+// acceptance + speculation fingerprint, append-only over the v1 BENCH-03 contract)
+// and proves NewSavedReport stamps it, mirroring detect/profile_test.go.
 func TestSchemaVersion(t *testing.T) {
-	if savedReportSchemaVersion != 1 {
-		t.Fatalf("savedReportSchemaVersion = %d, want 1", savedReportSchemaVersion)
+	if savedReportSchemaVersion != 2 {
+		t.Fatalf("savedReportSchemaVersion = %d, want 2", savedReportSchemaVersion)
 	}
 	r := NewSavedReport(SavedReport{})
 	if r.SchemaVersion != savedReportSchemaVersion {
 		t.Errorf("NewSavedReport stamped SchemaVersion = %d, want %d", r.SchemaVersion, savedReportSchemaVersion)
+	}
+}
+
+// TestSavedSideAcceptance proves SavedSide's new fields marshal/omit exactly like
+// cmd/villa's benchSide: a nil DraftAcceptance (Drafted==0, the off path) omits BOTH
+// the "draft_acceptance" and "drafted" keys so a pre-#119b v1 record byte-matches a
+// v2 record for an undrafted run; a populated one carries both.
+func TestSavedSideAcceptance(t *testing.T) {
+	off, err := json.Marshal(SavedSide{Backend: "vulkan"})
+	if err != nil {
+		t.Fatalf("marshal off side: %v", err)
+	}
+	if bytes.Contains(off, []byte("draft_acceptance")) || bytes.Contains(off, []byte(`"drafted"`)) {
+		t.Errorf("an undrafted SavedSide must omit draft_acceptance/drafted, got %s", off)
+	}
+
+	acc := 0.75
+	on, err := json.Marshal(SavedSide{Backend: "vulkan", DraftAcceptance: &acc, Drafted: 4})
+	if err != nil {
+		t.Fatalf("marshal drafted side: %v", err)
+	}
+	if !bytes.Contains(on, []byte(`"draft_acceptance":0.75`)) || !bytes.Contains(on, []byte(`"drafted":4`)) {
+		t.Errorf("a drafted SavedSide must carry both draft_acceptance and drafted, got %s", on)
 	}
 }
 
@@ -132,7 +162,7 @@ func TestSchemaVersionIsLastField(t *testing.T) {
 	}
 }
 
-// TestRecordGolden freezes the on-disk schema-1 record format byte-for-byte BEFORE
+// TestRecordGolden freezes the on-disk schema record format byte-for-byte BEFORE
 // any live writer exists. Run with -update to create/refresh; without it, the
 // deterministic record must match the frozen golden exactly.
 func TestRecordGolden(t *testing.T) {
@@ -183,6 +213,7 @@ func TestComparableMatrix(t *testing.T) {
 		{"quant-mismatch", func(f *Fingerprint) { f.Quant = "Q8_0" }, false, "quant"},
 		{"ctx-mismatch", func(f *Fingerprint) { f.Ctx = 4096 }, false, "ctx"},
 		{"host-mismatch", func(f *Fingerprint) { f.HostGfxID = "gfx1100" }, false, "host"},
+		{"speculation-mismatch", func(f *Fingerprint) { f.Speculation = "ngram" }, false, "speculation"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -341,41 +372,68 @@ func TestLoadSkipsCorruptLine(t *testing.T) {
 }
 
 // TestLoadSkipsUnknownSchemaVersion proves Load fails CLOSED on the schema_version
-// contract: a JSON-valid line whose schema_version is a FUTURE value (2) or the
-// UNSTAMPED zero value (0) is SKIPPED — never returned, never fed into Compare as if
-// it were v1. Only a record stamped with the supported savedReportSchemaVersion (1)
-// survives. This guards the very contract record.golden exists to protect: an unknown
-// schema must not be reinterpreted as the current one (fail-closed read path).
+// contract: a JSON-valid line whose schema_version is a FUTURE value (3, one past
+// the current v2 contract) or the UNSTAMPED zero value (0) is SKIPPED — never
+// returned, never fed into Compare as if it were a supported version. A record
+// stamped with EITHER supported version (1 or 2 — #119b's Load-still-reads-v1-lines
+// requirement) survives. This guards the very contract record.golden exists to
+// protect: an unknown schema must not be reinterpreted as a current one (fail-closed
+// read path).
 func TestLoadSkipsUnknownSchemaVersion(t *testing.T) {
-	// A supported v1 record (deterministicReport stamps SchemaVersion=1 via the ctor).
-	v1, _ := Marshal(deterministicReport())
+	// A supported v2 record (deterministicReport stamps SchemaVersion=2 via the ctor).
+	v2, _ := Marshal(deterministicReport())
 
-	// A future-schema record: same struct shape but schema_version=2.
+	// A supported v1 record: the pre-#119b shape, no draft/speculation fields at all.
+	v1 := deterministicReport()
+	v1.Single.DraftAcceptance = nil
+	v1.Single.Drafted = 0
+	v1.Fingerprint.Speculation = ""
+	v1.SchemaVersion = 1
+	v1Line, _ := Marshal(v1)
+
+	// A future-schema record: one past the current contract.
 	future := deterministicReport()
-	future.SchemaVersion = 2
-	v2, _ := Marshal(future)
+	future.SchemaVersion = 3
+	v3, _ := Marshal(future)
 
 	// An unstamped record: schema_version=0 (e.g. a struct literal that never went
-	// through Append/NewSavedReport). Must NOT be parsed as v1.
+	// through Append/NewSavedReport). Must NOT be parsed as a supported version.
 	unstamped := deterministicReport()
 	unstamped.SchemaVersion = 0
 	v0, _ := Marshal(unstamped)
 
 	var buf bytes.Buffer
-	buf.Write(v2) // unknown/future — skipped
-	buf.Write(v1) // supported — kept
-	buf.Write(v0) // unstamped/zero — skipped
+	buf.Write(v3)     // unknown/future — skipped
+	buf.Write(v2)     // supported (current) — kept
+	buf.Write(v1Line) // supported (v1, no #119b fields) — kept
+	buf.Write(v0)     // unstamped/zero — skipped
 
 	d := Deps{ReadAll: func() ([]byte, error) { return buf.Bytes(), nil }}
 	got, err := Load(d)
 	if err != nil {
 		t.Fatalf("Load must not error on unknown-schema lines: %v", err)
 	}
-	if len(got) != 1 {
-		t.Fatalf("Load returned %d records, want 1 (only the supported v1 record kept)", len(got))
+	if len(got) != 2 {
+		t.Fatalf("Load returned %d records, want 2 (the supported v1 and v2 records kept)", len(got))
 	}
-	if got[0].SchemaVersion != savedReportSchemaVersion {
-		t.Errorf("surviving record SchemaVersion = %d, want %d", got[0].SchemaVersion, savedReportSchemaVersion)
+	for _, r := range got {
+		if r.SchemaVersion != 1 && r.SchemaVersion != 2 {
+			t.Errorf("surviving record SchemaVersion = %d, want 1 or 2", r.SchemaVersion)
+		}
+	}
+}
+
+// TestFingerprintSpeculationEmptyMeansOff proves an old-shaped fingerprint with no
+// Speculation field (as any pre-#119b v1 record decodes) is Comparable against a
+// v2 "off" fingerprint (Speculation=="") — the empty-string convention is what lets
+// a v1 record and an off v2 record compare equal (#119b).
+func TestFingerprintSpeculationEmptyMeansOff(t *testing.T) {
+	oldShaped := fpBase() // Speculation left at its zero value ""
+	offV2 := fpBase()
+	offV2.Speculation = ""
+	ok, diff := Comparable(oldShaped, offV2)
+	if !ok {
+		t.Errorf("an old v1-shaped fingerprint and an off v2 fingerprint must compare equal, diff=%v", diff)
 	}
 }
 

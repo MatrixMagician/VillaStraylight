@@ -88,6 +88,89 @@ func TestSeparatePPTG(t *testing.T) {
 	}
 }
 
+// TestAcceptanceStats proves statsOf computes MedianAcceptance and Drafted from
+// runs that actually drafted (DraftN > 0): acceptance is accepted/drafted per run,
+// median over ONLY the drafted runs — a run the ngram cache never fired on
+// (DraftN==0) must not enter the acceptance set as a fabricated 0% (#119).
+func TestAcceptanceStats(t *testing.T) {
+	cases := []struct {
+		name             string
+		runs             []RunTimings
+		wantDrafted      int
+		wantAcceptance   float64
+		wantAcceptanceOK bool // sanity: MedianAcceptance is meaningful only if wantDrafted > 0
+	}{
+		{
+			name: "all runs drafted, uniform acceptance",
+			runs: []RunTimings{
+				{DraftN: 100, DraftAccepted: 80},
+				{DraftN: 200, DraftAccepted: 160},
+			},
+			wantDrafted:      2,
+			wantAcceptance:   0.8,
+			wantAcceptanceOK: true,
+		},
+		{
+			name: "mixed: one run never drafted",
+			runs: []RunTimings{
+				{DraftN: 100, DraftAccepted: 90}, // 0.9
+				{DraftN: 0, DraftAccepted: 0},    // never drafted — excluded, not a 0%
+				{DraftN: 100, DraftAccepted: 70}, // 0.7
+			},
+			wantDrafted:      2,
+			wantAcceptance:   0.8, // median(0.9, 0.7)
+			wantAcceptanceOK: true,
+		},
+		{
+			name: "no run drafted",
+			runs: []RunTimings{
+				{DraftN: 0, DraftAccepted: 0},
+				{DraftN: 0, DraftAccepted: 0},
+			},
+			wantDrafted:      0,
+			wantAcceptance:   0,
+			wantAcceptanceOK: false,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			st := statsOf(tc.runs)
+			if st.Drafted != tc.wantDrafted {
+				t.Errorf("Drafted = %d, want %d", st.Drafted, tc.wantDrafted)
+			}
+			if !approx(st.MedianAcceptance, tc.wantAcceptance) {
+				t.Errorf("MedianAcceptance = %v, want %v", st.MedianAcceptance, tc.wantAcceptance)
+			}
+		})
+	}
+}
+
+// TestABDeltaAcceptance proves ABResult.DeltaAcceptance is computed ONLY when BOTH
+// sides drafted at least one run; a side that never drafted makes the comparison
+// meaningless, so AcceptanceComparable is false and the delta stays zero rather
+// than fabricating a number from an undrafted side (#119).
+func TestABDeltaAcceptance(t *testing.T) {
+	drafted := Stats{MedianAcceptance: 0.9, Drafted: 3}
+	otherDrafted := Stats{MedianAcceptance: 0.6, Drafted: 5}
+	neverDrafted := Stats{MedianAcceptance: 0, Drafted: 0}
+
+	both := abResult("vulkan", "rocm", drafted, otherDrafted)
+	if !both.AcceptanceComparable {
+		t.Fatalf("both sides drafted: AcceptanceComparable = false, want true")
+	}
+	if !approx(both.DeltaAcceptance, 0.6-0.9) {
+		t.Errorf("DeltaAcceptance = %v, want %v (B-A)", both.DeltaAcceptance, 0.6-0.9)
+	}
+
+	oneSide := abResult("vulkan", "rocm", drafted, neverDrafted)
+	if oneSide.AcceptanceComparable {
+		t.Errorf("one side never drafted: AcceptanceComparable = true, want false")
+	}
+	if oneSide.DeltaAcceptance != 0 {
+		t.Errorf("one side never drafted: DeltaAcceptance = %v, want 0 (never fabricated)", oneSide.DeltaAcceptance)
+	}
+}
+
 // --- Task 2: the Run state-machine via a fake-Deps recorder -------------------
 
 // measureVerdict is one canned Measure outcome the recorder replays in order.

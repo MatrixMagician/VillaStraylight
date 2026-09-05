@@ -114,7 +114,9 @@ _Avoid_: switch, change, migration
 
 **pp / tg**:
 Prompt-processing and token-generation throughput. Reported separately, never
-blended into one number.
+blended into one number. When speculation is on, acceptance (accepted drafts
+over drafted tokens) is reported beside pp and tg, because a tg number alone
+cannot be compared across prompts.
 _Avoid_: tok/s, throughput, speed
 
 ### Knowledge and retrieval

@@ -347,6 +347,14 @@ non-resident or memory-exhausted run is voided rather than scored
 identical spec (`TestIdenticalSpecBothSides`), and the harness restores the
 original backend/config after the run (`TestBenchABRestoresOriginal`).
 
+When speculation is on, `villa bench` also reports draft acceptance (accepted
+drafts over drafted tokens) beside pp and tg, median over only the runs that
+actually drafted (`TestAcceptanceStats`) — a tg number alone cannot be compared
+across prompts, since acceptance is the axis that moves decode speed between them.
+The off path stays byte-identical to the existing `bench.json.golden`/
+`bench-compare.json.golden` (`TestBenchOffPathGoldensUnchanged`); a drafted run's
+contract is frozen separately in `bench-speculation.json.golden`.
+
 ## Writing new tests
 
 - **File naming:** Go convention: `<file>_test.go` beside the code it tests,

@@ -76,6 +76,13 @@ type RunTimings struct {
 	// into the median — the rates are what the delta compares).
 	PromptN    int
 	PredictedN int
+	// DraftN / DraftAccepted are the pinned server's per-request speculative-decoding
+	// counters (llm.Timings.DraftN/DraftNAccepted). DraftN==0 means this run drafted
+	// nothing (speculation off, or the draft cache never fired) — DISTINCT from a
+	// drafted-but-0%-accepted run, so statsOf must gate on DraftN>0, never divide
+	// unconditionally (#119).
+	DraftN        int
+	DraftAccepted int
 }
 
 // Deps is the injectable seam set. Measure is always set; Switch/Restore/LoadConfig
@@ -118,6 +125,13 @@ type Stats struct {
 	// number of non-resident/error runs excluded.
 	Kept int
 	Void int
+	// MedianAcceptance is the median per-run draft acceptance (accepted/drafted)
+	// over ONLY the runs that drafted (DraftN > 0); a run that never drafted is
+	// excluded rather than counted as a fabricated 0%. Meaningless when Drafted==0.
+	MedianAcceptance float64
+	// Drafted is the number of kept runs with DraftN > 0 — the denominator
+	// MedianAcceptance was computed over.
+	Drafted int
 }
 
 // ABResult is the two-sided comparison. Each side keeps its own Kept/Void; the
@@ -132,6 +146,12 @@ type ABResult struct {
 	// DeltaPP / DeltaTG are B minus A per metric (positive = To is faster).
 	DeltaPP float64
 	DeltaTG float64
+	// DeltaAcceptance is B.MedianAcceptance minus A.MedianAcceptance, valid ONLY
+	// when AcceptanceComparable is true (both sides drafted at least one run). A
+	// side that never drafted makes the comparison meaningless, so the delta stays
+	// zero rather than being computed against a fabricated acceptance figure.
+	DeltaAcceptance      float64
+	AcceptanceComparable bool
 }
 
 // Result is the typed outcome of a bench Run (not an exit code) so the cobra caller
@@ -161,16 +181,24 @@ type Result struct {
 func statsOf(kept []RunTimings) Stats {
 	pp := make([]float64, 0, len(kept))
 	tg := make([]float64, 0, len(kept))
+	// acceptance is gathered ONLY from runs with DraftN>0: a run the ngram cache
+	// never fired on is not a 0% acceptance and must not pull the median down (#119).
+	acceptance := make([]float64, 0, len(kept))
 	for _, r := range kept {
 		pp = append(pp, r.PromptPerSec)
 		tg = append(tg, r.PredictedPerSec)
+		if r.DraftN > 0 {
+			acceptance = append(acceptance, float64(r.DraftAccepted)/float64(r.DraftN))
+		}
 	}
 	return Stats{
-		MedianPP: median(pp),
-		StddevPP: stddev(pp),
-		MedianTG: median(tg),
-		StddevTG: stddev(tg),
-		Kept:     len(kept),
+		MedianPP:         median(pp),
+		StddevPP:         stddev(pp),
+		MedianTG:         median(tg),
+		StddevTG:         stddev(tg),
+		Kept:             len(kept),
+		MedianAcceptance: median(acceptance),
+		Drafted:          len(acceptance),
 	}
 }
 
@@ -321,7 +349,7 @@ func Run(ctx context.Context, d Deps, spec Spec) Result {
 // other(orig) default) so To reflects the ACTUAL pair benchmarked. Deltas are B
 // minus A per metric — never derived from a blended figure.
 func abResult(orig, target string, a, b Stats) ABResult {
-	return ABResult{
+	res := ABResult{
 		From:    orig,
 		To:      target,
 		A:       a,
@@ -329,4 +357,12 @@ func abResult(orig, target string, a, b Stats) ABResult {
 		DeltaPP: b.MedianPP - a.MedianPP,
 		DeltaTG: b.MedianTG - a.MedianTG,
 	}
+	// Only compare acceptance when BOTH sides actually drafted — a side that never
+	// drafted has no acceptance figure to compare, so leave the delta at zero rather
+	// than fabricate one against an undrafted side.
+	if a.Drafted > 0 && b.Drafted > 0 {
+		res.AcceptanceComparable = true
+		res.DeltaAcceptance = b.MedianAcceptance - a.MedianAcceptance
+	}
+	return res
 }
