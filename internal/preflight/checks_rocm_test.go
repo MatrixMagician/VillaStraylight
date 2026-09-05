@@ -186,12 +186,12 @@ func TestRunROCmOffHardwareNoFalseFail(t *testing.T) {
 		if r.Status == StatusFail {
 			t.Errorf("off-hardware: check %s is StatusFail, want WARN/PASS (over-block guard)", r.ID)
 		}
-		if !strings.HasPrefix(r.ID, "ROCM-PRE-") {
-			t.Errorf("check id %q is not in the ROCM-PRE-* namespace", r.ID)
+		if r.ID != "PRE-08" && !strings.HasPrefix(r.ID, "ROCM-PRE-") {
+			t.Errorf("check id %q is not in the ROCM-PRE-* namespace (or the shared PRE-08 device-access check)", r.ID)
 		}
 	}
-	if len(results) != 5 {
-		t.Errorf("RunROCmWithPolicy returned %d checks, want 5", len(results))
+	if len(results) != 6 {
+		t.Errorf("RunROCmWithPolicy returned %d checks, want 6 (5 ROCM-PRE-* + the shared PRE-08)", len(results))
 	}
 }
 
@@ -221,13 +221,16 @@ func TestRunROCmKnownBadProfileFails(t *testing.T) {
 // real embedded policy and returns the ROCM-PRE-* checks (no panic on the embed).
 func TestRunROCmUsesEmbeddedPolicy(t *testing.T) {
 	results := RunROCm(detect.HostProfile{})
-	if len(results) != 5 {
-		t.Fatalf("RunROCm returned %d checks, want 5", len(results))
+	if len(results) != 6 {
+		t.Fatalf("RunROCm returned %d checks, want 6 (5 ROCM-PRE-* + the shared PRE-08)", len(results))
 	}
 	for _, r := range results {
 		if r.Status == StatusFail {
 			t.Errorf("off-hardware RunROCm: %s is StatusFail, want WARN/PASS", r.ID)
 		}
+	}
+	if last := results[len(results)-1]; last.ID != "PRE-08" {
+		t.Errorf("last result ID = %q, want PRE-08", last.ID)
 	}
 }
 
@@ -238,8 +241,8 @@ func TestRunROCmUsesEmbeddedPolicy(t *testing.T) {
 func TestRunROCmForImageEvaluatesDigest(t *testing.T) {
 	const img644 = "docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-6.4.4@sha256:c81f30a7fd2641e3ea6ac4c45323ba239dca906ed79cc0dfe5b885f9f150ec62"
 	results := RunROCmForImage(detect.HostProfile{}, img644)
-	if len(results) != 5 {
-		t.Fatalf("RunROCmForImage returned %d checks, want 5", len(results))
+	if len(results) != 6 {
+		t.Fatalf("RunROCmForImage returned %d checks, want 6 (5 ROCM-PRE-* + the shared PRE-08)", len(results))
 	}
 	// The image check must PASS (digest evaluated, not WARN "no image requested").
 	if got := statusByID(t, results, idROCmImage); got != StatusPass {

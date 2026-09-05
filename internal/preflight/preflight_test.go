@@ -105,6 +105,18 @@ func TestRunIsDeterministicOrder(t *testing.T) {
 	}
 }
 
+// TestRunEndsInPRE08 asserts PRE-08 (compute device access) is the LAST check
+// RunWithResources returns, preserving every other check's stable position.
+func TestRunEndsInPRE08(t *testing.T) {
+	results := Run(healthyProfile())
+	if len(results) == 0 {
+		t.Fatal("Run returned no results")
+	}
+	if last := results[len(results)-1]; last.ID != "PRE-08" {
+		t.Errorf("last result ID = %q, want PRE-08", last.ID)
+	}
+}
+
 func TestTierAndStatusStringsStable(t *testing.T) {
 	// Goldens depend on these strings — guard them.
 	if TierBlock.String() != "BLOCK" || TierWarn.String() != "WARN" {

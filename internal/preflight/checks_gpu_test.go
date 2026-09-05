@@ -1,6 +1,7 @@
 package preflight
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
@@ -103,6 +104,98 @@ func TestCheckFirmwareFloorIsWarnAdvisory(t *testing.T) {
 	}
 	if got.Remediation == "" {
 		t.Errorf("firmware advisory must carry a remediation hint")
+	}
+}
+
+// TestCheckComputeDeviceAccess covers PRE-08's branches: both accessible passes;
+// a confidently-denied KFD BLOCK-fails on a ROCm-family backend (requireKFD=true)
+// but is only informational on Vulkan (requireKFD=false); a confidently-denied
+// render node always fails; both facts Unknown downgrades to WARN; and a
+// confidently-ABSENT /dev/kfd (module not loaded) gets the driver remediation,
+// never the render/video groups one.
+func TestCheckComputeDeviceAccess(t *testing.T) {
+	tests := []struct {
+		name                     string
+		kfd                      detect.Bool
+		render                   detect.Bool
+		requireKFD               bool
+		wantStatus               Status
+		wantDetailContains       string
+		wantRemediationContains string
+	}{
+		{
+			name:       "both accessible passes",
+			kfd:        detect.KnownBool(true, "/dev/kfd"),
+			render:     detect.KnownBool(true, "/dev/dri/renderD128"),
+			requireKFD: true,
+			wantStatus: StatusPass,
+		},
+		{
+			name:                     "kfd denied on rocm fails with groups remediation",
+			kfd:                      detect.KnownBool(false, "/dev/kfd: "+detect.AccessDenied),
+			render:                   detect.KnownBool(true, "/dev/dri/renderD128"),
+			requireKFD:               true,
+			wantStatus:               StatusFail,
+			wantRemediationContains:  "usermod -aG render,video",
+		},
+		{
+			name:               "kfd denied on vulkan passes with kfd noted in detail",
+			kfd:                detect.KnownBool(false, "/dev/kfd: "+detect.AccessDenied),
+			render:             detect.KnownBool(true, "/dev/dri/renderD128"),
+			requireKFD:         false,
+			wantStatus:         StatusPass,
+			wantDetailContains: "kfd:",
+		},
+		{
+			name:       "render denied fails regardless of backend",
+			kfd:        detect.KnownBool(true, "/dev/kfd"),
+			render:     detect.KnownBool(false, "/dev/dri/renderD128: "+detect.AccessDenied),
+			requireKFD: false,
+			wantStatus: StatusFail,
+		},
+		{
+			name:       "both unknown warns",
+			kfd:        detect.UnknownBool("cannot probe /dev/kfd", ""),
+			render:     detect.UnknownBool("/dev/dri unreadable (could not enumerate)", ""),
+			requireKFD: true,
+			wantStatus: StatusWarn,
+		},
+		{
+			name:                     "kfd absent on rocm fails with driver remediation not groups",
+			kfd:                      detect.KnownBool(false, "/dev/kfd: "+detect.AccessAbsent),
+			render:                   detect.KnownBool(true, "/dev/dri/renderD128"),
+			requireKFD:               true,
+			wantStatus:               StatusFail,
+			wantRemediationContains:  "amdgpu kernel module",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			p := detect.HostProfile{KFDAccess: tc.kfd, RenderNodeAccess: tc.render}
+			got := checkComputeDeviceAccess(p, tc.requireKFD)
+			if got.Status != tc.wantStatus {
+				t.Errorf("status = %v, want %v (detail=%q remediation=%q)", got.Status, tc.wantStatus, got.Detail, got.Remediation)
+			}
+			if got.Tier != TierBlock {
+				t.Errorf("tier = %v, want TierBlock", got.Tier)
+			}
+			if got.ID != "PRE-08" {
+				t.Errorf("id = %q, want PRE-08", got.ID)
+			}
+			if got.Status != StatusPass && got.Remediation == "" {
+				t.Errorf("non-pass result has empty remediation")
+			}
+			if tc.wantDetailContains != "" && !strings.Contains(got.Detail, tc.wantDetailContains) {
+				t.Errorf("detail = %q, want substring %q", got.Detail, tc.wantDetailContains)
+			}
+			if tc.wantRemediationContains != "" && !strings.Contains(got.Remediation, tc.wantRemediationContains) {
+				t.Errorf("remediation = %q, want substring %q", got.Remediation, tc.wantRemediationContains)
+			}
+			if tc.wantRemediationContains == "amdgpu kernel module" && strings.Contains(got.Remediation, "usermod -aG render,video") {
+				t.Errorf("driver remediation must not also be the groups remediation, got %q", got.Remediation)
+			}
+		})
 	}
 }
 
