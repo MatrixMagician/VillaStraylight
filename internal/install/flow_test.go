@@ -6,6 +6,7 @@ import (
 	"errors"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -1556,10 +1557,26 @@ func TestInstallRollsBackOnAFailedProof(t *testing.T) {
 		if f.configRemoved {
 			t.Error("a re-install must never delete the operator's config")
 		}
-		if len(f.stopOrder) > 0 {
-			t.Errorf("services running before the install must not be left stopped; stops = %v", f.stopOrder)
+		// A service that was running before may be stopped on the way to its
+		// rewritten unit; it must be started again by the time the rollback ends.
+		for _, svc := range f.stopOrder {
+			lastStop := lastIndex(f.callOrder, "stop:"+svc)
+			lastStart := lastIndex(f.callOrder, "start:"+svc)
+			if lastStart < lastStop {
+				t.Errorf("%s was running before the install and is left stopped; callOrder = %v", svc, f.callOrder)
+			}
 		}
 	})
+}
+
+// lastIndex returns the index of the last occurrence of want in order, or -1.
+func lastIndex(order []string, want string) int {
+	for i := len(order) - 1; i >= 0; i-- {
+		if order[i] == want {
+			return i
+		}
+	}
+	return -1
 }
 
 // TestInstallReportsAnIncompleteRollbackHonestly: a rollback step that itself
@@ -1758,4 +1775,38 @@ func TestRunPostMutationWriteFailuresRollBack(t *testing.T) {
 			t.Errorf("nothing past the dashboard reconcile may run: write=%d start=%d", f.writeCalls, f.startCalls)
 		}
 	})
+}
+
+// TestInstallRestartsAChangedActiveService guards #128: a unit this install
+// rewrote belongs to a service that may already be running the OLD unit, and
+// `systemctl start` on an active service is a no-op. The flow must stop it first
+// so the start runs the new unit; an inactive service is simply started.
+func TestInstallRestartsAChangedActiveService(t *testing.T) {
+	units := []orchestrate.Unit{{Name: "villa-llama.container", Text: "[Container]\n"}}
+	for _, tc := range []struct {
+		state    string
+		wantStop bool
+	}{
+		{state: "active", wantStop: true},
+		{state: "inactive", wantStop: false},
+	} {
+		t.Run(tc.state, func(t *testing.T) {
+			f := newFakeDeps(t, units, orchestrate.Plan{Changed: units}, passChecks())
+			f.activeState = tc.state
+			if code, _, errOut := f.run(Opts{}); code != exitPass {
+				t.Fatalf("exit = %d, want exitPass; stderr = %q", code, errOut.String())
+			}
+			stop := slices.Index(f.callOrder, "stop:villa-llama.service")
+			start := slices.Index(f.callOrder, "start:villa-llama.service")
+			if start < 0 {
+				t.Fatalf("inference never started; callOrder = %v", f.callOrder)
+			}
+			if tc.wantStop && (stop < 0 || stop > start) {
+				t.Errorf("an active service with a changed unit must be stopped before it is started; callOrder = %v", f.callOrder)
+			}
+			if !tc.wantStop && stop >= 0 {
+				t.Errorf("an inactive service must not be stopped; callOrder = %v", f.callOrder)
+			}
+		})
+	}
 }

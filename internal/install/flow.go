@@ -467,11 +467,28 @@ func Run(ctx context.Context, d Deps, opts Opts) Result {
 	// function is held to (AssertStartOrder below).
 	seq := BuildSequence(gates, units, cfg.WebLoaderSecret == "")
 	var performed []string
+	// `systemctl start` on an active service is a no-op, so a service already
+	// running the OLD unit must be stopped first or the rewritten unit never runs
+	// and every proof below measures the previous process (#128). The rollback
+	// already restarts a service that was running before against its restored unit.
+	rewritten := make(map[string]bool, len(unitPlan.Changed))
+	for _, u := range unitPlan.Changed {
+		rewritten[ServiceFor(u.Name)] = true
+	}
 	start := func(svc string) error {
+		verb := "started"
+		if rewritten[svc] {
+			if state, err := d.IsActive(svc); err == nil && state == "active" {
+				if err := d.Stop(svc); err != nil {
+					return fmt.Errorf("stop %s before restarting it on its rewritten unit: %w", svc, err)
+				}
+				verb = "restarted"
+			}
+		}
 		if err := d.Start(svc); err != nil {
 			return err
 		}
-		say("started %s\n", svc)
+		say("%s %s\n", verb, svc)
 		performed = append(performed, svc)
 		mutated.RecordStart(svc)
 		return nil
