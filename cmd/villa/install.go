@@ -127,6 +127,14 @@ func liveInstallDeps(ctx context.Context) (install.Deps, error) {
 			if err != nil {
 				return recommend.Recommendation{}
 			}
+			// A persisted speculation mode is threaded in the same way, so a
+			// re-install of a speculation-on stack re-resolves the mode the operator
+			// chose rather than re-deciding it from the catalog.
+			if ov.Speculation == "" {
+				if cfg, err := config.LoadVilla(); err == nil {
+					ov.Speculation = cfg.Speculation
+				}
+			}
 			// The PERSISTED memory inputs shrink the envelope an opted-in install
 			// recommends against.
 			return recommend.Pick(p, cat, ov, liveLoadedMemoryInputs(), liveLoadedWebSearchInputs())
