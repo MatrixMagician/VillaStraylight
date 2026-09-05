@@ -671,6 +671,85 @@ func TestBenchSpeculationJSONGolden(t *testing.T) {
 	}
 }
 
+// TestCaptureBenchFingerprintSpeculation proves the fingerprint's Speculation field
+// is set from config, normalizing BOTH "" (unset) and the explicit "off" mode to the
+// empty string — the convention that lets an old pre-#119b record and an off v2
+// record compare as the same protocol (benchstore.Comparable).
+func TestCaptureBenchFingerprintSpeculation(t *testing.T) {
+	cases := []struct {
+		cfgSpeculation string
+		want           string
+	}{
+		{"", ""},
+		{config.SpeculationOff, ""},
+		{config.SpeculationNgram, config.SpeculationNgram},
+	}
+	for _, tc := range cases {
+		t.Run(tc.cfgSpeculation+"->"+tc.want, func(t *testing.T) {
+			cfg := config.VillaConfig{Model: "qwen3", Speculation: tc.cfgSpeculation}
+			fp := captureBenchFingerprint(cfg, "vulkan")
+			if fp.Speculation != tc.want {
+				t.Errorf("Speculation = %q, want %q", fp.Speculation, tc.want)
+			}
+		})
+	}
+}
+
+// TestSavedSideFromStatsAcceptance mirrors TestSideFromStatsAcceptance for the
+// persisted benchstore.SavedSide: DraftAcceptance is populated ONLY when Drafted > 0.
+func TestSavedSideFromStatsAcceptance(t *testing.T) {
+	off := savedSideFromStats("vulkan", bench.Stats{MedianPP: 100, MedianTG: 40, Drafted: 0})
+	if off.DraftAcceptance != nil {
+		t.Errorf("off path: DraftAcceptance = %v, want nil", *off.DraftAcceptance)
+	}
+
+	drafted := savedSideFromStats("vulkan", bench.Stats{MedianPP: 100, MedianTG: 40, MedianAcceptance: 0.6, Drafted: 2})
+	if drafted.DraftAcceptance == nil || *drafted.DraftAcceptance != 0.6 {
+		t.Errorf("DraftAcceptance = %v, want a pointer to 0.6", drafted.DraftAcceptance)
+	}
+	if drafted.Drafted != 2 {
+		t.Errorf("Drafted = %d, want 2", drafted.Drafted)
+	}
+}
+
+// TestBenchPersistABSpeculationIdentical proves an --ab persisted report's
+// fingerprint carries ONE speculation value shared by both sides — the backend swap
+// never touches speculation, so both sides of an A/B necessarily ran under the SAME
+// persisted mode (#119b step 5). The report has exactly one Fingerprint, so this is
+// really a construction guarantee; the test pins it against regression (e.g. a future
+// per-side fingerprint split that forgets to keep them equal).
+func TestBenchPersistABSpeculationIdentical(t *testing.T) {
+	withReachable(t, true)
+	got := withBenchstoreWrite(t, nil)
+
+	cfgHome := t.TempDir()
+	villaDir := filepath.Join(cfgHome, "villa")
+	if err := os.MkdirAll(villaDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	toml := "model = \"qwen3\"\nbackend = \"vulkan\"\nspeculation = \"ngram\"\n"
+	if err := os.WriteFile(filepath.Join(villaDir, "config.toml"), []byte(toml), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("XDG_CONFIG_HOME", cfgHome)
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+
+	rec := &benchRecorder{}
+	d := newBenchStub(rec, true, "vulkan", cannedTimings{100, 40}, cannedTimings{150, 60}, true, 0)
+	cmd, _, _ := benchTestCmd()
+
+	if code := runBench(cmd, benchSpec(3, 1), true, false, d); code != exitPass {
+		t.Fatalf("clean ab exit = %d, want %d (exitPass)", code, exitPass)
+	}
+	if len(*got) != 1 {
+		t.Fatalf("--ab must persist ONE record, persisted %d", len(*got))
+	}
+	if (*got)[0].Fingerprint.Speculation != "ngram" {
+		t.Errorf("persisted AB fingerprint speculation = %q, want %q (the one mode both sides ran)",
+			(*got)[0].Fingerprint.Speculation, "ngram")
+	}
+}
+
 // TestBenchOffPathGoldensUnchanged is a documentation-grade guard: the two existing
 // frozen goldens (both off-path — no side ever drafts) must NOT gain the new
 // draft_acceptance/drafted keys, so a byte-diff of either golden against this
