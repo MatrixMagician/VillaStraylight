@@ -52,8 +52,11 @@ import (
 // The speculation delta joins them on the same terms: "--spec-type" and its
 // "ngram-mod" value are emitted by appendSpeculationArgs and must never appear in
 // a caller, which is what would let a verb decide a mode the render did not.
+// The vision projector delta joins on the same terms: "--mmproj" (which also
+// covers "--mmproj-offload") is emitted by appendProjectorArgs, and a caller that
+// wrote it would be deciding the offload policy the seam owns.
 func seamFlagPattern() *regexp.Regexp {
-	return regexp.MustCompile(`"--jinja"|"--cache-reuse"|"--repeat-penalty"|"--spec-type"|"ngram-mod"`)
+	return regexp.MustCompile(`"--jinja"|"--cache-reuse"|"--repeat-penalty"|"--spec-type"|"ngram-mod"|"--mmproj`)
 }
 
 func TestSeamGrepGate(t *testing.T) {
