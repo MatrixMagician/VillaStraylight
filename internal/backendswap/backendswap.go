@@ -282,7 +282,7 @@ func transact(d Deps, from, to string, mutate func(*config.VillaConfig)) Result 
 	// (6) PROVE the cutover against the already-running server. Switch ONLY on
 	// prove.StatusPass; ANY other verdict (including ready+health-200-but-residency-FAIL,
 	// rolls back verbatim — is-active/200 alone is never success.
-	v := d.Prove(context.Background(), to)
+	v := d.Prove(context.Background(), cfg.Backend)
 	if !v.Pass() {
 		return rolledBack("prove", v.Detail, nil, v)
 	}
