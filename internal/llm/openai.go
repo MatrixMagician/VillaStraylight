@@ -68,6 +68,12 @@ type Timings struct {
 	PredictedN      int     `json:"predicted_n"`
 	PredictedMS     float64 `json:"predicted_ms"`
 	PredictedPerSec float64 `json:"predicted_per_second"`
+	// DraftN / DraftNAccepted are the pinned server's (b9536) speculative-decoding
+	// counters: tokens the draft proposed and tokens the target accepted. Both are
+	// absent from the wire (decode to 0) when the request drafted nothing, which is
+	// distinct from a 0% acceptance and must never be folded in as one (#119).
+	DraftN         int `json:"draft_n"`
+	DraftNAccepted int `json:"draft_n_accepted"`
 }
 
 // completeRequest is the non-streaming sibling of wireRequest: it carries the
