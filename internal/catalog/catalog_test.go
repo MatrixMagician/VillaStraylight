@@ -581,3 +581,109 @@ func TestLoadCoderAcceptsGreedyTemperature(t *testing.T) {
 		t.Errorf("greedy coder temperature not preserved: %+v", m.AgentSampling)
 	}
 }
+
+// TestLoadSchema4NgramExternal asserts a schema-4 external catalog round-trips
+// both shapes of the qualification: an entry that declares ngram_safe with its
+// provenance, and one that carries neither key at all.
+func TestLoadSchema4NgramExternal(t *testing.T) {
+	path := filepath.Join("testdata", "ngram-external.json")
+	c, warnings, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load(ngram-external): unexpected error: %v", err)
+	}
+	if len(warnings) != 0 {
+		t.Errorf("Load(ngram-external): unexpected warnings: %v", warnings)
+	}
+	qualified, ok := c.FindByID("external-qualified-model")
+	if !ok {
+		t.Fatalf("external-qualified-model not found (got %d models)", len(c.Models))
+	}
+	if !qualified.NgramSafe {
+		t.Errorf("ngram_safe = false, want true (explicit key in fixture)")
+	}
+	if !strings.Contains(qualified.NgramProvenance, "gfx1151") {
+		t.Errorf("ngram_provenance = %q, want the measurement text", qualified.NgramProvenance)
+	}
+	plain, ok := c.FindByID("external-unqualified-model")
+	if !ok {
+		t.Fatalf("external-unqualified-model not found")
+	}
+	if plain.NgramSafe || plain.NgramProvenance != "" {
+		t.Errorf("an entry with no ngram keys decoded as %v/%q, want false/\"\"", plain.NgramSafe, plain.NgramProvenance)
+	}
+}
+
+// TestLoadNgramValidationRejectsUnprovenanced asserts the fail-closed
+// qualification: ngram_safe is licensed only by a recorded measurement, so an
+// entry claiming it with no provenance invalidates the WHOLE external catalog and
+// falls back to the seed rather than being accepted or silently downgraded.
+func TestLoadNgramValidationRejectsUnprovenanced(t *testing.T) {
+	body := `{
+  "schema_version": 4,
+  "catalog_version": "test.invalid-ngram",
+  "models": [
+    {
+      "id": "unproven-model",
+      "display_name": "Unproven Model",
+      "quant": "Q4_K_M",
+      "weight_bytes": 5000000000,
+      "n_layers": 32,
+      "n_kv_heads": 8,
+      "head_dim": 128,
+      "kv_bytes_per_elem": 2,
+      "default_ctx": 16384,
+      "min_envelope_bytes": 7000000000,
+      "tier_gb": 16,
+      "unified_memory_safe": true,
+      "backend_default": "rocm",
+      "bootstrap": false,
+      "ngram_safe": true
+    }
+  ]
+}`
+	dir := t.TempDir()
+	path := filepath.Join(dir, "catalog.json")
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	c, warnings, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: unexpected error: %v", err)
+	}
+	joined := strings.Join(warnings, " ")
+	if !strings.Contains(joined, "unproven-model") {
+		t.Errorf("refusal should name the offending entry, got %v", warnings)
+	}
+	if _, ok := c.FindByID("unproven-model"); ok {
+		t.Errorf("an unprovenanced ngram_safe entry must not be used")
+	}
+	if _, ok := c.FindByID("qwen2.5-1.5b"); !ok {
+		t.Errorf("expected fallback to the embedded seed")
+	}
+}
+
+// TestSeedNgramQualificationsCarryProvenance asserts the seed itself honours the
+// rule the external validator enforces: absence never widens what villa will do,
+// so a compiled-in qualification must name the measurement that licensed it.
+func TestSeedNgramQualificationsCarryProvenance(t *testing.T) {
+	c, _, err := Load("")
+	if err != nil {
+		t.Fatalf("Load(\"\"): unexpected error: %v", err)
+	}
+	qualified := 0
+	for _, m := range c.Models {
+		if !m.NgramSafe {
+			if m.NgramProvenance != "" {
+				t.Errorf("seed entry %q carries ngram_provenance %q without ngram_safe", m.ID, m.NgramProvenance)
+			}
+			continue
+		}
+		qualified++
+		if !strings.Contains(m.NgramProvenance, "gfx1151") {
+			t.Errorf("seed entry %q ngram_provenance = %q, want a gfx1151 measurement", m.ID, m.NgramProvenance)
+		}
+	}
+	if qualified == 0 {
+		t.Errorf("no seed entry is qualified for ngram; the measured pair should be")
+	}
+}
