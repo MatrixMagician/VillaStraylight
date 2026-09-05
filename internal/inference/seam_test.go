@@ -220,7 +220,7 @@ func TestSeamGrepGate(t *testing.T) {
 	cmdLeakFixture := `package main
 func render() []string { return []string{"llama-server", "--jinja", "--cache-reuse", "256"} }
 `
-	if !cmdPatterns["coding-mode llama-server flags"].MatchString(cmdLeakFixture) {
+	if !cmdPatterns["coding-mode and speculation llama-server flags"].MatchString(cmdLeakFixture) {
 		t.Errorf("cmd-tier coding-flag guard FAILED to catch a --jinja leak in a cmd/villa fixture (SC1 regression): the cmdPatterns key is vacuous")
 	}
 }

@@ -100,6 +100,23 @@ func (backendVulkan) ContainerArgs(spec RunSpec) []string {
 	}
 	args = append(args, llamaServerFlags...)
 	args = appendCodingModeArgs(args, spec.CodingMode)
+	args = appendSpeculationArgs(args, spec.Speculation)
+	return args
+}
+
+// appendSpeculationArgs appends the speculation render delta to args, behind the
+// same seam and by the same construction as the coding-mode delta: nil returns args
+// UNCHANGED, so a unit rendered without speculation is byte-identical to one from
+// before the field existed. An unrecognised mode also renders nothing -- the config
+// boundary is where an unknown mode is refused (config.ValidSpeculation), and
+// guessing a flag here would be the silent downgrade ADR-0006 rules out.
+func appendSpeculationArgs(args []string, sp *SpeculationSpec) []string {
+	if sp == nil {
+		return args
+	}
+	if sp.Mode == "ngram" {
+		args = append(args, "--spec-type", "ngram-mod")
+	}
 	return args
 }
 

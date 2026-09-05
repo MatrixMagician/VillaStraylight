@@ -123,6 +123,18 @@ type RunSpec struct {
 	// --cache-reuse 256 gated on CacheReuseSafe) behind the backend seam. Populated only
 	// by orchestrate.Render when cfg.CodingMode is true.
 	CodingMode *CodingModeSpec
+	// Speculation is the OPTIONAL speculative-decoding render delta (ADR-0006).
+	// nil renders byte-identical args, which is what keeps every unit rendered
+	// before this field existed unchanged on upgrade.
+	Speculation *SpeculationSpec
+}
+
+// SpeculationSpec is the OPTIONAL speculation render delta carried on RunSpec.
+// Mode is the config vocabulary's value, already validated at the config
+// boundary, so the seam renders what it recognises and nothing for anything else.
+type SpeculationSpec struct {
+	// Mode is the speculation mode; "ngram" is the only one that renders a flag.
+	Mode string
 }
 
 // CodingModeSpec is the OPTIONAL tool-calling render delta carried on RunSpec
