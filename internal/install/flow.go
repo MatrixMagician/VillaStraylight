@@ -536,7 +536,7 @@ func Run(ctx context.Context, d Deps, opts Opts) Result {
 	// secret env BEFORE the start so the container has both on first boot.
 	if gates.WebSearch {
 		if !UnitPresent(unitPlan, orchestrate.SearXNGContainerUnitName()) {
-			return refuse("install: INTERNAL ERROR: web search is enabled but the searxng unit (%s) is absent from the rendered plan — refusing to start a service systemd has never seen. This is a render/reconcile bug; please re-run `villa install`, and if it persists, file an issue.\\n",
+			return refuse("install: INTERNAL ERROR: web search is enabled but the searxng unit (%s) is absent from the rendered plan — refusing to start a service systemd has never seen. This is a render/reconcile bug; please re-run `villa install`, and if it persists, file an issue.\n",
 				orchestrate.SearXNGContainerUnitName())
 		}
 		if cfg.SearxngSecret == "" {
@@ -564,7 +564,7 @@ func Run(ctx context.Context, d Deps, opts Opts) Result {
 			return refuse("install: start %s failed: %v\n", units.Searxng, err)
 		}
 		if !UnitPresent(unitPlan, orchestrate.WebsafeContainerUnitName()) {
-			return refuse("install: INTERNAL ERROR: web search is enabled but the websafe unit (%s) is absent from the rendered plan — refusing to start a service systemd has never seen. This is a render/reconcile bug; please re-run `villa install`, and if it persists, file an issue.\\n",
+			return refuse("install: INTERNAL ERROR: web search is enabled but the websafe unit (%s) is absent from the rendered plan — refusing to start a service systemd has never seen. This is a render/reconcile bug; please re-run `villa install`, and if it persists, file an issue.\n",
 				orchestrate.WebsafeContainerUnitName())
 		}
 		if err := start(units.Websafe); err != nil {
