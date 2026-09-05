@@ -1,6 +1,7 @@
 overall  PASS
 
 PRE-01               BLOCK  PASS  RADV ICD present; 2 /dev/dri node(s)
+PRE-08               BLOCK  PASS  /dev/kfd and /dev/dri/renderD128 are readable and writable
 health:villa-llama   WARN   PASS  /health is ready (200)
 offload:villa-llama  BLOCK  PASS  residency proven on Vulkan; GTT floor corroborated
 drift                WARN   PASS  on-disk units match the rendered-from-config units

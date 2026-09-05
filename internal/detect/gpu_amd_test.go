@@ -3,6 +3,7 @@ package detect
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -243,4 +244,93 @@ func TestRocmImagePolicyOK644(t *testing.T) {
 			t.Errorf("unrecognized image → Known=true, want UnknownBool")
 		}
 	})
+}
+
+// TestDeviceAccessKnownTrue asserts read+write access to an existing, permissive
+// file yields a confident KnownBool(true) naming the path.
+func TestDeviceAccessKnownTrue(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "kfd")
+	if err := os.WriteFile(path, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got := deviceAccess(path)
+	if !got.Known || !got.Value {
+		t.Errorf("deviceAccess(accessible file): got %+v, want KnownBool(true)", got)
+	}
+	if got.Source != path {
+		t.Errorf("deviceAccess(accessible file): Source=%q, want %q", got.Source, path)
+	}
+}
+
+// TestDeviceAccessDenied asserts a file with no permission bits yields a
+// confident KnownBool(false) with the AccessDenied reason. Root bypasses file
+// mode bits entirely, so this case is meaningless (and unreliable) under euid 0.
+func TestDeviceAccessDenied(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root bypasses file mode bits")
+	}
+	path := filepath.Join(t.TempDir(), "kfd")
+	if err := os.WriteFile(path, nil, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	got := deviceAccess(path)
+	if got.Known != true || got.Value {
+		t.Fatalf("deviceAccess(no-perm file): got %+v, want a confident KnownBool(false)", got)
+	}
+	if !strings.HasSuffix(got.Source, AccessDenied) {
+		t.Errorf("deviceAccess(no-perm file): Source=%q, want suffix %q", got.Source, AccessDenied)
+	}
+}
+
+// TestDeviceAccessAbsent asserts a missing path yields a confident
+// KnownBool(false) with the AccessAbsent reason, distinct from AccessDenied — so
+// PRE-08 can point remediation at the driver rather than at group membership.
+func TestDeviceAccessAbsent(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "does-not-exist")
+	got := deviceAccess(path)
+	if !got.Known || got.Value {
+		t.Fatalf("deviceAccess(missing path): got %+v, want a confident KnownBool(false)", got)
+	}
+	if !strings.HasSuffix(got.Source, AccessAbsent) {
+		t.Errorf("deviceAccess(missing path): Source=%q, want suffix %q", got.Source, AccessAbsent)
+	}
+}
+
+// TestRenderNodeAccessEmptyDirIsKnownAbsent mirrors driNodes' contract: a
+// readable-but-empty root is a confident known-absence, not Unknown.
+func TestRenderNodeAccessEmptyDirIsKnownAbsent(t *testing.T) {
+	got := renderNodeAccess(t.TempDir())
+	if !got.Known || got.Value {
+		t.Errorf("renderNodeAccess(empty dir): got %+v, want a confident KnownBool(false)", got)
+	}
+	if !strings.HasSuffix(got.Source, AccessAbsent) {
+		t.Errorf("renderNodeAccess(empty dir): Source=%q, want suffix %q", got.Source, AccessAbsent)
+	}
+}
+
+// TestRenderNodeAccessFindsAccessibleNode asserts an accessible renderD128 node
+// yields KnownBool(true) naming that exact node.
+func TestRenderNodeAccessFindsAccessibleNode(t *testing.T) {
+	dir := t.TempDir()
+	node := filepath.Join(dir, "renderD128")
+	if err := os.WriteFile(node, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got := renderNodeAccess(dir)
+	if !got.Known || !got.Value {
+		t.Errorf("renderNodeAccess(accessible node): got %+v, want KnownBool(true)", got)
+	}
+	if got.Source != node {
+		t.Errorf("renderNodeAccess(accessible node): Source=%q, want %q", got.Source, node)
+	}
+}
+
+// TestRenderNodeAccessUnreadableRootIsUnknown asserts a non-existent DRI root
+// degrades to Unknown (could not enumerate), not a confident false — mirroring
+// driNodes' unreadable-root case.
+func TestRenderNodeAccessUnreadableRootIsUnknown(t *testing.T) {
+	got := renderNodeAccess(filepath.Join(t.TempDir(), "does-not-exist"))
+	if got.Known {
+		t.Errorf("renderNodeAccess(unreadable root): Known=true, want Unknown")
+	}
 }

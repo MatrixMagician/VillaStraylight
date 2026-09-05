@@ -29,19 +29,20 @@ func healthyReport() doctor.Report {
 	return doctor.Report{
 		Findings: []doctor.Finding{
 			{ID: "PRE-01", Name: "Vulkan ICD + iGPU enumeration", Tier: "BLOCK", Status: "PASS", Detail: "RADV ICD present; 2 /dev/dri node(s)", Provenance: "icd; /dev/dri"},
+			{ID: "PRE-08", Name: "compute device access", Tier: "BLOCK", Status: "PASS", Detail: "/dev/kfd and /dev/dri/renderD128 are readable and writable", Provenance: "/dev/kfd; /dev/dri/renderD128"},
 			{ID: "health:villa-llama", Name: "villa-llama health", Tier: "WARN", Status: "PASS", Detail: "/health is ready (200)", Provenance: "status.Report.Services[].Health"},
 			{ID: "offload:villa-llama", Name: "villa-llama GPU offload", Tier: "BLOCK", Status: "PASS", Detail: "residency proven on Vulkan; GTT floor corroborated", Provenance: "status.Report.Services[].Offload"},
 			{ID: "drift", Name: "Config-vs-disk drift", Tier: "WARN", Status: "PASS", Detail: "on-disk units match the rendered-from-config units", Provenance: "orchestrate.Reconcile (empty Plan.Changed)"},
 		},
 		Overall:       "PASS",
-		SchemaVersion: 3,
+		SchemaVersion: 4,
 	}
 }
 
 // driftReport adds a config-vs-disk drift WARN (Overall WARN → exit 2).
 func driftReport() doctor.Report {
 	r := healthyReport()
-	r.Findings[3] = doctor.Finding{
+	r.Findings[4] = doctor.Finding{
 		ID:          "drift",
 		Name:        "Config-vs-disk drift",
 		Tier:        "WARN",
@@ -58,7 +59,7 @@ func driftReport() doctor.Report {
 // a HealthReady (no false-green over a health-200; Overall FAIL → exit 1).
 func offloadFailReport() doctor.Report {
 	r := healthyReport()
-	r.Findings[2] = doctor.Finding{
+	r.Findings[3] = doctor.Finding{
 		ID:          "offload:villa-llama",
 		Name:        "villa-llama GPU offload",
 		Tier:        "BLOCK",
@@ -90,7 +91,7 @@ func rocmSupersededReport() doctor.Report {
 			{ID: "drift", Name: "Config-vs-disk drift", Tier: "WARN", Status: "PASS", Detail: "on-disk units match the rendered-from-config units", Provenance: "orchestrate.Reconcile (empty Plan.Changed)"},
 		},
 		Overall:       "PASS",
-		SchemaVersion: 3,
+		SchemaVersion: 4,
 	}
 }
 
@@ -143,11 +144,11 @@ func TestDoctorUnknownOverallFailsClosed(t *testing.T) {
 }
 
 // TestDoctorJSON freezes doctor's OWN --json contract byte-for-byte. The
-// golden MUST carry "schema_version": 3 (the web-search-fold bump). doctor never extends status.Report's golden.
+// golden MUST carry "schema_version": 4 (the PRE-08 fold). doctor never extends status.Report's golden.
 func TestDoctorJSON(t *testing.T) {
 	var buf bytes.Buffer
 	renderDoctor(&buf, healthyReport(), true, false)
-	if !bytes.Contains(buf.Bytes(), []byte(`"schema_version": 3`)) {
+	if !bytes.Contains(buf.Bytes(), []byte(`"schema_version": 4`)) {
 		t.Errorf("--json output must carry schema_version 3, got:\n%s", buf.String())
 	}
 	assertGolden(t, "doctor.json.golden", buf.Bytes())
@@ -174,7 +175,7 @@ func memoryHealthyReport() doctor.Report {
 			{ID: "drift", Name: "Config-vs-disk drift", Tier: "WARN", Status: "PASS", Detail: "on-disk units match the rendered-from-config units", Provenance: "orchestrate.Reconcile (empty Plan.Changed)"},
 		},
 		Overall:       "PASS",
-		SchemaVersion: 3,
+		SchemaVersion: 4,
 	}
 }
 
@@ -227,7 +228,7 @@ func TestDoctorMemoryRender(t *testing.T) {
 func TestDoctorMemoryJSON(t *testing.T) {
 	var buf bytes.Buffer
 	renderDoctor(&buf, memoryHealthyReport(), true, false)
-	if !bytes.Contains(buf.Bytes(), []byte(`"schema_version": 3`)) {
+	if !bytes.Contains(buf.Bytes(), []byte(`"schema_version": 4`)) {
 		t.Errorf("--json output must carry schema_version 3, got:\n%s", buf.String())
 	}
 	assertGolden(t, "doctor-memory.json.golden", buf.Bytes())
@@ -274,7 +275,7 @@ func TestDoctorAgentRender(t *testing.T) {
 	if code != exitPass {
 		t.Errorf("agent-healthy exit code = %d, want %d", code, exitPass)
 	}
-	if !bytes.Contains(buf.Bytes(), []byte(`"schema_version": 3`)) {
+	if !bytes.Contains(buf.Bytes(), []byte(`"schema_version": 4`)) {
 		t.Errorf("--json output must carry schema_version 3 (the web-search-fold bump), got:\n%s", buf.String())
 	}
 	assertGolden(t, "doctor-agent.json.golden", buf.Bytes())

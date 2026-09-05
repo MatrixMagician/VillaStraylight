@@ -99,9 +99,10 @@ touches your host.
 `villa preflight` is read-only. It runs the host-prep gate: Vulkan ICD + iGPU
 enumeration (`PRE-01`), Podman rootless readiness (`PRE-02`), user lingering
 (`PRE-03`), free disk/memory (`PRE-04`), the SELinux `container_use_devices`
-boolean (`PRE-05`), and two WARN-tier version floors, the kernel (`PRE-06`) and
-`linux-firmware` (`PRE-07`). Each result is classified as a **BLOCK** or **WARN**.
-It maps the worst result to an exit code:
+boolean (`PRE-05`), two WARN-tier version floors, the kernel (`PRE-06`) and
+`linux-firmware` (`PRE-07`), and compute device access, `/dev/kfd` and a render
+node, as your user (`PRE-08`). Each result is classified as a **BLOCK** or
+**WARN**. It maps the worst result to an exit code:
 
 | Exit code | Meaning |
 |-----------|---------|
@@ -311,6 +312,21 @@ first: the table tells you which check failed and prints the fix.
   ```bash
   setsebool -P container_use_devices=true
   ```
+
+- **Cannot open `/dev/kfd` or the render node (`PRE-08`).** The invoking user
+  needs read+write access to the compute device nodes themselves, not just their
+  presence — a user outside the `render`/`video` groups passes every other check
+  and then watches the ROCm unit fail to start. Add your user to both groups and
+  log in again (the new membership does not apply to your current session):
+  ```bash
+  sudo usermod -aG render,video "$USER"
+  # then log out and log back in, and confirm with:
+  id -nG
+  ```
+  If `/dev/kfd` itself is reported absent rather than denied, the amdgpu kernel
+  module is not loaded (no group fix will help) — check `lsmod | grep amdgpu` and
+  `dmesg | grep -i kfd` instead. On the Vulkan fallback, `/dev/kfd` access is
+  informational only; only the render node blocks.
 
 - **Services do not survive reboot (`PRE-03`).** Without user lingering, the
   user-systemd units stop when you log out. `villa install` offers to enable it;

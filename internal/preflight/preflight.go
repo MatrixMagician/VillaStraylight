@@ -137,8 +137,9 @@ const (
 // which would over-block capable hosts. Phase 3 install supplies the
 // real per-model `weights + KV + headroom` numbers via RunWithResources.
 //
-// Ordering is stable (PRE-01, PRE-02, PRE-03, PRE-04, then the WARN-tier
-// kernel/firmware floor checks) so goldens and tables are deterministic.
+// Ordering is stable (PRE-01, PRE-02, PRE-03, PRE-04, the WARN-tier
+// kernel/firmware floor checks, then PRE-08) so goldens and tables are
+// deterministic.
 func Run(p detect.HostProfile) []CheckResult {
 	return RunWithResources(p, ResourceReq{
 		// Disk: the smallest installable model's weight size (plus margin), NOT the
@@ -164,6 +165,7 @@ func RunWithResources(p detect.HostProfile, req ResourceReq) []CheckResult {
 		checkResources(p, req, liveStatfs),
 		checkKernelFloor(p),
 		checkFirmwareFloor(p),
+		checkComputeDeviceAccess(p, false),
 	}
 }
 

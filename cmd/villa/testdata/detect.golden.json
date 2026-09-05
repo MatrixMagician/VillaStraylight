@@ -110,5 +110,15 @@
       "source": "pinned stable ROCm image"
     }
   },
-  "schema_version": 2
+  "kfd_access": {
+    "value": false,
+    "known": false,
+    "source": "cannot probe /dev/kfd"
+  },
+  "render_node_access": {
+    "value": true,
+    "known": true,
+    "source": "/dev/dri/renderD128"
+  },
+  "schema_version": 3
 }

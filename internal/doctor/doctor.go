@@ -63,7 +63,13 @@ const (
 //     from the status read-model rows (no new finding type). No existing field changed
 //     shape; web-search-OFF output is byte-identical except this bump (nil seams emit no
 //     findings). This is doctor's OWN version — INDEPENDENT of status.reportSchemaVersion (5).
-const reportSchemaVersion = 3
+//   - v4: PRE-08 compute device access (issue #120) — no new doctor-owned finding
+//     type; the check is folded in for free through the existing host-condition
+//     preflight.Run/RunROCm(*) composition in step 1, appending one more finding
+//     via the unchanged findingFromCheck path. Bumped because the fold is additive
+//     data every doctor Report now carries, mirroring how v2/v3 bumped for their
+//     own additive host-condition/service findings.
+const reportSchemaVersion = 4
 
 // The three typed-Unknown ROCm host-prep check IDs that a PROVEN ROCm residency
 // supersedes (down-ranks, never deletes). They INTENTIONALLY duplicate the preflight

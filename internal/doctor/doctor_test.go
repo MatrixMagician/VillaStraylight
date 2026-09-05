@@ -92,10 +92,16 @@ func rocmDoctorDeps() Deps {
 	// isolates the three STRUCTURALLY typed-Unknown WARNs the supersession targets
 	// ROCM-PRE-firmware/-hsa/-image (checks_rocm.go:66-67 hardcode firmware/hsa as
 	// UnknownStr; RunROCm passes an empty image) — which are exactly the live-UAT WARNs.
+	// KFDAccess/RenderNodeAccess are also Known-good so the additive PRE-08 check
+	// (issue #120) PASSes here too, rather than adding a fourth, un-superseded
+	// typed-Unknown WARN that would falsely re-open the residency-supersession gap
+	// this fixture exists to isolate.
 	d.Probe = func() detect.HostProfile {
 		return detect.HostProfile{
-			IGPUGfxID:     detect.KnownStr("gfx1151", "test"),
-			KernelVersion: detect.KnownStr("6.18.9", "test"),
+			IGPUGfxID:        detect.KnownStr("gfx1151", "test"),
+			KernelVersion:    detect.KnownStr("6.18.9", "test"),
+			KFDAccess:        detect.KnownBool(true, "/dev/kfd"),
+			RenderNodeAccess: detect.KnownBool(true, "/dev/dri/renderD128"),
 		}
 	}
 	return d
@@ -659,9 +665,10 @@ func TestDownStackWarnsNotBlocks(t *testing.T) {
 
 // TestDoctorSchemaVersionAgentFold: the doctor --json contract self-version reached 2 when
 // the agent findings were folded in (Phase 28-01). Phase 34-04 bumped it append-only 2→3
-// (the web-search fold, asserted by TestDoctorSchemaVersionIsThree); the const is the single
-// source of truth — Aggregate stamps it on every Report. This test now tracks the CURRENT
-// version so it cannot silently desync from the bump.
+// (the web-search fold), and issue #120 bumped it again 3→4 (the PRE-08 fold, asserted by
+// TestDoctorSchemaVersionIsFour); the const is the single source of truth — Aggregate
+// stamps it on every Report. This test now tracks the CURRENT version so it cannot
+// silently desync from the bump.
 func TestDoctorSchemaVersionAgentFold(t *testing.T) {
 	r := Aggregate(newDoctorDeps())
 	if r.SchemaVersion != reportSchemaVersion {
@@ -897,16 +904,16 @@ func TestAgentCleanDriftPasses(t *testing.T) {
 	}
 }
 
-// --- Phase 34-04: web-search fold (reportSchemaVersion 2→3) ---
+// --- issue #120: PRE-08 compute device access fold (reportSchemaVersion 3→4) ---
 
-// TestDoctorSchemaVersionIsThree: doctor's OWN --json contract self-version was bumped
-// append-only 2→3 when the web-search findings were folded in. The const is the
+// TestDoctorSchemaVersionIsFour: doctor's OWN --json contract self-version was bumped
+// append-only 3→4 when PRE-08 (compute device access) was folded in. The const is the
 // single source of truth — Aggregate stamps it on every Report. INDEPENDENT of status's
 // reportSchemaVersion (5).
-func TestDoctorSchemaVersionIsThree(t *testing.T) {
+func TestDoctorSchemaVersionIsFour(t *testing.T) {
 	r := Aggregate(newDoctorDeps())
-	if r.SchemaVersion != 3 {
-		t.Fatalf("Report.SchemaVersion = %d, want 3 (append-only bump for the web-search fold)", r.SchemaVersion)
+	if r.SchemaVersion != 4 {
+		t.Fatalf("Report.SchemaVersion = %d, want 4 (append-only bump for the PRE-08 fold)", r.SchemaVersion)
 	}
 }
 
