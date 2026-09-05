@@ -217,8 +217,8 @@ func TestRollbackVerbatim(t *testing.T) {
 	if !res.RolledBack || res.Switched {
 		t.Fatalf("non-pass prove must roll back (not switch), got %+v", res)
 	}
-	if res.FromBackend != "vulkan" || res.ToBackend != "rocm" {
-		t.Errorf("From/To must be set on rollback, got from=%q to=%q", res.FromBackend, res.ToBackend)
+	if res.From != "vulkan" || res.To != "rocm" {
+		t.Errorf("From/To must be set on rollback, got from=%q to=%q", res.From, res.To)
 	}
 	assertVerbatimRestore(t, rec)
 	// Restore precedes the config-restore, reload, and the rollback restart.

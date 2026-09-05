@@ -1,7 +1,12 @@
-// Package backendswap is the pure, Deps-injected transactional core for
-// `villa backend set`: the capture→mutate→prove→rollback state-machine that a
-// backend switch on a RUNNING install must go through so a failed or degraded
-// switch is a no-op to the running stack (Phase 8, BSET-01/BSET-02).
+// Package backendswap is the pure, Deps-injected transactional core the
+// stack-mutating swap verbs share: the capture→mutate→prove→rollback state-machine
+// a change on a RUNNING install must go through so a failed or degraded change is a
+// no-op to the running stack (Phase 8, BSET-01/BSET-02).
+//
+// Two verbs mutate config and re-render on this frame: `villa backend set` and
+// `villa speculation set` (ADR-0006). They differ only in their guards and in which
+// config field they write, so the frame takes the mutation as a closure and both
+// share ONE rollback rather than growing a second one that drifts.
 //
 // It clones the proven `internal/modelswap` forward skeleton (fit-guard FIRST,
 // persist-before-unit-work, restart-inference-only) and wraps it in a
@@ -96,9 +101,11 @@ type Result struct {
 	// FailedStep names the step that failed ("capture"/"save"/"write"/"restart"/
 	// "prove") so the caller can print a precise message.
 	FailedStep string
-	// FromBackend / ToBackend are the previous and target backends.
-	FromBackend string
-	ToBackend   string
+	// From / To are the previous and target values of whatever this transaction
+	// changed: the backend for `backend set`, the speculation mode for
+	// `speculation set`.
+	From string
+	To   string
 	// Prove carries the cutover verdict (on both a Switched and a prove-triggered
 	// RolledBack result) for the caller to surface.
 	Prove prove.Verdict
@@ -125,18 +132,18 @@ func Run(d Deps, target string) Result {
 	// side effects (Open Question 1).
 	cfg, err := d.LoadConfig()
 	if err != nil {
-		return Result{Refused: true, FailedStep: "load config", Err: err, ToBackend: target}
+		return Result{Refused: true, FailedStep: "load config", Err: err, To: target}
 	}
 	from := cfg.Backend
 	if from == target {
-		return Result{NoOp: true, FromBackend: from, ToBackend: target}
+		return Result{NoOp: true, From: from, To: target}
 	}
 
 	// (2) Fit-guard FIRST (BSET-01): re-check the PRESERVED model against the target
 	// envelope — model = config, never re-pick. A non-fit refuses-with-remediation
 	// BEFORE any capture/mutate, zero side effects.
 	if ok, reason := d.FitsModel(cfg); !ok {
-		return Result{Refused: true, Reason: reason, FromBackend: from, ToBackend: target}
+		return Result{Refused: true, Reason: reason, From: from, To: target}
 	}
 
 	// (3) ROCm preflight gate (BSET-01). The gate MUST see the TARGET backend: the live
@@ -148,7 +155,59 @@ func Run(d Deps, target string) Result {
 	preflightCfg := cfg
 	preflightCfg.Backend = target
 	if ok, reason := d.PreflightROCm(preflightCfg); !ok {
-		return Result{Refused: true, Reason: reason, FromBackend: from, ToBackend: target}
+		return Result{Refused: true, Reason: reason, From: from, To: target}
+	}
+
+	return transact(d, from, target, func(c *config.VillaConfig) { c.Backend = target })
+}
+
+// RunSpeculation performs the guarded, transactional speculation-mode switch. It is
+// Run's frame with two guards dropped and one added:
+//
+//	(1) LoadConfig; from := cfg.Speculation, "off" when unset; same mode → clean NoOp.
+//	(2) fit-guard: the live FitsModel threads the TARGET mode into the recommendation,
+//	    so ResolveSpeculation's refusal for an unqualified entry arrives here as a
+//	    non-fit with its note as the reason. That is the prove-current step.
+//	(3) no ROCm preflight: the mode changes no image, no device and no privilege.
+//	(4)-(6) the shared transaction, mutating cfg.Speculation.
+func RunSpeculation(d Deps, target string) Result {
+	cfg, err := d.LoadConfig()
+	if err != nil {
+		return Result{Refused: true, FailedStep: "load config", Err: err, To: target}
+	}
+	// An unset config renders speculation off, so it IS off for the purposes of a
+	// no-op: setting off on a fresh install must not restart the stack.
+	from := cfg.Speculation
+	if from == "" {
+		from = config.SpeculationOff
+	}
+	if from == target {
+		return Result{NoOp: true, From: from, To: target}
+	}
+
+	// The fit guard sees the TARGET mode, not the persisted one — a same-mode target
+	// is already a NoOp above, so passing the source config would leave the
+	// qualification check permanently dead.
+	fitCfg := cfg
+	fitCfg.Speculation = target
+	if ok, reason := d.FitsModel(fitCfg); !ok {
+		return Result{Refused: true, Reason: reason, From: from, To: target}
+	}
+
+	return transact(d, from, target, func(c *config.VillaConfig) { c.Speculation = target })
+}
+
+// transact is steps (4)-(6) of the frame: capture strictly before any mutation,
+// apply the caller's mutation to config, re-render and restart, and cut over only on
+// a passing proof, rolling back verbatim otherwise.
+//
+// It takes the mutation as a closure because the two verbs on this frame differ only
+// in the field they write. from/to are recorded on the Result verbatim, so the caller
+// names what changed rather than this function guessing.
+func transact(d Deps, from, to string, mutate func(*config.VillaConfig)) Result {
+	cfg, err := d.LoadConfig()
+	if err != nil {
+		return Result{Refused: true, FailedStep: "load config", Err: err, To: to}
 	}
 
 	// (4) CAPTURE strictly BEFORE any mutation (Pitfall 4): the verbatim prior unit
@@ -156,7 +215,7 @@ func Run(d Deps, target string) Result {
 	// not be mutated — refuse with zero side effects.
 	priorUnit, err := d.CaptureUnit()
 	if err != nil {
-		return Result{Refused: true, FailedStep: "capture", Err: err, FromBackend: from, ToBackend: target}
+		return Result{Refused: true, FailedStep: "capture", Err: err, From: from, To: to}
 	}
 	priorCfg := cfg // VillaConfig is a flat value type (no pointers) → safe deep snapshot.
 
@@ -192,13 +251,13 @@ func Run(d Deps, target string) Result {
 	rolledBack := func(failedStep, reason string, origErr error, v prove.Verdict) Result {
 		ok, rbDetail := rollback()
 		r := Result{
-			RolledBack:  true,
-			FailedStep:  failedStep,
-			Reason:      reason,
-			Err:         origErr,
-			Prove:       v,
-			FromBackend: from,
-			ToBackend:   target,
+			RolledBack: true,
+			FailedStep: failedStep,
+			Reason:     reason,
+			Err:        origErr,
+			Prove:      v,
+			From:       from,
+			To:         to,
 		}
 		if !ok {
 			// Do NOT present a half-restored stack as a clean no-op: flag it.
@@ -209,7 +268,7 @@ func Run(d Deps, target string) Result {
 	}
 
 	// (5) MUTATE. ANY error here rolls back verbatim to the captured prior unit+config.
-	cfg.Backend = target
+	mutate(&cfg)
 	if err := d.SaveConfig(cfg); err != nil {
 		return rolledBack("save", "", err, prove.Verdict{})
 	}
@@ -223,9 +282,9 @@ func Run(d Deps, target string) Result {
 	// (6) PROVE the cutover against the already-running server. Switch ONLY on
 	// prove.StatusPass; ANY other verdict (including ready+health-200-but-residency-FAIL,
 	// rolls back verbatim — is-active/200 alone is never success.
-	v := d.Prove(context.Background(), target)
+	v := d.Prove(context.Background(), to)
 	if !v.Pass() {
 		return rolledBack("prove", v.Detail, nil, v)
 	}
-	return Result{Switched: true, Prove: v, FromBackend: from, ToBackend: target}
+	return Result{Switched: true, Prove: v, From: from, To: to}
 }
