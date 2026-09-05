@@ -2,6 +2,7 @@ package install
 
 import (
 	"slices"
+	"strings"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 )
@@ -248,4 +249,11 @@ func join(xs []string) string {
 		out += x
 	}
 	return out + "]"
+}
+
+// ServiceFor maps a Quadlet unit file name to the systemd service it generates:
+// villa-llama.container is villa-llama.service. Only container units start
+// services the flow drives; other unit kinds map to a name nothing looks up.
+func ServiceFor(unitName string) string {
+	return strings.TrimSuffix(unitName, ".container") + ".service"
 }

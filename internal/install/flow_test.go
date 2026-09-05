@@ -1557,10 +1557,26 @@ func TestInstallRollsBackOnAFailedProof(t *testing.T) {
 		if f.configRemoved {
 			t.Error("a re-install must never delete the operator's config")
 		}
-		if len(f.stopOrder) > 0 {
-			t.Errorf("services running before the install must not be left stopped; stops = %v", f.stopOrder)
+		// A service that was running before may be stopped on the way to its
+		// rewritten unit; it must be started again by the time the rollback ends.
+		for _, svc := range f.stopOrder {
+			lastStop := lastIndex(f.callOrder, "stop:"+svc)
+			lastStart := lastIndex(f.callOrder, "start:"+svc)
+			if lastStart < lastStop {
+				t.Errorf("%s was running before the install and is left stopped; callOrder = %v", svc, f.callOrder)
+			}
 		}
 	})
+}
+
+// lastIndex returns the index of the last occurrence of want in order, or -1.
+func lastIndex(order []string, want string) int {
+	for i := len(order) - 1; i >= 0; i-- {
+		if order[i] == want {
+			return i
+		}
+	}
+	return -1
 }
 
 // TestInstallReportsAnIncompleteRollbackHonestly: a rollback step that itself
