@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -1043,5 +1044,88 @@ func TestResidentRoundTrip(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, cfg) {
 		t.Errorf("resident round-trip mismatch:\n got %+v\nwant %+v", got, cfg)
+	}
+}
+
+// TestSpeculationRoundTrip asserts every accepted speculation value survives a
+// save/load cycle, including the unset one — an absent key must load as "" rather
+// than being healed to a mode the operator never chose.
+func TestSpeculationRoundTrip(t *testing.T) {
+	for _, mode := range []string{"", SpeculationOff, SpeculationNgram} {
+		t.Run("mode="+mode, func(t *testing.T) {
+			cfg := DefaultVillaConfig()
+			cfg.Model = "qwen3-35b-a3b-moe-64"
+			cfg.Speculation = mode
+			dir := filepath.Join(t.TempDir(), "villa")
+			if err := SaveVillaTo(dir, cfg); err != nil {
+				t.Fatalf("SaveVillaTo: %v", err)
+			}
+			got, err := LoadVillaFrom(dir)
+			if err != nil {
+				t.Fatalf("LoadVillaFrom: %v", err)
+			}
+			if got.Speculation != mode {
+				t.Errorf("speculation round-trip: got %q, want %q", got.Speculation, mode)
+			}
+		})
+	}
+}
+
+// TestSpeculationAbsentKeyLoadsUnset asserts a config.toml written before this
+// field existed loads with an empty Speculation, which renders off.
+func TestSpeculationAbsentKeyLoadsUnset(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "villa")
+	if err := os.MkdirAll(dir, configDirMode); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	body := "model = \"qwen3-35b-a3b-moe-64\"\nbackend = \"rocm\"\n"
+	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(body), configFileMode); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	got, err := LoadVillaFrom(dir)
+	if err != nil {
+		t.Fatalf("LoadVillaFrom: %v", err)
+	}
+	if got.Speculation != "" {
+		t.Errorf("absent speculation key loaded as %q, want \"\"", got.Speculation)
+	}
+}
+
+// TestSpeculationFailsClosed asserts an unknown mode is refused at the boundary
+// rather than silently rendering off — a hand-edited "draft" is a value villa does
+// not implement, and accepting it would run a stack the config does not describe.
+func TestSpeculationFailsClosed(t *testing.T) {
+	for _, mode := range []string{"draft", "yes"} {
+		t.Run("mode="+mode, func(t *testing.T) {
+			want := fmt.Sprintf("config: speculation %q is not a known mode (off, ngram, or unset)", mode)
+			body := fmt.Sprintf("model = \"m\"\nspeculation = %q\n", mode)
+
+			if _, err := Parse([]byte(body)); err == nil || err.Error() != want {
+				t.Errorf("Parse: got %v, want %q", err, want)
+			}
+
+			dir := filepath.Join(t.TempDir(), "villa")
+			if err := os.MkdirAll(dir, configDirMode); err != nil {
+				t.Fatalf("MkdirAll: %v", err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(body), configFileMode); err != nil {
+				t.Fatalf("WriteFile: %v", err)
+			}
+			if _, err := LoadVillaFrom(dir); err == nil || err.Error() != want {
+				t.Errorf("LoadVillaFrom: got %v, want %q", err, want)
+			}
+		})
+	}
+}
+
+// TestValidSpeculation guards the vocabulary itself: unset, off and ngram only.
+func TestValidSpeculation(t *testing.T) {
+	for _, tc := range []struct {
+		in   string
+		want bool
+	}{{"", true}, {"off", true}, {"ngram", true}, {"draft", false}, {"Ngram", false}, {"yes", false}} {
+		if got := ValidSpeculation(tc.in); got != tc.want {
+			t.Errorf("ValidSpeculation(%q) = %v, want %v", tc.in, got, tc.want)
+		}
 	}
 }
