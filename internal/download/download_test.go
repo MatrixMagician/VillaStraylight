@@ -197,3 +197,37 @@ func TestRejectsTraversalFilename(t *testing.T) {
 		}
 	}
 }
+
+// TestSkipsShardAlreadyPresent: a shard whose final file is on disk at the catalog
+// size is not fetched again. Before this, a model whose sidecar was missing had its
+// 22 GB primary shard re-downloaded alongside the 900 MB projector.
+func TestSkipsShardAlreadyPresent(t *testing.T) {
+	body := []byte("already here")
+	dir := t.TempDir()
+	sh := makeShard("http://unreachable.invalid/x.gguf", "x.gguf", body)
+	if err := os.WriteFile(filepath.Join(dir, sh.Filename), body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	requests := 0
+	client := roundTripFunc(func(*http.Request) (*http.Response, error) {
+		requests++
+		return nil, fmt.Errorf("must not be called")
+	})
+	if err := downloadFile(t.Context(), client, sh, dir); err != nil {
+		t.Fatalf("downloadFile: %v", err)
+	}
+	if requests != 0 {
+		t.Errorf("a present shard made %d request(s), want 0", requests)
+	}
+	// A wrong-size file is not trusted: the pull runs and the client is consulted.
+	if err := os.WriteFile(filepath.Join(dir, sh.Filename), body[:3], 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := downloadFile(t.Context(), client, sh, dir); err == nil || requests == 0 {
+		t.Errorf("a truncated shard must be re-fetched: err=%v requests=%d", err, requests)
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) Do(r *http.Request) (*http.Response, error) { return f(r) }
