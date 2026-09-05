@@ -111,6 +111,7 @@ func Render(in RenderInput) ([]Unit, error) {
 	// The resident units below are rendered from their own RunSpec and deliberately
 	// do NOT get this descriptor: a slot's qualification is not the primary model's.
 	spec.Speculation = in.Speculation
+	spec.Projector = in.Projector
 
 	cv, err := parseContainerArgs(in.Backend.Image(), in.Backend.ContainerArgs(spec))
 	if err != nil {
