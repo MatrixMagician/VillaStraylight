@@ -115,6 +115,7 @@ func renderStatusTable(w io.Writer, r status.Report, withProvenance bool) {
 	// (Report.Image), never a literal in this renderer.
 	fmt.Fprintf(tw, "backend\t%s\n", r.Backend)
 	fmt.Fprintf(tw, "speculation\t%s\n", r.Speculation)
+	fmt.Fprintf(tw, "vision\t%s\n", yesNo(r.Vision))
 	if withProvenance {
 		fmt.Fprintf(tw, "image\t%s\n", r.Image)
 	}

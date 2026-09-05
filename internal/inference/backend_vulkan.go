@@ -101,7 +101,20 @@ func (backendVulkan) ContainerArgs(spec RunSpec) []string {
 	args = append(args, llamaServerFlags...)
 	args = appendCodingModeArgs(args, spec.CodingMode)
 	args = appendSpeculationArgs(args, spec.Speculation)
+	args = appendProjectorArgs(args, spec.Projector)
 	return args
+}
+
+// appendProjectorArgs appends the vision projector delta to args, behind the same
+// seam and by the same construction as the other two optional deltas: "" returns
+// args UNCHANGED. The offload flag is not optional here — a projector on the CPU
+// makes image encoding crawl, and the pinned image supports offloading it, so the
+// seam renders the pair or nothing.
+func appendProjectorArgs(args []string, projector string) []string {
+	if projector == "" {
+		return args
+	}
+	return append(args, "--mmproj", filepath.Join(containerModelsDir, projector), "--mmproj-offload")
 }
 
 // appendSpeculationArgs appends the speculation render delta to args, behind the

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
@@ -115,6 +116,7 @@ func saveRecommendation(w io.Writer, rec recommend.Recommendation, catalogPath s
 	c.Ctx = rec.ContextLen
 	c.Backend = rec.Backend
 	c.Speculation = rec.Speculation
+	c.Vision = rec.Vision
 	c.CatalogPath = catalogPath
 	if err := config.SaveVilla(c); err != nil {
 		return fmt.Errorf("recommend --save: %w", err)
@@ -161,6 +163,11 @@ func renderRecommendTable(w io.Writer, rec recommend.Recommendation, warnings []
 	tw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
 	fmt.Fprintf(tw, "  model_bytes\t%s\n", gib(rec.WeightBytes))
 	fmt.Fprintf(tw, "+ KV-cache @ ctx %d\t%s\n", rec.ContextLen, gib(rec.KVCacheBytes))
+	// Gated on a reserved projector (the ROCmAdvice gated-line pattern) so a
+	// text-only pick's table stays byte-identical to what it printed before.
+	if rec.ProjectorBytes > 0 {
+		fmt.Fprintf(tw, "+ vision projector\t%s\n", gib(rec.ProjectorBytes))
+	}
 	fmt.Fprintf(tw, "+ headroom\t%s\n", gib(rec.HeadroomBytes))
 	fmt.Fprintf(tw, "= total\t%s\n", gib(rec.TotalBytes))
 	// Embed-reservation row gated on a non-zero value (Pitfall 4, the
@@ -177,6 +184,14 @@ func renderRecommendTable(w io.Writer, rec recommend.Recommendation, warnings []
 		fmt.Fprintln(w, "\nFits: yes")
 	} else {
 		fmt.Fprintln(w, "\nFits: NO — this pick would not fit the usable envelope")
+	}
+
+	// The vision verdict is printed only for an entry that HAS a projector: either
+	// one was reserved, or one was dropped and said so in a note. A text-only entry
+	// gets no line, because "Vision: no" would read as a capability that was
+	// withheld rather than one the model never had.
+	if rec.Vision || visionDropped(rec.Notes) {
+		fmt.Fprintf(w, "Vision: %s\n", yesNo(rec.Vision))
 	}
 
 	for _, n := range rec.Notes {
@@ -279,6 +294,26 @@ func liveLoadedWebSearchInputs() recommend.WebSearchInputs {
 // gib renders bytes as a GiB string with raw bytes for the fit table.
 func gib(b uint64) string {
 	return fmt.Sprintf("%.3f GiB (%d bytes)", float64(b)/(1<<30), b)
+}
+
+// yesNo renders a bool as the table's yes/no vocabulary.
+func yesNo(b bool) string {
+	if b {
+		return "yes"
+	}
+	return "no"
+}
+
+// visionDropped reports whether a note says the projector was dropped. It keys on
+// the note's own prefix rather than a second Recommendation field: the note is
+// already the contract that says why, and a parallel flag could disagree with it.
+func visionDropped(notes []string) bool {
+	for _, n := range notes {
+		if strings.HasPrefix(n, "vision:") {
+			return true
+		}
+	}
+	return false
 }
 
 // fitsGlyph returns a comparison glyph reflecting whether total ≤ envelope.

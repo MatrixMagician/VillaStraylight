@@ -140,7 +140,44 @@ func livePinnedRender(in orchestrate.RenderInput) ([]orchestrate.Unit, error) {
 		}
 		in.Speculation = spec
 	}
+	if in.Projector == "" {
+		projector, err := liveProjector(in.Cfg, in.CodingMode != nil)
+		if err != nil {
+			return nil, err
+		}
+		in.Projector = projector
+	}
 	return orchestrate.Render(in)
+}
+
+// liveProjector turns the persisted vision decision plus the served catalog entry
+// into the projector filename the render needs, the catalog-to-inference
+// translation the pure renderer cannot do itself (the liveSpeculation precedent).
+//
+// Coding mode resolves to "" because coding mode is text-only by construction: the
+// coder entry is picked for tool-calling, its agent context is sized without a
+// projector, and villa has never qualified one for it.
+//
+// A config that says vision on for an entry shipping no projector is a refusal
+// here rather than a silent text-only render, for the reason ADR-0006 gives about
+// a speculation mode: the operator persisted a decision and would have no way to
+// tell it had been dropped.
+func liveProjector(cfg config.VillaConfig, coding bool) (string, error) {
+	if !cfg.Vision || coding {
+		return "", nil
+	}
+	cat, _, err := catalog.Load(cmp.Or(modelCatalogPath, cfg.CatalogPath))
+	if err != nil {
+		return "", fmt.Errorf("load model catalog: %w", err)
+	}
+	m, ok := cat.FindByID(cfg.Model)
+	if !ok {
+		return "", fmt.Errorf("vision: served model %q is not in the catalog", cfg.Model)
+	}
+	if m.Projector == nil || len(m.Projector.Shards) == 0 {
+		return "", fmt.Errorf("vision is on in config but %s ships no projector; run villa recommend --save or villa install", m.ID)
+	}
+	return m.Projector.Shards[0].Filename, nil
 }
 
 // liveSpeculation turns the persisted mode plus the served catalog entry into the

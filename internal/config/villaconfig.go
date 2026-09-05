@@ -208,6 +208,13 @@ type VillaConfig struct {
 	// off, which is what an install predating this field carries.
 	Speculation string `toml:"speculation,omitempty"`
 
+	// Vision is the persisted vision decision: true only when an install or a
+	// `recommend --save` resolved a projector that fits the envelope AND pulled it.
+	// It is persisted rather than derived from the catalog for the reason ADR-0006
+	// gives for speculation, plus one of its own: the projector file must already be
+	// on disk before a unit references it, and a v1.8 install never pulled one.
+	Vision bool `toml:"vision,omitempty"`
+
 	// --- Resident set fields ---
 	// Tail-appended and append-only, like every optional block above it: nothing
 	// declared earlier moves, and a nil/empty Resident is dropped by ,omitempty so an

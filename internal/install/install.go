@@ -169,6 +169,10 @@ func AssemblePlan(cfg config.VillaConfig, gates Gates, rec recommend.Recommendat
 	// the persisted choice re-resolved against the served entry.
 	plan.Config.Speculation = rec.Speculation
 
+	// Vision likewise: the install pulls the projector as part of the model, so the
+	// decision the fit made is the one the rendered unit must read back.
+	plan.Config.Vision = rec.Vision
+
 	plan.Config.MemoryEnabled = gates.Memory
 	plan.Config.WebSearchEnabled = gates.WebSearch
 	plan.Config.AgentEnabled = gates.Agent

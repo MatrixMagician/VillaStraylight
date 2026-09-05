@@ -91,7 +91,8 @@ const (
 // field landed (Phase 31) -- the single sanctioned recommend contract
 // bump for Phase 31.
 // Bumped 4->5 when the append-only speculation field landed (ADR-0006).
-const recommendSchemaVersion = 5
+// Bumped 5->6 when the append-only projector_bytes + vision fields landed.
+const recommendSchemaVersion = 6
 
 // ROCmAdvice is a typed enum surfaced on the Recommendation: an
 // honesty-bounded hint about whether the opt-in ROCm backend is worth a benchmark
@@ -193,6 +194,18 @@ type Recommendation struct {
 	// licenses. Empty on a refusal that named no model, since no entry's
 	// qualification could have resolved one.
 	Speculation string `json:"speculation"`
+
+	// ProjectorBytes is the vision projector's share of TotalBytes: the server's
+	// worst-case runtime estimate, reserved as its own fit term so the cost is
+	// visible rather than hidden inside the model weight. Zero when the picked entry
+	// ships no projector AND when one was dropped for not fitting.
+	ProjectorBytes uint64 `json:"projector_bytes"`
+
+	// Vision is the resolved vision decision for this pick: true only when the
+	// entry ships a projector AND it fit. A pick that dropped the projector reports
+	// false and says so in a Note, because a text-only stack presented as
+	// vision-capable is the one outcome this field exists to prevent.
+	Vision bool `json:"vision"`
 
 	// SchemaVersion is the Recommendation contract self-version and MUST stay the
 	// LAST tagged field (append-only discipline; new fields go above it).
@@ -634,6 +647,24 @@ func buildRecommendation(m catalog.Model, ov Overrides, ctx int, envelope uint64
 		notes = append(notes, specNote)
 	}
 
+	// The projector is reserved only when the envelope has room for it ON TOP of
+	// the base fit. Dropping it is a NOTE rather than a non-fit: the model still
+	// runs, just text-only, and saying nothing is what would present a text-only
+	// stack as vision-capable.
+	var projector uint64
+	var vision bool
+	if m.Projector != nil {
+		withProj := addSaturating(total, m.Projector.WeightBytes)
+		if withProj <= envelope {
+			total = withProj
+			projector = m.Projector.WeightBytes
+			vision = true
+		} else {
+			notes = append(notes, fmt.Sprintf("vision: projector (%s) dropped — %s needed vs %s usable; this pick runs text-only",
+				humanGiB(m.Projector.WeightBytes), humanGiB(withProj), humanGiB(envelope)))
+		}
+	}
+
 	return Recommendation{
 		Model:               m.ID,
 		Quant:               m.Quant,
@@ -646,10 +677,12 @@ func buildRecommendation(m catalog.Model, ov Overrides, ctx int, envelope uint64
 		UsableEnvelopeBytes: envelope,
 		// An unhonourable speculation request fails the fit outright: the pick
 		// villa would install is not the one that was asked for.
-		Fits:        total <= envelope && specOK,
-		Degraded:    degraded,
-		Notes:       notes,
-		Speculation: spec,
+		Fits:           total <= envelope && specOK,
+		Degraded:       degraded,
+		Notes:          notes,
+		Speculation:    spec,
+		ProjectorBytes: projector,
+		Vision:         vision,
 	}
 }
 

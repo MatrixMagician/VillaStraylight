@@ -26,5 +26,7 @@
   },
   "web_search_reservation_bytes": 0,
   "speculation": "ngram",
-  "schema_version": 5
+  "projector_bytes": 0,
+  "vision": false,
+  "schema_version": 6
 }

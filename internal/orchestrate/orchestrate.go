@@ -75,6 +75,12 @@ type RenderInput struct {
 	// pure renderer never imports internal/catalog (the CodingMode precedent above).
 	Speculation *inference.SpeculationSpec
 
+	// Projector is the OPTIONAL vision projector filename inside the models dir.
+	// "" ⇒ the off path: the rendered unit is byte-identical to one from before
+	// this field existed. The CALLER resolves the served catalog entry's sidecar, so
+	// the pure renderer never imports internal/catalog (the CodingMode precedent).
+	Projector string
+
 	// Resident are the OPTIONAL secondary resident models, one extra .container each.
 	// Empty ⇒ the off path by construction: no extra unit is rendered and Open WebUI
 	// keeps its singular endpoint env, so the rendered stack is byte-identical to a

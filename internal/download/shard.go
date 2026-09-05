@@ -14,20 +14,25 @@ import (
 // first failing shard is returned). A single-shard model is the degenerate
 // one-element case.
 //
+// The set is m.AllShards(), so a sidecar (the vision projector) is downloaded and
+// verified as part of the model rather than beside it: a model that claims vision
+// is never left on disk without the file its rendered --mmproj points at.
+//
 // "All present" is enforced structurally: the catalog manifest enumerates the full
 // -of-0000N set, and pullShards requires every enumerated shard to download and
 // verify. A manifest missing a shard cannot be fixed up here — it is the catalog's
 // contract that the shard list is complete.
 func pullShards(ctx context.Context, client httpDoer, m catalog.Model, modelsDir string) error {
-	if len(m.Shards) == 0 {
+	all := m.AllShards()
+	if len(all) == 0 {
 		return fmt.Errorf("%w: %s", errNoShards, m.ID)
 	}
-	for i, sh := range m.Shards {
+	for i, sh := range all {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 		if err := downloadFile(ctx, client, sh, modelsDir); err != nil {
-			return fmt.Errorf("download: model %s shard %d/%d (%s): %w", m.ID, i+1, len(m.Shards), sh.Filename, err)
+			return fmt.Errorf("download: model %s shard %d/%d (%s): %w", m.ID, i+1, len(all), sh.Filename, err)
 		}
 	}
 	return nil

@@ -181,8 +181,7 @@ func liveInstallDeps(ctx context.Context) (install.Deps, error) {
 			if !ok {
 				return false
 			}
-			_, err := os.Stat(filepath.Join(modelsDir(), primaryModelFile(m)))
-			return err == nil
+			return modelFilesPresent(modelsDir(), m)
 		},
 		EnsureModel: func(rec recommend.Recommendation) error {
 			m, ok := resolveCatalogModel(rec)
@@ -423,4 +422,22 @@ func writeUnitText(dir, name, text string) error {
 		return err
 	}
 	return os.WriteFile(filepath.Join(dir, name), []byte(text), 0o644) //nolint:gosec // unit files are world-readable by design; secrets live in 0600 env files
+}
+
+// modelFilesPresent reports whether every file the entry needs is on disk under
+// dir: the model shards and any sidecar, because a projector is pulled with its
+// model. Checking only the primary file let a vision-on install skip the pull and
+// write a unit that named a projector the host never downloaded.
+func modelFilesPresent(dir string, m catalog.Model) bool {
+	shards := m.AllShards()
+	if len(shards) == 0 {
+		_, err := os.Stat(filepath.Join(dir, primaryModelFile(m)))
+		return err == nil
+	}
+	for _, sh := range shards {
+		if _, err := os.Stat(filepath.Join(dir, sh.Filename)); err != nil {
+			return false
+		}
+	}
+	return true
 }

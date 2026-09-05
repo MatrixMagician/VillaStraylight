@@ -103,5 +103,6 @@
     "state": "never_checked"
   },
   "speculation": "off",
-  "schema_version": 7
+  "vision": false,
+  "schema_version": 8
 }

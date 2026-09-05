@@ -67,6 +67,19 @@ ngram-mod, which drafts from the context itself; a mode is offered only for a
 catalog entry carrying a measurement that licensed it.
 _Avoid_: spec decoding, lookahead, draft mode, speculative sampling
 
+**Sidecar**:
+A companion GGUF pulled and verified with a model, not beside it. Today the
+only one is the vision projector. Its provenance names the on-hardware
+exercise that licensed it.
+_Avoid_: extra file, auxiliary model, addon, companion weights
+
+**Vision projector**:
+The sidecar that turns an image into tokens the model can read, so an image
+attached in chat is answered. It is a term of the fit in its own right, and it
+is dropped with a note rather than silently, because a text-only stack must
+never be presented as vision-capable.
+_Avoid_: mmproj, multimodal adapter, image encoder, CLIP model
+
 **Offload**:
 Running the model's layers on the iGPU rather than the CPU.
 _Avoid_: acceleration, GPU mode, hardware inference

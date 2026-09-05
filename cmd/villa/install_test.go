@@ -384,3 +384,31 @@ func TestRunInstallRendersToStreams(t *testing.T) {
 		t.Errorf("stderr = %q, want prefix %q", errOut.String(), want)
 	}
 }
+
+// TestModelFilesPresentIncludesSidecars guards the install's pull decision: an
+// entry whose projector is missing reads as not present, so the pull runs and the
+// unit never names a file the host does not have.
+func TestModelFilesPresentIncludesSidecars(t *testing.T) {
+	dir := t.TempDir()
+	m := catalog.Model{
+		ID:        "m",
+		Shards:    []catalog.Shard{{Filename: "m.gguf"}},
+		Projector: &catalog.Sidecar{Shards: []catalog.Shard{{Filename: "m-mmproj.gguf"}}, WeightBytes: 1, Provenance: "test"},
+	}
+	touch := func(name string) {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if modelFilesPresent(dir, m) {
+		t.Fatal("nothing on disk must read as not present")
+	}
+	touch("m.gguf")
+	if modelFilesPresent(dir, m) {
+		t.Fatal("the model without its projector must read as not present")
+	}
+	touch("m-mmproj.gguf")
+	if !modelFilesPresent(dir, m) {
+		t.Fatal("model and projector on disk must read as present")
+	}
+}

@@ -109,6 +109,7 @@ func (b backendROCm) ContainerArgs(spec RunSpec) []string {
 	// --cache-reuse behind the seam. nil ⇒ byte-identical off path.
 	args = appendCodingModeArgs(args, spec.CodingMode)
 	args = appendSpeculationArgs(args, spec.Speculation)
+	args = appendProjectorArgs(args, spec.Projector)
 	return args
 }
 

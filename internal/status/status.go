@@ -198,6 +198,11 @@ type Report struct {
 	// config renders speculation off and the operator asked what is running.
 	Speculation string `json:"speculation"`
 
+	// Vision is the persisted vision decision of the inference unit: whether an
+	// image attached in chat will be looked at. It reads the config rather than the
+	// running container because the config is what the unit was rendered from.
+	Vision bool `json:"vision"`
+
 	// SchemaVersion is the Report contract self-version. It MUST stay the
 	// LAST tagged field (append-only; new tagged fields go above it, the unexported
 	// err stays after it and never serializes).
@@ -230,7 +235,10 @@ type Report struct {
 // any additive change to the Report --json contract.
 // Version 7 (ADR-0006) tail-appends the speculation mode ABOVE SchemaVersion; an
 // unset config reports "off", so the v7 output differs from v6 by that one key.
-const reportSchemaVersion = 7
+// Version 8 tail-appends the vision flag ABOVE SchemaVersion; a stack that never
+// resolved a projector reports false, so the v8 output differs from v7 by that one
+// key.
+const reportSchemaVersion = 8
 
 // SchemaVersion exposes the Report contract's own version to downstream readers
 // (the dashboard serves this same document), so a consumer binds one symbol rather
@@ -617,6 +625,7 @@ func Run(d Deps) Report {
 	// (typed-Unknown, never a fabricated identity).
 	report.Model = cfg.Model
 	report.Speculation = cmp.Or(cfg.Speculation, config.SpeculationOff)
+	report.Vision = cfg.Vision
 	report.SchemaVersion = reportSchemaVersion
 	// Live tok/s: typed-optional via the seam — nil on idle/unavailable so it
 	// serializes as omitted, never a fabricated 0. Guard a nil seam defensively.

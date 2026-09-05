@@ -71,6 +71,24 @@ type ValidateInput struct {
 	// sets it from BackendFor(cfg.Backend).ResidencyProof(); the zero value yields an
 	// all-empty descriptor (no device match) — callers MUST supply it.
 	Markers ResidencyMarkers
+
+	// Vision is the persisted vision decision (cfg.Vision). When it is on and the
+	// entry ships a projector, the run is started WITH that projector, exactly as
+	// the rendered unit is, and its load line is expected in the log. Off, or an
+	// entry without a projector, leaves every verdict byte-identical: the projector
+	// scrape is not run at all, so a text-only stack is unaffected.
+	Vision bool
+}
+
+// projectorFile is the projector the run carries: the entry's first projector
+// shard when vision is on, else "". It is the ONE place the validate run and
+// the projector scrape agree on whether a projector is in play, so the verb can
+// never start a text-only run and then warn that the projector line is absent.
+func projectorFile(in ValidateInput) string {
+	if !in.Vision || in.Model.Projector == nil || len(in.Model.Projector.Shards) == 0 {
+		return ""
+	}
+	return in.Model.Projector.Shards[0].Filename
 }
 
 // Validate runs the full offload-asserting sequence and folds every signal into a
@@ -146,7 +164,27 @@ func Validate(ctx context.Context, in ValidateInput) Verdict {
 	ceiling := runCeiling(ctx, in)
 
 	// (8) Fold all signals into the final verdict.
-	return foldVerdict(offload, chat, ceiling)
+	v := foldVerdict(offload, chat, ceiling)
+	if projectorFile(in) != "" {
+		v = foldProjector(v, scrapeProjectorLog(stderr, in.Markers))
+	}
+	return v
+}
+
+// foldProjector folds the projector finding into an already-decided verdict. It
+// only ever softens: a FAIL is left alone (the model's residency is the finding
+// that matters), and a projector WARN takes a PASS down to WARN so a run that was
+// asked for vision and could not prove it is never reported clean.
+func foldProjector(v Verdict, p OffloadResult) Verdict {
+	if v.Status == StatusFail {
+		return v
+	}
+	v.Detail = fmt.Sprintf("%s; projector: %s", v.Detail, p.Detail)
+	if p.Status == StatusWarn && v.Status == StatusPass {
+		v.Status = StatusWarn
+		v.Remediation = "vision is on but the projector's load line was not proven on the GPU — check the projector file is present in the models dir and re-run"
+	}
+	return v
 }
 
 // spec builds the primary RunSpec from the input.
@@ -156,6 +194,7 @@ func spec(in ValidateInput) RunSpec {
 		ModelFile:     primaryModelFile(in.Model),
 		ModelsDir:     in.ModelsDir,
 		ContextLen:    in.ContextLen,
+		Projector:     projectorFile(in),
 	}
 }
 

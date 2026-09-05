@@ -127,6 +127,11 @@ type RunSpec struct {
 	// nil renders byte-identical args, which is what keeps every unit rendered
 	// before this field existed unchanged on upgrade.
 	Speculation *SpeculationSpec
+	// Projector is the OPTIONAL vision projector: the BARE GGUF filename inside the
+	// bound models dir, catalog-resolved like ModelFile and never a host path.
+	// "" renders byte-identical args, which is what keeps every unit rendered before
+	// this field existed unchanged on upgrade.
+	Projector string
 }
 
 // SpeculationSpec is the OPTIONAL speculation render delta carried on RunSpec.

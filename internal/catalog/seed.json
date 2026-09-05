@@ -1,6 +1,6 @@
 {
   "schema_version": 4,
-  "catalog_version": "2026.09.1",
+  "catalog_version": "2026.09.2",
   "models": [
     {
       "id": "qwen2.5-0.5b",
@@ -91,6 +91,18 @@
       "bootstrap": false,
       "ngram_safe": true,
       "ngram_provenance": "gfx1151, kyuz0 rocm-7.2.4 image (llama.cpp b9536), 2026-09-05: greedy 256-token probe; none tg 49-50; ngram-mod tg 49-50 cold, 62-140 warm with 81-207 of ~245 drafts accepted; ngram-simple, ngram-map-k and ngram-cache measured 44-50 and rejected",
+      "projector": {
+        "shards": [
+          {
+            "url": "https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF/resolve/a483e9e6cbd595906af30beda3187c2663a1118c/mmproj-F16.gguf",
+            "filename": "Qwen3.6-35B-A3B-mmproj-F16.gguf",
+            "sha256": "8971ee4f331ff0a4c609374f32984b3d4e6dc086c0aa35f1d637fad1829e887f",
+            "size_bytes": 899283680
+          }
+        ],
+        "weight_bytes": 1185583104,
+        "provenance": "gfx1151, kyuz0 rocm-7.2.4 image (llama.cpp b9536), 2026-09-05: clip_ctx reported CLIP using ROCm0 backend and a red-circle/blue-square PNG was described correctly through /v1/chat/completions; server worst-case estimate 1130.63 MiB"
+      },
       "shards": [
         {
           "url": "https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF/resolve/main/Qwen3.6-35B-A3B-UD-Q4_K_M.gguf",

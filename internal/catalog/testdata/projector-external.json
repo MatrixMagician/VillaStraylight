@@ -1,0 +1,66 @@
+{
+  "schema_version": 4,
+  "catalog_version": "test.external.projector",
+  "models": [
+    {
+      "id": "external-vision-model",
+      "display_name": "External Vision Model (projector sidecar fixture)",
+      "quant": "Q4_K_M",
+      "weight_bytes": 5000000000,
+      "n_layers": 32,
+      "n_kv_heads": 8,
+      "head_dim": 128,
+      "kv_bytes_per_elem": 2,
+      "default_ctx": 16384,
+      "min_envelope_bytes": 7000000000,
+      "tier_gb": 16,
+      "unified_memory_safe": true,
+      "backend_default": "rocm",
+      "bootstrap": false,
+      "projector": {
+        "shards": [
+          {
+            "url": "https://huggingface.co/example/External-GGUF/resolve/0123456789abcdef0123456789abcdef01234567/mmproj-F16.gguf",
+            "filename": "External-Vision-mmproj-F16.gguf",
+            "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            "size_bytes": 800000000
+          }
+        ],
+        "weight_bytes": 1100000000,
+        "provenance": "gfx1151, test image, 2026-09-05: clip_ctx reported CLIP using ROCm0 backend"
+      },
+      "shards": [
+        {
+          "url": "https://huggingface.co/example/External-GGUF/resolve/0123456789abcdef0123456789abcdef01234567/external-q4_k_m.gguf",
+          "filename": "external-q4_k_m.gguf",
+          "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+          "size_bytes": 5000000000
+        }
+      ]
+    },
+    {
+      "id": "external-textonly-model",
+      "display_name": "External Text-only Model (no projector key at all)",
+      "quant": "Q4_K_M",
+      "weight_bytes": 5000000000,
+      "n_layers": 32,
+      "n_kv_heads": 8,
+      "head_dim": 128,
+      "kv_bytes_per_elem": 2,
+      "default_ctx": 16384,
+      "min_envelope_bytes": 7000000000,
+      "tier_gb": 16,
+      "unified_memory_safe": true,
+      "backend_default": "rocm",
+      "bootstrap": false,
+      "shards": [
+        {
+          "url": "https://huggingface.co/example/External-GGUF/resolve/0123456789abcdef0123456789abcdef01234567/external-b-q4_k_m.gguf",
+          "filename": "external-b-q4_k_m.gguf",
+          "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+          "size_bytes": 5000000000
+        }
+      ]
+    }
+  ]
+}
