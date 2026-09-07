@@ -945,16 +945,16 @@ func TestAgentCleanDriftPasses(t *testing.T) {
 	}
 }
 
-// --- issue #133: CAT-01 catalog-geometry fold (reportSchemaVersion 4→5) ---
+// --- issue #141: the websafe-binary finding (reportSchemaVersion 5→6) ---
 
-// TestDoctorSchemaVersionIsFive: doctor's OWN --json contract self-version was bumped
-// append-only 4→5 when the CAT-01 catalog-geometry fold was added. The const is the
+// TestDoctorSchemaVersionIsSix: doctor's OWN --json contract self-version was bumped
+// append-only 5→6 when the websafe-binary finding was added. The const is the
 // single source of truth — Aggregate stamps it on every Report. INDEPENDENT of status's
 // reportSchemaVersion (5).
-func TestDoctorSchemaVersionIsFive(t *testing.T) {
+func TestDoctorSchemaVersionIsSix(t *testing.T) {
 	r := Aggregate(newDoctorDeps())
-	if r.SchemaVersion != 5 {
-		t.Fatalf("Report.SchemaVersion = %d, want 5 (append-only bump for the CAT-01 fold)", r.SchemaVersion)
+	if r.SchemaVersion != 6 {
+		t.Fatalf("Report.SchemaVersion = %d, want 6 (append-only bump for the websafe-binary finding)", r.SchemaVersion)
 	}
 }
 
@@ -1117,4 +1117,69 @@ func TestDriftDetailNamesChangedUnits(t *testing.T) {
 	if f.Detail != want {
 		t.Errorf("drift Detail = %q, want %q", f.Detail, want)
 	}
+}
+
+// TestWebsafeBinaryFinding: a moved binary is its OWN WARN, not drift (issue #141).
+// The seam reports what villa-websafe mounts against what is running: equal paths PASS,
+// different paths WARN with remediation, an absent unit (ok==false) and a nil seam both
+// emit NOTHING rather than a PASS-by-default.
+func TestWebsafeBinaryFinding(t *testing.T) {
+	t.Run("same-path-passes", func(t *testing.T) {
+		d := newDoctorDeps()
+		d.WebsafeBinary = func() (string, string, bool) {
+			return "/home/villa/.local/bin/villa", "/home/villa/.local/bin/villa", true
+		}
+		r := Aggregate(d)
+		f, ok := findingByID(r, "websafe-binary")
+		if !ok {
+			t.Fatal("no websafe-binary finding")
+		}
+		if f.Status != statusPass || f.Tier != tierWarn {
+			t.Errorf("(status %s, tier %s), want (PASS, WARN)", f.Status, f.Tier)
+		}
+		if f.Detail != "villa-websafe mounts the running villa binary (/home/villa/.local/bin/villa)" {
+			t.Errorf("Detail = %q", f.Detail)
+		}
+		if base := Aggregate(newDoctorDeps()).Overall; r.Overall != base {
+			t.Errorf("Overall = %q, want %q (a PASS websafe-binary finding must not raise the verdict)", r.Overall, base)
+		}
+	})
+
+	t.Run("moved-binary-warns", func(t *testing.T) {
+		d := newDoctorDeps()
+		d.WebsafeBinary = func() (string, string, bool) {
+			return "/home/villa/.local/bin/villa", "/tmp/villa-elsewhere", true
+		}
+		r := Aggregate(d)
+		f, ok := findingByID(r, "websafe-binary")
+		if !ok {
+			t.Fatal("no websafe-binary finding")
+		}
+		if f.Status != statusWarn || f.Tier != tierWarn {
+			t.Errorf("(status %s, tier %s), want (WARN, WARN)", f.Status, f.Tier)
+		}
+		if f.Detail != "the running villa (/tmp/villa-elsewhere) is not the binary villa-websafe mounts (/home/villa/.local/bin/villa)" {
+			t.Errorf("Detail = %q", f.Detail)
+		}
+		if f.Remediation == "" {
+			t.Error("a WARN websafe-binary finding must carry remediation")
+		}
+		if drift, _ := findingByID(r, "drift"); drift.Status != statusPass {
+			t.Errorf("drift = %s, want PASS (a moved binary is its own finding, not drift)", drift.Status)
+		}
+	})
+
+	t.Run("unit-absent-emits-nothing", func(t *testing.T) {
+		d := newDoctorDeps()
+		d.WebsafeBinary = func() (string, string, bool) { return "", "/tmp/villa-elsewhere", false }
+		if _, ok := findingByID(Aggregate(d), "websafe-binary"); ok {
+			t.Error("ok==false must emit no websafe-binary finding")
+		}
+	})
+
+	t.Run("nil-seam-emits-nothing", func(t *testing.T) {
+		if _, ok := findingByID(Aggregate(newDoctorDeps()), "websafe-binary"); ok {
+			t.Error("a nil WebsafeBinary seam must emit no websafe-binary finding")
+		}
+	})
 }
