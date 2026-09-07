@@ -129,6 +129,25 @@
       "bootstrap": false,
       "ngram_safe": true,
       "ngram_provenance": "gfx1151, kyuz0 rocm-7.2.4 image (llama.cpp b9536), 2026-09-07: greedy 256-token probe at ctx 16384; none tg 10.8-11.2; ngram-mod tg 11.1 cold, 21.3-44.4 warm with 138-204 of 241-256 drafts accepted",
+      "draft": {
+        "shards": [
+          {
+            "url": "https://huggingface.co/unsloth/Qwen3.8-27B-GGUF/resolve/4ca720788d1e01f1bff70c033e0d0028fd02e502/MTP/mtp-Qwen3.8-27B-Q4_0.gguf",
+            "filename": "mtp-Qwen3.8-27B-Q4_0.gguf",
+            "sha256": "50d9ce5a6da381bbcfb31061cf73df94a90e6faf8efeddee379a9cb8f1501c6e",
+            "size_bytes": 1369590656
+          }
+        ],
+        "weight_bytes": 998996378,
+        "provenance": "gfx1151, kyuz0 rocm-7.2.4 image (llama.cpp b9536), 2026-09-07: greedy 256-token probe at ctx 16384; none tg 11.2; draft-mtp tg 20.3 cold and warm with 173 of 245 drafts accepted; ngram-mod,draft-mtp tg 21.6 cold, 34-78 warm; draft loaded as ROCm0 model buffer 774.71 MiB; server worst-case estimate 952.72 MiB",
+        "spec_type": "draft-mtp",
+        "n_max": 3,
+        "p_min": 0,
+        "n_layers": 1,
+        "n_kv_heads": 4,
+        "head_dim": 256,
+        "kv_bytes_per_elem": 2
+      },
       "shards": [
         {
           "url": "https://huggingface.co/unsloth/Qwen3.8-27B-GGUF/resolve/4ca720788d1e01f1bff70c033e0d0028fd02e502/Qwen3.8-27B-UD-Q4_K_XL.gguf",

@@ -140,23 +140,42 @@ func validateNgramEntries(c Catalog) error {
 }
 
 // validateSidecars is the fail-closed guard on the same trust boundary for a
-// declared sidecar. Each of the three refusals is a promise villa could not keep:
-// no shards means nothing to pull, a zero weight_bytes means the fit reserves
-// nothing for a projector the server will still allocate for, and an empty
-// provenance means nobody exercised it on this hardware.
+// declared sidecar (projector or draft). Each refusal is a promise villa could
+// not keep: no shards means nothing to pull, a zero weight_bytes means the fit
+// reserves nothing for a sidecar the server will still allocate for, and an
+// empty provenance means nobody exercised it on this hardware. The draft branch
+// additionally guards the fields a projector does not carry: spec_type must be
+// one ADR-0009 measured, and the sampling/KV-fit knobs must be usable.
 func validateSidecars(c Catalog) error {
 	for _, m := range c.Models {
-		p := m.Projector
-		if p == nil {
-			continue
+		if p := m.Projector; p != nil {
+			switch {
+			case len(p.Shards) == 0:
+				return fmt.Errorf("entry %q: projector declares no shards to download", m.ID)
+			case p.WeightBytes == 0:
+				return fmt.Errorf("entry %q: projector weight_bytes is 0 (the fit would reserve nothing for it)", m.ID)
+			case p.Provenance == "":
+				return fmt.Errorf("entry %q: projector has no provenance (the on-hardware exercise that licensed it)", m.ID)
+			}
 		}
-		switch {
-		case len(p.Shards) == 0:
-			return fmt.Errorf("entry %q: projector declares no shards to download", m.ID)
-		case p.WeightBytes == 0:
-			return fmt.Errorf("entry %q: projector weight_bytes is 0 (the fit would reserve nothing for it)", m.ID)
-		case p.Provenance == "":
-			return fmt.Errorf("entry %q: projector has no provenance (the on-hardware exercise that licensed it)", m.ID)
+		if d := m.Draft; d != nil {
+			switch {
+			case len(d.Shards) == 0:
+				return fmt.Errorf("entry %q: draft declares no shards to download", m.ID)
+			case d.WeightBytes == 0:
+				return fmt.Errorf("entry %q: draft weight_bytes is 0 (the fit would reserve nothing for it)", m.ID)
+			case d.Provenance == "":
+				return fmt.Errorf("entry %q: draft has no provenance (the on-hardware exercise that licensed it)", m.ID)
+			case !draftSpecTypes[d.SpecType]:
+				return fmt.Errorf("entry %q: draft spec_type %q is not a known type (draft-simple, draft-mtp)", m.ID, d.SpecType)
+			case d.NMax <= 0:
+				return fmt.Errorf("entry %q: draft n_max %d out of range (must be > 0)", m.ID, d.NMax)
+			case d.PMin < 0 || d.PMin > 1:
+				return fmt.Errorf("entry %q: draft p_min %g out of range [0, 1]", m.ID, d.PMin)
+			case d.NLayers <= 0 || d.NKVHeads <= 0 || d.HeadDim <= 0 || d.KVBytesPerElem <= 0:
+				return fmt.Errorf("entry %q: draft missing/invalid KV dimension (n_layers=%d n_kv_heads=%d head_dim=%d kv_bytes_per_elem=%d — all must be > 0)",
+					m.ID, d.NLayers, d.NKVHeads, d.HeadDim, d.KVBytesPerElem)
+			}
 		}
 	}
 	return nil

@@ -127,6 +127,12 @@ type Model struct {
 	// config.Vision decision is what gates the render, not this field alone.
 	Projector *Sidecar `json:"projector,omitempty"`
 
+	// Draft is the OPTIONAL speculative-decoding draft sidecar (ADR-0009). Absent
+	// means the entry has no measured draft; presence alone does not turn
+	// speculation on — ResolveSpeculation still decides fit, the same way
+	// Projector's presence does not by itself turn vision on.
+	Draft *Draft `json:"draft,omitempty"`
+
 	// Shards is the per-shard download manifest (schema v2). A
 	// single-file model is the degenerate one-element case; large quants split
 	// into the HuggingFace `-00001-of-0000N.gguf` convention carry one Shard per
@@ -159,16 +165,53 @@ type Sidecar struct {
 	Provenance  string  `json:"provenance"`
 }
 
-// AllShards is the full download manifest for m: the model's own shards followed
-// by its sidecar's. `villa model pull` iterates this, so a model that claims
-// vision can never be left on disk without its projector.
+// AllShards is the full download manifest for m: the model's own shards, then
+// its projector's, then its draft's. `villa model pull` iterates this, so a
+// model that claims vision or a draft can never be left on disk without it.
 func (m Model) AllShards() []Shard {
-	if m.Projector == nil || len(m.Projector.Shards) == 0 {
-		return m.Shards
+	all := append([]Shard{}, m.Shards...)
+	if m.Projector != nil {
+		all = append(all, m.Projector.Shards...)
 	}
-	all := make([]Shard, 0, len(m.Shards)+len(m.Projector.Shards))
-	all = append(all, m.Shards...)
-	return append(all, m.Projector.Shards...)
+	if m.Draft != nil {
+		all = append(all, m.Draft.Shards...)
+	}
+	return all
+}
+
+// Draft is the OPTIONAL speculative-decoding draft sidecar (ADR-0009): a
+// companion GGUF pulled and verified with the model and rendered as
+// llama-server's draft. It embeds Sidecar for the download/fit-reservation
+// fields shared with the projector, and adds what a draft needs and a
+// projector does not: the spec type, the sampling knobs, and its own KV-fit
+// dimensions (the draft's, not the target's).
+type Draft struct {
+	Sidecar
+
+	// SpecType is llama-server's --spec-type value: "draft-simple" or
+	// "draft-mtp". Fail-closed allowlist — draftSpecTypes names the two
+	// measured on-hardware (ADR-0009); anything else refuses the catalog.
+	SpecType string `json:"spec_type"`
+	// NMax is --spec-draft-n-max.
+	NMax int `json:"n_max"`
+	// PMin is --spec-draft-p-min.
+	PMin float64 `json:"p_min"`
+
+	// NLayers is the draft's own KV-bearing layer count (an MTP head is 1),
+	// NOT the target model's — Draft sizes its own KV reservation.
+	NLayers        int `json:"n_layers"`
+	NKVHeads       int `json:"n_kv_heads"`
+	HeadDim        int `json:"head_dim"`
+	KVBytesPerElem int `json:"kv_bytes_per_elem"`
+}
+
+// draftSpecTypes is the fail-closed allowlist of spec_type values ADR-0009
+// measured: draft-simple (a small separate model) and draft-mtp (the target's
+// own multi-token-prediction head, shipped as a separate file). Anything else
+// refuses the catalog in validateSidecars.
+var draftSpecTypes = map[string]bool{
+	"draft-simple": true,
+	"draft-mtp":    true,
 }
 
 // AgentSampling is the qualified sampling preset for a coder entry (schema v3,
