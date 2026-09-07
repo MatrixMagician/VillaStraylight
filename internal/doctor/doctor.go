@@ -77,7 +77,12 @@ const (
 //     finding type: the CheckResults arrive through the unchanged findingFromCheck
 //     path. Bumped on the same rule v4 used — the fold is additive data every doctor
 //     Report now carries.
-const reportSchemaVersion = 5
+//   - v6: the websafe-binary finding (issue #141) — a NEW doctor-owned finding type,
+//     unlike v4/v5. The running villa binary's path is host state, not config state, so
+//     a binary at a path other than the one villa-websafe mounts gets its own WARN
+//     instead of folding into config-vs-disk drift. Web-search-OFF output is
+//     byte-identical except this bump (the nil seam emits no finding).
+const reportSchemaVersion = 6
 
 // The three typed-Unknown ROCm host-prep check IDs that a PROVEN ROCm residency
 // supersedes (down-ranks, never deletes). They INTENTIONALLY duplicate the preflight
@@ -229,6 +234,17 @@ type Deps struct {
 	// villa-searxng/villa-websafe Services rows (Plan 03) which flow through the existing
 	// healthFinding loop — no new finding type is added here (composition, RESEARCH A1).
 	SearchResidencyUnderLoad func() inference.Verdict
+	// WebsafeBinary reports the host villa path the ON-DISK villa-websafe unit
+	// bind-mounts, the path of the RUNNING villa binary, and whether that unit is on disk
+	// at all. The cmd tier binds it (orchestrate.MountedVillaPath over the unit file plus
+	// os.Executable) ONLY when web search is on, mirroring the other web-search seams.
+	// NIL-SAFE: a nil seam, and an ok==false answer (the unit is not installed), both emit
+	// NO finding rather than a PASS-by-default.
+	//
+	// This is a doctor-OWNED finding, not a composed one: a moved binary is a fact about
+	// this host worth its own line, and it is NOT the same fault as a hand-edited unit
+	// (issue #141).
+	WebsafeBinary func() (mounted, running string, ok bool)
 }
 
 // changedUnitNames joins the drifted unit names in Plan order for the drift Detail
@@ -239,6 +255,27 @@ func changedUnitNames(changed []orchestrate.Unit) string {
 		names = append(names, u.Name)
 	}
 	return strings.Join(names, ", ")
+}
+
+// websafeBinaryFinding compares the villa binary villa-websafe mounts against the one
+// running doctor. They differ whenever villa was moved, copied, or rebuilt somewhere else,
+// which the container will keep serving from the OLD path until install rewrites the unit.
+// WARN, never BLOCK: the served stack is intact, it is just not this binary (issue #141).
+func websafeBinaryFinding(mounted, running string) Finding {
+	f := Finding{
+		ID:         "websafe-binary",
+		Name:       "websafe binary",
+		Tier:       tierWarn,
+		Status:     statusPass,
+		Detail:     "villa-websafe mounts the running villa binary (" + mounted + ")",
+		Provenance: "villa-websafe.container Volume= vs os.Executable",
+	}
+	if mounted != running {
+		f.Status = statusWarn
+		f.Detail = "the running villa (" + running + ") is not the binary villa-websafe mounts (" + mounted + ")"
+		f.Remediation = "re-run `villa install` from the binary you intend to serve, or run villa from " + mounted
+	}
+	return f
 }
 
 // statusOrder maps the doctor status vocabulary to a worst-wins rank (PASS<WARN<FAIL).
@@ -440,6 +477,15 @@ func Aggregate(d Deps) Report {
 			Detail:     "on-disk units match the rendered-from-config units",
 			Provenance: "orchestrate.Reconcile (empty Plan.Changed)",
 		})
+	}
+
+	// 3a. MOVED BINARY — the running villa's path is host state, not config state, so it
+	// gets its own line rather than folding into the drift verdict above (issue #141). A
+	// nil seam (web search off) or an uninstalled unit emits nothing.
+	if d.WebsafeBinary != nil {
+		if mounted, running, ok := d.WebsafeBinary(); ok {
+			findings = append(findings, websafeBinaryFinding(mounted, running))
+		}
 	}
 
 	// 4. WORST-WINS FOLD — any FAIL → "FAIL"; else any WARN → "WARN"; else "PASS".

@@ -376,7 +376,12 @@ first: the table tells you which check failed and prints the fix.
   ```
   It reports host conditions, per-service health, the GPU-offload proof, and
   config-vs-disk drift (a unit on disk that no longer matches `config.toml` is
-  usually a hand-edit, which `villa up` will overwrite on the next reconcile).
+  usually a hand-edit, which `villa up` will overwrite on the next reconcile;
+  the finding names the units that differ).
+  With web search on it also reports `websafe-binary`: a WARN when the villa you
+  are running is not the binary `villa-websafe` bind-mounts, which happens after
+  a rebuild somewhere else or a move. The container keeps serving the old path
+  until `villa install` rewrites the unit.
   It also reports one `CAT-01` finding per model on this host, comparing the
   catalog's fit dimensions against the GGUF header of the file they describe; a
   FAIL there means villa's own catalog entry is wrong, not your install
