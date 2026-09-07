@@ -424,6 +424,47 @@ func TestMemoryOffNoMemoryFindings(t *testing.T) {
 	// every pre-existing test in this file passing unchanged.
 }
 
+// TestCatalogGeometryNilSeamEmitsNothing: with the CatalogGeometry seam nil (the
+// zero-value default), Aggregate emits no CAT-01 finding — a doctor that cannot
+// read the catalog must not fabricate a verdict about it.
+func TestCatalogGeometryNilSeamEmitsNothing(t *testing.T) {
+	if r := Aggregate(newDoctorDeps()); hasFinding(r, "CAT-01") {
+		t.Error("a nil CatalogGeometry seam emitted a CAT-01 finding")
+	}
+}
+
+// TestCatalogGeometryFoldedFailRaisesOverall: a CAT-01 FAIL from the seam folds
+// through findingFromCheck like every other CheckResult and ranks worst-wins, so a
+// catalog entry that no longer describes its file blocks a clean doctor verdict.
+func TestCatalogGeometryFoldedFailRaisesOverall(t *testing.T) {
+	d := rocmDoctorDeps()
+	d.CatalogGeometry = func() []preflight.CheckResult {
+		return []preflight.CheckResult{
+			{ID: "CAT-01", Name: "catalog geometry: a", Tier: preflight.TierBlock,
+				Status: preflight.StatusPass, Detail: "agrees", Provenance: "test"},
+			{ID: "CAT-01", Name: "catalog geometry: b", Tier: preflight.TierBlock,
+				Status: preflight.StatusFail, Detail: "catalog n_layers=48; header kv_layers=10",
+				Remediation: "fix the b entry", Provenance: "test"},
+		}
+	}
+	r := Aggregate(d)
+	if r.Overall != "FAIL" {
+		t.Fatalf("Overall = %q, want FAIL (a confident CAT-01 FAIL must rank worst-wins)", r.Overall)
+	}
+	n := 0
+	for _, f := range r.Findings {
+		if f.ID == "CAT-01" {
+			n++
+			if f.Status == "FAIL" && f.Remediation == "" {
+				t.Error("a CAT-01 FAIL folded with an empty Remediation")
+			}
+		}
+	}
+	if n != 2 {
+		t.Errorf("got %d CAT-01 findings, want 2 (one per checked entry)", n)
+	}
+}
+
 // TestMemoryChecksFoldedFailRaisesOverall: a non-nil RunMemoryChecks seam has its
 // CheckResults folded as findings via findingFromCheck and ranked worst-wins like
 // every other check — a confident MEM-PRE-headroom FAIL raises Overall to FAIL.
