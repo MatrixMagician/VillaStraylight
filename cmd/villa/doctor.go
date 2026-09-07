@@ -88,6 +88,9 @@ func runDoctor(cmd *cobra.Command, _ []string, deps doctor.Deps) int {
 // CRITICAL (Pitfall 1 — the shipped preflight constants are AUTHORITATIVE, NOT the
 // inverted ROADMAP prose): a confident BLOCK-class FAIL → exitBlocked (=1); any WARN /
 // drift / typed-Unknown → exitWarn (=2); all healthy → exitPass (=0). Do NOT invert.
+//
+// The FAULT: trailer below is the human table's epilogue, not part of the JSON document
+// (issue #140): --json output must end at the document so a piped `jq` can parse it.
 func renderDoctor(w io.Writer, r doctor.Report, asJSON, withProvenance bool) int {
 	if asJSON {
 		enc := json.NewEncoder(w)
@@ -111,7 +114,9 @@ func renderDoctor(w io.Writer, r doctor.Report, asJSON, withProvenance bool) int
 				blockFails++
 			}
 		}
-		fmt.Fprintf(w, "\nFAULT: %d blocking finding(s) — the running install is not healthy. See the remediation(s) above.\n", blockFails)
+		if !asJSON {
+			fmt.Fprintf(w, "\nFAULT: %d blocking finding(s) — the running install is not healthy. See the remediation(s) above.\n", blockFails)
+		}
 		return exitBlocked
 	case "WARN":
 		return exitWarn
@@ -122,7 +127,9 @@ func renderDoctor(w io.Writer, r doctor.Report, asJSON, withProvenance bool) int
 		// Overall (a future Aggregate bug, a hand-built Report, a JSON-roundtripped
 		// fixture) can NEVER map to "healthy" — for a health verdict the only safe
 		// default is the blocking tier.
-		fmt.Fprintf(w, "\nFAULT: unrecognized overall verdict %q — treating the install as not healthy.\n", r.Overall)
+		if !asJSON {
+			fmt.Fprintf(w, "\nFAULT: unrecognized overall verdict %q — treating the install as not healthy.\n", r.Overall)
+		}
 		return exitBlocked
 	}
 }
