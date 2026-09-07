@@ -15,6 +15,7 @@ package main
 // core's inference.IsROCmFamily and resolved via inference.BackendFor.
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -28,12 +29,14 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/agent"
+	"github.com/MatrixMagician/VillaStraylight/internal/catalog"
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
 	"github.com/MatrixMagician/VillaStraylight/internal/doctor"
 	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 	"github.com/MatrixMagician/VillaStraylight/internal/memory"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
+	"github.com/MatrixMagician/VillaStraylight/internal/pathsafe"
 	"github.com/MatrixMagician/VillaStraylight/internal/preflight"
 	"github.com/MatrixMagician/VillaStraylight/internal/residency"
 	"github.com/MatrixMagician/VillaStraylight/internal/status"
@@ -277,9 +280,29 @@ func liveDoctorDeps(ctx context.Context) (doctor.Deps, error) {
 		searchEgress = liveSearchEgressProof()
 		searchResidency = liveSearchResidencyUnderLoad(ctx, cfg, sd)
 	}
+	// Catalog-geometry seam (CAT-01): bound UNCONDITIONALLY — the catalog is not an
+	// optional subsystem, and an entry that no longer describes its file is wrong on
+	// every host. It stays nil only when the catalog itself cannot be loaded, which
+	// is the core's no-finding case rather than a fabricated PASS. The open seam
+	// confines every filename to the models dir before opening it, because a shard
+	// filename from an external catalog is untrusted input.
+	var catalogGeometry func() []preflight.CheckResult
+	if cat, _, cerr := catalog.Load(cmp.Or(modelCatalogPath, cfg.CatalogPath)); cerr == nil {
+		dir := modelsDir()
+		catalogGeometry = func() []preflight.CheckResult {
+			return preflight.RunCatalogGeometry(cat, func(filename string) (io.ReadCloser, error) {
+				path := filepath.Join(dir, filename)
+				if perr := pathsafe.Inside(path, dir); perr != nil {
+					return nil, perr
+				}
+				return os.Open(path) //nolint:gosec // confined to the models dir immediately above
+			})
+		}
+	}
 	return doctor.Deps{
 		Probe:                    detect.Probe,
 		LoadConfig:               config.LoadVilla,
+		CatalogGeometry:          catalogGeometry,
 		StatusReport:             func() status.Report { return status.Run(*sd) },
 		Backend:                  cfg.Backend,
 		RunROCmImage:             rocmImageGate,
