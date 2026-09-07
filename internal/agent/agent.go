@@ -283,6 +283,10 @@ type Deps struct {
 	// env — syscall.Exec in the live wiring (fixed-arg, no shell). It is
 	// reached ONLY on a clean presence+drift check.
 	Launch func(env []string) error
+	// LaunchClaude execs a PATH-resolved binary (bin, from LookPath) with args and
+	// env — fixed-arg, no shell. Populated and used only by RunClaude; Run (Crush)
+	// never calls it.
+	LaunchClaude func(bin string, args, env []string) error
 }
 
 // Result is the typed outcome of the `villa code` flow (NOT an exit code) so the
@@ -323,4 +327,16 @@ type Result struct {
 	Warnings []Warning
 	// Err is a non-refusal failure (config load / render / write / hash).
 	Err error
+	// CodingModeOff is true when RunClaude refused because coding mode is off
+	// (Claude Code's tool calls need the --jinja template villa renders only in
+	// coding mode). Populated only by RunClaude — Run (Crush) only warns on this
+	// case, it never refuses.
+	CodingModeOff bool
+	// LaunchBin is the PATH-resolved claude binary RunClaude found. Populated only
+	// by RunClaude; Run (Crush) leaves it empty (it launches the explicit
+	// villa-owned binary via Launch, not LaunchBin/LaunchClaude).
+	LaunchBin string
+	// LaunchArgs are the extra args RunClaude forwards verbatim to LaunchClaude.
+	// Populated only by RunClaude; Run (Crush) ignores it.
+	LaunchArgs []string
 }

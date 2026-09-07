@@ -42,26 +42,88 @@ import (
 
 // newCode builds the `villa code` launcher verb. It is a sibling of `villa coding-mode`
 // (NOT a subcommand): `villa coding-mode enter|exit` flips the running stack; `villa
-// code` launches the strictly-local terminal coding agent (Crush) against the served
-// endpoint with the telemetry/autoupdate lockdown env. RunE returns the mapped exit
-// code via os.Exit (the runCode body returns the int so tests assert output+code).
+// code` launches a strictly-local terminal coding agent against the served endpoint —
+// Crush by default, or Claude Code with `--agent claude`. RunE returns the mapped exit
+// code via os.Exit (runCodeDispatch returns the int so tests assert output+code).
 func newCode() *cobra.Command {
-	return &cobra.Command{
-		Use:   "code",
-		Short: "Launch the strictly-local terminal coding agent (locked-down Crush)",
-		Long: "Launch the villa-owned Crush coding agent against the already-served local inference endpoint, " +
-			"with a belt-and-braces telemetry/autoupdate lockdown env (CRUSH_DISABLE_METRICS / DO_NOT_TRACK / " +
-			"CRUSH_DISABLE_PROVIDER_AUTO_UPDATE) applied before exec. It execs the EXPLICIT villa-owned binary " +
-			"(never a PATH lookup), renders the reference crush.json from your config.toml on first run, and " +
-			"surfaces a drifted binary or hand-edited crush.json with remediation (never silently auto-corrects). " +
-			"It NEVER flips coding mode — if coding mode is off it warns (pointing at `villa coding-mode enter`) " +
-			"but still launches against the current endpoint.",
-		Args: cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			code := runCode(cmd, liveAgentDeps())
+	var agentFlag string
+	cmd := &cobra.Command{
+		Use:   "code [-- args...]",
+		Short: "Launch a strictly-local terminal coding agent (Crush, or Claude Code via --agent claude)",
+		Long: "Launch a strictly-local terminal coding agent against the already-served local inference endpoint. " +
+			"By default it launches the villa-owned Crush agent, with a belt-and-braces telemetry/autoupdate " +
+			"lockdown env (CRUSH_DISABLE_METRICS / DO_NOT_TRACK / CRUSH_DISABLE_PROVIDER_AUTO_UPDATE) applied " +
+			"before exec. It execs the EXPLICIT villa-owned binary (never a PATH lookup), renders the reference " +
+			"crush.json from your config.toml on first run, and surfaces a drifted binary or hand-edited " +
+			"crush.json with remediation (never silently auto-corrects). It NEVER flips coding mode — if coding " +
+			"mode is off it warns (pointing at `villa coding-mode enter`) but still launches against the current " +
+			"endpoint.\n\n" +
+			"With `--agent claude`, it execs a PATH-resolved `claude` binary instead (villa never installs it — " +
+			"missing from PATH is a refusal naming the install docs), wired with ANTHROPIC_BASE_URL / " +
+			"ANTHROPIC_MODEL / ANTHROPIC_AUTH_TOKEN against the same served endpoint. Coding mode is a HARD gate " +
+			"for this target (refuses rather than warns): Claude Code's tool calls need the coder unit's --jinja " +
+			"tool-call template, which villa renders only in coding mode. Any trailing args are forwarded to " +
+			"`claude` verbatim; forwarding args is valid only with `--agent claude`.",
+		Args: cobra.ArbitraryArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			code := runCodeDispatch(cmd, args, agentFlag, liveAgentDeps())
 			os.Exit(code)
 			return nil
 		},
+	}
+	cmd.Flags().StringVar(&agentFlag, "agent", "crush", "coding agent to launch (crush|claude)")
+	return cmd
+}
+
+// runCodeDispatch parses --agent and routes to the Crush or Claude launch path. An
+// unrecognized --agent value refuses without touching any Deps seam. Extra args are
+// valid only for the Claude target (forwarded to `claude` verbatim); the Crush target
+// refuses rather than silently discarding them.
+func runCodeDispatch(cmd *cobra.Command, args []string, agentFlag string, d *agent.Deps) int {
+	target, err := agent.ParseTarget(agentFlag)
+	if err != nil {
+		fmt.Fprintf(cmd.ErrOrStderr(), "villa code: %v\n", err)
+		return exitBlocked
+	}
+	if target == agent.TargetClaude {
+		return runCodeClaude(cmd, d, args)
+	}
+	if len(args) > 0 {
+		fmt.Fprintln(cmd.ErrOrStderr(), "villa code: extra args are forwarded only with --agent claude")
+		return exitBlocked
+	}
+	return runCode(cmd, d)
+}
+
+// runCodeClaude delegates to agent.RunClaude and maps the typed Result to exit codes +
+// messages (the Claude-target twin of runCode). Coding-mode-off and binary-absent are
+// both refusals here (unlike Crush's coding-mode-off WARN), because Claude Code's tool
+// calls need the --jinja template coding mode renders.
+func runCodeClaude(cmd *cobra.Command, d *agent.Deps, args []string) int {
+	out := cmd.OutOrStdout()
+	errOut := cmd.ErrOrStderr()
+
+	res := agent.RunClaude(*d, args)
+
+	switch {
+	case res.CodingModeOff:
+		fmt.Fprintf(errOut, "villa code: refusing — %s\n", res.Reason)
+		return exitBlocked
+	case res.BinaryAbsent:
+		fmt.Fprintf(errOut, "villa code: refusing — %s\n", res.Reason)
+		return exitBlocked
+	case res.Err != nil:
+		fmt.Fprintf(errOut, "villa code: failed — %s: %v\n", res.Reason, res.Err)
+		return exitBlocked
+	case res.ReadyToLaunch:
+		if err := d.LaunchClaude(res.LaunchBin, res.LaunchArgs, res.LaunchEnv); err != nil {
+			fmt.Fprintf(errOut, "villa code: failed — could not exec claude: %v\n", err)
+			return exitBlocked
+		}
+		fmt.Fprintf(out, "villa code: launched Claude Code against the local endpoint\n")
+		return exitPass
+	default:
+		return exitPass
 	}
 }
 
@@ -181,6 +243,15 @@ func liveAgentDeps() *agent.Deps {
 		Launch: func(env []string) error {
 			bin := agentBinPath()
 			if err := syscall.Exec(bin, []string{filepath.Base(bin)}, env); err != nil {
+				return fmt.Errorf("villa code: exec %q: %w", bin, err)
+			}
+			return nil
+		},
+		// LaunchClaude execs a PATH-resolved binary (bin, from LookPath) — fixed-arg,
+		// no shell. On success the process image is replaced and this never returns; a
+		// returned error is a launch failure.
+		LaunchClaude: func(bin string, args, env []string) error {
+			if err := syscall.Exec(bin, append([]string{filepath.Base(bin)}, args...), env); err != nil {
 				return fmt.Errorf("villa code: exec %q: %w", bin, err)
 			}
 			return nil

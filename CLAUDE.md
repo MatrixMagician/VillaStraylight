@@ -59,7 +59,8 @@ Go 1.26+. Single module, single static binary built from `./cmd/villa`.
 - `cmd/villa/` — cobra CLI, one file per subcommand. The tree is assembled in one
   place, `newRoot` in `root.go`: detect, recommend, preflight, model, inference,
   install, up/down/restart/logs, config, status, doctor, verify, recall, dashboard,
-  websafe, backend, speculation, coding-mode, code, bench, backup, restore, uninstall.
+  websafe, backend, speculation, coding-mode, code (Crush, or Claude Code via
+  --agent claude), bench, backup, restore, uninstall.
   Host effects live behind injectable `live*Deps` seams (`grep -rn "func live" cmd/villa`).
 
 - `internal/` — `detect` (host probe → typed-Unknown HostProfile; AMD seam in `gpu_amd.go`),
