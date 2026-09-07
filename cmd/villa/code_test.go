@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -33,6 +35,15 @@ type codeRecorder struct {
 
 	writeCalls  [][]byte
 	launchCalls [][]string
+
+	launchClaudeCalls []claudeLaunchCall
+}
+
+// claudeLaunchCall records one LaunchClaude invocation.
+type claudeLaunchCall struct {
+	bin  string
+	args []string
+	env  []string
 }
 
 // deps builds a fake *agent.Deps from the recorder.
@@ -49,6 +60,10 @@ func (r *codeRecorder) deps() *agent.Deps {
 		HashBinary:  func() (string, bool, error) { return r.binSHA, r.binPresent, nil },
 		WriteConfig: func(b []byte) error { r.writeCalls = append(r.writeCalls, b); return nil },
 		Launch:      func(env []string) error { r.launchCalls = append(r.launchCalls, env); return nil },
+		LaunchClaude: func(bin string, args, env []string) error {
+			r.launchClaudeCalls = append(r.launchClaudeCalls, claudeLaunchCall{bin, args, env})
+			return nil
+		},
 	}
 }
 
@@ -215,8 +230,11 @@ func TestCodeCodingModeOffWarns(t *testing.T) {
 	}
 }
 
-// TestCodeRegistered — `villa code` is registered on the root tree as a NoArgs verb,
-// a sibling of `coding-mode` (not a subcommand).
+// TestCodeRegistered — `villa code` is registered on the root tree as an
+// ArbitraryArgs verb (extra args are valid ONLY when forwarded to Claude Code via
+// --agent claude; runCodeDispatch, not cobra's Args validator, rejects them for the
+// default Crush target — see TestCodeExtraArgsWithoutClaudeBlocked), a sibling of
+// `coding-mode` (not a subcommand).
 func TestCodeRegistered(t *testing.T) {
 	root := newRoot()
 	var found *cobra.Command
@@ -229,9 +247,126 @@ func TestCodeRegistered(t *testing.T) {
 		t.Fatalf("`villa code` is not registered on the root command")
 	}
 	if found.Args == nil {
-		t.Errorf("`villa code` must use cobra.NoArgs")
-	} else if err := found.Args(found, []string{"extra"}); err == nil {
-		t.Errorf("`villa code` accepted a positional arg; want NoArgs")
+		t.Errorf("`villa code` must set an Args validator")
+	} else if err := found.Args(found, []string{"extra"}); err != nil {
+		t.Errorf("`villa code` rejected a positional arg at the cobra.Args layer (%v); "+
+			"want cobra.ArbitraryArgs — extra-arg rejection for the Crush target now lives in runCodeDispatch", err)
+	}
+}
+
+// TestCodeAgentClaudeLaunches — `--agent claude` with coding mode on and `claude`
+// found on PATH calls LaunchClaude exactly once (never the Crush Launch), forwarding
+// the trailing args verbatim.
+func TestCodeAgentClaudeLaunches(t *testing.T) {
+	rec := &codeRecorder{
+		cfg:       config.VillaConfig{Model: "qwen3", CodingMode: true},
+		lookFound: map[string]bool{"claude": true},
+	}
+	cmd, _, _ := newCodeCmd()
+	args := []string{"--foo", "bar"}
+	code := runCodeDispatch(cmd, args, "claude", rec.deps())
+	if code != exitPass {
+		t.Fatalf("runCodeDispatch exit = %d, want %d", code, exitPass)
+	}
+	if len(rec.launchClaudeCalls) != 1 {
+		t.Fatalf("LaunchClaude called %d times; want 1", len(rec.launchClaudeCalls))
+	}
+	if len(rec.launchCalls) != 0 {
+		t.Errorf("Crush Launch called %d times on --agent claude; want 0", len(rec.launchCalls))
+	}
+	got := rec.launchClaudeCalls[0].args
+	if len(got) != len(args) {
+		t.Fatalf("LaunchClaude args = %v, want %v", got, args)
+	}
+	for i, a := range args {
+		if got[i] != a {
+			t.Errorf("LaunchClaude args[%d] = %q, want %q", i, got[i], a)
+		}
+	}
+}
+
+// TestCodeAgentClaudeCodingModeOffBlocks — `--agent claude` with coding mode off
+// refuses (exitBlocked), never calling LaunchClaude, and names the remediation.
+func TestCodeAgentClaudeCodingModeOffBlocks(t *testing.T) {
+	rec := &codeRecorder{cfg: config.VillaConfig{Model: "qwen3", CodingMode: false}}
+	cmd, _, errOut := newCodeCmd()
+	code := runCodeDispatch(cmd, nil, "claude", rec.deps())
+	if code != exitBlocked {
+		t.Fatalf("runCodeDispatch exit = %d, want %d", code, exitBlocked)
+	}
+	if len(rec.launchClaudeCalls) != 0 {
+		t.Errorf("LaunchClaude must NOT be called on coding-mode-off")
+	}
+	if !strings.Contains(errOut.String(), "villa coding-mode enter") {
+		t.Errorf("stderr %q does not point at `villa coding-mode enter`", errOut.String())
+	}
+}
+
+// TestCodeAgentBogusBlocks — an unrecognized --agent value exits blocked without
+// touching any Deps seam.
+func TestCodeAgentBogusBlocks(t *testing.T) {
+	rec := &codeRecorder{cfg: config.VillaConfig{Model: "qwen3", CodingMode: true}}
+	cmd, _, _ := newCodeCmd()
+	code := runCodeDispatch(cmd, nil, "bogus", rec.deps())
+	if code != exitBlocked {
+		t.Fatalf("runCodeDispatch exit = %d, want %d", code, exitBlocked)
+	}
+	if len(rec.launchCalls) != 0 || len(rec.launchClaudeCalls) != 0 {
+		t.Errorf("no launch seam should be called on an unknown --agent value")
+	}
+}
+
+// TestCodeExtraArgsWithoutClaudeBlocked — `villa code extra` (the Crush target, the
+// default) refuses with a message pointing at --agent claude, never calling the
+// Crush Launch.
+func TestCodeExtraArgsWithoutClaudeBlocked(t *testing.T) {
+	rec := &codeRecorder{cfg: config.VillaConfig{Model: "qwen3", CodingMode: true}}
+	cmd, _, errOut := newCodeCmd()
+	code := runCodeDispatch(cmd, []string{"extra"}, "", rec.deps())
+	if code != exitBlocked {
+		t.Fatalf("runCodeDispatch exit = %d, want %d", code, exitBlocked)
+	}
+	if len(rec.launchCalls) != 0 {
+		t.Errorf("Crush Launch must NOT be called when extra args are given without --agent claude")
+	}
+	if !strings.Contains(errOut.String(), "--agent claude") {
+		t.Errorf("stderr %q does not point at --agent claude", errOut.String())
+	}
+}
+
+// TestClaudeBaseURLMatchesInferenceServerPort is the Claude-target twin of
+// TestCrushProviderPortMatchesInferenceServerPort: it ties the ANTHROPIC_BASE_URL
+// RunClaude builds to inference.ServerPort(), the same cross-seam drift guard
+// applied to the second launch target.
+func TestClaudeBaseURLMatchesInferenceServerPort(t *testing.T) {
+	rec := &codeRecorder{
+		cfg:       config.VillaConfig{Model: "qwen3", CodingMode: true},
+		lookFound: map[string]bool{"claude": true},
+	}
+	cmd, _, _ := newCodeCmd()
+	code := runCodeDispatch(cmd, nil, "claude", rec.deps())
+	if code != exitPass {
+		t.Fatalf("runCodeDispatch exit = %d, want %d", code, exitPass)
+	}
+	if len(rec.launchClaudeCalls) != 1 {
+		t.Fatalf("LaunchClaude called %d times; want 1", len(rec.launchClaudeCalls))
+	}
+	var baseURL string
+	for _, e := range rec.launchClaudeCalls[0].env {
+		if strings.HasPrefix(e, "ANTHROPIC_BASE_URL=") {
+			baseURL = strings.TrimPrefix(e, "ANTHROPIC_BASE_URL=")
+		}
+	}
+	if baseURL == "" {
+		t.Fatalf("launch env does not carry ANTHROPIC_BASE_URL")
+	}
+	u, err := url.Parse(baseURL)
+	if err != nil {
+		t.Fatalf("parse ANTHROPIC_BASE_URL %q: %v", baseURL, err)
+	}
+	want := strconv.Itoa(inference.ServerPort())
+	if u.Port() != want {
+		t.Errorf("ANTHROPIC_BASE_URL %q has port %q, want %q (inference.ServerPort())", baseURL, u.Port(), want)
 	}
 }
 
