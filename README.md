@@ -193,6 +193,8 @@ villa install --coding-agent          # optional addon: pin + SHA-256-verify the
 villa coding-mode enter               # transactionally swap the running stack into a tool-calling coding mode
 villa coding-mode exit                # restore the chat model (explicit verb — coding mode never auto-flips)
 villa code                            # launch the locked-down Crush agent (telemetry/autoupdate killed) over loopback
+villa code --agent claude             # launch Claude Code against the same loopback endpoint instead (needs coding
+                                      # mode on and `claude` already on PATH — villa never installs it)
 villa verify agent                    # negative-control-first proof of zero outbound + no silent cloud fallback
 ```
 
