@@ -24,16 +24,30 @@ import (
 // the fit re-validation — exactly the silent-OOM guard this math exists to
 // provide. A saturated KV can never compare ≤ envelope, so Fits stays false.
 func kvCacheBytes(m catalog.Model, ctx int) uint64 {
+	return kvBytesForDims(m.NLayers, m.NKVHeads, m.HeadDim, ctx, m.KVBytesPerElem)
+}
+
+// draftKVCacheBytes computes the KV-cache size for a draft sidecar at ctx, using
+// the DRAFT's own dimensions (an MTP head is typically NLayers:1) — never the
+// target model's. Same math, same saturation discipline as kvCacheBytes.
+func draftKVCacheBytes(d catalog.Draft, ctx int) uint64 {
+	return kvBytesForDims(d.NLayers, d.NKVHeads, d.HeadDim, ctx, d.KVBytesPerElem)
+}
+
+// kvBytesForDims is the shared KV-layout math behind kvCacheBytes and
+// draftKVCacheBytes: 2 (K+V) × n_layers × n_kv_heads × head_dim × ctx ×
+// kv_bytes_per_elem, saturating to math.MaxUint64 on overflow.
+func kvBytesForDims(nLayers, nKVHeads, headDim, ctx, kvBytesPerElem int) uint64 {
 	if ctx <= 0 {
 		return 0
 	}
 	total := uint64(2)
 	for _, factor := range []uint64{
-		uint64(m.NLayers),
-		uint64(m.NKVHeads),
-		uint64(m.HeadDim),
+		uint64(nLayers),
+		uint64(nKVHeads),
+		uint64(headDim),
 		uint64(ctx),
-		uint64(m.KVBytesPerElem),
+		uint64(kvBytesPerElem),
 	} {
 		hi, lo := bits.Mul64(total, factor)
 		if hi != 0 {
