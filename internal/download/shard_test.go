@@ -6,9 +6,11 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/catalog"
+	"github.com/MatrixMagician/VillaStraylight/internal/gguf"
 )
 
 // serveOne wires a single-shard httptest.Server that serves body and advertises
@@ -123,4 +125,90 @@ func TestPullModelEmptyRejected(t *testing.T) {
 
 func filepathName(i, n int) string {
 	return "Model-0000" + strconv.Itoa(i) + "-of-0000" + strconv.Itoa(n) + ".gguf"
+}
+
+// geometryModel serves body as the single shard of an entry declaring the given
+// fit dimensions, so a pull can be driven against a real GGUF header.
+func geometryModel(t *testing.T, body []byte, layers, kvHeads, headDim int) catalog.Model {
+	t.Helper()
+	srv := rangeServer(t, body, sha256Hex(body), int64(len(body)))
+	return catalog.Model{
+		ID:       "geo",
+		NLayers:  layers,
+		NKVHeads: kvHeads,
+		HeadDim:  headDim,
+		Shards:   []catalog.Shard{makeShard(srv.URL, "geo.gguf", body)},
+	}
+}
+
+// denseHeader is a well-formed dense GGUF header: 48 layers, 4 KV heads, key
+// length 128, every block attention-bearing.
+func denseHeader() []byte {
+	return gguf.FixtureForTest("llama", map[string]uint64{
+		"llama.block_count":             48,
+		"llama.attention.head_count_kv": 4,
+		"llama.attention.key_length":    128,
+	})
+}
+
+// TestPullVerifiesGeometry guards the promise that a pull whose file agrees with
+// the catalog entry completes.
+func TestPullVerifiesGeometry(t *testing.T) {
+	dir := t.TempDir()
+	m := geometryModel(t, denseHeader(), 48, 4, 128)
+	if err := pullShards(t.Context(), http.DefaultClient, m, dir); err != nil {
+		t.Fatalf("pullShards: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "geo.gguf")); err != nil {
+		t.Errorf("final file missing after a matching pull: %v", err)
+	}
+}
+
+// TestPullRefusesGeometryMismatch guards the promise that a checksum-verified file
+// whose header disagrees with the catalog entry REFUSES the pull, names both
+// values, and LEAVES THE FILE. The bytes are intact; the catalog entry is what
+// needs fixing, and deleting a 20 GB download over a metadata disagreement would
+// punish the operator for villa's bad data.
+func TestPullRefusesGeometryMismatch(t *testing.T) {
+	dir := t.TempDir()
+	m := geometryModel(t, denseHeader(), 24, 2, 64)
+	err := pullShards(t.Context(), http.DefaultClient, m, dir)
+	if err == nil {
+		t.Fatal("expected a refusal on a geometry mismatch, got nil")
+	}
+	for _, want := range []string{"n_layers=24", "kv_layers=48", "checksum"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q is missing %q", err, want)
+		}
+	}
+	if _, statErr := os.Stat(filepath.Join(dir, "geo.gguf")); statErr != nil {
+		t.Errorf("the verified file was removed on a geometry mismatch: %v", statErr)
+	}
+}
+
+// TestPullRefusesUnreadableHeader guards the promise that a file villa cannot
+// parse as GGUF is a refusal too: the pull cannot claim the entry is confirmed
+// when the witness could not be read at all.
+func TestPullRefusesUnreadableHeader(t *testing.T) {
+	dir := t.TempDir()
+	m := geometryModel(t, []byte("this is not a GGUF file at all"), 48, 4, 128)
+	if err := pullShards(t.Context(), http.DefaultClient, m, dir); err == nil {
+		t.Fatal("expected a refusal on an unreadable header, got nil")
+	}
+	if _, statErr := os.Stat(filepath.Join(dir, "geo.gguf")); statErr != nil {
+		t.Errorf("the verified file was removed on an unreadable header: %v", statErr)
+	}
+}
+
+// TestPullGeometryIsIdempotent guards the promise that the check runs on the
+// already-on-disk short-circuit path too, so a rerun of a good pull stays green
+// rather than passing only on the first fetch.
+func TestPullGeometryIsIdempotent(t *testing.T) {
+	dir := t.TempDir()
+	m := geometryModel(t, denseHeader(), 48, 4, 128)
+	for i := range 2 {
+		if err := pullShards(t.Context(), http.DefaultClient, m, dir); err != nil {
+			t.Fatalf("pullShards run %d: %v", i+1, err)
+		}
+	}
 }
