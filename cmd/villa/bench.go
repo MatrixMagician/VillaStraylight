@@ -182,7 +182,7 @@ sampleLoop:
 		ConfigModel:    modelFile,
 		ConfigContext:  cfg.Ctx,
 		Markers:        backend.ResidencyProof(),
-		DraftExpected:  cfg.Speculation == "draft",
+		DraftExpected:  cfg.Speculation == config.SpeculationDraft,
 	})
 
 	rt := bench.RunTimings{

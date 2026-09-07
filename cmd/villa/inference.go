@@ -181,7 +181,7 @@ func runValidation(ctx context.Context, m catalog.Model, withCeiling bool) infer
 		ReadGTTUsed:   detect.GTTUsedBytes,
 		Markers:       backend.ResidencyProof(),
 		Vision:        cfg.Vision,
-		DraftExpected: cfg.Speculation == "draft",
+		DraftExpected: cfg.Speculation == config.SpeculationDraft,
 	}
 	if withCeiling {
 		in.NewCeilingRunner = func(stress inference.RunSpec) inference.Runner {
