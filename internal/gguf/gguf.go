@@ -61,13 +61,20 @@ const (
 )
 
 // Geometry is the three per-model dimensions the recommend fit inequality
-// consumes: the layer count, the KV (grouped-query) head count, and the per-head
-// key dimension. It is the exact subset the catalog hand-carries, so the two are
+// consumes. It is the exact subset the catalog hand-carries, so the two are
 // directly comparable.
 type Geometry struct {
-	BlockCount  int
+	// KVLayers is the number of layers that hold a per-token KV cache, which on a
+	// dense architecture is the block count but on a hybrid one is NOT. A hybrid
+	// (Gated-DeltaNet / SSM) model gives most of its blocks a fixed-size recurrent
+	// state and only every full_attention_interval-th block a growing KV cache, so
+	// counting blocks would overstate the KV term by that factor. The name says
+	// what it counts because the two are equal often enough to hide the bug.
+	KVLayers int
+	// HeadCountKV is the grouped-query KV head count, not the attention head count.
 	HeadCountKV int
-	KeyLength   int
+	// KeyLength is the per-head key dimension.
+	KeyLength int
 }
 
 // Header is the decoded GGUF header plus its metadata section. The kv map holds
@@ -136,6 +143,12 @@ func (h Header) Geometry() (Geometry, error) {
 	if err != nil {
 		return Geometry{}, err
 	}
+	// A hybrid architecture gives only every full_attention_interval-th block a
+	// KV cache. The key is absent on a dense architecture, where every block bears
+	// one; a declared zero is read the same way rather than dividing by zero.
+	if interval, ok := h.Uint(arch + ".full_attention_interval"); ok && interval > 0 {
+		blocks /= interval
+	}
 	kvHeads, err := h.uintKey(arch + ".attention.head_count_kv")
 	if err != nil {
 		return Geometry{}, err
@@ -155,7 +168,7 @@ func (h Header) Geometry() (Geometry, error) {
 		}
 		keyLen = embed / heads
 	}
-	return Geometry{BlockCount: int(blocks), HeadCountKV: int(kvHeads), KeyLength: int(keyLen)}, nil
+	return Geometry{KVLayers: int(blocks), HeadCountKV: int(kvHeads), KeyLength: int(keyLen)}, nil
 }
 
 // uintKey is Uint with the three failure modes separated: absent, an unsupported
