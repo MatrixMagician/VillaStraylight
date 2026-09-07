@@ -707,19 +707,22 @@ func buildRecommendation(m catalog.Model, ov Overrides, ctx int, envelope uint64
 		draftKV = draftKVCacheBytes(*m.Draft, ctx)
 		draftReserve = addSaturating(m.Draft.WeightBytes, draftKV)
 		draftNeeded = addSaturating(total, draftReserve)
-		if draftNeeded <= envelope {
-			total = draftNeeded
-			draftBytes = m.Draft.WeightBytes
-			draftFits = true
-		} else {
-			draftKV = 0
-		}
+		draftFits = draftNeeded <= envelope
 	}
 
+	// Reserve only for a pick that will render the draft: an honoured ngram or
+	// off must not carry a sidecar the unit never loads.
 	spec, specNote, specOK := ResolveSpeculation(m, ov.Speculation, draftFits)
-	if m.Draft != nil && !draftFits {
+	switch {
+	case spec == config.SpeculationDraft:
+		total = draftNeeded
+		draftBytes = m.Draft.WeightBytes
+	case m.Draft != nil && !draftFits && (ov.Speculation == "" || ov.Speculation == config.SpeculationDraft):
+		draftKV = 0
 		notes = append(notes, fmt.Sprintf("speculation: draft (%s) dropped — %s needed vs %s usable; falling back to %s",
 			humanGiB(draftReserve), humanGiB(draftNeeded), humanGiB(envelope), spec))
+	default:
+		draftKV = 0
 	}
 	if specNote != "" {
 		notes = append(notes, specNote)
