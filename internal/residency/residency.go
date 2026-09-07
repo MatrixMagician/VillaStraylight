@@ -118,6 +118,11 @@ type Target struct {
 	// SampleInterval is how often GPU-busy is re-read during the drive. Zero means
 	// DefaultSampleInterval.
 	SampleInterval time.Duration
+	// DraftExpected is the persisted draft speculation decision (cfg.Speculation ==
+	// "draft", ADR-0009), threaded verbatim into the residency fold's
+	// inference.RunningOffloadInput so a draft CPU fallback is proven alongside the
+	// target's.
+	DraftExpected bool
 }
 
 // Prove drives the residency-proof protocol and returns the tri-state verdict.
@@ -202,6 +207,7 @@ sampleLoop:
 		ConfigModel:    t.ModelFile,
 		ConfigContext:  t.ContextLen,
 		Markers:        t.Markers,
+		DraftExpected:  t.DraftExpected,
 	})
 }
 

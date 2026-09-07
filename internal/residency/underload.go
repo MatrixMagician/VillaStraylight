@@ -203,6 +203,7 @@ func sampleFold(d Deps, t Target) inference.Verdict {
 		ConfigModel:   t.ModelFile,
 		ConfigContext: t.ContextLen,
 		Markers:       t.Markers,
+		DraftExpected: t.DraftExpected,
 	}
 	if d.Props != nil {
 		in.Props = d.Props()
