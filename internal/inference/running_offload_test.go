@@ -325,6 +325,69 @@ func TestScrapeLoadTensorsResidencyEmptyDeviceToken(t *testing.T) {
 	}
 }
 
+// TestScrapeLoadTensorsResidencyDraftExpected drives the running-path draft fold
+// (ADR-0009) against real captured journal lines: a two-block ROCm0 draft PASSes
+// even with a same-block ROCm_Host line (Pitfall 2, draft-simple), a synthetic
+// CPU-only draft block FAILs naming the draft, and a single-block journal WARNs
+// Unknown naming the missing draft block. draftExpected=false stays byte-identical
+// to the pre-draft (target-only) verdict on the same two-block journal.
+func TestScrapeLoadTensorsResidencyDraftExpected(t *testing.T) {
+	markers := rocmMarkersForTest(t)
+
+	if r := scrapeLoadTensorsResidency(readFixture(t, "draft_mtp_two_block.txt"), markers, true); r.Status != StatusPass {
+		t.Fatalf("two-block ROCm0 draft: status = %s, want PASS (detail: %s)", r.Status, r.Detail)
+	}
+	if r := scrapeLoadTensorsResidency(readFixture(t, "draft_simple_rochost_pass.txt"), markers, true); r.Status != StatusPass {
+		t.Fatalf("ROCm_Host same-block draft: status = %s, want PASS (ROCm_Host must not mask the ROCm0 line; detail: %s)", r.Status, r.Detail)
+	}
+	if r := scrapeLoadTensorsResidency(readFixture(t, "draft_cpu_fallback.txt"), markers, true); r.Status != StatusFail || !strings.Contains(r.Detail, "draft") {
+		t.Fatalf("CPU-only draft block: status = %s, detail = %q, want FAIL naming the draft", r.Status, r.Detail)
+	}
+	if r := scrapeLoadTensorsResidency(readFixture(t, "draft_single_block.txt"), markers, true); r.Status != StatusWarn || !strings.Contains(r.Detail, "draft") {
+		t.Fatalf("single-block journal: status = %s, detail = %q, want WARN naming the missing draft block", r.Status, r.Detail)
+	}
+
+	journal := readFixture(t, "draft_mtp_two_block.txt")
+	want := scrapeLoadTensorsResidencyTarget(journal, markers)
+	got := scrapeLoadTensorsResidency(journal, markers, false)
+	if got != want {
+		t.Fatalf("draftExpected=false: got %+v, want byte-identical %+v", got, want)
+	}
+}
+
+// TestRunningOffloadVerdictDraftExpected proves the DraftExpected field threads
+// all the way through RunningOffloadVerdict: a draft CPU fallback turns an
+// otherwise-healthy target+GTT-floor PASS into a FAIL, and draftExpected=false on
+// the very same input reproduces today's PASS (no regression for a stack with no
+// draft in play).
+func TestRunningOffloadVerdictDraftExpected(t *testing.T) {
+	markers := rocmMarkersForTest(t)
+	drm := t.TempDir()
+	if err := os.WriteFile(filepath.Join(drm, "mem_info_gtt_used"), []byte("23068672000\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gttUsed := detect.GTTUsedBytesForTest(drm)
+
+	base := RunningOffloadInput{
+		JournalText:  readFixture(t, "draft_cpu_fallback.txt"),
+		GTTUsedBytes: gttUsed,
+		WeightBytes:  testWeightBytes,
+		Markers:      markers,
+	}
+
+	withDraft := base
+	withDraft.DraftExpected = true
+	if v := RunningOffloadVerdict(withDraft); v.Status != StatusFail {
+		t.Fatalf("draft CPU fallback: verdict = %s, want FAIL (detail: %s)", v.Status, v.Detail)
+	}
+
+	withoutDraft := base
+	withoutDraft.DraftExpected = false
+	if v := RunningOffloadVerdict(withoutDraft); v.Status != StatusPass {
+		t.Fatalf("draftExpected=false: verdict = %s, want PASS (no regression; detail: %s)", v.Status, v.Detail)
+	}
+}
+
 // TestRunningServerOffloadPropsDrift asserts /props config-identity drift is a WARN
 // overlay (not the residency proof): a residency-PASS journal with a /props
 // model_path that does NOT match config downgrades to WARN.
