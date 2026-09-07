@@ -27,6 +27,8 @@
 package doctor
 
 import (
+	"strings"
+
 	"github.com/MatrixMagician/VillaStraylight/internal/agent"
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
@@ -229,6 +231,16 @@ type Deps struct {
 	SearchResidencyUnderLoad func() inference.Verdict
 }
 
+// changedUnitNames joins the drifted unit names in Plan order for the drift Detail
+// (issue #141). A drift verdict that names no unit leaves the operator nothing to diff.
+func changedUnitNames(changed []orchestrate.Unit) string {
+	names := make([]string, 0, len(changed))
+	for _, u := range changed {
+		names = append(names, u.Name)
+	}
+	return strings.Join(names, ", ")
+}
+
 // statusOrder maps the doctor status vocabulary to a worst-wins rank (PASS<WARN<FAIL).
 func statusRank(s string) int {
 	switch s {
@@ -415,7 +427,7 @@ func Aggregate(d Deps) Report {
 			Name:        "Config-vs-disk drift",
 			Tier:        tierWarn,
 			Status:      statusWarn,
-			Detail:      "on-disk Quadlet units no longer match the rendered-from-config units",
+			Detail:      "on-disk Quadlet units no longer match the rendered-from-config units: " + changedUnitNames(plan.Changed),
 			Remediation: "re-run `villa install` to reconcile config-vs-disk drift",
 			Provenance:  "orchestrate.Reconcile (non-empty Plan.Changed)",
 		})
