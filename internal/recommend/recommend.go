@@ -657,7 +657,9 @@ func pickOverride(c catalog.Catalog, ov Overrides, envelope uint64, degraded boo
 	if ov.Quant != "" {
 		rec.Quant = ov.Quant
 	}
-	if !rec.Fits {
+	// Keyed on the memory comparison, not on Fits: Fits is also false for a
+	// speculation refusal, which is a non-fit with no memory shortfall (#146).
+	if rec.TotalBytes > envelope {
 		rec.Notes = append(rec.Notes, fmt.Sprintf(
 			"WARNING: your override does NOT fit — %s needed vs %s usable envelope; it will likely OOM. Reduce --ctx or pick a smaller model.",
 			humanGiB(rec.TotalBytes), humanGiB(envelope)))
