@@ -209,6 +209,20 @@ var retiredClaims = []retiredClaim{
 		unless: []string{"race", "first half"},
 		why:    "`check` is vet + test + test-race; omitting the race gate hides CR-01/WR-04.",
 	},
+	{
+		label:  "the vision projector is the only sidecar",
+		wants:  []string{"only", "sidecar", "projector"},
+		unless: []string{"stops naming", "adr-0009", "no longer", "used to"},
+		why: "ADR-0009 added the draft sidecar (the entry's MTP head or a qualified dense draft); " +
+			"CONTEXT.md's Sidecar entry names both.",
+	},
+	{
+		label:  "`draft` is refused / rejected as unknown",
+		wants:  []string{"`draft`", "unknown"},
+		unless: []string{"adr-0006", "adr-0009", "no longer", "used to"},
+		why: "ADR-0009 made `draft` a third speculation value; config.ValidSpeculation accepts it, " +
+			"and `villa speculation set draft` refuses only when the entry has no draft or it is not on disk.",
+	},
 }
 
 // TestDocsNoRetiredClaims fails the build when a doc reasserts something the tree
