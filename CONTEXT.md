@@ -71,8 +71,8 @@ _Avoid_: spec decoding, lookahead, speculative sampling
 
 **Sidecar**:
 A companion GGUF pulled and verified with a model, not beside it. There are
-two: the vision projector and the draft. Its provenance names the on-hardware
-exercise that licensed it.
+two, the vision projector and the draft, and each carries a provenance naming
+the on-hardware exercise that licensed it.
 _Avoid_: extra file, auxiliary model, addon, companion weights
 
 **Vision projector**:
