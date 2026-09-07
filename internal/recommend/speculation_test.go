@@ -121,3 +121,24 @@ func TestRefusalLeavesSpeculationUnset(t *testing.T) {
 		t.Errorf("Speculation = %q on a refusal, want \"\"", rec.Speculation)
 	}
 }
+
+// TestSpeculationRefusalIsNotAnOOMWarning asserts an override refused for its
+// speculation mode alone does NOT also claim a memory shortfall: the pick fits
+// the envelope, so the "does NOT fit ... will likely OOM" note would be false, and
+// a false memory warning sends the operator to shrink a ctx that was never the
+// problem (#146).
+func TestSpeculationRefusalIsNotAnOOMWarning(t *testing.T) {
+	rec := Pick(profileWithEnvelope(64<<30), speculationCatalog(), Overrides{Model: "unqualified", Speculation: "ngram"}, MemoryInputs{}, WebSearchInputs{})
+	if rec.Fits {
+		t.Fatalf("expected Fits=false for the speculation refusal, notes %v", rec.Notes)
+	}
+	if rec.TotalBytes > rec.UsableEnvelopeBytes {
+		t.Fatalf("test premise broken: total %d exceeds envelope %d", rec.TotalBytes, rec.UsableEnvelopeBytes)
+	}
+	if !hasNote(rec.Notes, "refusing") {
+		t.Errorf("expected the speculation refusal note, got %v", rec.Notes)
+	}
+	if hasNote(rec.Notes, "does NOT fit") {
+		t.Errorf("a speculation refusal must not read as a memory shortfall, got %v", rec.Notes)
+	}
+}
