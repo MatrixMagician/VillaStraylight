@@ -20,6 +20,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/doctor"
 	"github.com/MatrixMagician/VillaStraylight/internal/inference"
+	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 	"github.com/MatrixMagician/VillaStraylight/internal/status"
 	"github.com/MatrixMagician/VillaStraylight/internal/verifystate"
 )
@@ -35,7 +36,7 @@ func healthyReport() doctor.Report {
 			{ID: "drift", Name: "Config-vs-disk drift", Tier: "WARN", Status: "PASS", Detail: "on-disk units match the rendered-from-config units", Provenance: "orchestrate.Reconcile (empty Plan.Changed)"},
 		},
 		Overall:       "PASS",
-		SchemaVersion: 5,
+		SchemaVersion: 6,
 	}
 }
 
@@ -91,7 +92,7 @@ func rocmSupersededReport() doctor.Report {
 			{ID: "drift", Name: "Config-vs-disk drift", Tier: "WARN", Status: "PASS", Detail: "on-disk units match the rendered-from-config units", Provenance: "orchestrate.Reconcile (empty Plan.Changed)"},
 		},
 		Overall:       "PASS",
-		SchemaVersion: 5,
+		SchemaVersion: 6,
 	}
 }
 
@@ -179,12 +180,12 @@ func TestDoctorUnknownOverallFailsClosed(t *testing.T) {
 }
 
 // TestDoctorJSON freezes doctor's OWN --json contract byte-for-byte. The
-// golden MUST carry "schema_version": 5 (the CAT-01 fold). doctor never extends status.Report's golden.
+// golden MUST carry "schema_version": 6 (the websafe-binary finding). doctor never extends status.Report's golden.
 func TestDoctorJSON(t *testing.T) {
 	var buf bytes.Buffer
 	renderDoctor(&buf, healthyReport(), true, false)
-	if !bytes.Contains(buf.Bytes(), []byte(`"schema_version": 5`)) {
-		t.Errorf("--json output must carry schema_version 5, got:\n%s", buf.String())
+	if !bytes.Contains(buf.Bytes(), []byte(`"schema_version": 6`)) {
+		t.Errorf("--json output must carry schema_version 6, got:\n%s", buf.String())
 	}
 	assertGolden(t, "doctor.json.golden", buf.Bytes())
 }
@@ -210,7 +211,7 @@ func memoryHealthyReport() doctor.Report {
 			{ID: "drift", Name: "Config-vs-disk drift", Tier: "WARN", Status: "PASS", Detail: "on-disk units match the rendered-from-config units", Provenance: "orchestrate.Reconcile (empty Plan.Changed)"},
 		},
 		Overall:       "PASS",
-		SchemaVersion: 5,
+		SchemaVersion: 6,
 	}
 }
 
@@ -263,8 +264,8 @@ func TestDoctorMemoryRender(t *testing.T) {
 func TestDoctorMemoryJSON(t *testing.T) {
 	var buf bytes.Buffer
 	renderDoctor(&buf, memoryHealthyReport(), true, false)
-	if !bytes.Contains(buf.Bytes(), []byte(`"schema_version": 5`)) {
-		t.Errorf("--json output must carry schema_version 5, got:\n%s", buf.String())
+	if !bytes.Contains(buf.Bytes(), []byte(`"schema_version": 6`)) {
+		t.Errorf("--json output must carry schema_version 6, got:\n%s", buf.String())
 	}
 	assertGolden(t, "doctor-memory.json.golden", buf.Bytes())
 }
@@ -310,8 +311,8 @@ func TestDoctorAgentRender(t *testing.T) {
 	if code != exitPass {
 		t.Errorf("agent-healthy exit code = %d, want %d", code, exitPass)
 	}
-	if !bytes.Contains(buf.Bytes(), []byte(`"schema_version": 5`)) {
-		t.Errorf("--json output must carry schema_version 5 (the web-search-fold bump), got:\n%s", buf.String())
+	if !bytes.Contains(buf.Bytes(), []byte(`"schema_version": 6`)) {
+		t.Errorf("--json output must carry schema_version 6 (the websafe-binary bump), got:\n%s", buf.String())
 	}
 	assertGolden(t, "doctor-agent.json.golden", buf.Bytes())
 
@@ -568,6 +569,58 @@ func TestLiveDoctorDepsWiresWebSearchSeams(t *testing.T) {
 			if got := d.SearchResidencyUnderLoad != nil; got != tc.wantBound {
 				t.Errorf("SearchResidencyUnderLoad non-nil = %v, want %v", got, tc.wantBound)
 			}
+			if got := d.WebsafeBinary != nil; got != tc.wantBound {
+				t.Errorf("WebsafeBinary non-nil = %v, want %v", got, tc.wantBound)
+			}
 		})
 	}
+}
+
+// TestDriftHostVillaPath: the drift render takes the host binary path from the INSTALLED
+// websafe unit, not from os.Executable(), so the same binary run from another path is no
+// longer reported as config-vs-disk drift (issue #141). An absent unit reports false and
+// the caller falls back to the running binary.
+func TestDriftHostVillaPath(t *testing.T) {
+	t.Run("reads-the-installed-mount", func(t *testing.T) {
+		dir := t.TempDir()
+		units, err := orchestrate.Render(orchestrate.RenderInput{
+			Backend: inference.VulkanBackend(),
+			Cfg: config.VillaConfig{
+				Model: "qwen3-35b-a3b-moe-64", Quant: "UD-Q4_K_M", Ctx: 131072, Backend: "vulkan",
+				WebSearchEnabled: true,
+			},
+			ModelFile:     "qwen3-35b-a3b-moe-64.gguf",
+			ModelsDir:     "/home/villa/.local/share/villa/models",
+			HostVillaPath: "/home/villa/.local/bin/villa",
+		})
+		if err != nil {
+			t.Fatalf("Render: %v", err)
+		}
+		unit := ""
+		for _, u := range units {
+			if u.Name == orchestrate.WebsafeContainerUnitName() {
+				unit = u.Text
+			}
+		}
+		if unit == "" {
+			t.Fatal("fixture rendered no villa-websafe unit")
+		}
+		if err := os.WriteFile(filepath.Join(dir, orchestrate.WebsafeContainerUnitName()), []byte(unit), 0o644); err != nil {
+			t.Fatalf("write unit: %v", err)
+		}
+
+		got, ok := driftHostVillaPath(dir)
+		if !ok {
+			t.Fatal("driftHostVillaPath reported no mounted path for an installed websafe unit")
+		}
+		if got != "/home/villa/.local/bin/villa" {
+			t.Errorf("driftHostVillaPath = %q, want /home/villa/.local/bin/villa", got)
+		}
+	})
+
+	t.Run("absent-unit-reports-false", func(t *testing.T) {
+		if got, ok := driftHostVillaPath(t.TempDir()); ok {
+			t.Errorf("driftHostVillaPath on an empty dir = (%q, true), want ok=false", got)
+		}
+	})
 }

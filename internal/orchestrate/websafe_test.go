@@ -130,3 +130,35 @@ func TestRenderWebsafeUsesSharedIdentity(t *testing.T) {
 		t.Errorf("websafe unit did not render Exec --port %d from the shared constant:\n%s", config.WebsafePort, c.Text)
 	}
 }
+
+// TestMountedVillaPathRoundTrips: a rendered websafe unit read back through
+// MountedVillaPath yields the HostVillaPath it was rendered with. The parser and the
+// render share one container-side constant, so they cannot drift apart (issue #141).
+func TestMountedVillaPathRoundTrips(t *testing.T) {
+	in := searxngFixtureInput()
+	units, err := Render(in)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	c := unitByName(t, units, "villa-websafe.container")
+	got, ok := MountedVillaPath(c.Text)
+	if !ok {
+		t.Fatalf("MountedVillaPath found no binary mount in the rendered unit:\n%s", c.Text)
+	}
+	if got != in.HostVillaPath {
+		t.Errorf("MountedVillaPath = %q, want %q", got, in.HostVillaPath)
+	}
+}
+
+// TestMountedVillaPathAbsent: unit text without the binary-mount Volume= line reports
+// false rather than a guessed path, so a caller can tell "not mounted" from a path.
+func TestMountedVillaPathAbsent(t *testing.T) {
+	for _, text := range []string{
+		"",
+		"[Container]\nImage=example\nVolume=/srv/models:/models:ro,z\n",
+	} {
+		if got, ok := MountedVillaPath(text); ok {
+			t.Errorf("MountedVillaPath(%q) = (%q, true), want ok=false", text, got)
+		}
+	}
+}

@@ -66,6 +66,34 @@ const websafeContainerUnitName = "villa-websafe.container"
 // install whose unit is absent fails closed with a clear message.
 func WebsafeContainerUnitName() string { return websafeContainerUnitName }
 
+// websafeBinaryPath is where the host villa binary is bind-mounted inside the
+// villa-websafe container. It is the ONE home of that literal: the render composes the
+// Volume= and Exec= lines from it, and MountedVillaPath parses them back with it, so the
+// writer and the reader cannot drift apart (issue #141).
+const websafeBinaryPath = "/usr/local/bin/villa"
+
+// MountedVillaPath returns the HOST path the given villa-websafe unit text bind-mounts at
+// websafeBinaryPath, and whether the unit carries that mount at all. It is PURE: the
+// caller reads the unit file.
+//
+// Doctor uses it so its config-vs-disk drift comparison renders with the path the INSTALLED
+// unit records rather than os.Executable(), which made the same binary at a different path
+// look like drift (issue #141). A false return is "this unit mounts no villa binary", never
+// a guessed path.
+func MountedVillaPath(unitText string) (string, bool) {
+	for _, line := range strings.Split(unitText, "\n") {
+		value, ok := strings.CutPrefix(strings.TrimSpace(line), "Volume=")
+		if !ok {
+			continue
+		}
+		parts := strings.SplitN(value, ":", 3)
+		if len(parts) >= 2 && parts[1] == websafeBinaryPath {
+			return parts[0], true
+		}
+	}
+	return "", false
+}
+
 // websafeSecretEnvFileName is the BARE filename of the 0600 env file that carries the
 // EXTERNAL_WEB_LOADER_API_KEY bearer. It is the single source the .container unit (via
 // EnvironmentFile=) and Plan 02's writer (RenderWebsafeSecretEnv) share — neither end
@@ -117,7 +145,7 @@ func buildWebsafeView(image, websafeAddr, hostVillaPath string, websafePort int)
 		Image:         image,
 		Network:       networkAttach,
 		SecretEnvFile: websafeSecretEnvFilePath,
-		BinaryMount:   hostVillaPath + ":/usr/local/bin/villa:ro,z",
+		BinaryMount:   hostVillaPath + ":" + websafeBinaryPath + ":ro,z",
 		Exec:          buildWebsafeExec(websafePort),
 	}
 }
@@ -130,7 +158,7 @@ func buildWebsafeView(image, websafeAddr, hostVillaPath string, websafePort int)
 // EXTERNAL_WEB_LOADER_URL OWUI composes.
 func buildWebsafeExec(port int) string {
 	tokens := []string{
-		"/usr/local/bin/villa",
+		websafeBinaryPath,
 		"websafe-serve",
 		"--host", "0.0.0.0", // container-internal only; no host bind
 		"--port", strconv.Itoa(port),

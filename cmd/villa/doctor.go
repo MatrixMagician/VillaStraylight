@@ -172,6 +172,22 @@ func unitDirReadOnly() (string, error) {
 	return filepath.Join(base, "containers", "systemd"), nil
 }
 
+// driftHostVillaPath returns the host villa path the INSTALLED villa-websafe unit
+// bind-mounts, and whether that unit is on disk at all. It is strictly read-only.
+//
+// The drift comparison renders with this path rather than hostVillaPath() so that the
+// comparison stays config-vs-disk: the running executable's location is host state, and
+// rendering with it made the same binary at a different path (a worktree build, a copy in
+// /tmp) look like a hand-edited unit (issue #141). A false return means the unit is not
+// installed, and the caller falls back to the running binary — the path install would write.
+func driftHostVillaPath(unitDir string) (string, bool) {
+	text, err := os.ReadFile(filepath.Join(unitDir, orchestrate.WebsafeContainerUnitName())) //nolint:gosec // the unit dir is the fixed rootless Quadlet dir
+	if err != nil {
+		return "", false
+	}
+	return orchestrate.MountedVillaPath(string(text))
+}
+
 // liveDoctorDeps wires doctor.Deps to the real host. It REUSES liveStatusDeps wholesale
 // for the running-stack read-model (no re-wired HTTP/journald/GTT probes — RESEARCH A1)
 // and constructs a DriftPlan closure that renders units from config and Reconciles them
@@ -283,9 +299,21 @@ func liveDoctorDeps(ctx context.Context) (doctor.Deps, error) {
 		searchEgress    func() inference.Verdict
 		searchResidency func() inference.Verdict
 	)
+	// The moved-binary seam rides the same gate: the villa-websafe unit only exists
+	// when web search is on, so with it off the seam stays nil and doctor's output is
+	// byte-identical (except the schema bump).
+	var websafeBinary func() (string, string, bool)
 	if subsystem.WebSearchOn(cfg) {
 		searchEgress = liveSearchEgressProof()
 		searchResidency = liveSearchResidencyUnderLoad(ctx, cfg, sd)
+		websafeBinary = func() (string, string, bool) {
+			dir, err := unitDirReadOnly()
+			if err != nil {
+				return "", "", false
+			}
+			mounted, ok := driftHostVillaPath(dir)
+			return mounted, hostVillaPath(), ok
+		}
 	}
 	// Catalog-geometry seam (CAT-01): bound UNCONDITIONALLY — the catalog is not an
 	// optional subsystem, and an entry that no longer describes its file is wrong on
@@ -320,6 +348,7 @@ func liveDoctorDeps(ctx context.Context) (doctor.Deps, error) {
 		AgentDrift:               agentDrift,
 		SearchEgressProof:        searchEgress,
 		SearchResidencyUnderLoad: searchResidency,
+		WebsafeBinary:            websafeBinary,
 		// DriftPlan: render units from the persisted config, resolve the backend
 		// fail-closed, and Reconcile against the READ-ONLY unit dir. It NEVER
 		// writes. A read error (absent/unreadable unit dir) is returned verbatim so the
@@ -341,17 +370,6 @@ func liveDoctorDeps(ctx context.Context) (doctor.Deps, error) {
 			if err != nil {
 				return orchestrate.Plan{}, fmt.Errorf("resolve resident set: %w", err)
 			}
-			units, err := livePinnedRender(orchestrate.RenderInput{
-				Backend:       backend,
-				Cfg:           c,
-				ModelFile:     modelFile,
-				ModelsDir:     modelsDir(),
-				HostVillaPath: hostVillaPath(),
-				Resident:      resident,
-			})
-			if err != nil {
-				return orchestrate.Plan{}, fmt.Errorf("render units: %w", err)
-			}
 			dir, err := unitDirReadOnly()
 			if err != nil {
 				return orchestrate.Plan{}, fmt.Errorf("resolve unit dir: %w", err)
@@ -364,6 +382,26 @@ func liveDoctorDeps(ctx context.Context) (doctor.Deps, error) {
 			// only filesystem touch and is strictly read-only.
 			if _, statErr := os.Stat(dir); statErr != nil {
 				return orchestrate.Plan{}, fmt.Errorf("read unit dir %q: %w", dir, statErr)
+			}
+			// Render the binary mount from what the INSTALLED unit records, not from
+			// os.Executable(): a drift check compares config to disk, and the running
+			// binary's path is neither (issue #141). With no unit installed there is
+			// nothing to preserve, so the running binary — the path install would write —
+			// is the honest input.
+			hostVilla := hostVillaPath()
+			if mounted, ok := driftHostVillaPath(dir); ok {
+				hostVilla = mounted
+			}
+			units, err := livePinnedRender(orchestrate.RenderInput{
+				Backend:       backend,
+				Cfg:           c,
+				ModelFile:     modelFile,
+				ModelsDir:     modelsDir(),
+				HostVillaPath: hostVilla,
+				Resident:      resident,
+			})
+			if err != nil {
+				return orchestrate.Plan{}, fmt.Errorf("render units: %w", err)
 			}
 			return orchestrate.Reconcile(units, dir)
 		},
