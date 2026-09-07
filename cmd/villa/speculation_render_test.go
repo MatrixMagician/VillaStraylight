@@ -75,6 +75,7 @@ func TestLiveSpeculationResolvesServedEntry(t *testing.T) {
 		coding   bool
 		wantMode string
 		wantErr  string
+		wantNil  bool
 	}{
 		{
 			name:     "qualified chat model",
@@ -97,6 +98,12 @@ func TestLiveSpeculationResolvesServedEntry(t *testing.T) {
 			cfg:     config.VillaConfig{Model: "absent", Speculation: config.SpeculationNgram, CatalogPath: path},
 			wantErr: "absent",
 		},
+		{
+			name:    "coding mode with an unqualified coder entry falls back to off",
+			cfg:     config.VillaConfig{Model: "qualified", CoderModel: "unqualified", Speculation: config.SpeculationNgram, CatalogPath: path},
+			coding:  true,
+			wantNil: true,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -115,6 +122,12 @@ func TestLiveSpeculationResolvesServedEntry(t *testing.T) {
 			}
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
+			}
+			if tc.wantNil {
+				if spec != nil {
+					t.Errorf("spec = %+v, want nil", spec)
+				}
+				return
 			}
 			if spec == nil || spec.Mode != tc.wantMode {
 				t.Errorf("spec = %+v, want mode %q", spec, tc.wantMode)
