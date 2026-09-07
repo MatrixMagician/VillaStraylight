@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -423,6 +424,9 @@ var podmanVolumeRm = func(args []string) (stderr string, err error) {
 	cmd := exec.Command("podman", args...) // fixed args
 	cmd.Stderr = &buf
 	err = cmd.Run()
+	if errors.Is(err, exec.ErrNotFound) {
+		return strings.TrimSpace(buf.String()), orchestrate.ErrToolNotFound{Tool: "podman"}
+	}
 	return strings.TrimSpace(buf.String()), err
 }
 
@@ -437,9 +441,6 @@ var podmanVolumeRm = func(args []string) (stderr string, err error) {
 func removeVolumesLive(vols []string) error {
 	if len(vols) == 0 {
 		return nil
-	}
-	if _, err := exec.LookPath("podman"); err != nil {
-		return orchestrate.ErrToolNotFound{Tool: "podman"}
 	}
 	for _, v := range vols {
 		stderr, err := podmanVolumeRm(volumeRmArgs(v))

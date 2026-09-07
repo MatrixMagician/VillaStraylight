@@ -154,6 +154,35 @@ func TestDoctorJSON(t *testing.T) {
 	assertGolden(t, "doctor.json.golden", buf.Bytes())
 }
 
+// TestDoctorJSONFailuresStayValid proves JSON mode emits only the document for both a
+// blocking FAIL and an unrecognized verdict; the human FAULT trailer must not corrupt
+// machine-readable output, while both cases retain the blocking exit code.
+func TestDoctorJSONFailuresStayValid(t *testing.T) {
+	tests := []struct {
+		name   string
+		report doctor.Report
+	}{
+		{"fail", offloadFailReport()},
+		{"unrecognized", doctor.Report{Overall: "bogus", SchemaVersion: 5}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			code := renderDoctor(&buf, tc.report, true, false)
+			if code != exitBlocked {
+				t.Errorf("JSON Overall=%q mapped to exit %d, want %d", tc.report.Overall, code, exitBlocked)
+			}
+			var decoded doctor.Report
+			if err := json.Unmarshal(buf.Bytes(), &decoded); err != nil {
+				t.Fatalf("JSON Overall=%q is not a standalone document: %v\n%s", tc.report.Overall, err, buf.String())
+			}
+			if bytes.Contains(buf.Bytes(), []byte("FAULT:")) {
+				t.Errorf("JSON Overall=%q must not contain the human FAULT trailer:\n%s", tc.report.Overall, buf.String())
+			}
+		})
+	}
+}
+
 // memoryHealthyReport is the healthy MEMORY-ON shape (Phase-23 v3 classification,
 // Plan 23-01): memory checks PASS, the under-load residency proof PASS, and the two
 // memory services carrying ONLY their per-service health findings — no offload

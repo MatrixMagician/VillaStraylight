@@ -89,13 +89,14 @@ func runDoctor(cmd *cobra.Command, _ []string, deps doctor.Deps) int {
 // inverted ROADMAP prose): a confident BLOCK-class FAIL → exitBlocked (=1); any WARN /
 // drift / typed-Unknown → exitWarn (=2); all healthy → exitPass (=0). Do NOT invert.
 func renderDoctor(w io.Writer, r doctor.Report, asJSON, withProvenance bool) int {
+	code := doctorExitCode(r.Overall)
 	if asJSON {
 		enc := json.NewEncoder(w)
 		enc.SetIndent("", "  ")
 		_ = enc.Encode(r)
-	} else {
-		renderDoctorTable(w, r, withProvenance)
+		return code
 	}
+	renderDoctorTable(w, r, withProvenance)
 
 	// The core's worst-wins fold (doctor.Aggregate) is the SINGLE source of truth for the
 	// verdict: r.Overall is mapped here to the AUTHORITATIVE preflight exit constants so the
@@ -112,17 +113,29 @@ func renderDoctor(w io.Writer, r doctor.Report, asJSON, withProvenance bool) int
 			}
 		}
 		fmt.Fprintf(w, "\nFAULT: %d blocking finding(s) — the running install is not healthy. See the remediation(s) above.\n", blockFails)
-		return exitBlocked
+		return code
 	case "WARN":
-		return exitWarn
+		return code
 	case "PASS":
-		return exitPass
+		return code
 	default:
 		// FAIL CLOSED (phase-22, mirroring renderInference): an unrecognized
 		// Overall (a future Aggregate bug, a hand-built Report, a JSON-roundtripped
 		// fixture) can NEVER map to "healthy" — for a health verdict the only safe
 		// default is the blocking tier.
 		fmt.Fprintf(w, "\nFAULT: unrecognized overall verdict %q — treating the install as not healthy.\n", r.Overall)
+		return code
+	}
+}
+
+// doctorExitCode maps doctor's normalized overall verdict to the authoritative CLI exit code.
+func doctorExitCode(overall string) int {
+	switch overall {
+	case "WARN":
+		return exitWarn
+	case "PASS":
+		return exitPass
+	default:
 		return exitBlocked
 	}
 }
