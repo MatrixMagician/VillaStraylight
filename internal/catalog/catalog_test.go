@@ -101,6 +101,9 @@ func TestLoadSeedVerifiedDims(t *testing.T) {
 		"qwen2.5-0.5b":  {24, 2, 64},
 		"qwen2.5-1.5b":  {28, 2, 128},
 		"qwen3-30b-a3b": {48, 4, 128},
+		// qwen35 hybrid: 64 blocks / full_attention_interval 4 = 16 KV-bearing
+		// layers, read off the GGUF header on 2026-09-07 (ADR-0007).
+		"qwen3.8-27b": {16, 4, 256},
 	}
 	for id, w := range want {
 		m, ok := c.FindByID(id)
