@@ -150,7 +150,7 @@ func liveInstallDeps(ctx context.Context) (install.Deps, error) {
 			if !ok {
 				return "", fmt.Errorf("model %q is not in the catalog — cannot resolve its weight file", rec.Model)
 			}
-			return primaryModelFile(m), nil
+			return m.PrimaryFile(), nil
 		},
 		ModelsDir: modelsDir,
 		RunChecks: preflight.RunWithResources,
@@ -431,7 +431,7 @@ func writeUnitText(dir, name, text string) error {
 func modelFilesPresent(dir string, m catalog.Model) bool {
 	shards := m.AllShards()
 	if len(shards) == 0 {
-		_, err := os.Stat(filepath.Join(dir, primaryModelFile(m)))
+		_, err := os.Stat(filepath.Join(dir, m.PrimaryFile()))
 		return err == nil
 	}
 	for _, sh := range shards {

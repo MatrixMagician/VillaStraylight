@@ -348,7 +348,7 @@ func liveSwapDeps(ctx context.Context) *modelswap.Deps {
 			return false, reason
 		},
 		IsDownloaded: func(m catalog.Model) bool {
-			path := filepath.Join(modelsDir(), primaryModelFile(m))
+			path := filepath.Join(modelsDir(), m.PrimaryFile())
 			_, err := os.Stat(path)
 			return err == nil
 		},

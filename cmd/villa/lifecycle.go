@@ -235,5 +235,5 @@ func liveModelFile(cfg config.VillaConfig) (string, error) {
 	if !ok {
 		return "", fmt.Errorf("model %q is not in the catalog — cannot resolve its weight file", cfg.Model)
 	}
-	return primaryModelFile(m), nil
+	return m.PrimaryFile(), nil
 }

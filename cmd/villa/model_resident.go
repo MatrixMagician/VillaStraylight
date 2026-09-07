@@ -702,7 +702,7 @@ func liveResidentDeps(ctx context.Context) *residentDeps {
 		},
 		primaryPort: inference.ServerPort,
 		isDownloaded: func(m catalog.Model) bool {
-			_, err := os.Stat(filepath.Join(modelsDir(), primaryModelFile(m)))
+			_, err := os.Stat(filepath.Join(modelsDir(), m.PrimaryFile()))
 			return err == nil
 		},
 		pull: func(m catalog.Model) error {
@@ -804,7 +804,7 @@ func liveResidentUnits(cfg config.VillaConfig) ([]orchestrate.ResidentUnit, erro
 		}
 		units = append(units, orchestrate.ResidentUnit{
 			Model:     r.Model,
-			ModelFile: primaryModelFile(m),
+			ModelFile: m.PrimaryFile(),
 			Ctx:       r.Ctx,
 			Port:      r.Port,
 		})

@@ -11,7 +11,7 @@ import (
 // are compared as values rather than field by field at each call site.
 func TestModelGeometry(t *testing.T) {
 	m := Model{ID: "x", NLayers: 48, NKVHeads: 4, HeadDim: 128}
-	want := gguf.Geometry{BlockCount: 48, HeadCountKV: 4, KeyLength: 128}
+	want := gguf.Geometry{KVLayers: 48, HeadCountKV: 4, KeyLength: 128}
 	if got := m.Geometry(); got != want {
 		t.Errorf("Geometry() = %+v, want %+v", got, want)
 	}
@@ -59,5 +59,18 @@ func TestSeedEntriesCarryGeometry(t *testing.T) {
 		if m.Geometry() == (gguf.Geometry{}) {
 			t.Errorf("seed entry %s carries no geometry, so the GGUF cross-check skips it", m.ID)
 		}
+	}
+}
+
+// TestPrimaryFileStaysBare guards the promise that neither an id nor a shard
+// filename from an untrusted external catalog can hand a caller a separator to
+// follow out of the models dir.
+func TestPrimaryFileStaysBare(t *testing.T) {
+	if got := (Model{ID: "../../etc/passwd"}).PrimaryFile(); got != "passwd.gguf" {
+		t.Errorf("PrimaryFile() = %q, want a bare filename", got)
+	}
+	esc := Model{ID: "x", Shards: []Shard{{Filename: "../evil.gguf"}}}
+	if got := esc.PrimaryFile(); got != "evil.gguf" {
+		t.Errorf("PrimaryFile() = %q, want a bare filename", got)
 	}
 }

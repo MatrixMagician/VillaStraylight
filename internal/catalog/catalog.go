@@ -54,11 +54,15 @@ type Model struct {
 	Quant       string `json:"quant"`
 
 	// Fit-math inputs.
-	WeightBytes    uint64 `json:"weight_bytes"`
-	NLayers        int    `json:"n_layers"`
-	NKVHeads       int    `json:"n_kv_heads"` // KV heads (GQA), NOT attention heads — Pitfall 4.
-	HeadDim        int    `json:"head_dim"`
-	KVBytesPerElem int    `json:"kv_bytes_per_elem"` // bytes per KV element at this quant (e.g. 2 = f16).
+	WeightBytes uint64 `json:"weight_bytes"`
+	// NLayers is the number of KV-BEARING layers, which on a hybrid architecture is
+	// NOT the block count: only every full_attention_interval-th block holds a
+	// per-token KV cache. Model.Geometry projects it as gguf.Geometry.KVLayers, and
+	// the CAT-01 check compares the two.
+	NLayers        int `json:"n_layers"`
+	NKVHeads       int `json:"n_kv_heads"` // KV heads (GQA), NOT attention heads — Pitfall 4.
+	HeadDim        int `json:"head_dim"`
+	KVBytesPerElem int `json:"kv_bytes_per_elem"` // bytes per KV element at this quant (e.g. 2 = f16).
 
 	DefaultCtx       int    `json:"default_ctx"`
 	MinEnvelopeBytes uint64 `json:"min_envelope_bytes"`
