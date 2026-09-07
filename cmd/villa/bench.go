@@ -182,6 +182,7 @@ sampleLoop:
 		ConfigModel:    modelFile,
 		ConfigContext:  cfg.Ctx,
 		Markers:        backend.ResidencyProof(),
+		DraftExpected:  liveDraftExpected(cfg),
 	})
 
 	rt := bench.RunTimings{

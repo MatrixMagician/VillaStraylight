@@ -742,9 +742,15 @@ func liveProps(endpoint string) *inference.PropsInfo {
 }
 
 // liveWeightBytes derives the configured model's expected weight footprint from the
-// recommend fit math (the GTT-floor reference). It probes the host and picks for the
-// config'd model; an undeterminable envelope yields 0 (the GTT floor then degrades
-// to a typed-Unknown WARN, never a false PASS).
+// recommend fit math (the GTT-floor reference), PLUS the draft sidecar's own weight
+// when the resolved pick carries one: the draft loads onto the device as a second
+// model, so the band it is checked against must include it (ADR-0009). It probes
+// the host and picks for the config'd model; an undeterminable envelope yields 0
+// (the GTT floor then degrades to a typed-Unknown WARN, never a false PASS).
+//
+// backend.go's liveProve and bench.go's liveMeasure both source WeightBytes for
+// their own residency bands through THIS function, so folding the draft in here
+// folds it in for every caller at once.
 func liveWeightBytes(cfg config.VillaConfig) uint64 {
 	cat, _, err := catalog.Load(modelCatalogPath)
 	if err != nil {
@@ -754,8 +760,8 @@ func liveWeightBytes(cfg config.VillaConfig) uint64 {
 	// byte-identical — WeightBytes is envelope-independent for overrides (guarded
 	// by TestPickOverrideWeightInvariance), so the frozen status path never sees
 	// the memory reservation.
-	rec := recommend.Pick(detect.Probe(), cat, recommend.Overrides{Model: cfg.Model}, recommend.MemoryInputs{}, recommend.WebSearchInputs{})
-	return rec.WeightBytes
+	rec := recommend.Pick(detect.Probe(), cat, recommend.Overrides{Model: cfg.Model, Speculation: cfg.Speculation}, recommend.MemoryInputs{}, recommend.WebSearchInputs{})
+	return rec.WeightBytes + rec.DraftBytes
 }
 
 // liveStatusServices is the stack's services as ONE list: the inference service,

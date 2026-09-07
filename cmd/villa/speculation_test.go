@@ -52,7 +52,7 @@ func TestSpeculationShow(t *testing.T) {
 // TestSpeculationSetRejectsUnknownMode asserts the argument is validated against the
 // config vocabulary BEFORE any dep is touched, so a typo never reaches the host.
 func TestSpeculationSetRejectsUnknownMode(t *testing.T) {
-	for _, arg := range []string{"", "draft", "yes"} {
+	for _, arg := range []string{"", "yes"} {
 		rec := &backendRecorder{curBackend: "rocm", fits: true, preflightOK: true, proveStatus: prove.StatusPass}
 		cmd, _, errOut := newTestCmd()
 		if code := runSpeculationSet(cmd, arg, false, newBackendStub(rec)); code != exitBlocked {
@@ -115,5 +115,45 @@ func TestSpeculationSetRefusalExitsBlocked(t *testing.T) {
 	}
 	if len(rec.saved) != 0 {
 		t.Errorf("a refusal persisted %+v", rec.saved)
+	}
+}
+
+// TestSpeculationSetDraftRefusesWithoutADraft asserts `set draft` on an entry the
+// fit guard reports unqualified for (no declared draft, or one that does not fit)
+// refuses via the same fit-guard path ngram already uses, rather than a mode-specific
+// branch (ADR-0009's refusal contract mirrors ngram's).
+func TestSpeculationSetDraftRefusesWithoutADraft(t *testing.T) {
+	rec := &backendRecorder{
+		curBackend: "rocm", fits: false,
+		fitReason:   "speculation: draft requested but m is not qualified for it; refusing",
+		preflightOK: true, proveStatus: prove.StatusPass,
+	}
+	cmd, _, errOut := newTestCmd()
+	if code := runSpeculationSet(cmd, config.SpeculationDraft, false, newBackendStub(rec)); code != exitBlocked {
+		t.Fatalf("exit = %d, want 1", code)
+	}
+	if !strings.Contains(errOut.String(), "refusing") {
+		t.Errorf("refusal = %q, want it to contain %q", errOut.String(), "refusing")
+	}
+	if len(rec.saved) != 0 {
+		t.Errorf("a refusal persisted %+v", rec.saved)
+	}
+}
+
+// TestSpeculationSetDraftDryRunPreviewsWithoutMutating asserts `set draft --dry-run`
+// on a served entry the fit guard reports qualified for (qwen3.8-27b, in the real
+// catalog) previews the target/fit and fires zero mutate seams, the same
+// dry-run-mutates-nothing property ngram already has.
+func TestSpeculationSetDraftDryRunPreviewsWithoutMutating(t *testing.T) {
+	rec := &backendRecorder{curBackend: "rocm", fits: true, preflightOK: true, proveStatus: prove.StatusPass}
+	cmd, out, _ := newTestCmd()
+	if code := runSpeculationSet(cmd, config.SpeculationDraft, true, newBackendStub(rec)); code != exitPass {
+		t.Fatalf("exit = %d, want 0", code)
+	}
+	if !strings.Contains(out.String(), "dry-run") || !strings.Contains(out.String(), "draft") {
+		t.Errorf("dry-run output = %q", out.String())
+	}
+	if len(rec.saved) != 0 || rec.written != 0 || len(rec.restarted) != 0 || rec.captured != 0 {
+		t.Errorf("dry-run fired a mutate seam: %+v", rec)
 	}
 }

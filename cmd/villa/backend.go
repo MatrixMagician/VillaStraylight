@@ -87,13 +87,14 @@ func liveProve(ctx context.Context, target string) prove.Verdict {
 	return residency.ProveCutover(ctx, liveResidencyDeps(), residency.Target{
 		// The endpoint is derived the SAME way the status path does: the resolved
 		// backend's container runner, never a hand-rolled URL.
-		Endpoint:    inference.NewContainerRunner(backend, inference.RunSpec{}).Endpoint(),
-		Service:     installServiceName,
-		ModelID:     cfg.Model,
-		ModelFile:   modelFile,
-		ContextLen:  cfg.Ctx,
-		WeightBytes: liveWeightBytes(cfg),
-		Markers:     backend.ResidencyProof(),
+		Endpoint:      inference.NewContainerRunner(backend, inference.RunSpec{}).Endpoint(),
+		Service:       installServiceName,
+		ModelID:       cfg.Model,
+		ModelFile:     modelFile,
+		ContextLen:    cfg.Ctx,
+		WeightBytes:   liveWeightBytes(cfg),
+		Markers:       backend.ResidencyProof(),
+		DraftExpected: liveDraftExpected(cfg),
 	})
 }
 

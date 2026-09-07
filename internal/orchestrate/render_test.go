@@ -676,6 +676,47 @@ func TestRenderSpeculationROCm(t *testing.T) {
 	goldenCompare(t, "villa-llama-rocm-ngram.container.golden", unitByName(t, units, "villa-llama.container").Text)
 }
 
+// draftFixtureInput mirrors speculationFixtureInput but carries the draft
+// sidecar descriptor (ADR-0009), shaped like W-A's qwen3.8-27b seed entry would
+// resolve it: draft-mtp, n_max 3, p_min 0. cfg.Speculation is the literal
+// "draft" mode string, not a config.Speculation* constant — that constant is
+// internal/config's to add; this render-layer fixture only needs the string.
+func draftFixtureInput(t *testing.T, backend string) RenderInput {
+	t.Helper()
+	in := fixtureInput()
+	if backend == "rocm" {
+		in = rocmFixtureInput(t)
+	}
+	in.Cfg.Speculation = "draft"
+	in.Speculation = &inference.SpeculationSpec{
+		Mode:      "draft",
+		DraftFile: "mtp-Qwen3.8-27B-Q4_0.gguf",
+		SpecType:  "draft-mtp",
+		NMax:      3,
+		PMin:      0,
+	}
+	return in
+}
+
+// TestRenderSpeculationDraftVulkan: the Vulkan unit rendered with the draft
+// descriptor matches the new append-only golden (ADR-0009).
+func TestRenderSpeculationDraftVulkan(t *testing.T) {
+	units, err := Render(draftFixtureInput(t, "vulkan"))
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	goldenCompare(t, "villa-llama-draft.container.golden", unitByName(t, units, "villa-llama.container").Text)
+}
+
+// TestRenderSpeculationDraftROCm: the same draft delta on the ROCm unit.
+func TestRenderSpeculationDraftROCm(t *testing.T) {
+	units, err := Render(draftFixtureInput(t, "rocm"))
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	goldenCompare(t, "villa-llama-rocm-draft.container.golden", unitByName(t, units, "villa-llama.container").Text)
+}
+
 // TestRenderNilSpeculationIsByteIdentical asserts a nil descriptor renders the
 // existing unit unchanged. That is what keeps a v1.8 install, which has no
 // speculation key at all, from being restarted by an upgrade.

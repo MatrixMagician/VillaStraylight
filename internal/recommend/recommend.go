@@ -92,7 +92,9 @@ const (
 // bump for Phase 31.
 // Bumped 4->5 when the append-only speculation field landed (ADR-0006).
 // Bumped 5->6 when the append-only projector_bytes + vision fields landed.
-const recommendSchemaVersion = 6
+// Bumped 6->7 when the append-only draft_bytes + draft_kv_bytes fields landed
+// (ADR-0009): the draft sidecar's own reserved weight and KV-at-ctx terms.
+const recommendSchemaVersion = 7
 
 // ROCmAdvice is a typed enum surfaced on the Recommendation: an
 // honesty-bounded hint about whether the opt-in ROCm backend is worth a benchmark
@@ -207,6 +209,16 @@ type Recommendation struct {
 	// vision-capable is the one outcome this field exists to prevent.
 	Vision bool `json:"vision"`
 
+	// DraftBytes is the draft sidecar's reserved weight, its share of TotalBytes
+	// (ADR-0009): zero when the picked entry ships no draft AND when one was
+	// dropped for not fitting on top of the base (+ projector) fit.
+	DraftBytes uint64 `json:"draft_bytes"`
+
+	// DraftKVBytes is the draft's own KV-cache reservation at the served ctx,
+	// sized from the DRAFT's dimensions (never the target's). Zero under the
+	// same conditions as DraftBytes.
+	DraftKVBytes uint64 `json:"draft_kv_bytes"`
+
 	// SchemaVersion is the Recommendation contract self-version and MUST stay the
 	// LAST tagged field (append-only discipline; new fields go above it).
 	SchemaVersion int `json:"schema_version"`
@@ -233,12 +245,20 @@ type Overrides struct {
 
 // ResolveSpeculation answers what speculation mode a pick of m should run, and
 // whether the answer honours what was asked. An unset request is resolved from the
-// entry's qualification; an explicit request for a mode the entry is not qualified
-// for is a REFUSAL (ok false), never a silent downgrade to off, because an operator
-// who asked for speculation and got none would have no way to tell.
-func ResolveSpeculation(m catalog.Model, requested string) (mode, note string, ok bool) {
+// entry's qualification, preferring a draft sidecar over ngram when both would
+// qualify; an explicit request for a mode the entry is not qualified for (or, for
+// draft, does not fit) is a REFUSAL (ok false), never a silent downgrade to off,
+// because an operator who asked for speculation and got none would have no way to
+// tell. draftFits is the caller's answer to whether m.Draft's reserved weight+KV
+// fit on top of the base (and projector) fit at the served ctx (ADR-0009) — a
+// fit question ResolveSpeculation itself has no envelope to answer.
+func ResolveSpeculation(m catalog.Model, requested string, draftFits bool) (mode, note string, ok bool) {
+	draftQualified := m.Draft != nil && draftFits
 	switch requested {
 	case "":
+		if draftQualified {
+			return config.SpeculationDraft, fmt.Sprintf("speculation: draft (%s is qualified for %s: %s)", m.Draft.SpecType, m.ID, m.Draft.Provenance), true
+		}
 		if m.NgramSafe {
 			return config.SpeculationNgram, fmt.Sprintf("speculation: ngram (ngram-mod is qualified for %s: %s)", m.ID, m.NgramProvenance), true
 		}
@@ -250,8 +270,13 @@ func ResolveSpeculation(m catalog.Model, requested string) (mode, note string, o
 			return config.SpeculationNgram, fmt.Sprintf("speculation: ngram (ngram-mod is qualified for %s: %s)", m.ID, m.NgramProvenance), true
 		}
 		return config.SpeculationOff, fmt.Sprintf("speculation: ngram requested but %s is not qualified for it; refusing", m.ID), false
+	case config.SpeculationDraft:
+		if draftQualified {
+			return config.SpeculationDraft, fmt.Sprintf("speculation: draft (%s is qualified for %s: %s)", m.Draft.SpecType, m.ID, m.Draft.Provenance), true
+		}
+		return config.SpeculationOff, fmt.Sprintf("speculation: draft requested but %s is not qualified for it; refusing", m.ID), false
 	default:
-		return config.SpeculationOff, fmt.Sprintf("speculation: %q is not a known mode (off, ngram, or unset); refusing", requested), false
+		return config.SpeculationOff, fmt.Sprintf("speculation: %q is not a known mode (off, ngram, draft, or unset); refusing", requested), false
 	}
 }
 
@@ -654,11 +679,6 @@ func buildRecommendation(m catalog.Model, ov Overrides, ctx int, envelope uint64
 
 	backend := cmp.Or(m.BackendDefault, defaultBackend)
 
-	spec, specNote, specOK := ResolveSpeculation(m, ov.Speculation)
-	if specNote != "" {
-		notes = append(notes, specNote)
-	}
-
 	// The projector is reserved only when the envelope has room for it ON TOP of
 	// the base fit. Dropping it is a NOTE rather than a non-fit: the model still
 	// runs, just text-only, and saying nothing is what would present a text-only
@@ -675,6 +695,37 @@ func buildRecommendation(m catalog.Model, ov Overrides, ctx int, envelope uint64
 			notes = append(notes, fmt.Sprintf("vision: projector (%s) dropped — %s needed vs %s usable; this pick runs text-only",
 				humanGiB(m.Projector.WeightBytes), humanGiB(withProj), humanGiB(envelope)))
 		}
+	}
+
+	// The draft sidecar is reserved AFTER the projector, so a tight envelope loses
+	// the speculative-decoding speedup before it loses vision (ADR-0009). Its own
+	// weight+KV (at the served ctx, from the DRAFT's dimensions) must fit ON TOP of
+	// the total so far; draftFits then licenses ResolveSpeculation's ladder.
+	var draftBytes, draftKV, draftReserve, draftNeeded uint64
+	var draftFits bool
+	if m.Draft != nil {
+		draftKV = draftKVCacheBytes(*m.Draft, ctx)
+		draftReserve = addSaturating(m.Draft.WeightBytes, draftKV)
+		draftNeeded = addSaturating(total, draftReserve)
+		draftFits = draftNeeded <= envelope
+	}
+
+	// Reserve only for a pick that will render the draft: an honoured ngram or
+	// off must not carry a sidecar the unit never loads.
+	spec, specNote, specOK := ResolveSpeculation(m, ov.Speculation, draftFits)
+	switch {
+	case spec == config.SpeculationDraft:
+		total = draftNeeded
+		draftBytes = m.Draft.WeightBytes
+	case m.Draft != nil && !draftFits && (ov.Speculation == "" || ov.Speculation == config.SpeculationDraft):
+		draftKV = 0
+		notes = append(notes, fmt.Sprintf("speculation: draft (%s) dropped — %s needed vs %s usable; falling back to %s",
+			humanGiB(draftReserve), humanGiB(draftNeeded), humanGiB(envelope), spec))
+	default:
+		draftKV = 0
+	}
+	if specNote != "" {
+		notes = append(notes, specNote)
 	}
 
 	return Recommendation{
@@ -695,6 +746,8 @@ func buildRecommendation(m catalog.Model, ov Overrides, ctx int, envelope uint64
 		Speculation:    spec,
 		ProjectorBytes: projector,
 		Vision:         vision,
+		DraftBytes:     draftBytes,
+		DraftKVBytes:   draftKV,
 	}
 }
 

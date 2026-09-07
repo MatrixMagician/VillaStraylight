@@ -40,6 +40,22 @@ unknown rather than accepting a value that does nothing, and the sidecar shard
 shape the draft would have needed lands with the vision projector instead, which
 does pay.
 
+ADR-0009 supersedes that conclusion for dense entries: `qwen3.8-27b` is the
+dense entry, and the same probe on it (2026-09-07, pinned rocm-7.2.4 image,
+llama.cpp b9536, greedy, 256 tokens) reads:
+
+| mode | cold tg | warm tg | accepted |
+|------|---------|---------|----------|
+| none | 11.2 | 10.9 | n/a |
+| ngram-mod | 11.1 | 21.3-44.4 | 57-80% |
+| draft-simple, Qwen3.5-0.8B Q8_0 | 14.0 | 14.0 | 76% |
+| draft-mtp, head embedded in the main GGUF | 18.5 | 18.8 | 69% |
+| draft-mtp, separate `mtp-Qwen3.8-27B-Q4_0.gguf` | 20.3 | 20.3 | 71% |
+| ngram-mod + draft-mtp file | 21.6 | 34.1-78.2 | 71-81% |
+
+The mixture-of-experts numbers above still hold, and no MoE entry carries a
+draft.
+
 ## Where the mode lives
 
 **Persist the resolved mode in `config.toml`**, the chosen option. `speculation`

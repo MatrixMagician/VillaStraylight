@@ -108,7 +108,7 @@ func (b backendROCm) ContainerArgs(spec RunSpec) []string {
 	// rendered through the shared seam helper so both backends emit --jinja / sampling /
 	// --cache-reuse behind the seam. nil ⇒ byte-identical off path.
 	args = appendCodingModeArgs(args, spec.CodingMode)
-	args = appendSpeculationArgs(args, spec.Speculation)
+	args = appendSpeculationArgs(args, spec.Speculation, b.ResidencyProof().DeviceToken)
 	args = appendProjectorArgs(args, spec.Projector)
 	return args
 }

@@ -275,11 +275,12 @@ requirements, so it is always a safe place to return to if a ROCm backend misbeh
 ## Turning speculation on
 
 `villa recommend` prints a `speculation` line with the mode it resolved for the
-picked model: `ngram` when the catalog entry carries a measurement that qualified
-it, `off` otherwise. `--save` and `villa install` persist whatever it resolved, so
-a fresh install already runs the mode the recommendation showed you. On an install
-that predates the setting the key is simply absent, which renders speculation off
-and leaves the unit unchanged. To turn it on afterwards:
+picked model: `draft` when the catalog entry ships a draft sidecar and it fits,
+`ngram` when the entry carries a measurement that qualified it, `off` otherwise.
+`--save` and `villa install` persist whatever it resolved, so a fresh install
+already runs the mode the recommendation showed you. On an install that predates
+the setting the key is simply absent, which renders speculation off and leaves
+the unit unchanged. To turn it on afterwards:
 
 ```bash
 ./villa speculation show               # the persisted mode (off when unset)
@@ -291,7 +292,24 @@ and leaves the unit unchanged. To turn it on afterwards:
 itself, so it downloads nothing and costs no memory. It is roughly neutral on a
 prompt the server has not seen and up to 2.8x on repeated output, which is what
 `villa code` produces. Asking for it on a model with no qualified measurement is a
-refusal rather than a silent downgrade. See
+refusal rather than a silent downgrade.
+
+`draft` is the sidecar draft. On `qwen3.8-27b` it is the model's own
+multi-token-prediction head, a 1 GiB file pulled and verified with the weights,
+and it roughly doubles token generation on a prompt the server has not seen
+(11 to 20 tokens per second on the dev host). The entry is also `ngram_safe`,
+so `draft` there runs ngram-mod alongside the head and reaches 34 to 78 on
+repeated output. `villa recommend` shows the draft's weight and KV as their own
+rows beside the projector and resolves `draft` when it fits; to switch a running
+stack:
+
+```bash
+./villa speculation set draft --dry-run   # preview the target and the fit
+./villa speculation set draft          # transactional cutover, rolls back on failure
+```
+
+The swap never downloads. If the draft file is not on disk the set refuses and
+names `villa model pull`. See
 [CONFIGURATION.md](CONFIGURATION.md#speculation) for the vocabulary.
 
 ## Attaching an image in chat

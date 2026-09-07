@@ -6,6 +6,8 @@ import "testing"
 // inside ContainerArgs behind the backend seam. The invariants:
 //   - spec.Speculation == nil ⇒ args byte-identical to the base (off-path);
 //   - Mode "ngram" ⇒ exactly --spec-type ngram-mod, appended last;
+//   - Mode "draft" ⇒ the draft delta (ADR-0009), or nothing when DraftFile is
+//     empty — never a half flag set;
 //   - an unrecognised mode ⇒ unchanged (the config boundary already refused it);
 //   - coding mode and speculation compose, coding delta first.
 
@@ -48,13 +50,77 @@ func TestSpeculationUnknownModeRendersNothing(t *testing.T) {
 	for name, b := range codingBackends(t) {
 		t.Run(name, func(t *testing.T) {
 			off := b.ContainerArgs(baseSpec())
-			for _, mode := range []string{"", "off", "draft"} {
+			for _, mode := range []string{"", "off", "bogus"} {
 				spec := baseSpec()
 				spec.Speculation = &SpeculationSpec{Mode: mode}
 				got := b.ContainerArgs(spec)
 				if len(got) != len(off) {
 					t.Errorf("[%s] mode %q rendered a delta: %v", name, mode, got[len(off):])
 				}
+			}
+		})
+	}
+}
+
+// TestSpeculationDraftArgs is the table test for the draft render delta (ADR-0009):
+// nil, ngram, a bare draft, draft+WithNgram, and a draft with an empty DraftFile
+// (which must render nothing, never a half flag set), once per backend. The
+// expected draft device token is read from that SAME backend's own
+// ResidencyProof().DeviceToken, proving ContainerArgs never hardcodes it.
+func TestSpeculationDraftArgs(t *testing.T) {
+	for name, b := range codingBackends(t) {
+		t.Run(name, func(t *testing.T) {
+			device := b.ResidencyProof().DeviceToken
+			off := b.ContainerArgs(baseSpec())
+
+			cases := []struct {
+				name string
+				sp   *SpeculationSpec
+				want []string
+			}{
+				{"nil", nil, nil},
+				{"ngram", &SpeculationSpec{Mode: "ngram"}, []string{"--spec-type", "ngram-mod"}},
+				{
+					"draft",
+					&SpeculationSpec{Mode: "draft", DraftFile: "mtp.gguf", SpecType: "draft-mtp", NMax: 3, PMin: 0.1},
+					[]string{
+						"--spec-type", "draft-mtp",
+						"--spec-draft-model", "/models/mtp.gguf",
+						"--spec-draft-device", device,
+						"--spec-draft-ngl", "999",
+						"--spec-draft-n-max", "3",
+						"--spec-draft-p-min", "0.1",
+					},
+				},
+				{
+					"draft with ngram",
+					&SpeculationSpec{Mode: "draft", WithNgram: true, DraftFile: "mtp.gguf", SpecType: "draft-mtp", NMax: 3, PMin: 0},
+					[]string{
+						"--spec-type", "ngram-mod,draft-mtp",
+						"--spec-draft-model", "/models/mtp.gguf",
+						"--spec-draft-device", device,
+						"--spec-draft-ngl", "999",
+						"--spec-draft-n-max", "3",
+						"--spec-draft-p-min", "0",
+					},
+				},
+				{"draft with empty file", &SpeculationSpec{Mode: "draft", SpecType: "draft-mtp", NMax: 3, PMin: 0}, nil},
+			}
+
+			for _, tc := range cases {
+				t.Run(tc.name, func(t *testing.T) {
+					spec := baseSpec()
+					spec.Speculation = tc.sp
+					got := b.ContainerArgs(spec)
+					if len(got) != len(off)+len(tc.want) {
+						t.Fatalf("[%s/%s] tail = %v, want %v", name, tc.name, got[len(off):], tc.want)
+					}
+					for i, w := range tc.want {
+						if got[len(off)+i] != w {
+							t.Errorf("[%s/%s] tail[%d] = %q, want %q", name, tc.name, i, got[len(off)+i], w)
+						}
+					}
+				})
 			}
 		})
 	}

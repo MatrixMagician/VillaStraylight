@@ -55,8 +55,13 @@ import (
 // The vision projector delta joins on the same terms: "--mmproj" (which also
 // covers "--mmproj-offload") is emitted by appendProjectorArgs, and a caller that
 // wrote it would be deciding the offload policy the seam owns.
+// The draft sidecar delta (ADR-0009) joins on the same terms: "--spec-draft"
+// anchors all five --spec-draft-model/-device/-ngl/-n-max/-p-min flags emitted
+// by appendSpeculationArgs's draft branch in ONE alternative, added in the SAME
+// commit as those literals — a caller that wrote any of them would be deciding
+// the draft's device/offload policy the seam owns.
 func seamFlagPattern() *regexp.Regexp {
-	return regexp.MustCompile(`"--jinja"|"--cache-reuse"|"--repeat-penalty"|"--spec-type"|"ngram-mod"|"--mmproj`)
+	return regexp.MustCompile(`"--jinja"|"--cache-reuse"|"--repeat-penalty"|"--spec-type"|"ngram-mod"|"--mmproj|"--spec-draft`)
 }
 
 func TestSeamGrepGate(t *testing.T) {

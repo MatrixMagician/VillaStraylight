@@ -1,0 +1,7 @@
+llama_model_loader: loaded meta data with 50 key-value pairs and 866 tensors from /models/Qwen3.8-27B-UD-Q4_K_XL.gguf (version GGUF V3 (latest))
+load_tensors:          CPU model buffer size =   682.03 MiB
+load_tensors:        ROCm0 model buffer size = 16053.22 MiB
+llama_model_loader: loaded meta data with 46 key-value pairs and 320 tensors from /models/Qwen3.5-0.8B-Q8_0.gguf (version GGUF V3 (latest))
+load_tensors:        ROCm0 model buffer size =   763.78 MiB
+load_tensors:    ROCm_Host model buffer size =   257.66 MiB
+common_speculative_impl_draft_simple: adding speculative implementation 'draft-simple'

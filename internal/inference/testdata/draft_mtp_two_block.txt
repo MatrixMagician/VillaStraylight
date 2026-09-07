@@ -1,0 +1,7 @@
+llama_model_loader: loaded meta data with 50 key-value pairs and 866 tensors from /models/Qwen3.8-27B-UD-Q4_K_XL.gguf (version GGUF V3 (latest))
+load_tensors:          CPU model buffer size =   682.03 MiB
+load_tensors:        ROCm0 model buffer size = 16053.22 MiB
+llama_model_loader: loaded meta data with 50 key-value pairs and 18 tensors from /models/mtp-Qwen3.8-27B-Q4_0.gguf (version GGUF V3 (latest))
+load_tensors:          CPU model buffer size =   521.00 MiB
+load_tensors:        ROCm0 model buffer size =   774.71 MiB
+common_speculative_impl_draft_mtp: adding speculative implementation 'draft-mtp'

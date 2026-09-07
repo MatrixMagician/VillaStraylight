@@ -1051,7 +1051,7 @@ func TestResidentRoundTrip(t *testing.T) {
 // save/load cycle, including the unset one — an absent key must load as "" rather
 // than being healed to a mode the operator never chose.
 func TestSpeculationRoundTrip(t *testing.T) {
-	for _, mode := range []string{"", SpeculationOff, SpeculationNgram} {
+	for _, mode := range []string{"", SpeculationOff, SpeculationNgram, SpeculationDraft} {
 		t.Run("mode="+mode, func(t *testing.T) {
 			cfg := DefaultVillaConfig()
 			cfg.Model = "qwen3-35b-a3b-moe-64"
@@ -1092,12 +1092,12 @@ func TestSpeculationAbsentKeyLoadsUnset(t *testing.T) {
 }
 
 // TestSpeculationFailsClosed asserts an unknown mode is refused at the boundary
-// rather than silently rendering off — a hand-edited "draft" is a value villa does
-// not implement, and accepting it would run a stack the config does not describe.
+// rather than silently rendering off — a hand-edited value villa does not
+// implement must not run a stack the config does not describe.
 func TestSpeculationFailsClosed(t *testing.T) {
-	for _, mode := range []string{"draft", "yes"} {
+	for _, mode := range []string{"yes"} {
 		t.Run("mode="+mode, func(t *testing.T) {
-			want := fmt.Sprintf("config: speculation %q is not a known mode (off, ngram, or unset)", mode)
+			want := fmt.Sprintf("config: speculation %q is not a known mode (off, ngram, draft, or unset)", mode)
 			body := fmt.Sprintf("model = \"m\"\nspeculation = %q\n", mode)
 
 			if _, err := Parse([]byte(body)); err == nil || err.Error() != want {
@@ -1118,12 +1118,12 @@ func TestSpeculationFailsClosed(t *testing.T) {
 	}
 }
 
-// TestValidSpeculation guards the vocabulary itself: unset, off and ngram only.
+// TestValidSpeculation guards the vocabulary itself: unset, off, ngram and draft.
 func TestValidSpeculation(t *testing.T) {
 	for _, tc := range []struct {
 		in   string
 		want bool
-	}{{"", true}, {"off", true}, {"ngram", true}, {"draft", false}, {"Ngram", false}, {"yes", false}} {
+	}{{"", true}, {"off", true}, {"ngram", true}, {"draft", true}, {"Ngram", false}, {"yes", false}} {
 		if got := ValidSpeculation(tc.in); got != tc.want {
 			t.Errorf("ValidSpeculation(%q) = %v, want %v", tc.in, got, tc.want)
 		}

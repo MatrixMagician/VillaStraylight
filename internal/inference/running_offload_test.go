@@ -279,7 +279,7 @@ func TestScrapeLoadTensorsResidencyFault(t *testing.T) {
 	vulkanJournal := readFixture(t, "load_tensors_vulkan.txt")
 
 	// Vulkan markers (empty FaultString) → fault scan is a no-op → PASS.
-	if r := scrapeLoadTensorsResidency(vulkanJournal, VulkanBackend().ResidencyProof()); r.Status != StatusPass {
+	if r := scrapeLoadTensorsResidency(vulkanJournal, VulkanBackend().ResidencyProof(), false); r.Status != StatusPass {
 		t.Fatalf("vulkan residency status = %s, want PASS (fault scan must be a no-op)", r.Status)
 	}
 
@@ -287,7 +287,7 @@ func TestScrapeLoadTensorsResidencyFault(t *testing.T) {
 	// buffer-line PASS.
 	faultMarkers := ResidencyMarkers{DeviceToken: "Vulkan0", FaultString: "Memory access fault by GPU node"}
 	faulted := vulkanJournal + "\nMemory access fault by GPU node-1 (Agent handle: 0x...) on address 0x...\n"
-	if r := scrapeLoadTensorsResidency(faulted, faultMarkers); r.Status != StatusFail {
+	if r := scrapeLoadTensorsResidency(faulted, faultMarkers, false); r.Status != StatusFail {
 		t.Fatalf("faulted journal status = %s, want FAIL (fault voids residency)", r.Status)
 	}
 }
@@ -301,14 +301,14 @@ func TestScrapeLoadTensorsResidencyMaxNotLast(t *testing.T) {
 	markers := ResidencyMarkers{DeviceToken: "Vulkan0"}
 	journal := "x villa-llama[1]: load_tensors:      Vulkan0 model buffer size = 21504.49 MiB\n" +
 		"x villa-llama[1]: load_tensors:      Vulkan0 model buffer size =     0.00 MiB\n"
-	if r := scrapeLoadTensorsResidency(journal, markers); r.Status != StatusPass {
+	if r := scrapeLoadTensorsResidency(journal, markers, false); r.Status != StatusPass {
 		t.Fatalf("non-zero then 0.00 MiB same-token lines → %s, want PASS (max, not last-write)", r.Status)
 	}
 
 	// All-zero device lines stay a FAIL (no weights resident) — max() must not mask
 	// a genuinely-empty device buffer.
 	allZero := "x villa-llama[1]: load_tensors:      Vulkan0 model buffer size =     0.00 MiB\n"
-	if r := scrapeLoadTensorsResidency(allZero, markers); r.Status != StatusFail {
+	if r := scrapeLoadTensorsResidency(allZero, markers, false); r.Status != StatusFail {
 		t.Fatalf("only a 0.00 MiB device line → %s, want FAIL", r.Status)
 	}
 }
@@ -320,8 +320,71 @@ func TestScrapeLoadTensorsResidencyMaxNotLast(t *testing.T) {
 // token must degrade to WARN (could-not-evaluate), never PASS.
 func TestScrapeLoadTensorsResidencyEmptyDeviceToken(t *testing.T) {
 	cpuOnly := "x villa-llama[1]: load_tensors:   CPU_Mapped model buffer size =   315.32 MiB\n"
-	if r := scrapeLoadTensorsResidency(cpuOnly, ResidencyMarkers{DeviceToken: ""}); r.Status != StatusWarn {
+	if r := scrapeLoadTensorsResidency(cpuOnly, ResidencyMarkers{DeviceToken: ""}, false); r.Status != StatusWarn {
 		t.Fatalf("empty DeviceToken over a CPU-only journal → %s, want WARN (no false PASS)", r.Status)
+	}
+}
+
+// TestScrapeLoadTensorsResidencyDraftExpected drives the running-path draft fold
+// (ADR-0009) against real captured journal lines: a two-block ROCm0 draft PASSes
+// even with a same-block ROCm_Host line (Pitfall 2, draft-simple), a synthetic
+// CPU-only draft block FAILs naming the draft, and a single-block journal WARNs
+// Unknown naming the missing draft block. draftExpected=false stays byte-identical
+// to the pre-draft (target-only) verdict on the same two-block journal.
+func TestScrapeLoadTensorsResidencyDraftExpected(t *testing.T) {
+	markers := rocmMarkersForTest(t)
+
+	if r := scrapeLoadTensorsResidency(readFixture(t, "draft_mtp_two_block.txt"), markers, true); r.Status != StatusPass {
+		t.Fatalf("two-block ROCm0 draft: status = %s, want PASS (detail: %s)", r.Status, r.Detail)
+	}
+	if r := scrapeLoadTensorsResidency(readFixture(t, "draft_simple_rochost_pass.txt"), markers, true); r.Status != StatusPass {
+		t.Fatalf("ROCm_Host same-block draft: status = %s, want PASS (ROCm_Host must not mask the ROCm0 line; detail: %s)", r.Status, r.Detail)
+	}
+	if r := scrapeLoadTensorsResidency(readFixture(t, "draft_cpu_fallback.txt"), markers, true); r.Status != StatusFail || !strings.Contains(r.Detail, "draft") {
+		t.Fatalf("CPU-only draft block: status = %s, detail = %q, want FAIL naming the draft", r.Status, r.Detail)
+	}
+	if r := scrapeLoadTensorsResidency(readFixture(t, "draft_single_block.txt"), markers, true); r.Status != StatusWarn || !strings.Contains(r.Detail, "draft") {
+		t.Fatalf("single-block journal: status = %s, detail = %q, want WARN naming the missing draft block", r.Status, r.Detail)
+	}
+
+	journal := readFixture(t, "draft_mtp_two_block.txt")
+	want := scrapeLoadTensorsResidencyTarget(journal, markers)
+	got := scrapeLoadTensorsResidency(journal, markers, false)
+	if got != want {
+		t.Fatalf("draftExpected=false: got %+v, want byte-identical %+v", got, want)
+	}
+}
+
+// TestRunningOffloadVerdictDraftExpected proves the DraftExpected field threads
+// all the way through RunningOffloadVerdict: a draft CPU fallback turns an
+// otherwise-healthy target+GTT-floor PASS into a FAIL, and draftExpected=false on
+// the very same input reproduces today's PASS (no regression for a stack with no
+// draft in play).
+func TestRunningOffloadVerdictDraftExpected(t *testing.T) {
+	markers := rocmMarkersForTest(t)
+	drm := t.TempDir()
+	if err := os.WriteFile(filepath.Join(drm, "mem_info_gtt_used"), []byte("23068672000\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gttUsed := detect.GTTUsedBytesForTest(drm)
+
+	base := RunningOffloadInput{
+		JournalText:  readFixture(t, "draft_cpu_fallback.txt"),
+		GTTUsedBytes: gttUsed,
+		WeightBytes:  testWeightBytes,
+		Markers:      markers,
+	}
+
+	withDraft := base
+	withDraft.DraftExpected = true
+	if v := RunningOffloadVerdict(withDraft); v.Status != StatusFail {
+		t.Fatalf("draft CPU fallback: verdict = %s, want FAIL (detail: %s)", v.Status, v.Detail)
+	}
+
+	withoutDraft := base
+	withoutDraft.DraftExpected = false
+	if v := RunningOffloadVerdict(withoutDraft); v.Status != StatusPass {
+		t.Fatalf("draftExpected=false: verdict = %s, want PASS (no regression; detail: %s)", v.Status, v.Detail)
 	}
 }
 

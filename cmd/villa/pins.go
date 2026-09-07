@@ -16,6 +16,7 @@ import (
 	"cmp"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/catalog"
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
@@ -25,6 +26,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/pins"
 	"github.com/MatrixMagician/VillaStraylight/internal/pinstate"
 	"github.com/MatrixMagician/VillaStraylight/internal/recommend"
+	"github.com/MatrixMagician/VillaStraylight/internal/subsystem"
 )
 
 // livePinStateDeps wires the pin state store to the real filesystem, mirroring the
@@ -196,6 +198,14 @@ func liveProjector(cfg config.VillaConfig, coding bool) (string, error) {
 // resolves with an empty request, and the coder entry's own ngram_safe decides
 // (ngram when qualified, off with a note otherwise), the same fallback `recommend`
 // already applies elsewhere.
+//
+// draftFits is threaded as m.Draft != nil: the byte-fit was already decided when
+// the mode was persisted (recommend --save or install), so this seam only re-checks
+// that the served entry still declares a draft at all, never re-runs the envelope
+// math. A draft that DOES qualify still refuses here if its file is missing from
+// the models dir (ADR-0009: pulled unconditionally with the model, so an absence
+// means the model was never fully pulled) — the ONE check ResolveSpeculation cannot
+// make, because fit is catalog+config data and presence-on-disk is host I/O.
 func liveSpeculation(cfg config.VillaConfig, coding bool) (*inference.SpeculationSpec, error) {
 	if cfg.Speculation == "" || cfg.Speculation == config.SpeculationOff {
 		return nil, nil
@@ -214,14 +224,29 @@ func liveSpeculation(cfg config.VillaConfig, coding bool) (*inference.Speculatio
 	if !ok {
 		return nil, fmt.Errorf("speculation: served model %q is not in the catalog", served)
 	}
-	mode, note, ok := recommend.ResolveSpeculation(m, requested)
+	mode, note, ok := recommend.ResolveSpeculation(m, requested, m.Draft != nil)
 	if !ok {
 		return nil, fmt.Errorf("speculation: %s", note)
 	}
-	if mode == config.SpeculationOff {
+	switch mode {
+	case config.SpeculationOff:
 		return nil, nil
+	case config.SpeculationDraft:
+		draftFile := m.Draft.Shards[0].Filename
+		if _, statErr := os.Stat(filepath.Join(modelsDir(), draftFile)); statErr != nil {
+			return nil, fmt.Errorf("speculation: draft for %s is not on disk; run `villa model pull %s`", m.ID, m.ID)
+		}
+		return &inference.SpeculationSpec{
+			Mode:      config.SpeculationDraft,
+			WithNgram: m.NgramSafe,
+			DraftFile: draftFile,
+			SpecType:  m.Draft.SpecType,
+			NMax:      m.Draft.NMax,
+			PMin:      m.Draft.PMin,
+		}, nil
+	default:
+		return &inference.SpeculationSpec{Mode: config.SpeculationNgram}, nil
 	}
-	return &inference.SpeculationSpec{Mode: config.SpeculationNgram}, nil
 }
 
 // resolverFor builds a resolver over an already-loaded pin state.
@@ -231,4 +256,15 @@ func liveSpeculation(cfg config.VillaConfig, coding bool) (*inference.Speculatio
 // serial and CheckedAt, and loading it twice invites the two reads disagreeing.
 func resolverFor(state pinstate.State) pinresolve.Resolver {
 	return pinresolve.New(state)
+}
+
+// liveDraftExpected answers whether the unit rendered from cfg carries a draft
+// sidecar, so the residency proof looks for a second model-load block exactly
+// when one was asked for (ADR-0009). It reads the same funnel the render does:
+// a chat model whose persisted mode is draft, or a coder entry re-resolved in
+// coding mode. A render that would refuse (no draft declared, file not on disk)
+// answers false, since no unit with a draft can be running.
+func liveDraftExpected(cfg config.VillaConfig) bool {
+	spec, err := liveSpeculation(cfg, subsystem.CodingModeOn(cfg))
+	return err == nil && spec != nil && spec.Mode == config.SpeculationDraft
 }

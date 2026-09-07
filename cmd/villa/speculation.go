@@ -24,11 +24,13 @@ import (
 func newSpeculation() *cobra.Command {
 	spec := &cobra.Command{
 		Use:   "speculation",
-		Short: "Inspect and switch the speculative-decoding mode (off/ngram)",
+		Short: "Inspect and switch the speculative-decoding mode (off/ngram/draft)",
 		Long: "Show the persisted speculation mode or switch it with a transactional cutover: `set <mode>` " +
+			"(off, ngram for llama-server's ngram-mod, or draft for a catalog-declared draft sidecar, ADR-0009) " +
 			"re-renders ONLY the villa-llama unit, refuses-with-remediation when the served model has no " +
-			"qualified measurement for the requested mode, and rolls back verbatim if the new unit does not " +
-			"prove healthy. --dry-run previews the target and the fit without mutating anything.",
+			"qualified measurement for the requested mode (a draft target additionally refuses when the " +
+			"sidecar file is not on disk, naming `villa model pull`), and rolls back verbatim if the new unit " +
+			"does not prove healthy. --dry-run previews the target and the fit without mutating anything.",
 		Args: cobra.NoArgs,
 	}
 	spec.AddCommand(newSpeculationShow(), newSpeculationSet())
@@ -88,16 +90,17 @@ func runSpeculationShow(cmd *cobra.Command, asJSON bool) int {
 	return exitPass
 }
 
-// newSpeculationSet builds `villa speculation set <off|ngram> [--dry-run]`.
+// newSpeculationSet builds `villa speculation set <off|ngram|draft> [--dry-run]`.
 func newSpeculationSet() *cobra.Command {
 	var dryRun bool
 	cmd := &cobra.Command{
 		Use:   "set <mode>",
 		Short: "Switch the speculation mode transactionally (capture → mutate → prove → rollback)",
-		Long: "Switch the speculative-decoding mode (off, or ngram for llama-server's ngram-mod) on the " +
-			"running install: re-check the served model against the target mode (refuse-with-remediation " +
-			"when it carries no qualified measurement), capture the prior unit verbatim, persist config + " +
-			"regenerate ONLY the villa-llama unit + restart it, and PROVE the cutover. Any mutate error or " +
+		Long: "Switch the speculative-decoding mode (off, ngram for llama-server's ngram-mod, or draft for a " +
+			"catalog-declared draft sidecar, ADR-0009) on the running install: re-check the served model " +
+			"against the target mode (refuse-with-remediation when it carries no qualified measurement, or " +
+			"for draft, when the sidecar file is not on disk), capture the prior unit verbatim, persist config " +
+			"+ regenerate ONLY the villa-llama unit + restart it, and PROVE the cutover. Any mutate error or " +
 			"a non-pass proof rolls back verbatim. Exits 0 on switch/no-op, 1 on refusal/error/rollback.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -119,8 +122,8 @@ func runSpeculationSet(cmd *cobra.Command, target string, dryRun bool, d *backen
 	errOut := cmd.ErrOrStderr()
 
 	if target == "" || !config.ValidSpeculation(target) {
-		fmt.Fprintf(errOut, "speculation set: %q is not a known mode — use %q or %q\n",
-			target, config.SpeculationOff, config.SpeculationNgram)
+		fmt.Fprintf(errOut, "speculation set: %q is not a known mode — use %q, %q, or %q\n",
+			target, config.SpeculationOff, config.SpeculationNgram, config.SpeculationDraft)
 		return exitBlocked
 	}
 

@@ -49,6 +49,24 @@ func TestKVCacheBytesSaturatesOnOverflow(t *testing.T) {
 	}
 }
 
+// TestDraftKVCacheBytesUsesDraftDims asserts draftKVCacheBytes sizes the
+// reservation from the DRAFT's own geometry (an MTP head's NLayers:1), never the
+// target model's — the two must be free to diverge.
+func TestDraftKVCacheBytesUsesDraftDims(t *testing.T) {
+	d := catalog.Draft{NLayers: 1, NKVHeads: 4, HeadDim: 256, KVBytesPerElem: 2}
+
+	const ctx = 16384
+	const want uint64 = 2 * 1 * 4 * 256 * ctx * 2
+	got := draftKVCacheBytes(d, ctx)
+	if got != want {
+		t.Fatalf("draftKVCacheBytes = %d, want %d", got, want)
+	}
+
+	if z := draftKVCacheBytes(d, 0); z != 0 {
+		t.Errorf("draftKVCacheBytes(ctx=0) = %d, want 0", z)
+	}
+}
+
 // TestAddSaturating guards the addition twin: a carry saturates, normal sums pass.
 func TestAddSaturating(t *testing.T) {
 	if got := addSaturating(math.MaxUint64, 1); got != math.MaxUint64 {

@@ -246,20 +246,23 @@ type ResidentModel struct {
 	Port int `toml:"port,omitzero"`
 }
 
-// Speculation modes. The vocabulary is closed: `draft` is deliberately absent
-// (ADR-0006 measured it slower on every catalog entry), so a config asking for it
-// is refused rather than accepted as a value that does nothing.
+// Speculation modes. ADR-0006 shipped `ngram`; ADR-0009 adds `draft` now that
+// the catalog carries a dense entry a draft sidecar wins on. The vocabulary
+// stays closed: a config asking for anything else is refused rather than
+// accepted as a value that does nothing.
 const (
 	// SpeculationOff renders no speculation flag at all.
 	SpeculationOff = "off"
 	// SpeculationNgram is llama-server's ngram-mod speculative decoder.
 	SpeculationNgram = "ngram"
+	// SpeculationDraft is a catalog-declared draft-model sidecar (ADR-0009).
+	SpeculationDraft = "draft"
 )
 
 // ValidSpeculation reports whether s is a speculation mode villa implements. The
 // empty string is valid and means unresolved.
 func ValidSpeculation(s string) bool {
-	return s == "" || s == SpeculationOff || s == SpeculationNgram
+	return s == "" || s == SpeculationOff || s == SpeculationNgram || s == SpeculationDraft
 }
 
 // validateVilla rejects a parsed config carrying a value villa cannot render, so
@@ -267,7 +270,7 @@ func ValidSpeculation(s string) bool {
 // off. It runs on every parse path, before normalizeVilla.
 func validateVilla(cfg VillaConfig) error {
 	if !ValidSpeculation(cfg.Speculation) {
-		return fmt.Errorf("config: speculation %q is not a known mode (off, ngram, or unset)", cfg.Speculation)
+		return fmt.Errorf("config: speculation %q is not a known mode (off, ngram, draft, or unset)", cfg.Speculation)
 	}
 	return nil
 }
