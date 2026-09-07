@@ -136,10 +136,27 @@ type RunSpec struct {
 
 // SpeculationSpec is the OPTIONAL speculation render delta carried on RunSpec.
 // Mode is the config vocabulary's value, already validated at the config
-// boundary, so the seam renders what it recognises and nothing for anything else.
+// boundary, so the seam renders what it recognises and nothing for anything else
+// (ADR-0006 for "ngram", ADR-0009 for "draft").
 type SpeculationSpec struct {
-	// Mode is the speculation mode; "ngram" is the only one that renders a flag.
+	// Mode is the speculation mode: "ngram" or "draft". Anything else renders
+	// nothing — the config boundary is where an unknown mode is refused.
 	Mode string
+	// WithNgram is draft-mode only: also license ngram-mod alongside the draft,
+	// because the served entry independently qualified as NgramSafe. It has no
+	// effect outside Mode == "draft".
+	WithNgram bool
+	// DraftFile is the bare GGUF filename of the draft sidecar inside the bound
+	// models dir (catalog-resolved, never a host path). "" unless Mode == "draft";
+	// an empty DraftFile in draft mode renders nothing, never a half flag set.
+	DraftFile string
+	// SpecType is the catalog's fail-closed spec type for the draft
+	// ("draft-simple" or "draft-mtp"). Draft-mode only.
+	SpecType string
+	// NMax is --spec-draft-n-max. Draft-mode only.
+	NMax int
+	// PMin is --spec-draft-p-min. Draft-mode only.
+	PMin float64
 }
 
 // CodingModeSpec is the OPTIONAL tool-calling render delta carried on RunSpec

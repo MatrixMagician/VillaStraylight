@@ -78,7 +78,7 @@ func (backendVulkan) Image() string { return vulkanImage }
 //
 // The model name is the catalog-resolved file joined onto the container models dir;
 // it is passed as a fixed exec arg, never interpolated into a shell string.
-func (backendVulkan) ContainerArgs(spec RunSpec) []string {
+func (b backendVulkan) ContainerArgs(spec RunSpec) []string {
 	hostPublish := fmt.Sprintf("%s:%d:%d", hostPublishAddr, serverPort, serverPort)
 	modelBind := fmt.Sprintf("%s:%s:ro,z", spec.ModelsDir, containerModelsDir)
 	containerModelPath := filepath.Join(containerModelsDir, spec.ModelFile)
@@ -100,7 +100,7 @@ func (backendVulkan) ContainerArgs(spec RunSpec) []string {
 	}
 	args = append(args, llamaServerFlags...)
 	args = appendCodingModeArgs(args, spec.CodingMode)
-	args = appendSpeculationArgs(args, spec.Speculation)
+	args = appendSpeculationArgs(args, spec.Speculation, b.ResidencyProof().DeviceToken)
 	args = appendProjectorArgs(args, spec.Projector)
 	return args
 }
@@ -123,12 +123,36 @@ func appendProjectorArgs(args []string, projector string) []string {
 // before the field existed. An unrecognised mode also renders nothing -- the config
 // boundary is where an unknown mode is refused (config.ValidSpeculation), and
 // guessing a flag here would be the silent downgrade ADR-0006 rules out.
-func appendSpeculationArgs(args []string, sp *SpeculationSpec) []string {
+//
+// Mode "draft" (ADR-0009) renders the draft sidecar delta: --spec-type (joined
+// with "ngram-mod," when WithNgram — the pinned build accepts the comma list),
+// then --spec-draft-model/-device/-ngl/-n-max/-p-min. deviceToken is the
+// CALLER's own Backend.ResidencyProof().DeviceToken, never a literal here — that
+// is what keeps the draft device symmetric with the target's own residency
+// marker per backend. An empty DraftFile renders nothing: never a half flag set.
+func appendSpeculationArgs(args []string, sp *SpeculationSpec, deviceToken string) []string {
 	if sp == nil {
 		return args
 	}
-	if sp.Mode == "ngram" {
+	switch sp.Mode {
+	case "ngram":
 		args = append(args, "--spec-type", "ngram-mod")
+	case "draft":
+		if sp.DraftFile == "" {
+			return args
+		}
+		specType := sp.SpecType
+		if sp.WithNgram {
+			specType = "ngram-mod," + specType
+		}
+		args = append(args,
+			"--spec-type", specType,
+			"--spec-draft-model", filepath.Join(containerModelsDir, sp.DraftFile),
+			"--spec-draft-device", deviceToken,
+			"--spec-draft-ngl", "999",
+			"--spec-draft-n-max", fmt.Sprintf("%d", sp.NMax),
+			"--spec-draft-p-min", fmt.Sprintf("%g", sp.PMin),
+		)
 	}
 	return args
 }
