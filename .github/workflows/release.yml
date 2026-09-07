@@ -95,6 +95,17 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          # actions/checkout replaces the annotated tag it was triggered by with
+          # a lightweight one pointing at the same commit, so `git tag -l
+          # --format='%(contents:subject)'` and `--notes-from-tag` read the merge
+          # commit's message instead of the release notes (v1.9 and v1.10 were
+          # published that way and repaired by hand). Refetch the real tag object
+          # over it, then refuse to publish unless it IS an annotated tag.
+          git fetch --force origin "+refs/tags/${GITHUB_REF_NAME}:refs/tags/${GITHUB_REF_NAME}"
+          if [ "$(git cat-file -t "${GITHUB_REF_NAME}")" != "tag" ]; then
+            echo "::error::${GITHUB_REF_NAME} is not an annotated tag — release notes live in the annotated tag (see docs/RELEASING.md)"
+            exit 1
+          fi
           if ! gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
             echo "no release for ${GITHUB_REF_NAME} yet — creating it from the annotated tag"
             # The TITLE is the tag's subject line, matching how v1.0–v1.7 were
