@@ -1095,3 +1095,26 @@ func TestWebSearchFindingsHaveRemediation(t *testing.T) {
 		}
 	}
 }
+
+// TestDriftDetailNamesChangedUnits: the drift WARN Detail NAMES every unit in
+// Plan.Changed, in plan order (issue #141). A drift verdict that names nothing leaves
+// the operator with nothing to diff, which is what made a moved-binary false drift
+// expensive to trace.
+func TestDriftDetailNamesChangedUnits(t *testing.T) {
+	d := newDoctorDeps()
+	d.DriftPlan = func() (orchestrate.Plan, error) {
+		return orchestrate.Plan{Changed: []orchestrate.Unit{
+			{Name: "villa-llama.container", Text: "drifted"},
+			{Name: "villa-websafe.container", Text: "drifted"},
+		}}, nil
+	}
+
+	f, ok := findingByID(Aggregate(d), "drift")
+	if !ok {
+		t.Fatal("no drift finding in the report")
+	}
+	want := "on-disk Quadlet units no longer match the rendered-from-config units: villa-llama.container, villa-websafe.container"
+	if f.Detail != want {
+		t.Errorf("drift Detail = %q, want %q", f.Detail, want)
+	}
+}
