@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # A draft sidecar is proven as a second model, not trusted as a flag
