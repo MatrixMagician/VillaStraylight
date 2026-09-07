@@ -189,13 +189,22 @@ func liveProjector(cfg config.VillaConfig, coding bool) (string, error) {
 // silent downgrade at each render site (ADR-0006). An off or unset mode returns nil
 // without reading the catalog at all: a stack that asked for nothing must still
 // render when the catalog is unreadable.
+//
+// `villa speculation set` qualifies the persisted mode against the CHAT entry only,
+// so that refusal belongs to the chat unit, where the operator asked for the mode
+// explicitly. The coder unit never had an explicit request: in coding mode it
+// resolves with an empty request, and the coder entry's own ngram_safe decides
+// (ngram when qualified, off with a note otherwise), the same fallback `recommend`
+// already applies elsewhere.
 func liveSpeculation(cfg config.VillaConfig, coding bool) (*inference.SpeculationSpec, error) {
 	if cfg.Speculation == "" || cfg.Speculation == config.SpeculationOff {
 		return nil, nil
 	}
 	served := cfg.Model
+	requested := cfg.Speculation
 	if coding {
 		served = cfg.CoderModel
+		requested = ""
 	}
 	cat, _, err := catalog.Load(cmp.Or(modelCatalogPath, cfg.CatalogPath))
 	if err != nil {
@@ -205,7 +214,7 @@ func liveSpeculation(cfg config.VillaConfig, coding bool) (*inference.Speculatio
 	if !ok {
 		return nil, fmt.Errorf("speculation: served model %q is not in the catalog", served)
 	}
-	mode, note, ok := recommend.ResolveSpeculation(m, cfg.Speculation)
+	mode, note, ok := recommend.ResolveSpeculation(m, requested)
 	if !ok {
 		return nil, fmt.Errorf("speculation: %s", note)
 	}
