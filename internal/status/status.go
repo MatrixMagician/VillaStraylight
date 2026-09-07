@@ -720,6 +720,7 @@ func Run(d Deps) Report {
 			ConfigModel:   modelFile,
 			ConfigContext: cfg.Ctx,
 			Markers:       backend.ResidencyProof(),
+			DraftExpected: cfg.Speculation == "draft",
 			// GPUBusyPercent left Unknown (the busy fold is skipped): the decode-time
 			// read belongs to the residency proof, which drives its own workload.
 		})
