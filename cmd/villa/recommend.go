@@ -106,11 +106,15 @@ func saveRecommendation(w io.Writer, rec recommend.Recommendation, catalogPath s
 	if rec.Model == "" {
 		return fmt.Errorf("recommend --save: nothing to save (no model was recommended)")
 	}
-	// Seed from the typed defaults so the dashboard/chat fields
-	// (DashboardAddr/DashboardPort/ChatPort) are preserved on write — a partial
-	// literal here would persist 0/0/"" and break the dashboard bind (gap test:1b).
-	// The default literals (8888/3000/127.0.0.1) live only in defaultConfig().
-	c := config.DefaultVillaConfig()
+	// Start from the config on disk so --save changes only the pick: the
+	// subsystem gates, their secrets and the resident slots are not the
+	// recommendation's to reset (#149). An absent file loads as the typed
+	// defaults, which is what keeps the dashboard/chat ports from being written
+	// as zero (gap test:1b).
+	c, err := config.LoadVilla()
+	if err != nil {
+		return fmt.Errorf("recommend --save: load existing config: %w", err)
+	}
 	c.Model = rec.Model
 	c.Quant = rec.Quant
 	c.Ctx = rec.ContextLen
