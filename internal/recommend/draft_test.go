@@ -179,3 +179,33 @@ func TestPickExplicitDraftRefusesWhenNotQualified(t *testing.T) {
 		})
 	}
 }
+
+// TestPickReservesDraftOnlyWhenDraftIsTheMode asserts the draft's weight and KV
+// are reserved only for a pick that will actually render the draft. An explicit
+// ngram or off honours the request, so the terms must be zero and the total must
+// exclude them; a reservation for a sidecar the unit never loads would refuse
+// contexts the host can serve.
+func TestPickReservesDraftOnlyWhenDraftIsTheMode(t *testing.T) {
+	cat := draftPickCatalog()
+	p := profileWithEnvelope(64 << 30)
+	for _, requested := range []string{"ngram", "off"} {
+		t.Run(requested, func(t *testing.T) {
+			m, _ := cat.FindByID("draft-fits")
+			m.NgramSafe, m.NgramProvenance = true, "gfx1151, test"
+			cat.Models[0] = m
+			rec := Pick(p, cat, Overrides{Model: "draft-fits", Speculation: requested}, MemoryInputs{}, WebSearchInputs{})
+			if rec.Speculation != requested {
+				t.Fatalf("Speculation = %q, want %q (notes %v)", rec.Speculation, requested, rec.Notes)
+			}
+			if rec.DraftBytes != 0 || rec.DraftKVBytes != 0 {
+				t.Errorf("DraftBytes=%d DraftKVBytes=%d, want both 0 when the mode is %s", rec.DraftBytes, rec.DraftKVBytes, requested)
+			}
+			if want := rec.WeightBytes + rec.KVCacheBytes + rec.HeadroomBytes + rec.ProjectorBytes; rec.TotalBytes != want {
+				t.Errorf("TotalBytes = %d, want %d (no draft terms)", rec.TotalBytes, want)
+			}
+			if strings.Contains(strings.Join(rec.Notes, " "), "dropped") {
+				t.Errorf("notes = %v, want no drop note for an honoured %s", rec.Notes, requested)
+			}
+		})
+	}
+}
