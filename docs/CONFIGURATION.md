@@ -70,7 +70,7 @@ chat_port = 3000
 | `catalog_path` | string | _(empty → embedded seed catalog)_ | Optional path to an external catalog JSON. Empty means "use the embedded seed catalog". |
 | `dashboard_port` | int | `8888` | Host port the control dashboard listens on. |
 | `chat_port` | int | `3000` | Host port Open WebUI is published on; also the target of the dashboard's "chat" link. |
-| `speculation` | string | _(absent → off)_ | Speculative-decoding mode of the inference unit: `off`, or `ngram` for llama-server's `ngram-mod`. An absent key renders speculation off, which is what every install predating the key carries. `config set` does not accept it: turning it on is a stateful cutover driven by `villa speculation set` (see [Speculation](#speculation)). A hand-edited value outside this vocabulary, `draft` included, is refused on load. |
+| `speculation` | string | _(absent → off)_ | Speculative-decoding mode of the inference unit: `off`, `ngram` for llama-server's `ngram-mod`, or `draft` for the entry's draft sidecar. An absent key renders speculation off, which is what every install predating the key carries. `config set` does not accept it: turning it on is a stateful cutover driven by `villa speculation set` (see [Speculation](#speculation)). A hand-edited value outside this vocabulary is refused on load. |
 | `vision` | bool | _(absent → false)_ | Whether the inference unit is started with the model's vision projector, so an image attached in Open WebUI is answered. True only when a `villa recommend --save` or a `villa install` resolved a projector that fits the envelope and pulled it — the projector file must be on disk before a unit can reference it, which is why this is persisted rather than read back from the catalog. An absent key renders no projector flag, which is what every install predating the key carries. |
 | `resident` | array of tables | _(absent)_ | Zero or more `[[resident]]` slots: secondary models held loaded alongside `model`. Absent until `villa model resident add` writes one. See [The resident set](#the-resident-set). |
 
@@ -391,11 +391,16 @@ fit verdict, and the preflight without writing, regenerating, or restarting anyt
 ### Speculation
 
 The `speculation` key selects the speculative-decoding mode the inference unit is
-started with. Two values are honored, and an absent key means off:
+started with. Three values are honored, and an absent key means off:
 
 - **`off`** renders no speculation flag at all.
 - **`ngram`** renders llama-server's `--spec-type ngram-mod`. It downloads nothing
   and costs no memory: the drafts come from n-grams of the context itself.
+- **`draft`** renders the entry's draft sidecar, a companion GGUF pulled and
+  verified with the model: `--spec-type <spec_type>` with the draft file, the
+  backend's own residency device, every draft layer on the device, and the
+  `n_max` and `p_min` the catalog measured. When the entry is also `ngram_safe`
+  the spec type is `ngram-mod,<spec_type>`, so `draft` on such an entry is both.
 
 `ngram` is neutral on a prompt the server has not seen and up to 2.8x on repeated
 output, which is what `villa code` produces. It is offered only for a catalog entry
@@ -404,10 +409,19 @@ naming the probe); asking for it on an entry without one is a refusal, never a
 silent downgrade to off. `villa recommend` shows the mode it resolved, and
 `--save` and `villa install` persist it exactly as they persist the backend.
 
-`draft` is deliberately not a value. A draft sidecar was measured and lost on every
-catalog entry, so the config vocabulary refuses it rather than accepting a setting
-that does nothing. The numbers and the reasoning are in
-[ADR-0006](adr/0006-speculation-is-a-persisted-mode-behind-the-inference-seam.md).
+`draft` pays on a dense target, where the draft is a small fraction of a target
+step; the catalog carries one only for an entry measured on this hardware. It is
+a term of the fit in its own right, reserved after the vision projector, so a
+tight envelope loses the speedup before it loses vision. An unset `speculation`
+resolves down a ladder: `draft` when the entry carries one and it fits, else
+`ngram` when the entry is qualified, else `off`, each with a note. A dropped
+draft is noted in the recommendation. An explicit `draft` on an entry that has
+no draft, or whose draft does not fit, is a refusal. `villa speculation set draft`
+also refuses when the draft file is not on disk and names `villa model pull`,
+because the swap never downloads. `villa recommend --json` reports the two
+reserved terms as `draft_bytes` and `draft_kv_bytes` (schema 7), both `0` when
+no draft is served. The numbers and the reasoning are in
+[ADR-0009](adr/0009-a-draft-sidecar-is-proven-as-a-second-model.md).
 
 Switching the mode is a stateful operation on the same transaction as a backend
 switch:
@@ -417,6 +431,7 @@ villa speculation show              # the persisted mode (off when unset)
 villa speculation show --json       # { "speculation": "..." }
 villa speculation set ngram --dry-run   # preview target/fit, mutate nothing
 villa speculation set ngram         # transactional cutover
+villa speculation set draft         # the draft sidecar; refuses when it is not on disk
 villa speculation set off           # turn it back off
 ```
 
