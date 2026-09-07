@@ -1,0 +1,3 @@
+llama_model_loader: loaded meta data with 50 key-value pairs and 866 tensors from /models/Qwen3.8-27B-UD-Q4_K_XL.gguf (version GGUF V3 (latest))
+load_tensors:          CPU model buffer size =   682.03 MiB
+load_tensors:        ROCm0 model buffer size = 16053.22 MiB

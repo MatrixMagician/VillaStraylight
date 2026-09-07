@@ -78,6 +78,13 @@ type ValidateInput struct {
 	// entry without a projector, leaves every verdict byte-identical: the projector
 	// scrape is not run at all, so a text-only stack is unaffected.
 	Vision bool
+
+	// DraftExpected is the persisted draft speculation decision (cfg.Speculation ==
+	// "draft", ADR-0009). When true the offload scrape additionally judges the
+	// log's second model-load block (the draft sidecar) and folds a draft FAIL/WARN
+	// into the verdict; when false the verdict is byte-identical to a stack with no
+	// draft in play.
+	DraftExpected bool
 }
 
 // projectorFile is the projector the run carries: the entry's first projector
@@ -144,7 +151,7 @@ func Validate(ctx context.Context, in ValidateInput) Verdict {
 	stderr, _ := in.Runner.Logs()
 
 	// (5) The dual offload assert: both signals required for a PASS.
-	logRes := scrapeOffloadLog(stderr, in.Markers)
+	logRes := scrapeOffloadLog(stderr, in.Markers, in.DraftExpected)
 	sysRes := offloadSysfsDelta(before, after, in.WeightBytes)
 	offload := combineOffload(logRes, sysRes)
 

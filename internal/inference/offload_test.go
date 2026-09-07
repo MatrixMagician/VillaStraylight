@@ -3,6 +3,7 @@ package inference
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
@@ -63,7 +64,7 @@ func TestOffloadLogScrape(t *testing.T) {
 	markers := VulkanBackend().ResidencyProof()
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := scrapeOffloadLog(readFixture(t, tc.fixture), markers)
+			got := scrapeOffloadLog(readFixture(t, tc.fixture), markers, false)
 			if got.Status != tc.want {
 				t.Errorf("scrapeOffloadLog(%s): Status=%v, want %v (detail=%q)", tc.fixture, got.Status, tc.want, got.Detail)
 			}
@@ -94,7 +95,7 @@ func TestROCmOffloadLogScrape(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := scrapeOffloadLog(readFixture(t, tc.fixture), markers)
+			got := scrapeOffloadLog(readFixture(t, tc.fixture), markers, false)
 			if got.Status != tc.want {
 				t.Errorf("scrapeOffloadLog(%s) Status=%v, want %v (detail=%q)", tc.fixture, got.Status, tc.want, got.Detail)
 			}
@@ -110,11 +111,11 @@ func TestScrapeOffloadPartialGating(t *testing.T) {
 	markers := VulkanBackend().ResidencyProof()
 
 	// Auto-fit: device_info enumeration, no offloaded line → still PASS (the gating proof).
-	if r := scrapeOffloadLog(readFixture(t, "radv_devinfo_pass.stderr"), markers); r.Status != StatusPass {
+	if r := scrapeOffloadLog(readFixture(t, "radv_devinfo_pass.stderr"), markers, false); r.Status != StatusPass {
 		t.Fatalf("auto-fit (no offloaded line) status = %s, want PASS (N<M rule must be gated)", r.Status)
 	}
 	// Explicit partial offload 1/65 → FAIL.
-	if r := scrapeOffloadLog(readFixture(t, "radv_partial_fail.stderr"), markers); r.Status != StatusFail {
+	if r := scrapeOffloadLog(readFixture(t, "radv_partial_fail.stderr"), markers, false); r.Status != StatusFail {
 		t.Fatalf("partial offload 1/65 status = %s, want FAIL", r.Status)
 	}
 }
@@ -154,15 +155,77 @@ func TestOffloadSysfsDelta(t *testing.T) {
 	}
 }
 
+// TestModelBlocks asserts the block split (ADR-0009): lines before the first
+// opener fold into block 0 (the device banner scrapeOffloadLogTarget depends on
+// must not be dropped), each subsequent opener starts a new block, and a log with
+// no opener at all yields no blocks.
+func TestModelBlocks(t *testing.T) {
+	two := readFixture(t, "draft_mtp_two_block.txt")
+	blocks := modelBlocks(two)
+	if len(blocks) != 2 {
+		t.Fatalf("len(blocks) = %d, want 2", len(blocks))
+	}
+	if !strings.Contains(blocks[0][0], "Qwen3.8-27B-UD-Q4_K_XL.gguf") {
+		t.Errorf("block[0] does not open on the target's meta-data line: %q", blocks[0][0])
+	}
+	if !strings.Contains(blocks[1][0], "mtp-Qwen3.8-27B-Q4_0.gguf") {
+		t.Errorf("block[1] does not open on the draft's meta-data line: %q", blocks[1][0])
+	}
+
+	single := readFixture(t, "draft_single_block.txt")
+	if blocks := modelBlocks(single); len(blocks) != 1 {
+		t.Fatalf("single-block log: len(blocks) = %d, want 1", len(blocks))
+	}
+
+	pre := "build: 0 (unknown)\nggml_vulkan: 0 = AMD Radeon (radv)\n" + single
+	blocks = modelBlocks(pre)
+	if len(blocks) != 1 {
+		t.Fatalf("pre-opener lines: len(blocks) = %d, want 1 (folded into block 0)", len(blocks))
+	}
+	if !strings.Contains(blocks[0][0], "build: 0") {
+		t.Errorf("pre-opener line not folded into block 0's prefix: %q", blocks[0][0])
+	}
+
+	if blocks := modelBlocks("no opener lines here\n"); len(blocks) != 0 {
+		t.Fatalf("no-opener log: len(blocks) = %d, want 0", len(blocks))
+	}
+}
+
+// TestScrapeOffloadLogDraftExpected drives scrapeOffloadLog's draft fold (ADR-0009)
+// against real captured lines: a two-block ROCm0 draft PASSes even with a
+// ROCm_Host line in the same block (Pitfall 2), a CPU-only draft block FAILs
+// naming the draft, and a single-block log WARNs Unknown naming the missing draft
+// block. draftExpected=false stays byte-identical to the pre-draft verdict.
+func TestScrapeOffloadLogDraftExpected(t *testing.T) {
+	rocmMarkers := rocmMarkersForTest(t)
+
+	if r := scrapeOffloadLog(readFixture(t, "rocm_draft_pass.stderr"), rocmMarkers, true); r.Status != StatusPass {
+		t.Fatalf("two-block ROCm0 draft: status = %s, want PASS (detail: %s)", r.Status, r.Detail)
+	}
+	if r := scrapeOffloadLog(readFixture(t, "rocm_draft_cpu_fail.stderr"), rocmMarkers, true); r.Status != StatusFail || !strings.Contains(r.Detail, "draft") {
+		t.Fatalf("CPU-only draft block: status = %s, detail = %q, want FAIL naming the draft", r.Status, r.Detail)
+	}
+	if r := scrapeOffloadLog(readFixture(t, "rocm_draft_single_block.stderr"), rocmMarkers, true); r.Status != StatusWarn || !strings.Contains(r.Detail, "draft") {
+		t.Fatalf("single-block log: status = %s, detail = %q, want WARN naming the missing draft block", r.Status, r.Detail)
+	}
+
+	// draftExpected=false: exactly today's target-only verdict, same fixture text.
+	want := scrapeOffloadLogTarget(readFixture(t, "rocm_draft_pass.stderr"), rocmMarkers)
+	got := scrapeOffloadLog(readFixture(t, "rocm_draft_pass.stderr"), rocmMarkers, false)
+	if got != want {
+		t.Fatalf("draftExpected=false: got %+v, want byte-identical %+v", got, want)
+	}
+}
+
 // TestOffloadVerdict: combined dual-assert is PASS only when BOTH log-scrape AND
 // sysfs delta pass; if either is FAIL → FAIL; if either is Unknown (and neither
 // FAIL) → WARN.
 func TestOffloadVerdict(t *testing.T) {
 	before := readSysfsBytes(t, "gtt_before")
 	markers := VulkanBackend().ResidencyProof()
-	logPass := scrapeOffloadLog(readFixture(t, "radv_pass.stderr"), markers)
-	logFail := scrapeOffloadLog(readFixture(t, "llvmpipe_fail.stderr"), markers)
-	logUnknown := scrapeOffloadLog(readFixture(t, "loading_503.stderr"), markers)
+	logPass := scrapeOffloadLog(readFixture(t, "radv_pass.stderr"), markers, false)
+	logFail := scrapeOffloadLog(readFixture(t, "llvmpipe_fail.stderr"), markers, false)
+	logUnknown := scrapeOffloadLog(readFixture(t, "loading_503.stderr"), markers, false)
 	sysPass := offloadSysfsDelta(before, readSysfsBytes(t, "gtt_after_pass"), fixtureWeightBytes)
 	sysFail := offloadSysfsDelta(before, readSysfsBytes(t, "gtt_after_fail"), fixtureWeightBytes)
 	sysUnknown := offloadSysfsDelta(detect.UnknownBytes("x", ""), readSysfsBytes(t, "gtt_after_pass"), fixtureWeightBytes)

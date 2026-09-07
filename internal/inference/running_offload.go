@@ -70,6 +70,13 @@ type RunningOffloadInput struct {
 	// verdict stays byte-identical). The live decode-time read lands in Phase 8;
 	// Phase 6 wires the input + verdict logic, fixture-driven.
 	GPUBusyPercent detect.Int
+
+	// DraftExpected is the persisted draft speculation decision (cfg.Speculation ==
+	// "draft", ADR-0009). When true the residency scrape additionally judges the
+	// journal's second model-load block (the draft sidecar) and folds a draft
+	// FAIL/WARN into the verdict; when false the verdict is byte-identical to a
+	// stack with no draft in play.
+	DraftExpected bool
 }
 
 // PropsInfo is the subset of llama.cpp /props the running-offload Verdict consults:
@@ -109,7 +116,26 @@ const (
 //	  (the silent-CPU-fallback this exists to catch)
 //	- no load_tensors buffer line at all / empty journal                     → WARN
 //	  (typed-Unknown — could not evaluate; NEVER a false PASS)
-func scrapeLoadTensorsResidency(journal string, m ResidencyMarkers) OffloadResult {
+//
+// When draftExpected is true (ADR-0009), the target verdict above is folded with
+// the draft sidecar's own judgment from the journal's second model-load block (see
+// judgeDraftBlock in offload.go and foldDraft) — the same rule the target has
+// always had, applied per block. When false the result is byte-identical to the
+// pre-draft behavior.
+func scrapeLoadTensorsResidency(journal string, m ResidencyMarkers, draftExpected bool) OffloadResult {
+	target := scrapeLoadTensorsResidencyTarget(journal, m)
+	if !draftExpected {
+		return target
+	}
+	return foldDraft(target, judgeDraftBlock(modelBlocks(journal), m))
+}
+
+// scrapeLoadTensorsResidencyTarget is the unchanged, pre-draft target-only scrape:
+// the whole journal text scanned for load_tensors buffer lines. It is unaffected
+// by a second model-load block in the common case (the target's own device buffer
+// dominates the max), and callers needing exact block scoping pass draftExpected
+// through scrapeLoadTensorsResidency instead.
+func scrapeLoadTensorsResidencyTarget(journal string, m ResidencyMarkers) OffloadResult {
 	if strings.TrimSpace(journal) == "" {
 		return OffloadResult{
 			Status: StatusWarn,
@@ -327,7 +353,7 @@ func verdictAsResult(v Verdict) OffloadResult {
 // identity corroboration, never placement proof), while an unavailable /props (nil)
 // is left as Unknown and never upgrades or downgrades the residency-proven verdict.
 func RunningOffloadVerdict(in RunningOffloadInput) Verdict {
-	residency := scrapeLoadTensorsResidency(in.JournalText, in.Markers)
+	residency := scrapeLoadTensorsResidency(in.JournalText, in.Markers, in.DraftExpected)
 	floor := gttFloor(in.GTTUsedBytes, in.WeightBytes)
 
 	v := combineOffload(residency, floor)

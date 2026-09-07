@@ -71,7 +71,25 @@ const (
 //   - a software-renderer device line                                 → FAIL
 //   - offloaded 0/N explicitly                                        → FAIL
 //   - no real Vulkan device and no offload evidence / stderr empty    → Unknown (WARN)
-func scrapeOffloadLog(stderr string, m ResidencyMarkers) OffloadResult {
+//
+// When draftExpected is true (ADR-0009), the target verdict above is folded with
+// the draft sidecar's own judgment from the log's second model-load block (see
+// judgeDraftBlock and foldDraft) — a draft that fell back to the CPU is a residency
+// FAIL just as a target CPU fallback is. When false the result is byte-identical to
+// the pre-draft behavior.
+func scrapeOffloadLog(stderr string, m ResidencyMarkers, draftExpected bool) OffloadResult {
+	target := scrapeOffloadLogTarget(stderr, m)
+	if !draftExpected {
+		return target
+	}
+	return foldDraft(target, judgeDraftBlock(modelBlocks(stderr), m))
+}
+
+// scrapeOffloadLogTarget is the unchanged, pre-draft target-only scrape: the whole
+// stderr text scanned for the device/offload markers. It is unaffected by a second
+// model-load block, since those markers (ggml_vulkan/device_info/"offloaded N/N")
+// never appear in a draft's own block.
+func scrapeOffloadLogTarget(stderr string, m ResidencyMarkers) OffloadResult {
 	if strings.TrimSpace(stderr) == "" {
 		return OffloadResult{
 			Status: StatusWarn,
@@ -363,4 +381,131 @@ func firstNonEmpty(ss ...string) string {
 		}
 	}
 	return ""
+}
+
+// modelLoaderOpener is the llama.cpp line that opens every model's own
+// load_tensors block, the target's first and a draft sidecar's second (ADR-0009).
+const modelLoaderOpener = "llama_model_loader: loaded meta data"
+
+// modelBlocks splits a log (start-time stderr or a running journal — the same
+// helper serves both scrapes) into one slice of lines per model load, each opened
+// by a modelLoaderOpener line: block 0 is the target, block 1 (when present) is
+// the draft sidecar, and so on. Lines before the FIRST opener — the backend banner
+// and device enumeration scrapeOffloadLogTarget depends on — are folded into block
+// 0's prefix rather than ignored, so scoping to a block never drops evidence the
+// unscoped target scan already relies on. A log with no opener at all yields no
+// blocks.
+func modelBlocks(log string) [][]string {
+	var blocks [][]string
+	var prefix []string
+	sc := bufio.NewScanner(strings.NewReader(log))
+	for sc.Scan() {
+		line := sc.Text()
+		if strings.Contains(line, modelLoaderOpener) {
+			if len(blocks) == 0 {
+				blocks = append(blocks, append(prefix, line))
+			} else {
+				blocks = append(blocks, []string{line})
+			}
+			continue
+		}
+		if len(blocks) == 0 {
+			prefix = append(prefix, line)
+			continue
+		}
+		blocks[len(blocks)-1] = append(blocks[len(blocks)-1], line)
+	}
+	return blocks
+}
+
+// judgeDraftBlock applies the load_tensors device-buffer-line rule (the running
+// scrape's own rule, reused rather than re-rolled) to blocks[1], the draft
+// sidecar's model-load block, naming the draft in every Detail so a draft finding
+// reads distinctly from a target finding:
+//
+//   - no blocks[1] (draft expected but never loaded)              → Unknown (WARN)
+//   - a DeviceToken buffer line with N>0 (CPU buffer or not)       → PASS
+//   - only a CPU/host buffer line, no DeviceToken line             → FAIL
+//
+// The DeviceToken match is strings.Contains, so "ROCm0" does not match
+// "ROCm_Host" (Pitfall 2) — a real draft-simple load carries both lines and PASSes
+// on the ROCm0 one.
+func judgeDraftBlock(blocks [][]string, m ResidencyMarkers) OffloadResult {
+	if len(blocks) < 2 {
+		return OffloadResult{
+			Status: StatusWarn,
+			Signal: detect.UnknownBool("no second load_tensors block found (draft expected)", ""),
+			Detail: "draft: no draft load_tensors block found in the log",
+		}
+	}
+	if m.DeviceToken == "" {
+		return OffloadResult{
+			Status: StatusWarn,
+			Signal: detect.UnknownBool("residency markers missing a device token (could not evaluate draft)", ""),
+			Detail: "draft: could not be evaluated (no device token in markers)",
+		}
+	}
+
+	var (
+		sawDeviceBuffer bool
+		sawCPUBuffer    bool
+		deviceMiB       float64
+	)
+	for _, raw := range blocks[1] {
+		line := strings.TrimSpace(raw)
+		if !strings.Contains(line, loadTensorsPrefix) || !strings.Contains(line, bufferSizePhrase) {
+			continue
+		}
+		mib, ok := parseBufferMiB(line)
+		if !ok {
+			continue
+		}
+		if strings.Contains(line, m.DeviceToken) {
+			sawDeviceBuffer = true
+			if mib > deviceMiB {
+				deviceMiB = mib
+			}
+		} else {
+			sawCPUBuffer = true
+		}
+	}
+
+	switch {
+	case sawDeviceBuffer && deviceMiB > 0:
+		return OffloadResult{
+			Status: StatusPass,
+			Signal: detect.KnownBool(true, "draft load_tensors "+m.DeviceToken+" model buffer size"),
+			Detail: fmt.Sprintf("draft: %s model buffer %.2f MiB resident on the iGPU", m.DeviceToken, deviceMiB),
+		}
+	case sawCPUBuffer:
+		return OffloadResult{
+			Status: StatusFail,
+			Signal: detect.KnownBool(false, "draft load_tensors CPU buffer only"),
+			Detail: "draft: loaded on the CPU",
+		}
+	default:
+		return OffloadResult{
+			Status: StatusWarn,
+			Signal: detect.UnknownBool("no draft load_tensors buffer line found in the block", ""),
+			Detail: "draft: no draft load_tensors buffer line found",
+		}
+	}
+}
+
+// foldDraft folds the draft sidecar's judgment into the already-decided target
+// OffloadResult. It follows foldProjector's softening shape (validate.go) with one
+// deliberate difference: the projector's failure is never fatal, but the draft is
+// proven as a second model (ADR-0009), so a draft FAIL is a real residency FAIL —
+// draft Unknown only ever takes a target PASS down to WARN, and never lowers a
+// target that is already WARN or FAIL any further.
+func foldDraft(target, draft OffloadResult) OffloadResult {
+	target.Detail = fmt.Sprintf("%s; %s", target.Detail, draft.Detail)
+	switch {
+	case draft.Status == StatusFail:
+		target.Status = StatusFail
+		target.Raw = firstNonEmpty(target.Raw, draft.Raw)
+	case draft.Status == StatusWarn && target.Status == StatusPass:
+		target.Status = StatusWarn
+	}
+	return target
 }

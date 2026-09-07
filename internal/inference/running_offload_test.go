@@ -279,7 +279,7 @@ func TestScrapeLoadTensorsResidencyFault(t *testing.T) {
 	vulkanJournal := readFixture(t, "load_tensors_vulkan.txt")
 
 	// Vulkan markers (empty FaultString) → fault scan is a no-op → PASS.
-	if r := scrapeLoadTensorsResidency(vulkanJournal, VulkanBackend().ResidencyProof()); r.Status != StatusPass {
+	if r := scrapeLoadTensorsResidency(vulkanJournal, VulkanBackend().ResidencyProof(), false); r.Status != StatusPass {
 		t.Fatalf("vulkan residency status = %s, want PASS (fault scan must be a no-op)", r.Status)
 	}
 
@@ -287,7 +287,7 @@ func TestScrapeLoadTensorsResidencyFault(t *testing.T) {
 	// buffer-line PASS.
 	faultMarkers := ResidencyMarkers{DeviceToken: "Vulkan0", FaultString: "Memory access fault by GPU node"}
 	faulted := vulkanJournal + "\nMemory access fault by GPU node-1 (Agent handle: 0x...) on address 0x...\n"
-	if r := scrapeLoadTensorsResidency(faulted, faultMarkers); r.Status != StatusFail {
+	if r := scrapeLoadTensorsResidency(faulted, faultMarkers, false); r.Status != StatusFail {
 		t.Fatalf("faulted journal status = %s, want FAIL (fault voids residency)", r.Status)
 	}
 }
@@ -301,14 +301,14 @@ func TestScrapeLoadTensorsResidencyMaxNotLast(t *testing.T) {
 	markers := ResidencyMarkers{DeviceToken: "Vulkan0"}
 	journal := "x villa-llama[1]: load_tensors:      Vulkan0 model buffer size = 21504.49 MiB\n" +
 		"x villa-llama[1]: load_tensors:      Vulkan0 model buffer size =     0.00 MiB\n"
-	if r := scrapeLoadTensorsResidency(journal, markers); r.Status != StatusPass {
+	if r := scrapeLoadTensorsResidency(journal, markers, false); r.Status != StatusPass {
 		t.Fatalf("non-zero then 0.00 MiB same-token lines → %s, want PASS (max, not last-write)", r.Status)
 	}
 
 	// All-zero device lines stay a FAIL (no weights resident) — max() must not mask
 	// a genuinely-empty device buffer.
 	allZero := "x villa-llama[1]: load_tensors:      Vulkan0 model buffer size =     0.00 MiB\n"
-	if r := scrapeLoadTensorsResidency(allZero, markers); r.Status != StatusFail {
+	if r := scrapeLoadTensorsResidency(allZero, markers, false); r.Status != StatusFail {
 		t.Fatalf("only a 0.00 MiB device line → %s, want FAIL", r.Status)
 	}
 }
@@ -320,7 +320,7 @@ func TestScrapeLoadTensorsResidencyMaxNotLast(t *testing.T) {
 // token must degrade to WARN (could-not-evaluate), never PASS.
 func TestScrapeLoadTensorsResidencyEmptyDeviceToken(t *testing.T) {
 	cpuOnly := "x villa-llama[1]: load_tensors:   CPU_Mapped model buffer size =   315.32 MiB\n"
-	if r := scrapeLoadTensorsResidency(cpuOnly, ResidencyMarkers{DeviceToken: ""}); r.Status != StatusWarn {
+	if r := scrapeLoadTensorsResidency(cpuOnly, ResidencyMarkers{DeviceToken: ""}, false); r.Status != StatusWarn {
 		t.Fatalf("empty DeviceToken over a CPU-only journal → %s, want WARN (no false PASS)", r.Status)
 	}
 }

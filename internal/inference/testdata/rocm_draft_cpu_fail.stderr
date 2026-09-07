@@ -1,0 +1,11 @@
+0.00.032.576 I log_info: verbosity = 3 (adjust with the `-lv N` CLI arg)
+0.00.032.578 I ggml_cuda_init: found 1 ROCm devices:
+0.00.032.579 I device_info:
+0.00.032.680 I   - ROCm0 : AMD Radeon 8060S Graphics (gfx1151) (64550 MiB, 62144 MiB free)
+0.00.032.683 I   - CPU   : AMD RYZEN AI MAX+ 395 w/ Radeon 8060S (128077 MiB, 128077 MiB free)
+0.00.993.460 I llama_model_loader: loaded meta data with 50 key-value pairs and 866 tensors from /models/Qwen3.8-27B-UD-Q4_K_XL.gguf (version GGUF V3 (latest))
+0.01.876.556 I load_tensors:          CPU model buffer size =   682.03 MiB
+0.01.876.558 I load_tensors:        ROCm0 model buffer size = 16053.22 MiB
+0.04.197.325 I llama_model_loader: loaded meta data with 50 key-value pairs and 18 tensors from /models/mtp-Qwen3.8-27B-Q4_0.gguf (version GGUF V3 (latest))
+0.04.462.632 I load_tensors:          CPU model buffer size =  1000.00 MiB
+0.05.100.000 I main: server is listening on http://0.0.0.0:8080 - starting the main loop
