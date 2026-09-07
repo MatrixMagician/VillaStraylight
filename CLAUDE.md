@@ -289,6 +289,7 @@ loop.
 | detect | Probe host → typed-Unknown `HostProfile` (CPU, memory envelope, iGPU, kernel, ROCm readiness) | `internal/detect/detect.go` |
 | recommend | Pure `Pick()` → memory-fitting `Recommendation` (model/quant/ctx/backend) | `internal/recommend/recommend.go` |
 | catalog | Embedded model catalog (`go:embed seed.json`) + external override w/ fallback | `internal/catalog/catalog.go`, `load.go` |
+| gguf | The GGUF header + KV section reader, never the tensors: the witness the catalog's fit dimensions are cross-checked against (ADR-0007) | `internal/gguf/gguf.go` |
 | preflight | Reusable host-prep gate → `[]CheckResult` (BLOCK/WARN tiers, fail-soft) | `internal/preflight/preflight.go` |
 | inference | Backend-neutral seam: `BackendFor`, `Backend` iface, offload/residency proof | `internal/inference/*.go` |
 | orchestrate | Render Quadlet units (pure) + reconcile + host-touching systemd seam | `internal/orchestrate/*.go` |

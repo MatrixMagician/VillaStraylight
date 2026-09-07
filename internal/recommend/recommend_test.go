@@ -89,6 +89,38 @@ func TestPickMultiEnvelopeFitAndOOMGuard(t *testing.T) {
 	}
 }
 
+// TestPickRanksByWeightNotFootprint asserts that a smaller KV cache never demotes
+// a larger model. Both entries fit; "heavier-weights" carries more parameters but a
+// frugal KV geometry, "lighter-weights" fewer parameters but a KV cache four times
+// the size. Ranking by total footprint picks the lighter model, which is the wrong
+// answer: the KV term is a COST the operator pays for context, not a measure of how
+// capable the model is.
+func TestPickRanksByWeightNotFootprint(t *testing.T) {
+	cat := catalog.Catalog{
+		SchemaVersion:  catalog.SupportedSchema,
+		CatalogVersion: "test",
+		Models: []catalog.Model{
+			{
+				ID: "heavier-weights", Quant: "Q4_K_M", WeightBytes: 21 << 30,
+				NLayers: 10, NKVHeads: 2, HeadDim: 256, KVBytesPerElem: 2,
+				DefaultCtx: 131072, TierGB: 64, UnifiedMemorySafe: true, BackendDefault: "rocm",
+			},
+			{
+				ID: "lighter-weights", Quant: "Q4_K_M", WeightBytes: 17 << 30,
+				NLayers: 48, NKVHeads: 4, HeadDim: 128, KVBytesPerElem: 2,
+				DefaultCtx: 131072, TierGB: 64, UnifiedMemorySafe: true, BackendDefault: "rocm",
+			},
+		},
+	}
+	rec := Pick(profileWithEnvelope(124<<30), cat, Overrides{}, MemoryInputs{}, WebSearchInputs{})
+	if rec.Model != "heavier-weights" {
+		t.Fatalf("Pick chose %q, want heavier-weights (a frugal KV geometry must not demote the larger model)", rec.Model)
+	}
+	if !rec.Fits {
+		t.Errorf("pick %q marked not-fitting", rec.Model)
+	}
+}
+
 // TestPickHonorsMinEnvelopeFloor asserts the MinEnvelopeBytes secondary floor
 // guard: a model whose declared minimum envelope exceeds the host's
 // envelope is NOT auto-selected, even when the raw weights+KV+headroom math fits.

@@ -107,7 +107,7 @@ func codingModelFile(_ config.VillaConfig, servedModel string) (string, error) {
 	if !ok {
 		return "", fmt.Errorf("model %q is not in the catalog — cannot resolve its weight file", servedModel)
 	}
-	return primaryModelFile(m), nil
+	return m.PrimaryFile(), nil
 }
 
 // codingWeightBytes returns the served model's weight bytes for the residency proof,
@@ -297,7 +297,7 @@ func liveCodingModeDeps(ctx context.Context) *codingmode.Deps {
 			m, ok := cat.FindByID(coder.Model)
 			downloaded := false
 			if ok {
-				_, statErr := os.Stat(filepath.Join(modelsDir(), primaryModelFile(m)))
+				_, statErr := os.Stat(filepath.Join(modelsDir(), m.PrimaryFile()))
 				downloaded = statErr == nil
 			}
 			return codingmode.CoderTarget{

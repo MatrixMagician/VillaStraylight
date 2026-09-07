@@ -82,6 +82,9 @@ graph TD
     recommend --> detect
     recommend --> catalog
     preflight --> detect
+    preflight --> gguf["internal/gguf<br/>header + KV section only<br/>the catalog's witness (ADR-0007)"]
+    download --> gguf
+    catalog --> gguf
     CLI --> resolver["inference.BackendFor(name)<br/>single fail-closed resolver"]
     resolver --> brc["backendROCm<br/>(7.2.4, default)"]
     resolver --> bvk["backendVulkan<br/>(RADV, fallback)"]
@@ -398,6 +401,8 @@ internal/
   detect/             Host probe → typed-Unknown HostProfile; AMD GPU seam in
                       gpu_amd.go; ROCm-viability summary in readiness_rocm.go.
   catalog/            Embedded, schema-versioned model catalog + KV-fit dimensions.
+  gguf/               GGUF header + KV-section reader (never the tensors): the
+                      witness the catalog's fit dimensions are checked against.
   recommend/          Pure memory-fit model selector (Pick) over detect + catalog.
   preflight/          Pure, reusable host-readiness gate (BLOCK/WARN-tier checks);
                       ROCm bring-up gate driven by embedded rocm-policy.json.

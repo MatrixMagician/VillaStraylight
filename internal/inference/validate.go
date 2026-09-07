@@ -191,7 +191,7 @@ func foldProjector(v Verdict, p OffloadResult) Verdict {
 func spec(in ValidateInput) RunSpec {
 	return RunSpec{
 		ContainerName: "villa-inference-validate",
-		ModelFile:     primaryModelFile(in.Model),
+		ModelFile:     in.Model.PrimaryFile(),
 		ModelsDir:     in.ModelsDir,
 		ContextLen:    in.ContextLen,
 		Projector:     projectorFile(in),
@@ -208,7 +208,7 @@ func runCeiling(ctx context.Context, in ValidateInput) CeilingResult {
 	stressCtx := stressContextFor(in.ContextLen, in.WeightBytes, in.KVCacheBytes, in.HeadroomBytes, in.EnvelopeBytes, in.Model.DefaultCtx)
 	stress := RunSpec{
 		ContainerName: "villa-inference-ceiling",
-		ModelFile:     primaryModelFile(in.Model),
+		ModelFile:     in.Model.PrimaryFile(),
 		ModelsDir:     in.ModelsDir,
 		ContextLen:    stressCtx,
 	}
@@ -265,16 +265,6 @@ func foldVerdict(offload Verdict, chat ChatResult, ceiling CeilingResult) Verdic
 	base.Status = StatusPass
 	base.Detail = fmt.Sprintf("offload proven (log + sysfs), chat returned %d tokens, and the context ceiling cleared at ctx %d", chat.Tokens, ceiling.StressCtx)
 	return base
-}
-
-// primaryModelFile resolves the on-disk GGUF filename for a model. It prefers the
-// first shard's filename (the Plan-01 download manifest) and falls back to the model
-// ID when no shard metadata is present (test fixtures).
-func primaryModelFile(m catalog.Model) string {
-	if len(m.Shards) > 0 && m.Shards[0].Filename != "" {
-		return m.Shards[0].Filename
-	}
-	return m.ID + ".gguf"
 }
 
 // firstNonEmptyStr returns the first non-empty of a, b.

@@ -523,13 +523,14 @@ func deriveROCmAdvice(r detect.ROCmReadiness) (ROCmAdvice, string) {
 	return ROCmAdviceWorthTrying, rocmAdviceNote
 }
 
-// pickBest selects the largest auto-eligible model that fits, honoring an
-// optional --ctx/--quant override on the chosen model.
+// pickBest selects the heaviest auto-eligible model that fits, honoring an
+// optional --ctx/--quant override on the chosen model. "Heaviest" is weight bytes,
+// not total footprint — see the ranking comment below.
 func pickBest(c catalog.Catalog, ov Overrides, envelope uint64, degraded bool, notes []string) Recommendation {
 	headroom := headroomBytes(envelope)
 
 	var best *catalog.Model
-	var bestTotal uint64
+	var bestWeight, bestTotal uint64
 	var alts []Alternative
 
 	for i := range c.Models {
@@ -555,10 +556,19 @@ func pickBest(c catalog.Catalog, ov Overrides, envelope uint64, degraded bool, n
 			continue // OOM guard: never select a pick that exceeds the envelope
 		}
 		alts = append(alts, Alternative{Model: m.ID, Quant: m.Quant, ContextLen: ctx, TotalBytes: total})
-		// "Best" = the largest footprint that still fits (most capable).
-		if best == nil || total > bestTotal {
+		// "Best" = the most WEIGHT that still fits. Weight bytes are the capability
+		// proxy: they are the parameters, at the quant villa will actually run. The KV
+		// term is a COST the operator pays for context, not a measure of how capable
+		// the model is, so ranking on weights+KV lets a frugal attention geometry
+		// demote a genuinely larger model. Two of the seed entries are hybrids whose
+		// KV cache is a quarter the size of a dense entry's, and ranking by footprint
+		// handed the pick to the smaller model the moment their geometry was corrected.
+		// The total is the tie-break only, so the ordering stays deterministic when two
+		// entries carry identical weights.
+		if best == nil || m.WeightBytes > bestWeight || (m.WeightBytes == bestWeight && total > bestTotal) {
 			bm := m
 			best = &bm
+			bestWeight = m.WeightBytes
 			bestTotal = total
 		}
 	}

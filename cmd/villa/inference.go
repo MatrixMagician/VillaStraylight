@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
@@ -164,7 +163,7 @@ func runValidation(ctx context.Context, m catalog.Model, withCeiling bool) infer
 
 	spec := inference.RunSpec{
 		ContainerName: "villa-inference-validate",
-		ModelFile:     primaryModelFile(m),
+		ModelFile:     m.PrimaryFile(),
 		ModelsDir:     dir,
 		ContextLen:    rec.ContextLen,
 	}
@@ -187,7 +186,7 @@ func runValidation(ctx context.Context, m catalog.Model, withCeiling bool) infer
 		in.NewCeilingRunner = func(stress inference.RunSpec) inference.Runner {
 			stress.ModelsDir = dir
 			stress.ContainerName = "villa-inference-ceiling"
-			stress.ModelFile = primaryModelFile(m)
+			stress.ModelFile = m.PrimaryFile()
 			return inference.NewContainerRunner(backend, stress)
 		}
 	}
@@ -250,14 +249,4 @@ func boolSignal(b detect.Bool) string {
 		return "yes (" + b.Source + ")"
 	}
 	return "no (" + b.Source + ")"
-}
-
-// primaryModelFile resolves the on-disk GGUF filename for a model (prefers the first
-// shard's filename, falls back to <id>.gguf). It mirrors the inference package
-// helper so the verb can name the bound file without importing an internal helper.
-func primaryModelFile(m catalog.Model) string {
-	if len(m.Shards) > 0 && m.Shards[0].Filename != "" {
-		return m.Shards[0].Filename
-	}
-	return filepath.Base(m.ID + ".gguf")
 }

@@ -293,7 +293,7 @@ func liveModelsView() ([]dashboard.ModelView, bool) {
 // modelOnDisk reports whether a catalog model's primary weight file is already
 // downloaded (mirrors liveSwapDeps.IsDownloaded so the dashboard and swap agree).
 func modelOnDisk(m catalog.Model) bool {
-	path := filepath.Join(modelsDir(), primaryModelFile(m))
+	path := filepath.Join(modelsDir(), m.PrimaryFile())
 	_, err := os.Stat(path)
 	return err == nil
 }
