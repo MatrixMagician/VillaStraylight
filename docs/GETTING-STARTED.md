@@ -377,6 +377,10 @@ first: the table tells you which check failed and prints the fix.
   It reports host conditions, per-service health, the GPU-offload proof, and
   config-vs-disk drift (a unit on disk that no longer matches `config.toml` is
   usually a hand-edit, which `villa up` will overwrite on the next reconcile).
+  It also reports one `CAT-01` finding per model on this host, comparing the
+  catalog's fit dimensions against the GGUF header of the file they describe; a
+  FAIL there means villa's own catalog entry is wrong, not your install
+  ([ADR-0007](adr/0007-the-catalog-is-the-truth-and-the-gguf-header-is-its-witness.md)).
 
 - **No fitting configuration / recommend refused.** If `villa install` reports the
   memory envelope is undeterminable, run `./villa detect` to confirm the GPU and
