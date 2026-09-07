@@ -945,16 +945,16 @@ func TestAgentCleanDriftPasses(t *testing.T) {
 	}
 }
 
-// --- issue #120: PRE-08 compute device access fold (reportSchemaVersion 3→4) ---
+// --- issue #133: CAT-01 catalog-geometry fold (reportSchemaVersion 4→5) ---
 
-// TestDoctorSchemaVersionIsFour: doctor's OWN --json contract self-version was bumped
-// append-only 3→4 when PRE-08 (compute device access) was folded in. The const is the
+// TestDoctorSchemaVersionIsFive: doctor's OWN --json contract self-version was bumped
+// append-only 4→5 when the CAT-01 catalog-geometry fold was added. The const is the
 // single source of truth — Aggregate stamps it on every Report. INDEPENDENT of status's
 // reportSchemaVersion (5).
-func TestDoctorSchemaVersionIsFour(t *testing.T) {
+func TestDoctorSchemaVersionIsFive(t *testing.T) {
 	r := Aggregate(newDoctorDeps())
-	if r.SchemaVersion != 4 {
-		t.Fatalf("Report.SchemaVersion = %d, want 4 (append-only bump for the PRE-08 fold)", r.SchemaVersion)
+	if r.SchemaVersion != 5 {
+		t.Fatalf("Report.SchemaVersion = %d, want 5 (append-only bump for the CAT-01 fold)", r.SchemaVersion)
 	}
 }
 

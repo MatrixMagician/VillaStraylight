@@ -69,7 +69,13 @@ const (
 //     via the unchanged findingFromCheck path. Bumped because the fold is additive
 //     data every doctor Report now carries, mirroring how v2/v3 bumped for their
 //     own additive host-condition/service findings.
-const reportSchemaVersion = 4
+//   - v5: the CAT-01 catalog-geometry fold (issue #133) — one additive finding per
+//     catalog entry present on this host whose GGUF header is cross-checked against
+//     the entry's declared fit dimensions. Like v4 it introduces no doctor-owned
+//     finding type: the CheckResults arrive through the unchanged findingFromCheck
+//     path. Bumped on the same rule v4 used — the fold is additive data every doctor
+//     Report now carries.
+const reportSchemaVersion = 5
 
 // The three typed-Unknown ROCm host-prep check IDs that a PROVEN ROCm residency
 // supersedes (down-ranks, never deletes). They INTENTIONALLY duplicate the preflight
@@ -164,6 +170,14 @@ type Deps struct {
 	// worst-wins exactly like every other check. NIL-SAFE: when nil (memory off)
 	// no memory check finding is emitted and output stays byte-identical.
 	RunMemoryChecks func(detect.HostProfile) []preflight.CheckResult
+	// CatalogGeometry is the CAT-01 gate (preflight.RunCatalogGeometry, bound by the
+	// cmd tier with the models dir as its open seam): does each catalog entry present
+	// on this host still describe the GGUF header of its file? Its CheckResults fold
+	// through findingFromCheck and rank worst-wins exactly like every other check.
+	// It is NOT subsystem-gated — the catalog is always in play. NIL-SAFE: when nil
+	// (a caller that could not load the catalog) no CAT-01 finding is emitted at all,
+	// never a PASS-by-default.
+	CatalogGeometry func() []preflight.CheckResult
 	// ResidencyUnderLoad is the chat-model residency-under-embedding-load proof
 	// the cmd tier drives a REAL /v1/embeddings workload and samples the
 	// chat model's GTT/journal residency MID-DRIVE, returning the Verdict consumed
@@ -261,6 +275,16 @@ func Aggregate(d Deps) Report {
 	}
 	for _, c := range checks {
 		findings = append(findings, findingFromCheck(c))
+	}
+
+	// 1a. CATALOG GEOMETRY: fold the CAT-01 cross-check between each present
+	// catalog entry and the GGUF header of its file. It sits with the host
+	// conditions because it is a disk fact about this machine, not a claim about the
+	// running stack. A nil seam emits nothing.
+	if d.CatalogGeometry != nil {
+		for _, c := range d.CatalogGeometry() {
+			findings = append(findings, findingFromCheck(c))
+		}
 	}
 
 	// 1b. MEMORY HOST GATE: fold the opt-in vector-disk/headroom checks
