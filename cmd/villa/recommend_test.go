@@ -64,7 +64,13 @@ func fixtureRecommendation() recommend.Recommendation {
 		// restating total_bytes.
 		ProjectorBytes: 0,
 		Vision:         false,
-		SchemaVersion:  6,
+		// Schema 7 (ADR-0009): the append-only draft_bytes + draft_kv_bytes keys
+		// land directly above schema_version. They surface as 0 here — the
+		// no-draft contract shape, which is what keeps the diff append-only
+		// rather than restating total_bytes.
+		DraftBytes:    0,
+		DraftKVBytes:  0,
+		SchemaVersion: 7,
 	}
 }
 

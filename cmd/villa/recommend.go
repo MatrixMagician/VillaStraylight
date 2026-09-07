@@ -168,6 +168,15 @@ func renderRecommendTable(w io.Writer, rec recommend.Recommendation, warnings []
 	if rec.ProjectorBytes > 0 {
 		fmt.Fprintf(tw, "+ vision projector\t%s\n", gib(rec.ProjectorBytes))
 	}
+	// Draft rows are gated the same way (Pitfall 4, the ROCmAdvice gated-line
+	// pattern): a non-draft pick's table stays byte-identical to what it printed
+	// before these fields existed.
+	if rec.DraftBytes > 0 {
+		fmt.Fprintf(tw, "+ draft weight\t%s\n", gib(rec.DraftBytes))
+	}
+	if rec.DraftKVBytes > 0 {
+		fmt.Fprintf(tw, "+ draft KV @ ctx %d\t%s\n", rec.ContextLen, gib(rec.DraftKVBytes))
+	}
 	fmt.Fprintf(tw, "+ headroom\t%s\n", gib(rec.HeadroomBytes))
 	fmt.Fprintf(tw, "= total\t%s\n", gib(rec.TotalBytes))
 	// Embed-reservation row gated on a non-zero value (Pitfall 4, the
