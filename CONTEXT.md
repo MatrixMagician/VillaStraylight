@@ -63,13 +63,15 @@ _Avoid_: model pool, loaded models, multi-model, hot models, swap
 
 **Speculation**:
 The speculative-decoding mode of the inference unit. `ngram` is llama-server's
-ngram-mod, which drafts from the context itself; a mode is offered only for a
+ngram-mod, which drafts from the context itself. `draft` is the sidecar draft,
+the entry's own MTP head or a qualified dense draft, rendered with ngram-mod
+riding along when the entry is also `ngram_safe`; a mode is offered only for a
 catalog entry carrying a measurement that licensed it.
-_Avoid_: spec decoding, lookahead, draft mode, speculative sampling
+_Avoid_: spec decoding, lookahead, speculative sampling
 
 **Sidecar**:
-A companion GGUF pulled and verified with a model, not beside it. Today the
-only one is the vision projector. Its provenance names the on-hardware
+A companion GGUF pulled and verified with a model, not beside it. There are
+two: the vision projector and the draft. Its provenance names the on-hardware
 exercise that licensed it.
 _Avoid_: extra file, auxiliary model, addon, companion weights
 
