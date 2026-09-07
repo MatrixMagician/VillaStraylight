@@ -314,3 +314,44 @@ func TestRenderRecommendWithheldAdviceExplainsBackendFallback(t *testing.T) {
 		t.Errorf("the fallback render must name the recommended backend, got:\n%s", out)
 	}
 }
+
+// TestSaveRecommendationKeepsTheRestOfTheConfig asserts --save changes only the
+// pick: every field the recommendation does not own (the subsystem gates, their
+// secrets, the resident slots) survives the write byte-for-byte in meaning. A
+// save that reset them would silently turn the memory and search stacks off and
+// mint new secrets on the next reconcile (#149).
+func TestSaveRecommendationKeepsTheRestOfTheConfig(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+	cfgDir := filepath.Join(tmp, "villa")
+	before := config.DefaultVillaConfig()
+	before.Model, before.Quant, before.Ctx = "old-model", "Q4", 4096
+	before.MemoryEnabled, before.AgentEnabled, before.WebSearchEnabled = true, true, true
+	before.SearxngSecret, before.WebLoaderSecret = "searx-secret", "loader-secret"
+	before.WebSearchResultCount = 5
+	before.Resident = []config.ResidentModel{{Model: "side-model", Quant: "Q8", Ctx: 2048, Port: 8081}}
+	if err := config.SaveVillaTo(cfgDir, before); err != nil {
+		t.Fatalf("seed config: %v", err)
+	}
+
+	var buf bytes.Buffer
+	if err := saveRecommendation(&buf, fixtureRecommendation(), ""); err != nil {
+		t.Fatalf("saveRecommendation: %v", err)
+	}
+	got, err := config.LoadVillaFrom(cfgDir)
+	if err != nil {
+		t.Fatalf("LoadVillaFrom: %v", err)
+	}
+	if got.Model == "old-model" {
+		t.Fatalf("the pick was not written: %+v", got)
+	}
+	if !got.MemoryEnabled || !got.AgentEnabled || !got.WebSearchEnabled {
+		t.Errorf("subsystem gates reset: memory=%v agent=%v web=%v", got.MemoryEnabled, got.AgentEnabled, got.WebSearchEnabled)
+	}
+	if got.SearxngSecret != "searx-secret" || got.WebLoaderSecret != "loader-secret" || got.WebSearchResultCount != 5 {
+		t.Errorf("web-search fields reset: %+v", got)
+	}
+	if len(got.Resident) != 1 || got.Resident[0].Model != "side-model" || got.Resident[0].Port != 8081 {
+		t.Errorf("resident slots reset: %+v", got.Resident)
+	}
+}
