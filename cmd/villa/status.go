@@ -760,7 +760,7 @@ func liveWeightBytes(cfg config.VillaConfig) uint64 {
 	// byte-identical — WeightBytes is envelope-independent for overrides (guarded
 	// by TestPickOverrideWeightInvariance), so the frozen status path never sees
 	// the memory reservation.
-	rec := recommend.Pick(detect.Probe(), cat, recommend.Overrides{Model: cfg.Model}, recommend.MemoryInputs{}, recommend.WebSearchInputs{})
+	rec := recommend.Pick(detect.Probe(), cat, recommend.Overrides{Model: cfg.Model, Speculation: cfg.Speculation}, recommend.MemoryInputs{}, recommend.WebSearchInputs{})
 	return rec.WeightBytes + rec.DraftBytes
 }
 

@@ -26,6 +26,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/pins"
 	"github.com/MatrixMagician/VillaStraylight/internal/pinstate"
 	"github.com/MatrixMagician/VillaStraylight/internal/recommend"
+	"github.com/MatrixMagician/VillaStraylight/internal/subsystem"
 )
 
 // livePinStateDeps wires the pin state store to the real filesystem, mirroring the
@@ -255,4 +256,15 @@ func liveSpeculation(cfg config.VillaConfig, coding bool) (*inference.Speculatio
 // serial and CheckedAt, and loading it twice invites the two reads disagreeing.
 func resolverFor(state pinstate.State) pinresolve.Resolver {
 	return pinresolve.New(state)
+}
+
+// liveDraftExpected answers whether the unit rendered from cfg carries a draft
+// sidecar, so the residency proof looks for a second model-load block exactly
+// when one was asked for (ADR-0009). It reads the same funnel the render does:
+// a chat model whose persisted mode is draft, or a coder entry re-resolved in
+// coding mode. A render that would refuse (no draft declared, file not on disk)
+// answers false, since no unit with a draft can be running.
+func liveDraftExpected(cfg config.VillaConfig) bool {
+	spec, err := liveSpeculation(cfg, subsystem.CodingModeOn(cfg))
+	return err == nil && spec != nil && spec.Mode == config.SpeculationDraft
 }

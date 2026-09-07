@@ -141,3 +141,31 @@ func TestLiveSpeculationDraftRequiresADeclaredSidecar(t *testing.T) {
 		t.Errorf("a refusal returned a descriptor %+v", spec)
 	}
 }
+
+// TestLiveDraftExpectedFollowsTheRenderedUnit asserts the residency proof expects
+// a draft block exactly when the unit it proves was rendered with one: a persisted
+// draft on the chat model, but not while coding mode serves a coder entry that
+// declares no draft, and not when the draft file is absent (that render refuses).
+func TestLiveDraftExpectedFollowsTheRenderedUnit(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	if err := os.MkdirAll(modelsDir(), 0o700); err != nil {
+		t.Fatalf("mkdir models dir: %v", err)
+	}
+	cat := draftCatalogFile(t)
+	cfg := config.VillaConfig{Model: "hasdraft", Speculation: config.SpeculationDraft, CatalogPath: cat}
+
+	if liveDraftExpected(cfg) {
+		t.Errorf("draft file absent: expected false (the render refuses, so no draft block can exist)")
+	}
+	if err := os.WriteFile(filepath.Join(modelsDir(), "draft.gguf"), []byte("x"), 0o600); err != nil {
+		t.Fatalf("write draft file: %v", err)
+	}
+	if !liveDraftExpected(cfg) {
+		t.Errorf("chat model with a persisted draft: expected true")
+	}
+	coding := cfg
+	coding.CodingMode, coding.CoderModel = true, "nodraft"
+	if liveDraftExpected(coding) {
+		t.Errorf("coding mode on a coder entry without a draft: expected false")
+	}
+}

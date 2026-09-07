@@ -69,13 +69,14 @@ func liveCodingProve(ctx context.Context, _ codingmode.Direction) prove.Verdict 
 	}
 
 	return residency.ProveCutover(ctx, liveResidencyDeps(), residency.Target{
-		Endpoint:    inference.NewContainerRunner(backend, inference.RunSpec{}).Endpoint(),
-		Service:     installServiceName,
-		ModelID:     servedModel,
-		ModelFile:   modelFile,
-		ContextLen:  servedCtx,
-		WeightBytes: codingWeightBytes(cfg, servedModel),
-		Markers:     backend.ResidencyProof(),
+		Endpoint:      inference.NewContainerRunner(backend, inference.RunSpec{}).Endpoint(),
+		Service:       installServiceName,
+		ModelID:       servedModel,
+		ModelFile:     modelFile,
+		ContextLen:    servedCtx,
+		WeightBytes:   codingWeightBytes(cfg, servedModel),
+		Markers:       backend.ResidencyProof(),
+		DraftExpected: liveDraftExpected(cfg),
 	})
 }
 
