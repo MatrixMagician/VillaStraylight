@@ -74,8 +74,52 @@ func fixtureVersion(version uint32, kv ...kvPair) []byte {
 	return b
 }
 
-// llamaKV is the minimal qualifying metadata set: architecture plus the three
-// geometry keys the recommend fit inequality consumes.
+// TestGeometryHybridCountsAttentionLayers guards the promise that a hybrid
+// architecture reports its KV-BEARING layer count, not its block count: only every
+// full_attention_interval-th block holds a per-token KV cache, and counting blocks
+// would overstate the KV term by that factor.
+func TestGeometryHybridCountsAttentionLayers(t *testing.T) {
+	kv := []kvPair{
+		kvStr("general.architecture", "qwen35moe"),
+		kvU32("qwen35moe.block_count", 40),
+		kvU32("qwen35moe.full_attention_interval", 4),
+		kvU32("qwen35moe.attention.head_count_kv", 2),
+		kvU32("qwen35moe.attention.key_length", 256),
+	}
+	h, err := ReadHeader(bytes.NewReader(fixture(kv...)))
+	if err != nil {
+		t.Fatalf("ReadHeader: %v", err)
+	}
+	g, err := h.Geometry()
+	if err != nil {
+		t.Fatalf("Geometry: %v", err)
+	}
+	want := Geometry{KVLayers: 10, HeadCountKV: 2, KeyLength: 256}
+	if g != want {
+		t.Errorf("Geometry() = %+v, want %+v (40 blocks / interval 4)", g, want)
+	}
+}
+
+// TestGeometryZeroIntervalCountsEveryBlock guards the promise that a zero
+// full_attention_interval means every block is attention-bearing, rather than
+// dividing by zero.
+func TestGeometryZeroIntervalCountsEveryBlock(t *testing.T) {
+	kv := append(llamaKV(), kvU32("llama.full_attention_interval", 0))
+	h, err := ReadHeader(bytes.NewReader(fixture(kv...)))
+	if err != nil {
+		t.Fatalf("ReadHeader: %v", err)
+	}
+	g, err := h.Geometry()
+	if err != nil {
+		t.Fatalf("Geometry: %v", err)
+	}
+	if g.KVLayers != 48 {
+		t.Errorf("KVLayers = %d, want 48", g.KVLayers)
+	}
+}
+
+// llamaKV is the minimal qualifying metadata set: a dense architecture (every
+// block attention-bearing) plus the three geometry keys the fit consumes.
 func llamaKV() []kvPair {
 	return []kvPair{
 		kvStr("general.architecture", "llama"),
@@ -105,7 +149,7 @@ func TestReadHeaderGeometry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Geometry: %v", err)
 	}
-	want := Geometry{BlockCount: 48, HeadCountKV: 4, KeyLength: 128}
+	want := Geometry{KVLayers: 48, HeadCountKV: 4, KeyLength: 128}
 	if g != want {
 		t.Errorf("Geometry() = %+v, want %+v", g, want)
 	}
@@ -240,8 +284,8 @@ func TestReadHeaderSkipsArrays(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadHeader: %v", err)
 	}
-	if g, gErr := h.Geometry(); gErr != nil || g.BlockCount != 48 {
-		t.Fatalf("Geometry after arrays = %+v, %v; want block_count 48 and no error", g, gErr)
+	if g, gErr := h.Geometry(); gErr != nil || g.KVLayers != 48 {
+		t.Fatalf("Geometry after arrays = %+v, %v; want 48 KV layers and no error", g, gErr)
 	}
 	if _, ok := h.String("tokenizer.ggml.tokens"); ok {
 		t.Error("array contents were retained; the reader must discard them")
