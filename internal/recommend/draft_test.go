@@ -140,15 +140,11 @@ func TestPickReservesProjectorBeforeDraft(t *testing.T) {
 
 // TestPickExplicitDraftRefusesWhenNotQualified asserts an explicit --speculation
 // draft that the picked entry cannot honour (no draft, or a draft that does not
-// fit) is a REFUSAL rather than a silent downgrade, mirroring ngram's contract.
-//
-// NOTE: pickOverride's "your override does NOT fit" OOM warning is keyed on
-// !rec.Fits, which is also true for a speculation refusal that has nothing to do
-// with memory. The fix (main commit 9a3bae2, "recommend: key the override OOM
-// warning on memory, not on Fits") is not in this branch's base
-// (feat/123-draft-sidecar), so this test asserts the CURRENT (pre-fix) behavior:
-// both notes are present. Rebasing onto a tree with that commit removes the OOM
-// note for this case; this test should then drop that assertion.
+// fit) is a REFUSAL rather than a silent downgrade, mirroring ngram's contract —
+// and that the refusal note stands ALONE: pickOverride's "your override does NOT
+// fit" OOM warning is keyed on memory (commit "recommend: key the override OOM
+// warning on memory, not on Fits", on this branch), so a speculation refusal that
+// has nothing to do with memory must not also carry the OOM note.
 func TestPickExplicitDraftRefusesWhenNotQualified(t *testing.T) {
 	cat := draftPickCatalog()
 	p := profileWithEnvelope(64 << 30)
@@ -177,8 +173,8 @@ func TestPickExplicitDraftRefusesWhenNotQualified(t *testing.T) {
 			if !strings.Contains(strings.Join(rec.Notes, " "), "refusing") {
 				t.Errorf("notes = %v, want a refusal note", rec.Notes)
 			}
-			if !strings.Contains(strings.Join(rec.Notes, " "), "your override does NOT fit") {
-				t.Errorf("notes = %v, want the (pre-fix) OOM note too — see the test doc comment", rec.Notes)
+			if strings.Contains(strings.Join(rec.Notes, " "), "does NOT fit") {
+				t.Errorf("notes = %v, a speculation refusal must not also carry the memory OOM note", rec.Notes)
 			}
 		})
 	}
