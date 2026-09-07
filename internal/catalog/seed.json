@@ -1,6 +1,6 @@
 {
   "schema_version": 4,
-  "catalog_version": "2026.09.2",
+  "catalog_version": "2026.09.3",
   "models": [
     {
       "id": "qwen2.5-0.5b",
@@ -109,6 +109,32 @@
           "filename": "Qwen3.6-35B-A3B-UD-Q4_K_M.gguf",
           "sha256": "ac0e2c1189e055faa36eff361580e79c5bd6f8e76bffb4ce547f167d53e31a61",
           "size_bytes": 22134528992
+        }
+      ]
+    },
+    {
+      "id": "qwen3.8-27b",
+      "display_name": "Qwen3.8-27B (UD-Q4, dense, 64 GB tier alt)",
+      "quant": "UD-Q4_K_XL",
+      "weight_bytes": 17559178144,
+      "n_layers": 16,
+      "n_kv_heads": 4,
+      "head_dim": 256,
+      "kv_bytes_per_elem": 2,
+      "default_ctx": 131072,
+      "min_envelope_bytes": 32000000000,
+      "tier_gb": 64,
+      "unified_memory_safe": true,
+      "backend_default": "rocm",
+      "bootstrap": false,
+      "ngram_safe": true,
+      "ngram_provenance": "gfx1151, kyuz0 rocm-7.2.4 image (llama.cpp b9536), 2026-09-07: greedy 256-token probe at ctx 16384; none tg 10.8-11.2; ngram-mod tg 11.1 cold, 21.3-44.4 warm with 138-204 of 241-256 drafts accepted",
+      "shards": [
+        {
+          "url": "https://huggingface.co/unsloth/Qwen3.8-27B-GGUF/resolve/4ca720788d1e01f1bff70c033e0d0028fd02e502/Qwen3.8-27B-UD-Q4_K_XL.gguf",
+          "filename": "Qwen3.8-27B-UD-Q4_K_XL.gguf",
+          "sha256": "3f227079003add2511437e5b1e94812e363385225bf6a9b47b0054a72bc8b01e",
+          "size_bytes": 17559178144
         }
       ]
     },
