@@ -122,6 +122,41 @@ func TestDoctorExitCodes(t *testing.T) {
 			if tc.golden != "" {
 				assertGolden(t, tc.golden, buf.Bytes())
 			}
+			if tc.name == "fail" && !bytes.Contains(buf.Bytes(), []byte("FAULT:")) {
+				t.Errorf("table-mode FAIL output should still carry the FAULT trailer, got:\n%s", buf.String())
+			}
+		})
+	}
+}
+
+// TestDoctorJSONEndsAtDocument pins the JSON contract's actual boundary (issue #140): with
+// --json, the rendered output must end exactly at the closing brace of the report document,
+// on every verdict. The FAULT trailer printed by renderDoctor's FAIL case and its
+// fail-closed default case is the human table's epilogue, not part of the document; writing
+// it after the JSON breaks a `villa doctor --json | jq` pipe on any FAIL host, a shape every
+// existing golden fixture missed because every golden folds to PASS or WARN.
+func TestDoctorJSONEndsAtDocument(t *testing.T) {
+	tests := []struct {
+		name   string
+		report doctor.Report
+	}{
+		{"fail", offloadFailReport()},
+		{"unrecognized-overall", doctor.Report{Overall: "BOGUS", SchemaVersion: 1}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			code := renderDoctor(&buf, tc.report, true, false)
+			if code != exitBlocked {
+				t.Errorf("exit code = %d, want %d", code, exitBlocked)
+			}
+			var roundTrip doctor.Report
+			if err := json.Unmarshal(buf.Bytes(), &roundTrip); err != nil {
+				t.Fatalf("--json output must be valid JSON, got error %v for:\n%s", err, buf.String())
+			}
+			if trimmed := bytes.TrimSpace(buf.Bytes()); len(trimmed) == 0 || trimmed[len(trimmed)-1] != '}' {
+				t.Errorf("--json output must end at the document (nothing after the closing brace), got:\n%s", buf.String())
+			}
 		})
 	}
 }
