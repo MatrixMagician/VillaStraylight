@@ -1,6 +1,6 @@
 # VillaStraylight
 
-A single Go CLI (`villa`) that stands up a private, local AI workspace on your own hardware, auto-detecting an AMD Strix Halo (gfx1151) Fedora host, recommending a memory-fitting model/quant/context, generating rootless Podman Quadlet units, and orchestrating llama.cpp (ROCm) inference plus an Open WebUI chat front-end behind a loopback-only control dashboard. Inference is local, and there is zero telemetry: outbound happens only when you run a command that fetches something (a model pull, an image pull, an update check), never on a timer and never in the background.
+A single Go CLI (`villa`) that stands up a private, local AI workspace on your own hardware, auto-detecting an AMD Strix Halo (gfx1151) Fedora host, recommending a memory-fitting model/quant/context, generating rootless Podman Quadlet units, and orchestrating llama.cpp (ROCm) inference plus an Open WebUI chat front-end behind a loopback-only control dashboard. Inference is local, and there is zero telemetry. Outbound happens only when you run a command that fetches something (a model pull, an image pull, an update check); nothing fetches on a timer or in the background. A workspace task can run detached, on your own machine, with no outbound.
 
 ![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)
 
@@ -216,6 +216,27 @@ villa verify search                    # negative-control-first, inverse-framed 
 
 Web search is **strictly opt-in and default-OFF**: with it disabled the install renders byte-identical to v1.4 and the zero-outbound posture is unchanged. When enabled, a query reaches SearXNG's upstream engines and result pages are fetched, so outbound is no longer zero; that outbound is **bounded and provable** (`villa verify search`) and surfaced honestly in `villa status`/`doctor`/the dashboard (the outbound-bounded indicator derives from the real verify result, never a config flag). Fetched pages flow through `villa-websafe`, the sole producer of Open WebUI `page_content`, which SSRF-guards every fetch and runs an injection-guard pass (sanitize → Unicode-normalize → provenance-fence → heuristic classify). The guard **reduces and flags** prompt injection; it is never claimed to eliminate it, and the browser-side markdown-image exfiltration channel is a documented residual, not closed.
 
+**The workspace agent (v1.11):**
+
+```bash
+villa install --workspace-agent       # persist the gate, turn tools mode on, render villa-sandbox.network
+villa tools-mode enter                # serve the chat unit with the model's own template (transactional);
+villa tools-mode exit                 # exit restores the plain chat unit. Coding mode implies tools mode
+villa workspace add <folder>          # register a folder as a workspace: the grant a task runs inside
+villa workspace list                  # the registered set; remove forgets a grant and touches no file
+villa work <folder> "<instruction>"   # run one task in a per-task microVM and follow it; exits 0 / 1 / 2
+villa work <folder> - < prompt.txt    # the instruction from stdin
+villa work ... --detach               # submit, print the task id, return; answer it later with villa task
+villa work ... --auto                 # this task's writes need no approval; deletion still asks
+villa task list                       # every task record: id, workspace, state, submitted, exit
+villa task show <id>                  # one record: files written, approvals, what the audit flagged
+villa task approve <id> [--all]       # allow the action a detached task is parked on
+villa task deny <id>                  # deny it; the model is told, the exit code is unchanged
+villa task cancel <id>                # drop a queued task or kill a running one
+```
+
+A task runs Crush, villa's pinned coding agent, inside a libkrun microVM with one folder mounted read-write, on an internal network that reaches the served model and nothing else. Reads are free; every write asks, unless `--auto`; deletion asks in every mode, and that rule is a command pattern (`rm`, `rmdir`, `unlink`, `shred`, `trash`, `git clean`, `find -delete`), not a proof. After the run, the same model audits every document the task wrote against the files it read; a claim it cannot support flags the task, which exits `2`. A clean audit means the auditor found none, and nothing more; the auditor is the model that wrote the document. Root inside the VM is the boundary. See [GETTING-STARTED.md](docs/GETTING-STARTED.md#running-a-task-on-your-own-files) and the [spec](docs/spec/v1.11-workspace-agent.md).
+
 **Run the stack lifecycle:**
 
 ```bash
@@ -320,6 +341,8 @@ Key fields (`internal/config/villaconfig.go`):
 | `chat_port` | `3000` | Host port Open WebUI is published on (the dashboard's chat link target). |
 
 When the optional memory (v1.3), coding-agent (v1.4), and web-search (v1.5) addons are enabled, `villa install` persists their own append-only fields into the same `config.toml`, which stays the single source of truth: the rendered Quadlet units, `crush.json`, and the SearXNG `settings.yml` are regenerated from it, never hand-edited. Web search keys off the deliberate `web_search_enabled` bool (default false, never self-healed on); set it with `villa install --web-search` (which persists the gate). With it off, every field is omitted and the render is byte-identical to v1.4. When on, `villa install` generates the SearXNG `secret_key` and the `villa-websafe` bearer via `crypto/rand` into `0600` files (never logged, never in a `0644` unit).
+
+The workspace agent (v1.11) adds five more fields, none of them a `config set` key: `tools_mode` and `workspace_agent` are written by `villa tools-mode enter|exit` and `villa install --workspace-agent`, `workspace` (the grant list) by `villa workspace add|remove`, and `sandbox_memory` (default `8g`) and `sandbox_cpus` (default `4`) by hand, read at task launch. See [CONFIGURATION.md](docs/CONFIGURATION.md#the-workspace-agent).
 
 Inspect or change config with `villa config show` and `villa config set key=value`.
 

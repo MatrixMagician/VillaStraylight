@@ -325,3 +325,81 @@ func TestDocsUpdateOutboundHonesty(t *testing.T) {
 		}
 	}
 }
+
+// backgroundClaim is the SINGLE source of the blanket "nothing runs unattended"
+// regex. It is updateOutboundClaim's twin for the v1.11 workspace agent: that
+// gate bans claims that update contacts nothing, this one bans the sentence
+// README line 3 carried through v1.10, "never on a timer and never in the
+// background", because a detached task (`villa work --detach`) runs in the
+// background by design and an operator's own systemd timer may submit one.
+//
+// The claim was true of OUTBOUND and was written as if it were true of COMPUTE.
+// The honest form scopes the verb: "nothing fetches on a timer or in the
+// background" is a bounded claim about outbound that stays true while a task
+// runs detached, and it is what the README now says. A sentence that says villa
+// never does anything on a timer or in the background is the blanket form, and
+// it fails the build here. "There is no timer" alone does not match: villa owns
+// no timer (spec v1.11 §8 defers villa-owned timers), so that sentence stays
+// true, and a gate that fired on it would be noise a reviewer learns to skip.
+func backgroundClaim() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)\b(never (on a timer|in the background)|nothing (runs|happens) in the background|no background (work|tasks?|processes?))\b`)
+}
+
+// backgroundClaimHistorical clears a match the way retiredClaim.unless does: the
+// spec's posture section quotes the retired sentence in order to retire it, and
+// a gate that fired on the sentence explaining why the gate exists would teach
+// reviewers to ignore it.
+var backgroundClaimHistorical = []string{"readme line 3", "rescoped", "retired"}
+
+// isBackgroundClaim reports whether a doc line makes the blanket claim and is
+// not merely quoting it historically.
+func isBackgroundClaim(pattern *regexp.Regexp, line string) bool {
+	return pattern.MatchString(line) && !containsAny(strings.ToLower(line), backgroundClaimHistorical)
+}
+
+// TestBackgroundClaimPattern is the proof the gate can fail: the retired README
+// sentence must match and the sentence that replaced it must not. Without this
+// table a rewrite of the regex could pass the tree by matching nothing.
+func TestBackgroundClaimPattern(t *testing.T) {
+	pattern := backgroundClaim()
+	cases := []struct {
+		line string
+		want bool
+	}{
+		{"outbound happens only when you run a command that fetches something (a model pull, an image pull, an update check), never on a timer and never in the background.", true},
+		{"Villa does nothing in the background; nothing runs in the background.", true},
+		{"Outbound happens only when you run a command that fetches something (a model pull, an image pull, an update check); nothing fetches on a timer or in the background. A workspace task can run detached, on your own machine, with no outbound.", false},
+		{"There is no timer, and no command checks opportunistically on your behalf.", false},
+		{`- **"never on a timer and never in the background"** (README line 3): the letter`, false},
+	}
+	for _, c := range cases {
+		if got := isBackgroundClaim(pattern, c.line); got != c.want {
+			t.Errorf("isBackgroundClaim(%q) = %v, want %v", c.line, got, c.want)
+		}
+	}
+}
+
+// TestDocsBackgroundClaimHonesty fails when a doc claims villa never runs
+// anything on a timer or in the background. Since v1.11 a task can run
+// detached, and the honest claim is about outbound: nothing fetches on a timer
+// or in the background, and a detached task has no outbound at all. An
+// operator who reads the blanket form will not think about a parked task
+// awaiting approval, which is precisely the thing `villa task list` exists to
+// show them.
+func TestDocsBackgroundClaimHonesty(t *testing.T) {
+	pattern := backgroundClaim()
+	for _, doc := range markdownFiles(t) {
+		data, err := os.ReadFile(filepath.Join(repoRoot, doc))
+		if err != nil {
+			t.Fatalf("read %s: %v", doc, err)
+		}
+		for n, line := range strings.Split(string(data), "\n") {
+			if isBackgroundClaim(pattern, line) {
+				t.Errorf("%s:%d claims villa never runs anything on a timer or in the background, which is false "+
+					"since v1.11 — `villa work --detach` runs a task in the background. Scope the claim to "+
+					"outbound (nothing fetches on a timer or in the background) instead.\n    line: %s",
+					doc, n+1, strings.TrimSpace(line))
+			}
+		}
+	}
+}
