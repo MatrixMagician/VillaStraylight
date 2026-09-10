@@ -84,6 +84,7 @@
       "head_dim": 256,
       "kv_bytes_per_elem": 2,
       "default_ctx": 131072,
+      "agent_ctx": 16384,
       "min_envelope_bytes": 32000000000,
       "tier_gb": 64,
       "unified_memory_safe": true,
