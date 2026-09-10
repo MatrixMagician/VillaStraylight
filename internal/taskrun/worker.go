@@ -215,11 +215,13 @@ func (j *job) decide(b Bridge, p crushapi.PermissionRequest) {
 		})
 		j.pending = len(j.t.Approvals) - 1
 		j.pendingID = p.ID
-		j.transition(taskstore.AwaitingApproval, nil)
-		j.narrate(fmt.Sprintf("awaiting approval #%d: %s", j.pending+1, what))
+		// Answerable before the record says awaiting, never after: an operator
+		// who reads awaiting_approval from the record must not get ErrNotAwaiting.
 		j.r.mu.Lock()
 		j.a.awaiting = true
 		j.r.mu.Unlock()
+		j.transition(taskstore.AwaitingApproval, nil)
+		j.narrate(fmt.Sprintf("awaiting approval #%d: %s", j.pending+1, what))
 	}
 }
 
@@ -342,6 +344,9 @@ func (j *job) transition(to taskstore.State, extra func(*taskstore.Task)) {
 }
 
 func (j *job) finish(to taskstore.State, text string) {
+	// The reason lands in the log before the terminal state lands in the record,
+	// so a reader that polls the record never sees a verdict without its why.
+	j.narrate(text)
 	finished := stamp(j.r.d.Now())
 	t, err := j.r.d.Store.Transition(j.t.ID, to, func(t *taskstore.Task) {
 		t.Harness = j.t.Harness
@@ -360,7 +365,7 @@ func (j *job) finish(to taskstore.State, text string) {
 		return
 	}
 	j.t = t
-	j.r.narrate(&j.t, KindState, text)
+	j.r.narrate(&j.t, KindState, string(to))
 	j.r.closeSubs(j.t.ID)
 }
 
