@@ -301,6 +301,11 @@ func TestLoadSeedChatEntriesUntouched(t *testing.T) {
 		t.Fatalf("Load(\"\"): unexpected error: %v", err)
 	}
 	chatIDs := []string{"qwen2.5-0.5b", "qwen2.5-1.5b", "qwen3-30b-a3b", "qwen3.6-35b-a3b"}
+	// agent_ctx on a chat entry is the tools-mode ctx floor (spec v1.11 §13 item 1),
+	// and only a measured entry carries one: on 2026-09-10 two `villa work` tasks on
+	// qwen3.6-35b-a3b peaked at n_past 10,427 tokens (Crush's prompt, its tools and a
+	// three-file reconciliation), so its floor is the next power of two.
+	chatAgentCtx := map[string]int{"qwen3.6-35b-a3b": 16384}
 	for _, id := range chatIDs {
 		m, ok := c.FindByID(id)
 		if !ok {
@@ -310,8 +315,8 @@ func TestLoadSeedChatEntriesUntouched(t *testing.T) {
 		if m.Role != "" {
 			t.Errorf("chat entry %q has role %q, want absent/empty", id, m.Role)
 		}
-		if m.AgentCtx != 0 {
-			t.Errorf("chat entry %q has agent_ctx %d, want absent/0", id, m.AgentCtx)
+		if m.AgentCtx != chatAgentCtx[id] {
+			t.Errorf("chat entry %q has agent_ctx %d, want %d", id, m.AgentCtx, chatAgentCtx[id])
 		}
 		if m.CacheReuseSafe {
 			t.Errorf("chat entry %q has cache_reuse_safe true, want absent/false", id)
