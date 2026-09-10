@@ -207,7 +207,7 @@ so a refactor that drops or relocates them also fails CI.
 
 ### Grep-gate docs tests
 
-`cmd/villa/docs_gate_test.go` applies the same shape to **prose**. Three tests
+`cmd/villa/docs_gate_test.go` applies the same shape to **prose**. The tests there
 walk every `.md` in the repo and fail the build on a statement the tree has
 stopped supporting:
 
