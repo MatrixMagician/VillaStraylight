@@ -77,6 +77,10 @@ const (
 	// Chat is the Open WebUI chat surface. It is always on: `villa install` renders
 	// its unit unconditionally.
 	Chat
+	// Sandbox is the workspace agent's isolated task container. It owns no
+	// persistent state and renders no unit of its own: a task container is started
+	// per task by `villa work`, not by systemd.
+	Sandbox
 )
 
 // String renders the subsystem's name for messages and logs.
@@ -94,6 +98,8 @@ func (k Kind) String() string {
 		return "inference"
 	case Chat:
 		return "chat"
+	case Sandbox:
+		return "sandbox"
 	}
 	return "unknown"
 }
@@ -110,6 +116,8 @@ func (k Kind) ConfigKey() string {
 		return "agent_enabled"
 	case CodingMode:
 		return "coding_mode"
+	case Sandbox:
+		return "workspace_agent"
 	case Inference, Chat:
 		// DELIBERATE: an always-on subsystem has no config key, because there is no
 		// flag an operator could edit to change the answer. The empty string is the
@@ -129,7 +137,7 @@ func (k Kind) AlwaysOn() bool {
 	switch k {
 	case Inference, Chat:
 		return true
-	case Memory, WebSearch, Agent, CodingMode:
+	case Memory, WebSearch, Agent, CodingMode, Sandbox:
 		return false
 	}
 	return false
@@ -205,7 +213,7 @@ func Stateful() []Kind {
 // on?" — a question whose honest answer never includes inference. Widening it would
 // have made status, doctor and install each report two subsystems nobody enabled,
 // silently, with no compile error to catch it. Every is the all-subsystems list.
-var All = []Kind{Memory, WebSearch, Agent, CodingMode}
+var All = []Kind{Memory, WebSearch, Agent, CodingMode, Sandbox}
 
 // Every is every subsystem, optional and always-on alike, in stack order:
 // inference first because nothing runs without it, then chat, then the addons.
@@ -214,7 +222,7 @@ var All = []Kind{Memory, WebSearch, Agent, CodingMode}
 // ask which are enabled — the pin table keys its entries by this vocabulary. The
 // order here is presentation order and is deliberately NOT the iota order, which
 // exists only to keep stored values stable.
-var Every = []Kind{Inference, Chat, Memory, WebSearch, Agent, CodingMode}
+var Every = []Kind{Inference, Chat, Memory, WebSearch, Agent, CodingMode, Sandbox}
 
 // On reports whether the named subsystem is enabled in this config.
 //
@@ -231,6 +239,8 @@ func On(cfg config.VillaConfig, k Kind) bool {
 		return cfg.AgentEnabled
 	case CodingMode:
 		return cfg.CodingMode
+	case Sandbox:
+		return cfg.WorkspaceAgent
 	case Inference, Chat:
 		// TRUE BY CONSTRUCTION, not a stub. Inference and chat have no config bool
 		// because `villa install` renders both units unconditionally: there is no
@@ -257,6 +267,17 @@ func AgentOn(cfg config.VillaConfig) bool { return On(cfg, Agent) }
 
 // CodingModeOn reports whether coding mode is engaged.
 func CodingModeOn(cfg config.VillaConfig) bool { return On(cfg, CodingMode) }
+
+// SandboxOn reports whether the workspace agent is enabled.
+func SandboxOn(cfg config.VillaConfig) bool { return On(cfg, Sandbox) }
+
+// ToolsOn reports whether the inference unit must serve tool calls.
+//
+// It is a DERIVED gate, not a Kind, because no single config flag answers it: two
+// independent opt-ins need the same tool-calling configuration, and the union is
+// the answer. It lives here rather than at the renderer so the two flags cannot be
+// read as a predicate anywhere else, which is the property the bypass test guards.
+func ToolsOn(cfg config.VillaConfig) bool { return cfg.ToolsMode || cfg.CodingMode }
 
 // Enabled returns every subsystem that is on, in All order. It is what a reporter
 // walks instead of writing four branches.

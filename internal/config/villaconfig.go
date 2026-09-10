@@ -226,6 +226,38 @@ type VillaConfig struct {
 	// proposed set actually FITS the memory envelope is decided by
 	// internal/residentset, never by this struct.
 	Resident []ResidentModel `toml:"resident,omitempty"`
+
+	// --- Workspace agent fields (v1.11) ---
+	// Tail-appended and append-only like every optional block above. They sit after
+	// Resident in declaration order and still encode as top-level keys: the TOML
+	// encoder emits every direct field before any table, so an array-of-tables above
+	// them cannot swallow a key.
+
+	// ToolsMode is the persisted tool-calling configuration of the inference unit.
+	// It is separate from CodingMode because the workspace agent wants tool calling
+	// without the coder model swap; subsystem.ToolsOn is the union of the two, and
+	// is the only place either is read as a predicate.
+	ToolsMode bool `toml:"tools_mode,omitempty"`
+
+	// WorkspaceAgent is the workspace-agent opt-in, and the gate behind
+	// subsystem.Sandbox.
+	WorkspaceAgent bool `toml:"workspace_agent,omitempty"`
+
+	// Workspace is the registered grant list: the absolute, symlink-resolved
+	// directories the agent may be pointed at. A path is here because the operator
+	// registered it, so this list is the authority on what may be bind-mounted into
+	// a task container, never a hint to be re-derived.
+	Workspace []string `toml:"workspace,omitempty"`
+
+	// SandboxMemory is the task container's podman --memory limit. Empty renders the
+	// default rather than an unlimited container: an absent limit is not a decision
+	// to remove the limit.
+	SandboxMemory string `toml:"sandbox_memory,omitempty"`
+
+	// SandboxCPUs is the task container's podman --cpus limit. Zero renders the
+	// default, for the same reason, and carries ,omitzero because BurntSushi/toml
+	// drops a zero int only under that tag.
+	SandboxCPUs int `toml:"sandbox_cpus,omitzero"`
 }
 
 // ResidentModel is one secondary model held resident alongside VillaConfig.Model.

@@ -1129,3 +1129,92 @@ func TestValidSpeculation(t *testing.T) {
 		}
 	}
 }
+
+// TestWorkspaceAgentFieldsOmittedWhenUnset is the byte-identical guard on the five
+// v1.11 fields. An install that never opted into the workspace agent must gain no
+// key on disk, so the default save is compared against the exact bytes it produced
+// before these fields existed rather than against a key-absence spot check.
+func TestWorkspaceAgentFieldsOmittedWhenUnset(t *testing.T) {
+	const before = `model = ""
+quant = ""
+ctx = 0
+backend = "rocm"
+catalog_path = ""
+dashboard_port = 8888
+chat_port = 3000
+`
+	dir := filepath.Join(t.TempDir(), "villa")
+	if err := SaveVillaTo(dir, DefaultVillaConfig()); err != nil {
+		t.Fatalf("SaveVillaTo: %v", err)
+	}
+	body, err := os.ReadFile(filepath.Join(dir, "config.toml"))
+	if err != nil {
+		t.Fatalf("read config.toml: %v", err)
+	}
+	if string(body) != before {
+		t.Errorf("the default save is no longer byte-identical to the pre-v1.11 file:\ngot:\n%s\nwant:\n%s", body, before)
+	}
+}
+
+// TestWorkspaceAgentFieldsRoundTrip asserts the five v1.11 fields survive a
+// save/load cycle. Workspace is the one that matters most: it is the registered
+// grant list, and a dropped entry silently revokes a directory the operator handed
+// to the agent.
+func TestWorkspaceAgentFieldsRoundTrip(t *testing.T) {
+	cfg := DefaultVillaConfig()
+	cfg.Model = "qwen3.6-35b-a3b"
+	cfg.ToolsMode = true
+	cfg.WorkspaceAgent = true
+	cfg.Workspace = []string{"/home/op/projects", "/home/op/notes"}
+	cfg.SandboxMemory = "12g"
+	cfg.SandboxCPUs = 6
+
+	dir := filepath.Join(t.TempDir(), "villa")
+	if err := SaveVillaTo(dir, cfg); err != nil {
+		t.Fatalf("SaveVillaTo: %v", err)
+	}
+	body, err := os.ReadFile(filepath.Join(dir, "config.toml"))
+	if err != nil {
+		t.Fatalf("read config.toml: %v", err)
+	}
+	for _, key := range []string{"tools_mode", "workspace_agent", "workspace", "sandbox_memory", "sandbox_cpus"} {
+		if !strings.Contains(string(body), key) {
+			t.Errorf("key %q was not written for a fully opted-in config", key)
+		}
+	}
+
+	got, err := LoadVillaFrom(dir)
+	if err != nil {
+		t.Fatalf("LoadVillaFrom: %v", err)
+	}
+	if !got.ToolsMode || !got.WorkspaceAgent {
+		t.Errorf("opt-in lost: tools_mode=%v workspace_agent=%v", got.ToolsMode, got.WorkspaceAgent)
+	}
+	if !reflect.DeepEqual(got.Workspace, cfg.Workspace) {
+		t.Errorf("Workspace = %v, want %v", got.Workspace, cfg.Workspace)
+	}
+	if got.SandboxMemory != "12g" || got.SandboxCPUs != 6 {
+		t.Errorf("sandbox limits lost: memory=%q cpus=%d", got.SandboxMemory, got.SandboxCPUs)
+	}
+}
+
+// TestWorkspaceAgentFieldsAbsentLoadOff asserts a config.toml written before these
+// fields existed loads with the workspace agent off and no grants, which is what
+// keeps an existing install's rendered units unchanged.
+func TestWorkspaceAgentFieldsAbsentLoadOff(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "villa")
+	if err := os.MkdirAll(dir, configDirMode); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	body := "model = \"qwen3-35b-a3b-moe-64\"\nbackend = \"rocm\"\n"
+	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(body), configFileMode); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	got, err := LoadVillaFrom(dir)
+	if err != nil {
+		t.Fatalf("LoadVillaFrom: %v", err)
+	}
+	if got.ToolsMode || got.WorkspaceAgent || len(got.Workspace) != 0 || got.SandboxMemory != "" || got.SandboxCPUs != 0 {
+		t.Errorf("absent v1.11 keys loaded non-zero: %+v", got)
+	}
+}

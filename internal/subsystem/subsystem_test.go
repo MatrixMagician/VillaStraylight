@@ -23,6 +23,7 @@ func TestGatesAnswerTheConfigFlags(t *testing.T) {
 		{WebSearch, func(c *config.VillaConfig) { c.WebSearchEnabled = true }, "web_search_enabled"},
 		{Agent, func(c *config.VillaConfig) { c.AgentEnabled = true }, "agent_enabled"},
 		{CodingMode, func(c *config.VillaConfig) { c.CodingMode = true }, "coding_mode"},
+		{Sandbox, func(c *config.VillaConfig) { c.WorkspaceAgent = true }, "workspace_agent"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.kind.String(), func(t *testing.T) {
@@ -57,6 +58,8 @@ func TestGatesAreIndependent(t *testing.T) {
 			cfg.AgentEnabled = true
 		case CodingMode:
 			cfg.CodingMode = true
+		case Sandbox:
+			cfg.WorkspaceAgent = true
 		}
 		enabled := Enabled(cfg)
 		if len(enabled) != 1 || enabled[0] != k {
@@ -73,6 +76,7 @@ func TestNamedAccessorsAgreeWithOn(t *testing.T) {
 		WebSearchEnabled: false,
 		AgentEnabled:     true,
 		CodingMode:       false,
+		WorkspaceAgent:   true,
 	}
 	pairs := []struct {
 		kind  Kind
@@ -82,6 +86,7 @@ func TestNamedAccessorsAgreeWithOn(t *testing.T) {
 		{WebSearch, WebSearchOn(cfg)},
 		{Agent, AgentOn(cfg)},
 		{CodingMode, CodingModeOn(cfg)},
+		{Sandbox, SandboxOn(cfg)},
 	}
 	for _, p := range pairs {
 		if got := On(cfg, p.kind); got != p.named {
@@ -93,7 +98,7 @@ func TestNamedAccessorsAgreeWithOn(t *testing.T) {
 // TestEnabledPreservesAllOrder: reporters render subsystems in a stable order, so a
 // map-backed implementation (which would randomise it) must not creep in.
 func TestEnabledPreservesAllOrder(t *testing.T) {
-	cfg := config.VillaConfig{MemoryEnabled: true, WebSearchEnabled: true, AgentEnabled: true, CodingMode: true}
+	cfg := config.VillaConfig{MemoryEnabled: true, WebSearchEnabled: true, AgentEnabled: true, CodingMode: true, WorkspaceAgent: true}
 	got := Enabled(cfg)
 	if len(got) != len(All) {
 		t.Fatalf("Enabled returned %d of %d subsystems", len(got), len(All))
@@ -116,7 +121,7 @@ func TestModuleIsLoadBearing(t *testing.T) {
 	// Predicate reads only: an `if cfg.MemoryEnabled`, a `&&`, a `return c.AgentEnabled`.
 	// Assignments (`cfg.MemoryEnabled = ...`) are how a gate gets SET, which is a
 	// different operation and legitimately touches the field.
-	flags := regexp.MustCompile(`\b(cfg|c)\.(MemoryEnabled|WebSearchEnabled|AgentEnabled|CodingMode)\b\s*(?:[^=]|$)`)
+	flags := regexp.MustCompile(`\b(cfg|c)\.(MemoryEnabled|WebSearchEnabled|AgentEnabled|CodingMode|WorkspaceAgent|ToolsMode)\b\s*(?:[^=]|$)`)
 	predicate := regexp.MustCompile(`\bif\b|&&|\|\||\breturn\b`)
 
 	repoRoot := filepath.Join("..", "..")
@@ -162,7 +167,7 @@ func TestModuleIsLoadBearing(t *testing.T) {
 
 	if len(bypasses) > 0 {
 		t.Errorf("subsystem gates were read directly instead of through this module:\n  %s\n"+
-			"Use subsystem.MemoryOn / WebSearchOn / AgentOn / CodingModeOn so the gate has one answer.",
+			"Use subsystem.MemoryOn / WebSearchOn / AgentOn / CodingModeOn / SandboxOn / ToolsOn so the gate has one answer.",
 			strings.Join(bypasses, "\n  "))
 	}
 }
@@ -226,7 +231,7 @@ func TestAllStaysTheOptionalSet(t *testing.T) {
 	}
 	// Enabled over a fully-enabled config must still return exactly the optional
 	// set, never the always-on pair.
-	cfg := config.VillaConfig{MemoryEnabled: true, WebSearchEnabled: true, AgentEnabled: true, CodingMode: true}
+	cfg := config.VillaConfig{MemoryEnabled: true, WebSearchEnabled: true, AgentEnabled: true, CodingMode: true, WorkspaceAgent: true}
 	if got := len(Enabled(cfg)); got != len(All) {
 		t.Errorf("Enabled returned %d subsystems for a fully-enabled config, want %d", got, len(All))
 	}
@@ -236,7 +241,7 @@ func TestAllStaysTheOptionalSet(t *testing.T) {
 // state store, so an inserted member would silently renumber every value already
 // written to disk and re-point one subsystem's effective pin at another.
 func TestKindValuesAreStable(t *testing.T) {
-	want := map[Kind]int{Memory: 0, WebSearch: 1, Agent: 2, CodingMode: 3, Inference: 4, Chat: 5}
+	want := map[Kind]int{Memory: 0, WebSearch: 1, Agent: 2, CodingMode: 3, Inference: 4, Chat: 5, Sandbox: 6}
 	for k, n := range want {
 		if int(k) != n {
 			t.Errorf("%v = %d, want %d — a member was inserted rather than appended, renumbering stored values", k, int(k), n)
@@ -260,6 +265,7 @@ func TestOwnedStateIsTheWholeMapping(t *testing.T) {
 		WebSearch:  "",
 		Agent:      "",
 		CodingMode: "",
+		Sandbox:    "",
 	}
 	if len(want) != len(Every) {
 		t.Fatalf("the mapping covers %d subsystems but Every names %d — a new subsystem must declare whether it owns state", len(want), len(Every))
@@ -327,6 +333,42 @@ func TestReadOnlyMountsAreNotOwnedState(t *testing.T) {
 	}
 	if WebSearch.OwnsPersistentState() {
 		t.Error("web search declares owned state; the websafe binary mount is read-only and SearXNG's settings are a read-only bind")
+	}
+}
+
+// TestToolsOnIsTheUnionOfBothFlags: tool calling is on when EITHER coding mode or
+// the workspace agent needs it, so the four combinations are asserted rather than
+// only the one the workspace agent introduces.
+//
+// The union is why ToolsOn is a derived gate and not a Kind: there is no single
+// config flag it answers, and a caller that read tools_mode alone would render the
+// inference unit without tool calling for an operator already in coding mode.
+func TestToolsOnIsTheUnionOfBothFlags(t *testing.T) {
+	for _, tc := range []struct {
+		tools, coding, want bool
+	}{
+		{false, false, false},
+		{true, false, true},
+		{false, true, true},
+		{true, true, true},
+	} {
+		cfg := config.VillaConfig{ToolsMode: tc.tools, CodingMode: tc.coding}
+		if got := ToolsOn(cfg); got != tc.want {
+			t.Errorf("ToolsOn(tools_mode=%v, coding_mode=%v) = %v, want %v", tc.tools, tc.coding, got, tc.want)
+		}
+	}
+}
+
+// TestSandboxOwnsNoUnitsYet: the sandbox subsystem renders no Quadlet unit of its
+// own. Its container is started per task by `villa work`, not by systemd, so a unit
+// declaration here would make the cross-package drift test demand a unit the
+// renderer never produces.
+func TestSandboxOwnsNoUnitsYet(t *testing.T) {
+	if us, svcs := Sandbox.Units(); len(us) != 0 || len(svcs) != 0 {
+		t.Errorf("Sandbox.Units() = (%v, %v), want empty — the task container is not a unit", us, svcs)
+	}
+	if Sandbox.AlwaysOn() {
+		t.Error("Sandbox.AlwaysOn() = true; it is gated by workspace_agent")
 	}
 }
 
