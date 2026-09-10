@@ -3,7 +3,7 @@ package main
 // tools_mode.go is the cmd-tier `villa tools-mode` noun: show the persisted
 // tool-calling state of the chat unit, or flip it transactionally (spec v1.11 §3.5).
 //
-// It drives internal/toolsmode over the SAME liveBackendSwapDeps wiring
+// It drives backendswap.RunTools over the SAME liveBackendSwapDeps wiring
 // `villa speculation set` uses, because the change is the same one: re-render the
 // inference unit and restart it, rolling back verbatim if the new unit does not
 // prove healthy. Two seams are overridden for this verb. The fit guard sees the ctx
@@ -37,7 +37,6 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/prove"
 	"github.com/MatrixMagician/VillaStraylight/internal/recommend"
 	"github.com/MatrixMagician/VillaStraylight/internal/subsystem"
-	"github.com/MatrixMagician/VillaStraylight/internal/toolsmode"
 )
 
 // inferenceUnitFile is the rendered inference unit the tools-mode transaction
@@ -115,7 +114,7 @@ func runToolsModeShow(cmd *cobra.Command, asJSON bool) int {
 		}
 		return exitPass
 	}
-	fmt.Fprintf(out, "%-12s %s\n", "tools", toolsmode.Label(entry.Tools))
+	fmt.Fprintf(out, "%-12s %s\n", "tools", backendswap.ToolsLabel(entry.Tools))
 	if entry.CodingMode && !entry.ToolsMode {
 		fmt.Fprintf(out, "%-12s %s\n", "implied by", "coding mode")
 	}
@@ -167,7 +166,7 @@ func runToolsMode(cmd *cobra.Command, on bool, d *backendswap.Deps) int {
 		verb = "exit"
 	}
 
-	res := toolsmode.Run(*d, on)
+	res := backendswap.RunTools(*d, on)
 	switch {
 	case res.Refused:
 		switch {

@@ -90,8 +90,7 @@ Go 1.26+. Single module, single static binary built from `./cmd/villa`.
   pattern, not a proof), `taskstore` (the record, its state machine, the log; never
   deletes), `crushapi` (the Crush server client + the bridge's stdio protocol),
   `grounding` (the post-run claim audit; it flags, never edits, and a clean audit is
-  "the auditor found none"), `toolsmode` (the tools-mode transaction over
-  `backendswap`'s frame) and `taskrun` (the runner, hosted by the dashboard service;
+  "the auditor found none") and `taskrun` (the runner, hosted by the dashboard service;
   `villa work` and `villa task` are its loopback HTTP clients).
   Deeper detail: `docs/ARCHITECTURE.md`, `docs/DEVELOPMENT.md`.
 
@@ -337,7 +336,7 @@ loop.
 | taskstore | The task record, its state machine (`Exit(State)` is the one state → exit-code map), the append-only log; never deletes | `internal/taskstore/*.go` |
 | crushapi | The Crush server client + the bridge's one-object-per-line stdio protocol | `internal/crushapi/*.go` |
 | grounding | The post-run claim audit: one completion per document, reports, never edits; a clean audit is "the auditor found none" | `internal/grounding/grounding.go` |
-| toolsmode | The `tools-mode enter` / `exit` transaction: `backendswap`'s frame with a boolean axis, the ctx-floor fit guard, one real tool call in the proof | `internal/toolsmode/toolsmode.go` |
+| backendswap.RunTools | The `tools-mode enter` / `exit` transaction: `backendswap`'s frame with a boolean axis, the ctx-floor fit guard, one real tool call in the proof | `internal/backendswap/backendswap.go` |
 | taskrun | The runner: one task at a time, hosted by the dashboard service; every decision through `approval`, every terminal state through `taskstore` | `internal/taskrun/*.go` |
 
 This table covers the v1.0–v1.2 spine plus the v1.6 consolidation modules and the v1.11 workspace-agent packages. The

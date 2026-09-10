@@ -3,10 +3,11 @@
 // a change on a RUNNING install must go through so a failed or degraded change is a
 // no-op to the running stack (Phase 8, BSET-01/BSET-02).
 //
-// Two verbs mutate config and re-render on this frame: `villa backend set` and
-// `villa speculation set` (ADR-0006). They differ only in their guards and in which
-// config field they write, so the frame takes the mutation as a closure and both
-// share ONE rollback rather than growing a second one that drifts.
+// Three verbs mutate config and re-render on this frame: `villa backend set`,
+// `villa speculation set` (ADR-0006) and `villa tools-mode enter|exit` (spec v1.11
+// §3.5). They differ only in their guards and in which config field they write, so
+// the frame takes the mutation as a closure and all three share ONE rollback rather
+// than growing a second one that drifts.
 //
 // It clones the proven `internal/modelswap` forward skeleton (fit-guard FIRST,
 // persist-before-unit-work, restart-inference-only) and wraps it in a
@@ -30,6 +31,7 @@ import (
 
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/prove"
+	"github.com/MatrixMagician/VillaStraylight/internal/subsystem"
 )
 
 // Deps is the injectable seam set for the transactional core. Every host-touching
@@ -195,6 +197,70 @@ func RunSpeculation(d Deps, target string) Result {
 	}
 
 	return transact(d, from, target, func(c *config.VillaConfig) { c.Speculation = target })
+}
+
+// State labels for a tools-mode Result's From/To. They are the words the verb
+// prints, so a rolled-back result names the state the operator is back on.
+const (
+	toolsStateOn  = "on"
+	toolsStateOff = "off"
+)
+
+// ToolsLabel renders a persisted tools-mode boolean as the Result vocabulary.
+func ToolsLabel(on bool) string {
+	if on {
+		return toolsStateOn
+	}
+	return toolsStateOff
+}
+
+// RunTools performs the guarded, transactional tools-mode cutover: flipping the
+// RUNNING chat unit into tool calling, and back. It is Run's frame with the ROCm
+// preflight dropped — the flag changes no image, no device and no privilege — and
+// with two guards of its own:
+//
+//	(1) LoadConfig; the no-op and the From label are decided on the ANSWERED gate
+//	    rather than the raw flag, so entering on a coding-mode stack is already
+//	    there. An exit while coding mode holds the gate on is a refusal naming that
+//	    flag, not a persisted false that renders an unchanged unit.
+//	(2) fit-guard, seeing the TARGET state: tools mode serves the ctx floor
+//	    max(cfg.Ctx, agent_ctx), and a floor that does not fit the envelope refuses
+//	    with the remediation BEFORE any capture — so an operator whose envelope
+//	    shrank is told what it needs rather than having the chat unit restarted out
+//	    from under them and rolled back.
+//	(4)-(6) the shared transaction, mutating cfg.ToolsMode.
+//
+// Like the rest of this package it is literal-free of the tool-calling flag itself:
+// the flag is a render output of internal/inference, and the cutover verdict — the
+// residency proof plus the tool-call probe — arrives only through the Prove seam.
+func RunTools(d Deps, on bool) Result {
+	cfg, err := d.LoadConfig()
+	if err != nil {
+		return Result{Refused: true, FailedStep: "load config", Err: err, To: ToolsLabel(on)}
+	}
+	from, to := ToolsLabel(subsystem.ToolsOn(cfg)), ToolsLabel(on)
+	if subsystem.ToolsOn(cfg) == on {
+		return Result{NoOp: true, From: from, To: to}
+	}
+	if !on && subsystem.CodingModeOn(cfg) {
+		return Result{
+			Refused: true,
+			Reason:  "coding mode implies tools mode — run `villa coding-mode exit` to stop serving tool calls",
+			From:    from,
+			To:      to,
+		}
+	}
+
+	// The guard sees the TARGET state. A same-state target is already a NoOp above,
+	// so passing the persisted config would leave the ctx-floor check permanently
+	// dead on the only path that can raise the served context.
+	fitCfg := cfg
+	fitCfg.ToolsMode = on
+	if ok, reason := d.FitsModel(fitCfg); !ok {
+		return Result{Refused: true, Reason: reason, From: from, To: to}
+	}
+
+	return transact(d, from, to, func(next *config.VillaConfig) { next.ToolsMode = on })
 }
 
 // transact is steps (4)-(6) of the frame: capture strictly before any mutation,
