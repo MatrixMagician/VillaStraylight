@@ -76,16 +76,17 @@ func TestRenderEmbed(t *testing.T) {
 }
 
 // TestRenderByteIdenticalWhenMemoryOff: with memory off, Render returns EXACTLY the
-// existing 5 units and none of the three memory unit names appear (byte-identity:
-// the 5 existing goldens stay unchanged, proven by the existing render tests staying
-// green plus this len/name regression).
+// existing 5 units plus the unconditional sandbox network (issue #199) and none of
+// the three memory unit names appear (byte-identity: the 5 existing goldens stay
+// unchanged, proven by the existing render tests staying green plus this len/name
+// regression).
 func TestRenderByteIdenticalWhenMemoryOff(t *testing.T) {
 	units, err := Render(fixtureInput())
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
-	if len(units) != 5 {
-		t.Fatalf("memory off: Render returned %d units, want exactly 5: %v", len(units), unitNames(units))
+	if len(units) != 6 {
+		t.Fatalf("memory off: Render returned %d units, want exactly 6: %v", len(units), unitNames(units))
 	}
 	for _, name := range []string{"villa-qdrant.container", "villa-qdrant.volume", "villa-embed.container"} {
 		for _, u := range units {
@@ -113,7 +114,8 @@ func TestMemoryUnitsNoPublishPort(t *testing.T) {
 
 // TestRenderEightUnitOrderWhenMemoryOn: with memory on, Render grows from 5 to 8 units
 // in a fixed deterministic order — the existing 5 THEN villa-qdrant.container,
-// villa-qdrant.volume, villa-embed.container.
+// villa-qdrant.volume, villa-embed.container — plus the unconditional sandbox network
+// (issue #199), appended last regardless of any gate.
 func TestRenderEightUnitOrderWhenMemoryOn(t *testing.T) {
 	units, err := Render(memoryFixtureInput())
 	if err != nil {
@@ -128,6 +130,7 @@ func TestRenderEightUnitOrderWhenMemoryOn(t *testing.T) {
 		"villa-qdrant.container",
 		"villa-qdrant.volume",
 		"villa-embed.container",
+		"villa-sandbox.network",
 	}
 	got := unitNames(units)
 	if len(got) != len(want) {

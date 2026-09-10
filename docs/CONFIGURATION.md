@@ -74,7 +74,7 @@ chat_port = 3000
 | `vision` | bool | _(absent → false)_ | Whether the inference unit is started with the model's vision projector, so an image attached in Open WebUI is answered. True only when a `villa recommend --save` or a `villa install` resolved a projector that fits the envelope and pulled it — the projector file must be on disk before a unit can reference it, which is why this is persisted rather than read back from the catalog. An absent key renders no projector flag, which is what every install predating the key carries. |
 | `resident` | array of tables | _(absent)_ | Zero or more `[[resident]]` slots: secondary models held loaded alongside `model`. Absent until `villa model resident add` writes one. See [The resident set](#the-resident-set). |
 | `tools_mode` | bool | _(absent → false)_ | Whether the chat unit is served with the model's own chat template, so tool calls parse. Written by `villa tools-mode enter`, `villa tools-mode exit` and `villa install --workspace-agent`, never by `config set`: flipping it restarts the inference unit under a transactional cutover. Coding mode implies it, so `coding_mode = true` answers the gate on without this key. See [The workspace agent](#the-workspace-agent). |
-| `workspace_agent` | bool | _(absent → false)_ | The workspace agent's gate. Written only by `villa install --workspace-agent`, which also sets `tools_mode`. With it on, the render adds `villa-sandbox.network` and joins the inference unit to it, and `villa preflight` runs `PRE-09`. |
+| `workspace_agent` | bool | _(absent → false)_ | The workspace agent's gate. Written only by `villa install --workspace-agent`, which also sets `tools_mode`. `villa-sandbox.network` itself renders unconditionally (like `villa.network`); with the gate on, the render additionally joins the inference unit to it, and `villa preflight` runs `PRE-09`. |
 | `workspace` | array of strings | _(absent)_ | The registered workspace grants: absolute, symlink-resolved folders a task may be run against. Written by `villa workspace add` and `villa workspace remove`; `villa work` refuses any path not on this list. |
 | `sandbox_memory` | string | _(absent → `4g`)_ | The `--memory` limit of a task's microVM, in podman's syntax. Edit by hand; read at task launch. The default lives in `internal/orchestrate/sandbox.go`, not in `defaultConfig()`, so an absent key writes nothing to the file. |
 | `sandbox_cpus` | int | _(absent → `4`)_ | The `--cpus` limit of a task's microVM. Edit by hand; read at task launch; zero or negative renders the default. |
@@ -156,7 +156,7 @@ Five keys drive `villa work`. Each has exactly one writer, and none of them is a
 | Key | Type | Default | Written by | Read by |
 |-----|------|---------|------------|---------|
 | `tools_mode` | bool | `false` | `villa tools-mode enter` / `exit`, `villa install --workspace-agent` | the inference render (the chat template flag), `villa work`, `villa doctor` (`TMD-01`), `villa status` (`mode: tools`) |
-| `workspace_agent` | bool | `false` | `villa install --workspace-agent` | the render (`villa-sandbox.network`, the inference unit's second network line), `villa preflight` (`PRE-09`), `villa doctor` (`SBX-01`, `SBX-02`) |
+| `workspace_agent` | bool | `false` | `villa install --workspace-agent` | the inference unit's second network line (`villa-sandbox.network` itself always renders), `villa preflight` (`PRE-09`), `villa doctor` (`SBX-01`, `SBX-02`) |
 | `workspace` | array of strings | absent | `villa workspace add` / `remove` | `villa work`, the runner, the dashboard's Workspaces panel |
 | `sandbox_memory` | string | `4g` | you, by hand | the task launch (`podman run --memory`) |
 | `sandbox_cpus` | int | `4` | you, by hand | the task launch (`podman run --cpus`) |
@@ -181,7 +181,10 @@ coding mode.
 
 `workspace_agent` is written by `villa install --workspace-agent`, which also
 writes `tools_mode = true`. Nothing on the command line turns it off; edit the
-file and re-run `villa install` to remove the sandbox network unit.
+file and re-run `villa install` to drop the inference unit's join to
+`villa-sandbox.network`. The network unit itself is never removed by a gate flip
+(issue #199): it renders unconditionally, like `villa.network`, and an unjoined
+`.network` unit starts no service, so there is nothing to clean up.
 
 `workspace` holds absolute paths after symlink resolution. `villa workspace add`
 refuses a relative path, the home directory itself, a path outside it, a path
