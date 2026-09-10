@@ -449,3 +449,40 @@ func TestEventsStreamsNarrationUntilTerminal(t *testing.T) {
 		t.Errorf("last frame = %s %+v, want state/done", last.event, last.data.Task)
 	}
 }
+
+// TestHandleWorkspaces guards GET /api/workspaces: it is config-only (reads
+// through the same StatusDeps.LoadConfig seam status already uses, not gated
+// by s.tasks), always emits "workspaces":[] rather than null when the grant
+// list is empty, and 500s on a LoadConfig error.
+func TestHandleWorkspaces(t *testing.T) {
+	deps := stubStatusDeps(t)
+	deps.LoadConfig = func() (config.VillaConfig, error) {
+		return config.VillaConfig{Workspace: []string{"/a", "/b"}}, nil
+	}
+	srv := mustNewServer(t, Config{StatusDeps: deps, ChatPort: 3000, DashboardAddr: "127.0.0.1", DashboardPort: 8888})
+
+	rec := do(srv.Handler(), http.MethodGet, "/api/workspaces", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("code = %d; body=%s", rec.Code, rec.Body.String())
+	}
+	if got, want := rec.Body.String(), `{"schema":1,"workspaces":[{"path":"/a"},{"path":"/b"}]}`+"\n"; got != want {
+		t.Errorf("body = %s, want %s", got, want)
+	}
+
+	deps.LoadConfig = func() (config.VillaConfig, error) { return config.VillaConfig{}, nil }
+	srv = mustNewServer(t, Config{StatusDeps: deps, ChatPort: 3000, DashboardAddr: "127.0.0.1", DashboardPort: 8888})
+	rec = do(srv.Handler(), http.MethodGet, "/api/workspaces", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("empty code = %d; body=%s", rec.Code, rec.Body.String())
+	}
+	if got, want := rec.Body.String(), `{"schema":1,"workspaces":[]}`+"\n"; got != want {
+		t.Errorf("empty body = %s, want %s", got, want)
+	}
+
+	deps.LoadConfig = func() (config.VillaConfig, error) { return config.VillaConfig{}, errors.New("boom") }
+	srv = mustNewServer(t, Config{StatusDeps: deps, ChatPort: 3000, DashboardAddr: "127.0.0.1", DashboardPort: 8888})
+	rec = do(srv.Handler(), http.MethodGet, "/api/workspaces", "")
+	if rec.Code != http.StatusInternalServerError {
+		t.Errorf("error code = %d, want 500; body=%s", rec.Code, rec.Body.String())
+	}
+}

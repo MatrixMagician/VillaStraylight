@@ -401,6 +401,38 @@ html, body {
 }
 .model-switch { margin-left: var(--space-md); }
 
+/* ---- Tasks panel (ticket #184) ---- */
+.task-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 7px 12px;
+  border-top: 1px solid var(--hairline);
+  cursor: pointer;
+}
+.task-row:first-child { border-top: none; }
+.task-row:hover { background: rgba(59, 130, 246, 0.055); }
+
+.narration-log {
+  max-height: 220px;
+  overflow-y: auto;
+  background: var(--bg-dominant);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+}
+.narration-row { padding: 2px 0; }
+.narration-at { color: var(--text-muted); margin-right: 8px; }
+.narration-text { color: var(--text-primary); }
+
+.task-detail-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: var(--space-md);
+}
+
 /* ---- Switch confirm dialog (D-08) ---- */
 .switch-dialog {
   background: var(--bg-secondary);

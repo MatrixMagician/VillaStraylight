@@ -6,6 +6,7 @@ GET /api/status
 GET /api/tasks
 GET /api/tasks/{id}
 GET /api/tasks/{id}/events
+GET /api/workspaces
 POST /api/models/switch
 POST /api/tasks
 POST /api/tasks/{id}/approve

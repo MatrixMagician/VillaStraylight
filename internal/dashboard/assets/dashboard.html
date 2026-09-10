@@ -115,6 +115,41 @@
       </div>
     </section>
 
+    <!-- Workspaces (read-only, ticket #184) — filled by the poll loop from
+         /api/workspaces (config's registered grant list; no task submission
+         from the dashboard). Tasks (read-only list + detail) — filled from
+         /api/tasks; clicking a row opens the detail panel below. -->
+    <div class="grid">
+      <section class="panel" id="workspaces-panel" aria-labelledby="workspaces-heading">
+        <h2 class="panel-heading" id="workspaces-heading">Workspaces</h2>
+        <div id="workspaces-body">
+          <p class="muted">Loading workspaces…</p>
+        </div>
+      </section>
+
+      <section class="panel" id="tasks-panel" aria-labelledby="tasks-heading">
+        <h2 class="panel-heading" id="tasks-heading">Tasks</h2>
+        <div id="tasks-body">
+          <p class="muted">Loading tasks…</p>
+        </div>
+      </section>
+    </div>
+
+    <!-- Task detail (ticket #184) — hidden until a task row is clicked. Live
+         narration streams over the same /api/tasks/{id}/events SSE the
+         terminal uses; Approve/Approve all/Deny/Cancel are the only writes,
+         gated on the record's current state. -->
+    <section class="panel" id="task-detail-panel" aria-labelledby="task-detail-heading" hidden>
+      <h2 class="panel-heading" id="task-detail-heading">
+        Task
+        <button type="button" class="btn btn-secondary" id="task-detail-close">Close</button>
+      </h2>
+      <div id="task-detail-body"></div>
+      <div class="task-detail-actions" id="task-detail-actions"></div>
+      <p class="eyebrow">Narration</p>
+      <div id="task-narration-log" class="narration-log" aria-live="polite"></div>
+    </section>
+
     <!-- The optional subsystems. Each panel ships hidden (the connection-banner[hidden]
          precedent) and the poll loop unhides it ONLY when its field is present on the
          existing /api/status report — no new fetch, endpoint or probe (CTRL-02 / D-03,

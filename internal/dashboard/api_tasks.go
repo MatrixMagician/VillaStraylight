@@ -35,6 +35,7 @@ func (s *Server) apiRoutes() []apiRoute {
 		{http.MethodGet, "/api/gpu", s.handleGPU},
 		{http.MethodGet, "/api/models", s.handleModels},
 		{http.MethodPost, "/api/models/switch", s.handleSwitch},
+		{http.MethodGet, "/api/workspaces", s.handleWorkspaces},
 		{http.MethodGet, "/api/tasks", s.handleTaskList},
 		{http.MethodPost, "/api/tasks", s.handleTaskSubmit},
 		{http.MethodGet, "/api/tasks/{id}", s.handleTaskShow},
@@ -47,6 +48,37 @@ func (s *Server) apiRoutes() []apiRoute {
 
 type errorResponse struct {
 	Error string `json:"error"`
+}
+
+// workspaceEntry is one row of the /api/workspaces shape, mirroring `villa
+// workspace list --json`'s workspaceListEntry (cmd/villa/workspace.go).
+type workspaceEntry struct {
+	Path string `json:"path"`
+}
+
+// workspacesView is the /api/workspaces contract: the same {schema,
+// workspaces[]} shape workspaceListView freezes for the CLI.
+type workspacesView struct {
+	Schema     int              `json:"schema"`
+	Workspaces []workspaceEntry `json:"workspaces"`
+}
+
+// handleWorkspaces answers GET /api/workspaces from cfg.Workspace via the
+// SAME status.Deps.LoadConfig seam internal/status already reads (no new
+// Config field). It is config-only and always available — a host without the
+// workspace agent enabled still has registered workspaces to show read-only,
+// so this route is NOT gated by tasksReady.
+func (s *Server) handleWorkspaces(w http.ResponseWriter, _ *http.Request) {
+	cfg, err := s.statusDeps.LoadConfig()
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: err.Error()})
+		return
+	}
+	view := workspacesView{Schema: 1, Workspaces: []workspaceEntry{}}
+	for _, p := range cfg.Workspace {
+		view.Workspaces = append(view.Workspaces, workspaceEntry{Path: p})
+	}
+	writeJSON(w, http.StatusOK, view)
 }
 
 // tasksReady answers the 503 when the workspace agent is not enabled and
