@@ -110,7 +110,7 @@ func RenderSandboxRun(in SandboxRunInput) ([]string, error) {
 		cpus = sandboxDefaultCPUs
 	}
 
-	return []string{
+	args := []string{
 		"run", "--rm", "-i", "--init",
 		"--name", SandboxContainerName(in.TaskID),
 		"--runtime=krun",
@@ -124,8 +124,11 @@ func RenderSandboxRun(in SandboxRunInput) ([]string, error) {
 		"--volume", in.CrushPath + ":/usr/local/bin/crush:ro,z",
 		"-w", "/workspace",
 		"-e", "HOME=/tmp",
-		// Crush's config and data live on the tmpfs, not on the grant: the
-		// prototype found a .crush/ directory left in the operator's workspace.
+		// Crush's config lives on the tmpfs. Its data directory is NOT set by
+		// CRUSH_GLOBAL_DATA: Crush resolves it from the workspace-create body, so
+		// the bridge passes data_dir on that call. The env var is kept for the
+		// global default only; the prototype found a .crush/ directory left in the
+		// operator's workspace when neither was set.
 		"-e", "CRUSH_GLOBAL_CONFIG=/tmp/crushcfg",
 		"-e", "CRUSH_GLOBAL_DATA=/tmp/crushdata",
 		"-e", "CRUSH_DISABLE_METRICS=1",
@@ -133,5 +136,14 @@ func RenderSandboxRun(in SandboxRunInput) ([]string, error) {
 		"-e", "CRUSH_DISABLE_PROVIDER_AUTO_UPDATE=1",
 		in.Image,
 		"villa", "sandbox-bridge",
-	}, nil
+	}
+	// The bridge advertises the served model and context window in the crush.json
+	// it renders; a zero value keeps the bridge's own default.
+	if in.Cfg.Model != "" {
+		args = append(args, "--model", in.Cfg.Model)
+	}
+	if in.Cfg.Ctx > 0 {
+		args = append(args, "--ctx", strconv.Itoa(in.Cfg.Ctx))
+	}
+	return args, nil
 }

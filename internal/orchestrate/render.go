@@ -50,13 +50,13 @@ type containerView struct {
 	// golden from before the sandbox existed byte-identical.
 	SandboxNetwork string
 	BackendLabel   string
-	AddDevice     []string
-	GroupAdd      []string
-	Env           []envPair
-	PublishPort   string
-	Volume        string
-	PodmanArgs    string
-	Exec          string
+	AddDevice      []string
+	GroupAdd       []string
+	Env            []envPair
+	PublishPort    string
+	Volume         string
+	PodmanArgs     string
+	Exec           string
 }
 
 // backendLabel maps a backend's seam-sourced Name() ("vulkan"/"rocm") to the human
