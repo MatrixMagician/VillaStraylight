@@ -209,6 +209,16 @@ type Report struct {
 	// boolean to keep in sync.
 	Tools bool `json:"tools"`
 
+	// LastTask is the workspace agent's most recently submitted task (spec
+	// v1.11 §10): its id, its current state, and when it finished (empty for a
+	// non-terminal task). It is a *LastTaskInfo + omitempty, populated ONLY when
+	// the workspace agent is enabled (subsystem.SandboxOn) AND the ReadLastTask
+	// seam resolves a record — a sandbox-off report, a store read error, and an
+	// empty task list all leave it nil (typed-Unknown, never a fabricated task).
+	// Tail-appended above SchemaVersion (append-only; nothing above moved). Part
+	// of the v10 bump.
+	LastTask *LastTaskInfo `json:"last_task,omitempty"`
+
 	// SchemaVersion is the Report contract self-version. It MUST stay the
 	// LAST tagged field (append-only; new tagged fields go above it, the unexported
 	// err stays after it and never serializes).
@@ -247,7 +257,10 @@ type Report struct {
 // Version 9 (v1.11 §3.5) tail-appends the answered tools gate ABOVE SchemaVersion;
 // a stack that serves no tool calls reports false, so the v9 output differs from v8
 // by that one key.
-const reportSchemaVersion = 9
+// Version 10 tail-appends the last task's id and state ABOVE SchemaVersion; omitted
+// when the workspace agent is off or no task has ever run, so the v10 output
+// differs from v9 only in schema_version.
+const reportSchemaVersion = 10
 
 // SchemaVersion exposes the Report contract's own version to downstream readers
 // (the dashboard serves this same document), so a consumer binds one symbol rather
@@ -395,6 +408,18 @@ const (
 	PinMismatch = "mismatch"
 	PinUnknown  = "unknown"
 )
+
+// LastTaskInfo is the v1.11 §10 workspace-agent summary section of the Report: the
+// most recently submitted task's identity and where it stands. ID and State are
+// verbatim from the taskstore record (State is the taskstore.State string, not
+// re-typed here — internal/status does not import internal/taskstore, so the CLI
+// wiring does the projection). FinishedAt is omitempty because a non-terminal task
+// has not finished — an empty string there is honest, not a fabricated timestamp.
+type LastTaskInfo struct {
+	ID         string `json:"id"`
+	State      string `json:"state"`
+	FinishedAt string `json:"finished_at,omitempty"`
+}
 
 // ROCmReadinessIndicator is the tri-state surfaced from the detect rocm_readiness
 // sub-tree. It is a string enum so the --json contract is stable and the dashboard
@@ -554,6 +579,15 @@ type Deps struct {
 	// scrape — Run then leaves the ratio nil + counts omitted (typed-Unknown, never
 	// a fabricated 0%). A nil seam is treated as ok=false (Run guards it).
 	AgentCache func() (cacheN uint64, promptN uint64, ok bool)
+
+	// ReadLastTask is the READ-ONLY workspace-agent task projection seam
+	// (spec v1.11 §10), wired in liveStatusDeps over the taskstore Store's List,
+	// newest-by-id. internal/status must not import internal/taskstore, so the CLI
+	// performs the projection and hands back the already-typed LastTaskInfo. It is
+	// consulted ONLY when the workspace agent is enabled (Run gates on
+	// subsystem.SandboxOn). A nil seam or a nil return (store error, empty task
+	// list) leaves report.LastTask nil — typed-Unknown, never a fabricated task.
+	ReadLastTask func() *LastTaskInfo
 }
 
 // Errored returns the synthetic active-state token Run records when `systemctl
@@ -636,6 +670,13 @@ func Run(d Deps) Report {
 	report.Speculation = cmp.Or(cfg.Speculation, config.SpeculationOff)
 	report.Vision = cfg.Vision
 	report.Tools = subsystem.ToolsOn(cfg)
+	// Last task: populated ONLY when the workspace agent is enabled — a
+	// sandbox-off report carries LastTask == nil so the omitempty key is absent
+	// and the v10 contract differs from v9 only in schema_version. A nil seam or a
+	// nil return (no task has ever run) leaves it nil the same way.
+	if subsystem.SandboxOn(cfg) && d.ReadLastTask != nil {
+		report.LastTask = d.ReadLastTask()
+	}
 	report.SchemaVersion = reportSchemaVersion
 	// Live tok/s: typed-optional via the seam — nil on idle/unavailable so it
 	// serializes as omitted, never a fabricated 0. Guard a nil seam defensively.

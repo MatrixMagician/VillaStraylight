@@ -16,9 +16,11 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
 	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
+	"github.com/MatrixMagician/VillaStraylight/internal/pathsafe"
 	"github.com/MatrixMagician/VillaStraylight/internal/recall"
 	"github.com/MatrixMagician/VillaStraylight/internal/recommend"
 	"github.com/MatrixMagician/VillaStraylight/internal/status"
+	"github.com/MatrixMagician/VillaStraylight/internal/taskstore"
 	"github.com/MatrixMagician/VillaStraylight/internal/verifystate"
 )
 
@@ -1069,4 +1071,59 @@ func TestStatusTableShowsVision(t *testing.T) {
 			t.Errorf("vision row precedes the speculation row:\n%s", got)
 		}
 	}
+}
+
+// TestRenderStatusTableLastTask asserts the "last task" line renders only when
+// r.LastTask is present (spec v1.11 §10) — the honest empty state is no line.
+func TestRenderStatusTableLastTask(t *testing.T) {
+	var withTask bytes.Buffer
+	renderStatusTable(&withTask, status.Report{
+		Backend:  "rocm",
+		LastTask: &status.LastTaskInfo{ID: "20260910-120115-4f2a", State: "done"},
+	}, false)
+	var row string
+	for _, line := range strings.Split(withTask.String(), "\n") {
+		if strings.HasPrefix(line, "last task") {
+			row = line
+		}
+	}
+	if row == "" {
+		t.Fatalf("table missing the last-task row:\n%s", withTask.String())
+	}
+	if !strings.HasSuffix(strings.TrimSpace(row), "20260910-120115-4f2a done") {
+		t.Errorf("last-task row = %q, want it to end %q", row, "20260910-120115-4f2a done")
+	}
+
+	var noTask bytes.Buffer
+	renderStatusTable(&noTask, status.Report{Backend: "rocm"}, false)
+	if strings.Contains(noTask.String(), "last task") {
+		t.Errorf("table must omit the last-task row when LastTask is nil:\n%s", noTask.String())
+	}
+}
+
+// TestReadLastTask (spec v1.11 §10) drives the CLI's taskstore→LastTaskInfo
+// projection directly, off the same XDG_DATA_HOME isolation the other taskstore
+// callers use (taskrun_live_test.go). Three records, newest by id wins; an empty
+// store yields nil.
+func TestReadLastTask(t *testing.T) {
+	t.Run("newest by id", func(t *testing.T) {
+		t.Setenv("XDG_DATA_HOME", t.TempDir())
+		store := taskstore.New(pathsafe.DataRoot())
+		for _, id := range []string{"20260101-000000-0001", "20260101-000000-0003", "20260101-000000-0002"} {
+			if err := store.Create(taskstore.Task{ID: id, State: taskstore.Refused}); err != nil {
+				t.Fatalf("seed %s: %v", id, err)
+			}
+		}
+		got := readLastTask(pathsafe.DataRoot())
+		if got == nil || got.ID != "20260101-000000-0003" || got.State != string(taskstore.Refused) {
+			t.Fatalf("readLastTask = %+v, want id 20260101-000000-0003", got)
+		}
+	})
+
+	t.Run("empty store ⇒ nil", func(t *testing.T) {
+		t.Setenv("XDG_DATA_HOME", t.TempDir())
+		if got := readLastTask(pathsafe.DataRoot()); got != nil {
+			t.Fatalf("readLastTask on an empty store = %+v, want nil", got)
+		}
+	})
 }

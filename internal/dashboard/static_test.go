@@ -55,6 +55,9 @@ func TestStaticAssetsServed(t *testing.T) {
 		// The speculation health row: the dashboard reports the persisted mode
 		// alongside the backend, so a stack running speculation says so.
 		{"/dashboard.js", "report.speculation"},
+		// The last-task health row (spec v1.11 §10): the dashboard surfaces the
+		// workspace agent's most recent task id/state on the same /api/status poll.
+		{"/dashboard.js", "report.last_task"},
 	} {
 		req := httptest.NewRequest(http.MethodGet, tc.path, nil)
 		rec := httptest.NewRecorder()
