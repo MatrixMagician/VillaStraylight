@@ -39,6 +39,7 @@ func TestEveryLineRoundTrips(t *testing.T) {
 		{Event: &Event{Kind: KindRunComplete, ID: "sess-1", Time: at, RunComplete: &RunComplete{
 			SessionID: "sess-1", RunID: "run-1", MessageID: "msg-1", Text: "ok",
 		}}},
+		{Event: &Event{Kind: KindFilesRead, Time: at, Files: []string{"/workspace/q3.csv", "/workspace/notes.txt"}}},
 		{Event: &Event{Kind: "a_kind_villa_has_never_seen", Time: at, Raw: json.RawMessage(`{"x":1}`)}},
 	}
 
