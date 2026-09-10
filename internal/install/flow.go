@@ -310,7 +310,7 @@ func Run(ctx context.Context, d Deps, opts Opts) Result {
 		}
 		renderIn.ModelFile = coderModelFile
 		renderIn.CodingMode = spec
-		renderIn.CoderAgentCtx = cfg.CoderAgentCtx
+		renderIn.AgentCtx = cfg.CoderAgentCtx
 	}
 	rendered, err := d.Render(renderIn)
 	if err != nil {

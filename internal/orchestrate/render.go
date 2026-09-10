@@ -105,7 +105,7 @@ func Render(in RenderInput) ([]Unit, error) {
 	// cfg.CoderModel and translates catalog.AgentSampling → inference.Sampling, handing
 	// Render the already-translated descriptor on RenderInput — so the pure renderer never
 	// imports internal/catalog. When the descriptor is present, the single -c carries the
-	// resolved agent ctx (Pitfall 1: spec.ContextLen = CoderAgentCtx, never a second -c).
+	// resolved agent ctx (Pitfall 1: spec.ContextLen = AgentCtx, never a second -c).
 	// When absent (in.CodingMode == nil) spec is left exactly as v1.3, so the off-path
 	// goldens are byte-identical BY CONSTRUCTION.
 	// The single point that turns "tool calling is on in config" into the rendered
@@ -115,12 +115,12 @@ func Render(in RenderInput) ([]Unit, error) {
 
 	if in.CodingMode != nil {
 		spec.CodingMode = in.CodingMode
-		spec.ContextLen = in.CoderAgentCtx
-	} else if spec.Tools && in.CoderAgentCtx > spec.ContextLen {
+		spec.ContextLen = in.AgentCtx
+	} else if spec.Tools && in.AgentCtx > spec.ContextLen {
 		// Tools mode without the swap: the served ctx is the FLOOR
 		// max(cfg.Ctx, agent ctx), because an agent's tool traffic needs the catalog
 		// entry's agent context while a chat ctx already above it must not be lowered.
-		// The agent ctx arrives resolved on RenderInput.CoderAgentCtx (0 when the caller
+		// The agent ctx arrives resolved on RenderInput.AgentCtx (0 when the caller
 		// resolved none, which leaves cfg.Ctx alone) — the pure renderer never imports
 		// internal/catalog. Coding mode above OVERRIDES rather than floors: it is a swap
 		// to the coder entry, so the chat ctx is not its input at all (Pitfall 1).
@@ -128,7 +128,7 @@ func Render(in RenderInput) ([]Unit, error) {
 		// Whether that raised ctx FITS the memory envelope is not decidable here: Render
 		// is pure and holds no HostProfile. The fit refusal belongs on the transactional
 		// enter path, where coding mode's already is (internal/codingmode's Fit dep).
-		spec.ContextLen = in.CoderAgentCtx
+		spec.ContextLen = in.AgentCtx
 	}
 
 	// The resident units below are rendered from their own RunSpec and deliberately

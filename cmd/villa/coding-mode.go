@@ -338,7 +338,7 @@ func liveCodingModeDeps(ctx context.Context) *codingmode.Deps {
 		// ReconcileAndWrite: the ONE delta from backend.go. When cfg.CodingMode is true,
 		// resolve the coder catalog entry by cfg.CoderModel (swap) or serve the chat model
 		// (shared), translate catalog.AgentSampling → inference.Sampling, and populate
-		// RenderInput.CodingMode + CoderAgentCtx (the catalog import lives HERE, never in the
+		// RenderInput.CodingMode + AgentCtx (the catalog import lives HERE, never in the
 		// pure renderer). When off, leave them nil ⇒ off-path render is byte-identical.
 		ReconcileAndWrite: func(c config.VillaConfig) (bool, error) {
 			dir, err := quadletUnitDir()
@@ -372,7 +372,7 @@ func liveCodingModeDeps(ctx context.Context) *codingmode.Deps {
 					return false, derr
 				}
 				in.CodingMode = spec
-				in.CoderAgentCtx = c.CoderAgentCtx
+				in.AgentCtx = c.CoderAgentCtx
 			}
 			units, err := livePinnedRender(in)
 			if err != nil {

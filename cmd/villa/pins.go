@@ -149,7 +149,43 @@ func livePinnedRender(in orchestrate.RenderInput) ([]orchestrate.Unit, error) {
 		}
 		in.Projector = projector
 	}
+	// The tools-mode ctx floor is resolved HERE rather than at each of the seven
+	// render sites, because `tools-mode enter` refuses on a floor that none of them
+	// was raising: the guard and the render would disagree for as long as one caller
+	// stayed unwired. Coding mode is excluded because its callers already supply
+	// AgentCtx from cfg.CoderAgentCtx, and Render overrides rather than floors there.
+	if in.AgentCtx == 0 && in.CodingMode == nil && subsystem.ToolsOn(in.Cfg) {
+		agentCtx, err := liveAgentCtx(in.Cfg)
+		if err != nil {
+			return nil, err
+		}
+		in.AgentCtx = agentCtx
+	}
 	return orchestrate.Render(in)
+}
+
+// liveAgentCtx is the served entry's agent-profile context: the ctx floor tools mode
+// renders and the tools-mode fit guard refuses on. It is the catalog-to-render
+// translation the pure renderer cannot do itself (the liveProjector precedent), and
+// it is ONE function so those two can never disagree about the floor.
+//
+// A model the catalog does not carry, or one declaring no agent context, answers 0
+// — which leaves cfg.Ctx alone. That is every chat entry in today's seed: the floor
+// exists for the measured value spec v1.11 §13 item 1 will write, and refusing on a
+// number nobody measured would be worse than serving cfg.Ctx. An error here means
+// the compiled-in seed itself failed to decode — catalog.Load falls back to it for
+// every external-catalog problem — and it refuses the render rather than serving a
+// floor it could not read.
+func liveAgentCtx(cfg config.VillaConfig) (int, error) {
+	cat, _, err := catalog.Load(cmp.Or(modelCatalogPath, cfg.CatalogPath))
+	if err != nil {
+		return 0, fmt.Errorf("load model catalog: %w", err)
+	}
+	m, ok := cat.FindByID(cfg.Model)
+	if !ok {
+		return 0, nil
+	}
+	return m.AgentCtx, nil
 }
 
 // liveProjector turns the persisted vision decision plus the served catalog entry
