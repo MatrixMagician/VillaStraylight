@@ -347,14 +347,25 @@ server and `villa work` refuses. Coding mode already implies tools mode.
 Two things the install does not do. It does not install the sandbox runtime:
 `PRE-09` names the packages (`libkrun`, `libkrunfw`, `crun-krun`) and the
 `/dev/kvm` access it needs, and refuses with that remediation until they are
-there. And it does not build the sandbox image. The image villa runs a task in
-is `localhost/villa-sandbox:office`, pinned by the digest of a build of
-`build/sandbox/Containerfile`. A build on your own host produces a different
-digest, because `dnf` is not byte-reproducible, and villa has no verb yet that
-records that digest as the effective pin. Until it does, a task runs only on a
-host that holds the pinned build. On any other host `PRE-09` reports the probe
-as unevaluable, and the task is refused once podman fails to find the image:
-`refused: the bridge exited before it was ready`.
+there. And it does not build the sandbox image, which is its own step:
+
+```bash
+./villa sandbox build                 # builds localhost/villa-sandbox:office, records the digest it produced
+```
+
+That build installs packages from Fedora's repositories and wheels from PyPI,
+performed by podman rather than by villa. It is on-command outbound, the same
+class as a model or an image pull. Expect it to take several minutes and about
+2 GB; re-running reuses podman's layer cache.
+
+The digest your host produces will almost certainly differ from the one villa
+ships as vetted, because `dnf` is not byte-reproducible. Villa records and
+reports that rather than refusing: the built reference becomes this host's
+effective pin, which is what the task runner resolves before it launches, and
+`villa update --check` then reports the sandbox component as a rebuild — a
+rolling digest has no version to compare. Without this step a task is refused
+once podman fails to find the image: `refused: the bridge exited before it was
+ready`.
 
 Crush, villa's pinned coding agent, is the harness inside the VM. It is the same
 binary `villa install --coding-agent` places under the villa data root, so that

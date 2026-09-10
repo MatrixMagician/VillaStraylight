@@ -416,6 +416,9 @@ The image is `localhost/villa-sandbox:office`, pinned by the digest of the build
 the one pin villa builds rather than pulls, so its registry is `localhost`, and a
 `dnf` build is not byte-reproducible: a rebuild yields a new digest, which
 `villa update --check` reports as a rebuild, the way it does for the ROCm image.
+`villa sandbox build` is the rebuild: it builds the image from the build context
+embedded in the binary and records the digest it produced as this host's
+effective pin, which is the reference the render above receives.
 
 ## Per-environment overrides
 
