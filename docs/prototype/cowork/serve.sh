@@ -15,7 +15,7 @@ stop)   podman rm -f -i $NAME >/dev/null 2>&1 || true; echo stopped ;;
 status) curl -sf http://127.0.0.1:$PORT/health && echo && podman ps --filter name=$NAME ;;
 start)
   podman rm -f -i $NAME >/dev/null 2>&1 || true
-  podman run -d --name $NAME --rm --device /dev/kfd --device /dev/dri --group-add keep-groups \
+  podman run -d --name $NAME --rm --network villa --device /dev/kfd --device /dev/dri --group-add keep-groups \
     -v "$MODELS:/models:ro,z" --publish 127.0.0.1:$PORT:$PORT \
     --env HSA_OVERRIDE_GFX_VERSION=11.5.1 --env ROCBLAS_USE_HIPBLASLT=1 --security-opt seccomp=unconfined \
     "$IMG" llama-server -m "/models/$MODEL" -c "$CTX" --host 0.0.0.0 --port $PORT \

@@ -51,3 +51,42 @@ schemas every turn; the KV cache absorbs that, which is why a 32k context was re
 - Interactive approval UX, background or parallel tasks, and scheduling were not exercised.
 - Only Markdown and CSV outputs. `.docx`/`.xlsx` generation (LibreOffice is on the host) is untested.
 - One model, one quant, one run per task. No variance measured.
+
+## Addendum: the sandbox as a libkrun microVM (same day)
+
+Question: does `podman --runtime=krun` give Cowork's VM boundary while staying a Quadlet
+container? Probes in `krun.sh` (crun baseline vs krun) and `krun-task.sh` (task T2 run
+end-to-end inside the VM). Log in `results/krun.log` and `results/krun-T2.log`, the report the
+model wrote in `results/outputs/krun-reconciliation.md.txt`. Host packages added:
+`crun-krun 1.28`, `libkrun 1.19.0`, `libkrunfw 5.5.0` (Fedora 44 updates).
+
+| Probe | crun | krun |
+|---|---|---|
+| start + `uname -r` | 0.16 s, host kernel 7.1.13 | 0.50 s, **guest kernel 6.12.91** |
+| `/dev/kfd`, `/dev/dri` | absent | absent |
+| rw folder grant (`Volume=…:Z`) | ok | ok |
+| llama-server over the `villa` network by name | ok | ok |
+| egress on the `villa` network | **open** | **open** |
+| egress on a `--internal` network | not run | **blocked**, llama still reachable |
+| Claude Code binary bind-mounted, `--version` | ok | ok |
+| T2 reconcile, headless, inside | not run | **correct, 88 s** (fastest T2 of the day) |
+
+**Verdict: yes.** The same image, volume grant and network work under krun unchanged, with a
+separate guest kernel and a half-second start. That closes the VM question at parity with
+Cowork's topology rather than at "weaker".
+
+Three things the run taught, all of which a real unit must encode:
+
+1. **`--user` is ignored under krun.** The guest process is always uid 0; with
+   `--userns=keep-id` its files then appear as uid 1000 inside the guest, which trips Claude
+   Code's temp-dir ownership check. Without keep-id ownership is consistent (0 inside, the
+   user on the host). `setpriv`, `su` and `runuser` are not in the base image and the
+   setuid `sudo` is denied, so privilege cannot be dropped inside. Root-in-VM is acceptable
+   because the VM is the boundary, but it is a fact to document, not to discover.
+2. **Claude Code's root guard needs `IS_SANDBOX=1`.** Otherwise `--dangerously-skip-permissions`
+   refuses as root. Also give it `CLAUDE_CODE_TMPDIR` under a fresh directory.
+3. **The `villa` network is not internal.** A sandbox unit needs its own `--internal`
+   network with the inference container joined to it, or every task has egress.
+
+Not measured: memory and CPU headroom under `--memory 4g --cpus 4` (it sufficed), and the
+cost of a VM per task versus a long-lived one.
