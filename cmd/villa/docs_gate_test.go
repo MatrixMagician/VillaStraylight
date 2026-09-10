@@ -53,7 +53,9 @@ func markdownFiles(t *testing.T) []string {
 			return err
 		}
 		if info.IsDir() {
-			if skipDir[info.Name()] {
+			// Hidden directories hold tooling state, and .claude/worktrees carries
+			// whole sibling checkouts whose docs are not this tree's claims.
+			if skipDir[info.Name()] || (path != repoRoot && strings.HasPrefix(info.Name(), ".")) {
 				return filepath.SkipDir
 			}
 			return nil
