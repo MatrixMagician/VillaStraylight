@@ -165,6 +165,13 @@ type Report struct {
 	// has exactly one home. Rendering it at the command tier would let the most
 	// important sentence in the verb drift per call site.
 	Message string `json:"-"`
+	// Diverged lists the installed components this host is running that are not
+	// the pins villa vetted, populated on a Reject only. It is a local fact — the
+	// pin state store, resolved the same way the checked path resolves it — so it
+	// costs no network call and is what makes the Reject wording able to name what
+	// is actually running instead of claiming vetted pins for everything. Not part
+	// of the --json contract: the Reject document stays byte-frozen.
+	Diverged []Component `json:"-"`
 }
 
 // Input is everything a report is derived from.
@@ -245,7 +252,38 @@ func reject(in Input) Report {
 		Subsystems: nil,
 		Summary:    nil,
 		Message:    in.Verdict.Message,
+		Diverged:   diverged(in),
 	}
+}
+
+// diverged lists the installed components running something other than the pin
+// villa vetted, using the same installed-footprint and active-backend filtering
+// subsystemRow applies on the checked path — a disabled subsystem or an inactive
+// backend is not running, so a stray recorded pin for one is not a claim to make.
+// No manifest is involved: FromStore/Diverged are already-loaded pinstate facts.
+func diverged(in Input) []Component {
+	var out []Component
+	for _, k := range subsystem.Every {
+		if !subsystem.On(in.Cfg, k) {
+			continue
+		}
+		for _, e := range pins.For(k) {
+			if k == subsystem.Inference && !isActiveBackend(in.Cfg, e.Component) {
+				continue
+			}
+			res, ok := in.Resolver.Resolve(e.Component)
+			if !ok || !res.Diverged() {
+				continue
+			}
+			out = append(out, Component{
+				Name:      string(e.Component),
+				PinShape:  string(e.Shape),
+				Vetted:    res.Vetted.Ref,
+				Effective: res.Current.Ref,
+			})
+		}
+	}
+	return out
 }
 
 // subsystemRow builds one subsystem's row, or an empty one for a subsystem with no

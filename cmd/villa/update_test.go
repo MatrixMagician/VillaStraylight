@@ -378,3 +378,81 @@ func cmdGoFiles(t *testing.T) []string {
 	}
 	return out
 }
+
+// TestPrintRejectNamesDivergedPins is the fix for #198: the Reject claimed every
+// component was running the pin villa vetted, even when the pin state store
+// recorded an effective pin that differs (an out-of-band `villa backend set`, a
+// `villa sandbox build`). The three cases run the real reject path end to end —
+// LoadPinState through printReject — because the wrongness lives in what the
+// resolver reports, not just in how printReject formats a field it is handed.
+func TestPrintRejectNamesDivergedPins(t *testing.T) {
+	entry, ok := pins.Lookup(pins.OpenWebUI)
+	if !ok {
+		t.Fatal("pins.OpenWebUI is not in the table")
+	}
+	vetted := entry.Vetted().Ref
+
+	// This is today's text, captured from the unmodified code with the same
+	// inputs as the "no divergence" and "equal effective" cases below: an empty
+	// state resolves every component to its vetted pin.
+	const wantPlain = "Could not check for updates.\n\n" +
+		"  No pin manifest is available. Villa is using the pins compiled into this binary.\n\n" +
+		"  This is not \"you are up to date\" — villa could not determine anything.\n\n" +
+		"Your stack is running the pins villa shipped with, which were vetted on\n" +
+		"gfx1151 hardware. Nothing is wrong; nothing was checked.\n\n" +
+		"  villa update --check --from-registries\n" +
+		"      Ask each registry directly instead. This contacts one endpoint per\n" +
+		"      installed component, which reveals to those registries which addons\n" +
+		"      you have enabled. The manifest check does not.\n\n" +
+		"Villa has never completed an update check on this host.\n"
+	const bannedPlainSentence = `running the pins villa shipped with, which were vetted`
+
+	cases := []struct {
+		name  string
+		state pinstate.State
+		want  string // exact match when set
+	}{
+		{
+			name:  "no recorded pins is not divergence",
+			state: pinstate.State{},
+			want:  wantPlain,
+		},
+		{
+			name: "a recorded effective pin equal to vetted is not divergence",
+			state: pinstate.State{Pins: map[string]pinstate.Effective{
+				string(pins.OpenWebUI): {Ref: vetted},
+			}},
+			want: wantPlain,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var h updateHarness
+			h.run(t, config.VillaConfig{Backend: "vulkan"}, tc.state, updatefetch.Fetched{}, nil, nil, updateFlags{check: true})
+			if got := h.text(); got != tc.want {
+				t.Errorf("output =\n%q\nwant\n%q", got, tc.want)
+			}
+		})
+	}
+
+	t.Run("a diverged effective pin is named with both short refs", func(t *testing.T) {
+		var h updateHarness
+		h.run(t, config.VillaConfig{Backend: "vulkan"}, pinstate.State{Pins: map[string]pinstate.Effective{
+			string(pins.OpenWebUI): {Ref: "ghcr.io/open-webui/open-webui:main@sha256:deadbeef00112233445566778899aabbccddeeff00112233445566778899aa"},
+		}}, updatefetch.Fetched{}, nil, nil, updateFlags{check: true})
+
+		got := h.text()
+		if !strings.Contains(got, string(pins.OpenWebUI)) {
+			t.Errorf("the Reject does not name the diverged component %q:\n%s", pins.OpenWebUI, got)
+		}
+		if !strings.Contains(got, proseRef("ghcr.io/open-webui/open-webui:main@sha256:deadbeef00112233445566778899aabbccddeeff00112233445566778899aa")) {
+			t.Errorf("the Reject does not state the running ref:\n%s", got)
+		}
+		if !strings.Contains(got, proseRef(vetted)) {
+			t.Errorf("the Reject does not state the vetted ref:\n%s", got)
+		}
+		if strings.Contains(got, bannedPlainSentence) {
+			t.Errorf("the Reject still claims every pin is vetted despite the divergence:\n%s", got)
+		}
+	})
+}

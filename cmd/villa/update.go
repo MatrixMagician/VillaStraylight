@@ -407,8 +407,17 @@ func printReject(w io.Writer, r updatecheck.Report) {
 		fmt.Fprintf(w, "  %s\n", line)
 	}
 	fmt.Fprint(w, "\n  This is not \"you are up to date\" — villa could not determine anything.\n\n")
-	fmt.Fprint(w, "Your stack is running the pins villa shipped with, which were vetted on\n"+
-		"gfx1151 hardware. Nothing is wrong; nothing was checked.\n\n")
+	if len(r.Diverged) == 0 {
+		fmt.Fprint(w, "Your stack is running the pins villa shipped with, which were vetted on\n"+
+			"gfx1151 hardware. Nothing is wrong; nothing was checked.\n\n")
+	} else {
+		parts := make([]string, len(r.Diverged))
+		for i, c := range r.Diverged {
+			parts[i] = fmt.Sprintf("%s runs %s (villa vetted %s)", c.Name, proseRef(c.Effective), proseRef(c.Vetted))
+		}
+		fmt.Fprintf(w, "Your stack is running the pins villa shipped with, vetted on gfx1151\n"+
+			"hardware, except: %s. Nothing was checked.\n\n", strings.Join(parts, "; "))
+	}
 	fmt.Fprint(w, "  villa update --check --from-registries\n"+
 		"      Ask each registry directly instead. This contacts one endpoint per\n"+
 		"      installed component, which reveals to those registries which addons\n"+
@@ -469,6 +478,10 @@ func printReport(w io.Writer, r updatecheck.Report) {
 			"villa is updated by replacing the binary.\n", r.Villa.Available)
 	}
 }
+
+// proseRef is shortRef for a sentence: the same tag and eight digest characters,
+// joined the way a reference is written rather than padded for a column.
+func proseRef(ref string) string { return strings.Replace(shortRef(ref), "  ", "@", 1) }
 
 // shortRef renders a reference for a table: the TAG plus eight digest characters.
 //
