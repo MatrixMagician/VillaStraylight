@@ -82,7 +82,13 @@ const (
 //     a binary at a path other than the one villa-websafe mounts gets its own WARN
 //     instead of folding into config-vs-disk drift. Web-search-OFF output is
 //     byte-identical except this bump (the nil seam emits no finding).
-const reportSchemaVersion = 6
+//   - v7: the sandbox fold (issue #176) — SBX-01, the read-only twin of PRE-09
+//     (folded for free through the unchanged findingFromCheck path, like v4/v5), plus
+//     SBX-02, a NEW doctor-owned finding type (the villa-sandbox.network unit exists
+//     and the inference unit is joined to it — a host-state fact, not a preflight
+//     CheckResult). Sandbox-OFF output is byte-identical except this bump (both nil
+//     seams emit no finding).
+const reportSchemaVersion = 7
 
 // The three typed-Unknown ROCm host-prep check IDs that a PROVEN ROCm residency
 // supersedes (down-ranks, never deletes). They INTENTIONALLY duplicate the preflight
@@ -245,6 +251,21 @@ type Deps struct {
 	// this host worth its own line, and it is NOT the same fault as a hand-edited unit
 	// (issue #141).
 	WebsafeBinary func() (mounted, running string, ok bool)
+	// RunSandboxChecks is SBX-01, the read-only twin of the PRE-09 sandbox-runtime
+	// gate (preflight.RunSandbox, bound by the cmd tier with the live podman/rpm/
+	// kvm/probe seams — composition over re-implementation, mirroring RunROCmImage
+	// and RunMemoryChecks). Its CheckResults fold through findingFromCheck exactly
+	// like every other host-condition check. NIL-SAFE: when nil (the workspace
+	// agent is off) no PRE-09/SBX-01 finding is emitted at all — never a
+	// PASS-by-default.
+	RunSandboxChecks func(detect.HostProfile) []preflight.CheckResult
+	// SandboxNetwork is SBX-02: whether the villa-sandbox.network unit is present
+	// on disk and whether the on-disk inference unit is joined to it (a
+	// DriftPlan-style read — the cmd tier reads the unit dir, it never shells to
+	// podman). A non-nil error means the read itself could not be evaluated
+	// (typed-Unknown). NIL-SAFE: when nil (the workspace agent is off) no SBX-02
+	// finding is emitted at all — never a PASS-by-default.
+	SandboxNetwork func() (networkPresent, inferenceJoined bool, err error)
 }
 
 // changedUnitNames joins the drifted unit names in Plan order for the drift Detail
@@ -274,6 +295,35 @@ func websafeBinaryFinding(mounted, running string) Finding {
 		f.Status = statusWarn
 		f.Detail = "the running villa (" + running + ") is not the binary villa-websafe mounts (" + mounted + ")"
 		f.Remediation = "re-run `villa install` from the binary you intend to serve, or run villa from " + mounted
+	}
+	return f
+}
+
+// sandboxNetworkFinding is SBX-02 (issue #176): the internal task network a
+// running workspace-agent task actually needs must be on disk, and the inference
+// unit must be joined to it — both are BLOCK-tier: a task with no network cannot
+// reach the served model, and a task container is started per-task, so this is
+// caught here rather than as a per-task failure the operator never sees in
+// `villa doctor`.
+func sandboxNetworkFinding(networkPresent, inferenceJoined bool) Finding {
+	f := Finding{
+		ID:         "SBX-02",
+		Name:       "Sandbox network",
+		Tier:       tierBlock,
+		Provenance: "villa-sandbox.network + inference unit (on-disk)",
+	}
+	switch {
+	case !networkPresent:
+		f.Status = statusFail
+		f.Detail = "the villa-sandbox.network unit is not on disk"
+		f.Remediation = "re-run `villa install` to render the sandbox network unit, then `villa up`"
+	case !inferenceJoined:
+		f.Status = statusFail
+		f.Detail = "the inference unit is not joined to villa-sandbox"
+		f.Remediation = "re-run `villa install` to regenerate the inference unit with the sandbox network attached, then `villa up`"
+	default:
+		f.Status = statusPass
+		f.Detail = "villa-sandbox.network exists and the inference unit is joined to it"
 	}
 	return f
 }
@@ -343,6 +393,37 @@ func Aggregate(d Deps) Report {
 	if d.RunMemoryChecks != nil {
 		for _, c := range d.RunMemoryChecks(profile) {
 			findings = append(findings, findingFromCheck(c))
+		}
+	}
+
+	// 1c. SANDBOX HOST GATE (SBX-01, issue #176): fold the PRE-09 sandbox-runtime
+	// gate verbatim via findingFromCheck, exactly like the memory host gate above.
+	// A nil seam (the workspace agent is off) emits nothing.
+	if d.RunSandboxChecks != nil {
+		for _, c := range d.RunSandboxChecks(profile) {
+			findings = append(findings, findingFromCheck(c))
+		}
+	}
+
+	// 1d. SANDBOX NETWORK (SBX-02, issue #176): the villa-sandbox.network unit
+	// must be on disk and the inference unit must be joined to it. A read error
+	// degrades to a typed-Unknown WARN (the unit dir could not be evaluated,
+	// mirroring the drift read below); a nil seam (the workspace agent is off)
+	// emits nothing.
+	if d.SandboxNetwork != nil {
+		if networkPresent, inferenceJoined, serr := d.SandboxNetwork(); serr != nil {
+			findings = append(findings, Finding{
+				ID:          "SBX-02",
+				Name:        "Sandbox network",
+				Tier:        tierWarn,
+				Status:      statusWarn,
+				Detail:      "could not evaluate the sandbox network (" + serr.Error() + ")",
+				Remediation: "run `villa install` to write the Quadlet units, then re-run `villa doctor`",
+				Provenance:  "villa-sandbox.network + inference unit (on-disk)",
+				Raw:         serr.Error(),
+			})
+		} else {
+			findings = append(findings, sandboxNetworkFinding(networkPresent, inferenceJoined))
 		}
 	}
 

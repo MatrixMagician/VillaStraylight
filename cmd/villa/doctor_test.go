@@ -36,7 +36,7 @@ func healthyReport() doctor.Report {
 			{ID: "drift", Name: "Config-vs-disk drift", Tier: "WARN", Status: "PASS", Detail: "on-disk units match the rendered-from-config units", Provenance: "orchestrate.Reconcile (empty Plan.Changed)"},
 		},
 		Overall:       "PASS",
-		SchemaVersion: 6,
+		SchemaVersion: 7,
 	}
 }
 
@@ -92,7 +92,7 @@ func rocmSupersededReport() doctor.Report {
 			{ID: "drift", Name: "Config-vs-disk drift", Tier: "WARN", Status: "PASS", Detail: "on-disk units match the rendered-from-config units", Provenance: "orchestrate.Reconcile (empty Plan.Changed)"},
 		},
 		Overall:       "PASS",
-		SchemaVersion: 6,
+		SchemaVersion: 7,
 	}
 }
 
@@ -180,12 +180,12 @@ func TestDoctorUnknownOverallFailsClosed(t *testing.T) {
 }
 
 // TestDoctorJSON freezes doctor's OWN --json contract byte-for-byte. The
-// golden MUST carry "schema_version": 6 (the websafe-binary finding). doctor never extends status.Report's golden.
+// golden MUST carry "schema_version": 7 (the sandbox fold, issue #176). doctor never extends status.Report's golden.
 func TestDoctorJSON(t *testing.T) {
 	var buf bytes.Buffer
 	renderDoctor(&buf, healthyReport(), true, false)
-	if !bytes.Contains(buf.Bytes(), []byte(`"schema_version": 6`)) {
-		t.Errorf("--json output must carry schema_version 6, got:\n%s", buf.String())
+	if !bytes.Contains(buf.Bytes(), []byte(`"schema_version": 7`)) {
+		t.Errorf("--json output must carry schema_version 7, got:\n%s", buf.String())
 	}
 	assertGolden(t, "doctor.json.golden", buf.Bytes())
 }
@@ -211,7 +211,7 @@ func memoryHealthyReport() doctor.Report {
 			{ID: "drift", Name: "Config-vs-disk drift", Tier: "WARN", Status: "PASS", Detail: "on-disk units match the rendered-from-config units", Provenance: "orchestrate.Reconcile (empty Plan.Changed)"},
 		},
 		Overall:       "PASS",
-		SchemaVersion: 6,
+		SchemaVersion: 7,
 	}
 }
 
@@ -264,8 +264,8 @@ func TestDoctorMemoryRender(t *testing.T) {
 func TestDoctorMemoryJSON(t *testing.T) {
 	var buf bytes.Buffer
 	renderDoctor(&buf, memoryHealthyReport(), true, false)
-	if !bytes.Contains(buf.Bytes(), []byte(`"schema_version": 6`)) {
-		t.Errorf("--json output must carry schema_version 6, got:\n%s", buf.String())
+	if !bytes.Contains(buf.Bytes(), []byte(`"schema_version": 7`)) {
+		t.Errorf("--json output must carry schema_version 7, got:\n%s", buf.String())
 	}
 	assertGolden(t, "doctor-memory.json.golden", buf.Bytes())
 }
@@ -311,8 +311,8 @@ func TestDoctorAgentRender(t *testing.T) {
 	if code != exitPass {
 		t.Errorf("agent-healthy exit code = %d, want %d", code, exitPass)
 	}
-	if !bytes.Contains(buf.Bytes(), []byte(`"schema_version": 6`)) {
-		t.Errorf("--json output must carry schema_version 6 (the websafe-binary bump), got:\n%s", buf.String())
+	if !bytes.Contains(buf.Bytes(), []byte(`"schema_version": 7`)) {
+		t.Errorf("--json output must carry schema_version 7 (the sandbox-fold bump), got:\n%s", buf.String())
 	}
 	assertGolden(t, "doctor-agent.json.golden", buf.Bytes())
 

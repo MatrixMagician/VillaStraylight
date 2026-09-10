@@ -947,14 +947,124 @@ func TestAgentCleanDriftPasses(t *testing.T) {
 
 // --- issue #141: the websafe-binary finding (reportSchemaVersion 5→6) ---
 
-// TestDoctorSchemaVersionIsSix: doctor's OWN --json contract self-version was bumped
-// append-only 5→6 when the websafe-binary finding was added. The const is the
-// single source of truth — Aggregate stamps it on every Report. INDEPENDENT of status's
-// reportSchemaVersion (5).
-func TestDoctorSchemaVersionIsSix(t *testing.T) {
+// TestDoctorSchemaVersionIsSeven: doctor's OWN --json contract self-version was
+// bumped append-only 6→7 when the sandbox fold (SBX-01/SBX-02, issue #176) was
+// added. The const is the single source of truth — Aggregate stamps it on every
+// Report. INDEPENDENT of status's reportSchemaVersion (5).
+func TestDoctorSchemaVersionIsSeven(t *testing.T) {
 	r := Aggregate(newDoctorDeps())
-	if r.SchemaVersion != 6 {
-		t.Fatalf("Report.SchemaVersion = %d, want 6 (append-only bump for the websafe-binary finding)", r.SchemaVersion)
+	if r.SchemaVersion != 7 {
+		t.Fatalf("Report.SchemaVersion = %d, want 7 (append-only bump for the sandbox fold)", r.SchemaVersion)
+	}
+}
+
+// --- issue #176: the sandbox fold (reportSchemaVersion 6→7) ---
+
+// TestSandboxOffNoFindings proves the nil-safe fold: with both sandbox seams nil
+// (the workspace-agent-off default) Aggregate emits neither SBX finding.
+func TestSandboxOffNoFindings(t *testing.T) {
+	r := Aggregate(newDoctorDeps())
+	for _, id := range []string{"PRE-09", "SBX-02"} {
+		if hasFinding(r, id) {
+			t.Errorf("sandbox-off Aggregate emitted finding %q — sandbox Deps seams must be nil-safe (no PASS-by-default)", id)
+		}
+	}
+}
+
+// TestSandboxHostGatePASS proves SBX-01 folds a PRE-09 PASS through unchanged.
+func TestSandboxHostGatePASS(t *testing.T) {
+	d := newDoctorDeps()
+	d.RunSandboxChecks = func(detect.HostProfile) []preflight.CheckResult {
+		return []preflight.CheckResult{{ID: "PRE-09", Name: "sandbox runtime", Tier: preflight.TierBlock, Status: preflight.StatusPass, Detail: "healthy"}}
+	}
+	r := Aggregate(d)
+	f, ok := findingByID(r, "PRE-09")
+	if !ok {
+		t.Fatal("PRE-09 finding missing")
+	}
+	if f.Status != "PASS" {
+		t.Fatalf("PRE-09 finding Status = %q, want PASS", f.Status)
+	}
+}
+
+// TestSandboxHostGateFAILRaisesOverall proves a confident PRE-09 FAIL folds
+// worst-wins and blocks the report, mirroring TestMemoryChecksFoldedFailRaisesOverall.
+func TestSandboxHostGateFAILRaisesOverall(t *testing.T) {
+	d := newDoctorDeps()
+	d.RunSandboxChecks = func(detect.HostProfile) []preflight.CheckResult {
+		return []preflight.CheckResult{{ID: "PRE-09", Name: "sandbox runtime", Tier: preflight.TierBlock, Status: preflight.StatusFail, Detail: "krun missing", Remediation: "install packages"}}
+	}
+	r := Aggregate(d)
+	if r.Overall != "FAIL" {
+		t.Fatalf("Overall = %q, want FAIL (a confident PRE-09 FAIL must dominate)", r.Overall)
+	}
+}
+
+// TestSandboxHostGateWARNDegrades proves an unevaluable PRE-09 (podman
+// unreachable) folds to WARN, not FAIL.
+func TestSandboxHostGateWARNDegrades(t *testing.T) {
+	d := newDoctorDeps()
+	d.RunSandboxChecks = func(detect.HostProfile) []preflight.CheckResult {
+		return []preflight.CheckResult{{ID: "PRE-09", Name: "sandbox runtime", Tier: preflight.TierBlock, Status: preflight.StatusWarn, Detail: "podman unreachable", Remediation: "check podman"}}
+	}
+	r := Aggregate(d)
+	if r.Overall != "WARN" {
+		t.Fatalf("Overall = %q, want WARN", r.Overall)
+	}
+}
+
+// TestSandboxNetworkFindingMatrix covers the three SBX-02 outcomes: present +
+// joined → PASS; network unit missing → FAIL; unit present but the inference
+// unit not joined → FAIL. Every non-PASS carries a remediation.
+func TestSandboxNetworkFindingMatrix(t *testing.T) {
+	tests := []struct {
+		name            string
+		networkPresent  bool
+		inferenceJoined bool
+		wantStatus      string
+	}{
+		{"present and joined", true, true, "PASS"},
+		{"network missing", false, false, "FAIL"},
+		{"present but not joined", true, false, "FAIL"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := sandboxNetworkFinding(tt.networkPresent, tt.inferenceJoined)
+			if f.Status != tt.wantStatus {
+				t.Errorf("Status = %q, want %q (detail=%q)", f.Status, tt.wantStatus, f.Detail)
+			}
+			if f.Status != "PASS" && f.Remediation == "" {
+				t.Error("non-PASS SBX-02 finding must carry a Remediation")
+			}
+			if f.ID != "SBX-02" || f.Tier != tierBlock {
+				t.Errorf("ID/Tier = %q/%q, want SBX-02/BLOCK", f.ID, f.Tier)
+			}
+		})
+	}
+}
+
+// TestSandboxNetworkReadErrorDegrades proves a read error (the unit dir could not
+// be evaluated) folds to a typed-Unknown WARN, never a fabricated FAIL.
+func TestSandboxNetworkReadErrorDegrades(t *testing.T) {
+	d := newDoctorDeps()
+	d.SandboxNetwork = func() (bool, bool, error) { return false, false, errors.New("read unit dir: not found") }
+	r := Aggregate(d)
+	if !hasFinding(r, "SBX-02") {
+		t.Fatal("SBX-02 finding missing")
+	}
+	if r.Overall != "WARN" {
+		t.Fatalf("Overall = %q, want WARN (unevaluable read, never a fabricated FAIL)", r.Overall)
+	}
+}
+
+// TestSandboxNetworkFAILRaisesOverall proves a confident SBX-02 FAIL folds
+// worst-wins and blocks the report.
+func TestSandboxNetworkFAILRaisesOverall(t *testing.T) {
+	d := newDoctorDeps()
+	d.SandboxNetwork = func() (bool, bool, error) { return false, false, nil }
+	r := Aggregate(d)
+	if r.Overall != "FAIL" {
+		t.Fatalf("Overall = %q, want FAIL (a missing sandbox network must dominate)", r.Overall)
 	}
 }
 

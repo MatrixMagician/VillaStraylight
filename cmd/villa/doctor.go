@@ -315,6 +315,44 @@ func liveDoctorDeps(ctx context.Context) (doctor.Deps, error) {
 			return mounted, hostVillaPath(), ok
 		}
 	}
+	// Sandbox seams (SBX-01/SBX-02, issue #176): bound ONLY when the persisted
+	// workspace_agent is true; both stay nil when off so the sandbox-off doctor
+	// output is byte-identical (except the schema bump). SBX-01 reuses the exact
+	// same preflight.SandboxDeps PRE-09 uses (liveSandboxDeps, preflight_sandbox.go)
+	// so `villa preflight` and `villa doctor` can never observe the host through a
+	// different probe. SBX-02 is a read-only, on-disk check — no podman exec —
+	// mirroring driftHostVillaPath's shape: it reads the unit dir DriftPlan already
+	// resolves and looks for the two facts a running task actually needs.
+	var (
+		sandboxChecks  func(detect.HostProfile) []preflight.CheckResult
+		sandboxNetwork func() (bool, bool, error)
+	)
+	if subsystem.SandboxOn(cfg) {
+		sdeps := liveSandboxDeps()
+		sandboxChecks = func(detect.HostProfile) []preflight.CheckResult {
+			return preflight.RunSandbox(sdeps)
+		}
+		sandboxNetwork = func() (bool, bool, error) {
+			dir, derr := unitDirReadOnly()
+			if derr != nil {
+				return false, false, derr
+			}
+			networkUnit := orchestrate.SandboxNetworkName() + ".network"
+			networkPresent := false
+			if _, serr := os.Stat(filepath.Join(dir, networkUnit)); serr == nil {
+				networkPresent = true
+			}
+			inferenceJoined := false
+			infUnits, _ := subsystem.Inference.Units()
+			if len(infUnits) > 0 {
+				text, rerr := os.ReadFile(filepath.Join(dir, infUnits[0])) //nolint:gosec // unitDir is the fixed rootless Quadlet dir
+				if rerr == nil {
+					inferenceJoined = strings.Contains(string(text), "Network="+orchestrate.SandboxNetworkName())
+				}
+			}
+			return networkPresent, inferenceJoined, nil
+		}
+	}
 	// Catalog-geometry seam (CAT-01): bound UNCONDITIONALLY — the catalog is not an
 	// optional subsystem, and an entry that no longer describes its file is wrong on
 	// every host. It stays nil only when the catalog itself cannot be loaded, which
@@ -349,6 +387,8 @@ func liveDoctorDeps(ctx context.Context) (doctor.Deps, error) {
 		SearchEgressProof:        searchEgress,
 		SearchResidencyUnderLoad: searchResidency,
 		WebsafeBinary:            websafeBinary,
+		RunSandboxChecks:         sandboxChecks,
+		SandboxNetwork:           sandboxNetwork,
 		// DriftPlan: render units from the persisted config, resolve the backend
 		// fail-closed, and Reconcile against the READ-ONLY unit dir. It NEVER
 		// writes. A read error (absent/unreadable unit dir) is returned verbatim so the
