@@ -110,16 +110,20 @@ type answer struct {
 
 // active is the task the worker currently owns. awaiting is the claim flag:
 // Approve/Deny clear it under the runner's mutex before sending, so exactly one
-// answer reaches the worker per parked request.
+// answer reaches the worker per parked request. interrupted marks a cancel that
+// came from Close rather than the operator, which ends the record interrupted.
+// Every field but id and the channels is read and written under Runner.mu.
 type active struct {
-	id        string
-	answers   chan answer
-	cancel    chan struct{}
-	awaiting  bool
-	cancelled bool
+	id          string
+	answers     chan answer
+	cancel      chan struct{}
+	awaiting    bool
+	cancelled   bool
+	interrupted bool
 }
 
-// Runner is the one-at-a-time task runner. New starts its worker goroutine.
+// Runner is the one-at-a-time task runner. New starts its worker goroutine and
+// Close stops and joins it.
 type Runner struct {
 	d Deps
 
@@ -128,13 +132,50 @@ type Runner struct {
 	current *active
 	subs    map[string][]chan Narration
 	wake    chan struct{}
+
+	// stop is closed by Close; wg counts the worker and every detached Wait,
+	// so Close can join everything that still writes to the store.
+	stop     chan struct{}
+	stopOnce sync.Once
+	wg       sync.WaitGroup
 }
 
-// New builds a Runner and starts its worker. Call Recover before serving.
+// New builds a Runner and starts its worker. Call Recover before serving and
+// Close when the service stops.
 func New(d Deps) *Runner {
-	r := &Runner{d: d, subs: map[string][]chan Narration{}, wake: make(chan struct{}, 1)}
-	go r.work()
+	r := &Runner{d: d, subs: map[string][]chan Narration{}, wake: make(chan struct{}, 1), stop: make(chan struct{})}
+	r.track(r.work)
 	return r
+}
+
+// Close stops the worker and joins it, so nothing writes to the store once
+// Close returns. A task in flight is killed the way a cancel kills it, but its
+// record ends interrupted: spec §3.2's word for a task the service stopped
+// under, where cancelled is the operator's. Close is idempotent, and a second
+// call returns as soon as the first has joined.
+func (r *Runner) Close() {
+	r.stopOnce.Do(func() {
+		close(r.stop)
+		r.mu.Lock()
+		if a := r.current; a != nil && !a.cancelled {
+			a.cancelled = true
+			a.interrupted = true
+			a.cancel <- struct{}{}
+		}
+		r.mu.Unlock()
+	})
+	r.wg.Wait()
+}
+
+// track runs fn in a goroutine Close joins. Every caller but New runs on the
+// worker, which already holds a count, so the counter cannot reach zero
+// between a concurrent Wait and this Add.
+func (r *Runner) track(fn func()) {
+	r.wg.Add(1)
+	go func() {
+		defer r.wg.Done()
+		fn()
+	}()
 }
 
 // List is the store's time-ordered record list, for the read routes.
@@ -271,15 +312,35 @@ func (r *Runner) Cancel(id string) error {
 		return nil
 	}
 	if a := r.current; a != nil && a.id == id {
-		if !a.cancelled {
+		cancelled := a.cancelled
+		if !cancelled {
 			a.cancelled = true
 			a.cancel <- struct{}{}
 		}
 		r.mu.Unlock()
+		if cancelled {
+			// The worker holds the job for a moment past the terminal write, so
+			// current alone would answer "accepted" for a task that is already
+			// finished. The record is the truth; a second cancel is idempotent
+			// only while the first is still in flight.
+			return r.terminal(id)
+		}
 		return nil
 	}
 	r.mu.Unlock()
 	return r.inactive(id)
+}
+
+// terminal is ErrTerminal once the record has finished, nil while it has not.
+// answer needs no equivalent: it clears awaiting before handing the worker the
+// answer, so a second call is ErrNotAwaiting, which the HTTP layer maps to the
+// same 409.
+func (r *Runner) terminal(id string) error {
+	t, err := r.d.Store.Load(id)
+	if err == nil && taskstore.Terminal(t.State) {
+		return ErrTerminal
+	}
+	return nil
 }
 
 // inactive explains why an id has no active task: unknown, or already finished.
