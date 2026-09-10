@@ -1,0 +1,18 @@
+# Workspace Index
+
+| File | Location | Description |
+|------|----------|-------------|
+| AGENTS.md | Top level | Workspace rules for local document assistant |
+| CLAUDE.md | Top level | Workspace rules for local document assistant |
+| meeting-2026-05-04.md | meetings/ | Weekly sync notes for 4 May 2026 with Case, Molly, Armitage |
+| meeting-2026-05-18.md | meetings/ | Sync notes for 18 May 2026 with Case, Molly |
+| bank_export_may_jun.csv | finance/ | Bank export transactions for May–June 2026 |
+| invoices_q2.csv | finance/ | Q2 invoice register with client names and amounts |
+| invoices_q2 - Copy.csv | finance/ | Duplicate copy of Q2 invoice register |
+| letter_draft.txt | misc/ | Draft letter to Maas Biolabs regarding short payment |
+| todo.txt | misc/ | Short to-do list: domain renewal, hotel booking, memo |
+| Sync-June-1.md | notes/ | Sync notes from 1 June 2026 covering client updates and actions |
+| research_notes_local_ai.md | notes/ | Raw notes on running AI models locally (Strix Halo, ROCm, Open WebUI) |
+| research_notes_local_ai (1).md | notes/ | Duplicate of local AI research notes |
+| IMG_20260601_101512.jpg | photos/ | Photo captured on 1 June 2026 |
+| IMG_20260601_101530.jpg | photos/ | Photo captured on 1 June 2026 |

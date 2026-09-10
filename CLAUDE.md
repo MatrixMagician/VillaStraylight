@@ -13,6 +13,8 @@ Conventions, Architecture below) and in `docs/`:
 - `docs/GETTING-STARTED.md`, `docs/MEMORY.md`, `docs/TESTING.md`
 - `docs/RELEASING.md` — how a release is cut and how the signed pin manifest is
   published; the signing key is offline by design and must never reach CI
+- `docs/spec/v1.11-workspace-agent.md` — the workspace agent (`villa work`), specified
+  and not yet built: read it before starting any piece of its build order
 - `docs/spec/v1.8-villa-update.md` — the `villa update` design, now implemented:
   read it before touching pins. Note §7.1's migration hazard — most
   `EmbedImage()` callers are probe helpers, NOT pins, and a mechanical rewrite of

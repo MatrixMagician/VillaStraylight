@@ -223,3 +223,52 @@ A rollback that itself failed, so villa does not know what is running. Never
 reported as a clean rollback, and never accompanied by a claim the stack is
 untouched.
 _Avoid_: partial rollback, degraded restore, partial failure
+
+### The workspace agent
+
+**Workspace**:
+A folder the operator has registered with `villa workspace add`, persisted in
+config, and the one read-write mount a task's sandbox gets. The registration is
+the grant.
+_Avoid_: folder (unqualified), directory, project, grant (as a noun)
+
+**Task**:
+One instruction run against one workspace, with a persisted record and a
+result. Follow-ups are a new task; there are no sessions.
+_Avoid_: job, session, run, request
+
+**Task record**:
+The persisted, `--json`-frozen account of a task: its state, files, approvals
+and grounding report. Its state machine decides the exit code.
+_Avoid_: log, history, transcript
+
+**Approval**:
+A task's request to perform a write-class action, answered by the operator.
+The class comes from the harness's tool layer; villa's table decides.
+_Avoid_: permission, prompt, confirmation
+
+**Sandbox**:
+The per-task libkrun microVM with one workspace mounted read-write, on the
+internal network, with root inside as the documented boundary.
+_Avoid_: container (unqualified), VM, jail
+
+**Bridge**:
+The in-sandbox `villa` process that fronts the harness's server over the
+container's stdio, the only channel across the VM boundary.
+_Avoid_: agent, proxy, shim
+
+**Runner**:
+Villa's host-side driver of one task: launches the sandbox, answers approvals,
+narrates, cancels, audits. Lives in the dashboard service.
+_Avoid_: worker, daemon, scheduler
+
+**Tools mode**:
+The chat unit served with the model's own chat template so tool calls parse.
+One config flag; coding mode implies it.
+_Avoid_: jinja mode, agent mode, function calling
+
+**Flagged**:
+A task that finished with claims the grounding audit could not support, or
+whose audit could not run. Exit `2`, never `0`; the document is left as
+written.
+_Avoid_: warning, partial, degraded

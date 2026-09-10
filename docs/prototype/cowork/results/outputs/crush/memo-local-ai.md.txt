@@ -1,0 +1,28 @@
+# Memo: Should We Run AI Locally?
+
+**To:** Management
+**From:** Research Team
+**Date:** 2026-09-10
+**Subject:** Recommendation on Local AI Deployment
+
+---
+
+## Recommendation
+
+**Proceed with a limited pilot.** Running AI locally on hardware such as an AMD Strix Halo system (128 GB unified memory) is technically feasible for models in the 35B parameter range at Q4 quantisation, with headroom for 128k context windows. However, the setup complexity and current gap in model quality relative to cloud frontiers mean we should validate the approach with a small team before wider rollout.
+
+## Benefits
+
+1. **Data stays in the building.** Nothing leaves the box — no telemetry, no outbound data exfiltration. Outbound connectivity is limited to model pulls and image downloads.
+2. **Competitive throughput on repetitive workloads.** Speculative decoding (ngram) roughly doubles tokens/second on repetitive output patterns, making local inference viable for templated or structured generation.
+3. **Open, stackable tooling.** Open WebUI provides a chat interface; llama.cpp serves the model over an OpenAI-compatible API, meaning existing tools and integrations can connect without custom adapters. ROCm 7.2.4 is the default backend, with Vulkan as a fallback if ROCm regresses.
+
+## Risks
+
+1. **Setup is fiddly.** Initial configuration and ongoing maintenance require specialist knowledge. This translates to higher internal support costs during the early phase.
+2. **Model quality lags the frontier.** Local models are not yet on par with the latest cloud-hosted models in reasoning, accuracy, and capabilities.
+3. **No mobile app.** The current tooling stack does not support a mobile experience, limiting accessibility for users who rely on mobile devices.
+
+## Next Step
+
+Run a two-week pilot on one Strix Halo workstation with two internal users from a team that generates templated or structured content. Evaluate setup effort, output quality against a cloud baseline, and user satisfaction. Report findings back to this group before deciding on scale-up.

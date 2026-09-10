@@ -1,0 +1,182 @@
+#!/usr/bin/env python3
+"""
+Build reports/reconciliation.xlsx from CSV data with Excel formulas,
+then recalc via LibreOffice headless and verify.
+"""
+import csv, os, subprocess, tempfile, textwrap
+import openpyxl
+from openpyxl.utils import get_column_letter
+
+# ── 1. Read CSVs ──────────────────────────────────────────────
+with open("finance/invoices_q2.csv", newline="") as f:
+    invoices = list(csv.DictReader(f))
+
+with open("finance/bank_export_may_jun.csv", newline="") as f:
+    bank_rows = list(csv.DictReader(f))
+
+# ── 2. Build workbook ─────────────────────────────────────────
+wb = openpyxl.Workbook()
+
+# Sheet: Bank
+bank_ws = wb.active
+bank_ws.title = "Bank"
+for ci, h in enumerate(["date", "description", "credit_gbp"], 1):
+    bank_ws.cell(row=1, column=ci, value=h)
+for ri, row in enumerate(bank_rows, 2):
+    for ci, val in enumerate(row.values(), 1):
+        bank_ws.cell(row=ri, column=ci, value=val)
+
+# Sheet: Invoices
+inv_ws = wb.create_sheet("Invoices")
+inv_headers = ["invoice", "client", "date", "amount_gbp",
+               "paid_gbp", "outstanding_gbp", "status"]
+for ci, h in enumerate(inv_headers, 1):
+    inv_ws.cell(row=1, column=ci, value=h)
+
+N = len(invoices)
+for ri, inv in enumerate(invoices, 2):
+    inv_ws.cell(row=ri, column=1, value=inv["invoice"])
+    inv_ws.cell(row=ri, column=2, value=inv["client"])
+    inv_ws.cell(row=ri, column=3, value=inv["date"])
+    inv_ws.cell(row=ri, column=4, value=float(inv["amount_gbp"]))
+    inv_ws.cell(row=ri, column=7, value=inv["status"])
+    # SUMIF: match invoice ref (col A) in Bank!B:B, sum Bank!C:C
+    paid_col = get_column_letter(5)  # E
+    bank_ref = get_column_letter(2)  # B
+    bank_sum = get_column_letter(3)  # C
+    inv_ws.cell(row=ri, column=5).value = (
+        f"=SUMIF(Bank!{bank_ref}:{bank_ref},\"*\"&A{ri},Bank!{bank_sum}:{bank_sum})"
+    )
+    # outstanding = amount - paid
+    amt_col = get_column_letter(4)  # D
+    inv_ws.cell(row=ri, column=6).value = f"={amt_col}{ri}-E{ri}"
+
+# Totals row
+tr = N + 2
+inv_ws.cell(row=tr, column=1, value="Total")
+inv_ws.cell(row=tr, column=4).value = f"=SUM(D2:D{N+1})"
+inv_ws.cell(row=tr, column=5).value = f"=SUM(E2:E{N+1})"
+inv_ws.cell(row=tr, column=6).value = f"=SUM(F2:F{N+1})"
+
+xlsx_path = "reports/reconciliation.xlsx"
+wb.save(xlsx_path)
+print(f"[1] Saved {xlsx_path}")
+
+# ── 3. Recalculate with LibreOffice headless ──────────────────
+# Strategy: open xlsx → let calc recalc → save as xlsx → close
+# We use a Python-UNO script to force recalculation
+uno_script = "reports/_recalc_uno.py"
+with open(uno_script, "w") as uf:
+    uf.write(textwrap.dedent("""\
+        import sys, uno, os
+        from com.sun.star.beans import PropertyValue
+
+        localContext = uno.getComponentContext()
+        resolver = localContext.ServiceManager.createInstanceWithContext(
+            "com.sun.star.bridge.UnoUrlResolver", localContext)
+        try:
+            ctx = resolver.resolve(
+                "uno:socket,host=localhost,port=2002;urp;StarOffice.ComponentContext")
+        except:
+            print("UNO not connected; starting listener...")
+            import subprocess
+            subprocess.Popen(["soffice", "--headless", "--norestore",
+                              "--accept=socket,host=localhost,port=2002;urp;"])
+            import time; time.sleep(3)
+            ctx = resolver.resolve(
+                "uno:socket,host=localhost,port=2002;urp;StarOffice.ComponentContext")
+
+        smgr = ctx.ServiceManager
+        desktop = smgr.createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
+        infile = uno.systemPathToFileUrl(sys.argv[1])
+        outfile = uno.systemPathToFileUrl(sys.argv[2])
+
+        doc = desktop.loadComponentFromURL(infile, "_blank", 0, ())
+        # Force recalculation
+        doc.reformat()
+        doc.calculate()
+        # Store
+        doc.storeToURL(outfile, ())
+        doc.close(True)
+        print("Recalculated and saved")
+    """))
+
+# Start UNO listener in background
+listener = subprocess.Popen(
+    ["soffice", "--headless", "--norestore",
+     "--accept=socket,host=localhost,port=2002;urp;"],
+    stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+)
+
+# Wait for listener to be ready
+import time
+time.sleep(4)
+
+recalc_path = "reports/reconciliation_calculated.xlsx"
+result = subprocess.run(
+    ["python3", uno_script, xlsx_path, recalc_path],
+    capture_output=True, text=True, timeout=30,
+)
+print(f"[2] Recalc stdout: {result.stdout.strip()}")
+if result.stderr:
+    print(f"[2] Recalc stderr: {result.stderr.strip()}")
+
+listener.terminate()
+listener.wait(timeout=5)
+
+# ── 4. Read back in data_only mode ────────────────────────────
+wb2 = load_workbook(recalc_path, data_only=True)
+inv_ws2 = wb2["Invoices"]
+
+print("\n=== Recalculated Invoices Sheet ===")
+total_outstanding = 0
+for ri in range(2, N + 2):
+    inv_ref = inv_ws2.cell(row=ri, column=1).value
+    client = inv_ws2.cell(row=ri, column=2).value
+    amt = inv_ws2.cell(row=ri, column=4).value
+    paid = inv_ws2.cell(row=ri, column=5).value
+    outstanding = inv_ws2.cell(row=ri, column=6).value
+    print(f"  {inv_ref}  {client:<15s}  amt={amt:>10.2f}  "
+          f"paid={paid:>10.2f}  outstanding={outstanding:>10.2f}")
+    if ri == N + 2:
+        total_outstanding = outstanding
+        print(f"\n  TOTAL outstanding (from Excel): {total_outstanding}")
+
+# ── 5. CSV-side arithmetic check ──────────────────────────────
+print("\n=== CSV-side arithmetic (manual) ===")
+total_outstanding_csv = 0.0
+for inv in invoices:
+    amt = float(inv["amount_gbp"])
+    # Look up what's in bank for this invoice
+    ref = inv["invoice"]  # e.g. INV-1041
+    paid = 0.0
+    for br in bank_rows:
+        desc = br["description"]
+        # Match invoice number (strip INV- prefix for matching)
+        inv_num = ref.replace("INV-", "")
+        if inv_num in desc or ref in desc:
+            paid += float(br["credit_gbp"])
+    outstanding = amt - paid
+    total_outstanding_csv += outstanding
+    print(f"  {inv['invoice']}  amt={amt:.2f}  paid={paid:.2f}  "
+          f"outstanding={outstanding:.2f}")
+
+print(f"\n  TOTAL outstanding (CSV manual): {total_outstanding_csv:.2f}")
+
+match = abs(total_outstanding - total_outstanding_csv) < 0.01
+print(f"  Match: {'YES' if match else 'NO'}")
+
+# ── 6. Render to PDF ──────────────────────────────────────────
+pdf_path = "reports/reconciliation.pdf"
+subprocess.run(
+    ["soffice", "--headless", "--norestore",
+     "--convert-to", "pdf",
+     "--outdir", os.path.dirname(pdf_path),
+     recalc_path],
+    capture_output=True, text=True, timeout=30,
+)
+print(f"\n[3] PDF saved to {pdf_path}")
+
+# Cleanup
+os.remove(uno_script)
+print("[4] Done.")

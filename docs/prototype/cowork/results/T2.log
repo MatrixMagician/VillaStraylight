@@ -1,0 +1,23 @@
+== T2  2026-09-10T09:12:37+01:00
+⚠ claude.ai connectors are disabled because ANTHROPIC_API_KEY or another auth source is set and takes precedence over your claude.ai login · Unset it to load your organization's connectors
+[claude-code:unrecognized_model] {"model":"qwen3.6-35b-a3b","query_source":"sdk"}
+Done. Written to `reports/reconciliation.md`.
+
+**Summary:**
+
+| Status | Count | Amount (£) |
+|--------|-------|-----------:|
+| Paid in full | 4 | 5,660.50 |
+| Paid short | 1 | 3,100.75 (of 3,150.75) |
+| Unpaid (sent) | 1 | 860.50 |
+| Draft | 1 | 975.00 |
+| **Outstanding** | | **910.50** |
+
+**Three flags:**
+
+1. **Maas Biolabs** underpaid INV-1045 by £50 — bank description has no invoice reference, so unclear if intentional.
+2. **Sense/Net** hasn't paid INV-1046 (860.50) despite paying INV-1042 promptly — 39 days overdue.
+3. **INV-1047** has sat as draft since June 21 — needs to be sent or cancelled.
+-- exit=0  wall=208s
+14a15
+> ./reports/reconciliation.md

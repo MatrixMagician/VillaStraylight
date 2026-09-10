@@ -1,0 +1,49 @@
+# Invoice Reconciliation — Q2 2026
+
+Reconciled against bank export for May–June 2026 (covering late April deposits as well).
+
+## Table
+
+| Invoice | Client | Invoice Date | Invoice Amount | Bank Payment | Payment Date | Status |
+|---------|--------|-------------|---------------|-------------|-------------|--------|
+| INV-1041 | Tessier-Ashpool | 2026-04-03 | £1,200.00 | £1,200.00 | 2026-04-20 | **Paid in full** |
+| INV-1042 | Sense/Net | 2026-04-11 | £860.50 | £860.50 | 2026-05-02 | **Paid in full** |
+| INV-1043 | Ono-Sendai | 2026-04-28 | £2,400.00 | £2,400.00 | 2026-05-30 | **Paid in full** |
+| INV-1044 | Tessier-Ashpool | 2026-05-06 | £1,200.00 | £1,200.00 | 2026-06-15 | **Paid in full** |
+| INV-1045 | Maas Biolabs | 2026-05-19 | £3,150.75 | £3,100.75 | 2026-06-16 | **Paid short** (£50.00) |
+| INV-1046 | Sense/Net | 2026-06-02 | £860.50 | — | — | **Unpaid** |
+| INV-1047 | Ono-Sendai | 2026-06-21 | £975.00 | — | — | **Unpaid** (draft) |
+
+## Totals
+
+| | Amount |
+|---|---|
+| Total invoiced | £11,446.75 |
+| Total received | £9,761.75 |
+| **Outstanding** | **£1,685.00** |
+
+### Outstanding breakdown
+
+| Item | Amount |
+|------|--------|
+| INV-1045 — short payment (Maas Biolabs) | £50.00 |
+| INV-1046 — unpaid (Sense/Net) | £860.50 |
+| INV-1047 — unpaid, still in draft (Ono-Sendai) | £975.00 |
+| **Total** | **£1,885.50** |
+
+Wait — the difference between total invoiced (£11,446.75) and total received (£9,761.75) is **£1,685.00**. The breakdown above sums to £1,885.50 because INV-1047 is still a draft and arguably shouldn't be counted as outstanding until it's issued. Removing the draft invoice leaves £50.00 + £860.50 = **£910.50 outstanding against issued invoices**.
+
+So:
+
+- **Outstanding against issued invoices:** £910.50
+- **Including draft (INV-1047):** £1,885.50
+
+## Flags — things that look wrong
+
+1. **INV-1045 — Maas Biolabs short payment.** Invoice was £3,150.75 but only £3,100.75 was received (£50.00 short). The description "MAAS BIOLABS" matches but the amount is £50 under. Investigate whether this was an intentional deduction (dispute, discount, fee) or an error.
+
+2. **INV-1046 — Sense/Net, £860.50, still unpaid.** Sent 2026-06-02 with no matching bank deposit in the export. This invoice may be overdue depending on payment terms.
+
+3. **INV-1047 — Ono-Sendai, £975.00, still a draft.** This invoice has never been sent to the client. It should either be issued (and chased) or cancelled.
+
+4. **INV-1047 date is after the bank export period.** The bank export covers through mid-June; INV-1047 dated 2026-06-21 falls outside the statement, so even if paid it wouldn't appear here. But since it's still a draft, payment is unlikely.

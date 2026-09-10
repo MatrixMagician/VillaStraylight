@@ -1,0 +1,14 @@
+== runtime=crun
+   start+uname: 0.16s rc=0 kernel=7.1.13-200.fc44.x86_64 (host 7.1.13-200.fc44.x86_64)
+   gpu: absent (good)
+   mount rw: ok (hello-from-crun)
+   llama over villa net: ok {"status":"ok"}
+   egress: OPEN (villa net is not internal)
+   claude inside: ok 2.1.267 (Claude Code)
+== runtime=krun
+   start+uname: 0.50s rc=0 kernel=6.12.91 (host 7.1.13-200.fc44.x86_64)
+   gpu: absent (good)
+   mount rw: ok (hello-from-krun)
+   llama over villa net: ok {"status":"ok"}
+   egress: OPEN (villa net is not internal)
+   claude inside: ok 2.1.267 (Claude Code)

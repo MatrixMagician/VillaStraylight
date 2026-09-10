@@ -1,0 +1,42 @@
+# Invoice Reconciliation — Q2 2026
+
+Invoices vs bank export (May–June 2026).
+
+| Invoice | Client | Invoice Date | Invoice Amount (£) | Bank Payment (£) | Date Paid | Status |
+|---------|--------|-------------|-------------------:|-----------------:|-----------|--------|
+| INV-1041 | Tessier-Ashpool | 2026-04-03 | 1,200.00 | 1,200.00 | 2026-04-20 | **Paid in full** |
+| INV-1042 | Sense/Net | 2026-04-11 | 860.50 | 860.50 | 2026-05-02 | **Paid in full** |
+| INV-1043 | Ono-Sendai | 2026-04-28 | 2,400.00 | 2,400.00 | 2026-05-30 | **Paid in full** |
+| INV-1044 | Tessier-Ashpool | 2026-05-06 | 1,200.00 | 1,200.00 | 2026-06-15 | **Paid in full** |
+| INV-1045 | Maas Biolabs | 2026-05-19 | 3,150.75 | 3,100.75 | 2026-06-16 | **Paid short** (£50.00 short) |
+| INV-1046 | Sense/Net | 2026-06-02 | 860.50 | — | — | **Unpaid** |
+| INV-1047 | Ono-Sendai | 2026-06-21 | 975.00 | — | — | **Unpaid** (draft) |
+
+## Totals
+
+| | Amount (£) |
+|---|----------:|
+| Total invoiced (sent invoices only) | 9,671.75 |
+| Total invoiced (including draft) | 10,646.75 |
+| Total received from bank | 8,761.25 |
+| **Total outstanding** | **910.50** |
+
+Outstanding breakdown (sent invoices only):
+
+| Item | £ |
+|------|---:|
+| INV-1045 shortfall (Maas Biolabs) | 50.00 |
+| INV-1046 (Sense/Net) unpaid | 860.50 |
+| **Outstanding** | **910.50** |
+
+INV-1047 (Ono-Sendai, £975.00) is in **draft** status — not yet sent to the client, so not outstanding.
+
+## Flags — things that look wrong
+
+1. **INV-1045 — Maas Biolabs underpaid by £50.00.** Bank shows 3,100.75 against invoice 3,150.75. No reference number in the bank description ("MAAS BIOLABS" only) to confirm this was intentional. Follow up with Maas Biolabs.
+
+2. **INV-1046 — Sense/Net unpaid, 39 days overdue** (invoice date 2026-06-02, today 2026-09-10). Sense/Net paid INV-1042 on time (21 days after issue), so this is a change in behaviour. Send a reminder.
+
+3. **INV-1047 — Ono-Sendai still in draft status** as of today. Invoice date is 2026-06-21; if this was meant to be sent, it's been sitting as draft for nearly 12 weeks. Either send it or cancel and re-issue with a new number.
+
+4. **Bank export naming gap.** INV-1045 and INV-1046 both relate to Sense/Net, but the bank description for INV-1042 was "SENSE NET PAYMENT" while there is no matching entry for INV-1046. This is consistent with INV-1046 not having been paid, not a bank error.

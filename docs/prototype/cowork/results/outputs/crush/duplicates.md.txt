@@ -1,0 +1,58 @@
+# Duplicate Files Report
+
+**Generated:** 2026-09-10
+**Scope:** /workspace (all subdirectories)
+
+---
+
+## 1. AGENTS.md ↔ CLAUDE.md
+
+| | AGENTS.md | CLAUDE.md |
+|---|-----------|-----------|
+| **Location** | `/workspace/AGENTS.md` | `/workspace/CLAUDE.md` |
+| **Content** | Identical (7 lines + trailing newline) | Identical (7 lines + trailing newline) |
+| **Type** | Workspace rules for a local document assistant | Workspace rules for a local document assistant |
+
+**Keep:** `AGENTS.md`
+**Why:** Same content, shorter path (no trailing name). INDEX.md already lists both as "Workspace rules for local document assistant" — they serve the same purpose. Either file alone is sufficient.
+
+---
+
+## 2. notes/research_notes_local_ai.md ↔ notes/research_notes_local_ai (1).md
+
+| | research_notes_local_ai.md | research_notes_local_ai (1).md |
+|---|---------------------------|-------------------------------|
+| **Location** | `/workspace/notes/research_notes_local_ai.md` | `/workspace/notes/research_notes_local_ai (1).md` |
+| **Content** | Identical (7 bullet points + trailing newline) | Identical (7 bullet points + trailing newline) |
+| **Type** | Raw notes on running AI models locally (Strix Halo, ROCm, Open WebUI) | Raw notes on running AI models locally |
+
+**Keep:** `notes/research_notes_local_ai.md` (the one **without** the `(1)` suffix)
+**Why:** The `(1)` suffix is a classic copy-during-save pattern, indicating the original was duplicated by a save operation. The cleaner filename is preferable. INDEX.md already labels the `(1)` version as a "Duplicate of local AI research notes."
+
+---
+
+## 3. finance/invoices_q2.csv ↔ finance/invoices_q2 - Copy.csv
+
+| | invoices_q2.csv | invoices_q2 - Copy.csv |
+|---|----------------|----------------------|
+| **Location** | `/workspace/finance/invoices_q2.csv` | `/workspace/finance/invoices_q2 - Copy.csv` |
+| **Content** | Identical (8 lines: header + 7 invoices, trailing newline) | Identical (8 lines: header + 7 invoices, trailing newline) |
+| **Type** | Q2 invoice register (client names, amounts, statuses) | Q2 invoice register |
+
+**Keep:** `finance/invoices_q2.csv` (the one **without** the " - Copy" suffix)
+**Why:** The `- Copy` suffix indicates an accidental duplicate save. The cleaner filename is the canonical version. INDEX.md already labels it "Duplicate copy of Q2 invoice register."
+
+---
+
+## Summary
+
+| # | Duplicate Pair | Action |
+|---|----------------|--------|
+| 1 | `AGENTS.md` ↔ `CLAUDE.md` | Keep `AGENTS.md`, discard `CLAUDE.md` |
+| 2 | `research_notes_local_ai.md` ↔ `research_notes_local_ai (1).md` | Keep the `*.md`, discard the `(1).md` |
+| 3 | `invoices_q2.csv` ↔ `invoices_q2 - Copy.csv` | Keep the `.csv`, discard the `- Copy.csv` |
+
+**Total duplicate pairs found: 3**
+**Total files that are duplicates: 3**
+
+No near-duplicates were found — all three pairs are **exact** duplicates (byte-for-byte identical content).

@@ -1,0 +1,15 @@
+== T3  2026-09-10T09:16:05+01:00
+⚠ claude.ai connectors are disabled because ANTHROPIC_API_KEY or another auth source is set and takes precedence over your claude.ai login · Unset it to load your organization's connectors
+[claude-code:unrecognized_model] {"model":"qwen3.6-35b-a3b","query_source":"sdk"}
+Written to `reports/action-items.md`. Summary:
+
+**7 action items** across 3 meetings/syncs:
+- 4 **Done**: revised quote, naming scheme approval, Chiba trip dates, Sense/Net retainer renewal.
+- 3 **Open**: drive migration (unblocked but no completion recorded), Q2 memo (untouched since flagged 2026-06-01), Maas Biolabs short payment chase (draft letter exists, no resolution).
+
+**2 decisions**: drop Sense/Net retainer unless net-30 (later reversed), adopt `<type>/<yyyy>-<mm>/<name>` folder scheme.
+
+**3 contradictions/open threads**: Q2 memo is stale (no owner reassignment), Maas Biolabs chase has no follow-up, drive migration status unknown after unblocking.
+-- exit=0  wall=156s
+14a15
+> ./reports/action-items.md
