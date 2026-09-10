@@ -78,11 +78,11 @@ func TestCanTransitionFromTerminalAlwaysRefused(t *testing.T) {
 
 func TestExit(t *testing.T) {
 	cases := map[State]int{
-		Done:      0,
-		Flagged:   2,
-		Failed:    1,
-		Refused:   1,
-		Cancelled: 1,
+		Done:        0,
+		Flagged:     2,
+		Failed:      1,
+		Refused:     1,
+		Cancelled:   1,
 		Interrupted: 1,
 	}
 	for state, want := range cases {
