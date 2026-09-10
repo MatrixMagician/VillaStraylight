@@ -1,0 +1,14 @@
+1. The report covers the period Q2 2026 (April – June).
+   UNSUPPORTED
+
+2. The report was generated on 2026-06-30.
+   UNSUPPORTED
+
+3. INV-1041 was issued to Tessier-Ashpool on 2026-04-03 for £1,200.00.
+   "INV-1041,Tessier-Ashpool,2026-04-03,1200.00,sent" (Source: workspace/finance/invoices_q2.csv)
+
+4. INV-1041 was paid in full on 2026-04-20.
+   "2026-04-20,TESSIER ASHPOOL LTD INV1041,1200.00" (Source: workspace/finance/bank_export_may_jun.csv)
+
+5. INV-1042 was issued to Sense/Net on 2026-04-11 for £860.50.
+   "INV-1042,Sense/Net,2026-04-11,860.50,sent" (Source: workspace/finance/invoic
