@@ -26,6 +26,19 @@
   var webSearchPanel = document.getElementById("web-search-panel");
   var webSearchBody = document.getElementById("web-search-body");
 
+  // Workspaces / Tasks (ticket #184) — read-only panels + task detail. No task
+  // submission from the dashboard: the only writes here are approve/deny/cancel
+  // on an existing task.
+  var workspacesBody = document.getElementById("workspaces-body");
+  var tasksBody = document.getElementById("tasks-body");
+  var taskDetailPanel = document.getElementById("task-detail-panel");
+  var taskDetailBody = document.getElementById("task-detail-body");
+  var taskDetailActions = document.getElementById("task-detail-actions");
+  var taskDetailClose = document.getElementById("task-detail-close");
+  var narrationLog = document.getElementById("task-narration-log");
+  var selectedTaskId = null;
+  var taskEventSource = null;
+
   // Confirm-dialog elements (the single guarded write, D-08).
   var switchDialog = document.getElementById("switch-dialog");
   var switchTitle = document.getElementById("switch-dialog-title");
@@ -641,6 +654,303 @@
     // the renderer never fabricates a 0 / "never" / placeholder.
   }
 
+  // --- Workspaces / Tasks (ticket #184) -----------------------------------
+  // Read-only panels: Workspaces lists cfg.Workspace via /api/workspaces, Tasks
+  // lists the workspace agent's records via /api/tasks. Clicking a task row opens
+  // the detail panel, which streams live narration over the SAME SSE endpoint the
+  // terminal uses and offers the four guarded writes (approve/approve all/deny/
+  // cancel) — never task submission, which stays terminal-only.
+
+  // TERMINAL_TASK_STATES / isTerminalTaskState is the named data shape mirroring
+  // taskstore.Terminal (internal/taskstore/state.go) — a table, not scattered
+  // string comparisons.
+  var TERMINAL_TASK_STATES = { done: true, flagged: true, failed: true, refused: true, cancelled: true, interrupted: true };
+  function isTerminalTaskState(state) { return !!TERMINAL_TASK_STATES[state]; }
+
+  // taskStateClass maps a task State to the existing badge vocabulary, mirroring
+  // the healthClass/overallClass switch-table pattern.
+  function taskStateClass(state) {
+    switch (state) {
+      case "done": return "ready";
+      case "flagged": return "warn";       // a claim to review, never red — flagged is not a hard failure
+      case "failed": case "refused": return "down";
+      case "running": case "awaiting_approval": return "warn";
+      case "queued": return "unknown";
+      default: return "unknown";           // cancelled, interrupted, and anything unexpected
+    }
+  }
+
+  // renderWorkspaces fills the Workspaces panel from /api/workspaces. list is
+  // null on a fetch failure — mirrors renderModels: stay on the last-good
+  // content (the loading placeholder on persistent failure) rather than
+  // fabricating an empty state.
+  function renderWorkspaces(list) {
+    if (!list) { return; }
+    workspacesBody.textContent = "";
+    var paths = list.workspaces || [];
+    if (paths.length === 0) {
+      workspacesBody.appendChild(mutedP("No registered workspaces."));
+      return;
+    }
+    paths.forEach(function (ws) {
+      var row = document.createElement("div");
+      row.className = "metric-row";
+      var v = document.createElement("span");
+      v.className = "metric-value";
+      v.textContent = ws.path;
+      row.appendChild(v);
+      workspacesBody.appendChild(row);
+    });
+  }
+
+  // renderTasks fills the Tasks panel from /api/tasks (ListView). Same
+  // null-keeps-last-good convention as renderWorkspaces/renderModels.
+  function renderTasks(list) {
+    if (!list) { return; }
+    tasksBody.textContent = "";
+    var tasks = list.tasks || [];
+    if (tasks.length === 0) {
+      tasksBody.appendChild(mutedP("No tasks yet."));
+      return;
+    }
+    var box = document.createElement("div");
+    box.className = "models-list";
+    tasks.forEach(function (m) {
+      var row = document.createElement("div");
+      row.className = "task-row";
+      row.setAttribute("role", "button");
+      row.setAttribute("tabindex", "0");
+
+      var idCol = document.createElement("div");
+      idCol.className = "model-id-col";
+      var id = document.createElement("span");
+      id.className = "model-id";
+      id.textContent = m.id;
+      idCol.appendChild(id);
+      var ws = document.createElement("span");
+      ws.className = "model-quant";
+      ws.textContent = m.workspace;
+      idCol.appendChild(ws);
+      row.appendChild(idCol);
+
+      row.appendChild(badgeOnly(m.state.replace(/_/g, " "), taskStateClass(m.state)));
+
+      var submitted = document.createElement("span");
+      submitted.className = "health-detail";
+      submitted.textContent = m.submitted_at;
+      row.appendChild(submitted);
+
+      if (typeof m.exit === "number") {
+        var exit = document.createElement("span");
+        exit.className = "health-detail";
+        exit.textContent = "exit " + m.exit;
+        row.appendChild(exit);
+      }
+
+      row.addEventListener("click", function () { openTaskDetail(m.id); });
+      row.addEventListener("keydown", function (e) {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          openTaskDetail(m.id);
+        }
+      });
+
+      box.appendChild(row);
+    });
+    tasksBody.appendChild(box);
+  }
+
+  // badgeOnly builds a bare .badge span (no metric-row wrapper) for a task row's
+  // state indicator.
+  function badgeOnly(text, cls) {
+    var badge = document.createElement("span");
+    badge.className = "badge badge-" + cls;
+    badge.textContent = text;
+    return badge;
+  }
+
+  // appendNarrationRow appends one narration/state event to the log, capping the
+  // DOM at the last 500 rows.
+  function appendNarrationRow(n) {
+    var row = document.createElement("div");
+    row.className = "narration-row";
+    var at = document.createElement("span");
+    at.className = "narration-at";
+    at.textContent = n.at;
+    var text = document.createElement("span");
+    text.className = "narration-text";
+    text.textContent = n.text || ("state: " + (n.task ? n.task.state : "?"));
+    row.appendChild(at);
+    row.appendChild(text);
+    narrationLog.appendChild(row);
+    narrationLog.scrollTop = narrationLog.scrollHeight;
+    // ponytail: unbounded narration would grow the DOM forever on a long-running
+    // task; cap at the last 500 rows. A virtualized log is the upgrade path if a
+    // task ever narrates enough to make 500 rows feel short.
+    if (narrationLog.children.length > 500) {
+      narrationLog.removeChild(narrationLog.firstChild);
+    }
+  }
+
+  // openTaskDetail loads the record, unhides the detail panel, and opens the SSE
+  // stream for live narration + record updates.
+  function openTaskDetail(id) {
+    selectedTaskId = id;
+    taskDetailPanel.hidden = false;
+    narrationLog.textContent = "";
+    taskDetailBody.textContent = "";
+    taskDetailActions.textContent = "";
+    taskDetailBody.appendChild(mutedP("Loading…"));
+
+    fetch("/api/tasks/" + encodeURIComponent(id), { headers: { Accept: "application/json" } })
+      .then(function (resp) {
+        if (!resp.ok) { throw new Error("task " + resp.status); }
+        return resp.json();
+      })
+      .then(function (task) { renderTaskDetail(task); })
+      .catch(function () {
+        taskDetailBody.textContent = "";
+        taskDetailBody.appendChild(mutedP("Task unavailable."));
+      });
+
+    if (taskEventSource) { taskEventSource.close(); }
+    taskEventSource = new EventSource("/api/tasks/" + encodeURIComponent(id) + "/events");
+    var onEvent = function (e) {
+      var n;
+      try {
+        n = JSON.parse(e.data);
+      } catch (err) {
+        return;
+      }
+      appendNarrationRow(n);
+      if (n.task) { renderTaskDetail(n.task); }
+    };
+    taskEventSource.addEventListener("narration", onEvent);
+    taskEventSource.addEventListener("state", onEvent);
+    // EventSource auto-reconnects on its own (the browser's job) — no custom
+    // backoff, and an error never closes the panel.
+    taskEventSource.onerror = function () {};
+  }
+
+  // closeTaskDetail hides the detail panel and tears down the SSE subscription.
+  function closeTaskDetail() {
+    taskDetailPanel.hidden = true;
+    if (taskEventSource) {
+      taskEventSource.close();
+      taskEventSource = null;
+    }
+    selectedTaskId = null;
+  }
+
+  // postTaskAction fires one guarded write and resolves {ok, task}.
+  function postTaskAction(id, suffix, body) {
+    return fetch("/api/tasks/" + encodeURIComponent(id) + suffix, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Accept": "application/json" },
+      body: body === undefined ? "{}" : JSON.stringify(body)
+    }).then(function (resp) {
+      return resp.json().then(function (t) { return { ok: resp.ok, task: t }; });
+    });
+  }
+
+  // renderTaskActions rebuilds the Approve/Approve all/Deny/Cancel buttons for
+  // the current task state.
+  function renderTaskActions(task) {
+    taskDetailActions.textContent = "";
+
+    function addButton(label, cls, onClick) {
+      var btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "btn " + cls;
+      btn.textContent = label;
+      btn.addEventListener("click", onClick);
+      taskDetailActions.appendChild(btn);
+    }
+
+    if (task.state === "awaiting_approval") {
+      addButton("Approve", "btn-primary", function () {
+        postTaskAction(task.id, "/approve", { all: false }).then(function (result) {
+          if (result.task && result.task.id) { renderTaskDetail(result.task); }
+        }).catch(function () {});
+      });
+      addButton("Approve all", "btn-primary", function () {
+        postTaskAction(task.id, "/approve", { all: true }).then(function (result) {
+          if (result.task && result.task.id) { renderTaskDetail(result.task); }
+        }).catch(function () {});
+      });
+      addButton("Deny", "btn-secondary", function () {
+        postTaskAction(task.id, "/deny").then(function (result) {
+          if (result.task && result.task.id) { renderTaskDetail(result.task); }
+        }).catch(function () {});
+      });
+    }
+    if (!isTerminalTaskState(task.state)) {
+      addButton("Cancel", "btn-secondary", function () {
+        postTaskAction(task.id, "/cancel").then(function (result) {
+          if (result.task && result.task.id) { renderTaskDetail(result.task); }
+        }).catch(function () {});
+      });
+    }
+  }
+
+  // renderTaskDetail rebuilds the detail record view (XSS-safe: metricRow/
+  // mutedP/memoryBadgeRow only, every value via textContent).
+  function renderTaskDetail(task) {
+    taskDetailBody.textContent = "";
+    taskDetailBody.appendChild(metricRow("id", task.id));
+    taskDetailBody.appendChild(metricRow("workspace", task.workspace));
+    taskDetailBody.appendChild(metricRow("instruction", task.instruction));
+    taskDetailBody.appendChild(metricRow("mode", task.mode));
+    taskDetailBody.appendChild(memoryBadgeRow("state", task.state.replace(/_/g, " "), taskStateClass(task.state)));
+    taskDetailBody.appendChild(metricRow("submitted", task.submitted_at));
+    if (task.started_at) { taskDetailBody.appendChild(metricRow("started", task.started_at)); }
+    if (task.finished_at) { taskDetailBody.appendChild(metricRow("finished", task.finished_at)); }
+    if (typeof task.exit === "number") { taskDetailBody.appendChild(metricRow("exit", String(task.exit))); }
+    if (task.harness && task.harness.name) {
+      taskDetailBody.appendChild(metricRow("harness", task.harness.name + " " + task.harness.version));
+    }
+
+    if (task.files && task.files.length > 0) {
+      var filesLabel = document.createElement("p");
+      filesLabel.className = "eyebrow";
+      filesLabel.textContent = "Files";
+      taskDetailBody.appendChild(filesLabel);
+      task.files.forEach(function (f) {
+        taskDetailBody.appendChild(metricRow(f.path, f.action));
+      });
+    }
+
+    if (task.approvals && task.approvals.length > 0) {
+      var approvalsLabel = document.createElement("p");
+      approvalsLabel.className = "eyebrow";
+      approvalsLabel.textContent = "Approvals";
+      taskDetailBody.appendChild(approvalsLabel);
+      task.approvals.forEach(function (a) {
+        taskDetailBody.appendChild(metricRow(
+          "#" + a.seq + " " + a.tool + " " + a.action + " " + a.path,
+          a.answer || "pending"));
+      });
+    }
+
+    if (task.grounding && task.grounding.checked) {
+      var groundingLabel = document.createElement("p");
+      groundingLabel.className = "eyebrow";
+      groundingLabel.textContent = "Grounding";
+      taskDetailBody.appendChild(groundingLabel);
+      (task.grounding.documents || []).forEach(function (doc) {
+        taskDetailBody.appendChild(metricRow(doc.path, doc.claims + " claims"));
+        if (doc.unsupported && doc.unsupported.length > 0) {
+          taskDetailBody.appendChild(memoryBadgeRow(doc.path, "unsupported claims", "warn"));
+          doc.unsupported.forEach(function (u) {
+            taskDetailBody.appendChild(metricRow(u.claim, u.reason));
+          });
+        }
+      });
+    }
+
+    renderTaskActions(task);
+  }
+
   // renderPerformance fills the Performance panel from /api/metrics (DASH-02). It
   // honors the two honesty flags: when the scrape is unavailable it shows
   // "unavailable" (never zeros, D-11); when available-but-idle it shows
@@ -1088,6 +1398,11 @@
     getJSON("/api/metrics").then(renderPerformance);
     getJSON("/api/gpu").then(renderGPU);
 
+    // Workspaces / Tasks (ticket #184) — read-only, same getJSON null-on-failure
+    // convention as every other panel poll.
+    getJSON("/api/workspaces").then(function (v) { renderWorkspaces(v); });
+    getJSON("/api/tasks").then(function (v) { renderTasks(v); });
+
     // Models drives the loading→ready transition after a switch: clear the in-flight
     // Switching… state once the target shows as loaded, then re-render the rows.
     getJSON("/api/models").then(function (models) {
@@ -1146,6 +1461,10 @@
       pendingModel = null;
       if (lastFocus && typeof lastFocus.focus === "function") { lastFocus.focus(); }
     });
+  }
+
+  if (taskDetailClose) {
+    taskDetailClose.addEventListener("click", closeTaskDetail);
   }
 
   // Kick off once the DOM is ready.

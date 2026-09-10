@@ -73,6 +73,11 @@ chat_port = 3000
 | `speculation` | string | _(absent → off)_ | Speculative-decoding mode of the inference unit: `off`, `ngram` for llama-server's `ngram-mod`, or `draft` for the entry's draft sidecar. An absent key renders speculation off, which is what every install predating the key carries. `config set` does not accept it: turning it on is a stateful cutover driven by `villa speculation set` (see [Speculation](#speculation)). A hand-edited value outside this vocabulary is refused on load. |
 | `vision` | bool | _(absent → false)_ | Whether the inference unit is started with the model's vision projector, so an image attached in Open WebUI is answered. True only when a `villa recommend --save` or a `villa install` resolved a projector that fits the envelope and pulled it — the projector file must be on disk before a unit can reference it, which is why this is persisted rather than read back from the catalog. An absent key renders no projector flag, which is what every install predating the key carries. |
 | `resident` | array of tables | _(absent)_ | Zero or more `[[resident]]` slots: secondary models held loaded alongside `model`. Absent until `villa model resident add` writes one. See [The resident set](#the-resident-set). |
+| `tools_mode` | bool | _(absent → false)_ | Whether the chat unit is served with the model's own chat template, so tool calls parse. Written by `villa tools-mode enter`, `villa tools-mode exit` and `villa install --workspace-agent`, never by `config set`: flipping it restarts the inference unit under a transactional cutover. Coding mode implies it, so `coding_mode = true` answers the gate on without this key. See [The workspace agent](#the-workspace-agent). |
+| `workspace_agent` | bool | _(absent → false)_ | The workspace agent's gate. Written only by `villa install --workspace-agent`, which also sets `tools_mode`. With it on, the render adds `villa-sandbox.network` and joins the inference unit to it, and `villa preflight` runs `PRE-09`. |
+| `workspace` | array of strings | _(absent)_ | The registered workspace grants: absolute, symlink-resolved folders a task may be run against. Written by `villa workspace add` and `villa workspace remove`; `villa work` refuses any path not on this list. |
+| `sandbox_memory` | string | _(absent → `8g`)_ | The `--memory` limit of a task's microVM, in podman's syntax. Edit by hand; read at task launch. The default lives in `internal/orchestrate/sandbox.go`, not in `defaultConfig()`, so an absent key writes nothing to the file. |
+| `sandbox_cpus` | int | _(absent → `4`)_ | The `--cpus` limit of a task's microVM. Edit by hand; read at task launch; zero or negative renders the default. |
 
 ### The resident set
 
@@ -143,6 +148,56 @@ incomplete rather than as a clean rollback.
 > at render time with an actionable error, never rendered into units that podman
 > would start and immediately kill.
 
+### The workspace agent
+
+Five keys drive `villa work`. Each has exactly one writer, and none of them is a
+`config set` key.
+
+| Key | Type | Default | Written by | Read by |
+|-----|------|---------|------------|---------|
+| `tools_mode` | bool | `false` | `villa tools-mode enter` / `exit`, `villa install --workspace-agent` | the inference render (the chat template flag), `villa work`, `villa doctor` (`TMD-01`), `villa status` (`mode: tools`) |
+| `workspace_agent` | bool | `false` | `villa install --workspace-agent` | the render (`villa-sandbox.network`, the inference unit's second network line), `villa preflight` (`PRE-09`), `villa doctor` (`SBX-01`, `SBX-02`) |
+| `workspace` | array of strings | absent | `villa workspace add` / `remove` | `villa work`, the runner, the dashboard's Workspaces panel |
+| `sandbox_memory` | string | `8g` | you, by hand | the task launch (`podman run --memory`) |
+| `sandbox_cpus` | int | `4` | you, by hand | the task launch (`podman run --cpus`) |
+
+```toml
+tools_mode = true
+workspace_agent = true
+workspace = ["/home/you/Documents/quarterly"]
+sandbox_memory = "8g"
+sandbox_cpus = 4
+```
+
+`tools_mode` is a stateful cutover, the same shape as `speculation`: `villa
+tools-mode enter` checks that the context floor tools mode serves still fits the
+memory envelope, captures the inference unit, persists the key, regenerates only
+that unit, restarts it, and proves the cutover with the residency proof plus one
+real read-then-edit tool call; any failure rolls back verbatim. `exit` runs the
+same transaction with the residency proof alone. The gate villa answers is
+`tools_mode || coding_mode`, so `villa tools-mode show` reports `on` with
+`implied by coding mode` on a stack in coding mode, and `exit` does not clear
+coding mode.
+
+`workspace_agent` is written by `villa install --workspace-agent`, which also
+writes `tools_mode = true`. Nothing on the command line turns it off; edit the
+file and re-run `villa install` to remove the sandbox network unit.
+
+`workspace` holds absolute paths after symlink resolution. `villa workspace add`
+refuses a relative path, the home directory itself, a path outside it, a path
+overlapping villa's own XDG config or data root, a path nested with an existing
+grant in either direction, and a path that is missing or not a directory.
+Re-adding a granted path is a no-op. `remove` resolves the argument the same way
+and touches no file. A hand-edited entry that no longer resolves is not a grant:
+`villa work` resolves the argument and looks it up, so a stale entry refuses.
+
+`sandbox_memory` and `sandbox_cpus` are the two tunables a task's microVM takes
+from config. The defaults are constants in `internal/orchestrate/sandbox.go`
+rather than `defaultConfig()`, so an absent key writes nothing to the file and
+renders `8g` and `4`. `8g` is above the prototype's `4g` because LibreOffice
+recalculates with Java loaded; it has not been measured under krun (spec
+§13, item 4).
+
 ### Inspecting and editing the config
 
 Two commands read and write `config.toml` safely:
@@ -162,7 +217,10 @@ villa config set model=qwen3-30b-a3b
 memory cost, so it is written only by `villa model resident add` / `rm`, which check
 the fit first. Nor is `speculation`, for the same reason `backend` is restricted:
 turning it on is a cutover, so it is written by `villa speculation set` (see
-[Speculation](#speculation)). An unknown key, a non-positive `ctx`, or an unsupported `backend`
+[Speculation](#speculation)). The workspace agent's keys are not among them either:
+`tools_mode` is a cutover (`villa tools-mode enter` / `exit`), `workspace_agent` is
+persisted by `villa install --workspace-agent`, and `workspace` is checked on every
+`villa workspace add` (see [The workspace agent](#the-workspace-agent)). An unknown key, a non-positive `ctx`, or an unsupported `backend`
 value is rejected with a clear error and **nothing is written**. After a successful
 `set`, `villa` reminds you that the change applies on the next
 `villa up` / `villa restart` (reconcile).
@@ -241,6 +299,9 @@ Defaults are defined in a single place in the source (`internal/config/villaconf
 | Models directory | `$XDG_DATA_HOME/villa/models` → `~/.local/share/villa/models` | `cmd/villa/model.go` `modelsDir()` |
 | Config file path | `$XDG_CONFIG_HOME/villa/config.toml` → `~/.config/villa/config.toml` | `internal/config` `Path()` |
 | Quadlet units directory | `$XDG_CONFIG_HOME/containers/systemd/` → `~/.config/containers/systemd/` | `cmd/villa/install.go` `quadletUnitDir()` |
+| `sandbox_memory` | `8g` | `internal/orchestrate/sandbox.go`, applied at task launch when the key is absent |
+| `sandbox_cpus` | `4` | `internal/orchestrate/sandbox.go`, applied at task launch when the key is absent or not positive |
+| Task records and logs | `$XDG_DATA_HOME/villa/tasks/` → `~/.local/share/villa/tasks/` | `internal/pathsafe` `DataRoot()` + `internal/taskstore` |
 
 `model`, `quant`, and `ctx` have **no static default**: they are zero/empty until
 `villa recommend --save` (or `villa config set`) populates them from the detected
@@ -327,6 +388,34 @@ load-bearing:
 Open WebUI is published loopback-only at `127.0.0.1:3000` (container-internal port
 `8080`) and stores data in a named volume mounted at `/app/backend/data`. The image
 is digest-pinned (`ghcr.io/open-webui/open-webui:main@sha256:...`).
+
+**The task sandbox** is not a unit. Each `villa work` task is one `podman run`,
+rendered by `orchestrate.RenderSandboxRun` (`internal/orchestrate/sandbox.go`) as a
+fixed argument list, never a shell. The flags are the boundary, so they are frozen
+by a test and listed here in full:
+
+| Argument | Purpose |
+|----------|---------|
+| `--rm -i --init` | One container per task, removed on exit; stdio is the only channel across the boundary. |
+| `--name villa-task-<id>` | Named by task id, so `villa task cancel` kills it by name. |
+| `--runtime=krun` | A libkrun microVM with its own guest kernel. krun ignores `--user`: the guest runs as root, and files it writes come out owned by you. |
+| `--network villa-sandbox` | The internal network (`Internal=true`): the task reaches the served model and nothing else. |
+| `--read-only --tmpfs /tmp` | A read-only root; `/tmp` is the only scratch space, and it is where Crush's config and data live. |
+| `--memory <sandbox_memory> --cpus <sandbox_cpus>` | From `config.toml`; defaults `8g` and `4`. |
+| `--volume <workspace>:/workspace:Z` | The one read-write mount: the registered grant. |
+| `--volume <villa>:/usr/local/bin/villa:ro,z` | The running `villa` binary, read-only, so the guest can run `villa sandbox-bridge`. This is why the CGO-free build gate is load-bearing. |
+| `--volume <crush>:/usr/local/bin/crush:ro,z` | The pinned Crush binary, read-only. |
+| `-w /workspace -e HOME=/tmp` | Working directory and home. |
+| `-e CRUSH_GLOBAL_CONFIG=/tmp/crushcfg -e CRUSH_GLOBAL_DATA=/tmp/crushdata` | Crush's config on the tmpfs. Its data directory is set by the bridge on the workspace-create call, not by this env var; the var is kept as the global default. |
+| `-e CRUSH_DISABLE_METRICS=1 -e DO_NOT_TRACK=1 -e CRUSH_DISABLE_PROVIDER_AUTO_UPDATE=1` | The telemetry and auto-update kill set, the same one `villa code` renders. |
+| `<image> villa sandbox-bridge [--model <model>] [--ctx <ctx>]` | The pinned image, then the bridge as entrypoint, told the served model and context window. |
+
+There is no `--device` and no models volume: a task has no GPU and no weights.
+The image is `localhost/villa-sandbox:office`, pinned by the digest of the build
+`build/sandbox/Containerfile` produced (`internal/orchestrate/sandbox.go`). It is
+the one pin villa builds rather than pulls, so its registry is `localhost`, and a
+`dnf` build is not byte-reproducible: a rebuild yields a new digest, which
+`villa update --check` reports as a rebuild, the way it does for the ROCm image.
 
 ## Per-environment overrides
 

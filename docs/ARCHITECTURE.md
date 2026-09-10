@@ -56,6 +56,23 @@ after it changes it. The same typed-Unknown discipline governs its report: a che
 that could not be conducted is a `Reject`, which is a different claim from "you are up
 to date" and is never rendered as one.
 
+As of **v1.11**, the stack does work on files, not only answers. A **task** is one
+instruction run against one registered **workspace** inside a per-task libkrun
+microVM (`podman --runtime=krun`) that mounts that folder read-write and joins an
+internal network reaching the served model and nothing else. Seven packages carry
+it, all pure-core: `workspace` (the grant list and its refusals), `approval` (the
+Action × Mode table, the deletion pattern, the auto-mode allowlist), `taskstore`
+(the record, its state machine, the log), `crushapi` (the Crush server client and
+the bridge's stdio protocol), `grounding` (the post-run claim audit), `toolsmode`
+(the `tools-mode enter|exit` transaction, `backendswap`'s frame with the axis
+swapped for a boolean) and `taskrun` (the runner). The runner lives inside
+`villa-dashboard.service`, not in a unit of its own: it is already the long-lived
+villa process, the dashboard's Tasks panel needs the task state in-process, and a
+separate unit would need an approve/deny IPC between two villa processes. `villa
+work` and `villa task` are HTTP clients of that runner over the loopback API and
+never a second copy of it. The task's exit code comes from the record's terminal
+state alone: `done` is `0`, `flagged` is `2`, everything else is `1`.
+
 ## Component diagram
 
 ```mermaid
@@ -107,6 +124,16 @@ graph TD
     dashboard --> status
     dashboard --> modelswap
     dashboard --> metrics["internal/metrics<br/>llama-server /metrics + /slots scrape"]
+    dashboard --> taskrun["internal/taskrun<br/>the runner: one task at a time<br/>(lives in villa-dashboard.service)"]
+    CLI -.loopback task API.-> dashboard
+    CLI --> workspace["internal/workspace<br/>the grant list + its refusals (pure)"]
+    CLI --> toolsmode["internal/toolsmode<br/>tools-mode enter/exit transaction (pure)"]
+    taskrun --> taskstore["internal/taskstore<br/>task record + state machine + log"]
+    taskrun --> approval["internal/approval<br/>Action × Mode table (pure)"]
+    taskrun --> grounding["internal/grounding<br/>post-run claim audit (pure)"]
+    taskrun --> crushapi["internal/crushapi<br/>Crush server client + bridge stdio protocol"]
+    taskrun -.podman run --runtime=krun.-> sandbox["villa-task-&lt;id&gt; microVM<br/>villa sandbox-bridge → crush server"]
+    sandbox -.villa-sandbox network.-> llama
 
     pinresolve --> pins["internal/pins<br/>VETTED pins, compiled in"]
     pinresolve --> pinstate["internal/pinstate<br/>EFFECTIVE pins + retained previous"]
@@ -257,6 +284,33 @@ switching logic stays locked in the one transactional core. Each measured run is
 on a residency proof (`RunningOffloadVerdict`) so only runs that genuinely executed on
 the GPU count toward the median/stddev `Stats` and the comparative `ABResult`.
 
+The **task lifecycle** (`villa work`, `cmd/villa/work.go`; the runner
+`taskrun.Runner`, `internal/taskrun`) is the v1.11 flow, and the first one the
+dashboard service drives rather than reads:
+
+1. **Submit**: `villa work` refuses in the terminal what it can prove wrong before
+   posting (an unregistered folder, tools mode off, the service not answering),
+   then `POST /api/tasks` and follows the record over SSE. `--detach` prints the id
+   and returns.
+2. **Refuse or queue**: the runner refuses, as a record in state `refused`, an
+   unregistered workspace, tools mode off, or a confident `PRE-09` FAIL; otherwise
+   the task is `queued`. One task runs at a time, globally.
+3. **Run**: the runner renders the sandbox arguments through
+   `orchestrate.RenderSandboxRun` (the effective sandbox image resolved through
+   `pinresolve`, the running `villa` binary and the pinned Crush bind-mounted
+   read-only), launches `podman run --runtime=krun`, and waits for the bridge's
+   `bridge_ready` line. The instruction goes in with `grounding.CitationInstruction`
+   appended. Every Crush permission request is answered by `approval.Decide` or
+   parks the task in `awaiting_approval`; file events append to the record.
+4. **Audit**: after `run_complete`, one `grounding.Audit` call per file the task
+   created or modified, the sources being the files the session read. Any
+   unsupported claim, or an audit that could not run, makes the task `flagged`.
+5. **Finish**: the terminal state is written under a legal edge of
+   `taskstore.CanTransition`, the container exits (`--rm`), and the terminal
+   re-reads the record from the API before printing the summary, so a cut stream
+   cannot invent a terminal state. On service start `Runner.Recover` marks every
+   non-terminal record `interrupted`, once and idempotently, and never re-queues.
+
 ## Key abstractions
 
 - **`detect.HostProfile`** + the typed `Bytes`/`Bool`/`Int`/`Str` optionals
@@ -381,6 +435,48 @@ the GPU count toward the median/stddev `Stats` and the comparative `ABResult`.
   running stack), and a failure in either is a WARN rather than a rollback: the single
   place fail-soft is correct, because cleanup runs after the update has already
   succeeded.
+- **`workspace.Register` / `Remove` / `Registered`** + `Refusal`
+  (`internal/workspace/workspace.go`), the grant list. `Register` is where
+  fail-closed lives: it refuses a relative path, one it cannot resolve and contain,
+  the home directory or anything outside it, villa's own XDG roots, a nested grant
+  in either direction, and a missing or non-directory path, each as a typed
+  `Refusal` with a remediation. `Registered` resolves an argument the same way and
+  is what `villa work` and the runner look a path up with.
+- **`approval.Decide`** + `IsDeletion` / `AutoAllowed`
+  (`internal/approval/approval.go`), the pure Action × Mode table. The harness's
+  tool layer classifies; villa only answers. Deletion asks in every mode, and that
+  rule is a command pattern (`rm`, `rmdir`, `unlink`, `shred`, `trash`,
+  `git clean`, `find -delete`, seen through `sudo`, `env`, `xargs` and shell
+  chaining), stated as a pattern rather than a proof, the way `websafe` flags and
+  never claims safe. Auto mode allows `execute` only for Crush's own read-only list
+  or the villa allowlist with every path argument under the workspace.
+- **`taskstore.Task` / `State` / `Store`** (`internal/taskstore`), the record and
+  its state machine on `jsonstore` + `pathsafe`: `queued → running →
+  awaiting_approval → running → done | flagged | failed | refused | cancelled |
+  interrupted`, `Exit(State)` the one place a state becomes an exit code, and
+  `Recover` the idempotent crash path. Records and logs are never deleted.
+- **`crushapi.Client`** + `Event` / `Command` / `Line` (`internal/crushapi`), the
+  Crush server client and, in the same package, the one-JSON-object-per-line stdio
+  protocol the bridge speaks: events out, commands in, `bridge_ready` first. The
+  bridge (`villa sandbox-bridge`, `cmd/villa/sandbox_bridge.go`) is the in-VM half
+  and runs as the container's entrypoint, so stdio is the only channel across the
+  boundary.
+- **`grounding.Audit`** + `Prompt` / `CitationInstruction` / `DocumentReport`
+  (`internal/grounding`), the post-run claim audit behind a `Complete` seam. One
+  chat completion per document, temperature 0 and thinking disabled, lists every
+  claim as supported by a quoted source or `UNSUPPORTED`. The auditor is the model
+  that wrote the document; a clean report is "the auditor found none".
+- **`toolsmode.Run`** (`internal/toolsmode`), the `villa tools-mode enter|exit`
+  transaction over `backendswap.Deps`: the same capture → persist → re-render →
+  restart → prove → rollback frame with the backend axis replaced by a boolean, the
+  fit guard seeing the context floor tools mode serves, and the proof including one
+  real read-then-edit tool call on the way in.
+- **`taskrun.Runner`** + `Deps` / `Bridge` / `Narration` (`internal/taskrun`), the
+  runner. It holds no host I/O: launching, killing by name, rendering arguments,
+  reading workspace files and the audit call are all `Deps`. One worker goroutine
+  is the only thing that talks to the bridge; `Approve`, `Deny` and `Cancel` hand
+  their answer to it over a channel. `Subscribe` is the SSE source both the
+  terminal and the dashboard's task detail read.
 
 ## Directory structure rationale
 
@@ -417,6 +513,15 @@ internal/
   bench/              Pure honest-A/B benchmark core (--ab composes backendswap).
   status/             Shared read-model aggregation (CLI + dashboard, never forked).
   metrics/            Bounded llama-server /metrics + /slots scrape for the perf panel.
-  dashboard/          Loopback-only control dashboard backend + embedded UI.
+  dashboard/          Loopback-only control dashboard backend + embedded UI; hosts
+                      the task runner and the loopback task API (v1.11).
   llm/                OpenAI-compatible SSE + non-streaming client (the bench timings source).
+  workspace/          The registered grant list: Register/Remove/Registered + typed refusals.
+  approval/           The Action × Mode table, the deletion pattern, the auto-mode allowlist.
+  taskstore/          The task record, its state machine, the append-only log; never deletes.
+  crushapi/           The Crush server client + the bridge's one-object-per-line stdio protocol.
+  grounding/          The post-run claim audit: one completion per document, reports only.
+  toolsmode/          The tools-mode enter/exit transaction over backendswap's frame.
+  taskrun/            The runner: one task at a time, every decision through approval,
+                      every terminal state through taskstore.
 ```

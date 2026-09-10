@@ -48,6 +48,11 @@ const (
 	// is created when the version assertion fails, so a drifted binary is a
 	// refusal rather than a task that ran under an unvetted harness.
 	KindBridgeError EventKind = "bridge_error"
+	// KindFilesRead is the bridge's last line out, after run_complete: the files
+	// Crush's file tracker saw the session read, which is the grounding audit's
+	// source set. It is villa's own kind because Crush exposes the tracker as a
+	// route, not as an event.
+	KindFilesRead EventKind = "files_read"
 )
 
 // Event is one item of the relayed stream.
@@ -70,6 +75,8 @@ type Event struct {
 	Version string `json:"version,omitempty"`
 	// Error carries the refusal on a bridge_error.
 	Error string `json:"error,omitempty"`
+	// Files carries the session's read set on a files_read (guest paths).
+	Files []string `json:"files,omitempty"`
 
 	// Raw is the inner pubsub.Event payload verbatim. It is set for every event
 	// off the wire, so a kind with no typed field still reaches the runner whole.

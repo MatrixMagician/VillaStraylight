@@ -80,6 +80,9 @@ func newFakeCrushServer(t *testing.T, version string) *fakeCrushServer {
 		f.mu.Unlock()
 		w.WriteHeader(http.StatusOK)
 	})
+	mux.HandleFunc("GET /v1/workspaces/{id}/sessions/{sid}/filetracker/files", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`["/workspace/q3.csv","/workspace/notes.txt"]`))
+	})
 	mux.HandleFunc("GET /v1/workspaces/{id}/events", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(http.StatusOK)
@@ -234,8 +237,14 @@ func TestBridgeRelaysAPromptAndItsEvents(t *testing.T) {
 		t.Fatalf("second line = %+v, want permission_request", lines[1])
 	}
 	last := lines[len(lines)-1].Event
-	if last == nil || last.Kind != crushapi.KindRunComplete {
-		t.Fatalf("last line = %+v, want run_complete", lines[len(lines)-1])
+	if last == nil || last.Kind != crushapi.KindFilesRead {
+		t.Fatalf("last line = %+v, want files_read after run_complete", lines[len(lines)-1])
+	}
+	if len(last.Files) != 2 || last.Files[0] != "/workspace/q3.csv" {
+		t.Errorf("files_read = %v, want the tracker's two paths", last.Files)
+	}
+	if prev := lines[len(lines)-2].Event; prev == nil || prev.Kind != crushapi.KindRunComplete {
+		t.Fatalf("second-to-last line = %+v, want run_complete", lines[len(lines)-2])
 	}
 
 	if f.prompts[0] != "find duplicates" {

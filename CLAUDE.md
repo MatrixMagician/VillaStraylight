@@ -13,8 +13,10 @@ Conventions, Architecture below) and in `docs/`:
 - `docs/GETTING-STARTED.md`, `docs/MEMORY.md`, `docs/TESTING.md`
 - `docs/RELEASING.md` — how a release is cut and how the signed pin manifest is
   published; the signing key is offline by design and must never reach CI
-- `docs/spec/v1.11-workspace-agent.md` — the workspace agent (`villa work`), specified
-  and not yet built: read it before starting any piece of its build order
+- `docs/spec/v1.11-workspace-agent.md` — the workspace agent (`villa work`), now
+  built: read it before touching a task, an approval, the sandbox or tools mode.
+  Its status block names the open items and the one gap (no verb records a
+  locally built sandbox image's digest as the effective pin)
 - `docs/spec/v1.8-villa-update.md` — the `villa update` design, now implemented:
   read it before touching pins. Note §7.1's migration hazard — most
   `EmbedImage()` callers are probe helpers, NOT pins, and a mechanical rewrite of
@@ -34,7 +36,7 @@ inference + **Open WebUI** chat + a control dashboard — strictly local, zero
 telemetry. Go is the **control plane only**; AI services are integrated OSS
 containers, not rebuilt.
 
-**Shipped:** v1.0 MVP, v1.1 (ROCm Opt-In Backend), v1.2 (Operability), v1.3 (Memory & Knowledge), v1.4 (Coding Agent), v1.5 (Web Search — Grounded & Guarded), v1.6 (structural consolidation + a transactional install), v1.7 (the resident set, a lint gate that can fail, and docs that match the tree), v1.8 (`villa update` — the transactional check → fetch → prove → prune lifecycle), v1.9 (speculation, the vision projector sidecar, and the PRE-08 device-access gate, each licensed by an on-hardware measurement; ADR-0006), and v1.10 (the draft sidecar: the first dense catalog entry, its MTP head shipped as a sidecar and proven as a second model; ADR-0009) are complete and tagged on `main`. The manifest signing key is generated and compiled in; publishing a first manifest is gated on re-vetting the drifted pins, not on code, so until then `--check` honestly reports it could not check. The `villa` control plane is implemented under `cmd/villa/` + `internal/`.
+**Shipped:** v1.0 MVP, v1.1 (ROCm Opt-In Backend), v1.2 (Operability), v1.3 (Memory & Knowledge), v1.4 (Coding Agent), v1.5 (Web Search — Grounded & Guarded), v1.6 (structural consolidation + a transactional install), v1.7 (the resident set, a lint gate that can fail, and docs that match the tree), v1.8 (`villa update` — the transactional check → fetch → prove → prune lifecycle), v1.9 (speculation, the vision projector sidecar, and the PRE-08 device-access gate, each licensed by an on-hardware measurement; ADR-0006), v1.10 (the draft sidecar: the first dense catalog entry, its MTP head shipped as a sidecar and proven as a second model; ADR-0009), and v1.11 (the workspace agent: `villa work` runs one instruction against one registered folder inside a per-task libkrun microVM, approvals answered by a table, a post-run claim audit that flags and never edits; the runner lives in the dashboard service) are complete. v1.0 through v1.10 are tagged on `main`; v1.11 is built on the stacked wave branches (PRs #186, #187, #188) and is tagged once they merge. The manifest signing key is generated and compiled in; publishing a first manifest is gated on re-vetting the drifted pins, not on code, so until then `--check` honestly reports it could not check. The `villa` control plane is implemented under `cmd/villa/` + `internal/`.
 
 ## Build, run & test
 
@@ -62,7 +64,8 @@ Go 1.26+. Single module, single static binary built from `./cmd/villa`.
   place, `newRoot` in `root.go`: detect, recommend, preflight, model, inference,
   install, up/down/restart/logs, config, status, doctor, verify, recall, dashboard,
   websafe, backend, speculation, coding-mode, code (Crush, or Claude Code via
-  --agent claude), bench, backup, restore, uninstall.
+  --agent claude), tools-mode, workspace, work, task, sandbox-bridge (the in-VM
+  half of a task; never run by hand), bench, backup, restore, uninstall.
   Host effects live behind injectable `live*Deps` seams (`grep -rn "func live" cmd/villa`).
 
 - `internal/` — `detect` (host probe → typed-Unknown HostProfile; AMD seam in `gpu_amd.go`),
@@ -81,6 +84,15 @@ Go 1.26+. Single module, single static binary built from `./cmd/villa`.
   `doctor` (read-only runtime twin of preflight), `backup` (pure manifest-skew
   comparison), `usage` (reset-aware Fold over llama.cpp's monotonic token totals),
   and the persistence trio `pathsafe` / `jsonstore` / `benchstore` + `verifystate`.
+
+  The v1.11 workspace-agent packages: `workspace` (the grant list and its
+  refusals), `approval` (the Action × Mode table; deletion asks in every mode, as a
+  pattern, not a proof), `taskstore` (the record, its state machine, the log; never
+  deletes), `crushapi` (the Crush server client + the bridge's stdio protocol),
+  `grounding` (the post-run claim audit; it flags, never edits, and a clean audit is
+  "the auditor found none"), `toolsmode` (the tools-mode transaction over
+  `backendswap`'s frame) and `taskrun` (the runner, hosted by the dashboard service;
+  `villa work` and `villa task` are its loopback HTTP clients).
   Deeper detail: `docs/ARCHITECTURE.md`, `docs/DEVELOPMENT.md`.
 
 **Conventions & gotchas (non-obvious — read before editing):**
@@ -167,7 +179,7 @@ loop.
 - Core fields: `model`, `quant`, `ctx`, `speculation` (`off`/`ngram`/`draft`, unset renders
   off; written by `villa speculation set`, never `config set`), `vision` (bool,
   absent renders no projector flag; written only by `recommend --save`/`install`,
-  which is what guarantees the projector is on disk), `backend` (default `rocm`; `rocm-6.4.4`, `rocm-6.4.4-rocwmma`, `vulkan` also valid — note `internal/catalog/seed.json`'s per-entry `backend_default` OVERRIDES `recommend.defaultBackend`, so the two must be kept in step), `catalog_path`, `dashboard_port` (default `8888`), `chat_port` (default `3000`). The subsystem fields (`memory_enabled`/`embedding_*`, `coding_mode`/`coder_*`, `agent_enabled`, `web_search_*`) and `resident []ResidentModel` are all `omitempty` — `VillaConfig` in `internal/config/villaconfig.go` is the list, not this line.
+  which is what guarantees the projector is on disk), `backend` (default `rocm`; `rocm-6.4.4`, `rocm-6.4.4-rocwmma`, `vulkan` also valid — note `internal/catalog/seed.json`'s per-entry `backend_default` OVERRIDES `recommend.defaultBackend`, so the two must be kept in step), `catalog_path`, `dashboard_port` (default `8888`), `chat_port` (default `3000`). The subsystem fields (`memory_enabled`/`embedding_*`, `coding_mode`/`coder_*`, `agent_enabled`, `web_search_*`), `resident []ResidentModel`, and the v1.11 fields (`tools_mode` written by `tools-mode enter|exit` and `install --workspace-agent`; `workspace_agent` by `install --workspace-agent`; `workspace []string` by `workspace add|remove`; `sandbox_memory` default `8g` and `sandbox_cpus` default `4`, hand-edited, read at task launch) are all `omitempty` — `VillaConfig` in `internal/config/villaconfig.go` is the list, not this line.
 - Read-only by default: `LoadVilla` returns typed defaults when the file is absent; `SaveVilla` (invoked by `recommend --save` / model swap) writes strictly under the XDG dir with mode `0600`, dir `0700`, and a path-traversal guard. Self-heals zeroed dashboard/chat fields on load (never widens the bind off loopback).
 - `internal/catalog/seed.json` - the seed model catalog (`//go:embed seed.json` in `internal/catalog/load.go`). Catalog has a schema version window; an external override path may be supplied via `catalog_path`.
 - `internal/preflight/rocm-policy.json` - ROCm pin policy: image-tag allow/deny, kernel floor, firmware floor/deny, required `HSA_OVERRIDE_GFX_VERSION` (`//go:embed rocm-policy.json` in `internal/preflight/floors.go`).
@@ -320,8 +332,15 @@ loop.
 | updateflow | The per-subsystem transaction: prove current → capture → mutate → prove → commit | `internal/updateflow/updateflow.go` |
 | prune | Reference-counted image removal — the only image deletion in this project | `internal/prune/prune.go` |
 | snapshotprune | Data-snapshot retention — the only snapshot deletion in this project | `internal/snapshotprune/snapshotprune.go` |
+| workspace | The registered grant list: `Register`/`Remove`/`Registered`, typed refusals, fail-closed at registration | `internal/workspace/workspace.go` |
+| approval | Pure Action × Mode table for a task's tool call: allow, ask, deny; deletion asks in every mode (a pattern, not a proof) | `internal/approval/approval.go` |
+| taskstore | The task record, its state machine (`Exit(State)` is the one state → exit-code map), the append-only log; never deletes | `internal/taskstore/*.go` |
+| crushapi | The Crush server client + the bridge's one-object-per-line stdio protocol | `internal/crushapi/*.go` |
+| grounding | The post-run claim audit: one completion per document, reports, never edits; a clean audit is "the auditor found none" | `internal/grounding/grounding.go` |
+| toolsmode | The `tools-mode enter` / `exit` transaction: `backendswap`'s frame with a boolean axis, the ctx-floor fit guard, one real tool call in the proof | `internal/toolsmode/toolsmode.go` |
+| taskrun | The runner: one task at a time, hosted by the dashboard service; every decision through `approval`, every terminal state through `taskstore` | `internal/taskrun/*.go` |
 
-This table covers the v1.0–v1.2 spine plus the v1.6 consolidation modules. The
+This table covers the v1.0–v1.2 spine plus the v1.6 consolidation modules and the v1.11 workspace-agent packages. The
 v1.3–v1.5 packages (`memory`, `recall`, `agent`, `codingmode`, `websafe`, `doctor`,
 `backup`, `usage`, `pathsafe`, `jsonstore`, `benchstore`, `verifystate`) follow the
 same pure-core + `Deps` shape — see the code map above and `docs/ARCHITECTURE.md`.
@@ -353,7 +372,13 @@ tier (`cmd/villa/*.go`) → pure cores (`internal/*`) → orchestration
 per resident model, named by `orchestrate.ResidentUnitName`), `villa-openwebui`,
 `villa-qdrant` + `villa-embed` (v1.3 RAG), and `villa-searxng` + `villa-websafe`
 (v1.5 web search) — the last of which bind-mounts the `villa` binary into a
-distroless container, which is why the CGO-free build gate is load-bearing.
+distroless container, which is why the CGO-free build gate is load-bearing. The
+v1.11 workspace agent adds one long-lived unit, `villa-sandbox.network`
+(`Internal=true`, the inference unit joins it as a second network), and no
+container unit: each task is one `podman run --runtime=krun` named
+`villa-task-<id>`, rendered by `orchestrate.RenderSandboxRun`, which bind-mounts
+the `villa` binary the same way (the second reason the CGO-free gate is
+load-bearing).
 
 Persistent state lives in `config.toml` (the single source of truth) and in on-disk
 Quadlet units regenerated from it. Cores hold no global mutable state; the dashboard

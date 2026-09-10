@@ -267,6 +267,13 @@ The chat unit served with the model's own chat template so tool calls parse.
 One config flag; coding mode implies it.
 _Avoid_: jinja mode, agent mode, function calling
 
+**Grounding audit**:
+The second pass villa runs after a task, one chat completion per document the
+task wrote, asking the same model to mark each claim as supported by a file the
+session read or unsupported. It reports and never edits. A clean audit is "the
+auditor found none"; it is never evidence that a document is correct.
+_Avoid_: grounded, verified, fact-checked, validation
+
 **Flagged**:
 A task that finished with claims the grounding audit could not support, or
 whose audit could not run. Exit `2`, never `0`; the document is left as

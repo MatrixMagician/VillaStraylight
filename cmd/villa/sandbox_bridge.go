@@ -283,6 +283,15 @@ func runSandboxBridge(ctx context.Context, d sandboxBridgeDeps) error {
 			}
 			emit(ev)
 			if ev.Kind == crushapi.KindRunComplete {
+				// The read set is the grounding audit's source list (spec 6). It is
+				// fetched before the context is cancelled, since the client needs it,
+				// and reported as a bridge_error rather than omitted when the route
+				// fails, so an audit with no sources is explained in the log.
+				if files, err := c.FilesRead(ctx, ws, sid); err != nil {
+					emit(crushapi.Event{Kind: crushapi.KindBridgeError, Error: "sandbox-bridge: file tracker: " + err.Error()})
+				} else {
+					emit(crushapi.Event{Kind: crushapi.KindFilesRead, Files: files})
+				}
 				cancel()
 				_ = child.Stop()
 				_ = child.Wait()

@@ -61,6 +61,7 @@ type Approval struct {
 	Tool       string `json:"tool"`
 	Action     string `json:"action"`
 	Path       string `json:"path"`
+	Command    string `json:"command,omitempty"`
 	AskedAt    string `json:"asked_at"`
 	Answer     string `json:"answer,omitempty"`
 	AnsweredAt string `json:"answered_at,omitempty"`
