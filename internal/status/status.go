@@ -203,6 +203,12 @@ type Report struct {
 	// running container because the config is what the unit was rendered from.
 	Vision bool `json:"vision"`
 
+	// Tools reports whether the inference unit is served for tool calling
+	// (spec v1.11 §3.5). It is the ANSWERED gate, not a raw flag: coding mode implies
+	// tools mode, so a stack in coding mode reports true here without a second
+	// boolean to keep in sync.
+	Tools bool `json:"tools"`
+
 	// SchemaVersion is the Report contract self-version. It MUST stay the
 	// LAST tagged field (append-only; new tagged fields go above it, the unexported
 	// err stays after it and never serializes).
@@ -238,7 +244,10 @@ type Report struct {
 // Version 8 tail-appends the vision flag ABOVE SchemaVersion; a stack that never
 // resolved a projector reports false, so the v8 output differs from v7 by that one
 // key.
-const reportSchemaVersion = 8
+// Version 9 (v1.11 §3.5) tail-appends the answered tools gate ABOVE SchemaVersion;
+// a stack that serves no tool calls reports false, so the v9 output differs from v8
+// by that one key.
+const reportSchemaVersion = 9
 
 // SchemaVersion exposes the Report contract's own version to downstream readers
 // (the dashboard serves this same document), so a consumer binds one symbol rather
@@ -626,6 +635,7 @@ func Run(d Deps) Report {
 	report.Model = cfg.Model
 	report.Speculation = cmp.Or(cfg.Speculation, config.SpeculationOff)
 	report.Vision = cfg.Vision
+	report.Tools = subsystem.ToolsOn(cfg)
 	report.SchemaVersion = reportSchemaVersion
 	// Live tok/s: typed-optional via the seam — nil on idle/unavailable so it
 	// serializes as omitted, never a fabricated 0. Guard a nil seam defensively.

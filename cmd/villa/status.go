@@ -116,6 +116,11 @@ func renderStatusTable(w io.Writer, r status.Report, withProvenance bool) {
 	fmt.Fprintf(tw, "backend\t%s\n", r.Backend)
 	fmt.Fprintf(tw, "speculation\t%s\n", r.Speculation)
 	fmt.Fprintf(tw, "vision\t%s\n", yesNo(r.Vision))
+	// Rendered only when on: an off stack is the unchanged default, and a line
+	// saying so on every install would be noise (spec v1.11 §3.5).
+	if r.Tools {
+		fmt.Fprintf(tw, "mode\t%s\n", "tools")
+	}
 	if withProvenance {
 		fmt.Fprintf(tw, "image\t%s\n", r.Image)
 	}

@@ -88,7 +88,14 @@ const (
 //     and the inference unit is joined to it — a host-state fact, not a preflight
 //     CheckResult). Sandbox-OFF output is byte-identical except this bump (both nil
 //     seams emit no finding).
-const reportSchemaVersion = 7
+//   - v8: the TMD-01 tools-mode drift finding (spec v1.11 §3.5/§10) — a NEW
+//     doctor-owned finding type like v6. The served inference unit must carry the
+//     tool-calling flag iff subsystem.ToolsOn, and a mismatch is a confident FAIL:
+//     tool calls against a unit rendered without it fail at the server, with nothing
+//     in config to explain why. Unlike the subsystem folds this finding is NOT gated
+//     on an opt-in — the assertion is meaningful in both directions — so every doctor
+//     Report gains one line.
+const reportSchemaVersion = 8
 
 // The three typed-Unknown ROCm host-prep check IDs that a PROVEN ROCm residency
 // supersedes (down-ranks, never deletes). They INTENTIONALLY duplicate the preflight
@@ -266,6 +273,20 @@ type Deps struct {
 	// (typed-Unknown). NIL-SAFE: when nil (the workspace agent is off) no SBX-02
 	// finding is emitted at all — never a PASS-by-default.
 	SandboxNetwork func() (networkPresent, inferenceJoined bool, err error)
+	// ToolsDrift is the TMD-01 seam: does the ON-DISK inference unit carry the
+	// tool-calling flag (served), and does the answered gate say it should (want)?
+	// The cmd tier derives the flag token from the inference seam rather than typing
+	// it, so no llama-server literal leaves internal/inference (TestSeamGrepGate).
+	//
+	// ok reports whether the question could be answered at all — an unreadable unit
+	// dir or an unresolvable backend degrades to a typed-Unknown WARN, NEVER to a
+	// served==want PASS. NIL-SAFE: a nil seam emits NO finding rather than a
+	// PASS-by-default.
+	//
+	// It is deliberately NOT subsystem-gated. "the unit must not carry the flag when
+	// tools mode is off" is as much a fault as its absence when on, and a gate would
+	// make the off direction unobservable.
+	ToolsDrift func() (served, want, ok bool)
 }
 
 // changedUnitNames joins the drifted unit names in Plan order for the drift Detail
@@ -569,6 +590,16 @@ func Aggregate(d Deps) Report {
 		}
 	}
 
+	// 3b. TOOLS-MODE DRIFT (TMD-01) — the served unit must carry the tool-calling
+	// flag iff the gate is answered on. It sits beside drift rather than inside it
+	// because the fault is specific and the remediation is a different verb: a unit
+	// that lost the flag makes every tool call fail at the server with nothing in
+	// config to explain it. A nil seam emits nothing.
+	if d.ToolsDrift != nil {
+		served, want, ok := d.ToolsDrift()
+		findings = append(findings, toolsDriftFinding(served, want, ok))
+	}
+
 	// 4. WORST-WINS FOLD — any FAIL → "FAIL"; else any WARN → "WARN"; else "PASS".
 	//
 	// 4a. RESIDENCY SUPERSESSION (the gap-closure rule, 13-UAT.md Test 1 / DOCTOR-01):
@@ -625,6 +656,68 @@ func Aggregate(d Deps) Report {
 		Overall:       overall,
 		SchemaVersion: reportSchemaVersion,
 	}
+}
+
+// toolsDriftFinding builds TMD-01 from the seam's three-valued answer.
+//
+// A mismatch is a BLOCK-tier FAIL, not the WARN config-vs-disk drift carries: a unit
+// rendered without the flag rejects every tool call at the server, and one rendered
+// with it when the operator turned tools mode off is serving a template they did not
+// ask for. An unanswerable question is a typed-Unknown WARN — never a PASS.
+func toolsDriftFinding(served, want, ok bool) Finding {
+	const (
+		id   = "TMD-01"
+		name = "Tools-mode drift"
+	)
+	if !ok {
+		return Finding{
+			ID:          id,
+			Name:        name,
+			Tier:        tierWarn,
+			Status:      statusWarn,
+			Detail:      "could not read the on-disk inference unit to check whether it is served for tool calling",
+			Remediation: "run `villa install` to write the Quadlet units, then re-run `villa doctor`",
+			Provenance:  "on-disk villa-llama unit (unreadable)",
+		}
+	}
+	if served == want {
+		return Finding{
+			ID:         id,
+			Name:       name,
+			Tier:       tierBlock,
+			Status:     statusPass,
+			Detail:     "the served unit's tool-calling flag matches tools mode (" + onOff(want) + ")",
+			Provenance: "on-disk villa-llama unit vs subsystem.ToolsOn",
+		}
+	}
+	if want {
+		return Finding{
+			ID:          id,
+			Name:        name,
+			Tier:        tierBlock,
+			Status:      statusFail,
+			Detail:      "tools mode is on but the served unit is not rendered for tool calling — every tool call will fail at the server",
+			Remediation: "re-run `villa install` to reconcile the unit, or `villa tools-mode exit` if tool calling is not wanted",
+			Provenance:  "on-disk villa-llama unit vs subsystem.ToolsOn",
+		}
+	}
+	return Finding{
+		ID:          id,
+		Name:        name,
+		Tier:        tierBlock,
+		Status:      statusFail,
+		Detail:      "tools mode is off but the served unit is rendered for tool calling — the unit is serving a chat template nobody asked for",
+		Remediation: "re-run `villa install` to reconcile the unit, or `villa tools-mode enter` to persist the state the unit is already in",
+		Provenance:  "on-disk villa-llama unit vs subsystem.ToolsOn",
+	}
+}
+
+// onOff names a gate state for a finding detail.
+func onOff(on bool) string {
+	if on {
+		return "on"
+	}
+	return "off"
 }
 
 // findingFromCheck normalizes a preflight.CheckResult into a doctor Finding,

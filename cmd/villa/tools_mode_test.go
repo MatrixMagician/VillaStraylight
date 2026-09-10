@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 	"github.com/MatrixMagician/VillaStraylight/internal/prove"
+	"github.com/MatrixMagician/VillaStraylight/internal/status"
 )
 
 // tools_mode_test.go covers the cobra/exit mapping, the derived flag token and the
@@ -242,6 +244,24 @@ func TestLiveToolsProveExitPathSkipsTheToolCall(t *testing.T) {
 	cancel()
 	if v := liveToolsProve(false)(ctx, "nvidia"); v.Pass() {
 		t.Errorf("an unresolvable backend proved PASS: %+v", v)
+	}
+}
+
+// TestStatusTableShowsToolsModeOnlyWhenOn guards the status line spec v1.11 §10 asks
+// for: `mode tools` appears iff the gate is answered on, so an unchanged default
+// stack does not grow a line saying nothing happened.
+func TestStatusTableShowsToolsModeOnlyWhenOn(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		on   bool
+	}{{"off", false}, {"on", true}} {
+		t.Run(tc.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			renderStatusTable(&buf, status.Report{Tools: tc.on}, false)
+			if got := strings.Contains(buf.String(), "tools"); got != tc.on {
+				t.Errorf("Tools=%v rendered:\n%s", tc.on, buf.String())
+			}
+		})
 	}
 }
 

@@ -104,5 +104,6 @@
   },
   "speculation": "off",
   "vision": false,
-  "schema_version": 8
+  "tools": true,
+  "schema_version": 9
 }

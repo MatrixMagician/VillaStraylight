@@ -389,6 +389,7 @@ func liveDoctorDeps(ctx context.Context) (doctor.Deps, error) {
 		WebsafeBinary:            websafeBinary,
 		RunSandboxChecks:         sandboxChecks,
 		SandboxNetwork:           sandboxNetwork,
+		ToolsDrift:               liveToolsDrift,
 		// DriftPlan: render units from the persisted config, resolve the backend
 		// fail-closed, and Reconcile against the READ-ONLY unit dir. It NEVER
 		// writes. A read error (absent/unreadable unit dir) is returned verbatim so the

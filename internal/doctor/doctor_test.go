@@ -947,14 +947,14 @@ func TestAgentCleanDriftPasses(t *testing.T) {
 
 // --- issue #141: the websafe-binary finding (reportSchemaVersion 5→6) ---
 
-// TestDoctorSchemaVersionIsSeven: doctor's OWN --json contract self-version was
-// bumped append-only 6→7 when the sandbox fold (SBX-01/SBX-02, issue #176) was
-// added. The const is the single source of truth — Aggregate stamps it on every
+// TestDoctorSchemaVersionIsEight: doctor's OWN --json contract self-version was
+// bumped append-only 6→7 for the sandbox fold (SBX-01/SBX-02, issue #176) and
+// 7→8 for the TMD-01 tools-mode drift finding (issue #173). The const is the single source of truth — Aggregate stamps it on every
 // Report. INDEPENDENT of status's reportSchemaVersion (5).
-func TestDoctorSchemaVersionIsSeven(t *testing.T) {
+func TestDoctorSchemaVersionIsEight(t *testing.T) {
 	r := Aggregate(newDoctorDeps())
-	if r.SchemaVersion != 7 {
-		t.Fatalf("Report.SchemaVersion = %d, want 7 (append-only bump for the sandbox fold)", r.SchemaVersion)
+	if r.SchemaVersion != 8 {
+		t.Fatalf("Report.SchemaVersion = %d, want 8 (append-only bumps for the sandbox fold and TMD-01)", r.SchemaVersion)
 	}
 }
 
