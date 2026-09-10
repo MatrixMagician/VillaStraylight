@@ -63,9 +63,11 @@ type RenderInput struct {
 	// and translates catalog.AgentSampling → inference.Sampling, so the pure renderer
 	// and internal/inference — never import internal/catalog (clean dependency direction).
 	CodingMode *inference.CodingModeSpec
-	// CoderAgentCtx is the resolved agent context the coder unit is rendered with. Used
-	// ONLY when CodingMode != nil, where it overrides Cfg.Ctx as the single -c value
+	// CoderAgentCtx is the resolved agent context, supplied by the caller that owns
+	// the catalog import. When CodingMode != nil it OVERRIDES Cfg.Ctx as the single -c
 	// (Pitfall 1: the agent ctx is carried by the existing -c, never a second one).
+	// When tools mode is on without coding mode it is a FLOOR instead: the served
+	// ctx is max(Cfg.Ctx, CoderAgentCtx), and 0 leaves Cfg.Ctx alone.
 	CoderAgentCtx int
 
 	// Speculation is the OPTIONAL pre-resolved speculation descriptor (ADR-0006).

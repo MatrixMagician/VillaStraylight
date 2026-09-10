@@ -1129,3 +1129,151 @@ func TestValidSpeculation(t *testing.T) {
 		}
 	}
 }
+
+// TestWorkspaceAgentFieldsOmittedWhenUnset is the byte-identical guard on the five
+// v1.11 fields. An install that never opted into the workspace agent must gain no
+// key on disk, so the default save is compared against the exact bytes it produced
+// before these fields existed rather than against a key-absence spot check.
+func TestWorkspaceAgentFieldsOmittedWhenUnset(t *testing.T) {
+	const before = `model = ""
+quant = ""
+ctx = 0
+backend = "rocm"
+catalog_path = ""
+dashboard_port = 8888
+chat_port = 3000
+`
+	dir := filepath.Join(t.TempDir(), "villa")
+	if err := SaveVillaTo(dir, DefaultVillaConfig()); err != nil {
+		t.Fatalf("SaveVillaTo: %v", err)
+	}
+	body, err := os.ReadFile(filepath.Join(dir, "config.toml"))
+	if err != nil {
+		t.Fatalf("read config.toml: %v", err)
+	}
+	if string(body) != before {
+		t.Errorf("the default save is no longer byte-identical to the pre-v1.11 file:\ngot:\n%s\nwant:\n%s", body, before)
+	}
+}
+
+// TestWorkspaceAgentFieldsRoundTrip asserts the five v1.11 fields survive a
+// save/load cycle. Workspace is the one that matters most: it is the registered
+// grant list, and a dropped entry silently revokes a directory the operator handed
+// to the agent.
+func TestWorkspaceAgentFieldsRoundTrip(t *testing.T) {
+	cfg := DefaultVillaConfig()
+	cfg.Model = "qwen3.6-35b-a3b"
+	cfg.ToolsMode = true
+	cfg.WorkspaceAgent = true
+	cfg.Workspace = []string{"/home/op/projects", "/home/op/notes"}
+	cfg.SandboxMemory = "12g"
+	cfg.SandboxCPUs = 6
+
+	dir := filepath.Join(t.TempDir(), "villa")
+	if err := SaveVillaTo(dir, cfg); err != nil {
+		t.Fatalf("SaveVillaTo: %v", err)
+	}
+	body, err := os.ReadFile(filepath.Join(dir, "config.toml"))
+	if err != nil {
+		t.Fatalf("read config.toml: %v", err)
+	}
+	for _, key := range []string{"tools_mode", "workspace_agent", "workspace", "sandbox_memory", "sandbox_cpus"} {
+		if !strings.Contains(string(body), key) {
+			t.Errorf("key %q was not written for a fully opted-in config", key)
+		}
+	}
+
+	got, err := LoadVillaFrom(dir)
+	if err != nil {
+		t.Fatalf("LoadVillaFrom: %v", err)
+	}
+	if !got.ToolsMode || !got.WorkspaceAgent {
+		t.Errorf("opt-in lost: tools_mode=%v workspace_agent=%v", got.ToolsMode, got.WorkspaceAgent)
+	}
+	if !reflect.DeepEqual(got.Workspace, cfg.Workspace) {
+		t.Errorf("Workspace = %v, want %v", got.Workspace, cfg.Workspace)
+	}
+	if got.SandboxMemory != "12g" || got.SandboxCPUs != 6 {
+		t.Errorf("sandbox limits lost: memory=%q cpus=%d", got.SandboxMemory, got.SandboxCPUs)
+	}
+}
+
+// TestWorkspaceAgentFieldsAbsentLoadOff asserts a config.toml written before these
+// fields existed loads with the workspace agent off and no grants, which is what
+// keeps an existing install's rendered units unchanged.
+func TestWorkspaceAgentFieldsAbsentLoadOff(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "villa")
+	if err := os.MkdirAll(dir, configDirMode); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	body := "model = \"qwen3-35b-a3b-moe-64\"\nbackend = \"rocm\"\n"
+	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(body), configFileMode); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	got, err := LoadVillaFrom(dir)
+	if err != nil {
+		t.Fatalf("LoadVillaFrom: %v", err)
+	}
+	if got.ToolsMode || got.WorkspaceAgent || len(got.Workspace) != 0 || got.SandboxMemory != "" || got.SandboxCPUs != 0 {
+		t.Errorf("absent v1.11 keys loaded non-zero: %+v", got)
+	}
+}
+
+// TestWorkspaceSurvivesFullConfigRoundTrip is the #149 regression (recommend
+// --save once overwrote config.toml from defaults and dropped every subsystem
+// field it did not own) extended to the v1.11 grant list: every subsystem opts
+// in at once, Workspace carries two grants, and the full struct must survive
+// SaveVilla/LoadVilla with nothing dropped — a regression here would silently
+// revoke a directory the operator handed to the agent.
+func TestWorkspaceSurvivesFullConfigRoundTrip(t *testing.T) {
+	cfg := DefaultVillaConfig()
+	cfg.Model = "qwen3.6-35b-a3b"
+	cfg.Quant = "UD-Q4_K_M"
+	cfg.Ctx = 32768
+	cfg.Backend = "vulkan"
+
+	cfg.MemoryEnabled = true
+	cfg.EmbeddingModel = "nomic-embed-text-v1.5"
+	cfg.EmbeddingDim = 768
+
+	cfg.CodingMode = true
+	cfg.CoderModel = "qwen3-coder-30b"
+	cfg.CoderQuant = "UD-Q4_K_M"
+	cfg.CoderAgentCtx = 65536
+
+	cfg.AgentEnabled = true
+
+	cfg.WebSearchEnabled = true
+	cfg.SearxngSecret = "searxng-secret"
+	cfg.WebSearchResultCount = 7
+	cfg.WebLoaderSecret = "web-loader-secret"
+	cfg.HostVillaPath = "/usr/local/bin/villa"
+
+	cfg.Speculation = SpeculationNgram
+	cfg.Vision = true
+
+	cfg.Resident = []ResidentModel{
+		{Model: "gemma3-12b", Quant: "UD-Q5_K_M", Ctx: 8192, Port: 8082},
+	}
+
+	cfg.ToolsMode = true
+	cfg.WorkspaceAgent = true
+	cfg.Workspace = []string{"/home/op/projects", "/home/op/notes"}
+	cfg.SandboxMemory = "12g"
+	cfg.SandboxCPUs = 6
+
+	dir := filepath.Join(t.TempDir(), "villa")
+	if err := SaveVillaTo(dir, cfg); err != nil {
+		t.Fatalf("SaveVillaTo: %v", err)
+	}
+	got, err := LoadVillaFrom(dir)
+	if err != nil {
+		t.Fatalf("LoadVillaFrom: %v", err)
+	}
+	if !reflect.DeepEqual(got, cfg) {
+		t.Errorf("full config round-trip mismatch:\n got %+v\nwant %+v", got, cfg)
+	}
+	if !reflect.DeepEqual(got.Workspace, []string{"/home/op/projects", "/home/op/notes"}) {
+		t.Errorf("Workspace dropped or reordered: got %v", got.Workspace)
+	}
+}

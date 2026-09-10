@@ -1,0 +1,37 @@
+# The sandbox image: the filesystem a workspace task runs in, inside a libkrun
+# microVM on an internal network with no egress (spec v1.11 3.4 and 7).
+#
+# It is villa-built rather than pulled because no headless-converter LibreOffice
+# image exists to pull (docs/research/office-formats.md). The runtime pin is the
+# built image digest, carried in pins.Table; the package versions below are the
+# curated build inputs that produced it, the way crush-policy.json records a
+# checksum. A dnf build is not byte-reproducible, so a rebuild at the same
+# versions yields a new digest: that is the rebuild-versus-bump ambiguity
+# `villa update --check` reports for a rolling digest.
+#
+# Python authors the documents; LibreOffice only recalculates and renders, and
+# never authors. `which` ships because the model coped without it and should not
+# have to.
+FROM registry.fedoraproject.org/fedora:44@sha256:c1e938afd5dfd7f172fac9168ba8e148fdf41c0517c04849072a15e4bd34eac6
+
+# The NEVRs are pinned so a Fedora rebase fails this build loudly instead of
+# silently changing what was vetted. libreoffice-* carry epoch 1.
+RUN dnf install -y --setopt=install_weak_deps=False \
+        python3-openpyxl-3.1.5-5.fc44 \
+        python3-lxml \
+        python3-pip \
+        poppler-utils \
+        which \
+        libreoffice-writer-1:26.2.6.3-1.fc44 \
+        libreoffice-calc-1:26.2.6.3-1.fc44 \
+        liberation-fonts-all \
+        dejavu-sans-fonts \
+    && dnf clean all \
+    && rm -rf /var/cache/dnf
+
+COPY requirements.txt /tmp/requirements.txt
+RUN pip install --no-deps --require-hashes --no-cache-dir -r /tmp/requirements.txt \
+    && rm -f /tmp/requirements.txt
+
+# The task's grant is mounted here; the render sets it as the working directory.
+WORKDIR /workspace

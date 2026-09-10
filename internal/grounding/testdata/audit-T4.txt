@@ -1,0 +1,38 @@
+1. AMD Strix Halo systems have 128 GB of unified memory.
+   - SOURCE: workspace/notes/research_notes_local_ai.md: "Strix Halo: 128 GB unified memory"
+
+2. A 35B parameter MoE model at Q4 quantization fits in 128 GB of memory with room for a 128k context.
+   - SOURCE: workspace/notes/research_notes_local_ai.md: "Strix Halo: 128 GB unified memory, so a 35B MoE at Q4 fits with room for a 128k context."
+
+3. ROCm 7.2.4 is the default backend for local AI.
+   - SOURCE: workspace/notes/research_notes_local_ai.md: "ROCm 7.2.4 is the default backend now"
+
+4. Vulkan is the fallback backend if ROCm regresses.
+   - SOURCE: workspace/notes/research_notes_local_ai.md: "Vulkan is the fallback if ROCm regresses."
+
+5. Local AI setups have no telemetry.
+   - SOURCE: workspace/notes/research_notes_local_ai.md: "Nothing leaves the box: no telemetry"
+
+6. Local AI setups have outbound connectivity only for image and model pulls.
+   - SOURCE: workspace/notes/research_notes_local_ai.md: "outbound only for image and model pulls."
+
+7. Open WebUI provides the chat interface/surface.
+   - SOURCE: workspace/notes/research_notes_local_ai.md: "Open WebUI gives the chat surface"
+
+8. llama.cpp serves the model over an OpenAI-compatible API.
+   - SOURCE: workspace/notes/research_notes_local_ai.md: "llama.cpp serves the model over an OpenAI-compatible API."
+
+9. Speculative decoding (ngram) roughly doubles tokens per second on repetitive output.
+   - SOURCE: workspace/notes/research_notes_local_ai.md: "Speculative decoding (ngram) roughly doubles tokens/s on repetitive output."
+
+10. Local AI setup is fiddly.
+    - SOURCE: workspace/notes/research_notes_local_ai.md: "Downsides: setup is fiddly"
+
+11. Local model quality lags the frontier.
+    - SOURCE: workspace/notes/research_notes_local_ai.md: "model quality lags the frontier"
+
+12. There is no mobile app for local AI tooling.
+    - SOURCE: workspace/notes/research_notes_local_ai.md: "no mobile app."
+
+TOTAL: 12 claims, 0 unsupported
+--usage: {'completion_tokens': 549, 'prompt_tokens': 718, 'total_tokens': 1267, 'prompt_tokens_details': {'cached_tokens': 0}} reasoning_chars: 0

@@ -1,0 +1,8 @@
+# python-docx is not packaged in Fedora 44 (`python3dist(python-docx)` has no
+# provider), so it and its one unpackaged runtime dependency come from PyPI, by
+# hash. lxml arrives as python3-lxml from the distro, which is why the install
+# is --no-deps.
+python-docx==1.2.0 \
+    --hash=sha256:3fd478f3250fbbbfd3b94fe1e985955737c145627498896a8a6bf81f4baf66c7
+typing_extensions==4.16.0 \
+    --hash=sha256:481caa481374e813c1b176ada14e97f1f67a4539ce9cfeb3f350d78d6370c2e8

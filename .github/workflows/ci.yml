@@ -95,3 +95,37 @@ jobs:
             echo "deliberately rather than by adding an import."
             exit 1
           fi
+
+  # The sandbox image is the one pin villa BUILDS rather than pulls, so nothing
+  # upstream proves it still builds. This job does, and only that: it never
+  # pushes, and the digest it produces is discarded.
+  #
+  # A dnf build is not byte-reproducible, so this digest will not equal the one
+  # in internal/orchestrate/sandbox.go and comparing them would fail every run
+  # for no reason. What the job proves is narrower and is the thing that actually
+  # rots: that the pinned NEVRs and the pinned wheel hashes are still resolvable,
+  # and that the layers still assemble. A Fedora rebase that retires
+  # python3-openpyxl-3.1.5-5.fc44 fails here loudly instead of on an operator's
+  # first `villa work`.
+  #
+  # It does NOT run the image. krun needs /dev/kvm, which a GitHub runner does
+  # not have, so the microVM half of the proof stays in the on-hardware suite.
+  # The tools are still checked, under the default runtime, because "the packages
+  # landed" is answerable without a VM.
+  sandbox-image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: build the sandbox image (never pushed)
+        run: podman build -t localhost/villa-sandbox:office -f build/sandbox/Containerfile build/sandbox
+
+      - name: the office tools are present
+        run: |
+          podman run --rm --network none localhost/villa-sandbox:office sh -c '
+            set -e
+            soffice --version
+            python3 -c "import docx, openpyxl"
+            which which
+            pdftoppm -v
+          '
