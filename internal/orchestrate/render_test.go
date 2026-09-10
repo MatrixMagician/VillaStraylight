@@ -105,7 +105,7 @@ func codingFixtureInput(cacheReuseSafe bool) RenderInput {
 			Sampling:       &inference.Sampling{Temperature: 0.7, TopP: 0.8, TopK: 20, RepeatPenalty: 1.05},
 			CacheReuseSafe: cacheReuseSafe,
 		},
-		CoderAgentCtx: 65536,
+		AgentCtx: 65536,
 	}
 }
 
@@ -166,7 +166,7 @@ func TestRenderCodingModeFailClosedCacheReuse(t *testing.T) {
 // TestRenderContainerGolden but asserted here alongside the coding cases so a reviewer
 // sees the opt-in contract in one place.
 func TestRenderCodingModeOffPathUnchanged(t *testing.T) {
-	in := fixtureInput() // CodingMode nil, CoderAgentCtx 0
+	in := fixtureInput() // CodingMode nil, AgentCtx 0
 	units, err := Render(in)
 	if err != nil {
 		t.Fatalf("Render: %v", err)

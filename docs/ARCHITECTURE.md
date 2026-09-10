@@ -59,13 +59,13 @@ to date" and is never rendered as one.
 As of **v1.11**, the stack does work on files, not only answers. A **task** is one
 instruction run against one registered **workspace** inside a per-task libkrun
 microVM (`podman --runtime=krun`) that mounts that folder read-write and joins an
-internal network reaching the served model and nothing else. Seven packages carry
+internal network reaching the served model and nothing else. Six packages carry
 it, all pure-core: `workspace` (the grant list and its refusals), `approval` (the
 Action × Mode table, the deletion pattern, the auto-mode allowlist), `taskstore`
 (the record, its state machine, the log), `crushapi` (the Crush server client and
-the bridge's stdio protocol), `grounding` (the post-run claim audit), `toolsmode`
-(the `tools-mode enter|exit` transaction, `backendswap`'s frame with the axis
-swapped for a boolean) and `taskrun` (the runner). The runner lives inside
+the bridge's stdio protocol), `grounding` (the post-run claim audit) and `taskrun`
+(the runner). `tools-mode enter|exit` needed no package of its own: it is
+`backendswap`'s frame with the axis swapped for a boolean (`backendswap.RunTools`). The runner lives inside
 `villa-dashboard.service`, not in a unit of its own: it is already the long-lived
 villa process, the dashboard's Tasks panel needs the task state in-process, and a
 separate unit would need an approve/deny IPC between two villa processes. `villa
@@ -127,7 +127,6 @@ graph TD
     dashboard --> taskrun["internal/taskrun<br/>the runner: one task at a time<br/>(lives in villa-dashboard.service)"]
     CLI -.loopback task API.-> dashboard
     CLI --> workspace["internal/workspace<br/>the grant list + its refusals (pure)"]
-    CLI --> toolsmode["internal/toolsmode<br/>tools-mode enter/exit transaction (pure)"]
     taskrun --> taskstore["internal/taskstore<br/>task record + state machine + log"]
     taskrun --> approval["internal/approval<br/>Action × Mode table (pure)"]
     taskrun --> grounding["internal/grounding<br/>post-run claim audit (pure)"]
@@ -466,11 +465,11 @@ dashboard service drives rather than reads:
   chat completion per document, temperature 0 and thinking disabled, lists every
   claim as supported by a quoted source or `UNSUPPORTED`. The auditor is the model
   that wrote the document; a clean report is "the auditor found none".
-- **`toolsmode.Run`** (`internal/toolsmode`), the `villa tools-mode enter|exit`
-  transaction over `backendswap.Deps`: the same capture → persist → re-render →
-  restart → prove → rollback frame with the backend axis replaced by a boolean, the
-  fit guard seeing the context floor tools mode serves, and the proof including one
-  real read-then-edit tool call on the way in.
+- **`backendswap.RunTools`** (`internal/backendswap`), the `villa tools-mode
+  enter|exit` transaction: the same capture → persist → re-render → restart → prove
+  → rollback frame with the backend axis replaced by a boolean, the fit guard seeing
+  the context floor tools mode serves, and the proof including one real
+  read-then-edit tool call on the way in.
 - **`taskrun.Runner`** + `Deps` / `Bridge` / `Narration` (`internal/taskrun`), the
   runner. It holds no host I/O: launching, killing by name, rendering arguments,
   reading workspace files and the audit call are all `Deps`. One worker goroutine
@@ -521,7 +520,6 @@ internal/
   taskstore/          The task record, its state machine, the append-only log; never deletes.
   crushapi/           The Crush server client + the bridge's one-object-per-line stdio protocol.
   grounding/          The post-run claim audit: one completion per document, reports only.
-  toolsmode/          The tools-mode enter/exit transaction over backendswap's frame.
   taskrun/            The runner: one task at a time, every decision through approval,
                       every terminal state through taskstore.
 ```

@@ -1293,8 +1293,8 @@ func TestInstallCodingAgentFlow(t *testing.T) {
 		if !f.renderedInput.Cfg.CodingMode {
 			t.Error("RenderInput.Cfg.CodingMode must be true on --coding-agent")
 		}
-		if f.renderedInput.CoderAgentCtx != 65536 {
-			t.Errorf("RenderInput.CoderAgentCtx = %d, want rec.Coder.AgentCtx %d", f.renderedInput.CoderAgentCtx, 65536)
+		if f.renderedInput.AgentCtx != 65536 {
+			t.Errorf("RenderInput.AgentCtx = %d, want rec.Coder.AgentCtx %d", f.renderedInput.AgentCtx, 65536)
 		}
 		if f.savedCfg.CoderModel != "qwen3-coder-30b-a3b" || !f.savedCfg.CodingMode ||
 			f.savedCfg.CoderQuant != "Q4_K_M" || f.savedCfg.CoderAgentCtx != 65536 {

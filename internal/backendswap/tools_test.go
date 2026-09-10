@@ -1,4 +1,8 @@
-package toolsmode
+package backendswap
+
+// tools_test.go drives RunTools' own guards and the shared transaction beneath
+// them: the answered gate decides the no-op, the fit guard sees the target state
+// and runs before any capture, and every step failure rolls back verbatim.
 
 import (
 	"context"
@@ -6,7 +10,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/MatrixMagician/VillaStraylight/internal/backendswap"
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/prove"
 )
@@ -50,8 +53,8 @@ func newRecorder(toolsOn bool) *recorder {
 	}
 }
 
-func (r *recorder) deps() backendswap.Deps {
-	return backendswap.Deps{
+func (r *recorder) deps() Deps {
+	return Deps{
 		InstallServiceName: testService,
 		LoadConfig:         func() (config.VillaConfig, error) { return r.persisted, nil },
 		FitsModel: func(config.VillaConfig) (bool, string) {
@@ -124,12 +127,12 @@ func TestRunNoOp(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			r := newRecorder(tc.persisted)
-			res := Run(r.deps(), tc.target)
+			res := RunTools(r.deps(), tc.target)
 			if !res.NoOp {
 				t.Fatalf("res = %+v, want NoOp", res)
 			}
-			if res.From != Label(tc.persisted) || res.To != Label(tc.target) {
-				t.Errorf("From/To = %q/%q, want %q/%q", res.From, res.To, Label(tc.persisted), Label(tc.target))
+			if res.From != ToolsLabel(tc.persisted) || res.To != ToolsLabel(tc.target) {
+				t.Errorf("From/To = %q/%q, want %q/%q", res.From, res.To, ToolsLabel(tc.persisted), ToolsLabel(tc.target))
 			}
 			if len(r.calls) != 0 {
 				t.Errorf("a no-op touched the host: %v", r.calls)
@@ -146,8 +149,8 @@ func TestRunAnswersTheGateNotTheFlag(t *testing.T) {
 	t.Run("enter under coding mode is a no-op", func(t *testing.T) {
 		r := newRecorder(false)
 		r.persisted.CodingMode = true
-		res := Run(r.deps(), true)
-		if !res.NoOp || res.From != StateOn {
+		res := RunTools(r.deps(), true)
+		if !res.NoOp || res.From != toolsStateOn {
 			t.Fatalf("res = %+v, want a NoOp from on", res)
 		}
 		if len(r.calls) != 0 {
@@ -157,7 +160,7 @@ func TestRunAnswersTheGateNotTheFlag(t *testing.T) {
 	t.Run("exit under coding mode refuses", func(t *testing.T) {
 		r := newRecorder(false)
 		r.persisted.CodingMode = true
-		res := Run(r.deps(), false)
+		res := RunTools(r.deps(), false)
 		if !res.Refused {
 			t.Fatalf("res = %+v, want Refused", res)
 		}
@@ -178,7 +181,7 @@ func TestRunFitRefusalPrecedesCapture(t *testing.T) {
 	r.fitOK = false
 	r.fitReason = "needs 71000000000 bytes vs 64000000000 usable"
 
-	res := Run(r.deps(), true)
+	res := RunTools(r.deps(), true)
 	if !res.Refused {
 		t.Fatalf("res = %+v, want Refused", res)
 	}
@@ -202,7 +205,7 @@ func TestRunFitGuardSeesTheTargetState(t *testing.T) {
 	d := r.deps()
 	d.FitsModel = func(c config.VillaConfig) (bool, string) { seen = c; return true, "" }
 
-	Run(d, true)
+	RunTools(d, true)
 	if !seen.ToolsMode {
 		t.Errorf("the fit guard saw ToolsMode=%v, want the TARGET state true", seen.ToolsMode)
 	}
@@ -212,7 +215,7 @@ func TestRunFitGuardSeesTheTargetState(t *testing.T) {
 // flag in config, restarts only the inference service, and captures before it saves.
 func TestRunSuccessPersistsTheFlag(t *testing.T) {
 	r := newRecorder(false)
-	res := Run(r.deps(), true)
+	res := RunTools(r.deps(), true)
 	if !res.Switched {
 		t.Fatalf("res = %+v, want Switched", res)
 	}
@@ -235,8 +238,8 @@ func TestRunSuccessPersistsTheFlag(t *testing.T) {
 // exit is a transaction, not a bare config write.
 func TestRunExitClearsTheFlag(t *testing.T) {
 	r := newRecorder(true)
-	res := Run(r.deps(), false)
-	if !res.Switched || res.From != StateOn || res.To != StateOff {
+	res := RunTools(r.deps(), false)
+	if !res.Switched || res.From != toolsStateOn || res.To != toolsStateOff {
 		t.Fatalf("res = %+v, want a proven on->off switch", res)
 	}
 	if len(r.saved) != 1 || r.saved[0].ToolsMode {
@@ -266,7 +269,7 @@ func TestRunStepFailuresRollBack(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			r := newRecorder(false)
 			tc.arm(r)
-			res := Run(r.deps(), true)
+			res := RunTools(r.deps(), true)
 
 			if tc.wantRefuse {
 				if !res.Refused || res.FailedStep != tc.wantStep {
@@ -300,7 +303,7 @@ func TestRunStepFailuresRollBack(t *testing.T) {
 func TestRunSaveFailureRollsBackWithoutARestartLoop(t *testing.T) {
 	r := newRecorder(false)
 	r.saveErr = errors.New("read-only config dir")
-	res := Run(r.deps(), true)
+	res := RunTools(r.deps(), true)
 	if !res.RolledBack || res.Err == nil {
 		t.Fatalf("res = %+v, want RolledBack carrying the save error", res)
 	}
@@ -326,7 +329,7 @@ func TestRunRollbackIncompleteIsReportedHonestly(t *testing.T) {
 			r := newRecorder(false)
 			r.verdict = prove.Verdict{Status: prove.StatusFail, Detail: "no residency"}
 			tc.arm(r)
-			res := Run(r.deps(), true)
+			res := RunTools(r.deps(), true)
 			if !res.RolledBack {
 				t.Fatalf("res = %+v, want RolledBack", res)
 			}
@@ -343,7 +346,7 @@ func TestRunLoadFailureRefuses(t *testing.T) {
 	r := newRecorder(false)
 	d := r.deps()
 	d.LoadConfig = func() (config.VillaConfig, error) { return config.VillaConfig{}, errors.New("unreadable") }
-	res := Run(d, true)
+	res := RunTools(d, true)
 	if !res.Refused || res.FailedStep != "load config" {
 		t.Fatalf("res = %+v, want Refused at load config", res)
 	}

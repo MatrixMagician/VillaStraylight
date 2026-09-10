@@ -15,7 +15,7 @@ import (
 )
 
 // tools_mode_test.go covers the cobra/exit mapping, the derived flag token and the
-// doctor drift seam. The transaction itself is asserted in internal/toolsmode.
+// doctor drift seam. The transaction itself is asserted in internal/backendswap.
 
 // Distinct sentinel errors so a mapping test cannot pass on the wrong step.
 var (

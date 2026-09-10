@@ -14,13 +14,13 @@ import (
 // context is the floor max(cfg.Ctx, agent ctx).
 
 // toolsFixtureInput mirrors fixtureInput with tools mode on and an agent ctx
-// resolved by the caller (RenderInput.CoderAgentCtx, the same resolved-agent-ctx
+// resolved by the caller (RenderInput.AgentCtx, the same resolved-agent-ctx
 // field coding mode uses; see the note on the tools branch in render.go).
 func toolsFixtureInput(ctx, agentCtx int) RenderInput {
 	in := fixtureInput()
 	in.Cfg.Ctx = ctx
 	in.Cfg.ToolsMode = true
-	in.CoderAgentCtx = agentCtx
+	in.AgentCtx = agentCtx
 	return in
 }
 

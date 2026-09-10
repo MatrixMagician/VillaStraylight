@@ -58,17 +58,17 @@ type RenderInput struct {
 	// CodingMode is the OPTIONAL pre-translated coding-mode render descriptor
 	// nil ⇒ the off path: Render leaves spec.CodingMode nil and the
 	// rendered unit is byte-identical to v1.3. Non-nil ⇒ Render sets
-	// spec.CodingMode and overrides spec.ContextLen with CoderAgentCtx (the single -c,
+	// spec.CodingMode and overrides spec.ContextLen with AgentCtx (the single -c,
 	// Pitfall 1). The CALLER (Plan-02 live wiring) resolves the coder catalog entry once
 	// and translates catalog.AgentSampling → inference.Sampling, so the pure renderer
 	// and internal/inference — never import internal/catalog (clean dependency direction).
 	CodingMode *inference.CodingModeSpec
-	// CoderAgentCtx is the resolved agent context, supplied by the caller that owns
+	// AgentCtx is the resolved agent context, supplied by the caller that owns
 	// the catalog import. When CodingMode != nil it OVERRIDES Cfg.Ctx as the single -c
 	// (Pitfall 1: the agent ctx is carried by the existing -c, never a second one).
 	// When tools mode is on without coding mode it is a FLOOR instead: the served
-	// ctx is max(Cfg.Ctx, CoderAgentCtx), and 0 leaves Cfg.Ctx alone.
-	CoderAgentCtx int
+	// ctx is max(Cfg.Ctx, AgentCtx), and 0 leaves Cfg.Ctx alone.
+	AgentCtx int
 
 	// Speculation is the OPTIONAL pre-resolved speculation descriptor (ADR-0006).
 	// nil ⇒ the off path: Render leaves spec.Speculation nil and the rendered unit

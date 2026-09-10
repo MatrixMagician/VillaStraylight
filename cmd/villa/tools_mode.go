@@ -3,7 +3,7 @@ package main
 // tools_mode.go is the cmd-tier `villa tools-mode` noun: show the persisted
 // tool-calling state of the chat unit, or flip it transactionally (spec v1.11 §3.5).
 //
-// It drives internal/toolsmode over the SAME liveBackendSwapDeps wiring
+// It drives backendswap.RunTools over the SAME liveBackendSwapDeps wiring
 // `villa speculation set` uses, because the change is the same one: re-render the
 // inference unit and restart it, rolling back verbatim if the new unit does not
 // prove healthy. Two seams are overridden for this verb. The fit guard sees the ctx
@@ -20,6 +20,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -37,7 +38,6 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/prove"
 	"github.com/MatrixMagician/VillaStraylight/internal/recommend"
 	"github.com/MatrixMagician/VillaStraylight/internal/subsystem"
-	"github.com/MatrixMagician/VillaStraylight/internal/toolsmode"
 )
 
 // inferenceUnitFile is the rendered inference unit the tools-mode transaction
@@ -115,7 +115,7 @@ func runToolsModeShow(cmd *cobra.Command, asJSON bool) int {
 		}
 		return exitPass
 	}
-	fmt.Fprintf(out, "%-12s %s\n", "tools", toolsmode.Label(entry.Tools))
+	fmt.Fprintf(out, "%-12s %s\n", "tools", backendswap.ToolsLabel(entry.Tools))
 	if entry.CodingMode && !entry.ToolsMode {
 		fmt.Fprintf(out, "%-12s %s\n", "implied by", "coding mode")
 	}
@@ -167,7 +167,7 @@ func runToolsMode(cmd *cobra.Command, on bool, d *backendswap.Deps) int {
 		verb = "exit"
 	}
 
-	res := toolsmode.Run(*d, on)
+	res := backendswap.RunTools(*d, on)
 	switch {
 	case res.Refused:
 		switch {
@@ -215,32 +215,27 @@ func liveToolsModeDeps(on bool) *backendswap.Deps {
 	return d
 }
 
-// toolsCtxFloor is the context tools mode serves: max(cfg.Ctx, the served catalog
-// entry's agent_ctx). An entry that declares no agent context leaves cfg.Ctx alone,
-// which is every chat entry in today's catalog — the floor exists for the measured
-// value spec §13 item 1 will write, and refusing on it before the catalog carries one
-// would be refusing on a number nobody measured.
-func toolsCtxFloor(cat catalog.Catalog, cfg config.VillaConfig) int {
-	if m, ok := cat.FindByID(cfg.Model); ok && m.AgentCtx > cfg.Ctx {
-		return m.AgentCtx
-	}
-	return cfg.Ctx
-}
-
 // toolsFits is the enter-path fit guard: does the PRESERVED model still fit the
-// memory envelope at the context tools mode will serve? It is the backend-swap fit
-// closure with the ctx floor threaded through the recommendation, which the shared
-// closure cannot do because it carries no context override.
+// memory envelope at the context tools mode will serve — max(cfg.Ctx, the served
+// entry's agent_ctx)? It is the backend-swap fit closure with that floor threaded
+// through the recommendation, which the shared closure cannot do because it carries
+// no context override.
 //
 // A non-fit is a refuse-with-remediation with zero side effects, so an operator whose
 // envelope shrank is told what it needs rather than having the chat unit restarted
 // out from under them and rolled back.
 func toolsFits(cfg config.VillaConfig) (bool, string) {
-	cat, _, err := catalog.Load(modelCatalogPath)
+	cat, _, err := catalog.Load(cmp.Or(modelCatalogPath, cfg.CatalogPath))
 	if err != nil {
 		return false, "catalog load failed"
 	}
-	ctxFloor := toolsCtxFloor(cat, cfg)
+	// The floor comes from the same resolver livePinnedRender renders with, so the
+	// guard cannot refuse on a context the unit would not have served.
+	agentCtx, err := liveAgentCtx(cfg)
+	if err != nil {
+		return false, "catalog load failed"
+	}
+	ctxFloor := max(cfg.Ctx, agentCtx)
 	rec := recommend.Pick(detect.Probe(), cat,
 		recommend.Overrides{Model: cfg.Model, Quant: cfg.Quant, Ctx: ctxFloor, Speculation: cfg.Speculation},
 		recommend.MemoryInputs{Enabled: subsystem.MemoryOn(cfg), EmbeddingModel: cfg.EmbeddingModel},
