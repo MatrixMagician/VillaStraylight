@@ -101,8 +101,11 @@ enumeration (`PRE-01`), Podman rootless readiness (`PRE-02`), user lingering
 (`PRE-03`), free disk/memory (`PRE-04`), the SELinux `container_use_devices`
 boolean (`PRE-05`), two WARN-tier version floors, the kernel (`PRE-06`) and
 `linux-firmware` (`PRE-07`), and compute device access, `/dev/kfd` and a render
-node, as your user (`PRE-08`). Each result is classified as a **BLOCK** or
-**WARN**. It maps the worst result to an exit code:
+node, as your user (`PRE-08`). With the workspace agent on it also checks the
+sandbox runtime (`PRE-09`): the `krun` binary, the `libkrun`, `libkrunfw` and
+`crun-krun` packages, `/dev/kvm` opened read-write as your user, and one real
+`podman run --runtime=krun` whose kernel differs from the host's. Each result is
+classified as a **BLOCK** or **WARN**. It maps the worst result to an exit code:
 
 | Exit code | Meaning |
 |-----------|---------|
@@ -323,6 +326,177 @@ screenshot or photo to a message in Open WebUI and ask about it. When the projec
 did not fit, the recommendation says so in a note and `Vision: no` — the model still
 runs, text-only, and an attached image will not be looked at.
 
+## Running a task on your own files
+
+The workspace agent runs one instruction against one folder. The folder is the
+only thing the task can write; a libkrun microVM is the boundary; the served
+chat model is the only thing the VM can reach. Everything below is off until you
+opt in, and the install you already did is byte-identical without it.
+
+### 1. Turn it on
+
+```bash
+./villa install --workspace-agent     # persists workspace_agent and tools_mode, renders villa-sandbox.network
+```
+
+On a stack that is already installed you can instead run
+`./villa tools-mode enter`, which serves the chat unit with the model's own chat
+template under a transactional cutover; without it, tool calls fail at the
+server and `villa work` refuses. Coding mode already implies tools mode.
+
+Two things the install does not do. It does not install the sandbox runtime:
+`PRE-09` names the packages (`libkrun`, `libkrunfw`, `crun-krun`) and the
+`/dev/kvm` access it needs, and refuses with that remediation until they are
+there. And it does not build the sandbox image. The image villa runs a task in
+is `localhost/villa-sandbox:office`, pinned by the digest of a build of
+`build/sandbox/Containerfile`. A build on your own host produces a different
+digest, because `dnf` is not byte-reproducible, and villa has no verb yet that
+records that digest as the effective pin. Until it does, a task runs only on a
+host that holds the pinned build. On any other host `PRE-09` reports the probe
+as unevaluable, and the task is refused once podman fails to find the image:
+`refused: the bridge exited before it was ready`.
+
+Crush, villa's pinned coding agent, is the harness inside the VM. It is the same
+binary `villa install --coding-agent` places under the villa data root, so that
+addon must be installed too. Villa does not check for it before launch; a
+missing binary is the same refusal, once the mount fails.
+
+### 2. Register a folder
+
+```bash
+./villa workspace add ~/Documents/quarterly
+./villa workspace list
+```
+
+Registration is the grant. `add` refuses a relative path, your home directory
+itself, anything outside it, anything overlapping villa's own config or data
+root, a folder nested with a grant you already have, and a path that is missing
+or not a directory. `remove` forgets the grant and touches no file.
+
+### 3. Run a task and answer the prompt
+
+```bash
+./villa work ~/Documents/quarterly "Reconcile invoices.csv against bank.csv and write reconciliation.md"
+```
+
+The terminal follows the task over the dashboard service's loopback API and
+prints its narration. Reads are allowed without asking. A write parks the task
+and asks:
+
+```
+[queued]
+[running]
+allowed: read view invoices.csv
+allowed: read view bank.csv
+[awaiting_approval]
+approval #1: write wants to write reconciliation.md
+allow? [y once / a for the rest of this task / N deny]: y
+approval #1 answered allow by dashboard
+[running]
+created reconciliation.md
+run complete
+[flagged]
+created reconciliation.md
+flagged reconciliation.md: "Invoice 1043 was paid on 3 March" is unsupported (no source names a payment date)
+20260910-141500-a1b2 flagged (exit 2)
+```
+
+`y` allows once, `a` allows the rest of this task's requests, and any other
+answer denies; deny is the default. `by dashboard` names the API the answer
+went through, which is the same one for the terminal and the panel. A denial is
+told to the model, recorded, and does not change the exit code.
+
+`--auto` makes this task's writes need no approval. Deletion still asks in every
+mode. Villa decides that from a command pattern (`rm`, `rmdir`, `unlink`,
+`shred`, `trash`, `git clean`, `find -delete`, including behind `sudo`, `env`,
+`xargs` and shell chaining), and a pattern is not a proof: the grant bounds what
+a miss could reach. In `--auto` mode a command runs without asking only when it
+is on Crush's own read-only list or is `python3`, `soffice`, `mv` or `cp` with
+every path argument inside the workspace.
+
+An instruction of `-` reads the prompt from stdin. `--detach` submits, prints
+the task id, and returns; a detached task that needs an approval parks in
+`awaiting_approval` with no timeout until you answer it. Villa owns no timer.
+If you want a task on a schedule, drive `villa work --detach` from your own
+systemd timer.
+
+Before submitting, `villa work` refuses three things and exits `1`:
+
+```
+work: refused. "/home/you/notes" is not a registered workspace. Grant it with: villa workspace add /home/you/notes
+work: refused. tools mode is off, so the chat unit is not served with the model's own template and the agent has no tool loop. Turn it on with: villa tools-mode enter
+work: refused. dashboard service is not answering on http://127.0.0.1:8888. Start it with: systemctl --user start villa-dashboard.service
+```
+
+### 4. Read the record
+
+```bash
+./villa task list                     # ID  WORKSPACE  STATE  SUBMITTED  EXIT
+./villa task show 20260910-141500-a1b2
+./villa task show 20260910-141500-a1b2 --json   # the record verbatim (schema 1)
+```
+
+`show` prints the state and exit code, the harness and its version, every file
+the task created or modified, every approval with its answer, and one
+`grounding` line per document the audit checked, followed by a `flagged` line
+per unsupported claim. A task that did not finish shows `-` in the exit column.
+Records and logs live under `~/.local/share/villa/tasks/` and are never deleted.
+
+A detached task is answered from any terminal:
+
+```bash
+./villa task approve 20260910-141500-a1b2         # once
+./villa task approve 20260910-141500-a1b2 --all   # the rest of this task, the prompt's `a`
+./villa task deny 20260910-141500-a1b2
+./villa task cancel 20260910-141500-a1b2          # drop it if queued, kill it if running
+```
+
+`cancel` keeps whatever the task already wrote; undoing partial work is a new
+task. One task runs at a time; the rest queue in submission order.
+
+### 5. The dashboard
+
+`http://127.0.0.1:8888` gains three panels. **Workspaces** lists the grants.
+**Tasks** lists the records with their state. Clicking a row opens **the task
+detail**: the record, its live narration over the same event stream the terminal
+reads, approve and deny buttons while the task is parked, and a cancel button
+while it has not finished. Submitting a task from the dashboard is deferred; the
+terminal is the only way in.
+
+### Exit codes
+
+| Exit | State | Meaning |
+|------|-------|---------|
+| `0` | `done` | The task finished and the audit found nothing to flag. |
+| `2` | `flagged` | The task finished, and either a document carries a claim the audit could not support or the audit could not run. The document is left as written. |
+| `1` | `failed`, `refused`, `cancelled`, `interrupted` | The harness failed; villa declined before the sandbox started; you cancelled it; or the dashboard service restarted while it ran. |
+| `1` | (no record) | `villa work` refused before submitting: an unregistered folder, tools mode off, or the service not answering. |
+
+### What to know before trusting it
+
+- **Root inside the VM.** krun ignores `--user`, so the guest runs as uid 0 and
+  the files it writes come out owned by you. The VM is the boundary, not the
+  user.
+- **Deletion is a pattern.** The rule that makes deletion always ask matches
+  command names. It is stated as a pattern, not claimed as a proof.
+- **The audit is the same model.** After the run, one chat completion per
+  document asks the model that wrote it to list its claims against the files the
+  session read. A clean audit means the auditor found none, and nothing more. On
+  the prototype's outputs it flagged 10 of 19 claims in a memo that invented
+  facts, 5 of 23 in a reconciliation with a wrong totals row, and 1 of 17 in an
+  action-items list that was correct.
+- **`--verbose` is host-local.** `villa work -v` replays the task's full
+  transcript after the summary, from the log file under this host's villa data
+  root. There is no log route: the transcript never crosses the API, so it only
+  works on the machine that ran the task.
+- **Bring your own timer.** `--detach` and the queue ship now; a villa-owned
+  timer does not. `villa work --detach` from your own systemd timer is the
+  supported shape.
+- **`villa doctor`** gains `SBX-01` (the read-only twin of `PRE-09`), `SBX-02`
+  (`villa-sandbox.network` is on disk and the inference unit is joined to it)
+  and `TMD-01` (the served unit carries the tool-calling flag exactly when tools
+  mode is on). `villa status` prints `mode  tools` on the inference line.
+
 ## Common setup issues
 
 Most first-run problems are exactly the things `villa preflight` flags. Run it
@@ -446,6 +620,7 @@ guided install deliberately does not prompt for subsystems either.
 | **Coding mode** | Flips the running stack to a tool-calling configuration tuned for that agent, and back. The cutover is transactional, so a failed flip is a no-op. | `villa coding-mode enter` / `exit` |
 | **Web search** | Grounded answers from the web through a local SearXNG, with a guard that sanitizes fetched pages and **flags** prompt-injection patterns (it never claims content is safe). | `villa install --web-search` (persists the gate) |
 | **Resident set** | Holds several models loaded at once, each on its own loopback port, instead of restarting inference to swap between them. | `villa model resident ls` / `add` |
+| **Workspace agent** | Runs one instruction against one folder you registered, inside a per-task microVM that reaches the served model and nothing else, asking before it writes. | `villa install --workspace-agent`, then `villa workspace add` and `villa work`. See [Running a task on your own files](#running-a-task-on-your-own-files) |
 | **Backup & restore** | The whole workspace (config, Open WebUI data, the usage store, and the bench store) to one local `.tar`, and back transactionally. | `villa backup` / `villa restore <archive>` |
 
 ### Keeping it current
