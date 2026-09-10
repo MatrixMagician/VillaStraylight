@@ -106,12 +106,15 @@ type ToolCall struct {
 	Input string `json:"input,omitempty"`
 }
 
-// FileEvent is Crush's file-history record: a file the task wrote.
+// FileEvent is Crush's file-history record: a file the task wrote. Version is an
+// int64 on the wire (internal/proto/history.go), not a tag string; typing it as a
+// string made the whole payload fail to unmarshal and silently dropped the typed
+// half of every file event. The on-hardware smoke run is what caught that.
 type FileEvent struct {
 	ID        string `json:"id"`
 	SessionID string `json:"session_id,omitempty"`
 	Path      string `json:"path"`
-	Version   string `json:"version,omitempty"`
+	Version   int64  `json:"version,omitempty"`
 }
 
 // RunComplete is the terminal event of one turn.

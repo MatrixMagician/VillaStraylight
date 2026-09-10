@@ -56,6 +56,12 @@ type Client struct {
 	// clientID is the UUID the server requires on the events route and records
 	// as the workspace's owning client.
 	clientID string
+	// DataDir, when set, is sent as the workspace's data_dir. Crush resolves a
+	// workspace's data directory from the CREATE body (internal/backend
+	// CreateWorkspace -> config.Init(path, dataDir)), NOT from CRUSH_GLOBAL_DATA
+	// or the server's --data-dir, so leaving it empty puts a .crush/ database
+	// inside the operator's workspace grant. Measured on hardware.
+	DataDir string
 	// now is the receipt clock, seamed so a test can freeze it.
 	now func() time.Time
 
@@ -108,6 +114,9 @@ func (c *Client) Version(ctx context.Context) (string, error) {
 // CreateWorkspace registers cwd as a Crush workspace and returns its id.
 func (c *Client) CreateWorkspace(ctx context.Context, cwd string) (WorkspaceID, error) {
 	body := map[string]string{"path": cwd, "client_id": c.clientID}
+	if c.DataDir != "" {
+		body["data_dir"] = c.DataDir
+	}
 	var ws struct {
 		ID string `json:"id"`
 	}

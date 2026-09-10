@@ -33,7 +33,7 @@ func TestEveryLineRoundTrips(t *testing.T) {
 			ToolCalls: []ToolCall{{ID: "call-1", Name: "edit", Input: "{}"}},
 		}}},
 		{Event: &Event{Kind: KindFile, ID: "file-1", Time: at, File: &FileEvent{
-			ID: "file-1", SessionID: "sess-1", Path: "/workspace/a.md", Version: "v1",
+			ID: "file-1", SessionID: "sess-1", Path: "/workspace/a.md", Version: 3,
 		}}},
 		{Event: &Event{Kind: KindAgentEvent, ID: "sess-1", Time: at, Raw: json.RawMessage(`{"type":"response"}`)}},
 		{Event: &Event{Kind: KindRunComplete, ID: "sess-1", Time: at, RunComplete: &RunComplete{

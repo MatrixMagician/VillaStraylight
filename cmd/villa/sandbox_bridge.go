@@ -58,6 +58,10 @@ type sandboxBridgeDeps struct {
 	HTTPClient *http.Client
 	// Workspace is the guest path the task runs in.
 	Workspace string
+	// DataDir is where Crush keeps this workspace's session database. It must be
+	// off the grant: Crush resolves it from the workspace-create body, so leaving
+	// it empty writes a .crush/ directory into the operator's folder.
+	DataDir string
 	// Vetted returns the pinned Crush version the running binary must match.
 	Vetted func() string
 	// WriteConfig renders and writes crush.json where the child will read it.
@@ -82,6 +86,7 @@ func newSandboxBridge() *cobra.Command {
 		workspace = "/workspace"
 		socket    = "/tmp/crush.sock"
 		configDir = "/tmp/crushcfg"
+		dataDir   = "/tmp/crushdata"
 	)
 	cmd := &cobra.Command{
 		Use:    "sandbox-bridge",
@@ -90,7 +95,7 @@ func newSandboxBridge() *cobra.Command {
 		Args:   cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cfg := config.VillaConfig{Model: model, Ctx: ctxTokens}
-			return runSandboxBridge(cmdContext(cmd), liveSandboxBridgeDeps(cfg, baseURL, workspace, socket, configDir))
+			return runSandboxBridge(cmdContext(cmd), liveSandboxBridgeDeps(cfg, baseURL, workspace, socket, configDir, dataDir))
 		},
 	}
 	f := cmd.Flags()
@@ -100,12 +105,13 @@ func newSandboxBridge() *cobra.Command {
 	f.StringVar(&workspace, "workspace", workspace, "guest path of the workspace grant")
 	f.StringVar(&socket, "socket", socket, "guest-local unix socket crush server binds")
 	f.StringVar(&configDir, "config-dir", configDir, "guest directory the rendered crush.json is written to")
+	f.StringVar(&dataDir, "data-dir", dataDir, "guest directory Crush keeps its session database in, off the workspace grant")
 	return cmd
 }
 
 // liveSandboxBridgeDeps binds the bridge to the guest: a unix-socket HTTP
 // transport, a fixed-arg `crush server` child, a health poll, and one file write.
-func liveSandboxBridgeDeps(cfg config.VillaConfig, baseURL, workspace, socket, configDir string) sandboxBridgeDeps {
+func liveSandboxBridgeDeps(cfg config.VillaConfig, baseURL, workspace, socket, configDir, dataDir string) sandboxBridgeDeps {
 	hc := &http.Client{
 		Transport: &http.Transport{
 			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
@@ -121,6 +127,7 @@ func liveSandboxBridgeDeps(cfg config.VillaConfig, baseURL, workspace, socket, c
 		BaseURL:    socketHost,
 		HTTPClient: hc,
 		Workspace:  workspace,
+		DataDir:    dataDir,
 		Vetted:     vettedCrushVersion,
 		Stdin:      os.Stdin,
 		Stdout:     os.Stdout,
@@ -237,6 +244,7 @@ func runSandboxBridge(ctx context.Context, d sandboxBridgeDeps) error {
 	}
 
 	c := crushapi.New(d.BaseURL, d.HTTPClient)
+	c.DataDir = d.DataDir
 	got, err := c.Version(ctx)
 	if err != nil {
 		return refuse(err)

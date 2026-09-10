@@ -149,7 +149,7 @@ func TestEventsDecodesEveryKindFromTheFixture(t *testing.T) {
 	}
 
 	file := got[3].File
-	if file == nil || file.Path != "/workspace/reports/duplicates.md" {
+	if file == nil || file.Path != "/workspace/reports/duplicates.md" || file.Version != 3 {
 		t.Errorf("file = %+v", file)
 	}
 
@@ -224,6 +224,9 @@ func TestPromptCancelAndFilesHitTheDocumentedRoutes(t *testing.T) {
 	if got, _ := f.lastBody["/v1/workspaces"]["client_id"].(string); len(got) != 36 {
 		t.Errorf("client_id = %q, want a uuid", got)
 	}
+	if _, ok := f.lastBody["/v1/workspaces"]["data_dir"]; ok {
+		t.Error("data_dir sent although none was set")
+	}
 
 	sid, err := c.SendPrompt(t.Context(), ws, "find duplicates")
 	if err != nil {
@@ -277,5 +280,21 @@ func TestNonOKStatusIsAnError(t *testing.T) {
 	}
 	if _, err := c.Version(t.Context()); err == nil {
 		t.Fatal("a 500 should be an error")
+	}
+}
+
+// TestCreateWorkspaceSendsTheDataDir guards the grant's cleanliness: Crush
+// resolves a workspace's database location from the create body, so an unset
+// data_dir leaves a .crush/ directory inside the operator's folder. Measured on
+// hardware, not inferred.
+func TestCreateWorkspaceSendsTheDataDir(t *testing.T) {
+	f, srv := newFixtureServer(t)
+	c := New(srv.URL, srv.Client())
+	c.DataDir = "/tmp/crushdata"
+	if _, err := c.CreateWorkspace(t.Context(), "/workspace"); err != nil {
+		t.Fatalf("CreateWorkspace: %v", err)
+	}
+	if got := f.lastBody["/v1/workspaces"]["data_dir"]; got != "/tmp/crushdata" {
+		t.Errorf("data_dir = %v, want /tmp/crushdata", got)
 	}
 }
