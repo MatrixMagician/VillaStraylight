@@ -82,7 +82,20 @@ const (
 //     a binary at a path other than the one villa-websafe mounts gets its own WARN
 //     instead of folding into config-vs-disk drift. Web-search-OFF output is
 //     byte-identical except this bump (the nil seam emits no finding).
-const reportSchemaVersion = 6
+//   - v7: the sandbox fold (issue #176) — SBX-01, the read-only twin of PRE-09
+//     (folded for free through the unchanged findingFromCheck path, like v4/v5), plus
+//     SBX-02, a NEW doctor-owned finding type (the villa-sandbox.network unit exists
+//     and the inference unit is joined to it — a host-state fact, not a preflight
+//     CheckResult). Sandbox-OFF output is byte-identical except this bump (both nil
+//     seams emit no finding).
+//   - v8: the TMD-01 tools-mode drift finding (spec v1.11 §3.5/§10) — a NEW
+//     doctor-owned finding type like v6. The served inference unit must carry the
+//     tool-calling flag iff subsystem.ToolsOn, and a mismatch is a confident FAIL:
+//     tool calls against a unit rendered without it fail at the server, with nothing
+//     in config to explain why. Unlike the subsystem folds this finding is NOT gated
+//     on an opt-in — the assertion is meaningful in both directions — so every doctor
+//     Report gains one line.
+const reportSchemaVersion = 8
 
 // The three typed-Unknown ROCm host-prep check IDs that a PROVEN ROCm residency
 // supersedes (down-ranks, never deletes). They INTENTIONALLY duplicate the preflight
@@ -245,6 +258,35 @@ type Deps struct {
 	// this host worth its own line, and it is NOT the same fault as a hand-edited unit
 	// (issue #141).
 	WebsafeBinary func() (mounted, running string, ok bool)
+	// RunSandboxChecks is SBX-01, the read-only twin of the PRE-09 sandbox-runtime
+	// gate (preflight.RunSandbox, bound by the cmd tier with the live podman/rpm/
+	// kvm/probe seams — composition over re-implementation, mirroring RunROCmImage
+	// and RunMemoryChecks). Its CheckResults fold through findingFromCheck exactly
+	// like every other host-condition check. NIL-SAFE: when nil (the workspace
+	// agent is off) no PRE-09/SBX-01 finding is emitted at all — never a
+	// PASS-by-default.
+	RunSandboxChecks func(detect.HostProfile) []preflight.CheckResult
+	// SandboxNetwork is SBX-02: whether the villa-sandbox.network unit is present
+	// on disk and whether the on-disk inference unit is joined to it (a
+	// DriftPlan-style read — the cmd tier reads the unit dir, it never shells to
+	// podman). A non-nil error means the read itself could not be evaluated
+	// (typed-Unknown). NIL-SAFE: when nil (the workspace agent is off) no SBX-02
+	// finding is emitted at all — never a PASS-by-default.
+	SandboxNetwork func() (networkPresent, inferenceJoined bool, err error)
+	// ToolsDrift is the TMD-01 seam: does the ON-DISK inference unit carry the
+	// tool-calling flag (served), and does the answered gate say it should (want)?
+	// The cmd tier derives the flag token from the inference seam rather than typing
+	// it, so no llama-server literal leaves internal/inference (TestSeamGrepGate).
+	//
+	// ok reports whether the question could be answered at all — an unreadable unit
+	// dir or an unresolvable backend degrades to a typed-Unknown WARN, NEVER to a
+	// served==want PASS. NIL-SAFE: a nil seam emits NO finding rather than a
+	// PASS-by-default.
+	//
+	// It is deliberately NOT subsystem-gated. "the unit must not carry the flag when
+	// tools mode is off" is as much a fault as its absence when on, and a gate would
+	// make the off direction unobservable.
+	ToolsDrift func() (served, want, ok bool)
 }
 
 // changedUnitNames joins the drifted unit names in Plan order for the drift Detail
@@ -274,6 +316,35 @@ func websafeBinaryFinding(mounted, running string) Finding {
 		f.Status = statusWarn
 		f.Detail = "the running villa (" + running + ") is not the binary villa-websafe mounts (" + mounted + ")"
 		f.Remediation = "re-run `villa install` from the binary you intend to serve, or run villa from " + mounted
+	}
+	return f
+}
+
+// sandboxNetworkFinding is SBX-02 (issue #176): the internal task network a
+// running workspace-agent task actually needs must be on disk, and the inference
+// unit must be joined to it — both are BLOCK-tier: a task with no network cannot
+// reach the served model, and a task container is started per-task, so this is
+// caught here rather than as a per-task failure the operator never sees in
+// `villa doctor`.
+func sandboxNetworkFinding(networkPresent, inferenceJoined bool) Finding {
+	f := Finding{
+		ID:         "SBX-02",
+		Name:       "Sandbox network",
+		Tier:       tierBlock,
+		Provenance: "villa-sandbox.network + inference unit (on-disk)",
+	}
+	switch {
+	case !networkPresent:
+		f.Status = statusFail
+		f.Detail = "the villa-sandbox.network unit is not on disk"
+		f.Remediation = "re-run `villa install` to render the sandbox network unit, then `villa up`"
+	case !inferenceJoined:
+		f.Status = statusFail
+		f.Detail = "the inference unit is not joined to villa-sandbox"
+		f.Remediation = "re-run `villa install` to regenerate the inference unit with the sandbox network attached, then `villa up`"
+	default:
+		f.Status = statusPass
+		f.Detail = "villa-sandbox.network exists and the inference unit is joined to it"
 	}
 	return f
 }
@@ -343,6 +414,37 @@ func Aggregate(d Deps) Report {
 	if d.RunMemoryChecks != nil {
 		for _, c := range d.RunMemoryChecks(profile) {
 			findings = append(findings, findingFromCheck(c))
+		}
+	}
+
+	// 1c. SANDBOX HOST GATE (SBX-01, issue #176): fold the PRE-09 sandbox-runtime
+	// gate verbatim via findingFromCheck, exactly like the memory host gate above.
+	// A nil seam (the workspace agent is off) emits nothing.
+	if d.RunSandboxChecks != nil {
+		for _, c := range d.RunSandboxChecks(profile) {
+			findings = append(findings, findingFromCheck(c))
+		}
+	}
+
+	// 1d. SANDBOX NETWORK (SBX-02, issue #176): the villa-sandbox.network unit
+	// must be on disk and the inference unit must be joined to it. A read error
+	// degrades to a typed-Unknown WARN (the unit dir could not be evaluated,
+	// mirroring the drift read below); a nil seam (the workspace agent is off)
+	// emits nothing.
+	if d.SandboxNetwork != nil {
+		if networkPresent, inferenceJoined, serr := d.SandboxNetwork(); serr != nil {
+			findings = append(findings, Finding{
+				ID:          "SBX-02",
+				Name:        "Sandbox network",
+				Tier:        tierWarn,
+				Status:      statusWarn,
+				Detail:      "could not evaluate the sandbox network (" + serr.Error() + ")",
+				Remediation: "run `villa install` to write the Quadlet units, then re-run `villa doctor`",
+				Provenance:  "villa-sandbox.network + inference unit (on-disk)",
+				Raw:         serr.Error(),
+			})
+		} else {
+			findings = append(findings, sandboxNetworkFinding(networkPresent, inferenceJoined))
 		}
 	}
 
@@ -488,6 +590,16 @@ func Aggregate(d Deps) Report {
 		}
 	}
 
+	// 3b. TOOLS-MODE DRIFT (TMD-01) — the served unit must carry the tool-calling
+	// flag iff the gate is answered on. It sits beside drift rather than inside it
+	// because the fault is specific and the remediation is a different verb: a unit
+	// that lost the flag makes every tool call fail at the server with nothing in
+	// config to explain it. A nil seam emits nothing.
+	if d.ToolsDrift != nil {
+		served, want, ok := d.ToolsDrift()
+		findings = append(findings, toolsDriftFinding(served, want, ok))
+	}
+
 	// 4. WORST-WINS FOLD — any FAIL → "FAIL"; else any WARN → "WARN"; else "PASS".
 	//
 	// 4a. RESIDENCY SUPERSESSION (the gap-closure rule, 13-UAT.md Test 1 / DOCTOR-01):
@@ -544,6 +656,68 @@ func Aggregate(d Deps) Report {
 		Overall:       overall,
 		SchemaVersion: reportSchemaVersion,
 	}
+}
+
+// toolsDriftFinding builds TMD-01 from the seam's three-valued answer.
+//
+// A mismatch is a BLOCK-tier FAIL, not the WARN config-vs-disk drift carries: a unit
+// rendered without the flag rejects every tool call at the server, and one rendered
+// with it when the operator turned tools mode off is serving a template they did not
+// ask for. An unanswerable question is a typed-Unknown WARN — never a PASS.
+func toolsDriftFinding(served, want, ok bool) Finding {
+	const (
+		id   = "TMD-01"
+		name = "Tools-mode drift"
+	)
+	if !ok {
+		return Finding{
+			ID:          id,
+			Name:        name,
+			Tier:        tierWarn,
+			Status:      statusWarn,
+			Detail:      "could not read the on-disk inference unit to check whether it is served for tool calling",
+			Remediation: "run `villa install` to write the Quadlet units, then re-run `villa doctor`",
+			Provenance:  "on-disk villa-llama unit (unreadable)",
+		}
+	}
+	if served == want {
+		return Finding{
+			ID:         id,
+			Name:       name,
+			Tier:       tierBlock,
+			Status:     statusPass,
+			Detail:     "the served unit's tool-calling flag matches tools mode (" + onOff(want) + ")",
+			Provenance: "on-disk villa-llama unit vs subsystem.ToolsOn",
+		}
+	}
+	if want {
+		return Finding{
+			ID:          id,
+			Name:        name,
+			Tier:        tierBlock,
+			Status:      statusFail,
+			Detail:      "tools mode is on but the served unit is not rendered for tool calling — every tool call will fail at the server",
+			Remediation: "re-run `villa install` to reconcile the unit, or `villa tools-mode exit` if tool calling is not wanted",
+			Provenance:  "on-disk villa-llama unit vs subsystem.ToolsOn",
+		}
+	}
+	return Finding{
+		ID:          id,
+		Name:        name,
+		Tier:        tierBlock,
+		Status:      statusFail,
+		Detail:      "tools mode is off but the served unit is rendered for tool calling — the unit is serving a chat template nobody asked for",
+		Remediation: "re-run `villa install` to reconcile the unit, or `villa tools-mode enter` to persist the state the unit is already in",
+		Provenance:  "on-disk villa-llama unit vs subsystem.ToolsOn",
+	}
+}
+
+// onOff names a gate state for a finding detail.
+func onOff(on bool) string {
+	if on {
+		return "on"
+	}
+	return "off"
 }
 
 // findingFromCheck normalizes a preflight.CheckResult into a doctor Finding,

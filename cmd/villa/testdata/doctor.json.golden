@@ -44,8 +44,17 @@
       "detail": "on-disk units match the rendered-from-config units",
       "remediation": "",
       "provenance": "orchestrate.Reconcile (empty Plan.Changed)"
+    },
+    {
+      "id": "TMD-01",
+      "name": "Tools-mode drift",
+      "tier": "BLOCK",
+      "status": "PASS",
+      "detail": "the served unit's tool-calling flag matches tools mode (off)",
+      "remediation": "",
+      "provenance": "on-disk villa-llama unit vs subsystem.ToolsOn"
     }
   ],
   "overall": "PASS",
-  "schema_version": 6
+  "schema_version": 8
 }

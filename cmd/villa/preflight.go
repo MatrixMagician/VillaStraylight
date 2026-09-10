@@ -98,6 +98,7 @@ func newPreflight() *cobra.Command {
 			// only when the persisted config enables memory; nil (memory off /
 			// unreadable config) appends nothing — byte-identical off path.
 			results = append(results, memoryGateResults(profile)...)
+			results = append(results, sandboxGateResults(profile)...)
 			code := renderPreflight(cmd.OutOrStdout(), results, jsonOut, verbose, force)
 			os.Exit(code)
 			return nil

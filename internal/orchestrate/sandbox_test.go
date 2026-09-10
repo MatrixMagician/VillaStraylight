@@ -10,7 +10,7 @@ import (
 
 func sandboxFixtureInput() SandboxRunInput {
 	return SandboxRunInput{
-		Cfg:           config.VillaConfig{WorkspaceAgent: true},
+		Cfg:           config.VillaConfig{WorkspaceAgent: true, Model: "qwen3.6-35b-a3b", Ctx: 131072},
 		Image:         "localhost/villa-sandbox:office@sha256:" + strings.Repeat("a", 64),
 		Workspace:     "/home/villa/Documents/ledger",
 		TaskID:        "20260910-120000-ab12",
@@ -49,6 +49,8 @@ func TestRenderSandboxRunArgs(t *testing.T) {
 		"-e", "CRUSH_DISABLE_PROVIDER_AUTO_UPDATE=1",
 		in.Image,
 		"villa", "sandbox-bridge",
+		"--model", "qwen3.6-35b-a3b",
+		"--ctx", "131072",
 	}
 	if !slices.Equal(got, want) {
 		t.Errorf("RenderSandboxRun args differ.\n--- got ---\n%s\n--- want ---\n%s",

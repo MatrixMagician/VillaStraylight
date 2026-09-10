@@ -80,7 +80,10 @@ type crushConfig struct {
 	Schema    string                   `json:"$schema"`
 	Options   crushOptions             `json:"options"`
 	Providers map[string]crushProvider `json:"providers"`
-	LSP       map[string]crushLSPEntry `json:"lsp,omitempty"`
+	// Models is the explicit large/small role selection. Omitted by Render (the
+	// host Crush picks its own default and persists it); set by RenderSandbox.
+	Models map[string]crushModelRef `json:"models,omitempty"`
+	LSP    map[string]crushLSPEntry `json:"lsp,omitempty"`
 	// Permissions is rendered unconditionally from Phase 27 (the STRIDE pass): a
 	// non-nil block carrying the restrictive allowed_tools so the readiness/verify
 	// `crush run` completes without an interactive prompt (27-RESEARCH A3). It is no
@@ -102,6 +105,15 @@ type crushOptions struct {
 	// / sourcegraph. Rendered unconditionally — an omitted denylist leaves outbound
 	// tools on (the STRIDE FAIL), so it is NEVER omitempty.
 	DisabledTools []string `json:"disabled_tools"`
+}
+
+// crushModelRef selects one provider+model for a Crush model role. Rendered only
+// by the workspace-task variant: `villa code` runs against a host Crush that
+// resolves its own default, while a task's Crush starts on an empty tmpfs config
+// dir every time and must be told outright.
+type crushModelRef struct {
+	Provider string `json:"provider"`
+	Model    string `json:"model"`
 }
 
 // crushProvider is the single villa openai-compat provider block.
@@ -256,4 +268,76 @@ func canonicalize(b []byte) []byte {
 		return bytes.TrimSpace(b)
 	}
 	return out
+}
+
+// sandboxDisabledTools is the workspace-task denylist (spec v1.11 3.3): the four
+// the coding agent already disables, plus web_fetch and web_search. A task's
+// network reaches llama-server and nothing else, so this render is defense in
+// depth rather than the boundary — but a model that can SEE a web tool will try
+// it, and a tool call that fails is a wasted turn the operator pays for.
+var sandboxDisabledTools = []string{
+	"fetch", "agentic_fetch", "download", "sourcegraph", "web_fetch", "web_search",
+}
+
+// RenderSandbox produces the crush.json a workspace task's in-sandbox Crush runs
+// under. It is Render's sibling, not its caller: same struct types, three
+// deliberate differences.
+//
+//   - The provider's base_url is baseURL, the sandbox-network address of the
+//     inference server, resolved by the caller. This package holds no host or
+//     port of its own.
+//   - The six web-class tools are disabled, and no lsp block is rendered
+//     (auto_lsp stays false): the office image ships no language servers, and
+//     probing for them inside a microVM buys nothing.
+//   - No permissions block. Render's allowed_tools exists so villa's own
+//     readiness round-trip does not prompt; a workspace task is the opposite
+//     case — every tool call MUST arrive as a permission request, because
+//     villa's approval table is the thing answering it (spec 3.3).
+//
+// Pure and deterministic: same (cfg, baseURL) gives byte-identical output.
+func RenderSandbox(cfg config.VillaConfig, baseURL string) ([]byte, error) {
+	if baseURL == "" {
+		return nil, fmt.Errorf("agent: RenderSandbox: no inference base URL")
+	}
+
+	id, base := servedModelID(cfg)
+	ctxWindow := cfg.Ctx
+	if ctxWindow <= 0 {
+		ctxWindow = defaultContextWindow
+	}
+
+	cfgOut := crushConfig{
+		Schema: crushSchema,
+		Options: crushOptions{
+			DisableMetrics:            true,
+			DisableProviderAutoUpdate: true,
+			DisableDefaultProviders:   true,
+			AutoLSP:                   false,
+			DisabledTools:             sandboxDisabledTools,
+		},
+		Providers: map[string]crushProvider{
+			providerKey: {
+				Name:    "VillaStraylight (workspace task)",
+				Type:    "openai-compat",
+				BaseURL: baseURL,
+				APIKey:  providerAPIKey,
+				Models: []crushModel{{
+					ID:               id,
+					Name:             base + " (local)",
+					ContextWindow:    ctxWindow,
+					DefaultMaxTokens: ctxWindow / maxTokensDivisor,
+				}},
+			},
+		},
+		Models: map[string]crushModelRef{
+			"large": {Provider: providerKey, Model: id},
+			"small": {Provider: providerKey, Model: id},
+		},
+	}
+
+	b, err := json.MarshalIndent(cfgOut, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("agent: marshal sandbox crush.json: %w", err)
+	}
+	return append(b, '\n'), nil
 }

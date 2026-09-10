@@ -1,0 +1,14 @@
+data: {"type":"permission_request","payload":{"type":"created","payload":{"id":"perm-1","session_id":"sess-1","tool_call_id":"call-1","tool_name":"edit","description":"edit reports/duplicates.md","action":"write","path":"/workspace/reports/duplicates.md","params":{"file_path":"/workspace/reports/duplicates.md"}}}}
+
+data: {"type":"permission_notification","payload":{"type":"created","payload":{"tool_call_id":"call-1","granted":true,"denied":false}}}
+
+data: {"type":"message","payload":{"type":"updated","payload":{"id":"msg-1","session_id":"sess-1","role":"assistant","model":"villa-qwen3.6-35b-a3b","provider":"villa","created_at":1757462400,"updated_at":1757462401,"parts":[{"type":"text","data":{"text":"Listing the folder."}},{"type":"tool_call","data":{"id":"call-1","name":"edit","input":"{\"file_path\":\"/workspace/reports/duplicates.md\"}","finished":true}},{"type":"text","data":{"text":" Done."}}]}}}
+
+data: {"type":"file","payload":{"type":"created","payload":{"id":"file-1","session_id":"sess-1","path":"/workspace/reports/duplicates.md","version":3,"created_at":1757462402,"updated_at":1757462402}}}
+
+data: {"type":"agent_event","payload":{"type":"created","payload":{"type":"response","session_id":"sess-1","run_id":"run-1","message":{"id":"msg-1","session_id":"sess-1","role":"assistant","parts":[]}}}}
+
+data: {"type":"session","payload":{"type":"updated","payload":{"id":"sess-1","title":"villa workspace task","message_count":4}}}
+
+data: {"type":"run_complete","payload":{"type":"created","payload":{"session_id":"sess-1","run_id":"run-1","message_id":"msg-1","text":"Wrote reports/duplicates.md.","cancelled":false}}}
+

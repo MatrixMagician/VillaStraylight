@@ -93,5 +93,6 @@
   },
   "speculation": "off",
   "vision": false,
-  "schema_version": 8
+  "tools": false,
+  "schema_version": 9
 }

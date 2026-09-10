@@ -5,3 +5,4 @@ PRE-08               BLOCK  PASS  /dev/kfd and /dev/dri/renderD128 are readable 
 health:villa-llama   WARN   PASS  /health is ready (200)
 offload:villa-llama  BLOCK  PASS  residency proven on Vulkan; GTT floor corroborated
 drift                WARN   WARN  on-disk Quadlet units no longer match the rendered-from-config units — re-run `villa install` to reconcile config-vs-disk drift
+TMD-01               BLOCK  PASS  the served unit's tool-calling flag matches tools mode (off)

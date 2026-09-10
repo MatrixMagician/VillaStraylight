@@ -40,6 +40,12 @@ type Opts struct {
 	// WebSearch opts into the web-search addon, with the same persist-and-inherit
 	// behaviour as CodingAgent.
 	WebSearch bool
+	// WorkspaceAgent opts into the workspace agent, with the same
+	// persist-and-inherit behaviour. It carries tools mode with it: the agent talks
+	// to the chat endpoint through tool calls, so an install that enabled the addon
+	// and left the unit unable to serve them would produce a stack `villa work`
+	// refuses to run on.
+	WorkspaceAgent bool
 	// DryRun prints the rendered changed units and mutates NOTHING: no write, no
 	// pull, no persist, no privileged host-prep, no wizard.
 	DryRun bool
@@ -66,6 +72,8 @@ type Gates struct {
 	// CodingMode is entered by the agent addon, and ONLY for a real swap-residency
 	// coder fit. It is never set by a flag directly.
 	CodingMode bool
+	// Sandbox is the resolved workspace-agent gate.
+	Sandbox bool
 }
 
 // On reports the resolved gate for a subsystem, so a caller can ask by kind rather
@@ -80,6 +88,8 @@ func (g Gates) On(k subsystem.Kind) bool {
 		return g.Agent
 	case subsystem.CodingMode:
 		return g.CodingMode
+	case subsystem.Sandbox:
+		return g.Sandbox
 	case subsystem.Inference, subsystem.Chat:
 		// Always on: an install renders both units unconditionally, so there is no
 		// resolved gate to hold and nothing a flag could turn off. Answered here
@@ -105,6 +115,7 @@ func ResolveGates(cfg config.VillaConfig, opts Opts, rec recommend.Recommendatio
 		Memory:    subsystem.MemoryOn(cfg),
 		WebSearch: subsystem.WebSearchOn(cfg) || opts.WebSearch,
 		Agent:     subsystem.AgentOn(cfg) || opts.CodingAgent,
+		Sandbox:   subsystem.SandboxOn(cfg) || opts.WorkspaceAgent,
 	}
 	// Coding mode is entered by the addon opt-in, and only with a coder to serve.
 	if opts.CodingAgent && rec.Coder.Model != "" {
@@ -180,6 +191,15 @@ func AssemblePlan(cfg config.VillaConfig, gates Gates, rec recommend.Recommendat
 	// Coding mode carries the resolved coder identity: the unit, the agent config and
 	// the readiness proof must all agree on which model is served, so they come from
 	// the same recommendation the disk and envelope gates were computed from.
+	// The workspace agent persists its own gate AND tools mode, because tool calling
+	// is what the agent uses the chat endpoint for. Tools mode is raised, never
+	// lowered, here: an operator who entered it deliberately keeps it when the
+	// addon is off.
+	plan.Config.WorkspaceAgent = gates.Sandbox
+	if gates.Sandbox {
+		plan.Config.ToolsMode = true
+	}
+
 	if gates.CodingMode {
 		plan.Config.CoderModel = rec.Coder.Model
 		plan.Config.CoderQuant = rec.Coder.Quant
