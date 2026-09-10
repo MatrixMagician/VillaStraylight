@@ -146,7 +146,7 @@ func TestLookupIsTheAllowlist(t *testing.T) {
 	if RegistryAllowed("registry.example.invalid") {
 		t.Error("RegistryAllowed accepted a host the table never pulls from; a stolen key could redirect a pull")
 	}
-	for _, host := range []string{registryDockerIO, registryGHCR, registryGCR, registryGitHub} {
+	for _, host := range []string{registryDockerIO, registryGHCR, registryGCR, registryGitHub, registryLocalhost} {
 		if !RegistryAllowed(host) {
 			t.Errorf("RegistryAllowed rejected %q, a host the table already pulls from", host)
 		}
@@ -163,6 +163,7 @@ func TestForGroupsByProofUnit(t *testing.T) {
 		subsystem.Memory:    {Qdrant, Embedder},
 		subsystem.WebSearch: {SearXNG, Websafe},
 		subsystem.Agent:     {Crush},
+		subsystem.Sandbox:   {SandboxImage},
 	}
 	for k, want := range cases {
 		got := For(k)
@@ -178,6 +179,28 @@ func TestForGroupsByProofUnit(t *testing.T) {
 	}
 	if len(For(subsystem.CodingMode)) != 0 {
 		t.Error("coding mode has pinned components; it is a configuration of the stack, not a component of it")
+	}
+}
+
+// TestTheSandboxPinIsVillaBuiltAndReproducible: the sandbox image is the only pin
+// whose bytes villa BUILDS rather than pulls, so its curated input is a file in
+// this tree rather than a tag upstream maintains. A pin with no Containerfile
+// beside it is a digest nobody can reproduce, and the table would be stating a
+// provenance it cannot back.
+func TestTheSandboxPinIsVillaBuiltAndReproducible(t *testing.T) {
+	e, ok := Lookup(SandboxImage)
+	if !ok {
+		t.Fatal("the table does not name the sandbox image; `villa update` could never see it")
+	}
+	if e.Shape != RollingDigest {
+		t.Errorf("sandbox shape = %q, want %q — a dnf build is not byte-reproducible, so a rebuild at the same versions is a moved digest with no version to name",
+			e.Shape, RollingDigest)
+	}
+	if !strings.Contains(e.Vetted().Ref, "@sha256:") {
+		t.Errorf("the sandbox pin %q is not digest-pinned; --check would have nothing to compare", e.Vetted().Ref)
+	}
+	if _, err := os.Stat(filepath.Join("..", "..", "build", "sandbox", "Containerfile")); err != nil {
+		t.Errorf("the sandbox pin's curated input is missing: %v", err)
 	}
 }
 
@@ -213,6 +236,7 @@ func TestEveryDigestPinnedImageInTheTreeIsInTheTable(t *testing.T) {
 		filepath.Join("..", "orchestrate", "openwebui.go"),
 		filepath.Join("..", "orchestrate", "searxng.go"),
 		filepath.Join("..", "orchestrate", "websafe.go"),
+		filepath.Join("..", "orchestrate", "sandbox.go"),
 	}
 
 	inTable := map[string]bool{}

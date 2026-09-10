@@ -105,6 +105,10 @@ const (
 	// Crush is the coding-agent binary — the one pinned component that is not a
 	// container image.
 	Crush ComponentID = "crush"
+	// SandboxImage is the office image a workspace task runs in. It is the only
+	// villa-BUILT pin: its bytes come from build/sandbox/Containerfile rather than
+	// from a registry, which is why its registry host is localhost.
+	SandboxImage ComponentID = orchestrate.ComponentSandbox
 )
 
 // Pin is one component's pinned value.
@@ -180,6 +184,12 @@ const (
 	registryGHCR     = "ghcr.io"
 	registryGCR      = "gcr.io"
 	registryGitHub   = "github.com"
+	// registryLocalhost is where a villa-BUILT image lives. It is on the allowlist
+	// for the same reason as the others — RegistryAllowed answers "may villa talk to
+	// this host at all" — and admitting it costs nothing a manifest could abuse: a
+	// manifest naming localhost redirects a pull to the operator's own store, which
+	// is where the sandbox image already is.
+	registryLocalhost = "localhost"
 )
 
 // backendPin returns the vetted pin for one backend name through the inference
@@ -323,6 +333,18 @@ func Table() []Entry {
 			Registry:  registryGitHub,
 			Version:   agent.LoadCrushPolicy().Version,
 			Vetted:    crushPin,
+		},
+		{
+			Component: SandboxImage,
+			Subsystem: subsystem.Sandbox,
+			// A rolling digest, and the shape is exact rather than convenient: a dnf
+			// build is not byte-reproducible, so rebuilding at the SAME pinned package
+			// versions yields a new digest with no version to name. That is the
+			// rebuild-versus-bump ambiguity the ROCm images have, arrived at from the
+			// other direction, and --check reports it the same way.
+			Shape:    RollingDigest,
+			Registry: registryLocalhost,
+			Vetted:   func() Pin { return Pin{Ref: orchestrate.SandboxImage()} },
 		},
 	}
 }

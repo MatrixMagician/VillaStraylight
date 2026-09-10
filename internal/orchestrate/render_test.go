@@ -743,3 +743,59 @@ func TestRenderResidentUnitsIgnoreSpeculation(t *testing.T) {
 		t.Errorf("resident unit carries the speculation delta:\n%s", u.Text)
 	}
 }
+
+// sandboxOnFixtureInput is fixtureInput with the workspace agent enabled, and
+// nothing else changed — so a diff against the base golden shows exactly what the
+// sandbox adds to the inference unit.
+func sandboxOnFixtureInput() RenderInput {
+	in := fixtureInput()
+	in.Cfg.WorkspaceAgent = true
+	in.Resident = nil
+	return in
+}
+
+// TestRenderSandboxNetworkGolden: villa-sandbox.network renders with Internal=true.
+// The Internal is the whole point — villa.network has egress, and a task that
+// reached the internet through it would make the no-egress claim false.
+func TestRenderSandboxNetworkGolden(t *testing.T) {
+	units, err := Render(sandboxOnFixtureInput())
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	n := unitByName(t, units, "villa-sandbox.network")
+	if !strings.Contains(n.Text, "Internal=true") {
+		t.Errorf("the sandbox network is not internal:\n%s", n.Text)
+	}
+	goldenCompare(t, "villa-sandbox.network.golden", n.Text)
+}
+
+// TestRenderInferenceUnitJoinsTheSandboxNetwork: with the workspace agent on, the
+// inference unit carries a second Network= line, so a task on the internal network
+// can reach llama-server and nothing else.
+func TestRenderInferenceUnitJoinsTheSandboxNetwork(t *testing.T) {
+	units, err := Render(sandboxOnFixtureInput())
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	c := unitByName(t, units, "villa-llama.container")
+	if got := strings.Count(c.Text, "Network="); got != 2 {
+		t.Errorf("inference unit has %d Network= lines, want 2:\n%s", got, c.Text)
+	}
+	goldenCompare(t, "villa-llama-sandbox.container.golden", c.Text)
+}
+
+// TestRenderSandboxOffIsByteIdentical: with the workspace agent off, no sandbox
+// network is rendered and the inference unit keeps its single Network= line. That
+// is what keeps an install from before v1.11 from being restarted by an upgrade.
+func TestRenderSandboxOffIsByteIdentical(t *testing.T) {
+	units, err := Render(fixtureInput())
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	for _, u := range units {
+		if u.Name == "villa-sandbox.network" {
+			t.Error("the sandbox network rendered with workspace_agent off")
+		}
+	}
+	goldenCompare(t, "villa-llama.container.golden", unitByName(t, units, "villa-llama.container").Text)
+}

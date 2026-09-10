@@ -77,3 +77,35 @@ func TestSubsystemUnitsMatchTheRenderedUnits(t *testing.T) {
 		t.Errorf("CodingMode.Units() = %v, want empty — coding mode flips villa-llama, it does not own a unit", us)
 	}
 }
+
+// TestSandboxRendersANetworkAndNoContainer is the sandbox half of the same binding.
+//
+// The sandbox is the first subsystem that renders a unit while declaring none, and
+// the asymmetry is the point: a task's container is per-task and started by the
+// runner, so there is nothing for update to capture or restart. The network IS
+// rendered, and a declaration that named it would make update try to restart a
+// .network as a .service.
+func TestSandboxRendersANetworkAndNoContainer(t *testing.T) {
+	if us, svcs := subsystem.Sandbox.Units(); len(us) != 0 || len(svcs) != 0 {
+		t.Errorf("Sandbox.Units() = (%v, %v), want empty — the task container is per-task, not a unit", us, svcs)
+	}
+
+	in := statefulFixtureInput()
+	in.Cfg.WorkspaceAgent = true
+	units, err := Render(in)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	var sawNetwork bool
+	for _, u := range units {
+		if u.Name == sandboxNetworkUnitName {
+			sawNetwork = true
+		}
+		if strings.HasPrefix(u.Name, "villa-task-") || strings.HasPrefix(u.Name, "villa-sandbox.container") {
+			t.Errorf("the sandbox rendered a container unit %q — the task container is started per task, never installed", u.Name)
+		}
+	}
+	if !sawNetwork {
+		t.Errorf("workspace_agent is on but %s was not rendered", sandboxNetworkUnitName)
+	}
+}

@@ -45,7 +45,11 @@ type containerView struct {
 	ContainerName string
 	Image         string
 	Network       string
-	BackendLabel  string
+	// SandboxNetwork is the SECOND Network= line, present only when the workspace
+	// agent is on. Empty renders no line at all, which is what keeps every unit
+	// golden from before the sandbox existed byte-identical.
+	SandboxNetwork string
+	BackendLabel   string
 	AddDevice     []string
 	GroupAdd      []string
 	Env           []envPair
@@ -140,6 +144,14 @@ func Render(in RenderInput) ([]Unit, error) {
 	// literal — so the ROCm unit gets an accurate description while the Vulkan unit's
 	// Description line stays byte-identical to today's golden (ROCM-03 additivity).
 	cv.BackendLabel = backendLabel(in.Backend.Name())
+
+	// The workspace agent's tasks run on an internal network with no egress, so the
+	// inference unit joins that network too — it is the only thing on it a task may
+	// reach. The resident units deliberately do not: a task talks to the primary
+	// model, and a slot that joined would be reachable without being served.
+	if subsystem.SandboxOn(in.Cfg) {
+		cv.SandboxNetwork = sandboxNetworkAttach
+	}
 
 	// Resolved up-front because two consumers need it: the resident .container units
 	// below, and Open WebUI's endpoint env, which must list every resident slot.
@@ -286,6 +298,18 @@ func Render(in RenderInput) ([]Unit, error) {
 			return nil, err
 		}
 		units = append(units, Unit{Name: websafeContainerUnitName, Text: websafeContainerText})
+	}
+
+	// v1.11 workspace agent: the internal task network, appended LAST so every unit
+	// position before it is unchanged. It carries no container of its own — a task's
+	// container is per-task and started by the runner, never a unit — so
+	// subsystem.Sandbox declares no units and the drift test asserts that.
+	if subsystem.SandboxOn(in.Cfg) {
+		sandboxNetworkText, err := execTemplate(tmpl, "sandbox.network.tmpl", networkView{NetworkName: sandboxNetworkName})
+		if err != nil {
+			return nil, err
+		}
+		units = append(units, Unit{Name: sandboxNetworkUnitName, Text: sandboxNetworkText})
 	}
 
 	return units, nil
