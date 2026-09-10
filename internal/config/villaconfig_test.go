@@ -1218,3 +1218,62 @@ func TestWorkspaceAgentFieldsAbsentLoadOff(t *testing.T) {
 		t.Errorf("absent v1.11 keys loaded non-zero: %+v", got)
 	}
 }
+
+// TestWorkspaceSurvivesFullConfigRoundTrip is the #149 regression (recommend
+// --save once overwrote config.toml from defaults and dropped every subsystem
+// field it did not own) extended to the v1.11 grant list: every subsystem opts
+// in at once, Workspace carries two grants, and the full struct must survive
+// SaveVilla/LoadVilla with nothing dropped — a regression here would silently
+// revoke a directory the operator handed to the agent.
+func TestWorkspaceSurvivesFullConfigRoundTrip(t *testing.T) {
+	cfg := DefaultVillaConfig()
+	cfg.Model = "qwen3.6-35b-a3b"
+	cfg.Quant = "UD-Q4_K_M"
+	cfg.Ctx = 32768
+	cfg.Backend = "vulkan"
+
+	cfg.MemoryEnabled = true
+	cfg.EmbeddingModel = "nomic-embed-text-v1.5"
+	cfg.EmbeddingDim = 768
+
+	cfg.CodingMode = true
+	cfg.CoderModel = "qwen3-coder-30b"
+	cfg.CoderQuant = "UD-Q4_K_M"
+	cfg.CoderAgentCtx = 65536
+
+	cfg.AgentEnabled = true
+
+	cfg.WebSearchEnabled = true
+	cfg.SearxngSecret = "searxng-secret"
+	cfg.WebSearchResultCount = 7
+	cfg.WebLoaderSecret = "web-loader-secret"
+	cfg.HostVillaPath = "/usr/local/bin/villa"
+
+	cfg.Speculation = SpeculationNgram
+	cfg.Vision = true
+
+	cfg.Resident = []ResidentModel{
+		{Model: "gemma3-12b", Quant: "UD-Q5_K_M", Ctx: 8192, Port: 8082},
+	}
+
+	cfg.ToolsMode = true
+	cfg.WorkspaceAgent = true
+	cfg.Workspace = []string{"/home/op/projects", "/home/op/notes"}
+	cfg.SandboxMemory = "12g"
+	cfg.SandboxCPUs = 6
+
+	dir := filepath.Join(t.TempDir(), "villa")
+	if err := SaveVillaTo(dir, cfg); err != nil {
+		t.Fatalf("SaveVillaTo: %v", err)
+	}
+	got, err := LoadVillaFrom(dir)
+	if err != nil {
+		t.Fatalf("LoadVillaFrom: %v", err)
+	}
+	if !reflect.DeepEqual(got, cfg) {
+		t.Errorf("full config round-trip mismatch:\n got %+v\nwant %+v", got, cfg)
+	}
+	if !reflect.DeepEqual(got.Workspace, []string{"/home/op/projects", "/home/op/notes"}) {
+		t.Errorf("Workspace dropped or reordered: got %v", got.Workspace)
+	}
+}

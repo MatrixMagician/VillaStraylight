@@ -1,0 +1,11 @@
+{
+  "schema": 1,
+  "workspaces": [
+    {
+      "path": "/home/op/projects"
+    },
+    {
+      "path": "/home/op/notes"
+    }
+  ]
+}
