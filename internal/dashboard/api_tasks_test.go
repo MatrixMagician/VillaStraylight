@@ -33,6 +33,7 @@ type fakeBridge struct {
 	events chan crushapi.Event
 	mu     sync.Mutex
 	sent   []crushapi.Command
+	closed bool
 }
 
 func newFakeBridge() *fakeBridge { return &fakeBridge{events: make(chan crushapi.Event, 64)} }
@@ -45,7 +46,18 @@ func (f *fakeBridge) Send(c crushapi.Command) error {
 	return nil
 }
 func (f *fakeBridge) Wait() error { return nil }
-func (f *fakeBridge) Kill() error { close(f.events); return nil }
+func (f *fakeBridge) Kill() error { f.end(); return nil }
+
+// end closes the event stream once: a test that ended it itself may still be
+// killed by Runner.Close.
+func (f *fakeBridge) end() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if !f.closed {
+		f.closed = true
+		close(f.events)
+	}
+}
 func (f *fakeBridge) commands() []crushapi.Command {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -80,7 +92,7 @@ func newTestRunner(t *testing.T, fx *taskFixture) *taskrun.Runner {
 	}
 	var mu sync.Mutex
 	now := time.Date(2026, 9, 10, 12, 0, 0, 0, time.UTC)
-	return taskrun.New(taskrun.Deps{
+	r := taskrun.New(taskrun.Deps{
 		Store:      fx.store,
 		LoadConfig: func() (config.VillaConfig, error) { return config.VillaConfig{}, nil },
 		Launch: func(context.Context, []string) (taskrun.Bridge, error) {
@@ -110,6 +122,10 @@ func newTestRunner(t *testing.T, fx *taskFixture) *taskrun.Runner {
 		},
 		Rand: bytes.NewReader(bytes.Repeat([]byte{0x4f, 0x2a}, 64)),
 	})
+	// Registered after the fixture's t.TempDir cleanup, so it runs first: the
+	// worker is joined before RemoveAll, and cannot recreate the tree behind it.
+	t.Cleanup(r.Close)
+	return r
 }
 
 func taskServer(t *testing.T, r *taskrun.Runner) http.Handler {
@@ -426,7 +442,7 @@ func TestEventsStreamsNarrationUntilTerminal(t *testing.T) {
 	b.events <- crushapi.Event{Kind: crushapi.KindFile, File: &crushapi.FileEvent{Path: "/workspace/memo.md"}}
 	b.events <- crushapi.Event{Kind: crushapi.KindRunComplete, RunComplete: &crushapi.RunComplete{SessionID: "s"}}
 	b.events <- crushapi.Event{Kind: crushapi.KindFilesRead}
-	close(b.events)
+	b.end()
 
 	frames := readSSE(t, rsp.Body)
 	if len(frames) == 0 {
@@ -484,5 +500,29 @@ func TestHandleWorkspaces(t *testing.T) {
 	rec = do(srv.Handler(), http.MethodGet, "/api/workspaces", "")
 	if rec.Code != http.StatusInternalServerError {
 		t.Errorf("error code = %d, want 500; body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestCancelAfterTheRecordIsTerminalIs409 guards the ordering a slow runner
+// exposes: the operator reads cancelled off the record and cancels again while
+// the runner still holds the job. The answer comes from the record, so it is
+// 409 every time, not 200 whenever the worker has not yet let go.
+func TestCancelAfterTheRecordIsTerminalIs409(t *testing.T) {
+	fx := newTaskFixture(t)
+	b := newFakeBridge()
+	fx.bridges <- b
+	h := taskServer(t, newTestRunner(t, fx))
+	id := decodeTask(t, do(h, http.MethodPost, "/api/tasks", submitBody(fx.ws))).ID
+	b.events <- crushapi.Event{Kind: crushapi.KindBridgeReady}
+	waitState(t, fx.store, id, taskstore.Running)
+
+	if rec := do(h, http.MethodPost, "/api/tasks/"+id+"/cancel", ""); rec.Code != http.StatusOK {
+		t.Fatalf("cancel running = %d; body=%s", rec.Code, rec.Body.String())
+	}
+	waitState(t, fx.store, id, taskstore.Cancelled)
+	for i := range 5 {
+		if rec := do(h, http.MethodPost, "/api/tasks/"+id+"/cancel", ""); rec.Code != http.StatusConflict {
+			t.Fatalf("cancel %d after cancelled = %d, want 409; body=%s", i, rec.Code, rec.Body.String())
+		}
 	}
 }

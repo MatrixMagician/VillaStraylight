@@ -27,6 +27,7 @@ type fakeBridge struct {
 	sent    []crushapi.Command
 	waitErr error
 	killed  bool
+	closed  bool
 }
 
 func newFakeBridge() *fakeBridge {
@@ -48,8 +49,17 @@ func (f *fakeBridge) Kill() error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.killed = true
-	close(f.events)
+	f.closeEvents()
 	return nil
+}
+
+// closeEvents is idempotent: a test that ended the stream itself may still be
+// killed by Runner.Close. Callers hold mu.
+func (f *fakeBridge) closeEvents() {
+	if !f.closed {
+		f.closed = true
+		close(f.events)
+	}
 }
 
 func (f *fakeBridge) commands() []crushapi.Command {
@@ -70,7 +80,11 @@ func (f *fakeBridge) feed(evs ...crushapi.Event) {
 	}
 }
 
-func (f *fakeBridge) end() { close(f.events) }
+func (f *fakeBridge) end() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.closeEvents()
+}
 
 // clock hands out strictly increasing seconds so two submits never mint the
 // same id.
@@ -87,6 +101,7 @@ func (c *clock) now() time.Time {
 }
 
 type harness struct {
+	root    string
 	t       *testing.T
 	r       *Runner
 	store   taskstore.Store
@@ -106,6 +121,7 @@ func newHarness(t *testing.T) *harness {
 		t.Fatal(err)
 	}
 	h := &harness{
+		root:    root,
 		t:       t,
 		store:   taskstore.New(filepath.Join(root, "data")),
 		ws:      ws,
@@ -155,6 +171,9 @@ func newHarness(t *testing.T) *harness {
 func (h *harness) start() *Runner {
 	h.t.Helper()
 	h.r = New(h.deps)
+	// Registered after t.TempDir's own cleanup, so it runs first: the worker is
+	// joined before RemoveAll, and cannot recreate the tree behind it.
+	h.t.Cleanup(h.r.Close)
 	return h.r
 }
 
@@ -744,5 +763,61 @@ func TestSubmitValidatesTheBoundary(t *testing.T) {
 	task, err := r.Submit(context.Background(), SubmitRequest{Workspace: h.ws, Instruction: "x"})
 	if err != nil || task.Mode != string(approval.ModeAsk) {
 		t.Errorf("empty mode should default to ask: %+v, %v", task, err)
+	}
+}
+
+// TestCloseJoinsTheWorker guards the lifecycle: once Close returns, nothing
+// writes to the store any more. The check is the one the test framework itself
+// performs — remove the tree and see whether it comes back — because the worker
+// used to narrate the terminal state after the record already said done, which
+// is a write landing in a directory t.TempDir was already deleting.
+func TestCloseJoinsTheWorker(t *testing.T) {
+	h := newHarness(t)
+	b := newFakeBridge()
+	h.bridges <- b
+	h.writeFile("memo.md", "Revenue grew.")
+	h.start()
+	task := h.submit(approval.ModeAuto)
+	b.feed(ready(), fileEvent("/workspace/memo.md"), runComplete())
+	b.end()
+	h.waitState(task.ID, taskstore.Done)
+
+	h.r.Close()
+	h.r.Close()
+	if err := os.RemoveAll(h.root); err != nil {
+		t.Fatalf("RemoveAll: %v", err)
+	}
+	time.Sleep(50 * time.Millisecond)
+	if _, err := os.Stat(h.root); err == nil {
+		t.Fatalf("%s was recreated after Close returned", h.root)
+	}
+}
+
+// TestCloseInterruptsATaskInFlight guards the word Close ends a live task on:
+// interrupted, spec §3.2's word for a service that stopped under it, never
+// cancelled, which is the operator's.
+func TestCloseInterruptsATaskInFlight(t *testing.T) {
+	h := newHarness(t)
+	b := newFakeBridge()
+	h.bridges <- b
+	h.start()
+	task := h.submit(approval.ModeAsk)
+	b.feed(ready())
+	h.waitState(task.ID, taskstore.Running)
+
+	h.r.Close()
+
+	got, err := h.store.Load(task.ID)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got.State != taskstore.Interrupted || got.FinishedAt == "" || *got.Exit != 1 {
+		t.Errorf("record = %+v, want interrupted", got)
+	}
+	if !b.wasKilled() {
+		t.Error("the sandbox was not killed")
+	}
+	if !strings.Contains(h.logText(task.ID), "interrupted: the dashboard service is stopping") {
+		t.Errorf("log = %s", h.logText(task.ID))
 	}
 }

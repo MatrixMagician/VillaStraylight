@@ -20,10 +20,19 @@ import (
 
 func (r *Runner) work() {
 	for {
+		select {
+		case <-r.stop:
+			return
+		default:
+		}
 		r.mu.Lock()
 		if len(r.queue) == 0 {
 			r.mu.Unlock()
-			<-r.wake
+			select {
+			case <-r.wake:
+			case <-r.stop:
+				return
+			}
 			continue
 		}
 		a := &active{id: r.queue[0], answers: make(chan answer, 1), cancel: make(chan struct{}, 1)}
@@ -142,7 +151,7 @@ func (j *job) awaitReady(b Bridge) bool {
 				j.transition(taskstore.Running, func(t *taskstore.Task) { t.StartedAt = started })
 				return true
 			case crushapi.KindBridgeError:
-				go func() { _ = b.Wait() }()
+				j.r.track(func() { _ = b.Wait() })
 				j.finish(taskstore.Refused, "refused: "+ev.Error)
 				return false
 			}
@@ -164,11 +173,20 @@ func (j *job) settle(ctx context.Context, b Bridge) {
 	j.audit(ctx)
 }
 
+// killAndCancel ends a task the cancel channel woke. Close uses the same
+// channel, so which word the record ends on comes off the active flag.
 func (j *job) killAndCancel(b Bridge) {
 	if err := b.Kill(); err != nil {
 		j.narrate("kill failed: " + err.Error())
 	} else {
-		go func() { _ = b.Wait() }()
+		j.r.track(func() { _ = b.Wait() })
+	}
+	j.r.mu.Lock()
+	interrupted := j.a.interrupted
+	j.r.mu.Unlock()
+	if interrupted {
+		j.finish(taskstore.Interrupted, "interrupted: the dashboard service is stopping")
+		return
 	}
 	j.finish(taskstore.Cancelled, "cancelled")
 }
@@ -365,8 +383,18 @@ func (j *job) finish(to taskstore.State, text string) {
 		return
 	}
 	j.t = t
+	j.r.release()
 	j.r.narrate(&j.t, KindState, string(to))
 	j.r.closeSubs(j.t.ID)
+}
+
+// release drops the finished job so current is non-nil only while the record
+// is non-terminal. It runs before the state narration, which is a store write
+// of its own: the record must not be answerable as live while that lands.
+func (r *Runner) release() {
+	r.mu.Lock()
+	r.current = nil
+	r.mu.Unlock()
 }
 
 func (j *job) narrate(text string) { j.r.narrate(&j.t, KindNarration, text) }

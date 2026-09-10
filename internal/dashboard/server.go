@@ -436,6 +436,13 @@ func (s *Server) ListenAndServe() error {
 // that ignored the context would sit through the stop until systemd's timeout
 // escalated to SIGKILL, turning every `systemctl stop` into a 90-second wait.
 func (s *Server) Serve(ctx context.Context) error {
+	// The runner outlives the HTTP server by exactly this defer: Close kills a
+	// task still in flight, marks its record interrupted, and joins the worker,
+	// so the process does not exit with a goroutine still writing to the store.
+	if s.tasks != nil {
+		defer s.tasks.Close()
+	}
+
 	srv := s.httpServer()
 
 	errCh := make(chan error, 1)
