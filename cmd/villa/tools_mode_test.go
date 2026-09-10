@@ -265,6 +265,23 @@ func TestStatusTableShowsToolsModeOnlyWhenOn(t *testing.T) {
 	}
 }
 
+// TestInstallWorkspaceAgentFlagRegistered guards that the opt-in reaches the install
+// flow: the gate it persists is what `villa work` later refuses without.
+func TestInstallWorkspaceAgentFlagRegistered(t *testing.T) {
+	root := newRoot()
+	inst, _, err := root.Find([]string{"install"})
+	if err != nil {
+		t.Fatalf("install not registered: %v", err)
+	}
+	f := inst.Flags().Lookup("workspace-agent")
+	if f == nil {
+		t.Fatal("`villa install --workspace-agent` is not registered")
+	}
+	if f.DefValue != "false" {
+		t.Errorf("default = %q, want an opt-in default of false", f.DefValue)
+	}
+}
+
 // TestNoteVerdictKeepsTheStatus guards that annotating what went unproven never
 // upgrades or downgrades the verdict itself.
 func TestNoteVerdictKeepsTheStatus(t *testing.T) {

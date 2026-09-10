@@ -64,6 +64,7 @@ func newInstall() *cobra.Command {
 	cmd.Flags().BoolVar(&opts.NoTUI, "no-tui", false, "skip the guided wizard; use the flag-driven install path")
 	cmd.Flags().BoolVar(&opts.CodingAgent, "coding-agent", false, "install the local coding agent (Crush) addon: stage its pinned binary + coder model, render a locked-down config, and prove a tool-call round-trip")
 	cmd.Flags().BoolVar(&opts.WebSearch, "web-search", false, "install the web-search addon: render the SearXNG service + the SSRF-guarded villa-websafe loader, wire Open WebUI's native web search, and prove SearXNG readiness (opt-in; default off)")
+	cmd.Flags().BoolVar(&opts.WorkspaceAgent, "workspace-agent", false, "enable the workspace agent: persist the gate and serve the chat unit for tool calling, which is how the agent drives the endpoint (opt-in; default off)")
 	return cmd
 }
 
