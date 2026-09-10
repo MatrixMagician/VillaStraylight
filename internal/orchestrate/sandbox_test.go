@@ -35,7 +35,7 @@ func TestRenderSandboxRunArgs(t *testing.T) {
 		"--network", "villa-sandbox",
 		"--read-only",
 		"--tmpfs", "/tmp",
-		"--memory", "8g",
+		"--memory", "4g",
 		"--cpus", "4",
 		"--volume", "/home/villa/Documents/ledger:/workspace:Z",
 		"--volume", "/home/villa/.local/bin/villa:/usr/local/bin/villa:ro,z",

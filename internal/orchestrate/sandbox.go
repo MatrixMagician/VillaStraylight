@@ -46,11 +46,14 @@ const (
 	sandboxNetworkAttach   = "villa-sandbox.network"
 )
 
-// Defaults for the two tunables config supplies. 8g is above the prototype's 4g
-// because LibreOffice recalculates with Java loaded; the spec's open item 4 is to
-// measure it.
+// Defaults for the two tunables config supplies. Measured under krun on
+// 2026-09-10 (spec v1.11 §13 item 4): a LibreOffice recalc of the reconciliation
+// workbook peaked at 157 MB RSS and completed at 2g, 4g and 8g alike, and a whole
+// task VM (Crush, the bridge, the audit's reads) peaked at 420 MB. 4g is eight
+// times that and the value the prototype ran at; a larger workbook is what
+// sandbox_memory is for.
 const (
-	sandboxDefaultMemory = "8g"
+	sandboxDefaultMemory = "4g"
 	sandboxDefaultCPUs   = 4
 )
 

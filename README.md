@@ -342,7 +342,7 @@ Key fields (`internal/config/villaconfig.go`):
 
 When the optional memory (v1.3), coding-agent (v1.4), and web-search (v1.5) addons are enabled, `villa install` persists their own append-only fields into the same `config.toml`, which stays the single source of truth: the rendered Quadlet units, `crush.json`, and the SearXNG `settings.yml` are regenerated from it, never hand-edited. Web search keys off the deliberate `web_search_enabled` bool (default false, never self-healed on); set it with `villa install --web-search` (which persists the gate). With it off, every field is omitted and the render is byte-identical to v1.4. When on, `villa install` generates the SearXNG `secret_key` and the `villa-websafe` bearer via `crypto/rand` into `0600` files (never logged, never in a `0644` unit).
 
-The workspace agent (v1.11) adds five more fields, none of them a `config set` key: `tools_mode` and `workspace_agent` are written by `villa tools-mode enter|exit` and `villa install --workspace-agent`, `workspace` (the grant list) by `villa workspace add|remove`, and `sandbox_memory` (default `8g`) and `sandbox_cpus` (default `4`) by hand, read at task launch. See [CONFIGURATION.md](docs/CONFIGURATION.md#the-workspace-agent).
+The workspace agent (v1.11) adds five more fields, none of them a `config set` key: `tools_mode` and `workspace_agent` are written by `villa tools-mode enter|exit` and `villa install --workspace-agent`, `workspace` (the grant list) by `villa workspace add|remove`, and `sandbox_memory` (default `4g`) and `sandbox_cpus` (default `4`) by hand, read at task launch. See [CONFIGURATION.md](docs/CONFIGURATION.md#the-workspace-agent).
 
 Inspect or change config with `villa config show` and `villa config set key=value`.
 

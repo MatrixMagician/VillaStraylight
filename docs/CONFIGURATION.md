@@ -76,7 +76,7 @@ chat_port = 3000
 | `tools_mode` | bool | _(absent → false)_ | Whether the chat unit is served with the model's own chat template, so tool calls parse. Written by `villa tools-mode enter`, `villa tools-mode exit` and `villa install --workspace-agent`, never by `config set`: flipping it restarts the inference unit under a transactional cutover. Coding mode implies it, so `coding_mode = true` answers the gate on without this key. See [The workspace agent](#the-workspace-agent). |
 | `workspace_agent` | bool | _(absent → false)_ | The workspace agent's gate. Written only by `villa install --workspace-agent`, which also sets `tools_mode`. With it on, the render adds `villa-sandbox.network` and joins the inference unit to it, and `villa preflight` runs `PRE-09`. |
 | `workspace` | array of strings | _(absent)_ | The registered workspace grants: absolute, symlink-resolved folders a task may be run against. Written by `villa workspace add` and `villa workspace remove`; `villa work` refuses any path not on this list. |
-| `sandbox_memory` | string | _(absent → `8g`)_ | The `--memory` limit of a task's microVM, in podman's syntax. Edit by hand; read at task launch. The default lives in `internal/orchestrate/sandbox.go`, not in `defaultConfig()`, so an absent key writes nothing to the file. |
+| `sandbox_memory` | string | _(absent → `4g`)_ | The `--memory` limit of a task's microVM, in podman's syntax. Edit by hand; read at task launch. The default lives in `internal/orchestrate/sandbox.go`, not in `defaultConfig()`, so an absent key writes nothing to the file. |
 | `sandbox_cpus` | int | _(absent → `4`)_ | The `--cpus` limit of a task's microVM. Edit by hand; read at task launch; zero or negative renders the default. |
 
 ### The resident set
@@ -158,14 +158,14 @@ Five keys drive `villa work`. Each has exactly one writer, and none of them is a
 | `tools_mode` | bool | `false` | `villa tools-mode enter` / `exit`, `villa install --workspace-agent` | the inference render (the chat template flag), `villa work`, `villa doctor` (`TMD-01`), `villa status` (`mode: tools`) |
 | `workspace_agent` | bool | `false` | `villa install --workspace-agent` | the render (`villa-sandbox.network`, the inference unit's second network line), `villa preflight` (`PRE-09`), `villa doctor` (`SBX-01`, `SBX-02`) |
 | `workspace` | array of strings | absent | `villa workspace add` / `remove` | `villa work`, the runner, the dashboard's Workspaces panel |
-| `sandbox_memory` | string | `8g` | you, by hand | the task launch (`podman run --memory`) |
+| `sandbox_memory` | string | `4g` | you, by hand | the task launch (`podman run --memory`) |
 | `sandbox_cpus` | int | `4` | you, by hand | the task launch (`podman run --cpus`) |
 
 ```toml
 tools_mode = true
 workspace_agent = true
 workspace = ["/home/you/Documents/quarterly"]
-sandbox_memory = "8g"
+sandbox_memory = "4g"
 sandbox_cpus = 4
 ```
 
@@ -194,9 +194,11 @@ and touches no file. A hand-edited entry that no longer resolves is not a grant:
 `sandbox_memory` and `sandbox_cpus` are the two tunables a task's microVM takes
 from config. The defaults are constants in `internal/orchestrate/sandbox.go`
 rather than `defaultConfig()`, so an absent key writes nothing to the file and
-renders `8g` and `4`. `8g` is above the prototype's `4g` because LibreOffice
-recalculates with Java loaded; it has not been measured under krun (spec
-§13, item 4).
+renders `4g` and `4`. `4g` was frozen by measurement on 2026-09-10 (spec
+§13, item 4): under krun, `villa-recalc` on the reconciliation workbook peaked at
+157 MB RSS and completed at 2g, 4g and 8g alike, and a whole task VM (Crush, the
+bridge, the audit's reads) peaked at 420 MB. `4g` is eight times that and the
+value the prototype ran at; set `sandbox_memory` higher for a larger workbook.
 
 ### Inspecting and editing the config
 
@@ -299,7 +301,7 @@ Defaults are defined in a single place in the source (`internal/config/villaconf
 | Models directory | `$XDG_DATA_HOME/villa/models` → `~/.local/share/villa/models` | `cmd/villa/model.go` `modelsDir()` |
 | Config file path | `$XDG_CONFIG_HOME/villa/config.toml` → `~/.config/villa/config.toml` | `internal/config` `Path()` |
 | Quadlet units directory | `$XDG_CONFIG_HOME/containers/systemd/` → `~/.config/containers/systemd/` | `cmd/villa/install.go` `quadletUnitDir()` |
-| `sandbox_memory` | `8g` | `internal/orchestrate/sandbox.go`, applied at task launch when the key is absent |
+| `sandbox_memory` | `4g` | `internal/orchestrate/sandbox.go`, applied at task launch when the key is absent |
 | `sandbox_cpus` | `4` | `internal/orchestrate/sandbox.go`, applied at task launch when the key is absent or not positive |
 | Task records and logs | `$XDG_DATA_HOME/villa/tasks/` → `~/.local/share/villa/tasks/` | `internal/pathsafe` `DataRoot()` + `internal/taskstore` |
 
@@ -401,7 +403,7 @@ by a test and listed here in full:
 | `--runtime=krun` | A libkrun microVM with its own guest kernel. krun ignores `--user`: the guest runs as root, and files it writes come out owned by you. |
 | `--network villa-sandbox` | The internal network (`Internal=true`): the task reaches the served model and nothing else. |
 | `--read-only --tmpfs /tmp` | A read-only root; `/tmp` is the only scratch space, and it is where Crush's config and data live. |
-| `--memory <sandbox_memory> --cpus <sandbox_cpus>` | From `config.toml`; defaults `8g` and `4`. |
+| `--memory <sandbox_memory> --cpus <sandbox_cpus>` | From `config.toml`; defaults `4g` and `4`. |
 | `--volume <workspace>:/workspace:Z` | The one read-write mount: the registered grant. |
 | `--volume <villa>:/usr/local/bin/villa:ro,z` | The running `villa` binary, read-only, so the guest can run `villa sandbox-bridge`. This is why the CGO-free build gate is load-bearing. |
 | `--volume <crush>:/usr/local/bin/crush:ro,z` | The pinned Crush binary, read-only. |
