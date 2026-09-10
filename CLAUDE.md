@@ -375,11 +375,13 @@ per resident model, named by `orchestrate.ResidentUnitName`), `villa-openwebui`,
 (v1.5 web search) — the last of which bind-mounts the `villa` binary into a
 distroless container, which is why the CGO-free build gate is load-bearing. The
 v1.11 workspace agent adds one long-lived unit, `villa-sandbox.network`
-(`Internal=true`, the inference unit joins it as a second network), and no
-container unit: each task is one `podman run --runtime=krun` named
-`villa-task-<id>`, rendered by `orchestrate.RenderSandboxRun`, which bind-mounts
-the `villa` binary the same way (the second reason the CGO-free gate is
-load-bearing).
+(`Internal=true`), rendered UNCONDITIONALLY like `villa.network` — only the
+inference unit's second `Network=` join line is gated on `workspace_agent`
+(issue #199: an unjoined `.network` unit starts no service, so there is nothing
+for a leftover to cost) — and no container unit: each task is one
+`podman run --runtime=krun` named `villa-task-<id>`, rendered by
+`orchestrate.RenderSandboxRun`, which bind-mounts the `villa` binary the same way
+(the second reason the CGO-free gate is load-bearing).
 
 Persistent state lives in `config.toml` (the single source of truth) and in on-disk
 Quadlet units regenerated from it. Cores hold no global mutable state; the dashboard

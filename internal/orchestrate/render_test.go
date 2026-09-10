@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -341,7 +342,8 @@ func TestInstallSectionPresent(t *testing.T) {
 }
 
 // TestRenderFiveUnitOrder: Render grows from 3 to 5 units in a fixed
-// deterministic order — callers and goldens depend on this exact sequence.
+// deterministic order — callers and goldens depend on this exact sequence — plus the
+// unconditional sandbox network (issue #199), always last.
 func TestRenderFiveUnitOrder(t *testing.T) {
 	units, err := Render(fixtureInput())
 	if err != nil {
@@ -353,6 +355,7 @@ func TestRenderFiveUnitOrder(t *testing.T) {
 		"villa-models.volume",
 		"villa-openwebui.container",
 		"villa-openwebui.volume",
+		"villa-sandbox.network",
 	}
 	got := unitNames(units)
 	if len(got) != len(want) {
@@ -784,18 +787,70 @@ func TestRenderInferenceUnitJoinsTheSandboxNetwork(t *testing.T) {
 	goldenCompare(t, "villa-llama-sandbox.container.golden", c.Text)
 }
 
-// TestRenderSandboxOffIsByteIdentical: with the workspace agent off, no sandbox
-// network is rendered and the inference unit keeps its single Network= line. That
-// is what keeps an install from before v1.11 from being restarted by an upgrade.
+// TestRenderSandboxOffIsByteIdentical: with the workspace agent off, the inference
+// unit keeps its single Network= line — that is what keeps an install from before
+// v1.11 from being restarted by an upgrade. The sandbox network unit itself is
+// still rendered (issue #199): a .network unit nothing joins starts no service, so
+// it is unconditional like villa.network, and its ABSENCE is no longer a passing
+// state — see TestRenderSandboxNetworkNeverLeftBehind.
 func TestRenderSandboxOffIsByteIdentical(t *testing.T) {
 	units, err := Render(fixtureInput())
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
-	for _, u := range units {
-		if u.Name == "villa-sandbox.network" {
-			t.Error("the sandbox network rendered with workspace_agent off")
-		}
+	n := unitByName(t, units, "villa-sandbox.network")
+	if !strings.Contains(n.Text, "Internal=true") {
+		t.Errorf("the sandbox network is not internal:\n%s", n.Text)
 	}
+	goldenCompare(t, "villa-sandbox.network.golden", n.Text)
 	goldenCompare(t, "villa-llama.container.golden", unitByName(t, units, "villa-llama.container").Text)
+}
+
+// TestRenderSandboxNetworkNeverLeftBehind is the issue #199 regression: rendering
+// with the workspace agent on, then off, must yield the identical unit set except
+// for the inference unit's second Network= line. Before this fix, turning the gate
+// off dropped the sandbox network unit from the render, so Reconcile (which only
+// writes changed units and never deletes one the render stops yielding) left the
+// old villa-sandbox.network and its service on disk with nothing left to remove it.
+func TestRenderSandboxNetworkNeverLeftBehind(t *testing.T) {
+	onUnits, err := Render(sandboxOnFixtureInput())
+	if err != nil {
+		t.Fatalf("Render (on): %v", err)
+	}
+	offUnits, err := Render(fixtureInput())
+	if err != nil {
+		t.Fatalf("Render (off): %v", err)
+	}
+
+	onNames := unitNameSet(onUnits)
+	offNames := unitNameSet(offUnits)
+	if !slices.Equal(onNames, offNames) {
+		t.Errorf("unit set changed with the gate: on=%v off=%v", onNames, offNames)
+	}
+
+	onNet := unitByName(t, onUnits, "villa-sandbox.network")
+	offNet := unitByName(t, offUnits, "villa-sandbox.network")
+	if onNet.Text != offNet.Text {
+		t.Errorf("villa-sandbox.network differs between gate states:\non:\n%s\noff:\n%s", onNet.Text, offNet.Text)
+	}
+
+	onInf := unitByName(t, onUnits, "villa-llama.container")
+	offInf := unitByName(t, offUnits, "villa-llama.container")
+	if got := strings.Count(onInf.Text, "Network="); got != 2 {
+		t.Errorf("inference unit (on) has %d Network= lines, want 2", got)
+	}
+	if got := strings.Count(offInf.Text, "Network="); got != 1 {
+		t.Errorf("inference unit (off) has %d Network= lines, want 1", got)
+	}
+}
+
+// unitNameSet returns the sorted unit names, so two renders can be compared by
+// unit SET regardless of any incidental ordering difference.
+func unitNameSet(units []Unit) []string {
+	names := make([]string, 0, len(units))
+	for _, u := range units {
+		names = append(names, u.Name)
+	}
+	slices.Sort(names)
+	return names
 }

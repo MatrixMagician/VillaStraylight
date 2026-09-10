@@ -304,13 +304,23 @@ func Render(in RenderInput) ([]Unit, error) {
 	// position before it is unchanged. It carries no container of its own — a task's
 	// container is per-task and started by the runner, never a unit — so
 	// subsystem.Sandbox declares no units and the drift test asserts that.
-	if subsystem.SandboxOn(in.Cfg) {
-		sandboxNetworkText, err := execTemplate(tmpl, "sandbox.network.tmpl", networkView{NetworkName: sandboxNetworkName})
-		if err != nil {
-			return nil, err
-		}
-		units = append(units, Unit{Name: sandboxNetworkUnitName, Text: sandboxNetworkText})
+	//
+	// Rendered UNCONDITIONALLY, unlike every other subsystem block above: a Quadlet
+	// .network unit with no container joining it generates no podman network and starts
+	// no service (podman-systemd.unit(5): the .network unit's generated
+	// villa-sandbox-network.service is pulled in only as a Requires/After dependency of
+	// a .container unit that sets Network=; nothing else activates it). So an
+	// always-rendered unit costs nothing on a host that never turns the workspace agent
+	// on. The alternative — gate the unit and have Reconcile delete it when the gate
+	// flips off — would be a third unit-deletion site; CLAUDE.md names exactly two
+	// (uninstall's enumeration and prune's ref-counted image removal). Only the
+	// inference unit's SandboxNetwork join line above stays gated: that is what actually
+	// changes runtime behavior.
+	sandboxNetworkText, err := execTemplate(tmpl, "sandbox.network.tmpl", networkView{NetworkName: sandboxNetworkName})
+	if err != nil {
+		return nil, err
 	}
+	units = append(units, Unit{Name: sandboxNetworkUnitName, Text: sandboxNetworkText})
 
 	return units, nil
 }

@@ -83,6 +83,7 @@ func TestRenderEmptyResidentIsByteIdentical(t *testing.T) {
 		"villa-models.volume",
 		"villa-openwebui.container",
 		"villa-openwebui.volume",
+		"villa-sandbox.network", // unconditional (issue #199)
 	}
 	got := unitNames(units)
 	if len(got) != len(want) {
@@ -100,22 +101,26 @@ func TestRenderEmptyResidentIsByteIdentical(t *testing.T) {
 		"villa-models.volume":       "villa-models.volume.golden",
 		"villa-openwebui.container": "villa-openwebui.container.golden",
 		"villa-openwebui.volume":    "villa-openwebui.volume.golden",
+		"villa-sandbox.network":     "villa-sandbox.network.golden",
 	}
 	for _, u := range units {
 		goldenCompare(t, goldens[u.Name], u.Text)
 	}
 
 	// The memory-ON and web-search-ON stacks must also be untouched: an empty
-	// Resident may not shift where their optional units land.
+	// Resident may not shift where their optional units land. The sandbox network is
+	// dropped from the fixed-five base and re-appended last, since it renders AFTER
+	// the memory/web-search blocks regardless of either gate.
+	fixedFive := want[:len(want)-1]
 	for _, tc := range []struct {
 		name string
 		in   RenderInput
 		want []string
 	}{
-		{"memory-on", memoryFixtureInput(), append(append([]string{}, want...),
-			"villa-qdrant.container", "villa-qdrant.volume", "villa-embed.container")},
-		{"websearch-on", searxngFixtureInput(), append(append([]string{}, want...),
-			"villa-searxng.container", "villa-websafe.container")},
+		{"memory-on", memoryFixtureInput(), append(append(append([]string{}, fixedFive...),
+			"villa-qdrant.container", "villa-qdrant.volume", "villa-embed.container"), "villa-sandbox.network")},
+		{"websearch-on", searxngFixtureInput(), append(append(append([]string{}, fixedFive...),
+			"villa-searxng.container", "villa-websafe.container"), "villa-sandbox.network")},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			units, err := Render(tc.in)
@@ -166,6 +171,7 @@ func TestRenderResidentUnitOrder(t *testing.T) {
 		"villa-openwebui.volume",
 		residentUnitName,
 		"villa-llama-gemma3-12b.container",
+		"villa-sandbox.network", // unconditional (issue #199)
 	}
 	got := unitNames(units)
 	if len(got) != len(want) {
