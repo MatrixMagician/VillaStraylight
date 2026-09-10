@@ -495,7 +495,8 @@ terminal is the only way in.
 - **`villa doctor`** gains `SBX-01` (the read-only twin of `PRE-09`), `SBX-02`
   (`villa-sandbox.network` is on disk and the inference unit is joined to it)
   and `TMD-01` (the served unit carries the tool-calling flag exactly when tools
-  mode is on). `villa status` prints `mode  tools` on the inference line.
+  mode is on). `villa status` prints `mode  tools` on the inference line and, once
+  a task has run, a `last task  <id> <state>` row.
 
 ## Common setup issues
 

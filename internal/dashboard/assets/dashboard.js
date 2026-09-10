@@ -336,7 +336,7 @@
   // All server values (backend, image) are set via textContent — NEVER innerHTML — matching
   // the established XSS-safe DOM idiom (renderHealth / renderGPU). Backend identity is
   // sourced from the /api/status poll (report.backend/report.image), not /api/metrics (D-01).
-  function renderBackend(backend, image, readiness, speculation, vision) {
+  function renderBackend(backend, image, readiness, speculation, vision, lastTask) {
     if (!healthBackend) { return; }
     healthBackend.textContent = "";
 
@@ -387,6 +387,23 @@
     visionVal.textContent = vision ? "yes" : "no";
     visionRow.appendChild(visionVal);
     healthBackend.appendChild(visionRow);
+
+    // Last task row (spec v1.11 §10): OMIT the row entirely when report.last_task
+    // is absent (sandbox off, or no task has ever run) — the honest empty state is
+    // no row, mirroring the image-row precedent above.
+    if (lastTask) {
+      var taskRow = document.createElement("div");
+      taskRow.className = "health-row";
+      var taskLabel = document.createElement("span");
+      taskLabel.className = "health-service";
+      taskLabel.textContent = "last task";
+      taskRow.appendChild(taskLabel);
+      var taskVal = document.createElement("span");
+      taskVal.className = "health-detail";
+      taskVal.textContent = lastTask.id + " " + lastTask.state;
+      taskRow.appendChild(taskVal);
+      healthBackend.appendChild(taskRow);
+    }
 
     // Active image row (element 1). OMIT the row entirely when the image tag is unset — the
     // honest empty state is no row, not a placeholder. Monospace tabular via .health-detail.
@@ -1365,7 +1382,7 @@
         // /api/status, never /api/metrics) and append the backend/image rows + readiness
         // badge into the Health panel after the service rows.
         lastBackend = report.backend || null;
-        renderBackend(report.backend, report.image, report.rocm_readiness, report.speculation, report.vision);
+        renderBackend(report.backend, report.image, report.rocm_readiness, report.speculation, report.vision, report.last_task);
         // Cumulative usage rides the SAME /api/status poll (USAGE-02 / D-10) — no new
         // endpoint, no new fetch. Render it into the stable #cumulative-usage block inside
         // the Performance panel from report.usage (typed-Unknown muted copy when absent).
