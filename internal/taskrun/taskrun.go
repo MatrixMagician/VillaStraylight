@@ -137,6 +137,12 @@ func New(d Deps) *Runner {
 	return r
 }
 
+// List is the store's time-ordered record list, for the read routes.
+func (r *Runner) List() ([]taskstore.Task, error) { return r.d.Store.List() }
+
+// Load is one record as it is on disk, for the read routes.
+func (r *Runner) Load(id string) (taskstore.Task, error) { return r.d.Store.Load(id) }
+
 // Recover marks every non-terminal record interrupted (taskstore.Recover) and
 // kills each one's container by name, best effort. Spec §3.2: recovery never
 // re-queues.
