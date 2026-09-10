@@ -277,3 +277,47 @@ func TestCompleteRequiresModel(t *testing.T) {
 		t.Errorf("error %q should match StreamChat's no-model message", err)
 	}
 }
+
+// TestStreamChatCarriesSamplingFieldsOnTheWire: the grounding audit relies on
+// temperature 0 and enable_thinking:false reaching llama-server; a request that
+// sets them must put both in the body, and one that does not must omit both.
+func TestStreamChatCarriesSamplingFieldsOnTheWire(t *testing.T) {
+	var got map[string]json.RawMessage
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Errorf("decode body: %v", err)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+	}))
+	defer srv.Close()
+	client := NewOpenAIClient(Options{BaseURL: srv.URL})
+	zero := 0.0
+	err := client.StreamChat(t.Context(), ChatRequest{
+		Model:              "m",
+		Messages:           []Message{{Role: RoleUser, Content: "hi"}},
+		Temperature:        &zero,
+		ChatTemplateKwargs: map[string]any{"enable_thinking": false},
+	}, func(string) error { return nil })
+	if err != nil {
+		t.Fatalf("StreamChat: %v", err)
+	}
+	if string(got["temperature"]) != "0" {
+		t.Errorf("temperature on the wire = %s, want 0", got["temperature"])
+	}
+	if string(got["chat_template_kwargs"]) != `{"enable_thinking":false}` {
+		t.Errorf("chat_template_kwargs on the wire = %s", got["chat_template_kwargs"])
+	}
+
+	got = nil
+	err = client.StreamChat(t.Context(), ChatRequest{Model: "m", Messages: []Message{{Role: RoleUser, Content: "hi"}}},
+		func(string) error { return nil })
+	if err != nil {
+		t.Fatalf("StreamChat: %v", err)
+	}
+	for _, k := range []string{"temperature", "chat_template_kwargs"} {
+		if _, ok := got[k]; ok {
+			t.Errorf("%s emitted for an unset request", k)
+		}
+	}
+}

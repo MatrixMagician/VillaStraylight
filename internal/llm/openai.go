@@ -43,9 +43,11 @@ func NewOpenAIClient(opts Options) *OpenAIClient {
 
 // wire types mirror the OpenAI streaming schema (only the fields we consume).
 type wireRequest struct {
-	Model    string    `json:"model"`
-	Messages []Message `json:"messages"`
-	Stream   bool      `json:"stream"`
+	Model              string         `json:"model"`
+	Messages           []Message      `json:"messages"`
+	Stream             bool           `json:"stream"`
+	Temperature        *float64       `json:"temperature,omitempty"`
+	ChatTemplateKwargs map[string]any `json:"chat_template_kwargs,omitempty"`
 }
 
 type wireChunk struct {
@@ -106,7 +108,8 @@ func (c *OpenAIClient) StreamChat(ctx context.Context, req ChatRequest, onDelta 
 		return fmt.Errorf("llm: messages must not be empty")
 	}
 
-	body, err := json.Marshal(wireRequest{Model: model, Messages: req.Messages, Stream: true})
+	body, err := json.Marshal(wireRequest{Model: model, Messages: req.Messages, Stream: true,
+		Temperature: req.Temperature, ChatTemplateKwargs: req.ChatTemplateKwargs})
 	if err != nil {
 		return fmt.Errorf("llm: marshal request: %w", err)
 	}
