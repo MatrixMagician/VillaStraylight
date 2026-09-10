@@ -1,0 +1,32 @@
+# Memo: Should We Run AI Locally?
+
+**To:** [Manager Name]
+**From:** [Author]
+**Date:** 2026-09-10
+**Subject:** Recommendation on deploying on-premise AI
+
+---
+
+## Recommendation
+
+**Yes — for the right use cases.** Running AI locally on capable hardware (128 GB RAM class) is viable today for text-based chat, document analysis, and repetitive drafting tasks. It is not yet a replacement for the very latest frontier models, and the setup requires patience.
+
+## Three benefits
+
+1. **Complete data privacy.** Nothing leaves the machine — no telemetry, no external API calls. The only outbound traffic is for pulling model weights and container images.
+
+2. **Lower ongoing cost.** No per-token or per-seat licensing fees. Once the hardware is in place, inference is free. Speculative decoding techniques can roughly double throughput on repetitive output, making it snappier for drafting and summarization.
+
+3. **Full control and uptime.** The service runs on your own hardware on your own schedule. There is no vendor lock-in, no rate limits, and no outage caused by an external provider going down.
+
+## Three risks
+
+1. **Setup is fiddly.** Getting the stack running — model, inference backend, chat UI, container orchestration — involves multiple moving parts and troubleshooting. It is not a "click and go" experience.
+
+2. **Model quality lags the frontier.** Locally run models are generally a generation or two behind the cutting edge from major vendors. They are good — a 35B-parameter model with 128 GB of RAM can handle 128k-token context windows — but they are not state-of-the-art.
+
+3. **No mobile app.** The available chat interface is web-based and loopback-only. There is no native mobile experience, so remote access requires additional configuration.
+
+## Next step
+
+**Run a small proof-of-concept.** Provision one machine with 128 GB of RAM, install the stack, and have a power user run it for a week on a few real tasks (drafting emails, summarizing documents, answering questions from internal notes). Measure throughput, accuracy on those tasks, and whether the setup friction is a blocker. That single data point tells us whether this is worth scaling.

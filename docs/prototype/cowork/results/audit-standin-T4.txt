@@ -1,0 +1,59 @@
+1. Running AI locally on capable hardware (128 GB RAM class) is viable today for text-based chat, document analysis, and repetitive drafting tasks.
+UNSUPPORTED
+
+2. Nothing leaves the machine — no telemetry, no external API calls.
+"Nothing leaves the box: no telemetry, outbound only for image and model pulls." (workspace/notes/research_notes_local_ai.md)
+
+3. The only outbound traffic is for pulling model weights and container images.
+"outbound only for image and model pulls." (workspace/notes/research_notes_local_ai.md)
+
+4. No per-token or per-seat licensing fees.
+UNSUPPORTED
+
+5. Once the hardware is in place, inference is free.
+UNSUPPORTED
+
+6. Speculative decoding techniques can roughly double throughput on repetitive output.
+"Speculative decoding (ngram) roughly doubles tokens/s on repetitive output." (workspace/notes/research_notes_local_ai.md)
+
+7. The service runs on your own hardware on your own schedule.
+UNSUPPORTED
+
+8. There is no vendor lock-in, no rate limits, and no outage caused by an external provider going down.
+UNSUPPORTED
+
+9. Setup is fiddly.
+"Downsides: setup is fiddly" (workspace/notes/research_notes_local_ai.md)
+
+10. Getting the stack running involves multiple moving parts and troubleshooting.
+UNSUPPORTED
+
+11. It is not a "click and go" experience.
+UNSUPPORTED
+
+12. Model quality lags the frontier.
+"model quality lags the frontier" (workspace/notes/research_notes_local_ai.md)
+
+13. Locally run models are generally a generation or two behind the cutting edge from major vendors.
+UNSUPPORTED
+
+14. A 35B-parameter model with 128 GB of RAM can handle 128k-token context windows.
+"Strix Halo: 128 GB unified memory, so a 35B MoE at Q4 fits with room for a 128k context." (workspace/notes/research_notes_local_ai.md)
+
+15. They are not state-of-the-art.
+UNSUPPORTED
+
+16. No mobile app.
+"no mobile app." (workspace/notes/research_notes_local_ai.md)
+
+17. The available chat interface is web-based and loopback-only.
+"Open WebUI gives the chat surface" (workspace/notes/research_notes_local_ai.md)
+
+18. There is no native mobile experience.
+"no mobile app." (workspace/notes/research_notes_local_ai.md)
+
+19. Remote access requires additional configuration.
+UNSUPPORTED
+
+TOTAL: 19 claims, 12 unsupported
+--usage: {'completion_tokens': 572, 'prompt_tokens': 762, 'total_tokens': 1334, 'prompt_tokens_details': {'cached_tokens': 0}} reasoning_chars: 0

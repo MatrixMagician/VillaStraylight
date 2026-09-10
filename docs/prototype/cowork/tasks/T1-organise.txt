@@ -1,0 +1,1 @@
+This folder is a mess. Organise it: create subfolders by type (meetings/, finance/, notes/, photos/, misc/) and move each file into the right one. Rename meeting notes so they all follow meeting-YYYY-MM-DD.md (convert .txt to .md, keep the content). Do not delete anything. Finish by writing INDEX.md at the top level listing every file with a one-line description.

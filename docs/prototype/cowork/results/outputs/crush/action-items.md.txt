@@ -1,0 +1,30 @@
+# Action Items & Decisions
+
+*Source: meetings/meeting-2026-05-04.md, meetings/meeting-2026-05-18.md, notes/Sync-June-1.md*
+
+## Action Items
+
+| # | Action | Owner | Date Raised | Status (as of 2026-06-01) |
+|---|--------|-------|-------------|---------------------------|
+| 1 | Send revised quote to Ono-Sendai by Friday | Molly | 2026-05-04 | **Done** – quote accepted (05-18) |
+| 2 | Raise invoice for accepted quote | Molly | 2026-05-18 | **Done** – invoice raised (INV-1045?) |
+| 3 | Migrate shared drive to new folder structure | Case | 2026-05-04 | **Open** – was blocked pending Armitage naming approval; unblocked 06-01 but not yet completed |
+| 4 | Approve shared drive naming scheme | Armitage | 2026-05-04 | **Done** – approved `<type>/<yyyy>-<mm>/<name>` (06-01) |
+| 5 | Confirm Chiba trip dates | Armitage | 2026-05-04 | **Done** – confirmed 2026-07-08 to 2026-07-12 (06-01) |
+| 6 | Draft Q2 client update memo | Case | 2026-05-18 | **Open** – still not drafted as of 06-01 |
+| 7 | Chase Maas Biolabs (payment came in short) | Unspecified | 2026-05-18 | **Open** |
+| 8 | Renew Sense/Net retainer | Unspecified | 2026-06-01 | **Done** – net-30 agreed and renewed (06-01) |
+
+## Decisions
+
+| Decision | Date | Meeting | Status / Notes |
+|----------|------|---------|----------------|
+| Drop the Sense/Net retainer renewal unless they agree to net-30 | 2026-05-04 | 4 May | **Superseded** – Sense/Net agreed to net-30, retainer was renewed (06-01) |
+
+## Contradictions & Notes
+
+- **Sense/Net retainer:** On 4 May the team decided to *drop* the Sense/Net retainer unless they agreed net-30. By 1 June, Sense/Net agreed to net-30 and the retainer was renewed — the original decision was effectively reversed once the condition was met. This is not a true contradiction but a conditional decision that was fulfilled.
+- **Maas Biolabs invoice:** The 18 May note mentions a short payment from Maas Biolabs, but the 1 June sync does not update the status. The owner is also not recorded (it says "Action:" without naming a person). This item needs follow-up.
+- **Invoice number ambiguity:** The 18 May note says "INV-1045? check — might be Maas." The exact invoice number for the Ono-Sendai quote is uncertain and should be verified.
+- **Drive migration:** Originally blocked by Armitage's naming approval (05-04 → 05-18). Unblocked once Armitage approved the scheme on 06-01. Case was asked to do it "this week" — status as of 06-01 is still open (in progress).
+- **Q2 memo:** Assigned to Case on 18 May; still outstanding at 06-01 with no further follow-up recorded.

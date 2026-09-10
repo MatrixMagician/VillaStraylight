@@ -1,0 +1,15 @@
+== crush T6 2026-09-10T12:09:49+01:00
+Now I have both files. Let me write the Python script to build the reconciliation workbook.
+
+Let me rewrite with a cleaner, more reliable approach.
+
+-- exit=124 wall=1201s prompt_tokens=4691 generated=6295
+1a2
+> ./_build_reconciliation.py
+3a5,6
+> ./.crush/crush.db-shm
+> ./.crush/crush.db-wal
+21a25
+> ./reports/_recalc_uno.py
+22a27
+> ./reports/reconciliation.xlsx

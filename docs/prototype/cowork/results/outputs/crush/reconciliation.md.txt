@@ -1,0 +1,39 @@
+# Invoice Reconciliation Report
+
+**Period:** Q2 2026 (April – June)
+**Generated:** 2026-06-30
+**Sources:** `finance/invoices_q2.csv`, `finance/bank_export_may_jun.csv`
+
+## Reconciliation Table
+
+| Invoice | Client | Invoice Date | Amount (GBP) | Paid (GBP) | Date Paid | Status | Shortfall |
+|---------|--------|-------------|-------------|-----------|-----------|--------|-----------|
+| INV-1041 | Tessier-Ashpool | 2026-04-03 | £1,200.00 | £1,200.00 | 2026-04-20 | Paid in full | — |
+| INV-1042 | Sense/Net | 2026-04-11 | £860.50 | £860.50 | 2026-05-02 | Paid in full | — |
+| INV-1043 | Ono-Sendai | 2026-04-28 | £2,400.00 | £2,400.00 | 2026-05-30 | Paid in full | — |
+| INV-1044 | Tessier-Ashpool | 2026-05-06 | £1,200.00 | £1,200.00 | 2026-06-15 | Paid in full | — |
+| INV-1045 | Maas Biolabs | 2026-05-19 | £3,150.75 | £3,100.75 | 2026-06-16 | Paid short | £50.00 |
+| INV-1046 | Sense/Net | 2026-06-02 | £860.50 | — | — | Unpaid | £860.50 |
+| INV-1047 | Ono-Sendai | 2026-06-21 | £975.00 | — | — | Unpaid (draft) | £975.00 |
+
+## Totals
+
+| | Amount |
+|---|---|
+| **Total invoiced** | £10,646.75 |
+| **Total paid** | £9,221.75 |
+| **Total outstanding** | **£1,425.00** |
+
+## Flagged Items
+
+1. **INV-1045 — Maas Biolabs: paid £50.00 short.**
+   Bank credit of £3,100.75 vs. invoice amount of £3,150.75. This looks like either a mistake or an undisclosed discount/fee deduction. Follow up with Maas Biolabs to confirm.
+
+2. **INV-1046 — Sense/Net: unpaid (14 days overdue as of 2026-06-16).**
+   Invoice dated 2026-06-02, no bank receipt. Standard payment terms suggest a follow-up is due.
+
+3. **INV-1047 — Ono-Sendai: still in draft status.**
+   Invoice dated 2026-06-21 and has not yet been sent to the client. Consider sending it and updating the status to "sent".
+
+4. **INV-1041 — unusually early payment.**
+   Invoice dated 2026-04-03 but payment arrived 2026-04-20 (17 days). While not problematic, this is worth noting if payment terms were standard 30-day — the client paid ahead of schedule.

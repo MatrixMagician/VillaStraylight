@@ -1,0 +1,31 @@
+import sys, uno, os
+from com.sun.star.beans import PropertyValue
+
+localContext = uno.getComponentContext()
+resolver = localContext.ServiceManager.createInstanceWithContext(
+    "com.sun.star.bridge.UnoUrlResolver", localContext)
+try:
+    ctx = resolver.resolve(
+        "uno:socket,host=localhost,port=2002;urp;StarOffice.ComponentContext")
+except:
+    print("UNO not connected; starting listener...")
+    import subprocess
+    subprocess.Popen(["soffice", "--headless", "--norestore",
+                      "--accept=socket,host=localhost,port=2002;urp;"])
+    import time; time.sleep(3)
+    ctx = resolver.resolve(
+        "uno:socket,host=localhost,port=2002;urp;StarOffice.ComponentContext")
+
+smgr = ctx.ServiceManager
+desktop = smgr.createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
+infile = uno.systemPathToFileUrl(sys.argv[1])
+outfile = uno.systemPathToFileUrl(sys.argv[2])
+
+doc = desktop.loadComponentFromURL(infile, "_blank", 0, ())
+# Force recalculation
+doc.reformat()
+doc.calculate()
+# Store
+doc.storeToURL(outfile, ())
+doc.close(True)
+print("Recalculated and saved")

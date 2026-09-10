@@ -1,0 +1,35 @@
+# Duplicate Files Report
+
+Identified 2 pairs of byte-for-byte identical files.
+
+---
+
+## Pair 1: Q2 invoices
+
+| File | Size |
+|------|------|
+| `finance/invoices_q2.csv` | 354 bytes |
+| `finance/invoices_q2 - Copy.csv` | 354 bytes |
+
+**Keep:** `finance/invoices_q2.csv`
+**Why:** Clean filename without the `- Copy` suffix; the `- Copy` variant is clearly a macOS/Windows double-click accident.
+
+---
+
+## Pair 2: Local AI research notes
+
+| File | Size |
+|------|------|
+| `notes/research_notes_local_ai.md` | 540 bytes |
+| `notes/research_notes_local_ai (1).md` | 540 bytes |
+
+**Keep:** `notes/research_notes_local_ai.md`
+**Why:** Clean filename without the `(1)` suffix; the `(1)` variant is clearly a duplicate copy created by file-copy operations.
+
+---
+
+## Notes on other files
+
+The memo at `reports/memo-local-ai.md` and the raw notes at `notes/research_notes_local_ai.md` cover the same topic but are distinct documents (one is a formal recommendation memo, the other is raw bullet notes). They are complementary, not duplicates.
+
+No other near-duplicates found.

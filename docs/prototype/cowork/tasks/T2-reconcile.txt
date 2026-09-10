@@ -1,0 +1,1 @@
+Reconcile the invoices against the bank export. For every invoice say whether it was paid in full, paid short, or unpaid, with the amounts. Write the result to reports/reconciliation.md with a table and the total outstanding. Flag anything that looks wrong.

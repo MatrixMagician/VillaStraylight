@@ -1,0 +1,1 @@
+Read all the meeting notes and produce reports/action-items.md: one table of every action item with owner, date raised, status (open/done/superseded) as far as the later notes tell you, and any decisions made. Note contradictions between meetings.

@@ -1,0 +1,1 @@
+Find duplicate or near-duplicate files in this folder. REPORT ONLY: write reports/duplicates.md listing each pair and which one you would keep and why. Do not move, rename or delete anything.

@@ -1,0 +1,75 @@
+1. The report covers the period Q2 2026 (April – June).
+   UNSUPPORTED
+
+2. The report was generated on 2026-06-30.
+   UNSUPPORTED
+
+3. INV-1041 was issued to Tessier-Ashpool on 2026-04-03 for £1,200.00.
+   "INV-1041,Tessier-Ashpool,2026-04-03,1200.00,sent" (Source: workspace/finance/invoices_q2.csv)
+
+4. INV-1041 was paid in full on 2026-04-20.
+   "2026-04-20,TESSIER ASHPOOL LTD INV1041,1200.00" (Source: workspace/finance/bank_export_may_jun.csv)
+
+5. INV-1042 was issued to Sense/Net on 2026-04-11 for £860.50.
+   "INV-1042,Sense/Net,2026-04-11,860.50,sent" (Source: workspace/finance/invoices_q2.csv)
+
+6. INV-1042 was paid in full on 2026-05-02.
+   "2026-05-02,SENSE NET PAYMENT,860.50" (Source: workspace/finance/bank_export_may_jun.csv)
+
+7. INV-1043 was issued to Ono-Sendai on 2026-04-28 for £2,400.00.
+   "INV-1043,Ono-Sendai,2026-04-28,2400.00,sent" (Source: workspace/finance/invoices_q2.csv)
+
+8. INV-1043 was paid in full on 2026-05-30.
+   "2026-05-30,ONO SENDAI 1043,2400.00" (Source: workspace/finance/bank_export_may_jun.csv)
+
+9. INV-1044 was issued to Tessier-Ashpool on 2026-05-06 for £1,200.00.
+   "INV-1044,Tessier-Ashpool,2026-05-06,1200.00,sent" (Source: workspace/finance/invoices_q2.csv)
+
+10. INV-1044 was paid in full on 2026-06-15.
+    "2026-06-15,TESSIER ASHPOOL LTD INV1044,1200.00" (Source: workspace/finance/bank_export_may_jun.csv)
+
+11. INV-1045 was issued to Maas Biolabs on 2026-05-19 for £3,150.75.
+    "INV-1045,Maas Biolabs,2026-05-19,3150.75,sent" (Source: workspace/finance/invoices_q2.csv)
+
+12. INV-1045 was paid on 2026-06-16 for £3,100.75.
+    "2026-06-16,MAAS BIOLABS,3100.75" (Source: workspace/finance/bank_export_may_jun.csv)
+
+13. INV-1045 has a shortfall of £50.00.
+    "3150.75" (Source: workspace/finance/invoices_q2.csv) minus "3100.75" (Source: workspace/finance/bank_export_may_jun.csv) equals 50.00.
+
+14. INV-1046 was issued to Sense/Net on 2026-06-02 for £860.50.
+    "INV-1046,Sense/Net,2026-06-02,860.50,sent" (Source: workspace/finance/invoices_q2.csv)
+
+15. INV-1046 is unpaid.
+    No corresponding credit entry for INV-1046 or Sense/Net found in "workspace/finance/bank_export_may_jun.csv".
+
+16. INV-1047 was issued to Ono-Sendai on 2026-06-21 for £975.00.
+    "INV-1047,Ono-Sendai,2026-06-21,975.00,draft" (Source: workspace/finance/invoices_q2.csv)
+
+17. INV-1047 is in draft status.
+    "INV-1047,Ono-Sendai,2026-06-21,975.00,draft" (Source: workspace/finance/invoices_q2.csv)
+
+18. INV-1047 is unpaid.
+    No corresponding credit entry for INV-1047 found in "workspace/finance/bank_export_may_jun.csv".
+
+19. The total invoiced amount is £10,646.75.
+    1200.00 + 860.50 + 2400.00 + 1200.00 + 3150.75 + 860.50 + 975.00 = 10646.75 (Source: workspace/finance/invoices_q2.csv)
+
+20. The total paid amount is £9,221.75.
+    1200.00 + 860.50 + 2400.00 + 1200.00 + 3100.75 = 8761.25. The document claims 9,221.75.
+    UNSUPPORTED (The sum of payments listed in the bank export is £8,761.25, not £9,221.75. Even if we sum the "Paid" column in the table: 1200+860.5+2400+1200+3100.75 = 8761.25. The document's total is mathematically incorrect based on the provided sources.)
+
+21. The total outstanding amount is £1,425.00.
+    10646.75 - 9221.75 = 1425.00. However, since the "Total paid" figure is unsupported/incorrect, this derived total is also unsupported. Alternatively, summing shortfalls: 50.00 + 860.50 + 975.00 = 1885.50. The document claims 1425.00.
+    UNSUPPORTED
+
+22. INV-1046 is 14 days overdue as of 2026-06-16.
+    Invoice date 2026-06-02 to 2026-06-16 is 14 days. However, the document states "Standard payment terms suggest a follow-up is due" but does not define the payment terms in the sources. The claim of being "overdue" relies on an assumption of payment terms not present in the sources.
+    UNSUPPORTED
+
+23. INV-1041 payment arrived 17 days after the invoice date.
+    Invoice date 2026-04-03, Payment date 2026-04-20. 20 - 3 = 17 days.
+    "2026-04-03" (Source: workspace/finance/invoices_q2.csv), "2026-04-20" (Source: workspace/finance/bank_export_may_jun.csv)
+
+TOTAL: 23 claims, 4 unsupported
+--usage: {'completion_tokens': 1913, 'prompt_tokens': 1408, 'total_tokens': 3321, 'prompt_tokens_details': {'cached_tokens': 1402}} reasoning_chars: 0

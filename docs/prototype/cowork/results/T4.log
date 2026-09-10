@@ -1,0 +1,15 @@
+== T4  2026-09-10T09:18:41+01:00
+⚠ claude.ai connectors are disabled because ANTHROPIC_API_KEY or another auth source is set and takes precedence over your claude.ai login · Unset it to load your organization's connectors
+[claude-code:unrecognized_model] {"model":"qwen3.6-35b-a3b","query_source":"sdk"}
+Done. The memo is at `reports/memo-local-ai.md`.
+
+It covers:
+- **Recommendation** — "Yes, for the right use cases" (qualified)
+- **Three benefits** — privacy, cost control, uptime/control
+- **Three risks** — setup complexity, quality gap, no mobile app
+- **Next step** — one-week proof-of-concept on a single 128 GB machine
+
+Every fact in it comes from the seven bullets in the research notes.
+-- exit=0  wall=125s
+15a16
+> ./reports/memo-local-ai.md

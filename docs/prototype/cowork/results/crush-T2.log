@@ -1,0 +1,11 @@
+== crush T2 2026-09-10T11:59:55+01:00
+Reconciliation complete — written to `reports/reconciliation.md`.
+
+**Summary:**
+- 4 invoices paid in full (INV-1041 through INV-1044)
+- 1 paid short: **INV-1045** (Maas Biolabs) — £50.00 short
+- 2 unpaid: **INV-1046** (Sense/Net, 14 days overdue) and **INV-1047** (Ono-Sendai, still in draft)
+- **Total outstanding: £1,425.00**
+-- exit=0 wall=55s prompt_tokens=1250 generated=2252
+18a19
+> ./reports/reconciliation.md
