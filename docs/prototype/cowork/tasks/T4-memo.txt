@@ -1,0 +1,1 @@
+Using the research notes, draft reports/memo-local-ai.md: a one-page memo to a non-technical manager recommending whether to run AI locally, with a short recommendation, three benefits, three risks, and a next step. Do not invent facts that are not in the notes.

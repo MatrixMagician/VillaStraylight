@@ -1,0 +1,28 @@
+# Action Items & Decisions
+
+**Source:** `meetings/meeting-2026-05-04.md`, `meetings/meeting-2026-05-18.md`, `misc/Sync-June-1.md`
+
+## Action Items
+
+| # | Item | Owner | Date Raised | Status | Notes |
+|---|------|-------|-------------|--------|-------|
+| 1 | Send revised quote to Ono-Sendai by Friday | Molly | 2026-05-04 | Done | Ono-Sendai accepted; invoice raised (INV-1045, or possibly Maas Biolabs) — see `meetings/meeting-2026-05-18.md` |
+| 2 | Migrate shared drive to new folder structure | Case | 2026-05-04 | Open (was blocked) | Blocked on Armitage naming scheme approval. Unblocked 2026-06-01 — Case was told to do it "this week." No further follow-up found. |
+| 3 | Approve naming scheme | Armitage | 2026-05-04 | Done | Approved `<type>/<yyyy>-<mm>/<name>` (per Sync 2026-06-01). |
+| 4 | Confirm Chiba trip dates | Armitage | 2026-05-04 | Done | Confirmed: 2026-07-08 to 2026-07-12. |
+| 5 | Draft Q2 client update memo | Case | 2026-05-18 | Open | Still outstanding as of Sync 2026-06-01 (flagged as "still not drafted"). No resolution in any later note. |
+| 6 | Chase Maas Biolabs — payment came in short | Case / Molly | 2026-05-18 | Open | Raised as action item. No follow-up in Sync 2026-06-01 or elsewhere. See `misc/letter_draft.txt`. |
+| 7 | Renew Sense/Net retainer | Molly | 2026-05-04 (conditional) | Done | Conditional decision: drop renewal unless they agree to net-30. They did agree; retainer renewed (Sync 2026-06-01). |
+
+## Decisions
+
+| # | Decision | Date | Source | Notes |
+|---|----------|------|--------|-------|
+| D1 | Drop Sense/Net retainer renewal unless they accept net-30 terms | 2026-05-04 | `meeting-2026-05-04.md` | Later reversed: Sense/Net agreed to net-30, retainer renewed (Sync 2026-06-01). |
+| D2 | Adopt folder naming scheme `<type>/<yyyy>-<mm>/<name>` | 2026-06-01 | `Sync-June-1.md` | Approved by Armitage, unblocking the drive migration. |
+
+## Contradictions / Open Threads
+
+- **Q2 memo:** Case was assigned to draft it on 2026-05-18. By 2026-06-01 it was explicitly called out as still undone. No later meeting addresses it — this action item has been dormant for at least two weeks with no owner reassignment or status update.
+- **Maas Biolabs short payment:** Raised 2026-05-18 with no resolution recorded anywhere. A draft letter exists (`misc/letter_draft.txt`) suggesting work began, but no completion was noted.
+- **Drive migration:** Case was told to complete it "this week" on 2026-06-01. No subsequent record of whether it was done. This is the oldest unresolved action item by volume (a structural project, not a discrete task).

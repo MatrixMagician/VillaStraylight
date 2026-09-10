@@ -1,0 +1,17 @@
+# Workspace Index
+
+| Category | File | Description |
+|----------|------|-------------|
+| **finance** | [bank_export_may_jun.csv](finance/bank_export_may_jun.csv) | Payment receipts exported Apr–Jun 2026 |
+| **finance** | [invoices_q2.csv](finance/invoices_q2.csv) | Q2 2026 invoice register (INV-1041 to INV-1047) |
+| **finance** | [invoices_q2 - Copy.csv](finance/invoices_q2%20-%20Copy.csv) | Duplicate copy of Q2 invoices |
+| **meetings** | [meeting-2026-05-04.md](meetings/meeting-2026-05-04.md) | Weekly sync — Case, Molly, Armitage |
+| **meetings** | [meeting-2026-05-18.md](meetings/meeting-2026-05-18.md) | Sync — Case, Molly |
+| **misc** | [CLAUDE.md](misc/CLAUDE.md) | Workspace rules (agent instructions) |
+| **misc** | [letter_draft.txt](misc/letter_draft.txt) | Draft letter to Maas Biolabs re short payment |
+| **misc** | [Sync-June-1.md](misc/Sync-June-1.md) | Sync notes from 1 June — drive migration approved, Chiba trip set |
+| **misc** | [todo.txt](misc/todo.txt) | To-do list: renew domain, book Chiba hotel, send memo |
+| **notes** | [research_notes_local_ai.md](notes/research_notes_local_ai.md) | Notes on running AI locally (Strix Halo, ROCm, Open WebUI) |
+| **notes** | [research_notes_local_ai (1).md](notes/research_notes_local_ai%20(1).md) | Duplicate of local AI research notes |
+| **photos** | [IMG_20260601_101512.jpg](photos/IMG_20260601_101512.jpg) | Photo taken 2026-06-01 10:15:12 |
+| **photos** | [IMG_20260601_101530.jpg](photos/IMG_20260601_101530.jpg) | Photo taken 2026-06-01 10:15:30 |

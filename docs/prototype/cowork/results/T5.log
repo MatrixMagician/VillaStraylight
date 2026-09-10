@@ -1,0 +1,12 @@
+== T5  2026-09-10T09:20:46+01:00
+⚠ claude.ai connectors are disabled because ANTHROPIC_API_KEY or another auth source is set and takes precedence over your claude.ai login · Unset it to load your organization's connectors
+[claude-code:unrecognized_model] {"model":"qwen3.6-35b-a3b","query_source":"sdk"}
+Done. Two pairs found:
+
+1. **`finance/invoices_q2.csv`** vs **`finance/invoices_q2 - Copy.csv`** — identical (354 bytes). Keep the one without `- Copy`.
+2. **`notes/research_notes_local_ai.md`** vs **`notes/research_notes_local_ai (1).md`** — identical (540 bytes). Keep the one without `(1)`.
+
+Report written to `reports/duplicates.md`.
+-- exit=0  wall=137s
+15a16
+> ./reports/duplicates.md
