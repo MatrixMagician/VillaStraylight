@@ -1,0 +1,53 @@
+1. Molly was assigned to send the revised quote to Ono-Sendai by Friday on 2026-05-04.
+   - SOURCE: workspace/meetings/meeting-2026-05-04.md: "Molly to send the revised quote to Ono-Sendai by Friday."
+
+2. The quote to Ono-Sendai was accepted by 2026-05-18.
+   - SOURCE: workspace/meetings/meeting-2026-05-18.md: "Ono-Sendai accepted the quote"
+
+3. Molly was assigned to raise the invoice for the accepted quote on 2026-05-18.
+   - SOURCE: workspace/meetings/meeting-2026-05-18.md: "Molly to raise the invoice"
+
+4. The invoice raised for the Ono-Sendai quote is INV-1045.
+   - UNSUPPORTED (The source states "INV-1045? check - might be Maas", indicating uncertainty and potential misattribution to Maas, not confirmation that it is the Ono-Sendai invoice).
+
+5. Case was assigned to migrate the shared drive to the new folder structure on 2026-05-04.
+   - SOURCE: workspace/meetings/meeting-2026-05-04.md: "Case: migrate the shared drive to the new folder structure"
+
+6. The drive migration was blocked pending Armitage's approval of the naming scheme.
+   - SOURCE: workspace/meetings/meeting-2026-05-04.md: "(blocked on Armitage approving the naming scheme)"
+
+7. Armitage approved the naming scheme `<type>/<yyyy>-<mm>/<name>` on 2026-06-01.
+   - SOURCE: workspace/notes/Sync-June-1.md: "Armitage approved the naming scheme: `<type>/<yyyy>-<mm>/<name>`."
+
+8. The drive migration was unblocked on 2026-06-01.
+   - SOURCE: workspace/notes/Sync-June-1.md: "Case: drive migration unblocked, do it this week."
+
+9. Armitage was assigned to confirm Chiba trip dates on 2026-05-04.
+   - SOURCE: workspace/meetings/meeting-2026-05-04.md: "Armitage will confirm the Chiba trip dates."
+
+10. The Chiba trip dates were confirmed as 2026-07-08 to 2026-07-12 on 2026-06-01.
+    - SOURCE: workspace/notes/Sync-June-1.md: "Chiba trip 2026-07-08 to 2026-07-12."
+
+11. Case was assigned to draft the Q2 client update memo on 2026-05-18.
+    - SOURCE: workspace/meetings/meeting-2026-05-18.md: "Case to draft the Q2 client update memo."
+
+12. The Q2 memo was still not drafted as of 2026-06-01.
+    - SOURCE: workspace/notes/Sync-June-1.md: "Open: the Q2 memo is still not drafted."
+
+13. Maas Biolabs' payment came in short.
+    - SOURCE: workspace/meetings/meeting-2026-05-18.md: "chase Maas Biolabs, their payment came in short."
+
+14. The owner of the action to chase Maas Biolabs was unspecified in the 2026-05-18 meeting.
+    - SOURCE: workspace/meetings/meeting-2026-05-18.md: "Action: chase Maas Biolabs, their payment came in short." (No owner listed).
+
+15. The Sense/Net retainer renewal was decided to be dropped unless they agreed to net-30 on 2026-05-04.
+    - SOURCE: workspace/meetings/meeting-2026-05-04.md: "Decision: we drop the Sense/Net retainer renewal unless they agree to net-30."
+
+16. Sense/Net agreed to net-30 on 2026-06-01.
+    - SOURCE: workspace/notes/Sync-June-1.md: "Molly: Sense/Net agreed net-30, retainer renewed."
+
+17. The Sense/Net retainer was renewed on 2026-06-01.
+    - SOURCE: workspace/notes/Sync-June-1.md: "Molly: Sense/Net agreed net-30, retainer renewed."
+
+TOTAL: 17 claims, 1 unsupported
+--usage: {'completion_tokens': 1112, 'prompt_tokens': 1332, 'total_tokens': 2444, 'prompt_tokens_details': {'cached_tokens': 0}} reasoning_chars: 0

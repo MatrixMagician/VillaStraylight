@@ -1,0 +1,16 @@
+== crush T3 2026-09-10T12:00:50+01:00
+Done — `reports/action-items.md` created.
+
+**Summary:**
+- 8 action items tracked across 3 meetings
+- 4 done (quote sent, invoice raised, naming scheme approved, Chiba dates confirmed)
+- 3 still open (drive migration, Q2 memo, Maas Biolabs chase)
+- 1 decision superseded (Sense/Net retainer — dropped conditionally, then renewed once net-30 was agreed)
+
+**Uncertainties noted:**
+- Maas Biolabs invoice number may be INV-1045 (unclear if that's Ono-Sendai or Maas)
+- Maas Biolabs chase has no assigned owner
+- Q2 memo overdue with no follow-up
+-- exit=0 wall=55s prompt_tokens=9977 generated=1807
+18a19
+> ./reports/action-items.md

@@ -1,0 +1,9 @@
+== crush T5 2026-09-10T12:02:08+01:00
+Report written to `reports/duplicates.md`. Found 3 exact-duplicate pairs:
+
+1. **AGENTS.md ↔ CLAUDE.md** — keep `AGENTS.md`
+2. **research_notes_local_ai.md ↔ research_notes_local_ai (1).md** — keep the one without `(1)`
+3. **invoices_q2.csv ↔ invoices_q2 - Copy.csv** — keep the one without `- Copy`
+-- exit=0 wall=50s prompt_tokens=5493 generated=1763
+19a20
+> ./reports/duplicates.md

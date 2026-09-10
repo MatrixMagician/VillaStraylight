@@ -1,0 +1,42 @@
+== crush T1 2026-09-10T11:58:38+01:00
+Now I have a clear picture of all 14 files. Let me create the folders and move everything in parallel.
+
+Done. Here's the result:
+
+- **meetings/** — 2 files: `meeting-2026-05-04.md`, `meeting-2026-05-18.md` (.txt → .md, renamed to `meeting-YYYY-MM-DD.md`)
+- **finance/** — 3 files: bank export + 2 invoice CSVs
+- **notes/** — 3 files: sync notes + 2 research note files
+- **photos/** — 2 files: JPG images
+- **misc/** — 2 files: letter draft + todo list
+- **INDEX.md** — created at top level, listing all 14 files with descriptions
+
+AGENTS.md and CLAUDE.md (workspace rules) left at top level. Nothing was deleted.
+-- exit=0 wall=77s prompt_tokens=2252 generated=3165
+2d1
+< ./bank_export_may_jun.csv
+7,17c6,18
+< ./IMG_20260601_101512.jpg
+< ./IMG_20260601_101530.jpg
+< ./invoices_q2 - Copy.csv
+< ./invoices_q2.csv
+< ./letter_draft.txt
+< ./meeting 2026-05-04.txt
+< ./meeting notes may 18.txt
+< ./research_notes_local_ai (1).md
+< ./research_notes_local_ai.md
+< ./Sync-June-1.md
+< ./todo.txt
+---
+> ./finance/bank_export_may_jun.csv
+> ./finance/invoices_q2 - Copy.csv
+> ./finance/invoices_q2.csv
+> ./INDEX.md
+> ./meetings/meeting-2026-05-04.md
+> ./meetings/meeting-2026-05-18.md
+> ./misc/letter_draft.txt
+> ./misc/todo.txt
+> ./notes/research_notes_local_ai (1).md
+> ./notes/research_notes_local_ai.md
+> ./notes/Sync-June-1.md
+> ./photos/IMG_20260601_101512.jpg
+> ./photos/IMG_20260601_101530.jpg

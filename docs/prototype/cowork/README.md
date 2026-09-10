@@ -22,6 +22,8 @@ plus `--jinja`). Claude Code runs headlessly (`claude -p`) with the exact env
 ./serve.sh start   # second llama-server on :8081, 128k ctx, --jinja
 ./run.sh [T1..T5]  # run tasks; transcripts + file-list diffs land in results/
 ./serve.sh stop
+./crush-task.sh [T1..T6]           # the chosen harness (Crush, villa's binary) inside the krun sandbox
+./grounding-audit.sh <doc> <src>... # the second-pass claim audit, by hand
 ```
 
 Tasks in `tasks/`: T1 organise + index, T2 invoice/bank reconciliation, T3 action items

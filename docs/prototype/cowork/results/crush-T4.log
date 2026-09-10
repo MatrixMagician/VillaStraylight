@@ -1,0 +1,10 @@
+== crush T4 2026-09-10T12:01:46+01:00
+Drafted `reports/memo-local-ai.md` using only facts from the research notes:
+
+- **Recommendation:** Proceed with a limited pilot (not full rollout)
+- **3 Benefits:** data privacy (nothing leaves the box), doubled throughput via ngram speculative decoding, and open stackable tooling (Open WebUI + llama.cpp)
+- **3 Risks:** fiddly setup, model quality lags cloud frontier, no mobile app
+- **Next step:** two-week pilot on one workstation with two users
+-- exit=0 wall=22s prompt_tokens=667 generated=905
+19a20
+> ./reports/memo-local-ai.md

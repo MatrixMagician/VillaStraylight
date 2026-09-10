@@ -1,0 +1,27 @@
+{
+  "$schema": "https://charm.land/crush.json",
+  "options": {
+    "disable_metrics": true,
+    "disable_provider_auto_update": true,
+    "disable_default_providers": true,
+    "auto_lsp": false,
+    "disabled_tools": ["fetch", "agentic_fetch", "download", "sourcegraph", "web_fetch", "web_search"]
+  },
+  "providers": {
+    "villa": {
+      "name": "VillaStraylight (prototype :8081)",
+      "type": "openai-compat",
+      "base_url": "http://villa-proto-cowork:8081/v1",
+      "api_key": "local",
+      "models": [
+        {"id": "qwen3.6-35b-a3b", "name": "qwen3.6-35b-a3b (local)",
+         "cost_per_1m_in": 0, "cost_per_1m_out": 0, "cost_per_1m_in_cached": 0, "cost_per_1m_out_cached": 0,
+         "context_window": 131072, "default_max_tokens": 8192, "can_reason": false, "supports_attachments": false}
+      ]
+    }
+  },
+  "models": {
+    "large": {"provider": "villa", "model": "qwen3.6-35b-a3b"},
+    "small": {"provider": "villa", "model": "qwen3.6-35b-a3b"}
+  }
+}
