@@ -10,6 +10,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 	"github.com/MatrixMagician/VillaStraylight/internal/memory"
+	"github.com/MatrixMagician/VillaStraylight/internal/subsystem"
 )
 
 // render.go is a PURE renderer (no filesystem, no systemctl) in the same sense as
@@ -103,8 +104,26 @@ func Render(in RenderInput) ([]Unit, error) {
 	// resolved agent ctx (Pitfall 1: spec.ContextLen = CoderAgentCtx, never a second -c).
 	// When absent (in.CodingMode == nil) spec is left exactly as v1.3, so the off-path
 	// goldens are byte-identical BY CONSTRUCTION.
+	// The single point that turns "tool calling is on in config" into the rendered
+	// --jinja. The gate is answered ONCE here, through subsystem.ToolsOn, so coding
+	// mode cannot render the flag by a second route and drift from tools mode.
+	spec.Tools = subsystem.ToolsOn(in.Cfg)
+
 	if in.CodingMode != nil {
 		spec.CodingMode = in.CodingMode
+		spec.ContextLen = in.CoderAgentCtx
+	} else if spec.Tools && in.CoderAgentCtx > spec.ContextLen {
+		// Tools mode without the swap: the served ctx is the FLOOR
+		// max(cfg.Ctx, agent ctx), because an agent's tool traffic needs the catalog
+		// entry's agent context while a chat ctx already above it must not be lowered.
+		// The agent ctx arrives resolved on RenderInput.CoderAgentCtx (0 when the caller
+		// resolved none, which leaves cfg.Ctx alone) — the pure renderer never imports
+		// internal/catalog. Coding mode above OVERRIDES rather than floors: it is a swap
+		// to the coder entry, so the chat ctx is not its input at all (Pitfall 1).
+		//
+		// Whether that raised ctx FITS the memory envelope is not decidable here: Render
+		// is pure and holds no HostProfile. The fit refusal belongs on the transactional
+		// enter path, where coding mode's already is (internal/codingmode's Fit dep).
 		spec.ContextLen = in.CoderAgentCtx
 	}
 

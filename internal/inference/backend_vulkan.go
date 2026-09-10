@@ -99,7 +99,7 @@ func (b backendVulkan) ContainerArgs(spec RunSpec) []string {
 		"--port", fmt.Sprintf("%d", serverPort),
 	}
 	args = append(args, llamaServerFlags...)
-	args = appendCodingModeArgs(args, spec.CodingMode)
+	args = appendToolsArgs(args, spec)
 	args = appendSpeculationArgs(args, spec.Speculation, b.ResidencyProof().DeviceToken)
 	args = appendProjectorArgs(args, spec.Projector)
 	return args
@@ -157,20 +157,33 @@ func appendSpeculationArgs(args []string, sp *SpeculationSpec, deviceToken strin
 	return args
 }
 
-// appendCodingModeArgs appends the tool-calling render delta to args, behind
-// the backend seam. It is shared by both backend ContainerArgs paths
-// (Vulkan + ROCm) so the delta stays symmetric and the --jinja / --cache-reuse /
-// sampling flag LITERALS live in exactly one place inside the seam (TestSeamGrepGate
-// locks them here). cm == nil ⇒ the args are returned UNCHANGED, so the off path is
-// byte-identical to v1.3 BY CONSTRUCTION. The agent ctx is carried by the single
-// -c already in the base args (spec.ContextLen = AgentCtx) — this delta NEVER emits a
-// second -c (Pitfall 1). Sampling values are typed float/int formatted with %g/%d,
-// never interpolated into a shell string.
-func appendCodingModeArgs(args []string, cm *CodingModeSpec) []string {
-	if cm == nil {
+// appendToolsArgs appends the tool-calling render delta to args, behind the backend
+// seam. It is shared by both backend ContainerArgs paths (Vulkan + ROCm) so the delta
+// stays symmetric and the --jinja / --cache-reuse / sampling flag LITERALS live in
+// exactly one place inside the seam (TestSeamGrepGate locks them here).
+//
+// --jinja is emitted from HERE and nowhere else, gated on spec.Tools. A non-nil
+// CodingMode implies Tools rather than requiring the caller to set both: coding mode is
+// tool calling PLUS a model swap, so one boolean carries the flag and there is no second
+// one to fall out of sync (spec v1.11 §3.5).
+//
+// Tools without CodingMode emits --jinja ALONE. The sampling preset and --cache-reuse
+// are the coder entry's qualified profile, not a property of tool calling, so the chat
+// model served with its own template must not inherit them.
+//
+// Neither ⇒ the args are returned UNCHANGED, so the off path is byte-identical to v1.3
+// BY CONSTRUCTION. The agent ctx is carried by the single -c already in the base args
+// (spec.ContextLen) — this delta NEVER emits a second -c (Pitfall 1). Sampling values
+// are typed float/int formatted with %g/%d, never interpolated into a shell string.
+func appendToolsArgs(args []string, spec RunSpec) []string {
+	cm := spec.CodingMode
+	if !spec.Tools && cm == nil {
 		return args
 	}
 	args = append(args, "--jinja")
+	if cm == nil {
+		return args
+	}
 	if s := cm.Sampling; s != nil {
 		args = append(args,
 			"--temp", fmt.Sprintf("%g", s.Temperature),

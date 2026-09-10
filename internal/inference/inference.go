@@ -116,6 +116,13 @@ type RunSpec struct {
 	// mode the render layer sets this to the resolved agent ctx (CoderAgentCtx) so the
 	// SINGLE -c carries the agent context — never a second -c (Pitfall 1).
 	ContextLen int
+	// Tools licenses tool calling on the served model: it is the ONE input that
+	// emits --jinja, so the chat unit can be served with the model's own chat
+	// template without the coding-mode model swap. False renders byte-identical
+	// args, which is what keeps every unit rendered before this field existed
+	// unchanged on upgrade. CodingMode != nil IMPLIES it inside ContainerArgs, so
+	// coding mode never needs a caller to set both and they cannot drift.
+	Tools bool
 	// CodingMode is the OPTIONAL coding-mode render descriptor.
 	// nil ⇒ off path BY CONSTRUCTION: ContainerArgs emits exactly the v1.3 base args, so
 	// the existing villa-llama*.container goldens are byte-identical. Non-nil ⇒
