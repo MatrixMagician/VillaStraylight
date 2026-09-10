@@ -88,10 +88,10 @@ func TestAnEmptyStoreRendersTheVettedPins(t *testing.T) {
 			continue // the Crush binary renders no unit
 		}
 		ref := e.Vetted().Ref
-		// The three non-active backends render nothing, so only assert the ones
-		// that appear.
+		// The three non-active backends render nothing, and the sandbox image is a
+		// per-task run with no unit, so only assert the ones that appear.
 		switch e.Component {
-		case pins.BackendROCm724, pins.BackendROCm644, pins.BackendROCm644WMMA:
+		case pins.BackendROCm724, pins.BackendROCm644, pins.BackendROCm644WMMA, pins.SandboxImage:
 			continue
 		}
 		if !strings.Contains(text, ref) {

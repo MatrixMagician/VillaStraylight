@@ -289,7 +289,7 @@ func TestUnknownSubsystemTeachesTheModel(t *testing.T) {
 // TestEverySubsystemNameIsAccepted: the names printed in the error must be the
 // names the parser takes, or villa contradicts itself in consecutive lines.
 func TestEverySubsystemNameIsAccepted(t *testing.T) {
-	for _, name := range []string{"inference", "chat", "memory", "search", "agent"} {
+	for _, name := range []string{"inference", "chat", "memory", "search", "agent", "sandbox"} {
 		if _, ok := subsystemByName(name); !ok {
 			t.Errorf("%q is listed as a valid subsystem but the parser refuses it", name)
 		}
@@ -304,7 +304,7 @@ func TestEverySubsystemNameIsAccepted(t *testing.T) {
 func TestEveryComponentHasASubsystemAUserCanName(t *testing.T) {
 	for _, e := range pins.Table() {
 		found := false
-		for _, name := range []string{"inference", "chat", "memory", "search", "agent"} {
+		for _, name := range []string{"inference", "chat", "memory", "search", "agent", "sandbox"} {
 			if k, ok := subsystemByName(name); ok && k == e.Subsystem {
 				found = true
 				break

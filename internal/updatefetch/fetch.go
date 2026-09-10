@@ -173,6 +173,10 @@ func assertAllowed(raw string) error {
 	if u.Scheme != "https" {
 		return fmt.Errorf("updatefetch: refusing a non-HTTPS endpoint %q", raw)
 	}
+	if host := u.Hostname(); host == "localhost" || host == "127.0.0.1" || host == "::1" {
+		return fmt.Errorf("updatefetch: refusing to contact %q: a manifest never comes from this host. "+
+			"The pin table names localhost because one image is villa-built, not fetched", host)
+	}
 	if !pins.RegistryAllowed(u.Hostname()) {
 		return fmt.Errorf("updatefetch: refusing to contact %q: it is not a host villa's compiled-in pin table already uses. "+
 			"The allowlist is compiled in and nothing at runtime can extend it", u.Hostname())

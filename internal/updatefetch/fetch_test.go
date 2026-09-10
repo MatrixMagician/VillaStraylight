@@ -159,6 +159,10 @@ func TestTheAllowlistRejectsAnyRegistryNotCompiledIn(t *testing.T) {
 	// Every host the table DOES use is accepted, or the allowlist would refuse
 	// villa's own endpoint.
 	for _, e := range pins.Table() {
+		if e.Registry == "localhost" {
+			// A villa-built image is never fetched; loopback stays refused above.
+			continue
+		}
 		if err := AssertAllowedForTest("https://" + e.Registry + "/x"); err != nil {
 			t.Errorf("the allowlist rejected %q, a host the pin table already pulls from: %v", e.Registry, err)
 		}

@@ -512,6 +512,8 @@ func subsystemByName(name string) (subsystem.Kind, bool) {
 		return subsystem.WebSearch, true
 	case "agent", "coding agent":
 		return subsystem.Agent, true
+	case "sandbox", "workspace agent":
+		return subsystem.Sandbox, true
 	}
 	return 0, false
 }
