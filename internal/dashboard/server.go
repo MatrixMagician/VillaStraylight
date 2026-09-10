@@ -26,6 +26,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/metrics"
 	"github.com/MatrixMagician/VillaStraylight/internal/modelswap"
 	"github.com/MatrixMagician/VillaStraylight/internal/status"
+	"github.com/MatrixMagician/VillaStraylight/internal/taskrun"
 	"github.com/MatrixMagician/VillaStraylight/internal/usage"
 )
 
@@ -125,6 +126,10 @@ type Config struct {
 	// the SAME loopback endpoint already scraped for live tok/s — no new outbound.
 	// nil → a typed-Unknown (unavailable) sample, so no counter folds.
 	CounterSample func() (metrics.CounterSample, bool)
+
+	// Tasks is the workspace agent's runner (api_tasks.go). nil means the
+	// workspace agent is not enabled and every task route answers 503.
+	Tasks *taskrun.Runner
 }
 
 // Server holds the composed dashboard configuration and exposes the HTTP handler and
@@ -168,6 +173,9 @@ type Server struct {
 	writeUsage    func(usage.Totals) error
 	modelID       func() string
 	counterSample func() (metrics.CounterSample, bool)
+
+	// tasks is the workspace agent's runner; nil when not enabled (Config.Tasks).
+	tasks *taskrun.Runner
 
 	// usageMu serializes the whole read-modify-write of usage.json in handleMetrics so two
 	// concurrent /api/metrics scrapes can never interleave the non-atomic
@@ -232,6 +240,7 @@ func NewServer(cfg Config) (*Server, error) {
 		writeUsage:    cfg.WriteUsage,
 		modelID:       cfg.ModelID,
 		counterSample: cfg.CounterSample,
+		tasks:         cfg.Tasks,
 	}
 
 	// Default any unset collector seam to an always-unavailable / typed-Unknown no-op,
@@ -306,21 +315,14 @@ func NewServer(cfg Config) (*Server, error) {
 // loopback server should trust, and there is no second process to correlate an ID
 // with on a single-user local machine.
 func (s *Server) routes() http.Handler {
+	// The route table lives in api_tasks.go (apiRoutes) and is frozen by
+	// testdata/routes.golden; every mutation registered there sits behind
+	// requireSameOrigin below (JSON content-type + same-origin), so a
+	// cross-origin POST never reaches a handler (T-05-11).
 	api := http.NewServeMux()
-	api.HandleFunc("GET /api/status", s.handleStatus)
-	api.HandleFunc("GET /api/healthz", s.handleHealthz)
-	// Performance + GPU read-models (Plan 03). Still GET-only,
-	// behind the same read path; requireSameOrigin only gates non-GET.
-	api.HandleFunc("GET /api/metrics", s.handleMetrics)
-	api.HandleFunc("GET /api/gpu", s.handleGPU)
-	// Models read-model (Plan 04): the full catalog marked
-	// loaded/on-disk/catalog-only with a per-row fit flag. GET-only here.
-	api.HandleFunc("GET /api/models", s.handleModels)
-	// The ONE sanctioned mutation: POST /api/models/switch routes through the
-	// SHARED modelswap.Run core. requireSameOrigin already gates this non-GET (JSON
-	// content-type + same-origin), so a cross-origin POST never reaches the handler
-	// (T-05-11).
-	api.HandleFunc("POST /api/models/switch", s.handleSwitch)
+	for _, rt := range s.apiRoutes() {
+		api.HandleFunc(rt.method+" "+rt.pattern, rt.handler)
+	}
 
 	root := http.NewServeMux()
 	// "/api/" claims the whole API subtree, so an unmatched path under it is answered

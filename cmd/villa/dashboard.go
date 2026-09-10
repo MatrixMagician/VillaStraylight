@@ -16,6 +16,8 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/modelswap"
 	"github.com/MatrixMagician/VillaStraylight/internal/recommend"
 	"github.com/MatrixMagician/VillaStraylight/internal/status"
+	"github.com/MatrixMagician/VillaStraylight/internal/subsystem"
+	"github.com/MatrixMagician/VillaStraylight/internal/taskrun"
 	"github.com/MatrixMagician/VillaStraylight/internal/usage"
 )
 
@@ -70,6 +72,11 @@ type dashboardDeps struct {
 	WriteUsage    func(usage.Totals) error
 	ModelID       func() string
 	CounterSample func() (metrics.CounterSample, bool)
+
+	// Tasks is the workspace agent's runner (spec v1.11 §5), hosted in this
+	// service because it is already the long-lived villa process. nil when
+	// workspace_agent is off, in which case the task routes answer 503.
+	Tasks *taskrun.Runner
 }
 
 // newDashboard builds `villa dashboard`: serve the loopback-only control dashboard
@@ -127,6 +134,7 @@ func runDashboard(cmd *cobra.Command, _ []string, d *dashboardDeps) int {
 		WriteUsage:    d.WriteUsage,
 		ModelID:       d.ModelID,
 		CounterSample: d.CounterSample,
+		Tasks:         d.Tasks,
 	})
 	if err != nil {
 		fmt.Fprintf(errOut, "dashboard: %v\n", err)
@@ -162,7 +170,22 @@ func liveDashboardDeps(ctx context.Context) (*dashboardDeps, error) {
 		return nil, err
 	}
 	endpoint := statusDeps.Endpoint()
+
+	// The runner exists only when the workspace agent is on (fail-soft config
+	// load, like the sandbox gate). Recover runs HERE, before Serve binds, so a
+	// record left running by the previous service instance is interrupted before
+	// any client can read it. A recovery error is reported and does not stop the
+	// dashboard: one corrupt task record must not take the whole service down.
+	var tasks *taskrun.Runner
+	if cfg, err := config.LoadVilla(); err == nil && subsystem.SandboxOn(cfg) {
+		tasks = taskrun.New(liveTaskRunDeps(ctx, endpoint))
+		if err := tasks.Recover(); err != nil {
+			fmt.Fprintf(os.Stderr, "dashboard: task recovery: %v\n", err)
+		}
+	}
+
 	return &dashboardDeps{
+		Tasks:      tasks,
 		LoadConfig: config.LoadVilla,
 		StatusDeps: *statusDeps,
 		Serve:      func(ctx context.Context, s *dashboard.Server) error { return s.Serve(ctx) },

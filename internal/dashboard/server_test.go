@@ -38,6 +38,13 @@ func TestServerAddrIsLoopback(t *testing.T) {
 	if strings.Contains(addr, "0.0.0.0") {
 		t.Fatalf("server addr %q binds 0.0.0.0 — must be loopback", addr)
 	}
+
+	// PRIV-01 with the workspace agent enabled: the task routes add SSE and
+	// mutations, and none of that may widen the bind.
+	withTasks := mustNewServer(t, Config{StatusDeps: stubStatusDeps(t), ChatPort: 3000, DashboardAddr: "127.0.0.1", DashboardPort: 8888, Tasks: newTestRunner(t, nil)})
+	if got := withTasks.Addr(); got != want {
+		t.Fatalf("server addr with Tasks = %q, want %q", got, want)
+	}
 }
 
 // TestServerAddrDefaultsLoopback asserts an empty DashboardAddr defaults to

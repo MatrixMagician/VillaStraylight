@@ -1,0 +1,13 @@
+GET /api/gpu
+GET /api/healthz
+GET /api/metrics
+GET /api/models
+GET /api/status
+GET /api/tasks
+GET /api/tasks/{id}
+GET /api/tasks/{id}/events
+POST /api/models/switch
+POST /api/tasks
+POST /api/tasks/{id}/approve
+POST /api/tasks/{id}/cancel
+POST /api/tasks/{id}/deny
