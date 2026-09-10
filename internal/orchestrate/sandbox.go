@@ -26,7 +26,7 @@ import (
 // the Containerfile in build/sandbox produced. A dnf build is not byte
 // reproducible, so a rebuild at the same package versions yields a new digest:
 // the pin table carries this as a rolling digest for exactly that reason.
-const sandboxImage = "localhost/villa-sandbox:office@sha256:4b6db115990284cce1b70f73b4c265a85df288f96dcee6178608a9852b572b74"
+const sandboxImage = "localhost/villa-sandbox:office@sha256:8d58b22aebd6efcb212335d0c612a3e882069f8c85d41d589a8056bacd21e937"
 
 // SandboxImage returns the digest-pinned sandbox image so internal/pins can name
 // it without holding the literal.
