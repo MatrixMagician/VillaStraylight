@@ -1,0 +1,63 @@
+#!/bin/sh
+# villa-render: render an office document to page images, for the model to
+# look at as proof of layout (docs/research/office-formats.md: the render is a
+# check on layout, not a promise of it, and "convert-to png renders one page
+# only" — multi-page verification goes through PDF then pdftoppm).
+#
+# Writes <stem>.pdf and <stem>-<n>.png next to the input (or under --outdir),
+# and prints the PNG paths, space-separated, as the last line.
+set -eu
+
+usage() {
+    echo "usage: villa-render <document> [--outdir DIR]" >&2
+    exit 1
+}
+
+outdir=""
+input=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --outdir)
+            [ $# -ge 2 ] || usage
+            outdir=$2
+            shift 2
+            ;;
+        -*)
+            usage
+            ;;
+        *)
+            [ -z "$input" ] || usage
+            input=$1
+            shift
+            ;;
+    esac
+done
+[ -n "$input" ] || usage
+[ -f "$input" ] || { echo "villa-render: no such file: $input" >&2; exit 1; }
+
+dir=$(dirname "$input")
+base=$(basename "$input")
+stem=${base%.*}
+[ -n "$outdir" ] || outdir=$dir
+mkdir -p "$outdir"
+
+if ! soffice -env:UserInstallation=file:///tmp/lo --headless \
+        --convert-to pdf --outdir "$outdir" "$input" >&2; then
+    echo "villa-render: soffice PDF conversion failed" >&2
+    exit 1
+fi
+
+pdf="$outdir/$stem.pdf"
+[ -f "$pdf" ] || { echo "villa-render: soffice produced no PDF" >&2; exit 1; }
+
+if ! pdftoppm -png "$pdf" "$outdir/$stem" >&2; then
+    echo "villa-render: pdftoppm failed" >&2
+    exit 1
+fi
+
+# pdftoppm names pages "<prefix>-<n>.png" (single-digit pad matching page count).
+images=$(ls "$outdir/$stem"-*.png 2>/dev/null | sort) || true
+[ -n "$images" ] || { echo "villa-render: no page images produced" >&2; exit 1; }
+
+printf '%s\n' "$images" | tr '\n' ' '
+echo

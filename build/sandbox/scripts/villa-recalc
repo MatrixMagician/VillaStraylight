@@ -1,0 +1,64 @@
+#!/bin/sh
+# villa-recalc: LibreOffice headless recalculation of an xlsx workbook.
+#
+# openpyxl never writes cached formula values (docs/research/office-formats.md),
+# so a workbook a task authored or edited with openpyxl must pass through here
+# before its formulas can be read back. The model invokes this script; it must
+# never author its own recalculation (spec v1.11 §7 — the prototype's UNO
+# listener hung a task for 20 minutes doing exactly that).
+#
+# Writes <stem>.recalculated.xlsx next to the input (or under --outdir),
+# leaving the input untouched, and prints the output path as the last line.
+set -eu
+
+usage() {
+    echo "usage: villa-recalc <workbook.xlsx> [--outdir DIR]" >&2
+    exit 1
+}
+
+outdir=""
+input=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --outdir)
+            [ $# -ge 2 ] || usage
+            outdir=$2
+            shift 2
+            ;;
+        -*)
+            usage
+            ;;
+        *)
+            [ -z "$input" ] || usage
+            input=$1
+            shift
+            ;;
+    esac
+done
+[ -n "$input" ] || usage
+[ -f "$input" ] || { echo "villa-recalc: no such file: $input" >&2; exit 1; }
+
+case "$input" in
+    *.xlsx) ;;
+    *) echo "villa-recalc: not an .xlsx file: $input" >&2; exit 1 ;;
+esac
+
+dir=$(dirname "$input")
+stem=$(basename "$input" .xlsx)
+[ -n "$outdir" ] || outdir=$dir
+mkdir -p "$outdir"
+
+work=$(mktemp -d)
+trap 'rm -rf "$work"' EXIT
+
+if ! soffice -env:UserInstallation=file:///tmp/lo --headless --calc \
+        --convert-to xlsx --outdir "$work" "$input" >&2; then
+    echo "villa-recalc: soffice conversion failed" >&2
+    exit 1
+fi
+
+out="$outdir/$stem.recalculated.xlsx"
+[ -f "$work/$stem.xlsx" ] || { echo "villa-recalc: soffice produced no output" >&2; exit 1; }
+mv "$work/$stem.xlsx" "$out"
+
+echo "$out"

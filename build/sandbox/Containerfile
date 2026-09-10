@@ -33,5 +33,10 @@ COPY requirements.txt /tmp/requirements.txt
 RUN pip install --no-deps --require-hashes --no-cache-dir -r /tmp/requirements.txt \
     && rm -f /tmp/requirements.txt
 
+# The recalc/render/read-back scripts a task invokes by name (spec v1.11 §7).
+# The model never authors its own recalculation; these are the only path to one.
+COPY scripts/villa-recalc scripts/villa-render scripts/villa-readback /usr/local/bin/
+RUN chmod 0755 /usr/local/bin/villa-recalc /usr/local/bin/villa-render /usr/local/bin/villa-readback
+
 # The task's grant is mounted here; the render sets it as the working directory.
 WORKDIR /workspace
