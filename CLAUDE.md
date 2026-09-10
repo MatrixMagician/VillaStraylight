@@ -15,8 +15,8 @@ Conventions, Architecture below) and in `docs/`:
   published; the signing key is offline by design and must never reach CI
 - `docs/spec/v1.11-workspace-agent.md` — the workspace agent (`villa work`), now
   built: read it before touching a task, an approval, the sandbox or tools mode.
-  Its status block names the open items and the one gap (no verb records a
-  locally built sandbox image's digest as the effective pin)
+  Its status block names the open items; the gap that was not in §13 is closed by
+  `villa sandbox build`
 - `docs/spec/v1.8-villa-update.md` — the `villa update` design, now implemented:
   read it before touching pins. Note §7.1's migration hazard — most
   `EmbedImage()` callers are probe helpers, NOT pins, and a mechanical rewrite of
@@ -64,8 +64,10 @@ Go 1.26+. Single module, single static binary built from `./cmd/villa`.
   place, `newRoot` in `root.go`: detect, recommend, preflight, model, inference,
   install, up/down/restart/logs, config, status, doctor, verify, recall, dashboard,
   websafe, backend, speculation, coding-mode, code (Crush, or Claude Code via
-  --agent claude), tools-mode, workspace, work, task, sandbox-bridge (the in-VM
-  half of a task; never run by hand), bench, backup, restore, uninstall.
+  --agent claude), tools-mode, workspace, work, task, sandbox build (builds the
+  task image on this host and records its digest as the effective pin),
+  sandbox-bridge (the in-VM half of a task; never run by hand), bench, backup,
+  restore, uninstall.
   Host effects live behind injectable `live*Deps` seams (`grep -rn "func live" cmd/villa`).
 
 - `internal/` — `detect` (host probe → typed-Unknown HostProfile; AMD seam in `gpu_amd.go`),
