@@ -1394,3 +1394,55 @@ func TestReportCarriesSpeculation(t *testing.T) {
 		})
 	}
 }
+
+// TestRunLastTask (spec v1.11 §10): the last-task section is populated ONLY when
+// the workspace agent is enabled AND the seam resolves a record — sandbox-off
+// (even with a seam that WOULD resolve one) and a nil seam both leave the field
+// absent, mirroring the Memory/Coding/WebSearch off-report contract (typed-Unknown,
+// never a fabricated task).
+func TestRunLastTask(t *testing.T) {
+	sandboxCfg := func(on bool) config.VillaConfig {
+		return config.VillaConfig{Model: "qwen3", Quant: "Q4", Ctx: 131072, Backend: "vulkan", WorkspaceAgent: on}
+	}
+	record := &LastTaskInfo{ID: "20260910-120115-4f2a", State: "done", FinishedAt: "2026-09-10T12:04:02Z"}
+
+	t.Run("sandbox on, seam populated ⇒ carried verbatim", func(t *testing.T) {
+		d := newDeps(t, loopbackUnits(t))
+		cfg := sandboxCfg(true)
+		d.LoadConfig = func() (config.VillaConfig, error) { return cfg, nil }
+		d.ReadLastTask = func() *LastTaskInfo { return record }
+		r := Run(d)
+		if r.LastTask == nil || *r.LastTask != *record {
+			t.Fatalf("LastTask = %+v, want %+v", r.LastTask, record)
+		}
+	})
+
+	t.Run("sandbox off ⇒ absent even though the seam would resolve one", func(t *testing.T) {
+		d := newDeps(t, loopbackUnits(t))
+		cfg := sandboxCfg(false)
+		d.LoadConfig = func() (config.VillaConfig, error) { return cfg, nil }
+		d.ReadLastTask = func() *LastTaskInfo { return record }
+		r := Run(d)
+		if r.LastTask != nil {
+			t.Fatalf("sandbox-off report must carry LastTask == nil, got %+v", r.LastTask)
+		}
+		blob, err := json.Marshal(r)
+		if err != nil {
+			t.Fatalf("marshal report: %v", err)
+		}
+		if strings.Contains(string(blob), `"last_task"`) {
+			t.Errorf("sandbox-off --json must OMIT the last_task key (omitempty pointer); got:\n%s", blob)
+		}
+	})
+
+	t.Run("nil seam ⇒ absent", func(t *testing.T) {
+		d := newDeps(t, loopbackUnits(t))
+		cfg := sandboxCfg(true)
+		d.LoadConfig = func() (config.VillaConfig, error) { return cfg, nil }
+		d.ReadLastTask = nil
+		r := Run(d)
+		if r.LastTask != nil {
+			t.Fatalf("nil ReadLastTask must leave LastTask nil, got %+v", r.LastTask)
+		}
+	})
+}

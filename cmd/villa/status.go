@@ -22,11 +22,13 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/inprobe"
 	"github.com/MatrixMagician/VillaStraylight/internal/metrics"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
+	"github.com/MatrixMagician/VillaStraylight/internal/pathsafe"
 	"github.com/MatrixMagician/VillaStraylight/internal/pinstate"
 	"github.com/MatrixMagician/VillaStraylight/internal/recall"
 	"github.com/MatrixMagician/VillaStraylight/internal/recommend"
 	"github.com/MatrixMagician/VillaStraylight/internal/status"
 	"github.com/MatrixMagician/VillaStraylight/internal/subsystem"
+	"github.com/MatrixMagician/VillaStraylight/internal/taskstore"
 	"github.com/MatrixMagician/VillaStraylight/internal/usage"
 	"github.com/MatrixMagician/VillaStraylight/internal/verifystate"
 )
@@ -120,6 +122,12 @@ func renderStatusTable(w io.Writer, r status.Report, withProvenance bool) {
 	// saying so on every install would be noise (spec v1.11 §3.5).
 	if r.Tools {
 		fmt.Fprintf(tw, "mode\t%s\n", "tools")
+	}
+	// Last task: rendered only when present (sandbox off, or no task has ever
+	// run, both leave r.LastTask nil) — the honest empty state is no line, not a
+	// placeholder (spec v1.11 §10).
+	if r.LastTask != nil {
+		fmt.Fprintf(tw, "last task\t%s %s\n", r.LastTask.ID, r.LastTask.State)
 	}
 	if withProvenance {
 		fmt.Fprintf(tw, "image\t%s\n", r.Image)
@@ -291,6 +299,12 @@ func liveStatusDeps() (*status.Deps, error) {
 		ReadUsage:       liveReadUsage,
 		ReadRecallState: liveReadRecallState,
 		ReadVerifyState: liveReadVerifyState,
+		// Last task (spec v1.11 §10): READ-ONLY, over the same taskstore root
+		// `villa work`/`villa task` use. The core consults this ONLY when the
+		// workspace agent is enabled (subsystem.SandboxOn); wiring it unconditionally
+		// here mirrors ReadRecallState/ReadVerifyState, which are always wired and
+		// gated by Run itself.
+		ReadLastTask: func() *status.LastTaskInfo { return readLastTask(pathsafe.DataRoot()) },
 	}
 	// Coding-agent seams (Phase-28..): wired ONLY when the agent is
 	// PERSISTED-enabled (cfg.AgentEnabled). With the agent off the seams stay nil so
@@ -303,6 +317,27 @@ func liveStatusDeps() (*status.Deps, error) {
 		deps.AgentCache = func() (uint64, uint64, bool) { return liveAgentCache(endpoint) }
 	}
 	return deps, nil
+}
+
+// readLastTask projects the taskstore's newest-by-id record into the status
+// core's LastTaskInfo (spec v1.11 §10). internal/status must not import
+// internal/taskstore, so the projection lives here rather than in the core. A
+// store read error or an empty task list yields nil — typed-Unknown, never a
+// fabricated record. Task ids are the time-ordered "20060102-150405-xxxx" string
+// (taskstore.NewID); List already returns them in that order, but the newest is
+// picked by an explicit max(id) so the ordering rule is stated, not assumed.
+func readLastTask(root string) *status.LastTaskInfo {
+	tasks, err := taskstore.New(root).List()
+	if err != nil || len(tasks) == 0 {
+		return nil
+	}
+	newest := tasks[0]
+	for _, t := range tasks[1:] {
+		if t.ID > newest.ID {
+			newest = t
+		}
+	}
+	return &status.LastTaskInfo{ID: newest.ID, State: string(newest.State), FinishedAt: newest.FinishedAt}
 }
 
 // liveAgentPinMatch is the tri-state policy-pin compare seam: it hashes the

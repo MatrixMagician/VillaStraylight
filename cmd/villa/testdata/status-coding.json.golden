@@ -105,5 +105,5 @@
   "speculation": "off",
   "vision": false,
   "tools": true,
-  "schema_version": 9
+  "schema_version": 10
 }
