@@ -194,7 +194,7 @@ func (j *job) decide(b Bridge, p crushapi.PermissionRequest) {
 	if decision == approval.Ask && j.sessionAllow {
 		now := stamp(j.r.d.Now())
 		j.t.Approvals = append(j.t.Approvals, taskstore.Approval{
-			Seq: len(j.t.Approvals) + 1, Tool: p.Tool, Action: p.Action, Path: guestRel(p.Path),
+			Seq: len(j.t.Approvals) + 1, Tool: p.Tool, Action: p.Action, Path: guestRel(p.Path), Command: req.Command,
 			AskedAt: now, Answer: string(crushapi.Allow), AnsweredAt: now, By: "session",
 		})
 		j.grant(b, p.ID, crushapi.Allow)
@@ -210,7 +210,7 @@ func (j *job) decide(b Bridge, p crushapi.PermissionRequest) {
 		j.narrate("denied by policy: " + what)
 	case approval.Ask:
 		j.t.Approvals = append(j.t.Approvals, taskstore.Approval{
-			Seq: len(j.t.Approvals) + 1, Tool: p.Tool, Action: p.Action, Path: guestRel(p.Path),
+			Seq: len(j.t.Approvals) + 1, Tool: p.Tool, Action: p.Action, Path: guestRel(p.Path), Command: req.Command,
 			AskedAt: stamp(j.r.d.Now()),
 		})
 		j.pending = len(j.t.Approvals) - 1

@@ -593,8 +593,8 @@ func TestDeletionAsksInAutoMode(t *testing.T) {
 	task := h.submit(approval.ModeAuto)
 	b.feed(ready(), permission("p1", "bash", "execute", "", `{"command":"rm -rf build"}`))
 	got := h.waitState(task.ID, taskstore.AwaitingApproval)
-	if got.Approvals[0].Action != "execute" || got.Approvals[0].Tool != "bash" {
-		t.Errorf("approvals = %+v", got.Approvals)
+	if got.Approvals[0].Action != "execute" || got.Approvals[0].Tool != "bash" || got.Approvals[0].Command != "rm -rf build" {
+		t.Errorf("approvals = %+v (the operator must see the command they are approving)", got.Approvals)
 	}
 }
 

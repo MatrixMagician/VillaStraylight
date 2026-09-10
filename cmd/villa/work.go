@@ -265,7 +265,12 @@ func pendingApproval(t taskstore.Task) (taskstore.Approval, bool) {
 // approvalTarget names what the approval is over. The task record carries no
 // command string, so a bash execute with no path shows as the workspace itself.
 func approvalTarget(a taskstore.Approval) string {
-	if a.Path != "" {
+	switch {
+	case a.Command != "" && a.Path != "":
+		return a.Path + ": " + a.Command
+	case a.Command != "":
+		return a.Command
+	case a.Path != "":
 		return a.Path
 	}
 	return "the workspace"

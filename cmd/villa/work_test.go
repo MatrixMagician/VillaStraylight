@@ -237,8 +237,8 @@ func TestRunWorkPromptAnswers(t *testing.T) {
 			awaiting := terminalRecord(taskstore.AwaitingApproval)
 			awaiting.Exit = nil
 			awaiting.Approvals = []taskstore.Approval{{
-				Seq: 1, Tool: "edit", Action: "write", Path: "summary.md",
-				AskedAt: "2026-09-10T12:02:00Z",
+				Seq: 1, Tool: "bash", Action: "execute", Path: "summary.md",
+				Command: "rm summary.md", AskedAt: "2026-09-10T12:02:00Z",
 			}}
 			done := terminalRecord(taskstore.Done)
 			fx.api.record = done
@@ -258,8 +258,8 @@ func TestRunWorkPromptAnswers(t *testing.T) {
 			if tc.wantBody != "" && got.body != tc.wantBody {
 				t.Errorf("body = %q, want %q", got.body, tc.wantBody)
 			}
-			if !strings.Contains(out.String(), "summary.md") || !strings.Contains(out.String(), "write") {
-				t.Errorf("output = %q, want the pending approval's action and path", out.String())
+			if !strings.Contains(out.String(), "summary.md: rm summary.md") || !strings.Contains(out.String(), "execute") {
+				t.Errorf("output = %q, want the pending approval's action, path and command", out.String())
 			}
 		})
 	}

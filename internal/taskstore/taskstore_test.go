@@ -29,7 +29,7 @@ func fullTask(id string) Task {
 			{Path: "notes.txt", Action: "modified"},
 		},
 		Approvals: []Approval{
-			{Seq: 1, Tool: "bash", Action: "execute", Path: "", AskedAt: "2026-09-10T12:02:00Z", Answer: "allow", AnsweredAt: "2026-09-10T12:02:05Z", By: "prompt"},
+			{Seq: 1, Tool: "bash", Action: "execute", Path: "", Command: "ls -l reports", AskedAt: "2026-09-10T12:02:00Z", Answer: "allow", AnsweredAt: "2026-09-10T12:02:05Z", By: "prompt"},
 			{Seq: 2, Tool: "edit", Action: "write", Path: "summary.md", AskedAt: "2026-09-10T12:03:00Z", Answer: "allow_session", AnsweredAt: "2026-09-10T12:03:02Z", By: "cli"},
 		},
 		Grounding: Grounding{
