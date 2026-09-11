@@ -27,21 +27,6 @@ const KernelFloor = "6.18.4"
 // the tested baseline" — exactly the WARN case describes.
 const KernelTested = "6.18.9"
 
-// MesaFloor is the minimum Mesa/RADV version for reliable Vulkan on gfx1151. The
-// value is intentionally conservative; Mesa version parsing is best-effort and a
-// parse miss WARNs rather than blocks.
-//
-// TODO(phase-2): no check consumes MesaFloor yet. Wiring one needs a
-// design decision that must NOT be guessed here: detect.MesaVersion is currently
-// parsed from vulkaninfo's `driverVersion` line (the Vulkan DRIVER version), which
-// is a DIFFERENT numbering scheme from a Mesa RELEASE number like "25.0.0". A
-// future checkMesaFloor must compare like-for-like — source the Mesa release from
-// the `driverInfo = Mesa X.Y.Z` line (scoped to the real GPU block) and compare
-// that to MesaFloor, OR redefine MesaFloor as a driverVersion floor. Until that
-// decision is made, MesaFloor/Floor.Mesa remain intentionally unwired rather than
-// risk a cross-namespace comparison that silently mis-gates.
-const MesaFloor = "25.0.0"
-
 // FirmwareFloor is the minimum linux-firmware date stamp (YYYYMMDD) recommended
 // for Strix Halo. Below it, ROCm reliability degrades (CLAUDE.md version table).
 const FirmwareFloor = "20260110"
@@ -63,8 +48,6 @@ type Floor struct {
 	Kernel string
 	// KernelTested is the validated kernel baseline.
 	KernelTested string
-	// Mesa is the minimum Mesa/RADV version for reliable Vulkan.
-	Mesa string
 	// Firmware is the minimum linux-firmware date stamp.
 	Firmware string
 	// FirmwareDeny is a specific known-bad linux-firmware build.
@@ -90,8 +73,6 @@ type ROCmPolicy struct {
 	KernelFloor string `json:"kernelFloor"`
 	// KernelTested is the validated kernel baseline (6.18.9).
 	KernelTested string `json:"kernelTested"`
-	// MesaFloor is the minimum Mesa/RADV version (25.0.0; migrated but UNWIRED).
-	MesaFloor string `json:"mesaFloor"`
 	// FirmwareFloor is the minimum linux-firmware date stamp (20260110).
 	FirmwareFloor string `json:"firmwareFloor"`
 	// FirmwareDeny lists specific known-bad linux-firmware builds (["20251125"]).
@@ -119,7 +100,7 @@ func loadROCmPolicy() ROCmPolicy {
 
 // Floors returns the current version-floor data, sourced from the embedded
 // rocm-policy.json. The returned values are byte-identical to the
-// KernelFloor/KernelTested/MesaFloor/FirmwareFloor/FirmwareDeny constants — the
+// KernelFloor/KernelTested/FirmwareFloor/FirmwareDeny constants — the
 // migration is a deliberate behavior no-op. FirmwareDeny is collapsed to the
 // FIRST denylist entry to preserve the existing scalar Floor.FirmwareDeny shape
 // the v1.0 checks/goldens already consume; the full denylist is available via
@@ -133,7 +114,6 @@ func Floors() Floor {
 	return Floor{
 		Kernel:       p.KernelFloor,
 		KernelTested: p.KernelTested,
-		Mesa:         p.MesaFloor,
 		Firmware:     p.FirmwareFloor,
 		FirmwareDeny: deny,
 	}

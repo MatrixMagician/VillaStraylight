@@ -550,7 +550,6 @@ corrected in this one file without reshaping any check.
 |-----|-----------------|---------|
 | `kernelFloor` | `6.18.4` | Minimum kernel with the gfx1151 stability fix; below it, ROCm bring-up is **refused**. |
 | `kernelTested` | `6.18.9` | Validated kernel baseline (named in remediation text). |
-| `mesaFloor` | `25.0.0` | Minimum Mesa/RADV version. Carried for parity; **not yet wired** to a check. |
 | `firmwareFloor` | `20260110` | Minimum linux-firmware date stamp; below it (but not denied) is a WARN advisory. |
 | `firmwareDeny` | `["20251125"]` | linux-firmware builds documented to break ROCm on Strix Halo; a match is a hard **refusal**. |
 | `imageDeny` | `["rocm7-nightlies"]` | ROCm image tags that reintroduce the 64 GB allocation cap; a requested image matching one is **refused**. |
@@ -564,6 +563,6 @@ ROCm-readiness sub-tree of `villa detect`, while the running `HSA_OVERRIDE_GFX_V
 env is not read from the host environment: the cutover sets it inside the container
 rather than depending on the user's shell.
 
-The `mesaFloor`/`firmwareFloor`/`firmwareDeny`/`kernelFloor`/`kernelTested` values
+The `firmwareFloor`/`firmwareDeny`/`kernelFloor`/`kernelTested` values
 are also the source for the version-floor data the non-ROCm host preflight uses
 (`Floors()`), so the two surfaces never disagree.

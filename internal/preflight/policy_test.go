@@ -14,7 +14,6 @@ func TestLoadROCmPolicyMatchesV1Floors(t *testing.T) {
 	}{
 		{"kernelFloor", p.KernelFloor, "6.18.4"},
 		{"kernelTested", p.KernelTested, "6.18.9"},
-		{"mesaFloor", p.MesaFloor, "25.0.0"},
 		{"firmwareFloor", p.FirmwareFloor, "20260110"},
 		{"requiredHSAOverride", p.RequiredHSAOverride, "11.5.1"},
 	}
@@ -35,7 +34,6 @@ func TestFloorsSourcedFromPolicy(t *testing.T) {
 	}{
 		{"Kernel", f.Kernel, "6.18.4"},
 		{"KernelTested", f.KernelTested, "6.18.9"},
-		{"Mesa", f.Mesa, "25.0.0"},
 		{"Firmware", f.Firmware, "20260110"},
 		{"FirmwareDeny", f.FirmwareDeny, "20251125"},
 	}
