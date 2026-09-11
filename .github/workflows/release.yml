@@ -126,3 +126,34 @@ jobs:
           gh release upload "${GITHUB_REF_NAME}" \
             "${{ steps.package.outputs.asset }}" checksums.txt \
             --clobber
+
+      # The pin manifest is NOT signed here (docs/RELEASING.md § Key custody). It is
+      # carried forward: `villa update --check` fetches
+      # releases/latest/download/pins.json, and this tag just became latest, so
+      # without this step every install reports "could not check" until someone
+      # re-uploads the files by hand. The newest earlier release that carries a
+      # manifest is the source, copied byte for byte; the signature covers the
+      # published bytes verbatim, so the copy verifies or it does not. A new
+      # manifest is published by hand, over this copy, only when a pin moved.
+      - name: Carry the signed pin manifest forward
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          dir="$(mktemp -d)"
+          carried=""
+          for tag in $(gh release list --exclude-drafts --exclude-pre-releases --json tagName --jq '.[].tagName'); do
+            [ "${tag}" = "${GITHUB_REF_NAME}" ] && continue
+            if gh release download "${tag}" -p pins.json -p pins.json.sig -D "${dir}" 2>/dev/null \
+               && [ -s "${dir}/pins.json" ] && [ -s "${dir}/pins.json.sig" ]; then
+              carried="${tag}"
+              break
+            fi
+          done
+          if [ -z "${carried}" ]; then
+            echo "::warning::no earlier release carries a signed pin manifest, so villa update --check reports it could not check until one is attached (docs/RELEASING.md § Publishing the pin manifest)"
+            exit 0
+          fi
+          echo "carrying the pin manifest forward from ${carried}"
+          sha256sum "${dir}/pins.json" "${dir}/pins.json.sig"
+          gh release upload "${GITHUB_REF_NAME}" "${dir}/pins.json" "${dir}/pins.json.sig" --clobber

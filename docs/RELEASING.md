@@ -10,8 +10,8 @@ depends on is published.
 > manifest is published** (#207): serial 2, valid until 2027-09-11, carrying the
 > table re-vetted on 2026-09-11 (#205), signed offline and attached to the v1.11
 > release. `pins.VettedSerial` is 2 to match. The fetch URL names the *latest*
-> release, so every later release must carry `pins.json` and `pins.json.sig`
-> forward (step 2) or `--check` reports that it could not check until it does.
+> release, so the release workflow carries `pins.json` and `pins.json.sig`
+> forward to each new tag (step 2).
 > The key custody steps below are deliberately not automated.
 
 ## Why any of this is unusual
@@ -71,19 +71,15 @@ Both halves of the attach step are idempotent (create is skipped when the releas
 exists, upload uses `--clobber`), so re-running a partially failed workflow
 converges rather than erroring.
 
-The workflow does **not** attach the pin manifest, because signing is offline.
-`villa update --check` fetches `releases/latest/download/pins.json`, and a new tag
-moves *latest*, so after the workflow finishes attach the current manifest and its
-signature to the new release by hand:
-
-```bash
-gh release download v1.8 -p 'pins.json*'          # the previous release's copy
-gh release upload v1.9 pins.json pins.json.sig     # verbatim; do not reformat
-```
-
-Skip this and every install reports "could not check" from the moment the tag is
-pushed until the files appear. Publish a *new* manifest (steps 3 to 6) only when a
-pin moved; carrying the old one forward is the usual case.
+The workflow does not **sign** the pin manifest, because signing is offline, but
+it does **carry it forward**: `villa update --check` fetches
+`releases/latest/download/pins.json`, and a new tag moves *latest*, so the last
+step copies `pins.json` and `pins.json.sig` byte for byte from the newest earlier
+release that carries them. Check the new release lists both files; if no earlier
+release carried a manifest the step prints a warning and every install reports
+"could not check" until one is attached. Publish a *new* manifest (steps 3 to 6)
+over the carried copy only when a pin moved; carrying the old one forward is the
+usual case.
 
 ## Publishing the pin manifest
 
