@@ -23,6 +23,8 @@ type fakeLifecycleDeps struct {
 	stopCalls    []string
 	restartCalls []string
 	journalCalls []string
+	// active names the services is-active reports as running.
+	active map[string]bool
 }
 
 // twoUnitStack returns the rendered stack as the live Render would: the inference
@@ -54,6 +56,12 @@ func newFakeLifecycleDeps(t *testing.T, units []orchestrate.Unit, plan orchestra
 	d.start = func(svc string) error { f.startCalls = append(f.startCalls, svc); return nil }
 	d.stop = func(svc string) error { f.stopCalls = append(f.stopCalls, svc); return nil }
 	d.restart = func(svc string) error { f.restartCalls = append(f.restartCalls, svc); return nil }
+	d.isActive = func(svc string) (string, error) {
+		if f.active[svc] {
+			return "active", nil
+		}
+		return "inactive", nil
+	}
 	d.journalText = func(svc string) (string, bool) {
 		f.journalCalls = append(f.journalCalls, svc)
 		return "load_tensors: Vulkan0 model buffer size = 512 MiB\n", true
@@ -101,6 +109,70 @@ func TestLifecycleUpReconcilesAndStartsWholeStack(t *testing.T) {
 	if !bytes.Contains(out.Bytes(), []byte("villa-llama.service")) {
 		t.Errorf("up should report what it started, got %q", out.String())
 	}
+}
+
+// TestLifecycleUpAppliesChangedUnitToActiveService is issue #210: `systemctl start`
+// on an active service is a no-op, so a changed unit under a running service was
+// written and never applied. A changed unit on an active service is restarted; an
+// unchanged unit on an active service is left alone; a changed unit on an inactive
+// service is started.
+func TestLifecycleUpAppliesChangedUnitToActiveService(t *testing.T) {
+	llama := orchestrate.Unit{Name: "villa-llama.container", Text: "[Container]\nImage=new\n"}
+	chat := orchestrate.Unit{Name: "villa-openwebui.container", Text: "[Container]\nImage=same\n"}
+	units := []orchestrate.Unit{llama, chat, {Name: "villa.network", Text: "[Network]\n"}}
+	plan := orchestrate.Plan{Changed: []orchestrate.Unit{llama}, Unchanged: units[1:]}
+
+	t.Run("changed and active is restarted, unchanged and active is untouched", func(t *testing.T) {
+		f := newFakeLifecycleDeps(t, units, plan)
+		f.active = map[string]bool{"villa-llama.service": true, "villa-openwebui.service": true}
+
+		cmd, out, _ := lifecycleTestCmd()
+		if code := runUp(cmd, upOpts{}, nil, f.lifecycleDeps); code != exitPass {
+			t.Fatalf("up exit = %d, want 0", code)
+		}
+		if want := []string{"villa-llama.service"}; !equalStrings(f.restartCalls, want) {
+			t.Errorf("restart calls = %v, want %v", f.restartCalls, want)
+		}
+		if want := []string{orchestrate.DashboardServiceName}; !equalStrings(f.startCalls, want) {
+			t.Errorf("start calls = %v, want %v (only the inactive service)", f.startCalls, want)
+		}
+		if !bytes.Contains(out.Bytes(), []byte("restarted villa-llama.service")) {
+			t.Errorf("up should say it restarted the changed service, got %q", out.String())
+		}
+		if bytes.Contains(out.Bytes(), []byte("villa-openwebui")) {
+			t.Errorf("up should say nothing about an unchanged running service, got %q", out.String())
+		}
+	})
+
+	t.Run("changed and inactive is started", func(t *testing.T) {
+		f := newFakeLifecycleDeps(t, units, plan)
+
+		cmd, out, _ := lifecycleTestCmd()
+		if code := runUp(cmd, upOpts{}, nil, f.lifecycleDeps); code != exitPass {
+			t.Fatalf("up exit = %d, want 0", code)
+		}
+		if len(f.restartCalls) != 0 {
+			t.Errorf("restart calls = %v, want none", f.restartCalls)
+		}
+		if !contains(f.startCalls, "villa-llama.service") {
+			t.Errorf("start calls = %v, want villa-llama.service", f.startCalls)
+		}
+		if !bytes.Contains(out.Bytes(), []byte("started villa-llama.service")) {
+			t.Errorf("up should say it started the service, got %q", out.String())
+		}
+	})
+}
+
+func equalStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // TestLifecycleUpModelFileErrorBlocks: when the model file cannot be resolved (bad
