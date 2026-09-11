@@ -42,7 +42,9 @@ import (
 // proven offload (OffloadApplies=true, Offload.Status=StatusPass) over a HealthReady,
 // loopback-only so status.Aggregate would itself be PASS.
 func healthyStatusReport() status.Report {
+	checkedToday := 0
 	return status.Report{
+		Updates: status.UpdatesInfo{State: status.UpdatesChecked, CheckedAt: "2026-09-11T12:26:35Z", AgeDays: &checkedToday},
 		Services: []status.ServiceStatus{
 			{
 				Service:        "villa-llama.service",
@@ -1292,4 +1294,52 @@ func TestWebsafeBinaryFinding(t *testing.T) {
 			t.Error("a nil WebsafeBinary seam must emit no websafe-binary finding")
 		}
 	})
+}
+
+// TestUpdatesFindingReadsTheRecordedCheck is issue #216: doctor reports the last
+// recorded update check the way status does, and never fetches one. Never checked
+// and a month-old check are WARN with the on-command remediation; a recent one is
+// PASS naming its age.
+func TestUpdatesFindingReadsTheRecordedCheck(t *testing.T) {
+	days := func(n int) *int { return &n }
+	cases := []struct {
+		name       string
+		updates    status.UpdatesInfo
+		wantStatus string
+		wantDetail string
+	}{
+		{"never checked", status.UpdatesInfo{State: status.UpdatesNeverChecked}, "WARN", "villa has never checked for updates on this host"},
+		{"today", status.UpdatesInfo{State: status.UpdatesChecked, CheckedAt: "2026-09-11T12:26:35Z", AgeDays: days(0)}, "PASS", "last checked today (2026-09-11T12:26:35Z)"},
+		{"three days", status.UpdatesInfo{State: status.UpdatesChecked, CheckedAt: "2026-09-08T09:00:00Z", AgeDays: days(3)}, "PASS", "last checked 3 days ago (2026-09-08T09:00:00Z)"},
+		{"stale", status.UpdatesInfo{State: status.UpdatesChecked, CheckedAt: "2026-08-01T09:00:00Z", AgeDays: days(41)}, "WARN", "last checked 41 days ago (2026-08-01T09:00:00Z); the recorded answer is no longer evidence about today"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			d := newDoctorDeps()
+			rep := healthyStatusReport()
+			rep.Updates = tc.updates
+			d.StatusReport = func() status.Report { return rep }
+
+			r := Aggregate(d)
+
+			var f *Finding
+			for i := range r.Findings {
+				if r.Findings[i].ID == "UPD-01" {
+					f = &r.Findings[i]
+				}
+			}
+			if f == nil {
+				t.Fatalf("no UPD-01 finding in %+v", r.Findings)
+			}
+			if f.Status != tc.wantStatus || f.Detail != tc.wantDetail {
+				t.Errorf("UPD-01 = %s %q, want %s %q", f.Status, f.Detail, tc.wantStatus, tc.wantDetail)
+			}
+			if tc.wantStatus == "WARN" && f.Remediation != "run `villa update --check`" {
+				t.Errorf("WARN remediation = %q, want the on-command check", f.Remediation)
+			}
+			if tc.wantStatus == "PASS" && f.Remediation != "" {
+				t.Errorf("PASS carries remediation %q", f.Remediation)
+			}
+		})
+	}
 }
