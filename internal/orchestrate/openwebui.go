@@ -63,7 +63,7 @@ const noAuthAPIKey = "sk-no-key-required"
 // re-audit-on-bump is enforced structurally: TestRenderOpenWebUITelemetryFrozen
 // + the container golden FAIL on any env-block change, forcing a deliberate re-audit
 // of the telemetry-kill set whenever this digest is bumped.
-const openWebUIImage = "ghcr.io/open-webui/open-webui:main@sha256:7f1b0a1a50cfbac23da3b16f96bc968fd757b26dc9e54e93813d61768ea9184e"
+const openWebUIImage = "ghcr.io/open-webui/open-webui:main@sha256:1a6399d237dc392a2313e0ca826020b3fd5d22536357840eb63393d18dc8b924"
 
 // OpenWebUIImage returns the digest-pinned Open WebUI image so callers (the
 // Phase-16 backup manifest) can record it WITHOUT re-typing the literal.

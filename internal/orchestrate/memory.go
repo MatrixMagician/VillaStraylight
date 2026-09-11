@@ -46,7 +46,7 @@ func QdrantImage() string { return qdrantImage }
 // advancing one literal and not the other silently made the claim false. If the two
 // roles legitimately diverge, delete that test; a deleted test is visible in a diff
 // in a way an unenforced comment never was.
-const embedImage = "docker.io/kyuz0/amd-strix-halo-toolboxes:vulkan-radv@sha256:9a74e555c45864352a4077528836988d448e9f030fbab9f7376ea1c603ac7aad"
+const embedImage = "docker.io/kyuz0/amd-strix-halo-toolboxes:vulkan-radv@sha256:521fd5994e73d40d9af168a81f560ebb13590c060ee0ea62262388ef3ecfc5ab"
 
 // EmbedImage returns the digest-pinned villa-embed image (mirrors QdrantImage()/
 // OpenWebUIImage()) so downstream readers never re-type the literal.

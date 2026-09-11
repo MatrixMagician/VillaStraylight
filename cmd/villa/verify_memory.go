@@ -187,7 +187,15 @@ func driveRagUploadCite(ctx context.Context, base, question, wantFact string) (s
 		return "", false, err
 	}
 
-	// (2) Upload the planted doc and wait for chunk-embed-store. Its ONLY content is
+	// (2) Empty the collection first, so the run is the same on its second day as on
+	// its first: the planted text is fixed, and Open WebUI (main since 2026-09)
+	// refuses to add content whose hash the collection already holds, so a file left
+	// by an earlier run turned every later run into a 400 "Duplicate content".
+	if err := owui.ResetKnowledge(ctx, token, kbID); err != nil {
+		return "", false, err
+	}
+
+	// Upload the planted doc and wait for chunk-embed-store. Its ONLY content is
 	// the planted fact, so a correct answer can only come from retrieval, never from
 	// the base model's priors. A processing timeout is an error, never a skip.
 	docText := fmt.Sprintf("VillaStraylight runtime RAG smoke document.\n\n%s\n", wantFact)

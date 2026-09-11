@@ -37,7 +37,7 @@ package orchestrate
 // digest is what ghcr serves; podman resolves the correct linux/amd64 variant
 // (sha256:f63ce776…) from it automatically — mirroring qdrantImage, which also pins
 // the RepoDigests[0] manifest-list digest, not a per-arch digest.
-const searxngImage = "ghcr.io/searxng/searxng@sha256:ed29454ec1f7149986d42819b8b75265e545e79dd9187ba241c09f16a0fe56d0"
+const searxngImage = "ghcr.io/searxng/searxng@sha256:bf271ec8e347ceb21e0d388c928c5ecb17b44adec5bfaaa42a6518214ba3644b"
 
 // SearXNGImage returns the digest-pinned SearXNG image so callers (e.g. the Phase-34
 // backup manifest) record it WITHOUT re-typing the literal. The literal stays behind the

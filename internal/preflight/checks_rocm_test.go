@@ -238,7 +238,7 @@ func TestRunROCmUsesEmbeddedPolicy(t *testing.T) {
 // against imageDeny (Pitfall 3), rather than the empty-image WARN bypass
 // RunROCm uses on the host-prep path. A pinned 6.4.4 digest is NOT denied → PASS.
 func TestRunROCmForImageEvaluatesDigest(t *testing.T) {
-	const img644 = "docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-6.4.4@sha256:c81f30a7fd2641e3ea6ac4c45323ba239dca906ed79cc0dfe5b885f9f150ec62"
+	const img644 = "docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-6.4.4@sha256:1c655ca0443655f2e7603d054770b07cd8c79267145728b3261295f005053947"
 	results := RunROCmForImage(detect.HostProfile{}, img644)
 	if len(results) != 6 {
 		t.Fatalf("RunROCmForImage returned %d checks, want 6 (5 ROCM-PRE-* + the shared PRE-08)", len(results))

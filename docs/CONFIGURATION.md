@@ -341,7 +341,7 @@ sourced from the backend seam (`internal/inference/backend_rocm.go` /
 |------|---------|
 | `-ngl 999` | Offload all layers to the iGPU (free on unified memory). |
 | `-fa 1` | Flash attention on (stability + KV-cache memory). |
-| `--no-mmap` | Keep weights resident in unified memory (no mmap). |
+| `--load-mode none` | Keep weights resident in unified memory (no mmap). The `rocm` default and `rocm-6.4.4-rocwmma` images predate this flag and render `--no-mmap`, the same setting in its older spelling; `vulkan` and `rocm-6.4.4` render `--load-mode none`. |
 | `-c <ctx>` | Context length, from `config.toml` `ctx`. |
 | `--host 0.0.0.0` / `--port 8080` | Container-internal bind only; the host side is published loopback-only at `127.0.0.1:8080`. |
 | `-lv 4` | Raises llama-server log verbosity enough for the offload-residency assertion. |

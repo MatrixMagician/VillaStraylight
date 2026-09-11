@@ -34,7 +34,7 @@ import (
 // re-verify is the on-hardware checkpoint in 12-03.
 const (
 	rocmImage724     = "docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-7.2.4@sha256:2da150c1f0252f383b0b400f6cfa6630d3d34cf7c57132fe8445393b40531a89"
-	rocmImage644     = "docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-6.4.4@sha256:c81f30a7fd2641e3ea6ac4c45323ba239dca906ed79cc0dfe5b885f9f150ec62"
+	rocmImage644     = "docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-6.4.4@sha256:1c655ca0443655f2e7603d054770b07cd8c79267145728b3261295f005053947"
 	rocmImage644wmma = "docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-6.4.4-rocwmma@sha256:9a97129af2c1a2f0080f234787f6978551a43e354f3eb26a8ebc868f643c0141"
 )
 
@@ -48,6 +48,9 @@ const (
 type backendROCm struct {
 	name  string
 	image string
+	// load is the resident-weights flag spelling this image's llama.cpp build
+	// accepts; see llamaServerFlags.
+	load []string
 }
 
 // Compile-time assertion that backendROCm satisfies Backend (incl. ResidencyProof).
@@ -103,7 +106,7 @@ func (b backendROCm) ContainerArgs(spec RunSpec) []string {
 		"--host", "0.0.0.0", // container-internal only; host side is loopback (above)
 		"--port", fmt.Sprintf("%d", serverPort),
 	}
-	args = append(args, llamaServerFlags...)
+	args = append(args, llamaServerFlags(b.load)...)
 	// ROCm symmetry: the IDENTICAL tool-calling delta as the Vulkan backend, rendered
 	// through the shared seam helper so both backends emit --jinja / sampling /
 	// --cache-reuse behind the seam. Tools false + CodingMode nil ⇒ byte-identical off path.

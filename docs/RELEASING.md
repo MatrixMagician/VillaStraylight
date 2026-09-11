@@ -9,10 +9,11 @@ depends on is published.
 > `cmd/villa-manifest-sign`, and the public key is compiled in. What remains
 > outstanding is not code: **no manifest has been published yet**, because
 > publishing one means asserting on hardware that its pins are vetted (steps 3 and
-> 4), and eight of ten had drifted at the last measurement. Until then every
-> install runs the compiled-in pins and `villa update --check` honestly reports
-> that it could not check. The key custody steps below are deliberately not
-> automated.
+> 4). The compiled-in table was re-vetted on 2026-09-11 (#205; see § The
+> compiled-in table), so what remains is the operator's two calls, the
+> `valid_until` window and the first serial (#207). Until then every install runs
+> the compiled-in pins and `villa update --check` honestly reports that it could
+> not check. The key custody steps below are deliberately not automated.
 
 ## Why any of this is unusual
 
@@ -232,10 +233,25 @@ The compiled-in table is the fallback when no manifest is available, so it is th
 floor on how stale a fresh install can be. It should be re-vetted periodically,
 not only when a manifest is published.
 
-As of 2026-08-26, **eight of ten pins had drifted** from what the tree carries,
-with Crush fifteen minor versions behind. See
-[`docs/research/update-version-checks.md`](research/update-version-checks.md) for
-the measurement and the method.
+The table was last re-vetted on 2026-09-11 (#205), the method above applied on the
+dev host to every pin the registry had moved. Six moved and were proven: the
+`rocm-6.4.4` and `vulkan-radv` backends (`backend set` plus the residency
+proof), Open WebUI (`verify memory` and the status probes), the embedder image,
+SearXNG and the websafe base (`verify search`), and Crush v0.93.1 (`verify
+agent` and one `villa work` task through the bridge). One moved and was
+**refused**: the `rocm-7.2.4` tag had been rebuilt on llama.cpp build 10217,
+which streams a degenerate reasoning block under `--spec-type ngram-mod` on the
+default model (sane with speculation off, and sane on builds 10664 and 10906),
+so the default backend stays on the build 9496 digest until the tag moves again.
+Two had not moved (`rocm-6.4.4-rocwmma`, Qdrant). The earlier measurement of
+2026-08-26 is in
+[`docs/research/update-version-checks.md`](research/update-version-checks.md).
+
+Two things the re-vet taught, both now encoded in the tree: llama.cpp replaced
+`--no-mmap` with `--load-mode` between those builds, so the resident-weights flag
+is spelled per image (`internal/inference`, `TestLoadFlagIsSpelledPerImage`); and
+Open WebUI now refuses a file whose content hash a collection already holds, so
+`verify memory` empties its collection before it uploads.
 
 Refreshing them is steps 3 and 4 above, applied to the constants in the tree,
 followed by an ordinary release. A pin in the compiled-in table carries the same
