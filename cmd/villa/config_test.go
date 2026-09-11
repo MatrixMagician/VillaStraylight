@@ -37,7 +37,7 @@ func newFakeConfigDeps(loaded config.VillaConfig) *fakeConfigDeps {
 }
 
 func fixtureConfig() config.VillaConfig {
-	return config.VillaConfig{Model: "qwen2.5-0.5b", Quant: "UD-Q4_K_M", Ctx: 4096, Backend: "vulkan"}
+	return config.VillaConfig{Model: "qwen3.5-0.8b", Quant: "UD-Q4_K_M", Ctx: 4096, Backend: "vulkan"}
 }
 
 // TestConfigShowPrintsEffectiveConfig: `config show` prints the loaded config in a
@@ -50,7 +50,7 @@ func TestConfigShowPrintsEffectiveConfig(t *testing.T) {
 		t.Fatalf("config show exit = %d, want 0", code)
 	}
 	s := out.String()
-	if !strings.Contains(s, "qwen2.5-0.5b") || !strings.Contains(s, "4096") || !strings.Contains(s, "vulkan") {
+	if !strings.Contains(s, "qwen3.5-0.8b") || !strings.Contains(s, "4096") || !strings.Contains(s, "vulkan") {
 		t.Errorf("config show must print the effective config values, got %q", s)
 	}
 }
@@ -64,7 +64,7 @@ func TestConfigShowJSON(t *testing.T) {
 		t.Fatalf("config show --json exit = %d, want 0", code)
 	}
 	s := out.String()
-	if !strings.Contains(s, `"model"`) || !strings.Contains(s, "qwen2.5-0.5b") {
+	if !strings.Contains(s, `"model"`) || !strings.Contains(s, "qwen3.5-0.8b") {
 		t.Errorf("config show --json must emit the model field, got %q", s)
 	}
 }

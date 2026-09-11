@@ -50,7 +50,7 @@ writer that refuses to write outside the `villa` config dir and sets file mode
 A minimal `config.toml` looks like this:
 
 ```toml
-model = "qwen3-30b-a3b"
+model = "qwen3.6-35b-a3b"
 quant = "UD-Q4_K_M"
 ctx = 131072
 backend = "rocm"
@@ -87,13 +87,13 @@ time, each in its own container on its own host loopback port, so switching betw
 them in the chat UI costs no cold load. Every resident slot is one `[[resident]]` table:
 
 ```toml
-model = "qwen3-30b-a3b"
+model = "qwen3.6-35b-a3b"
 quant = "UD-Q4_K_M"
 ctx = 131072
 backend = "rocm"
 
 [[resident]]
-model = "qwen2.5-0.5b"
+model = "qwen3.5-0.8b"
 quant = "Q8_0"
 ctx = 4096
 port = 8081
@@ -214,7 +214,7 @@ villa config show --json     # stable lowercase JSON: model, quant, ctx, backend
 
 # Set a single key (validated, then persisted via the 0600 writer)
 villa config set ctx=32768
-villa config set model=qwen3-30b-a3b
+villa config set model=qwen3.6-35b-a3b
 ```
 
 `config set` accepts only the keys `model`, `quant`, `ctx`, `backend`,

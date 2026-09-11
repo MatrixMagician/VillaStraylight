@@ -450,7 +450,7 @@ func TestInstallPersistsConfigBeforeUnits(t *testing.T) {
 	if len(order) != 2 || order[0] != "save" || order[1] != "write" {
 		t.Errorf("config must be persisted BEFORE units are written, got order %v", order)
 	}
-	if f.savedCfg.Model != "qwen2.5-0.5b" || f.savedCfg.Quant != "Q4_K_M" ||
+	if f.savedCfg.Model != "qwen3.5-0.8b" || f.savedCfg.Quant != "Q4_K_M" ||
 		f.savedCfg.Ctx != 4096 || f.savedCfg.Backend != "rocm" {
 		t.Errorf("persisted config must hold the recommended selection, got %+v", f.savedCfg)
 	}
@@ -853,7 +853,7 @@ func TestInstallPreservesPersistedMemoryConfig(t *testing.T) {
 	if f.savedCfg.ChatPort != 4444 {
 		t.Errorf("install reset persisted chat_port to %d, want 4444 preserved", f.savedCfg.ChatPort)
 	}
-	if f.savedCfg.Model != "qwen2.5-0.5b" || f.savedCfg.Backend != "rocm" {
+	if f.savedCfg.Model != "qwen3.5-0.8b" || f.savedCfg.Backend != "rocm" {
 		t.Errorf("install must still override the recommendation-derived fields, got %+v", f.savedCfg)
 	}
 }
@@ -887,7 +887,7 @@ func TestInstallPreservesPersistedROCmBackend(t *testing.T) {
 		if f.savedCfg.Backend != "rocm" {
 			t.Errorf("install reverted persisted backend to %q, want \"rocm\" preserved", f.savedCfg.Backend)
 		}
-		if f.savedCfg.Model != "qwen2.5-0.5b" {
+		if f.savedCfg.Model != "qwen3.5-0.8b" {
 			t.Errorf("install must still override the recommendation-derived model, got %q", f.savedCfg.Model)
 		}
 	})
@@ -1357,7 +1357,7 @@ func TestInstallCodingAgentFlow(t *testing.T) {
 		f.agentCat = catalog.Catalog{Models: []catalog.Model{{ID: "qwen3-chat"}}}
 		f.Pick = func(detect.HostProfile, recommend.Overrides) recommend.Recommendation {
 			return recommend.Recommendation{
-				Model: "qwen2.5-0.5b", Quant: "Q4_K_M", ContextLen: 4096, Backend: "rocm",
+				Model: "qwen3.5-0.8b", Quant: "Q4_K_M", ContextLen: 4096, Backend: "rocm",
 				WeightBytes: 1 << 30, KVCacheBytes: 1 << 28, HeadroomBytes: 1 << 28,
 				UsableEnvelopeBytes: 8 << 30, Fits: true,
 				Coder: recommend.CoderFit{Fits: false, Residency: recommend.ResidencyShared},

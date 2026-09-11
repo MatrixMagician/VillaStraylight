@@ -126,14 +126,14 @@ func newFakeDeps(t *testing.T, units []orchestrate.Unit, plan orchestrate.Plan, 
 		Probe: func() detect.HostProfile { return detect.HostProfile{} },
 		Pick: func(detect.HostProfile, recommend.Overrides) recommend.Recommendation {
 			return recommend.Recommendation{
-				Model: "qwen2.5-0.5b", Quant: "Q4_K_M", ContextLen: 4096, Backend: "rocm",
+				Model: "qwen3.5-0.8b", Quant: "Q4_K_M", ContextLen: 4096, Backend: "rocm",
 				WeightBytes:  1 << 30,
 				KVCacheBytes: 1 << 28, HeadroomBytes: 1 << 28, UsableEnvelopeBytes: 8 << 30,
 				Fits:  true,
 				Coder: recommend.CoderFit{Model: "qwen3-coder-30b-a3b", Quant: "Q4_K_M", AgentCtx: 65536, Fits: true, Residency: "swap"},
 			}
 		},
-		ModelFile: func(recommend.Recommendation) (string, error) { return "qwen2.5-0.5b.gguf", nil },
+		ModelFile: func(recommend.Recommendation) (string, error) { return "qwen3.5-0.8b.gguf", nil },
 		ModelsDir: func() string { return t.TempDir() },
 		RunChecks: func(detect.HostProfile, preflight.ResourceReq) []preflight.CheckResult { return checks },
 		Render: func(in orchestrate.RenderInput) ([]orchestrate.Unit, error) {

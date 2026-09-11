@@ -356,7 +356,7 @@ func TestPartialPriorStateIsNotACleanHost(t *testing.T) {
 // re-download tens of gigabytes. The capture has no field for them, which is what
 // makes that guarantee structural rather than a promise.
 func TestModelWeightsAreNotCaptured(t *testing.T) {
-	prior := CapturePrior(config.VillaConfig{Model: "qwen3-30b-a3b"}, true, nil, nil)
+	prior := CapturePrior(config.VillaConfig{Model: "qwen3.6-35b-a3b"}, true, nil, nil)
 	r := newRollbackRecorder()
 
 	m := Mutations{Started: []string{"villa-llama.service"}}
