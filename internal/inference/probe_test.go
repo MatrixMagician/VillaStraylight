@@ -61,7 +61,7 @@ func TestChatProbe(t *testing.T) {
 		}))
 		defer srv.Close()
 
-		res := chatProbe(t.Context(), srv.URL, "qwen2.5-0.5b")
+		res := chatProbe(t.Context(), srv.URL, "qwen3.5-0.8b")
 		if !res.OK {
 			t.Fatalf("chatProbe: OK=false, want true (detail=%q)", res.Detail)
 		}
@@ -134,7 +134,7 @@ func TestChatProbe(t *testing.T) {
 		}))
 		defer srv.Close()
 
-		res := chatProbe(t.Context(), srv.URL, "qwen2.5-0.5b")
+		res := chatProbe(t.Context(), srv.URL, "qwen3.5-0.8b")
 		if res.OK {
 			t.Errorf("chatProbe: OK=true on a non-200 chat, want false")
 		}

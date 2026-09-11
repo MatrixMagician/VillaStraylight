@@ -16,7 +16,7 @@ import (
 // a non-zero weight.
 func fit() recommend.Recommendation {
 	return recommend.Recommendation{
-		Model:       "qwen3-30b-a3b",
+		Model:       "qwen3.6-35b-a3b",
 		Quant:       "Q4_K_M",
 		ContextLen:  8192,
 		Backend:     "rocm",

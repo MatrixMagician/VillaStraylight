@@ -29,7 +29,7 @@ func TestNewContainerRunnerReturnsTheInterface(t *testing.T) {
 func TestLoopbackPublish(t *testing.T) {
 	args := VulkanBackend().ContainerArgs(RunSpec{
 		ContainerName: "villa-inf-test",
-		ModelFile:     "qwen2.5-0.5b-instruct-q4_k_m.gguf",
+		ModelFile:     "qwen3.5-0.8b-instruct-q4_k_m.gguf",
 		ModelsDir:     "/home/user/.local/share/villa/models",
 		ContextLen:    4096,
 	})

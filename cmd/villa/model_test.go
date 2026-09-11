@@ -58,17 +58,17 @@ func TestModelPullSuccess(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 
 	cmd, out, _ := newTestCmd()
-	code := runModelPull(cmd, "qwen2.5-0.5b")
+	code := runModelPull(cmd, "qwen3.5-0.8b")
 	if code != exitPass {
 		t.Fatalf("expected exit 0, got %d", code)
 	}
-	if gotModel.ID != "qwen2.5-0.5b" {
-		t.Errorf("downloader got model %q, want qwen2.5-0.5b", gotModel.ID)
+	if gotModel.ID != "qwen3.5-0.8b" {
+		t.Errorf("downloader got model %q, want qwen3.5-0.8b", gotModel.ID)
 	}
 	if !strings.HasSuffix(gotDir, "/villa/models") {
 		t.Errorf("models dir = %q, want suffix /villa/models", gotDir)
 	}
-	if !strings.Contains(out.String(), "verified") || !strings.Contains(out.String(), "qwen2.5-0.5b") {
+	if !strings.Contains(out.String(), "verified") || !strings.Contains(out.String(), "qwen3.5-0.8b") {
 		t.Errorf("success output missing model id / verified marker: %q", out.String())
 	}
 }
@@ -84,7 +84,7 @@ func TestModelPullDownloadFailure(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 
 	cmd, _, errOut := newTestCmd()
-	code := runModelPull(cmd, "qwen2.5-0.5b")
+	code := runModelPull(cmd, "qwen3.5-0.8b")
 	if code == exitPass {
 		t.Fatalf("expected non-zero exit on download failure, got %d", code)
 	}
@@ -190,7 +190,7 @@ func TestModelListLoadedVsAvailable(t *testing.T) {
 	d := &listDeps{
 		loadCatalog: func() (catalog.Catalog, []string, error) { return catalog.Load("") },
 		loadConfig: func() (config.VillaConfig, error) {
-			return config.VillaConfig{Model: "qwen2.5-0.5b"}, nil
+			return config.VillaConfig{Model: "qwen3.5-0.8b"}, nil
 		},
 	}
 	cmd, out, _ := newTestCmd()
@@ -200,13 +200,13 @@ func TestModelListLoadedVsAvailable(t *testing.T) {
 	}
 	s := out.String()
 	// The loaded model must be flagged loaded; at least one other entry available.
-	if !strings.Contains(s, "qwen2.5-0.5b") {
+	if !strings.Contains(s, "qwen3.5-0.8b") {
 		t.Fatalf("list output missing the loaded model id: %q", s)
 	}
 	loadedLineFound := false
 	availFound := false
 	for _, line := range strings.Split(s, "\n") {
-		if strings.Contains(line, "qwen2.5-0.5b") && strings.Contains(line, "loaded") {
+		if strings.Contains(line, "qwen3.5-0.8b") && strings.Contains(line, "loaded") {
 			loadedLineFound = true
 		}
 		if strings.Contains(line, "available") {
@@ -354,7 +354,7 @@ func TestModelPullUsesTheCommandContext(t *testing.T) {
 	cmd, _, _ := newTestCmd()
 	cmd.SetContext(ctx)
 
-	if code := runModelPull(cmd, "qwen2.5-0.5b"); code != exitPass {
+	if code := runModelPull(cmd, "qwen3.5-0.8b"); code != exitPass {
 		t.Fatalf("pull exit = %d, want %d", code, exitPass)
 	}
 	if gotCtx == nil {
@@ -385,7 +385,7 @@ func TestModelPullToleratesNilCommandContext(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 
 	cmd, _, _ := newTestCmd() // never Execute()d → cmd.Context() is nil
-	if code := runModelPull(cmd, "qwen2.5-0.5b"); code != exitPass {
+	if code := runModelPull(cmd, "qwen3.5-0.8b"); code != exitPass {
 		t.Fatalf("pull exit = %d, want %d", code, exitPass)
 	}
 	if gotCtx == nil {

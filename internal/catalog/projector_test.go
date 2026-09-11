@@ -101,7 +101,7 @@ func TestLoadProjectorValidationRefusesIncomplete(t *testing.T) {
 			if _, ok := c.FindByID("broken-vision-model"); ok {
 				t.Errorf("an incomplete projector entry must not be used")
 			}
-			if _, ok := c.FindByID("qwen2.5-1.5b"); !ok {
+			if _, ok := c.FindByID("qwen3.5-2b"); !ok {
 				t.Errorf("expected fallback to the embedded seed")
 			}
 		})

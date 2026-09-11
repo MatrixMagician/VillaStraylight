@@ -35,9 +35,9 @@ func TestWizardPromptLoopDriver(t *testing.T) {
 		t.Fatalf("resolve backend: %v", err)
 	}
 	rec := recommend.Recommendation{
-		Model: "qwen2.5-0.5b", Quant: "Q4_K_M", ContextLen: 4096, Backend: "vulkan",
+		Model: "qwen3.5-0.8b", Quant: "Q4_K_M", ContextLen: 4096, Backend: "vulkan",
 		Alternatives: []recommend.Alternative{
-			{Model: "qwen2.5-1.5b", Quant: "Q4_K_M", ContextLen: 8192},
+			{Model: "qwen3.5-2b", Quant: "Q4_K_M", ContextLen: 8192},
 		},
 	}
 	in := wizardInput{
@@ -55,8 +55,8 @@ func TestWizardPromptLoopDriver(t *testing.T) {
 	if err != nil {
 		t.Fatalf("runWizard: %v", err)
 	}
-	if res.modelOverride != "qwen2.5-1.5b" {
-		t.Errorf("modelOverride = %q, want the scripted alternative %q", res.modelOverride, "qwen2.5-1.5b")
+	if res.modelOverride != "qwen3.5-2b" {
+		t.Errorf("modelOverride = %q, want the scripted alternative %q", res.modelOverride, "qwen3.5-2b")
 	}
 	if got, ok := res.consentDecisions["PRE-05"]; !ok || !got {
 		t.Errorf("consentDecisions = %v, want PRE-05=true", res.consentDecisions)
@@ -76,8 +76,8 @@ func TestWizardKeepsRecommendedPick(t *testing.T) {
 		t.Fatalf("resolve backend: %v", err)
 	}
 	rec := recommend.Recommendation{
-		Model: "qwen2.5-0.5b", Quant: "Q4_K_M", ContextLen: 4096, Backend: "vulkan",
-		Alternatives: []recommend.Alternative{{Model: "qwen2.5-1.5b", Quant: "Q4_K_M", ContextLen: 8192}},
+		Model: "qwen3.5-0.8b", Quant: "Q4_K_M", ContextLen: 4096, Backend: "vulkan",
+		Alternatives: []recommend.Alternative{{Model: "qwen3.5-2b", Quant: "Q4_K_M", ContextLen: 8192}},
 	}
 	in := wizardInput{rec: rec, alternatives: rec.Alternatives, backend: backend}
 
@@ -99,7 +99,7 @@ func TestWizardCancelAndAbortNeverConsent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve backend: %v", err)
 	}
-	rec := recommend.Recommendation{Model: "qwen2.5-0.5b", Quant: "Q4_K_M", ContextLen: 4096}
+	rec := recommend.Recommendation{Model: "qwen3.5-0.8b", Quant: "Q4_K_M", ContextLen: 4096}
 	base := wizardInput{rec: rec, backend: backend, checks: []preflight.CheckResult{seloffCheck()}}
 
 	cases := map[string]struct {
@@ -155,8 +155,8 @@ func TestWizardRejectsOutOfRangeSelection(t *testing.T) {
 		t.Fatalf("resolve backend: %v", err)
 	}
 	rec := recommend.Recommendation{
-		Model: "qwen2.5-0.5b", Quant: "Q4_K_M", ContextLen: 4096,
-		Alternatives: []recommend.Alternative{{Model: "qwen2.5-1.5b", Quant: "Q4_K_M", ContextLen: 8192}},
+		Model: "qwen3.5-0.8b", Quant: "Q4_K_M", ContextLen: 4096,
+		Alternatives: []recommend.Alternative{{Model: "qwen3.5-2b", Quant: "Q4_K_M", ContextLen: 8192}},
 	}
 	in := wizardInput{rec: rec, alternatives: rec.Alternatives, backend: backend}
 
@@ -167,8 +167,8 @@ func TestWizardRejectsOutOfRangeSelection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("runWizard: %v", err)
 	}
-	if res.modelOverride != "qwen2.5-1.5b" {
-		t.Errorf("modelOverride = %q, want %q after the invalid answers were re-asked", res.modelOverride, "qwen2.5-1.5b")
+	if res.modelOverride != "qwen3.5-2b" {
+		t.Errorf("modelOverride = %q, want %q after the invalid answers were re-asked", res.modelOverride, "qwen3.5-2b")
 	}
 	if !strings.Contains(out.String(), "please enter a number between 1 and 2") {
 		t.Errorf("an out-of-range answer was not re-asked:\n%s", out.String())
@@ -212,7 +212,7 @@ func TestReviewBlockIndent(t *testing.T) {
 		t.Fatalf("resolve backend: %v", err)
 	}
 	in := wizardInput{
-		rec:     recommend.Recommendation{Model: "qwen2.5-0.5b", Quant: "Q4_K_M", ContextLen: 4096, Backend: "vulkan"},
+		rec:     recommend.Recommendation{Model: "qwen3.5-0.8b", Quant: "Q4_K_M", ContextLen: 4096, Backend: "vulkan"},
 		backend: backend,
 	}
 	got := reviewBlock(in, "")

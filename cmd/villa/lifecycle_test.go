@@ -43,9 +43,9 @@ func newFakeLifecycleDeps(t *testing.T, units []orchestrate.Unit, plan orchestra
 	f := &fakeLifecycleDeps{}
 	d := &lifecycleDeps{
 		loadConfig: func() (config.VillaConfig, error) {
-			return config.VillaConfig{Model: "qwen2.5-0.5b", Quant: "Q4", Ctx: 4096, Backend: "vulkan"}, nil
+			return config.VillaConfig{Model: "qwen3.5-0.8b", Quant: "Q4", Ctx: 4096, Backend: "vulkan"}, nil
 		},
-		modelFile: func(config.VillaConfig) (string, error) { return "qwen2.5-0.5b.gguf", nil },
+		modelFile: func(config.VillaConfig) (string, error) { return "qwen3.5-0.8b.gguf", nil },
 		modelsDir: func() string { return t.TempDir() },
 		render:    func(orchestrate.RenderInput) ([]orchestrate.Unit, error) { return units, nil },
 		reconcile: func([]orchestrate.Unit, string) (orchestrate.Plan, error) { return plan, nil },
