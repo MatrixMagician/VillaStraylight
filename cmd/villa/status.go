@@ -893,17 +893,8 @@ func updatesLine(u status.UpdatesInfo) string {
 	if days == 0 {
 		line = "last checked today"
 	}
-	if days >= updateStaleDays {
+	if days >= status.UpdateStaleDays {
 		line += " — run `villa update --check`"
 	}
 	return line
 }
-
-// updateStaleDays is when a recorded check stops being evidence about today.
-//
-// A month, chosen to be comfortably longer than any reasonable manifest publishing
-// cadence and comfortably shorter than the months-long valid_until window. Being
-// wrong in either direction is mild: too short nags, too long stays quiet — and the
-// age itself is always printed regardless, so the number only decides when villa
-// adds a nudge, never whether the user can see the truth.
-const updateStaleDays = 30

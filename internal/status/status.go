@@ -1134,6 +1134,15 @@ func updatesInfo(readPinState func() *pinstate.State) UpdatesInfo {
 	}
 }
 
+// UpdateStaleDays is when a recorded check stops being evidence about today.
+//
+// A month, chosen to be comfortably longer than any reasonable manifest publishing
+// cadence and comfortably shorter than the months-long valid_until window. Being
+// wrong in either direction is mild: too short nags, too long stays quiet — and the
+// age itself is always printed regardless, so the number only decides when villa
+// adds a nudge, never whether the user can see the truth.
+const UpdateStaleDays = 30
+
 // The two update-check states. They are constants rather than bare strings because
 // they are part of the frozen --json contract and are read by the dashboard.
 const (

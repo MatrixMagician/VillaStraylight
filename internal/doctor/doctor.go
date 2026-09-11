@@ -27,6 +27,7 @@
 package doctor
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/agent"
@@ -491,6 +492,7 @@ func Aggregate(d Deps) Report {
 				Provenance:  "status.Report.LoopbackOnly",
 			})
 		}
+		findings = append(findings, updatesFinding(report.Updates))
 		for _, s := range report.Services {
 			findings = append(findings, healthFinding(s))
 			if s.OffloadApplies {
@@ -1050,4 +1052,41 @@ func nonEmpty(upstream, fallback string) string {
 		return upstream
 	}
 	return fallback
+}
+
+// updatesFinding folds the LAST RECORDED update check (issue #216). It reads the
+// status report and fetches nothing: checks stay strictly on-command, so the only
+// remediation this finding ever names is the command that runs one. Never checked
+// and stale are both WARN, because on this verb the operator asked what to look
+// at, and an answer nobody has fetched in a month is not evidence about today.
+func updatesFinding(u status.UpdatesInfo) Finding {
+	f := Finding{
+		ID:         "UPD-01",
+		Name:       "Pin-manifest check",
+		Tier:       tierWarn,
+		Provenance: "status.Report.Updates (pin-state.json; read, never fetched)",
+	}
+	if u.State != status.UpdatesChecked || u.AgeDays == nil {
+		f.Status = statusWarn
+		f.Detail = "villa has never checked for updates on this host"
+		f.Remediation = "run `villa update --check`"
+		return f
+	}
+	days := *u.AgeDays
+	age := fmt.Sprintf("%d days ago", days)
+	switch days {
+	case 0:
+		age = "today"
+	case 1:
+		age = "1 day ago"
+	}
+	f.Detail = fmt.Sprintf("last checked %s (%s)", age, u.CheckedAt)
+	if days >= status.UpdateStaleDays {
+		f.Status = statusWarn
+		f.Detail += "; the recorded answer is no longer evidence about today"
+		f.Remediation = "run `villa update --check`"
+		return f
+	}
+	f.Status = statusPass
+	return f
 }
