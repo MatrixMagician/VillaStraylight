@@ -241,7 +241,7 @@ A task runs Crush, villa's pinned coding agent, inside a libkrun microVM with on
 **Run the stack lifecycle:**
 
 ```bash
-villa up [service]                    # reconcile config into units and start (whole stack or one service)
+villa up [service]                    # reconcile config into units and start, restarting a running service whose unit changed
 villa status                          # aggregated health: unit + container + /health + GPU-offload proof,
                                       # plus the active backend and its resolved image tag
 villa logs [service]                  # show (and optionally follow) journald logs

@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -11,8 +12,10 @@ import (
 // stack — or only the named service. It reuses the Plan-01 orchestrate core and
 // the Plan-02 install reconcile pattern, so an unchanged config is a TRUE no-op
 // and a hand-edited config.toml converges exactly the changed units on the
-// next `up`. --dry-run prints the rendered changed units and writes
-// nothing. runUp RETURNS the exit code; the RunE wrapper calls os.Exit.
+// next `up`. A changed unit whose service is already running is RESTARTED (#210:
+// `systemctl start` on an active unit is a no-op, so the written unit would
+// otherwise never be applied). --dry-run prints the rendered changed units and
+// writes nothing. runUp RETURNS the exit code; the RunE wrapper calls os.Exit.
 
 // upOpts are the per-invocation flags for `villa up`.
 type upOpts struct {
@@ -28,7 +31,9 @@ func newUp() *cobra.Command {
 		Use:   "up [service]",
 		Short: "Reconcile config into units and start the stack (or one service)",
 		Long: "Render Quadlet units from config.toml, write only what changed, daemon-reload, and start " +
-			"the stack — or just the named service. A second run with unchanged config is a true no-op. " +
+			"the stack — or just the named service. A running service whose unit changed is restarted, " +
+			"in place, so the change is applied; a running service whose unit did not change is left alone. " +
+			"A second run with unchanged config is a true no-op. " +
 			"--dry-run prints the rendered changes and writes nothing. Strictly local.",
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -86,12 +91,34 @@ func runUp(cmd *cobra.Command, opts upOpts, args []string, d *lifecycleDeps) int
 		return exitPass
 	}
 
+	changedUnits := map[string]bool{}
+	for _, u := range plan.Changed {
+		changedUnits[u.Name] = true
+	}
 	for _, svc := range targets {
-		if err := d.start(svc); err != nil {
-			fmt.Fprintf(errOut, "up: start %s failed: %v\n", svc, err)
+		state, err := d.isActive(svc)
+		if err != nil {
+			fmt.Fprintf(errOut, "up: is-active %s: %v\n", svc, err)
 			return exitBlocked
 		}
-		fmt.Fprintf(out, "started %s\n", svc)
+		running := state == "active" || state == "activating" || state == "reloading"
+		unitChanged := changedUnits[strings.TrimSuffix(svc, ".service")+".container"]
+		switch {
+		case running && unitChanged:
+			if err := d.restart(svc); err != nil {
+				fmt.Fprintf(errOut, "up: restart %s failed: %v\n", svc, err)
+				return exitBlocked
+			}
+			fmt.Fprintf(out, "restarted %s\n", svc)
+		case running:
+			// An unchanged unit under a running service: nothing to apply.
+		default:
+			if err := d.start(svc); err != nil {
+				fmt.Fprintf(errOut, "up: start %s failed: %v\n", svc, err)
+				return exitBlocked
+			}
+			fmt.Fprintf(out, "started %s\n", svc)
+		}
 	}
 	return exitPass
 }

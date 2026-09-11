@@ -42,6 +42,7 @@ type lifecycleDeps struct {
 	start        func(service string) error
 	stop         func(service string) error
 	restart      func(service string) error
+	isActive     func(service string) (string, error)
 
 	journalText   func(service string) (string, bool)
 	followJournal func(service string) error
@@ -199,6 +200,7 @@ func liveLifecycleDeps() *lifecycleDeps {
 		start:        sys.Start,
 		stop:         sys.Stop,
 		restart:      sys.Restart,
+		isActive:     sys.IsActive,
 
 		journalText:   sys.JournalText,
 		followJournal: followJournalLive,
