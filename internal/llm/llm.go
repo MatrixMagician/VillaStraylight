@@ -36,6 +36,9 @@ type ChatRequest struct {
 	// call needs thinking disabled, or the model spends its whole token
 	// budget reasoning and returns no content.
 	ChatTemplateKwargs map[string]any `json:"chat_template_kwargs,omitempty"`
+	// MaxTokens bounds the completion; zero omits it and leaves the server
+	// default in effect.
+	MaxTokens int `json:"max_tokens,omitempty"`
 }
 
 // StreamFunc receives incremental content deltas as they arrive from the model.

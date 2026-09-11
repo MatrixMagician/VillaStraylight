@@ -48,6 +48,7 @@ type wireRequest struct {
 	Stream             bool           `json:"stream"`
 	Temperature        *float64       `json:"temperature,omitempty"`
 	ChatTemplateKwargs map[string]any `json:"chat_template_kwargs,omitempty"`
+	MaxTokens          int            `json:"max_tokens,omitempty"`
 }
 
 type wireChunk struct {
@@ -109,7 +110,7 @@ func (c *OpenAIClient) StreamChat(ctx context.Context, req ChatRequest, onDelta 
 	}
 
 	body, err := json.Marshal(wireRequest{Model: model, Messages: req.Messages, Stream: true,
-		Temperature: req.Temperature, ChatTemplateKwargs: req.ChatTemplateKwargs})
+		Temperature: req.Temperature, ChatTemplateKwargs: req.ChatTemplateKwargs, MaxTokens: req.MaxTokens})
 	if err != nil {
 		return fmt.Errorf("llm: marshal request: %w", err)
 	}
