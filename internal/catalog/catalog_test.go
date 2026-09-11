@@ -89,21 +89,21 @@ func TestLoadSeedDownloadMetadata(t *testing.T) {
 	}
 }
 
-// TestLoadSeedVerifiedDims asserts the Pitfall-6 corrected dimensions made it into
-// the seed for the validated entries (0.5B 24L/2KV/64; 1.5B 28L/2KV/128;
-// 30B-A3B 48L/4KV/128 — n_kv_heads=4 NOT 8).
+// TestLoadSeedVerifiedDims asserts the dimensions read off the actual GGUF
+// headers made it into the seed for the validated entries: 0.8B and 2B are
+// both the qwen35 hybrid architecture at 24 blocks / full_attention_interval
+// 4 = 6 KV-bearing layers (2026-09-11); 27B is the same hybrid at 64 blocks /
+// interval 4 = 16 KV-bearing layers, read off the GGUF header on 2026-09-07
+// (ADR-0007).
 func TestLoadSeedVerifiedDims(t *testing.T) {
 	c, _, err := Load("")
 	if err != nil {
 		t.Fatalf("Load(\"\"): %v", err)
 	}
 	want := map[string]struct{ layers, kv, head int }{
-		"qwen2.5-0.5b":  {24, 2, 64},
-		"qwen2.5-1.5b":  {28, 2, 128},
-		"qwen3-30b-a3b": {48, 4, 128},
-		// qwen35 hybrid: 64 blocks / full_attention_interval 4 = 16 KV-bearing
-		// layers, read off the GGUF header on 2026-09-07 (ADR-0007).
-		"qwen3.8-27b": {16, 4, 256},
+		"qwen3.5-0.8b": {6, 2, 256},
+		"qwen3.5-2b":   {6, 2, 256},
+		"qwen3.8-27b":  {16, 4, 256},
 	}
 	for id, w := range want {
 		m, ok := c.FindByID(id)
@@ -191,8 +191,8 @@ func TestLoadVersionMismatchFallsBack(t *testing.T) {
 				t.Errorf("Load(%s): warning should mention schema_version, got %v", tc.name, warnings)
 			}
 			// Fell back to embedded seed (has the bootstrap entry).
-			if _, ok := c.FindByID("qwen2.5-1.5b"); !ok {
-				t.Errorf("Load(%s): expected fallback to embedded seed, but qwen2.5-1.5b not present", tc.name)
+			if _, ok := c.FindByID("qwen3.5-2b"); !ok {
+				t.Errorf("Load(%s): expected fallback to embedded seed, but qwen3.5-2b not present", tc.name)
 			}
 		})
 	}
@@ -209,7 +209,7 @@ func TestLoadMalformedFallsBack(t *testing.T) {
 	if len(warnings) == 0 {
 		t.Errorf("Load(malformed): expected a warning, got none")
 	}
-	if _, ok := c.FindByID("qwen2.5-1.5b"); !ok {
+	if _, ok := c.FindByID("qwen3.5-2b"); !ok {
 		t.Errorf("Load(malformed): expected fallback to embedded seed")
 	}
 }
@@ -292,15 +292,15 @@ func TestCatalogModelFailClosedDefaults(t *testing.T) {
 	}
 }
 
-// TestLoadSeedChatEntriesUntouched asserts the pre-existing chat entries gained
-// NO coder keys in the v3 bump (byte-untouched apart from the two
-// top-level version bumps).
-func TestLoadSeedChatEntriesUntouched(t *testing.T) {
+// TestLoadSeedChatEntriesCarryNoCoderKeys asserts the non-coder chat entries carry
+// no role and no coder-only keys, and only a measured entry carries an
+// agent_ctx.
+func TestLoadSeedChatEntriesCarryNoCoderKeys(t *testing.T) {
 	c, _, err := Load("")
 	if err != nil {
 		t.Fatalf("Load(\"\"): unexpected error: %v", err)
 	}
-	chatIDs := []string{"qwen2.5-0.5b", "qwen2.5-1.5b", "qwen3-30b-a3b", "qwen3.6-35b-a3b"}
+	chatIDs := []string{"qwen3.5-0.8b", "qwen3.5-2b", "qwen3.6-35b-a3b"}
 	// agent_ctx on a chat entry is the tools-mode ctx floor (spec v1.11 §13 item 1),
 	// and only a measured entry carries one: on 2026-09-10 two `villa work` tasks on
 	// qwen3.6-35b-a3b peaked at n_past 10,427 tokens (Crush's prompt, its tools and a
@@ -414,8 +414,8 @@ func TestLoadSchema2ExternalFallsBack(t *testing.T) {
 	if _, ok := c.FindByID("schema2-chat-model"); ok {
 		t.Errorf("Load(schema2): external schema-2 catalog must NOT be used")
 	}
-	if _, ok := c.FindByID("qwen2.5-1.5b"); !ok {
-		t.Errorf("Load(schema2): expected fallback to embedded seed, but qwen2.5-1.5b not present")
+	if _, ok := c.FindByID("qwen3.5-2b"); !ok {
+		t.Errorf("Load(schema2): expected fallback to embedded seed, but qwen3.5-2b not present")
 	}
 }
 
@@ -553,8 +553,8 @@ func TestLoadCoderValidationRefusesNeverClamps(t *testing.T) {
 				t.Errorf("invalid coder entry %q was returned — external catalog must be refused whole, never clamped", entryID)
 			}
 			// Fell back to the embedded seed.
-			if _, ok := c.FindByID("qwen2.5-1.5b"); !ok {
-				t.Errorf("expected fallback to embedded seed, but qwen2.5-1.5b not present")
+			if _, ok := c.FindByID("qwen3.5-2b"); !ok {
+				t.Errorf("expected fallback to embedded seed, but qwen3.5-2b not present")
 			}
 		})
 	}
@@ -665,7 +665,7 @@ func TestLoadNgramValidationRejectsUnprovenanced(t *testing.T) {
 	if _, ok := c.FindByID("unproven-model"); ok {
 		t.Errorf("an unprovenanced ngram_safe entry must not be used")
 	}
-	if _, ok := c.FindByID("qwen2.5-1.5b"); !ok {
+	if _, ok := c.FindByID("qwen3.5-2b"); !ok {
 		t.Errorf("expected fallback to the embedded seed")
 	}
 }
