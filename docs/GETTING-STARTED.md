@@ -652,8 +652,9 @@ Chat and memory keep their state in a data volume, so those two are stopped whil
 their data is copied before they are changed, and a rollback restores that data
 alongside the pin; `--dry-run` states the disk this needs before it is spent.
 
-Until a signed pin manifest is published, `--check` honestly reports that it
-**could not check** and the stack runs the pins compiled into the binary. That is
+If the latest release carries no signed pin manifest, or its manifest has
+expired, `--check` honestly reports that it **could not check** and the stack
+runs the pins compiled into the binary. That is
 deliberately not the same as reporting you are up to date. See
 [RELEASING.md](RELEASING.md).
 
