@@ -2,6 +2,10 @@ package residency
 
 import (
 	"context"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -205,6 +209,39 @@ func TestTokenlessProbeFailsAndNeverFolds(t *testing.T) {
 				t.Error("a tokenless probe must never reach the residency fold — a stale journal would read as PASS")
 			}
 		})
+	}
+}
+
+// TestDegenerateGenerationFailsTheCutover is issue #209: a backend that streams 64
+// tokens of "/" with no answer must not prove a cutover. The real generation probe
+// is wired against a fake endpoint so the refusal is the composed behaviour every
+// transactional verb gates on, not a canned ChatResult.
+func TestDegenerateGenerationFailsTheCutover(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		for range 64 {
+			_, _ = fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"/\"}}]}\n\n")
+		}
+		_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
+	}))
+	defer srv.Close()
+
+	f := newFakeDeps()
+	d := f.deps()
+	d.Generate = inference.GenerationProbe
+	tgt := target()
+	tgt.Endpoint = srv.URL
+
+	v := ProveCutover(t.Context(), d, tgt)
+
+	if v.Pass() {
+		t.Fatalf("a degenerate stream must not pass the cutover, got %+v", v)
+	}
+	if !strings.Contains(v.Detail, "degenerate") {
+		t.Errorf("Detail=%q, want it to name degenerate output", v.Detail)
+	}
+	if f.foldCalls != 0 {
+		t.Errorf("fold ran %d time(s) after a failed probe, want 0", f.foldCalls)
 	}
 }
 

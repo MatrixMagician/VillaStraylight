@@ -2,6 +2,7 @@ package inference
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -18,8 +19,10 @@ import (
 //
 //   - pollHealth          — is the server READY to take requests? (Pitfall 5: this
 //     is a readiness gate ONLY, never the offload verdict.)
-//   - chatProbe           — does a REAL chat completion return tokens through the
-// reused internal/llm OpenAIClient? (reuse, do NOT rebuild the client.)
+//   - chatProbe           — does a REAL chat completion return the expected ANSWER
+//     through the reused internal/llm OpenAIClient? (reuse, do NOT rebuild the
+//     client.) Arrival is not an answer: a backend that streams garbage still
+//     streams tokens (#209).
 //   - contextCeilingProbe — does a SECOND run at the envelope-ceiling ctx clear, or
 //     does it hit the OOM/long-context cliff? It CLASSIFIES an OOM/hang/timeout as a
 //     reported finding and tears the container down — it NEVER propagates the cliff
@@ -92,8 +95,14 @@ func probeHealthOnce(ctx context.Context, client *http.Client, url string) bool 
 
 // chatProbe sends a real, small chat completion to <endpoint>/v1/chat/completions
 // through the REUSED internal/llm OpenAIClient (the gateway is reused, never
-// rebuilt) and collects the streamed token deltas. A non-200 / stream error is
-// reported as a failure detail, never a panic.
+// rebuilt) and asserts the ANSWER, not the arrival: the reply must contain
+// chatProbeAnswer, and a reply that is one repeated byte is refused separately as
+// degenerate. A non-200 / stream error is reported as a failure detail, never a
+// panic.
+//
+// Thinking is disabled for the probe. Measured on the dev host 2026-09-11:
+// qwen3.6-35b-a3b with thinking on spends all 32 tokens reasoning and returns
+// empty content; with thinking off it answers "ok" in 2 tokens.
 func chatProbe(ctx context.Context, endpoint, modelID string) ChatResult {
 	client := llm.NewOpenAIClient(llm.Options{
 		BaseURL: strings.TrimRight(endpoint, "/") + "/v1",
@@ -105,8 +114,10 @@ func chatProbe(ctx context.Context, endpoint, modelID string) ChatResult {
 		sb     strings.Builder
 	)
 	err := client.StreamChat(ctx, llm.ChatRequest{
-		Model:    modelID,
-		Messages: []llm.Message{{Role: llm.RoleUser, Content: chatProbePrompt}},
+		Model:              modelID,
+		Messages:           []llm.Message{{Role: llm.RoleUser, Content: chatProbePrompt}},
+		MaxTokens:          chatProbeMaxTokens,
+		ChatTemplateKwargs: map[string]any{"enable_thinking": false},
 	}, func(delta string) error {
 		if delta != "" {
 			tokens++
@@ -120,12 +131,45 @@ func chatProbe(ctx context.Context, endpoint, modelID string) ChatResult {
 	if tokens == 0 {
 		return ChatResult{OK: false, Detail: "chat completion returned no tokens (server responded but produced nothing)"}
 	}
-	return ChatResult{OK: true, Tokens: tokens, Text: sb.String()}
+	text := sb.String()
+	if b, ok := repeatedByte(text); ok {
+		return ChatResult{OK: false, Tokens: tokens, Text: text,
+			Detail: fmt.Sprintf("chat completion is degenerate: %d tokens of repeated %q (the server streams garbage, not an answer)", tokens, b)}
+	}
+	if !strings.Contains(strings.ToLower(text), chatProbeAnswer) {
+		return ChatResult{OK: false, Tokens: tokens, Text: text,
+			Detail: fmt.Sprintf("chat completion did not contain the expected answer %q: got %q", chatProbeAnswer, bounded(strings.TrimSpace(text), 80))}
+	}
+	return ChatResult{OK: true, Tokens: tokens, Text: text}
 }
 
-// chatProbePrompt is the tiny user message the chat probe sends; it only needs to
-// elicit a non-empty completion to prove the /v1 path works end-to-end.
+// repeatedByte reports whether the non-whitespace bytes of s are all one byte.
+func repeatedByte(s string) (string, bool) {
+	s = strings.Join(strings.Fields(s), "")
+	if len(s) < 2 || strings.Count(s, s[:1]) != len(s) {
+		return "", false
+	}
+	return s[:1], true
+}
+
+// bounded truncates s to at most n bytes for a detail line.
+func bounded(s string, n int) string {
+	if len(s) > n {
+		return s[:n] + "…"
+	}
+	return s
+}
+
+// chatProbePrompt is the tiny user message the chat probe sends; the reply must
+// contain chatProbeAnswer for the probe to pass.
 const chatProbePrompt = "Reply with the single word: ok"
+
+// chatProbeAnswer is the token the reply must contain, matched case-insensitively.
+const chatProbeAnswer = "ok"
+
+// chatProbeMaxTokens bounds the reply. With thinking disabled, 32 tokens is many
+// times what the answer needs, and it caps what a garbage stream costs.
+const chatProbeMaxTokens = 32
 
 // chatProbeTimeout bounds the chat probe so a wedged server cannot hang validation.
 const chatProbeTimeout = 60 * time.Second

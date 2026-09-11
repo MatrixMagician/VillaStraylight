@@ -1,9 +1,12 @@
 package inference
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -11,14 +14,36 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
 )
 
-// sseChatHandler emulates an OpenAI-compatible streaming /v1/chat/completions:
-// two content deltas then [DONE].
+// sseChatHandler emulates an OpenAI-compatible streaming /v1/chat/completions
+// answering the probe prompt: two content deltas then [DONE].
 func sseChatHandler(w http.ResponseWriter, r *http.Request) {
+	sseDeltas(w, "o", "k")
+}
+
+// sseDeltas streams each delta as one SSE chunk, then [DONE].
+func sseDeltas(w http.ResponseWriter, deltas ...string) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"Hel\"}}]}\n\n"))
-	_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"lo\"}}]}\n\n"))
+	for _, d := range deltas {
+		_, _ = fmt.Fprintf(w, "data: {\"choices\":[{\"delta\":{\"content\":%q}}]}\n\n", d)
+	}
 	_, _ = w.Write([]byte("data: [DONE]\n\n"))
+}
+
+// chatServer serves deltas on /v1/chat/completions and records the request body.
+func chatServer(t *testing.T, deltas ...string) (*httptest.Server, *[]byte) {
+	t.Helper()
+	var body []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/chat/completions" {
+			http.NotFound(w, r)
+			return
+		}
+		body, _ = io.ReadAll(r.Body)
+		sseDeltas(w, deltas...)
+	}))
+	t.Cleanup(srv.Close)
+	return srv, &body
 }
 
 // TestChatProbe: against an httptest server serving a streaming completion, the
@@ -45,6 +70,61 @@ func TestChatProbe(t *testing.T) {
 		}
 		if res.Text == "" {
 			t.Errorf("chatProbe: empty assembled text, want non-empty")
+		}
+	})
+
+	// The 2026-09-11 re-vet (#209): a rebuilt backend streamed a reasoning block of
+	// repeated "/" and the cutover was "proven" because tokens arrived. Arrival is
+	// not an answer.
+	t.Run("a single repeated byte is degenerate, not a pass", func(t *testing.T) {
+		deltas := make([]string, 64)
+		for i := range deltas {
+			deltas[i] = "/"
+		}
+		srv, _ := chatServer(t, deltas...)
+
+		res := chatProbe(t.Context(), srv.URL, "qwen3.6-35b-a3b")
+		if res.OK {
+			t.Fatalf("chatProbe: OK=true on 64 tokens of %q, want false", "/")
+		}
+		if !strings.Contains(res.Detail, "degenerate") {
+			t.Errorf("chatProbe: Detail=%q, want it to name degenerate output", res.Detail)
+		}
+	})
+
+	t.Run("a reply without the expected answer fails and names it", func(t *testing.T) {
+		srv, _ := chatServer(t, "Hel", "lo")
+
+		res := chatProbe(t.Context(), srv.URL, "qwen3.6-35b-a3b")
+		if res.OK {
+			t.Fatalf("chatProbe: OK=true on %q, want false", "Hello")
+		}
+		if !strings.Contains(res.Detail, `"ok"`) || !strings.Contains(res.Detail, "Hello") {
+			t.Errorf("chatProbe: Detail=%q, want the expected answer and the reply named", res.Detail)
+		}
+	})
+
+	// Measured on the dev host 2026-09-11: with thinking on, qwen3.6-35b-a3b spends
+	// all of a 32-token budget reasoning and returns empty content, so the probe
+	// disables thinking and bounds the reply, the shape internal/grounding uses.
+	t.Run("the request bounds tokens and disables thinking", func(t *testing.T) {
+		srv, body := chatServer(t, "ok")
+
+		if res := chatProbe(t.Context(), srv.URL, "qwen3.6-35b-a3b"); !res.OK {
+			t.Fatalf("chatProbe: OK=false (detail=%q)", res.Detail)
+		}
+		var req struct {
+			MaxTokens int            `json:"max_tokens"`
+			Kwargs    map[string]any `json:"chat_template_kwargs"`
+		}
+		if err := json.Unmarshal(*body, &req); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		if req.MaxTokens != 32 {
+			t.Errorf("max_tokens = %d, want 32", req.MaxTokens)
+		}
+		if v, ok := req.Kwargs["enable_thinking"]; !ok || v != false {
+			t.Errorf("chat_template_kwargs = %v, want enable_thinking=false", req.Kwargs)
 		}
 	})
 
