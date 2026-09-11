@@ -16,7 +16,7 @@ import (
 // prescribed; RESEARCH §Package Legitimacy Audit: approved, pin digest — Pitfall 12 /
 // the tag is silently rebuilt, the digest is not). Resolved on the dev box
 // 2026-06-04 via `podman pull docker.io/kyuz0/amd-strix-halo-toolboxes:vulkan-radv`.
-const vulkanImage = "docker.io/kyuz0/amd-strix-halo-toolboxes:vulkan-radv@sha256:9a74e555c45864352a4077528836988d448e9f030fbab9f7376ea1c603ac7aad"
+const vulkanImage = "docker.io/kyuz0/amd-strix-halo-toolboxes:vulkan-radv@sha256:521fd5994e73d40d9af168a81f560ebb13590c060ee0ea62262388ef3ecfc5ab"
 
 // containerModelsDir is the path the host models dir is bind-mounted at, read-only.
 const containerModelsDir = "/models"
@@ -30,10 +30,19 @@ const (
 	serverPort      = 8080
 )
 
-// Mandatory Strix Halo llama-server runtime flags (CLAUDE.md "What NOT to Use":
-// always --no-mmap -fa 1 -ngl 999). -ngl 999 offloads all layers (free on unified
-// memory), -fa 1 is flash-attention (stability + KV memory), --no-mmap keeps
-// weights resident in unified memory.
+// Mandatory Strix Halo llama-server runtime flags: always resident weights, -fa 1,
+// -ngl 999. -ngl 999 offloads all layers (free on unified memory), -fa 1 is
+// flash-attention (stability + KV memory), and the load flag keeps weights resident
+// in unified memory instead of memory-mapped, which is what the GTT-delta residency
+// proof measures. That flag is spelled per IMAGE, not per backend: llama.cpp
+// replaced --no-mmap with --load-mode (build 10217 deprecates the old spelling,
+// build 10906 removes it), and the four vetted images sit at three builds. Each
+// backend carries the spelling its pinned build accepts; llamaServerFlags splices it
+// in at the position --no-mmap held so the rendered unit differs in that token only.
+// The 7.2.4 default stays on its pre-10217 build deliberately: the rebuilt tag at
+// build 10217 streams a degenerate reasoning block under --spec-type ngram-mod on
+// this model (measured 2026-09-11, sane with speculation off and sane on builds
+// 10664 and 10906), so it failed vetting; see RELEASING.md § The compiled-in table.
 //
 // `-lv 4` raises the llama-server log verbosity (F-3): the kyuz0 vulkan-radv
 // image suppresses the load-bearing residency lines below its default threshold, so
@@ -50,7 +59,19 @@ const (
 // injection surface) published only on the existing loopback PublishPort (
 // no new port/bind). Adding it is a DELIBERATE rendered-unit golden change (Pitfall 2)
 // — DISTINCT from the byte-frozen status --json golden, which must NOT change.
-var llamaServerFlags = []string{"-ngl", "999", "-fa", "1", "--no-mmap", "-lv", "4", "--metrics"}
+func llamaServerFlags(load []string) []string {
+	flags := []string{"-ngl", "999", "-fa", "1"}
+	flags = append(flags, load...)
+	return append(flags, "-lv", "4", "--metrics")
+}
+
+// loadResident is the resident-weights spelling for builds that carry --load-mode
+// ("none" is the former --no-mmap: no mmap, no mlock, no direct I/O). loadResidentLegacy
+// is the pre-10217 spelling the 7.2.4 default and the rocwmma image (build 7690) need.
+var (
+	loadResident       = []string{"--load-mode", "none"}
+	loadResidentLegacy = []string{"--no-mmap"}
+)
 
 // backendVulkan is the Vulkan RADV Backend implementation. It is stateless.
 type backendVulkan struct{}
@@ -98,7 +119,7 @@ func (b backendVulkan) ContainerArgs(spec RunSpec) []string {
 		"--host", "0.0.0.0", // container-internal only; host side is loopback (above)
 		"--port", fmt.Sprintf("%d", serverPort),
 	}
-	args = append(args, llamaServerFlags...)
+	args = append(args, llamaServerFlags(loadResident)...)
 	args = appendToolsArgs(args, spec)
 	args = appendSpeculationArgs(args, spec.Speculation, b.ResidencyProof().DeviceToken)
 	args = appendProjectorArgs(args, spec.Projector)

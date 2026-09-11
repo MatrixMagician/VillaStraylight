@@ -21,7 +21,7 @@ import (
 // (Plan 03, on-hardware). Run() loads the embedded policy, so a fake installed binary
 // must carry this exact hash to be treated as non-drifting; any other value is now a
 // confident BinaryDrift (the sentinel-WARN era ended when the hash was pinned).
-const pinnedPolicyBinSHA = "4fd811f68c05da6c8d11fd1d5b6298a75ecc38a6c105a342b74e080cce8342b4"
+const pinnedPolicyBinSHA = "e59e1baecfc810027d424a8ef2a23d6ed091ca93ac36f5f32e95ce6788c5fbf9"
 
 // runRecorder captures the side-effecting seam calls so the flow tests can assert
 // what Run did (and did NOT do) without a live host.

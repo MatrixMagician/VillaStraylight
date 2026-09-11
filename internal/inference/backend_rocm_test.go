@@ -84,7 +84,7 @@ func TestBackendFor(t *testing.T) {
 		// rocm STILL means the unchanged 7.2.4 digest (coexistence).
 		{"rocm", "rocm", "2da150c1"},
 		// The two new digest-pinned ROCm backends.
-		{"rocm-6.4.4", "rocm-6.4.4", "sha256:c81f30a7"},
+		{"rocm-6.4.4", "rocm-6.4.4", "sha256:1c655ca0"},
 		{"rocm-6.4.4-rocwmma", "rocm-6.4.4-rocwmma", "sha256:9a97129a"},
 	}
 	for _, tc := range ok {
@@ -138,4 +138,32 @@ func TestBackendFor(t *testing.T) {
 			}
 		}
 	})
+}
+
+// TestLoadFlagIsSpelledPerImage guards the per-image load spelling: the 7.2.4
+// default and the rocwmma image predate --load-mode and must keep --no-mmap, while
+// the rebuilt 6.4.4 image (build 10664) renders --load-mode none. A single shared
+// spelling would crash-loop one side or the other at unit start, which is exactly
+// how the 2026-09-11 re-vet found it.
+func TestLoadFlagIsSpelledPerImage(t *testing.T) {
+	cases := []struct{ name, want, reject string }{
+		{"rocm", "-fa 1 --no-mmap -lv 4", "--load-mode"},
+		{"rocm-6.4.4-rocwmma", "-fa 1 --no-mmap -lv 4", "--load-mode"},
+		{"rocm-6.4.4", "-fa 1 --load-mode none -lv 4", "--no-mmap"},
+	}
+	for _, c := range cases {
+		b, err := BackendFor(c.name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		joined := strings.Join(b.ContainerArgs(RunSpec{
+			ContainerName: "c", ModelFile: "m.gguf", ModelsDir: "/d", ContextLen: 8192,
+		}), " ")
+		if !strings.Contains(joined, c.want) {
+			t.Errorf("%s: want %q in the shared flag position: %s", c.name, c.want, joined)
+		}
+		if strings.Contains(joined, c.reject) {
+			t.Errorf("%s: must not render %q: %s", c.name, c.reject, joined)
+		}
+	}
 }

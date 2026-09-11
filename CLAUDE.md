@@ -36,7 +36,7 @@ inference + **Open WebUI** chat + a control dashboard — strictly local, zero
 telemetry. Go is the **control plane only**; AI services are integrated OSS
 containers, not rebuilt.
 
-**Shipped:** v1.0 MVP, v1.1 (ROCm Opt-In Backend), v1.2 (Operability), v1.3 (Memory & Knowledge), v1.4 (Coding Agent), v1.5 (Web Search — Grounded & Guarded), v1.6 (structural consolidation + a transactional install), v1.7 (the resident set, a lint gate that can fail, and docs that match the tree), v1.8 (`villa update` — the transactional check → fetch → prove → prune lifecycle), v1.9 (speculation, the vision projector sidecar, and the PRE-08 device-access gate, each licensed by an on-hardware measurement; ADR-0006), v1.10 (the draft sidecar: the first dense catalog entry, its MTP head shipped as a sidecar and proven as a second model; ADR-0009), and v1.11 (the workspace agent: `villa work` runs one instruction against one registered folder inside a per-task libkrun microVM, approvals answered by a table, a post-run claim audit that flags and never edits; the runner lives in the dashboard service) are complete. v1.0 through v1.11 are tagged on `main`; v1.11 landed as three stacked wave branches (PRs #186, #187, #188), the follow-ups the build filed (#194 to #197) and the three fixes the first end-to-end run surfaced. The manifest signing key is generated and compiled in; publishing a first manifest is gated on re-vetting the drifted pins, not on code, so until then `--check` honestly reports it could not check. The `villa` control plane is implemented under `cmd/villa/` + `internal/`.
+**Shipped:** v1.0 MVP, v1.1 (ROCm Opt-In Backend), v1.2 (Operability), v1.3 (Memory & Knowledge), v1.4 (Coding Agent), v1.5 (Web Search — Grounded & Guarded), v1.6 (structural consolidation + a transactional install), v1.7 (the resident set, a lint gate that can fail, and docs that match the tree), v1.8 (`villa update` — the transactional check → fetch → prove → prune lifecycle), v1.9 (speculation, the vision projector sidecar, and the PRE-08 device-access gate, each licensed by an on-hardware measurement; ADR-0006), v1.10 (the draft sidecar: the first dense catalog entry, its MTP head shipped as a sidecar and proven as a second model; ADR-0009), and v1.11 (the workspace agent: `villa work` runs one instruction against one registered folder inside a per-task libkrun microVM, approvals answered by a table, a post-run claim audit that flags and never edits; the runner lives in the dashboard service) are complete. v1.0 through v1.11 are tagged on `main`; v1.11 landed as three stacked wave branches (PRs #186, #187, #188), the follow-ups the build filed (#194 to #197) and the three fixes the first end-to-end run surfaced. The manifest signing key is generated and compiled in and the compiled-in pins were re-vetted on hardware on 2026-09-11 (#205; the rebuilt `rocm-7.2.4` tag was refused, see `docs/RELEASING.md`), so publishing a first manifest is gated on two operator decisions (#207), not on code; until then `--check` honestly reports it could not check. The `villa` control plane is implemented under `cmd/villa/` + `internal/`.
 
 ## Build, run & test
 
@@ -100,6 +100,11 @@ Go 1.26+. Single module, single static binary built from `./cmd/villa`.
 
 - **Config is the single source of truth.** Quadlet units are regenerated from config,
   never hand-edited.
+
+- **Dynamic binary trap:** `make build` links `./villa` dynamically, and `villa-websafe` plus
+  every task VM bind-mount that file into a distroless image, so after a plain `make build`
+  a websafe restart crash-loops with "No such file or directory". On the dev host build with
+  `make build-static`; it is the same gate CI enforces.
 
 - **Dashboard binary trap:** `villa status`/`recommend` run fresh from `./villa`, but
   `villa-dashboard.service` is long-lived — after `make build` you MUST
@@ -201,11 +206,11 @@ loop.
 
 | Purpose | Image | Source file |
 |---------|-------|-------------|
-| Inference (Vulkan RADV, fallback) | `docker.io/kyuz0/amd-strix-halo-toolboxes:vulkan-radv@sha256:9a74e555…ac7aad` | `internal/inference/backend_vulkan.go` |
+| Inference (Vulkan RADV, fallback) | `docker.io/kyuz0/amd-strix-halo-toolboxes:vulkan-radv@sha256:521fd599…3ecfc5ab` | `internal/inference/backend_vulkan.go` |
 | Inference (ROCm 7.2.4, DEFAULT) | `docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-7.2.4@sha256:2da150c1…531a89` | `internal/inference/backend_rocm.go` |
-| Inference (ROCm 6.4.4, TG-tuned) | `docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-6.4.4@sha256:c81f30a7…f150ec62` | `internal/inference/backend_rocm.go` |
+| Inference (ROCm 6.4.4, TG-tuned) | `docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-6.4.4@sha256:1c655ca0…05053947` | `internal/inference/backend_rocm.go` |
 | Inference (ROCm 6.4.4 rocWMMA) | `docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-6.4.4-rocwmma@sha256:9a97129a…43c0141` | `internal/inference/backend_rocm.go` |
-| Chat UI (Open WebUI) | `ghcr.io/open-webui/open-webui:main@sha256:7f1b0a1a…a9184e` | `internal/orchestrate/openwebui.go` |
+| Chat UI (Open WebUI) | `ghcr.io/open-webui/open-webui:main@sha256:1a6399d2…8dc8b924` | `internal/orchestrate/openwebui.go` |
 
 ## Conventions
 

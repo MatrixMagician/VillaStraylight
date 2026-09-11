@@ -76,7 +76,7 @@ func TestContainerArgsCarryMandatoryFlags(t *testing.T) {
 		ContainerName: "c", ModelFile: "m.gguf", ModelsDir: "/d", ContextLen: 8192,
 	})
 	joined := strings.Join(args, " ")
-	for _, want := range []string{"-ngl 999", "-fa 1", "--no-mmap", "-lv 4", "--device /dev/dri", "--group-add keep-groups"} {
+	for _, want := range []string{"-ngl 999", "-fa 1", "--load-mode none", "-lv 4", "--device /dev/dri", "--group-add keep-groups"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("ContainerArgs missing mandatory %q in: %s", want, joined)
 		}

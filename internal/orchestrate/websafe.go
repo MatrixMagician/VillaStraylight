@@ -45,7 +45,7 @@ import (
 // linked", and `villa detect` runs correctly CGO-free (detection reads /proc + /sys; no cgo
 // needed on Linux — Pitfall 5 cleared, no alpine fallback required). The bind-mounted villa binary
 // MUST therefore be the static build; web-search opt-in requires `make build-static`.
-const websafeImage = "gcr.io/distroless/static-debian12@sha256:b669b9df05a88a085fefed6520c6d2268aabacf3008b149ddf877e752ae89400"
+const websafeImage = "gcr.io/distroless/static-debian12@sha256:d75cdd72874d4790092fcb1b058493ecf6bb5bf2b2b897045b00ff01d91843f2"
 
 // WebsafeImage returns the digest-pinned distroless base image so callers (e.g. the
 // Phase-34 backup manifest) record it WITHOUT re-typing the literal. The literal stays
