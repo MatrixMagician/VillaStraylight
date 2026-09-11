@@ -6,14 +6,13 @@ depends on is published.
 > Status: **both halves are implemented as of v1.8.** The release artifact is built
 > by `.github/workflows/release.yml`; the manifest format, its allowlist check and
 > the offline signer ship as `internal/manifest`, `internal/manifestverify` and
-> `cmd/villa-manifest-sign`, and the public key is compiled in. What remains
-> outstanding is not code: **no manifest has been published yet**, because
-> publishing one means asserting on hardware that its pins are vetted (steps 3 and
-> 4). The compiled-in table was re-vetted on 2026-09-11 (#205; see § The
-> compiled-in table), so what remains is the operator's two calls, the
-> `valid_until` window and the first serial (#207). Until then every install runs
-> the compiled-in pins and `villa update --check` honestly reports that it could
-> not check. The key custody steps below are deliberately not automated.
+> `cmd/villa-manifest-sign`, and the public key is compiled in. **The first
+> manifest is published** (#207): serial 2, valid until 2027-09-11, carrying the
+> table re-vetted on 2026-09-11 (#205), signed offline and attached to the v1.11
+> release. `pins.VettedSerial` is 2 to match. The fetch URL names the *latest*
+> release, so every later release must carry `pins.json` and `pins.json.sig`
+> forward (step 2) or `--check` reports that it could not check until it does.
+> The key custody steps below are deliberately not automated.
 
 ## Why any of this is unusual
 
@@ -71,6 +70,20 @@ cheaper to fail the workflow than to ship it.
 Both halves of the attach step are idempotent (create is skipped when the release
 exists, upload uses `--clobber`), so re-running a partially failed workflow
 converges rather than erroring.
+
+The workflow does **not** attach the pin manifest, because signing is offline.
+`villa update --check` fetches `releases/latest/download/pins.json`, and a new tag
+moves *latest*, so after the workflow finishes attach the current manifest and its
+signature to the new release by hand:
+
+```bash
+gh release download v1.8 -p 'pins.json*'          # the previous release's copy
+gh release upload v1.9 pins.json pins.json.sig     # verbatim; do not reformat
+```
+
+Skip this and every install reports "could not check" from the moment the tag is
+pushed until the files appear. Publish a *new* manifest (steps 3 to 6) only when a
+pin moved; carrying the old one forward is the usual case.
 
 ## Publishing the pin manifest
 

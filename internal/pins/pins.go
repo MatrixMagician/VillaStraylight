@@ -168,7 +168,7 @@ func (e Entry) HasFloors() bool { return e.Floors != nil }
 // deleted. An absent store falling back to zero would mean "no floor", which
 // silently re-opens the replay attack the serial exists to close — so the floor's
 // home is the one place that cannot be absent.
-const VettedSerial uint64 = 1
+const VettedSerial uint64 = 2
 
 // Serial returns the compiled-in manifest serial, as an accessor so callers bind a
 // symbol rather than a literal.
