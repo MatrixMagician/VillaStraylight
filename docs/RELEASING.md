@@ -119,8 +119,8 @@ Shipping it regardless would push a release-blocking defect onto users, who cann
 fix it locally.
 
 For a ROCm pin, also confirm the **floors** still hold: `kernelFloor`,
-`mesaFloor`, `firmwareFloor` in `internal/preflight/rocm-policy.json`. A newer
-ROCm image can demand a newer kernel or Mesa than the shipped floors encode, and
+`firmwareFloor` in `internal/preflight/rocm-policy.json`. A newer
+ROCm image can demand a newer kernel or firmware than the shipped floors encode, and
 floors travel with the pin: `villa update` re-runs the preflight gate against the
 new pin's floors before mutating anything.
 

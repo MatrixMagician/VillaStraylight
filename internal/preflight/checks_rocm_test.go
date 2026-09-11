@@ -13,7 +13,6 @@ func testPolicy() ROCmPolicy {
 	return ROCmPolicy{
 		KernelFloor:         "6.18.4",
 		KernelTested:        "6.18.9",
-		MesaFloor:           "25.0.0",
 		FirmwareFloor:       "20260110",
 		FirmwareDeny:        []string{"20251125"},
 		ImageDeny:           []string{"rocm7-nightlies"},

@@ -98,7 +98,6 @@ type Component struct {
 type Floors struct {
 	Kernel       string `json:"kernel,omitempty"`
 	KernelTested string `json:"kernel_tested,omitempty"`
-	Mesa         string `json:"mesa,omitempty"`
 	Firmware     string `json:"firmware,omitempty"`
 	FirmwareDeny string `json:"firmware_deny,omitempty"`
 }
@@ -298,7 +297,6 @@ func FromTable(serial uint64, validUntil time.Time) Document {
 			c.Floors = &Floors{
 				Kernel:       f.Kernel,
 				KernelTested: f.KernelTested,
-				Mesa:         f.Mesa,
 				Firmware:     f.Firmware,
 				FirmwareDeny: f.FirmwareDeny,
 			}
