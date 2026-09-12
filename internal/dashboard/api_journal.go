@@ -46,7 +46,7 @@ type journalRecord struct {
 // fails to parse, or whose MESSAGE is not a string (journald's non-UTF-8 encoding),
 // is dropped rather than failing the whole view — one bad record must not blank the
 // panel. An input with no parseable line yields the zero (unavailable) view.
-func ParseJournalJSON(text string, max int) JournalView {
+func ParseJournalJSON(text string, limit int) JournalView {
 	var lines []JournalLine
 	for _, raw := range strings.Split(text, "\n") {
 		raw = strings.TrimSpace(raw)
@@ -70,8 +70,8 @@ func ParseJournalJSON(text string, max int) JournalView {
 	if len(lines) == 0 {
 		return JournalView{}
 	}
-	if len(lines) > max {
-		lines = lines[len(lines)-max:] // keep the most recent max, oldest-first order intact
+	if len(lines) > limit {
+		lines = lines[len(lines)-limit:] // keep the most recent limit, oldest-first order intact
 	}
 	return JournalView{Available: true, Lines: lines}
 }
