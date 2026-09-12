@@ -130,6 +130,19 @@ type Config struct {
 	// Tasks is the workspace agent's runner (api_tasks.go). nil means the
 	// workspace agent is not enabled and every task route answers 503.
 	Tasks *taskrun.Runner
+
+	// --- Update·Pins & Journal seams ------------------------------
+	// Both are injected func fields in the same collector-seam pattern as
+	// Metrics/Models above; the live wiring (cmd/villa liveDashboardDeps) does the
+	// I/O (pinstate.Load, JournalTail) and the fold, so this package stays free of
+	// pinresolve/pinstate and of os/exec.
+
+	// Pins resolves the compiled-in vetted table against this host's recorded
+	// effective pins. nil → an empty view (the panel renders unavailable).
+	Pins func() PinsView
+	// Journal tails the villa units' rootless user journal. nil → an unavailable
+	// view.
+	Journal func() JournalView
 }
 
 // Server holds the composed dashboard configuration and exposes the HTTP handler and
@@ -176,6 +189,11 @@ type Server struct {
 
 	// tasks is the workspace agent's runner; nil when not enabled (Config.Tasks).
 	tasks *taskrun.Runner
+
+	// pins and journal are the Update·Pins / Journal collector seams (Config.Pins,
+	// Config.Journal), defaulted below when Config leaves them nil.
+	pins    func() PinsView
+	journal func() JournalView
 
 	// usageMu serializes the whole read-modify-write of usage.json in handleMetrics so two
 	// concurrent /api/metrics scrapes can never interleave the non-atomic
@@ -241,6 +259,8 @@ func NewServer(cfg Config) (*Server, error) {
 		modelID:       cfg.ModelID,
 		counterSample: cfg.CounterSample,
 		tasks:         cfg.Tasks,
+		pins:          cfg.Pins,
+		journal:       cfg.Journal,
 	}
 
 	// Default any unset collector seam to an always-unavailable / typed-Unknown no-op,
@@ -281,6 +301,16 @@ func NewServer(cfg Config) (*Server, error) {
 	}
 	if s.counterSample == nil {
 		s.counterSample = func() (metrics.CounterSample, bool) { return metrics.CounterSample{}, false }
+	}
+
+	// Pins/Journal: an always-empty / always-unavailable default so a Server
+	// constructed without these seams renders the panels honestly instead of
+	// nil-panicking in handlePins/handleJournal.
+	if s.pins == nil {
+		s.pins = func() PinsView { return PinsView{} }
+	}
+	if s.journal == nil {
+		s.journal = func() JournalView { return JournalView{} }
 	}
 
 	// Parse the embedded shell + sub the assets FS once at construction so a parse

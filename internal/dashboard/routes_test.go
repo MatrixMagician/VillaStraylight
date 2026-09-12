@@ -11,8 +11,9 @@ import (
 // swap — the routes are the contract the embedded UI drives, and a silently
 // dropped route would otherwise only show up in the browser.
 //
-// The six API routes are five GETs and one POST. The POST is exercised through
-// the guard (no JSON content type ⇒ 403), which is itself the proof that the
+// The route table holds fourteen API routes (testdata/routes.golden). A
+// representative slice is exercised here; the POST case is exercised through the
+// guard (no JSON content type ⇒ 403), which is itself the proof that the
 // same-origin guard is still mounted on it.
 func TestRouteTableResolves(t *testing.T) {
 	srv := mustNewServer(t, Config{
@@ -34,6 +35,8 @@ func TestRouteTableResolves(t *testing.T) {
 		{http.MethodGet, "/api/metrics", http.StatusOK, "perf read-model"},
 		{http.MethodGet, "/api/gpu", http.StatusOK, "gpu read-model"},
 		{http.MethodGet, "/api/models", http.StatusOK, "models read-model"},
+		{http.MethodGet, "/api/pins", http.StatusOK, "pins read-model"},
+		{http.MethodGet, "/api/journal", http.StatusOK, "journal read-model"},
 
 		// The one sanctioned mutation, reached through requireSameOrigin: a POST
 		// with no JSON content type is refused by the guard, never by the router.

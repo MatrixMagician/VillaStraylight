@@ -36,6 +36,8 @@ func (s *Server) apiRoutes() []apiRoute {
 		{http.MethodGet, "/api/models", s.handleModels},
 		{http.MethodPost, "/api/models/switch", s.handleSwitch},
 		{http.MethodGet, "/api/workspaces", s.handleWorkspaces},
+		{http.MethodGet, "/api/pins", s.handlePins},
+		{http.MethodGet, "/api/journal", s.handleJournal},
 		{http.MethodGet, "/api/tasks", s.handleTaskList},
 		{http.MethodPost, "/api/tasks", s.handleTaskSubmit},
 		{http.MethodGet, "/api/tasks/{id}", s.handleTaskShow},

@@ -269,3 +269,65 @@ func TestDisable(t *testing.T) {
 		}
 	})
 }
+
+// TestJournalTail covers the merged multi-unit tail: one journalctl invocation
+// carrying a -u flag per unit plus -n/-o json, and the ("", false) degradation
+// when journalctl is absent or silent.
+func TestJournalTail(t *testing.T) {
+	units := []string{"villa-llama.service", "villa-openwebui.service"}
+
+	t.Run("one exec, -u per unit, -o json for the unit field", func(t *testing.T) {
+		var calls []recordedCall
+		s := Systemd{runCmd: func(name string, args ...string) (string, bool, bool) {
+			calls = append(calls, recordedCall{name: name, args: args})
+			return `{"MESSAGE":"hi"}`, true, true
+		}}
+		out, ok := s.JournalTail(units, 10)
+		if !ok || out == "" {
+			t.Fatalf("JournalTail = (%q, %v), want output and true", out, ok)
+		}
+		if len(calls) != 1 {
+			t.Fatalf("JournalTail issued %d execs, want exactly 1 (journald does the merge)", len(calls))
+		}
+		want := []string{"--user", "-u", "villa-llama.service", "-u", "villa-openwebui.service", "-n", "10", "-o", "json", "--no-pager"}
+		if !slices.Equal(calls[0].args, want) {
+			t.Fatalf("JournalTail args = %v, want %v", calls[0].args, want)
+		}
+	})
+
+	// An empty unit set must not fall through to journalctl. Without -u the command
+	// reads the operator's WHOLE user journal, so the panel would quietly render log
+	// lines from unrelated desktop sessions as if they were villa's.
+	t.Run("no units → no exec at all", func(t *testing.T) {
+		var calls int
+		s := Systemd{runCmd: func(name string, args ...string) (string, bool, bool) {
+			calls++
+			return `{"MESSAGE":"a line from some other user service"}`, true, true
+		}}
+		out, ok := s.JournalTail(nil, 10)
+		if ok || out != "" {
+			t.Fatalf("JournalTail(nil) = (%q, %v), want (\"\", false)", out, ok)
+		}
+		if calls != 0 {
+			t.Fatalf("JournalTail(nil) issued %d execs, want 0 — an unscoped journalctl reads the whole user journal", calls)
+		}
+	})
+
+	t.Run("missing journalctl → (\"\", false)", func(t *testing.T) {
+		s := Systemd{runCmd: func(name string, args ...string) (string, bool, bool) {
+			return "", false, false
+		}}
+		if out, ok := s.JournalTail(units, 10); ok || out != "" {
+			t.Fatalf("JournalTail = (%q, %v), want (\"\", false)", out, ok)
+		}
+	})
+
+	t.Run("empty output → (\"\", false)", func(t *testing.T) {
+		s := Systemd{runCmd: func(name string, args ...string) (string, bool, bool) {
+			return "   \n", true, true
+		}}
+		if out, ok := s.JournalTail(units, 10); ok || out != "" {
+			t.Fatalf("JournalTail = (%q, %v), want (\"\", false)", out, ok)
+		}
+	})
+}

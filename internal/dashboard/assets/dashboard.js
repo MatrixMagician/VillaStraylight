@@ -5,12 +5,24 @@
 // failed poll keeps last-good values dimmed while showing the single global red
 // connection banner (D-11), auto-clearing on reconnect. A typed-Unknown signal renders
 // as a gray "unavailable" badge, never a fabricated value (D-06/D-11).
+//
+// Two panels ride a slower cadence than the tick: /api/journal costs a journalctl
+// subprocess per request and /api/pins answers a question that changes almost never,
+// so both are fetched on the first poll and every fifth one after it.
+//
+// Every value that came from the server or the network is written with textContent.
+// There is no innerHTML and no template-literal HTML assembly anywhere in this file,
+// including for values that "cannot" contain markup.
 
 (function () {
   "use strict";
 
   var POLL_MS = 2500;
   var pollTimer = null;
+  // SLOW_EVERY is how many ticks apart the expensive panels (pins, journal) run —
+  // roughly 15s. slowTick counts polls, so 0 means both also run on the first one.
+  var SLOW_EVERY = 5;
+  var slowTick = 0;
 
   var banner = document.getElementById("connection-banner");
   var verdictEl = document.getElementById("overall-verdict");
@@ -25,6 +37,15 @@
   var agentBody = document.getElementById("agent-body");
   var webSearchPanel = document.getElementById("web-search-panel");
   var webSearchBody = document.getElementById("web-search-body");
+
+  // Update · Pins + Journal (the two panels on the fifth-poll cadence) and the two
+  // data-driven footer slots.
+  var pinsSerial = document.getElementById("pins-serial");
+  var pinsLastCheck = document.getElementById("pins-lastcheck");
+  var pinsBody = document.getElementById("pins-body");
+  var journalBody = document.getElementById("journal-body");
+  var footerOutbound = document.getElementById("footer-outbound");
+  var footerHost = document.getElementById("footer-host");
 
   // Workspaces / Tasks (ticket #184) — read-only panels + task detail. No task
   // submission from the dashboard: the only writes here are approve/deny/cancel
@@ -83,6 +104,21 @@
     return p;
   }
 
+  // eyebrowP returns a section micro-label carrying the design's └─ prefix. The glyph
+  // is decoration, so it is aria-hidden: a screen reader must not announce a corner
+  // bracket before the label it decorates.
+  function eyebrowP(text) {
+    var p = document.createElement("p");
+    p.className = "eyebrow";
+    var glyph = document.createElement("span");
+    glyph.className = "gl";
+    glyph.setAttribute("aria-hidden", "true");
+    glyph.textContent = "└─";
+    p.appendChild(glyph);
+    p.appendChild(document.createTextNode(text));
+    return p;
+  }
+
   // metricRow renders one "label  value" line; the value is monospace tabular-nums
   // (.metric-value CSS) so the 2–3s poll never reflows the layout (Typography note).
   function metricRow(label, value) {
@@ -128,10 +164,7 @@
     if (!cumulativeGroup) {
       cumulativeGroup = document.createElement("div");
       cumulativeGroup.className = "cumulative-group";
-      var label = document.createElement("p");
-      label.className = "eyebrow";
-      label.textContent = "Cumulative usage";
-      cumulativeGroup.appendChild(label);
+      cumulativeGroup.appendChild(eyebrowP("Cumulative usage"));
       cumulativeBox = document.createElement("div");
       cumulativeBox.id = "cumulative-usage";
       cumulativeGroup.appendChild(cumulativeBox);
@@ -192,7 +225,7 @@
   // tiles under the global stale dimming (D-11).
   function renderStripStack(report) {
     var dot = document.getElementById("strip-verdict-dot");
-    if (dot) { dot.className = "status-dot " + overallClass(report && report.overall); }
+    if (dot) { dot.className = "status-dot lg " + overallClass(report && report.overall); }
 
     var svcs = (report && report.services) || [];
     if (svcs.length === 0) {
@@ -266,15 +299,37 @@
 
   // --- Rendering ----------------------------------------------------------
 
+  // renderVerdict writes the strip's headline word. It is a WORD, not only a colour,
+  // which is what lets PASS take the accent family instead of green.
   function renderVerdict(overall) {
     var cls = overallClass(overall);
-    verdictEl.className = "badge badge-" + cls;
+    verdictEl.className = "verdict verdict-" + cls;
     verdictEl.textContent = overall ? overall.toUpperCase() : "unavailable";
+  }
+
+  // SERVICE_GLOSS maps a villa unit to its katakana micro-label, keyed on the unit
+  // stem so villa-llama.service and a villa-llama-<slug>.service resident both read
+  // as inference. A unit with no entry simply gets no gloss — the labels are
+  // decoration and an unknown unit must not invent one.
+  var SERVICE_GLOSS = {
+    llama: "推論",       // inference
+    openwebui: "チャット", // chat
+    qdrant: "記憶",      // memory
+    embed: "記憶",
+    searxng: "検索",     // search
+    websafe: "検索",
+    dashboard: "操作"    // control
+  };
+  function serviceGloss(unit) {
+    var stem = String(unit || "").replace(/\.service$/, "").replace(/^villa-/, "");
+    if (SERVICE_GLOSS[stem]) { return SERVICE_GLOSS[stem]; }
+    return stem.indexOf("llama") === 0 ? SERVICE_GLOSS.llama : "";
   }
 
   function renderHealth(services) {
     if (!services || services.length === 0) {
-      healthRows.innerHTML = '<p class="muted">No services in the generated stack.</p>';
+      healthRows.textContent = "";
+      healthRows.appendChild(mutedP("No services in the generated stack."));
       return;
     }
     // Build rows without innerHTML interpolation of server values (XSS-safe).
@@ -291,6 +346,15 @@
       name.className = "health-service";
       name.textContent = svc.service;
       row.appendChild(name);
+
+      var jp = serviceGloss(svc.service);
+      if (jp) {
+        var gloss = document.createElement("span");
+        gloss.className = "jp";
+        gloss.setAttribute("aria-hidden", "true");
+        gloss.textContent = jp;
+        row.appendChild(gloss);
+      }
 
       var badge = document.createElement("span");
       badge.className = "badge badge-" + healthClass(svc.health);
@@ -671,6 +735,219 @@
     // the renderer never fabricates a 0 / "never" / placeholder.
   }
 
+  // --- Update · Pins ------------------------------------------------------
+  // The panel answers two different questions from two different sources: when villa
+  // last CHECKED for updates (report.updates, on the /api/status poll) and what this
+  // host runs versus what was vetted (GET /api/pins, on the fifth-poll cadence).
+  // Nothing here causes a check — that is the whole reason the page can claim zero
+  // telemetry without a qualifier.
+
+  // lastCheckAge renders the recorded check's staleness. villa traded automation away
+  // for honest staleness, and this is where that trade shows up.
+  function lastCheckAge(u) {
+    if (typeof u.age_days === "number") {
+      if (u.age_days <= 0) { return "today"; }
+      return u.age_days === 1 ? "1 day ago" : u.age_days + " days ago";
+    }
+    return u.checked_at || "unknown";
+  }
+
+  // renderUpdates fills the last-check row from report.updates. Never-checked is NOT
+  // "0 available": a host that never asked must not read the same as one that asked
+  // and found nothing, so the three states get three different badges.
+  function renderUpdates(report) {
+    if (!pinsLastCheck) { return; }
+    var u = report && report.updates;
+    pinsLastCheck.textContent = "";
+
+    var key = document.createElement("span");
+    key.className = "lastcheck-key";
+    key.textContent = "last check";
+    pinsLastCheck.appendChild(key);
+
+    var value = document.createElement("span");
+    var badgeText = "unavailable";
+    var badgeClass = "unknown";
+    if (!u || !u.state) {
+      value.textContent = "unavailable";
+    } else if (u.state === "never_checked") {
+      value.textContent = "never";
+      badgeText = "never checked";
+    } else if (typeof u.available !== "number") {
+      // A check that recorded WHEN but not HOW MANY. The badge must not read as
+      // "no check": what is unavailable is the count, not the check beside it.
+      value.textContent = lastCheckAge(u);
+      badgeText = "count unknown";
+    } else if (u.available === 0) {
+      value.textContent = lastCheckAge(u);
+      badgeText = "up to date";
+      badgeClass = "ready";
+    } else {
+      value.textContent = lastCheckAge(u);
+      badgeText = u.available + " available";
+      badgeClass = "warn";
+    }
+    pinsLastCheck.appendChild(value);
+
+    var badge = document.createElement("span");
+    badge.className = "badge badge-" + badgeClass;
+    badge.textContent = badgeText;
+    pinsLastCheck.appendChild(badge);
+  }
+
+  // pinLabel shortens a digest-pinned image ref to the two parts that identify it:
+  // its tag and the head of its digest. The tag alone would not do — open-webui is
+  // pinned on the rolling `main` tag, so two different builds carry the SAME tag and
+  // a tag-only label would render a real divergence as two identical cells, which is
+  // the one thing this column exists to show. The whole ref stays in the title.
+  function pinLabel(ref) {
+    if (!ref) { return "unavailable"; }
+    var at = ref.indexOf("@");
+    if (at < 0) { return ref; } // a checksummed asset carries a version, not a digest
+    var name = ref.slice(0, at);
+    var slash = name.lastIndexOf("/");
+    var colon = name.lastIndexOf(":");
+    var tag = colon > slash ? name.slice(colon + 1) : name.slice(slash + 1);
+    var hex = ref.slice(ref.indexOf(":", at) + 1);
+    return tag + "@" + hex.slice(0, 8);
+  }
+
+  // pinCell builds one ref cell: the short label to read, the full ref to inspect.
+  function pinCell(cls, ref) {
+    var cell = document.createElement("span");
+    cell.className = cls;
+    cell.textContent = pinLabel(ref);
+    cell.title = ref || "";
+    return cell;
+  }
+
+  // pinsHeadCell builds one column header for the vetted-vs-effective table.
+  function pinsHeadCell(text) {
+    var cell = document.createElement("span");
+    cell.textContent = text;
+    return cell;
+  }
+
+  // renderPins fills the vetted-vs-effective table from /api/pins. null is a FAILED
+  // fetch (typed-Unknown), not an empty table: keep the last-good rows under the
+  // global stale dimming, the renderModels convention.
+  function renderPins(view) {
+    if (!view || !pinsBody) { return; }
+    if (pinsSerial) {
+      pinsSerial.textContent = "manifest serial " + (view.serial || 0);
+    }
+    pinsBody.textContent = "";
+    var rows = view.components || [];
+    if (rows.length === 0) {
+      pinsBody.appendChild(mutedP("unavailable"));
+      return;
+    }
+
+    var head = document.createElement("div");
+    head.className = "pins-head";
+    head.appendChild(pinsHeadCell("Subsystem"));
+    head.appendChild(pinsHeadCell("Vetted"));
+    head.appendChild(pinsHeadCell("Effective"));
+    pinsBody.appendChild(head);
+
+    rows.forEach(function (r) {
+      var row = document.createElement("div");
+      row.className = "pin-row";
+
+      var component = document.createElement("span");
+      component.className = "pin-component";
+      component.textContent = r.component;
+      var subsystem = document.createElement("span");
+      subsystem.className = "pin-subsystem";
+      subsystem.textContent = r.subsystem;
+      component.appendChild(subsystem);
+      row.appendChild(component);
+
+      row.appendChild(pinCell("pin-vetted", r.vetted));
+      // Divergence is the point of the column: this host is not running what was
+      // vetted, and the colour says so beside the two refs that prove it.
+      row.appendChild(pinCell(r.diverged ? "pin-effective diverged" : "pin-effective", r.effective));
+
+      pinsBody.appendChild(row);
+    });
+  }
+
+  // --- Journal ------------------------------------------------------------
+
+  // HOT_JOURNAL_UNITS are the two units an operator is actually waiting on, so their
+  // name carries the accent in the console.
+  var HOT_JOURNAL_UNITS = { "villa-inference": true, "villa-task": true };
+
+  // renderJournal fills the console from /api/journal. An unavailable tail renders
+  // the page's "unavailable" copy — never an empty console, which would read as a
+  // quiet stack rather than as a journal villa could not read.
+  function renderJournal(view) {
+    if (!view || !journalBody) { return; }
+    journalBody.textContent = "";
+    var lines = view.lines || [];
+    if (!view.available || lines.length === 0) {
+      journalBody.appendChild(mutedP("unavailable"));
+      return;
+    }
+
+    lines.forEach(function (l) {
+      var row = document.createElement("div");
+      row.className = "log-row";
+
+      var at = document.createElement("span");
+      at.className = "log-at";
+      at.textContent = l.at;
+      row.appendChild(at);
+
+      var unit = document.createElement("span");
+      unit.className = HOT_JOURNAL_UNITS[l.unit] ? "log-unit hot" : "log-unit";
+      unit.textContent = l.unit;
+      row.appendChild(unit);
+
+      var msg = document.createElement("span");
+      msg.className = "log-msg";
+      msg.textContent = l.message;
+      row.appendChild(msg);
+
+      journalBody.appendChild(row);
+    });
+
+    var cursorRow = document.createElement("div");
+    cursorRow.className = "log-row";
+    var cursor = document.createElement("span");
+    cursor.className = "log-cursor";
+    cursor.setAttribute("aria-hidden", "true");
+    cursor.textContent = "▮";
+    cursorRow.appendChild(cursor);
+    journalBody.appendChild(cursorRow);
+  }
+
+  // --- Footer -------------------------------------------------------------
+
+  // renderFooter fills the footer's two data-driven slots. Neither may fabricate a
+  // host fact: the outbound claim is whatever report.web_search says and nothing
+  // more, and the right slot names the backend only when the report carries one.
+  function renderFooter(report) {
+    if (footerOutbound) {
+      var ws = report && report.web_search;
+      var outbound = "zero";
+      if (ws) {
+        if (ws.outbound_bounded === "bounded") {
+          outbound = "bounded";
+        } else if (ws.outbound_bounded === "not-bounded") {
+          outbound = "not bounded";
+        } else {
+          outbound = "unavailable";
+        }
+      }
+      footerOutbound.textContent = "Outbound: " + outbound;
+    }
+    if (footerHost) {
+      var backend = report && report.backend;
+      footerHost.textContent = backend ? backend + " · podman rootless" : "podman rootless";
+    }
+  }
+
   // --- Workspaces / Tasks (ticket #184) -----------------------------------
   // Read-only panels: Workspaces lists cfg.Workspace via /api/workspaces, Tasks
   // lists the workspace agent's records via /api/tasks. Clicking a task row opens
@@ -928,20 +1205,14 @@
     }
 
     if (task.files && task.files.length > 0) {
-      var filesLabel = document.createElement("p");
-      filesLabel.className = "eyebrow";
-      filesLabel.textContent = "Files";
-      taskDetailBody.appendChild(filesLabel);
+      taskDetailBody.appendChild(eyebrowP("Files"));
       task.files.forEach(function (f) {
         taskDetailBody.appendChild(metricRow(f.path, f.action));
       });
     }
 
     if (task.approvals && task.approvals.length > 0) {
-      var approvalsLabel = document.createElement("p");
-      approvalsLabel.className = "eyebrow";
-      approvalsLabel.textContent = "Approvals";
-      taskDetailBody.appendChild(approvalsLabel);
+      taskDetailBody.appendChild(eyebrowP("Approvals"));
       task.approvals.forEach(function (a) {
         taskDetailBody.appendChild(metricRow(
           "#" + a.seq + " " + a.tool + " " + a.action + " " + a.path,
@@ -950,10 +1221,7 @@
     }
 
     if (task.grounding && task.grounding.checked) {
-      var groundingLabel = document.createElement("p");
-      groundingLabel.className = "eyebrow";
-      groundingLabel.textContent = "Grounding";
-      taskDetailBody.appendChild(groundingLabel);
+      taskDetailBody.appendChild(eyebrowP("Grounding"));
       (task.grounding.documents || []).forEach(function (doc) {
         taskDetailBody.appendChild(metricRow(doc.path, doc.claims + " claims"));
         if (doc.unsupported && doc.unsupported.length > 0) {
@@ -1202,17 +1470,20 @@
         row.appendChild(modelBadge("catalog", "model-badge-ondisk"));
       }
 
-      // Switch action (the single sanctioned write). Disabled for the loaded row, for a
-      // non-fitting target ("Won't fit", D-08), and while a switch is in flight.
+      // The loaded row gets its badge and no button. A disabled "Loaded" control
+      // affords nothing the badge beside it has not already said, and two identical
+      // words in one row read as a rendering fault.
+      if (m.loaded) {
+        list.appendChild(row);
+        return;
+      }
+
+      // Switch action (the single sanctioned write). Disabled for a non-fitting
+      // target ("Won't fit", D-08) and while a switch is in flight.
       var btn = document.createElement("button");
       btn.type = "button";
       btn.className = "btn btn-primary model-switch";
-      if (m.loaded) {
-        btn.textContent = "Loaded";
-        btn.disabled = true;
-        btn.classList.remove("btn-primary");
-        btn.classList.add("btn-secondary");
-      } else if (!m.fits) {
+      if (!m.fits) {
         btn.textContent = "Won't fit";
         btn.disabled = true;
         btn.title = m.fit_detail || "Does not fit the usable memory envelope.";
@@ -1401,6 +1672,11 @@
         // re-hidden when it disappears. NOT called from the catch path (last-good under
         // stale dim). XSS-safe: every value via textContent, never innerHTML.
         renderWebSearch(report);
+        // The Update · Pins last-check row and both footer slots ride the SAME
+        // /api/status poll — report.updates is a READ of the last recorded check, and
+        // nothing on this page causes one.
+        renderUpdates(report);
+        renderFooter(report);
       })
       .catch(function () {
         // The dashboard's own API is unreachable → global banner, keep last-good.
@@ -1431,6 +1707,16 @@
       clearSwitchIfLoaded(models);
       renderModels(models);
     });
+
+    // Pins and the journal ride a fifth of the tick: a journal tail costs a
+    // journalctl subprocess per request, and the pin table answers a question that
+    // changes only when an update lands. Both still run on the FIRST poll, so the
+    // two panels are filled by the time the operator has read the strip.
+    if (slowTick % SLOW_EVERY === 0) {
+      getJSON("/api/pins").then(renderPins);
+      getJSON("/api/journal").then(renderJournal);
+    }
+    slowTick++;
   }
 
   // --- Lifecycle (visibilitychange pause / D-05) --------------------------
@@ -1483,6 +1769,11 @@
   if (taskDetailClose) {
     taskDetailClose.addEventListener("click", closeTaskDetail);
   }
+
+  // The header's host is the page's own address, not a literal: the shell templates
+  // the chat port and nothing else, so whatever loopback address the operator reached
+  // the dashboard on is what the subline says.
+  setText("header-host", window.location.host);
 
   // Kick off once the DOM is ready.
   if (document.readyState === "loading") {

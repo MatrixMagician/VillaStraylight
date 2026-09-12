@@ -14,6 +14,8 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
 	"github.com/MatrixMagician/VillaStraylight/internal/metrics"
 	"github.com/MatrixMagician/VillaStraylight/internal/modelswap"
+	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
+	"github.com/MatrixMagician/VillaStraylight/internal/pins"
 	"github.com/MatrixMagician/VillaStraylight/internal/recommend"
 	"github.com/MatrixMagician/VillaStraylight/internal/status"
 	"github.com/MatrixMagician/VillaStraylight/internal/subsystem"
@@ -77,6 +79,13 @@ type dashboardDeps struct {
 	// service because it is already the long-lived villa process. nil when
 	// workspace_agent is off, in which case the task routes answer 503.
 	Tasks *taskrun.Runner
+
+	// Pins folds pinresolve.Resolver.All() over the compiled-in pins.Table() and
+	// this host's pinstate.State into the Update·Pins read-model.
+	Pins func() dashboard.PinsView
+	// Journal tails the rendered stack's rootless user journal into the Journal
+	// panel read-model.
+	Journal func() dashboard.JournalView
 }
 
 // newDashboard builds `villa dashboard`: serve the loopback-only control dashboard
@@ -135,6 +144,8 @@ func runDashboard(cmd *cobra.Command, _ []string, d *dashboardDeps) int {
 		ModelID:       d.ModelID,
 		CounterSample: d.CounterSample,
 		Tasks:         d.Tasks,
+		Pins:          d.Pins,
+		Journal:       d.Journal,
 	})
 	if err != nil {
 		fmt.Fprintf(errOut, "dashboard: %v\n", err)
@@ -221,7 +232,63 @@ func liveDashboardDeps(ctx context.Context) (*dashboardDeps, error) {
 		WriteUsage:    liveWriteUsage,
 		ModelID:       liveModelID,
 		CounterSample: func() (metrics.CounterSample, bool) { return metrics.ScrapeCounters(endpoint) },
+
+		// Pins: liveResolver (cmd/villa/pins.go) already joins the compiled-in
+		// table to this host's pinstate.State the SAME way every render does — no
+		// second resolver.
+		Pins: livePinsView,
+		// Journal: the rendered stack's own service set (the SAME renderStack +
+		// serviceUnits `villa logs` uses), tailed and reduced by the shared
+		// JournalTail + ParseJournalJSON pair — no hard-coded unit list.
+		Journal: liveJournalView,
 	}, nil
+}
+
+// journalTailLines is the Journal panel's line cap (contract: "at most 10
+// lines"). It lives here, not in the pure parser, because the cap is a decision
+// about how much of the wire the panel wants — the parser just takes a max.
+const journalTailLines = 10
+
+// livePinsView folds pinresolve.Resolver.All() (liveResolver, the SAME resolver
+// every render uses) into the dashboard's PinsView. There is nothing to degrade
+// here: an unreadable pinstate store already resolves to vetted-pins-with-
+// FromStore-false inside liveResolver, which is the honest answer, not a failure
+// this seam needs to catch.
+func livePinsView() dashboard.PinsView {
+	resolved := liveResolver().All()
+	rows := make([]dashboard.PinRow, 0, len(resolved))
+	for _, r := range resolved {
+		rows = append(rows, dashboard.PinRow{
+			Component: string(r.Component),
+			Subsystem: r.Subsystem.String(),
+			Vetted:    r.Vetted.Ref,
+			Effective: r.Current.Ref,
+			FromStore: r.FromStore,
+			Diverged:  r.Diverged(),
+		})
+	}
+	return dashboard.PinsView{Serial: pins.Serial(), Components: rows}
+}
+
+// villaUnitGlob scopes the Journal panel to villa's own user units. systemd matches
+// a wildcard `-u` pattern against the units it knows, so one pattern covers the
+// whole stack including the units a resident model or an optional subsystem adds.
+//
+// It is deliberately NOT the rendered unit set. Deriving the set from renderStack
+// would make the panel depend on the config loading and the model file resolving,
+// so a host whose weights had gone missing would lose the logs that say so — and
+// logs are exactly what an operator wants when the stack is broken.
+const villaUnitGlob = "villa-*"
+
+// liveJournalView tails villa's user journal and reduces it via the pure
+// ParseJournalJSON. An unavailable or empty journalctl read degrades to the zero
+// (unavailable) JournalView rather than an error the dashboard has nowhere to put.
+func liveJournalView() dashboard.JournalView {
+	text, ok := orchestrate.NewSystemd().JournalTail([]string{villaUnitGlob}, journalTailLines)
+	if !ok {
+		return dashboard.JournalView{}
+	}
+	return dashboard.ParseJournalJSON(text, journalTailLines)
 }
 
 // liveUsageDeps builds the usage byte-I/O seam over the live store path: ReadAll reads
