@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"strconv"
 	"strings"
 )
 
@@ -174,6 +175,31 @@ func (s Systemd) DisableLinger(user string) error {
 // output yields ("", false).
 func (s Systemd) JournalText(service string) (string, bool) {
 	out, found, _ := s.runCmd("journalctl", "--user", "-u", service, "--no-pager")
+	if !found || strings.TrimSpace(out) == "" {
+		return "", false
+	}
+	return out, true
+}
+
+// JournalTail returns the most recent n entries across a SET of units, merged and
+// ordered by journald itself in one exec: `journalctl --user -u <u1> -u <u2> … -n
+// <n> -o json --no-pager`. This is the dashboard Journal panel's source, distinct
+// from JournalText's single-unit, oldest-bytes-kept read.
+//
+// -o json is deliberate, not cosmetic. `short-iso` (JournalText's format) prints
+// the syslog identifier (`podman`, `conmon`) as the log source rather than the
+// systemd unit, and the panel names units — JSON is the only format that carries
+// `_SYSTEMD_USER_UNIT`, the field the panel actually needs.
+//
+// The bool mirrors JournalText: false when journalctl is missing or produced no
+// output.
+func (s Systemd) JournalTail(units []string, n int) (string, bool) {
+	args := []string{"--user"}
+	for _, u := range units {
+		args = append(args, "-u", u)
+	}
+	args = append(args, "-n", strconv.Itoa(n), "-o", "json", "--no-pager")
+	out, found, _ := s.runCmd("journalctl", args...)
 	if !found || strings.TrimSpace(out) == "" {
 		return "", false
 	}
