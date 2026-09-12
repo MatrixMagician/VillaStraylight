@@ -62,8 +62,8 @@ func ParseJournalJSON(text string, limit int) JournalView {
 			continue // byte-array MESSAGE (non-UTF-8) or otherwise malformed
 		}
 		lines = append(lines, JournalLine{
-			At:      formatJournalTime(rec.RealTime),
-			Unit:    strings.TrimSuffix(rec.Unit, ".service"),
+			At:   formatJournalTime(rec.RealTime),
+			Unit: strings.TrimSuffix(rec.Unit, ".service"),
 			// A container logging through conmon keeps the newline it wrote, and the
 			// console renders one row per record.
 			Message: strings.TrimRight(msg, "\r\n"),

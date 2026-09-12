@@ -577,7 +577,10 @@ body {
 .pins-head,
 .pin-row {
   display: grid;
-  grid-template-columns: 1fr auto auto;
+  /* minmax(0, …) on all three: an auto track sized by a digest-pinned ref would
+     otherwise demand its full intrinsic width and crush the name column to one
+     character per line. */
+  grid-template-columns: minmax(0, 1fr) minmax(0, auto) minmax(0, auto);
   gap: 6px 18px;
   align-items: center;
   font-family: var(--font-mono);
@@ -598,7 +601,7 @@ body {
   font-size: 12px;
 }
 .pin-component { color: var(--text-primary); overflow-wrap: anywhere; }
-.pin-subsystem { color: var(--text-faint); font-size: 10.5px; margin-left: 6px; }
+.pin-subsystem { color: var(--text-faint); font-size: 10.5px; margin-left: 6px; white-space: nowrap; }
 .pin-vetted { color: var(--neutral-400); overflow-wrap: anywhere; }
 .pin-effective { text-align: right; color: var(--accent-300); overflow-wrap: anywhere; }
 /* Diverged is the whole point of the column: this host is not running what was vetted. */

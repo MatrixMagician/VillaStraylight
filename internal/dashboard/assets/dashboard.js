@@ -774,7 +774,10 @@
       value.textContent = "never";
       badgeText = "never checked";
     } else if (typeof u.available !== "number") {
+      // A check that recorded WHEN but not HOW MANY. The badge must not read as
+      // "no check": what is unavailable is the count, not the check beside it.
       value.textContent = lastCheckAge(u);
+      badgeText = "count unknown";
     } else if (u.available === 0) {
       value.textContent = lastCheckAge(u);
       badgeText = "up to date";
@@ -790,6 +793,32 @@
     badge.className = "badge badge-" + badgeClass;
     badge.textContent = badgeText;
     pinsLastCheck.appendChild(badge);
+  }
+
+  // pinLabel shortens a digest-pinned image ref to the two parts that identify it:
+  // its tag and the head of its digest. The tag alone would not do — open-webui is
+  // pinned on the rolling `main` tag, so two different builds carry the SAME tag and
+  // a tag-only label would render a real divergence as two identical cells, which is
+  // the one thing this column exists to show. The whole ref stays in the title.
+  function pinLabel(ref) {
+    if (!ref) { return "unavailable"; }
+    var at = ref.indexOf("@");
+    if (at < 0) { return ref; } // a checksummed asset carries a version, not a digest
+    var name = ref.slice(0, at);
+    var slash = name.lastIndexOf("/");
+    var colon = name.lastIndexOf(":");
+    var tag = colon > slash ? name.slice(colon + 1) : name.slice(slash + 1);
+    var hex = ref.slice(ref.indexOf(":", at) + 1);
+    return tag + "@" + hex.slice(0, 8);
+  }
+
+  // pinCell builds one ref cell: the short label to read, the full ref to inspect.
+  function pinCell(cls, ref) {
+    var cell = document.createElement("span");
+    cell.className = cls;
+    cell.textContent = pinLabel(ref);
+    cell.title = ref || "";
+    return cell;
   }
 
   // pinsHeadCell builds one column header for the vetted-vs-effective table.
@@ -834,17 +863,10 @@
       component.appendChild(subsystem);
       row.appendChild(component);
 
-      var vetted = document.createElement("span");
-      vetted.className = "pin-vetted";
-      vetted.textContent = r.vetted;
-      row.appendChild(vetted);
-
+      row.appendChild(pinCell("pin-vetted", r.vetted));
       // Divergence is the point of the column: this host is not running what was
       // vetted, and the colour says so beside the two refs that prove it.
-      var effective = document.createElement("span");
-      effective.className = r.diverged ? "pin-effective diverged" : "pin-effective";
-      effective.textContent = r.effective;
-      row.appendChild(effective);
+      row.appendChild(pinCell(r.diverged ? "pin-effective diverged" : "pin-effective", r.effective));
 
       pinsBody.appendChild(row);
     });
@@ -1448,17 +1470,20 @@
         row.appendChild(modelBadge("catalog", "model-badge-ondisk"));
       }
 
-      // Switch action (the single sanctioned write). Disabled for the loaded row, for a
-      // non-fitting target ("Won't fit", D-08), and while a switch is in flight.
+      // The loaded row gets its badge and no button. A disabled "Loaded" control
+      // affords nothing the badge beside it has not already said, and two identical
+      // words in one row read as a rendering fault.
+      if (m.loaded) {
+        list.appendChild(row);
+        return;
+      }
+
+      // Switch action (the single sanctioned write). Disabled for a non-fitting
+      // target ("Won't fit", D-08) and while a switch is in flight.
       var btn = document.createElement("button");
       btn.type = "button";
       btn.className = "btn btn-primary model-switch";
-      if (m.loaded) {
-        btn.textContent = "Loaded";
-        btn.disabled = true;
-        btn.classList.remove("btn-primary");
-        btn.classList.add("btn-secondary");
-      } else if (!m.fits) {
+      if (!m.fits) {
         btn.textContent = "Won't fit";
         btn.disabled = true;
         btn.title = m.fit_detail || "Does not fit the usable memory envelope.";
