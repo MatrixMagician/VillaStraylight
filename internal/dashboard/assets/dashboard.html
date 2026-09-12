@@ -145,7 +145,9 @@
           <span class="panel-note" id="pins-serial"></span>
         </div>
         <div class="lastcheck" id="pins-lastcheck"></div>
-        <div id="pins-body"></div>
+        <div id="pins-body">
+          <p class="muted">Loading pins…</p>
+        </div>
         <p class="footnote"><span class="gl" aria-hidden="true">└─</span> no timer, no background check: run `villa update --check`.</p>
       </section>
     </div>
@@ -201,7 +203,9 @@
         <span class="jp" aria-hidden="true">ジャーナル</span>
         <span class="panel-note">journald · villa logs --follow</span>
       </div>
-      <div id="journal-body" class="console"></div>
+      <div id="journal-body" class="console">
+        <p class="muted">Loading journal…</p>
+      </div>
     </section>
 
     <!-- The optional subsystems. Each panel ships hidden (the connection-banner[hidden]

@@ -210,7 +210,9 @@ body {
 /* ---- Status strip — the one loud tier (DASH-07) ---- */
 .strip {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  /* min() rather than a bare minimum: minmax(220px, …) would hold a 220px track open
+     below 220px of room and scroll the page sideways. */
+  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
   gap: 14px;
 }
 .tile {
@@ -284,9 +286,9 @@ body {
 .verdict-unknown { color: var(--status-unknown); }
 
 /* ---- Panel grids ---- */
-.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 22px; }
-.grid3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 22px; }
-.split { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: var(--space-xl); }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(420px, 100%), 1fr)); gap: 22px; }
+.grid3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); gap: 22px; }
+.split { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr)); gap: var(--space-xl); }
 
 /* The optional-subsystem group collapses entirely — heading included — when all three
    panels are still hidden, so a memory/agent/web-search-OFF install renders no trace
