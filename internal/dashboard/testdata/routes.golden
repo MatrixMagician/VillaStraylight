@@ -1,7 +1,9 @@
 GET /api/gpu
 GET /api/healthz
+GET /api/journal
 GET /api/metrics
 GET /api/models
+GET /api/pins
 GET /api/status
 GET /api/tasks
 GET /api/tasks/{id}
