@@ -270,18 +270,21 @@ func livePinsView() dashboard.PinsView {
 	return dashboard.PinsView{Serial: pins.Serial(), Components: rows}
 }
 
-// liveJournalView tails the CURRENTLY rendered stack's services (renderStack +
-// serviceUnits — the same pair `villa logs` uses to learn the known-service set,
-// never a hand-written unit list) and reduces the merged journal via the pure
-// ParseJournalJSON. A render failure or an unavailable/empty journalctl output
-// both degrade to the zero (unavailable) JournalView rather than an error the
-// dashboard has nowhere to surface.
+// villaUnitGlob scopes the Journal panel to villa's own user units. systemd matches
+// a wildcard `-u` pattern against the units it knows, so one pattern covers the
+// whole stack including the units a resident model or an optional subsystem adds.
+//
+// It is deliberately NOT the rendered unit set. Deriving the set from renderStack
+// would make the panel depend on the config loading and the model file resolving,
+// so a host whose weights had gone missing would lose the logs that say so — and
+// logs are exactly what an operator wants when the stack is broken.
+const villaUnitGlob = "villa-*"
+
+// liveJournalView tails villa's user journal and reduces it via the pure
+// ParseJournalJSON. An unavailable or empty journalctl read degrades to the zero
+// (unavailable) JournalView rather than an error the dashboard has nowhere to put.
 func liveJournalView() dashboard.JournalView {
-	units, _, err := liveLifecycleDeps().renderStack()
-	if err != nil {
-		return dashboard.JournalView{}
-	}
-	text, ok := orchestrate.NewSystemd().JournalTail(serviceUnits(units), journalTailLines)
+	text, ok := orchestrate.NewSystemd().JournalTail([]string{villaUnitGlob}, journalTailLines)
 	if !ok {
 		return dashboard.JournalView{}
 	}

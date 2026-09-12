@@ -64,7 +64,9 @@ func ParseJournalJSON(text string, limit int) JournalView {
 		lines = append(lines, JournalLine{
 			At:      formatJournalTime(rec.RealTime),
 			Unit:    strings.TrimSuffix(rec.Unit, ".service"),
-			Message: msg,
+			// A container logging through conmon keeps the newline it wrote, and the
+			// console renders one row per record.
+			Message: strings.TrimRight(msg, "\r\n"),
 		})
 	}
 	if len(lines) == 0 {

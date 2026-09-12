@@ -165,3 +165,17 @@ func TestHandleJournalNilSeamDefaultsToUnavailable(t *testing.T) {
 		t.Fatalf("nil seam should render unavailable, got %+v", got)
 	}
 }
+
+// TestParseJournalJSONTrimsTheTrailingNewline guards the console's one-line row: a
+// container that logs through conmon keeps the newline it wrote inside MESSAGE, and
+// an untrimmed row renders as a blank second line in the panel.
+func TestParseJournalJSONTrimsTheTrailingNewline(t *testing.T) {
+	view := ParseJournalJSON(`{"__REALTIME_TIMESTAMP":"1757671718613000","_SYSTEMD_USER_UNIT":"villa-openwebui.service","MESSAGE":"GET /sw.js HTTP/1.1 404\n"}`, 10)
+
+	if len(view.Lines) != 1 {
+		t.Fatalf("parsed %d lines, want 1", len(view.Lines))
+	}
+	if got, want := view.Lines[0].Message, "GET /sw.js HTTP/1.1 404"; got != want {
+		t.Errorf("Message = %q, want %q", got, want)
+	}
+}
