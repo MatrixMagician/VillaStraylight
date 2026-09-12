@@ -194,6 +194,12 @@ func (s Systemd) JournalText(service string) (string, bool) {
 // The bool mirrors JournalText: false when journalctl is missing or produced no
 // output.
 func (s Systemd) JournalTail(units []string, n int) (string, bool) {
+	// No units means no scope, and journalctl without -u reads the operator's whole
+	// user journal. An empty set is the caller having nothing to show, not a request
+	// for everything.
+	if len(units) == 0 {
+		return "", false
+	}
 	args := []string{"--user"}
 	for _, u := range units {
 		args = append(args, "-u", u)

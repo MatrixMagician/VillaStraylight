@@ -295,6 +295,24 @@ func TestJournalTail(t *testing.T) {
 		}
 	})
 
+	// An empty unit set must not fall through to journalctl. Without -u the command
+	// reads the operator's WHOLE user journal, so the panel would quietly render log
+	// lines from unrelated desktop sessions as if they were villa's.
+	t.Run("no units → no exec at all", func(t *testing.T) {
+		var calls int
+		s := Systemd{runCmd: func(name string, args ...string) (string, bool, bool) {
+			calls++
+			return `{"MESSAGE":"a line from some other user service"}`, true, true
+		}}
+		out, ok := s.JournalTail(nil, 10)
+		if ok || out != "" {
+			t.Fatalf("JournalTail(nil) = (%q, %v), want (\"\", false)", out, ok)
+		}
+		if calls != 0 {
+			t.Fatalf("JournalTail(nil) issued %d execs, want 0 — an unscoped journalctl reads the whole user journal", calls)
+		}
+	})
+
 	t.Run("missing journalctl → (\"\", false)", func(t *testing.T) {
 		s := Systemd{runCmd: func(name string, args ...string) (string, bool, bool) {
 			return "", false, false
