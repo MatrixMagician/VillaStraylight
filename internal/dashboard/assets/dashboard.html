@@ -14,21 +14,25 @@
     Lost connection to the dashboard. Retrying…
   </div>
 
+  <!-- Every katakana gloss and box-drawing glyph on this page is decoration and carries
+       aria-hidden: a screen reader must not read a Japanese gloss beside an English
+       heading, nor announce a corner bracket. The header's host is filled by the JS from
+       window.location.host — the shell templates the chat port and nothing else. -->
   <header class="header" role="banner">
-    <div>
-      <h1 class="header-title">VillaStraylight</h1>
-      <span class="header-sub">Control dashboard</span>
+    <div class="header-brand">
+      <div class="header-wordmark">
+        <h1 class="header-title">Villa<b>Straylight</b></h1>
+        <span class="jp" aria-hidden="true">ヴィラ・ストレイライト</span>
+      </div>
+      <span class="header-sub">Control deck
+        <span class="sep" aria-hidden="true">//</span> <span id="header-host">loopback</span>
+        <span class="sep" aria-hidden="true">//</span> Loopback only
+        <span class="sep" aria-hidden="true">//</span> Zero telemetry</span>
     </div>
     <a class="chat-link"
        href="http://127.0.0.1:{{.ChatPort}}"
        target="_blank"
-       rel="noopener noreferrer">Open Chat
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-           stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <path d="M7 17 17 7" />
-        <path d="M9 7h8v8" />
-      </svg>
-    </a>
+       rel="noopener noreferrer">Open Chat <span aria-hidden="true">↗</span></a>
   </header>
 
   <main class="content">
@@ -37,21 +41,21 @@
          memory rides /api/gpu, throughput rides /api/metrics. Each tile ships with
          the honest "unavailable" placeholder its panel would render. -->
     <div class="strip">
-      <div class="tile">
-        <p class="eyebrow" style="margin: 0">Stack</p>
+      <div class="tile tile-stack">
+        <p class="eyebrow"><span class="gl" aria-hidden="true">┌</span>Stack<span class="jp" aria-hidden="true">スタック</span></p>
         <div class="tile-verdict">
-          <span id="strip-verdict-dot" class="status-dot unknown"></span>
-          <span id="overall-verdict" class="badge badge-unknown" aria-live="polite">unavailable</span>
+          <span id="strip-verdict-dot" class="status-dot lg unknown"></span>
+          <span id="overall-verdict" class="verdict verdict-unknown" aria-live="polite">unavailable</span>
         </div>
         <span class="tile-sub" id="strip-verdict-sub"></span>
       </div>
       <div class="tile">
-        <p class="eyebrow" style="margin: 0">Model</p>
+        <p class="eyebrow"><span class="gl" aria-hidden="true">┌</span>Model<span class="jp" aria-hidden="true">モデル</span></p>
         <span class="tile-value sm" id="strip-model">unavailable</span>
         <span class="tile-sub" id="strip-model-sub"></span>
       </div>
       <div class="tile">
-        <p class="eyebrow" style="margin: 0">Unified memory</p>
+        <p class="eyebrow"><span class="gl" aria-hidden="true">┌</span>Unified memory<span class="jp" aria-hidden="true">メモリ</span></p>
         <span class="tile-value md" id="strip-mem">unavailable</span>
         <div class="mem-bar" id="strip-mem-bar" role="progressbar"
              aria-label="Unified memory used" aria-valuemin="0" aria-valuemax="100" hidden>
@@ -59,7 +63,7 @@
         </div>
       </div>
       <div class="tile">
-        <p class="eyebrow" style="margin: 0">Generation</p>
+        <p class="eyebrow"><span class="gl" aria-hidden="true">┌</span>Generation<span class="jp" aria-hidden="true">生成</span></p>
         <span class="tile-value md" id="strip-gen">unavailable</span>
         <span class="tile-sub" id="strip-gen-sub"></span>
       </div>
@@ -67,18 +71,23 @@
 
     <!-- Health (DASH-01 / DASH-06) — service rows and backend identity are two
          different questions, so they get two columns instead of one flat list.
-         Both are filled by the poll loop from /api/status. -->
+         Both are filled by the poll loop from /api/status. The note states this
+         page's OWN cadence: POLL_MS is 2500, so it reads 2.5s. -->
     <section class="panel" id="health-panel" aria-labelledby="health-heading">
-      <h2 class="panel-heading" id="health-heading">Health</h2>
+      <div class="panel-head fade-rule">
+        <h2 class="panel-heading" id="health-heading">Health</h2>
+        <span class="jp" aria-hidden="true">ヘルス</span>
+        <span class="panel-note">/api/status · poll 2.5s</span>
+      </div>
       <div class="split">
         <div>
-          <p class="eyebrow">Services</p>
+          <p class="eyebrow"><span class="gl" aria-hidden="true">└─</span>Services</p>
           <div id="health-rows" class="health-rows">
             <p class="muted">Loading service status…</p>
           </div>
         </div>
         <div>
-          <p class="eyebrow">Inference backend</p>
+          <p class="eyebrow"><span class="gl" aria-hidden="true">└─</span>Inference backend</p>
           <div id="health-backend" class="health-rows">
             <p class="muted">Loading backend…</p>
           </div>
@@ -89,7 +98,10 @@
     <div class="grid">
       <!-- Performance (DASH-02) — filled by the poll loop from /api/metrics. -->
       <section class="panel" id="performance-panel" aria-labelledby="performance-heading">
-        <h2 class="panel-heading" id="performance-heading">Performance</h2>
+        <div class="panel-head fade-rule">
+          <h2 class="panel-heading" id="performance-heading">Performance</h2>
+          <span class="jp" aria-hidden="true">性能</span>
+        </div>
         <div id="performance-body">
           <p class="muted">Idle — no active generation.</p>
         </div>
@@ -97,23 +109,46 @@
 
       <!-- GPU & Memory (DASH-03) — memory-first; filled from /api/gpu. -->
       <section class="panel" id="gpu-panel" aria-labelledby="gpu-heading">
-        <h2 class="panel-heading" id="gpu-heading">GPU &amp; Memory</h2>
+        <div class="panel-head fade-rule">
+          <h2 class="panel-heading" id="gpu-heading">GPU &amp; Memory</h2>
+          <span class="jp" aria-hidden="true">メモリ</span>
+        </div>
         <div id="gpu-body">
           <p class="muted">Unavailable</p>
         </div>
       </section>
     </div>
 
-    <!-- Models (DASH-04) — full catalog (loaded / on-disk / catalog-only) with the
-         guarded Switch action; filled by the poll loop from /api/models. -->
-    <section class="panel" id="models-panel" aria-labelledby="models-heading">
-      <h2 class="panel-heading" id="models-heading">Models
-        <span class="badge" id="models-count" hidden></span>
-      </h2>
-      <div id="models-body">
-        <p class="muted">Loading models…</p>
-      </div>
-    </section>
+    <div class="grid">
+      <!-- Models (DASH-04) — full catalog (loaded / on-disk / catalog-only) with the
+           guarded Switch action; filled by the poll loop from /api/models. -->
+      <section class="panel" id="models-panel" aria-labelledby="models-heading">
+        <div class="panel-head fade-rule">
+          <h2 class="panel-heading" id="models-heading">Models · Resident set</h2>
+          <span class="jp" aria-hidden="true">常駐セット</span>
+          <span class="badge" id="models-count" hidden></span>
+        </div>
+        <div id="models-body">
+          <p class="muted">Loading models…</p>
+        </div>
+      </section>
+
+      <!-- Update · Pins — the vetted-vs-effective answer for every component, over
+           GET /api/pins, plus the last RECORDED check from report.updates. Nothing
+           here causes a check: the footnote says so, and it is the whole reason the
+           "zero telemetry" claim upstairs is unqualified. Fetched on the fifth poll,
+           not the 2.5s tick. -->
+      <section class="panel" id="pins-panel" aria-labelledby="pins-heading">
+        <div class="panel-head fade-rule">
+          <h2 class="panel-heading" id="pins-heading">Update · Pins</h2>
+          <span class="jp" aria-hidden="true">更新</span>
+          <span class="panel-note" id="pins-serial"></span>
+        </div>
+        <div class="lastcheck" id="pins-lastcheck"></div>
+        <div id="pins-body"></div>
+        <p class="footnote"><span class="gl" aria-hidden="true">└─</span> no timer, no background check: run `villa update --check`.</p>
+      </section>
+    </div>
 
     <!-- Workspaces (read-only, ticket #184) — filled by the poll loop from
          /api/workspaces (config's registered grant list; no task submission
@@ -121,14 +156,20 @@
          /api/tasks; clicking a row opens the detail panel below. -->
     <div class="grid">
       <section class="panel" id="workspaces-panel" aria-labelledby="workspaces-heading">
-        <h2 class="panel-heading" id="workspaces-heading">Workspaces</h2>
+        <div class="panel-head fade-rule">
+          <h2 class="panel-heading" id="workspaces-heading">Workspaces</h2>
+          <span class="jp" aria-hidden="true">作業空間</span>
+        </div>
         <div id="workspaces-body">
           <p class="muted">Loading workspaces…</p>
         </div>
       </section>
 
       <section class="panel" id="tasks-panel" aria-labelledby="tasks-heading">
-        <h2 class="panel-heading" id="tasks-heading">Tasks</h2>
+        <div class="panel-head fade-rule">
+          <h2 class="panel-heading" id="tasks-heading">Tasks</h2>
+          <span class="jp" aria-hidden="true">タスク</span>
+        </div>
         <div id="tasks-body">
           <p class="muted">Loading tasks…</p>
         </div>
@@ -140,14 +181,27 @@
          terminal uses; Approve/Approve all/Deny/Cancel are the only writes,
          gated on the record's current state. -->
     <section class="panel" id="task-detail-panel" aria-labelledby="task-detail-heading" hidden>
-      <h2 class="panel-heading" id="task-detail-heading">
-        Task
+      <div class="panel-head fade-rule">
+        <h2 class="panel-heading" id="task-detail-heading">Task</h2>
         <button type="button" class="btn btn-secondary" id="task-detail-close">Close</button>
-      </h2>
+      </div>
       <div id="task-detail-body"></div>
       <div class="task-detail-actions" id="task-detail-actions"></div>
-      <p class="eyebrow">Narration</p>
+      <p class="eyebrow"><span class="gl" aria-hidden="true">└─</span>Narration</p>
       <div id="task-narration-log" class="narration-log" aria-live="polite"></div>
+    </section>
+
+    <!-- Journal — a bounded tail of the villa units' rootless user journal over
+         GET /api/journal, on the same fifth-poll cadence as the pins (each request
+         costs a journalctl subprocess). An unavailable tail renders the page's
+         "unavailable" copy, never an empty console that would read as a quiet stack. -->
+    <section class="panel" id="journal-panel" aria-labelledby="journal-heading">
+      <div class="panel-head fade-rule">
+        <h2 class="panel-heading" id="journal-heading">Journal</h2>
+        <span class="jp" aria-hidden="true">ジャーナル</span>
+        <span class="panel-note">journald · villa logs --follow</span>
+      </div>
+      <div id="journal-body" class="console"></div>
     </section>
 
     <!-- The optional subsystems. Each panel ships hidden (the connection-banner[hidden]
@@ -156,29 +210,49 @@
          SURF-01 / D-05, SURF-05). The group heading collapses with them via :has(), so a
          subsystems-off install renders no trace of this block at all. -->
     <div class="subsystems">
-      <p class="eyebrow">Optional subsystems</p>
+      <p class="eyebrow"><span class="gl" aria-hidden="true">└─</span>Optional subsystems</p>
       <div class="grid3">
         <!-- Memory (CTRL-02) — reads report.memory. -->
         <section class="panel" id="memory-panel" aria-labelledby="memory-heading" hidden>
-          <h2 class="panel-heading" id="memory-heading">Memory</h2>
+          <div class="panel-head fade-rule">
+            <h2 class="panel-heading" id="memory-heading">Memory</h2>
+            <span class="jp" aria-hidden="true">記憶</span>
+          </div>
           <div id="memory-body"></div>
         </section>
 
         <!-- Agent (SURF-01 / D-05) — reads report.coding. -->
         <section class="panel" id="agent-panel" aria-labelledby="agent-heading" hidden>
-          <h2 class="panel-heading" id="agent-heading">Agent</h2>
+          <div class="panel-head fade-rule">
+            <h2 class="panel-heading" id="agent-heading">Agent</h2>
+            <span class="jp" aria-hidden="true">エージェント</span>
+          </div>
           <div id="agent-body"></div>
         </section>
 
         <!-- Web Search (SURF-05) — reads report.web_search. XSS-safe: all
              server/web-derived values via textContent, never innerHTML. -->
         <section class="panel" id="web-search-panel" aria-labelledby="web-search-heading" hidden>
-          <h2 class="panel-heading" id="web-search-heading">Web Search</h2>
+          <div class="panel-head fade-rule">
+            <h2 class="panel-heading" id="web-search-heading">Web Search</h2>
+            <span class="jp" aria-hidden="true">検索</span>
+          </div>
           <div id="web-search-body"></div>
         </section>
       </div>
     </div>
   </main>
+
+  <!-- Neither footer slot may fabricate a host fact. The left one reads ZERO until
+       report.web_search says otherwise; the right one carries report.backend when the
+       report knows it, and the one thing this page can always assert on its own. -->
+  <footer class="footer">
+    <span class="mark" aria-hidden="true">▚▚</span>
+    <span id="footer-outbound">Outbound: zero</span>
+    <span class="gl" aria-hidden="true">┆</span>
+    <span>Read-only control plane — the one sanctioned write is model switch</span>
+    <span class="footer-right" id="footer-host">podman rootless</span>
+  </footer>
 
   <!-- Guarded switch confirm dialog (D-08): a native <dialog> traps focus, Esc cancels,
        and the primary "Switch model" button is the default focus. The fit-verdict + the

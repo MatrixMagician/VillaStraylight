@@ -267,6 +267,7 @@ body {
   overflow-wrap: anywhere;
 }
 .tile-verdict { display: flex; align-items: center; gap: 10px; }
+.tile .eyebrow { margin: 0; }
 
 /* The verdict word itself. It is a word, not only a colour, which is what lets PASS
    take the accent family instead of green. */
