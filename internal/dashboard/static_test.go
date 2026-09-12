@@ -88,8 +88,10 @@ func TestShellCarriesTheIDsThePollLoopWrites(t *testing.T) {
 	shell := rec.Body.String()
 
 	for _, id := range []string{
-		// Global.
+		// Global. The header host is written from window.location.host, and the two
+		// footer slots from the status report — neither may fabricate a host fact.
 		"connection-banner", "overall-verdict",
+		"header-host", "footer-outbound", "footer-host",
 		// Status strip (DASH-07) — the read-model over the existing polls.
 		"strip-verdict-dot", "strip-verdict-sub",
 		"strip-model", "strip-model-sub",
@@ -99,6 +101,16 @@ func TestShellCarriesTheIDsThePollLoopWrites(t *testing.T) {
 		// identity rows — two columns, two owners (renderHealth / renderBackend).
 		"health-rows", "health-backend",
 		"performance-body", "gpu-body", "models-body", "models-count",
+		"workspaces-body", "tasks-body",
+		// Update · Pins: the manifest serial and the vetted-vs-effective table come
+		// from /api/pins, the last-check row from report.updates on the status poll.
+		"pins-serial", "pins-lastcheck", "pins-body",
+		// Journal: the bounded tail from /api/journal.
+		"journal-body",
+		// Task detail (ticket #184) — the record, its guarded actions and the SSE
+		// narration log the detail panel streams into.
+		"task-detail-panel", "task-detail-body", "task-detail-actions",
+		"task-detail-close", "task-narration-log",
 		// Hidden-until-data subsystem panels + their bodies.
 		"memory-panel", "memory-body",
 		"agent-panel", "agent-body",
