@@ -1,0 +1,126 @@
+{
+  "version": 1,
+  "rules": [
+    {
+      "path": "rules/backend-default-unset.md",
+      "hash": "54ca35b776137f4ae6c7958556d5ba03bbb759782065d3d49b5923d355d86b38",
+      "description": "An unset backend must mean ROCm in both places",
+      "globs": [
+        "internal/inference/**",
+        "internal/catalog/**",
+        "internal/recommend/**",
+        "internal/config/**"
+      ],
+      "dirs": [],
+      "prompt": [
+        "backend",
+        "backendfor",
+        "catalog",
+        "seed.json",
+        "default backend"
+      ],
+      "priority": 10,
+      "enabled": true,
+      "include": []
+    },
+    {
+      "path": "rules/dev-host-build-and-restart.md",
+      "hash": "d377bb6c4d45684927ac02f977773149905c2b5c5b5e3a174318f268d75a42ff",
+      "description": "Dev-host rebuild and restart after a Go change",
+      "globs": [],
+      "dirs": [],
+      "prompt": [],
+      "priority": 70,
+      "enabled": true,
+      "include": []
+    },
+    {
+      "path": "rules/frozen-output-contracts.md",
+      "hash": "d2468bfa16eeee6eafad8519602facbbebe3ab58a93ac88884167051620e5bd5",
+      "description": "--json and dashboard contracts are byte-frozen",
+      "globs": [
+        "cmd/villa/**/*.go",
+        "cmd/villa/testdata/**",
+        "internal/status/**",
+        "internal/dashboard/**"
+      ],
+      "dirs": [],
+      "prompt": [
+        "golden",
+        "--json",
+        "schema",
+        "testdata",
+        "dashboard"
+      ],
+      "priority": 60,
+      "enabled": true,
+      "include": []
+    },
+    {
+      "path": "rules/inference-seam-lock.md",
+      "hash": "f89c950686158f666a23d41a9d2b908f9ed26769e4e1053f6327ab7a0ed90c5f",
+      "description": "Backend literals and pinned images stay behind their seams",
+      "globs": [
+        "internal/**/*.go",
+        "cmd/villa/**/*.go"
+      ],
+      "dirs": [],
+      "prompt": [
+        "backend",
+        "rocm",
+        "vulkan",
+        "quadlet",
+        "offload",
+        "pins",
+        "pinstate",
+        "seam"
+      ],
+      "priority": 60,
+      "enabled": true,
+      "include": []
+    },
+    {
+      "path": "rules/pure-core-and-seams.md",
+      "hash": "5e3991ee8ed8b32af240dffe1b728220f28f93ede9353f1c30ad89fe48c7fab6",
+      "description": "Pure cores, injected seams, confined impurity",
+      "globs": [
+        "internal/**/*.go"
+      ],
+      "dirs": [],
+      "prompt": [
+        "seam",
+        "deps struct",
+        "pure core",
+        "new package",
+        "refactor",
+        "livedeps",
+        "fakedeps"
+      ],
+      "priority": 55,
+      "enabled": true,
+      "include": []
+    },
+    {
+      "path": "rules/reuse-first-implementation.md",
+      "hash": "74ce71d0dd41faa86972a2a0157fa778bdce8c4c9559e9d3f7463d533997fb4b",
+      "description": "Reuse-first implementation",
+      "globs": [],
+      "dirs": [],
+      "prompt": [],
+      "priority": 90,
+      "enabled": true,
+      "include": []
+    },
+    {
+      "path": "rules/self-improvement.md",
+      "hash": "1eadd7db0a2ba726b18b18cc4fec7680e9f3c46d7881e77218df4c0b27569053",
+      "description": "Self-improvement: build the capability that makes the next goal cheaper",
+      "globs": [],
+      "dirs": [],
+      "prompt": [],
+      "priority": 40,
+      "enabled": true,
+      "include": []
+    }
+  ]
+}
