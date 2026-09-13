@@ -1,0 +1,7 @@
+{
+  "enabledPlugins": {
+    "quartermaster@eigenwise-toolshed": true,
+    "live-rules@eigenwise-toolshed": true,
+    "sidequest@eigenwise-toolshed": true
+  }
+}
