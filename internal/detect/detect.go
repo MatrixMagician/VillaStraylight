@@ -36,7 +36,8 @@ func Probe() HostProfile {
 	// config-driven, not a host probe (Pitfall 5). All host I/O (firmwareDateProbe's
 	// rpm exec) and the field literals live behind the gpu_amd.go seam — Probe() only
 	// wires them, matching how it already threads gpu.gfxID / resolvedROCmImage().
-	rocmReadiness := computeROCmReadiness(gpu.gfxID, kernel, gpu.rocmPresent, firmwareDateProbe(), resolvedROCmImage())
+	firmwareDate := firmwareDateProbe()
+	rocmReadiness := computeROCmReadiness(gpu.gfxID, kernel, gpu.rocmPresent, firmwareDate, resolvedROCmImage())
 
 	return HostProfile{
 		CPUModel:            cpuModel,
@@ -59,6 +60,7 @@ func Probe() HostProfile {
 		ROCmReadiness:       rocmReadiness,
 		KFDAccess:           gpu.kfdAccess,
 		RenderNodeAccess:    gpu.renderAccess,
+		FirmwareDate:        firmwareDate,
 		SchemaVersion:       hostProfileSchemaVersion,
 	}
 }

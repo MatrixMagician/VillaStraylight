@@ -120,5 +120,10 @@
     "known": true,
     "source": "/dev/dri/renderD128"
   },
-  "schema_version": 3
+  "firmware_date": {
+    "value": "",
+    "known": false,
+    "source": "rpm query for linux-firmware failed or rpm absent"
+  },
+  "schema_version": 4
 }
