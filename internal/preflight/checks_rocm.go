@@ -65,14 +65,11 @@ func RunROCmForImage(p detect.HostProfile, image string) []CheckResult {
 // SAME check RunWithResources appends, requiring /dev/kfd here since ROCm-family
 // bring-up needs it.
 func RunROCmWithPolicy(p detect.HostProfile, pol ROCmPolicy, requestedImage string) []CheckResult {
-	// Not probed in v1.0 → typed-Unknown → WARN off-hardware.
-	firmware := detect.UnknownStr("firmware date not probed in Phase 1", "")
-	hsa := detect.UnknownStr("HSA_OVERRIDE_GFX_VERSION not probed in Phase 1", "")
 	return []CheckResult{
 		checkROCmGfx(p),
 		checkROCmKernel(p, pol),
-		checkROCmFirmware(firmware, pol),
-		checkROCmHSA(hsa, pol),
+		checkROCmFirmware(p.FirmwareDate, pol),
+		checkROCmHSA(p.ROCmReadiness.HSAOverrideViable, pol),
 		checkROCmImage(requestedImage, pol),
 		checkComputeDeviceAccess(p, true),
 	}
@@ -123,19 +120,16 @@ func checkROCmKernel(p detect.HostProfile, pol ROCmPolicy) CheckResult {
 }
 
 // checkROCmFirmware FAILs only when a firmware date stamp is Known AND matches a
-// policy denylist entry (the 20251125 build documented to break ROCm). Phase 1
-// does not probe a firmware date, so off-hardware this degrades to a WARN advisory
-// (mirroring checkFirmwareFloor's shape) rather than asserting a value it can't
-// read.
+// policy denylist entry (the 20251125 build documented to break ROCm). The date
+// is detect's rpm probe (HostProfile.FirmwareDate); off-hardware it arrives
+// Unknown and the check degrades to a WARN advisory (mirroring
+// checkFirmwareFloor's shape) rather than asserting a value it can't read.
 func checkROCmFirmware(fw detect.Str, pol ROCmPolicy) CheckResult {
 	const name = "ROCm linux-firmware not denied"
 	floor := pol.FirmwareFloor
 	denied := strings.Join(pol.FirmwareDeny, ", ")
 	remediation := fmt.Sprintf("Install linux-firmware ≥ %s and NOT the known-bad build(s) %s (breaks ROCm on Strix Halo).", floor, denied)
 
-	// The firmware date is not a probed HostProfile field in v1.0; off-hardware it
-	// arrives typed-Unknown, so degrade to a WARN advisory naming the denied
-	// build rather than asserting a value we cannot read.
 	if !fw.Known || fw.Value == "" {
 		return warn(idROCmFirmware, name, TierBlock,
 			fmt.Sprintf("firmware version not probed; ensure ≥ %s and avoid %s", floor, denied),
@@ -178,27 +172,28 @@ func isFirmwareDate(s string) bool {
 	return true
 }
 
-// checkROCmHSA FAILs only when the HSA_OVERRIDE_GFX_VERSION is Known to be absent
-// or wrong vs the policy's required value (ROCm on gfx1151 needs it set). An
-// unknown override (unevaluable off-hardware) degrades to WARN.
-func checkROCmHSA(hsa detect.Str, pol ROCmPolicy) CheckResult {
-	const name = "ROCm HSA override set"
-	remediation := fmt.Sprintf("Set HSA_OVERRIDE_GFX_VERSION=%s for the ROCm runtime on gfx1151.", pol.RequiredHSAOverride)
+// checkROCmHSA gates on detect's HSAOverrideViable verdict: the override the
+// rendered inference unit sets (HSA_OVERRIDE_GFX_VERSION, a seam-locked literal
+// in internal/inference) applies only on gfx1151 with the ROCm substrate present.
+// It is a derivation from host facts, never a read of the host environment. A
+// Known non-viable host FAILs; an unevaluable one (gfx id not enumerated
+// off-hardware) degrades to WARN.
+func checkROCmHSA(hsa detect.Bool, pol ROCmPolicy) CheckResult {
+	const name = "ROCm HSA override viable"
+	remediation := fmt.Sprintf("The ROCm runtime on gfx1151 needs HSA_OVERRIDE_GFX_VERSION=%s; villa renders it into the inference unit, so this host must enumerate gfx1151 with rocminfo present.", pol.RequiredHSAOverride)
 
 	if !hsa.Known {
 		return warn(idROCmHSA, name, TierBlock,
-			fmt.Sprintf("could not verify HSA_OVERRIDE_GFX_VERSION (expected %s)", pol.RequiredHSAOverride),
+			fmt.Sprintf("could not evaluate whether HSA_OVERRIDE_GFX_VERSION=%s applies (gfx id not enumerated)", pol.RequiredHSAOverride),
 			remediation, hsa.Source, hsa.Raw)
 	}
-	if hsa.Value != pol.RequiredHSAOverride {
-		detail := fmt.Sprintf("HSA_OVERRIDE_GFX_VERSION is %q, not the required %s — ROCm bring-up refused", hsa.Value, pol.RequiredHSAOverride)
-		if hsa.Value == "" {
-			detail = fmt.Sprintf("HSA_OVERRIDE_GFX_VERSION is unset; ROCm on gfx1151 requires %s — ROCm bring-up refused", pol.RequiredHSAOverride)
-		}
-		return fail(idROCmHSA, name, detail, remediation, hsa.Source, hsa.Raw)
+	if !hsa.Value {
+		return fail(idROCmHSA, name,
+			fmt.Sprintf("HSA_OVERRIDE_GFX_VERSION=%s does not apply to this host (not gfx1151 with the ROCm substrate present) — ROCm bring-up refused", pol.RequiredHSAOverride),
+			remediation, hsa.Source, hsa.Raw)
 	}
 	return pass(idROCmHSA, name, TierBlock,
-		fmt.Sprintf("HSA_OVERRIDE_GFX_VERSION=%s", hsa.Value), hsa.Source)
+		fmt.Sprintf("HSA_OVERRIDE_GFX_VERSION=%s applies (gfx1151 with the ROCm substrate present); villa renders it into the inference unit", pol.RequiredHSAOverride), hsa.Source)
 }
 
 // checkROCmImage is CONFIG/REQUEST-driven, not a host probe (Pitfall 5): it FAILs

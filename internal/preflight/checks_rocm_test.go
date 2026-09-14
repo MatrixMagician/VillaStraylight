@@ -127,29 +127,58 @@ func TestRunROCmFirmware(t *testing.T) {
 	}
 }
 
-// TestRunROCmHSA covers both branches: a Known-absent (unset) override FAILs; an
-// unevaluable override WARNs.
+// TestRunROCmHSA covers the three branches of the viability verdict: a Known
+// non-viable host FAILs; an unevaluable host WARNs; a Known-viable host PASSes.
 func TestRunROCmHSA(t *testing.T) {
 	pol := testPolicy()
 
-	bad := checkROCmHSA(detect.KnownStr("", "env"), pol)
+	bad := checkROCmHSA(detect.KnownBool(false, "gfx1100 + rocm substrate present"), pol)
 	if bad.Status != StatusFail {
-		t.Errorf("HSA override unset → %v, want FAIL", bad.Status)
+		t.Errorf("HSA override not viable → %v, want FAIL", bad.Status)
 	}
 
-	wrong := checkROCmHSA(detect.KnownStr("11.0.0", "env"), pol)
-	if wrong.Status != StatusFail {
-		t.Errorf("HSA override wrong value → %v, want FAIL", wrong.Status)
-	}
-
-	unknown := checkROCmHSA(detect.UnknownStr("not probed", ""), pol)
+	unknown := checkROCmHSA(detect.UnknownBool("gfx id not enumerated", ""), pol)
 	if unknown.Status != StatusWarn {
-		t.Errorf("unknown HSA override → %v, want WARN", unknown.Status)
+		t.Errorf("unknown HSA viability → %v, want WARN", unknown.Status)
 	}
 
-	good := checkROCmHSA(detect.KnownStr("11.5.1", "env"), pol)
+	good := checkROCmHSA(detect.KnownBool(true, "gfx1151 + rocm substrate present (HSA 11.5.1 applies)"), pol)
 	if good.Status != StatusPass {
-		t.Errorf("HSA override 11.5.1 → %v, want PASS", good.Status)
+		t.Errorf("HSA override viable → %v, want PASS", good.Status)
+	}
+}
+
+// TestRunROCmReadsProbedFirmwareAndHSA is issue #224: the gate must read the
+// firmware date detect probed and the HSA viability detect derived, instead of
+// hard-coding both Unknown. On a real host a denied firmware build FAILs and a
+// viable override PASSes; the reverse profile PASSes firmware and FAILs HSA.
+func TestRunROCmReadsProbedFirmwareAndHSA(t *testing.T) {
+	denied := detect.HostProfile{
+		FirmwareDate: detect.KnownStr("20251125", "rpm"),
+		ROCmReadiness: detect.ROCmReadiness{
+			HSAOverrideViable: detect.KnownBool(true, "gfx1151 + rocm substrate present"),
+		},
+	}
+	results := RunROCmWithPolicy(denied, testPolicy(), "")
+	if got := statusByID(t, results, idROCmFirmware); got != StatusFail {
+		t.Errorf("denied firmware 20251125 through the gate → %v, want FAIL", got)
+	}
+	if got := statusByID(t, results, idROCmHSA); got != StatusPass {
+		t.Errorf("viable HSA override through the gate → %v, want PASS", got)
+	}
+
+	clean := detect.HostProfile{
+		FirmwareDate: detect.KnownStr("20260910", "rpm"),
+		ROCmReadiness: detect.ROCmReadiness{
+			HSAOverrideViable: detect.KnownBool(false, "gfx1100 + rocm substrate present"),
+		},
+	}
+	results = RunROCmWithPolicy(clean, testPolicy(), "")
+	if got := statusByID(t, results, idROCmFirmware); got != StatusPass {
+		t.Errorf("firmware 20260910 through the gate → %v, want PASS", got)
+	}
+	if got := statusByID(t, results, idROCmHSA); got != StatusFail {
+		t.Errorf("non-viable HSA override through the gate → %v, want FAIL", got)
 	}
 }
 

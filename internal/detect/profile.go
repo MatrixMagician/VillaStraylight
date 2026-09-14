@@ -12,7 +12,11 @@ package detect
 // v3 (issue #120, PRE-08): APPEND-ONLY bump — KFDAccess and RenderNodeAccess were
 // added AFTER rocm_readiness and BEFORE schema_version; no existing field was
 // renamed, retyped, or reordered.
-const hostProfileSchemaVersion = 3
+//
+// v4 (issue #224): APPEND-ONLY bump — FirmwareDate was added AFTER
+// render_node_access and BEFORE schema_version so the preflight gate can read
+// the probed linux-firmware date instead of hard-coding it Unknown.
+const hostProfileSchemaVersion = 4
 
 // HostProfile is the structured result of Probe — the single source of truth for
 // `villa detect --json` AND the struct the Phase 5 dashboard consumes.
@@ -72,6 +76,12 @@ type HostProfile struct {
 	KFDAccess        Bool `json:"kfd_access"`
 	RenderNodeAccess Bool `json:"render_node_access"`
 
+	// FirmwareDate is the probed linux-firmware YYYYMMDD stamp (schema 4, issue
+	// #224). ROCmReadiness.FirmwareDateOK is the verdict on it; the preflight gate
+	// needs the raw date to tell a denied build (FAIL) from a sub-floor one
+	// (WARN). Unknown off-hardware (rpm absent or an unparseable version).
+	FirmwareDate Str `json:"firmware_date"`
+
 	// SchemaVersion is the HostProfile contract self-version. It MUST stay the
 	// LAST field of HostProfile (append-only discipline; new fields go above it).
 	SchemaVersion int `json:"schema_version"`
@@ -88,8 +98,8 @@ type ROCmReadiness struct {
 	// HSAOverrideViable reports whether the HSA_OVERRIDE_GFX_VERSION override ROCm
 	// needs on gfx1151 is viable. Unknown off-hardware (override not probed).
 	HSAOverrideViable Bool `json:"hsa_override_viable"`
-	// FirmwareDateOK reports whether the linux-firmware date is clear of the
-	// known-bad build. Unknown off-hardware (firmware date not probed).
+	// FirmwareDateOK reports whether the linux-firmware date (HostProfile.FirmwareDate)
+	// is clear of the known-bad build. Unknown off-hardware (firmware date not probed).
 	FirmwareDateOK Bool `json:"firmware_date_ok"`
 	// KernelFloorOK reports whether the running kernel meets the gfx1151 floor.
 	// Known when KernelVersion is Known; else Unknown.

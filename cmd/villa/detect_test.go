@@ -51,7 +51,10 @@ func fixtureProfile() detect.HostProfile {
 		// Optional that must never read as a confident false (no-false-green).
 		KFDAccess:        detect.UnknownBool("cannot probe /dev/kfd", "operation not permitted"),
 		RenderNodeAccess: detect.KnownBool(true, "/dev/dri/renderD128"),
-		SchemaVersion:    3,
+		// firmware_date (schema 4, issue #224): Unknown off-hardware, the shape the
+		// golden must lock so the gate's WARN branch stays distinct from a probed date.
+		FirmwareDate:  detect.UnknownStr("rpm query for linux-firmware failed or rpm absent", ""),
+		SchemaVersion: 4,
 	}
 }
 
