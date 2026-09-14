@@ -25,7 +25,7 @@
     },
     {
       "path": "rules/dev-host-build-and-restart.md",
-      "hash": "d377bb6c4d45684927ac02f977773149905c2b5c5b5e3a174318f268d75a42ff",
+      "hash": "38b8a858a7c5a10dbe6ce3cd59223ceba318557cb304853ed58541e1f4e2890b",
       "description": "Dev-host rebuild and restart after a Go change",
       "globs": [],
       "dirs": [],
