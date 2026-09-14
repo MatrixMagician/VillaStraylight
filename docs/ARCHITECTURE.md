@@ -392,7 +392,7 @@ dashboard service drives rather than reads:
   `net/http` control dashboard; constructed to refuse any non-loopback bind, serves a read-only
   JSON API over the shared `status` core plus the `metrics` perf scrape, with the one
   sanctioned mutation (`POST /api/models/switch`) routed through `modelswap.Run`.
-  Two of its reads answer the panels the v1.12 UI added. `GET /api/pins` folds
+  Two of its reads answer the panels the v1.13 UI added. `GET /api/pins` folds
   `pinresolve.Resolver.All()` into the vetted-versus-effective table, and carries no
   availability flag because the compiled-in table cannot be absent: an unreadable
   `pinstate` store resolves every row to its vetted pin with `from_store` false, which
