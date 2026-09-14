@@ -39,6 +39,11 @@ build: ## Build the villa control-plane CLI to ./villa (version-stamped)
 build-static: ## Build a CGO-free static binary (SC#4 — must succeed with huh added)
 	CGO_ENABLED=0 go build -ldflags "$(LDFLAGS)" -o $(BINARY) ./cmd/$(BINARY)
 
+.PHONY: dev-deploy
+dev-deploy: build-static ## Dev host only: static build, restart the long-lived dashboard, prove the stack
+	systemctl --user restart villa-dashboard.service
+	./$(BINARY) doctor || [ $$? -eq 2 ]  # doctor exits 2 on WARN; only a FAIL (exit 1) fails the deploy
+
 .PHONY: test
 test: ## Run Go tests
 	go test $(PKG)

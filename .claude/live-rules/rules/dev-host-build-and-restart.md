@@ -16,3 +16,8 @@ change and no `villa up` are needed for a dashboard-only change, and websafe doe
 
 Because the unit runs the working-tree binary, a `git checkout` plus a rebuild silently changes what
 the live stack serves. Know which branch is checked out before you rebuild.
+
+`make dev-deploy` runs the whole sequence (static build, dashboard restart, `villa doctor`).
+
+After a kernel or linux-firmware upgrade, run `villa bench` once. The report fingerprints
+`kernel_version`, so bench-reports.jsonl then carries one comparable datapoint per kernel.
