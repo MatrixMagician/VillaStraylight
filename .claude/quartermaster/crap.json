@@ -1,0 +1,8 @@
+{
+  "coverageCommand": "mkdir -p coverage && go test -coverprofile=coverage.out ./... && gcov2lcov -infile coverage.out -outfile coverage/lcov.info",
+  "lcov": "coverage/lcov.info",
+  "sources": ["."],
+  "exclude": ["**/*_test.go"],
+  "max": 6,
+  "ratchet": "main"
+}

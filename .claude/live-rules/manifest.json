@@ -24,6 +24,19 @@
       "include": []
     },
     {
+      "path": "rules/crap-gate.md",
+      "hash": "f84e48455cc6b4a9ea9384be1eb3202f88cae5881fc8e9882cf3131a4b61c7a5",
+      "description": "Keep changed code within the CRAP ceiling",
+      "globs": [
+        "**/*.go"
+      ],
+      "dirs": [],
+      "prompt": [],
+      "priority": 85,
+      "enabled": true,
+      "include": []
+    },
+    {
       "path": "rules/dev-host-build-and-restart.md",
       "hash": "38b8a858a7c5a10dbe6ce3cd59223ceba318557cb304853ed58541e1f4e2890b",
       "description": "Dev-host rebuild and restart after a Go change",

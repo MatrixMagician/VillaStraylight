@@ -77,6 +77,11 @@ lint: ## Lint this branch's NEW issues at the pinned version; LINT_ALL=1 lints t
 .PHONY: check
 check: vet test test-race ## Run vet + tests (incl. the -race gate, CR-01/WR-04)
 
+.PHONY: ci
+ci: build-static check lint ## Run what CI runs: static build, vet+test+race, new-issue lint, mod verify, TUI guard
+	go mod verify
+	@if grep -qE 'charmbracelet|muesli/termenv' go.mod; then echo "A TUI dependency reappeared in go.mod"; exit 1; fi
+
 .PHONY: tidy
 tidy: ## Tidy Go module dependencies
 	go mod tidy
