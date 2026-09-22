@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
@@ -56,6 +57,25 @@ func TestLiveRenderSandboxArgsResolvesTheImageThroughThePinSeam(t *testing.T) {
 	}
 }
 
+// TestLiveRenderSandboxArgsRefusesASensitiveWorkspace asserts the launch path
+// re-runs workspace.CheckGrant against an already-granted workspace, so a
+// grant made before that check existed is still refused when a task actually
+// launches, not just at `workspace add` time (GHSA-3q4q-7cmw-m22m).
+func TestLiveRenderSandboxArgsRefusesASensitiveWorkspace(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	ssh := filepath.Join(home, ".ssh")
+	if err := os.MkdirAll(ssh, 0o700); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+
+	if _, err := liveRenderSandboxArgs(config.VillaConfig{}, ssh, "20260910-120115-4f2a"); err == nil {
+		t.Error("liveRenderSandboxArgs(~/.ssh) = nil error, want a refusal")
+	}
+}
+
 // TestReadBridgeEventsDecodesLinesAndSkipsNoise asserts the stdout reader
 // yields every event line in order, ignores non-event lines, and closes at EOF.
 func TestReadBridgeEventsDecodesLinesAndSkipsNoise(t *testing.T) {
@@ -85,5 +105,62 @@ func TestLiveWorkspaceReadRefusesAnEscape(t *testing.T) {
 	}
 	if _, err := liveWorkspaceRead(ws, "../escape"); err == nil {
 		t.Error("a path outside the grant was read")
+	}
+}
+
+// TestLiveWorkspaceReadRefusesASymlinkLeaf asserts a bridge-reported name
+// that is a symlink to a file outside the workspace is refused rather than
+// followed: the in-VM agent controls the name, and this read runs on the
+// HOST (GHSA-478j-frrx-f99c).
+func TestLiveWorkspaceReadRefusesASymlinkLeaf(t *testing.T) {
+	ws := t.TempDir()
+	secretDir := t.TempDir()
+	secret := filepath.Join(secretDir, "id_ed25519")
+	if err := os.WriteFile(secret, []byte("private"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(ws, "notes.md")
+	if err := os.Symlink(secret, link); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := liveWorkspaceRead(ws, "notes.md"); err == nil {
+		t.Error("liveWorkspaceRead followed a symlink leaf")
+	}
+}
+
+// TestLiveWorkspaceReadRefusesAFIFO asserts a FIFO planted in the workspace
+// is refused before it is ever opened: opening one for read blocks forever
+// with no writer, which would wedge the long-lived dashboard service
+// (GHSA-478j-frrx-f99c).
+func TestLiveWorkspaceReadRefusesAFIFO(t *testing.T) {
+	ws := t.TempDir()
+	fifo := filepath.Join(ws, "pipe")
+	if err := syscall.Mkfifo(fifo, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := liveWorkspaceRead(ws, "pipe"); err == nil {
+		t.Error("liveWorkspaceRead opened a FIFO leaf")
+	}
+}
+
+// TestLiveWorkspaceReadCapsAnOversizeFile asserts a file larger than
+// maxGroundingReadBytes is refused rather than fully buffered: this read
+// runs on the HOST against guest-controlled content (GHSA-478j-frrx-f99c).
+func TestLiveWorkspaceReadCapsAnOversizeFile(t *testing.T) {
+	ws := t.TempDir()
+	big := filepath.Join(ws, "big.txt")
+	if err := os.WriteFile(big, make([]byte, maxGroundingReadBytes+1), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := liveWorkspaceRead(ws, "big.txt"); err == nil {
+		t.Error("liveWorkspaceRead read past its size cap")
+	}
+
+	small := filepath.Join(ws, "small.txt")
+	if err := os.WriteFile(small, []byte("ok"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if data, err := liveWorkspaceRead(ws, "small.txt"); err != nil || string(data) != "ok" {
+		t.Errorf("in-cap read = %q, %v", data, err)
 	}
 }
