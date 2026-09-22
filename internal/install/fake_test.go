@@ -82,6 +82,10 @@ type fakeDeps struct {
 	searxngProofDetail    string
 	websafeSecretEnvCalls int
 
+	inferenceSecretEnvCalls int
+	inferenceSecretEnvName  string
+	inferenceSecretEnvText  string
+
 	agentEnabled         bool
 	agentCat             catalog.Catalog
 	agentCatOK           bool
@@ -281,6 +285,13 @@ func newFakeDeps(t *testing.T, units []orchestrate.Unit, plan orchestrate.Plan, 
 	d.WriteWebsafeSecretEnv = func(string, string) error {
 		f.websafeSecretEnvCalls++
 		f.callOrder = append(f.callOrder, "writeWebsafeSecretEnv")
+		return nil
+	}
+	d.WriteInferenceSecretEnv = func(name, text string) error {
+		f.inferenceSecretEnvCalls++
+		f.inferenceSecretEnvName = name
+		f.inferenceSecretEnvText = text
+		f.callOrder = append(f.callOrder, "writeInferenceSecretEnv")
 		return nil
 	}
 	d.AgentCatalog = func() (catalog.Catalog, bool) { return f.agentCat, f.agentCatOK }

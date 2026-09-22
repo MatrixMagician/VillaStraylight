@@ -112,6 +112,8 @@ func liveMeasure(ctx context.Context, target string, spec bench.Spec) (bench.Run
 	client := llm.NewOpenAIClient(llm.Options{
 		BaseURL: endpoint,
 		Timeout: spec.Timeout,
+		// GHSA-qxg9 (ADR-0011): the measured unit requires this bearer too.
+		APIKey: cfg.InferenceSecret,
 	})
 	req := llm.ChatRequest{
 		Model:    cfg.Model,

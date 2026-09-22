@@ -265,9 +265,10 @@ func liveInstallDeps(ctx context.Context) (install.Deps, error) {
 		Restart:            sys.Restart,
 
 		// The secrets reach the containers via 0600 EnvironmentFiles, never a 0644 unit.
-		WriteWebsafeSecretEnv: orchestrate.WriteWebsafeSecretEnv,
-		WriteSearxngSettings:  orchestrate.WriteSearxngSettings,
-		WriteSearxngSecretEnv: orchestrate.WriteSearxngSecretEnv,
+		WriteWebsafeSecretEnv:   orchestrate.WriteWebsafeSecretEnv,
+		WriteSearxngSettings:    orchestrate.WriteSearxngSettings,
+		WriteSearxngSecretEnv:   orchestrate.WriteSearxngSecretEnv,
+		WriteInferenceSecretEnv: orchestrate.WriteInferenceSecretEnv,
 
 		Endpoint:        func() string { return endpoint },
 		PollReady:       liveReadinessPoll,

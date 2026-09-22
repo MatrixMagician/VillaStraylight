@@ -38,6 +38,12 @@ type lifecycleDeps struct {
 	writeUnits func(orchestrate.Plan, string) error
 	unitDir    func() (string, error)
 
+	// saveConfig and writeInferenceSecretEnv back ensureInferenceSecret (GHSA-qxg9,
+	// ADR-0011): the upgrade-migration path for an existing install whose
+	// config.toml predates the inference bearer.
+	saveConfig              func(config.VillaConfig) error
+	writeInferenceSecretEnv func(name, text string) error
+
 	daemonReload func() error
 	start        func(service string) error
 	stop         func(service string) error
@@ -46,6 +52,39 @@ type lifecycleDeps struct {
 
 	journalText   func(service string) (string, bool)
 	followJournal func(service string) error
+}
+
+// ensureInferenceSecret is the up/restart half of the GHSA-qxg9 (ADR-0011)
+// migration: an existing install whose config.toml predates the inference bearer
+// has neither the field nor the 0600 env file villa-llama's rendered unit now
+// references, so the NEXT `villa up`/`restart` after upgrading is the first
+// chance to self-heal it — before renderStack renders that reference and before
+// any unit is (re)started. It reuses an existing secret verbatim (never rotates
+// it) and always (re)writes the env file, self-healing a manually deleted one.
+//
+// Deliberately NOT called by down/logs/uninstall (renderStack's other callers):
+// they never start a service, so generating a secret on their behalf would be a
+// side effect a read/stop/teardown verb must not have.
+func (d *lifecycleDeps) ensureInferenceSecret() error {
+	cfg, err := d.loadConfig()
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
+	}
+	if cfg.InferenceSecret == "" {
+		secret, gerr := config.GenerateInferenceSecret()
+		if gerr != nil {
+			return fmt.Errorf("generate inference secret: %w", gerr)
+		}
+		cfg.InferenceSecret = secret
+		if serr := d.saveConfig(cfg); serr != nil {
+			return fmt.Errorf("persist inference secret: %w", serr)
+		}
+	}
+	name, text := orchestrate.RenderInferenceSecretEnv(cfg.InferenceSecret)
+	if err := d.writeInferenceSecretEnv(name, text); err != nil {
+		return fmt.Errorf("write inference secret env: %w", err)
+	}
+	return nil
 }
 
 // renderStack loads config, renders the units, and resolves the unit dir. It is
@@ -195,6 +234,9 @@ func liveLifecycleDeps() *lifecycleDeps {
 		reconcile:  orchestrate.Reconcile,
 		writeUnits: orchestrate.WriteUnits,
 		unitDir:    quadletUnitDir,
+
+		saveConfig:              config.SaveVilla,
+		writeInferenceSecretEnv: orchestrate.WriteInferenceSecretEnv,
 
 		daemonReload: sys.DaemonReload,
 		start:        sys.Start,

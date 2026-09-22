@@ -84,7 +84,7 @@ type residentDeps struct {
 	// from its database ever after, so without this call a slot is reachable on its
 	// port and absent from the chat UI, with nothing reporting an error. nil means
 	// the caller does not reconcile (tests, and any future non-chat consumer).
-	syncEndpoints func(ctx context.Context, chatPort int, want []string) (openwebui.EndpointSync, error)
+	syncEndpoints func(ctx context.Context, chatPort int, want []string, apiKey string) (openwebui.EndpointSync, error)
 	// syncRetryDelay spaces the reconcile's retries. The reconcile runs immediately
 	// after Open WebUI is restarted, and it refuses connections for about a second
 	// while it comes back, so a single attempt reports a failure that is really just
@@ -520,10 +520,10 @@ func (d *residentDeps) reconcileChatEndpoints(out, errOut io.Writer, cfg config.
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), owuiSyncTimeout)
 	defer cancel()
-	res, err := d.syncEndpoints(ctx, cfg.ChatPort, want)
+	res, err := d.syncEndpoints(ctx, cfg.ChatPort, want, cfg.InferenceSecret)
 	for attempt := 1; err != nil && attempt < owuiSyncAttempts && ctx.Err() == nil; attempt++ {
 		time.Sleep(d.syncRetryDelay)
-		res, err = d.syncEndpoints(ctx, cfg.ChatPort, want)
+		res, err = d.syncEndpoints(ctx, cfg.ChatPort, want, cfg.InferenceSecret)
 	}
 	if err != nil {
 		fmt.Fprintf(errOut, "warning: the slot is serving but the chat UI still lists the old connections: %v\n", err)
@@ -746,13 +746,13 @@ func liveResidentDeps(ctx context.Context) *residentDeps {
 		restart:        sys.Restart,
 		isActive:       sys.IsActive,
 		syncRetryDelay: time.Second,
-		syncEndpoints: func(ctx context.Context, chatPort int, want []string) (openwebui.EndpointSync, error) {
+		syncEndpoints: func(ctx context.Context, chatPort int, want []string, apiKey string) (openwebui.EndpointSync, error) {
 			c := liveOpenWebUIClient(owuiLoopbackBase(chatPort))
 			token, err := liveOpenWebUISignIn(ctx, c)
 			if err != nil {
 				return openwebui.EndpointSync{}, err
 			}
-			return c.SyncEndpoints(ctx, token, want)
+			return c.SyncEndpointsWithKey(ctx, token, want, apiKey)
 		},
 	}
 }

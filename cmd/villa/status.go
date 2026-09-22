@@ -289,7 +289,7 @@ func liveStatusDeps() (*status.Deps, error) {
 		// Live tok/s: REUSE the dashboard-proven metrics collector — no new
 		// scraper. nil on a failed/absent /metrics scrape or an idle server, so the
 		// figure is omitted (typed-Unknown), NEVER a fabricated 0.
-		GenTokensPerSec: liveGenTokensPerSec,
+		GenTokensPerSec: func(endpoint string) *float64 { return liveGenTokensPerSec(endpoint, cfg.InferenceSecret) },
 		// ROCm-readiness: CONSUME the already-computed detect rocm_readiness
 		// sub-tree; internal/status folds it. Never recompute the signals here.
 		ROCmReadiness: func() detect.ROCmReadiness { return detect.Probe().ROCmReadiness },
@@ -314,7 +314,7 @@ func liveStatusDeps() (*status.Deps, error) {
 	if subsystem.AgentOn(cfg) {
 		deps.AgentPinMatch = liveAgentPinMatch
 		deps.AgentResidency = liveAgentResidency
-		deps.AgentCache = func() (uint64, uint64, bool) { return liveAgentCache(endpoint) }
+		deps.AgentCache = func() (uint64, uint64, bool) { return liveAgentCache(endpoint, cfg.InferenceSecret) }
 	}
 	return deps, nil
 }
@@ -420,8 +420,8 @@ func liveAgentResidency() string {
 // or either counter Unknown → ok=false so the surface degrades typed-Unknown
 // (gray badge / "unavailable" — never a fabricated 0%). The Plan-03 ratio gate
 // (promptN>0) lives in the status core's codingInfo populator.
-func liveAgentCache(endpoint string) (uint64, uint64, bool) {
-	sample, ok := metrics.ScrapeCacheCounters(endpoint)
+func liveAgentCache(endpoint, apiKey string) (uint64, uint64, bool) {
+	sample, ok := metrics.ScrapeCacheCountersAuth(endpoint, apiKey)
 	if !ok || !sample.CacheKnown || !sample.PromptKnown {
 		return 0, 0, false // typed-Unknown, never a fabricated 0%
 	}
@@ -643,12 +643,12 @@ func liveReadVerifyState() *verifystate.State {
 // fabricated 0 tok/s. The scrape inherits the collector's 2s timeout + 64 KiB
 // io.LimitReader bounds (no new attack surface). Mirrors liveProps' nil-on-failure
 // discipline.
-func liveGenTokensPerSec(endpoint string) *float64 {
-	snap, ok := metrics.ScrapeMetrics(endpoint)
+func liveGenTokensPerSec(endpoint, apiKey string) *float64 {
+	snap, ok := metrics.ScrapeMetricsAuth(endpoint, apiKey)
 	if !ok {
 		return nil // /metrics 404 or transport error → typed-Unknown (omitted)
 	}
-	slots, _ := metrics.ScrapeSlots(endpoint)
+	slots, _ := metrics.ScrapeSlotsAuth(endpoint, apiKey)
 	if !metrics.IsGenerating(snap, slots) {
 		return nil // idle: gauges are stale snapshots → omit, never a fabricated 0
 	}

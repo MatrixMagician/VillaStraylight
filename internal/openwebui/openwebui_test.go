@@ -173,7 +173,7 @@ func TestNoParseDiagnosticReproducesAResponseBody(t *testing.T) {
 			call: func() error {
 				_, err := New(fakeJSON(map[string]string{
 					pathOpenAIConfig: `{"OPENAI_API_KEYS":["` + secret,
-				})).SyncEndpoints(ctx, "tok", []string{"http://villa-llama:8080/v1"})
+				})).SyncEndpointsWithKey(ctx, "tok", []string{"http://villa-llama:8080/v1"}, NoAuthAPIKey)
 				return err
 			},
 		},

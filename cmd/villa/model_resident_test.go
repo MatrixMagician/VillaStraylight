@@ -626,7 +626,7 @@ func TestResidentAddReconcilesChatEndpointsPrimaryFirst(t *testing.T) {
 
 	d, _ := f.deps()
 	var got []string
-	d.syncEndpoints = func(_ context.Context, _ int, want []string) (openwebui.EndpointSync, error) {
+	d.syncEndpoints = func(_ context.Context, _ int, want []string, _ string) (openwebui.EndpointSync, error) {
 		got = want
 		return openwebui.EndpointSync{Wrote: true, Endpoints: want}, nil
 	}
@@ -665,7 +665,7 @@ func TestResidentAddSurvivesAChatEndpointReconcileFailure(t *testing.T) {
 	f.changed = append(f.changed, unitName+".container")
 
 	d, rec := f.deps()
-	d.syncEndpoints = func(_ context.Context, _ int, _ []string) (openwebui.EndpointSync, error) {
+	d.syncEndpoints = func(_ context.Context, _ int, _ []string, _ string) (openwebui.EndpointSync, error) {
 		return openwebui.EndpointSync{}, errors.New("chat UI unreachable")
 	}
 	cmd, _, errOut := newResidentCmd()
@@ -700,7 +700,7 @@ func TestResidentAddRetriesTheChatReconcileThroughTheRestartRace(t *testing.T) {
 	d, _ := f.deps()
 	d.syncRetryDelay = 0
 	calls := 0
-	d.syncEndpoints = func(_ context.Context, _ int, want []string) (openwebui.EndpointSync, error) {
+	d.syncEndpoints = func(_ context.Context, _ int, want []string, _ string) (openwebui.EndpointSync, error) {
 		calls++
 		if calls < 3 {
 			return openwebui.EndpointSync{}, errors.New("connection reset while restarting")

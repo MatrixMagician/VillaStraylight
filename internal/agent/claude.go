@@ -95,7 +95,10 @@ func claudeEnv(cfg config.VillaConfig) []string {
 	baseURL := strings.TrimSuffix(providerBaseURL, "/v1")
 	return append(osEnviron(),
 		"ANTHROPIC_BASE_URL="+baseURL,
-		"ANTHROPIC_AUTH_TOKEN="+providerAPIKey,
+		// GHSA-qxg9 (ADR-0011): this is the SAME direct-to-villa-llama loopback
+		// connection Render() uses, not the villa-inferproxy path RenderSandbox
+		// uses — it needs the real bearer too.
+		"ANTHROPIC_AUTH_TOKEN="+cfg.InferenceSecret,
 		"ANTHROPIC_MODEL="+base,
 		"ANTHROPIC_DEFAULT_HAIKU_MODEL="+base,
 		"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1",

@@ -77,6 +77,8 @@ func liveCodingProve(ctx context.Context, _ codingmode.Direction) prove.Verdict 
 		WeightBytes:   codingWeightBytes(cfg, servedModel),
 		Markers:       backend.ResidencyProof(),
 		DraftExpected: liveDraftExpected(cfg),
+		// GHSA-qxg9 (ADR-0011): the served unit requires this bearer too.
+		APIKey: cfg.InferenceSecret,
 	})
 }
 

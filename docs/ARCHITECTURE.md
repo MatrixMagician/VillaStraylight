@@ -132,7 +132,8 @@ graph TD
     taskrun --> grounding["internal/grounding<br/>post-run claim audit (pure)"]
     taskrun --> crushapi["internal/crushapi<br/>Crush server client + bridge stdio protocol"]
     taskrun -.podman run --runtime=krun.-> sandbox["villa-task-&lt;id&gt; microVM<br/>villa sandbox-bridge → crush server"]
-    sandbox -.villa-sandbox network.-> llama
+    sandbox -.villa-sandbox network.-> inferproxy["villa-inferproxy<br/>forwards 2 routes only, injects the real<br/>LLAMA_API_KEY bearer (GHSA-gvp9, ADR-0011)"]
+    inferproxy -.villa.network.-> llama
 
     pinresolve --> pins["internal/pins<br/>VETTED pins, compiled in"]
     pinresolve --> pinstate["internal/pinstate<br/>EFFECTIVE pins + retained previous"]

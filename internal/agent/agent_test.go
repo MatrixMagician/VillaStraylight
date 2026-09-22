@@ -158,6 +158,9 @@ func renderTestConfig() config.VillaConfig {
 		Model:         "qwen3-30b",
 		CoderModel:    "qwen3-coder-30b-a3b",
 		CoderAgentCtx: 65536,
+		// A fixed value (GHSA-qxg9, ADR-0011) so the golden stays deterministic —
+		// `villa code` connects to villa-llama directly and needs the real bearer.
+		InferenceSecret: "test-inference-secret",
 	}
 }
 

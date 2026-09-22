@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 	"github.com/MatrixMagician/VillaStraylight/internal/preflight"
@@ -99,9 +100,17 @@ func TestWizardConfigMatchesFlagPath(t *testing.T) {
 	// converge ON: the wizard records the consent, the flag path prompts for it.
 	checks := append(passChecks(), lingeroffCheck())
 
+	// Both paths load the SAME pre-existing inference secret (GHSA-qxg9, ADR-0011):
+	// otherwise each would generate its own crypto/rand bearer and the
+	// byte-identical compare below would fail on that field alone, for a reason
+	// that has nothing to do with wizard-vs-flag convergence.
+	seeded := config.DefaultVillaConfig()
+	seeded.InferenceSecret = "shared-test-inference-secret"
+
 	// Wizard path: interactive + TTY, no --no-tui → the wizard seam fires (empty
 	// override, consent recorded), then the single gate persists the recommended config.
 	fw := newFakeDeps(t, units, plan, checks)
+	fw.persistedConfig = &seeded
 	fw.Interactive = func() bool { return true }
 	fw.StdoutIsTTY = func() bool { return true }
 	fw.Wizard = func(context.Context, WizardInput) (WizardResult, error) {
@@ -118,6 +127,7 @@ func TestWizardConfigMatchesFlagPath(t *testing.T) {
 
 	// Flag path: --no-tui forces today's flag path verbatim.
 	ff := newFakeDeps(t, units, plan, checks)
+	ff.persistedConfig = &seeded
 	ff.Interactive = func() bool { return true }
 	ff.StdoutIsTTY = func() bool { return true }
 	ff.Consent = func(string) bool { return true }

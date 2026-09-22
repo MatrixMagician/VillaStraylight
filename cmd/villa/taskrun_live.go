@@ -124,9 +124,18 @@ func liveSandboxReady() (bool, string) {
 // with the configured model. grounding.Prompt pins temperature 0 and disables
 // thinking; the deltas are gathered into the one string the parser reads.
 func liveGroundingAudit(endpoint string) func(context.Context, grounding.Document, []grounding.Source) grounding.DocumentReport {
+	// GHSA-qxg9 (ADR-0011): the chat unit this audits requires the bearer too. A
+	// load failure here just leaves apiKey empty (a 401 detail in the report,
+	// never a panic) — the inner per-document loop reloads config again for
+	// cfg.Model, unchanged.
+	apiKey := ""
+	if cfg, err := config.LoadVilla(); err == nil {
+		apiKey = cfg.InferenceSecret
+	}
 	client := llm.NewOpenAIClient(llm.Options{
 		BaseURL: strings.TrimRight(endpoint, "/") + "/v1",
 		Timeout: auditTimeout,
+		APIKey:  apiKey,
 	})
 	return func(ctx context.Context, doc grounding.Document, sources []grounding.Source) grounding.DocumentReport {
 		cfg, err := config.LoadVilla()

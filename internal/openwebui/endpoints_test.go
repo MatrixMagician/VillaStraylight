@@ -187,7 +187,7 @@ func TestAnAlreadyCorrectListIsNotWritten(t *testing.T) {
 			if err := json.Unmarshal([]byte(tc.doc), &current); err != nil {
 				t.Fatalf("parse: %v", err)
 			}
-			if _, changed := ReconcileEndpoints(current, tc.want); changed != tc.changed {
+			if _, changed := ReconcileEndpointsWithKey(current, tc.want, NoAuthAPIKey); changed != tc.changed {
 				t.Errorf("changed = %v, want %v", changed, tc.changed)
 			}
 		})
@@ -196,10 +196,8 @@ func TestAnAlreadyCorrectListIsNotWritten(t *testing.T) {
 
 // TestReconcileEndpointsWithKeySetsTheRealKey guards GHSA-qxg9/ADR-0011: every
 // villa endpoint reconciled must carry the caller's apiKey, not the NoAuthAPIKey
-// sentinel llama-server no longer accepts. ReconcileEndpoints (no key argument)
-// must still emit the sentinel — its existing callers have not migrated, and
-// changing its behavior out from under them would silently break their
-// connections rather than degrade to a 401 they can see.
+// sentinel llama-server no longer accepts, and a carried-over user connection's
+// own key must stay untouched.
 func TestReconcileEndpointsWithKeySetsTheRealKey(t *testing.T) {
 	var current Config
 	doc := wire(true, []string{villaPrimary, userEndpoint}, []string{NoAuthAPIKey, userKey}, nil)
@@ -217,21 +215,6 @@ func TestReconcileEndpointsWithKeySetsTheRealKey(t *testing.T) {
 	if got := next.Connections[1].Key; got != userKey {
 		t.Errorf("user endpoint key = %q, want it untouched %q", got, userKey)
 	}
-
-	// The unchanged ReconcileEndpoints must still emit the sentinel — its
-	// existing callers have not migrated to the real key yet.
-	sentinelDoc := wire(true, []string{villaPrimary}, []string{NoAuthAPIKey}, nil)
-	var sentinelCurrent Config
-	if err := json.Unmarshal([]byte(sentinelDoc), &sentinelCurrent); err != nil {
-		t.Fatalf("parse: %v", err)
-	}
-	same, changed := ReconcileEndpoints(sentinelCurrent, []string{villaPrimary})
-	if changed {
-		t.Fatalf("ReconcileEndpoints changed an already-sentinel-keyed list, want no-op")
-	}
-	if got := same.Connections[0].Key; got != NoAuthAPIKey {
-		t.Errorf("ReconcileEndpoints key = %q, want the unchanged sentinel %q", got, NoAuthAPIKey)
-	}
 }
 
 // TestSyncEndpointsIsIdempotent is the operational promise: running the reconciliation
@@ -241,7 +224,7 @@ func TestSyncEndpointsIsIdempotent(t *testing.T) {
 	s := newConfigServer(t, wire(true, []string{villaPrimary}, []string{NoAuthAPIKey}, nil))
 	want := []string{villaPrimary, villaResident}
 
-	first, err := s.client().SyncEndpoints(t.Context(), "tok", want)
+	first, err := s.client().SyncEndpointsWithKey(t.Context(), "tok", want, NoAuthAPIKey)
 	if err != nil {
 		t.Fatalf("first sync: %v", err)
 	}
@@ -249,7 +232,7 @@ func TestSyncEndpointsIsIdempotent(t *testing.T) {
 		t.Fatal("the first sync must write: the resident endpoint was missing")
 	}
 
-	second, err := s.client().SyncEndpoints(t.Context(), "tok", want)
+	second, err := s.client().SyncEndpointsWithKey(t.Context(), "tok", want, NoAuthAPIKey)
 	if err != nil {
 		t.Fatalf("second sync: %v", err)
 	}
@@ -273,8 +256,8 @@ func TestAUserAddedEndpointSurvives(t *testing.T) {
 		[]string{userEndpoint, villaPrimary, secondUserEndpoint},
 		[]string{userKey, NoAuthAPIKey, "sk-second"}, nil))
 
-	if _, err := s.client().SyncEndpoints(t.Context(), "tok",
-		[]string{villaPrimary, villaResident}); err != nil {
+	if _, err := s.client().SyncEndpointsWithKey(t.Context(), "tok",
+		[]string{villaPrimary, villaResident}, NoAuthAPIKey); err != nil {
 		t.Fatalf("sync: %v", err)
 	}
 
@@ -293,8 +276,8 @@ func TestACarriedOverEndpointKeepsItsKey(t *testing.T) {
 		[]string{userEndpoint, villaPrimary},
 		[]string{userKey, NoAuthAPIKey}, nil))
 
-	if _, err := s.client().SyncEndpoints(t.Context(), "tok",
-		[]string{villaPrimary, villaResident}); err != nil {
+	if _, err := s.client().SyncEndpointsWithKey(t.Context(), "tok",
+		[]string{villaPrimary, villaResident}, NoAuthAPIKey); err != nil {
 		t.Fatalf("sync: %v", err)
 	}
 
@@ -324,8 +307,8 @@ func TestPerConnectionConfigFollowsItsEndpointAcrossAReorder(t *testing.T) {
 		[]string{NoAuthAPIKey, userKey, NoAuthAPIKey},
 		map[string]string{"0": residentCfg, "1": userCfg, "2": primaryCfg}))
 
-	if _, err := s.client().SyncEndpoints(t.Context(), "tok",
-		[]string{villaPrimary, villaResident}); err != nil {
+	if _, err := s.client().SyncEndpointsWithKey(t.Context(), "tok",
+		[]string{villaPrimary, villaResident}, NoAuthAPIKey); err != nil {
 		t.Fatalf("sync: %v", err)
 	}
 
@@ -412,8 +395,8 @@ func TestSyncEndpointsFailsClosedOnAnUntrustworthyResponse(t *testing.T) {
 			srv := httptest.NewServer(tc.handler)
 			t.Cleanup(srv.Close)
 
-			got, err := New(httpTransport(srv.URL)).SyncEndpoints(
-				t.Context(), "tok", []string{villaPrimary})
+			got, err := New(httpTransport(srv.URL)).SyncEndpointsWithKey(
+				t.Context(), "tok", []string{villaPrimary}, NoAuthAPIKey)
 			if err == nil {
 				t.Fatalf("an untrustworthy response must be an error; got %+v", got)
 			}
@@ -445,7 +428,7 @@ func TestReconcileNeverEmitsMismatchedCollections(t *testing.T) {
 		{"empty string in want", Config{Enabled: true}, []string{villaPrimary, ""}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			next, _ := ReconcileEndpoints(tc.current, tc.want)
+			next, _ := ReconcileEndpointsWithKey(tc.current, tc.want, NoAuthAPIKey)
 			body, err := json.Marshal(next)
 			if err != nil {
 				t.Fatalf("marshal: %v", err)

@@ -182,6 +182,9 @@ func runValidation(ctx context.Context, m catalog.Model, withCeiling bool) infer
 		Markers:       backend.ResidencyProof(),
 		Vision:        cfg.Vision,
 		DraftExpected: liveDraftExpected(cfg),
+		// GHSA-qxg9 (ADR-0011): the probe's chatProbe sends this as the Bearer
+		// credential against the transient validate/run container.
+		APIKey: cfg.InferenceSecret,
 	}
 	if withCeiling {
 		in.NewCeilingRunner = func(stress inference.RunSpec) inference.Runner {

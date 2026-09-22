@@ -91,7 +91,7 @@ func TestScrapeMetricsFromServer(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	snap, ok := ScrapeMetrics(srv.URL)
+	snap, ok := ScrapeMetricsAuth(srv.URL, "")
 	if !ok {
 		t.Fatalf("ScrapeMetrics ok=false on a 200 body")
 	}
@@ -130,7 +130,7 @@ func TestScrapeMetricsAuthSendsBearer(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	if _, ok := ScrapeMetrics(srv.URL); !ok {
+	if _, ok := ScrapeMetricsAuth(srv.URL, ""); !ok {
 		t.Fatalf("ScrapeMetrics ok=false on a 200 body")
 	}
 	if sawHeader {
@@ -173,7 +173,7 @@ func TestScrapeMetrics404IsTypedUnknown(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	snap, ok := ScrapeMetrics(srv.URL)
+	snap, ok := ScrapeMetricsAuth(srv.URL, "")
 	if ok {
 		t.Fatalf("ScrapeMetrics ok=true on a 404, want false (typed-Unknown)")
 	}
@@ -186,7 +186,7 @@ func TestScrapeMetrics404IsTypedUnknown(t *testing.T) {
 // degrades to ok=false rather than panicking or returning zeros as a real reading.
 func TestScrapeMetricsTransportErrorIsTypedUnknown(t *testing.T) {
 	// 127.0.0.1:1 is the discard port — nothing listens; connect fails fast.
-	if _, ok := ScrapeMetrics("http://127.0.0.1:1"); ok {
+	if _, ok := ScrapeMetricsAuth("http://127.0.0.1:1", ""); ok {
 		t.Fatalf("ScrapeMetrics ok=true on a transport error, want false")
 	}
 }
@@ -214,7 +214,7 @@ func TestScrapeCountersTotal(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	cs, ok := ScrapeCounters(srv.URL)
+	cs, ok := ScrapeCountersAuth(srv.URL, "")
 	if !ok {
 		t.Fatalf("ScrapeCounters ok=false on a 200 body")
 	}
@@ -240,7 +240,7 @@ func TestScrapeCountersTotal(t *testing.T) {
 	}))
 	defer absentSrv.Close()
 
-	cs2, ok2 := ScrapeCounters(absentSrv.URL)
+	cs2, ok2 := ScrapeCountersAuth(absentSrv.URL, "")
 	if !ok2 {
 		t.Fatalf("ScrapeCounters ok=false on a 200 body (absent counters is still an available scrape)")
 	}
@@ -257,7 +257,7 @@ func TestScrapeCountersTotal(t *testing.T) {
 	// A 404 /metrics (--metrics absent) degrades the availability bool to false.
 	down := httptest.NewServer(http.HandlerFunc(http.NotFound))
 	defer down.Close()
-	if _, ok := ScrapeCounters(down.URL); ok {
+	if _, ok := ScrapeCountersAuth(down.URL, ""); ok {
 		t.Errorf("ScrapeCounters ok=true on a 404, want false (whole-scrape unavailable)")
 	}
 }
@@ -289,7 +289,7 @@ func TestScrapeCountersOversizedBodyUnavailable(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	if _, ok := ScrapeCounters(srv.URL); ok {
+	if _, ok := ScrapeCountersAuth(srv.URL, ""); ok {
 		t.Errorf("ScrapeCounters ok=true on an over-cap body, want false (truncation risk → unavailable, no partial fold)")
 	}
 }
@@ -418,7 +418,7 @@ func TestScrapeSlotsFromServer(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	slots, ok := ScrapeSlots(srv.URL)
+	slots, ok := ScrapeSlotsAuth(srv.URL, "")
 	if !ok {
 		t.Fatalf("ScrapeSlots ok=false on a 200 body")
 	}
@@ -429,7 +429,7 @@ func TestScrapeSlotsFromServer(t *testing.T) {
 	// A server that 404s /slots → ok=false (typed-Unknown, no fabricated active count).
 	down := httptest.NewServer(http.HandlerFunc(http.NotFound))
 	defer down.Close()
-	if _, ok := ScrapeSlots(down.URL); ok {
+	if _, ok := ScrapeSlotsAuth(down.URL, ""); ok {
 		t.Errorf("ScrapeSlots ok=true on a 404, want false")
 	}
 }
@@ -456,7 +456,7 @@ func TestScrapeCacheCountersTotal(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	cs, ok := ScrapeCacheCounters(srv.URL)
+	cs, ok := ScrapeCacheCountersAuth(srv.URL, "")
 	if !ok {
 		t.Fatalf("ScrapeCacheCounters ok=false on a 200 body")
 	}
@@ -479,7 +479,7 @@ func TestScrapeCacheCountersTotal(t *testing.T) {
 	}))
 	defer pSrv.Close()
 
-	cs2, ok2 := ScrapeCacheCounters(pSrv.URL)
+	cs2, ok2 := ScrapeCacheCountersAuth(pSrv.URL, "")
 	if !ok2 {
 		t.Fatalf("ScrapeCacheCounters ok=false on a 200 body (a partial pair is still an available scrape)")
 	}
@@ -504,7 +504,7 @@ func TestScrapeCacheCountersTotal(t *testing.T) {
 		_, _ = w.Write([]byte(emptyBody))
 	}))
 	defer eSrv.Close()
-	cs3, ok3 := ScrapeCacheCounters(eSrv.URL)
+	cs3, ok3 := ScrapeCacheCountersAuth(eSrv.URL, "")
 	if !ok3 || cs3.CacheKnown || cs3.PromptKnown {
 		t.Errorf("both-absent cache pair must be Known=false on an available scrape, got %+v ok=%v", cs3, ok3)
 	}
@@ -512,7 +512,7 @@ func TestScrapeCacheCountersTotal(t *testing.T) {
 	// A 404 /metrics (--metrics absent) → whole-scrape unavailable.
 	down := httptest.NewServer(http.HandlerFunc(http.NotFound))
 	defer down.Close()
-	if _, ok := ScrapeCacheCounters(down.URL); ok {
+	if _, ok := ScrapeCacheCountersAuth(down.URL, ""); ok {
 		t.Errorf("ScrapeCacheCounters ok=true on a 404, want false (whole-scrape unavailable)")
 	}
 }
@@ -540,7 +540,7 @@ func TestScrapeCacheCountersOversizedBodyUnavailable(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	if _, ok := ScrapeCacheCounters(srv.URL); ok {
+	if _, ok := ScrapeCacheCountersAuth(srv.URL, ""); ok {
 		t.Errorf("ScrapeCacheCounters ok=true on an over-cap body, want false (truncation risk → unavailable)")
 	}
 }
@@ -572,7 +572,7 @@ func TestCacheSampleRejectsNonFinite(t *testing.T) {
 				_, _ = w.Write([]byte(body))
 			}))
 			defer srv.Close()
-			cs, ok := ScrapeCacheCounters(srv.URL)
+			cs, ok := ScrapeCacheCountersAuth(srv.URL, "")
 			if !ok {
 				t.Fatalf("ok=false on a 200 body")
 			}

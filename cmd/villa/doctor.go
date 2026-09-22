@@ -531,6 +531,9 @@ func residencyTargetFor(cfg config.VillaConfig, sd *status.Deps, subject string)
 		ContextLen:  cfg.Ctx,
 		WeightBytes: sd.WeightBytes(cfg),
 		Markers:     backend.ResidencyProof(),
+		// GHSA-qxg9 (ADR-0011): doctor's under-load proofs hit the SAME
+		// bearer-gated unit every other client does.
+		APIKey: cfg.InferenceSecret,
 	}, nil
 }
 

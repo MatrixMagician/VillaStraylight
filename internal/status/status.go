@@ -488,8 +488,9 @@ type Deps struct {
 	Endpoint    func() string
 
 	// GenTokensPerSec is the live token-generation tok/s seam, wired in
-	// cmd/villa liveStatusDeps to reuse metrics.ScrapeMetrics. It returns nil on an
-	// idle server or a failed/absent /metrics scrape so Run omits the figure
+	// cmd/villa liveStatusDeps to reuse metrics.ScrapeMetricsAuth (GHSA-qxg9,
+	// ADR-0011 — the bearer travels through the closure, not this signature). It
+	// returns nil on an idle server or a failed/absent /metrics scrape so Run omits the figure
 	// (typed-Unknown, never a fabricated 0). internal/status stays free of HTTP
 	// coupling; status_test.go stubs it like the other seams. A nil seam is treated
 	// as "no reading" (Run guards it).

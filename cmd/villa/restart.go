@@ -37,6 +37,14 @@ func runRestart(cmd *cobra.Command, args []string, d *lifecycleDeps) int {
 	out := cmd.OutOrStdout()
 	errOut := cmd.ErrOrStderr()
 
+	// The inference bearer's migration (GHSA-qxg9, ADR-0011): `restart` has no
+	// --dry-run, so this always runs, before render — an existing install whose
+	// config.toml predates the bearer self-heals on its next restart.
+	if err := d.ensureInferenceSecret(); err != nil {
+		fmt.Fprintf(errOut, "restart: %v\n", err)
+		return exitBlocked
+	}
+
 	units, unitDir, err := d.renderStack()
 	if err != nil {
 		fmt.Fprintf(errOut, "restart: %v\n", err)

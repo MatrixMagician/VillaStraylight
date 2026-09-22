@@ -25,6 +25,13 @@ type fakeLifecycleDeps struct {
 	journalCalls []string
 	// active names the services is-active reports as running.
 	active map[string]bool
+
+	// inferenceSecret is the loadConfig fixture's InferenceSecret; tests mutate
+	// it directly to drive ensureInferenceSecret's empty-vs-populated branches.
+	inferenceSecret         string
+	saveConfigCalls         int
+	savedInferenceSecret    string
+	inferenceSecretEnvCalls int
 }
 
 // twoUnitStack returns the rendered stack as the live Render would: the inference
@@ -40,10 +47,14 @@ func twoUnitStack() []orchestrate.Unit {
 
 func newFakeLifecycleDeps(t *testing.T, units []orchestrate.Unit, plan orchestrate.Plan) *fakeLifecycleDeps {
 	t.Helper()
-	f := &fakeLifecycleDeps{}
+	// A stable, non-empty default so the existing tests below (none of which
+	// exercise the inference-secret migration itself) never trip the
+	// generate-and-save branch of ensureInferenceSecret; tests that DO exercise
+	// it set f.inferenceSecret = "" explicitly.
+	f := &fakeLifecycleDeps{inferenceSecret: "test-inference-secret"}
 	d := &lifecycleDeps{
 		loadConfig: func() (config.VillaConfig, error) {
-			return config.VillaConfig{Model: "qwen3.5-0.8b", Quant: "Q4", Ctx: 4096, Backend: "vulkan"}, nil
+			return config.VillaConfig{Model: "qwen3.5-0.8b", Quant: "Q4", Ctx: 4096, Backend: "vulkan", InferenceSecret: f.inferenceSecret}, nil
 		},
 		modelFile: func(config.VillaConfig) (string, error) { return "qwen3.5-0.8b.gguf", nil },
 		modelsDir: func() string { return t.TempDir() },
@@ -67,6 +78,13 @@ func newFakeLifecycleDeps(t *testing.T, units []orchestrate.Unit, plan orchestra
 		return "load_tensors: Vulkan0 model buffer size = 512 MiB\n", true
 	}
 	d.followJournal = func(svc string) error { f.journalCalls = append(f.journalCalls, svc); return nil }
+	d.saveConfig = func(c config.VillaConfig) error {
+		f.saveConfigCalls++
+		f.savedInferenceSecret = c.InferenceSecret
+		f.inferenceSecret = c.InferenceSecret // persist forward, mirroring config.toml
+		return nil
+	}
+	d.writeInferenceSecretEnv = func(string, string) error { f.inferenceSecretEnvCalls++; return nil }
 	f.lifecycleDeps = d
 	return f
 }
@@ -236,6 +254,69 @@ func TestLifecycleUpDryRunWritesNothing(t *testing.T) {
 	}
 	if !bytes.Contains(out.Bytes(), []byte("[Container]")) {
 		t.Errorf("up --dry-run must print rendered unit text, got %q", out.String())
+	}
+}
+
+// TestLifecycleUpMigratesMissingInferenceSecret is the up-side of the GHSA-qxg9
+// (ADR-0011) upgrade migration: an existing install whose config.toml predates the
+// inference bearer (InferenceSecret == "") gets one generated and persisted on its
+// next `up`, and the env file is (re)written — BEFORE any dry-run skips it (a
+// --dry-run must write nothing, matching its documented contract).
+func TestLifecycleUpMigratesMissingInferenceSecret(t *testing.T) {
+	units := twoUnitStack()
+	plan := orchestrate.Plan{Changed: units}
+
+	t.Run("a real up generates, persists once, and writes the env file", func(t *testing.T) {
+		f := newFakeLifecycleDeps(t, units, plan)
+		f.inferenceSecret = ""
+
+		cmd, _, errOut := lifecycleTestCmd()
+		if code := runUp(cmd, upOpts{}, nil, f.lifecycleDeps); code != exitPass {
+			t.Fatalf("up exit = %d, want 0; stderr = %q", code, errOut.String())
+		}
+		if f.saveConfigCalls != 1 {
+			t.Errorf("saveConfig calls = %d, want 1 (generated once)", f.saveConfigCalls)
+		}
+		if f.savedInferenceSecret == "" {
+			t.Error("saved inference secret is empty, want a generated non-empty bearer")
+		}
+		if f.inferenceSecretEnvCalls != 1 {
+			t.Errorf("writeInferenceSecretEnv calls = %d, want 1", f.inferenceSecretEnvCalls)
+		}
+	})
+
+	t.Run("--dry-run skips the migration entirely (writes nothing)", func(t *testing.T) {
+		f := newFakeLifecycleDeps(t, units, plan)
+		f.inferenceSecret = ""
+
+		cmd, _, errOut := lifecycleTestCmd()
+		if code := runUp(cmd, upOpts{dryRun: true}, nil, f.lifecycleDeps); code != exitPass {
+			t.Fatalf("up --dry-run exit = %d, want 0; stderr = %q", code, errOut.String())
+		}
+		if f.saveConfigCalls != 0 || f.inferenceSecretEnvCalls != 0 {
+			t.Errorf("--dry-run must persist/write nothing: saveConfig=%d writeEnv=%d", f.saveConfigCalls, f.inferenceSecretEnvCalls)
+		}
+	})
+}
+
+// TestLifecycleRestartMigratesMissingInferenceSecret is restart's side of the same
+// migration: `restart` has no --dry-run, so it always self-heals a missing bearer
+// before rendering.
+func TestLifecycleRestartMigratesMissingInferenceSecret(t *testing.T) {
+	units := twoUnitStack()
+	plan := orchestrate.Plan{Changed: units}
+	f := newFakeLifecycleDeps(t, units, plan)
+	f.inferenceSecret = ""
+
+	cmd, _, errOut := lifecycleTestCmd()
+	if code := runRestart(cmd, nil, f.lifecycleDeps); code != exitPass {
+		t.Fatalf("restart exit = %d, want 0; stderr = %q", code, errOut.String())
+	}
+	if f.saveConfigCalls != 1 || f.savedInferenceSecret == "" {
+		t.Errorf("restart must generate+persist the missing bearer once: calls=%d secret=%q", f.saveConfigCalls, f.savedInferenceSecret)
+	}
+	if f.inferenceSecretEnvCalls != 1 {
+		t.Errorf("writeInferenceSecretEnv calls = %d, want 1", f.inferenceSecretEnvCalls)
 	}
 }
 

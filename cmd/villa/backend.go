@@ -118,6 +118,11 @@ func liveProve(ctx context.Context, target string) prove.Verdict {
 		WeightBytes:   liveWeightBytes(cfg),
 		Markers:       backend.ResidencyProof(),
 		DraftExpected: liveDraftExpected(cfg),
+		// GHSA-qxg9 (ADR-0011): the target unit now requires this bearer on every
+		// /v1 route. liveProve is the SHARED cutover gate — backend set, model
+		// swap, `villa update`'s proveInference, tools-mode and restore all route
+		// through this ONE call, so wiring it here covers all of them at once.
+		APIKey: cfg.InferenceSecret,
 	})
 }
 
