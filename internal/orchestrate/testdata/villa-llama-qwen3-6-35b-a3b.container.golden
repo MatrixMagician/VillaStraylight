@@ -7,6 +7,7 @@ After=villa-network.service
 ContainerName=villa-llama-qwen3-6-35b-a3b
 Image=docker.io/kyuz0/amd-strix-halo-toolboxes:vulkan-radv@sha256:521fd5994e73d40d9af168a81f560ebb13590c060ee0ea62262388ef3ecfc5ab
 Network=villa.network
+EnvironmentFile=%h/.config/villa/inference/llama.env
 AddDevice=/dev/dri
 GroupAdd=keep-groups
 PublishPort=127.0.0.1:8081:8080

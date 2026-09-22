@@ -191,14 +191,40 @@ func parsePromText(body string) map[string]float64 {
 	return out
 }
 
+// authedGet performs a bounded GET, attaching the Bearer credential when apiKey is
+// non-empty (GHSA-qxg9, ADR-0011). llama-server now refuses every scraped route
+// (/metrics, /slots) except /health without one. It is the SINGLE construction
+// point for the four scrape requests below, so the header is set once rather than
+// re-added at each call site.
+func authedGet(client *http.Client, url, apiKey string) (*http.Response, error) {
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	if apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+	}
+	return client.Do(req)
+}
+
 // ScrapeMetrics fetches endpoint+"/metrics" with a bounded client+body and maps the
 // CONFIRMED current gauges into a PerfSnapshot. A transport error or a non-200 (a 404
-// is the state when --metrics is absent from llamaServerFlags) yields (zero, false)
-// a typed-Unknown the panel renders as "unavailable", NEVER a zero rate shown as real
-// (Pitfall 2). It never queries the removed KV-cache-usage gauge (Pitfall 4).
+// is the state when --metrics is absent from llamaServerFlags, or a 401 when the
+// caller has not threaded config.InferenceSecret through — see ScrapeMetricsAuth)
+// yields (zero, false), a typed-Unknown the panel renders as "unavailable", NEVER a
+// zero rate shown as real (Pitfall 2). It never queries the removed KV-cache-usage
+// gauge (Pitfall 4).
 func ScrapeMetrics(endpoint string) (PerfSnapshot, bool) {
+	return ScrapeMetricsAuth(endpoint, "")
+}
+
+// ScrapeMetricsAuth is ScrapeMetrics with the llama-server Bearer credential
+// (GHSA-qxg9, ADR-0011) attached via authedGet. ScrapeMetrics delegates here with
+// an empty key so every existing call site keeps compiling and degrades to a
+// typed-Unknown 401 until it threads config.InferenceSecret through.
+func ScrapeMetricsAuth(endpoint, apiKey string) (PerfSnapshot, bool) {
 	client := &http.Client{Timeout: scrapeTimeout}
-	resp, err := client.Get(endpoint + "/metrics")
+	resp, err := authedGet(client, endpoint+"/metrics", apiKey)
 	if err != nil {
 		return PerfSnapshot{}, false
 	}
@@ -221,13 +247,22 @@ func ScrapeMetrics(endpoint string) (PerfSnapshot, bool) {
 // request shape (scrapeTimeout client + maxScrapeBody LimitReader + parsePromText) — it
 // adds NO second HTTP request and NO new endpoint/host literal.
 //
-// A transport error or non-200 (a 404 is the state when --metrics is absent) yields
-// (zero, false): the whole scrape is unavailable. On a 200 body, the availability bool is
-// true and each counter's own Known bool reflects its presence in the parsed map — an
-// absent counter degrades to Known=false, never a fabricated 0.
+// A transport error or non-200 (a 404 is the state when --metrics is absent, or a 401
+// when the caller has not threaded config.InferenceSecret through — see
+// ScrapeCountersAuth) yields (zero, false): the whole scrape is unavailable. On a 200
+// body, the availability bool is true and each counter's own Known bool reflects its
+// presence in the parsed map — an absent counter degrades to Known=false, never a
+// fabricated 0.
 func ScrapeCounters(endpoint string) (CounterSample, bool) {
+	return ScrapeCountersAuth(endpoint, "")
+}
+
+// ScrapeCountersAuth is ScrapeCounters with the llama-server Bearer credential
+// (GHSA-qxg9, ADR-0011) attached via authedGet. ScrapeCounters delegates here with
+// an empty key so every existing call site keeps compiling.
+func ScrapeCountersAuth(endpoint, apiKey string) (CounterSample, bool) {
 	client := &http.Client{Timeout: scrapeTimeout}
-	resp, err := client.Get(endpoint + "/metrics")
+	resp, err := authedGet(client, endpoint+"/metrics", apiKey)
 	if err != nil {
 		return CounterSample{}, false
 	}
@@ -270,8 +305,15 @@ func ScrapeCounters(endpoint string) (CounterSample, bool) {
 // Known bool reflects its presence in the parsed map — an absent counter degrades to
 // Known=false, never a fabricated 0. The RATIO is computed in Plan 03, not here.
 func ScrapeCacheCounters(endpoint string) (CacheSample, bool) {
+	return ScrapeCacheCountersAuth(endpoint, "")
+}
+
+// ScrapeCacheCountersAuth is ScrapeCacheCounters with the llama-server Bearer
+// credential (GHSA-qxg9, ADR-0011) attached via authedGet. ScrapeCacheCounters
+// delegates here with an empty key so every existing call site keeps compiling.
+func ScrapeCacheCountersAuth(endpoint, apiKey string) (CacheSample, bool) {
 	client := &http.Client{Timeout: scrapeTimeout}
-	resp, err := client.Get(endpoint + "/metrics")
+	resp, err := authedGet(client, endpoint+"/metrics", apiKey)
 	if err != nil {
 		return CacheSample{}, false
 	}
@@ -310,11 +352,19 @@ func parseSlots(body []byte) ([]Slot, bool) {
 
 // ScrapeSlots fetches endpoint+"/slots" (default-on; no flag needed) with a bounded
 // client+body and returns the narrow []Slot view. A transport error / non-200 (e.g.
-// --no-slots) → (nil, false), a typed-Unknown the panel renders without fabricating an
-// active count.
+// --no-slots, or a 401 when the caller has not threaded config.InferenceSecret
+// through — see ScrapeSlotsAuth) → (nil, false), a typed-Unknown the panel renders
+// without fabricating an active count.
 func ScrapeSlots(endpoint string) ([]Slot, bool) {
+	return ScrapeSlotsAuth(endpoint, "")
+}
+
+// ScrapeSlotsAuth is ScrapeSlots with the llama-server Bearer credential
+// (GHSA-qxg9, ADR-0011) attached via authedGet. ScrapeSlots delegates here with an
+// empty key so every existing call site keeps compiling.
+func ScrapeSlotsAuth(endpoint, apiKey string) ([]Slot, bool) {
 	client := &http.Client{Timeout: scrapeTimeout}
-	resp, err := client.Get(endpoint + "/slots")
+	resp, err := authedGet(client, endpoint+"/slots", apiKey)
 	if err != nil {
 		return nil, false
 	}

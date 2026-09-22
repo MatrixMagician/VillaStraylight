@@ -14,6 +14,7 @@ package orchestrate
 import (
 	"fmt"
 
+	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 )
 
@@ -27,6 +28,25 @@ import (
 // automatically — no hand-typed host literal can drift from the rendered ContainerName=.
 func LlamaInNetworkEndpoint() string {
 	return inNetworkEndpoint(containerName)
+}
+
+// InferproxyInNetworkEndpoint returns the in-network villa-inferproxy base URL
+// (GHSA-gvp9, ADR-0011) — the endpoint the task bridge (cmd/villa sandbox-bridge,
+// run inside the task container) must target now that villa-llama no longer
+// joins villa-sandbox.network. Composed from InferproxyContainerName +
+// config.InferproxyPort, never a hand-typed host literal.
+func InferproxyInNetworkEndpoint() string {
+	return fmt.Sprintf("http://%s:%d/v1", inferproxyContainerName, config.InferproxyPort)
+}
+
+// LlamaInNetworkRoot returns villa-llama's in-network base URL WITHOUT the /v1
+// suffix (GHSA-gvp9, ADR-0011) — the villa-inferproxy reverse-proxy target.
+// httputil.NewSingleHostReverseProxy prepends the target's Path to every
+// forwarded request's path, so a target ending in /v1 would double it against
+// an inbound /v1/chat/completions; the proxy's own listener already receives
+// the full /v1 path, so its forward target must be the bare root.
+func LlamaInNetworkRoot() string {
+	return fmt.Sprintf("http://%s:%d", containerName, inference.ServerPort())
 }
 
 // inNetworkEndpoint composes the OpenAI-compatible base URL for ANY llama-server on

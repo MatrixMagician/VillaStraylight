@@ -30,11 +30,12 @@ type fakeDeps struct {
 	// chatDelay holds the generation probe open so the sampler ticks during it.
 	chatDelay time.Duration
 
-	folded    inference.RunningOffloadInput
-	foldCalls int
-	polled    string
-	generated string
-	journaled string
+	folded       inference.RunningOffloadInput
+	foldCalls    int
+	polled       string
+	generated    string
+	generatedKey string
+	journaled    string
 }
 
 func newFakeDeps() *fakeDeps {
@@ -55,8 +56,9 @@ func (f *fakeDeps) deps() Deps {
 			f.polled = endpoint
 			return f.ready
 		},
-		Generate: func(ctx context.Context, _, modelID string) inference.ChatResult {
+		Generate: func(ctx context.Context, _, modelID, apiKey string) inference.ChatResult {
 			f.generated = modelID
+			f.generatedKey = apiKey
 			if f.chatDelay > 0 {
 				select {
 				case <-time.After(f.chatDelay):
@@ -307,6 +309,7 @@ func TestTargetDrivesTheProtocol(t *testing.T) {
 	tgt.WeightBytes = 17 << 30
 	tgt.Service = "villa-llama.service"
 	tgt.Markers = inference.ResidencyMarkers{DeviceToken: "TEST0", FaultString: "TEST-ABORT"}
+	tgt.APIKey = "secret-key"
 
 	Prove(t.Context(), f.deps(), tgt)
 
@@ -315,6 +318,11 @@ func TestTargetDrivesTheProtocol(t *testing.T) {
 	}
 	if f.generated != tgt.ModelID {
 		t.Errorf("probed model %q, want the SERVED model %q", f.generated, tgt.ModelID)
+	}
+	// GHSA-qxg9/ADR-0011: the generation probe must receive Target.APIKey
+	// verbatim — it is the credential llama-server now requires on /v1.
+	if f.generatedKey != tgt.APIKey {
+		t.Errorf("generation probe apiKey = %q, want the target's %q", f.generatedKey, tgt.APIKey)
 	}
 	if f.journaled != tgt.Service {
 		t.Errorf("journaled %q, want %q", f.journaled, tgt.Service)

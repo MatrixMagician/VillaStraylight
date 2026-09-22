@@ -1,0 +1,19 @@
+# ~/.config/containers/systemd/villa-inferproxy.container  (GENERATED — do not edit; source: config.toml)
+[Unit]
+Description=VillaStraylight sandbox inference proxy (/v1-only)
+After=villa-network.service
+
+[Container]
+ContainerName=villa-inferproxy
+Image=gcr.io/distroless/static-debian12@sha256:d75cdd72874d4790092fcb1b058493ecf6bb5bf2b2b897045b00ff01d91843f2
+Network=villa.network
+Network=villa-sandbox.network
+EnvironmentFile=%h/.config/villa/inference/llama.env
+Volume=:/usr/local/bin/villa:ro,z
+Exec=/usr/local/bin/villa inferproxy-serve --host 0.0.0.0 --port 8091
+
+[Service]
+Restart=on-failure
+
+[Install]
+WantedBy=default.target

@@ -515,12 +515,12 @@ func TestRenderOpenWebUITelemetryFrozen(t *testing.T) {
 		{
 			name: "memory-off",
 			in:   fixtureInput(),
-			env:  buildOpenWebUIView(openWebUIImage, memory.RenderView(fixtureInput().Cfg), false, false, "", 0, 0, "", 0, nil).Env,
+			env:  buildOpenWebUIView(openWebUIImage, memory.RenderView(fixtureInput().Cfg), false, false, "", 0, 0, "", 0, nil, "").Env,
 		},
 		{
 			name: "memory-on",
 			in:   memoryFixtureInput(),
-			env:  buildOpenWebUIView(openWebUIImage, memory.RenderView(memoryFixtureInput().Cfg), true, false, "", 0, 0, "", 0, nil).Env,
+			env:  buildOpenWebUIView(openWebUIImage, memory.RenderView(memoryFixtureInput().Cfg), true, false, "", 0, 0, "", 0, nil, "").Env,
 		},
 		{
 			// Phase-30 drift guard: the web-search-on view binds every web-search
@@ -532,7 +532,7 @@ func TestRenderOpenWebUITelemetryFrozen(t *testing.T) {
 			// off); the literal 3 matches its WebSearchResultCount and the rendered unit.
 			name: "websearch-on",
 			in:   searxngFixtureInput(),
-			env:  buildOpenWebUIView(openWebUIImage, memory.RenderView(searxngFixtureInput().Cfg), false, true, "villa-searxng", 8080, 3, "villa-websafe", 8090, nil).Env,
+			env:  buildOpenWebUIView(openWebUIImage, memory.RenderView(searxngFixtureInput().Cfg), false, true, "villa-searxng", 8080, 3, "villa-websafe", 8090, nil, "").Env,
 		},
 	}
 
@@ -775,16 +775,37 @@ func TestRenderSandboxNetworkGolden(t *testing.T) {
 // TestRenderInferenceUnitJoinsTheSandboxNetwork: with the workspace agent on, the
 // inference unit carries a second Network= line, so a task on the internal network
 // can reach llama-server and nothing else.
-func TestRenderInferenceUnitJoinsTheSandboxNetwork(t *testing.T) {
+// TestRenderInferproxyJoinsBothNetworks is the GHSA-gvp9/ADR-0011 replacement for
+// the old "the inference unit joins the sandbox network" invariant: villa-llama no
+// longer joins villa-sandbox.network at all (it keeps its single Network= line
+// even with the workspace agent on — the inference unit is byte-identical in both
+// gate states, asserted below and by TestRenderSandboxOffIsByteIdentical). The
+// sandbox's only route to inference is now villa-inferproxy, which joins BOTH
+// villa.network (to reach villa-llama) and villa-sandbox.network.
+func TestRenderInferproxyJoinsBothNetworks(t *testing.T) {
 	units, err := Render(sandboxOnFixtureInput())
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
-	c := unitByName(t, units, "villa-llama.container")
-	if got := strings.Count(c.Text, "Network="); got != 2 {
-		t.Errorf("inference unit has %d Network= lines, want 2:\n%s", got, c.Text)
+	inf := unitByName(t, units, "villa-llama.container")
+	if got := strings.Count(inf.Text, "Network="); got != 1 {
+		t.Errorf("inference unit has %d Network= lines, want 1 (GHSA-gvp9: it no longer joins villa-sandbox.network):\n%s", got, inf.Text)
 	}
-	goldenCompare(t, "villa-llama-sandbox.container.golden", c.Text)
+	if strings.Contains(inf.Text, "villa-sandbox") {
+		t.Errorf("inference unit still references villa-sandbox:\n%s", inf.Text)
+	}
+
+	proxy := unitByName(t, units, InferproxyContainerUnitName())
+	if got := strings.Count(proxy.Text, "Network="); got != 2 {
+		t.Errorf("villa-inferproxy has %d Network= lines, want 2:\n%s", got, proxy.Text)
+	}
+	if !strings.Contains(proxy.Text, "Network=villa.network") {
+		t.Errorf("villa-inferproxy does not join villa.network:\n%s", proxy.Text)
+	}
+	if !strings.Contains(proxy.Text, "Network=villa-sandbox.network") {
+		t.Errorf("villa-inferproxy does not join villa-sandbox.network:\n%s", proxy.Text)
+	}
+	goldenCompare(t, "villa-inferproxy.container.golden", proxy.Text)
 }
 
 // TestRenderSandboxOffIsByteIdentical: with the workspace agent off, the inference
@@ -806,12 +827,19 @@ func TestRenderSandboxOffIsByteIdentical(t *testing.T) {
 	goldenCompare(t, "villa-llama.container.golden", unitByName(t, units, "villa-llama.container").Text)
 }
 
-// TestRenderSandboxNetworkNeverLeftBehind is the issue #199 regression: rendering
-// with the workspace agent on, then off, must yield the identical unit set except
-// for the inference unit's second Network= line. Before this fix, turning the gate
-// off dropped the sandbox network unit from the render, so Reconcile (which only
-// writes changed units and never deletes one the render stops yielding) left the
-// old villa-sandbox.network and its service on disk with nothing left to remove it.
+// TestRenderSandboxNetworkNeverLeftBehind is the issue #199 regression, narrowed
+// by GHSA-gvp9/ADR-0011: the FREE .network unit (no container joins it, so it
+// starts no service — the whole reason it is rendered unconditionally) must stay
+// byte-identical and present regardless of the gate, so turning the workspace
+// agent off never leaves Reconcile with nothing to keep it in step. villa-llama
+// itself is likewise now byte-identical in both gate states (it no longer joins
+// villa-sandbox.network at all, unlike before this ADR). villa-inferproxy IS a
+// real managed-service container, in the SAME category as villa-websafe/
+// villa-searxng/villa-embed: it legitimately appears only when its gate is on,
+// exactly like those three, and — like them — turning the gate back off does not
+// retroactively remove its already-written unit (CLAUDE.md's two named
+// unit-deletion sites: uninstall's enumeration and prune's ref-counted image
+// removal; this was never extended to every optional managed service).
 func TestRenderSandboxNetworkNeverLeftBehind(t *testing.T) {
 	onUnits, err := Render(sandboxOnFixtureInput())
 	if err != nil {
@@ -822,12 +850,6 @@ func TestRenderSandboxNetworkNeverLeftBehind(t *testing.T) {
 		t.Fatalf("Render (off): %v", err)
 	}
 
-	onNames := unitNameSet(onUnits)
-	offNames := unitNameSet(offUnits)
-	if !slices.Equal(onNames, offNames) {
-		t.Errorf("unit set changed with the gate: on=%v off=%v", onNames, offNames)
-	}
-
 	onNet := unitByName(t, onUnits, "villa-sandbox.network")
 	offNet := unitByName(t, offUnits, "villa-sandbox.network")
 	if onNet.Text != offNet.Text {
@@ -836,11 +858,23 @@ func TestRenderSandboxNetworkNeverLeftBehind(t *testing.T) {
 
 	onInf := unitByName(t, onUnits, "villa-llama.container")
 	offInf := unitByName(t, offUnits, "villa-llama.container")
-	if got := strings.Count(onInf.Text, "Network="); got != 2 {
-		t.Errorf("inference unit (on) has %d Network= lines, want 2", got)
+	if onInf.Text != offInf.Text {
+		t.Errorf("villa-llama.container differs between gate states (GHSA-gvp9: it must not, it no longer joins villa-sandbox.network in either state):\non:\n%s\noff:\n%s", onInf.Text, offInf.Text)
 	}
-	if got := strings.Count(offInf.Text, "Network="); got != 1 {
-		t.Errorf("inference unit (off) has %d Network= lines, want 1", got)
+	if got := strings.Count(onInf.Text, "Network="); got != 1 {
+		t.Errorf("inference unit has %d Network= lines, want 1 in every gate state", got)
+	}
+
+	// villa-inferproxy is the ONE unit that legitimately differs with the gate —
+	// present when on, absent when off — the same shape as every other optional
+	// managed service (websafe/searxng/embed).
+	onNames := unitNameSet(onUnits)
+	offNames := unitNameSet(offUnits)
+	if slices.Contains(offNames, InferproxyContainerUnitName()) {
+		t.Errorf("villa-inferproxy rendered with the workspace agent off: %v", offNames)
+	}
+	if !slices.Contains(onNames, InferproxyContainerUnitName()) {
+		t.Errorf("villa-inferproxy missing with the workspace agent on: %v", onNames)
 	}
 }
 

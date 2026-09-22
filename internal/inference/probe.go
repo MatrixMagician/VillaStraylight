@@ -103,10 +103,16 @@ func probeHealthOnce(ctx context.Context, client *http.Client, url string) bool 
 // Thinking is disabled for the probe. Measured on the dev host 2026-09-11:
 // qwen3.6-35b-a3b with thinking on spends all 32 tokens reasoning and returns
 // empty content; with thinking off it answers "ok" in 2 tokens.
-func chatProbe(ctx context.Context, endpoint, modelID string) ChatResult {
+//
+// apiKey is sent as the Bearer credential (GHSA-qxg9, ADR-0011); llama-server
+// requires it on every /v1 route now that a unit is rendered with one. An empty
+// key sends no header, which a caller that has not yet threaded its config's
+// InferenceSecret through gets — a 401 detail, never a panic.
+func chatProbe(ctx context.Context, endpoint, modelID, apiKey string) ChatResult {
 	client := llm.NewOpenAIClient(llm.Options{
 		BaseURL: strings.TrimRight(endpoint, "/") + "/v1",
 		Timeout: chatProbeTimeout,
+		APIKey:  apiKey,
 	})
 
 	var (

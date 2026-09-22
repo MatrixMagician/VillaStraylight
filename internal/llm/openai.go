@@ -26,6 +26,7 @@ var ErrNoTimings = errors.New("llm: response carried no usable timings block")
 // LM Studio, and the OpenAI API itself.
 type OpenAIClient struct {
 	baseURL    string
+	apiKey     string
 	httpClient *http.Client
 }
 
@@ -37,7 +38,17 @@ func NewOpenAIClient(opts Options) *OpenAIClient {
 	}
 	return &OpenAIClient{
 		baseURL:    strings.TrimRight(opts.BaseURL, "/"),
+		apiKey:     opts.APIKey,
 		httpClient: &http.Client{Timeout: timeout},
+	}
+}
+
+// setAuth attaches the Bearer header when the client carries a key
+// (GHSA-qxg9, ADR-0011). A client built with no APIKey sends the request
+// exactly as before — unauthenticated, which llama-server now answers 401.
+func (c *OpenAIClient) setAuth(req *http.Request) {
+	if c.apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+c.apiKey)
 	}
 }
 
@@ -121,6 +132,7 @@ func (c *OpenAIClient) StreamChat(ctx context.Context, req ChatRequest, onDelta 
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Accept", "text/event-stream")
+	c.setAuth(httpReq)
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
@@ -168,6 +180,7 @@ func (c *OpenAIClient) Complete(ctx context.Context, req ChatRequest, nPredict i
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Accept", "application/json")
+	c.setAuth(httpReq)
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {

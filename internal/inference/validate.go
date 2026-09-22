@@ -85,6 +85,13 @@ type ValidateInput struct {
 	// into the verdict; when false the verdict is byte-identical to a stack with no
 	// draft in play.
 	DraftExpected bool
+
+	// APIKey is the LLAMA_API_KEY/OPENAI_API_KEY bearer this run's server was
+	// started with (GHSA-qxg9, ADR-0011), sent as the chat probe's Bearer
+	// credential. Empty sends no header, which degrades to a 401 detail rather
+	// than a panic — the honest failure a caller not yet threading its config's
+	// InferenceSecret through gets.
+	APIKey string
 }
 
 // projectorFile is the projector the run carries: the entry's first projector
@@ -157,7 +164,7 @@ func Validate(ctx context.Context, in ValidateInput) Verdict {
 
 	// (6) Real chat completion (reuse). Even if offload PASSed, a run that
 	// cannot return tokens is not a clean PASS.
-	chat := chatProbe(ctx, in.Runner.Endpoint(), in.Model.ID)
+	chat := chatProbe(ctx, in.Runner.Endpoint(), in.Model.ID, in.APIKey)
 
 	// (6.5) Stop the primary BEFORE the ceiling probe. The ceiling runs a
 	// second container that binds the SAME loopback port; if the primary is still up

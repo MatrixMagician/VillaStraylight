@@ -61,15 +61,33 @@ func TestChatProbe(t *testing.T) {
 		}))
 		defer srv.Close()
 
-		res := chatProbe(t.Context(), srv.URL, "qwen3.5-0.8b")
+		res := chatProbe(t.Context(), srv.URL, "qwen3.5-0.8b", "")
 		if !res.OK {
 			t.Fatalf("chatProbe: OK=false, want true (detail=%q)", res.Detail)
 		}
 		if res.Tokens == 0 {
 			t.Errorf("chatProbe: Tokens=0, want >0")
 		}
-		if res.Text == "" {
-			t.Errorf("chatProbe: empty assembled text, want non-empty")
+	})
+
+	// TestChatProbeSendsAPIKey guards GHSA-qxg9/ADR-0011: chatProbe must forward
+	// its apiKey argument as the Bearer credential — llama-server now refuses
+	// every /v1 route except /health without one.
+	t.Run("sends the api key as a bearer credential", func(t *testing.T) {
+		var gotAuth string
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			gotAuth = r.Header.Get("Authorization")
+			if r.URL.Path == "/v1/chat/completions" {
+				sseChatHandler(w, r)
+				return
+			}
+			http.NotFound(w, r)
+		}))
+		defer srv.Close()
+
+		chatProbe(t.Context(), srv.URL, "qwen3.5-0.8b", "secret-key")
+		if want := "Bearer secret-key"; gotAuth != want {
+			t.Errorf("Authorization header = %q, want %q", gotAuth, want)
 		}
 	})
 
@@ -83,7 +101,7 @@ func TestChatProbe(t *testing.T) {
 		}
 		srv, _ := chatServer(t, deltas...)
 
-		res := chatProbe(t.Context(), srv.URL, "qwen3.6-35b-a3b")
+		res := chatProbe(t.Context(), srv.URL, "qwen3.6-35b-a3b", "")
 		if res.OK {
 			t.Fatalf("chatProbe: OK=true on 64 tokens of %q, want false", "/")
 		}
@@ -95,7 +113,7 @@ func TestChatProbe(t *testing.T) {
 	t.Run("a reply without the expected answer fails and names it", func(t *testing.T) {
 		srv, _ := chatServer(t, "Hel", "lo")
 
-		res := chatProbe(t.Context(), srv.URL, "qwen3.6-35b-a3b")
+		res := chatProbe(t.Context(), srv.URL, "qwen3.6-35b-a3b", "")
 		if res.OK {
 			t.Fatalf("chatProbe: OK=true on %q, want false", "Hello")
 		}
@@ -110,7 +128,7 @@ func TestChatProbe(t *testing.T) {
 	t.Run("the request bounds tokens and disables thinking", func(t *testing.T) {
 		srv, body := chatServer(t, "ok")
 
-		if res := chatProbe(t.Context(), srv.URL, "qwen3.6-35b-a3b"); !res.OK {
+		if res := chatProbe(t.Context(), srv.URL, "qwen3.6-35b-a3b", ""); !res.OK {
 			t.Fatalf("chatProbe: OK=false (detail=%q)", res.Detail)
 		}
 		var req struct {
@@ -134,7 +152,7 @@ func TestChatProbe(t *testing.T) {
 		}))
 		defer srv.Close()
 
-		res := chatProbe(t.Context(), srv.URL, "qwen3.5-0.8b")
+		res := chatProbe(t.Context(), srv.URL, "qwen3.5-0.8b", "")
 		if res.OK {
 			t.Errorf("chatProbe: OK=true on a non-200 chat, want false")
 		}

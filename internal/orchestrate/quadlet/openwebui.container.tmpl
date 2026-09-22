@@ -10,6 +10,7 @@ Image={{.Image}}
 Network={{.Network}}
 PublishPort={{.PublishPort}}
 Volume={{.Volume}}
+EnvironmentFile={{.InferenceSecretEnvFile}}
 {{if .SecretEnvFile}}EnvironmentFile={{.SecretEnvFile}}
 {{end}}{{range .Env}}Environment={{.Key}}={{.Value}}
 {{end}}

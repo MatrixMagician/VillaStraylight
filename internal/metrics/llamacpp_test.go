@@ -109,6 +109,61 @@ func TestScrapeMetricsFromServer(t *testing.T) {
 	}
 }
 
+// TestScrapeMetricsAuthSendsBearer guards GHSA-qxg9/ADR-0011: ScrapeMetricsAuth
+// must forward its apiKey as the Bearer credential, and ScrapeMetrics (no key)
+// must send no Authorization header at all — matching every scrape before this
+// pair existed. llama-server now refuses /metrics without the header.
+func TestScrapeMetricsAuthSendsBearer(t *testing.T) {
+	body, err := os.ReadFile("testdata/metrics.txt")
+	if err != nil {
+		t.Fatalf("read fixture: %v", err)
+	}
+	var gotAuth string
+	sawHeader := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		if gotAuth != "" {
+			sawHeader = true
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(body)
+	}))
+	defer srv.Close()
+
+	if _, ok := ScrapeMetrics(srv.URL); !ok {
+		t.Fatalf("ScrapeMetrics ok=false on a 200 body")
+	}
+	if sawHeader {
+		t.Errorf("ScrapeMetrics sent Authorization %q with no key configured", gotAuth)
+	}
+
+	if _, ok := ScrapeMetricsAuth(srv.URL, "secret-key"); !ok {
+		t.Fatalf("ScrapeMetricsAuth ok=false on a 200 body")
+	}
+	if want := "Bearer secret-key"; gotAuth != want {
+		t.Errorf("Authorization header = %q, want %q", gotAuth, want)
+	}
+}
+
+// TestScrapeSlotsAuthSendsBearer mirrors TestScrapeMetricsAuthSendsBearer for the
+// /slots scrape, which reads a different endpoint and body shape.
+func TestScrapeSlotsAuthSendsBearer(t *testing.T) {
+	var gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`[]`))
+	}))
+	defer srv.Close()
+
+	if _, ok := ScrapeSlotsAuth(srv.URL, "secret-key"); !ok {
+		t.Fatalf("ScrapeSlotsAuth ok=false on a 200 body")
+	}
+	if want := "Bearer secret-key"; gotAuth != want {
+		t.Errorf("Authorization header = %q, want %q", gotAuth, want)
+	}
+}
+
 // TestScrapeMetrics404IsTypedUnknown is the Pitfall 2 / guard: a 404 /metrics
 // (the state when --metrics is absent) yields ok=false and a ZERO-VALUE snapshot the
 // handler renders as "unavailable" — never a fabricated/zero rate presented as real.

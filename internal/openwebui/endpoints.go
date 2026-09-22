@@ -137,7 +137,23 @@ func (c Config) equal(other Config) bool {
 //
 // Enabled is carried through untouched. A user who turned the OpenAI-compatible API off
 // did so deliberately, and silently switching it back on is not this function's call.
+//
+// ReconcileEndpoints always sets NoAuthAPIKey (GHSA-qxg9, ADR-0011: every rendered
+// llama-server now requires the real InferenceSecret bearer instead). It is kept,
+// UNCHANGED, as a thin call to ReconcileEndpointsWithKey(current, want,
+// NoAuthAPIKey) so SyncEndpoints's existing 3-arg callers keep compiling; callers
+// that have threaded config.InferenceSecret through should call
+// ReconcileEndpointsWithKey directly.
 func ReconcileEndpoints(current Config, want []string) (Config, bool) {
+	return ReconcileEndpointsWithKey(current, want, NoAuthAPIKey)
+}
+
+// ReconcileEndpointsWithKey is ReconcileEndpoints with the connection key villa's
+// endpoints are given made explicit, rather than fixed at the NoAuthAPIKey
+// sentinel. apiKey should be the real InferenceSecret bearer now that every
+// rendered llama-server requires one (GHSA-qxg9, ADR-0011); ReconcileEndpoints
+// passes NoAuthAPIKey for backward compatibility.
+func ReconcileEndpointsWithKey(current Config, want []string, apiKey string) (Config, bool) {
 	held := make(map[string]Connection, len(current.Connections))
 	for _, conn := range current.Connections {
 		if _, dup := held[conn.URL]; !dup {
@@ -155,12 +171,13 @@ func ReconcileEndpoints(current Config, want []string) (Config, bool) {
 			continue
 		}
 		ours[url] = true
-		// The key is always the sentinel: these are in-network llama-servers that take
-		// no auth. The config is whatever the user set for this endpoint in the admin
-		// UI, which moves with it rather than staying at its old index.
+		// Every villa endpoint gets the SAME apiKey: one InferenceSecret protects
+		// the primary unit and every resident slot alike (they share the one
+		// EnvironmentFile). The config is whatever the user set for this endpoint
+		// in the admin UI, which moves with it rather than staying at its old index.
 		next.Connections = append(next.Connections, Connection{
 			URL:    url,
-			Key:    NoAuthAPIKey,
+			Key:    apiKey,
 			Config: held[url].Config,
 		})
 	}
@@ -188,7 +205,23 @@ type EndpointSync struct {
 // Failure is closed at every step: an unreachable or non-2xx endpoint, a body that does
 // not parse, and a document whose URL and key counts disagree are all errors naming what
 // to do, never a silently defaulted or half-applied list.
+//
+// SyncEndpoints reconciles with NoAuthAPIKey (GHSA-qxg9, ADR-0011: superseded now
+// that every rendered llama-server requires the real InferenceSecret bearer). It is
+// kept, UNCHANGED, as a thin call to SyncEndpointsWithKey(ctx, token, want,
+// NoAuthAPIKey) so existing 3-arg callers keep compiling; callers that have
+// threaded config.InferenceSecret through should call SyncEndpointsWithKey
+// directly.
 func (c *Client) SyncEndpoints(ctx context.Context, token string, want []string) (EndpointSync, error) {
+	return c.SyncEndpointsWithKey(ctx, token, want, NoAuthAPIKey)
+}
+
+// SyncEndpointsWithKey is SyncEndpoints with the connection key made explicit,
+// rather than fixed at the NoAuthAPIKey sentinel. apiKey should be the real
+// InferenceSecret bearer now that every rendered llama-server requires one
+// (GHSA-qxg9, ADR-0011); SyncEndpoints passes NoAuthAPIKey for backward
+// compatibility.
+func (c *Client) SyncEndpointsWithKey(ctx context.Context, token string, want []string, apiKey string) (EndpointSync, error) {
 	out, err := c.do(ctx, "openai/config", Request{Path: pathOpenAIConfig, Token: token})
 	if err != nil {
 		return EndpointSync{}, err
@@ -198,7 +231,7 @@ func (c *Client) SyncEndpoints(ctx context.Context, token string, want []string)
 		return EndpointSync{}, derr
 	}
 
-	next, changed := ReconcileEndpoints(current, want)
+	next, changed := ReconcileEndpointsWithKey(current, want, apiKey)
 	result := EndpointSync{Endpoints: endpointURLs(next)}
 	if !changed {
 		return result, nil

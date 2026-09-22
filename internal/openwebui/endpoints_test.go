@@ -194,6 +194,46 @@ func TestAnAlreadyCorrectListIsNotWritten(t *testing.T) {
 	}
 }
 
+// TestReconcileEndpointsWithKeySetsTheRealKey guards GHSA-qxg9/ADR-0011: every
+// villa endpoint reconciled must carry the caller's apiKey, not the NoAuthAPIKey
+// sentinel llama-server no longer accepts. ReconcileEndpoints (no key argument)
+// must still emit the sentinel — its existing callers have not migrated, and
+// changing its behavior out from under them would silently break their
+// connections rather than degrade to a 401 they can see.
+func TestReconcileEndpointsWithKeySetsTheRealKey(t *testing.T) {
+	var current Config
+	doc := wire(true, []string{villaPrimary, userEndpoint}, []string{NoAuthAPIKey, userKey}, nil)
+	if err := json.Unmarshal([]byte(doc), &current); err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+
+	next, changed := ReconcileEndpointsWithKey(current, []string{villaPrimary}, "secret-key")
+	if !changed {
+		t.Fatalf("changed = false, want true (the sentinel key must be replaced)")
+	}
+	if got := next.Connections[0].Key; got != "secret-key" {
+		t.Errorf("villa endpoint key = %q, want the real secret %q", got, "secret-key")
+	}
+	if got := next.Connections[1].Key; got != userKey {
+		t.Errorf("user endpoint key = %q, want it untouched %q", got, userKey)
+	}
+
+	// The unchanged ReconcileEndpoints must still emit the sentinel — its
+	// existing callers have not migrated to the real key yet.
+	sentinelDoc := wire(true, []string{villaPrimary}, []string{NoAuthAPIKey}, nil)
+	var sentinelCurrent Config
+	if err := json.Unmarshal([]byte(sentinelDoc), &sentinelCurrent); err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	same, changed := ReconcileEndpoints(sentinelCurrent, []string{villaPrimary})
+	if changed {
+		t.Fatalf("ReconcileEndpoints changed an already-sentinel-keyed list, want no-op")
+	}
+	if got := same.Connections[0].Key; got != NoAuthAPIKey {
+		t.Errorf("ReconcileEndpoints key = %q, want the unchanged sentinel %q", got, NoAuthAPIKey)
+	}
+}
+
 // TestSyncEndpointsIsIdempotent is the operational promise: running the reconciliation
 // twice performs exactly one write. Anything else means every `villa up` rewrites Open
 // WebUI's database and no run can be trusted to be a no-op.
