@@ -79,6 +79,11 @@ func TestIsDeletionMatches(t *testing.T) {
 		"cat a | xargs rm",
 		"sudo rm x",
 		"trash x",
+		"timeout 60 rm -rf x",
+		"nice rm -rf x",
+		"nohup rm -rf x",
+		"ls -la\nrm -rf x",
+		"ls & rm -rf x",
 	}
 	for _, cmd := range commands {
 		if !IsDeletion(cmd) {
@@ -113,12 +118,55 @@ func TestAutoAllowed(t *testing.T) {
 		{"python3 script.py", "/workspace", true},
 		{"soffice --convert-to pdf /workspace/x.docx", "/workspace", true},
 		{"curl https://example.com", "/workspace", false},
+		// GHSA-mmp6: python3 -c takes inline code, not a path. The old check
+		// treated the code string's first non-dash word as a workspace-
+		// relative path, which trivially "resolved" inside the workspace and
+		// auto-allowed arbitrary code (including deletions the pattern-based
+		// IsDeletion check cannot see, e.g. shutil.rmtree).
+		{`python3 -c "import shutil;shutil.rmtree('src')"`, "/workspace", false},
 	}
 
 	for _, c := range cases {
 		got := AutoAllowed(c.command, c.workspace)
 		if got != c.want {
 			t.Errorf("AutoAllowed(%q, %q) = %v, want %v", c.command, c.workspace, got, c.want)
+		}
+	}
+}
+
+// TestDecideUnknownActionAsks guards GHSA-fpjc: Decision's zero value must
+// not be Allow, and a lookup miss on either table level must fall back to
+// Ask rather than the map's zero value. A new or renamed Crush tool, an MCP
+// tool, or a case change must never be silently auto-allowed.
+func TestDecideUnknownActionAsks(t *testing.T) {
+	unknownActions := []Action{"", "edit", "mcp", "Write"}
+	for _, mode := range []Mode{ModeAsk, ModeAuto} {
+		for _, action := range unknownActions {
+			got := Decide(mode, Request{Action: action})
+			if got != Ask {
+				t.Errorf("Decide(%s, %q) = %v, want Ask", mode, action, got)
+			}
+		}
+	}
+}
+
+// TestDecideAutoModeNeverBypassesDeletion turns every bypass command
+// GHSA-mmp6 listed into a table case: a safe-list wrapper (timeout, nice,
+// nohup), a newline- or single-&-chained command, and inline code that
+// AutoAllowed mistook for a path must all still ask in auto mode.
+func TestDecideAutoModeNeverBypassesDeletion(t *testing.T) {
+	commands := []string{
+		"timeout 60 rm -rf src",
+		"nice rm -rf src",
+		"nohup rm -rf src",
+		"ls -la\nrm -rf src",
+		"ls & rm -rf src",
+		`python3 -c "import shutil;shutil.rmtree('src')"`,
+	}
+	for _, cmd := range commands {
+		got := Decide(ModeAuto, Request{Action: Execute, Command: cmd, Workspace: "/workspace"})
+		if got != Ask {
+			t.Errorf("Decide(auto, %q) = %v, want Ask", cmd, got)
 		}
 	}
 }

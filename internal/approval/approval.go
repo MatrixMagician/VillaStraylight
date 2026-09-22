@@ -36,7 +36,12 @@ const (
 type Decision int
 
 const (
-	Allow Decision = iota
+	// decisionUnset is the zero value. It must never be Allow: an Action
+	// missing from table, or a Mode missing from an Action's row, produces
+	// this zero value on a bare map index, and that miss must read as
+	// "no policy answered this," not "allowed."
+	decisionUnset Decision = iota
+	Allow
 	Ask
 	Deny
 )
@@ -75,28 +80,59 @@ func Decide(mode Mode, req Request) Decision {
 			return Allow
 		}
 	}
-	return table[req.Action][mode]
+	row, ok := table[req.Action]
+	if !ok {
+		return Ask
+	}
+	decision, ok := row[mode]
+	if !ok || decision == decisionUnset {
+		return Ask
+	}
+	return decision
 }
 
 // chainOperators split a command line into the segments a shell would run in
-// sequence: ;, &&, ||, | (order matters: || and && must match before their
-// single-character halves).
-var chainOperators = strings.NewReplacer(";", "\x00", "&&", "\x00", "||", "\x00", "|", "\x00")
+// sequence: ;, &&, ||, |, a literal newline, and a single & (backgrounding)
+// (order matters: ||/&& must match before their single-character halves).
+var chainOperators = strings.NewReplacer(
+	";", "\x00", "&&", "\x00", "||", "\x00", "|", "\x00", "\n", "\x00", "&", "\x00",
+)
 
 func chainSegments(command string) []string {
 	return strings.Split(chainOperators.Replace(command), "\x00")
 }
 
 // launchers are tokens whose following token is the command actually
-// executed, not an argument: sudo/env per spec sec3.3, plus xargs (it invokes
-// its argument as a command, e.g. "cat a | xargs rm").
-var launchers = map[string]bool{"sudo": true, "env": true, "xargs": true}
+// executed, not an argument: sudo/env per spec sec3.3, xargs (it invokes its
+// argument as a command, e.g. "cat a | xargs rm"), and the safe-list
+// wrappers GHSA-mmp6 named (nice, nohup, time, command, exec) so a wrapped
+// deletion is still classified by the wrapped command, not the wrapper.
+// timeout is handled separately below: it takes a mandatory duration
+// argument before the wrapped command.
+var launchers = map[string]bool{
+	"sudo": true, "env": true, "xargs": true,
+	"nice": true, "nohup": true, "time": true, "command": true, "exec": true,
+}
 
 // effectiveCommand returns the token a segment actually executes, skipping
-// any leading launcher tokens, or "" if the segment has none.
+// any leading launcher tokens (and, for "timeout", its flags and mandatory
+// duration argument), or "" if the segment has none.
 func effectiveCommand(tokens []string) string {
 	i := 0
-	for i < len(tokens) && launchers[tokens[i]] {
+	for i < len(tokens) {
+		if tokens[i] == "timeout" {
+			i++
+			for i < len(tokens) && strings.HasPrefix(tokens[i], "-") {
+				i++
+			}
+			if i < len(tokens) {
+				i++ // the mandatory duration argument
+			}
+			continue
+		}
+		if !launchers[tokens[i]] {
+			break
+		}
 		i++
 	}
 	if i >= len(tokens) {
@@ -154,14 +190,25 @@ var allowlistCommands = map[string]bool{"python3": true, "soffice": true, "mv": 
 // AutoAllowed reports whether command is on the villa-rendered allowlist
 // (python3, soffice, mv, cp) AND every path-shaped argument resolves under
 // workspace. A ".." escape or an absolute path outside workspace is not
-// allowed.
+// allowed. "-c" (python3's inline-code flag) disqualifies the command
+// outright: its argument is code, not a path, and treating it as a
+// workspace-relative path would trivially "resolve" any string as safe
+// (GHSA-mmp6) while the code itself goes unchecked.
 func AutoAllowed(command, workspace string) bool {
 	tokens := strings.Fields(command)
 	if len(tokens) == 0 || !allowlistCommands[filepath.Base(tokens[0])] {
 		return false
 	}
 	root := filepath.Clean(workspace)
+	prevWasCodeFlag := false
 	for _, tok := range tokens[1:] {
+		if prevWasCodeFlag {
+			return false
+		}
+		if tok == "-c" {
+			prevWasCodeFlag = true
+			continue
+		}
 		if strings.HasPrefix(tok, "-") {
 			continue
 		}
@@ -193,7 +240,10 @@ var safeCommands = []string{
 	"git show", "git status", "git tag",
 }
 
-var chainingMetacharacters = []string{";", "|", "&&", "$(", "`"}
+// chainingMetacharacters disqualifies a command containing any of these
+// (single & subsumes &&; also added: newline, GHSA-mmp6's other missed
+// chaining form alongside single &).
+var chainingMetacharacters = []string{";", "|", "&", "$(", "`", "\n"}
 
 // isSafeCommand mirrors Crush's own bash.go check: no chaining metacharacter
 // anywhere in the command, and the (lowercased) command starts with a safe
