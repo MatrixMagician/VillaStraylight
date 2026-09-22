@@ -24,6 +24,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
@@ -79,7 +80,17 @@ func liveSandboxImage() string {
 
 // liveRenderSandboxArgs renders one task's podman arguments: the pinned image,
 // the running villa binary and the villa-owned Crush binary bind-mounted in.
+//
+// It re-runs workspace.CheckGrant against ws before rendering anything: the
+// grant may predate the sensitive-directory and executable-containment
+// checks (GHSA-3q4q-7cmw-m22m), since it was validated only once, at
+// registration, and config.toml is hand-editable. This is the actual
+// launch — Submit's Registered lookup at task-creation time only confirms
+// list membership.
 func liveRenderSandboxArgs(cfg config.VillaConfig, ws, id string) ([]string, error) {
+	if err := workspace.CheckGrant(ws, liveWorkspaceDeps()); err != nil {
+		return nil, err
+	}
 	self, err := os.Executable()
 	if err != nil {
 		return nil, fmt.Errorf("taskrun: locate the villa binary: %w", err)
@@ -136,14 +147,49 @@ func liveGroundingAudit(endpoint string) func(context.Context, grounding.Documen
 	}
 }
 
-// liveWorkspaceRead reads one workspace-relative file, refusing a path that
-// escapes the grant: the bridge reports paths, and a path is untrusted input.
+// maxGroundingReadBytes caps a workspace file read for the grounding audit.
+// This runs on the HOST against guest-reported, guest-controlled content, so
+// an oversize or endless source must not make the long-lived dashboard
+// service buffer without bound (GHSA-478j-frrx-f99c).
+const maxGroundingReadBytes = 4 << 20 // 4 MiB
+
+// liveWorkspaceRead reads one workspace-relative file for the grounding
+// audit. The bridge reports paths, and a path is untrusted input: the
+// in-VM agent can steer a name at a symlink to a host secret outside the
+// workspace, or at a FIFO or device node, and report it as written or read
+// (GHSA-478j-frrx-f99c). pathsafe.Inside refuses a lexical escape; Lstat then
+// refuses anything whose leaf is not already a plain regular file — this is
+// what keeps a FIFO from ever reaching open, where reading it would block
+// the service forever; O_NOFOLLOW is the TOCTOU-safe refusal of a symlink
+// leaf; io.LimitReader bounds a legitimate-looking huge file.
 func liveWorkspaceRead(ws, rel string) ([]byte, error) {
 	path := filepath.Join(ws, rel)
 	if err := pathsafe.Inside(path, ws); err != nil {
 		return nil, err
 	}
-	return os.ReadFile(path) //nolint:gosec // contained by pathsafe.Inside above
+
+	lst, err := os.Lstat(path)
+	if err != nil {
+		return nil, err
+	}
+	if !lst.Mode().IsRegular() {
+		return nil, fmt.Errorf("taskrun: %s is not a regular file", rel)
+	}
+
+	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	data, err := io.ReadAll(io.LimitReader(f, maxGroundingReadBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > maxGroundingReadBytes {
+		return nil, fmt.Errorf("taskrun: %s exceeds the %d byte read limit", rel, maxGroundingReadBytes)
+	}
+	return data, nil
 }
 
 // liveKillContainer is `podman kill <name>`, fixed-arg.
