@@ -77,7 +77,9 @@ Go 1.26+. Single module, single static binary built from `./cmd/villa`.
   seam; ROCm default + Vulkan fallback), `orchestrate` (Quadlet Render/Reconcile/WriteUnits — the
   `podman`/`systemctl` seam), `backendswap` (transactional switch), `bench` (pure A/B core),
   `residentset` (pure admission control for holding several models loaded at once), plus `status`,
-  `dashboard`, `metrics`, `config`, `catalog`, `download`, `modelswap`, `llm`.
+  `dashboard`, `metrics`, `config`, `catalog`, `download`, `modelswap`, `llm`, and `inprobe` (the one
+  home for the in-network curl-probe doctrine — exit-code mapping and typed-Unknown health mapping —
+  shared by `status`'s memory/web-search health checks and `install`'s memory probe).
 
   The v1.3–v1.5 packages follow the same pure-core shape: `memory` + `recall`
   (memory-stack decision spine and the chat-index plan/diff algebra), `agent` +
@@ -321,6 +323,7 @@ loop.
 | status | Read-model aggregation → frozen `Report` (shared by CLI + dashboard) | `internal/status/status.go` |
 | dashboard | Loopback-only stdlib-mux server folding `status` core + embedded SPA | `internal/dashboard/server.go`, `api.go` |
 | metrics | llama.cpp `/metrics` scrape (pp/tg timings) | `internal/metrics/llamacpp.go` |
+| inprobe | The in-network curl-probe doctrine: exit-code mapping, typed-Unknown health mapping, TTL-bounded pair cache | `internal/inprobe/inprobe.go` |
 | download | Model weight pull + shard handling | `internal/download/download.go` |
 | config | Single source of truth: XDG `config.toml` load/save (`VillaConfig`) | `internal/config/villaconfig.go` |
 | prove | The ONE cutover verdict the three transactional cores gate on | `internal/prove/prove.go` |

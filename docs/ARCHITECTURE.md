@@ -521,6 +521,9 @@ internal/
   bench/              Pure honest-A/B benchmark core (--ab composes backendswap).
   status/             Shared read-model aggregation (CLI + dashboard, never forked).
   metrics/            Bounded llama-server /metrics + /slots scrape for the perf panel.
+  inprobe/            The in-network curl-probe doctrine (exit-code + typed-Unknown
+                      health mapping, TTL pair cache); used by status's memory/
+                      web-search health checks and install's memory probe.
   dashboard/          Loopback-only control dashboard backend + embedded UI; hosts
                       the task runner and the loopback task API (v1.11).
   llm/                OpenAI-compatible SSE + non-streaming client (the bench timings source).

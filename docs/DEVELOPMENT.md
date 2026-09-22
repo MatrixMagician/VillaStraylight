@@ -51,6 +51,7 @@ self-documented target list.
 | `make fmt` | `gofmt -w .` | Formats the tree in place. |
 | `make lint` | pinned `golangci-lint run --new-from-merge-base=$(LINT_BASE)` | Runs the version in `.golangci-version` via `go run`; nothing needs to be on `PATH`. Diffs against `origin/main` to mirror CI's new-issues gate; `make LINT_ALL=1 lint` lints the whole tree. |
 | `make check` | `make vet` + `make test` + `make test-race` | The pre-commit gate; run this before pushing. Note it does NOT check formatting or the static build. |
+| `make ci` | `make build-static` + `make check` + `make lint` + `go mod verify` + the TUI-dependency grep | Mirrors what CI runs, with the same caveat `make lint` has: it diffs new lint issues against `LINT_BASE` (`origin/main` by default), so run on `main` itself that diff is empty and the lint step is a no-op. The claim holds on a feature branch, where there is a base to diff against. |
 | `make tidy` | `go mod tidy` | Run after adding/removing imports. |
 | `make clean` | `rm -rf bin villa` | Removes build artifacts. |
 
@@ -109,6 +110,7 @@ under-active-development code is:
 | gofmt | (none) | `make fmt` |
 | go vet | (none) | `make vet` |
 | golangci-lint | `.golangci.yml` + the pin in `.golangci-version` | `make lint` (fetched via `go run`; no local install needed) |
+| govulncheck | the pin in `.govulncheck-version` | `make govulncheck` (fetched via `go run`; no local install needed) |
 
 `make lint` needs nothing installed: it runs the version pinned in `.golangci-version`
 through `go run`, and that file is the single place the pin lives. The CI workflow reads
@@ -138,6 +140,44 @@ a fixed `Deps` signature. Non-test code gets neither.
 A v1-format config is unusable by a v2 binary, but not silently: it fails to load rather
 than linting nothing quietly. Run `golangci-lint migrate` if you ever hit
 "unsupported version of the configuration".
+
+### The govulncheck gate
+
+`make govulncheck` (and `make ci`) run `golang.org/x/vuln/cmd/govulncheck` at the
+version pinned in `.govulncheck-version` — the single place that pin lives, read
+by both the Makefile and the CI workflow so they cannot disagree about which
+scanner ran, the same discipline `.golangci-version` uses for the linter. It
+fails on a **reachable** known vulnerability only (govulncheck's default): a
+vulnerable symbol that is imported but never called is reported but does not
+fail the gate. This matters here specifically because the built binary is
+static and bind-mounted into `villa-websafe` and every task VM (see the
+"Dynamic binary trap" note above), so a vulnerable stdlib or dependency symbol
+in it ships everywhere that mount reaches.
+
+A real run at `v1.8.0` against this tree currently reports 15 reachable
+vulnerabilities from 2 modules and the Go standard library: 12 are fixed by
+the Go 1.26.6 toolchain (`net/url`, `html/template`, `crypto/tls`, `net/http`,
+`encoding/asn1`, `net/textproto`, `crypto/x509`), and the remaining 3 by
+bumping `golang.org/x/net` to `>= v0.55.0` and `golang.org/x/text` to
+`>= v0.39.0`. Applying exactly that bump (`go.mod`'s `go` directive to
+`1.26.6`, then `go get golang.org/x/net@v0.55.0 golang.org/x/text@v0.39.0 &&
+go mod tidy`) was verified in isolation to bring the scan to 0 reachable
+vulnerabilities; `go.mod`/`go.sum` are outside this doc's ownership, so that
+bump is a separate, tracked follow-up rather than something this change makes
+itself. Until it lands, `make ci` and the CI workflow's govulncheck step fail
+on the pre-existing findings named above, not on anything this gate's wiring
+introduced.
+
+### The CRAP gate
+
+A `.claude/live-rules` rule runs `quartermaster crap` before a Go change is
+called done: it scores each function's cyclomatic complexity against its test
+coverage and holds only **new or changed** functions to a ceiling of 6,
+ratcheted against `main`, so it stops the backlog from growing without
+requiring it to shrink. Its first run (the commit that added it) found 0 of
+1961 scored functions newly over the ceiling and 559 already over it — that
+559 is the pre-existing backlog the gate does not fail on, not a target it
+enforces.
 
 ## Testing conventions
 

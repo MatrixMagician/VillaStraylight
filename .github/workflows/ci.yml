@@ -8,6 +8,11 @@
 #   - go vet + go test mirror `make check` (the pre-commit gate).
 #   - go mod verify is the Go-ecosystem supply-chain integrity gate (go.sum hashes
 #     match the checksum DB) — stronger than registry-existence checking.
+#   - govulncheck (pinned in .govulncheck-version, the same way golangci-lint is
+#     pinned in .golangci-version) fails on a REACHABLE known vulnerability only
+#     (its default): the binary is static and bind-mounted into villa-websafe and
+#     every task VM, so a vulnerable stdlib or dependency symbol ships everywhere
+#     that pulls in this build.
 #   - the TUI-stack grep asserts the guided install stays on the standard library.
 #     It replaces a narrower bubbletea-v1 pin that existed only to stop huh
 #     dragging in a second major version; with the whole stack gone, the honest
@@ -45,6 +50,16 @@ jobs:
 
       - name: go mod verify (supply-chain integrity)
         run: go mod verify
+
+      # The pin lives in .govulncheck-version and nowhere else; `make govulncheck`
+      # reads the same file, so local and CI cannot disagree about which scanner
+      # ran. Fails only on a REACHABLE vulnerability (govulncheck's default).
+      - name: resolve the pinned govulncheck version
+        id: vulnver
+        run: echo "version=$(cat .govulncheck-version)" >> "$GITHUB_OUTPUT"
+
+      - name: govulncheck (reachable known vulnerabilities)
+        run: go run golang.org/x/vuln/cmd/govulncheck@${{ steps.vulnver.outputs.version }} ./...
 
       # The repo carried a .golangci.yml that no CI step ever ran, and `make
       # lint` silently falls back to `go vet` when the binary is absent — so the

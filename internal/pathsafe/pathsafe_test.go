@@ -217,6 +217,174 @@ func TestWriteFileAtomicMissingDirLeavesNothing(t *testing.T) {
 	assertNoTmpRemnant(t, root)
 }
 
+// TestWriteFileAtomicChmodTempFailure guards the temp-chmod failure branch:
+// a fault setting the temp file's mode must not disturb the pre-existing
+// target, and must not leave the temp file behind.
+func TestWriteFileAtomicChmodTempFailure(t *testing.T) {
+	prev := chmodTempFn
+	chmodTempFn = func(f *os.File, mode os.FileMode) error { return errors.New("injected chmod failure") }
+	t.Cleanup(func() { chmodTempFn = prev })
+
+	root := t.TempDir()
+	path := filepath.Join(root, "state.json")
+	if err := os.WriteFile(path, []byte("old"), 0o600); err != nil {
+		t.Fatalf("seed prior file: %v", err)
+	}
+
+	if err := WriteFileAtomic(root, path, []byte("new"), 0o600); err == nil {
+		t.Fatal("WriteFileAtomic returned nil, want the injected chmod error")
+	}
+
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if string(got) != "old" {
+		t.Errorf("target content = %q, want %q (prior content must survive)", got, "old")
+	}
+	assertNoTmpRemnant(t, root)
+}
+
+// TestWriteFileAtomicWriteTempFailure guards the temp-write failure branch,
+// the same way TestWriteFileAtomicChmodTempFailure guards chmod.
+func TestWriteFileAtomicWriteTempFailure(t *testing.T) {
+	prev := writeTempFn
+	writeTempFn = func(f *os.File, data []byte) (int, error) { return 0, errors.New("injected write failure") }
+	t.Cleanup(func() { writeTempFn = prev })
+
+	root := t.TempDir()
+	path := filepath.Join(root, "state.json")
+	if err := os.WriteFile(path, []byte("old"), 0o600); err != nil {
+		t.Fatalf("seed prior file: %v", err)
+	}
+
+	if err := WriteFileAtomic(root, path, []byte("new"), 0o600); err == nil {
+		t.Fatal("WriteFileAtomic returned nil, want the injected write error")
+	}
+
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if string(got) != "old" {
+		t.Errorf("target content = %q, want %q (prior content must survive)", got, "old")
+	}
+	assertNoTmpRemnant(t, root)
+}
+
+// TestWriteFileAtomicSyncTempFailure guards the temp-sync failure branch: a
+// fault fsyncing the new bytes before rename must not touch the target or
+// leave the temp file behind.
+func TestWriteFileAtomicSyncTempFailure(t *testing.T) {
+	prev := syncTempFn
+	syncTempFn = func(f *os.File) error { return errors.New("injected sync failure") }
+	t.Cleanup(func() { syncTempFn = prev })
+
+	root := t.TempDir()
+	path := filepath.Join(root, "state.json")
+	if err := os.WriteFile(path, []byte("old"), 0o600); err != nil {
+		t.Fatalf("seed prior file: %v", err)
+	}
+
+	if err := WriteFileAtomic(root, path, []byte("new"), 0o600); err == nil {
+		t.Fatal("WriteFileAtomic returned nil, want the injected sync error")
+	}
+
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if string(got) != "old" {
+		t.Errorf("target content = %q, want %q (prior content must survive)", got, "old")
+	}
+	assertNoTmpRemnant(t, root)
+}
+
+// TestWriteFileAtomicCloseTempFailure guards the temp-close failure branch: a
+// fault closing the temp file must abort before rename, leaving the target
+// and the filesystem exactly as they were.
+func TestWriteFileAtomicCloseTempFailure(t *testing.T) {
+	prev := closeTempFn
+	closeTempFn = func(f *os.File) error { return errors.New("injected close failure") }
+	t.Cleanup(func() { closeTempFn = prev })
+
+	root := t.TempDir()
+	path := filepath.Join(root, "state.json")
+	if err := os.WriteFile(path, []byte("old"), 0o600); err != nil {
+		t.Fatalf("seed prior file: %v", err)
+	}
+
+	if err := WriteFileAtomic(root, path, []byte("new"), 0o600); err == nil {
+		t.Fatal("WriteFileAtomic returned nil, want the injected close error")
+	}
+
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if string(got) != "old" {
+		t.Errorf("target content = %q, want %q (prior content must survive)", got, "old")
+	}
+	assertNoTmpRemnant(t, root)
+}
+
+// TestWriteFileAtomicRenameFailure guards the rename failure branch: the real
+// temp file (created and written for real; only rename is faulted) must be
+// cleaned up rather than left behind as an orphan, and the target must be
+// untouched since the swap never happened.
+func TestWriteFileAtomicRenameFailure(t *testing.T) {
+	prev := renameFileFn
+	renameFileFn = func(oldpath, newpath string) error { return errors.New("injected rename failure") }
+	t.Cleanup(func() { renameFileFn = prev })
+
+	root := t.TempDir()
+	path := filepath.Join(root, "state.json")
+	if err := os.WriteFile(path, []byte("old"), 0o600); err != nil {
+		t.Fatalf("seed prior file: %v", err)
+	}
+
+	if err := WriteFileAtomic(root, path, []byte("new"), 0o600); err == nil {
+		t.Fatal("WriteFileAtomic returned nil, want the injected rename error")
+	}
+
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if string(got) != "old" {
+		t.Errorf("target content = %q, want %q (prior content must survive)", got, "old")
+	}
+	assertNoTmpRemnant(t, root)
+}
+
+// TestWriteFileAtomicChmodPathFailure guards the final chmod-after-rename
+// failure branch. By this point the swap already happened for real (only the
+// trailing chmod is faulted), so unlike the earlier branches the new content
+// IS on disk; the invariant here is that the error surfaces rather than being
+// swallowed, and that no temp file is left beside it (rename already
+// consumed it).
+func TestWriteFileAtomicChmodPathFailure(t *testing.T) {
+	prev := chmodPathFn
+	chmodPathFn = func(name string, mode os.FileMode) error { return errors.New("injected chmod-path failure") }
+	t.Cleanup(func() { chmodPathFn = prev })
+
+	root := t.TempDir()
+	path := filepath.Join(root, "state.json")
+
+	if err := WriteFileAtomic(root, path, []byte("new"), 0o600); err == nil {
+		t.Fatal("WriteFileAtomic returned nil, want the injected chmod-path error")
+	}
+
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if string(got) != "new" {
+		t.Errorf("target content = %q, want %q (rename already completed before the faulted chmod)", got, "new")
+	}
+	assertNoTmpRemnant(t, root)
+}
+
 // assertNoTmpRemnant fails if any *.tmp file survives under dir, mirroring the
 // remnant assertions the orchestrate unit writers already carry.
 func assertNoTmpRemnant(t *testing.T, dir string) {

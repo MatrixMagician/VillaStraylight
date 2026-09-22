@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"io"
+	"math"
 	"strings"
 	"testing"
 )
@@ -331,5 +332,51 @@ func TestHeaderUintAcceptsEveryIntegerWidth(t *testing.T) {
 	}
 	if _, ok := h.Uint("n.negative"); ok {
 		t.Error("Uint accepted a negative signed value; it must not")
+	}
+}
+
+// TestReadValueBranches exercises readValue's switch directly for the wire
+// types no ReadHeader-level test reaches: bool, float32, float64, a truncated
+// read failing mid-decode inside the signed-integer group, and an unknown
+// type code. Coverage was 42.9% before this test (untrusted model-file bytes
+// choose typ), so every branch below was previously unexercised.
+func TestReadValueBranches(t *testing.T) {
+	f32 := binary.LittleEndian.AppendUint32(nil, math.Float32bits(3.5))
+	f64 := binary.LittleEndian.AppendUint64(nil, math.Float64bits(-2.25))
+
+	cases := []struct {
+		name    string
+		typ     uint32
+		payload []byte
+		want    any
+		wantErr bool
+	}{
+		{"bool true", typeBool, []byte{1}, true, false},
+		{"bool false", typeBool, []byte{0}, false, false},
+		{"bool truncated", typeBool, []byte{}, nil, true},
+		{"float32", typeFloat32, f32, float64(float32(3.5)), false},
+		{"float32 truncated", typeFloat32, f32[:2], nil, true},
+		{"float64", typeFloat64, f64, -2.25, false},
+		{"float64 truncated", typeFloat64, f64[:4], nil, true},
+		{"signed integer truncated", typeInt8, []byte{}, nil, true},
+		{"unknown wire type", 99, nil, nil, true},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := readValue(bytes.NewReader(tc.payload), tc.typ)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("readValue(type=%d) = %v, nil; want an error", tc.typ, got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("readValue(type=%d): unexpected error %v", tc.typ, err)
+			}
+			if got != tc.want {
+				t.Errorf("readValue(type=%d) = %v, want %v", tc.typ, got, tc.want)
+			}
+		})
 	}
 }

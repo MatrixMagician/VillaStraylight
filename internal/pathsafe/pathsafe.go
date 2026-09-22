@@ -31,6 +31,20 @@ var (
 	ErrRootNotAbsolute = errors.New("containment root is not absolute")
 )
 
+// writeAtomicOps seams the temp-file steps WriteFileAtomic performs after
+// creating the file, so this package's own tests can inject a failure at each
+// one (a full disk, a permission race, a concurrent unlink) without
+// reproducing the real fault in CI. Swapped only by tests in this package;
+// production code always runs with these defaults.
+var (
+	chmodTempFn  = func(f *os.File, mode os.FileMode) error { return f.Chmod(mode) }
+	writeTempFn  = func(f *os.File, data []byte) (int, error) { return f.Write(data) }
+	syncTempFn   = func(f *os.File) error { return f.Sync() }
+	closeTempFn  = func(f *os.File) error { return f.Close() }
+	renameFileFn = os.Rename
+	chmodPathFn  = os.Chmod
+)
+
 // Inside reports whether path resolves within dir, returning ErrEscapes if not.
 //
 // Both arguments are cleaned and made absolute before comparison, then measured
@@ -126,32 +140,32 @@ func WriteFileAtomic(root, path string, data []byte, mode os.FileMode) error {
 
 	// Chmod before the write so the contents never exist at the default 0600
 	// CreateTemp mode when the caller asked for something tighter.
-	if err := tmp.Chmod(mode); err != nil {
+	if err := chmodTempFn(tmp, mode); err != nil {
 		_ = tmp.Close()
 		cleanup()
 		return fmt.Errorf("chmod temp: %w", err)
 	}
-	if _, err := tmp.Write(data); err != nil {
+	if _, err := writeTempFn(tmp, data); err != nil {
 		_ = tmp.Close()
 		cleanup()
 		return fmt.Errorf("write temp: %w", err)
 	}
-	if err := tmp.Sync(); err != nil {
+	if err := syncTempFn(tmp); err != nil {
 		_ = tmp.Close()
 		cleanup()
 		return fmt.Errorf("sync temp: %w", err)
 	}
-	if err := tmp.Close(); err != nil {
+	if err := closeTempFn(tmp); err != nil {
 		cleanup()
 		return fmt.Errorf("close temp: %w", err)
 	}
-	if err := os.Rename(tmpName, path); err != nil {
+	if err := renameFileFn(tmpName, path); err != nil {
 		cleanup()
 		return fmt.Errorf("rename temp into place: %w", err)
 	}
 	// Rename preserves the temp's mode, but tighten explicitly so a pre-existing
 	// looser file does not survive at its old mode.
-	if err := os.Chmod(path, mode); err != nil {
+	if err := chmodPathFn(path, mode); err != nil {
 		return fmt.Errorf("chmod %s: %w", path, err)
 	}
 	if df, derr := os.Open(dir); derr == nil {
