@@ -42,7 +42,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.26.2"
+          go-version: "1.26.6"
 
       # The same CGO-free build the CI gate enforces. It is load-bearing beyond
       # tidiness: villa-websafe bind-mounts this binary into a distroless container
