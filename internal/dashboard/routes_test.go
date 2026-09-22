@@ -54,7 +54,7 @@ func TestRouteTableResolves(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.method+" "+tc.path, func(t *testing.T) {
-			req := httptest.NewRequest(tc.method, tc.path, nil)
+			req := newAPIRequest(tc.method, tc.path, nil)
 			rec := httptest.NewRecorder()
 			h.ServeHTTP(rec, req)
 			if rec.Code != tc.wantCode {
@@ -107,7 +107,7 @@ func TestWrongMethodOnRealPath(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.method+" "+tc.path, func(t *testing.T) {
-			req := httptest.NewRequest(tc.method, tc.path, nil)
+			req := newAPIRequest(tc.method, tc.path, nil)
 			// Satisfy requireSameOrigin so the request reaches the route table.
 			req.Header.Set("Content-Type", "application/json")
 			req.Header.Set("Sec-Fetch-Site", "same-origin")

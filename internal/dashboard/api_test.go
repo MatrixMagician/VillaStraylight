@@ -76,7 +76,7 @@ func TestHandleStatusFoldsSharedCore(t *testing.T) {
 	deps := stubStatusDeps(t)
 	srv := mustNewServer(t, Config{StatusDeps: deps, ChatPort: 3000, DashboardAddr: "127.0.0.1", DashboardPort: 8888})
 
-	req := httptest.NewRequest(http.MethodGet, "/api/status", nil)
+	req := newAPIRequest(http.MethodGet, "/api/status", nil)
 	rec := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rec, req)
 
@@ -115,7 +115,7 @@ func TestHandleStatusCarriesBackendIdentity(t *testing.T) {
 	deps := stubStatusDeps(t)
 	srv := mustNewServer(t, Config{StatusDeps: deps, ChatPort: 3000, DashboardAddr: "127.0.0.1", DashboardPort: 8888})
 
-	req := httptest.NewRequest(http.MethodGet, "/api/status", nil)
+	req := newAPIRequest(http.MethodGet, "/api/status", nil)
 	rec := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rec, req)
 
@@ -216,7 +216,7 @@ func TestHandleStatusMemoryPassthrough(t *testing.T) {
 	t.Run("memory-on serves the memory object", func(t *testing.T) {
 		srv := mustNewServer(t, Config{StatusDeps: stubMemoryStatusDeps(t), ChatPort: 3000, DashboardAddr: "127.0.0.1", DashboardPort: 8888})
 
-		req := httptest.NewRequest(http.MethodGet, "/api/status", nil)
+		req := newAPIRequest(http.MethodGet, "/api/status", nil)
 		rec := httptest.NewRecorder()
 		srv.Handler().ServeHTTP(rec, req)
 
@@ -246,7 +246,7 @@ func TestHandleStatusMemoryPassthrough(t *testing.T) {
 	t.Run("memory-off omits the memory key", func(t *testing.T) {
 		srv := mustNewServer(t, Config{StatusDeps: stubStatusDeps(t), ChatPort: 3000, DashboardAddr: "127.0.0.1", DashboardPort: 8888})
 
-		req := httptest.NewRequest(http.MethodGet, "/api/status", nil)
+		req := newAPIRequest(http.MethodGet, "/api/status", nil)
 		rec := httptest.NewRecorder()
 		srv.Handler().ServeHTTP(rec, req)
 
@@ -288,7 +288,7 @@ func TestHandleMetricsShapeUnchanged(t *testing.T) {
 		DashboardPort: 8888,
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/api/metrics", nil)
+	req := newAPIRequest(http.MethodGet, "/api/metrics", nil)
 	rec := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rec, req)
 
@@ -354,7 +354,7 @@ func TestHandleModelsListsCatalogWithFit(t *testing.T) {
 		Models:        func() ([]ModelView, bool) { return want, true },
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/api/models", nil)
+	req := newAPIRequest(http.MethodGet, "/api/models", nil)
 	rec := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rec, req)
 
@@ -394,7 +394,7 @@ func TestHandleModelsEmptyCatalog(t *testing.T) {
 		Models:        func() ([]ModelView, bool) { return []ModelView{}, true },
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/api/models", nil)
+	req := newAPIRequest(http.MethodGet, "/api/models", nil)
 	rec := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rec, req)
 
@@ -452,7 +452,7 @@ func stubSwapDeps(known string, fits bool, called *[]string) modelswap.Deps {
 // jsonSwitchReq builds a same-origin JSON POST to /api/models/switch (the headers the
 // requireSameOrigin guard requires) for the given model id.
 func jsonSwitchReq(model string) *http.Request {
-	req := httptest.NewRequest(http.MethodPost, "/api/models/switch",
+	req := newAPIRequest(http.MethodPost, "/api/models/switch",
 		strings.NewReader(`{"model":`+strconv.Quote(model)+`}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Sec-Fetch-Site", "same-origin")
@@ -655,7 +655,7 @@ func TestHandleSwitchCrossOriginBlocked(t *testing.T) {
 		SwapDeps:      stubSwapDeps("qwen3", true, &called),
 	})
 
-	req := httptest.NewRequest(http.MethodPost, "/api/models/switch", strings.NewReader(`{"model":"qwen3"}`))
+	req := newAPIRequest(http.MethodPost, "/api/models/switch", strings.NewReader(`{"model":"qwen3"}`))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Sec-Fetch-Site", "cross-site")
 	req.Header.Set("Origin", "https://evil.example")
@@ -718,7 +718,7 @@ func TestHandleSwitchGetRejected(t *testing.T) {
 		SwapDeps:      stubSwapDeps("qwen3", true, &called),
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/api/models/switch", nil)
+	req := newAPIRequest(http.MethodGet, "/api/models/switch", nil)
 	rec := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rec, req)
 
@@ -735,7 +735,7 @@ func TestHandleSwitchGetRejected(t *testing.T) {
 func TestHandleHealthz(t *testing.T) {
 	srv := mustNewServer(t, Config{StatusDeps: stubStatusDeps(t), ChatPort: 3000, DashboardAddr: "127.0.0.1", DashboardPort: 8888})
 
-	req := httptest.NewRequest(http.MethodGet, "/api/healthz", nil)
+	req := newAPIRequest(http.MethodGet, "/api/healthz", nil)
 	rec := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rec, req)
 
@@ -780,7 +780,7 @@ func (p *usageProbe) write(t usage.Totals) error {
 // getMetrics drives one GET /api/metrics request against the server.
 func getMetrics(t *testing.T, srv *Server) {
 	t.Helper()
-	req := httptest.NewRequest(http.MethodGet, "/api/metrics", nil)
+	req := newAPIRequest(http.MethodGet, "/api/metrics", nil)
 	rec := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -879,7 +879,7 @@ func TestMetricsWritesUsage(t *testing.T) {
 	}
 
 	// --- Live metricsView unchanged: the fold adds NO field to the live response ---
-	req := httptest.NewRequest(http.MethodGet, "/api/metrics", nil)
+	req := newAPIRequest(http.MethodGet, "/api/metrics", nil)
 	rec := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rec, req)
 	// With scrapeMetrics nil-defaulted unavailable, the live view is the frozen
@@ -923,7 +923,7 @@ func TestStatusUsageSurfaced(t *testing.T) {
 	}
 	srv := mustNewServer(t, Config{StatusDeps: deps, ChatPort: 3000, DashboardAddr: "127.0.0.1", DashboardPort: 8888})
 
-	req := httptest.NewRequest(http.MethodGet, "/api/status", nil)
+	req := newAPIRequest(http.MethodGet, "/api/status", nil)
 	rec := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -943,7 +943,7 @@ func TestStatusUsageSurfaced(t *testing.T) {
 	depsNil.ReadUsage = func() *usage.Totals { return nil }
 	srvNil := mustNewServer(t, Config{StatusDeps: depsNil, ChatPort: 3000, DashboardAddr: "127.0.0.1", DashboardPort: 8888})
 
-	reqNil := httptest.NewRequest(http.MethodGet, "/api/status", nil)
+	reqNil := newAPIRequest(http.MethodGet, "/api/status", nil)
 	recNil := httptest.NewRecorder()
 	srvNil.Handler().ServeHTTP(recNil, reqNil)
 

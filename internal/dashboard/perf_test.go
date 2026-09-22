@@ -43,7 +43,7 @@ func TestHandleMetricsLiveGeneration(t *testing.T) {
 	srv := mustNewServer(t, cfg)
 
 	rec := httptest.NewRecorder()
-	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/metrics", nil))
+	srv.Handler().ServeHTTP(rec, newAPIRequest(http.MethodGet, "/api/metrics", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("code=%d body=%s", rec.Code, rec.Body.String())
 	}
@@ -84,7 +84,7 @@ func TestHandleMetricsIdle(t *testing.T) {
 	srv := mustNewServer(t, cfg)
 
 	rec := httptest.NewRecorder()
-	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/metrics", nil))
+	srv.Handler().ServeHTTP(rec, newAPIRequest(http.MethodGet, "/api/metrics", nil))
 
 	var v metricsView
 	if err := json.Unmarshal(rec.Body.Bytes(), &v); err != nil {
@@ -111,7 +111,7 @@ func TestHandleMetricsSlotsFailedActivityUnknown(t *testing.T) {
 	srv := mustNewServer(t, cfg)
 
 	rec := httptest.NewRecorder()
-	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/metrics", nil))
+	srv.Handler().ServeHTTP(rec, newAPIRequest(http.MethodGet, "/api/metrics", nil))
 
 	var v metricsView
 	if err := json.Unmarshal(rec.Body.Bytes(), &v); err != nil {
@@ -143,7 +143,7 @@ func TestHandleMetricsSlotsFailedButGeneratingKnown(t *testing.T) {
 	srv := mustNewServer(t, cfg)
 
 	rec := httptest.NewRecorder()
-	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/metrics", nil))
+	srv.Handler().ServeHTTP(rec, newAPIRequest(http.MethodGet, "/api/metrics", nil))
 
 	var v metricsView
 	if err := json.Unmarshal(rec.Body.Bytes(), &v); err != nil {
@@ -166,7 +166,7 @@ func TestHandleMetricsUnavailable(t *testing.T) {
 	srv := mustNewServer(t, cfg)
 
 	rec := httptest.NewRecorder()
-	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/metrics", nil))
+	srv.Handler().ServeHTTP(rec, newAPIRequest(http.MethodGet, "/api/metrics", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("code=%d, want 200 (panel-level unavailable, not an HTTP error)", rec.Code)
 	}
@@ -195,7 +195,7 @@ func TestHandleGPUMemoryFirst(t *testing.T) {
 	srv := mustNewServer(t, cfg)
 
 	rec := httptest.NewRecorder()
-	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/gpu", nil))
+	srv.Handler().ServeHTTP(rec, newAPIRequest(http.MethodGet, "/api/gpu", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("code=%d body=%s", rec.Code, rec.Body.String())
 	}
@@ -224,7 +224,7 @@ func TestHandleGPUBusyKnown(t *testing.T) {
 	srv := mustNewServer(t, cfg)
 
 	rec := httptest.NewRecorder()
-	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/gpu", nil))
+	srv.Handler().ServeHTTP(rec, newAPIRequest(http.MethodGet, "/api/gpu", nil))
 
 	var v gpuView
 	if err := json.Unmarshal(rec.Body.Bytes(), &v); err != nil {
@@ -240,7 +240,7 @@ func TestMetricsGPURoutesExist(t *testing.T) {
 	srv := mustNewServer(t, metricsConfig(t))
 	for _, path := range []string{"/api/metrics", "/api/gpu"} {
 		rec := httptest.NewRecorder()
-		srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+		srv.Handler().ServeHTTP(rec, newAPIRequest(http.MethodGet, path, nil))
 		if rec.Code == http.StatusNotFound {
 			t.Errorf("GET %s = 404, want a registered handler", path)
 		}

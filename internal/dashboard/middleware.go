@@ -3,12 +3,24 @@ package dashboard
 import (
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 )
 
 // requireSameOrigin is the CSRF / same-origin guard applied to the /api subrouter
-// (Pitfall 7). GET and HEAD are read-only and pass through untouched. For
-// any state-changing method (the single Plan-04 POST /api/models/switch), it requires:
+// (Pitfall 7). Before anything else — including the read-only/state-changing method
+// switch below — it enforces a Host allowlist (GHSA-3r95): r.Host must name the
+// loopback listener at the configured port. This matters because Sec-Fetch-Site:
+// same-origin is same-origin RELATIVE TO WHATEVER HOST THE BROWSER'S PAGE WAS LOADED
+// FROM. A page served from a hostile hostname that DNS-rebinds to 127.0.0.1 is
+// same-origin with itself and sends that exact header on every fetch()
+// (GET included — the isReadOnlyMethod short-circuit below used to let those through
+// with no Host check at all), so only checking r.Host itself — never trusted as an
+// identity, only compared against a fixed allowlist — catches it.
+//
+// Once past the Host check, GET and HEAD are read-only and pass through untouched.
+// For any state-changing method (the single Plan-04 POST /api/models/switch), it
+// requires:
 //
 //   - Content-Type: application/json (a simple form/multipart POST cannot set this
 //     cross-origin without a CORS preflight the loopback API never grants), AND
@@ -21,8 +33,12 @@ import (
 //
 // Anything inconsistent → 403. This guards the mutation by construction now, before
 // the POST handler lands in Plan 04.
-func requireSameOrigin(next http.Handler) http.Handler {
+func requireSameOrigin(next http.Handler, port int) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !hostAllowed(r.Host, port) {
+			http.Error(w, "forbidden: unexpected Host", http.StatusForbidden)
+			return
+		}
 		if isReadOnlyMethod(r.Method) {
 			next.ServeHTTP(w, r)
 			return
@@ -120,6 +136,16 @@ func splitHostPort(authority string) (host, port string) {
 		return strings.ToLower(h), p
 	}
 	return strings.ToLower(authority), ""
+}
+
+// hostAllowed reports whether host names the loopback listener at exactly port —
+// localhost, 127.0.0.1 or [::1], combined with the configured DashboardPort
+// (GHSA-3r95). A host with no port, or the wrong port, is rejected: the dashboard's
+// port is never the platform default, so a legitimate same-origin request always
+// carries it explicitly.
+func hostAllowed(host string, port int) bool {
+	h, p := splitHostPort(host)
+	return isLoopbackHost(h) && p == strconv.Itoa(port)
 }
 
 // isLoopbackHost reports whether a hostname denotes the loopback interface — the names

@@ -17,6 +17,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"os"
 	"runtime/debug"
 	"strconv"
 	"sync"
@@ -347,8 +348,9 @@ func NewServer(cfg Config) (*Server, error) {
 func (s *Server) routes() http.Handler {
 	// The route table lives in api_tasks.go (apiRoutes) and is frozen by
 	// testdata/routes.golden; every mutation registered there sits behind
-	// requireSameOrigin below (JSON content-type + same-origin), so a
-	// cross-origin POST never reaches a handler (T-05-11).
+	// requireSameOrigin below (Host allowlist + JSON content-type + same-origin), so a
+	// cross-origin POST never reaches a handler (T-05-11), and neither does a GET
+	// or POST whose Host was DNS-rebound to this loopback address (GHSA-3r95).
 	api := http.NewServeMux()
 	for _, rt := range s.apiRoutes() {
 		api.HandleFunc(rt.method+" "+rt.pattern, rt.handler)
@@ -357,7 +359,7 @@ func (s *Server) routes() http.Handler {
 	root := http.NewServeMux()
 	// "/api/" claims the whole API subtree, so an unmatched path under it is answered
 	// by the API mux (404/405) rather than falling through to the UI handler.
-	root.Handle("/api/", requireSameOrigin(api))
+	root.Handle("/api/", requireSameOrigin(api, s.port))
 	// Embedded single-page UI. Mirrors spaHandler: fs.Sub + http.FileServer with a
 	// fallback to the html/template shell.
 	root.Handle("/", s.staticHandler())
@@ -475,8 +477,17 @@ func (s *Server) Serve(ctx context.Context) error {
 
 	srv := s.httpServer()
 
+	// Listen and wrap synchronously (not inside the goroutine below) so the
+	// peer-UID gate (GHSA-6mq8) is in place before the first Accept, and so a
+	// bind failure is reported directly rather than only via errCh.
+	ln, err := net.Listen("tcp", srv.Addr)
+	if err != nil {
+		return err
+	}
+	guarded := newPeerUIDListener(ln, os.Getuid())
+
 	errCh := make(chan error, 1)
-	go func() { errCh <- srv.ListenAndServe() }()
+	go func() { errCh <- srv.Serve(guarded) }()
 
 	select {
 	case err := <-errCh:
