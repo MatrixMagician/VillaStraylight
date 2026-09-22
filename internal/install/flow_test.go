@@ -1558,15 +1558,47 @@ func TestInstallRollsBackOnAFailedProof(t *testing.T) {
 			t.Error("a re-install must never delete the operator's config")
 		}
 		// A service that was running before may be stopped on the way to its
-		// rewritten unit; it must be started again by the time the rollback ends.
+		// rewritten unit; it must be started (forward path) or restarted (rollback)
+		// again by the time the rollback ends.
 		for _, svc := range f.stopOrder {
 			lastStop := lastIndex(f.callOrder, "stop:"+svc)
-			lastStart := lastIndex(f.callOrder, "start:"+svc)
+			lastStart := max(lastIndex(f.callOrder, "start:"+svc), lastIndex(f.callOrder, "restart:"+svc))
 			if lastStart < lastStop {
 				t.Errorf("%s was running before the install and is left stopped; callOrder = %v", svc, f.callOrder)
 			}
 		}
 	})
+}
+
+// TestInstallRollbackRestartsAnAlreadyActiveService is #231's behaviour change:
+// `systemctl start` on a unit that never stopped is a no-op (the same trap #128
+// already fixed on the forward path), so a rollback restoring a service that was
+// running before the install must RESTART it, never merely call start again.
+func TestInstallRollbackRestartsAnAlreadyActiveService(t *testing.T) {
+	units, plan := memoryUnits()
+	f := newFakeDeps(t, units, plan, passChecks())
+	f.memoryEnabled = true
+	f.memoryProofStatus = preflight.StatusFail
+	f.memoryProofDetail = "embeddings returned 0 dimensions"
+	f.activeState = "active" // every service, including villa-llama, was running before
+	f.priorConfigExists = true
+	f.priorUnits = map[string]string{}
+	for _, u := range units {
+		f.priorUnits[u.Name] = "[Container]\nImage=prior\n"
+	}
+
+	f.run(Opts{})
+
+	if f.restartCalls == 0 {
+		t.Fatal("rollback restoring a service that was running before must call Restart; restartCalls = 0")
+	}
+	for _, svc := range f.restartOrder {
+		lastStart := lastIndex(f.callOrder, "start:"+svc)
+		lastRestart := lastIndex(f.callOrder, "restart:"+svc)
+		if lastRestart < lastStart {
+			t.Errorf("%s: rollback's bring-up must be the LAST call for this service and must be a restart, not another start; callOrder = %v", svc, f.callOrder)
+		}
+	}
 }
 
 // lastIndex returns the index of the last occurrence of want in order, or -1.

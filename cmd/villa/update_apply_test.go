@@ -11,8 +11,11 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -655,6 +658,28 @@ func TestACommittedSubsystemWithNoPreviousIsNotPruned(t *testing.T) {
 	}
 }
 
+// TestACommitFailureIsNotPruned guards #234. On a commit failure the pinstate
+// write that would have recorded the retained-previous tuple never landed, so the
+// image `s.Previous` names is NOT referenced anywhere in the persisted store —
+// reference-counted pruning would then see it as unreferenced and remove it, even
+// though it is the only rollback target the (proven-good, still running) update
+// has. sr.FailedStep == "commit" is the one signal that distinguishes this from an
+// ordinary clean commit, where the same Previous value IS what gets persisted.
+func TestACommitFailureIsNotPruned(t *testing.T) {
+	got := prunable(updateflow.Result{
+		Subsystems: []updateflow.SubsystemResult{
+			{Subsystem: subsystem.Memory, Outcome: updateflow.Committed,
+				Previous:   map[string]string{"qdrant": "old-qdrant"},
+				FailedStep: "commit",
+				Err:        errors.New("pin state store unwritable")},
+		},
+	})
+	if len(got) != 0 {
+		t.Errorf("a commit failure was offered to prune: %v — its Previous was never persisted, "+
+			"so nothing else references the image a rollback would need", got)
+	}
+}
+
 // TestAFailedRemovalIsAWarnNotAFailedUpdate.
 //
 // Prune runs AFTER the proof passed and the pin committed, so the update has
@@ -926,5 +951,84 @@ func TestACleanRollbackStillReassures(t *testing.T) {
 	})
 	if !strings.Contains(got, "running exactly what it was before this command") {
 		t.Errorf("a CLEAN rollback lost its reassurance; exit 1 would read as a disaster:\n%s", got)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Pin state write guard (#236)
+// ---------------------------------------------------------------------------
+
+// TestWriteEffectivePinsRefusesOnAnUnreadableStore guards #236's first case: a
+// REAL Load error (here, a permission-denied read) must refuse the write rather
+// than substitute pinstate.State{} and save over whatever the unreadable file
+// actually held. That substitution is exactly what would reset the serial floor
+// and drop every retained rollback previous.
+func TestWriteEffectivePinsRefusesOnAnUnreadableStore(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: file permissions do not deny reads")
+	}
+	dataHome := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", dataHome)
+
+	path := filepath.Join(dataHome, "villa", "pin-state.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatalf("seed store dir: %v", err)
+	}
+	before := []byte(`{"schema_version":1,"serial":42,"previous":{"memory":{"refs":{"qdrant":"old-qdrant"}}}}`)
+	if err := os.WriteFile(path, before, 0o600); err != nil {
+		t.Fatalf("seed pin state: %v", err)
+	}
+	if err := os.Chmod(path, 0o000); err != nil {
+		t.Fatalf("chmod unreadable: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(path, 0o600) })
+
+	if err := writeEffectivePins(map[string]string{"qdrant": "new-qdrant"}); err == nil {
+		t.Fatal("writeEffectivePins did not refuse an unreadable pin state store")
+	}
+
+	if err := os.Chmod(path, 0o600); err != nil {
+		t.Fatalf("restore read permission: %v", err)
+	}
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read pin state after refusal: %v", err)
+	}
+	if string(after) != string(before) {
+		t.Errorf("the pin state store was written despite the refusal:\n got:  %s\n want: %s", after, before)
+	}
+}
+
+// TestLiveCommitRefusesOnAPresentButUndecodableStore guards #236's second case:
+// jsonstore folds a corrupt-or-future-schema-but-PRESENT store to the same zero
+// value a genuinely absent store gets, with no error. A caller that only looks at
+// the returned State cannot tell the two apart, and a read-modify-write over that
+// folded zero would silently wipe the serial floor and the retained previous this
+// store exists to protect.
+func TestLiveCommitRefusesOnAPresentButUndecodableStore(t *testing.T) {
+	dataHome := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", dataHome)
+
+	path := filepath.Join(dataHome, "villa", "pin-state.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatalf("seed store dir: %v", err)
+	}
+	before := []byte("{not valid json")
+	if err := os.WriteFile(path, before, 0o600); err != nil {
+		t.Fatalf("seed corrupt pin state: %v", err)
+	}
+
+	err := liveCommit(subsystem.Memory, map[string]string{"qdrant": "new-qdrant"},
+		pinstate.Previous{Refs: map[string]string{"qdrant": "old-qdrant"}})
+	if err == nil {
+		t.Fatal("liveCommit did not refuse a present-but-undecodable pin state store")
+	}
+
+	after, readErr := os.ReadFile(path)
+	if readErr != nil {
+		t.Fatalf("read pin state after refusal: %v", readErr)
+	}
+	if string(after) != string(before) {
+		t.Errorf("the pin state store was overwritten despite the refusal:\n got:  %s\n want: %s", after, before)
 	}
 }

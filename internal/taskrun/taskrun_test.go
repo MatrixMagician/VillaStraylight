@@ -22,12 +22,14 @@ import (
 // fakeBridge is a scripted sandbox: the test feeds events, the runner's
 // commands are recorded, Wait returns the scripted exit, Kill is observed.
 type fakeBridge struct {
-	events  chan crushapi.Event
-	mu      sync.Mutex
-	sent    []crushapi.Command
-	waitErr error
-	killed  bool
-	closed  bool
+	events   chan crushapi.Event
+	mu       sync.Mutex
+	sent     []crushapi.Command
+	waitErr  error
+	killErr  error
+	waitGate chan struct{} // non-nil: Wait blocks until this is closed
+	killed   bool
+	closed   bool
 }
 
 func newFakeBridge() *fakeBridge {
@@ -43,12 +45,20 @@ func (f *fakeBridge) Send(c crushapi.Command) error {
 	return nil
 }
 
-func (f *fakeBridge) Wait() error { return f.waitErr }
+func (f *fakeBridge) Wait() error {
+	if f.waitGate != nil {
+		<-f.waitGate
+	}
+	return f.waitErr
+}
 
 func (f *fakeBridge) Kill() error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.killed = true
+	if f.killErr != nil {
+		return f.killErr
+	}
 	f.closeEvents()
 	return nil
 }
@@ -213,6 +223,25 @@ func (h *harness) waitCommands(b *fakeBridge, n int) []crushapi.Command {
 	}
 	h.t.Fatalf("bridge saw %d commands, want %d", len(b.commands()), n)
 	return nil
+}
+
+// waitKilled blocks until KillByName has been called with name, the same
+// bounded-poll shape as waitState/waitCommands (never a fixed sleep).
+func (h *harness) waitKilled(name string) {
+	h.t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		h.mu.Lock()
+		for _, k := range h.killed {
+			if k == name {
+				h.mu.Unlock()
+				return
+			}
+		}
+		h.mu.Unlock()
+		time.Sleep(2 * time.Millisecond)
+	}
+	h.t.Fatalf("%s was never killed by name", name)
 }
 
 func (h *harness) logText(id string) string {
@@ -648,7 +677,11 @@ func TestTwoSubmitsRunOneAfterTheOther(t *testing.T) {
 	first.feed(ready())
 	h.waitState(a.ID, taskstore.Running)
 	b := h.submit(approval.ModeAsk)
-	time.Sleep(20 * time.Millisecond)
+	// Deterministic, not a sleep-then-check: Submit's Store.Create is
+	// synchronous, and the single worker goroutine is still blocked inside
+	// the first task's event loop (no run_complete fed yet), so it cannot
+	// have reached work()'s dequeue for b — there is no window in which b
+	// could be anything but queued right here (#246).
 	if got, _ := h.store.Load(b.ID); got.State != taskstore.Queued {
 		t.Fatalf("second task state = %q while the first runs, want queued", got.State)
 	}
@@ -787,7 +820,10 @@ func TestCloseJoinsTheWorker(t *testing.T) {
 	if err := os.RemoveAll(h.root); err != nil {
 		t.Fatalf("RemoveAll: %v", err)
 	}
-	time.Sleep(50 * time.Millisecond)
+	// Deterministic, not a sleep-then-check: Close's r.wg.Wait() already
+	// joins every tracked goroutine (the worker, and any detached Wait it
+	// started) before Close returns, so there is nothing left running that
+	// could still write to h.root by the time we reach this line (#246).
 	if _, err := os.Stat(h.root); err == nil {
 		t.Fatalf("%s was recreated after Close returned", h.root)
 	}
@@ -819,5 +855,194 @@ func TestCloseInterruptsATaskInFlight(t *testing.T) {
 	}
 	if !strings.Contains(h.logText(task.ID), "interrupted: the dashboard service is stopping") {
 		t.Errorf("log = %s", h.logText(task.ID))
+	}
+}
+
+// TestBridgeExitWhileAwaitingApprovalFailsTheTask guards #228: the sandbox
+// exiting while an approval is parked must fail the task explicitly, never
+// leave the record stuck in awaiting_approval.
+func TestBridgeExitWhileAwaitingApprovalFailsTheTask(t *testing.T) {
+	h := newHarness(t)
+	b := newFakeBridge()
+	h.bridges <- b
+	h.start()
+	task := h.submit(approval.ModeAsk)
+	b.feed(ready(), permission("p1", "edit", "write", "/workspace/memo.md", `{}`))
+	h.waitState(task.ID, taskstore.AwaitingApproval)
+	b.end() // the bridge exits before the approval is answered
+
+	got := h.waitState(task.ID, taskstore.Failed)
+	if got.Exit == nil || *got.Exit != 1 {
+		t.Errorf("exit = %v, want 1", got.Exit)
+	}
+	if !strings.Contains(h.logText(task.ID), "the sandbox exited before the run completed") {
+		t.Errorf("log lacks the failure reason:\n%s", h.logText(task.ID))
+	}
+}
+
+// TestSecondAskWhileParkedIsDeniedNotOverwritten guards #229: a second
+// permission request while one is already parked must never overwrite the
+// pending slot — the operator's answer to the request they see must land on
+// that request's own grant, not a later one that silently replaced it.
+func TestSecondAskWhileParkedIsDeniedNotOverwritten(t *testing.T) {
+	h := newHarness(t)
+	b := newFakeBridge()
+	h.bridges <- b
+	h.start()
+	task := h.submit(approval.ModeAsk)
+	b.feed(ready(),
+		permission("p1", "edit", "write", "/workspace/memo.md", `{}`),
+		permission("p2", "edit", "write", "/workspace/other.md", `{}`))
+	h.waitState(task.ID, taskstore.AwaitingApproval)
+
+	cmds := h.waitCommands(b, 2) // prompt, then the outright deny of p2
+	if cmds[1].Kind != crushapi.CmdGrant || cmds[1].PermissionID != "p2" || cmds[1].Answer != crushapi.Deny {
+		t.Fatalf("second request should be denied outright: %+v", cmds[1])
+	}
+
+	if err := h.r.Approve(task.ID, false); err != nil {
+		t.Fatalf("Approve: %v", err)
+	}
+	cmds = h.waitCommands(b, 3)
+	if cmds[2].PermissionID != "p1" || cmds[2].Answer != crushapi.Allow {
+		t.Errorf("the operator's approval must land on the displayed request p1: %+v", cmds[2])
+	}
+	b.feed(runComplete(), filesRead())
+	b.end()
+	got := h.waitState(task.ID, taskstore.Done)
+	if len(got.Approvals) != 1 || got.Approvals[0].Path != "memo.md" {
+		t.Errorf("approvals = %+v, want only the displayed request recorded", got.Approvals)
+	}
+}
+
+// TestCancelDuringAuditEndsCancelled guards #233: a cancel that arrives while
+// the post-run grounding audit is in flight must not be silently ignored —
+// the task must still end cancelled, not done.
+func TestCancelDuringAuditEndsCancelled(t *testing.T) {
+	h := newHarness(t)
+	b := newFakeBridge()
+	h.bridges <- b
+	h.writeFile("memo.md", "x")
+	auditStarted := make(chan struct{})
+	h.deps.Audit = func(ctx context.Context, doc grounding.Document, _ []grounding.Source) grounding.DocumentReport {
+		close(auditStarted)
+		<-ctx.Done()
+		return grounding.DocumentReport{Path: doc.Path, Checked: false, Err: ctx.Err().Error()}
+	}
+	h.start()
+	task := h.submit(approval.ModeAuto)
+	b.feed(ready(), fileEvent("/workspace/memo.md"), runComplete(), filesRead())
+	b.end()
+	<-auditStarted
+
+	if err := h.r.Cancel(task.ID); err != nil {
+		t.Fatalf("Cancel: %v", err)
+	}
+	got := h.waitState(task.ID, taskstore.Cancelled)
+	if got.Exit == nil || *got.Exit != 1 {
+		t.Errorf("exit = %v, want 1", got.Exit)
+	}
+}
+
+// TestCloseDuringAuditIsBoundedAndEndsInterrupted guards #233's other half:
+// Close must not block on an audit call that never observes context
+// cancellation any other way, and the task it interrupted must end that way.
+func TestCloseDuringAuditIsBoundedAndEndsInterrupted(t *testing.T) {
+	h := newHarness(t)
+	b := newFakeBridge()
+	h.bridges <- b
+	h.writeFile("memo.md", "x")
+	auditStarted := make(chan struct{})
+	h.deps.Audit = func(ctx context.Context, doc grounding.Document, _ []grounding.Source) grounding.DocumentReport {
+		close(auditStarted)
+		<-ctx.Done()
+		return grounding.DocumentReport{Path: doc.Path, Checked: false, Err: ctx.Err().Error()}
+	}
+	h.start()
+	task := h.submit(approval.ModeAuto)
+	b.feed(ready(), fileEvent("/workspace/memo.md"), runComplete(), filesRead())
+	b.end()
+	<-auditStarted
+
+	done := make(chan struct{})
+	go func() {
+		h.r.Close()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Close blocked on an audit call with no other way to observe cancellation")
+	}
+
+	got, err := h.store.Load(task.ID)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got.State != taskstore.Interrupted {
+		t.Errorf("state = %q, want interrupted", got.State)
+	}
+}
+
+// TestKillFailureWaitsForExitBeforeNextTaskStarts guards #235: a failed Kill
+// must not be recorded as a clean cancel while the next queued task starts —
+// the worker retries by container name and waits for confirmed exit first.
+func TestKillFailureWaitsForExitBeforeNextTaskStarts(t *testing.T) {
+	h := newHarness(t)
+	first := newFakeBridge()
+	first.killErr = errors.New("podman kill: no such container")
+	first.waitGate = make(chan struct{})
+	second := newFakeBridge()
+	h.bridges <- first
+	h.bridges <- second
+	h.start()
+	a := h.submit(approval.ModeAsk)
+	first.feed(ready())
+	h.waitState(a.ID, taskstore.Running)
+	b := h.submit(approval.ModeAsk)
+
+	if err := h.r.Cancel(a.ID); err != nil {
+		t.Fatalf("Cancel: %v", err)
+	}
+	// Once the fallback KillByName call lands, the worker is about to (or
+	// already does) block in b.Wait(), which this test alone controls via
+	// waitGate. Since the worker is one goroutine, it cannot have reached
+	// work()'s dequeue for b while that Wait is still gated — no sleep
+	// needed to prove the second task has not started.
+	h.waitKilled("villa-task-" + a.ID)
+	if got, _ := h.store.Load(b.ID); got.State != taskstore.Queued {
+		t.Fatalf("second task state = %q while the first Kill is unconfirmed, want queued", got.State)
+	}
+	if len(second.commands()) != 0 {
+		t.Fatal("the second bridge was launched before the first confirmed its exit")
+	}
+
+	close(first.waitGate)
+	h.waitState(a.ID, taskstore.Cancelled)
+	second.feed(ready(), runComplete(), filesRead())
+	second.end()
+	h.waitState(b.ID, taskstore.Done)
+}
+
+// TestSessionAllowNeverAutoGrantsADeletion guards the sessionAllow half of
+// GHSA-mmp6: an "all" answer must not auto-grant a later deletion — it must
+// still park for the operator like any other execute ask.
+func TestSessionAllowNeverAutoGrantsADeletion(t *testing.T) {
+	h := newHarness(t)
+	b := newFakeBridge()
+	h.bridges <- b
+	h.start()
+	task := h.submit(approval.ModeAsk)
+	b.feed(ready(), permission("p1", "edit", "write", "/workspace/a.md", `{}`))
+	h.waitState(task.ID, taskstore.AwaitingApproval)
+	if err := h.r.Approve(task.ID, true); err != nil {
+		t.Fatalf("Approve --all: %v", err)
+	}
+	h.waitState(task.ID, taskstore.Running)
+
+	b.feed(permission("p2", "bash", "execute", "", `{"command":"rm -rf build"}`))
+	got := h.waitState(task.ID, taskstore.AwaitingApproval)
+	if len(got.Approvals) != 2 || got.Approvals[1].Command != "rm -rf build" || got.Approvals[1].Answer != "" {
+		t.Errorf("a deletion must still park after approve --all: %+v", got.Approvals)
 	}
 }

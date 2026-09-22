@@ -18,6 +18,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 	"github.com/MatrixMagician/VillaStraylight/internal/install"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
+	"github.com/MatrixMagician/VillaStraylight/internal/pathsafe"
 	"github.com/MatrixMagician/VillaStraylight/internal/preflight"
 	"github.com/MatrixMagician/VillaStraylight/internal/recommend"
 )
@@ -261,11 +262,13 @@ func liveInstallDeps(ctx context.Context) (install.Deps, error) {
 		Enable:             sys.Enable,
 		Start:              sys.Start,
 		Stop:               sys.Stop,
+		Restart:            sys.Restart,
 
 		// The secrets reach the containers via 0600 EnvironmentFiles, never a 0644 unit.
-		WriteWebsafeSecretEnv: orchestrate.WriteWebsafeSecretEnv,
-		WriteSearxngSettings:  orchestrate.WriteSearxngSettings,
-		WriteSearxngSecretEnv: orchestrate.WriteSearxngSecretEnv,
+		WriteWebsafeSecretEnv:   orchestrate.WriteWebsafeSecretEnv,
+		WriteSearxngSettings:    orchestrate.WriteSearxngSettings,
+		WriteSearxngSecretEnv:   orchestrate.WriteSearxngSecretEnv,
+		WriteInferenceSecretEnv: orchestrate.WriteInferenceSecretEnv,
 
 		Endpoint:        func() string { return endpoint },
 		PollReady:       liveReadinessPoll,
@@ -418,11 +421,19 @@ func installUsername() string {
 // separate from the forward path's WriteUnits because rollback restores a captured
 // TEXT rather than re-rendering from config: re-rendering would produce whatever
 // the current config says, which is exactly the config the rollback is undoing.
+//
+// Routed through pathsafe.WriteFileAtomic (#238), like every other state write in
+// this codebase: a plain os.WriteFile left a crash mid-write with a truncated
+// Quadlet unit on disk, exactly the "rolled back" claim ADR-0003 exists to make
+// honest. WriteFileAtomic's own containment check makes the explicit
+// assertWithinDir here belt-and-suspenders, not load-bearing.
 func writeUnitText(dir, name, text string) error {
-	if err := assertWithinDir(filepath.Join(dir, name), dir); err != nil {
+	target := filepath.Join(dir, name)
+	if err := assertWithinDir(target, dir); err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(dir, name), []byte(text), 0o644) //nolint:gosec // unit files are world-readable by design; secrets live in 0600 env files
+	//nolint:gosec // unit files are world-readable by design; secrets live in 0600 env files
+	return pathsafe.WriteFileAtomic(dir, target, []byte(text), 0o644)
 }
 
 // modelFilesPresent reports whether every file the entry needs is on disk under

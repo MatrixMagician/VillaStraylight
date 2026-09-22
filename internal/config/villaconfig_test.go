@@ -938,6 +938,58 @@ func TestGenerateWebLoaderSecret(t *testing.T) {
 	}
 }
 
+// TestGenerateInferenceSecret guards the same crypto/rand, 64-hex-char, high-entropy
+// invariant as GenerateSearxngSecret/GenerateWebLoaderSecret (GHSA-qxg9, ADR-0011): a
+// weak or repeated LLAMA_API_KEY defeats the whole point of requiring one.
+func TestGenerateInferenceSecret(t *testing.T) {
+	a, err := GenerateInferenceSecret()
+	if err != nil {
+		t.Fatalf("GenerateInferenceSecret: %v", err)
+	}
+	if len(a) != 64 {
+		t.Errorf("secret length = %d, want 64 hex chars (32 random bytes)", len(a))
+	}
+	for _, r := range a {
+		if !strings.ContainsRune("0123456789abcdef", r) {
+			t.Errorf("secret %q contains a non-hex rune %q (crypto/rand hex-encode expected)", a, r)
+		}
+	}
+	b, err := GenerateInferenceSecret()
+	if err != nil {
+		t.Fatalf("GenerateInferenceSecret (2nd): %v", err)
+	}
+	if a == b {
+		t.Errorf("two GenerateInferenceSecret calls returned the same value %q — not high-entropy", a)
+	}
+}
+
+// TestInferenceSecretSurvivesEveryFeatureGate guards the invariant that makes
+// InferenceSecret different from WebLoaderSecret/SearxngSecret: inference has no
+// opt-in toggle, so marshalVilla must never zero it regardless of MemoryEnabled /
+// CodingMode / WebSearchEnabled. A save-bearing command that zeroed it on every
+// memory/coding/web-search-off round trip would silently strip the llama-server
+// bearer from disk (GHSA-qxg9), breaking auth on the next `villa up` for a reason
+// no config diff would explain.
+func TestInferenceSecretSurvivesEveryFeatureGate(t *testing.T) {
+	dir := t.TempDir()
+	cfg := DefaultVillaConfig()
+	cfg.InferenceSecret = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+	cfg.MemoryEnabled = false
+	cfg.CodingMode = false
+	cfg.WebSearchEnabled = false
+
+	if err := SaveVillaTo(dir, cfg); err != nil {
+		t.Fatalf("SaveVillaTo: %v", err)
+	}
+	got, err := LoadVillaFrom(dir)
+	if err != nil {
+		t.Fatalf("LoadVillaFrom: %v", err)
+	}
+	if got.InferenceSecret != cfg.InferenceSecret {
+		t.Errorf("InferenceSecret = %q after a save/load round trip with every feature off, want %q unchanged", got.InferenceSecret, cfg.InferenceSecret)
+	}
+}
+
 // TestSaveIsAtomicUnderWriteFailure is the durability gate for the one file the
 // whole control plane treats as authoritative. A save that cannot complete
 // must leave the config that was already on disk intact, never a truncated or

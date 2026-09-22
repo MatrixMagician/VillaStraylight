@@ -29,16 +29,18 @@ const (
 type fakeDeps struct {
 	*Deps
 
-	writeCalls  int
-	reloadCalls int
-	startCalls  int
-	lingerCalls int
-	seboolCalls int
-	pollCalls   int
-	pullCalls   int
-	saveCalls   int
-	wizardCalls int
-	startOrder  []string
+	writeCalls   int
+	reloadCalls  int
+	startCalls   int
+	restartCalls int
+	restartOrder []string
+	lingerCalls  int
+	seboolCalls  int
+	pollCalls    int
+	pullCalls    int
+	saveCalls    int
+	wizardCalls  int
+	startOrder   []string
 	// callOrder records every effect, in order: ensureModel, start:<svc>,
 	// dashWrite, enable:<svc>, stop:<svc>, removeUnit:<name>, removeConfig, …
 	callOrder  []string
@@ -79,6 +81,10 @@ type fakeDeps struct {
 	searxngProofStatus    preflight.Status
 	searxngProofDetail    string
 	websafeSecretEnvCalls int
+
+	inferenceSecretEnvCalls int
+	inferenceSecretEnvName  string
+	inferenceSecretEnvText  string
 
 	agentEnabled         bool
 	agentCat             catalog.Catalog
@@ -172,6 +178,12 @@ func newFakeDeps(t *testing.T, units []orchestrate.Unit, plan orchestrate.Plan, 
 		f.startCalls++
 		f.startOrder = append(f.startOrder, service)
 		f.callOrder = append(f.callOrder, "start:"+service)
+		return nil
+	}
+	d.Restart = func(service string) error {
+		f.restartCalls++
+		f.restartOrder = append(f.restartOrder, service)
+		f.callOrder = append(f.callOrder, "restart:"+service)
 		return nil
 	}
 	d.IsActive = func(string) (string, error) { return f.activeState, nil }
@@ -273,6 +285,13 @@ func newFakeDeps(t *testing.T, units []orchestrate.Unit, plan orchestrate.Plan, 
 	d.WriteWebsafeSecretEnv = func(string, string) error {
 		f.websafeSecretEnvCalls++
 		f.callOrder = append(f.callOrder, "writeWebsafeSecretEnv")
+		return nil
+	}
+	d.WriteInferenceSecretEnv = func(name, text string) error {
+		f.inferenceSecretEnvCalls++
+		f.inferenceSecretEnvName = name
+		f.inferenceSecretEnvText = text
+		f.callOrder = append(f.callOrder, "writeInferenceSecretEnv")
 		return nil
 	}
 	d.AgentCatalog = func() (catalog.Catalog, bool) { return f.agentCat, f.agentCatOK }

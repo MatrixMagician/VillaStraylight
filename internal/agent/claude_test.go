@@ -121,7 +121,7 @@ func TestRunClaudeReadyToLaunch(t *testing.T) {
 	osEnviron = func() []string { return []string{"PATH=/usr/bin", "HOME=/home/x"} }
 	defer func() { osEnviron = restore }()
 
-	cfg := config.VillaConfig{Model: "qwen3", CoderModel: "qwen3-coder", CodingMode: true}
+	cfg := config.VillaConfig{Model: "qwen3", CoderModel: "qwen3-coder", CodingMode: true, InferenceSecret: "test-inference-secret"}
 	rec := &claudeRecorder{cfg: cfg, lookPath: map[string]string{claudeBin: "/usr/local/bin/claude"}}
 	extraArgs := []string{"--foo", "bar"}
 	res := RunClaude(rec.deps(), extraArgs)
@@ -147,7 +147,7 @@ func TestRunClaudeReadyToLaunch(t *testing.T) {
 	}
 	want := []string{
 		"ANTHROPIC_BASE_URL=http://127.0.0.1:8080",
-		"ANTHROPIC_AUTH_TOKEN=" + providerAPIKey,
+		"ANTHROPIC_AUTH_TOKEN=" + cfg.InferenceSecret,
 		"ANTHROPIC_MODEL=qwen3-coder",
 		"ANTHROPIC_DEFAULT_HAIKU_MODEL=qwen3-coder",
 		"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1",

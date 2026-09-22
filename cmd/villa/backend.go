@@ -20,8 +20,31 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/prove"
 	"github.com/MatrixMagician/VillaStraylight/internal/recommend"
 	"github.com/MatrixMagician/VillaStraylight/internal/residency"
+	"github.com/MatrixMagician/VillaStraylight/internal/stacklock"
 	"github.com/MatrixMagician/VillaStraylight/internal/subsystem"
 )
+
+// acquireStackLock takes the cross-process advisory lock (ADR-0010) every
+// stack-mutating CLI verb holds around its Run call — capture through rollback —
+// BLOCKING until any other stack-mutating core (another CLI invocation, or the
+// dashboard's model-switch handler) releases it. The lock file lives beside
+// config.toml, so the CLI and the dashboard always target the SAME file
+// regardless of which one runs first.
+//
+// Every `xxx.Run(...)` call this wraps already fails closed with zero side
+// effects on its own refusal paths (unknown model, non-fit, bad preflight), so
+// holding the lock slightly before the actual mutation begins is harmless.
+//
+// A package-level var (the pullFn seam's shape): tests override it so a cobra
+// caller's exit-mapping test never touches the real $XDG_CONFIG_HOME/villa on
+// the machine running the test.
+var acquireStackLock = func() (*stacklock.Lock, error) {
+	cfgPath, err := config.Path()
+	if err != nil {
+		return nil, fmt.Errorf("resolve config path: %w", err)
+	}
+	return stacklock.Acquire(filepath.Join(filepath.Dir(cfgPath), stacklock.FileName))
+}
 
 // backend.go is the cmd-tier `villa backend` noun: the live host wiring that drives
 // the pure internal/backendswap transactional core (Plan 08-01). It holds the ONE
@@ -95,6 +118,11 @@ func liveProve(ctx context.Context, target string) prove.Verdict {
 		WeightBytes:   liveWeightBytes(cfg),
 		Markers:       backend.ResidencyProof(),
 		DraftExpected: liveDraftExpected(cfg),
+		// GHSA-qxg9 (ADR-0011): the target unit now requires this bearer on every
+		// /v1 route. liveProve is the SHARED cutover gate — backend set, model
+		// swap, `villa update`'s proveInference, tools-mode and restore all route
+		// through this ONE call, so wiring it here covers all of them at once.
+		APIKey: cfg.InferenceSecret,
 	})
 }
 
@@ -224,7 +252,7 @@ func runBackendSet(cmd *cobra.Command, target string, dryRun bool, d *backendswa
 
 	// DRY-RUN FIRST: load config, compute the fit + (rocm) preflight verdicts, print
 	// {target, fit, preflight}, and write NOTHING (no SaveConfig/ReconcileAndWrite/
-	// Restart/CaptureUnit). A dry run has zero side effects (BSET-03).
+	// Restart/CaptureUnits). A dry run has zero side effects (BSET-03).
 	if dryRun {
 		cfg, err := d.LoadConfig()
 		if err != nil {
@@ -255,6 +283,15 @@ func runBackendSet(cmd *cobra.Command, target string, dryRun bool, d *backendswa
 	}
 
 	// REAL switch: the typed Result drives the exit mapping (clone of runModelSwap).
+	// The cross-process lock (ADR-0010) excludes a concurrent dashboard model
+	// switch from persisting a config change this command's rollback would
+	// otherwise silently revert.
+	lock, err := acquireStackLock()
+	if err != nil {
+		fmt.Fprintf(errOut, "backend set: %v\n", err)
+		return exitBlocked
+	}
+	defer func() { _ = lock.Release() }()
 	res := backendswap.Run(*d, target)
 	switch {
 	case res.Refused:
@@ -292,6 +329,33 @@ func runBackendSet(cmd *cobra.Command, target string, dryRun bool, d *backendswa
 			res.From, res.To, installServiceName)
 		return exitPass
 	}
+}
+
+// renderInferenceUnits renders the inference unit set (main + every resident unit)
+// for cfg, shared by CaptureUnits (reads what's on disk for this set BEFORE
+// mutation, #232) and ReconcileAndWrite (renders the same set for the TARGET
+// config) — one render path so the two can never name a different unit set.
+func renderInferenceUnits(cfg config.VillaConfig) ([]orchestrate.Unit, error) {
+	modelFile, err := liveModelFile(cfg)
+	if err != nil {
+		return nil, err
+	}
+	backend, err := inference.BackendFor(cfg.Backend)
+	if err != nil {
+		return nil, err
+	}
+	resident, err := liveResidentUnits(cfg)
+	if err != nil {
+		return nil, err
+	}
+	return livePinnedRender(orchestrate.RenderInput{
+		Backend:       backend,
+		Cfg:           cfg,
+		ModelFile:     modelFile,
+		ModelsDir:     modelsDir(),
+		HostVillaPath: hostVillaPath(),
+		Resident:      resident,
+	})
 }
 
 // liveBackendSwapDeps wires the transactional core to the real host: config load/save,
@@ -355,14 +419,35 @@ func liveBackendSwapDeps() *backendswap.Deps {
 			}
 			return true, ""
 		},
-		// CaptureUnit: read the verbatim prior villa-llama.container bytes from the quadlet
-		// unit dir (inside quadletUnitDir() — traversal-bounded by construction).
-		CaptureUnit: func() ([]byte, error) {
+		// CaptureUnits: read the verbatim prior bytes of EVERY unit the CURRENT
+		// config renders — the main inference unit AND every resident unit (#232) —
+		// from the quadlet unit dir (inside quadletUnitDir() — traversal-bounded by
+		// construction). Rendering from cfg BEFORE mutation names exactly the same
+		// unit set ReconcileAndWrite will consider for the target config, since the
+		// resident model list is unaffected by a backend/speculation/tools-mode
+		// change. A unit render names but has never written (first appearance) is
+		// simply absent from the map, which RestoreUnits then has nothing to do for.
+		CaptureUnits: func(cfg config.VillaConfig) (map[string]string, error) {
 			dir, err := quadletUnitDir()
 			if err != nil {
 				return nil, err
 			}
-			return os.ReadFile(filepath.Join(dir, "villa-llama.container"))
+			units, err := renderInferenceUnits(cfg)
+			if err != nil {
+				return nil, err
+			}
+			captured := map[string]string{}
+			for _, u := range units {
+				text, err := os.ReadFile(filepath.Join(dir, u.Name))
+				if err != nil {
+					if os.IsNotExist(err) {
+						continue
+					}
+					return nil, err
+				}
+				captured[u.Name] = string(text)
+			}
+			return captured, nil
 		},
 		// ReconcileAndWrite: render units from the persisted config, write only the
 		// changed unit(s), daemon-reload inside (clone of the liveSwapDeps closure).
@@ -371,26 +456,7 @@ func liveBackendSwapDeps() *backendswap.Deps {
 			if err != nil {
 				return false, err
 			}
-			modelFile, err := liveModelFile(c)
-			if err != nil {
-				return false, err
-			}
-			backend, err := inference.BackendFor(c.Backend)
-			if err != nil {
-				return false, err
-			}
-			resident, err := liveResidentUnits(c)
-			if err != nil {
-				return false, err
-			}
-			units, err := livePinnedRender(orchestrate.RenderInput{
-				Backend:       backend,
-				Cfg:           c,
-				ModelFile:     modelFile,
-				ModelsDir:     modelsDir(),
-				HostVillaPath: hostVillaPath(),
-				Resident:      resident,
-			})
+			units, err := renderInferenceUnits(c)
 			if err != nil {
 				return false, err
 			}
@@ -401,7 +467,7 @@ func liveBackendSwapDeps() *backendswap.Deps {
 			if len(plan.Changed) == 0 {
 				return false, nil
 			}
-			if err := orchestrate.WriteUnits(plan, dir); err != nil {
+			if err := liveWriteUnits(plan, dir); err != nil {
 				return false, err
 			}
 			if err := sys.DaemonReload(); err != nil {
@@ -409,15 +475,20 @@ func liveBackendSwapDeps() *backendswap.Deps {
 			}
 			return true, nil
 		},
-		// RestoreUnit: write the verbatim captured prior unit bytes back through the
-		// traversal-guarded orchestrate.WriteUnits (the rollback path).
-		RestoreUnit: func(b []byte) error {
+		// RestoreUnits: write the verbatim captured prior bytes of every captured
+		// unit back through liveWriteUnits (the traversal-guarded orchestrate
+		// rollback path, GHSA-qxg9-safe) — every unit CaptureUnits saw, not a fixed
+		// name (#232).
+		RestoreUnits: func(m map[string]string) error {
 			dir, err := quadletUnitDir()
 			if err != nil {
 				return err
 			}
-			plan := orchestrate.Plan{Changed: []orchestrate.Unit{{Name: "villa-llama.container", Text: string(b)}}}
-			return orchestrate.WriteUnits(plan, dir)
+			changed := make([]orchestrate.Unit, 0, len(m))
+			for name, text := range m {
+				changed = append(changed, orchestrate.Unit{Name: name, Text: text})
+			}
+			return liveWriteUnits(orchestrate.Plan{Changed: changed}, dir)
 		},
 		DaemonReload: sys.DaemonReload,
 		Restart:      sys.Restart,

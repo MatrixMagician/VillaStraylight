@@ -56,8 +56,8 @@ type Deps struct {
 	PollHealth func(ctx context.Context, endpoint string, timeout time.Duration) detect.Bool
 	// Generate runs the REAL generation probe against the already-running server and
 	// reports the streamed token result. It starts no container. Live wiring is
-	// inference.GenerationProbe.
-	Generate func(ctx context.Context, endpoint, modelID string) inference.ChatResult
+	// inference.GenerationProbe. apiKey is threaded straight from Target.APIKey.
+	Generate func(ctx context.Context, endpoint, modelID, apiKey string) inference.ChatResult
 	// GPUBusy reads the point-in-time sysfs gpu_busy_percent. Live wiring is
 	// detect.GPUBusyPercent. Sampled repeatedly DURING the drive.
 	GPUBusy func() detect.Int
@@ -123,6 +123,11 @@ type Target struct {
 	// inference.RunningOffloadInput so a draft CPU fallback is proven alongside the
 	// target's.
 	DraftExpected bool
+	// APIKey is the LLAMA_API_KEY/OPENAI_API_KEY bearer the target server was
+	// rendered with (GHSA-qxg9, ADR-0011), sent as the generation probe's Bearer
+	// credential. Empty sends no header — the caller's config.InferenceSecret not
+	// yet threaded through, which degrades to a probe failure, never a panic.
+	APIKey string
 }
 
 // Prove drives the residency-proof protocol and returns the tri-state verdict.
@@ -163,7 +168,7 @@ func Prove(ctx context.Context, d Deps, t Target) inference.Verdict {
 	// stream, keeping the max — a single post-probe read can miss a short decode.
 	chatCh := make(chan inference.ChatResult, 1)
 	go func() {
-		chatCh <- d.Generate(deadlineCtx, t.Endpoint, t.ModelID)
+		chatCh <- d.Generate(deadlineCtx, t.Endpoint, t.ModelID, t.APIKey)
 	}()
 
 	maxBusy := detect.UnknownInt("gpu_busy_percent not sampled during probe", "")

@@ -33,9 +33,12 @@ const (
 // first for exactly that reason, so the table itself never needs a
 // terminal→anything row.
 var transitions = map[State][]State{
-	Queued:           {Running, Refused, Cancelled, Interrupted},
-	Running:          {AwaitingApproval, Done, Flagged, Failed, Cancelled, Interrupted},
-	AwaitingApproval: {Running, Cancelled, Interrupted},
+	Queued:  {Running, Refused, Cancelled, Interrupted},
+	Running: {AwaitingApproval, Done, Flagged, Failed, Cancelled, Interrupted},
+	// Failed: the bridge can exit (crash, OOM, agent quits) while a request is
+	// still parked, and that must fail the task explicitly rather than leave
+	// it stuck in awaiting_approval forever (#228).
+	AwaitingApproval: {Running, Failed, Cancelled, Interrupted},
 }
 
 // Terminal reports whether a state is an end state: no legal outgoing edge,

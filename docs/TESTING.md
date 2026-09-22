@@ -2,12 +2,22 @@
 
 The `villa` control plane is tested entirely with the Go standard `testing`
 package: no third-party test framework, no mocking library, no test runner
-beyond `go test`. Every test runs fully offline: there is **no live GPU, podman,
-systemd, journald, SELinux, or network dependency** in the suite. Host-touching
-behaviour is reached through injectable dependency seams (fakes), and
+beyond `go test`. Nearly every test runs fully offline: there is **no live GPU,
+podman, systemd, journald, SELinux, or network dependency** in the suite.
+Host-touching behaviour is reached through injectable dependency seams (fakes), and
 hardware/log inputs are frozen as `testdata` fixtures. This keeps the suite
 deterministic and CI-safe while still asserting the real orchestration ordering,
 the rendered Quadlet bytes, and the iGPU-offload verdicts.
+
+That is host-conditional for a small number of tests:
+- `build/sandbox/sandbox_test.go`'s `TestOfficeScripts*` (lines 71, 146, 159) shell
+  out to a real `podman run --runtime=krun` when `krun` and the sandbox image are
+  present on the host; they are the three slowest tests on the dev host and skip
+  (rather than fail) when that prerequisite is absent.
+- `cmd/villa/verify_search_test.go:336`'s `TestSearchSSRF` drives
+  `websafe.SafeClient` against internal-host URLs, which resolves/dials before the
+  connect-time SSRF guard refuses them — a real outbound attempt, even though no
+  internal address ever actually connects.
 
 ## Test framework and setup
 

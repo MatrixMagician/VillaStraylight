@@ -7,6 +7,10 @@ import (
 	"testing"
 )
 
+// guardedPort is the configured DashboardPort every test in this file assumes;
+// every legitimate request uses a Host carrying exactly this port.
+const guardedPort = 8888
+
 // guardedRouter wraps an /api mux in requireSameOrigin with a POST echo, so the
 // guard can be exercised in isolation of the real handlers (Pitfall 7).
 // It mirrors how the server mounts the guard: once, around the whole API mux.
@@ -16,7 +20,7 @@ func guardedRouter() http.Handler {
 	api.HandleFunc("POST /api/models/switch", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 
 	root := http.NewServeMux()
-	root.Handle("/api/", requireSameOrigin(api))
+	root.Handle("/api/", requireSameOrigin(api, guardedPort))
 	return root
 }
 
@@ -141,14 +145,85 @@ func TestSameOriginGuardNoneFallsBackToOrigin(t *testing.T) {
 	}
 }
 
-// TestSameOriginGuardPassesGet asserts read-only GETs are never blocked by the guard.
+// TestSameOriginGuardPassesGet asserts read-only GETs on a legitimate Host are never
+// blocked by the guard's Origin/Sec-Fetch-Site checks (those apply only to
+// state-changing methods) — the Host allowlist itself is covered separately below.
 func TestSameOriginGuardPassesGet(t *testing.T) {
 	h := guardedRouter()
 	req := httptest.NewRequest(http.MethodGet, "/api/status", nil)
+	req.Host = "127.0.0.1:8888"
 	req.Header.Set("Origin", "http://evil.example") // even a cross-origin GET is fine
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("GET /api/status = %d, want 200", rec.Code)
+	}
+}
+
+// TestHostAllowed pins hostAllowed's allowlist directly: only localhost, 127.0.0.1
+// and [::1], each combined with EXACTLY the configured port, pass.
+func TestHostAllowed(t *testing.T) {
+	cases := []struct {
+		host string
+		port int
+		want bool
+	}{
+		{"127.0.0.1:8888", 8888, true},
+		{"localhost:8888", 8888, true},
+		{"[::1]:8888", 8888, true},
+		{"LOCALHOST:8888", 8888, true}, // case-insensitive
+		{"attacker.example:8888", 8888, false},
+		{"127.0.0.1:9999", 8888, false}, // right host, wrong port
+		{"127.0.0.1", 8888, false},      // no port at all
+		{"", 8888, false},
+	}
+	for _, tc := range cases {
+		if got := hostAllowed(tc.host, tc.port); got != tc.want {
+			t.Errorf("hostAllowed(%q, %d) = %v, want %v", tc.host, tc.port, got, tc.want)
+		}
+	}
+}
+
+// TestSameOriginGuardRejectsSpoofedHost is the GHSA-3r95 regression: a request whose
+// Host is not the loopback listener at the configured port must be rejected BEFORE
+// the method switch, for GET as much as for POST. This is the DNS-rebinding path —
+// a page served from a hostname that resolves to 127.0.0.1 sends
+// Sec-Fetch-Site: same-origin (it IS same-origin with itself) with a Host the
+// dashboard never configured, so the same-origin signal alone cannot catch it; only
+// checking Host against the allowlist does. Confirmed live at 81eacec: a spoofed
+// Host previously reached the handler (503 for the POST, 200 for the GET) rather
+// than being rejected by the guard.
+func TestSameOriginGuardRejectsSpoofedHost(t *testing.T) {
+	h := guardedRouter()
+
+	cases := []struct {
+		name   string
+		method string
+		path   string
+		host   string
+	}{
+		{"spoofed host on GET", http.MethodGet, "/api/status", "attacker.example:8888"},
+		{"spoofed host on POST", http.MethodPost, "/api/models/switch", "attacker.example:8888"},
+		{"right host wrong port", http.MethodGet, "/api/status", "127.0.0.1:9999"},
+		{"loopback host no port", http.MethodGet, "/api/status", "127.0.0.1"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var body *strings.Reader
+			if tc.method == http.MethodPost {
+				body = strings.NewReader("{}")
+			} else {
+				body = strings.NewReader("")
+			}
+			req := httptest.NewRequest(tc.method, tc.path, body)
+			req.Host = tc.host
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Sec-Fetch-Site", "same-origin")
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, req)
+			if rec.Code != http.StatusForbidden {
+				t.Fatalf("%s %s with Host %q = %d, want 403", tc.method, tc.path, tc.host, rec.Code)
+			}
+		})
 	}
 }

@@ -93,8 +93,15 @@ func TestRenderOpenWebUIBearerViaEnvironmentFile(t *testing.T) {
 		t.Fatalf("Render(off): %v", err)
 	}
 	cOff := unitByName(t, off, "villa-openwebui.container")
-	if strings.Contains(cOff.Text, "EnvironmentFile=") {
-		t.Errorf("web search off: OWUI unit must NOT carry an EnvironmentFile= (byte-identical-off):\n%s", cOff.Text)
+	// GHSA-qxg9/ADR-0011: the INFERENCE secret's EnvironmentFile= is now
+	// unconditional (inference has no opt-in gate) — only the WEBSAFE bearer's
+	// EnvironmentFile= must still be absent with web search off.
+	wantInference := "EnvironmentFile=" + InferenceSecretEnvFilePath()
+	if !strings.Contains(cOff.Text, wantInference) {
+		t.Errorf("web search off: OWUI unit does not reference the inference EnvironmentFile= %q:\n%s", wantInference, cOff.Text)
+	}
+	if strings.Contains(cOff.Text, "EnvironmentFile="+WebsafeSecretEnvFilePath()) {
+		t.Errorf("web search off: OWUI unit must NOT reference the websafe bearer EnvironmentFile= (byte-identical-off):\n%s", cOff.Text)
 	}
 }
 

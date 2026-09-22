@@ -249,7 +249,7 @@ func liveRestoreSubsystem(ctx context.Context, sys orchestrate.Systemd, k subsys
 		changed = append(changed, orchestrate.Unit{Name: name, Text: string(data)})
 	}
 	if len(changed) > 0 {
-		if err := orchestrate.WriteUnits(orchestrate.Plan{Changed: changed}, dir); err != nil {
+		if err := liveWriteUnits(orchestrate.Plan{Changed: changed}, dir); err != nil {
 			return err
 		}
 	}
@@ -269,12 +269,47 @@ func liveRestoreSubsystem(ctx context.Context, sys orchestrate.Systemd, k subsys
 	return nil
 }
 
+// loadPinStateForWrite reads the pin-state store immediately before a
+// read-modify-write, refusing rather than silently substituting the zero value
+// when the read cannot be trusted (#236).
+//
+// jsonstore folds FOUR different situations into a caller-visible outcome, and
+// two of them look identical from here: a genuinely absent store (the normal
+// fresh-install case — safe to proceed on a zero State) and a store that EXISTS
+// but is corrupt or a future schema this binary predates (Load fails closed to
+// the same zero State, with no error either). A real I/O error (permissions, an
+// unreadable directory) is a third, and the two callers below used to throw that
+// one away too, substituting pinstate.State{} in every case. The recorded serial
+// is the manifest anti-replay floor and the retained-previous map is the only
+// rollback record this project keeps — saving either of those from a substituted
+// zero value silently resets the floor and drops the rollback target.
+//
+// The absent-vs-corrupt ambiguity is broken by reading the raw bytes directly:
+// livePinStateDeps' ReadAll returns no bytes at all for an absent store, so any
+// non-empty payload that still decoded to the zero value is a store that exists
+// but could not be trusted, and this refuses rather than guesses.
+func loadPinStateForWrite(deps pinstate.Deps) (pinstate.State, error) {
+	raw, err := deps.ReadAll()
+	if err != nil {
+		return pinstate.State{}, fmt.Errorf("read the pin state store before writing it: %w", err)
+	}
+	state, err := pinstate.Load(deps)
+	if err != nil {
+		return pinstate.State{}, fmt.Errorf("read the pin state store before writing it: %w", err)
+	}
+	if len(raw) > 0 && state.SchemaVersion == 0 {
+		return pinstate.State{}, errors.New("the pin state store exists but could not be read as this version's format; " +
+			"refusing to overwrite it, which would silently drop the recorded serial floor and the retained rollback previous")
+	}
+	return state, nil
+}
+
 // writeEffectivePins records the pins a subsystem is running.
 func writeEffectivePins(refs map[string]string) error {
 	deps := livePinStateDeps()
-	state, err := pinstate.Load(deps)
+	state, err := loadPinStateForWrite(deps)
 	if err != nil {
-		state = pinstate.State{}
+		return err
 	}
 	if state.Pins == nil {
 		state.Pins = map[string]pinstate.Effective{}
@@ -289,9 +324,9 @@ func writeEffectivePins(refs map[string]string) error {
 // liveCommit records the retained previous alongside the already-written pins.
 func liveCommit(k subsystem.Kind, refs map[string]string, previous pinstate.Previous) error {
 	deps := livePinStateDeps()
-	state, err := pinstate.Load(deps)
+	state, err := loadPinStateForWrite(deps)
 	if err != nil {
-		state = pinstate.State{}
+		return err
 	}
 	if state.Pins == nil {
 		state.Pins = map[string]pinstate.Effective{}
@@ -347,7 +382,7 @@ func renderAndWrite(cfg config.VillaConfig) error {
 	if len(plan.Changed) == 0 {
 		return nil
 	}
-	return orchestrate.WriteUnits(plan, dir)
+	return liveWriteUnits(plan, dir)
 }
 
 // ---------------------------------------------------------------------------
@@ -831,13 +866,19 @@ func runPrune(ctx context.Context, w io.Writer, res updateflow.Result) {
 // subsystem's "previous" is the image it was just RESTORED to — removing that would
 // delete what the stack is now running. An untried one has no previous at all.
 //
+// A commit FAILURE is excluded too (#234), even though its Outcome still reads
+// Committed: the pinstate write that would have recorded this Previous as the
+// retained rollback tuple never landed, so nothing in the persisted store
+// references the image any more. Reference-counted pruning would then see it as
+// unreferenced and remove the one thing a rollback still needs.
+//
 // It is a named function rather than a condition inside the loop so a test can
 // assert the selection directly. A test that re-derived the rule would pass against
 // a version that had the rule backwards.
 func prunable(res updateflow.Result) []updateflow.SubsystemResult {
 	var out []updateflow.SubsystemResult
 	for _, s := range res.Subsystems {
-		if s.Outcome.Committed() && len(s.Previous) > 0 {
+		if s.Outcome.Committed() && len(s.Previous) > 0 && s.FailedStep != "commit" {
 			out = append(out, s)
 		}
 	}

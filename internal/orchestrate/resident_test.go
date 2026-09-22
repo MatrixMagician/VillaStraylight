@@ -324,6 +324,9 @@ func TestRenderOpenWebUIResidentEndpointsPluralPrimaryFirst(t *testing.T) {
 	in := residentFixtureInput()
 	in.Cfg.Resident = append(in.Cfg.Resident, config.ResidentModel{Model: "gemma3-12b", Ctx: 8192, Port: 8082})
 	in.Resident = append(in.Resident, ResidentUnit{Model: "gemma3-12b", ModelFile: "gemma3-12b.gguf", Ctx: 8192, Port: 8082})
+	// GHSA-qxg9/ADR-0011: every villa endpoint's key is now the real
+	// InferenceSecret, not the sk-no-key-required sentinel.
+	in.Cfg.InferenceSecret = "test-secret"
 
 	units, err := Render(in)
 	if err != nil {
@@ -339,7 +342,7 @@ func TestRenderOpenWebUIResidentEndpointsPluralPrimaryFirst(t *testing.T) {
 	if !strings.Contains(c.Text, wantURLs) {
 		t.Errorf("OWUI unit missing the plural endpoint list:\nwant substring %q\n%s", wantURLs, c.Text)
 	}
-	wantKeys := "Environment=OPENAI_API_KEYS=sk-no-key-required;sk-no-key-required;sk-no-key-required"
+	wantKeys := "Environment=OPENAI_API_KEYS=test-secret;test-secret;test-secret"
 	if !strings.Contains(c.Text, wantKeys) {
 		t.Errorf("OWUI unit missing one API key per endpoint:\nwant substring %q\n%s", wantKeys, c.Text)
 	}

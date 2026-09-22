@@ -435,7 +435,7 @@ func liveRestoreDeps() backup.RestoreDeps {
 			if len(plan.Changed) == 0 {
 				return false, nil
 			}
-			if err := orchestrate.WriteUnits(plan, dir); err != nil {
+			if err := liveWriteUnits(plan, dir); err != nil {
 				return false, err
 			}
 			if err := sys.DaemonReload(); err != nil {

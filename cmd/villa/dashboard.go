@@ -182,6 +182,17 @@ func liveDashboardDeps(ctx context.Context) (*dashboardDeps, error) {
 	}
 	endpoint := statusDeps.Endpoint()
 
+	// GHSA-qxg9 (ADR-0011): the /metrics + /slots scrapes below need this bearer
+	// now that llama-server requires it on every route but /health. A load
+	// failure here degrades to no key (a 401 → typed-Unknown on the panel, never
+	// a crash) — cfg is re-loaded, not threaded from statusDeps, because it is
+	// the plainest source of truth and this func already loads it once below for
+	// the task runner gate.
+	var apiKey string
+	if cfg, cfgErr := config.LoadVilla(); cfgErr == nil {
+		apiKey = cfg.InferenceSecret
+	}
+
 	// The runner exists only when the workspace agent is on (fail-soft config
 	// load, like the sandbox gate). Recover runs HERE, before Serve binds, so a
 	// record left running by the previous service instance is interrupted before
@@ -202,8 +213,8 @@ func liveDashboardDeps(ctx context.Context) (*dashboardDeps, error) {
 		Serve:      func(ctx context.Context, s *dashboard.Server) error { return s.Serve(ctx) },
 
 		// Performance: bounded /metrics + /slots scrapes of the inference endpoint.
-		Metrics: func() (metrics.PerfSnapshot, bool) { return metrics.ScrapeMetrics(endpoint) },
-		Slots:   func() ([]metrics.Slot, bool) { return metrics.ScrapeSlots(endpoint) },
+		Metrics: func() (metrics.PerfSnapshot, bool) { return metrics.ScrapeMetricsAuth(endpoint, apiKey) },
+		Slots:   func() ([]metrics.Slot, bool) { return metrics.ScrapeSlotsAuth(endpoint, apiKey) },
 
 		// GPU & Memory (memory-first): the GTT-used headline + the usable unified-memory
 		// envelope (from the authoritative HostProfile envelope, never MemTotal) + the
@@ -231,7 +242,7 @@ func liveDashboardDeps(ctx context.Context) (*dashboardDeps, error) {
 		ReadUsage:     liveReadUsageTotals,
 		WriteUsage:    liveWriteUsage,
 		ModelID:       liveModelID,
-		CounterSample: func() (metrics.CounterSample, bool) { return metrics.ScrapeCounters(endpoint) },
+		CounterSample: func() (metrics.CounterSample, bool) { return metrics.ScrapeCountersAuth(endpoint, apiKey) },
 
 		// Pins: liveResolver (cmd/villa/pins.go) already joins the compiled-in
 		// table to this host's pinstate.State the SAME way every render does — no

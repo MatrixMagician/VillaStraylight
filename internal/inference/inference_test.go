@@ -85,3 +85,42 @@ func TestContainerArgsCarryMandatoryFlags(t *testing.T) {
 		t.Errorf("image not digest-pinned: %s", VulkanBackend().Image())
 	}
 }
+
+// TestContainerArgsSecretEnvFile is the GHSA-qxg9 (ADR-0011) transient-container
+// half: an empty SecretEnvFile (the pre-existing default, and an unmigrated host
+// with no secret yet) renders byte-identical args with no --env-file at all; a
+// non-empty one appends `--env-file <path>` — the bearer reaches llama-server
+// via the SAME file every rendered Quadlet unit's EnvironmentFile= carries,
+// never as a value on the podman command line.
+func TestContainerArgsSecretEnvFile(t *testing.T) {
+	base := RunSpec{ContainerName: "c", ModelFile: "m.gguf", ModelsDir: "/d", ContextLen: 8192}
+
+	withSecret := base
+	withSecret.SecretEnvFile = "/home/user/.config/villa/inference/llama.env"
+
+	for _, backend := range []Backend{VulkanBackend(), backendROCm{name: "rocm", image: "img"}} {
+		noSecretArgs := backend.ContainerArgs(base)
+		if strings.Contains(strings.Join(noSecretArgs, " "), "--env-file") {
+			t.Errorf("%s: empty SecretEnvFile must render no --env-file, got %v", backend.Name(), noSecretArgs)
+		}
+
+		withSecretArgs := backend.ContainerArgs(withSecret)
+		if !hasFlagValue(withSecretArgs, "--env-file", withSecret.SecretEnvFile) {
+			t.Errorf("%s: SecretEnvFile set must render --env-file %q, got %v", backend.Name(), withSecret.SecretEnvFile, withSecretArgs)
+		}
+		joined := strings.Join(withSecretArgs, " ")
+		if strings.Contains(joined, "LLAMA_API_KEY") || strings.Contains(joined, "OPENAI_API_KEY") {
+			t.Errorf("%s: the secret VALUE must never reach the podman command line, got %v", backend.Name(), withSecretArgs)
+		}
+	}
+}
+
+// hasFlagValue reports whether args contains flag immediately followed by value.
+func hasFlagValue(args []string, flag, value string) bool {
+	for i := range len(args) - 1 {
+		if args[i] == flag && args[i+1] == value {
+			return true
+		}
+	}
+	return false
+}

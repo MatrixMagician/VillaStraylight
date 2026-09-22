@@ -28,6 +28,7 @@ package backendswap
 
 import (
 	"context"
+	"strings"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/prove"
@@ -50,19 +51,23 @@ type Deps struct {
 	// target is rocm; the live seam short-circuits ok=true for non-rocm targets. A
 	// not-ok is a refuse-with-remediation with zero side effects (BSET-01).
 	PreflightROCm func(cfg config.VillaConfig) (ok bool, reason string)
-	// CaptureUnit reads the verbatim prior villa-llama.container bytes BEFORE any
-	// mutation, so a rollback restores the exact prior unit (Pitfall 4). An error
-	// here refuses without mutating (an uncapturable prior unit must not be touched).
-	CaptureUnit func() ([]byte, error)
+	// CaptureUnits reads the verbatim prior bytes of EVERY unit the current config
+	// renders (main inference unit AND every resident unit) BEFORE any mutation, so
+	// a rollback restores each of them exactly (Pitfall 4, #232 — a switch that
+	// changes more than villa-llama.container must not roll back only that one). An
+	// error here refuses without mutating (an uncapturable prior unit must not be
+	// touched).
+	CaptureUnits func(cfg config.VillaConfig) (map[string]string, error)
 	// SaveConfig persists the new backend to config.toml (the source of truth).
 	SaveConfig func(c config.VillaConfig) error
 	// ReconcileAndWrite renders units from the persisted config and writes only the
 	// changed unit(s); the live closure performs the daemon-reload internally,
 	// mirroring liveSwapDeps. It reports whether anything changed.
 	ReconcileAndWrite func(c config.VillaConfig) (changed bool, err error)
-	// RestoreUnit writes the verbatim captured prior unit bytes back during a
-	// rollback (live impl goes through the traversal-guarded orchestrate.WriteUnits).
-	RestoreUnit func(b []byte) error
+	// RestoreUnits writes the verbatim captured prior bytes of every captured unit
+	// back during a rollback (live impl goes through the traversal-guarded
+	// orchestrate.WriteUnits).
+	RestoreUnits func(m map[string]string) error
 	// DaemonReload reloads the user systemd manager (after a restore on rollback).
 	DaemonReload func() error
 	// Restart restarts ONLY the named service (the inference unit) — both on the
@@ -276,40 +281,46 @@ func transact(d Deps, from, to string, mutate func(*config.VillaConfig)) Result 
 		return Result{Refused: true, FailedStep: "load config", Err: err, To: to}
 	}
 
-	// (4) CAPTURE strictly BEFORE any mutation (Pitfall 4): the verbatim prior unit
-	// bytes and a value snapshot of the prior config. An uncapturable prior unit must
-	// not be mutated — refuse with zero side effects.
-	priorUnit, err := d.CaptureUnit()
+	// (4) CAPTURE strictly BEFORE any mutation (Pitfall 4): the verbatim prior bytes
+	// of every unit the CURRENT config renders (main + every resident unit, #232),
+	// keyed by name, and a value snapshot of the prior config. An uncapturable prior
+	// unit must not be mutated — refuse with zero side effects.
+	priorUnits, err := d.CaptureUnits(cfg)
 	if err != nil {
 		return Result{Refused: true, FailedStep: "capture", Err: err, From: from, To: to}
 	}
 	priorCfg := cfg // VillaConfig is a flat value type (no pointers) → safe deep snapshot.
 
-	// rollback restores the verbatim captured prior unit+config and re-readies the
+	// rollback restores the verbatim captured prior units+config and re-readies the
 	// inference service, best-effort: it accumulates errors across all four steps
 	// rather than aborting on the first, and reports whether EVERY step succeeded.
 	// Per Pitfall 5, an incomplete rollback must be flagged honestly — never claim a
 	// clean no-op when a restore step errored. Re-ready is best-effort and bounded by
 	// the live Prove/poll wiring (Open Question 2), not by this pure core.
+	//
+	// Failures accumulate across all four steps rather than the last one overwriting
+	// the detail of an earlier one, so an operator investigating an incomplete
+	// rollback sees every step that failed, not only the last (#232).
 	rollback := func() (ok bool, detail string) {
 		ok = true
-		if err := d.RestoreUnit(priorUnit); err != nil {
+		var fails []string
+		if err := d.RestoreUnits(priorUnits); err != nil {
 			ok = false
-			detail = "RestoreUnit failed: " + err.Error()
+			fails = append(fails, "RestoreUnits failed: "+err.Error())
 		}
 		if err := d.SaveConfig(priorCfg); err != nil {
 			ok = false
-			detail = "SaveConfig(prior) failed: " + err.Error()
+			fails = append(fails, "SaveConfig(prior) failed: "+err.Error())
 		}
 		if err := d.DaemonReload(); err != nil {
 			ok = false
-			detail = "DaemonReload failed: " + err.Error()
+			fails = append(fails, "DaemonReload failed: "+err.Error())
 		}
 		if err := d.Restart(d.InstallServiceName); err != nil {
 			ok = false
-			detail = "Restart(prior) failed: " + err.Error()
+			fails = append(fails, "Restart(prior) failed: "+err.Error())
 		}
-		return ok, detail
+		return ok, strings.Join(fails, "; ")
 	}
 
 	// rolledBack assembles a RolledBack Result, folding in an honest rollback-incomplete

@@ -124,7 +124,7 @@ func TestHandleJournalFoldsInjectedSeam(t *testing.T) {
 		Journal:       func() JournalView { return want },
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/api/journal", nil)
+	req := newAPIRequest(http.MethodGet, "/api/journal", nil)
 	rec := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rec, req)
 
@@ -150,7 +150,7 @@ func TestHandleJournalNilSeamDefaultsToUnavailable(t *testing.T) {
 		DashboardPort: 8888,
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/api/journal", nil)
+	req := newAPIRequest(http.MethodGet, "/api/journal", nil)
 	rec := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rec, req)
 

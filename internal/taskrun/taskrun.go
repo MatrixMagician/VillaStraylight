@@ -112,11 +112,16 @@ type answer struct {
 // Approve/Deny clear it under the runner's mutex before sending, so exactly one
 // answer reaches the worker per parked request. interrupted marks a cancel that
 // came from Close rather than the operator, which ends the record interrupted.
+// ctxCancel cancels the job's per-run context (set by run before the worker
+// can block anywhere), so a cancel reaches an in-flight, otherwise
+// uncancellable call — the grounding audit — even while the main select loop
+// that reads cancel is not the frame currently running (#233).
 // Every field but id and the channels is read and written under Runner.mu.
 type active struct {
 	id          string
 	answers     chan answer
 	cancel      chan struct{}
+	ctxCancel   context.CancelFunc
 	awaiting    bool
 	cancelled   bool
 	interrupted bool
@@ -160,6 +165,9 @@ func (r *Runner) Close() {
 		if a := r.current; a != nil && !a.cancelled {
 			a.cancelled = true
 			a.interrupted = true
+			if a.ctxCancel != nil {
+				a.ctxCancel()
+			}
 			a.cancel <- struct{}{}
 		}
 		r.mu.Unlock()
@@ -315,6 +323,9 @@ func (r *Runner) Cancel(id string) error {
 		cancelled := a.cancelled
 		if !cancelled {
 			a.cancelled = true
+			if a.ctxCancel != nil {
+				a.ctxCancel()
+			}
 			a.cancel <- struct{}{}
 		}
 		r.mu.Unlock()

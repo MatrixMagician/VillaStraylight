@@ -1,6 +1,8 @@
 package modelswap
 
 import (
+	"bytes"
+	"context"
 	"errors"
 	"reflect"
 	"strings"
@@ -8,15 +10,22 @@ import (
 
 	"github.com/MatrixMagician/VillaStraylight/internal/catalog"
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
+	"github.com/MatrixMagician/VillaStraylight/internal/prove"
 )
 
 // modelswap_test.go holds the swap-ordering asserts relocated from cmd/villa
 // model_test.go — the security contract (STATE.md [03-05]): resolve(catalog) →
-// fit-guard → auto-pull → SaveVilla BEFORE reconcileAndWrite → restart ONLY the
-// inference service, skipping the restart on a no-op. Run is driven through
-// stubbed Deps with no live host; the typed Result is asserted directly.
+// fit-guard → auto-pull → CAPTURE before mutation (#237) → SaveVilla BEFORE
+// reconcileAndWrite → restart ONLY the inference service, skipping restart+prove
+// on a no-op, PROVE the cutover before calling it Switched, rolling back verbatim
+// on any mutate error or non-pass verdict. Run is driven through stubbed Deps with
+// no live host; the typed Result is asserted directly.
 
 const installService = "villa-llama.service"
+
+// priorUnitBytes is the verbatim prior unit the fake CaptureUnit returns, so the
+// rollback tests can assert a byte-equal RestoreUnit.
+var priorUnitBytes = []byte("[Container]\nImage=prior\nExec=llama-server --prior\n")
 
 // swapRecorder records each side-effecting seam call so the test can assert ordering
 // (SaveVilla BEFORE Restart) and that ONLY the inference unit is restarted.
@@ -25,9 +34,20 @@ type swapRecorder struct {
 	saved             config.VillaConfig
 	pulled            []string
 	restarted         []string
+	restored          []byte
 	downloaded        map[string]bool // models considered already-on-disk
 	fitOverrides      map[string]bool // model id -> Fits result
 	reconcileNoChange bool            // make reconcileAndWrite report "nothing changed"
+
+	captureErr   error  // CaptureUnit error (uncapturable prior unit)
+	writeErr     error  // ReconcileAndWrite error (mutate failure)
+	restartErr   error  // first Restart error (mutate failure)
+	restoreErr   error  // RestoreUnit error during rollback (rollback-incomplete)
+	rbRestartErr error  // Restart error during rollback (rollback-incomplete)
+	proveStatus  string // Prove verdict Status (prove.StatusPass = pass, default)
+	proveDetail  string // Prove verdict Detail
+
+	restartCalls int // counts Restart invocations to distinguish forward vs rollback
 }
 
 func newSwapStub(rec *swapRecorder) Deps {
@@ -62,6 +82,13 @@ func newSwapStub(rec *swapRecorder) Deps {
 			rec.pulled = append(rec.pulled, m.ID)
 			return nil
 		},
+		CaptureUnit: func() ([]byte, error) {
+			if rec.captureErr != nil {
+				return nil, rec.captureErr
+			}
+			rec.callOrder = append(rec.callOrder, "capture")
+			return append([]byte(nil), priorUnitBytes...), nil
+		},
 		SaveConfig: func(c config.VillaConfig) error {
 			rec.callOrder = append(rec.callOrder, "save:"+c.Model)
 			rec.saved = c
@@ -69,12 +96,37 @@ func newSwapStub(rec *swapRecorder) Deps {
 		},
 		ReconcileAndWrite: func(_ config.VillaConfig) (bool, error) {
 			rec.callOrder = append(rec.callOrder, "write")
+			if rec.writeErr != nil {
+				return false, rec.writeErr
+			}
 			return !rec.reconcileNoChange, nil
+		},
+		RestoreUnit: func(b []byte) error {
+			rec.callOrder = append(rec.callOrder, "restore")
+			rec.restored = append([]byte(nil), b...)
+			return rec.restoreErr
+		},
+		DaemonReload: func() error {
+			rec.callOrder = append(rec.callOrder, "daemon-reload")
+			return nil
 		},
 		Restart: func(service string) error {
 			rec.callOrder = append(rec.callOrder, "restart:"+service)
 			rec.restarted = append(rec.restarted, service)
-			return nil
+			rec.restartCalls++
+			// First restart is the forward cutover; a later one is the rollback re-ready.
+			if rec.restartCalls == 1 {
+				return rec.restartErr
+			}
+			return rec.rbRestartErr
+		},
+		Prove: func(context.Context) prove.Verdict {
+			rec.callOrder = append(rec.callOrder, "prove")
+			status := rec.proveStatus
+			if status == "" {
+				status = prove.StatusPass
+			}
+			return prove.Verdict{Status: status, Detail: rec.proveDetail}
 		},
 	}
 }
@@ -143,23 +195,28 @@ func TestSwapSaveBeforeReconcileAndInferenceOnlyRestart(t *testing.T) {
 		t.Errorf("config not persisted to the new model, got %q", rec.saved.Model)
 	}
 
-	// pull < save < write < restart; SaveVilla precedes the reconcileAndWrite "write".
-	pullIdx, saveIdx, writeIdx, restartIdx := -1, -1, -1, -1
+	// pull < capture < save < write < restart < prove; capture precedes save
+	// (Pitfall 4, #237) and SaveVilla precedes the reconcileAndWrite "write".
+	pullIdx, captureIdx, saveIdx, writeIdx, restartIdx, proveIdx := -1, -1, -1, -1, -1, -1
 	for i, c := range rec.callOrder {
 		switch {
 		case strings.HasPrefix(c, "pull:"):
 			pullIdx = i
+		case c == "capture":
+			captureIdx = i
 		case strings.HasPrefix(c, "save:"):
 			saveIdx = i
 		case c == "write":
 			writeIdx = i
 		case strings.HasPrefix(c, "restart:") && restartIdx == -1:
 			restartIdx = i
+		case c == "prove":
+			proveIdx = i
 		}
 	}
-	swapInOrder := pullIdx < saveIdx && saveIdx < writeIdx && writeIdx < restartIdx
+	swapInOrder := pullIdx < captureIdx && captureIdx < saveIdx && saveIdx < writeIdx && writeIdx < restartIdx && restartIdx < proveIdx
 	if !swapInOrder {
-		t.Errorf("expected pull<save<write<restart, got %v", rec.callOrder)
+		t.Errorf("expected pull<capture<save<write<restart<prove, got %v", rec.callOrder)
 	}
 	// ONLY the inference unit is restarted (network/volume untouched).
 	if len(rec.restarted) != 1 || rec.restarted[0] != installService {
@@ -181,9 +238,13 @@ func TestSwapDepsSurfaceRestartIsOnlyServiceMutator(t *testing.T) {
 		"Fits":               true,
 		"IsDownloaded":       true,
 		"Pull":               true,
+		"CaptureUnit":        true,
 		"SaveConfig":         true,
 		"ReconcileAndWrite":  true,
+		"RestoreUnit":        true,
+		"DaemonReload":       true,
 		"Restart":            true,
+		"Prove":              true,
 		"InstallServiceName": true,
 	}
 	tp := reflect.TypeOf(Deps{})
@@ -265,5 +326,110 @@ func TestSwapPullFailureIsErrNotRefuse(t *testing.T) {
 	}
 	if len(rec.restarted) != 0 || rec.saved.Model != "" {
 		t.Errorf("a pull failure must short-circuit before save/restart, got calls %v", rec.callOrder)
+	}
+}
+
+// TestSwapCaptureFailureRefuses is #237: an uncapturable prior unit must refuse
+// with ZERO side effects (no save/write/restart) rather than mutate a stack it
+// cannot restore.
+func TestSwapCaptureFailureRefuses(t *testing.T) {
+	rec := &swapRecorder{
+		downloaded:   map[string]bool{"fits-model": true},
+		fitOverrides: map[string]bool{"fits-model": true},
+		captureErr:   errors.New("unit file unreadable"),
+	}
+	res := Run(newSwapStub(rec), "fits-model")
+	if !res.Refused || res.FailedStep != "capture" {
+		t.Fatalf("capture failure must Refuse at step capture, got %+v", res)
+	}
+	if len(rec.callOrder) != 0 {
+		t.Errorf("capture failure must fire no save/write/restart, got %v", rec.callOrder)
+	}
+}
+
+// TestSwapMutateFailureRollsBackVerbatim is #237: a failure AFTER the capture (here
+// ReconcileAndWrite) restores the verbatim captured prior unit and config, so the
+// config is never left out of step with the running unit.
+func TestSwapMutateFailureRollsBackVerbatim(t *testing.T) {
+	rec := &swapRecorder{
+		downloaded:   map[string]bool{"fits-model": true},
+		fitOverrides: map[string]bool{"fits-model": true},
+		writeErr:     errors.New("render failed"),
+	}
+	res := Run(newSwapStub(rec), "fits-model")
+	if !res.RolledBack || res.Switched {
+		t.Fatalf("mutate failure must roll back (not switch), got %+v", res)
+	}
+	if res.FailedStep != "regenerate units" {
+		t.Errorf("FailedStep = %q, want regenerate units", res.FailedStep)
+	}
+	if !bytes.Equal(rec.restored, priorUnitBytes) {
+		t.Errorf("rollback must RestoreUnit byte-equal to the captured prior unit; got %q want %q", rec.restored, priorUnitBytes)
+	}
+	if rec.saved.Model != "current-model" {
+		t.Errorf("rollback must SaveConfig(priorCfg) restoring the prior model, got %q", rec.saved.Model)
+	}
+	if rec.restarted[len(rec.restarted)-1] != installService {
+		t.Errorf("rollback restart must target %s, got %v", installService, rec.restarted)
+	}
+}
+
+// TestSwapProveFailureRollsBack is #237's headline fix: "a switch is reported
+// without a proof" — a non-pass Prove verdict must roll back rather than report
+// Switched, exactly like the other swap cores.
+func TestSwapProveFailureRollsBack(t *testing.T) {
+	rec := &swapRecorder{
+		downloaded:   map[string]bool{"fits-model": true},
+		fitOverrides: map[string]bool{"fits-model": true},
+		proveStatus:  prove.StatusFail,
+		proveDetail:  "residency FAIL",
+	}
+	res := Run(newSwapStub(rec), "fits-model")
+	if !res.RolledBack || res.Switched {
+		t.Fatalf("non-pass prove must roll back (not switch), got %+v", res)
+	}
+	if res.FailedStep != "prove" {
+		t.Errorf("FailedStep = %q, want prove", res.FailedStep)
+	}
+	if res.Reason != "residency FAIL" {
+		t.Errorf("Reason = %q, want the prove verdict's detail", res.Reason)
+	}
+	if !bytes.Equal(rec.restored, priorUnitBytes) {
+		t.Errorf("rollback must RestoreUnit byte-equal to the captured prior unit")
+	}
+}
+
+// TestSwapNoOpSkipsProve: a no-op (units already up to date) needs no cutover
+// proof — nothing was cut over.
+func TestSwapNoOpSkipsProve(t *testing.T) {
+	rec := &swapRecorder{
+		downloaded:        map[string]bool{"fits-model": true},
+		fitOverrides:      map[string]bool{"fits-model": true},
+		reconcileNoChange: true,
+	}
+	res := Run(newSwapStub(rec), "fits-model")
+	if !res.NoOp {
+		t.Fatalf("expected NoOp, got %+v", res)
+	}
+	if strings.Contains(strings.Join(rec.callOrder, ","), "prove") {
+		t.Errorf("a no-op must not invoke Prove, got %v", rec.callOrder)
+	}
+}
+
+// TestSwapRollbackIncompleteReported is #237, mirroring Pitfall 5: a rollback step
+// that itself fails must never be presented as a clean restoration.
+func TestSwapRollbackIncompleteReported(t *testing.T) {
+	rec := &swapRecorder{
+		downloaded:   map[string]bool{"fits-model": true},
+		fitOverrides: map[string]bool{"fits-model": true},
+		proveStatus:  prove.StatusFail,
+		rbRestartErr: errors.New("systemd refused restart"),
+	}
+	res := Run(newSwapStub(rec), "fits-model")
+	if !res.RolledBack {
+		t.Fatalf("expected RolledBack=true even on incomplete rollback, got %+v", res)
+	}
+	if !strings.Contains(res.Reason, "did not fully complete") {
+		t.Errorf("an incomplete rollback must be flagged honestly in Reason, got %q", res.Reason)
 	}
 }

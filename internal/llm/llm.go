@@ -49,4 +49,10 @@ type StreamFunc func(delta string) error
 type Options struct {
 	BaseURL string
 	Timeout time.Duration
+	// APIKey is sent as `Authorization: Bearer <APIKey>` on every request when
+	// non-empty (GHSA-qxg9, ADR-0011). Empty omits the header, which is what every
+	// call site rendered before llama-server required one; a caller that has not
+	// yet threaded its config's InferenceSecret through degrades to an
+	// unauthenticated request (a 401 from the server), never a client-side panic.
+	APIKey string
 }

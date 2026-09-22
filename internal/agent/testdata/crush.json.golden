@@ -17,7 +17,7 @@
       "name": "VillaStraylight (local)",
       "type": "openai-compat",
       "base_url": "http://127.0.0.1:8080/v1",
-      "api_key": "local",
+      "api_key": "test-inference-secret",
       "models": [
         {
           "id": "villa-qwen3-coder-30b-a3b",

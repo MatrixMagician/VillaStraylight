@@ -45,18 +45,19 @@ type containerView struct {
 	ContainerName string
 	Image         string
 	Network       string
-	// SandboxNetwork is the SECOND Network= line, present only when the workspace
-	// agent is on. Empty renders no line at all, which is what keeps every unit
-	// golden from before the sandbox existed byte-identical.
-	SandboxNetwork string
-	BackendLabel   string
-	AddDevice      []string
-	GroupAdd       []string
-	Env            []envPair
-	PublishPort    string
-	Volume         string
-	PodmanArgs     string
-	Exec           string
+	// SecretEnvFile is the EnvironmentFile= path carrying the LLAMA_API_KEY /
+	// OPENAI_API_KEY bearer (GHSA-qxg9, ADR-0011). Set unconditionally by
+	// parseContainerArgs — inference has no opt-in gate, unlike villa-websafe's
+	// SecretEnvFile, which is empty until web search is on.
+	SecretEnvFile string
+	BackendLabel  string
+	AddDevice     []string
+	GroupAdd      []string
+	Env           []envPair
+	PublishPort   string
+	Volume        string
+	PodmanArgs    string
+	Exec          string
 }
 
 // backendLabel maps a backend's seam-sourced Name() ("vulkan"/"rocm") to the human
@@ -145,13 +146,12 @@ func Render(in RenderInput) ([]Unit, error) {
 	// Description line stays byte-identical to today's golden (ROCM-03 additivity).
 	cv.BackendLabel = backendLabel(in.Backend.Name())
 
-	// The workspace agent's tasks run on an internal network with no egress, so the
-	// inference unit joins that network too — it is the only thing on it a task may
-	// reach. The resident units deliberately do not: a task talks to the primary
-	// model, and a slot that joined would be reachable without being served.
-	if subsystem.SandboxOn(in.Cfg) {
-		cv.SandboxNetwork = sandboxNetworkAttach
-	}
+	// GHSA-gvp9 (ADR-0011): villa-llama no longer joins villa-sandbox.network. It
+	// used to (the workspace agent's tasks reaching it there directly), but that
+	// put a privileged unit — seccomp=unconfined, /dev/kfd, /dev/dri — on the SAME
+	// network as the one that egresses. The sandbox's only route to inference is
+	// now the villa-inferproxy unit below, which joins BOTH networks and is the
+	// thing gated on subsystem.SandboxOn instead.
 
 	// Resolved up-front because two consumers need it: the resident .container units
 	// below, and Open WebUI's endpoint env, which must list every resident slot.
@@ -190,7 +190,7 @@ func Render(in RenderInput) ([]Unit, error) {
 	// golden. mv is computed ONCE here (memory.RenderView is pure, cheap, identical) and
 	// reused by the memory-stack branch below.
 	mv := memory.RenderView(in.Cfg) // resolved-values handoff (Phase-18 spine)
-	owuiContainerText, err := execTemplate(tmpl, "openwebui.container.tmpl", buildOpenWebUIView(in.pinOr(ComponentOpenWebUI, openWebUIImage), mv, in.Cfg.MemoryEnabled, in.Cfg.WebSearchEnabled, config.SearxngAddr, config.SearxngPort, in.Cfg.WebSearchResultCount, config.WebsafeAddr, config.WebsafePort, residentNames))
+	owuiContainerText, err := execTemplate(tmpl, "openwebui.container.tmpl", buildOpenWebUIView(in.pinOr(ComponentOpenWebUI, openWebUIImage), mv, in.Cfg.MemoryEnabled, in.Cfg.WebSearchEnabled, config.SearxngAddr, config.SearxngPort, in.Cfg.WebSearchResultCount, config.WebsafeAddr, config.WebsafePort, residentNames, in.Cfg.InferenceSecret))
 	if err != nil {
 		return nil, err
 	}
@@ -300,6 +300,22 @@ func Render(in RenderInput) ([]Unit, error) {
 		units = append(units, Unit{Name: websafeContainerUnitName, Text: websafeContainerText})
 	}
 
+	// v1.11.1 workspace agent (GHSA-gvp9, ADR-0011): the villa-inferproxy
+	// /v1-only reverse proxy, appended ONLY when the workspace agent is on — the
+	// SAME gate that used to add villa-llama's second Network= line (render.go's
+	// removed SandboxNetwork field, above). It shares villa-websafe's
+	// ComponentWebsafe pin (same base image, same bind-mount contract — a
+	// separate pin id would track the identical digest twice) and the same
+	// captured host villa binary path.
+	if subsystem.SandboxOn(in.Cfg) {
+		inferproxyContainerText, err := execTemplate(tmpl, "inferproxy.container.tmpl",
+			buildInferproxyView(in.pinOr(ComponentWebsafe, websafeImage), in.HostVillaPath, config.InferproxyPort))
+		if err != nil {
+			return nil, err
+		}
+		units = append(units, Unit{Name: inferproxyContainerUnitName, Text: inferproxyContainerText})
+	}
+
 	// v1.11 workspace agent: the internal task network, appended LAST so every unit
 	// position before it is unchanged. It carries no container of its own — a task's
 	// container is per-task and started by the runner, never a unit — so
@@ -314,8 +330,9 @@ func Render(in RenderInput) ([]Unit, error) {
 	// on. The alternative — gate the unit and have Reconcile delete it when the gate
 	// flips off — would be a third unit-deletion site; CLAUDE.md names exactly two
 	// (uninstall's enumeration and prune's ref-counted image removal). Only the
-	// inference unit's SandboxNetwork join line above stays gated: that is what actually
-	// changes runtime behavior.
+	// villa-inferproxy unit above stays gated (GHSA-gvp9 moved the gated join from
+	// villa-llama's second Network= line to this unit's existence): that is what
+	// actually changes runtime behavior.
 	sandboxNetworkText, err := execTemplate(tmpl, "sandbox.network.tmpl", networkView{NetworkName: sandboxNetworkName})
 	if err != nil {
 		return nil, err
@@ -378,6 +395,11 @@ func parseContainerArgs(image string, args []string) (containerView, error) {
 		ContainerName: containerName,
 		Image:         image,
 		Network:       networkAttach,
+		// SecretEnvFile is set HERE, unconditionally, so BOTH the primary unit
+		// and every resident slot (renderResidentUnits shares this construction
+		// point) get the LLAMA_API_KEY EnvironmentFile= without a second call
+		// site to keep in step (GHSA-qxg9, ADR-0011).
+		SecretEnvFile: inferenceSecretEnvFilePath,
 	}
 
 	// Split the slice at the image token: [runFlags...] <image> [exec...].

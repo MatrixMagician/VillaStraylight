@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"time"
 
@@ -223,6 +224,16 @@ func (s Store) recordPath(id string) string { return filepath.Join(s.tasksDir(),
 // ErrNotFound reports a task id with no record on disk.
 var ErrNotFound = errors.New("taskstore: task not found")
 
+// idPattern is NewID's exact output shape: an 8-digit date, a 6-digit time
+// and 4 lowercase hex digits, hyphen-joined. Load and Transition (which
+// Load's fail-closed check protects transitively, since it calls Load first)
+// refuse anything else before it reaches recordPath/logPath, so a caller that
+// forwards an unescaped id straight from an HTTP path segment (GHSA-9hj4)
+// cannot smuggle a "../" traversal past this package.
+var idPattern = regexp.MustCompile(`^[0-9]{8}-[0-9]{6}-[0-9a-f]{4}$`)
+
+func validID(id string) bool { return idPattern.MatchString(id) }
+
 // Create writes a brand-new record. t.ID must be set (NewID) and t.State must
 // be Queued or Refused — the only two legal initial states (spec §3.2: refused
 // is villa declining before the sandbox ever started). Create refuses to
@@ -261,6 +272,9 @@ func (s Store) Create(t Task) error {
 // zero-value task — unlike the single-document stores' fail-closed Load, a
 // missing task record is a real, reportable "no such task".
 func (s Store) Load(id string) (Task, error) {
+	if !validID(id) {
+		return Task{}, fmt.Errorf("%w: %s", ErrNotFound, id)
+	}
 	data, err := s.fs.readFile(s.recordPath(id))
 	if errors.Is(err, os.ErrNotExist) {
 		return Task{}, fmt.Errorf("%w: %s", ErrNotFound, id)
@@ -346,24 +360,32 @@ func (s Store) List() ([]Task, error) {
 // Idempotent: a record already terminal (interrupted included) is left
 // untouched — a second call changes no file and returns no ids. Recover never
 // re-queues; re-running a task is the operator's command.
+//
+// A record that fails to load or transition is skipped, not fatal (#238):
+// every other non-terminal record still needs its container killed by the
+// caller, so one corrupt file must not strand the rest at "running" forever.
+// Every skip is collected and returned as one joined error.
 func (s Store) Recover() ([]string, error) {
 	ids, err := s.fs.listIDs(s.tasksDir())
 	if err != nil {
 		return nil, fmt.Errorf("taskstore: Recover: %w", err)
 	}
 	var recovered []string
+	var errs []error
 	for _, id := range ids {
 		t, err := s.Load(id)
 		if err != nil {
-			return recovered, fmt.Errorf("taskstore: Recover: %w", err)
+			errs = append(errs, fmt.Errorf("taskstore: Recover: %s: %w", id, err))
+			continue
 		}
 		if Terminal(t.State) {
 			continue
 		}
 		if _, err := s.Transition(id, Interrupted, nil); err != nil {
-			return recovered, fmt.Errorf("taskstore: Recover: %w", err)
+			errs = append(errs, fmt.Errorf("taskstore: Recover: %s: %w", id, err))
+			continue
 		}
 		recovered = append(recovered, id)
 	}
-	return recovered, nil
+	return recovered, errors.Join(errs...)
 }

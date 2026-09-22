@@ -64,11 +64,12 @@ Go 1.26+. Single module, single static binary built from `./cmd/villa`.
 - `cmd/villa/` — cobra CLI, one file per subcommand. The tree is assembled in one
   place, `newRoot` in `root.go`: detect, recommend, preflight, model, inference,
   install, up/down/restart/logs, config, status, doctor, verify, recall, dashboard,
-  websafe, backend, speculation, coding-mode, code (Crush, or Claude Code via
-  --agent claude), tools-mode, workspace, work, task, sandbox build (builds the
-  task image on this host and records its digest as the effective pin),
-  sandbox-bridge (the in-VM half of a task; never run by hand), bench, backup,
-  restore, uninstall.
+  websafe, inferproxy (the hidden `inferproxy-serve` subcommand mirrors websafe-serve's
+  bind-mounted-binary shape — GHSA-gvp9, ADR-0011), backend, speculation, coding-mode,
+  code (Crush, or Claude Code via --agent claude), tools-mode, workspace, work, task,
+  sandbox build (builds the task image on this host and records its digest as the
+  effective pin), sandbox-bridge (the in-VM half of a task; never run by hand), bench,
+  backup, restore, uninstall.
   Host effects live behind injectable `live*Deps` seams (`grep -rn "func live" cmd/villa`).
 
 - `internal/` — `detect` (host probe → typed-Unknown HostProfile; AMD seam in `gpu_amd.go`),
@@ -77,7 +78,9 @@ Go 1.26+. Single module, single static binary built from `./cmd/villa`.
   seam; ROCm default + Vulkan fallback), `orchestrate` (Quadlet Render/Reconcile/WriteUnits — the
   `podman`/`systemctl` seam), `backendswap` (transactional switch), `bench` (pure A/B core),
   `residentset` (pure admission control for holding several models loaded at once), plus `status`,
-  `dashboard`, `metrics`, `config`, `catalog`, `download`, `modelswap`, `llm`.
+  `dashboard`, `metrics`, `config`, `catalog`, `download`, `modelswap`, `llm`, and `inprobe` (the one
+  home for the in-network curl-probe doctrine — exit-code mapping and typed-Unknown health mapping —
+  shared by `status`'s memory/web-search health checks and `install`'s memory probe).
 
   The v1.3–v1.5 packages follow the same pure-core shape: `memory` + `recall`
   (memory-stack decision spine and the chat-index plan/diff algebra), `agent` +
@@ -102,10 +105,11 @@ Go 1.26+. Single module, single static binary built from `./cmd/villa`.
 - **Config is the single source of truth.** Quadlet units are regenerated from config,
   never hand-edited.
 
-- **Dynamic binary trap:** `make build` links `./villa` dynamically, and `villa-websafe` plus
-  every task VM bind-mount that file into a distroless image, so after a plain `make build`
-  a websafe restart crash-loops with "No such file or directory". On the dev host build with
-  `make build-static`; it is the same gate CI enforces.
+- **Dynamic binary trap:** `make build` links `./villa` dynamically, and `villa-websafe`,
+  `villa-inferproxy`, and every task VM bind-mount that file into a distroless image, so
+  after a plain `make build` a websafe/inferproxy restart crash-loops with "No such file
+  or directory". On the dev host build with `make build-static`; it is the same gate CI
+  enforces.
 
 - **Dashboard binary trap:** `villa status`/`recommend` run fresh from `./villa`, but
   `villa-dashboard.service` is long-lived — after `make build` you MUST
@@ -146,14 +150,14 @@ VillaStraylight is a self-hosted, local AI server stack for privacy-conscious po
 
 ### Languages
 
-- Go 1.26.2 - All first-party code: the `villa` CLI (`cmd/villa/`), hardware detection, recommendation engine, Podman/Quadlet orchestration, dashboard server, and the OpenAI-compatible inference client. Single-language by constraint (single static binary).
+- Go 1.26.6 - All first-party code: the `villa` CLI (`cmd/villa/`), hardware detection, recommendation engine, Podman/Quadlet orchestration, dashboard server, and the OpenAI-compatible inference client. Single-language by constraint (single static binary).
 - HTML / CSS / JavaScript - The no-build, embedded control-dashboard single-page UI (`internal/dashboard/assets/dashboard.html`, `dashboard.css`, `dashboard.js`). Served verbatim via `go:embed`; there is no JS toolchain/bundler in the `villa` path.
 - TOML - Persisted CLI configuration format (`$XDG_CONFIG_HOME/villa/config.toml`).
 - JSON - The embedded model catalog (`internal/catalog/seed.json`), the ROCm pin policy (`internal/preflight/rocm-policy.json`), and golden test fixtures.
 
 ### Runtime
 
-- Go 1.26.2 (from `go.mod`). Compiles to a single static binary `villa`.
+- Go 1.26.6 (from `go.mod`). Compiles to a single static binary `villa`.
 - Target host OS: Fedora Workstation 44+ (Linux kernel >= 6.18.4) on AMD Strix Halo (gfx1151). The binary is the control plane; AI workloads run as rootless Podman containers under the user systemd manager.
 - Go modules (`go.mod` / `go.sum`).
 - Lockfile: present (`go.sum`).
@@ -186,7 +190,7 @@ loop.
 - Core fields: `model`, `quant`, `ctx`, `speculation` (`off`/`ngram`/`draft`, unset renders
   off; written by `villa speculation set`, never `config set`), `vision` (bool,
   absent renders no projector flag; written only by `recommend --save`/`install`,
-  which is what guarantees the projector is on disk), `backend` (default `rocm`; `rocm-6.4.4`, `rocm-6.4.4-rocwmma`, `vulkan` also valid — note `internal/catalog/seed.json`'s per-entry `backend_default` OVERRIDES `recommend.defaultBackend`, so the two must be kept in step), `catalog_path`, `dashboard_port` (default `8888`), `chat_port` (default `3000`). The subsystem fields (`memory_enabled`/`embedding_*`, `coding_mode`/`coder_*`, `agent_enabled`, `web_search_*`), `resident []ResidentModel`, and the v1.11 fields (`tools_mode` written by `tools-mode enter|exit` and `install --workspace-agent`; `workspace_agent` by `install --workspace-agent`; `workspace []string` by `workspace add|remove`; `sandbox_memory` default `4g` and `sandbox_cpus` default `4`, hand-edited, read at task launch) are all `omitempty` — `VillaConfig` in `internal/config/villaconfig.go` is the list, not this line.
+  which is what guarantees the projector is on disk), `backend` (default `rocm`; `rocm-6.4.4`, `rocm-6.4.4-rocwmma`, `vulkan` also valid — note `internal/catalog/seed.json`'s per-entry `backend_default` OVERRIDES `recommend.defaultBackend`, so the two must be kept in step), `catalog_path`, `dashboard_port` (default `8888`), `chat_port` (default `3000`). The subsystem fields (`memory_enabled`/`embedding_*`, `coding_mode`/`coder_*`, `agent_enabled`, `web_search_*`), `resident []ResidentModel`, and the v1.11 fields (`tools_mode` written by `tools-mode enter|exit` and `install --workspace-agent`; `workspace_agent` by `install --workspace-agent`; `workspace []string` by `workspace add|remove`; `sandbox_memory` default `4g` and `sandbox_cpus` default `4`, hand-edited, read at task launch) are all `omitempty` — `VillaConfig` in `internal/config/villaconfig.go` is the list, not this line. `inference_secret` (GHSA-qxg9, ADR-0011) is the one exception to "opt-in only": it is generated once via `config.GenerateInferenceSecret` and persisted UNCONDITIONALLY (inference has no opt-in gate, unlike `web_loader_secret`/`searxng_secret`), on `install`'s first render and self-healed on `up`/`restart` for an existing config.toml that predates it — see `internal/orchestrate.InferenceSecretEnvFilePath`.
 - Read-only by default: `LoadVilla` returns typed defaults when the file is absent; `SaveVilla` (invoked by `recommend --save` / model swap) writes strictly under the XDG dir with mode `0600`, dir `0700`, and a path-traversal guard. Self-heals zeroed dashboard/chat fields on load (never widens the bind off loopback).
 - `internal/catalog/seed.json` - the seed model catalog (`//go:embed seed.json` in `internal/catalog/load.go`). Catalog has a schema version window; an external override path may be supplied via `catalog_path`.
 - `internal/preflight/rocm-policy.json` - ROCm pin policy: image-tag allow/deny, kernel floor, firmware floor/deny, required `HSA_OVERRIDE_GFX_VERSION` (`//go:embed rocm-policy.json` in `internal/preflight/floors.go`).
@@ -197,7 +201,7 @@ loop.
 
 ### Platform Requirements
 
-- Go 1.26.2 toolchain.
+- Go 1.26.6 toolchain.
 - For end-to-end runtime testing: a Fedora host with rootless Podman, `systemctl --user`, and the AMD GPU stack (`/dev/dri`, optionally `/dev/kfd` for ROCm). Host probe tools used when present: `vulkaninfo`, `rocminfo`, `rpm`, `setsebool`, `loginctl`, `journalctl`.
 - Fedora Workstation 44+ on AMD Strix Halo (gfx1151), kernel >= 6.18.4, linux-firmware >= 20260110 (firmware 20251125 explicitly denied for ROCm).
 - Rootless Podman v5 with the user socket/manager; user lingering enabled (`loginctl enable-linger`) so Quadlet services survive logout/reboot.
@@ -321,6 +325,7 @@ loop.
 | status | Read-model aggregation → frozen `Report` (shared by CLI + dashboard) | `internal/status/status.go` |
 | dashboard | Loopback-only stdlib-mux server folding `status` core + embedded SPA | `internal/dashboard/server.go`, `api.go` |
 | metrics | llama.cpp `/metrics` scrape (pp/tg timings) | `internal/metrics/llamacpp.go` |
+| inprobe | The in-network curl-probe doctrine: exit-code mapping, typed-Unknown health mapping, TTL-bounded pair cache | `internal/inprobe/inprobe.go` |
 | download | Model weight pull + shard handling | `internal/download/download.go` |
 | config | Single source of truth: XDG `config.toml` load/save (`VillaConfig`) | `internal/config/villaconfig.go` |
 | prove | The ONE cutover verdict the three transactional cores gate on | `internal/prove/prove.go` |
@@ -381,13 +386,17 @@ per resident model, named by `orchestrate.ResidentUnitName`), `villa-openwebui`,
 (v1.5 web search) — the last of which bind-mounts the `villa` binary into a
 distroless container, which is why the CGO-free build gate is load-bearing. The
 v1.11 workspace agent adds one long-lived unit, `villa-sandbox.network`
-(`Internal=true`), rendered UNCONDITIONALLY like `villa.network` — only the
-inference unit's second `Network=` join line is gated on `workspace_agent`
-(issue #199: an unjoined `.network` unit starts no service, so there is nothing
-for a leftover to cost) — and no container unit: each task is one
-`podman run --runtime=krun` named `villa-task-<id>`, rendered by
-`orchestrate.RenderSandboxRun`, which bind-mounts the `villa` binary the same way
-(the second reason the CGO-free gate is load-bearing).
+(`Internal=true`), rendered UNCONDITIONALLY like `villa.network` — and, when
+`subsystem.SandboxOn`, a managed `villa-inferproxy` unit (issue #199 / GHSA-gvp9,
+ADR-0011): `villa-llama` joins `villa.network` ONLY (never the sandbox network,
+so a compromised task VM has no route through it to the internet), and
+`villa-inferproxy` joins BOTH networks, forwarding ONLY `POST
+/v1/chat/completions` and `GET /v1/models` to `villa-llama`'s bare root and
+injecting the real `LLAMA_API_KEY` bearer on that outbound leg — so a task's
+own request never needs a valid key of its own. No container unit for the task
+itself: each task is one `podman run --runtime=krun` named `villa-task-<id>`,
+rendered by `orchestrate.RenderSandboxRun`, which bind-mounts the `villa` binary
+the same way (the second reason the CGO-free gate is load-bearing).
 
 Persistent state lives in `config.toml` (the single source of truth) and in on-disk
 Quadlet units regenerated from it. Cores hold no global mutable state; the dashboard

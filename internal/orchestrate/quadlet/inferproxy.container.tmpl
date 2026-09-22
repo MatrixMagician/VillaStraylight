@@ -1,0 +1,19 @@
+# ~/.config/containers/systemd/villa-inferproxy.container  (GENERATED — do not edit; source: config.toml)
+[Unit]
+Description=VillaStraylight sandbox inference proxy (/v1-only)
+After=villa-network.service
+
+[Container]
+ContainerName={{.ContainerName}}
+Image={{.Image}}
+Network={{.Network}}
+Network={{.SandboxNetwork}}
+EnvironmentFile={{.SecretEnvFile}}
+Volume={{.BinaryMount}}
+Exec={{.Exec}}
+
+[Service]
+Restart=on-failure
+
+[Install]
+WantedBy=default.target

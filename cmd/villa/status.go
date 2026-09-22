@@ -274,7 +274,7 @@ func liveStatusDeps() (*status.Deps, error) {
 		// invocation's startup, where the load_tensors residency line lives; the
 		// whole-unit journal's oldest bytes are stale prior-start output (F-3).
 		JournalText: sys.ResidencyJournal,
-		Props:       liveProps,
+		Props:       func(endpoint string) *inference.PropsInfo { return liveProps(endpoint, cfg.InferenceSecret) },
 		GTTUsed:     detect.GTTUsedBytes,
 		WeightBytes: liveWeightBytes,
 		Endpoint:    func() string { return endpoint },
@@ -289,7 +289,7 @@ func liveStatusDeps() (*status.Deps, error) {
 		// Live tok/s: REUSE the dashboard-proven metrics collector — no new
 		// scraper. nil on a failed/absent /metrics scrape or an idle server, so the
 		// figure is omitted (typed-Unknown), NEVER a fabricated 0.
-		GenTokensPerSec: liveGenTokensPerSec,
+		GenTokensPerSec: func(endpoint string) *float64 { return liveGenTokensPerSec(endpoint, cfg.InferenceSecret) },
 		// ROCm-readiness: CONSUME the already-computed detect rocm_readiness
 		// sub-tree; internal/status folds it. Never recompute the signals here.
 		ROCmReadiness: func() detect.ROCmReadiness { return detect.Probe().ROCmReadiness },
@@ -314,7 +314,7 @@ func liveStatusDeps() (*status.Deps, error) {
 	if subsystem.AgentOn(cfg) {
 		deps.AgentPinMatch = liveAgentPinMatch
 		deps.AgentResidency = liveAgentResidency
-		deps.AgentCache = func() (uint64, uint64, bool) { return liveAgentCache(endpoint) }
+		deps.AgentCache = func() (uint64, uint64, bool) { return liveAgentCache(endpoint, cfg.InferenceSecret) }
 	}
 	return deps, nil
 }
@@ -420,8 +420,8 @@ func liveAgentResidency() string {
 // or either counter Unknown → ok=false so the surface degrades typed-Unknown
 // (gray badge / "unavailable" — never a fabricated 0%). The Plan-03 ratio gate
 // (promptN>0) lives in the status core's codingInfo populator.
-func liveAgentCache(endpoint string) (uint64, uint64, bool) {
-	sample, ok := metrics.ScrapeCacheCounters(endpoint)
+func liveAgentCache(endpoint, apiKey string) (uint64, uint64, bool) {
+	sample, ok := metrics.ScrapeCacheCountersAuth(endpoint, apiKey)
 	if !ok || !sample.CacheKnown || !sample.PromptKnown {
 		return 0, 0, false // typed-Unknown, never a fabricated 0%
 	}
@@ -643,12 +643,12 @@ func liveReadVerifyState() *verifystate.State {
 // fabricated 0 tok/s. The scrape inherits the collector's 2s timeout + 64 KiB
 // io.LimitReader bounds (no new attack surface). Mirrors liveProps' nil-on-failure
 // discipline.
-func liveGenTokensPerSec(endpoint string) *float64 {
-	snap, ok := metrics.ScrapeMetrics(endpoint)
+func liveGenTokensPerSec(endpoint, apiKey string) *float64 {
+	snap, ok := metrics.ScrapeMetricsAuth(endpoint, apiKey)
 	if !ok {
 		return nil // /metrics 404 or transport error → typed-Unknown (omitted)
 	}
-	slots, _ := metrics.ScrapeSlots(endpoint)
+	slots, _ := metrics.ScrapeSlotsAuth(endpoint, apiKey)
 	if !metrics.IsGenerating(snap, slots) {
 		return nil // idle: gauges are stale snapshots → omit, never a fabricated 0
 	}
@@ -753,9 +753,20 @@ func liveOpenWebUIHealth(endpoint string) status.HealthState {
 // overlay (corroboration only, never the residency proof). A transport
 // error / unparseable body yields nil (Unknown), which never produces a false PASS
 // or a FAIL in RunningOffloadVerdict. The body is bounded by io.LimitReader.
-func liveProps(endpoint string) *inference.PropsInfo {
+//
+// apiKey is the LLAMA_API_KEY/OPENAI_API_KEY bearer (GHSA-qxg9, ADR-0011): a keyed
+// llama-server 401s an unauthenticated /props, which used to degrade this check to
+// a permanent Unknown. "" sends no header (an unkeyed server ignores it).
+func liveProps(endpoint, apiKey string) *inference.PropsInfo {
 	client := &http.Client{Timeout: statusHTTPTimeout}
-	resp, err := client.Get(endpoint + "/props")
+	req, err := http.NewRequest(http.MethodGet, endpoint+"/props", nil)
+	if err != nil {
+		return nil
+	}
+	if apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil
 	}

@@ -72,6 +72,13 @@ const (
 	WebsafeAddr = "villa-websafe"
 	// WebsafePort is the in-network port the villa-websafe loader listens on.
 	WebsafePort = 8090
+
+	// InferproxyAddr is the container-DNS name of the villa-inferproxy /v1-only
+	// reverse proxy (GHSA-gvp9, ADR-0011) — the sandbox's ONLY route to
+	// inference now that villa-llama no longer joins villa-sandbox.network.
+	InferproxyAddr = "villa-inferproxy"
+	// InferproxyPort is the in-network port villa-inferproxy listens on.
+	InferproxyPort = 8091
 )
 
 // VillaConfig is the persisted recommend selection that later phases (Phase 3
@@ -202,6 +209,16 @@ type VillaConfig struct {
 	// serves the loader (Area 1). It is NEVER shell-interpolated. Empty until opt-in; NOT
 	// self-healed (a captured host path has no meaningful default).
 	HostVillaPath string `toml:"host_villa_path,omitempty"`
+
+	// InferenceSecret is the LLAMA_API_KEY / OPENAI_API_KEY bearer every rendered
+	// llama-server instance (the primary unit and every resident slot) requires
+	// (GHSA-qxg9, ADR-0011), generated ONCE via crypto/rand and persisted at 0600.
+	// It is NEVER rendered into any 0644 file — it reaches the containers via a
+	// 0600 EnvironmentFile (mirrors SearxngSecret/WebLoaderSecret). Unlike those two,
+	// it is NOT gated behind a feature opt-in (inference is always on), so it is
+	// never zeroed by marshalVilla's omit-when-off branches; it is NOT self-healed
+	// either (a generated secret has no meaningful default) and never logged.
+	InferenceSecret string `toml:"inference_secret,omitempty"`
 
 	// Speculation is the persisted speculative-decoding mode of the inference unit
 	// (ADR-0006). Empty means the recommendation has not resolved it yet and renders
@@ -508,6 +525,21 @@ func GenerateWebLoaderSecret() (string, error) {
 	buf := make([]byte, 32)
 	if _, err := rand.Read(buf); err != nil {
 		return "", fmt.Errorf("config: generate web loader secret: %w", err)
+	}
+	return hex.EncodeToString(buf), nil
+}
+
+// GenerateInferenceSecret returns a fresh, high-entropy LLAMA_API_KEY / OPENAI_API_KEY
+// bearer sourced from crypto/rand (V6) — a 1:1 clone of GenerateWebLoaderSecret. It reads
+// 32 random bytes (256 bits) and hex-encodes them to a 64-char ASCII string safe to carry
+// in an env file. NEVER use math/rand here; never log the returned value. Unlike the two
+// generators above, this secret is generated ONCE at install (inference has no opt-in
+// gate) and reaches villa-llama, every resident slot, villa-openwebui and
+// villa-inferproxy only via a 0600 EnvironmentFile (GHSA-qxg9, ADR-0011).
+func GenerateInferenceSecret() (string, error) {
+	buf := make([]byte, 32)
+	if _, err := rand.Read(buf); err != nil {
+		return "", fmt.Errorf("config: generate inference secret: %w", err)
 	}
 	return hex.EncodeToString(buf), nil
 }

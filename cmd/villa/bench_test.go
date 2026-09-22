@@ -16,6 +16,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/benchstore"
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
+	"github.com/MatrixMagician/VillaStraylight/internal/stacklock"
 )
 
 // TestMain makes the whole cmd/villa test package hermetic against the BENCH-03
@@ -25,10 +26,20 @@ import (
 // Tests that exercise the hook explicitly override benchstoreWrite with a recording or
 // error-returning stub and restore it on cleanup. Per-test t.Setenv(...) still wins for
 // the few tests that drive a real temp XDG dir.
+//
+// It does the same for acquireStackLock (ADR-0010): left at its default, a
+// runBackendSet/runSpeculationSet/runToolsMode/runCodingMode/runModelSwap test
+// would take a REAL flock on the developer's $XDG_CONFIG_HOME/villa/.stacklock —
+// touching the live stack for a test that never asked to. Defaulted to a no-op
+// here (nil lock; Release is nil-safe), a test that wants the real Acquire/
+// TryAcquire semantics overrides it explicitly and restores it on cleanup.
 func TestMain(m *testing.M) {
 	prev := benchstoreWrite
 	benchstoreWrite = func(_ benchstore.Deps, _ benchstore.SavedReport) error { return nil }
+	prevLock := acquireStackLock
+	acquireStackLock = func() (*stacklock.Lock, error) { return nil, nil }
 	code := m.Run()
+	acquireStackLock = prevLock
 	benchstoreWrite = prev
 	os.Exit(code)
 }

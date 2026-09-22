@@ -560,6 +560,20 @@ func rollback(ctx context.Context, d Deps, sr SubsystemResult, capture Capture,
 	sr.Err = cause
 	sr.FailedStep = step
 
+	// Rollback gets its OWN fresh budget rather than finishing out the one that may
+	// have just expired. The most likely trigger for a rollback is exactly a proof
+	// that ran out of its budget (or Ctrl-C), and every live Stop/RestoreData/
+	// Restore/Start/ProveRestored seam fails closed on a Done context — so running
+	// rollback on the same context that just timed out would time it out before it
+	// starts, which is precisely #230. context.WithoutCancel detaches the expired
+	// deadline (keeping any values), and a fresh Budget call gives rollback its own
+	// window, the same seam runOne already uses for the forward path.
+	if d.Budget != nil {
+		var cancel context.CancelFunc
+		ctx, cancel = d.Budget(context.WithoutCancel(ctx), sr.Subsystem)
+		defer cancel()
+	}
+
 	// The DATA half, for a subsystem that owns persistent state and got as far as
 	// having a snapshot taken.
 	//

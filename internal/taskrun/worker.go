@@ -15,6 +15,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/approval"
 	"github.com/MatrixMagician/VillaStraylight/internal/crushapi"
 	"github.com/MatrixMagician/VillaStraylight/internal/grounding"
+	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 	"github.com/MatrixMagician/VillaStraylight/internal/taskstore"
 )
 
@@ -67,7 +68,15 @@ func (r *Runner) run(a *active) {
 		return
 	}
 	j := &job{r: r, a: a, t: t, seen: map[string]bool{}, pending: -1}
-	ctx := context.Background()
+	// A per-job cancellable context, not context.Background(): Cancel and
+	// Close both cancel it (active.ctxCancel), so a cancel reaches the
+	// grounding audit even while it is the frame running, not the main select
+	// loop that reads a.cancel (#233).
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	r.mu.Lock()
+	a.ctxCancel = cancel
+	r.mu.Unlock()
 
 	cfg, err := r.d.LoadConfig()
 	if err != nil {
@@ -176,11 +185,29 @@ func (j *job) settle(ctx context.Context, b Bridge) {
 // killAndCancel ends a task the cancel channel woke. Close uses the same
 // channel, so which word the record ends on comes off the active flag.
 func (j *job) killAndCancel(b Bridge) {
-	if err := b.Kill(); err != nil {
+	err := b.Kill()
+	if err != nil {
 		j.narrate("kill failed: " + err.Error())
-	} else {
-		j.r.track(func() { _ = b.Wait() })
+		// Retry by container name (#235): a failed Kill must not be recorded
+		// as cancelled while the VM may still be running.
+		if retryErr := j.r.d.KillByName(orchestrate.SandboxContainerName(j.t.ID)); retryErr != nil {
+			j.narrate("kill by name also failed: " + retryErr.Error())
+		}
 	}
+	// Wait synchronously either way: the worker holds this task's slot, and
+	// the next queued task cannot launch, until the sandbox is actually
+	// confirmed gone (#235).
+	if waitErr := b.Wait(); waitErr != nil && err != nil {
+		j.narrate("the sandbox may still be running: " + waitErr.Error())
+	}
+	j.finishAfterCancel()
+}
+
+// finishAfterCancel ends the task on whichever cancellation word applies:
+// interrupted for a stopping service, cancelled for the operator. Shared by
+// killAndCancel and audit, so a cancel that lands mid-audit ends the same way
+// as one the main select loop caught directly (#233).
+func (j *job) finishAfterCancel() {
 	j.r.mu.Lock()
 	interrupted := j.a.interrupted
 	j.r.mu.Unlock()
@@ -209,7 +236,19 @@ func (j *job) decide(b Bridge, p crushapi.PermissionRequest) {
 		what += ": " + req.Command
 	}
 	decision := approval.Decide(approval.Mode(j.t.Mode), req)
-	if decision == approval.Ask && j.sessionAllow {
+	if decision == approval.Ask && j.pending >= 0 {
+		// A second ask while one is already parked must never overwrite the
+		// pending slot: the operator's answer to what the screen shows would
+		// then land on the wrong grant (#229). Deny it outright; the model
+		// can retry once the first is answered.
+		j.grant(b, p.ID, crushapi.Deny)
+		j.narrate("denied: another approval is already parked: " + what)
+		return
+	}
+	// An "all" answer never auto-grants a deletion (GHSA-mmp6): the session
+	// shortcut is skipped for it, so it falls through to the switch's Ask
+	// case below and parks for the operator like any other execute.
+	if decision == approval.Ask && j.sessionAllow && !approval.IsDeletion(req.Command) {
 		now := stamp(j.r.d.Now())
 		j.t.Approvals = append(j.t.Approvals, taskstore.Approval{
 			Seq: len(j.t.Approvals) + 1, Tool: p.Tool, Action: p.Action, Path: guestRel(p.Path), Command: req.Command,
@@ -329,6 +368,13 @@ func (j *job) audit(ctx context.Context) {
 			line += " (" + rep.Err + ")"
 		}
 		j.narrate(line)
+	}
+	// Check cancellation after the audit, before choosing the terminal state
+	// (#233): a cancel or Close during an uncancellable-looking audit call
+	// must never be silently ignored and end the record done anyway.
+	if ctx.Err() != nil {
+		j.finishAfterCancel()
+		return
 	}
 	j.t.Grounding = g
 	if flagged {

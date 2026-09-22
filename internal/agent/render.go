@@ -33,8 +33,14 @@ const (
 	// cmd/villa.TestCrushProviderPortMatchesInferenceServerPort (the agent seam forbids
 	// importing inference here, so the coupling is asserted from the cmd/villa test tier).
 	providerBaseURL = "http://127.0.0.1:8080/v1"
-	// providerAPIKey is a dummy non-secret key (the existing inference probe uses
-	// "local"); MUST be metachar-free (Pitfall 1).
+	// providerAPIKey is a dummy non-secret key, used ONLY by RenderSandbox: a
+	// workspace task's Crush reaches villa-inferproxy (never villa-llama
+	// directly), and the proxy OVERWRITES the Authorization header with the real
+	// bearer on its own outbound leg regardless of what it is handed (GHSA-qxg9,
+	// GHSA-gvp9, ADR-0011), so the in-sandbox value never needs to be real. The
+	// HOST-side Render() (`villa code`) and claudeEnv() connect to villa-llama's
+	// own loopback port directly and use cfg.InferenceSecret instead. MUST be
+	// metachar-free (Pitfall 1).
 	providerAPIKey = "local"
 	// modelIDPrefix namespaces the rendered model id so it cannot collide with a
 	// Catwalk built-in id (#2649 shadowing fix).
@@ -207,8 +213,13 @@ func Render(cfg config.VillaConfig, probes []LSPProbe) ([]byte, []Warning, error
 				Name:    "VillaStraylight (local)",
 				Type:    "openai-compat", // D-08
 				BaseURL: providerBaseURL, // loopback literal, not a backend marker
-				APIKey:  providerAPIKey,
-				Models:  []crushModel{model}, // non-empty (Pitfall 3)
+				// GHSA-qxg9 (ADR-0011): `villa code` connects to villa-llama's own
+				// loopback port directly (bypassing villa-inferproxy), so it needs
+				// the REAL bearer, not the RenderSandbox placeholder below — that
+				// path goes through villa-inferproxy, which injects the real key
+				// on its own outbound leg regardless of what it is handed.
+				APIKey: cfg.InferenceSecret,
+				Models: []crushModel{model}, // non-empty (Pitfall 3)
 			},
 		},
 		LSP: lsp,

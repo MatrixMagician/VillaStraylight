@@ -129,6 +129,12 @@ type openWebUIView struct {
 	PublishPort   string
 	Volume        string
 	Env           []envPair
+	// InferenceSecretEnvFile is the EnvironmentFile= PATH carrying the shared
+	// LLAMA_API_KEY/OPENAI_API_KEY bearer (GHSA-qxg9, ADR-0011). Set
+	// UNCONDITIONALLY — inference has no opt-in gate — so the singular
+	// OPENAI_API_KEY connection key (the no-resident-set case) reaches OWUI
+	// without ever landing in this 0644 unit's Environment= lines.
+	InferenceSecretEnvFile string
 	// SecretEnvFile is the EnvironmentFile= PATH carrying the 0600
 	// EXTERNAL_WEB_LOADER_API_KEY bearer. It is set ONLY when web search is on
 	// (the OWUI container needs the bearer to authenticate to villa-websafe); EMPTY when
@@ -159,7 +165,22 @@ type openWebUIVolumeView struct {
 // image is the RESOLVED pin — the effective one this host recorded, or the vetted
 // openWebUIImage when it has none. It leads the parameter list rather than joining
 // the tail because it is the one argument whose value is not derived from config.
-func buildOpenWebUIView(image string, mv memory.RenderInput, memoryEnabled bool, webSearchEnabled bool, searxngAddr string, searxngPort int, webSearchResultCount int, websafeAddr string, websafePort int, residentNames []string) openWebUIView {
+//
+// apiKey is the LLAMA_API_KEY/OPENAI_API_KEY bearer every rendered llama-server
+// instance now requires (GHSA-qxg9, ADR-0011) — it REPLACES noAuthAPIKey as the
+// value OWUI's own OPENAI_API_KEY(S) connection key carries. With no resident
+// slot this needs no literal Environment= value at all: the singular
+// OPENAI_API_KEY is read straight off the SAME EnvironmentFile= that carries
+// LLAMA_API_KEY (openWebUIView.InferenceSecretEnvFile, set unconditionally
+// below), so the render never bakes the secret into this 0644 unit. The plural
+// OPENAI_API_KEYS form a resident set requires (a ';'-joined list Quadlet's
+// EnvironmentFile= cannot compose from one entry) has no such path and IS baked
+// as a literal Environment= value — a narrower, accepted residual scoped to
+// this ticket (ADR-0011): the render-time env is consumed only on a fresh
+// install's first boot, and SyncEndpointsWithKey already reconciles the running
+// connection list's real keys afterward through OWUI's admin API, no file, no
+// unit.
+func buildOpenWebUIView(image string, mv memory.RenderInput, memoryEnabled bool, webSearchEnabled bool, searxngAddr string, searxngPort int, webSearchResultCount int, websafeAddr string, websafePort int, residentNames []string, apiKey string) openWebUIView {
 	// Connection: reach inference over villa.network by container DNS (NOT localhost /
 	// host.containers.internal), at its internal port. Open WebUI accepts EITHER the
 	// singular OPENAI_API_BASE_URL/OPENAI_API_KEY pair or the ';'-separated plural
@@ -167,39 +188,34 @@ func buildOpenWebUIView(image string, mv memory.RenderInput, memoryEnabled bool,
 	// resident slot exists, so a stack with no resident set renders the env block
 	// unchanged; the primary is always the first entry.
 	baseURLKey, baseURLValue := "OPENAI_API_BASE_URL", inNetworkEndpoint(containerName)
-	apiKeyKey, apiKeyValue := "OPENAI_API_KEY", noAuthAPIKey
-	if len(residentNames) > 0 {
-		urls := []string{baseURLValue}
-		keys := []string{noAuthAPIKey}
-		for _, name := range residentNames {
-			urls = append(urls, inNetworkEndpoint(name))
-			keys = append(keys, noAuthAPIKey)
-		}
-		baseURLKey, baseURLValue = "OPENAI_API_BASE_URLS", strings.Join(urls, ";")
-		apiKeyKey, apiKeyValue = "OPENAI_API_KEYS", strings.Join(keys, ";")
-	}
-
 	env := []envPair{
 		{Key: baseURLKey, Value: baseURLValue},
 		{Key: "ENABLE_OPENAI_API", Value: "True"},
 		{Key: "ENABLE_OLLAMA_API", Value: "False"},
-		// Required-but-ignored placeholder: llama.cpp's OpenAI-compatible
-		// endpoint performs NO auth, but Open WebUI needs a non-empty key field to
-		// register the connection. This is NOT a secret — it is a fixed sentinel,
-		// frozen by the container golden + the telemetry test. (The sk- shape can
-		// trip secret scanners; the value is deliberately the well-known no-auth
-		// placeholder, not a credential.)
-		{Key: apiKeyKey, Value: apiKeyValue},
-		// Telemetry kill-set — frozen by the telemetry test.
-		{Key: "ANONYMIZED_TELEMETRY", Value: "False"},
-		{Key: "DO_NOT_TRACK", Value: "True"},
-		{Key: "SCARF_NO_ANALYTICS", Value: "True"},
-		{Key: "OFFLINE_MODE", Value: "True"},
-		{Key: "ENABLE_VERSION_UPDATE_CHECK", Value: "False"},
-		{Key: "HF_HUB_OFFLINE", Value: "1"},
-		// Local admin auth — account persisted in the durable volume.
-		{Key: "WEBUI_AUTH", Value: "True"},
 	}
+	if len(residentNames) > 0 {
+		urls := []string{baseURLValue}
+		keys := []string{apiKey}
+		for _, name := range residentNames {
+			urls = append(urls, inNetworkEndpoint(name))
+			keys = append(keys, apiKey)
+		}
+		env[0] = envPair{Key: "OPENAI_API_BASE_URLS", Value: strings.Join(urls, ";")}
+		// GHSA-qxg9/ADR-0011: the real secret, repeated once per endpoint — see the
+		// residual note in the function doc comment above.
+		env = append(env, envPair{Key: "OPENAI_API_KEYS", Value: strings.Join(keys, ";")})
+	}
+	env = append(env,
+		// Telemetry kill-set — frozen by the telemetry test.
+		envPair{Key: "ANONYMIZED_TELEMETRY", Value: "False"},
+		envPair{Key: "DO_NOT_TRACK", Value: "True"},
+		envPair{Key: "SCARF_NO_ANALYTICS", Value: "True"},
+		envPair{Key: "OFFLINE_MODE", Value: "True"},
+		envPair{Key: "ENABLE_VERSION_UPDATE_CHECK", Value: "False"},
+		envPair{Key: "HF_HUB_OFFLINE", Value: "1"},
+		// Local admin auth — account persisted in the durable volume.
+		envPair{Key: "WEBUI_AUTH", Value: "True"},
+	)
 
 	if memoryEnabled {
 		// RAG/Qdrant/memory group (Phase-20), appended as ONE ordered block
@@ -328,13 +344,14 @@ func buildOpenWebUIView(image string, mv memory.RenderInput, memoryEnabled bool,
 	}
 
 	return openWebUIView{
-		ContainerName: openWebUIContainerName,
-		Image:         image,
-		Network:       networkAttach,
-		PublishPort:   openWebUIPublishPort,
-		Volume:        openWebUIVolumeMount,
-		Env:           env,
-		SecretEnvFile: secretEnvFile,
+		ContainerName:          openWebUIContainerName,
+		Image:                  image,
+		Network:                networkAttach,
+		PublishPort:            openWebUIPublishPort,
+		Volume:                 openWebUIVolumeMount,
+		Env:                    env,
+		InferenceSecretEnvFile: inferenceSecretEnvFilePath,
+		SecretEnvFile:          secretEnvFile,
 	}
 }
 

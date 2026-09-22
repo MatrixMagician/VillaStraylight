@@ -134,9 +134,13 @@ func taskServer(t *testing.T, r *taskrun.Runner) http.Handler {
 }
 
 // do issues one request through the handler; a POST carries the headers the
-// same-origin guard requires.
+// same-origin guard requires. Host is set to the loopback:port taskServer's
+// Config actually binds, since requireSameOrigin now rejects a request whose
+// Host it does not name (GHSA-3r95) — the same thing a real browser hitting the
+// loopback dashboard always sends, unlike httptest.NewRequest's bare-path default.
 func do(h http.Handler, method, path, body string) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(method, path, strings.NewReader(body))
+	req.Host = "127.0.0.1:8888"
 	if method != http.MethodGet {
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Sec-Fetch-Site", "same-origin")
@@ -429,7 +433,17 @@ func TestEventsStreamsNarrationUntilTerminal(t *testing.T) {
 	defer ts.Close()
 
 	id := decodeTask(t, do(h, http.MethodPost, "/api/tasks", submitBody(fx.ws))).ID
-	rsp, err := http.Get(ts.URL + "/api/tasks/" + id + "/events")
+	// httptest.NewServer binds its own ephemeral port, independent of the
+	// DashboardPort (8888) baked into requireSameOrigin by taskServer's Config, so
+	// the real request must carry that Host explicitly — exactly what a real
+	// browser hitting the actual dashboard sends, and distinct from ts.URL's
+	// dial address (GHSA-3r95's Host allowlist checks the header, not the socket).
+	req, err := http.NewRequest(http.MethodGet, ts.URL+"/api/tasks/"+id+"/events", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Host = testAPIHost
+	rsp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}

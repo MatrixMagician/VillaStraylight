@@ -7,6 +7,7 @@ After=villa-network.service
 ContainerName=villa-llama
 Image=docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-7.2.4@sha256:2da150c1f0252f383b0b400f6cfa6630d3d34cf7c57132fe8445393b40531a89
 Network=villa.network
+EnvironmentFile=%h/.config/villa/inference/llama.env
 AddDevice=/dev/kfd
 AddDevice=/dev/dri
 GroupAdd=keep-groups

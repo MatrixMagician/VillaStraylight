@@ -53,6 +53,7 @@ func liveWorkspaceDeps() workspace.Deps {
 		DataRoot:     pathsafe.DataRoot,
 		Stat:         os.Stat,
 		EvalSymlinks: filepath.EvalSymlinks,
+		Executable:   os.Executable,
 	}
 }
 

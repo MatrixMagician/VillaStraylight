@@ -80,7 +80,12 @@ type sandboxBridgeDeps struct {
 // runs it, the sandbox render does (orchestrate.RenderSandboxRun).
 func newSandboxBridge() *cobra.Command {
 	var (
-		baseURL   = orchestrate.LlamaInNetworkEndpoint()
+		// villa-llama joins villa.network ONLY now (GHSA-gvp9, ADR-0011): the
+		// sandbox network cannot reach it directly. villa-inferproxy joins BOTH
+		// networks and forwards the two routes a task needs, injecting the real
+		// LLAMA_API_KEY on the leg to villa-llama — so the sandbox side needs no
+		// key of its own (see internal/agent's providerAPIKey, unchanged).
+		baseURL   = orchestrate.InferproxyInNetworkEndpoint()
 		model     string
 		ctxTokens int
 		workspace = "/workspace"

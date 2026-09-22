@@ -3,10 +3,13 @@ package dashboard
 import (
 	"encoding/json"
 	"net/http"
+	"path/filepath"
 	"time"
 
+	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/metrics"
 	"github.com/MatrixMagician/VillaStraylight/internal/modelswap"
+	"github.com/MatrixMagician/VillaStraylight/internal/stacklock"
 	"github.com/MatrixMagician/VillaStraylight/internal/status"
 	"github.com/MatrixMagician/VillaStraylight/internal/usage"
 )
@@ -263,6 +266,21 @@ type switchResponse struct {
 	Reason string `json:"reason,omitempty"`
 }
 
+// stackLockPath resolves the cross-process lock file (ADR-0010, internal/stacklock)
+// beside config.toml, so this handler and every CLI stack-mutating verb always
+// target the SAME file regardless of which one runs first.
+//
+// A package-level var so api_test.go can point it at a temp-dir path instead of
+// the developer's real $XDG_CONFIG_HOME/villa — handleSwitch is exercised with a
+// live host untouched, exactly like statusDeps/swapDeps already are.
+var stackLockPath = func() (string, error) {
+	cfgPath, err := config.Path()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(filepath.Dir(cfgPath), stacklock.FileName), nil
+}
+
 // handleSwitch is the ONE sanctioned dashboard mutation. It decodes the narrow
 // {model} body and calls modelswap.Run(s.swapDeps, body.Model) VERBATIM — the SAME guarded
 // path `villa model swap` uses — then maps the typed Result to HTTP. It performs NO swap
@@ -283,6 +301,28 @@ func (s *Server) handleSwitch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer s.swapMu.Unlock()
+
+	// The cross-process lock (ADR-0010): swapMu only excludes a second in-process
+	// request. A CLI verb (`backend set`, `speculation set`, `tools-mode`,
+	// `coding-mode`, `model swap`) runs as a SEPARATE process and could persist a
+	// config change or roll one back while this handler's own mutate+prove window
+	// is open, with neither side ever seeing the other's in-memory mutex.
+	// Non-blocking, mirroring swapMu's own busy→409 shape: a request whose client
+	// has already timed out must never hang on a lock instead of failing fast.
+	lockPath, err := stackLockPath()
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, switchResponse{Reason: "resolve stack lock: " + err.Error()})
+		return
+	}
+	lock, err := stacklock.TryAcquire(lockPath)
+	if err != nil {
+		writeJSON(w, http.StatusConflict, switchResponse{
+			Refused: true,
+			Reason:  "a model switch is already in progress",
+		})
+		return
+	}
+	defer func() { _ = lock.Release() }()
 
 	var body switchRequest
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16))

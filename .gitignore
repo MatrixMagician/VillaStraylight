@@ -21,3 +21,6 @@
 
 # CRAP gate LCOV output (quartermaster crap); coverage.out is already *.out
 coverage/
+
+# sentrux scan output: regenerable, like coverage/ and graphify-out/ above.
+/.sentrux/

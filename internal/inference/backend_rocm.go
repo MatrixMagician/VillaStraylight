@@ -99,13 +99,16 @@ func (b backendROCm) ContainerArgs(spec RunSpec) []string {
 		"--env", "ROCBLAS_USE_HIPBLASLT=1",
 		"-p", hostPublish,
 		"-v", modelBind,
+	}
+	args = appendSecretEnvFileArgs(args, spec.SecretEnvFile)
+	args = append(args,
 		b.image,
 		"llama-server",
 		"-m", containerModelPath,
 		"-c", fmt.Sprintf("%d", spec.ContextLen),
 		"--host", "0.0.0.0", // container-internal only; host side is loopback (above)
 		"--port", fmt.Sprintf("%d", serverPort),
-	}
+	)
 	args = append(args, llamaServerFlags(b.load)...)
 	// ROCm symmetry: the IDENTICAL tool-calling delta as the Vulkan backend, rendered
 	// through the shared seam helper so both backends emit --jinja / sampling /

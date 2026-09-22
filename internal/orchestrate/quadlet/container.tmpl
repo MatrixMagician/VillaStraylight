@@ -7,8 +7,8 @@ After=villa-network.service
 ContainerName={{.ContainerName}}
 Image={{.Image}}
 Network={{.Network}}
-{{if .SandboxNetwork}}Network={{.SandboxNetwork}}
-{{end}}{{range .AddDevice}}AddDevice={{.}}
+EnvironmentFile={{.SecretEnvFile}}
+{{range .AddDevice}}AddDevice={{.}}
 {{end}}{{range .GroupAdd}}GroupAdd={{.}}
 {{end}}{{range .Env}}Environment={{.Key}}={{.Value}}
 {{end}}PublishPort={{.PublishPort}}

@@ -10,10 +10,11 @@ Image=ghcr.io/open-webui/open-webui:main@sha256:1a6399d237dc392a2313e0ca826020b3
 Network=villa.network
 PublishPort=127.0.0.1:3000:8080
 Volume=villa-openwebui.volume:/app/backend/data:Z
+EnvironmentFile=%h/.config/villa/inference/llama.env
 Environment=OPENAI_API_BASE_URLS=http://villa-llama:8080/v1;http://villa-llama-qwen3-6-35b-a3b:8080/v1
 Environment=ENABLE_OPENAI_API=True
 Environment=ENABLE_OLLAMA_API=False
-Environment=OPENAI_API_KEYS=sk-no-key-required;sk-no-key-required
+Environment=OPENAI_API_KEYS=;
 Environment=ANONYMIZED_TELEMETRY=False
 Environment=DO_NOT_TRACK=True
 Environment=SCARF_NO_ANALYTICS=True

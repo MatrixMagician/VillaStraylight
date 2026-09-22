@@ -61,6 +61,83 @@ func TestStreamChatUpstreamError(t *testing.T) {
 	}
 }
 
+// TestStreamChatSendsBearerWhenAPIKeySet guards GHSA-qxg9/ADR-0011: a client
+// built with a non-empty APIKey must send it as `Authorization: Bearer <key>` —
+// llama-server now refuses every /v1 route except /health without it.
+func TestStreamChatSendsBearerWhenAPIKeySet(t *testing.T) {
+	var gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+	}))
+	defer srv.Close()
+
+	client := NewOpenAIClient(Options{BaseURL: srv.URL, APIKey: "secret-key"})
+	if err := client.StreamChat(t.Context(), ChatRequest{
+		Model:    "test-model",
+		Messages: []Message{{Role: RoleUser, Content: "hi"}},
+	}, func(string) error { return nil }); err != nil {
+		t.Fatalf("StreamChat returned error: %v", err)
+	}
+	if want := "Bearer secret-key"; gotAuth != want {
+		t.Errorf("Authorization header = %q, want %q", gotAuth, want)
+	}
+}
+
+// TestStreamChatOmitsAuthWhenAPIKeyEmpty guards the byte-identical-before
+// degradation: a client built with no APIKey (every call site not yet threading
+// InferenceSecret through) must send NO Authorization header at all, not an
+// empty-valued one — matching every request made before this field existed.
+func TestStreamChatOmitsAuthWhenAPIKeyEmpty(t *testing.T) {
+	sawHeader := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "" {
+			sawHeader = true
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+	}))
+	defer srv.Close()
+
+	client := NewOpenAIClient(Options{BaseURL: srv.URL})
+	if err := client.StreamChat(t.Context(), ChatRequest{
+		Model:    "test-model",
+		Messages: []Message{{Role: RoleUser, Content: "hi"}},
+	}, func(string) error { return nil }); err != nil {
+		t.Fatalf("StreamChat returned error: %v", err)
+	}
+	if sawHeader {
+		t.Error("Authorization header present with no APIKey set")
+	}
+}
+
+// TestCompleteSendsBearerWhenAPIKeySet mirrors the streaming assertion for the
+// non-streaming Complete path (the bench's own client).
+func TestCompleteSendsBearerWhenAPIKeySet(t *testing.T) {
+	var gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"timings":{"predicted_n":1,"predicted_per_second":1}}`))
+	}))
+	defer srv.Close()
+
+	client := NewOpenAIClient(Options{BaseURL: srv.URL, APIKey: "secret-key"})
+	if _, err := client.Complete(t.Context(), ChatRequest{
+		Model:    "test-model",
+		Messages: []Message{{Role: RoleUser, Content: "hi"}},
+	}, 8, 1, 0); err != nil {
+		t.Fatalf("Complete returned error: %v", err)
+	}
+	if want := "Bearer secret-key"; gotAuth != want {
+		t.Errorf("Authorization header = %q, want %q", gotAuth, want)
+	}
+}
+
 func TestStreamChatRequiresModelAndMessages(t *testing.T) {
 	client := NewOpenAIClient(Options{BaseURL: "http://unused"})
 	if err := client.StreamChat(t.Context(), ChatRequest{Messages: []Message{{Role: RoleUser, Content: "hi"}}}, func(string) error { return nil }); err == nil {

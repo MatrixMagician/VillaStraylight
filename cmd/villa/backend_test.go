@@ -12,6 +12,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 	"github.com/MatrixMagician/VillaStraylight/internal/preflight"
 	"github.com/MatrixMagician/VillaStraylight/internal/prove"
+	"github.com/MatrixMagician/VillaStraylight/internal/stacklock"
 )
 
 // backendRecorder records the side-effecting backendswap.Deps seam calls so the
@@ -23,8 +24,8 @@ type backendRecorder struct {
 	saved        []config.VillaConfig // SaveConfig calls
 	written      int                  // ReconcileAndWrite calls
 	restarted    []string             // Restart calls
-	captured     int                  // CaptureUnit calls
-	restored     int                  // RestoreUnit calls
+	captured     int                  // CaptureUnits calls
+	restored     int                  // RestoreUnits calls
 	reloaded     int                  // DaemonReload calls
 	proved       []string             // Prove targets
 	curBackend   string               // LoadConfig's current backend
@@ -32,7 +33,7 @@ type backendRecorder struct {
 	fitReason    string               // FitsModel reason on !fits
 	preflightOK  bool                 // PreflightROCm result
 	preflightWhy string               // PreflightROCm reason on !ok
-	captureErr   error                // CaptureUnit error (refuse path)
+	captureErr   error                // CaptureUnits error (refuse path)
 	writeErr     error                // ReconcileAndWrite error (rollback path)
 	proveStatus  string               // Prove verdict status
 	proveDetail  string               // Prove verdict detail
@@ -53,12 +54,12 @@ func newBackendStub(rec *backendRecorder) *backendswap.Deps {
 		PreflightROCm: func(_ config.VillaConfig) (bool, string) {
 			return rec.preflightOK, rec.preflightWhy
 		},
-		CaptureUnit: func() ([]byte, error) {
+		CaptureUnits: func(config.VillaConfig) (map[string]string, error) {
 			if rec.captureErr != nil {
 				return nil, rec.captureErr
 			}
 			rec.captured++
-			return []byte("PRIOR-UNIT"), nil
+			return map[string]string{"villa-llama.container": "PRIOR-UNIT"}, nil
 		},
 		SaveConfig: func(c config.VillaConfig) error {
 			rec.saved = append(rec.saved, c)
@@ -71,7 +72,7 @@ func newBackendStub(rec *backendRecorder) *backendswap.Deps {
 			}
 			return true, nil
 		},
-		RestoreUnit: func(_ []byte) error {
+		RestoreUnits: func(map[string]string) error {
 			rec.restored++
 			return nil
 		},
@@ -195,7 +196,7 @@ func TestBackendShow(t *testing.T) {
 }
 
 // TestBackendSetDryRun: --dry-run previews target/fit/preflight and mutates NOTHING
-// no SaveConfig / ReconcileAndWrite / Restart / CaptureUnit / Prove (BSET-03).
+// no SaveConfig / ReconcileAndWrite / Restart / CaptureUnits / Prove (BSET-03).
 func TestBackendSetDryRun(t *testing.T) {
 	rec := &backendRecorder{curBackend: "vulkan", fits: true, preflightOK: true, proveStatus: prove.StatusPass}
 	d := newBackendStub(rec)
@@ -315,4 +316,29 @@ func TestBackendSetExitMapping(t *testing.T) {
 			t.Errorf("expected a 'rolled back' message, got %q", errOut.String())
 		}
 	})
+}
+
+// TestBackendSetLockFailureBlocksBeforeAnyMutation is ADR-0010: when the
+// cross-process lock cannot be taken, runBackendSet must refuse WITHOUT calling
+// backendswap.Run at all — never mutate while unable to exclude a concurrent
+// dashboard switch.
+func TestBackendSetLockFailureBlocksBeforeAnyMutation(t *testing.T) {
+	prev := acquireStackLock
+	acquireStackLock = func() (*stacklock.Lock, error) { return nil, errors.New("lock held") }
+	t.Cleanup(func() { acquireStackLock = prev })
+
+	rec := &backendRecorder{curBackend: "vulkan", fits: true, preflightOK: true, proveStatus: prove.StatusPass}
+	d := newBackendStub(rec)
+	cmd, _, errOut := newTestCmd()
+	code := runBackendSet(cmd, "rocm", false, d)
+	if code != exitBlocked {
+		t.Fatalf("a lock failure must exit 1, got %d", code)
+	}
+	if len(rec.saved) != 0 || len(rec.restarted) != 0 || rec.captured != 0 {
+		t.Errorf("a lock failure must fire ZERO seams (never mutate uncoordinated), got saved=%v restarted=%v captured=%d",
+			rec.saved, rec.restarted, rec.captured)
+	}
+	if !strings.Contains(errOut.String(), "lock held") {
+		t.Errorf("expected the lock error surfaced, got %q", errOut.String())
+	}
 }

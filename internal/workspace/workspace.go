@@ -29,6 +29,11 @@ type Deps struct {
 	DataRoot     func() string
 	Stat         func(string) (os.FileInfo, error)
 	EvalSymlinks func(string) (string, error)
+	// Executable locates the running villa binary (os.Executable in
+	// production). Optional: a nil value skips the executable-containment
+	// check in CheckGrant, which existing callers/tests that predate
+	// GHSA-3q4q-7cmw-m22m rely on.
+	Executable func() (string, error)
 }
 
 // RefusalKind names why Register refused a path (spec §3.1).
@@ -51,6 +56,13 @@ const (
 	Missing
 	// NotDir reports a path that exists but is not a directory.
 	NotDir
+	// Sensitive reports a path overlapping a known exec/autostart location or
+	// a dot-directory SELinux labels specially (GHSA-3q4q-7cmw-m22m,
+	// GHSA-45r5-q556-rrgc).
+	Sensitive
+	// ContainsExecutable reports a path that contains the running villa
+	// binary, which is bind-mounted into every task (GHSA-3q4q-7cmw-m22m).
+	ContainsExecutable
 )
 
 // String names the refusal kind for error text and remediation.
@@ -72,6 +84,10 @@ func (k RefusalKind) String() string {
 		return "missing"
 	case NotDir:
 		return "not-dir"
+	case Sensitive:
+		return "sensitive"
+	case ContainsExecutable:
+		return "contains-executable"
 	default:
 		return "unknown"
 	}
@@ -93,6 +109,61 @@ func (r Refusal) Error() string {
 // refuse builds a Refusal for path with a kind-specific remediation.
 func refuse(kind RefusalKind, path, remediation string) Refusal {
 	return Refusal{Kind: kind, Path: path, Remediation: remediation}
+}
+
+// sensitiveDirs lists directories, relative to home, that must never be a
+// workspace grant: known exec/autostart locations that would let a task
+// overwrite something the host runs (GHSA-3q4q-7cmw-m22m), plus
+// dot-directories SELinux labels specially, where the sandbox's per-task
+// recursive relabel would strip an unrelated service's access — ~/.ssh's
+// authorized_keys locking sshd out is the concrete case (GHSA-45r5-q556-rrgc).
+func sensitiveDirs(home string) []string {
+	return []string{
+		filepath.Join(home, "bin"),
+		filepath.Join(home, ".local", "bin"),
+		filepath.Join(home, ".config", "systemd"),
+		filepath.Join(home, ".config", "autostart"),
+		filepath.Join(home, ".ssh"),
+		filepath.Join(home, ".gnupg"),
+	}
+}
+
+// CheckGrant re-runs the two security refusals that hold regardless of the
+// grant list: the sensitive-directory denylist and containment of the
+// running villa binary. Register calls it on every new path; cmd/villa's
+// task-launch path calls it again on an already-granted, resolved path, so a
+// workspace registered before this check existed is still refused when a
+// task actually launches (GHSA-3q4q-7cmw-m22m).
+func CheckGrant(resolved string, d Deps) error {
+	home, err := d.Home()
+	if err != nil {
+		return fmt.Errorf("workspace: resolve home directory: %w", err)
+	}
+	home = filepath.Clean(home)
+
+	for _, deny := range sensitiveDirs(home) {
+		if overlaps(resolved, deny) {
+			return refuse(Sensitive, resolved,
+				fmt.Sprintf("%q is a sensitive directory and cannot be a workspace", deny))
+		}
+	}
+
+	if d.Executable == nil {
+		return nil
+	}
+	exe, err := d.Executable()
+	if err != nil {
+		return nil // cannot locate self: nothing to check against
+	}
+	exe, err = d.EvalSymlinks(exe)
+	if err != nil {
+		return nil
+	}
+	if pathsafe.Inside(exe, resolved) == nil {
+		return refuse(ContainsExecutable, resolved,
+			"this folder contains the running villa binary; register a different folder")
+	}
+	return nil
 }
 
 // Register validates path against every spec §3.1 refusal and, on success,
@@ -131,6 +202,10 @@ func Register(cfg config.VillaConfig, path string, d Deps) (config.VillaConfig, 
 	}
 	if err := pathsafe.Inside(resolved, home); err != nil {
 		return cfg, refuse(OutsideHome, resolved, "register a folder under your home directory")
+	}
+
+	if err := CheckGrant(resolved, d); err != nil {
+		return cfg, err
 	}
 
 	if overlaps(resolved, d.ConfigRoot()) || overlaps(resolved, d.DataRoot()) {

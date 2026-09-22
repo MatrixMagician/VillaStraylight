@@ -3,6 +3,7 @@ package taskstore
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -277,6 +278,99 @@ func TestListViewMatchesGolden(t *testing.T) {
 	want := readGolden(t, "task-list.golden.json")
 	if !bytes.Equal(got, want) {
 		t.Errorf("ListView != golden\n got: %s\nwant: %s", got, want)
+	}
+}
+
+// TestLoadRefusesATraversalThatWouldEscapeTasksDir guards GHSA-9hj4 with a
+// real escape, not just a missing file: a file that genuinely exists one
+// level above tasks/ (standing in for another store's document under the
+// same data root) must stay unreachable through a "../" id, proving the
+// shape check — not a coincidental ErrNotExist — is what refuses it.
+func TestLoadRefusesATraversalThatWouldEscapeTasksDir(t *testing.T) {
+	root := t.TempDir()
+	s := New(root)
+	if err := s.Create(Task{ID: "20260910-120115-0001", State: Queued, SubmittedAt: "2026-09-10T12:00:00Z"}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	outside := filepath.Join(root, "secret.json")
+	if err := os.WriteFile(outside, []byte(`{"id":"secret"}`), 0o600); err != nil {
+		t.Fatalf("write outside file: %v", err)
+	}
+	traversal := "../secret"
+	// Without the shape guard, filepath.Join(tasksDir, traversal+".json")
+	// cleans straight to `outside` and Load would happily return it.
+	if got := filepath.Join(s.tasksDir(), traversal+".json"); got != outside {
+		t.Fatalf("traversal id does not resolve to the outside file (%s != %s); test no longer proves the escape", got, outside)
+	}
+	if _, err := s.Load(traversal); !errors.Is(err, ErrNotFound) {
+		t.Errorf("Load(%q) = %v, want ErrNotFound (must not read outside tasks/)", traversal, err)
+	}
+	if _, err := s.Transition(traversal, Cancelled, nil); !errors.Is(err, ErrNotFound) {
+		t.Errorf("Transition(%q) = %v, want ErrNotFound", traversal, err)
+	}
+}
+
+// TestLoadAndTransitionRejectAnyIDShapeNewIDNeverProduces guards GHSA-9hj4's
+// boundary check itself: every id Load/Transition see must have NewID's
+// exact shape, including one already unescaped ("%2F" -> "/") by a caller
+// upstream — taskstore must still refuse it rather than trust the caller.
+func TestLoadAndTransitionRejectAnyIDShapeNewIDNeverProduces(t *testing.T) {
+	s := New(t.TempDir())
+	bad := []string{
+		"../../etc/passwd",
+		"..%2F..%2Fx",
+		"20260910-120115-4f2ag",
+		"20260910-120115",
+		"",
+	}
+	for _, id := range bad {
+		if _, err := s.Load(id); !errors.Is(err, ErrNotFound) {
+			t.Errorf("Load(%q) = %v, want ErrNotFound", id, err)
+		}
+		if _, err := s.Transition(id, Cancelled, nil); !errors.Is(err, ErrNotFound) {
+			t.Errorf("Transition(%q) = %v, want ErrNotFound", id, err)
+		}
+	}
+}
+
+// TestRecoverContinuesPastAnUnreadableRecord guards #238: one corrupt record
+// between two running ones must not abort Recover before it reaches the
+// later record — every readable non-terminal record still gets interrupted,
+// and the corrupt one is reported in a joined error, not silently dropped.
+func TestRecoverContinuesPastAnUnreadableRecord(t *testing.T) {
+	root := t.TempDir()
+	s := New(root)
+	ids := []string{"20260910-120100-0001", "20260910-120200-0002", "20260910-120300-0003"}
+	for _, id := range ids {
+		if err := s.Create(Task{ID: id, State: Queued, SubmittedAt: "2026-09-10T12:00:00Z"}); err != nil {
+			t.Fatalf("Create %s: %v", id, err)
+		}
+		if _, err := s.Transition(id, Running, nil); err != nil {
+			t.Fatalf("Transition %s -> running: %v", id, err)
+		}
+	}
+	// Sorts between the first and second id above, so it is the "one corrupt
+	// record between two running ones" the ticket describes.
+	tasksDir := filepath.Join(root, "tasks")
+	if err := os.WriteFile(filepath.Join(tasksDir, "20260910-120150-9999.json"), []byte("{not json"), 0o600); err != nil {
+		t.Fatalf("write corrupt record: %v", err)
+	}
+
+	got, err := s.Recover()
+	if err == nil {
+		t.Error("Recover with a corrupt record = nil error, want a reported error")
+	}
+	if len(got) != len(ids) {
+		t.Fatalf("Recover returned %v, want all three readable records interrupted", got)
+	}
+	for _, id := range ids {
+		tk, loadErr := s.Load(id)
+		if loadErr != nil {
+			t.Fatalf("Load %s: %v", id, loadErr)
+		}
+		if tk.State != Interrupted {
+			t.Errorf("%s state = %q, want interrupted", id, tk.State)
+		}
 	}
 }
 

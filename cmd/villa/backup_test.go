@@ -87,6 +87,17 @@ func fakeRunDeps(t *testing.T, files map[string][]byte) backup.Deps {
 			// read back from disk like the live wiring does.
 			return os.ReadFile(p)
 		},
+		// CreateTemp/Rename/Remove drive backup.RunBackup's stage→publish sequence
+		// (#239); the real os calls are fine to use directly here (test-tier only).
+		CreateTemp: func(dir, pattern string) (string, io.WriteCloser, error) {
+			f, err := os.CreateTemp(dir, pattern)
+			if err != nil {
+				return "", nil, err
+			}
+			return f.Name(), f, nil
+		},
+		Rename: os.Rename,
+		Remove: os.Remove,
 	}
 }
 

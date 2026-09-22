@@ -25,7 +25,7 @@ func TestHandlePinsFoldsInjectedSeam(t *testing.T) {
 		Pins:          func() PinsView { return want },
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/api/pins", nil)
+	req := newAPIRequest(http.MethodGet, "/api/pins", nil)
 	rec := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rec, req)
 
@@ -55,7 +55,7 @@ func TestHandlePinsNilSeamDefaultsToEmpty(t *testing.T) {
 		DashboardPort: 8888,
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/api/pins", nil)
+	req := newAPIRequest(http.MethodGet, "/api/pins", nil)
 	rec := httptest.NewRecorder()
 	srv.Handler().ServeHTTP(rec, req)
 

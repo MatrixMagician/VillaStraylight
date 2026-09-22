@@ -43,6 +43,10 @@ func PollHealth(ctx context.Context, endpoint string, timeout time.Duration) det
 // so a `villa backend set` cutover can prove generation against the server it just
 // restarted. It delegates straight to the package-private chatProbe. Plan-02
 // liveProve composes this with PollHealth + RunningOffloadVerdict.
-func GenerationProbe(ctx context.Context, endpoint, modelID string) ChatResult {
-	return chatProbe(ctx, endpoint, modelID)
+//
+// apiKey is the Bearer credential (GHSA-qxg9, ADR-0011) — the same
+// InferenceSecret every rendered llama-server instance now requires. An empty
+// key sends no header, matching every call before this parameter existed.
+func GenerationProbe(ctx context.Context, endpoint, modelID, apiKey string) ChatResult {
+	return chatProbe(ctx, endpoint, modelID, apiKey)
 }

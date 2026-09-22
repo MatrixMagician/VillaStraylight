@@ -10,6 +10,12 @@ LINT_BASE ?= origin/main
 GOLANGCI_VERSION := $(shell cat .golangci-version)
 GOLANGCI := go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_VERSION)
 
+# GOVULNCHECK_VERSION comes from .govulncheck-version, the SINGLE place the pin
+# lives, the same way GOLANGCI_VERSION reads .golangci-version. The CI workflow
+# reads the same file, so local and CI cannot drift onto different scanners.
+GOVULNCHECK_VERSION := $(shell cat .govulncheck-version)
+GOVULNCHECK := go run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
+
 # gofmt is shipped with the toolchain but is not guaranteed on $PATH (some Go
 # installs expose `go` only). Resolve it from GOROOT so `make fmt` works
 # regardless of PATH, and stays version-matched to the active toolchain.
@@ -77,8 +83,16 @@ lint: ## Lint this branch's NEW issues at the pinned version; LINT_ALL=1 lints t
 .PHONY: check
 check: vet test test-race ## Run vet + tests (incl. the -race gate, CR-01/WR-04)
 
+.PHONY: govulncheck
+govulncheck: ## Scan for reachable known vulnerabilities at the pinned version (.govulncheck-version)
+	$(GOVULNCHECK) $(PKG)
+
+# NOTE: `ci`'s lint step (via `make lint`) only reports issues new since
+# LINT_BASE=origin/main. Run this target ON main itself, that diff is empty and
+# lint is a no-op, so the "mirrors CI" claim below holds on a feature branch,
+# not on main.
 .PHONY: ci
-ci: build-static check lint ## Run what CI runs: static build, vet+test+race, new-issue lint, mod verify, TUI guard
+ci: build-static check lint govulncheck ## Run what CI runs: static build, vet+test+race, new-issue lint, vuln scan, mod verify, TUI guard
 	go mod verify
 	@if grep -qE 'charmbracelet|muesli/termenv' go.mod; then echo "A TUI dependency reappeared in go.mod"; exit 1; fi
 

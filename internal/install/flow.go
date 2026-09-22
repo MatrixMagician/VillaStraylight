@@ -145,10 +145,15 @@ type Deps struct {
 	Enable             func(service string) error
 	Start              func(service string) error
 	Stop               func(service string) error
+	// Restart is `systemctl restart`, used ONLY by rollback to bring a service that
+	// was running before back up against its restored unit — `start` on an
+	// already-active unit is a no-op (#128's forward-path trap, #231's rollback one).
+	Restart func(service string) error
 
-	WriteWebsafeSecretEnv func(name, text string) error
-	WriteSearxngSettings  func(name, text string) error
-	WriteSearxngSecretEnv func(name, text string) error
+	WriteWebsafeSecretEnv   func(name, text string) error
+	WriteSearxngSettings    func(name, text string) error
+	WriteSearxngSecretEnv   func(name, text string) error
+	WriteInferenceSecretEnv func(name, text string) error
 
 	Endpoint  func() string
 	PollReady func(ctx context.Context, endpoint string) Proof
@@ -280,6 +285,20 @@ func Run(ctx context.Context, d Deps, opts Opts) Result {
 	persisted := cfg
 	plan := AssemblePlan(cfg, gates, rec, PersistedBackendChosen)
 	cfg = plan.Config
+
+	// The inference bearer (GHSA-qxg9, ADR-0011) is generated ONCE, in memory,
+	// here — BEFORE render — so a resident-set OWUI unit's literal already carries
+	// it this run. It is persisted by step (7)'s SaveConfig below (never a second
+	// save), so a --dry-run that returns before that step touches nothing on disk.
+	// An existing secret (a prior install, or a re-run) is reused, never rotated —
+	// this is also the upgrade-migration path for an install that predates it.
+	if cfg.InferenceSecret == "" {
+		secret, serr := config.GenerateInferenceSecret()
+		if serr != nil {
+			return block("install: generate inference secret: %v\n", serr)
+		}
+		cfg.InferenceSecret = secret
+	}
 
 	modelFile, err := d.ModelFile(rec)
 	if err != nil {
@@ -417,8 +436,11 @@ func Run(ctx context.Context, d Deps, opts Opts) Result {
 	refuse := func(format string, args ...any) Result {
 		warn(format, args...)
 		rb := Rollback(RollbackDeps{
-			StopService:  d.Stop,
-			StartService: d.Start,
+			StopService: d.Stop,
+			// Restart, not start: a service that was running before is being brought
+			// back against its RESTORED unit file, and `start` on an already-active
+			// unit would leave the rejected one running (#231).
+			StartService: d.Restart,
 			WriteUnit: func(name, text string) error {
 				if d.WriteUnit == nil {
 					return fmt.Errorf("no unit-write seam wired")
@@ -451,6 +473,17 @@ func Run(ctx context.Context, d Deps, opts Opts) Result {
 	// unchanged containers still repairs it. Idempotent: a matching unit is a no-op.
 	if err := reconcileDashboard(d, say, mutated.RecordStart); err != nil {
 		return refuse("install: %v\n", err)
+	}
+
+	// (7c) The inference bearer's 0600 env file, BEFORE any unit that references it
+	// (via EnvironmentFile=) is written or started — villa-llama, every resident
+	// slot, villa-openwebui and villa-inferproxy all reference this ONE path
+	// unconditionally (GHSA-qxg9, ADR-0011; inference has no opt-in gate, unlike
+	// WebLoaderSecret below). Written on BOTH paths (including the true no-op
+	// below) so a manually-deleted env file self-heals on the next install too.
+	inferenceEnvName, inferenceEnvText := orchestrate.RenderInferenceSecretEnv(cfg.InferenceSecret)
+	if err := d.WriteInferenceSecretEnv(inferenceEnvName, inferenceEnvText); err != nil {
+		return refuse("install: write inference secret env failed: %v\n", err)
 	}
 
 	// (8) True no-op: reached only AFTER the weights, config and dashboard unit are

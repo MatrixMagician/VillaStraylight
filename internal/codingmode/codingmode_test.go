@@ -304,6 +304,27 @@ func TestRollbackIncompleteReported(t *testing.T) {
 	}
 }
 
+// TestRollbackAccumulatesMultipleFailures is #232's related fix: the rollback
+// detail used to be overwritten by whichever step failed LAST, hiding an earlier
+// step's failure from the operator. Two independent rollback-step failures must
+// BOTH appear in Reason.
+func TestRollbackAccumulatesMultipleFailures(t *testing.T) {
+	rec := enterStub()
+	rec.proveStatus = "fail" // trigger rollback after a clean forward mutate
+	rec.restoreErr = errors.New("read-only filesystem")
+	rec.rbRestartErr = errors.New("systemd refused restart")
+
+	res := Run(newModeStub(rec), Enter)
+	if !res.RolledBack {
+		t.Fatalf("expected RolledBack=true, got %+v", res)
+	}
+	for _, want := range []string{"RestoreUnit failed", "read-only filesystem", "Restart(prior) failed", "systemd refused restart"} {
+		if !strings.Contains(res.Reason, want) {
+			t.Errorf("Reason must accumulate every rollback failure, missing %q; got %q", want, res.Reason)
+		}
+	}
+}
+
 // TestExitRestoresChat: exit from coding mode runs the SAME (capture→mutate→prove→
 // rollback) frame and persists CodingMode=false, clearing the coder fields. It is
 // symmetric to enter, NOT a bare flip — capture fired before save.

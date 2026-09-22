@@ -2,7 +2,10 @@ package dashboard
 
 import (
 	"context"
+	"io"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -18,6 +21,24 @@ func mustNewServer(t *testing.T, cfg Config) *Server {
 		t.Fatalf("NewServer: %v", err)
 	}
 	return srv
+}
+
+// testAPIHost is the Host every synthetic request in this package's /api tests
+// must carry, matching the loopback:8888 every test Config here binds. It exists
+// because requireSameOrigin now enforces a Host allowlist (GHSA-3r95):
+// httptest.NewRequest defaults an unset Host to "example.com", which is exactly
+// the shape of request the allowlist exists to reject, so a test that is not
+// itself exercising the allowlist must set a real one.
+const testAPIHost = "127.0.0.1:8888"
+
+// newAPIRequest builds a synthetic request bound for the /api mux with
+// testAPIHost set, so tests that exercise handler behavior (not the Host
+// allowlist itself, which middleware_test.go covers directly) see the same Host
+// shape a real browser hitting the loopback dashboard always sends.
+func newAPIRequest(method, path string, body io.Reader) *http.Request {
+	req := httptest.NewRequest(method, path, body)
+	req.Host = testAPIHost
+	return req
 }
 
 // TestServerAddrIsLoopback asserts the http.Server.Addr is built via
