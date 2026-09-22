@@ -526,6 +526,92 @@ func TestACommitFailureDoesNotUndoAProvenGoodState(t *testing.T) {
 	}
 }
 
+// TestRollbackRunsOnALiveContextAfterTheBudgetExpires guards #230: the most likely
+// trigger for a rollback is a proof that ran out of its own budget, and by then the
+// context every rollback seam receives must not already be Done — a live seam that
+// checks ctx.Err() (as every real Stop/Restore/RestoreData/Start seam does) would
+// otherwise refuse before doing anything, turning "the new state could not be
+// proven" into "the rollback also failed" for no reason but a stale deadline.
+func TestRollbackRunsOnALiveContextAfterTheBudgetExpires(t *testing.T) {
+	r := newRecorder()
+	// The stopped-window path exercises every rollback seam (Stop, RestoreData,
+	// Restore, Start, ProveRestored), so a memory target is the strongest witness.
+	r.proveNew = Proof{Status: ProofReject, Detail: "did not become healthy within 90s"}
+
+	budgetCalls := 0
+	var expireSubsystemBudget context.CancelFunc
+	d := r.deps()
+	d.Budget = func(c context.Context, k subsystem.Kind) (context.Context, context.CancelFunc) {
+		budgetCalls++
+		ctx, cancel := context.WithCancel(c)
+		if budgetCalls == 1 {
+			expireSubsystemBudget = cancel
+		}
+		return ctx, cancel
+	}
+
+	// Expire the subsystem's OWN budget the instant ProveNew returns — the exact
+	// trigger #230 describes: Stop/Snapshot/Mutate/Start/ProveNew all ran on a live
+	// context, and only AFTER the proof comes back does the budget run out.
+	baseProveNew := d.ProveNew
+	d.ProveNew = func(ctx context.Context, k subsystem.Kind) Proof {
+		p := baseProveNew(ctx, k)
+		if expireSubsystemBudget != nil {
+			expireSubsystemBudget()
+		}
+		return p
+	}
+
+	var sawDoneDuringRollback bool
+	base := d.Stop
+	d.Stop = func(ctx context.Context, k subsystem.Kind) error {
+		if ctx.Err() != nil {
+			sawDoneDuringRollback = true
+		}
+		return base(ctx, k)
+	}
+	baseRestore := d.Restore
+	d.Restore = func(ctx context.Context, k subsystem.Kind, c Capture) error {
+		if ctx.Err() != nil {
+			sawDoneDuringRollback = true
+		}
+		return baseRestore(ctx, k, c)
+	}
+	baseRestoreData := d.RestoreData
+	d.RestoreData = func(ctx context.Context, k subsystem.Kind, snap pinstate.DataSnapshot) error {
+		if ctx.Err() != nil {
+			sawDoneDuringRollback = true
+		}
+		return baseRestoreData(ctx, k, snap)
+	}
+	baseStart := d.Start
+	d.Start = func(ctx context.Context, k subsystem.Kind) error {
+		if ctx.Err() != nil {
+			sawDoneDuringRollback = true
+		}
+		return baseStart(ctx, k)
+	}
+	baseProveRestored := d.ProveRestored
+	d.ProveRestored = func(ctx context.Context, k subsystem.Kind) Proof {
+		if ctx.Err() != nil {
+			sawDoneDuringRollback = true
+		}
+		return baseProveRestored(ctx, k)
+	}
+
+	res := Run(context.Background(), d, []Target{memoryTarget()})
+
+	if sawDoneDuringRollback {
+		t.Error("a rollback seam ran on a context that was already Done — rollback must get its own fresh budget")
+	}
+	if res.Subsystems[0].RollbackIncomplete {
+		t.Errorf("rollback reported incomplete: %v", res.Subsystems[0].Err)
+	}
+	if budgetCalls < 2 {
+		t.Errorf("Budget was called %d time(s); rollback must take its own fresh one rather than reuse the expired subsystem budget", budgetCalls)
+	}
+}
+
 // TestTheCoreIsPure is a structural assertion. The whole value of this package is
 // that every path is drivable from a test, and one os/exec call would end that.
 func TestTheCoreIsPure(t *testing.T) {
