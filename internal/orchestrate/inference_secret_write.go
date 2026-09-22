@@ -50,3 +50,17 @@ func WriteInferenceSecretEnvTo(dir, name, text string) error {
 	}
 	return nil
 }
+
+// InferenceSecretEnvHostPath returns the REAL host filesystem path of the 0600
+// env file WriteInferenceSecretEnv writes. InferenceSecretEnvFilePath() carries
+// Quadlet's %h specifier, resolved only at unit-load time by systemd, so a plain
+// `podman run --env-file` invocation OUTSIDE Quadlet (the transient
+// villa-inference-validate/-ceiling container, GHSA-qxg9, ADR-0011) needs this
+// concrete path instead.
+func InferenceSecretEnvHostPath() (string, error) {
+	dir, err := inferenceSecretEnvDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, inferenceSecretEnvFileName), nil
+}

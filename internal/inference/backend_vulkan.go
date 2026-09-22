@@ -112,18 +112,35 @@ func (b backendVulkan) ContainerArgs(spec RunSpec) []string {
 		"--security-opt", "seccomp=unconfined",
 		"-p", hostPublish,
 		"-v", modelBind,
+	}
+	args = appendSecretEnvFileArgs(args, spec.SecretEnvFile)
+	args = append(args,
 		vulkanImage,
 		"llama-server",
 		"-m", containerModelPath,
 		"-c", fmt.Sprintf("%d", spec.ContextLen),
 		"--host", "0.0.0.0", // container-internal only; host side is loopback (above)
 		"--port", fmt.Sprintf("%d", serverPort),
-	}
+	)
 	args = append(args, llamaServerFlags(loadResident)...)
 	args = appendToolsArgs(args, spec)
 	args = appendSpeculationArgs(args, spec.Speculation, b.ResidencyProof().DeviceToken)
 	args = appendProjectorArgs(args, spec.Projector)
 	return args
+}
+
+// appendSecretEnvFileArgs appends `--env-file <path>` to args, behind the same
+// seam and by the same construction as the other optional deltas: "" (the
+// pre-existing default, and an unmigrated host with no secret yet) returns args
+// UNCHANGED. This is the ONE place a transient run's LLAMA_API_KEY/OPENAI_API_KEY
+// bearer is wired in, keeping the secret VALUE off the podman command line the
+// same way every rendered Quadlet unit's EnvironmentFile= already does
+// (GHSA-qxg9, ADR-0011). Shared by both backend ContainerArgs paths.
+func appendSecretEnvFileArgs(args []string, secretEnvFile string) []string {
+	if secretEnvFile == "" {
+		return args
+	}
+	return append(args, "--env-file", secretEnvFile)
 }
 
 // appendProjectorArgs appends the vision projector delta to args, behind the same

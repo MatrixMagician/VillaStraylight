@@ -274,7 +274,7 @@ func liveStatusDeps() (*status.Deps, error) {
 		// invocation's startup, where the load_tensors residency line lives; the
 		// whole-unit journal's oldest bytes are stale prior-start output (F-3).
 		JournalText: sys.ResidencyJournal,
-		Props:       liveProps,
+		Props:       func(endpoint string) *inference.PropsInfo { return liveProps(endpoint, cfg.InferenceSecret) },
 		GTTUsed:     detect.GTTUsedBytes,
 		WeightBytes: liveWeightBytes,
 		Endpoint:    func() string { return endpoint },
@@ -753,9 +753,20 @@ func liveOpenWebUIHealth(endpoint string) status.HealthState {
 // overlay (corroboration only, never the residency proof). A transport
 // error / unparseable body yields nil (Unknown), which never produces a false PASS
 // or a FAIL in RunningOffloadVerdict. The body is bounded by io.LimitReader.
-func liveProps(endpoint string) *inference.PropsInfo {
+//
+// apiKey is the LLAMA_API_KEY/OPENAI_API_KEY bearer (GHSA-qxg9, ADR-0011): a keyed
+// llama-server 401s an unauthenticated /props, which used to degrade this check to
+// a permanent Unknown. "" sends no header (an unkeyed server ignores it).
+func liveProps(endpoint, apiKey string) *inference.PropsInfo {
 	client := &http.Client{Timeout: statusHTTPTimeout}
-	resp, err := client.Get(endpoint + "/props")
+	req, err := http.NewRequest(http.MethodGet, endpoint+"/props", nil)
+	if err != nil {
+		return nil
+	}
+	if apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil
 	}

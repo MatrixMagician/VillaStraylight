@@ -139,6 +139,14 @@ type RunSpec struct {
 	// "" renders byte-identical args, which is what keeps every unit rendered before
 	// this field existed unchanged on upgrade.
 	Projector string
+	// SecretEnvFile is the OPTIONAL host filesystem path to the 0600 llama.env
+	// bearer file (GHSA-qxg9, ADR-0011; orchestrate.InferenceSecretEnvHostPath).
+	// Set, ContainerArgs appends `--env-file <path>`, so the transient container is
+	// started WITH the same LLAMA_API_KEY/OPENAI_API_KEY every rendered Quadlet
+	// unit's EnvironmentFile= carries — never the key value itself on the podman
+	// command line. "" renders byte-identical args, which is what keeps every
+	// existing caller (and an unmigrated host with no secret yet) unchanged.
+	SecretEnvFile string
 }
 
 // SpeculationSpec is the OPTIONAL speculation render delta carried on RunSpec.

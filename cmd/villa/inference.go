@@ -14,6 +14,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
 	"github.com/MatrixMagician/VillaStraylight/internal/inference"
+	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 	"github.com/MatrixMagician/VillaStraylight/internal/recommend"
 	"github.com/MatrixMagician/VillaStraylight/internal/subsystem"
 )
@@ -161,11 +162,20 @@ func runValidation(ctx context.Context, m catalog.Model, withCeiling bool) infer
 		}
 	}
 
+	// GHSA-qxg9 (ADR-0011): start the transient container WITH the same bearer
+	// every rendered Quadlet unit's EnvironmentFile= carries, via --env-file (never
+	// the key value on the podman command line). Only wired when a secret AND its
+	// env file both already exist — an unmigrated host (cfg.InferenceSecret == "",
+	// or a manually deleted file) gets the pre-existing byte-identical args rather
+	// than a hard `podman run --env-file <missing>` failure.
+	secretEnvFile := liveSecretEnvFileFor(cfg.InferenceSecret)
+
 	spec := inference.RunSpec{
 		ContainerName: "villa-inference-validate",
 		ModelFile:     m.PrimaryFile(),
 		ModelsDir:     dir,
 		ContextLen:    rec.ContextLen,
+		SecretEnvFile: secretEnvFile,
 	}
 	runner := inference.NewContainerRunner(backend, spec)
 
@@ -191,10 +201,30 @@ func runValidation(ctx context.Context, m catalog.Model, withCeiling bool) infer
 			stress.ModelsDir = dir
 			stress.ContainerName = "villa-inference-ceiling"
 			stress.ModelFile = m.PrimaryFile()
+			stress.SecretEnvFile = secretEnvFile
 			return inference.NewContainerRunner(backend, stress)
 		}
 	}
 	return inference.Validate(ctx, in)
+}
+
+// liveSecretEnvFileFor resolves the host path of the 0600 llama.env bearer file
+// for the transient validate/run container (GHSA-qxg9, ADR-0011), returning ""
+// when there is no secret yet (an unmigrated host) or the file is not actually
+// on disk — either way, ContainerArgs then renders the pre-existing,
+// byte-identical args instead of a --env-file pointing at nothing.
+func liveSecretEnvFileFor(secret string) string {
+	if secret == "" {
+		return ""
+	}
+	path, err := orchestrate.InferenceSecretEnvHostPath()
+	if err != nil {
+		return ""
+	}
+	if _, err := os.Stat(path); err != nil {
+		return ""
+	}
+	return path
 }
 
 // renderInference writes the Verdict (table or --json) and RETURNS the exit code

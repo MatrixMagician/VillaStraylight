@@ -396,7 +396,7 @@ func liveCodingModeDeps(ctx context.Context) *codingmode.Deps {
 			if len(plan.Changed) == 0 {
 				return false, nil
 			}
-			if err := orchestrate.WriteUnits(plan, dir); err != nil {
+			if err := liveWriteUnits(plan, dir); err != nil {
 				return false, err
 			}
 			if err := sys.DaemonReload(); err != nil {
@@ -404,15 +404,16 @@ func liveCodingModeDeps(ctx context.Context) *codingmode.Deps {
 			}
 			return true, nil
 		},
-		// RestoreUnit: write the verbatim captured prior unit bytes back through the
-		// traversal-guarded orchestrate.WriteUnits (the rollback path).
+		// RestoreUnit: write the verbatim captured prior unit bytes back through
+		// liveWriteUnits (the traversal-guarded orchestrate rollback path,
+		// GHSA-qxg9-safe).
 		RestoreUnit: func(b []byte) error {
 			dir, err := quadletUnitDir()
 			if err != nil {
 				return err
 			}
 			plan := orchestrate.Plan{Changed: []orchestrate.Unit{{Name: "villa-llama.container", Text: string(b)}}}
-			return orchestrate.WriteUnits(plan, dir)
+			return liveWriteUnits(plan, dir)
 		},
 		DaemonReload: sys.DaemonReload,
 		Restart:      sys.Restart,

@@ -715,7 +715,7 @@ func liveResidentDeps(ctx context.Context) *residentDeps {
 		renderUnits: liveRenderUnits,
 		unitDir:     quadletUnitDir,
 		reconcile:   orchestrate.Reconcile,
-		writeUnits:  orchestrate.WriteUnits,
+		writeUnits:  liveWriteUnits,
 		readUnit: func(dir, name string) (string, bool) {
 			// Containment is checked, not asserted: removeUnit directly below takes the
 			// same dir and name and guards them, and a read that only claims safety in a

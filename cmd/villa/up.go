@@ -55,18 +55,6 @@ func runUp(cmd *cobra.Command, opts upOpts, args []string, d *lifecycleDeps) int
 	out := cmd.OutOrStdout()
 	errOut := cmd.ErrOrStderr()
 
-	// The inference bearer's migration (GHSA-qxg9, ADR-0011) is skipped on
-	// --dry-run: it must write nothing (the --dry-run contract), and a preview
-	// against whatever secret is already loaded is an acceptable, harmless
-	// staleness for the rare case of a never-migrated install previewing a
-	// resident-set config.
-	if !opts.dryRun {
-		if err := d.ensureInferenceSecret(); err != nil {
-			fmt.Fprintf(errOut, "up: %v\n", err)
-			return exitBlocked
-		}
-	}
-
 	units, unitDir, err := d.renderStack()
 	if err != nil {
 		fmt.Fprintf(errOut, "up: %v\n", err)

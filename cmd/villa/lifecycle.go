@@ -54,19 +54,15 @@ type lifecycleDeps struct {
 	followJournal func(service string) error
 }
 
-// ensureInferenceSecret is the up/restart half of the GHSA-qxg9 (ADR-0011)
-// migration: an existing install whose config.toml predates the inference bearer
-// has neither the field nor the 0600 env file villa-llama's rendered unit now
-// references, so the NEXT `villa up`/`restart` after upgrading is the first
-// chance to self-heal it — before renderStack renders that reference and before
-// any unit is (re)started. It reuses an existing secret verbatim (never rotates
-// it) and always (re)writes the env file, self-healing a manually deleted one.
-//
-// Deliberately NOT called by down/logs/uninstall (renderStack's other callers):
-// they never start a service, so generating a secret on their behalf would be a
-// side effect a read/stop/teardown verb must not have.
-func (d *lifecycleDeps) ensureInferenceSecret() error {
-	cfg, err := d.loadConfig()
+// ensureInferenceSecretWith is the GHSA-qxg9 (ADR-0011) migration core, shared by
+// every caller that needs it run through its OWN load/save/write-env seams: an
+// existing install whose config.toml predates the inference bearer has neither
+// the field nor the 0600 env file the rendered units now reference via
+// EnvironmentFile=, so the first write after upgrading must self-heal it BEFORE
+// any unit is touched. It reuses an existing secret verbatim (never rotates it)
+// and always (re)writes the env file, self-healing a manually deleted one.
+func ensureInferenceSecretWith(loadConfig func() (config.VillaConfig, error), saveConfig func(config.VillaConfig) error, writeInferenceSecretEnv func(name, text string) error) error {
+	cfg, err := loadConfig()
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
@@ -76,15 +72,56 @@ func (d *lifecycleDeps) ensureInferenceSecret() error {
 			return fmt.Errorf("generate inference secret: %w", gerr)
 		}
 		cfg.InferenceSecret = secret
-		if serr := d.saveConfig(cfg); serr != nil {
+		if serr := saveConfig(cfg); serr != nil {
 			return fmt.Errorf("persist inference secret: %w", serr)
 		}
 	}
 	name, text := orchestrate.RenderInferenceSecretEnv(cfg.InferenceSecret)
-	if err := d.writeInferenceSecretEnv(name, text); err != nil {
+	if err := writeInferenceSecretEnv(name, text); err != nil {
 		return fmt.Errorf("write inference secret env: %w", err)
 	}
 	return nil
+}
+
+// ensureInferenceSecret is the lifecycleDeps-injected half of the migration
+// (up/restart, via applyReconcile — the seam they share): it drives
+// ensureInferenceSecretWith through d's own loadConfig/saveConfig/
+// writeInferenceSecretEnv fields so lifecycle_test.go can exercise it with
+// stubs, with zero live host I/O.
+func (d *lifecycleDeps) ensureInferenceSecret() error {
+	return ensureInferenceSecretWith(d.loadConfig, d.saveConfig, d.writeInferenceSecretEnv)
+}
+
+// ensureInferenceSecretFile is the LIVE half of the same migration, driven
+// through the real host seams (config.LoadVilla/SaveVilla,
+// orchestrate.WriteInferenceSecretEnv) rather than lifecycleDeps' injected
+// fields. liveWriteUnits calls this so every OTHER unit-writing verb — backend
+// set, tools-mode, coding-mode, speculation set, model swap, a resident-model
+// verb, `villa update`, `villa restore`, and the dashboard's model switch — gets
+// the same self-heal lifecycleDeps.ensureInferenceSecret gives up/restart,
+// without each of those verbs' own Deps struct needing its own copy of this
+// logic (GHSA-qxg9, ADR-0011).
+func ensureInferenceSecretFile() error {
+	return ensureInferenceSecretWith(config.LoadVilla, config.SaveVilla, orchestrate.WriteInferenceSecretEnv)
+}
+
+// liveWriteUnits is the ONE live seam every unit-writing verb funnels its
+// orchestrate.WriteUnits call through (GHSA-qxg9, ADR-0011), instead of calling
+// orchestrate.WriteUnits directly: it self-heals the inference secret env file
+// BEFORE any unit is touched, so a verb that runs first on an upgraded host
+// whose config.toml predates the bearer does not write a unit whose
+// EnvironmentFile= target does not exist yet. A no-op plan (nothing changed)
+// skips it entirely — which is also what keeps a --dry-run caller (none of
+// which ever reach here with a non-empty plan; they return before this seam)
+// side-effect-free, and refuses before any unit is touched if the env file
+// cannot be written.
+func liveWriteUnits(plan orchestrate.Plan, unitDir string) error {
+	if len(plan.Changed) > 0 {
+		if err := ensureInferenceSecretFile(); err != nil {
+			return fmt.Errorf("ensure inference secret: %w", err)
+		}
+	}
+	return orchestrate.WriteUnits(plan, unitDir)
 }
 
 // renderStack loads config, renders the units, and resolves the unit dir. It is
@@ -193,9 +230,19 @@ func resolveTargets(errOut io.Writer, args []string, services []string) ([]strin
 // applyReconcile writes the changed units and daemon-reloads (only when something
 // changed). It returns whether anything changed so the caller can decide between a
 // true no-op and a (re)start. printDryRun handles --dry-run separately.
+//
+// It is the ONE seam up and restart share (runUp/runRestart both call it), so the
+// GHSA-qxg9 inference-secret migration lives HERE — before d.writeUnits — rather
+// than as a separate call in each of their RunE bodies: neither can reach
+// d.writeUnits without it running first, and a true no-op (nothing changed) skips
+// both, which is also what keeps --dry-run (which never reaches a non-empty plan
+// here) side-effect-free.
 func (d *lifecycleDeps) applyReconcile(out io.Writer, plan orchestrate.Plan, unitDir string) (changed bool, err error) {
 	if len(plan.Changed) == 0 {
 		return false, nil
+	}
+	if err := d.ensureInferenceSecret(); err != nil {
+		return false, fmt.Errorf("ensure inference secret: %w", err)
 	}
 	if err := d.writeUnits(plan, unitDir); err != nil {
 		return false, fmt.Errorf("write units: %w", err)

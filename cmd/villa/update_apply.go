@@ -249,7 +249,7 @@ func liveRestoreSubsystem(ctx context.Context, sys orchestrate.Systemd, k subsys
 		changed = append(changed, orchestrate.Unit{Name: name, Text: string(data)})
 	}
 	if len(changed) > 0 {
-		if err := orchestrate.WriteUnits(orchestrate.Plan{Changed: changed}, dir); err != nil {
+		if err := liveWriteUnits(orchestrate.Plan{Changed: changed}, dir); err != nil {
 			return err
 		}
 	}
@@ -382,7 +382,7 @@ func renderAndWrite(cfg config.VillaConfig) error {
 	if len(plan.Changed) == 0 {
 		return nil
 	}
-	return orchestrate.WriteUnits(plan, dir)
+	return liveWriteUnits(plan, dir)
 }
 
 // ---------------------------------------------------------------------------

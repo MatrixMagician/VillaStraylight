@@ -467,7 +467,7 @@ func liveBackendSwapDeps() *backendswap.Deps {
 			if len(plan.Changed) == 0 {
 				return false, nil
 			}
-			if err := orchestrate.WriteUnits(plan, dir); err != nil {
+			if err := liveWriteUnits(plan, dir); err != nil {
 				return false, err
 			}
 			if err := sys.DaemonReload(); err != nil {
@@ -476,8 +476,9 @@ func liveBackendSwapDeps() *backendswap.Deps {
 			return true, nil
 		},
 		// RestoreUnits: write the verbatim captured prior bytes of every captured
-		// unit back through the traversal-guarded orchestrate.WriteUnits (the
-		// rollback path) — every unit CaptureUnits saw, not a fixed name (#232).
+		// unit back through liveWriteUnits (the traversal-guarded orchestrate
+		// rollback path, GHSA-qxg9-safe) — every unit CaptureUnits saw, not a fixed
+		// name (#232).
 		RestoreUnits: func(m map[string]string) error {
 			dir, err := quadletUnitDir()
 			if err != nil {
@@ -487,7 +488,7 @@ func liveBackendSwapDeps() *backendswap.Deps {
 			for name, text := range m {
 				changed = append(changed, orchestrate.Unit{Name: name, Text: text})
 			}
-			return orchestrate.WriteUnits(orchestrate.Plan{Changed: changed}, dir)
+			return liveWriteUnits(orchestrate.Plan{Changed: changed}, dir)
 		},
 		DaemonReload: sys.DaemonReload,
 		Restart:      sys.Restart,
