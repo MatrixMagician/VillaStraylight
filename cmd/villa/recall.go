@@ -302,75 +302,60 @@ func runRecallIndex(cmd *cobra.Command, _ []string, deps recallDeps, rebuild, sh
 		return exitBlocked
 	}
 
-	// (3a) LIST USERS + SINGLE-OPERATOR GUARD (hoisted per the
-	// Phase-23 review): a refusal must be SIDE-EFFECT-FREE, so the guard
-	// runs BEFORE any state/KB mutation below — previously a refused --rebuild
-	// had already reset the collection, and every refused run had already
-	// re-stamped the embedding identity for an index pass that never happened
-	// (destroying the recorded truth the skew guard depends on). The token is
-	// the only dependency, so this is the earliest the guard can run; the
+	// (3a) LIST USERS: the token is the only dependency, so this is the
+	// earliest the human count needed by the guard below is available; the
 	// fetched users are reused for the chat listing at step (5).
 	users, err := owui.ListUsers(ctx, token)
 	if err != nil {
 		fmt.Fprintf(errOut, "recall index: FAILED listing users (%v) — check Open WebUI, then re-run.\n", err)
 		return exitBlocked
 	}
-	// Recall pools EVERY human user's chats into ONE shared collection attached
-	// to the served model, so every user could retrieve every other user's
-	// conversations. On >1 human user the run REFUSES with remediation until the
-	// operator explicitly acknowledges the shared-recall exposure (until
-	// per-user-scoped KBs land). Fail-closed, not silent.
 	humans := recallHumanUsers(users)
-	if len(humans) > 1 && !sharedRecallAck {
-		fmt.Fprintf(errOut, "recall index: REFUSING — found %d human users on this box, but recall pools ALL users' chats into one shared collection visible (with citations) to every user of the served model. This is a cross-user disclosure. If this is a single-operator box (or you accept the shared exposure), re-run with --i-understand-shared-recall; otherwise wait for per-user-scoped recall.\n", len(humans))
-		return exitBlocked
-	}
 
-	// (4) STATE + KB: fail-closed read; --rebuild resets the KB (id-preserving)
-	// and clears the chats map; ensure the KB; stamp started, CLEAR completed,
-	// persist — a crash from here on reads as a partial run (Pitfall 8).
+	// (3b) READ STATE: fail-closed read, side-effect-free (a read is not a
+	// mutation) — needed by the guards below before any WRITE happens.
 	state, err := deps.readState()
 	if err != nil {
 		fmt.Fprintf(errOut, "recall index: could not read recall-state.json (%v) — fix the data dir, then re-run.\n", err)
 		return exitBlocked
 	}
-	// (4a) SKEW GUARD (Phase-23): compare the RECORDED
-	// embedding identity against config IMMEDIATELY after the fail-closed read and
-	// BEFORE any state mutation — the stamp overwrite below would destroy the
-	// recorded truth and make the skew undetectable forever (Pitfall 6).
-	// recall.EmbeddingSkew is THE single comparison (Plan 23-01) — never re-rolled
-	// here. An empty stamp is typed-Unknown: no recorded truth, no alarm. --rebuild
-	// is the sanctioned bypass (OQ4): the rebuild path id-preservingly resets the KB
-	// and clean-replaces the collection content, and the fresh stamp then records
-	// the new identity.
-	if !rebuild && recall.EmbeddingSkew(state, cfg.EmbeddingModel, cfg.EmbeddingDim) == recall.SkewMismatch {
-		fmt.Fprintf(errOut, "recall index: REFUSING — the index was built with %s (dim %d) but config now says %s (dim %d); indexing into a mismatched-dimension collection corrupts retrieval. Re-run with --rebuild to re-index cleanly, or revert the config.\n",
-			state.EmbeddingModel, state.EmbeddingDim, cfg.EmbeddingModel, cfg.EmbeddingDim)
+
+	// (4) GUARDS + STATE/KB DECISIONS: recall.PrepareIndexRun holds BOTH
+	// pre-mutation guards (Phase-23 review: a refusal must be SIDE-EFFECT-FREE,
+	// so this runs BEFORE any state/KB mutation below — previously a refused
+	// --rebuild had already reset the collection and re-stamped the embedding
+	// identity for an index pass that never happened, destroying the recorded
+	// truth the skew guard depends on — Pitfall 6) plus the rebuild/stamp shape
+	// of the state about to be persisted. --rebuild is the sanctioned skew-guard
+	// bypass (OQ4): it id-preservingly resets the KB and clean-replaces the
+	// collection content, and the fresh stamp then records the new identity.
+	prep := recall.PrepareIndexRun(recall.IndexRunInput{
+		Rebuild:         rebuild,
+		SharedRecallAck: sharedRecallAck,
+		HumanUserCount:  len(humans),
+		State:           state,
+		EmbeddingModel:  cfg.EmbeddingModel,
+		EmbeddingDim:    cfg.EmbeddingDim,
+		StartedAt:       deps.now().UTC().Format(time.RFC3339),
+	})
+	if prep.Refused != "" {
+		fmt.Fprint(errOut, prep.RefusalMessage)
 		return exitBlocked
 	}
-	if rebuild {
-		if state.KnowledgeID != "" {
-			if err := owui.ResetKnowledge(ctx, token, state.KnowledgeID); err != nil {
-				fmt.Fprintf(errOut, "recall index: FAILED at knowledge/reset (%v) — re-run `villa recall index --rebuild`.\n", err)
-				return exitBlocked
-			}
+	if prep.ResetKnowledge {
+		if err := owui.ResetKnowledge(ctx, token, state.KnowledgeID); err != nil {
+			fmt.Fprintf(errOut, "recall index: FAILED at knowledge/reset (%v) — re-run `villa recall index --rebuild`.\n", err)
+			return exitBlocked
 		}
-		state.Chats = nil
 	}
 	kbID, err := owui.EnsureKnowledge(ctx, token, recallKnowledgeName, recallKnowledgeDescription)
 	if err != nil {
 		fmt.Fprintf(errOut, "recall index: FAILED at ensure-knowledge (%v) — check Open WebUI and villa-embed, then re-run.\n", err)
 		return exitBlocked
 	}
+	state = prep.PreparedState
 	state.KnowledgeID = kbID
 	state.KnowledgeName = recallKnowledgeName
-	state.EmbeddingModel = cfg.EmbeddingModel // Phase-23 skew guards
-	state.EmbeddingDim = cfg.EmbeddingDim
-	state.LastIndexStartedAt = deps.now().UTC().Format(time.RFC3339)
-	state.LastIndexCompletedAt = ""
-	if state.Chats == nil {
-		state.Chats = map[string]recall.ChatState{}
-	}
 	if err := deps.writeState(state); err != nil {
 		fmt.Fprintf(errOut, "recall index: could not persist recall-state.json (%v) — fix the data dir, then re-run.\n", err)
 		return exitBlocked

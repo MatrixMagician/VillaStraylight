@@ -75,28 +75,22 @@ func newBackup() *cobra.Command {
 	return cmd
 }
 
-// runBackup resolves the output path (traversal-guarded against its parent dir),
-// gathers the seam-/accessor-sourced backup.Input, drives the pure Backup orchestrator
-// over liveDeps, and RETURNS the exit code. The archive is assembled in a
-// same-dir temp file and renamed onto the destination only after a fully-successful
-// write: a mid-backup failure removes only the temp — a pre-existing archive
-// at the output path is never truncated or deleted.
+// runBackup resolves the output path (traversal-guarded against its parent dir by
+// backup.RunBackup), gathers the seam-/accessor-sourced backup.Input, drives the
+// pure RunBackup orchestrator over liveDeps, and RETURNS the exit code. The
+// stage→assemble→publish sequence (same-dir temp files, atomic rename only after a
+// fully-successful write) lives in internal/backup (#239, ADR-0012); this function
+// is parse-input, call, render.
 func runBackup(cmd *cobra.Command, output string, d backup.Deps) int {
 	out := cmd.OutOrStdout()
 	errOut := cmd.ErrOrStderr()
 
-	// Resolve + traversal-guard the output path against its parent dir.
 	if output == "" {
 		output = defaultBackupName(time.Now())
 	}
 	absOut, err := filepath.Abs(filepath.Clean(output))
 	if err != nil {
 		fmt.Fprintf(errOut, "backup: bad output path %q: %v\n", output, err)
-		return exitBlocked
-	}
-	parent := filepath.Dir(absOut)
-	if err := assertBackupOutputInside(absOut, parent); err != nil {
-		fmt.Fprintf(errOut, "backup: refusing output path: %v\n", err)
 		return exitBlocked
 	}
 
@@ -122,56 +116,13 @@ func runBackup(cmd *cobra.Command, output string, d backup.Deps) int {
 		return exitBlocked
 	}
 
-	// Stage the archive in a SAME-DIR temp file and os.Rename it onto absOut only
-	// after a fully-successful assembly (review): re-using an output path
-	// (e.g. a cron'd `villa backup -o ~/backups/villa-latest.tar`) must NEVER
-	// destroy the PREVIOUS archive on a mid-backup failure — the old
-	// O_TRUNC-then-remove flow left the operator with ZERO backups whenever any
-	// later step failed. Same temp+rename discipline as config.SaveVilla /
-	// usage.WriteFileAtomic, both of which write through pathsafe.WriteFileAtomic;
-	// CreateTemp creates the file 0600 (owner-only).
-	// Created here so a failure short-circuits before any service quiesce.
-	f, err := os.CreateTemp(parent, ".villa-backup-*.tar")
-	if err != nil {
-		fmt.Fprintf(errOut, "backup: open output temp file in %q: %v\n", parent, err)
-		return exitBlocked
-	}
-	tmpOutPath := f.Name()
-
-	// Temp file for the volume export; same dir as the output so the rename/cleanup
-	// stays on one filesystem. Removed after assembly.
-	tmpVol, err := os.CreateTemp(parent, ".villa-owui-vol-*.tar")
-	if err != nil {
-		_ = f.Close()
-		_ = os.Remove(tmpOutPath) // the prior archive at absOut stays untouched
-		fmt.Fprintf(errOut, "backup: temp volume file: %v\n", err)
-		return exitBlocked
-	}
-	tmpVolPath := tmpVol.Name()
-	_ = tmpVol.Close()
-	defer func() { _ = os.Remove(tmpVolPath) }()
-
 	// Optional Phase-23 qdrant volume entry: gated on cfg.MemoryEnabled AND a
 	// fail-soft existence check over the podmanVolume seam — memory off or volume
 	// absent means the entry is honestly omitted (and the core makes ZERO qdrant
-	// Deps calls). The temp tar clones the OWUI same-dir frame above; it holds
-	// chat-derived vectors, so it is removed on every exit path.
+	// Deps calls). RunBackup stages/cleans its scratch temp only when this decision
+	// (still live-host-derived, so it cannot move into the pure core) sets
+	// QdrantVolumeName below.
 	includeQdrant := subsystem.MemoryOn(cfg) && volumeExists(orchestrate.QdrantVolumeName(), errOut)
-	tmpQdrantPath := ""
-	if includeQdrant {
-		// Temp-name pattern deliberately avoids the volume literal (the seam-grep
-		// acceptance gate): the identity comes from orchestrate.QdrantVolumeName().
-		tmpQdrant, err := os.CreateTemp(parent, ".villa-memory-vol-*.tar")
-		if err != nil {
-			_ = f.Close()
-			_ = os.Remove(tmpOutPath) // the prior archive at absOut stays untouched
-			fmt.Fprintf(errOut, "backup: temp qdrant volume file: %v\n", err)
-			return exitBlocked
-		}
-		tmpQdrantPath = tmpQdrant.Name()
-		_ = tmpQdrant.Close()
-		defer func() { _ = os.Remove(tmpQdrantPath) }()
-	}
 
 	in := backup.Input{
 		CreatedAt:           time.Now().UTC().Format(time.RFC3339),
@@ -183,9 +134,7 @@ func runBackup(cmd *cobra.Command, output string, d backup.Deps) int {
 		UsageSchemaVersion:  usage.SchemaVersion(),
 		BenchSchemaVersion:  benchstore.SavedReportSchemaVersion(),
 		OutputPath:          absOut,
-		OutputWriter:        f,
 		OpenWebUIVolumeName: orchestrate.OpenWebUIVolumeName(),
-		TempVolumeTar:       tmpVolPath,
 		ConfigPath:          cfgPath,
 		UsagePath:           usage.Path(),
 		BenchReportsPath:    benchReportsStorePath(),
@@ -195,7 +144,6 @@ func runBackup(cmd *cobra.Command, output string, d backup.Deps) int {
 	if includeQdrant {
 		// Seam-sourced volume identity — NEVER a literal here.
 		in.QdrantVolumeName = orchestrate.QdrantVolumeName()
-		in.TempQdrantTar = tmpQdrantPath
 	}
 	if subsystem.MemoryOn(cfg) {
 		// RecallStatePath is gated on cfg.MemoryEnabled (review), mirroring
@@ -256,25 +204,9 @@ func runBackup(cmd *cobra.Command, output string, d backup.Deps) int {
 		}
 	}
 
-	res, rerr := backup.Backup(d, in)
-	if cerr := f.Close(); cerr != nil && rerr == nil {
-		rerr = cerr
-		res.Err = cerr
-		res.FailedStep = "write"
-	}
+	res, rerr := backup.RunBackup(d, in)
 	if rerr != nil {
-		// Remove only the torn TEMP file — a pre-existing archive at absOut is
-		// preserved: a failed backup must never destroy the previous one.
-		_ = os.Remove(tmpOutPath)
 		fmt.Fprintf(errOut, "backup: failed at %s: %v\n", res.FailedStep, rerr)
-		return exitBlocked
-	}
-	// Publish atomically: rename the fully-written, closed temp onto the
-	// destination (same dir ⇒ same filesystem). Only now is a prior archive at
-	// absOut replaced — and only by a complete, verified-write archive.
-	if err := os.Rename(tmpOutPath, absOut); err != nil {
-		_ = os.Remove(tmpOutPath)
-		fmt.Fprintf(errOut, "backup: publish output %q: %v\n", absOut, err)
 		return exitBlocked
 	}
 
@@ -430,5 +362,16 @@ func liveDeps() backup.Deps {
 			}
 			return f, fi.Size(), nil
 		},
+		// CreateTemp/Rename/Remove are RunBackup's stage→publish seam (#239):
+		// same-directory temp files and the atomic publish rename.
+		CreateTemp: func(dir, pattern string) (string, io.WriteCloser, error) {
+			f, err := os.CreateTemp(dir, pattern)
+			if err != nil {
+				return "", nil, err
+			}
+			return f.Name(), f, nil
+		},
+		Rename: os.Rename,
+		Remove: os.Remove,
 	}
 }

@@ -72,6 +72,17 @@ type Deps struct {
 	// from orchestrate.QdrantContainerUnitName()) — never a literal here, so the
 	// core stays free of service-name literals (mirrors OpenWebUIServiceName).
 	QdrantServiceName string
+
+	// CreateTemp/Rename/Remove are the stage→publish seam RunBackup drives
+	// (#239, moved out of cmd/villa's runBackup): CreateTemp opens a same-directory
+	// staging file — used both for the final archive (kept open, written by Backup)
+	// and to reserve a unique scratch path for a podman volume export (closed
+	// immediately; podman writes the path itself). Rename atomically publishes the
+	// finished archive onto its destination; Remove cleans up a temp on any exit
+	// path. Live wiring is os.CreateTemp / os.Rename / os.Remove.
+	CreateTemp func(dir, pattern string) (path string, w io.WriteCloser, err error)
+	Rename     func(oldpath, newpath string) error
+	Remove     func(path string) error
 }
 
 // RestoreDeps is the injectable seam set for the RESTORE core — and only the

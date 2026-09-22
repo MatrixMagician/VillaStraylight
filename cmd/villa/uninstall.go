@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,6 +12,7 @@ import (
 
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 	"github.com/MatrixMagician/VillaStraylight/internal/pathsafe"
+	"github.com/MatrixMagician/VillaStraylight/internal/uninstall"
 )
 
 // uninstall.go wires `villa uninstall`: the flag-driven, correctly
@@ -123,9 +123,11 @@ func newUninstall() *cobra.Command {
 	return cmd
 }
 
-// runUninstall performs the teardown and RETURNS the exit code. Any failure
-// short-circuits with no further side effects so a half-torn-down host is never left
-// in a worse state than a clean stop.
+// runUninstall performs the teardown and RETURNS the exit code. The ordering,
+// the model keep/remove decision, and every other host-touching decision now
+// live in the pure internal/uninstall core (#241, ADR-0012); this function is
+// parse-input (the mutually-exclusive-flags check has zero Deps calls either
+// way, so it stays here), resolve the rendered stack, call, and render.
 func runUninstall(cmd *cobra.Command, opts uninstallOpts, d *uninstallDeps) int {
 	out := cmd.OutOrStdout()
 	errOut := cmd.ErrOrStderr()
@@ -137,11 +139,6 @@ func runUninstall(cmd *cobra.Command, opts uninstallOpts, d *uninstallDeps) int 
 		return exitBlocked
 	}
 
-	// Resolve the model choice BEFORE any teardown so the destructive decision is
-	// settled up front. Flag wins; neither + interactive → prompt;
-	// neither + non-interactive → default KEEP (the safe choice) and say so.
-	wipeModels := resolveModelChoice(out, opts, d)
-
 	// Derive the authoritative file + service set from the rendered stack.
 	units, unitDir, err := d.renderStack()
 	if err != nil {
@@ -149,167 +146,63 @@ func runUninstall(cmd *cobra.Command, opts uninstallOpts, d *uninstallDeps) int 
 		return exitBlocked
 	}
 
-	// (0) Tear down the native control-dashboard .service FIRST (Plan 05-05 /
-	// It was started LAST by install (the dependent observer), so stopping
-	// it first mirrors the reverse-of-start order. Unlike the Quadlet services, its
-	// unit lives OUTSIDE the generator dir, so a daemon-reload will NOT drop it — it
-	// must be explicitly stopped, DISABLED (boot-survival revoked so it cannot
-	// re-spawn on next login), its file removed from userUnitDir, then the manager
-	// reloaded. A missing/absent unit is tolerated (idempotent re-uninstall).
-	if err := d.stop(orchestrate.DashboardServiceName); err != nil {
-		fmt.Fprintf(errOut, "uninstall: stop %s failed: %v\n", orchestrate.DashboardServiceName, err)
-		return exitBlocked
-	}
-	fmt.Fprintf(out, "stopped %s\n", orchestrate.DashboardServiceName)
-	if err := d.disable(orchestrate.DashboardServiceName); err != nil {
-		fmt.Fprintf(errOut, "uninstall: disable %s failed: %v\n", orchestrate.DashboardServiceName, err)
-		return exitBlocked
-	}
-	fmt.Fprintf(out, "disabled %s (boot-survival revoked)\n", orchestrate.DashboardServiceName)
-	udir, err := d.userUnitDir()
-	if err != nil {
-		fmt.Fprintf(errOut, "uninstall: cannot resolve the user-unit dir for the dashboard: %v\n", err)
-		return exitBlocked
-	}
-	if err := d.removeDashboardUnit(udir, orchestrate.DashboardServiceName); err != nil {
-		fmt.Fprintf(errOut, "uninstall: remove %s failed: %v\n", orchestrate.DashboardServiceName, err)
-		return exitBlocked
-	}
-	fmt.Fprintf(out, "removed unit %s\n", orchestrate.DashboardServiceName)
-	if err := d.daemonReload(); err != nil {
-		fmt.Fprintf(errOut, "uninstall: daemon-reload (dashboard) failed: %v\n", err)
-		return exitBlocked
+	// Stop in the REVERSE of install's start order: dependents before their
+	// backends, so a service is never left running with its declared After=
+	// backend already gone (e.g. villa-openwebui — After=villa-llama.service —
+	// is stopped before villa-llama). This mirrors install's
+	// inference-then-owui start order inverted.
+	startOrder := serviceUnits(units)
+	stopOrder := make([]string, len(startOrder))
+	for i, svc := range startOrder {
+		stopOrder[len(startOrder)-1-i] = svc
 	}
 
-	// (0b) Coding-agent addon teardown (v1.4): ALWAYS remove the villa-owned
-	// crush binary and the rendered crush.json, in that order, at this deterministic
-	// position — after the dashboard teardown, before the container stop. Ordering IS
-	// the contract, asserted by uninstall_test.go. Both removals are idempotent
-	// (an absent file is not an error), so a re-uninstall — or an uninstall after an
-	// agent-off install — succeeds. The staged coder GGUF is NOT touched here: it lives
-	// in modelsDir(), governed by the existing keep/remove-models choice (default keep).
-	// config.toml is likewise LEFT — there is no seam that touches it.
-	if err := d.removeAgentBinary(); err != nil {
-		fmt.Fprintf(errOut, "uninstall: remove coding agent binary failed: %v\n", err)
+	res := uninstall.Run(d.toCore(), uninstall.Opts{KeepModels: opts.keepModels, RemoveModels: opts.removeModels}, uninstall.Input{
+		Units:         units,
+		UnitDir:       unitDir,
+		StopOrder:     stopOrder,
+		DashboardName: orchestrate.DashboardServiceName,
+	})
+	for _, line := range res.Lines {
+		fmt.Fprintf(out, "%s\n", line)
+	}
+	if res.Err != nil {
+		fmt.Fprintf(errOut, "uninstall: %v\n", res.Err)
 		return exitBlocked
 	}
-	fmt.Fprintf(out, "removed coding agent binary\n")
-	if err := d.removeCrushConfig(); err != nil {
-		fmt.Fprintf(errOut, "uninstall: remove coding agent config (crush.json) failed: %v\n", err)
-		return exitBlocked
-	}
-	fmt.Fprintf(out, "removed coding agent config (crush.json)\n")
-
-	// (1) down: stop every generated service first. A stop failure aborts BEFORE any
-	// file removal — we never leave dangling units after a failed stop. Stop in the
-	// REVERSE of install's start order: dependents before their backends, so a
-	// service is never left running with its declared After= backend already gone (e.g.
-	// villa-openwebui — After=villa-llama.service — is stopped before villa-llama). This
-	// mirrors install's inference-then-owui start order inverted.
-	stopOrder := serviceUnits(units)
-	for i := len(stopOrder) - 1; i >= 0; i-- {
-		svc := stopOrder[i]
-		if err := d.stop(svc); err != nil {
-			fmt.Fprintf(errOut, "uninstall: stop %s failed: %v\n", svc, err)
-			return exitBlocked
-		}
-		fmt.Fprintf(out, "stopped %s\n", svc)
-	}
-
-	// (2) remove the generated unit files (traversal-guarded inside removeUnitFile).
-	for _, u := range units {
-		if err := d.removeUnitFile(unitDir, u.Name); err != nil {
-			fmt.Fprintf(errOut, "uninstall: remove unit %s failed: %v\n", u.Name, err)
-			return exitBlocked
-		}
-		fmt.Fprintf(out, "removed unit %s\n", u.Name)
-	}
-
-	// (3) daemon-reload so the podman-system-generator drops the derived .service.
-	if err := d.daemonReload(); err != nil {
-		fmt.Fprintf(errOut, "uninstall: daemon-reload failed: %v\n", err)
-		return exitBlocked
-	}
-
-	// (4) remove non-model volumes. The model volume is a bind mount whose data is
-	// governed by the keep/remove-models choice (below), so it is excluded here.
-	if err := d.removeVolumes(nonModelVolumes(units)); err != nil {
-		fmt.Fprintf(errOut, "uninstall: remove volumes failed: %v\n", err)
-		return exitBlocked
-	}
-
-	// (5) optionally remove the downloaded weights (the only step that touches the
-	// expensive model cache — explicit choice required).
-	if wipeModels {
-		if err := d.removeModels(); err != nil {
-			fmt.Fprintf(errOut, "uninstall: remove models failed: %v\n", err)
-			return exitBlocked
-		}
-		fmt.Fprintf(out, "removed downloaded model weights\n")
-	} else {
-		fmt.Fprintf(out, "kept downloaded model weights\n")
-	}
-
-	// (6) disable linger (reverse of install's enable-linger).
-	if err := d.disableLinger(d.username()); err != nil {
-		fmt.Fprintf(errOut, "uninstall: disable-linger failed: %v\n", err)
-		return exitBlocked
-	}
-	fmt.Fprintf(out, "disabled user linger\n")
-
-	// Surface — never revert — the deliberate SELinux host change. config
-	// .toml is likewise left in place; the verb has no seam that touches it. The
-	// revert command is assembled from fragments so the literal acceptance grep
-	// (which asserts the verb makes no boolean-revert CALL) stays at zero (mirrors
-	// the Plan-01 grep-gate fragment pattern).
-	revertHint := "set" + "sebool -P container_use_devices=false"
-	fmt.Fprintf(out, "note: the SELinux boolean container_use_devices was left set "+
-		"(a deliberate host change — revert manually with `%s` if desired)\n", revertHint)
-	fmt.Fprintf(out, "note: config.toml was left in place (it is your data, not install state)\n")
-	fmt.Fprintf(out, "uninstall complete\n")
 	return exitPass
 }
 
-// resolveModelChoice settles whether to delete the model weights: an explicit flag
-// wins; with neither flag, an interactive session is prompted (default No → keep),
-// and a non-interactive session defaults to KEEP (the safe choice) and prints the
-// assumption (never silently delete the expensive cache).
-func resolveModelChoice(out io.Writer, opts uninstallOpts, d *uninstallDeps) bool {
-	if opts.removeModels {
-		return true
+// toCore translates the cmd-tier uninstallDeps (kept for uninstall_test.go's
+// existing lowercase-field construction) into internal/uninstall.Deps.
+func (d *uninstallDeps) toCore() uninstall.Deps {
+	return uninstall.Deps{
+		Stop:                d.stop,
+		RemoveUnitFile:      d.removeUnitFile,
+		DaemonReload:        d.daemonReload,
+		RemoveVolumes:       d.removeVolumes,
+		RemoveModels:        d.removeModels,
+		Disable:             d.disable,
+		UserUnitDir:         d.userUnitDir,
+		RemoveDashboardUnit: d.removeDashboardUnit,
+		RemoveAgentBinary:   d.removeAgentBinary,
+		RemoveCrushConfig:   d.removeCrushConfig,
+		DisableLinger:       d.disableLinger,
+		Username:            d.username,
+		Interactive:         d.interactive,
+		Consent:             d.consent,
 	}
-	if opts.keepModels {
-		return false
-	}
-	if d.interactive() {
-		return d.consent("Also delete downloaded model weights? They are expensive to re-download. [y/N]: ")
-	}
-	fmt.Fprintf(out, "no model flag given and not interactive — keeping model weights (use --remove-models to delete)\n")
-	return false
 }
 
-// nonModelVolumes returns the podman-managed volume names to remove — every rendered
-// .volume EXCEPT the model bind-mount volume, whose data is governed by the
-// keep/remove-models choice. In Phase 3 the only volume is the model volume, so this
-// is empty; it is the seam Phase 4 (Open WebUI data volume) extends cleanly.
+// nonModelVolumes delegates to the moved core decision (#241) — kept as a
+// thin cmd-tier name because uninstall_test.go calls it directly.
 func nonModelVolumes(units []orchestrate.Unit) []string {
-	var vols []string
-	for _, u := range units {
-		base, ok := strings.CutSuffix(u.Name, ".volume")
-		if !ok {
-			continue
-		}
-		if base == modelVolumeName {
-			continue // the model volume is bind-mounted; governed by remove-models.
-		}
-		vols = append(vols, base)
-	}
-	return vols
+	return uninstall.NonModelVolumes(units)
 }
 
-// modelVolumeName is the bind-mount volume holding the model weights (matches the
-// orchestrate render villa-models.volume). Excluded from non-model volume removal.
-const modelVolumeName = "villa-models"
+// modelVolumeName aliases the moved core constant — kept because
+// uninstall_test.go references it directly.
+const modelVolumeName = uninstall.ModelVolumeName
 
 // liveUninstallDeps wires uninstall to the real host: the same orchestrate render +
 // systemd seam install/up use, fixed-arg `podman volume rm`, and a traversal-guarded
