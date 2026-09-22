@@ -33,6 +33,7 @@ func TestCanTransitionLegal(t *testing.T) {
 		{Running, Cancelled},
 		{Running, Interrupted},
 		{AwaitingApproval, Running},
+		{AwaitingApproval, Failed},
 		{AwaitingApproval, Cancelled},
 		{AwaitingApproval, Interrupted},
 	}
