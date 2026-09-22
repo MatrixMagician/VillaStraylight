@@ -46,6 +46,7 @@ package codingmode
 
 import (
 	"context"
+	"strings"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/prove"
@@ -268,25 +269,30 @@ func Run(d Deps, dir Direction) Result {
 	// than aborting on the first, and reports whether EVERY step succeeded. Per Pitfall 5
 	// an incomplete rollback must be flagged honestly — never claim a clean no-op when a
 	// restore step errored. Cloned VERBATIM from backendswap.
+	//
+	// Failures accumulate across all four steps rather than the last one overwriting an
+	// earlier one's detail, so an operator investigating an incomplete rollback sees
+	// every step that failed, not only the last (#232).
 	rollback := func() (ok bool, detail string) {
 		ok = true
+		var fails []string
 		if err := d.RestoreUnit(priorUnit); err != nil {
 			ok = false
-			detail = "RestoreUnit failed: " + err.Error()
+			fails = append(fails, "RestoreUnit failed: "+err.Error())
 		}
 		if err := d.SaveConfig(priorCfg); err != nil {
 			ok = false
-			detail = "SaveConfig(prior) failed: " + err.Error()
+			fails = append(fails, "SaveConfig(prior) failed: "+err.Error())
 		}
 		if err := d.DaemonReload(); err != nil {
 			ok = false
-			detail = "DaemonReload failed: " + err.Error()
+			fails = append(fails, "DaemonReload failed: "+err.Error())
 		}
 		if err := d.Restart(d.InstallServiceName); err != nil {
 			ok = false
-			detail = "Restart(prior) failed: " + err.Error()
+			fails = append(fails, "Restart(prior) failed: "+err.Error())
 		}
-		return ok, detail
+		return ok, strings.Join(fails, "; ")
 	}
 
 	// rolledBack assembles a RolledBack Result, folding in an honest rollback-incomplete

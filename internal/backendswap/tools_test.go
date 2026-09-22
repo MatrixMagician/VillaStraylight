@@ -42,7 +42,7 @@ type recorder struct {
 	calls     []string
 	saved     []config.VillaConfig
 	restarted []string
-	restored  []byte
+	restored  map[string]string
 }
 
 func newRecorder(toolsOn bool) *recorder {
@@ -61,12 +61,12 @@ func (r *recorder) deps() Deps {
 			r.calls = append(r.calls, "fit")
 			return r.fitOK, r.fitReason
 		},
-		CaptureUnit: func() ([]byte, error) {
+		CaptureUnits: func(config.VillaConfig) (map[string]string, error) {
 			r.calls = append(r.calls, "capture")
 			if r.captureErr != nil {
 				return nil, r.captureErr
 			}
-			return []byte("prior unit bytes"), nil
+			return map[string]string{"villa-llama.container": "prior unit bytes"}, nil
 		},
 		SaveConfig: func(c config.VillaConfig) error {
 			r.calls = append(r.calls, "save")
@@ -80,9 +80,9 @@ func (r *recorder) deps() Deps {
 			r.calls = append(r.calls, "write")
 			return r.writeErr == nil, r.writeErr
 		},
-		RestoreUnit: func(b []byte) error {
+		RestoreUnits: func(m map[string]string) error {
 			r.calls = append(r.calls, "restore")
-			r.restored = b
+			r.restored = m
 			return r.restoreErr
 		},
 		DaemonReload: func() error {
@@ -284,7 +284,7 @@ func TestRunStepFailuresRollBack(t *testing.T) {
 			if !res.RolledBack || res.FailedStep != tc.wantStep {
 				t.Fatalf("res = %+v, want RolledBack at %q", res, tc.wantStep)
 			}
-			if string(r.restored) != "prior unit bytes" {
+			if r.restored["villa-llama.container"] != "prior unit bytes" {
 				t.Errorf("restored %q, want the verbatim captured bytes", r.restored)
 			}
 			last := r.saved[len(r.saved)-1]
@@ -321,7 +321,7 @@ func TestRunRollbackIncompleteIsReportedHonestly(t *testing.T) {
 		arm  func(*recorder)
 		want string
 	}{
-		{"restore fails", func(r *recorder) { r.restoreErr = errors.New("no such unit dir") }, "RestoreUnit failed"},
+		{"restore fails", func(r *recorder) { r.restoreErr = errors.New("no such unit dir") }, "RestoreUnits failed"},
 		{"reload fails", func(r *recorder) { r.reloadErr = errors.New("dbus down") }, "DaemonReload failed"},
 		{"re-ready restart fails", func(r *recorder) { r.rollbackRestartErr = errors.New("unit failed") }, "Restart(prior) failed"},
 	} {

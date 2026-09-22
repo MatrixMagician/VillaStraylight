@@ -145,6 +145,10 @@ type Deps struct {
 	Enable             func(service string) error
 	Start              func(service string) error
 	Stop               func(service string) error
+	// Restart is `systemctl restart`, used ONLY by rollback to bring a service that
+	// was running before back up against its restored unit — `start` on an
+	// already-active unit is a no-op (#128's forward-path trap, #231's rollback one).
+	Restart func(service string) error
 
 	WriteWebsafeSecretEnv func(name, text string) error
 	WriteSearxngSettings  func(name, text string) error
@@ -417,8 +421,11 @@ func Run(ctx context.Context, d Deps, opts Opts) Result {
 	refuse := func(format string, args ...any) Result {
 		warn(format, args...)
 		rb := Rollback(RollbackDeps{
-			StopService:  d.Stop,
-			StartService: d.Start,
+			StopService: d.Stop,
+			// Restart, not start: a service that was running before is being brought
+			// back against its RESTORED unit file, and `start` on an already-active
+			// unit would leave the rejected one running (#231).
+			StartService: d.Restart,
 			WriteUnit: func(name, text string) error {
 				if d.WriteUnit == nil {
 					return fmt.Errorf("no unit-write seam wired")

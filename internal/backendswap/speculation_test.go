@@ -1,7 +1,6 @@
 package backendswap
 
 import (
-	"bytes"
 	"errors"
 	"strings"
 	"testing"
@@ -88,7 +87,7 @@ func TestSpeculationMutateFailureRollsBack(t *testing.T) {
 	if !res.RolledBack || res.FailedStep != "write" {
 		t.Fatalf("res = %+v, want RolledBack at write", res)
 	}
-	if !bytes.Equal(rec.restored, priorUnitBytes) {
+	if rec.restored[priorUnitName] != string(priorUnitBytes) {
 		t.Errorf("restored unit is not the captured prior bytes")
 	}
 	if rec.saved.Speculation != config.SpeculationOff {

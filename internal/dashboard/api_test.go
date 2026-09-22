@@ -1,9 +1,12 @@
 package dashboard
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -16,10 +19,31 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/metrics"
 	"github.com/MatrixMagician/VillaStraylight/internal/modelswap"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
+	"github.com/MatrixMagician/VillaStraylight/internal/prove"
 	"github.com/MatrixMagician/VillaStraylight/internal/recall"
+	"github.com/MatrixMagician/VillaStraylight/internal/stacklock"
 	"github.com/MatrixMagician/VillaStraylight/internal/status"
 	"github.com/MatrixMagician/VillaStraylight/internal/usage"
 )
+
+// TestMain makes the whole dashboard test package hermetic against ADR-0010's
+// cross-process lock: left at its default, stackLockPath resolves the developer's
+// real $XDG_CONFIG_HOME/villa/.stacklock, and handleSwitch would take a REAL flock
+// there on every switch test. Pointed at a temp dir instead, the real
+// stacklock.TryAcquire/Release still run (unlike a nil-stub), so the 409-on-busy
+// contract stays exercised — only the FILE moves off the live host.
+func TestMain(m *testing.M) {
+	dir, err := os.MkdirTemp("", "villa-dashboard-test-*")
+	if err != nil {
+		panic(err)
+	}
+	prev := stackLockPath
+	stackLockPath = func() (string, error) { return filepath.Join(dir, "stacklock-test"), nil }
+	code := m.Run()
+	stackLockPath = prev
+	os.RemoveAll(dir)
+	os.Exit(code)
+}
 
 // stubStatusDeps returns the SHARED healthy-stack stub over the real rendered
 // units, so the dashboard handler serializes a deterministic Report.
@@ -408,13 +432,20 @@ func stubSwapDeps(known string, fits bool, called *[]string) modelswap.Deps {
 		},
 		IsDownloaded: func(catalog.Model) bool { return true },
 		Pull:         func(catalog.Model) error { rec("pull"); return nil },
+		CaptureUnit:  func() ([]byte, error) { rec("capture"); return []byte("prior unit"), nil },
 		LoadConfig:   func() (config.VillaConfig, error) { return config.VillaConfig{Model: "old"}, nil },
 		SaveConfig:   func(config.VillaConfig) error { rec("save"); return nil },
 		ReconcileAndWrite: func(config.VillaConfig) (bool, error) {
 			rec("reconcile")
 			return true, nil
 		},
-		Restart: func(string) error { rec("restart"); return nil },
+		RestoreUnit:  func([]byte) error { rec("restore"); return nil },
+		DaemonReload: func() error { rec("daemon-reload"); return nil },
+		Restart:      func(string) error { rec("restart"); return nil },
+		Prove: func(context.Context) prove.Verdict {
+			rec("prove")
+			return prove.Verdict{Status: prove.StatusPass}
+		},
 	}
 }
 
@@ -488,18 +519,22 @@ func TestHandleSwitchConcurrentRefusedWith409(t *testing.T) {
 		Fits:         func(catalog.Model) (bool, string) { return true, "" },
 		IsDownloaded: func(catalog.Model) bool { return true },
 		Pull:         func(catalog.Model) error { return nil },
+		CaptureUnit:  func() ([]byte, error) { return []byte("prior unit"), nil },
 		LoadConfig:   func() (config.VillaConfig, error) { return config.VillaConfig{Model: "old"}, nil },
 		SaveConfig:   func(config.VillaConfig) error { rec("save"); return nil },
 		ReconcileAndWrite: func(config.VillaConfig) (bool, error) {
 			rec("reconcile")
 			return true, nil
 		},
+		RestoreUnit:  func([]byte) error { return nil },
+		DaemonReload: func() error { return nil },
 		Restart: func(string) error {
 			rec("restart")
 			close(inFlight) // signal the first swap is holding the swap mutex
 			<-release       // block here until the test releases it
 			return nil
 		},
+		Prove: func(context.Context) prove.Verdict { return prove.Verdict{Status: prove.StatusPass} },
 	}
 
 	srv := mustNewServer(t, Config{
@@ -632,6 +667,42 @@ func TestHandleSwitchCrossOriginBlocked(t *testing.T) {
 	}
 	if len(called) != 0 {
 		t.Fatalf("cross-origin POST must never reach modelswap.Run, got %v", called)
+	}
+}
+
+// TestHandleSwitchRefusedWhileCLIHoldsCrossProcessLock is ADR-0010's headline case:
+// swapMu only excludes a second in-process request, so this holds the SAME lock
+// FILE a CLI verb (`backend set`, `model swap`, …) would hold — via a real
+// stacklock.Acquire in a separate *Lock, simulating a separate process — and
+// asserts handleSwitch refuses with 409 rather than interleaving with it.
+func TestHandleSwitchRefusedWhileCLIHoldsCrossProcessLock(t *testing.T) {
+	path, err := stackLockPath()
+	if err != nil {
+		t.Fatalf("stackLockPath: %v", err)
+	}
+	cliLock, err := stacklock.Acquire(path)
+	if err != nil {
+		t.Fatalf("simulate CLI holding the lock: %v", err)
+	}
+	defer cliLock.Release()
+
+	var called []string
+	srv := mustNewServer(t, Config{
+		StatusDeps:    stubStatusDeps(t),
+		ChatPort:      3000,
+		DashboardAddr: "127.0.0.1",
+		DashboardPort: 8888,
+		SwapDeps:      stubSwapDeps("qwen3", true, &called),
+	})
+
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, jsonSwitchReq("qwen3"))
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("switch while a CLI verb holds the cross-process lock should be 409, got %d", rec.Code)
+	}
+	if len(called) != 0 {
+		t.Fatalf("a lock-excluded switch must never reach modelswap.Run, got %v", called)
 	}
 }
 

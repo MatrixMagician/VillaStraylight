@@ -123,6 +123,51 @@ func TestInstallRegistered(t *testing.T) {
 	}
 }
 
+// TestWriteUnitTextIsAtomic is #238 part 2: writeUnitText (the rollback restore
+// shared by install's Rollback and model_resident's applyResidentChange) must go
+// through pathsafe.WriteFileAtomic like every other state write, not a plain
+// os.WriteFile whose crash mid-write leaves a truncated Quadlet unit. It writes
+// byte-identical content and leaves no "*.tmp" remnant behind.
+func TestWriteUnitTextIsAtomic(t *testing.T) {
+	dir := t.TempDir()
+	const name = "villa-llama.container"
+	const text = "[Container]\nImage=prior\nExec=llama-server --prior\n"
+
+	if err := writeUnitText(dir, name, text); err != nil {
+		t.Fatalf("writeUnitText: %v", err)
+	}
+
+	got, err := os.ReadFile(filepath.Join(dir, name))
+	if err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+	if string(got) != text {
+		t.Errorf("content = %q, want %q", got, text)
+	}
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("read dir: %v", err)
+	}
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".tmp") {
+			t.Errorf("a %q remnant was left behind — the write did not clean up its temp file: %v", e.Name(), entries)
+		}
+	}
+}
+
+// TestWriteUnitTextRefusesTraversal guards the containment check: a name that
+// would resolve outside dir must be refused, never written anywhere.
+func TestWriteUnitTextRefusesTraversal(t *testing.T) {
+	dir := t.TempDir()
+	if err := writeUnitText(dir, "../escaped.container", "x"); err == nil {
+		t.Fatal("writeUnitText must refuse a name that escapes dir")
+	}
+	if _, err := os.Stat(filepath.Join(filepath.Dir(dir), "escaped.container")); err == nil {
+		t.Fatal("a traversal write must never land on disk")
+	}
+}
+
 // TestEmbedGGUFFilenameSingleSource asserts the pre-stage Shard filename equals the
 // orchestrate single-source accessor UNCONDITIONALLY (Pitfall 3) — the served `-m`
 // path and the staged file can never drift.

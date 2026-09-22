@@ -12,6 +12,8 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/catalog"
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/modelswap"
+	"github.com/MatrixMagician/VillaStraylight/internal/prove"
+	"github.com/MatrixMagician/VillaStraylight/internal/stacklock"
 )
 
 // newTestCmd returns a cobra command whose stdout/stderr are captured buffers so
@@ -170,6 +172,7 @@ func newSwapStub(rec *swapRecorder) *modelswap.Deps {
 			rec.pulled = append(rec.pulled, m.ID)
 			return nil
 		},
+		CaptureUnit: func() ([]byte, error) { return []byte("prior unit"), nil },
 		SaveConfig: func(c config.VillaConfig) error {
 			rec.saved = c
 			return nil
@@ -177,10 +180,13 @@ func newSwapStub(rec *swapRecorder) *modelswap.Deps {
 		ReconcileAndWrite: func(_ config.VillaConfig) (bool, error) {
 			return !rec.reconcileNoChange, nil
 		},
+		RestoreUnit:  func([]byte) error { return nil },
+		DaemonReload: func() error { return nil },
 		Restart: func(service string) error {
 			rec.restarted = append(rec.restarted, service)
 			return nil
 		},
+		Prove: func(context.Context) prove.Verdict { return prove.Verdict{Status: prove.StatusPass} },
 	}
 }
 
@@ -390,5 +396,29 @@ func TestModelPullToleratesNilCommandContext(t *testing.T) {
 	}
 	if gotCtx == nil {
 		t.Fatal("downloader received a nil context from a never-executed command")
+	}
+}
+
+// TestModelSwapLockFailureBlocksBeforeAnyMutation is ADR-0010: when the
+// cross-process lock cannot be taken, runModelSwap must refuse WITHOUT calling
+// modelswap.Run at all — never mutate while unable to exclude a concurrent
+// dashboard switch.
+func TestModelSwapLockFailureBlocksBeforeAnyMutation(t *testing.T) {
+	prevLock := acquireStackLock
+	acquireStackLock = func() (*stacklock.Lock, error) { return nil, errors.New("lock held") }
+	t.Cleanup(func() { acquireStackLock = prevLock })
+
+	rec := &swapRecorder{downloaded: map[string]bool{"fits-model": true}, fitOverrides: map[string]bool{"fits-model": true}}
+	d := newSwapStub(rec)
+	cmd, _, errOut := newTestCmd()
+	code := runModelSwap(cmd, "fits-model", d)
+	if code != exitBlocked {
+		t.Fatalf("a lock failure must exit 1, got %d", code)
+	}
+	if rec.saved.Model != "" || len(rec.restarted) != 0 || len(rec.pulled) != 0 {
+		t.Errorf("a lock failure must fire ZERO seams, got saved=%q restarted=%v pulled=%v", rec.saved.Model, rec.restarted, rec.pulled)
+	}
+	if !strings.Contains(errOut.String(), "lock held") {
+		t.Errorf("expected the lock error surfaced, got %q", errOut.String())
 	}
 }

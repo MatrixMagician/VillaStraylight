@@ -17,6 +17,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/modelswap"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 	"github.com/MatrixMagician/VillaStraylight/internal/pathsafe"
+	"github.com/MatrixMagician/VillaStraylight/internal/prove"
 	"github.com/MatrixMagician/VillaStraylight/internal/recommend"
 )
 
@@ -275,6 +276,15 @@ func runModelSwap(cmd *cobra.Command, name string, d *modelswap.Deps) int {
 		}
 	}
 
+	// The cross-process lock (ADR-0010) excludes a concurrent dashboard model
+	// switch from persisting a config change this command's rollback would
+	// otherwise silently revert.
+	lock, err := acquireStackLock()
+	if err != nil {
+		fmt.Fprintf(errOut, "model swap: %v\n", err)
+		return exitBlocked
+	}
+	defer func() { _ = lock.Release() }()
 	res := modelswap.Run(*d, name)
 
 	switch {
@@ -359,6 +369,17 @@ func liveSwapDeps(ctx context.Context) *modelswap.Deps {
 			}
 			return pullFn(ctx, m, dir)
 		},
+		// CaptureUnit: read the verbatim prior villa-llama.container bytes from the
+		// quadlet unit dir (#237). A model swap changes only the PRIMARY model's
+		// unit args, never a resident unit's (theirs derive from their own model
+		// file, not cfg.Model) — a single-unit capture is correct here.
+		CaptureUnit: func() ([]byte, error) {
+			dir, err := quadletUnitDir()
+			if err != nil {
+				return nil, err
+			}
+			return os.ReadFile(filepath.Join(dir, "villa-llama.container"))
+		},
 		SaveConfig: config.SaveVilla,
 		ReconcileAndWrite: func(c config.VillaConfig) (bool, error) {
 			dir, err := quadletUnitDir()
@@ -406,6 +427,28 @@ func liveSwapDeps(ctx context.Context) *modelswap.Deps {
 			}
 			return true, nil
 		},
-		Restart: sys.Restart,
+		// RestoreUnit: write the verbatim captured prior unit bytes back through
+		// the traversal-guarded orchestrate.WriteUnits (the rollback path, #237).
+		RestoreUnit: func(b []byte) error {
+			dir, err := quadletUnitDir()
+			if err != nil {
+				return err
+			}
+			plan := orchestrate.Plan{Changed: []orchestrate.Unit{{Name: "villa-llama.container", Text: string(b)}}}
+			return orchestrate.WriteUnits(plan, dir)
+		},
+		DaemonReload: sys.DaemonReload,
+		Restart:      sys.Restart,
+		// Prove: the SAME cutover gate `backend set` uses (liveProve) — cfg.Backend
+		// is unaffected by a model swap, and liveProve re-derives ModelID/ModelFile/
+		// Ctx from the freshly persisted config itself, so it proves the NEW model
+		// is actually serving without a second proof implementation (#237).
+		Prove: func(ctx context.Context) prove.Verdict {
+			cfg, err := config.LoadVilla()
+			if err != nil {
+				return prove.Verdict{Status: prove.StatusFail, Detail: "load config: " + err.Error()}
+			}
+			return liveProve(ctx, cfg.Backend)
+		},
 	}
 }

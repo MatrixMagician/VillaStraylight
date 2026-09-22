@@ -1,7 +1,6 @@
 package backendswap
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"strings"
@@ -13,28 +12,35 @@ import (
 
 // backendswap_test.go drives the transactional core through a fake Deps with no
 // live host. It asserts the ordering contract (capture STRICTLY before any
-// mutation, Pitfall 4), the verbatim rollback (RestoreUnit with the captured
-// priorUnit), the prove-gate (switch ONLY on prove.StatusPass — is-active/200 alone
+// mutation, Pitfall 4), the verbatim rollback (RestoreUnits with the captured
+// priorUnits), the prove-gate (switch ONLY on prove.StatusPass — is-active/200 alone
 // is never success), the refuse-with-remediation paths (fit/preflight leave
 // ZERO side effects), and restart-inference-only. It mirrors the modelswap
 // swapRecorder + callOrder discipline ([03-05]).
 
 const installService = "villa-llama.service"
 
-// priorUnitBytes is the verbatim prior unit the fake CaptureUnit returns, so the
-// rollback tests can assert a byte-equal RestoreUnit.
+// priorUnitBytes is the verbatim prior main-unit content the fake CaptureUnits
+// returns, so the rollback tests can assert a byte-equal RestoreUnits.
 var priorUnitBytes = []byte("[Container]\nImage=prior\nExec=llama-server --prior\n")
 
+// priorUnitName is the main unit's key in the captured/restored maps.
+const priorUnitName = "villa-llama.container"
+
 // swapRecorder records each side-effecting seam call so the tests can assert
-// ordering (capture < save/write; RestoreUnit precedes the rollback Restart) and
+// ordering (capture < save/write; RestoreUnits precedes the rollback Restart) and
 // that ONLY the inference service is restarted.
 type swapRecorder struct {
 	proveSaw  string
 	callOrder []string
 	saved     config.VillaConfig
 	restarted []string
-	captured  []byte
-	restored  []byte
+	captured  map[string]string
+	restored  map[string]string
+
+	// extraUnits are additional unit names (e.g. a resident model's) CaptureUnits
+	// reports alongside the main unit, each restored byte-equal on rollback (#232).
+	extraUnits map[string]string
 
 	// knobs (task 08-01-02 uses prove/refuse/failure knobs):
 	fitOK          bool   // FitsModel result (true = fits)
@@ -42,13 +48,13 @@ type swapRecorder struct {
 	preflightOK    bool   // PreflightROCm result
 	preflight      string // remediation reason on a preflight block
 	preflightSawBE string // backend the PreflightROCm gate actually received (01 guard)
-	captureErr     error  // CaptureUnit error (uncapturable prior unit)
+	captureErr     error  // CaptureUnits error (uncapturable prior unit)
 	saveErr        error  // SaveConfig error (mutate failure)
 	writeErr       error  // ReconcileAndWrite error (mutate failure)
 	restartErr     error  // first Restart error (mutate failure)
 	proveStatus    string // Prove verdict Status (prove.StatusPass = pass)
 	proveDetail    string // Prove verdict Detail
-	restoreErr     error  // RestoreUnit error during rollback (rollback-incomplete)
+	restoreErr     error  // RestoreUnits error during rollback (rollback-incomplete)
 	rbRestartErr   error  // Restart error during rollback (rollback-incomplete)
 	currentBE      string // current backend in the loaded config
 
@@ -73,13 +79,17 @@ func newSwapStub(rec *swapRecorder) Deps {
 			rec.preflightSawBE = cfg.Backend
 			return rec.preflightOK, rec.preflight
 		},
-		CaptureUnit: func() ([]byte, error) {
+		CaptureUnits: func(config.VillaConfig) (map[string]string, error) {
 			if rec.captureErr != nil {
 				return nil, rec.captureErr
 			}
 			rec.callOrder = append(rec.callOrder, "capture")
-			rec.captured = append([]byte(nil), priorUnitBytes...)
-			return rec.captured, nil
+			m := map[string]string{priorUnitName: string(priorUnitBytes)}
+			for name, text := range rec.extraUnits {
+				m[name] = text
+			}
+			rec.captured = m
+			return m, nil
 		},
 		SaveConfig: func(c config.VillaConfig) error {
 			rec.callOrder = append(rec.callOrder, "save:"+c.Backend)
@@ -93,9 +103,13 @@ func newSwapStub(rec *swapRecorder) Deps {
 			}
 			return true, nil
 		},
-		RestoreUnit: func(b []byte) error {
+		RestoreUnits: func(m map[string]string) error {
 			rec.callOrder = append(rec.callOrder, "restore")
-			rec.restored = append([]byte(nil), b...)
+			cp := make(map[string]string, len(m))
+			for k, v := range m {
+				cp[k] = v
+			}
+			rec.restored = cp
 			return rec.restoreErr
 		},
 		DaemonReload: func() error {
@@ -186,7 +200,7 @@ func TestNoOpSameBackend(t *testing.T) {
 	}
 }
 
-// TestCaptureFailureRefuses: a CaptureUnit error refuses with FailedStep="capture"
+// TestCaptureFailureRefuses: a CaptureUnits error refuses with FailedStep="capture"
 // and records NO save/write/restart (an uncapturable prior unit must not mutate).
 func TestCaptureFailureRefuses(t *testing.T) {
 	rec := passStub()
@@ -203,13 +217,13 @@ func TestCaptureFailureRefuses(t *testing.T) {
 // assertVerbatimRestore is a shared helper used by the rollback tests (08-01-02).
 func assertVerbatimRestore(t *testing.T, rec *swapRecorder) {
 	t.Helper()
-	if !bytes.Equal(rec.restored, priorUnitBytes) {
-		t.Errorf("rollback must RestoreUnit byte-equal to the captured prior unit; got %q want %q", rec.restored, priorUnitBytes)
+	if rec.restored[priorUnitName] != string(priorUnitBytes) {
+		t.Errorf("rollback must RestoreUnits byte-equal to the captured prior unit; got %q want %q", rec.restored[priorUnitName], priorUnitBytes)
 	}
 }
 
-// TestRollbackVerbatim: a non-pass Prove verdict drives RestoreUnit (byte-equal to
-// the captured priorUnit) → SaveConfig(priorCfg) → DaemonReload → Restart, in that
+// TestRollbackVerbatim: a non-pass Prove verdict drives RestoreUnits (byte-equal to
+// the captured priorUnits) → SaveConfig(priorCfg) → DaemonReload → Restart, in that
 // order; the result is RolledBack with From/To set.
 func TestRollbackVerbatim(t *testing.T) {
 	rec := passStub()
@@ -237,6 +251,51 @@ func TestRollbackVerbatim(t *testing.T) {
 	// The rollback restart targets ONLY the inference service.
 	if rec.restarted[len(rec.restarted)-1] != installService {
 		t.Errorf("rollback restart must target %s, got %v", installService, rec.restarted)
+	}
+}
+
+// TestRollbackAccumulatesMultipleFailures is #232's related fix: the rollback
+// detail used to be overwritten by whichever step failed LAST, hiding an earlier
+// step's failure from the operator. Two independent rollback-step failures must
+// BOTH appear in Reason.
+func TestRollbackAccumulatesMultipleFailures(t *testing.T) {
+	rec := passStub()
+	rec.proveStatus = "fail" // trigger rollback after a clean forward mutate
+	rec.restoreErr = errors.New("read-only filesystem")
+	rec.rbRestartErr = errors.New("systemd refused restart")
+
+	res := Run(newSwapStub(rec), "rocm")
+	if !res.RolledBack {
+		t.Fatalf("expected RolledBack=true, got %+v", res)
+	}
+	for _, want := range []string{"RestoreUnits failed", "read-only filesystem", "Restart(prior) failed", "systemd refused restart"} {
+		if !strings.Contains(res.Reason, want) {
+			t.Errorf("Reason must accumulate every rollback failure, missing %q; got %q", want, res.Reason)
+		}
+	}
+}
+
+// TestRollbackRestoresResidentUnitsToo is #232: the live ReconcileAndWrite rewrites
+// EVERY changed unit, including each resident villa-llama-<slug> unit, whose image
+// comes from the backend. A rollback that restored only villa-llama.container would
+// leave a resident unit on the rejected backend's image. CaptureUnits/RestoreUnits
+// must cover the whole set, not a fixed name.
+func TestRollbackRestoresResidentUnitsToo(t *testing.T) {
+	rec := passStub()
+	rec.extraUnits = map[string]string{
+		"villa-llama-coder.container": "[Container]\nImage=prior-resident\n",
+	}
+	rec.proveStatus = "fail"
+	rec.proveDetail = "residency FAIL"
+
+	res := Run(newSwapStub(rec), "rocm")
+	if !res.RolledBack {
+		t.Fatalf("non-pass prove must roll back, got %+v", res)
+	}
+	assertVerbatimRestore(t, rec)
+	if rec.restored["villa-llama-coder.container"] != rec.extraUnits["villa-llama-coder.container"] {
+		t.Errorf("rollback must restore the resident unit byte-equal to its captured prior text; got %q want %q",
+			rec.restored["villa-llama-coder.container"], rec.extraUnits["villa-llama-coder.container"])
 	}
 }
 
@@ -318,7 +377,7 @@ func TestPreflightSeesTargetBackend(t *testing.T) {
 }
 
 // TestMutateErrorRollsBack: an error during the mutate step (here SaveConfig) rolls
-// back verbatim (RestoreUnit with priorUnit) and reports RolledBack with FailedStep
+// back verbatim (RestoreUnits with priorUnits) and reports RolledBack with FailedStep
 // set and the original error carried.
 func TestMutateErrorRollsBack(t *testing.T) {
 	rec := passStub()

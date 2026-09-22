@@ -195,6 +195,15 @@ func runCodingMode(cmd *cobra.Command, dir codingmode.Direction, d *codingmode.D
 	out := cmd.OutOrStdout()
 	errOut := cmd.ErrOrStderr()
 
+	// The cross-process lock (ADR-0010) excludes a concurrent dashboard model
+	// switch from persisting a config change this command's rollback would
+	// otherwise silently revert.
+	lock, err := acquireStackLock()
+	if err != nil {
+		fmt.Fprintf(errOut, "coding-mode %s: %v\n", dir, err)
+		return exitBlocked
+	}
+	defer func() { _ = lock.Release() }()
 	res := codingmode.Run(*d, dir)
 	switch {
 	case res.Refused:

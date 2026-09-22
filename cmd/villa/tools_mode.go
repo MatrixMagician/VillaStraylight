@@ -167,6 +167,15 @@ func runToolsMode(cmd *cobra.Command, on bool, d *backendswap.Deps) int {
 		verb = "exit"
 	}
 
+	// The cross-process lock (ADR-0010) excludes a concurrent dashboard model
+	// switch from persisting a config change this command's rollback would
+	// otherwise silently revert.
+	lock, err := acquireStackLock()
+	if err != nil {
+		fmt.Fprintf(errOut, "tools-mode %s: %v\n", verb, err)
+		return exitBlocked
+	}
+	defer func() { _ = lock.Release() }()
 	res := backendswap.RunTools(*d, on)
 	switch {
 	case res.Refused:
