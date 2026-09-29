@@ -2,6 +2,8 @@
 
 Findings on [gufo-org/gufo](https://github.com/gufo-org/gufo) at commit `8eedee6f`, release `v0.2.0`, read on 2026-09-29 from the gfx1151 dev box. Every claim below cites the file it came from in the cloned tree or a live command run here. Anything I did not run myself is labelled.
 
+> **Superseded in part by [the on-hardware benchmark](gufo-benchmark-2026-09-29.md).** The performance section below reports gufo's published numbers. Two of them did not survive measurement on this host: the cold-load gain is 2.3x rather than 4x, and gufo's generation speed is less than half villa's shipped `ngram+draft-mtp` rather than comparable. The prefill win reproduced and is larger than published. Read the benchmark for the figures that decide anything.
+
 ## Verdict
 
 **Adopt it as a fourth backend, on an opt-in config value, gated behind a catalog qualification. Do not make it the default and do not remove the llama.cpp path.**
@@ -26,7 +28,7 @@ The posture matches villa's almost line for line, which is unusual.
 
 ## The performance case
 
-gufo publishes head-to-head numbers against llama.cpp `b11069` on the same GGUFs, measured 2026-09-23 (`docs/models/qwen3.8-27b/BENCHMARKS.md`). These are **gufo's measurements, not reproduced here**.
+gufo publishes head-to-head numbers against llama.cpp `b11069` on the same GGUFs, measured 2026-09-23 (`docs/models/qwen3.8-27b/BENCHMARKS.md`). These are **gufo's measurements**. Where [the on-hardware run](gufo-benchmark-2026-09-29.md) disagrees, believe that one.
 
 | Workload, Qwen3.8-27B Q4 | gufo | llama.cpp | Gain |
 |---|---:|---:|---:|
@@ -41,9 +43,15 @@ The shape is consistent and it maps onto villa's actual bottlenecks.
 
 **Prompt processing is where it wins, and that is villa's agent path.** Single-user token generation is a wash, roughly +2.6% on AR. Prompt processing is nearly double at every depth. `villa work` re-sends a large tool-and-instruction prefix on every turn, and coding-mode context is 16,384 on the 35B entry, so prefill is the dominant cost there, not decode.
 
+> **Measured:** the prefill win holds, at +78.6% at ctx 16,384. The AR-generation wash is real and turned out to be the wrong comparison: neither engine runs autoregressive in production, and against villa's shipped speculation gufo generates at 39% of villa's rate. The agent turn crosses over near 4,000 prefix tokens.
+
 **Cold load at 4x matters for `model swap` and `resident`.** Villa built the resident set specifically because a cold load is expensive (v1.7). A 5.87 s load instead of 23.33 s changes the cost basis of that whole feature.
 
+> **Measured:** 1.18 s against 2.73 s on this host, a 2.3x gain worth 1.55 seconds. llama.cpp loads far faster here than gufo's table records, so this argument is much weaker than it looked.
+
 **Concurrency scales where llama.cpp flattens.** At 8 users llama.cpp reaches 50.14 tok/s against gufo's 74.46. Villa's rendered units do not currently pass `-np`, so the served unit is effectively single-slot today. If multi-user chat ever matters, this is the gap.
+
+> **Measured:** the gap is far wider here, 66.64 against 22.56 at 8 users. llama.cpp's aggregate throughput stops scaling past 4 concurrent requests on this hardware.
 
 The tradeoff is honest and stated: gufo uses 3.8% to 8.2% more peak memory, and a few DFlash2 long-depth cells regress (Q8 mixed at 131K is -23.7%).
 
@@ -51,7 +59,7 @@ The tradeoff is honest and stated: gufo uses 3.8% to 8.2% more peak memory, and 
 
 Four things, each verified in the tree.
 
-**1. The model set is closed, and villa's catalog barely intersects it.** Loading dispatches on `general.architecture`: `deepseek4`, `qwen4exp`, then a Qwen path gated on `qwen35.embedding_length == 5120` (`src/cli/serve/inference_backend.cpp:2965-3092`). The Qwen runtime is documented as "the dense Qwen3.8 27B runtime" (`src/models/qwen/README.md:3`).
+**1. The model set is closed, and villa's catalog barely intersects it.** Loading dispatches on `general.architecture`: `deepseek4`, `qwen4exp`, then a Qwen path gated on `qwen35.embedding_length == 5120` (`src/cli/serve/inference_backend.cpp:2965-3092`). The Qwen runtime is documented as "the dense Qwen3.8 27B runtime" (`src/models/qwen/README.md:3`). Confirmed on hardware: `gufo serve llm --model Qwen3.8-27B-UD-Q4_K_XL.gguf` loads and answers, and `gufo diagnose` PASSes every check on this box.
 
 I read the architecture string out of every GGUF on this box with `strings` on the header:
 
@@ -72,6 +80,8 @@ One catalog entry is confidently servable and it is the one this host already ha
 
 **3. `/slots` and `/props` are static placeholders.** `/slots` returns one hardcoded object with `state: 0` and `/props` returns an empty template (`src/cli/serve/http_server.cpp:1041-1065`). `docs/SERVER.md:785` says so and adds "do not use them for capacity or admission decisions". `/metrics` also hardcodes `kv_cache_usage_ratio 0.0` and emits neither `requests_processing` nor `requests_deferred`, which is what `metrics.IsGenerating` folds. On gufo the dashboard would read a permanently-idle stack and present stale gauges as a live rate, which is exactly Pitfall 3.
 
+A fourth surfaced while benchmarking: **gufo caps queued requests per client IP at 4** (`--max-pending-per-client`) and answers the fifth with HTTP 429. Open WebUI is one client IP.
+
 **4. The residency proof does not transfer.** `ResidencyMarkers` keys on `load_tensors:`, `ROCm0` and `offloaded N/N`. gufo emits none of them. Its load line is `event=load_completed kind=... gpu_device_used_mib=N gpu_device_total_mib=N` (`src/cli/serve/serve.cpp:66-83`), and there is no `load_tensors` string anywhere in `src/`. A gufo backend needs its own `ResidencyMarkers`, and ADR-0001 means that is a new proof, not a renamed literal. In gufo's favour: it cannot silently fall back to CPU the way the proof exists to catch, because `ENGINE_ENABLE_HIP` is a compile-time gate and `diagnose` refuses anything that is not `gfx1151` (`src/core/diagnostics/compatibility.cpp:73-78`).
 
 ## Two smaller things worth knowing
@@ -82,19 +92,13 @@ One catalog entry is confidently servable and it is the one this host already ha
 
 ## The cheapest experiment
 
-Everything needed is on this box. `Qwen3.8-27B-UD-Q4_K_XL.gguf` is already in `~/.local/share/villa/models/` (17.5 GB, downloaded 2026-09-07) and `/home` has 440 G free. The one missing file is the DFlash2 draft, 1,143,006,816 bytes per a live `curl -I` against the pinned Hugging Face revision.
+**Done. See [the benchmark](gufo-benchmark-2026-09-29.md).** It cost one 5.34 GB image pull and the 1.1 GB draft, and it changed two of the conclusions above.
 
-So the measurement is: pull the pinned `gufo-runtime:0.2.0`, download the 1.1 GB draft, serve the 27B GGUF villa already has, and run villa's own `bench` methodology against both engines on the same file. That reproduces gufo's claim on this host, at a cost of one image pull and 1.1 GB, without touching the tree.
-
-Worth measuring alongside it, because gufo's tables do not cover them and they decide whether the win is real for villa's workloads:
-
-- pp at the 16,384 context coding mode actually uses, not just 4,096 and 131,072.
-- Whether `--sessions N` changes the residency picture, since villa's units do not pass `-np` today.
-- Time to first token on a cold `villa work` turn end to end, which is where the 4x load win and the 2x prefill win compound.
+Everything needed was already on this box. `Qwen3.8-27B-UD-Q4_K_XL.gguf` was in `~/.local/share/villa/models/` (17.5 GB, downloaded 2026-09-07). The one missing file was the DFlash2 draft, 1,143,006,816 bytes, checksum verified after download.
 
 ## If it measures out
 
-The integration is a fourth `BackendFor` case and a catalog flag, not a migration.
+It measured out for one path only, the agent path above roughly 4,000 prefix tokens. The integration is a fourth `BackendFor` case and a catalog flag, not a migration.
 
 - `backend = "gufo"` returns a `backendGufo` with its own image, its own `ContainerArgs` (`gufo serve --host 0.0.0.0 --port 8080 llm --model ...`) and its own `ResidencyMarkers` keyed on `event=load_completed` plus `gpu_device_used_mib`. The seam's single polymorphism point is already the right shape for this.
 - A catalog entry declares `gufo_safe` the same way it declares `ngram_safe` today, so the six entries gufo cannot load are refused at the boundary rather than failing at load. The existing fail-closed `BackendFor` default already refuses a typo'd value.

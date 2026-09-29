@@ -1,0 +1,28 @@
+{
+ "prefix_tokens": 12000,
+ "answer_tokens": 400,
+ "rows": [
+  {
+   "engine": "llamacpp",
+   "label": "rocm-7.2.4 ngram+draft-mtp",
+   "median_wall_s": 50.79,
+   "stddev_wall_s": 3.05,
+   "median_pp": 300.93,
+   "median_tg": 19.04,
+   "prompt_n": 8881,
+   "answer_tokens": 400,
+   "reps": 5
+  },
+  {
+   "engine": "gufo",
+   "label": "gufo 0.2.0 dflash2",
+   "median_wall_s": 22.44,
+   "stddev_wall_s": 0.23,
+   "median_pp": 557.03,
+   "median_tg": 19.61,
+   "prompt_n": 8841,
+   "answer_tokens": 400,
+   "reps": 5
+  }
+ ]
+}

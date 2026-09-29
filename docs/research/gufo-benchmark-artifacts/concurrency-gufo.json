@@ -1,0 +1,41 @@
+{
+ "label": "gufo 0.2.0 AR",
+ "results": [
+  {
+   "users": 1,
+   "aggregate_tg": 12.08,
+   "median_per_request_tg": 12.08,
+   "aggregate_pp": 572.39,
+   "wall_s": 16.07,
+   "tokens": 128,
+   "wall_clock_tg": 7.97
+  },
+  {
+   "users": 2,
+   "aggregate_tg": 22.94,
+   "median_per_request_tg": 11.47,
+   "aggregate_pp": 1094.08,
+   "wall_s": 22.69,
+   "tokens": 256,
+   "wall_clock_tg": 11.28
+  },
+  {
+   "users": 4,
+   "aggregate_tg": 40.54,
+   "median_per_request_tg": 10.0,
+   "aggregate_pp": 2141.26,
+   "wall_s": 36.83,
+   "tokens": 512,
+   "wall_clock_tg": 13.9
+  },
+  {
+   "users": 8,
+   "aggregate_tg": 66.64,
+   "median_per_request_tg": 8.34,
+   "aggregate_pp": 4248.65,
+   "wall_s": 66.2,
+   "tokens": 1024,
+   "wall_clock_tg": 15.47
+  }
+ ]
+}
