@@ -20,6 +20,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/prove"
 	"github.com/MatrixMagician/VillaStraylight/internal/recommend"
 	"github.com/MatrixMagician/VillaStraylight/internal/residency"
+	"github.com/MatrixMagician/VillaStraylight/internal/stackapply"
 	"github.com/MatrixMagician/VillaStraylight/internal/stacklock"
 	"github.com/MatrixMagician/VillaStraylight/internal/subsystem"
 )
@@ -331,41 +332,14 @@ func runBackendSet(cmd *cobra.Command, target string, dryRun bool, d *backendswa
 	}
 }
 
-// renderInferenceUnits renders the inference unit set (main + every resident unit)
-// for cfg, shared by CaptureUnits (reads what's on disk for this set BEFORE
-// mutation, #232) and ReconcileAndWrite (renders the same set for the TARGET
-// config) — one render path so the two can never name a different unit set.
-func renderInferenceUnits(cfg config.VillaConfig) ([]orchestrate.Unit, error) {
-	modelFile, err := liveModelFile(cfg)
-	if err != nil {
-		return nil, err
-	}
-	backend, err := inference.BackendFor(cfg.Backend)
-	if err != nil {
-		return nil, err
-	}
-	resident, err := liveResidentUnits(cfg)
-	if err != nil {
-		return nil, err
-	}
-	return livePinnedRender(orchestrate.RenderInput{
-		Backend:       backend,
-		Cfg:           cfg,
-		ModelFile:     modelFile,
-		ModelsDir:     modelsDir(),
-		HostVillaPath: hostVillaPath(),
-		Resident:      resident,
-	})
-}
-
 // liveBackendSwapDeps wires the transactional core to the real host: config load/save,
 // the recommend fit-math against the PRESERVED model, the ROCm preflight gate, verbatim
-// unit capture/restore through the traversal-guarded orchestrate seams, the render/
-// reconcile/write closure (cloned from liveSwapDeps), the systemd reload/restart seam,
-// and liveProve as the cutover gate. Every host-touching action is a seam so
-// backend_test.go drives the flow without a live host.
+// unit capture/restore and the apply through the live stack adapter (ADR-0013), the
+// systemd reload/restart seam, and liveProve as the cutover gate. Every host-touching
+// action is a seam so backend_test.go drives the flow without a live host.
 func liveBackendSwapDeps() *backendswap.Deps {
 	sys := orchestrate.NewSystemd()
+	stack := liveStackDeps()
 	return &backendswap.Deps{
 		InstallServiceName: installServiceName,
 		LoadConfig:         config.LoadVilla,
@@ -422,8 +396,9 @@ func liveBackendSwapDeps() *backendswap.Deps {
 		// CaptureUnits: read the verbatim prior bytes of EVERY unit the CURRENT
 		// config renders — the main inference unit AND every resident unit (#232) —
 		// from the quadlet unit dir (inside quadletUnitDir() — traversal-bounded by
-		// construction). Rendering from cfg BEFORE mutation names exactly the same
-		// unit set ReconcileAndWrite will consider for the target config, since the
+		// construction). Rendering from cfg BEFORE mutation, through the same
+		// stackapply.Render the apply uses, names exactly the unit set
+		// ReconcileAndWrite will consider for the target config, since the
 		// resident model list is unaffected by a backend/speculation/tools-mode
 		// change. A unit render names but has never written (first appearance) is
 		// simply absent from the map, which RestoreUnits then has nothing to do for.
@@ -432,7 +407,7 @@ func liveBackendSwapDeps() *backendswap.Deps {
 			if err != nil {
 				return nil, err
 			}
-			units, err := renderInferenceUnits(cfg)
+			units, err := stackapply.Render(stack, cfg)
 			if err != nil {
 				return nil, err
 			}
@@ -449,47 +424,15 @@ func liveBackendSwapDeps() *backendswap.Deps {
 			}
 			return captured, nil
 		},
-		// ReconcileAndWrite: render units from the persisted config, write only the
-		// changed unit(s), daemon-reload inside (clone of the liveSwapDeps closure).
+		// ReconcileAndWrite: apply the persisted target config — write only the
+		// changed unit(s), daemon-reload inside.
 		ReconcileAndWrite: func(c config.VillaConfig) (bool, error) {
-			dir, err := quadletUnitDir()
-			if err != nil {
-				return false, err
-			}
-			units, err := renderInferenceUnits(c)
-			if err != nil {
-				return false, err
-			}
-			plan, err := orchestrate.Reconcile(units, dir)
-			if err != nil {
-				return false, err
-			}
-			if len(plan.Changed) == 0 {
-				return false, nil
-			}
-			if err := liveWriteUnits(plan, dir); err != nil {
-				return false, err
-			}
-			if err := sys.DaemonReload(); err != nil {
-				return false, err
-			}
-			return true, nil
+			changed, err := stackapply.Apply(stack, c)
+			return len(changed) > 0, err
 		},
 		// RestoreUnits: write the verbatim captured prior bytes of every captured
-		// unit back through liveWriteUnits (the traversal-guarded orchestrate
-		// rollback path, GHSA-qxg9-safe) — every unit CaptureUnits saw, not a fixed
-		// name (#232).
-		RestoreUnits: func(m map[string]string) error {
-			dir, err := quadletUnitDir()
-			if err != nil {
-				return err
-			}
-			changed := make([]orchestrate.Unit, 0, len(m))
-			for name, text := range m {
-				changed = append(changed, orchestrate.Unit{Name: name, Text: text})
-			}
-			return liveWriteUnits(orchestrate.Plan{Changed: changed}, dir)
-		},
+		// unit back — every unit CaptureUnits saw, not a fixed name (#232).
+		RestoreUnits: func(m map[string]string) error { return stackapply.Restore(stack, m) },
 		DaemonReload: sys.DaemonReload,
 		Restart:      sys.Restart,
 		Prove:        liveProve,

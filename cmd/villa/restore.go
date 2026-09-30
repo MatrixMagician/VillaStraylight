@@ -37,6 +37,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/preflight"
 	"github.com/MatrixMagician/VillaStraylight/internal/prove"
 	"github.com/MatrixMagician/VillaStraylight/internal/recall"
+	"github.com/MatrixMagician/VillaStraylight/internal/stackapply"
 	"github.com/MatrixMagician/VillaStraylight/internal/subsystem"
 	"github.com/MatrixMagician/VillaStraylight/internal/usage"
 )
@@ -383,37 +384,6 @@ func liveRestoreDeps() backup.RestoreDeps {
 			return fmt.Errorf("podman volume create %s: %w: %s", name, err, stderr)
 		},
 		ReconcileAndWrite: func(c config.VillaConfig) (bool, error) {
-			dir, err := quadletUnitDir()
-			if err != nil {
-				return false, err
-			}
-			modelFile, err := liveModelFile(c)
-			if err != nil {
-				return false, err
-			}
-			backend, err := inference.BackendFor(c.Backend)
-			if err != nil {
-				return false, err
-			}
-			resident, err := liveResidentUnits(c)
-			if err != nil {
-				return false, err
-			}
-			units, err := livePinnedRender(orchestrate.RenderInput{
-				Backend:       backend,
-				Cfg:           c,
-				ModelFile:     modelFile,
-				ModelsDir:     modelsDir(),
-				HostVillaPath: hostVillaPath(),
-				Resident:      resident,
-			})
-			if err != nil {
-				return false, err
-			}
-			plan, err := orchestrate.Reconcile(units, dir)
-			if err != nil {
-				return false, err
-			}
 			// write the 0600 websafe.env bearer the restored web-search units
 			// reference via EnvironmentFile=. Phase 31 makes BOTH the OWUI unit and the
 			// villa-websafe unit carry EnvironmentFile={websafe.env} whenever
@@ -424,24 +394,16 @@ func liveRestoreDeps() backup.RestoreDeps {
 			// config has web search on AND carries the bearer, render+write the 0600 file
 			// BEFORE the units are activated/started. Fail closed with remediation when the
 			// secret is absent rather than starting into a missing-file failure. This write is
-			// done BEFORE the WriteUnits/no-op decision so it lands even when the unit text is
-			// already current (same-host restore) — it must exist regardless of unit churn.
+			// done BEFORE the apply so it lands even when the unit text is already current
+			// (same-host restore) — it must exist regardless of unit churn.
 			// (The SearXNG secret-env/settings share the same restore gap; this fix is scoped
 			// to websafe to match the finding — the OWUI EnvironmentFile dependency is the
 			// Phase-31-introduced regression.)
 			if err := restoreWriteWebsafeSecretEnv(c, orchestrate.WriteWebsafeSecretEnv); err != nil {
 				return false, err
 			}
-			if len(plan.Changed) == 0 {
-				return false, nil
-			}
-			if err := liveWriteUnits(plan, dir); err != nil {
-				return false, err
-			}
-			if err := sys.DaemonReload(); err != nil {
-				return false, err
-			}
-			return true, nil
+			changed, err := stackapply.Apply(liveStackDeps(), c)
+			return len(changed) > 0, err
 		},
 		Stop:     sys.Stop,
 		Start:    sys.Start,

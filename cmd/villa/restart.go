@@ -5,6 +5,8 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
+
+	"github.com/MatrixMagician/VillaStraylight/internal/stackapply"
 )
 
 // restart.go wires `villa restart [service]`: reconcile config→units
@@ -37,7 +39,12 @@ func runRestart(cmd *cobra.Command, args []string, d *lifecycleDeps) int {
 	out := cmd.OutOrStdout()
 	errOut := cmd.ErrOrStderr()
 
-	units, unitDir, err := d.renderStack()
+	cfg, err := d.loadConfig()
+	if err != nil {
+		fmt.Fprintf(errOut, "restart: load config: %v\n", err)
+		return exitBlocked
+	}
+	units, err := stackapply.Render(d.stack, cfg)
 	if err != nil {
 		fmt.Fprintf(errOut, "restart: %v\n", err)
 		return exitBlocked
@@ -48,13 +55,8 @@ func runRestart(cmd *cobra.Command, args []string, d *lifecycleDeps) int {
 		return exitBlocked
 	}
 
-	// Reconcile first so a config edit is applied on restart.
-	plan, err := d.reconcile(units, unitDir)
-	if err != nil {
-		fmt.Fprintf(errOut, "restart: reconcile failed: %v\n", err)
-		return exitBlocked
-	}
-	if _, err := d.applyReconcile(out, plan, unitDir); err != nil {
+	// Apply first so a config edit is applied on restart.
+	if _, err := d.applyStack(out, cfg); err != nil {
 		fmt.Fprintf(errOut, "restart: %v\n", err)
 		return exitBlocked
 	}
