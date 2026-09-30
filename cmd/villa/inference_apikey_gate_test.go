@@ -12,10 +12,15 @@ package main
 //   - a read of the api key (config.InferenceSecret). Calling llama-server needs it,
 //     so a read is either the client's construction or a hand-off to a process that
 //     calls llama-server itself;
-//   - a call that yields a llama-server address, or builds a client or an OpenAI
-//     wire client from one;
-//   - a llama-server route literal (/props, /slots, /metrics, the chat and model
-//     routes).
+//   - a call that yields a llama-server address (an Endpoint() call on any runner,
+//     or an address accessor), or builds a client or an OpenAI wire client from one;
+//   - a llama-server route or port literal (/props, /slots, /metrics, /health,
+//     /tokenize, the chat and model routes, the /v1 base, :8080).
+//
+// A route is matched as a SUFFIX of a whitespace-free literal, after any query
+// string, so `ep+"/tokenize"`, "%s/props", "http://127.0.0.1:8080/props" and
+// "/props?x=1" are all caught. A literal with a space is prose (a help line, a
+// verdict detail), never a URL, and is skipped; so are import paths.
 //
 // Each is allowed only in the files listed with a reason. A new entry needs one: the
 // question it answers is "why does this file not go through the client?".
@@ -75,26 +80,54 @@ var addressCalls = map[string]map[string]string{
 	"internal/orchestrate.ResidentInNetworkEndpoint": {
 		"cmd/villa/model_resident.go": "Open WebUI's connection list names each resident slot; Open WebUI calls them",
 	},
-	// inference.NewContainerRunner(...).Endpoint() is the host-endpoint idiom every
-	// caller used before the client; it is matched as the chained call.
-	"internal/inference.NewContainerRunner().Endpoint": {
-		"cmd/villa/install.go": "prints the endpoint and hands it to the keyless readiness poll (install.Deps)",
-	},
 }
 
-// routeLiterals are llama-server routes, allowed only where the client or the
-// inferproxy's allowlist spells them.
-var routeLiterals = map[string]map[string]string{}
+// endpointCalls may call Endpoint() on a runner or on install.Deps: it yields the
+// host llama-server address. Matched by selector name, so it also catches the call
+// through the inference.Runner interface, not only the chained NewContainerRunner one.
+var endpointCalls = map[string]string{
+	"cmd/villa/install.go":                "prints the endpoint and hands it to the keyless readiness poll (install.Deps)",
+	"internal/install/flow.go":            "install.Deps.Endpoint is a func field yielding a string for the keyless readiness poll and the closing message",
+	"internal/inference/runner_podman.go": "the container runner's own keyless /health readiness check, inside the inference package",
+}
 
-func init() {
-	allowed := map[string]string{
-		"internal/inference/client.go": "the client owns the routes",
-		"internal/inference/proxy.go":  "villa-inferproxy's two-route allowlist (ADR-0011)",
-		"internal/llm/openai.go":       "the OpenAI wire protocol, under the base URL the client gives it",
+// routeSpellers may spell a llama-server route or the :8080 port in a literal.
+var routeSpellers = map[string]string{
+	"internal/inference/client.go": "the client owns the routes",
+	"internal/inference/proxy.go":  "villa-inferproxy's two-route allowlist (ADR-0011)",
+	"internal/llm/openai.go":       "the OpenAI wire protocol, under the base URL the client gives it",
+	// The suffix match also sees these other services' routes and ports, which share a
+	// name or a number with a llama-server one but are not the inference unit.
+	"internal/openwebui/paths.go":       "Open WebUI's own /health and /api/... routes, not llama-server's",
+	"internal/dashboard/api_tasks.go":   "the dashboard's own /api/metrics route",
+	"cmd/villa/sandbox_bridge.go":       "the Crush server's /v1/health inside the task VM",
+	"cmd/villa/status.go":               "the embedding sidecar's /health probe, a different unit from the inference one",
+	"internal/orchestrate/endpoint.go":  "the address accessors themselves (gated in addressCalls) and the inferproxy's base URL",
+	"internal/orchestrate/openwebui.go": "Open WebUI's own container port and the embedding sidecar's base URL for its RAG settings",
+	"internal/agent/render.go":          "hands Crush its provider base URL; Crush calls llama-server itself (a keyReaders peer)",
+	"internal/agent/claude.go":          "trims /v1 off the provider base URL it was handed for Claude Code",
+}
+
+// llamaRoutes are matched as a suffix of a whitespace-free literal (see the header).
+var llamaRoutes = []string{"/props", "/slots", "/metrics", "/health", "/tokenize", "/chat/completions", "/v1/models", "/v1"}
+
+// spelledRoute names the llama-server route or port a string literal spells, or "".
+func spelledRoute(s string) string {
+	if strings.Contains(s, ":8080") {
+		return ":8080"
 	}
-	for _, r := range []string{"/props", "/slots", "/metrics", "/chat/completions", "/v1/chat/completions", "/v1/models"} {
-		routeLiterals[r] = allowed
+	if strings.ContainsAny(s, " \t\n") {
+		return ""
 	}
+	if i := strings.IndexAny(s, "?#"); i >= 0 {
+		s = s[:i]
+	}
+	for _, r := range llamaRoutes {
+		if strings.HasSuffix(s, r) {
+			return r
+		}
+	}
+	return ""
 }
 
 // clientBypasses parses one file's source and returns every reach around the client
@@ -136,12 +169,12 @@ func clientBypasses(rel string, src []byte) ([]string, error) {
 			if n.Sel.Name == "InferenceSecret" && keyReaders[rel] == "" {
 				report(n, "reads the api key (InferenceSecret) outside the inference client; build inferenceClient(cfg) instead")
 			}
+		case *ast.ImportSpec:
+			return false // an import path ending in /metrics is not a route
 		case *ast.CallExpr:
 			name := qualified(n.Fun)
-			if sel, ok := n.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == "Endpoint" {
-				if inner, ok := sel.X.(*ast.CallExpr); ok && qualified(inner.Fun) == "internal/inference.NewContainerRunner" {
-					name = "internal/inference.NewContainerRunner().Endpoint"
-				}
+			if sel, ok := n.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == "Endpoint" && endpointCalls[rel] == "" {
+				report(n, "calls Endpoint() outside the inference client; take the address from inferenceClient(cfg) instead")
 			}
 			if allowed, gated := addressCalls[name]; gated && allowed[rel] == "" {
 				report(n, "calls "+name+" outside the inference client; take the address from inferenceClient(cfg) instead")
@@ -154,8 +187,8 @@ func clientBypasses(rel string, src []byte) ([]string, error) {
 			if err != nil {
 				return true
 			}
-			if allowed, gated := routeLiterals[s]; gated && allowed[rel] == "" {
-				report(n, "spells the llama-server route "+strconv.Quote(s)+" outside the inference client; call its method instead")
+			if r := spelledRoute(s); r != "" && routeSpellers[rel] == "" {
+				report(n, "spells the llama-server route or port "+strconv.Quote(r)+" in "+strconv.Quote(s)+" outside the inference client; call its method instead")
 			}
 		}
 		return true
@@ -238,6 +271,26 @@ func measure(cfg config.VillaConfig, b inference.Backend) {
 		{"cmd/villa/status.go", `package main
 // orchestrate.LlamaInNetworkEndpoint() + "/props" in a comment is not code.
 func ok() {}`, 0},
+		// The five shapes the review of #260 found the exact-match gate missed (#262).
+		{"cmd/villa/probe1.go", `package main
+var u = "http://127.0.0.1:8080/props"`, 1},
+		{"cmd/villa/probe2.go", `package main
+import "fmt"
+func u(ep string) string { return fmt.Sprintf("%s/props", ep) }`, 1},
+		{"cmd/villa/probe3.go", `package main
+import "github.com/MatrixMagician/VillaStraylight/internal/inference"
+func u(r inference.Runner) string { return r.Endpoint() + "/health" }`, 2},
+		{"cmd/villa/probe4.go", `package main
+func u(ep string) string { return ep + "/tokenize" }`, 1},
+		{"cmd/villa/probe5.go", `package main
+import "fmt"
+func u(port int) string { return fmt.Sprintf("http://127.0.0.1:%d/props?model=x", port) }`, 1},
+		// Prose and import paths are not URLs: a help line naming a route, and an
+		// import path that ends in /metrics, must not be findings.
+		{"cmd/villa/prose.go", `package main
+import "github.com/MatrixMagician/VillaStraylight/internal/metrics"
+var _ = metrics.ParsePerf
+var help = "polls /health until it returns 200, then reads /props"`, 0},
 	} {
 		got, err := clientBypasses(c.rel, []byte(c.src))
 		if err != nil {
