@@ -482,19 +482,20 @@ type Deps struct {
 
 	IsActive    func(service string) (string, error)
 	JournalText func(service string) (string, bool)
-	Props       func(endpoint string) *inference.PropsInfo
+	// Props reads the served unit's /props for the drift overlay. The live wiring
+	// closes over cmd/villa's authenticated inference client (ADR-0014), so the
+	// unit's address and key are the client's, never this signature's.
+	Props       func() *inference.PropsInfo
 	GTTUsed     func() detect.Bytes
 	WeightBytes func(config.VillaConfig) uint64
-	Endpoint    func() string
 
 	// GenTokensPerSec is the live token-generation tok/s seam, wired in
-	// cmd/villa liveStatusDeps to reuse metrics.ScrapeMetricsAuth (GHSA-qxg9,
-	// ADR-0011 — the bearer travels through the closure, not this signature). It
-	// returns nil on an idle server or a failed/absent /metrics scrape so Run omits the figure
-	// (typed-Unknown, never a fabricated 0). internal/status stays free of HTTP
-	// coupling; status_test.go stubs it like the other seams. A nil seam is treated
-	// as "no reading" (Run guards it).
-	GenTokensPerSec func(endpoint string) *float64
+	// cmd/villa liveStatusDeps to the authenticated inference client's /metrics and
+	// /slots reads (ADR-0014). It returns nil on an idle server or a failed/absent
+	// /metrics scrape so Run omits the figure (typed-Unknown, never a fabricated 0).
+	// internal/status stays free of HTTP coupling; status_test.go stubs it like the
+	// other seams. A nil seam is treated as "no reading" (Run guards it).
+	GenTokensPerSec func() *float64
 	// ROCmReadiness is the detect rocm_readiness probe seam, wired in
 	// liveStatusDeps to detect.Probe().ROCmReadiness. internal/status folds the
 	// returned sub-tree via foldROCmReadiness; a nil seam leaves the indicator
@@ -574,8 +575,8 @@ type Deps struct {
 	// seam → "" (the residency key is omitted), never a guessed swap/shared.
 	AgentResidency func() string
 
-	// AgentCache is the cache-effectiveness counter seam: it reuses the
-	// Plan-02 metrics.ScrapeCacheCounters primitive over the live /metrics scrape.
+	// AgentCache is the cache-effectiveness counter seam: it reads the cache pair
+	// through the authenticated inference client's /metrics scrape (ADR-0014).
 	// It returns (cacheN, promptN, ok) where ok is false on an absent/unparseable
 	// scrape — Run then leaves the ratio nil + counts omitted (typed-Unknown, never
 	// a fabricated 0%). A nil seam is treated as ok=false (Run guards it).
@@ -651,7 +652,6 @@ func Run(d Deps) Report {
 		return Report{Overall: inference.StatusFail.String(), NoTelemetry: noTelemetryStatement, err: err}
 	}
 
-	endpoint := d.Endpoint()
 	report := Report{
 		NoTelemetry: noTelemetryStatement,
 		Ports:       publishedPorts(units),
@@ -682,7 +682,7 @@ func Run(d Deps) Report {
 	// Live tok/s: typed-optional via the seam — nil on idle/unavailable so it
 	// serializes as omitted, never a fabricated 0. Guard a nil seam defensively.
 	if d.GenTokensPerSec != nil {
-		report.GenTokensPerSec = d.GenTokensPerSec(endpoint)
+		report.GenTokensPerSec = d.GenTokensPerSec()
 	}
 	// ROCm-readiness tri-state: fold the detect sub-tree from the seam. A nil
 	// seam leaves the indicator "unknown" (no false-green).
@@ -766,7 +766,7 @@ func Run(d Deps) Report {
 		journal, _ := d.JournalText(svc.Unit)
 		ss.Offload = inference.RunningOffloadVerdict(inference.RunningOffloadInput{
 			JournalText:   journal,
-			Props:         d.Props(endpoint),
+			Props:         d.Props(),
 			GTTUsedBytes:  d.GTTUsed(),
 			WeightBytes:   weight,
 			ConfigModel:   modelFile,

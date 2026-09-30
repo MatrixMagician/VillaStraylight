@@ -30,12 +30,10 @@ type fakeDeps struct {
 	// chatDelay holds the generation probe open so the sampler ticks during it.
 	chatDelay time.Duration
 
-	folded       inference.RunningOffloadInput
-	foldCalls    int
-	polled       string
-	generated    string
-	generatedKey string
-	journaled    string
+	folded    inference.RunningOffloadInput
+	foldCalls int
+	generated string
+	journaled string
 }
 
 func newFakeDeps() *fakeDeps {
@@ -52,13 +50,9 @@ func newFakeDeps() *fakeDeps {
 
 func (f *fakeDeps) deps() Deps {
 	return Deps{
-		PollHealth: func(_ context.Context, endpoint string, _ time.Duration) detect.Bool {
-			f.polled = endpoint
-			return f.ready
-		},
-		Generate: func(ctx context.Context, _, modelID, apiKey string) inference.ChatResult {
+		PollHealth: func(context.Context, time.Duration) detect.Bool { return f.ready },
+		Generate: func(ctx context.Context, modelID string) inference.ChatResult {
 			f.generated = modelID
-			f.generatedKey = apiKey
 			if f.chatDelay > 0 {
 				select {
 				case <-time.After(f.chatDelay):
@@ -90,7 +84,6 @@ func (f *fakeDeps) deps() Deps {
 
 func target() Target {
 	return Target{
-		Endpoint:       "http://127.0.0.1:8080",
 		Service:        "villa-llama.service",
 		ModelID:        "qwen3-30b",
 		ModelFile:      "qwen3-30b-Q4_K_M.gguf",
@@ -230,11 +223,9 @@ func TestDegenerateGenerationFailsTheCutover(t *testing.T) {
 
 	f := newFakeDeps()
 	d := f.deps()
-	d.Generate = inference.GenerationProbe
-	tgt := target()
-	tgt.Endpoint = srv.URL
+	d.Generate = inference.NewClient(srv.URL, "").GenerationProbe
 
-	v := ProveCutover(t.Context(), d, tgt)
+	v := ProveCutover(t.Context(), d, target())
 
 	if v.Pass() {
 		t.Fatalf("a degenerate stream must not pass the cutover, got %+v", v)
@@ -309,20 +300,11 @@ func TestTargetDrivesTheProtocol(t *testing.T) {
 	tgt.WeightBytes = 17 << 30
 	tgt.Service = "villa-llama.service"
 	tgt.Markers = inference.ResidencyMarkers{DeviceToken: "TEST0", FaultString: "TEST-ABORT"}
-	tgt.APIKey = "secret-key"
 
 	Prove(t.Context(), f.deps(), tgt)
 
-	if f.polled != tgt.Endpoint {
-		t.Errorf("polled %q, want the target endpoint %q", f.polled, tgt.Endpoint)
-	}
 	if f.generated != tgt.ModelID {
 		t.Errorf("probed model %q, want the SERVED model %q", f.generated, tgt.ModelID)
-	}
-	// GHSA-qxg9/ADR-0011: the generation probe must receive Target.APIKey
-	// verbatim — it is the credential llama-server now requires on /v1.
-	if f.generatedKey != tgt.APIKey {
-		t.Errorf("generation probe apiKey = %q, want the target's %q", f.generatedKey, tgt.APIKey)
 	}
 	if f.journaled != tgt.Service {
 		t.Errorf("journaled %q, want %q", f.journaled, tgt.Service)

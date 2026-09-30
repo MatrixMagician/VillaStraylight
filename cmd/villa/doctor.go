@@ -497,7 +497,7 @@ func residencyDepsFrom(sd *status.Deps) residency.Deps {
 	return residency.Deps{
 		Journal: sd.JournalText,
 		GTTUsed: sd.GTTUsed,
-		Props:   func() *inference.PropsInfo { return sd.Props(sd.Endpoint()) },
+		Props:   sd.Props,
 		Fold:    inference.RunningOffloadVerdict,
 	}
 }
@@ -531,9 +531,6 @@ func residencyTargetFor(cfg config.VillaConfig, sd *status.Deps, subject string)
 		ContextLen:  cfg.Ctx,
 		WeightBytes: sd.WeightBytes(cfg),
 		Markers:     backend.ResidencyProof(),
-		// GHSA-qxg9 (ADR-0011): doctor's under-load proofs hit the SAME
-		// bearer-gated unit every other client does.
-		APIKey: cfg.InferenceSecret,
 	}, nil
 }
 
@@ -795,7 +792,9 @@ func runSearchResidencyUnderLoad(ctx context.Context, cfg config.VillaConfig, sd
 			fmt.Sprintf("could not evaluate %s — the chat drive body could not be built (%v)", subject, err),
 			"re-run `villa doctor`")
 	}
-	url := orchestrate.LlamaInNetworkEndpoint() + "/chat/completions"
+	// The round goes through the in-network inference client (ADR-0014): its curl
+	// request carries the api key on stdin, never on a command line (#252).
+	chat := inNetworkInferenceClient(cfg).CurlChatCompletions(body)
 	helperImage := orchestrate.EmbedImage()
 
 	// The shared proof shape carries the read-only gate (villa-llama AND the
@@ -815,11 +814,7 @@ func runSearchResidencyUnderLoad(ctx context.Context, cfg config.VillaConfig, sd
 		Load: residency.Load{
 			Drive: func(ctx context.Context) error {
 				// Drive-only: the FAIL signal here is residency, not the chat round.
-				_, derr := runProbeCurl(ctx, helperImage,
-					"-sf", "-X", "POST", url,
-					"-H", "Content-Type: application/json",
-					"-d", string(body),
-				)
+				_, derr := runProbeCurlIn(ctx, helperImage, chat, "-sf")
 				return derr
 			},
 			Rounds: searchResidencyDriveRounds,

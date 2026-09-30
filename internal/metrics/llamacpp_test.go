@@ -2,8 +2,6 @@ package metrics
 
 import (
 	"math"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"reflect"
 	"strings"
@@ -74,27 +72,14 @@ func TestParsePromTextStripsLabels(t *testing.T) {
 	}
 }
 
-// TestScrapeMetricsFromServer asserts a 200 /metrics body maps the confirmed gauges
-// into a PerfSnapshot and never queries the removed KV-cache-usage gauge (Pitfall 4).
-func TestScrapeMetricsFromServer(t *testing.T) {
+// TestParsePerf asserts a /metrics body maps the confirmed gauges into a
+// PerfSnapshot and never reads the removed KV-cache-usage gauge (Pitfall 4).
+func TestParsePerf(t *testing.T) {
 	body, err := os.ReadFile("testdata/metrics.txt")
 	if err != nil {
 		t.Fatalf("read fixture: %v", err)
 	}
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/metrics" {
-			http.NotFound(w, r)
-			return
-		}
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write(body)
-	}))
-	defer srv.Close()
-
-	snap, ok := ScrapeMetricsAuth(srv.URL, "")
-	if !ok {
-		t.Fatalf("ScrapeMetrics ok=false on a 200 body")
-	}
+	snap := ParsePerf(body)
 	if snap.PromptTokensPerSec != 152.5 {
 		t.Errorf("PromptTokensPerSec = %v, want 152.5", snap.PromptTokensPerSec)
 	}
@@ -109,115 +94,19 @@ func TestScrapeMetricsFromServer(t *testing.T) {
 	}
 }
 
-// TestScrapeMetricsAuthSendsBearer guards GHSA-qxg9/ADR-0011: ScrapeMetricsAuth
-// must forward its apiKey as the Bearer credential, and ScrapeMetrics (no key)
-// must send no Authorization header at all — matching every scrape before this
-// pair existed. llama-server now refuses /metrics without the header.
-func TestScrapeMetricsAuthSendsBearer(t *testing.T) {
-	body, err := os.ReadFile("testdata/metrics.txt")
-	if err != nil {
-		t.Fatalf("read fixture: %v", err)
-	}
-	var gotAuth string
-	sawHeader := false
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotAuth = r.Header.Get("Authorization")
-		if gotAuth != "" {
-			sawHeader = true
-		}
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write(body)
-	}))
-	defer srv.Close()
-
-	if _, ok := ScrapeMetricsAuth(srv.URL, ""); !ok {
-		t.Fatalf("ScrapeMetrics ok=false on a 200 body")
-	}
-	if sawHeader {
-		t.Errorf("ScrapeMetrics sent Authorization %q with no key configured", gotAuth)
-	}
-
-	if _, ok := ScrapeMetricsAuth(srv.URL, "secret-key"); !ok {
-		t.Fatalf("ScrapeMetricsAuth ok=false on a 200 body")
-	}
-	if want := "Bearer secret-key"; gotAuth != want {
-		t.Errorf("Authorization header = %q, want %q", gotAuth, want)
-	}
-}
-
-// TestScrapeSlotsAuthSendsBearer mirrors TestScrapeMetricsAuthSendsBearer for the
-// /slots scrape, which reads a different endpoint and body shape.
-func TestScrapeSlotsAuthSendsBearer(t *testing.T) {
-	var gotAuth string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotAuth = r.Header.Get("Authorization")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`[]`))
-	}))
-	defer srv.Close()
-
-	if _, ok := ScrapeSlotsAuth(srv.URL, "secret-key"); !ok {
-		t.Fatalf("ScrapeSlotsAuth ok=false on a 200 body")
-	}
-	if want := "Bearer secret-key"; gotAuth != want {
-		t.Errorf("Authorization header = %q, want %q", gotAuth, want)
-	}
-}
-
-// TestScrapeMetrics404IsTypedUnknown is the Pitfall 2 / guard: a 404 /metrics
-// (the state when --metrics is absent) yields ok=false and a ZERO-VALUE snapshot the
-// handler renders as "unavailable" — never a fabricated/zero rate presented as real.
-func TestScrapeMetrics404IsTypedUnknown(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.NotFound(w, r) // 404 — /metrics absent
-	}))
-	defer srv.Close()
-
-	snap, ok := ScrapeMetricsAuth(srv.URL, "")
-	if ok {
-		t.Fatalf("ScrapeMetrics ok=true on a 404, want false (typed-Unknown)")
-	}
-	if snap != (PerfSnapshot{}) {
-		t.Errorf("ScrapeMetrics 404 snapshot = %+v, want zero-value (ok=false carries unavailability)", snap)
-	}
-}
-
-// TestScrapeMetricsTransportErrorIsTypedUnknown asserts an unreachable endpoint
-// degrades to ok=false rather than panicking or returning zeros as a real reading.
-func TestScrapeMetricsTransportErrorIsTypedUnknown(t *testing.T) {
-	// 127.0.0.1:1 is the discard port — nothing listens; connect fails fast.
-	if _, ok := ScrapeMetricsAuth("http://127.0.0.1:1", ""); ok {
-		t.Fatalf("ScrapeMetrics ok=true on a transport error, want false")
-	}
-}
-
-// TestScrapeCountersTotal is the counter feed guard. The present case
-// asserts the two monotonic cumulative counters (llamacpp:prompt_tokens_total and
-// llamacpp:tokens_predicted_total) read out of the bounded /metrics scrape as typed
-// uint64 readings with Known=true. The absent case is the typed-Unknown discipline:
-// a body WITHOUT the two _total lines yields Known=false (NOT a fabricated 0), and a 404
-// degrades the whole-scrape availability bool to false.
-func TestScrapeCountersTotal(t *testing.T) {
+// TestParseCounters is the counter feed guard. The present case asserts the two
+// monotonic cumulative counters (llamacpp:prompt_tokens_total and
+// llamacpp:tokens_predicted_total) read out of a /metrics body as typed uint64
+// readings with Known=true. The absent case is the typed-Unknown discipline: a body
+// WITHOUT the two _total lines yields Known=false, NOT a fabricated 0. The
+// unavailable and over-cap cases belong to the scrape, inference.Client.Counters.
+func TestParseCounters(t *testing.T) {
 	body, err := os.ReadFile("testdata/metrics.txt")
 	if err != nil {
 		t.Fatalf("read fixture: %v", err)
 	}
 
-	// Present: the fixture carries both _total counters.
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/metrics" {
-			http.NotFound(w, r)
-			return
-		}
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write(body)
-	}))
-	defer srv.Close()
-
-	cs, ok := ScrapeCountersAuth(srv.URL, "")
-	if !ok {
-		t.Fatalf("ScrapeCounters ok=false on a 200 body")
-	}
+	cs := ParseCounters(body)
 	if !cs.PromptTokensKnown || cs.PromptTokensTotal != 130572 {
 		t.Errorf("PromptTokensTotal = %d (known=%v), want 130572 (known=true)", cs.PromptTokensTotal, cs.PromptTokensKnown)
 	}
@@ -226,71 +115,18 @@ func TestScrapeCountersTotal(t *testing.T) {
 	}
 
 	// Absent: a body without the two _total lines → Known=false, never a fabricated 0.
-	absentBody := strings.Join([]string{
+	absent := ParseCounters([]byte(strings.Join([]string{
 		`# TYPE llamacpp:requests_processing gauge`,
 		`llamacpp:requests_processing 0`,
-	}, "\n")
-	absentSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/metrics" {
-			http.NotFound(w, r)
-			return
-		}
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(absentBody))
-	}))
-	defer absentSrv.Close()
-
-	cs2, ok2 := ScrapeCountersAuth(absentSrv.URL, "")
-	if !ok2 {
-		t.Fatalf("ScrapeCounters ok=false on a 200 body (absent counters is still an available scrape)")
-	}
-	if cs2.PromptTokensKnown {
+	}, "\n")))
+	if absent.PromptTokensKnown {
 		t.Errorf("PromptTokensKnown=true on an absent counter, want false (typed-Unknown, no fabricated 0)")
 	}
-	if cs2.PredictedTokensKnown {
+	if absent.PredictedTokensKnown {
 		t.Errorf("PredictedTokensKnown=true on an absent counter, want false (typed-Unknown, no fabricated 0)")
 	}
-	if cs2.PromptTokensTotal != 0 || cs2.PredictedTokensTotal != 0 {
-		t.Errorf("absent CounterSample carries non-zero totals %+v — Known=false MUST gate the zero value", cs2)
-	}
-
-	// A 404 /metrics (--metrics absent) degrades the availability bool to false.
-	down := httptest.NewServer(http.HandlerFunc(http.NotFound))
-	defer down.Close()
-	if _, ok := ScrapeCountersAuth(down.URL, ""); ok {
-		t.Errorf("ScrapeCounters ok=true on a 404, want false (whole-scrape unavailable)")
-	}
-}
-
-// TestScrapeCountersOversizedBodyUnavailable proves a /metrics body exceeding the scrape
-// cap is treated as UNAVAILABLE rather than parsed. A body truncated mid-line by the cap
-// can sever a counter value (e.g. `...predicted_total 1305` from `130572`); the reset-aware
-// fold would mis-read the smaller-but-parseable value as a counter reset and durably
-// corrupt the cumulative total (v1.2 review finding). Refusing the whole over-cap sample is
-// the no-false-data posture.
-func TestScrapeCountersOversizedBodyUnavailable(t *testing.T) {
-	var b strings.Builder
-	b.WriteString("# TYPE llamacpp:prompt_tokens_total counter\n")
-	b.WriteString("llamacpp:prompt_tokens_total 130572\n")
-	b.WriteString("# TYPE llamacpp:tokens_predicted_total counter\n")
-	b.WriteString("llamacpp:tokens_predicted_total 48913\n")
-	// Pad well past the 64 KiB scrape cap so the body is over-cap (and thus truncatable),
-	// even though the counter lines themselves are valid and present.
-	for b.Len() < 80<<10 {
-		b.WriteString("# llamacpp_padding_comment_line_to_exceed_the_scrape_body_cap\n")
-	}
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/metrics" {
-			http.NotFound(w, r)
-			return
-		}
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(b.String()))
-	}))
-	defer srv.Close()
-
-	if _, ok := ScrapeCountersAuth(srv.URL, ""); ok {
-		t.Errorf("ScrapeCounters ok=true on an over-cap body, want false (truncation risk → unavailable, no partial fold)")
+	if absent.PromptTokensTotal != 0 || absent.PredictedTokensTotal != 0 {
+		t.Errorf("absent CounterSample carries non-zero totals %+v — Known=false MUST gate the zero value", absent)
 	}
 }
 
@@ -344,12 +180,12 @@ func TestParseSlotsReadsOnlyNarrowFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read fixture: %v", err)
 	}
-	slots, ok := parseSlots(body)
+	slots, ok := ParseSlots(body)
 	if !ok {
-		t.Fatalf("parseSlots ok=false on a valid array")
+		t.Fatalf("ParseSlots ok=false on a valid array")
 	}
 	if len(slots) != 2 {
-		t.Fatalf("parseSlots len = %d, want 2", len(slots))
+		t.Fatalf("ParseSlots len = %d, want 2", len(slots))
 	}
 
 	// Structurally assert the Slot type carries no prompt/param field (security):
@@ -380,7 +216,7 @@ func TestActiveAndIdleGate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read fixture: %v", err)
 	}
-	slots, _ := parseSlots(body)
+	slots, _ := ParseSlots(body)
 
 	if n := ActiveSlots(slots); n != 1 {
 		t.Errorf("ActiveSlots = %d, want 1", n)
@@ -401,65 +237,32 @@ func TestActiveAndIdleGate(t *testing.T) {
 	}
 }
 
-// TestScrapeSlotsFromServer asserts ScrapeSlots fetches and parses /slots over a
-// bounded body, and a non-200 (e.g. --no-slots) degrades to ok=false.
-func TestScrapeSlotsFromServer(t *testing.T) {
+// TestParseSlotsFixture asserts the /slots fixture parses to its two slots.
+func TestParseSlotsFixture(t *testing.T) {
 	body, err := os.ReadFile("testdata/slots.json")
 	if err != nil {
 		t.Fatalf("read fixture: %v", err)
 	}
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/slots" {
-			http.NotFound(w, r)
-			return
-		}
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write(body)
-	}))
-	defer srv.Close()
-
-	slots, ok := ScrapeSlotsAuth(srv.URL, "")
+	slots, ok := ParseSlots(body)
 	if !ok {
-		t.Fatalf("ScrapeSlots ok=false on a 200 body")
+		t.Fatalf("ParseSlots ok=false on the fixture")
 	}
 	if len(slots) != 2 {
-		t.Errorf("ScrapeSlots len = %d, want 2", len(slots))
-	}
-
-	// A server that 404s /slots → ok=false (typed-Unknown, no fabricated active count).
-	down := httptest.NewServer(http.HandlerFunc(http.NotFound))
-	defer down.Close()
-	if _, ok := ScrapeSlotsAuth(down.URL, ""); ok {
-		t.Errorf("ScrapeSlots ok=true on a 404, want false")
+		t.Errorf("ParseSlots len = %d, want 2", len(slots))
 	}
 }
 
-// TestScrapeCacheCountersTotal asserts ScrapeCacheCounters surfaces the
-// cache_n/prompt_n pair as a typed-Unknown CacheSample: both
-// present → Known with exact counts; an absent counter → that one Known=false
-// (never a fabricated 0); a 404 → the whole scrape unavailable. The ratio itself is
-// NOT computed here (Plan 03 owns it).
-func TestScrapeCacheCountersTotal(t *testing.T) {
-	bothBody := strings.Join([]string{
+// TestParseCacheCounters asserts the cache_n/prompt_n pair surfaces as a
+// typed-Unknown CacheSample: both present → Known with exact counts; an absent
+// counter → that one Known=false (never a fabricated 0). The ratio itself is NOT
+// computed here (Plan 03 owns it).
+func TestParseCacheCounters(t *testing.T) {
+	cs := ParseCacheCounters([]byte(strings.Join([]string{
 		"# TYPE " + mPromptCacheTokensTotal + " counter",
 		mPromptCacheTokensTotal + " 4096",
 		"# TYPE " + mCacheTokensTotal + " counter",
 		mCacheTokensTotal + " 3072",
-	}, "\n")
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/metrics" {
-			http.NotFound(w, r)
-			return
-		}
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(bothBody))
-	}))
-	defer srv.Close()
-
-	cs, ok := ScrapeCacheCountersAuth(srv.URL, "")
-	if !ok {
-		t.Fatalf("ScrapeCacheCounters ok=false on a 200 body")
-	}
+	}, "\n")))
 	if !cs.PromptKnown || cs.PromptN != 4096 {
 		t.Errorf("PromptN = %d (known=%v), want 4096 (known=true)", cs.PromptN, cs.PromptKnown)
 	}
@@ -468,21 +271,7 @@ func TestScrapeCacheCountersTotal(t *testing.T) {
 	}
 
 	// Only prompt_n present → cache_n Known=false, never a fabricated 0.
-	onlyPrompt := "# TYPE " + mPromptCacheTokensTotal + " counter\n" + mPromptCacheTokensTotal + " 100\n"
-	pSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/metrics" {
-			http.NotFound(w, r)
-			return
-		}
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(onlyPrompt))
-	}))
-	defer pSrv.Close()
-
-	cs2, ok2 := ScrapeCacheCountersAuth(pSrv.URL, "")
-	if !ok2 {
-		t.Fatalf("ScrapeCacheCounters ok=false on a 200 body (a partial pair is still an available scrape)")
-	}
+	cs2 := ParseCacheCounters([]byte("# TYPE " + mPromptCacheTokensTotal + " counter\n" + mPromptCacheTokensTotal + " 100\n"))
 	if !cs2.PromptKnown || cs2.PromptN != 100 {
 		t.Errorf("PromptN = %d (known=%v), want 100 (known=true)", cs2.PromptN, cs2.PromptKnown)
 	}
@@ -493,55 +282,10 @@ func TestScrapeCacheCountersTotal(t *testing.T) {
 		t.Errorf("absent CacheN must be the zero value gated by CacheKnown=false, got %d", cs2.CacheN)
 	}
 
-	// Both absent → both Known=false (the whole pair unevaluable, but the scrape is available).
-	emptyBody := "# TYPE llamacpp:requests_processing gauge\nllamacpp:requests_processing 0\n"
-	eSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/metrics" {
-			http.NotFound(w, r)
-			return
-		}
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(emptyBody))
-	}))
-	defer eSrv.Close()
-	cs3, ok3 := ScrapeCacheCountersAuth(eSrv.URL, "")
-	if !ok3 || cs3.CacheKnown || cs3.PromptKnown {
-		t.Errorf("both-absent cache pair must be Known=false on an available scrape, got %+v ok=%v", cs3, ok3)
-	}
-
-	// A 404 /metrics (--metrics absent) → whole-scrape unavailable.
-	down := httptest.NewServer(http.HandlerFunc(http.NotFound))
-	defer down.Close()
-	if _, ok := ScrapeCacheCountersAuth(down.URL, ""); ok {
-		t.Errorf("ScrapeCacheCounters ok=true on a 404, want false (whole-scrape unavailable)")
-	}
-}
-
-// TestScrapeCacheCountersOversizedBodyUnavailable proves an over-cap /metrics body
-// is refused as UNAVAILABLE (same truncation guard as ScrapeCounters): a counter
-// line severed mid-value by the cap would mis-parse, so the whole sample is dropped
-// rather than folding a partial read.
-func TestScrapeCacheCountersOversizedBodyUnavailable(t *testing.T) {
-	var b strings.Builder
-	b.WriteString("# TYPE " + mPromptCacheTokensTotal + " counter\n")
-	b.WriteString(mPromptCacheTokensTotal + " 4096\n")
-	b.WriteString("# TYPE " + mCacheTokensTotal + " counter\n")
-	b.WriteString(mCacheTokensTotal + " 3072\n")
-	for b.Len() < 80<<10 {
-		b.WriteString("# llamacpp_padding_comment_line_to_exceed_the_scrape_body_cap\n")
-	}
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/metrics" {
-			http.NotFound(w, r)
-			return
-		}
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(b.String()))
-	}))
-	defer srv.Close()
-
-	if _, ok := ScrapeCacheCountersAuth(srv.URL, ""); ok {
-		t.Errorf("ScrapeCacheCounters ok=true on an over-cap body, want false (truncation risk → unavailable)")
+	// Both absent → both Known=false.
+	cs3 := ParseCacheCounters([]byte("# TYPE llamacpp:requests_processing gauge\nllamacpp:requests_processing 0\n"))
+	if cs3.CacheKnown || cs3.PromptKnown {
+		t.Errorf("both-absent cache pair must be Known=false, got %+v", cs3)
 	}
 }
 
@@ -562,20 +306,7 @@ func TestCacheSampleRejectsNonFinite(t *testing.T) {
 		{"negative", mCacheTokensTotal + " -5", false, 0},
 	} {
 		t.Run(c.desc, func(t *testing.T) {
-			body := "# TYPE " + mCacheTokensTotal + " counter\n" + c.line + "\n"
-			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if r.URL.Path != "/metrics" {
-					http.NotFound(w, r)
-					return
-				}
-				w.WriteHeader(http.StatusOK)
-				_, _ = w.Write([]byte(body))
-			}))
-			defer srv.Close()
-			cs, ok := ScrapeCacheCountersAuth(srv.URL, "")
-			if !ok {
-				t.Fatalf("ok=false on a 200 body")
-			}
+			cs := ParseCacheCounters([]byte("# TYPE " + mCacheTokensTotal + " counter\n" + c.line + "\n"))
 			if cs.CacheKnown != c.wantKnown || cs.CacheN != c.wantN {
 				t.Errorf("CacheN=%d known=%v, want %d known=%v", cs.CacheN, cs.CacheKnown, c.wantN, c.wantKnown)
 			}

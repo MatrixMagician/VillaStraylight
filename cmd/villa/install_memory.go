@@ -8,9 +8,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/catalog"
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
+	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 	"github.com/MatrixMagician/VillaStraylight/internal/inprobe"
 	"github.com/MatrixMagician/VillaStraylight/internal/install"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
@@ -305,11 +307,28 @@ func qdrantWritableProbe(curl probeCurlFn, base string, embeddingDim int) (bool,
 // <helperImage> curl <args...>` as a FIXED-ARG exec (never a shell) and returns
 // curl's stdout together with the process exit code.
 //
-// It is the ONE in-network probe strategy. There used to be three: this one, a
-// return-only-stdout twin that was otherwise byte-identical, and a third in the
-// status path that called the twin and then re-derived the exit code the twin had
-// discarded. Two of them are gone; runProbeCurl below is a thin convenience over
-// this for the callers that genuinely do not care about the code.
+// It is one of three thin doors onto probeCurl, the ONE in-network probe strategy.
+// There used to be three strategies: this one, a return-only-stdout twin that was
+// otherwise byte-identical, and a third in the status path that called the twin and
+// then re-derived the exit code the twin had discarded. runProbeCurl below is a thin
+// convenience for the callers that genuinely do not care about the code, and
+// runProbeCurlIn the door for a request the inference client built.
+func runProbeCurlCode(ctx context.Context, helperImage string, curlArgs ...string) (stdout []byte, exitCode int, err error) {
+	return probeCurl(ctx, helperImage, nil, curlArgs)
+}
+
+// runProbeCurlIn runs one llama-server request the inference client built
+// (ADR-0014), after the caller's own curl flags. The request's Stdin — the
+// Authorization header curl reads through `-H @-` — reaches curl over a pipe
+// (`podman run -i`), so the api key never lands on podman's or curl's command line,
+// where any local user could read it from /proc (#252).
+func runProbeCurlIn(ctx context.Context, helperImage string, req inference.CurlRequest, flags ...string) ([]byte, error) {
+	out, _, err := probeCurl(ctx, helperImage, req.Stdin, slices.Concat(flags, req.Args))
+	return out, err
+}
+
+// probeCurl is the in-network probe itself. A nil stdin runs the helper exactly as
+// it always ran; a non-nil one adds `-i` and pipes it to curl.
 //
 // The helper image is sourced from the orchestrate accessor (no re-typed image
 // literal), and --entrypoint curl runs curl from INSIDE villa.network, so the
@@ -320,15 +339,21 @@ func qdrantWritableProbe(curl probeCurlFn, base string, embeddingDim int) (bool,
 // reads as a genuine block, while a container that never started reports -1 and must
 // be read as infrastructure — "the probe could not run", never "the host was
 // blocked".
-func runProbeCurlCode(ctx context.Context, helperImage string, curlArgs ...string) (stdout []byte, exitCode int, err error) {
-	args := []string{
-		"run", "--rm",
+func probeCurl(ctx context.Context, helperImage string, stdin []byte, curlArgs []string) (stdout []byte, exitCode int, err error) {
+	args := []string{"run", "--rm"}
+	if stdin != nil {
+		args = append(args, "-i")
+	}
+	args = append(args,
 		"--network", memoryProofNetwork,
 		"--entrypoint", "curl",
 		helperImage,
-	}
+	)
 	args = append(args, curlArgs...)
 	cmd := exec.CommandContext(ctx, "podman", args...) // fixed args; no shell
+	if stdin != nil {
+		cmd.Stdin = bytes.NewReader(stdin)
+	}
 	var out, stderr bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &stderr

@@ -86,12 +86,11 @@ type ValidateInput struct {
 	// draft in play.
 	DraftExpected bool
 
-	// APIKey is the LLAMA_API_KEY/OPENAI_API_KEY bearer this run's server was
-	// started with (GHSA-qxg9, ADR-0011), sent as the chat probe's Bearer
-	// credential. Empty sends no header, which degrades to a 401 detail rather
-	// than a panic — the honest failure a caller not yet threading its config's
-	// InferenceSecret through gets.
-	APIKey string
+	// Client is the authenticated inference client (ADR-0014) the chat probe runs
+	// through. The run publishes on the same loopback endpoint as the unit, so this
+	// is the caller's host client, carrying the key the run was started with (its
+	// SecretEnvFile). A client without the key gets a 401 detail, never a panic.
+	Client Client
 }
 
 // projectorFile is the projector the run carries: the entry's first projector
@@ -117,7 +116,7 @@ func projectorFile(in ValidateInput) string {
 //  4. read GTT-used AFTER + capture stderr
 //
 // 5. dual offload assert: log-scrape AND sysfs delta, both required
-// 6. chatProbe a real completion (reuse)
+// 6. Client.GenerationProbe a real completion (reuse)
 // 7. contextCeilingProbe at the envelope ceiling
 //  8. combine → Verdict (PASS needs offload PASS + chat tokens; CPU fallback FAIL
 //     even when /health=200; Unknown signal or ceiling cliff → WARN)
@@ -164,7 +163,7 @@ func Validate(ctx context.Context, in ValidateInput) Verdict {
 
 	// (6) Real chat completion (reuse). Even if offload PASSed, a run that
 	// cannot return tokens is not a clean PASS.
-	chat := chatProbe(ctx, in.Runner.Endpoint(), in.Model.ID, in.APIKey)
+	chat := in.Client.GenerationProbe(ctx, in.Model.ID)
 
 	// (6.5) Stop the primary BEFORE the ceiling probe. The ceiling runs a
 	// second container that binds the SAME loopback port; if the primary is still up

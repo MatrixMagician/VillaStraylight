@@ -68,8 +68,7 @@ func liveCodingProve(ctx context.Context, _ codingmode.Direction) prove.Verdict 
 		return prove.Verdict{Status: prove.StatusFail, Detail: "resolve model file: " + err.Error()}
 	}
 
-	return residency.ProveCutover(ctx, liveResidencyDeps(), residency.Target{
-		Endpoint:      inference.NewContainerRunner(backend, inference.RunSpec{}).Endpoint(),
+	return residency.ProveCutover(ctx, liveResidencyDeps(inferenceClient(cfg)), residency.Target{
 		Service:       installServiceName,
 		ModelID:       servedModel,
 		ModelFile:     modelFile,
@@ -77,8 +76,6 @@ func liveCodingProve(ctx context.Context, _ codingmode.Direction) prove.Verdict 
 		WeightBytes:   codingWeightBytes(cfg, servedModel),
 		Markers:       backend.ResidencyProof(),
 		DraftExpected: liveDraftExpected(cfg),
-		// GHSA-qxg9 (ADR-0011): the served unit requires this bearer too.
-		APIKey: cfg.InferenceSecret,
 	})
 }
 

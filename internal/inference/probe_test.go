@@ -61,33 +61,12 @@ func TestChatProbe(t *testing.T) {
 		}))
 		defer srv.Close()
 
-		res := chatProbe(t.Context(), srv.URL, "qwen3.5-0.8b", "")
+		res := NewClient(srv.URL, "").GenerationProbe(t.Context(), "qwen3.5-0.8b")
 		if !res.OK {
-			t.Fatalf("chatProbe: OK=false, want true (detail=%q)", res.Detail)
+			t.Fatalf("GenerationProbe: OK=false, want true (detail=%q)", res.Detail)
 		}
 		if res.Tokens == 0 {
-			t.Errorf("chatProbe: Tokens=0, want >0")
-		}
-	})
-
-	// TestChatProbeSendsAPIKey guards GHSA-qxg9/ADR-0011: chatProbe must forward
-	// its apiKey argument as the Bearer credential — llama-server now refuses
-	// every /v1 route except /health without one.
-	t.Run("sends the api key as a bearer credential", func(t *testing.T) {
-		var gotAuth string
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			gotAuth = r.Header.Get("Authorization")
-			if r.URL.Path == "/v1/chat/completions" {
-				sseChatHandler(w, r)
-				return
-			}
-			http.NotFound(w, r)
-		}))
-		defer srv.Close()
-
-		chatProbe(t.Context(), srv.URL, "qwen3.5-0.8b", "secret-key")
-		if want := "Bearer secret-key"; gotAuth != want {
-			t.Errorf("Authorization header = %q, want %q", gotAuth, want)
+			t.Errorf("GenerationProbe: Tokens=0, want >0")
 		}
 	})
 
@@ -101,24 +80,24 @@ func TestChatProbe(t *testing.T) {
 		}
 		srv, _ := chatServer(t, deltas...)
 
-		res := chatProbe(t.Context(), srv.URL, "qwen3.6-35b-a3b", "")
+		res := NewClient(srv.URL, "").GenerationProbe(t.Context(), "qwen3.6-35b-a3b")
 		if res.OK {
-			t.Fatalf("chatProbe: OK=true on 64 tokens of %q, want false", "/")
+			t.Fatalf("GenerationProbe: OK=true on 64 tokens of %q, want false", "/")
 		}
 		if !strings.Contains(res.Detail, "degenerate") {
-			t.Errorf("chatProbe: Detail=%q, want it to name degenerate output", res.Detail)
+			t.Errorf("GenerationProbe: Detail=%q, want it to name degenerate output", res.Detail)
 		}
 	})
 
 	t.Run("a reply without the expected answer fails and names it", func(t *testing.T) {
 		srv, _ := chatServer(t, "Hel", "lo")
 
-		res := chatProbe(t.Context(), srv.URL, "qwen3.6-35b-a3b", "")
+		res := NewClient(srv.URL, "").GenerationProbe(t.Context(), "qwen3.6-35b-a3b")
 		if res.OK {
-			t.Fatalf("chatProbe: OK=true on %q, want false", "Hello")
+			t.Fatalf("GenerationProbe: OK=true on %q, want false", "Hello")
 		}
 		if !strings.Contains(res.Detail, `"ok"`) || !strings.Contains(res.Detail, "Hello") {
-			t.Errorf("chatProbe: Detail=%q, want the expected answer and the reply named", res.Detail)
+			t.Errorf("GenerationProbe: Detail=%q, want the expected answer and the reply named", res.Detail)
 		}
 	})
 
@@ -128,8 +107,8 @@ func TestChatProbe(t *testing.T) {
 	t.Run("the request bounds tokens and disables thinking", func(t *testing.T) {
 		srv, body := chatServer(t, "ok")
 
-		if res := chatProbe(t.Context(), srv.URL, "qwen3.6-35b-a3b", ""); !res.OK {
-			t.Fatalf("chatProbe: OK=false (detail=%q)", res.Detail)
+		if res := NewClient(srv.URL, "").GenerationProbe(t.Context(), "qwen3.6-35b-a3b"); !res.OK {
+			t.Fatalf("GenerationProbe: OK=false (detail=%q)", res.Detail)
 		}
 		var req struct {
 			MaxTokens int            `json:"max_tokens"`
@@ -152,12 +131,12 @@ func TestChatProbe(t *testing.T) {
 		}))
 		defer srv.Close()
 
-		res := chatProbe(t.Context(), srv.URL, "qwen3.5-0.8b", "")
+		res := NewClient(srv.URL, "").GenerationProbe(t.Context(), "qwen3.5-0.8b")
 		if res.OK {
-			t.Errorf("chatProbe: OK=true on a non-200 chat, want false")
+			t.Errorf("GenerationProbe: OK=true on a non-200 chat, want false")
 		}
 		if res.Detail == "" {
-			t.Errorf("chatProbe: empty Detail on failure, want a reported reason")
+			t.Errorf("GenerationProbe: empty Detail on failure, want a reported reason")
 		}
 	})
 }
@@ -183,7 +162,7 @@ func TestPollHealth(t *testing.T) {
 		}))
 		defer srv.Close()
 
-		ready := pollHealth(t.Context(), srv.Client(), srv.URL, 3*time.Second, 10*time.Millisecond)
+		ready := NewClient(srv.URL, "").pollHealth(t.Context(), 3*time.Second, 10*time.Millisecond)
 		if !ready.Known || !ready.Value {
 			t.Fatalf("pollHealth: ready=%+v, want Known+true after 503→200", ready)
 		}
@@ -195,7 +174,7 @@ func TestPollHealth(t *testing.T) {
 		}))
 		defer srv.Close()
 
-		ready := pollHealth(t.Context(), srv.Client(), srv.URL, 150*time.Millisecond, 10*time.Millisecond)
+		ready := NewClient(srv.URL, "").pollHealth(t.Context(), 150*time.Millisecond, 10*time.Millisecond)
 		if ready.Known {
 			t.Errorf("pollHealth: Known=true on a never-ready server, want Unknown (could not evaluate readiness)")
 		}

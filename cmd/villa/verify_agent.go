@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 	"github.com/MatrixMagician/VillaStraylight/internal/preflight"
 	"github.com/MatrixMagician/VillaStraylight/internal/verify"
@@ -132,7 +133,7 @@ const (
 func classifyEgressProbe(sanityErr error, externalExitCode int, externalErr error) (blocked bool, err error) {
 	return classifyReachabilityProbe(sanityErr, externalExitCode, externalErr,
 		func(e error) error {
-			return fmt.Errorf("egress negative-control probe environment is broken: the in-network sanity probe to %s failed (%w) — verify the %q network, a reachable helper image, and that villa-llama is up, then re-run", orchestrate.LlamaInNetworkEndpoint(), e, memoryProofNetwork)
+			return fmt.Errorf("egress negative-control probe environment is broken: the in-network sanity probe to villa-llama's model list failed (%w) — verify the %q network, a reachable helper image, and that villa-llama is up, then re-run", e, memoryProofNetwork)
 		},
 		func(code int, e error) error {
 			return fmt.Errorf("egress negative-control external probe could not run (exit %d: %w) — this is NOT proof of a block; verify the helper image has curl and podman can reach %q, then re-run", code, e, egressNegativeControlHost)
@@ -169,14 +170,14 @@ func classifyReachabilityProbe(sanityErr error, externalExitCode int, externalEr
 // evalAgentVerify.
 //
 //   - egressBlocked: a TWO-LAYER negative control. FIRST a positive in-network sanity
-//     probe to villa-llama by container DNS (orchestrate.LlamaInNetworkEndpoint()) proves the
+//     probe to villa-llama by container DNS (the in-network inference client) proves the
 //     probe environment works; if it fails the control FAILs ("could not run the probe"),
 //     never false-greens as blocked. THEN a negative external probe (runProbeCurlCode) is
 //     classified by curl exit code via classifyEgressProbe: a CONNECTION/TIMEOUT exit (6/7/28)
 //     → genuinely blocked; exit 0 → not blocked; any other failure → infrastructure FAIL. The
 //     helper image is sourced from orchestrate.EmbedImage() and the in-network URL from
 //
-// orchestrate.LlamaInNetworkEndpoint — NO re-typed image/host literal (
+// the in-network inference client — NO re-typed image/host literal (
 //
 //	  TestSeamGrepGate green).
 //
@@ -200,7 +201,7 @@ func liveAgentVerify(ctx context.Context, deps verifyAgentDeps) memoryProof {
 		// probe being the primary robust mechanism:
 		//
 		// (1) Positive in-network sanity probe FIRST. Curl villa-llama by its CONTAINER DNS
-		//     name + server port (orchestrate.LlamaInNetworkEndpoint()), INSIDE the same villa
+		//     name + server port (inNetworkInferenceClient), INSIDE the same villa
 		//     network the negative probe uses. CRITICAL: runProbeCurl runs in a --network villa
 		//     helper container where 127.0.0.1 is the HELPER's OWN loopback — so the agent
 		//     task's host-loopback providerBaseURL would ALWAYS fail here and false-FAIL the
@@ -208,8 +209,12 @@ func liveAgentVerify(ctx context.Context, deps verifyAgentDeps) memoryProof {
 		//     network exists, the helper image is present, curl works in it, AND villa-llama is
 		//     reachable by DNS. If it fails, the probe environment is wholesale-broken → error
 		//     (the pure core maps it to FAIL "could not run the probe"), NOT blocked=true.
-		_, sanityErr := runProbeCurl(ctx, helperImage, "-sf", "--max-time", "5",
-			orchestrate.LlamaInNetworkEndpoint()+"/models")
+		//     The request comes from the in-network inference client (ADR-0014). The
+		//     model list is a public route, so a config that cannot be read costs only
+		//     a header the probe does not need.
+		cfg, _ := config.LoadVilla()
+		models := inNetworkInferenceClient(cfg).CurlModels()
+		_, sanityErr := runProbeCurlIn(ctx, helperImage, models, "-sf", "--max-time", "5")
 
 		// (2) Negative external probe, classified by curl exit semantics. A genuinely-blocked
 		//     host fails with a curl CONNECTION/TIMEOUT code (6/7/28) → blocked=true; any other

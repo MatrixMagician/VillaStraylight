@@ -171,27 +171,20 @@ func runDashboard(cmd *cobra.Command, _ []string, d *dashboardDeps) int {
 // a pull is safe and does not corrupt state — the partial ".part" file is kept and
 // resumed via HTTP Range, and the config save happens only AFTER the pull succeeds.
 func liveDashboardDeps(ctx context.Context) (*dashboardDeps, error) {
-	// The inference endpoint is the SAME loopback URL the status seam probes (derived
-	// from the config-resolved backend's container runner, never hard-coded), so
-	// /api/metrics scrapes the exact server villa status reports on. liveStatusDeps is
-	// the SINGLE backend-resolution point (fail-closed) — reuse its Endpoint
-	// rather than resolve the backend a second time.
+	// liveStatusDeps is the SINGLE backend-resolution point (fail-closed), so the
+	// dashboard's status panel reports on exactly what `villa status` does.
 	statusDeps, err := liveStatusDeps()
 	if err != nil {
 		return nil, err
 	}
-	endpoint := statusDeps.Endpoint()
 
-	// GHSA-qxg9 (ADR-0011): the /metrics + /slots scrapes below need this bearer
-	// now that llama-server requires it on every route but /health. A load
-	// failure here degrades to no key (a 401 → typed-Unknown on the panel, never
-	// a crash) — cfg is re-loaded, not threaded from statusDeps, because it is
-	// the plainest source of truth and this func already loads it once below for
-	// the task runner gate.
-	var apiKey string
-	if cfg, cfgErr := config.LoadVilla(); cfgErr == nil {
-		apiKey = cfg.InferenceSecret
-	}
+	// The authenticated inference client (ADR-0014): /api/metrics and the task
+	// runner's grounding audit reach the SAME server villa status reports on, with
+	// the key llama-server requires on every route but /health. A load failure
+	// here degrades to a keyless client (a 401 → typed-Unknown on the panel, never
+	// a crash) and leaves the task runner off.
+	cfg, cfgErr := config.LoadVilla()
+	inf := inferenceClient(cfg)
 
 	// The runner exists only when the workspace agent is on (fail-soft config
 	// load, like the sandbox gate). Recover runs HERE, before Serve binds, so a
@@ -199,8 +192,8 @@ func liveDashboardDeps(ctx context.Context) (*dashboardDeps, error) {
 	// any client can read it. A recovery error is reported and does not stop the
 	// dashboard: one corrupt task record must not take the whole service down.
 	var tasks *taskrun.Runner
-	if cfg, err := config.LoadVilla(); err == nil && subsystem.SandboxOn(cfg) {
-		tasks = taskrun.New(liveTaskRunDeps(ctx, endpoint))
+	if cfgErr == nil && subsystem.SandboxOn(cfg) {
+		tasks = taskrun.New(liveTaskRunDeps(ctx, inf))
 		if err := tasks.Recover(); err != nil {
 			fmt.Fprintf(os.Stderr, "dashboard: task recovery: %v\n", err)
 		}
@@ -213,8 +206,8 @@ func liveDashboardDeps(ctx context.Context) (*dashboardDeps, error) {
 		Serve:      func(ctx context.Context, s *dashboard.Server) error { return s.Serve(ctx) },
 
 		// Performance: bounded /metrics + /slots scrapes of the inference endpoint.
-		Metrics: func() (metrics.PerfSnapshot, bool) { return metrics.ScrapeMetricsAuth(endpoint, apiKey) },
-		Slots:   func() ([]metrics.Slot, bool) { return metrics.ScrapeSlotsAuth(endpoint, apiKey) },
+		Metrics: func() (metrics.PerfSnapshot, bool) { return inf.Perf(ctx) },
+		Slots:   func() ([]metrics.Slot, bool) { return inf.Slots(ctx) },
 
 		// GPU & Memory (memory-first): the GTT-used headline + the usable unified-memory
 		// envelope (from the authoritative HostProfile envelope, never MemTotal) + the
@@ -237,12 +230,12 @@ func liveDashboardDeps(ctx context.Context) (*dashboardDeps, error) {
 		// usage.WriteFileAtomic over the SAME path. ModelID re-reads cfg.Model from config at
 		// scrape time (config is the single source of truth; the dashboard server reads it
 		// inside the usageMu section so the per-model key cannot drift — Pitfall 2). The
-		// counter scrape reuses the SAME loopback `endpoint` already scraped for live tok/s
-		// no new outbound.
+		// counter scrape reuses the SAME client already scraped for live tok/s — no new
+		// outbound.
 		ReadUsage:     liveReadUsageTotals,
 		WriteUsage:    liveWriteUsage,
 		ModelID:       liveModelID,
-		CounterSample: func() (metrics.CounterSample, bool) { return metrics.ScrapeCountersAuth(endpoint, apiKey) },
+		CounterSample: func() (metrics.CounterSample, bool) { return inf.Counters(ctx) },
 
 		// Pins: liveResolver (cmd/villa/pins.go) already joins the compiled-in
 		// table to this host's pinstate.State the SAME way every render does — no
