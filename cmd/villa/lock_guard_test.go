@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
+	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 	"github.com/MatrixMagician/VillaStraylight/internal/preflight"
 	"github.com/MatrixMagician/VillaStraylight/internal/stacklock"
 )
@@ -97,6 +98,44 @@ func TestBackupWaitsForTheStackLock(t *testing.T) {
 	requireWaitsForStackLock(t, func() {
 		cmd, _, _ := newBackupTestCmd()
 		runBackup(cmd, outPath, fakeRunDeps(t, map[string][]byte{}))
+	})
+}
+
+// TestDownWaitsForTheStackLock guards #267: `villa down` stops services, which fails
+// a concurrent swap's proof for a reason the swap did not cause and races its
+// rollback's restart of what it restarted.
+func TestDownWaitsForTheStackLock(t *testing.T) {
+	f := newFakeLifecycleDeps(t, twoUnitStack(), orchestrate.Plan{})
+	requireWaitsForStackLock(t, func() {
+		cmd, _, _ := lifecycleTestCmd()
+		runDown(cmd, nil, f.lifecycleDeps)
+	})
+}
+
+// TestUninstallWaitsForTheStackLock guards #267: `villa uninstall` stops the stack,
+// removes its units and volumes and reloads the manager, all of which a swap in
+// flight would trip over. The whole teardown is one locked window.
+func TestUninstallWaitsForTheStackLock(t *testing.T) {
+	f := newFakeUninstallDeps(t, sampleUnits(), t.TempDir())
+	requireWaitsForStackLock(t, func() {
+		cmd, _, _ := uninstallTestCmd()
+		runUninstall(cmd, uninstallOpts{keepModels: true}, f.uninstallDeps)
+	})
+}
+
+// TestVerifySearchWaitsForTheStackLock guards #267: `verify search` applies a transient
+// nft bound in the rootless netns every service of the stack shares, and its deferred
+// teardown removes it. A swap's proof running inside that window sees a bounded network
+// it did not cause, so the proof must not begin while the lock is held.
+func TestVerifySearchWaitsForTheStackLock(t *testing.T) {
+	deps := searchVerifyDeps{
+		loadedWebSearchEnabled: func() bool { return true },
+		verifyFn: func(context.Context, searchVerifyDeps) searchProof {
+			return pass("stub")
+		},
+	}
+	requireWaitsForStackLock(t, func() {
+		runVerifySearch(newSearchCmd(), nil, deps)
 	})
 }
 
