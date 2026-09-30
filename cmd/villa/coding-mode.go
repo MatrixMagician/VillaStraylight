@@ -12,18 +12,13 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/codingmode"
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
-	"github.com/MatrixMagician/VillaStraylight/internal/inference"
-	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
-	"github.com/MatrixMagician/VillaStraylight/internal/prove"
 	"github.com/MatrixMagician/VillaStraylight/internal/recommend"
-	"github.com/MatrixMagician/VillaStraylight/internal/residency"
-	"github.com/MatrixMagician/VillaStraylight/internal/stackapply"
 )
 
 // coding-mode.go is the cmd-tier `villa coding-mode` noun: the live host wiring that
 // drives the pure internal/codingmode transactional core (Plan 25-02). It holds the
-// coding-mode liveProve twin (the cutover gate, ConfigContext = the resolved agent ctx),
-// the cobra surface (enter/exit), the Result→exit mapping, and liveCodingModeDeps.
+// cobra surface (enter/exit), the Result→exit mapping, and liveCodingModeDeps. The
+// cutover gate is liveProve, which proves the served target (the coder in swap residency).
 //
 // CRITICAL — backend-marker discipline: this file must stay LITERAL-FREE of
 // backend marker tokens (the per-backend residency device token, the HSA override env
@@ -37,74 +32,6 @@ import (
 // Decisions realized: (explicit verb shape coding-mode enter|exit; NOT `villa code`),
 // (exit symmetric to enter), (under-load prove; idle-green is never green),
 // (swap vs shared surfaced, never silently degraded).
-
-// liveCodingProve is the injected cutover gate (codingmode.Deps.Prove). It resolves
-// what coding mode is proving and hands it to the shared residency drive protocol,
-// which owns the three gates and the Unknown-versus-negative rule.
-//
-// Coding mode differs from the chat-side proof in exactly two Target fields
-// (Pitfall 4): the SERVED model is cfg.CoderModel when coding mode is on with swap
-// residency, and the served context is the resolved AgentCtx (the rendered single
-// -c), NOT cfg.Ctx. Proving the chat model at the chat ctx would compare the
-// residency fit-math against the wrong KV. That difference was previously expressed
-// by a 71-line copy of the protocol; it is now two field values.
-//
-// Backend markers arrive ONLY through BackendFor(cfg.Backend).ResidencyProof(), so
-// this file stays literal-free of them.
-func liveCodingProve(ctx context.Context, _ codingmode.Direction) prove.Verdict {
-	cfg, err := config.LoadVilla()
-	if err != nil {
-		return prove.Verdict{Status: prove.StatusFail, Detail: "load config: " + err.Error()}
-	}
-
-	backend, err := inference.BackendFor(cfg.Backend)
-	if err != nil {
-		return prove.Verdict{Status: prove.StatusFail, Detail: err.Error()}
-	}
-
-	servedModel, servedCtx := stackapply.ServedTarget(cfg)
-	modelFile, err := codingModelFile(cfg, servedModel)
-	if err != nil {
-		return prove.Verdict{Status: prove.StatusFail, Detail: "resolve model file: " + err.Error()}
-	}
-
-	return residency.ProveCutover(ctx, liveResidencyDeps(inferenceClient(cfg)), residency.Target{
-		Service:       installServiceName,
-		ModelID:       servedModel,
-		ModelFile:     modelFile,
-		ContextLen:    servedCtx,
-		WeightBytes:   codingWeightBytes(cfg, servedModel),
-		Markers:       backend.ResidencyProof(),
-		DraftExpected: liveDraftExpected(cfg),
-	})
-}
-
-// codingModelFile resolves the on-disk GGUF filename for the SERVED model through the
-// catalog (never as a path). It mirrors liveModelFile but keys on the supplied served
-// model id (which may be the coder model) rather than cfg.Model.
-func codingModelFile(_ config.VillaConfig, servedModel string) (string, error) {
-	cat, _, err := catalog.Load(modelCatalogPath)
-	if err != nil {
-		return "", fmt.Errorf("load model catalog: %w", err)
-	}
-	m, ok := cat.FindByID(servedModel)
-	if !ok {
-		return "", fmt.Errorf("model %q is not in the catalog — cannot resolve its weight file", servedModel)
-	}
-	return m.PrimaryFile(), nil
-}
-
-// codingWeightBytes returns the served model's weight bytes for the residency proof,
-// keyed on the served (possibly coder) model id — mirrors liveWeightBytes' override-pick
-// but for the coding-served model.
-func codingWeightBytes(_ config.VillaConfig, servedModel string) uint64 {
-	cat, _, err := catalog.Load(modelCatalogPath)
-	if err != nil {
-		return 0
-	}
-	rec := recommend.Pick(detect.Probe(), cat, recommend.Overrides{Model: servedModel}, recommend.MemoryInputs{}, recommend.WebSearchInputs{})
-	return rec.WeightBytes
-}
 
 // ---------------------------------------------------------------------------
 // coding-mode noun: `villa coding-mode enter` / `villa coding-mode exit`.
@@ -178,15 +105,7 @@ func runCodingMode(cmd *cobra.Command, dir codingmode.Direction, d *codingmode.D
 	out := cmd.OutOrStdout()
 	errOut := cmd.ErrOrStderr()
 
-	// The cross-process lock (ADR-0010) excludes a concurrent dashboard model
-	// switch from persisting a config change this command's rollback would
-	// otherwise silently revert.
-	lock, err := acquireStackLock()
-	if err != nil {
-		fmt.Fprintf(errOut, "coding-mode %s: %v\n", dir, err)
-		return exitBlocked
-	}
-	defer func() { _ = lock.Release() }()
+	// The transaction frame holds the stack lock (ADR-0010) throughout.
 	res := codingmode.Run(*d, dir)
 	switch {
 	case res.Refused:
@@ -242,23 +161,16 @@ func runCodingMode(cmd *cobra.Command, dir codingmode.Direction, d *codingmode.D
 	}
 }
 
-// liveCodingModeDeps wires the transactional core to the real host: config load/save, the
-// composed modelswap resolve→fit-guard→pull for the coder model, verbatim unit
-// capture, the apply and the restore through the live stack adapter (ADR-0013), the
-// systemd reload/restart seam, and liveCodingProve as the cutover gate. Every
-// host-touching action is a seam so coding-mode_test.go drives the flow without a live
-// host.
+// liveCodingModeDeps wires the enter path to the real host — the composed modelswap
+// resolve→fit-guard→pull for the coder model — over the live transaction frame,
+// whose proof (liveProve) drives the served target the render chose.
 //
 // ctx is the command's SIGINT/SIGTERM-cancelled context, captured by the Pull
 // closure so Ctrl-C can interrupt the multi-GB coder-weight transfer. Cancelling
 // mid-stream is safe: the partial ".part" file is kept and resumed via HTTP Range.
 func liveCodingModeDeps(ctx context.Context) *codingmode.Deps {
-	sys := orchestrate.NewSystemd()
-	stack := liveStackDeps()
 	return &codingmode.Deps{
-		InstallServiceName: installServiceName,
-		LoadConfig:         config.LoadVilla,
-		SaveConfig:         config.SaveVilla,
+		Tx: liveTxDeps(acquireStackLock),
 		// ResolveCoder: compose recommend.Pick(...).Coder (the agent-ctx fit-math + residency
 		// verdict) — fit-guard FIRST (Pitfall 4). A non-fitting coder at agent ctx
 		// is a refuse-with-remediation; the residency verdict (swap/shared) is a PURE fit-math
@@ -318,28 +230,5 @@ func liveCodingModeDeps(ctx context.Context) *codingmode.Deps {
 			}
 			return pullFn(ctx, m, dir)
 		},
-		// CaptureUnit: read the verbatim prior villa-llama.container bytes from the quadlet
-		// unit dir (traversal-bounded by construction).
-		CaptureUnit: func() ([]byte, error) {
-			dir, err := quadletUnitDir()
-			if err != nil {
-				return nil, err
-			}
-			return os.ReadFile(filepath.Join(dir, "villa-llama.container"))
-		},
-		// ReconcileAndWrite: apply the persisted target config. The coding descriptor,
-		// the served (possibly coder) model file and the agent ctx are derived from it
-		// inside stackapply, the same way every other verb renders (#249).
-		ReconcileAndWrite: func(c config.VillaConfig) (bool, error) {
-			changed, err := stackapply.Apply(stack, c)
-			return len(changed) > 0, err
-		},
-		// RestoreUnit: write the verbatim captured prior unit bytes back.
-		RestoreUnit: func(b []byte) error {
-			return stackapply.Restore(stack, map[string]string{"villa-llama.container": string(b)})
-		},
-		DaemonReload: sys.DaemonReload,
-		Restart:      sys.Restart,
-		Prove:        liveCodingProve,
 	}
 }

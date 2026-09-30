@@ -12,7 +12,10 @@ import (
 
 	"github.com/MatrixMagician/VillaStraylight/internal/codingmode"
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
+	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 	"github.com/MatrixMagician/VillaStraylight/internal/prove"
+	"github.com/MatrixMagician/VillaStraylight/internal/stackapply"
+	"github.com/MatrixMagician/VillaStraylight/internal/stacklock"
 )
 
 // coding-mode_test.go exercises the cobra caller's mapping of codingmode.Result to exit
@@ -43,36 +46,44 @@ func newCodingStub(rec *codingRecorder) *codingmode.Deps {
 		rec.chatModel = "chat-model"
 	}
 	return &codingmode.Deps{
-		InstallServiceName: installServiceName,
-		LoadConfig: func() (config.VillaConfig, error) {
-			return config.VillaConfig{Model: rec.chatModel, CodingMode: rec.curCoding}, nil
+		Tx: stackapply.TxDeps{
+			Lock: func() (*stacklock.Lock, error) { return acquireStackLock() },
+			LoadConfig: func() (config.VillaConfig, error) {
+				return config.VillaConfig{Model: rec.chatModel, CodingMode: rec.curCoding}, nil
+			},
+			Capture: func(config.VillaConfig) (map[string]string, error) {
+				return map[string]string{"villa-llama.container": "[Container]\nImage=prior\n"}, nil
+			},
+			SaveConfig: func(c config.VillaConfig) error {
+				rec.saved = append(rec.saved, c)
+				return nil
+			},
+			Apply: func(config.VillaConfig) ([]orchestrate.Unit, error) {
+				return []orchestrate.Unit{{Name: "villa-llama.container"}}, nil
+			},
+			Restore:      func(map[string]string) error { return nil },
+			DaemonReload: func() error { return nil },
+			IsActive:     func(string) (string, error) { return "active", nil },
+			Restart: func(service string) error {
+				rec.restarted = append(rec.restarted, service)
+				return nil
+			},
+			Prove: func(context.Context, string) prove.Verdict {
+				rec.proved++
+				status := rec.proveStatus
+				if status == "" {
+					status = prove.StatusPass
+				}
+				return prove.Verdict{Status: status, Detail: rec.proveDetai}
+			},
+			Service: installServiceName,
 		},
 		ResolveCoder: func(_ config.VillaConfig) (codingmode.CoderTarget, bool, string) {
 			t := rec.coder
 			t.Downloaded = rec.downloaded
 			return t, rec.resolveOK, rec.resolveWhy
 		},
-		Pull:        func(_ codingmode.CoderTarget) error { return nil },
-		CaptureUnit: func() ([]byte, error) { return []byte("[Container]\nImage=prior\n"), nil },
-		SaveConfig: func(c config.VillaConfig) error {
-			rec.saved = append(rec.saved, c)
-			return nil
-		},
-		ReconcileAndWrite: func(_ config.VillaConfig) (bool, error) { return true, nil },
-		RestoreUnit:       func(_ []byte) error { return nil },
-		DaemonReload:      func() error { return nil },
-		Restart: func(service string) error {
-			rec.restarted = append(rec.restarted, service)
-			return nil
-		},
-		Prove: func(_ context.Context, _ codingmode.Direction) prove.Verdict {
-			rec.proved++
-			status := rec.proveStatus
-			if status == "" {
-				status = prove.StatusPass
-			}
-			return prove.Verdict{Status: status, Detail: rec.proveDetai}
-		},
+		Pull: func(_ codingmode.CoderTarget) error { return nil },
 	}
 }
 

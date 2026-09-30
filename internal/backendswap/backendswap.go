@@ -1,207 +1,94 @@
-// Package backendswap is the pure, Deps-injected transactional core the
-// stack-mutating swap verbs share: the capture→mutate→prove→rollback state-machine
-// a change on a RUNNING install must go through so a failed or degraded change is a
-// no-op to the running stack (Phase 8, BSET-01/BSET-02).
+// Package backendswap holds the guards and config mutations of the three swap verbs
+// that change how the preserved model is served: `villa backend set`, `villa
+// speculation set` (ADR-0006) and `villa tools-mode enter|exit` (spec v1.11 §3.5).
+// Each is a stackapply.Change run through the one swap transaction frame (ADR-0015),
+// which owns the stack lock, the capture, the apply, the restart of every changed
+// running unit, the proof and the rollback. What stays here is what differs: the
+// no-op test, the guards (fit, ROCm preflight, the coding-mode refusal) and which
+// config field the change writes.
 //
-// Three verbs mutate config and re-render on this frame: `villa backend set`,
-// `villa speculation set` (ADR-0006) and `villa tools-mode enter|exit` (spec v1.11
-// §3.5). They differ only in their guards and in which config field they write, so
-// the frame takes the mutation as a closure and all three share ONE rollback rather
-// than growing a second one that drifts.
-//
-// It clones the proven `internal/modelswap` forward skeleton (fit-guard FIRST,
-// persist-before-unit-work, restart-inference-only) and wraps it in a
-// transactional frame: the verbatim prior `villa-llama.container` bytes and the
-// prior VillaConfig are captured STRICTLY BEFORE any mutation, the cutover is
-// gated on an injected Prove verdict (real generation-probe + residency proof),
-// and ANY mutate error or non-pass verdict rolls back to the verbatim captured
-// unit+config and re-readies best-effort.
-//
-// Every host-touching action is an injected Deps field so the whole state-machine
-// is driven from backendswap_test.go without a live host. The package is
-// deliberately LITERAL-FREE of backend marker tokens (residency/override/image/fault) — those
-// markers arrive ONLY through the injected Prove seam (the live wiring + the
-// residency/generation content live in cmd/villa, Plan 02). It imports neither
-// `internal/inference` nor `internal/detect`; the prove verdict is a locally
-// defined value type so the marker discipline holds.
+// Every guard is an injected Deps field so the tests drive it without a live host.
+// The package is LITERAL-FREE of backend marker tokens; those arrive only through
+// the frame's Prove seam, wired in cmd/villa.
 package backendswap
 
 import (
-	"context"
-	"strings"
-
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
-	"github.com/MatrixMagician/VillaStraylight/internal/prove"
+	"github.com/MatrixMagician/VillaStraylight/internal/stackapply"
 	"github.com/MatrixMagician/VillaStraylight/internal/subsystem"
 )
 
-// Deps is the injectable seam set for the transactional core. Every host-touching
-// action is a field so backendswap_test.go drives the whole capture→mutate→prove→
-// rollback flow (and asserts ordering) without a live host. The live wiring
-// (liveBackendSwapDeps) stays in cmd/villa (Plan 02).
+// Deps are the guards the three verbs run inside the transaction, plus the frame.
 type Deps struct {
-	// LoadConfig loads the current persisted config (the source of truth). The
-	// current backend is read from it; a same-backend target is a clean no-op.
-	LoadConfig func() (config.VillaConfig, error)
+	// Tx is the swap transaction frame's host. Its Prove is the verb's proof choice:
+	// the shared residency proof, or tools mode's residency-plus-tool-call proof.
+	Tx stackapply.TxDeps
 	// FitsModel re-checks the PRESERVED model against the target envelope and
 	// returns a human reason when it no longer fits — model = config, never re-pick
 	// (BSET-01). A non-fit is a refuse-with-remediation with zero side effects.
 	FitsModel func(cfg config.VillaConfig) (bool, string)
 	// PreflightROCm is the ROCm preflight gate. It is meaningful only when the
-	// target is rocm; the live seam short-circuits ok=true for non-rocm targets. A
-	// not-ok is a refuse-with-remediation with zero side effects (BSET-01).
+	// target is ROCm-family; the live seam short-circuits ok=true otherwise.
 	PreflightROCm func(cfg config.VillaConfig) (ok bool, reason string)
-	// CaptureUnits reads the verbatim prior bytes of EVERY unit the current config
-	// renders (main inference unit AND every resident unit) BEFORE any mutation, so
-	// a rollback restores each of them exactly (Pitfall 4, #232 — a switch that
-	// changes more than villa-llama.container must not roll back only that one). An
-	// error here refuses without mutating (an uncapturable prior unit must not be
-	// touched).
-	CaptureUnits func(cfg config.VillaConfig) (map[string]string, error)
-	// SaveConfig persists the new backend to config.toml (the source of truth).
-	SaveConfig func(c config.VillaConfig) error
-	// ReconcileAndWrite renders units from the persisted config and writes only the
-	// changed unit(s); the live closure performs the daemon-reload internally,
-	// mirroring liveSwapDeps. It reports whether anything changed.
-	ReconcileAndWrite func(c config.VillaConfig) (changed bool, err error)
-	// RestoreUnits writes the verbatim captured prior bytes of every captured unit
-	// back during a rollback (live impl goes through the traversal-guarded
-	// orchestrate.WriteUnits).
-	RestoreUnits func(m map[string]string) error
-	// DaemonReload reloads the user systemd manager (after a restore on rollback).
-	DaemonReload func() error
-	// Restart restarts ONLY the named service (the inference unit) — both on the
-	// forward cutover and on the rollback re-ready.
-	Restart func(service string) error
-	// Prove is the injected cutover gate: it probes the ALREADY-running server and
-	// returns a verdict. The core switches ONLY on prove.StatusPass. All backend
-	// markers (residency/override/fault/image) live behind this seam — never in this package.
-	Prove func(ctx context.Context, target string) prove.Verdict
-	// InstallServiceName is the inference service the switch restarts (and ONLY that
-	// service). A Deps field so backendswap need not import the cmd-layer constant.
-	InstallServiceName string
 }
 
-// Result is the typed outcome of a backend switch (not an exit code), so the cobra
-// caller (Plan 02) can branch on it and map it to an exit code + messages.
+// Result is the typed outcome of a swap: the frame's Outcome plus what changed.
 type Result struct {
-	// Refused is true when the switch was rejected with ZERO side effects (same
-	// backend is NoOp, not Refused; a fit/preflight/capture rejection is Refused).
-	Refused bool
-	// Switched is true when the cutover persisted config, restarted the inference
-	// unit, AND the Prove verdict was prove.StatusPass.
-	Switched bool
-	// RolledBack is true when a mutate error or a non-pass Prove verdict triggered a
-	// verbatim restore of the captured prior unit+config. It stays true even when a
-	// rollback STEP itself errored — Reason/FailedStep then flag rollback-incomplete
-	// (Pitfall 5: never claim a clean no-op when rollback errored).
-	RolledBack bool
-	// NoOp is true when the target backend equals the current backend — a clean
-	// no-op with zero side effects (Open Question 1).
-	NoOp bool
-	// Reason is the human refusal/remediation/rollback explanation (empty on a clean
-	// success).
-	Reason string
-	// Err is a non-refusal failure (capture/save/write/restart). Distinct from a
-	// Refused (a clean policy rejection, not an error).
-	Err error
-	// FailedStep names the step that failed ("capture"/"save"/"write"/"restart"/
-	// "prove") so the caller can print a precise message.
-	FailedStep string
-	// From / To are the previous and target values of whatever this transaction
-	// changed: the backend for `backend set`, the speculation mode for
-	// `speculation set`.
+	stackapply.Outcome
+	// From / To are the previous and target values of whatever this swap changed:
+	// the backend, the speculation mode, or the tools-mode state label.
 	From string
 	To   string
-	// Prove carries the cutover verdict (on both a Switched and a prove-triggered
-	// RolledBack result) for the caller to surface.
-	Prove prove.Verdict
 }
 
-// Run performs the guarded, transactional backend switch and returns a typed
-// Result. Ordering (per 08-PATTERNS.md):
-//
-//	(1) LoadConfig; from := cfg.Backend; same-backend → clean NoOp.
-//	(2) fit-guard FIRST: re-check the PRESERVED model against the target envelope;
-//	    a non-fit refuses-with-remediation, zero side effects (BSET-01).
-//	(3) ROCm preflight gate (no-op for non-rocm targets); a not-ok refuses, zero
-//	    side effects (BSET-01).
-//	(4) CAPTURE strictly BEFORE any mutation: priorUnit bytes + priorCfg value
-//	    snapshot (Pitfall 4). An uncapturable prior unit refuses without mutating.
-//	(5) MUTATE: cfg.Backend = target; SaveConfig; ReconcileAndWrite; Restart ONLY
-//	    the inference service. ANY error here rolls back verbatim.
-//	(6) PROVE: switch ONLY on prove.StatusPass; any other verdict rolls back verbatim.
-//
-// Steps (5)/(6) rollback are hardened in task 08-01-02; this file already wires the
-// full transactional frame.
+// Run switches the inference backend. Inside the lock: a same-backend target is a
+// clean NoOp; the fit guard re-checks the PRESERVED model (BSET-01); the ROCm
+// preflight sees the TARGET backend; then the change writes cfg.Backend.
 func Run(d Deps, target string) Result {
-	// (1) Load the source of truth; a same-backend target is a clean no-op with zero
-	// side effects (Open Question 1).
-	cfg, err := d.LoadConfig()
-	if err != nil {
-		return Result{Refused: true, FailedStep: "load config", Err: err, To: target}
-	}
-	from := cfg.Backend
-	if from == target {
-		return Result{NoOp: true, From: from, To: target}
-	}
-
-	// (2) Fit-guard FIRST (BSET-01): re-check the PRESERVED model against the target
-	// envelope — model = config, never re-pick. A non-fit refuses-with-remediation
-	// BEFORE any capture/mutate, zero side effects.
-	if ok, reason := d.FitsModel(cfg); !ok {
-		return Result{Refused: true, Reason: reason, From: from, To: target}
-	}
-
-	// (3) ROCm preflight gate (BSET-01). The gate MUST see the TARGET backend: the live
-	// seam short-circuits ok=true unless cfg.Backend=="rocm", and a same-backend target is
-	// already a NoOp above — so passing the source cfg (01) left preflight.RunROCm
-	// permanently dead on a vulkan→rocm switch, silently skipping the kernel/firmware/
-	// HSA-override safety checks. Pass a snapshot pinned to target (VillaConfig is a flat
-	// value type). A not-ok refuses-with-remediation, zero side effects.
-	preflightCfg := cfg
-	preflightCfg.Backend = target
-	if ok, reason := d.PreflightROCm(preflightCfg); !ok {
-		return Result{Refused: true, Reason: reason, From: from, To: target}
-	}
-
-	return transact(d, from, target, func(c *config.VillaConfig) { c.Backend = target })
+	r := Result{To: target}
+	r.Outcome = stackapply.Transact(d.Tx, func(cfg config.VillaConfig) (config.VillaConfig, *stackapply.Outcome) {
+		r.From = cfg.Backend
+		if cfg.Backend == target {
+			return cfg, &stackapply.Outcome{NoOp: true}
+		}
+		if ok, reason := d.FitsModel(cfg); !ok {
+			return cfg, &stackapply.Outcome{Refused: true, Reason: reason}
+		}
+		// The gate MUST see the TARGET backend: the live seam short-circuits unless it
+		// is ROCm-family, so passing the source config left the kernel/firmware/HSA
+		// checks dead on a vulkan→rocm switch.
+		pre := cfg
+		pre.Backend = target
+		if ok, reason := d.PreflightROCm(pre); !ok {
+			return cfg, &stackapply.Outcome{Refused: true, Reason: reason}
+		}
+		cfg.Backend = target
+		return cfg, nil
+	})
+	return r
 }
 
-// RunSpeculation performs the guarded, transactional speculation-mode switch. It is
-// Run's frame with two guards dropped and one added:
-//
-//	(1) LoadConfig; from := cfg.Speculation, "off" when unset; same mode → clean NoOp.
-//	(2) fit-guard: the live FitsModel threads the TARGET mode into the recommendation,
-//	    so ResolveSpeculation's refusal for an unqualified entry arrives here as a
-//	    non-fit with its note as the reason. That is the prove-current step.
-//	(3) no ROCm preflight: the mode changes no image, no device and no privilege.
-//	(4)-(6) the shared transaction, mutating cfg.Speculation.
+// RunSpeculation switches the speculation mode. An unset mode renders off, so it IS
+// off for the no-op test. The fit guard sees the TARGET mode, so ResolveSpeculation's
+// refusal for an unqualified entry arrives as a non-fit with its note as the reason.
+// No ROCm preflight: the mode changes no image, no device and no privilege.
 func RunSpeculation(d Deps, target string) Result {
-	cfg, err := d.LoadConfig()
-	if err != nil {
-		return Result{Refused: true, FailedStep: "load config", Err: err, To: target}
-	}
-	// An unset config renders speculation off, so it IS off for the purposes of a
-	// no-op: setting off on a fresh install must not restart the stack.
-	from := cfg.Speculation
-	if from == "" {
-		from = config.SpeculationOff
-	}
-	if from == target {
-		return Result{NoOp: true, From: from, To: target}
-	}
-
-	// The fit guard sees the TARGET mode, not the persisted one — a same-mode target
-	// is already a NoOp above, so passing the source config would leave the
-	// qualification check permanently dead.
-	fitCfg := cfg
-	fitCfg.Speculation = target
-	if ok, reason := d.FitsModel(fitCfg); !ok {
-		return Result{Refused: true, Reason: reason, From: from, To: target}
-	}
-
-	return transact(d, from, target, func(c *config.VillaConfig) { c.Speculation = target })
+	r := Result{To: target}
+	r.Outcome = stackapply.Transact(d.Tx, func(cfg config.VillaConfig) (config.VillaConfig, *stackapply.Outcome) {
+		r.From = cfg.Speculation
+		if r.From == "" {
+			r.From = config.SpeculationOff
+		}
+		if r.From == target {
+			return cfg, &stackapply.Outcome{NoOp: true}
+		}
+		cfg.Speculation = target
+		if ok, reason := d.FitsModel(cfg); !ok {
+			return cfg, &stackapply.Outcome{Refused: true, Reason: reason}
+		}
+		return cfg, nil
+	})
+	return r
 }
 
 // State labels for a tools-mode Result's From/To. They are the words the verb
@@ -219,149 +106,33 @@ func ToolsLabel(on bool) string {
 	return toolsStateOff
 }
 
-// RunTools performs the guarded, transactional tools-mode cutover: flipping the
-// RUNNING chat unit into tool calling, and back. It is Run's frame with the ROCm
-// preflight dropped — the flag changes no image, no device and no privilege — and
-// with two guards of its own:
+// RunTools flips the RUNNING chat unit into tool calling, and back. The no-op and
+// the From label are decided on the ANSWERED gate rather than the raw flag, so
+// entering on a coding-mode stack is already there, and an exit while coding mode
+// holds the gate on is a refusal naming that flag. The fit guard sees the TARGET
+// state: tools mode serves the ctx floor max(cfg.Ctx, agent_ctx), and a floor that
+// does not fit refuses with the remediation before anything is captured.
 //
-//	(1) LoadConfig; the no-op and the From label are decided on the ANSWERED gate
-//	    rather than the raw flag, so entering on a coding-mode stack is already
-//	    there. An exit while coding mode holds the gate on is a refusal naming that
-//	    flag, not a persisted false that renders an unchanged unit.
-//	(2) fit-guard, seeing the TARGET state: tools mode serves the ctx floor
-//	    max(cfg.Ctx, agent_ctx), and a floor that does not fit the envelope refuses
-//	    with the remediation BEFORE any capture — so an operator whose envelope
-//	    shrank is told what it needs rather than having the chat unit restarted out
-//	    from under them and rolled back.
-//	(4)-(6) the shared transaction, mutating cfg.ToolsMode.
-//
-// Like the rest of this package it is literal-free of the tool-calling flag itself:
-// the flag is a render output of internal/inference, and the cutover verdict — the
-// residency proof plus the tool-call probe — arrives only through the Prove seam.
+// The package stays literal-free of the tool-calling flag: it is a render output of
+// internal/inference, and the tool-call probe arrives only through the Prove seam.
 func RunTools(d Deps, on bool) Result {
-	cfg, err := d.LoadConfig()
-	if err != nil {
-		return Result{Refused: true, FailedStep: "load config", Err: err, To: ToolsLabel(on)}
-	}
-	from, to := ToolsLabel(subsystem.ToolsOn(cfg)), ToolsLabel(on)
-	if subsystem.ToolsOn(cfg) == on {
-		return Result{NoOp: true, From: from, To: to}
-	}
-	if !on && subsystem.CodingModeOn(cfg) {
-		return Result{
-			Refused: true,
-			Reason:  "coding mode implies tools mode — run `villa coding-mode exit` to stop serving tool calls",
-			From:    from,
-			To:      to,
+	r := Result{To: ToolsLabel(on)}
+	r.Outcome = stackapply.Transact(d.Tx, func(cfg config.VillaConfig) (config.VillaConfig, *stackapply.Outcome) {
+		r.From = ToolsLabel(subsystem.ToolsOn(cfg))
+		if subsystem.ToolsOn(cfg) == on {
+			return cfg, &stackapply.Outcome{NoOp: true}
 		}
-	}
-
-	// The guard sees the TARGET state. A same-state target is already a NoOp above,
-	// so passing the persisted config would leave the ctx-floor check permanently
-	// dead on the only path that can raise the served context.
-	fitCfg := cfg
-	fitCfg.ToolsMode = on
-	if ok, reason := d.FitsModel(fitCfg); !ok {
-		return Result{Refused: true, Reason: reason, From: from, To: to}
-	}
-
-	return transact(d, from, to, func(next *config.VillaConfig) { next.ToolsMode = on })
-}
-
-// transact is steps (4)-(6) of the frame: capture strictly before any mutation,
-// apply the caller's mutation to config, re-render and restart, and cut over only on
-// a passing proof, rolling back verbatim otherwise.
-//
-// It takes the mutation as a closure because the two verbs on this frame differ only
-// in the field they write. from/to are recorded on the Result verbatim, so the caller
-// names what changed rather than this function guessing.
-func transact(d Deps, from, to string, mutate func(*config.VillaConfig)) Result {
-	cfg, err := d.LoadConfig()
-	if err != nil {
-		return Result{Refused: true, FailedStep: "load config", Err: err, To: to}
-	}
-
-	// (4) CAPTURE strictly BEFORE any mutation (Pitfall 4): the verbatim prior bytes
-	// of every unit the CURRENT config renders (main + every resident unit, #232),
-	// keyed by name, and a value snapshot of the prior config. An uncapturable prior
-	// unit must not be mutated — refuse with zero side effects.
-	priorUnits, err := d.CaptureUnits(cfg)
-	if err != nil {
-		return Result{Refused: true, FailedStep: "capture", Err: err, From: from, To: to}
-	}
-	priorCfg := cfg // VillaConfig is a flat value type (no pointers) → safe deep snapshot.
-
-	// rollback restores the verbatim captured prior units+config and re-readies the
-	// inference service, best-effort: it accumulates errors across all four steps
-	// rather than aborting on the first, and reports whether EVERY step succeeded.
-	// Per Pitfall 5, an incomplete rollback must be flagged honestly — never claim a
-	// clean no-op when a restore step errored. Re-ready is best-effort and bounded by
-	// the live Prove/poll wiring (Open Question 2), not by this pure core.
-	//
-	// Failures accumulate across all four steps rather than the last one overwriting
-	// the detail of an earlier one, so an operator investigating an incomplete
-	// rollback sees every step that failed, not only the last (#232).
-	rollback := func() (ok bool, detail string) {
-		ok = true
-		var fails []string
-		if err := d.RestoreUnits(priorUnits); err != nil {
-			ok = false
-			fails = append(fails, "RestoreUnits failed: "+err.Error())
+		if !on && subsystem.CodingModeOn(cfg) {
+			return cfg, &stackapply.Outcome{
+				Refused: true,
+				Reason:  "coding mode implies tools mode — run `villa coding-mode exit` to stop serving tool calls",
+			}
 		}
-		if err := d.SaveConfig(priorCfg); err != nil {
-			ok = false
-			fails = append(fails, "SaveConfig(prior) failed: "+err.Error())
+		cfg.ToolsMode = on
+		if ok, reason := d.FitsModel(cfg); !ok {
+			return cfg, &stackapply.Outcome{Refused: true, Reason: reason}
 		}
-		if err := d.DaemonReload(); err != nil {
-			ok = false
-			fails = append(fails, "DaemonReload failed: "+err.Error())
-		}
-		if err := d.Restart(d.InstallServiceName); err != nil {
-			ok = false
-			fails = append(fails, "Restart(prior) failed: "+err.Error())
-		}
-		return ok, strings.Join(fails, "; ")
-	}
-
-	// rolledBack assembles a RolledBack Result, folding in an honest rollback-incomplete
-	// message when the restore did not fully succeed (Pitfall 5).
-	rolledBack := func(failedStep, reason string, origErr error, v prove.Verdict) Result {
-		ok, rbDetail := rollback()
-		r := Result{
-			RolledBack: true,
-			FailedStep: failedStep,
-			Reason:     reason,
-			Err:        origErr,
-			Prove:      v,
-			From:       from,
-			To:         to,
-		}
-		if !ok {
-			// Do NOT present a half-restored stack as a clean no-op: flag it.
-			r.Reason = "rolled back, but the restore did not fully complete (" + rbDetail +
-				") — run `villa status` and inspect the villa-llama unit"
-		}
-		return r
-	}
-
-	// (5) MUTATE. ANY error here rolls back verbatim to the captured prior unit+config.
-	mutate(&cfg)
-	if err := d.SaveConfig(cfg); err != nil {
-		return rolledBack("save", "", err, prove.Verdict{})
-	}
-	if _, err := d.ReconcileAndWrite(cfg); err != nil {
-		return rolledBack("write", "", err, prove.Verdict{})
-	}
-	if err := d.Restart(d.InstallServiceName); err != nil {
-		return rolledBack("restart", "", err, prove.Verdict{})
-	}
-
-	// (6) PROVE the cutover against the already-running server. Switch ONLY on
-	// prove.StatusPass; ANY other verdict (including ready+health-200-but-residency-FAIL,
-	// rolls back verbatim — is-active/200 alone is never success.
-	v := d.Prove(context.Background(), cfg.Backend)
-	if !v.Pass() {
-		return rolledBack("prove", v.Detail, nil, v)
-	}
-	return Result{Switched: true, Prove: v, From: from, To: to}
+		return cfg, nil
+	})
+	return r
 }

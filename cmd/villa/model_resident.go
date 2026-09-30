@@ -264,6 +264,15 @@ func runResidentLs(cmd *cobra.Command, asJSON bool, d *residentDeps) int {
 func runResidentAdd(cmd *cobra.Command, id string, d *residentDeps) int {
 	out, errOut := cmd.OutOrStdout(), cmd.ErrOrStderr()
 
+	// A read-modify-write of config.toml and the units: hold the stack lock
+	// (ADR-0010) from the first config read to the last restart.
+	lock, err := acquireStackLock()
+	if err != nil {
+		fmt.Fprintf(errOut, "model resident add: %v\n", err)
+		return exitBlocked
+	}
+	defer func() { _ = lock.Release() }()
+
 	cfg, err := d.loadConfig()
 	if err != nil {
 		fmt.Fprintf(errOut, "model resident add: load config: %v\n", err)
@@ -359,6 +368,15 @@ func runResidentAdd(cmd *cobra.Command, id string, d *residentDeps) int {
 // anything is read or written, with the command that actually changes it.
 func runResidentRm(cmd *cobra.Command, id string, d *residentDeps) int {
 	out, errOut := cmd.OutOrStdout(), cmd.ErrOrStderr()
+
+	// A read-modify-write of config.toml and the units: hold the stack lock
+	// (ADR-0010) from the first config read to the last restart.
+	lock, err := acquireStackLock()
+	if err != nil {
+		fmt.Fprintf(errOut, "model resident rm: %v\n", err)
+		return exitBlocked
+	}
+	defer func() { _ = lock.Release() }()
 
 	cfg, err := d.loadConfig()
 	if err != nil {

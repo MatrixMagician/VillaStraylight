@@ -27,7 +27,7 @@ var (
 // persisted tools-mode state.
 func newToolsStub(rec *backendRecorder, toolsOn bool) *backendswap.Deps {
 	d := newBackendStub(rec)
-	d.LoadConfig = func() (config.VillaConfig, error) {
+	d.Tx.LoadConfig = func() (config.VillaConfig, error) {
 		return config.VillaConfig{Model: "current-model", Backend: rec.curBackend, ToolsMode: toolsOn}, nil
 	}
 	return d

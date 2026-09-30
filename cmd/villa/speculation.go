@@ -128,7 +128,7 @@ func runSpeculationSet(cmd *cobra.Command, target string, dryRun bool, d *backen
 	}
 
 	if dryRun {
-		cfg, err := d.LoadConfig()
+		cfg, err := d.Tx.LoadConfig()
 		if err != nil {
 			fmt.Fprintf(errOut, "speculation set: load config: %v\n", err)
 			return exitBlocked
@@ -150,15 +150,7 @@ func runSpeculationSet(cmd *cobra.Command, target string, dryRun bool, d *backen
 		return exitPass
 	}
 
-	// The cross-process lock (ADR-0010) excludes a concurrent dashboard model
-	// switch from persisting a config change this command's rollback would
-	// otherwise silently revert.
-	lock, err := acquireStackLock()
-	if err != nil {
-		fmt.Fprintf(errOut, "speculation set: %v\n", err)
-		return exitBlocked
-	}
-	defer func() { _ = lock.Release() }()
+	// The transaction frame holds the stack lock (ADR-0010) throughout.
 	res := backendswap.RunSpeculation(*d, target)
 	switch {
 	case res.Refused:

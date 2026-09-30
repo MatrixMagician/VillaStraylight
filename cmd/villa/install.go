@@ -74,6 +74,16 @@ func newInstall() *cobra.Command {
 // code (0 pass / 2 warn / 1 block); it never calls os.Exit.
 func runInstall(cmd *cobra.Command, opts install.Opts, d install.Deps) int {
 	d.Emit = emitTo(cmd.OutOrStdout(), cmd.ErrOrStderr())
+	// Install writes config and units in its own transaction (ADR-0003): a real run
+	// holds the stack lock (ADR-0010) for all of it; a dry run writes nothing.
+	if !opts.DryRun {
+		lock, err := acquireStackLock()
+		if err != nil {
+			fmt.Fprintf(cmd.ErrOrStderr(), "install: %v\n", err)
+			return exitBlocked
+		}
+		defer func() { _ = lock.Release() }()
+	}
 	return install.Run(cmdContext(cmd), d, opts).Outcome.ExitCode()
 }
 

@@ -25,16 +25,17 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/subsystem"
 )
 
-// acquireStackLock takes the cross-process advisory lock (ADR-0010) every
-// stack-mutating CLI verb holds around its Run call — capture through rollback —
-// BLOCKING until any other stack-mutating core (another CLI invocation, or the
-// dashboard's model-switch handler) releases it. The lock file lives beside
-// config.toml, so the CLI and the dashboard always target the SAME file
-// regardless of which one runs first.
+// acquireStackLock takes the cross-process advisory lock (ADR-0010), BLOCKING until
+// any other stack mutation (another CLI invocation, or the dashboard's
+// model-switch handler) releases it. The lock file lives beside config.toml, so the
+// CLI and the dashboard always target the SAME file regardless of which one runs
+// first.
 //
-// Every `xxx.Run(...)` call this wraps already fails closed with zero side
-// effects on its own refusal paths (unknown model, non-fit, bad preflight), so
-// holding the lock slightly before the actual mutation begins is harmless.
+// It is the CLI's binding of the swap transaction frame's lock (liveTxDeps), and
+// the lock the locked flows take themselves before their first config read: up,
+// restart, restore, update, install and the resident verbs.
+// TestEveryStackMutationHoldsTheLock fails the build when a new caller of the
+// stack-apply module takes neither.
 //
 // A package-level var (the pullFn seam's shape): tests override it so a cobra
 // caller's exit-mapping test never touches the real $XDG_CONFIG_HOME/villa on
@@ -45,6 +46,53 @@ var acquireStackLock = func() (*stacklock.Lock, error) {
 		return nil, fmt.Errorf("resolve config path: %w", err)
 	}
 	return stacklock.Acquire(filepath.Join(filepath.Dir(cfgPath), stacklock.FileName))
+}
+
+// liveTxDeps wires the swap transaction frame (ADR-0015) to the real host: the stack
+// lock, config load/save, the capture of every unit the prior config renders, the
+// apply and the restore through the live stack adapter (ADR-0013), systemd, and
+// liveProve as the default cutover gate. Every swap verb's Deps carry one.
+func liveTxDeps(lock func() (*stacklock.Lock, error)) stackapply.TxDeps {
+	sys := orchestrate.NewSystemd()
+	stack := liveStackDeps()
+	return stackapply.TxDeps{
+		Lock:       lock,
+		LoadConfig: config.LoadVilla,
+		SaveConfig: config.SaveVilla,
+		// Capture reads the verbatim prior bytes of EVERY unit the prior config
+		// renders — the main inference unit and every resident unit (#232) — through
+		// the same stackapply.Render the apply uses. A unit render names but has never
+		// written is simply absent, which Restore then has nothing to do for.
+		Capture: func(cfg config.VillaConfig) (map[string]string, error) {
+			dir, err := stack.UnitDir()
+			if err != nil {
+				return nil, err
+			}
+			units, err := stackapply.Render(stack, cfg)
+			if err != nil {
+				return nil, err
+			}
+			captured := map[string]string{}
+			for _, u := range units {
+				text, err := os.ReadFile(filepath.Join(dir, u.Name))
+				if err != nil {
+					if os.IsNotExist(err) {
+						continue
+					}
+					return nil, err
+				}
+				captured[u.Name] = string(text)
+			}
+			return captured, nil
+		},
+		Apply:        func(c config.VillaConfig) ([]orchestrate.Unit, error) { return stackapply.Apply(stack, c) },
+		Restore:      func(m map[string]string) error { return stackapply.Restore(stack, m) },
+		DaemonReload: sys.DaemonReload,
+		IsActive:     sys.IsActive,
+		Restart:      sys.Restart,
+		Prove:        liveProve,
+		Service:      installServiceName,
+	}
 }
 
 // backend.go is the cmd-tier `villa backend` noun: the live host wiring that drives
@@ -77,8 +125,8 @@ func liveResidencyDeps(c inference.Client) residency.Deps {
 	}
 }
 
-// liveProve is the injected cutover gate (backendswap.Deps.Prove). It resolves what
-// is being proven — the target backend, the served model file and the chat ctx — and
+// liveProve is the default cutover gate (stackapply.TxDeps.Prove). It resolves what
+// is being proven — the target backend and the served model, file and ctx — and
 // hands it to the shared residency drive protocol, which owns the three gates
 // (bounded readiness, a real generation probe, the residency fold) and the
 // Unknown-versus-negative rule.
@@ -113,32 +161,39 @@ func liveProve(ctx context.Context, target string) prove.Verdict {
 	return residency.ProveCutover(ctx, liveResidencyDeps(inferenceClient(cfg)), proven)
 }
 
-// proveTarget resolves what a cutover proof drives for cfg on backend: the model
-// id, its catalog-resolved GGUF file, the context, the weight footprint the GTT
-// floor is computed from, and whether a draft sidecar loads. host sizes the weight
-// footprint the way the recommendation does.
+// proveTarget resolves what a cutover proof drives for cfg on backend, from the same
+// served target the render used (stackapply.ServedTarget, #261): the coder at the
+// agent ctx in swap-residency coding mode, the chat model otherwise. It returns the
+// model id, its catalog-resolved GGUF file (the /props drift overlay compares
+// against the FILE, never the id), the context, the weight footprint the GTT floor
+// is computed from, and whether a draft sidecar loads. The draft's weight counts
+// exactly when the render serves one. host sizes the footprint the way the
+// recommendation does.
 func proveTarget(cfg config.VillaConfig, backend inference.Backend, host detect.HostProfile) (residency.Target, error) {
-	// The catalog-resolved GGUF FILENAME for ConfigModel — the SAME concrete seam
-	// status.go uses (liveModelFile), never a placeholder. The /props drift overlay
-	// compares against the model FILE, so the catalog id would make it misfire.
-	modelFile, err := liveModelFile(cfg)
+	served, ctx := stackapply.ServedTarget(cfg)
+	cat, _, err := catalog.Load(modelCatalogPath)
 	if err != nil {
-		return residency.Target{}, fmt.Errorf("resolve model file: %w", err)
+		return residency.Target{}, fmt.Errorf("resolve model file: load model catalog: %w", err)
 	}
-	var weight uint64
-	if cat, _, err := catalog.Load(modelCatalogPath); err == nil {
-		rec := recommend.Pick(host, cat, recommend.Overrides{Model: cfg.Model, Speculation: cfg.Speculation},
-			recommend.MemoryInputs{}, recommend.WebSearchInputs{})
-		weight = rec.WeightBytes + rec.DraftBytes
+	m, ok := cat.FindByID(served)
+	if !ok {
+		return residency.Target{}, fmt.Errorf("resolve model file: model %q is not in the catalog — cannot resolve its weight file", served)
 	}
+	draft := liveDraftExpected(cfg)
+	spec := config.SpeculationOff
+	if draft {
+		spec = config.SpeculationDraft
+	}
+	rec := recommend.Pick(host, cat, recommend.Overrides{Model: served, Speculation: spec},
+		recommend.MemoryInputs{}, recommend.WebSearchInputs{})
 	return residency.Target{
 		Service:       installServiceName,
-		ModelID:       cfg.Model,
-		ModelFile:     modelFile,
-		ContextLen:    cfg.Ctx,
-		WeightBytes:   weight,
+		ModelID:       served,
+		ModelFile:     m.PrimaryFile(),
+		ContextLen:    ctx,
+		WeightBytes:   rec.WeightBytes + rec.DraftBytes,
 		Markers:       backend.ResidencyProof(),
-		DraftExpected: liveDraftExpected(cfg),
+		DraftExpected: draft,
 	}, nil
 }
 
@@ -270,7 +325,7 @@ func runBackendSet(cmd *cobra.Command, target string, dryRun bool, d *backendswa
 	// {target, fit, preflight}, and write NOTHING (no SaveConfig/ReconcileAndWrite/
 	// Restart/CaptureUnits). A dry run has zero side effects (BSET-03).
 	if dryRun {
-		cfg, err := d.LoadConfig()
+		cfg, err := d.Tx.LoadConfig()
 		if err != nil {
 			fmt.Fprintf(errOut, "backend set: load config: %v\n", err)
 			return exitBlocked
@@ -298,16 +353,8 @@ func runBackendSet(cmd *cobra.Command, target string, dryRun bool, d *backendswa
 		return exitPass
 	}
 
-	// REAL switch: the typed Result drives the exit mapping (clone of runModelSwap).
-	// The cross-process lock (ADR-0010) excludes a concurrent dashboard model
-	// switch from persisting a config change this command's rollback would
-	// otherwise silently revert.
-	lock, err := acquireStackLock()
-	if err != nil {
-		fmt.Fprintf(errOut, "backend set: %v\n", err)
-		return exitBlocked
-	}
-	defer func() { _ = lock.Release() }()
+	// REAL switch: the typed Result drives the exit mapping. The transaction frame
+	// holds the stack lock (ADR-0010) from its first config read to its rollback.
 	res := backendswap.Run(*d, target)
 	switch {
 	case res.Refused:
@@ -347,18 +394,13 @@ func runBackendSet(cmd *cobra.Command, target string, dryRun bool, d *backendswa
 	}
 }
 
-// liveBackendSwapDeps wires the transactional core to the real host: config load/save,
-// the recommend fit-math against the PRESERVED model, the ROCm preflight gate, verbatim
-// unit capture/restore and the apply through the live stack adapter (ADR-0013), the
-// systemd reload/restart seam, and liveProve as the cutover gate. Every host-touching
-// action is a seam so backend_test.go drives the flow without a live host.
+// liveBackendSwapDeps wires the swap guards to the real host — the recommend
+// fit-math against the PRESERVED model and the ROCm preflight gate — over the live
+// transaction frame, whose lock blocks (acquireStackLock) and whose proof is
+// liveProve. bench --ab enters through the same deps.
 func liveBackendSwapDeps() *backendswap.Deps {
-	sys := orchestrate.NewSystemd()
-	stack := liveStackDeps()
 	return &backendswap.Deps{
-		InstallServiceName: installServiceName,
-		LoadConfig:         config.LoadVilla,
-		SaveConfig:         config.SaveVilla,
+		Tx: liveTxDeps(acquireStackLock),
 		// FitsModel: reuse the recommend fit-math against the PRESERVED config model
 		// (model = config, never re-pick) — the liveSwapDeps Fits closure keyed on
 		// cfg.Model. A non-fit returns the bytes-needed-vs-usable remediation.
@@ -408,48 +450,5 @@ func liveBackendSwapDeps() *backendswap.Deps {
 			}
 			return true, ""
 		},
-		// CaptureUnits: read the verbatim prior bytes of EVERY unit the CURRENT
-		// config renders — the main inference unit AND every resident unit (#232) —
-		// from the quadlet unit dir (inside quadletUnitDir() — traversal-bounded by
-		// construction). Rendering from cfg BEFORE mutation, through the same
-		// stackapply.Render the apply uses, names exactly the unit set
-		// ReconcileAndWrite will consider for the target config, since the
-		// resident model list is unaffected by a backend/speculation/tools-mode
-		// change. A unit render names but has never written (first appearance) is
-		// simply absent from the map, which RestoreUnits then has nothing to do for.
-		CaptureUnits: func(cfg config.VillaConfig) (map[string]string, error) {
-			dir, err := quadletUnitDir()
-			if err != nil {
-				return nil, err
-			}
-			units, err := stackapply.Render(stack, cfg)
-			if err != nil {
-				return nil, err
-			}
-			captured := map[string]string{}
-			for _, u := range units {
-				text, err := os.ReadFile(filepath.Join(dir, u.Name))
-				if err != nil {
-					if os.IsNotExist(err) {
-						continue
-					}
-					return nil, err
-				}
-				captured[u.Name] = string(text)
-			}
-			return captured, nil
-		},
-		// ReconcileAndWrite: apply the persisted target config — write only the
-		// changed unit(s), daemon-reload inside.
-		ReconcileAndWrite: func(c config.VillaConfig) (bool, error) {
-			changed, err := stackapply.Apply(stack, c)
-			return len(changed) > 0, err
-		},
-		// RestoreUnits: write the verbatim captured prior bytes of every captured
-		// unit back — every unit CaptureUnits saw, not a fixed name (#232).
-		RestoreUnits: func(m map[string]string) error { return stackapply.Restore(stack, m) },
-		DaemonReload: sys.DaemonReload,
-		Restart:      sys.Restart,
-		Prove:        liveProve,
 	}
 }

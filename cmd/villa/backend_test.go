@@ -3,6 +3,12 @@ package main
 import (
 	"context"
 	"errors"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"io/fs"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -11,9 +17,11 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
 	"github.com/MatrixMagician/VillaStraylight/internal/inference"
+	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 	"github.com/MatrixMagician/VillaStraylight/internal/preflight"
 	"github.com/MatrixMagician/VillaStraylight/internal/prove"
 	"github.com/MatrixMagician/VillaStraylight/internal/recommend"
+	"github.com/MatrixMagician/VillaStraylight/internal/stackapply"
 	"github.com/MatrixMagician/VillaStraylight/internal/stacklock"
 )
 
@@ -46,49 +54,54 @@ type backendRecorder struct {
 // prove-pass) are overridden per-subtest via the recorder fields.
 func newBackendStub(rec *backendRecorder) *backendswap.Deps {
 	return &backendswap.Deps{
-		InstallServiceName: installServiceName,
-		LoadConfig: func() (config.VillaConfig, error) {
-			return config.VillaConfig{Model: "current-model", Backend: rec.curBackend}, nil
+		Tx: stackapply.TxDeps{
+			// Late-bound, so a test that overrides acquireStackLock reaches the frame.
+			Lock: func() (*stacklock.Lock, error) { return acquireStackLock() },
+			LoadConfig: func() (config.VillaConfig, error) {
+				return config.VillaConfig{Model: "current-model", Backend: rec.curBackend}, nil
+			},
+			Capture: func(config.VillaConfig) (map[string]string, error) {
+				if rec.captureErr != nil {
+					return nil, rec.captureErr
+				}
+				rec.captured++
+				return map[string]string{"villa-llama.container": "PRIOR-UNIT"}, nil
+			},
+			SaveConfig: func(c config.VillaConfig) error {
+				rec.saved = append(rec.saved, c)
+				return nil
+			},
+			Apply: func(config.VillaConfig) ([]orchestrate.Unit, error) {
+				rec.written++
+				if rec.writeErr != nil {
+					return nil, rec.writeErr
+				}
+				return []orchestrate.Unit{{Name: "villa-llama.container"}}, nil
+			},
+			Restore: func(map[string]string) error {
+				rec.restored++
+				return nil
+			},
+			DaemonReload: func() error {
+				rec.reloaded++
+				return nil
+			},
+			IsActive: func(string) (string, error) { return "active", nil },
+			Restart: func(service string) error {
+				rec.restarted = append(rec.restarted, service)
+				return nil
+			},
+			Prove: func(_ context.Context, target string) prove.Verdict {
+				rec.proved = append(rec.proved, target)
+				return prove.Verdict{Status: rec.proveStatus, Detail: rec.proveDetail}
+			},
+			Service: installServiceName,
 		},
 		FitsModel: func(_ config.VillaConfig) (bool, string) {
 			return rec.fits, rec.fitReason
 		},
 		PreflightROCm: func(_ config.VillaConfig) (bool, string) {
 			return rec.preflightOK, rec.preflightWhy
-		},
-		CaptureUnits: func(config.VillaConfig) (map[string]string, error) {
-			if rec.captureErr != nil {
-				return nil, rec.captureErr
-			}
-			rec.captured++
-			return map[string]string{"villa-llama.container": "PRIOR-UNIT"}, nil
-		},
-		SaveConfig: func(c config.VillaConfig) error {
-			rec.saved = append(rec.saved, c)
-			return nil
-		},
-		ReconcileAndWrite: func(_ config.VillaConfig) (bool, error) {
-			rec.written++
-			if rec.writeErr != nil {
-				return false, rec.writeErr
-			}
-			return true, nil
-		},
-		RestoreUnits: func(map[string]string) error {
-			rec.restored++
-			return nil
-		},
-		DaemonReload: func() error {
-			rec.reloaded++
-			return nil
-		},
-		Restart: func(service string) error {
-			rec.restarted = append(rec.restarted, service)
-			return nil
-		},
-		Prove: func(_ context.Context, target string) prove.Verdict {
-			rec.proved = append(rec.proved, target)
-			return prove.Verdict{Status: rec.proveStatus, Detail: rec.proveDetail}
 		},
 	}
 }
@@ -342,6 +355,120 @@ func TestBackendSetLockFailureBlocksBeforeAnyMutation(t *testing.T) {
 	}
 	if !strings.Contains(errOut.String(), "lock held") {
 		t.Errorf("expected the lock error surfaced, got %q", errOut.String())
+	}
+}
+
+// stackWriters is every function outside internal/stackapply that calls the
+// stack-apply module's Apply or Restore (ADR-0013), mapped to the verbs that run it,
+// each of which must take the stack lock (ADR-0010) before its first config read.
+// direct marks a writer whose every caller must be one of those verbs.
+var stackWriters = map[string]struct {
+	lockers []string
+	direct  bool
+}{
+	// The swap transaction frame's live binding: stackapply.Transact takes the lock
+	// itself, before the config is read (ADR-0015, TestTransactHoldsTheStackLock).
+	"liveTxDeps":           {},
+	"applyStack":           {lockers: []string{"runUp", "runRestart"}, direct: true},
+	"applyResidentChange":  {lockers: []string{"runResidentAdd", "runResidentRm"}, direct: true},
+	"liveRestoreDeps":      {lockers: []string{"runRestore"}},
+	"liveMutate":           {lockers: []string{"apply"}}, // update.go: `villa update`'s apply half
+	"liveRestoreSubsystem": {lockers: []string{"apply"}},
+}
+
+// TestEveryStackMutationHoldsTheLock guards #250: a stack-mutating verb added without
+// the stack lock fails the build. Every caller of stackapply.Apply/Restore must be a
+// registered writer, every verb that runs one must call acquireStackLock, and no code
+// outside the frame may reach its transaction host directly (x.Tx.Apply(...)), which
+// would bypass the frame's lock. Install writes units without the module (ADR-0013)
+// and is registered as a locked verb by name.
+func TestEveryStackMutationHoldsTheLock(t *testing.T) {
+	funcs := map[string]*ast.FuncDecl{} // cmd/villa functions, for the locker check
+	writersFound := map[string]bool{}
+	callers := map[string][]string{} // direct writer → enclosing funcs of its calls
+	for _, root := range []string{".", "../../internal"} {
+		err := filepath.WalkDir(root, func(path string, e fs.DirEntry, err error) error {
+			if err != nil || e.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") ||
+				strings.Contains(path, "internal/stackapply") {
+				return err
+			}
+			f, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
+			if err != nil {
+				return err
+			}
+			for _, decl := range f.Decls {
+				fn, ok := decl.(*ast.FuncDecl)
+				if !ok || fn.Body == nil {
+					continue
+				}
+				if root == "." && fn.Recv == nil {
+					funcs[fn.Name.Name] = fn
+				}
+				ast.Inspect(fn.Body, func(n ast.Node) bool {
+					call, ok := n.(*ast.CallExpr)
+					if !ok {
+						return true
+					}
+					sel, ok := call.Fun.(*ast.SelectorExpr)
+					if !ok {
+						return true
+					}
+					name := sel.Sel.Name
+					if x, ok := sel.X.(*ast.Ident); ok && x.Name == "stackapply" && (name == "Apply" || name == "Restore") {
+						writersFound[fn.Name.Name] = true
+						if _, ok := stackWriters[fn.Name.Name]; !ok {
+							t.Errorf("%s: %s calls stackapply.%s but is not a registered stack writer — run it through the swap transaction frame, or take acquireStackLock in the verb and register it in stackWriters", path, fn.Name.Name, name)
+						}
+					}
+					if inner, ok := sel.X.(*ast.SelectorExpr); ok && inner.Sel.Name == "Tx" && name != "LoadConfig" && name != "Capture" {
+						t.Errorf("%s: %s calls .Tx.%s directly, bypassing the swap transaction frame and its lock", path, fn.Name.Name, name)
+					}
+					if w, ok := stackWriters[name]; ok && w.direct {
+						callers[name] = append(callers[name], fn.Name.Name)
+					}
+					return true
+				})
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("walk %s: %v", root, err)
+		}
+	}
+
+	callsLock := func(name string) bool {
+		fn, ok := funcs[name]
+		if !ok {
+			return false
+		}
+		found := false
+		ast.Inspect(fn.Body, func(n ast.Node) bool {
+			if call, ok := n.(*ast.CallExpr); ok {
+				if id, ok := call.Fun.(*ast.Ident); ok && id.Name == "acquireStackLock" {
+					found = true
+				}
+			}
+			return !found
+		})
+		return found
+	}
+	for writer, w := range stackWriters {
+		if !writersFound[writer] {
+			t.Errorf("stackWriters lists %s, which no longer calls stackapply.Apply/Restore — drop the entry", writer)
+		}
+		for _, verb := range w.lockers {
+			if !callsLock(verb) {
+				t.Errorf("%s runs the stack writer %s but does not take acquireStackLock", verb, writer)
+			}
+		}
+		for _, c := range callers[writer] {
+			if !slices.Contains(w.lockers, c) {
+				t.Errorf("%s calls the stack writer %s but is not one of its locked verbs %v", c, writer, w.lockers)
+			}
+		}
+	}
+	if !callsLock("runInstall") {
+		t.Error("runInstall writes the stack in its own transaction but does not take acquireStackLock")
 	}
 }
 

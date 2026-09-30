@@ -14,11 +14,8 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
 	"github.com/MatrixMagician/VillaStraylight/internal/download"
 	"github.com/MatrixMagician/VillaStraylight/internal/modelswap"
-	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 	"github.com/MatrixMagician/VillaStraylight/internal/pathsafe"
-	"github.com/MatrixMagician/VillaStraylight/internal/prove"
 	"github.com/MatrixMagician/VillaStraylight/internal/recommend"
-	"github.com/MatrixMagician/VillaStraylight/internal/stackapply"
 )
 
 // pullFn is the downloader seam. It defaults to download.PullModel and is
@@ -276,23 +273,29 @@ func runModelSwap(cmd *cobra.Command, name string, d *modelswap.Deps) int {
 		}
 	}
 
-	// The cross-process lock (ADR-0010) excludes a concurrent dashboard model
-	// switch from persisting a config change this command's rollback would
-	// otherwise silently revert.
-	lock, err := acquireStackLock()
-	if err != nil {
-		fmt.Fprintf(errOut, "model swap: %v\n", err)
-		return exitBlocked
-	}
-	defer func() { _ = lock.Release() }()
+	// The transaction frame holds the stack lock (ADR-0010) throughout.
 	res := modelswap.Run(*d, name)
 
 	switch {
 	case res.Unknown:
 		fmt.Fprintf(errOut, "model swap: unknown model %q — run `villa model list` to see catalog names\n", name)
 		return exitBlocked
+	case res.Refused && res.Err != nil:
+		fmt.Fprintf(errOut, "model swap: refusing — %s failed: %v\n", res.FailedStep, res.Err)
+		return exitBlocked
 	case res.Refused:
 		fmt.Fprintf(errOut, "model swap: %s won't fit the usable memory envelope — refusing (%s)\n", res.ToModel, res.Reason)
+		return exitBlocked
+	case res.RolledBack:
+		// A mutate error or a failed proof restored the prior model; Reason carries
+		// the proof detail or the rollback-incomplete note.
+		fmt.Fprintf(errOut, "model swap: swap to %s failed at %q — rolled back; %s restored\n", res.ToModel, res.FailedStep, res.FromModel)
+		if res.Reason != "" {
+			fmt.Fprintf(errOut, "  detail: %s\n", res.Reason)
+		}
+		if res.Err != nil {
+			fmt.Fprintf(errOut, "  error:  %v\n", res.Err)
+		}
 		return exitBlocked
 	case res.Err != nil:
 		switch res.FailedStep {
@@ -300,12 +303,6 @@ func runModelSwap(cmd *cobra.Command, name string, d *modelswap.Deps) int {
 			fmt.Fprintf(errOut, "model swap: auto-pull %s failed: %v\n", res.ToModel, res.Err)
 		case "load config":
 			fmt.Fprintf(errOut, "model swap: load config: %v\n", res.Err)
-		case "persist config":
-			fmt.Fprintf(errOut, "model swap: persist config: %v\n", res.Err)
-		case "regenerate units":
-			fmt.Fprintf(errOut, "model swap: regenerate units: %v\n", res.Err)
-		case "restart":
-			fmt.Fprintf(errOut, "model swap: restart %s failed: %v\n", installServiceName, res.Err)
 		default:
 			fmt.Fprintf(errOut, "model swap: %v\n", res.Err)
 		}
@@ -319,21 +316,18 @@ func runModelSwap(cmd *cobra.Command, name string, d *modelswap.Deps) int {
 	}
 }
 
-// liveSwapDeps wires `model swap` to the real host: catalog resolution, the
-// recommend fit-math, the on-disk weight check, the verified downloader (via the
-// pullFn seam), config.SaveVilla, and the Plan-01 orchestrate render/reconcile/write
-// + systemd restart seam — exactly the seams the context note names, no new math.
+// liveSwapDeps wires `model swap` to the real host — catalog resolution, the
+// recommend fit-math, the on-disk weight check and the verified downloader (via the
+// pullFn seam) — over the live transaction frame, whose lock blocks and whose proof
+// is liveProve. The dashboard runs the same deps with a non-blocking lock.
 //
 // ctx is the command's SIGINT/SIGTERM-cancelled context, captured by the Pull
 // closure. A swap pull is multi-GB, so without it Ctrl-C could not interrupt the
 // transfer. Cancelling mid-stream is safe: download.PullModel keeps the partial
 // ".part" file and resumes it via HTTP Range on the next run.
 func liveSwapDeps(ctx context.Context) *modelswap.Deps {
-	sys := orchestrate.NewSystemd()
-	stack := liveStackDeps()
 	return &modelswap.Deps{
-		InstallServiceName: installServiceName,
-		LoadConfig:         config.LoadVilla,
+		Tx: liveTxDeps(acquireStackLock),
 		ResolveCatalog: func(name string) (catalog.Model, bool) {
 			cat, _, err := catalog.Load(modelCatalogPath)
 			if err != nil {
@@ -369,42 +363,6 @@ func liveSwapDeps(ctx context.Context) *modelswap.Deps {
 				return mkErr
 			}
 			return pullFn(ctx, m, dir)
-		},
-		// CaptureUnit: read the verbatim prior villa-llama.container bytes from the
-		// quadlet unit dir (#237). A model swap changes only the PRIMARY model's
-		// unit args, never a resident unit's (theirs derive from their own model
-		// file, not cfg.Model) — a single-unit capture is correct here.
-		CaptureUnit: func() ([]byte, error) {
-			dir, err := quadletUnitDir()
-			if err != nil {
-				return nil, err
-			}
-			return os.ReadFile(filepath.Join(dir, "villa-llama.container"))
-		},
-		SaveConfig: config.SaveVilla,
-		// ReconcileAndWrite: apply the persisted target config through the live
-		// stack adapter, which carries the resident slots and, in coding mode, the
-		// coding descriptor (#249).
-		ReconcileAndWrite: func(c config.VillaConfig) (bool, error) {
-			changed, err := stackapply.Apply(stack, c)
-			return len(changed) > 0, err
-		},
-		// RestoreUnit: write the verbatim captured prior unit bytes back (#237).
-		RestoreUnit: func(b []byte) error {
-			return stackapply.Restore(stack, map[string]string{"villa-llama.container": string(b)})
-		},
-		DaemonReload: sys.DaemonReload,
-		Restart:      sys.Restart,
-		// Prove: the SAME cutover gate `backend set` uses (liveProve) — cfg.Backend
-		// is unaffected by a model swap, and liveProve re-derives ModelID/ModelFile/
-		// Ctx from the freshly persisted config itself, so it proves the NEW model
-		// is actually serving without a second proof implementation (#237).
-		Prove: func(ctx context.Context) prove.Verdict {
-			cfg, err := config.LoadVilla()
-			if err != nil {
-				return prove.Verdict{Status: prove.StatusFail, Detail: "load config: " + err.Error()}
-			}
-			return liveProve(ctx, cfg.Backend)
 		},
 	}
 }

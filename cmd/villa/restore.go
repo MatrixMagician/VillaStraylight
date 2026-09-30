@@ -105,6 +105,16 @@ func runRestore(cmd *cobra.Command, archivePath string, in backup.RestoreInput, 
 	out := cmd.OutOrStdout()
 	errOut := cmd.ErrOrStderr()
 
+	// Restore captures, mutates and proves the stack in its own stopped-window flow;
+	// it holds the stack lock (ADR-0010) for all of it. The skew prompt ran before
+	// this, so an operator reading it does not hold every other mutation.
+	lock, err := acquireStackLock()
+	if err != nil {
+		fmt.Fprintf(errOut, "restore: %v\n", err)
+		return exitBlocked, false
+	}
+	defer func() { _ = lock.Release() }()
+
 	res := backup.Restore(d, in)
 	switch {
 	case res.Refused:

@@ -12,7 +12,9 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/catalog"
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/modelswap"
+	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 	"github.com/MatrixMagician/VillaStraylight/internal/prove"
+	"github.com/MatrixMagician/VillaStraylight/internal/stackapply"
 	"github.com/MatrixMagician/VillaStraylight/internal/stacklock"
 )
 
@@ -139,13 +141,44 @@ type swapRecorder struct {
 	// reconcileNoChange, when true, makes the reconcileAndWrite stub report "nothing
 	// changed" so the no-op-swap-skips-restart path is exercisable.
 	reconcileNoChange bool
+	// proveFails makes the cutover proof fail, so the swap rolls back.
+	proveFails bool
 }
 
 func newSwapStub(rec *swapRecorder) *modelswap.Deps {
 	return &modelswap.Deps{
-		InstallServiceName: installServiceName,
-		LoadConfig: func() (config.VillaConfig, error) {
-			return config.VillaConfig{Model: "current-model", Backend: "vulkan"}, nil
+		Tx: stackapply.TxDeps{
+			Lock: func() (*stacklock.Lock, error) { return acquireStackLock() },
+			LoadConfig: func() (config.VillaConfig, error) {
+				return config.VillaConfig{Model: "current-model", Backend: "vulkan"}, nil
+			},
+			Capture: func(config.VillaConfig) (map[string]string, error) {
+				return map[string]string{"villa-llama.container": "prior unit"}, nil
+			},
+			SaveConfig: func(c config.VillaConfig) error {
+				rec.saved = c
+				return nil
+			},
+			Apply: func(config.VillaConfig) ([]orchestrate.Unit, error) {
+				if rec.reconcileNoChange {
+					return nil, nil
+				}
+				return []orchestrate.Unit{{Name: "villa-llama.container"}}, nil
+			},
+			Restore:      func(map[string]string) error { return nil },
+			DaemonReload: func() error { return nil },
+			IsActive:     func(string) (string, error) { return "active", nil },
+			Restart: func(service string) error {
+				rec.restarted = append(rec.restarted, service)
+				return nil
+			},
+			Prove: func(context.Context, string) prove.Verdict {
+				if rec.proveFails {
+					return prove.Verdict{Status: prove.StatusFail, Detail: "not resident (test)"}
+				}
+				return prove.Verdict{Status: prove.StatusPass}
+			},
+			Service: installServiceName,
 		},
 		ResolveCatalog: func(name string) (catalog.Model, bool) {
 			known := map[string]catalog.Model{
@@ -172,21 +205,6 @@ func newSwapStub(rec *swapRecorder) *modelswap.Deps {
 			rec.pulled = append(rec.pulled, m.ID)
 			return nil
 		},
-		CaptureUnit: func() ([]byte, error) { return []byte("prior unit"), nil },
-		SaveConfig: func(c config.VillaConfig) error {
-			rec.saved = c
-			return nil
-		},
-		ReconcileAndWrite: func(_ config.VillaConfig) (bool, error) {
-			return !rec.reconcileNoChange, nil
-		},
-		RestoreUnit:  func([]byte) error { return nil },
-		DaemonReload: func() error { return nil },
-		Restart: func(service string) error {
-			rec.restarted = append(rec.restarted, service)
-			return nil
-		},
-		Prove: func(context.Context) prove.Verdict { return prove.Verdict{Status: prove.StatusPass} },
 	}
 }
 
@@ -420,5 +438,19 @@ func TestModelSwapLockFailureBlocksBeforeAnyMutation(t *testing.T) {
 	}
 	if !strings.Contains(errOut.String(), "lock held") {
 		t.Errorf("expected the lock error surfaced, got %q", errOut.String())
+	}
+}
+
+// TestModelSwapRollbackExitsBlocked: a failed cutover proof restored the prior model,
+// so the verb says so and exits 1. It used to fall through to "swapped to", exit 0.
+func TestModelSwapRollbackExitsBlocked(t *testing.T) {
+	rec := &swapRecorder{downloaded: map[string]bool{"fits-model": true}, proveFails: true}
+	cmd, out, errOut := newTestCmd()
+	code := runModelSwap(cmd, "fits-model", newSwapStub(rec))
+	if code != exitBlocked {
+		t.Fatalf("a rolled-back swap must exit 1, got %d", code)
+	}
+	if strings.Contains(out.String(), "swapped to") || !strings.Contains(errOut.String(), "rolled back") {
+		t.Errorf("a rolled-back swap must say so, stdout %q stderr %q", out.String(), errOut.String())
 	}
 }

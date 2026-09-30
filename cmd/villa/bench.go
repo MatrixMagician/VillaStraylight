@@ -391,8 +391,10 @@ var benchstoreWrite = func(d benchstore.Deps, r benchstore.SavedReport) error {
 // runBackendSwap delegates a single --ab flip to backendswap.Run via the SAME live
 // seam wiring `villa backend set` uses (liveBackendSwapDeps), mapping the typed Result
 // to an error. This is the LOCKED composition (RESEARCH Pattern 4) — bench MUST NOT
-// touch quadlet/systemd directly. A clean NoOp (already on target) or a proven Switch
-// is success; any Refused/RolledBack/Err is an error.
+// touch quadlet/systemd directly — and the swap transaction frame under it takes the
+// stack lock, so a flip waits for a concurrent stack mutation (#250). A clean NoOp
+// (already on target) or a proven Switch is success; any Refused/RolledBack/Err is an
+// error.
 // benchBackendSwap is the package-level indirection the --ab Switch/Restore closures
 // call so bench_test.go can drive the failed-restore WARNING path without a
 // live host. The default is the real runBackendSwap.
