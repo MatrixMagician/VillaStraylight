@@ -512,6 +512,9 @@ func TestSearchResidencyDriveSendsInferenceBearer(t *testing.T) {
 	if len(argv) == 0 {
 		t.Fatal("the drive never invoked podman; the precondition gate short-circuited before the chat rounds")
 	}
+	if !bytes.Contains(argv, []byte("\n-i\n")) {
+		t.Errorf("podman run was not given -i, so the container never sees the Authorization header on stdin; argv:\n%s", argv)
+	}
 	if !bytes.Contains(stdin, []byte("Authorization: Bearer "+secret)) {
 		t.Errorf("the search-residency drive sent no Authorization: Bearer header on stdin (got %q); argv:\n%s", stdin, argv)
 	}
@@ -520,13 +523,19 @@ func TestSearchResidencyDriveSendsInferenceBearer(t *testing.T) {
 	}
 }
 
-// stubRecordingPodman puts a `podman` on PATH that appends its argv and stdin to
-// files in the returned directory and exits 22 (curl's -f HTTP-error exit), so a
-// drive round finishes at once and the test reads exactly what each round sent.
+// stubRecordingPodman puts a `podman` on PATH that appends its argv to a file in the
+// returned directory and exits 22 (curl's -f HTTP-error exit), so a drive round
+// finishes at once and the test reads exactly what each round sent.
+//
+// It mirrors real podman: stdin reaches the container (and is recorded) only when
+// `-i` precedes the image, as `run` without it gives the container /dev/null. A stub
+// that read stdin unconditionally hid the removal of probeCurl's `-i`, which on real
+// podman silently drops the Authorization header (#262, #252).
 func stubRecordingPodman(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	script := "#!/bin/sh\nd=\"$(dirname \"$0\")\"\nprintf '%s\\n' \"$@\" >> \"$d/argv\"\ncat >> \"$d/stdin\"\nexit 22\n"
+	script := "#!/bin/sh\nd=\"$(dirname \"$0\")\"\nprintf '%s\\n' \"$@\" >> \"$d/argv\"\n" +
+		"for a in \"$@\"; do\n  case \"$a\" in\n    -i) cat >> \"$d/stdin\"; break ;;\n    --entrypoint) break ;;\n  esac\ndone\nexit 22\n"
 	if err := os.WriteFile(filepath.Join(dir, "podman"), []byte(script), 0o700); err != nil {
 		t.Fatalf("write podman stub: %v", err)
 	}
