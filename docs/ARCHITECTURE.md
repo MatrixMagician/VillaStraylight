@@ -65,7 +65,7 @@ Action × Mode table, the deletion pattern, the auto-mode allowlist), `taskstore
 (the record, its state machine, the log), `crushapi` (the Crush server client and
 the bridge's stdio protocol), `grounding` (the post-run claim audit) and `taskrun`
 (the runner). `tools-mode enter|exit` needed no package of its own: it is
-`backendswap`'s frame with the axis swapped for a boolean (`backendswap.RunTools`). The runner lives inside
+a swap with a boolean axis (`backendswap.RunTools`). The runner lives inside
 `villa-dashboard.service`, not in a unit of its own: it is already the long-lived
 villa process, the dashboard's Tasks panel needs the task state in-process, and a
 separate unit would need an approve/deny IPC between two villa processes. `villa
@@ -86,12 +86,12 @@ graph TD
     CLI --> download["internal/download<br/>verified resumable GGUF pull"]
     CLI --> config["internal/config<br/>config.toml store (0600)"]
     CLI --> orchestrate["internal/orchestrate<br/>Render → Reconcile → WriteUnits + systemd seam"]
-    CLI --> stackapply["internal/stackapply<br/>stack apply: config → render input → heal secret<br/>→ render → write changed → reload (ADR-0013)"]
+    CLI --> stackapply["internal/stackapply<br/>stack apply: config → render input → heal secret<br/>→ render → write changed → reload (ADR-0013)<br/>+ swap transaction frame Transact (ADR-0015)"]
     stackapply --> orchestrate
     stackapply --> catalog
     CLI --> modelswap["internal/modelswap<br/>guarded swap core"]
     CLI --> residentset["internal/residentset<br/>resident-set admission control (pure)"]
-    CLI --> backendswap["internal/backendswap<br/>transactional capture→prove→rollback"]
+    CLI --> backendswap["internal/backendswap<br/>backend / speculation / tools swap changes"]
     CLI --> bench["internal/bench<br/>honest A/B core (pure)"]
     CLI --> status["internal/status<br/>read-model aggregation"]
     CLI --> dashboard["internal/dashboard<br/>loopback dashboard"]
@@ -253,30 +253,41 @@ the running-server GPU-offload verdict (keyed on the active backend's residency 
 with a worst-wins overall PASS/WARN/FAIL.
 
 A second v1.1 flow is the **transactional backend switch** (`villa backend set
-<rocm|rocm-6.4.4|rocm-6.4.4-rocwmma|vulkan>`, `cmd/villa/backend.go`), driven by the pure `backendswap.Run(Deps,
-target)` state machine (`internal/backendswap/backendswap.go`). It clones the proven
-`modelswap` forward skeleton (fit-guard first, persist-before-unit-work,
-restart-inference-only) and wraps it in a transactional frame:
+<rocm|rocm-6.4.4|rocm-6.4.4-rocwmma|vulkan>`, `cmd/villa/backend.go`). Since ADR-0015 it
+and every other swap (`speculation set`, `tools-mode`, `coding-mode`, `model swap`
+from the CLI or the dashboard, and `bench --ab`) run in ONE frame, the **swap
+transaction** `stackapply.Transact` (`internal/stackapply/transact.go`). The swap
+cores (`backendswap`, `codingmode`, `modelswap`) supply only a change: the no-op test,
+the guards, and the config fields they write. The frame owns the rest:
 
-1. **Capture**: the verbatim prior `villa-llama.container` bytes and prior
-   `VillaConfig` are snapshotted **strictly before** any mutation.
-2. **Fit + ROCm preflight guard**: the preserved model is re-checked against the
-   target backend's envelope, and (for ROCm) the `preflight.RunROCm*` bring-up gate
-   runs; a refuse-with-remediation aborts with zero mutation.
-3. **Mutate**: persist the new backend to config, then reconcile/write the inference
-   unit and restart only the inference service.
-4. **Prove**: the cutover is gated on an injected `Prove` verdict: a real
+1. **Lock**: the stack lock (ADR-0010) is taken before the config is read and held
+   until the frame returns: blocking for the CLI, `TryAcquire` → 409 for the dashboard.
+2. **Change**: the swap refuses (fit, ROCm preflight, unknown model), is a no-op, or
+   names the target config, with zero mutation on a refusal.
+3. **Capture**: the prior config and the verbatim bytes of every unit the prior
+   config renders are snapshotted **strictly before** any mutation.
+4. **Mutate**: persist the target, apply it through the stack-apply module, and
+   restart every changed service that is running (a backend switch rewrites the
+   resident units too, #251) plus villa-llama, which the proof needs serving.
+5. **Prove**: the cutover is gated on an injected `Prove` verdict: a real
    generation-probe **and** a positive residency proof over the now-running server
-   (`inference.Client`'s `PollHealth` + `GenerationProbe` + `RunningOffloadVerdict`).
-5. **Rollback**: any mutate error or non-pass verdict restores the verbatim captured
-   unit + config and re-readies best-effort, so a failed or degraded switch is a no-op
-   to the running stack.
+   (`inference.Client`'s `PollHealth` + `GenerationProbe` + `RunningOffloadVerdict`),
+   against the served target the render used (`stackapply.ServedTarget`, #261).
+6. **Rollback**: any mutate error or non-pass verdict restores every captured unit
+   and the prior config, reloads, and restarts what the cutover restarted, naming
+   every rollback step that failed, so a failed or degraded swap is a no-op to the
+   running stack.
 
-`backendswap` is deliberately literal-free of backend marker tokens and imports neither
+The verbs that are not swaps (`up`, `restart`, `restore`, `update`, `install`, the
+resident verbs) keep their own flows and take the same lock in their cobra caller;
+`TestEveryStackMutationHoldsTheLock` fails the build when a new caller of the
+stack-apply module takes neither.
+
+The swap cores are deliberately literal-free of backend marker tokens and import neither
 `internal/inference` nor `internal/detect`; the prove verdict is `prove.Verdict`
-(`internal/prove`, shared with `codingmode` and `backup` since v1.6; it imports nothing,
-which is what keeps the cores free of those imports) and the real markers arrive only
-through the injected `Prove` seam wired in `cmd/villa`.
+(`internal/prove`, shared with `backup` since v1.6; it imports nothing, which is what
+keeps the cores free of those imports) and the real markers arrive only through the
+injected `Prove` seam wired in `cmd/villa`.
 
 The drive behind that seam is `internal/residency`: `Prove` for the idle-cutover proof and
 `UnderLoad` for the doctor proofs that must sample while a real workload runs. The
@@ -398,11 +409,13 @@ dashboard service drives rather than reads:
   nothing else: `recommend.Pick` owns what a candidate COSTS and
   `orchestrate.ResidentUnitName` owns what its unit is called. `cmd/villa/model_resident.go`
   composes all three under the shared `install` transaction and re-derives none of them.
-- **`backendswap.Run`** + `Deps` / `ProveVerdict` / `Result`
-  (`internal/backendswap/backendswap.go`), the pure, Deps-injected transactional
-  capture→mutate→prove→rollback state machine for `villa backend set`. Imports neither
-  `inference` nor `detect`; markers and the real prove verdict arrive only through the
-  injected `Prove` seam wired in `cmd/villa/backend.go`.
+- **`stackapply.Transact`** + `TxDeps` / `Change` / `Outcome`
+  (`internal/stackapply/transact.go`), the one swap transaction frame: stack lock,
+  capture, apply, restart of every changed running unit, proof, rollback (ADR-0015).
+  `backendswap.Run` (`internal/backendswap/backendswap.go`) is one of its changes, for
+  `villa backend set`; its `Result` embeds the `Outcome`. Imports neither `inference`
+  nor `detect`; markers and the real prove verdict arrive only through the `Prove`
+  seam `liveTxDeps` wires in `cmd/villa/backend.go`.
 - **`bench.Run`** + `Spec` / `Stats` / `ABResult` / `Result`
   (`internal/bench/bench.go`), the pure honest-A/B benchmark core. `--ab` composes
   `backendswap.Run` (never re-implements switching); each kept run is residency-proven so

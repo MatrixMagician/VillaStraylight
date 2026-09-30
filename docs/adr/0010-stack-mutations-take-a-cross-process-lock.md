@@ -79,3 +79,21 @@ for instance — blocks every other stack mutation for as long as it hangs. This
 accepted as the same shape every `Acquire` call already has (the caller's own
 proof step can take as long as the residency drive protocol allows), not a new
 failure mode `stacklock` introduces.
+
+## Amendment (ADR-0015): where the lock is taken
+
+The cobra callers used to take the lock, and only five did, so `villa bench --ab`
+flipped the backend unlocked (#250). The lock now has two homes:
+
+- **The swap transaction frame** (`stackapply.Transact`) takes it for every swap —
+  `backend set`, `speculation set`, `tools-mode`, `coding-mode`, `model swap` and
+  `bench --ab` — through `TxDeps.Lock`, before it reads the config and until its
+  rollback returns. The CLI binds `acquireStackLock` (blocking); the dashboard's
+  switch handler binds `stacklock.TryAcquire` and still answers a busy lock with 409.
+- **The verbs with their own flows** take it in their cobra caller before their first
+  config read: `up`, `restart`, `model resident add|rm`, `restore`, `update`'s apply
+  half and `install` (`up`, `update` and `install` not on `--dry-run`; `restore`
+  after its skew prompt).
+
+`TestEveryStackMutationHoldsTheLock` (`cmd/villa`) fails the build when a new caller
+of the stack-apply module is neither.

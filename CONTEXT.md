@@ -53,8 +53,9 @@ _Avoid_: service file, container spec, manifest
 **Stack apply**:
 Turning a target config into the Quadlet units on disk: derive every render
 input from the config, heal the inference secret, render, write what changed,
-reload systemd. One module does it for every verb (`internal/stackapply`,
-ADR-0013); the verb only chooses what to start or restart.
+reload systemd. One module does it for every verb but install (`internal/stackapply`,
+ADR-0013); the verb only chooses what to start or restart, or a swap transaction
+chooses for it.
 _Avoid_: reconcile-and-write, redeploy, regenerate
 
 **Served model**:
@@ -145,6 +146,20 @@ mode, or speculation mode — that captures state first and restores it verbatim
 any failure.
 Distinct from an **update**, which moves pins rather than selections.
 _Avoid_: switch, change, migration
+
+**Swap transaction**:
+The one frame every swap runs in (`stackapply.Transact`, ADR-0015): take the stack
+lock, read the config, let the swap's change refuse or name the target, capture,
+save and apply, restart every changed unit that is running, prove, and roll back on
+any failure. A swap supplies only its change and the proof it is gated on.
+_Avoid_: swap core, transact, rollback frame
+
+**Stack lock**:
+The cross-process flock a stack mutation holds from its first config read to its
+last write (`internal/stacklock`, ADR-0010), so no mutation's rollback reverts
+another's write. The swap transaction takes it; so do up, restart, restore, update,
+install and the resident verbs. Distinct from the dashboard's in-process `swapMu`.
+_Avoid_: swap mutex, config lock
 
 **pp / tg**:
 Prompt-processing and token-generation throughput. Reported separately, never

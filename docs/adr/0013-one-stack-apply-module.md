@@ -33,11 +33,13 @@ the seam #254 chose.
   - `Apply(d, cfg)` heals the inference secret, then renders, reconciles, writes
     the changed units and daemon-reloads. It returns the changed units, and still
     returns them when the reload after the write fails, so a caller's rollback
-    knows what is on disk. Nothing changed means nothing written and no reload.
+    knows what is on disk. Nothing changed means no unit written and no reload
+    (the heal still rewrites the env file).
   - `Restore(d, units)` writes captured unit bytes back verbatim.
 - **The caller decides what to start or restart**, from the changed units Apply
-  returns. `serviceUnits` stays in `cmd/villa` (ADR-0012), and so do the swap
-  cores' capture/rollback frames.
+  returns. `serviceUnits` stays in `cmd/villa` (ADR-0012), and so did the swap
+  cores' capture/rollback frames until ADR-0015 moved them into one frame,
+  `stackapply.Transact`, beside `Apply`.
 - **One live adapter.** `liveStackDeps()` in `cmd/villa/lifecycle.go` wires the
   catalog, `livePinnedRender` (pinresolve plus the speculation, projector and
   tools-mode ctx floor it already resolved), the Quadlet unit dir,
