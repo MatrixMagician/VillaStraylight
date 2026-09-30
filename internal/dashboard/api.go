@@ -2,6 +2,8 @@ package dashboard
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"path/filepath"
 	"time"
@@ -281,6 +283,18 @@ var stackLockPath = func() (string, error) {
 	return filepath.Join(filepath.Dir(cfgPath), stacklock.FileName), nil
 }
 
+// tryStackLock is the dashboard's binding of the swap transaction frame's lock
+// (ADR-0015): non-blocking, so a switch while a CLI verb holds the lock fails fast
+// with stacklock.ErrBusy (→ 409) instead of hanging a request whose client may
+// already have given up.
+func tryStackLock() (*stacklock.Lock, error) {
+	path, err := stackLockPath()
+	if err != nil {
+		return nil, fmt.Errorf("resolve stack lock: %w", err)
+	}
+	return stacklock.TryAcquire(path)
+}
+
 // handleSwitch is the ONE sanctioned dashboard mutation. It decodes the narrow
 // {model} body and calls modelswap.Run(s.swapDeps, body.Model) VERBATIM — the SAME guarded
 // path `villa model swap` uses — then maps the typed Result to HTTP. It performs NO swap
@@ -302,28 +316,6 @@ func (s *Server) handleSwitch(w http.ResponseWriter, r *http.Request) {
 	}
 	defer s.swapMu.Unlock()
 
-	// The cross-process lock (ADR-0010): swapMu only excludes a second in-process
-	// request. A CLI verb (`backend set`, `speculation set`, `tools-mode`,
-	// `coding-mode`, `model swap`) runs as a SEPARATE process and could persist a
-	// config change or roll one back while this handler's own mutate+prove window
-	// is open, with neither side ever seeing the other's in-memory mutex.
-	// Non-blocking, mirroring swapMu's own busy→409 shape: a request whose client
-	// has already timed out must never hang on a lock instead of failing fast.
-	lockPath, err := stackLockPath()
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, switchResponse{Reason: "resolve stack lock: " + err.Error()})
-		return
-	}
-	lock, err := stacklock.TryAcquire(lockPath)
-	if err != nil {
-		writeJSON(w, http.StatusConflict, switchResponse{
-			Refused: true,
-			Reason:  "a model switch is already in progress",
-		})
-		return
-	}
-	defer func() { _ = lock.Release() }()
-
 	var body switchRequest
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16))
 	dec.DisallowUnknownFields()
@@ -335,9 +327,20 @@ func (s *Server) handleSwitch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// The verbatim shared core (resolve→fit→pull→save→regenerate→restart). The handler
-	// adds nothing — it only decodes, folds modelswap.Run, and serializes the Result.
-	res := modelswap.Run(s.swapDeps, body.Model)
+	// The verbatim shared core. The handler adds one thing: the frame's cross-process
+	// lock (ADR-0010) is taken non-blocking. swapMu only excludes a second in-process
+	// request; a CLI verb runs as a SEPARATE process and could persist a config change
+	// or roll one back inside this switch's mutate+prove window.
+	d := s.swapDeps
+	d.Tx.Lock = tryStackLock
+	res := modelswap.Run(d, body.Model)
+	if errors.Is(res.Err, stacklock.ErrBusy) {
+		writeJSON(w, http.StatusConflict, switchResponse{
+			Refused: true,
+			Reason:  "a model switch is already in progress",
+		})
+		return
+	}
 
 	resp := switchResponse{
 		Switched: res.Switched,
@@ -359,9 +362,13 @@ func (s *Server) handleSwitch(w http.ResponseWriter, r *http.Request) {
 		// Won't fit the envelope — refused before any side effect.
 		writeJSON(w, http.StatusUnprocessableEntity, resp)
 	case res.Err != nil:
-		// A step failed (pull/save/reconcile/restart) — surface it as a server error with
+		// A step failed (pull/save/write/restart) — surface it as a server error with
 		// the FailedStep in the reason.
 		resp.Reason = res.FailedStep + ": " + res.Err.Error()
+		writeJSON(w, http.StatusInternalServerError, resp)
+	case res.RolledBack:
+		// The proof failed and the prior model was restored: not a switch.
+		resp.Reason = res.FailedStep + ": " + res.Reason
 		writeJSON(w, http.StatusInternalServerError, resp)
 	default:
 		// Switched or NoOp — a successful switch the UI drives to ready via polling.

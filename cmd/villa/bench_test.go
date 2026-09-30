@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -42,6 +43,51 @@ func TestMain(m *testing.M) {
 	acquireStackLock = prevLock
 	benchstoreWrite = prev
 	os.Exit(code)
+}
+
+// TestBenchABSwitchWaitsForTheStackLock guards #250: `villa bench --ab` flips the
+// backend through the same swap transaction as `villa backend set`, so while another
+// stack mutation holds the lock (ADR-0010) its switch must wait rather than capture,
+// mutate and roll back underneath it.
+//
+// The lock is the real blocking flock on a temp dir, and config.toml there does not
+// parse, so a switch that does proceed stops at its first read: nothing reaches the
+// host on either the fixed or the unfixed path.
+func TestBenchABSwitchWaitsForTheStackLock(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	if err := os.MkdirAll(filepath.Join(dir, "villa"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "villa", "config.toml"), []byte("model = [unterminated\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	lockPath := filepath.Join(dir, "villa", stacklock.FileName)
+	prev := acquireStackLock
+	acquireStackLock = func() (*stacklock.Lock, error) { return stacklock.Acquire(lockPath) }
+	t.Cleanup(func() { acquireStackLock = prev })
+
+	held, err := stacklock.Acquire(lockPath)
+	if err != nil {
+		t.Fatalf("hold the stack lock: %v", err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- runBackendSwap("vulkan") }()
+
+	select {
+	case err := <-done:
+		_ = held.Release()
+		t.Fatalf("bench --ab's switch ran while another stack mutation held the lock (returned %v)", err)
+	case <-time.After(300 * time.Millisecond):
+	}
+	if err := held.Release(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("bench --ab's switch never proceeded after the lock was released")
+	}
 }
 
 // bench_test.go drives the thin `villa bench` cobra caller through a stubbed bench.Deps:

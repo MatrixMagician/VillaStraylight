@@ -50,7 +50,7 @@ func TestUpKeepsCodingModeTheWayEnterRendersIt(t *testing.T) {
 			}
 
 			var missing orchestrate.ErrToolNotFound
-			if _, err := liveCodingModeDeps(context.Background()).ReconcileAndWrite(tc.cfg); err != nil && !errors.As(err, &missing) {
+			if _, err := liveCodingModeDeps(context.Background()).Tx.Apply(tc.cfg); err != nil && !errors.As(err, &missing) {
 				t.Fatalf("coding-mode enter render: %v", err)
 			}
 			dir, err := quadletUnitDir()

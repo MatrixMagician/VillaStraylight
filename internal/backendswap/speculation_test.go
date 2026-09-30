@@ -1,126 +1,50 @@
 package backendswap
 
 import (
-	"errors"
-	"strings"
 	"testing"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
-	"github.com/MatrixMagician/VillaStraylight/internal/prove"
 )
 
-// speculation_test.go drives RunSpeculation through the same fake Deps as the
-// backend switch, because it is the same transaction with a different mutation.
+// speculation_test.go covers RunSpeculation's own decisions: an unset mode is off,
+// the fit guard sees the TARGET mode, and only the mode is written.
 
-// specStub wires a recorder whose loaded config carries the given persisted mode.
-func specStub(rec *swapRecorder, persisted string) Deps {
-	d := newSwapStub(rec)
-	d.LoadConfig = func() (config.VillaConfig, error) {
-		return config.VillaConfig{Model: "preserved-model", Backend: "rocm", Speculation: persisted}, nil
-	}
-	return d
-}
-
-// TestSpeculationNoOp: an unset config already runs off, so setting off is a clean
-// no-op with zero side effects.
+// TestSpeculationNoOp: an unset mode renders off, so setting off on a fresh install
+// is a no-op rather than a restart.
 func TestSpeculationNoOp(t *testing.T) {
-	rec := passStub()
-	res := RunSpeculation(specStub(rec, ""), config.SpeculationOff)
-	if !res.NoOp {
-		t.Fatalf("setting off on an unset config = %+v, want NoOp", res)
-	}
-	if res.From != config.SpeculationOff || res.To != config.SpeculationOff {
-		t.Errorf("From/To = %q/%q, want off/off", res.From, res.To)
-	}
-	if len(rec.callOrder) != 0 {
-		t.Errorf("a no-op touched the host: %v", rec.callOrder)
+	f := newFake(vulkan())
+	res := RunSpeculation(f.deps(), config.SpeculationOff)
+	if !res.NoOp || res.From != config.SpeculationOff || f.captured {
+		t.Fatalf("expected a clean NoOp from the unset (off) mode, got %+v", res)
 	}
 }
 
-// TestSpeculationRefusesUnqualifiedTarget: the fit guard is what carries
-// ResolveSpeculation's refusal, so an unqualified target refuses with the note as
-// the reason and ZERO side effects.
+// TestSpeculationRefusesUnqualifiedTarget: ResolveSpeculation's refusal arrives
+// through the fit guard, which must see the TARGET mode, before any capture.
 func TestSpeculationRefusesUnqualifiedTarget(t *testing.T) {
-	rec := passStub()
-	rec.fitOK = false
-	rec.fitReason = "speculation: ngram requested but m is not qualified for it; refusing"
-	res := RunSpeculation(specStub(rec, config.SpeculationOff), config.SpeculationNgram)
-	if !res.Refused {
-		t.Fatalf("res = %+v, want Refused", res)
+	f := newFake(vulkan())
+	f.fitOK, f.fitReason = false, "speculation: ngram not qualified for preserved-model, refusing"
+	res := RunSpeculation(f.deps(), config.SpeculationNgram)
+	if !res.Refused || res.Reason != f.fitReason || f.captured {
+		t.Fatalf("expected the qualification refusal before capture, got %+v", res)
 	}
-	if !strings.Contains(res.Reason, "not qualified") {
-		t.Errorf("Reason = %q, want the resolver's note", res.Reason)
-	}
-	if len(rec.callOrder) != 0 {
-		t.Errorf("a refusal touched the host: %v", rec.callOrder)
+	if f.fitSaw.Speculation != config.SpeculationNgram {
+		t.Errorf("fit guard saw mode %q, want the target", f.fitSaw.Speculation)
 	}
 }
 
-// TestSpeculationSuccessPersistsTheMode: a proven cutover leaves the new mode in
-// config and restarts only the inference service.
+// TestSpeculationSuccessPersistsTheMode: only the mode changes, and the proof drives
+// the unchanged backend.
 func TestSpeculationSuccessPersistsTheMode(t *testing.T) {
-	rec := passStub()
-	res := RunSpeculation(specStub(rec, config.SpeculationOff), config.SpeculationNgram)
-	if !res.Switched {
-		t.Fatalf("res = %+v, want Switched", res)
+	f := newFake(vulkan())
+	res := RunSpeculation(f.deps(), config.SpeculationNgram)
+	if !res.Switched || res.From != config.SpeculationOff || res.To != config.SpeculationNgram {
+		t.Fatalf("expected Switched off→ngram, got %+v", res)
 	}
-	if rec.saved.Speculation != config.SpeculationNgram {
-		t.Errorf("persisted speculation = %q, want ngram", rec.saved.Speculation)
+	if len(f.saved) != 1 || f.saved[0].Speculation != config.SpeculationNgram || f.saved[0].Backend != "vulkan" {
+		t.Errorf("saved %+v, want only the mode changed", f.saved)
 	}
-	if rec.saved.Backend != "rocm" {
-		t.Errorf("the backend was mutated to %q; only the mode should change", rec.saved.Backend)
-	}
-	if len(rec.restarted) != 1 || rec.restarted[0] != installService {
-		t.Errorf("restarted %v, want only %s", rec.restarted, installService)
-	}
-	if i, j := indexOf(rec.callOrder, "capture"), indexOf(rec.callOrder, "save"); i < 0 || j < 0 || i > j {
-		t.Errorf("capture must precede save, got %v", rec.callOrder)
-	}
-}
-
-// TestSpeculationMutateFailureRollsBack: a write error restores the verbatim prior
-// unit and the prior config, so the persisted mode never outlives a failed cutover.
-func TestSpeculationMutateFailureRollsBack(t *testing.T) {
-	rec := passStub()
-	rec.writeErr = errors.New("write failed")
-	res := RunSpeculation(specStub(rec, config.SpeculationOff), config.SpeculationNgram)
-	if !res.RolledBack || res.FailedStep != "write" {
-		t.Fatalf("res = %+v, want RolledBack at write", res)
-	}
-	if rec.restored[priorUnitName] != string(priorUnitBytes) {
-		t.Errorf("restored unit is not the captured prior bytes")
-	}
-	if rec.saved.Speculation != config.SpeculationOff {
-		t.Errorf("config left at %q after rollback, want the prior off", rec.saved.Speculation)
-	}
-}
-
-// TestSpeculationProveFailureRollsBack: a non-pass verdict is a rollback, so a mode
-// that cannot be proven on the running server is never left persisted.
-func TestSpeculationProveFailureRollsBack(t *testing.T) {
-	rec := passStub()
-	rec.proveStatus = prove.StatusFail
-	rec.proveDetail = "residency FAIL"
-	res := RunSpeculation(specStub(rec, config.SpeculationOff), config.SpeculationNgram)
-	if !res.RolledBack || res.FailedStep != "prove" {
-		t.Fatalf("res = %+v, want RolledBack at prove", res)
-	}
-	if rec.saved.Speculation != config.SpeculationOff {
-		t.Errorf("config left at %q after rollback, want the prior off", rec.saved.Speculation)
-	}
-}
-
-// TestSpeculationProvesTheBackend: the cutover proof is a residency proof of the
-// backend the mutated config runs, never of the speculation target. Proving "ngram"
-// as a backend name failed BackendFor and rolled every live swap back (found on the
-// dev host).
-func TestSpeculationProvesTheBackend(t *testing.T) {
-	rec := passStub()
-	res := RunSpeculation(specStub(rec, config.SpeculationOff), config.SpeculationNgram)
-	if !res.Switched {
-		t.Fatalf("res = %+v, want Switched", res)
-	}
-	if rec.proveSaw != "rocm" {
-		t.Errorf("Prove saw target %q, want the config backend \"rocm\"", rec.proveSaw)
+	if len(f.proved) != 1 || f.proved[0] != "vulkan" {
+		t.Errorf("proved %v, want the unchanged backend", f.proved)
 	}
 }

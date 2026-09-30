@@ -1,461 +1,180 @@
 package codingmode
 
 import (
-	"bytes"
 	"context"
 	"errors"
-	"strings"
 	"testing"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
+	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 	"github.com/MatrixMagician/VillaStraylight/internal/prove"
+	"github.com/MatrixMagician/VillaStraylight/internal/stackapply"
+	"github.com/MatrixMagician/VillaStraylight/internal/stacklock"
 )
 
-// codingmode_test.go drives the transactional core through a fake Deps with no live
-// host. It asserts the ordering contract (capture STRICTLY before any mutation,
-// Pitfall 5), the verbatim rollback (RestoreUnit with the captured priorUnit), the
-// prove-gate (switch ONLY on prove.StatusPass — is-active/200 alone is never success,
-// the same-state NoOp (zero side effects), exit symmetry, and
-// swap-vs-shared residency surfacing (never silently degrade). It mirrors the
-// backendswap swapRecorder + callOrder discipline.
+// The transaction's ordering, restart set and rollback are asserted once, on the
+// frame (internal/stackapply/transact_test.go). These tests cover what coding mode
+// decides inside it: the no-op, the coder resolution and pull, the residency, and
+// the config fields enter writes and exit clears.
 
-const installService = "villa-llama.service"
-
-// priorUnitBytes is the verbatim prior unit the fake CaptureUnit returns, so the
-// rollback tests can assert a byte-equal RestoreUnit.
-var priorUnitBytes = []byte("[Container]\nImage=prior\nExec=llama-server --prior\n")
-
-// modeRecorder records each side-effecting seam call so the tests can assert ordering
-// (capture < save/write; RestoreUnit precedes the rollback Restart) and that ONLY the
-// inference service is restarted.
-type modeRecorder struct {
-	callOrder []string
-	saved     config.VillaConfig
-	restarted []string
-	captured  []byte
-	restored  []byte
-	pulled    []string
-
-	// knobs:
-	currentCoding bool        // cfg.CodingMode in the loaded config
-	chatModel     string      // cfg.Model in the loaded config
-	coder         CoderTarget // ResolveCoder result
-	resolveOK     bool        // ResolveCoder ok
-	resolveReason string      // ResolveCoder remediation reason
-	resolveCalled bool        // whether ResolveCoder was invoked
-	downloaded    bool        // coder weights already on disk
-	pullErr       error       // Pull error
-	captureErr    error       // CaptureUnit error (uncapturable prior unit)
-	saveErr       error       // SaveConfig error (mutate failure)
-	writeErr      error       // ReconcileAndWrite error (mutate failure)
-	restartErr    error       // first Restart error (mutate failure)
-	proveStatus   string      // Prove verdict Status (prove.StatusPass = pass)
-	proveDetail   string      // Prove verdict Detail
-	restoreErr    error       // RestoreUnit error during rollback (rollback-incomplete)
-	rbRestartErr  error       // Restart error during rollback (rollback-incomplete)
-
-	restartCalls int // counts Restart invocations to distinguish forward vs rollback
+type modeFake struct {
+	cfg         config.VillaConfig
+	coder       CoderTarget
+	resolveOK   bool
+	resolveWhy  string
+	resolveCall int
+	pulled      []string
+	pullErr     error
+	captured    bool
+	saved       []config.VillaConfig
+	proveStatus string
 }
 
-// newModeStub builds a Deps wired to rec. Defaults: chat model "chat-model", a swap
-// coder target that fits + is downloaded, prove=pass — a clean forward enter unless a
-// knob flips.
-func newModeStub(rec *modeRecorder) Deps {
-	if rec.chatModel == "" {
-		rec.chatModel = "chat-model"
+func swapCoder() CoderTarget {
+	return CoderTarget{Model: "coder-30b", Quant: "Q4_K_M", AgentCtx: 65536, Residency: ResidencySwap, Downloaded: true}
+}
+
+func newModeFake(coding bool) *modeFake {
+	cfg := config.VillaConfig{Model: "chat-model", Ctx: 8192, Backend: "vulkan"}
+	if coding {
+		cfg.CodingMode, cfg.CoderModel, cfg.CoderQuant, cfg.CoderAgentCtx = true, "coder-30b", "Q4_K_M", 65536
 	}
+	return &modeFake{cfg: cfg, coder: swapCoder(), resolveOK: true}
+}
+
+func (f *modeFake) deps() Deps {
 	return Deps{
-		InstallServiceName: installService,
-		LoadConfig: func() (config.VillaConfig, error) {
-			return config.VillaConfig{Model: rec.chatModel, CodingMode: rec.currentCoding}, nil
+		Tx: stackapply.TxDeps{
+			Lock:       func() (*stacklock.Lock, error) { return nil, nil },
+			LoadConfig: func() (config.VillaConfig, error) { return f.cfg, nil },
+			SaveConfig: func(c config.VillaConfig) error { f.saved = append(f.saved, c); return nil },
+			Capture: func(config.VillaConfig) (map[string]string, error) {
+				f.captured = true
+				return map[string]string{"villa-llama.container": "PRIOR"}, nil
+			},
+			Apply: func(config.VillaConfig) ([]orchestrate.Unit, error) {
+				return []orchestrate.Unit{{Name: "villa-llama.container"}}, nil
+			},
+			Restore:      func(map[string]string) error { return nil },
+			DaemonReload: func() error { return nil },
+			IsActive:     func(string) (string, error) { return "active", nil },
+			Restart:      func(string) error { return nil },
+			Prove: func(context.Context, string) prove.Verdict {
+				if f.proveStatus != "" {
+					return prove.Verdict{Status: f.proveStatus}
+				}
+				return prove.Verdict{Status: prove.StatusPass}
+			},
+			Service: "villa-llama.service",
 		},
-		ResolveCoder: func(_ config.VillaConfig) (CoderTarget, bool, string) {
-			rec.resolveCalled = true
-			t := rec.coder
-			t.Downloaded = rec.downloaded
-			return t, rec.resolveOK, rec.resolveReason
+		ResolveCoder: func(config.VillaConfig) (CoderTarget, bool, string) {
+			f.resolveCall++
+			return f.coder, f.resolveOK, f.resolveWhy
 		},
 		Pull: func(t CoderTarget) error {
-			rec.callOrder = append(rec.callOrder, "pull")
-			rec.pulled = append(rec.pulled, t.Model)
-			return rec.pullErr
-		},
-		CaptureUnit: func() ([]byte, error) {
-			if rec.captureErr != nil {
-				return nil, rec.captureErr
-			}
-			rec.callOrder = append(rec.callOrder, "capture")
-			rec.captured = append([]byte(nil), priorUnitBytes...)
-			return rec.captured, nil
-		},
-		SaveConfig: func(c config.VillaConfig) error {
-			rec.callOrder = append(rec.callOrder, "save")
-			rec.saved = c
-			return rec.saveErr
-		},
-		ReconcileAndWrite: func(_ config.VillaConfig) (bool, error) {
-			rec.callOrder = append(rec.callOrder, "write")
-			if rec.writeErr != nil {
-				return false, rec.writeErr
-			}
-			return true, nil
-		},
-		RestoreUnit: func(b []byte) error {
-			rec.callOrder = append(rec.callOrder, "restore")
-			rec.restored = append([]byte(nil), b...)
-			return rec.restoreErr
-		},
-		DaemonReload: func() error {
-			rec.callOrder = append(rec.callOrder, "daemon-reload")
-			return nil
-		},
-		Restart: func(service string) error {
-			rec.callOrder = append(rec.callOrder, "restart:"+service)
-			rec.restarted = append(rec.restarted, service)
-			rec.restartCalls++
-			if rec.restartCalls == 1 {
-				return rec.restartErr
-			}
-			return rec.rbRestartErr
-		},
-		Prove: func(_ context.Context, _ Direction) prove.Verdict {
-			status := rec.proveStatus
-			if status == "" {
-				status = prove.StatusPass
-			}
-			return prove.Verdict{Status: status, Detail: rec.proveDetail}
+			f.pulled = append(f.pulled, t.Model)
+			return f.pullErr
 		},
 	}
 }
 
-// indexOf returns the index of the first call whose label equals or is prefixed by
-// want, or -1.
-func indexOf(order []string, want string) int {
-	for i, c := range order {
-		if c == want || (len(want) > 0 && len(c) >= len(want) && c[:len(want)] == want) {
-			return i
-		}
-	}
-	return -1
-}
-
-// precedes reports whether first and every one of rest are present in order, with
-// first ahead of each of them. Naming the ordering positively keeps each caller's
-// guard a single negation instead of a negated conjunction the reader has to invert.
-func precedes(order []string, first string, rest ...string) bool {
-	firstIdx := indexOf(order, first)
-	if firstIdx < 0 {
-		return false
-	}
-	for _, want := range rest {
-		if i := indexOf(order, want); i < 0 || firstIdx >= i {
-			return false
-		}
-	}
-	return true
-}
-
-// enterStub is the baseline happy-path recorder for ENTER: chat→coder, swap residency,
-// fits, downloaded, prove pass.
-func enterStub() *modeRecorder {
-	return &modeRecorder{
-		currentCoding: false,
-		chatModel:     "chat-model",
-		resolveOK:     true,
-		downloaded:    true,
-		coder:         CoderTarget{Model: "coder-model", Quant: "Q4", AgentCtx: 65536, Residency: ResidencySwap},
-		proveStatus:   prove.StatusPass,
-	}
-}
-
-// TestEnter: a clean enter from chat → swap coder → Prove pass → Switched. SaveConfig
-// carried CodingMode=true + the resolved coder model/quant/agent_ctx; capture preceded
-// save+write; restart targeted ONLY the inference service.
+// TestEnter: a swap-residency enter persists the coder fields AT ENTER and leaves
+// cfg.Model as the durable chat model, so exit is a config-derived restore.
 func TestEnter(t *testing.T) {
-	rec := enterStub()
-	res := Run(newModeStub(rec), Enter)
-	if !res.Switched {
-		t.Fatalf("clean enter expected Switched, got %+v", res)
+	f := newModeFake(false)
+	res := Run(f.deps(), Enter)
+	if !res.Switched || res.FromModel != "chat-model" || res.ToModel != "coder-30b" || res.Residency != ResidencySwap {
+		t.Fatalf("expected a swap-residency enter chat→coder, got %+v", res)
 	}
-	if res.Residency != ResidencySwap {
-		t.Errorf("enter must surface swap residency, got %q", res.Residency)
+	s := f.saved[0]
+	if !s.CodingMode || s.CoderModel != "coder-30b" || s.CoderQuant != "Q4_K_M" || s.CoderAgentCtx != 65536 || s.Model != "chat-model" {
+		t.Errorf("saved %+v, want the coder fields set and the chat model untouched", s)
 	}
-	if res.FromModel != "chat-model" || res.ToModel != "coder-model" {
-		t.Errorf("From/To models wrong: from=%q to=%q", res.FromModel, res.ToModel)
-	}
-	// SaveConfig persisted the coding fields resolved at enter.
-	if !rec.saved.CodingMode || rec.saved.CoderModel != "coder-model" ||
-		rec.saved.CoderQuant != "Q4" || rec.saved.CoderAgentCtx != 65536 {
-		t.Errorf("enter must persist CodingMode=true + resolved coder fields, got %+v", rec.saved)
-	}
-	// cfg.Model (the durable chat model) is NEVER overwritten — the served coder
-	// model lives in CoderModel so exit reverts by clearing the coder fields. Surfaced
-	// ToModel still names the coder (the served model) for the user.
-	if rec.saved.Model != "chat-model" {
-		t.Errorf("swap enter must NOT overwrite the durable chat model; got cfg.Model=%q", rec.saved.Model)
-	}
-	// Capture STRICTLY before mutate (Pitfall 5).
-	if !precedes(rec.callOrder, "capture", "save", "write") {
-		t.Errorf("capture must precede save AND write, got order %v", rec.callOrder)
-	}
-	// Inference-only restart.
-	if len(rec.restarted) != 1 || rec.restarted[0] != installService {
-		t.Errorf("enter must restart only %s, got %v", installService, rec.restarted)
+	if len(f.pulled) != 0 {
+		t.Errorf("downloaded coder weights must not be pulled again: %v", f.pulled)
 	}
 }
 
-// TestEnterAutoPullsAbsentCoder: on a swap enter with absent weights the core auto-pulls
-// (modelswap step 3) BEFORE the capture/mutate, then proceeds.
+// TestEnterAutoPullsAbsentCoder: absent coder weights are pulled before capture;
+// a failed pull stops with nothing captured or saved.
 func TestEnterAutoPullsAbsentCoder(t *testing.T) {
-	rec := enterStub()
-	rec.downloaded = false
-	res := Run(newModeStub(rec), Enter)
-	if !res.Switched {
-		t.Fatalf("enter with absent weights must pull then switch, got %+v", res)
+	f := newModeFake(false)
+	f.coder.Downloaded = false
+	if res := Run(f.deps(), Enter); !res.Switched || len(f.pulled) != 1 {
+		t.Fatalf("expected a pull then a switch, got %+v pulled %v", res, f.pulled)
 	}
-	if len(rec.pulled) != 1 || rec.pulled[0] != "coder-model" {
-		t.Errorf("absent swap coder must be pulled, got %v", rec.pulled)
-	}
-	if !precedes(rec.callOrder, "pull", "capture") {
-		t.Errorf("pull must precede capture, got %v", rec.callOrder)
+
+	f = newModeFake(false)
+	f.coder.Downloaded = false
+	f.pullErr = errors.New("offline")
+	res := Run(f.deps(), Enter)
+	if res.FailedStep != "pull" || res.Err == nil || res.Refused || f.captured || len(f.saved) != 0 {
+		t.Fatalf("a failed pull must stop before capture as an error, got %+v captured %v", res, f.captured)
 	}
 }
 
-// TestProveFailRollback: a non-pass Prove verdict (CPU fallback / residency FAIL) drives
-// RestoreUnit (byte-equal to captured priorUnit) → SaveConfig(priorCfg) → DaemonReload →
-// Restart; Result.RolledBack true, Switched false; prior bytes+config are VERBATIM.
-func TestProveFailRollback(t *testing.T) {
-	rec := enterStub()
-	rec.proveStatus = "fail"
-	rec.proveDetail = "residency FAIL (CPU fallback)"
-	res := Run(newModeStub(rec), Enter)
-	if !res.RolledBack || res.Switched {
-		t.Fatalf("non-pass prove must roll back (not switch), got %+v", res)
+// TestSharedResidencyRenderDeltaOnly: shared residency records only the agent ctx;
+// coder_model stays empty so the chat endpoint serves, and the residency is surfaced.
+func TestSharedResidencyRenderDeltaOnly(t *testing.T) {
+	f := newModeFake(false)
+	f.coder = CoderTarget{AgentCtx: 16384, Residency: ResidencyShared}
+	res := Run(f.deps(), Enter)
+	if !res.Switched || res.Residency != ResidencyShared || res.ToModel != "chat-model" {
+		t.Fatalf("expected a shared-residency enter on the chat model, got %+v", res)
 	}
-	if !bytes.Equal(rec.restored, priorUnitBytes) {
-		t.Errorf("rollback must RestoreUnit byte-equal to captured prior unit; got %q", rec.restored)
-	}
-	// The prior config was re-saved (CodingMode back to false).
-	if rec.saved.CodingMode {
-		t.Errorf("rollback must SaveConfig(priorCfg) restoring CodingMode=false, got %+v", rec.saved)
-	}
-	if !precedes(rec.callOrder, "restore", "daemon-reload") {
-		t.Errorf("expected restore before daemon-reload in rollback, got %v", rec.callOrder)
-	}
-	if rec.restarted[len(rec.restarted)-1] != installService {
-		t.Errorf("rollback restart must target %s, got %v", installService, rec.restarted)
+	if s := f.saved[0]; !s.CodingMode || s.CoderModel != "" || s.CoderAgentCtx != 16384 {
+		t.Errorf("saved %+v, want only coding mode and the agent ctx", s)
 	}
 }
 
-// TestIdleGreenNotSuccess: any non-prove.StatusPass verdict (incl. ready+health-200-but-
-// residency-FAIL) triggers rollback. Idle-green is never green.
-func TestIdleGreenNotSuccess(t *testing.T) {
-	rec := enterStub()
-	rec.proveStatus = "ready+200 but residency FAIL" // any non-pass sentinel
-	res := Run(newModeStub(rec), Enter)
-	if res.Switched || !res.RolledBack {
-		t.Fatalf("ready+200-but-not-pass must roll back, never switch, got %+v", res)
+// TestExitRestoresChat: exit clears every coder field under the same transaction.
+func TestExitRestoresChat(t *testing.T) {
+	f := newModeFake(true)
+	res := Run(f.deps(), Exit)
+	if !res.Switched || res.ToModel != "chat-model" {
+		t.Fatalf("expected an exit back to the chat model, got %+v", res)
+	}
+	if s := f.saved[0]; s.CodingMode || s.CoderModel != "" || s.CoderQuant != "" || s.CoderAgentCtx != 0 || s.Model != "chat-model" {
+		t.Errorf("saved %+v, want every coder field cleared", s)
+	}
+	if f.resolveCall != 0 {
+		t.Errorf("exit must not resolve a coder")
 	}
 }
 
-// TestMutateRollback: a SaveConfig error during mutate rolls back verbatim with the
-// FailedStep set and the original error carried.
-func TestMutateRollback(t *testing.T) {
-	rec := enterStub()
-	rec.saveErr = errors.New("disk full")
-	res := Run(newModeStub(rec), Enter)
-	if !res.RolledBack || res.Switched {
-		t.Fatalf("a mutate error must roll back, got %+v", res)
-	}
-	if res.FailedStep != "save" || res.Err == nil {
-		t.Errorf("FailedStep must name the mutate step + carry the error, got step=%q err=%v", res.FailedStep, res.Err)
-	}
-	if !bytes.Equal(rec.restored, priorUnitBytes) {
-		t.Errorf("mutate-error rollback must restore the captured prior unit")
-	}
-}
-
-// TestMutateRollback_Restart: a FORWARD restart error also rolls back verbatim.
-func TestMutateRollback_Restart(t *testing.T) {
-	rec := enterStub()
-	rec.restartErr = errors.New("systemd start failed")
-	res := Run(newModeStub(rec), Enter)
-	if !res.RolledBack || res.FailedStep != "restart" {
-		t.Fatalf("a forward-restart error must roll back at step restart, got %+v", res)
-	}
-	if !bytes.Equal(rec.restored, priorUnitBytes) {
-		t.Errorf("restart-error rollback must restore the captured prior unit")
-	}
-}
-
-// TestRollbackIncompleteReported: when a rollback step itself errors (here the rollback
-// Restart), RolledBack stays true but Reason honestly flags rollback-incomplete
-// (Pitfall 5 — never claim a clean no-op when rollback errored).
-func TestRollbackIncompleteReported(t *testing.T) {
-	rec := enterStub()
-	rec.proveStatus = "fail" // trigger rollback
-	rec.rbRestartErr = errors.New("systemd refused restart")
-	res := Run(newModeStub(rec), Enter)
-	if !res.RolledBack {
-		t.Fatalf("expected RolledBack=true even on incomplete rollback, got %+v", res)
-	}
-	if !strings.Contains(res.Reason, "did not fully complete") {
-		t.Errorf("an incomplete rollback must be flagged honestly in Reason, got %q", res.Reason)
-	}
-}
-
-// TestRollbackAccumulatesMultipleFailures is #232's related fix: the rollback
-// detail used to be overwritten by whichever step failed LAST, hiding an earlier
-// step's failure from the operator. Two independent rollback-step failures must
-// BOTH appear in Reason.
-func TestRollbackAccumulatesMultipleFailures(t *testing.T) {
-	rec := enterStub()
-	rec.proveStatus = "fail" // trigger rollback after a clean forward mutate
-	rec.restoreErr = errors.New("read-only filesystem")
-	rec.rbRestartErr = errors.New("systemd refused restart")
-
-	res := Run(newModeStub(rec), Enter)
-	if !res.RolledBack {
-		t.Fatalf("expected RolledBack=true, got %+v", res)
-	}
-	for _, want := range []string{"RestoreUnit failed", "read-only filesystem", "Restart(prior) failed", "systemd refused restart"} {
-		if !strings.Contains(res.Reason, want) {
-			t.Errorf("Reason must accumulate every rollback failure, missing %q; got %q", want, res.Reason)
+// TestNoOpSameState: enter while coding and exit while chatting are clean no-ops.
+func TestNoOpSameState(t *testing.T) {
+	for _, tc := range []struct {
+		coding bool
+		dir    Direction
+	}{{true, Enter}, {false, Exit}} {
+		f := newModeFake(tc.coding)
+		res := Run(f.deps(), tc.dir)
+		if !res.NoOp || f.captured || len(f.saved) != 0 {
+			t.Errorf("%s while already there: expected a clean NoOp, got %+v", tc.dir, res)
 		}
 	}
 }
 
-// TestExitRestoresChat: exit from coding mode runs the SAME (capture→mutate→prove→
-// rollback) frame and persists CodingMode=false, clearing the coder fields. It is
-// symmetric to enter, NOT a bare flip — capture fired before save.
-func TestExitRestoresChat(t *testing.T) {
-	rec := enterStub()
-	rec.currentCoding = true // currently in coding mode (cfg.Model is the durable chat model)
-	res := Run(newModeStub(rec), Exit)
-	if !res.Switched {
-		t.Fatalf("clean exit expected Switched, got %+v", res)
-	}
-	if res.Direction != Exit {
-		t.Errorf("exit Result must carry Direction=Exit, got %v", res.Direction)
-	}
-	if rec.saved.CodingMode || rec.saved.CoderModel != "" || rec.saved.CoderAgentCtx != 0 {
-		t.Errorf("exit must persist CodingMode=false + cleared coder fields, got %+v", rec.saved)
-	}
-	// The durable chat model is restored as the served model (config-derived).
-	if rec.saved.Model != "chat-model" {
-		t.Errorf("exit must keep the durable chat model served, got %q", rec.saved.Model)
-	}
-	// Symmetric, not a bare flip: capture STRICTLY before save (the transactional frame).
-	if !precedes(rec.callOrder, "capture", "save") {
-		t.Errorf("exit must capture before mutating (symmetric frame), got %v", rec.callOrder)
-	}
-	// Exit must not resolve a coder target (no model selection on exit).
-	if rec.resolveCalled {
-		t.Errorf("exit must NOT call ResolveCoder")
-	}
-}
-
-// TestExitProveFailRollback: an exit whose prove fails rolls back verbatim to the coding
-// unit+config — exit is held to the SAME prove gate as enter.
-func TestExitProveFailRollback(t *testing.T) {
-	rec := enterStub()
-	rec.currentCoding = true
-	rec.proveStatus = "fail"
-	res := Run(newModeStub(rec), Exit)
-	if !res.RolledBack || res.Switched {
-		t.Fatalf("exit prove-fail must roll back, got %+v", res)
-	}
-	if !bytes.Equal(rec.restored, priorUnitBytes) {
-		t.Errorf("exit rollback must restore the captured prior (coding) unit")
-	}
-}
-
-// TestNoOpEnterAlreadyCoding: enter while already coding is a clean NoOp with ZERO seams.
-func TestNoOpEnterAlreadyCoding(t *testing.T) {
-	rec := enterStub()
-	rec.currentCoding = true
-	res := Run(newModeStub(rec), Enter)
-	if !res.NoOp || res.Switched || res.RolledBack || res.Refused {
-		t.Fatalf("enter-while-already-coding must be a clean NoOp, got %+v", res)
-	}
-	if len(rec.callOrder) != 0 {
-		t.Errorf("a NoOp must fire zero seams, got %v", rec.callOrder)
-	}
-	if rec.resolveCalled {
-		t.Errorf("a NoOp must not resolve a coder target")
-	}
-}
-
-// TestNoOpExitAlreadyChat: exit while already chat is a clean NoOp with ZERO seams.
-func TestNoOpExitAlreadyChat(t *testing.T) {
-	rec := enterStub()
-	rec.currentCoding = false
-	res := Run(newModeStub(rec), Exit)
-	if !res.NoOp || res.Switched || res.RolledBack || res.Refused {
-		t.Fatalf("exit-while-already-chat must be a clean NoOp, got %+v", res)
-	}
-	if len(rec.callOrder) != 0 {
-		t.Errorf("a NoOp must fire zero seams, got %v", rec.callOrder)
-	}
-}
-
-// TestRefuseFitGuard: ResolveCoder→false (the coder does not fit at AgentCtx) refuses
-// with ZERO capture/save/write/restart/pull seams (refuse-with-remediation, Pitfall 4).
+// TestRefuseFitGuard: a coder that does not fit at the agent ctx refuses with the
+// remediation before anything is pulled or captured.
 func TestRefuseFitGuard(t *testing.T) {
-	rec := enterStub()
-	rec.resolveOK = false
-	rec.resolveReason = "coder needs 70 GiB vs 64 GiB usable at agent_ctx"
-	res := Run(newModeStub(rec), Enter)
-	if !res.Refused || res.Switched || res.RolledBack {
-		t.Fatalf("a non-fit must Refuse with zero side effects, got %+v", res)
-	}
-	if res.Reason != rec.resolveReason {
-		t.Errorf("refusal must carry the fit remediation reason, got %q", res.Reason)
-	}
-	if len(rec.callOrder) != 0 {
-		t.Errorf("a fit refusal must fire zero seams, got %v", rec.callOrder)
+	f := newModeFake(false)
+	f.resolveOK, f.resolveWhy = false, "no coder model fits"
+	f.coder.Downloaded = false
+	res := Run(f.deps(), Enter)
+	if !res.Refused || res.Reason != "no coder model fits" || f.captured || len(f.pulled) != 0 {
+		t.Fatalf("expected a refusal before pull and capture, got %+v", res)
 	}
 }
 
-// TestCaptureFailureRefuses: a CaptureUnit error refuses at step capture with NO
-// save/write/restart (an uncapturable prior unit must not mutate).
-func TestCaptureFailureRefuses(t *testing.T) {
-	rec := enterStub()
-	rec.captureErr = errors.New("unit file unreadable")
-	res := Run(newModeStub(rec), Enter)
-	if !res.Refused || res.FailedStep != "capture" {
-		t.Fatalf("capture failure must Refuse at step capture, got %+v", res)
-	}
-	if indexOf(rec.callOrder, "save") != -1 || indexOf(rec.callOrder, "write") != -1 || len(rec.restarted) != 0 {
-		t.Errorf("capture failure must fire no save/write/restart, got %v", rec.callOrder)
-	}
-}
-
-// TestSharedResidencyRenderDeltaOnly: in shared residency the enter path applies the
-// render delta to the EXISTING chat model WITHOUT a model change (no swap, no pull),
-// still transactional + proved, and surfaces the shared mode distinctly — it NEVER
-// silently degrades swap→shared.
-func TestSharedResidencyRenderDeltaOnly(t *testing.T) {
-	rec := enterStub()
-	rec.downloaded = false // would force a pull IF it were a swap
-	rec.coder = CoderTarget{AgentCtx: 32768, Residency: ResidencyShared}
-	res := Run(newModeStub(rec), Enter)
-	if !res.Switched {
-		t.Fatalf("shared enter must still switch (render-delta-only), got %+v", res)
-	}
-	if res.Residency != ResidencyShared {
-		t.Errorf("shared residency must be surfaced distinctly, got %q", res.Residency)
-	}
-	// No model change on shared: the served model + To stay the chat model.
-	if res.ToModel != "chat-model" || rec.saved.Model != "chat-model" {
-		t.Errorf("shared residency must NOT change the served model, got To=%q saved.Model=%q", res.ToModel, rec.saved.Model)
-	}
-	// No pull on shared residency even though weights are "absent".
-	if len(rec.pulled) != 0 {
-		t.Errorf("shared residency must perform NO pull, got %v", rec.pulled)
-	}
-	// But the agent-ctx render delta IS persisted + coding mode on.
-	if !rec.saved.CodingMode || rec.saved.CoderAgentCtx != 32768 {
-		t.Errorf("shared enter must still persist CodingMode + agent ctx, got %+v", rec.saved)
+// TestRollbackKeepsTheModels: a failed proof rolls back and the Result still names
+// the chat model and the coder it tried.
+func TestRollbackKeepsTheModels(t *testing.T) {
+	f := newModeFake(false)
+	f.proveStatus = prove.StatusFail
+	res := Run(f.deps(), Enter)
+	if !res.RolledBack || res.FromModel != "chat-model" || res.ToModel != "coder-30b" || res.Direction != Enter {
+		t.Fatalf("expected a rollback naming both models, got %+v", res)
 	}
 }

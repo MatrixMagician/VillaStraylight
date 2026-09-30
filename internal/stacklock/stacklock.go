@@ -7,6 +7,11 @@
 // rollback could silently revert a switch the dashboard made during the CLI's own
 // prove window. ADR-0010 records the decision; this package is what it implements.
 //
+// Who takes it (ADR-0015): the swap transaction frame (stackapply.Transact) for every
+// swap verb, CLI and dashboard alike, before it reads the config; and the verbs with
+// their own flows (up, restart, restore, update, install, the resident verbs) in
+// their cobra caller, before their first config read.
+//
 // Linux/Unix only (syscall.Flock) — the project targets Fedora exclusively (v1).
 package stacklock
 

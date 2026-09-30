@@ -77,8 +77,9 @@ Go 1.26+. Single module, single static binary built from `./cmd/villa`.
   `rocm-policy.json`), `inference` (`BackendFor` resolver + Backend/Runner/ResidencyProof
   seam; ROCm default + Vulkan fallback), `orchestrate` (Quadlet Render/Reconcile/WriteUnits — the
   `podman`/`systemctl` seam), `stackapply` (the one path from a target config to written units:
-  every render input, the inference-secret heal, write + reload; ADR-0013), `backendswap`
-  (transactional switch), `bench` (pure A/B core),
+  every render input, the inference-secret heal, write + reload, ADR-0013; and `Transact`,
+  the swap transaction frame that owns the stack lock, restart set, proof and rollback,
+  ADR-0015), `backendswap` (the backend / speculation / tools-mode swap changes), `bench` (pure A/B core),
   `residentset` (pure admission control for holding several models loaded at once), plus `status`,
   `dashboard`, `metrics`, `config`, `catalog`, `download`, `modelswap`, `llm`, and `inprobe` (the one
   home for the in-network curl-probe doctrine — exit-code mapping and typed-Unknown health mapping —
@@ -86,8 +87,8 @@ Go 1.26+. Single module, single static binary built from `./cmd/villa`.
 
   The v1.3–v1.5 packages follow the same pure-core shape: `memory` + `recall`
   (memory-stack decision spine and the chat-index plan/diff algebra), `agent` +
-  `codingmode` (the `villa code` delivery spine and the transactional
-  enter/exit state machine), `websafe` (the web-search injection guard —
+  `codingmode` (the `villa code` delivery spine and the enter/exit swap
+  change), `websafe` (the web-search injection guard —
   sanitize/normalize/fence/classify; it reduces and FLAGS, and never claims safe),
   `doctor` (read-only runtime twin of preflight), `backup` (pure manifest-skew
   comparison), `usage` (reset-aware Fold over llama.cpp's monotonic token totals),
@@ -325,8 +326,8 @@ loop.
 | preflight | Reusable host-prep gate → `[]CheckResult` (BLOCK/WARN tiers, fail-soft) | `internal/preflight/preflight.go` |
 | inference | Backend-neutral seam: `BackendFor`, `Backend` iface, offload/residency proof; `Client`, the one authenticated caller of llama-server (address, api key, every route; ADR-0014) | `internal/inference/*.go`, `client.go` |
 | orchestrate | Render Quadlet units (pure) + reconcile + host-touching systemd seam | `internal/orchestrate/*.go` |
-| stackapply | Stack apply: derive every render input from the config (served model, coding descriptor, resident slots), heal the inference secret, render, write what changed, reload; every unit-writing verb goes through it (ADR-0013) | `internal/stackapply/stackapply.go` |
-| backendswap | Transactional `villa backend set` (capture→prove→cutover→rollback) | `internal/backendswap/backendswap.go` |
+| stackapply | Stack apply: derive every render input from the config (served model, coding descriptor, resident slots), heal the inference secret, render, write what changed, reload; every unit-writing verb but install goes through it (ADR-0013). `Transact` is the swap transaction frame: stack lock, capture, apply, restart of every changed running unit, proof, rollback (ADR-0015) | `internal/stackapply/stackapply.go`, `transact.go` |
+| backendswap | The `backend set` / `speculation set` / `tools-mode` swap changes: no-op test, guards, the field written; run through `stackapply.Transact` | `internal/backendswap/backendswap.go` |
 | bench | Pure A/B throughput core; `--ab` composes `backendswap.Run` | `internal/bench/bench.go` |
 | residentset | Pure `Admit()` → `Plan`/`Refusal` for the resident model set (LRU evict, no host I/O) | `internal/residentset/admit.go` |
 | modelswap | Guarded `villa model swap` ordering core (shared by CLI + dashboard) | `internal/modelswap/modelswap.go` |
@@ -357,7 +358,7 @@ loop.
 | taskstore | The task record, its state machine (`Exit(State)` is the one state → exit-code map), the append-only log; never deletes | `internal/taskstore/*.go` |
 | crushapi | The Crush server client + the bridge's one-object-per-line stdio protocol | `internal/crushapi/*.go` |
 | grounding | The post-run claim audit: one completion per document, reports, never edits; a clean audit is "the auditor found none" | `internal/grounding/grounding.go` |
-| backendswap.RunTools | The `tools-mode enter` / `exit` transaction: `backendswap`'s frame with a boolean axis, the ctx-floor fit guard, one real tool call in the proof | `internal/backendswap/backendswap.go` |
+| backendswap.RunTools | The `tools-mode enter` / `exit` swap: a boolean axis, the ctx-floor fit guard, one real tool call in the proof (`liveToolsProve`) | `internal/backendswap/backendswap.go` |
 | taskrun | The runner: one task at a time, hosted by the dashboard service; every decision through `approval`, every terminal state through `taskstore` | `internal/taskrun/*.go` |
 
 This table covers the v1.0–v1.2 spine plus the v1.6 consolidation modules and the v1.11 workspace-agent packages. The
@@ -373,7 +374,7 @@ same pure-core + `Deps` shape — see the code map above and `docs/ARCHITECTURE.
 - **Honesty-by-construction.** Every probe degrades to a typed `Unknown` (`detect.Bool`/`detect.Bytes`) → WARN, which is DISTINCT from a confident negative → FAIL. CPU fallback is never reported as success.
 - **Composition over re-implementation.** `bench --ab` composes `backendswap.Run`; `dashboard` composes `status` and `modelswap`; nothing forks a proven core. v1.6 applied this to the five shapes that HAD been forked: the residency proof (five copies), the Open WebUI protocol (twelve renamed seams), the subsystem gates (read directly in 20+ files), the verify shape (three copies), and install's decisions.
 - **A gate is answered once.** `subsystem.MemoryOn`/`WebSearchOn`/`AgentOn`/`CodingModeOn` are the only places a subsystem flag is read as a predicate; a test fails the build if that is bypassed. Enablement is a pure function of an already-loaded config, so one command cannot observe two answers in a single run.
-- **Every stack-mutating flow is transactional.** The three swap cores, `villa install` (ADR-0003) AND `villa update` capture before mutating and restore on failure, reporting honestly when a rollback could not complete. `update` adds a step the swaps never needed: it proves the CURRENT state first, so a pre-existing failure is a refusal rather than an update failure villa did not cause.
+- **Every stack-mutating flow is transactional and holds the stack lock.** Every swap runs in one frame, `stackapply.Transact` (ADR-0015), which takes the lock (ADR-0010) and restarts every changed running unit; `villa install` (ADR-0003) AND `villa update` capture before mutating and restore on failure, reporting honestly when a rollback could not complete. `update` adds a step the swaps never needed: it proves the CURRENT state first, so a pre-existing failure is a refusal rather than an update failure villa did not cause.
 
 - **The image is not always the state being changed.** Chat and memory own a mutable data volume (`subsystem.OwnsPersistentState`), so their update is a stopped window — stop → snapshot → mutate → start — and their rollback restores the data as well as the pin. The stop is load-bearing: a volume exported from under a running service is a torn copy. A failed capture REFUSES, unlike the failed prune/cleanup that WARNs, because a capture failure happens before any mutation while cleanup happens after the update already succeeded.
 
@@ -434,7 +435,7 @@ server guards its one cached value with a `sync` mutex.
 
 - Typed-Unknown degradation: missing tool / unparseable output → `Unknown` → WARN, never a false hard block (`internal/preflight`, `internal/detect`).
 - Typed tool errors: `orchestrate.ErrToolNotFound` (missing binary → soft) vs `ErrCommandFailed` (ran non-zero with no output → hard) (`internal/orchestrate/systemd.go`).
-- Transactional rollback: any mutate error or non-pass prove → verbatim restore, with honest rollback-incomplete reporting (`internal/backendswap/backendswap.go`).
+- Transactional rollback: any mutate error or non-pass prove → verbatim restore, with honest rollback-incomplete reporting (`internal/stackapply/transact.go`).
 
 ## Agent skills
 

@@ -243,7 +243,10 @@ func liveSpeculation(cfg config.VillaConfig, coding bool) (*inference.Speculatio
 	served := cfg.Model
 	requested := cfg.Speculation
 	if coding {
-		served = cfg.CoderModel
+		// The coding-mode served target (stackapply.ServedTarget): the coder in swap
+		// residency, the chat model in shared residency, whose coder_model is empty
+		// (#261).
+		served = cmp.Or(cfg.CoderModel, cfg.Model)
 		requested = ""
 	}
 	cat, _, err := catalog.Load(cmp.Or(modelCatalogPath, cfg.CatalogPath))

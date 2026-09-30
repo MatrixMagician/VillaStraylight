@@ -16,6 +16,9 @@
 // every verb but install, whose transaction persists its own freshly generated
 // secret (ADR-0003).
 //
+// Transact (transact.go) is the swap transaction frame built on Apply and Restore
+// (ADR-0015): every swap verb's change reaches the running stack through it.
+//
 // The package does no host I/O of its own. The catalog, the pinned render, the unit
 // dir, the unit writer, systemd and the secret writers arrive through Deps, which
 // cmd/villa wires once (liveStackDeps).
@@ -100,8 +103,12 @@ func Plan(d Deps, cfg config.VillaConfig) (orchestrate.Plan, error) {
 // Apply makes the unit files match cfg: heal the inference secret, render,
 // reconcile, write the changed units and daemon-reload. It returns the units it
 // wrote, and still returns them when the reload after the write fails, so a caller's
-// rollback knows what is on disk. Nothing changed means nothing written and no
-// reload.
+// rollback knows what is on disk. Nothing changed means no unit written and no
+// reload; the heal still rewrites the inference-secret env file on every apply.
+//
+// Its mutating callers are the swap transaction frame (Transact, through its live
+// binding) and the verbs that hold the stack lock themselves;
+// TestEveryStackMutationHoldsTheLock (cmd/villa) keeps it that way.
 func Apply(d Deps, cfg config.VillaConfig) ([]orchestrate.Unit, error) {
 	cfg, err := heal(d, cfg)
 	if err != nil {

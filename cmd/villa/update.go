@@ -302,6 +302,16 @@ func apply(cmd *cobra.Command, d updateDeps, report updatecheck.Report, selected
 		return exitBlocked
 	}
 
+	// The per-subsystem transactions capture, mutate and prove the stack: hold the
+	// stack lock (ADR-0010) across all of them. The check and the dry run above
+	// mutate nothing.
+	lock, err := acquireStackLock()
+	if err != nil {
+		fmt.Fprintf(errOut, "update: %v\n", err)
+		return exitBlocked
+	}
+	defer func() { _ = lock.Release() }()
+
 	res := updateflow.Run(ctx, d.FlowDeps(ctx), targets)
 	if ctx.Err() != nil {
 		return exitInterrupted

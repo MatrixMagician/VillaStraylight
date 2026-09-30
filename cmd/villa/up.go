@@ -57,6 +57,17 @@ func runUp(cmd *cobra.Command, opts upOpts, args []string, d *lifecycleDeps) int
 	out := cmd.OutOrStdout()
 	errOut := cmd.ErrOrStderr()
 
+	// The apply heals the inference secret with a config write, so a real run holds
+	// the stack lock (ADR-0010) from its first config read; a dry run writes nothing.
+	if !opts.dryRun {
+		lock, err := acquireStackLock()
+		if err != nil {
+			fmt.Fprintf(errOut, "up: %v\n", err)
+			return exitBlocked
+		}
+		defer func() { _ = lock.Release() }()
+	}
+
 	cfg, err := d.loadConfig()
 	if err != nil {
 		fmt.Fprintf(errOut, "up: load config: %v\n", err)

@@ -21,6 +21,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 	"github.com/MatrixMagician/VillaStraylight/internal/prove"
 	"github.com/MatrixMagician/VillaStraylight/internal/recall"
+	"github.com/MatrixMagician/VillaStraylight/internal/stackapply"
 	"github.com/MatrixMagician/VillaStraylight/internal/stacklock"
 	"github.com/MatrixMagician/VillaStraylight/internal/status"
 	"github.com/MatrixMagician/VillaStraylight/internal/usage"
@@ -418,7 +419,29 @@ func TestHandleModelsEmptyCatalog(t *testing.T) {
 func stubSwapDeps(known string, fits bool, called *[]string) modelswap.Deps {
 	rec := func(step string) { *called = append(*called, step) }
 	return modelswap.Deps{
-		InstallServiceName: "villa-llama.service",
+		// Tx.Lock is left nil: handleSwitch binds the frame's lock itself (tryStackLock,
+		// pointed at a temp dir by TestMain).
+		Tx: stackapply.TxDeps{
+			Capture: func(config.VillaConfig) (map[string]string, error) {
+				rec("capture")
+				return map[string]string{"villa-llama.container": "prior unit"}, nil
+			},
+			LoadConfig: func() (config.VillaConfig, error) { return config.VillaConfig{Model: "old"}, nil },
+			SaveConfig: func(config.VillaConfig) error { rec("save"); return nil },
+			Apply: func(config.VillaConfig) ([]orchestrate.Unit, error) {
+				rec("reconcile")
+				return []orchestrate.Unit{{Name: "villa-llama.container"}}, nil
+			},
+			Restore:      func(map[string]string) error { rec("restore"); return nil },
+			DaemonReload: func() error { rec("daemon-reload"); return nil },
+			IsActive:     func(string) (string, error) { return "active", nil },
+			Restart:      func(string) error { rec("restart"); return nil },
+			Prove: func(context.Context, string) prove.Verdict {
+				rec("prove")
+				return prove.Verdict{Status: prove.StatusPass}
+			},
+			Service: "villa-llama.service",
+		},
 		ResolveCatalog: func(name string) (catalog.Model, bool) {
 			if name == known {
 				return catalog.Model{ID: name, Quant: "Q4"}, true
@@ -433,20 +456,6 @@ func stubSwapDeps(known string, fits bool, called *[]string) modelswap.Deps {
 		},
 		IsDownloaded: func(catalog.Model) bool { return true },
 		Pull:         func(catalog.Model) error { rec("pull"); return nil },
-		CaptureUnit:  func() ([]byte, error) { rec("capture"); return []byte("prior unit"), nil },
-		LoadConfig:   func() (config.VillaConfig, error) { return config.VillaConfig{Model: "old"}, nil },
-		SaveConfig:   func(config.VillaConfig) error { rec("save"); return nil },
-		ReconcileAndWrite: func(config.VillaConfig) (bool, error) {
-			rec("reconcile")
-			return true, nil
-		},
-		RestoreUnit:  func([]byte) error { rec("restore"); return nil },
-		DaemonReload: func() error { rec("daemon-reload"); return nil },
-		Restart:      func(string) error { rec("restart"); return nil },
-		Prove: func(context.Context) prove.Verdict {
-			rec("prove")
-			return prove.Verdict{Status: prove.StatusPass}
-		},
 	}
 }
 
@@ -512,30 +521,18 @@ func TestHandleSwitchConcurrentRefusedWith409(t *testing.T) {
 	inFlight := make(chan struct{}) // closed once the first swap is provably inside Restart
 	release := make(chan struct{})  // closed by the test to let the first swap finish
 
-	deps := modelswap.Deps{
-		InstallServiceName: "villa-llama.service",
-		ResolveCatalog: func(name string) (catalog.Model, bool) {
-			return catalog.Model{ID: name, Quant: "Q4"}, true
-		},
-		Fits:         func(catalog.Model) (bool, string) { return true, "" },
-		IsDownloaded: func(catalog.Model) bool { return true },
-		Pull:         func(catalog.Model) error { return nil },
-		CaptureUnit:  func() ([]byte, error) { return []byte("prior unit"), nil },
-		LoadConfig:   func() (config.VillaConfig, error) { return config.VillaConfig{Model: "old"}, nil },
-		SaveConfig:   func(config.VillaConfig) error { rec("save"); return nil },
-		ReconcileAndWrite: func(config.VillaConfig) (bool, error) {
-			rec("reconcile")
-			return true, nil
-		},
-		RestoreUnit:  func([]byte) error { return nil },
-		DaemonReload: func() error { return nil },
-		Restart: func(string) error {
-			rec("restart")
-			close(inFlight) // signal the first swap is holding the swap mutex
-			<-release       // block here until the test releases it
-			return nil
-		},
-		Prove: func(context.Context) prove.Verdict { return prove.Verdict{Status: prove.StatusPass} },
+	var stubCalls []string
+	deps := stubSwapDeps("qwen3", true, &stubCalls)
+	deps.Tx.SaveConfig = func(config.VillaConfig) error { rec("save"); return nil }
+	deps.Tx.Apply = func(config.VillaConfig) ([]orchestrate.Unit, error) {
+		rec("reconcile")
+		return []orchestrate.Unit{{Name: "villa-llama.container"}}, nil
+	}
+	deps.Tx.Restart = func(string) error {
+		rec("restart")
+		close(inFlight) // signal the first swap is holding the swap mutex
+		<-release       // block here until the test releases it
+		return nil
 	}
 
 	srv := mustNewServer(t, Config{

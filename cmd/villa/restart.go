@@ -39,6 +39,15 @@ func runRestart(cmd *cobra.Command, args []string, d *lifecycleDeps) int {
 	out := cmd.OutOrStdout()
 	errOut := cmd.ErrOrStderr()
 
+	// The apply heals the inference secret with a config write: hold the stack lock
+	// (ADR-0010) from the first config read.
+	lock, err := acquireStackLock()
+	if err != nil {
+		fmt.Fprintf(errOut, "restart: %v\n", err)
+		return exitBlocked
+	}
+	defer func() { _ = lock.Release() }()
+
 	cfg, err := d.loadConfig()
 	if err != nil {
 		fmt.Fprintf(errOut, "restart: load config: %v\n", err)
