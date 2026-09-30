@@ -422,3 +422,49 @@ func TestRollbackIncompleteReported(t *testing.T) {
 		t.Errorf("an incomplete rollback must be flagged honestly in Reason, got %q", res.Reason)
 	}
 }
+
+// TestSwitchRestartsTheChangedResidentUnit guards #251. Resident units share the
+// backend image, so a backend switch rewrites them too. Every rewritten unit whose
+// service is running must be restarted on the way in, and restored and restarted on
+// the way out, or the resident keeps serving the old image under a unit file that
+// already names the new one.
+func TestSwitchRestartsTheChangedResidentUnit(t *testing.T) {
+	const residentUnit = "villa-llama-small.container"
+	const residentService = "villa-llama-small.service"
+	count := func(xs []string, want string) (n int) {
+		for _, x := range xs {
+			if x == want {
+				n++
+			}
+		}
+		return n
+	}
+
+	t.Run("cutover", func(t *testing.T) {
+		rec := passStub()
+		rec.extraUnits = map[string]string{residentUnit: "[Container]\nImage=prior\n"}
+		res := Run(newSwapStub(rec), "rocm")
+		if !res.Switched {
+			t.Fatalf("expected Switched, got %+v", res)
+		}
+		if n := count(rec.restarted, residentService); n != 1 {
+			t.Errorf("the running resident whose unit the switch rewrote must be restarted once, restarts %v", rec.restarted)
+		}
+	})
+
+	t.Run("rollback", func(t *testing.T) {
+		rec := passStub()
+		rec.proveStatus = prove.StatusFail
+		rec.extraUnits = map[string]string{residentUnit: "[Container]\nImage=prior\n"}
+		res := Run(newSwapStub(rec), "rocm")
+		if !res.RolledBack {
+			t.Fatalf("expected RolledBack, got %+v", res)
+		}
+		if rec.restored[residentUnit] != "[Container]\nImage=prior\n" {
+			t.Errorf("rollback must restore the resident unit verbatim, restored %v", rec.restored)
+		}
+		if n := count(rec.restarted, residentService); n != 2 {
+			t.Errorf("rollback must restart the restored resident again (cutover + rollback), restarts %v", rec.restarted)
+		}
+	})
+}

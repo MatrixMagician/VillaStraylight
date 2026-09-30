@@ -7,11 +7,13 @@ import (
 	"testing"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/backendswap"
+	"github.com/MatrixMagician/VillaStraylight/internal/catalog"
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
 	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 	"github.com/MatrixMagician/VillaStraylight/internal/preflight"
 	"github.com/MatrixMagician/VillaStraylight/internal/prove"
+	"github.com/MatrixMagician/VillaStraylight/internal/recommend"
 	"github.com/MatrixMagician/VillaStraylight/internal/stacklock"
 )
 
@@ -340,5 +342,43 @@ func TestBackendSetLockFailureBlocksBeforeAnyMutation(t *testing.T) {
 	}
 	if !strings.Contains(errOut.String(), "lock held") {
 		t.Errorf("expected the lock error surfaced, got %q", errOut.String())
+	}
+}
+
+// TestProveTargetIsTheServedCoder guards #261. In swap-residency coding mode
+// villa-llama serves the coder at the agent ctx, so the cutover proof after a backend,
+// speculation, tools-mode or model swap must drive the coder's file, ctx and weight
+// footprint. Proving the chat model computes the GTT floor from weights that are not
+// resident, and a failure there rolls the swap back for the wrong reason.
+func TestProveTargetIsTheServedCoder(t *testing.T) {
+	const chat, coder = "qwen3.6-35b-a3b", "qwen3-coder-30b-a3b"
+	cfg := config.VillaConfig{
+		Model: chat, Ctx: 32768, Backend: "vulkan",
+		CodingMode: true, CoderModel: coder, CoderAgentCtx: 65536,
+	}
+	cat, _, err := catalog.Load("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	weight := func(id string) uint64 {
+		return recommend.Pick(fixtureProfile(), cat, recommend.Overrides{Model: id, Speculation: config.SpeculationOff},
+			recommend.MemoryInputs{}, recommend.WebSearchInputs{}).WeightBytes
+	}
+	if weight(chat) == weight(coder) {
+		t.Fatalf("fixture needs a chat and a coder whose weights differ, both are %d", weight(chat))
+	}
+	m, _ := cat.FindByID(coder)
+
+	got, err := proveTarget(cfg, inference.VulkanBackend(), fixtureProfile())
+	if err != nil {
+		t.Fatalf("proveTarget: %v", err)
+	}
+	if got.ModelID != coder || got.ModelFile != m.PrimaryFile() || got.ContextLen != cfg.CoderAgentCtx {
+		t.Errorf("proof target = %q %q ctx %d, want the served coder %q %q ctx %d",
+			got.ModelID, got.ModelFile, got.ContextLen, coder, m.PrimaryFile(), cfg.CoderAgentCtx)
+	}
+	if got.WeightBytes != weight(coder) {
+		t.Errorf("proof weight footprint = %d, want the served coder's %d (the chat model's is %d)",
+			got.WeightBytes, weight(coder), weight(chat))
 	}
 }

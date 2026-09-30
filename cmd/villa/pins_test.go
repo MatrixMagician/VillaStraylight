@@ -315,3 +315,17 @@ func TestEveryRenderCallGoesThroughThePinnedEntryPoint(t *testing.T) {
 		}
 	}
 }
+
+// TestSharedResidencySpeculationResolvesTheChatModel guards the edge #261 names:
+// shared residency serves the chat model in coding mode and leaves coder_model
+// empty, so with speculation on the render must resolve the served entry through
+// stackapply.ServedTarget rather than look up an empty coder id.
+func TestSharedResidencySpeculationResolvesTheChatModel(t *testing.T) {
+	cfg := config.VillaConfig{
+		Model: "qwen3.6-35b-a3b", Ctx: 32768, Backend: "vulkan",
+		CodingMode: true, CoderAgentCtx: 16384, Speculation: config.SpeculationNgram,
+	}
+	if _, err := liveSpeculation(cfg, true); err != nil {
+		t.Fatalf("shared-residency coding mode with speculation on must render: %v", err)
+	}
+}
