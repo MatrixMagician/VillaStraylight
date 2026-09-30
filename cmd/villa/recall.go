@@ -27,9 +27,7 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"strings"
 	"time"
@@ -96,13 +94,7 @@ func liveRecallDeps() recallDeps {
 // Phase-23 install WARN surface) so the two guards can never drift onto
 // different readers.
 func liveRecallStateLoad() (recall.State, error) {
-	return recall.Load(recall.Deps{ReadAll: func() ([]byte, error) {
-		data, err := os.ReadFile(recall.StatePath())
-		if errors.Is(err, fs.ErrNotExist) {
-			return nil, nil // absent store ⇒ empty state ("nothing indexed")
-		}
-		return data, err
-	}})
+	return recall.Load(recall.Deps{ReadAll: storeReader(recall.StatePath())}) // absent ⇒ "nothing indexed"
 }
 
 // newRecall builds the `villa recall` parent command.

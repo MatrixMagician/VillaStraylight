@@ -331,17 +331,8 @@ func liveBenchstoreDeps() benchstore.Deps {
 			}
 			return nil
 		},
-		ReadAll: func() ([]byte, error) {
-			data, err := os.ReadFile(store)
-			if errors.Is(err, os.ErrNotExist) {
-				return nil, nil // no reports yet ≠ error
-			}
-			if err != nil {
-				return nil, fmt.Errorf("bench: read store: %w", err)
-			}
-			return data, nil
-		},
-		Now: time.Now,
+		ReadAll: storeReader(store), // no reports yet ≠ error; benchstore.Load wraps a real read error
+		Now:     time.Now,
 	}
 }
 

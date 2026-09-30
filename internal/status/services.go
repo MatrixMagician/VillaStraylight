@@ -10,6 +10,8 @@ package status
 //
 // A service is now one list entry. Adding a subsystem to status is one more entry.
 
+import "github.com/MatrixMagician/VillaStraylight/internal/config"
+
 // ServiceKind classifies what a service contributes to the overall verdict.
 //
 // The distinction is load-bearing rather than cosmetic. Only the inference service
@@ -49,8 +51,10 @@ type Service struct {
 	// ready.
 	//
 	// A nil Probe yields HealthUnknown, which is a typed Unknown and never a
-	// fabricated verdict.
-	Probe func() HealthState
+	// fabricated verdict. It is given the config the run loaded, so a probe that
+	// reaches the inference unit builds its client from this run's key, not the key
+	// present when the list was wired (#253).
+	Probe func(config.VillaConfig) HealthState
 	// AlwaysRow forces a row even when the service is absent from the rendered unit
 	// set. The dashboard needs this: it is a managed member of the stack but is not
 	// a Quadlet container, so it never appears in the rendered units.
@@ -58,11 +62,11 @@ type Service struct {
 }
 
 // health resolves a service's health, treating an absent probe as Unknown.
-func (s Service) health() HealthState {
+func (s Service) health(cfg config.VillaConfig) HealthState {
 	if s.Probe == nil {
 		return HealthUnknown
 	}
-	return s.Probe()
+	return s.Probe(cfg)
 }
 
 // findService returns the configured Service for a unit name, if any.

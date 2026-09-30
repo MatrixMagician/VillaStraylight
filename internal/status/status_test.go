@@ -296,7 +296,7 @@ func TestReadinessFold(t *testing.T) {
 }
 
 // TestRunPopulatesBackendAwareFields proves Run sources the active backend identity
-// from the RESOLVED backend (never a literal), folds the readiness seam, and stamps
+// from the RESOLVED backend (never a literal), folds the host reading's readiness, and stamps
 // the schema version. With the default vulkan config the backend/image come from
 // inference.BackendFor("vulkan").
 func TestRunPopulatesBackendAwareFields(t *testing.T) {
@@ -315,13 +315,91 @@ func TestRunPopulatesBackendAwareFields(t *testing.T) {
 	if r.SchemaVersion != reportSchemaVersion {
 		t.Errorf("Report.SchemaVersion = %d, want %d", r.SchemaVersion, reportSchemaVersion)
 	}
-	// The default stub leaves GenTokensPerSec/ROCmReadiness seams nil → typed-Unknown:
-	// tok/s omitted (nil), readiness "unknown" (never a fabricated 0 / not-ready).
+	// The default stub leaves the GenTokensPerSec seam nil and reads the off-hardware
+	// host (every field typed-Unknown): tok/s omitted (nil), readiness "unknown"
+	// (never a fabricated 0 / not-ready).
 	if r.GenTokensPerSec != nil {
 		t.Errorf("GenTokensPerSec = %v, want nil (no tok/s seam → omitted)", *r.GenTokensPerSec)
 	}
 	if r.ROCmReadiness != ROCmUnknown {
-		t.Errorf("ROCmReadiness = %q, want %q (no readiness seam → unknown)", r.ROCmReadiness, ROCmUnknown)
+		t.Errorf("ROCmReadiness = %q, want %q (an unprobed host → unknown)", r.ROCmReadiness, ROCmUnknown)
+	}
+}
+
+// TestRunTakesOneHostReading pins ADR-0016: a run calls the Probe seam once, and
+// every host-derived figure (readiness, the weight footprint the offload floor is
+// checked against, the agent's residency) is computed from that one reading.
+//
+// The dashboard polls status every 2.5 seconds; before this, each figure probed the
+// host on its own, two or three times a poll.
+func TestRunTakesOneHostReading(t *testing.T) {
+	d := newDeps(t, loopbackUnits(t))
+	d.LoadConfig = func() (config.VillaConfig, error) {
+		return config.VillaConfig{Model: "qwen3", Ctx: 131072, Backend: "vulkan", AgentEnabled: true}, nil
+	}
+	reading := detect.HostProfile{
+		KernelVersion: detect.KnownStr("6.18.9", "one reading"),
+		ROCmReadiness: detect.ROCmReadiness{
+			HSAOverrideViable: detect.KnownBool(true, "t"), FirmwareDateOK: detect.KnownBool(true, "t"),
+			KernelFloorOK: detect.KnownBool(true, "t"), RocminfoGfx1151: detect.KnownBool(true, "t"),
+			ImagePolicyOK: detect.KnownBool(true, "t"),
+		},
+	}
+	probes := 0
+	d.Probe = func() detect.HostProfile { probes++; return reading }
+	var weighed, placed detect.HostProfile
+	d.WeightBytes = func(_ config.VillaConfig, h detect.HostProfile) uint64 { weighed = h; return FixtureWeight }
+	d.AgentResidency = func(_ config.VillaConfig, h detect.HostProfile) string {
+		placed = h
+		return recommend.ResidencyShared
+	}
+
+	r := Run(d)
+	if probes != 1 {
+		t.Fatalf("Run probed the host %d times, want 1", probes)
+	}
+	if r.ROCmReadiness != ROCmReady {
+		t.Errorf("ROCmReadiness = %q, want %q folded from the run's reading", r.ROCmReadiness, ROCmReady)
+	}
+	if !reflect.DeepEqual(weighed, reading) {
+		t.Errorf("WeightBytes got host %+v, want the run's reading", weighed)
+	}
+	if !reflect.DeepEqual(placed, reading) {
+		t.Errorf("AgentResidency got host %+v, want the run's reading", placed)
+	}
+}
+
+// TestRunHandsSeamsTheConfigItLoaded pins #253 at the core: every seam that reaches
+// the inference unit is given the config THIS run loaded, so the live wiring builds
+// its client from this run's key rather than the key present when the Deps were
+// wired, and the agent seams are asked because this run's config has the agent on.
+func TestRunHandsSeamsTheConfigItLoaded(t *testing.T) {
+	loaded := config.VillaConfig{Model: "qwen3", Ctx: 131072, Backend: "vulkan", AgentEnabled: true, InferenceSecret: "this-run"}
+	d := newDeps(t, loopbackUnits(t))
+	d.LoadConfig = func() (config.VillaConfig, error) { return loaded, nil }
+
+	var got []string
+	record := func(seam string, cfg config.VillaConfig) {
+		if cfg.InferenceSecret != loaded.InferenceSecret {
+			t.Errorf("%s was given key %q, want the loaded config's %q", seam, cfg.InferenceSecret, loaded.InferenceSecret)
+		}
+		got = append(got, seam)
+	}
+	d.Props = func(cfg config.VillaConfig) *inference.PropsInfo { record("Props", cfg); return nil }
+	d.GenTokensPerSec = func(cfg config.VillaConfig) *float64 { record("GenTokensPerSec", cfg); return nil }
+	d.AgentCache = func(cfg config.VillaConfig) (uint64, uint64, bool) { record("AgentCache", cfg); return 0, 0, false }
+	d.Services = []Service{{Unit: StubInferenceService, Kind: Inference, Probe: func(cfg config.VillaConfig) HealthState {
+		record("inference probe", cfg)
+		return HealthReady
+	}}}
+
+	r := Run(d)
+	if r.Coding == nil {
+		t.Fatal("Report.Coding is nil although the loaded config has the agent on")
+	}
+	want := []string{"GenTokensPerSec", "AgentCache", "inference probe", "Props"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("seams given the loaded config = %v, want %v", got, want)
 	}
 }
 
@@ -513,8 +591,8 @@ func newMemoryDeps(t *testing.T) Deps {
 	d := newDeps(t, memoryUnits(t))
 	d.LoadConfig = func() (config.VillaConfig, error) { return memoryCfg(), nil }
 	d.Services = append(d.Services,
-		Service{Unit: qdrantService, Kind: Managed, Probe: func() HealthState { return HealthReady }},
-		Service{Unit: embedService, Kind: Managed, Probe: func() HealthState { return HealthReady }},
+		Service{Unit: qdrantService, Kind: Managed, Probe: func(config.VillaConfig) HealthState { return HealthReady }},
+		Service{Unit: embedService, Kind: Managed, Probe: func(config.VillaConfig) HealthState { return HealthReady }},
 	)
 	d.ReadRecallState = func() *recall.State {
 		return &recall.State{
@@ -770,8 +848,8 @@ func newAgentDeps(t *testing.T) Deps {
 	d := newDeps(t, loopbackUnits(t))
 	d.LoadConfig = func() (config.VillaConfig, error) { return agentCfg(), nil }
 	d.AgentPinMatch = func() string { return PinMatch }
-	d.AgentResidency = func() string { return recommend.ResidencySwap }
-	d.AgentCache = func() (uint64, uint64, bool) { return 84, 200, true }
+	d.AgentResidency = func(config.VillaConfig, detect.HostProfile) string { return recommend.ResidencySwap }
+	d.AgentCache = func(config.VillaConfig) (uint64, uint64, bool) { return 84, 200, true }
 	return d
 }
 
@@ -865,7 +943,7 @@ func TestRunCodingPinTriState(t *testing.T) {
 func TestRunCodingResidencyTypedUnknown(t *testing.T) {
 	t.Run("seam swap → swap", func(t *testing.T) {
 		d := newAgentDeps(t)
-		d.AgentResidency = func() string { return recommend.ResidencySwap }
+		d.AgentResidency = func(config.VillaConfig, detect.HostProfile) string { return recommend.ResidencySwap }
 		r := Run(d)
 		if r.Coding == nil || r.Coding.Residency != recommend.ResidencySwap {
 			t.Fatalf("Residency = %v, want swap", r.Coding)
@@ -873,7 +951,7 @@ func TestRunCodingResidencyTypedUnknown(t *testing.T) {
 	})
 	t.Run("seam shared → shared", func(t *testing.T) {
 		d := newAgentDeps(t)
-		d.AgentResidency = func() string { return recommend.ResidencyShared }
+		d.AgentResidency = func(config.VillaConfig, detect.HostProfile) string { return recommend.ResidencyShared }
 		r := Run(d)
 		if r.Coding == nil || r.Coding.Residency != recommend.ResidencyShared {
 			t.Fatalf("Residency = %v, want shared", r.Coding)
@@ -881,7 +959,7 @@ func TestRunCodingResidencyTypedUnknown(t *testing.T) {
 	})
 	t.Run("empty return → omitted (typed-Unknown)", func(t *testing.T) {
 		d := newAgentDeps(t)
-		d.AgentResidency = func() string { return "" }
+		d.AgentResidency = func(config.VillaConfig, detect.HostProfile) string { return "" }
 		r := Run(d)
 		if r.Coding == nil || r.Coding.Residency != "" {
 			t.Fatalf("Residency = %v, want \"\" (omitted)", r.Coding)
@@ -906,7 +984,7 @@ func TestRunCodingResidencyTypedUnknown(t *testing.T) {
 func TestRunCodingCacheGate(t *testing.T) {
 	t.Run("ok + prompt_n>0 → pct computed", func(t *testing.T) {
 		d := newAgentDeps(t)
-		d.AgentCache = func() (uint64, uint64, bool) { return 50, 100, true }
+		d.AgentCache = func(config.VillaConfig) (uint64, uint64, bool) { return 50, 100, true }
 		r := Run(d)
 		if r.Coding.CacheEffectivenessPct == nil || *r.Coding.CacheEffectivenessPct != 50.0 {
 			t.Fatalf("pct = %v, want 50.0", r.Coding.CacheEffectivenessPct)
@@ -914,7 +992,7 @@ func TestRunCodingCacheGate(t *testing.T) {
 	})
 	t.Run("prompt_n==0 → nil pct, omitted counts (never 0%)", func(t *testing.T) {
 		d := newAgentDeps(t)
-		d.AgentCache = func() (uint64, uint64, bool) { return 0, 0, true }
+		d.AgentCache = func(config.VillaConfig) (uint64, uint64, bool) { return 0, 0, true }
 		r := Run(d)
 		if r.Coding.CacheEffectivenessPct != nil {
 			t.Fatalf("prompt_n==0 must leave pct nil, got %v", *r.Coding.CacheEffectivenessPct)
@@ -926,7 +1004,7 @@ func TestRunCodingCacheGate(t *testing.T) {
 	})
 	t.Run("not ok (unparseable scrape) → nil pct (never 0%)", func(t *testing.T) {
 		d := newAgentDeps(t)
-		d.AgentCache = func() (uint64, uint64, bool) { return 84, 200, false }
+		d.AgentCache = func(config.VillaConfig) (uint64, uint64, bool) { return 84, 200, false }
 		r := Run(d)
 		if r.Coding.CacheEffectivenessPct != nil {
 			t.Fatalf("not-ok scrape must leave pct nil, got %v", *r.Coding.CacheEffectivenessPct)
@@ -946,7 +1024,7 @@ func TestRunCodingCacheGate(t *testing.T) {
 		// >100% ratio. Degrade to the gray Unknown badge (nil pct + omitted counts)
 		// rather than surface a fabricated-looking ratio.
 		d := newAgentDeps(t)
-		d.AgentCache = func() (uint64, uint64, bool) { return 250, 200, true }
+		d.AgentCache = func(config.VillaConfig) (uint64, uint64, bool) { return 250, 200, true }
 		r := Run(d)
 		if r.Coding.CacheEffectivenessPct != nil {
 			t.Fatalf("cache_n>prompt_n must leave pct nil (never >100%%), got %v", *r.Coding.CacheEffectivenessPct)
@@ -1028,8 +1106,8 @@ func newWebSearchDeps(t *testing.T) Deps {
 	d := newDeps(t, units)
 	d.LoadConfig = func() (config.VillaConfig, error) { return wsCfg, nil }
 	d.Services = append(d.Services,
-		Service{Unit: "villa-searxng.service", Kind: Managed, Probe: func() HealthState { return HealthReady }},
-		Service{Unit: "villa-websafe.service", Kind: Managed, Probe: func() HealthState { return HealthReady }},
+		Service{Unit: "villa-searxng.service", Kind: Managed, Probe: func(config.VillaConfig) HealthState { return HealthReady }},
+		Service{Unit: "villa-websafe.service", Kind: Managed, Probe: func(config.VillaConfig) HealthState { return HealthReady }},
 	)
 	d.ReadVerifyState = func() *verifystate.State { return freshVerify("PASS") }
 	return d
@@ -1193,7 +1271,7 @@ func TestRunSearxngWebsafeRows(t *testing.T) {
 		d.Services = WithServiceHealth(d.Services, StubInferenceService, HealthReady)
 		for i := range d.Services {
 			if d.Services[i].Unit == StubInferenceService {
-				d.Services[i].Probe = func() HealthState { genericCalled = true; return HealthReady }
+				d.Services[i].Probe = func(config.VillaConfig) HealthState { genericCalled = true; return HealthReady }
 			}
 		}
 		// Distinct sentinels prove each row used its OWN seam, not the chat probe.

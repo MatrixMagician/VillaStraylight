@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -61,9 +62,9 @@ func newStatusDeps(t *testing.T, units []orchestrate.Unit) *status.Deps {
 		t.Fatalf("stub deps: %v", err)
 	}
 	// tok/s: idle by default, so the figure is omitted rather than fabricated as 0.
-	// ROCm readiness: all-unset folds to "unknown", the honest off-hardware default.
-	d.GenTokensPerSec = func() *float64 { return nil }
-	d.ROCmReadiness = func() detect.ROCmReadiness { return detect.ROCmReadiness{} }
+	// The stub host is all-unset, so readiness folds to "unknown", the honest
+	// off-hardware default.
+	d.GenTokensPerSec = func(config.VillaConfig) *float64 { return nil }
 	return &d
 }
 
@@ -193,7 +194,7 @@ func TestStatusTokensPerSecTypedOptional(t *testing.T) {
 
 	t.Run("generating → value rendered + labeled by backend", func(t *testing.T) {
 		d := newStatusDeps(t, units)
-		d.GenTokensPerSec = func() *float64 { return new(12.3) }
+		d.GenTokensPerSec = func(config.VillaConfig) *float64 { return new(12.3) }
 		report := runStatusReport(t, d)
 		if report.GenTokensPerSec == nil {
 			t.Fatalf("generating server must surface a tok/s reading (got nil)")
@@ -216,7 +217,7 @@ func TestStatusTokensPerSecTypedOptional(t *testing.T) {
 
 	t.Run("idle → omitted (never a fabricated 0)", func(t *testing.T) {
 		d := newStatusDeps(t, units)
-		d.GenTokensPerSec = func() *float64 { return nil }
+		d.GenTokensPerSec = func(config.VillaConfig) *float64 { return nil }
 		report := runStatusReport(t, d)
 		if report.GenTokensPerSec != nil {
 			t.Fatalf("idle server must omit tok/s (typed-Unknown), got %v", *report.GenTokensPerSec)
@@ -240,7 +241,7 @@ func TestStatusTokensPerSecTypedOptional(t *testing.T) {
 	t.Run("scrape unavailable → omitted", func(t *testing.T) {
 		d := newStatusDeps(t, units)
 		// An unavailable /metrics scrape is modeled the same as idle by the seam: nil.
-		d.GenTokensPerSec = func() *float64 { return nil }
+		d.GenTokensPerSec = func(config.VillaConfig) *float64 { return nil }
 		report := runStatusReport(t, d)
 		if report.GenTokensPerSec != nil {
 			t.Fatalf("unavailable scrape must omit tok/s, got %v", *report.GenTokensPerSec)
@@ -334,9 +335,9 @@ func newMemoryStatusDeps(t *testing.T) *status.Deps {
 	d.LoadConfig = func() (config.VillaConfig, error) { return memoryStatusCfg(), nil }
 	d.Services = append(d.Services,
 		status.Service{Unit: unitServiceName(orchestrate.QdrantContainerUnitName()), Kind: status.Managed,
-			Probe: func() status.HealthState { return status.HealthReady }},
+			Probe: func(config.VillaConfig) status.HealthState { return status.HealthReady }},
 		status.Service{Unit: unitServiceName(orchestrate.EmbedContainerUnitName()), Kind: status.Managed,
-			Probe: func() status.HealthState { return status.HealthReady }},
+			Probe: func(config.VillaConfig) status.HealthState { return status.HealthReady }},
 	)
 	d.ReadRecallState = func() *recall.State {
 		return &recall.State{
@@ -439,9 +440,9 @@ func newWebSearchStatusDeps(t *testing.T) *status.Deps {
 	d.LoadConfig = func() (config.VillaConfig, error) { return webSearchStatusCfg(), nil }
 	d.Services = append(d.Services,
 		status.Service{Unit: unitServiceName(orchestrate.SearXNGContainerUnitName()), Kind: status.Managed,
-			Probe: func() status.HealthState { return status.HealthReady }},
+			Probe: func(config.VillaConfig) status.HealthState { return status.HealthReady }},
 		status.Service{Unit: unitServiceName(orchestrate.WebsafeContainerUnitName()), Kind: status.Managed,
-			Probe: func() status.HealthState { return status.HealthReady }},
+			Probe: func(config.VillaConfig) status.HealthState { return status.HealthReady }},
 	)
 	d.ReadVerifyState = func() *verifystate.State { return nil }
 	return d
@@ -510,8 +511,8 @@ func newCodingStatusDeps(t *testing.T) *status.Deps {
 	d := newStatusDeps(t, loopbackUnits(t))
 	d.LoadConfig = func() (config.VillaConfig, error) { return codingStatusCfg(), nil }
 	d.AgentPinMatch = func() string { return status.PinMatch }
-	d.AgentResidency = func() string { return recommend.ResidencySwap }
-	d.AgentCache = func() (uint64, uint64, bool) { return 84, 200, true }
+	d.AgentResidency = func(config.VillaConfig, detect.HostProfile) string { return recommend.ResidencySwap }
+	d.AgentCache = func(config.VillaConfig) (uint64, uint64, bool) { return 84, 200, true }
 	return d
 }
 
@@ -1201,7 +1202,7 @@ func TestStatusRunTakesOneHostReading(t *testing.T) {
 	}
 	d := newStatusDeps(t, loopbackUnits(t))
 	d.LoadConfig = live.LoadConfig
-	d.ROCmReadiness = live.ROCmReadiness
+	d.Probe = live.Probe
 	d.WeightBytes = live.WeightBytes
 	d.AgentResidency = live.AgentResidency
 
@@ -1210,6 +1211,34 @@ func TestStatusRunTakesOneHostReading(t *testing.T) {
 	}
 	if got := countLines(t, calls); got != 1 {
 		t.Errorf("one status run probed the host %d times, want 1", got)
+	}
+}
+
+// TestDirectProbesMapNoAnswer pins the unansweredHealth table: when a direct-HTTP
+// health probe gets no answer, the inference unit and the dashboard (asked on their
+// own port) read down, and the chat UI (asked through llama-server's model list)
+// reads a typed Unknown — never a down it did not earn.
+//
+// The inference probes get no answer because the client refuses a key with a control
+// character before sending anything (ADR-0014): a refusal is transport-class, never a
+// success. The dashboard gets none from a loopback port nothing listens on.
+func TestDirectProbesMapNoAnswer(t *testing.T) {
+	refused := config.VillaConfig{InferenceSecret: "bad\nkey"}
+	if got := liveHealthProbe(refused); got != status.HealthDown {
+		t.Errorf("inference probe with no answer = %q, want %q", got, status.HealthDown)
+	}
+	if got := liveOpenWebUIHealth(refused); got != status.HealthUnknown {
+		t.Errorf("chat probe with no answer = %q, want %q", got, status.HealthUnknown)
+	}
+
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("reserve a loopback port: %v", err)
+	}
+	port := l.Addr().(*net.TCPAddr).Port
+	_ = l.Close()
+	if got := liveDashboardHealth(config.VillaConfig{DashboardPort: port}); got != status.HealthDown {
+		t.Errorf("dashboard probe with no answer = %q, want %q", got, status.HealthDown)
 	}
 }
 

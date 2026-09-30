@@ -12,12 +12,11 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/dashboard"
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
+	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 	"github.com/MatrixMagician/VillaStraylight/internal/metrics"
-	"github.com/MatrixMagician/VillaStraylight/internal/modelswap"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 	"github.com/MatrixMagician/VillaStraylight/internal/pins"
 	"github.com/MatrixMagician/VillaStraylight/internal/recommend"
-	"github.com/MatrixMagician/VillaStraylight/internal/status"
 	"github.com/MatrixMagician/VillaStraylight/internal/subsystem"
 	"github.com/MatrixMagician/VillaStraylight/internal/taskrun"
 	"github.com/MatrixMagician/VillaStraylight/internal/usage"
@@ -29,64 +28,7 @@ import (
 // fork), and serves the loopback-only HTTP dashboard. The server (stdlib mux, /api,
 // embedded UI, same-origin guard) lives in internal/dashboard; this file keeps only
 // the cobra wiring + the live host composition. dashboard_test.go drives runDashboard
-// through a stubbed serve dep.
-
-// dashboardDeps are the injectable seams runDashboard drives, so the test can stub the
-// config load and the serve call without binding a real socket.
-type dashboardDeps struct {
-	// LoadConfig loads the villa config (DashboardAddr/DashboardPort/ChatPort).
-	LoadConfig func() (config.VillaConfig, error)
-	// StatusDeps is the composed SHARED status read-model seam the dashboard folds
-	// (the same wiring villa status uses). It is a value so the server holds a copy.
-	StatusDeps status.Deps
-	// Serve runs the constructed server until it errors or the context is cancelled.
-	// Stubbed in tests so no real listener is bound; the live wiring calls
-	// (*dashboard.Server).Serve, which shuts down gracefully on cancellation.
-	Serve func(context.Context, *dashboard.Server) error
-
-	// Performance + GPU collector seams the dashboard folds into
-	// /api/metrics + /api/gpu. Live wiring scrapes the inference endpoint and reads
-	// amdgpu sysfs; nil seams default (in dashboard.NewServer) to honest "unavailable".
-	Metrics     func() (metrics.PerfSnapshot, bool)
-	Slots       func() ([]metrics.Slot, bool)
-	MemUsed     func() detect.Bytes
-	MemEnvelope func() detect.Bytes
-	GPUBusy     func() detect.Int
-
-	// Models lists the catalog marked loaded/on-disk/catalog-only with a per-row fit
-	// flag. The live wiring reuses the SAME catalog+config+recommend.Pick
-	// fit-math the CLI does; the bool is the availability flag (false on a catalog-load
-	// failure → "No models in catalog").
-	Models func() ([]dashboard.ModelView, bool)
-
-	// SwapDeps is the SHARED guarded swap core the POST /api/models/switch handler folds
-	// The live wiring is liveSwapDeps — the IDENTICAL deps `villa model swap`
-	// uses, so the dashboard switch routes through the same security contract.
-	SwapDeps modelswap.Deps
-
-	// Cumulative-usage writer seams. The dashboard /api/metrics scrape
-	// is the SOLE writer of usage.json: ReadUsage loads the fold's prior, WriteUsage
-	// atomically persists the folded store, ModelID supplies the per-model key (cfg.Model),
-	// and CounterSample scrapes the two monotonic _total counters from the SAME endpoint
-	// already scraped for live tok/s (no new outbound). Nil seams default (in
-	// dashboard.NewServer) to honest no-ops that never write.
-	ReadUsage     func() usage.Totals
-	WriteUsage    func(usage.Totals) error
-	ModelID       func() string
-	CounterSample func() (metrics.CounterSample, bool)
-
-	// Tasks is the workspace agent's runner (spec v1.11 §5), hosted in this
-	// service because it is already the long-lived villa process. nil when
-	// workspace_agent is off, in which case the task routes answer 503.
-	Tasks *taskrun.Runner
-
-	// Pins folds pinresolve.Resolver.All() over the compiled-in pins.Table() and
-	// this host's pinstate.State into the Update·Pins read-model.
-	Pins func() dashboard.PinsView
-	// Journal tails the rendered stack's rootless user journal into the Journal
-	// panel read-model.
-	Journal func() dashboard.JournalView
-}
+// through a stubbed serve func.
 
 // newDashboard builds `villa dashboard`: serve the loopback-only control dashboard
 // (read-only health + the chat link) on 127.0.0.1:<dashboard_port>. The exit-code
@@ -101,113 +43,92 @@ func newDashboard() *cobra.Command {
 			"`villa status` uses (not a fork) and links to Open WebUI on the configured chat port. " +
 			"Strictly local, zero telemetry.",
 		Args: cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			deps, err := liveDashboardDeps(cmdContext(cmd))
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			c, err := liveDashboardDeps(cmdContext(cmd))
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "dashboard: %v\n", err)
 				os.Exit(exitBlocked)
 			}
-			os.Exit(runDashboard(cmd, args, deps))
+			os.Exit(runDashboard(cmd, c, func(ctx context.Context, s *dashboard.Server) error { return s.Serve(ctx) }))
 			return nil
 		},
 	}
 }
 
-// runDashboard loads config, constructs the dashboard.Server composing the shared
-// status seam + chat port + loopback bind addr, prints the live loopback URL, and
-// serves. It RETURNS the exit code (no os.Exit in the body) so dashboard_test.go drives
-// it deterministically with a stubbed Serve.
-func runDashboard(cmd *cobra.Command, _ []string, d *dashboardDeps) int {
-	out := cmd.OutOrStdout()
+// runDashboard constructs the dashboard.Server from the composed Config, prints the
+// live loopback URL, and serves until serve returns. It RETURNS the exit code (no
+// os.Exit in the body) so dashboard_test.go drives it deterministically with a
+// stubbed serve that binds no socket; the live serve is (*dashboard.Server).Serve,
+// which shuts down gracefully on cancellation.
+func runDashboard(cmd *cobra.Command, c dashboard.Config, serve func(context.Context, *dashboard.Server) error) int {
 	errOut := cmd.ErrOrStderr()
 
-	cfg, err := d.LoadConfig()
+	srv, err := dashboard.NewServer(c)
 	if err != nil {
 		fmt.Fprintf(errOut, "dashboard: %v\n", err)
 		return exitBlocked
 	}
 
-	srv, err := dashboard.NewServer(dashboard.Config{
-		StatusDeps:    d.StatusDeps,
-		ChatPort:      cfg.ChatPort,
-		DashboardAddr: config.DashboardAddr,
-		DashboardPort: cfg.DashboardPort,
-		Metrics:       d.Metrics,
-		Slots:         d.Slots,
-		MemUsed:       d.MemUsed,
-		MemEnvelope:   d.MemEnvelope,
-		GPUBusy:       d.GPUBusy,
-		Models:        d.Models,
-		SwapDeps:      d.SwapDeps,
-		ReadUsage:     d.ReadUsage,
-		WriteUsage:    d.WriteUsage,
-		ModelID:       d.ModelID,
-		CounterSample: d.CounterSample,
-		Tasks:         d.Tasks,
-		Pins:          d.Pins,
-		Journal:       d.Journal,
-	})
-	if err != nil {
-		fmt.Fprintf(errOut, "dashboard: %v\n", err)
-		return exitBlocked
-	}
+	fmt.Fprintf(cmd.OutOrStdout(), "villa dashboard listening on http://%s\n", srv.Addr())
 
-	fmt.Fprintf(out, "villa dashboard listening on http://%s\n", srv.Addr())
-
-	if err := d.Serve(cmdContext(cmd), srv); err != nil {
+	if err := serve(cmdContext(cmd), srv); err != nil {
 		fmt.Fprintf(errOut, "dashboard: serve: %v\n", err)
 		return exitBlocked
 	}
 	return exitPass
 }
 
-// liveDashboardDeps wires dashboardDeps to the real host: config.LoadVilla, the live
-// status read-model seam (reusing liveStatusDeps so the dashboard and the CLI fold the
-// IDENTICAL core), and a Serve that binds the loopback socket.
+// liveDashboardDeps composes the dashboard's Config from the real host: the ports
+// from config.LoadVilla, the live status read-model seam (reusing liveStatusDeps so
+// the dashboard and the CLI fold the IDENTICAL core), and the panel collectors.
+//
+// The service runs for days, so nothing here may answer a question once for the life
+// of the process that config can change (#253). The status seams gate on the config
+// each run loads (ADR-0016), and the /api/metrics reads build their inference client
+// per scrape, so an api key written after startup (`villa up` heals a missing one)
+// is the key they send.
 //
 // ctx is the process-lifetime context: it stops Serve on SIGTERM, and it also
 // bounds the multi-GB pull a POST /api/models/switch can start, so a stop signal
 // does not leave that transfer running past the graceful-shutdown window. Aborting
 // a pull is safe and does not corrupt state — the partial ".part" file is kept and
 // resumed via HTTP Range, and the config save happens only AFTER the pull succeeds.
-func liveDashboardDeps(ctx context.Context) (*dashboardDeps, error) {
+func liveDashboardDeps(ctx context.Context) (dashboard.Config, error) {
+	cfg, err := config.LoadVilla()
+	if err != nil {
+		return dashboard.Config{}, fmt.Errorf("load config: %w", err)
+	}
 	// liveStatusDeps is the SINGLE backend-resolution point (fail-closed), so the
 	// dashboard's status panel reports on exactly what `villa status` does.
 	statusDeps, err := liveStatusDeps()
 	if err != nil {
-		return nil, err
+		return dashboard.Config{}, err
 	}
 
-	// The authenticated inference client (ADR-0014): /api/metrics and the task
-	// runner's grounding audit reach the SAME server villa status reports on, with
-	// the key llama-server requires on every route but /health. A load failure
-	// here degrades to a keyless client (a 401 → typed-Unknown on the panel, never
-	// a crash) and leaves the task runner off.
-	cfg, cfgErr := config.LoadVilla()
-	inf := inferenceClient(cfg)
-
-	// The runner exists only when the workspace agent is on (fail-soft config
-	// load, like the sandbox gate). Recover runs HERE, before Serve binds, so a
-	// record left running by the previous service instance is interrupted before
-	// any client can read it. A recovery error is reported and does not stop the
-	// dashboard: one corrupt task record must not take the whole service down.
+	// The runner exists only when the workspace agent is on at startup. Recover
+	// runs HERE, before Serve binds, so a record left running by the previous
+	// service instance is interrupted before any client can read it. A recovery
+	// error is reported and does not stop the dashboard: one corrupt task record
+	// must not take the whole service down. The grounding audit reaches the SAME
+	// server villa status reports on, through the authenticated client (ADR-0014).
 	var tasks *taskrun.Runner
-	if cfgErr == nil && subsystem.SandboxOn(cfg) {
-		tasks = taskrun.New(liveTaskRunDeps(ctx, inf))
+	if subsystem.SandboxOn(cfg) {
+		tasks = taskrun.New(liveTaskRunDeps(ctx, inferenceClient(cfg)))
 		if err := tasks.Recover(); err != nil {
 			fmt.Fprintf(os.Stderr, "dashboard: task recovery: %v\n", err)
 		}
 	}
 
-	return &dashboardDeps{
-		Tasks:      tasks,
-		LoadConfig: config.LoadVilla,
-		StatusDeps: *statusDeps,
-		Serve:      func(ctx context.Context, s *dashboard.Server) error { return s.Serve(ctx) },
+	return dashboard.Config{
+		Tasks:         tasks,
+		StatusDeps:    *statusDeps,
+		ChatPort:      cfg.ChatPort,
+		DashboardAddr: config.DashboardAddr,
+		DashboardPort: cfg.DashboardPort,
 
 		// Performance: bounded /metrics + /slots scrapes of the inference endpoint.
-		Metrics: func() (metrics.PerfSnapshot, bool) { return inf.Perf(ctx) },
-		Slots:   func() ([]metrics.Slot, bool) { return inf.Slots(ctx) },
+		Metrics: func() (metrics.PerfSnapshot, bool) { return currentInferenceClient().Perf(ctx) },
+		Slots:   func() ([]metrics.Slot, bool) { return currentInferenceClient().Slots(ctx) },
 
 		// GPU & Memory (memory-first): the GTT-used headline + the usable unified-memory
 		// envelope (from the authoritative HostProfile envelope, never MemTotal) + the
@@ -230,12 +151,12 @@ func liveDashboardDeps(ctx context.Context) (*dashboardDeps, error) {
 		// usage.WriteFileAtomic over the SAME path. ModelID re-reads cfg.Model from config at
 		// scrape time (config is the single source of truth; the dashboard server reads it
 		// inside the usageMu section so the per-model key cannot drift — Pitfall 2). The
-		// counter scrape reuses the SAME client already scraped for live tok/s — no new
+		// counter scrape reads the SAME /metrics route the live tok/s reads — no new
 		// outbound.
 		ReadUsage:     liveReadUsageTotals,
 		WriteUsage:    liveWriteUsage,
 		ModelID:       liveModelID,
-		CounterSample: func() (metrics.CounterSample, bool) { return inf.Counters(ctx) },
+		CounterSample: func() (metrics.CounterSample, bool) { return currentInferenceClient().Counters(ctx) },
 
 		// Pins: liveResolver (cmd/villa/pins.go) already joins the compiled-in
 		// table to this host's pinstate.State the SAME way every render does — no
@@ -246,6 +167,15 @@ func liveDashboardDeps(ctx context.Context) (*dashboardDeps, error) {
 		// JournalTail + ParseJournalJSON pair — no hard-coded unit list.
 		Journal: liveJournalView,
 	}, nil
+}
+
+// currentInferenceClient is the inference client for the config as it is now, for
+// the dashboard's per-scrape reads (#253). A config that no longer loads is the zero
+// config, so the client is keyless and the unit answers a 401 on every keyed route:
+// the panel reads unavailable, never a crash and never a stale key.
+func currentInferenceClient() inference.Client {
+	cfg, _ := config.LoadVilla()
+	return inferenceClient(cfg)
 }
 
 // journalTailLines is the Journal panel's line cap (contract: "at most 10
@@ -302,13 +232,7 @@ func liveJournalView() dashboard.JournalView {
 func liveUsageDeps() usage.Deps {
 	path := usage.Path()
 	return usage.Deps{
-		ReadAll: func() ([]byte, error) {
-			data, err := os.ReadFile(path)
-			if os.IsNotExist(err) {
-				return nil, nil // absent store ⇒ Load fails closed to empty (typed-Unknown)
-			}
-			return data, err
-		},
+		ReadAll:  storeReader(path), // absent store ⇒ Load fails closed to empty (typed-Unknown)
 		WriteAll: func(data []byte) error { return usage.WriteFileAtomic(path, data) },
 	}
 }

@@ -220,14 +220,6 @@ type Deps struct {
 	// outcome. It is surfaced, NEVER auto-corrected. NIL-SAFE: when nil (agent
 	// off) NO agent drift finding is emitted at all.
 	AgentDrift func() agent.DriftReport
-	// SearchEgressProof is the web-search egress-proof seam: the cmd
-	// tier reads the CACHED `villa verify search` result (verifystate.Load) and maps it to
-	// a tri-state inference.Verdict consumed OPAQUELY here (Status/Detail/Remediation only
-	// — seam-clean): a fresh cached PASS → StatusPass (ready); a real recent non-PASS →
-	// StatusFail (degraded-with-reason); a stale/absent cache → StatusWarn (typed-Unknown,
-	// NEVER a config-bool-derived PASS). NIL-SAFE: when nil (web search off) NO search-egress
-	// finding is emitted at all — never a PASS-by-default (no-false-green).
-	SearchEgressProof func() inference.Verdict
 	// SearchResidencyUnderLoad is the chat-model residency-under-SEARCH-load proof (
 	// the cmd tier drives a bounded search-augmented chat workload (with villa-searxng
 	// /villa-websafe up) and samples the served model's GTT/journal residency MID-DRIVE,
@@ -456,6 +448,11 @@ func Aggregate(d Deps) Report {
 	// non-offload service must NEVER spuriously prove residency.
 	rocmResidencyProven := false
 	report := d.StatusReport()
+	// webSearch is the status report's answer to "is outbound proven bounded?" (step
+	// 2d). It is nil when the config the report was folded from has web search off,
+	// and when the report errored — then the "stack" WARN below already says the
+	// read-model, this answer included, could not be evaluated.
+	var webSearch *status.WebSearchInfo
 	if err := report.Err(); err != nil {
 		// 2-pre. ERRORED READ-MODEL (phase-22): status.Run returns an errored
 		// ZERO-VALUE Report (LoopbackOnly=false, no Services) on any internal failure
@@ -489,6 +486,7 @@ func Aggregate(d Deps) Report {
 			})
 		}
 		findings = append(findings, updatesFinding(report.Updates))
+		webSearch = report.WebSearch
 		for _, s := range report.Services {
 			findings = append(findings, healthFinding(s))
 			if s.OffloadApplies {
@@ -525,18 +523,19 @@ func Aggregate(d Deps) Report {
 		findings = append(findings, agentDriftFindings(d.AgentDrift())...)
 	}
 
-	// 2d. WEB-SEARCH FOLD: when web search is enabled the cmd
-	// tier binds the two web-search seams; each NIL seam (web off) emits NO finding (never a
-	// PASS-by-default — web-off output stays byte-identical except the schema bump). The
-	// egress-proof finding is a tri-state derived from the CACHED `villa verify search`
-	// result (NEVER a config bool); the residency finding is offload-asserting — a
-	// confident CPU fallback under search load folds worst-wins and DOMINATES a healthy-looking
-	// HTTP-200 (the offload-FAIL-dominates switch cloned below). searxng/websafe
-	// service READINESS needs NO finding here — status.Run already surfaces dedicated
-	// villa-searxng/villa-websafe rows (Plan 03) folded by the healthFinding loop in step 2.
-	// Guard health is a documented OMISSION (no host-side source — accepted scope limit).
-	if d.SearchEgressProof != nil {
-		findings = append(findings, searchEgressFinding(d.SearchEgressProof()))
+	// 2d. WEB-SEARCH FOLD: the egress finding is the status report's own outbound-bounded
+	// answer (ADR-0016), so doctor and `villa status` apply ONE freshness rule to the
+	// cached `villa verify search` result, and never a config bool. No web_search section
+	// (web off) emits NO finding (never a PASS-by-default — web-off output stays
+	// byte-identical). The residency finding is offload-asserting — a confident CPU
+	// fallback under search load folds worst-wins and DOMINATES a healthy-looking
+	// HTTP-200 (the offload-FAIL-dominates switch cloned below); its NIL seam (web off)
+	// emits nothing. searxng/websafe service READINESS needs NO finding here — status.Run
+	// already surfaces dedicated villa-searxng/villa-websafe rows (Plan 03) folded by the
+	// healthFinding loop in step 2. Guard health is a documented OMISSION (no host-side
+	// source — accepted scope limit).
+	if webSearch != nil {
+		findings = append(findings, searchEgressFinding(*webSearch))
 	}
 	if d.SearchResidencyUnderLoad != nil {
 		findings = append(findings, searchResidencyFinding(d.SearchResidencyUnderLoad()))
@@ -887,41 +886,41 @@ func agentResidencyFinding(v inference.Verdict) Finding {
 	return f
 }
 
-// searchEgressFinding maps the web-search egress-proof Verdict into a
-// doctor Finding. The Verdict is consumed OPAQUELY (Status/Detail/Remediation only
-// seam-clean): the cmd tier has already mapped the CACHED `villa verify search` result to
-// a tri-state (PASS+fresh → StatusPass "ready"; a real recent non-PASS → StatusFail
-// "degraded-with-reason"; stale/absent → StatusWarn typed-Unknown). This switch mirrors
-// offloadFinding's grammar but the egress-proof tiers differ: a degraded egress proof is a
-// real, confident security-property FAILURE (a verify search that did NOT pass) — a
-// BLOCK-class FAIL, never swallowed; a stale/absent cache is a WARN-tier typed-Unknown
-// (the property must be re-proven, never trusted indefinitely — and never a config-bool
-// PASS). Every non-PASS branch carries a Remediation. Emitted only when
-// Deps.SearchEgressProof is non-nil.
-func searchEgressFinding(v inference.Verdict) Finding {
+// searchEgressFinding maps the status report's web-search section into a doctor
+// Finding. The section's outbound-bounded tri-state is the status core's answer —
+// the ONE freshness rule over the cached `villa verify search` result, never a
+// config bool — so doctor adds severity, wording and remediation, and nothing else:
+//
+//   - "bounded" (a fresh verify PASS) → a PASS;
+//   - "not-bounded" (a fresh verify that did NOT pass) → a BLOCK-class FAIL, a real,
+//     confident security-property failure that is never swallowed;
+//   - anything else ("unknown": stale, future-dated, absent or unreadable) → a
+//     WARN-tier typed-Unknown, because the property must be re-proven, never trusted
+//     indefinitely from a stale cache.
+//
+// Every non-PASS branch carries a Remediation. Emitted only when the report carries a
+// web_search section (web search on).
+func searchEgressFinding(w status.WebSearchInfo) Finding {
 	f := Finding{
 		ID:         "search-egress",
 		Name:       "Web-search outbound-bounded proof",
-		Detail:     v.Detail,
-		Provenance: "cached `villa verify search` result (verifystate.Load) + freshness gate",
+		Provenance: "status.Report web_search.outbound_bounded (cached `villa verify search` + freshness gate)",
 	}
-	switch v.Status {
-	case inference.StatusPass:
-		// A fresh cached verify-search PASS — outbound is proven bounded (ready).
+	switch w.OutboundBounded {
+	case status.OutboundBounded:
 		f.Tier = tierBlock
 		f.Status = statusPass
-	case inference.StatusFail:
-		// A real RECENT verify-search non-PASS — the outbound-bounded security property is
-		// confidently NOT holding (degraded-with-reason). A real fault, never a false-green.
+		f.Detail = "outbound bounded: a recent `villa verify search` PASS (checked " + w.VerifyCheckedAt + ")"
+	case status.OutboundNotBounded:
 		f.Tier = tierBlock
 		f.Status = statusFail
-		f.Remediation = nonEmpty(v.Remediation, "the last `villa verify search` did not pass — re-run `villa verify search` and check `villa logs`")
-	default: // StatusWarn — no fresh evaluable proof (stale/absent cache)
-		// typed-Unknown: a security property must be re-proven, NEVER trusted from a stale
-		// cache and NEVER inferred from cfg.WebSearchEnabled.
+		f.Detail = "the last `villa verify search` did not pass (checked " + w.VerifyCheckedAt + ")"
+		f.Remediation = "re-run `villa verify search` and check `villa logs` — outbound is not proven bounded"
+	default:
 		f.Tier = tierWarn
 		f.Status = statusWarn
-		f.Remediation = nonEmpty(v.Remediation, "no fresh verified outbound-bounded result — run `villa verify search`, then re-run `villa doctor`")
+		f.Detail = "no fresh verified outbound-bounded result (the last `villa verify search` is stale, absent or unreadable)"
+		f.Remediation = "run `villa verify search` to re-prove outbound is bounded, then re-run `villa doctor`"
 	}
 	return f
 }

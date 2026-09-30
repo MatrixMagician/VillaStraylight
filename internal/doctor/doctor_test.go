@@ -1066,61 +1066,79 @@ func TestSandboxNetworkFAILRaisesOverall(t *testing.T) {
 	}
 }
 
-// TestAggregateWebSearch proves the nil-safe fold: with both web-search seams nil (web
-// off — the newDoctorDeps default) Aggregate emits NO web-search finding (byte-identical
-// except the schema bump, which is covered separately); with the seams bound the egress
-// and residency findings are present.
+// webSearchReport is the healthy status report with a web_search section whose
+// outbound-bounded answer is bounded — what status.Run folds when the config it
+// loaded has web search on.
+func webSearchReport(bounded string) func() status.Report {
+	return func() status.Report {
+		r := healthyStatusReport()
+		r.WebSearch = &status.WebSearchInfo{Enabled: true, OutboundBounded: bounded, VerifyCheckedAt: "2026-09-30T12:00:00Z"}
+		return r
+	}
+}
+
+// TestAggregateWebSearch proves the egress finding is the status report's answer
+// (ADR-0016): a report with no web_search section (web off — the newDoctorDeps
+// default) emits NO web-search finding (byte-identical, no PASS-by-default); a report
+// with one emits the egress finding, and a bound residency seam its finding; and a
+// fresh verify that did not pass fails doctor, as it reads "not-bounded" in status.
 func TestAggregateWebSearch(t *testing.T) {
 	t.Run("web-off-no-findings", func(t *testing.T) {
 		r := Aggregate(newDoctorDeps())
 		for _, id := range []string{"search-egress", "search-residency"} {
 			if hasFinding(r, id) {
-				t.Errorf("web-off Aggregate emitted finding %q — web-search Deps seams must be nil-safe (no PASS-by-default)", id)
+				t.Errorf("web-off Aggregate emitted finding %q — no web_search section must mean no finding (no PASS-by-default)", id)
 			}
 		}
 	})
 	t.Run("web-on-findings-present", func(t *testing.T) {
 		d := newDoctorDeps()
-		d.SearchEgressProof = func() inference.Verdict {
-			return inference.Verdict{Status: inference.StatusPass, Detail: "outbound bounded: a recent verify search PASS"}
-		}
+		d.StatusReport = webSearchReport(status.OutboundBounded)
 		d.SearchResidencyUnderLoad = func() inference.Verdict {
 			return inference.Verdict{Status: inference.StatusPass, Detail: "chat model resident under search load"}
 		}
 		r := Aggregate(d)
-		if _, ok := findingByID(r, "search-egress"); !ok {
-			t.Errorf("search-egress finding missing with SearchEgressProof bound")
+		if f, ok := findingByID(r, "search-egress"); !ok || f.Status != statusPass {
+			t.Errorf("search-egress = %+v (found=%v), want a PASS from the report's bounded answer", f, ok)
 		}
 		if _, ok := findingByID(r, "search-residency"); !ok {
 			t.Errorf("search-residency finding missing with SearchResidencyUnderLoad bound")
 		}
 	})
+	t.Run("not-bounded-fails-doctor", func(t *testing.T) {
+		d := newDoctorDeps()
+		d.StatusReport = webSearchReport(status.OutboundNotBounded)
+		if r := Aggregate(d); r.Overall != statusFail {
+			t.Errorf("Overall = %q, want FAIL: status says outbound is not bounded", r.Overall)
+		}
+	})
 }
 
-// TestSearchEgressFinding is the tri-state truth table for the egress-proof mapper
-// a cached verify PASS+fresh → ready (PASS, no remediation); a real recent
-// non-PASS → degraded-with-reason (FAIL/WARN + remediation); a stale/absent cache →
-// typed-Unknown WARN + remediation. The Verdict is consumed opaquely (the cmd-tier
-// closure does the freshness mapping), so the switch mirrors offloadFinding's grammar.
+// TestSearchEgressFinding is the tri-state truth table for the egress mapper over the
+// status report's outbound-bounded answer: bounded → PASS, no remediation; not-bounded
+// → a BLOCK-class FAIL + remediation; unknown (stale/absent/unreadable) and any value
+// the core does not emit → a typed-Unknown WARN + remediation, never a PASS.
 func TestSearchEgressFinding(t *testing.T) {
 	cases := []struct {
 		name       string
-		in         inference.Verdict
+		bounded    string
+		wantTier   string
 		wantStatus string
 		wantRemed  bool
 	}{
-		{"ready", inference.Verdict{Status: inference.StatusPass, Detail: "outbound bounded"}, statusPass, false},
-		{"degraded", inference.Verdict{Status: inference.StatusFail, Detail: "a recent verify search FAILed"}, statusFail, true},
-		{"unknown", inference.Verdict{Status: inference.StatusWarn, Detail: "no fresh verify search result"}, statusWarn, true},
+		{"bounded", status.OutboundBounded, tierBlock, statusPass, false},
+		{"not-bounded", status.OutboundNotBounded, tierBlock, statusFail, true},
+		{"unknown", status.OutboundUnknown, tierWarn, statusWarn, true},
+		{"unrecognised", "", tierWarn, statusWarn, true},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			f := searchEgressFinding(c.in)
+			f := searchEgressFinding(status.WebSearchInfo{Enabled: true, OutboundBounded: c.bounded, VerifyCheckedAt: "2026-09-30T12:00:00Z"})
 			if f.ID != "search-egress" {
 				t.Errorf("ID = %q, want search-egress", f.ID)
 			}
-			if f.Status != c.wantStatus {
-				t.Errorf("Status = %q, want %q", f.Status, c.wantStatus)
+			if f.Tier != c.wantTier || f.Status != c.wantStatus {
+				t.Errorf("(tier %s, status %s), want (%s, %s)", f.Tier, f.Status, c.wantTier, c.wantStatus)
 			}
 			if c.wantRemed && f.Remediation == "" {
 				t.Errorf("non-PASS egress finding has empty Remediation")
@@ -1186,9 +1204,7 @@ func TestSearchResidencyFoldedFailDominatesHealth(t *testing.T) {
 // non-empty Remediation, across the egress and residency mappers' non-PASS branches.
 func TestWebSearchFindingsHaveRemediation(t *testing.T) {
 	d := newDoctorDeps()
-	d.SearchEgressProof = func() inference.Verdict {
-		return inference.Verdict{Status: inference.StatusWarn, Detail: "no fresh verify search result"}
-	}
+	d.StatusReport = webSearchReport(status.OutboundUnknown)
 	d.SearchResidencyUnderLoad = func() inference.Verdict {
 		return inference.Verdict{Status: inference.StatusFail, Detail: "fell back to CPU under search load"}
 	}
