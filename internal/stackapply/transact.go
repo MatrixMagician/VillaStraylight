@@ -21,6 +21,7 @@ package stackapply
 
 import (
 	"context"
+	"slices"
 	"strings"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
@@ -152,6 +153,10 @@ func Transact(d TxDeps, change Change) Outcome {
 	if len(changed) == 0 {
 		return Outcome{NoOp: true}
 	}
+	restart := func(svc string) error {
+		restarted = append(restarted, svc)
+		return d.Restart(svc)
+	}
 	for _, u := range changed {
 		name, ok := strings.CutSuffix(u.Name, ".container")
 		if !ok {
@@ -161,8 +166,15 @@ func Transact(d TxDeps, change Change) Outcome {
 		if svc != d.Service && !running(d, svc) {
 			continue
 		}
-		restarted = append(restarted, svc)
-		if err := d.Restart(svc); err != nil {
+		if err := restart(svc); err != nil {
+			return rollback("restart", "", err, prove.Verdict{})
+		}
+	}
+	// The proven service is restarted whether or not its own unit changed or it was
+	// running: the proof drives it, so it must be freshly serving the applied stack.
+	// It goes last when nothing above restarted it.
+	if !slices.Contains(restarted, d.Service) {
+		if err := restart(d.Service); err != nil {
 			return rollback("restart", "", err, prove.Verdict{})
 		}
 	}
@@ -174,10 +186,11 @@ func Transact(d TxDeps, change Change) Outcome {
 	return Outcome{Switched: true, Prove: v}
 }
 
-// running reports whether svc is up. A state that cannot be read counts as running:
-// restarting a stopped unit starts it, but skipping a running one leaves it serving
-// bytes its unit file no longer names.
+// running reports whether svc is up. A state that cannot be read counts as NOT
+// running: restarting a stopped unit starts it, and an unreadable state must never
+// start a service the operator stopped. (The proven service is restarted regardless,
+// so this only ever gates the other changed units.)
 func running(d TxDeps, svc string) bool {
 	state, err := d.IsActive(svc)
-	return err != nil || state == "active" || state == "activating" || state == "reloading"
+	return err == nil && (state == "active" || state == "activating" || state == "reloading")
 }

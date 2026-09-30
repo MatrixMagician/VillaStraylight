@@ -118,6 +118,29 @@ stopped.
   swap verbs.
 - ADR-0010 is amended to say where the lock is taken. ADR-0013's "the swap cores'
   capture/rollback frames stay in `cmd/villa`" no longer holds.
-- Not migrated: `villa config set`, `down` and `uninstall` write config or stop units
-  without the lock; none of them captures or rolls back, so none can revert another
-  mutation's write the way a swap's rollback could.
+- Config writers and service stops (#267): the frame's rollback restores the whole
+  captured `config.toml`, so any config write that lands inside a swap's window is
+  silently reverted, and a service stopped inside it fails the swap's proof for a
+  reason the swap did not cause. `config set`, `workspace add|remove`,
+  `recommend --save`, `verify agent` (around the whole proof; `update apply` runs the
+  same proof already holding the lock, and flock does not nest) and `backup` now take
+  the blocking stack lock from their first config read
+  (`TestConfigSetWaitsForTheStackLock` and its siblings hold the real flock). Still
+  unlocked, by choice and recorded in `lockRules`: `down` and `uninstall`, which
+  stop or remove the stack by intent, capture nothing, and sat outside #267's files.
+  A swap in flight when they run fails its proof and rolls back, and the rollback
+  restarts what the cutover restarted; making them wait is the remaining follow-up.
+- The lock guard is two checks over the sources, each self-tested
+  (`TestLockGuardCatchesEveryShape`, `TestLockGuardCatchesNestedAcquires`). Every
+  reference to `stackapply.Apply/Restore`, `orchestrate.WriteUnits`,
+  `config.SaveVilla` or `orchestrate.NewSystemd`, as a call or as a function value,
+  must sit in a function `lockRules` names, with the verbs that lock it or the
+  reason it needs none; a read-only entry may not reference a systemd mutator.
+  `liveTxDeps` must be wired with `acquireStackLock`, a `TxDeps` is built nowhere
+  else, and a `Tx.Lock` override must be `tryStackLock`. A verb that takes the lock
+  and reaches another function that takes it fails the build.
+- The restart set now matches this ADR: the proven service is restarted whether or
+  not its unit changed (last, when no changed unit named it), and `running()` counts
+  an unreadable `IsActive` as not running, so a stopped resident is never started by
+  a state the frame could not read (`TestTransactRestartsTheProvenServiceWhenOnlyAnotherUnitChanged`,
+  `TestTransactNeverStartsAServiceItCannotReadTheStateOf`).

@@ -113,5 +113,6 @@ nothing but a skipped idempotent env-file write.
   only the service set and published ports from it, which coding mode does not
   change, so its answer is unaffected; it is the last hand-built input and a
   candidate to route through `stackapply.Render` when status is next touched. The
-  cutover proofs (`liveProve`, `liveCodingProve`) and their served-model choice are
-  unchanged (#255, #256).
+  cutover proof (`liveProve`, driven by `stackapply.Transact`, ADR-0015) and its
+  served-model choice are unchanged (#255, #256). `liveCodingProve` was deleted by
+  ADR-0015.

@@ -95,6 +95,15 @@ func runWorkspaceAdd(cmd *cobra.Command, path string, d *workspaceDeps) int {
 	out := cmd.OutOrStdout()
 	errOut := cmd.ErrOrStderr()
 
+	// The grant list lives in config.toml: hold the stack lock (ADR-0010) from the
+	// read so a swap's rollback cannot restore a config that predates this write.
+	lock, err := acquireStackLock()
+	if err != nil {
+		fmt.Fprintf(errOut, "workspace add: %v\n", err)
+		return exitBlocked
+	}
+	defer func() { _ = lock.Release() }()
+
 	cfg, err := d.load()
 	if err != nil {
 		fmt.Fprintf(errOut, "workspace add: load config: %v\n", err)
@@ -205,6 +214,14 @@ func newWorkspaceRemove() *cobra.Command {
 func runWorkspaceRemove(cmd *cobra.Command, path string, d *workspaceDeps) int {
 	out := cmd.OutOrStdout()
 	errOut := cmd.ErrOrStderr()
+
+	// Same write as add: hold the stack lock (ADR-0010) from the read.
+	lock, err := acquireStackLock()
+	if err != nil {
+		fmt.Fprintf(errOut, "workspace remove: %v\n", err)
+		return exitBlocked
+	}
+	defer func() { _ = lock.Release() }()
 
 	cfg, err := d.load()
 	if err != nil {
