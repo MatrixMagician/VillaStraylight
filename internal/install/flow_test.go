@@ -13,7 +13,6 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/catalog"
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
-	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 	"github.com/MatrixMagician/VillaStraylight/internal/preflight"
 	"github.com/MatrixMagician/VillaStraylight/internal/recommend"
@@ -465,8 +464,8 @@ func TestInstallPersistedConfigIsReconcileNoOp(t *testing.T) {
 	f := newFakeDeps(t, units, plan, passChecks())
 
 	var renderedFrom config.VillaConfig
-	f.Render = func(in orchestrate.RenderInput) ([]orchestrate.Unit, error) {
-		renderedFrom = in.Cfg
+	f.Render = func(cfg config.VillaConfig) ([]orchestrate.Unit, error) {
+		renderedFrom = cfg
 		return units, nil
 	}
 
@@ -878,10 +877,10 @@ func TestInstallPreservesPersistedROCmBackend(t *testing.T) {
 		if code, _, _ := f.run(Opts{}); code != exitPass {
 			t.Fatalf("install exit = %d, want 0", code)
 		}
-		if !f.renderedInputSet {
+		if !f.renderedSet {
 			t.Fatal("render seam was never invoked — cannot assert the rendered backend")
 		}
-		if got := f.renderedInput.Backend.Name(); got != "rocm" {
+		if got := f.renderedCfg.Backend; got != "rocm" {
 			t.Errorf("install rendered backend %q, want \"rocm\" preserved (config is the single source of truth)", got)
 		}
 		if f.savedCfg.Backend != "rocm" {
@@ -899,7 +898,7 @@ func TestInstallPreservesPersistedROCmBackend(t *testing.T) {
 		if code, _, _ := f.run(Opts{CodingAgent: true}); code != exitPass {
 			t.Fatalf("install --coding-agent exit = %d, want 0", code)
 		}
-		if got := f.renderedInput.Backend.Name(); got != "rocm" {
+		if got := f.renderedCfg.Backend; got != "rocm" {
 			t.Errorf("install --coding-agent rendered backend %q, want \"rocm\" preserved", got)
 		}
 		if f.savedCfg.Backend != "rocm" {
@@ -936,7 +935,7 @@ func TestInstallPreservesPersistedROCmBackend(t *testing.T) {
 		if code, _, _ := f.run(Opts{}); code != exitPass {
 			t.Fatalf("install exit = %d, want 0", code)
 		}
-		if got := f.renderedInput.Backend.Name(); got != "vulkan" {
+		if got := f.renderedCfg.Backend; got != "vulkan" {
 			t.Errorf("install rendered backend %q, want \"vulkan\" opt-out preserved", got)
 		}
 		if f.savedCfg.Backend != "vulkan" {
@@ -953,7 +952,7 @@ func TestInstallPreservesPersistedROCmBackend(t *testing.T) {
 		if code, _, _ := f.run(Opts{}); code != exitPass {
 			t.Fatalf("install exit = %d, want 0", code)
 		}
-		if got := f.renderedInput.Backend.Name(); got != "rocm" {
+		if got := f.renderedCfg.Backend; got != "rocm" {
 			t.Errorf("unset-backend install rendered backend %q, want \"rocm\" from the recommendation", got)
 		}
 		if f.savedCfg.Backend != "rocm" {
@@ -1231,7 +1230,7 @@ func TestInstallWebSearchFlag(t *testing.T) {
 // TestInstallCodingAgentFlow asserts the --coding-agent block: with the flag set
 // the FSL notice prints, the coder GGUF + binary are staged and the config rendered
 // BEFORE the readiness proof, AgentEnabled is persisted, the coder is SERVED through
-// the CodingRender seam, and a clean install passes. An agent-off install fires NONE
+// the rendered coding-mode config, and a clean install passes. An agent-off install fires NONE
 // of the agent seams.
 func TestInstallCodingAgentFlow(t *testing.T) {
 	units := []orchestrate.Unit{{Name: "villa-llama.container", Text: "x"}}
@@ -1266,35 +1265,26 @@ func TestInstallCodingAgentFlow(t *testing.T) {
 		}
 	})
 
-	t.Run("--coding-agent serves the coder: RenderInput.CodingMode != nil + served id == rec.Coder.Model", func(t *testing.T) {
+	t.Run("--coding-agent renders a coding-mode config naming rec.Coder", func(t *testing.T) {
 		f := newFakeDeps(t, units, plan, passChecks())
-		// The catalog→inference translation is the CodingRender seam; the flow must
-		// thread its descriptor and -m file into the render input verbatim.
-		f.CodingRender = func(config.VillaConfig) (string, *inference.CodingModeSpec, error) {
-			return "qwen3-coder-30b-a3b.gguf", &inference.CodingModeSpec{}, nil
-		}
 
 		code, _, errOut := f.run(Opts{CodingAgent: true})
 		if code != exitPass {
 			t.Fatalf("coding-agent install exit = %d, want %d; stderr:\n%s", code, exitPass, errOut.String())
 		}
-		if !f.renderedInputSet {
+		if !f.renderedSet {
 			t.Fatal("render seam was never called")
 		}
-		if f.renderedInput.CodingMode == nil {
-			t.Error("--coding-agent must thread a non-nil RenderInput.CodingMode (the coder is served)")
+		// The served coder file, its descriptor and the agent ctx derive from this
+		// config inside stackapply (ADR-0013); the flow's job is handing it over.
+		if f.renderedCfg.CoderModel != "qwen3-coder-30b-a3b" {
+			t.Errorf("rendered cfg CoderModel = %q, want rec.Coder.Model %q", f.renderedCfg.CoderModel, "qwen3-coder-30b-a3b")
 		}
-		if f.renderedInput.ModelFile != "qwen3-coder-30b-a3b.gguf" {
-			t.Errorf("RenderInput.ModelFile = %q, want the coder's file from CodingRender", f.renderedInput.ModelFile)
+		if !f.renderedCfg.CodingMode {
+			t.Error("rendered cfg CodingMode must be true on --coding-agent")
 		}
-		if f.renderedInput.Cfg.CoderModel != "qwen3-coder-30b-a3b" {
-			t.Errorf("RenderInput.Cfg.CoderModel = %q, want rec.Coder.Model %q", f.renderedInput.Cfg.CoderModel, "qwen3-coder-30b-a3b")
-		}
-		if !f.renderedInput.Cfg.CodingMode {
-			t.Error("RenderInput.Cfg.CodingMode must be true on --coding-agent")
-		}
-		if f.renderedInput.AgentCtx != 65536 {
-			t.Errorf("RenderInput.AgentCtx = %d, want rec.Coder.AgentCtx %d", f.renderedInput.AgentCtx, 65536)
+		if f.renderedCfg.CoderAgentCtx != 65536 {
+			t.Errorf("rendered cfg CoderAgentCtx = %d, want rec.Coder.AgentCtx %d", f.renderedCfg.CoderAgentCtx, 65536)
 		}
 		if f.savedCfg.CoderModel != "qwen3-coder-30b-a3b" || !f.savedCfg.CodingMode ||
 			f.savedCfg.CoderQuant != "Q4_K_M" || f.savedCfg.CoderAgentCtx != 65536 {
@@ -1305,15 +1295,15 @@ func TestInstallCodingAgentFlow(t *testing.T) {
 
 	t.Run("a coder render failure blocks before any mutation", func(t *testing.T) {
 		f := newFakeDeps(t, units, plan, passChecks())
-		f.CodingRender = func(config.VillaConfig) (string, *inference.CodingModeSpec, error) {
-			return "", nil, errors.New("resolve coder model file: model \"x\" is not in the catalog")
+		f.Render = func(config.VillaConfig) ([]orchestrate.Unit, error) {
+			return nil, errors.New("resolve model file: model \"x\" is not in the catalog")
 		}
 
 		res, _, errOut := f.runResult(Opts{CodingAgent: true})
 		if res.Outcome != Blocked {
 			t.Fatalf("outcome = %q, want %q", res.Outcome, Blocked)
 		}
-		if !strings.Contains(errOut.String(), "install: resolve coder model file:") {
+		if !strings.Contains(errOut.String(), "install: render failed: resolve model file:") {
 			t.Errorf("the block must carry the seam's error, got %q", errOut.String())
 		}
 		if f.saveCalls != 0 || f.writeCalls != 0 || f.startCalls != 0 {
@@ -1321,20 +1311,17 @@ func TestInstallCodingAgentFlow(t *testing.T) {
 		}
 	})
 
-	t.Run("chat-only install is off-path byte-identical: RenderInput.CodingMode == nil + CoderModel empty", func(t *testing.T) {
+	t.Run("chat-only install renders with coding mode off and no coder", func(t *testing.T) {
 		f := newFakeDeps(t, units, plan, passChecks())
 		if code, _, _ := f.run(Opts{}); code != exitPass {
 			t.Fatalf("chat-only install exit = %d, want %d", code, exitPass)
 		}
-		if !f.renderedInputSet {
+		if !f.renderedSet {
 			t.Fatal("render seam was never called")
 		}
-		if f.renderedInput.CodingMode != nil {
-			t.Error("chat-only install must keep RenderInput.CodingMode == nil (off-path byte-identical)")
-		}
-		if f.renderedInput.Cfg.CoderModel != "" || f.renderedInput.Cfg.CodingMode {
+		if f.renderedCfg.CoderModel != "" || f.renderedCfg.CodingMode {
 			t.Errorf("chat-only install must not set coder fields: CoderModel=%q CodingMode=%v",
-				f.renderedInput.Cfg.CoderModel, f.renderedInput.Cfg.CodingMode)
+				f.renderedCfg.CoderModel, f.renderedCfg.CodingMode)
 		}
 	})
 
@@ -1471,7 +1458,7 @@ func TestInstallRefusesUnreadableConfig(t *testing.T) {
 		t.Errorf("a refused install must not mutate the host: write=%d save=%d start=%d reload=%d",
 			f.writeCalls, f.saveCalls, f.startCalls, f.reloadCalls)
 	}
-	if f.renderedInputSet {
+	if f.renderedSet {
 		t.Error("nothing may be rendered from a config install failed to read")
 	}
 	msg := errOut.String()

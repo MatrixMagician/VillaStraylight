@@ -83,7 +83,6 @@ type Deps struct {
 	// Pick recommends a fitting model. It takes Overrides so a wizard choice is
 	// re-validated through the single polymorphism point.
 	Pick      func(detect.HostProfile, recommend.Overrides) recommend.Recommendation
-	ModelFile func(recommend.Recommendation) (string, error)
 	ModelsDir func() string
 
 	RunChecks func(detect.HostProfile, preflight.ResourceReq) []preflight.CheckResult
@@ -107,14 +106,13 @@ type Deps struct {
 	EnableLinger func(user string) error
 
 	UnitDir func() (string, error)
-	// ResidentUnits, HostVillaPath and CodingRender are the catalog→inference
-	// translations the render input needs; they stay in the live wiring because
-	// the pure renderer never imports the catalog.
-	ResidentUnits func(config.VillaConfig) ([]orchestrate.ResidentUnit, error)
-	HostVillaPath func() string
-	CodingRender  func(config.VillaConfig) (modelFile string, spec *inference.CodingModeSpec, err error)
-	Render        func(orchestrate.RenderInput) ([]orchestrate.Unit, error)
-	Reconcile     func([]orchestrate.Unit, string) (orchestrate.Plan, error)
+	// Render renders the whole stack for the assembled config, writing nothing:
+	// stackapply.Render in the live wiring (ADR-0013), which derives the served model
+	// file, the coding descriptor, the resident slots and the pins from the config.
+	// The write half of stackapply does not fit this flow's transaction, which
+	// captures before its first mutation and persists its own secret (ADR-0003).
+	Render    func(config.VillaConfig) ([]orchestrate.Unit, error)
+	Reconcile func([]orchestrate.Unit, string) (orchestrate.Plan, error)
 
 	ModelDownloaded    func(recommend.Recommendation) bool
 	EnsureModel        func(recommend.Recommendation) error
@@ -300,38 +298,9 @@ func Run(ctx context.Context, d Deps, opts Opts) Result {
 		cfg.InferenceSecret = secret
 	}
 
-	modelFile, err := d.ModelFile(rec)
-	if err != nil {
-		return block("install: resolve model file: %v\n", err)
-	}
-	backend, err := inference.BackendFor(cfg.Backend)
-	if err != nil {
-		return block("install: resolve backend: %v\n", err)
-	}
-	resident, err := d.ResidentUnits(cfg)
-	if err != nil {
-		return block("install: resolve resident set: %v\n", err)
-	}
-	renderIn := orchestrate.RenderInput{
-		Backend:       backend,
-		Cfg:           cfg,
-		ModelFile:     modelFile,
-		ModelsDir:     d.ModelsDir(),
-		HostVillaPath: d.HostVillaPath(),
-		Resident:      resident,
-	}
-	if gates.CodingMode {
-		// Serve the staged coder: the served -m and the descriptor derive from the
-		// coder entry, through the same helpers `coding-mode enter` renders with.
-		coderModelFile, spec, cerr := d.CodingRender(cfg)
-		if cerr != nil {
-			return block("install: %v\n", cerr)
-		}
-		renderIn.ModelFile = coderModelFile
-		renderIn.CodingMode = spec
-		renderIn.AgentCtx = cfg.CoderAgentCtx
-	}
-	rendered, err := d.Render(renderIn)
+	// The assembled config is the whole render input (ADR-0013): with coding mode on
+	// it serves the staged coder, derived the same way every other verb renders.
+	rendered, err := d.Render(cfg)
 	if err != nil {
 		return block("install: render failed: %v\n", err)
 	}

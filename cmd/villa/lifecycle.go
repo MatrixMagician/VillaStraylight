@@ -9,15 +9,15 @@ import (
 
 	"github.com/MatrixMagician/VillaStraylight/internal/catalog"
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
-	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
+	"github.com/MatrixMagician/VillaStraylight/internal/stackapply"
 )
 
 // lifecycle.go is the shared seam + helpers for the day-to-day lifecycle verbs
-// (`up`/`down`/`restart`/`logs`). They reuse the Plan-01 orchestrate core
-// (Render→Reconcile→WriteUnits→Systemd) and the Plan-02 install reconcile pattern,
-// so editing config.toml and re-running `up`/`restart` converges exactly the
-// changed units. Every host-touching action is an injectable
+// (`up`/`down`/`restart`/`logs`), and home of liveStackDeps, the one live adapter
+// every unit-writing verb applies the stack through (internal/stackapply,
+// ADR-0013). Editing config.toml and re-running `up`/`restart` converges exactly
+// the changed units. Every host-touching action is an injectable
 // field on lifecycleDeps so lifecycle_test.go drives the whole flow with no live
 // podman/systemd/journald host; runX RETURNS the exit code (0/2/1) — the cobra
 // RunE wrapper calls os.Exit — mirroring runInstall/runModelPull.
@@ -31,135 +31,55 @@ import (
 // the real host (liveLifecycleDeps); lifecycle_test.go replaces them with stubs.
 type lifecycleDeps struct {
 	loadConfig func() (config.VillaConfig, error)
-	modelFile  func(config.VillaConfig) (string, error)
-	modelsDir  func() string
-	render     func(orchestrate.RenderInput) ([]orchestrate.Unit, error)
-	reconcile  func([]orchestrate.Unit, string) (orchestrate.Plan, error)
-	writeUnits func(orchestrate.Plan, string) error
-	unitDir    func() (string, error)
+	// stack renders, writes and reloads the unit files (ADR-0013); the verbs only
+	// choose which services to start or restart.
+	stack stackapply.Deps
 
-	// saveConfig and writeInferenceSecretEnv back ensureInferenceSecret (GHSA-qxg9,
-	// ADR-0011): the upgrade-migration path for an existing install whose
-	// config.toml predates the inference bearer.
-	saveConfig              func(config.VillaConfig) error
-	writeInferenceSecretEnv func(name, text string) error
-
-	daemonReload func() error
-	start        func(service string) error
-	stop         func(service string) error
-	restart      func(service string) error
-	isActive     func(service string) (string, error)
+	start    func(service string) error
+	stop     func(service string) error
+	restart  func(service string) error
+	isActive func(service string) (string, error)
 
 	journalText   func(service string) (string, bool)
 	followJournal func(service string) error
 }
 
-// ensureInferenceSecretWith is the GHSA-qxg9 (ADR-0011) migration core, shared by
-// every caller that needs it run through its OWN load/save/write-env seams: an
-// existing install whose config.toml predates the inference bearer has neither
-// the field nor the 0600 env file the rendered units now reference via
-// EnvironmentFile=, so the first write after upgrading must self-heal it BEFORE
-// any unit is touched. It reuses an existing secret verbatim (never rotates it)
-// and always (re)writes the env file, self-healing a manually deleted one.
-func ensureInferenceSecretWith(loadConfig func() (config.VillaConfig, error), saveConfig func(config.VillaConfig) error, writeInferenceSecretEnv func(name, text string) error) error {
-	cfg, err := loadConfig()
-	if err != nil {
-		return fmt.Errorf("load config: %w", err)
+// liveStackDeps is the ONE live adapter every unit-writing verb applies the stack
+// through (ADR-0013): the catalog, the pinned render (pinresolve), the Quadlet unit
+// dir, the unit writer, systemd, and the inference-secret writers (GHSA-qxg9,
+// ADR-0011).
+func liveStackDeps() stackapply.Deps {
+	return stackapply.Deps{
+		Catalog: func() (catalog.Catalog, error) {
+			cat, _, err := catalog.Load(modelCatalogPath)
+			return cat, err
+		},
+		ModelsDir:               modelsDir,
+		HostVillaPath:           hostVillaPath,
+		Render:                  livePinnedRender,
+		UnitDir:                 quadletUnitDir,
+		Reconcile:               orchestrate.Reconcile,
+		WriteUnits:              orchestrate.WriteUnits,
+		DaemonReload:            orchestrate.NewSystemd().DaemonReload,
+		SaveConfig:              config.SaveVilla,
+		WriteInferenceSecretEnv: orchestrate.WriteInferenceSecretEnv,
 	}
-	if cfg.InferenceSecret == "" {
-		secret, gerr := config.GenerateInferenceSecret()
-		if gerr != nil {
-			return fmt.Errorf("generate inference secret: %w", gerr)
-		}
-		cfg.InferenceSecret = secret
-		if serr := saveConfig(cfg); serr != nil {
-			return fmt.Errorf("persist inference secret: %w", serr)
-		}
-	}
-	name, text := orchestrate.RenderInferenceSecretEnv(cfg.InferenceSecret)
-	if err := writeInferenceSecretEnv(name, text); err != nil {
-		return fmt.Errorf("write inference secret env: %w", err)
-	}
-	return nil
 }
 
-// ensureInferenceSecret is the lifecycleDeps-injected half of the migration
-// (up/restart, via applyReconcile — the seam they share): it drives
-// ensureInferenceSecretWith through d's own loadConfig/saveConfig/
-// writeInferenceSecretEnv fields so lifecycle_test.go can exercise it with
-// stubs, with zero live host I/O.
-func (d *lifecycleDeps) ensureInferenceSecret() error {
-	return ensureInferenceSecretWith(d.loadConfig, d.saveConfig, d.writeInferenceSecretEnv)
-}
-
-// ensureInferenceSecretFile is the LIVE half of the same migration, driven
-// through the real host seams (config.LoadVilla/SaveVilla,
-// orchestrate.WriteInferenceSecretEnv) rather than lifecycleDeps' injected
-// fields. liveWriteUnits calls this so every OTHER unit-writing verb — backend
-// set, tools-mode, coding-mode, speculation set, model swap, a resident-model
-// verb, `villa update`, `villa restore`, and the dashboard's model switch — gets
-// the same self-heal lifecycleDeps.ensureInferenceSecret gives up/restart,
-// without each of those verbs' own Deps struct needing its own copy of this
-// logic (GHSA-qxg9, ADR-0011).
-func ensureInferenceSecretFile() error {
-	return ensureInferenceSecretWith(config.LoadVilla, config.SaveVilla, orchestrate.WriteInferenceSecretEnv)
-}
-
-// liveWriteUnits is the ONE live seam every unit-writing verb funnels its
-// orchestrate.WriteUnits call through (GHSA-qxg9, ADR-0011), instead of calling
-// orchestrate.WriteUnits directly: it self-heals the inference secret env file
-// BEFORE any unit is touched, so a verb that runs first on an upgraded host
-// whose config.toml predates the bearer does not write a unit whose
-// EnvironmentFile= target does not exist yet. A no-op plan (nothing changed)
-// skips it entirely — which is also what keeps a --dry-run caller (none of
-// which ever reach here with a non-empty plan; they return before this seam)
-// side-effect-free, and refuses before any unit is touched if the env file
-// cannot be written.
-func liveWriteUnits(plan orchestrate.Plan, unitDir string) error {
-	if len(plan.Changed) > 0 {
-		if err := ensureInferenceSecretFile(); err != nil {
-			return fmt.Errorf("ensure inference secret: %w", err)
-		}
-	}
-	return orchestrate.WriteUnits(plan, unitDir)
-}
-
-// renderStack loads config, renders the units, and resolves the unit dir. It is
-// the shared front half of up/restart (and the service-set source for all verbs).
+// renderStack loads config, renders the units, and resolves the unit dir: the
+// service-set source down, logs and uninstall validate against. It writes nothing.
 func (d *lifecycleDeps) renderStack() (units []orchestrate.Unit, unitDir string, err error) {
 	cfg, err := d.loadConfig()
 	if err != nil {
 		return nil, "", fmt.Errorf("load config: %w", err)
 	}
-	dir, err := d.unitDir()
+	dir, err := d.stack.UnitDir()
 	if err != nil {
 		return nil, "", fmt.Errorf("resolve unit dir: %w", err)
 	}
-	modelFile, err := d.modelFile(cfg)
+	units, err = stackapply.Render(d.stack, cfg)
 	if err != nil {
-		return nil, "", fmt.Errorf("resolve model file: %w", err)
-	}
-	backend, err := inference.BackendFor(cfg.Backend)
-	if err != nil {
-		return nil, "", fmt.Errorf("resolve backend: %w", err)
-	}
-	// Resident slots are threaded through so up/restart regenerate the SAME unit set
-	// `villa model resident` wrote. Without them a reconcile drops every resident
-	// endpoint from the chat UI's env and leaves the resident units unmanaged.
-	resident, err := liveResidentUnits(cfg)
-	if err != nil {
-		return nil, "", fmt.Errorf("resolve resident models: %w", err)
-	}
-	units, err = d.render(orchestrate.RenderInput{
-		Backend:       backend,
-		Cfg:           cfg,
-		ModelFile:     modelFile,
-		ModelsDir:     d.modelsDir(),
-		HostVillaPath: hostVillaPath(),
-		Resident:      resident,
-	})
-	if err != nil {
-		return nil, "", fmt.Errorf("render: %w", err)
+		return nil, "", err
 	}
 	return units, dir, nil
 }
@@ -227,31 +147,15 @@ func resolveTargets(errOut io.Writer, args []string, services []string) ([]strin
 	return nil, false
 }
 
-// applyReconcile writes the changed units and daemon-reloads (only when something
-// changed). It returns whether anything changed so the caller can decide between a
-// true no-op and a (re)start. printDryRun handles --dry-run separately.
-//
-// It is the ONE seam up and restart share (runUp/runRestart both call it), so the
-// GHSA-qxg9 inference-secret migration lives HERE — before d.writeUnits — rather
-// than as a separate call in each of their RunE bodies: neither can reach
-// d.writeUnits without it running first, and a true no-op (nothing changed) skips
-// both, which is also what keeps --dry-run (which never reaches a non-empty plan
-// here) side-effect-free.
-func (d *lifecycleDeps) applyReconcile(out io.Writer, plan orchestrate.Plan, unitDir string) (changed bool, err error) {
-	if len(plan.Changed) == 0 {
-		return false, nil
+// applyStack applies cfg to the unit files and narrates the write: the apply up and
+// restart share. It returns the changed units so the caller decides between a true
+// no-op and a (re)start. printDryRun handles --dry-run, which never reaches here.
+func (d *lifecycleDeps) applyStack(out io.Writer, cfg config.VillaConfig) ([]orchestrate.Unit, error) {
+	changed, err := stackapply.Apply(d.stack, cfg)
+	if len(changed) > 0 {
+		fmt.Fprintf(out, "wrote %d changed unit(s)\n", len(changed))
 	}
-	if err := d.ensureInferenceSecret(); err != nil {
-		return false, fmt.Errorf("ensure inference secret: %w", err)
-	}
-	if err := d.writeUnits(plan, unitDir); err != nil {
-		return false, fmt.Errorf("write units: %w", err)
-	}
-	fmt.Fprintf(out, "wrote %d changed unit(s) to %s\n", len(plan.Changed), unitDir)
-	if err := d.daemonReload(); err != nil {
-		return false, fmt.Errorf("daemon-reload: %w", err)
-	}
-	return true, nil
+	return changed, err
 }
 
 // printDryRun prints the changed unit text (or a no-change note) and writes
@@ -269,27 +173,17 @@ func printDryRun(out io.Writer, plan orchestrate.Plan) int {
 }
 
 // liveLifecycleDeps wires lifecycleDeps to the real host: config.LoadVilla, the
-// orchestrate render/reconcile/write + systemd seam, and the catalog-resolved
-// model file. It is replaced wholesale by stubs in lifecycle_test.go.
+// live stack adapter, and the systemd seam. It is replaced wholesale by stubs in
+// lifecycle_test.go.
 func liveLifecycleDeps() *lifecycleDeps {
 	sys := orchestrate.NewSystemd()
 	return &lifecycleDeps{
 		loadConfig: config.LoadVilla,
-		modelFile:  liveModelFile,
-		modelsDir:  modelsDir,
-		render:     livePinnedRender,
-		reconcile:  orchestrate.Reconcile,
-		writeUnits: orchestrate.WriteUnits,
-		unitDir:    quadletUnitDir,
-
-		saveConfig:              config.SaveVilla,
-		writeInferenceSecretEnv: orchestrate.WriteInferenceSecretEnv,
-
-		daemonReload: sys.DaemonReload,
-		start:        sys.Start,
-		stop:         sys.Stop,
-		restart:      sys.Restart,
-		isActive:     sys.IsActive,
+		stack:      liveStackDeps(),
+		start:      sys.Start,
+		stop:       sys.Stop,
+		restart:    sys.Restart,
+		isActive:   sys.IsActive,
 
 		journalText:   sys.JournalText,
 		followJournal: followJournalLive,

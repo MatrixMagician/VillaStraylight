@@ -13,12 +13,12 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
 	"github.com/MatrixMagician/VillaStraylight/internal/download"
-	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 	"github.com/MatrixMagician/VillaStraylight/internal/modelswap"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 	"github.com/MatrixMagician/VillaStraylight/internal/pathsafe"
 	"github.com/MatrixMagician/VillaStraylight/internal/prove"
 	"github.com/MatrixMagician/VillaStraylight/internal/recommend"
+	"github.com/MatrixMagician/VillaStraylight/internal/stackapply"
 )
 
 // pullFn is the downloader seam. It defaults to download.PullModel and is
@@ -330,6 +330,7 @@ func runModelSwap(cmd *cobra.Command, name string, d *modelswap.Deps) int {
 // ".part" file and resumes it via HTTP Range on the next run.
 func liveSwapDeps(ctx context.Context) *modelswap.Deps {
 	sys := orchestrate.NewSystemd()
+	stack := liveStackDeps()
 	return &modelswap.Deps{
 		InstallServiceName: installServiceName,
 		LoadConfig:         config.LoadVilla,
@@ -381,62 +382,16 @@ func liveSwapDeps(ctx context.Context) *modelswap.Deps {
 			return os.ReadFile(filepath.Join(dir, "villa-llama.container"))
 		},
 		SaveConfig: config.SaveVilla,
+		// ReconcileAndWrite: apply the persisted target config through the live
+		// stack adapter, which carries the resident slots and, in coding mode, the
+		// coding descriptor (#249).
 		ReconcileAndWrite: func(c config.VillaConfig) (bool, error) {
-			dir, err := quadletUnitDir()
-			if err != nil {
-				return false, err
-			}
-			modelFile, err := liveModelFile(c)
-			if err != nil {
-				return false, err
-			}
-			backend, err := inference.BackendFor(c.Backend)
-			if err != nil {
-				return false, err
-			}
-			// Resident slots are threaded through so a primary swap regenerates the
-			// SAME unit set the resident verbs wrote: without them the chat UI's
-			// endpoint env silently reverts to the primary alone.
-			resident, err := liveResidentUnits(c)
-			if err != nil {
-				return false, err
-			}
-			units, err := livePinnedRender(orchestrate.RenderInput{
-				Backend:       backend,
-				Cfg:           c,
-				ModelFile:     modelFile,
-				ModelsDir:     modelsDir(),
-				HostVillaPath: hostVillaPath(),
-				Resident:      resident,
-			})
-			if err != nil {
-				return false, err
-			}
-			plan, err := orchestrate.Reconcile(units, dir)
-			if err != nil {
-				return false, err
-			}
-			if len(plan.Changed) == 0 {
-				return false, nil
-			}
-			if err := liveWriteUnits(plan, dir); err != nil {
-				return false, err
-			}
-			if err := sys.DaemonReload(); err != nil {
-				return false, err
-			}
-			return true, nil
+			changed, err := stackapply.Apply(stack, c)
+			return len(changed) > 0, err
 		},
-		// RestoreUnit: write the verbatim captured prior unit bytes back through
-		// liveWriteUnits (the traversal-guarded orchestrate rollback path, #237,
-		// GHSA-qxg9-safe).
+		// RestoreUnit: write the verbatim captured prior unit bytes back (#237).
 		RestoreUnit: func(b []byte) error {
-			dir, err := quadletUnitDir()
-			if err != nil {
-				return err
-			}
-			plan := orchestrate.Plan{Changed: []orchestrate.Unit{{Name: "villa-llama.container", Text: string(b)}}}
-			return liveWriteUnits(plan, dir)
+			return stackapply.Restore(stack, map[string]string{"villa-llama.container": string(b)})
 		},
 		DaemonReload: sys.DaemonReload,
 		Restart:      sys.Restart,

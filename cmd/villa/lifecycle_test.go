@@ -2,13 +2,14 @@ package main
 
 import (
 	"bytes"
-	"errors"
 	"testing"
 
 	"github.com/spf13/cobra"
 
+	"github.com/MatrixMagician/VillaStraylight/internal/catalog"
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
+	"github.com/MatrixMagician/VillaStraylight/internal/stackapply"
 )
 
 // fakeLifecycleDeps wires a lifecycleDeps entirely to stubs so runUp/runDown/
@@ -27,7 +28,7 @@ type fakeLifecycleDeps struct {
 	active map[string]bool
 
 	// inferenceSecret is the loadConfig fixture's InferenceSecret; tests mutate
-	// it directly to drive ensureInferenceSecret's empty-vs-populated branches.
+	// it directly to drive the stack apply's secret heal (empty vs populated).
 	inferenceSecret         string
 	saveConfigCalls         int
 	savedInferenceSecret    string
@@ -49,21 +50,26 @@ func newFakeLifecycleDeps(t *testing.T, units []orchestrate.Unit, plan orchestra
 	t.Helper()
 	// A stable, non-empty default so the existing tests below (none of which
 	// exercise the inference-secret migration itself) never trip the
-	// generate-and-save branch of ensureInferenceSecret; tests that DO exercise
+	// generate-and-save branch of the secret heal; tests that DO exercise
 	// it set f.inferenceSecret = "" explicitly.
 	f := &fakeLifecycleDeps{inferenceSecret: "test-inference-secret"}
 	d := &lifecycleDeps{
 		loadConfig: func() (config.VillaConfig, error) {
 			return config.VillaConfig{Model: "qwen3.5-0.8b", Quant: "Q4", Ctx: 4096, Backend: "vulkan", InferenceSecret: f.inferenceSecret}, nil
 		},
-		modelFile: func(config.VillaConfig) (string, error) { return "qwen3.5-0.8b.gguf", nil },
-		modelsDir: func() string { return t.TempDir() },
-		render:    func(orchestrate.RenderInput) ([]orchestrate.Unit, error) { return units, nil },
-		reconcile: func([]orchestrate.Unit, string) (orchestrate.Plan, error) { return plan, nil },
-		unitDir:   func() (string, error) { return t.TempDir(), nil },
+		stack: stackapply.Deps{
+			Catalog: func() (catalog.Catalog, error) {
+				return catalog.Catalog{Models: []catalog.Model{{ID: "qwen3.5-0.8b"}}}, nil
+			},
+			ModelsDir:     func() string { return t.TempDir() },
+			HostVillaPath: func() string { return "/bin/villa" },
+			Render:        func(orchestrate.RenderInput) ([]orchestrate.Unit, error) { return units, nil },
+			Reconcile:     func([]orchestrate.Unit, string) (orchestrate.Plan, error) { return plan, nil },
+			UnitDir:       func() (string, error) { return t.TempDir(), nil },
+		},
 	}
-	d.writeUnits = func(orchestrate.Plan, string) error { f.writeCalls++; return nil }
-	d.daemonReload = func() error { f.reloadCalls++; return nil }
+	d.stack.WriteUnits = func(orchestrate.Plan, string) error { f.writeCalls++; return nil }
+	d.stack.DaemonReload = func() error { f.reloadCalls++; return nil }
 	d.start = func(svc string) error { f.startCalls = append(f.startCalls, svc); return nil }
 	d.stop = func(svc string) error { f.stopCalls = append(f.stopCalls, svc); return nil }
 	d.restart = func(svc string) error { f.restartCalls = append(f.restartCalls, svc); return nil }
@@ -78,13 +84,13 @@ func newFakeLifecycleDeps(t *testing.T, units []orchestrate.Unit, plan orchestra
 		return "load_tensors: Vulkan0 model buffer size = 512 MiB\n", true
 	}
 	d.followJournal = func(svc string) error { f.journalCalls = append(f.journalCalls, svc); return nil }
-	d.saveConfig = func(c config.VillaConfig) error {
+	d.stack.SaveConfig = func(c config.VillaConfig) error {
 		f.saveConfigCalls++
 		f.savedInferenceSecret = c.InferenceSecret
 		f.inferenceSecret = c.InferenceSecret // persist forward, mirroring config.toml
 		return nil
 	}
-	d.writeInferenceSecretEnv = func(string, string) error { f.inferenceSecretEnvCalls++; return nil }
+	d.stack.WriteInferenceSecretEnv = func(string, string) error { f.inferenceSecretEnvCalls++; return nil }
 	f.lifecycleDeps = d
 	return f
 }
@@ -200,9 +206,7 @@ func TestLifecycleUpModelFileErrorBlocks(t *testing.T) {
 	units := twoUnitStack()
 	plan := orchestrate.Plan{Changed: units}
 	f := newFakeLifecycleDeps(t, units, plan)
-	f.modelFile = func(config.VillaConfig) (string, error) {
-		return "", errors.New("model \"ghost\" is not in the catalog")
-	}
+	f.stack.Catalog = func() (catalog.Catalog, error) { return catalog.Catalog{}, nil } // "qwen3.5-0.8b" unresolvable
 
 	cmd, _, errOut := lifecycleTestCmd()
 	code := runUp(cmd, upOpts{}, nil, f.lifecycleDeps)

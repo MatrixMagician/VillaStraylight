@@ -38,6 +38,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 	"github.com/MatrixMagician/VillaStraylight/internal/recommend"
 	"github.com/MatrixMagician/VillaStraylight/internal/residentset"
+	"github.com/MatrixMagician/VillaStraylight/internal/stackapply"
 )
 
 // residentPortBase is the lowest host loopback port a resident slot may claim. The
@@ -67,10 +68,8 @@ type residentDeps struct {
 	primaryPort  func() int
 	isDownloaded func(m catalog.Model) bool
 	pull         func(m catalog.Model) error
-	renderUnits  func(cfg config.VillaConfig) ([]orchestrate.Unit, error)
-	unitDir      func() (string, error)
-	reconcile    func(units []orchestrate.Unit, dir string) (orchestrate.Plan, error)
-	writeUnits   func(plan orchestrate.Plan, dir string) error
+	// stack renders, writes and reloads the unit files (ADR-0013).
+	stack        stackapply.Deps
 	readUnit     func(dir, name string) (string, bool)
 	removeUnit   func(dir, name string) error
 	daemonReload func() error
@@ -413,19 +412,15 @@ func runResidentRm(cmd *cobra.Command, id string, d *residentDeps) int {
 // exactly what was done. A restore that itself failed is reported as incomplete: a
 // wrong "rolled back" claim tells the operator to stop looking.
 func (d *residentDeps) applyResidentChange(out, errOut io.Writer, ch residentChange) int {
-	dir, err := d.unitDir()
+	dir, err := d.stack.UnitDir()
 	if err != nil {
 		fmt.Fprintf(errOut, "%s: resolve unit dir: %v\n", ch.verb, err)
 		return exitBlocked
 	}
-	units, err := d.renderUnits(ch.next)
+	// The plan names every unit the apply below can write, so the capture covers it.
+	plan, err := stackapply.Plan(d.stack, ch.next)
 	if err != nil {
-		fmt.Fprintf(errOut, "%s: render units: %v\n", ch.verb, err)
-		return exitBlocked
-	}
-	plan, err := d.reconcile(units, dir)
-	if err != nil {
-		fmt.Fprintf(errOut, "%s: reconcile units: %v\n", ch.verb, err)
+		fmt.Fprintf(errOut, "%s: %v\n", ch.verb, err)
 		return exitBlocked
 	}
 
@@ -468,16 +463,19 @@ func (d *residentDeps) applyResidentChange(out, errOut io.Writer, ch residentCha
 		mutated.RecordUnit(ch.orphan)
 	}
 
-	if len(plan.Changed) > 0 {
-		if err := d.writeUnits(plan, dir); err != nil {
-			return refuse("%s: write units failed: %v\n", ch.verb, err)
-		}
-		for _, u := range plan.Changed {
-			mutated.RecordUnit(u.Name)
-		}
-		fmt.Fprintf(out, "wrote %d unit(s) to %s\n", len(plan.Changed), dir)
+	// Apply reloads when it wrote a unit, and returns what it wrote even when that
+	// reload fails, so the rollback restores it. A run that wrote nothing still
+	// reloads once: a removed orphan unit must drop out of the manager.
+	changed, err := stackapply.Apply(d.stack, ch.next)
+	for _, u := range changed {
+		mutated.RecordUnit(u.Name)
 	}
-	if err := d.daemonReload(); err != nil {
+	if err != nil {
+		return refuse("%s: apply units failed: %v\n", ch.verb, err)
+	}
+	if len(changed) > 0 {
+		fmt.Fprintf(out, "wrote %d unit(s) to %s\n", len(changed), dir)
+	} else if err := d.daemonReload(); err != nil {
 		return refuse("%s: daemon-reload failed: %v\n", ch.verb, err)
 	}
 
@@ -492,7 +490,7 @@ func (d *residentDeps) applyResidentChange(out, errOut io.Writer, ch residentCha
 	// The chat UI's connection env lists every resident endpoint, so its unit changes
 	// whenever the set does. Without this restart the new slot is reachable on its port
 	// but invisible in the chat UI, which is the whole point of admitting it.
-	if unitsContain(plan.Changed, orchestrate.OpenWebUIContainerUnitName()) && prior.WasRunning(openWebUIServiceName) {
+	if unitsContain(changed, orchestrate.OpenWebUIContainerUnitName()) && prior.WasRunning(openWebUIServiceName) {
 		mutated.RecordStart(openWebUIServiceName)
 		if err := d.restart(openWebUIServiceName); err != nil {
 			return refuse("%s: restart %s failed: %v\n", ch.verb, openWebUIServiceName, err)
@@ -712,10 +710,7 @@ func liveResidentDeps(ctx context.Context) *residentDeps {
 			}
 			return pullFn(ctx, m, dir)
 		},
-		renderUnits: liveRenderUnits,
-		unitDir:     quadletUnitDir,
-		reconcile:   orchestrate.Reconcile,
-		writeUnits:  liveWriteUnits,
+		stack: liveStackDeps(),
 		readUnit: func(dir, name string) (string, bool) {
 			// Containment is checked, not asserted: removeUnit directly below takes the
 			// same dir and name and guards them, and a read that only claims safety in a
@@ -757,37 +752,9 @@ func liveResidentDeps(ctx context.Context) *residentDeps {
 	}
 }
 
-// liveRenderUnits renders the whole stack from cfg, including the resident slots. It
-// is the resident verbs' render seam and the one place the resident catalog handoff is
-// assembled for a full render.
-func liveRenderUnits(cfg config.VillaConfig) ([]orchestrate.Unit, error) {
-	modelFile, err := liveModelFile(cfg)
-	if err != nil {
-		return nil, err
-	}
-	backend, err := inference.BackendFor(cfg.Backend)
-	if err != nil {
-		return nil, err
-	}
-	resident, err := liveResidentUnits(cfg)
-	if err != nil {
-		return nil, err
-	}
-	return livePinnedRender(orchestrate.RenderInput{
-		Backend:       backend,
-		Cfg:           cfg,
-		ModelFile:     modelFile,
-		ModelsDir:     modelsDir(),
-		HostVillaPath: hostVillaPath(),
-		Resident:      resident,
-	})
-}
-
 // liveResidentUnits resolves every configured resident slot's catalog id to its GGUF
-// filename — the handoff orchestrate.RenderInput requires so the pure renderer never
-// imports the catalog. An unresolvable id is a hard error: a unit whose -m points at a
-// fabricated filename fails only at container start, long after the command reported
-// success.
+// filename through stackapply.ResidentUnits, for the read-only renders (status,
+// doctor) that still assemble their own input. An unresolvable id is a hard error.
 func liveResidentUnits(cfg config.VillaConfig) ([]orchestrate.ResidentUnit, error) {
 	if len(cfg.Resident) == 0 {
 		return nil, nil
@@ -796,18 +763,5 @@ func liveResidentUnits(cfg config.VillaConfig) ([]orchestrate.ResidentUnit, erro
 	if err != nil {
 		return nil, fmt.Errorf("load model catalog: %w", err)
 	}
-	units := make([]orchestrate.ResidentUnit, 0, len(cfg.Resident))
-	for _, r := range cfg.Resident {
-		m, ok := cat.FindByID(r.Model)
-		if !ok {
-			return nil, fmt.Errorf("resident model %q is not in the catalog — cannot resolve its weight file", r.Model)
-		}
-		units = append(units, orchestrate.ResidentUnit{
-			Model:     r.Model,
-			ModelFile: m.PrimaryFile(),
-			Ctx:       r.Ctx,
-			Port:      r.Port,
-		})
-	}
-	return units, nil
+	return stackapply.ResidentUnits(cat, cfg.Resident)
 }
