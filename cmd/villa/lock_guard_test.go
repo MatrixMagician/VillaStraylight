@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
+	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 	"github.com/MatrixMagician/VillaStraylight/internal/preflight"
 	"github.com/MatrixMagician/VillaStraylight/internal/stacklock"
 )
@@ -100,6 +101,44 @@ func TestBackupWaitsForTheStackLock(t *testing.T) {
 	})
 }
 
+// TestDownWaitsForTheStackLock guards #267: `villa down` stops services, which fails
+// a concurrent swap's proof for a reason the swap did not cause and races its
+// rollback's restart of what it restarted.
+func TestDownWaitsForTheStackLock(t *testing.T) {
+	f := newFakeLifecycleDeps(t, twoUnitStack(), orchestrate.Plan{})
+	requireWaitsForStackLock(t, func() {
+		cmd, _, _ := lifecycleTestCmd()
+		runDown(cmd, nil, f.lifecycleDeps)
+	})
+}
+
+// TestUninstallWaitsForTheStackLock guards #267: `villa uninstall` stops the stack,
+// removes its units and volumes and reloads the manager, all of which a swap in
+// flight would trip over. The whole teardown is one locked window.
+func TestUninstallWaitsForTheStackLock(t *testing.T) {
+	f := newFakeUninstallDeps(t, sampleUnits(), t.TempDir())
+	requireWaitsForStackLock(t, func() {
+		cmd, _, _ := uninstallTestCmd()
+		runUninstall(cmd, uninstallOpts{keepModels: true}, f.uninstallDeps)
+	})
+}
+
+// TestVerifySearchWaitsForTheStackLock guards #267: `verify search` applies a transient
+// nft bound in the rootless netns every service of the stack shares, and its deferred
+// teardown removes it. A swap's proof running inside that window sees a bounded network
+// it did not cause, so the proof must not begin while the lock is held.
+func TestVerifySearchWaitsForTheStackLock(t *testing.T) {
+	deps := searchVerifyDeps{
+		loadedWebSearchEnabled: func() bool { return true },
+		verifyFn: func(context.Context, searchVerifyDeps) searchProof {
+			return pass("stub")
+		},
+	}
+	requireWaitsForStackLock(t, func() {
+		runVerifySearch(newSearchCmd(), nil, deps)
+	})
+}
+
 // requireWaitsForStackLock is the behavioural half of ADR-0010's coverage: while
 // another stack mutation holds the REAL blocking flock (a temp XDG dir, the shape
 // TestBenchABSwitchWaitsForTheStackLock uses), run must not return; once the lock is
@@ -163,6 +202,14 @@ var lockSinks = map[string]bool{
 	"orchestrate.NewSystemd": true,
 }
 
+// localSinks are cmd/villa's own functions whose reference marks a stack mutation the
+// package-qualified sinks cannot see. applySearchBound puts a transient nft table into
+// the rootless netns the whole stack shares, which is a mutation of the running stack
+// though it stops no service. Its definition is not a reference to itself.
+var localSinks = map[string]bool{
+	"applySearchBound": true,
+}
+
 // lockRule says how one function that references a sink is covered.
 type lockRule struct {
 	// lockers are the verbs that run this function's effects and must each call
@@ -222,14 +269,19 @@ var lockRules = map[string]lockRule{
 	// caller that runs Apply or Restore is itself a sink above.
 	"liveStackDeps": {why: "binding only: a caller that runs stackapply.Apply/Restore is registered above"},
 
-	// Teardown verbs stop or remove the stack by intent and are NOT covered by #267:
-	// lifecycle.go, down.go and uninstall.go were outside its declared files. `down`
-	// and `uninstall` capture nothing, so they cannot revert another mutation's
-	// write, but a swap in flight when they run fails its proof for a reason the swap
-	// did not cause, and its rollback restarts what it restarted. Locking them is the
-	// remaining follow-up; the entries name the gap rather than hide it.
-	"liveLifecycleDeps": {why: "up and restart lock in runUp/runRestart (applyStack); down and logs are the unlocked gap above"},
-	"liveUninstallDeps": {why: "uninstall is teardown, unlocked by the gap above"},
+	// Teardown verbs stop or remove the stack by intent. They capture nothing, so they
+	// cannot revert another mutation's write, but a swap in flight when they run fails
+	// its proof for a reason the swap did not cause, and its rollback restarts what it
+	// restarted (#267). runDown and runUninstall hold the lock across their whole
+	// window. `logs` shares liveLifecycleDeps but only reads the journal.
+	"liveLifecycleDeps": {lockers: []string{"runUp", "runRestart", "runDown"}},
+	"liveUninstallDeps": {lockers: []string{"runUninstall"}},
+
+	// verify search applies a transient nft bound in the shared rootless netns and tears
+	// it down on the way out. runVerifySearch locks around the proof; `update apply`
+	// runs the same proof already holding the lock, so the lock is deliberately not
+	// inside liveSearchVerify: flock does not nest.
+	"liveSearchVerify": {lockers: []string{"runVerifySearch"}},
 
 	// Read-only readers of systemd: the journal, or IsActive.
 	"liveJournalView":   {readOnly: true},
@@ -404,6 +456,9 @@ func lockFindings(files []guardFile, rules map[string]lockRule) []string {
 			return true
 		})
 		bodyIdents(d.node, func(id *ast.Ident) {
+			if localSinks[id.Name] && id.Name != d.name {
+				sinks[d.name] = append(sinks[d.name], id.Name)
+			}
 			if r, ok := rules[id.Name]; ok && r.direct && id.Name != d.name {
 				callers[id.Name] = append(callers[id.Name], d.name)
 			}
@@ -575,6 +630,12 @@ func TestLockGuardCatchesEveryShape(t *testing.T) {
 			`func w() { d := deps{save: config.SaveVilla}; _ = d }`, nil, "w references [config.SaveVilla]"},
 		{"a systemd stop",
 			`func w() { sys := orchestrate.NewSystemd(); sys.Stop("x") }`, nil, "w references [orchestrate.NewSystemd]"},
+		{"a call of the nft bound",
+			`func w() { applySearchBound(nil, "") }`, nil, "w references [applySearchBound]"},
+		{"the nft bound taken as a value",
+			`func w() { f := applySearchBound; f(nil, "") }`, nil, "w references [applySearchBound]"},
+		{"the definition of the nft bound is not a reference to it",
+			`func applySearchBound() {}`, nil, ""},
 		{"a package-level sink",
 			`var save = config.SaveVilla`, nil, "package-level declaration"},
 		{"a locker that does not take the lock",

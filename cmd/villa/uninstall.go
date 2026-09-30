@@ -139,6 +139,17 @@ func runUninstall(cmd *cobra.Command, opts uninstallOpts, d *uninstallDeps) int 
 		return exitBlocked
 	}
 
+	// The teardown stops the stack and removes its units and volumes: one locked
+	// window (ADR-0010) from the first config read, so no swap proves or rolls back
+	// inside it. ponytail: the lock is held across the model-weights prompt too; move
+	// the prompt ahead of the lock if a slow answer ever blocks a swap in practice.
+	lock, err := acquireStackLock()
+	if err != nil {
+		fmt.Fprintf(errOut, "uninstall: %v\n", err)
+		return exitBlocked
+	}
+	defer func() { _ = lock.Release() }()
+
 	// Derive the authoritative file + service set from the rendered stack.
 	units, unitDir, err := d.renderStack()
 	if err != nil {
