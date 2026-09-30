@@ -3,11 +3,13 @@ package inference
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
 	"github.com/MatrixMagician/VillaStraylight/internal/llm"
@@ -56,18 +58,48 @@ type Client struct {
 	root string
 	key  string
 	http *http.Client
+	err  error // set when the key was refused; every route then fails with it
 }
+
+// errBadKey is the refusal for a key with a control character. It names the config
+// field and never the key.
+var errBadKey = errors.New("inference client: the api key contains a control character " +
+	"(a hand-edited config.toml?): remove inference_secret from config.toml and run `villa up` " +
+	"to generate a fresh one")
 
 // NewClient builds a client for the llama-server at root (its base URL, without
 // /v1). key is the LLAMA_API_KEY bearer the unit was rendered with; "" sends none,
 // which a keyed unit answers with a 401 on every route but /health.
+//
+// A key with a control character is refused, fail closed: it could only come from a
+// hand-edited config, and a newline in it would inject header lines through curl's
+// `-H @-`. The returned client sends nothing; each route returns errBadKey (a
+// CurlRequest carries it in Err).
 func NewClient(root, key string) Client {
-	return Client{
+	c := Client{
 		root: strings.TrimRight(root, "/"),
 		key:  key,
 		http: &http.Client{Timeout: readTimeout},
 	}
+	if strings.IndexFunc(key, unicode.IsControl) >= 0 {
+		c.err = errBadKey
+	}
+	return c
 }
+
+// String shows the address and whether a key is set, never the key, so a stray log
+// line or error wrap of a client cannot leak the credential.
+func (c Client) String() string {
+	key := "<none>"
+	if c.key != "" {
+		key = "<redacted>"
+	}
+	return fmt.Sprintf("inference.Client{root: %q, key: %s}", c.root, key)
+}
+
+// Format redacts under every verb: fmt would otherwise print the struct's fields
+// for %v, %+v, %#v and %d.
+func (c Client) Format(f fmt.State, _ rune) { _, _ = io.WriteString(f, c.String()) }
 
 // HostClient is the client for the host-published loopback endpoint the primary
 // inference unit and the transient validate run both publish on.
@@ -194,9 +226,13 @@ func (c Client) Chat(timeout time.Duration) *llm.OpenAIClient {
 // the route; when the client holds a key, Args tells curl to read its headers from
 // stdin (`-H @-`) and Stdin carries the Authorization line, so the key never appears
 // on podman's or curl's command line, which any local user can read from /proc.
+//
+// Err is set when the client refused its key (see NewClient); the caller must not run
+// the request.
 type CurlRequest struct {
 	Args  []string
 	Stdin []byte
+	Err   error
 }
 
 // CurlChatCompletions is a POST of body to the chat-completions route.
@@ -208,6 +244,9 @@ func (c Client) CurlChatCompletions(body []byte) CurlRequest {
 func (c Client) CurlModels() CurlRequest { return c.curl(c.root + routeModels) }
 
 func (c Client) curl(args ...string) CurlRequest {
+	if c.err != nil {
+		return CurlRequest{Err: c.err}
+	}
 	if c.key == "" {
 		return CurlRequest{Args: args}
 	}
@@ -220,6 +259,9 @@ func (c Client) curl(args ...string) CurlRequest {
 // get issues one bounded GET of route, attaching the key when keyed is true and the
 // client holds one.
 func (c Client) get(ctx context.Context, route string, keyed bool) (*http.Response, error) {
+	if c.err != nil {
+		return nil, c.err
+	}
 	if c.http == nil {
 		return nil, fmt.Errorf("inference client: no endpoint")
 	}

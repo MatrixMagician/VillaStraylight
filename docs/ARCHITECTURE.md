@@ -354,10 +354,12 @@ dashboard service drives rather than reads:
 - **`inference.Client`** (`internal/inference/client.go`), the one caller of a
   llama-server unit (ADR-0014). Built once from a loaded config
   (`inferenceClient(cfg)`, or `inNetworkInferenceClient(cfg)` for a `villa.network`
-  probe), it owns the address, the api key and every route: keyless `/health`,
-  and keyed `/v1/models`, `/props`, `/metrics`, `/slots` and chat completions (via
-  `internal/llm`). An in-network curl probe takes a `CurlRequest` whose
-  `Authorization` line travels on stdin, never argv.
+  probe), it owns the address, the api key and every route: `/health` and
+  `/v1/models`, which llama.cpp serves publicly (the client sends the key on
+  `/v1/models` anyway), and the keyed `/props`, `/metrics`, `/slots` and chat
+  completions (via `internal/llm`). An in-network curl probe takes a `CurlRequest`
+  whose `Authorization` line travels on stdin, never argv. The client prints
+  redacted under every `fmt` verb, and refuses a key with a control character.
   `TestInferenceReachedOnlyThroughClient` refuses any other route to the unit.
 - **`orchestrate.Render` / `Reconcile` / `WriteUnits` / `Systemd`**
   (`internal/orchestrate/render.go`, `reconcile.go`, `systemd.go`), the pure Quadlet

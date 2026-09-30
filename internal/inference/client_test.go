@@ -311,3 +311,21 @@ func TestClientRefusesAControlCharacterKey(t *testing.T) {
 		t.Errorf("a refused client sent %d request(s) to the server", hits)
 	}
 }
+
+// TestRefusedKeyBuildsNoCurlRequest: the in-network curl path carries the refusal in
+// CurlRequest.Err, with no argv and no stdin to run, so the key cannot reach
+// `-H @-`.
+func TestRefusedKeyBuildsNoCurlRequest(t *testing.T) {
+	c := NewClient("http://villa-llama:8080", "abc\nX-Injected: 1")
+	for name, req := range map[string]CurlRequest{
+		"chat":   c.CurlChatCompletions([]byte(`{}`)),
+		"models": c.CurlModels(),
+	} {
+		if req.Err == nil || !strings.Contains(req.Err.Error(), "inference_secret") {
+			t.Errorf("%s: Err = %v, want a refusal naming inference_secret", name, req.Err)
+		}
+		if req.Args != nil || req.Stdin != nil {
+			t.Errorf("%s: a refused request carries args %q stdin %q", name, req.Args, req.Stdin)
+		}
+	}
+}
