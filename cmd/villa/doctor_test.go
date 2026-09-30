@@ -483,6 +483,57 @@ func TestRunSearchResidencyUnderLoadPreconditionGate(t *testing.T) {
 	}
 }
 
+// TestSearchResidencyDriveSendsInferenceBearer pins #252: every chat round the
+// search-residency proof drives reaches villa-llama with the api key, and the key
+// never lands on a process command line.
+//
+// llama-server requires the bearer on /v1/chat/completions (ADR-0011). A round sent
+// without it is a 401, every round errors, and the proof can only ever degrade to
+// typed-Unknown on a keyed host — a residency check that silently never runs. The
+// drive is a curl inside a helper container, so the key reaches curl on stdin
+// (`-H @-`), never in podman's or curl's argv, which any local user can read from
+// /proc. The podman on PATH records both.
+func TestSearchResidencyDriveSendsInferenceBearer(t *testing.T) {
+	const secret = "s3cret-inference-key"
+	rec := stubRecordingPodman(t)
+
+	sd, err := status.StubDeps(t.TempDir(), nil)
+	if err != nil {
+		t.Fatalf("status.StubDeps: %v", err)
+	}
+	cfg := config.VillaConfig{
+		Backend: "vulkan", Model: "qwen3", Ctx: 131072,
+		WebSearchEnabled: true, InferenceSecret: secret,
+	}
+	_ = runSearchResidencyUnderLoad(t.Context(), cfg, &sd)
+
+	argv, _ := os.ReadFile(filepath.Join(rec, "argv"))
+	stdin, _ := os.ReadFile(filepath.Join(rec, "stdin"))
+	if len(argv) == 0 {
+		t.Fatal("the drive never invoked podman; the precondition gate short-circuited before the chat rounds")
+	}
+	if !bytes.Contains(stdin, []byte("Authorization: Bearer "+secret)) {
+		t.Errorf("the search-residency drive sent no Authorization: Bearer header on stdin (got %q); argv:\n%s", stdin, argv)
+	}
+	if bytes.Contains(argv, []byte(secret)) {
+		t.Errorf("the api key is on the podman/curl command line, readable from /proc by any local user; argv:\n%s", argv)
+	}
+}
+
+// stubRecordingPodman puts a `podman` on PATH that appends its argv and stdin to
+// files in the returned directory and exits 22 (curl's -f HTTP-error exit), so a
+// drive round finishes at once and the test reads exactly what each round sent.
+func stubRecordingPodman(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	script := "#!/bin/sh\nd=\"$(dirname \"$0\")\"\nprintf '%s\\n' \"$@\" >> \"$d/argv\"\ncat >> \"$d/stdin\"\nexit 22\n"
+	if err := os.WriteFile(filepath.Join(dir, "podman"), []byte(script), 0o700); err != nil {
+		t.Fatalf("write podman stub: %v", err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return dir
+}
+
 // writeVerifyState persists a verifystate.State at the live verifystate.Path under the
 // test's XDG_DATA_HOME so liveSearchEgressProof (which reads the real store) can be driven
 // off-hardware. Callers MUST t.Setenv("XDG_DATA_HOME", …) before calling.
