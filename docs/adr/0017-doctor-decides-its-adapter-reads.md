@@ -114,3 +114,8 @@ gating move was left to #258; both are superseded here.
 A `Deps` built by hand must now wire every seam a subsystem's fold calls, since
 nothing is nil-gated; `newDoctorDeps` in the tests wires them all. The doctor
 test doubles set `cfg`, not a seam, to turn a subsystem on.
+
+Doctor no longer creates the unit directory as a side effect: the old
+`liveToolsDrift` called `quadletUnitDir()`, which `MkdirAll`'d
+`~/.config/containers/systemd`, and doctor now only reads. The provenance strings of two findings, SBX-02 and `search-egress`,
+changed in `--json`, not only in wording.
