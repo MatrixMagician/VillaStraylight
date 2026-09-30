@@ -373,6 +373,16 @@ func runVerifyAgent(cmd *cobra.Command, _ []string, deps verifyAgentDeps) int {
 		DisabledMessage: "the coding agent is not enabled (agent_enabled=false) — nothing to verify. Enable it with `villa install --coding-agent`, then re-run.",
 		FailLabel:       "runtime strictly-local agent proof",
 		Prove: func() verify.Proof {
+			// The llama-down control stops and restarts villa-llama, which would fail a
+			// concurrent swap's proof for a reason the swap did not cause: hold the
+			// stack lock (ADR-0010) for the proof. Taken here, not in liveAgentVerify,
+			// because `villa update apply` runs that proof already holding the lock and
+			// flock does not nest.
+			lock, err := acquireStackLock()
+			if err != nil {
+				return verify.Proof{Status: verify.Fail, Detail: "stack lock: " + err.Error()}
+			}
+			defer func() { _ = lock.Release() }()
 			proof := deps.verifyFn(cmd.Context(), deps)
 			if proof.status == preflight.StatusFail {
 				return verify.Proof{Status: verify.Fail, Detail: proof.detail}

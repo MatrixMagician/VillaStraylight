@@ -156,6 +156,15 @@ func runConfigSet(cmd *cobra.Command, arg string, d *configDeps) int {
 	}
 	key = strings.TrimSpace(key)
 
+	// A load→save of the whole file: hold the stack lock (ADR-0010) so a swap's
+	// rollback cannot restore a config that predates this write.
+	lock, err := acquireStackLock()
+	if err != nil {
+		fmt.Fprintf(errOut, "config set: %v\n", err)
+		return exitBlocked
+	}
+	defer func() { _ = lock.Release() }()
+
 	cfg, err := d.load()
 	if err != nil {
 		fmt.Fprintf(errOut, "config set: %v\n", err)
