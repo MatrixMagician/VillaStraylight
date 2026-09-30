@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -119,6 +121,8 @@ func liveDashboardDeps(ctx context.Context) (dashboard.Config, error) {
 		}
 	}
 
+	perfRead, slotsRead, counterRead := newScrapeClient().reads(ctx)
+
 	return dashboard.Config{
 		Tasks:         tasks,
 		StatusDeps:    *statusDeps,
@@ -127,8 +131,8 @@ func liveDashboardDeps(ctx context.Context) (dashboard.Config, error) {
 		DashboardPort: cfg.DashboardPort,
 
 		// Performance: bounded /metrics + /slots scrapes of the inference endpoint.
-		Metrics: func() (metrics.PerfSnapshot, bool) { return currentInferenceClient().Perf(ctx) },
-		Slots:   func() ([]metrics.Slot, bool) { return currentInferenceClient().Slots(ctx) },
+		Metrics: perfRead,
+		Slots:   slotsRead,
 
 		// GPU & Memory (memory-first): the GTT-used headline + the usable unified-memory
 		// envelope (from the authoritative HostProfile envelope, never MemTotal) + the
@@ -156,7 +160,7 @@ func liveDashboardDeps(ctx context.Context) (dashboard.Config, error) {
 		ReadUsage:     liveReadUsageTotals,
 		WriteUsage:    liveWriteUsage,
 		ModelID:       liveModelID,
-		CounterSample: func() (metrics.CounterSample, bool) { return currentInferenceClient().Counters(ctx) },
+		CounterSample: counterRead,
 
 		// Pins: liveResolver (cmd/villa/pins.go) already joins the compiled-in
 		// table to this host's pinstate.State the SAME way every render does — no
@@ -169,13 +173,56 @@ func liveDashboardDeps(ctx context.Context) (dashboard.Config, error) {
 	}, nil
 }
 
-// currentInferenceClient is the inference client for the config as it is now, for
-// the dashboard's per-scrape reads (#253). A config that no longer loads is the zero
-// config, so the client is keyless and the unit answers a 401 on every keyed route:
-// the panel reads unavailable, never a crash and never a stale key.
-func currentInferenceClient() inference.Client {
-	cfg, _ := config.LoadVilla()
-	return inferenceClient(cfg)
+// scrapeClientTTL is how long one config load serves the dashboard's inference reads.
+// One /api/metrics scrape makes three of them (the usage counter fold, the gauges and
+// the slots), so they share a load; it is well under the UI's 2.5 s poll, so the next
+// scrape reads config again and a key written by `villa up` reaches it (#253).
+const scrapeClientTTL = time.Second
+
+// scrapeClient serves the inference client for the dashboard's per-scrape reads (#253)
+// from the config as it is now, not as it was at startup. A config that no longer loads
+// is the zero config, so the client is keyless and the unit answers a 401 on every keyed
+// route: the panel reads unavailable, never a crash and never a stale key.
+//
+// The three reads of one scrape reuse one client for scrapeClientTTL rather than
+// loading config.toml each: the server calls them separately, so a scrape has no
+// boundary to build the client at.
+type scrapeClient struct {
+	load  func() (config.VillaConfig, error)
+	build func(config.VillaConfig) inference.Client
+	now   func() time.Time
+
+	mu      sync.Mutex
+	builtAt time.Time
+	client  inference.Client
+	built   bool
+}
+
+func newScrapeClient() *scrapeClient {
+	return &scrapeClient{load: config.LoadVilla, build: inferenceClient, now: time.Now}
+}
+
+// current returns the client for the config as of this scrape.
+func (s *scrapeClient) current() inference.Client {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if now := s.now(); !s.built || now.Sub(s.builtAt) >= scrapeClientTTL {
+		cfg, _ := s.load()
+		s.client, s.builtAt, s.built = s.build(cfg), now, true
+	}
+	return s.client
+}
+
+// reads returns the dashboard's three inference reads (gauges, slots and the usage
+// counters), each taking the client for the scrape it belongs to.
+func (s *scrapeClient) reads(ctx context.Context) (
+	perf func() (metrics.PerfSnapshot, bool),
+	slots func() ([]metrics.Slot, bool),
+	counters func() (metrics.CounterSample, bool),
+) {
+	return func() (metrics.PerfSnapshot, bool) { return s.current().Perf(ctx) },
+		func() ([]metrics.Slot, bool) { return s.current().Slots(ctx) },
+		func() (metrics.CounterSample, bool) { return s.current().Counters(ctx) }
 }
 
 // journalTailLines is the Journal panel's line cap (contract: "at most 10

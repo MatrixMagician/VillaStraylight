@@ -18,15 +18,11 @@ package main
 // and off, so the marker stays where TestSeamGrepGate requires it.
 
 import (
-	"bufio"
-	"bytes"
 	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
-	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -34,16 +30,10 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/catalog"
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
-	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 	"github.com/MatrixMagician/VillaStraylight/internal/prove"
 	"github.com/MatrixMagician/VillaStraylight/internal/recommend"
 	"github.com/MatrixMagician/VillaStraylight/internal/subsystem"
 )
-
-// inferenceUnitFile is the rendered inference unit the tools-mode transaction
-// captures, restores and reads back for the drift check. It is the same unit
-// liveBackendSwapDeps captures; naming it once keeps the two in step.
-const inferenceUnitFile = "villa-llama.container"
 
 // newToolsMode builds the `villa tools-mode` noun and its show/enter/exit subcommands.
 func newToolsMode() *cobra.Command {
@@ -300,75 +290,4 @@ func noteVerdict(v prove.Verdict, note string) prove.Verdict {
 	}
 	v.Detail += "; " + note
 	return v
-}
-
-// toolsFlagToken is the token the rendered inference unit carries when tool calling
-// is on, DERIVED rather than typed: it is the argument the backend seam adds when
-// RunSpec.Tools flips on. Deriving it keeps the flag literal inside
-// internal/inference (TestSeamGrepGate) and means a rename of the flag cannot leave
-// this check silently asserting a token nothing emits any more.
-func toolsFlagToken(backendName string) (string, error) {
-	b, err := inference.BackendFor(backendName)
-	if err != nil {
-		return "", err
-	}
-	off := map[string]int{}
-	for _, a := range b.ContainerArgs(inference.RunSpec{}) {
-		off[a]++
-	}
-	var extra []string
-	for _, a := range b.ContainerArgs(inference.RunSpec{Tools: true}) {
-		if off[a] > 0 {
-			off[a]--
-			continue
-		}
-		extra = append(extra, a)
-	}
-	if len(extra) != 1 {
-		return "", fmt.Errorf("the inference seam adds %d arguments for tool calling, want exactly one", len(extra))
-	}
-	return extra[0], nil
-}
-
-// unitCarriesToolsFlag reports whether a rendered unit's Exec line carries the given
-// token as a whole argument. It scans the Exec line rather than the whole file so a
-// token appearing in a comment or a label is not mistaken for a served flag.
-func unitCarriesToolsFlag(unit []byte, token string) bool {
-	sc := bufio.NewScanner(bytes.NewReader(unit))
-	for sc.Scan() {
-		line := strings.TrimSpace(sc.Text())
-		if !strings.HasPrefix(line, "Exec=") {
-			continue
-		}
-		for _, f := range strings.Fields(line) {
-			if f == token {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-// liveToolsDrift is doctor's TMD-01 seam: does the on-disk inference unit carry the
-// tool-calling flag, and does config say it should? A unit that cannot be read or a
-// backend that cannot be resolved reports ok=false, which doctor renders as a
-// typed-Unknown WARN — never as a matching PASS.
-func liveToolsDrift() (served, want, ok bool) {
-	cfg, err := config.LoadVilla()
-	if err != nil {
-		return false, false, false
-	}
-	token, err := toolsFlagToken(cfg.Backend)
-	if err != nil {
-		return false, false, false
-	}
-	dir, err := quadletUnitDir()
-	if err != nil {
-		return false, false, false
-	}
-	unit, err := os.ReadFile(filepath.Join(dir, inferenceUnitFile))
-	if err != nil {
-		return false, false, false
-	}
-	return unitCarriesToolsFlag(unit, token), subsystem.ToolsOn(cfg), true
 }

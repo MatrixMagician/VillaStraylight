@@ -104,3 +104,7 @@ needs) — `git diff main -- 'cmd/villa/*_test.go'` is additions-only. The three
 new core packages/files get their own tests against fake `Deps`: table tests
 for `PrepareIndexRun` and `ResolveModelChoiceSource`, and call-order/ordering
 tests for `RunBackup` and `uninstall.Run`.
+
+ADR-0017 applies the same rule to the adapter beside a core rather than a cobra
+body: `liveDoctorDeps` decided which doctor seams to bind and how to read the unit
+dir, and that moved into `internal/doctor`, leaving the adapter reads.

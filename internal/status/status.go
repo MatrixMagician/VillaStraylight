@@ -548,7 +548,7 @@ type Deps struct {
 	// to the loaded State, or nil when the store is absent/unreadable — the
 	// outbound-bounded indicator then reads "unknown" (typed-Unknown), NEVER a
 	// fabricated PASS. It MUST never write the store. A nil seam is treated the same
-	// (Run/webSearchInfo guards it). The "bounded" verdict ALSO requires the cached
+	// (Run/WebSearchSection guards it). The "bounded" verdict ALSO requires the cached
 	// PASS to be FRESH (within VerifyFreshnessWindow) — derived ONLY here, never from
 	// cfg.WebSearchEnabled.
 	ReadVerifyState func() *verifystate.State
@@ -692,8 +692,13 @@ func Run(d Deps) Report {
 	}
 	report.SchemaVersion = reportSchemaVersion
 	// The run's one host reading (ADR-0016): readiness, the weight footprint and
-	// the agent's residency below all derive from it.
-	host := d.Probe()
+	// the agent's residency below all derive from it. A caller that wires no probe
+	// leaves the profile zero, which every fold reads as unknown, never as a
+	// healthy host.
+	var host detect.HostProfile
+	if d.Probe != nil {
+		host = d.Probe()
+	}
 	// Live tok/s: typed-optional via the seam — nil on idle/unavailable so it
 	// serializes as omitted, never a fabricated 0. Guard a nil seam defensively.
 	if d.GenTokensPerSec != nil {
@@ -735,7 +740,7 @@ func Run(d Deps) Report {
 	// stale PASS yields "unknown" — NEVER a fabricated PASS, NEVER derived from
 	// cfg.WebSearchEnabled.
 	if subsystem.WebSearchOn(cfg) {
-		report.WebSearch = webSearchInfo(d.ReadVerifyState)
+		report.WebSearch = WebSearchSection(d.ReadVerifyState)
 	}
 	// Update-check section: ALWAYS populated, unlike the optional-subsystem
 	// sections above, because never-checked is a state that must be visible. This
@@ -922,7 +927,9 @@ func codingInfo(
 	return ci
 }
 
-// webSearchInfo assembles the Report's WebSearch section. Enabled
+// WebSearchSection assembles the Report's WebSearch section. It is exported so
+// `villa doctor`, which reads the verify store itself, applies this one freshness
+// rule instead of a copy of it. Enabled
 // is always true (the section is built ONLY when cfg.WebSearchEnabled). The
 // outbound-bounded indicator is the load-bearing honesty property: it is
 // DERIVED from the cached `villa verify search` result with a FRESHNESS gate and is
@@ -941,7 +948,7 @@ func codingInfo(
 // otherwise) — never a fabricated timestamp. Source-gap fields (guard counters,
 // last_query_at, outbound-visibility) are OMITTED: no host-side source exists and
 // building one is out of scope.
-func webSearchInfo(readVerify func() *verifystate.State) *WebSearchInfo {
+func WebSearchSection(readVerify func() *verifystate.State) *WebSearchInfo {
 	wi := &WebSearchInfo{
 		Enabled:         true,
 		OutboundBounded: OutboundUnknown, // typed-Unknown default — NEVER green by default

@@ -31,11 +31,14 @@ import (
 	"strings"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/agent"
+	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
 	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 	"github.com/MatrixMagician/VillaStraylight/internal/preflight"
 	"github.com/MatrixMagician/VillaStraylight/internal/status"
+	"github.com/MatrixMagician/VillaStraylight/internal/subsystem"
+	"github.com/MatrixMagician/VillaStraylight/internal/verifystate"
 )
 
 // Tier/Status string vocabulary — doctor normalizes every composed signal
@@ -63,7 +66,7 @@ const (
 //   - v3: the web-search fold (Phase 34-04) — additive web-search findings
 //     (search-egress / search-residency). searxng/websafe service readiness is composed
 //     from the status read-model rows (no new finding type). No existing field changed
-//     shape; web-search-OFF output is byte-identical except this bump (nil seams emit no
+//     shape; web-search-OFF output is byte-identical except this bump (a gated-off fold emits no
 //     findings). This is doctor's OWN version — INDEPENDENT of status.reportSchemaVersion (5).
 //   - v4: PRE-08 compute device access (issue #120) — no new doctor-owned finding
 //     type; the check is folded in for free through the existing host-condition
@@ -81,7 +84,7 @@ const (
 //     unlike v4/v5. The running villa binary's path is host state, not config state, so
 //     a binary at a path other than the one villa-websafe mounts gets its own WARN
 //     instead of folding into config-vs-disk drift. Web-search-OFF output is
-//     byte-identical except this bump (the nil seam emits no finding).
+//     byte-identical except this bump (the gate emits no finding).
 //   - v7: the sandbox fold (issue #176) — SBX-01, the read-only twin of PRE-09
 //     (folded for free through the unchanged findingFromCheck path, like v4/v5), plus
 //     SBX-02, a NEW doctor-owned finding type (the villa-sandbox.network unit exists
@@ -155,9 +158,12 @@ type Report struct {
 	SchemaVersion int `json:"schema_version"`
 }
 
-// Deps are the injectable host seams Aggregate composes. The live wiring is a
-// liveDoctorDeps() closure in cmd/villa (Plan 02); doctor_test.go replaces them with
-// stubs. The core never does I/O of its own.
+// Deps are the injectable host seams Aggregate composes, and every one of them is a
+// read or a driver: none decides. Which subsystems are on, whether a unit has drifted,
+// whether the sandbox network is joined and what tools mode expects are all answered
+// in this package from the config the run loaded (ADR-0017), so they need no wiring
+// and no nil-seam gate. The live wiring is liveDoctorDeps in cmd/villa; doctor_test.go
+// replaces the seams with stubs. The core never does I/O of its own.
 type Deps struct {
 	// Probe returns the host profile that feeds the preflight host-condition checks.
 	Probe func() detect.HostProfile
@@ -165,28 +171,19 @@ type Deps struct {
 	// It already carries per-service offload Verdicts, so doctor reuses it rather than
 	// re-running a second journald/GTT scrape (RESEARCH A1).
 	StatusReport func() status.Report
-	// DriftPlan renders units from config and Reconciles them against the on-disk unit
-	// dir, returning the Plan (the core decides drift). It NEVER writes units. A read
-	// error (absent unit dir) degrades to a typed-Unknown WARN finding.
-	DriftPlan func() (orchestrate.Plan, error)
-	// Backend is the configured backend name, routing the ROCm-family preflight gate
-	// via inference.IsROCmFamily.
-	Backend string
-	// RunROCmImage is the image-AWARE ROCm host-prep gate (Option B): it evaluates the
-	// RUNNING ROCm image against the policy denylist so a denied running image is a
-	// confident FAIL rather than the un-evaluated "no image requested" WARN. The live
-	// wiring (liveDoctorDeps) supplies preflight.RunROCmForImage bound to
-	// inference.BackendFor(cfg.Backend).Image() — the image string is resolved ONLY via
-	// the inference seam, never typed in this package (TestSeamGrepGate). NIL-SAFE: when
-	// nil (e.g. the newDoctorDeps test double, or a non-ROCm backend), Aggregate falls
-	// back to preflight.RunROCm(profile) exactly as before.
-	RunROCmImage func(detect.HostProfile) []preflight.CheckResult
-	// RunMemoryChecks is the opt-in memory host gate (preflight.RunMemory bound by
-	// the cmd tier —, composition over re-implementation): the vector-disk +
-	// embedder-headroom CheckResults are folded via findingFromCheck and ranked
-	// worst-wins exactly like every other check. NIL-SAFE: when nil (memory off)
-	// no memory check finding is emitted and output stays byte-identical.
-	RunMemoryChecks func(detect.HostProfile) []preflight.CheckResult
+	// IsActive reads one unit's systemd active-state (the memory headroom check needs
+	// to know whether the embedder is already resident). An error, or a state other
+	// than "active", keeps the strict pre-install semantics.
+	IsActive func(unit string) (string, error)
+	// RunMemoryChecks is the opt-in memory host gate (preflight.RunMemory, bound by the
+	// cmd tier — composition over re-implementation; it is a seam because the gate's
+	// own probes read the host). Doctor builds the input from the config and the
+	// embedder's active-state, and folds the CheckResults via findingFromCheck. It is
+	// called only when memory is on.
+	RunMemoryChecks func(detect.HostProfile, preflight.MemoryGateInput) []preflight.CheckResult
+	// ReadVerifyState reads the last recorded `villa verify search` result. nil means
+	// the store could not be read; a zero State means none is recorded.
+	ReadVerifyState func() *verifystate.State
 	// CatalogGeometry is the CAT-01 gate (preflight.RunCatalogGeometry, bound by the
 	// cmd tier with the models dir as its open seam): does each catalog entry present
 	// on this host still describe the GGUF header of its file? Its CheckResults fold
@@ -195,38 +192,32 @@ type Deps struct {
 	// (a caller that could not load the catalog) no CAT-01 finding is emitted at all,
 	// never a PASS-by-default.
 	CatalogGeometry func() []preflight.CheckResult
-	// ResidencyUnderLoad is the chat-model residency-under-embedding-load proof
-	// the cmd tier drives a REAL /v1/embeddings workload and samples the
-	// chat model's GTT/journal residency MID-DRIVE, returning the Verdict consumed
-	// OPAQUELY here (Status/Detail/Remediation only — seam-clean). NIL-SAFE: when
-	// nil (memory off) NO MEM-DOC-residency finding is emitted at all — never a
-	// PASS-by-default (no-false-green).
+	// RunSandboxChecks is SBX-01, the read-only twin of the PRE-09 sandbox-runtime
+	// gate (preflight.RunSandbox, bound by the cmd tier with the live podman/rpm/
+	// kvm/probe seams — composition over re-implementation). Its CheckResults fold
+	// through findingFromCheck exactly like every other host-condition check. It is
+	// called only when the workspace agent is on.
+	RunSandboxChecks func(detect.HostProfile) []preflight.CheckResult
+
+	// The four proofs that drive a real workload. Each returns an inference.Verdict
+	// consumed OPAQUELY here (Status/Detail/Remediation only — seam-clean), and each is
+	// called only when its subsystem is on, so a caller wires them unconditionally.
+	//
+	// ResidencyUnderLoad is the chat-model residency-under-embedding-load proof: the
+	// cmd tier drives a REAL /v1/embeddings workload and samples the chat model's
+	// GTT/journal residency MID-DRIVE (memory).
 	ResidencyUnderLoad func() inference.Verdict
-	// AgentToolCall is the coding-agent tool-call round-trip proof:
-	// the cmd tier drives a REAL read→edit `crush run` round-trip and maps its
-	// completion to an inference.Verdict consumed OPAQUELY here (Status/Detail/
-	// Remediation only — seam-clean). NIL-SAFE: when nil (agent off) NO agent-tool-call
-	// finding is emitted at all — never a PASS-by-default (no-false-green).
+	// AgentToolCall is the coding-agent tool-call round-trip proof: a REAL read→edit
+	// `crush run` round-trip mapped to a Verdict (agent).
 	AgentToolCall func() inference.Verdict
 	// AgentResidencyUnderLoad is the coder-model residency-under-tool-call-load proof
-	// the cmd tier samples the served CODER model's GTT/journal
-	// residency MID-DRIVE under a real tool-call workload, returning the Verdict
-	// consumed OPAQUELY here. NIL-SAFE: when nil (agent off) NO agent-residency finding
-	// is emitted at all — never a PASS-by-default (honesty dominance).
+	// (agent).
 	AgentResidencyUnderLoad func() inference.Verdict
-	// AgentDrift is the binary/version + config drift report from internal/agent
-	// the cmd tier feeds the installed-binary SHA + on-disk crush.json
-	// + freshly-rendered reference to agent.DetectDrift and hands back the report-only
-	// outcome. It is surfaced, NEVER auto-corrected. NIL-SAFE: when nil (agent
-	// off) NO agent drift finding is emitted at all.
-	AgentDrift func() agent.DriftReport
-	// SearchResidencyUnderLoad is the chat-model residency-under-SEARCH-load proof (
-	// the cmd tier drives a bounded search-augmented chat workload (with villa-searxng
-	// /villa-websafe up) and samples the served model's GTT/journal residency MID-DRIVE,
-	// returning the Verdict consumed OPAQUELY here. A confident CPU fallback under search load
-	// is a BLOCK-class FAIL that DOMINATES a healthy-looking HTTP-200; a not-in-flight /
-	// unevaluable signal → typed-Unknown WARN (never an idle-sampled false-green). NIL-SAFE:
-	// when nil (web search off) NO search-residency finding is emitted at all.
+	// SearchResidencyUnderLoad is the chat-model residency-under-SEARCH-load proof: a
+	// bounded search-augmented chat drive with villa-searxng/villa-websafe up (web
+	// search). A confident CPU fallback under search load is a BLOCK-class FAIL that
+	// DOMINATES a healthy-looking HTTP-200; a not-in-flight / unevaluable signal →
+	// typed-Unknown WARN (never an idle-sampled false-green).
 	//
 	// SCOPE OMISSION (accepted limit): guard health has NO host-side source — the
 	// per-request guard metadata lives in-container only, with no host aggregate. Building a
@@ -236,46 +227,31 @@ type Deps struct {
 	// villa-searxng/villa-websafe Services rows (Plan 03) which flow through the existing
 	// healthFinding loop — no new finding type is added here (composition, RESEARCH A1).
 	SearchResidencyUnderLoad func() inference.Verdict
-	// WebsafeBinary reports the host villa path the ON-DISK villa-websafe unit
-	// bind-mounts, the path of the RUNNING villa binary, and whether that unit is on disk
-	// at all. The cmd tier binds it (orchestrate.MountedVillaPath over the unit file plus
-	// os.Executable) ONLY when web search is on, mirroring the other web-search seams.
-	// NIL-SAFE: a nil seam, and an ok==false answer (the unit is not installed), both emit
-	// NO finding rather than a PASS-by-default.
+
+	// The Quadlet unit directory, read-only. Doctor never creates it.
 	//
-	// This is a doctor-OWNED finding, not a composed one: a moved binary is a fact about
-	// this host worth its own line, and it is NOT the same fault as a hand-edited unit
-	// (issue #141).
-	WebsafeBinary func() (mounted, running string, ok bool)
-	// RunSandboxChecks is SBX-01, the read-only twin of the PRE-09 sandbox-runtime
-	// gate (preflight.RunSandbox, bound by the cmd tier with the live podman/rpm/
-	// kvm/probe seams — composition over re-implementation, mirroring RunROCmImage
-	// and RunMemoryChecks). Its CheckResults fold through findingFromCheck exactly
-	// like every other host-condition check. NIL-SAFE: when nil (the workspace
-	// agent is off) no PRE-09/SBX-01 finding is emitted at all — never a
-	// PASS-by-default.
-	RunSandboxChecks func(detect.HostProfile) []preflight.CheckResult
-	// SandboxNetwork is SBX-02: whether the villa-sandbox.network unit is present
-	// on disk and whether the on-disk inference unit is joined to it (a
-	// DriftPlan-style read — the cmd tier reads the unit dir, it never shells to
-	// podman). A non-nil error means the read itself could not be evaluated
-	// (typed-Unknown). NIL-SAFE: when nil (the workspace agent is off) no SBX-02
-	// finding is emitted at all — never a PASS-by-default.
-	SandboxNetwork func() (networkPresent, inferenceJoined bool, err error)
-	// ToolsDrift is the TMD-01 seam: does the ON-DISK inference unit carry the
-	// tool-calling flag (served), and does the answered gate say it should (want)?
-	// The cmd tier derives the flag token from the inference seam rather than typing
-	// it, so no llama-server literal leaves internal/inference (TestSeamGrepGate).
+	// UnitDirExists reports whether the directory is there. An error means it could not
+	// be resolved or examined, which is not the same claim as "absent".
+	UnitDirExists func() (bool, error)
+	// ReadUnit returns the bytes of one on-disk unit. An absent unit is an error that
+	// satisfies errors.Is(err, fs.ErrNotExist).
+	ReadUnit func(name string) ([]byte, error)
+	// RenderUnits renders the units cfg calls for, binding the villa binary at
+	// hostVilla into the ones that mount it. It writes nothing.
+	RenderUnits func(cfg config.VillaConfig, hostVilla string) ([]orchestrate.Unit, error)
+	// RunningVilla is the path of the villa binary running this doctor.
+	RunningVilla func() string
+
+	// The coding-agent drift inputs (agent), read from the host.
 	//
-	// ok reports whether the question could be answered at all — an unreadable unit
-	// dir or an unresolvable backend degrades to a typed-Unknown WARN, NEVER to a
-	// served==want PASS. NIL-SAFE: a nil seam emits NO finding rather than a
-	// PASS-by-default.
-	//
-	// It is deliberately NOT subsystem-gated. "the unit must not carry the flag when
-	// tools mode is off" is as much a fault as its absence when on, and a gate would
-	// make the off direction unobservable.
-	ToolsDrift func() (served, want, ok bool)
+	// AgentBinarySHA hashes the villa-owned Crush binary; present is false, with no
+	// error, when it is not installed.
+	AgentBinarySHA func() (sha string, present bool, err error)
+	// ReadCrushConfig reads the on-disk crush.json; present is false, with no error,
+	// on the first run.
+	ReadCrushConfig func() (b []byte, present bool, err error)
+	// RenderCrushConfig renders the reference crush.json cfg would produce.
+	RenderCrushConfig func(cfg config.VillaConfig) ([]byte, error)
 }
 
 // changedUnitNames joins the drifted unit names in Plan order for the drift Detail
@@ -309,31 +285,35 @@ func websafeBinaryFinding(mounted, running string) Finding {
 	return f
 }
 
+// sandboxNetworkProvenance names where SBX-02's facts come from.
+const sandboxNetworkProvenance = "villa-sandbox.network + villa-inferproxy unit (on-disk)"
+
 // sandboxNetworkFinding is SBX-02 (issue #176): the internal task network a
 // running workspace-agent task actually needs must be on disk, and the inference
-// unit must be joined to it — both are BLOCK-tier: a task with no network cannot
-// reach the served model, and a task container is started per-task, so this is
-// caught here rather than as a per-task failure the operator never sees in
-// `villa doctor`.
-func sandboxNetworkFinding(networkPresent, inferenceJoined bool) Finding {
+// proxy unit must be joined to it — both are BLOCK-tier: a task with no network
+// cannot reach the served model, and a task container is started per-task, so this
+// is caught here rather than as a per-task failure the operator never sees in
+// `villa doctor`. The proxy, not villa-llama, is the unit on the sandbox network
+// since ADR-0011.
+func sandboxNetworkFinding(networkPresent, proxyJoined bool) Finding {
 	f := Finding{
 		ID:         "SBX-02",
 		Name:       "Sandbox network",
 		Tier:       tierBlock,
-		Provenance: "villa-sandbox.network + inference unit (on-disk)",
+		Provenance: sandboxNetworkProvenance,
 	}
 	switch {
 	case !networkPresent:
 		f.Status = statusFail
 		f.Detail = "the villa-sandbox.network unit is not on disk"
 		f.Remediation = "re-run `villa install` to render the sandbox network unit, then `villa up`"
-	case !inferenceJoined:
+	case !proxyJoined:
 		f.Status = statusFail
-		f.Detail = "the inference unit is not joined to villa-sandbox"
-		f.Remediation = "re-run `villa install` to regenerate the inference unit with the sandbox network attached, then `villa up`"
+		f.Detail = "the villa-inferproxy unit is not joined to villa-sandbox"
+		f.Remediation = "re-run `villa install` to regenerate the inference proxy unit with the sandbox network attached, then `villa up`"
 	default:
 		f.Status = statusPass
-		f.Detail = "villa-sandbox.network exists and the inference unit is joined to it"
+		f.Detail = "villa-sandbox.network exists and the villa-inferproxy unit is joined to it"
 	}
 	return f
 }
@@ -350,8 +330,11 @@ func statusRank(s string) int {
 	}
 }
 
-// Aggregate composes the shipped cores into a single worst-wins doctor Report. It is
-// pure: every host touch is a Deps seam and it never exits or prints.
+// Aggregate composes the shipped cores into a single worst-wins doctor Report. It
+// decides from cfg, the config the run loaded (ADR-0017): which subsystems' findings
+// exist, the unit drift plan, the SBX-02 network scan, tools-mode drift and agent
+// drift are answered here, from raw reads. It is pure: every host touch is a Deps
+// seam and it never exits or prints.
 //
 // Residency-supersession (step 4a): when ROCm residency is PROVEN (ROCm-family backend
 // + a service with OffloadApplies + a confident offload StatusPass), every WARN-status
@@ -364,22 +347,35 @@ func statusRank(s string) int {
 // (superseded-ID AND Status==statusWarn) CONJUNCTION ONLY: a confident StatusFail on the
 // SAME IDs (Known-bad firmware/HSA, denied running image) is NEVER suppressed and still
 // folds to FAIL — preserving no-false-green (DOCTOR-02).
-func Aggregate(d Deps) Report {
+func Aggregate(cfg config.VillaConfig, d Deps) Report {
 	var findings []Finding
 
 	// 1. HOST CONDITIONS — re-run the read-only preflight host-prep gate against the
 	// running host, routed by the configured backend (ROCm-family → RunROCm).
 	profile := d.Probe()
 	var checks []preflight.CheckResult
-	switch {
-	case inference.IsROCmFamily(d.Backend) && d.RunROCmImage != nil:
-		// Option B: evaluate the ACTUAL running ROCm image (a denied running image →
-		// confident FAIL, never swallowed by the supersession; see fold step 4a). The
-		// image literal is supplied by the live wiring, never typed in this core.
-		checks = d.RunROCmImage(profile)
-	case inference.IsROCmFamily(d.Backend):
+	if inference.IsROCmFamily(cfg.Backend) {
+		// Evaluate the ACTUAL running ROCm image (a denied running image → confident
+		// FAIL, never swallowed by the supersession; see fold step 4a). It is resolved
+		// only through the inference seam. A backend that IsROCmFamily but does not
+		// resolve fails closed as its own BLOCK finding — never the un-evaluated "no
+		// image requested" WARN, which the residency-supersession could then swallow.
 		checks = preflight.RunROCm(profile)
-	default:
+		if b, err := inference.BackendFor(cfg.Backend); err != nil {
+			findings = append(findings, Finding{
+				ID:          "backend",
+				Name:        "Inference backend",
+				Tier:        tierBlock,
+				Status:      statusFail,
+				Detail:      "could not resolve the ROCm backend image: " + err.Error(),
+				Remediation: "fix the backend field in config.toml (`villa backend set`), then re-run `villa doctor`",
+				Provenance:  "inference.BackendFor",
+				Raw:         err.Error(),
+			})
+		} else {
+			checks = preflight.RunROCmForImage(profile, b.Image())
+		}
+	} else {
 		checks = preflight.Run(profile)
 	}
 	for _, c := range checks {
@@ -389,7 +385,7 @@ func Aggregate(d Deps) Report {
 	// 1a. CATALOG GEOMETRY: fold the CAT-01 cross-check between each present
 	// catalog entry and the GGUF header of its file. It sits with the host
 	// conditions because it is a disk fact about this machine, not a claim about the
-	// running stack. A nil seam emits nothing.
+	// running stack. A nil seam (no loadable catalog) emits nothing.
 	if d.CatalogGeometry != nil {
 		for _, c := range d.CatalogGeometry() {
 			findings = append(findings, findingFromCheck(c))
@@ -397,44 +393,34 @@ func Aggregate(d Deps) Report {
 	}
 
 	// 1b. MEMORY HOST GATE: fold the opt-in vector-disk/headroom checks
-	// (preflight.RunMemory, bound by the cmd tier) verbatim via findingFromCheck
-	// no new aggregation logic; they rank worst-wins like every other check. A nil
-	// seam (memory off) emits nothing, keeping the off path byte-identical.
-	if d.RunMemoryChecks != nil {
-		for _, c := range d.RunMemoryChecks(profile) {
+	// (Deps.RunMemoryChecks = preflight.RunMemory) verbatim via findingFromCheck — composition over
+	// re-implementation; they rank worst-wins like every other check.
+	//
+	// EmbedderActive: doctor runs MEM-PRE-headroom against a possibly-RUNNING stack,
+	// where the embedder's own consumption is already subtracted from MemAvailable —
+	// without this flag the check would demand a SECOND reservation on top of the
+	// resident one and fabricate a blocking fault on a healthy memory-tight host. Any
+	// error or non-active state keeps the strict pre-install semantics (false).
+	if subsystem.MemoryOn(cfg) {
+		state, aerr := d.IsActive(embedServiceName())
+		for _, c := range d.RunMemoryChecks(profile, preflight.MemoryGateInput{
+			EmbeddingModel: cfg.EmbeddingModel,
+			EmbedderActive: aerr == nil && state == "active",
+		}) {
 			findings = append(findings, findingFromCheck(c))
 		}
 	}
 
 	// 1c. SANDBOX HOST GATE (SBX-01, issue #176): fold the PRE-09 sandbox-runtime
 	// gate verbatim via findingFromCheck, exactly like the memory host gate above.
-	// A nil seam (the workspace agent is off) emits nothing.
-	if d.RunSandboxChecks != nil {
+	//
+	// 1d. SANDBOX NETWORK (SBX-02, issue #176): the villa-sandbox.network unit must
+	// be on disk and the inference proxy unit must be joined to it.
+	if subsystem.SandboxOn(cfg) {
 		for _, c := range d.RunSandboxChecks(profile) {
 			findings = append(findings, findingFromCheck(c))
 		}
-	}
-
-	// 1d. SANDBOX NETWORK (SBX-02, issue #176): the villa-sandbox.network unit
-	// must be on disk and the inference unit must be joined to it. A read error
-	// degrades to a typed-Unknown WARN (the unit dir could not be evaluated,
-	// mirroring the drift read below); a nil seam (the workspace agent is off)
-	// emits nothing.
-	if d.SandboxNetwork != nil {
-		if networkPresent, inferenceJoined, serr := d.SandboxNetwork(); serr != nil {
-			findings = append(findings, Finding{
-				ID:          "SBX-02",
-				Name:        "Sandbox network",
-				Tier:        tierWarn,
-				Status:      statusWarn,
-				Detail:      "could not evaluate the sandbox network (" + serr.Error() + ")",
-				Remediation: "run `villa install` to write the Quadlet units, then re-run `villa doctor`",
-				Provenance:  "villa-sandbox.network + inference unit (on-disk)",
-				Raw:         serr.Error(),
-			})
-		} else {
-			findings = append(findings, sandboxNetworkFinding(networkPresent, inferenceJoined))
-		}
+		findings = append(findings, d.sandboxNetwork())
 	}
 
 	// 2. RUNNING-STACK HEALTH — fold the status read-model. A confident offload FAIL
@@ -448,12 +434,10 @@ func Aggregate(d Deps) Report {
 	// non-offload service must NEVER spuriously prove residency.
 	rocmResidencyProven := false
 	report := d.StatusReport()
-	// webSearch is the status report's answer to "is outbound proven bounded?" (step
-	// 2d). It is nil when the config the report was folded from has web search off,
-	// and when the report errored — then the "stack" WARN below already says the
-	// read-model, this answer included, could not be evaluated.
-	var webSearch *status.WebSearchInfo
-	if err := report.Err(); err != nil {
+	// reportErr is why the read-model could not be evaluated, nil when it could. The
+	// web-search egress finding (step 2d) does not depend on the report, but names it.
+	reportErr := report.Err()
+	if reportErr != nil {
 		// 2-pre. ERRORED READ-MODEL (phase-22): status.Run returns an errored
 		// ZERO-VALUE Report (LoopbackOnly=false, no Services) on any internal failure
 		// config load, ModelFile resolution, BackendFor, Render. That zero value is an
@@ -468,10 +452,10 @@ func Aggregate(d Deps) Report {
 			Name:        "Running-stack read-model",
 			Tier:        tierWarn,
 			Status:      statusWarn,
-			Detail:      "the running-stack state could not be evaluated: " + err.Error(),
+			Detail:      "the running-stack state could not be evaluated: " + reportErr.Error(),
 			Remediation: "fix the reported condition (check config.toml and `villa status`), then re-run `villa doctor`",
 			Provenance:  "status.Run error",
-			Raw:         err.Error(),
+			Raw:         reportErr.Error(),
 		})
 	} else {
 		if !report.LoopbackOnly {
@@ -486,12 +470,11 @@ func Aggregate(d Deps) Report {
 			})
 		}
 		findings = append(findings, updatesFinding(report.Updates))
-		webSearch = report.WebSearch
 		for _, s := range report.Services {
 			findings = append(findings, healthFinding(s))
 			if s.OffloadApplies {
 				findings = append(findings, offloadFinding(s))
-				if inference.IsROCmFamily(d.Backend) && s.Offload.Status == inference.StatusPass {
+				if inference.IsROCmFamily(cfg.Backend) && s.Offload.Status == inference.StatusPass {
 					rocmResidencyProven = true
 				}
 			}
@@ -500,51 +483,43 @@ func Aggregate(d Deps) Report {
 
 	// 2b. RESIDENCY UNDER EMBEDDING LOAD: the chat model must SURVIVE a real
 	// embedding workload — a silent eviction to CPU under import load is the exact
-	// false-green this phase exists to catch. The proof seam is nil when memory is
-	// off: no finding is emitted at all (never a PASS-by-default). The Verdict is
-	// consumed opaquely via the offloadFinding precedent below.
-	if d.ResidencyUnderLoad != nil {
+	// false-green this phase exists to catch. Only when memory is on: the finding is
+	// never a PASS-by-default. The Verdict is consumed opaquely via the offloadFinding
+	// precedent below.
+	if subsystem.MemoryOn(cfg) {
 		findings = append(findings, residencyUnderLoadFinding(d.ResidencyUnderLoad()))
 	}
 
-	// 2c. CODING-AGENT FOLD: when the agent is enabled the cmd tier
-	// binds the three agent seams; each NIL seam (agent off) emits NO finding (never a
-	// PASS-by-default — agent-off output stays byte-identical except the schema bump). A
-	// confident agent tool-call / residency FAIL folds worst-wins and DOMINATES a
-	// healthy-looking HTTP-200 (the offload-FAIL-dominates switch, cloned below). Drift is
-	// surfaced as WARN-with-remediation, never auto-corrected.
-	if d.AgentToolCall != nil {
+	// 2c. CODING-AGENT FOLD: when the agent is on, the tool-call and residency proofs
+	// and the drift report. A confident agent tool-call / residency FAIL folds
+	// worst-wins and DOMINATES a healthy-looking HTTP-200 (the offload-FAIL-dominates
+	// switch, cloned below). Drift is surfaced as WARN-with-remediation, never
+	// auto-corrected.
+	if subsystem.AgentOn(cfg) {
 		findings = append(findings, agentToolCallFinding(d.AgentToolCall()))
-	}
-	if d.AgentResidencyUnderLoad != nil {
 		findings = append(findings, agentResidencyFinding(d.AgentResidencyUnderLoad()))
-	}
-	if d.AgentDrift != nil {
-		findings = append(findings, agentDriftFindings(d.AgentDrift())...)
+		findings = append(findings, agentDriftFindings(d.agentDrift(cfg))...)
 	}
 
-	// 2d. WEB-SEARCH FOLD: the egress finding is the status report's own outbound-bounded
-	// answer (ADR-0016), so doctor and `villa status` apply ONE freshness rule to the
-	// cached `villa verify search` result, and never a config bool. No web_search section
-	// (web off) emits NO finding (never a PASS-by-default — web-off output stays
-	// byte-identical). The residency finding is offload-asserting — a confident CPU
-	// fallback under search load folds worst-wins and DOMINATES a healthy-looking
-	// HTTP-200 (the offload-FAIL-dominates switch cloned below); its NIL seam (web off)
-	// emits nothing. searxng/websafe service READINESS needs NO finding here — status.Run
-	// already surfaces dedicated villa-searxng/villa-websafe rows (Plan 03) folded by the
-	// healthFinding loop in step 2. Guard health is a documented OMISSION (no host-side
-	// source — accepted scope limit).
-	if webSearch != nil {
-		findings = append(findings, searchEgressFinding(*webSearch))
-	}
-	if d.SearchResidencyUnderLoad != nil {
+	// 2d. WEB-SEARCH FOLD: the egress finding is the last recorded `villa verify search`
+	// verdict under the freshness rule `villa status` applies (status.WebSearchSection),
+	// and never a config bool. It is read here rather than taken from the status
+	// report, so it survives a report that could not be evaluated (#266). The residency
+	// finding is offload-asserting — a confident CPU fallback under search load folds
+	// worst-wins and DOMINATES a healthy-looking HTTP-200 (the offload-FAIL-dominates
+	// switch cloned below). searxng/websafe service READINESS needs NO finding here —
+	// status.Run already surfaces dedicated villa-searxng/villa-websafe rows (Plan 03)
+	// folded by the healthFinding loop in step 2. Guard health is a documented OMISSION
+	// (no host-side source — accepted scope limit).
+	if subsystem.WebSearchOn(cfg) {
+		findings = append(findings, searchEgressFinding(d.ReadVerifyState(), reportErr))
 		findings = append(findings, searchResidencyFinding(d.SearchResidencyUnderLoad()))
 	}
 
 	// 3. DRIFT — config-vs-disk drift is independent of running-stack health: even a
 	// fully-healthy stack on stale units is a WARN (Pitfall 4). A read
 	// error (absent/unreadable unit dir) degrades to a typed-Unknown WARN.
-	plan, err := d.DriftPlan()
+	plan, err := d.unitDrift(cfg)
 	switch {
 	case err != nil:
 		findings = append(findings, Finding{
@@ -579,11 +554,11 @@ func Aggregate(d Deps) Report {
 	}
 
 	// 3a. MOVED BINARY — the running villa's path is host state, not config state, so it
-	// gets its own line rather than folding into the drift verdict above (issue #141). A
-	// nil seam (web search off) or an uninstalled unit emits nothing.
-	if d.WebsafeBinary != nil {
-		if mounted, running, ok := d.WebsafeBinary(); ok {
-			findings = append(findings, websafeBinaryFinding(mounted, running))
+	// gets its own line rather than folding into the drift verdict above (issue #141). It
+	// exists only when web search is on and the villa-websafe unit is installed.
+	if subsystem.WebSearchOn(cfg) {
+		if mounted, ok := d.mountedVilla(); ok {
+			findings = append(findings, websafeBinaryFinding(mounted, d.RunningVilla()))
 		}
 	}
 
@@ -591,11 +566,10 @@ func Aggregate(d Deps) Report {
 	// flag iff the gate is answered on. It sits beside drift rather than inside it
 	// because the fault is specific and the remediation is a different verb: a unit
 	// that lost the flag makes every tool call fail at the server with nothing in
-	// config to explain it. A nil seam emits nothing.
-	if d.ToolsDrift != nil {
-		served, want, ok := d.ToolsDrift()
-		findings = append(findings, toolsDriftFinding(served, want, ok))
-	}
+	// config to explain it. It is deliberately NOT subsystem-gated: "the unit must not
+	// carry the flag when tools mode is off" is as much a fault as its absence when on.
+	served, want, ok := d.toolsDrift(cfg)
+	findings = append(findings, toolsDriftFinding(served, want, ok))
 
 	// 4. WORST-WINS FOLD — any FAIL → "FAIL"; else any WARN → "WARN"; else "PASS".
 	//
@@ -615,8 +589,8 @@ func Aggregate(d Deps) Report {
 	// HARD NO-FALSE-GREEN INVARIANT (DOCTOR-02): the downgrade predicate is the
 	// CONJUNCTION (ID in the superseded set) AND (Status==statusWarn). A Status==statusFail
 	// on ANY ID — INCLUDING the very ROCM-PRE-firmware/-hsa/-image IDs (a Known deny-listed
-	// firmware / Known-wrong HSA / denied RUNNING image, the last reachable only via the
-	// RunROCmImage seam) — is NEVER suppressed and still folds to FAIL. A pure ID-set match
+	// firmware / Known-wrong HSA / denied RUNNING image, resolved from the configured backend)
+	// — is NEVER suppressed and still folds to FAIL. A pure ID-set match
 	// that ignored Status would wrongly swallow a confident FAIL on those IDs and is
 	// FORBIDDEN. The suppression touches NOTHING else — not drift, health, loopback,
 	// offload, or any non-ROCm-host-prep finding — and fires ONLY under proven ROCm residency.
@@ -886,25 +860,29 @@ func agentResidencyFinding(v inference.Verdict) Finding {
 	return f
 }
 
-// searchEgressFinding maps the status report's web-search section into a doctor
-// Finding. The section's outbound-bounded tri-state is the status core's answer —
-// the ONE freshness rule over the cached `villa verify search` result, never a
-// config bool — so doctor adds severity, wording and remediation, and nothing else:
+// searchEgressFinding maps the last recorded `villa verify search` result into a
+// doctor Finding, through status.WebSearchSection so doctor and `villa status` apply
+// ONE freshness rule to it, never a config bool. The section's outbound-bounded
+// tri-state is the status core's answer; doctor adds severity, wording and remediation,
+// and nothing else:
 //
 //   - "bounded" (a fresh verify PASS) → a PASS;
 //   - "not-bounded" (a fresh verify that did NOT pass) → a BLOCK-class FAIL, a real,
 //     confident security-property failure that is never swallowed;
-//   - anything else ("unknown": stale, future-dated, absent or unreadable) → a
-//     WARN-tier typed-Unknown, because the property must be re-proven, never trusted
-//     indefinitely from a stale cache.
+//   - anything else ("unknown": unreadable, absent, stale, future-dated or undated) →
+//     a WARN-tier typed-Unknown, because the property must be re-proven, never trusted
+//     indefinitely from a stale cache. The detail says which of those it was.
 //
-// Every non-PASS branch carries a Remediation. Emitted only when the report carries a
-// web_search section (web search on).
-func searchEgressFinding(w status.WebSearchInfo) Finding {
+// reportErr is why the status report could not be evaluated, nil when it could. It
+// never changes the answer, which does not depend on the report; it is named on the
+// WARN so an operator sees both faults at once. Every non-PASS branch carries a
+// Remediation. Emitted only when web search is on.
+func searchEgressFinding(st *verifystate.State, reportErr error) Finding {
+	w := status.WebSearchSection(func() *verifystate.State { return st })
 	f := Finding{
 		ID:         "search-egress",
 		Name:       "Web-search outbound-bounded proof",
-		Provenance: "status.Report web_search.outbound_bounded (cached `villa verify search` + freshness gate)",
+		Provenance: "cached `villa verify search` result + freshness gate (status.WebSearchSection)",
 	}
 	switch w.OutboundBounded {
 	case status.OutboundBounded:
@@ -914,13 +892,23 @@ func searchEgressFinding(w status.WebSearchInfo) Finding {
 	case status.OutboundNotBounded:
 		f.Tier = tierBlock
 		f.Status = statusFail
-		f.Detail = "the last `villa verify search` did not pass (checked " + w.VerifyCheckedAt + ")"
+		f.Detail = "the last `villa verify search` did not pass (verdict " + st.Verdict + ", checked " + w.VerifyCheckedAt + ")"
 		f.Remediation = "re-run `villa verify search` and check `villa logs` — outbound is not proven bounded"
 	default:
 		f.Tier = tierWarn
 		f.Status = statusWarn
-		f.Detail = "no fresh verified outbound-bounded result (the last `villa verify search` is stale, absent or unreadable)"
+		switch {
+		case st == nil:
+			f.Detail = "outbound is not proven bounded: the recorded `villa verify search` result could not be read"
+		case st.CheckedAt == "":
+			f.Detail = "outbound is not proven bounded: no `villa verify search` result is recorded"
+		default:
+			f.Detail = "outbound is not proven bounded: the last `villa verify search` (checked " + st.CheckedAt + ") is stale or cannot be dated"
+		}
 		f.Remediation = "run `villa verify search` to re-prove outbound is bounded, then re-run `villa doctor`"
+		if reportErr != nil {
+			f.Detail += "; the status report also failed: " + reportErr.Error()
+		}
 	}
 	return f
 }

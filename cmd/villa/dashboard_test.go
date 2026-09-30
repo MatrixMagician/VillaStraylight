@@ -4,15 +4,20 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/dashboard"
+	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 )
 
 // dashboardTestCmd builds a cobra command with captured stdout/stderr, mirroring
@@ -98,21 +103,77 @@ func TestRunDashboardRefusesNonLoopbackBind(t *testing.T) {
 	}
 }
 
-// TestDashboardInferenceClientReadsTheKeyPerScrape pins #253 for the Performance
-// panel: its /metrics and /slots reads take the api key from config at each scrape,
-// so a key written after the dashboard started (`villa up` heals a missing one) is
-// the key they send, not the empty one of startup. The client's redacted String
-// shows whether a key is set without printing it.
-func TestDashboardInferenceClientReadsTheKeyPerScrape(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	if got := currentInferenceClient().String(); !strings.Contains(got, "key: <none>") {
-		t.Fatalf("client before a key is written = %s, want no key", got)
+// TestDashboardScrapeClientReadsTheKeyPerScrape pins #253 for the Performance panel and
+// the usage fold: their inference reads take the api key from config at each scrape, so
+// a key written after the dashboard started (`villa up` heals a missing one) is the key
+// they send, not the empty one of startup; and the three reads of ONE scrape share one
+// config load rather than making three.
+//
+// The three closures liveDashboardDeps hands the server drive an httptest server that
+// records the bearer each request carried. The clock is injected: a scrape is the reads
+// inside scrapeClientTTL, and the next scrape is a poll interval later.
+func TestDashboardScrapeClientReadsTheKeyPerScrape(t *testing.T) {
+	var mu sync.Mutex
+	var bearers []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		bearers = append(bearers, r.Header.Get("Authorization"))
+		mu.Unlock()
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	key := "key-at-startup"
+	loads := 0
+	clock := time.Unix(1_000_000, 0)
+	sc := &scrapeClient{
+		load: func() (config.VillaConfig, error) {
+			loads++
+			return config.VillaConfig{InferenceSecret: key}, nil
+		},
+		build: func(cfg config.VillaConfig) inference.Client {
+			return inference.NewClient(srv.URL, cfg.InferenceSecret)
+		},
+		now: func() time.Time { return clock },
 	}
-	if err := config.SaveVilla(config.VillaConfig{InferenceSecret: "written-after-startup"}); err != nil {
-		t.Fatalf("save config: %v", err)
+	perf, slots, counters := sc.reads(t.Context())
+
+	scrape := func() []string {
+		mu.Lock()
+		bearers = nil
+		mu.Unlock()
+		counters() // the usage fold runs first, then the gauges, then the slots
+		perf()
+		slots()
+		mu.Lock()
+		defer mu.Unlock()
+		return append([]string(nil), bearers...)
 	}
-	if got := currentInferenceClient().String(); !strings.Contains(got, "key: <redacted>") {
-		t.Errorf("client after a key is written = %s, want the new key set", got)
+
+	first := scrape()
+	if loads != 1 {
+		t.Errorf("one scrape (counters, gauges, slots) loaded config %d times, want 1", loads)
+	}
+	if len(first) == 0 {
+		t.Fatal("the scrape reached the server with no request")
+	}
+	for _, b := range first {
+		if b != "Bearer key-at-startup" {
+			t.Errorf("first scrape sent %q, want the startup key", b)
+		}
+	}
+
+	// The key is healed after the dashboard started; the next poll is 2.5 s later.
+	key = "key-written-after-startup"
+	clock = clock.Add(2500 * time.Millisecond)
+	second := scrape()
+	if loads != 2 {
+		t.Errorf("two scrapes loaded config %d times, want 2 (one per scrape)", loads)
+	}
+	for _, b := range second {
+		if b != "Bearer key-written-after-startup" {
+			t.Errorf("second scrape sent %q, want the key written after startup", b)
+		}
 	}
 }
 

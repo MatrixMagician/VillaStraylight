@@ -8,7 +8,8 @@ import (
 // TestToolsDriftFindings guards TMD-01's whole truth table: the served unit must
 // carry the tool-calling flag iff the gate is answered on, a mismatch in EITHER
 // direction is a confident FAIL, and an unanswerable question is a typed-Unknown
-// WARN rather than a matching PASS.
+// WARN rather than a matching PASS. (The reads that feed it are covered by
+// TestToolsDriftReadsTheServedUnit.)
 func TestToolsDriftFindings(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
@@ -25,13 +26,9 @@ func TestToolsDriftFindings(t *testing.T) {
 		{"unreadable", false, false, false, statusWarn, "could not read"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			d := newDoctorDeps()
-			d.ToolsDrift = func() (bool, bool, bool) { return tc.served, tc.want, tc.ok }
-			r := Aggregate(d)
-
-			f, present := findingByID(r, "TMD-01")
-			if !present {
-				t.Fatalf("TMD-01 absent from the report")
+			f := toolsDriftFinding(tc.served, tc.want, tc.ok)
+			if f.ID != "TMD-01" {
+				t.Fatalf("ID = %q, want TMD-01", f.ID)
 			}
 			if f.Status != tc.wantStatus {
 				t.Errorf("Status = %q, want %q (detail %q)", f.Status, tc.wantStatus, f.Detail)
@@ -45,20 +42,6 @@ func TestToolsDriftFindings(t *testing.T) {
 			if f.Provenance == "" {
 				t.Error("TMD-01 carries no provenance")
 			}
-			if tc.wantStatus == statusFail && r.Overall != statusFail {
-				t.Errorf("Overall = %q, want a confident tools-mode drift to fold FAIL", r.Overall)
-			}
 		})
-	}
-}
-
-// TestToolsDriftSeamIsNilSafe guards the no-PASS-by-default rule: a caller that
-// could not bind the seam emits no TMD-01 line at all rather than a finding claiming
-// the unit matches.
-func TestToolsDriftSeamIsNilSafe(t *testing.T) {
-	d := newDoctorDeps()
-	d.ToolsDrift = nil
-	if _, present := findingByID(Aggregate(d), "TMD-01"); present {
-		t.Error("a nil ToolsDrift seam emitted a TMD-01 finding")
 	}
 }
