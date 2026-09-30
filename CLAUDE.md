@@ -120,6 +120,11 @@ Go 1.26+. Single module, single static binary built from `./cmd/villa`.
   `internal/orchestrate`. The gate walks both `internal/` and `cmd/villa` — a leaked literal
   fails the build.
 
+- **Inference client gate (`TestInferenceReachedOnlyThroughClient`, ADR-0014):** call
+  llama-server only through `inferenceClient(cfg)` / `inNetworkInferenceClient(cfg)`
+  (`cmd/villa/inference.go`). A read of `InferenceSecret`, an address accessor or a
+  route literal elsewhere fails the build unless the gate lists the file with a reason.
+
 - **`--json`/dashboard contracts are byte-frozen by golden tests** (`testdata/*.golden*`).
   Evolve append-only + schema-bump; refreeze intentionally with `go test … -update`.
 
@@ -316,7 +321,7 @@ loop.
 | catalog | Embedded model catalog (`go:embed seed.json`) + external override w/ fallback | `internal/catalog/catalog.go`, `load.go` |
 | gguf | The GGUF header + KV section reader, never the tensors: the witness the catalog's fit dimensions are cross-checked against (ADR-0007) | `internal/gguf/gguf.go` |
 | preflight | Reusable host-prep gate → `[]CheckResult` (BLOCK/WARN tiers, fail-soft) | `internal/preflight/preflight.go` |
-| inference | Backend-neutral seam: `BackendFor`, `Backend` iface, offload/residency proof | `internal/inference/*.go` |
+| inference | Backend-neutral seam: `BackendFor`, `Backend` iface, offload/residency proof; `Client`, the one authenticated caller of llama-server (address, api key, every route; ADR-0014) | `internal/inference/*.go`, `client.go` |
 | orchestrate | Render Quadlet units (pure) + reconcile + host-touching systemd seam | `internal/orchestrate/*.go` |
 | backendswap | Transactional `villa backend set` (capture→prove→cutover→rollback) | `internal/backendswap/backendswap.go` |
 | bench | Pure A/B throughput core; `--ab` composes `backendswap.Run` | `internal/bench/bench.go` |
@@ -324,7 +329,7 @@ loop.
 | modelswap | Guarded `villa model swap` ordering core (shared by CLI + dashboard) | `internal/modelswap/modelswap.go` |
 | status | Read-model aggregation → frozen `Report` (shared by CLI + dashboard) | `internal/status/status.go` |
 | dashboard | Loopback-only stdlib-mux server folding `status` core + embedded SPA | `internal/dashboard/server.go`, `api.go` |
-| metrics | llama.cpp `/metrics` scrape (pp/tg timings) | `internal/metrics/llamacpp.go` |
+| metrics | Parsers for llama.cpp `/metrics` + `/slots` (pp/tg gauges, usage counters); the keyed scrape is `inference.Client`'s | `internal/metrics/llamacpp.go` |
 | inprobe | The in-network curl-probe doctrine: exit-code mapping, typed-Unknown health mapping, TTL-bounded pair cache | `internal/inprobe/inprobe.go` |
 | download | Model weight pull + shard handling | `internal/download/download.go` |
 | config | Single source of truth: XDG `config.toml` load/save (`VillaConfig`) | `internal/config/villaconfig.go` |

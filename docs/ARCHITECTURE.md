@@ -123,7 +123,11 @@ graph TD
     status --> detect
     dashboard --> status
     dashboard --> modelswap
-    dashboard --> metrics["internal/metrics<br/>llama-server /metrics + /slots scrape"]
+    dashboard --> metrics["internal/metrics<br/>llama-server /metrics + /slots parsers"]
+    CLI --> infclient["inference.Client<br/>the one authenticated caller of llama-server<br/>(address + api key + every route, ADR-0014)"]
+    infclient --> metrics
+    infclient --> llm["internal/llm<br/>OpenAI wire protocol (chat route)"]
+    infclient -.health, models, props, metrics, slots, chat.-> llama
     dashboard --> taskrun["internal/taskrun<br/>the runner: one task at a time<br/>(lives in villa-dashboard.service)"]
     CLI -.loopback task API.-> dashboard
     CLI --> workspace["internal/workspace<br/>the grant list + its refusals (pure)"]
@@ -259,7 +263,7 @@ restart-inference-only) and wraps it in a transactional frame:
    unit and restart only the inference service.
 4. **Prove**: the cutover is gated on an injected `Prove` verdict: a real
    generation-probe **and** a positive residency proof over the now-running server
-   (`inference.PollHealth` + `GenerationProbe` + `RunningOffloadVerdict`).
+   (`inference.Client`'s `PollHealth` + `GenerationProbe` + `RunningOffloadVerdict`).
 5. **Rollback**: any mutate error or non-pass verdict restores the verbatim captured
    unit + config and re-readies best-effort, so a failed or degraded switch is a no-op
    to the running stack.
@@ -343,6 +347,14 @@ dashboard service drives rather than reads:
   `ResidencyMarkers` + sysfs GTT delta) that catches silent CPU fallback; the shared,
   backend-neutral PASS/WARN/FAIL value the CLI, dashboard, `backendswap`, and `bench`
   render.
+- **`inference.Client`** (`internal/inference/client.go`), the one caller of a
+  llama-server unit (ADR-0014). Built once from a loaded config
+  (`inferenceClient(cfg)`, or `inNetworkInferenceClient(cfg)` for a `villa.network`
+  probe), it owns the address, the api key and every route: keyless `/health`,
+  and keyed `/v1/models`, `/props`, `/metrics`, `/slots` and chat completions (via
+  `internal/llm`). An in-network curl probe takes a `CurlRequest` whose
+  `Authorization` line travels on stdin, never argv.
+  `TestInferenceReachedOnlyThroughClient` refuses any other route to the unit.
 - **`orchestrate.Render` / `Reconcile` / `WriteUnits` / `Systemd`**
   (`internal/orchestrate/render.go`, `reconcile.go`, `systemd.go`), the pure Quadlet
   renderer, the sha256 idempotency reconciler, the atomic unit writer, and the
@@ -514,20 +526,23 @@ internal/
   download/           Verified, resumable, per-shard-checksummed GGUF downloader.
   config/             config.toml store (0600, traversal-guarded); the source of truth.
   inference/          BackendFor resolver + Backend/Runner/ResidencyProof seam:
-                      ROCm (default) + Vulkan backends, podman runner, offload assert.
+                      ROCm (default) + Vulkan backends, podman runner, offload assert;
+                      Client, the one authenticated caller of llama-server (ADR-0014).
   orchestrate/        Pure Quadlet Render + sha256 Reconcile + atomic WriteUnits +
                       systemd seam; Open WebUI managed-service render path.
   modelswap/          Guarded swap core (ordering-is-the-security-contract).
   backendswap/        Transactional backend-switch core (capture→prove→rollback).
   bench/              Pure honest-A/B benchmark core (--ab composes backendswap).
   status/             Shared read-model aggregation (CLI + dashboard, never forked).
-  metrics/            Bounded llama-server /metrics + /slots scrape for the perf panel.
+  metrics/            Parsers for llama-server's /metrics + /slots bodies (perf panel);
+                      the bounded, keyed scrape is inference.Client's.
   inprobe/            The in-network curl-probe doctrine (exit-code + typed-Unknown
                       health mapping, TTL pair cache); used by status's memory/
                       web-search health checks and install's memory probe.
   dashboard/          Loopback-only control dashboard backend + embedded UI; hosts
                       the task runner and the loopback task API (v1.11).
-  llm/                OpenAI-compatible SSE + non-streaming client (the bench timings source).
+  llm/                OpenAI-compatible SSE + non-streaming client (the bench timings
+                      source), reached only through inference.Client.Chat.
   workspace/          The registered grant list: Register/Remove/Registered + typed refusals.
   approval/           The Action × Mode table, the deletion pattern, the auto-mode allowlist.
   taskstore/          The task record, its state machine, the append-only log; never deletes.
