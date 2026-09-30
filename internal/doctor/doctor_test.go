@@ -62,12 +62,11 @@ func healthyStatusReport() status.Report {
 
 // newDoctorDeps builds a fully-stubbed healthy-default doctor.Deps. Each test copies
 // it and overrides exactly one knob. Probe returns a benign typed-Unknown HostProfile
-// (off-hardware honest default), LoadConfig a vulkan default, StatusReport the all-PASS
-// report above, and DriftPlan an empty Plan with nil error (no drift).
+// (off-hardware honest default), StatusReport the all-PASS report above, and
+// DriftPlan an empty Plan with nil error (no drift).
 func newDoctorDeps() Deps {
 	return Deps{
 		Probe:        func() detect.HostProfile { return detect.HostProfile{} },
-		LoadConfig:   func() (config.VillaConfig, error) { return config.VillaConfig{Backend: "vulkan"}, nil },
 		StatusReport: func() status.Report { return healthyStatusReport() },
 		DriftPlan:    func() (orchestrate.Plan, error) { return orchestrate.Plan{}, nil },
 		Backend:      "vulkan",
@@ -86,9 +85,6 @@ func newDoctorDeps() Deps {
 func rocmDoctorDeps() Deps {
 	d := newDoctorDeps()
 	d.Backend = "rocm"
-	d.LoadConfig = func() (config.VillaConfig, error) {
-		return config.VillaConfig{Backend: "rocm"}, nil
-	}
 	// Probe Known-good gfx1151 + a kernel at/above the policy floor so the two
 	// Probe-DRIVEN ROCm host-prep checks (ROCM-PRE-gfx / ROCM-PRE-kernel) PASS. That
 	// isolates the three STRUCTURALLY typed-Unknown WARNs the supersession targets

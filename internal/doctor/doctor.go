@@ -31,7 +31,6 @@ import (
 	"strings"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/agent"
-	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
 	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
@@ -162,9 +161,6 @@ type Report struct {
 type Deps struct {
 	// Probe returns the host profile that feeds the preflight host-condition checks.
 	Probe func() detect.HostProfile
-	// LoadConfig is the source of truth (config.LoadVilla). Reserved for the cmd-tier
-	// drift wiring; the core reads it only if a future finding needs config directly.
-	LoadConfig func() (config.VillaConfig, error)
 	// StatusReport returns the running-stack read-model (== status.Run(liveStatusDeps)).
 	// It already carries per-service offload Verdicts, so doctor reuses it rather than
 	// re-running a second journald/GTT scrape (RESEARCH A1).

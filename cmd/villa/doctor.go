@@ -375,7 +375,6 @@ func liveDoctorDeps(ctx context.Context) (doctor.Deps, error) {
 	}
 	return doctor.Deps{
 		Probe:                    detect.Probe,
-		LoadConfig:               config.LoadVilla,
 		CatalogGeometry:          catalogGeometry,
 		StatusReport:             func() status.Report { return status.Run(*sd) },
 		Backend:                  cfg.Backend,

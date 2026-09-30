@@ -51,11 +51,6 @@ type Service struct {
 	// A nil Probe yields HealthUnknown, which is a typed Unknown and never a
 	// fabricated verdict.
 	Probe func() HealthState
-	// Rendered reports whether this service is part of the rendered unit set. A
-	// service that is not rendered produces no row at all. The inference and chat
-	// rows derive this from the units; the dashboard is a native systemd service
-	// rather than a container, so it sets this explicitly.
-	Rendered bool
 	// AlwaysRow forces a row even when the service is absent from the rendered unit
 	// set. The dashboard needs this: it is a managed member of the stack but is not
 	// a Quadlet container, so it never appears in the rendered units.
