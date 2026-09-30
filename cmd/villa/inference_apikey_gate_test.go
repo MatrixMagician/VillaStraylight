@@ -43,13 +43,13 @@ const modulePath = "github.com/MatrixMagician/VillaStraylight/"
 
 // keyReaders may read config.InferenceSecret.
 var keyReaders = map[string]string{
-	"cmd/villa/inference.go":         "builds the inference client; gives the validate run its --env-file",
-	"cmd/villa/lifecycle.go":         "generates and persists the key (the ADR-0011 migration)",
-	"cmd/villa/model_resident.go":    "hands the key to Open WebUI's connection list; Open WebUI calls llama-server itself",
-	"internal/install/flow.go":       "generates and persists the key on install",
-	"internal/orchestrate/render.go": "renders the key into Open WebUI's environment (ADR-0011)",
-	"internal/agent/render.go":       "hands the key to Crush's provider config; Crush calls llama-server itself",
-	"internal/agent/claude.go":       "hands the key to Claude Code's environment; Claude Code calls llama-server itself",
+	"cmd/villa/inference.go":            "builds the inference client; gives the validate run its --env-file",
+	"internal/stackapply/stackapply.go": "generates and persists the key before render (the ADR-0011 migration, ADR-0013)",
+	"cmd/villa/model_resident.go":       "hands the key to Open WebUI's connection list; Open WebUI calls llama-server itself",
+	"internal/install/flow.go":          "generates and persists the key on install",
+	"internal/orchestrate/render.go":    "renders the key into Open WebUI's environment (ADR-0011)",
+	"internal/agent/render.go":          "hands the key to Crush's provider config; Crush calls llama-server itself",
+	"internal/agent/claude.go":          "hands the key to Claude Code's environment; Claude Code calls llama-server itself",
 }
 
 // addressCalls are the package-qualified calls that yield a llama-server address or
