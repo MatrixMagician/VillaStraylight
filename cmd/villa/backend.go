@@ -32,9 +32,8 @@ import (
 // first.
 //
 // It is the CLI's binding of the swap transaction frame's lock (liveTxDeps), and
-// the lock the locked flows take themselves before their first config read: up,
-// restart, restore, update, install, the resident verbs, config set, workspace
-// add|remove, recommend --save, verify agent and backup. Never call it from a path
+// the lock the locked flows take themselves before their first config read;
+// lockRules in lock_guard_test.go is the authority on which verbs those are. Never call it from a path
 // that already holds the lock: flock does not nest, so the second Acquire deadlocks.
 // TestEveryStackMutationHoldsTheLock (lock_guard_test.go) fails the build when a
 // stack mutation takes neither, and when a verb nests one.

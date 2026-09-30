@@ -401,8 +401,8 @@ func residencyTargetFor(cfg config.VillaConfig, sd *status.Deps, subject string)
 // unit degrades to a typed-Unknown WARN naming it, never a fabricated FAIL)
 // lives in residency.ProveUnderLoad, stated once for every under-load proof.
 
-// liveResidencyUnderLoad builds the live proof seam liveDoctorDeps binds when
-// memory is enabled: a closure returning the chat-model residency Verdict sampled
+// liveResidencyUnderLoad builds the live proof seam liveDoctorDeps always binds
+// (doctor.Aggregate gates the call on subsystem.MemoryOn): a closure returning the chat-model residency Verdict sampled
 // DURING a real embed-load drive. It is constructed (not run) at wiring time; the
 // drive/sample only fire when doctor.Aggregate invokes the seam.
 func liveResidencyUnderLoad(ctx context.Context, cfg config.VillaConfig, sd *status.Deps) func() inference.Verdict {
@@ -640,7 +640,7 @@ func runSearchResidencyUnderLoad(ctx context.Context, cfg config.VillaConfig, sd
 }
 
 // liveAgentToolCallVerdict builds the tool-call round-trip seam liveDoctorDeps
-// binds when the agent is enabled: a closure that runs the REUSED liveAgentToolCallProbe
+// always binds (doctor.Aggregate gates the call on subsystem.AgentOn): a closure that runs the REUSED liveAgentToolCallProbe
 // (DEFINED at install_agent.go; the SAME read→edit `crush run` driver verify_agent.go
 // wires as agentTaskFn — never re-rolled here) and maps the outcome to an
 // inference.Verdict consumed opaquely by the doctor core. A completed round-trip →

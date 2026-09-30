@@ -772,7 +772,7 @@ func offloadFinding(s status.ServiceStatus) Finding {
 // under embedding load is a BLOCK-class FAIL (the silent-degradation fault this
 // finding exists to catch); an unevaluable proof (stack down, scrape failed, drive
 // could not complete) degrades to a typed-Unknown WARN — NEVER a false-green PASS.
-// Emitted only when Deps.ResidencyUnderLoad is non-nil (nil → no finding at all).
+// Emitted only when subsystem.MemoryOn(cfg) (no finding at all otherwise).
 func residencyUnderLoadFinding(v inference.Verdict) Finding {
 	f := Finding{
 		ID:         "MEM-DOC-residency",
@@ -803,7 +803,7 @@ func residencyUnderLoadFinding(v inference.Verdict) Finding {
 // offloadFinding's offload-FAIL-dominates switch: a confident StatusFail (the agent
 // could not complete a real read→edit `crush run` round-trip) is a BLOCK-class FAIL that
 // DOMINATES a healthy-looking HTTP-200 — never a false-green; an unevaluable proof
-// degrades to a typed-Unknown WARN. Emitted only when Deps.AgentToolCall is non-nil.
+// degrades to a typed-Unknown WARN. Emitted only when subsystem.AgentOn(cfg).
 func agentToolCallFinding(v inference.Verdict) Finding {
 	f := Finding{
 		ID:         "agent-tool-call",
@@ -834,7 +834,7 @@ func agentToolCallFinding(v inference.Verdict) Finding {
 // switch (honesty dominance): a confident CPU fallback of the CODER model under
 // tool-call load is a BLOCK-class FAIL that dominates a health-200; an unevaluable proof
 // degrades to a typed-Unknown WARN — NEVER a false-green PASS. Emitted only when
-// Deps.AgentResidencyUnderLoad is non-nil.
+// subsystem.AgentOn(cfg).
 func agentResidencyFinding(v inference.Verdict) Finding {
 	f := Finding{
 		ID:         "agent-residency",
@@ -919,7 +919,7 @@ func searchEgressFinding(st *verifystate.State, reportErr error) Finding {
 // CPU fallback of the served model under search load is a BLOCK-class FAIL that DOMINATES a
 // health-200 — never a false-green; a not-in-flight / unevaluable proof degrades to a
 // typed-Unknown WARN (never an idle-sampled false-green PASS). Emitted only when
-// Deps.SearchResidencyUnderLoad is non-nil.
+// subsystem.WebSearchOn(cfg).
 func searchResidencyFinding(v inference.Verdict) Finding {
 	f := Finding{
 		ID:         "search-residency",
@@ -959,7 +959,7 @@ func searchResidencyFinding(v inference.Verdict) Finding {
 //   - all clean              → a single PASS finding (agent-drift).
 //
 // The DriftReport.Reason carries the human remediation text; doctor surfaces it as the
-// finding Detail. Emitted only when Deps.AgentDrift is non-nil.
+// finding Detail. Emitted only when subsystem.AgentOn(cfg).
 func agentDriftFindings(r agent.DriftReport) []Finding {
 	var out []Finding
 
