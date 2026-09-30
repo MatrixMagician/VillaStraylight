@@ -28,6 +28,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/preflight"
 	"github.com/MatrixMagician/VillaStraylight/internal/stackapply"
 	"github.com/MatrixMagician/VillaStraylight/internal/status"
+	"github.com/MatrixMagician/VillaStraylight/internal/subsystem"
 	"github.com/MatrixMagician/VillaStraylight/internal/verifystate"
 )
 
@@ -329,142 +330,6 @@ func TestDoctorAgentRender(t *testing.T) {
 	}
 }
 
-// TestLiveDoctorDepsWiresAgentSeams asserts liveDoctorDeps binds the three agent seams
-// ONLY when the persisted agent_enabled is true (mirroring the memory-seam
-// wiring): agent off (absent config) → all three nil so the agent-off doctor output is
-// byte-identical; agent on → all three bound. It inspects only the constructed Deps
-// fields — it never invokes the live host probes.
-func TestLiveDoctorDepsWiresAgentSeams(t *testing.T) {
-	cases := []struct {
-		name      string
-		agentOn   bool
-		wantBound bool
-	}{
-		{"agent-off-default", false, false},
-		{"agent-on", true, true},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			cfgBase := t.TempDir()
-			t.Setenv("XDG_CONFIG_HOME", cfgBase)
-			if tc.agentOn {
-				dir := filepath.Join(cfgBase, "villa")
-				if err := os.MkdirAll(dir, 0o700); err != nil {
-					t.Fatalf("mkdir config dir: %v", err)
-				}
-				if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte("agent_enabled = true\n"), 0o600); err != nil {
-					t.Fatalf("write config: %v", err)
-				}
-			}
-
-			d, err := liveDoctorDeps(t.Context())
-			if err != nil {
-				t.Fatalf("liveDoctorDeps(t.Context()) error = %v", err)
-			}
-			if got := d.AgentToolCall != nil; got != tc.wantBound {
-				t.Errorf("AgentToolCall non-nil = %v, want %v", got, tc.wantBound)
-			}
-			if got := d.AgentResidencyUnderLoad != nil; got != tc.wantBound {
-				t.Errorf("AgentResidencyUnderLoad non-nil = %v, want %v", got, tc.wantBound)
-			}
-			if got := d.AgentDrift != nil; got != tc.wantBound {
-				t.Errorf("AgentDrift non-nil = %v, want %v", got, tc.wantBound)
-			}
-		})
-	}
-}
-
-// TestLiveDoctorDepsWiresMemorySeams asserts liveDoctorDeps binds the memory seams
-// ONLY when the persisted memory_enabled is true (mirror): memory
-// off (absent config) → both nil so the memory-off doctor output is byte-identical;
-// memory on → both bound. (The old MemoryEnabled/MemoryServices wiring assertions
-// were removed with the doctor offload down-rank — Plan 23-01.) It inspects only
-// the constructed Deps fields — it never invokes the live host probes.
-func TestLiveDoctorDepsWiresMemorySeams(t *testing.T) {
-	cases := []struct {
-		name      string
-		memoryOn  bool
-		wantBound bool
-	}{
-		{"memory-off-default", false, false},
-		{"memory-on", true, true},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			cfgBase := t.TempDir()
-			t.Setenv("XDG_CONFIG_HOME", cfgBase)
-			if tc.memoryOn {
-				dir := filepath.Join(cfgBase, "villa")
-				if err := os.MkdirAll(dir, 0o700); err != nil {
-					t.Fatalf("mkdir config dir: %v", err)
-				}
-				if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte("memory_enabled = true\n"), 0o600); err != nil {
-					t.Fatalf("write config: %v", err)
-				}
-			}
-
-			d, err := liveDoctorDeps(t.Context())
-			if err != nil {
-				t.Fatalf("liveDoctorDeps(t.Context()) error = %v", err)
-			}
-			if got := d.RunMemoryChecks != nil; got != tc.wantBound {
-				t.Errorf("RunMemoryChecks non-nil = %v, want %v", got, tc.wantBound)
-			}
-			if got := d.ResidencyUnderLoad != nil; got != tc.wantBound {
-				t.Errorf("ResidencyUnderLoad non-nil = %v, want %v", got, tc.wantBound)
-			}
-		})
-	}
-}
-
-// TestLiveDoctorDepsWiresRunROCmImage closes the silently-nil hole in the Option-B
-// image thread-through: liveDoctorDeps(t.Context()) must populate the RunROCmImage seam NON-NIL on
-// a ROCm-family backend — which now INCLUDES the empty/default config, since ROCm 7.2.4
-// is the default backend (so a denied running image is a confident FAIL via
-// preflight.RunROCmForImage, never the un-evaluated WARN) — and leave it NIL for the
-// explicit vulkan opt-out (the nil-fallback path Aggregate handles by calling
-// preflight.Run). It inspects only
-// the constructed Deps func-field for nil-ness — it never invokes the live host probes.
-// The config backend is driven deterministically via XDG_CONFIG_HOME so the test is
-// off-hardware. (The newDoctorDeps() test double leaves RunROCmImage nil ON PURPOSE; that
-// intended nil-fallback path is covered by the internal/doctor tests.)
-func TestLiveDoctorDepsWiresRunROCmImage(t *testing.T) {
-	cases := []struct {
-		name       string
-		backend    string // "" → write no config file (default rocm)
-		wantNonNil bool
-	}{
-		{"default-is-rocm", "", true},
-		{"vulkan-opt-out", "vulkan", false},
-		{"rocm", "rocm", true},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			cfgBase := t.TempDir()
-			t.Setenv("XDG_CONFIG_HOME", cfgBase)
-			if tc.backend != "" {
-				dir := filepath.Join(cfgBase, "villa")
-				if err := os.MkdirAll(dir, 0o700); err != nil {
-					t.Fatalf("mkdir config dir: %v", err)
-				}
-				body := "backend = \"" + tc.backend + "\"\n"
-				if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(body), 0o600); err != nil {
-					t.Fatalf("write config: %v", err)
-				}
-			}
-
-			d, err := liveDoctorDeps(t.Context())
-			if err != nil {
-				t.Fatalf("liveDoctorDeps(t.Context()) error = %v", err)
-			}
-			got := d.RunROCmImage != nil
-			if got != tc.wantNonNil {
-				t.Errorf("RunROCmImage non-nil = %v, want %v (backend %q)", got, tc.wantNonNil, tc.backend)
-			}
-		})
-	}
-}
-
 // --- Phase 34-04: live web-search residency + egress-proof seams ---
 
 // TestRunSearchResidencyUnderLoadPreconditionGate exercises the read-only precondition
@@ -562,7 +427,7 @@ func TestDoctorTakesOneHostReading(t *testing.T) {
 		calls := stubCountingRPM(t)
 		t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 		t.Setenv("XDG_DATA_HOME", t.TempDir())
-		d, err := liveDoctorDeps(t.Context())
+		d, err := liveDoctorDeps(t.Context(), config.VillaConfig{})
 		if err != nil {
 			t.Fatalf("liveDoctorDeps: %v", err)
 		}
@@ -589,98 +454,6 @@ func TestDoctorTakesOneHostReading(t *testing.T) {
 		}
 		if target.WeightBytes != 7 || !reflect.DeepEqual(weighed, reading) {
 			t.Errorf("target weight %d from host %+v, want 7 from the shared reading %+v", target.WeightBytes, weighed, reading)
-		}
-	})
-}
-
-// TestLiveDoctorDepsWiresWebSearchSeams asserts liveDoctorDeps binds the two web-search
-// seams ONLY when the persisted web_search_enabled is true (mirroring the memory/
-// agent-seam wiring): web off (absent config) → both nil so the web-off doctor output is
-// byte-identical (except the schema bump); web on → both bound. The egress answer is
-// not among them: doctor reads it from the status report (ADR-0016). It inspects only
-// the constructed Deps func-fields — it never invokes the live host probes.
-func TestLiveDoctorDepsWiresWebSearchSeams(t *testing.T) {
-	cases := []struct {
-		name      string
-		webOn     bool
-		wantBound bool
-	}{
-		{"web-off-default", false, false},
-		{"web-on", true, true},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			cfgBase := t.TempDir()
-			t.Setenv("XDG_CONFIG_HOME", cfgBase)
-			if tc.webOn {
-				dir := filepath.Join(cfgBase, "villa")
-				if err := os.MkdirAll(dir, 0o700); err != nil {
-					t.Fatalf("mkdir config dir: %v", err)
-				}
-				if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte("web_search_enabled = true\n"), 0o600); err != nil {
-					t.Fatalf("write config: %v", err)
-				}
-			}
-
-			d, err := liveDoctorDeps(t.Context())
-			if err != nil {
-				t.Fatalf("liveDoctorDeps(t.Context()) error = %v", err)
-			}
-			if got := d.SearchResidencyUnderLoad != nil; got != tc.wantBound {
-				t.Errorf("SearchResidencyUnderLoad non-nil = %v, want %v", got, tc.wantBound)
-			}
-			if got := d.WebsafeBinary != nil; got != tc.wantBound {
-				t.Errorf("WebsafeBinary non-nil = %v, want %v", got, tc.wantBound)
-			}
-		})
-	}
-}
-
-// TestDriftHostVillaPath: the drift render takes the host binary path from the INSTALLED
-// websafe unit, not from os.Executable(), so the same binary run from another path is no
-// longer reported as config-vs-disk drift (issue #141). An absent unit reports false and
-// the caller falls back to the running binary.
-func TestDriftHostVillaPath(t *testing.T) {
-	t.Run("reads-the-installed-mount", func(t *testing.T) {
-		dir := t.TempDir()
-		units, err := orchestrate.Render(orchestrate.RenderInput{
-			Backend: inference.VulkanBackend(),
-			Cfg: config.VillaConfig{
-				Model: "qwen3-35b-a3b-moe-64", Quant: "UD-Q4_K_M", Ctx: 131072, Backend: "vulkan",
-				WebSearchEnabled: true,
-			},
-			ModelFile:     "qwen3-35b-a3b-moe-64.gguf",
-			ModelsDir:     "/home/villa/.local/share/villa/models",
-			HostVillaPath: "/home/villa/.local/bin/villa",
-		})
-		if err != nil {
-			t.Fatalf("Render: %v", err)
-		}
-		unit := ""
-		for _, u := range units {
-			if u.Name == orchestrate.WebsafeContainerUnitName() {
-				unit = u.Text
-			}
-		}
-		if unit == "" {
-			t.Fatal("fixture rendered no villa-websafe unit")
-		}
-		if err := os.WriteFile(filepath.Join(dir, orchestrate.WebsafeContainerUnitName()), []byte(unit), 0o644); err != nil {
-			t.Fatalf("write unit: %v", err)
-		}
-
-		got, ok := driftHostVillaPath(dir)
-		if !ok {
-			t.Fatal("driftHostVillaPath reported no mounted path for an installed websafe unit")
-		}
-		if got != "/home/villa/.local/bin/villa" {
-			t.Errorf("driftHostVillaPath = %q, want /home/villa/.local/bin/villa", got)
-		}
-	})
-
-	t.Run("absent-unit-reports-false", func(t *testing.T) {
-		if got, ok := driftHostVillaPath(t.TempDir()); ok {
-			t.Errorf("driftHostVillaPath on an empty dir = (%q, true), want ok=false", got)
 		}
 	})
 }
@@ -757,37 +530,36 @@ func doctorFindings(t *testing.T) map[string]doctor.Finding {
 // doctorFindingsFor is doctorFindings over a chosen status report.
 func doctorFindingsFor(t *testing.T, report func() status.Report) map[string]doctor.Finding {
 	t.Helper()
-	d, err := liveDoctorDeps(t.Context())
+	cfg, err := config.LoadVilla()
+	if err != nil {
+		t.Fatalf("LoadVilla: %v", err)
+	}
+	d, err := liveDoctorDeps(t.Context(), cfg)
 	if err != nil {
 		t.Fatalf("liveDoctorDeps: %v", err)
 	}
 	d.Probe = func() detect.HostProfile { return detect.HostProfile{} }
 	d.StatusReport = report
 	proof := func() inference.Verdict { return inference.Verdict{Status: inference.StatusPass, Detail: "stub"} }
-	if d.RunMemoryChecks != nil {
-		d.RunMemoryChecks = func(detect.HostProfile) []preflight.CheckResult { return nil }
-	}
-	if d.RunSandboxChecks != nil {
-		d.RunSandboxChecks = func(detect.HostProfile) []preflight.CheckResult { return nil }
-	}
+	d.RunSandboxChecks = func(detect.HostProfile) []preflight.CheckResult { return nil }
+	d.RunMemoryChecks = func(detect.HostProfile, preflight.MemoryGateInput) []preflight.CheckResult { return nil }
 	d.CatalogGeometry = nil
-	if d.ResidencyUnderLoad != nil {
-		d.ResidencyUnderLoad = proof
-	}
-	if d.AgentToolCall != nil {
-		d.AgentToolCall = proof
-	}
-	if d.AgentResidencyUnderLoad != nil {
-		d.AgentResidencyUnderLoad = proof
-	}
-	if d.SearchResidencyUnderLoad != nil {
-		d.SearchResidencyUnderLoad = proof
-	}
+	d.IsActive = func(string) (string, error) { return "inactive", nil }
+	d.ResidencyUnderLoad = proof
+	d.AgentToolCall = proof
+	d.AgentResidencyUnderLoad = proof
+	d.SearchResidencyUnderLoad = proof
 	byID := map[string]doctor.Finding{}
-	for _, f := range doctor.Aggregate(d).Findings {
+	for _, f := range doctor.Aggregate(cfg, d).Findings {
 		byID[f.ID] = f
 	}
 	return byID
+}
+
+// inferenceUnit is the Quadlet file villa-llama is rendered to.
+func inferenceUnit() string {
+	units, _ := subsystem.Inference.Units()
+	return units[0]
 }
 
 const doctorHostBaseTOML = "model = \"qwen3.6-35b-a3b\"\nquant = \"UD-Q4_K_XL\"\nctx = 131072\nbackend = \"vulkan\"\n"
@@ -847,10 +619,10 @@ func TestDoctorDriftReadsTheUnitDir(t *testing.T) {
 	t.Run("an edited unit is drift naming it", func(t *testing.T) {
 		h := newDoctorHost(t, doctorHostBaseTOML)
 		h.writeRenderedStack(hostVillaPath())
-		h.writeUnit(inferenceUnitFile, "[Container]\nExec=hand-edited\n")
+		h.writeUnit(inferenceUnit(), "[Container]\nExec=hand-edited\n")
 		f := doctorFindings(t)["drift"]
-		if f.Status != "WARN" || !strings.Contains(f.Detail, inferenceUnitFile) {
-			t.Errorf("drift = %s %q, want a WARN naming %s", f.Status, f.Detail, inferenceUnitFile)
+		if f.Status != "WARN" || !strings.Contains(f.Detail, inferenceUnit()) {
+			t.Errorf("drift = %s %q, want a WARN naming %s", f.Status, f.Detail, inferenceUnit())
 		}
 	})
 	t.Run("a moved binary is not drift", func(t *testing.T) {

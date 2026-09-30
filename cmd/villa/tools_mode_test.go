@@ -9,7 +9,6 @@ import (
 
 	"github.com/MatrixMagician/VillaStraylight/internal/backendswap"
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
-	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 	"github.com/MatrixMagician/VillaStraylight/internal/prove"
 	"github.com/MatrixMagician/VillaStraylight/internal/status"
 )
@@ -160,77 +159,6 @@ func TestToolsModeResultMapping(t *testing.T) {
 				t.Errorf("stderr = %q, want %q", errOut.String(), tc.wantErr)
 			}
 		})
-	}
-}
-
-// TestToolsFlagTokenIsDerivedFromTheSeam guards that the token TMD-01 looks for comes
-// from the inference seam rather than being typed here: it must be exactly the one
-// argument ContainerArgs adds when RunSpec.Tools flips on, for every backend.
-func TestToolsFlagTokenIsDerivedFromTheSeam(t *testing.T) {
-	for _, name := range []string{"rocm", "rocm-6.4.4", "rocm-6.4.4-rocwmma", "vulkan"} {
-		t.Run(name, func(t *testing.T) {
-			token, err := toolsFlagToken(name)
-			if err != nil {
-				t.Fatalf("toolsFlagToken(%q): %v", name, err)
-			}
-			if !strings.HasPrefix(token, "--") {
-				t.Errorf("token = %q, want a llama-server long flag", token)
-			}
-			b, err := inference.BackendFor(name)
-			if err != nil {
-				t.Fatalf("BackendFor(%q): %v", name, err)
-			}
-			for _, a := range b.ContainerArgs(inference.RunSpec{}) {
-				if a == token {
-					t.Fatalf("the tools-off args already carry %q, so it cannot identify tools mode", token)
-				}
-			}
-		})
-	}
-}
-
-// TestToolsFlagTokenRefusesAnUnknownBackend guards that an unresolvable backend is an
-// error, never a token that would silently make every unit look drift-free.
-func TestToolsFlagTokenRefusesAnUnknownBackend(t *testing.T) {
-	if _, err := toolsFlagToken("nvidia"); err == nil {
-		t.Error("an unknown backend returned a token, want an error")
-	}
-}
-
-// TestUnitCarriesToolsFlag guards that the drift check reads the Exec line as
-// arguments: a token in a comment, or one that is only a substring of another
-// argument, is not a served flag.
-func TestUnitCarriesToolsFlag(t *testing.T) {
-	token, err := toolsFlagToken("rocm")
-	if err != nil {
-		t.Fatalf("toolsFlagToken: %v", err)
-	}
-	for _, tc := range []struct {
-		name string
-		unit string
-		want bool
-	}{
-		{"served", "[Container]\nExec=llama-server -m x " + token + " --port 8080\n", true},
-		{"absent", "[Container]\nExec=llama-server -m x --port 8080\n", false},
-		{"only in a comment", "# " + token + "\n[Container]\nExec=llama-server -m x\n", false},
-		{"substring of another argument", "[Container]\nExec=llama-server -m x " + token + "-extra\n", false},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := unitCarriesToolsFlag([]byte(tc.unit), token); got != tc.want {
-				t.Errorf("unitCarriesToolsFlag = %v, want %v", got, tc.want)
-			}
-		})
-	}
-}
-
-// TestLiveToolsDriftUnreadableIsUnknown guards the no-false-green rule at the seam: a
-// host with no rendered unit reports ok=false, which doctor renders as WARN, never a
-// matching PASS.
-func TestLiveToolsDriftUnreadableIsUnknown(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	t.Setenv("HOME", t.TempDir())
-	if _, _, ok := liveToolsDrift(); ok {
-		t.Error("a host with no rendered unit reported an evaluable drift answer")
 	}
 }
 

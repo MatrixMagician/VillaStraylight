@@ -1524,3 +1524,21 @@ func TestRunLastTask(t *testing.T) {
 		}
 	})
 }
+
+// TestRunToleratesAnUnwiredProbe pins that Probe is guarded like every other optional
+// seam: a caller that wires no host probe gets an unprobed profile, which folds to
+// unknown readiness rather than a panic or a healthy host.
+func TestRunToleratesAnUnwiredProbe(t *testing.T) {
+	sd, err := StubDeps(t.TempDir(), nil)
+	if err != nil {
+		t.Fatalf("StubDeps: %v", err)
+	}
+	sd.Probe = nil
+	r := Run(sd)
+	if r.Err() != nil {
+		t.Fatalf("Run with no Probe errored: %v", r.Err())
+	}
+	if r.ROCmReadiness != ROCmUnknown {
+		t.Errorf("ROCmReadiness = %q, want %q for an unprobed host", r.ROCmReadiness, ROCmUnknown)
+	}
+}

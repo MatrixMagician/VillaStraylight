@@ -11,7 +11,7 @@
 //     false-green over a health-200).
 //   - TestDriftWarn                — a non-empty Plan.Changed yields a drift WARN Finding and
 //     Report.Overall=="WARN" (DOCTOR-03).
-//   - TestDriftReadErrorDegrades   — a DriftPlan read error (absent unit dir) yields a
+//   - TestDriftReadErrorDegrades   — an unreadable/absent unit dir yields a
 //
 // typed-Unknown WARN Finding, never a panic.
 //   - TestDownStackWarnsNotBlocks  — a confidently-down service (HealthDown) folds to a
@@ -26,8 +26,10 @@ package doctor
 
 import (
 	"errors"
+	"io/fs"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/agent"
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
@@ -36,6 +38,8 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 	"github.com/MatrixMagician/VillaStraylight/internal/preflight"
 	"github.com/MatrixMagician/VillaStraylight/internal/status"
+	"github.com/MatrixMagician/VillaStraylight/internal/subsystem"
+	"github.com/MatrixMagician/VillaStraylight/internal/verifystate"
 )
 
 // healthyStatusReport builds an all-PASS status.Report: one inference service with a
@@ -60,38 +64,101 @@ func healthyStatusReport() status.Report {
 	}
 }
 
-// newDoctorDeps builds a fully-stubbed healthy-default doctor.Deps. Each test copies
-// it and overrides exactly one knob. Probe returns a benign typed-Unknown HostProfile
-// (off-hardware honest default), StatusReport the all-PASS report above, and
-// DriftPlan an empty Plan with nil error (no drift).
-func newDoctorDeps() Deps {
-	return Deps{
-		Probe:        func() detect.HostProfile { return detect.HostProfile{} },
-		StatusReport: func() status.Report { return healthyStatusReport() },
-		DriftPlan:    func() (orchestrate.Plan, error) { return orchestrate.Plan{}, nil },
-		Backend:      "vulkan",
-	}
+// run is one doctor run's two inputs: the config it loaded and the seams it reads.
+// Aggregate decides from the first and asks the second for raw reads, so a test sets
+// cfg to switch a subsystem and the fake unit dir to stage the disk, and never binds a
+// seam to gate anything (ADR-0017).
+type run struct {
+	Deps
+	cfg config.VillaConfig
+	// units is the fake Quadlet dir ReadUnit serves; a name missing from it is an absent unit.
+	units map[string]string
+	// dirMissing makes UnitDirExists answer false; dirErr makes it fail.
+	dirMissing bool
+	dirErr     error
 }
 
-// rocmDoctorDeps builds a healthy-default doctor.Deps on the ROCm-family path:
+func (r *run) aggregate() Report { return Aggregate(r.cfg, r.Deps) }
+
+// render makes the units cfg calls for exactly these; the fake dir holds whatever
+// r.units says, so a unit is drifted, unchanged or absent by what the test stages there.
+func (r *run) render(us ...orchestrate.Unit) {
+	r.RenderUnits = func(config.VillaConfig, string) ([]orchestrate.Unit, error) { return us, nil }
+}
+
+// inferenceUnitName is the Quadlet file villa-llama is rendered to.
+func inferenceUnitName() string {
+	units, _ := subsystem.Inference.Units()
+	return units[0]
+}
+
+// servedUnit is an inference unit rendered without the tool-calling flag.
+const servedUnit = "[Container]\nExec=llama-server -m x --port 8080\n"
+
+// newDoctorDeps builds a fully-stubbed healthy-default run: the vulkan backend with every
+// optional subsystem off, and seams that read a benign host. Each test copies it and
+// overrides exactly one knob. Probe returns a benign typed-Unknown HostProfile
+// (off-hardware honest default), StatusReport the all-PASS report above, and the fake
+// unit dir holds the inference unit and renders no units, so there is no drift and
+// tools mode matches (off).
+func newDoctorDeps() *run {
+	r := &run{
+		cfg:   config.VillaConfig{Backend: "vulkan"},
+		units: map[string]string{},
+	}
+	r.units[inferenceUnitName()] = servedUnit
+	r.Deps = Deps{
+		Probe:        func() detect.HostProfile { return detect.HostProfile{} },
+		StatusReport: func() status.Report { return healthyStatusReport() },
+		IsActive:     func(string) (string, error) { return "inactive", nil },
+		ReadVerifyState: func() *verifystate.State {
+			return &verifystate.State{}
+		},
+		UnitDirExists: func() (bool, error) { return !r.dirMissing && r.dirErr == nil, r.dirErr },
+		ReadUnit: func(name string) ([]byte, error) {
+			if text, ok := r.units[name]; ok {
+				return []byte(text), nil
+			}
+			return nil, fs.ErrNotExist
+		},
+		RenderUnits:  func(config.VillaConfig, string) ([]orchestrate.Unit, error) { return nil, nil },
+		RunningVilla: func() string { return "/usr/local/bin/villa" },
+		// Every seam is wired, as liveDoctorDeps wires them, and the config decides
+		// which ones Aggregate calls. The preflight bindings answer no checks and the
+		// four proofs pass.
+		RunMemoryChecks:          func(detect.HostProfile, preflight.MemoryGateInput) []preflight.CheckResult { return nil },
+		RunSandboxChecks:         func(detect.HostProfile) []preflight.CheckResult { return nil },
+		ResidencyUnderLoad:       passVerdict,
+		AgentToolCall:            passVerdict,
+		AgentResidencyUnderLoad:  passVerdict,
+		SearchResidencyUnderLoad: passVerdict,
+	}
+	r.cleanAgentDrift()
+	return r
+}
+
+// passVerdict is a proof that proves.
+func passVerdict() inference.Verdict {
+	return inference.Verdict{Status: inference.StatusPass, Detail: "resident under load"}
+}
+
+// rocmDoctorDeps builds a healthy-default run on the ROCm-family path:
 // newDoctorDeps() with Backend="rocm" so Aggregate runs the ROCm host-prep gate
 // (inference.IsROCmFamily("rocm")==true). The Probe stays the off-hardware
-// typed-Unknown HostProfile (detect.HostProfile{}), so preflight.RunROCm emits the
-// three ROCM-PRE-firmware/-hsa/-image findings as typed-Unknown WARN BY CONSTRUCTION
-// (checks_rocm.go:66-67 hardcode firmware/hsa as UnknownStr; RunROCm passes an empty
-// requested image) — exactly the structural WARNs from the live UAT (13-UAT.md Test 1).
+// typed-Unknown HostProfile (detect.HostProfile{}), so preflight.RunROCmForImage emits
+// ROCM-PRE-firmware/-hsa as typed-Unknown WARN BY CONSTRUCTION (an unprobed firmware and
+// HSA readiness are Unknown) — exactly the structural WARNs from the live UAT
+// (13-UAT.md Test 1).
 // The StatusReport keeps OffloadApplies=true + Offload.Status=StatusPass over a
 // HealthReady — the PROVEN-residency precondition the supersession keys off.
-func rocmDoctorDeps() Deps {
+func rocmDoctorDeps() *run {
 	d := newDoctorDeps()
-	d.Backend = "rocm"
+	d.cfg.Backend = "rocm"
 	// Probe Known-good gfx1151 + a kernel at/above the policy floor so the two
 	// Probe-DRIVEN ROCm host-prep checks (ROCM-PRE-gfx / ROCM-PRE-kernel) PASS. That
-	// isolates the three STRUCTURALLY typed-Unknown WARNs the supersession targets
-	// ROCM-PRE-firmware/-hsa/-image (checks_rocm.go:66-67 hardcode firmware/hsa as
-	// UnknownStr; RunROCm passes an empty image) — which are exactly the live-UAT WARNs.
+	// isolates the STRUCTURALLY typed-Unknown WARNs the supersession targets.
 	// KFDAccess/RenderNodeAccess are also Known-good so the additive PRE-08 check
-	// (issue #120) PASSes here too, rather than adding a fourth, un-superseded
+	// (issue #120) PASSes here too, rather than adding an un-superseded
 	// typed-Unknown WARN that would falsely re-open the residency-supersession gap
 	// this fixture exists to isolate.
 	d.Probe = func() detect.HostProfile {
@@ -126,7 +193,7 @@ func hasFinding(r Report, id string) bool {
 func TestROCmResidencySupersedesHostPrepWARN(t *testing.T) {
 	d := rocmDoctorDeps()
 
-	r := Aggregate(d)
+	r := d.aggregate()
 	if r.Overall != "PASS" {
 		t.Fatalf("Overall = %q, want PASS", r.Overall)
 	}
@@ -167,7 +234,7 @@ func TestROCmResidencyDoesNotFireOnStatusFail(t *testing.T) {
 		return r
 	}
 
-	r := Aggregate(d)
+	r := d.aggregate()
 	if r.Overall != "FAIL" {
 		t.Fatalf("Overall = %q, want FAIL (offload StatusFail must dominate; supersession must NOT fire without proven residency)", r.Overall)
 	}
@@ -176,42 +243,36 @@ func TestROCmResidencyDoesNotFireOnStatusFail(t *testing.T) {
 // TestConfidentROCmFAILStillDominatesResidency is the CENTRAL no-false-green guard
 // (DOCTOR-02) and proves the supersession keys on the (ID AND Status==WARN) CONJUNCTION,
 // NOT ID-alone. Under PROVEN ROCm residency (Backend="rocm", OffloadApplies=true,
-// Offload.Status==inference.StatusPass), inject the image-aware host-prep gate
-// (RunROCmImage) returning a CONFIDENT FAIL on a SUPERSEDED ID — idROCmImage, a denied
-// RUNNING image (reachable only via this Option-B seam; checks_rocm.go:66-67 make a
-// firmware/hsa FAIL unreachable via Probe). A confident FAIL on one of the very IDs the
-// supersession down-ranks at WARN must NEVER be swallowed → Overall=="FAIL". (A
-// ROCM-PRE-gfx-style guard would NOT exercise this risk: gfx is not in the superseded
-// set, so an ID-only match would never have swallowed it — the danger lives precisely on
-// the superseded IDs, so the assertion lives there.) Type no backend marker literal: the
-// stub uses the ROCM-PRE-* ID string + neutral detail.
+// Offload.Status==inference.StatusPass), a host whose probed linux-firmware is on the
+// policy denylist yields a CONFIDENT FAIL on a SUPERSEDED ID — idROCmFirmware. A
+// confident FAIL on one of the very IDs the supersession down-ranks at WARN must NEVER
+// be swallowed → Overall=="FAIL". (A ROCM-PRE-gfx-style guard would NOT exercise this
+// risk: gfx is not in the superseded set, so an ID-only match would never have
+// swallowed it — the danger lives precisely on the superseded IDs, so the assertion
+// lives there.) The denied stamp is the policy's own denylist entry, not a backend
+// marker literal.
 func TestConfidentROCmFAILStillDominatesResidency(t *testing.T) {
 	d := rocmDoctorDeps() // proven residency: Backend=rocm, OffloadApplies, StatusPass
-	d.RunROCmImage = func(detect.HostProfile) []preflight.CheckResult {
-		return []preflight.CheckResult{{
-			ID:          idROCmImage,
-			Name:        "ROCm image not denied",
-			Tier:        preflight.TierBlock,
-			Status:      preflight.StatusFail,
-			Detail:      "requested image matches a denied build — ROCm bring-up refused",
-			Remediation: "use the digest-pinned stable ROCm image",
-			Provenance:  "requested image",
-		}}
+	probe := d.Probe
+	d.Probe = func() detect.HostProfile {
+		p := probe()
+		p.FirmwareDate = detect.KnownStr("20251125", "test") // the denied linux-firmware build
+		return p
 	}
 
-	r := Aggregate(d)
+	r := d.aggregate()
 	if r.Overall != "FAIL" {
-		t.Fatalf("Overall = %q, want FAIL (a confident FAIL on the superseded %s must NEVER be swallowed by residency-supersession — DOCTOR-02)", r.Overall, idROCmImage)
+		t.Fatalf("Overall = %q, want FAIL (a confident FAIL on the superseded %s must NEVER be swallowed by residency-supersession — DOCTOR-02)", r.Overall, idROCmFirmware)
 	}
 	// The confident FAIL must still be present as a FAIL finding (not down-ranked).
 	found := false
 	for _, f := range r.Findings {
-		if f.ID == idROCmImage && f.Status == "FAIL" {
+		if f.ID == idROCmFirmware && f.Status == "FAIL" {
 			found = true
 		}
 	}
 	if !found {
-		t.Errorf("expected a FAIL finding on %s under proven residency; findings: %+v", idROCmImage, r.Findings)
+		t.Errorf("expected a FAIL finding on %s under proven residency; findings: %+v", idROCmFirmware, r.Findings)
 	}
 }
 
@@ -237,11 +298,9 @@ func TestRemediationPresent(t *testing.T) {
 		r.Services[0].OffloadOK = false
 		return r
 	}
-	d.DriftPlan = func() (orchestrate.Plan, error) {
-		return orchestrate.Plan{Changed: []orchestrate.Unit{{Name: "villa-llama.container", Text: "x"}}}, nil
-	}
+	d.render(orchestrate.Unit{Name: inferenceUnitName(), Text: "x"})
 
-	r := Aggregate(d)
+	r := d.aggregate()
 	bad := nonPassFindings(r)
 	if len(bad) == 0 {
 		t.Fatal("expected at least one non-PASS finding (offload FAIL + drift), got none")
@@ -270,7 +329,7 @@ func TestOffloadFailDominatesHealth(t *testing.T) {
 		return r
 	}
 
-	r := Aggregate(d)
+	r := d.aggregate()
 	if r.Overall != "FAIL" {
 		t.Fatalf("Overall = %q, want FAIL (offload FAIL must dominate HealthReady)", r.Overall)
 	}
@@ -285,17 +344,13 @@ func TestOffloadFailDominatesHealth(t *testing.T) {
 	}
 }
 
-// TestDriftWarn: a DriftPlan returning a Plan with a non-empty Changed slice (and no
-// offload FAIL) yields a drift WARN Finding and Report.Overall=="WARN" (DOCTOR-03).
+// TestDriftWarn: a rendered unit that differs from the file on disk (and no offload
+// FAIL) yields a drift WARN Finding and Report.Overall=="WARN" (DOCTOR-03).
 func TestDriftWarn(t *testing.T) {
 	d := newDoctorDeps()
-	d.DriftPlan = func() (orchestrate.Plan, error) {
-		return orchestrate.Plan{Changed: []orchestrate.Unit{
-			{Name: "villa-llama.container", Text: "drifted"},
-		}}, nil
-	}
+	d.render(orchestrate.Unit{Name: inferenceUnitName(), Text: "drifted"})
 
-	r := Aggregate(d)
+	r := d.aggregate()
 	if r.Overall != "WARN" {
 		t.Fatalf("Overall = %q, want WARN (non-empty Plan.Changed = drift WARN)", r.Overall)
 	}
@@ -310,28 +365,149 @@ func TestDriftWarn(t *testing.T) {
 	}
 }
 
-// TestDriftReadErrorDegrades: a DriftPlan returning a read error (e.g. absent unit
-// dir on a never-installed host) must yield a typed-Unknown WARN Finding with
-// remediation, never a panic and never a false PASS.
+// TestDriftReadErrorDegrades: a unit dir that is missing (a never-installed host), cannot
+// be examined, or cannot be rendered against must yield a typed-Unknown WARN Finding
+// with remediation, never a panic, never drift and never a false PASS.
 func TestDriftReadErrorDegrades(t *testing.T) {
-	d := newDoctorDeps()
-	d.DriftPlan = func() (orchestrate.Plan, error) {
-		return orchestrate.Plan{}, errors.New("open unit dir: no such file or directory")
-	}
+	for _, tc := range []struct {
+		name  string
+		setup func(d *run)
+	}{
+		{"unit dir missing", func(d *run) { d.dirMissing = true }},
+		{"unit dir unreadable", func(d *run) { d.dirErr = errors.New("stat unit dir: permission denied") }},
+		{"render fails", func(d *run) {
+			d.RenderUnits = func(config.VillaConfig, string) ([]orchestrate.Unit, error) {
+				return nil, errors.New("render: unknown model")
+			}
+		}},
+		{"a unit that cannot be read", func(d *run) {
+			d.render(orchestrate.Unit{Name: "villa-openwebui.container", Text: "x"})
+			read := d.ReadUnit
+			d.ReadUnit = func(name string) ([]byte, error) {
+				if name == "villa-openwebui.container" {
+					return nil, errors.New("read: permission denied")
+				}
+				return read(name)
+			}
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d := newDoctorDeps()
+			// A unit that WOULD be drift if the dir were readable: the finding must not say so.
+			d.render(orchestrate.Unit{Name: inferenceUnitName(), Text: "different"})
+			tc.setup(d)
 
-	r := Aggregate(d)
-	if r.Overall != "WARN" {
-		t.Fatalf("Overall = %q, want WARN (drift read error degrades to typed-Unknown WARN)", r.Overall)
+			r := d.aggregate()
+			f, ok := findingByID(r, "drift")
+			if !ok {
+				t.Fatal("no drift finding")
+			}
+			if f.Status != "WARN" || f.Remediation == "" || f.Raw == "" {
+				t.Errorf("drift = %s %q (remediation %q, raw %q), want a typed-Unknown WARN carrying its cause", f.Status, f.Detail, f.Remediation, f.Raw)
+			}
+			if strings.Contains(f.Detail, "no longer match") {
+				t.Errorf("an unreadable unit dir was reported as drift: %q", f.Detail)
+			}
+			if r.Overall != "WARN" {
+				t.Errorf("Overall = %q, want WARN", r.Overall)
+			}
+		})
 	}
-	found := false
-	for _, f := range r.Findings {
-		if f.Status == "WARN" && f.Remediation != "" {
-			found = true
+}
+
+// TestDriftPlanTable is the unit drift plan's whole truth table against a fake unit dir:
+// a rendered unit is unchanged when the file is byte-identical, drift when it differs and
+// drift when it is absent (as orchestrate.Reconcile reads it), and the finding names
+// every drifted unit.
+func TestDriftPlanTable(t *testing.T) {
+	llama := orchestrate.Unit{Name: inferenceUnitName(), Text: servedUnit}
+	chat := orchestrate.Unit{Name: "villa-openwebui.container", Text: "[Container]\nImage=chat\n"}
+	for _, tc := range []struct {
+		name        string
+		onDisk      map[string]string
+		wantStatus  string
+		wantChanged []string
+	}{
+		{"all match", map[string]string{llama.Name: llama.Text, chat.Name: chat.Text}, "PASS", nil},
+		{"one edited", map[string]string{llama.Name: llama.Text, chat.Name: "[Container]\nImage=hand-edited\n"}, "WARN", []string{chat.Name}},
+		{"one absent", map[string]string{llama.Name: llama.Text}, "WARN", []string{chat.Name}},
+		{"every unit absent", map[string]string{}, "WARN", []string{llama.Name, chat.Name}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d := newDoctorDeps()
+			d.units = tc.onDisk
+			d.render(llama, chat)
+			f, _ := findingByID(d.aggregate(), "drift")
+			if f.Status != tc.wantStatus {
+				t.Fatalf("drift = %s %q, want %s", f.Status, f.Detail, tc.wantStatus)
+			}
+			for _, name := range tc.wantChanged {
+				if !strings.Contains(f.Detail, name) {
+					t.Errorf("drift detail %q does not name %s", f.Detail, name)
+				}
+			}
+			if tc.wantStatus == "PASS" && f.Remediation != "" {
+				t.Errorf("a PASS drift carries remediation %q", f.Remediation)
+			}
+		})
+	}
+}
+
+// TestDriftRendersWithTheInstalledBinaryPath pins the #141 precedence rule: the units are
+// rendered with the villa path the INSTALLED villa-websafe unit mounts, and only when that
+// unit is not installed with the running binary — so the same binary at another path is
+// not drift.
+func TestDriftRendersWithTheInstalledBinaryPath(t *testing.T) {
+	websafe := orchestrate.WebsafeContainerUnitName()
+	for _, tc := range []struct {
+		name  string
+		units map[string]string
+		want  string
+	}{
+		{"websafe unit installed", map[string]string{websafe: websafeUnitMounting(t, "/opt/villa-elsewhere/villa")}, "/opt/villa-elsewhere/villa"},
+		{"no websafe unit", map[string]string{}, "/usr/local/bin/villa"},
+		{"websafe unit mounts no binary", map[string]string{websafe: "[Container]\nImage=x\n"}, "/usr/local/bin/villa"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d := newDoctorDeps()
+			d.units = tc.units
+			var got string
+			d.RenderUnits = func(_ config.VillaConfig, hostVilla string) ([]orchestrate.Unit, error) {
+				got = hostVilla
+				return nil, nil
+			}
+			d.aggregate()
+			if got != tc.want {
+				t.Errorf("units rendered with the villa path %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// websafeUnitMounting renders the real villa-websafe unit for a villa binary at path, so
+// the test reads the mount the way install wrote it.
+func websafeUnitMounting(t *testing.T, path string) string {
+	t.Helper()
+	units, err := orchestrate.Render(orchestrate.RenderInput{
+		Backend: inference.VulkanBackend(),
+		Cfg: config.VillaConfig{
+			Model: "qwen3-35b-a3b-moe-64", Quant: "UD-Q4_K_M", Ctx: 131072, Backend: "vulkan",
+			WebSearchEnabled: true,
+		},
+		ModelFile:     "qwen3-35b-a3b-moe-64.gguf",
+		ModelsDir:     "/home/villa/.local/share/villa/models",
+		HostVillaPath: path,
+	})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	for _, u := range units {
+		if u.Name == orchestrate.WebsafeContainerUnitName() {
+			return u.Text
 		}
 	}
-	if !found {
-		t.Errorf("expected a typed-Unknown WARN finding with remediation on a drift read error; findings: %+v", r.Findings)
-	}
+	t.Fatal("fixture rendered no villa-websafe unit")
+	return ""
 }
 
 // --- Phase 22-03: memory-stack fold + offload down-rank (Pitfall 1) ---
@@ -377,10 +553,12 @@ func memoryOnStatusReport() status.Report {
 // empty test HostProfile, which emits typed-Unknown WARNs by construction (the same
 // PASS-reachability constraint TestROCmResidencySupersedesHostPrepWARN works under).
 // The memory fold + down-rank predicate under test are backend-independent.
-func memoryDoctorDeps() Deps {
+func memoryDoctorDeps() *run {
 	d := rocmDoctorDeps()
+	d.cfg.MemoryEnabled = true
+	d.cfg.EmbeddingModel = "test-embedder"
 	d.StatusReport = func() status.Report { return memoryOnStatusReport() }
-	d.RunMemoryChecks = func(detect.HostProfile) []preflight.CheckResult {
+	d.RunMemoryChecks = func(detect.HostProfile, preflight.MemoryGateInput) []preflight.CheckResult {
 		return []preflight.CheckResult{
 			{ID: "MEM-PRE-disk", Name: "Vector-index disk space", Tier: preflight.TierBlock,
 				Status: preflight.StatusPass, Detail: "free disk ok", Provenance: "test"},
@@ -404,16 +582,16 @@ func findingByID(r Report, id string) (Finding, bool) {
 	return Finding{}, false
 }
 
-// TestMemoryOffNoMemoryFindings: with every new memory Deps field nil/zero (the
+// TestMemoryOffNoMemoryFindings: with memory off in the config (the
 // memory-off default — mirror), Aggregate emits NO memory finding at all: no
-// MEM-PRE-* checks, no MEM-DOC-residency (a nil proof seam NEVER PASSes by default).
+// MEM-PRE-* checks, no MEM-DOC-residency (a proof never PASSes by default).
 // Together with every pre-existing test in this file passing unchanged, this is the
-// memory-off byte-identical guard (nil/zero-safety).
+// memory-off byte-identical guard.
 func TestMemoryOffNoMemoryFindings(t *testing.T) {
-	r := Aggregate(newDoctorDeps())
+	r := newDoctorDeps().aggregate()
 	for _, id := range []string{"MEM-PRE-disk", "MEM-PRE-headroom", "MEM-DOC-residency"} {
 		if hasFinding(r, id) {
-			t.Errorf("memory-off Aggregate emitted finding %q — new Deps fields must be nil/zero-safe", id)
+			t.Errorf("memory-off Aggregate emitted finding %q (no PASS-by-default)", id)
 		}
 	}
 	// NOTE: no Overall assertion here — the off-hardware vulkan fixture's host-prep
@@ -426,7 +604,7 @@ func TestMemoryOffNoMemoryFindings(t *testing.T) {
 // zero-value default), Aggregate emits no CAT-01 finding — a doctor that cannot
 // read the catalog must not fabricate a verdict about it.
 func TestCatalogGeometryNilSeamEmitsNothing(t *testing.T) {
-	if r := Aggregate(newDoctorDeps()); hasFinding(r, "CAT-01") {
+	if r := newDoctorDeps().aggregate(); hasFinding(r, "CAT-01") {
 		t.Error("a nil CatalogGeometry seam emitted a CAT-01 finding")
 	}
 }
@@ -445,7 +623,7 @@ func TestCatalogGeometryFoldedFailRaisesOverall(t *testing.T) {
 				Remediation: "fix the b entry", Provenance: "test"},
 		}
 	}
-	r := Aggregate(d)
+	r := d.aggregate()
 	if r.Overall != "FAIL" {
 		t.Fatalf("Overall = %q, want FAIL (a confident CAT-01 FAIL must rank worst-wins)", r.Overall)
 	}
@@ -468,7 +646,7 @@ func TestCatalogGeometryFoldedFailRaisesOverall(t *testing.T) {
 // every other check — a confident MEM-PRE-headroom FAIL raises Overall to FAIL.
 func TestMemoryChecksFoldedFailRaisesOverall(t *testing.T) {
 	d := memoryDoctorDeps()
-	d.RunMemoryChecks = func(detect.HostProfile) []preflight.CheckResult {
+	d.RunMemoryChecks = func(detect.HostProfile, preflight.MemoryGateInput) []preflight.CheckResult {
 		return []preflight.CheckResult{
 			{ID: "MEM-PRE-disk", Name: "Vector-index disk space", Tier: preflight.TierBlock,
 				Status: preflight.StatusPass, Detail: "free disk ok", Provenance: "test"},
@@ -478,7 +656,7 @@ func TestMemoryChecksFoldedFailRaisesOverall(t *testing.T) {
 		}
 	}
 
-	r := Aggregate(d)
+	r := d.aggregate()
 	if r.Overall != "FAIL" {
 		t.Fatalf("Overall = %q, want FAIL (a confident MEM-PRE-headroom FAIL must rank worst-wins)", r.Overall)
 	}
@@ -507,7 +685,7 @@ func TestResidencyUnderLoadFailBlocks(t *testing.T) {
 		return inference.Verdict{Status: inference.StatusFail, Detail: "only a CPU model buffer was loaded — server fell back to CPU"}
 	}
 
-	r := Aggregate(d)
+	r := d.aggregate()
 	if r.Overall != "FAIL" {
 		t.Fatalf("Overall = %q, want FAIL (confident CPU fallback under embedding load)", r.Overall)
 	}
@@ -536,7 +714,7 @@ func TestResidencyUnderLoadWarnDegrades(t *testing.T) {
 		return inference.Verdict{Status: inference.StatusWarn, Detail: "could not evaluate residency under embedding load — villa-embed.service is not active"}
 	}
 
-	r := Aggregate(d)
+	r := d.aggregate()
 	if r.Overall != "WARN" {
 		t.Fatalf("Overall = %q, want WARN (unevaluable proof degrades, never PASS/FAIL)", r.Overall)
 	}
@@ -562,7 +740,7 @@ func TestResidencyUnderLoadWarnDegrades(t *testing.T) {
 // memory-on stack reaches Overall == PASS. Their HEALTH findings remain (the honest
 // per-service signal the false-green fix introduced).
 func TestHealthyMemoryOnOverallPass(t *testing.T) {
-	r := Aggregate(memoryDoctorDeps())
+	r := memoryDoctorDeps().aggregate()
 	if r.Overall != "PASS" {
 		t.Fatalf("Overall = %q, want PASS (healthy memory-on stack; non-GPU memory rows emit no offload finding)", r.Overall)
 	}
@@ -596,7 +774,7 @@ func TestMemoryServiceDownWarns(t *testing.T) {
 		return r
 	}
 
-	r := Aggregate(d)
+	r := d.aggregate()
 	if r.Overall != "WARN" {
 		t.Fatalf("Overall = %q, want WARN (a down memory service degrades via its health finding)", r.Overall)
 	}
@@ -624,7 +802,7 @@ func TestErroredStatusReportDegradesToWarn(t *testing.T) {
 		}})
 	}
 
-	r := Aggregate(d)
+	r := d.aggregate()
 	if r.Overall == "FAIL" {
 		t.Fatalf("Overall = FAIL — an unevaluable status read-model must never fabricate a blocking fault")
 	}
@@ -671,7 +849,7 @@ func TestDownStackWarnsNotBlocks(t *testing.T) {
 		return r
 	}
 
-	r := Aggregate(d)
+	r := d.aggregate()
 	if r.Overall != "WARN" {
 		t.Fatalf("Overall = %q, want WARN (a down stack is a WARN, never a blocking FAIL)", r.Overall)
 	}
@@ -709,7 +887,7 @@ func TestDownStackWarnsNotBlocks(t *testing.T) {
 // stamps it on every Report. This test now tracks the CURRENT version so it cannot
 // silently desync from the bump.
 func TestDoctorSchemaVersionAgentFold(t *testing.T) {
-	r := Aggregate(newDoctorDeps())
+	r := newDoctorDeps().aggregate()
 	if r.SchemaVersion != reportSchemaVersion {
 		t.Fatalf("Report.SchemaVersion = %d, want %d (the const is the single source of truth)", r.SchemaVersion, reportSchemaVersion)
 	}
@@ -853,28 +1031,44 @@ func TestAgentDriftFindingsMatrix(t *testing.T) {
 	})
 }
 
-// agentDoctorDeps extends memoryDoctorDeps with all three agent seams bound to healthy
-// defaults: a PASS tool-call verdict, a PASS residency verdict, and a clean drift report.
-func agentDoctorDeps() Deps {
+// cleanAgentDrift stages the raw reads of an installed, unedited agent: the pinned
+// binary, and an on-disk crush.json equal to the rendered reference.
+func (r *run) cleanAgentDrift() {
+	pinned := agent.LoadCrushPolicy().Assets["linux/amd64"].BinarySHA256
+	r.AgentBinarySHA = func() (string, bool, error) { return pinned, true, nil }
+	r.RenderCrushConfig = func(config.VillaConfig) ([]byte, error) { return []byte(`{"a":1}`), nil }
+	r.ReadCrushConfig = func() ([]byte, bool, error) { return []byte(`{"a":1}`), true, nil }
+}
+
+// agentDoctorDeps extends memoryDoctorDeps with the agent on and healthy: a PASS
+// tool-call verdict, a PASS residency verdict, and reads that make a clean drift report.
+func agentDoctorDeps() *run {
 	d := memoryDoctorDeps()
+	d.cfg.AgentEnabled = true
 	d.AgentToolCall = func() inference.Verdict {
 		return inference.Verdict{Status: inference.StatusPass, Detail: "tool-call round-trip completed"}
 	}
 	d.AgentResidencyUnderLoad = func() inference.Verdict {
 		return inference.Verdict{Status: inference.StatusPass, Detail: "coder model resident under tool-call load"}
 	}
-	d.AgentDrift = func() agent.DriftReport { return agent.DriftReport{} }
+	d.cleanAgentDrift()
 	return d
 }
 
-// TestAgentOffNoAgentFindings: with every agent Deps seam nil (the agent-off default),
-// Aggregate emits NO agent finding at all — never a PASS-by-default. This is the
-// agent-off byte-identical guard.
+// TestAgentOffNoAgentFindings: with the agent off in the config, Aggregate emits NO agent
+// finding at all — never a PASS-by-default — and drives no agent proof. This is the
+// agent-off byte-identical guard, and it holds by the config, not by an unbound seam.
 func TestAgentOffNoAgentFindings(t *testing.T) {
-	r := Aggregate(newDoctorDeps())
-	for _, id := range []string{"agent-tool-call", "agent-residency", "agent-binary-drift", "agent-config-drift"} {
+	d := newDoctorDeps()
+	d.AgentToolCall = func() inference.Verdict { t.Error("agent-off drove the tool-call proof"); return inference.Verdict{} }
+	d.AgentResidencyUnderLoad = func() inference.Verdict {
+		t.Error("agent-off drove the agent residency proof")
+		return inference.Verdict{}
+	}
+	r := d.aggregate()
+	for _, id := range []string{"agent-tool-call", "agent-residency", "agent-drift", "agent-binary-drift", "agent-config-drift"} {
 		if hasFinding(r, id) {
-			t.Errorf("agent-off Aggregate emitted finding %q — agent Deps seams must be nil-safe (no PASS-by-default)", id)
+			t.Errorf("agent-off Aggregate emitted finding %q (no PASS-by-default)", id)
 		}
 	}
 }
@@ -887,7 +1081,7 @@ func TestAgentToolCallFoldedFailRaisesOverall(t *testing.T) {
 		return inference.Verdict{Status: inference.StatusFail, Detail: "the agent tool-call round-trip failed"}
 	}
 
-	r := Aggregate(d)
+	r := d.aggregate()
 	if r.Overall != "FAIL" {
 		t.Fatalf("Overall = %q, want FAIL (a confident agent tool-call FAIL must dominate)", r.Overall)
 	}
@@ -905,7 +1099,7 @@ func TestAgentResidencyFoldedFailRaisesOverall(t *testing.T) {
 		return inference.Verdict{Status: inference.StatusFail, Detail: "the coder model fell back to CPU under load"}
 	}
 
-	r := Aggregate(d)
+	r := d.aggregate()
 	if r.Overall != "FAIL" {
 		t.Fatalf("Overall = %q, want FAIL (a confident agent residency FAIL must dominate a health-200)", r.Overall)
 	}
@@ -915,16 +1109,14 @@ func TestAgentResidencyFoldedFailRaisesOverall(t *testing.T) {
 	}
 }
 
-// TestAgentDriftFoldedWarn: a non-nil AgentDrift seam reporting BinaryDrift folds the
+// TestAgentDriftFoldedWarn: an installed binary whose hash is not the pinned one folds the
 // drift findings worst-wins; the clean memory+agent stack drops to WARN (drift is a WARN,
 // never auto-corrected).
 func TestAgentDriftFoldedWarn(t *testing.T) {
 	d := agentDoctorDeps()
-	d.AgentDrift = func() agent.DriftReport {
-		return agent.DriftReport{BinaryDrift: true, Reason: "installed Crush binary checksum does not match the pinned policy"}
-	}
+	d.AgentBinarySHA = func() (string, bool, error) { return "0000not-the-pinned-hash", true, nil }
 
-	r := Aggregate(d)
+	r := d.aggregate()
 	if r.Overall != "WARN" {
 		t.Fatalf("Overall = %q, want WARN (binary drift folds to WARN, surfaced not auto-corrected)", r.Overall)
 	}
@@ -937,7 +1129,7 @@ func TestAgentDriftFoldedWarn(t *testing.T) {
 // TestAgentCleanDriftPasses: a clean drift report (binary present+matched, config
 // present+matched) emits a single PASS agent-drift finding and does not raise Overall.
 func TestAgentCleanDriftPasses(t *testing.T) {
-	r := Aggregate(agentDoctorDeps())
+	r := agentDoctorDeps().aggregate()
 	if r.Overall != "PASS" {
 		t.Fatalf("Overall = %q, want PASS (healthy agent-on stack, clean drift)", r.Overall)
 	}
@@ -950,7 +1142,7 @@ func TestAgentCleanDriftPasses(t *testing.T) {
 // 7→8 for the TMD-01 tools-mode drift finding (issue #173). The const is the single source of truth — Aggregate stamps it on every
 // Report. INDEPENDENT of status's reportSchemaVersion (5).
 func TestDoctorSchemaVersionIsEight(t *testing.T) {
-	r := Aggregate(newDoctorDeps())
+	r := newDoctorDeps().aggregate()
 	if r.SchemaVersion != 8 {
 		t.Fatalf("Report.SchemaVersion = %d, want 8 (append-only bumps for the sandbox fold and TMD-01)", r.SchemaVersion)
 	}
@@ -958,24 +1150,40 @@ func TestDoctorSchemaVersionIsEight(t *testing.T) {
 
 // --- issue #176: the sandbox fold (reportSchemaVersion 6→7) ---
 
-// TestSandboxOffNoFindings proves the nil-safe fold: with both sandbox seams nil
-// (the workspace-agent-off default) Aggregate emits neither SBX finding.
+// TestSandboxOffNoFindings proves the fold is gated on the config: with the workspace
+// agent off Aggregate emits neither SBX finding and never calls the sandbox host gate.
 func TestSandboxOffNoFindings(t *testing.T) {
-	r := Aggregate(newDoctorDeps())
+	d := newDoctorDeps()
+	d.RunSandboxChecks = func(detect.HostProfile) []preflight.CheckResult {
+		t.Error("sandbox-off called the sandbox host gate")
+		return nil
+	}
+	d.units[orchestrate.SandboxNetworkName()+".network"] = "[Network]\n"
+	r := d.aggregate()
 	for _, id := range []string{"PRE-09", "SBX-02"} {
 		if hasFinding(r, id) {
-			t.Errorf("sandbox-off Aggregate emitted finding %q — sandbox Deps seams must be nil-safe (no PASS-by-default)", id)
+			t.Errorf("sandbox-off Aggregate emitted finding %q (no PASS-by-default)", id)
 		}
 	}
 }
 
+// sandboxOnDeps is newDoctorDeps with the workspace agent on and a stack on disk that has
+// the sandbox network and a proxy joined to it.
+func sandboxOnDeps() *run {
+	d := newDoctorDeps()
+	d.cfg.WorkspaceAgent = true
+	d.units[orchestrate.SandboxNetworkName()+".network"] = "[Network]\nInternal=true\n"
+	d.units[orchestrate.InferproxyContainerUnitName()] = "[Container]\nNetwork=villa\nNetwork=" + orchestrate.SandboxNetworkName() + "\n"
+	return d
+}
+
 // TestSandboxHostGatePASS proves SBX-01 folds a PRE-09 PASS through unchanged.
 func TestSandboxHostGatePASS(t *testing.T) {
-	d := newDoctorDeps()
+	d := sandboxOnDeps()
 	d.RunSandboxChecks = func(detect.HostProfile) []preflight.CheckResult {
 		return []preflight.CheckResult{{ID: "PRE-09", Name: "sandbox runtime", Tier: preflight.TierBlock, Status: preflight.StatusPass, Detail: "healthy"}}
 	}
-	r := Aggregate(d)
+	r := d.aggregate()
 	f, ok := findingByID(r, "PRE-09")
 	if !ok {
 		t.Fatal("PRE-09 finding missing")
@@ -988,11 +1196,11 @@ func TestSandboxHostGatePASS(t *testing.T) {
 // TestSandboxHostGateFAILRaisesOverall proves a confident PRE-09 FAIL folds
 // worst-wins and blocks the report, mirroring TestMemoryChecksFoldedFailRaisesOverall.
 func TestSandboxHostGateFAILRaisesOverall(t *testing.T) {
-	d := newDoctorDeps()
+	d := sandboxOnDeps()
 	d.RunSandboxChecks = func(detect.HostProfile) []preflight.CheckResult {
 		return []preflight.CheckResult{{ID: "PRE-09", Name: "sandbox runtime", Tier: preflight.TierBlock, Status: preflight.StatusFail, Detail: "krun missing", Remediation: "install packages"}}
 	}
-	r := Aggregate(d)
+	r := d.aggregate()
 	if r.Overall != "FAIL" {
 		t.Fatalf("Overall = %q, want FAIL (a confident PRE-09 FAIL must dominate)", r.Overall)
 	}
@@ -1001,11 +1209,11 @@ func TestSandboxHostGateFAILRaisesOverall(t *testing.T) {
 // TestSandboxHostGateWARNDegrades proves an unevaluable PRE-09 (podman
 // unreachable) folds to WARN, not FAIL.
 func TestSandboxHostGateWARNDegrades(t *testing.T) {
-	d := newDoctorDeps()
+	d := sandboxOnDeps()
 	d.RunSandboxChecks = func(detect.HostProfile) []preflight.CheckResult {
 		return []preflight.CheckResult{{ID: "PRE-09", Name: "sandbox runtime", Tier: preflight.TierBlock, Status: preflight.StatusWarn, Detail: "podman unreachable", Remediation: "check podman"}}
 	}
-	r := Aggregate(d)
+	r := d.aggregate()
 	if r.Overall != "WARN" {
 		t.Fatalf("Overall = %q, want WARN", r.Overall)
 	}
@@ -1013,13 +1221,13 @@ func TestSandboxHostGateWARNDegrades(t *testing.T) {
 
 // TestSandboxNetworkFindingMatrix covers the three SBX-02 outcomes: present +
 // joined → PASS; network unit missing → FAIL; unit present but the inference
-// unit not joined → FAIL. Every non-PASS carries a remediation.
+// proxy unit not joined → FAIL. Every non-PASS carries a remediation.
 func TestSandboxNetworkFindingMatrix(t *testing.T) {
 	tests := []struct {
-		name            string
-		networkPresent  bool
-		inferenceJoined bool
-		wantStatus      string
+		name           string
+		networkPresent bool
+		proxyJoined    bool
+		wantStatus     string
 	}{
 		{"present and joined", true, true, "PASS"},
 		{"network missing", false, false, "FAIL"},
@@ -1027,7 +1235,7 @@ func TestSandboxNetworkFindingMatrix(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			f := sandboxNetworkFinding(tt.networkPresent, tt.inferenceJoined)
+			f := sandboxNetworkFinding(tt.networkPresent, tt.proxyJoined)
 			if f.Status != tt.wantStatus {
 				t.Errorf("Status = %q, want %q (detail=%q)", f.Status, tt.wantStatus, f.Detail)
 			}
@@ -1041,112 +1249,194 @@ func TestSandboxNetworkFindingMatrix(t *testing.T) {
 	}
 }
 
-// TestSandboxNetworkReadErrorDegrades proves a read error (the unit dir could not
-// be evaluated) folds to a typed-Unknown WARN, never a fabricated FAIL.
-func TestSandboxNetworkReadErrorDegrades(t *testing.T) {
-	d := newDoctorDeps()
-	d.SandboxNetwork = func() (bool, bool, error) { return false, false, errors.New("read unit dir: not found") }
-	r := Aggregate(d)
-	if !hasFinding(r, "SBX-02") {
-		t.Fatal("SBX-02 finding missing")
-	}
-	if r.Overall != "WARN" {
-		t.Fatalf("Overall = %q, want WARN (unevaluable read, never a fabricated FAIL)", r.Overall)
+// TestSandboxNetworkScan is SBX-02's scan of the unit dir, joined or not: it needs the
+// network unit on disk AND the villa-inferproxy unit carrying the sandbox network. The
+// proxy, not villa-llama, is the joined unit since ADR-0011, so a stack whose llama unit
+// carries the line but whose proxy does not is broken, and one where only the proxy
+// carries it is healthy. A dir that cannot be resolved is a typed-Unknown WARN, never a
+// fabricated FAIL.
+func TestSandboxNetworkScan(t *testing.T) {
+	network := orchestrate.SandboxNetworkName() + ".network"
+	proxy := orchestrate.InferproxyContainerUnitName()
+	join := "Network=" + orchestrate.SandboxNetworkName() + "\n"
+	for _, tc := range []struct {
+		name       string
+		setup      func(d *run)
+		wantStatus string
+		wantDetail string
+	}{
+		{"joined", func(*run) {}, "PASS", "joined"},
+		{"only the proxy carries the line", func(d *run) {
+			d.units[inferenceUnitName()] = servedUnit // villa-llama never joins the sandbox network
+		}, "PASS", "joined"},
+		{"proxy not joined", func(d *run) { d.units[proxy] = "[Container]\nNetwork=villa\n" }, "FAIL", "not joined"},
+		{"the line is on the wrong unit", func(d *run) {
+			d.units[proxy] = "[Container]\nNetwork=villa\n"
+			d.units[inferenceUnitName()] = "[Container]\n" + join
+		}, "FAIL", "not joined"},
+		{"proxy unit absent", func(d *run) { delete(d.units, proxy) }, "FAIL", "not joined"},
+		{"network unit absent", func(d *run) { delete(d.units, network) }, "FAIL", "not on disk"},
+		{"unit dir missing", func(d *run) { d.units = map[string]string{}; d.dirMissing = true }, "FAIL", "not on disk"},
+		{"unit dir unresolvable", func(d *run) { d.dirErr = errors.New("no config dir") }, "WARN", "could not evaluate"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d := sandboxOnDeps()
+			tc.setup(d)
+			f, ok := findingByID(d.aggregate(), "SBX-02")
+			if !ok {
+				t.Fatal("no SBX-02 finding")
+			}
+			if f.Status != tc.wantStatus || !strings.Contains(f.Detail, tc.wantDetail) {
+				t.Errorf("SBX-02 = %s %q, want %s mentioning %q", f.Status, f.Detail, tc.wantStatus, tc.wantDetail)
+			}
+			if f.Status != "PASS" && f.Remediation == "" {
+				t.Error("non-PASS SBX-02 carries no remediation")
+			}
+		})
 	}
 }
 
 // TestSandboxNetworkFAILRaisesOverall proves a confident SBX-02 FAIL folds
-// worst-wins and blocks the report.
+// worst-wins and blocks the report, and that an unevaluable one only warns.
 func TestSandboxNetworkFAILRaisesOverall(t *testing.T) {
-	d := newDoctorDeps()
-	d.SandboxNetwork = func() (bool, bool, error) { return false, false, nil }
-	r := Aggregate(d)
-	if r.Overall != "FAIL" {
+	d := sandboxOnDeps()
+	delete(d.units, orchestrate.SandboxNetworkName()+".network")
+	if r := d.aggregate(); r.Overall != "FAIL" {
 		t.Fatalf("Overall = %q, want FAIL (a missing sandbox network must dominate)", r.Overall)
 	}
-}
-
-// webSearchReport is the healthy status report with a web_search section whose
-// outbound-bounded answer is bounded — what status.Run folds when the config it
-// loaded has web search on.
-func webSearchReport(bounded string) func() status.Report {
-	return func() status.Report {
-		r := healthyStatusReport()
-		r.WebSearch = &status.WebSearchInfo{Enabled: true, OutboundBounded: bounded, VerifyCheckedAt: "2026-09-30T12:00:00Z"}
-		return r
+	d = sandboxOnDeps()
+	d.dirErr = errors.New("read unit dir: not found")
+	if r := d.aggregate(); r.Overall != "WARN" {
+		t.Fatalf("Overall = %q, want WARN (unevaluable read, never a fabricated FAIL)", r.Overall)
 	}
 }
 
-// TestAggregateWebSearch proves the egress finding is the status report's answer
-// (ADR-0016): a report with no web_search section (web off — the newDoctorDeps
-// default) emits NO web-search finding (byte-identical, no PASS-by-default); a report
-// with one emits the egress finding, and a bound residency seam its finding; and a
-// fresh verify that did not pass fails doctor, as it reads "not-bounded" in status.
+// recorded is a verify-search result stamped at the given age.
+func recorded(verdict string, age time.Duration) *verifystate.State {
+	return &verifystate.State{Verdict: verdict, CheckedAt: time.Now().Add(-age).UTC().Format(time.RFC3339)}
+}
+
+// webSearchOn is newDoctorDeps with web search on and a fresh verify PASS on record.
+func webSearchOn() *run {
+	d := newDoctorDeps()
+	d.cfg.WebSearchEnabled = true
+	d.ReadVerifyState = func() *verifystate.State { return recorded("PASS", time.Hour) }
+	return d
+}
+
+// TestAggregateWebSearch proves the web-search fold is gated on the config: web off (the
+// newDoctorDeps default) emits NO web-search finding and drives no search proof, however
+// the last verify went (byte-identical, no PASS-by-default); web on emits the egress
+// finding from the recorded verify result and the residency finding from its proof; and
+// a fresh verify that did not pass fails doctor.
 func TestAggregateWebSearch(t *testing.T) {
 	t.Run("web-off-no-findings", func(t *testing.T) {
-		r := Aggregate(newDoctorDeps())
-		for _, id := range []string{"search-egress", "search-residency"} {
+		d := newDoctorDeps()
+		d.ReadVerifyState = func() *verifystate.State { return recorded("FAIL", time.Hour) }
+		d.SearchResidencyUnderLoad = func() inference.Verdict {
+			t.Error("web-off drove the search-residency proof")
+			return inference.Verdict{}
+		}
+		r := d.aggregate()
+		for _, id := range []string{"search-egress", "search-residency", "websafe-binary"} {
 			if hasFinding(r, id) {
-				t.Errorf("web-off Aggregate emitted finding %q — no web_search section must mean no finding (no PASS-by-default)", id)
+				t.Errorf("web-off Aggregate emitted finding %q (no PASS-by-default)", id)
 			}
 		}
 	})
 	t.Run("web-on-findings-present", func(t *testing.T) {
-		d := newDoctorDeps()
-		d.StatusReport = webSearchReport(status.OutboundBounded)
-		d.SearchResidencyUnderLoad = func() inference.Verdict {
-			return inference.Verdict{Status: inference.StatusPass, Detail: "chat model resident under search load"}
-		}
-		r := Aggregate(d)
+		r := webSearchOn().aggregate()
 		if f, ok := findingByID(r, "search-egress"); !ok || f.Status != statusPass {
-			t.Errorf("search-egress = %+v (found=%v), want a PASS from the report's bounded answer", f, ok)
+			t.Errorf("search-egress = %+v (found=%v), want a PASS from the recorded verify PASS", f, ok)
 		}
 		if _, ok := findingByID(r, "search-residency"); !ok {
-			t.Errorf("search-residency finding missing with SearchResidencyUnderLoad bound")
+			t.Errorf("search-residency finding missing with web search on")
 		}
 	})
-	t.Run("not-bounded-fails-doctor", func(t *testing.T) {
-		d := newDoctorDeps()
-		d.StatusReport = webSearchReport(status.OutboundNotBounded)
-		if r := Aggregate(d); r.Overall != statusFail {
-			t.Errorf("Overall = %q, want FAIL: status says outbound is not bounded", r.Overall)
+	t.Run("failed-verify-fails-doctor", func(t *testing.T) {
+		d := webSearchOn()
+		d.ReadVerifyState = func() *verifystate.State { return recorded("FAIL", time.Hour) }
+		if r := d.aggregate(); r.Overall != statusFail {
+			t.Errorf("Overall = %q, want FAIL: the last verify search did not pass", r.Overall)
 		}
 	})
 }
 
-// TestSearchEgressFinding is the tri-state truth table for the egress mapper over the
-// status report's outbound-bounded answer: bounded → PASS, no remediation; not-bounded
-// → a BLOCK-class FAIL + remediation; unknown (stale/absent/unreadable) and any value
-// the core does not emit → a typed-Unknown WARN + remediation, never a PASS.
+// TestSearchEgressFinding is the truth table for the egress mapper over the recorded
+// verify result and whether the status report evaluated (#266): a fresh PASS → PASS, no
+// remediation; a fresh non-PASS → a BLOCK-class FAIL naming the verdict; anything else
+// (unreadable, absent, stale, future-dated, undated) → a typed-Unknown WARN that says
+// which, never a PASS. The report's failure never changes the answer; it is named on
+// the WARN.
 func TestSearchEgressFinding(t *testing.T) {
+	reportErr := errors.New("model not in catalog")
 	cases := []struct {
 		name       string
-		bounded    string
+		st         *verifystate.State
+		reportErr  error
 		wantTier   string
 		wantStatus string
-		wantRemed  bool
+		wantDetail []string
 	}{
-		{"bounded", status.OutboundBounded, tierBlock, statusPass, false},
-		{"not-bounded", status.OutboundNotBounded, tierBlock, statusFail, true},
-		{"unknown", status.OutboundUnknown, tierWarn, statusWarn, true},
-		{"unrecognised", "", tierWarn, statusWarn, true},
+		{"fresh pass", recorded("PASS", time.Hour), nil, tierBlock, statusPass, []string{"PASS"}},
+		{"fresh pass, report failed", recorded("PASS", time.Hour), reportErr, tierBlock, statusPass, []string{"PASS"}},
+		{"fresh fail", recorded("FAIL", time.Hour), nil, tierBlock, statusFail, []string{"did not pass", "FAIL"}},
+		{"fresh reject, report failed", recorded("REJECT", time.Hour), reportErr, tierBlock, statusFail, []string{"REJECT"}},
+		{"stale pass", recorded("PASS", 72*time.Hour), nil, tierWarn, statusWarn, []string{"stale"}},
+		{"future-dated pass", recorded("PASS", -72*time.Hour), nil, tierWarn, statusWarn, []string{"stale"}},
+		{"nothing recorded", &verifystate.State{}, nil, tierWarn, statusWarn, []string{"no `villa verify search` result"}},
+		{"unreadable", nil, nil, tierWarn, statusWarn, []string{"could not be read"}},
+		{"stale, report failed", recorded("PASS", 72*time.Hour), reportErr, tierWarn, statusWarn, []string{"stale", "model not in catalog"}},
+		{"unreadable, report failed", nil, reportErr, tierWarn, statusWarn, []string{"could not be read", "model not in catalog"}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			f := searchEgressFinding(status.WebSearchInfo{Enabled: true, OutboundBounded: c.bounded, VerifyCheckedAt: "2026-09-30T12:00:00Z"})
+			f := searchEgressFinding(c.st, c.reportErr)
 			if f.ID != "search-egress" {
 				t.Errorf("ID = %q, want search-egress", f.ID)
 			}
 			if f.Tier != c.wantTier || f.Status != c.wantStatus {
-				t.Errorf("(tier %s, status %s), want (%s, %s)", f.Tier, f.Status, c.wantTier, c.wantStatus)
+				t.Errorf("(tier %s, status %s), want (%s, %s); detail %q", f.Tier, f.Status, c.wantTier, c.wantStatus, f.Detail)
 			}
-			if c.wantRemed && f.Remediation == "" {
+			for _, want := range c.wantDetail {
+				if !strings.Contains(f.Detail, want) {
+					t.Errorf("detail %q does not mention %q", f.Detail, want)
+				}
+			}
+			if f.Status != statusPass && f.Remediation == "" {
 				t.Errorf("non-PASS egress finding has empty Remediation")
 			}
-			if !c.wantRemed && f.Remediation != "" {
+			if f.Status == statusPass && f.Remediation != "" {
 				t.Errorf("PASS egress finding carries a Remediation %q", f.Remediation)
 			}
 		})
+	}
+}
+
+// TestSearchEgressSurvivesAnErroredReport pins #266 at Aggregate: the egress finding does
+// not depend on the status report evaluating, so a fresh failed verify is a FAIL even
+// while the report is one typed-Unknown "stack" WARN.
+func TestSearchEgressSurvivesAnErroredReport(t *testing.T) {
+	d := webSearchOn()
+	d.ReadVerifyState = func() *verifystate.State { return recorded("FAIL", time.Hour) }
+	d.StatusReport = func() status.Report {
+		sd, err := status.StubDeps(t.TempDir(), nil)
+		if err != nil {
+			t.Fatalf("StubDeps: %v", err)
+		}
+		sd.LoadConfig = func() (config.VillaConfig, error) { return config.VillaConfig{}, errors.New("config unreadable") }
+		return status.Run(sd)
+	}
+	r := d.aggregate()
+	if f, ok := findingByID(r, "stack"); !ok || f.Status != statusWarn {
+		t.Fatalf("stack = %+v (found=%v), want the typed-Unknown WARN for the errored report", f, ok)
+	}
+	f, ok := findingByID(r, "search-egress")
+	if !ok || f.Status != statusFail {
+		t.Fatalf("search-egress = %+v (found=%v), want a FAIL despite the errored report", f, ok)
+	}
+	if r.Overall != statusFail {
+		t.Errorf("Overall = %q, want FAIL", r.Overall)
 	}
 }
 
@@ -1186,11 +1476,11 @@ func TestSearchResidencyFinding(t *testing.T) {
 // Aggregate level: a confident CPU-fallback search-residency Verdict folds worst-wins to
 // Overall==FAIL even over an all-healthy HTTP-200 stack.
 func TestSearchResidencyFoldedFailDominatesHealth(t *testing.T) {
-	d := newDoctorDeps() // healthy HTTP-200 stack
+	d := webSearchOn() // healthy HTTP-200 stack
 	d.SearchResidencyUnderLoad = func() inference.Verdict {
 		return inference.Verdict{Status: inference.StatusFail, Detail: "the chat model fell back to CPU under search load"}
 	}
-	r := Aggregate(d)
+	r := d.aggregate()
 	if r.Overall != "FAIL" {
 		t.Fatalf("Overall = %q, want FAIL (a confident CPU-fallback under search load must dominate a health-200)", r.Overall)
 	}
@@ -1203,12 +1493,12 @@ func TestSearchResidencyFoldedFailDominatesHealth(t *testing.T) {
 // TestWebSearchFindingsHaveRemediation asserts EVERY non-PASS web-search finding carries a
 // non-empty Remediation, across the egress and residency mappers' non-PASS branches.
 func TestWebSearchFindingsHaveRemediation(t *testing.T) {
-	d := newDoctorDeps()
-	d.StatusReport = webSearchReport(status.OutboundUnknown)
+	d := webSearchOn()
+	d.ReadVerifyState = func() *verifystate.State { return recorded("PASS", 72*time.Hour) }
 	d.SearchResidencyUnderLoad = func() inference.Verdict {
 		return inference.Verdict{Status: inference.StatusFail, Detail: "fell back to CPU under search load"}
 	}
-	r := Aggregate(d)
+	r := d.aggregate()
 	for _, id := range []string{"search-egress", "search-residency"} {
 		f, ok := findingByID(r, id)
 		if !ok {
@@ -1226,14 +1516,12 @@ func TestWebSearchFindingsHaveRemediation(t *testing.T) {
 // expensive to trace.
 func TestDriftDetailNamesChangedUnits(t *testing.T) {
 	d := newDoctorDeps()
-	d.DriftPlan = func() (orchestrate.Plan, error) {
-		return orchestrate.Plan{Changed: []orchestrate.Unit{
-			{Name: "villa-llama.container", Text: "drifted"},
-			{Name: "villa-websafe.container", Text: "drifted"},
-		}}, nil
-	}
+	d.render(
+		orchestrate.Unit{Name: "villa-llama.container", Text: "drifted"},
+		orchestrate.Unit{Name: "villa-websafe.container", Text: "drifted"},
+	)
 
-	f, ok := findingByID(Aggregate(d), "drift")
+	f, ok := findingByID(d.aggregate(), "drift")
 	if !ok {
 		t.Fatal("no drift finding in the report")
 	}
@@ -1244,16 +1532,16 @@ func TestDriftDetailNamesChangedUnits(t *testing.T) {
 }
 
 // TestWebsafeBinaryFinding: a moved binary is its OWN WARN, not drift (issue #141).
-// The seam reports what villa-websafe mounts against what is running: equal paths PASS,
-// different paths WARN with remediation, an absent unit (ok==false) and a nil seam both
-// emit NOTHING rather than a PASS-by-default.
+// Doctor reads what the installed villa-websafe unit mounts and compares it with the
+// running binary: equal paths PASS, different paths WARN with remediation, an absent
+// unit emits NOTHING rather than a PASS-by-default, and web search off emits nothing at
+// all even when the unit is on disk.
 func TestWebsafeBinaryFinding(t *testing.T) {
+	websafe := orchestrate.WebsafeContainerUnitName()
 	t.Run("same-path-passes", func(t *testing.T) {
-		d := newDoctorDeps()
-		d.WebsafeBinary = func() (string, string, bool) {
-			return "/home/villa/.local/bin/villa", "/home/villa/.local/bin/villa", true
-		}
-		r := Aggregate(d)
+		d := webSearchOn()
+		d.units[websafe] = websafeUnitMounting(t, "/usr/local/bin/villa")
+		r := d.aggregate()
 		f, ok := findingByID(r, "websafe-binary")
 		if !ok {
 			t.Fatal("no websafe-binary finding")
@@ -1261,20 +1549,15 @@ func TestWebsafeBinaryFinding(t *testing.T) {
 		if f.Status != statusPass || f.Tier != tierWarn {
 			t.Errorf("(status %s, tier %s), want (PASS, WARN)", f.Status, f.Tier)
 		}
-		if f.Detail != "villa-websafe mounts the running villa binary (/home/villa/.local/bin/villa)" {
+		if f.Detail != "villa-websafe mounts the running villa binary (/usr/local/bin/villa)" {
 			t.Errorf("Detail = %q", f.Detail)
-		}
-		if base := Aggregate(newDoctorDeps()).Overall; r.Overall != base {
-			t.Errorf("Overall = %q, want %q (a PASS websafe-binary finding must not raise the verdict)", r.Overall, base)
 		}
 	})
 
 	t.Run("moved-binary-warns", func(t *testing.T) {
-		d := newDoctorDeps()
-		d.WebsafeBinary = func() (string, string, bool) {
-			return "/home/villa/.local/bin/villa", "/tmp/villa-elsewhere", true
-		}
-		r := Aggregate(d)
+		d := webSearchOn()
+		d.units[websafe] = websafeUnitMounting(t, "/home/villa/.local/bin/villa")
+		r := d.aggregate()
 		f, ok := findingByID(r, "websafe-binary")
 		if !ok {
 			t.Fatal("no websafe-binary finding")
@@ -1282,7 +1565,7 @@ func TestWebsafeBinaryFinding(t *testing.T) {
 		if f.Status != statusWarn || f.Tier != tierWarn {
 			t.Errorf("(status %s, tier %s), want (WARN, WARN)", f.Status, f.Tier)
 		}
-		if f.Detail != "the running villa (/tmp/villa-elsewhere) is not the binary villa-websafe mounts (/home/villa/.local/bin/villa)" {
+		if f.Detail != "the running villa (/usr/local/bin/villa) is not the binary villa-websafe mounts (/home/villa/.local/bin/villa)" {
 			t.Errorf("Detail = %q", f.Detail)
 		}
 		if f.Remediation == "" {
@@ -1294,18 +1577,294 @@ func TestWebsafeBinaryFinding(t *testing.T) {
 	})
 
 	t.Run("unit-absent-emits-nothing", func(t *testing.T) {
-		d := newDoctorDeps()
-		d.WebsafeBinary = func() (string, string, bool) { return "", "/tmp/villa-elsewhere", false }
-		if _, ok := findingByID(Aggregate(d), "websafe-binary"); ok {
-			t.Error("ok==false must emit no websafe-binary finding")
+		if _, ok := findingByID(webSearchOn().aggregate(), "websafe-binary"); ok {
+			t.Error("an uninstalled villa-websafe unit must emit no websafe-binary finding")
 		}
 	})
 
-	t.Run("nil-seam-emits-nothing", func(t *testing.T) {
-		if _, ok := findingByID(Aggregate(newDoctorDeps()), "websafe-binary"); ok {
-			t.Error("a nil WebsafeBinary seam must emit no websafe-binary finding")
+	t.Run("web-off-emits-nothing", func(t *testing.T) {
+		d := newDoctorDeps()
+		d.units[websafe] = websafeUnitMounting(t, "/home/villa/.local/bin/villa")
+		if _, ok := findingByID(d.aggregate(), "websafe-binary"); ok {
+			t.Error("web search off must emit no websafe-binary finding")
 		}
 	})
+}
+
+// TestSubsystemGating is the gating truth table: each optional subsystem's findings exist
+// iff the config the run loaded turns it on, and its proof is driven then and only then.
+// Every seam is wired in both rows (as liveDoctorDeps wires them), so nothing here is
+// gated by an unbound seam.
+func TestSubsystemGating(t *testing.T) {
+	type subsystemCase struct {
+		name    string
+		turnOn  func(cfg *config.VillaConfig)
+		proofs  func(d *run, drove *[]string)
+		wantIDs []string
+	}
+	record := func(drove *[]string, name string) func() inference.Verdict {
+		return func() inference.Verdict {
+			*drove = append(*drove, name)
+			return passVerdict()
+		}
+	}
+	for _, tc := range []subsystemCase{
+		{"memory", func(c *config.VillaConfig) { c.MemoryEnabled = true },
+			func(d *run, drove *[]string) { d.ResidencyUnderLoad = record(drove, "embed") },
+			[]string{"MEM-DOC-residency"}},
+		{"agent", func(c *config.VillaConfig) { c.AgentEnabled = true },
+			func(d *run, drove *[]string) {
+				d.AgentToolCall = record(drove, "tool-call")
+				d.AgentResidencyUnderLoad = record(drove, "agent-residency")
+			},
+			[]string{"agent-tool-call", "agent-residency", "agent-drift"}},
+		{"web search", func(c *config.VillaConfig) { c.WebSearchEnabled = true },
+			func(d *run, drove *[]string) { d.SearchResidencyUnderLoad = record(drove, "search") },
+			[]string{"search-residency", "search-egress"}},
+		{"sandbox", func(c *config.VillaConfig) { c.WorkspaceAgent = true },
+			func(d *run, drove *[]string) {
+				d.RunSandboxChecks = func(detect.HostProfile) []preflight.CheckResult {
+					*drove = append(*drove, "sandbox")
+					return nil
+				}
+			},
+			[]string{"SBX-02"}},
+	} {
+		t.Run(tc.name+" off", func(t *testing.T) {
+			d := newDoctorDeps()
+			var drove []string
+			tc.proofs(d, &drove)
+			r := d.aggregate()
+			for _, id := range tc.wantIDs {
+				if hasFinding(r, id) {
+					t.Errorf("%s is off but the report carries %s", tc.name, id)
+				}
+			}
+			if len(drove) != 0 {
+				t.Errorf("%s is off but its proof ran: %v", tc.name, drove)
+			}
+		})
+		t.Run(tc.name+" on", func(t *testing.T) {
+			d := newDoctorDeps()
+			tc.turnOn(&d.cfg)
+			var drove []string
+			tc.proofs(d, &drove)
+			r := d.aggregate()
+			for _, id := range tc.wantIDs {
+				if !hasFinding(r, id) {
+					t.Errorf("%s is on but the report carries no %s", tc.name, id)
+				}
+			}
+			if len(drove) == 0 {
+				t.Errorf("%s is on but its proof never ran", tc.name)
+			}
+		})
+	}
+}
+
+// TestMemoryGateInput pins what doctor hands the memory host gate: the configured
+// embedding model, and EmbedderActive only when the embedder's service is verifiably
+// active (an error or any other state keeps the strict pre-install semantics, so a
+// probe failure cannot excuse a missing headroom reservation).
+func TestMemoryGateInput(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		state string
+		err   error
+		want  bool
+	}{
+		{"active", "active", nil, true},
+		{"inactive", "inactive", nil, false},
+		{"unreadable", "", errors.New("systemctl missing"), false},
+		{"errored but says active", "active", errors.New("exit 3"), false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d := memoryDoctorDeps()
+			var asked string
+			d.IsActive = func(unit string) (string, error) { asked = unit; return tc.state, tc.err }
+			var got preflight.MemoryGateInput
+			d.RunMemoryChecks = func(_ detect.HostProfile, in preflight.MemoryGateInput) []preflight.CheckResult {
+				got = in
+				return nil
+			}
+			d.aggregate()
+			if asked != "villa-embed.service" {
+				t.Errorf("asked about %q, want the embedder service villa-embed.service", asked)
+			}
+			if got.EmbedderActive != tc.want || got.EmbeddingModel != "test-embedder" {
+				t.Errorf("gate input = {model %q, active %v}, want {test-embedder, %v}", got.EmbeddingModel, got.EmbedderActive, tc.want)
+			}
+		})
+	}
+}
+
+// TestToolsDriftReadsTheServedUnit is TMD-01 through the unit dir: the served unit must
+// carry the tool-calling flag iff tools mode (or coding mode) is on. It is not
+// subsystem-gated, so every row emits the finding. An unreadable unit or a backend that
+// yields no token is a typed-Unknown WARN, never a match.
+func TestToolsDriftReadsTheServedUnit(t *testing.T) {
+	token, err := toolsFlagToken("vulkan")
+	if err != nil {
+		t.Fatalf("toolsFlagToken: %v", err)
+	}
+	withFlag := "[Container]\nExec=llama-server -m x " + token + " --port 8080\n"
+	for _, tc := range []struct {
+		name       string
+		setup      func(d *run)
+		wantStatus string
+		wantDetail string
+	}{
+		{"off, unit without the flag", func(*run) {}, statusPass, "matches tools mode (off)"},
+		{"tools mode on, unit with the flag", func(d *run) {
+			d.cfg.ToolsMode = true
+			d.units[inferenceUnitName()] = withFlag
+		}, statusPass, "matches tools mode (on)"},
+		{"coding mode counts as tools on", func(d *run) {
+			d.cfg.CodingMode = true
+			d.units[inferenceUnitName()] = withFlag
+		}, statusPass, "matches tools mode (on)"},
+		{"tools mode on, unit without the flag", func(d *run) { d.cfg.ToolsMode = true }, statusFail, "every tool call will fail"},
+		{"tools mode off, unit with the flag", func(d *run) { d.units[inferenceUnitName()] = withFlag }, statusFail, "nobody asked for"},
+		{"unit absent", func(d *run) { delete(d.units, inferenceUnitName()) }, statusWarn, "could not read"},
+		{"unit dir missing", func(d *run) { d.units = map[string]string{} }, statusWarn, "could not read"},
+		{"backend that renders no flag token", func(d *run) { d.cfg.Backend = "nvidia" }, statusWarn, "could not read"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d := newDoctorDeps()
+			tc.setup(d)
+			r := d.aggregate()
+			f, ok := findingByID(r, "TMD-01")
+			if !ok {
+				t.Fatal("TMD-01 absent from the report")
+			}
+			if f.Status != tc.wantStatus || !strings.Contains(f.Detail, tc.wantDetail) {
+				t.Errorf("TMD-01 = %s %q, want %s mentioning %q", f.Status, f.Detail, tc.wantStatus, tc.wantDetail)
+			}
+			if f.Status == statusFail && r.Overall != statusFail {
+				t.Errorf("Overall = %q, want a confident tools-mode drift to fold FAIL", r.Overall)
+			}
+		})
+	}
+}
+
+// TestToolsFlagTokenIsDerivedFromTheSeam guards that the token TMD-01 looks for comes
+// from the inference seam rather than being typed here: it must be exactly the one
+// argument ContainerArgs adds when RunSpec.Tools flips on, for every backend.
+func TestToolsFlagTokenIsDerivedFromTheSeam(t *testing.T) {
+	for _, name := range []string{"rocm", "rocm-6.4.4", "rocm-6.4.4-rocwmma", "vulkan"} {
+		t.Run(name, func(t *testing.T) {
+			token, err := toolsFlagToken(name)
+			if err != nil {
+				t.Fatalf("toolsFlagToken(%q): %v", name, err)
+			}
+			if !strings.HasPrefix(token, "--") {
+				t.Errorf("token = %q, want a llama-server long flag", token)
+			}
+			b, err := inference.BackendFor(name)
+			if err != nil {
+				t.Fatalf("BackendFor(%q): %v", name, err)
+			}
+			for _, a := range b.ContainerArgs(inference.RunSpec{}) {
+				if a == token {
+					t.Fatalf("the tools-off args already carry %q, so it cannot identify tools mode", token)
+				}
+			}
+		})
+	}
+}
+
+// TestToolsFlagTokenRefusesAnUnknownBackend guards that an unresolvable backend is an
+// error, never a token that would silently make every unit look drift-free.
+func TestToolsFlagTokenRefusesAnUnknownBackend(t *testing.T) {
+	if _, err := toolsFlagToken("nvidia"); err == nil {
+		t.Error("an unknown backend returned a token, want an error")
+	}
+}
+
+// TestUnitCarriesToolsFlag guards that the drift check reads the Exec line as
+// arguments: a token in a comment, or one that is only a substring of another
+// argument, is not a served flag.
+func TestUnitCarriesToolsFlag(t *testing.T) {
+	token, err := toolsFlagToken("rocm")
+	if err != nil {
+		t.Fatalf("toolsFlagToken: %v", err)
+	}
+	for _, tc := range []struct {
+		name string
+		unit string
+		want bool
+	}{
+		{"served", "[Container]\nExec=llama-server -m x " + token + " --port 8080\n", true},
+		{"absent", "[Container]\nExec=llama-server -m x --port 8080\n", false},
+		{"only in a comment", "# " + token + "\n[Container]\nExec=llama-server -m x\n", false},
+		{"substring of another argument", "[Container]\nExec=llama-server -m x " + token + "-extra\n", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := unitCarriesToolsFlag([]byte(tc.unit), token); got != tc.want {
+				t.Errorf("unitCarriesToolsFlag = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestAgentDriftReads is the agent drift decision over raw reads: a clean install is one
+// PASS; each read failure is a typed-Unknown WARN carrying its cause (never a fabricated
+// drift or a PASS); a binary whose hash is not the pinned one, an absent binary and an
+// edited crush.json are WARN-with-remediation; and a first run with no crush.json yet is
+// no config drift.
+func TestAgentDriftReads(t *testing.T) {
+	pinned := agent.LoadCrushPolicy().Assets["linux/amd64"].BinarySHA256
+	for _, tc := range []struct {
+		name    string
+		setup   func(d *run)
+		wantIDs []string
+		reason  string
+	}{
+		{"clean", func(*run) {}, []string{"agent-drift"}, ""},
+		{"render fails", func(d *run) {
+			d.RenderCrushConfig = func(config.VillaConfig) ([]byte, error) { return nil, errors.New("no lsp") }
+		}, []string{"agent-binary-drift"}, "could not render the reference crush.json"},
+		{"hash fails", func(d *run) {
+			d.AgentBinarySHA = func() (string, bool, error) { return "", false, errors.New("permission denied") }
+		}, []string{"agent-binary-drift"}, "could not hash the villa-owned Crush binary"},
+		{"crush.json unreadable", func(d *run) {
+			d.ReadCrushConfig = func() ([]byte, bool, error) { return nil, false, errors.New("io error") }
+		}, []string{"agent-binary-drift"}, "could not read the on-disk crush.json"},
+		{"binary absent", func(d *run) {
+			d.AgentBinarySHA = func() (string, bool, error) { return "", false, nil }
+		}, []string{"agent-binary-drift"}, "not installed"},
+		{"binary hash differs", func(d *run) {
+			d.AgentBinarySHA = func() (string, bool, error) { return pinned + "x", true, nil }
+		}, []string{"agent-binary-drift"}, "does not match the pinned policy"},
+		{"crush.json edited", func(d *run) {
+			d.ReadCrushConfig = func() ([]byte, bool, error) { return []byte(`{"a":2}`), true, nil }
+		}, []string{"agent-config-drift"}, "differs from what villa would render"},
+		{"crush.json whitespace only", func(d *run) {
+			d.ReadCrushConfig = func() ([]byte, bool, error) { return []byte("{ \"a\" : 1 }\n"), true, nil }
+		}, []string{"agent-drift"}, ""},
+		{"first run, no crush.json", func(d *run) {
+			d.ReadCrushConfig = func() ([]byte, bool, error) { return nil, false, nil }
+		}, []string{"agent-drift"}, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d := newDoctorDeps()
+			d.cfg.AgentEnabled = true
+			tc.setup(d)
+			r := d.aggregate()
+			for _, id := range tc.wantIDs {
+				f, ok := findingByID(r, id)
+				if !ok {
+					t.Fatalf("no %s finding; findings %+v", id, r.Findings)
+				}
+				if id != "agent-drift" && (f.Status != statusWarn || f.Remediation == "") {
+					t.Errorf("%s = %s (remediation %q), want a WARN with remediation", id, f.Status, f.Remediation)
+				}
+				if tc.reason != "" && !strings.Contains(f.Detail, tc.reason) {
+					t.Errorf("%s detail %q does not mention %q", id, f.Detail, tc.reason)
+				}
+			}
+		})
+	}
 }
 
 // TestUpdatesFindingReadsTheRecordedCheck is issue #216: doctor reports the last
@@ -1332,7 +1891,7 @@ func TestUpdatesFindingReadsTheRecordedCheck(t *testing.T) {
 			rep.Updates = tc.updates
 			d.StatusReport = func() status.Report { return rep }
 
-			r := Aggregate(d)
+			r := d.aggregate()
 
 			var f *Finding
 			for i := range r.Findings {

@@ -18,8 +18,10 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -42,7 +44,6 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/residency"
 	"github.com/MatrixMagician/VillaStraylight/internal/stackapply"
 	"github.com/MatrixMagician/VillaStraylight/internal/status"
-	"github.com/MatrixMagician/VillaStraylight/internal/subsystem"
 )
 
 // newDoctor builds `villa doctor`: a read-only, one-shot health diagnosis of the RUNNING
@@ -63,12 +64,19 @@ func newDoctor() *cobra.Command {
 			"unit files are written or created.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			deps, err := liveDoctorDeps(cmdContext(cmd))
+			// The config is loaded once, here, and doctor decides from it: which
+			// subsystems to report on, drift, the sandbox network, tools mode (ADR-0017).
+			cfg, err := config.LoadVilla()
+			if err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "doctor: load config: %v\n", err)
+				os.Exit(exitBlocked)
+			}
+			deps, err := liveDoctorDeps(cmdContext(cmd), cfg)
 			if err != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "doctor: %v\n", err)
 				os.Exit(exitBlocked)
 			}
-			os.Exit(runDoctor(cmd, args, deps))
+			os.Exit(runDoctor(cmd, args, cfg, deps))
 			return nil
 		},
 	}
@@ -77,8 +85,8 @@ func newDoctor() *cobra.Command {
 // runDoctor builds the Report from the injected core and renders it. It RETURNS the exit
 // code (no os.Exit) so doctor_test.go drives it deterministically. All printing + exit
 // mapping lives here; the worst-wins fold is doctor.Aggregate.
-func runDoctor(cmd *cobra.Command, _ []string, deps doctor.Deps) int {
-	report := doctor.Aggregate(deps)
+func runDoctor(cmd *cobra.Command, _ []string, cfg config.VillaConfig, deps doctor.Deps) int {
+	report := doctor.Aggregate(cfg, deps)
 	return renderDoctor(cmd.OutOrStdout(), report, jsonOut, verbose)
 }
 
@@ -163,9 +171,9 @@ func renderDoctorTable(w io.Writer, r doctor.Report, withProvenance bool) {
 
 // unitDirReadOnly is the READ-ONLY twin of quadletUnitDir: the same fixed rootless
 // Quadlet generator directory (~/.config/containers/systemd) but without the
-// directory-creation step — doctor never creates it (Pitfall 2). If the dir is absent, the drift read
-// fails and the core degrades it to a typed-Unknown WARN, so resolving the path is
-// all this needs to do.
+// directory-creation step — doctor never creates it (Pitfall 2). If the dir is absent,
+// the core degrades it to a typed-Unknown WARN, so resolving the path is all this
+// needs to do.
 func unitDirReadOnly() (string, error) {
 	base, err := os.UserConfigDir()
 	if err != nil {
@@ -174,27 +182,71 @@ func unitDirReadOnly() (string, error) {
 	return filepath.Join(base, "containers", "systemd"), nil
 }
 
-// driftHostVillaPath returns the host villa path the INSTALLED villa-websafe unit
-// bind-mounts, and whether that unit is on disk at all. It is strictly read-only.
-//
-// The drift comparison renders with this path rather than hostVillaPath() so that the
-// comparison stays config-vs-disk: the running executable's location is host state, and
-// rendering with it made the same binary at a different path (a worktree build, a copy in
-// /tmp) look like a hand-edited unit (issue #141). A false return means the unit is not
-// installed, and the caller falls back to the running binary — the path install would write.
-func driftHostVillaPath(unitDir string) (string, bool) {
-	text, err := os.ReadFile(filepath.Join(unitDir, orchestrate.WebsafeContainerUnitName())) //nolint:gosec // the unit dir is the fixed rootless Quadlet dir
+// liveUnitDirExists reports whether the Quadlet dir is there, without creating it. An
+// error means it could not be resolved or examined, which is not "absent".
+func liveUnitDirExists() (bool, error) {
+	dir, err := unitDirReadOnly()
 	if err != nil {
-		return "", false
+		return false, err
 	}
-	return orchestrate.MountedVillaPath(string(text))
+	if _, err := os.Stat(dir); err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
 }
 
-// liveDoctorDeps wires doctor.Deps to the real host. It REUSES liveStatusDeps wholesale
-// for the running-stack read-model (no re-wired HTTP/journald/GTT probes — RESEARCH A1)
-// and constructs a DriftPlan closure that renders units from config and Reconciles them
-// against the on-disk unit dir, returning the Plan WITHOUT ever writing (no WriteUnits).
-// It is replaced wholesale by stubbed doctor.Report fixtures in doctor_test.go.
+// liveReadUnit reads one unit from the Quadlet dir; an absent unit satisfies
+// errors.Is(err, fs.ErrNotExist).
+func liveReadUnit(name string) ([]byte, error) {
+	dir, err := unitDirReadOnly()
+	if err != nil {
+		return nil, err
+	}
+	return os.ReadFile(filepath.Join(dir, name)) //nolint:gosec // the unit dir is the fixed rootless Quadlet dir
+}
+
+// liveRenderUnits is the read-only plan every verb applies (ADR-0013), so the drift
+// check renders coding mode exactly as `coding-mode enter` wrote it (#249). Only the
+// binary mount differs: doctor renders with the path the installed unit records, and
+// the core says which (#141).
+func liveRenderUnits(cfg config.VillaConfig, hostVilla string) ([]orchestrate.Unit, error) {
+	stack := liveStackDeps()
+	stack.HostVillaPath = func() string { return hostVilla }
+	return stackapply.Render(stack, cfg)
+}
+
+// liveCatalogGeometry binds the catalog-geometry seam (CAT-01): UNCONDITIONALLY — the
+// catalog is not an optional subsystem, and an entry that no longer describes its file
+// is wrong on every host. It is nil only when the catalog itself cannot be loaded,
+// which is the core's no-finding case rather than a fabricated PASS. The open seam
+// confines every filename to the models dir before opening it, because a shard
+// filename from an external catalog is untrusted input.
+func liveCatalogGeometry(cfg config.VillaConfig) func() []preflight.CheckResult {
+	cat, _, err := catalog.Load(cmp.Or(modelCatalogPath, cfg.CatalogPath))
+	if err != nil {
+		return nil
+	}
+	dir := modelsDir()
+	return func() []preflight.CheckResult {
+		return preflight.RunCatalogGeometry(cat, func(filename string) (io.ReadCloser, error) {
+			path := filepath.Join(dir, filename)
+			if perr := pathsafe.Inside(path, dir); perr != nil {
+				return nil, perr
+			}
+			return os.Open(path) //nolint:gosec // confined to the models dir immediately above
+		})
+	}
+}
+
+// liveDoctorDeps wires doctor.Deps to the real host for the config the run loaded. It
+// binds reads, the four proofs that drive real workloads, and the preflight bindings,
+// and nothing else: it decides nothing, so it binds every seam whatever the config
+// says and doctor.Aggregate gates each on cfg (ADR-0017). It REUSES liveStatusDeps
+// wholesale for the running-stack read-model (no re-wired HTTP/journald/GTT probes —
+// RESEARCH A1) and never writes.
 //
 // ctx is the command's SIGINT/SIGTERM-cancelled context, captured by the proof
 // seams below. Without it `villa doctor` could not be interrupted: the three
@@ -204,7 +256,7 @@ func driftHostVillaPath(unitDir string) (string, bool) {
 // safe by construction — doctor is read-only and mutates nothing, so an aborted
 // run leaves no half-applied state, and the podman probe containers are
 // exec.CommandContext children that die with the context rather than outliving it.
-func liveDoctorDeps(ctx context.Context) (doctor.Deps, error) {
+func liveDoctorDeps(ctx context.Context, cfg config.VillaConfig) (doctor.Deps, error) {
 	sd, err := liveStatusDeps()
 	if err != nil {
 		return doctor.Deps{}, err
@@ -216,222 +268,44 @@ func liveDoctorDeps(ctx context.Context) (doctor.Deps, error) {
 	// doctor is one-shot, so the memo cannot go stale the way it would in the
 	// long-lived dashboard, which is why only doctor wraps the seam.
 	sd.Probe = sync.OnceValue(sd.Probe)
-	cfg, err := config.LoadVilla()
-	if err != nil {
-		return doctor.Deps{}, fmt.Errorf("load config: %w", err)
-	}
-	// Option B (image thread-through): on a ROCm-family backend, resolve the RUNNING
-	// ROCm image via the inference seam and bind the image-aware host-prep gate so a
-	// denied running image is a confident FAIL (refuse-with-remediation) rather than the
-	// un-evaluated "no image requested" WARN. The image is obtained ONLY through
-	// inference.BackendFor(...).Image() — no image literal appears in cmd/villa, so the
-	// cmd-tier TestSeamGrepGate walk stays green. For non-ROCm backends rocmImageGate
-	// stays nil and Aggregate uses preflight.Run/RunROCm exactly as before.
-	var rocmImageGate func(detect.HostProfile) []preflight.CheckResult
-	if inference.IsROCmFamily(cfg.Backend) {
-		// Surface a BackendFor error rather than swallowing it: if a future
-		// ROCm digest is added to IsROCmFamily but missed in BackendFor, a silent nil
-		// gate would downgrade the image-aware denied-image FAIL to the un-evaluated
-		// "no image requested" WARN — a false-green the residency-supersession could
-		// then swallow. Fail closed instead, mirroring the DriftPlan BackendFor path.
-		b, berr := inference.BackendFor(cfg.Backend)
-		if berr != nil {
-			return doctor.Deps{}, fmt.Errorf("resolve ROCm backend image: %w", berr)
-		}
-		image := b.Image()
-		rocmImageGate = func(p detect.HostProfile) []preflight.CheckResult {
-			return preflight.RunROCmForImage(p, image)
-		}
-	}
-	// Memory seams (mirroring the rocmImageGate conditional shape):
-	// bound ONLY when the persisted memory stack is opted in; both stay nil when
-	// off so the memory-off doctor output is byte-identical (mirror). The
-	// embed service name comes from the orchestrate accessor converted via the
-	// same .container → .service derivation the status fold uses — never a typed
-	// service-name literal here. (The old MemoryEnabled/MemoryServices Deps
-	// wiring was removed with the doctor offload down-rank — Plan 23-01: memory
-	// rows are OffloadApplies=false at the status source, so no offload finding
-	// exists to down-rank.)
-	var (
-		memChecks func(detect.HostProfile) []preflight.CheckResult
-		memProof  func() inference.Verdict
-	)
-	if subsystem.MemoryOn(cfg) {
-		embeddingModel := cfg.EmbeddingModel
-		embedService := unitServiceName(orchestrate.EmbedContainerUnitName())
-		// composition over re-implementation: the memory host gate IS
-		// preflight.RunMemory — doctor never re-rolls the disk/headroom logic.
-		// EmbedderActive (phase-22): doctor runs MEM-PRE-headroom against a
-		// possibly-RUNNING stack, where the embedder's own consumption is already
-		// subtracted from MemAvailable — without this flag the check would demand
-		// a SECOND reservation on top of the resident one and fabricate a blocking
-		// fault on a healthy memory-tight host. The active-state read is the same
-		// read-only IsActive seam the status fold uses; any error or non-active
-		// state keeps the strict pre-install semantics (false).
-		memChecks = func(p detect.HostProfile) []preflight.CheckResult {
-			embedActive := false
-			if state, aerr := sd.IsActive(embedService); aerr == nil && state == "active" {
-				embedActive = true
-			}
-			return preflight.RunMemory(p, preflight.MemoryGateInput{
-				EmbeddingModel: embeddingModel,
-				EmbedderActive: embedActive,
-			})
-		}
-		memProof = liveResidencyUnderLoad(ctx, cfg, sd)
-	}
-	// Coding-agent seams (mirroring the cfg.MemoryEnabled
-	// conditional above): bound ONLY when the persisted agent_enabled is true; all
-	// three stay nil when the agent is off so the agent-off doctor output is
-	// byte-identical (mirror). Each seam REUSES a Phase-27 probe — never a
-	// re-rolled crush-run round-trip or residency scrape — and consumes the resulting
-	// inference.Verdict opaquely (no backend marker literal in cmd/villa;
-	// TestSeamGrepGate walks this tree).
-	var (
-		agentToolCall  func() inference.Verdict
-		agentResidency func() inference.Verdict
-		agentDrift     func() agent.DriftReport
-	)
-	if subsystem.AgentOn(cfg) {
-		agentToolCall = liveAgentToolCallVerdict(ctx, cfg)
-		agentResidency = liveAgentResidencyUnderLoad(ctx, cfg, sd)
-		agentDrift = liveAgentDrift(cfg)
-	}
-	// Web-search seams (mirroring the cfg.AgentEnabled conditional
-	// above): bound ONLY when the persisted web_search_enabled is true; it stays nil when
-	// web search is off so the web-off doctor output is byte-identical (except the schema
-	// bump). SearchResidencyUnderLoad samples residency under a bounded search-augmented
-	// chat drive and produces an inference.Verdict consumed opaquely (no backend marker
-	// literal in cmd/villa; TestSeamGrepGate walks this tree). The egress answer is not a
-	// seam: doctor reads it from the status report's web_search section. Guard health is
-	// a documented omission.
-	var searchResidency func() inference.Verdict
-	// The moved-binary seam rides the same gate: the villa-websafe unit only exists
-	// when web search is on, so with it off the seam stays nil and doctor's output is
-	// byte-identical (except the schema bump).
-	var websafeBinary func() (string, string, bool)
-	if subsystem.WebSearchOn(cfg) {
-		searchResidency = liveSearchResidencyUnderLoad(ctx, cfg, sd)
-		websafeBinary = func() (string, string, bool) {
-			dir, err := unitDirReadOnly()
-			if err != nil {
-				return "", "", false
-			}
-			mounted, ok := driftHostVillaPath(dir)
-			return mounted, hostVillaPath(), ok
-		}
-	}
-	// Sandbox seams (SBX-01/SBX-02, issue #176): bound ONLY when the persisted
-	// workspace_agent is true; both stay nil when off so the sandbox-off doctor
-	// output is byte-identical (except the schema bump). SBX-01 reuses the exact
-	// same preflight.SandboxDeps PRE-09 uses (liveSandboxDeps, preflight_sandbox.go)
-	// so `villa preflight` and `villa doctor` can never observe the host through a
-	// different probe. SBX-02 is a read-only, on-disk check — no podman exec —
-	// mirroring driftHostVillaPath's shape: it reads the unit dir DriftPlan already
-	// resolves and looks for the two facts a running task actually needs.
-	var (
-		sandboxChecks  func(detect.HostProfile) []preflight.CheckResult
-		sandboxNetwork func() (bool, bool, error)
-	)
-	if subsystem.SandboxOn(cfg) {
-		sdeps := liveSandboxDeps()
-		sandboxChecks = func(detect.HostProfile) []preflight.CheckResult {
-			return preflight.RunSandbox(sdeps)
-		}
-		sandboxNetwork = func() (bool, bool, error) {
-			dir, derr := unitDirReadOnly()
-			if derr != nil {
-				return false, false, derr
-			}
-			networkUnit := orchestrate.SandboxNetworkName() + ".network"
-			networkPresent := false
-			if _, serr := os.Stat(filepath.Join(dir, networkUnit)); serr == nil {
-				networkPresent = true
-			}
-			inferenceJoined := false
-			infUnits, _ := subsystem.Inference.Units()
-			if len(infUnits) > 0 {
-				text, rerr := os.ReadFile(filepath.Join(dir, infUnits[0])) //nolint:gosec // unitDir is the fixed rootless Quadlet dir
-				if rerr == nil {
-					inferenceJoined = strings.Contains(string(text), "Network="+orchestrate.SandboxNetworkName())
-				}
-			}
-			return networkPresent, inferenceJoined, nil
-		}
-	}
-	// Catalog-geometry seam (CAT-01): bound UNCONDITIONALLY — the catalog is not an
-	// optional subsystem, and an entry that no longer describes its file is wrong on
-	// every host. It stays nil only when the catalog itself cannot be loaded, which
-	// is the core's no-finding case rather than a fabricated PASS. The open seam
-	// confines every filename to the models dir before opening it, because a shard
-	// filename from an external catalog is untrusted input.
-	var catalogGeometry func() []preflight.CheckResult
-	if cat, _, cerr := catalog.Load(cmp.Or(modelCatalogPath, cfg.CatalogPath)); cerr == nil {
-		dir := modelsDir()
-		catalogGeometry = func() []preflight.CheckResult {
-			return preflight.RunCatalogGeometry(cat, func(filename string) (io.ReadCloser, error) {
-				path := filepath.Join(dir, filename)
-				if perr := pathsafe.Inside(path, dir); perr != nil {
-					return nil, perr
-				}
-				return os.Open(path) //nolint:gosec // confined to the models dir immediately above
-			})
-		}
-	}
+	// ...and ONE config: the status report is folded from the config doctor decides
+	// from, not from a second load that could disagree with it.
+	sd.LoadConfig = func() (config.VillaConfig, error) { return cfg, nil }
 	return doctor.Deps{
-		Probe:                    sd.Probe,
-		CatalogGeometry:          catalogGeometry,
-		StatusReport:             func() status.Report { return status.Run(*sd) },
-		Backend:                  cfg.Backend,
-		RunROCmImage:             rocmImageGate,
-		RunMemoryChecks:          memChecks,
-		ResidencyUnderLoad:       memProof,
-		AgentToolCall:            agentToolCall,
-		AgentResidencyUnderLoad:  agentResidency,
-		AgentDrift:               agentDrift,
-		SearchResidencyUnderLoad: searchResidency,
-		WebsafeBinary:            websafeBinary,
-		RunSandboxChecks:         sandboxChecks,
-		SandboxNetwork:           sandboxNetwork,
-		ToolsDrift:               liveToolsDrift,
-		// DriftPlan: render units from the persisted config, resolve the backend
-		// fail-closed, and Reconcile against the READ-ONLY unit dir. It NEVER
-		// writes. A read error (absent/unreadable unit dir) is returned verbatim so the
-		// core degrades it to a typed-Unknown WARN rather than swallowing it.
-		DriftPlan: func() (orchestrate.Plan, error) {
-			c, err := config.LoadVilla()
-			if err != nil {
-				return orchestrate.Plan{}, fmt.Errorf("load config: %w", err)
-			}
-			dir, err := unitDirReadOnly()
-			if err != nil {
-				return orchestrate.Plan{}, fmt.Errorf("resolve unit dir: %w", err)
-			}
-			// An absent unit dir means the stack was never installed — NOT drift.
-			// Reconcile would otherwise treat every rendered unit as Changed (absent
-			// file ⇒ Changed) and the core would misreport "units no longer match".
-			// Return a read error so the core degrades it to the honest typed-Unknown
-			// WARN ("units not yet written") instead. This stat is the
-			// only filesystem touch and is strictly read-only.
-			if _, statErr := os.Stat(dir); statErr != nil {
-				return orchestrate.Plan{}, fmt.Errorf("read unit dir %q: %w", dir, statErr)
-			}
-			// Render the binary mount from what the INSTALLED unit records, not from
-			// os.Executable(): a drift check compares config to disk, and the running
-			// binary's path is neither (issue #141). With no unit installed there is
-			// nothing to preserve, so the running binary — the path install would write —
-			// is the honest input.
-			hostVilla := hostVillaPath()
-			if mounted, ok := driftHostVillaPath(dir); ok {
-				hostVilla = mounted
-			}
-			// The same read-only plan every verb applies (ADR-0013), so the drift check
-			// renders coding mode exactly as `coding-mode enter` wrote it (#249). Only
-			// the unit dir (read-only twin) and the binary mount differ.
-			stack := liveStackDeps()
-			stack.UnitDir = func() (string, error) { return dir, nil }
-			stack.HostVillaPath = func() string { return hostVilla }
-			return stackapply.Plan(stack, c)
+		Probe:           sd.Probe,
+		StatusReport:    func() status.Report { return status.Run(*sd) },
+		IsActive:        sd.IsActive,
+		RunMemoryChecks: preflight.RunMemory,
+		ReadVerifyState: sd.ReadVerifyState,
+		CatalogGeometry: liveCatalogGeometry(cfg),
+		// SBX-01 reuses the exact same preflight.SandboxDeps PRE-09 uses
+		// (liveSandboxDeps, preflight_sandbox.go) so `villa preflight` and `villa
+		// doctor` can never observe the host through a different probe. It is built
+		// on first use: it resolves the sandbox image pin, which a sandbox-off run
+		// never needs.
+		RunSandboxChecks: func(detect.HostProfile) []preflight.CheckResult {
+			return preflight.RunSandbox(liveSandboxDeps())
+		},
+		// Each proof REUSES a shipped probe — never a re-rolled crush-run round-trip
+		// or residency scrape — and is consumed opaquely as an inference.Verdict (no
+		// backend marker literal in cmd/villa; TestSeamGrepGate walks this tree). They
+		// are constructed here, not run: a drive only fires when doctor.Aggregate
+		// invokes the seam for a subsystem that is on.
+		ResidencyUnderLoad:       liveResidencyUnderLoad(ctx, cfg, sd),
+		AgentToolCall:            liveAgentToolCallVerdict(ctx, cfg),
+		AgentResidencyUnderLoad:  liveAgentResidencyUnderLoad(ctx, cfg, sd),
+		SearchResidencyUnderLoad: liveSearchResidencyUnderLoad(ctx, cfg, sd),
+		UnitDirExists:            liveUnitDirExists,
+		ReadUnit:                 liveReadUnit,
+		RenderUnits:              liveRenderUnits,
+		RunningVilla:             hostVillaPath,
+		// The agent drift reads reuse the code.go accessors (agentBinPath /
+		// hashFileSHA256 / crushConfigPath) and agent.Render; no re-typed literal.
+		AgentBinarySHA:  func() (string, bool, error) { return hashFileSHA256(agentBinPath()) },
+		ReadCrushConfig: readCrushConfig,
+		RenderCrushConfig: func(cfg config.VillaConfig) ([]byte, error) {
+			reference, _, err := agent.Render(cfg, liveLSPProbes())
+			return reference, err
 		},
 	}, nil
 }
@@ -857,52 +731,6 @@ func runAgentResidencyUnderLoad(ctx context.Context, cfg config.VillaConfig, sd 
 				"check `villa verify agent` and `villa logs` — the agent may be erroring or exiting before it loads the coder model; ensure the stack is up (`villa up`), then re-run `villa doctor`")
 		},
 	})
-}
-
-// liveAgentDrift builds the drift seam: a closure that assembles the pure
-// agent.DetectDrift inputs from the live host (the installed-binary SHA + on-disk
-// crush.json + a freshly-rendered reference + the pinned policy binary hash) and returns
-// the report-only DriftReport. It REUSES the code.go accessors (agentBinPath /
-// hashFileSHA256 / crushConfigPath) and agent.Render / agent.LoadCrushPolicy — no
-// re-typed image/marker literal. Any read error degrades to a typed-Unknown WARN report
-// (BinaryDriftUnknown) rather than a fabricated drift — doctor never FAILs on a signal it
-// could not evaluate. It is constructed (not run) at wiring time.
-func liveAgentDrift(cfg config.VillaConfig) func() agent.DriftReport {
-	return func() agent.DriftReport {
-		reference, _, rerr := agent.Render(cfg, liveLSPProbes())
-		if rerr != nil {
-			return agent.DriftReport{
-				BinaryDriftUnknown: true,
-				Reason:             fmt.Sprintf("could not render the reference crush.json to check drift: %v", rerr),
-			}
-		}
-		binSHA, binPresent, herr := hashFileSHA256(agentBinPath())
-		if herr != nil {
-			return agent.DriftReport{
-				BinaryDriftUnknown: true,
-				Reason:             fmt.Sprintf("could not hash the villa-owned Crush binary to check drift: %v", herr),
-			}
-		}
-		onDisk, configPresent, cerr := readCrushConfig()
-		if cerr != nil {
-			return agent.DriftReport{
-				BinaryDriftUnknown: true,
-				Reason:             fmt.Sprintf("could not read the on-disk crush.json to check drift: %v", cerr),
-			}
-		}
-		var policyBinSHA string
-		if asset, ok := agent.LoadCrushPolicy().Assets["linux/amd64"]; ok {
-			policyBinSHA = asset.BinarySHA256
-		}
-		return agent.DetectDrift(agent.DriftInput{
-			BinaryPresent:   binPresent,
-			InstalledBinSHA: binSHA,
-			PolicyBinSHA:    policyBinSHA,
-			ConfigPresent:   configPresent,
-			OnDiskConfig:    onDisk,
-			RenderedConfig:  reference,
-		})
-	}
 }
 
 // readCrushConfig reads ~/.config/crush/crush.json for the drift compare. A not-exist read
