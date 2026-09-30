@@ -12,17 +12,23 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
 	"github.com/MatrixMagician/VillaStraylight/internal/doctor"
 	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
+	"github.com/MatrixMagician/VillaStraylight/internal/preflight"
+	"github.com/MatrixMagician/VillaStraylight/internal/stackapply"
 	"github.com/MatrixMagician/VillaStraylight/internal/status"
+	"github.com/MatrixMagician/VillaStraylight/internal/verifystate"
 )
 
 // healthyReport is an all-PASS fixture (Overall PASS → exit 0).
@@ -677,4 +683,336 @@ func TestDriftHostVillaPath(t *testing.T) {
 			t.Errorf("driftHostVillaPath on an empty dir = (%q, true), want ok=false", got)
 		}
 	})
+}
+
+// --- #258: what the live adapter decides today, pinned before the decision moves ---
+//
+// These drive doctor.Aggregate over liveDoctorDeps' OWN reads (a temp XDG home with a
+// real config.toml and a real Quadlet unit dir), stubbing only what would touch the
+// host beyond the files: the host probe, the status report, the preflight bindings and
+// the four proofs that drive real workloads. They assert findings by ID, so the same
+// table holds before and after the gating and drift decisions move into internal/doctor.
+
+// doctorHost is a temp XDG home holding config.toml and, optionally, the Quadlet dir.
+type doctorHost struct {
+	t       *testing.T
+	cfgHome string
+}
+
+func newDoctorHost(t *testing.T, configTOML string) *doctorHost {
+	t.Helper()
+	h := &doctorHost{t: t, cfgHome: t.TempDir()}
+	t.Setenv("XDG_CONFIG_HOME", h.cfgHome)
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	dir := filepath.Join(h.cfgHome, "villa")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatalf("mkdir config dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(configTOML), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	return h
+}
+
+func (h *doctorHost) unitDir() string {
+	return filepath.Join(h.cfgHome, "containers", "systemd")
+}
+
+// writeUnit puts one unit file in the Quadlet dir, creating the dir on first use.
+func (h *doctorHost) writeUnit(name, text string) {
+	h.t.Helper()
+	if err := os.MkdirAll(h.unitDir(), 0o755); err != nil {
+		h.t.Fatalf("mkdir unit dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(h.unitDir(), name), []byte(text), 0o644); err != nil {
+		h.t.Fatalf("write unit %s: %v", name, err)
+	}
+}
+
+// writeRenderedStack writes every unit the config renders, as `villa install` would.
+func (h *doctorHost) writeRenderedStack(hostVilla string) {
+	h.t.Helper()
+	cfg, err := config.LoadVilla()
+	if err != nil {
+		h.t.Fatalf("LoadVilla: %v", err)
+	}
+	stack := liveStackDeps()
+	stack.HostVillaPath = func() string { return hostVilla }
+	units, err := stackapply.Render(stack, cfg)
+	if err != nil {
+		h.t.Fatalf("render stack: %v", err)
+	}
+	for _, u := range units {
+		h.writeUnit(u.Name, u.Text)
+	}
+}
+
+// doctorFindings runs the live adapter's decisions and returns the findings by ID.
+func doctorFindings(t *testing.T) map[string]doctor.Finding {
+	t.Helper()
+	return doctorFindingsFor(t, func() status.Report { return status.Report{LoopbackOnly: true} })
+}
+
+// doctorFindingsFor is doctorFindings over a chosen status report.
+func doctorFindingsFor(t *testing.T, report func() status.Report) map[string]doctor.Finding {
+	t.Helper()
+	d, err := liveDoctorDeps(t.Context())
+	if err != nil {
+		t.Fatalf("liveDoctorDeps: %v", err)
+	}
+	d.Probe = func() detect.HostProfile { return detect.HostProfile{} }
+	d.StatusReport = report
+	proof := func() inference.Verdict { return inference.Verdict{Status: inference.StatusPass, Detail: "stub"} }
+	if d.RunMemoryChecks != nil {
+		d.RunMemoryChecks = func(detect.HostProfile) []preflight.CheckResult { return nil }
+	}
+	if d.RunSandboxChecks != nil {
+		d.RunSandboxChecks = func(detect.HostProfile) []preflight.CheckResult { return nil }
+	}
+	d.CatalogGeometry = nil
+	if d.ResidencyUnderLoad != nil {
+		d.ResidencyUnderLoad = proof
+	}
+	if d.AgentToolCall != nil {
+		d.AgentToolCall = proof
+	}
+	if d.AgentResidencyUnderLoad != nil {
+		d.AgentResidencyUnderLoad = proof
+	}
+	if d.SearchResidencyUnderLoad != nil {
+		d.SearchResidencyUnderLoad = proof
+	}
+	byID := map[string]doctor.Finding{}
+	for _, f := range doctor.Aggregate(d).Findings {
+		byID[f.ID] = f
+	}
+	return byID
+}
+
+const doctorHostBaseTOML = "model = \"qwen3.6-35b-a3b\"\nquant = \"UD-Q4_K_XL\"\nctx = 131072\nbackend = \"vulkan\"\n"
+
+// TestDoctorGatesEachSubsystemOnItsConfig pins that a subsystem's findings exist iff the
+// config the run loaded turns that subsystem on: each row is one subsystem off, then on.
+func TestDoctorGatesEachSubsystemOnItsConfig(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		extra   string
+		wantIDs []string
+	}{
+		{"memory", "memory_enabled = true\n", []string{"MEM-DOC-residency"}},
+		{"agent", "agent_enabled = true\n", []string{"agent-tool-call", "agent-residency", "agent-binary-drift"}},
+		{"web search", "web_search_enabled = true\n", []string{"search-residency"}},
+		{"sandbox", "workspace_agent = true\n", []string{"SBX-02"}},
+	} {
+		t.Run(tc.name+" off", func(t *testing.T) {
+			newDoctorHost(t, doctorHostBaseTOML)
+			got := doctorFindings(t)
+			for _, id := range tc.wantIDs {
+				if _, ok := got[id]; ok {
+					t.Errorf("%s is off but the report carries %s", tc.name, id)
+				}
+			}
+		})
+		t.Run(tc.name+" on", func(t *testing.T) {
+			newDoctorHost(t, doctorHostBaseTOML+tc.extra)
+			got := doctorFindings(t)
+			for _, id := range tc.wantIDs {
+				if _, ok := got[id]; !ok {
+					t.Errorf("%s is on but the report carries no %s", tc.name, id)
+				}
+			}
+		})
+	}
+}
+
+// TestDoctorDriftReadsTheUnitDir pins the unit drift plan: a missing unit dir is a
+// typed-Unknown WARN (never drift), a matching dir passes, an edited unit is drift that
+// names it, and a hand-moved villa binary is the websafe-binary finding, not drift (#141).
+func TestDoctorDriftReadsTheUnitDir(t *testing.T) {
+	t.Run("missing unit dir is unknown, not drift", func(t *testing.T) {
+		newDoctorHost(t, doctorHostBaseTOML)
+		f := doctorFindings(t)["drift"]
+		if f.Status != "WARN" || strings.Contains(f.Detail, "no longer match") {
+			t.Errorf("drift = %s %q, want the could-not-read WARN", f.Status, f.Detail)
+		}
+	})
+	t.Run("rendered units match", func(t *testing.T) {
+		h := newDoctorHost(t, doctorHostBaseTOML)
+		h.writeRenderedStack(hostVillaPath())
+		if f := doctorFindings(t)["drift"]; f.Status != "PASS" {
+			t.Errorf("drift = %s %q, want PASS on a freshly rendered dir", f.Status, f.Detail)
+		}
+	})
+	t.Run("an edited unit is drift naming it", func(t *testing.T) {
+		h := newDoctorHost(t, doctorHostBaseTOML)
+		h.writeRenderedStack(hostVillaPath())
+		h.writeUnit(inferenceUnitFile, "[Container]\nExec=hand-edited\n")
+		f := doctorFindings(t)["drift"]
+		if f.Status != "WARN" || !strings.Contains(f.Detail, inferenceUnitFile) {
+			t.Errorf("drift = %s %q, want a WARN naming %s", f.Status, f.Detail, inferenceUnitFile)
+		}
+	})
+	t.Run("a moved binary is not drift", func(t *testing.T) {
+		h := newDoctorHost(t, doctorHostBaseTOML+"web_search_enabled = true\n")
+		h.writeRenderedStack("/opt/villa-elsewhere/villa")
+		got := doctorFindings(t)
+		if got["drift"].Status != "PASS" {
+			t.Errorf("drift = %s %q, want PASS: the mount recorded in the installed unit is the render input", got["drift"].Status, got["drift"].Detail)
+		}
+		if got["websafe-binary"].Status != "WARN" {
+			t.Errorf("websafe-binary = %+v, want the moved-binary WARN", got["websafe-binary"])
+		}
+	})
+}
+
+// TestDoctorSandboxNetworkReadsTheUnitDir pins SBX-02: the network unit must be on disk
+// and the villa-inferproxy unit joined to it; each miss is a confident FAIL.
+//
+// The proxy, not villa-llama, is the unit on the sandbox network since ADR-0011
+// (villa-llama joins villa.network only), so a freshly rendered stack is joined.
+func TestDoctorSandboxNetworkReadsTheUnitDir(t *testing.T) {
+	const cfg = doctorHostBaseTOML + "workspace_agent = true\n"
+	t.Run("joined", func(t *testing.T) {
+		newDoctorHost(t, cfg).writeRenderedStack(hostVillaPath())
+		if f := doctorFindings(t)["SBX-02"]; f.Status != "PASS" {
+			t.Errorf("SBX-02 = %s %q, want PASS", f.Status, f.Detail)
+		}
+	})
+	t.Run("not joined", func(t *testing.T) {
+		h := newDoctorHost(t, cfg)
+		h.writeRenderedStack(hostVillaPath())
+		h.writeUnit(orchestrate.InferproxyContainerUnitName(), "[Container]\nExec=inferproxy-serve\n")
+		if f := doctorFindings(t)["SBX-02"]; f.Status != "FAIL" || !strings.Contains(f.Detail, "not joined") {
+			t.Errorf("SBX-02 = %s %q, want the not-joined FAIL", f.Status, f.Detail)
+		}
+	})
+	t.Run("no network unit", func(t *testing.T) {
+		newDoctorHost(t, cfg)
+		if f := doctorFindings(t)["SBX-02"]; f.Status != "FAIL" || !strings.Contains(f.Detail, "not on disk") {
+			t.Errorf("SBX-02 = %s %q, want the not-on-disk FAIL", f.Status, f.Detail)
+		}
+	})
+}
+
+// TestDoctorToolsDriftReadsTheServedUnit pins TMD-01 through the live reads: tools mode
+// on with a unit rendered without the flag is a FAIL, matching is a PASS, and no unit
+// is the typed-Unknown WARN, never a match.
+func TestDoctorToolsDriftReadsTheServedUnit(t *testing.T) {
+	t.Run("off and served without the flag", func(t *testing.T) {
+		newDoctorHost(t, doctorHostBaseTOML).writeRenderedStack(hostVillaPath())
+		if f := doctorFindings(t)["TMD-01"]; f.Status != "PASS" {
+			t.Errorf("TMD-01 = %s %q, want PASS", f.Status, f.Detail)
+		}
+	})
+	t.Run("on but the unit lacks the flag", func(t *testing.T) {
+		h := newDoctorHost(t, doctorHostBaseTOML)
+		h.writeRenderedStack(hostVillaPath())
+		if err := os.WriteFile(filepath.Join(h.cfgHome, "villa", "config.toml"), []byte(doctorHostBaseTOML+"tools_mode = true\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if f := doctorFindings(t)["TMD-01"]; f.Status != "FAIL" {
+			t.Errorf("TMD-01 = %s %q, want FAIL", f.Status, f.Detail)
+		}
+	})
+	t.Run("no unit is unknown", func(t *testing.T) {
+		newDoctorHost(t, doctorHostBaseTOML)
+		if f := doctorFindings(t)["TMD-01"]; f.Status != "WARN" {
+			t.Errorf("TMD-01 = %s %q, want the typed-Unknown WARN", f.Status, f.Detail)
+		}
+	})
+}
+
+// erroredStatusReport is the report status.Run returns when it cannot evaluate the
+// stack (here: the config load fails), the only way to build one outside the status
+// package.
+func erroredStatusReport(t *testing.T) func() status.Report {
+	t.Helper()
+	sd, err := status.StubDeps(t.TempDir(), nil)
+	if err != nil {
+		t.Fatalf("status.StubDeps: %v", err)
+	}
+	sd.LoadConfig = func() (config.VillaConfig, error) {
+		return config.VillaConfig{}, errors.New("config.toml is unreadable")
+	}
+	return func() status.Report { return status.Run(sd) }
+}
+
+// recordVerifySearch writes the last `villa verify search` result the way the verb does.
+func recordVerifySearch(t *testing.T, verdict string, checked time.Time) {
+	t.Helper()
+	err := liveVerifyStatePersist(verifystate.State{Verdict: verdict, CheckedAt: checked.UTC().Format(time.RFC3339)})
+	if err != nil {
+		t.Fatalf("record verify search: %v", err)
+	}
+}
+
+// TestDoctorSearchEgressSurvivesAnErroredStatusReport pins #266: the web-search egress
+// finding is the last recorded `villa verify search` verdict under the freshness rule
+// `villa status` applies, and it does not depend on the status report evaluating. A
+// fresh failed verify is a BLOCK FAIL even when the report errored, where it used to be
+// dropped and leave doctor at WARN.
+func TestDoctorSearchEgressSurvivesAnErroredStatusReport(t *testing.T) {
+	const cfgTOML = doctorHostBaseTOML + "web_search_enabled = true\n"
+	okReport := func() status.Report { return status.Report{LoopbackOnly: true} }
+	for _, tc := range []struct {
+		name       string
+		errored    bool
+		record     func(t *testing.T)
+		wantStatus string
+		wantDetail []string
+	}{
+		{"fresh fail, report errored", true,
+			func(t *testing.T) { recordVerifySearch(t, "FAIL", time.Now()) },
+			"FAIL", []string{"FAIL"}},
+		{"fresh pass, report errored", true,
+			func(t *testing.T) { recordVerifySearch(t, "PASS", time.Now()) },
+			"PASS", nil},
+		{"stale pass, report errored", true,
+			func(t *testing.T) { recordVerifySearch(t, "PASS", time.Now().Add(-72*time.Hour)) },
+			"WARN", []string{"stale", "config.toml is unreadable"}},
+		{"nothing recorded, report errored", true,
+			func(*testing.T) {},
+			"WARN", []string{"no `villa verify search` result", "config.toml is unreadable"}},
+		{"fresh fail, report fine", false,
+			func(t *testing.T) { recordVerifySearch(t, "FAIL", time.Now()) },
+			"FAIL", []string{"FAIL"}},
+		{"stale pass, report fine", false,
+			func(t *testing.T) { recordVerifySearch(t, "PASS", time.Now().Add(-72*time.Hour)) },
+			"WARN", []string{"stale"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			newDoctorHost(t, cfgTOML)
+			tc.record(t)
+			report := okReport
+			if tc.errored {
+				report = erroredStatusReport(t)
+			}
+			f, ok := doctorFindingsFor(t, report)["search-egress"]
+			if !ok {
+				t.Fatal("no search-egress finding")
+			}
+			if f.Status != tc.wantStatus {
+				t.Errorf("search-egress = %s %q, want %s", f.Status, f.Detail, tc.wantStatus)
+			}
+			for _, want := range tc.wantDetail {
+				if !strings.Contains(f.Detail, want) {
+					t.Errorf("search-egress detail %q does not mention %q", f.Detail, want)
+				}
+			}
+			if f.Status != "PASS" && f.Remediation == "" {
+				t.Error("a non-PASS search-egress finding carries no remediation")
+			}
+		})
+	}
+}
+
+// TestDoctorWebSearchOffHasNoEgressFinding guards the other side: web search off emits
+// no search-egress finding, however the last verify went.
+func TestDoctorWebSearchOffHasNoEgressFinding(t *testing.T) {
+	newDoctorHost(t, doctorHostBaseTOML)
+	recordVerifySearch(t, "FAIL", time.Now())
+	if _, ok := doctorFindingsFor(t, erroredStatusReport(t))["search-egress"]; ok {
+		t.Error("web search is off but the report carries a search-egress finding")
+	}
 }
