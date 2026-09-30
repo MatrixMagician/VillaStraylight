@@ -323,6 +323,9 @@ func runProbeCurlCode(ctx context.Context, helperImage string, curlArgs ...strin
 // (`podman run -i`), so the api key never lands on podman's or curl's command line,
 // where any local user could read it from /proc (#252).
 func runProbeCurlIn(ctx context.Context, helperImage string, req inference.CurlRequest, flags ...string) ([]byte, error) {
+	if req.Err != nil {
+		return nil, req.Err
+	}
 	out, _, err := probeCurl(ctx, helperImage, req.Stdin, slices.Concat(flags, req.Args))
 	return out, err
 }

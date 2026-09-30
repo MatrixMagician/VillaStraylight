@@ -93,9 +93,23 @@ endpoint string; `/health` needs no key, and moving `install.Deps` to the
 client is left to a change that owns `internal/install`.
 
 The gate is a syntax check, as strong as `TestSeamGrepGate`: it matches
-package-qualified calls by import path and fields by name. A hand-typed
-`127.0.0.1:8080` URL is outside what it sees (the agents' provider configs
-carry one, drift-guarded by their own test).
+package-qualified calls by import path and fields and `Endpoint()` calls by
+name. Route literals match as a suffix of a whitespace-free literal after any
+query string, so `ep+"/tokenize"`, `"%s/props"` and `http://127.0.0.1:8080/props`
+are caught (#262), and the `:8080` literal is gated. `/health`, `/tokenize` and
+`/v1` joined the route set. Prose (a string with a space) and import paths are
+skipped, which leaves a route buried in a sentence outside its sight. The widening
+needed allowlist entries for other services that share a route name or port
+(Open WebUI's `/health`, the dashboard's `/api/metrics`, Crush's `/v1/health`, the
+embedding sidecar); each carries its reason.
+
+The client is redacted and fails closed on a malformed key (#262): `String` and
+`Format` never print the key, and a key with a control character (only possible
+in a hand-edited `config.toml`, where a newline would inject headers through
+`-H @-`) makes every route return an error naming `inference_secret`, with the
+refusal carried on `CurlRequest.Err` for the curl path. The podman recording
+stub used by the drive test honors `-i` as real podman does, so removing it
+from `probeCurl` fails the test.
 
 A reading that used to be best-effort is now refused when its body is over the
 cap. `/props` used to be cut at 8 KiB and then fail to parse when a large chat
