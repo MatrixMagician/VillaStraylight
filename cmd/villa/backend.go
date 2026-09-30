@@ -102,26 +102,44 @@ func liveProve(ctx context.Context, target string) prove.Verdict {
 		return prove.Verdict{Status: prove.StatusFail, Detail: "load config: " + err.Error()}
 	}
 
-	// The catalog-resolved GGUF FILENAME for ConfigModel — the SAME concrete seam
-	// status.go uses (liveModelFile), never a placeholder. The /props drift overlay
-	// compares against the model FILE, so the catalog id would make it misfire.
-	modelFile, err := liveModelFile(cfg)
+	proven, err := proveTarget(cfg, backend, detect.Probe())
 	if err != nil {
-		return prove.Verdict{Status: prove.StatusFail, Detail: "resolve model file: " + err.Error()}
+		return prove.Verdict{Status: prove.StatusFail, Detail: err.Error()}
 	}
 
 	// liveProve is the SHARED cutover gate — backend set, model swap, `villa
 	// update`'s proveInference, tools-mode and restore all route through this ONE
 	// call, so the authenticated client bound here covers all of them at once.
-	return residency.ProveCutover(ctx, liveResidencyDeps(inferenceClient(cfg)), residency.Target{
+	return residency.ProveCutover(ctx, liveResidencyDeps(inferenceClient(cfg)), proven)
+}
+
+// proveTarget resolves what a cutover proof drives for cfg on backend: the model
+// id, its catalog-resolved GGUF file, the context, the weight footprint the GTT
+// floor is computed from, and whether a draft sidecar loads. host sizes the weight
+// footprint the way the recommendation does.
+func proveTarget(cfg config.VillaConfig, backend inference.Backend, host detect.HostProfile) (residency.Target, error) {
+	// The catalog-resolved GGUF FILENAME for ConfigModel — the SAME concrete seam
+	// status.go uses (liveModelFile), never a placeholder. The /props drift overlay
+	// compares against the model FILE, so the catalog id would make it misfire.
+	modelFile, err := liveModelFile(cfg)
+	if err != nil {
+		return residency.Target{}, fmt.Errorf("resolve model file: %w", err)
+	}
+	var weight uint64
+	if cat, _, err := catalog.Load(modelCatalogPath); err == nil {
+		rec := recommend.Pick(host, cat, recommend.Overrides{Model: cfg.Model, Speculation: cfg.Speculation},
+			recommend.MemoryInputs{}, recommend.WebSearchInputs{})
+		weight = rec.WeightBytes + rec.DraftBytes
+	}
+	return residency.Target{
 		Service:       installServiceName,
 		ModelID:       cfg.Model,
 		ModelFile:     modelFile,
 		ContextLen:    cfg.Ctx,
-		WeightBytes:   liveWeightBytes(cfg),
+		WeightBytes:   weight,
 		Markers:       backend.ResidencyProof(),
 		DraftExpected: liveDraftExpected(cfg),
-	})
+	}, nil
 }
 
 // ---------------------------------------------------------------------------
