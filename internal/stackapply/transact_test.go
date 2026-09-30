@@ -23,13 +23,14 @@ const provenService = "villa-llama.service"
 // txFake records every host call in order. Its zero knobs are a clean cutover of
 // villa-llama plus one running resident.
 type txFake struct {
-	calls   []string
-	saved   []config.VillaConfig
-	proved  []string
-	prior   config.VillaConfig
-	units   map[string]string // what Capture returns
-	changed []string          // what Apply reports as written
-	states  map[string]string // IsActive answers; absent = "active"
+	calls    []string
+	saved    []config.VillaConfig
+	proved   []string
+	prior    config.VillaConfig
+	units    map[string]string // what Capture returns
+	changed  []string          // what Apply reports as written
+	states   map[string]string // IsActive answers; absent = "active"
+	stateErr map[string]error  // IsActive cannot read the state of these services
 
 	lockErr, loadErr, captureErr, saveErr, applyErr error
 	restoreErr, reloadErr                           error
@@ -95,6 +96,9 @@ func (f *txFake) deps() TxDeps {
 			return f.reloadErr
 		},
 		IsActive: func(svc string) (string, error) {
+			if err := f.stateErr[svc]; err != nil {
+				return "", err
+			}
 			if s, ok := f.states[svc]; ok {
 				return s, nil
 			}
@@ -173,6 +177,46 @@ func TestTransactRestartsOnlyRunningChangedServices(t *testing.T) {
 	Transact(f.deps(), toRocm)
 	if !reflect.DeepEqual(f.restarts, map[string]int{provenService: 1}) {
 		t.Errorf("an unchanged resident must not be restarted, restarts = %v", f.restarts)
+	}
+}
+
+// TestTransactRestartsTheProvenServiceWhenOnlyAnotherUnitChanged: the frame's
+// documentation (and ADR-0015) say the proven service is restarted whether or not
+// its own unit changed, since the proof needs it serving. A change that rewrites
+// only a resident's unit must therefore still restart villa-llama, after the
+// changed unit, and restart it again on a rollback.
+func TestTransactRestartsTheProvenServiceWhenOnlyAnotherUnitChanged(t *testing.T) {
+	f := newTxFake()
+	f.changed = []string{"villa-llama-small.container"}
+	f.states = map[string]string{provenService: "inactive"}
+	o := Transact(f.deps(), toRocm)
+	if !o.Switched {
+		t.Fatalf("expected Switched, got %+v", o)
+	}
+	wantCalls(t, f, "lock", "load", "capture:vulkan", "save:rocm", "apply:rocm",
+		"restart:villa-llama-small.service", "restart:villa-llama.service", "prove")
+
+	f = newTxFake()
+	f.changed = []string{"villa-llama-small.container"}
+	f.proveStatus = prove.StatusFail
+	o = Transact(f.deps(), toRocm)
+	if !o.RolledBack || f.restarts[provenService] != 2 {
+		t.Errorf("a failed proof must restart the proven service again on rollback, outcome %+v restarts %v", o, f.restarts)
+	}
+}
+
+// TestTransactNeverStartsAServiceItCannotReadTheStateOf: an IsActive error on a
+// changed unit other than the proven service counts as NOT running. Restarting a
+// stopped resident starts it, so an unreadable state must not.
+func TestTransactNeverStartsAServiceItCannotReadTheStateOf(t *testing.T) {
+	f := newTxFake()
+	f.stateErr = map[string]error{"villa-llama-small.service": errors.New("bus unavailable")}
+	o := Transact(f.deps(), toRocm)
+	if !o.Switched {
+		t.Fatalf("expected Switched, got %+v", o)
+	}
+	if !reflect.DeepEqual(f.restarts, map[string]int{provenService: 1}) {
+		t.Errorf("restarts = %v, want only the proven service", f.restarts)
 	}
 }
 

@@ -106,6 +106,13 @@ func saveRecommendation(w io.Writer, rec recommend.Recommendation, catalogPath s
 	if rec.Model == "" {
 		return fmt.Errorf("recommend --save: nothing to save (no model was recommended)")
 	}
+	// A load→save of the whole file: hold the stack lock (ADR-0010) so a swap's
+	// rollback cannot restore a config that predates this write.
+	lock, err := acquireStackLock()
+	if err != nil {
+		return fmt.Errorf("recommend --save: %w", err)
+	}
+	defer func() { _ = lock.Release() }()
 	// Start from the config on disk so --save changes only the pick: the
 	// subsystem gates, their secrets and the resident slots are not the
 	// recommendation's to reset (#149). An absent file loads as the typed

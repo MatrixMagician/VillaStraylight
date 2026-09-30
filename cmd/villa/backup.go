@@ -94,6 +94,16 @@ func runBackup(cmd *cobra.Command, output string, d backup.Deps) int {
 		return exitBlocked
 	}
 
+	// The backup stops Open WebUI and Qdrant to export a clean volume, which would
+	// fail a concurrent swap's proof, and it archives config.toml: hold the stack
+	// lock (ADR-0010) from the first config read to the restart.
+	lock, err := acquireStackLock()
+	if err != nil {
+		fmt.Fprintf(errOut, "backup: %v\n", err)
+		return exitBlocked
+	}
+	defer func() { _ = lock.Release() }()
+
 	// Load config (the single source of truth) for backend selection + the data the
 	// manifest records.
 	cfg, err := config.LoadVilla()

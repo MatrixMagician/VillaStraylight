@@ -95,5 +95,14 @@ flipped the backend unlocked (#250). The lock now has two homes:
   half and `install` (`up`, `update` and `install` not on `--dry-run`; `restore`
   after its skew prompt).
 
-`TestEveryStackMutationHoldsTheLock` (`cmd/villa`) fails the build when a new caller
-of the stack-apply module is neither.
+- **The config writers and the verbs that stop a service** take it in their cobra
+  caller from their first config read (#267): `config set`, `workspace add|remove`,
+  `recommend --save`, `verify agent` (around the proof) and `backup`. Their write is a
+  load→save of the whole file, which a swap's rollback would otherwise restore over.
+  `down` and `uninstall` stay unlocked (`lockRules` names the gap).
+
+`TestEveryStackMutationHoldsTheLock` (`cmd/villa`, `lock_guard_test.go`) fails the
+build when a config write, a unit write, a stack-apply call or the systemd seam is
+referenced outside a function it registers, and when a verb takes the lock while
+already holding it (flock is per open file description, so a nested `Acquire` in one
+process deadlocks).
