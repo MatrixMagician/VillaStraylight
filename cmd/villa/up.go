@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+
+	"github.com/MatrixMagician/VillaStraylight/internal/stackapply"
 )
 
 // up.go wires `villa up [service]`: reconcile config→units and start the
@@ -55,7 +57,12 @@ func runUp(cmd *cobra.Command, opts upOpts, args []string, d *lifecycleDeps) int
 	out := cmd.OutOrStdout()
 	errOut := cmd.ErrOrStderr()
 
-	units, unitDir, err := d.renderStack()
+	cfg, err := d.loadConfig()
+	if err != nil {
+		fmt.Fprintf(errOut, "up: load config: %v\n", err)
+		return exitBlocked
+	}
+	units, err := stackapply.Render(d.stack, cfg)
 	if err != nil {
 		fmt.Fprintf(errOut, "up: %v\n", err)
 		return exitBlocked
@@ -68,31 +75,30 @@ func runUp(cmd *cobra.Command, opts upOpts, args []string, d *lifecycleDeps) int
 		return exitBlocked
 	}
 
-	plan, err := d.reconcile(units, unitDir)
-	if err != nil {
-		fmt.Fprintf(errOut, "up: reconcile failed: %v\n", err)
-		return exitBlocked
-	}
-
 	if opts.dryRun {
+		plan, err := stackapply.Plan(d.stack, cfg)
+		if err != nil {
+			fmt.Fprintf(errOut, "up: %v\n", err)
+			return exitBlocked
+		}
 		return printDryRun(out, plan)
 	}
 
-	changed, err := d.applyReconcile(out, plan, unitDir)
+	changed, err := d.applyStack(out, cfg)
 	if err != nil {
 		fmt.Fprintf(errOut, "up: %v\n", err)
 		return exitBlocked
 	}
 
-	// Unchanged config is a TRUE no-op: nothing was written or
-	// reloaded, so nothing is (re)started — the running stack already matches.
-	if !changed {
+	// Unchanged config is a TRUE no-op: no unit was written or reloaded, so nothing
+	// is (re)started — the running stack already matches.
+	if len(changed) == 0 {
 		fmt.Fprintf(out, "no changes — stack already matches config\n")
 		return exitPass
 	}
 
 	changedUnits := map[string]bool{}
-	for _, u := range plan.Changed {
+	for _, u := range changed {
 		changedUnits[u.Name] = true
 	}
 	for _, svc := range targets {

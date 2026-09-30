@@ -39,6 +39,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/pathsafe"
 	"github.com/MatrixMagician/VillaStraylight/internal/preflight"
 	"github.com/MatrixMagician/VillaStraylight/internal/residency"
+	"github.com/MatrixMagician/VillaStraylight/internal/stackapply"
 	"github.com/MatrixMagician/VillaStraylight/internal/status"
 	"github.com/MatrixMagician/VillaStraylight/internal/subsystem"
 )
@@ -399,18 +400,6 @@ func liveDoctorDeps(ctx context.Context) (doctor.Deps, error) {
 			if err != nil {
 				return orchestrate.Plan{}, fmt.Errorf("load config: %w", err)
 			}
-			backend, err := inference.BackendFor(c.Backend)
-			if err != nil {
-				return orchestrate.Plan{}, fmt.Errorf("resolve backend: %w", err)
-			}
-			modelFile, err := liveModelFile(c)
-			if err != nil {
-				return orchestrate.Plan{}, fmt.Errorf("resolve model file: %w", err)
-			}
-			resident, err := liveResidentUnits(c)
-			if err != nil {
-				return orchestrate.Plan{}, fmt.Errorf("resolve resident set: %w", err)
-			}
 			dir, err := unitDirReadOnly()
 			if err != nil {
 				return orchestrate.Plan{}, fmt.Errorf("resolve unit dir: %w", err)
@@ -433,18 +422,13 @@ func liveDoctorDeps(ctx context.Context) (doctor.Deps, error) {
 			if mounted, ok := driftHostVillaPath(dir); ok {
 				hostVilla = mounted
 			}
-			units, err := livePinnedRender(orchestrate.RenderInput{
-				Backend:       backend,
-				Cfg:           c,
-				ModelFile:     modelFile,
-				ModelsDir:     modelsDir(),
-				HostVillaPath: hostVilla,
-				Resident:      resident,
-			})
-			if err != nil {
-				return orchestrate.Plan{}, fmt.Errorf("render units: %w", err)
-			}
-			return orchestrate.Reconcile(units, dir)
+			// The same read-only plan every verb applies (ADR-0013), so the drift check
+			// renders coding mode exactly as `coding-mode enter` wrote it (#249). Only
+			// the unit dir (read-only twin) and the binary mount differ.
+			stack := liveStackDeps()
+			stack.UnitDir = func() (string, error) { return dir, nil }
+			stack.HostVillaPath = func() string { return hostVilla }
+			return stackapply.Plan(stack, c)
 		},
 	}, nil
 }

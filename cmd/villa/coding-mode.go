@@ -17,7 +17,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/prove"
 	"github.com/MatrixMagician/VillaStraylight/internal/recommend"
 	"github.com/MatrixMagician/VillaStraylight/internal/residency"
-	"github.com/MatrixMagician/VillaStraylight/internal/subsystem"
+	"github.com/MatrixMagician/VillaStraylight/internal/stackapply"
 )
 
 // coding-mode.go is the cmd-tier `villa coding-mode` noun: the live host wiring that
@@ -62,7 +62,7 @@ func liveCodingProve(ctx context.Context, _ codingmode.Direction) prove.Verdict 
 		return prove.Verdict{Status: prove.StatusFail, Detail: err.Error()}
 	}
 
-	servedModel, servedCtx := codingServedTarget(cfg)
+	servedModel, servedCtx := stackapply.ServedTarget(cfg)
 	modelFile, err := codingModelFile(cfg, servedModel)
 	if err != nil {
 		return prove.Verdict{Status: prove.StatusFail, Detail: "resolve model file: " + err.Error()}
@@ -77,22 +77,6 @@ func liveCodingProve(ctx context.Context, _ codingmode.Direction) prove.Verdict 
 		Markers:       backend.ResidencyProof(),
 		DraftExpected: liveDraftExpected(cfg),
 	})
-}
-
-// codingServedTarget returns the model id + ctx the running unit serves: the coder model
-// at the resolved agent ctx when coding mode is on (swap), otherwise the chat model
-// at the chat ctx. On shared residency (CoderModel empty) the chat model is served with
-// the agent-ctx render delta, so the served model is the chat model but the served ctx is
-// the resolved agent ctx.
-func codingServedTarget(cfg config.VillaConfig) (model string, ctx int) {
-	if subsystem.CodingModeOn(cfg) {
-		ctx = cfg.CoderAgentCtx
-		if cfg.CoderModel != "" {
-			return cfg.CoderModel, ctx // swap residency: coder served
-		}
-		return cfg.Model, ctx // shared residency: chat model + agent-ctx delta
-	}
-	return cfg.Model, cfg.Ctx
 }
 
 // codingModelFile resolves the on-disk GGUF filename for the SERVED model through the
@@ -260,17 +244,17 @@ func runCodingMode(cmd *cobra.Command, dir codingmode.Direction, d *codingmode.D
 
 // liveCodingModeDeps wires the transactional core to the real host: config load/save, the
 // composed modelswap resolve→fit-guard→pull for the coder model, verbatim unit
-// capture/restore through the traversal-guarded orchestrate seams, the render/reconcile/
-// write closure (the ONE delta from backend.go — it resolves the coder catalog entry and
-// translates catalog.AgentSampling → inference.Sampling into RenderInput when coding), the
-// systemd reload/restart seam, and liveCodingProve as the cutover gate. Every host-touching
-// action is a seam so coding-mode_test.go drives the flow without a live host.
+// capture, the apply and the restore through the live stack adapter (ADR-0013), the
+// systemd reload/restart seam, and liveCodingProve as the cutover gate. Every
+// host-touching action is a seam so coding-mode_test.go drives the flow without a live
+// host.
 //
 // ctx is the command's SIGINT/SIGTERM-cancelled context, captured by the Pull
 // closure so Ctrl-C can interrupt the multi-GB coder-weight transfer. Cancelling
 // mid-stream is safe: the partial ".part" file is kept and resumed via HTTP Range.
 func liveCodingModeDeps(ctx context.Context) *codingmode.Deps {
 	sys := orchestrate.NewSystemd()
+	stack := liveStackDeps()
 	return &codingmode.Deps{
 		InstallServiceName: installServiceName,
 		LoadConfig:         config.LoadVilla,
@@ -343,103 +327,19 @@ func liveCodingModeDeps(ctx context.Context) *codingmode.Deps {
 			}
 			return os.ReadFile(filepath.Join(dir, "villa-llama.container"))
 		},
-		// ReconcileAndWrite: the ONE delta from backend.go. When cfg.CodingMode is true,
-		// resolve the coder catalog entry by cfg.CoderModel (swap) or serve the chat model
-		// (shared), translate catalog.AgentSampling → inference.Sampling, and populate
-		// RenderInput.CodingMode + AgentCtx (the catalog import lives HERE, never in the
-		// pure renderer). When off, leave them nil ⇒ off-path render is byte-identical.
+		// ReconcileAndWrite: apply the persisted target config. The coding descriptor,
+		// the served (possibly coder) model file and the agent ctx are derived from it
+		// inside stackapply, the same way every other verb renders (#249).
 		ReconcileAndWrite: func(c config.VillaConfig) (bool, error) {
-			dir, err := quadletUnitDir()
-			if err != nil {
-				return false, err
-			}
-			servedModel, _ := codingServedTarget(c)
-			modelFile, err := codingModelFile(c, servedModel)
-			if err != nil {
-				return false, err
-			}
-			backend, err := inference.BackendFor(c.Backend)
-			if err != nil {
-				return false, err
-			}
-			resident, err := liveResidentUnits(c)
-			if err != nil {
-				return false, err
-			}
-			in := orchestrate.RenderInput{
-				Backend:       backend,
-				Cfg:           c,
-				ModelFile:     modelFile,
-				ModelsDir:     modelsDir(),
-				HostVillaPath: hostVillaPath(),
-				Resident:      resident,
-			}
-			if subsystem.CodingModeOn(c) {
-				spec, derr := codingDescriptor(c, servedModel)
-				if derr != nil {
-					return false, derr
-				}
-				in.CodingMode = spec
-				in.AgentCtx = c.CoderAgentCtx
-			}
-			units, err := livePinnedRender(in)
-			if err != nil {
-				return false, err
-			}
-			plan, err := orchestrate.Reconcile(units, dir)
-			if err != nil {
-				return false, err
-			}
-			if len(plan.Changed) == 0 {
-				return false, nil
-			}
-			if err := liveWriteUnits(plan, dir); err != nil {
-				return false, err
-			}
-			if err := sys.DaemonReload(); err != nil {
-				return false, err
-			}
-			return true, nil
+			changed, err := stackapply.Apply(stack, c)
+			return len(changed) > 0, err
 		},
-		// RestoreUnit: write the verbatim captured prior unit bytes back through
-		// liveWriteUnits (the traversal-guarded orchestrate rollback path,
-		// GHSA-qxg9-safe).
+		// RestoreUnit: write the verbatim captured prior unit bytes back.
 		RestoreUnit: func(b []byte) error {
-			dir, err := quadletUnitDir()
-			if err != nil {
-				return err
-			}
-			plan := orchestrate.Plan{Changed: []orchestrate.Unit{{Name: "villa-llama.container", Text: string(b)}}}
-			return liveWriteUnits(plan, dir)
+			return stackapply.Restore(stack, map[string]string{"villa-llama.container": string(b)})
 		},
 		DaemonReload: sys.DaemonReload,
 		Restart:      sys.Restart,
 		Prove:        liveCodingProve,
 	}
-}
-
-// codingDescriptor builds the inference.CodingModeSpec render descriptor from the served
-// coder catalog entry (translation point — the catalog→inference translation lives in
-// the live wiring, never in the pure renderer). It resolves the served entry, translates
-// its catalog.AgentSampling → inference.Sampling, and carries the fail-closed
-// CacheReuseSafe gate. No coding-flag literals here — those live behind the seam.
-func codingDescriptor(_ config.VillaConfig, servedModel string) (*inference.CodingModeSpec, error) {
-	cat, _, err := catalog.Load(modelCatalogPath)
-	if err != nil {
-		return nil, fmt.Errorf("load model catalog: %w", err)
-	}
-	m, ok := cat.FindByID(servedModel)
-	if !ok {
-		return nil, fmt.Errorf("coding model %q is not in the catalog", servedModel)
-	}
-	spec := &inference.CodingModeSpec{CacheReuseSafe: m.CacheReuseSafe}
-	if s := m.AgentSampling; s != nil {
-		spec.Sampling = &inference.Sampling{
-			Temperature:   s.Temperature,
-			TopP:          s.TopP,
-			TopK:          s.TopK,
-			RepeatPenalty: s.RepeatPenalty,
-		}
-	}
-	return spec, nil
 }

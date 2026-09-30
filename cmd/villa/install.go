@@ -21,6 +21,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/pathsafe"
 	"github.com/MatrixMagician/VillaStraylight/internal/preflight"
 	"github.com/MatrixMagician/VillaStraylight/internal/recommend"
+	"github.com/MatrixMagician/VillaStraylight/internal/stackapply"
 )
 
 // install.go wires the `villa install` verb. The flow itself is install.Run
@@ -141,19 +142,6 @@ func liveInstallDeps(ctx context.Context) (install.Deps, error) {
 			// recommends against.
 			return recommend.Pick(p, cat, ov, liveLoadedMemoryInputs(), liveLoadedWebSearchInputs())
 		},
-		ModelFile: func(rec recommend.Recommendation) (string, error) {
-			// Fabricating "<model>.gguf" would render a unit whose -m only fails at
-			// runtime; an unresolvable model blocks here instead.
-			cat, _, err := catalog.Load(modelCatalogPath)
-			if err != nil {
-				return "", fmt.Errorf("load model catalog: %w", err)
-			}
-			m, ok := cat.FindByID(rec.Model)
-			if !ok {
-				return "", fmt.Errorf("model %q is not in the catalog — cannot resolve its weight file", rec.Model)
-			}
-			return m.PrimaryFile(), nil
-		},
 		ModelsDir: modelsDir,
 		RunChecks: preflight.RunWithResources,
 		RunMemoryChecks: func(p detect.HostProfile, embeddingModel string) []preflight.CheckResult {
@@ -169,12 +157,14 @@ func liveInstallDeps(ctx context.Context) (install.Deps, error) {
 		Setsebool:    liveSetsebool,
 		EnableLinger: sys.EnableLinger,
 
-		UnitDir:       quadletUnitDir,
-		ResidentUnits: liveResidentUnits,
-		HostVillaPath: hostVillaPath,
-		CodingRender:  liveCodingRender,
-		Render:        livePinnedRender,
-		Reconcile:     orchestrate.Reconcile,
+		UnitDir: quadletUnitDir,
+		// Render derives every render input from the assembled config through the
+		// live stack adapter (ADR-0013). An unresolvable model blocks the install
+		// rather than rendering a unit whose -m only fails at runtime.
+		Render: func(cfg config.VillaConfig) ([]orchestrate.Unit, error) {
+			return stackapply.Render(liveStackDeps(), cfg)
+		},
+		Reconcile: orchestrate.Reconcile,
 
 		ModelDownloaded: func(rec recommend.Recommendation) bool {
 			// An unresolvable model reads as "not downloaded" so EnsureModel runs and
@@ -293,23 +283,6 @@ func liveInstallDeps(ctx context.Context) (install.Deps, error) {
 			return install.Proof{Status: p.status, Detail: p.detail}
 		},
 	}, nil
-}
-
-// liveCodingRender resolves the served coder's -m file and its coding-mode
-// descriptor through the same helpers `villa coding-mode enter` renders with. The
-// catalog→inference translation stays here: the pure renderer never imports the
-// catalog.
-func liveCodingRender(cfg config.VillaConfig) (string, *inference.CodingModeSpec, error) {
-	servedModel, _ := codingServedTarget(cfg)
-	modelFile, err := codingModelFile(cfg, servedModel)
-	if err != nil {
-		return "", nil, fmt.Errorf("resolve coder model file: %w", err)
-	}
-	spec, err := codingDescriptor(cfg, servedModel)
-	if err != nil {
-		return "", nil, fmt.Errorf("build coding-mode descriptor: %w", err)
-	}
-	return modelFile, spec, nil
 }
 
 // liveAgentChecks runs the coding-agent preflight gates. The staged footprint

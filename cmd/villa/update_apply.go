@@ -26,11 +26,11 @@ import (
 	"time"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
-	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 	"github.com/MatrixMagician/VillaStraylight/internal/pins"
 	"github.com/MatrixMagician/VillaStraylight/internal/pinstate"
 	"github.com/MatrixMagician/VillaStraylight/internal/prune"
+	"github.com/MatrixMagician/VillaStraylight/internal/stackapply"
 	"github.com/MatrixMagician/VillaStraylight/internal/subsystem"
 	"github.com/MatrixMagician/VillaStraylight/internal/updatecheck"
 	"github.com/MatrixMagician/VillaStraylight/internal/updateflow"
@@ -215,10 +215,7 @@ func liveMutate(ctx context.Context, sys orchestrate.Systemd, k subsystem.Kind, 
 	if err != nil {
 		return err
 	}
-	if err := renderAndWrite(cfg); err != nil {
-		return err
-	}
-	if err := sys.DaemonReload(); err != nil {
+	if _, err := stackapply.Apply(liveStackDeps(), cfg); err != nil {
 		return err
 	}
 
@@ -240,18 +237,12 @@ func liveRestoreSubsystem(ctx context.Context, sys orchestrate.Systemd, k subsys
 		return fmt.Errorf("restore the prior pins: %w", err)
 	}
 
-	dir, err := quadletUnitDir()
-	if err != nil {
-		return err
-	}
-	var changed []orchestrate.Unit
+	units := make(map[string]string, len(snapshot.Units))
 	for name, data := range snapshot.Units {
-		changed = append(changed, orchestrate.Unit{Name: name, Text: string(data)})
+		units[name] = string(data)
 	}
-	if len(changed) > 0 {
-		if err := liveWriteUnits(orchestrate.Plan{Changed: changed}, dir); err != nil {
-			return err
-		}
+	if err := stackapply.Restore(liveStackDeps(), units); err != nil {
+		return err
 	}
 	if err := sys.DaemonReload(); err != nil {
 		return err
@@ -343,46 +334,6 @@ func liveCommit(k subsystem.Kind, refs map[string]string, previous pinstate.Prev
 	// safe and is exactly ADR-0003's inert-leftover state.
 	state.Previous[k.String()] = previous
 	return pinstate.Save(deps, state)
-}
-
-// renderAndWrite re-renders every unit from the persisted config and writes the
-// changed ones.
-func renderAndWrite(cfg config.VillaConfig) error {
-	dir, err := quadletUnitDir()
-	if err != nil {
-		return err
-	}
-	modelFile, err := liveModelFile(cfg)
-	if err != nil {
-		return err
-	}
-	backend, err := inference.BackendFor(cfg.Backend)
-	if err != nil {
-		return err
-	}
-	resident, err := liveResidentUnits(cfg)
-	if err != nil {
-		return err
-	}
-	units, err := livePinnedRender(orchestrate.RenderInput{
-		Backend:       backend,
-		Cfg:           cfg,
-		ModelFile:     modelFile,
-		ModelsDir:     modelsDir(),
-		HostVillaPath: hostVillaPath(),
-		Resident:      resident,
-	})
-	if err != nil {
-		return err
-	}
-	plan, err := orchestrate.Reconcile(units, dir)
-	if err != nil {
-		return err
-	}
-	if len(plan.Changed) == 0 {
-		return nil
-	}
-	return liveWriteUnits(plan, dir)
 }
 
 // ---------------------------------------------------------------------------

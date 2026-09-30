@@ -124,8 +124,8 @@ func backendComponent(name string) (pins.ComponentID, bool) {
 	return "", false
 }
 
-// livePinnedRender is the render entry point every verb uses instead of
-// orchestrate.Render.
+// livePinnedRender is the render entry point used instead of orchestrate.Render:
+// the Render seam of liveStackDeps (ADR-0013), and status's read-only render.
 //
 // It loads the resolver once per render, applies the active backend's effective pin
 // by wrapping the Backend, and hands the managed-service components a Pin seam. On
@@ -149,10 +149,10 @@ func livePinnedRender(in orchestrate.RenderInput) ([]orchestrate.Unit, error) {
 		}
 		in.Projector = projector
 	}
-	// The tools-mode ctx floor is resolved HERE rather than at each of the seven
-	// render sites, because `tools-mode enter` refuses on a floor that none of them
+	// The tools-mode ctx floor is resolved HERE rather than at each render
+	// site, because `tools-mode enter` refuses on a floor that none of them
 	// was raising: the guard and the render would disagree for as long as one caller
-	// stayed unwired. Coding mode is excluded because its callers already supply
+	// stayed unwired. Coding mode is excluded because stackapply already supplies
 	// AgentCtx from cfg.CoderAgentCtx, and Render overrides rather than floors there.
 	if in.AgentCtx == 0 && in.CodingMode == nil && subsystem.ToolsOn(in.Cfg) {
 		agentCtx, err := liveAgentCtx(in.Cfg)
@@ -220,7 +220,7 @@ func liveProjector(cfg config.VillaConfig, coding bool) (string, error) {
 
 // liveSpeculation turns the persisted mode plus the served catalog entry into the
 // render descriptor, the catalog-to-inference translation the pure renderer cannot
-// do itself (the codingDescriptor precedent).
+// do itself (the stackapply coding-descriptor precedent).
 //
 // It is the ONE place config becomes a speculation descriptor, so a config asking
 // for a mode the served entry is not qualified for is a refusal here rather than a

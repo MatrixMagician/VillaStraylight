@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -8,53 +9,45 @@ import (
 
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
+	"github.com/MatrixMagician/VillaStraylight/internal/stackapply"
 )
 
-// inference_secret_seam_test.go is the GHSA-qxg9 (ADR-0011) proof that
-// liveWriteUnits — the ONE live seam backend set, tools-mode, coding-mode,
-// speculation set, model swap, a resident-model verb, `villa update`, `villa
-// restore`, and the dashboard's model switch all funnel their
-// orchestrate.WriteUnits call through — migrates an upgraded host's missing
-// inference secret BEFORE writing any unit, not just up/restart/install.
-//
-// It drives liveWriteUnits directly rather than a full liveBackendSwapDeps()
-// (or liveSwapDeps/liveCodingModeDeps/...) wiring: those live*Deps functions
-// also wire real systemd/podman seams that only run on the target host, so this
-// targets the ONE function actually shared by every one of their
-// ReconcileAndWrite/RestoreUnit(s) closures.
+// inference_secret_seam_test.go is the GHSA-qxg9 (ADR-0011) proof that the live
+// stack adapter every unit-writing verb applies through (liveStackDeps, ADR-0013)
+// migrates an upgraded host's missing inference secret BEFORE it renders: the
+// secret is persisted, its 0600 env file is written, and the units written in the
+// same apply already carry it. A resident set is configured because that is where
+// the ordering shows — the chat UI's plural OPENAI_API_KEYS bakes the secret into
+// the unit, so a render before the heal wrote it with an empty key.
 
-func TestLiveWriteUnitsMigratesMissingInferenceSecret(t *testing.T) {
-	xdg := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", xdg)
-	unitDir := t.TempDir()
+func TestLiveStackApplyHealsTheInferenceSecretBeforeRendering(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	// No systemctl on PATH: the units land in the temp unit dir and the reload is
+	// refused as a missing tool instead of reaching the host's user manager.
+	t.Setenv("PATH", t.TempDir())
 
-	plan := orchestrate.Plan{Changed: []orchestrate.Unit{{Name: "villa-llama.container", Text: "[Container]\nImage=x\n"}}}
-
-	// No secret in the config (the "never migrated" state — config.LoadVilla
-	// returns typed defaults from the empty XDG dir above).
-	cfg, err := config.LoadVilla()
-	if err != nil {
-		t.Fatalf("LoadVilla: %v", err)
+	cfg := config.VillaConfig{
+		Model: "qwen3.5-2b", Quant: "Q4_K_M", Ctx: 8192, Backend: "vulkan",
+		Resident: []config.ResidentModel{{Model: "qwen3.5-0.8b", Ctx: 4096, Port: 8081}},
 	}
-	if cfg.InferenceSecret != "" {
-		t.Fatalf("fixture bug: fresh config already has an inference_secret %q", cfg.InferenceSecret)
+	if err := config.SaveVilla(cfg); err != nil {
+		t.Fatalf("SaveVilla: %v", err)
 	}
 
-	if err := liveWriteUnits(plan, unitDir); err != nil {
-		t.Fatalf("liveWriteUnits: %v", err)
+	var missing orchestrate.ErrToolNotFound
+	if _, err := stackapply.Apply(liveStackDeps(), cfg); err != nil && !errors.As(err, &missing) {
+		t.Fatalf("Apply: %v", err)
 	}
 
-	// The secret was generated AND persisted.
 	migrated, err := config.LoadVilla()
 	if err != nil {
-		t.Fatalf("LoadVilla after migrate: %v", err)
+		t.Fatalf("LoadVilla after apply: %v", err)
 	}
 	if migrated.InferenceSecret == "" {
-		t.Fatal("liveWriteUnits must generate and persist a non-empty inference_secret")
+		t.Fatal("apply must generate and persist a non-empty inference_secret")
 	}
-
-	// The env file was written BEFORE the unit — both must be on disk now, and
-	// the env file must carry the SAME secret just persisted.
 	envPath, err := orchestrate.InferenceSecretEnvHostPath()
 	if err != nil {
 		t.Fatalf("InferenceSecretEnvHostPath: %v", err)
@@ -66,47 +59,28 @@ func TestLiveWriteUnitsMigratesMissingInferenceSecret(t *testing.T) {
 	if want := "LLAMA_API_KEY=" + migrated.InferenceSecret; !strings.Contains(string(envBytes), want) {
 		t.Errorf("env file body = %q, want it to contain %q", envBytes, want)
 	}
-	unitPath := filepath.Join(unitDir, "villa-llama.container")
-	if _, err := os.Stat(unitPath); err != nil {
-		t.Errorf("unit file was not written at %q: %v", unitPath, err)
+
+	dir, err := quadletUnitDir()
+	if err != nil {
+		t.Fatalf("quadletUnitDir: %v", err)
+	}
+	owui, err := os.ReadFile(filepath.Join(dir, orchestrate.OpenWebUIContainerUnitName()))
+	if err != nil {
+		t.Fatalf("chat UI unit was not written: %v", err)
+	}
+	if want := migrated.InferenceSecret + ";" + migrated.InferenceSecret; !strings.Contains(string(owui), want) {
+		t.Errorf("chat UI unit does not carry the persisted secret for both endpoints — the render ran before the heal:\n%s", owui)
 	}
 
-	// A second run reuses the SAME secret rather than rotating it.
-	if err := liveWriteUnits(plan, unitDir); err != nil {
-		t.Fatalf("second liveWriteUnits: %v", err)
+	// A second apply reuses the SAME secret rather than rotating it.
+	if _, err := stackapply.Apply(liveStackDeps(), migrated); err != nil && !errors.As(err, &missing) {
+		t.Fatalf("second Apply: %v", err)
 	}
 	second, err := config.LoadVilla()
 	if err != nil {
-		t.Fatalf("LoadVilla after second migrate: %v", err)
+		t.Fatalf("LoadVilla after second apply: %v", err)
 	}
 	if second.InferenceSecret != migrated.InferenceSecret {
-		t.Errorf("second run's inference_secret = %q, want the reused %q (never rotated)", second.InferenceSecret, migrated.InferenceSecret)
-	}
-}
-
-// TestLiveWriteUnitsSkipsMigrationOnNoOpPlan: an empty Changed plan (nothing to
-// write) must not touch the config or the env file at all — mirrors --dry-run's
-// side-effect-free contract for every caller that never reaches liveWriteUnits
-// with a non-empty plan in the first place.
-func TestLiveWriteUnitsSkipsMigrationOnNoOpPlan(t *testing.T) {
-	xdg := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", xdg)
-	unitDir := t.TempDir()
-
-	if err := liveWriteUnits(orchestrate.Plan{}, unitDir); err != nil {
-		t.Fatalf("liveWriteUnits: %v", err)
-	}
-
-	cfg, err := config.LoadVilla()
-	if err != nil {
-		t.Fatalf("LoadVilla: %v", err)
-	}
-	if cfg.InferenceSecret != "" {
-		t.Errorf("a no-op plan must not generate/persist a secret, got %q", cfg.InferenceSecret)
-	}
-	if envPath, perr := orchestrate.InferenceSecretEnvHostPath(); perr == nil {
-		if _, statErr := os.Stat(envPath); statErr == nil {
-			t.Errorf("a no-op plan must not write the env file at %q", envPath)
-		}
+		t.Errorf("second apply's inference_secret = %q, want the reused %q (never rotated)", second.InferenceSecret, migrated.InferenceSecret)
 	}
 }

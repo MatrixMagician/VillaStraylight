@@ -9,7 +9,6 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/catalog"
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
-	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 	"github.com/MatrixMagician/VillaStraylight/internal/preflight"
 	"github.com/MatrixMagician/VillaStraylight/internal/recommend"
@@ -98,8 +97,8 @@ type fakeDeps struct {
 	agentProofStatus     preflight.Status
 	agentProofDetail     string
 	renderedAgentEnabled bool
-	renderedInput        orchestrate.RenderInput
-	renderedInputSet     bool
+	renderedCfg          config.VillaConfig
+	renderedSet          bool
 	agentChecksCalls     int
 	agentChecks          []preflight.CheckResult
 }
@@ -139,21 +138,15 @@ func newFakeDeps(t *testing.T, units []orchestrate.Unit, plan orchestrate.Plan, 
 				Coder: recommend.CoderFit{Model: "qwen3-coder-30b-a3b", Quant: "Q4_K_M", AgentCtx: 65536, Fits: true, Residency: "swap"},
 			}
 		},
-		ModelFile: func(recommend.Recommendation) (string, error) { return "qwen3.5-0.8b.gguf", nil },
 		ModelsDir: func() string { return t.TempDir() },
 		RunChecks: func(detect.HostProfile, preflight.ResourceReq) []preflight.CheckResult { return checks },
-		Render: func(in orchestrate.RenderInput) ([]orchestrate.Unit, error) {
-			f.renderedInput = in
-			f.renderedInputSet = true
+		Render: func(cfg config.VillaConfig) ([]orchestrate.Unit, error) {
+			f.renderedCfg = cfg
+			f.renderedSet = true
 			return units, nil
 		},
-		Reconcile:     func([]orchestrate.Unit, string) (orchestrate.Plan, error) { return plan, nil },
-		UnitDir:       func() (string, error) { return t.TempDir(), nil },
-		ResidentUnits: func(config.VillaConfig) ([]orchestrate.ResidentUnit, error) { return nil, nil },
-		HostVillaPath: func() string { return "/opt/villa/bin/villa" },
-		CodingRender: func(config.VillaConfig) (string, *inference.CodingModeSpec, error) {
-			return "qwen3-coder-30b-a3b.gguf", nil, nil
-		},
+		Reconcile:   func([]orchestrate.Unit, string) (orchestrate.Plan, error) { return plan, nil },
+		UnitDir:     func() (string, error) { return t.TempDir(), nil },
 		Username:    func() string { return "tester" },
 		Endpoint:    func() string { return "http://127.0.0.1:8080" },
 		Interactive: func() bool { return false },

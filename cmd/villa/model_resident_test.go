@@ -24,6 +24,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/openwebui"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 	"github.com/MatrixMagician/VillaStraylight/internal/recommend"
+	"github.com/MatrixMagician/VillaStraylight/internal/stackapply"
 )
 
 // residentRecorder captures every effect a fake residentDeps performs, so a test can
@@ -78,7 +79,7 @@ const (
 func newResidentFixture() *residentFixture {
 	const gib = uint64(1) << 30
 	f := &residentFixture{
-		cfg: config.VillaConfig{Model: testPrimary, Quant: "Q4", Ctx: 8192, Backend: "rocm"},
+		cfg: config.VillaConfig{Model: testPrimary, Quant: "Q4", Ctx: 8192, Backend: "rocm", InferenceSecret: "test-secret"},
 		models: map[string]catalog.Model{
 			testPrimary:   {ID: testPrimary, Quant: "Q4", DefaultCtx: 8192},
 			testCandidate: {ID: testCandidate, Quant: "Q8", DefaultCtx: 4096},
@@ -125,29 +126,50 @@ func (f *residentFixture) deps() (*residentDeps, *residentRecorder) {
 			rec.pulled = append(rec.pulled, m.ID)
 			return nil
 		},
-		renderUnits: func(config.VillaConfig) ([]orchestrate.Unit, error) { return f.rendered, nil },
-		unitDir:     func() (string, error) { return "/unit/dir", nil },
-		reconcile: func(units []orchestrate.Unit, _ string) (orchestrate.Plan, error) {
-			var plan orchestrate.Plan
-			for _, u := range units {
-				if contains(f.changed, u.Name) {
-					plan.Changed = append(plan.Changed, u)
-					continue
+		stack: stackapply.Deps{
+			Catalog: func() (catalog.Catalog, error) {
+				var cat catalog.Catalog
+				for _, m := range f.models {
+					cat.Models = append(cat.Models, m)
 				}
-				plan.Unchanged = append(plan.Unchanged, u)
-			}
-			return plan, nil
-		},
-		writeUnits: func(plan orchestrate.Plan, _ string) error {
-			if f.writeErr != nil {
-				return f.writeErr
-			}
-			var names []string
-			for _, u := range plan.Changed {
-				names = append(names, u.Name)
-			}
-			rec.written = append(rec.written, names)
-			return nil
+				return cat, nil
+			},
+			ModelsDir:     func() string { return "/models" },
+			HostVillaPath: func() string { return "/bin/villa" },
+			Render:        func(orchestrate.RenderInput) ([]orchestrate.Unit, error) { return f.rendered, nil },
+			UnitDir:       func() (string, error) { return "/unit/dir", nil },
+			Reconcile: func(units []orchestrate.Unit, _ string) (orchestrate.Plan, error) {
+				var plan orchestrate.Plan
+				for _, u := range units {
+					if contains(f.changed, u.Name) {
+						plan.Changed = append(plan.Changed, u)
+						continue
+					}
+					plan.Unchanged = append(plan.Unchanged, u)
+				}
+				return plan, nil
+			},
+			WriteUnits: func(plan orchestrate.Plan, _ string) error {
+				if f.writeErr != nil {
+					return f.writeErr
+				}
+				var names []string
+				for _, u := range plan.Changed {
+					names = append(names, u.Name)
+				}
+				rec.written = append(rec.written, names)
+				return nil
+			},
+			DaemonReload: func() error {
+				rec.reloads++
+				return nil
+			},
+			// The fixture config carries a secret, so the heal never saves; it still
+			// rewrites the env file, which has no recorder here.
+			SaveConfig: func(config.VillaConfig) error {
+				return errors.New("the fixture config carries a secret; the heal must not save")
+			},
+			WriteInferenceSecretEnv: func(string, string) error { return nil },
 		},
 		readUnit: func(_, name string) (string, bool) {
 			text, ok := f.diskUnits[name]
@@ -419,7 +441,7 @@ func TestResidentAddRollsConfigBackWhenAStepAfterTheSaveFails(t *testing.T) {
 	// The unit dir must be a real directory: the rollback restores captured unit text
 	// through writeUnitText, which writes for real.
 	dir := t.TempDir()
-	d.unitDir = func() (string, error) { return dir, nil }
+	d.stack.UnitDir = func() (string, error) { return dir, nil }
 	cmd, _, errOut := newResidentCmd()
 
 	if code := runResidentAdd(cmd, testCandidate, d); code != exitBlocked {
@@ -454,7 +476,7 @@ func TestResidentAddReportsAnIncompleteRollbackHonestly(t *testing.T) {
 
 	d, _ := f.deps()
 	dir := t.TempDir()
-	d.unitDir = func() (string, error) { return dir, nil }
+	d.stack.UnitDir = func() (string, error) { return dir, nil }
 	cmd, _, errOut := newResidentCmd()
 
 	if code := runResidentAdd(cmd, testCandidate, d); code != exitBlocked {
