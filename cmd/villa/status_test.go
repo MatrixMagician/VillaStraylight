@@ -62,7 +62,7 @@ func newStatusDeps(t *testing.T, units []orchestrate.Unit) *status.Deps {
 	}
 	// tok/s: idle by default, so the figure is omitted rather than fabricated as 0.
 	// ROCm readiness: all-unset folds to "unknown", the honest off-hardware default.
-	d.GenTokensPerSec = func(string) *float64 { return nil }
+	d.GenTokensPerSec = func() *float64 { return nil }
 	d.ROCmReadiness = func() detect.ROCmReadiness { return detect.ROCmReadiness{} }
 	return &d
 }
@@ -193,7 +193,7 @@ func TestStatusTokensPerSecTypedOptional(t *testing.T) {
 
 	t.Run("generating → value rendered + labeled by backend", func(t *testing.T) {
 		d := newStatusDeps(t, units)
-		d.GenTokensPerSec = func(string) *float64 { return new(12.3) }
+		d.GenTokensPerSec = func() *float64 { return new(12.3) }
 		report := runStatusReport(t, d)
 		if report.GenTokensPerSec == nil {
 			t.Fatalf("generating server must surface a tok/s reading (got nil)")
@@ -216,7 +216,7 @@ func TestStatusTokensPerSecTypedOptional(t *testing.T) {
 
 	t.Run("idle → omitted (never a fabricated 0)", func(t *testing.T) {
 		d := newStatusDeps(t, units)
-		d.GenTokensPerSec = func(string) *float64 { return nil }
+		d.GenTokensPerSec = func() *float64 { return nil }
 		report := runStatusReport(t, d)
 		if report.GenTokensPerSec != nil {
 			t.Fatalf("idle server must omit tok/s (typed-Unknown), got %v", *report.GenTokensPerSec)
@@ -240,7 +240,7 @@ func TestStatusTokensPerSecTypedOptional(t *testing.T) {
 	t.Run("scrape unavailable → omitted", func(t *testing.T) {
 		d := newStatusDeps(t, units)
 		// An unavailable /metrics scrape is modeled the same as idle by the seam: nil.
-		d.GenTokensPerSec = func(string) *float64 { return nil }
+		d.GenTokensPerSec = func() *float64 { return nil }
 		report := runStatusReport(t, d)
 		if report.GenTokensPerSec != nil {
 			t.Fatalf("unavailable scrape must omit tok/s, got %v", *report.GenTokensPerSec)

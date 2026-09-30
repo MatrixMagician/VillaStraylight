@@ -42,8 +42,9 @@ import (
 // that constructs status.Deps. status_test.go drives runStatus through a stubbed
 // status.Deps and freezes the --json contract byte-for-byte.
 
-// statusHTTPTimeout bounds a single /health or /props probe.
-const statusHTTPTimeout = readinessHTTPTimeout
+// statusHTTPTimeout bounds a single probe of a managed service. The inference
+// unit's own reads are bounded by its client (ADR-0014).
+const statusHTTPTimeout = 3 * time.Second
 
 // newStatus builds `villa status`: aggregate unit + container + /health + offload
 // Verdict into one table (or --json), assert the loopback/no-telemetry posture, and
@@ -237,22 +238,22 @@ func renderStatusTable(w io.Writer, r status.Report, withProvenance bool) {
 }
 
 // liveStatusDeps wires status.Deps to the real host: config.LoadVilla, the
-// orchestrate render + systemd is-active/journald seam, the live /health + /props
-// HTTP probes (bounded), the live GTT reader, and the recommend-derived weight
-// footprint. It is replaced wholesale by stubs in status_test.go.
+// orchestrate render + systemd is-active/journald seam, the inference unit's /health,
+// /props and /metrics reads through the authenticated inference client (ADR-0014),
+// the live GTT reader, and the recommend-derived weight footprint. It is replaced
+// wholesale by stubs in status_test.go.
 func liveStatusDeps() (*status.Deps, error) {
 	sys := orchestrate.NewSystemd()
-	// Resolve the backend from config (fail-closed): the inference endpoint is
-	// derived from the resolved backend's container runner, never a hardcoded literal.
+	// Resolve the backend from config (fail-closed): an unknown backend string is an
+	// error here, never a silent default.
 	cfg, err := config.LoadVilla()
 	if err != nil {
 		return nil, fmt.Errorf("load config: %w", err)
 	}
-	backend, err := inference.BackendFor(cfg.Backend)
-	if err != nil {
+	if _, err := inference.BackendFor(cfg.Backend); err != nil {
 		return nil, fmt.Errorf("resolve backend: %w", err)
 	}
-	endpoint := inference.NewContainerRunner(backend, inference.RunSpec{}).Endpoint()
+	inf := inferenceClient(cfg)
 	deps := &status.Deps{
 		LoadConfig:    config.LoadVilla,
 		ModelFile:     liveModelFile,
@@ -274,10 +275,9 @@ func liveStatusDeps() (*status.Deps, error) {
 		// invocation's startup, where the load_tensors residency line lives; the
 		// whole-unit journal's oldest bytes are stale prior-start output (F-3).
 		JournalText: sys.ResidencyJournal,
-		Props:       func(endpoint string) *inference.PropsInfo { return liveProps(endpoint, cfg.InferenceSecret) },
+		Props:       func() *inference.PropsInfo { return inf.Props(context.Background()) },
 		GTTUsed:     detect.GTTUsedBytes,
 		WeightBytes: liveWeightBytes,
-		Endpoint:    func() string { return endpoint },
 		// The stack's services, as ONE list. Unit names are derived from the
 		// orchestrate accessors via the same .container → .service derivation doctor
 		// uses, never a typed service-name literal (the seam gate walks cmd/villa).
@@ -285,11 +285,11 @@ func liveStatusDeps() (*status.Deps, error) {
 		// Every managed service gets its OWN probe. Borrowing the inference
 		// endpoint's health probe for a managed service was a real false-green: a
 		// healthy chat model made a down vector store read as ready.
-		Services: liveStatusServices(endpoint),
-		// Live tok/s: REUSE the dashboard-proven metrics collector — no new
-		// scraper. nil on a failed/absent /metrics scrape or an idle server, so the
-		// figure is omitted (typed-Unknown), NEVER a fabricated 0.
-		GenTokensPerSec: func(endpoint string) *float64 { return liveGenTokensPerSec(endpoint, cfg.InferenceSecret) },
+		Services: liveStatusServices(inf),
+		// Live tok/s: the SAME /metrics + /slots reads the dashboard's Performance
+		// panel uses — no new scraper. nil on a failed/absent /metrics scrape or an
+		// idle server, so the figure is omitted (typed-Unknown), NEVER a fabricated 0.
+		GenTokensPerSec: func() *float64 { return liveGenTokensPerSec(inf) },
 		// ROCm-readiness: CONSUME the already-computed detect rocm_readiness
 		// sub-tree; internal/status folds it. Never recompute the signals here.
 		ROCmReadiness: func() detect.ROCmReadiness { return detect.Probe().ROCmReadiness },
@@ -314,7 +314,7 @@ func liveStatusDeps() (*status.Deps, error) {
 	if subsystem.AgentOn(cfg) {
 		deps.AgentPinMatch = liveAgentPinMatch
 		deps.AgentResidency = liveAgentResidency
-		deps.AgentCache = func() (uint64, uint64, bool) { return liveAgentCache(endpoint, cfg.InferenceSecret) }
+		deps.AgentCache = func() (uint64, uint64, bool) { return liveAgentCache(inf) }
 	}
 	return deps, nil
 }
@@ -413,15 +413,15 @@ func liveAgentResidency() string {
 	return rec.Coder.Residency
 }
 
-// liveAgentCache is the cache-effectiveness counter seam: it REUSES the
-// Plan-02 metrics.ScrapeCacheCounters primitive over the SAME bounded /metrics
-// scrape (no new HTTP request / endpoint literal). It returns (cacheN, promptN,
-// ok) with ok=true ONLY when BOTH counters are Known; an absent/unparseable scrape
-// or either counter Unknown → ok=false so the surface degrades typed-Unknown
-// (gray badge / "unavailable" — never a fabricated 0%). The Plan-03 ratio gate
-// (promptN>0) lives in the status core's codingInfo populator.
-func liveAgentCache(endpoint, apiKey string) (uint64, uint64, bool) {
-	sample, ok := metrics.ScrapeCacheCountersAuth(endpoint, apiKey)
+// liveAgentCache is the cache-effectiveness counter seam: it reads the cache pair
+// through the inference client's SAME bounded /metrics scrape (no new HTTP request /
+// endpoint literal). It returns (cacheN, promptN, ok) with ok=true ONLY when BOTH
+// counters are Known; an absent/unparseable scrape or either counter Unknown →
+// ok=false so the surface degrades typed-Unknown (gray badge / "unavailable" —
+// never a fabricated 0%). The Plan-03 ratio gate (promptN>0) lives in the status
+// core's codingInfo populator.
+func liveAgentCache(inf inference.Client) (uint64, uint64, bool) {
+	sample, ok := inf.CacheCounters(context.Background())
 	if !ok || !sample.CacheKnown || !sample.PromptKnown {
 		return 0, 0, false // typed-Unknown, never a fabricated 0%
 	}
@@ -635,20 +635,20 @@ func liveReadVerifyState() *verifystate.State {
 	return &st
 }
 
-// liveGenTokensPerSec reads the live token-generation throughput by REUSING the
-// dashboard's bounded metrics collector: metrics.ScrapeMetrics +
-// metrics.IsGenerating. It returns nil — a typed-Unknown the Report omits — on a
-// failed/absent /metrics scrape (404/transport) OR when the server is idle (the
-// gauges are stale snapshots when !IsGenerating), so the surface NEVER shows a
-// fabricated 0 tok/s. The scrape inherits the collector's 2s timeout + 64 KiB
-// io.LimitReader bounds (no new attack surface). Mirrors liveProps' nil-on-failure
-// discipline.
-func liveGenTokensPerSec(endpoint, apiKey string) *float64 {
-	snap, ok := metrics.ScrapeMetricsAuth(endpoint, apiKey)
+// liveGenTokensPerSec reads the live token-generation throughput through the
+// inference client's /metrics and /slots reads, the ones the dashboard's
+// Performance panel uses, folded by metrics.IsGenerating. It returns nil — a
+// typed-Unknown the Report omits — on a failed/absent /metrics scrape
+// (404/401/transport) OR when the server is idle (the gauges are stale snapshots
+// when !IsGenerating), so the surface NEVER shows a fabricated 0 tok/s. The reads
+// inherit the client's time and body bounds (no new attack surface).
+func liveGenTokensPerSec(inf inference.Client) *float64 {
+	ctx := context.Background()
+	snap, ok := inf.Perf(ctx)
 	if !ok {
 		return nil // /metrics 404 or transport error → typed-Unknown (omitted)
 	}
-	slots, _ := metrics.ScrapeSlotsAuth(endpoint, apiKey)
+	slots, _ := inf.Slots(ctx)
 	if !metrics.IsGenerating(snap, slots) {
 		return nil // idle: gauges are stale snapshots → omit, never a fabricated 0
 	}
@@ -699,18 +699,16 @@ func liveDashboardHealth(addr string) status.HealthState {
 	return status.HealthLoading
 }
 
-// liveHealthProbe maps a single /health GET to a status.HealthState: 200→ready,
-// 503→loading (up but not ready — Unknown, never down), any transport
-// error / other code → down. The body is bounded by io.LimitReader.
-func liveHealthProbe(endpoint string) status.HealthState {
-	client := &http.Client{Timeout: statusHTTPTimeout}
-	resp, err := client.Get(endpoint + "/health")
+// liveHealthProbe maps a single /health GET through the inference client to a
+// status.HealthState: 200→ready, 503→loading (up but not ready — Unknown, never
+// down), any transport error / other code → down. The client bounds the time and
+// the body.
+func liveHealthProbe(inf inference.Client) status.HealthState {
+	code, err := inf.Health(context.Background())
 	if err != nil {
 		return status.HealthDown
 	}
-	defer resp.Body.Close()
-	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 8<<10))
-	switch resp.StatusCode {
+	switch code {
 	case http.StatusOK:
 		return status.HealthReady
 	case http.StatusServiceUnavailable:
@@ -721,75 +719,19 @@ func liveHealthProbe(endpoint string) status.HealthState {
 }
 
 // liveOpenWebUIHealth maps the Open WebUI row's health to a status.HealthState by
-// probing the UPSTREAM llama-server /v1/models (reachable on the host-published
-// 127.0.0.1:8080 — no WEBUI_AUTH friction, RESEARCH A3): a non-empty {"data":[...]}
-// model list → HealthReady (CHAT-01); an empty list / non-200 → HealthLoading
-// (up but not ready → WARN, never a false PASS); any transport error → HealthUnknown
-// (typed-Unknown → WARN). The body is bounded by io.LimitReader.
-func liveOpenWebUIHealth(endpoint string) status.HealthState {
-	client := &http.Client{Timeout: statusHTTPTimeout}
-	resp, err := client.Get(endpoint + "/v1/models")
-	if err != nil {
+// reading the UPSTREAM llama-server model list through the inference client (no
+// WEBUI_AUTH friction, RESEARCH A3): a non-empty list → HealthReady (CHAT-01); an
+// empty list / non-200 / unparseable body → HealthLoading (up but not ready → WARN,
+// never a false PASS); any transport error → HealthUnknown (typed-Unknown → WARN).
+func liveOpenWebUIHealth(inf inference.Client) status.HealthState {
+	n, reached := inf.Models(context.Background())
+	if !reached {
 		return status.HealthUnknown // transport error / unreachable → typed-Unknown → WARN
 	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
-	if resp.StatusCode != http.StatusOK {
-		return status.HealthLoading // up but not serving a model list yet → WARN
-	}
-	var raw struct {
-		Data []json.RawMessage `json:"data"`
-	}
-	if err := json.Unmarshal(body, &raw); err != nil {
-		return status.HealthLoading // reachable but unparseable → not ready → WARN
-	}
-	if len(raw.Data) == 0 {
-		return status.HealthLoading // empty model list → up but not ready → WARN (no false PASS)
+	if n == 0 {
+		return status.HealthLoading // up but not serving a model list yet → WARN (no false PASS)
 	}
 	return status.HealthReady // non-empty model list → Open WebUI reaches a model (PASS)
-}
-
-// liveProps fetches and parses llama.cpp /props for the config-identity drift
-// overlay (corroboration only, never the residency proof). A transport
-// error / unparseable body yields nil (Unknown), which never produces a false PASS
-// or a FAIL in RunningOffloadVerdict. The body is bounded by io.LimitReader.
-//
-// apiKey is the LLAMA_API_KEY/OPENAI_API_KEY bearer (GHSA-qxg9, ADR-0011): a keyed
-// llama-server 401s an unauthenticated /props, which used to degrade this check to
-// a permanent Unknown. "" sends no header (an unkeyed server ignores it).
-func liveProps(endpoint, apiKey string) *inference.PropsInfo {
-	client := &http.Client{Timeout: statusHTTPTimeout}
-	req, err := http.NewRequest(http.MethodGet, endpoint+"/props", nil)
-	if err != nil {
-		return nil
-	}
-	if apiKey != "" {
-		req.Header.Set("Authorization", "Bearer "+apiKey)
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<10))
-	if resp.StatusCode != http.StatusOK {
-		return nil
-	}
-	var raw struct {
-		ModelPath     string `json:"model_path"`
-		DefaultParams struct {
-			NCtx int `json:"n_ctx"`
-		} `json:"default_generation_settings"`
-		NCtx int `json:"n_ctx"`
-	}
-	if err := json.Unmarshal(body, &raw); err != nil {
-		return nil
-	}
-	nctx := raw.NCtx
-	if nctx == 0 {
-		nctx = raw.DefaultParams.NCtx
-	}
-	return &inference.PropsInfo{ModelPath: raw.ModelPath, NCtx: nctx}
 }
 
 // liveWeightBytes derives the configured model's expected weight footprint from the
@@ -829,14 +771,14 @@ func liveWeightBytes(cfg config.VillaConfig) uint64 {
 // Every managed service carries its OWN probe. That is not stylistic: borrowing the
 // inference endpoint's health probe for a managed service was a real false-green,
 // where a healthy chat model made a down vector store read as ready.
-func liveStatusServices(endpoint string) []status.Service {
+func liveStatusServices(inf inference.Client) []status.Service {
 	return []status.Service{
 		{
 			// The inference service is the ONLY one whose offload verdict folds into
 			// the overall status: it is the only one running the model.
 			Unit:  installServiceName,
 			Kind:  status.Inference,
-			Probe: func() status.HealthState { return liveHealthProbe(endpoint) },
+			Probe: func() status.HealthState { return liveHealthProbe(inf) },
 		},
 		{
 			// The chat UI's health is reachability AND a non-empty upstream model
@@ -844,7 +786,7 @@ func liveStatusServices(endpoint string) []status.Service {
 			// model at all.
 			Unit:  openWebUIServiceName,
 			Kind:  status.Managed,
-			Probe: func() status.HealthState { return liveOpenWebUIHealth(endpoint) },
+			Probe: func() status.HealthState { return liveOpenWebUIHealth(inf) },
 		},
 		{
 			Unit:  unitServiceName(orchestrate.QdrantContainerUnitName()),

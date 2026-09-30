@@ -62,10 +62,12 @@ var acquireStackLock = func() (*stacklock.Lock, error) {
 // liveResidencyDeps wires the residency drive protocol to the real host. It is the
 // ONE binding of internal/residency's seams to the live primitives, shared by every
 // caller that proves residency, so no two proofs can drift onto different readers.
-func liveResidencyDeps() residency.Deps {
+// The readiness poll and the generation probe run through c, the authenticated
+// inference client, which owns the unit's address and key (ADR-0014).
+func liveResidencyDeps(c inference.Client) residency.Deps {
 	return residency.Deps{
-		PollHealth: inference.PollHealth,
-		Generate:   inference.GenerationProbe,
+		PollHealth: c.PollHealth,
+		Generate:   c.GenerationProbe,
 		GPUBusy:    detect.GPUBusyPercent,
 		GTTUsed:    detect.GTTUsedBytes,
 		// The INVOCATION-scoped journal (ResidencyJournal), never the whole-unit
@@ -108,10 +110,10 @@ func liveProve(ctx context.Context, target string) prove.Verdict {
 		return prove.Verdict{Status: prove.StatusFail, Detail: "resolve model file: " + err.Error()}
 	}
 
-	return residency.ProveCutover(ctx, liveResidencyDeps(), residency.Target{
-		// The endpoint is derived the SAME way the status path does: the resolved
-		// backend's container runner, never a hand-rolled URL.
-		Endpoint:      inference.NewContainerRunner(backend, inference.RunSpec{}).Endpoint(),
+	// liveProve is the SHARED cutover gate — backend set, model swap, `villa
+	// update`'s proveInference, tools-mode and restore all route through this ONE
+	// call, so the authenticated client bound here covers all of them at once.
+	return residency.ProveCutover(ctx, liveResidencyDeps(inferenceClient(cfg)), residency.Target{
 		Service:       installServiceName,
 		ModelID:       cfg.Model,
 		ModelFile:     modelFile,
@@ -119,11 +121,6 @@ func liveProve(ctx context.Context, target string) prove.Verdict {
 		WeightBytes:   liveWeightBytes(cfg),
 		Markers:       backend.ResidencyProof(),
 		DraftExpected: liveDraftExpected(cfg),
-		// GHSA-qxg9 (ADR-0011): the target unit now requires this bearer on every
-		// /v1 route. liveProve is the SHARED cutover gate — backend set, model
-		// swap, `villa update`'s proveInference, tools-mode and restore all route
-		// through this ONE call, so wiring it here covers all of them at once.
-		APIKey: cfg.InferenceSecret,
 	})
 }
 

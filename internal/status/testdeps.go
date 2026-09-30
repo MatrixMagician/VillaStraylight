@@ -65,12 +65,11 @@ func StubDeps(tempDir string, units []orchestrate.Unit) (Deps, error) {
 		JournalText: func(string) (string, bool) {
 			return "load_tensors:      Vulkan0 model buffer size = 21504.49 MiB\n", true
 		},
-		Props: func(string) *inference.PropsInfo {
+		Props: func() *inference.PropsInfo {
 			return &inference.PropsInfo{ModelPath: "/models/qwen3.gguf", NCtx: 131072}
 		},
 		GTTUsed:     func() detect.Bytes { return detect.GTTUsedBytesForTest(tempDir) },
 		WeightBytes: func(config.VillaConfig) uint64 { return FixtureWeight },
-		Endpoint:    func() string { return "http://127.0.0.1:8080" },
 		Services:    StubServiceList(HealthReady),
 	}, nil
 }

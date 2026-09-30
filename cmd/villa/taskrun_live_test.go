@@ -20,7 +20,7 @@ func TestLiveTaskRunDepsIsFullyWired(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 
-	d := liveTaskRunDeps(t.Context(), "http://127.0.0.1:8080")
+	d := liveTaskRunDeps(t.Context(), inferenceClient(config.VillaConfig{}))
 	v := reflect.ValueOf(d)
 	for i := 0; i < v.NumField(); i++ {
 		f := v.Field(i)

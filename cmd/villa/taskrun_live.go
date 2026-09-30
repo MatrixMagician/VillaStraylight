@@ -30,6 +30,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/crushapi"
 	"github.com/MatrixMagician/VillaStraylight/internal/grounding"
+	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 	"github.com/MatrixMagician/VillaStraylight/internal/llm"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 	"github.com/MatrixMagician/VillaStraylight/internal/pathsafe"
@@ -46,10 +47,10 @@ import (
 // unit without letting a wedged server hold the task forever.
 const auditTimeout = 5 * time.Minute
 
-// liveTaskRunDeps wires the runner to the host. endpoint is the inference
-// unit's loopback URL the dashboard already scrapes, so the audit talks to the
-// exact server the status row reports on.
-func liveTaskRunDeps(ctx context.Context, endpoint string) taskrun.Deps {
+// liveTaskRunDeps wires the runner to the host. inf is the authenticated
+// inference client the dashboard already scrapes through (ADR-0014), so the audit
+// talks to the exact server the status row reports on, with its key.
+func liveTaskRunDeps(ctx context.Context, inf inference.Client) taskrun.Deps {
 	return taskrun.Deps{
 		Store:      taskstore.New(pathsafe.DataRoot()),
 		LoadConfig: config.LoadVilla,
@@ -61,7 +62,7 @@ func liveTaskRunDeps(ctx context.Context, endpoint string) taskrun.Deps {
 		},
 		ToolsOn:      subsystem.ToolsOn,
 		SandboxReady: liveSandboxReady,
-		Audit:        liveGroundingAudit(endpoint),
+		Audit:        liveGroundingAudit(inf),
 		ReadFile:     liveWorkspaceRead,
 		Now:          time.Now,
 		Rand:         rand.Reader,
@@ -123,20 +124,8 @@ func liveSandboxReady() (bool, string) {
 // liveGroundingAudit runs the second pass against the chat unit over loopback
 // with the configured model. grounding.Prompt pins temperature 0 and disables
 // thinking; the deltas are gathered into the one string the parser reads.
-func liveGroundingAudit(endpoint string) func(context.Context, grounding.Document, []grounding.Source) grounding.DocumentReport {
-	// GHSA-qxg9 (ADR-0011): the chat unit this audits requires the bearer too. A
-	// load failure here just leaves apiKey empty (a 401 detail in the report,
-	// never a panic) — the inner per-document loop reloads config again for
-	// cfg.Model, unchanged.
-	apiKey := ""
-	if cfg, err := config.LoadVilla(); err == nil {
-		apiKey = cfg.InferenceSecret
-	}
-	client := llm.NewOpenAIClient(llm.Options{
-		BaseURL: strings.TrimRight(endpoint, "/") + "/v1",
-		Timeout: auditTimeout,
-		APIKey:  apiKey,
-	})
+func liveGroundingAudit(inf inference.Client) func(context.Context, grounding.Document, []grounding.Source) grounding.DocumentReport {
+	client := inf.Chat(auditTimeout)
 	return func(ctx context.Context, doc grounding.Document, sources []grounding.Source) grounding.DocumentReport {
 		cfg, err := config.LoadVilla()
 		if err != nil {

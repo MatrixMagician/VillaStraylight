@@ -95,6 +95,7 @@ func baseInput(t *testing.T, fr *fakeRunner) ValidateInput {
 		HeadroomBytes: 7 << 30,
 		EnvelopeBytes: 62 << 30,
 		Runner:        fr,
+		Client:        NewClient(srv.URL, ""),
 		NewCeilingRunner: func(stress RunSpec) Runner {
 			return &fakeProbeRunner{health: detect.KnownBool(true, "/health")}
 		},
@@ -269,6 +270,7 @@ func TestValidateChatFailWarns(t *testing.T) {
 		HeadroomBytes:    7 << 30,
 		EnvelopeBytes:    62 << 30,
 		Runner:           fr,
+		Client:           NewClient(srv.URL, ""),
 		NewCeilingRunner: func(stress RunSpec) Runner { return &fakeProbeRunner{health: detect.KnownBool(true, "/health")} },
 		ReadGTTUsed:      gttSeam(detect.KnownBytes(1<<30, "before"), detect.KnownBytes(1<<30+400<<20, "after")),
 		ReadyTimeout:     200 * time.Millisecond,

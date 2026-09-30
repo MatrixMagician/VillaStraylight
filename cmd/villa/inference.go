@@ -26,6 +26,23 @@ import (
 // global --json flag. The Verdict→exit mapping + table/JSON rendering live ENTIRELY
 // here; internal/inference.Validate stays a pure library (no os.Exit/print).
 
+// inferenceClient builds the control plane's authenticated inference client
+// (ADR-0014) for the host-published inference unit, from a loaded config. It and
+// inNetworkInferenceClient are the only places the api key is read to CALL
+// llama-server: every route villa uses goes through the value they return, so no
+// caller holds an endpoint string plus a key, and none can drift back to a 401 by
+// omitting it (#252). TestInferenceReachedOnlyThroughClient holds that line.
+func inferenceClient(cfg config.VillaConfig) inference.Client {
+	return inference.HostClient(cfg.InferenceSecret)
+}
+
+// inNetworkInferenceClient is the same client addressed by container DNS on
+// villa.network, for a probe that runs inside a --network helper container
+// (runProbeCurlIn), where 127.0.0.1 is the helper's own loopback.
+func inNetworkInferenceClient(cfg config.VillaConfig) inference.Client {
+	return inference.NewClient(orchestrate.LlamaInNetworkRoot(), cfg.InferenceSecret)
+}
+
 // validateFn is the validation seam. It defaults to runValidation (which wires the
 // real container Runner + live sysfs reads) and is overridden in tests so the verb's
 // success path is exercisable without a live iGPU.
@@ -192,9 +209,9 @@ func runValidation(ctx context.Context, m catalog.Model, withCeiling bool) infer
 		Markers:       backend.ResidencyProof(),
 		Vision:        cfg.Vision,
 		DraftExpected: liveDraftExpected(cfg),
-		// GHSA-qxg9 (ADR-0011): the probe's chatProbe sends this as the Bearer
-		// credential against the transient validate/run container.
-		APIKey: cfg.InferenceSecret,
+		// The run publishes on the host loopback endpoint and is started with the
+		// same key (secretEnvFile), so the chat probe goes through the host client.
+		Client: inferenceClient(cfg),
 	}
 	if withCeiling {
 		in.NewCeilingRunner = func(stress inference.RunSpec) inference.Runner {

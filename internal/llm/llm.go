@@ -1,5 +1,6 @@
-// Package llm is VillaStraylight's model gateway: an OpenAI-compatible client
-// for talking to the local llama-server.
+// Package llm is VillaStraylight's OpenAI wire protocol: an OpenAI-compatible client
+// for the local llama-server's chat route. The control plane reaches it only
+// through inference.Client, which owns the address and the api key (ADR-0014).
 package llm
 
 import (
@@ -50,9 +51,9 @@ type Options struct {
 	BaseURL string
 	Timeout time.Duration
 	// APIKey is sent as `Authorization: Bearer <APIKey>` on every request when
-	// non-empty (GHSA-qxg9, ADR-0011). Empty omits the header, which is what every
-	// call site rendered before llama-server required one; a caller that has not
-	// yet threaded its config's InferenceSecret through degrades to an
-	// unauthenticated request (a 401 from the server), never a client-side panic.
+	// non-empty (GHSA-qxg9, ADR-0011). Empty omits the header, which a keyed
+	// llama-server answers with a 401, never a client-side panic. The control plane
+	// builds this client only through inference.Client.Chat, which sets it
+	// (ADR-0014).
 	APIKey string
 }

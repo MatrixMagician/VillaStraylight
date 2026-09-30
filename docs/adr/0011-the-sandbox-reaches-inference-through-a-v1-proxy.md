@@ -53,6 +53,12 @@ and every villa client that talks `/v1` (`internal/inference`'s generation probe
 the residency drive, the task-bridge grounding audit, `bench`, `verify`) must
 supply it.
 
+> **Amended by [ADR-0014](0014-one-authenticated-inference-client.md).** Supplying
+> the key per caller missed one (#252), so every control-plane call to
+> llama-server now goes through one authenticated client, `inference.Client`,
+> and a gate refuses any other route to it. `/v1/models` turned out to be public
+> under `--api-key`, like `/health`; the client sends the key there anyway.
+
 Open WebUI's OWN connection to villa-llama (`OPENAI_API_KEY` — a SEPARATE key from
 the well-known `sk-no-key-required` sentinel it used when llama-server took no
 auth at all) moves to the real secret in the render's env block. When exactly one

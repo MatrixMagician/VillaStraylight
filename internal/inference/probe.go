@@ -17,16 +17,15 @@ import (
 // offload assert (offload.go) is what proves the iGPU engaged. These probes
 // answer the adjacent questions:
 //
-//   - pollHealth          — is the server READY to take requests? (Pitfall 5: this
-//     is a readiness gate ONLY, never the offload verdict.)
-//   - chatProbe           — does a REAL chat completion return the expected ANSWER
-//     through the reused internal/llm OpenAIClient? (reuse, do NOT rebuild the
-//     client.) Arrival is not an answer: a backend that streams garbage still
-//     streams tokens (#209).
-//   - contextCeilingProbe — does a SECOND run at the envelope-ceiling ctx clear, or
-//     does it hit the OOM/long-context cliff? It CLASSIFIES an OOM/hang/timeout as a
-//     reported finding and tears the container down — it NEVER propagates the cliff
-// as a crash (Pitfall 4).
+//   - Client.pollHealth      — is the server READY to take requests? (Pitfall 5:
+//     this is a readiness gate ONLY, never the offload verdict.)
+//   - Client.GenerationProbe — does a REAL chat completion return the expected
+//     ANSWER through the client's chat route? Arrival is not an answer: a backend
+//     that streams garbage still streams tokens (#209).
+//   - contextCeilingProbe    — does a SECOND run at the envelope-ceiling ctx clear,
+//     or does it hit the OOM/long-context cliff? It CLASSIFIES an OOM/hang/timeout
+//     as a reported finding and tears the container down — it NEVER propagates the
+//     cliff as a crash (Pitfall 4).
 
 // pollInterval is the default gap between readiness polls.
 const pollInterval = 250 * time.Millisecond
@@ -43,27 +42,29 @@ type ChatResult struct {
 	Detail string
 }
 
-// pollHealth polls GET <endpoint>/health until it returns 200 OK, treating a 503
-// ("Loading model") as still-loading and continuing to poll, bounded by timeout.
-// It is the READINESS gate ONLY (Pitfall 5) — a 200 means "accepting requests", NOT
-// "offload happened"; the offload verdict is the dual assert in offload.go.
+// pollHealth polls GET /health until it returns 200 OK, treating a 503 ("Loading
+// model") as still-loading and continuing to poll, bounded by timeout. It is the
+// READINESS gate ONLY (Pitfall 5) — a 200 means "accepting requests", NOT "offload
+// happened"; the offload verdict is the dual assert in offload.go.
 //
 //   - 200 before timeout      → Known/true (ready)
 //   - 503 repeatedly          → keep polling (still loading)
 //   - never-200 before timeout → typed Unknown (could not evaluate readiness), NOT a
 //     bare false and NOT a crash — distinct from a confirmed-unhealthy server.
-func pollHealth(ctx context.Context, client *http.Client, endpoint string, timeout, interval time.Duration) detect.Bool {
+func (c Client) pollHealth(ctx context.Context, timeout, interval time.Duration) detect.Bool {
 	if interval <= 0 {
 		interval = pollInterval
 	}
 	deadline := time.Now().Add(timeout)
-	url := strings.TrimRight(endpoint, "/") + "/health"
+	url := c.root + routeHealth
 
 	for {
 		if ctx.Err() != nil {
 			return detect.UnknownBool("readiness poll cancelled before /health returned 200", ctx.Err().Error())
 		}
-		if ok := probeHealthOnce(ctx, client, url); ok {
+		// Any transport error or non-200 (including 503 still-loading) is not-ready,
+		// so the loop keeps polling.
+		if code, err := c.Health(ctx); err == nil && code == http.StatusOK {
 			return detect.KnownBool(true, url)
 		}
 		if time.Now().After(deadline) {
@@ -77,49 +78,23 @@ func pollHealth(ctx context.Context, client *http.Client, endpoint string, timeo
 	}
 }
 
-// probeHealthOnce does a single GET /health and reports whether it was 200. Any
-// transport error or non-200 (including 503 still-loading) is reported as not-ready
-// so the caller keeps polling.
-func probeHealthOnce(ctx context.Context, client *http.Client, url string) bool {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return false
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return false
-	}
-	defer resp.Body.Close()
-	return resp.StatusCode == http.StatusOK
-}
-
-// chatProbe sends a real, small chat completion to <endpoint>/v1/chat/completions
-// through the REUSED internal/llm OpenAIClient (the gateway is reused, never
-// rebuilt) and asserts the ANSWER, not the arrival: the reply must contain
+// GenerationProbe sends a real, small chat completion through the client's chat
+// route and asserts the ANSWER, not the arrival: the reply must contain
 // chatProbeAnswer, and a reply that is one repeated byte is refused separately as
-// degenerate. A non-200 / stream error is reported as a failure detail, never a
-// panic.
+// degenerate. It starts no container, so a cutover proves the server it just
+// restarted, and Validate proves the run it started. A non-200 / stream error is
+// reported as a failure detail, never a panic — including the 401 a client built
+// without the unit's key gets.
 //
 // Thinking is disabled for the probe. Measured on the dev host 2026-09-11:
 // qwen3.6-35b-a3b with thinking on spends all 32 tokens reasoning and returns
 // empty content; with thinking off it answers "ok" in 2 tokens.
-//
-// apiKey is sent as the Bearer credential (GHSA-qxg9, ADR-0011); llama-server
-// requires it on every /v1 route now that a unit is rendered with one. An empty
-// key sends no header, which a caller that has not yet threaded its config's
-// InferenceSecret through gets — a 401 detail, never a panic.
-func chatProbe(ctx context.Context, endpoint, modelID, apiKey string) ChatResult {
-	client := llm.NewOpenAIClient(llm.Options{
-		BaseURL: strings.TrimRight(endpoint, "/") + "/v1",
-		Timeout: chatProbeTimeout,
-		APIKey:  apiKey,
-	})
-
+func (c Client) GenerationProbe(ctx context.Context, modelID string) ChatResult {
 	var (
 		tokens int
 		sb     strings.Builder
 	)
-	err := client.StreamChat(ctx, llm.ChatRequest{
+	err := c.Chat(chatProbeTimeout).StreamChat(ctx, llm.ChatRequest{
 		Model:              modelID,
 		Messages:           []llm.Message{{Role: llm.RoleUser, Content: chatProbePrompt}},
 		MaxTokens:          chatProbeMaxTokens,

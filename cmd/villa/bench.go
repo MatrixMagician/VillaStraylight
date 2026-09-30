@@ -96,10 +96,6 @@ func liveMeasure(ctx context.Context, target string, spec bench.Spec) (bench.Run
 		return bench.RunTimings{}, false, "", fmt.Errorf("resolve model file: %w", err)
 	}
 
-	// Derive the inference endpoint the SAME way the status/prove path does: the
-	// resolved backend's container runner, never a hand-rolled URL.
-	endpoint := inference.NewContainerRunner(backend, inference.RunSpec{}).Endpoint()
-
 	// Bound the WHOLE measure by spec.Timeout. A wedged/CPU-fallback server
 	// that never returns trips this deadline and is a VOID run, not an infinite wait.
 	deadlineCtx, cancel := context.WithTimeout(ctx, spec.Timeout)
@@ -109,12 +105,7 @@ func liveMeasure(ctx context.Context, target string, spec bench.Spec) (bench.Run
 	// DURING the decode window. Start the completion in a goroutine and poll
 	// detect.GPUBusyPercent() repeatedly while tokens stream, keeping the max — a single
 	// post-call read can miss a short decode's busy window.
-	client := llm.NewOpenAIClient(llm.Options{
-		BaseURL: endpoint,
-		Timeout: spec.Timeout,
-		// GHSA-qxg9 (ADR-0011): the measured unit requires this bearer too.
-		APIKey: cfg.InferenceSecret,
-	})
+	client := inferenceClient(cfg).Chat(spec.Timeout)
 	req := llm.ChatRequest{
 		Model:    cfg.Model,
 		Messages: []llm.Message{{Role: llm.RoleUser, Content: spec.Prompt}},
@@ -696,21 +687,20 @@ var benchConfiguredBackend = func() string {
 
 // benchEndpointReachable is the read-only reachability pre-check. It is a package-level
 // indirection (not a field on the LOCKED bench.Deps) so bench_test.go overrides it to
-// drive the no-endpoint refusal without a live host; the default resolves the endpoint
-// the status/prove path does and bounds a health poll (no --rm container).
+// drive the no-endpoint refusal without a live host; the default fails closed on an
+// unresolvable backend and bounds a health poll through the inference client (no --rm
+// container).
 var benchEndpointReachable = func() bool {
 	cfg, err := config.LoadVilla()
 	if err != nil {
 		return false
 	}
-	backend, err := inference.BackendFor(cfg.Backend)
-	if err != nil {
+	if _, err := inference.BackendFor(cfg.Backend); err != nil {
 		return false
 	}
-	endpoint := inference.NewContainerRunner(backend, inference.RunSpec{}).Endpoint()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	ready := inference.PollHealth(ctx, endpoint, 5*time.Second)
+	ready := inferenceClient(cfg).PollHealth(ctx, 5*time.Second)
 	return ready.Known && ready.Value
 }
 

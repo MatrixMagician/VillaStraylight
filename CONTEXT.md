@@ -68,6 +68,12 @@ Which GPU stack llama.cpp runs on — ROCm or Vulkan — and the image, flags,
 device args and log markers that come with it. Always qualified.
 _Avoid_: backend (unqualified), driver, runtime, GPU mode
 
+**Inference client**:
+The control plane's one caller of a llama-server unit. It owns the unit's
+address, the api key and every route villa calls; code that needs the unit holds
+the client, never an endpoint and a key.
+_Avoid_: llama client, API client, endpoint (for the whole)
+
 **Resident set**:
 The models held loaded at once, each in its own slot on its own loopback port,
 instead of the inference unit restarting to trade one for another. Admission

@@ -2,11 +2,10 @@ package inference
 
 import (
 	"bytes"
-	"io"
+	"context"
 	"net/http"
 	"os/exec"
 	"sync"
-	"time"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
 )
@@ -21,10 +20,6 @@ import (
 // internal/detect maxToolOutput / internal/preflight's io.LimitReader bound).
 const maxLogOutput = 8 << 10 // 8 KiB
 
-// healthTimeout bounds a single readiness probe so an unreachable endpoint cannot
-// hang the caller.
-const healthTimeout = 2 * time.Second
-
 // containerRunner is the Runner implementation that runs llama-server in a
 // transient (--rm) rootless podman container. It captures stderr for the offload
 // log-scrape and tears the container down on the host even when Start failed.
@@ -34,7 +29,6 @@ type containerRunner struct {
 	stderr   boundedWriter // self-synchronized, bounded llama-server stderr capture
 	captured bool
 	started  bool
-	client   *http.Client
 	cmd      *exec.Cmd // the `podman run` child, reaped in Stop
 }
 
@@ -50,7 +44,6 @@ func NewContainerRunner(backend Backend, spec RunSpec) Runner {
 		backend: backend,
 		spec:    spec,
 		stderr:  boundedWriter{limit: maxLogOutput},
-		client:  &http.Client{Timeout: healthTimeout},
 	}
 }
 
@@ -99,22 +92,18 @@ func (r *containerRunner) Stop() error {
 	return nil
 }
 
-// Health probes the loopback endpoint for readiness, degrading to a typed-Unknown
-// (WARN) when the probe cannot be evaluated — never a bare false.
+// Health probes the loopback endpoint for readiness through the keyless /health
+// route, degrading to a typed-Unknown (WARN) when the probe cannot be evaluated —
+// never a bare false.
 func (r *containerRunner) Health() detect.Bool {
 	if !r.started {
 		return detect.UnknownBool("runner not started", "")
 	}
-	resp, err := r.client.Get(r.Endpoint() + "/health")
+	code, err := NewClient(r.Endpoint(), "").Health(context.Background())
 	if err != nil {
 		return detect.UnknownBool("health probe failed (could not evaluate)", err.Error())
 	}
-	defer resp.Body.Close()
-	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxLogOutput))
-	if resp.StatusCode == http.StatusOK {
-		return detect.KnownBool(true, r.Endpoint()+"/health")
-	}
-	return detect.KnownBool(false, r.Endpoint()+"/health")
+	return detect.KnownBool(code == http.StatusOK, r.Endpoint()+routeHealth)
 }
 
 // Endpoint returns the loopback base URL the OpenAI-compatible API is published on.

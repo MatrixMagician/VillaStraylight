@@ -52,12 +52,14 @@ const DefaultReadyTimeout = 5 * time.Minute
 type Deps struct {
 	// PollHealth is the bounded readiness gate over the ALREADY-running server. A
 	// 200 means "accepting requests", NOT "offload happened" — that is the fold.
-	// Live wiring is inference.PollHealth.
-	PollHealth func(ctx context.Context, endpoint string, timeout time.Duration) detect.Bool
+	// Live wiring is the bound inference.Client's PollHealth (ADR-0014): the client
+	// that owns the unit's address and key is chosen when the seams are bound, so no
+	// Target can name an endpoint without its key.
+	PollHealth func(ctx context.Context, timeout time.Duration) detect.Bool
 	// Generate runs the REAL generation probe against the already-running server and
-	// reports the streamed token result. It starts no container. Live wiring is
-	// inference.GenerationProbe. apiKey is threaded straight from Target.APIKey.
-	Generate func(ctx context.Context, endpoint, modelID, apiKey string) inference.ChatResult
+	// reports the streamed token result. It starts no container. Live wiring is the
+	// bound inference.Client's GenerationProbe, which carries the api key.
+	Generate func(ctx context.Context, modelID string) inference.ChatResult
 	// GPUBusy reads the point-in-time sysfs gpu_busy_percent. Live wiring is
 	// detect.GPUBusyPercent. Sampled repeatedly DURING the drive.
 	GPUBusy func() detect.Int
@@ -86,11 +88,9 @@ type Deps struct {
 }
 
 // Target is what actually differs between callers: which model, context and backend
-// is being proven, plus the two timing bounds.
+// is being proven, plus the two timing bounds. Which server is reached, and with
+// which key, is the inference.Client bound into Deps.
 type Target struct {
-	// Endpoint is the inference endpoint to poll and probe, derived by the caller
-	// from the resolved backend's container runner — never a hand-rolled URL.
-	Endpoint string
 	// Service is the systemd service whose invocation-scoped journal carries the
 	// load_tensors residency line.
 	Service string
@@ -123,11 +123,6 @@ type Target struct {
 	// inference.RunningOffloadInput so a draft CPU fallback is proven alongside the
 	// target's.
 	DraftExpected bool
-	// APIKey is the LLAMA_API_KEY/OPENAI_API_KEY bearer the target server was
-	// rendered with (GHSA-qxg9, ADR-0011), sent as the generation probe's Bearer
-	// credential. Empty sends no header — the caller's config.InferenceSecret not
-	// yet threaded through, which degrades to a probe failure, never a panic.
-	APIKey string
 }
 
 // Prove drives the residency-proof protocol and returns the tri-state verdict.
@@ -158,7 +153,7 @@ func Prove(ctx context.Context, d Deps, t Target) inference.Verdict {
 	defer cancel()
 
 	// (a) Bounded readiness.
-	ready := d.PollHealth(deadlineCtx, t.Endpoint, readyTimeout)
+	ready := d.PollHealth(deadlineCtx, readyTimeout)
 	if !ready.Known || !ready.Value {
 		return fail("not ready before timeout (possible load_tensors hang or CPU-fallback stall)")
 	}
@@ -168,7 +163,7 @@ func Prove(ctx context.Context, d Deps, t Target) inference.Verdict {
 	// stream, keeping the max — a single post-probe read can miss a short decode.
 	chatCh := make(chan inference.ChatResult, 1)
 	go func() {
-		chatCh <- d.Generate(deadlineCtx, t.Endpoint, t.ModelID, t.APIKey)
+		chatCh <- d.Generate(deadlineCtx, t.ModelID)
 	}()
 
 	maxBusy := detect.UnknownInt("gpu_busy_percent not sampled during probe", "")

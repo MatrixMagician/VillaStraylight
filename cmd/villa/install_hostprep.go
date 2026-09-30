@@ -4,13 +4,13 @@ import (
 	"bufio"
 	"context"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"os/exec"
 	"strings"
 	"time"
 
+	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 	"github.com/MatrixMagician/VillaStraylight/internal/install"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 	"github.com/MatrixMagician/VillaStraylight/internal/preflight"
@@ -29,9 +29,6 @@ const readinessTimeout = 90 * time.Second
 
 // readinessInterval is the gap between readiness probes.
 const readinessInterval = 2 * time.Second
-
-// readinessHTTPTimeout bounds a single /health probe.
-const readinessHTTPTimeout = 3 * time.Second
 
 // liveSetsebool runs the consented SELinux fix as a FIXED-ARG exec (never a shell,
 // `setsebool -P container_use_devices=true`. The boolean name is a
@@ -66,26 +63,18 @@ func promptConsent(prompt string) bool {
 	return ans == "y" || ans == "yes"
 }
 
-// liveReadinessPoll polls the server for readiness until the timeout, using the
-// default HTTP client. It is the production pollReady seam (Task 2 logic lives in
-// pollReadiness so it is unit-testable with a stub probe).
+// liveReadinessPoll polls the server for readiness until the timeout, through the
+// inference client's /health route (ADR-0014). It is the production pollReady seam
+// (Task 2 logic lives in pollReadiness so it is unit-testable with a stub probe).
+//
+// install.Deps hands this seam the endpoint it also prints, and /health is the one
+// route llama-server serves without the api key, so the client here is built for the
+// address alone: install writes the key in the same run and never needs it to poll.
 func liveReadinessPoll(ctx context.Context, endpoint string) install.Proof {
-	client := &http.Client{Timeout: readinessHTTPTimeout}
-	probe := func() (int, error) {
-		// Build the request with ctx so a cancelled/expired context aborts an
-		// in-flight probe rather than running to the client's own timeout.
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint+"/health", nil)
-		if err != nil {
-			return 0, err
-		}
-		resp, err := client.Do(req)
-		if err != nil {
-			return 0, err
-		}
-		defer resp.Body.Close()
-		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 8<<10))
-		return resp.StatusCode, nil
-	}
+	inf := inference.NewClient(endpoint, "")
+	// ctx aborts an in-flight probe rather than letting it run to the client's own
+	// bound.
+	probe := func() (int, error) { return inf.Health(ctx) }
 	return pollReadiness(ctx, probe, readinessTimeout, readinessInterval)
 }
 
