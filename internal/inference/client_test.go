@@ -2,6 +2,7 @@ package inference
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -242,6 +243,89 @@ func TestUnavailableScrapeIsTypedUnknown(t *testing.T) {
 		}
 		if c.Props(ctx) != nil {
 			t.Errorf("%s: Props non-nil, want the typed-Unknown nil", name)
+		}
+	}
+}
+
+// TestClientFormatNeverPrintsTheKey: a Client formatted with any verb, %+v and %#v
+// included, shows its address and that a key is set, never the key. A stray
+// log line or error wrap of the client must not leak the credential.
+func TestClientFormatNeverPrintsTheKey(t *testing.T) {
+	const key = "s3cret-inference-key"
+	keyed := NewClient("http://villa-llama:8080", key)
+	for _, verb := range []string{"%v", "%+v", "%#v", "%s", "%d"} {
+		got := fmt.Sprintf(verb, keyed)
+		if strings.Contains(got, key) {
+			t.Errorf("%s printed the key: %q", verb, got)
+		}
+		if want := `inference.Client{root: "http://villa-llama:8080", key: <redacted>}`; got != want {
+			t.Errorf("%s = %q, want %q", verb, got, want)
+		}
+	}
+	if got, want := fmt.Sprint(&keyed), `inference.Client{root: "http://villa-llama:8080", key: <redacted>}`; got != want {
+		t.Errorf("a pointer to the client printed %q, want %q", got, want)
+	}
+	if got, want := fmt.Sprintf("%+v", NewClient("http://villa-llama:8080", "")), `inference.Client{root: "http://villa-llama:8080", key: <none>}`; got != want {
+		t.Errorf("a keyless client printed %q, want %q", got, want)
+	}
+}
+
+// TestClientRefusesAControlCharacterKey: a key with a control character (only
+// possible in a hand-edited config.toml) would inject header lines through curl's
+// `-H @-`. The client refuses it: every read fails with an error that names
+// config.toml's inference_secret and never echoes the key, and nothing is sent.
+func TestClientRefusesAControlCharacterKey(t *testing.T) {
+	var hits int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { hits++ }))
+	defer srv.Close()
+	ctx := t.Context()
+	for name, key := range map[string]string{
+		"newline": "abc\nX-Injected: 1", "carriage return": "abc\rdef", "nul": "abc\x00def",
+		"tab": "abc\tdef", "delete": "abc\x7fdef", "c1 control": "abc\u0085def",
+	} {
+		c := NewClient(srv.URL, key)
+		code, err := c.Health(ctx)
+		if err == nil || code != 0 {
+			t.Errorf("%s: Health = (%d, %v), want a refusal", name, code, err)
+			continue
+		}
+		if !strings.Contains(err.Error(), "inference_secret") {
+			t.Errorf("%s: error %q does not name config.toml's inference_secret", name, err)
+		}
+		if strings.Contains(err.Error(), "abc") {
+			t.Errorf("%s: error %q echoes the key", name, err)
+		}
+		if _, reached := c.Models(ctx); reached {
+			t.Errorf("%s: Models reached the server", name)
+		}
+		if c.Props(ctx) != nil {
+			t.Errorf("%s: Props reached the server", name)
+		}
+		if err := c.Chat(time.Second).StreamChat(ctx, llm.ChatRequest{Model: "m"}, func(string) error { return nil }); err == nil {
+			t.Errorf("%s: StreamChat sent a request with the malformed key", name)
+		} else if strings.Contains(err.Error(), "abc") {
+			t.Errorf("%s: StreamChat error %q echoes the key", name, err)
+		}
+	}
+	if hits != 0 {
+		t.Errorf("a refused client sent %d request(s) to the server", hits)
+	}
+}
+
+// TestRefusedKeyBuildsNoCurlRequest: the in-network curl path carries the refusal in
+// CurlRequest.Err, with no argv and no stdin to run, so the key cannot reach
+// `-H @-`.
+func TestRefusedKeyBuildsNoCurlRequest(t *testing.T) {
+	c := NewClient("http://villa-llama:8080", "abc\nX-Injected: 1")
+	for name, req := range map[string]CurlRequest{
+		"chat":   c.CurlChatCompletions([]byte(`{}`)),
+		"models": c.CurlModels(),
+	} {
+		if req.Err == nil || !strings.Contains(req.Err.Error(), "inference_secret") {
+			t.Errorf("%s: Err = %v, want a refusal naming inference_secret", name, req.Err)
+		}
+		if req.Args != nil || req.Stdin != nil {
+			t.Errorf("%s: a refused request carries args %q stdin %q", name, req.Args, req.Stdin)
 		}
 	}
 }
