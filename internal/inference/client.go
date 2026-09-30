@@ -69,8 +69,8 @@ func NewClient(root, key string) Client {
 	}
 }
 
-// HostClient is the client for the inference unit's host-published loopback
-// endpoint, the one every unit and the transient validate run listen on.
+// HostClient is the client for the host-published loopback endpoint the primary
+// inference unit and the transient validate run both publish on.
 func HostClient(key string) Client { return NewClient(endpointURL(), key) }
 
 // Health does one GET /health and returns the status code: 200 is ready, 503 is
@@ -117,7 +117,8 @@ func (c Client) Models(ctx context.Context) (n int, reached bool) {
 
 // Props reads GET /props for the config-identity drift overlay (corroboration only,
 // never the residency proof). A transport error, a non-200 or an unparseable body
-// yields nil, the typed-Unknown RunningOffloadVerdict never turns into a verdict.
+// yields nil: the typed-Unknown RunningOffloadVerdict never turns into a PASS or a
+// FAIL.
 func (c Client) Props(ctx context.Context) *PropsInfo {
 	body, ok := c.read(ctx, routeProps)
 	if !ok {
