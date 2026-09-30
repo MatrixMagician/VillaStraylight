@@ -1127,3 +1127,116 @@ func TestReadLastTask(t *testing.T) {
 		}
 	})
 }
+
+// TestStatusGatesTheAgentOnTheConfigItLoaded pins #253: the agent section is decided
+// by the config a status run loads, not by the config the deps were wired from.
+//
+// villa-dashboard.service wires its status deps once, at startup. When the operator
+// then turns the agent on (`villa install --workspace-agent`, or agent_enabled in
+// config.toml), the next /api/status must fill the agent section from live seams.
+// A seam left unwired because the agent was off at startup reads "unknown" until
+// the dashboard is restarted.
+//
+// The pin compare is the observable: a crush binary villa did not install is a
+// CONFIDENT mismatch, which only a wired seam can report. The seams under test are
+// the live wiring's, grafted onto the stub world so no other seam reaches the host.
+func TestStatusGatesTheAgentOnTheConfigItLoaded(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+
+	// Wired with no config.toml: the agent is off.
+	live, err := liveStatusDeps()
+	if err != nil {
+		t.Fatalf("liveStatusDeps: %v", err)
+	}
+
+	// After wiring, the agent is turned on and a foreign crush binary is on disk.
+	if err := config.SaveVilla(config.VillaConfig{AgentEnabled: true}); err != nil {
+		t.Fatalf("save config: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(agentBinPath()), 0o700); err != nil {
+		t.Fatalf("mkdir agent bin dir: %v", err)
+	}
+	if err := os.WriteFile(agentBinPath(), []byte("not the pinned crush"), 0o600); err != nil {
+		t.Fatalf("plant crush binary: %v", err)
+	}
+
+	d := newStatusDeps(t, loopbackUnits(t))
+	d.LoadConfig = live.LoadConfig
+	d.AgentPinMatch = live.AgentPinMatch
+
+	r := status.Run(*d)
+	if err := r.Err(); err != nil {
+		t.Fatalf("status.Run: %v", err)
+	}
+	if r.Coding == nil {
+		t.Fatal("Report.Coding is nil although the config this run loaded has the agent on")
+	}
+	if r.Coding.PinMatch != status.PinMismatch {
+		t.Errorf("Coding.PinMatch = %q, want %q: the agent seams were answered by the config at wiring time, not by the config this run loaded",
+			r.Coding.PinMatch, status.PinMismatch)
+	}
+}
+
+// TestStatusRunTakesOneHostReading pins #257: one status run probes the host once.
+//
+// The dashboard polls status every 2.5 seconds. ROCm readiness, the weight footprint
+// and the agent's residency all derive from the host profile, and each used to take
+// its own detect.Probe, so every poll probed the host two or three times.
+//
+// detect.Probe runs `rpm -q linux-firmware` once per reading, so an `rpm` on an
+// otherwise empty PATH counts readings. The agent is on, so all three host-derived
+// figures are asked for.
+func TestStatusRunTakesOneHostReading(t *testing.T) {
+	calls := stubCountingRPM(t)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	if err := config.SaveVilla(config.VillaConfig{AgentEnabled: true}); err != nil {
+		t.Fatalf("save config: %v", err)
+	}
+
+	live, err := liveStatusDeps()
+	if err != nil {
+		t.Fatalf("liveStatusDeps: %v", err)
+	}
+	d := newStatusDeps(t, loopbackUnits(t))
+	d.LoadConfig = live.LoadConfig
+	d.ROCmReadiness = live.ROCmReadiness
+	d.WeightBytes = live.WeightBytes
+	d.AgentResidency = live.AgentResidency
+
+	if err := status.Run(*d).Err(); err != nil {
+		t.Fatalf("status.Run: %v", err)
+	}
+	if got := countLines(t, calls); got != 1 {
+		t.Errorf("one status run probed the host %d times, want 1", got)
+	}
+}
+
+// stubCountingRPM replaces PATH with a directory holding only an `rpm` that appends a
+// line to the returned file on each run and fails, so detect.Probe reads the firmware
+// date as Unknown and no other host tool runs.
+func stubCountingRPM(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	calls := filepath.Join(dir, "calls")
+	script := "#!/bin/sh\necho rpm >> '" + calls + "'\nexit 1\n"
+	if err := os.WriteFile(filepath.Join(dir, "rpm"), []byte(script), 0o700); err != nil {
+		t.Fatalf("write rpm stub: %v", err)
+	}
+	t.Setenv("PATH", dir)
+	return calls
+}
+
+// countLines counts the lines of a file a stub appends to; an absent file is zero.
+func countLines(t *testing.T, path string) int {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return 0
+	}
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	return strings.Count(string(b), "\n")
+}
