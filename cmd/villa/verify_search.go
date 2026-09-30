@@ -733,6 +733,17 @@ func runVerifySearch(cmd *cobra.Command, _ []string, deps searchVerifyDeps) int 
 		FailLabel:       "bounded-outbound proof",
 		RejectLabel:     "bounded-outbound proof",
 		Prove: func() verify.Proof {
+			// The proof applies a transient nft bound in the rootless netns the whole
+			// stack shares and tears it down on exit, which a concurrent swap's proof
+			// would see as an outage: hold the stack lock (ADR-0010) for the proof.
+			// Taken here, not in liveSearchVerify, because `villa update apply` runs
+			// that proof already holding the lock and flock does not nest.
+			lock, err := acquireStackLock()
+			if err != nil {
+				proof = reject("stack lock: " + err.Error())
+				return searchProofOutcome(proof)
+			}
+			defer func() { _ = lock.Release() }()
 			proof = deps.verifyFn(cmd.Context(), deps)
 			return searchProofOutcome(proof)
 		},

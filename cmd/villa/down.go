@@ -37,6 +37,15 @@ func runDown(cmd *cobra.Command, args []string, d *lifecycleDeps) int {
 	out := cmd.OutOrStdout()
 	errOut := cmd.ErrOrStderr()
 
+	// A stop under a swap's prove window fails that proof for a reason the swap did
+	// not cause: hold the stack lock (ADR-0010) from the first config read.
+	lock, err := acquireStackLock()
+	if err != nil {
+		fmt.Fprintf(errOut, "down: %v\n", err)
+		return exitBlocked
+	}
+	defer func() { _ = lock.Release() }()
+
 	units, _, err := d.renderStack()
 	if err != nil {
 		fmt.Fprintf(errOut, "down: %v\n", err)

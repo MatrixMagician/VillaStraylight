@@ -125,11 +125,16 @@ stopped.
   `recommend --save`, `verify agent` (around the whole proof; `update apply` runs the
   same proof already holding the lock, and flock does not nest) and `backup` now take
   the blocking stack lock from their first config read
-  (`TestConfigSetWaitsForTheStackLock` and its siblings hold the real flock). Still
-  unlocked, by choice and recorded in `lockRules`: `down` and `uninstall`, which
-  stop or remove the stack by intent, capture nothing, and sat outside #267's files.
-  A swap in flight when they run fails its proof and rolls back, and the rollback
-  restarts what the cutover restarted; making them wait is the remaining follow-up.
+  (`TestConfigSetWaitsForTheStackLock` and its siblings hold the real flock). The
+  teardown verbs lock too: `down` (around the stop), `uninstall` (around the whole
+  teardown, model-weights prompt included) and `verify search` (around the proof, so
+  the transient nft bound it puts in the shared rootless netns and its deferred
+  teardown sit inside one locked window; `update apply` runs that proof already
+  holding the lock, so the lock is in `runVerifySearch`, not `liveSearchVerify`).
+  They capture nothing, but a swap in flight when they run would fail its proof and
+  roll back for a reason it did not cause. `verify search` stops no service; its
+  mutation is the nft bound, so the guard also lists `applySearchBound` as a local
+  sink (`localSinks`).
 - The lock guard is two checks over the sources, each self-tested
   (`TestLockGuardCatchesEveryShape`, `TestLockGuardCatchesNestedAcquires`). Every
   reference to `stackapply.Apply/Restore`, `orchestrate.WriteUnits`,
