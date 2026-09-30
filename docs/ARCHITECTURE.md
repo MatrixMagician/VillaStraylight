@@ -14,7 +14,7 @@ dashboard**. The Go code is the orchestrator only; the AI services are integrate
 upstream images, never rebuilt. The architectural style is a **layered pipeline of pure
 cores behind injectable host seams**: every package that makes a decision (`detect`,
 `recommend`, `preflight`, `inference.BackendFor`, `orchestrate.Render`,
-`orchestrate.Reconcile`, `status`, `modelswap`, `backendswap`, `bench`,
+`orchestrate.Reconcile`, `stackapply`, `status`, `modelswap`, `backendswap`, `bench`,
 `residentset`) is a pure, table-testable library that returns a typed value; all
 host-touching effects (sysfs reads, `podman`, `systemctl`, HTTP probes, downloads,
 file writes) are injected as function seams or confined to a small number of
@@ -86,6 +86,9 @@ graph TD
     CLI --> download["internal/download<br/>verified resumable GGUF pull"]
     CLI --> config["internal/config<br/>config.toml store (0600)"]
     CLI --> orchestrate["internal/orchestrate<br/>Render → Reconcile → WriteUnits + systemd seam"]
+    CLI --> stackapply["internal/stackapply<br/>stack apply: config → render input → heal secret<br/>→ render → write changed → reload (ADR-0013)"]
+    stackapply --> orchestrate
+    stackapply --> catalog
     CLI --> modelswap["internal/modelswap<br/>guarded swap core"]
     CLI --> residentset["internal/residentset<br/>resident-set admission control (pure)"]
     CLI --> backendswap["internal/backendswap<br/>transactional capture→prove→rollback"]
@@ -236,9 +239,10 @@ emits through its `Emit` seam.
    upgrade leaves the working install running. A rollback step that itself fails is
    reported honestly as incomplete rather than claimed as a clean restoration.
 
-The day-to-day verbs (`up`/`down`/`restart`/`logs` in `cmd/villa/lifecycle.go`) reuse
-the same Render→Reconcile→WriteUnits→Systemd core, so hand-editing `config.toml` and
-re-running `up`/`restart` converges exactly the changed units. `villa status`
+The day-to-day verbs (`up`/`down`/`restart`/`logs` in `cmd/villa/lifecycle.go`), like
+every other verb that regenerates units, apply the stack through `internal/stackapply`
+(ADR-0013) over the same Render→Reconcile→WriteUnits→Systemd core, so
+hand-editing `config.toml` and re-running `up`/`restart` converges exactly the changed units. `villa status`
 (`internal/status`) and the dashboard (`internal/dashboard`) fold the **same** status
 read-model, never a fork, to report per-service active state, mapped `/health`, and
 the running-server GPU-offload verdict (keyed on the active backend's residency markers),
@@ -515,6 +519,8 @@ internal/
   config/             config.toml store (0600, traversal-guarded); the source of truth.
   inference/          BackendFor resolver + Backend/Runner/ResidencyProof seam:
                       ROCm (default) + Vulkan backends, podman runner, offload assert.
+  stackapply/         Stack apply: every render input derived from the config, the
+                      inference-secret heal, write changed + reload (ADR-0013).
   orchestrate/        Pure Quadlet Render + sha256 Reconcile + atomic WriteUnits +
                       systemd seam; Open WebUI managed-service render path.
   modelswap/          Guarded swap core (ordering-is-the-security-contract).

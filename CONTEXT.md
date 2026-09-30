@@ -50,6 +50,19 @@ A generated rootless Podman/systemd unit file. Always derived from config,
 never the authority.
 _Avoid_: service file, container spec, manifest
 
+**Stack apply**:
+Turning a target config into the Quadlet units on disk: derive every render
+input from the config, heal the inference secret, render, write what changed,
+reload systemd. One module does it for every verb (`internal/stackapply`,
+ADR-0013); the verb only chooses what to start or restart.
+_Avoid_: reconcile-and-write, redeploy, regenerate
+
+**Served model**:
+The model villa-llama actually serves: the coder model in swap-residency coding
+mode, otherwise the chat model. Its catalog entry supplies the weight file and,
+in coding mode, the tool-calling sampling.
+_Avoid_: primary model, running model
+
 **Inference backend**:
 Which GPU stack llama.cpp runs on — ROCm or Vulkan — and the image, flags,
 device args and log markers that come with it. Always qualified.
