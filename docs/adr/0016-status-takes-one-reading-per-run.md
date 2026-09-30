@@ -99,15 +99,16 @@ non-PASS cases: a failed verify no longer quotes its verdict string, since the
 report carries only the tri-state, and the unknown case no longer tells an
 unreadable store apart from a stale one. No golden covers either.
 
-An errored status report now yields no `search-egress` finding. Doctor already
-reports it as one `stack` WARN, and a recent failed verify that the finding
-would have carried leaves doctor at WARN instead of FAIL until the report can
-be read. That case needs a config whose model or render fails while web search
-is on.
+An errored status report yielded no `search-egress` finding: doctor reported it
+as one `stack` WARN, and a recent failed verify that the finding would have
+carried left doctor at WARN instead of FAIL until the report could be read
+(#266). ADR-0017 supersedes this: doctor reads the verify result itself, through
+the same `status.WebSearchSection` freshness rule, so the finding survives an
+errored report.
 
 The dashboard reloads `config.toml` on each status run and each metrics scrape,
 as `ModelID` already did. The task runner still takes its client and the
 sandbox gate at startup; moving it is left to a change that owns its wiring.
 
-Doctor still decides which subsystem seams to bind from its own config load;
-moving that gating into the doctor module is #258.
+Doctor still decided which subsystem seams to bind from its own config load;
+ADR-0017 (#258) moves that gating into the doctor module.

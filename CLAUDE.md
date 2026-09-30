@@ -90,7 +90,8 @@ Go 1.26+. Single module, single static binary built from `./cmd/villa`.
   `codingmode` (the `villa code` delivery spine and the enter/exit swap
   change), `websafe` (the web-search injection guard —
   sanitize/normalize/fence/classify; it reduces and FLAGS, and never claims safe),
-  `doctor` (read-only runtime twin of preflight), `backup` (pure manifest-skew
+  `doctor` (read-only runtime twin of preflight; it decides from the loaded config,
+  ADR-0017, and its seams are raw reads), `backup` (pure manifest-skew
   comparison), `usage` (reset-aware Fold over llama.cpp's monotonic token totals),
   and the persistence trio `pathsafe` / `jsonstore` / `benchstore` + `verifystate`.
 
@@ -332,6 +333,7 @@ loop.
 | residentset | Pure `Admit()` → `Plan`/`Refusal` for the resident model set (LRU evict, no host I/O) | `internal/residentset/admit.go` |
 | modelswap | Guarded `villa model swap` ordering core (shared by CLI + dashboard) | `internal/modelswap/modelswap.go` |
 | status | Read-model aggregation → frozen `Report` (shared by CLI + dashboard) | `internal/status/status.go` |
+| doctor | Read-only health verdict: `Aggregate(cfg, Deps)` decides from the loaded config which subsystems it reports on, the unit drift plan, SBX-02 and tools/agent drift; its seams are raw reads plus the four proofs and the preflight gates (ADR-0017) | `internal/doctor/doctor.go`, `decide.go` |
 | dashboard | Loopback-only stdlib-mux server folding `status` core + embedded SPA | `internal/dashboard/server.go`, `api.go` |
 | metrics | Parsers for llama.cpp `/metrics` + `/slots` (pp/tg gauges, usage counters); the keyed scrape is `inference.Client`'s | `internal/metrics/llamacpp.go` |
 | inprobe | The in-network curl-probe doctrine: exit-code mapping, typed-Unknown health mapping, TTL-bounded pair cache | `internal/inprobe/inprobe.go` |

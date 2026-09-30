@@ -252,8 +252,13 @@ read-model, never a fork, to report per-service active state, mapped `/health`, 
 the running-server GPU-offload verdict (keyed on the active backend's residency markers),
 with a worst-wins overall PASS/WARN/FAIL. A status run takes one host profile and
 gates every subsystem section on the config it loaded, so the long-lived dashboard
-answers each poll from that poll's config and api key (ADR-0016); `villa doctor`
-reuses the run's host profile and reads the web-search egress answer from its report.
+answers each poll from that poll's config and api key (ADR-0016). `villa doctor`
+(`internal/doctor`) reuses the run's host profile and decides from the config the verb
+loaded (ADR-0017): which subsystems' findings exist, the unit drift plan, the SBX-02
+sandbox network scan, tools-mode drift and agent drift are all answered in the
+module, over raw reads (a unit file's bytes, whether the unit dir exists, a hash, the
+crush config bytes, the rendered units). `liveDoctorDeps` binds those reads, the four
+proofs that drive real workloads and the preflight gates, and gates nothing.
 
 A second v1.1 flow is the **transactional backend switch** (`villa backend set
 <rocm|rocm-6.4.4|rocm-6.4.4-rocwmma|vulkan>`, `cmd/villa/backend.go`). Since ADR-0015 it
