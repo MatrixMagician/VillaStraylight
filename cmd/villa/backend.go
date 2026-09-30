@@ -33,9 +33,11 @@ import (
 //
 // It is the CLI's binding of the swap transaction frame's lock (liveTxDeps), and
 // the lock the locked flows take themselves before their first config read: up,
-// restart, restore, update, install and the resident verbs.
-// TestEveryStackMutationHoldsTheLock fails the build when a new caller of the
-// stack-apply module takes neither.
+// restart, restore, update, install, the resident verbs, config set, workspace
+// add|remove, recommend --save, verify agent and backup. Never call it from a path
+// that already holds the lock: flock does not nest, so the second Acquire deadlocks.
+// TestEveryStackMutationHoldsTheLock (lock_guard_test.go) fails the build when a
+// stack mutation takes neither, and when a verb nests one.
 //
 // A package-level var (the pullFn seam's shape): tests override it so a cobra
 // caller's exit-mapping test never touches the real $XDG_CONFIG_HOME/villa on
