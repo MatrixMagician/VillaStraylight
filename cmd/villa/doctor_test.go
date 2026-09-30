@@ -14,15 +14,15 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
-	"time"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
+	"github.com/MatrixMagician/VillaStraylight/internal/detect"
 	"github.com/MatrixMagician/VillaStraylight/internal/doctor"
 	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 	"github.com/MatrixMagician/VillaStraylight/internal/status"
-	"github.com/MatrixMagician/VillaStraylight/internal/verifystate"
 )
 
 // healthyReport is an all-PASS fixture (Overall PASS → exit 0).
@@ -543,60 +543,56 @@ func stubRecordingPodman(t *testing.T) string {
 	return dir
 }
 
-// writeVerifyState persists a verifystate.State at the live verifystate.Path under the
-// test's XDG_DATA_HOME so liveSearchEgressProof (which reads the real store) can be driven
-// off-hardware. Callers MUST t.Setenv("XDG_DATA_HOME", …) before calling.
-func writeVerifyState(t *testing.T, verdict, checkedAt string) {
-	t.Helper()
-	path := verifystate.Path()
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		t.Fatalf("mkdir verify-state dir: %v", err)
-	}
-	b, err := json.Marshal(verifystate.State{
-		SchemaVersion: verifystate.SchemaVersion(),
-		Verdict:       verdict,
-		CheckedAt:     checkedAt,
+// TestDoctorTakesOneHostReading pins ADR-0016 for doctor: one run takes ONE host
+// reading, where it used to take up to seven (the host-condition checks, the status
+// report's readiness/weight/agent figures, and each residency proof's weight).
+//
+// liveDoctorDeps' Probe is the memo the status report is folded through, so asking it
+// again does not probe; `rpm` alone on PATH counts readings (detect.Probe runs it
+// once each). And a residency proof's weight footprint is computed from that seam's
+// reading, never from a probe of its own.
+func TestDoctorTakesOneHostReading(t *testing.T) {
+	t.Run("the wired probe is one reading", func(t *testing.T) {
+		calls := stubCountingRPM(t)
+		t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+		t.Setenv("XDG_DATA_HOME", t.TempDir())
+		d, err := liveDoctorDeps(t.Context())
+		if err != nil {
+			t.Fatalf("liveDoctorDeps: %v", err)
+		}
+		d.Probe()
+		d.Probe()
+		if got := countLines(t, calls); got != 1 {
+			t.Errorf("two reads of doctor's host profile probed the host %d times, want 1", got)
+		}
 	})
-	if err != nil {
-		t.Fatalf("marshal verify state: %v", err)
-	}
-	if err := os.WriteFile(path, b, 0o600); err != nil {
-		t.Fatalf("write verify state: %v", err)
-	}
-}
 
-// TestLiveSearchEgressProofFreshness asserts the doctor egress-proof seam mirrors the
-// status core's freshness gate with the lower-bound clamp: a fresh cached
-// PASS → StatusPass (outbound bounded); a STALE PASS → StatusWarn (re-prove); and a
-// FUTURE-dated PASS (clock-skewed/forged timestamp, negative age) → StatusWarn, NEVER
-// StatusPass. A future timestamp must be re-proven, never trusted as bounded.
-func TestLiveSearchEgressProofFreshness(t *testing.T) {
-	cases := []struct {
-		name      string
-		checkedAt string
-		want      inference.Status
-	}{
-		{"PASS fresh → StatusPass", time.Now().UTC().Format(time.RFC3339), inference.StatusPass},
-		{"PASS stale → StatusWarn", time.Now().Add(-searchVerifyFreshnessWindow - time.Hour).UTC().Format(time.RFC3339), inference.StatusWarn},
-		{"PASS future-dated → StatusWarn", time.Now().Add(time.Hour).UTC().Format(time.RFC3339), inference.StatusWarn},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Setenv("XDG_DATA_HOME", t.TempDir())
-			writeVerifyState(t, "PASS", tc.checkedAt)
-			v := liveSearchEgressProof()()
-			if v.Status != tc.want {
-				t.Errorf("liveSearchEgressProof Status = %v, want %v (detail %q)", v.Status, tc.want, v.Detail)
-			}
-		})
-	}
+	t.Run("a residency proof weighs the shared reading", func(t *testing.T) {
+		sd, err := status.StubDeps(t.TempDir(), nil)
+		if err != nil {
+			t.Fatalf("status.StubDeps: %v", err)
+		}
+		reading := detect.HostProfile{KernelVersion: detect.KnownStr("6.18.9", "the doctor run's reading")}
+		sd.Probe = func() detect.HostProfile { return reading }
+		var weighed detect.HostProfile
+		sd.WeightBytes = func(_ config.VillaConfig, h detect.HostProfile) uint64 { weighed = h; return 7 }
+
+		target, unevaluable := residencyTargetFor(config.VillaConfig{Backend: "vulkan", Model: "qwen3", Ctx: 131072}, &sd, "residency under test load")
+		if unevaluable != nil {
+			t.Fatalf("residencyTargetFor = unevaluable %q", unevaluable.Detail)
+		}
+		if target.WeightBytes != 7 || !reflect.DeepEqual(weighed, reading) {
+			t.Errorf("target weight %d from host %+v, want 7 from the shared reading %+v", target.WeightBytes, weighed, reading)
+		}
+	})
 }
 
 // TestLiveDoctorDepsWiresWebSearchSeams asserts liveDoctorDeps binds the two web-search
 // seams ONLY when the persisted web_search_enabled is true (mirroring the memory/
 // agent-seam wiring): web off (absent config) → both nil so the web-off doctor output is
-// byte-identical (except the schema bump); web on → both bound. It inspects only the
-// constructed Deps func-fields — it never invokes the live host probes.
+// byte-identical (except the schema bump); web on → both bound. The egress answer is
+// not among them: doctor reads it from the status report (ADR-0016). It inspects only
+// the constructed Deps func-fields — it never invokes the live host probes.
 func TestLiveDoctorDepsWiresWebSearchSeams(t *testing.T) {
 	cases := []struct {
 		name      string
@@ -623,9 +619,6 @@ func TestLiveDoctorDepsWiresWebSearchSeams(t *testing.T) {
 			d, err := liveDoctorDeps(t.Context())
 			if err != nil {
 				t.Fatalf("liveDoctorDeps(t.Context()) error = %v", err)
-			}
-			if got := d.SearchEgressProof != nil; got != tc.wantBound {
-				t.Errorf("SearchEgressProof non-nil = %v, want %v", got, tc.wantBound)
 			}
 			if got := d.SearchResidencyUnderLoad != nil; got != tc.wantBound {
 				t.Errorf("SearchResidencyUnderLoad non-nil = %v, want %v", got, tc.wantBound)

@@ -34,13 +34,7 @@ import (
 func livePinStateDeps() pinstate.Deps {
 	path := pinstate.Path()
 	return pinstate.Deps{
-		ReadAll: func() ([]byte, error) {
-			data, err := os.ReadFile(path)
-			if os.IsNotExist(err) {
-				return nil, nil // absent store ⇒ Load fails closed to vetted pins
-			}
-			return data, err
-		},
+		ReadAll:  storeReader(path), // absent store ⇒ Load fails closed to vetted pins
 		WriteAll: func(data []byte) error { return pinstate.WriteFileAtomic(path, data) },
 	}
 }

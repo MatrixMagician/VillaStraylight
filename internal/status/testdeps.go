@@ -61,15 +61,18 @@ func StubDeps(tempDir string, units []orchestrate.Unit) (Deps, error) {
 		},
 		ModelsDir: func() string { return "/home/villa/.local/share/villa/models" },
 		Render:    func(orchestrate.RenderInput) ([]orchestrate.Unit, error) { return units, nil },
-		IsActive:  func(string) (string, error) { return "active", nil },
+		// The off-hardware host: every field typed-Unknown, so readiness reads
+		// "unknown" and nothing is fabricated from a host that was not probed.
+		Probe:    func() detect.HostProfile { return detect.HostProfile{} },
+		IsActive: func(string) (string, error) { return "active", nil },
 		JournalText: func(string) (string, bool) {
 			return "load_tensors:      Vulkan0 model buffer size = 21504.49 MiB\n", true
 		},
-		Props: func() *inference.PropsInfo {
+		Props: func(config.VillaConfig) *inference.PropsInfo {
 			return &inference.PropsInfo{ModelPath: "/models/qwen3.gguf", NCtx: 131072}
 		},
 		GTTUsed:     func() detect.Bytes { return detect.GTTUsedBytesForTest(tempDir) },
-		WeightBytes: func(config.VillaConfig) uint64 { return FixtureWeight },
+		WeightBytes: func(config.VillaConfig, detect.HostProfile) uint64 { return FixtureWeight },
 		Services:    StubServiceList(HealthReady),
 	}, nil
 }
@@ -78,7 +81,7 @@ func StubDeps(tempDir string, units []orchestrate.Unit) (Deps, error) {
 // health. It mirrors the live list's shape: one inference service whose offload
 // folds, and managed services whose offload is N/A.
 func StubServiceList(h HealthState) []Service {
-	probe := func() HealthState { return h }
+	probe := func(config.VillaConfig) HealthState { return h }
 	return []Service{
 		{Unit: StubInferenceService, Kind: Inference, Probe: probe},
 		{Unit: StubOWUIService, Kind: Managed, Probe: probe},
@@ -93,7 +96,7 @@ func WithServiceHealth(services []Service, unit string, h HealthState) []Service
 	copy(out, services)
 	for i := range out {
 		if out[i].Unit == unit {
-			out[i].Probe = func() HealthState { return h }
+			out[i].Probe = func(config.VillaConfig) HealthState { return h }
 		}
 	}
 	return out

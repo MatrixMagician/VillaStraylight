@@ -23,6 +23,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"text/tabwriter"
 	"time"
 
@@ -208,6 +209,13 @@ func liveDoctorDeps(ctx context.Context) (doctor.Deps, error) {
 	if err != nil {
 		return doctor.Deps{}, err
 	}
+	// One doctor run takes ONE host reading (ADR-0016). The host-condition checks,
+	// the status report and the three residency proofs' weight footprints all read
+	// this memo, which probes on first use, so each reuses the reading the status
+	// report is folded from instead of probing again (up to seven probes before).
+	// doctor is one-shot, so the memo cannot go stale the way it would in the
+	// long-lived dashboard, which is why only doctor wraps the seam.
+	sd.Probe = sync.OnceValue(sd.Probe)
 	cfg, err := config.LoadVilla()
 	if err != nil {
 		return doctor.Deps{}, fmt.Errorf("load config: %w", err)
@@ -290,22 +298,19 @@ func liveDoctorDeps(ctx context.Context) (doctor.Deps, error) {
 		agentDrift = liveAgentDrift(cfg)
 	}
 	// Web-search seams (mirroring the cfg.AgentEnabled conditional
-	// above): bound ONLY when the persisted web_search_enabled is true; both stay nil when
+	// above): bound ONLY when the persisted web_search_enabled is true; it stays nil when
 	// web search is off so the web-off doctor output is byte-identical (except the schema
-	// bump). SearchEgressProof reads the CACHED `villa verify search` result (never a config
-	// bool); SearchResidencyUnderLoad samples residency under a bounded search-augmented chat
-	// drive. Both consume/produce inference.Verdict opaquely (no backend marker literal in
-	// cmd/villa; TestSeamGrepGate walks this tree). Guard health is a documented omission.
-	var (
-		searchEgress    func() inference.Verdict
-		searchResidency func() inference.Verdict
-	)
+	// bump). SearchResidencyUnderLoad samples residency under a bounded search-augmented
+	// chat drive and produces an inference.Verdict consumed opaquely (no backend marker
+	// literal in cmd/villa; TestSeamGrepGate walks this tree). The egress answer is not a
+	// seam: doctor reads it from the status report's web_search section. Guard health is
+	// a documented omission.
+	var searchResidency func() inference.Verdict
 	// The moved-binary seam rides the same gate: the villa-websafe unit only exists
 	// when web search is on, so with it off the seam stays nil and doctor's output is
 	// byte-identical (except the schema bump).
 	var websafeBinary func() (string, string, bool)
 	if subsystem.WebSearchOn(cfg) {
-		searchEgress = liveSearchEgressProof()
 		searchResidency = liveSearchResidencyUnderLoad(ctx, cfg, sd)
 		websafeBinary = func() (string, string, bool) {
 			dir, err := unitDirReadOnly()
@@ -374,8 +379,7 @@ func liveDoctorDeps(ctx context.Context) (doctor.Deps, error) {
 		}
 	}
 	return doctor.Deps{
-		Probe:                    detect.Probe,
-		LoadConfig:               config.LoadVilla,
+		Probe:                    sd.Probe,
 		CatalogGeometry:          catalogGeometry,
 		StatusReport:             func() status.Report { return status.Run(*sd) },
 		Backend:                  cfg.Backend,
@@ -385,7 +389,6 @@ func liveDoctorDeps(ctx context.Context) (doctor.Deps, error) {
 		AgentToolCall:            agentToolCall,
 		AgentResidencyUnderLoad:  agentResidency,
 		AgentDrift:               agentDrift,
-		SearchEgressProof:        searchEgress,
 		SearchResidencyUnderLoad: searchResidency,
 		WebsafeBinary:            websafeBinary,
 		RunSandboxChecks:         sandboxChecks,
@@ -475,13 +478,14 @@ func residencyDriveText() string {
 
 // residencyDepsFrom binds the residency drive protocol's seams to the SAME status
 // seams the status fold reads, so no doctor proof can drift onto a different reader.
-// The under-load proofs supply their own workload; PollHealth/Generate/GPUBusy are
-// unused by that path and stay nil.
-func residencyDepsFrom(sd *status.Deps) residency.Deps {
+// /props is read with cfg, the config the proof runs against, as the status fold
+// reads it with the config its run loaded. The under-load proofs supply their own
+// workload; PollHealth/Generate/GPUBusy are unused by that path and stay nil.
+func residencyDepsFrom(sd *status.Deps, cfg config.VillaConfig) residency.Deps {
 	return residency.Deps{
 		Journal: sd.JournalText,
 		GTTUsed: sd.GTTUsed,
-		Props:   sd.Props,
+		Props:   func() *inference.PropsInfo { return sd.Props(cfg) },
 		Fold:    inference.RunningOffloadVerdict,
 	}
 }
@@ -493,7 +497,8 @@ func residencyDepsFrom(sd *status.Deps) residency.Deps {
 //
 // The model FILE, not the catalog id, is what the /props and journal identity checks
 // compare against; passing the id would make the drift overlay misfire the moment it
-// evaluates.
+// evaluates. The weight footprint is computed from sd.Probe's reading, which
+// liveDoctorDeps memoizes, so a proof reuses the host reading the status report took.
 func residencyTargetFor(cfg config.VillaConfig, sd *status.Deps, subject string) (residency.Target, *inference.Verdict) {
 	backend, err := inference.BackendFor(cfg.Backend)
 	if err != nil {
@@ -513,7 +518,7 @@ func residencyTargetFor(cfg config.VillaConfig, sd *status.Deps, subject string)
 		Service:     installServiceName,
 		ModelFile:   modelFile,
 		ContextLen:  cfg.Ctx,
-		WeightBytes: sd.WeightBytes(cfg),
+		WeightBytes: sd.WeightBytes(cfg, sd.Probe()),
 		Markers:     backend.ResidencyProof(),
 	}, nil
 }
@@ -592,7 +597,7 @@ func runResidencyUnderLoad(ctx context.Context, cfg config.VillaConfig, sd *stat
 	// completed real requests — rather than a settle deadline no request that short
 	// would survive; a PASS sampled under a faltering drive is degraded (Faltered),
 	// because the embedder was not exercised.
-	return residency.ProveUnderLoad(ctx, residencyDepsFrom(sd), residency.ProofSpec{
+	return residency.ProveUnderLoad(ctx, residencyDepsFrom(sd, cfg), residency.ProofSpec{
 		Subject:  subject,
 		IsActive: sd.IsActive,
 		Services: []string{
@@ -665,13 +670,6 @@ const (
 	searchResidencySettle      = 750 * time.Millisecond
 )
 
-// searchVerifyFreshnessWindow is the SINGLE freshness gate a cached `villa verify search`
-// PASS must satisfy to read as a CURRENT outbound-bounded proof — sourced from the exported
-// status.VerifyFreshnessWindow (not a forked literal) so the doctor egress finding and the
-// status `outbound_bounded` indicator can never drift apart; a security property is NEVER
-// trusted indefinitely from a stale cache.
-const searchVerifyFreshnessWindow = status.VerifyFreshnessWindow
-
 // searchResidencyDriveBody is the bounded chat-completion drive payload: a small, fixed
 // max_tokens completion that keeps villa-llama DECODING (so the residency sample observes
 // the served model under real load) without an unbounded generation. The model id is
@@ -686,52 +684,6 @@ func searchResidencyDriveBody(model string) ([]byte, error) {
 		"max_tokens": 16,
 		"stream":     false,
 	})
-}
-
-// liveSearchEgressProof builds the egress-proof seam liveDoctorDeps binds
-// when web search is enabled: a closure that reads the CACHED `villa verify search` result
-// (verifystate.Load, fail-closed) and maps it to a tri-state inference.Verdict consumed
-// opaquely by the doctor core. The mapping mirrors the status core's webSearchInfo exactly
-// (the SAME 24h freshness gate, NEVER cfg.WebSearchEnabled): a fresh cached PASS → StatusPass
-// (ready); a real recent non-PASS (FAIL/REJECT within the window) → StatusFail
-// (degraded-with-reason); a nil/absent/corrupt store, an unparseable timestamp, or a stale
-// result (>24h) → StatusWarn (typed-Unknown — re-prove, never trust a stale cache). It is
-// constructed (not run) at wiring time; the read only fires when doctor.Aggregate invokes it.
-func liveSearchEgressProof() func() inference.Verdict {
-	return func() inference.Verdict {
-		st := liveReadVerifyState() // fail-closed: absent → zero State, unreadable → nil
-		if st == nil {
-			return inference.Verdict{
-				Status:      inference.StatusWarn,
-				Detail:      "no fresh verified outbound-bounded result (the cached verify-search store is unavailable)",
-				Remediation: "run `villa verify search` to prove outbound is bounded, then re-run `villa doctor`",
-			}
-		}
-		checked, perr := time.Parse(time.RFC3339, st.CheckedAt)
-		if perr != nil || time.Since(checked) < 0 || time.Since(checked) > searchVerifyFreshnessWindow {
-			// Unparseable, future-dated, or stale → the property must be re-proven, NEVER read
-			// as bounded and NEVER inferred from cfg.WebSearchEnabled. A future
-			// CheckedAt yields a negative age (never > window), so the lower-bound clamp is
-			// required to keep the no-false-green invariant.
-			return inference.Verdict{
-				Status:      inference.StatusWarn,
-				Detail:      "no fresh verified outbound-bounded result (the last `villa verify search` is stale or absent)",
-				Remediation: "run `villa verify search` to re-prove outbound is bounded, then re-run `villa doctor`",
-			}
-		}
-		if st.Verdict == "PASS" {
-			return inference.Verdict{
-				Status: inference.StatusPass,
-				Detail: fmt.Sprintf("outbound bounded: a recent `villa verify search` PASS (checked %s)", st.CheckedAt),
-			}
-		}
-		// A real RECENT non-PASS verdict (FAIL/REJECT) — confidently NOT bounded.
-		return inference.Verdict{
-			Status:      inference.StatusFail,
-			Detail:      fmt.Sprintf("the last `villa verify search` did not pass (verdict %q, checked %s)", st.Verdict, st.CheckedAt),
-			Remediation: "re-run `villa verify search` and check `villa logs` — outbound is not proven bounded",
-		}
-	}
 }
 
 // liveSearchResidencyUnderLoad builds the chat-model-residency-under-
@@ -784,7 +736,7 @@ func runSearchResidencyUnderLoad(ctx context.Context, cfg config.VillaConfig, sd
 	// The shared proof shape carries the read-only gate (villa-llama AND the
 	// web-search services active) and the unsampled honesty mapping; the settle
 	// discipline samples only a round verifiably IN FLIGHT.
-	return residency.ProveUnderLoad(ctx, residencyDepsFrom(sd), residency.ProofSpec{
+	return residency.ProveUnderLoad(ctx, residencyDepsFrom(sd, cfg), residency.ProofSpec{
 		Subject:  subject,
 		IsActive: sd.IsActive,
 		Services: []string{
@@ -877,7 +829,7 @@ func runAgentResidencyUnderLoad(ctx context.Context, cfg config.VillaConfig, sd 
 	// The shared proof shape carries the read-only gate (the served inference unit —
 	// the coder under coding mode — must be active) and the unsampled honesty
 	// mapping; the settle discipline samples only a round verifiably IN FLIGHT.
-	return residency.ProveUnderLoad(ctx, residencyDepsFrom(sd), residency.ProofSpec{
+	return residency.ProveUnderLoad(ctx, residencyDepsFrom(sd, cfg), residency.ProofSpec{
 		Subject:  subject,
 		IsActive: sd.IsActive,
 		Services: []string{installServiceName},

@@ -468,6 +468,12 @@ func foldROCmReadiness(r detect.ROCmReadiness) ROCmReadinessIndicator {
 // Deps are the injectable seams Run drives. Defaults wire the real host
 // (cmd/villa liveStatusDeps); status_test.go and the dashboard replace them with
 // stubs / their own live wiring.
+//
+// Every seam is wired whatever the config says, and none closes over a config
+// (ADR-0016). A seam that needs one takes the config this run loaded, and a seam
+// that needs the host takes this run's one host profile, so a long-lived holder of
+// these Deps (the dashboard) answers each run from the config and host of that run,
+// and Run answers every subsystem gate itself.
 type Deps struct {
 	LoadConfig func() (config.VillaConfig, error)
 	ModelFile  func(config.VillaConfig) (string, error)
@@ -480,27 +486,30 @@ type Deps struct {
 	ModelsDir     func() string
 	Render        func(orchestrate.RenderInput) ([]orchestrate.Unit, error)
 
+	// Probe takes the run's host profile (detect.Probe in the live wiring). Run
+	// calls it ONCE, and ROCm readiness, the weight footprint and the agent's
+	// residency all derive from that one reading: the dashboard polls status every
+	// 2.5 seconds, and each figure used to probe the host on its own (ADR-0016).
+	Probe func() detect.HostProfile
+
 	IsActive    func(service string) (string, error)
 	JournalText func(service string) (string, bool)
-	// Props reads the served unit's /props for the drift overlay. The live wiring
-	// closes over cmd/villa's authenticated inference client (ADR-0014), so the
-	// unit's address and key are the client's, never this signature's.
-	Props       func() *inference.PropsInfo
+	// Props reads the served unit's /props for the drift overlay, through an
+	// inference client the live wiring builds from the config it is given
+	// (ADR-0014), so the unit's address and key are the client's, and the key is
+	// the one this run loaded rather than the one present at wiring (#253).
+	Props       func(config.VillaConfig) *inference.PropsInfo
 	GTTUsed     func() detect.Bytes
-	WeightBytes func(config.VillaConfig) uint64
+	WeightBytes func(config.VillaConfig, detect.HostProfile) uint64
 
 	// GenTokensPerSec is the live token-generation tok/s seam, wired in
 	// cmd/villa liveStatusDeps to the authenticated inference client's /metrics and
-	// /slots reads (ADR-0014). It returns nil on an idle server or a failed/absent
-	// /metrics scrape so Run omits the figure (typed-Unknown, never a fabricated 0).
-	// internal/status stays free of HTTP coupling; status_test.go stubs it like the
-	// other seams. A nil seam is treated as "no reading" (Run guards it).
-	GenTokensPerSec func() *float64
-	// ROCmReadiness is the detect rocm_readiness probe seam, wired in
-	// liveStatusDeps to detect.Probe().ROCmReadiness. internal/status folds the
-	// returned sub-tree via foldROCmReadiness; a nil seam leaves the indicator
-	// "unknown" (no false-green). status_test.go stubs it to drive the fold.
-	ROCmReadiness func() detect.ROCmReadiness
+	// /slots reads (ADR-0014), the client built from the config it is given. It
+	// returns nil on an idle server or a failed/absent /metrics scrape so Run omits
+	// the figure (typed-Unknown, never a fabricated 0). internal/status stays free of
+	// HTTP coupling; status_test.go stubs it like the other seams. A nil seam is
+	// treated as "no reading" (Run guards it).
+	GenTokensPerSec func(config.VillaConfig) *float64
 
 	// ReadUsage is the READ-ONLY cumulative-usage seam, wired in
 	// liveStatusDeps to a usage.Load over usage.Path(). It returns the loaded
@@ -558,7 +567,9 @@ type Deps struct {
 	// --- Coding-agent seams (Phase-28..). All nil-safe: a nil seam
 	// degrades to typed-Unknown (no fabricated value), mirroring the
 	// ReadUsage/ReadRecallState contract. They are consulted ONLY when the agent
-	// is enabled (Run gates on cfg.AgentEnabled).
+	// is enabled in the config this run loaded (Run gates on subsystem.AgentOn), so
+	// the live wiring binds them unconditionally: a seam left nil because the agent
+	// was off when the dashboard started would read "unknown" until a restart (#253).
 
 	// AgentPinMatch is the tri-state policy-pin compare seam: the installed
 	// villa-owned Crush binary SHA-256 vs the pinned policy hash → "match" /
@@ -568,19 +579,20 @@ type Deps struct {
 	AgentPinMatch func() string
 
 	// AgentResidency is the DERIVED residency seam (SC1): it RECOMPUTES the
-	// coder fit's residency from the live memory envelope
+	// coder fit's residency from the run's host profile and config
 	// (recommend.Pick(...).Coder.Residency → recommend.ResidencySwap/ResidencyShared)
 	// and returns "" (typed-Unknown) when the envelope is unevaluable. It is NEVER
 	// read from cfg (VillaConfig has no residency field) and NEVER fabricated. A nil
 	// seam → "" (the residency key is omitted), never a guessed swap/shared.
-	AgentResidency func() string
+	AgentResidency func(config.VillaConfig, detect.HostProfile) string
 
 	// AgentCache is the cache-effectiveness counter seam: it reads the cache pair
-	// through the authenticated inference client's /metrics scrape (ADR-0014).
-	// It returns (cacheN, promptN, ok) where ok is false on an absent/unparseable
-	// scrape — Run then leaves the ratio nil + counts omitted (typed-Unknown, never
-	// a fabricated 0%). A nil seam is treated as ok=false (Run guards it).
-	AgentCache func() (cacheN uint64, promptN uint64, ok bool)
+	// through the authenticated inference client's /metrics scrape (ADR-0014), the
+	// client built from the config it is given. It returns (cacheN, promptN, ok)
+	// where ok is false on an absent/unparseable scrape — Run then leaves the ratio
+	// nil + counts omitted (typed-Unknown, never a fabricated 0%). A nil seam is
+	// treated as ok=false (Run guards it).
+	AgentCache func(config.VillaConfig) (cacheN uint64, promptN uint64, ok bool)
 
 	// ReadLastTask is the READ-ONLY workspace-agent task projection seam
 	// (spec v1.11 §10), wired in liveStatusDeps over the taskstore Store's List,
@@ -679,17 +691,17 @@ func Run(d Deps) Report {
 		report.LastTask = d.ReadLastTask()
 	}
 	report.SchemaVersion = reportSchemaVersion
+	// The run's one host reading (ADR-0016): readiness, the weight footprint and
+	// the agent's residency below all derive from it.
+	host := d.Probe()
 	// Live tok/s: typed-optional via the seam — nil on idle/unavailable so it
 	// serializes as omitted, never a fabricated 0. Guard a nil seam defensively.
 	if d.GenTokensPerSec != nil {
-		report.GenTokensPerSec = d.GenTokensPerSec()
+		report.GenTokensPerSec = d.GenTokensPerSec(cfg)
 	}
-	// ROCm-readiness tri-state: fold the detect sub-tree from the seam. A nil
-	// seam leaves the indicator "unknown" (no false-green).
-	report.ROCmReadiness = ROCmUnknown
-	if d.ROCmReadiness != nil {
-		report.ROCmReadiness = foldROCmReadiness(d.ROCmReadiness())
-	}
+	// ROCm-readiness tri-state: fold the reading's detect sub-tree. An unprobed
+	// signal is Unknown, so the indicator reads "unknown" (no false-green).
+	report.ROCmReadiness = foldROCmReadiness(host.ROCmReadiness)
 	// Cumulative usage: read-only via the seam. A nil seam OR a nil result
 	// (absent/empty store) leaves report.Usage nil so it serializes as omitted
 	// typed-Unknown, never a fabricated 0. The seam never writes usage.json.
@@ -713,7 +725,7 @@ func Run(d Deps) Report {
 	// unevaluable signal yields "unknown" pin / omitted residency / omitted cache
 	// NEVER a fabricated match/swap/0%.
 	if subsystem.AgentOn(cfg) {
-		report.Coding = codingInfo(cfg, d.AgentPinMatch, d.AgentResidency, d.AgentCache)
+		report.Coding = codingInfo(cfg, host, d.AgentPinMatch, d.AgentResidency, d.AgentCache)
 	}
 	// Web-search section: populated ONLY when web search is
 	// enabled — a web-search-off report carries WebSearch == nil so the omitempty
@@ -730,7 +742,7 @@ func Run(d Deps) Report {
 	// READS the recorded check and triggers nothing — see the ReadPinState doc.
 	report.Updates = updatesInfo(d.ReadPinState)
 
-	weight := d.WeightBytes(cfg)
+	weight := d.WeightBytes(cfg, host)
 
 	// activeState resolves one unit's systemd active-state, keeping the three
 	// outcomes distinct: a parseable state, a systemctl that RAN but errored with no
@@ -755,18 +767,18 @@ func Run(d Deps) Report {
 	row := func(svc Service) ServiceStatus {
 		ss := ServiceStatus{Service: svc.Unit, Active: activeState(svc.Unit)}
 		if svc.Kind != Inference {
-			ss.Health = svc.health()
+			ss.Health = svc.health(cfg)
 			ss.Offload = naOffloadVerdict()
 			ss.OffloadApplies = false
 			ss.OffloadOK = false
 			return ss
 		}
 
-		ss.Health = svc.health()
+		ss.Health = svc.health(cfg)
 		journal, _ := d.JournalText(svc.Unit)
 		ss.Offload = inference.RunningOffloadVerdict(inference.RunningOffloadInput{
 			JournalText:   journal,
-			Props:         d.Props(),
+			Props:         d.Props(cfg),
 			GTTUsedBytes:  d.GTTUsed(),
 			WeightBytes:   weight,
 			ConfigModel:   modelFile,
@@ -858,16 +870,17 @@ func memoryInfo(cfg config.VillaConfig, readState func() *recall.State) *MemoryI
 //   - PinMatch is the tri-state from the pin seam: a nil seam OR an empty return
 //     degrades to PinUnknown — never a fabricated confident match/mismatch.
 //   - Residency is the DERIVED value from the residency seam (recomputed from the
-//     live envelope): "" when the seam is nil or the envelope is unevaluable
+//     run's host profile): "" when the seam is nil or the envelope is unevaluable
 //     (omitted by omitempty) — NEVER a guessed swap/shared, NEVER read from cfg.
 //   - Cache: the pct is set ONLY when the cache seam reports ok AND both counts are
 //     usable AND promptN>0; otherwise the pct stays nil and the counts are omitted
 //     — never a fabricated 0%.
 func codingInfo(
 	cfg config.VillaConfig,
+	host detect.HostProfile,
 	pinMatch func() string,
-	residency func() string,
-	cache func() (uint64, uint64, bool),
+	residency func(config.VillaConfig, detect.HostProfile) string,
+	cache func(config.VillaConfig) (uint64, uint64, bool),
 ) *CodingInfo {
 	ci := &CodingInfo{
 		Enabled:  true,
@@ -887,7 +900,7 @@ func codingInfo(
 	// Derived residency: recomputed from the live envelope by the seam. "" stays ""
 	// (omitted) — never a fabricated swap/shared.
 	if residency != nil {
-		ci.Residency = residency()
+		ci.Residency = residency(cfg, host)
 	}
 	// Cache effectiveness: the pct is shown ONLY when the scrape is usable, promptN>0
 	// AND the sample is internally consistent (cacheN<=promptN). Otherwise pct
@@ -899,7 +912,7 @@ func codingInfo(
 	// Unknown badge keeps the surface honest; fixing it HERE in the core means both
 	// --json and the dashboard inherit it (no dashboard-only clamp).
 	if cache != nil {
-		if cacheN, promptN, ok := cache(); ok && promptN > 0 && cacheN <= promptN {
+		if cacheN, promptN, ok := cache(cfg); ok && promptN > 0 && cacheN <= promptN {
 			ci.CacheN = cacheN
 			ci.PromptN = promptN
 			pct := (float64(cacheN) / float64(promptN)) * 100.0

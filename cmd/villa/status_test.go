@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -61,9 +62,9 @@ func newStatusDeps(t *testing.T, units []orchestrate.Unit) *status.Deps {
 		t.Fatalf("stub deps: %v", err)
 	}
 	// tok/s: idle by default, so the figure is omitted rather than fabricated as 0.
-	// ROCm readiness: all-unset folds to "unknown", the honest off-hardware default.
-	d.GenTokensPerSec = func() *float64 { return nil }
-	d.ROCmReadiness = func() detect.ROCmReadiness { return detect.ROCmReadiness{} }
+	// The stub host is all-unset, so readiness folds to "unknown", the honest
+	// off-hardware default.
+	d.GenTokensPerSec = func(config.VillaConfig) *float64 { return nil }
 	return &d
 }
 
@@ -193,7 +194,7 @@ func TestStatusTokensPerSecTypedOptional(t *testing.T) {
 
 	t.Run("generating → value rendered + labeled by backend", func(t *testing.T) {
 		d := newStatusDeps(t, units)
-		d.GenTokensPerSec = func() *float64 { return new(12.3) }
+		d.GenTokensPerSec = func(config.VillaConfig) *float64 { return new(12.3) }
 		report := runStatusReport(t, d)
 		if report.GenTokensPerSec == nil {
 			t.Fatalf("generating server must surface a tok/s reading (got nil)")
@@ -216,7 +217,7 @@ func TestStatusTokensPerSecTypedOptional(t *testing.T) {
 
 	t.Run("idle → omitted (never a fabricated 0)", func(t *testing.T) {
 		d := newStatusDeps(t, units)
-		d.GenTokensPerSec = func() *float64 { return nil }
+		d.GenTokensPerSec = func(config.VillaConfig) *float64 { return nil }
 		report := runStatusReport(t, d)
 		if report.GenTokensPerSec != nil {
 			t.Fatalf("idle server must omit tok/s (typed-Unknown), got %v", *report.GenTokensPerSec)
@@ -240,7 +241,7 @@ func TestStatusTokensPerSecTypedOptional(t *testing.T) {
 	t.Run("scrape unavailable → omitted", func(t *testing.T) {
 		d := newStatusDeps(t, units)
 		// An unavailable /metrics scrape is modeled the same as idle by the seam: nil.
-		d.GenTokensPerSec = func() *float64 { return nil }
+		d.GenTokensPerSec = func(config.VillaConfig) *float64 { return nil }
 		report := runStatusReport(t, d)
 		if report.GenTokensPerSec != nil {
 			t.Fatalf("unavailable scrape must omit tok/s, got %v", *report.GenTokensPerSec)
@@ -334,9 +335,9 @@ func newMemoryStatusDeps(t *testing.T) *status.Deps {
 	d.LoadConfig = func() (config.VillaConfig, error) { return memoryStatusCfg(), nil }
 	d.Services = append(d.Services,
 		status.Service{Unit: unitServiceName(orchestrate.QdrantContainerUnitName()), Kind: status.Managed,
-			Probe: func() status.HealthState { return status.HealthReady }},
+			Probe: func(config.VillaConfig) status.HealthState { return status.HealthReady }},
 		status.Service{Unit: unitServiceName(orchestrate.EmbedContainerUnitName()), Kind: status.Managed,
-			Probe: func() status.HealthState { return status.HealthReady }},
+			Probe: func(config.VillaConfig) status.HealthState { return status.HealthReady }},
 	)
 	d.ReadRecallState = func() *recall.State {
 		return &recall.State{
@@ -439,9 +440,9 @@ func newWebSearchStatusDeps(t *testing.T) *status.Deps {
 	d.LoadConfig = func() (config.VillaConfig, error) { return webSearchStatusCfg(), nil }
 	d.Services = append(d.Services,
 		status.Service{Unit: unitServiceName(orchestrate.SearXNGContainerUnitName()), Kind: status.Managed,
-			Probe: func() status.HealthState { return status.HealthReady }},
+			Probe: func(config.VillaConfig) status.HealthState { return status.HealthReady }},
 		status.Service{Unit: unitServiceName(orchestrate.WebsafeContainerUnitName()), Kind: status.Managed,
-			Probe: func() status.HealthState { return status.HealthReady }},
+			Probe: func(config.VillaConfig) status.HealthState { return status.HealthReady }},
 	)
 	d.ReadVerifyState = func() *verifystate.State { return nil }
 	return d
@@ -510,8 +511,8 @@ func newCodingStatusDeps(t *testing.T) *status.Deps {
 	d := newStatusDeps(t, loopbackUnits(t))
 	d.LoadConfig = func() (config.VillaConfig, error) { return codingStatusCfg(), nil }
 	d.AgentPinMatch = func() string { return status.PinMatch }
-	d.AgentResidency = func() string { return recommend.ResidencySwap }
-	d.AgentCache = func() (uint64, uint64, bool) { return 84, 200, true }
+	d.AgentResidency = func(config.VillaConfig, detect.HostProfile) string { return recommend.ResidencySwap }
+	d.AgentCache = func(config.VillaConfig) (uint64, uint64, bool) { return 84, 200, true }
 	return d
 }
 
@@ -1126,4 +1127,145 @@ func TestReadLastTask(t *testing.T) {
 			t.Fatalf("readLastTask on an empty store = %+v, want nil", got)
 		}
 	})
+}
+
+// TestStatusGatesTheAgentOnTheConfigItLoaded pins #253: the agent section is decided
+// by the config a status run loads, not by the config the deps were wired from.
+//
+// villa-dashboard.service wires its status deps once, at startup. When the operator
+// then turns the agent on (`villa install --workspace-agent`, or agent_enabled in
+// config.toml), the next /api/status must fill the agent section from live seams.
+// A seam left unwired because the agent was off at startup reads "unknown" until
+// the dashboard is restarted.
+//
+// The pin compare is the observable: a crush binary villa did not install is a
+// CONFIDENT mismatch, which only a wired seam can report. The seams under test are
+// the live wiring's, grafted onto the stub world so no other seam reaches the host.
+func TestStatusGatesTheAgentOnTheConfigItLoaded(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+
+	// Wired with no config.toml: the agent is off.
+	live, err := liveStatusDeps()
+	if err != nil {
+		t.Fatalf("liveStatusDeps: %v", err)
+	}
+
+	// After wiring, the agent is turned on and a foreign crush binary is on disk.
+	if err := config.SaveVilla(config.VillaConfig{AgentEnabled: true}); err != nil {
+		t.Fatalf("save config: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(agentBinPath()), 0o700); err != nil {
+		t.Fatalf("mkdir agent bin dir: %v", err)
+	}
+	if err := os.WriteFile(agentBinPath(), []byte("not the pinned crush"), 0o600); err != nil {
+		t.Fatalf("plant crush binary: %v", err)
+	}
+
+	d := newStatusDeps(t, loopbackUnits(t))
+	d.LoadConfig = live.LoadConfig
+	d.AgentPinMatch = live.AgentPinMatch
+
+	r := status.Run(*d)
+	if err := r.Err(); err != nil {
+		t.Fatalf("status.Run: %v", err)
+	}
+	if r.Coding == nil {
+		t.Fatal("Report.Coding is nil although the config this run loaded has the agent on")
+	}
+	if r.Coding.PinMatch != status.PinMismatch {
+		t.Errorf("Coding.PinMatch = %q, want %q: the agent seams were answered by the config at wiring time, not by the config this run loaded",
+			r.Coding.PinMatch, status.PinMismatch)
+	}
+}
+
+// TestStatusRunTakesOneHostReading pins #257: one status run probes the host once.
+//
+// The dashboard polls status every 2.5 seconds. ROCm readiness, the weight footprint
+// and the agent's residency all derive from the host profile, and each used to take
+// its own detect.Probe, so every poll probed the host two or three times.
+//
+// detect.Probe runs `rpm -q linux-firmware` once per reading, so an `rpm` on an
+// otherwise empty PATH counts readings. The agent is on, so all three host-derived
+// figures are asked for.
+func TestStatusRunTakesOneHostReading(t *testing.T) {
+	calls := stubCountingRPM(t)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	if err := config.SaveVilla(config.VillaConfig{AgentEnabled: true}); err != nil {
+		t.Fatalf("save config: %v", err)
+	}
+
+	live, err := liveStatusDeps()
+	if err != nil {
+		t.Fatalf("liveStatusDeps: %v", err)
+	}
+	d := newStatusDeps(t, loopbackUnits(t))
+	d.LoadConfig = live.LoadConfig
+	d.Probe = live.Probe
+	d.WeightBytes = live.WeightBytes
+	d.AgentResidency = live.AgentResidency
+
+	if err := status.Run(*d).Err(); err != nil {
+		t.Fatalf("status.Run: %v", err)
+	}
+	if got := countLines(t, calls); got != 1 {
+		t.Errorf("one status run probed the host %d times, want 1", got)
+	}
+}
+
+// TestDirectProbesMapNoAnswer pins the unansweredHealth table: when a direct-HTTP
+// health probe gets no answer, the inference unit and the dashboard (asked on their
+// own port) read down, and the chat UI (asked through llama-server's model list)
+// reads a typed Unknown — never a down it did not earn.
+//
+// The inference probes get no answer because the client refuses a key with a control
+// character before sending anything (ADR-0014): a refusal is transport-class, never a
+// success. The dashboard gets none from a loopback port nothing listens on.
+func TestDirectProbesMapNoAnswer(t *testing.T) {
+	refused := config.VillaConfig{InferenceSecret: "bad\nkey"}
+	if got := liveHealthProbe(refused); got != status.HealthDown {
+		t.Errorf("inference probe with no answer = %q, want %q", got, status.HealthDown)
+	}
+	if got := liveOpenWebUIHealth(refused); got != status.HealthUnknown {
+		t.Errorf("chat probe with no answer = %q, want %q", got, status.HealthUnknown)
+	}
+
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("reserve a loopback port: %v", err)
+	}
+	port := l.Addr().(*net.TCPAddr).Port
+	_ = l.Close()
+	if got := liveDashboardHealth(config.VillaConfig{DashboardPort: port}); got != status.HealthDown {
+		t.Errorf("dashboard probe with no answer = %q, want %q", got, status.HealthDown)
+	}
+}
+
+// stubCountingRPM replaces PATH with a directory holding only an `rpm` that appends a
+// line to the returned file on each run and fails, so detect.Probe reads the firmware
+// date as Unknown and no other host tool runs.
+func stubCountingRPM(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	calls := filepath.Join(dir, "calls")
+	script := "#!/bin/sh\necho rpm >> '" + calls + "'\nexit 1\n"
+	if err := os.WriteFile(filepath.Join(dir, "rpm"), []byte(script), 0o700); err != nil {
+		t.Fatalf("write rpm stub: %v", err)
+	}
+	t.Setenv("PATH", dir)
+	return calls
+}
+
+// countLines counts the lines of a file a stub appends to; an absent file is zero.
+func countLines(t *testing.T, path string) int {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return 0
+	}
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	return strings.Count(string(b), "\n")
 }

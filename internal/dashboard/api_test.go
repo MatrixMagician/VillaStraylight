@@ -153,10 +153,11 @@ func TestHandleStatusCarriesBackendIdentity(t *testing.T) {
 	if got.ROCmReadiness != want.ROCmReadiness {
 		t.Fatalf("rocm_readiness = %q, want %q", got.ROCmReadiness, want.ROCmReadiness)
 	}
-	// With no ROCmReadiness seam wired, the honest off-hardware default is "unknown"
-	// (no-false-green) — the JS renders the gray "ROCm readiness unknown" badge.
+	// The stub host is the off-hardware profile (every signal typed-Unknown), so the
+	// honest default is "unknown" (no-false-green) — the JS renders the gray "ROCm
+	// readiness unknown" badge.
 	if got.ROCmReadiness != status.ROCmUnknown {
-		t.Fatalf("rocm_readiness with no seam = %q, want %q (no-false-green default)", got.ROCmReadiness, status.ROCmUnknown)
+		t.Fatalf("rocm_readiness on an unprobed host = %q, want %q (no-false-green default)", got.ROCmReadiness, status.ROCmUnknown)
 	}
 }
 
@@ -186,9 +187,9 @@ func stubMemoryStatusDeps(t *testing.T) status.Deps {
 	d.Render = func(orchestrate.RenderInput) ([]orchestrate.Unit, error) { return units, nil }
 	d.Services = append(d.Services,
 		status.Service{Unit: "villa-qdrant.service", Kind: status.Managed,
-			Probe: func() status.HealthState { return status.HealthReady }},
+			Probe: func(config.VillaConfig) status.HealthState { return status.HealthReady }},
 		status.Service{Unit: "villa-embed.service", Kind: status.Managed,
-			Probe: func() status.HealthState { return status.HealthReady }},
+			Probe: func(config.VillaConfig) status.HealthState { return status.HealthReady }},
 	)
 	d.ReadRecallState = func() *recall.State {
 		return &recall.State{

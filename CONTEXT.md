@@ -134,6 +134,13 @@ _Avoid_: pre-check, validation, readiness check
 The read-only gate answering "is this already-installed stack still healthy?"
 _Avoid_: health check, diagnostics, status check
 
+**Status run**:
+One pass of the status read-model: one config load, one host profile, one
+report. Every subsystem section is gated on the config that run loaded, never
+on the config present when the caller was wired. Each dashboard poll is one
+status run; a doctor run reuses its status run's host profile.
+_Avoid_: status refresh, snapshot, probe (for the whole run)
+
 **Block / Warn**:
 The two severities a gate result carries. Block stops the operation; Warn is
 surfaced and passable.

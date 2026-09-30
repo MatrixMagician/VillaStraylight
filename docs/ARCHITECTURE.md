@@ -250,7 +250,10 @@ hand-editing `config.toml` and re-running `up`/`restart` converges exactly the c
 (`internal/status`) and the dashboard (`internal/dashboard`) fold the **same** status
 read-model, never a fork, to report per-service active state, mapped `/health`, and
 the running-server GPU-offload verdict (keyed on the active backend's residency markers),
-with a worst-wins overall PASS/WARN/FAIL.
+with a worst-wins overall PASS/WARN/FAIL. A status run takes one host profile and
+gates every subsystem section on the config it loaded, so the long-lived dashboard
+answers each poll from that poll's config and api key (ADR-0016); `villa doctor`
+reuses the run's host profile and reads the web-search egress answer from its report.
 
 A second v1.1 flow is the **transactional backend switch** (`villa backend set
 <rocm|rocm-6.4.4|rocm-6.4.4-rocwmma|vulkan>`, `cmd/villa/backend.go`), driven by the pure `backendswap.Run(Deps,
@@ -352,9 +355,10 @@ dashboard service drives rather than reads:
   backend-neutral PASS/WARN/FAIL value the CLI, dashboard, `backendswap`, and `bench`
   render.
 - **`inference.Client`** (`internal/inference/client.go`), the one caller of a
-  llama-server unit (ADR-0014). Built once from a loaded config
-  (`inferenceClient(cfg)`, or `inNetworkInferenceClient(cfg)` for a `villa.network`
-  probe), it owns the address, the api key and every route: `/health` and
+  llama-server unit (ADR-0014). Built from a loaded config by `inferenceClient(cfg)`,
+  or `inNetworkInferenceClient(cfg)` for a `villa.network` probe, and rebuilt per
+  status run and per dashboard scrape so the long-lived dashboard sends the current
+  key (ADR-0016), it owns the address, the api key and every route: `/health` and
   `/v1/models`, which llama.cpp serves publicly (the client sends the key on
   `/v1/models` anyway), and the keyed `/props`, `/metrics`, `/slots` and chat
   completions (via `internal/llm`). An in-network curl probe takes a `CurlRequest`
@@ -375,6 +379,9 @@ dashboard service drives rather than reads:
 - **`status.Report` / `status.Run` / `status.Aggregate`** (`internal/status/status.go`)
   is the JSON-neutral read-model the CLI and dashboard share; folds per-service
   active/health/offload into a worst-wins overall verdict and records loopback posture.
+  Its seams are always wired and hold no config: `Run` loads the config once, takes
+  one host profile through `Deps.Probe`, and hands both to the seams that need them,
+  so a seam reaching llama-server builds its client from that run's key (ADR-0016).
 - **`preflight.RunROCm` / `RunROCmWithPolicy`** (`internal/preflight/checks_rocm.go`),
   the ROCm bring-up gate (gfx1151 confirm, kernel/firmware floors,
   `HSA_OVERRIDE_GFX_VERSION` viability), driven by policy data in the `go:embed`-ed
