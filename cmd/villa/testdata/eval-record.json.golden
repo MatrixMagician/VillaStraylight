@@ -1,0 +1,88 @@
+{
+  "schema": 1,
+  "verdict": "PASS",
+  "detail": "no regressions against the eval baseline (2 improvement(s))",
+  "key": {
+    "model": "qwen-test",
+    "quant": "Q4_K_M",
+    "suite_version": 1
+  },
+  "provenance": {
+    "backend": "rocm",
+    "image_digest": "sha256:1111",
+    "speculation": "off",
+    "ctx": 8192,
+    "tools_mode": false
+  },
+  "score": {
+    "passed": 3,
+    "failed": 0,
+    "skipped": 1,
+    "unconducted": 0
+  },
+  "baseline_score": {
+    "passed": 1,
+    "failed": 2,
+    "skipped": 1,
+    "unconducted": 0
+  },
+  "regressions": [],
+  "improvements": [
+    {
+      "case_id": "arith-a",
+      "status": "passed",
+      "excerpt": "4"
+    },
+    {
+      "case_id": "code-b",
+      "status": "passed",
+      "excerpt": "30"
+    }
+  ],
+  "unconducted": [],
+  "skipped": [
+    {
+      "case_id": "tool-d",
+      "status": "skipped",
+      "detail": "tools mode off"
+    }
+  ],
+  "provenance_changes": [
+    {
+      "field": "image_digest",
+      "baseline": "sha256:0000",
+      "now": "sha256:1111"
+    }
+  ],
+  "results": [
+    {
+      "case_id": "arith-a",
+      "status": "passed",
+      "excerpt": "4"
+    },
+    {
+      "case_id": "code-b",
+      "status": "passed",
+      "excerpt": "30"
+    },
+    {
+      "case_id": "json-c",
+      "status": "passed",
+      "excerpt": "x"
+    },
+    {
+      "case_id": "tool-d",
+      "status": "skipped",
+      "detail": "tools mode off"
+    }
+  ],
+  "record": {
+    "written": true,
+    "replaces": {
+      "passed": 1,
+      "failed": 2,
+      "skipped": 1,
+      "unconducted": 0
+    }
+  }
+}

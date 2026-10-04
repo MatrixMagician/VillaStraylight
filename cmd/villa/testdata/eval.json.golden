@@ -1,0 +1,86 @@
+{
+  "schema": 1,
+  "verdict": "FAIL",
+  "detail": "1 capability case(s) regressed against the eval baseline",
+  "key": {
+    "model": "qwen-test",
+    "quant": "Q4_K_M",
+    "suite_version": 1
+  },
+  "provenance": {
+    "backend": "rocm",
+    "image_digest": "sha256:1111",
+    "speculation": "off",
+    "ctx": 8192,
+    "tools_mode": false
+  },
+  "score": {
+    "passed": 1,
+    "failed": 1,
+    "skipped": 1,
+    "unconducted": 1
+  },
+  "baseline_score": {
+    "passed": 2,
+    "failed": 1,
+    "skipped": 1,
+    "unconducted": 0
+  },
+  "regressions": [
+    {
+      "case_id": "arith-a",
+      "status": "failed",
+      "excerpt": "The answer is 5"
+    }
+  ],
+  "improvements": [
+    {
+      "case_id": "code-b",
+      "status": "passed",
+      "excerpt": "30"
+    }
+  ],
+  "unconducted": [
+    {
+      "case_id": "json-c",
+      "status": "unconducted",
+      "detail": "connection refused"
+    }
+  ],
+  "skipped": [
+    {
+      "case_id": "tool-d",
+      "status": "skipped",
+      "detail": "tools mode off"
+    }
+  ],
+  "provenance_changes": [
+    {
+      "field": "image_digest",
+      "baseline": "sha256:0000",
+      "now": "sha256:1111"
+    }
+  ],
+  "results": [
+    {
+      "case_id": "arith-a",
+      "status": "failed",
+      "excerpt": "The answer is 5"
+    },
+    {
+      "case_id": "code-b",
+      "status": "passed",
+      "excerpt": "30"
+    },
+    {
+      "case_id": "json-c",
+      "status": "unconducted",
+      "detail": "connection refused"
+    },
+    {
+      "case_id": "tool-d",
+      "status": "skipped",
+      "detail": "tools mode off"
+    }
+  ]
+}
