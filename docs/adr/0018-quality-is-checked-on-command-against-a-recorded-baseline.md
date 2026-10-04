@@ -27,18 +27,36 @@ against a real GGUF before each release. This ADR records how villa adopts it.
 - **The core is pure; cases and graders are data.** `internal/eval` owns `Case`
   (id, prompt, grader, token bound), a grader table keyed by kind, and `Compare`.
   The suite is villa-authored, embedded with `go:embed`, and carries a suite
-  version that changes whenever a case is added, removed or edited. Three grader
-  kinds ship. `exact` matches after trimming and case-folding. `regex` matches
-  anywhere in the reply. `json` parses the reply as one JSON object and checks
-  required key/value pairs. A new kind is a table row, never a branch at a call
+  version that changes whenever a case is added, removed or edited; the sha256 of
+  the embedded file is pinned beside the version, so an edit fails the build until
+  the version moves with it. Five grader kinds ship. `exact` matches after trimming
+  and case-folding. `regex` matches anywhere in the reply. `json` parses the reply,
+  optionally inside one ```json fence, as one JSON object and checks required
+  key/value pairs. `tool` wants exactly one tool call, of the named function, whose
+  arguments parse as a JSON object holding the required key/value pairs. `no_tool`
+  wants no tool call and an answer matching a pattern. Each row also names what a
+  case of its kind must carry, so the loader refuses an unknown kind, an unknown
+  field or an incomplete case. A new kind is a table row, never a branch at a call
   site.
+
+- **Tool-call cases ship in the first suite, gated on tools mode.** A case may
+  carry tool definitions in the OpenAI wire shape. llama-server honours them only
+  when it runs with `--jinja`, which villa renders only when `subsystem.ToolsOn`
+  (tools mode or coding mode). With tools mode off a tool-call case is **skipped**,
+  a fourth result status beside passed, failed and unconducted: it is neither a
+  failure nor a hole. `Compare` compares only cases conducted on both sides; a case
+  skipped in the run or in the baseline is listed, never a regression, and the
+  tools-mode change is named as a provenance difference.
 
 - **Every completion is greedy and goes through the inference client.** Each case
   is sent with temperature 0, thinking disabled through `chat_template_kwargs` (the
   grounding audit's setting), and a bounded `max_tokens`. It is sent through
-  `inferenceClient(cfg).Chat(…)` and `StreamChat`, accumulating the content
-  (ADR-0014). `Complete` is not used because it discards the content. Cases run
-  one at a time, so a parallel slot cannot change a reply's batching.
+  `inferenceClient(cfg).Chat(…)` as one non-streamed completion (ADR-0014):
+  `llm.ChatRequest` gained append-only `Tools` and `ToolChoice` fields, and
+  `OpenAIClient.Chat` returns the message content and every tool call. `Complete`
+  is not used because it discards the content, and `StreamChat` is not used because
+  its parser reads content deltas only and would lose a tool call. Cases run one at
+  a time, so a parallel slot cannot change a reply's batching.
 
 - **A baseline belongs to a model, not to a stack.** It is keyed by model, quant
   and suite version. Backend, image digest, speculation mode, context and tools
@@ -57,14 +75,19 @@ against a real GGUF before each release. This ADR records how villa adopts it.
   confirmed regression outranks a Reject elsewhere in the same run.
 
 - **`--record` refuses a baseline with holes.** If any case could not be conducted,
-  nothing is written. A recorded baseline holds every case's pass or fail.
-  Recording over an existing baseline is allowed and prints the score it replaces.
+  nothing is written. A recorded baseline holds every case's pass or fail; a
+  skipped tool-call case is not a hole. Recording over an existing baseline is
+  allowed and prints the score it replaces.
 
 - **Baselines persist in their own store.** `internal/evalstore` sits on
   `internal/jsonstore` at `eval-baselines.json` under villa's XDG data root,
-  schema-versioned, one document holding every model's baseline. It is a backup
-  entry, because a baseline records a known-good state that cannot be re-recorded
-  after the regression it exists to catch.
+  schema-versioned, one document holding every model's baseline. It is meant to be
+  a backup entry, because a baseline records a known-good state that cannot be
+  re-recorded after the regression it exists to catch. The entry follows #275,
+  which first makes the backup and restore entries table-driven and then adds
+  `eval-baselines.json` as a row; until #275 lands, a restore does not carry eval
+  baselines. Recording refuses to overwrite a store it cannot read, so one
+  model's baseline never silently replaces every other model's.
 
 - **`eval` takes no stack lock.** It mutates no unit and no config, like `status`. A
   swap that runs during an eval shows up as cases that could not be conducted, or
@@ -92,9 +115,12 @@ written for the catalog's sizes, under the repo's licence.
 **Grade with the model itself.** A model judging its own answers drifts with the
 model under test, which is the thing being measured. Graders are deterministic.
 
-**Tool-call cases in the first suite.** `llm.ChatRequest` has no `tools` field, and
-the tools-mode proof already drives one real tool call. A `tool` grader kind can be
-added later, together with an append-only `Tools` field on the request.
+**Defer tool-call cases.** An earlier draft of this ADR rejected them because
+`llm.ChatRequest` had no `tools` field and the tools-mode proof already drives one
+real tool call. That proof shows one round-trip works; it says nothing about whether
+the model still picks the right tool with the right arguments after a pin move,
+which is the regression this verb exists to catch. The request fields and the `tool`
+grader were added instead (see the decision above).
 
 ## Consequences
 
@@ -105,3 +131,7 @@ added later, together with an append-only `Tools` field on the request.
 - Editing a case orphans every baseline recorded under the old suite version. The
   report says so (Reject: no baseline for this suite version) rather than comparing
   across suites.
+- A baseline recorded with tools mode off holds no tool-call results, so those
+  cases are never compared until a baseline is recorded with tools mode on.
+- Until #275 lands, `villa backup` does not archive `eval-baselines.json` and a
+  restore does not carry eval baselines.

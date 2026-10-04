@@ -175,6 +175,22 @@ over drafted tokens) is reported beside pp and tg, because a tg number alone
 cannot be compared across prompts.
 _Avoid_: tok/s, throughput, speed
 
+**Capability case**:
+One prompt in `villa eval`'s embedded suite with a deterministic grader (exact,
+regex, json, tool or no_tool) and a token bound (`internal/eval`, ADR-0018). A run
+gives each case one outcome: passed, failed, unconducted (no reply was obtained)
+or skipped (a tool-call case while tools mode is off). The model never grades its
+own reply.
+_Avoid_: test, benchmark, eval item, prompt (for the whole case)
+
+**Eval baseline**:
+A complete `villa eval` run accepted with `--record` as a model's known state,
+keyed by model, quant and suite version (`internal/evalstore`). Backend, image
+digest, speculation, ctx and tools mode are provenance recorded beside it, never
+part of the key. A case that passed in the eval baseline and fails now is a
+regression. A run with an unconducted case is never recorded.
+_Avoid_: golden, snapshot, reference run, benchmark baseline
+
 ### Knowledge and retrieval
 
 **Memory**:
