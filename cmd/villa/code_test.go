@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"fmt"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -377,4 +379,168 @@ func envHas(env []string, want string) bool {
 		}
 	}
 	return false
+}
+
+// crushTestKey is a fake 64-hex inference secret (GHSA-qxg9), never a real one.
+const crushTestKey = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
+// stageCrushHome points the user config dir at a temp dir and returns the crush.json
+// path inside it, so no test here reads or writes the operator's real
+// ~/.config/crush.
+func stageCrushHome(t *testing.T) string {
+	t.Helper()
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	path, err := crushConfigPath()
+	if err != nil {
+		t.Fatalf("crushConfigPath: %v", err)
+	}
+	return path
+}
+
+// writeCrushFile writes b as crush.json the way villa does (dir 0700, file 0600).
+func writeCrushFile(t *testing.T, path string, b []byte) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatalf("mkdir crush dir: %v", err)
+	}
+	if err := os.WriteFile(path, b, 0o600); err != nil {
+		t.Fatalf("write crush.json: %v", err)
+	}
+}
+
+// renderCrush renders cfg against this host's LSP probes with the given key, the
+// way the live heal does.
+func renderCrush(t *testing.T, cfg config.VillaConfig, key string) []byte {
+	t.Helper()
+	cfg.InferenceSecret = key
+	b, _, err := agent.Render(cfg, liveLSPProbes())
+	if err != nil {
+		t.Fatalf("agent.Render: %v", err)
+	}
+	return b
+}
+
+// readMode returns a file's bytes and permission bits.
+func readMode(t *testing.T, path string) ([]byte, os.FileMode) {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat %s: %v", path, err)
+	}
+	return b, info.Mode().Perm()
+}
+
+// agentOnCfg is a coding-agent-on config carrying the fake secret.
+var agentOnCfg = config.VillaConfig{Model: "qwen3", AgentEnabled: true, InferenceSecret: crushTestKey}
+
+// TestLiveHealAgentConfigRewritesAStaleKey guards ADR-0019's live stack-apply heal
+// (#277): a crush.json villa wrote before the inference key existed, identical but
+// for api_key, is kept as crush.json.bak and replaced by the current rendering, both
+// at 0600.
+func TestLiveHealAgentConfigRewritesAStaleKey(t *testing.T) {
+	path := stageCrushHome(t)
+	stale := renderCrush(t, agentOnCfg, "local")
+	writeCrushFile(t, path, stale)
+
+	if err := liveHealAgentConfig(agentOnCfg); err != nil {
+		t.Fatalf("liveHealAgentConfig: %v", err)
+	}
+	got, mode := readMode(t, path)
+	if !bytes.Equal(got, renderCrush(t, agentOnCfg, crushTestKey)) || mode != 0o600 {
+		t.Errorf("crush.json = mode %o, %d bytes; want the current rendering at 0600", mode, len(got))
+	}
+	bak, bakMode := readMode(t, path+".bak")
+	if !bytes.Equal(bak, stale) || bakMode != 0o600 {
+		t.Errorf("crush.json.bak = mode %o; want the previous bytes verbatim at 0600", bakMode)
+	}
+}
+
+// TestLiveHealAgentConfigWritesNothingElse: the heal is a no-op with the coding
+// agent off, with no crush.json (the first-run render is `villa code`'s), and on an
+// operator's edit, which villa never overwrites (AGENT-04). A read failure is an
+// error, so the apply stops before it writes a unit.
+func TestLiveHealAgentConfigWritesNothingElse(t *testing.T) {
+	t.Run("agent off", func(t *testing.T) {
+		path := stageCrushHome(t)
+		stale := renderCrush(t, agentOnCfg, "local")
+		writeCrushFile(t, path, stale)
+		off := agentOnCfg
+		off.AgentEnabled = false
+		if err := liveHealAgentConfig(off); err != nil {
+			t.Fatalf("liveHealAgentConfig: %v", err)
+		}
+		assertCrushUntouched(t, path, stale)
+	})
+
+	t.Run("no crush.json", func(t *testing.T) {
+		path := stageCrushHome(t)
+		if err := liveHealAgentConfig(agentOnCfg); err != nil {
+			t.Fatalf("liveHealAgentConfig: %v", err)
+		}
+		if _, err := os.Stat(filepath.Dir(path)); !os.IsNotExist(err) {
+			t.Errorf("the heal created %s (stat err %v); first-run rendering is villa code's", filepath.Dir(path), err)
+		}
+	})
+
+	t.Run("operator edit beside a stale key", func(t *testing.T) {
+		path := stageCrushHome(t)
+		edited := bytes.Replace(renderCrush(t, agentOnCfg, "local"), []byte(`"auto_lsp": false`), []byte(`"auto_lsp": true`), 1)
+		writeCrushFile(t, path, edited)
+		if err := liveHealAgentConfig(agentOnCfg); err != nil {
+			t.Fatalf("liveHealAgentConfig: %v", err)
+		}
+		assertCrushUntouched(t, path, edited)
+	})
+
+	t.Run("unreadable crush.json", func(t *testing.T) {
+		path := stageCrushHome(t)
+		if err := os.MkdirAll(path, 0o700); err != nil { // a directory where the file should be
+			t.Fatalf("mkdir: %v", err)
+		}
+		if err := liveHealAgentConfig(agentOnCfg); err == nil {
+			t.Fatal("liveHealAgentConfig = nil on an unreadable crush.json, want the read error")
+		}
+	})
+}
+
+// assertCrushUntouched fails when crush.json changed or a backup was written.
+func assertCrushUntouched(t *testing.T, path string, want []byte) {
+	t.Helper()
+	if got, _ := readMode(t, path); !bytes.Equal(got, want) {
+		t.Errorf("crush.json was rewritten; villa must leave it alone here")
+	}
+	if _, err := os.Stat(path + ".bak"); !os.IsNotExist(err) {
+		t.Errorf("crush.json.bak exists (stat err %v); nothing was healed", err)
+	}
+}
+
+// TestWriteCrushConfigCreatesThePrivateDir: the one crush.json writer (first run and
+// both heals) creates the config dir at 0700 and the file at 0600.
+func TestWriteCrushConfigCreatesThePrivateDir(t *testing.T) {
+	path := stageCrushHome(t)
+	if err := writeCrushConfig([]byte("{}\n")); err != nil {
+		t.Fatalf("writeCrushConfig: %v", err)
+	}
+	if got, mode := readMode(t, path); string(got) != "{}\n" || mode != 0o600 {
+		t.Errorf("crush.json = %q at %o, want the bytes at 0600", got, mode)
+	}
+	info, err := os.Stat(filepath.Dir(path))
+	if err != nil || info.Mode().Perm() != 0o700 {
+		t.Errorf("crush config dir: stat err %v, want mode 0700", err)
+	}
+}
+
+// TestLiveDepsWireTheCrushHeal: the stack apply and `villa code` both reach the
+// ADR-0019 heal through their live wiring.
+func TestLiveDepsWireTheCrushHeal(t *testing.T) {
+	if liveStackDeps().HealAgentConfig == nil {
+		t.Error("liveStackDeps leaves HealAgentConfig nil; a stack apply would never heal crush.json")
+	}
+	if liveAgentDeps().BackupConfig == nil {
+		t.Error("liveAgentDeps leaves BackupConfig nil; villa code's heal would panic")
+	}
 }

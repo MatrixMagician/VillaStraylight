@@ -2,25 +2,32 @@ package agent
 
 import (
 	"bytes"
+	"encoding/json"
 	"strings"
 )
 
 // drift.go is the PURE drift detector (AGENT-04). It is handed bytes/hashes
-// plus a freshly-rendered reference and returns a REPORT ONLY — it has NO write,
-// NO repair, and NO auto-correct path anywhere (present-but-differs is
-// surfaced, never silently rewritten). The live filesystem reads + binary hash
-// are injected via Deps.ReadConfig / Deps.HashBinary (Plan 02); this core does
-// zero I/O.
+// plus a freshly-rendered reference and returns a REPORT ONLY — it has NO write
+// and NO repair path of its own. The live filesystem reads + binary hash are
+// injected via Deps.ReadConfig / Deps.HashBinary (Plan 02); this core does zero I/O.
 //
-// Two drift signals, both surfaced with remediation, never auto-corrected:
+// AGENT-04, as narrowed by ADR-0019: villa never overwrites the operator's edits to
+// crush.json. A drift whose ONLY difference is providers.villa.api_key, the value
+// villa alone writes, is reported as ConfigKeyOnly so the callers that write
+// (agent.Run, and every stack apply through its HealAgentConfig seam) can heal it;
+// every other config drift is surfaced and never written.
+//
+// Two drift signals, both surfaced with remediation:
 //
 // (a) binary drift — installed binary SHA-256 != policy binarySha256.
 //	    Compares against the BINARY hash, NEVER the tarball checksum (Pitfall 6).
 //	    When the policy binary hash is the UNPINNED sentinel (Plan 03 not yet run),
 //	    it degrades to a typed-Unknown WARN (BinaryDriftUnknown), never a false FAIL.
+//	    Never auto-corrected.
 // (b) config drift — on-disk crush.json semantically != freshly-rendered.
 //	    Parsed-semantic compare (canonicalize → bytes.Equal) so a whitespace-only
-//	    re-save is NOT drift, while a semantic edit IS (Pitfall 4).
+//	    re-save is NOT drift, while a semantic edit IS (Pitfall 4). Its key-only
+//	    case (ConfigKeyOnly, KeyOnlyDrift) is the one a caller may heal.
 //
 // A DISTINCT third signal — config-ABSENT — is the FIRST-RUN render trigger: no
 // on-disk crush.json yet. It is NOT drift (it parallels BinaryAbsent); the caller
@@ -67,8 +74,12 @@ type DriftReport struct {
 	// from ConfigDrift; parallels BinaryAbsent). Not a refusal.
 	ConfigAbsent bool
 	// ConfigDrift: on-disk crush.json present but semantically differs from the
-	// rendered reference → surface + remediation, never auto-correct.
+	// rendered reference → surface + remediation; never written unless ConfigKeyOnly.
 	ConfigDrift bool
+	// ConfigKeyOnly: set together with ConfigDrift when the ONLY difference is
+	// villa's own inference key (KeyOnlyDrift, ADR-0019). The operator edited
+	// nothing, so a stack apply or `villa code` heals it; doctor names that heal.
+	ConfigKeyOnly bool
 	// Reason is the human refusal/remediation/informational explanation (empty when
 	// every signal is clean).
 	Reason string
@@ -76,7 +87,7 @@ type DriftReport struct {
 
 // DetectDrift compares the installed binary + on-disk config against the pinned
 // policy + freshly-rendered reference and returns a REPORT ONLY. It never
-// writes, never repairs.
+// writes, never repairs; a caller acts on ConfigKeyOnly (ADR-0019).
 func DetectDrift(in DriftInput) DriftReport {
 	var r DriftReport
 	var reasons []string
@@ -99,21 +110,70 @@ func DetectDrift(in DriftInput) DriftReport {
 			"installed Crush binary checksum does not match the pinned policy — re-install the pinned binary; villa does not auto-correct a drifted binary")
 	}
 
-	// (b) Config presence vs drift. ABSENT is the first-run render trigger, NOT a
-	// drift — STOP the config branch here (never compare an absent config against the
-	// rendered reference, which would FALSE-positive at the first `villa code`).
-	if !in.ConfigPresent {
-		r.ConfigAbsent = true
-		reasons = append(reasons,
-			"no crush.json found — villa will render it from your config.toml on first launch")
-	} else if !semanticallyEqualConfig(in.OnDiskConfig, in.RenderedConfig) {
-		r.ConfigDrift = true
-		reasons = append(reasons,
-			"on-disk crush.json differs from what villa would render from config.toml — review your edits or re-render; villa surfaces drift but never overwrites your file automatically")
+	// (b) Config presence vs drift.
+	c := detectConfigDrift(in)
+	r.ConfigAbsent, r.ConfigDrift, r.ConfigKeyOnly = c.ConfigAbsent, c.ConfigDrift, c.ConfigKeyOnly
+	if c.Reason != "" {
+		reasons = append(reasons, c.Reason)
 	}
 
 	r.Reason = strings.Join(reasons, "; ")
 	return r
+}
+
+// detectConfigDrift is DetectDrift's config half, returned as a report carrying
+// only the config fields. ABSENT is the first-run render trigger, NOT a drift: an
+// absent config is never compared against the rendered reference, which would
+// FALSE-positive at the first `villa code`.
+func detectConfigDrift(in DriftInput) DriftReport {
+	switch {
+	case !in.ConfigPresent:
+		return DriftReport{ConfigAbsent: true,
+			Reason: "no crush.json found — villa will render it from your config.toml on first launch"}
+	case semanticallyEqualConfig(in.OnDiskConfig, in.RenderedConfig):
+		return DriftReport{}
+	case KeyOnlyDrift(in.OnDiskConfig, in.RenderedConfig):
+		return DriftReport{ConfigDrift: true, ConfigKeyOnly: true,
+			Reason: "only villa's inference key in crush.json is stale — any stack apply (`villa up`) or `villa code` rewrites it (the old file is kept as crush.json.bak)"}
+	}
+	return DriftReport{ConfigDrift: true,
+		Reason: "on-disk crush.json differs from what villa would render from config.toml — review your edits or re-render; villa surfaces drift but never overwrites your file automatically"}
+}
+
+// KeyOnlyDrift reports whether onDisk differs from rendered ONLY in
+// providers.villa.api_key (ADR-0019): the two are not semantically equal, and
+// putting rendered's key into the parsed on-disk document makes them so. An
+// unparseable on-disk file, one without a villa provider, or any other difference,
+// alone or beside a stale key, is false: that is the operator's edit, never villa's
+// to overwrite (AGENT-04).
+func KeyOnlyDrift(onDisk, rendered []byte) bool {
+	if semanticallyEqualConfig(onDisk, rendered) {
+		return false
+	}
+	doc, villa, ok := parseVillaProvider(onDisk)
+	if !ok {
+		return false
+	}
+	// A rendering without a villa provider leaves ref nil and sets the key to null,
+	// which can never compare equal to it: no separate check is needed.
+	_, ref, _ := parseVillaProvider(rendered)
+	villa["api_key"] = ref["api_key"]
+	patched, err := json.Marshal(doc)
+	return err == nil && semanticallyEqualConfig(patched, rendered)
+}
+
+// parseVillaProvider decodes a crush.json document and returns it with its
+// providers.villa object, which aliases into the document so an edit to it is an
+// edit to the whole. ok is false when the bytes do not parse or there is no villa
+// provider object.
+func parseVillaProvider(b []byte) (doc any, villa map[string]any, ok bool) {
+	if err := json.Unmarshal(b, &doc); err != nil {
+		return nil, nil, false
+	}
+	root, _ := doc.(map[string]any)
+	providers, _ := root["providers"].(map[string]any)
+	villa, ok = providers[providerKey].(map[string]any)
+	return doc, villa, ok
 }
 
 // isUnpinnedBinaryHash reports whether the policy binary hash is the unpinned
