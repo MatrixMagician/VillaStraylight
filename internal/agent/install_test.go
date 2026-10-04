@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -37,8 +38,12 @@ type runRecorder struct {
 	lookFound     map[string]bool
 	writeCalls    [][]byte
 	writeErr      error
+	backupCalls   [][]byte
+	backupErr     error
 	launchCalls   [][]string
 	launchErr     error
+	// order records the config-writing seams in call order ("backup", "write").
+	order []string
 }
 
 // deps wires the recorder into an agent.Deps with sensible defaults (gopls found).
@@ -51,10 +56,19 @@ func (r *runRecorder) deps() Deps {
 			}
 			return "", false
 		},
-		ReadConfig:  func() ([]byte, bool, error) { return r.onDisk, r.configPresent, r.readErr },
-		HashBinary:  func() (string, bool, error) { return r.binSHA, r.binPresent, r.binErr },
-		WriteConfig: func(b []byte) error { r.writeCalls = append(r.writeCalls, b); return r.writeErr },
-		Launch:      func(env []string) error { r.launchCalls = append(r.launchCalls, env); return r.launchErr },
+		ReadConfig: func() ([]byte, bool, error) { return r.onDisk, r.configPresent, r.readErr },
+		HashBinary: func() (string, bool, error) { return r.binSHA, r.binPresent, r.binErr },
+		WriteConfig: func(b []byte) error {
+			r.order = append(r.order, "write")
+			r.writeCalls = append(r.writeCalls, b)
+			return r.writeErr
+		},
+		BackupConfig: func(b []byte) error {
+			r.order = append(r.order, "backup")
+			r.backupCalls = append(r.backupCalls, b)
+			return r.backupErr
+		},
+		Launch: func(env []string) error { r.launchCalls = append(r.launchCalls, env); return r.launchErr },
 	}
 }
 
@@ -148,6 +162,88 @@ func TestRunDriftSurfaced(t *testing.T) {
 	}
 	if res.Reason == "" {
 		t.Errorf("config drift carried no remediation Reason")
+	}
+	if len(rec.backupCalls) != 0 {
+		t.Errorf("BackupConfig called on an operator edit; a refused drift writes nothing")
+	}
+}
+
+// keyOnlyRecorder stages a host whose crush.json is the pre-v1.14 rendering of the
+// current config: identical but for api_key, which holds the placeholder `local`
+// (#277). The config carries a fake 64-hex secret.
+func keyOnlyRecorder(t *testing.T) *runRecorder {
+	t.Helper()
+	cfg := config.VillaConfig{Model: "qwen3", CodingMode: true, InferenceSecret: "local"}
+	stale := renderedRef(t, cfg)
+	cfg.InferenceSecret = testInferenceKey
+	return &runRecorder{
+		cfg:           cfg,
+		binPresent:    true,
+		binSHA:        pinnedPolicyBinSHA,
+		configPresent: true,
+		onDisk:        stale,
+	}
+}
+
+// TestRunHealsAKeyOnlyDrift guards ADR-0019 in `villa code`: a crush.json whose only
+// difference is villa's own inference key is backed up, rewritten from the
+// reference, reported as a warning, and launched as clean. It is not a refusal.
+func TestRunHealsAKeyOnlyDrift(t *testing.T) {
+	rec := keyOnlyRecorder(t)
+	stale := rec.onDisk
+	res := Run(rec.deps())
+	if res.Err != nil || res.ConfigDrift {
+		t.Fatalf("key-only drift: Err=%v ConfigDrift=%v, want a heal, not a refusal (res=%+v)", res.Err, res.ConfigDrift, res)
+	}
+	if !res.ReadyToLaunch {
+		t.Errorf("ReadyToLaunch = false after the heal; want the clean launch")
+	}
+	if want := []string{"backup", "write"}; strings.Join(rec.order, ",") != strings.Join(want, ",") {
+		t.Fatalf("config seams = %v, want %v (the old file is kept before it is overwritten)", rec.order, want)
+	}
+	if !bytes.Equal(rec.backupCalls[0], stale) {
+		t.Errorf("BackupConfig got %q, want the on-disk bytes verbatim", rec.backupCalls[0])
+	}
+	if !bytes.Equal(rec.writeCalls[0], renderedRef(t, rec.cfg)) {
+		t.Errorf("WriteConfig bytes != the freshly rendered reference")
+	}
+	var healed *Warning
+	for i := range res.Warnings {
+		if res.Warnings[i].Code == "config_key_healed" {
+			healed = &res.Warnings[i]
+		}
+	}
+	if healed == nil {
+		t.Fatalf("no config_key_healed warning; got %+v", res.Warnings)
+	}
+	if !strings.Contains(healed.Msg, "crush.json.bak") || strings.Contains(healed.Msg, testInferenceKey) {
+		t.Errorf("heal warning %q must name the backup and must not carry the key", healed.Msg)
+	}
+}
+
+// TestRunKeyHealFailureLaunchesNothing: an I/O failure during the heal is an error,
+// never a launch against a crush.json villa could not repair. A failed backup
+// writes nothing over the operator's file.
+func TestRunKeyHealFailureLaunchesNothing(t *testing.T) {
+	cases := map[string]struct {
+		backupErr, writeErr error
+		wantOrder           string
+	}{
+		"backup fails": {backupErr: os.ErrPermission, wantOrder: "backup"},
+		"write fails":  {writeErr: os.ErrPermission, wantOrder: "backup,write"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			rec := keyOnlyRecorder(t)
+			rec.backupErr, rec.writeErr = tc.backupErr, tc.writeErr
+			res := Run(rec.deps())
+			if !errors.Is(res.Err, os.ErrPermission) || res.ReadyToLaunch {
+				t.Fatalf("Err=%v ReadyToLaunch=%v, want the wrapped I/O error and no launch", res.Err, res.ReadyToLaunch)
+			}
+			if got := strings.Join(rec.order, ","); got != tc.wantOrder {
+				t.Errorf("config seams = %q, want %q", got, tc.wantOrder)
+			}
+		})
 	}
 }
 

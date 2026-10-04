@@ -11,8 +11,9 @@
 //     (AGENT-02..).
 //   - version.go: a verbatim clone of preflight's dotted-version comparator.
 //   - drift.go  : DetectDrift(in) → a report-only DriftReport (binary + config
-//     drift, plus the config-absent first-run signal) that NEVER auto-corrects
-//     (AGENT-04).
+//     drift, plus the config-absent first-run signal). villa never overwrites the
+//     operator's edits (AGENT-04); the one config drift a caller heals is a stale
+//     inference key, villa's own value (KeyOnlyDrift, ADR-0019).
 //
 // Seam discipline (CLAUDE.md / TestSeamGrepGate, which walks internal/):
 // internal/agent imports NEITHER internal/inference NOR internal/detect, and it
@@ -95,10 +96,14 @@ var KnownLSPServers = []struct{ Key, Command string }{
 //     the first-run write payload) + LSP warnings.
 //  4. HashBinary + ReadConfig → DetectDrift.
 //  5. BinaryAbsent → graceful remediation, return WITHOUT writing or launching.
-//  6. ConfigAbsent (first-run) → WriteConfig(reference) then PROCEED to launch (NOT
-//     drift). The ONLY auto-write path, and ONLY when absent.
-//  7. BinaryDrift || ConfigDrift (present-but-differs) → surface + remediation,
-//     return WITHOUT launching, WITHOUT writing, WITHOUT auto-correcting.
+//  6. Settle the config (settleConfig). ConfigAbsent (first-run) →
+//     WriteConfig(reference) then PROCEED to launch (NOT drift). ConfigKeyOnly →
+//     BackupConfig(onDisk), WriteConfig(reference), a warning, then PROCEED
+//     (ADR-0019: the key is villa's own value, the operator edited nothing). These
+//     are the ONLY write paths.
+//  7. BinaryDrift || any other ConfigDrift (present-but-differs) → surface +
+//     remediation, return WITHOUT launching, WITHOUT writing: villa never overwrites
+//     the operator's edits (AGENT-04, narrowed by ADR-0019).
 //     BinaryDriftUnknown (unpinned sentinel) → carry a WARN, do NOT block (Pitfall 6).
 //  8. Clean / first-run-rendered → build the lockdown env into res.LaunchEnv and
 //     set res.ReadyToLaunch. The caller prints Warnings then performs the SINGLE
@@ -183,29 +188,10 @@ func Run(d Deps) Result {
 		})
 	}
 
-	// (7b) Present-but-differs CONFIG drift → surface + remediation, never auto-correct
-	// Checked BEFORE the absent-render path so a present-but-drifting config is
-	// never overwritten.
-	if report.ConfigDrift {
-		res.ConfigDrift = true
-		res.Reason = report.Reason
+	// (6/7b) Settle the on-disk config: refuse an operator's drift, heal a key-only
+	// drift, render a first-run config.
+	if stop := settleConfig(d, report, onDisk, reference, &res); stop {
 		return res
-	}
-
-	// (6) FIRST-RUN config-absent → render-then-launch (NOT drift). The ONLY auto-write
-	// path, and ONLY when the config is ABSENT. Write the freshly-rendered
-	// reference, then PROCEED to launch.
-	if report.ConfigAbsent {
-		if err := d.WriteConfig(reference); err != nil {
-			res.Err = fmt.Errorf("agent: write first-run crush.json: %w", err)
-			res.Reason = "could not write the first-run crush.json"
-			return res
-		}
-		res.ConfigAbsent = true
-		res.Warnings = append(res.Warnings, Warning{
-			Code: "config_rendered",
-			Msg:  "rendered a fresh crush.json from your config.toml (first run)",
-		})
 	}
 
 	// (8) Clean / first-run-rendered path. Coding-mode-OFF is a WARN, never a mutation
@@ -228,6 +214,61 @@ func Run(d Deps) Result {
 	res.LaunchEnv = lockdownEnv()
 	res.ReadyToLaunch = true
 	return res
+}
+
+// settleConfig acts on the config half of the drift report and reports whether Run
+// must stop and return res as it stands. The key-only case is checked before the
+// general drift it is a subset of; an operator's drift is refused and never
+// written (AGENT-04, narrowed by ADR-0019).
+func settleConfig(d Deps, report DriftReport, onDisk, reference []byte, res *Result) (stop bool) {
+	switch {
+	case report.ConfigKeyOnly:
+		return healConfig(d, onDisk, reference, res)
+	case report.ConfigDrift:
+		res.ConfigDrift = true
+		res.Reason = report.Reason
+		return true
+	case report.ConfigAbsent:
+		return writeFirstRunConfig(d, reference, res)
+	}
+	return false
+}
+
+// healConfig rewrites a crush.json whose only drift is villa's inference key
+// (ADR-0019): the on-disk bytes go to the backup first, so a failed backup writes
+// nothing over the file and a completed heal can be undone by hand.
+func healConfig(d Deps, onDisk, reference []byte, res *Result) (stop bool) {
+	if err := d.BackupConfig(onDisk); err != nil {
+		res.Err = fmt.Errorf("agent: back up crush.json before healing its key: %w", err)
+		res.Reason = "could not back up crush.json, so its stale inference key was left in place"
+		return true
+	}
+	if err := d.WriteConfig(reference); err != nil {
+		res.Err = fmt.Errorf("agent: write healed crush.json: %w", err)
+		res.Reason = "could not write the healed crush.json (the old file is in crush.json.bak)"
+		return true
+	}
+	res.Warnings = append(res.Warnings, Warning{
+		Code: "config_key_healed",
+		Msg:  "rewrote the stale inference key in crush.json (nothing else differed); the previous file is kept as crush.json.bak beside it",
+	})
+	return false
+}
+
+// writeFirstRunConfig is the FIRST-RUN config-absent render (NOT drift): write the
+// freshly-rendered reference, then let Run PROCEED to launch.
+func writeFirstRunConfig(d Deps, reference []byte, res *Result) (stop bool) {
+	if err := d.WriteConfig(reference); err != nil {
+		res.Err = fmt.Errorf("agent: write first-run crush.json: %w", err)
+		res.Reason = "could not write the first-run crush.json"
+		return true
+	}
+	res.ConfigAbsent = true
+	res.Warnings = append(res.Warnings, Warning{
+		Code: "config_rendered",
+		Msg:  "rendered a fresh crush.json from your config.toml (first run)",
+	})
+	return false
 }
 
 // lockdownEnv builds the belt-and-braces launch env: the three constant
@@ -276,9 +317,13 @@ type Deps struct {
 	// (hexSum, present, err); present=false → BinaryAbsent (Phase-27 install remediation).
 	HashBinary func() (string, bool, error)
 	// WriteConfig persists the freshly-rendered crush.json to
-	// ~/.config/crush/crush.json (MkdirAll 0700 + WriteFile 0600, traversal-guarded
-	// in the live wiring). The render output, written on the first-run absent case.
+	// ~/.config/crush/crush.json (MkdirAll 0700 + an atomic 0600 write in the live
+	// wiring). The render output, written on the first-run absent case and over a
+	// key-only drift (ADR-0019).
 	WriteConfig func(b []byte) error
+	// BackupConfig keeps the on-disk crush.json bytes as crush.json.bak beside it
+	// (0600) before a key-only heal overwrites the file (ADR-0019).
+	BackupConfig func(onDisk []byte) error
 	// Launch execs the villa-owned crush binary with the belt-and-braces lockdown
 	// env — syscall.Exec in the live wiring (fixed-arg, no shell). It is
 	// reached ONLY on a clean presence+drift check.
@@ -308,7 +353,8 @@ type Result struct {
 	ConfigAbsent bool
 	// ConfigDrift is true when an on-disk crush.json is PRESENT but differs
 	// semantically from the freshly-rendered reference (hand-edit / staleness,
-	// → surface + remediation, NEVER auto-correct.
+	// → surface + remediation, never written. A key-only drift is healed instead
+	// (ADR-0019) and leaves this false.
 	ConfigDrift bool
 	// ReadyToLaunch is true when the presence+drift check was clean (and any
 	// first-run render completed): the caller should print Warnings, then exec via

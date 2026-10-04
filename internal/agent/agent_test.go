@@ -443,3 +443,107 @@ func TestConfigDrift(t *testing.T) {
 		}
 	})
 }
+
+// testInferenceKey is a fake 64-hex inference secret (GHSA-qxg9): the shape
+// config.GenerateInferenceSecret produces, never a real one.
+const testInferenceKey = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
+// keyDriftDocs renders the current reference (carrying testInferenceKey) and the
+// pre-v1.14 on-disk file villa wrote for the same config, whose api_key is the
+// placeholder `local` (#277). Both come from Render, so the key is the ONLY
+// difference between them.
+func keyDriftDocs(t *testing.T) (stale, rendered []byte) {
+	t.Helper()
+	cfg := renderTestConfig()
+	cfg.InferenceSecret = testInferenceKey
+	rendered, _, err := Render(cfg, renderTestProbes())
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	cfg.InferenceSecret = "local"
+	stale, _, err = Render(cfg, renderTestProbes())
+	if err != nil {
+		t.Fatalf("Render (stale): %v", err)
+	}
+	return stale, rendered
+}
+
+// editDoc applies edit to a parsed copy of doc and re-marshals it at a different
+// indent: an operator's hand edit (or plain re-save) of crush.json.
+func editDoc(t *testing.T, doc []byte, edit func(map[string]any)) []byte {
+	t.Helper()
+	var v map[string]any
+	if err := json.Unmarshal(doc, &v); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	edit(v)
+	out, err := json.MarshalIndent(v, "", "    ")
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	return out
+}
+
+// TestKeyOnlyDrift guards ADR-0019's one exception to AGENT-04: villa may rewrite
+// crush.json only when the sole difference is providers.villa.api_key, the value
+// villa alone writes. Any operator edit, alone or beside a stale key, is not
+// key-only, and neither is a file villa cannot parse.
+func TestKeyOnlyDrift(t *testing.T) {
+	stale, rendered := keyDriftDocs(t)
+	disableMetricsOff := func(v map[string]any) {
+		v["options"].(map[string]any)["disable_metrics"] = false
+	}
+	cases := []struct {
+		name   string
+		onDisk []byte
+		want   bool
+	}{
+		{"stale key only", stale, true},
+		{"identical", rendered, false},
+		{"stale key plus an operator edit", editDoc(t, stale, disableMetricsOff), false},
+		{"operator edit without a key change", editDoc(t, rendered, disableMetricsOff), false},
+		{"malformed JSON", []byte(`{"providers": {"villa": `), false},
+		{"no villa provider", editDoc(t, stale, func(v map[string]any) { delete(v, "providers") }), false},
+		{"whitespace-only re-save with a stale key", editDoc(t, stale, func(map[string]any) {}), true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := KeyOnlyDrift(tc.onDisk, rendered); got != tc.want {
+				t.Errorf("KeyOnlyDrift = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestDetectDriftKeyOnly asserts the report carries the key-only case (ADR-0019):
+// ConfigKeyOnly is set together with ConfigDrift, and its Reason names the heal
+// instead of asking the operator to review edits they never made. An operator edit
+// stays plain ConfigDrift.
+func TestDetectDriftKeyOnly(t *testing.T) {
+	stale, rendered := keyDriftDocs(t)
+	in := DriftInput{
+		BinaryPresent: true, InstalledBinSHA: pinnedBinSHA, PolicyBinSHA: pinnedBinSHA,
+		ConfigPresent: true, OnDiskConfig: stale, RenderedConfig: rendered,
+	}
+	r := DetectDrift(in)
+	if !r.ConfigDrift || !r.ConfigKeyOnly {
+		t.Fatalf("stale key: ConfigDrift=%v ConfigKeyOnly=%v, want both true", r.ConfigDrift, r.ConfigKeyOnly)
+	}
+	for _, want := range []string{"inference key", "villa up", "villa code", "crush.json.bak"} {
+		if !strings.Contains(r.Reason, want) {
+			t.Errorf("key-only Reason %q does not mention %q", r.Reason, want)
+		}
+	}
+	if strings.Contains(r.Reason, testInferenceKey) {
+		t.Errorf("Reason %q carries the inference key", r.Reason)
+	}
+
+	in.OnDiskConfig = editDoc(t, stale, func(v map[string]any) { v["$schema"] = "hand-edited" })
+	r = DetectDrift(in)
+	if !r.ConfigDrift || r.ConfigKeyOnly {
+		t.Fatalf("operator edit: ConfigDrift=%v ConfigKeyOnly=%v, want drift that is not key-only", r.ConfigDrift, r.ConfigKeyOnly)
+	}
+	if strings.Contains(r.Reason, "crush.json.bak") {
+		t.Errorf("operator-edit Reason %q promises a heal villa will not perform", r.Reason)
+	}
+}
