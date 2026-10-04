@@ -60,6 +60,24 @@ type wireRequest struct {
 	Temperature        *float64       `json:"temperature,omitempty"`
 	ChatTemplateKwargs map[string]any `json:"chat_template_kwargs,omitempty"`
 	MaxTokens          int            `json:"max_tokens,omitempty"`
+	Tools              []Tool         `json:"tools,omitempty"`
+	ToolChoice         string         `json:"tool_choice,omitempty"`
+}
+
+// wireReply is the non-streamed response: only the first choice's message is read.
+// A tool-only reply carries "content": null, which decodes to "".
+type wireReply struct {
+	Choices []struct {
+		Message struct {
+			Content   string `json:"content"`
+			ToolCalls []struct {
+				Function struct {
+					Name      string `json:"name"`
+					Arguments string `json:"arguments"`
+				} `json:"function"`
+			} `json:"tool_calls"`
+		} `json:"message"`
+	} `json:"choices"`
 }
 
 type wireChunk struct {
@@ -112,40 +130,92 @@ type completeResponse struct {
 // chunk. It returns when the stream completes, the context is cancelled, or an
 // error occurs.
 func (c *OpenAIClient) StreamChat(ctx context.Context, req ChatRequest, onDelta StreamFunc) error {
-	model := req.Model
-	if model == "" {
-		return fmt.Errorf("llm: no model specified")
-	}
-	if len(req.Messages) == 0 {
-		return fmt.Errorf("llm: messages must not be empty")
-	}
-
-	body, err := json.Marshal(wireRequest{Model: model, Messages: req.Messages, Stream: true,
+	body, err := encode(wireRequest{Model: req.Model, Messages: req.Messages, Stream: true,
 		Temperature: req.Temperature, ChatTemplateKwargs: req.ChatTemplateKwargs, MaxTokens: req.MaxTokens})
 	if err != nil {
-		return fmt.Errorf("llm: marshal request: %w", err)
+		return err
 	}
+	resp, err := c.post(ctx, body, "text/event-stream")
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	return parseSSE(resp.Body, onDelta)
+}
 
+// Chat sends one non-streamed chat completion and returns its message: the content
+// and every tool call. It is the only call that sends req.Tools, because a tool
+// call arrives whole in the message rather than as content deltas.
+func (c *OpenAIClient) Chat(ctx context.Context, req ChatRequest) (Reply, error) {
+	body, err := encode(wireRequest{Model: req.Model, Messages: req.Messages, Stream: false,
+		Temperature: req.Temperature, ChatTemplateKwargs: req.ChatTemplateKwargs, MaxTokens: req.MaxTokens,
+		Tools: req.Tools, ToolChoice: req.ToolChoice})
+	if err != nil {
+		return Reply{}, err
+	}
+	resp, err := c.post(ctx, body, "application/json")
+	if err != nil {
+		return Reply{}, err
+	}
+	defer resp.Body.Close()
+	return decodeReply(resp.Body)
+}
+
+// encode refuses a request with no model or no messages, then marshals it.
+func encode(w wireRequest) ([]byte, error) {
+	if w.Model == "" {
+		return nil, fmt.Errorf("llm: no model specified")
+	}
+	if len(w.Messages) == 0 {
+		return nil, fmt.Errorf("llm: messages must not be empty")
+	}
+	body, err := json.Marshal(w)
+	if err != nil {
+		return nil, fmt.Errorf("llm: marshal request: %w", err)
+	}
+	return body, nil
+}
+
+// post sends body to the chat route with the key attached and returns the response
+// of a 200 only; any other status is an error carrying the start of its body. The
+// caller closes the returned body.
+func (c *OpenAIClient) post(ctx context.Context, body []byte, accept string) (*http.Response, error) {
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/chat/completions", bytes.NewReader(body))
 	if err != nil {
-		return fmt.Errorf("llm: build request: %w", err)
+		return nil, fmt.Errorf("llm: build request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Accept", "text/event-stream")
+	httpReq.Header.Set("Accept", accept)
 	c.setAuth(httpReq)
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
-		return fmt.Errorf("llm: request to %s failed: %w", c.baseURL, err)
+		return nil, fmt.Errorf("llm: request to %s failed: %w", c.baseURL, err)
 	}
-	defer resp.Body.Close()
-
 	if resp.StatusCode != http.StatusOK {
+		defer resp.Body.Close()
 		snippet, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
-		return fmt.Errorf("llm: upstream returned %s: %s", resp.Status, strings.TrimSpace(string(snippet)))
+		return nil, fmt.Errorf("llm: upstream returned %s: %s", resp.Status, strings.TrimSpace(string(snippet)))
 	}
+	return resp, nil
+}
 
-	return parseSSE(resp.Body, onDelta)
+// decodeReply reads a non-streamed response's first message. A body that does not
+// decode, or that carries no choice, is an error rather than an empty reply.
+func decodeReply(r io.Reader) (Reply, error) {
+	var parsed wireReply
+	if err := json.NewDecoder(r).Decode(&parsed); err != nil {
+		return Reply{}, fmt.Errorf("llm: decode response: %w", err)
+	}
+	if len(parsed.Choices) == 0 {
+		return Reply{}, fmt.Errorf("llm: response carried no choices")
+	}
+	msg := parsed.Choices[0].Message
+	reply := Reply{Content: msg.Content}
+	for _, call := range msg.ToolCalls {
+		reply.ToolCalls = append(reply.ToolCalls, ToolCall{Name: call.Function.Name, Arguments: call.Function.Arguments})
+	}
+	return reply, nil
 }
 
 // Complete drives a non-streaming /v1 chat completion with fixed (max_tokens,

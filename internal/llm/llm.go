@@ -40,6 +40,43 @@ type ChatRequest struct {
 	// MaxTokens bounds the completion; zero omits it and leaves the server
 	// default in effect.
 	MaxTokens int `json:"max_tokens,omitempty"`
+	// Tools are the functions the model may call, in the OpenAI wire shape; nil
+	// omits them. Only Chat sends them: StreamChat's parser reads content deltas
+	// only, so a streamed tool call would be lost rather than returned. llama-server
+	// honours them only when it was started with --jinja (tools mode).
+	Tools []Tool `json:"tools,omitempty"`
+	// ToolChoice is the OpenAI tool_choice string ("auto", "none" or "required");
+	// empty omits it and leaves the server default in effect.
+	ToolChoice string `json:"tool_choice,omitempty"`
+}
+
+// Tool is one function the model may call, in the OpenAI wire shape
+// ({"type":"function","function":{...}}).
+type Tool struct {
+	Type     string       `json:"type"`
+	Function ToolFunction `json:"function"`
+}
+
+// ToolFunction names a callable function and its JSON-schema parameters.
+type ToolFunction struct {
+	Name        string         `json:"name"`
+	Description string         `json:"description,omitempty"`
+	Parameters  map[string]any `json:"parameters,omitempty"`
+}
+
+// ToolCall is one function call the model made. Arguments is the JSON text the
+// model wrote, verbatim: whether it parses is the caller's question, not the
+// transport's.
+type ToolCall struct {
+	Name      string
+	Arguments string
+}
+
+// Reply is a non-streamed completion's message: its content and every tool call.
+// A reply that only calls a tool has empty Content.
+type Reply struct {
+	Content   string
+	ToolCalls []ToolCall
 }
 
 // StreamFunc receives incremental content deltas as they arrive from the model.
