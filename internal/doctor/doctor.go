@@ -945,15 +945,39 @@ func searchResidencyFinding(v inference.Verdict) Finding {
 	return f
 }
 
+// agentConfigDriftFindings is the config half of agentDriftFindings: one WARN when
+// crush.json drifted, none otherwise. A key-only drift (ADR-0019) names the heal a
+// stack apply or `villa code` performs; doctor itself stays read-only (ADR-0017).
+func agentConfigDriftFindings(r agent.DriftReport) []Finding {
+	if !r.ConfigDrift {
+		return nil
+	}
+	f := Finding{
+		ID:          "agent-config-drift",
+		Name:        "Coding-agent config drift",
+		Tier:        tierWarn,
+		Status:      statusWarn,
+		Detail:      nonEmpty(r.Reason, "on-disk crush.json differs from what villa would render from config.toml"),
+		Remediation: "review your crush.json edits or re-render from config.toml; villa surfaces drift but never overwrites your file automatically",
+		Provenance:  "agent.DetectDrift (ConfigDrift)",
+	}
+	if r.ConfigKeyOnly {
+		f.Remediation = "nothing to edit — run `villa up` (or any stack apply) or `villa code`; either rewrites only the stale inference key and keeps the old file as crush.json.bak"
+		f.Provenance = "agent.DetectDrift (ConfigDrift, key only)"
+	}
+	return []Finding{f}
+}
+
 // agentDriftFindings maps a report-only agent.DriftReport into doctor Findings.
 // Drift is SURFACED, never auto-corrected: each non-clean signal is a WARN-with-remediation,
 // never a BLOCK FAIL (a drifted/absent binary or hand-edited config is an operator decision,
 // not a silent-degradation fault). The honesty discipline:
+//
 //   - BinaryAbsent           → WARN + Phase-27 install remediation (agent-binary-drift).
 //   - BinaryDriftUnknown     → typed-Unknown WARN (the policy hash is not yet pinned).
-//
-// - BinaryDrift → WARN + re-install remediation (never auto-corrected).
-// - ConfigDrift → WARN + review/re-render remediation (never overwritten).
+//   - BinaryDrift            → WARN + re-install remediation (never auto-corrected).
+//   - ConfigDrift            → WARN + review/re-render remediation (never overwritten); a
+//     key-only drift names the stack-apply / `villa code` heal instead (ADR-0019).
 //   - ConfigAbsent ALONE     → NO finding (the first-run render trigger, parallels BinaryAbsent
 //     — NOT drift; emitting a finding here would mis-report a false drift at the first run).
 //   - all clean              → a single PASS finding (agent-drift).
@@ -998,17 +1022,7 @@ func agentDriftFindings(r agent.DriftReport) []Finding {
 	}
 
 	// Config signal — ConfigAbsent ALONE emits NO finding (first-run trigger, not drift).
-	if r.ConfigDrift {
-		out = append(out, Finding{
-			ID:          "agent-config-drift",
-			Name:        "Coding-agent config drift",
-			Tier:        tierWarn,
-			Status:      statusWarn,
-			Detail:      nonEmpty(r.Reason, "on-disk crush.json differs from what villa would render from config.toml"),
-			Remediation: "review your crush.json edits or re-render from config.toml; villa surfaces drift but never overwrites your file automatically",
-			Provenance:  "agent.DetectDrift (ConfigDrift)",
-		})
-	}
+	out = append(out, agentConfigDriftFindings(r)...)
 
 	// All clean (binary present + matched + config present + matched, OR the unpinned/
 	// first-run benign states that emitted no WARN above): a single PASS finding so the
