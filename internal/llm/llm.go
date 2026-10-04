@@ -40,6 +40,14 @@ type ChatRequest struct {
 	// MaxTokens bounds the completion; zero omits it and leaves the server
 	// default in effect.
 	MaxTokens int `json:"max_tokens,omitempty"`
+	// Tools are the functions the model may call, in the OpenAI wire shape; nil
+	// omits them. Only Chat sends them: StreamChat's parser reads content deltas
+	// only, so a streamed tool call would be lost rather than returned. llama-server
+	// honours them only when it was started with --jinja (tools mode).
+	Tools []Tool `json:"tools,omitempty"`
+	// ToolChoice is the OpenAI tool_choice string ("auto", "none" or "required");
+	// empty omits it and leaves the server default in effect.
+	ToolChoice string `json:"tool_choice,omitempty"`
 }
 
 // StreamFunc receives incremental content deltas as they arrive from the model.

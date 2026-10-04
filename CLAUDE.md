@@ -69,6 +69,7 @@ Go 1.26+. Single module, single static binary built from `./cmd/villa`.
   code (Crush, or Claude Code via --agent claude), tools-mode, workspace, work, task,
   sandbox build (builds the task image on this host and records its digest as the
   effective pin), sandbox-bridge (the in-VM half of a task; never run by hand), bench,
+  eval (the capability suite against the served model's eval baseline, ADR-0018),
   backup, restore, uninstall.
   Host effects live behind injectable `live*Deps` seams (`grep -rn "func live" cmd/villa`).
 
@@ -84,6 +85,11 @@ Go 1.26+. Single module, single static binary built from `./cmd/villa`.
   `dashboard`, `metrics`, `config`, `catalog`, `download`, `modelswap`, `llm`, and `inprobe` (the one
   home for the in-network curl-probe doctrine — exit-code mapping and typed-Unknown health mapping —
   shared by `status`'s memory/web-search health checks and `install`'s memory probe).
+  `eval` (ADR-0018) is the pure capability-suite core: embedded capability cases
+  (`cases.json`, sha256 pinned beside `SuiteVersion`), a grader table keyed by kind,
+  and `Compare` onto `verify.Status`; `evalstore` holds the eval baselines in
+  `eval-baselines.json` (jsonstore, one per model + quant + suite version). Not yet a
+  backup entry (#275).
 
   The v1.3–v1.5 packages follow the same pure-core shape: `memory` + `recall`
   (memory-stack decision spine and the chat-index plan/diff algebra), `agent` +

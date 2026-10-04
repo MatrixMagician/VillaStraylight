@@ -77,7 +77,7 @@ state alone: `done` is `0`, `flagged` is `2`, everything else is `1`.
 
 ```mermaid
 graph TD
-    CLI["cmd/villa (cobra CLI)<br/>detect · recommend · preflight · model · install<br/>up · down · restart · logs · status · dashboard<br/>backend · bench · update · uninstall"]
+    CLI["cmd/villa (cobra CLI)<br/>detect · recommend · preflight · model · install<br/>up · down · restart · logs · status · dashboard<br/>backend · bench · eval · update · uninstall"]
 
     CLI --> detect["internal/detect<br/>HostProfile probe (typed-Unknown)<br/>+ ROCm readiness"]
     CLI --> catalog["internal/catalog<br/>embedded model catalog + fit dims"]
@@ -310,6 +310,21 @@ measures the current backend non-disruptively; with `--ab` it **composes**
 switching logic stays locked in the one transactional core. Each measured run is gated
 on a residency proof (`RunningOffloadVerdict`) so only runs that genuinely executed on
 the GPU count toward the median/stddev `Stats` and the comparative `ABResult`.
+
+The **capability check** (`villa eval [--record]`, `cmd/villa/eval.go`; ADR-0018) asks
+the question bench never does: does the served model still answer *well*? The pure
+`internal/eval` core holds the embedded suite of capability cases (`cases.json`, its
+sha256 pinned beside `SuiteVersion`) and a grader table keyed by kind (`exact`,
+`regex`, `json`, `tool`, `no_tool`). Every case is sent greedily (temperature 0,
+thinking off, a bounded `max_tokens`) one at a time through
+`inferenceClient(cfg).Chat(…)`'s non-streamed call, which returns the content and any
+tool call. A tool-call case is skipped while tools mode is off. `eval.Compare` folds the
+run against the **eval baseline** recorded for the model, quant and suite version
+(`internal/evalstore`, `eval-baselines.json`) onto `verify.Status`: a regression is
+Fail, no baseline or an unconducted case is Reject, otherwise Pass. Backend, image
+digest, speculation, ctx and tools mode are provenance, reported when they differ and
+never keyed on. It runs on command only, takes no stack lock, and is never called from
+status, doctor or a swap.
 
 The **task lifecycle** (`villa work`, `cmd/villa/work.go`; the runner
 `taskrun.Runner`, `internal/taskrun`) is the v1.11 flow, and the first one the
@@ -566,6 +581,10 @@ internal/
   modelswap/          Guarded swap core (ordering-is-the-security-contract).
   backendswap/        Transactional backend-switch core (capture→prove→rollback).
   bench/              Pure honest-A/B benchmark core (--ab composes backendswap).
+  eval/               Pure capability-suite core (ADR-0018): the embedded capability
+                      cases, the grader table, Compare onto verify.Status, Record.
+  evalstore/          eval-baselines.json on jsonstore: one eval baseline per model,
+                      quant and suite version; never overwrites what it cannot read.
   status/             Shared read-model aggregation (CLI + dashboard, never forked).
   metrics/            Parsers for llama-server's /metrics + /slots bodies (perf panel);
                       the bounded, keyed scrape is inference.Client's.
@@ -575,7 +594,8 @@ internal/
   dashboard/          Loopback-only control dashboard backend + embedded UI; hosts
                       the task runner and the loopback task API (v1.11).
   llm/                OpenAI-compatible SSE + non-streaming client (the bench timings
-                      source), reached only through inference.Client.Chat.
+                      source, and villa eval's content + tool-call Chat), reached only
+                      through inference.Client.Chat.
   workspace/          The registered grant list: Register/Remove/Registered + typed refusals.
   approval/           The Action × Mode table, the deletion pattern, the auto-mode allowlist.
   taskstore/          The task record, its state machine, the append-only log; never deletes.

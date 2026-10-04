@@ -1,0 +1,143 @@
+[
+  {
+    "id": "arith-multiply",
+    "prompt": "What is 47 multiplied by 23? Answer with only the number.",
+    "grader": {"kind": "regex", "pattern": "^\\s*1,?081\\.?\\s*$"},
+    "max_tokens": 32
+  },
+  {
+    "id": "arith-discount",
+    "prompt": "A jacket costs 80 euros and is discounted by 15 percent. What is the new price in euros? Answer with only the number.",
+    "grader": {"kind": "regex", "pattern": "^[^0-9]*68(\\.00?)?[^0-9]*$"},
+    "max_tokens": 32
+  },
+  {
+    "id": "arith-remainder",
+    "prompt": "What is the remainder when 1000 is divided by 7? Answer with only the number.",
+    "grader": {"kind": "regex", "pattern": "^[^0-9]*6[^0-9]*$"},
+    "max_tokens": 32
+  },
+  {
+    "id": "format-uppercase",
+    "prompt": "Reply with exactly the word BLUE in capital letters and nothing else.",
+    "grader": {"kind": "regex", "pattern": "^\\s*BLUE\\s*$"},
+    "max_tokens": 16
+  },
+  {
+    "id": "format-reverse-order",
+    "prompt": "Write the words red, green and blue in reverse alphabetical order, one per line, with no numbering, bullets or other text.",
+    "grader": {"kind": "regex", "pattern": "(?i)^\\s*red\\s*\\n\\s*green\\s*\\n\\s*blue\\s*$"},
+    "max_tokens": 32
+  },
+  {
+    "id": "format-system-one-word",
+    "system": "Answer every question with a single lowercase word and no punctuation.",
+    "prompt": "Is 91 a prime number? Answer yes or no.",
+    "grader": {"kind": "exact", "want": "no"},
+    "max_tokens": 16
+  },
+  {
+    "id": "extract-date",
+    "prompt": "Passage: The Harbour Street library reopened on 14 March 2023 after an eighteen-month renovation that cost 2.4 million pounds. Its new reading room seats 120 people.\n\nOn what date did the library reopen? Answer with the date only.",
+    "grader": {"kind": "regex", "pattern": "(?i)\\b14(th)? march,? 2023\\b|\\bmarch 14(th)?,? 2023\\b|\\b2023-03-14\\b"},
+    "max_tokens": 32
+  },
+  {
+    "id": "extract-name",
+    "prompt": "Passage: The committee met on Tuesday. Daniel Okafor chaired the meeting, Priya Raman took the minutes, and the budget was presented by Tomas Lindqvist.\n\nWho took the minutes? Answer with the full name only.",
+    "grader": {"kind": "regex", "pattern": "^\\s*Priya Raman\\.?\\s*$"},
+    "max_tokens": 32
+  },
+  {
+    "id": "json-literal",
+    "prompt": "Return a JSON object with exactly two keys: \"name\" set to the string \"Ada\" and \"age\" set to the number 36. Output only the JSON.",
+    "grader": {"kind": "json", "keys": {"name": "Ada", "age": 36}},
+    "max_tokens": 64
+  },
+  {
+    "id": "json-extract",
+    "prompt": "From the sentence below, return a JSON object with the keys \"town\" (a string), \"year\" (a number) and \"population\" (a number, without separators). Output only the JSON.\n\nSentence: In 2021 the town of Ellerby had a population of 8,450.",
+    "grader": {"kind": "json", "keys": {"town": "Ellerby", "year": 2021, "population": 8450}},
+    "max_tokens": 64
+  },
+  {
+    "id": "json-derived",
+    "prompt": "Return a JSON object with a key \"even\" whose value is true if 4096 is an even number and false otherwise, and a key \"digits\" whose value is the number of digits in 4096. Output only the JSON.",
+    "grader": {"kind": "json", "keys": {"even": true, "digits": 4}},
+    "max_tokens": 64
+  },
+  {
+    "id": "code-python-loop",
+    "prompt": "What does this Python program print? Answer with only the output.\n\ntotal = 0\nfor i in range(1, 5):\n    total += i * i\nprint(total)",
+    "grader": {"kind": "regex", "pattern": "^[^0-9]*30[^0-9]*$"},
+    "max_tokens": 32
+  },
+  {
+    "id": "code-python-slice",
+    "prompt": "What does this Python program print? Answer with only the output.\n\nword = \"straylight\"\nprint(word[::-1][:5])",
+    "grader": {"kind": "regex", "pattern": "^\\W*thgil\\W*$"},
+    "max_tokens": 32
+  },
+  {
+    "id": "code-go-filter",
+    "prompt": "What does this Go program print? Answer with only the output.\n\npackage main\n\nimport \"fmt\"\n\nfunc main() {\n\ts := []int{3, 1, 4, 1, 5}\n\tn := 0\n\tfor _, v := range s {\n\t\tif v > 2 {\n\t\t\tn += v\n\t\t}\n\t}\n\tfmt.Println(n)\n}",
+    "grader": {"kind": "regex", "pattern": "^[^0-9]*12[^0-9]*$"},
+    "max_tokens": 32
+  },
+  {
+    "id": "units-journey-minutes",
+    "prompt": "A train leaves at 09:40 and arrives at 13:15 on the same day. How many minutes does the journey take? Answer with only the number.",
+    "grader": {"kind": "regex", "pattern": "^[^0-9]*215[^0-9]*$"},
+    "max_tokens": 32
+  },
+  {
+    "id": "units-weekday",
+    "prompt": "If 1 March 2024 was a Friday, what day of the week was 10 March 2024? Answer with only the name of the day.",
+    "grader": {"kind": "regex", "pattern": "(?i)^\\W*sunday\\W*$"},
+    "max_tokens": 16
+  },
+  {
+    "id": "tool-read-file",
+    "prompt": "Show me the contents of the file notes/todo.txt.",
+    "tools": [
+      {"type": "function", "function": {"name": "read_file", "description": "Read a text file and return its contents.",
+        "parameters": {"type": "object", "properties": {"path": {"type": "string", "description": "Path of the file to read."}}, "required": ["path"]}}}
+    ],
+    "grader": {"kind": "tool", "want": "read_file", "keys": {"path": "notes/todo.txt"}},
+    "max_tokens": 128
+  },
+  {
+    "id": "tool-choose",
+    "prompt": "What is the weather like in Lisbon right now?",
+    "tools": [
+      {"type": "function", "function": {"name": "get_weather", "description": "Get the current weather for a city.",
+        "parameters": {"type": "object", "properties": {"city": {"type": "string", "description": "City name."}}, "required": ["city"]}}},
+      {"type": "function", "function": {"name": "convert_currency", "description": "Convert an amount from one currency to another.",
+        "parameters": {"type": "object", "properties": {"amount": {"type": "number"}, "from": {"type": "string", "description": "ISO 4217 code."}, "to": {"type": "string", "description": "ISO 4217 code."}}, "required": ["amount", "from", "to"]}}}
+    ],
+    "grader": {"kind": "tool", "want": "get_weather", "keys": {"city": "Lisbon"}},
+    "max_tokens": 128
+  },
+  {
+    "id": "tool-typed-args",
+    "prompt": "Set a timer for 25 minutes with the label \"tea\".",
+    "tools": [
+      {"type": "function", "function": {"name": "set_timer", "description": "Start a countdown timer.",
+        "parameters": {"type": "object", "properties": {"minutes": {"type": "integer", "description": "Length of the timer in minutes."}, "label": {"type": "string", "description": "Short label shown when the timer ends."}}, "required": ["minutes", "label"]}}}
+    ],
+    "grader": {"kind": "tool", "want": "set_timer", "keys": {"minutes": 25, "label": "tea"}},
+    "max_tokens": 128
+  },
+  {
+    "id": "tool-none-fits",
+    "prompt": "What is 12 times 12? Answer with only the number.",
+    "tools": [
+      {"type": "function", "function": {"name": "get_weather", "description": "Get the current weather for a city.",
+        "parameters": {"type": "object", "properties": {"city": {"type": "string", "description": "City name."}}, "required": ["city"]}}},
+      {"type": "function", "function": {"name": "convert_currency", "description": "Convert an amount from one currency to another.",
+        "parameters": {"type": "object", "properties": {"amount": {"type": "number"}, "from": {"type": "string", "description": "ISO 4217 code."}, "to": {"type": "string", "description": "ISO 4217 code."}}, "required": ["amount", "from", "to"]}}}
+    ],
+    "grader": {"kind": "no_tool", "pattern": "^[^0-9]*144[^0-9]*$"},
+    "max_tokens": 32
+  }
+]
