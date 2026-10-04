@@ -4,5 +4,5 @@
   "sources": ["."],
   "exclude": ["**/*_test.go"],
   "max": 6,
-  "ratchet": "main"
+  "base": "main"
 }
