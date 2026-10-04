@@ -224,6 +224,61 @@ func TestApplyRefusesBeforeRenderingWhenTheHealFails(t *testing.T) {
 	}
 }
 
+// TestApplyHealsCrushJSONAfterTheSecret guards ADR-0019's stack-apply heal: the
+// HealAgentConfig seam runs after the inference-secret heal, so it sees the
+// persisted secret it must write into crush.json, and before the render; a nil
+// seam is skipped; a failed heal stops the apply before any unit is written.
+func TestApplyHealsCrushJSONAfterTheSecret(t *testing.T) {
+	t.Run("called with the healed secret before the render", func(t *testing.T) {
+		h := &host{changed: true}
+		d := h.deps()
+		var healed []config.VillaConfig
+		d.HealAgentConfig = func(c config.VillaConfig) error {
+			h.calls = append(h.calls, "agent")
+			healed = append(healed, c)
+			return nil
+		}
+		if _, err := Apply(d, config.VillaConfig{Model: "chat", Backend: "vulkan"}); err != nil {
+			t.Fatalf("Apply: %v", err)
+		}
+		want := []string{"save", "env", "agent", "render", "reconcile", "write", "reload"}
+		if !reflect.DeepEqual(h.calls, want) {
+			t.Errorf("seam order = %v, want %v", h.calls, want)
+		}
+		if len(healed) != 1 || healed[0].InferenceSecret == "" || healed[0].InferenceSecret != h.saved[0].InferenceSecret {
+			t.Errorf("HealAgentConfig did not see the persisted secret (healed %d configs)", len(healed))
+		}
+	})
+
+	t.Run("nil seam is skipped", func(t *testing.T) {
+		h := &host{changed: true}
+		d := h.deps()
+		d.HealAgentConfig = nil
+		if _, err := Apply(d, config.VillaConfig{Model: "chat", Backend: "vulkan", InferenceSecret: "kept"}); err != nil {
+			t.Fatalf("Apply with no agent heal: %v", err)
+		}
+		if want := []string{"env", "render", "reconcile", "write", "reload"}; !reflect.DeepEqual(h.calls, want) {
+			t.Errorf("seam order = %v, want %v", h.calls, want)
+		}
+	})
+
+	t.Run("a failed heal writes no unit", func(t *testing.T) {
+		h := &host{changed: true}
+		d := h.deps()
+		d.HealAgentConfig = func(config.VillaConfig) error {
+			h.calls = append(h.calls, "agent")
+			return errors.New("read-only file system")
+		}
+		_, err := Apply(d, config.VillaConfig{Model: "chat", Backend: "vulkan", InferenceSecret: "kept"})
+		if err == nil || !strings.Contains(err.Error(), "heal crush.json") || !strings.Contains(err.Error(), "read-only file system") {
+			t.Fatalf("Apply error = %v, want the wrapped crush.json heal failure", err)
+		}
+		if want := []string{"env", "agent"}; !reflect.DeepEqual(h.calls, want) {
+			t.Errorf("seam order = %v, want %v (nothing rendered or written)", h.calls, want)
+		}
+	})
+}
+
 // TestApplyReportsWrittenUnitsWhenTheReloadFails: the caller's rollback must know
 // what is already on disk.
 func TestApplyReportsWrittenUnitsWhenTheReloadFails(t *testing.T) {
