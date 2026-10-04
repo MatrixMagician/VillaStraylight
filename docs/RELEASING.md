@@ -122,10 +122,15 @@ regression in a rebuilt image:
 2. **After** the candidate is up, run `villa eval` again. Its provenance lines name
    the image digest that changed.
 3. A regression (FAIL, exit 1) lists each case that passed on the old pin and fails
-   now, with an excerpt of the reply. Judge every one before vetting. A borderline
-   flip can be numerics (ROCm and Vulkan differ even at temperature 0); a
-   systematic one is a defect.
+   now, with an excerpt of the reply. Judge every one before vetting; FAIL is a
+   prompt to read, not an automatic block. A new llama.cpp build or a backend
+   change can flip a borderline case even at temperature 0 (numerics, not
+   capability), and re-running on the same build will not separate the two,
+   because greedy decoding repeats itself. One near-miss flip is noise; several
+   flips, or a reply that is malformed rather than wrong, is a defect.
 4. Paste the per-case diff (`villa eval --json`) into the re-vet PR.
+5. Once the pin is vetted, run `villa eval --record` on it, so the next
+   comparison starts from the pin users actually run.
 
 **A candidate that cannot be proven must not ship as vetted.** This is not
 bureaucracy: `villa update` treats an unprovable component as a Reject that rolls
