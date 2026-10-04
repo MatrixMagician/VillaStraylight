@@ -78,7 +78,8 @@ Go 1.26+. Single module, single static binary built from `./cmd/villa`.
   `rocm-policy.json`), `inference` (`BackendFor` resolver + Backend/Runner/ResidencyProof
   seam; ROCm default + Vulkan fallback), `orchestrate` (Quadlet Render/Reconcile/WriteUnits — the
   `podman`/`systemctl` seam), `stackapply` (the one path from a target config to written units:
-  every render input, the inference-secret heal, write + reload, ADR-0013; and `Transact`,
+  every render input, the inference-secret heal, then crush.json's stale copy of that key through
+  `HealAgentConfig` (ADR-0019), write + reload, ADR-0013; and `Transact`,
   the swap transaction frame that owns the stack lock, restart set, proof and rollback,
   ADR-0015), `backendswap` (the backend / speculation / tools-mode swap changes), `bench` (pure A/B core),
   `residentset` (pure admission control for holding several models loaded at once), plus `status`,
@@ -94,7 +95,9 @@ Go 1.26+. Single module, single static binary built from `./cmd/villa`.
   The v1.3–v1.5 packages follow the same pure-core shape: `memory` + `recall`
   (memory-stack decision spine and the chat-index plan/diff algebra), `agent` +
   `codingmode` (the `villa code` delivery spine and the enter/exit swap
-  change), `websafe` (the web-search injection guard —
+  change; crush.json drift is reported and never written over the operator's edits, AGENT-04,
+  except a drift that is only villa's inference key, which `villa code` and every stack apply
+  rewrite after keeping `crush.json.bak`, ADR-0019), `websafe` (the web-search injection guard —
   sanitize/normalize/fence/classify; it reduces and FLAGS, and never claims safe),
   `doctor` (read-only runtime twin of preflight; it decides from the loaded config,
   ADR-0017, and its seams are raw reads), `backup` (pure manifest-skew
@@ -333,7 +336,7 @@ loop.
 | preflight | Reusable host-prep gate → `[]CheckResult` (BLOCK/WARN tiers, fail-soft) | `internal/preflight/preflight.go` |
 | inference | Backend-neutral seam: `BackendFor`, `Backend` iface, offload/residency proof; `Client`, the one authenticated caller of llama-server (address, api key, every route; ADR-0014) | `internal/inference/*.go`, `client.go` |
 | orchestrate | Render Quadlet units (pure) + reconcile + host-touching systemd seam | `internal/orchestrate/*.go` |
-| stackapply | Stack apply: derive every render input from the config (served model, coding descriptor, resident slots), heal the inference secret, render, write what changed, reload; every unit-writing verb but install goes through it (ADR-0013). `Transact` is the swap transaction frame: stack lock, capture, apply, restart of every changed running unit, proof, rollback (ADR-0015) | `internal/stackapply/stackapply.go`, `transact.go` |
+| stackapply | Stack apply: derive every render input from the config (served model, coding descriptor, resident slots), heal the inference secret and then crush.json's stale copy of it (`HealAgentConfig`, ADR-0019), render, write what changed, reload; every unit-writing verb but install goes through it (ADR-0013). `Transact` is the swap transaction frame: stack lock, capture, apply, restart of every changed running unit, proof, rollback (ADR-0015) | `internal/stackapply/stackapply.go`, `transact.go` |
 | backendswap | The `backend set` / `speculation set` / `tools-mode` swap changes: no-op test, guards, the field written; run through `stackapply.Transact` | `internal/backendswap/backendswap.go` |
 | bench | Pure A/B throughput core; `--ab` composes `backendswap.Run` | `internal/bench/bench.go` |
 | residentset | Pure `Admit()` → `Plan`/`Refusal` for the resident model set (LRU evict, no host I/O) | `internal/residentset/admit.go` |

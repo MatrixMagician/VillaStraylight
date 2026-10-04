@@ -575,7 +575,9 @@ internal/
                       ROCm (default) + Vulkan backends, podman runner, offload assert;
                       Client, the one authenticated caller of llama-server (ADR-0014).
   stackapply/         Stack apply: every render input derived from the config, the
-                      inference-secret heal, write changed + reload (ADR-0013).
+                      inference-secret heal, the crush.json key heal (only a
+                      drift that is villa's inference key, kept as crush.json.bak;
+                      ADR-0019), write changed + reload (ADR-0013).
   orchestrate/        Pure Quadlet Render + sha256 Reconcile + atomic WriteUnits +
                       systemd seam; Open WebUI managed-service render path.
   modelswap/          Guarded swap core (ordering-is-the-security-contract).
