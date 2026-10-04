@@ -50,35 +50,6 @@ type ChatRequest struct {
 	ToolChoice string `json:"tool_choice,omitempty"`
 }
 
-// Tool is one function the model may call, in the OpenAI wire shape
-// ({"type":"function","function":{...}}).
-type Tool struct {
-	Type     string       `json:"type"`
-	Function ToolFunction `json:"function"`
-}
-
-// ToolFunction names a callable function and its JSON-schema parameters.
-type ToolFunction struct {
-	Name        string         `json:"name"`
-	Description string         `json:"description,omitempty"`
-	Parameters  map[string]any `json:"parameters,omitempty"`
-}
-
-// ToolCall is one function call the model made. Arguments is the JSON text the
-// model wrote, verbatim: whether it parses is the caller's question, not the
-// transport's.
-type ToolCall struct {
-	Name      string
-	Arguments string
-}
-
-// Reply is a non-streamed completion's message: its content and every tool call.
-// A reply that only calls a tool has empty Content.
-type Reply struct {
-	Content   string
-	ToolCalls []ToolCall
-}
-
 // StreamFunc receives incremental content deltas as they arrive from the model.
 // Returning an error aborts the stream.
 type StreamFunc func(delta string) error

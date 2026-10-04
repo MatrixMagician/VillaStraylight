@@ -13,6 +13,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/eval"
 	"github.com/MatrixMagician/VillaStraylight/internal/evalstore"
+	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 	"github.com/MatrixMagician/VillaStraylight/internal/llm"
 )
 
@@ -254,6 +255,25 @@ func TestEvalTargetKeysOnTheServedModel(t *testing.T) {
 	}
 	if p := coder.Provenance; p.Ctx != 32768 || !p.ToolsMode || p.Speculation != "ngram" || p.ImageDigest != "registry.invalid/llama:tag-only" {
 		t.Errorf("coder provenance = %+v", p)
+	}
+}
+
+// TestLiveEvalImageResolvesThroughThePinPath: the provenance image comes from the
+// configured backend through the pin path (on a host with no pin state, the vetted
+// pin the backend seam carries), and an unknown backend fails closed rather than
+// defaulting.
+func TestLiveEvalImageResolvesThroughThePinPath(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	if _, _, err := liveEvalImage(config.VillaConfig{Backend: "no-such-backend"}); err == nil {
+		t.Fatal("an unknown backend resolved")
+	}
+	want, err := inference.BackendFor("vulkan")
+	if err != nil {
+		t.Fatal(err)
+	}
+	name, ref, err := liveEvalImage(config.VillaConfig{Backend: "vulkan"})
+	if err != nil || name != want.Name() || ref != want.Image() {
+		t.Errorf("liveEvalImage = %q, %q, %v; want %q, %q", name, ref, err, want.Name(), want.Image())
 	}
 }
 
