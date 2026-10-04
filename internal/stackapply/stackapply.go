@@ -14,7 +14,9 @@
 // a resident set bakes the secret into the chat UI's unit: rendering first and
 // healing after wrote that unit with an empty key. It is the only heal route for
 // every verb but install, whose transaction persists its own freshly generated
-// secret (ADR-0003).
+// secret (ADR-0003). Right after it, Apply heals crush.json when its only drift is
+// that secret (HealAgentConfig, ADR-0019), so up, restart and every swap repair a
+// host whose crush.json predates the key.
 //
 // Transact (transact.go) is the swap transaction frame built on Apply and Restore
 // (ADR-0015): every swap verb's change reaches the running stack through it.
@@ -35,7 +37,7 @@ import (
 )
 
 // Deps is the host a stack is applied to. cmd/villa wires one live set; tests wire
-// fakes. Every field is required.
+// fakes. Every field is required but HealAgentConfig.
 type Deps struct {
 	// Catalog is the model catalog every render input's id is resolved against.
 	Catalog       func() (catalog.Catalog, error)
@@ -53,6 +55,10 @@ type Deps struct {
 	// SaveConfig and WriteInferenceSecretEnv back the inference-secret heal.
 	SaveConfig              func(config.VillaConfig) error
 	WriteInferenceSecretEnv func(name, text string) error
+	// HealAgentConfig rewrites crush.json when its only drift is villa's inference
+	// key (ADR-0019), handed the config after the secret heal. The live wiring is a
+	// no-op when the coding agent is off or crush.json is absent. nil skips the heal.
+	HealAgentConfig func(config.VillaConfig) error
 }
 
 // ServedTarget returns the model id and ctx villa-llama serves for cfg: the coder at
@@ -100,11 +106,12 @@ func Plan(d Deps, cfg config.VillaConfig) (orchestrate.Plan, error) {
 	return plan, nil
 }
 
-// Apply makes the unit files match cfg: heal the inference secret, render,
-// reconcile, write the changed units and daemon-reload. It returns the units it
-// wrote, and still returns them when the reload after the write fails, so a caller's
-// rollback knows what is on disk. Nothing changed means no unit written and no
-// reload; the heal still rewrites the inference-secret env file on every apply.
+// Apply makes the unit files match cfg: heal the inference secret, heal crush.json's
+// copy of it (ADR-0019), render, reconcile, write the changed units and
+// daemon-reload. It returns the units it wrote, and still returns them when the
+// reload after the write fails, so a caller's rollback knows what is on disk.
+// Nothing changed means no unit written and no reload; the heal still rewrites the
+// inference-secret env file on every apply.
 //
 // Its mutating callers are the swap transaction frame (Transact, through its live
 // binding) and the verbs that hold the stack lock themselves;
@@ -114,10 +121,31 @@ func Apply(d Deps, cfg config.VillaConfig) ([]orchestrate.Unit, error) {
 	if err != nil {
 		return nil, fmt.Errorf("ensure inference secret: %w", err)
 	}
+	if err := healAgentConfig(d, cfg); err != nil {
+		return nil, err
+	}
 	plan, err := Plan(d, cfg)
 	if err != nil {
 		return nil, err
 	}
+	return write(d, plan)
+}
+
+// healAgentConfig runs the HealAgentConfig seam when it is wired. A failure stops
+// the apply before any unit is written.
+func healAgentConfig(d Deps, cfg config.VillaConfig) error {
+	if d.HealAgentConfig == nil {
+		return nil
+	}
+	if err := d.HealAgentConfig(cfg); err != nil {
+		return fmt.Errorf("heal crush.json: %w", err)
+	}
+	return nil
+}
+
+// write writes a plan's changed units and reloads systemd; an unchanged plan is a
+// no-op. The changed units are returned even when the reload fails.
+func write(d Deps, plan orchestrate.Plan) ([]orchestrate.Unit, error) {
 	if len(plan.Changed) == 0 {
 		return nil, nil
 	}

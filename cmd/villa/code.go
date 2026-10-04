@@ -15,6 +15,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/agent"
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/pathsafe"
+	"github.com/MatrixMagician/VillaStraylight/internal/subsystem"
 )
 
 // code.go is the cmd-tier `villa code` agent launcher: the live host wiring that drives
@@ -216,26 +217,12 @@ func liveAgentDeps() *agent.Deps {
 			sum, present, err := hashFileSHA256(agentBinPath())
 			return sum, present, err
 		},
-		// WriteConfig persists the first-run rendered crush.json (MkdirAll 0700 +
-		// WriteFile 0600), traversal-guarded against the crush config dir. Invoked by
-		// agent.Run ONLY on the config-absent path (never overwrites an existing file).
-		WriteConfig: func(b []byte) error {
-			path, err := crushConfigPath()
-			if err != nil {
-				return err
-			}
-			dir := filepath.Dir(path)
-			if err := assertWithinDir(path, dir); err != nil {
-				return err
-			}
-			if err := os.MkdirAll(dir, 0o700); err != nil {
-				return fmt.Errorf("villa code: create crush config dir: %w", err)
-			}
-			if err := os.WriteFile(path, b, 0o600); err != nil {
-				return fmt.Errorf("villa code: write crush.json: %w", err)
-			}
-			return nil
-		},
+		// WriteConfig persists the rendered crush.json. agent.Run invokes it on the
+		// config-absent path and over a key-only drift (ADR-0019), never over an
+		// operator's edit.
+		WriteConfig: writeCrushConfig,
+		// BackupConfig keeps the on-disk crush.json before a key-only heal.
+		BackupConfig: backupCrushConfig,
 		// Launch execs the EXPLICIT villa-owned binary with the lockdown env:
 		// fixed-arg, no shell, NEVER a PATH lookup — a user-installed crush on PATH cannot
 		// be hijacked. On success the process image is replaced and this never
@@ -268,6 +255,66 @@ func crushConfigPath() (string, error) {
 		return "", fmt.Errorf("villa code: cannot resolve user config dir: %w", err)
 	}
 	return filepath.Join(base, "crush", "crush.json"), nil
+}
+
+// writeCrushConfig writes b over crush.json atomically at 0600, creating its dir at
+// 0700. It is the one writer for the first-run render and both key heals (ADR-0019),
+// so a crash mid-heal leaves the old file or the new one, never a truncated one.
+func writeCrushConfig(b []byte) error {
+	path, err := crushConfigPath()
+	if err != nil {
+		return err
+	}
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("create crush config dir: %w", err)
+	}
+	if err := pathsafe.WriteFileAtomic(dir, path, b, 0o600); err != nil {
+		return fmt.Errorf("write crush.json: %w", err)
+	}
+	return nil
+}
+
+// backupCrushConfig keeps onDisk as crush.json.bak beside crush.json, 0600, so a key
+// heal can be undone by hand (ADR-0019). A later heal replaces an earlier backup.
+func backupCrushConfig(onDisk []byte) error {
+	path, err := crushConfigPath()
+	if err != nil {
+		return err
+	}
+	if err := pathsafe.WriteFileAtomic(filepath.Dir(path), path+".bak", onDisk, 0o600); err != nil {
+		return fmt.Errorf("back up crush.json: %w", err)
+	}
+	return nil
+}
+
+// liveHealAgentConfig is the stack apply's HealAgentConfig seam (ADR-0019): with the
+// coding agent on and a crush.json present, it renders cfg the way `villa code` and
+// doctor do and, when the ONLY drift is the inference key, backs the file up and
+// writes the rendering. Every other state is left alone: the first-run render is
+// `villa code`'s, and an operator's edit is never overwritten (AGENT-04).
+func liveHealAgentConfig(cfg config.VillaConfig) error {
+	if !subsystem.AgentOn(cfg) {
+		return nil
+	}
+	onDisk, present, err := readCrushConfig()
+	if !present { // readCrushConfig reports present=false on every error too
+		return err
+	}
+	rendered, _, err := agent.Render(cfg, liveLSPProbes())
+	if err != nil || !agent.KeyOnlyDrift(onDisk, rendered) {
+		return err
+	}
+	return replaceCrushConfig(onDisk, rendered)
+}
+
+// replaceCrushConfig backs onDisk up, then writes rendered over crush.json; a failed
+// backup writes nothing over the file.
+func replaceCrushConfig(onDisk, rendered []byte) error {
+	if err := backupCrushConfig(onDisk); err != nil {
+		return err
+	}
+	return writeCrushConfig(rendered)
 }
 
 // agentBinDir resolves the villa-owned bin dir for the Crush binary:

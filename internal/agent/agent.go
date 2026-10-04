@@ -11,8 +11,9 @@
 //     (AGENT-02..).
 //   - version.go: a verbatim clone of preflight's dotted-version comparator.
 //   - drift.go  : DetectDrift(in) → a report-only DriftReport (binary + config
-//     drift, plus the config-absent first-run signal) that NEVER auto-corrects
-//     (AGENT-04).
+//     drift, plus the config-absent first-run signal). villa never overwrites the
+//     operator's edits (AGENT-04); the one config drift a caller heals is a stale
+//     inference key, villa's own value (KeyOnlyDrift, ADR-0019).
 //
 // Seam discipline (CLAUDE.md / TestSeamGrepGate, which walks internal/):
 // internal/agent imports NEITHER internal/inference NOR internal/detect, and it
@@ -88,85 +89,119 @@ var KnownLSPServers = []struct{ Key, Command string }{
 // Result — it NEVER os.Exit, NEVER prints, and NEVER execs (the cobra caller maps Result
 // → exit + messages, prints Warnings, THEN performs the single d.Launch).
 //
-// Ordering:
+// Ordering (each step helper returns stop=true to end Run with res as it stands):
 //  1. LoadConfig (source of truth) — on error, a non-refusal Err Result.
-//  2. 2. Probe LSP servers via LookPath (references only, never installs).
+//     [prepareReference, steps 1-3]
+//  2. Probe LSP servers via LookPath (references only, never installs).
 //  3. Render(cfg, probes) → the reference bytes (BOTH the drift-compare target AND
 //     the first-run write payload) + LSP warnings.
-//  4. HashBinary + ReadConfig → DetectDrift.
+//  4. HashBinary + ReadConfig → DetectDrift. [readDrift]
 //  5. BinaryAbsent → graceful remediation, return WITHOUT writing or launching.
-//  6. ConfigAbsent (first-run) → WriteConfig(reference) then PROCEED to launch (NOT
-//     drift). The ONLY auto-write path, and ONLY when absent.
-//  7. BinaryDrift || ConfigDrift (present-but-differs) → surface + remediation,
-//     return WITHOUT launching, WITHOUT writing, WITHOUT auto-correcting.
+//     [resolveDrift, steps 5-7]
+//  6. Settle the config (settleConfig). ConfigAbsent (first-run) →
+//     WriteConfig(reference) then PROCEED to launch (NOT drift). ConfigKeyOnly →
+//     BackupConfig(onDisk), WriteConfig(reference), a warning, then PROCEED
+//     (ADR-0019: the key is villa's own value, the operator edited nothing). These
+//     are the ONLY write paths.
+//  7. BinaryDrift || any other ConfigDrift (present-but-differs) → surface +
+//     remediation, return WITHOUT launching, WITHOUT writing: villa never overwrites
+//     the operator's edits (AGENT-04, narrowed by ADR-0019).
 //     BinaryDriftUnknown (unpinned sentinel) → carry a WARN, do NOT block (Pitfall 6).
 //  8. Clean / first-run-rendered → build the lockdown env into res.LaunchEnv and
 //     set res.ReadyToLaunch. The caller prints Warnings then performs the SINGLE
 //     d.Launch — so a coding-mode-OFF WARN (caller surfaces it; this core NEVER mutates
-//     the toggle) is shown BEFORE the exec replaces the process.
+//     the toggle) is shown BEFORE the exec replaces the process. [readyToLaunch]
 func Run(d Deps) Result {
 	var res Result
+	cfg, reference, stop := prepareReference(d, &res)
+	if stop {
+		return res
+	}
+	report, onDisk, stop := readDrift(d, reference, &res)
+	if stop {
+		return res
+	}
+	if stop := resolveDrift(d, report, onDisk, reference, &res); stop {
+		return res
+	}
+	readyToLaunch(cfg, &res)
+	return res
+}
 
-	// (1) Config is the source of truth feeding Render.
+// prepareReference runs steps 1-3: it loads the config (the source of truth feeding
+// Render), probes the LSP servers (references only, never installs) and freshly
+// renders the reference — BOTH the drift-compare target AND the bytes written on the
+// first-run config-absent path — appending the LSP warnings to res.
+func prepareReference(d Deps, res *Result) (cfg config.VillaConfig, reference []byte, stop bool) {
 	cfg, err := d.LoadConfig()
 	if err != nil {
 		res.Err = fmt.Errorf("agent: load config: %w", err)
 		res.Reason = "could not load villa config — fix config.toml and retry"
-		return res
+		return cfg, nil, true
 	}
 
-	// (2) Probe LSP servers (references only, never installs).
 	probes := make([]LSPProbe, 0, len(KnownLSPServers))
 	for _, srv := range KnownLSPServers {
 		_, found := d.LookPath(srv.Command)
 		probes = append(probes, LSPProbe{Key: srv.Key, Command: srv.Command, Found: found})
 	}
 
-	// (3) Freshly render the reference — BOTH the drift-compare target AND the bytes
-	// written on the first-run config-absent path.
 	reference, warns, err := Render(cfg, probes)
 	if err != nil {
 		res.Err = fmt.Errorf("agent: render crush.json: %w", err)
 		res.Reason = "could not render the Crush config from your config.toml"
-		return res
+		return cfg, nil, true
 	}
 	res.Warnings = append(res.Warnings, warns...)
+	return cfg, reference, false
+}
 
-	// (4) Probe the installed binary + on-disk config, then detect drift (report-only).
+// readDrift runs step 4: it probes the installed binary and the on-disk config, then
+// detects drift (report-only). It returns the on-disk bytes for the config settle.
+func readDrift(d Deps, reference []byte, res *Result) (report DriftReport, onDisk []byte, stop bool) {
 	binSHA, binPresent, err := d.HashBinary()
 	if err != nil {
 		res.Err = fmt.Errorf("agent: hash villa-owned Crush binary: %w", err)
 		res.Reason = "could not read the villa-owned Crush binary"
-		return res
+		return report, nil, true
 	}
 	onDisk, configPresent, err := d.ReadConfig()
 	if err != nil {
 		res.Err = fmt.Errorf("agent: read on-disk crush.json: %w", err)
 		res.Reason = "could not read the on-disk crush.json"
-		return res
+		return report, nil, true
 	}
-
-	policy := loadCrushPolicy()
-	var policyBinSHA string
-	if asset, ok := policy.Assets[targetPlatformKey]; ok {
-		policyBinSHA = asset.BinarySHA256
-	}
-
-	report := DetectDrift(DriftInput{
+	report = DetectDrift(DriftInput{
 		BinaryPresent:   binPresent,
 		InstalledBinSHA: binSHA,
-		PolicyBinSHA:    policyBinSHA,
+		PolicyBinSHA:    pinnedBinarySHA(),
 		ConfigPresent:   configPresent,
 		OnDiskConfig:    onDisk,
 		RenderedConfig:  reference,
 	})
+	return report, onDisk, false
+}
 
+// pinnedBinarySHA is the compiled-in policy's binary SHA-256 for the supported
+// install target, or "" when the policy carries no asset for it.
+func pinnedBinarySHA() string {
+	asset, ok := loadCrushPolicy().Assets[targetPlatformKey]
+	if !ok {
+		return ""
+	}
+	return asset.BinarySHA256
+}
+
+// resolveDrift runs steps 5-7 over the drift report: refuse an absent or drifted
+// binary (never writing, never launching), carry a WARN for an unpinned one, then
+// settle the on-disk config.
+func resolveDrift(d Deps, report DriftReport, onDisk, reference []byte, res *Result) (stop bool) {
 	// (5) BinaryAbsent → graceful Phase-27 install remediation; never crash, never
 	// write, never launch.
 	if report.BinaryAbsent {
 		res.BinaryAbsent = true
 		res.Reason = report.Reason
-		return res
+		return true
 	}
 
 	// (7a) Present-but-differs binary drift → surface + remediation, never auto-correct
@@ -174,7 +209,7 @@ func Run(d Deps) Result {
 	if report.BinaryDrift {
 		res.BinaryDrift = true
 		res.Reason = report.Reason
-		return res
+		return true
 	}
 	if report.BinaryDriftUnknown {
 		res.Warnings = append(res.Warnings, Warning{
@@ -183,51 +218,86 @@ func Run(d Deps) Result {
 		})
 	}
 
-	// (7b) Present-but-differs CONFIG drift → surface + remediation, never auto-correct
-	// Checked BEFORE the absent-render path so a present-but-drifting config is
-	// never overwritten.
-	if report.ConfigDrift {
-		res.ConfigDrift = true
-		res.Reason = report.Reason
-		return res
-	}
+	// (6/7b) Settle the on-disk config: refuse an operator's drift, heal a key-only
+	// drift, render a first-run config.
+	return settleConfig(d, report, onDisk, reference, res)
+}
 
-	// (6) FIRST-RUN config-absent → render-then-launch (NOT drift). The ONLY auto-write
-	// path, and ONLY when the config is ABSENT. Write the freshly-rendered
-	// reference, then PROCEED to launch.
-	if report.ConfigAbsent {
-		if err := d.WriteConfig(reference); err != nil {
-			res.Err = fmt.Errorf("agent: write first-run crush.json: %w", err)
-			res.Reason = "could not write the first-run crush.json"
-			return res
-		}
-		res.ConfigAbsent = true
-		res.Warnings = append(res.Warnings, Warning{
-			Code: "config_rendered",
-			Msg:  "rendered a fresh crush.json from your config.toml (first run)",
-		})
-	}
-
-	// (8) Clean / first-run-rendered path. Coding-mode-OFF is a WARN, never a mutation
-	// (this core holds no toggle write). The caller surfaces it; the launch
-	// still proceeds.
+// readyToLaunch runs step 8, the clean / first-run-rendered path. Coding-mode-OFF is a
+// WARN, never a mutation (this core holds no toggle write). The caller surfaces it;
+// the launch still proceeds.
+//
+// The lockdown env is built in the pure core (unit-testable) and handed back as
+// ReadyToLaunch — the caller prints Warnings, THEN performs the single
+// d.Launch(LaunchEnv) exec (the single launch point). The core does NOT exec here:
+// doing so replaces the process before the command tier can surface the
+// coding-mode-off / first-run-rendered / lsp-missing Warnings, and cores never print
+// or exec (architecture invariant). On a normal exec the caller's d.Launch never
+// returns; a returned error there is a launch failure it maps.
+func readyToLaunch(cfg config.VillaConfig, res *Result) {
 	if !subsystem.CodingModeOn(cfg) {
 		res.Warnings = append(res.Warnings, Warning{
 			Code: "coding_mode_off",
 			Msg:  "coding mode is OFF — the running stack may not be serving the coder model; run `villa coding-mode enter` to flip it. Launching against the current endpoint anyway.",
 		})
 	}
-
-	// Build the lockdown env in the pure core (unit-testable) and hand it back
-	// as ReadyToLaunch — the caller prints Warnings, THEN performs the single
-	// d.Launch(LaunchEnv) exec (the single launch point). The core
-	// does NOT exec here: doing so replaces the process before the command tier can
-	// surface the coding-mode-off / first-run-rendered / lsp-missing Warnings, and
-	// cores never print or exec (architecture invariant). On a normal exec the caller's
-	// d.Launch never returns; a returned error there is a launch failure it maps.
 	res.LaunchEnv = lockdownEnv()
 	res.ReadyToLaunch = true
-	return res
+}
+
+// settleConfig acts on the config half of the drift report and reports whether Run
+// must stop and return res as it stands. The key-only case is checked before the
+// general drift it is a subset of; an operator's drift is refused and never
+// written (AGENT-04, narrowed by ADR-0019).
+func settleConfig(d Deps, report DriftReport, onDisk, reference []byte, res *Result) (stop bool) {
+	switch {
+	case report.ConfigKeyOnly:
+		return healConfig(d, onDisk, reference, res)
+	case report.ConfigDrift:
+		res.ConfigDrift = true
+		res.Reason = report.Reason
+		return true
+	case report.ConfigAbsent:
+		return writeFirstRunConfig(d, reference, res)
+	}
+	return false
+}
+
+// healConfig rewrites a crush.json whose only drift is villa's inference key
+// (ADR-0019): the on-disk bytes go to the backup first, so a failed backup writes
+// nothing over the file and a completed heal can be undone by hand.
+func healConfig(d Deps, onDisk, reference []byte, res *Result) (stop bool) {
+	if err := d.BackupConfig(onDisk); err != nil {
+		res.Err = fmt.Errorf("agent: back up crush.json before healing its key: %w", err)
+		res.Reason = "could not back up crush.json, so its stale inference key was left in place"
+		return true
+	}
+	if err := d.WriteConfig(reference); err != nil {
+		res.Err = fmt.Errorf("agent: write healed crush.json: %w", err)
+		res.Reason = "could not write the healed crush.json (the old file is in crush.json.bak)"
+		return true
+	}
+	res.Warnings = append(res.Warnings, Warning{
+		Code: "config_key_healed",
+		Msg:  "rewrote the stale inference key in crush.json (nothing else differed); the previous file is kept as crush.json.bak beside it",
+	})
+	return false
+}
+
+// writeFirstRunConfig is the FIRST-RUN config-absent render (NOT drift): write the
+// freshly-rendered reference, then let Run PROCEED to launch.
+func writeFirstRunConfig(d Deps, reference []byte, res *Result) (stop bool) {
+	if err := d.WriteConfig(reference); err != nil {
+		res.Err = fmt.Errorf("agent: write first-run crush.json: %w", err)
+		res.Reason = "could not write the first-run crush.json"
+		return true
+	}
+	res.ConfigAbsent = true
+	res.Warnings = append(res.Warnings, Warning{
+		Code: "config_rendered",
+		Msg:  "rendered a fresh crush.json from your config.toml (first run)",
+	})
+	return false
 }
 
 // lockdownEnv builds the belt-and-braces launch env: the three constant
@@ -276,9 +346,13 @@ type Deps struct {
 	// (hexSum, present, err); present=false → BinaryAbsent (Phase-27 install remediation).
 	HashBinary func() (string, bool, error)
 	// WriteConfig persists the freshly-rendered crush.json to
-	// ~/.config/crush/crush.json (MkdirAll 0700 + WriteFile 0600, traversal-guarded
-	// in the live wiring). The render output, written on the first-run absent case.
+	// ~/.config/crush/crush.json (MkdirAll 0700 + an atomic 0600 write in the live
+	// wiring). The render output, written on the first-run absent case and over a
+	// key-only drift (ADR-0019).
 	WriteConfig func(b []byte) error
+	// BackupConfig keeps the on-disk crush.json bytes as crush.json.bak beside it
+	// (0600) before a key-only heal overwrites the file (ADR-0019).
+	BackupConfig func(onDisk []byte) error
 	// Launch execs the villa-owned crush binary with the belt-and-braces lockdown
 	// env — syscall.Exec in the live wiring (fixed-arg, no shell). It is
 	// reached ONLY on a clean presence+drift check.
@@ -308,7 +382,8 @@ type Result struct {
 	ConfigAbsent bool
 	// ConfigDrift is true when an on-disk crush.json is PRESENT but differs
 	// semantically from the freshly-rendered reference (hand-edit / staleness,
-	// → surface + remediation, NEVER auto-correct.
+	// → surface + remediation, never written. A key-only drift is healed instead
+	// (ADR-0019) and leaves this false.
 	ConfigDrift bool
 	// ReadyToLaunch is true when the presence+drift check was clean (and any
 	// first-run render completed): the caller should print Warnings, then exec via
