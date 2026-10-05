@@ -335,6 +335,8 @@ func TestSharedResidencySpeculationResolvesTheChatModel(t *testing.T) {
 // recorded pin for rocm-10.0 or rocm-7.2.4 (ADR-0022) would silently never apply.
 func TestEveryROCmNameMapsToItsComponent(t *testing.T) {
 	for name, want := range map[string]pins.ComponentID{
+		"":           pins.BackendROCm100,
+		"rocm":       pins.BackendROCm100,
 		"rocm-10.0":  pins.BackendROCm100,
 		"rocm-7.2.4": pins.BackendROCm724,
 	} {

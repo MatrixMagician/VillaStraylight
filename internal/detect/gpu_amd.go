@@ -357,7 +357,7 @@ const rocmNightlyDenyTag = "rocm7-nightlies"
 // Off-hardware / by default this is the in-tree pinned stable tag; a future
 // config/request-driven override would thread its image here. It is config-driven,
 // NOT a host probe (Pitfall 5).
-func resolvedROCmImage() string { return rocmStableImageTag }
+func resolvedROCmImage() string { return rocm100ImageTag }
 
 // rocmImagePolicyOK scores a resolved ROCm image string against the pin policy:
 // the stable rocm-7.2.4 image and the v1.2 rocm-6.4.4 images (incl. -rocwmma) are

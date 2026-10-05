@@ -391,8 +391,8 @@ func declaredVersion(ref string) string {
 // isActiveBackend reports whether a backend component is the one this config runs.
 func isActiveBackend(cfg config.VillaConfig, id pins.ComponentID) bool {
 	want := map[string]pins.ComponentID{
-		"":                   pins.BackendROCm724,
-		"rocm":               pins.BackendROCm724,
+		"":                   pins.BackendROCm100,
+		"rocm":               pins.BackendROCm100,
 		"rocm-7.2.4":         pins.BackendROCm724,
 		"rocm-10.0":          pins.BackendROCm100,
 		"rocm-6.4.4":         pins.BackendROCm644,

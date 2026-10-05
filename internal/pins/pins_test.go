@@ -327,3 +327,16 @@ func TestROCm100IsARollingROCmPin(t *testing.T) {
 		t.Errorf("vetted ref %q is not the digest-pinned rocm-10.0 image", ref)
 	}
 }
+
+// TestTheROCm724PinStaysOn724: after ADR-0022 "rocm" names the 10.0 default, so the
+// 7.2.4 component must resolve its vetted pin by its explicit name. Resolving it
+// through "rocm" would silently make backend-rocm-7.2.4 carry the 10.0 image.
+func TestTheROCm724PinStaysOn724(t *testing.T) {
+	e, ok := Lookup(BackendROCm724)
+	if !ok {
+		t.Fatal("backend-rocm-7.2.4 is not in the table")
+	}
+	if ref := e.Vetted().Ref; !strings.Contains(ref, ":rocm-7.2.4@sha256:") {
+		t.Errorf("backend-rocm-7.2.4 vetted ref %q is not the 7.2.4 image", ref)
+	}
+}

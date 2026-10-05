@@ -340,3 +340,11 @@ func TestRenderNodeAccessUnreadableRootIsUnknown(t *testing.T) {
 		t.Errorf("renderNodeAccess(unreadable root): Known=true, want Unknown")
 	}
 }
+
+// TestTheResolvedROCmImageIsTheDefault: readiness scores the image the default ROCm
+// backend runs, which ADR-0022 moved to the rocm-10.0 channel.
+func TestTheResolvedROCmImageIsTheDefault(t *testing.T) {
+	if got := resolvedROCmImage(); got != rocm100ImageTag {
+		t.Errorf("resolvedROCmImage() = %q, want %q", got, rocm100ImageTag)
+	}
+}

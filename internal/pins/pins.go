@@ -81,9 +81,9 @@ const (
 type ComponentID string
 
 const (
-	// BackendROCm724 is the default inference backend image.
+	// BackendROCm724 is the former default ROCm 7.2.4 image, selected by name.
 	BackendROCm724 ComponentID = "backend-rocm-7.2.4"
-	// BackendROCm100 is the ROCm 10.0 backend image (ADR-0022).
+	// BackendROCm100 is the ROCm 10.0 backend image, the default (ADR-0022).
 	BackendROCm100 ComponentID = "backend-rocm-10.0"
 	// BackendROCm644 is the TG-tuned ROCm 6.4.4 backend image.
 	BackendROCm644 ComponentID = "backend-rocm-6.4.4"
@@ -261,7 +261,7 @@ func Table() []Entry {
 			Registry: registryDockerIO,
 			Version:  "7.2.4",
 			Floors:   rocmFloors,
-			Vetted:   func() Pin { return backendPin("rocm") },
+			Vetted:   func() Pin { return backendPin("rocm-7.2.4") },
 		},
 		{
 			Component: BackendROCm100,

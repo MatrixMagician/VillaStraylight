@@ -33,7 +33,7 @@ func TestROCmContainerArgs(t *testing.T) {
 		"ROCBLAS_USE_HIPBLASLT=1",
 		"-ngl 999",
 		"-fa 1",
-		"--no-mmap",
+		"--load-mode", "none",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("ROCm ContainerArgs missing %q in: %s", want, joined)
@@ -77,12 +77,12 @@ func TestBackendFor(t *testing.T) {
 		wantName    string
 		wantImgFrag string // a digest substring the resolved backend's Image() must contain
 	}{
-		// The empty string is the DEFAULT backend — ROCm 7.2.4, same digest as "rocm".
-		{"", "rocm", "2da150c1"},
+		// The empty string is the DEFAULT backend — ROCm 10.0 (ADR-0022), same as "rocm".
+		{"", "rocm", "rocm-10.0@sha256:3893b3e5"},
 		// vulkan is now the explicit opt-in fallback, still resolvable and unchanged.
 		{"vulkan", "vulkan", ""},
-		// rocm STILL means the unchanged 7.2.4 digest (coexistence).
-		{"rocm", "rocm", "2da150c1"},
+		// "rocm" is the default's name, not a version: it follows the default to 10.0.
+		{"rocm", "rocm", "rocm-10.0@sha256:3893b3e5"},
 		// The two new digest-pinned ROCm backends.
 		{"rocm-6.4.4", "rocm-6.4.4", "sha256:1c655ca0"},
 		{"rocm-6.4.4-rocwmma", "rocm-6.4.4-rocwmma", "sha256:9a97129a"},
@@ -151,7 +151,7 @@ func TestBackendFor(t *testing.T) {
 // how the 2026-09-11 re-vet found it.
 func TestLoadFlagIsSpelledPerImage(t *testing.T) {
 	cases := []struct{ name, want, reject string }{
-		{"rocm", "-fa 1 --no-mmap -lv 4", "--load-mode"},
+		{"rocm", "-fa 1 --load-mode none -lv 4", "--no-mmap"},
 		{"rocm-6.4.4-rocwmma", "-fa 1 --no-mmap -lv 4", "--load-mode"},
 		{"rocm-6.4.4", "-fa 1 --load-mode none -lv 4", "--no-mmap"},
 		{"rocm-7.2.4", "-fa 1 --no-mmap -lv 4", "--load-mode"},
