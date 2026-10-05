@@ -319,3 +319,23 @@ func TestStressContextForCapsAtModelMax(t *testing.T) {
 		t.Errorf("stressContextFor = %d, want > recCtx 8192 (push toward the capped ceiling)", grow)
 	}
 }
+
+// TestStressContextForCountsPromptCache guards ADR-0021: every chat llama-server may
+// hold PromptCacheBytes of prompt cache, and the fit counts it, so the ceiling probe
+// must not size a stress context out of the bytes the cache already owns.
+func TestStressContextForCountsPromptCache(t *testing.T) {
+	const (
+		recCtx     = 1000
+		weight     = uint64(10 << 30)
+		kvAtRecCtx = uint64(1 << 30)
+		headroom   = uint64(1 << 30)
+		envelope   = uint64(22 << 30)
+	)
+	// Budget = 22 - (10 + 1 + 8 cache) = 3 GiB of KV at 1 GiB per 1000 tokens.
+	if PromptCacheBytes != 8<<30 {
+		t.Fatalf("PromptCacheBytes = %d, test literal assumes 8 GiB", PromptCacheBytes)
+	}
+	if got, want := stressContextFor(recCtx, weight, kvAtRecCtx, headroom, envelope, 0), 3000; got != want {
+		t.Errorf("stressContextFor = %d, want %d (cache term bounds the ceiling)", got, want)
+	}
+}

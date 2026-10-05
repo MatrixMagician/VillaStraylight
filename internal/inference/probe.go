@@ -294,7 +294,8 @@ func lineAround(s string, idx int) string {
 // stressContextFor derives a near-ceiling stress context from the recommend-computed
 // fit terms (reuse of the recommend KV/headroom math WITHOUT importing its
 // internals): KV scales LINEARLY with ctx, so kv(stress) = kvAtRecCtx · stress/recCtx.
-// It returns the largest ctx whose modelled total weight + kv(stress) + headroom
+// It returns the largest ctx whose modelled total weight + kv(stress) + headroom +
+// PromptCacheBytes (the chat server's --cache-ram, ADR-0021, counted by every fit)
 // still fits the envelope — the context the run would sit right under the ceiling at
 // BOUNDED by the model's trained max context (maxCtx, the catalog default_ctx).
 //
@@ -313,7 +314,7 @@ func stressContextFor(recCtx int, weightBytes, kvAtRecCtx, headroomBytes, envelo
 	}
 	// Memory-bound ceiling: the largest ctx whose KV fits the envelope budget.
 	memBound := uint64(recCtx)
-	base := weightBytes + headroomBytes
+	base := weightBytes + headroomBytes + PromptCacheBytes
 	if base < envelopeBytes && kvAtRecCtx > 0 {
 		kvBudget := envelopeBytes - base
 		// Largest ctx whose KV fits the budget: ctx = recCtx · kvBudget/kvAtRecCtx.
