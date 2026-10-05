@@ -128,6 +128,10 @@ regression in a rebuilt image:
    capability), and re-running on the same build will not separate the two,
    because greedy decoding repeats itself. One near-miss flip is noise; several
    flips, or a reply that is malformed rather than wrong, is a defect.
+4. **Once the pin is vetted**, re-record each model's baseline on it with `villa
+   eval --record`, swapping in each one with `villa model swap`. The next vet then
+   compares against the image it replaces, and a flip you already judged stops
+   reporting as a regression.
 4. Paste the per-case diff (`villa eval --json`) into the re-vet PR.
 5. Once the pin is vetted, run `villa eval --record` on it, so the next
    comparison starts from the pin users actually run.
