@@ -534,38 +534,55 @@ const (
 // --- Phase 34-04: live search-residency proof + egress-proof seam ---
 
 // searchResidencyDriveRounds / searchResidencySettle clone the agent-residency in-flight
-// discipline for the search-load drive: drive bounded sequential search-augmented
-// chat rounds and sample the served model's residency ONLY while a round is verifiably IN
-// FLIGHT — never idle (which could mask a CPU-fallback-under-search-load false-green,
-// The drive is the cheapest honest one that keeps villa-llama decoding under load
-// (a bounded chat completion) while villa-searxng/villa-websafe are up (Open Q2 resolution).
+// discipline for the search-stack drive: drive bounded sequential chat rounds and sample
+// the served model's residency ONLY while a round is verifiably IN FLIGHT — never idle
+// (which could mask a CPU-fallback-under-load false-green). The round is a plain chat
+// completion sent while villa-searxng/villa-websafe are up (the precondition gate);
+// it never queries either of them, so what it proves is the served model's residency
+// with the search stack running beside it, not a search-augmented generation.
+//
+// searchResidencyMaxTokens is how far each round decodes. It must be long enough that
+// a round is still decoding at searchResidencySettle, so the two decode rates bracket
+// it: at the fastest rate (searchResidencyDecodeRateMax tok/s, measured 230 tok/s with
+// ngram speculation on the dev host) max_tokens must still outlast the settle with
+// margin, and at the slowest (searchResidencyDecodeRateMin tok/s, a dense model) every
+// round the proof may drive must fit inside agentProofBudget. 16 tokens finished in
+// ~0.38 s, before the settle, and the check was a permanent WARN (#286).
 const (
-	searchResidencyDriveRounds = 3
-	searchResidencySettle      = 750 * time.Millisecond
+	searchResidencyDriveRounds   = 3
+	searchResidencySettle        = 750 * time.Millisecond
+	searchResidencyMaxTokens     = 512
+	searchResidencyDecodeRateMax = 250
+	searchResidencyDecodeRateMin = 20
 )
 
-// searchResidencyDriveBody is the bounded chat-completion drive payload: a small, fixed
-// max_tokens completion that keeps villa-llama DECODING (so the residency sample observes
-// the served model under real load) without an unbounded generation. The model id is
-// JSON-marshaled, never interpolated into a command string (the runResidencyUnderLoad
-// precedent). stream=false keeps the round a single bounded request.
+// searchResidencyDriveBody is the bounded chat-completion drive payload: a fixed
+// searchResidencyMaxTokens completion that keeps villa-llama DECODING past the settle
+// (so the residency sample observes the served model under real load) without an
+// unbounded generation. ignore_eos is llama-server's non-OpenAI sampling field (documented
+// in its server README beside the other /completion options, which /v1/chat/completions
+// accepts): without it the model ends the reply at its own EOS and the round can finish
+// before the settle. The model id is JSON-marshaled, never interpolated into a command
+// string (the runResidencyUnderLoad precedent). stream=false keeps the round a single
+// bounded request.
 func searchResidencyDriveBody(model string) ([]byte, error) {
 	return json.Marshal(map[string]any{
 		"model": model,
 		"messages": []map[string]string{
-			{"role": "user", "content": "villa search-residency drive probe: reply with a single short sentence."},
+			{"role": "user", "content": "villa search-residency drive probe: write continuously."},
 		},
-		"max_tokens": 16,
+		"max_tokens": searchResidencyMaxTokens,
+		"ignore_eos": true,
 		"stream":     false,
 	})
 }
 
 // liveSearchResidencyUnderLoad builds the chat-model-residency-under-
 // SEARCH-load seam: a closure returning the served model's residency Verdict sampled DURING
-// a bounded search-augmented chat drive (with villa-searxng/villa-websafe up). It mirrors
+// a bounded chat drive (with villa-searxng/villa-websafe up). It mirrors
 // liveAgentResidencyUnderLoad's drive→settle→sample-if-in-flight→join shape but drives a
-// bounded chat completion (the cheapest honest drive that keeps villa-llama decoding under
-// search load) instead of the crush-run tool-call probe. It is constructed (not run) at
+// bounded chat completion (the cheapest honest drive that keeps villa-llama decoding past
+// the settle) instead of the crush-run tool-call probe. It is constructed (not run) at
 // wiring time; the drive/sample only fire when doctor.Aggregate invokes the seam.
 func liveSearchResidencyUnderLoad(ctx context.Context, cfg config.VillaConfig, sd *status.Deps) func() inference.Verdict {
 	return func() inference.Verdict { return runSearchResidencyUnderLoad(ctx, cfg, sd) }
@@ -581,7 +598,7 @@ func liveSearchResidencyUnderLoad(ctx context.Context, cfg config.VillaConfig, s
 //     precondition → agentUnevaluable typed-Unknown WARN (NOT a FAIL fabricated from a stack
 //     that is not running). Unit names come from orchestrate.*ContainerUnitName() via
 //     unitServiceName — never a typed service-name literal (TestSeamGrepGate).
-//  2. DRIVE + IN-FLIGHT SAMPLE: drive sequential bounded search-augmented chat rounds;
+//  2. DRIVE + IN-FLIGHT SAMPLE: drive sequential bounded chat rounds (none touches searxng/websafe);
 //     for each, launch async, wait searchResidencySettle, then sample ONLY IF the round is
 //     still in flight (a round that finished too fast to load the model under observation is
 //     joined and the next driven). Sample inference.RunningOffloadVerdict over the EXACT
@@ -595,7 +612,7 @@ func runSearchResidencyUnderLoad(ctx context.Context, cfg config.VillaConfig, sd
 
 	// The bounded chat-completion drive payload (model id JSON-marshaled, never
 	// interpolated). It is the cheapest honest drive that keeps villa-llama decoding
-	// under search load.
+	// past the settle.
 	body, err := searchResidencyDriveBody(cfg.Model)
 	if err != nil {
 		return residency.Unevaluable(
@@ -633,7 +650,7 @@ func runSearchResidencyUnderLoad(ctx context.Context, cfg config.VillaConfig, sd
 		},
 		Unsampled: func(residency.LoadResult) inference.Verdict {
 			return residency.Unevaluable(
-				"could not evaluate "+subject+" — no search-augmented chat round stayed in flight long enough to sample residency under load",
+				"could not evaluate "+subject+" — no chat round stayed in flight long enough to sample residency under load",
 				"check `systemctl --user status "+installServiceName+"` and `villa logs`; ensure the stack (incl. villa-searxng/villa-websafe) is up (`villa up`), then re-run `villa doctor`")
 		},
 	})
