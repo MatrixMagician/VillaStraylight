@@ -220,11 +220,12 @@ type Fit struct {
 //
 // The embedding reservation is included in the memory floor rather than checked
 // separately, so the gate reflects what will actually be resident. It is zero when
-// memory is off, which leaves the memory-off gate unchanged.
+// memory is off, which leaves the memory-off gate unchanged. The same holds for the
+// llama-server prompt cache (ADR-0021), which is rendered on every chat unit.
 func ResourceFit(rec recommend.Recommendation) Fit {
 	return Fit{
 		MinDiskBytes: rec.WeightBytes,
-		MinMemBytes:  rec.WeightBytes + rec.KVCacheBytes + rec.HeadroomBytes + rec.EmbeddingReservationBytes,
+		MinMemBytes:  rec.WeightBytes + rec.KVCacheBytes + rec.HeadroomBytes + rec.PromptCacheBytes + rec.EmbeddingReservationBytes,
 	}
 }
 

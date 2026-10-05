@@ -5,11 +5,12 @@ import (
 
 	"github.com/MatrixMagician/VillaStraylight/internal/catalog"
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
+	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 )
 
 // coderFitEntry is a role:"coder" catalog entry that comfortably fits a 64 GiB
 // envelope at its agent ctx: 18 GiB weights + ~6 GiB KV@65536 + ~7.68 GiB
-// headroom ≈ 31.7 GiB.
+// headroom + 8 GiB prompt cache ≈ 39.7 GiB.
 func coderFitEntry() catalog.Model {
 	return catalog.Model{
 		ID: "coder-fit", Quant: "UD-Q4_K_XL", WeightBytes: 18 << 30,
@@ -20,12 +21,12 @@ func coderFitEntry() catalog.Model {
 }
 
 // coderBigEntry is a role:"coder" entry whose CHAT-path footprint (weights +
-// KV@DefaultCtx + headroom ≈ 56.4 GiB at a 64 GiB envelope) would make it the
+// KV@DefaultCtx + headroom + prompt cache ≈ 56 GiB at a 64 GiB envelope) would make it the
 // LARGEST fitting pick if pickBest considered it — the bit-identical test
 // proves it never does.
 func coderBigEntry() catalog.Model {
 	return catalog.Model{
-		ID: "coder-big", Quant: "UD-Q4_K_XL", WeightBytes: 48 << 30,
+		ID: "coder-big", Quant: "UD-Q4_K_XL", WeightBytes: 40 << 30,
 		NLayers: 48, NKVHeads: 4, HeadDim: 128, KVBytesPerElem: 2,
 		DefaultCtx: 8192, TierGB: 64, UnifiedMemorySafe: true, BackendDefault: "rocm",
 		Role: "coder", AgentCtx: 65536,
@@ -71,7 +72,7 @@ func TestPickCoderSwapWhenFits(t *testing.T) {
 	// envelope, total via the saturating sum — no second formula.
 	wantKV := kvCacheBytes(entry, entry.AgentCtx)
 	wantHeadroom := headroomBytes(env)
-	wantTotal := addSaturating(addSaturating(entry.WeightBytes, wantKV), wantHeadroom)
+	wantTotal := addSaturating(addSaturating(addSaturating(entry.WeightBytes, wantKV), wantHeadroom), inference.PromptCacheBytes)
 	if rec.Coder.WeightBytes != entry.WeightBytes {
 		t.Errorf("Coder.WeightBytes = %d, want %d", rec.Coder.WeightBytes, entry.WeightBytes)
 	}
@@ -221,15 +222,15 @@ func TestPickOverrideCoderEntryWarnsAndAllows(t *testing.T) {
 // TestPickCoderUsesPostReservationEnvelope (ordering): the coder fit is
 // evaluated against the POST-reservation envelope — an entry whose footprint
 // clears the raw envelope but not the reserved one yields residency "shared".
-// Margins: W+K = 30e9; 0.88×raw = 30.24e9 (fits) vs 0.88×(raw−512MiB) =
+// Margins: W+K+cache = 30e9; 0.88×raw = 30.24e9 (fits) vs 0.88×(raw−512MiB) =
 // 29.76e9 (does not fit).
 func TestPickCoderUsesPostReservationEnvelope(t *testing.T) {
 	const env = uint64(32 << 30) // raw envelope
 	cat := testCatalog()
 	tight := catalog.Model{
-		// KV@65536 = 2×24×4×128×65536×2 = 3,221,225,472; weights chosen so
-		// W+K = 30,000,000,000 lands between the two 0.88×envelope bounds.
-		ID: "coder-tight", Quant: "UD-Q4_K_XL", WeightBytes: 26778774528,
+		// KV@65536 = 2×24×4×128×65536×2 = 3,221,225,472; weights (less the 8 GiB prompt cache) chosen so
+		// W+K+cache = 30,000,000,000 lands between the two 0.88×envelope bounds.
+		ID: "coder-tight", Quant: "UD-Q4_K_XL", WeightBytes: 18188839936,
 		NLayers: 24, NKVHeads: 4, HeadDim: 128, KVBytesPerElem: 2,
 		DefaultCtx: 8192, TierGB: 32, UnifiedMemorySafe: true, BackendDefault: "rocm",
 		Role: "coder", AgentCtx: 65536,
@@ -295,8 +296,8 @@ func TestPickCoderEligibilityGuards(t *testing.T) {
 func TestPickCoderMostCapableWins(t *testing.T) {
 	const env = uint64(64 << 30)
 	rec := Pick(profileWithEnvelope(env), testCatalogWithCoder(), Overrides{}, MemoryInputs{}, WebSearchInputs{})
-	// coder-big @ agent ctx: 48 GiB + 6 GiB KV + 7.68 GiB headroom ≈ 61.7 GiB
-	// fits and out-foots coder-fit (≈ 31.7 GiB).
+	// coder-big @ agent ctx: 40 GiB + 6 GiB KV + 7.68 GiB headroom + 8 GiB cache ≈ 61.7 GiB
+	// fits and out-foots coder-fit (≈ 39.7 GiB).
 	if rec.Coder.Model != "coder-big" {
 		t.Errorf("Coder.Model = %q, want the most-capable fitting entry \"coder-big\"", rec.Coder.Model)
 	}

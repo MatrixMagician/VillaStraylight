@@ -84,8 +84,11 @@ conversations, but it changes behaviour on every host and was not measured.
   re-sized the same way on the next add.
 - `recommend --json` is schema 8 with `prompt_cache_bytes`; `total_bytes` is 8 GiB
   higher than the v1.15 value for the same pick.
-- Not covered: the coder fit (`recommend.CoderFit`), which sizes the model that
-  replaces the primary in coding mode, does not carry the term yet, and neither does
-  the `install` minimum-memory floor. Both predate this ADR and are separate changes.
+- The coder fit counts it too. `recommend.CoderFit`, which sizes the model that
+  replaces the primary in coding mode, adds `inference.PromptCacheBytes` to its
+  total and carries `prompt_cache_bytes` (appended to the coder block, still schema
+  8), so a coder that fits only without the cache is `shared`, not a proven `swap`.
+  `install.ResourceFit` adds `Recommendation.PromptCacheBytes` to the minimum-memory
+  floor the preflight gate runs against.
 - Untested: a resident-set host, a non-hybrid model (more KV per token, so it reaches
   the MiB cap sooner) and a `villa work` task.
