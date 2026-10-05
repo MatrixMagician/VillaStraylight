@@ -51,6 +51,17 @@ var registry = []Row{
 	{Name: EntryEvalBaselines, Label: "eval-baselines.json", Kind: KindFile},
 }
 
+// EntryNamesForTest lists the tar member name of every registry row in tar order, so
+// a test in another package can assert each entry is documented without the registry
+// itself being exported (ADR-0020).
+func EntryNamesForTest() []string {
+	names := make([]string, 0, len(registry))
+	for _, r := range registry {
+		names = append(names, r.Name)
+	}
+	return names
+}
+
 // fileRows are the registry's KindFile rows, in order.
 var fileRows = rowsOfKind(KindFile)
 

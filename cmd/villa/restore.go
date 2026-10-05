@@ -53,9 +53,14 @@ func newRestore() *cobra.Command {
 		Long: "Restore a `villa backup` archive: verify its per-entry SHA-256 checksums (a corrupt archive or an " +
 			"incompatible manifest is a fail-closed BLOCK with zero side effects), warn-and-confirm on version/digest/" +
 			"store-schema skew (bypass with --yes/--force), capture the current state for rollback, briefly stop Open " +
-			"WebUI, restore config.toml + the usage/bench stores, clean-recreate the Open WebUI data volume (remove -> " +
-			"regenerate the Quadlet unit from the restored config -> create -> import, so stale data never leaks " +
-			"through a merge), restart, and PROVE the restored stack (preflight + GPU-residency-honest status). Any " +
+			"WebUI, restore config.toml + the usage/bench stores (usage.json, bench-reports.jsonl), clean-recreate the " +
+			"Open WebUI data volume (openwebui-volume.tar: remove -> regenerate the Quadlet unit from the restored " +
+			"config -> create -> import, so stale data never leaks through a merge), restart, and PROVE the restored " +
+			"stack (preflight + GPU-residency-honest status). Entries beyond those are restored only when the archive " +
+			"carries them: the Qdrant volume (qdrant-volume.tar) and the recall state (recall-state.json) when memory " +
+			"is on, crush.json when the coding agent is on, the SearXNG settings (searxng-settings.yml) when web " +
+			"search is on, and the eval baselines (eval-baselines.json) when present, replaced verbatim with a " +
+			"warning naming any current baseline the archive lacks. Any " +
 			"mutate error or a non-pass proof rolls back verbatim — a failed restore leaves the running stack intact. " +
 			"Strictly local — no data leaves the box.",
 		Args: cobra.ExactArgs(1),

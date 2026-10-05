@@ -59,9 +59,13 @@ func newBackup() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "backup",
 		Short: "Back up the workspace to a single local .tar (config + Open WebUI data + usage/bench stores)",
-		Long: "Produce a single self-describing .tar archive of the recreatable workspace state: config.toml, the " +
-			"Open WebUI data volume (exported with the service briefly stopped for a clean SQLite copy), the usage " +
-			"store, and the saved bench reports, plus a manifest of versions, image digests, store schema versions, " +
+		Long: "Produce a single self-describing .tar archive of the recreatable workspace state. Always archived: " +
+			"config.toml, the Open WebUI data volume (openwebui-volume.tar, exported with the service briefly stopped " +
+			"for a clean SQLite copy), the usage store (usage.json) and the saved bench reports (bench-reports.jsonl). " +
+			"Archived when memory is on: the Qdrant volume (qdrant-volume.tar) and the recall state " +
+			"(recall-state.json). Archived when the coding agent is on: crush.json. Archived when web search is on: " +
+			"the SearXNG settings (searxng-settings.yml). Archived when the file exists: the eval baselines " +
+			"(eval-baselines.json). Alongside them goes a manifest of versions, image digests, store schema versions, " +
 			"per-entry SHA-256 checksums, and the identities of the EXCLUDED model weights (re-pullable, recorded for " +
 			"re-pull). Model weights themselves are not backed up. Default output is villa-backup-<timestamp>.tar in " +
 			"the current directory; override with -o/--output. Strictly local — no data leaves the box.",

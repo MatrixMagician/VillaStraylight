@@ -27,6 +27,19 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/stacklock"
 )
 
+// TestBackupRestoreHelpNamesEveryArchiveEntry guards the promise that `villa backup`
+// and `villa restore` --help name every archive entry in the registry (ADR-0020,
+// #285): a new registry row that is not added to both Long texts fails here.
+func TestBackupRestoreHelpNamesEveryArchiveEntry(t *testing.T) {
+	for _, cmd := range []*cobra.Command{newBackup(), newRestore()} {
+		for _, name := range backup.EntryNamesForTest() {
+			if !strings.Contains(cmd.Long, name) {
+				t.Errorf("%s Long help does not name archive entry %q", cmd.Name(), name)
+			}
+		}
+	}
+}
+
 // TestBackupDefaultNameIsFSSafe asserts the default archive name has no ':'
 // and matches the villa-backup-<timestamp>.tar shape.
 func TestBackupDefaultNameIsFSSafe(t *testing.T) {
