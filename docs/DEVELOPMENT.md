@@ -168,17 +168,6 @@ itself. Until it lands, `make ci` and the CI workflow's govulncheck step fail
 on the pre-existing findings named above, not on anything this gate's wiring
 introduced.
 
-### The CRAP gate
-
-A `.claude/live-rules` rule runs `quartermaster crap` before a Go change is
-called done: it scores each function's cyclomatic complexity against its test
-coverage and holds only **new or changed** functions to a ceiling of 6,
-ratcheted against `main`, so it stops the backlog from growing without
-requiring it to shrink. Its first run (the commit that added it) found 0 of
-1961 scored functions newly over the ceiling and 559 already over it — that
-559 is the pre-existing backlog the gate does not fail on, not a target it
-enforces.
-
 ## Testing conventions
 
 Tests are the load-bearing part of this codebase: the architecture exists to make

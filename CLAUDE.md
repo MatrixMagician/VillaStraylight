@@ -127,6 +127,12 @@ Go 1.26+. Single module, single static binary built from `./cmd/villa`.
 - **Dashboard binary trap:** `villa status`/`recommend` run fresh from `./villa`, but
   `villa-dashboard.service` is long-lived — after `make build` you MUST
   `systemctl --user restart villa-dashboard.service` for dashboard code changes to take effect.
+  The unit's `ExecStart` is this working tree's `./villa`, so a `git checkout` plus a rebuild
+  silently changes what the live stack serves: know which branch is checked out before you
+  rebuild. `make dev-deploy` runs the whole sequence (static build, dashboard restart, doctor).
+
+- **After a kernel or linux-firmware upgrade, run `villa bench` once.** The report fingerprints
+  `kernel_version`, so `bench-reports.jsonl` carries one comparable datapoint per kernel.
 
 - **Inference seam grep-gate (`TestSeamGrepGate`):** backend marker strings (`ROCm0`,
   `Vulkan0`, `HSA_OVERRIDE…`, image tags) must stay behind `internal/inference` +
@@ -139,7 +145,10 @@ Go 1.26+. Single module, single static binary built from `./cmd/villa`.
   route literal elsewhere fails the build unless the gate lists the file with a reason.
 
 - **`--json`/dashboard contracts are byte-frozen by golden tests** (`testdata/*.golden*`).
-  Evolve append-only + schema-bump; refreeze intentionally with `go test … -update`.
+  Evolve append-only + schema-bump; refreeze intentionally with `go test … -update`, and read
+  the diff: a golden that changed in a way you cannot explain is a regression. `internal/status`
+  (the read-model the CLI and dashboard both fold) must not import a store package; projection
+  from a store into a `status` type happens in `cmd/villa` and is wired through `Deps`.
 
 - **Offload is offload-asserting, never liveness:** a silent/partial CPU fallback is a FAIL
   (`ResidencyProof`), never a false-green.
@@ -194,7 +203,8 @@ VillaStraylight is a self-hosted, local AI server stack for privacy-conscious po
 Four direct dependencies, and five indirect. Everything else the control plane
 needs comes from the standard library: the dashboard routes on `net/http`'s mux,
 host detection reads procfs and sysfs, and the guided install is a stdin prompt
-loop.
+loop. The count is deliberate: a fifth direct dependency needs an argument, not a
+convenience.
 
 - `github.com/spf13/cobra` v1.10.2 - CLI framework (see above).
 - `github.com/BurntSushi/toml` v1.6.0 - Marshal/unmarshal of `config.toml` (`internal/config/villaconfig.go`). No string interpolation (mitigates injection on write).
