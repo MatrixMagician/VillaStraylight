@@ -21,7 +21,10 @@ The catalog has no per-model context ceiling, so the only question is the memory
   `ctx`, or the entry's `default_ctx` when that is unset, raised to the entry's
   `agent_ctx` in tools mode as `livePinnedRender` raises it. It reserves for the
   persisted speculation mode, with an unset mode counted as off, as `liveSpeculation`
-  renders it.
+  renders it. Shared-residency coding mode serves the chat model itself at
+  `coder_agent_ctx`, with its own qualification picking the mode when a mode is
+  persisted at all, so it is sized that way; with a separate coder, the chat model is sized for the render after coding
+  mode exits.
 - **A ctx that does not fit falls back to the target's default.** The rule, owned by
   `modelswap.Size`:
   1. Unset `ctx`: size at `default_ctx` and leave `ctx` unset.
@@ -32,9 +35,11 @@ The catalog has no per-model context ceiling, so the only question is the memory
      <model>` after the swapped line.
   4. It fits at neither: refuse, naming the default's shortfall.
 - **Only a memory shortfall is retried.** A configured ctx at or below the default
-  would only grow. A refused speculation mode is not a shortfall, and no ctx cures it,
-  so it is refused as itself (`model swap: refusing — speculation: …`) rather than as
-  "won't fit". Before this, it was rendered and then rolled back.
+  would only grow. A requested draft that does not fit beside the model is a
+  shortfall: its KV shrinks with the ctx. An unqualified speculation mode is not a
+  shortfall, and no ctx cures it, so it is refused as itself (`model swap: refusing
+  — speculation: …`) rather than as "won't fit". Before this, it was rendered and
+  then rolled back.
 - **Vision and the draft are judged at the chosen ctx.** The `Fit` that `Size`
   returns is the one the swap writes `vision` from.
 - **The dashboard's fit column runs the same rule.** It folds the same `swapFit` and

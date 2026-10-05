@@ -341,15 +341,27 @@ func printSwapChanges(out io.Writer, res modelswap.Result) {
 // recommend.Pick's override path, never new envelope math: at cfg.Ctx (unset means
 // the entry's default_ctx), floored at the entry's agent ctx in tools mode the way
 // livePinnedRender floors it, and with the persisted speculation mode, unset being
-// off as liveSpeculation renders it. `model swap` and the dashboard's fit column
-// both fold it through modelswap.Size.
+// off as liveSpeculation renders it. Shared-residency coding mode serves the chat
+// model itself at the coder agent ctx, with its own qualification picking the mode
+// when one is persisted at all (stackapply.ServedTarget, liveSpeculation), so it is
+// sized that way. With a
+// separate coder the chat model is not served until coding mode exits, so it is
+// sized for that render. `model swap` and the dashboard's fit column both fold it
+// through modelswap.Size.
 func swapFit(profile detect.HostProfile, cat catalog.Catalog, mem recommend.MemoryInputs, web recommend.WebSearchInputs) func(catalog.Model, config.VillaConfig) modelswap.Fit {
 	return func(m catalog.Model, cfg config.VillaConfig) modelswap.Fit {
 		ctx := cmp.Or(cfg.Ctx, m.DefaultCtx)
-		if subsystem.ToolsOn(cfg) && !subsystem.CodingModeOn(cfg) && m.AgentCtx > ctx {
+		spec := cmp.Or(cfg.Speculation, config.SpeculationOff)
+		switch {
+		case subsystem.CodingModeOn(cfg) && cfg.CoderModel == "":
+			ctx = cmp.Or(cfg.CoderAgentCtx, ctx)
+			if spec != config.SpeculationOff {
+				spec = ""
+			}
+		case subsystem.ToolsOn(cfg) && m.AgentCtx > ctx:
 			ctx = m.AgentCtx
 		}
-		ov := recommend.Overrides{Model: m.ID, Ctx: ctx, Speculation: cmp.Or(cfg.Speculation, config.SpeculationOff)}
+		ov := recommend.Overrides{Model: m.ID, Ctx: ctx, Speculation: spec}
 		rec := recommend.Pick(profile, cat, ov, mem, web)
 		fit := modelswap.Fit{OK: rec.Fits, Vision: rec.Vision, Detail: fitDetail(rec)}
 		if rec.Fits {
@@ -359,10 +371,15 @@ func swapFit(profile detect.HostProfile, cat catalog.Catalog, mem recommend.Memo
 			fit.OverEnvelope = true
 			return fit
 		}
-		// Within the envelope and still not a fit: the speculation mode was refused.
+		// Within the envelope and still not a fit: the speculation mode was refused. A
+		// draft that was asked for and ships is refused only for not fitting beside the
+		// model, a shortfall a smaller ctx can cure since its KV shrinks with the ctx;
+		// the first speculation note then names the shortfall.
+		fit.OverEnvelope = spec == config.SpeculationDraft && m.Draft != nil
 		for _, n := range rec.Notes {
 			if strings.HasPrefix(n, "speculation:") {
 				fit.Detail = n
+				break
 			}
 		}
 		return fit
