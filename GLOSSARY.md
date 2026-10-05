@@ -99,7 +99,8 @@ _Avoid_: extra file, auxiliary model, addon, companion weights
 The sidecar that turns an image into tokens the model can read, so an image
 attached in chat is answered. It is a term of the fit in its own right, and it
 is dropped with a note rather than silently, because a text-only stack must
-never be presented as vision-capable.
+never be presented as vision-capable. A model swap decides it again for the
+model it swaps to (ADR-0023).
 _Avoid_: mmproj, multimodal adapter, image encoder, CLIP model
 
 **Offload**:

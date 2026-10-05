@@ -329,7 +329,11 @@ with the model. When it fits the envelope alongside the model and the KV cache,
 the weights. Run `./villa status` and read the `vision` row: on `yes`, attach a
 screenshot or photo to a message in Open WebUI and ask about it. When the projector
 did not fit, the recommendation says so in a note and `Vision: no` — the model still
-runs, text-only, and an attached image will not be looked at.
+runs, text-only, and an attached image will not be looked at. `villa model swap`
+decides vision the same way for the model it swaps to: a text-only target turns it
+off, a target whose projector fits turns it back on and pulls the projector if it is
+missing, and the swap prints `vision turned off` or `vision turned on` when it
+changed.
 
 ## Running a task on your own files
 
