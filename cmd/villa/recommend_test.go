@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"net"
 	"os"
 	"path/filepath"
@@ -10,12 +11,13 @@ import (
 	"testing"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
+	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 	"github.com/MatrixMagician/VillaStraylight/internal/recommend"
 )
 
 // fixtureRecommendation is a deterministic Recommendation (NOT live hardware) so
 // the golden JSON is stable in CI. It locks the full --json / dashboard contract
-// including all four fit terms.
+// including every fit term (weights, KV, headroom, prompt cache).
 func fixtureRecommendation() recommend.Recommendation {
 	return recommend.Recommendation{
 		Model:               "qwen3-35b-a3b-moe-64",
@@ -25,7 +27,7 @@ func fixtureRecommendation() recommend.Recommendation {
 		WeightBytes:         22000000000,
 		KVCacheBytes:        25769803776,
 		HeadroomBytes:       8053063680,
-		TotalBytes:          55822867456,
+		TotalBytes:          64412802048,
 		UsableEnvelopeBytes: 67149381632,
 		Fits:                true,
 		Degraded:            false,
@@ -34,15 +36,16 @@ func fixtureRecommendation() recommend.Recommendation {
 		// POPULATED here so the frozen bytes exercise the full schema-3 shape:
 		// a fitting agent-profile pick with residency "swap".
 		Coder: recommend.CoderFit{
-			Model:         "qwen3-coder-30b-a3b",
-			Quant:         "UD-Q4_K_XL",
-			AgentCtx:      65536,
-			WeightBytes:   17665334432,
-			KVCacheBytes:  6442450944,
-			HeadroomBytes: 8057925795,
-			TotalBytes:    32165711171,
-			Fits:          true,
-			Residency:     "swap",
+			Model:            "qwen3-coder-30b-a3b",
+			Quant:            "UD-Q4_K_XL",
+			AgentCtx:         65536,
+			WeightBytes:      17665334432,
+			KVCacheBytes:     6442450944,
+			HeadroomBytes:    8057925795,
+			PromptCacheBytes: 8589934592,
+			TotalBytes:       40755645763,
+			Fits:             true,
+			Residency:        "swap",
 		},
 		// SchemaVersion surfaces unconditionally in --json. The fixture
 		// builds the struct directly (it does not call Pick), so it pins the contract
@@ -68,9 +71,32 @@ func fixtureRecommendation() recommend.Recommendation {
 		// land directly above schema_version. They surface as 0 here — the
 		// no-draft contract shape, which is what keeps the diff append-only
 		// rather than restating total_bytes.
-		DraftBytes:    0,
-		DraftKVBytes:  0,
-		SchemaVersion: 7,
+		DraftBytes:   0,
+		DraftKVBytes: 0,
+		// Schema 8 (ADR-0021): the append-only prompt_cache_bytes key lands directly
+		// above schema_version, and total_bytes now includes it (55822867456 + 8 GiB).
+		PromptCacheBytes: 8589934592,
+		SchemaVersion:    8,
+	}
+}
+
+// TestRecommendJSONCarriesThePromptCache guards ADR-0021: recommend --json reports
+// the prompt cache as its own term, prompt_cache_bytes, equal to the inference
+// seam's constant (8192 MiB), under contract version 8.
+func TestRecommendJSONCarriesThePromptCache(t *testing.T) {
+	var buf bytes.Buffer
+	if err := renderRecommend(&buf, fixtureRecommendation(), nil, true /*json*/, false); err != nil {
+		t.Fatalf("renderRecommend: %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if v := got["prompt_cache_bytes"]; v != float64(8589934592) || uint64(8589934592) != inference.PromptCacheBytes {
+		t.Errorf("prompt_cache_bytes = %v, want 8589934592 (inference.PromptCacheBytes = %d)", v, inference.PromptCacheBytes)
+	}
+	if v := got["schema_version"]; v != float64(8) {
+		t.Errorf("schema_version = %v, want 8", v)
 	}
 }
 
@@ -145,11 +171,47 @@ func TestRecommendTableShowsFitMath(t *testing.T) {
 	}
 	out := buf.String()
 	for _, want := range []string{
-		"model_bytes", "KV-cache", "headroom", "total", "usable envelope",
+		"model_bytes", "KV-cache", "+ prompt cache", "headroom", "total", "usable envelope",
 		"Coder (agent profile)", "qwen3-coder-30b-a3b", "agent ctx 65536", "residency: swap", "≤",
 	} {
 		if !bytes.Contains(buf.Bytes(), []byte(want)) {
 			t.Errorf("fit table missing %q:\n%s", want, out)
+		}
+	}
+}
+
+// TestRecommendTableRefusalListsTheNotes asserts a refusal prints no fit math, only
+// the statement that no pick was made and every note saying why.
+func TestRecommendTableRefusalListsTheNotes(t *testing.T) {
+	rec := recommend.Recommendation{Notes: []string{"no catalog model fits"}}
+	var buf bytes.Buffer
+	if err := renderRecommend(&buf, rec, []string{"low memory"}, false /*table*/, false); err != nil {
+		t.Fatalf("renderRecommend: %v", err)
+	}
+	out := buf.String()
+	for _, want := range []string{"! low memory", "No recommendation could be made.", "  - no catalog model fits"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("refusal table missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "model_bytes") {
+		t.Errorf("a refusal must not print the fit math:\n%s", out)
+	}
+}
+
+// TestRecommendTableListsAlternativesOnlyWhenAsked asserts the alternatives block
+// appears with --alternatives and is absent without it.
+func TestRecommendTableListsAlternativesOnlyWhenAsked(t *testing.T) {
+	rec := fixtureRecommendation()
+	rec.Alternatives = []recommend.Alternative{{Model: "other-model", Quant: "Q4_K_M", ContextLen: 8192, TotalBytes: 1 << 30}}
+	for _, asked := range []bool{true, false} {
+		var buf bytes.Buffer
+		if err := renderRecommend(&buf, rec, nil, false /*table*/, asked); err != nil {
+			t.Fatalf("renderRecommend: %v", err)
+		}
+		got := strings.Contains(buf.String(), "Other fitting picks:") && strings.Contains(buf.String(), "other-model")
+		if got != asked {
+			t.Errorf("withAlternatives=%v: alternatives block present = %v:\n%s", asked, got, buf.String())
 		}
 	}
 }

@@ -1,6 +1,9 @@
 package recommend
 
-import "github.com/MatrixMagician/VillaStraylight/internal/catalog"
+import (
+	"github.com/MatrixMagician/VillaStraylight/internal/catalog"
+	"github.com/MatrixMagician/VillaStraylight/internal/inference"
+)
 
 // This file implements the coder fit stage (CODER-02): after the embed
 // reservation and the chat fit, Pick evaluates every role:"coder" catalog
@@ -24,7 +27,7 @@ const (
 
 // CoderFit is the coder-fit block of the Recommendation contract:
 // the agent-profile fit inequality (WeightBytes + KVCacheBytes@AgentCtx +
-// HeadroomBytes = TotalBytes ≤ post-reservation envelope) plus the derived
+// HeadroomBytes + PromptCacheBytes = TotalBytes ≤ post-reservation envelope) plus the derived
 // residency mode. NO field is omitempty — the block surfaces unconditionally
 // in --json, including on refusals, so the residency basis is never hidden
 // (Pitfall 6).
@@ -48,6 +51,11 @@ type CoderFit struct {
 	// Residency is the derived mode: "swap" when the best coder entry fits
 	// standalone, "shared" when none does.
 	Residency string `json:"residency"`
+
+	// PromptCacheBytes is the llama-server RAM prompt cache's share of
+	// TotalBytes (ADR-0021): the coder is served by the same villa-llama unit,
+	// which renders --cache-ram. Appended last (append-only schema).
+	PromptCacheBytes uint64 `json:"prompt_cache_bytes"`
 }
 
 // sharedCoderFit is the conservative-floor coder block: no proven fit, so
@@ -59,57 +67,75 @@ func sharedCoderFit() CoderFit {
 
 // pickCoder evaluates every role:"coder" catalog entry against the
 // post-reservation envelope and returns the coder block. It mirrors pickBest's
-// eligibility loop (Bootstrap/UnifiedMemorySafe/MinEnvelopeBytes guards and
-// the most-capable-wins rule) with two deltas: only role:"coder" entries are
+// eligibility guards (Bootstrap/UnifiedMemorySafe/MinEnvelopeBytes and the
+// most-capable-wins rule) with two deltas: only role:"coder" entries are
 // considered, and ctx is ALWAYS m.AgentCtx. The total uses the
 // saturating form so an overflowing KV term can never wrap to "fits".
 func pickCoder(c catalog.Catalog, envelope uint64) CoderFit {
 	headroom := headroomBytes(envelope)
-
-	var best *catalog.Model
-	var bestTotal uint64
-
-	for i := range c.Models {
-		m := c.Models[i]
-		if m.Role != "coder" {
-			continue // coder stage considers only role:"coder" entries
-		}
-		if m.Bootstrap {
-			continue // never auto-select the bootstrap entry
-		}
-		if !m.UnifiedMemorySafe {
-			continue // never auto-select a unified-memory-unsafe entry
-		}
-		if m.MinEnvelopeBytes > 0 && envelope < m.MinEnvelopeBytes {
-			continue // secondary floor guard, applied identically to pickBest
-		}
-		total := addSaturating(addSaturating(m.WeightBytes, kvCacheBytes(m, m.AgentCtx)), headroom)
-		if total > envelope {
-			continue // OOM guard: swap requires a PROVEN standalone fit
-		}
-		// "Best" = the largest footprint that still fits (most capable).
-		if best == nil || total > bestTotal {
-			bm := m
-			best = &bm
-			bestTotal = total
-		}
-	}
-
+	best, bestTotal := bestCoder(c, envelope, headroom)
 	if best == nil {
 		// Honest no-fit mirror of pickBest's note path: shared is the floor,
 		// never a refusal.
 		return sharedCoderFit()
 	}
-
 	return CoderFit{
-		Model:         best.ID,
-		Quant:         best.Quant,
-		AgentCtx:      best.AgentCtx,
-		WeightBytes:   best.WeightBytes,
-		KVCacheBytes:  kvCacheBytes(*best, best.AgentCtx),
-		HeadroomBytes: headroom,
-		TotalBytes:    bestTotal,
-		Fits:          true,
-		Residency:     ResidencySwap,
+		Model:            best.ID,
+		Quant:            best.Quant,
+		AgentCtx:         best.AgentCtx,
+		WeightBytes:      best.WeightBytes,
+		KVCacheBytes:     kvCacheBytes(*best, best.AgentCtx),
+		HeadroomBytes:    headroom,
+		PromptCacheBytes: inference.PromptCacheBytes,
+		TotalBytes:       bestTotal,
+		Fits:             true,
+		Residency:        ResidencySwap,
 	}
+}
+
+// bestCoder returns the eligible coder entry with the largest footprint that
+// still fits the envelope ("most capable"), and that footprint; nil when none.
+func bestCoder(c catalog.Catalog, envelope, headroom uint64) (*catalog.Model, uint64) {
+	var best *catalog.Model
+	var bestTotal uint64
+	for i := range c.Models {
+		m := c.Models[i]
+		total, ok := coderFootprint(m, envelope, headroom)
+		if !ok {
+			continue
+		}
+		if best == nil || total > bestTotal {
+			best, bestTotal = &m, total
+		}
+	}
+	return best, bestTotal
+}
+
+// coderFootprint returns m's coder fit total and whether m is a candidate at all:
+// eligible AND within the envelope (the OOM guard: swap requires a PROVEN
+// standalone fit).
+func coderFootprint(m catalog.Model, envelope, headroom uint64) (uint64, bool) {
+	if !coderEligible(m, envelope) {
+		return 0, false
+	}
+	total := coderTotal(m, headroom)
+	return total, total <= envelope
+}
+
+// coderEligible is pickBest's eligibility, inverted on the role: only a
+// role:"coder" entry, never the bootstrap entry, never a unified-memory-unsafe
+// one, and not below its declared MinEnvelopeBytes floor.
+func coderEligible(m catalog.Model, envelope uint64) bool {
+	if m.Role != "coder" || m.Bootstrap || !m.UnifiedMemorySafe {
+		return false
+	}
+	return meetsEnvelopeFloor(m, envelope)
+}
+
+// coderTotal is the coder fit inequality's left side: weights + KV at the agent
+// context + headroom + the prompt cache the coding-mode llama-server may hold
+// (ADR-0021), summed saturating so an overflowing term can never wrap to "fits".
+func coderTotal(m catalog.Model, headroom uint64) uint64 {
+	total := addSaturating(m.WeightBytes, kvCacheBytes(m, m.AgentCtx))
+	return addSaturating(addSaturating(total, headroom), inference.PromptCacheBytes)
 }

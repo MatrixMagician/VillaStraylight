@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/catalog"
+	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 )
 
 // draftSidecar builds a Draft sidecar of the given weight, at fixed KV
@@ -98,7 +99,7 @@ func TestPickReservesDraft(t *testing.T) {
 				t.Errorf("DraftBytes=%d DraftKVBytes=%d, want both 0 (dropped)", rec.DraftBytes, rec.DraftKVBytes)
 			}
 
-			want := rec.WeightBytes + rec.KVCacheBytes + rec.HeadroomBytes + rec.ProjectorBytes + rec.DraftBytes + rec.DraftKVBytes
+			want := rec.WeightBytes + rec.KVCacheBytes + rec.HeadroomBytes + rec.PromptCacheBytes + rec.ProjectorBytes + rec.DraftBytes + rec.DraftKVBytes
 			if rec.TotalBytes != want {
 				t.Errorf("TotalBytes = %d, want %d (the fit terms plus the draft)", rec.TotalBytes, want)
 			}
@@ -124,7 +125,7 @@ func TestPickReservesProjectorBeforeDraft(t *testing.T) {
 	cat := draftPickCatalog()
 	// Room for weight+KV+headroom+projector, but not also the draft's weight+KV.
 	m, _ := cat.FindByID("projector-and-draft")
-	rec := Pick(profileWithEnvelope(m.WeightBytes+kvCacheBytes(m, m.DefaultCtx)+headroomBytes(64<<30)+m.Projector.WeightBytes+1<<20),
+	rec := Pick(profileWithEnvelope(m.WeightBytes+kvCacheBytes(m, m.DefaultCtx)+headroomBytes(64<<30)+inference.PromptCacheBytes+m.Projector.WeightBytes+1<<20),
 		cat, Overrides{Model: "projector-and-draft"}, MemoryInputs{}, WebSearchInputs{})
 
 	if !rec.Vision || rec.ProjectorBytes == 0 {
@@ -200,7 +201,7 @@ func TestPickReservesDraftOnlyWhenDraftIsTheMode(t *testing.T) {
 			if rec.DraftBytes != 0 || rec.DraftKVBytes != 0 {
 				t.Errorf("DraftBytes=%d DraftKVBytes=%d, want both 0 when the mode is %s", rec.DraftBytes, rec.DraftKVBytes, requested)
 			}
-			if want := rec.WeightBytes + rec.KVCacheBytes + rec.HeadroomBytes + rec.ProjectorBytes; rec.TotalBytes != want {
+			if want := rec.WeightBytes + rec.KVCacheBytes + rec.HeadroomBytes + rec.PromptCacheBytes + rec.ProjectorBytes; rec.TotalBytes != want {
 				t.Errorf("TotalBytes = %d, want %d (no draft terms)", rec.TotalBytes, want)
 			}
 			if strings.Contains(strings.Join(rec.Notes, " "), "dropped") {

@@ -19,6 +19,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/catalog"
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
+	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 	"github.com/MatrixMagician/VillaStraylight/internal/memory"
 )
 
@@ -94,7 +95,9 @@ const (
 // Bumped 5->6 when the append-only projector_bytes + vision fields landed.
 // Bumped 6->7 when the append-only draft_bytes + draft_kv_bytes fields landed
 // (ADR-0009): the draft sidecar's own reserved weight and KV-at-ctx terms.
-const recommendSchemaVersion = 7
+// Bumped 7->8 when the append-only prompt_cache_bytes field landed (ADR-0021):
+// the llama-server prompt cache, counted in the fit as its own term.
+const recommendSchemaVersion = 8
 
 // ROCmAdvice is a typed enum surfaced on the Recommendation: an
 // honesty-bounded hint about whether the opt-in ROCm backend is worth a benchmark
@@ -140,8 +143,9 @@ type Recommendation struct {
 	ContextLen int    `json:"context_len"`
 	Backend    string `json:"backend"`
 
-	// The four fit terms plus the ceiling and verdict: the user can see
-	// WeightBytes + KVCacheBytes + HeadroomBytes = TotalBytes ≤ UsableEnvelopeBytes.
+	// The fit terms plus the ceiling and verdict: the user can see
+	// WeightBytes + KVCacheBytes + HeadroomBytes + PromptCacheBytes = TotalBytes
+	// ≤ UsableEnvelopeBytes (before the optional projector and draft terms).
 	WeightBytes         uint64 `json:"weight_bytes"`
 	KVCacheBytes        uint64 `json:"kv_cache_bytes"`
 	HeadroomBytes       uint64 `json:"headroom_bytes"`
@@ -218,6 +222,13 @@ type Recommendation struct {
 	// sized from the DRAFT's dimensions (never the target's). Zero under the
 	// same conditions as DraftBytes.
 	DraftKVBytes uint64 `json:"draft_kv_bytes"`
+
+	// PromptCacheBytes is the llama-server RAM prompt cache's share of TotalBytes
+	// (ADR-0021): the `--cache-ram` cap villa renders, held in host RSS on top of
+	// the weights and KV, so the fit reserves it rather than letting it eat the
+	// headroom. It is the inference seam's constant, never restated here, and zero
+	// on a refusal (which has no total).
+	PromptCacheBytes uint64 `json:"prompt_cache_bytes"`
 
 	// SchemaVersion is the Recommendation contract self-version and MUST stay the
 	// LAST tagged field (append-only discipline; new fields go above it).
@@ -550,56 +561,11 @@ func deriveROCmAdvice(r detect.ROCmReadiness) (ROCmAdvice, string) {
 
 // pickBest selects the heaviest auto-eligible model that fits, honoring an
 // optional --ctx/--quant override on the chosen model. "Heaviest" is weight bytes,
-// not total footprint — see the ranking comment below.
+// not total footprint — see outranks.
 func pickBest(c catalog.Catalog, ov Overrides, envelope uint64, degraded bool, notes []string) Recommendation {
-	headroom := headroomBytes(envelope)
-
-	var best *catalog.Model
-	var bestWeight, bestTotal uint64
-	var alts []Alternative
-
-	for i := range c.Models {
-		m := c.Models[i]
-		if m.Role == "coder" {
-			continue // chat path excludes coder entries — absent role ⇒ chat;
-			// coder entries are sized separately by pickCoder
-		}
-		if m.Bootstrap {
-			continue // never auto-select the bootstrap entry
-		}
-		if !m.UnifiedMemorySafe {
-			continue // never auto-select a unified-memory-unsafe entry
-		}
-		if m.MinEnvelopeBytes > 0 && envelope < m.MinEnvelopeBytes {
-			continue // secondary floor guard: model declares a minimum envelope it
-			// needs to run acceptably; skip it when the host is below that floor
-			// even if the raw weights+KV+headroom math would otherwise fit.
-		}
-		ctx := effectiveCtx(m, ov)
-		total := m.WeightBytes + kvCacheBytes(m, ctx) + headroom
-		if total > envelope {
-			continue // OOM guard: never select a pick that exceeds the envelope
-		}
-		alts = append(alts, Alternative{Model: m.ID, Quant: m.Quant, ContextLen: ctx, TotalBytes: total})
-		// "Best" = the most WEIGHT that still fits. Weight bytes are the capability
-		// proxy: they are the parameters, at the quant villa will actually run. The KV
-		// term is a COST the operator pays for context, not a measure of how capable
-		// the model is, so ranking on weights+KV lets a frugal attention geometry
-		// demote a genuinely larger model. Two of the seed entries are hybrids whose
-		// KV cache is a quarter the size of a dense entry's, and ranking by footprint
-		// handed the pick to the smaller model the moment their geometry was corrected.
-		// The total is the tie-break only, so the ordering stays deterministic when two
-		// entries carry identical weights.
-		if best == nil || m.WeightBytes > bestWeight || (m.WeightBytes == bestWeight && total > bestTotal) {
-			bm := m
-			best = &bm
-			bestWeight = m.WeightBytes
-			bestTotal = total
-		}
-	}
-
+	best, alts := selectBest(c, ov, envelope)
 	if best == nil {
-		notes = append(notes, fmt.Sprintf("no catalog model fits the usable envelope of %s (with %.0f%% headroom) — consider a smaller model or larger memory", humanGiB(envelope), headroomFraction*100))
+		notes = append(notes, fmt.Sprintf("no catalog model fits the usable envelope of %s (with %.0f%% headroom and the %s prompt cache) — consider a smaller model or larger memory", humanGiB(envelope), headroomFraction*100, humanGiB(inference.PromptCacheBytes)))
 		return Recommendation{
 			Backend:             defaultBackend,
 			UsableEnvelopeBytes: envelope,
@@ -610,17 +576,88 @@ func pickBest(c catalog.Catalog, ov Overrides, envelope uint64, degraded bool, n
 
 	ctx := effectiveCtx(*best, ov)
 	rec := buildRecommendation(*best, ov, ctx, envelope, degraded, notes)
-	// Alternatives = the other fitting picks (exclude the chosen one).
-	for _, a := range alts {
-		if a.Model == best.ID && a.ContextLen == ctx {
-			continue
-		}
-		rec.Alternatives = append(rec.Alternatives, a)
-	}
+	rec.Alternatives = alternativesExcluding(alts, best.ID, ctx)
 	if ov.Quant != "" && ov.Quant != best.Quant {
 		rec.Notes = append(rec.Notes, fmt.Sprintf("requested quant %q ignored: not represented in the catalog for %q (auto-selected %q)", ov.Quant, best.ID, best.Quant))
 	}
 	return rec
+}
+
+// selectBest walks the catalog and returns the best fitting auto-eligible model, plus
+// every fitting pick (the chosen one included) as the alternatives to report.
+func selectBest(c catalog.Catalog, ov Overrides, envelope uint64) (*catalog.Model, []Alternative) {
+	headroom := headroomBytes(envelope)
+	var best *catalog.Model
+	var bestTotal uint64
+	var alts []Alternative
+	for i := range c.Models {
+		m := c.Models[i]
+		ctx, total, ok := chatFit(m, ov, envelope, headroom)
+		if !ok {
+			continue
+		}
+		alts = append(alts, Alternative{Model: m.ID, Quant: m.Quant, ContextLen: ctx, TotalBytes: total})
+		if outranks(m, total, best, bestTotal) {
+			bm := m
+			best = &bm
+			bestTotal = total
+		}
+	}
+	return best, alts
+}
+
+// chatFit sizes m for the chat pick: its context, its fit total (weights + KV +
+// headroom + the prompt cache, ADR-0021) and whether it is auto-eligible and fits.
+func chatFit(m catalog.Model, ov Overrides, envelope, headroom uint64) (ctx int, total uint64, ok bool) {
+	if !autoEligible(m) || !meetsEnvelopeFloor(m, envelope) {
+		return 0, 0, false
+	}
+	ctx = effectiveCtx(m, ov)
+	total = m.WeightBytes + kvCacheBytes(m, ctx) + headroom + inference.PromptCacheBytes
+	// OOM guard: never select a pick that exceeds the envelope.
+	return ctx, total, total <= envelope
+}
+
+// autoEligible reports whether the chat path may auto-select m: it is not a coder
+// entry (coder entries are sized separately by pickCoder; an absent role means
+// chat), not the bootstrap entry, and not flagged unified_memory_safe:false.
+func autoEligible(m catalog.Model) bool {
+	return m.Role != "coder" && !m.Bootstrap && m.UnifiedMemorySafe
+}
+
+// meetsEnvelopeFloor is the secondary floor guard: a model declaring a minimum
+// envelope it needs to run acceptably is skipped when the host is below that floor,
+// even if the raw weights+KV+headroom math would otherwise fit.
+func meetsEnvelopeFloor(m catalog.Model, envelope uint64) bool {
+	return m.MinEnvelopeBytes == 0 || envelope >= m.MinEnvelopeBytes
+}
+
+// outranks reports whether m (with fit total) beats the current best.
+//
+// "Best" = the most WEIGHT that still fits. Weight bytes are the capability
+// proxy: they are the parameters, at the quant villa will actually run. The KV
+// term is a COST the operator pays for context, not a measure of how capable
+// the model is, so ranking on weights+KV lets a frugal attention geometry
+// demote a genuinely larger model. Two of the seed entries are hybrids whose
+// KV cache is a quarter the size of a dense entry's, and ranking by footprint
+// handed the pick to the smaller model the moment their geometry was corrected.
+// The total is the tie-break only, so the ordering stays deterministic when two
+// entries carry identical weights.
+func outranks(m catalog.Model, total uint64, best *catalog.Model, bestTotal uint64) bool {
+	return best == nil || m.WeightBytes > best.WeightBytes || (m.WeightBytes == best.WeightBytes && total > bestTotal)
+}
+
+// alternativesExcluding returns the fitting picks other than the chosen model at
+// the chosen context.
+func alternativesExcluding(alts []Alternative, model string, ctx int) []Alternative {
+	var out []Alternative
+	for _, a := range alts {
+		if a.Model == model && a.ContextLen == ctx {
+			continue
+		}
+		out = append(out, a)
+	}
+	return out
 }
 
 // pickOverride applies a --model override: the named model is used even if it is
@@ -674,59 +711,15 @@ func buildRecommendation(m catalog.Model, ov Overrides, ctx int, envelope uint64
 	headroom := headroomBytes(envelope)
 	// Saturating sum: a saturated KV term (absurd --ctx) must keep the
 	// total at MaxUint64 — a wrapped-small total would flip Fits true and feed a
-	// silent OOM into the rendered unit's -c and the ceiling stress math.
-	total := addSaturating(addSaturating(m.WeightBytes, kv), headroom)
+	// silent OOM into the rendered unit's -c and the ceiling stress math. The prompt
+	// cache is the fifth base term (ADR-0021): the cap villa renders, held in host RSS.
+	total := addSaturating(addSaturating(addSaturating(m.WeightBytes, kv), headroom), inference.PromptCacheBytes)
 
 	backend := cmp.Or(m.BackendDefault, defaultBackend)
 
-	// The projector is reserved only when the envelope has room for it ON TOP of
-	// the base fit. Dropping it is a NOTE rather than a non-fit: the model still
-	// runs, just text-only, and saying nothing is what would present a text-only
-	// stack as vision-capable.
-	var projector uint64
-	var vision bool
-	if m.Projector != nil {
-		withProj := addSaturating(total, m.Projector.WeightBytes)
-		if withProj <= envelope {
-			total = withProj
-			projector = m.Projector.WeightBytes
-			vision = true
-		} else {
-			notes = append(notes, fmt.Sprintf("vision: projector (%s) dropped — %s needed vs %s usable; this pick runs text-only",
-				humanGiB(m.Projector.WeightBytes), humanGiB(withProj), humanGiB(envelope)))
-		}
-	}
-
-	// The draft sidecar is reserved AFTER the projector, so a tight envelope loses
-	// the speculative-decoding speedup before it loses vision (ADR-0009). Its own
-	// weight+KV (at the served ctx, from the DRAFT's dimensions) must fit ON TOP of
-	// the total so far; draftFits then licenses ResolveSpeculation's ladder.
-	var draftBytes, draftKV, draftReserve, draftNeeded uint64
-	var draftFits bool
-	if m.Draft != nil {
-		draftKV = draftKVCacheBytes(*m.Draft, ctx)
-		draftReserve = addSaturating(m.Draft.WeightBytes, draftKV)
-		draftNeeded = addSaturating(total, draftReserve)
-		draftFits = draftNeeded <= envelope
-	}
-
-	// Reserve only for a pick that will render the draft: an honoured ngram or
-	// off must not carry a sidecar the unit never loads.
-	spec, specNote, specOK := ResolveSpeculation(m, ov.Speculation, draftFits)
-	switch {
-	case spec == config.SpeculationDraft:
-		total = draftNeeded
-		draftBytes = m.Draft.WeightBytes
-	case m.Draft != nil && !draftFits && (ov.Speculation == "" || ov.Speculation == config.SpeculationDraft):
-		draftKV = 0
-		notes = append(notes, fmt.Sprintf("speculation: draft (%s) dropped — %s needed vs %s usable; falling back to %s",
-			humanGiB(draftReserve), humanGiB(draftNeeded), humanGiB(envelope), spec))
-	default:
-		draftKV = 0
-	}
-	if specNote != "" {
-		notes = append(notes, specNote)
-	}
+	proj := reserveProjector(m, total, envelope)
+	draft := reserveDraft(m, ov, ctx, proj.total, envelope)
+	notes = append(append(notes, proj.notes...), draft.notes...)
 
 	return Recommendation{
 		Model:               m.ID,
@@ -736,19 +729,102 @@ func buildRecommendation(m catalog.Model, ov Overrides, ctx int, envelope uint64
 		WeightBytes:         m.WeightBytes,
 		KVCacheBytes:        kv,
 		HeadroomBytes:       headroom,
-		TotalBytes:          total,
+		TotalBytes:          draft.total,
 		UsableEnvelopeBytes: envelope,
+		PromptCacheBytes:    inference.PromptCacheBytes,
 		// An unhonourable speculation request fails the fit outright: the pick
 		// villa would install is not the one that was asked for.
-		Fits:           total <= envelope && specOK,
+		Fits:           draft.total <= envelope && draft.ok,
 		Degraded:       degraded,
 		Notes:          notes,
-		Speculation:    spec,
-		ProjectorBytes: projector,
-		Vision:         vision,
-		DraftBytes:     draftBytes,
-		DraftKVBytes:   draftKV,
+		Speculation:    draft.spec,
+		ProjectorBytes: proj.bytes,
+		Vision:         proj.vision,
+		DraftBytes:     draft.bytes,
+		DraftKVBytes:   draft.kv,
 	}
+}
+
+// projectorFit is the vision projector's contribution to a fit: the running total
+// with it reserved (or unchanged when it is not), the bytes reserved, whether vision
+// is on, and the note a dropped projector owes the operator.
+type projectorFit struct {
+	total, bytes uint64
+	vision       bool
+	notes        []string
+}
+
+// reserveProjector reserves the projector only when the envelope has room for it ON
+// TOP of the base fit. Dropping it is a NOTE rather than a non-fit: the model still
+// runs, just text-only, and saying nothing is what would present a text-only stack
+// as vision-capable.
+func reserveProjector(m catalog.Model, total, envelope uint64) projectorFit {
+	if m.Projector == nil {
+		return projectorFit{total: total}
+	}
+	withProj := addSaturating(total, m.Projector.WeightBytes)
+	if withProj > envelope {
+		return projectorFit{total: total, notes: []string{fmt.Sprintf("vision: projector (%s) dropped — %s needed vs %s usable; this pick runs text-only",
+			humanGiB(m.Projector.WeightBytes), humanGiB(withProj), humanGiB(envelope))}}
+	}
+	return projectorFit{total: withProj, bytes: m.Projector.WeightBytes, vision: true}
+}
+
+// draftTerms are the draft sidecar's own fit terms on top of a running total: its KV
+// at the served ctx (from the DRAFT's dimensions), its weight + KV reserve, the total
+// with that reserve added, and whether that total fits the envelope.
+type draftTerms struct {
+	kv, reserve, needed uint64
+	fits                bool
+}
+
+// draftTermsFor sizes m's draft sidecar on top of total; zero when m ships none.
+func draftTermsFor(m catalog.Model, ctx int, total, envelope uint64) draftTerms {
+	if m.Draft == nil {
+		return draftTerms{}
+	}
+	kv := draftKVCacheBytes(*m.Draft, ctx)
+	reserve := addSaturating(m.Draft.WeightBytes, kv)
+	needed := addSaturating(total, reserve)
+	return draftTerms{kv: kv, reserve: reserve, needed: needed, fits: needed <= envelope}
+}
+
+// draftFit is the resolved speculation outcome: the running total with the draft
+// reserved when the pick renders it, the draft's weight and KV bytes (zero otherwise),
+// the resolved mode, whether that mode honours the request, and the notes owed.
+type draftFit struct {
+	total, bytes, kv uint64
+	spec             string
+	ok               bool
+	notes            []string
+}
+
+// reserveDraft resolves speculation and reserves the draft sidecar AFTER the
+// projector, so a tight envelope loses the speculative-decoding speedup before it
+// loses vision (ADR-0009). Its own weight+KV (at the served ctx, from the DRAFT's
+// dimensions) must fit ON TOP of the total so far; the fit then licenses
+// ResolveSpeculation's ladder. Reserved only for a pick that will render the draft:
+// an honoured ngram or off must not carry a sidecar the unit never loads.
+func reserveDraft(m catalog.Model, ov Overrides, ctx int, total, envelope uint64) draftFit {
+	t := draftTermsFor(m, ctx, total, envelope)
+	spec, specNote, specOK := ResolveSpeculation(m, ov.Speculation, t.fits)
+	d := draftFit{total: total, spec: spec, ok: specOK}
+	if spec == config.SpeculationDraft {
+		d.total, d.bytes, d.kv = t.needed, m.Draft.WeightBytes, t.kv
+	} else if draftDropped(m, ov, t) {
+		d.notes = append(d.notes, fmt.Sprintf("speculation: draft (%s) dropped — %s needed vs %s usable; falling back to %s",
+			humanGiB(t.reserve), humanGiB(t.needed), humanGiB(envelope), spec))
+	}
+	if specNote != "" {
+		d.notes = append(d.notes, specNote)
+	}
+	return d
+}
+
+// draftDropped reports whether m ships a draft that did not fit although the
+// operator asked for it or left the choice to the entry's qualification.
+func draftDropped(m catalog.Model, ov Overrides, t draftTerms) bool {
+	return m.Draft != nil && !t.fits && (ov.Speculation == "" || ov.Speculation == config.SpeculationDraft)
 }
 
 // effectiveCtx returns the context length to size against: the override when set

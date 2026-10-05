@@ -137,6 +137,28 @@ func saveRecommendation(w io.Writer, rec recommend.Recommendation, catalogPath s
 	return nil
 }
 
+// writeOptionalFitRows prints the fit terms that sit between the KV cache and the
+// headroom: the prompt cache (ADR-0021), the vision projector and the draft sidecar.
+// Each row is gated on a non-zero value (the ROCmAdvice gated-line pattern), so a
+// pick that reserves none of a term prints no line for it and the math the table
+// shows is exactly the math in TotalBytes.
+func writeOptionalFitRows(w io.Writer, rec recommend.Recommendation) {
+	rows := []struct {
+		label string
+		bytes uint64
+	}{
+		{"+ prompt cache", rec.PromptCacheBytes},
+		{"+ vision projector", rec.ProjectorBytes},
+		{"+ draft weight", rec.DraftBytes},
+		{fmt.Sprintf("+ draft KV @ ctx %d", rec.ContextLen), rec.DraftKVBytes},
+	}
+	for _, r := range rows {
+		if r.bytes > 0 {
+			fmt.Fprintf(w, "%s\t%s\n", r.label, gib(r.bytes))
+		}
+	}
+}
+
 // renderRecommend writes the recommendation to w. Separated from RunE so the
 // golden test can inject a fixture Recommendation and capture exact JSON bytes
 // (dashboard-contract guard).
@@ -149,19 +171,43 @@ func renderRecommend(w io.Writer, rec recommend.Recommendation, warnings []strin
 	return renderRecommendTable(w, rec, warnings, withAlternatives)
 }
 
+// renderRecommendTable writes the human table: warnings, the pick, the fit math, the
+// verdict, the backend advice, the coder (agent profile) section and, on request, the
+// alternatives. Each section is its own helper, so the function stays a flat sequence.
 func renderRecommendTable(w io.Writer, rec recommend.Recommendation, warnings []string, withAlternatives bool) error {
+	writeWarnings(w, warnings)
+	if rec.Model == "" {
+		writeNoRecommendation(w, rec)
+		return nil
+	}
+	writeRecommendHeader(w, rec)
+	if err := writeFitSection(w, rec); err != nil {
+		return err
+	}
+	writeBackendAdvice(w, rec)
+	if err := writeCoderSection(w, rec); err != nil {
+		return err
+	}
+	return writeAlternatives(w, rec, withAlternatives)
+}
+
+// writeWarnings prints each pre-pick warning on its own `!` line.
+func writeWarnings(w io.Writer, warnings []string) {
 	for _, warn := range warnings {
 		fmt.Fprintf(w, "! %s\n", warn)
 	}
+}
 
-	if rec.Model == "" {
-		fmt.Fprintln(w, "No recommendation could be made.")
-		for _, n := range rec.Notes {
-			fmt.Fprintf(w, "  - %s\n", n)
-		}
-		return nil
+// writeNoRecommendation prints the refusal: no pick, and the notes saying why.
+func writeNoRecommendation(w io.Writer, rec recommend.Recommendation) {
+	fmt.Fprintln(w, "No recommendation could be made.")
+	for _, n := range rec.Notes {
+		fmt.Fprintf(w, "  - %s\n", n)
 	}
+}
 
+// writeRecommendHeader prints the pick, its speculation mode and the degraded flag.
+func writeRecommendHeader(w io.Writer, rec recommend.Recommendation) {
 	fmt.Fprintf(w, "Recommended: %s  (quant %s, ctx %d, backend %s)\n",
 		rec.Model, rec.Quant, rec.ContextLen, rec.Backend)
 	fmt.Fprintf(w, "  speculation: %s\n", rec.Speculation)
@@ -169,25 +215,23 @@ func renderRecommendTable(w io.Writer, rec recommend.Recommendation, warnings []
 		fmt.Fprintln(w, "  [DEGRADED ESTIMATE — see notes]")
 	}
 	fmt.Fprintln(w)
+}
 
-	// Show the fit math explicitly.
+// writeFitSection prints the fit math and then what it decided.
+func writeFitSection(w io.Writer, rec recommend.Recommendation) error {
+	if err := writeFitTable(w, rec); err != nil {
+		return err
+	}
+	writeFitVerdict(w, rec)
+	return nil
+}
+
+// writeFitTable shows the fit math explicitly.
+func writeFitTable(w io.Writer, rec recommend.Recommendation) error {
 	tw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
 	fmt.Fprintf(tw, "  model_bytes\t%s\n", gib(rec.WeightBytes))
 	fmt.Fprintf(tw, "+ KV-cache @ ctx %d\t%s\n", rec.ContextLen, gib(rec.KVCacheBytes))
-	// Gated on a reserved projector (the ROCmAdvice gated-line pattern) so a
-	// text-only pick's table stays byte-identical to what it printed before.
-	if rec.ProjectorBytes > 0 {
-		fmt.Fprintf(tw, "+ vision projector\t%s\n", gib(rec.ProjectorBytes))
-	}
-	// Draft rows are gated the same way (Pitfall 4, the ROCmAdvice gated-line
-	// pattern): a non-draft pick's table stays byte-identical to what it printed
-	// before these fields existed.
-	if rec.DraftBytes > 0 {
-		fmt.Fprintf(tw, "+ draft weight\t%s\n", gib(rec.DraftBytes))
-	}
-	if rec.DraftKVBytes > 0 {
-		fmt.Fprintf(tw, "+ draft KV @ ctx %d\t%s\n", rec.ContextLen, gib(rec.DraftKVBytes))
-	}
+	writeOptionalFitRows(tw, rec)
 	fmt.Fprintf(tw, "+ headroom\t%s\n", gib(rec.HeadroomBytes))
 	fmt.Fprintf(tw, "= total\t%s\n", gib(rec.TotalBytes))
 	// Embed-reservation row gated on a non-zero value (Pitfall 4, the
@@ -196,10 +240,11 @@ func renderRecommendTable(w io.Writer, rec recommend.Recommendation, warnings []
 		fmt.Fprintf(tw, "− embed reservation\t%s\n", gib(rec.EmbeddingReservationBytes))
 	}
 	fmt.Fprintf(tw, "%s usable envelope\t%s\n", fitsGlyph(rec.Fits), gib(rec.UsableEnvelopeBytes))
-	if err := tw.Flush(); err != nil {
-		return err
-	}
+	return tw.Flush()
+}
 
+// writeFitVerdict prints the Fits line, the vision verdict and the notes.
+func writeFitVerdict(w io.Writer, rec recommend.Recommendation) {
 	if rec.Fits {
 		fmt.Fprintln(w, "\nFits: yes")
 	} else {
@@ -217,18 +262,20 @@ func renderRecommendTable(w io.Writer, rec recommend.Recommendation, warnings []
 	for _, n := range rec.Notes {
 		fmt.Fprintf(w, "  - %s\n", n)
 	}
+}
 
-	// Surface the honesty-bounded ROCm advice after the notes, gated on a non-empty
-	// advice value. ROCm is the DEFAULT backend, so this annotates the
-	// already-selected pick. The Note points at `villa bench` and never promises a
-	// speed-up.
-	//
-	// The withheld case (advice == "") is the confidently-not-ready host, and it is the
-	// ONE case where readiness changes the recommended backend — Pick falls back to
-	// vulkan. It carries a Note naming the blocker instead of an advice value, so it is
-	// rendered on its own branch: gating the Note behind a non-empty advice would print
-	// NOTHING here and silently move the user off the default backend with no reason
-	// given. --json is unaffected (both fields are always stamped).
+// writeBackendAdvice surfaces the honesty-bounded ROCm advice after the notes, gated
+// on a non-empty advice value. ROCm is the DEFAULT backend, so this annotates the
+// already-selected pick. The Note points at `villa bench` and never promises a
+// speed-up.
+//
+// The withheld case (advice == "") is the confidently-not-ready host, and it is the
+// ONE case where readiness changes the recommended backend — Pick falls back to
+// vulkan. It carries a Note naming the blocker instead of an advice value, so it is
+// rendered on its own branch: gating the Note behind a non-empty advice would print
+// NOTHING here and silently move the user off the default backend with no reason
+// given. --json is unaffected (both fields are always stamped).
+func writeBackendAdvice(w io.Writer, rec recommend.Recommendation) {
 	if rec.ROCmAdvice != "" {
 		fmt.Fprintf(w, "\nROCm advice: %s\n", rec.ROCmAdvice)
 		if rec.ROCmNote != "" {
@@ -237,40 +284,51 @@ func renderRecommendTable(w io.Writer, rec recommend.Recommendation, warnings []
 	} else if rec.ROCmNote != "" {
 		fmt.Fprintf(w, "\nBackend: %s\n  - %s\n", rec.Backend, rec.ROCmNote)
 	}
+}
 
-	// Coder (agent profile) section (CODER-02): the JSON block is
-	// ALWAYS stamped, but the human table renders compactly — the full fit
-	// inequality when a coder entry fits (residency "swap"), one honest line
-	// when none does (residency "shared", the agent rides the chat endpoint).
-	if rec.Coder.Model != "" {
-		fmt.Fprintf(w, "\nCoder (agent profile): %s  (quant %s, agent ctx %d)\n",
-			rec.Coder.Model, rec.Coder.Quant, rec.Coder.AgentCtx)
-		ctw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
-		fmt.Fprintf(ctw, "  model_bytes\t%s\n", gib(rec.Coder.WeightBytes))
-		fmt.Fprintf(ctw, "+ KV-cache @ agent ctx %d\t%s\n", rec.Coder.AgentCtx, gib(rec.Coder.KVCacheBytes))
-		fmt.Fprintf(ctw, "+ headroom\t%s\n", gib(rec.Coder.HeadroomBytes))
-		fmt.Fprintf(ctw, "= total\t%s\n", gib(rec.Coder.TotalBytes))
-		fmt.Fprintf(ctw, "%s usable envelope\t%s\n", fitsGlyph(rec.Coder.Fits), gib(rec.UsableEnvelopeBytes))
-		if err := ctw.Flush(); err != nil {
-			return err
-		}
-		fmt.Fprintf(w, "  residency: %s\n", rec.Coder.Residency)
-	} else {
+// writeCoderSection renders the Coder (agent profile) section (CODER-02): the JSON
+// block is ALWAYS stamped, but the human table renders compactly — the full fit
+// inequality when a coder entry fits (residency "swap"), one honest line when none
+// does (residency "shared", the agent rides the chat endpoint).
+func writeCoderSection(w io.Writer, rec recommend.Recommendation) error {
+	if rec.Coder.Model == "" {
 		fmt.Fprintf(w, "\nCoder (agent profile): no coder model fits the usable envelope — residency %q (the agent rides the chat endpoint)\n",
 			rec.Coder.Residency)
+		return nil
 	}
-
-	if withAlternatives && len(rec.Alternatives) > 0 {
-		fmt.Fprintln(w, "\nOther fitting picks:")
-		atw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
-		for _, a := range rec.Alternatives {
-			fmt.Fprintf(atw, "  %s\tquant %s\tctx %d\ttotal %s\n", a.Model, a.Quant, a.ContextLen, gib(a.TotalBytes))
-		}
-		if err := atw.Flush(); err != nil {
-			return err
-		}
+	fmt.Fprintf(w, "\nCoder (agent profile): %s  (quant %s, agent ctx %d)\n",
+		rec.Coder.Model, rec.Coder.Quant, rec.Coder.AgentCtx)
+	ctw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
+	fmt.Fprintf(ctw, "  model_bytes\t%s\n", gib(rec.Coder.WeightBytes))
+	fmt.Fprintf(ctw, "+ KV-cache @ agent ctx %d\t%s\n", rec.Coder.AgentCtx, gib(rec.Coder.KVCacheBytes))
+	fmt.Fprintf(ctw, "+ prompt cache\t%s\n", gib(rec.Coder.PromptCacheBytes))
+	fmt.Fprintf(ctw, "+ headroom\t%s\n", gib(rec.Coder.HeadroomBytes))
+	fmt.Fprintf(ctw, "= total\t%s\n", gib(rec.Coder.TotalBytes))
+	fmt.Fprintf(ctw, "%s usable envelope\t%s\n", fitsGlyph(rec.Coder.Fits), gib(rec.UsableEnvelopeBytes))
+	if err := ctw.Flush(); err != nil {
+		return err
 	}
+	fmt.Fprintf(w, "  residency: %s\n", rec.Coder.Residency)
 	return nil
+}
+
+// writeAlternatives lists the other fitting picks, only when asked and only when
+// there are any.
+func writeAlternatives(w io.Writer, rec recommend.Recommendation, withAlternatives bool) error {
+	if !withAlternatives || len(rec.Alternatives) == 0 {
+		return nil
+	}
+	fmt.Fprintln(w, "\nOther fitting picks:")
+	return writeAlternativeRows(w, rec.Alternatives)
+}
+
+// writeAlternativeRows prints one aligned row per alternative.
+func writeAlternativeRows(w io.Writer, alts []recommend.Alternative) error {
+	atw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
+	for _, a := range alts {
+		fmt.Fprintf(atw, "  %s\tquant %s\tctx %d\ttotal %s\n", a.Model, a.Quant, a.ContextLen, gib(a.TotalBytes))
+	}
+	return atw.Flush()
 }
 
 // liveLoadedMemoryInputs returns the PERSISTED memory inputs for recommend.Pick

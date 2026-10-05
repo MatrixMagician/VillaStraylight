@@ -299,6 +299,26 @@ func TestResourceFitIncludesTheEmbeddingReservation(t *testing.T) {
 	}
 }
 
+// TestResourceFitIncludesThePromptCache guards ADR-0021: the install gate's memory
+// floor must count the 8 GiB prompt cache the rendered llama-server may hold, or a
+// host the fit just refused for it would still pass the preflight gate.
+func TestResourceFitIncludesThePromptCache(t *testing.T) {
+	rec := fit()
+	rec.WeightBytes = 20 << 30
+	rec.KVCacheBytes = 2 << 30
+	rec.HeadroomBytes = 1 << 30
+	rec.PromptCacheBytes = 8589934592
+
+	got := ResourceFit(rec)
+	const want = uint64(20<<30 + 2<<30 + 1<<30 + 8589934592)
+	if got.MinMemBytes != want {
+		t.Errorf("MinMemBytes = %d, want %d (weights + KV + headroom + 8 GiB prompt cache)", got.MinMemBytes, want)
+	}
+	if got.MinDiskBytes != rec.WeightBytes {
+		t.Errorf("MinDiskBytes = %d, want the weight footprint %d (the cache is RAM, not disk)", got.MinDiskBytes, rec.WeightBytes)
+	}
+}
+
 // TestAssemblePlanCarriesSpeculation asserts the install persists the speculation
 // mode the recommendation resolved, the same way it persists the backend, so a
 // first install renders the unit the recommendation described.

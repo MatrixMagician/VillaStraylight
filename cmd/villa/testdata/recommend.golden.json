@@ -6,7 +6,7 @@
   "weight_bytes": 22000000000,
   "kv_cache_bytes": 25769803776,
   "headroom_bytes": 8053063680,
-  "total_bytes": 55822867456,
+  "total_bytes": 64412802048,
   "usable_envelope_bytes": 67149381632,
   "fits": true,
   "degraded": false,
@@ -20,9 +20,10 @@
     "weight_bytes": 17665334432,
     "kv_cache_bytes": 6442450944,
     "headroom_bytes": 8057925795,
-    "total_bytes": 32165711171,
+    "total_bytes": 40755645763,
     "fits": true,
-    "residency": "swap"
+    "residency": "swap",
+    "prompt_cache_bytes": 8589934592
   },
   "web_search_reservation_bytes": 0,
   "speculation": "ngram",
@@ -30,5 +31,6 @@
   "vision": false,
   "draft_bytes": 0,
   "draft_kv_bytes": 0,
-  "schema_version": 7
+  "prompt_cache_bytes": 8589934592,
+  "schema_version": 8
 }

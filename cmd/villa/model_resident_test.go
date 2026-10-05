@@ -21,6 +21,7 @@ import (
 
 	"github.com/MatrixMagician/VillaStraylight/internal/catalog"
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
+	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 	"github.com/MatrixMagician/VillaStraylight/internal/openwebui"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 	"github.com/MatrixMagician/VillaStraylight/internal/recommend"
@@ -270,6 +271,54 @@ func TestResidentAddNonFittingCandidateRefusedAndNothingWritten(t *testing.T) {
 	}
 	if rec.mutated() {
 		t.Errorf("a refused candidate mutated the host: %+v", rec)
+	}
+}
+
+// TestResidentAddCountsEachServersPromptCache guards ADR-0021: every resident server
+// holds its own prompt cache, so a second resident that fits the envelope only when
+// the caches are ignored is refused, and the same pair is admitted once the cache
+// term is zero. The refusal must therefore come from the cache term alone.
+func TestResidentAddCountsEachServersPromptCache(t *testing.T) {
+	const gib = uint64(1) << 30
+	cases := []struct {
+		name  string
+		cache uint64
+		want  int
+	}{
+		{"cache counted per server", inference.PromptCacheBytes, exitBlocked},
+		{"cache ignored", 0, exitPass},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newResidentFixture()
+			// Primary 9 GiB + candidate 39 GiB = 48 GiB fits a 64 GiB envelope with 2 GiB of
+			// headroom; adding 8 GiB of cache to each of the two servers makes it 64 GiB.
+			f.fits[testPrimary] = recommend.Recommendation{
+				Model: testPrimary, Quant: "Q4", ContextLen: 8192,
+				WeightBytes: 8 * gib, KVCacheBytes: gib, PromptCacheBytes: tc.cache,
+				HeadroomBytes: 2 * gib, UsableEnvelopeBytes: 64 * gib, Fits: true,
+			}
+			f.fits[testCandidate] = recommend.Recommendation{
+				Model: testCandidate, Quant: "Q8", ContextLen: 4096,
+				WeightBytes: 38 * gib, KVCacheBytes: gib, PromptCacheBytes: tc.cache,
+				HeadroomBytes: 2 * gib, UsableEnvelopeBytes: 64 * gib, Fits: true,
+			}
+			unitName, err := orchestrate.ResidentUnitName(testCandidate)
+			if err != nil {
+				t.Fatalf("ResidentUnitName: %v", err)
+			}
+			f.rendered = append(f.rendered, orchestrate.Unit{Name: unitName + ".container", Text: "resident"})
+			f.changed = append(f.changed, unitName+".container")
+			d, _ := f.deps()
+			cmd, _, errOut := newResidentCmd()
+
+			if code := runResidentAdd(cmd, testCandidate, d); code != tc.want {
+				t.Fatalf("exit = %d (stderr %q), want %d", code, errOut.String(), tc.want)
+			}
+			if tc.want == exitBlocked && !strings.Contains(errOut.String(), "eviction_disallowed") {
+				t.Errorf("stderr = %q, want the eviction_disallowed refusal", errOut.String())
+			}
+		})
 	}
 }
 

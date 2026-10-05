@@ -7,7 +7,9 @@
 package residentset
 
 // Slot is one model held resident: a running llama-server instance plus the
-// identity/footprint fields Admit reasons about. Order is a plain,
+// identity/footprint fields Admit reasons about. Bytes is the instance's own
+// footprint (weights, KV cache and its prompt cache, which each server holds
+// separately — ADR-0021); the shared headroom reserve lives in Policy instead. Order is a plain,
 // caller-supplied recency value (lower = less recently used) — this package
 // never reads a clock, so whoever observes actual use owns recency.
 type Slot struct {

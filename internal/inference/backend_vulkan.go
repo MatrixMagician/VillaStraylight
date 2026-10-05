@@ -3,6 +3,7 @@ package inference
 import (
 	"fmt"
 	"path/filepath"
+	"strconv"
 )
 
 // This file is the BACKEND SEAM: it is the ONLY file in internal/inference allowed
@@ -59,11 +60,28 @@ const (
 // injection surface) published only on the existing loopback PublishPort (
 // no new port/bind). Adding it is a DELIBERATE rendered-unit golden change (Pitfall 2)
 // — DISTINCT from the byte-frozen status --json golden, which must NOT change.
+//
+// `--cache-ram` caps the server's RAM prompt cache (ADR-0021). It is rendered
+// explicitly, never left to the image default and never -1 (no limit): the cache
+// fills to its cap under ordinary chat use and lives in host RSS, so the fit counts
+// PromptCacheBytes per server and an image rebuild must not be able to change that
+// cost silently. Every chat llama-server run takes this path (primary and resident
+// units alike); the embedding server does not, it keeps no prompt cache.
 func llamaServerFlags(load []string) []string {
 	flags := []string{"-ngl", "999", "-fa", "1"}
 	flags = append(flags, load...)
-	return append(flags, "-lv", "4", "--metrics")
+	return append(flags, "-lv", "4", "--metrics", "--cache-ram", strconv.Itoa(PromptCacheMiB))
 }
+
+// PromptCacheMiB is the llama-server `--cache-ram` cap rendered into every chat
+// unit, in MiB (ADR-0021): the image's own default, now stated rather than assumed.
+// It is the ONE source of the cap; PromptCacheBytes derives from it and the fit math
+// (internal/recommend, and the resident slots built from its picks) counts that.
+const PromptCacheMiB = 8192
+
+// PromptCacheBytes is PromptCacheMiB in bytes: what each chat llama-server may hold
+// in host RAM as prompt cache on top of its weights and KV, the term the fit adds.
+const PromptCacheBytes uint64 = PromptCacheMiB << 20
 
 // loadResident is the resident-weights spelling for builds that carry --load-mode
 // ("none" is the former --no-mmap: no mmap, no mlock, no direct I/O). loadResidentLegacy

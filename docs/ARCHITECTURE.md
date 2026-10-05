@@ -192,7 +192,10 @@ emits through its `Emit` seam.
    Unknown.
 2. **Recommend**: `recommend.Pick(profile, catalog, overrides)` (a pure function)
    chooses the largest auto-eligible model whose `weight_bytes + kv_cache@ctx +
-   headroom ≤ usable_envelope`. It skips bootstrap and `unified_memory_safe:false`
+   headroom + prompt_cache ≤ usable_envelope`. The prompt cache is the
+   `--cache-ram` cap villa renders into every chat llama-server unit
+   (`inference.PromptCacheBytes`, 8 GiB, ADR-0021); a resident slot carries its own.
+   It skips bootstrap and `unified_memory_safe:false`
    entries, defaults the backend to `rocm` (falling back to `vulkan` only when the
    host is confidently not ROCm-ready), re-validates manual overrides, and
    degrades to a conservative RAM-fraction floor (or refuses) when the envelope is
@@ -360,7 +363,7 @@ dashboard service drives rather than reads:
   description and the typed-Unknown spine that every downstream decision consumes.
 - **`recommend.Pick`** (`internal/recommend/recommend.go`), the pure
   memory-fit selector; returns a `Recommendation` exposing every term of
-  `weight + KV + headroom ≤ envelope`.
+  `weight + KV + headroom + prompt cache ≤ envelope`.
 - **`preflight.CheckResult` / `preflight.Run` / `RunWithResources`**
   (`internal/preflight/preflight.go`), the reusable host-readiness gate; pure,
   returns typed BLOCK/WARN-tier PASS/WARN/FAIL results with remediation + provenance.
