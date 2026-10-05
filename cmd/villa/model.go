@@ -1,12 +1,14 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -17,6 +19,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/modelswap"
 	"github.com/MatrixMagician/VillaStraylight/internal/pathsafe"
 	"github.com/MatrixMagician/VillaStraylight/internal/recommend"
+	"github.com/MatrixMagician/VillaStraylight/internal/subsystem"
 )
 
 // pullFn is the downloader seam. It defaults to download.PullModel and is
@@ -265,17 +268,13 @@ func runModelSwap(cmd *cobra.Command, name string, d *modelswap.Deps) int {
 	out := cmd.OutOrStdout()
 	errOut := cmd.ErrOrStderr()
 
-	// Auto-pull emits a "pulling..." progress line before the (possibly slow) download
-	// the way the old caller did. modelswap.Run pulls internally, so pre-announce when
-	// the target is absent — purely cosmetic, no side effect.
-	if m, ok := d.ResolveCatalog(name); ok && !d.IsDownloaded(m) {
-		if d.Fits(m).OK {
-			fmt.Fprintf(out, "pulling %s (not yet downloaded)...\n", m.ID)
-		}
-	}
+	// The swap announces a pull from inside, after its fit guard, so the "pulling"
+	// line names a download that is actually starting.
+	deps := *d
+	deps.OnPull = func(m catalog.Model) { fmt.Fprintf(out, "pulling %s (not yet downloaded)...\n", m.ID) }
 
 	// The transaction frame holds the stack lock (ADR-0010) throughout.
-	res := modelswap.Run(*d, name)
+	res := modelswap.Run(deps, name)
 
 	switch {
 	case res.Unknown:
@@ -284,8 +283,11 @@ func runModelSwap(cmd *cobra.Command, name string, d *modelswap.Deps) int {
 	case res.Refused && res.Err != nil:
 		fmt.Fprintf(errOut, "model swap: refusing — %s failed: %v\n", res.FailedStep, res.Err)
 		return exitBlocked
-	case res.Refused:
+	case res.Refused && res.OverEnvelope:
 		fmt.Fprintf(errOut, "model swap: %s won't fit the usable memory envelope — refusing (%s)\n", res.ToModel, res.Reason)
+		return exitBlocked
+	case res.Refused:
+		fmt.Fprintf(errOut, "model swap: refusing — %s\n", res.Reason)
 		return exitBlocked
 	case res.RolledBack:
 		// A mutate error or a failed proof restored the prior model; Reason carries
@@ -310,24 +312,60 @@ func runModelSwap(cmd *cobra.Command, name string, d *modelswap.Deps) int {
 		return exitBlocked
 	case res.NoOp:
 		fmt.Fprintf(out, "swapped to %s — config persisted; units already up to date, no restart needed\n", res.ToModel)
-		printVisionChange(out, res)
+		printSwapChanges(out, res)
 		return exitPass
 	default: // Switched
 		fmt.Fprintf(out, "swapped to %s — config persisted and %s restarted\n", res.ToModel, installServiceName)
-		printVisionChange(out, res)
+		printSwapChanges(out, res)
 		return exitPass
 	}
 }
 
-// printVisionChange names a vision change the swap made (#299): the operator asked
-// for a model, not for vision on or off, so a silent flip would hide a persisted
-// decision changing under them.
-func printVisionChange(out io.Writer, res modelswap.Result) {
+// printSwapChanges names what the swap changed besides the model: a ctx it reset to
+// the target's default (#301) and a vision change (#299). The operator asked for a
+// model, not for either, so a silent change would hide a persisted decision
+// changing under them.
+func printSwapChanges(out io.Writer, res modelswap.Result) {
+	if res.ToCtx != res.FromCtx {
+		fmt.Fprintf(out, "ctx reset to %d: %d does not fit %s\n", res.ToCtx, res.FromCtx, res.ToModel)
+	}
 	switch {
 	case res.FromVision && !res.ToVision:
 		fmt.Fprintf(out, "vision turned off: %s has no projector that fits beside it\n", res.ToModel)
 	case !res.FromVision && res.ToVision:
 		fmt.Fprintf(out, "vision turned on: %s ships a projector\n", res.ToModel)
+	}
+}
+
+// swapFit sizes a swap target the way the render serves cfg (#301), through
+// recommend.Pick's override path, never new envelope math: at cfg.Ctx (unset means
+// the entry's default_ctx), floored at the entry's agent ctx in tools mode the way
+// livePinnedRender floors it, and with the persisted speculation mode, unset being
+// off as liveSpeculation renders it. `model swap` and the dashboard's fit column
+// both fold it through modelswap.Size.
+func swapFit(profile detect.HostProfile, cat catalog.Catalog, mem recommend.MemoryInputs, web recommend.WebSearchInputs) func(catalog.Model, config.VillaConfig) modelswap.Fit {
+	return func(m catalog.Model, cfg config.VillaConfig) modelswap.Fit {
+		ctx := cmp.Or(cfg.Ctx, m.DefaultCtx)
+		if subsystem.ToolsOn(cfg) && !subsystem.CodingModeOn(cfg) && m.AgentCtx > ctx {
+			ctx = m.AgentCtx
+		}
+		ov := recommend.Overrides{Model: m.ID, Ctx: ctx, Speculation: cmp.Or(cfg.Speculation, config.SpeculationOff)}
+		rec := recommend.Pick(profile, cat, ov, mem, web)
+		fit := modelswap.Fit{OK: rec.Fits, Vision: rec.Vision, Detail: fitDetail(rec)}
+		if rec.Fits {
+			return fit
+		}
+		if rec.TotalBytes > rec.UsableEnvelopeBytes {
+			fit.OverEnvelope = true
+			return fit
+		}
+		// Within the envelope and still not a fit: the speculation mode was refused.
+		for _, n := range rec.Notes {
+			if strings.HasPrefix(n, "speculation:") {
+				fit.Detail = n
+			}
+		}
+		return fit
 	}
 }
 
@@ -350,21 +388,14 @@ func liveSwapDeps(ctx context.Context) *modelswap.Deps {
 			}
 			return cat.FindByID(name)
 		},
-		Fits: func(m catalog.Model) modelswap.Fit {
+		Fits: func(m catalog.Model, cfg config.VillaConfig) modelswap.Fit {
 			cat, _, err := catalog.Load(modelCatalogPath)
 			if err != nil {
-				return modelswap.Fit{Reason: "catalog load failed"}
+				return modelswap.Fit{Detail: "catalog load failed"}
 			}
-			// Reuse recommend.Pick fit-math by overriding to the swap target; the
-			// override path re-validates the fit against the detected envelope and
-			// sets Fits=false when it won't fit (recommend.go:188-192).
 			// Persisted memory inputs (fail-soft): swap fit re-validation must see
 			// the same shrunken envelope the user was recommended.
-			rec := recommend.Pick(detect.Probe(), cat, recommend.Overrides{Model: m.ID}, liveLoadedMemoryInputs(), liveLoadedWebSearchInputs())
-			if rec.Fits {
-				return modelswap.Fit{OK: true, Vision: rec.Vision}
-			}
-			return modelswap.Fit{Reason: fmt.Sprintf("needs %d bytes vs %d usable", rec.TotalBytes, rec.UsableEnvelopeBytes)}
+			return swapFit(detect.Probe(), cat, liveLoadedMemoryInputs(), liveLoadedWebSearchInputs())(m, cfg)
 		},
 		IsDownloaded: modelOnDisk,
 		Pull: func(m catalog.Model) error {
