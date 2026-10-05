@@ -128,8 +128,13 @@ behind every result.
 model/quant/context/backend pick, and **shows the fit math**:
 
 ```
-model_bytes + KV-cache @ ctx + headroom  ≤  usable envelope
+model_bytes + KV-cache @ ctx + headroom + prompt cache  ≤  usable envelope
 ```
+
+The prompt cache is the 8 GiB `--cache-ram` cap villa renders into every chat
+`llama-server` unit (ADR-0021). It is host memory the unified envelope also has to
+cover, so it is a row of its own in the table, and each resident model pays one.
+On a 64 GB host that is 8 GiB less to spend on the model.
 
 It is read-only by default. Useful flags:
 
@@ -633,7 +638,8 @@ guided install deliberately does not prompt for subsystems either.
 | **Web search** | Grounded answers from the web through a local SearXNG, with a guard that sanitizes fetched pages and **flags** prompt-injection patterns (it never claims content is safe). | `villa install --web-search` (persists the gate) |
 | **Resident set** | Holds several models loaded at once, each on its own loopback port, instead of restarting inference to swap between them. | `villa model resident ls` / `add` |
 | **Workspace agent** | Runs one instruction against one folder you registered, inside a per-task microVM that reaches the served model and nothing else, asking before it writes. | `villa install --workspace-agent`, then `villa workspace add` and `villa work`. See [Running a task on your own files](#running-a-task-on-your-own-files) |
-| **Backup & restore** | The whole workspace (config, Open WebUI data, the usage store, and the bench store) to one local `.tar`, and back transactionally. | `villa backup` / `villa restore <archive>` |
+| **Backup & restore** | The recreatable workspace to one local `.tar`, and back transactionally: config, the Open WebUI volume, the usage and bench stores and the eval baselines always; the Qdrant volume and the recall state with memory on, `crush.json` with the coding agent on, and the SearXNG settings with web search on. Model weights are excluded and their identities recorded. | `villa backup` / `villa restore <archive>` |
+| **Capability check** | Asks whether the served model still answers well, not only that it answers: an embedded suite of cases, run greedily against the model, compared with a baseline you recorded. | `villa eval --record` once, then `villa eval`. See [Checking the model still answers well](#checking-the-model-still-answers-well) |
 
 ### Keeping it current
 
@@ -657,6 +663,31 @@ expired, `--check` honestly reports that it **could not check** and the stack
 runs the pins compiled into the binary. That is
 deliberately not the same as reporting you are up to date. See
 [RELEASING.md](RELEASING.md).
+
+### Checking the model still answers well
+
+`villa verify` and `villa doctor` prove the stack is up and the model is on the
+GPU; neither can tell that a rebuilt image or a new quantisation answers worse.
+`villa eval` runs an embedded suite of capability cases (arithmetic, strict
+formats, extraction, JSON output, reading code, units and dates, tool calls)
+against the served model, greedily and one at a time. It is on-command only, takes
+no stack lock, and changes nothing but `eval-baselines.json`.
+
+```bash
+./villa eval --record    # first: accept this run as the baseline for this model + quant + suite
+./villa eval             # later: compare a fresh run with that baseline
+./villa eval --json      # the same report as a byte-frozen JSON contract
+```
+
+Record first, then compare. With no baseline the comparison is a REJECT (exit `2`),
+because a check that did not happen is not evidence. A case that passed in the
+baseline and fails now is a FAIL (exit `1`), and a FAIL is a prompt to read the
+reply excerpts, not an automatic verdict: at temperature 0 a borderline case can
+still flip on a new build. Tool-call cases are skipped while tools mode is off, so
+run with it on if you want them covered. Baselines are keyed by model, quant and
+suite version, and `villa backup` archives them, since one cannot be re-recorded
+after the regression it exists to catch. See
+[ADR-0018](adr/0018-quality-is-checked-on-command-against-a-recorded-baseline.md).
 
 ### Proving it, rather than trusting it
 

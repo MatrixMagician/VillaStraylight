@@ -347,6 +347,7 @@ sourced from the backend seam (`internal/inference/backend_rocm.go` /
 | `--host 0.0.0.0` / `--port 8080` | Container-internal bind only; the host side is published loopback-only at `127.0.0.1:8080`. |
 | `-lv 4` | Raises llama-server log verbosity enough for the offload-residency assertion. |
 | `--metrics` | Exposes the Prometheus `/metrics` endpoint for the dashboard perf panel. |
+| `--cache-ram 8192` | Caps the RAM prompt cache at 8 GiB (ADR-0021). Rendered, not configurable: there is no `config.toml` key, and the fit counts exactly this value, once per chat unit, so each resident model adds one. `villa-embed` does not render it. |
 
 The inference container also receives `--device /dev/dri`, `--group-add keep-groups`,
 `--security-opt seccomp=unconfined`, and a read-only model bind mount
@@ -441,7 +442,13 @@ configuration varies per machine are:
 - **Per-host recommendation.** `villa recommend` reads the detected hardware
   (memory envelope, GPU) and produces a model/quant/context that fits *that* host;
   `--save` writes it to `config.toml`. The same binary therefore produces a
-  different `config.toml` on a 64 GB vs a 128 GB machine.
+  different `config.toml` on a 64 GB vs a 128 GB machine. The fit is `weights + KV
+  + headroom + prompt cache (+ projector + draft) <= envelope`; the prompt cache
+  is the 8 GiB `--cache-ram` cap every chat `llama-server` unit renders (see
+  [Managed container environment](#managed-container-environment)), so a 64 GB host
+  reserves 8 GiB more than it did before v1.16. `villa recommend --json` reports it
+  as `prompt_cache_bytes` (schema 8, appended to the schema 7 draft fields below),
+  and the table prints it as a `+ prompt cache` row.
 - **External catalog override.** `catalog_path` (or `--catalog`) lets a host use a
   curated model list different from the embedded seed.
 
