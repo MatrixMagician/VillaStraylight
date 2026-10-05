@@ -16,7 +16,9 @@ import (
 	"archive/tar"
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -127,7 +129,7 @@ func (r *recDeps) deps() RestoreDeps {
 					return b, nil
 				}
 			}
-			return nil, errors.New("not found: " + p)
+			return nil, fmt.Errorf("%w: %s", fs.ErrNotExist, p)
 		},
 		// WriteFile is now ONE seam, so the fake routes on the destination to keep the
 		// per-artifact call log the assertions read. That mirrors the live wiring, which
@@ -562,8 +564,8 @@ func TestRestoreRollbackRemovesForwardCreatedDataArtifacts(t *testing.T) {
 	// Prior install has NO usage.json / bench-reports.jsonl: capture (ReadFile) fails
 	// for both dest paths, so priorUsageOK/priorBenchOK are false.
 	r.readFileErr = map[string]error{
-		in.Dests[EntryUsage]:        errors.New("not found"),
-		in.Dests[EntryBenchReports]: errors.New("not found"),
+		in.Dests[EntryUsage]:        fs.ErrNotExist,
+		in.Dests[EntryBenchReports]: fs.ErrNotExist,
 	}
 	// Force a post-data-write failure via a NON-PASS prove so rollback runs AFTER the
 	// forward path wrote the archive's usage.json/bench-reports.jsonl, WITHOUT breaking
@@ -601,7 +603,7 @@ func TestRestoreRollbackRemovesForwardCreatedDataArtifacts(t *testing.T) {
 func TestRestoreRollbackRemoveFailureReportsIncomplete(t *testing.T) {
 	arch := buildArchive(t, baseManifest(), validCfgTOML, []byte("owui-data"), []byte("usage-from-archive"), nil, false)
 	r, in := baseInput(t, arch)
-	r.readFileErr = map[string]error{in.Dests[EntryUsage]: errors.New("not found")}
+	r.readFileErr = map[string]error{in.Dests[EntryUsage]: fs.ErrNotExist}
 	r.volumeImportErr = errors.New("import boom")
 	r.removeFileErr = errors.New("permission denied")
 
@@ -611,6 +613,62 @@ func TestRestoreRollbackRemoveFailureReportsIncomplete(t *testing.T) {
 	}
 	if !strings.Contains(res.Reason, "did not fully complete") {
 		t.Fatalf("a failed RemoveFile must report rollback-incomplete, got %q", res.Reason)
+	}
+}
+
+// TestRestoreRefusesAFileEntryItCannotCapture (#291): a destination that exists
+// but cannot be read is not an absent one. Capturing it as absent would let the
+// forward write replace it uncaptured and a rollback then delete it, so restore
+// refuses at the capture step, naming the path and the error, before any mutation.
+// The eval-baselines row goes through the same capture, so an unopenable store
+// refuses too rather than skipping the #281 confirmation.
+func TestRestoreRefusesAFileEntryItCannotCapture(t *testing.T) {
+	denied := &fs.PathError{Op: "open", Path: "x", Err: fs.ErrPermission}
+	cases := map[string]func() (*recDeps, RestoreInput, string){
+		"usage.json": func() (*recDeps, RestoreInput, string) {
+			arch := buildArchive(t, baseManifest(), validCfgTOML, []byte("owui-data"), []byte("usage-from-archive"), nil, false)
+			r, in := baseInput(t, arch)
+			return r, in, in.Dests[EntryUsage]
+		},
+		"eval-baselines.json": func() (*recDeps, RestoreInput, string) {
+			r, in := evalInput(t, evalArchive(t, []byte("m1\n")), nil)
+			return r, in, evalDest
+		},
+	}
+	for name, build := range cases {
+		t.Run(name, func(t *testing.T) {
+			r, in, dest := build()
+			r.readFileErr = map[string]error{dest: denied}
+
+			res := Restore(r.deps(), in)
+			if !res.Refused || res.FailedStep != "capture" {
+				t.Fatalf("want Refused at capture, got %+v", res)
+			}
+			for _, want := range []string{dest, "permission denied"} {
+				if !strings.Contains(res.Reason, want) {
+					t.Errorf("the refusal must name %q, got %q", want, res.Reason)
+				}
+			}
+			if hasMutate(r.calls) {
+				t.Fatalf("a capture refusal must make zero mutate calls, got %v", r.calls)
+			}
+		})
+	}
+}
+
+// TestRestoreIgnoresAnUnreadableFileItLeavesAlone: the capture refusal is about a
+// file this restore would replace. An unreadable destination for an entry the
+// archive does not carry is never written or removed, so the restore proceeds.
+func TestRestoreIgnoresAnUnreadableFileItLeavesAlone(t *testing.T) {
+	arch := buildArchive(t, baseManifest(), validCfgTOML, []byte("owui-data"), []byte("usage-from-archive"), nil, false)
+	r, in := baseInput(t, arch)
+	r.readFileErr = map[string]error{in.Dests[EntryBenchReports]: fs.ErrPermission}
+
+	if res := Restore(r.deps(), in); !res.Restored {
+		t.Fatalf("want Restored, got %+v (calls %v)", res, r.calls)
+	}
+	if indexOf(r.calls, "WriteFileAtomic:"+in.Dests[EntryBenchReports]) != -1 || indexOf(r.calls, "RemoveFile:") != -1 {
+		t.Fatalf("an entry the archive does not carry is never touched, calls %v", r.calls)
 	}
 }
 
@@ -912,7 +970,7 @@ func TestRestoreRecallStateForwardAndRollback(t *testing.T) {
 	t.Run("prior absent: rollback removes the forward-created file", func(t *testing.T) {
 		arch := buildArchiveMem(t, baseManifest(), validCfgTOML, []byte("owui-data"), nil, []byte("recall-state-from-archive"))
 		r, in := memInput(t, arch, false)
-		r.readFileErr = map[string]error{in.Dests[EntryRecallState]: errors.New("not found")}
+		r.readFileErr = map[string]error{in.Dests[EntryRecallState]: fs.ErrNotExist}
 		r.prove = prove.Verdict{Status: prove.StatusFail, Detail: "residency FAIL"}
 
 		res := Restore(r.deps(), in)

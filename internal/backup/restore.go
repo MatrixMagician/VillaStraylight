@@ -32,8 +32,10 @@ package backup
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/prove"
@@ -239,12 +241,14 @@ func (t *restoreTxn) evalWarnings() []SkewWarning {
 
 // replacedEval is the current eval-baselines.json this restore would replace: the
 // archive carries the entry, a parser and a destination are wired, and a file is
-// there now.
+// there now. A file that cannot be opened is not asked about here: the capture
+// step refuses it (#291).
 func (t *restoreTxn) replacedEval() ([]byte, bool) {
 	if _, carried := t.ex.files[EntryEvalBaselines]; !carried || t.in.EvalKeysOf == nil {
 		return nil, false
 	}
-	return captureFile(t.d, t.in.Dests[EntryEvalBaselines])
+	b, ok, _ := captureFile(t.d, t.in.Dests[EntryEvalBaselines])
+	return b, ok
 }
 
 // declined reports whether the operator refused the skew warnings: there are some,
@@ -326,11 +330,18 @@ func (t *restoreTxn) captureQdrant() *Result {
 }
 
 // captureFiles snapshots each file entry's current bytes through Deps.ReadFile. An
-// absent or unreadable file is simply not captured: rollback then does not restore
-// it (it was not there to begin with).
+// absent file is not captured: rollback then removes what the forward write
+// created. A file that exists but cannot be read REFUSES when this restore would
+// replace it (#291): recorded as absent, it would be overwritten uncaptured and a
+// rollback would delete it.
 func (t *restoreTxn) captureFiles() *Result {
 	for _, row := range fileRows {
-		if b, ok := captureFile(t.d, t.in.Dests[row.Name]); ok {
+		path := t.in.Dests[row.Name]
+		b, ok, err := captureFile(t.d, path)
+		if err != nil && t.willWrite(row) {
+			return refuseCapture(err, "cannot capture the current "+row.Label+" ("+path+") for rollback")
+		}
+		if ok {
 			t.prior[row.Name] = b
 		}
 	}
@@ -704,15 +715,19 @@ func skewPrompt(ws []SkewWarning) string {
 }
 
 // captureFile reads a current data-dir artifact for the rollback set via Deps.ReadFile.
-// An absent/unreadable file yields ok=false (the rollback then simply does not restore
-// it — it was not there to begin with), never a hard failure.
-func captureFile(d RestoreDeps, path string) (data []byte, ok bool) {
+// An absent file yields ok=false and no error: it was not there to begin with. A
+// file that is there but cannot be read (permission denied, a directory) yields the
+// read error, so the caller can tell it from absence.
+func captureFile(d RestoreDeps, path string) (data []byte, ok bool, err error) {
 	if path == "" {
-		return nil, false
+		return nil, false, nil
 	}
 	b, err := d.ReadFile(path)
-	if err != nil {
-		return nil, false
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, false, nil
 	}
-	return b, true
+	if err != nil {
+		return nil, false, err
+	}
+	return b, true, nil
 }
