@@ -327,8 +327,8 @@ func TestFloorsTravelWithTheROCmPins(t *testing.T) {
 			}
 		}
 	}
-	if withFloors != 3 {
-		t.Errorf("%d components carry floors, want the three ROCm images", withFloors)
+	if withFloors != 4 {
+		t.Errorf("%d components carry floors, want the four ROCm images", withFloors)
 	}
 }
 

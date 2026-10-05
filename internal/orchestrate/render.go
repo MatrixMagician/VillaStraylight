@@ -68,8 +68,10 @@ type containerView struct {
 // golden stays unchanged (ROCM-03 additivity).
 func backendLabel(name string) string {
 	switch name {
-	case "rocm":
+	case "rocm", "rocm-7.2.4":
 		return "ROCm 7.2.4 (HIP)"
+	case "rocm-10.0":
+		return "ROCm 10.0 (HIP)"
 	case "rocm-6.4.4":
 		return "ROCm 6.4.4 (HIP)"
 	case "rocm-6.4.4-rocwmma":

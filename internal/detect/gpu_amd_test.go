@@ -232,6 +232,12 @@ func TestRocmImagePolicyOK644(t *testing.T) {
 			t.Errorf("rocm-6.4.4-rocwmma → Known=%v Value=%v, want KnownBool(true)", got.Known, got.Value)
 		}
 	})
+	t.Run("rocm-10.0 is pinned stable (ADR-0022)", func(t *testing.T) {
+		got := rocmImagePolicyOK("docker.io/kyuz0/x:rocm-10.0@sha256:abc")
+		if !got.Known || !got.Value {
+			t.Errorf("rocm-10.0 → Known=%v Value=%v, want KnownBool(true)", got.Known, got.Value)
+		}
+	})
 	t.Run("rocm7-nightlies stays denied", func(t *testing.T) {
 		got := rocmImagePolicyOK("docker.io/kyuz0/x:rocm7-nightlies@sha256:bad")
 		if !got.Known || got.Value {

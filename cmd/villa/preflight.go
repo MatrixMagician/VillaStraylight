@@ -67,7 +67,7 @@ const (
 // internal/preflight package never exits or prints.
 func newPreflight() *cobra.Command {
 	// backend is a LOCAL preflight flag (not a persistent root flag): when set to
-	// any ROCm-family name (rocm, rocm-6.4.4, rocm-6.4.4-rocwmma) it routes the gate
+	// any ROCm-family name (rocm, rocm-10.0, rocm-7.2.4, rocm-6.4.4, rocm-6.4.4-rocwmma) it routes the gate
 	// to the reusable preflight.RunROCm verdict the Phase 8 `backend set` verb
 	// consumes, instead of the standalone host preflight (family predicate).
 	var backend string
@@ -77,8 +77,8 @@ func newPreflight() *cobra.Command {
 		Long: "Run the host-prep gate: Vulkan ICD + iGPU enumeration, Podman rootless readiness, " +
 			"user lingering, and free disk/memory — classified BLOCK vs WARN. Exits 0 (pass), " +
 			"2 (warnings), or 1 (a BLOCK check failed). --force overrides BLOCK failures and prints " +
-			"an auditable summary of exactly what was bypassed. With --backend rocm (or rocm-6.4.4 / " +
-			"rocm-6.4.4-rocwmma) it gates ROCm bring-up instead (refuse-with-remediation on a " +
+			"an auditable summary of exactly what was bypassed. With --backend rocm (or rocm-10.0 / rocm-7.2.4 / " +
+			"rocm-6.4.4 / rocm-6.4.4-rocwmma) it gates ROCm bring-up instead (refuse-with-remediation on a " +
 			"confident known-bad host). Read-only.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -104,7 +104,7 @@ func newPreflight() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&backend, "backend", "", "gate ROCm bring-up instead of the standalone host preflight (rocm, rocm-6.4.4, rocm-6.4.4-rocwmma)")
+	cmd.Flags().StringVar(&backend, "backend", "", "gate ROCm bring-up instead of the standalone host preflight (rocm, rocm-10.0, rocm-7.2.4, rocm-6.4.4, rocm-6.4.4-rocwmma)")
 	return cmd
 }
 

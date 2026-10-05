@@ -106,8 +106,10 @@ func livePinnedBackend(r pinresolve.Resolver, backend inference.Backend) inferen
 // disagree, and the safe answer is "no effective pin", not a guess.
 func backendComponent(name string) (pins.ComponentID, bool) {
 	switch name {
-	case "rocm":
+	case "rocm", "rocm-7.2.4":
 		return pins.BackendROCm724, true
+	case "rocm-10.0":
+		return pins.BackendROCm100, true
 	case "rocm-6.4.4":
 		return pins.BackendROCm644, true
 	case "rocm-6.4.4-rocwmma":

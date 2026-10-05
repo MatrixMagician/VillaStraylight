@@ -83,6 +83,8 @@ type ComponentID string
 const (
 	// BackendROCm724 is the default inference backend image.
 	BackendROCm724 ComponentID = "backend-rocm-7.2.4"
+	// BackendROCm100 is the ROCm 10.0 backend image (ADR-0022).
+	BackendROCm100 ComponentID = "backend-rocm-10.0"
 	// BackendROCm644 is the TG-tuned ROCm 6.4.4 backend image.
 	BackendROCm644 ComponentID = "backend-rocm-6.4.4"
 	// BackendROCm644WMMA is the rocWMMA variant of the 6.4.4 backend image.
@@ -260,6 +262,17 @@ func Table() []Entry {
 			Version:  "7.2.4",
 			Floors:   rocmFloors,
 			Vetted:   func() Pin { return backendPin("rocm") },
+		},
+		{
+			Component: BackendROCm100,
+			Subsystem: subsystem.Inference,
+			// A rolling channel, not a version tag (ADR-0022): upstream rebuilds
+			// this tag daily on llama.cpp master, so a moved digest is a newer
+			// build of the same channel, and there is no version to name.
+			Shape:    RollingDigest,
+			Registry: registryDockerIO,
+			Floors:   rocmFloors,
+			Vetted:   func() Pin { return backendPin("rocm-10.0") },
 		},
 		{
 			Component: BackendROCm644,

@@ -88,10 +88,10 @@ func TestAnEmptyStoreRendersTheVettedPins(t *testing.T) {
 			continue // the Crush binary renders no unit
 		}
 		ref := e.Vetted().Ref
-		// The three non-active backends render nothing, and the sandbox image is a
+		// The non-active ROCm backends render nothing, and the sandbox image is a
 		// per-task run with no unit, so only assert the ones that appear.
 		switch e.Component {
-		case pins.BackendROCm724, pins.BackendROCm644, pins.BackendROCm644WMMA, pins.SandboxImage:
+		case pins.BackendROCm724, pins.BackendROCm100, pins.BackendROCm644, pins.BackendROCm644WMMA, pins.SandboxImage:
 			continue
 		}
 		if !strings.Contains(text, ref) {
@@ -327,5 +327,24 @@ func TestSharedResidencySpeculationResolvesTheChatModel(t *testing.T) {
 	}
 	if _, err := liveSpeculation(cfg, true); err != nil {
 		t.Fatalf("shared-residency coding mode with speculation on must render: %v", err)
+	}
+}
+
+// TestEveryROCmNameMapsToItsComponent: backendComponent keys a backend's Name() to
+// the pin it runs under. A name the map misses gets no effective pin at all, so a
+// recorded pin for rocm-10.0 or rocm-7.2.4 (ADR-0022) would silently never apply.
+func TestEveryROCmNameMapsToItsComponent(t *testing.T) {
+	for name, want := range map[string]pins.ComponentID{
+		"rocm-10.0":  pins.BackendROCm100,
+		"rocm-7.2.4": pins.BackendROCm724,
+	} {
+		b, err := inference.BackendFor(name)
+		if err != nil {
+			t.Fatalf("BackendFor(%q): %v", name, err)
+		}
+		got, ok := backendComponent(b.Name())
+		if !ok || got != want {
+			t.Errorf("backendComponent(%q) = %q, %v; want %q", b.Name(), got, ok, want)
+		}
 	}
 }

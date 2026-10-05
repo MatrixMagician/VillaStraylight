@@ -635,6 +635,8 @@ func TestBackendLabelROCmFamily(t *testing.T) {
 		"rocm":               "ROCm 7.2.4 (HIP)",
 		"rocm-6.4.4":         "ROCm 6.4.4 (HIP)",
 		"rocm-6.4.4-rocwmma": "ROCm 6.4.4 rocWMMA (HIP)",
+		"rocm-10.0":          "ROCm 10.0 (HIP)",
+		"rocm-7.2.4":         "ROCm 7.2.4 (HIP)",
 		"vulkan":             "Vulkan RADV",
 		"":                   "Vulkan RADV",
 	}

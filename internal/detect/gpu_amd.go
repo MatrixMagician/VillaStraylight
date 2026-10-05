@@ -345,6 +345,10 @@ const rocmStableImageTag = "rocm-7.2.4"
 // TestSeamGrepGate stays green and readiness_rocm.go stays tag-free.
 const rocm644ImageTag = "rocm-6.4.4"
 
+// rocm100ImageTag is kyuz0's ROCm 10.0 channel (ADR-0022): pinned by digest like the
+// others and stable for the pin policy. It is not the nightlies build the policy denies.
+const rocm100ImageTag = "rocm-10.0"
+
 // rocmNightlyDenyTag is the ROCm image tag the pin policy refuses: the nightlies
 // build reintroduces the 64 GB allocation cap (CLAUDE.md "What NOT to Use").
 const rocmNightlyDenyTag = "rocm7-nightlies"
@@ -365,6 +369,7 @@ func rocmImagePolicyOK(image string) Bool {
 	case strings.Contains(image, rocmNightlyDenyTag):
 		return KnownBool(false, "denied ROCm nightly image (64 GB allocation cap)")
 	case strings.Contains(image, rocmStableImageTag),
+		strings.Contains(image, rocm100ImageTag),
 		strings.Contains(image, rocm644ImageTag):
 		return KnownBool(true, "pinned stable ROCm image")
 	default:
