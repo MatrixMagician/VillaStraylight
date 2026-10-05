@@ -397,3 +397,27 @@ func TestRenderResidentRefusesPortCollision(t *testing.T) {
 		})
 	}
 }
+
+// TestResidentAndPrimaryUnitsRenderPromptCache guards ADR-0021: the primary
+// villa-llama unit AND each resident villa-llama-<slug> unit carry
+// `--cache-ram 8192` (each server holds its own cache, so each must be capped),
+// while villa-embed, which measured no prompt cache, does not.
+func TestResidentAndPrimaryUnitsRenderPromptCache(t *testing.T) {
+	units, err := Render(residentFixtureInput())
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	for _, name := range []string{"villa-llama.container", residentUnitName} {
+		if !strings.Contains(unitByName(t, units, name).Text, " --cache-ram 8192") {
+			t.Errorf("%s does not render --cache-ram 8192", name)
+		}
+	}
+
+	memUnits, err := Render(memoryFixtureInput())
+	if err != nil {
+		t.Fatalf("Render (memory): %v", err)
+	}
+	if strings.Contains(unitByName(t, memUnits, "villa-embed.container").Text, "--cache-ram") {
+		t.Error("villa-embed.container renders --cache-ram; the embedding server has no prompt cache")
+	}
+}

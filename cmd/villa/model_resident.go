@@ -279,63 +279,98 @@ func runResidentAdd(cmd *cobra.Command, id string, d *residentDeps) int {
 		return exitBlocked
 	}
 
-	// Resolved THROUGH the catalog — an id is never a filesystem path.
-	m, ok := d.resolveCatalog(id)
-	if !ok {
-		fmt.Fprintf(errOut, "model resident add: unknown model %q — run `villa model list` to see catalog names\n", id)
-		return exitBlocked
-	}
-
-	rec := d.fit(m, 0)
-	if rec.Model == "" {
-		fmt.Fprintf(errOut, "model resident add: could not size %s against the detected memory envelope\n", m.ID)
-		return exitBlocked
-	}
-
-	primaryPort := d.primaryPort()
-	slots, err := d.residentSlots(cfg, primaryPort)
+	adm, err := d.admitResident(cfg, id)
 	if err != nil {
 		fmt.Fprintf(errOut, "model resident add: %v\n", err)
 		return exitBlocked
 	}
-
-	port := allocResidentPort(primaryPort, cfg.Resident)
-	if port == 0 {
-		fmt.Fprintf(errOut, "model resident add: no free host port at or above %d — remove a slot with `villa model resident rm`\n", residentPortBase)
-		return exitBlocked
+	if adm.plan.NoOp {
+		fmt.Fprintf(out, "%s is already resident — nothing to do\n", adm.m.ID)
+		return exitPass
 	}
-	unitName, err := orchestrate.ResidentUnitName(m.ID)
+	return d.applyAdmitted(out, errOut, cfg, adm)
+}
+
+// residentAdmission is what `model resident add` knows once admission has said yes:
+// the catalog entry, the slot it would become and the plan Admit returned.
+type residentAdmission struct {
+	m         catalog.Model
+	candidate residentset.Slot
+	plan      residentset.Plan
+}
+
+// admitResident sizes the candidate, builds its slot and asks residentset.Admit. It
+// has no side effect, so every error it returns (an unknown id, an unsizable model,
+// no free port, a Refusal) leaves config and units untouched.
+func (d *residentDeps) admitResident(cfg config.VillaConfig, id string) (residentAdmission, error) {
+	m, rec, err := d.sizeResident(id)
 	if err != nil {
-		fmt.Fprintf(errOut, "model resident add: %v\n", err)
-		return exitBlocked
+		return residentAdmission{}, err
 	}
-
-	candidate := residentset.Slot{
-		Model: m.ID,
-		Quant: m.Quant,
-		Ctx:   rec.ContextLen,
-		Port:  port,
-		Unit:  unitName,
-		Bytes: rec.WeightBytes + rec.KVCacheBytes,
+	candidate, slots, err := d.residentCandidate(cfg, m, rec)
+	if err != nil {
+		return residentAdmission{}, err
 	}
 	// Eviction is not offered: dropping a slot the user configured is their call, made
 	// explicitly with `rm`, never a side effect of an add. Headroom is carried by the
 	// Policy rather than added to every slot's Bytes, because the whole set shares one
 	// headroom reserve — counting it per slot would refuse sets that comfortably fit.
+	// The prompt cache is the opposite: one per server, so it IS in every slot's Bytes.
 	plan, refusal := residentset.Admit(
 		residentset.Set{Envelope: rec.UsableEnvelopeBytes, Slots: slots},
 		candidate,
 		residentset.Policy{HeadroomBytes: rec.HeadroomBytes},
 	)
 	if refusal.Reason != "" {
-		fmt.Fprintf(errOut, "model resident add: refused %s (%s) — %s\n", m.ID, refusal.Reason, refusal.Remediation)
-		return exitBlocked
+		return residentAdmission{}, fmt.Errorf("refused %s (%s) — %s", m.ID, refusal.Reason, refusal.Remediation)
 	}
-	if plan.NoOp {
-		fmt.Fprintf(out, "%s is already resident — nothing to do\n", m.ID)
-		return exitPass
-	}
+	return residentAdmission{m: m, candidate: candidate, plan: plan}, nil
+}
 
+// sizeResident resolves id THROUGH the catalog — an id is never a filesystem path —
+// and sizes it against the detected memory envelope.
+func (d *residentDeps) sizeResident(id string) (catalog.Model, recommend.Recommendation, error) {
+	m, ok := d.resolveCatalog(id)
+	if !ok {
+		return catalog.Model{}, recommend.Recommendation{}, fmt.Errorf("unknown model %q — run `villa model list` to see catalog names", id)
+	}
+	rec := d.fit(m, 0)
+	if rec.Model == "" {
+		return catalog.Model{}, recommend.Recommendation{}, fmt.Errorf("could not size %s against the detected memory envelope", m.ID)
+	}
+	return m, rec, nil
+}
+
+// residentCandidate builds the slot m would occupy, plus the slots already resident:
+// the lowest free port and the unit name its model id slugs to.
+func (d *residentDeps) residentCandidate(cfg config.VillaConfig, m catalog.Model, rec recommend.Recommendation) (residentset.Slot, []residentset.Slot, error) {
+	primaryPort := d.primaryPort()
+	slots, err := d.residentSlots(cfg, primaryPort)
+	if err != nil {
+		return residentset.Slot{}, nil, err
+	}
+	port := allocResidentPort(primaryPort, cfg.Resident)
+	if port == 0 {
+		return residentset.Slot{}, nil, fmt.Errorf("no free host port at or above %d — remove a slot with `villa model resident rm`", residentPortBase)
+	}
+	unitName, err := orchestrate.ResidentUnitName(m.ID)
+	if err != nil {
+		return residentset.Slot{}, nil, err
+	}
+	return residentset.Slot{
+		Model: m.ID,
+		Quant: m.Quant,
+		Ctx:   rec.ContextLen,
+		Port:  port,
+		Unit:  unitName,
+		Bytes: slotBytes(rec),
+	}, slots, nil
+}
+
+// applyAdmitted carries out an admitted add: pull the weights if they are not on disk,
+// persist the slot and apply the unit change, and report where the slot is serving.
+func (d *residentDeps) applyAdmitted(out, errOut io.Writer, cfg config.VillaConfig, adm residentAdmission) int {
+	m, candidate := adm.m, adm.candidate
 	if !d.isDownloaded(m) {
 		fmt.Fprintf(out, "pulling %s (not yet downloaded)...\n", m.ID)
 		if err := d.pull(m); err != nil {
@@ -356,10 +391,10 @@ func runResidentAdd(cmd *cobra.Command, id string, d *residentDeps) int {
 		verb:      "model resident add",
 		prior:     cfg,
 		next:      next,
-		startUnit: unitName + ".container",
+		startUnit: candidate.Unit + ".container",
 	})
 	if code == exitPass {
-		fmt.Fprintf(out, "%s is resident on 127.0.0.1:%d (%s.service)\n", candidate.Model, candidate.Port, unitName)
+		fmt.Fprintf(out, "%s is resident on 127.0.0.1:%d (%s.service)\n", candidate.Model, candidate.Port, candidate.Unit)
 	}
 	return code
 }
@@ -607,13 +642,22 @@ func (d *residentDeps) capturePrior(ch residentChange, dir string, plan orchestr
 	return install.CapturePrior(ch.prior, true, priorUnits, priorRunning)
 }
 
+// slotBytes is one resident server's footprint in the admission core: its weights,
+// its KV cache and its own prompt cache (ADR-0021). Every resident unit is a separate
+// llama-server holding a separate cache, so N resident units cost N caches; the
+// headroom, by contrast, is one reserve for the whole set and is not counted here.
+func slotBytes(rec recommend.Recommendation) uint64 {
+	return rec.WeightBytes + rec.KVCacheBytes + rec.PromptCacheBytes
+}
+
 // residentSlots is the residentset view of what is resident right now: the primary
 // first, then every configured slot, each sized by the SAME recommend fit math the
 // candidate is sized by. A slot whose model has left the catalog is a hard error —
 // silently sizing it at zero would admit a candidate that cannot actually fit.
 //
-// Slot.Bytes carries weights + KV only. The headroom term is a property of the
-// envelope, not of a model, so the caller passes it once as Policy.HeadroomBytes.
+// Slot.Bytes carries weights + KV + the prompt cache (slotBytes). The headroom term
+// is a property of the envelope, not of a model, so the caller passes it once as
+// Policy.HeadroomBytes.
 func (d *residentDeps) residentSlots(cfg config.VillaConfig, primaryPort int) ([]residentset.Slot, error) {
 	if cfg.Model == "" {
 		return nil, fmt.Errorf("no primary model is configured — run `villa recommend --save` or `villa install` first")
@@ -622,34 +666,51 @@ func (d *residentDeps) residentSlots(cfg config.VillaConfig, primaryPort int) ([
 
 	slots := make([]residentset.Slot, 0, len(all))
 	for i, r := range all {
-		m, ok := d.resolveCatalog(r.Model)
-		if !ok {
-			return nil, fmt.Errorf("configured model %q is not in the catalog — cannot size the resident set", r.Model)
+		slot, err := d.residentSlot(r, i == 0)
+		if err != nil {
+			return nil, err
 		}
-		rec := d.fit(m, r.Ctx)
-		if rec.Model == "" {
-			return nil, fmt.Errorf("could not size configured model %q against the detected memory envelope", r.Model)
-		}
-		primary := i == 0
-		unit := installServiceName
-		if !primary {
-			name, err := orchestrate.ResidentUnitName(r.Model)
-			if err != nil {
-				return nil, err
-			}
-			unit = name + ".service"
-		}
-		slots = append(slots, residentset.Slot{
-			Model:   r.Model,
-			Quant:   r.Quant,
-			Ctx:     r.Ctx,
-			Port:    r.Port,
-			Unit:    unit,
-			Primary: primary,
-			Bytes:   rec.WeightBytes + rec.KVCacheBytes,
-		})
+		slots = append(slots, slot)
 	}
 	return slots, nil
+}
+
+// residentSlot sizes one configured model into the slot it occupies: the primary
+// runs as villa-llama.service, every other slot as its own villa-llama-<slug> unit.
+func (d *residentDeps) residentSlot(r config.ResidentModel, primary bool) (residentset.Slot, error) {
+	m, ok := d.resolveCatalog(r.Model)
+	if !ok {
+		return residentset.Slot{}, fmt.Errorf("configured model %q is not in the catalog — cannot size the resident set", r.Model)
+	}
+	rec := d.fit(m, r.Ctx)
+	if rec.Model == "" {
+		return residentset.Slot{}, fmt.Errorf("could not size configured model %q against the detected memory envelope", r.Model)
+	}
+	unit, err := residentServiceName(r.Model, primary)
+	if err != nil {
+		return residentset.Slot{}, err
+	}
+	return residentset.Slot{
+		Model:   r.Model,
+		Quant:   r.Quant,
+		Ctx:     r.Ctx,
+		Port:    r.Port,
+		Unit:    unit,
+		Primary: primary,
+		Bytes:   slotBytes(rec),
+	}, nil
+}
+
+// residentServiceName is the systemd service a configured model runs as.
+func residentServiceName(model string, primary bool) (string, error) {
+	if primary {
+		return installServiceName, nil
+	}
+	name, err := orchestrate.ResidentUnitName(model)
+	if err != nil {
+		return "", err
+	}
+	return name + ".service", nil
 }
 
 // activeState reports a service's systemd state verbatim, degrading an unreadable
