@@ -13,7 +13,7 @@ import (
 // It differs from Prove in what drives the load and when the sample is safe to take.
 // Prove drives its own generation probe and samples throughout the decode. Under
 // load, the workload belongs to the caller — embedding requests, coding-agent
-// tool-call round-trips, search-augmented chat rounds — and the sample is only
+// tool-call round-trips, chat rounds with the search stack up — and the sample is only
 // honest while one of those is verifiably IN FLIGHT. Sampling an idle stack is the
 // exact false-green this protocol exists to prevent: a CPU fallback under load looks
 // identical to a healthy stack once the load stops.
@@ -40,8 +40,8 @@ type Load struct {
 	//   - Settle > 0: sample ONLY IF the round is still in flight at the deadline. A
 	//     round that finished sooner was too fast to have loaded the model under
 	//     observation, so it is joined and the next round driven. This is the
-	//     discipline for heavyweight rounds (a coding-agent round-trip, a
-	//     search-augmented chat) that may exit early on error.
+	//     discipline for heavyweight rounds (a coding-agent round-trip, a chat
+	//     round with the search stack up) that may exit early on error.
 	//   - Settle == 0: sample immediately after launching, without confirming the
 	//     round is still running. This is the discipline for cheap, uniform rounds
 	//     (embedding requests) driven after a warmup: they are too short to be caught

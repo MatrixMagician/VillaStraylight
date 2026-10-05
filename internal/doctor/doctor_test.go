@@ -1477,7 +1477,7 @@ func TestSearchResidencyFinding(t *testing.T) {
 	}{
 		{"pass", inference.Verdict{Status: inference.StatusPass, Detail: "chat model resident under search load"}, tierBlock, statusPass, false},
 		{"cpu-fallback", inference.Verdict{Status: inference.StatusFail, Detail: "only a CPU model buffer was loaded — server fell back to CPU under search load"}, tierBlock, statusFail, true},
-		{"not-in-flight", inference.Verdict{Status: inference.StatusWarn, Detail: "no search-augmented round stayed in flight long enough to sample"}, tierWarn, statusWarn, true},
+		{"not-in-flight", inference.Verdict{Status: inference.StatusWarn, Detail: "no chat round stayed in flight long enough to sample"}, tierWarn, statusWarn, true},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
