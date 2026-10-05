@@ -348,6 +348,9 @@ chat_port = 0
 // runRecommend executes the villa root command with args, capturing output.
 func runRecommend(t *testing.T, args []string) {
 	t.Helper()
+	prev := recommendProbe
+	recommendProbe = fixtureProfile
+	t.Cleanup(func() { recommendProbe = prev })
 	root := newRoot()
 	var buf bytes.Buffer
 	root.SetOut(&buf)
