@@ -33,7 +33,7 @@ func TestROCmContainerArgs(t *testing.T) {
 		"ROCBLAS_USE_HIPBLASLT=1",
 		"-ngl 999",
 		"-fa 1",
-		"--no-mmap",
+		"--load-mode", "none",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("ROCm ContainerArgs missing %q in: %s", want, joined)
@@ -77,15 +77,19 @@ func TestBackendFor(t *testing.T) {
 		wantName    string
 		wantImgFrag string // a digest substring the resolved backend's Image() must contain
 	}{
-		// The empty string is the DEFAULT backend — ROCm 7.2.4, same digest as "rocm".
-		{"", "rocm", "2da150c1"},
+		// The empty string is the DEFAULT backend — ROCm 10.0 (ADR-0022), same as "rocm".
+		{"", "rocm", "rocm-10.0@sha256:3893b3e5"},
 		// vulkan is now the explicit opt-in fallback, still resolvable and unchanged.
 		{"vulkan", "vulkan", ""},
-		// rocm STILL means the unchanged 7.2.4 digest (coexistence).
-		{"rocm", "rocm", "2da150c1"},
+		// "rocm" is the default's name, not a version: it follows the default to 10.0.
+		{"rocm", "rocm", "rocm-10.0@sha256:3893b3e5"},
 		// The two new digest-pinned ROCm backends.
 		{"rocm-6.4.4", "rocm-6.4.4", "sha256:1c655ca0"},
 		{"rocm-6.4.4-rocwmma", "rocm-6.4.4-rocwmma", "sha256:9a97129a"},
+		// ROCm 10.0 (ADR-0022): the rolling kyuz0 channel whose llama.cpp loads qwen4exp.
+		{"rocm-10.0", "rocm-10.0", "rocm-10.0@sha256:3893b3e5"},
+		// 7.2.4 by its explicit name, the same image "rocm" names today.
+		{"rocm-7.2.4", "rocm-7.2.4", "rocm-7.2.4@sha256:2da150c1"},
 	}
 	for _, tc := range ok {
 		t.Run("resolves "+tc.name, func(t *testing.T) {
@@ -118,7 +122,7 @@ func TestBackendFor(t *testing.T) {
 		if !strings.Contains(err.Error(), "cuda") {
 			t.Errorf("BackendFor(\"cuda\") error %q should name the bad value", err.Error())
 		}
-		for _, opt := range []string{"vulkan", "rocm", "rocm-6.4.4", "rocm-6.4.4-rocwmma"} {
+		for _, opt := range []string{"vulkan", "rocm", "rocm-10.0", "rocm-7.2.4", "rocm-6.4.4", "rocm-6.4.4-rocwmma"} {
 			if !strings.Contains(err.Error(), opt) {
 				t.Errorf("BackendFor(\"cuda\") error %q should name the valid option %q", err.Error(), opt)
 			}
@@ -128,7 +132,7 @@ func TestBackendFor(t *testing.T) {
 	// The new digests stay seam-locked AND digest-pinned (@sha256: + 64 hex).
 	t.Run("new backends digest-pinned", func(t *testing.T) {
 		digestRe := regexp.MustCompile(`@sha256:[0-9a-f]{64}\b`)
-		for _, name := range []string{"rocm-6.4.4", "rocm-6.4.4-rocwmma"} {
+		for _, name := range []string{"rocm-6.4.4", "rocm-6.4.4-rocwmma", "rocm-10.0", "rocm-7.2.4"} {
 			b, err := BackendFor(name)
 			if err != nil {
 				t.Fatalf("BackendFor(%q): unexpected error %v", name, err)
@@ -147,9 +151,13 @@ func TestBackendFor(t *testing.T) {
 // how the 2026-09-11 re-vet found it.
 func TestLoadFlagIsSpelledPerImage(t *testing.T) {
 	cases := []struct{ name, want, reject string }{
-		{"rocm", "-fa 1 --no-mmap -lv 4", "--load-mode"},
+		{"rocm", "-fa 1 --load-mode none -lv 4", "--no-mmap"},
 		{"rocm-6.4.4-rocwmma", "-fa 1 --no-mmap -lv 4", "--load-mode"},
 		{"rocm-6.4.4", "-fa 1 --load-mode none -lv 4", "--no-mmap"},
+		{"rocm-7.2.4", "-fa 1 --no-mmap -lv 4", "--load-mode"},
+		// Build 11430 rejects --no-mmap outright ("invalid argument"), checked on the
+		// dev host on 2026-10-05.
+		{"rocm-10.0", "-fa 1 --load-mode none -lv 4", "--no-mmap"},
 	}
 	for _, c := range cases {
 		b, err := BackendFor(c.name)

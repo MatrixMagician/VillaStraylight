@@ -119,6 +119,7 @@ func TestComponentIDsAreUniqueAndSubsystemsAreNamed(t *testing.T) {
 func TestFloorsTravelWithTheROCmPinsOnly(t *testing.T) {
 	want := map[ComponentID]bool{
 		BackendROCm724:     true,
+		BackendROCm100:     true,
 		BackendROCm644:     true,
 		BackendROCm644WMMA: true,
 	}
@@ -158,7 +159,7 @@ func TestLookupIsTheAllowlist(t *testing.T) {
 // splitting them would produce a pairing with no proof and no meaning.
 func TestForGroupsByProofUnit(t *testing.T) {
 	cases := map[subsystem.Kind][]ComponentID{
-		subsystem.Inference: {BackendROCm724, BackendROCm644, BackendROCm644WMMA, BackendVulkan},
+		subsystem.Inference: {BackendROCm724, BackendROCm100, BackendROCm644, BackendROCm644WMMA, BackendVulkan},
 		subsystem.Chat:      {OpenWebUI},
 		subsystem.Memory:    {Qdrant, Embedder},
 		subsystem.WebSearch: {SearXNG, Websafe},
@@ -298,5 +299,44 @@ func TestSerialFloorIsCompiledIn(t *testing.T) {
 	}
 	if Serial() != VettedSerial {
 		t.Errorf("Serial() = %d but VettedSerial = %d; the accessor and the constant must be one value", Serial(), VettedSerial)
+	}
+}
+
+// TestROCm100IsARollingROCmPin guards ADR-0022's choice of shape. kyuz0 rebuilds the
+// rocm-10.0 tag daily on llama.cpp master, so a moved digest is a newer build of the
+// same channel (RollingDigest), and reading it as a VersionTag would report a
+// "rebuilt release" most days. It is still a ROCm pin, so it carries the floors.
+func TestROCm100IsARollingROCmPin(t *testing.T) {
+	e, ok := Lookup(BackendROCm100)
+	if !ok {
+		t.Fatal("backend-rocm-10.0 is not in the table")
+	}
+	if e.Shape != RollingDigest {
+		t.Errorf("shape = %q, want %q", e.Shape, RollingDigest)
+	}
+	if e.Version != "" {
+		t.Errorf("a rolling digest names no version, got %q", e.Version)
+	}
+	if !e.HasFloors() {
+		t.Error("a ROCm pin must carry the ROCm floors")
+	}
+	if e.Subsystem != subsystem.Inference {
+		t.Errorf("subsystem = %q, want inference", e.Subsystem)
+	}
+	if ref := e.Vetted().Ref; !strings.Contains(ref, ":rocm-10.0@sha256:") {
+		t.Errorf("vetted ref %q is not the digest-pinned rocm-10.0 image", ref)
+	}
+}
+
+// TestTheROCm724PinStaysOn724: after ADR-0022 "rocm" names the 10.0 default, so the
+// 7.2.4 component must resolve its vetted pin by its explicit name. Resolving it
+// through "rocm" would silently make backend-rocm-7.2.4 carry the 10.0 image.
+func TestTheROCm724PinStaysOn724(t *testing.T) {
+	e, ok := Lookup(BackendROCm724)
+	if !ok {
+		t.Fatal("backend-rocm-7.2.4 is not in the table")
+	}
+	if ref := e.Vetted().Ref; !strings.Contains(ref, ":rocm-7.2.4@sha256:") {
+		t.Errorf("backend-rocm-7.2.4 vetted ref %q is not the 7.2.4 image", ref)
 	}
 }

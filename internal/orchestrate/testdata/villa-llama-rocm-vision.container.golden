@@ -1,11 +1,11 @@
 # ~/.config/containers/systemd/villa-llama.container  (GENERATED — do not edit; source: config.toml)
 [Unit]
-Description=VillaStraylight llama.cpp inference (ROCm 7.2.4 (HIP))
+Description=VillaStraylight llama.cpp inference (ROCm 10.0 (HIP))
 After=villa-network.service
 
 [Container]
 ContainerName=villa-llama
-Image=docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-7.2.4@sha256:2da150c1f0252f383b0b400f6cfa6630d3d34cf7c57132fe8445393b40531a89
+Image=docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-10.0@sha256:3893b3e5474b7aaf0c4fab5632527f5fb4eef5c4a9f7e8eed8045fd20fc79bb1
 Network=villa.network
 EnvironmentFile=%h/.config/villa/inference/llama.env
 AddDevice=/dev/kfd
@@ -16,7 +16,7 @@ Environment=ROCBLAS_USE_HIPBLASLT=1
 PublishPort=127.0.0.1:8080:8080
 Volume=/home/villa/.local/share/villa/models:/models:ro,z
 PodmanArgs=--security-opt seccomp=unconfined
-Exec=llama-server -m /models/qwen3-35b-a3b-moe-64.gguf -c 131072 --host 0.0.0.0 --port 8080 -ngl 999 -fa 1 --no-mmap -lv 4 --metrics --cache-ram 8192 --mmproj /models/Qwen3.6-35B-A3B-mmproj-F16.gguf --mmproj-offload
+Exec=llama-server -m /models/qwen3-35b-a3b-moe-64.gguf -c 131072 --host 0.0.0.0 --port 8080 -ngl 999 -fa 1 --load-mode none -lv 4 --metrics --cache-ram 8192 --mmproj /models/Qwen3.6-35B-A3B-mmproj-F16.gguf --mmproj-offload
 
 [Service]
 Restart=on-failure

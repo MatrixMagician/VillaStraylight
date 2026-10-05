@@ -28,6 +28,10 @@ import (
 // - rocmImage644: the TG-tuned ROCm 6.4.4 image; re-verified live 2026-06-07.
 // - rocmImage644wmma: the rocWMMA variant of 6.4.4; re-verified 2026-06-07.
 //
+//   - rocmImage100: kyuz0's ROCm 10.0 channel (ADR-0022), rebuilt daily on llama.cpp
+//     master; this digest is build 11430, the first pinned build with the qwen4exp
+//     architecture. Resolved with skopeo and run on the dev box 2026-10-05 (#296, #297).
+//
 // Both 6.4.4 digests were re-confirmed read-only via
 // `skopeo inspect --no-tags docker://docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-6.4.4[-rocwmma]`
 // immediately before pinning (Plan 12-01 Task 1); the authoritative pre-live-switch
@@ -36,6 +40,7 @@ const (
 	rocmImage724     = "docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-7.2.4@sha256:2da150c1f0252f383b0b400f6cfa6630d3d34cf7c57132fe8445393b40531a89"
 	rocmImage644     = "docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-6.4.4@sha256:1c655ca0443655f2e7603d054770b07cd8c79267145728b3261295f005053947"
 	rocmImage644wmma = "docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-6.4.4-rocwmma@sha256:9a97129af2c1a2f0080f234787f6978551a43e354f3eb26a8ebc868f643c0141"
+	rocmImage100     = "docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-10.0@sha256:3893b3e5474b7aaf0c4fab5632527f5fb4eef5c4a9f7e8eed8045fd20fc79bb1"
 )
 
 // backendROCm is the ROCm (HIP) Backend implementation, parameterized by image:

@@ -278,8 +278,32 @@ func TestOnlyTheActiveBackendIsARow(t *testing.T) {
 	cfg.Backend = "rocm"
 	r = checkWith(cfg, acceptedVerdict(nil))
 	for _, s := range r.Subsystems {
-		if s.Name == "inference" && s.Components[0].Name != string(pins.BackendROCm724) {
+		if s.Name == "inference" && s.Components[0].Name != string(pins.BackendROCm100) {
 			t.Errorf("with backend=rocm the inference row is %q", s.Components[0].Name)
+		}
+	}
+}
+
+// TestEachROCmNameIsItsOwnRow: the explicit rocm-10.0 and rocm-7.2.4 names (ADR-0022)
+// each select their own component, so --check offers the image the host runs and
+// never the other ROCm channel's.
+func TestEachROCmNameIsItsOwnRow(t *testing.T) {
+	for backend, want := range map[string]pins.ComponentID{
+		"":           pins.BackendROCm100,
+		"rocm":       pins.BackendROCm100,
+		"rocm-10.0":  pins.BackendROCm100,
+		"rocm-7.2.4": pins.BackendROCm724,
+	} {
+		cfg := fullConfig()
+		cfg.Backend = backend
+		r := checkWith(cfg, acceptedVerdict(nil))
+		for _, s := range r.Subsystems {
+			if s.Name != "inference" {
+				continue
+			}
+			if len(s.Components) != 1 || s.Components[0].Name != string(want) {
+				t.Errorf("backend=%s: inference rows %+v, want exactly %s", backend, s.Components, want)
+			}
 		}
 	}
 }

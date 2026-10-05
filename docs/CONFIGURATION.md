@@ -66,7 +66,7 @@ chat_port = 3000
 | `model` | string | _(empty until recommended/set)_ | The chosen catalog model id. Resolved through the catalog, never treated as a filesystem path. |
 | `quant` | string | _(empty until recommended/set)_ | The chosen quantization label (e.g. `UD-Q4_K_M`). |
 | `ctx` | int | _(empty/0 until recommended/set)_ | Context length in tokens. Rendered into the llama-server `-c` flag. |
-| `backend` | string | `rocm` | Inference backend: `rocm` (ROCm 7.2.4, **default**), `rocm-6.4.4`, `rocm-6.4.4-rocwmma`, or `vulkan` (Vulkan RADV, the fallback). `config set backend=` only accepts `vulkan`; every ROCm target must go through the transactional `villa backend set` command (see [Backend selection](#backend-selection)). |
+| `backend` | string | `rocm` | Inference backend: `rocm` (ROCm 10.0, **default**), `rocm-10.0` (the same image by name), `rocm-7.2.4` (the former default), `rocm-6.4.4`, `rocm-6.4.4-rocwmma`, or `vulkan` (Vulkan RADV, the fallback). `config set backend=` only accepts `vulkan`; every ROCm target must go through the transactional `villa backend set` command (see [Backend selection](#backend-selection)). |
 | `catalog_path` | string | _(empty → embedded seed catalog)_ | Optional path to an external catalog JSON. Empty means "use the embedded seed catalog". |
 | `dashboard_port` | int | `8888` | Host port the control dashboard listens on. |
 | `chat_port` | int | `3000` | Host port Open WebUI is published on; also the target of the dashboard's "chat" link. |
@@ -298,7 +298,7 @@ Defaults are defined in a single place in the source (`internal/config/villaconf
 
 | Setting | Default | Where it comes from |
 |---------|---------|---------------------|
-| `backend` | `rocm` | `defaultConfig()` (ROCm 7.2.4 default; `vulkan` is the RADV fallback) |
+| `backend` | `rocm` | `defaultConfig()` (ROCm 10.0 default, ADR-0022; `vulkan` is the RADV fallback) |
 | `dashboard_port` | `8888` | `defaultConfig()` |
 | `chat_port` | `3000` | `defaultConfig()` |
 | `catalog_path` | _(empty)_ → embedded seed catalog | `internal/catalog` falls back to the compiled-in `seed.json` |
@@ -360,7 +360,8 @@ the backend seam (`internal/inference/backend_rocm.go` / `backend_vulkan.go`).
 
 | Backend | Image (digest-pinned) | Devices | Extra env |
 |---------|-----------------------|---------|-----------|
-| `rocm` (default) | `docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-7.2.4@sha256:2da150…` | `/dev/kfd` **and** `/dev/dri` | `HSA_OVERRIDE_GFX_VERSION=11.5.1` then `ROCBLAS_USE_HIPBLASLT=1` (order preserved) |
+| `rocm` / `rocm-10.0` (default) | `docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-10.0@sha256:3893b3…` | `/dev/kfd` **and** `/dev/dri` | `HSA_OVERRIDE_GFX_VERSION=11.5.1` then `ROCBLAS_USE_HIPBLASLT=1` (order preserved) |
+| `rocm-7.2.4` | `docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-7.2.4@sha256:2da150…` | `/dev/kfd` **and** `/dev/dri` | same ordered ROCm env |
 | `rocm-6.4.4` | `docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-6.4.4@sha256:c81f30…` | `/dev/kfd` **and** `/dev/dri` | same ordered ROCm env |
 | `rocm-6.4.4-rocwmma` | `docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-6.4.4-rocwmma@sha256:9a9712…` | `/dev/kfd` **and** `/dev/dri` | same ordered ROCm env |
 | `vulkan` (fallback) | `docker.io/kyuz0/amd-strix-halo-toolboxes:vulkan-radv@sha256:9a74e5…` | `/dev/dri` | _(none)_ |
@@ -457,8 +458,10 @@ configuration varies per machine are:
 The `backend` key selects the GPU backend the inference unit renders against. Four
 values are honored by the inference resolver (`BackendFor`):
 
-- **`rocm`** (ROCm 7.2.4 / HIP) is **the default**, and what an empty or absent
-  config resolves to. It adds the `/dev/kfd` device and sets the ordered
+- **`rocm`** (ROCm 10.0 / HIP, ADR-0022) is **the default**, and what an empty or absent
+  config resolves to. `rocm-10.0` names the same image explicitly, and `rocm-7.2.4`
+  keeps the former default (llama.cpp build 9536, which cannot load `qwen4exp`
+  models) reachable by name. It adds the `/dev/kfd` device and sets the ordered
   `HSA_OVERRIDE_GFX_VERSION` / `ROCBLAS_USE_HIPBLASLT` env (see
   [Managed container environment](#managed-container-environment)), so it requires a
   host that passes the ROCm bring-up gate.

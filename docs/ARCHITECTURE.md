@@ -8,7 +8,7 @@ Fedora host. It detects the host hardware, recommends a memory-fitting
 model/quant/context from a versioned catalog, gates installs behind a host-readiness
 preflight, renders rootless **Podman Quadlet** units from a single config source of
 truth, and orchestrates two integrated OSS containers, **llama.cpp `llama-server`**
-(OpenAI-compatible inference, **ROCm 7.2.4 by default with a Vulkan RADV
+(OpenAI-compatible inference, **ROCm 10.0 by default with a Vulkan RADV
 fallback**) and **Open WebUI** (chat), plus a native, loopback-only Go **control
 dashboard**. The Go code is the orchestrator only; the AI services are integrated
 upstream images, never rebuilt. The architectural style is a **layered pipeline of pure
@@ -23,8 +23,8 @@ prints, maps verdicts to exit codes, and calls `os.Exit`.
 
 As of **v1.1**, backend choice is a first-class, polymorphic seam. A single resolver,
 `inference.BackendFor(cfg.Backend)`, maps the persisted `backend` string
-(`""`/`"rocm"` → ROCm 7.2.4, `"rocm-6.4.4"` / `"rocm-6.4.4-rocwmma"` → the additive
-digest-pinned ROCm 6.4.4 variants, `"vulkan"` → the Vulkan RADV fallback) to a
+(`""`/`"rocm"`/`"rocm-10.0"` → ROCm 10.0 (ADR-0022), `"rocm-7.2.4"` → the former default,
+`"rocm-6.4.4"` / `"rocm-6.4.4-rocwmma"` → the additive digest-pinned ROCm 6.4.4 variants, `"vulkan"` → the Vulkan RADV fallback) to a
 `Backend` implementation and is the **only** place a concrete backend is chosen.
 Because the empty string resolves to ROCm, `inference.IsROCmFamily`, the single
 enumeration of the ROCm-name set that routes the ROCm preflight gate, counts `""` as
@@ -106,7 +106,7 @@ graph TD
     download --> gguf
     catalog --> gguf
     CLI --> resolver["inference.BackendFor(name)<br/>single fail-closed resolver"]
-    resolver --> brc["backendROCm<br/>(7.2.4, default)"]
+    resolver --> brc["backendROCm<br/>(10.0, default)"]
     resolver --> bvk["backendVulkan<br/>(RADV, fallback)"]
     bvk -.implements.-> inference["internal/inference<br/>Backend / Runner / ResidencyProof seam"]
     brc -.implements.-> inference
@@ -264,7 +264,7 @@ crush config bytes, the rendered units). `liveDoctorDeps` binds those reads, the
 proofs that drive real workloads and the preflight gates, and gates nothing.
 
 A second v1.1 flow is the **transactional backend switch** (`villa backend set
-<rocm|rocm-6.4.4|rocm-6.4.4-rocwmma|vulkan>`, `cmd/villa/backend.go`). Since ADR-0015 it
+<rocm|rocm-10.0|rocm-7.2.4|rocm-6.4.4|rocm-6.4.4-rocwmma|vulkan>`, `cmd/villa/backend.go`). Since ADR-0015 it
 and every other swap (`speculation set`, `tools-mode`, `coding-mode`, `model swap`
 from the CLI or the dashboard, and `bench --ab`) run in ONE frame, the **swap
 transaction** `stackapply.Transact` (`internal/stackapply/transact.go`). The swap

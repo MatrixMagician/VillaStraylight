@@ -39,7 +39,7 @@ const fallbackBackend = "vulkan"
 // because it resolves to the default ROCm backend.
 func IsROCmFamily(name string) bool {
 	switch name {
-	case "", "rocm", "rocm-6.4.4", "rocm-6.4.4-rocwmma":
+	case "", "rocm", "rocm-10.0", "rocm-7.2.4", "rocm-6.4.4", "rocm-6.4.4-rocwmma":
 		return true
 	default:
 		return false

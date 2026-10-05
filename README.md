@@ -168,7 +168,7 @@ villa bench --ab                      # also flip to the other backend, bench it
                                       # restore the original, and report the per-metric A/B delta
 ```
 
-`villa backend set <rocm|rocm-6.4.4|rocm-6.4.4-rocwmma|vulkan>` is transactional (capture → mutate → prove → rollback): a failed switch is a no-op to the running stack. ROCm 7.2.4 is the default; Vulkan RADV is the fallback and is always a safe target. `villa bench` flags include `--reps`/`-n` (counted runs per side, default 5), `--warmup` (discarded warm-up runs, default 1), and `--n-predict` (fixed `max_tokens` per run, default 128).
+`villa backend set <rocm|rocm-10.0|rocm-7.2.4|rocm-6.4.4|rocm-6.4.4-rocwmma|vulkan>` is transactional (capture → mutate → prove → rollback): a failed switch is a no-op to the running stack. ROCm 10.0 is the default (ADR-0022), and `rocm-7.2.4` keeps the former default reachable; Vulkan RADV is the fallback and is always a safe target. `villa bench` flags include `--reps`/`-n` (counted runs per side, default 5), `--warmup` (discarded warm-up runs, default 1), and `--n-predict` (fixed `max_tokens` per run, default 128).
 
 **Diagnose, measure, back up (v1.2):**
 
@@ -348,7 +348,7 @@ Key fields (`internal/config/villaconfig.go`):
 | `model` | (from `recommend`) | Chosen catalog model id. |
 | `quant` | (from `recommend`) | Chosen quantization (e.g. `UD-Q4_K_M`). |
 | `ctx` | (from `recommend`) | Context length in tokens. |
-| `backend` | `rocm` | Inference backend: `rocm` (ROCm 7.2.4, default for gfx1151), `rocm-6.4.4`, `rocm-6.4.4-rocwmma`, or the `vulkan` (RADV) fallback. Switch it transactionally with `villa backend set`; `villa config set backend=` only accepts `vulkan`, since every ROCm target must pass the bring-up gate. |
+| `backend` | `rocm` | Inference backend: `rocm` (ROCm 10.0, default for gfx1151), `rocm-10.0` (the same image by name), `rocm-7.2.4`, `rocm-6.4.4`, `rocm-6.4.4-rocwmma`, or the `vulkan` (RADV) fallback. Switch it transactionally with `villa backend set`; `villa config set backend=` only accepts `vulkan`, since every ROCm target must pass the bring-up gate. |
 | `catalog_path` | (embedded) | Optional path to an external catalog JSON override. |
 | `dashboard_port` | `8888` | Host port the control dashboard listens on. |
 | `chat_port` | `3000` | Host port Open WebUI is published on (the dashboard's chat link target). |

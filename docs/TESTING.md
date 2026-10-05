@@ -184,7 +184,7 @@ to hold backend literals) is `internal/inference/` plus
   against five imperative-leak patterns:
   - `runtime.GOOS` / `GOOS ==` platform branching,
   - container **image** literals (`kyuz0`, `docker.io/`, `server-vulkan`, and the
-    ROCm tags `rocm-7.2.4` / `rocm-6.4.4` / `rocm7-nightlies`). These anchor on the
+    ROCm tags `rocm-10.0` / `rocm-7.2.4` / `rocm-6.4.4` / `rocm7-nightlies`). These anchor on the
     IMAGE context (`:tag` / `tag@`), so a bare backend NAME as a config value
     (`case "rocm-6.4.4":` in `render.go`) is deliberately not a hit,
   - container **device** args (`--device /dev/dri`, `--group-add`,

@@ -88,7 +88,7 @@ func TestSeamGrepGate(t *testing.T) {
 		// literals still land ONLY in the seam (backend_rocm.go), and the regex extended
 		// in the SAME commit; the kyuz0|docker.io/ alternatives remain
 		// an un-anchored backstop that catches any image string regardless of tag.
-		"container image literal": regexp.MustCompile(`kyuz0|docker\.io/|server-vulkan|:rocm-7\.2\.4|rocm-7\.2\.4@|:rocm-6\.4\.4|rocm-6\.4\.4@|rocm7-nightlies`),
+		"container image literal": regexp.MustCompile(`kyuz0|docker\.io/|server-vulkan|:rocm-7\.2\.4|rocm-7\.2\.4@|:rocm-10\.0|rocm-10\.0@|:rocm-6\.4\.4|rocm-6\.4\.4@|rocm7-nightlies`),
 		"container device args":   regexp.MustCompile(`--device\s+/dev/dri|--group-add|keep-groups`),
 		"podman invocation":       regexp.MustCompile(`exec\.Command\(\s*"podman"|"podman".*\b(run|stop|logs)\b`),
 	}

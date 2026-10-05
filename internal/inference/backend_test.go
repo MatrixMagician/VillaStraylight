@@ -22,6 +22,8 @@ func TestIsROCmFamily(t *testing.T) {
 		{"rocm", true},
 		{"rocm-6.4.4", true},
 		{"rocm-6.4.4-rocwmma", true},
+		{"rocm-10.0", true},
+		{"rocm-7.2.4", true},
 		{"", true}, // empty == the default ROCm backend in BackendFor; must be gated as ROCm
 		{"vulkan", false},
 		{"bogus", false},

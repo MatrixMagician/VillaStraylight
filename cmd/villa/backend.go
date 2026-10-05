@@ -199,7 +199,7 @@ func proveTarget(cfg config.VillaConfig, backend inference.Backend, host detect.
 }
 
 // ---------------------------------------------------------------------------
-// backend noun (BSET-01/02/03): `villa backend set <rocm|rocm-6.4.4|rocm-6.4.4-rocwmma|vulkan> [--dry-run]` and
+// backend noun (BSET-01/02/03): `villa backend set <rocm|rocm-10.0|rocm-7.2.4|rocm-6.4.4|rocm-6.4.4-rocwmma|vulkan> [--dry-run]` and
 // `villa backend show`. Cloned from the model.go swap noun: RunE returns the mapped
 // exit code (body RETURNS the int so tests assert output+code without a subprocess),
 // the Result→exit mapping mirrors runModelSwap, and the live Deps wire every host
@@ -286,7 +286,7 @@ func runBackendShow(cmd *cobra.Command, asJSON bool) int {
 	return exitPass
 }
 
-// newBackendSet builds `villa backend set <rocm|rocm-6.4.4|rocm-6.4.4-rocwmma|vulkan> [--dry-run]`: the
+// newBackendSet builds `villa backend set <rocm|rocm-10.0|rocm-7.2.4|rocm-6.4.4|rocm-6.4.4-rocwmma|vulkan> [--dry-run]`: the
 // transactional cutover. RunE returns the mapped exit code via os.Exit; the body of
 // runBackendSet returns the int so tests drive it without a subprocess.
 func newBackendSet() *cobra.Command {
@@ -294,7 +294,7 @@ func newBackendSet() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "set <backend>",
 		Short: "Switch the inference backend transactionally (capture → mutate → prove → rollback)",
-		Long: "Switch the inference backend (rocm — the default, rocm-6.4.4, rocm-6.4.4-rocwmma, or the " +
+		Long: "Switch the inference backend (rocm — the default, rocm-10.0, rocm-7.2.4, rocm-6.4.4, rocm-6.4.4-rocwmma, or the " +
 			"vulkan fallback) on the running install: re-check the PRESERVED " +
 			"model against the target envelope (refuse-with-remediation if it no longer fits), run the ROCm " +
 			"preflight for any ROCm-family target, capture the prior unit verbatim, persist config + regenerate ONLY the " +
