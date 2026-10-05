@@ -251,6 +251,12 @@ type Result struct {
 	// cannot be re-recorded after the regression it exists to catch (ADR-0018), so
 	// the cmd tier warns about every one named here. Empty when nothing was lost.
 	EvalDropped []string
+	// EvalUnreadable says why the eval-baselines.json this restore replaced could not
+	// be read for keys (corrupt, or a newer schema; #281), empty when it could or
+	// nothing was replaced (valid on a Restored result). The operator confirmed the
+	// replacement at the skew gate, or bypassed it with --yes/--force; the cmd tier
+	// still warns, because none of its baselines could be named in EvalDropped.
+	EvalUnreadable string
 	// ExcludedAgent is the EXCLUDED coding-agent binary identity recorded in the
 	// restored manifest, surfaced for the operator to RE-STAGE the
 	// binary (re-download the pinned release) — exactly the ExcludedModels re-pull

@@ -5,7 +5,9 @@ package backup
 // is recorded in the manifest and checked by CompareSkew, and restore replaces the
 // document VERBATIM — rolling it back verbatim too — and names every current
 // baseline the archive lacks, because a baseline cannot be re-recorded once the
-// regression it exists to catch has happened (ADR-0018).
+// regression it exists to catch has happened (ADR-0018). A current document that
+// cannot be read for keys is asked about at the skew confirmation before anything
+// is touched (#281).
 
 import (
 	"bytes"
@@ -20,15 +22,19 @@ import (
 const evalDest = "/data/eval-baselines.json"
 
 // lineKeys is the fake document parser: each non-empty line of a "document" is one
-// baseline key. The real parser is the cmd tier's, over evalstore.
-func lineKeys(doc []byte) []string {
+// baseline key, and a document starting with "!" cannot be read, the rest of it
+// saying why. The real parser is the cmd tier's, over evalstore.
+func lineKeys(doc []byte) ([]string, error) {
+	if why, unreadable := strings.CutPrefix(string(doc), "!"); unreadable {
+		return nil, errors.New(why)
+	}
 	var keys []string
 	for _, l := range strings.Split(string(doc), "\n") {
 		if l != "" {
 			keys = append(keys, l)
 		}
 	}
-	return keys
+	return keys, nil
 }
 
 // evalArchive assembles a verified archive holding config.toml, the owui volume and
@@ -143,16 +149,109 @@ func TestRestoreEvalBaselinesReplaceVerbatimAndNameWhatTheyDrop(t *testing.T) {
 }
 
 // TestRestoreEvalBaselinesDropNothingWhenArchiveKeepsEveryBaseline: no warning when
-// nothing is lost — including a first restore onto an install with no baselines.
+// nothing is lost — including a first restore onto an install with no baselines,
+// where an absent store is not an unreadable one and asks nothing.
 func TestRestoreEvalBaselinesDropNothingWhenArchiveKeepsEveryBaseline(t *testing.T) {
 	for name, prior := range map[string][]byte{"superset": []byte("m1\n"), "no prior store": nil} {
 		t.Run(name, func(t *testing.T) {
 			r, in := evalInput(t, evalArchive(t, []byte("m1\nm2\n")), prior)
+			in.Consent = func(p string) bool { t.Fatalf("a readable or absent store must not ask, got %q", p); return false }
 			res := Restore(r.deps(), in)
-			if !res.Restored || len(res.EvalDropped) != 0 {
+			if !res.Restored || len(res.EvalDropped) != 0 || res.EvalUnreadable != "" {
 				t.Fatalf("want Restored with nothing dropped, got %+v", res)
 			}
 		})
+	}
+}
+
+// TestRestoreAsksBeforeReplacingAnUnreadableEvalStore is #281: a current
+// eval-baselines.json this villa cannot read for keys (corrupt, or a newer schema)
+// would be replaced with none of its baselines named, so the skew confirmation
+// asks first, naming the file, why it cannot be read and that it will be replaced.
+// A decline refuses with ZERO side effects: no capture, no write.
+func TestRestoreAsksBeforeReplacingAnUnreadableEvalStore(t *testing.T) {
+	r, in := evalInput(t, evalArchive(t, []byte("m1\n")), []byte("!it is corrupt"))
+	var prompt string
+	in.Consent = func(p string) bool { prompt = p; return false }
+
+	res := Restore(r.deps(), in)
+	if !res.Refused || res.FailedStep != "skew" {
+		t.Fatalf("a declined confirmation must refuse at the skew step, got %+v", res)
+	}
+	for _, want := range []string{evalDest, "unreadable", "it is corrupt", "replace"} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("the confirmation must say %q, got %q", want, prompt)
+		}
+	}
+	if len(r.calls) != 0 || r.written[evalDest] != nil {
+		t.Fatalf("a declined restore must touch nothing, calls %v written %q", r.calls, r.written[evalDest])
+	}
+}
+
+// TestRestoreReplacesAnUnreadableEvalStoreOnceConfirmedAndWarns: --yes/--force (or
+// a yes at the prompt) replaces the unreadable store verbatim, and the Result
+// still says why it could not be read, so the cmd tier keeps a WARN. Nothing is
+// named as dropped: an unreadable store's baselines cannot be named.
+func TestRestoreReplacesAnUnreadableEvalStoreOnceConfirmedAndWarns(t *testing.T) {
+	for name, bypass := range map[string]bool{"bypass": true, "confirmed": false} {
+		t.Run(name, func(t *testing.T) {
+			archived := []byte("m1\n")
+			r, in := evalInput(t, evalArchive(t, archived), []byte("!a newer schema"))
+			in.Bypass = bypass
+			asked := false
+			in.Consent = func(string) bool { asked = true; return true }
+
+			res := Restore(r.deps(), in)
+			if !res.Restored {
+				t.Fatalf("want Restored, got %+v", res)
+			}
+			if asked == bypass {
+				t.Fatalf("Consent asked = %v with Bypass = %v", asked, bypass)
+			}
+			if got := r.written[evalDest]; len(got) != 1 || !bytes.Equal(got[0], archived) {
+				t.Fatalf("the archive's document must be written verbatim, got %q", got)
+			}
+			if res.EvalUnreadable != "a newer schema" || len(res.EvalDropped) != 0 {
+				t.Fatalf("want EvalUnreadable %q and nothing named dropped, got %+v", "a newer schema", res)
+			}
+		})
+	}
+}
+
+// TestRestoreAsksNothingOfAnUnreadableStoreItLeavesAlone: the confirmation is about
+// a replacement, so an archive that does not carry the entry, or an install that
+// wires no destination for it, asks nothing and reports nothing.
+func TestRestoreAsksNothingOfAnUnreadableStoreItLeavesAlone(t *testing.T) {
+	noEntry := buildArchive(t, baseManifest(), validCfgTOML, []byte("owui-data"), nil, nil, false)
+	cases := map[string]func() (*recDeps, RestoreInput){
+		"archive without the entry": func() (*recDeps, RestoreInput) {
+			return evalInput(t, noEntry, []byte("!corrupt"))
+		},
+		"no destination wired": func() (*recDeps, RestoreInput) {
+			r, in := evalInput(t, evalArchive(t, []byte("m1\n")), []byte("!corrupt"))
+			delete(in.Dests, EntryEvalBaselines)
+			return r, in
+		},
+	}
+	for name, build := range cases {
+		t.Run(name, func(t *testing.T) {
+			r, in := build()
+			in.Consent = func(p string) bool { t.Fatalf("nothing is replaced, so nothing is asked; got %q", p); return false }
+			if res := Restore(r.deps(), in); !res.Restored || res.EvalUnreadable != "" {
+				t.Fatalf("want Restored with no unreadable report, got %+v", res)
+			}
+		})
+	}
+}
+
+// TestRestoreNamesEveryBaselineAnUnreadableArchiveDocumentDrops: when the archive's
+// own document cannot be read for keys, none of the current baselines survive the
+// replacement in a form this villa reads, so each is named as dropped.
+func TestRestoreNamesEveryBaselineAnUnreadableArchiveDocumentDrops(t *testing.T) {
+	r, in := evalInput(t, evalArchive(t, []byte("!corrupt")), []byte("m1\nm2\n"))
+	res := Restore(r.deps(), in)
+	if !res.Restored || strings.Join(res.EvalDropped, ",") != "m1,m2" {
+		t.Fatalf("want Restored naming m1 and m2 as dropped, got %+v", res)
 	}
 }
 

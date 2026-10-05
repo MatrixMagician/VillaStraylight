@@ -85,6 +85,14 @@ takes a named field like the others.
   produced an empty destination for them, so no existing behavior moves.
 - A baseline recorded after a backup is lost on restore, with a WARN naming it.
   An operator who wants it kept merges by hand before restoring.
+- A current eval-baselines.json that restore would replace but cannot read for
+  keys (corrupt, or written by a newer villa) would lose its baselines with none
+  named, and evalstore itself refuses that overwrite. `EvalKeysOf` reports it as
+  an error rather than an empty list, and the skew confirmation asks before any
+  capture, naming the file, why it cannot be read and that it will be replaced
+  (#281). A decline mutates nothing; `--yes`/`--force` replace it and keep a
+  WARN. An absent file is not asked about. "No new prompt" above holds for a
+  store restore can read.
 - The refactor commit is byte-identical on the wire: the archive layout, the
   manifest and the seam-call order are pinned by `TestBackupAgentOffIsLayoutIdentical`,
   `TestManifestJSONRoundTrip`, `TestRestoreV1ManifestStillRestores` and the

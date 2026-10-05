@@ -19,6 +19,8 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -52,7 +54,8 @@ func newRestore() *cobra.Command {
 		Short: "Restore the workspace from a backup .tar transactionally (capture -> swap -> prove -> rollback)",
 		Long: "Restore a `villa backup` archive: verify its per-entry SHA-256 checksums (a corrupt archive or an " +
 			"incompatible manifest is a fail-closed BLOCK with zero side effects), warn-and-confirm on version/digest/" +
-			"store-schema skew (bypass with --yes/--force), capture the current state for rollback, briefly stop Open " +
+			"store-schema skew or an unreadable eval-baselines.json it would replace (bypass with --yes/--force), " +
+			"capture the current state for rollback, briefly stop Open " +
 			"WebUI, restore config.toml + the usage/bench stores (usage.json, bench-reports.jsonl), clean-recreate the " +
 			"Open WebUI data volume (openwebui-volume.tar: remove -> regenerate the Quadlet unit from the restored " +
 			"config -> create -> import, so stale data never leaks through a merge), restart, and PROVE the restored " +
@@ -244,6 +247,7 @@ func narrateRestored(out io.Writer, archivePath string, res backup.Result) {
 	narrateRestoredEntry(out, searxngRestoreNarration, res)
 	narrateRestoredEntry(out, evalRestoreNarration, res)
 	narrateEvalDropped(out, res)
+	narrateEvalUnreadable(out, res)
 }
 
 // narrateEvalDropped warns about every eval baseline the restore replaced away.
@@ -257,19 +261,48 @@ func narrateEvalDropped(out io.Writer, res backup.Result) {
 	fmt.Fprintf(out, "warning: eval baselines not in this backup were replaced and are gone: %s — a baseline cannot be re-recorded once a regression has happened (ADR-0018)\n", strings.Join(res.EvalDropped, ", "))
 }
 
+// narrateEvalUnreadable keeps the WARN for an eval-baselines.json the restore could
+// not read and replaced anyway, confirmed at the skew gate or bypassed with
+// --yes/--force (#281): none of its baselines could be named by narrateEvalDropped.
+func narrateEvalUnreadable(out io.Writer, res backup.Result) {
+	if res.EvalUnreadable == "" {
+		return
+	}
+	fmt.Fprintf(out, "warning: eval-baselines.json was unreadable (%s) and has been replaced by the backup's — any eval baseline it held is gone and could not be named (ADR-0018)\n", res.EvalUnreadable)
+}
+
 // liveEvalKeysOf names the baselines an eval-baselines.json document holds, reading
-// it exactly as the store does (an unreadable or future-schema document is empty),
-// so internal/backup stays free of eval and evalstore.
-func liveEvalKeysOf(doc []byte) []string {
+// it exactly as the store does, so internal/backup stays free of eval and evalstore.
+// A document the store would not read (corrupt, or another schema version — the
+// ones evalstore.Put refuses to overwrite) is an error saying why, never an empty
+// list that would pass for a store with no baselines (#281). An empty document is
+// readable and holds none.
+func liveEvalKeysOf(doc []byte) ([]string, error) {
 	d, err := evalstore.Load(evalstore.Deps{ReadAll: func() ([]byte, error) { return doc, nil }})
 	if err != nil {
-		return nil
+		return nil, err
+	}
+	if len(doc) > 0 && d.SchemaVersion != evalstore.SchemaVersion() {
+		return nil, evalUnreadableWhy(doc)
 	}
 	keys := make([]string, 0, len(d.Baselines))
 	for _, b := range d.Baselines {
 		keys = append(keys, fmt.Sprintf("%s %s (suite v%d)", b.Key.Model, b.Key.Quant, b.Key.SuiteVersion))
 	}
-	return keys
+	return keys, nil
+}
+
+// evalUnreadableWhy says why the store does not read doc: it carries a schema_version
+// other than this villa's (a newer villa wrote it), or else it is corrupt.
+func evalUnreadableWhy(doc []byte) error {
+	var probe struct {
+		SchemaVersion int `json:"schema_version"`
+	}
+	if json.Unmarshal(doc, &probe) != nil || probe.SchemaVersion == evalstore.SchemaVersion() {
+		return errors.New("it is corrupt")
+	}
+	return fmt.Errorf("it carries schema_version %d and this villa reads only schema_version %d",
+		probe.SchemaVersion, evalstore.SchemaVersion())
 }
 
 // narrateRestoredQdrant is the honest Phase-23 memory reporting (OQ1: report, never
