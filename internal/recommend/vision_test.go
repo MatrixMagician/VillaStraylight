@@ -65,7 +65,7 @@ func TestPickReservesProjector(t *testing.T) {
 				t.Errorf("ProjectorBytes = %d, want %d", rec.ProjectorBytes, tc.wantProj)
 			}
 
-			want := rec.WeightBytes + rec.KVCacheBytes + rec.HeadroomBytes + tc.wantProj
+			want := rec.WeightBytes + rec.KVCacheBytes + rec.HeadroomBytes + rec.PromptCacheBytes + tc.wantProj
 			if rec.TotalBytes != want {
 				t.Errorf("TotalBytes = %d, want %d (the fit terms plus the projector)", rec.TotalBytes, want)
 			}
