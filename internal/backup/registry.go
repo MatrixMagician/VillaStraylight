@@ -48,6 +48,7 @@ var registry = []Row{
 	{Name: EntryRecallState, Label: "recall-state.json", Kind: KindFile},
 	{Name: EntryCrushConfig, Label: "crush.json", Kind: KindFile},
 	{Name: EntrySearxngSettings, Label: "settings.yml", Kind: KindFile},
+	{Name: EntryEvalBaselines, Label: "eval-baselines.json", Kind: KindFile},
 }
 
 // fileRows are the registry's KindFile rows, in order.

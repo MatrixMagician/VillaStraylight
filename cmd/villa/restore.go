@@ -31,6 +31,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/benchstore"
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
+	"github.com/MatrixMagician/VillaStraylight/internal/evalstore"
 	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 	"github.com/MatrixMagician/VillaStraylight/internal/pathsafe"
@@ -203,6 +204,14 @@ var (
 		skipped:  "web search: archive carried settings.yml but the current install is web-search-off — NOT applied; re-run `villa install` with web search enabled then restore, or it will not be applied",
 		absent:   "web search: no settings.yml in this backup — left untouched",
 	}
+	// eval-baselines.json is replaced verbatim; the baselines that replacement loses
+	// are named by narrateEvalDropped.
+	evalRestoreNarration = restoreNarration{
+		entry:    backup.EntryEvalBaselines,
+		restored: "eval: baselines restored",
+		skipped:  "eval: archive carried baselines but this install wired no destination — NOT applied",
+		absent:   "eval: no baselines in this backup — left untouched",
+	}
 )
 
 func narrateRestoredEntry(out io.Writer, n restoreNarration, res backup.Result) {
@@ -228,6 +237,34 @@ func narrateRestored(out io.Writer, archivePath string, res backup.Result) {
 	narrateRestoredEntry(out, crushRestoreNarration, res)
 	narrateRestoredAgentIdentity(out, res)
 	narrateRestoredEntry(out, searxngRestoreNarration, res)
+	narrateRestoredEntry(out, evalRestoreNarration, res)
+	narrateEvalDropped(out, res)
+}
+
+// narrateEvalDropped warns about every eval baseline the restore replaced away.
+// Restore replaces eval-baselines.json verbatim (merging would break the verbatim
+// rollback), and ADR-0018 says a baseline cannot be re-recorded after the
+// regression it exists to catch, so the loss is named, never silent.
+func narrateEvalDropped(out io.Writer, res backup.Result) {
+	if len(res.EvalDropped) == 0 {
+		return
+	}
+	fmt.Fprintf(out, "warning: eval baselines not in this backup were replaced and are gone: %s — a baseline cannot be re-recorded once a regression has happened (ADR-0018)\n", strings.Join(res.EvalDropped, ", "))
+}
+
+// liveEvalKeysOf names the baselines an eval-baselines.json document holds, reading
+// it exactly as the store does (an unreadable or future-schema document is empty),
+// so internal/backup stays free of eval and evalstore.
+func liveEvalKeysOf(doc []byte) []string {
+	d, err := evalstore.Load(evalstore.Deps{ReadAll: func() ([]byte, error) { return doc, nil }})
+	if err != nil {
+		return nil
+	}
+	keys := make([]string, 0, len(d.Baselines))
+	for _, b := range d.Baselines {
+		keys = append(keys, fmt.Sprintf("%s %s (suite v%d)", b.Key.Model, b.Key.Quant, b.Key.SuiteVersion))
+	}
+	return keys
 }
 
 // narrateRestoredQdrant is the honest Phase-23 memory reporting (OQ1: report, never
@@ -301,6 +338,7 @@ func liveCurrentInstall(cfg config.VillaConfig) (backup.CurrentInstall, error) {
 		ConfigSchemaVersion: 0, // VillaConfig carries no schema_version field (not recorded).
 		UsageSchemaVersion:  usage.SchemaVersion(),
 		BenchSchemaVersion:  benchstore.SavedReportSchemaVersion(),
+		EvalSchemaVersion:   evalstore.SchemaVersion(),
 		EmbeddingModel:      cfg.EmbeddingModel,
 		EmbeddingDim:        cfg.EmbeddingDim,
 		RecallSchemaVersion: recall.SchemaVersion(),
@@ -364,6 +402,7 @@ func newRestoreInput(absArchive, tmpDir string, bypass bool, cur backup.CurrentI
 		TempVolumeTar:       filepath.Join(tmpDir, "restore-owui.tar"),
 		RollbackVolumeTar:   filepath.Join(tmpDir, "rollback-owui.tar"),
 		Dests:               dests,
+		EvalKeysOf:          liveEvalKeysOf,
 		QdrantVolumeName:    orchestrate.QdrantVolumeName(),
 		TempQdrantTar:       filepath.Join(tmpDir, "restore-qdrant.tar"),
 		RollbackQdrantTar:   filepath.Join(tmpDir, "rollback-qdrant.tar"),

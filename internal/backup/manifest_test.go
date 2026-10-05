@@ -110,20 +110,24 @@ func TestManifestV2MemoryEntryConsts(t *testing.T) {
 	}
 }
 
-// TestManifestSchemaVersionIsV4 asserts the manifest's own schema version is 4
-// (the Phase-34 append-only bump: v4 adds the OPTIONAL settings.yml
-// web-search provenance entry; old villas fail closed on a v4 backup, v3/v2/v1
-// backups stay restorable because the gate is m.SchemaVersion <=
-// backupSchemaVersion). The Phase-28 v3 crush.json entry stays present.
-func TestManifestSchemaVersionIsV4(t *testing.T) {
-	if backupSchemaVersion != 4 {
-		t.Fatalf("backupSchemaVersion = %d, want 4 (Phase 34 web-search settings.yml entry)", backupSchemaVersion)
+// TestManifestSchemaVersionIsV5 asserts the manifest's own schema version is 5
+// (the #275 append-only bump: v5 adds the OPTIONAL eval-baselines.json entry and
+// eval_schema_version; a v4 villa would verify and then silently drop the unknown
+// member, so it must fail closed on a v5 backup, while v4/v3/v2/v1 backups stay
+// restorable because the gate is m.SchemaVersion <= backupSchemaVersion). The
+// earlier optional entries stay present.
+func TestManifestSchemaVersionIsV5(t *testing.T) {
+	if backupSchemaVersion != 5 {
+		t.Fatalf("backupSchemaVersion = %d, want 5 (#275 eval-baselines.json entry)", backupSchemaVersion)
 	}
 	if EntryCrushConfig != "crush.json" {
 		t.Fatalf("EntryCrushConfig = %q, want crush.json", EntryCrushConfig)
 	}
 	if EntrySearxngSettings != "searxng-settings.yml" {
 		t.Fatalf("EntrySearxngSettings = %q, want searxng-settings.yml", EntrySearxngSettings)
+	}
+	if EntryEvalBaselines != "eval-baselines.json" {
+		t.Fatalf("EntryEvalBaselines = %q, want eval-baselines.json", EntryEvalBaselines)
 	}
 }
 

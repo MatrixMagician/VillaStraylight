@@ -55,12 +55,14 @@ land without a seventh copy of the same branch.
 - **Restore replaces eval baselines verbatim, and warns.** Restore is a
   replacement of the whole document, so any baseline recorded after the backup is
   lost, and ADR-0018 says a baseline cannot be re-recorded. The cmd tier hands
-  the core the current store's baseline keys and a parser for the archive's
-  document, as plain data and a function, so `internal/backup` still imports
-  nothing from `eval` or `evalstore`. On success the result names each current key
-  the archive lacks, and the cmd tier prints a WARN for it. There is no new prompt:
-  the replacement is what restore is for, and the rollback tar restores the prior
-  file if the proof fails.
+  the core `EvalKeysOf`, a function that names the baselines a document holds
+  (read with `evalstore`, so `internal/backup` still imports nothing from `eval`
+  or `evalstore`). The core applies it to the archive's document and to the copy
+  of the current file it captured before mutating, so the comparison is against
+  the state the restore actually replaced. On success `Result.EvalDropped` names
+  each current baseline the archive lacks and the cmd tier prints a WARN for it.
+  There is no new prompt: the replacement is what restore is for, and a failed
+  proof rewrites the captured file byte for byte.
 
 ## Rejected
 

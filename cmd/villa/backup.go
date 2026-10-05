@@ -31,6 +31,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/benchstore"
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
+	"github.com/MatrixMagician/VillaStraylight/internal/evalstore"
 	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 	"github.com/MatrixMagician/VillaStraylight/internal/pathsafe"
@@ -124,6 +125,9 @@ var fileEntrySites = []fileEntrySite{
 		backup:  siteRule{subsystem.WebSearchOn, "cannot resolve settings.yml path (web-search config not archived)"},
 		restore: siteRule{subsystem.WebSearchOn, "cannot resolve settings.yml path (web-search config will not be restored)"},
 	},
+	// eval-baselines.json (ADR-0018, #275): ungated, since `villa eval` is always
+	// available, and it lives under the data root so the store-root writer restores it.
+	{entry: backup.EntryEvalBaselines, path: func() (string, error) { return evalstore.Path(), nil }},
 }
 
 // fileEntryPaths resolves the path of every file entry the verb's rule puts in
@@ -230,6 +234,7 @@ func buildBackupInput(errOut io.Writer, output string) (backup.Input, error) {
 		ConfigSchemaVersion: 0, // VillaConfig carries no schema_version field (not recorded).
 		UsageSchemaVersion:  usage.SchemaVersion(),
 		BenchSchemaVersion:  benchstore.SavedReportSchemaVersion(),
+		EvalSchemaVersion:   evalstore.SchemaVersion(),
 		OutputPath:          absOut,
 		OpenWebUIVolumeName: orchestrate.OpenWebUIVolumeName(),
 		Sources:             liveBackupSources(cfg, cfgPath, errOut),
@@ -316,6 +321,12 @@ var (
 		absent:   "web search: settings.yml not included (no rendered settings.yml)",
 		included: "web search: settings.yml included (" + backup.EntrySearxngSettings + ")",
 	}
+	// Eval baselines are ungated, so this entry is never "off".
+	evalBackupNarration = entryNarration{
+		entry:    backup.EntryEvalBaselines,
+		absent:   "eval: baselines not included (no eval-baselines.json)",
+		included: "eval: baselines included (" + backup.EntryEvalBaselines + ")",
+	}
 )
 
 func fileExists(path string) bool {
@@ -350,6 +361,7 @@ func narrateBackup(out, errOut io.Writer, in backup.Input, res backup.Result) {
 	narrateExcludedModels(out, in.ExcludedModels)
 	narrateBackupEntry(out, crushBackupNarration, in.Sources)
 	narrateBackupEntry(out, searxngBackupNarration, in.Sources)
+	narrateBackupEntry(out, evalBackupNarration, in.Sources)
 	narrateExcludedAgent(out, in)
 }
 

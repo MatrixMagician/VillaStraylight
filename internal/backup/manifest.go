@@ -51,7 +51,16 @@ import (
 //     web-search-OFF backup records NO settings.yml entry and stays
 //     byte-/layout-identical to a v3 archive (the bump only widens the contract
 //     for a web-search-ON backup).
-const backupSchemaVersion = 4
+//   - v5 (#275, ADR-0020): adds the OPTIONAL eval-baselines.json entry
+//     (EntryEvalBaselines, the ADR-0018 baseline store) and the
+//     eval_schema_version manifest field. The bump is REQUIRED, not cosmetic: a v4
+//     villa verifies every member the manifest lists and then silently drops one it
+//     does not know, so a v5 archive restored by a v4 villa would report success
+//     without applying the baselines. Failing closed on it is the point. Same
+//     contract as the earlier bumps: v4 and older backups stay restorable (the
+//     gate is m.SchemaVersion <= backupSchemaVersion), and a backup of an install
+//     with no eval-baselines.json records no entry.
+const backupSchemaVersion = 5
 
 // Archive entry names (the deterministic outer-tar layout). manifest.json
 // is FIRST so a reader parses the manifest before validating the rest. The bench
@@ -84,6 +93,13 @@ const (
 	// design. The WebSearchEnabled gate itself rides in config.toml
 	// (web_search_enabled to EntryConfig), so this is the settings.yml provenance only.
 	EntrySearxngSettings = "searxng-settings.yml"
+	// EntryEvalBaselines is the OPTIONAL eval baselines store (ADR-0018, #275):
+	// eval-baselines.json under the villa data root. It is ungated (the eval verb is
+	// always available) and archived whenever the file exists. A baseline records a
+	// known-good state that cannot be re-recorded after the regression it exists to
+	// catch, which is why it is a backup entry at all. Restore replaces the document
+	// verbatim and warns about every current baseline the archive lacks.
+	EntryEvalBaselines = "eval-baselines.json"
 )
 
 // EntryChecksum is one archive member's name and its lowercase-hex SHA-256
@@ -183,6 +199,10 @@ type Manifest struct {
 	// (recall.SchemaVersion(), accessor-sourced — Phase 23). Zero means "not
 	// recorded" (memory-off / pre-v2 backup) and never blocks.
 	RecallSchemaVersion int `json:"recall_schema_version,omitempty"`
+	// EvalSchemaVersion is the eval baselines store's own schema version at backup
+	// time (evalstore.SchemaVersion(), accessor-sourced — #275). Zero means "not
+	// recorded" (a pre-v5 backup) and never blocks.
+	EvalSchemaVersion int `json:"eval_schema_version,omitempty"`
 	// ExcludedAgent is the IDENTITY of the EXCLUDED coding-agent binary (Phase 28,
 	// recorded ONLY on an agent-on backup so restore can re-stage it
 	// and fail-closed on identity drift — the binary bytes are NEVER archived
@@ -218,6 +238,8 @@ type ManifestInput struct {
 	EmbeddingModel      string
 	EmbeddingDim        int
 	RecallSchemaVersion int
+	// EvalSchemaVersion is the eval baselines store schema (#275), accessor-sourced.
+	EvalSchemaVersion int
 	// ExcludedAgent is the Phase-28 coding-agent identity record:
 	// the cmd tier sets it ONLY on an agent-on backup (nil otherwise, so the
 	// manifest omits the key and the archive stays v2-layout-identical). Identity
@@ -243,6 +265,7 @@ func BuildManifest(in ManifestInput) Manifest {
 		EmbeddingModel:      in.EmbeddingModel,
 		EmbeddingDim:        in.EmbeddingDim,
 		RecallSchemaVersion: in.RecallSchemaVersion,
+		EvalSchemaVersion:   in.EvalSchemaVersion,
 		ExcludedAgent:       in.ExcludedAgent,
 		SchemaVersion:       backupSchemaVersion,
 	}

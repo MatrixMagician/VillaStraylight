@@ -51,6 +51,10 @@ type Input struct {
 	ConfigSchemaVersion int
 	UsageSchemaVersion  int
 	BenchSchemaVersion  int
+	// EvalSchemaVersion is the eval baselines store schema (evalstore.SchemaVersion(),
+	// accessor-sourced like the others, #275). It is recorded whether or not the
+	// store file exists, as usage/bench are.
+	EvalSchemaVersion int
 
 	// OutputPath is the traversal-guarded destination archive path the caller has
 	// already validated; Backup writes the assembled tar to OutputWriter (the caller
@@ -165,6 +169,7 @@ func (in Input) manifestInput(sums []EntryChecksum) ManifestInput {
 		EmbeddingModel:      in.EmbeddingModel,
 		EmbeddingDim:        in.EmbeddingDim,
 		RecallSchemaVersion: in.RecallSchemaVersion,
+		EvalSchemaVersion:   in.EvalSchemaVersion,
 		ExcludedAgent:       in.excludedAgent(),
 	}
 }
@@ -429,6 +434,9 @@ type CurrentInstall struct {
 	// (recall.SchemaVersion(), accessor-sourced at the cmd tier — this core
 	// imports no recall, mirroring the usage/bench plain-int convention).
 	RecallSchemaVersion int
+	// EvalSchemaVersion is the CURRENT eval baselines store schema version
+	// (evalstore.SchemaVersion(), accessor-sourced at the cmd tier).
+	EvalSchemaVersion int
 	// ChecksumFailed is set by the caller when a per-entry SHA-256 verify failed
 	// (archive corruption) — CompareSkew turns it into a fail-closed BLOCK.
 	ChecksumFailed bool
@@ -502,6 +510,7 @@ func storeVersions(m Manifest, cur CurrentInstall) []storeVersion {
 		{"usage", m.UsageSchemaVersion, cur.UsageSchemaVersion},
 		{"bench", m.BenchSchemaVersion, cur.BenchSchemaVersion},
 		{"recall", m.RecallSchemaVersion, cur.RecallSchemaVersion},
+		{"eval", m.EvalSchemaVersion, cur.EvalSchemaVersion},
 	}
 }
 

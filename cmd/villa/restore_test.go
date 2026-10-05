@@ -25,6 +25,8 @@ import (
 
 	"github.com/MatrixMagician/VillaStraylight/internal/backup"
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
+	"github.com/MatrixMagician/VillaStraylight/internal/eval"
+	"github.com/MatrixMagician/VillaStraylight/internal/evalstore"
 	"github.com/MatrixMagician/VillaStraylight/internal/prove"
 )
 
@@ -471,7 +473,7 @@ func TestLiveRestoreAssemblesTheInput(t *testing.T) {
 	if code != exitPass {
 		t.Fatalf("liveRestore = %d, want %d; stderr=%q", code, exitPass, errOut.String())
 	}
-	if want := []string{backup.EntryBenchReports, backup.EntryRecallState, backup.EntryUsage}; !slices.Equal(sortedKeys(in.Dests), want) {
+	if want := []string{backup.EntryBenchReports, backup.EntryEvalBaselines, backup.EntryRecallState, backup.EntryUsage}; !slices.Equal(sortedKeys(in.Dests), want) {
 		t.Fatalf("dests = %v, want %v", sortedKeys(in.Dests), want)
 	}
 	if !in.Bypass || !in.QdrantVolumeExists || in.QdrantVolumeUnknown {
@@ -605,5 +607,119 @@ func TestRunRestoreReportsRefusalAndRollback(t *testing.T) {
 	}
 	if reportRolledBack(io.Discard, "b.tar", "/tmp/keep", backup.Result{RolledBack: true}) {
 		t.Fatalf("a complete rollback must not preserve the temp dir")
+	}
+}
+
+// evalDoc is an eval-baselines.json document holding one baseline per model.
+func evalDoc(t *testing.T, models ...string) []byte {
+	t.Helper()
+	doc := evalstore.Document{SchemaVersion: evalstore.SchemaVersion()}
+	for _, m := range models {
+		doc.Baselines = append(doc.Baselines, eval.Baseline{Key: eval.Key{Model: m, Quant: "Q4", SuiteVersion: 1}})
+	}
+	b, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
+// realWriteRestoreDeps is the live restore wiring minus podman, systemd and the
+// proof: config and files go through the real seams onto the scratch XDG roots.
+func realWriteRestoreDeps() backup.RestoreDeps {
+	d := fakeRestoreDeps(prove.Verdict{Status: prove.StatusPass})
+	d.LoadConfig = config.LoadVilla
+	d.SaveConfig = config.SaveVilla
+	d.ReadFile = os.ReadFile
+	d.WriteFile = liveRestoreWriteFile
+	d.RemoveFile = func(p string) error {
+		if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		return nil
+	}
+	return d
+}
+
+// TestBackupRestoreRoundTripsEvalBaselines is #275's acceptance over the REAL
+// cmd-tier wiring on a scratch XDG root: back up an install with eval baselines,
+// let the store drift, restore, and eval-baselines.json is the backed-up bytes
+// again — byte for byte. A baseline recorded after the backup is replaced, and the
+// restore WARNS naming it, because it cannot be re-recorded; a restore that loses
+// nothing says nothing.
+func TestBackupRestoreRoundTripsEvalBaselines(t *testing.T) {
+	tests := []struct {
+		name     string
+		drifted  []string
+		wantWarn string
+	}{
+		{"a baseline recorded after the backup is named", []string{"m1", "later"}, "later Q4 (suite v1)"},
+		{"nothing lost, nothing said", []string{"m1"}, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			scratchVillaHome(t, "backend = \"vulkan\"\n")
+			stubPodmanVolume(t, func([]string) (string, error) { return "", nil })
+			store := evalstore.Path()
+			if err := os.MkdirAll(filepath.Dir(store), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			backedUp := evalDoc(t, "m1", "m2")
+			if err := os.WriteFile(store, backedUp, 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			archive := filepath.Join(t.TempDir(), "villa-backup.tar")
+			bcmd, _, berr := newBackupTestCmd()
+			if code := runBackup(bcmd, archive, fakeRunDeps(t, nil)); code != exitPass {
+				t.Fatalf("runBackup = %d; stderr=%q", code, berr.String())
+			}
+
+			if err := os.WriteFile(store, evalDoc(t, tt.drifted...), 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			rcmd, out, rerr := newRestoreTestCmd()
+			in, _, tmpDir, code := liveRestore(rcmd, archive, true)
+			if code != exitPass {
+				t.Fatalf("liveRestore = %d; stderr=%q", code, rerr.String())
+			}
+			t.Cleanup(func() { _ = os.RemoveAll(tmpDir) })
+			if code, _ := runRestore(rcmd, archive, in, realWriteRestoreDeps(), tmpDir); code != exitPass {
+				t.Fatalf("runRestore = %d; stderr=%q", code, rerr.String())
+			}
+
+			got, err := os.ReadFile(store)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(got, backedUp) {
+				t.Fatalf("eval-baselines.json must be restored byte for byte:\n got %s\nwant %s", got, backedUp)
+			}
+			warned := strings.Contains(out.String(), "warning: eval baselines")
+			if tt.wantWarn == "" {
+				if warned {
+					t.Fatalf("a restore that loses no baseline must not warn, got %q", out.String())
+				}
+				return
+			}
+			if !warned || !strings.Contains(out.String(), tt.wantWarn) {
+				t.Fatalf("the restore must warn naming %q, got %q", tt.wantWarn, out.String())
+			}
+		})
+	}
+}
+
+// TestLiveEvalKeysNamesEachBaselineAndFailsClosed: the parser the restore core is
+// handed reads a document the way the store does — each baseline's key as a label —
+// and a document this villa cannot read names none (the store would treat it as
+// empty too).
+func TestLiveEvalKeysNamesEachBaselineAndFailsClosed(t *testing.T) {
+	got := liveEvalKeysOf(evalDoc(t, "m1", "m2"))
+	if want := []string{"m1 Q4 (suite v1)", "m2 Q4 (suite v1)"}; !slices.Equal(got, want) {
+		t.Fatalf("keys = %v, want %v", got, want)
+	}
+	if keys := liveEvalKeysOf([]byte("not json")); len(keys) != 0 {
+		t.Fatalf("an unreadable document names no baseline, got %v", keys)
 	}
 }

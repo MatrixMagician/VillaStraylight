@@ -357,7 +357,7 @@ func sortedKeys(m map[string]string) []string {
 // the entry existed.
 func TestLiveBackupSourcesGateEachEntry(t *testing.T) {
 	cfgPath := scratchVillaHome(t, "")
-	always := []string{backup.EntryBenchReports, backup.EntryConfig, backup.EntryUsage}
+	always := []string{backup.EntryBenchReports, backup.EntryConfig, backup.EntryEvalBaselines, backup.EntryUsage}
 	tests := []struct {
 		name string
 		cfg  config.VillaConfig
@@ -386,7 +386,7 @@ func TestLiveBackupSourcesGateEachEntry(t *testing.T) {
 // when their subsystem is on, so an off install makes ZERO writes for them.
 func TestLiveRestoreDestsGateEachEntry(t *testing.T) {
 	scratchVillaHome(t, "")
-	always := []string{backup.EntryBenchReports, backup.EntryRecallState, backup.EntryUsage}
+	always := []string{backup.EntryBenchReports, backup.EntryEvalBaselines, backup.EntryRecallState, backup.EntryUsage}
 	tests := []struct {
 		name string
 		cfg  config.VillaConfig

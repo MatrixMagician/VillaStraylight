@@ -155,6 +155,21 @@ func TestSkewClassification(t *testing.T) {
 			mutate:    func(m *Manifest, c *CurrentInstall) { m.BenchSchemaVersion = 5; c.BenchSchemaVersion = 1 },
 			wantBlock: true,
 		},
+		{
+			name:      "newer eval store schema -> BLOCK",
+			mutate:    func(m *Manifest, c *CurrentInstall) { m.EvalSchemaVersion = 5; c.EvalSchemaVersion = 1 },
+			wantBlock: true,
+		},
+		{
+			name:      "older eval store schema -> WARN",
+			mutate:    func(m *Manifest, c *CurrentInstall) { m.EvalSchemaVersion = 1; c.EvalSchemaVersion = 2 },
+			wantWarnN: 1,
+			wantField: "eval_schema_version",
+		},
+		{
+			name:   "eval schema not recorded (a v4 backup) -> no finding",
+			mutate: func(m *Manifest, c *CurrentInstall) { m.EvalSchemaVersion = 0; c.EvalSchemaVersion = 1 },
+		},
 	}
 
 	for _, tt := range tests {
@@ -571,12 +586,12 @@ func TestBackupSearxngSettings(t *testing.T) {
 		if !csum[EntrySearxngSettings] {
 			t.Fatalf("settings.yml entry has no checksum: %+v", m.Entries)
 		}
-		// The manifest stamps its OWN backupSchemaVersion (4), never a caller value.
+		// The manifest stamps its OWN backupSchemaVersion (5), never a caller value.
 		if m.SchemaVersion != backupSchemaVersion {
 			t.Fatalf("manifest must stamp schema %d, got %d", backupSchemaVersion, m.SchemaVersion)
 		}
-		if backupSchemaVersion != 4 {
-			t.Fatalf("Phase-34 backup contract is schema 4, got %d", backupSchemaVersion)
+		if backupSchemaVersion != 5 {
+			t.Fatalf("the eval-baselines backup contract (ADR-0020) is schema 5, got %d", backupSchemaVersion)
 		}
 	})
 

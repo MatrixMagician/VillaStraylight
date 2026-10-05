@@ -245,6 +245,12 @@ type Result struct {
 	// result). The cmd tier narrates from it by name, so a new row needs no new
 	// field here.
 	Files map[string]FileOutcome
+	// EvalDropped names each eval baseline that existed before the restore and is
+	// not in the archive, so it is gone now (valid on a Restored result). Restore
+	// replaces eval-baselines.json verbatim rather than merging it, and a baseline
+	// cannot be re-recorded after the regression it exists to catch (ADR-0018), so
+	// the cmd tier warns about every one named here. Empty when nothing was lost.
+	EvalDropped []string
 	// ExcludedAgent is the EXCLUDED coding-agent binary identity recorded in the
 	// restored manifest, surfaced for the operator to RE-STAGE the
 	// binary (re-download the pinned release) — exactly the ExcludedModels re-pull

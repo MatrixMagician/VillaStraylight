@@ -122,6 +122,15 @@ type RestoreInput struct {
 	// run the destructive VolumeRm on a possibly-real, UNCAPTURED qdrant volume.
 	// A memory-free archive ignores it (zero qdrant calls either way).
 	QdrantVolumeUnknown bool
+
+	// EvalKeysOf names the baselines an eval-baselines.json document holds, one label
+	// per baseline (the cmd tier parses it with evalstore, so this package imports
+	// nothing from eval; an unreadable document names none, as the store would treat
+	// it as empty). Restore replaces the document verbatim, so it applies EvalKeysOf
+	// to the archive's document and to the file it captured before mutating, and
+	// reports every captured baseline the archive lacks in Result.EvalDropped. Nil
+	// disables the report.
+	EvalKeysOf func(doc []byte) []string
 }
 
 // restoreTxn is one Restore's state: the verified archive, the prior state captured
@@ -465,6 +474,7 @@ func (t *restoreTxn) restored(v prove.Verdict) Result {
 		QdrantRestored:        t.ex.qdrantPresent,
 		RestoredMemoryEnabled: t.restoredCfg.MemoryEnabled,
 		Files:                 t.fileOutcomes(),
+		EvalDropped:           t.evalDropped(),
 		// Surface the EXCLUDED agent binary identity for the operator to RE-STAGE
 		// (re-download the pinned release) — the binary bytes were never in the
 		// archive, exactly like model weights. Nil on an agent-off backup (the
@@ -481,6 +491,36 @@ func (t *restoreTxn) fileOutcomes() map[string]FileOutcome {
 		}
 	}
 	return out
+}
+
+// evalDropped names the baselines this restore replaced away: those in the
+// eval-baselines.json captured before mutation that the archive's document lacks.
+// Restore replaces the whole document verbatim, a baseline cannot be re-recorded
+// after the regression it exists to catch (ADR-0018), and so the loss is reported
+// rather than merged around. Nothing is dropped when the archive carries no
+// document (the current file is left alone) or there was no current file.
+func (t *restoreTxn) evalDropped() []string {
+	archived, carried := t.ex.files[EntryEvalBaselines]
+	current, hadCurrent := t.prior[EntryEvalBaselines]
+	if !carried || !hadCurrent || t.in.EvalKeysOf == nil {
+		return nil
+	}
+	return missingFrom(t.in.EvalKeysOf(current), t.in.EvalKeysOf(archived))
+}
+
+// missingFrom is the entries of have that are not in keep, in order.
+func missingFrom(have, keep []string) []string {
+	kept := map[string]bool{}
+	for _, k := range keep {
+		kept[k] = true
+	}
+	var gone []string
+	for _, k := range have {
+		if !kept[k] {
+			gone = append(gone, k)
+		}
+	}
+	return gone
 }
 
 // rolledBack assembles a RolledBack Result, folding in an honest

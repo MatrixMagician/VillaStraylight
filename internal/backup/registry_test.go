@@ -238,3 +238,43 @@ func TestRestoreFileEntryWithoutDestinationIsSkipped(t *testing.T) {
 		}
 	}
 }
+
+// TestRestoreRefusesAnArchiveItCannotRead: an archive that cannot be opened or
+// parsed is a fail-closed refusal at "verify" with ZERO side effects — before any
+// capture, never a half-applied restore.
+func TestRestoreRefusesAnArchiveItCannotRead(t *testing.T) {
+	tests := []struct {
+		name    string
+		open    func() (io.ReadCloser, error)
+		wantErr string
+	}{
+		{"no archive opener", nil, "nil archive opener"},
+		{"archive cannot be opened",
+			func() (io.ReadCloser, error) { return nil, errors.New("no such file") },
+			"open archive"},
+		{"archive without a manifest",
+			func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(rawMultiTar(t, nil))), nil },
+			"has no manifest.json entry"},
+		{"not a tar",
+			func() (io.ReadCloser, error) {
+				return io.NopCloser(strings.NewReader(strings.Repeat("junk", 600))), nil
+			},
+			""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r, in := baseInput(t, nil)
+			in.OpenArchive = tt.open
+			res := Restore(r.deps(), in)
+			if !res.Refused || res.FailedStep != "verify" || res.Err == nil {
+				t.Fatalf("want Refused at verify, got %+v", res)
+			}
+			if !strings.Contains(res.Err.Error(), tt.wantErr) {
+				t.Fatalf("error %q does not contain %q", res.Err, tt.wantErr)
+			}
+			if hasMutate(r.calls) {
+				t.Fatalf("an unreadable archive must have ZERO side effects, got %v", r.calls)
+			}
+		})
+	}
+}

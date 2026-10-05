@@ -59,6 +59,11 @@ type recDeps struct {
 	searxngWrites       map[string][]byte
 	searxngRealWriteDir string
 
+	// written records every byte slice WriteFile received for a data-store
+	// destination, in order, keyed by path — so a test can assert a restored file's
+	// content and the verbatim rollback rewrite that follows it.
+	written map[string][][]byte
+
 	prove prove.Verdict
 }
 
@@ -158,6 +163,10 @@ func (r *recDeps) deps() RestoreDeps {
 				return r.writeTempErr
 			default:
 				r.log("WriteFileAtomic:" + p)
+				if r.written == nil {
+					r.written = map[string][][]byte{}
+				}
+				r.written[p] = append(r.written[p], append([]byte(nil), data...))
 				return r.writeFileErr
 			}
 		},
