@@ -155,6 +155,21 @@ func TestSkewClassification(t *testing.T) {
 			mutate:    func(m *Manifest, c *CurrentInstall) { m.BenchSchemaVersion = 5; c.BenchSchemaVersion = 1 },
 			wantBlock: true,
 		},
+		{
+			name:      "newer eval store schema -> BLOCK",
+			mutate:    func(m *Manifest, c *CurrentInstall) { m.EvalSchemaVersion = 5; c.EvalSchemaVersion = 1 },
+			wantBlock: true,
+		},
+		{
+			name:      "older eval store schema -> WARN",
+			mutate:    func(m *Manifest, c *CurrentInstall) { m.EvalSchemaVersion = 1; c.EvalSchemaVersion = 2 },
+			wantWarnN: 1,
+			wantField: "eval_schema_version",
+		},
+		{
+			name:   "eval schema not recorded (a v4 backup) -> no finding",
+			mutate: func(m *Manifest, c *CurrentInstall) { m.EvalSchemaVersion = 0; c.EvalSchemaVersion = 1 },
+		},
 	}
 
 	for _, tt := range tests {
@@ -275,9 +290,11 @@ func baseBackupInput(w io.Writer) Input {
 		OutputWriter:        w,
 		OpenWebUIVolumeName: "villa-openwebui",
 		TempVolumeTar:       "/tmp/owui-vol.tar",
-		ConfigPath:          "/cfg/config.toml",
-		UsagePath:           "/data/usage.json",
-		BenchReportsPath:    "/data/bench-reports.jsonl",
+		Sources: map[string]string{
+			EntryConfig:       "/cfg/config.toml",
+			EntryUsage:        "/data/usage.json",
+			EntryBenchReports: "/data/bench-reports.jsonl",
+		},
 		ExcludedModels: []ExcludedModel{
 			{ID: "qwen3-30b", Quant: "Q4_K_M", Ctx: "8192", Source: "catalog"},
 		},
@@ -433,7 +450,7 @@ func TestBackupAgentOnAddsCrushConfigAndExcludedAgent(t *testing.T) {
 	in := baseBackupInput(nil)
 	var out bytes.Buffer
 	in.OutputWriter = &out
-	in.CrushConfigPath = "/crush/crush.json"
+	in.Sources[EntryCrushConfig] = "/crush/crush.json"
 	in.AgentBinarySHA256 = "sha-of-on-disk-binary"
 	in.AgentVersion = "v0.76.0"
 	in.AgentPinSHA256 = "sha-of-pinned-binary"
@@ -513,7 +530,7 @@ func TestBackupAgentOnSkipsAbsentCrushConfig(t *testing.T) {
 	in := baseBackupInput(nil)
 	var out bytes.Buffer
 	in.OutputWriter = &out
-	in.CrushConfigPath = "/crush/crush.json"
+	in.Sources[EntryCrushConfig] = "/crush/crush.json"
 	in.AgentBinarySHA256 = "sha-of-on-disk-binary"
 	in.AgentVersion = "v0.76.0"
 	in.AgentPinSHA256 = "sha-of-pinned-binary"
@@ -547,7 +564,7 @@ func TestBackupSearxngSettings(t *testing.T) {
 		in := baseBackupInput(nil)
 		var out bytes.Buffer
 		in.OutputWriter = &out
-		in.SearxngSettingsPath = "/searxng/settings.yml"
+		in.Sources[EntrySearxngSettings] = "/searxng/settings.yml"
 
 		res, err := Backup(f.deps(), in)
 		if err != nil {
@@ -569,12 +586,12 @@ func TestBackupSearxngSettings(t *testing.T) {
 		if !csum[EntrySearxngSettings] {
 			t.Fatalf("settings.yml entry has no checksum: %+v", m.Entries)
 		}
-		// The manifest stamps its OWN backupSchemaVersion (4), never a caller value.
+		// The manifest stamps its OWN backupSchemaVersion (5), never a caller value.
 		if m.SchemaVersion != backupSchemaVersion {
 			t.Fatalf("manifest must stamp schema %d, got %d", backupSchemaVersion, m.SchemaVersion)
 		}
-		if backupSchemaVersion != 4 {
-			t.Fatalf("Phase-34 backup contract is schema 4, got %d", backupSchemaVersion)
+		if backupSchemaVersion != 5 {
+			t.Fatalf("the eval-baselines backup contract (ADR-0020) is schema 5, got %d", backupSchemaVersion)
 		}
 	})
 
@@ -585,7 +602,7 @@ func TestBackupSearxngSettings(t *testing.T) {
 		in := baseBackupInput(nil)
 		var out bytes.Buffer
 		in.OutputWriter = &out
-		in.SearxngSettingsPath = "" // web search off
+		in.Sources[EntrySearxngSettings] = "" // web search off
 
 		res, err := Backup(f.deps(), in)
 		if err != nil {
@@ -611,7 +628,7 @@ func TestBackupSearxngSettings(t *testing.T) {
 		in := baseBackupInput(nil)
 		var out bytes.Buffer
 		in.OutputWriter = &out
-		in.SearxngSettingsPath = "/searxng/settings.yml"
+		in.Sources[EntrySearxngSettings] = "/searxng/settings.yml"
 
 		res, err := Backup(f.deps(), in)
 		if err != nil {
@@ -639,7 +656,7 @@ func TestBackupExcludesEphemeral(t *testing.T) {
 	in := baseBackupInput(nil)
 	var out bytes.Buffer
 	in.OutputWriter = &out
-	in.SearxngSettingsPath = "/searxng/settings.yml"
+	in.Sources[EntrySearxngSettings] = "/searxng/settings.yml"
 
 	res, err := Backup(f.deps(), in)
 	if err != nil {
@@ -730,7 +747,7 @@ func memoryBackupInput(w io.Writer) Input {
 	in := baseBackupInput(w)
 	in.QdrantVolumeName = "qdrant-vol"
 	in.TempQdrantTar = "/tmp/qdrant-vol.tar"
-	in.RecallStatePath = "/data/recall-state.json"
+	in.Sources[EntryRecallState] = "/data/recall-state.json"
 	in.EmbeddingModel = "nomic-embed-text-v1.5"
 	in.EmbeddingDim = 768
 	in.RecallSchemaVersion = 1

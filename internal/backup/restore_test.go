@@ -59,6 +59,11 @@ type recDeps struct {
 	searxngWrites       map[string][]byte
 	searxngRealWriteDir string
 
+	// written records every byte slice WriteFile received for a data-store
+	// destination, in order, keyed by path — so a test can assert a restored file's
+	// content and the verbatim rollback rewrite that follows it.
+	written map[string][][]byte
+
 	prove prove.Verdict
 }
 
@@ -158,6 +163,10 @@ func (r *recDeps) deps() RestoreDeps {
 				return r.writeTempErr
 			default:
 				r.log("WriteFileAtomic:" + p)
+				if r.written == nil {
+					r.written = map[string][][]byte{}
+				}
+				r.written[p] = append(r.written[p], append([]byte(nil), data...))
 				return r.writeFileErr
 			}
 		},
@@ -251,8 +260,10 @@ func baseInput(t *testing.T, arch []byte) (*recDeps, RestoreInput) {
 		OpenWebUIVolumeName: "villa-openwebui",
 		TempVolumeTar:       "/tmp/restore-owui.tar",
 		RollbackVolumeTar:   "/tmp/rollback-owui.tar",
-		UsageDestPath:       "/data/usage.json",
-		BenchDestPath:       "/data/bench-reports.jsonl",
+		Dests: map[string]string{
+			EntryUsage:        "/data/usage.json",
+			EntryBenchReports: "/data/bench-reports.jsonl",
+		},
 	}
 	return r, in
 }
@@ -551,8 +562,8 @@ func TestRestoreRollbackRemovesForwardCreatedDataArtifacts(t *testing.T) {
 	// Prior install has NO usage.json / bench-reports.jsonl: capture (ReadFile) fails
 	// for both dest paths, so priorUsageOK/priorBenchOK are false.
 	r.readFileErr = map[string]error{
-		in.UsageDestPath: errors.New("not found"),
-		in.BenchDestPath: errors.New("not found"),
+		in.Dests[EntryUsage]:        errors.New("not found"),
+		in.Dests[EntryBenchReports]: errors.New("not found"),
 	}
 	// Force a post-data-write failure via a NON-PASS prove so rollback runs AFTER the
 	// forward path wrote the archive's usage.json/bench-reports.jsonl, WITHOUT breaking
@@ -565,18 +576,18 @@ func TestRestoreRollbackRemovesForwardCreatedDataArtifacts(t *testing.T) {
 		t.Fatalf("want RolledBack, got %+v (calls %v)", res, r.calls)
 	}
 	// Forward path wrote both data artifacts...
-	if indexOf(r.calls, "WriteFileAtomic:"+in.UsageDestPath) == -1 {
+	if indexOf(r.calls, "WriteFileAtomic:"+in.Dests[EntryUsage]) == -1 {
 		t.Fatalf("forward path must have written usage.json; calls %v", r.calls)
 	}
 	// ...and rollback must REMOVE both (no prior to restore).
-	if indexOf(r.calls, "RemoveFile:"+in.UsageDestPath) == -1 {
+	if indexOf(r.calls, "RemoveFile:"+in.Dests[EntryUsage]) == -1 {
 		t.Fatalf("rollback must RemoveFile the forward-created usage.json; calls %v", r.calls)
 	}
-	if indexOf(r.calls, "RemoveFile:"+in.BenchDestPath) == -1 {
+	if indexOf(r.calls, "RemoveFile:"+in.Dests[EntryBenchReports]) == -1 {
 		t.Fatalf("rollback must RemoveFile the forward-created bench-reports.jsonl; calls %v", r.calls)
 	}
 	// The remove must come AFTER the forward write (verbatim restore of absent state).
-	if iW, iR := indexOf(r.calls, "WriteFileAtomic:"+in.UsageDestPath), indexOf(r.calls, "RemoveFile:"+in.UsageDestPath); iW > iR {
+	if iW, iR := indexOf(r.calls, "WriteFileAtomic:"+in.Dests[EntryUsage]), indexOf(r.calls, "RemoveFile:"+in.Dests[EntryUsage]); iW > iR {
 		t.Fatalf("RemoveFile must follow the forward WriteFileAtomic; calls %v", r.calls)
 	}
 	// A clean (complete) rollback: no rollback-incomplete reason.
@@ -590,7 +601,7 @@ func TestRestoreRollbackRemovesForwardCreatedDataArtifacts(t *testing.T) {
 func TestRestoreRollbackRemoveFailureReportsIncomplete(t *testing.T) {
 	arch := buildArchive(t, baseManifest(), validCfgTOML, []byte("owui-data"), []byte("usage-from-archive"), nil, false)
 	r, in := baseInput(t, arch)
-	r.readFileErr = map[string]error{in.UsageDestPath: errors.New("not found")}
+	r.readFileErr = map[string]error{in.Dests[EntryUsage]: errors.New("not found")}
 	r.volumeImportErr = errors.New("import boom")
 	r.removeFileErr = errors.New("permission denied")
 
@@ -680,7 +691,7 @@ func memInput(t *testing.T, arch []byte, volExists bool) (*recDeps, RestoreInput
 	in.TempQdrantTar = "/tmp/restore-qdrant.tar"
 	in.RollbackQdrantTar = "/tmp/rollback-qdrant.tar"
 	in.QdrantVolumeExists = volExists
-	in.RecallDestPath = "/data/recall-state.json"
+	in.Dests[EntryRecallState] = "/data/recall-state.json"
 	return r, in
 }
 
@@ -901,15 +912,15 @@ func TestRestoreRecallStateForwardAndRollback(t *testing.T) {
 	t.Run("prior absent: rollback removes the forward-created file", func(t *testing.T) {
 		arch := buildArchiveMem(t, baseManifest(), validCfgTOML, []byte("owui-data"), nil, []byte("recall-state-from-archive"))
 		r, in := memInput(t, arch, false)
-		r.readFileErr = map[string]error{in.RecallDestPath: errors.New("not found")}
+		r.readFileErr = map[string]error{in.Dests[EntryRecallState]: errors.New("not found")}
 		r.prove = prove.Verdict{Status: prove.StatusFail, Detail: "residency FAIL"}
 
 		res := Restore(r.deps(), in)
 		if !res.RolledBack {
 			t.Fatalf("want RolledBack, got %+v", res)
 		}
-		iW := indexOf(r.calls, "WriteFileAtomic:"+in.RecallDestPath)
-		iR := indexOf(r.calls, "RemoveFile:"+in.RecallDestPath)
+		iW := indexOf(r.calls, "WriteFileAtomic:"+in.Dests[EntryRecallState])
+		iR := indexOf(r.calls, "RemoveFile:"+in.Dests[EntryRecallState])
 		if iW == -1 {
 			t.Fatalf("forward path must write recall-state.json; calls %v", r.calls)
 		}
@@ -923,7 +934,7 @@ func TestRestoreRecallStateForwardAndRollback(t *testing.T) {
 	t.Run("prior present: rollback rewrites the captured prior bytes", func(t *testing.T) {
 		arch := buildArchiveMem(t, baseManifest(), validCfgTOML, []byte("owui-data"), nil, []byte("recall-state-from-archive"))
 		r, in := memInput(t, arch, false)
-		r.readFile[in.RecallDestPath] = []byte("prior-recall-state")
+		r.readFile[in.Dests[EntryRecallState]] = []byte("prior-recall-state")
 		r.prove = prove.Verdict{Status: prove.StatusFail, Detail: "residency FAIL"}
 
 		res := Restore(r.deps(), in)
@@ -932,14 +943,14 @@ func TestRestoreRecallStateForwardAndRollback(t *testing.T) {
 		}
 		writes := 0
 		for _, c := range r.calls {
-			if c == "WriteFileAtomic:"+in.RecallDestPath {
+			if c == "WriteFileAtomic:"+in.Dests[EntryRecallState] {
 				writes++
 			}
 		}
 		if writes != 2 {
 			t.Fatalf("want forward write + rollback rewrite of recall-state.json (2), got %d (%v)", writes, r.calls)
 		}
-		if indexOf(r.calls, "RemoveFile:"+in.RecallDestPath) != -1 {
+		if indexOf(r.calls, "RemoveFile:"+in.Dests[EntryRecallState]) != -1 {
 			t.Fatalf("prior-present rollback must REWRITE, never remove; calls %v", r.calls)
 		}
 	})
@@ -950,11 +961,11 @@ func TestRestoreRecallStateForwardAndRollback(t *testing.T) {
 		if !res.Restored {
 			t.Fatalf("want Restored, got %+v", res)
 		}
-		if res.RecallStateRestored {
+		if res.Files[EntryRecallState].Restored {
 			t.Fatalf("RecallStateRestored must be false for an entry-free archive")
 		}
 		for _, c := range r.calls {
-			if strings.Contains(c, in.RecallDestPath) {
+			if strings.Contains(c, in.Dests[EntryRecallState]) {
 				t.Fatalf("entry-absent restore must never touch recall-state.json; calls %v", r.calls)
 			}
 		}
@@ -972,7 +983,7 @@ func TestRestoreResultMemoryFlags(t *testing.T) {
 	if !res.Restored {
 		t.Fatalf("want Restored, got %+v (calls %v)", res, r.calls)
 	}
-	if !res.QdrantRestored || !res.RecallStateRestored {
+	if !res.QdrantRestored || !res.Files[EntryRecallState].Restored {
 		t.Fatalf("memory-bearing archive must report both entries restored: %+v", res)
 	}
 	if !res.RestoredMemoryEnabled {
@@ -985,7 +996,7 @@ func TestRestoreResultMemoryFlags(t *testing.T) {
 	if !res.Restored {
 		t.Fatalf("want Restored, got %+v", res)
 	}
-	if res.QdrantRestored || res.RecallStateRestored || res.RestoredMemoryEnabled {
+	if res.QdrantRestored || res.Files[EntryRecallState].Restored || res.RestoredMemoryEnabled {
 		t.Fatalf("memory-free archive must report nothing restored and a disabled posture: %+v", res)
 	}
 }
@@ -1004,7 +1015,7 @@ func TestRestoreV1ManifestStillRestores(t *testing.T) {
 	if !res.Restored {
 		t.Fatalf("a v1 backup must stay restorable under backupSchemaVersion 2, got %+v", res)
 	}
-	if res.QdrantRestored || res.RecallStateRestored {
+	if res.QdrantRestored || res.Files[EntryRecallState].Restored {
 		t.Fatalf("a v1 backup carries no memory entries: %+v", res)
 	}
 	if qc := qdrantCalls(r.calls); len(qc) != 0 {
@@ -1204,16 +1215,16 @@ func TestRestoreAgentOnRestoresCrushAndReportsExcludedAgent(t *testing.T) {
 	m.ExcludedAgent = &ExcludedAgent{SHA256: "on-disk-sha", Version: "v0.76.0", PinSHA256: "pin-sha"}
 	arch := buildAgentArchive(t, m, validCfgTOML, []byte("owui-data"), []byte(`{"provider":"local"}`))
 	r, in := baseInput(t, arch)
-	in.CrushConfigDestPath = "/home/u/.config/crush/crush.json"
+	in.Dests[EntryCrushConfig] = "/home/u/.config/crush/crush.json"
 
 	res := Restore(r.deps(), in)
 	if !res.Restored {
 		t.Fatalf("want Restored, got %+v (calls %v)", res, r.calls)
 	}
-	if !res.CrushConfigRestored {
+	if !res.Files[EntryCrushConfig].Restored {
 		t.Fatalf("CrushConfigRestored must be true on an agent-on archive, got %+v", res)
 	}
-	if res.CrushConfigSkipped {
+	if res.Files[EntryCrushConfig].Skipped {
 		t.Fatalf("a written crush.json must NOT report CrushConfigSkipped, got %+v", res)
 	}
 	if indexOf(r.calls, "WriteCrushConfig:") == -1 {
@@ -1231,13 +1242,13 @@ func TestRestoreAgentOnRestoresCrushAndReportsExcludedAgent(t *testing.T) {
 func TestRestoreAgentOffNoCrushNoExcludedAgent(t *testing.T) {
 	arch := buildAgentArchive(t, baseManifest(), validCfgTOML, []byte("owui-data"), nil)
 	r, in := baseInput(t, arch)
-	in.CrushConfigDestPath = "/home/u/.config/crush/crush.json"
+	in.Dests[EntryCrushConfig] = "/home/u/.config/crush/crush.json"
 
 	res := Restore(r.deps(), in)
 	if !res.Restored {
 		t.Fatalf("want Restored, got %+v", res)
 	}
-	if res.CrushConfigRestored {
+	if res.Files[EntryCrushConfig].Restored {
 		t.Fatalf("agent-off archive must NOT report CrushConfigRestored, got %+v", res)
 	}
 	if res.ExcludedAgent != nil {
@@ -1259,16 +1270,16 @@ func TestRestoreAgentOnArchiveOntoAgentOffInstallSkipsCrush(t *testing.T) {
 	arch := buildAgentArchive(t, m, validCfgTOML, []byte("owui-data"), []byte(`{"provider":"local"}`))
 	r, in := baseInput(t, arch)
 	// Current install is agent-off → the cmd tier wires NO destination.
-	in.CrushConfigDestPath = ""
+	in.Dests[EntryCrushConfig] = ""
 
 	res := Restore(r.deps(), in)
 	if !res.Restored {
 		t.Fatalf("want Restored, got %+v (calls %v)", res, r.calls)
 	}
-	if res.CrushConfigRestored {
+	if res.Files[EntryCrushConfig].Restored {
 		t.Fatalf("WR-02: crush.json was NOT written (no dest) — CrushConfigRestored must be false, got %+v", res)
 	}
-	if !res.CrushConfigSkipped {
+	if !res.Files[EntryCrushConfig].Skipped {
 		t.Fatalf("WR-02: archive carried crush.json but it was skipped — CrushConfigSkipped must be true, got %+v", res)
 	}
 	if indexOf(r.calls, "WriteCrushConfig:") != -1 {
@@ -1291,7 +1302,7 @@ func TestRestoreAgentIdentityDriftFailsClosed(t *testing.T) {
 	tampered := tamperEntry(t, arch, EntryCrushConfig)
 
 	r, in := baseInput(t, tampered)
-	in.CrushConfigDestPath = "/home/u/.config/crush/crush.json"
+	in.Dests[EntryCrushConfig] = "/home/u/.config/crush/crush.json"
 	res := Restore(r.deps(), in)
 	if !res.Refused {
 		t.Fatalf("a drifted crush.json must be a fail-closed Refused, got %+v", res)
@@ -1360,17 +1371,17 @@ func TestRestoreSearxngSettings(t *testing.T) {
 		arch := buildSearxngArchive(t, baseManifest(), validCfgTOML, []byte("owui-data"), []byte(settingsBody))
 		r, in := baseInput(t, arch)
 		dest := filepath.Join(t.TempDir(), "searxng", "settings.yml")
-		in.SearxngSettingsDestPath = dest
+		in.Dests[EntrySearxngSettings] = dest
 		r.searxngRealWriteDir = filepath.Dir(dest)
 
 		res := Restore(r.deps(), in)
 		if !res.Restored {
 			t.Fatalf("want Restored, got %+v (calls %v)", res, r.calls)
 		}
-		if !res.SearxngSettingsRestored {
+		if !res.Files[EntrySearxngSettings].Restored {
 			t.Fatalf("SearxngSettingsRestored must be true on a web-search-on archive, got %+v", res)
 		}
-		if res.SearxngSettingsSkipped {
+		if res.Files[EntrySearxngSettings].Skipped {
 			t.Fatalf("a written settings.yml must NOT report SearxngSettingsSkipped, got %+v", res)
 		}
 		if indexOf(r.calls, "WriteSearxngSettings:") == -1 {
@@ -1393,16 +1404,16 @@ func TestRestoreSearxngSettings(t *testing.T) {
 	t.Run("absent → not present", func(t *testing.T) {
 		arch := buildSearxngArchive(t, baseManifest(), validCfgTOML, []byte("owui-data"), nil)
 		r, in := baseInput(t, arch)
-		in.SearxngSettingsDestPath = filepath.Join(t.TempDir(), "searxng", "settings.yml")
+		in.Dests[EntrySearxngSettings] = filepath.Join(t.TempDir(), "searxng", "settings.yml")
 
 		res := Restore(r.deps(), in)
 		if !res.Restored {
 			t.Fatalf("want Restored, got %+v", res)
 		}
-		if res.SearxngSettingsRestored {
+		if res.Files[EntrySearxngSettings].Restored {
 			t.Fatalf("web-search-off archive must NOT report SearxngSettingsRestored, got %+v", res)
 		}
-		if res.SearxngSettingsSkipped {
+		if res.Files[EntrySearxngSettings].Skipped {
 			t.Fatalf("an archive with NO settings.yml must NOT report SearxngSettingsSkipped, got %+v", res)
 		}
 		if indexOf(r.calls, "WriteSearxngSettings:") != -1 {
@@ -1413,16 +1424,16 @@ func TestRestoreSearxngSettings(t *testing.T) {
 	t.Run("present onto web-off install → skipped", func(t *testing.T) {
 		arch := buildSearxngArchive(t, baseManifest(), validCfgTOML, []byte("owui-data"), []byte(settingsBody))
 		r, in := baseInput(t, arch)
-		in.SearxngSettingsDestPath = "" // web-search-off current install: no dest wired
+		in.Dests[EntrySearxngSettings] = "" // web-search-off current install: no dest wired
 
 		res := Restore(r.deps(), in)
 		if !res.Restored {
 			t.Fatalf("want Restored, got %+v (calls %v)", res, r.calls)
 		}
-		if res.SearxngSettingsRestored {
+		if res.Files[EntrySearxngSettings].Restored {
 			t.Fatalf("no destination wired → SearxngSettingsRestored must be false, got %+v", res)
 		}
-		if !res.SearxngSettingsSkipped {
+		if !res.Files[EntrySearxngSettings].Skipped {
 			t.Fatalf("archive carried settings.yml but it was skipped → SearxngSettingsSkipped must be true, got %+v", res)
 		}
 		if indexOf(r.calls, "WriteSearxngSettings:") != -1 {
@@ -1434,7 +1445,7 @@ func TestRestoreSearxngSettings(t *testing.T) {
 		arch := buildSearxngArchive(t, baseManifest(), validCfgTOML, []byte("owui-data"), []byte(settingsBody))
 		tampered := tamperEntry(t, arch, EntrySearxngSettings)
 		r, in := baseInput(t, tampered)
-		in.SearxngSettingsDestPath = filepath.Join(t.TempDir(), "searxng", "settings.yml")
+		in.Dests[EntrySearxngSettings] = filepath.Join(t.TempDir(), "searxng", "settings.yml")
 
 		res := Restore(r.deps(), in)
 		if !res.Refused {

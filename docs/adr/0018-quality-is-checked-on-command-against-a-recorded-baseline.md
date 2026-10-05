@@ -81,12 +81,13 @@ against a real GGUF before each release. This ADR records how villa adopts it.
 
 - **Baselines persist in their own store.** `internal/evalstore` sits on
   `internal/jsonstore` at `eval-baselines.json` under villa's XDG data root,
-  schema-versioned, one document holding every model's baseline. It is meant to be
-  a backup entry, because a baseline records a known-good state that cannot be
-  re-recorded after the regression it exists to catch. The entry follows #275,
-  which first makes the backup and restore entries table-driven and then adds
-  `eval-baselines.json` as a row; until #275 lands, a restore does not carry eval
-  baselines. Recording refuses to overwrite a store it cannot read, so one
+  schema-versioned, one document holding every model's baseline. It is a backup
+  entry, because a baseline records a known-good state that cannot be re-recorded
+  after the regression it exists to catch. #275 made the backup and restore entries
+  table-driven (ADR-0020) and added `eval-baselines.json` as a row, so `villa
+  backup` archives it, the manifest records its schema (backup schema 5), and
+  `villa restore` replaces it verbatim and warns about every baseline the archive
+  lacks. Recording refuses to overwrite a store it cannot read, so one
   model's baseline never silently replaces every other model's.
 
 - **`eval` takes no stack lock.** It mutates no unit and no config, like `status`. A
@@ -133,5 +134,7 @@ grader were added instead (see the decision above).
   across suites.
 - A baseline recorded with tools mode off holds no tool-call results, so those
   cases are never compared until a baseline is recorded with tools mode on.
-- Until #275 lands, `villa backup` does not archive `eval-baselines.json` and a
-  restore does not carry eval baselines.
+- A restore replaces `eval-baselines.json` with the archive's copy, so a baseline
+  recorded after the backup is lost. Restore names each one it drops (ADR-0020);
+  it does not merge, because the rollback of a failed restore must put the prior
+  file back byte for byte.

@@ -19,6 +19,12 @@ package backup
 // `podman volume create`, idempotent) — BEFORE every VolumeImport, on the
 // forward apply AND the rollback path, so stale chats/webui.db never leak through.
 //
+// The file entries (usage, bench, recall, crush, searxng settings, ...) are the
+// registry's KindFile rows (registry.go, ADR-0020): capture, forward write and
+// rollback each loop over them. The two volumes and config.toml are explicit code
+// below, because their quiesce, tri-state refusal and clean-recreate are different
+// in kind.
+//
 // It links NO inference and NO detect package: the prove sentinel
 // (prove.StatusPass) is this package's OWN local value, so the backend-marker seam
 // discipline (TestSeamGrepGate) holds. Every host effect is a Deps func field; the
@@ -72,12 +78,22 @@ type RestoreInput struct {
 	// on the rollback path.
 	RollbackVolumeTar string
 
-	// ConfigDestPath is unused by the pure core for config (config goes through
-	// Deps.SaveConfig); it is documented here only to make the data-dir destination set
-	// explicit. UsageDestPath / BenchDestPath are the resolved destinations the
-	// extracted usage.json / bench-reports.jsonl entries are written to atomically.
-	UsageDestPath string
-	BenchDestPath string
+	// Dests maps a file entry's name (the Entry* constants of the registry's KindFile
+	// rows) to the resolved path it is restored to. The cmd tier's liveRestoreDests
+	// owns the gates: usage.json and bench-reports.jsonl are always wired,
+	// recall-state.json only when memory is on, crush.json only when the coding agent
+	// is on, and searxng-settings.yml only when web search is on. A missing or empty
+	// destination means the entry is NOT applied: an archive that carries it reports
+	// it as Skipped, never a false "restored", and a restore onto an install with the
+	// subsystem off makes ZERO writes for it. config.toml has no destination here — it
+	// goes through Deps.SaveConfig.
+	//
+	// Every destination is written through the one Deps.WriteFile seam (the live
+	// wiring picks the containment guard by path) and captured through Deps.ReadFile
+	// for the rollback set. crush.json and the SearXNG settings live OUTSIDE the villa
+	// data-store root; the latter holds the rendered SEARXNG_SECRET, so its write is
+	// 0600-preserving and NEVER widens the mode.
+	Dests map[string]string
 
 	// QdrantVolumeName is the podman NAMED qdrant storage volume (seam-sourced from
 	// orchestrate.QdrantVolumeName — never a literal) the OPTIONAL
@@ -106,64 +122,29 @@ type RestoreInput struct {
 	// run the destructive VolumeRm on a possibly-real, UNCAPTURED qdrant volume.
 	// A memory-free archive ignores it (zero qdrant calls either way).
 	QdrantVolumeUnknown bool
-	// RecallDestPath is the resolved recall-state.json destination
-	// (recall.StatePath() at the cmd tier) for the OPTIONAL recall-state
-	// entry — restored through the same WriteFileAtomic/rollbackRemove rows as
-	// usage/bench (the file lives directly under the villa data root, so the
-	// store-root guard covers it).
-	RecallDestPath string
 
-	// CrushConfigDestPath is the resolved crush.json destination for the OPTIONAL
-	// Phase-28 coding-agent config entry (crushConfigPath at the cmd
-	// tier — ~/.config/crush/crush.json, OUTSIDE the villa data-store root). It is
-	// restored through the dedicated WriteCrushConfig / RemoveFile seams (NOT
-	// WriteFileAtomic, whose store-root guard would reject a path outside
-	// $XDG_DATA_HOME/villa). Empty means the cmd tier supplied no destination — the
-	// crush.json entry, if present, is reported as re-stageable but not written.
-	CrushConfigDestPath string
-
-	// SearxngSettingsDestPath is the resolved settings.yml destination for the OPTIONAL
-	// Phase-34 web-search config entry (orchestrate.SearXNGSettingsFilePath at
-	// the cmd tier — $XDG_CONFIG_HOME/villa/searxng/settings.yml, OUTSIDE the villa
-	// data-STORE root). It is restored through the dedicated WriteSearxngSettings /
-	// RemoveFile seams (NOT WriteFileAtomic, whose data-store-root guard would reject a
-	// path under $XDG_CONFIG_HOME). The file holds the rendered SEARXNG_SECRET, so the
-	// write is 0600-preserving and NEVER widens the mode. Empty means the cmd
-	// tier supplied no destination (web search off) — the settings.yml entry, if present,
-	// is reported as re-writable but not written.
-	SearxngSettingsDestPath string
+	// EvalKeysOf names the baselines an eval-baselines.json document holds, one label
+	// per baseline (the cmd tier parses it with evalstore, so this package imports
+	// nothing from eval; an unreadable document names none, as the store would treat
+	// it as empty). Restore replaces the document verbatim, so it applies EvalKeysOf
+	// to the archive's document and to the file it captured before mutating, and
+	// reports every captured baseline the archive lacks in Result.EvalDropped. Nil
+	// disables the report.
+	EvalKeysOf func(doc []byte) []string
 }
 
-// extracted holds the verified, tar-slip-guarded archive payload after the read
-// pass: the parsed manifest, the raw config.toml bytes, the openwebui-volume.tar
-// bytes, and the optional data-dir artifact bytes (present flag distinguishes an
-// absent optional entry from an empty one).
-type extracted struct {
-	manifest     Manifest
-	config       []byte
-	owuiVolume   []byte
-	usage        []byte
-	usagePresent bool
-	bench        []byte
-	benchPresent bool
-	// qdrantVolume / recallState are the OPTIONAL Phase-23 memory entries
-	// the present flags gate EVERY qdrant/recall mutation downstream.
-	qdrantVolume  []byte
-	qdrantPresent bool
-	recallState   []byte
-	recallPresent bool
-	// crushConfig is the OPTIONAL Phase-28 coding-agent config entry;
-	// crushPresent gates its restore. It is SHA-256-verified through the SAME
-	// readAndVerify pass as every other entry (no parallel reader). The manifest's
-	// ExcludedAgent (the EXCLUDED binary identity) rides alongside it for the
-	// re-stage report.
-	crushConfig  []byte
-	crushPresent bool
-	// searxngSettings is the OPTIONAL Phase-34 web-search config entry;
-	// searxngSettingsPresent gates its restore. It is SHA-256-verified through the SAME
-	// readAndVerify pass as every other entry (no parallel reader).
-	searxngSettings        []byte
-	searxngSettingsPresent bool
+// restoreTxn is one Restore's state: the verified archive, the prior state captured
+// before any mutation, and the config being restored. Its methods are the steps of
+// the transaction, small enough that each is its own function.
+type restoreTxn struct {
+	d  RestoreDeps
+	in RestoreInput
+	ex extracted
+	// priorCfg is the snapshot of the current config; restoredCfg is the archive's.
+	priorCfg, restoredCfg config.VillaConfig
+	// prior holds the captured bytes of each file entry that EXISTS now, keyed by
+	// entry name. An absent key means the file was not there to begin with.
+	prior map[string][]byte
 }
 
 // Restore performs the guarded, transactional archive apply and returns a typed
@@ -172,17 +153,15 @@ type extracted struct {
 //
 //	(1) READ+VERIFY (pure, zero side effects): open the outer tar, parse
 //	    manifest.json, verify each entry's SHA-256 against the manifest. A mismatch
-//
-// or unreadable/incompatible manifest.schema_version → Refused.
-//
+//	    or unreadable/incompatible manifest.schema_version → Refused.
 //	(2) SKEW: CompareSkew(manifest, Current). Block → Refused. WARN-only → require
 //	    Consent unless Bypass; a declined gate → Refused. (All still zero side effects.)
 //	(3) CAPTURE strictly BEFORE mutation: export the CURRENT owui volume + snapshot
-//	    the current config + current usage.json/bench-reports.jsonl. Uncapturable → Refused.
+//	    the current config + the current file entries. Uncapturable → Refused.
 //	(4) QUIESCE: Stop the Open WebUI service.
-//	(5) MUTATE (any error → rollback): SaveConfig(restored) → restore data-dir files →
-//	    CLEAN-RECREATE owui volume (VolumeRm → ReconcileAndWrite → EnsureVolume) →
-//	    VolumeImport(extracted owui tar) → Start.
+//	(5) MUTATE (any error → rollback): SaveConfig(restored) → restore the file
+//	    entries → CLEAN-RECREATE owui volume (VolumeRm → ReconcileAndWrite →
+//	    EnsureVolume) → VolumeImport(extracted owui tar) → Start.
 //	(6) PROVE: switch to success ONLY on prove.StatusPass; any other verdict → rollback.
 //
 // The rollback path re-applies the captured set through the SAME clean-recreate
@@ -196,367 +175,455 @@ func Restore(d RestoreDeps, in RestoreInput) Result {
 		return Result{Refused: true, FailedStep: "verify", Err: verr,
 			Reason: "archive failed integrity verification — refusing to restore a corrupt backup: " + verr.Error()}
 	}
+	if refused := skewGate(ex.manifest, in); refused != nil {
+		return *refused
+	}
+	t := &restoreTxn{d: d, in: in, ex: ex, prior: map[string][]byte{}}
+	if refused := t.capture(); refused != nil {
+		return *refused
+	}
+	return t.apply()
+}
 
-	// (2) SKEW. A checksum failure is folded into CompareSkew via the
-	// ChecksumFailed flag (always false here — a real mismatch already Refused above),
-	// so CompareSkew classifies schema/version/digest/host skew. Block → Refused; a
-	// WARN-only verdict requires consent unless Bypass.
+// skewGate is step (2). A checksum failure is folded into CompareSkew via the
+// ChecksumFailed flag (always false here — a real mismatch already Refused in the
+// verify pass), so CompareSkew classifies schema/version/digest/host skew. Block →
+// Refused; a WARN-only verdict requires consent unless Bypass. nil means proceed.
+func skewGate(m Manifest, in RestoreInput) *Result {
 	cur := in.Current
 	cur.ChecksumFailed = false
-	skew := CompareSkew(ex.manifest, cur)
+	skew := CompareSkew(m, cur)
 	if skew.Block {
-		return Result{Refused: true, FailedStep: "skew", Reason: skew.BlockReason}
+		return &Result{Refused: true, FailedStep: "skew", Reason: skew.BlockReason}
 	}
-	if len(skew.Warnings) > 0 && !in.Bypass {
-		if in.Consent == nil || !in.Consent(skewPrompt(skew.Warnings)) {
-			return Result{Refused: true, FailedStep: "skew",
-				Reason: "restore declined at the skew confirmation (re-run with --yes/--force to bypass)"}
-		}
+	if declined(in, skew.Warnings) {
+		return &Result{Refused: true, FailedStep: "skew",
+			Reason: "restore declined at the skew confirmation (re-run with --yes/--force to bypass)"}
 	}
+	return nil
+}
 
-	// (3) CAPTURE strictly BEFORE any mutation (RESEARCH Pitfall 4). The verbatim
-	// rollback set: the CURRENT owui volume tar, a snapshot of the current config, and
-	// the current data-dir artifacts. An uncapturable current state must NOT be
-	// mutated — refuse with zero side effects.
-	//
-	// fail-closed gate: when the archive carries a qdrant entry but the
-	// current volume's existence could NOT be evaluated, REFUSE before any
-	// mutation. An Unknown collapsed into "absent" would skip the capture export
-	// AND the quiesce, then run the destructive VolumeRm on a possibly-real,
-	// uncaptured qdrant volume — destroying existing vectors with no rollback
-	// copy. The typed-Unknown doctrine: Unknown is never a confident negative.
-	if ex.qdrantPresent && in.QdrantVolumeUnknown {
-		return Result{Refused: true, FailedStep: "capture",
-			Reason: "could not determine whether the Qdrant volume " + in.QdrantVolumeName +
-				" exists — an unknown current state cannot be safely captured for rollback; " +
-				"check podman (`podman volume exists " + in.QdrantVolumeName + "`), then re-run"}
+// declined reports whether the operator refused the skew warnings: there are some,
+// Bypass is off, and Consent is absent or said no.
+func declined(in RestoreInput, ws []SkewWarning) bool {
+	if len(ws) == 0 || in.Bypass {
+		return false
 	}
-	priorCfg, err := d.LoadConfig()
-	if err != nil {
-		return Result{Refused: true, FailedStep: "capture", Err: err,
-			Reason: "cannot snapshot the current config for rollback — refusing to mutate: " + err.Error()}
-	}
-	if err := d.VolumeExport(in.OpenWebUIVolumeName, in.RollbackVolumeTar); err != nil {
-		return Result{Refused: true, FailedStep: "capture", Err: err,
-			Reason: "cannot capture the current Open WebUI volume for rollback — refusing to mutate: " + err.Error()}
-	}
-	// Qdrant capture (Phase 23, /Pitfall 4): ONLY when the archive carries the
-	// entry AND the current host actually has the volume. Entry-present +
-	// volume-absent records prior-absent (rollback then REMOVES the
-	// forward-created volume); entry-absent makes ZERO qdrant calls of any kind.
-	if ex.qdrantPresent && in.QdrantVolumeExists {
-		if err := d.VolumeExport(in.QdrantVolumeName, in.RollbackQdrantTar); err != nil {
-			return Result{Refused: true, FailedStep: "capture", Err: err,
-				Reason: "cannot capture the current Qdrant volume for rollback — refusing to mutate: " + err.Error()}
-		}
-	}
-	priorUsage, priorUsageOK := captureFile(d, in.UsageDestPath)
-	priorBench, priorBenchOK := captureFile(d, in.BenchDestPath)
-	priorRecall, priorRecallOK := captureFile(d, in.RecallDestPath)
-	// Capture the current crush.json for verbatim rollback (Phase 28).
-	// It lives OUTSIDE the data-store root, so it is captured via the same ReadFile
-	// seam as the others but restored/rolled-back through the dedicated
-	// WriteCrushConfig / RemoveFile seams below.
-	priorCrush, priorCrushOK := captureFile(d, in.CrushConfigDestPath)
-	// Capture the current settings.yml for verbatim rollback (Phase 34). Like
-	// crush.json it lives OUTSIDE the data-store root, so it is captured via the same
-	// ReadFile seam but restored/rolled-back through the dedicated WriteSearxngSettings /
-	// RemoveFile seams below.
-	priorSearxngSettings, priorSearxngSettingsOK := captureFile(d, in.SearxngSettingsDestPath)
+	return in.Consent == nil || !in.Consent(skewPrompt(ws))
+}
 
-	// Restored config is the archive's config.toml parsed into a VillaConfig (config is
-	// the single source of truth — the Quadlet recreate renders from it).
-	restoredCfg, err := config.Parse(ex.config)
-	if err != nil {
-		return Result{Refused: true, FailedStep: "capture", Err: err,
-			Reason: "archive config.toml is unreadable — refusing to mutate: " + err.Error()}
+// capture is step (3): the verbatim rollback set, taken STRICTLY before any
+// mutation (RESEARCH Pitfall 4). An uncapturable current state must NOT be
+// mutated — refuse with zero side effects. nil means every capture succeeded.
+func (t *restoreTxn) capture() *Result {
+	steps := []func() *Result{
+		t.checkQdrantKnown, t.captureConfig, t.captureOwui, t.captureQdrant, t.captureFiles, t.parseRestored,
 	}
+	for _, step := range steps {
+		if refused := step(); refused != nil {
+			return refused
+		}
+	}
+	return nil
+}
 
-	// cleanRecreateThenImport is the load-bearing clean-recreate-before-import
-	// sequence (RESEARCH Pitfall 1/2), used on BOTH the forward apply and the
-	// rollback, for BOTH volumes (Phase 23 generalized it over volumeName):
-	// VolumeRm (not-found-tolerant) → ReconcileAndWrite (Quadlet recreate from cfg) →
-	// EnsureVolume (explicit create) → VolumeImport. import MERGES + does NOT
-	// auto-create, so the volume MUST be rm'd + freshly created first. When both
-	// volumes restore, ReconcileAndWrite runs once per call — the second invocation
-	// is an idempotent no-op by construction (Reconcile is a pure content-hash
-	// compare; WriteUnits writes only Changed), tolerated rather than restructured.
-	cleanRecreateThenImport := func(cfg config.VillaConfig, volumeName, srcTar string) error {
-		if err := d.VolumeRm(volumeName); err != nil {
-			return fmt.Errorf("volume rm %s: %w", volumeName, err)
-		}
-		if _, err := d.ReconcileAndWrite(cfg); err != nil {
-			return fmt.Errorf("reconcile/recreate units: %w", err)
-		}
-		if err := d.EnsureVolume(volumeName); err != nil {
-			return fmt.Errorf("ensure volume %s: %w", volumeName, err)
-		}
-		if err := d.VolumeImport(volumeName, srcTar); err != nil {
-			return fmt.Errorf("volume import %s: %w", volumeName, err)
-		}
+// qdrantLive reports whether the archive carries a qdrant entry AND the current
+// host has the volume: the cell where qdrant is captured, quiesced, rolled back
+// and restarted. Entry-present + volume-absent records prior-absent (rollback then
+// REMOVES the forward-created volume); entry-absent makes ZERO qdrant calls.
+func (t *restoreTxn) qdrantLive() bool {
+	return t.ex.qdrantPresent && t.in.QdrantVolumeExists
+}
+
+// checkQdrantKnown is the fail-closed gate: when the archive carries a qdrant entry
+// but the current volume's existence could NOT be evaluated, REFUSE before any
+// mutation. An Unknown collapsed into "absent" would skip the capture export AND
+// the quiesce, then run the destructive VolumeRm on a possibly-real, uncaptured
+// qdrant volume — destroying existing vectors with no rollback copy. The
+// typed-Unknown doctrine: Unknown is never a confident negative.
+func (t *restoreTxn) checkQdrantKnown() *Result {
+	if !t.ex.qdrantPresent || !t.in.QdrantVolumeUnknown {
 		return nil
 	}
+	return &Result{Refused: true, FailedStep: "capture",
+		Reason: "could not determine whether the Qdrant volume " + t.in.QdrantVolumeName +
+			" exists — an unknown current state cannot be safely captured for rollback; " +
+			"check podman (`podman volume exists " + t.in.QdrantVolumeName + "`), then re-run"}
+}
 
-	// rollback re-applies the captured prior state verbatim and re-readies the stack,
-	// best-effort: it accumulates errors across ALL steps rather than aborting on the
-	// first, and reports whether EVERY step succeeded. Per RESEARCH Pitfall 5 an
-	// incomplete rollback is flagged honestly — never claim a clean no-op when a
-	// restore step errored. It uses the SAME clean-recreate ordering so the rollback
-	// re-import never merges into a live volume either.
-	rollback := func() (ok bool, detail string) {
-		ok = true
-		add := func(e error, what string) {
-			if e != nil {
-				ok = false
-				if detail != "" {
-					detail += "; "
-				}
-				detail += what + ": " + e.Error()
-			}
-		}
-		// QUIESCE FIRST: the forward path starts Open WebUI (and Qdrant)
-		// at step (5) BEFORE the Prove gate at step (6), so a prove-triggered
-		// rollback arrives with the services RUNNING — and a running container
-		// holds its volume, making the clean-recreate VolumeRm below fail in-use
-		// on a live host. Mirror the forward path's own quiesce before any volume
-		// work; Stop on an already-stopped unit is an idempotent no-op. The qdrant
-		// stop mirrors the forward Start gate (entry present AND a prior volume
-		// existed) — on the prior-absent cell nothing was ever started.
-		add(d.Stop(d.OpenWebUIServiceName), "stop Open WebUI for rollback")
-		if ex.qdrantPresent && in.QdrantVolumeExists {
-			add(d.Stop(d.QdrantServiceName), "stop Qdrant for rollback")
-		}
-		add(d.SaveConfig(priorCfg), "SaveConfig(prior)")
-		// Restore each data-dir artifact VERBATIM. For each path:
-		//   - prior existed → rewrite the captured prior bytes (the prior behavior);
-		//   - prior absent BUT the forward path created it (ex.*Present) → REMOVE it,
-		//     so the rolled-back state matches the prior (absent) state. Without this,
-		//     a restored-from-archive usage.json/bench-reports.jsonl was left on disk
-		//     after a "rollback", leaking backup chat/usage data into a supposedly
-		//     prior-restored install. A failed RemoveFile counts as rollback-incomplete.
-		switch {
-		case priorUsageOK:
-			add(d.WriteFile(in.UsageDestPath, priorUsage), "restore usage.json")
-		case ex.usagePresent && in.UsageDestPath != "":
-			add(rollbackRemove(d, in.UsageDestPath), "remove restored usage.json")
-		}
-		switch {
-		case priorBenchOK:
-			add(d.WriteFile(in.BenchDestPath, priorBench), "restore bench-reports.jsonl")
-		case ex.benchPresent && in.BenchDestPath != "":
-			add(rollbackRemove(d, in.BenchDestPath), "remove restored bench-reports.jsonl")
-		}
-		// recall-state.json follows the same verbatim rows (Phase 23).
-		switch {
-		case priorRecallOK:
-			add(d.WriteFile(in.RecallDestPath, priorRecall), "restore recall-state.json")
-		case ex.recallPresent && in.RecallDestPath != "":
-			add(rollbackRemove(d, in.RecallDestPath), "remove restored recall-state.json")
-		}
-		// crush.json follows the same verbatim rows (Phase 28),
-		// but through the dedicated out-of-store-root seams: WriteCrushConfig to
-		// restore the prior bytes, RemoveFile to undo a forward-created file.
-		switch {
-		case priorCrushOK:
-			add(writeCrushConfig(d, in.CrushConfigDestPath, priorCrush), "restore crush.json")
-		case ex.crushPresent && in.CrushConfigDestPath != "":
-			add(rollbackRemove(d, in.CrushConfigDestPath), "remove restored crush.json")
-		}
-		// settings.yml follows the same verbatim rows (Phase 34),
-		// through the dedicated out-of-store-root seams: WriteSearxngSettings to restore
-		// the prior bytes (0600-preserving), RemoveFile to undo a forward-created file.
-		switch {
-		case priorSearxngSettingsOK:
-			add(writeSearxngSettings(d, in.SearxngSettingsDestPath, priorSearxngSettings), "restore settings.yml")
-		case ex.searxngSettingsPresent && in.SearxngSettingsDestPath != "":
-			add(rollbackRemove(d, in.SearxngSettingsDestPath), "remove restored settings.yml")
-		}
-		// Re-import the CAPTURED owui volume through the clean-recreate ordering (prior cfg).
-		add(cleanRecreateThenImport(priorCfg, in.OpenWebUIVolumeName, in.RollbackVolumeTar), "restore Open WebUI volume")
-		// Qdrant rollback (Phase 23, /Pitfall 4): same clean-recreate ordering
-		// from the CAPTURED rollback tar when a prior volume existed; when the prior
-		// state was ABSENT, restore it verbatim by REMOVING the forward-created
-		// volume (the volume analog of rollbackRemove). Entry-absent ⇒ zero calls.
-		if ex.qdrantPresent {
-			if in.QdrantVolumeExists {
-				add(cleanRecreateThenImport(priorCfg, in.QdrantVolumeName, in.RollbackQdrantTar), "restore Qdrant volume")
-				add(d.Start(d.QdrantServiceName), "restart Qdrant")
-			} else {
-				add(d.VolumeRm(in.QdrantVolumeName), "remove forward-created Qdrant volume")
-			}
-		}
-		add(d.Start(d.OpenWebUIServiceName), "restart Open WebUI")
-		return ok, detail
-	}
+func refuseCapture(err error, what string) *Result {
+	return &Result{Refused: true, FailedStep: "capture", Err: err, Reason: what + " — refusing to mutate: " + err.Error()}
+}
 
-	// rolledBack assembles a RolledBack Result, folding in an honest
-	// rollback-incomplete message when the restore did not fully succeed (Pitfall 5).
-	rolledBack := func(failedStep, reason string, origErr error, v prove.Verdict) Result {
-		rbOK, rbDetail := rollback()
-		r := Result{
-			RolledBack: true,
-			FailedStep: failedStep,
-			Reason:     reason,
-			Err:        origErr,
-			Prove:      v,
-		}
-		if !rbOK {
-			r.RollbackIncomplete = true
-			r.Reason = "rolled back, but the restore did not fully complete (" + rbDetail +
-				") — run `villa status` and inspect the villa-openwebui unit"
-		}
-		return r
+func (t *restoreTxn) captureConfig() *Result {
+	cfg, err := t.d.LoadConfig()
+	if err != nil {
+		return refuseCapture(err, "cannot snapshot the current config for rollback")
 	}
+	t.priorCfg = cfg
+	return nil
+}
 
-	// (4) QUIESCE the Open WebUI service for a clean volume swap. A stop failure
-	// is a pre-mutate error → rollback (which best-effort re-readies).
-	if err := d.Stop(d.OpenWebUIServiceName); err != nil {
-		return rolledBack("quiesce", "", fmt.Errorf("stop %s: %w", d.OpenWebUIServiceName, err), prove.Verdict{})
+func (t *restoreTxn) captureOwui() *Result {
+	if err := t.d.VolumeExport(t.in.OpenWebUIVolumeName, t.in.RollbackVolumeTar); err != nil {
+		return refuseCapture(err, "cannot capture the current Open WebUI volume for rollback")
 	}
-	// Quiesce the qdrant service too (Phase 23, Pitfall 3): a RUNNING qdrant holds
-	// its volume (the live VolumeRm would fail in-use) and could write mid-swap.
-	// Gated on a prior volume actually existing — on a memory-off host there is no
-	// running qdrant service to stop (its unit may not even exist).
-	if ex.qdrantPresent && in.QdrantVolumeExists {
-		if err := d.Stop(d.QdrantServiceName); err != nil {
-			return rolledBack("quiesce", "", fmt.Errorf("stop %s: %w", d.QdrantServiceName, err), prove.Verdict{})
-		}
-	}
+	return nil
+}
 
-	// (5) MUTATE. ANY error here rolls back verbatim from the captured set.
-	if err := d.SaveConfig(restoredCfg); err != nil {
-		return rolledBack("save", "", fmt.Errorf("save restored config: %w", err), prove.Verdict{})
+func (t *restoreTxn) captureQdrant() *Result {
+	if !t.qdrantLive() {
+		return nil
 	}
-	if ex.usagePresent {
-		if err := d.WriteFile(in.UsageDestPath, ex.usage); err != nil {
-			return rolledBack("data", "", fmt.Errorf("restore usage.json: %w", err), prove.Verdict{})
-		}
+	if err := t.d.VolumeExport(t.in.QdrantVolumeName, t.in.RollbackQdrantTar); err != nil {
+		return refuseCapture(err, "cannot capture the current Qdrant volume for rollback")
 	}
-	if ex.benchPresent {
-		if err := d.WriteFile(in.BenchDestPath, ex.bench); err != nil {
-			return rolledBack("data", "", fmt.Errorf("restore bench-reports.jsonl: %w", err), prove.Verdict{})
-		}
-	}
-	// recall-state.json restores like the usage/bench rows (Phase 23): the
-	// store-root-guarded atomic write covers it (it lives directly under the villa
-	// data root).
-	if ex.recallPresent {
-		if err := d.WriteFile(in.RecallDestPath, ex.recallState); err != nil {
-			return rolledBack("data", "", fmt.Errorf("restore recall-state.json: %w", err), prove.Verdict{})
-		}
-	}
-	// Restore the OPTIONAL crush.json (Phase 28) through the dedicated
-	// out-of-store-root seam (it lives at ~/.config/crush/, not under the villa data
-	// root). Gated on the entry being present AND a destination wired; any error
-	// rolls back verbatim like the other data rows. The agent BINARY is NOT restored
-	// here — it is re-staged separately (re-download the pinned release; the
-	// ExcludedAgent identity is surfaced on the Result for that fail-closed re-stage).
-	// crushWritten records the ACTUAL write (entry present AND a destination wired),
-	// NOT mere presence. crushSkipped flags an archive that CARRIED a
-	// crush.json entry but had no destination wired — i.e. the current install is
-	// agent-off — so the cmd tier reports the skip honestly instead of a false
-	// "crush.json restored".
-	crushWritten := ex.crushPresent && in.CrushConfigDestPath != ""
-	crushSkipped := ex.crushPresent && in.CrushConfigDestPath == ""
-	if crushWritten {
-		if err := writeCrushConfig(d, in.CrushConfigDestPath, ex.crushConfig); err != nil {
-			return rolledBack("data", "", fmt.Errorf("restore crush.json: %w", err), prove.Verdict{})
-		}
-	}
-	// Restore the OPTIONAL settings.yml (Phase 34) through the dedicated
-	// out-of-store-root seam (it lives at $XDG_CONFIG_HOME/villa/searxng/, not under the
-	// villa data root). Gated on the entry being present AND a destination wired; any
-	// error rolls back verbatim like the other data rows. The write FORCES 0600 (the
-	// entry holds the rendered SEARXNG_SECRET — never widen the mode).
-	// searxngSettingsWritten records the ACTUAL write; searxngSettingsSkipped flags an
-	// archive that CARRIED a settings.yml entry but had no destination wired (web-off
-	// current install) so the cmd tier reports the skip honestly (mirror crush).
-	searxngSettingsWritten := ex.searxngSettingsPresent && in.SearxngSettingsDestPath != ""
-	searxngSettingsSkipped := ex.searxngSettingsPresent && in.SearxngSettingsDestPath == ""
-	if searxngSettingsWritten {
-		if err := writeSearxngSettings(d, in.SearxngSettingsDestPath, ex.searxngSettings); err != nil {
-			return rolledBack("data", "", fmt.Errorf("restore settings.yml: %w", err), prove.Verdict{})
-		}
-	}
-	// CLEAN-RECREATE then import the RESTORED owui volume (the whole reason for the
-	// rm→recreate→ensure→import ordering — never merge into a live volume).
-	if err := d.WriteFile(in.TempVolumeTar, ex.owuiVolume); err != nil {
-		return rolledBack("volume", "", fmt.Errorf("stage restored owui volume tar: %w", err), prove.Verdict{})
-	}
-	if err := cleanRecreateThenImport(restoredCfg, in.OpenWebUIVolumeName, in.TempVolumeTar); err != nil {
-		return rolledBack("volume", "", err, prove.Verdict{})
-	}
-	// Forward qdrant apply (Phase 23): SAME clean-recreate ordering for the
-	// second volume — never a merge-import. Gated on the entry being present;
-	// VolumeRm tolerates an absent prior volume (the seam contract), so the
-	// prior-absent cell flows through the same sequence.
-	if ex.qdrantPresent {
-		if err := d.WriteFile(in.TempQdrantTar, ex.qdrantVolume); err != nil {
-			return rolledBack("volume", "", fmt.Errorf("stage restored qdrant volume tar: %w", err), prove.Verdict{})
-		}
-		if err := cleanRecreateThenImport(restoredCfg, in.QdrantVolumeName, in.TempQdrantTar); err != nil {
-			return rolledBack("volume", "", err, prove.Verdict{})
-		}
-	}
-	if err := d.Start(d.OpenWebUIServiceName); err != nil {
-		return rolledBack("restart", "", fmt.Errorf("start %s: %w", d.OpenWebUIServiceName, err), prove.Verdict{})
-	}
-	// Restart the qdrant service we quiesced (symmetric with its Stop gate). On the
-	// prior-absent cell nothing was stopped — the operator brings the (possibly
-	// newly-rendered) memory stack up via `villa up`, reported honestly by the
-	// caller.
-	if ex.qdrantPresent && in.QdrantVolumeExists {
-		if err := d.Start(d.QdrantServiceName); err != nil {
-			return rolledBack("restart", "", fmt.Errorf("start %s: %w", d.QdrantServiceName, err), prove.Verdict{})
-		}
-	}
+	return nil
+}
 
-	// (6) PROVE the restored stack offload-honestly. Switch to success ONLY on
-	// prove.StatusPass; ANY other verdict (incl. ready+health-200-but-residency-FAIL)
-	// rolls back verbatim — is-active/200 alone is NEVER success.
-	v := d.Prove(restoredCfg.Backend)
+// captureFiles snapshots each file entry's current bytes through Deps.ReadFile. An
+// absent or unreadable file is simply not captured: rollback then does not restore
+// it (it was not there to begin with).
+func (t *restoreTxn) captureFiles() *Result {
+	for _, row := range fileRows {
+		if b, ok := captureFile(t.d, t.in.Dests[row.Name]); ok {
+			t.prior[row.Name] = b
+		}
+	}
+	return nil
+}
+
+// parseRestored parses the archive's config.toml into a VillaConfig (config is the
+// single source of truth — the Quadlet recreate renders from it).
+func (t *restoreTxn) parseRestored() *Result {
+	cfg, err := config.Parse(t.ex.config)
+	if err != nil {
+		return refuseCapture(err, "archive config.toml is unreadable")
+	}
+	t.restoredCfg = cfg
+	return nil
+}
+
+// forwardStep is one step of the MUTATE phase; name is the Result.FailedStep an
+// error in it reports.
+type forwardStep struct {
+	name string
+	run  func() error
+}
+
+// apply is steps (4) to (6): quiesce, mutate, restart, then PROVE the restored
+// stack offload-honestly. Switch to success ONLY on prove.StatusPass; ANY other
+// verdict (incl. ready+health-200-but-residency-FAIL) rolls back verbatim —
+// is-active/200 alone is NEVER success. ANY step error also rolls back, from the
+// captured set.
+func (t *restoreTxn) apply() Result {
+	steps := []forwardStep{
+		{"quiesce", t.quiesce}, {"save", t.saveConfig}, {"data", t.writeFiles}, {"volume", t.swapVolumes}, {"restart", t.restart},
+	}
+	for _, s := range steps {
+		if err := s.run(); err != nil {
+			return t.rolledBack(s.name, "", err, prove.Verdict{})
+		}
+	}
+	v := t.d.Prove(t.restoredCfg.Backend)
 	if !v.Pass() {
-		return rolledBack("prove", v.Detail, nil, v)
+		return t.rolledBack("prove", v.Detail, nil, v)
 	}
+	return t.restored(v)
+}
+
+func (t *restoreTxn) stop(service string) error {
+	if err := t.d.Stop(service); err != nil {
+		return fmt.Errorf("stop %s: %w", service, err)
+	}
+	return nil
+}
+
+func (t *restoreTxn) start(service string) error {
+	if err := t.d.Start(service); err != nil {
+		return fmt.Errorf("start %s: %w", service, err)
+	}
+	return nil
+}
+
+// quiesce stops Open WebUI for a clean volume swap, and qdrant too (Pitfall 3): a
+// RUNNING qdrant holds its volume (the live VolumeRm would fail in-use) and could
+// write mid-swap. The qdrant stop is gated on a prior volume actually existing — on
+// a memory-off host there is no running qdrant service to stop.
+func (t *restoreTxn) quiesce() error {
+	if err := t.stop(t.d.OpenWebUIServiceName); err != nil {
+		return err
+	}
+	if t.qdrantLive() {
+		return t.stop(t.d.QdrantServiceName)
+	}
+	return nil
+}
+
+func (t *restoreTxn) saveConfig() error {
+	if err := t.d.SaveConfig(t.restoredCfg); err != nil {
+		return fmt.Errorf("save restored config: %w", err)
+	}
+	return nil
+}
+
+// willWrite reports whether a file row is actually applied: the archive carries it
+// AND the cmd tier wired a destination for it.
+func (t *restoreTxn) willWrite(row Row) bool {
+	_, present := t.ex.files[row.Name]
+	return present && t.in.Dests[row.Name] != ""
+}
+
+// writeFiles restores each file entry through the one WriteFile seam. Any error
+// rolls back verbatim like the other data rows. The agent BINARY is NOT restored
+// here — it is re-staged separately (re-download the pinned release; the
+// ExcludedAgent identity is surfaced on the Result for that fail-closed re-stage).
+func (t *restoreTxn) writeFiles() error {
+	for _, row := range fileRows {
+		if !t.willWrite(row) {
+			continue
+		}
+		if err := t.writeRow(row, t.ex.files[row.Name]); err != nil {
+			return fmt.Errorf("restore %s: %w", row.Label, err)
+		}
+	}
+	return nil
+}
+
+// writeRow writes data to a file row's destination. A nil seam is a
+// restore-incomplete condition surfaced honestly (mirrors rollbackRemove's
+// nil-seam contract) rather than a silent skip; the message names the artifact the
+// operator is missing.
+func (t *restoreTxn) writeRow(row Row, data []byte) error {
+	path := t.in.Dests[row.Name]
+	if t.d.WriteFile == nil {
+		return fmt.Errorf("no WriteFile seam wired — cannot restore %s to %q", row.Label, path)
+	}
+	return t.d.WriteFile(path, data)
+}
+
+// swapVolumes CLEAN-RECREATES then imports the RESTORED owui volume (the whole
+// reason for the rm→recreate→ensure→import ordering — never merge into a live
+// volume), then the qdrant volume through the SAME ordering when the archive
+// carries it. VolumeRm tolerates an absent prior volume (the seam contract), so the
+// prior-absent cell flows through the same sequence.
+func (t *restoreTxn) swapVolumes() error {
+	if err := t.importVolume("owui", t.in.OpenWebUIVolumeName, t.in.TempVolumeTar, t.ex.owuiVolume); err != nil {
+		return err
+	}
+	if !t.ex.qdrantPresent {
+		return nil
+	}
+	return t.importVolume("qdrant", t.in.QdrantVolumeName, t.in.TempQdrantTar, t.ex.qdrantVolume)
+}
+
+func (t *restoreTxn) importVolume(kind, volume, stagePath string, data []byte) error {
+	if err := t.d.WriteFile(stagePath, data); err != nil {
+		return fmt.Errorf("stage restored %s volume tar: %w", kind, err)
+	}
+	return t.cleanRecreateThenImport(t.restoredCfg, volume, stagePath)
+}
+
+// cleanRecreateThenImport is the load-bearing clean-recreate-before-import
+// sequence (RESEARCH Pitfall 1/2), used on BOTH the forward apply and the
+// rollback, for BOTH volumes: VolumeRm (not-found-tolerant) → ReconcileAndWrite
+// (Quadlet recreate from cfg) → EnsureVolume (explicit create) → VolumeImport.
+// import MERGES + does NOT auto-create, so the volume MUST be rm'd + freshly
+// created first. When both volumes restore, ReconcileAndWrite runs once per call —
+// the second invocation is an idempotent no-op by construction (Reconcile is a pure
+// content-hash compare; WriteUnits writes only Changed), tolerated rather than
+// restructured.
+func (t *restoreTxn) cleanRecreateThenImport(cfg config.VillaConfig, volumeName, srcTar string) error {
+	if err := t.d.VolumeRm(volumeName); err != nil {
+		return fmt.Errorf("volume rm %s: %w", volumeName, err)
+	}
+	if _, err := t.d.ReconcileAndWrite(cfg); err != nil {
+		return fmt.Errorf("reconcile/recreate units: %w", err)
+	}
+	if err := t.d.EnsureVolume(volumeName); err != nil {
+		return fmt.Errorf("ensure volume %s: %w", volumeName, err)
+	}
+	if err := t.d.VolumeImport(volumeName, srcTar); err != nil {
+		return fmt.Errorf("volume import %s: %w", volumeName, err)
+	}
+	return nil
+}
+
+// restart starts Open WebUI, then the qdrant service we quiesced (symmetric with
+// its Stop gate). On the prior-absent cell nothing was stopped — the operator
+// brings the (possibly newly-rendered) memory stack up via `villa up`, reported
+// honestly by the caller.
+func (t *restoreTxn) restart() error {
+	if err := t.start(t.d.OpenWebUIServiceName); err != nil {
+		return err
+	}
+	if t.qdrantLive() {
+		return t.start(t.d.QdrantServiceName)
+	}
+	return nil
+}
+
+// restored is the success Result. Files reports, for each file entry the archive
+// carried, the ACTUAL write (a destination was wired) or the skip (none was — the
+// subsystem is off on the current install), so the cmd tier never reports a false
+// "restored".
+func (t *restoreTxn) restored(v prove.Verdict) Result {
 	return Result{
-		Restored:                true,
-		Prove:                   v,
-		QdrantRestored:          ex.qdrantPresent,
-		RecallStateRestored:     ex.recallPresent,
-		RestoredMemoryEnabled:   restoredCfg.MemoryEnabled,
-		CrushConfigRestored:     crushWritten,
-		CrushConfigSkipped:      crushSkipped,
-		SearxngSettingsRestored: searxngSettingsWritten,
-		SearxngSettingsSkipped:  searxngSettingsSkipped,
+		Restored:              true,
+		Prove:                 v,
+		QdrantRestored:        t.ex.qdrantPresent,
+		RestoredMemoryEnabled: t.restoredCfg.MemoryEnabled,
+		Files:                 t.fileOutcomes(),
+		EvalDropped:           t.evalDropped(),
 		// Surface the EXCLUDED agent binary identity for the operator to RE-STAGE
 		// (re-download the pinned release) — the binary bytes were never in the
-		// archive, exactly like model weights. Nil on an agent-off
-		// backup (the manifest recorded no ExcludedAgent).
-		ExcludedAgent: ex.manifest.ExcludedAgent,
+		// archive, exactly like model weights. Nil on an agent-off backup (the
+		// manifest recorded no ExcludedAgent).
+		ExcludedAgent: t.ex.manifest.ExcludedAgent,
 	}
 }
 
-// writeCrushConfig restores the crush.json entry to the out-of-store-root agent
-// config destination (Phase 28). A nil seam is a restore-incomplete
-// condition surfaced honestly (mirrors rollbackRemove's nil-seam contract) rather
-// than a silent skip. The named wrapper survives the seam collapse because the
-// honest nil-seam message names the artifact the operator is missing.
-func writeCrushConfig(d RestoreDeps, path string, data []byte) error {
-	if d.WriteFile == nil {
-		return fmt.Errorf("no WriteFile seam wired — cannot restore crush.json to %q", path)
+func (t *restoreTxn) fileOutcomes() map[string]FileOutcome {
+	out := map[string]FileOutcome{}
+	for _, row := range fileRows {
+		if _, present := t.ex.files[row.Name]; present {
+			out[row.Name] = FileOutcome{Restored: t.willWrite(row), Skipped: !t.willWrite(row)}
+		}
 	}
-	return d.WriteFile(path, data)
+	return out
 }
 
-// writeSearxngSettings restores the settings.yml entry to the out-of-store-root
-// SearXNG config destination (Phase 34). A nil seam is a restore-incomplete
-// condition surfaced honestly. The live wiring writes 0600 — the entry holds the
-// rendered SEARXNG_SECRET, so the mode must never widen.
-func writeSearxngSettings(d RestoreDeps, path string, data []byte) error {
-	if d.WriteFile == nil {
-		return fmt.Errorf("no WriteFile seam wired — cannot restore settings.yml to %q", path)
+// evalDropped names the baselines this restore replaced away: those in the
+// eval-baselines.json captured before mutation that the archive's document lacks.
+// Restore replaces the whole document verbatim, a baseline cannot be re-recorded
+// after the regression it exists to catch (ADR-0018), and so the loss is reported
+// rather than merged around. Nothing is dropped when the archive carries no
+// document (the current file is left alone) or there was no current file.
+func (t *restoreTxn) evalDropped() []string {
+	archived, carried := t.ex.files[EntryEvalBaselines]
+	current, hadCurrent := t.prior[EntryEvalBaselines]
+	if !carried || !hadCurrent || t.in.EvalKeysOf == nil {
+		return nil
 	}
-	return d.WriteFile(path, data)
+	return missingFrom(t.in.EvalKeysOf(current), t.in.EvalKeysOf(archived))
+}
+
+// missingFrom is the entries of have that are not in keep, in order.
+func missingFrom(have, keep []string) []string {
+	kept := map[string]bool{}
+	for _, k := range keep {
+		kept[k] = true
+	}
+	var gone []string
+	for _, k := range have {
+		if !kept[k] {
+			gone = append(gone, k)
+		}
+	}
+	return gone
+}
+
+// rolledBack assembles a RolledBack Result, folding in an honest
+// rollback-incomplete message when the restore did not fully succeed (Pitfall 5).
+func (t *restoreTxn) rolledBack(failedStep, reason string, origErr error, v prove.Verdict) Result {
+	rb := t.rollback()
+	r := Result{
+		RolledBack: true,
+		FailedStep: failedStep,
+		Reason:     reason,
+		Err:        origErr,
+		Prove:      v,
+	}
+	if !rb.ok {
+		r.RollbackIncomplete = true
+		r.Reason = "rolled back, but the restore did not fully complete (" + rb.detail +
+			") — run `villa status` and inspect the villa-openwebui unit"
+	}
+	return r
+}
+
+// rollbackLog accumulates errors across ALL rollback steps rather than aborting on
+// the first, and reports whether EVERY step succeeded. Per RESEARCH Pitfall 5 an
+// incomplete rollback is flagged honestly — never claim a clean no-op when a
+// restore step errored.
+type rollbackLog struct {
+	ok     bool
+	detail string
+}
+
+func (l *rollbackLog) add(e error, what string) {
+	if e == nil {
+		return
+	}
+	l.ok = false
+	if l.detail != "" {
+		l.detail += "; "
+	}
+	l.detail += what + ": " + e.Error()
+}
+
+// rollback re-applies the captured prior state verbatim and re-readies the stack,
+// best-effort. It uses the SAME clean-recreate ordering as the forward path so the
+// rollback re-import never merges into a live volume either.
+func (t *restoreTxn) rollback() *rollbackLog {
+	l := &rollbackLog{ok: true}
+	t.rollbackQuiesce(l)
+	l.add(t.d.SaveConfig(t.priorCfg), "SaveConfig(prior)")
+	t.rollbackFiles(l)
+	l.add(t.cleanRecreateThenImport(t.priorCfg, t.in.OpenWebUIVolumeName, t.in.RollbackVolumeTar), "restore Open WebUI volume")
+	t.rollbackQdrant(l)
+	l.add(t.d.Start(t.d.OpenWebUIServiceName), "restart Open WebUI")
+	return l
+}
+
+// rollbackQuiesce stops the services FIRST: the forward path starts Open WebUI (and
+// Qdrant) at the restart step BEFORE the Prove gate, so a prove-triggered rollback
+// arrives with the services RUNNING — and a running container holds its volume,
+// making the clean-recreate VolumeRm below fail in-use on a live host. Mirror the
+// forward path's own quiesce before any volume work; Stop on an already-stopped
+// unit is an idempotent no-op. The qdrant stop mirrors the forward Start gate
+// (entry present AND a prior volume existed) — on the prior-absent cell nothing was
+// ever started.
+func (t *restoreTxn) rollbackQuiesce(l *rollbackLog) {
+	l.add(t.d.Stop(t.d.OpenWebUIServiceName), "stop Open WebUI for rollback")
+	if t.qdrantLive() {
+		l.add(t.d.Stop(t.d.QdrantServiceName), "stop Qdrant for rollback")
+	}
+}
+
+// rollbackFiles restores each file entry VERBATIM. For each:
+//   - prior existed → rewrite the captured prior bytes;
+//   - prior absent BUT the forward path created it → REMOVE it, so the rolled-back
+//     state matches the prior (absent) state. Without this, a restored-from-archive
+//     file was left on disk after a "rollback", leaking backup chat/usage data into
+//     a supposedly prior-restored install. A failed RemoveFile counts as
+//     rollback-incomplete.
+func (t *restoreTxn) rollbackFiles(l *rollbackLog) {
+	for _, row := range fileRows {
+		b, hadPrior := t.prior[row.Name]
+		switch {
+		case hadPrior:
+			l.add(t.writeRow(row, b), "restore "+row.Label)
+		case t.willWrite(row):
+			l.add(rollbackRemove(t.d, t.in.Dests[row.Name]), "remove restored "+row.Label)
+		}
+	}
+}
+
+// rollbackQdrant: same clean-recreate ordering from the CAPTURED rollback tar when
+// a prior volume existed; when the prior state was ABSENT, restore it verbatim by
+// REMOVING the forward-created volume (the volume analog of rollbackRemove).
+// Entry-absent ⇒ zero calls.
+func (t *restoreTxn) rollbackQdrant(l *rollbackLog) {
+	if !t.ex.qdrantPresent {
+		return
+	}
+	if !t.in.QdrantVolumeExists {
+		l.add(t.d.VolumeRm(t.in.QdrantVolumeName), "remove forward-created Qdrant volume")
+		return
+	}
+	l.add(t.cleanRecreateThenImport(t.priorCfg, t.in.QdrantVolumeName, t.in.RollbackQdrantTar), "restore Qdrant volume")
+	l.add(t.d.Start(t.d.QdrantServiceName), "restart Qdrant")
 }
 
 // rollbackRemove deletes a data-dir artifact the forward path newly created, to
@@ -568,6 +635,19 @@ func rollbackRemove(d RestoreDeps, path string) error {
 		return fmt.Errorf("no RemoveFile seam wired — cannot remove forward-created %q", path)
 	}
 	return d.RemoveFile(path)
+}
+
+// skewPrompt assembles the WARN-and-confirm prompt text from the skew warnings:
+// each finding's Field, Detail, and named Remediation, plus a final y/N question
+// The cmd-tier Consent closure prints this and reads the answer.
+func skewPrompt(ws []SkewWarning) string {
+	var b bytes.Buffer
+	b.WriteString("restore detected skew between the backup and the current install:\n")
+	for _, w := range ws {
+		fmt.Fprintf(&b, "  - %s: %s\n      remediation: %s\n", w.Field, w.Detail, w.Remediation)
+	}
+	b.WriteString("proceed with restore? [y/N]: ")
+	return b.String()
 }
 
 // captureFile reads a current data-dir artifact for the rollback set via Deps.ReadFile.
@@ -582,162 +662,4 @@ func captureFile(d RestoreDeps, path string) (data []byte, ok bool) {
 		return nil, false
 	}
 	return b, true
-}
-
-// readAndVerify performs the pure read+verify pass (step 1): it parses manifest.json
-// (FIRST entry) and verifies every subsequent entry's SHA-256 against the manifest,
-// returning the extracted, tar-slip-guarded payload. A manifest whose schema_version
-// is unreadable (<=0) or NEWER than this villa supports is a fail-closed BLOCK; a
-// per-entry SHA-256 mismatch wraps ErrChecksumMismatch. Zero side effects — it only
-// reads the injected archive stream.
-func readAndVerify(in RestoreInput) (extracted, error) {
-	var ex extracted
-	if in.OpenArchive == nil {
-		return ex, fmt.Errorf("nil archive opener")
-	}
-
-	// First pass: collect entries (manifest FIRST). readArchive applies the tar-slip
-	// guard to every entry name before handing it to fn, so a malicious
-	// "../escape" / absolute entry is refused here, before any side effect.
-	rc, err := in.OpenArchive()
-	if err != nil {
-		return ex, fmt.Errorf("open archive: %w", err)
-	}
-	defer func() { _ = rc.Close() }()
-
-	var (
-		manifestSeen bool
-		entryIdx     int
-	)
-	collect := map[string][]byte{}
-	err = readArchive(rc, func(name string, data []byte) error {
-		idx := entryIdx
-		entryIdx++
-
-		if name == EntryManifest {
-			// Manifest-first on READ: the manifest MUST be the FIRST tar member
-			// so it is parsed + schema-gated before any subsequent body is trusted. An
-			// out-of-position manifest is refused (and a second manifest is a duplicate).
-			if idx != 0 {
-				return fmt.Errorf("archive %s must be the FIRST entry (found at position %d)", EntryManifest, idx)
-			}
-			m, perr := parseManifest(data)
-			if perr != nil {
-				return perr
-			}
-			ex.manifest = m
-			manifestSeen = true
-			// Schema-gate the manifest BEFORE reading any further entry body:
-			// fail-closed BLOCK on an unreadable/incompatible schema, mirroring
-			// usage.Load's fail-closed-on-future discipline.
-			if m.SchemaVersion <= 0 || m.SchemaVersion > backupSchemaVersion {
-				return fmt.Errorf("manifest schema_version %d is unreadable or newer than this villa supports (%d)",
-					m.SchemaVersion, backupSchemaVersion)
-			}
-			return nil
-		}
-
-		// Every non-manifest entry arrives AFTER the manifest: if the manifest
-		// was not the first member, the idx!=0 check above already refused it; a data
-		// entry at idx 0 means there was no leading manifest.
-		if !manifestSeen {
-			return fmt.Errorf("archive %s must be the FIRST entry — entry %q precedes it", EntryManifest, name)
-		}
-		// Reject duplicate entry names explicitly: the prior `collect[name]=data`
-		// silently last-write-won, making verify order-dependent.
-		if _, dup := collect[name]; dup {
-			return fmt.Errorf("archive contains duplicate entry %q", name)
-		}
-		collect[name] = data
-		return nil
-	})
-	if err != nil {
-		return ex, err
-	}
-	if !manifestSeen {
-		return ex, fmt.Errorf("archive has no %s entry", EntryManifest)
-	}
-
-	// Build the manifest-listed name set once (used for both the verify pass and the
-	// extra-entry rejection below).
-	want := map[string]string{}
-	for _, e := range ex.manifest.Entries {
-		want[e.Name] = e.SHA256
-	}
-
-	// Reject any collected entry NOT listed in the manifest: the archive must
-	// contain EXACTLY the manifest-described members — an extra/unexpected entry was
-	// previously accepted-and-ignored, which is not what the manifest claims.
-	for name := range collect {
-		if _, listed := want[name]; !listed {
-			return ex, fmt.Errorf("archive contains entry %q not listed in the manifest", name)
-		}
-	}
-
-	// Verify every manifest-listed entry's SHA-256 against the collected bytes. A
-	// missing required entry or a mismatch is archive corruption.
-	for name, csum := range want {
-		data, ok := collect[name]
-		if !ok {
-			return ex, fmt.Errorf("manifest lists entry %q but the archive does not contain it", name)
-		}
-		if verr := verify(bytes.NewReader(data), csum); verr != nil {
-			return ex, fmt.Errorf("entry %q: %w", name, verr)
-		}
-	}
-
-	// Map the verified entries into the typed payload. config.toml + the owui volume
-	// tar are REQUIRED; usage.json + bench-reports.jsonl are optional.
-	cfgBytes, ok := collect[EntryConfig]
-	if !ok {
-		return ex, fmt.Errorf("archive is missing the required %s entry", EntryConfig)
-	}
-	ex.config = cfgBytes
-	owuiBytes, ok := collect[EntryOpenWebUIVolume]
-	if !ok {
-		return ex, fmt.Errorf("archive is missing the required %s entry", EntryOpenWebUIVolume)
-	}
-	ex.owuiVolume = owuiBytes
-	if b, ok := collect[EntryUsage]; ok {
-		ex.usage, ex.usagePresent = b, true
-	}
-	if b, ok := collect[EntryBenchReports]; ok {
-		ex.bench, ex.benchPresent = b, true
-	}
-	// The Phase-23 memory entries are OPTIONAL and flow through the SAME
-	// readAndVerify guards as every other entry (SHA-256, tar-slip, duplicate +
-	// extra-entry rejection, fail-closed version gate) — no parallel reader
-	// (T-23-11).
-	if b, ok := collect[EntryQdrantVolume]; ok {
-		ex.qdrantVolume, ex.qdrantPresent = b, true
-	}
-	if b, ok := collect[EntryRecallState]; ok {
-		ex.recallState, ex.recallPresent = b, true
-	}
-	// The Phase-28 coding-agent config entry is OPTIONAL and flows through the SAME
-	// readAndVerify guards (SHA-256, tar-slip, duplicate + extra-entry rejection,
-	// fail-closed version gate) as every other entry.
-	if b, ok := collect[EntryCrushConfig]; ok {
-		ex.crushConfig, ex.crushPresent = b, true
-	}
-	// The Phase-34 web-search settings.yml entry is OPTIONAL and flows through the SAME
-	// readAndVerify guards (SHA-256, tar-slip, duplicate + extra-entry rejection,
-	// fail-closed version gate) as every other entry.
-	if b, ok := collect[EntrySearxngSettings]; ok {
-		ex.searxngSettings, ex.searxngSettingsPresent = b, true
-	}
-	return ex, nil
-}
-
-// skewPrompt assembles the WARN-and-confirm prompt text from the skew warnings:
-// each finding's Field, Detail, and named Remediation, plus a final y/N question
-// The cmd-tier Consent closure prints this and reads the answer.
-func skewPrompt(ws []SkewWarning) string {
-	var b bytes.Buffer
-	b.WriteString("restore detected skew between the backup and the current install:\n")
-	for _, w := range ws {
-		fmt.Fprintf(&b, "  - %s: %s\n      remediation: %s\n", w.Field, w.Detail, w.Remediation)
-	}
-	b.WriteString("proceed with restore? [y/N]: ")
-	return b.String()
 }

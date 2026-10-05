@@ -17,12 +17,16 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/backup"
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
+	"github.com/MatrixMagician/VillaStraylight/internal/eval"
+	"github.com/MatrixMagician/VillaStraylight/internal/evalstore"
 	"github.com/MatrixMagician/VillaStraylight/internal/prove"
 )
 
@@ -131,8 +135,10 @@ func baseRestoreInput(t *testing.T, path string) backup.RestoreInput {
 		OpenWebUIVolumeName: "villa-openwebui",
 		TempVolumeTar:       filepath.Join(tmp, "restore-owui.tar"),
 		RollbackVolumeTar:   filepath.Join(tmp, "rollback-owui.tar"),
-		UsageDestPath:       filepath.Join(tmp, "usage.json"),
-		BenchDestPath:       filepath.Join(tmp, "bench-reports.jsonl"),
+		Dests: map[string]string{
+			backup.EntryUsage:        filepath.Join(tmp, "usage.json"),
+			backup.EntryBenchReports: filepath.Join(tmp, "bench-reports.jsonl"),
+		},
 	}
 }
 
@@ -341,7 +347,7 @@ func TestRestoreOutputMemoryRestored(t *testing.T) {
 	in.TempQdrantTar = filepath.Join(tmp, "restore-qdrant.tar")
 	in.RollbackQdrantTar = filepath.Join(tmp, "rollback-qdrant.tar")
 	in.QdrantVolumeExists = true
-	in.RecallDestPath = filepath.Join(tmp, "recall-state.json")
+	in.Dests[backup.EntryRecallState] = filepath.Join(tmp, "recall-state.json")
 
 	cmd, out, errOut := newRestoreTestCmd()
 	code, _ := runRestore(cmd, arch, in, fakeRestoreDeps(prove.Verdict{Status: prove.StatusPass}), "")
@@ -438,5 +444,282 @@ func TestRestoreCorruptArchiveBlocks(t *testing.T) {
 	code, _ := runRestore(cmd, arch, baseRestoreInput(t, arch), fakeRestoreDeps(prove.Verdict{Status: prove.StatusPass}), "")
 	if code != exitBlocked {
 		t.Fatalf("corrupt archive: runRestore = %d, want %d", code, exitBlocked)
+	}
+}
+
+// stubPodmanVolume swaps the podman runner for fn for the test's lifetime.
+func stubPodmanVolume(t *testing.T, fn func(args []string) (string, error)) {
+	t.Helper()
+	prev := podmanVolume
+	podmanVolume = fn
+	t.Cleanup(func() { podmanVolume = prev })
+}
+
+// TestLiveRestoreAssemblesTheInput: liveRestore resolves the archive, the current
+// install and the temp dir into a RestoreInput whose destinations are exactly the
+// ones the current (agent-off, web-search-off) install wires, and whose qdrant
+// existence is the tri-state check's answer.
+func TestLiveRestoreAssemblesTheInput(t *testing.T) {
+	scratchVillaHome(t, "backend = \"vulkan\"\n")
+	stubPodmanVolume(t, func([]string) (string, error) { return "", nil }) // volume exists
+	arch := filepath.Join(t.TempDir(), "b.tar")
+	if err := os.WriteFile(arch, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd, _, errOut := newRestoreTestCmd()
+	in, _, tmpDir, code := liveRestore(cmd, arch, true)
+	t.Cleanup(func() { _ = os.RemoveAll(tmpDir) })
+	if code != exitPass {
+		t.Fatalf("liveRestore = %d, want %d; stderr=%q", code, exitPass, errOut.String())
+	}
+	if want := []string{backup.EntryBenchReports, backup.EntryEvalBaselines, backup.EntryRecallState, backup.EntryUsage}; !slices.Equal(sortedKeys(in.Dests), want) {
+		t.Fatalf("dests = %v, want %v", sortedKeys(in.Dests), want)
+	}
+	if !in.Bypass || !in.QdrantVolumeExists || in.QdrantVolumeUnknown {
+		t.Fatalf("want bypass + existing known qdrant volume, got %+v", in)
+	}
+	if filepath.Dir(in.TempVolumeTar) != tmpDir || filepath.Dir(in.RollbackQdrantTar) != tmpDir {
+		t.Fatalf("volume tars must live in the restore temp dir %q, got %q / %q", tmpDir, in.TempVolumeTar, in.RollbackQdrantTar)
+	}
+	if rc, err := in.OpenArchive(); err != nil {
+		t.Fatalf("OpenArchive: %v", err)
+	} else {
+		_ = rc.Close()
+	}
+}
+
+// TestLiveRestoreRefusesBeforeAnyEffect: an unreadable archive, an unreadable config
+// and an unwritable temp dir each exit blocked with a message and an EMPTY tmpDir —
+// the caller has nothing to clean up, because nothing was created.
+func TestLiveRestoreRefusesBeforeAnyEffect(t *testing.T) {
+	good := filepath.Join(t.TempDir(), "b.tar")
+	if err := os.WriteFile(good, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name    string
+		cfgTOML string
+		archive string
+		tmpdir  string
+		want    string
+	}{
+		{"missing archive", "", filepath.Join(t.TempDir(), "absent.tar"), "", "restore: cannot read archive"},
+		{"unreadable config", "model = [unterminated\n", good, "", "restore: load config"},
+		{"unwritable temp dir", "", good, filepath.Join(t.TempDir(), "no-such-dir"), "restore: temp dir"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			scratchVillaHome(t, tt.cfgTOML)
+			stubPodmanVolume(t, func([]string) (string, error) { return "", nil })
+			if tt.tmpdir != "" {
+				t.Setenv("TMPDIR", tt.tmpdir)
+			}
+			cmd, _, errOut := newRestoreTestCmd()
+			_, _, tmpDir, code := liveRestore(cmd, tt.archive, false)
+			if code != exitBlocked || tmpDir != "" {
+				t.Fatalf("liveRestore = %d tmpDir %q, want blocked and no temp dir; stderr=%q", code, tmpDir, errOut.String())
+			}
+			if !strings.Contains(errOut.String(), tt.want) {
+				t.Fatalf("stderr %q does not contain %q", errOut.String(), tt.want)
+			}
+		})
+	}
+}
+
+// TestLiveCurrentInstallRefusesAnUnknownBackend: the skew compare needs the backend
+// image digest from the seam, so a backend the seam does not know is a refusal that
+// names it, not a silent default.
+func TestLiveCurrentInstallRefusesAnUnknownBackend(t *testing.T) {
+	_, err := liveCurrentInstall(config.VillaConfig{Backend: "bogus"})
+	if err == nil || !strings.Contains(err.Error(), `resolve backend "bogus"`) {
+		t.Fatalf("want a refusal naming the backend, got %v", err)
+	}
+}
+
+// TestNarrateRestoredReportsEachFileOutcome: every optional file entry is reported
+// as restored, skipped (carried but this install has no destination — a subsystem is
+// off) or absent, and a skip is never reported as a restore.
+func TestNarrateRestoredReportsEachFileOutcome(t *testing.T) {
+	tests := []struct {
+		name  string
+		files map[string]backup.FileOutcome
+		want  []string
+	}{
+		{"nothing carried", nil, []string{
+			recallRestoreNarration.absent, crushRestoreNarration.absent, searxngRestoreNarration.absent,
+		}},
+		{"all restored", map[string]backup.FileOutcome{
+			backup.EntryRecallState:     {Restored: true},
+			backup.EntryCrushConfig:     {Restored: true},
+			backup.EntrySearxngSettings: {Restored: true},
+		}, []string{
+			recallRestoreNarration.restored, crushRestoreNarration.restored, searxngRestoreNarration.restored,
+		}},
+		{"carried but unwired", map[string]backup.FileOutcome{
+			backup.EntryCrushConfig:     {Skipped: true},
+			backup.EntrySearxngSettings: {Skipped: true},
+		}, []string{crushRestoreNarration.skipped, searxngRestoreNarration.skipped}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var out bytes.Buffer
+			narrateRestored(&out, "b.tar", backup.Result{Restored: true, Files: tt.files, ExcludedAgent: &backup.ExcludedAgent{Version: "v0.76.0"}})
+			for _, want := range tt.want {
+				if !strings.Contains(out.String(), want) {
+					t.Errorf("report missing %q, got %q", want, out.String())
+				}
+			}
+			if !strings.Contains(out.String(), "(pinned v0.76.0)") {
+				t.Errorf("the excluded agent identity must be reported, got %q", out.String())
+			}
+		})
+	}
+}
+
+// TestRunRestoreReportsRefusalAndRollback: the Result maps to the right messages —
+// a refusal names its reason, else its failed step, else just the archive; a
+// rollback that did not complete preserves the temp dir and says how to recover.
+func TestRunRestoreReportsRefusalAndRollback(t *testing.T) {
+	var out bytes.Buffer
+	reportRefused(&out, "b.tar", backup.Result{Refused: true, Reason: "because"})
+	reportRefused(&out, "b.tar", backup.Result{Refused: true, FailedStep: "capture", Err: errors.New("boom")})
+	reportRefused(&out, "b.tar", backup.Result{Refused: true})
+	for _, want := range []string{
+		"refusing to apply b.tar — because",
+		"refusing to apply b.tar — capture failed: boom",
+		"refusing to apply b.tar\n",
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("refusal report missing %q, got %q", want, out.String())
+		}
+	}
+
+	out.Reset()
+	incomplete := backup.Result{RolledBack: true, RollbackIncomplete: true, FailedStep: "volume", Reason: "r", Err: errors.New("e")}
+	if !reportRolledBack(&out, "b.tar", "/tmp/keep", incomplete) {
+		t.Fatalf("an incomplete rollback must ask the caller to preserve the temp dir")
+	}
+	for _, want := range []string{"rolled back", "detail: r", "error:  e", "PRESERVING /tmp/keep"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("rollback report missing %q, got %q", want, out.String())
+		}
+	}
+	if reportRolledBack(io.Discard, "b.tar", "/tmp/keep", backup.Result{RolledBack: true}) {
+		t.Fatalf("a complete rollback must not preserve the temp dir")
+	}
+}
+
+// evalDoc is an eval-baselines.json document holding one baseline per model.
+func evalDoc(t *testing.T, models ...string) []byte {
+	t.Helper()
+	doc := evalstore.Document{SchemaVersion: evalstore.SchemaVersion()}
+	for _, m := range models {
+		doc.Baselines = append(doc.Baselines, eval.Baseline{Key: eval.Key{Model: m, Quant: "Q4", SuiteVersion: 1}})
+	}
+	b, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
+// realWriteRestoreDeps is the live restore wiring minus podman, systemd and the
+// proof: config and files go through the real seams onto the scratch XDG roots.
+func realWriteRestoreDeps() backup.RestoreDeps {
+	d := fakeRestoreDeps(prove.Verdict{Status: prove.StatusPass})
+	d.LoadConfig = config.LoadVilla
+	d.SaveConfig = config.SaveVilla
+	d.ReadFile = os.ReadFile
+	d.WriteFile = liveRestoreWriteFile
+	d.RemoveFile = func(p string) error {
+		if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		return nil
+	}
+	return d
+}
+
+// TestBackupRestoreRoundTripsEvalBaselines is #275's acceptance over the REAL
+// cmd-tier wiring on a scratch XDG root: back up an install with eval baselines,
+// let the store drift, restore, and eval-baselines.json is the backed-up bytes
+// again — byte for byte. A baseline recorded after the backup is replaced, and the
+// restore WARNS naming it, because it cannot be re-recorded; a restore that loses
+// nothing says nothing.
+func TestBackupRestoreRoundTripsEvalBaselines(t *testing.T) {
+	tests := []struct {
+		name     string
+		drifted  []string
+		wantWarn string
+	}{
+		{"a baseline recorded after the backup is named", []string{"m1", "later"}, "later Q4 (suite v1)"},
+		{"nothing lost, nothing said", []string{"m1"}, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			scratchVillaHome(t, "backend = \"vulkan\"\n")
+			stubPodmanVolume(t, func([]string) (string, error) { return "", nil })
+			store := evalstore.Path()
+			if err := os.MkdirAll(filepath.Dir(store), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			backedUp := evalDoc(t, "m1", "m2")
+			if err := os.WriteFile(store, backedUp, 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			archive := filepath.Join(t.TempDir(), "villa-backup.tar")
+			bcmd, _, berr := newBackupTestCmd()
+			if code := runBackup(bcmd, archive, fakeRunDeps(t, nil)); code != exitPass {
+				t.Fatalf("runBackup = %d; stderr=%q", code, berr.String())
+			}
+
+			if err := os.WriteFile(store, evalDoc(t, tt.drifted...), 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			rcmd, out, rerr := newRestoreTestCmd()
+			in, _, tmpDir, code := liveRestore(rcmd, archive, true)
+			if code != exitPass {
+				t.Fatalf("liveRestore = %d; stderr=%q", code, rerr.String())
+			}
+			t.Cleanup(func() { _ = os.RemoveAll(tmpDir) })
+			if code, _ := runRestore(rcmd, archive, in, realWriteRestoreDeps(), tmpDir); code != exitPass {
+				t.Fatalf("runRestore = %d; stderr=%q", code, rerr.String())
+			}
+
+			got, err := os.ReadFile(store)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(got, backedUp) {
+				t.Fatalf("eval-baselines.json must be restored byte for byte:\n got %s\nwant %s", got, backedUp)
+			}
+			warned := strings.Contains(out.String(), "warning: eval baselines")
+			if tt.wantWarn == "" {
+				if warned {
+					t.Fatalf("a restore that loses no baseline must not warn, got %q", out.String())
+				}
+				return
+			}
+			if !warned || !strings.Contains(out.String(), tt.wantWarn) {
+				t.Fatalf("the restore must warn naming %q, got %q", tt.wantWarn, out.String())
+			}
+		})
+	}
+}
+
+// TestLiveEvalKeysNamesEachBaselineAndFailsClosed: the parser the restore core is
+// handed reads a document the way the store does — each baseline's key as a label —
+// and a document this villa cannot read names none (the store would treat it as
+// empty too).
+func TestLiveEvalKeysNamesEachBaselineAndFailsClosed(t *testing.T) {
+	got := liveEvalKeysOf(evalDoc(t, "m1", "m2"))
+	if want := []string{"m1 Q4 (suite v1)", "m2 Q4 (suite v1)"}; !slices.Equal(got, want) {
+		t.Fatalf("keys = %v, want %v", got, want)
+	}
+	if keys := liveEvalKeysOf([]byte("not json")); len(keys) != 0 {
+		t.Fatalf("an unreadable document names no baseline, got %v", keys)
 	}
 }
