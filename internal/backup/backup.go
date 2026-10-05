@@ -1,17 +1,24 @@
 package backup
 
-// backup.go holds the PURE skew comparison: it compares a backup
+// backup.go holds the PURE backup orchestrator (Backup) and the PURE skew
+// comparison (CompareSkew): it compares a backup
 // Manifest against the CURRENT install and classifies each difference as either a
 // WARN-and-confirm finding (legitimate skew that does NOT block — e.g. a newer
 // villa restoring an older backup) or a fail-closed BLOCK (corruption /
 // incompatible-future schema that cannot be safely applied). No host I/O — the
 // caller supplies the current-install facts as plain data (CurrentInstall) and
 // the recomputed checksum verdict as a flag.
+//
+// Which entries an archive holds is the registry's business (registry.go,
+// ADR-0020): Backup walks it in tar order, and the cmd tier names the source path
+// of each entry in Input.Sources.
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
+	"strings"
 )
 
 // Input is the plain-data drive for the pure Backup orchestrator. The cmd
@@ -44,6 +51,10 @@ type Input struct {
 	ConfigSchemaVersion int
 	UsageSchemaVersion  int
 	BenchSchemaVersion  int
+	// EvalSchemaVersion is the eval baselines store schema (evalstore.SchemaVersion(),
+	// accessor-sourced like the others, #275). It is recorded whether or not the
+	// store file exists, as usage/bench are.
+	EvalSchemaVersion int
 
 	// OutputPath is the traversal-guarded destination archive path the caller has
 	// already validated; Backup writes the assembled tar to OutputWriter (the caller
@@ -60,24 +71,22 @@ type Input struct {
 	// Backup asks Deps.VolumeExport to write here, then reads it back for assembly.
 	TempVolumeTar string
 
-	// ConfigPath / UsagePath / BenchReportsPath are the resolved source paths for the
-	// archive's config.toml / usage.json / single bench-reports.jsonl entries. A path
-	// whose file is absent (ReadFile returns a not-exist error) is skipped, not fatal.
-	ConfigPath       string
-	UsagePath        string
-	BenchReportsPath string
+	// Sources maps an entry name (the Entry* constants) to the resolved source path
+	// of that entry: config.toml, usage.json, bench-reports.jsonl and, only when its
+	// subsystem is on, recall-state.json (memory), crush.json (coding agent) and
+	// searxng-settings.yml (web search). The cmd tier's liveBackupSources owns those
+	// gates. A missing or empty path means the entry is never offered, so an
+	// archive made with a subsystem off stays layout-identical to one made before
+	// the entry existed — otherwise an orphan file left by a previously-enabled
+	// subsystem would ship without the manifest field that gates it on restore. An
+	// absent file at a non-empty path is skipped via FileMissing. The two volume
+	// tars are NOT here: their staging paths are TempVolumeTar / TempQdrantTar.
+	Sources map[string]string
 
 	// ExcludedModels are the identities of the excluded model weights,
 	// recorded in the manifest for re-pull. Identity only.
 	ExcludedModels []ExcludedModel
 
-	// CrushConfigPath is the resolved source path for the OPTIONAL Phase-28
-	// crush.json archive entry: the RENDERED coding-agent config.
-	// The cmd tier sets it ONLY on an agent-on backup (crushConfigPath()); empty
-	// means agent off → the entry is never offered to the core (archive stays
-	// v2-layout-identical). An absent file at a non-empty path is skipped via
-	// FileMissing exactly like the other optional entries.
-	CrushConfigPath string
 	// AgentBinarySHA256 / AgentVersion / AgentPinSHA256 are the IDENTITY of the
 	// EXCLUDED coding-agent binary, supplied by the cmd tier
 	// (hashFileSHA256(agentBinPath()) + the pinned policy version + the policy's
@@ -98,15 +107,6 @@ type Input struct {
 	// literal.
 	QdrantVolumeName string
 	TempQdrantTar    string
-	// RecallStatePath is the resolved recall-state.json source path (the OPTIONAL
-	// recall-state.json entry,; recall.StatePath at the cmd tier). An
-	// absent file is skipped via FileMissing like the other optional entries. The
-	// cmd tier gates it on cfg.MemoryEnabled (review), mirroring the qdrant
-	// pair: empty means memory off, so a memory-off archive stays v1-identical
-	// even when a leftover recall-state.json exists on disk — otherwise the entry
-	// would ship without a manifest recall_schema_version and escape the
-	// fail-closed schema gate on restore.
-	RecallStatePath string
 
 	// EmbeddingModel / EmbeddingDim / RecallSchemaVersion are the Phase-23 manifest
 	// fields: config-sourced embedding identity + dimension and the
@@ -117,215 +117,45 @@ type Input struct {
 	EmbeddingDim        int
 	RecallSchemaVersion int
 
-	// SearxngSettingsPath is the resolved source path for the OPTIONAL Phase-34
-	// web-search settings.yml archive entry: the RENDERED SearXNG
-	// provenance ($XDG_CONFIG_HOME/villa/searxng/settings.yml). The cmd tier sets it
-	// ONLY on a web-search-on backup (gated on cfg.WebSearchEnabled); empty means web
-	// search off, so the entry is never offered to the core and the archive stays
-	// v3-layout-identical. An absent file at a non-empty path is skipped via
-	// FileMissing exactly like the other optional entries. Fetched EPHEMERAL web
-	// content is NEVER a source here — only this CONFIG provenance crosses.
-	SearxngSettingsPath string
-
 	// FileMissing classifies a ReadFile error as a tolerable absent-file (skip the
 	// entry) vs a hard error. The cmd layer wires os.IsNotExist; the pure core stays
 	// free of os. When nil, any ReadFile error is treated as hard.
 	FileMissing func(error) bool
 }
 
-// Backup is the PURE backup orchestrator over the injected Deps. It
-// executes the quiesce ordering RESEARCH §OWUI Quiesce mandates and assembles the
-// single plain .tar:
-//
-//  1. Stop the Open WebUI service (clean SQLite copy) and DEFER its restart so the
-//     service is brought back even on a mid-backup error (best-effort).
-//  2. podman volume export the Open WebUI data volume to the temp tar (Deps seam).
-//  3. Read the source entries (the exported volume tar + config.toml + usage.json +
-//     the single bench-reports.jsonl); an absent optional data-dir file is skipped.
-//  4. Compute a lowercase-hex SHA-256 per entry.
-//  5. BuildManifest with the seam-sourced digests + accessor-sourced store schema
-//     versions + excluded-model identities injected.
-//  6. writeArchive (manifest.json FIRST) to the 0600 OutputWriter the caller opened.
-//
-// The villa-models volume is NEVER exported. Backup runs no subprocess (links the
-// exec package NOT at all) and carries no image literal — every effect is a Deps
-// func field.
-func Backup(d Deps, in Input) (retRes Result, retErr error) {
-	if in.OutputWriter == nil {
-		return Result{Err: fmt.Errorf("backup: nil output writer"), FailedStep: "write"}, fmt.Errorf("backup: nil output writer")
+// sourceFor is the resolved source path of a registry row: the staged export tar
+// for a volume, the cmd tier's named path for everything else. "" means the entry
+// is not offered.
+func (in Input) sourceFor(r Row) string {
+	switch r.Name {
+	case EntryOpenWebUIVolume:
+		return in.TempVolumeTar
+	case EntryQdrantVolume:
+		return in.TempQdrantTar
 	}
+	return in.Sources[r.Name]
+}
 
-	// (1) Quiesce: stop OWUI for a clean SQLite copy, defer best-effort restart so the
-	// service is restored even if a later step errors. The restart stays
-	// best-effort (it NEVER fails the backup), but a failed restart is now SURFACED
-	// via retRes.RestartWarning so the cmd tier can warn the user to run `villa up`
-	// The named return retRes is what every `return` below populates, so the
-	// defer (which runs ONLY after a successful Stop) annotates whichever Result is
-	// actually returned — without ever turning a successful backup into a failure.
-	if err := d.Stop(d.OpenWebUIServiceName); err != nil {
-		return Result{Err: fmt.Errorf("backup: stop %s: %w", d.OpenWebUIServiceName, err), FailedStep: "stop"},
-			fmt.Errorf("backup: stop %s: %w", d.OpenWebUIServiceName, err)
-	}
-	// foldRestartWarning APPENDS a failed best-effort restart message to the named
-	// return's RestartWarning so BOTH deferred restarts (OWUI + qdrant) surface
-	// instead of the last defer clobbering the first.
-	foldRestartWarning := func(service string, serr error) {
-		warn := fmt.Sprintf("backup written, but failed to restart %s (%v) — run `villa up`", service, serr)
-		if retRes.RestartWarning != "" {
-			retRes.RestartWarning += "; " + warn
-			return
-		}
-		retRes.RestartWarning = warn
-	}
-	defer func() {
-		if serr := d.Start(d.OpenWebUIServiceName); serr != nil {
-			foldRestartWarning(d.OpenWebUIServiceName, serr)
-		}
-	}()
+// tolerates reports whether err on an OPTIONAL row is a tolerable absent file.
+func (in Input) tolerates(r Row, err error) bool {
+	return !r.Required && in.FileMissing != nil && in.FileMissing(err)
+}
 
-	// (2) Export ONLY the Open WebUI volume (model weights excluded).
-	if err := d.VolumeExport(in.OpenWebUIVolumeName, in.TempVolumeTar); err != nil {
-		return Result{Err: fmt.Errorf("backup: volume export %s: %w", in.OpenWebUIVolumeName, err), FailedStep: "volume"},
-			fmt.Errorf("backup: volume export %s: %w", in.OpenWebUIVolumeName, err)
+// excludedAgent is the EXCLUDED coding-agent binary identity, agent-on ONLY (clone
+// of the ExcludedModels weights exclusion). It is nil unless the cmd tier supplied
+// an identity (any of the three fields non-empty), so an agent-off backup's
+// manifest omits the key. The binary bytes are NEVER added to the archive (there
+// is no EntryCrushBinary).
+func (in Input) excludedAgent() *ExcludedAgent {
+	if in.AgentBinarySHA256 == "" && in.AgentVersion == "" && in.AgentPinSHA256 == "" {
+		return nil
 	}
+	return &ExcludedAgent{SHA256: in.AgentBinarySHA256, Version: in.AgentVersion, PinSHA256: in.AgentPinSHA256}
+}
 
-	// (2b) OPTIONAL qdrant volume export (Phase 23). Gated on BOTH
-	// QdrantVolumeName and TempQdrantTar being non-empty (memory on AND volume
-	// present — decided by the cmd tier; empty ⇒ ZERO qdrant Deps calls). Clone of
-	// the OWUI quiesce frame: Stop the qdrant service so the export never copies a
-	// live RocksDB/WAL mid-write (Pitfall 3 torn-snapshot guard), export, and DEFER
-	// a best-effort Start folding into RestartWarning — a failed restart NEVER
-	// fails the backup.
-	if in.QdrantVolumeName != "" && in.TempQdrantTar != "" {
-		if err := d.Stop(d.QdrantServiceName); err != nil {
-			return Result{Err: fmt.Errorf("backup: stop %s: %w", d.QdrantServiceName, err), FailedStep: "stop"},
-				fmt.Errorf("backup: stop %s: %w", d.QdrantServiceName, err)
-		}
-		defer func() {
-			if serr := d.Start(d.QdrantServiceName); serr != nil {
-				foldRestartWarning(d.QdrantServiceName, serr)
-			}
-		}()
-		if err := d.VolumeExport(in.QdrantVolumeName, in.TempQdrantTar); err != nil {
-			return Result{Err: fmt.Errorf("backup: volume export %s: %w", in.QdrantVolumeName, err), FailedStep: "volume"},
-				fmt.Errorf("backup: volume export %s: %w", in.QdrantVolumeName, err)
-		}
-	}
-
-	// (3) Read entries. The OWUI volume tar is REQUIRED; config/usage/bench are read
-	// from their resolved paths, an absent optional data-dir file being skipped. The
-	// two Phase-23 memory entries are OPTIONAL: an empty path (memory off / volume
-	// absent — the cmd tier gates by passing "") skips the row entirely.
-	type src struct {
-		entry    string
-		path     string
-		required bool
-	}
-	sources := []src{
-		{EntryOpenWebUIVolume, in.TempVolumeTar, true},
-		{EntryConfig, in.ConfigPath, true},
-		{EntryUsage, in.UsagePath, false},
-		{EntryBenchReports, in.BenchReportsPath, false},
-		{EntryQdrantVolume, in.TempQdrantTar, false},
-		{EntryRecallState, in.RecallStatePath, false},
-		// The OPTIONAL Phase-28 coding-agent config: present only on
-		// an agent-on backup (the cmd tier passes CrushConfigPath=""  when the agent
-		// is off, skipping the row). An absent file at a non-empty path is tolerated
-		// via FileMissing like the other optional entries — agent-on but no rendered
-		// crush.json on disk skips the entry rather than failing the backup. The
-		// agent BINARY is NEVER an entry — only its identity (ExcludedAgent) below.
-		{EntryCrushConfig, in.CrushConfigPath, false},
-		// The OPTIONAL Phase-34 web-search settings.yml provenance:
-		// present only on a web-search-on backup (the cmd tier passes
-		// SearxngSettingsPath="" when web search is off, skipping the row). An absent
-		// file at a non-empty path is tolerated via FileMissing exactly like the
-		// other optional entries. NO entry is ever added for fetched/ephemeral web
-		// content — only this rendered CONFIG provenance crosses.
-		{EntrySearxngSettings, in.SearxngSettingsPath, false},
-	}
-
-	var entries []archiveEntry
-	var checksums []EntryChecksum
-	for _, s := range sources {
-		if s.path == "" {
-			if s.required {
-				err := fmt.Errorf("backup: missing required source path for %s", s.entry)
-				return Result{Err: err, FailedStep: "read"}, err
-			}
-			continue
-		}
-		// streaming path: the two VOLUME TAR entries are the only members
-		// that realistically grow to many GiB (a populated Qdrant store on a
-		// memory-tight host). When the OpenFile seam is wired, checksum them via
-		// a streaming io.Copy pass and register a streaming archiveEntry that
-		// tar-copies from a fresh reader at assembly — the tar bytes never sit
-		// whole in memory. The seam is OPTIONAL: nil (existing fakes) and the
-		// small data-dir entries keep the ReadFile path below.
-		if d.OpenFile != nil && (s.entry == EntryOpenWebUIVolume || s.entry == EntryQdrantVolume) {
-			srcPath := s.path
-			rc, size, err := d.OpenFile(srcPath)
-			if err != nil {
-				if !s.required && in.FileMissing != nil && in.FileMissing(err) {
-					continue // tolerable absent optional entry (mirrors the ReadFile row)
-				}
-				rerr := fmt.Errorf("backup: open %s (%s): %w", s.entry, srcPath, err)
-				return Result{Err: rerr, FailedStep: "read"}, rerr
-			}
-			csum, sumErr := sum(rc)
-			closeErr := rc.Close()
-			if sumErr != nil {
-				rerr := fmt.Errorf("backup: checksum %s (%s): %w", s.entry, srcPath, sumErr)
-				return Result{Err: rerr, FailedStep: "checksum"}, rerr
-			}
-			if closeErr != nil {
-				rerr := fmt.Errorf("backup: close %s (%s): %w", s.entry, srcPath, closeErr)
-				return Result{Err: rerr, FailedStep: "checksum"}, rerr
-			}
-			entries = append(entries, archiveEntry{
-				name: s.entry,
-				size: size,
-				open: func() (io.ReadCloser, error) {
-					r, _, oerr := d.OpenFile(srcPath)
-					return r, oerr
-				},
-			})
-			checksums = append(checksums, EntryChecksum{Name: s.entry, SHA256: csum})
-			continue
-		}
-		data, err := d.ReadFile(s.path)
-		if err != nil {
-			if !s.required && in.FileMissing != nil && in.FileMissing(err) {
-				continue // tolerable absent data-dir artifact
-			}
-			rerr := fmt.Errorf("backup: read %s (%s): %w", s.entry, s.path, err)
-			return Result{Err: rerr, FailedStep: "read"}, rerr
-		}
-		// (4) per-entry SHA-256.
-		csum, err := sum(bytes.NewReader(data))
-		if err != nil {
-			return Result{Err: err, FailedStep: "checksum"}, err
-		}
-		entries = append(entries, archiveEntry{name: s.entry, data: data})
-		checksums = append(checksums, EntryChecksum{Name: s.entry, SHA256: csum})
-	}
-
-	// Record the EXCLUDED coding-agent binary IDENTITY, agent-on
-	// ONLY (clone of the ExcludedModels weights exclusion). It is gated on the cmd
-	// tier having supplied an identity (any of the three fields non-empty); an
-	// agent-off backup leaves all three empty so excludedAgent stays nil and the
-	// manifest omits the key — keeping the archive v2-layout-identical. The binary
-	// bytes are NEVER added to the archive (there is no EntryCrushBinary).
-	var excludedAgent *ExcludedAgent
-	if in.AgentBinarySHA256 != "" || in.AgentVersion != "" || in.AgentPinSHA256 != "" {
-		excludedAgent = &ExcludedAgent{
-			SHA256:    in.AgentBinarySHA256,
-			Version:   in.AgentVersion,
-			PinSHA256: in.AgentPinSHA256,
-		}
-	}
-
-	// (5) Build the seam/accessor-sourced manifest.
-	m := BuildManifest(ManifestInput{
+// manifestInput is the seam/accessor-sourced manifest drive for the entries read.
+func (in Input) manifestInput(sums []EntryChecksum) ManifestInput {
+	return ManifestInput{
 		CreatedAt:           in.CreatedAt,
 		VillaVersion:        in.VillaVersion,
 		Host:                in.Host,
@@ -334,25 +164,248 @@ func Backup(d Deps, in Input) (retRes Result, retErr error) {
 		ConfigSchemaVersion: in.ConfigSchemaVersion,
 		UsageSchemaVersion:  in.UsageSchemaVersion,
 		BenchSchemaVersion:  in.BenchSchemaVersion,
-		Entries:             checksums,
+		Entries:             sums,
 		ExcludedModels:      in.ExcludedModels,
 		EmbeddingModel:      in.EmbeddingModel,
 		EmbeddingDim:        in.EmbeddingDim,
 		RecallSchemaVersion: in.RecallSchemaVersion,
-		ExcludedAgent:       excludedAgent,
-	})
-	manifestJSON, err := marshalManifest(m)
+		EvalSchemaVersion:   in.EvalSchemaVersion,
+		ExcludedAgent:       in.excludedAgent(),
+	}
+}
+
+// stepError tags an error with the Result.FailedStep it belongs to. It exists so
+// the small step helpers below can return a plain error and Backup can still name
+// the step.
+type stepError struct {
+	step string
+	err  error
+}
+
+func (e *stepError) Error() string { return e.err.Error() }
+func (e *stepError) Unwrap() error { return e.err }
+
+func stepFail(step string, err error) error { return &stepError{step: step, err: err} }
+
+// failResult is the failed-Backup Result and error for err. An untagged error is a
+// "write" failure.
+func failResult(err error) (Result, error) {
+	step := "write"
+	var se *stepError
+	if errors.As(err, &se) {
+		step, err = se.step, se.err
+	}
+	return Result{Err: err, FailedStep: step}, err
+}
+
+// quiesce stops a service before its volume is exported and remembers it, so
+// restart can bring every one back — even when a later step fails. The restart is
+// best-effort: it NEVER turns a successful backup into a failure, but a failed
+// restart is SURFACED through Result.RestartWarning so the cmd tier can tell the
+// user to run `villa up`.
+type quiesce struct {
+	d       Deps
+	stopped []string
+}
+
+// exportVolume stops service (clean SQLite copy / no live RocksDB WAL mid-write —
+// Pitfall 3 torn-snapshot guard) and exports volume to out.
+func (q *quiesce) exportVolume(service, volume, out string) error {
+	if err := q.d.Stop(service); err != nil {
+		return stepFail("stop", fmt.Errorf("backup: stop %s: %w", service, err))
+	}
+	q.stopped = append(q.stopped, service)
+	if err := q.d.VolumeExport(volume, out); err != nil {
+		return stepFail("volume", fmt.Errorf("backup: volume export %s: %w", volume, err))
+	}
+	return nil
+}
+
+// restart starts every stopped service, last stopped first, and returns the
+// failures folded into one warning ("" when every start succeeded).
+func (q *quiesce) restart() string {
+	var warns []string
+	for i := len(q.stopped) - 1; i >= 0; i-- {
+		if err := q.d.Start(q.stopped[i]); err != nil {
+			warns = append(warns, fmt.Sprintf("backup written, but failed to restart %s (%v) — run `villa up`", q.stopped[i], err))
+		}
+	}
+	return strings.Join(warns, "; ")
+}
+
+// Backup is the PURE backup orchestrator over the injected Deps. It
+// executes the quiesce ordering RESEARCH §OWUI Quiesce mandates and assembles the
+// single plain .tar:
+//
+//  1. Stop the Open WebUI service (clean SQLite copy) and restart it when Backup
+//     returns, even on a mid-backup error (best-effort).
+//  2. podman volume export the Open WebUI data volume to the temp tar (Deps seam),
+//     and the qdrant volume likewise when the caller asked for it.
+//  3. Read each registry entry the caller offered (the exported volume tars,
+//     config.toml, and the file entries); an absent optional file is skipped.
+//  4. Compute a lowercase-hex SHA-256 per entry.
+//  5. BuildManifest with the seam-sourced digests + accessor-sourced store schema
+//     versions + excluded-model identities injected.
+//  6. writeArchive (manifest.json FIRST) to the 0600 OutputWriter the caller opened.
+//
+// The villa-models volume is NEVER exported. Backup runs no subprocess (links the
+// exec package NOT at all) and carries no image literal — every effect is a Deps
+// func field.
+func Backup(d Deps, in Input) (res Result, err error) {
+	if in.OutputWriter == nil {
+		return failResult(fmt.Errorf("backup: nil output writer"))
+	}
+	q := &quiesce{d: d}
+	defer func() { res.RestartWarning = q.restart() }()
+	return backupRun(d, in, q)
+}
+
+// backupRun is steps (2) to (6) of Backup, over a quiesce the caller restarts.
+func backupRun(d Deps, in Input, q *quiesce) (Result, error) {
+	if err := exportVolumes(d, in, q); err != nil {
+		return failResult(err)
+	}
+	entries, sums, err := readSources(d, in)
 	if err != nil {
-		return Result{Err: err, FailedStep: "write"}, err
+		return failResult(err)
 	}
-
-	// (6) Assemble: manifest.json FIRST, then the data entries in deterministic order.
-	all := append([]archiveEntry{{name: EntryManifest, data: manifestJSON}}, entries...)
-	if err := writeArchive(in.OutputWriter, all); err != nil {
-		return Result{Err: err, FailedStep: "write"}, err
+	if err := assembleArchive(in, entries, sums); err != nil {
+		return failResult(err)
 	}
-
 	return Result{Reason: fmt.Sprintf("backup written to %s", in.OutputPath)}, nil
+}
+
+// assembleArchive builds the seam/accessor-sourced manifest and writes the archive:
+// manifest.json FIRST, then the data entries in registry order.
+func assembleArchive(in Input, entries []archiveEntry, sums []EntryChecksum) error {
+	manifestJSON, err := marshalManifest(BuildManifest(in.manifestInput(sums)))
+	if err != nil {
+		return err
+	}
+	all := append([]archiveEntry{{name: EntryManifest, data: manifestJSON}}, entries...)
+	return writeArchive(in.OutputWriter, all)
+}
+
+// exportVolumes exports the Open WebUI volume (model weights excluded), then the
+// OPTIONAL qdrant volume. The qdrant export is gated on BOTH QdrantVolumeName and
+// TempQdrantTar being non-empty (memory on AND volume present — decided by the cmd
+// tier); empty means ZERO qdrant Deps calls.
+func exportVolumes(d Deps, in Input, q *quiesce) error {
+	if err := q.exportVolume(d.OpenWebUIServiceName, in.OpenWebUIVolumeName, in.TempVolumeTar); err != nil {
+		return err
+	}
+	if in.QdrantVolumeName == "" || in.TempQdrantTar == "" {
+		return nil
+	}
+	return q.exportVolume(d.QdrantServiceName, in.QdrantVolumeName, in.TempQdrantTar)
+}
+
+// source is one entry read for the archive. A zero source (no entry name) is an
+// optional entry that was not offered or is tolerably absent.
+type source struct {
+	entry archiveEntry
+	sum   EntryChecksum
+}
+
+func (s source) present() bool { return s.entry.name != "" }
+
+// readSources reads every registry entry in tar order, with its SHA-256.
+func readSources(d Deps, in Input) ([]archiveEntry, []EntryChecksum, error) {
+	var entries []archiveEntry
+	var sums []EntryChecksum
+	for _, row := range registry {
+		s, err := readSource(d, in, row)
+		if err != nil {
+			return nil, nil, err
+		}
+		if s.present() {
+			entries = append(entries, s.entry)
+			sums = append(sums, s.sum)
+		}
+	}
+	return entries, sums, nil
+}
+
+// readSource reads one registry row. The VOLUME TARS are the only members that
+// realistically grow to many GiB (a populated Qdrant store on a memory-tight
+// host), so when the OpenFile seam is wired they are checksummed in a streaming
+// pass and tar-copied from a fresh reader at assembly — they never sit whole in
+// memory. The seam is OPTIONAL: nil (existing fakes) and the small data-dir
+// entries keep the ReadFile path.
+func readSource(d Deps, in Input, row Row) (source, error) {
+	path := in.sourceFor(row)
+	switch {
+	case path == "":
+		return absentSource(row)
+	case d.OpenFile != nil && row.Kind == KindVolume:
+		return streamSource(d, in, row, path)
+	}
+	return bufferSource(d, in, row, path)
+}
+
+// absentSource is a row with no source path: fatal when required, else skipped.
+func absentSource(row Row) (source, error) {
+	if row.Required {
+		return source{}, stepFail("read", fmt.Errorf("backup: missing required source path for %s", row.Name))
+	}
+	return source{}, nil
+}
+
+// streamSource checksums a volume tar by streaming it, and registers a streaming
+// archive entry that re-opens it at assembly.
+func streamSource(d Deps, in Input, row Row, path string) (source, error) {
+	rc, size, err := d.OpenFile(path)
+	if err != nil {
+		if in.tolerates(row, err) {
+			return source{}, nil // tolerable absent optional entry (mirrors the ReadFile row)
+		}
+		return source{}, stepFail("read", fmt.Errorf("backup: open %s (%s): %w", row.Name, path, err))
+	}
+	csum, err := checksumStream(rc, row.Name, path)
+	if err != nil {
+		return source{}, err
+	}
+	reopen := func() (io.ReadCloser, error) {
+		r, _, oerr := d.OpenFile(path)
+		return r, oerr
+	}
+	return source{
+		entry: archiveEntry{name: row.Name, size: size, open: reopen},
+		sum:   EntryChecksum{Name: row.Name, SHA256: csum},
+	}, nil
+}
+
+// checksumStream SHA-256s rc and closes it; a close failure is a checksum failure
+// too, because the stream may not have been fully read.
+func checksumStream(rc io.ReadCloser, name, path string) (string, error) {
+	csum, sumErr := sum(rc)
+	closeErr := rc.Close()
+	if sumErr != nil {
+		return "", stepFail("checksum", fmt.Errorf("backup: checksum %s (%s): %w", name, path, sumErr))
+	}
+	if closeErr != nil {
+		return "", stepFail("checksum", fmt.Errorf("backup: close %s (%s): %w", name, path, closeErr))
+	}
+	return csum, nil
+}
+
+// bufferSource reads a small entry whole and SHA-256s it.
+func bufferSource(d Deps, in Input, row Row, path string) (source, error) {
+	data, err := d.ReadFile(path)
+	if err != nil {
+		if in.tolerates(row, err) {
+			return source{}, nil // tolerable absent data-dir artifact
+		}
+		return source{}, stepFail("read", fmt.Errorf("backup: read %s (%s): %w", row.Name, path, err))
+	}
+	csum, err := sum(bytes.NewReader(data))
+	if err != nil {
+		return source{}, stepFail("checksum", err)
+	}
+	return source{
+		entry: archiveEntry{name: row.Name, data: data},
+		sum:   EntryChecksum{Name: row.Name, SHA256: csum},
+	}, nil
 }
 
 // CurrentInstall is the plain-data snapshot of the running install that a backup
@@ -381,6 +434,9 @@ type CurrentInstall struct {
 	// (recall.SchemaVersion(), accessor-sourced at the cmd tier — this core
 	// imports no recall, mirroring the usage/bench plain-int convention).
 	RecallSchemaVersion int
+	// EvalSchemaVersion is the CURRENT eval baselines store schema version
+	// (evalstore.SchemaVersion(), accessor-sourced at the cmd tier).
+	EvalSchemaVersion int
 	// ChecksumFailed is set by the caller when a per-entry SHA-256 verify failed
 	// (archive corruption) — CompareSkew turns it into a fail-closed BLOCK.
 	ChecksumFailed bool
@@ -412,51 +468,84 @@ type SkewVerdict struct {
 //	  - cur.ChecksumFailed (archive corruption)
 //	  - m.SchemaVersion unreadable (<= 0) or NEWER than backupSchemaVersion
 //	    (incompatible-future manifest)
-//	  - any store schema version (config/usage/bench) in the manifest NEWER than
-//	    the current value (future schema can't be safely applied — mirrors
-//	    usage.Load's fail-closed-on-future)
+//	  - any store schema version in the manifest NEWER than the current value
+//	    (future schema can't be safely applied — mirrors usage.Load's
+//	    fail-closed-on-future)
 //
 //	WARN-and-confirm (legitimate skew, does NOT block):
 //	  - villa version mismatch
 //	  - inference / OWUI image digest mismatch (re-pull remediation)
 //	  - host fingerprint mismatch (cross-host caveat)
+//	  - embedding model/dimension mismatch
 //	  - any store schema version OLDER in the manifest than current
 //
 // A fully-matching manifest returns the zero SkewVerdict (no Block, no Warnings).
 func CompareSkew(m Manifest, cur CurrentInstall) SkewVerdict {
+	if reason := blockReason(m, cur); reason != "" {
+		return SkewVerdict{Block: true, BlockReason: reason}
+	}
 	var v SkewVerdict
+	warnOnVillaVersion(&v, m, cur)
+	warnOnImages(&v, m, cur)
+	warnOnHost(&v, m, cur)
+	warnOnEmbedding(&v, m, cur)
+	for _, s := range storeVersions(m, cur) {
+		warnOnOlderStore(&v, s.name, s.manifest, s.current)
+	}
+	return v
+}
 
-	// --- fail-closed BLOCK checks ------------------------------------
+// storeVersion is one store's schema version in the manifest and in the current
+// install. The store names are the prefixes of the manifest's *_schema_version
+// fields.
+type storeVersion struct {
+	name              string
+	manifest, current int
+}
+
+// storeVersions lists every store schema the compare covers, in report order.
+func storeVersions(m Manifest, cur CurrentInstall) []storeVersion {
+	return []storeVersion{
+		{"config", m.ConfigSchemaVersion, cur.ConfigSchemaVersion},
+		{"usage", m.UsageSchemaVersion, cur.UsageSchemaVersion},
+		{"bench", m.BenchSchemaVersion, cur.BenchSchemaVersion},
+		{"recall", m.RecallSchemaVersion, cur.RecallSchemaVersion},
+		{"eval", m.EvalSchemaVersion, cur.EvalSchemaVersion},
+	}
+}
+
+// blockReason is the first fail-closed BLOCK reason, or "" when nothing blocks.
+func blockReason(m Manifest, cur CurrentInstall) string {
+	if reason := manifestBlock(m, cur); reason != "" {
+		return reason
+	}
+	return storeBlock(m, cur)
+}
+
+// manifestBlock is the BLOCK reason for corruption or an unreadable/future manifest.
+func manifestBlock(m Manifest, cur CurrentInstall) string {
 	if cur.ChecksumFailed {
-		v.Block = true
-		v.BlockReason = "archive integrity check failed (SHA-256 mismatch) — refusing to restore a corrupt backup"
-		return v
+		return "archive integrity check failed (SHA-256 mismatch) — refusing to restore a corrupt backup"
 	}
 	if m.SchemaVersion <= 0 || m.SchemaVersion > backupSchemaVersion {
-		v.Block = true
-		v.BlockReason = fmt.Sprintf(
+		return fmt.Sprintf(
 			"manifest schema_version %d is unreadable or newer than this villa supports (%d) — cannot safely restore an incompatible manifest",
 			m.SchemaVersion, backupSchemaVersion)
-		return v
 	}
-	if blocked, reason := blockOnNewerStore("config", m.ConfigSchemaVersion, cur.ConfigSchemaVersion); blocked {
-		v.Block, v.BlockReason = true, reason
-		return v
-	}
-	if blocked, reason := blockOnNewerStore("usage", m.UsageSchemaVersion, cur.UsageSchemaVersion); blocked {
-		v.Block, v.BlockReason = true, reason
-		return v
-	}
-	if blocked, reason := blockOnNewerStore("bench", m.BenchSchemaVersion, cur.BenchSchemaVersion); blocked {
-		v.Block, v.BlockReason = true, reason
-		return v
-	}
-	if blocked, reason := blockOnNewerStore("recall", m.RecallSchemaVersion, cur.RecallSchemaVersion); blocked {
-		v.Block, v.BlockReason = true, reason
-		return v
-	}
+	return ""
+}
 
-	// --- WARN-and-confirm findings (legitimate skew) ------------------------
+// storeBlock is the BLOCK reason for the first store schema newer than current.
+func storeBlock(m Manifest, cur CurrentInstall) string {
+	for _, s := range storeVersions(m, cur) {
+		if blocked, reason := blockOnNewerStore(s.name, s.manifest, s.current); blocked {
+			return reason
+		}
+	}
+	return ""
+}
+
+func warnOnVillaVersion(v *SkewVerdict, m Manifest, cur CurrentInstall) {
 	if m.VillaVersion != cur.VillaVersion {
 		v.Warnings = append(v.Warnings, SkewWarning{
 			Field:       "villa_version",
@@ -464,6 +553,9 @@ func CompareSkew(m Manifest, cur CurrentInstall) SkewVerdict {
 			Remediation: "version skew is usually fine; confirm to proceed, or rebuild/reinstall the matching villa version if a behaviour change is suspected",
 		})
 	}
+}
+
+func warnOnImages(v *SkewVerdict, m Manifest, cur CurrentInstall) {
 	if m.InferenceImage != cur.InferenceImage {
 		v.Warnings = append(v.Warnings, SkewWarning{
 			Field:       "inference_image",
@@ -478,6 +570,9 @@ func CompareSkew(m Manifest, cur CurrentInstall) SkewVerdict {
 			Remediation: "the restored Open WebUI data volume was produced by a different image; confirm to proceed (Open WebUI migrates its DB forward on start)",
 		})
 	}
+}
+
+func warnOnHost(v *SkewVerdict, m Manifest, cur CurrentInstall) {
 	if m.Host != cur.Host {
 		v.Warnings = append(v.Warnings, SkewWarning{
 			Field:       "host",
@@ -485,14 +580,17 @@ func CompareSkew(m Manifest, cur CurrentInstall) SkewVerdict {
 			Remediation: "backed up on a different host — if Open WebUI cannot read its data after restore, run `podman unshare chown -R $(id -u):$(id -g) <mountpoint>` and ensure the :Z relabel",
 		})
 	}
-	// Embedding model/dimension skew (Phase 23): a CONFIDENT mismatch between
-	// the manifest-recorded embedding identity and the current install means the
-	// backup's vectors were embedded under a different model/dimension — retrieval
-	// is silently corrupt after restore until a re-index. Exactly ONE warning for
-	// the model+dim pair, guarded on m.EmbeddingModel != "": an old/memory-off
-	// backup never recorded one, and "not recorded" must raise NO false alarm (the
-	// typed-Unknown convention, mirroring blockOnNewerStore's <=0 rule). Never
-	// silent, never an auto-reindex — WARN-and-confirm only.
+}
+
+// warnOnEmbedding: a CONFIDENT mismatch between the manifest-recorded embedding
+// identity and the current install means the backup's vectors were embedded under
+// a different model/dimension — retrieval is silently corrupt after restore until
+// a re-index. Exactly ONE warning for the model+dim pair, guarded on
+// m.EmbeddingModel != "": an old/memory-off backup never recorded one, and "not
+// recorded" must raise NO false alarm (the typed-Unknown convention, mirroring
+// blockOnNewerStore's <=0 rule). Never silent, never an auto-reindex —
+// WARN-and-confirm only.
+func warnOnEmbedding(v *SkewVerdict, m Manifest, cur CurrentInstall) {
 	if m.EmbeddingModel != "" && (m.EmbeddingModel != cur.EmbeddingModel || m.EmbeddingDim != cur.EmbeddingDim) {
 		v.Warnings = append(v.Warnings, SkewWarning{
 			Field: "embedding",
@@ -503,12 +601,6 @@ func CompareSkew(m Manifest, cur CurrentInstall) SkewVerdict {
 				"with the backup before restoring",
 		})
 	}
-	warnOnOlderStore(&v, "config", m.ConfigSchemaVersion, cur.ConfigSchemaVersion)
-	warnOnOlderStore(&v, "usage", m.UsageSchemaVersion, cur.UsageSchemaVersion)
-	warnOnOlderStore(&v, "bench", m.BenchSchemaVersion, cur.BenchSchemaVersion)
-	warnOnOlderStore(&v, "recall", m.RecallSchemaVersion, cur.RecallSchemaVersion)
-
-	return v
 }
 
 // blockOnNewerStore reports a fail-closed BLOCK when the manifest's store schema

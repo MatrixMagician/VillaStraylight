@@ -31,6 +31,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/benchstore"
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
+	"github.com/MatrixMagician/VillaStraylight/internal/evalstore"
 	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 	"github.com/MatrixMagician/VillaStraylight/internal/pathsafe"
@@ -102,7 +103,6 @@ func newRestore() *cobra.Command {
 // it is true exactly when the rollback did not fully complete — tmpDir then holds the
 // ONLY copies of the prior volume data and deleting it would lose the prior chats.
 func runRestore(cmd *cobra.Command, archivePath string, in backup.RestoreInput, d backup.RestoreDeps, tmpDir string) (code int, preserveTmp bool) {
-	out := cmd.OutOrStdout()
 	errOut := cmd.ErrOrStderr()
 
 	// Restore captures, mutates and proves the stack in its own stopped-window flow;
@@ -118,93 +118,231 @@ func runRestore(cmd *cobra.Command, archivePath string, in backup.RestoreInput, 
 	res := backup.Restore(d, in)
 	switch {
 	case res.Refused:
-		if res.Reason != "" {
-			fmt.Fprintf(errOut, "restore: refusing to apply %s — %s\n", archivePath, res.Reason)
-		} else if res.Err != nil {
-			fmt.Fprintf(errOut, "restore: refusing to apply %s — %s failed: %v\n", archivePath, res.FailedStep, res.Err)
-		} else {
-			fmt.Fprintf(errOut, "restore: refusing to apply %s\n", archivePath)
-		}
+		reportRefused(errOut, archivePath, res)
 		return exitBlocked, false
 	case res.RolledBack:
-		fmt.Fprintf(errOut, "restore: applying %s failed at %q — rolled back; prior stack restored\n", archivePath, res.FailedStep)
-		if res.Reason != "" {
-			fmt.Fprintf(errOut, "  detail: %s\n", res.Reason)
-		}
-		if res.Err != nil {
-			fmt.Fprintf(errOut, "  error:  %v\n", res.Err)
-		}
-		if res.RollbackIncomplete {
-			// an incomplete rollback means the captured prior state was NOT
-			// fully re-applied — the rollback tars in tmpDir are the only copies of
-			// the prior Open WebUI (webui.db) / Qdrant volume data. Preserve them
-			// and tell the operator how to recover instead of silently deleting.
-			if tmpDir != "" {
-				fmt.Fprintf(errOut, "restore: PRESERVING %s — the rollback did not fully complete and this directory holds the ONLY copies of the prior volume data (rollback-owui.tar / rollback-qdrant.tar).\n", tmpDir)
-				fmt.Fprintf(errOut, "  recover: fix the cause above, stop the affected service, then `podman volume import <volume> <rollback tar>`; remove the directory once the prior data is safe.\n")
-			}
-			return exitBlocked, true
-		}
-		return exitBlocked, false
+		return exitBlocked, reportRolledBack(errOut, archivePath, tmpDir, res)
 	case res.Err != nil:
 		fmt.Fprintf(errOut, "restore: applying %s failed at %q: %v\n", archivePath, res.FailedStep, res.Err)
 		return exitBlocked, false
-	default: // Restored
-		fmt.Fprintf(out, "restored %s — config + Open WebUI data + usage/bench stores applied, cutover proven\n", archivePath)
-		fmt.Fprintf(out, "note: model weights are not in the backup; if inference fails to start, re-pull with `villa model pull <id>`\n")
-		// Honest Phase-23 memory reporting (OQ1: report, never extend Prove
-		// the memory stack is NOT covered by the cutover proof; verify it explicitly).
-		if res.QdrantRestored {
-			fmt.Fprintf(out, "memory: Qdrant volume restored — verify with `villa doctor`; if a dimension skew was confirmed at restore, run `villa recall index --rebuild`\n")
-		} else {
-			fmt.Fprintf(out, "memory volume not present in this backup — existing Qdrant data left untouched\n")
-		}
-		if res.RecallStateRestored {
-			fmt.Fprintf(out, "memory: recall state restored\n")
-		} else {
-			fmt.Fprintf(out, "memory: recall state not present in this backup — left untouched\n")
-		}
-		// The restored config is the single source of truth for the stack shape
-		// (Pitfall 5). Stale memory unit files are NOT removed by the reconcile
-		// (it writes changed units only) — existing behavior, reported not "fixed".
-		posture := "disabled"
-		if res.RestoredMemoryEnabled {
-			posture = "enabled"
-		}
-		fmt.Fprintf(out, "memory stack: %s (restored config); note: a reconcile does not remove stale unit files — bring services up with `villa up`\n", posture)
-		// Honest Phase-28 coding-agent reporting: report whether the
-		// rendered crush.json was restored AND surface the EXCLUDED agent binary
-		// identity for re-stage (the binary bytes were never in the archive, exactly
-		// like model weights — re-download the pinned release; identity verify is
-		// fail-closed on drift).
-		switch {
-		case res.CrushConfigRestored:
-			fmt.Fprintf(out, "coding agent: crush.json restored\n")
-		case res.CrushConfigSkipped:
-			// the archive CARRIED crush.json but the current install is
-			// agent-off, so no destination was wired and the entry was NOT applied.
-			// Report the skip honestly — the restored config.toml may believe the
-			// agent is enabled while its crush.json was never restored.
-			fmt.Fprintf(out, "coding agent: archive carried crush.json but the current install is agent-off — NOT applied; re-run `villa install --coding-agent` then restore, or it will not be applied\n")
-		default:
-			fmt.Fprintf(out, "coding agent: no agent config in this backup — left untouched\n")
-		}
-		if res.ExcludedAgent != nil {
-			fmt.Fprintf(out, "coding agent: binary not in the backup (identity recorded) — re-stage the pinned release with `villa install --coding-agent` (pinned %s); the re-stage verifies identity and refuses on drift\n", res.ExcludedAgent.Version)
-		}
-		// Honest Phase-34 web-search reporting: report whether the rendered
-		// settings.yml provenance was restored (0600-preserving). Fetched ephemeral web
-		// content was never archived by design.
-		switch {
-		case res.SearxngSettingsRestored:
-			fmt.Fprintf(out, "web search: settings.yml restored\n")
-		case res.SearxngSettingsSkipped:
-			fmt.Fprintf(out, "web search: archive carried settings.yml but the current install is web-search-off — NOT applied; re-run `villa install` with web search enabled then restore, or it will not be applied\n")
-		default:
-			fmt.Fprintf(out, "web search: no settings.yml in this backup — left untouched\n")
-		}
-		return exitPass, false
 	}
+	narrateRestored(cmd.OutOrStdout(), archivePath, res)
+	return exitPass, false
+}
+
+// reportRefused prints a fail-closed refusal: the reason, else the failed step.
+func reportRefused(errOut io.Writer, archivePath string, res backup.Result) {
+	switch {
+	case res.Reason != "":
+		fmt.Fprintf(errOut, "restore: refusing to apply %s — %s\n", archivePath, res.Reason)
+	case res.Err != nil:
+		fmt.Fprintf(errOut, "restore: refusing to apply %s — %s failed: %v\n", archivePath, res.FailedStep, res.Err)
+	default:
+		fmt.Fprintf(errOut, "restore: refusing to apply %s\n", archivePath)
+	}
+}
+
+// reportRolledBack prints a rolled-back restore and reports whether the rollback
+// was INCOMPLETE, in which case the caller must preserve tmpDir.
+func reportRolledBack(errOut io.Writer, archivePath, tmpDir string, res backup.Result) bool {
+	fmt.Fprintf(errOut, "restore: applying %s failed at %q — rolled back; prior stack restored\n", archivePath, res.FailedStep)
+	if res.Reason != "" {
+		fmt.Fprintf(errOut, "  detail: %s\n", res.Reason)
+	}
+	if res.Err != nil {
+		fmt.Fprintf(errOut, "  error:  %v\n", res.Err)
+	}
+	if !res.RollbackIncomplete {
+		return false
+	}
+	reportPreserved(errOut, tmpDir)
+	return true
+}
+
+// reportPreserved is the notice for an incomplete rollback: the captured prior state
+// was NOT fully re-applied, so the rollback tars in tmpDir are the only copies of
+// the prior Open WebUI (webui.db) / Qdrant volume data. Preserve them and tell the
+// operator how to recover instead of silently deleting.
+func reportPreserved(errOut io.Writer, tmpDir string) {
+	if tmpDir == "" {
+		return
+	}
+	fmt.Fprintf(errOut, "restore: PRESERVING %s — the rollback did not fully complete and this directory holds the ONLY copies of the prior volume data (rollback-owui.tar / rollback-qdrant.tar).\n", tmpDir)
+	fmt.Fprintf(errOut, "  recover: fix the cause above, stop the affected service, then `podman volume import <volume> <rollback tar>`; remove the directory once the prior data is safe.\n")
+}
+
+// restoreNarration is what `villa restore` prints for an optional file entry:
+// restored (written), skipped (the archive carried it but this install has no
+// destination wired, i.e. its subsystem is off) or absent (the archive did not
+// carry it). Narration stays in the cmd tier, keyed by entry name (ADR-0012).
+type restoreNarration struct {
+	entry, restored, skipped, absent string
+}
+
+var (
+	recallRestoreNarration = restoreNarration{
+		entry:    backup.EntryRecallState,
+		restored: "memory: recall state restored",
+		skipped:  "memory: archive carried recall state but this install wired no destination — NOT applied",
+		absent:   "memory: recall state not present in this backup — left untouched",
+	}
+	// crush.json: the archive CARRIED it but the current install is agent-off, so no
+	// destination was wired and the entry was NOT applied. Report the skip honestly —
+	// the restored config.toml may believe the agent is enabled while its crush.json
+	// was never restored.
+	crushRestoreNarration = restoreNarration{
+		entry:    backup.EntryCrushConfig,
+		restored: "coding agent: crush.json restored",
+		skipped:  "coding agent: archive carried crush.json but the current install is agent-off — NOT applied; re-run `villa install --coding-agent` then restore, or it will not be applied",
+		absent:   "coding agent: no agent config in this backup — left untouched",
+	}
+	// settings.yml: the rendered SearXNG provenance, restored 0600-preserving. Fetched
+	// ephemeral web content was never archived by design.
+	searxngRestoreNarration = restoreNarration{
+		entry:    backup.EntrySearxngSettings,
+		restored: "web search: settings.yml restored",
+		skipped:  "web search: archive carried settings.yml but the current install is web-search-off — NOT applied; re-run `villa install` with web search enabled then restore, or it will not be applied",
+		absent:   "web search: no settings.yml in this backup — left untouched",
+	}
+	// eval-baselines.json is replaced verbatim; the baselines that replacement loses
+	// are named by narrateEvalDropped.
+	evalRestoreNarration = restoreNarration{
+		entry:    backup.EntryEvalBaselines,
+		restored: "eval: baselines restored",
+		skipped:  "eval: archive carried baselines but this install wired no destination — NOT applied",
+		absent:   "eval: no baselines in this backup — left untouched",
+	}
+)
+
+func narrateRestoredEntry(out io.Writer, n restoreNarration, res backup.Result) {
+	outcome := res.Files[n.entry]
+	line := n.absent
+	switch {
+	case outcome.Restored:
+		line = n.restored
+	case outcome.Skipped:
+		line = n.skipped
+	}
+	fmt.Fprintln(out, line)
+}
+
+// narrateRestored reports a proven restore, honestly: what was applied, what was
+// not in the backup, and what the operator still has to do.
+func narrateRestored(out io.Writer, archivePath string, res backup.Result) {
+	fmt.Fprintf(out, "restored %s — config + Open WebUI data + usage/bench stores applied, cutover proven\n", archivePath)
+	fmt.Fprintf(out, "note: model weights are not in the backup; if inference fails to start, re-pull with `villa model pull <id>`\n")
+	narrateRestoredQdrant(out, res)
+	narrateRestoredEntry(out, recallRestoreNarration, res)
+	narrateRestoredMemoryPosture(out, res)
+	narrateRestoredEntry(out, crushRestoreNarration, res)
+	narrateRestoredAgentIdentity(out, res)
+	narrateRestoredEntry(out, searxngRestoreNarration, res)
+	narrateRestoredEntry(out, evalRestoreNarration, res)
+	narrateEvalDropped(out, res)
+}
+
+// narrateEvalDropped warns about every eval baseline the restore replaced away.
+// Restore replaces eval-baselines.json verbatim (merging would break the verbatim
+// rollback), and ADR-0018 says a baseline cannot be re-recorded after the
+// regression it exists to catch, so the loss is named, never silent.
+func narrateEvalDropped(out io.Writer, res backup.Result) {
+	if len(res.EvalDropped) == 0 {
+		return
+	}
+	fmt.Fprintf(out, "warning: eval baselines not in this backup were replaced and are gone: %s — a baseline cannot be re-recorded once a regression has happened (ADR-0018)\n", strings.Join(res.EvalDropped, ", "))
+}
+
+// liveEvalKeysOf names the baselines an eval-baselines.json document holds, reading
+// it exactly as the store does (an unreadable or future-schema document is empty),
+// so internal/backup stays free of eval and evalstore.
+func liveEvalKeysOf(doc []byte) []string {
+	d, err := evalstore.Load(evalstore.Deps{ReadAll: func() ([]byte, error) { return doc, nil }})
+	if err != nil {
+		return nil
+	}
+	keys := make([]string, 0, len(d.Baselines))
+	for _, b := range d.Baselines {
+		keys = append(keys, fmt.Sprintf("%s %s (suite v%d)", b.Key.Model, b.Key.Quant, b.Key.SuiteVersion))
+	}
+	return keys
+}
+
+// narrateRestoredQdrant is the honest Phase-23 memory reporting (OQ1: report, never
+// extend Prove — the memory stack is NOT covered by the cutover proof; verify it
+// explicitly).
+func narrateRestoredQdrant(out io.Writer, res backup.Result) {
+	if res.QdrantRestored {
+		fmt.Fprintf(out, "memory: Qdrant volume restored — verify with `villa doctor`; if a dimension skew was confirmed at restore, run `villa recall index --rebuild`\n")
+		return
+	}
+	fmt.Fprintf(out, "memory volume not present in this backup — existing Qdrant data left untouched\n")
+}
+
+// narrateRestoredMemoryPosture: the restored config is the single source of truth
+// for the stack shape (Pitfall 5). Stale memory unit files are NOT removed by the
+// reconcile (it writes changed units only) — existing behavior, reported not "fixed".
+func narrateRestoredMemoryPosture(out io.Writer, res backup.Result) {
+	posture := "disabled"
+	if res.RestoredMemoryEnabled {
+		posture = "enabled"
+	}
+	fmt.Fprintf(out, "memory stack: %s (restored config); note: a reconcile does not remove stale unit files — bring services up with `villa up`\n", posture)
+}
+
+// narrateRestoredAgentIdentity surfaces the EXCLUDED agent binary identity for
+// re-stage (the binary bytes were never in the archive, exactly like model weights —
+// re-download the pinned release; identity verify is fail-closed on drift).
+func narrateRestoredAgentIdentity(out io.Writer, res backup.Result) {
+	if res.ExcludedAgent == nil {
+		return
+	}
+	fmt.Fprintf(out, "coding agent: binary not in the backup (identity recorded) — re-stage the pinned release with `villa install --coding-agent` (pinned %s); the re-stage verifies identity and refuses on drift\n", res.ExcludedAgent.Version)
+}
+
+// liveRestoreDests is backup.RestoreInput.Dests for this host and config: the
+// destination of every file entry whose restore gate is on. The gate is the
+// AUTHORITATIVE persisted one (the current config, mirroring the backup side), so an
+// agent-off or web-search-off restore makes ZERO crush.json / settings.yml writes
+// even if an archive carries the entry.
+func liveRestoreDests(cfg config.VillaConfig, errOut io.Writer) map[string]string {
+	return fileEntryPaths(cfg, errOut, "restore", func(s fileEntrySite) siteRule { return s.restore })
+}
+
+// resolveArchive is the absolute archive path, checked readable BEFORE any side
+// effect.
+func resolveArchive(archivePath string) (string, error) {
+	absArchive, err := filepath.Abs(filepath.Clean(archivePath))
+	if err != nil {
+		return "", fmt.Errorf("bad archive path %q: %w", archivePath, err)
+	}
+	if _, err := os.Stat(absArchive); err != nil {
+		return "", fmt.Errorf("cannot read archive %q: %w", absArchive, err)
+	}
+	return absArchive, nil
+}
+
+// liveCurrentInstall is the current-install facts for the skew compare:
+// seam-sourced digests (never re-typed), accessor-sourced store schema versions, the
+// flattened host fingerprint, and the embedding identity for the Phase-23 dimension
+// skew (config is the single source of truth).
+func liveCurrentInstall(cfg config.VillaConfig) (backup.CurrentInstall, error) {
+	be, err := inference.BackendFor(cfg.Backend)
+	if err != nil {
+		return backup.CurrentInstall{}, fmt.Errorf("resolve backend %q: %w", cfg.Backend, err)
+	}
+	return backup.CurrentInstall{
+		VillaVersion:        villaVersion(),
+		InferenceImage:      be.Image(),
+		OpenWebUIImage:      orchestrate.OpenWebUIImage(),
+		Host:                liveHostFingerprint(),
+		ConfigSchemaVersion: 0, // VillaConfig carries no schema_version field (not recorded).
+		UsageSchemaVersion:  usage.SchemaVersion(),
+		BenchSchemaVersion:  benchstore.SavedReportSchemaVersion(),
+		EvalSchemaVersion:   evalstore.SchemaVersion(),
+		EmbeddingModel:      cfg.EmbeddingModel,
+		EmbeddingDim:        cfg.EmbeddingDim,
+		RecallSchemaVersion: recall.SchemaVersion(),
+	}, nil
 }
 
 // liveRestore resolves + traversal-validates the archive path, gathers the
@@ -216,53 +354,45 @@ func runRestore(cmd *cobra.Command, archivePath string, in backup.RestoreInput, 
 // backup.Restore returns. tmpDir is "" on every pre-MkdirTemp error path.
 func liveRestore(cmd *cobra.Command, archivePath string, bypass bool) (backup.RestoreInput, backup.RestoreDeps, string, int) {
 	errOut := cmd.ErrOrStderr()
-
-	absArchive, err := filepath.Abs(filepath.Clean(archivePath))
+	in, tmpDir, err := buildRestoreInput(archivePath, bypass, errOut)
 	if err != nil {
-		fmt.Fprintf(errOut, "restore: bad archive path %q: %v\n", archivePath, err)
+		fmt.Fprintf(errOut, "restore: %v\n", err)
 		return backup.RestoreInput{}, backup.RestoreDeps{}, "", exitBlocked
 	}
-	if _, err := os.Stat(absArchive); err != nil {
-		fmt.Fprintf(errOut, "restore: cannot read archive %q: %v\n", absArchive, err)
-		return backup.RestoreInput{}, backup.RestoreDeps{}, "", exitBlocked
-	}
+	return in, liveRestoreDeps(), tmpDir, exitPass
+}
 
-	// Current install facts: seam-sourced digests (never re-typed),
-	// accessor-sourced store schema versions, flattened host fingerprint.
+// buildRestoreInput assembles the live RestoreInput. Making the temp dir is the
+// LAST fallible step, so every error return carries an empty tmpDir. The dir holds
+// the extracted + rollback volume tars; the caller removes it after backup.Restore
+// returns — it contains the exported Open WebUI volume tar, which holds the user's
+// chat database (webui.db).
+func buildRestoreInput(archivePath string, bypass bool, errOut io.Writer) (backup.RestoreInput, string, error) {
+	absArchive, err := resolveArchive(archivePath)
+	if err != nil {
+		return backup.RestoreInput{}, "", err
+	}
 	cfg, err := config.LoadVilla()
 	if err != nil {
-		fmt.Fprintf(errOut, "restore: load config: %v\n", err)
-		return backup.RestoreInput{}, backup.RestoreDeps{}, "", exitBlocked
+		return backup.RestoreInput{}, "", fmt.Errorf("load config: %w", err)
 	}
-	be, err := inference.BackendFor(cfg.Backend)
+	cur, err := liveCurrentInstall(cfg)
 	if err != nil {
-		fmt.Fprintf(errOut, "restore: resolve backend %q: %v\n", cfg.Backend, err)
-		return backup.RestoreInput{}, backup.RestoreDeps{}, "", exitBlocked
+		return backup.RestoreInput{}, "", err
 	}
-	cur := backup.CurrentInstall{
-		VillaVersion:        villaVersion(),
-		InferenceImage:      be.Image(),
-		OpenWebUIImage:      orchestrate.OpenWebUIImage(),
-		Host:                liveHostFingerprint(),
-		ConfigSchemaVersion: 0, // VillaConfig carries no schema_version field (not recorded).
-		UsageSchemaVersion:  usage.SchemaVersion(),
-		BenchSchemaVersion:  benchstore.SavedReportSchemaVersion(),
-		// Embedding identity for the Phase-23 dimension-skew compare: config
-		// is the single source of truth; the recall schema comes from its accessor.
-		EmbeddingModel:      cfg.EmbeddingModel,
-		EmbeddingDim:        cfg.EmbeddingDim,
-		RecallSchemaVersion: recall.SchemaVersion(),
-	}
-
-	// Temp dir (same data-home parent) for the extracted + rollback volume tars. The
-	// caller removes it after backup.Restore returns — it holds the exported
-	// Open WebUI volume tar, which contains the user's chat database (webui.db).
 	tmpDir, err := os.MkdirTemp("", "villa-restore-*")
 	if err != nil {
-		fmt.Fprintf(errOut, "restore: temp dir: %v\n", err)
-		return backup.RestoreInput{}, backup.RestoreDeps{}, "", exitBlocked
+		return backup.RestoreInput{}, "", fmt.Errorf("temp dir: %w", err)
 	}
+	return newRestoreInput(absArchive, tmpDir, bypass, cur, liveRestoreDests(cfg, errOut), errOut), tmpDir, nil
+}
 
+// newRestoreInput is the pure assembly. The qdrant volume identity is seam-sourced;
+// its tars live in the SAME -cleaned tmpDir (they hold chat-derived vectors, same
+// sensitivity as webui.db); the existence check is TRI-STATE for restore: the core
+// fail-closes when the archive carries a qdrant entry but existence is UNKNOWN —
+// never the backup-side fail-soft collapse of Unknown into a confident "absent".
+func newRestoreInput(absArchive, tmpDir string, bypass bool, cur backup.CurrentInstall, dests map[string]string, errOut io.Writer) backup.RestoreInput {
 	in := backup.RestoreInput{
 		OpenArchive:         func() (io.ReadCloser, error) { return os.Open(absArchive) },
 		Current:             cur,
@@ -271,46 +401,14 @@ func liveRestore(cmd *cobra.Command, archivePath string, bypass bool) (backup.Re
 		OpenWebUIVolumeName: orchestrate.OpenWebUIVolumeName(),
 		TempVolumeTar:       filepath.Join(tmpDir, "restore-owui.tar"),
 		RollbackVolumeTar:   filepath.Join(tmpDir, "rollback-owui.tar"),
-		UsageDestPath:       usage.Path(),
-		BenchDestPath:       benchReportsStorePath(),
-		// Phase-23 qdrant volume + recall-state wiring: identities are
-		// seam-sourced; the qdrant tars live in the SAME -cleaned tmpDir (they
-		// hold chat-derived vectors, same sensitivity as webui.db); the existence
-		// check is TRI-STATE for restore: the core fail-closes when the
-		// archive carries a qdrant entry but existence is UNKNOWN — never the
-		// backup-side fail-soft collapse of Unknown into a confident "absent".
-		QdrantVolumeName:  orchestrate.QdrantVolumeName(),
-		TempQdrantTar:     filepath.Join(tmpDir, "restore-qdrant.tar"),
-		RollbackQdrantTar: filepath.Join(tmpDir, "rollback-qdrant.tar"),
-		RecallDestPath:    recall.StatePath(),
+		Dests:               dests,
+		EvalKeysOf:          liveEvalKeysOf,
+		QdrantVolumeName:    orchestrate.QdrantVolumeName(),
+		TempQdrantTar:       filepath.Join(tmpDir, "restore-qdrant.tar"),
+		RollbackQdrantTar:   filepath.Join(tmpDir, "rollback-qdrant.tar"),
 	}
 	in.QdrantVolumeExists, in.QdrantVolumeUnknown = volumeExistsTri(orchestrate.QdrantVolumeName(), errOut)
-	// Phase-28 coding-agent crush.json destination: wired ONLY when
-	// the agent is enabled (the AUTHORITATIVE persisted gate, mirroring the backup
-	// side), so an agent-off restore makes ZERO crush.json writes even if an archive
-	// carries the entry. crushConfigPath() resolves ~/.config/crush/crush.json
-	// (OUTSIDE the data-store root — restored via the dedicated WriteCrushConfig seam).
-	if subsystem.AgentOn(cfg) {
-		if crushPath, perr := crushConfigPath(); perr == nil {
-			in.CrushConfigDestPath = crushPath
-		} else {
-			fmt.Fprintf(errOut, "restore: warning: cannot resolve crush.json path (agent config will not be restored): %v\n", perr)
-		}
-	}
-	// Phase-34 web-search settings.yml destination: wired ONLY when web search
-	// is enabled (the AUTHORITATIVE persisted gate, mirroring the backup side), so a
-	// web-search-off restore makes ZERO settings.yml writes even if an archive carries the
-	// entry. SearXNGSettingsFilePath() resolves $XDG_CONFIG_HOME/villa/searxng/settings.yml
-	// (OUTSIDE the data-store root — restored via the dedicated WriteSearxngSettings seam,
-	// 0600-preserving).
-	if subsystem.WebSearchOn(cfg) {
-		if settingsPath, perr := orchestrate.SearXNGSettingsFilePath(); perr == nil {
-			in.SearxngSettingsDestPath = settingsPath
-		} else {
-			fmt.Fprintf(errOut, "restore: warning: cannot resolve settings.yml path (web-search config will not be restored): %v\n", perr)
-		}
-	}
-	return in, liveRestoreDeps(), tmpDir, exitPass
+	return in
 }
 
 // liveSkewConsent prints the assembled skew WARN+remediation prompt and reads a y/N

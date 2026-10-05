@@ -89,8 +89,8 @@ Go 1.26+. Single module, single static binary built from `./cmd/villa`.
   `eval` (ADR-0018) is the pure capability-suite core: embedded capability cases
   (`cases.json`, sha256 pinned beside `SuiteVersion`), a grader table keyed by kind,
   and `Compare` onto `verify.Status`; `evalstore` holds the eval baselines in
-  `eval-baselines.json` (jsonstore, one per model + quant + suite version). Not yet a
-  backup entry (#275).
+  `eval-baselines.json` (jsonstore, one per model + quant + suite version); it is a
+  backup entry, restored verbatim with a WARN naming the baselines that drops (ADR-0020).
 
   The v1.3–v1.5 packages follow the same pure-core shape: `memory` + `recall`
   (memory-stack decision spine and the chat-index plan/diff algebra), `agent` +
@@ -100,8 +100,8 @@ Go 1.26+. Single module, single static binary built from `./cmd/villa`.
   rewrite after keeping `crush.json.bak`, ADR-0019), `websafe` (the web-search injection guard —
   sanitize/normalize/fence/classify; it reduces and FLAGS, and never claims safe),
   `doctor` (read-only runtime twin of preflight; it decides from the loaded config,
-  ADR-0017, and its seams are raw reads), `backup` (pure manifest-skew
-  comparison), `usage` (reset-aware Fold over llama.cpp's monotonic token totals),
+  ADR-0017, and its seams are raw reads), `backup` (the one ordered entry
+  registry, ADR-0020, and the pure manifest-skew comparison), `usage` (reset-aware Fold over llama.cpp's monotonic token totals),
   and the persistence trio `pathsafe` / `jsonstore` / `benchstore` + `verifystate`.
 
   The v1.11 workspace-agent packages: `workspace` (the grant list and its

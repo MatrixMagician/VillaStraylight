@@ -14,6 +14,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -21,7 +22,9 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/backup"
+	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/recall"
+	"github.com/MatrixMagician/VillaStraylight/internal/stacklock"
 )
 
 // TestBackupDefaultNameIsFSSafe asserts the default archive name has no ':'
@@ -245,7 +248,7 @@ func TestBackupFailurePreservesPriorArchive(t *testing.T) {
 }
 
 // TestBackupMemoryOffOmitsLeftoverRecallState is the regression over the
-// REAL cmd-tier wiring (the pure-core tests pass an empty RecallStatePath and
+// REAL cmd-tier wiring (the pure-core tests offer no recall-state source and
 // never saw it): a memory-OFF config with a LEFTOVER recall-state.json (memory
 // was previously enabled) must produce an archive WITHOUT the recall-state.json
 // entry and a manifest without the recall/embedding fields — otherwise the entry
@@ -316,5 +319,248 @@ func TestBackupMemoryOffOmitsLeftoverRecallState(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "recall state not included (memory disabled)") {
 		t.Fatalf("memory-off backup must report the recall state as not included, got %q", out.String())
+	}
+}
+
+// scratchVillaHome points the config and data roots at fresh temp dirs, writes
+// cfgTOML as config.toml, and returns the config.toml path.
+func scratchVillaHome(t *testing.T, cfgTOML string) string {
+	t.Helper()
+	cfgHome, dataHome := t.TempDir(), t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", cfgHome)
+	t.Setenv("XDG_DATA_HOME", dataHome)
+	dir := filepath.Join(cfgHome, "villa")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "config.toml")
+	if err := os.WriteFile(path, []byte(cfgTOML), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// sortedKeys is the entry names of a source/destination map, sorted.
+func sortedKeys(m map[string]string) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+	return keys
+}
+
+// TestLiveBackupSourcesGateEachEntry guards the cmd tier's half of the registry
+// (ADR-0020): config.toml, usage.json and bench-reports.jsonl are always offered to
+// the archive, and each optional entry is offered ONLY when its subsystem is on —
+// so an archive made with a subsystem off stays layout-identical to one made before
+// the entry existed.
+func TestLiveBackupSourcesGateEachEntry(t *testing.T) {
+	cfgPath := scratchVillaHome(t, "")
+	always := []string{backup.EntryBenchReports, backup.EntryConfig, backup.EntryEvalBaselines, backup.EntryUsage}
+	tests := []struct {
+		name string
+		cfg  config.VillaConfig
+		want []string
+	}{
+		{"every subsystem off", config.VillaConfig{}, always},
+		{"memory on", config.VillaConfig{MemoryEnabled: true}, append([]string{backup.EntryRecallState}, always...)},
+		{"coding agent on", config.VillaConfig{AgentEnabled: true}, append([]string{backup.EntryCrushConfig}, always...)},
+		{"web search on", config.VillaConfig{WebSearchEnabled: true}, append([]string{backup.EntrySearxngSettings}, always...)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := sortedKeys(liveBackupSources(tt.cfg, cfgPath, io.Discard))
+			want := slices.Clone(tt.want)
+			slices.Sort(want)
+			if !slices.Equal(got, want) {
+				t.Fatalf("sources = %v, want %v", got, want)
+			}
+		})
+	}
+}
+
+// TestLiveRestoreDestsGateEachEntry is the restore half: recall-state.json is wired
+// regardless of the memory gate (the archive's own entry decides; the backup side is
+// the one that gates it), while crush.json and searxng-settings.yml are wired only
+// when their subsystem is on, so an off install makes ZERO writes for them.
+func TestLiveRestoreDestsGateEachEntry(t *testing.T) {
+	scratchVillaHome(t, "")
+	always := []string{backup.EntryBenchReports, backup.EntryEvalBaselines, backup.EntryRecallState, backup.EntryUsage}
+	tests := []struct {
+		name string
+		cfg  config.VillaConfig
+		want []string
+	}{
+		{"every subsystem off", config.VillaConfig{}, always},
+		{"coding agent on", config.VillaConfig{AgentEnabled: true}, append([]string{backup.EntryCrushConfig}, always...)},
+		{"web search on", config.VillaConfig{WebSearchEnabled: true}, append([]string{backup.EntrySearxngSettings}, always...)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := sortedKeys(liveRestoreDests(tt.cfg, io.Discard))
+			want := slices.Clone(tt.want)
+			slices.Sort(want)
+			if !slices.Equal(got, want) {
+				t.Fatalf("dests = %v, want %v", got, want)
+			}
+		})
+	}
+}
+
+// TestFileEntryPathFailureWarnsAndOmits: a path that cannot be resolved (no HOME or
+// XDG dir) is warned about by name and left out, so the entry is honestly not
+// archived or restored rather than failing the verb.
+func TestFileEntryPathFailureWarnsAndOmits(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("HOME", "")
+	cfg := config.VillaConfig{AgentEnabled: true, WebSearchEnabled: true}
+
+	var errOut bytes.Buffer
+	sources := liveBackupSources(cfg, "/cfg/config.toml", &errOut)
+	for _, entry := range []string{backup.EntryCrushConfig, backup.EntrySearxngSettings} {
+		if _, ok := sources[entry]; ok {
+			t.Errorf("an unresolvable %s path must be omitted, got %v", entry, sources)
+		}
+	}
+	for _, want := range []string{
+		"backup: warning: cannot resolve crush.json path (agent config not archived)",
+		"backup: warning: cannot resolve settings.yml path (web-search config not archived)",
+	} {
+		if !strings.Contains(errOut.String(), want) {
+			t.Errorf("stderr missing %q, got %q", want, errOut.String())
+		}
+	}
+
+	errOut.Reset()
+	dests := liveRestoreDests(cfg, &errOut)
+	if _, ok := dests[backup.EntryCrushConfig]; ok {
+		t.Errorf("an unresolvable crush.json destination must be omitted, got %v", dests)
+	}
+	if !strings.Contains(errOut.String(), "restore: warning: cannot resolve crush.json path (agent config will not be restored)") {
+		t.Errorf("restore warning missing, got %q", errOut.String())
+	}
+}
+
+// TestApplyBackupAgentRecordsIdentityNotBytes: an agent-on backup records the pinned
+// agent identity (version + pin sha) in the Input and never the binary's bytes, and
+// a binary that cannot be hashed is warned about and left empty — the identity is
+// still written from the pinned policy. An agent-off backup records nothing.
+func TestApplyBackupAgentRecordsIdentityNotBytes(t *testing.T) {
+	scratchVillaHome(t, "")
+
+	var off backup.Input
+	applyBackupAgent(&off, config.VillaConfig{}, io.Discard)
+	if off.AgentVersion != "" || off.AgentPinSHA256 != "" || off.AgentBinarySHA256 != "" {
+		t.Fatalf("an agent-off backup must record no identity, got %+v", off)
+	}
+
+	var absent backup.Input
+	applyBackupAgent(&absent, config.VillaConfig{AgentEnabled: true}, io.Discard)
+	if absent.AgentVersion == "" || absent.AgentBinarySHA256 != "" {
+		t.Fatalf("an absent binary still records the pinned version and an empty sha, got %+v", absent)
+	}
+
+	// A directory where the binary should be is unreadable as a file: the hash fails.
+	if err := os.MkdirAll(agentBinPath(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	var errOut bytes.Buffer
+	var unreadable backup.Input
+	applyBackupAgent(&unreadable, config.VillaConfig{AgentEnabled: true}, &errOut)
+	if !strings.Contains(errOut.String(), "cannot hash the coding-agent binary") {
+		t.Fatalf("an unhashable binary must warn, got %q", errOut.String())
+	}
+	if unreadable.AgentBinarySHA256 != "" || unreadable.AgentVersion == "" {
+		t.Fatalf("an unhashable binary leaves the sha empty but keeps the pinned identity, got %+v", unreadable)
+	}
+}
+
+// TestNarrateBackupEntryStates: an optional entry is reported as off (never
+// offered), absent (offered, no file) or included — the operator is never left
+// guessing whether it made it into the archive.
+func TestNarrateBackupEntryStates(t *testing.T) {
+	present := filepath.Join(t.TempDir(), "recall-state.json")
+	if err := os.WriteFile(present, []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name    string
+		sources map[string]string
+		want    string
+	}{
+		{"off", map[string]string{}, recallBackupNarration.off},
+		{"absent", map[string]string{backup.EntryRecallState: present + ".missing"}, recallBackupNarration.absent},
+		{"included", map[string]string{backup.EntryRecallState: present}, recallBackupNarration.included},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var out bytes.Buffer
+			narrateBackupEntry(&out, recallBackupNarration, tt.sources)
+			if got := strings.TrimSpace(out.String()); got != tt.want {
+				t.Fatalf("got %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestNarrateBackupReportsQdrantAndAgentIdentity covers the optional-memory and
+// agent-identity lines of the backup report.
+func TestNarrateBackupReportsQdrantAndAgentIdentity(t *testing.T) {
+	var out, errOut bytes.Buffer
+	in := backup.Input{
+		OutputPath:       "/tmp/b.tar",
+		QdrantVolumeName: "qdrant-vol",
+		AgentVersion:     "v0.76.0",
+		ExcludedModels:   []backup.ExcludedModel{{ID: "m", Quant: "Q4", Ctx: "4096"}},
+	}
+	narrateBackup(&out, &errOut, in, backup.Result{RestartWarning: "restart failed"})
+	for _, want := range []string{
+		"backup written to /tmp/b.tar",
+		"memory: Qdrant volume included (qdrant-volume.tar)",
+		"  - m (quant Q4, ctx 4096)",
+		"coding agent: binary excluded, identity recorded for re-stage (pinned v0.76.0)",
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("report missing %q, got %q", want, out.String())
+		}
+	}
+	if !strings.Contains(errOut.String(), "warning: restart failed") {
+		t.Errorf("a failed service restart must be surfaced, got %q", errOut.String())
+	}
+}
+
+// TestRunBackupRefusesBeforeAnyEffect: a held stack lock, an unreadable config and
+// an unknown backend each exit blocked with a message and no archive written.
+func TestRunBackupRefusesBeforeAnyEffect(t *testing.T) {
+	tests := []struct {
+		name    string
+		cfgTOML string
+		lockErr error
+		want    string
+	}{
+		{"stack lock held", "", errors.New("lock held"), "backup: lock held"},
+		{"unreadable config", "model = [unterminated\n", nil, "backup: load config"},
+		{"unknown backend", "backend = \"bogus\"\n", nil, "backup: "},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			scratchVillaHome(t, tt.cfgTOML)
+			prev := acquireStackLock
+			acquireStackLock = func() (*stacklock.Lock, error) { return nil, tt.lockErr }
+			t.Cleanup(func() { acquireStackLock = prev })
+
+			outPath := filepath.Join(t.TempDir(), "b.tar")
+			cmd, _, errOut := newBackupTestCmd()
+			if code := runBackup(cmd, outPath, fakeRunDeps(t, nil)); code != exitBlocked {
+				t.Fatalf("exit = %d, want %d; stderr=%q", code, exitBlocked, errOut.String())
+			}
+			if !strings.Contains(errOut.String(), tt.want) {
+				t.Fatalf("stderr %q does not contain %q", errOut.String(), tt.want)
+			}
+			if _, err := os.Stat(outPath); err == nil {
+				t.Fatalf("a refused backup must not write an archive")
+			}
+		})
 	}
 }
