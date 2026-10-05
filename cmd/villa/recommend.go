@@ -27,6 +27,28 @@ type recommendFlags struct {
 	save         bool
 }
 
+// recommendProbe is the host probe `villa recommend` fits against. Tests pin it
+// to a fixed profile so the fit cannot depend on the RAM of the machine that
+// runs them.
+var recommendProbe = detect.Probe
+
+// recommendConfigInputs reads the persisted inputs recommend fits with: the
+// catalog path (an explicit flag wins over the saved one), the memory and
+// web-search reservations, and the speculation mode. A missing or unreadable
+// config is not an error; it yields the zero values (memory off).
+func recommendConfigInputs(flagCatalog string) (string, recommend.MemoryInputs, recommend.WebSearchInputs, string) {
+	cfg, err := config.LoadVilla()
+	if err != nil {
+		return flagCatalog, recommend.MemoryInputs{}, recommend.WebSearchInputs{}, ""
+	}
+	catalogPath := flagCatalog
+	if catalogPath == "" {
+		catalogPath = cfg.CatalogPath
+	}
+	mem := recommend.MemoryInputs{Enabled: cfg.MemoryEnabled, EmbeddingModel: cfg.EmbeddingModel}
+	return catalogPath, mem, webSearchInputsFrom(cfg), cfg.Speculation
+}
+
 // newRecommend builds `villa recommend`: probe the host, load the catalog,
 // compute a single fitting pick with the fit math shown, re-validate any
 // overrides, and — only with --save — persist the pick to config.
@@ -37,11 +59,11 @@ func newRecommend() *cobra.Command {
 		Use:   "recommend",
 		Short: "Recommend a model/quant/context that fits this host's memory envelope",
 		Long: "Turn the detected hardware profile into a single memory-safe model/quant/context/backend " +
-			"recommendation, showing the fit math (model_bytes + KV-cache@ctx + headroom ≤ usable_envelope). " +
+			"recommendation, showing the fit math (model_bytes + KV-cache@ctx + prompt cache + headroom ≤ usable_envelope). " +
 			"Overrides (--model/--quant/--ctx) are re-validated against the envelope. Read-only unless --save.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			profile := detect.Probe()
+			profile := recommendProbe()
 
 			// Resolve the catalog source: an explicit --catalog flag wins; otherwise
 			// fall back to a saved cfg.CatalogPath so a persisted external-catalog
@@ -49,18 +71,7 @@ func newRecommend() *cobra.Command {
 			// config is not an error (read-only default). The SAME fail-soft
 			// load sources the persisted memory inputs: a load error threads
 			// the zero value (memory off), never an error-path change.
-			catalogPath := f.catalogPath
-			var mem recommend.MemoryInputs
-			var web recommend.WebSearchInputs
-			var speculation string
-			if cfg, err := config.LoadVilla(); err == nil {
-				if catalogPath == "" {
-					catalogPath = cfg.CatalogPath
-				}
-				mem = recommend.MemoryInputs{Enabled: cfg.MemoryEnabled, EmbeddingModel: cfg.EmbeddingModel}
-				web = webSearchInputsFrom(cfg)
-				speculation = cfg.Speculation
-			}
+			catalogPath, mem, web, speculation := recommendConfigInputs(f.catalogPath)
 
 			cat, warnings, err := catalog.Load(catalogPath)
 			if err != nil {
