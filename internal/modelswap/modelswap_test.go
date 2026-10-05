@@ -27,6 +27,10 @@ type swapFake struct {
 	pullErr     error
 	unchanged   bool
 	proveStatus string
+	// vision is the loaded config's vision decision; fitVision is the fit's answer
+	// for the target (its projector fits beside it).
+	vision    bool
+	fitVision bool
 }
 
 var known = map[string]catalog.Model{
@@ -39,7 +43,7 @@ func (f *swapFake) deps() Deps {
 			Lock: func() (*stacklock.Lock, error) { f.calls = append(f.calls, "lock"); return nil, nil },
 			LoadConfig: func() (config.VillaConfig, error) {
 				f.calls = append(f.calls, "load")
-				return config.VillaConfig{Model: "current", Quant: "Q4_K_M", Backend: "vulkan"}, nil
+				return config.VillaConfig{Model: "current", Quant: "Q4_K_M", Backend: "vulkan", Vision: f.vision}, nil
 			},
 			SaveConfig: func(c config.VillaConfig) error {
 				f.calls = append(f.calls, "save")
@@ -73,9 +77,12 @@ func (f *swapFake) deps() Deps {
 			m, ok := known[name]
 			return m, ok
 		},
-		Fits: func(catalog.Model) (bool, string) {
+		Fits: func(catalog.Model) Fit {
 			f.calls = append(f.calls, "fit")
-			return f.fits, "needs 9 bytes vs 1 usable"
+			if !f.fits {
+				return Fit{Reason: "needs 9 bytes vs 1 usable"}
+			}
+			return Fit{OK: true, Vision: f.fitVision}
 		},
 		IsDownloaded: func(catalog.Model) bool { return f.downloaded },
 		Pull: func(catalog.Model) error {
@@ -161,5 +168,45 @@ func TestSwapProveFailureRollsBack(t *testing.T) {
 	res := Run(f.deps(), "target")
 	if !res.RolledBack || res.FromModel != "current" || res.ToModel != "target" {
 		t.Fatalf("expected a rollback naming both models, got %+v", res)
+	}
+}
+
+// TestSwapVisionFollowsTheTarget (#299): the swap writes the target's own vision
+// answer, so a vision stack can move to a text-only entry and back without a hand
+// edit, and the Result names both sides so the caller can say what changed.
+func TestSwapVisionFollowsTheTarget(t *testing.T) {
+	cases := []struct {
+		name              string
+		vision, fitVision bool
+	}{
+		{"vision model to text-only turns vision off", true, false},
+		{"text-only to a model whose projector fits turns vision on", false, true},
+		{"vision to vision stays on", true, true},
+		{"text-only to text-only stays off", false, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := &swapFake{fits: true, downloaded: true, vision: tc.vision, fitVision: tc.fitVision}
+			res := Run(f.deps(), "target")
+			if !res.Switched {
+				t.Fatalf("expected a switch, got %+v", res)
+			}
+			if got := f.saved[0].Vision; got != tc.fitVision {
+				t.Errorf("saved vision = %v, want %v", got, tc.fitVision)
+			}
+			if res.FromVision != tc.vision || res.ToVision != tc.fitVision {
+				t.Errorf("Result vision %v -> %v, want %v -> %v", res.FromVision, res.ToVision, tc.vision, tc.fitVision)
+			}
+		})
+	}
+}
+
+// TestSwapRefusalLeavesVisionAlone (#299): a refused swap writes nothing, so the
+// vision decision it would have changed is untouched.
+func TestSwapRefusalLeavesVisionAlone(t *testing.T) {
+	f := &swapFake{fits: false, vision: true}
+	res := Run(f.deps(), "target")
+	if !res.Refused || len(f.saved) != 0 || !res.FromVision || res.ToVision != res.FromVision {
+		t.Fatalf("expected a refusal that keeps vision on, got %+v saved=%v", res, f.saved)
 	}
 }

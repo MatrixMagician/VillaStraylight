@@ -193,7 +193,8 @@ func liveAgentCtx(cfg config.VillaConfig) (int, error) {
 // projector, and villa has never qualified one for it.
 //
 // A config that says vision on for an entry shipping no projector is a refusal
-// here rather than a silent text-only render, for the reason ADR-0006 gives about
+// here rather than a silent text-only render (`model swap` writes vision from the
+// target, so only a hand edit or a catalog change reaches it, #299), for the reason ADR-0006 gives about
 // a speculation mode: the operator persisted a decision and would have no way to
 // tell it had been dropped.
 func liveProjector(cfg config.VillaConfig, coding bool) (string, error) {
@@ -209,7 +210,7 @@ func liveProjector(cfg config.VillaConfig, coding bool) (string, error) {
 		return "", fmt.Errorf("vision: served model %q is not in the catalog", cfg.Model)
 	}
 	if m.Projector == nil || len(m.Projector.Shards) == 0 {
-		return "", fmt.Errorf("vision is on in config but %s ships no projector; run villa recommend --save or villa install", m.ID)
+		return "", fmt.Errorf("vision is on in config but %s ships no projector; run villa model swap %s, which decides vision for the model it serves", m.ID, m.ID)
 	}
 	return m.Projector.Shards[0].Filename, nil
 }

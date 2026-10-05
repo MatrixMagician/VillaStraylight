@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 
@@ -268,7 +269,7 @@ func runModelSwap(cmd *cobra.Command, name string, d *modelswap.Deps) int {
 	// the way the old caller did. modelswap.Run pulls internally, so pre-announce when
 	// the target is absent — purely cosmetic, no side effect.
 	if m, ok := d.ResolveCatalog(name); ok && !d.IsDownloaded(m) {
-		if fits, _ := d.Fits(m); fits {
+		if d.Fits(m).OK {
 			fmt.Fprintf(out, "pulling %s (not yet downloaded)...\n", m.ID)
 		}
 	}
@@ -309,10 +310,24 @@ func runModelSwap(cmd *cobra.Command, name string, d *modelswap.Deps) int {
 		return exitBlocked
 	case res.NoOp:
 		fmt.Fprintf(out, "swapped to %s — config persisted; units already up to date, no restart needed\n", res.ToModel)
+		printVisionChange(out, res)
 		return exitPass
 	default: // Switched
 		fmt.Fprintf(out, "swapped to %s — config persisted and %s restarted\n", res.ToModel, installServiceName)
+		printVisionChange(out, res)
 		return exitPass
+	}
+}
+
+// printVisionChange names a vision change the swap made (#299): the operator asked
+// for a model, not for vision on or off, so a silent flip would hide a persisted
+// decision changing under them.
+func printVisionChange(out io.Writer, res modelswap.Result) {
+	switch {
+	case res.FromVision && !res.ToVision:
+		fmt.Fprintf(out, "vision turned off: %s has no projector that fits beside it\n", res.ToModel)
+	case !res.FromVision && res.ToVision:
+		fmt.Fprintf(out, "vision turned on: %s ships a projector\n", res.ToModel)
 	}
 }
 
@@ -335,10 +350,10 @@ func liveSwapDeps(ctx context.Context) *modelswap.Deps {
 			}
 			return cat.FindByID(name)
 		},
-		Fits: func(m catalog.Model) (bool, string) {
+		Fits: func(m catalog.Model) modelswap.Fit {
 			cat, _, err := catalog.Load(modelCatalogPath)
 			if err != nil {
-				return false, "catalog load failed"
+				return modelswap.Fit{Reason: "catalog load failed"}
 			}
 			// Reuse recommend.Pick fit-math by overriding to the swap target; the
 			// override path re-validates the fit against the detected envelope and
@@ -347,16 +362,11 @@ func liveSwapDeps(ctx context.Context) *modelswap.Deps {
 			// the same shrunken envelope the user was recommended.
 			rec := recommend.Pick(detect.Probe(), cat, recommend.Overrides{Model: m.ID}, liveLoadedMemoryInputs(), liveLoadedWebSearchInputs())
 			if rec.Fits {
-				return true, ""
+				return modelswap.Fit{OK: true, Vision: rec.Vision}
 			}
-			reason := fmt.Sprintf("needs %d bytes vs %d usable", rec.TotalBytes, rec.UsableEnvelopeBytes)
-			return false, reason
+			return modelswap.Fit{Reason: fmt.Sprintf("needs %d bytes vs %d usable", rec.TotalBytes, rec.UsableEnvelopeBytes)}
 		},
-		IsDownloaded: func(m catalog.Model) bool {
-			path := filepath.Join(modelsDir(), m.PrimaryFile())
-			_, err := os.Stat(path)
-			return err == nil
-		},
+		IsDownloaded: modelOnDisk,
 		Pull: func(m catalog.Model) error {
 			dir := modelsDir()
 			if mkErr := os.MkdirAll(dir, 0o700); mkErr != nil {
