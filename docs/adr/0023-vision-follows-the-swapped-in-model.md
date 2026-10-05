@@ -41,6 +41,10 @@ vision on|off` verb, or `config set vision=false`.
   reachable only by a hand edit or a catalog change, and it still refuses rather than
   rendering text-only. Its remediation names `villa model swap <model>`, which
   re-decides vision for the model it serves.
+- **The swap's capture does not refuse that config.** The swap frame snapshots the
+  units the prior config renders before it changes anything. When the render refuses
+  the prior config, capture takes every `villa*` unit on disk instead, so the
+  remediation the refusal names can run.
 
 ## Consequences
 

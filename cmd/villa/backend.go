@@ -57,35 +57,10 @@ func liveTxDeps(lock func() (*stacklock.Lock, error)) stackapply.TxDeps {
 	sys := orchestrate.NewSystemd()
 	stack := liveStackDeps()
 	return stackapply.TxDeps{
-		Lock:       lock,
-		LoadConfig: config.LoadVilla,
-		SaveConfig: config.SaveVilla,
-		// Capture reads the verbatim prior bytes of EVERY unit the prior config
-		// renders — the main inference unit and every resident unit (#232) — through
-		// the same stackapply.Render the apply uses. A unit render names but has never
-		// written is simply absent, which Restore then has nothing to do for.
-		Capture: func(cfg config.VillaConfig) (map[string]string, error) {
-			dir, err := stack.UnitDir()
-			if err != nil {
-				return nil, err
-			}
-			units, err := stackapply.Render(stack, cfg)
-			if err != nil {
-				return nil, err
-			}
-			captured := map[string]string{}
-			for _, u := range units {
-				text, err := os.ReadFile(filepath.Join(dir, u.Name))
-				if err != nil {
-					if os.IsNotExist(err) {
-						continue
-					}
-					return nil, err
-				}
-				captured[u.Name] = string(text)
-			}
-			return captured, nil
-		},
+		Lock:         lock,
+		LoadConfig:   config.LoadVilla,
+		SaveConfig:   config.SaveVilla,
+		Capture:      captureUnits(stack),
 		Apply:        func(c config.VillaConfig) ([]orchestrate.Unit, error) { return stackapply.Apply(stack, c) },
 		Restore:      func(m map[string]string) error { return stackapply.Restore(stack, m) },
 		DaemonReload: sys.DaemonReload,
@@ -93,6 +68,43 @@ func liveTxDeps(lock func() (*stacklock.Lock, error)) stackapply.TxDeps {
 		Restart:      sys.Restart,
 		Prove:        liveProve,
 		Service:      installServiceName,
+	}
+}
+
+// captureUnits reads the verbatim prior bytes of EVERY unit the prior config
+// renders — the main inference unit and every resident unit (#232) — through the
+// same stackapply.Render the apply uses. A unit render names but has never written
+// is simply absent, which Restore then has nothing to do for.
+//
+// A prior config the render refuses (vision on for an entry without a projector,
+// #299) is the state a swap exists to leave, so capture then takes every villa unit
+// on disk instead of refusing the way out.
+func captureUnits(stack stackapply.Deps) func(config.VillaConfig) (map[string]string, error) {
+	return func(cfg config.VillaConfig) (map[string]string, error) {
+		dir, err := stack.UnitDir()
+		if err != nil {
+			return nil, err
+		}
+		var names []string
+		if units, err := stackapply.Render(stack, cfg); err == nil {
+			for _, u := range units {
+				names = append(names, u.Name)
+			}
+		} else if names, err = filepath.Glob(filepath.Join(dir, "villa*")); err != nil {
+			return nil, err
+		}
+		captured := map[string]string{}
+		for _, name := range names {
+			text, err := os.ReadFile(filepath.Join(dir, filepath.Base(name)))
+			if err != nil {
+				if os.IsNotExist(err) {
+					continue
+				}
+				return nil, err
+			}
+			captured[filepath.Base(name)] = string(text)
+		}
+		return captured, nil
 	}
 }
 
