@@ -125,12 +125,14 @@ type RestoreInput struct {
 
 	// EvalKeysOf names the baselines an eval-baselines.json document holds, one label
 	// per baseline (the cmd tier parses it with evalstore, so this package imports
-	// nothing from eval; an unreadable document names none, as the store would treat
-	// it as empty). Restore replaces the document verbatim, so it applies EvalKeysOf
-	// to the archive's document and to the file it captured before mutating, and
-	// reports every captured baseline the archive lacks in Result.EvalDropped. Nil
-	// disables the report.
-	EvalKeysOf func(doc []byte) []string
+	// nothing from eval). A document it cannot read for keys (corrupt, or a newer
+	// schema) is an error saying why, never an empty list: that would pass for a store
+	// with no baselines. Restore replaces the document verbatim, so it applies
+	// EvalKeysOf to the archive's document and to the file it captured before
+	// mutating, and reports every captured baseline the archive lacks in
+	// Result.EvalDropped; a current file it cannot read is asked about at the skew
+	// confirmation instead (#281). Nil disables both.
+	EvalKeysOf func(doc []byte) ([]string, error)
 }
 
 // restoreTxn is one Restore's state: the verified archive, the prior state captured
@@ -145,6 +147,9 @@ type restoreTxn struct {
 	// prior holds the captured bytes of each file entry that EXISTS now, keyed by
 	// entry name. An absent key means the file was not there to begin with.
 	prior map[string][]byte
+	// evalUnreadable says why the current eval-baselines.json this restore replaces
+	// cannot be read for keys; empty when it can, or when nothing is replaced.
+	evalUnreadable string
 }
 
 // Restore performs the guarded, transactional archive apply and returns a typed
@@ -154,8 +159,10 @@ type restoreTxn struct {
 //	(1) READ+VERIFY (pure, zero side effects): open the outer tar, parse
 //	    manifest.json, verify each entry's SHA-256 against the manifest. A mismatch
 //	    or unreadable/incompatible manifest.schema_version → Refused.
-//	(2) SKEW: CompareSkew(manifest, Current). Block → Refused. WARN-only → require
-//	    Consent unless Bypass; a declined gate → Refused. (All still zero side effects.)
+//	(2) SKEW: CompareSkew(manifest, Current). Block → Refused. WARN-only, or a
+//	    current eval-baselines.json the archive would replace but EvalKeysOf cannot
+//	    read → require Consent unless Bypass; a declined gate → Refused. (All still
+//	    zero side effects.)
 //	(3) CAPTURE strictly BEFORE mutation: export the CURRENT owui volume + snapshot
 //	    the current config + the current file entries. Uncapturable → Refused.
 //	(4) QUIESCE: Stop the Open WebUI service.
@@ -175,10 +182,10 @@ func Restore(d RestoreDeps, in RestoreInput) Result {
 		return Result{Refused: true, FailedStep: "verify", Err: verr,
 			Reason: "archive failed integrity verification — refusing to restore a corrupt backup: " + verr.Error()}
 	}
-	if refused := skewGate(ex.manifest, in); refused != nil {
+	t := &restoreTxn{d: d, in: in, ex: ex, prior: map[string][]byte{}}
+	if refused := t.skewGate(); refused != nil {
 		return *refused
 	}
-	t := &restoreTxn{d: d, in: in, ex: ex, prior: map[string][]byte{}}
 	if refused := t.capture(); refused != nil {
 		return *refused
 	}
@@ -188,19 +195,56 @@ func Restore(d RestoreDeps, in RestoreInput) Result {
 // skewGate is step (2). A checksum failure is folded into CompareSkew via the
 // ChecksumFailed flag (always false here — a real mismatch already Refused in the
 // verify pass), so CompareSkew classifies schema/version/digest/host skew. Block →
-// Refused; a WARN-only verdict requires consent unless Bypass. nil means proceed.
-func skewGate(m Manifest, in RestoreInput) *Result {
-	cur := in.Current
+// Refused; a WARN-only verdict, or an unreadable eval-baselines.json this restore
+// would replace (evalWarnings), requires consent unless Bypass. nil means proceed.
+func (t *restoreTxn) skewGate() *Result {
+	cur := t.in.Current
 	cur.ChecksumFailed = false
-	skew := CompareSkew(m, cur)
+	skew := CompareSkew(t.ex.manifest, cur)
 	if skew.Block {
 		return &Result{Refused: true, FailedStep: "skew", Reason: skew.BlockReason}
 	}
-	if declined(in, skew.Warnings) {
+	if declined(t.in, append(skew.Warnings, t.evalWarnings()...)) {
 		return &Result{Refused: true, FailedStep: "skew",
 			Reason: "restore declined at the skew confirmation (re-run with --yes/--force to bypass)"}
 	}
 	return nil
+}
+
+// evalWarnings is the skew warning for a current eval-baselines.json this restore
+// would replace but cannot read for keys: corrupt, or written by a newer villa
+// (#281). Replacing it loses every baseline it holds with none named in
+// EvalDropped, and evalstore itself refuses that overwrite, so the operator
+// confirms it first. An absent file is not this case: there is nothing to lose.
+// Reading the file is not a mutation, so the gate keeps zero side effects.
+func (t *restoreTxn) evalWarnings() []SkewWarning {
+	current, ok := t.replacedEval()
+	if !ok {
+		return nil
+	}
+	_, err := t.in.EvalKeysOf(current)
+	if err == nil {
+		return nil
+	}
+	t.evalUnreadable = err.Error()
+	return []SkewWarning{{
+		Field: "eval_baselines",
+		Detail: fmt.Sprintf("%s is unreadable (%s) — this restore will replace it with the backup's copy, "+
+			"and the eval baselines it holds cannot be named, so any the backup lacks are lost (ADR-0018)",
+			t.in.Dests[EntryEvalBaselines], err),
+		Remediation: "to keep it, move it aside before restoring (a newer villa can still read a newer schema); " +
+			"confirm, or re-run with --yes/--force, to replace it",
+	}}
+}
+
+// replacedEval is the current eval-baselines.json this restore would replace: the
+// archive carries the entry, a parser and a destination are wired, and a file is
+// there now.
+func (t *restoreTxn) replacedEval() ([]byte, bool) {
+	if _, carried := t.ex.files[EntryEvalBaselines]; !carried || t.in.EvalKeysOf == nil {
+		return nil, false
+	}
+	return captureFile(t.d, t.in.Dests[EntryEvalBaselines])
 }
 
 // declined reports whether the operator refused the skew warnings: there are some,
@@ -475,6 +519,7 @@ func (t *restoreTxn) restored(v prove.Verdict) Result {
 		RestoredMemoryEnabled: t.restoredCfg.MemoryEnabled,
 		Files:                 t.fileOutcomes(),
 		EvalDropped:           t.evalDropped(),
+		EvalUnreadable:        t.evalUnreadable,
 		// Surface the EXCLUDED agent binary identity for the operator to RE-STAGE
 		// (re-download the pinned release) — the binary bytes were never in the
 		// archive, exactly like model weights. Nil on an agent-off backup (the
@@ -498,14 +543,22 @@ func (t *restoreTxn) fileOutcomes() map[string]FileOutcome {
 // Restore replaces the whole document verbatim, a baseline cannot be re-recorded
 // after the regression it exists to catch (ADR-0018), and so the loss is reported
 // rather than merged around. Nothing is dropped when the archive carries no
-// document (the current file is left alone) or there was no current file.
+// document (the current file is left alone) or there was no current file. A current
+// file that could not be read names nothing here: the skew gate asked about it and
+// Result.EvalUnreadable carries why. An archive document that cannot be read keeps
+// none of the current baselines, so each is named.
 func (t *restoreTxn) evalDropped() []string {
 	archived, carried := t.ex.files[EntryEvalBaselines]
 	current, hadCurrent := t.prior[EntryEvalBaselines]
 	if !carried || !hadCurrent || t.in.EvalKeysOf == nil {
 		return nil
 	}
-	return missingFrom(t.in.EvalKeysOf(current), t.in.EvalKeysOf(archived))
+	have, err := t.in.EvalKeysOf(current)
+	if err != nil {
+		return nil
+	}
+	keep, _ := t.in.EvalKeysOf(archived)
+	return missingFrom(have, keep)
 }
 
 // missingFrom is the entries of have that are not in keep, in order.

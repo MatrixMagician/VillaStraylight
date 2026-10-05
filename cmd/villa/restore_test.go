@@ -711,15 +711,169 @@ func TestBackupRestoreRoundTripsEvalBaselines(t *testing.T) {
 }
 
 // TestLiveEvalKeysNamesEachBaselineAndFailsClosed: the parser the restore core is
-// handed reads a document the way the store does — each baseline's key as a label —
-// and a document this villa cannot read names none (the store would treat it as
-// empty too).
+// handed reads a document the way the store does — each baseline's key as a label.
+// A document this villa cannot read is an error saying why, never an empty list
+// that would pass for a store with no baselines (#281); an empty file has none.
 func TestLiveEvalKeysNamesEachBaselineAndFailsClosed(t *testing.T) {
-	got := liveEvalKeysOf(evalDoc(t, "m1", "m2"))
-	if want := []string{"m1 Q4 (suite v1)", "m2 Q4 (suite v1)"}; !slices.Equal(got, want) {
-		t.Fatalf("keys = %v, want %v", got, want)
+	got, err := liveEvalKeysOf(evalDoc(t, "m1", "m2"))
+	if want := []string{"m1 Q4 (suite v1)", "m2 Q4 (suite v1)"}; err != nil || !slices.Equal(got, want) {
+		t.Fatalf("keys = %v, %v; want %v", got, err, want)
 	}
-	if keys := liveEvalKeysOf([]byte("not json")); len(keys) != 0 {
-		t.Fatalf("an unreadable document names no baseline, got %v", keys)
+	if keys, err := liveEvalKeysOf(nil); err != nil || len(keys) != 0 {
+		t.Fatalf("an empty document holds no baseline and is readable, got %v, %v", keys, err)
+	}
+	unreadable := map[string]struct {
+		doc  []byte
+		want string
+	}{
+		"not json":          {[]byte("not json"), "corrupt"},
+		"wrong shape":       {[]byte(`{"baselines":"x","schema_version":1}`), "corrupt"},
+		"newer schema":      {newerEvalDoc(t), "schema_version 2"},
+		"no schema_version": {[]byte(`{"baselines":[]}`), "schema_version 0"},
+	}
+	for name, tt := range unreadable {
+		keys, err := liveEvalKeysOf(tt.doc)
+		if err == nil || keys != nil || !strings.Contains(err.Error(), tt.want) {
+			t.Errorf("%s: want an error saying %q and no keys, got %v, %v", name, tt.want, keys, err)
+		}
+	}
+}
+
+// newerEvalDoc is an eval-baselines.json a newer villa wrote: one schema past this one.
+func newerEvalDoc(t *testing.T) []byte {
+	t.Helper()
+	b, err := json.Marshal(map[string]any{
+		"baselines":      []eval.Baseline{{Key: eval.Key{Model: "future", Quant: "Q4", SuiteVersion: 1}}},
+		"schema_version": evalstore.SchemaVersion() + 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
+// evalRestoreOverCurrent backs up an install holding two eval baselines, then puts
+// current (nil: no file) where the store lives. It returns the store path and a
+// restore of that archive over the live wiring (minus podman, systemd and the
+// proof), whose confirmation records each prompt and answers with answer.
+func evalRestoreOverCurrent(t *testing.T, current []byte, bypass, answer bool, prompts *[]string) (string, func() (int, string, string)) {
+	t.Helper()
+	scratchVillaHome(t, "backend = \"vulkan\"\n")
+	stubPodmanVolume(t, func([]string) (string, error) { return "", nil })
+	store := evalstore.Path()
+	if err := os.MkdirAll(filepath.Dir(store), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(store, evalDoc(t, "m1", "m2"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	archive := filepath.Join(t.TempDir(), "villa-backup.tar")
+	bcmd, _, berr := newBackupTestCmd()
+	if code := runBackup(bcmd, archive, fakeRunDeps(t, nil)); code != exitPass {
+		t.Fatalf("runBackup = %d; stderr=%q", code, berr.String())
+	}
+	if err := os.Remove(store); err != nil {
+		t.Fatal(err)
+	}
+	if current != nil {
+		if err := os.WriteFile(store, current, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return store, func() (int, string, string) {
+		rcmd, out, rerr := newRestoreTestCmd()
+		in, _, tmpDir, code := liveRestore(rcmd, archive, bypass)
+		if code != exitPass {
+			t.Fatalf("liveRestore = %d; stderr=%q", code, rerr.String())
+		}
+		t.Cleanup(func() { _ = os.RemoveAll(tmpDir) })
+		in.Consent = func(p string) bool { *prompts = append(*prompts, p); return answer }
+		code, _ = runRestore(rcmd, archive, in, realWriteRestoreDeps(), tmpDir)
+		return code, out.String(), rerr.String()
+	}
+}
+
+// unreadableEvalStore is a current eval-baselines.json and the reason the restore
+// must give for not reading it.
+type unreadableEvalStore struct {
+	doc []byte
+	why string
+}
+
+// unreadableEvalStores are the two ways a current eval-baselines.json cannot be read
+// for keys (#281): corrupt bytes, and a schema a newer villa wrote.
+func unreadableEvalStores(t *testing.T) map[string]unreadableEvalStore {
+	return map[string]unreadableEvalStore{
+		"corrupt":      {[]byte("{not json"), "corrupt"},
+		"newer schema": {newerEvalDoc(t), "schema_version 2"},
+	}
+}
+
+// TestRestoreDeclinesOverAnUnreadableEvalStore is #281 without --yes/--force: a
+// restore over an eval-baselines.json this villa cannot read asks first, naming the
+// file as unreadable, why, and that it will be replaced; declined (as a
+// non-interactive session does), it refuses and the file is left byte for byte.
+func TestRestoreDeclinesOverAnUnreadableEvalStore(t *testing.T) {
+	for name, tt := range unreadableEvalStores(t) {
+		t.Run(name, func(t *testing.T) {
+			var prompts []string
+			store, restore := evalRestoreOverCurrent(t, tt.doc, false, false, &prompts)
+			code, _, stderr := restore()
+			if code != exitBlocked || !strings.Contains(stderr, "declined") {
+				t.Fatalf("a declined restore must refuse, got %d; stderr=%q", code, stderr)
+			}
+			if len(prompts) != 1 {
+				t.Fatalf("want one confirmation, got %q", prompts)
+			}
+			for _, want := range []string{"eval-baselines.json is unreadable", tt.why, "replace"} {
+				if !strings.Contains(prompts[0], want) {
+					t.Errorf("the confirmation must say %q, got %q", want, prompts[0])
+				}
+			}
+			if got, err := os.ReadFile(store); err != nil || !bytes.Equal(got, tt.doc) {
+				t.Fatalf("a declined restore must leave the store untouched, got %q, %v", got, err)
+			}
+		})
+	}
+}
+
+// TestRestoreBypassReplacesAnUnreadableEvalStoreAndWarns: with --yes/--force the
+// restore proceeds without asking, replaces the store with the backup's bytes, and
+// still WARNS that the file was unreadable and why.
+func TestRestoreBypassReplacesAnUnreadableEvalStoreAndWarns(t *testing.T) {
+	for name, tt := range unreadableEvalStores(t) {
+		t.Run(name, func(t *testing.T) {
+			var prompts []string
+			store, restore := evalRestoreOverCurrent(t, tt.doc, true, false, &prompts)
+			code, out, stderr := restore()
+			if code != exitPass || len(prompts) != 0 {
+				t.Fatalf("--yes must restore without asking, got %d, prompts %q; stderr=%q", code, prompts, stderr)
+			}
+			if got, err := os.ReadFile(store); err != nil || !bytes.Equal(got, evalDoc(t, "m1", "m2")) {
+				t.Fatalf("the store must be the backed-up bytes, got %q, %v", got, err)
+			}
+			for _, want := range []string{"warning: eval-baselines.json was unreadable", tt.why, "replaced"} {
+				if !strings.Contains(out, want) {
+					t.Errorf("the restore must warn %q, got %q", want, out)
+				}
+			}
+		})
+	}
+}
+
+// TestRestoreOverAnAbsentEvalStoreAsksNothing: an absent store is not an unreadable
+// one — the restore writes the backup's baselines without a confirmation or a warning.
+func TestRestoreOverAnAbsentEvalStoreAsksNothing(t *testing.T) {
+	var prompts []string
+	store, restore := evalRestoreOverCurrent(t, nil, false, false, &prompts)
+	code, out, stderr := restore()
+	if code != exitPass || len(prompts) != 0 {
+		t.Fatalf("an absent store must restore without asking, got %d, prompts %q; stderr=%q", code, prompts, stderr)
+	}
+	if got, err := os.ReadFile(store); err != nil || !bytes.Equal(got, evalDoc(t, "m1", "m2")) {
+		t.Fatalf("the store must be the backed-up bytes, got %q, %v", got, err)
+	}
+	if strings.Contains(out, "warning: eval") {
+		t.Fatalf("an absent store must not warn, got %q", out)
 	}
 }
