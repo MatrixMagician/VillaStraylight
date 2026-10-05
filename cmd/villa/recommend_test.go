@@ -36,15 +36,16 @@ func fixtureRecommendation() recommend.Recommendation {
 		// POPULATED here so the frozen bytes exercise the full schema-3 shape:
 		// a fitting agent-profile pick with residency "swap".
 		Coder: recommend.CoderFit{
-			Model:         "qwen3-coder-30b-a3b",
-			Quant:         "UD-Q4_K_XL",
-			AgentCtx:      65536,
-			WeightBytes:   17665334432,
-			KVCacheBytes:  6442450944,
-			HeadroomBytes: 8057925795,
-			TotalBytes:    32165711171,
-			Fits:          true,
-			Residency:     "swap",
+			Model:            "qwen3-coder-30b-a3b",
+			Quant:            "UD-Q4_K_XL",
+			AgentCtx:         65536,
+			WeightBytes:      17665334432,
+			KVCacheBytes:     6442450944,
+			HeadroomBytes:    8057925795,
+			PromptCacheBytes: 8589934592,
+			TotalBytes:       40755645763,
+			Fits:             true,
+			Residency:        "swap",
 		},
 		// SchemaVersion surfaces unconditionally in --json. The fixture
 		// builds the struct directly (it does not call Pick), so it pins the contract
@@ -170,7 +171,7 @@ func TestRecommendTableShowsFitMath(t *testing.T) {
 	}
 	out := buf.String()
 	for _, want := range []string{
-		"model_bytes", "KV-cache", "prompt cache", "headroom", "total", "usable envelope",
+		"model_bytes", "KV-cache", "+ prompt cache", "headroom", "total", "usable envelope",
 		"Coder (agent profile)", "qwen3-coder-30b-a3b", "agent ctx 65536", "residency: swap", "≤",
 	} {
 		if !bytes.Contains(buf.Bytes(), []byte(want)) {

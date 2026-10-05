@@ -20,9 +20,10 @@
     "weight_bytes": 17665334432,
     "kv_cache_bytes": 6442450944,
     "headroom_bytes": 8057925795,
-    "total_bytes": 32165711171,
+    "total_bytes": 40755645763,
     "fits": true,
-    "residency": "swap"
+    "residency": "swap",
+    "prompt_cache_bytes": 8589934592
   },
   "web_search_reservation_bytes": 0,
   "speculation": "ngram",

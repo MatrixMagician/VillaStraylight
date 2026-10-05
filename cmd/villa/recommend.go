@@ -301,6 +301,7 @@ func writeCoderSection(w io.Writer, rec recommend.Recommendation) error {
 	ctw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
 	fmt.Fprintf(ctw, "  model_bytes\t%s\n", gib(rec.Coder.WeightBytes))
 	fmt.Fprintf(ctw, "+ KV-cache @ agent ctx %d\t%s\n", rec.Coder.AgentCtx, gib(rec.Coder.KVCacheBytes))
+	fmt.Fprintf(ctw, "+ prompt cache\t%s\n", gib(rec.Coder.PromptCacheBytes))
 	fmt.Fprintf(ctw, "+ headroom\t%s\n", gib(rec.Coder.HeadroomBytes))
 	fmt.Fprintf(ctw, "= total\t%s\n", gib(rec.Coder.TotalBytes))
 	fmt.Fprintf(ctw, "%s usable envelope\t%s\n", fitsGlyph(rec.Coder.Fits), gib(rec.UsableEnvelopeBytes))
