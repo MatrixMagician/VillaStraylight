@@ -265,7 +265,7 @@ trees with two pattern sets:
 
 - `runtime.GOOS` / `GOOS ==` platform branching,
 - the container **image** literal: `kyuz0`, `docker.io/`, `server-vulkan`, and the
-  ROCm tags (`rocm-7.2.4`, `rocm-6.4.4`, which covers the `-rocwmma` suffix too, and
+  ROCm tags (`rocm-10.0`, `rocm-7.2.4`, `rocm-6.4.4`, which covers the `-rocwmma` suffix too, and
   `rocm7-nightlies`). Note these are anchored to the IMAGE context (`:tag` / `tag@`),
   so a bare backend NAME as a config value (`case "rocm-6.4.4":` in `render.go`, a
   `--backend` help line) is deliberately not a hit,

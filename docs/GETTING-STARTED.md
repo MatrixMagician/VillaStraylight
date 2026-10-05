@@ -208,7 +208,7 @@ container image, so you always know which backend the running stack is on.
 
 ## Switching backends
 
-The default backend is **ROCm/HIP 7.2.4**, which `villa install` brings up for you.
+The default backend is **ROCm/HIP 10.0** (ADR-0022), which `villa install` brings up for you.
 **You do not need to do anything in this section to have a working stack**: this
 section is for moving between backends after the fact.
 

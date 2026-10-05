@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # ROCm 10.0 becomes the default inference backend
@@ -53,6 +53,16 @@ model.
   run gets the residency proof, `villa eval` against a baseline recorded on 7.2.4,
   and one completion read by hand. A model or mode that fails is either fixed in the
   same change (a marker, a flag spelling, a catalog qualification) or the flip waits.
+
+## Vet
+
+Done on the dev host on 2026-10-05 and recorded in
+[`docs/research/rocm-10-vet-2026-10-05.md`](../research/rocm-10-vet-2026-10-05.md):
+all seven catalog entries, every qualified speculation mode (off, ngram, and the
+qwen3.8-27b MTP draft), vision and tools on qwen3.6-35b-a3b. Every run passed the
+residency proof and read sanely by hand, and every eval matched its 7.2.4 baseline
+except one judged flip on qwen3.5-2b (a yes/no case). ngram-mod did not hang on any
+catalog model.
 
 ## Rejected
 

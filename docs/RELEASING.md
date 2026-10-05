@@ -277,6 +277,13 @@ Two had not moved (`rocm-6.4.4-rocwmma`, Qdrant). The earlier measurement of
 2026-08-26 is in
 [`docs/research/update-version-checks.md`](research/update-version-checks.md).
 
+On 2026-10-05 the default moved to a new component instead (ADR-0022, #297):
+`rocm-10.0` at build 11430, vetted on every catalog model in every qualified
+speculation mode, with vision and tools, in
+[`docs/research/rocm-10-vet-2026-10-05.md`](research/rocm-10-vet-2026-10-05.md).
+The 7.2.4 digest (`llama-server --version` reports build 9536) stays in the table
+as `rocm-7.2.4`.
+
 Two things the re-vet taught, both now encoded in the tree: llama.cpp replaced
 `--no-mmap` with `--load-mode` between those builds, so the resident-weights flag
 is spelled per image (`internal/inference`, `TestLoadFlagIsSpelledPerImage`); and
