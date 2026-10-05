@@ -19,7 +19,7 @@
 # Editor / local tooling directories
 /.vscode/
 
-# CRAP gate LCOV output (quartermaster crap); coverage.out is already *.out
+# LCOV coverage output; coverage.out is already *.out
 coverage/
 
 # sentrux scan output: regenerable, like coverage/ and graphify-out/ above.
