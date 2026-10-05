@@ -213,9 +213,9 @@ type Deps struct {
 	// AgentResidencyUnderLoad is the coder-model residency-under-tool-call-load proof
 	// (agent).
 	AgentResidencyUnderLoad func() inference.Verdict
-	// SearchResidencyUnderLoad is the chat-model residency-under-SEARCH-load proof: a
-	// bounded search-augmented chat drive with villa-searxng/villa-websafe up (web
-	// search). A confident CPU fallback under search load is a BLOCK-class FAIL that
+	// SearchResidencyUnderLoad is the chat-model residency proof with the search stack
+	// up: a bounded drive of plain chat completions sent while villa-searxng and
+	// villa-websafe run beside the model, never querying either (web search). A confident CPU fallback under search load is a BLOCK-class FAIL that
 	// DOMINATES a healthy-looking HTTP-200; a not-in-flight / unevaluable signal →
 	// typed-Unknown WARN (never an idle-sampled false-green).
 	//
