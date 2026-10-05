@@ -149,6 +149,10 @@ type swapRecorder struct {
 	// whose projector fits beside them.
 	vision     bool
 	visionFits map[string]bool
+	// ctx is the loaded config's ctx; overAt names the ctx values a target is over
+	// the envelope at.
+	ctx    int
+	overAt map[int]bool
 }
 
 func newSwapStub(rec *swapRecorder) *modelswap.Deps {
@@ -156,7 +160,7 @@ func newSwapStub(rec *swapRecorder) *modelswap.Deps {
 		Tx: stackapply.TxDeps{
 			Lock: func() (*stacklock.Lock, error) { return acquireStackLock() },
 			LoadConfig: func() (config.VillaConfig, error) {
-				return config.VillaConfig{Model: "current-model", Backend: "vulkan", Vision: rec.vision}, nil
+				return config.VillaConfig{Model: "current-model", Backend: "vulkan", Vision: rec.vision, Ctx: rec.ctx}, nil
 			},
 			Capture: func(config.VillaConfig) (map[string]string, error) {
 				return map[string]string{"villa-llama.container": "prior unit"}, nil
@@ -196,11 +200,14 @@ func newSwapStub(rec *swapRecorder) *modelswap.Deps {
 			m, ok := known[name]
 			return m, ok
 		},
-		Fits: func(m catalog.Model) modelswap.Fit {
+		Fits: func(m catalog.Model, c config.VillaConfig) modelswap.Fit {
 			if rec.fitOverrides != nil {
 				if ok := rec.fitOverrides[m.ID]; !ok {
-					return modelswap.Fit{Reason: "won't fit envelope (test)"}
+					return modelswap.Fit{OverEnvelope: true, Detail: "won't fit envelope (test)"}
 				}
+			}
+			if rec.overAt[c.Ctx] {
+				return modelswap.Fit{OverEnvelope: true, Detail: "needs more (test)"}
 			}
 			return modelswap.Fit{OK: true, Vision: rec.visionFits[m.ID]}
 		},
@@ -459,6 +466,46 @@ func TestModelSwapSaysWhenVisionChanged(t *testing.T) {
 				t.Errorf("after the swapped line got %q, want %q", got, tc.want)
 			}
 		})
+	}
+}
+
+// TestModelSwapSaysWhenCtxWasReset (#301): a target that does not fit at the
+// configured ctx is served at its default_ctx, and the swap says so, because the
+// operator asked for a model, not for a smaller context.
+func TestModelSwapSaysWhenCtxWasReset(t *testing.T) {
+	rec := &swapRecorder{
+		downloaded:   map[string]bool{"fits-model": true},
+		fitOverrides: map[string]bool{"fits-model": true},
+		ctx:          131072,
+		overAt:       map[int]bool{131072: true},
+	}
+	cmd, out, _ := newTestCmd()
+	if code := runModelSwap(cmd, "fits-model", newSwapStub(rec)); code != exitPass {
+		t.Fatalf("swap should exit 0, got %d", code)
+	}
+	if rec.saved.Ctx != 4096 {
+		t.Errorf("saved ctx %d, want fits-model's default 4096", rec.saved.Ctx)
+	}
+	lines := strings.SplitAfter(out.String(), "\n")
+	if got, want := strings.Join(lines[1:], ""), "ctx reset to 4096: 131072 does not fit fits-model\n"; got != want {
+		t.Errorf("after the swapped line got %q, want %q", got, want)
+	}
+}
+
+// TestModelSwapRefusalSaysWhy (#301): only a memory shortfall reads as "won't fit";
+// a speculation refusal is reported as itself.
+func TestModelSwapRefusalSaysWhy(t *testing.T) {
+	d := newSwapStub(&swapRecorder{})
+	d.Fits = func(catalog.Model, config.VillaConfig) modelswap.Fit {
+		return modelswap.Fit{Detail: "speculation: ngram requested but fits-model is not qualified for it; refusing"}
+	}
+	cmd, _, errOut := newTestCmd()
+	if code := runModelSwap(cmd, "fits-model", d); code == exitPass {
+		t.Fatal("a refused swap must not exit 0")
+	}
+	want := "model swap: refusing — speculation: ngram requested but fits-model is not qualified for it; refusing\n"
+	if errOut.String() != want {
+		t.Errorf("stderr %q, want %q", errOut.String(), want)
 	}
 }
 

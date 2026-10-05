@@ -16,6 +16,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
 	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 	"github.com/MatrixMagician/VillaStraylight/internal/metrics"
+	"github.com/MatrixMagician/VillaStraylight/internal/modelswap"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 	"github.com/MatrixMagician/VillaStraylight/internal/pins"
 	"github.com/MatrixMagician/VillaStraylight/internal/recommend"
@@ -317,9 +318,9 @@ func liveModelID() string {
 
 // liveModelsView composes the Models read-model: it loads the catalog and the
 // persisted config (the source of truth for the loaded model), then for each catalog entry
-// marks loaded (== cfg.Model) / on-disk (weights present) / catalog-only and computes the
-// per-row fit verdict by reusing recommend.Pick over the entry — the SAME fit-math
-// `villa model swap` uses, never re-implemented. It returns (nil, false) on a catalog-load
+// marks loaded (== cfg.Model) / on-disk (every file present) / catalog-only and computes
+// the per-row fit verdict through swapFit and modelswap.Size — the SAME fit and ctx rule
+// `villa model swap` runs, never re-implemented. It returns (nil, false) on a catalog-load
 // failure so the dashboard renders the "No models in catalog" empty state honestly.
 func liveModelsView() ([]dashboard.ModelView, bool) {
 	cat, _, err := catalog.Load(modelCatalogPath)
@@ -339,17 +340,20 @@ func liveModelsView() ([]dashboard.ModelView, bool) {
 	// (a load error left cfg zero-valued — memory off).
 	mem := recommend.MemoryInputs{Enabled: cfg.MemoryEnabled, EmbeddingModel: cfg.EmbeddingModel}
 	views := make([]dashboard.ModelView, 0, len(cat.Models))
+	fits := swapFit(profile, cat, mem, webSearchInputsFrom(cfg))
 	for _, m := range cat.Models {
-		// Reuse recommend.Pick fit-math by overriding to this entry (the same override
-		// path liveSwapDeps.Fits uses, recommend.go) — never new envelope math.
-		rec := recommend.Pick(profile, cat, recommend.Overrides{Model: m.ID}, mem, webSearchInputsFrom(cfg))
+		// The same fit and ctx rule a switch to this entry would run (#301), so the
+		// column shows what the switch would do.
+		target := cfg
+		target.Model = m.ID
+		fit, _ := modelswap.Size(m, target, fits)
 		views = append(views, dashboard.ModelView{
 			ID:        m.ID,
 			Quant:     m.Quant,
 			Loaded:    m.ID == cfg.Model,
 			OnDisk:    modelOnDisk(m),
-			Fits:      rec.Fits,
-			FitDetail: fitDetail(rec),
+			Fits:      fit.OK,
+			FitDetail: fit.Detail,
 		})
 	}
 	return views, true

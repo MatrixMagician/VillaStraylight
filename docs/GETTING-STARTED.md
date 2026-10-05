@@ -333,7 +333,8 @@ runs, text-only, and an attached image will not be looked at. `villa model swap`
 decides vision the same way for the model it swaps to: a text-only target turns it
 off, a target whose projector fits turns it back on and pulls the projector if it is
 missing, and the swap prints `vision turned off` or `vision turned on` when it
-changed.
+changed. A swap also sizes the target at your configured `ctx`; when it does not fit
+there, the swap falls back to the target's default context and prints `ctx reset to`.
 
 ## Running a task on your own files
 
