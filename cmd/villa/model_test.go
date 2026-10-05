@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -143,6 +145,10 @@ type swapRecorder struct {
 	reconcileNoChange bool
 	// proveFails makes the cutover proof fail, so the swap rolls back.
 	proveFails bool
+	// vision is the loaded config's vision decision; visionFits names the targets
+	// whose projector fits beside them.
+	vision     bool
+	visionFits map[string]bool
 }
 
 func newSwapStub(rec *swapRecorder) *modelswap.Deps {
@@ -150,7 +156,7 @@ func newSwapStub(rec *swapRecorder) *modelswap.Deps {
 		Tx: stackapply.TxDeps{
 			Lock: func() (*stacklock.Lock, error) { return acquireStackLock() },
 			LoadConfig: func() (config.VillaConfig, error) {
-				return config.VillaConfig{Model: "current-model", Backend: "vulkan"}, nil
+				return config.VillaConfig{Model: "current-model", Backend: "vulkan", Vision: rec.vision}, nil
 			},
 			Capture: func(config.VillaConfig) (map[string]string, error) {
 				return map[string]string{"villa-llama.container": "prior unit"}, nil
@@ -190,13 +196,13 @@ func newSwapStub(rec *swapRecorder) *modelswap.Deps {
 			m, ok := known[name]
 			return m, ok
 		},
-		Fits: func(m catalog.Model) (bool, string) {
+		Fits: func(m catalog.Model) modelswap.Fit {
 			if rec.fitOverrides != nil {
 				if ok := rec.fitOverrides[m.ID]; !ok {
-					return false, "won't fit envelope (test)"
+					return modelswap.Fit{Reason: "won't fit envelope (test)"}
 				}
 			}
-			return true, ""
+			return modelswap.Fit{OK: true, Vision: rec.visionFits[m.ID]}
 		},
 		IsDownloaded: func(m catalog.Model) bool {
 			return rec.downloaded[m.ID]
@@ -421,6 +427,41 @@ func TestModelPullToleratesNilCommandContext(t *testing.T) {
 // cross-process lock cannot be taken, runModelSwap must refuse WITHOUT calling
 // modelswap.Run at all — never mutate while unable to exclude a concurrent
 // dashboard switch.
+// TestModelSwapSaysWhenVisionChanged (#299): a swap that turns vision off or on
+// says so, because the operator did not ask for it by name; a swap that leaves it
+// alone says nothing about it.
+func TestModelSwapSaysWhenVisionChanged(t *testing.T) {
+	cases := []struct {
+		name       string
+		vision     bool
+		visionFits map[string]bool
+		want       string
+	}{
+		{"on to off", true, nil, "vision turned off: fits-model has no projector that fits beside it\n"},
+		{"off to on", false, map[string]bool{"fits-model": true}, "vision turned on: fits-model ships a projector\n"},
+		{"unchanged", true, map[string]bool{"fits-model": true}, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := &swapRecorder{
+				downloaded:   map[string]bool{"fits-model": true},
+				fitOverrides: map[string]bool{"fits-model": true},
+				vision:       tc.vision,
+				visionFits:   tc.visionFits,
+			}
+			cmd, out, _ := newTestCmd()
+			if code := runModelSwap(cmd, "fits-model", newSwapStub(rec)); code != exitPass {
+				t.Fatalf("swap should exit 0, got %d", code)
+			}
+			lines := strings.SplitAfter(out.String(), "\n")
+			got := strings.Join(lines[1:], "")
+			if got != tc.want {
+				t.Errorf("after the swapped line got %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestModelSwapLockFailureBlocksBeforeAnyMutation(t *testing.T) {
 	prevLock := acquireStackLock
 	acquireStackLock = func() (*stacklock.Lock, error) { return nil, errors.New("lock held") }
@@ -452,5 +493,32 @@ func TestModelSwapRollbackExitsBlocked(t *testing.T) {
 	}
 	if strings.Contains(out.String(), "swapped to") || !strings.Contains(errOut.String(), "rolled back") {
 		t.Errorf("a rolled-back swap must say so, stdout %q stderr %q", out.String(), errOut.String())
+	}
+}
+
+// TestModelOnDiskCountsSidecars (#299): weights fetched before a projector existed
+// are not "on disk" for a swap that turns vision on, so the swap pulls the
+// projector instead of rendering --mmproj at a file that is not there.
+func TestModelOnDiskCountsSidecars(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	m := catalog.Model{
+		ID:        "vision-model",
+		Shards:    []catalog.Shard{{Filename: "model.gguf"}},
+		Projector: &catalog.Sidecar{Shards: []catalog.Shard{{Filename: "mmproj.gguf"}}},
+	}
+	if err := os.MkdirAll(modelsDir(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(modelsDir(), "model.gguf"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if modelOnDisk(m) {
+		t.Fatal("weights without their projector must not count as on disk")
+	}
+	if err := os.WriteFile(filepath.Join(modelsDir(), "mmproj.gguf"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if !modelOnDisk(m) {
+		t.Fatal("weights plus projector must count as on disk")
 	}
 }

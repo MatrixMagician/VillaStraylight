@@ -448,11 +448,11 @@ func stubSwapDeps(known string, fits bool, called *[]string) modelswap.Deps {
 			}
 			return catalog.Model{}, false
 		},
-		Fits: func(catalog.Model) (bool, string) {
+		Fits: func(catalog.Model) modelswap.Fit {
 			if fits {
-				return true, ""
+				return modelswap.Fit{OK: true}
 			}
-			return false, "needs 80.0 GiB vs 60.0 GiB usable"
+			return modelswap.Fit{Reason: "needs 80.0 GiB vs 60.0 GiB usable"}
 		},
 		IsDownloaded: func(catalog.Model) bool { return true },
 		Pull:         func(catalog.Model) error { rec("pull"); return nil },

@@ -1,7 +1,7 @@
 // Package modelswap holds the guarded `villa model swap` change the CLI and the
 // dashboard's POST /api/models/switch both run, not a fork: resolve the model through
 // the catalog, refuse a non-fitting target before any side effect, pull absent
-// weights, then write the model to config. It is a stackapply.Change run through the
+// weights, then write the model and the target's vision answer to config. It is a stackapply.Change run through the
 // one swap transaction frame (ADR-0015), which owns the stack lock (blocking for the
 // CLI, non-blocking for the dashboard), the capture, the apply, the restart of every
 // changed running unit, the proof and the rollback (#237).
@@ -24,11 +24,22 @@ type Deps struct {
 	ResolveCatalog func(name string) (catalog.Model, bool)
 	// Fits reports whether m fits the usable envelope (reuse recommend fit-math)
 	// and a human reason when it does not — never a silent OOM at container start.
-	Fits func(m catalog.Model) (bool, string)
+	Fits func(m catalog.Model) Fit
 	// IsDownloaded reports whether the model's weights are already on disk.
 	IsDownloaded func(m catalog.Model) bool
 	// Pull auto-downloads the verified weights (reuse download.PullModel).
 	Pull func(m catalog.Model) error
+}
+
+// Fit is the fit guard's answer for a swap target.
+type Fit struct {
+	OK bool
+	// Reason is the human refusal when OK is false.
+	Reason string
+	// Vision is recommend's vision answer for the target: true only when the entry
+	// ships a projector AND it fits beside the model. The swap writes it, so vision
+	// follows the served model rather than outliving it (#299, ADR-0023).
+	Vision bool
 }
 
 // Result is the typed outcome of a swap.
@@ -42,24 +53,30 @@ type Result struct {
 	// FromModel / ToModel are the previous and new model ids.
 	FromModel string
 	ToModel   string
+	// FromVision / ToVision are the vision decision before and after. They differ
+	// only when the swap changed it; a refusal leaves both at the prior value.
+	FromVision bool
+	ToVision   bool
 }
 
 // Run performs the guarded swap. Ordering is the security contract: (1) resolve
 // through the catalog, never as a path; (2) fit-guard refuse; (3) auto-pull if
-// absent; (4) write the model and its quant to config. The frame then persists,
+// absent; (4) write the model, its quant and its vision answer to config. The frame then persists,
 // applies, restarts, proves and, on any failure, rolls back.
 func Run(d Deps, name string) Result {
 	r := Result{ToModel: name}
 	r.Outcome = stackapply.Transact(d.Tx, func(cfg config.VillaConfig) (config.VillaConfig, *stackapply.Outcome) {
 		r.FromModel = cfg.Model
+		r.FromVision, r.ToVision = cfg.Vision, cfg.Vision
 		m, ok := d.ResolveCatalog(name)
 		if !ok {
 			r.Unknown = true
 			return cfg, &stackapply.Outcome{Refused: true, Reason: "unknown model"}
 		}
 		r.ToModel = m.ID
-		if fits, reason := d.Fits(m); !fits {
-			return cfg, &stackapply.Outcome{Refused: true, Reason: reason}
+		fit := d.Fits(m)
+		if !fit.OK {
+			return cfg, &stackapply.Outcome{Refused: true, Reason: fit.Reason}
 		}
 		if !d.IsDownloaded(m) {
 			if err := d.Pull(m); err != nil {
@@ -71,6 +88,8 @@ func Run(d Deps, name string) Result {
 		if m.Quant != "" {
 			cfg.Quant = m.Quant
 		}
+		cfg.Vision = fit.Vision
+		r.ToVision = fit.Vision
 		return cfg, nil
 	})
 	return r

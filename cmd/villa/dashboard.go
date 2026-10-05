@@ -355,12 +355,17 @@ func liveModelsView() ([]dashboard.ModelView, bool) {
 	return views, true
 }
 
-// modelOnDisk reports whether a catalog model's primary weight file is already
-// downloaded (mirrors liveSwapDeps.IsDownloaded so the dashboard and swap agree).
+// modelOnDisk reports whether every file of a catalog model, its projector and
+// draft sidecars included, is downloaded. It is also `model swap`'s IsDownloaded,
+// so the dashboard and the swap agree, and a swap that turns vision on pulls a
+// projector the weights were fetched without (#299).
 func modelOnDisk(m catalog.Model) bool {
-	path := filepath.Join(modelsDir(), m.PrimaryFile())
-	_, err := os.Stat(path)
-	return err == nil
+	for _, sh := range m.AllShards() {
+		if _, err := os.Stat(filepath.Join(modelsDir(), sh.Filename)); err != nil {
+			return false
+		}
+	}
+	return true
 }
 
 // fitDetail renders the confirm-dialog fit-verdict line from a Recommendation: the
