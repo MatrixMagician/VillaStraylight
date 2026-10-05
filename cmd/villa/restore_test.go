@@ -17,6 +17,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -131,8 +133,10 @@ func baseRestoreInput(t *testing.T, path string) backup.RestoreInput {
 		OpenWebUIVolumeName: "villa-openwebui",
 		TempVolumeTar:       filepath.Join(tmp, "restore-owui.tar"),
 		RollbackVolumeTar:   filepath.Join(tmp, "rollback-owui.tar"),
-		UsageDestPath:       filepath.Join(tmp, "usage.json"),
-		BenchDestPath:       filepath.Join(tmp, "bench-reports.jsonl"),
+		Dests: map[string]string{
+			backup.EntryUsage:        filepath.Join(tmp, "usage.json"),
+			backup.EntryBenchReports: filepath.Join(tmp, "bench-reports.jsonl"),
+		},
 	}
 }
 
@@ -341,7 +345,7 @@ func TestRestoreOutputMemoryRestored(t *testing.T) {
 	in.TempQdrantTar = filepath.Join(tmp, "restore-qdrant.tar")
 	in.RollbackQdrantTar = filepath.Join(tmp, "rollback-qdrant.tar")
 	in.QdrantVolumeExists = true
-	in.RecallDestPath = filepath.Join(tmp, "recall-state.json")
+	in.Dests[backup.EntryRecallState] = filepath.Join(tmp, "recall-state.json")
 
 	cmd, out, errOut := newRestoreTestCmd()
 	code, _ := runRestore(cmd, arch, in, fakeRestoreDeps(prove.Verdict{Status: prove.StatusPass}), "")
@@ -438,5 +442,168 @@ func TestRestoreCorruptArchiveBlocks(t *testing.T) {
 	code, _ := runRestore(cmd, arch, baseRestoreInput(t, arch), fakeRestoreDeps(prove.Verdict{Status: prove.StatusPass}), "")
 	if code != exitBlocked {
 		t.Fatalf("corrupt archive: runRestore = %d, want %d", code, exitBlocked)
+	}
+}
+
+// stubPodmanVolume swaps the podman runner for fn for the test's lifetime.
+func stubPodmanVolume(t *testing.T, fn func(args []string) (string, error)) {
+	t.Helper()
+	prev := podmanVolume
+	podmanVolume = fn
+	t.Cleanup(func() { podmanVolume = prev })
+}
+
+// TestLiveRestoreAssemblesTheInput: liveRestore resolves the archive, the current
+// install and the temp dir into a RestoreInput whose destinations are exactly the
+// ones the current (agent-off, web-search-off) install wires, and whose qdrant
+// existence is the tri-state check's answer.
+func TestLiveRestoreAssemblesTheInput(t *testing.T) {
+	scratchVillaHome(t, "backend = \"vulkan\"\n")
+	stubPodmanVolume(t, func([]string) (string, error) { return "", nil }) // volume exists
+	arch := filepath.Join(t.TempDir(), "b.tar")
+	if err := os.WriteFile(arch, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd, _, errOut := newRestoreTestCmd()
+	in, _, tmpDir, code := liveRestore(cmd, arch, true)
+	t.Cleanup(func() { _ = os.RemoveAll(tmpDir) })
+	if code != exitPass {
+		t.Fatalf("liveRestore = %d, want %d; stderr=%q", code, exitPass, errOut.String())
+	}
+	if want := []string{backup.EntryBenchReports, backup.EntryRecallState, backup.EntryUsage}; !slices.Equal(sortedKeys(in.Dests), want) {
+		t.Fatalf("dests = %v, want %v", sortedKeys(in.Dests), want)
+	}
+	if !in.Bypass || !in.QdrantVolumeExists || in.QdrantVolumeUnknown {
+		t.Fatalf("want bypass + existing known qdrant volume, got %+v", in)
+	}
+	if filepath.Dir(in.TempVolumeTar) != tmpDir || filepath.Dir(in.RollbackQdrantTar) != tmpDir {
+		t.Fatalf("volume tars must live in the restore temp dir %q, got %q / %q", tmpDir, in.TempVolumeTar, in.RollbackQdrantTar)
+	}
+	if rc, err := in.OpenArchive(); err != nil {
+		t.Fatalf("OpenArchive: %v", err)
+	} else {
+		_ = rc.Close()
+	}
+}
+
+// TestLiveRestoreRefusesBeforeAnyEffect: an unreadable archive, an unreadable config
+// and an unwritable temp dir each exit blocked with a message and an EMPTY tmpDir —
+// the caller has nothing to clean up, because nothing was created.
+func TestLiveRestoreRefusesBeforeAnyEffect(t *testing.T) {
+	good := filepath.Join(t.TempDir(), "b.tar")
+	if err := os.WriteFile(good, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name    string
+		cfgTOML string
+		archive string
+		tmpdir  string
+		want    string
+	}{
+		{"missing archive", "", filepath.Join(t.TempDir(), "absent.tar"), "", "restore: cannot read archive"},
+		{"unreadable config", "model = [unterminated\n", good, "", "restore: load config"},
+		{"unwritable temp dir", "", good, filepath.Join(t.TempDir(), "no-such-dir"), "restore: temp dir"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			scratchVillaHome(t, tt.cfgTOML)
+			stubPodmanVolume(t, func([]string) (string, error) { return "", nil })
+			if tt.tmpdir != "" {
+				t.Setenv("TMPDIR", tt.tmpdir)
+			}
+			cmd, _, errOut := newRestoreTestCmd()
+			_, _, tmpDir, code := liveRestore(cmd, tt.archive, false)
+			if code != exitBlocked || tmpDir != "" {
+				t.Fatalf("liveRestore = %d tmpDir %q, want blocked and no temp dir; stderr=%q", code, tmpDir, errOut.String())
+			}
+			if !strings.Contains(errOut.String(), tt.want) {
+				t.Fatalf("stderr %q does not contain %q", errOut.String(), tt.want)
+			}
+		})
+	}
+}
+
+// TestLiveCurrentInstallRefusesAnUnknownBackend: the skew compare needs the backend
+// image digest from the seam, so a backend the seam does not know is a refusal that
+// names it, not a silent default.
+func TestLiveCurrentInstallRefusesAnUnknownBackend(t *testing.T) {
+	_, err := liveCurrentInstall(config.VillaConfig{Backend: "bogus"})
+	if err == nil || !strings.Contains(err.Error(), `resolve backend "bogus"`) {
+		t.Fatalf("want a refusal naming the backend, got %v", err)
+	}
+}
+
+// TestNarrateRestoredReportsEachFileOutcome: every optional file entry is reported
+// as restored, skipped (carried but this install has no destination — a subsystem is
+// off) or absent, and a skip is never reported as a restore.
+func TestNarrateRestoredReportsEachFileOutcome(t *testing.T) {
+	tests := []struct {
+		name  string
+		files map[string]backup.FileOutcome
+		want  []string
+	}{
+		{"nothing carried", nil, []string{
+			recallRestoreNarration.absent, crushRestoreNarration.absent, searxngRestoreNarration.absent,
+		}},
+		{"all restored", map[string]backup.FileOutcome{
+			backup.EntryRecallState:     {Restored: true},
+			backup.EntryCrushConfig:     {Restored: true},
+			backup.EntrySearxngSettings: {Restored: true},
+		}, []string{
+			recallRestoreNarration.restored, crushRestoreNarration.restored, searxngRestoreNarration.restored,
+		}},
+		{"carried but unwired", map[string]backup.FileOutcome{
+			backup.EntryCrushConfig:     {Skipped: true},
+			backup.EntrySearxngSettings: {Skipped: true},
+		}, []string{crushRestoreNarration.skipped, searxngRestoreNarration.skipped}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var out bytes.Buffer
+			narrateRestored(&out, "b.tar", backup.Result{Restored: true, Files: tt.files, ExcludedAgent: &backup.ExcludedAgent{Version: "v0.76.0"}})
+			for _, want := range tt.want {
+				if !strings.Contains(out.String(), want) {
+					t.Errorf("report missing %q, got %q", want, out.String())
+				}
+			}
+			if !strings.Contains(out.String(), "(pinned v0.76.0)") {
+				t.Errorf("the excluded agent identity must be reported, got %q", out.String())
+			}
+		})
+	}
+}
+
+// TestRunRestoreReportsRefusalAndRollback: the Result maps to the right messages —
+// a refusal names its reason, else its failed step, else just the archive; a
+// rollback that did not complete preserves the temp dir and says how to recover.
+func TestRunRestoreReportsRefusalAndRollback(t *testing.T) {
+	var out bytes.Buffer
+	reportRefused(&out, "b.tar", backup.Result{Refused: true, Reason: "because"})
+	reportRefused(&out, "b.tar", backup.Result{Refused: true, FailedStep: "capture", Err: errors.New("boom")})
+	reportRefused(&out, "b.tar", backup.Result{Refused: true})
+	for _, want := range []string{
+		"refusing to apply b.tar — because",
+		"refusing to apply b.tar — capture failed: boom",
+		"refusing to apply b.tar\n",
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("refusal report missing %q, got %q", want, out.String())
+		}
+	}
+
+	out.Reset()
+	incomplete := backup.Result{RolledBack: true, RollbackIncomplete: true, FailedStep: "volume", Reason: "r", Err: errors.New("e")}
+	if !reportRolledBack(&out, "b.tar", "/tmp/keep", incomplete) {
+		t.Fatalf("an incomplete rollback must ask the caller to preserve the temp dir")
+	}
+	for _, want := range []string{"rolled back", "detail: r", "error:  e", "PRESERVING /tmp/keep"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("rollback report missing %q, got %q", want, out.String())
+		}
+	}
+	if reportRolledBack(io.Discard, "b.tar", "/tmp/keep", backup.Result{RolledBack: true}) {
+		t.Fatalf("a complete rollback must not preserve the temp dir")
 	}
 }

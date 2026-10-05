@@ -75,28 +75,110 @@ func newBackup() *cobra.Command {
 	return cmd
 }
 
-// runBackup resolves the output path (traversal-guarded against its parent dir by
-// backup.RunBackup), gathers the seam-/accessor-sourced backup.Input, drives the
-// pure RunBackup orchestrator over liveDeps, and RETURNS the exit code. The
-// stage→assemble→publish sequence (same-dir temp files, atomic rename only after a
-// fully-successful write) lives in internal/backup (#239, ADR-0012); this function
-// is parse-input, call, render.
-func runBackup(cmd *cobra.Command, output string, d backup.Deps) int {
-	out := cmd.OutOrStdout()
-	errOut := cmd.ErrOrStderr()
+// siteRule is when one file entry is in play for one verb, and what a failure to
+// resolve its path warns about. A nil gate means always.
+type siteRule struct {
+	on     func(config.VillaConfig) bool
+	noPath string
+}
 
+func (r siteRule) enabled(cfg config.VillaConfig) bool { return r.on == nil || r.on(cfg) }
+
+// fileEntrySite is where one of the registry's file entries lives on THIS host and
+// which subsystem gates decide it (ADR-0020). It is the cmd tier's half of
+// internal/backup's registry: the core names the entries, this table names their
+// paths, so no other code reads MemoryOn / AgentOn / WebSearchOn for the archive.
+//
+// The two rules differ for recall-state.json on purpose. BACKUP gates it on memory,
+// so a memory-OFF archive stays layout-identical to the v1 one even when a
+// previously-enabled stack left the file behind (shipping the orphan without a
+// manifest recall_schema_version would let it escape the fail-closed schema gate on
+// restore). RESTORE always wires it: the archive's own entry decides, and the file
+// sits directly under the villa data root. Everything else gates the same way both
+// ways: crush.json on the coding agent (its path is OUTSIDE the data-store root) and
+// searxng-settings.yml on web search (also outside it, 0600, holds the rendered
+// SEARXNG_SECRET).
+type fileEntrySite struct {
+	entry           string
+	path            func() (string, error)
+	backup, restore siteRule
+}
+
+var fileEntrySites = []fileEntrySite{
+	{entry: backup.EntryUsage, path: func() (string, error) { return usage.Path(), nil }},
+	{entry: backup.EntryBenchReports, path: func() (string, error) { return benchReportsStorePath(), nil }},
+	{
+		entry:  backup.EntryRecallState,
+		path:   func() (string, error) { return recall.StatePath(), nil },
+		backup: siteRule{on: subsystem.MemoryOn},
+	},
+	{
+		entry:   backup.EntryCrushConfig,
+		path:    crushConfigPath,
+		backup:  siteRule{subsystem.AgentOn, "cannot resolve crush.json path (agent config not archived)"},
+		restore: siteRule{subsystem.AgentOn, "cannot resolve crush.json path (agent config will not be restored)"},
+	},
+	{
+		entry:   backup.EntrySearxngSettings,
+		path:    orchestrate.SearXNGSettingsFilePath,
+		backup:  siteRule{subsystem.WebSearchOn, "cannot resolve settings.yml path (web-search config not archived)"},
+		restore: siteRule{subsystem.WebSearchOn, "cannot resolve settings.yml path (web-search config will not be restored)"},
+	},
+}
+
+// fileEntryPaths resolves the path of every file entry the verb's rule puts in
+// play. A path that cannot be resolved is warned about and left out: the entry is
+// then not archived (or not restored) rather than failing the whole verb.
+func fileEntryPaths(cfg config.VillaConfig, errOut io.Writer, verb string, pick func(fileEntrySite) siteRule) map[string]string {
+	paths := map[string]string{}
+	for _, s := range fileEntrySites {
+		rule := pick(s)
+		if !rule.enabled(cfg) {
+			continue
+		}
+		p, err := s.path()
+		if err != nil {
+			fmt.Fprintf(errOut, "%s: warning: %s: %v\n", verb, rule.noPath, err)
+			continue
+		}
+		paths[s.entry] = p
+	}
+	return paths
+}
+
+// liveBackupSources is backup.Input.Sources for this host and config: the
+// config.toml path plus every file entry whose backup gate is on.
+func liveBackupSources(cfg config.VillaConfig, cfgPath string, errOut io.Writer) map[string]string {
+	paths := fileEntryPaths(cfg, errOut, "backup", func(s fileEntrySite) siteRule { return s.backup })
+	paths[backup.EntryConfig] = cfgPath
+	return paths
+}
+
+// resolveBackupOutput is the absolute archive path: the default name in CWD when
+// none was given.
+func resolveBackupOutput(output string) (string, error) {
 	if output == "" {
 		output = defaultBackupName(time.Now())
 	}
-	absOut, err := filepath.Abs(filepath.Clean(output))
+	abs, err := filepath.Abs(filepath.Clean(output))
 	if err != nil {
-		fmt.Fprintf(errOut, "backup: bad output path %q: %v\n", output, err)
-		return exitBlocked
+		return "", fmt.Errorf("bad output path %q: %w", output, err)
 	}
+	return abs, nil
+}
 
-	// The backup stops Open WebUI and Qdrant to export a clean volume, which would
-	// fail a concurrent swap's proof, and it archives config.toml: hold the stack
-	// lock (ADR-0010) from the first config read to the restart.
+// runBackup takes the stack lock, gathers the seam-/accessor-sourced backup.Input
+// (the output path is traversal-guarded against its parent dir by
+// backup.RunBackup), drives the pure RunBackup orchestrator over liveDeps, and
+// RETURNS the exit code. The stage→assemble→publish sequence (same-dir temp files,
+// atomic rename only after a fully-successful write) lives in internal/backup
+// (#239, ADR-0012); this function is parse-input, call, render.
+//
+// The backup stops Open WebUI and Qdrant to export a clean volume, which would fail
+// a concurrent swap's proof, and it archives config.toml: the stack lock (ADR-0010)
+// is held from the first config read to the restart.
+func runBackup(cmd *cobra.Command, output string, d backup.Deps) int {
+	errOut := cmd.ErrOrStderr()
 	lock, err := acquireStackLock()
 	if err != nil {
 		fmt.Fprintf(errOut, "backup: %v\n", err)
@@ -104,36 +186,41 @@ func runBackup(cmd *cobra.Command, output string, d backup.Deps) int {
 	}
 	defer func() { _ = lock.Release() }()
 
-	// Load config (the single source of truth) for backend selection + the data the
-	// manifest records.
-	cfg, err := config.LoadVilla()
-	if err != nil {
-		fmt.Fprintf(errOut, "backup: load config: %v\n", err)
-		return exitBlocked
-	}
-
-	// Resolve the inference image digest from the SEAM (never a literal).
-	be, err := inference.BackendFor(cfg.Backend)
+	in, err := buildBackupInput(errOut, output)
 	if err != nil {
 		fmt.Fprintf(errOut, "backup: %v\n", err)
 		return exitBlocked
 	}
-
-	// Resolve the config.toml source path (the archive's config entry).
-	cfgPath, err := config.Path()
-	if err != nil {
-		fmt.Fprintf(errOut, "backup: resolve config path: %v\n", err)
+	res, rerr := backup.RunBackup(d, in)
+	if rerr != nil {
+		fmt.Fprintf(errOut, "backup: failed at %s: %v\n", res.FailedStep, rerr)
 		return exitBlocked
 	}
+	narrateBackup(cmd.OutOrStdout(), errOut, in, res)
+	return exitPass
+}
 
-	// Optional Phase-23 qdrant volume entry: gated on cfg.MemoryEnabled AND a
-	// fail-soft existence check over the podmanVolume seam — memory off or volume
-	// absent means the entry is honestly omitted (and the core makes ZERO qdrant
-	// Deps calls). RunBackup stages/cleans its scratch temp only when this decision
-	// (still live-host-derived, so it cannot move into the pure core) sets
-	// QdrantVolumeName below.
-	includeQdrant := subsystem.MemoryOn(cfg) && volumeExists(orchestrate.QdrantVolumeName(), errOut)
-
+// buildBackupInput gathers everything host-derived: the output path, the config (the single source
+// of truth for backend selection and the data the manifest records), the image
+// digest from the SEAM (never a literal), the source path of every entry, and the
+// subsystem identities.
+func buildBackupInput(errOut io.Writer, output string) (backup.Input, error) {
+	absOut, err := resolveBackupOutput(output)
+	if err != nil {
+		return backup.Input{}, err
+	}
+	cfg, err := config.LoadVilla()
+	if err != nil {
+		return backup.Input{}, fmt.Errorf("load config: %w", err)
+	}
+	be, err := inference.BackendFor(cfg.Backend)
+	if err != nil {
+		return backup.Input{}, err
+	}
+	cfgPath, err := config.Path()
+	if err != nil {
+		return backup.Input{}, fmt.Errorf("resolve config path: %w", err)
+	}
 	in := backup.Input{
 		CreatedAt:           time.Now().UTC().Format(time.RFC3339),
 		VillaVersion:        villaVersion(),
@@ -145,141 +232,153 @@ func runBackup(cmd *cobra.Command, output string, d backup.Deps) int {
 		BenchSchemaVersion:  benchstore.SavedReportSchemaVersion(),
 		OutputPath:          absOut,
 		OpenWebUIVolumeName: orchestrate.OpenWebUIVolumeName(),
-		ConfigPath:          cfgPath,
-		UsagePath:           usage.Path(),
-		BenchReportsPath:    benchReportsStorePath(),
+		Sources:             liveBackupSources(cfg, cfgPath, errOut),
 		ExcludedModels:      excludedModelIdentities(cfg),
 		FileMissing:         os.IsNotExist,
 	}
-	if includeQdrant {
+	applyBackupQdrant(&in, cfg, errOut)
+	applyBackupMemory(&in, cfg)
+	applyBackupAgent(&in, cfg, errOut)
+	return in, nil
+}
+
+// applyBackupQdrant adds the optional Phase-23 qdrant volume entry: gated on
+// cfg.MemoryEnabled AND a fail-soft existence check over the podmanVolume seam —
+// memory off or volume absent means the entry is honestly omitted (and the core
+// makes ZERO qdrant Deps calls). The decision is live-host-derived, so it cannot
+// move into the pure core.
+func applyBackupQdrant(in *backup.Input, cfg config.VillaConfig, errOut io.Writer) {
+	if subsystem.MemoryOn(cfg) && volumeExists(orchestrate.QdrantVolumeName(), errOut) {
 		// Seam-sourced volume identity — NEVER a literal here.
 		in.QdrantVolumeName = orchestrate.QdrantVolumeName()
 	}
+}
+
+// applyBackupMemory records the manifest's embedding identity and recall store
+// schema, ONLY on a memory-on backup: config is the single source of truth for the
+// embedding model/dim; the recall schema comes from its accessor. A memory-off
+// backup omits all three (the "not recorded" convention) — cfg self-heals embedding
+// defaults even when memory is off, so this gate is what keeps memory-off
+// manifests claim-free.
+func applyBackupMemory(in *backup.Input, cfg config.VillaConfig) {
 	if subsystem.MemoryOn(cfg) {
-		// RecallStatePath is gated on cfg.MemoryEnabled (review), mirroring
-		// the qdrant entry: a memory-OFF backup must produce an archive IDENTICAL
-		// to the v1 layout even when a leftover recall-state.json exists from a
-		// previously-enabled memory stack. Including the orphan entry while the
-		// manifest omits recall_schema_version would let it escape the fail-closed
-		// blockOnNewerStore gate on restore. An absent file is still skipped by the
-		// core's optional-entry FileMissing logic.
-		in.RecallStatePath = recall.StatePath()
-		// Manifest embedding identity + recall store schema, recorded ONLY on a
-		// memory-on backup: config is the single source of truth for the
-		// embedding model/dim; the recall schema comes from its accessor. A
-		// memory-off backup omits all three (the "not recorded" convention) — note
-		// cfg self-heals embedding defaults even when memory is off, so this gate is
-		// what keeps memory-off manifests claim-free.
 		in.EmbeddingModel = cfg.EmbeddingModel
 		in.EmbeddingDim = cfg.EmbeddingDim
 		in.RecallSchemaVersion = recall.SchemaVersion()
 	}
-	if subsystem.AgentOn(cfg) {
-		// Phase-28 coding-agent coverage, agent-on ONLY: the rendered
-		// crush.json goes INTO the archive (sourced from crushConfigPath() — an absent
-		// file is skipped by the core's FileMissing logic), and the agent binary
-		// IDENTITY (on-disk sha256 + pinned version + policy pin sha256) is recorded in
-		// the manifest while the binary BYTES are EXCLUDED, exactly like model weights.
-		// An agent-off backup leaves all four empty so the archive stays v2-identical.
-		if crushPath, perr := crushConfigPath(); perr == nil {
-			in.CrushConfigPath = crushPath
-		} else {
-			fmt.Fprintf(errOut, "backup: warning: cannot resolve crush.json path (agent config not archived): %v\n", perr)
-		}
-		// On-disk binary identity (the BinaryAbsent signal degrades to an empty sha
-		// the identity record is still written from the pinned policy version/pin).
-		binSHA, _, herr := hashFileSHA256(agentBinPath())
-		if herr != nil {
-			fmt.Fprintf(errOut, "backup: warning: cannot hash the coding-agent binary (identity left empty): %v\n", herr)
-		}
-		policy := agent.LoadCrushPolicy()
-		in.AgentBinarySHA256 = binSHA
-		in.AgentVersion = policy.Version
-		if asset, ok := policy.Assets["linux/amd64"]; ok {
-			in.AgentPinSHA256 = asset.BinarySHA256
-		}
-	}
-	if subsystem.WebSearchOn(cfg) {
-		// Phase-34 web-search coverage, web-search-on ONLY: the rendered
-		// SearXNG settings.yml provenance goes INTO the archive (sourced from
-		// orchestrate.SearXNGSettingsFilePath() — an absent file is skipped by the core's
-		// FileMissing logic). The WebSearchEnabled GATE itself is already archived via
-		// config.toml; this is the settings.yml provenance only. Fetched EPHEMERAL web
-		// content is NEVER archived. A web-search-off backup leaves
-		// SearxngSettingsPath empty so the archive stays v3-identical.
-		if settingsPath, perr := orchestrate.SearXNGSettingsFilePath(); perr == nil {
-			in.SearxngSettingsPath = settingsPath
-		} else {
-			fmt.Fprintf(errOut, "backup: warning: cannot resolve settings.yml path (web-search config not archived): %v\n", perr)
-		}
-	}
+}
 
-	res, rerr := backup.RunBackup(d, in)
-	if rerr != nil {
-		fmt.Fprintf(errOut, "backup: failed at %s: %v\n", res.FailedStep, rerr)
-		return exitBlocked
+// applyBackupAgent records the coding-agent binary IDENTITY (on-disk sha256 +
+// pinned version + policy pin sha256) in the manifest, agent-on ONLY, while the
+// binary BYTES are EXCLUDED, exactly like model weights. The rendered crush.json
+// itself goes in through Sources. An agent-off backup leaves all three empty so the
+// archive stays v2-identical. The BinaryAbsent signal degrades to an empty sha; the
+// identity record is still written from the pinned policy version/pin.
+func applyBackupAgent(in *backup.Input, cfg config.VillaConfig, errOut io.Writer) {
+	if !subsystem.AgentOn(cfg) {
+		return
 	}
+	binSHA, _, herr := hashFileSHA256(agentBinPath())
+	if herr != nil {
+		fmt.Fprintf(errOut, "backup: warning: cannot hash the coding-agent binary (identity left empty): %v\n", herr)
+	}
+	policy := agent.LoadCrushPolicy()
+	in.AgentBinarySHA256 = binSHA
+	in.AgentVersion = policy.Version
+	if asset, ok := policy.Assets["linux/amd64"]; ok {
+		in.AgentPinSHA256 = asset.BinarySHA256
+	}
+}
 
-	fmt.Fprintf(out, "backup written to %s\n", absOut)
-	// Surface a failed best-effort service restart: the backup succeeded,
-	// but a service is likely down — warn rather than exit 0 silently.
+// entryNarration is the one line `villa backup` prints for an optional entry:
+// off (never offered: its subsystem is disabled), absent (offered, but no file on
+// disk) or included. Narration stays in the cmd tier, keyed by entry name (ADR-0012).
+type entryNarration struct {
+	entry, off, absent, included string
+}
+
+var (
+	recallBackupNarration = entryNarration{
+		entry:    backup.EntryRecallState,
+		off:      "memory: recall state not included (memory disabled)",
+		absent:   "memory: recall state not included (no recall-state.json)",
+		included: "memory: recall state included (" + backup.EntryRecallState + ")",
+	}
+	crushBackupNarration = entryNarration{
+		entry:    backup.EntryCrushConfig,
+		off:      "coding agent: not included (agent disabled)",
+		absent:   "coding agent: crush.json not included (no rendered crush.json)",
+		included: "coding agent: crush.json included (" + backup.EntryCrushConfig + ")",
+	}
+	searxngBackupNarration = entryNarration{
+		entry:    backup.EntrySearxngSettings,
+		off:      "web search: not included (web search disabled)",
+		absent:   "web search: settings.yml not included (no rendered settings.yml)",
+		included: "web search: settings.yml included (" + backup.EntrySearxngSettings + ")",
+	}
+)
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+// narrateBackupEntry prints the honest line for one optional entry: never leave the
+// operator guessing whether it made it into the archive.
+func narrateBackupEntry(out io.Writer, n entryNarration, sources map[string]string) {
+	path := sources[n.entry]
+	line := n.included
+	switch {
+	case path == "":
+		line = n.off
+	case !fileExists(path):
+		line = n.absent
+	}
+	fmt.Fprintln(out, line)
+}
+
+// narrateBackup reports the written archive and what went into it. A failed
+// best-effort service restart is surfaced: the backup succeeded, but a service is
+// likely down — warn rather than exit 0 silently.
+func narrateBackup(out, errOut io.Writer, in backup.Input, res backup.Result) {
+	fmt.Fprintf(out, "backup written to %s\n", in.OutputPath)
 	if res.RestartWarning != "" {
 		fmt.Fprintf(errOut, "warning: %s\n", res.RestartWarning)
 	}
-	// Honest memory-entry reporting (Phase 23): state whether the qdrant volume and
-	// recall state made it into the archive — never leave the operator guessing.
-	if includeQdrant {
+	narrateBackupQdrant(out, in)
+	narrateBackupEntry(out, recallBackupNarration, in.Sources)
+	narrateExcludedModels(out, in.ExcludedModels)
+	narrateBackupEntry(out, crushBackupNarration, in.Sources)
+	narrateBackupEntry(out, searxngBackupNarration, in.Sources)
+	narrateExcludedAgent(out, in)
+}
+
+// narrateBackupQdrant states whether the qdrant volume made it into the archive.
+func narrateBackupQdrant(out io.Writer, in backup.Input) {
+	if in.QdrantVolumeName != "" {
 		fmt.Fprintf(out, "memory: Qdrant volume included (%s)\n", backup.EntryQdrantVolume)
-	} else {
-		fmt.Fprintf(out, "memory: Qdrant volume not included (memory disabled or volume absent)\n")
+		return
 	}
-	switch in.RecallStatePath {
-	case "":
-		// Memory off ⇒ the entry was never offered to the core (gate).
-		fmt.Fprintf(out, "memory: recall state not included (memory disabled)\n")
-	default:
-		if _, serr := os.Stat(in.RecallStatePath); serr == nil {
-			fmt.Fprintf(out, "memory: recall state included (%s)\n", backup.EntryRecallState)
-		} else {
-			fmt.Fprintf(out, "memory: recall state not included (no recall-state.json)\n")
-		}
+	fmt.Fprintf(out, "memory: Qdrant volume not included (memory disabled or volume absent)\n")
+}
+
+func narrateExcludedModels(out io.Writer, models []backup.ExcludedModel) {
+	if len(models) == 0 {
+		return
 	}
-	if len(in.ExcludedModels) > 0 {
-		fmt.Fprintf(out, "excluded model weights (re-pullable, recorded in manifest for re-pull):\n")
-		for _, m := range in.ExcludedModels {
-			fmt.Fprintf(out, "  - %s (quant %s, ctx %s)\n", m.ID, m.Quant, m.Ctx)
-		}
+	fmt.Fprintf(out, "excluded model weights (re-pullable, recorded in manifest for re-pull):\n")
+	for _, m := range models {
+		fmt.Fprintf(out, "  - %s (quant %s, ctx %s)\n", m.ID, m.Quant, m.Ctx)
 	}
-	// Honest coding-agent reporting (Phase 28): the rendered crush.json
-	// is archived (if present); the agent binary is identity-recorded for re-stage but
-	// its bytes are EXCLUDED, exactly like model weights.
-	switch in.CrushConfigPath {
-	case "":
-		fmt.Fprintf(out, "coding agent: not included (agent disabled)\n")
-	default:
-		if _, serr := os.Stat(in.CrushConfigPath); serr == nil {
-			fmt.Fprintf(out, "coding agent: crush.json included (%s)\n", backup.EntryCrushConfig)
-		} else {
-			fmt.Fprintf(out, "coding agent: crush.json not included (no rendered crush.json)\n")
-		}
+}
+
+// narrateExcludedAgent reports the coding-agent binary: identity recorded for
+// re-stage, bytes EXCLUDED exactly like model weights.
+func narrateExcludedAgent(out io.Writer, in backup.Input) {
+	if in.AgentBinarySHA256 == "" && in.AgentVersion == "" && in.AgentPinSHA256 == "" {
+		return
 	}
-	// Honest web-search reporting (Phase 34): the rendered settings.yml
-	// provenance is archived (if present). Fetched ephemeral web content is never
-	// archived by design.
-	switch in.SearxngSettingsPath {
-	case "":
-		fmt.Fprintf(out, "web search: not included (web search disabled)\n")
-	default:
-		if _, serr := os.Stat(in.SearxngSettingsPath); serr == nil {
-			fmt.Fprintf(out, "web search: settings.yml included (%s)\n", backup.EntrySearxngSettings)
-		} else {
-			fmt.Fprintf(out, "web search: settings.yml not included (no rendered settings.yml)\n")
-		}
-	}
-	if in.AgentBinarySHA256 != "" || in.AgentVersion != "" || in.AgentPinSHA256 != "" {
-		fmt.Fprintf(out, "coding agent: binary excluded, identity recorded for re-stage (pinned %s) — re-stage with `villa install --coding-agent`\n", in.AgentVersion)
-	}
-	return exitPass
+	fmt.Fprintf(out, "coding agent: binary excluded, identity recorded for re-stage (pinned %s) — re-stage with `villa install --coding-agent`\n", in.AgentVersion)
 }
 
 // assertBackupOutputInside verifies the resolved output path stays within its parent

@@ -172,6 +172,21 @@ type RestoreDeps struct {
 	QdrantServiceName string
 }
 
+// FileOutcome is what restore did with one file entry the archive carried.
+// Restored reflects the ACTUAL write (entry present AND a destination wired), not
+// mere presence. Skipped is true when the archive CARRIED the entry but it was NOT
+// applied because no destination was wired — the subsystem it belongs to is off on
+// the current install (coding agent for crush.json, web search for
+// searxng-settings.yml, memory for recall-state.json). That is the honest signal
+// that the restored config.toml may believe the subsystem is enabled while its file
+// was never restored, so the cmd tier warns the operator to re-run the matching
+// `villa install` flag and restore again. Restored and Skipped are mutually
+// exclusive.
+type FileOutcome struct {
+	Restored bool
+	Skipped  bool
+}
+
 // Result is the typed outcome of a backup/restore (not an exit code), so the
 // cobra caller (later plans) can branch on it and map it to an exit code +
 // messages. Clones backendswap.Result's shape and its honest-rollback contract.
@@ -214,46 +229,22 @@ type Result struct {
 	// archive was written); this only flags that the service is likely DOWN and the
 	// user should run `villa up`. Empty on a clean restart.
 	RestartWarning string
-	// QdrantRestored / RecallStateRestored report whether the OPTIONAL Phase-23
-	// memory entries were present in the archive and applied (valid on a Restored
-	// result). False means "not present in this backup" — the caller reports it
-	// honestly and existing Qdrant data was left untouched (OQ1: report,
-	// never extend Prove).
-	QdrantRestored      bool
-	RecallStateRestored bool
+	// QdrantRestored reports whether the OPTIONAL Phase-23 qdrant volume entry was
+	// present in the archive and applied (valid on a Restored result). False means
+	// "not present in this backup" — the caller reports it honestly and existing
+	// Qdrant data was left untouched (OQ1: report, never extend Prove).
+	QdrantRestored bool
 	// RestoredMemoryEnabled is the RESTORED config's memory posture (Pitfall 5):
 	// the reconcile renders units from the restored config, so the stack shape may
 	// have changed — the caller prints "memory stack: enabled/disabled (restored
 	// config)". Valid on a Restored result.
 	RestoredMemoryEnabled bool
-	// CrushConfigRestored reports whether the OPTIONAL Phase-28 crush.json entry was
-	// present in the archive AND actually written (Phase 28).
-	// It reflects the ACTUAL write (entry present AND a destination wired), not mere
-	// presence — an agent-on archive restored onto an agent-off current install has
-	// no destination wired, so the entry is skipped and this stays false (see
-	// CrushConfigSkipped). Valid on a Restored result.
-	CrushConfigRestored bool
-	// CrushConfigSkipped is true when the archive CARRIED a crush.json entry but it
-	// was NOT applied because no destination was wired — i.e. the current install is
-	// agent-off. This is the honest signal that the restored config.toml may
-	// believe the agent is enabled while its crush.json was never restored; the cmd
-	// tier warns the operator to re-run `villa install --coding-agent` then restore.
-	// Mutually exclusive with CrushConfigRestored. Valid on a Restored result.
-	CrushConfigSkipped bool
-	// SearxngSettingsRestored reports whether the OPTIONAL Phase-34 settings.yml entry
-	// was present in the archive AND actually written. It reflects the ACTUAL
-	// write (entry present AND a destination wired), not mere presence — a web-search-on
-	// archive restored onto a web-search-off current install has no destination wired, so
-	// the entry is skipped and this stays false (see SearxngSettingsSkipped). Valid on a
-	// Restored result.
-	SearxngSettingsRestored bool
-	// SearxngSettingsSkipped is true when the archive CARRIED a settings.yml entry but it
-	// was NOT applied because no destination was wired — i.e. the current install is
-	// web-search-off. This is the honest signal that the restored config.toml may believe
-	// web search is enabled while its settings.yml was never restored; the cmd tier warns
-	// the operator to re-run `villa install` (web search) then restore. Mutually exclusive
-	// with SearxngSettingsRestored. Valid on a Restored result.
-	SearxngSettingsSkipped bool
+	// Files has one FileOutcome for each registry file entry (recall-state.json,
+	// crush.json, searxng-settings.yml, ...) the archive CARRIED, keyed by entry
+	// name; an entry the archive did not carry has no key (valid on a Restored
+	// result). The cmd tier narrates from it by name, so a new row needs no new
+	// field here.
+	Files map[string]FileOutcome
 	// ExcludedAgent is the EXCLUDED coding-agent binary identity recorded in the
 	// restored manifest, surfaced for the operator to RE-STAGE the
 	// binary (re-download the pinned release) — exactly the ExcludedModels re-pull
