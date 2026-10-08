@@ -420,7 +420,7 @@ tier (`cmd/villa/*.go`) → pure cores (`internal/*`) → orchestration
 `villa-dashboard.service`, networked over `villa.network` with models on
 `villa-models.volume`. The unit set is `villa-llama` (plus one `villa-llama-<slug>`
 per resident model, named by `orchestrate.ResidentUnitName`), `villa-openwebui`,
-`villa-qdrant` + `villa-embed` (v1.3 RAG) + `villa-rerank` (the reranker on the embedder's pin, only with `reranker = true`, ADR-0028), `villa-searxng` + `villa-websafe`
+`villa-qdrant` + `villa-embed` (v1.3 RAG) + `villa-rerank` (the reranker on the embedder's pin, only with `reranker = true`, ADR-0028) + `villa-extract` (Apache Tika with OCR on its own `extractor` pin, only with `extractor = true`, ADR-0033), `villa-searxng` + `villa-websafe`
 (v1.5 web search), and `villa-stt` + `villa-tts` (voice, ADR-0030: whisper-server on
 Vulkan with its model pre-staged in the models volume, and Kokoro on the CPU; one
 gate, `voice_enabled`, one round-trip proof) — the web-search pair bind-mounts the `villa` binary into a

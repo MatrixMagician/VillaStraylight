@@ -5,7 +5,9 @@ to a strictly-local vector stack: `villa-qdrant` (the vector store), `villa-embe
 (a dedicated llama-server embedding the `nomic-embed-text-v1.5` model, 768-dim) and
 `villa-rerank` (a second llama-server on the same image, scoring each query against
 its candidate chunks with `bge-reranker-v2-m3`; see
-[Hybrid search and the reranker](#hybrid-search-and-the-reranker)). Memory
+[Hybrid search and the reranker](#hybrid-search-and-the-reranker)) and
+`villa-extract` (Apache Tika with OCR, turning an uploaded document into the text
+that gets embedded; see [Document extraction](#document-extraction)). Memory
 is **off by default** and opt-in per install. When you enable it, `villa` regenerates
 the Open WebUI container unit with the memory/RAG environment block (see
 [Offline-lockdown environment](#offline-lockdown-environment)) and reconciles the stack.
@@ -156,6 +158,9 @@ hand-editing the unit. The block is byte-frozen by a golden test; it evolves app
 | `RAG_RERANKING_MODEL` | `bge-reranker-v2-m3` | The model name sent with each rerank request; `villa-rerank` serves exactly this one. |
 | `RAG_EXTERNAL_RERANKER_URL` | `http://villa-rerank:8080/v1/rerank` | The local reranker by container-DNS; no host port. |
 | `RAG_EXTERNAL_RERANKER_API_KEY` | `sk-no-key-required` | Sentinel: the private `villa.network` reranker needs no real key. |
+| `CONTENT_EXTRACTION_ENGINE` | `tika` | Rendered only with `extractor = true` (ADR-0029). Hand every non-text upload to the local Tika server instead of Open WebUI's own loaders, which cannot read a scanned PDF. |
+| `TIKA_SERVER_URL` | `http://villa-extract:9998` | The local extractor by container-DNS; no host port. |
+| `TIKA_SERVER_VERSION` | `3` | The request shape for a Tika 3 server (`PUT /tika/text`, reading `X-TIKA:content`). |
 | `ENABLE_PERSISTENT_CONFIG` | `False` | **Load-bearing.** Without it, OWUI bakes RAG/memory settings into `webui.db` on first boot and then **ignores** the env; config drifts off `config.toml`. `False` makes the rendered env win, so **config stays the single source of truth**. |
 
 These join the OWUI block's existing telemetry/offline kill-set (`ANONYMIZED_TELEMETRY=False`,
@@ -199,6 +204,41 @@ these flags; `villa recommend` lists it as the `reranker` row.
 `villa eval` carries two `rerank` cases chosen so that the embedder ranks the
 answer low and the reranker ranks it first; they are skipped with "reranker off"
 when the gate is off.
+
+---
+
+## Document extraction
+
+Open WebUI reads an uploaded PDF with pypdf and a DOCX with python-docx. A scanned
+PDF has no text layer, so pypdf returns nothing and the upload is refused with
+"The content provided is empty"; the document never reaches Qdrant. With the
+extractor on, every non-text upload is sent to `villa-extract`, an Apache Tika 3.3.1
+server with tesseract OCR, and the text it returns is what gets chunked and embedded
+(ADR-0029). Plain-text files still bypass it inside Open WebUI.
+
+`villa-extract` is rendered when `memory_enabled = true` **and** `extractor = true`.
+`villa install` writes the second key when memory is on, so a memory-on install that
+predates the key keeps the stack it had until `villa install` runs again. To opt
+out, set `extractor = false` by hand and run `villa up`; the next `villa install`
+turns it back on. The unit has no weights to stage: its image
+(`docker.io/apache/tika:3.3.1.0-full`, 863 MB, pinned by digest as the `extractor`
+component) is pulled at first start. It publishes no port, mounts nothing, runs as
+the image's unprivileged user, joins `villa.network` only, and needs no network to
+start or to extract: it was measured with none.
+
+The unit caps both of Tika's JVMs at a 1 GiB heap. The reservation is 2 GiB, which
+is that cap plus what the JVM and up to three OCR processes hold outside it; the
+measured peak was 1245 MiB under three concurrent 20-page scans. `villa recommend`
+lists it as the `extractor` row. OCR runs at about two seconds a 200-dpi page, and
+Tika gives one parse 120 s before it restarts the parser, so a single upload of more
+than about sixty scanned pages fails; split it.
+
+The engine was chosen by measurement over Tika 4.1 and Docling: on an image-only
+PDF, a 60-row table PDF and a DOCX, run end to end through Open WebUI at the pinned
+digest, Tika 3.3 was the only engine that both read the scan and kept a table row on
+one line in a retrieved chunk (the ADR has the table). `villa eval` carries the
+three documents as `extract` cases that require the fact in the extracted text; they
+are skipped with "extractor off" when the gate is off.
 
 ---
 
