@@ -373,8 +373,7 @@ func RunningOffloadVerdict(in RunningOffloadInput) Verdict {
 
 // foldFloors is the fold both running verdicts share: the residency signal the
 // caller scraped, combined with the point-in-time GTT floor, then the busy
-// corroboration. It is one function so the image verdict cannot carry a second
-// copy of the busy branch.
+// corroboration.
 func foldFloors(residency OffloadResult, in RunningOffloadInput, provenance string) Verdict {
 	floor := gttFloor(in.GTTUsedBytes, in.WeightBytes)
 

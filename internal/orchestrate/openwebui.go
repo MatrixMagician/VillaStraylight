@@ -379,13 +379,10 @@ func buildOpenWebUIView(image string, mv memory.RenderInput, memoryEnabled bool,
 	}
 
 	if memoryEnabled || webSearchEnabled || voiceEnabled || imageServe != nil {
-		// (MANDATORY, load-bearing —, extended to the web-search, audio and image ConfigVars):
-		// force OWUI to always read the appended ConfigVar keys (memory AND/OR web-search
-		// AND/OR audio AND/OR image) from env, ignoring the DB. Without it those keys are
-		// silently ignored after first boot and config is NOT the single source of truth —
-		// its absence is a phase failure. Emitted exactly ONCE and LAST, regardless of
-		// which group(s) are on (never duplicated per-group, never dropped when one group
-		// is on and another off).
+		// Load-bearing for the memory, web-search, audio and image ConfigVars alike:
+		// OWUI seeds them into its DB on first boot and then ignores env, so without
+		// this key config stops being the single source of truth. Emitted exactly once
+		// and last, whichever groups are on.
 		env = append(env, envPair{Key: "ENABLE_PERSISTENT_CONFIG", Value: "False"})
 	}
 

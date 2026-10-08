@@ -191,9 +191,8 @@ func BuildSequence(gates Gates, u Units, secretNeeded bool) Sequence {
 		)
 	}
 
-	// The image server after the web-search stack and the voice units, gated on
-	// its own unit: it eager-loads about 9 GB and the chat UI's peers should be up
-	// before it does.
+	// The image server last, gated on its own unit: its 9 GB eager load starts
+	// after every service the chat UI depends on is up.
 	if gates.Image {
 		steps = append(steps,
 			Step{Kind: StepStart, Service: u.Image, RequiresUnit: u.Image},

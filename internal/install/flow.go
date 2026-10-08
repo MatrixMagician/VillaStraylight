@@ -696,9 +696,8 @@ func Run(ctx context.Context, d Deps, opts Opts) Result {
 	}
 
 	// (10) Readiness, then each opted-in subsystem's proof. A FAIL refuses, never
-	// a silent skip. The chat readiness poll runs after every start, so with the
-	// image server eager-loaded it already asserts the chat model still serves
-	// beside it.
+	// a silent skip. The readiness poll runs after every start, image server
+	// included, so it is also the check that the chat model serves beside it.
 	ready := d.PollReady(ctx, d.Endpoint())
 	postInstall(say, d.Endpoint(), ready)
 

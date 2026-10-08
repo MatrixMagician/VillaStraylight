@@ -69,8 +69,7 @@ type ImageModel struct {
 }
 
 // imageModels is the decoded table. A malformed embed is a build-time programming
-// error, so it panics at init like agent.LoadCrushPolicy rather than growing a
-// runtime error path every caller would have to thread.
+// error, so it panics at init, the agent.LoadCrushPolicy precedent.
 var imageModels = mustDecodeImages()
 
 func mustDecodeImages() []ImageModel {
