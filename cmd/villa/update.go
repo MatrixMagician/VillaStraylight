@@ -568,6 +568,12 @@ func printUnknownSubsystem(w io.Writer, arg string) {
 		"llama":           {"inference", "the inference subsystem is llama-server on the active backend"},
 		"villa-llama":     {"inference", "the inference subsystem is llama-server on the active backend"},
 		"crush":           {"agent", "the agent subsystem is the Crush binary"},
+		"whisper":         {"voice", "verify voice proves speech-to-text and text-to-speech together"},
+		"kokoro":          {"voice", "verify voice proves speech-to-text and text-to-speech together"},
+		"stt":             {"voice", "verify voice proves speech-to-text and text-to-speech together"},
+		"tts":             {"voice", "verify voice proves speech-to-text and text-to-speech together"},
+		"villa-stt":       {"voice", "verify voice proves speech-to-text and text-to-speech together"},
+		"villa-tts":       {"voice", "verify voice proves speech-to-text and text-to-speech together"},
 	}
 
 	if hint, ok := partOf[strings.ToLower(strings.TrimSpace(arg))]; ok {
@@ -575,7 +581,7 @@ func printUnknownSubsystem(w io.Writer, arg string) {
 			"  because %s.\n\n  villa update %s\n\n", arg, hint.subsystem, hint.why, hint.subsystem)
 	}
 
-	fmt.Fprint(w, "Subsystems: inference, chat, memory, search, agent\n\n"+
+	fmt.Fprint(w, "Subsystems: inference, chat, memory, search, agent, voice\n\n"+
 		"Arguments are subsystem names, never container names: the proof unit is what\n"+
 		"`villa verify` proves, so components that are proven together move together.\n")
 }
