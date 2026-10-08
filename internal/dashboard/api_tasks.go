@@ -180,6 +180,10 @@ func (s *Server) handleTaskEvents(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "streaming unsupported"})
 		return
 	}
+	// Subscribe before the headers go out: a client that has seen the 200 is
+	// already subscribed, so no transition after that point is missed.
+	ch, stop := s.tasks.Subscribe(id)
+	defer stop()
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
@@ -187,8 +191,6 @@ func (s *Server) handleTaskEvents(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	flusher.Flush()
 
-	ch, stop := s.tasks.Subscribe(id)
-	defer stop()
 	for {
 		select {
 		case n, ok := <-ch:
