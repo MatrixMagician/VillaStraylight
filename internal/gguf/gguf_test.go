@@ -200,28 +200,226 @@ func TestGeometryMissingKeyNamesIt(t *testing.T) {
 	}
 }
 
-// TestGeometryPerLayerArrayUnsupported guards the promise that a per-layer
-// head_count_kv array is refused as unsupported rather than silently read as
-// missing (which would degrade to WARN and hide a real geometry the fit cannot use).
-func TestGeometryPerLayerArrayUnsupported(t *testing.T) {
-	elems := binary.LittleEndian.AppendUint32(nil, 4)
-	elems = binary.LittleEndian.AppendUint32(elems, 8)
-	kv := []kvPair{
-		kvStr("general.architecture", "llama"),
-		kvU32("llama.block_count", 48),
-		kvArray("llama.attention.head_count_kv", typeUint32, 2, elems),
-		kvU32("llama.attention.key_length", 128),
+// kvU32Array encodes an array of u32 elements.
+func kvU32Array(key string, vals ...uint32) kvPair {
+	var elems []byte
+	for _, v := range vals {
+		elems = binary.LittleEndian.AppendUint32(elems, v)
 	}
+	return kvArray(key, typeUint32, len(vals), elems)
+}
+
+// kvBoolArray encodes an array of bool elements.
+func kvBoolArray(key string, vals ...bool) kvPair {
+	elems := make([]byte, len(vals))
+	for i, v := range vals {
+		if v {
+			elems[i] = 1
+		}
+	}
+	return kvArray(key, typeBool, len(vals), elems)
+}
+
+// interleave repeats group n times: the shape of a sliding-window pattern or a
+// per-layer KV head count.
+func interleave[T any](n int, group ...T) []T {
+	var out []T
+	for range n {
+		out = append(out, group...)
+	}
+	return out
+}
+
+func gemma4KV() []kvPair {
+	heads := interleave[uint32](10, 16, 16, 16, 16, 16, 4)
+	pattern := interleave(10, true, true, true, true, true, false)
+	return []kvPair{
+		kvStr("general.architecture", "gemma4"),
+		kvU32("gemma4.block_count", 60),
+		kvU32("gemma4.attention.head_count", 32),
+		kvU32Array("gemma4.attention.head_count_kv", heads...),
+		kvU32("gemma4.attention.key_length", 512),
+		kvU32("gemma4.attention.key_length_swa", 256),
+		kvU32("gemma4.attention.sliding_window", 1024),
+		kvBoolArray("gemma4.attention.sliding_window_pattern", pattern...),
+	}
+}
+
+func museKV() []kvPair {
+	return []kvPair{
+		kvStr("general.architecture", "muse-glimmer"),
+		kvU32("muse-glimmer.block_count", 52),
+		kvU32("muse-glimmer.attention.head_count_kv", 2),
+		kvU32("muse-glimmer.attention.key_length", 128),
+		kvU32("muse-glimmer.attention.sliding_window", 2048),
+		kvBoolArray("muse-glimmer.attention.sliding_window_pattern", interleave(13, true, true, true, false)...),
+	}
+}
+
+// replaceKV returns kv with the entry named key swapped for p.
+func replaceKV(kv []kvPair, p kvPair) []kvPair {
+	out := make([]kvPair, len(kv))
+	copy(out, kv)
+	for i := range out {
+		if out[i].key == p.key {
+			out[i] = p
+		}
+	}
+	return out
+}
+
+// TestGeometrySlidingWindow guards the promise that a sliding-window layer is not
+// a KV-bearing layer, because llama.cpp bounds its cache at the window: only the
+// layers the pattern marks false grow with the context, and a per-layer
+// head_count_kv is read at exactly those layers.
+func TestGeometrySlidingWindow(t *testing.T) {
+	cases := []struct {
+		name string
+		kv   []kvPair
+		want Geometry
+	}{
+		{"gemma4 per-layer head_count_kv", gemma4KV(), Geometry{KVLayers: 10, HeadCountKV: 4, KeyLength: 512}},
+		{"muse-glimmer scalar head_count_kv", museKV(), Geometry{KVLayers: 13, HeadCountKV: 2, KeyLength: 128}},
+		{"dense scalar, no pattern", llamaKV(), Geometry{KVLayers: 48, HeadCountKV: 4, KeyLength: 128}},
+		{
+			"all sliding with scalar head_count_kv",
+			replaceKV(museKV(), kvBoolArray("muse-glimmer.attention.sliding_window_pattern", interleave(52, true)...)),
+			Geometry{KVLayers: 0, HeadCountKV: 2, KeyLength: 128},
+		},
+		{
+			"all sliding with array head_count_kv has nothing to read",
+			replaceKV(gemma4KV(), kvBoolArray("gemma4.attention.sliding_window_pattern", interleave(60, true)...)),
+			Geometry{KVLayers: 0, HeadCountKV: 0, KeyLength: 512},
+		},
+		{
+			"interval with array head_count_kv uniform over all blocks",
+			[]kvPair{
+				kvStr("general.architecture", "hyb"),
+				kvU32("hyb.block_count", 8),
+				kvU32("hyb.full_attention_interval", 4),
+				kvU32Array("hyb.attention.head_count_kv", interleave[uint32](8, 2)...),
+				kvU32("hyb.attention.key_length", 64),
+			},
+			Geometry{KVLayers: 2, HeadCountKV: 2, KeyLength: 64},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h, err := ReadHeader(bytes.NewReader(fixture(tc.kv...)))
+			if err != nil {
+				t.Fatalf("ReadHeader: %v", err)
+			}
+			g, err := h.Geometry()
+			if err != nil {
+				t.Fatalf("Geometry: %v", err)
+			}
+			if g != tc.want {
+				t.Errorf("Geometry() = %+v, want %+v", g, tc.want)
+			}
+		})
+	}
+}
+
+// TestGeometrySlidingWindowRefusals guards the promise that a pattern or a
+// per-layer head_count_kv that does not line up with the block count, or whose
+// KV-bearing layers disagree, is an error naming what is wrong rather than a
+// guessed geometry.
+func TestGeometrySlidingWindowRefusals(t *testing.T) {
+	gemmaDisagree := interleave[uint32](10, 16, 16, 16, 16, 16, 4)
+	gemmaDisagree[11] = 8
+	cases := []struct {
+		name string
+		kv   []kvPair
+		want []string
+	}{
+		{
+			"pattern length differs from block_count",
+			replaceKV(museKV(), kvBoolArray("muse-glimmer.attention.sliding_window_pattern", interleave(10, true, false)...)),
+			[]string{"muse-glimmer.attention.sliding_window_pattern", "20", "52"},
+		},
+		{
+			"global layers disagree on head_count_kv",
+			replaceKV(gemma4KV(), kvU32Array("gemma4.attention.head_count_kv", gemmaDisagree...)),
+			[]string{"disagree", "4", "8"},
+		},
+		{
+			"array head_count_kv length differs from block_count",
+			replaceKV(gemma4KV(), kvU32Array("gemma4.attention.head_count_kv", 4, 8)),
+			[]string{"gemma4.attention.head_count_kv", "2", "60"},
+		},
+		{
+			"array head_count_kv without a pattern is non-uniform",
+			[]kvPair{
+				kvStr("general.architecture", "llama"),
+				kvU32("llama.block_count", 4),
+				kvU32Array("llama.attention.head_count_kv", 4, 8, 4, 8),
+				kvU32("llama.attention.key_length", 128),
+			},
+			[]string{"disagree", "4", "8"},
+		},
+		{
+			"other keys still refuse a per-layer array",
+			replaceKV(llamaKV(), kvU32Array("llama.block_count", 48)),
+			[]string{"llama.block_count", "unsupported"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h, err := ReadHeader(bytes.NewReader(fixture(tc.kv...)))
+			if err != nil {
+				t.Fatalf("ReadHeader: %v", err)
+			}
+			_, gErr := h.Geometry()
+			if gErr == nil {
+				t.Fatal("expected an error, got nil")
+			}
+			for _, w := range tc.want {
+				if !strings.Contains(gErr.Error(), w) {
+					t.Errorf("error %q does not contain %q", gErr, w)
+				}
+			}
+		})
+	}
+}
+
+// TestReadHeaderRetainsSmallLayerArrays guards the promise that an integer or
+// bool array up to maxLayerArray is retained for Uints and Bools, while a larger
+// one, a negative-element one and a string one are discarded and the keys after
+// them still decode.
+func TestReadHeaderRetainsSmallLayerArrays(t *testing.T) {
+	big := make([]byte, (maxLayerArray+1)*4)
+	neg := binary.LittleEndian.AppendUint32(binary.LittleEndian.AppendUint32(nil, 1), ^uint32(0))
+	strs := appendString(appendString(nil, "a"), "b")
+	kv := append([]kvPair{
+		kvU32Array("n.ints", 3, 5, 7),
+		kvBoolArray("n.bools", true, false),
+		kvArray("n.big", typeUint32, maxLayerArray+1, big),
+		kvArray("n.neg", typeInt32, 2, neg),
+		kvArray("n.strs", typeString, 2, strs),
+	}, llamaKV()...)
 	h, err := ReadHeader(bytes.NewReader(fixture(kv...)))
 	if err != nil {
 		t.Fatalf("ReadHeader: %v", err)
 	}
-	_, gErr := h.Geometry()
-	if gErr == nil {
-		t.Fatal("expected an error for a per-layer head_count_kv array, got nil")
+	if got, ok := h.Uints("n.ints"); !ok || len(got) != 3 || got[0] != 3 || got[2] != 7 {
+		t.Errorf("Uints(n.ints) = %v, %v; want [3 5 7], true", got, ok)
 	}
-	if !strings.Contains(gErr.Error(), "unsupported") {
-		t.Errorf("error %q does not say the shape is unsupported", gErr)
+	if got, ok := h.Bools("n.bools"); !ok || len(got) != 2 || !got[0] || got[1] {
+		t.Errorf("Bools(n.bools) = %v, %v; want [true false], true", got, ok)
+	}
+	for _, key := range []string{"n.big", "n.neg", "n.strs"} {
+		if _, ok := h.Uints(key); ok {
+			t.Errorf("Uints(%s) retained an array it must discard", key)
+		}
+		if _, ok := h.Bools(key); ok {
+			t.Errorf("Bools(%s) retained an array it must discard", key)
+		}
+	}
+	if _, ok := h.Uints("n.bools"); ok {
+		t.Error("Uints returned a bool array")
+	}
+	if g, gErr := h.Geometry(); gErr != nil || g.KVLayers != 48 {
+		t.Errorf("Geometry after arrays = %+v, %v; want 48 KV layers", g, gErr)
 	}
 }
 
