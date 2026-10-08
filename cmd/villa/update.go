@@ -537,6 +537,8 @@ func subsystemByName(name string) (subsystem.Kind, bool) {
 		return subsystem.Agent, true
 	case "sandbox", "workspace agent":
 		return subsystem.Sandbox, true
+	case "voice", "speech":
+		return subsystem.Voice, true
 	}
 	return 0, false
 }

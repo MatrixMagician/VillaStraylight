@@ -37,6 +37,7 @@ func pinnedFixtureConfig() config.VillaConfig {
 		EmbeddingModel:   "nomic-embed-text-v1.5",
 		EmbeddingDim:     768,
 		WebSearchEnabled: true,
+		VoiceEnabled:     true,
 	}
 }
 
