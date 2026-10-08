@@ -88,10 +88,15 @@ cancel route: its control route (`/v1/chat/completions/{id}/control`) accepts
   the model's rate.
 
 - **A killed round is followed by a bounded wait for the slots to drain, and the
-  verdict says what they did.** `awaitSlotsIdle` re-reads `/slots` through the
-  client every 500 ms until no slot is processing, for at most the floor, and the
-  detail reads `the server's slots went idle 9s after the kill`, `1 slot still
-  generating 1m30s after the kill` or `/slots could not be read after the kill`.
+  verdict says what they did.** `awaitSlotsIdle` re-reads the `/metrics`
+  `requests_processing` gauge through the client every 500 ms until it is zero,
+  for at most the floor, and the detail reads `the server's slots went idle 9s
+  after the kill`, `1 slot still generating 1m30s after the kill` or `the slot
+  count could not be read after the kill`. The gauge, not `/slots`: on llama.cpp
+  b11430 each slot's `next_token` is an array, which `metrics.ParseSlots` does
+  not read, so `Client.Slots` is typed-Unknown on the served build (the first
+  forced-budget run reported exactly that; the `/slots` body measured 5 KB, so it
+  was not the client's cap). The parser defect is tracked on its own.
   The wait cancels nothing, since the server cancels on its own; it keeps the next
   proof and the operator's next completion from running against a slot still
   prefilling, and it makes the property the issue asks for ("a killed proof leaves
@@ -151,6 +156,16 @@ from it, but the detail's rate is then the cold GPU's, not the model's. A warm-u
 request before the probe, or taking the faster of two reads, would cost a few
 seconds more per doctor run and is left to a later change if the number matters
 to an operator.
+
+The kill path was also driven through villa itself: a scratch build with the
+floor and ceiling at 10 s ran `villa doctor` on qwen3.6-35b-a3b, which killed
+both agent rounds and reported `crush run: signal: killed (budget 10s, measured
+42.0 tok/s while 1 other slot was generating; 1 slot still generating 10s after
+the kill)`; the journal shows the server cancelling each round's two tasks
+within 1.3 s of the kill. The slot still generating belonged to another `villa
+doctor` running at the same time: the gauge counts every client's slots, so on a
+shared server the drain detail is a fact about the server, not an attribution
+to the killed round.
 
 The Gemma leg of this change is to be proven on hardware once the entry lands
 (#321): doctor under gemma-4-31b with `agent_enabled = true`, the agent check
