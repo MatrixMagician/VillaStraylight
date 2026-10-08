@@ -162,7 +162,8 @@ func TestImageUnitSitsBeforeInferproxyAndTheSandboxNetworkStaysLast(t *testing.T
 		t.Fatalf("%s not rendered: %v", name, names)
 		return -1
 	}
-	if !(idx("villa-websafe.container") < idx("villa-image.container") && idx("villa-image.container") < idx("villa-inferproxy.container")) {
+	websafe, image, inferproxy := idx("villa-websafe.container"), idx("villa-image.container"), idx("villa-inferproxy.container")
+	if websafe > image || image > inferproxy {
 		t.Errorf("unit order = %v, want websafe < image < inferproxy", names)
 	}
 	if names[len(names)-1] != "villa-sandbox.network" {
