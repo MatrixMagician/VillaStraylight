@@ -22,18 +22,24 @@ func TestAgentBudgetForScalesWithTheDecodeRate(t *testing.T) {
 		name   string
 		rate   float64
 		err    error
+		busy   int
 		budget time.Duration
 		source string
 	}{
-		{"fast MoE at the floor", 50, nil, 90 * time.Second, "measured 50.0 tok/s"},
-		{"qwen3.8-27b, no thinking", 11.55, nil, 177 * time.Second, "measured 11.6 tok/s"},
-		{"gemma-4-31b, thinking", 10.3, nil, 199 * time.Second, "measured 10.3 tok/s"},
-		{"too slow to be usable", 2, nil, 300 * time.Second, "measured 2.0 tok/s"},
-		{"unmeasured", 0, errors.New("llm: upstream returned 401"), 90 * time.Second, "decode rate unmeasured (llm: upstream returned 401)"},
+		{"fast MoE at the floor", 50, nil, 0, 90 * time.Second, "measured 50.0 tok/s"},
+		{"qwen3.8-27b, no thinking", 11.55, nil, 0, 177 * time.Second, "measured 11.6 tok/s"},
+		{"gemma-4-31b, thinking", 10.3, nil, 0, 199 * time.Second, "measured 10.3 tok/s"},
+		{"too slow to be usable", 2, nil, 0, 300 * time.Second, "measured 2.0 tok/s"},
+		// Measured on the dev host 2026-10-08: qwen3.6-35b-a3b read 1.5 tok/s while two
+		// other doctors were prefilling Crush prompts on the same GPU. The budget can
+		// only grow from that, but the source must say the rate was taken under load.
+		{"a 46 tok/s model read under two other prefills", 1.5, nil, 2, 300 * time.Second, "measured 1.5 tok/s while 2 other slots were generating"},
+		{"one other slot", 20, nil, 1, 102 * time.Second, "measured 20.0 tok/s while 1 other slot was generating"},
+		{"unmeasured", 0, errors.New("llm: upstream returned 401"), 0, 90 * time.Second, "decode rate unmeasured (llm: upstream returned 401)"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			b := agentBudgetFor(c.rate, c.err)
+			b := agentBudgetFor(c.rate, c.err, c.busy)
 			if b.Budget != c.budget {
 				t.Errorf("Budget = %v, want %v", b.Budget, c.budget)
 			}

@@ -49,8 +49,10 @@ func (b agentBudget) String() string {
 
 // agentBudgetFor sizes the budget from a measured decode rate: agentProofTokens at
 // that rate, no less than the floor and no more than the ceiling. An unmeasured
-// rate gets the floor, and the budget says why it is the floor.
-func agentBudgetFor(rate float64, err error) agentBudget {
+// rate gets the floor, and the budget says why it is the floor. busy is how many
+// other slots were generating when the rate was taken: a rate read beside another
+// client's prefill is the GPU's share, not the model's, so the source says so.
+func agentBudgetFor(rate float64, err error, busy int) agentBudget {
 	if err != nil || rate <= 0 {
 		why := "no rate"
 		if err != nil {
@@ -60,15 +62,25 @@ func agentBudgetFor(rate float64, err error) agentBudget {
 	}
 	budget := time.Duration(float64(agentProofTokens) / rate * float64(time.Second)).Round(time.Second)
 	budget = min(max(budget, agentProofBudgetFloor), agentProofBudgetCeiling)
-	return agentBudget{Budget: budget, Source: fmt.Sprintf("measured %.1f tok/s", rate)}
+	source := fmt.Sprintf("measured %.1f tok/s", rate)
+	switch {
+	case busy == 1:
+		source += " while 1 other slot was generating"
+	case busy > 1:
+		source += fmt.Sprintf(" while %d other slots were generating", busy)
+	}
+	return agentBudget{Budget: budget, Source: source}
 }
 
 // liveAgentBudget measures the served model's decode rate through the inference
 // client and sizes the budget from it. The probe keeps thinking on, so it measures
-// the model the agent talks to.
+// the model the agent talks to; the slots are read first so a rate taken under
+// another client's load is reported as such.
 func liveAgentBudget(ctx context.Context, cfg config.VillaConfig) agentBudget {
-	rate, err := inferenceClient(cfg).DecodeRate(ctx, cfg.Model)
-	return agentBudgetFor(rate, err)
+	client := inferenceClient(cfg)
+	slots, _ := client.Slots(ctx)
+	rate, err := client.DecodeRate(ctx, cfg.Model)
+	return agentBudgetFor(rate, err, metrics.ActiveSlots(slots))
 }
 
 // slotDrain is what llama-server's slots did after a killed round: how long until

@@ -78,6 +78,15 @@ cancel route: its control route (`/v1/chat/completions/{id}/control`) accepts
   the proof returns names it, so a 90 s budget on a dead or keyless server reads
   as a fallback with its reason, never as a measurement.
 
+- **A rate taken under another client's load says so.** The slots are read
+  before the probe, and the source becomes `measured 1.5 tok/s while 2 other
+  slots were generating`. The first run of this change on the dev host read
+  exactly that on qwen3.6-35b-a3b, a 46 tok/s model, while two other `villa
+  doctor` runs were prefilling Crush prompts on the same GPU; the budget went to
+  the ceiling. Contention can only inflate the budget, never shrink it, so the
+  proof cannot fail from it, but the detail must not report the GPU's share as
+  the model's rate.
+
 - **A killed round is followed by a bounded wait for the slots to drain, and the
   verdict says what they did.** `awaitSlotsIdle` re-reads `/slots` through the
   client every 500 ms until no slot is processing, for at most the floor, and the
