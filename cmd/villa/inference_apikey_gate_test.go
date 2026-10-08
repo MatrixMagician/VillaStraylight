@@ -102,6 +102,7 @@ var routeSpellers = map[string]string{
 	"internal/dashboard/api_tasks.go":   "the dashboard's own /api/metrics route",
 	"cmd/villa/sandbox_bridge.go":       "the Crush server's /v1/health inside the task VM",
 	"cmd/villa/status.go":               "the embedding sidecar's /health probe, a different unit from the inference one",
+	"cmd/villa/install_memory.go":       "the embedder's and the reranker's /health readiness poll before the memory proof's first request (#326), the same two sidecars",
 	"internal/orchestrate/endpoint.go":  "the address accessors themselves (gated in addressCalls) and the inferproxy's base URL",
 	"internal/orchestrate/openwebui.go": "Open WebUI's own container port and the embedding sidecar's base URL for its RAG settings",
 	"internal/agent/render.go":          "hands Crush its provider base URL; Crush calls llama-server itself (a keyReaders peer)",

@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/catalog"
@@ -318,8 +319,30 @@ func memoryProofWith(ctx context.Context, d memoryProofDeps, in memoryProofInput
 		return out, err
 	}
 
+	// awaitHealth polls a llama-server's /health until it answers 200, bounded like
+	// the inference readiness poll. llama-server answers 503 while its model loads
+	// and refuses the connection for the first instants after its container starts;
+	// a request sent in that window fails, so the proof waits before its first one.
+	awaitHealth := func(addr string, port int) error {
+		url := fmt.Sprintf("http://%s:%d/health", addr, port)
+		probe := func() (int, error) {
+			out, _, err := d.exec(ctx, d.image, "-s", "-o", "/dev/null", "-w", "%{http_code}", "--max-time", "5", url)
+			if err != nil {
+				return 0, err
+			}
+			return strconv.Atoi(strings.TrimSpace(string(out)))
+		}
+		if ready := pollReadiness(ctx, probe, d.timeout, d.interval); ready.Status != preflight.StatusPass {
+			return fmt.Errorf("not ready after %s: %s", d.timeout, ready.Detail)
+		}
+		return nil
+	}
+
 	// embedProbe POSTs the fixed /v1/embeddings body and returns len(data[0].embedding).
 	embedProbe := func() (int, error) {
+		if err := awaitHealth(in.embedAddr, in.embedPort); err != nil {
+			return 0, err
+		}
 		body, err := json.Marshal(map[string]any{
 			"input":           "villa memory readiness probe",
 			"model":           in.embedModel,
@@ -363,6 +386,9 @@ func memoryProofWith(ctx context.Context, d memoryProofDeps, in memoryProofInput
 	var rerankProbe func() (int, error)
 	if in.rerank {
 		rerankProbe = func() (int, error) {
+			if err := awaitHealth(in.rerankAddr, in.rerankPort); err != nil {
+				return 0, err
+			}
 			scores, err := postRerank(ctx, d.exec, d.image, in.rerankAddr, in.rerankPort, rerankProbeQuery, rerankProbeDocuments)
 			if err != nil {
 				return 0, err
