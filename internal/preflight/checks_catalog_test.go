@@ -41,17 +41,17 @@ func matchingModel() catalog.Model {
 	}
 }
 
-// TestCatalogGeometryPassSlidingWindow guards the promise that a sliding-window
-// architecture with a per-layer head_count_kv is witnessed at its global layers
-// only, so the catalog's 10 / 4 / 512 passes instead of degrading to a WARN.
-func TestCatalogGeometryPassSlidingWindow(t *testing.T) {
+// gemma4Header is the sliding-window header of Gemma 4 31B: 60 blocks, five
+// sliding to one global, 16 KV heads of 256 on the sliding blocks and 4 of 512 on
+// the global ones.
+func gemma4Header() []byte {
 	var heads []uint64
 	var sliding []bool
 	for range 10 {
 		heads = append(heads, 16, 16, 16, 16, 16, 4)
 		sliding = append(sliding, true, true, true, true, true, false)
 	}
-	hdr := gguf.FixtureWithArraysForTest("gemma4", map[string]uint64{
+	return gguf.FixtureWithArraysForTest("gemma4", map[string]uint64{
 		"gemma4.block_count":              60,
 		"gemma4.attention.head_count":     32,
 		"gemma4.attention.key_length":     512,
@@ -59,9 +59,47 @@ func TestCatalogGeometryPassSlidingWindow(t *testing.T) {
 		"gemma4.attention.sliding_window": 1024,
 	}, map[string][]uint64{"gemma4.attention.head_count_kv": heads},
 		map[string][]bool{"gemma4.attention.sliding_window_pattern": sliding})
-	m := catalog.Model{ID: "gemma-4-31b", NLayers: 10, NKVHeads: 4, HeadDim: 512, Shards: []catalog.Shard{{Filename: "gemma4.gguf"}}}
+}
+
+// gemmaModel is the catalog entry that agrees with gemma4Header.
+func gemmaModel() catalog.Model {
+	return catalog.Model{
+		ID: "gemma-4-31b", NLayers: 10, NKVHeads: 4, HeadDim: 512,
+		SWA:    &catalog.SlidingWindow{NLayers: 50, NKVHeads: 16, HeadDim: 256, Window: 1024},
+		Shards: []catalog.Shard{{Filename: "gemma4.gguf"}},
+	}
+}
+
+// TestCatalogGeometryFailsWithoutSlidingWindowBlock guards the promise that an
+// entry which omits the swa block its header proves is a confident FAIL, not a
+// pass: the fit would reserve nothing for a cache the server allocates, and the
+// detail prints the sliding-window values so the operator sees the missing term.
+func TestCatalogGeometryFailsWithoutSlidingWindowBlock(t *testing.T) {
 	closed := 0
-	r := onlyResult(t, RunCatalogGeometry(catalog.Catalog{Models: []catalog.Model{m}}, openBytes(hdr, &closed)))
+	m := gemmaModel()
+	m.SWA = nil
+	cat := catalog.Catalog{Models: []catalog.Model{m}}
+	r := onlyResult(t, RunCatalogGeometry(cat, openBytes(gemma4Header(), &closed)))
+	if r.Status != StatusFail || r.Tier != TierBlock {
+		t.Fatalf("Status/Tier = %v/%v, want FAIL/BLOCK", r.Status, r.Tier)
+	}
+	for _, want := range []string{
+		"swa_layers=0", "swa_layers=50", "swa_head_count_kv=16", "swa_key_length=256", "swa_window=1024",
+	} {
+		if !strings.Contains(r.Detail, want) {
+			t.Errorf("detail %q is missing %q", r.Detail, want)
+		}
+	}
+}
+
+// TestCatalogGeometryPassSlidingWindow guards the promise that a sliding-window
+// architecture with a per-layer head_count_kv is witnessed at both layer sets, so
+// the catalog's 10 / 4 / 512 global block and 50 / 16 / 256 / 1024 sliding block
+// pass instead of degrading to a WARN.
+func TestCatalogGeometryPassSlidingWindow(t *testing.T) {
+	closed := 0
+	cat := catalog.Catalog{Models: []catalog.Model{gemmaModel()}}
+	r := onlyResult(t, RunCatalogGeometry(cat, openBytes(gemma4Header(), &closed)))
 	if r.Status != StatusPass {
 		t.Errorf("Status = %v, want PASS (detail: %s)", r.Status, r.Detail)
 	}

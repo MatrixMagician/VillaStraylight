@@ -268,6 +268,17 @@ func replaceKV(kv []kvPair, p kvPair) []kvPair {
 	return out
 }
 
+// dropKV returns kv without the entry named key.
+func dropKV(kv []kvPair, key string) []kvPair {
+	var out []kvPair
+	for _, p := range kv {
+		if p.key != key {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
 // TestGeometrySlidingWindow guards the promise that a sliding-window layer is not
 // a KV-bearing layer, because llama.cpp bounds its cache at the window: only the
 // layers the pattern marks false grow with the context, and a per-layer
@@ -278,18 +289,40 @@ func TestGeometrySlidingWindow(t *testing.T) {
 		kv   []kvPair
 		want Geometry
 	}{
-		{"gemma4 per-layer head_count_kv", gemma4KV(), Geometry{KVLayers: 10, HeadCountKV: 4, KeyLength: 512}},
-		{"muse-glimmer scalar head_count_kv", museKV(), Geometry{KVLayers: 13, HeadCountKV: 2, KeyLength: 128}},
+		{
+			"gemma4 per-layer head_count_kv",
+			gemma4KV(),
+			Geometry{
+				KVLayers: 10, HeadCountKV: 4, KeyLength: 512,
+				SWALayers: 50, SWAHeadCountKV: 16, SWAKeyLength: 256, SWAWindow: 1024,
+			},
+		},
+		{
+			"muse-glimmer scalar head_count_kv, key_length_swa absent",
+			museKV(),
+			Geometry{
+				KVLayers: 13, HeadCountKV: 2, KeyLength: 128,
+				SWALayers: 39, SWAHeadCountKV: 2, SWAKeyLength: 128, SWAWindow: 2048,
+			},
+		},
 		{"dense scalar, no pattern", llamaKV(), Geometry{KVLayers: 48, HeadCountKV: 4, KeyLength: 128}},
 		{
 			"all sliding with scalar head_count_kv",
 			replaceKV(museKV(), kvBoolArray("muse-glimmer.attention.sliding_window_pattern", interleave(52, true)...)),
-			Geometry{KVLayers: 0, HeadCountKV: 2, KeyLength: 128},
+			Geometry{
+				KVLayers: 0, HeadCountKV: 2, KeyLength: 128,
+				SWALayers: 52, SWAHeadCountKV: 2, SWAKeyLength: 128, SWAWindow: 2048,
+			},
 		},
 		{
-			"all sliding with array head_count_kv has nothing to read",
-			replaceKV(gemma4KV(), kvBoolArray("gemma4.attention.sliding_window_pattern", interleave(60, true)...)),
-			Geometry{KVLayers: 0, HeadCountKV: 0, KeyLength: 512},
+			"all sliding with array head_count_kv has nothing to read at the global set",
+			replaceKV(
+				replaceKV(gemma4KV(), kvBoolArray("gemma4.attention.sliding_window_pattern", interleave(60, true)...)),
+				kvU32Array("gemma4.attention.head_count_kv", interleave[uint32](60, 16)...)),
+			Geometry{
+				KVLayers: 0, HeadCountKV: 0, KeyLength: 512,
+				SWALayers: 60, SWAHeadCountKV: 16, SWAKeyLength: 256, SWAWindow: 1024,
+			},
 		},
 		{
 			"interval with array head_count_kv uniform over all blocks",
@@ -327,6 +360,8 @@ func TestGeometrySlidingWindow(t *testing.T) {
 func TestGeometrySlidingWindowRefusals(t *testing.T) {
 	gemmaDisagree := interleave[uint32](10, 16, 16, 16, 16, 16, 4)
 	gemmaDisagree[11] = 8
+	gemmaSlidingDisagree := interleave[uint32](10, 16, 16, 16, 16, 16, 4)
+	gemmaSlidingDisagree[0] = 8
 	cases := []struct {
 		name string
 		kv   []kvPair
@@ -340,7 +375,17 @@ func TestGeometrySlidingWindowRefusals(t *testing.T) {
 		{
 			"global layers disagree on head_count_kv",
 			replaceKV(gemma4KV(), kvU32Array("gemma4.attention.head_count_kv", gemmaDisagree...)),
-			[]string{"disagree", "4", "8"},
+			[]string{"disagree", "[4 8]"},
+		},
+		{
+			"sliding layers disagree on head_count_kv",
+			replaceKV(gemma4KV(), kvU32Array("gemma4.attention.head_count_kv", gemmaSlidingDisagree...)),
+			[]string{"disagree", "[8 16]"},
+		},
+		{
+			"a pattern without sliding_window cannot bound the cache",
+			dropKV(gemma4KV(), "gemma4.attention.sliding_window"),
+			[]string{"gemma4.attention.sliding_window"},
 		},
 		{
 			"array head_count_kv length differs from block_count",
@@ -355,7 +400,7 @@ func TestGeometrySlidingWindowRefusals(t *testing.T) {
 				kvU32Array("llama.attention.head_count_kv", 4, 8, 4, 8),
 				kvU32("llama.attention.key_length", 128),
 			},
-			[]string{"disagree", "4", "8"},
+			[]string{"disagree", "[4 8]"},
 		},
 		{
 			"other keys still refuse a per-layer array",

@@ -7,10 +7,10 @@ import (
 	"testing"
 )
 
-// projectorEntryJSON is a schema-4 entry whose projector block is spliced in per
+// projectorEntryJSON is a schema-5 entry whose projector block is spliced in per
 // case, so each guard is exercised by one differing block and nothing else.
 const projectorEntryJSON = `{
-  "schema_version": 4,
+  "schema_version": 5,
   "catalog_version": "test.invalid-projector",
   "models": [
     {

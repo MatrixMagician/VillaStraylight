@@ -69,7 +69,7 @@ func draftCatalogFile(t *testing.T) string {
       "bootstrap": false,
       "shards": [{"url": "https://example.invalid/b.gguf", "filename": "b.gguf", "sha256": "00", "size_bytes": 1}]
     }`
-	body := fmt.Sprintf(`{"schema_version": 4, "catalog_version": "test", "models": [%s, %s]}`, withDraft, noDraft)
+	body := fmt.Sprintf(`{"schema_version": 5, "catalog_version": "test", "models": [%s, %s]}`, withDraft, noDraft)
 	path := filepath.Join(t.TempDir(), "catalog.json")
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		t.Fatalf("write catalog: %v", err)

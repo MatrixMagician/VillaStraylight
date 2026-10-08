@@ -38,7 +38,7 @@ func visionCatalogFile(t *testing.T) string {
       "shards": [{"url": "https://example.invalid/a.gguf", "filename": "a.gguf", "sha256": "00", "size_bytes": 1}]
     }`, id, extra)
 	}
-	body := fmt.Sprintf(`{"schema_version": 4, "catalog_version": "test", "models": [%s, %s]}`,
+	body := fmt.Sprintf(`{"schema_version": 5, "catalog_version": "test", "models": [%s, %s]}`,
 		entry("has-projector", true), entry("no-projector", false))
 	path := filepath.Join(t.TempDir(), "catalog.json")
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {

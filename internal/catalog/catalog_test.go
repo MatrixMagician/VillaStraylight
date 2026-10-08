@@ -61,11 +61,11 @@ func TestLoadSeedDownloadMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load(\"\"): unexpected error: %v", err)
 	}
-	if SupportedSchema != 4 {
-		t.Fatalf("SupportedSchema = %d, want 4 (schema bumped for the ngram qualification, ADR-0006)", SupportedSchema)
+	if SupportedSchema != 5 {
+		t.Fatalf("SupportedSchema = %d, want 5 (schema bumped for the sliding-window block, ADR-0029)", SupportedSchema)
 	}
-	if c.SchemaVersion != 4 {
-		t.Errorf("embedded seed schema_version = %d, want 4", c.SchemaVersion)
+	if c.SchemaVersion != 5 {
+		t.Errorf("embedded seed schema_version = %d, want 5", c.SchemaVersion)
 	}
 	for _, m := range c.Models {
 		if len(m.Shards) == 0 {
@@ -107,6 +107,8 @@ func TestLoadSeedVerifiedDims(t *testing.T) {
 		// gemma4 is 60 blocks, 5 sliding-window : 1 global; only the 10 global
 		// blocks carry a full-context KV (head_count_kv 4, ADR-0029).
 		"gemma-4-31b": {10, 4, 512},
+		// deepseek2 MLA: one latent KV head of width 576 on all 47 blocks.
+		"glm-4.7-flash": {47, 1, 576},
 	}
 	for id, w := range want {
 		m, ok := c.FindByID(id)
@@ -226,8 +228,8 @@ func TestLoadSeedCoderEntries(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load(\"\"): unexpected error: %v", err)
 	}
-	if SupportedSchema != 4 {
-		t.Fatalf("SupportedSchema = %d, want 4 (schema bumped for the ngram qualification, ADR-0006)", SupportedSchema)
+	if SupportedSchema != 5 {
+		t.Fatalf("SupportedSchema = %d, want 5 (schema bumped for the sliding-window block, ADR-0029)", SupportedSchema)
 	}
 	wantIDs := map[string]bool{
 		"qwen3-coder-30b-a3b": false,
@@ -479,7 +481,7 @@ func goodCoderDims() coderDims { return coderDims{32, 8, 128, 2} }
 // from the case under test. Shared by the refuse-whole and accept tests below.
 func buildCoderCatalog(entryID string, agentCtx int, d coderDims, sampling string) string {
 	return fmt.Sprintf(`{
-  "schema_version": 4,
+  "schema_version": 5,
   "catalog_version": "test.invalid-coder",
   "models": [
     {
@@ -634,7 +636,7 @@ func TestLoadSchema4NgramExternal(t *testing.T) {
 // falls back to the seed rather than being accepted or silently downgraded.
 func TestLoadNgramValidationRejectsUnprovenanced(t *testing.T) {
 	body := `{
-  "schema_version": 4,
+  "schema_version": 5,
   "catalog_version": "test.invalid-ngram",
   "models": [
     {
