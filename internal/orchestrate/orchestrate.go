@@ -146,6 +146,7 @@ const (
 	ComponentWebsafe   = "websafe-base"
 	ComponentWhisper   = "whisper"
 	ComponentKokoro    = "kokoro"
+	ComponentExtractor = "extractor"
 )
 
 // Plan is the result of a Reconcile: the rendered units whose on-disk hash differs

@@ -177,15 +177,15 @@ func TestResolveIsTheAllowlistForUnknownComponents(t *testing.T) {
 
 // TestForGroupsByProofUnit: the update flow walks subsystems because the proof unit
 // is the verify verb's scope, so the resolver must group the same way the table
-// does — both halves of the memory pairing, together.
+// does — every memory component, together.
 func TestForGroupsByProofUnit(t *testing.T) {
 	r := New(pinstate.State{})
 	mem := r.For(subsystem.Memory)
-	if len(mem) != 2 {
-		t.Fatalf("memory resolved %d components, want Qdrant and the embedder", len(mem))
+	if len(mem) != 3 {
+		t.Fatalf("memory resolved %d components, want Qdrant, the embedder and the extractor", len(mem))
 	}
-	if mem[0].Component != pins.Qdrant || mem[1].Component != pins.Embedder {
-		t.Errorf("memory resolved %v, want [qdrant embedder] in table order", []pins.ComponentID{mem[0].Component, mem[1].Component})
+	if mem[0].Component != pins.Qdrant || mem[1].Component != pins.Embedder || mem[2].Component != pins.Extractor {
+		t.Errorf("memory resolved %v, want [qdrant embedder extractor] in table order", []pins.ComponentID{mem[0].Component, mem[1].Component, mem[2].Component})
 	}
 	for _, res := range mem {
 		if res.Subsystem != subsystem.Memory {

@@ -23,8 +23,8 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/pinstate"
 )
 
-// pinnedFixtureConfig turns every optional subsystem on, so one render produces
-// every unit a pin can appear in. Without memory and web search enabled, four of
+// pinnedFixtureConfig turns every optional subsystem on, and the extractor beside
+// memory, so one render produces every unit a pin can appear in. Without memory and web search enabled, four of
 // the five managed-service components render no unit at all and the assertions
 // below would pass vacuously.
 func pinnedFixtureConfig() config.VillaConfig {
@@ -34,6 +34,7 @@ func pinnedFixtureConfig() config.VillaConfig {
 		Ctx:              8192,
 		Backend:          "vulkan",
 		MemoryEnabled:    true,
+		Extractor:        true,
 		EmbeddingModel:   "nomic-embed-text-v1.5",
 		EmbeddingDim:     768,
 		WebSearchEnabled: true,
@@ -102,8 +103,8 @@ func TestAnEmptyStoreRendersTheVettedPins(t *testing.T) {
 }
 
 // TestARecordedPinReachesTheRenderedUnit is the loop closing, per component. Each
-// of the six render-path sites is driven independently, because a single combined
-// assertion would pass while five of the six were unwired.
+// of the seven render-path sites is driven independently, because a single combined
+// assertion would pass while six of the seven were unwired.
 func TestARecordedPinReachesTheRenderedUnit(t *testing.T) {
 	cases := []struct {
 		component pins.ComponentID
@@ -115,6 +116,7 @@ func TestARecordedPinReachesTheRenderedUnit(t *testing.T) {
 		{pins.Embedder, "example.invalid/embed@sha256:dddd"},
 		{pins.SearXNG, "example.invalid/searxng@sha256:eeee"},
 		{pins.Websafe, "example.invalid/websafe@sha256:ffff"},
+		{pins.Extractor, "example.invalid/tika@sha256:abab"},
 	}
 
 	for _, tc := range cases {

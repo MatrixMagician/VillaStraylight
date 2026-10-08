@@ -181,7 +181,7 @@ type openWebUIVolumeView struct {
 // install's first boot, and SyncEndpointsWithKey already reconciles the running
 // connection list's real keys afterward through OWUI's admin API, no file, no
 // unit.
-func buildOpenWebUIView(image string, mv memory.RenderInput, memoryEnabled bool, rerankOn bool, webSearchEnabled bool, voiceEnabled bool, searxngAddr string, searxngPort int, webSearchResultCount int, websafeAddr string, websafePort int, residentNames []string, apiKey string) openWebUIView {
+func buildOpenWebUIView(image string, mv memory.RenderInput, memoryEnabled bool, rerankOn bool, extractOn bool, webSearchEnabled bool, voiceEnabled bool, searxngAddr string, searxngPort int, webSearchResultCount int, websafeAddr string, websafePort int, residentNames []string, apiKey string) openWebUIView {
 	// Connection: reach inference over villa.network by container DNS (NOT localhost /
 	// host.containers.internal), at its internal port. Open WebUI accepts EITHER the
 	// singular OPENAI_API_BASE_URL/OPENAI_API_KEY pair or the ';'-separated plural
@@ -282,6 +282,19 @@ func buildOpenWebUIView(image string, mv memory.RenderInput, memoryEnabled bool,
 			envPair{Key: "RAG_RERANKING_MODEL", Value: RerankModelName},
 			envPair{Key: "RAG_EXTERNAL_RERANKER_URL", Value: fmt.Sprintf("http://%s:%d/v1/rerank", mv.RerankAddr, mv.RerankPort)},
 			envPair{Key: "RAG_EXTERNAL_RERANKER_API_KEY", Value: noAuthAPIKey},
+		)
+	}
+
+	if extractOn {
+		// Tika as the content-extraction engine (ADR-0029): Open WebUI PUTs each
+		// uploaded file to <url>/tika/text with the file's Content-Type and reads
+		// the X-TIKA:content key of the reply. All three are DB-backed ConfigVars,
+		// made authoritative by the trailing ENABLE_PERSISTENT_CONFIG=False that
+		// memory already emits.
+		env = append(env,
+			envPair{Key: "CONTENT_EXTRACTION_ENGINE", Value: "tika"},
+			envPair{Key: "TIKA_SERVER_URL", Value: fmt.Sprintf("http://%s:%d", mv.ExtractAddr, mv.ExtractPort)},
+			envPair{Key: "TIKA_SERVER_VERSION", Value: "3"},
 		)
 	}
 

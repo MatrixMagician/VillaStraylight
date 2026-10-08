@@ -146,11 +146,18 @@ func TestSeamGrepGate(t *testing.T) {
 		// NOT a GPU-backend token. The gcr.io/ distroless literal would trip the "container
 		// image literal" regex without this allowlist; it is extended in the SAME commit as
 		// the const, mirroring the orchestrate/searxng.go precedent (Pitfall 5).
+		// orchestrate/extract.go: the villa-extract MANAGED-SERVICE image literal
+		// (docker.io/apache/tika@sha256:…, ADR-0029) lives here, the SAME category as
+		// openWebUIImage / qdrantImage / searxngImage — NOT a GPU-backend token. The
+		// docker.io/ literal would trip the "container image literal" regex without
+		// this allowlist; it is extended in the SAME commit as the const, mirroring the
+		// orchestrate/searxng.go precedent (Pitfall 5).
 		return strings.HasPrefix(rel, "inference/") ||
 			rel == "detect/gpu_amd.go" ||
 			rel == "orchestrate/memory.go" ||
 			rel == "orchestrate/searxng.go" ||
-			rel == "orchestrate/websafe.go"
+			rel == "orchestrate/websafe.go" ||
+			rel == "orchestrate/extract.go"
 	}
 
 	err := filepath.Walk(internalRoot, func(path string, info os.FileInfo, err error) error {

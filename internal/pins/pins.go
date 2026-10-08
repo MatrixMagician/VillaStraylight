@@ -1,6 +1,7 @@
 // Package pins is the compiled-in, enumerable registry of every component villa
-// pins: the four inference backend images, Open WebUI, Qdrant, the embedder,
-// SearXNG, the websafe base image, and the Crush binary.
+// pins: the inference backend images, Open WebUI, Qdrant, the embedder, the
+// document extractor, SearXNG, the websafe base image, the Crush binary and the
+// sandbox image.
 //
 // Before this package, "which components does villa pin?" had no answer in code.
 // The pins were eight constants in five packages, each correct in isolation and
@@ -100,6 +101,9 @@ const (
 	// Its pin is byte-identical to BackendVulkan's today and is deliberately a
 	// separate component: one image, two roles, and the roles may diverge.
 	Embedder ComponentID = orchestrate.ComponentEmbedder
+	// Extractor is the Apache Tika image villa-extract serves document
+	// extraction from (ADR-0029).
+	Extractor ComponentID = orchestrate.ComponentExtractor
 	// SearXNG is the metasearch service image.
 	SearXNG ComponentID = orchestrate.ComponentSearXNG
 	// Websafe is the distroless base the web-guard loader container runs on.
@@ -328,6 +332,14 @@ func Table() []Entry {
 			Shape:     RollingDigest,
 			Registry:  registryDockerIO,
 			Vetted:    func() Pin { return Pin{Ref: orchestrate.EmbedImage()} },
+		},
+		{
+			Component: Extractor,
+			Subsystem: subsystem.Memory,
+			Shape:     VersionTag,
+			Registry:  registryDockerIO,
+			Version:   "3.3.1.0",
+			Vetted:    func() Pin { return Pin{Ref: orchestrate.ExtractImage()} },
 		},
 		{
 			Component: SearXNG,

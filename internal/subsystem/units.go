@@ -28,9 +28,10 @@ import (
 //
 // The reranker (ADR-0028) is the first optional unit: it is memory's, runs
 // memory's pin and is proved with memory, but a memory-on host renders it only
-// with `reranker = true`. Two consumers once assumed memory's list was static
-// and each grew its own on-disk check; the gate lives here instead, so stop,
-// start, capture and restart all read one answer.
+// with `reranker = true`; the extractor (ADR-0029) is the second, on its own
+// `extractor = true`. Two consumers once assumed memory's list was static and
+// each grew its own on-disk check; the gate lives here instead, so stop, start,
+// capture and restart all read one answer.
 type unit struct {
 	name string
 	on   func(config.VillaConfig) bool
@@ -39,8 +40,8 @@ type unit struct {
 // unitTable declares every unit each subsystem can render, in start order.
 //
 // The grouping is the PROOF UNIT, not a convenience: one `verify memory` proves
-// Qdrant, the embedder and the reranker together, so they capture, mutate and
-// roll back together. Splitting them would produce a pairing with no proof and
+// Qdrant, the embedder, the reranker and the extractor together, so they
+// capture, mutate and roll back together. Splitting them would produce a pairing with no proof and
 // no meaning.
 //
 // Agent is absent: the Crush binary is a file, not a unit — nothing to render
@@ -53,6 +54,7 @@ var unitTable = map[Kind][]unit{
 		{name: "villa-qdrant.container"},
 		{name: "villa-embed.container"},
 		{name: "villa-rerank.container", on: RerankOn},
+		{name: "villa-extract.container", on: ExtractOn},
 	},
 	WebSearch: {
 		{name: "villa-searxng.container"},

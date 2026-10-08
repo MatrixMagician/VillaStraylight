@@ -56,7 +56,7 @@ func TestMemoryUnitsFollowTheRerankerGate(t *testing.T) {
 // render drift test can bind the whole list.
 func TestEveryUnitDeclaresTheReranker(t *testing.T) {
 	units, services := Memory.EveryUnit()
-	if len(units) != 3 || units[2] != "villa-rerank.container" || services[2] != "villa-rerank.service" {
+	if len(units) < 3 || units[2] != "villa-rerank.container" || services[2] != "villa-rerank.service" {
 		t.Errorf("Memory.EveryUnit() = (%v, %v), want the reranker third", units, services)
 	}
 }
