@@ -118,6 +118,8 @@ type Deps struct {
 	EnsureModel        func(recommend.Recommendation) error
 	EmbedModelPresent  func(modelsDir string) bool
 	EnsureEmbedModel   func(modelsDir string) error
+	RerankModelPresent func(modelsDir string) bool
+	EnsureRerankModel  func(modelsDir string) error
 	AgentCatalog       func() (catalog.Catalog, bool)
 	CoderModelPresent  func(modelsDir string, sh catalog.Shard) bool
 	EnsureCoderModel   func(modelsDir string, sh catalog.Shard) error
@@ -189,7 +191,7 @@ func DefaultUnits() Units {
 	_, chat := subsystem.Chat.Units()
 	_, mem := subsystem.Memory.Units()
 	_, web := subsystem.WebSearch.Units()
-	return Units{Inference: inf[0], ChatUI: chat[0], Qdrant: mem[0], Embed: mem[1], Searxng: web[0], Websafe: web[1]}
+	return Units{Inference: inf[0], ChatUI: chat[0], Qdrant: mem[0], Embed: mem[1], Rerank: mem[2], Searxng: web[0], Websafe: web[1]}
 }
 
 // Run executes the install flow end to end and returns its Result. It never
@@ -340,6 +342,13 @@ func Run(ctx context.Context, d Deps, opts Opts) Result {
 		}
 		say("embedding model %s downloaded and verified\n", NomicEmbedShard.Filename)
 	}
+	if gates.Memory && !d.RerankModelPresent(d.ModelsDir()) {
+		say("reranker model %s not present — downloading...\n", RerankShard.Filename)
+		if err := d.EnsureRerankModel(d.ModelsDir()); err != nil {
+			return block("install: pre-stage reranker model %s failed: %v\n", RerankShard.Filename, err)
+		}
+		say("reranker model %s downloaded and verified\n", RerankShard.Filename)
+	}
 
 	// (6c) Pre-stage the coding agent BEFORE persisting config and starting the
 	// stack: notice, coder shard, coder weights, pinned binary, locked-down config.
@@ -390,7 +399,7 @@ func Run(ctx context.Context, d Deps, opts Opts) Result {
 	// rendered plan, so a rollback never stops a service that was running before.
 	priorRunning := map[string]bool{}
 	if d.IsActive != nil {
-		for _, svc := range []string{units.Inference, units.ChatUI, units.Qdrant, units.Embed, units.Searxng, units.Websafe, orchestrate.DashboardServiceName} {
+		for _, svc := range []string{units.Inference, units.ChatUI, units.Qdrant, units.Embed, units.Rerank, units.Searxng, units.Websafe, orchestrate.DashboardServiceName} {
 			if state, aerr := d.IsActive(svc); aerr == nil && state == "active" {
 				priorRunning[svc] = true
 			}
@@ -535,19 +544,24 @@ func Run(ctx context.Context, d Deps, opts Opts) Result {
 		return refuse("install: start %s failed: %v\n", units.ChatUI, err)
 	}
 
-	// (9b) The memory stack: the vector store, then the embedder. Each start is
-	// gated on its unit being in the written plan, never on the flag alone.
+	// (9b) The memory stack: the vector store, then the embedder, then the
+	// reranker. Each start is gated on its unit being in the written plan, never on
+	// the flag alone.
 	if gates.Memory {
 		if !UnitPresent(unitPlan, orchestrate.QdrantContainerUnitName()) ||
-			!UnitPresent(unitPlan, orchestrate.EmbedContainerUnitName()) {
-			return refuse("install: INTERNAL ERROR: memory is enabled but the memory units (%s, %s) are absent from the rendered plan — refusing to start a service systemd has never seen. This is a render/reconcile bug; please re-run `villa install`, and if it persists, file an issue.\n",
-				orchestrate.QdrantContainerUnitName(), orchestrate.EmbedContainerUnitName())
+			!UnitPresent(unitPlan, orchestrate.EmbedContainerUnitName()) ||
+			!UnitPresent(unitPlan, orchestrate.RerankContainerUnitName()) {
+			return refuse("install: INTERNAL ERROR: memory is enabled but the memory units (%s, %s, %s) are absent from the rendered plan — refusing to start a service systemd has never seen. This is a render/reconcile bug; please re-run `villa install`, and if it persists, file an issue.\n",
+				orchestrate.QdrantContainerUnitName(), orchestrate.EmbedContainerUnitName(), orchestrate.RerankContainerUnitName())
 		}
 		if err := start(units.Qdrant); err != nil {
 			return refuse("install: start %s failed: %v\n", units.Qdrant, err)
 		}
 		if err := start(units.Embed); err != nil {
 			return refuse("install: start %s failed: %v\n", units.Embed, err)
+		}
+		if err := start(units.Rerank); err != nil {
+			return refuse("install: start %s failed: %v\n", units.Rerank, err)
 		}
 	}
 
@@ -748,6 +762,16 @@ var NomicEmbedShard = catalog.Shard{
 	Filename:  "nomic-embed-text-v1.5.Q8_0.gguf",
 	SHA256:    "3e24342164b3d94991ba9692fdc0dd08e3fd7362e0aacc396a9a5c54a544c3b7",
 	SizeBytes: 146146432,
+}
+
+// RerankShard is the pinned bge-reranker-v2-m3 Q8_0 GGUF pre-staged into the
+// models dir when memory is on (ADR-0028). Its Filename MUST equal
+// orchestrate.RerankGGUFFilename(), the name the reranker unit serves.
+var RerankShard = catalog.Shard{
+	URL:       "https://huggingface.co/gpustack/bge-reranker-v2-m3-GGUF/resolve/main/bge-reranker-v2-m3-Q8_0.gguf",
+	Filename:  "bge-reranker-v2-m3-Q8_0.gguf",
+	SHA256:    "a43c7c9b11a4c1517e5bf95151960e1621d1b72f7a493364b01e386cf1aaa1d3",
+	SizeBytes: 635676416,
 }
 
 // AgentLicenseNotice is the FSL-1.1-MIT notice surfaced before the coding-agent

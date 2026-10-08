@@ -16,6 +16,7 @@ func units() Units {
 		ChatUI:    "villa-openwebui.service",
 		Qdrant:    "villa-qdrant.service",
 		Embed:     "villa-embed.service",
+		Rerank:    "villa-rerank.service",
 		Searxng:   "villa-searxng.service",
 		Websafe:   "villa-websafe.service",
 	}

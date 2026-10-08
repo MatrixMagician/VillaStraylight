@@ -22,6 +22,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/preflight"
 	"github.com/MatrixMagician/VillaStraylight/internal/recommend"
 	"github.com/MatrixMagician/VillaStraylight/internal/stackapply"
+	"github.com/MatrixMagician/VillaStraylight/internal/subsystem"
 )
 
 // install.go wires the `villa install` verb. The flow itself is install.Run
@@ -196,8 +197,10 @@ func liveInstallDeps(ctx context.Context) (install.Deps, error) {
 			}
 			return pullFn(ctx, m, dir)
 		},
-		EmbedModelPresent: liveEmbedModelPresent,
-		EnsureEmbedModel:  func(modelsDir string) error { return liveEnsureEmbedModel(ctx, modelsDir) },
+		EmbedModelPresent:  liveEmbedModelPresent,
+		EnsureEmbedModel:   func(modelsDir string) error { return liveEnsureEmbedModel(ctx, modelsDir) },
+		RerankModelPresent: liveRerankModelPresent,
+		EnsureRerankModel:  func(modelsDir string) error { return liveEnsureRerankModel(ctx, modelsDir) },
 		AgentCatalog: func() (catalog.Catalog, bool) {
 			cat, _, err := catalog.Load(modelCatalogPath)
 			if err != nil {
@@ -281,6 +284,9 @@ func liveInstallDeps(ctx context.Context) (install.Deps, error) {
 				embeddingDim: cfg.EmbeddingDim,
 				qdrantAddr:   config.QdrantAddr,
 				qdrantPort:   config.QdrantPort,
+				rerank:       subsystem.RerankOn(cfg),
+				rerankAddr:   config.RerankAddr,
+				rerankPort:   config.RerankPort,
 			})
 			return install.Proof{Status: p.status, Detail: p.detail}
 		},

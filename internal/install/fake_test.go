@@ -64,14 +64,17 @@ type fakeDeps struct {
 	stopErr           error
 	removeUnitErr     error
 
-	memoryEnabled     bool
-	embedPresent      bool
-	embedEnsureCalls  int
-	embedPresentCalls int
-	memoryProofCalls  int
-	memoryProofCfg    config.VillaConfig
-	memoryProofStatus preflight.Status
-	memoryProofDetail string
+	memoryEnabled      bool
+	embedPresent       bool
+	embedEnsureCalls   int
+	embedPresentCalls  int
+	rerankPresent      bool
+	rerankEnsureCalls  int
+	rerankPresentCalls int
+	memoryProofCalls   int
+	memoryProofCfg     config.VillaConfig
+	memoryProofStatus  preflight.Status
+	memoryProofDetail  string
 
 	webSearchEnabled      bool
 	searxngSettingsCalls  int
@@ -252,6 +255,15 @@ func newFakeDeps(t *testing.T, units []orchestrate.Unit, plan orchestrate.Plan, 
 	d.EnsureEmbedModel = func(string) error {
 		f.embedEnsureCalls++
 		f.callOrder = append(f.callOrder, "ensureEmbedModel")
+		return nil
+	}
+	d.RerankModelPresent = func(string) bool {
+		f.rerankPresentCalls++
+		return f.rerankPresent
+	}
+	d.EnsureRerankModel = func(string) error {
+		f.rerankEnsureCalls++
+		f.callOrder = append(f.callOrder, "ensureRerankModel")
 		return nil
 	}
 	d.ProveMemory = func(_ context.Context, cfg config.VillaConfig) Proof {

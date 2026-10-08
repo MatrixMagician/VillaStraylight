@@ -185,6 +185,10 @@ func AssemblePlan(cfg config.VillaConfig, gates Gates, rec recommend.Recommendat
 	plan.Config.Vision = rec.Vision
 
 	plan.Config.MemoryEnabled = gates.Memory
+	// The reranker gate is written here and nowhere else (ADR-0028): install is the
+	// one verb that stages its weights, and the render that follows must not point
+	// Open WebUI at a reranker that is not there.
+	plan.Config.Reranker = gates.Memory
 	plan.Config.WebSearchEnabled = gates.WebSearch
 	plan.Config.AgentEnabled = gates.Agent
 

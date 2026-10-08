@@ -47,6 +47,7 @@ func memoryUnits() ([]orchestrate.Unit, orchestrate.Plan) {
 		{Name: "villa-llama.container", Text: "[Container]\n"},
 		{Name: orchestrate.QdrantContainerUnitName(), Text: "[Container]\n"},
 		{Name: orchestrate.EmbedContainerUnitName(), Text: "[Container]\n"},
+		{Name: orchestrate.RerankContainerUnitName(), Text: "[Container]\n"},
 	}
 	return units, orchestrate.Plan{Changed: units}
 }
