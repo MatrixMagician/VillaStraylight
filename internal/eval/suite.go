@@ -2,11 +2,13 @@ package eval
 
 // suite.go embeds the villa-authored capability suite and loads it fail-closed: an
 // unknown grader kind, an unknown field, a duplicate id, or a case missing what its
-// kind needs is a load error, never a case that silently passes (ADR-0018).
+// kind needs is a load error, never a case that silently passes (ADR-0018). It
+// embeds the extract cases' documents beside it (ADR-0029), so a case names a
+// fixture the binary carries and never a path on the host.
 
 import (
 	"bytes"
-	_ "embed"
+	"embed"
 	"encoding/json"
 	"fmt"
 	"regexp"
@@ -15,19 +17,40 @@ import (
 //go:embed cases.json
 var suiteJSON []byte
 
+//go:embed docs/*
+var fixturesFS embed.FS
+
 // SuiteVersion identifies the embedded suite. It changes whenever a capability case
 // is added, removed or edited, which orphans every eval baseline recorded under the
 // old version: a baseline is never compared across suites.
 //
-// suiteSHA256 is the sha256 of cases.json at this version. TestSuiteVersionPinsTheCases
-// fails when the file changes, so the two move together.
+// suiteSHA256 is the sha256 of cases.json at this version, and fixturesSHA256 the
+// sha256 over every fixture's name and bytes in name order. TestSuiteVersionPinsTheCases
+// fails when either changes, so a fixture edit moves the version like a case edit.
 const (
-	SuiteVersion = 2
-	suiteSHA256  = "75d4d5eb92f5f558cbe0d698a8c61f1ce8d5483a5fa4d3d28964d254cb3d46c8"
+	SuiteVersion   = 3
+	suiteSHA256    = "1b433a1d18e3675ac29e508e8b779b4648c384ab990ba8a1178740e1b07dcc22"
+	fixturesSHA256 = "79f539104e5e6612e8b89682137aff30f307f63b155b8bdc4a9d6aeba53762c1"
 )
 
 // Suite returns the embedded capability cases in suite order.
 func Suite() ([]Case, error) { return parseSuite(suiteJSON) }
+
+// Fixture returns the bytes of an extract case's document, by its name under the
+// embedded docs/. A name that resolves anywhere else is an error.
+func Fixture(name string) ([]byte, error) {
+	data, err := fixturesFS.ReadFile("docs/" + name)
+	if err != nil {
+		return nil, fmt.Errorf("eval: fixture %q: %w", name, err)
+	}
+	return data, nil
+}
+
+// fixtureExists reports whether name is an embedded fixture.
+func fixtureExists(name string) bool {
+	_, err := Fixture(name)
+	return name != "" && err == nil
+}
 
 // parseSuite decodes a suite strictly and validates every case.
 func parseSuite(data []byte) ([]Case, error) {
@@ -79,7 +102,7 @@ func missing(c Case, row grader) string {
 	}{
 		{true, c.ID != "", "an id"},
 		{true, c.Prompt != "", "a prompt"},
-		{!row.rerank, c.MaxTokens > 0, "a positive max_tokens"},
+		{!row.rerank && !row.extract, c.MaxTokens > 0, "a positive max_tokens"},
 		{row.want, c.Grader.Want != "", "grader.want"},
 		{row.pattern, compiles(c.Grader.Pattern), "a compilable grader.pattern"},
 		{row.keys, len(c.Grader.Keys) > 0, "grader.keys"},
@@ -87,6 +110,10 @@ func missing(c Case, row grader) string {
 		{row.rerank, len(c.Documents) >= 2, "at least two documents"},
 		{row.rerank, c.Grader.Top >= 0 && c.Grader.Top < len(c.Documents), "grader.top within the documents"},
 		{row.rerank, len(c.Tools) == 0, "no tools"},
+		{row.extract, fixtureExists(c.Document), "a document under docs/"},
+		{row.extract, c.Mime != "", "a mime"},
+		{row.extract, len(c.Tools) == 0, "no tools"},
+		{row.extract, len(c.Documents) == 0, "no documents"},
 	} {
 		if r.required && !r.met {
 			return r.what

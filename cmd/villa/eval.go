@@ -65,6 +65,9 @@ type evalDeps struct {
 	// rerank scores documents against a query through the memory stack's reranker
 	// (ADR-0028), one score per document in document order.
 	rerank func(ctx context.Context, query string, docs []string) ([]float64, error)
+	// extract hands a document to the memory stack's extractor (ADR-0029) and
+	// returns the text it extracted.
+	extract func(ctx context.Context, name, mime string, data []byte) (string, error)
 	// store is the eval-baselines.json byte seam.
 	store evalstore.Deps
 }
@@ -78,6 +81,7 @@ func liveEvalDeps() evalDeps {
 		suite:          eval.Suite,
 		complete:       liveEvalComplete,
 		rerank:         liveEvalRerank,
+		extract:        liveEvalExtract,
 		store: evalstore.Deps{
 			ReadAll:  storeReader(path), // absent store ⇒ no eval baseline (Reject)
 			WriteAll: func(data []byte) error { return evalstore.WriteFileAtomic(path, data) },
@@ -137,6 +141,13 @@ func postRerank(ctx context.Context, helperImage, addr string, port int, query s
 		return nil, err
 	}
 	return parseRerankScores(out, len(docs))
+}
+
+// liveEvalExtract extracts a fixture's text through villa-extract over
+// villa.network. The name is the fixture's, for the record; Tika reads only the
+// bytes and the mime.
+func liveEvalExtract(ctx context.Context, _, mime string, data []byte) (string, error) {
+	return postExtract(ctx, orchestrate.EmbedImage(), config.ExtractAddr, config.ExtractPort, mime, data)
 }
 
 // postExtract is the one extraction request villa makes: the eval seam and the
@@ -269,10 +280,12 @@ func conductEval(ctx context.Context, d evalDeps) (eval.Run, *eval.Baseline, err
 	}
 	run := evalTarget(cfg, backend, image)
 	run.Results = eval.Execute(ctx, cases, eval.Deps{
-		Complete: d.complete(cfg, run.Key.Model),
-		ToolsOn:  run.Provenance.ToolsMode,
-		Rerank:   d.rerank,
-		RerankOn: subsystem.RerankOn(cfg),
+		Complete:  d.complete(cfg, run.Key.Model),
+		ToolsOn:   run.Provenance.ToolsMode,
+		Rerank:    d.rerank,
+		RerankOn:  subsystem.RerankOn(cfg),
+		Extract:   d.extract,
+		ExtractOn: subsystem.ExtractOn(cfg),
 	})
 	return run, doc.Find(run.Key), nil
 }

@@ -10,8 +10,10 @@ import (
 // TestSuiteVersionPinsTheCases guards ADR-0018's suite version: editing, adding or
 // removing a capability case must bump SuiteVersion, because a baseline recorded
 // under one suite must never be compared against another. The sha256 of the
-// embedded cases.json is pinned beside the version; a changed file fails here until
-// both are moved together.
+// embedded cases.json is pinned beside the version, and so is the digest of the
+// extract cases' fixtures (ADR-0029), since an edited document changes what a case
+// measures as surely as an edited case does; a changed file fails here until both
+// are moved together.
 func TestSuiteVersionPinsTheCases(t *testing.T) {
 	sum := sha256.Sum256(suiteJSON)
 	if got := hex.EncodeToString(sum[:]); got != suiteSHA256 {
@@ -19,6 +21,31 @@ func TestSuiteVersionPinsTheCases(t *testing.T) {
 			"and re-pin suiteSHA256 together — every eval baseline recorded under the old suite is "+
 			"orphaned by design", got, suiteSHA256, SuiteVersion)
 	}
+	if got := fixturesDigest(t); got != fixturesSHA256 {
+		t.Fatalf("the docs/ fixtures changed (sha256 %s, pinned %s for suite version %d): bump SuiteVersion "+
+			"and re-pin fixturesSHA256 together — every eval baseline recorded under the old suite is "+
+			"orphaned by design", got, fixturesSHA256, SuiteVersion)
+	}
+}
+
+// fixturesDigest is the sha256 over every embedded fixture's name, a NUL, and its
+// bytes, in name order.
+func fixturesDigest(t *testing.T) string {
+	t.Helper()
+	entries, err := fixturesFS.ReadDir("docs")
+	if err != nil {
+		t.Fatalf("read docs/: %v", err)
+	}
+	h := sha256.New()
+	for _, e := range entries {
+		data, err := Fixture(e.Name())
+		if err != nil {
+			t.Fatal(err)
+		}
+		h.Write([]byte(e.Name() + "\x00"))
+		h.Write(data)
+	}
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 // TestEmbeddedSuiteLoadsFailClosed guards ADR-0018's "cases are data": the embedded

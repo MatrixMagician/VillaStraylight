@@ -40,8 +40,15 @@ type Case struct {
 	// conducted through Deps.Rerank, never as a completion, and is skipped when the
 	// reranker is off.
 	Documents []string `json:"documents,omitempty"`
-	Grader    Grader   `json:"grader"`
-	MaxTokens int      `json:"max_tokens,omitempty"`
+	// Document names an extract case's fixture under the embedded docs/ (ADR-0029)
+	// and Mime the Content-Type it is handed to the extractor with. The prompt is the
+	// question the fixture answers: documentation, and the bench's query, never sent.
+	// The case is conducted through Deps.Extract and skipped when the extractor is
+	// off.
+	Document  string `json:"document,omitempty"`
+	Mime      string `json:"mime,omitempty"`
+	Grader    Grader `json:"grader"`
+	MaxTokens int    `json:"max_tokens,omitempty"`
 }
 
 // CaseStatus is one capability case's outcome in a run.
@@ -58,11 +65,12 @@ const (
 	Skipped CaseStatus = "skipped"
 )
 
-// toolsModeOff is the reason a tool-call case is skipped; rerankerOff the reason a
-// rerank case is.
+// toolsModeOff is the reason a tool-call case is skipped, rerankerOff the reason a
+// rerank case is, and extractorOff the reason an extract case is.
 const (
 	toolsModeOff = "tools mode off"
 	rerankerOff  = "reranker off"
+	extractorOff = "extractor off"
 )
 
 // Result is one capability case's outcome. Excerpt is the reply, cut to one bounded
@@ -111,12 +119,17 @@ type Baseline Run
 // (subsystem.ToolsOn); when it is false a tool-call case is skipped unsent. Rerank
 // scores each document against a query, one score per document in document order
 // (ADR-0028); RerankOn reports whether the reranker is rendered (subsystem.RerankOn),
-// and when it is false a rerank case is skipped unsent.
+// and when it is false a rerank case is skipped unsent. Extract hands a fixture's
+// bytes to the extractor under its name and mime and returns the extracted text
+// (ADR-0029); ExtractOn reports whether the extractor is rendered
+// (subsystem.ExtractOn), and when it is false an extract case is skipped unsent.
 type Deps struct {
-	Complete func(ctx context.Context, req llm.ChatRequest) (llm.Reply, error)
-	ToolsOn  bool
-	Rerank   func(ctx context.Context, query string, docs []string) ([]float64, error)
-	RerankOn bool
+	Complete  func(ctx context.Context, req llm.ChatRequest) (llm.Reply, error)
+	ToolsOn   bool
+	Rerank    func(ctx context.Context, query string, docs []string) ([]float64, error)
+	RerankOn  bool
+	Extract   func(ctx context.Context, name, mime string, data []byte) (string, error)
+	ExtractOn bool
 }
 
 // graded maps a grader's verdict onto the case status it earns.
@@ -133,11 +146,15 @@ func Execute(ctx context.Context, cases []Case, d Deps) []Result {
 }
 
 // conduct runs one case through the channel its kind names: a rerank case through
-// the reranker, every other through a completion. Each is skipped when the stack
-// cannot honour it, unconducted when no answer came back, otherwise graded.
+// the reranker, an extract case through the extractor, every other through a
+// completion. Each is skipped when the stack cannot honour it, unconducted when no
+// answer came back, otherwise graded.
 func conduct(ctx context.Context, c Case, d Deps) Result {
-	if graders[c.Grader.Kind].rerank {
+	switch row := graders[c.Grader.Kind]; {
+	case row.rerank:
 		return conductRerank(ctx, c, d)
+	case row.extract:
+		return conductExtract(ctx, c, d)
 	}
 	if len(c.Tools) > 0 && !d.ToolsOn {
 		return Result{CaseID: c.ID, Status: Skipped, Detail: toolsModeOff}
@@ -163,6 +180,26 @@ func conductRerank(ctx context.Context, c Case, d Deps) Result {
 		return Result{CaseID: c.ID, Status: Unconducted, Detail: err.Error()}
 	}
 	return Result{CaseID: c.ID, Status: graded[GradeRerank(c, scores)], Excerpt: rerankExcerpt(scores)}
+}
+
+// conductExtract hands the case's fixture to the extractor and grades the text. A
+// nil seam with the gate on is a wiring fault, reported as unconducted.
+func conductExtract(ctx context.Context, c Case, d Deps) Result {
+	if !d.ExtractOn {
+		return Result{CaseID: c.ID, Status: Skipped, Detail: extractorOff}
+	}
+	if d.Extract == nil {
+		return Result{CaseID: c.ID, Status: Unconducted, Detail: "no extractor seam"}
+	}
+	data, err := Fixture(c.Document)
+	if err != nil {
+		return Result{CaseID: c.ID, Status: Unconducted, Detail: err.Error()}
+	}
+	text, err := d.Extract(ctx, c.Document, c.Mime, data)
+	if err != nil {
+		return Result{CaseID: c.ID, Status: Unconducted, Detail: err.Error()}
+	}
+	return Result{CaseID: c.ID, Status: graded[GradeExtract(c, text)], Excerpt: oneLine(text)}
 }
 
 // rerankExcerpt renders a rerank outcome as the index that scored highest and
@@ -208,13 +245,18 @@ func messages(c Case) []llm.Message {
 const excerptRunes = 160
 
 // excerpt renders a reply as one bounded line: the content, then each tool call as
-// name(arguments), whitespace collapsed, cut on a rune boundary.
+// name(arguments).
 func excerpt(r llm.Reply) string {
 	parts := []string{r.Content}
 	for _, c := range r.ToolCalls {
 		parts = append(parts, c.Name+"("+c.Arguments+")")
 	}
-	line := []rune(strings.Join(strings.Fields(strings.Join(parts, " ")), " "))
+	return oneLine(strings.Join(parts, " "))
+}
+
+// oneLine collapses s's whitespace and cuts it to excerptRunes on a rune boundary.
+func oneLine(s string) string {
+	line := []rune(strings.Join(strings.Fields(s), " "))
 	if len(line) <= excerptRunes {
 		return string(line)
 	}

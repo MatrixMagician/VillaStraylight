@@ -34,10 +34,14 @@ const (
 	// KindRerank accepts a reranker scoring in which the document at Top scores
 	// highest alone (ADR-0028). It is judged on scores, never on a reply.
 	KindRerank Kind = "rerank"
+	// KindExtract accepts an extraction whose text Pattern matches (ADR-0029). It
+	// is judged on the extracted text, never on a reply.
+	KindExtract Kind = "extract"
 )
 
 // Grader is a case's expectation. Which fields matter is the kind's: Want for exact
-// and tool, Pattern for regex and no_tool, Keys for json and tool, Top for rerank.
+// and tool, Pattern for regex, no_tool and extract, Keys for json and tool, Top for
+// rerank.
 type Grader struct {
 	Kind    Kind           `json:"kind"`
 	Want    string         `json:"want,omitempty"`
@@ -50,11 +54,15 @@ type Grader struct {
 // grader is one row of the table: the judgement, the channel a case of this kind
 // is conducted through, and what it must carry.
 type grader struct {
-	// grade judges a reply; nil for a kind conducted through the reranker.
+	// grade judges a reply; nil for a kind conducted through the reranker or the
+	// extractor.
 	grade func(r llm.Reply, g Grader) bool
 	// rerank marks a kind conducted through Deps.Rerank with the case's documents
 	// rather than through a completion.
 	rerank bool
+	// extract marks a kind conducted through Deps.Extract with the case's fixture
+	// rather than through a completion.
+	extract bool
 	// want, pattern, keys and tools say which of Want, a compilable Pattern, Keys
 	// and the case's Tools a case of this kind must carry; a completion kind also
 	// needs its token bound.
@@ -63,16 +71,17 @@ type grader struct {
 
 // graders is the table. A new kind is a new row.
 var graders = map[Kind]grader{
-	KindExact:  {grade: gradeExact, want: true},
-	KindRegex:  {grade: gradeRegex, pattern: true},
-	KindJSON:   {grade: gradeJSON, keys: true},
-	KindTool:   {grade: gradeTool, want: true, keys: true, tools: true},
-	KindNoTool: {grade: gradeNoTool, pattern: true, tools: true},
-	KindRerank: {rerank: true},
+	KindExact:   {grade: gradeExact, want: true},
+	KindRegex:   {grade: gradeRegex, pattern: true},
+	KindJSON:    {grade: gradeJSON, keys: true},
+	KindTool:    {grade: gradeTool, want: true, keys: true, tools: true},
+	KindNoTool:  {grade: gradeNoTool, pattern: true, tools: true},
+	KindRerank:  {rerank: true},
+	KindExtract: {extract: true, pattern: true},
 }
 
 // Grade judges a reply against a case's grader. A kind the table does not hold, or
-// one judged on scores rather than a reply, never passes here; the loader refuses an
+// one judged on scores or extracted text rather than a reply, never passes here; the loader refuses an
 // unknown kind before it can run.
 func Grade(c Case, r llm.Reply) bool {
 	row, ok := graders[c.Grader.Kind]
@@ -93,6 +102,12 @@ func GradeRerank(c Case, scores []float64) bool {
 		}
 	}
 	return true
+}
+
+// GradeExtract judges an extract case's text: Pattern must match it anywhere.
+func GradeExtract(c Case, text string) bool {
+	re, err := regexp.Compile(c.Grader.Pattern)
+	return err == nil && re.MatchString(text)
 }
 
 // argmax is the index of the highest score, the first on a tie, and 0 for none.

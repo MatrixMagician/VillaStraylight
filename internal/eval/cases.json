@@ -162,5 +162,26 @@
       "Students get thirty percent off any plan with a valid university address."
     ],
     "grader": {"kind": "rerank", "top": 2}
+  },
+  {
+    "id": "extract-scanned-letter",
+    "prompt": "When is the boiler inspection at the Hollins Road depot?",
+    "document": "scanned-letter.pdf",
+    "mime": "application/pdf",
+    "grader": {"kind": "extract", "pattern": "14 March 2027"}
+  },
+  {
+    "id": "extract-table-row",
+    "prompt": "What is the unit price of the VX-220 pump gasket set?",
+    "document": "table-parts.pdf",
+    "mime": "application/pdf",
+    "grader": {"kind": "extract", "pattern": "VX-220[^\\n]{0,80}41\\.80"}
+  },
+  {
+    "id": "extract-docx-handbook",
+    "prompt": "How long must the pre-heat timer run below -12 degrees?",
+    "document": "handbook.docx",
+    "mime": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "grader": {"kind": "extract", "pattern": "6 minutes"}
   }
 ]
