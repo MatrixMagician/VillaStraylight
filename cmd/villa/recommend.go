@@ -13,7 +13,6 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
 	"github.com/MatrixMagician/VillaStraylight/internal/recommend"
-	"github.com/MatrixMagician/VillaStraylight/internal/subsystem"
 )
 
 // recommend command flags. These are command-local (not persistent) so they only
@@ -33,20 +32,19 @@ type recommendFlags struct {
 var recommendProbe = detect.Probe
 
 // recommendConfigInputs reads the persisted inputs recommend fits with: the
-// catalog path (an explicit flag wins over the saved one), the memory and
-// web-search reservations, and the speculation mode. A missing or unreadable
-// config is not an error; it yields the zero values (memory off).
-func recommendConfigInputs(flagCatalog string) (string, recommend.MemoryInputs, recommend.WebSearchInputs, string) {
+// catalog path (an explicit flag wins over the saved one), the reservations, and
+// the speculation mode. A missing or unreadable config is not an error; it yields
+// the zero values (nothing reserved).
+func recommendConfigInputs(flagCatalog string) (string, []recommend.Reservation, string) {
 	cfg, err := config.LoadVilla()
 	if err != nil {
-		return flagCatalog, recommend.MemoryInputs{}, recommend.WebSearchInputs{}, ""
+		return flagCatalog, nil, ""
 	}
 	catalogPath := flagCatalog
 	if catalogPath == "" {
 		catalogPath = cfg.CatalogPath
 	}
-	mem := recommend.MemoryInputs{Enabled: cfg.MemoryEnabled, EmbeddingModel: cfg.EmbeddingModel}
-	return catalogPath, mem, webSearchInputsFrom(cfg), cfg.Speculation
+	return catalogPath, recommend.ReservationsFor(cfg), cfg.Speculation
 }
 
 // newRecommend builds `villa recommend`: probe the host, load the catalog,
@@ -71,7 +69,7 @@ func newRecommend() *cobra.Command {
 			// config is not an error (read-only default). The SAME fail-soft
 			// load sources the persisted memory inputs: a load error threads
 			// the zero value (memory off), never an error-path change.
-			catalogPath, mem, web, speculation := recommendConfigInputs(f.catalogPath)
+			catalogPath, res, speculation := recommendConfigInputs(f.catalogPath)
 
 			cat, warnings, err := catalog.Load(catalogPath)
 			if err != nil {
@@ -83,7 +81,7 @@ func newRecommend() *cobra.Command {
 				Quant:       f.quant,
 				Ctx:         f.ctx,
 				Speculation: speculation,
-			}, mem, web)
+			}, res)
 
 			if err := renderRecommend(cmd.OutOrStdout(), rec, warnings, jsonOut, f.alternatives); err != nil {
 				return err
@@ -245,10 +243,12 @@ func writeFitTable(w io.Writer, rec recommend.Recommendation) error {
 	writeOptionalFitRows(tw, rec)
 	fmt.Fprintf(tw, "+ headroom\t%s\n", gib(rec.HeadroomBytes))
 	fmt.Fprintf(tw, "= total\t%s\n", gib(rec.TotalBytes))
-	// Embed-reservation row gated on a non-zero value (Pitfall 4, the
-	// ROCmAdvice gated-line pattern) so memory-off table output stays byte-identical.
-	if rec.EmbeddingReservationBytes > 0 {
-		fmt.Fprintf(tw, "− embed reservation\t%s\n", gib(rec.EmbeddingReservationBytes))
+	// One row per reservation with bytes (ADR-0027), so a stack with nothing
+	// reserved prints the same table as before reservations existed.
+	for _, r := range rec.Reservations {
+		if r.Bytes > 0 {
+			fmt.Fprintf(tw, "− %s reservation\t%s\n", strings.ReplaceAll(r.Name, "_", " "), gib(r.Bytes))
+		}
 	}
 	fmt.Fprintf(tw, "%s usable envelope\t%s\n", fitsGlyph(rec.Fits), gib(rec.UsableEnvelopeBytes))
 	return tw.Flush()
@@ -342,42 +342,15 @@ func writeAlternativeRows(w io.Writer, alts []recommend.Alternative) error {
 	return atw.Flush()
 }
 
-// liveLoadedMemoryInputs returns the PERSISTED memory inputs for recommend.Pick
-// the memory_enabled gate + embedding model id from config.LoadVilla.
-// A config load error fails SOFT to the zero value (memory off — byte-identical
-// math), mirroring liveLoadedMemoryEnabled (install_memory.go): a broken config
-// never silently enables the reservation and never changes an error path.
-func liveLoadedMemoryInputs() recommend.MemoryInputs {
+// liveLoadedReservations returns the reservations for the PERSISTED config
+// (ADR-0027). A config load error fails SOFT to no reservations, so a broken
+// config never silently enables one and never changes an error path.
+func liveLoadedReservations() []recommend.Reservation {
 	c, err := config.LoadVilla()
 	if err != nil {
-		return recommend.MemoryInputs{}
+		return nil
 	}
-	return recommend.MemoryInputs{Enabled: subsystem.MemoryOn(c), EmbeddingModel: c.EmbeddingModel}
-}
-
-// webSearchInputsFrom builds the recommend web-search reservation inputs from a
-// loaded config: the web_search_enabled gate + the operator-tunable result count. TopK and
-// ChunkSizeChars have no config field, so they are left zero and recommend falls back to the
-// OWUI defaults (3/1000) — never a silent zero when enabled. When web search is off this is
-// the zero value (Enabled:false → webSearchReservation returns (0,nil), byte-identical math).
-// Pure (config-in), so call sites that already hold a cfg avoid a second LoadVilla.
-func webSearchInputsFrom(c config.VillaConfig) recommend.WebSearchInputs {
-	return recommend.WebSearchInputs{
-		Enabled:     subsystem.WebSearchOn(c),
-		ResultCount: c.WebSearchResultCount,
-	}
-}
-
-// liveLoadedWebSearchInputs returns the PERSISTED web-search inputs for recommend.Pick
-// mirroring liveLoadedMemoryInputs: a config load error fails SOFT to the zero
-// value (web search off — byte-identical math), so a broken config never silently enables the
-// reservation and never changes an error path.
-func liveLoadedWebSearchInputs() recommend.WebSearchInputs {
-	c, err := config.LoadVilla()
-	if err != nil {
-		return recommend.WebSearchInputs{}
-	}
-	return webSearchInputsFrom(c)
+	return recommend.ReservationsFor(c)
 }
 
 // gib renders bytes as a GiB string with raw bytes for the fit table.

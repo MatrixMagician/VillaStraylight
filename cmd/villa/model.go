@@ -348,7 +348,7 @@ func printSwapChanges(out io.Writer, res modelswap.Result) {
 // separate coder the chat model is not served until coding mode exits, so it is
 // sized for that render. `model swap` and the dashboard's fit column both fold it
 // through modelswap.Size.
-func swapFit(profile detect.HostProfile, cat catalog.Catalog, mem recommend.MemoryInputs, web recommend.WebSearchInputs) func(catalog.Model, config.VillaConfig) modelswap.Fit {
+func swapFit(profile detect.HostProfile, cat catalog.Catalog) func(catalog.Model, config.VillaConfig) modelswap.Fit {
 	return func(m catalog.Model, cfg config.VillaConfig) modelswap.Fit {
 		ctx := cmp.Or(cfg.Ctx, m.DefaultCtx)
 		spec := cmp.Or(cfg.Speculation, config.SpeculationOff)
@@ -362,7 +362,7 @@ func swapFit(profile detect.HostProfile, cat catalog.Catalog, mem recommend.Memo
 			ctx = m.AgentCtx
 		}
 		ov := recommend.Overrides{Model: m.ID, Ctx: ctx, Speculation: spec}
-		rec := recommend.Pick(profile, cat, ov, mem, web)
+		rec := recommend.Pick(profile, cat, ov, recommend.ReservationsFor(cfg))
 		fit := modelswap.Fit{OK: rec.Fits, Vision: rec.Vision, Detail: fitDetail(rec)}
 		if rec.Fits {
 			return fit
@@ -410,9 +410,9 @@ func liveSwapDeps(ctx context.Context) *modelswap.Deps {
 			if err != nil {
 				return modelswap.Fit{Detail: "catalog load failed"}
 			}
-			// Persisted memory inputs (fail-soft): swap fit re-validation must see
-			// the same shrunken envelope the user was recommended.
-			return swapFit(detect.Probe(), cat, liveLoadedMemoryInputs(), liveLoadedWebSearchInputs())(m, cfg)
+			// The reservations come from the cfg being swapped (ADR-0027), so the
+			// fit sees the same shrunken envelope the user was recommended.
+			return swapFit(detect.Probe(), cat)(m, cfg)
 		},
 		IsDownloaded: modelOnDisk,
 		Pull: func(m catalog.Model) error {

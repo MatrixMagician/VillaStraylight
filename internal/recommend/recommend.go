@@ -21,6 +21,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
 	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 	"github.com/MatrixMagician/VillaStraylight/internal/memory"
+	"github.com/MatrixMagician/VillaStraylight/internal/subsystem"
 )
 
 // defaultBackend is the inference backend recommended for gfx1151. ROCm
@@ -52,14 +53,14 @@ func IsROCmFamily(name string) bool {
 // Phase 33/34 (STATE.md unmeasured-ctx blocker). They are the SINGLE home of the
 // reservation-math literals.
 const (
-	// defaultWebTopK is the retrieval top-K fallback when WebSearchInputs.TopK is
+	// defaultWebTopK is the retrieval top-K fallback when webSearchInputs.TopK is
 	// unset (the OWUI RAG_TOP_K default).
 	defaultWebTopK = 3
 	// defaultWebChunkSizeChars is the per-chunk char-size fallback when
-	// WebSearchInputs.ChunkSizeChars is unset (the OWUI CHUNK_SIZE default).
+	// webSearchInputs.ChunkSizeChars is unset (the OWUI CHUNK_SIZE default).
 	defaultWebChunkSizeChars = 1000
 	// defaultWebResultCount is the fetched-result fallback when
-	// WebSearchInputs.ResultCount is unset (the WEB_SEARCH_RESULT_COUNT default).
+	// webSearchInputs.ResultCount is unset (the WEB_SEARCH_RESULT_COUNT default).
 	defaultWebResultCount = 3
 	// webCharsPerTokenX10 is ~3.5 chars/token expressed ×10 (35) for integer-exact
 	// fixed-point division — a conservative (low) chars-per-token over-estimates tokens.
@@ -97,7 +98,8 @@ const (
 // (ADR-0009): the draft sidecar's own reserved weight and KV-at-ctx terms.
 // Bumped 7->8 when the append-only prompt_cache_bytes field landed (ADR-0021):
 // the llama-server prompt cache, counted in the fit as its own term.
-const recommendSchemaVersion = 8
+// Bumped 8->9 when the append-only reservations array landed (ADR-0027).
+const recommendSchemaVersion = 9
 
 // ROCmAdvice is a typed enum surfaced on the Recommendation: an
 // honesty-bounded hint about whether the opt-in ROCm backend is worth a benchmark
@@ -230,9 +232,25 @@ type Recommendation struct {
 	// on a refusal (which has no total).
 	PromptCacheBytes uint64 `json:"prompt_cache_bytes"`
 
+	// Reservations is every auxiliary reservation subtracted from the envelope
+	// before the chat-model fit, in registry order (ADR-0027). Never nil, so the
+	// key is always [] when nothing is reserved. EmbeddingReservationBytes,
+	// WebSearchReservationBytes and MemoryConsidered are derived from it.
+	Reservations []Reservation `json:"reservations"`
+
 	// SchemaVersion is the Recommendation contract self-version and MUST stay the
 	// LAST tagged field (append-only discipline; new fields go above it).
 	SchemaVersion int `json:"schema_version"`
+}
+
+// ReservedBytes is the saturating sum of every reservation, the total Pick took
+// off the envelope. Consumers of the total read it here rather than re-summing.
+func (r Recommendation) ReservedBytes() uint64 {
+	var total uint64
+	for _, res := range r.Reservations {
+		total = addSaturating(total, res.Bytes)
+	}
+	return total
 }
 
 // Alternative is a compact view of another fitting pick.
@@ -291,33 +309,47 @@ func ResolveSpeculation(m catalog.Model, requested string, draftFits bool) (mode
 	}
 }
 
-// MemoryInputs carries the memory-stack inputs Pick reserves BEFORE the
-// chat-model fit. The zero value means memory off — provably
-// byte-identical math to the pre-memory contract. Pure-core rule: callers (the
-// cmd tier) load config and thread these explicitly; Pick never loads config.
-type MemoryInputs struct {
-	// Enabled mirrors the persisted memory_enabled gate. Callers fail SOFT: a
-	// config load error threads the zero value, never an error-path change.
-	Enabled bool
-	// EmbeddingModel is the persisted embedding model id whose footprint is
-	// reserved; an unrecognized id reserves the conservative default.
-	EmbeddingModel string
+// Reservation is memory a service beside the chat model holds off the envelope
+// before the chat-model fit (ADR-0027). Name is the row's stable id in the
+// recommend --json reservations array. Notes are folded into the pick's notes.
+type Reservation struct {
+	Name  string   `json:"name"`
+	Bytes uint64   `json:"bytes"`
+	Notes []string `json:"-"`
 }
 
-// WebSearchInputs carries the web-search RAG inputs Pick reserves BEFORE the
-// chat-model fit, AFTER the embedding reservation. The zero value
-// means web search off — provably byte-identical math to the pre-web-search
-// contract. Pure-core rule: callers (the cmd tier) load config and thread these
-// explicitly; Pick never loads config. Mirrors MemoryInputs exactly.
-type WebSearchInputs struct {
-	// Enabled mirrors the persisted web_search_enabled gate. Callers fail SOFT: a
-	// config load error threads the zero value, never an error-path change.
-	Enabled bool
+// The registry's row names. The legacy per-service keys are derived by name.
+const (
+	reservationEmbedding = "embedding"
+	reservationWebSearch = "web_search"
+)
+
+// ReservationsFor is the reservation registry: one row for each service whose
+// gate is on in cfg, in a fixed order (embedding, then web search). A new service
+// is one row here. It is pure: it reads an already-loaded config and no host, so
+// a config that failed to load (the zero value) reserves nothing.
+func ReservationsFor(cfg config.VillaConfig) []Reservation {
+	var res []Reservation
+	if subsystem.MemoryOn(cfg) {
+		bytes, notes := memoryReservation(cfg.EmbeddingModel)
+		res = append(res, Reservation{Name: reservationEmbedding, Bytes: bytes, Notes: notes})
+	}
+	if subsystem.WebSearchOn(cfg) {
+		bytes, notes := webSearchReservation(webSearchInputs{ResultCount: cfg.WebSearchResultCount})
+		res = append(res, Reservation{Name: reservationWebSearch, Bytes: bytes, Notes: notes})
+	}
+	return res
+}
+
+// webSearchInputs carries the web-search RAG inputs the web-search row is sized
+// from. The gate is answered by ReservationsFor, never here.
+type webSearchInputs struct {
 	// ResultCount is the operator-tunable WEB_SEARCH_RESULT_COUNT — the number of
 	// result pages fetched per query (cfg.WebSearchResultCount).
 	ResultCount int
 	// TopK is the retrieval top-K actually injected into the chat context per query
-	// (OWUI RAG_TOP_K). It, with ChunkSizeChars, drives the reservation math.
+	// (OWUI RAG_TOP_K). It, with ChunkSizeChars, drives the reservation math. It has
+	// no config field, so the registry leaves it zero and the OWUI default applies.
 	TopK int
 	// ChunkSizeChars is the per-chunk character size OWUI chunks fetched pages into
 	// (OWUI CHUNK_SIZE). TopK × ChunkSizeChars chars is the injected payload bound.
@@ -325,40 +357,41 @@ type WebSearchInputs struct {
 }
 
 // Pick selects the single best fitting model for the host, applies and re-
-// validates any overrides, and returns a fully-populated Recommendation. When
-// memory is enabled the embedding-model footprint is reserved off the envelope
-// FIRST so the fit verdict, headroom, OOM guard and UsableEnvelopeBytes
-// all see the shrunken value.
-func Pick(p detect.HostProfile, c catalog.Catalog, ov Overrides, mem MemoryInputs, web WebSearchInputs) Recommendation {
-	reservation, memNotes := memoryReservation(mem)
-	webRes, webNotes := webSearchReservation(web)
+// validates any overrides, and returns a fully-populated Recommendation. Every
+// reservation in res is subtracted from the envelope FIRST, so the fit verdict,
+// headroom, OOM guard and UsableEnvelopeBytes all see the shrunken value. A nil
+// res sizes against the whole envelope.
+func Pick(p detect.HostProfile, c catalog.Catalog, ov Overrides, res []Reservation) Recommendation {
+	var total uint64
+	var notes []string
+	for _, r := range res {
+		total = addSaturating(total, r.Bytes)
+		notes = append(notes, r.Notes...)
+	}
 
 	envelope, degraded, ok := resolveEnvelope(p)
 	if !ok {
 		// No usable envelope and no safe floor derivable — refuse rather than
 		// guess high. Empty Model signals the refusal. The refusal still
-		// stamps both reservations as computed (honest surface)
+		// stamps the reservations as computed (honest surface)
 		// and the conservative-floor coder block (swap requires a
 		// PROVEN fit, so a refusal stamps fits:false / residency:"shared").
 		return finalizeRecommendation(Recommendation{
 			Backend: defaultBackend,
-			Notes:   append(combineNotes(memNotes, webNotes), "refusing to recommend: usable memory envelope is unknown and no safe floor is derivable (neither GTT envelope nor total RAM detected)"),
-		}, p, mem, reservation, webRes, sharedCoderFit())
+			Notes:   append(notes, "refusing to recommend: usable memory envelope is unknown and no safe floor is derivable (neither GTT envelope nor total RAM detected)"),
+		}, p, res, sharedCoderFit())
 	}
 
-	// the envelope shrinks by BOTH reservations BEFORE the
-	// degraded note and BEFORE pickOverride/pickBest. Never wrap a uint64 — the
-	// combined reservation is summed with saturating add (a saturated sum can
-	// never be < envelope), and a total at or above the envelope clamps to 0 and
-	// falls into pickBest's existing no-fit refusal.
-	total := addSaturating(reservation, webRes)
+	// The envelope shrinks by every reservation BEFORE the degraded note and
+	// BEFORE pickOverride/pickBest. Never wrap a uint64 — the total is summed with
+	// saturating add (a saturated sum can never be < envelope), and a total at or
+	// above the envelope clamps to 0 and falls into pickBest's existing no-fit refusal.
 	if total >= envelope {
 		envelope = 0
 	} else {
 		envelope -= total
 	}
 
-	notes := combineNotes(memNotes, webNotes)
 	if degraded {
 		notes = append(notes, fmt.Sprintf(
 			"DEGRADED ESTIMATE: real GTT envelope unknown; sized against a conservative %.0f%%-of-RAM floor (%s). Verify before relying on this pick.",
@@ -372,47 +405,29 @@ func Pick(p detect.HostProfile, c catalog.Catalog, ov Overrides, mem MemoryInput
 
 	// An explicit --model override takes precedence and is re-validated.
 	if ov.Model != "" {
-		return finalizeRecommendation(pickOverride(c, ov, envelope, degraded, notes), p, mem, reservation, webRes, coder)
+		return finalizeRecommendation(pickOverride(c, ov, envelope, degraded, notes), p, res, coder)
 	}
 
-	return finalizeRecommendation(pickBest(c, ov, envelope, degraded, notes), p, mem, reservation, webRes, coder)
+	return finalizeRecommendation(pickBest(c, ov, envelope, degraded, notes), p, res, coder)
 }
 
-// combineNotes concatenates two note slices, preserving the existing degraded-note
-// ordering (memory notes first, then web-search notes) and returning nil when both
-// are empty so the byte-identical-off note shape is preserved.
-func combineNotes(a, b []string) []string {
-	if len(a) == 0 && len(b) == 0 {
-		return nil
-	}
-	out := make([]string, 0, len(a)+len(b))
-	out = append(out, a...)
-	out = append(out, b...)
-	return out
-}
-
-// memoryReservation resolves the embedding reservation from the memory
-// inputs: zero with no notes when memory is off; the pinned footprint when the
-// model id is recognized; the conservative default plus an honest note
+// memoryReservation resolves the embedding reservation for the embedding model
+// id: the pinned footprint when the model id is recognized; the conservative default plus an honest note
 // naming the model when the footprint is typed-Unknown — NEVER a silent 0
 // reservation. The byte value flows only from internal/memory (single source).
-func memoryReservation(mem MemoryInputs) (uint64, []string) {
-	if !mem.Enabled {
-		return 0, nil
-	}
-	fp := memory.Footprint(mem.EmbeddingModel)
+func memoryReservation(model string) (uint64, []string) {
+	fp := memory.Footprint(model)
 	if fp.Known {
 		return fp.Value, nil
 	}
 	reserved := memory.ConservativeFootprintBytes()
 	return reserved, []string{fmt.Sprintf(
 		"RESERVED CONSERVATIVELY: no pinned footprint for embedding model %q — reserving the conservative default %s before the chat-model fit.",
-		mem.EmbeddingModel, humanGiB(reserved))}
+		model, humanGiB(reserved))}
 }
 
 // webSearchReservation resolves the web-search RAG-injection budget from
-// the web inputs: zero with no notes when web search is off (so the off-envelope
-// fit stays byte-identical to v1.4); otherwise a CONSERVATIVE byte reservation
+// the web inputs: a CONSERVATIVE byte reservation
 // derived from the A6 formula, returned with an honest budget note naming it.
 //
 // A6 formula (deliberately conservative — over-reserving is safe; on-hardware
@@ -425,13 +440,9 @@ func memoryReservation(mem MemoryInputs) (uint64, []string) {
 //
 // bytesPerCtxToken is a conservative per-context-token KV-cache byte estimate;
 // safetyFactor pads for chunk-overlap, prompt scaffolding, and estimation error.
-// All terms use TopK/ChunkSizeChars/ResultCount sane fallbacks when zero so an
-// Enabled:true with unset tuning still reserves a non-zero conservative budget.
-func webSearchReservation(web WebSearchInputs) (uint64, []string) {
-	if !web.Enabled {
-		return 0, nil
-	}
-
+// All terms use TopK/ChunkSizeChars/ResultCount sane fallbacks when zero so a
+// row with unset tuning still reserves a non-zero conservative budget.
+func webSearchReservation(web webSearchInputs) (uint64, []string) {
 	// Conservative defaults (the OWUI RAG defaults documented in 31-RESEARCH A6)
 	// when a caller threads an unset (zero) tuning value — never reserve 0 when on.
 	topK := web.TopK
@@ -476,7 +487,7 @@ func webSearchReservation(web WebSearchInputs) (uint64, []string) {
 }
 
 // finalizeRecommendation stamps the additive, contract-level fields onto a
-// fully-computed pick: the unconditional SchemaVersion, the memory fields,
+// fully-computed pick: the unconditional SchemaVersion, the reservation fields,
 // the coder block, and the purely-derived ROCm advice. It runs AFTER
 // Backend is set. It performs no I/O: the advice is folded from p.ROCmReadiness
 // already in hand.
@@ -494,11 +505,18 @@ func webSearchReservation(web WebSearchInputs) (uint64, []string) {
 // including the no-envelope refusal — flows through here, so the memory
 // fields and the coder block are stamped unconditionally (the refusal path
 // passes the conservative-floor block: fits:false / residency:"shared").
-func finalizeRecommendation(rec Recommendation, p detect.HostProfile, mem MemoryInputs, reservation, webRes uint64, coder CoderFit) Recommendation {
+func finalizeRecommendation(rec Recommendation, p detect.HostProfile, res []Reservation, coder CoderFit) Recommendation {
 	rec.SchemaVersion = recommendSchemaVersion
-	rec.EmbeddingReservationBytes = reservation
-	rec.WebSearchReservationBytes = webRes
-	rec.MemoryConsidered = mem.Enabled
+	rec.Reservations = append([]Reservation{}, res...)
+	for _, r := range res {
+		switch r.Name {
+		case reservationEmbedding:
+			rec.EmbeddingReservationBytes = r.Bytes
+			rec.MemoryConsidered = true
+		case reservationWebSearch:
+			rec.WebSearchReservationBytes = r.Bytes
+		}
+	}
 	rec.Coder = coder
 	advice, note := deriveROCmAdvice(p.ROCmReadiness)
 	rec.ROCmAdvice = advice

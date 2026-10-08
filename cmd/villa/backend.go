@@ -22,7 +22,6 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/residency"
 	"github.com/MatrixMagician/VillaStraylight/internal/stackapply"
 	"github.com/MatrixMagician/VillaStraylight/internal/stacklock"
-	"github.com/MatrixMagician/VillaStraylight/internal/subsystem"
 )
 
 // acquireStackLock takes the cross-process advisory lock (ADR-0010), BLOCKING until
@@ -197,8 +196,7 @@ func proveTarget(cfg config.VillaConfig, backend inference.Backend, host detect.
 	if draft {
 		spec = config.SpeculationDraft
 	}
-	rec := recommend.Pick(host, cat, recommend.Overrides{Model: served, Speculation: spec},
-		recommend.MemoryInputs{}, recommend.WebSearchInputs{})
+	rec := recommend.Pick(host, cat, recommend.Overrides{Model: served, Speculation: spec}, nil)
 	return residency.Target{
 		Service:       installServiceName,
 		ModelID:       served,
@@ -428,8 +426,7 @@ func liveBackendSwapDeps() *backendswap.Deps {
 			// `speculation set` gets ResolveSpeculation's refusal for an unqualified
 			// entry back through this gate as a non-fit with the note as the reason.
 			rec := recommend.Pick(detect.Probe(), cat, recommend.Overrides{Model: cfg.Model, Speculation: cfg.Speculation},
-				recommend.MemoryInputs{Enabled: subsystem.MemoryOn(cfg), EmbeddingModel: cfg.EmbeddingModel},
-				webSearchInputsFrom(cfg))
+				recommend.ReservationsFor(cfg))
 			if rec.Fits {
 				return true, ""
 			}

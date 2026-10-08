@@ -150,7 +150,7 @@ func liveInstallDeps(ctx context.Context) (install.Deps, error) {
 			}
 			// The PERSISTED memory inputs shrink the envelope an opted-in install
 			// recommends against.
-			return recommend.Pick(p, cat, ov, liveLoadedMemoryInputs(), liveLoadedWebSearchInputs())
+			return recommend.Pick(p, cat, ov, liveLoadedReservations())
 		},
 		ModelsDir: modelsDir,
 		RunChecks: preflight.RunWithResources,

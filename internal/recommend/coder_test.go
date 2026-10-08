@@ -51,7 +51,7 @@ func TestPickCoderSwapWhenFits(t *testing.T) {
 	entry := coderFitEntry()
 	cat.Models = append(cat.Models, entry)
 
-	rec := Pick(profileWithEnvelope(env), cat, Overrides{}, MemoryInputs{}, WebSearchInputs{})
+	rec := Pick(profileWithEnvelope(env), cat, Overrides{}, nil)
 
 	if rec.Coder.Model != entry.ID {
 		t.Fatalf("Coder.Model = %q, want %q", rec.Coder.Model, entry.ID)
@@ -98,7 +98,7 @@ func TestPickCoderSharedWhenNoneFits(t *testing.T) {
 	oversized.WeightBytes = 200 << 30
 	cat.Models = append(cat.Models, oversized)
 
-	rec := Pick(profileWithEnvelope(env), cat, Overrides{}, MemoryInputs{}, WebSearchInputs{})
+	rec := Pick(profileWithEnvelope(env), cat, Overrides{}, nil)
 
 	if rec.Coder.Fits {
 		t.Errorf("Coder.Fits = true, want false for an oversized-only coder catalog")
@@ -110,7 +110,7 @@ func TestPickCoderSharedWhenNoneFits(t *testing.T) {
 		t.Errorf("Coder.Model = %q, want empty when no coder entry fits", rec.Coder.Model)
 	}
 	// The chat pick must be unaffected by the unfittable coder entry.
-	baseline := Pick(profileWithEnvelope(env), testCatalog(), Overrides{}, MemoryInputs{}, WebSearchInputs{})
+	baseline := Pick(profileWithEnvelope(env), testCatalog(), Overrides{}, nil)
 	if rec.Model != baseline.Model || rec.Model == "" {
 		t.Errorf("chat pick changed by an unfittable coder entry: %q vs baseline %q", rec.Model, baseline.Model)
 	}
@@ -124,8 +124,8 @@ func TestPickCoderFitAtAgentCtxNeverCtxOverride(t *testing.T) {
 	entry := coderFitEntry()
 	cat.Models = append(cat.Models, entry)
 
-	plain := Pick(profileWithEnvelope(env), cat, Overrides{}, MemoryInputs{}, WebSearchInputs{})
-	small := Pick(profileWithEnvelope(env), cat, Overrides{Ctx: 1024}, MemoryInputs{}, WebSearchInputs{})
+	plain := Pick(profileWithEnvelope(env), cat, Overrides{}, nil)
+	small := Pick(profileWithEnvelope(env), cat, Overrides{Ctx: 1024}, nil)
 
 	if small.ContextLen != 1024 {
 		t.Fatalf("chat ContextLen = %d, want the 1024 override applied to the chat pick", small.ContextLen)
@@ -151,8 +151,8 @@ func TestPickCoderFitAtAgentCtxNeverCtxOverride(t *testing.T) {
 // largest fitting footprint (coder-big ≈ 56.4 GiB chat-path total at 64 GiB).
 func TestPickChatBitIdenticalWithCoderEntries(t *testing.T) {
 	const env = uint64(64 << 30)
-	with := Pick(profileWithEnvelope(env), testCatalogWithCoder(), Overrides{}, MemoryInputs{}, WebSearchInputs{})
-	without := Pick(profileWithEnvelope(env), testCatalog(), Overrides{}, MemoryInputs{}, WebSearchInputs{})
+	with := Pick(profileWithEnvelope(env), testCatalogWithCoder(), Overrides{}, nil)
+	without := Pick(profileWithEnvelope(env), testCatalog(), Overrides{}, nil)
 
 	if with.Model == "coder-fit" || with.Model == "coder-big" {
 		t.Fatalf("pickBest selected a role:\"coder\" entry %q for the chat pick", with.Model)
@@ -186,7 +186,7 @@ func TestPickCoderStampedOnRefusal(t *testing.T) {
 		TotalRAMBytes:       detect.UnknownBytes("ram unknown", ""),
 		UsableEnvelopeBytes: detect.UnknownBytes("envelope unknown", ""),
 	}
-	rec := Pick(p, testCatalogWithCoder(), Overrides{}, MemoryInputs{}, WebSearchInputs{})
+	rec := Pick(p, testCatalogWithCoder(), Overrides{}, nil)
 	if rec.Model != "" {
 		t.Fatalf("precondition: expected refusal, got %q", rec.Model)
 	}
@@ -196,8 +196,8 @@ func TestPickCoderStampedOnRefusal(t *testing.T) {
 	if rec.Coder.Residency != "shared" {
 		t.Errorf("refusal Coder.Residency = %q, want \"shared\" (D-06 conservative floor)", rec.Coder.Residency)
 	}
-	if rec.SchemaVersion != 8 {
-		t.Errorf("refusal SchemaVersion = %d, want 8", rec.SchemaVersion)
+	if rec.SchemaVersion != 9 {
+		t.Errorf("refusal SchemaVersion = %d, want 9", rec.SchemaVersion)
 	}
 }
 
@@ -207,7 +207,7 @@ func TestPickCoderStampedOnRefusal(t *testing.T) {
 // entry id and the word "coder" (the unsafe-override precedent).
 func TestPickOverrideCoderEntryWarnsAndAllows(t *testing.T) {
 	const env = uint64(64 << 30)
-	rec := Pick(profileWithEnvelope(env), testCatalogWithCoder(), Overrides{Model: "coder-fit"}, MemoryInputs{}, WebSearchInputs{})
+	rec := Pick(profileWithEnvelope(env), testCatalogWithCoder(), Overrides{Model: "coder-fit"}, nil)
 	if rec.Model != "coder-fit" {
 		t.Fatalf("override of coder entry not honored, got %q", rec.Model)
 	}
@@ -238,14 +238,14 @@ func TestPickCoderUsesPostReservationEnvelope(t *testing.T) {
 	cat.Models = append(cat.Models, tight)
 
 	// Sanity: with memory OFF the tight entry fits the raw envelope → swap.
-	off := Pick(profileWithEnvelope(env), cat, Overrides{}, MemoryInputs{}, WebSearchInputs{})
+	off := Pick(profileWithEnvelope(env), cat, Overrides{}, nil)
 	if off.Coder.Residency != "swap" {
 		t.Fatalf("precondition: memory-off residency = %q, want swap (entry must fit the raw envelope)", off.Coder.Residency)
 	}
 
 	// With memory ON the 512 MiB pinned reservation shrinks the envelope FIRST
 	// and the same entry no longer fits → shared.
-	on := Pick(profileWithEnvelope(env), cat, Overrides{}, MemoryInputs{Enabled: true, EmbeddingModel: "nomic-embed-text-v1.5"}, WebSearchInputs{})
+	on := Pick(profileWithEnvelope(env), cat, Overrides{}, memOn("nomic-embed-text-v1.5"))
 	if on.Coder.Residency != "shared" {
 		t.Errorf("memory-on residency = %q, want shared (coder fit must see the post-reservation envelope)", on.Coder.Residency)
 	}
@@ -266,7 +266,7 @@ func TestPickCoderEligibilityGuards(t *testing.T) {
 		unsafe.ID = "coder-unsafe"
 		unsafe.UnifiedMemorySafe = false
 		cat.Models = append(cat.Models, unsafe)
-		rec := Pick(profileWithEnvelope(env), cat, Overrides{}, MemoryInputs{}, WebSearchInputs{})
+		rec := Pick(profileWithEnvelope(env), cat, Overrides{}, nil)
 		if rec.Coder.Model == "coder-unsafe" {
 			t.Errorf("pickCoder selected a unified_memory_safe:false entry")
 		}
@@ -281,7 +281,7 @@ func TestPickCoderEligibilityGuards(t *testing.T) {
 		floored.ID = "coder-floored"
 		floored.MinEnvelopeBytes = 128 << 30 // above the 64 GiB envelope
 		cat.Models = append(cat.Models, floored)
-		rec := Pick(profileWithEnvelope(env), cat, Overrides{}, MemoryInputs{}, WebSearchInputs{})
+		rec := Pick(profileWithEnvelope(env), cat, Overrides{}, nil)
 		if rec.Coder.Model == "coder-floored" {
 			t.Errorf("pickCoder selected an entry below its declared MinEnvelopeBytes floor")
 		}
@@ -295,7 +295,7 @@ func TestPickCoderEligibilityGuards(t *testing.T) {
 // selects the LARGEST fitting total (the pickBest most-capable rule).
 func TestPickCoderMostCapableWins(t *testing.T) {
 	const env = uint64(64 << 30)
-	rec := Pick(profileWithEnvelope(env), testCatalogWithCoder(), Overrides{}, MemoryInputs{}, WebSearchInputs{})
+	rec := Pick(profileWithEnvelope(env), testCatalogWithCoder(), Overrides{}, nil)
 	// coder-big @ agent ctx: 40 GiB + 6 GiB KV + 7.68 GiB headroom + 8 GiB cache ≈ 61.7 GiB
 	// fits and out-foots coder-fit (≈ 39.7 GiB).
 	if rec.Coder.Model != "coder-big" {

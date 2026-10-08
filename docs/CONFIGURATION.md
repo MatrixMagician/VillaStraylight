@@ -449,7 +449,11 @@ configuration varies per machine are:
   [Managed container environment](#managed-container-environment)), so a 64 GB host
   reserves 8 GiB more than it did before v1.16. `villa recommend --json` reports it
   as `prompt_cache_bytes` (schema 8, appended to the schema 7 draft fields below),
-  and the table prints it as a `+ prompt cache` row.
+  and the table prints it as a `+ prompt cache` row. Before that fit, the envelope
+  shrinks by every reservation for a service beside the chat model: the embedding
+  model when `memory_enabled`, and the injection budget when `web_search_enabled`
+  (ADR-0027). `--json` lists them as `reservations`, an array of `{name, bytes}`
+  (schema 9), and the table prints one `− <name> reservation` row for each.
 - **External catalog override.** `catalog_path` (or `--catalog`) lets a host use a
   curated model list different from the embedded seed.
 

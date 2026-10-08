@@ -57,7 +57,7 @@ func TestPickReservesProjector(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			rec := Pick(p, cat, Overrides{Model: tc.model}, MemoryInputs{}, WebSearchInputs{})
+			rec := Pick(p, cat, Overrides{Model: tc.model}, nil)
 			if rec.Vision != tc.wantVision {
 				t.Errorf("Vision = %v, want %v (notes %v)", rec.Vision, tc.wantVision, rec.Notes)
 			}

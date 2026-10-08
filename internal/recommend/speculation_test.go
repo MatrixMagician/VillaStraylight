@@ -130,7 +130,7 @@ func TestPickResolvesSpeculation(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			rec := Pick(p, cat, tc.ov, MemoryInputs{}, WebSearchInputs{})
+			rec := Pick(p, cat, tc.ov, nil)
 			if rec.Speculation != tc.wantMode {
 				t.Errorf("Speculation = %q, want %q", rec.Speculation, tc.wantMode)
 			}
@@ -148,7 +148,7 @@ func TestPickResolvesSpeculation(t *testing.T) {
 // speculation mode either: there is no entry whose qualification could have
 // resolved one.
 func TestRefusalLeavesSpeculationUnset(t *testing.T) {
-	rec := Pick(profileWithEnvelope(1<<30), speculationCatalog(), Overrides{}, MemoryInputs{}, WebSearchInputs{})
+	rec := Pick(profileWithEnvelope(1<<30), speculationCatalog(), Overrides{}, nil)
 	if rec.Model != "" {
 		t.Fatalf("expected a refusal, got a pick of %q", rec.Model)
 	}
@@ -163,7 +163,7 @@ func TestRefusalLeavesSpeculationUnset(t *testing.T) {
 // a false memory warning sends the operator to shrink a ctx that was never the
 // problem (#146).
 func TestSpeculationRefusalIsNotAnOOMWarning(t *testing.T) {
-	rec := Pick(profileWithEnvelope(64<<30), speculationCatalog(), Overrides{Model: "unqualified", Speculation: "ngram"}, MemoryInputs{}, WebSearchInputs{})
+	rec := Pick(profileWithEnvelope(64<<30), speculationCatalog(), Overrides{Model: "unqualified", Speculation: "ngram"}, nil)
 	if rec.Fits {
 		t.Fatalf("expected Fits=false for the speculation refusal, notes %v", rec.Notes)
 	}

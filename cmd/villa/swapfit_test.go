@@ -6,7 +6,6 @@ import (
 
 	"github.com/MatrixMagician/VillaStraylight/internal/catalog"
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
-	"github.com/MatrixMagician/VillaStraylight/internal/recommend"
 )
 
 // TestSwapFitSizesTheServedCtx (#301): the swap's fit sizes the target the way the
@@ -18,7 +17,7 @@ func TestSwapFitSizesTheServedCtx(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fit := swapFit(fixtureProfile(), cat, recommend.MemoryInputs{}, recommend.WebSearchInputs{})
+	fit := swapFit(fixtureProfile(), cat)
 	model := func(id string) catalog.Model {
 		m, ok := cat.FindByID(id)
 		if !ok {
@@ -74,7 +73,7 @@ func TestSwapFitDraftDroppedForMemoryIsAShortfall(t *testing.T) {
 		}
 	}
 	m, _ := cat.FindByID("qwen3.8-27b")
-	got := swapFit(fixtureProfile(), cat, recommend.MemoryInputs{}, recommend.WebSearchInputs{})(m,
+	got := swapFit(fixtureProfile(), cat)(m,
 		config.VillaConfig{Ctx: 4096, Speculation: config.SpeculationDraft})
 	if got.OK || !got.OverEnvelope {
 		t.Fatalf("fit OK=%v OverEnvelope=%v (%q), want a shortfall", got.OK, got.OverEnvelope, got.Detail)
@@ -93,7 +92,7 @@ func TestSwapFitSharedCodingModeServesAtTheAgentCtx(t *testing.T) {
 		t.Fatal(err)
 	}
 	m, _ := cat.FindByID("qwen3.6-35b-a3b")
-	got := swapFit(fixtureProfile(), cat, recommend.MemoryInputs{}, recommend.WebSearchInputs{})(m,
+	got := swapFit(fixtureProfile(), cat)(m,
 		config.VillaConfig{Ctx: 4096, CodingMode: true, CoderAgentCtx: 65536})
 	if !got.OK || !strings.HasSuffix(got.Detail, "at 65536 context.") {
 		t.Errorf("fit OK=%v detail %q, want a fit at 65536 context", got.OK, got.Detail)
@@ -110,7 +109,7 @@ func TestSwapFitSharedCodingModeKeepsSpeculationOff(t *testing.T) {
 		t.Fatal(err)
 	}
 	m, _ := cat.FindByID("qwen3.8-27b")
-	fit := swapFit(fixtureProfile(), cat, recommend.MemoryInputs{}, recommend.WebSearchInputs{})
+	fit := swapFit(fixtureProfile(), cat)
 	plain := fit(m, config.VillaConfig{Ctx: 8192})
 	coding := fit(m, config.VillaConfig{Ctx: 4096, CodingMode: true, CoderAgentCtx: 8192})
 	if !plain.OK || coding.Detail != plain.Detail {

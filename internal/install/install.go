@@ -218,14 +218,14 @@ type Fit struct {
 
 // ResourceFit derives the concrete resource requirement from the recommendation.
 //
-// The embedding reservation is included in the memory floor rather than checked
-// separately, so the gate reflects what will actually be resident. It is zero when
-// memory is off, which leaves the memory-off gate unchanged. The same holds for the
-// llama-server prompt cache (ADR-0021), which is rendered on every chat unit.
+// Every reservation (ADR-0027) is included in the memory floor rather than checked
+// separately, so the gate reflects what will actually be resident. With nothing
+// reserved the floor is the chat model alone. The llama-server prompt cache
+// (ADR-0021), rendered on every chat unit, is counted the same way.
 func ResourceFit(rec recommend.Recommendation) Fit {
 	return Fit{
 		MinDiskBytes: rec.WeightBytes,
-		MinMemBytes:  rec.WeightBytes + rec.KVCacheBytes + rec.HeadroomBytes + rec.PromptCacheBytes + rec.EmbeddingReservationBytes,
+		MinMemBytes:  rec.WeightBytes + rec.KVCacheBytes + rec.HeadroomBytes + rec.PromptCacheBytes + rec.ReservedBytes(),
 	}
 }
 

@@ -84,7 +84,7 @@ func TestPickReservesDraft(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			rec := Pick(p, cat, Overrides{Model: tc.model}, MemoryInputs{}, WebSearchInputs{})
+			rec := Pick(p, cat, Overrides{Model: tc.model}, nil)
 			if rec.Speculation != tc.wantMode {
 				t.Errorf("Speculation = %q, want %q (notes %v)", rec.Speculation, tc.wantMode, rec.Notes)
 			}
@@ -126,7 +126,7 @@ func TestPickReservesProjectorBeforeDraft(t *testing.T) {
 	// Room for weight+KV+headroom+projector, but not also the draft's weight+KV.
 	m, _ := cat.FindByID("projector-and-draft")
 	rec := Pick(profileWithEnvelope(m.WeightBytes+kvCacheBytes(m, m.DefaultCtx)+headroomBytes(64<<30)+inference.PromptCacheBytes+m.Projector.WeightBytes+1<<20),
-		cat, Overrides{Model: "projector-and-draft"}, MemoryInputs{}, WebSearchInputs{})
+		cat, Overrides{Model: "projector-and-draft"}, nil)
 
 	if !rec.Vision || rec.ProjectorBytes == 0 {
 		t.Fatalf("expected the projector to be reserved, got Vision=%v ProjectorBytes=%d (notes %v)", rec.Vision, rec.ProjectorBytes, rec.Notes)
@@ -167,7 +167,7 @@ func TestPickExplicitDraftRefusesWhenNotQualified(t *testing.T) {
 				m.Draft = nil
 				c.Models = append([]catalog.Model{m}, c.Models[1:]...)
 			}
-			rec := Pick(p, c, Overrides{Model: tc.model, Speculation: "draft"}, MemoryInputs{}, WebSearchInputs{})
+			rec := Pick(p, c, Overrides{Model: tc.model, Speculation: "draft"}, nil)
 			if rec.Fits {
 				t.Fatalf("Fits = true, want false (a refused speculation request must not fit)")
 			}
@@ -194,7 +194,7 @@ func TestPickReservesDraftOnlyWhenDraftIsTheMode(t *testing.T) {
 			m, _ := cat.FindByID("draft-fits")
 			m.NgramSafe, m.NgramProvenance = true, "gfx1151, test"
 			cat.Models[0] = m
-			rec := Pick(p, cat, Overrides{Model: "draft-fits", Speculation: requested}, MemoryInputs{}, WebSearchInputs{})
+			rec := Pick(p, cat, Overrides{Model: "draft-fits", Speculation: requested}, nil)
 			if rec.Speculation != requested {
 				t.Fatalf("Speculation = %q, want %q (notes %v)", rec.Speculation, requested, rec.Notes)
 			}

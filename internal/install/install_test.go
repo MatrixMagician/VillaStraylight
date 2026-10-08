@@ -273,29 +273,34 @@ func TestUnusableRecommendationIsRefused(t *testing.T) {
 	}
 }
 
-// TestResourceFitIncludesTheEmbeddingReservation: the memory floor must reflect what
-// will actually be resident. Omitting the embedding reservation would gate a
-// memory-on install against a floor smaller than the stack it is about to start.
-func TestResourceFitIncludesTheEmbeddingReservation(t *testing.T) {
+// TestResourceFitIncludesEveryReservation: the memory floor must reflect what
+// will actually be resident, so it counts every row of the reservation registry
+// (ADR-0027). Before the registry it counted the embedding row and not the
+// web-search one, which gated a search-on install against a floor smaller than
+// the fit had reserved.
+func TestResourceFitIncludesEveryReservation(t *testing.T) {
 	rec := fit()
 	rec.KVCacheBytes = 2 << 30
 	rec.HeadroomBytes = 1 << 30
-	rec.EmbeddingReservationBytes = 512 << 20
+	rec.Reservations = []recommend.Reservation{
+		{Name: "embedding", Bytes: 512 << 20},
+		{Name: "web_search", Bytes: 6 << 20},
+	}
 
 	got := ResourceFit(rec)
-	want := rec.WeightBytes + rec.KVCacheBytes + rec.HeadroomBytes + rec.EmbeddingReservationBytes
+	want := rec.WeightBytes + rec.KVCacheBytes + rec.HeadroomBytes + 512<<20 + 6<<20
 	if got.MinMemBytes != want {
-		t.Errorf("MinMemBytes = %d, want %d (weights + KV + headroom + embedding)", got.MinMemBytes, want)
+		t.Errorf("MinMemBytes = %d, want %d (weights + KV + headroom + every reservation)", got.MinMemBytes, want)
 	}
 	if got.MinDiskBytes != rec.WeightBytes {
 		t.Errorf("MinDiskBytes = %d, want the weight footprint %d", got.MinDiskBytes, rec.WeightBytes)
 	}
 
-	// Memory off: the reservation is zero, so the memory-off gate is unchanged.
-	rec.EmbeddingReservationBytes = 0
+	// Nothing reserved: the gate is weights + KV + headroom, as before reservations.
+	rec.Reservations = nil
 	off := ResourceFit(rec)
 	if off.MinMemBytes != rec.WeightBytes+rec.KVCacheBytes+rec.HeadroomBytes {
-		t.Errorf("a memory-off fit must not reserve embedding bytes, got %d", off.MinMemBytes)
+		t.Errorf("a fit with no reservations must not reserve bytes, got %d", off.MinMemBytes)
 	}
 }
 

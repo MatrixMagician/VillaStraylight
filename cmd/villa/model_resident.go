@@ -775,7 +775,7 @@ func liveResidentDeps(ctx context.Context) *residentDeps {
 			// The override path re-validates the named model against the detected
 			// envelope, threading the persisted memory/web-search reservations so a
 			// resident slot is sized against the same shrunken envelope the primary was.
-			return recommend.Pick(detect.Probe(), cat, recommend.Overrides{Model: m.ID, Ctx: ctx}, liveLoadedMemoryInputs(), liveLoadedWebSearchInputs())
+			return recommend.Pick(detect.Probe(), cat, recommend.Overrides{Model: m.ID, Ctx: ctx}, liveLoadedReservations())
 		},
 		primaryPort: inference.ServerPort,
 		isDownloaded: func(m catalog.Model) bool {

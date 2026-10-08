@@ -338,9 +338,8 @@ func liveModelsView() ([]dashboard.ModelView, bool) {
 	// Memory inputs from the fail-soft cfg load above: the dashboard's
 	// per-model fit column reflects the same shrunken envelope recommend uses
 	// (a load error left cfg zero-valued — memory off).
-	mem := recommend.MemoryInputs{Enabled: cfg.MemoryEnabled, EmbeddingModel: cfg.EmbeddingModel}
 	views := make([]dashboard.ModelView, 0, len(cat.Models))
-	fits := swapFit(profile, cat, mem, webSearchInputsFrom(cfg))
+	fits := swapFit(profile, cat)
 	for _, m := range cat.Models {
 		// The same fit and ctx rule a switch to this entry would run (#301), so the
 		// column shows what the switch would do.

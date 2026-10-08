@@ -67,7 +67,7 @@ func TestPickMultiEnvelopeFitAndOOMGuard(t *testing.T) {
 	}
 	for _, e := range envelopes {
 		t.Run(e.name, func(t *testing.T) {
-			rec := Pick(profileWithEnvelope(e.env), cat, Overrides{}, MemoryInputs{}, WebSearchInputs{})
+			rec := Pick(profileWithEnvelope(e.env), cat, Overrides{}, nil)
 			if rec.Model == "" {
 				t.Fatalf("env %s: expected a pick, got refusal: %v", e.name, rec.Notes)
 			}
@@ -112,7 +112,7 @@ func TestPickRanksByWeightNotFootprint(t *testing.T) {
 			},
 		},
 	}
-	rec := Pick(profileWithEnvelope(124<<30), cat, Overrides{}, MemoryInputs{}, WebSearchInputs{})
+	rec := Pick(profileWithEnvelope(124<<30), cat, Overrides{}, nil)
 	if rec.Model != "heavier-weights" {
 		t.Fatalf("Pick chose %q, want heavier-weights (a frugal KV geometry must not demote the larger model)", rec.Model)
 	}
@@ -139,13 +139,13 @@ func TestPickHonorsMinEnvelopeFloor(t *testing.T) {
 			},
 		},
 	}
-	rec := Pick(profileWithEnvelope(20<<30), cat, Overrides{}, MemoryInputs{}, WebSearchInputs{})
+	rec := Pick(profileWithEnvelope(20<<30), cat, Overrides{}, nil)
 	if rec.Model == "needs-big-envelope" {
 		t.Errorf("Pick auto-selected a model below its declared MinEnvelopeBytes floor")
 	}
 
 	// With a host that clears the floor, the same model becomes eligible.
-	rec = Pick(profileWithEnvelope(60<<30), cat, Overrides{}, MemoryInputs{}, WebSearchInputs{})
+	rec = Pick(profileWithEnvelope(60<<30), cat, Overrides{}, nil)
 	if rec.Model != "needs-big-envelope" {
 		t.Errorf("model clearing its MinEnvelopeBytes floor should be selectable, got %q (%v)", rec.Model, rec.Notes)
 	}
@@ -156,7 +156,7 @@ func TestPickHonorsMinEnvelopeFloor(t *testing.T) {
 func TestPickNeverAutoSelectsUnsafe(t *testing.T) {
 	// A tiny envelope where only the 2GiB unsafe model and 4GiB tiny could
 	// physically fit; the unsafe one must not be chosen.
-	rec := Pick(profileWithEnvelope(10<<30), testCatalog(), Overrides{}, MemoryInputs{}, WebSearchInputs{})
+	rec := Pick(profileWithEnvelope(10<<30), testCatalog(), Overrides{}, nil)
 	if rec.Model == "unsafe-but-tiny" {
 		t.Errorf("Pick auto-selected a unified_memory_safe:false model")
 	}
@@ -165,7 +165,7 @@ func TestPickNeverAutoSelectsUnsafe(t *testing.T) {
 // TestPickNeverAutoSelectsBootstrap asserts the bootstrap entry is carried but
 // never auto-selected.
 func TestPickNeverAutoSelectsBootstrap(t *testing.T) {
-	rec := Pick(profileWithEnvelope(200<<30), testCatalog(), Overrides{}, MemoryInputs{}, WebSearchInputs{})
+	rec := Pick(profileWithEnvelope(200<<30), testCatalog(), Overrides{}, nil)
 	if rec.Model == "bootstrap" {
 		t.Errorf("Pick auto-selected the bootstrap entry")
 	}
@@ -174,7 +174,7 @@ func TestPickNeverAutoSelectsBootstrap(t *testing.T) {
 // TestOverrideUnsafeAllowedWithWarning asserts a --model override of an unsafe
 // entry is allowed but adds a loud warning Note.
 func TestOverrideUnsafeAllowedWithWarning(t *testing.T) {
-	rec := Pick(profileWithEnvelope(64<<30), testCatalog(), Overrides{Model: "unsafe-but-tiny"}, MemoryInputs{}, WebSearchInputs{})
+	rec := Pick(profileWithEnvelope(64<<30), testCatalog(), Overrides{Model: "unsafe-but-tiny"}, nil)
 	if rec.Model != "unsafe-but-tiny" {
 		t.Fatalf("override of unsafe model not honored, got %q", rec.Model)
 	}
@@ -186,7 +186,7 @@ func TestOverrideUnsafeAllowedWithWarning(t *testing.T) {
 // TestOverrideHugeCtxRevalidatedAndFails asserts an override that breaks the fit
 // sets Fits=false with a warning Note.
 func TestOverrideHugeCtxRevalidatedAndFails(t *testing.T) {
-	rec := Pick(profileWithEnvelope(64<<30), testCatalog(), Overrides{Model: "large", Ctx: 100_000_000}, MemoryInputs{}, WebSearchInputs{})
+	rec := Pick(profileWithEnvelope(64<<30), testCatalog(), Overrides{Model: "large", Ctx: 100_000_000}, nil)
 	if rec.Model != "large" {
 		t.Fatalf("override model not honored, got %q", rec.Model)
 	}
@@ -207,7 +207,7 @@ func TestOverrideHugeCtxRevalidatedAndFails(t *testing.T) {
 // the "never a silent OOM" guard. ctx=2^50 makes the naive product wrap (the
 // test catalog's mid multiplier is 196,608); the saturating math pins MaxUint64.
 func TestOverrideAbsurdCtxNeverWrapsToFit(t *testing.T) {
-	rec := Pick(profileWithEnvelope(64<<30), testCatalog(), Overrides{Model: "mid", Ctx: 1 << 50}, MemoryInputs{}, WebSearchInputs{})
+	rec := Pick(profileWithEnvelope(64<<30), testCatalog(), Overrides{Model: "mid", Ctx: 1 << 50}, nil)
 	if rec.Model != "mid" {
 		t.Fatalf("override model not honored, got %q", rec.Model)
 	}
@@ -229,7 +229,7 @@ func TestDegradedFloorWhenEnvelopeUnknown(t *testing.T) {
 		TotalRAMBytes:       detect.KnownBytes(128<<30, "/proc/meminfo:MemTotal"),
 		UsableEnvelopeBytes: detect.UnknownBytes("envelope unreadable", ""),
 	}
-	rec := Pick(p, testCatalog(), Overrides{}, MemoryInputs{}, WebSearchInputs{})
+	rec := Pick(p, testCatalog(), Overrides{}, nil)
 	if !rec.Degraded {
 		t.Errorf("expected Degraded=true on Unknown envelope")
 	}
@@ -251,7 +251,7 @@ func TestRefusalWhenNoFloor(t *testing.T) {
 		TotalRAMBytes:       detect.UnknownBytes("ram unknown", ""),
 		UsableEnvelopeBytes: detect.UnknownBytes("envelope unknown", ""),
 	}
-	rec := Pick(p, testCatalog(), Overrides{}, MemoryInputs{}, WebSearchInputs{})
+	rec := Pick(p, testCatalog(), Overrides{}, nil)
 	if rec.Model != "" {
 		t.Errorf("expected refusal (empty Model), got %q", rec.Model)
 	}
@@ -311,7 +311,7 @@ func TestPickROCmAdviceDerivation(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			p := profileWithEnvelope(64 << 30)
 			p.ROCmReadiness = c.readiness
-			rec := Pick(p, testCatalog(), Overrides{}, MemoryInputs{}, WebSearchInputs{})
+			rec := Pick(p, testCatalog(), Overrides{}, nil)
 
 			if rec.ROCmAdvice != c.wantAdvice {
 				t.Errorf("ROCmAdvice = %q, want %q", rec.ROCmAdvice, c.wantAdvice)
@@ -355,7 +355,7 @@ func TestPickROCmAdviceDerivation(t *testing.T) {
 func TestPickROCmAdviceNoteHonorsHonesty(t *testing.T) {
 	p := profileWithEnvelope(64 << 30)
 	p.ROCmReadiness = readinessAllGood()
-	rec := Pick(p, testCatalog(), Overrides{}, MemoryInputs{}, WebSearchInputs{})
+	rec := Pick(p, testCatalog(), Overrides{}, nil)
 
 	if rec.ROCmAdvice != ROCmAdviceWorthTrying {
 		t.Fatalf("precondition: ROCmAdvice = %q, want worth-trying", rec.ROCmAdvice)
@@ -380,7 +380,7 @@ func TestPickROCmAdviceNoteHonorsHonesty(t *testing.T) {
 // signal must NEVER trigger the confidently-not-ready vulkan fallback — no false red).
 func TestPickROCmAdviceEmptyWhenReadinessUnset(t *testing.T) {
 	p := profileWithEnvelope(64 << 30) // default ROCmReadiness: all fields zero/unset
-	rec := Pick(p, testCatalog(), Overrides{}, MemoryInputs{}, WebSearchInputs{})
+	rec := Pick(p, testCatalog(), Overrides{}, nil)
 	if rec.ROCmAdvice != ROCmAdviceVerifyBench {
 		t.Errorf("off-hardware ROCmAdvice = %q, want verify-with-bench", rec.ROCmAdvice)
 	}
@@ -390,7 +390,7 @@ func TestPickROCmAdviceEmptyWhenReadinessUnset(t *testing.T) {
 }
 
 // TestPickMemoryReservation is the reservation matrix: memory off
-// (zero-value MemoryInputs) leaves the math byte-identical with zero/false new
+// (no reservations) leaves the math byte-identical with zero/false new
 // fields; a pinned embedding model shrinks the envelope BEFORE the fit by exactly
 // its footprint; an unrecognized model id reserves the conservative default with
 // an honest "RESERVED CONSERVATIVELY" note naming the model (never a silent 0);
@@ -403,7 +403,7 @@ func TestPickMemoryReservation(t *testing.T) {
 	cat := testCatalog()
 
 	t.Run("memory off: zero-value inputs leave envelope untouched, fields zero/false", func(t *testing.T) {
-		rec := Pick(profileWithEnvelope(env), cat, Overrides{}, MemoryInputs{}, WebSearchInputs{})
+		rec := Pick(profileWithEnvelope(env), cat, Overrides{}, nil)
 		if rec.UsableEnvelopeBytes != env {
 			t.Errorf("UsableEnvelopeBytes = %d, want untouched %d (memory off must be byte-identical math)", rec.UsableEnvelopeBytes, env)
 		}
@@ -413,8 +413,8 @@ func TestPickMemoryReservation(t *testing.T) {
 		if rec.MemoryConsidered {
 			t.Errorf("MemoryConsidered = true, want false when memory is off")
 		}
-		if rec.SchemaVersion != 8 {
-			t.Errorf("SchemaVersion = %d, want 8 (the prompt cache bump)", rec.SchemaVersion)
+		if rec.SchemaVersion != 9 {
+			t.Errorf("SchemaVersion = %d, want 9 (the reservations array bump)", rec.SchemaVersion)
 		}
 		if hasNote(rec.Notes, "RESERVED CONSERVATIVELY") {
 			t.Errorf("memory-off pick must carry no D-02 note, got %v", rec.Notes)
@@ -422,8 +422,8 @@ func TestPickMemoryReservation(t *testing.T) {
 	})
 
 	t.Run("pinned model shrinks envelope by exactly the pinned footprint", func(t *testing.T) {
-		mem := MemoryInputs{Enabled: true, EmbeddingModel: pinnedModel}
-		rec := Pick(profileWithEnvelope(env), cat, Overrides{}, mem, WebSearchInputs{})
+		mem := memOn(pinnedModel)
+		rec := Pick(profileWithEnvelope(env), cat, Overrides{}, mem)
 		if want := env - pinnedFootprint; rec.UsableEnvelopeBytes != want {
 			t.Errorf("UsableEnvelopeBytes = %d, want envelope−footprint %d (envelope shrinks FIRST)", rec.UsableEnvelopeBytes, want)
 		}
@@ -446,8 +446,8 @@ func TestPickMemoryReservation(t *testing.T) {
 	})
 
 	t.Run("unrecognized model reserves the conservative default with an honest note", func(t *testing.T) {
-		mem := MemoryInputs{Enabled: true, EmbeddingModel: "mystery-embedder"}
-		rec := Pick(profileWithEnvelope(env), cat, Overrides{}, mem, WebSearchInputs{})
+		mem := memOn("mystery-embedder")
+		rec := Pick(profileWithEnvelope(env), cat, Overrides{}, mem)
 		if want := memory.ConservativeFootprintBytes(); rec.EmbeddingReservationBytes != want {
 			t.Errorf("EmbeddingReservationBytes = %d, want conservative default %d (D-02 — never a silent 0)", rec.EmbeddingReservationBytes, want)
 		}
@@ -463,8 +463,8 @@ func TestPickMemoryReservation(t *testing.T) {
 	})
 
 	t.Run("reservation >= envelope clamps to 0 and refuses honestly (no wraparound)", func(t *testing.T) {
-		mem := MemoryInputs{Enabled: true, EmbeddingModel: pinnedModel}
-		rec := Pick(profileWithEnvelope(256<<20), cat, Overrides{}, mem, WebSearchInputs{}) // 256 MiB < 512 MiB reservation
+		mem := memOn(pinnedModel)
+		rec := Pick(profileWithEnvelope(256<<20), cat, Overrides{}, mem) // 256 MiB < 512 MiB reservation
 		if rec.Model != "" {
 			t.Errorf("expected the no-fit refusal (empty Model), got %q", rec.Model)
 		}
@@ -484,24 +484,14 @@ func TestPickMemoryReservation(t *testing.T) {
 }
 
 // TestWebSearchReservation is the web-search reservation unit matrix
-// for the webSearchReservation helper (mirrors memoryReservation): off →
-// (0, nil) so the off-envelope fit is byte-identical to v1.4; on → a non-zero
+// for the webSearchReservation helper (mirrors memoryReservation): a non-zero
 // conservative byte value derived from the A6 formula
 // (TopK × ChunkSizeChars ÷ ~3.5 chars/token × safety factor + citation overhead)
 // returned with an honest budget note.
 func TestWebSearchReservation(t *testing.T) {
-	t.Run("disabled returns (0, nil) — byte-identical-off", func(t *testing.T) {
-		got, notes := webSearchReservation(WebSearchInputs{Enabled: false, ResultCount: 3, TopK: 3, ChunkSizeChars: 1000})
-		if got != 0 {
-			t.Errorf("webSearchReservation(off) = %d, want 0", got)
-		}
-		if notes != nil {
-			t.Errorf("webSearchReservation(off) notes = %v, want nil", notes)
-		}
-	})
 
 	t.Run("enabled returns a non-zero conservative reservation with an honest note", func(t *testing.T) {
-		web := WebSearchInputs{Enabled: true, ResultCount: 3, TopK: 3, ChunkSizeChars: 1000}
+		web := webSearchInputs{ResultCount: 3, TopK: 3, ChunkSizeChars: 1000}
 		got, notes := webSearchReservation(web)
 		if got == 0 {
 			t.Fatalf("webSearchReservation(on) = 0, want a non-zero conservative reservation")
@@ -522,8 +512,8 @@ func TestWebSearchReservation(t *testing.T) {
 	})
 
 	t.Run("scales with TopK and chunk size", func(t *testing.T) {
-		small, _ := webSearchReservation(WebSearchInputs{Enabled: true, TopK: 3, ChunkSizeChars: 1000})
-		big, _ := webSearchReservation(WebSearchInputs{Enabled: true, TopK: 6, ChunkSizeChars: 2000})
+		small, _ := webSearchReservation(webSearchInputs{TopK: 3, ChunkSizeChars: 1000})
+		big, _ := webSearchReservation(webSearchInputs{TopK: 6, ChunkSizeChars: 2000})
 		if big <= small {
 			t.Errorf("reservation must grow with TopK×ChunkSizeChars: small=%d big=%d", small, big)
 		}
@@ -535,7 +525,7 @@ func TestWebSearchReservation(t *testing.T) {
 		// (TopK 3 × 1000-char chunks, 3 results) a change to any reservation constant
 		// (webCharsPerTokenX10 / webCitationTokensPerResult / webBytesPerCtxToken /
 		// webSafetyFactorX10) shifts the subtracted envelope and could flip a fit verdict.
-		got, _ := webSearchReservation(WebSearchInputs{Enabled: true, TopK: 3, ChunkSizeChars: 1000, ResultCount: 3})
+		got, _ := webSearchReservation(webSearchInputs{TopK: 3, ChunkSizeChars: 1000, ResultCount: 3})
 		// (⌊(3×1000×10)/35⌋ + 3×64) × 4096 × 15 / 10 = (857 + 192) × 4096 × 15 / 10
 		const want = 6_445_056
 		if got != want {
@@ -546,13 +536,13 @@ func TestWebSearchReservation(t *testing.T) {
 	t.Run("pathological hand-edited tuning is clamped, never wraps to a small under-reservation", func(t *testing.T) {
 		// A value near the uint64-overflow band (~4.7e13) must NOT wrap small; the clamp caps
 		// the reservation at the maxWeb* ceiling — always >= a sane at-max reservation.
-		atMax, _ := webSearchReservation(WebSearchInputs{Enabled: true, TopK: maxWebTopK, ChunkSizeChars: maxWebChunkSizeChars, ResultCount: maxWebResultCount})
-		pathological, _ := webSearchReservation(WebSearchInputs{Enabled: true, TopK: 1 << 40, ChunkSizeChars: 1 << 40, ResultCount: 1 << 40})
+		atMax, _ := webSearchReservation(webSearchInputs{TopK: maxWebTopK, ChunkSizeChars: maxWebChunkSizeChars, ResultCount: maxWebResultCount})
+		pathological, _ := webSearchReservation(webSearchInputs{TopK: 1 << 40, ChunkSizeChars: 1 << 40, ResultCount: 1 << 40})
 		if pathological != atMax {
 			t.Errorf("pathological tuning must clamp to the at-max reservation: got %d, want %d (clamp prevents uint64 wrap)", pathological, atMax)
 		}
 		// And the at-max reservation is large (over-reserve), not a wrapped-small value.
-		normal, _ := webSearchReservation(WebSearchInputs{Enabled: true, TopK: 3, ChunkSizeChars: 1000, ResultCount: 3})
+		normal, _ := webSearchReservation(webSearchInputs{TopK: 3, ChunkSizeChars: 1000, ResultCount: 3})
 		if pathological < normal {
 			t.Errorf("clamped reservation %d < normal %d — indicates an overflow wrap", pathological, normal)
 		}
@@ -570,22 +560,22 @@ func TestPickWebSearchReservation(t *testing.T) {
 	cat := testCatalog()
 
 	t.Run("web off: zero-value inputs leave envelope untouched, field zero", func(t *testing.T) {
-		rec := Pick(profileWithEnvelope(env), cat, Overrides{}, MemoryInputs{}, WebSearchInputs{})
+		rec := Pick(profileWithEnvelope(env), cat, Overrides{}, nil)
 		if rec.UsableEnvelopeBytes != env {
 			t.Errorf("UsableEnvelopeBytes = %d, want untouched %d (web off must be byte-identical math)", rec.UsableEnvelopeBytes, env)
 		}
 		if rec.WebSearchReservationBytes != 0 {
 			t.Errorf("WebSearchReservationBytes = %d, want 0 when web search is off", rec.WebSearchReservationBytes)
 		}
-		if rec.SchemaVersion != 8 {
-			t.Errorf("SchemaVersion = %d, want 8 (the prompt cache bump)", rec.SchemaVersion)
+		if rec.SchemaVersion != 9 {
+			t.Errorf("SchemaVersion = %d, want 9 (the reservations array bump)", rec.SchemaVersion)
 		}
 	})
 
 	t.Run("web on shrinks the envelope by exactly the web reservation", func(t *testing.T) {
-		web := WebSearchInputs{Enabled: true, ResultCount: 3, TopK: 3, ChunkSizeChars: 1000}
+		web := webSearchInputs{ResultCount: 3, TopK: 3, ChunkSizeChars: 1000}
 		wantRes, _ := webSearchReservation(web)
-		rec := Pick(profileWithEnvelope(env), cat, Overrides{}, MemoryInputs{}, web)
+		rec := Pick(profileWithEnvelope(env), cat, Overrides{}, webOn(web))
 		if want := env - wantRes; rec.UsableEnvelopeBytes != want {
 			t.Errorf("UsableEnvelopeBytes = %d, want envelope−webRes %d (envelope shrinks FIRST)", rec.UsableEnvelopeBytes, want)
 		}
@@ -601,11 +591,11 @@ func TestPickWebSearchReservation(t *testing.T) {
 	})
 
 	t.Run("memory AND web both shrink the envelope before the fit", func(t *testing.T) {
-		mem := MemoryInputs{Enabled: true, EmbeddingModel: "nomic-embed-text-v1.5"}
-		web := WebSearchInputs{Enabled: true, ResultCount: 3, TopK: 3, ChunkSizeChars: 1000}
-		memRes, _ := memoryReservation(mem)
+		mem := memOn("nomic-embed-text-v1.5")
+		web := webSearchInputs{ResultCount: 3, TopK: 3, ChunkSizeChars: 1000}
+		memRes := mem[0].Bytes
 		webRes, _ := webSearchReservation(web)
-		rec := Pick(profileWithEnvelope(env), cat, Overrides{}, mem, web)
+		rec := Pick(profileWithEnvelope(env), cat, Overrides{}, append(mem, webOn(web)...))
 		if want := env - memRes - webRes; rec.UsableEnvelopeBytes != want {
 			t.Errorf("UsableEnvelopeBytes = %d, want envelope−memRes−webRes %d (both reservations shrink the envelope)", rec.UsableEnvelopeBytes, want)
 		}
@@ -619,12 +609,12 @@ func TestPickWebSearchReservation(t *testing.T) {
 
 	t.Run("combined reservation >= envelope clamps to 0 and refuses (no wraparound)", func(t *testing.T) {
 		// A tiny envelope below the combined reservation forces the clamp.
-		mem := MemoryInputs{Enabled: true, EmbeddingModel: "nomic-embed-text-v1.5"}
-		web := WebSearchInputs{Enabled: true, TopK: 3, ChunkSizeChars: 1000}
+		mem := memOn("nomic-embed-text-v1.5")
+		web := webSearchInputs{TopK: 3, ChunkSizeChars: 1000}
 		webRes, _ := webSearchReservation(web)
-		memRes, _ := memoryReservation(mem)
+		memRes := mem[0].Bytes
 		tiny := (memRes + webRes) - 1 // strictly less than the combined reservation
-		rec := Pick(profileWithEnvelope(tiny), cat, Overrides{}, mem, web)
+		rec := Pick(profileWithEnvelope(tiny), cat, Overrides{}, append(mem, webOn(web)...))
 		if rec.Model != "" {
 			t.Errorf("expected the no-fit refusal (empty Model), got %q", rec.Model)
 		}
@@ -634,8 +624,8 @@ func TestPickWebSearchReservation(t *testing.T) {
 		if rec.WebSearchReservationBytes != webRes {
 			t.Errorf("WebSearchReservationBytes = %d, want %d (honest surface even on refusal)", rec.WebSearchReservationBytes, webRes)
 		}
-		if rec.SchemaVersion != 8 {
-			t.Errorf("refusal SchemaVersion = %d, want 8", rec.SchemaVersion)
+		if rec.SchemaVersion != 9 {
+			t.Errorf("refusal SchemaVersion = %d, want 9", rec.SchemaVersion)
 		}
 	})
 }
@@ -649,8 +639,8 @@ func TestPickOverrideWeightInvariance(t *testing.T) {
 	cat := testCatalog()
 	p := profileWithEnvelope(64 << 30)
 	ov := Overrides{Model: "mid"}
-	recOff := Pick(p, cat, ov, MemoryInputs{}, WebSearchInputs{})
-	recOn := Pick(p, cat, ov, MemoryInputs{Enabled: true, EmbeddingModel: "nomic-embed-text-v1.5"}, WebSearchInputs{})
+	recOff := Pick(p, cat, ov, nil)
+	recOn := Pick(p, cat, ov, memOn("nomic-embed-text-v1.5"))
 	if recOff.WeightBytes != recOn.WeightBytes {
 		t.Errorf("WeightBytes changed with memory inputs: off %d vs on %d (must be envelope-independent)", recOff.WeightBytes, recOn.WeightBytes)
 	}
@@ -670,18 +660,18 @@ func TestPickRefusalStampsMemoryFields(t *testing.T) {
 	}
 	cat := testCatalog()
 
-	off := Pick(p, cat, Overrides{}, MemoryInputs{}, WebSearchInputs{})
+	off := Pick(p, cat, Overrides{}, nil)
 	if off.Model != "" {
 		t.Fatalf("precondition: expected refusal, got %q", off.Model)
 	}
 	if off.EmbeddingReservationBytes != 0 || off.MemoryConsidered {
 		t.Errorf("memory-off refusal must stamp zero/false, got reservation=%d considered=%v", off.EmbeddingReservationBytes, off.MemoryConsidered)
 	}
-	if off.SchemaVersion != 8 {
-		t.Errorf("refusal SchemaVersion = %d, want 8", off.SchemaVersion)
+	if off.SchemaVersion != 9 {
+		t.Errorf("refusal SchemaVersion = %d, want 9", off.SchemaVersion)
 	}
 
-	on := Pick(p, cat, Overrides{}, MemoryInputs{Enabled: true, EmbeddingModel: "mystery-embedder"}, WebSearchInputs{})
+	on := Pick(p, cat, Overrides{}, memOn("mystery-embedder"))
 	if on.Model != "" {
 		t.Fatalf("precondition: expected refusal, got %q", on.Model)
 	}
@@ -691,8 +681,8 @@ func TestPickRefusalStampsMemoryFields(t *testing.T) {
 	if want := memory.ConservativeFootprintBytes(); on.EmbeddingReservationBytes != want {
 		t.Errorf("memory-on refusal reservation = %d, want as-computed %d (honest surface)", on.EmbeddingReservationBytes, want)
 	}
-	if on.SchemaVersion != 8 {
-		t.Errorf("refusal SchemaVersion = %d, want 8", on.SchemaVersion)
+	if on.SchemaVersion != 9 {
+		t.Errorf("refusal SchemaVersion = %d, want 9", on.SchemaVersion)
 	}
 }
 
@@ -737,7 +727,7 @@ func TestPickFallsBackToVulkanWhenConfidentlyNotROCmReady(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			p := profileWithEnvelope(64 << 30)
 			p.ROCmReadiness = c.readiness
-			rec := Pick(p, testCatalog(), Overrides{}, MemoryInputs{}, WebSearchInputs{})
+			rec := Pick(p, testCatalog(), Overrides{}, nil)
 			if rec.Backend != c.wantBackend {
 				t.Errorf("Backend = %q, want %q", rec.Backend, c.wantBackend)
 			}
@@ -756,7 +746,7 @@ func TestPickFallsBackToVulkanWhenConfidentlyNotROCmReady(t *testing.T) {
 // a stale default) even though no model was picked.
 func TestPickRefusalPathBackendIsResolvable(t *testing.T) {
 	p := detect.HostProfile{} // no envelope and no RAM → refusal
-	rec := Pick(p, testCatalog(), Overrides{}, MemoryInputs{}, WebSearchInputs{})
+	rec := Pick(p, testCatalog(), Overrides{}, nil)
 	if rec.Model != "" {
 		t.Fatalf("expected the refusal path (empty Model), got %q", rec.Model)
 	}
