@@ -1,6 +1,6 @@
 {
   "schema_version": 4,
-  "catalog_version": "2026.09.4",
+  "catalog_version": "2026.10.1",
   "models": [
     {
       "id": "qwen3.5-0.8b",
@@ -135,6 +135,44 @@
       ]
     },
     {
+      "id": "gemma-4-31b",
+      "display_name": "Gemma 4 31B (UD-Q4, dense, vision, 64 GB tier alt)",
+      "quant": "UD-Q4_K_XL",
+      "weight_bytes": 18822970304,
+      "n_layers": 10,
+      "n_kv_heads": 4,
+      "head_dim": 512,
+      "kv_bytes_per_elem": 2,
+      "default_ctx": 131072,
+      "min_envelope_bytes": 32000000000,
+      "tier_gb": 64,
+      "unified_memory_safe": true,
+      "backend_default": "rocm",
+      "bootstrap": false,
+      "ngram_safe": true,
+      "ngram_provenance": "gfx1151, kyuz0 rocm-10.0 image (llama.cpp b11430), 2026-10-08: greedy 256-token probe at ctx 131072; none tg 10.3; ngram-mod tg 7.4 on the first request after the restart, 10.2 on the next prompt with 6 of 108 drafts accepted, 145.8-148.7 warm with 248 of 248 accepted; no hang on this gemma4 build",
+      "projector": {
+        "shards": [
+          {
+            "url": "https://huggingface.co/unsloth/gemma-4-31B-it-GGUF/resolve/c1ac76e99d5513b141e8adde7288b85c3f9c32ec/mmproj-F16.gguf",
+            "filename": "gemma-4-31B-it-mmproj-F16.gguf",
+            "sha256": "6edcca228213c28d3567a35d22f849eea52d8360875093851959adf5d2f270eb",
+            "size_bytes": 1198957024
+          }
+        ],
+        "weight_bytes": 1363977175,
+        "provenance": "gfx1151, kyuz0 rocm-10.0 image (llama.cpp b11430), 2026-10-08: clip_ctx reported CLIP using ROCm0 backend and a red-left/blue-right 128x64 PNG was described correctly through /v1/chat/completions; server worst-case estimate 1300.79 MiB"
+      },
+      "shards": [
+        {
+          "url": "https://huggingface.co/unsloth/gemma-4-31B-it-GGUF/resolve/c1ac76e99d5513b141e8adde7288b85c3f9c32ec/gemma-4-31B-it-UD-Q4_K_XL.gguf",
+          "filename": "gemma-4-31B-it-UD-Q4_K_XL.gguf",
+          "sha256": "9e92cb6236044c6a9870af406029c74a76e0571c157a6f95df724dcc8c7a1575",
+          "size_bytes": 18822970304
+        }
+      ]
+    },
+    {
       "id": "qwen3-coder-30b-a3b",
       "display_name": "Qwen3-Coder-30B-A3B-Instruct (coder, all tiers)",
       "quant": "UD-Q4_K_XL",
@@ -235,6 +273,41 @@
           "filename": "Qwen3-Coder-Next-UD-Q3_K_XL.gguf",
           "sha256": "91b928f28a2f4b76a0d9147f148311bfe8716ac8e495acc33eb7aace0ad76135",
           "size_bytes": 36282685440
+        }
+      ]
+    },
+    {
+      "id": "glm-4.7-flash",
+      "display_name": "GLM-4.7-Flash (UD-Q4, 30B-A3B coder, text-only, 64 GB tier alt)",
+      "quant": "UD-Q4_K_XL",
+      "weight_bytes": 17520169312,
+      "n_layers": 47,
+      "n_kv_heads": 1,
+      "head_dim": 576,
+      "kv_bytes_per_elem": 2,
+      "default_ctx": 131072,
+      "min_envelope_bytes": 32000000000,
+      "tier_gb": 64,
+      "unified_memory_safe": true,
+      "backend_default": "rocm",
+      "bootstrap": false,
+      "role": "coder",
+      "agent_ctx": 131072,
+      "agent_sampling": {
+        "temperature": 0.7,
+        "top_p": 1.0,
+        "top_k": 0,
+        "repeat_penalty": 1.0
+      },
+      "template_provenance": "unsloth/GLM-4.7-Flash-GGUF@0d32489ecb9db6d2a4fc93bd27ef01519f95474d (embedded GGUF chat template, the 2026-01-21 sigmoid scoring_func re-upload)",
+      "ngram_safe": true,
+      "ngram_provenance": "gfx1151, kyuz0 rocm-10.0 image (llama.cpp b11430), 2026-10-08: greedy 256-token probe at ctx 131072; none tg 56.5; ngram-mod tg 56.6 cold, 150.6-371.5 warm with 180-242 of 192-242 drafts accepted",
+      "shards": [
+        {
+          "url": "https://huggingface.co/unsloth/GLM-4.7-Flash-GGUF/resolve/0d32489ecb9db6d2a4fc93bd27ef01519f95474d/GLM-4.7-Flash-UD-Q4_K_XL.gguf",
+          "filename": "GLM-4.7-Flash-UD-Q4_K_XL.gguf",
+          "sha256": "b0d4fbc1211f891b4cfbf2a497160bfe06a49412420068904d426b7a13f4ba7f",
+          "size_bytes": 17520169312
         }
       ]
     }
