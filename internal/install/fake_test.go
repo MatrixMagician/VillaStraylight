@@ -53,6 +53,8 @@ type fakeDeps struct {
 	dashEnabled     []string
 	dashBinaryPath  string
 	// diskUnit is the on-disk dashboard unit; nil reads as absent (first install).
+	// Every write and removal of that unit lands here, so a test reads it back
+	// like the host would.
 	diskUnit []byte
 
 	persistedConfig   *config.VillaConfig
@@ -181,7 +183,11 @@ func newFakeDeps(t *testing.T, units []orchestrate.Unit, plan orchestrate.Plan, 
 	}
 	d.SaveConfig = func(c config.VillaConfig) error { f.saveCalls++; f.savedCfg = c; return nil }
 	d.WriteUnits = func(orchestrate.Plan, string) error { f.writeCalls++; return nil }
-	d.DaemonReload = func() error { f.reloadCalls++; return nil }
+	d.DaemonReload = func() error {
+		f.reloadCalls++
+		f.callOrder = append(f.callOrder, "reload")
+		return nil
+	}
 	d.Start = func(service string) error {
 		f.startCalls++
 		f.startOrder = append(f.startOrder, service)
@@ -204,13 +210,19 @@ func newFakeDeps(t *testing.T, units []orchestrate.Unit, plan orchestrate.Plan, 
 		text, ok := f.priorUnits[name]
 		return text, ok
 	}
-	d.WriteUnit = func(_, name, _ string) error {
+	d.WriteUnit = func(_, name, text string) error {
 		f.callOrder = append(f.callOrder, "writeUnit:"+name)
+		if name == orchestrate.DashboardServiceName {
+			f.diskUnit = []byte(text)
+		}
 		return nil
 	}
 	d.RemoveUnit = func(_, name string) error {
 		f.removedUnits = append(f.removedUnits, name)
 		f.callOrder = append(f.callOrder, "removeUnit:"+name)
+		if name == orchestrate.DashboardServiceName {
+			f.diskUnit = nil
+		}
 		return f.removeUnitErr
 	}
 	d.ConfigExists = func() bool { return f.priorConfigExists }
@@ -225,6 +237,7 @@ func newFakeDeps(t *testing.T, units []orchestrate.Unit, plan orchestrate.Plan, 
 	d.WriteDashboardUnit = func(_ string, binaryPath string) error {
 		f.dashWriteCalls++
 		f.dashBinaryPath = binaryPath
+		f.diskUnit = mustRenderDashboardUnit(t, binaryPath)
 		f.callOrder = append(f.callOrder, "dashWrite")
 		return nil
 	}
