@@ -17,6 +17,7 @@
 package metrics
 
 import (
+	"bytes"
 	"encoding/json"
 	"math"
 	"strconv"
@@ -137,13 +138,41 @@ func counterFromMap(m map[string]float64, name string) (uint64, bool) {
 // no prompt leakage into the perf panel). Adding a prompt/params field here would be a
 // security regression; a structural test asserts the field set.
 type Slot struct {
-	ID           int  `json:"id"`
-	NCtx         int  `json:"n_ctx"`
-	IsProcessing bool `json:"is_processing"`
-	NextToken    struct {
-		NDecoded int `json:"n_decoded"`
-		NRemain  int `json:"n_remain"`
-	} `json:"next_token"`
+	ID           int       `json:"id"`
+	NCtx         int       `json:"n_ctx"`
+	IsProcessing bool      `json:"is_processing"`
+	NextToken    NextToken `json:"next_token"`
+}
+
+// NextToken is the decode progress of one slot. llama-server emits it as an object
+// on older builds and as a one-element array on b11430 and later; UnmarshalJSON reads
+// both, and an empty array or null is a zero reading. Any other shape is an error, so
+// the body stays typed-Unknown rather than fabricating progress.
+type NextToken struct {
+	NDecoded int `json:"n_decoded"`
+	NRemain  int `json:"n_remain"`
+}
+
+// UnmarshalJSON accepts the object shape and the one-element array shape.
+func (n *NextToken) UnmarshalJSON(b []byte) error {
+	type plain NextToken
+	if trimmed := bytes.TrimSpace(b); len(trimmed) > 0 && trimmed[0] == '[' {
+		var arr []plain
+		if err := json.Unmarshal(b, &arr); err != nil {
+			return err
+		}
+		*n = NextToken{}
+		if len(arr) > 0 {
+			*n = NextToken(arr[0])
+		}
+		return nil
+	}
+	var p plain
+	if err := json.Unmarshal(b, &p); err != nil {
+		return err
+	}
+	*n = NextToken(p)
+	return nil
 }
 
 // parsePromText is the ~stdlib Prometheus-text parser (RESEARCH Pattern 3, no
@@ -231,7 +260,8 @@ func ParseCacheCounters(body []byte) CacheSample {
 
 // ParseSlots unmarshals a /slots body into the narrow []Slot view. Because Slot only
 // declares the non-sensitive fields, json.Unmarshal discards prompt/params even when
-// the wire body includes them. A malformed body yields (nil, false).
+// the wire body includes them. next_token is read in both its object and array shapes
+// (#328). A malformed body yields (nil, false).
 func ParseSlots(body []byte) ([]Slot, bool) {
 	var slots []Slot
 	if err := json.Unmarshal(body, &slots); err != nil {
