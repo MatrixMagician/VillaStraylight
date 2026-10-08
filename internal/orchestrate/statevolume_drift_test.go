@@ -62,6 +62,7 @@ func statefulFixtureInput() RenderInput {
 	in := memoryFixtureInput()
 	in.Cfg.Reranker = true
 	in.Cfg.WebSearchEnabled = true
+	in.Cfg.VoiceEnabled = true
 	return in
 }
 
@@ -127,6 +128,7 @@ func TestNoStatelessSubsystemMountsAWritableVolume(t *testing.T) {
 	statelessUnits := map[subsystem.Kind][]string{
 		subsystem.Inference: {"villa-llama.container"},
 		subsystem.WebSearch: {"villa-searxng.container", "villa-websafe.container"},
+		subsystem.Voice:     {"villa-stt.container", "villa-tts.container"},
 	}
 	// The embedder moves with memory but holds no state of its own: its only mount
 	// is the read-only model store.

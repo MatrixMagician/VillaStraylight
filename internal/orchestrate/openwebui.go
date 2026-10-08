@@ -32,7 +32,8 @@ package orchestrate
 // is OWUI's literal substitution placeholder, kept verbatim.
 //
 // The MANDATORY load-bearing key is ENABLE_PERSISTENT_CONFIG=False: it is
-// emitted exactly ONCE, LAST, gated on memoryEnabled || webSearchEnabled. ALL of
+// emitted exactly ONCE, LAST, gated on memoryEnabled || webSearchEnabled ||
+// voiceEnabled. ALL of
 // the appended memory keys AND the appended web-search keys are DB-backed
 // PersistentConfig ConfigVars — without this trailing gate they seed the OWUI DB
 // once and the env is silently ignored after first boot, so "config is the single
@@ -46,6 +47,7 @@ import (
 	"strings"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/memory"
+	"github.com/MatrixMagician/VillaStraylight/internal/voice"
 )
 
 // noAuthAPIKey is the required-but-ignored placeholder Open WebUI needs to register an
@@ -180,7 +182,7 @@ type openWebUIVolumeView struct {
 // install's first boot, and SyncEndpointsWithKey already reconciles the running
 // connection list's real keys afterward through OWUI's admin API, no file, no
 // unit.
-func buildOpenWebUIView(image string, mv memory.RenderInput, memoryEnabled bool, rerankOn bool, webSearchEnabled bool, searxngAddr string, searxngPort int, webSearchResultCount int, websafeAddr string, websafePort int, residentNames []string, apiKey string) openWebUIView {
+func buildOpenWebUIView(image string, mv memory.RenderInput, memoryEnabled bool, rerankOn bool, webSearchEnabled bool, voiceEnabled bool, searxngAddr string, searxngPort int, webSearchResultCount int, websafeAddr string, websafePort int, residentNames []string, apiKey string) openWebUIView {
 	// Connection: reach inference over villa.network by container DNS (NOT localhost /
 	// host.containers.internal), at its internal port. Open WebUI accepts EITHER the
 	// singular OPENAI_API_BASE_URL/OPENAI_API_KEY pair or the ';'-separated plural
@@ -337,7 +339,25 @@ func buildOpenWebUIView(image string, mv memory.RenderInput, memoryEnabled bool,
 		)
 	}
 
-	if memoryEnabled || webSearchEnabled {
+	if voiceEnabled {
+		// Open WebUI's audio settings (ADR-0028), one ordered block after the
+		// web-search group. Both units are reached by container DNS and neither checks
+		// a key, so both keys carry the no-auth sentinel. The AUDIO_* keys are
+		// PersistentConfig values, so they need the trailing gate below too.
+		env = append(env,
+			envPair{Key: "AUDIO_STT_ENGINE", Value: "openai"},
+			envPair{Key: "AUDIO_STT_OPENAI_API_BASE_URL", Value: voice.STT.OpenAIBase()},
+			envPair{Key: "AUDIO_STT_OPENAI_API_KEY", Value: noAuthAPIKey},
+			envPair{Key: "AUDIO_STT_MODEL", Value: sttModelName},
+			envPair{Key: "AUDIO_TTS_ENGINE", Value: "openai"},
+			envPair{Key: "AUDIO_TTS_OPENAI_API_BASE_URL", Value: voice.TTS.OpenAIBase()},
+			envPair{Key: "AUDIO_TTS_OPENAI_API_KEY", Value: noAuthAPIKey},
+			envPair{Key: "AUDIO_TTS_MODEL", Value: ttsModelName},
+			envPair{Key: "AUDIO_TTS_VOICE", Value: ttsVoiceName},
+		)
+	}
+
+	if memoryEnabled || webSearchEnabled || voiceEnabled {
 		// (MANDATORY, load-bearing —, extended to the web-search ConfigVars):
 		// force OWUI to always read the appended ConfigVar keys (memory AND/OR web-search)
 		// from env, ignoring the DB. Without it those keys are silently ignored after

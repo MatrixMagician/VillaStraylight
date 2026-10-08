@@ -144,6 +144,8 @@ const (
 	ComponentOpenWebUI = "open-webui"
 	ComponentSearXNG   = "searxng"
 	ComponentWebsafe   = "websafe-base"
+	ComponentWhisper   = "whisper"
+	ComponentKokoro    = "kokoro"
 )
 
 // Plan is the result of a Reconcile: the rendered units whose on-disk hash differs
