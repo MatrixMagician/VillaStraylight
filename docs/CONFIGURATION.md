@@ -215,7 +215,7 @@ Two keys drive local image generation (ADR-0029). Neither is a `config set` key.
 
 | Key | Type | Default | Written by | Read by |
 |-----|------|---------|------------|---------|
-| `image_enabled` | bool | `false` | `villa install --image` | the render (the `villa-image` unit and Open WebUI's image env group), the reservation registry (`villa recommend`), `villa status` (the `villa-image.service` row), `villa doctor` (`IMG-DOC-residency`), `villa update image` |
+| `image_enabled` | bool | `false` | `villa install --image` | the render (the `villa-image` unit and Open WebUI's image env group), the reservation registry (`villa recommend`), `villa status` (the `villa-image.service` row), `villa doctor` (`IMG-DOC-residency` while on, `IMG-DOC-stale` when off but the service is still active), `villa update image` |
 | `image_model` | string | `z-image-turbo` | you, by hand | the render, the reservation row, the pre-stage, the offload proof |
 
 ```toml
@@ -239,10 +239,23 @@ The unit eager-loads, so the footprint is held from the moment the service
 starts, which is what the reservation row claims. The model is picked from the
 compiled-in image table, not from `seed.json` or a `catalog_path` override, so
 changing the entry is a code change carrying a fresh on-hardware measurement.
-To turn image generation off, set `image_enabled = false` and run `villa up`;
-reconcile never deletes a unit, so stop `villa-image.service` by hand or leave
-it. sd-server ignores SIGTERM, so a stop or restart waits podman's 10 s SIGKILL
-fallback.
+To turn image generation off safely, do all four steps. Reconcile never
+deletes a unit, so after the first two `villa-image.container` is still on disk
+with `WantedBy=default.target`, and the next reboot eager-loads its 9 GB again
+outside every fit (`villa doctor` reports this as `IMG-DOC-stale`):
+
+```bash
+# 1. by hand in ~/.config/villa/config.toml: image_enabled = false
+# 2. re-render Open WebUI without the image group
+villa up
+# 3. stop the unit and drop it from the boot set
+systemctl --user disable --now villa-image.service
+# 4. remove the unit file reconcile left behind, and let systemd forget it
+rm ~/.config/containers/systemd/villa-image.container
+systemctl --user daemon-reload
+```
+
+sd-server ignores SIGTERM, so step 3 waits podman's 10 s SIGKILL fallback.
 
 ### Inspecting and editing the config
 

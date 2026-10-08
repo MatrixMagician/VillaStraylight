@@ -201,5 +201,12 @@ existing path with no change to `Deps.Pick`.
   provenanced row in a compiled-in table, because the operator picks the model.
   #308 (ADR-0028) chose a pinned constant for the reranker, which the operator does
   not pick. The two are one rule, not a contradiction.
-- Disabling leaves `villa-image.container` on disk and running until the operator
-  stops it: reconcile never deletes a unit, the memory precedent.
+- Disabling is four steps, not one. Reconcile never deletes a unit (the memory
+  precedent), so `image_enabled = false` plus `villa up` re-renders Open WebUI
+  without the image group but leaves `villa-image.container` on disk with
+  `WantedBy=default.target`, and the next reboot eager-loads 9 GB that no fit
+  counts. The operator then runs `systemctl --user disable --now
+  villa-image.service`, removes `~/.config/containers/systemd/villa-image.container`
+  and runs `systemctl --user daemon-reload` (`docs/CONFIGURATION.md`). Until that
+  is done, `villa doctor` WARNs with `IMG-DOC-stale` whenever the service is
+  active while the gate is off. A general reconcile-side fix is filed separately.

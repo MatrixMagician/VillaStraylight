@@ -27,6 +27,7 @@ package doctor
 import (
 	"errors"
 	"io/fs"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -197,6 +198,49 @@ func TestImageOffEmitsNoImageFinding(t *testing.T) {
 	r := d.aggregate()
 	if _, ok := findingByID(r, "IMG-DOC-residency"); ok || calls != 0 {
 		t.Errorf("image off: finding present = %v, proof calls = %d; want neither", ok, calls)
+	}
+}
+
+// TestImageOffWarnsOnAStaleRunningImageUnit: reconcile never deletes a unit, so
+// turning image generation off leaves villa-image.container on disk and running,
+// eager-holding about 9 GB that no fit counts. With the gate off and the service
+// active, doctor emits one WARN, IMG-DOC-stale, whose remediation is the disable
+// sequence; an inactive service, or the gate on, emits no such finding.
+func TestImageOffWarnsOnAStaleRunningImageUnit(t *testing.T) {
+	activeImage := func(unit string) (string, error) {
+		if unit == "villa-image.service" {
+			return "active", nil
+		}
+		return "inactive", nil
+	}
+
+	d := newDoctorDeps()
+	d.IsActive = activeImage
+	r := d.aggregate()
+	f, ok := findingByID(r, "IMG-DOC-stale")
+	if !ok {
+		t.Fatalf("image off with villa-image.service active: expected IMG-DOC-stale; findings: %+v", r.Findings)
+	}
+	if f.Tier != tierWarn || f.Status != statusWarn {
+		t.Errorf("IMG-DOC-stale = (status %s, tier %s), want (WARN, WARN)", f.Status, f.Tier)
+	}
+	if !strings.Contains(f.Detail, "9 GB") {
+		t.Errorf("Detail %q does not name the memory the unit holds outside the fit", f.Detail)
+	}
+	for _, want := range []string{"disable --now villa-image.service", "villa-image.container", "daemon-reload"} {
+		if !strings.Contains(f.Remediation, want) {
+			t.Errorf("Remediation %q does not carry %q", f.Remediation, want)
+		}
+	}
+
+	if _, ok := findingByID(newDoctorDeps().aggregate(), "IMG-DOC-stale"); ok {
+		t.Error("image off with the service inactive is not stale, yet IMG-DOC-stale was emitted")
+	}
+
+	on := imageDoctorDeps()
+	on.IsActive = activeImage
+	if _, ok := findingByID(on.aggregate(), "IMG-DOC-stale"); ok {
+		t.Error("image on with the service active is not stale, yet IMG-DOC-stale was emitted")
 	}
 }
 
@@ -1768,16 +1812,16 @@ func TestMemoryGateInput(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			d := memoryDoctorDeps()
-			var asked string
-			d.IsActive = func(unit string) (string, error) { asked = unit; return tc.state, tc.err }
+			var asked []string
+			d.IsActive = func(unit string) (string, error) { asked = append(asked, unit); return tc.state, tc.err }
 			var got preflight.MemoryGateInput
 			d.RunMemoryChecks = func(_ detect.HostProfile, in preflight.MemoryGateInput) []preflight.CheckResult {
 				got = in
 				return nil
 			}
 			d.aggregate()
-			if asked != "villa-embed.service" {
-				t.Errorf("asked about %q, want the embedder service villa-embed.service", asked)
+			if !slices.Contains(asked, "villa-embed.service") {
+				t.Errorf("asked about %q, want the embedder service villa-embed.service among them", asked)
 			}
 			if got.EmbedderActive != tc.want || got.EmbeddingModel != "test-embedder" {
 				t.Errorf("gate input = {model %q, active %v}, want {test-embedder, %v}", got.EmbeddingModel, got.EmbedderActive, tc.want)
