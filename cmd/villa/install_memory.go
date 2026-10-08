@@ -286,10 +286,13 @@ const memoryProofNetwork = "villa"
 const villaProbeCollection = "villa-probe"
 
 // memoryProofDeps is the in-network seam the memory proof drives: the curl exec
-// (live: a `podman run --rm --network villa` curl) and the helper image it runs.
+// (live: a `podman run --rm --network villa` curl), the helper image it runs, and
+// the bound on waiting for a llama-server to finish loading its model.
 type memoryProofDeps struct {
-	exec  inprobe.Exec
-	image string
+	exec     inprobe.Exec
+	image    string
+	timeout  time.Duration
+	interval time.Duration
 }
 
 // liveMemoryProof is the production proof seam: it reaches the container-DNS-only
@@ -299,7 +302,12 @@ type memoryProofDeps struct {
 // literal (keeps TestSeamGrepGate green). Every podman/curl arg is FIXED; the
 // JSON body is a constant and the model id is config-resolved, never shell-interpolated.
 func liveMemoryProof(ctx context.Context, in memoryProofInput) memoryProof {
-	return memoryProofWith(ctx, memoryProofDeps{exec: runProbeCurlCode, image: orchestrate.EmbedImage()}, in)
+	return memoryProofWith(ctx, memoryProofDeps{
+		exec:     runProbeCurlCode,
+		image:    orchestrate.EmbedImage(),
+		timeout:  readinessTimeout,
+		interval: readinessInterval,
+	}, in)
 }
 
 // memoryProofWith drives the memory proof through d; liveMemoryProof binds the
