@@ -91,7 +91,7 @@ func TestVoiceDriverRoundTrip(t *testing.T) {
 	wav := []byte("RIFF....WAVEfmt ")
 
 	t.Run("a faithful transcript passes", func(t *testing.T) {
-		curl := &fakeVoiceCurl{ttsOut: wav, sttOut: []byte(`{"text":" The quick brown fox jumps over the lazy dog near the river bank."}`)}
+		curl := &fakeVoiceCurl{ttsOut: wav, sttOut: []byte(`{"text":" The quick brown fox jumps over the lazy dog, and the small cat sleeps in the warm sun."}`)}
 		p := voice.Prove(voiceDriver(curl.run, nil))
 		if p.Status != verify.Pass {
 			t.Fatalf("status = %v, want pass (detail %q)", p.Status, p.Detail)

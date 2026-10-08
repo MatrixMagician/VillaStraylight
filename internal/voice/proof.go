@@ -18,10 +18,14 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/verify"
 )
 
-// ProofSentence is spoken by villa-tts and expected back from villa-stt.
-const ProofSentence = "the quick brown fox jumps over the lazy dog near the river bank"
+// ProofSentence is spoken by villa-tts and expected back from villa-stt. Eighteen
+// common words with no compound, no homophone and no number: whisper wrote "river
+// bank" as "riverbank" for an earlier sentence, which cost two words of agreement
+// and left the pass one word wide.
+const ProofSentence = "the quick brown fox jumps over the lazy dog and the small cat sleeps in the warm sun"
 
-// MinAgreement is the word agreement a transcript needs to pass.
+// MinAgreement is the word agreement a transcript needs to pass. At eighteen words
+// it allows six dropped words and refuses seven, which the boundary test pins.
 const MinAgreement = 0.8
 
 // Attempts bounds the cold-start retries. A unit that has just started refuses

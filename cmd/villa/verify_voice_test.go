@@ -17,7 +17,7 @@ import (
 // off gate is a clean exit that names how to turn voice on, and an unreadable config
 // refuses rather than reading as voice off.
 func TestRunVerifyVoice(t *testing.T) {
-	const heard = `heard "the quick brown fox jumps over the lazy dog near the river bank" (agreement 1.00)`
+	const heard = `heard "the quick brown fox jumps over the lazy dog and the small cat sleeps in the warm sun" (agreement 1.00)`
 	for _, tc := range []struct {
 		name       string
 		cfg        config.VillaConfig

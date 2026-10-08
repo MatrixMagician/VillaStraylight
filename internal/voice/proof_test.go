@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/verify"
@@ -33,10 +34,12 @@ func TestProveTruthTable(t *testing.T) {
 		detail string
 	}{
 		{
-			name:   "both legs answer and the words agree",
-			d:      Driver{Speak: speaks(wav, nil), Transcribe: hears(" The quick brown fox jumps over the lazy dog near the river bank.", nil)},
+			// The transcript whisper returned for ProofSentence on the dev host, three
+			// runs out of three, punctuation and all.
+			name:   "both legs answer and the words agree (the live transcript)",
+			d:      Driver{Speak: speaks(wav, nil), Transcribe: hears(" The quick brown fox jumps over the lazy dog, and the small cat sleeps in the warm sun.", nil)},
 			status: verify.Pass,
-			detail: `heard " The quick brown fox jumps over the lazy dog near the river bank." (agreement 1.00)`,
+			detail: `heard " The quick brown fox jumps over the lazy dog, and the small cat sleeps in the warm sun." (agreement 1.00)`,
 		},
 		{
 			name:   "villa-tts unreachable",
@@ -72,7 +75,7 @@ func TestProveTruthTable(t *testing.T) {
 			name:   "the words disagree",
 			d:      Driver{Speak: speaks(wav, nil), Transcribe: hears("the quick brown fox", nil)},
 			status: verify.Fail,
-			detail: `heard "the quick brown fox" for "the quick brown fox jumps over the lazy dog near the river bank" (agreement 0.47); check ` + "`systemctl --user status villa-stt.service villa-tts.service`",
+			detail: `heard "the quick brown fox" for "the quick brown fox jumps over the lazy dog and the small cat sleeps in the warm sun" (agreement 0.36); check ` + "`systemctl --user status villa-stt.service villa-tts.service`",
 		},
 	}
 	for _, tc := range cases {
@@ -149,6 +152,40 @@ func TestWordsNormalizesWhatWhisperAddsAndDrops(t *testing.T) {
 	}
 	if got := Words(" .,! "); len(got) != 0 {
 		t.Errorf("Words of punctuation = %q, want none", got)
+	}
+}
+
+// TestMinAgreementIsTheBoundary pins the threshold through what it decides: twelve
+// of the sentence's eighteen words in order score exactly 0.80 and pass, eleven score
+// 0.76 and fail. A threshold anywhere else in (0.76, 0.80] or above 0.80 changes one of
+// the two verdicts.
+func TestMinAgreementIsTheBoundary(t *testing.T) {
+	words := Words(ProofSentence)
+	if len(words) != 18 {
+		t.Fatalf("ProofSentence has %d words, the boundary below assumes 18", len(words))
+	}
+	twelve := strings.Join(words[:12], " ")
+	eleven := strings.Join(words[:11], " ")
+
+	p := Prove(Driver{Speak: speaks(wav, nil), Transcribe: hears(twelve, nil)})
+	if p.Status != verify.Pass || !strings.HasSuffix(p.Detail, "(agreement 0.80)") {
+		t.Errorf("twelve words: status %v detail %q, want Pass at agreement 0.80", p.Status, p.Detail)
+	}
+	p = Prove(Driver{Speak: speaks(wav, nil), Transcribe: hears(eleven, nil)})
+	if p.Status != verify.Fail || !strings.Contains(p.Detail, "(agreement 0.76)") {
+		t.Errorf("eleven words: status %v detail %q, want Fail at agreement 0.76", p.Status, p.Detail)
+	}
+}
+
+// TestAgreementMergedCompoundWordCostsTwo records why the sentence has no compound:
+// on the dev host whisper wrote "river bank" as "riverbank", which drops two words
+// from the common subsequence and scored 0.88 against the thirteen-word sentence of the
+// first live run, one dropped word above the threshold.
+func TestAgreementMergedCompoundWordCostsTwo(t *testing.T) {
+	spoken := "the quick brown fox jumps over the lazy dog near the river bank"
+	heard := " The quick brown fox jumps over the lazy dog near the riverbank.\n"
+	if got := Agreement(spoken, heard); got != 0.88 {
+		t.Errorf("Agreement = %v, want 0.88 (2*11 over 13+12)", got)
 	}
 }
 
