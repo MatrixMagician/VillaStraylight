@@ -219,8 +219,24 @@ func liveMutate(ctx context.Context, sys orchestrate.Systemd, k subsystem.Kind, 
 		return err
 	}
 
-	_, services := k.Units()
-	for _, svc := range services {
+	return restartPresent(ctx, sys, k)
+}
+
+// restartPresent restarts the subsystem's services whose unit is on disk. A unit
+// that is not there is not part of this host's footprint (the reranker with its
+// gate off, ADR-0028), and restarting a service systemd has never seen would fail
+// the update, so the restart set follows the same rule capture applies.
+func restartPresent(ctx context.Context, sys orchestrate.Systemd, k subsystem.Kind) error {
+	dir, err := quadletUnitDir()
+	if err != nil {
+		return err
+	}
+	units, services := k.Units()
+	exists := func(unit string) bool {
+		_, statErr := os.Stat(filepath.Join(dir, unit))
+		return statErr == nil
+	}
+	for _, svc := range presentServices(units, services, exists) {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
@@ -229,6 +245,18 @@ func liveMutate(ctx context.Context, sys orchestrate.Systemd, k subsystem.Kind, 
 		}
 	}
 	return nil
+}
+
+// presentServices pairs each unit with its service positionally and keeps the
+// services whose unit exists.
+func presentServices(units, services []string, exists func(unit string) bool) []string {
+	var out []string
+	for i, unit := range units {
+		if i < len(services) && exists(unit) {
+			out = append(out, services[i])
+		}
+	}
+	return out
 }
 
 // liveRestore puts the captured tuple back, verbatim, and restarts.
@@ -247,17 +275,7 @@ func liveRestoreSubsystem(ctx context.Context, sys orchestrate.Systemd, k subsys
 	if err := sys.DaemonReload(); err != nil {
 		return err
 	}
-
-	_, services := k.Units()
-	for _, svc := range services {
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		if err := sys.Restart(svc); err != nil {
-			return fmt.Errorf("restart %s: %w", svc, err)
-		}
-	}
-	return nil
+	return restartPresent(ctx, sys, k)
 }
 
 // loadPinStateForWrite reads the pin-state store immediately before a
