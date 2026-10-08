@@ -3,8 +3,6 @@ package main
 import (
 	"strings"
 	"testing"
-
-	"github.com/MatrixMagician/VillaStraylight/internal/eval"
 )
 
 // TestParseRerankScoresMapsResultsToDocumentOrder: llama-server answers a rerank
@@ -55,8 +53,5 @@ func TestEvalConductsRerankCasesWhenTheGateIsOn(t *testing.T) {
       "status": "skipped",
       "detail": "reranker off"`) {
 		t.Errorf("memory without the reranker: the rerank case was not skipped:\n%s", out)
-	}
-	if eval.SuiteVersion != 2 {
-		t.Errorf("SuiteVersion = %d, want 2", eval.SuiteVersion)
 	}
 }

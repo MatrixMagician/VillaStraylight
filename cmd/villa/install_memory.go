@@ -257,29 +257,16 @@ func evalMemoryProof(_ context.Context, embedProbe func() (gotDim int, err error
 	return memoryProof{status: preflight.StatusPass, detail: "768-dim embeddings + Qdrant writable + reranker ranking"}
 }
 
-// rerankTopIndex decodes a /v1/rerank response and returns the index with the
-// highest relevance score. Scores are raw logits, so the highest may be negative;
-// an empty results list is an error rather than index 0.
-func rerankTopIndex(body []byte) (int, error) {
-	var resp struct {
-		Results []struct {
-			Index int     `json:"index"`
-			Score float64 `json:"relevance_score"`
-		} `json:"results"`
-	}
-	if err := json.Unmarshal(body, &resp); err != nil {
-		return 0, fmt.Errorf("decode rerank response: %w", err)
-	}
-	if len(resp.Results) == 0 {
-		return 0, fmt.Errorf("rerank response carried no results[]")
-	}
-	top := resp.Results[0]
-	for _, r := range resp.Results[1:] {
-		if r.Score > top.Score {
-			top = r
+// topScore is the index of the highest score. Scores are raw logits, so the
+// highest may be negative.
+func topScore(scores []float64) int {
+	top := 0
+	for i, s := range scores {
+		if s > scores[top] {
+			top = i
 		}
 	}
-	return top.Index, nil
+	return top
 }
 
 // memoryProofNetwork is the podman network the proof reaches the container-DNS-only
@@ -344,29 +331,15 @@ func liveMemoryProof(ctx context.Context, in memoryProofInput) memoryProof {
 		return qdrantWritableProbe(curl, base, in.embeddingDim)
 	}
 
-	// rerankProbe POSTs the fixed two-document pair and returns the top index.
+	// rerankProbe scores the fixed two-document pair and returns the top index.
 	var rerankProbe func() (int, error)
 	if in.rerank {
 		rerankProbe = func() (int, error) {
-			body, err := json.Marshal(map[string]any{
-				"model":     orchestrate.RerankModelName,
-				"query":     rerankProbeQuery,
-				"documents": rerankProbeDocuments,
-				"top_n":     len(rerankProbeDocuments),
-			})
+			scores, err := postRerank(ctx, helperImage, in.rerankAddr, in.rerankPort, rerankProbeQuery, rerankProbeDocuments)
 			if err != nil {
 				return 0, err
 			}
-			url := fmt.Sprintf("http://%s:%d/v1/rerank", in.rerankAddr, in.rerankPort)
-			out, err := runProbeCurl(ctx, helperImage,
-				"-sf", "-X", "POST", url,
-				"-H", "Content-Type: application/json",
-				"-d", string(body),
-			)
-			if err != nil {
-				return 0, err
-			}
-			return rerankTopIndex(out)
+			return topScore(scores), nil
 		}
 	}
 

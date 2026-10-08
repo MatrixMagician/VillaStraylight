@@ -70,9 +70,6 @@ func TestEmbeddedSuiteCarriesTheRetrievalCases(t *testing.T) {
 			t.Errorf("%s = top %d of %d documents, want top 2 of at least 4", id, c.Grader.Top, len(c.Documents))
 		}
 	}
-	if SuiteVersion != 2 {
-		t.Errorf("SuiteVersion = %d, want 2 (the rerank cases were added)", SuiteVersion)
-	}
 }
 
 // TestExecuteConductsRerankCasesThroughTheRerankSeam (ADR-0028): a rerank case

@@ -100,16 +100,20 @@ func TestEvalMemoryProofCoversTheReranker(t *testing.T) {
 	}
 }
 
-// TestRerankProbeReadsTheTopIndex: the live probe's decoder returns the index with
-// the highest relevance score, which llama-server reports as a raw logit that may
-// be negative, so "highest" is not "positive".
+// TestRerankProbeReadsTheTopIndex: the live probe picks the index with the highest
+// relevance score, which llama-server reports as a raw logit that may be negative,
+// so "highest" is not "positive"; an answer with no results is an error, never
+// index 0.
 func TestRerankProbeReadsTheTopIndex(t *testing.T) {
-	body := []byte(`{"model":"bge-reranker-v2-m3","results":[{"index":0,"relevance_score":-1.2},{"index":1,"relevance_score":-7.5}]}`)
-	top, err := rerankTopIndex(body)
-	if err != nil || top != 0 {
-		t.Errorf("rerankTopIndex = (%d, %v), want (0, nil)", top, err)
+	body := []byte(`{"model":"bge-reranker-v2-m3","results":[{"index":1,"relevance_score":-7.5},{"index":0,"relevance_score":-1.2}]}`)
+	scores, err := parseRerankScores(body, 2)
+	if err != nil {
+		t.Fatalf("parseRerankScores: %v", err)
 	}
-	if _, err := rerankTopIndex([]byte(`{"results":[]}`)); err == nil {
+	if top := topScore(scores); top != 0 {
+		t.Errorf("topScore(%v) = %d, want 0", scores, top)
+	}
+	if _, err := parseRerankScores([]byte(`{"results":[]}`), 2); err == nil {
 		t.Error("an empty results list must be an error, never index 0")
 	}
 }
