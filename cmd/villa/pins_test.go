@@ -254,6 +254,7 @@ func TestProbeHelpersAreNotPinned(t *testing.T) {
 		"status.go",
 		"install_searxng.go",
 		"install_memory.go",
+		"voice.go",
 	}
 
 	for _, name := range probeFiles {
