@@ -145,10 +145,14 @@ check too. The device access is one value, `inference.VulkanGPUAccess()`
 drift apart on the rootless device contract. The image literal is the one thing
 `orchestrate/image.go` holds, allowlisted like `searxng.go`.
 
-The chat model's "still fits" half needs no new step: install's `PollReady` runs
-after every start, so with the image unit eager-loaded it already asserts the chat
-model serves beside it, and doctor's existing offload finding runs with the image
-unit loaded. The image gate becomes a config field through `Gates.Persist`, the one
+The chat model's "still fits" half is one more proof, not the readiness poll.
+`PollReady` answers 200 before the image unit's 9 GB allocation finishes, so on an
+existing stack a passing poll says nothing about the chat model beside a loaded
+image unit. `install --image` therefore runs the chat model's cutover gate
+(`Deps.ProveChat`, wired to `liveProve`: the residency fold plus one generation)
+right after the image proof passes, and a FAIL refuses and rolls back like any
+other proof; doctor's existing offload finding runs with the image unit loaded,
+which is the same check at a later time. The image gate becomes a config field through `Gates.Persist`, the one
 writer of gates onto a config (#317), and `install.PlannedReservations(cfg, opts)`
 sizes the pick against the config the run will persist, so a first `--image`
 install fits the chat model against the image row it is about to add rather than

@@ -176,6 +176,13 @@ type Deps struct {
 	// ProveImage is the image offload proof mapped onto Proof verbatim: a FAIL (a CPU
 	// or partial-RAM placement) refuses and rolls back; a WARN is reported.
 	ProveImage func(context.Context, config.VillaConfig) Proof
+	// ProveChat is the chat model's residency proof (the cutover gate: residency
+	// fold plus one generation), run after the image proof when image generation
+	// is on. The image unit's eager load lands beside an already-serving chat
+	// model, and PollReady answers 200 before that allocation finishes, so only a
+	// proof run after the image proof shows the chat model still serves resident.
+	// A FAIL refuses and rolls back.
+	ProveChat func(context.Context, config.VillaConfig) Proof
 }
 
 func (d Deps) emit(l Line) {
@@ -696,8 +703,7 @@ func Run(ctx context.Context, d Deps, opts Opts) Result {
 	}
 
 	// (10) Readiness, then each opted-in subsystem's proof. A FAIL refuses, never
-	// a silent skip. The readiness poll runs after every start, image server
-	// included, so it is also the check that the chat model serves beside it.
+	// a silent skip.
 	ready := d.PollReady(ctx, d.Endpoint())
 	postInstall(say, d.Endpoint(), ready)
 
@@ -729,6 +735,14 @@ func Run(ctx context.Context, d Deps, opts Opts) Result {
 			return refuse("install: image generation not ready: %s\n", proof.Detail)
 		}
 		say("image generation ready: %s\n", proof.Detail)
+		// The image unit's eager load lands beside the chat model, and the
+		// readiness poll above answers 200 before that allocation finishes, so the
+		// chat model is proven again here, with the image unit loaded.
+		chat := d.ProveChat(ctx, cfg)
+		if chat.Status == preflight.StatusFail {
+			return refuse("install: chat model not resident beside the image server: %s\n", chat.Detail)
+		}
+		say("chat model still resident beside the image server: %s\n", chat.Detail)
 	}
 	if gates.Agent {
 		proof := d.ProveAgent(ctx)

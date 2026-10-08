@@ -28,8 +28,9 @@ func imageUnits() ([]orchestrate.Unit, orchestrate.Plan) {
 var imageServiceName = DefaultUnits().Image
 
 // TestInstallImageWiring: image on pulls the weights only when absent, starts
-// villa-image after the chat UI, proves offload once, and folds a PASS into
-// success; a FAIL refuses and rolls back; an absent unit fails closed; image off
+// villa-image after the chat UI, proves offload once, re-proves the chat model
+// beside the eager-loaded image unit, and folds a PASS into success; a FAIL of
+// either proof refuses and rolls back; an absent unit fails closed; image off
 // touches none of it.
 func TestInstallImageWiring(t *testing.T) {
 	t.Run("image on with weights present: start after the chat UI, prove once", func(t *testing.T) {
@@ -46,6 +47,14 @@ func TestInstallImageWiring(t *testing.T) {
 		}
 		if f.imageProofCalls != 1 {
 			t.Errorf("image-on must run the offload proof once, proof calls = %d", f.imageProofCalls)
+		}
+		if f.chatProofCalls != 1 {
+			t.Errorf("image-on must re-prove the chat model once after the image proof, chat proof calls = %d", f.chatProofCalls)
+		}
+		imgProof := slices.Index(f.callOrder, "imageProof")
+		chatProof := slices.Index(f.callOrder, "chatProof")
+		if imgProof < 0 || chatProof < 0 || chatProof < imgProof {
+			t.Errorf("the chat re-proof must follow the image proof; callOrder = %v", f.callOrder)
 		}
 		chatIdx := slices.Index(f.startOrder, DefaultUnits().ChatUI)
 		imgIdx := slices.Index(f.startOrder, imageServiceName)
@@ -99,6 +108,28 @@ func TestInstallImageWiring(t *testing.T) {
 		}
 	})
 
+	t.Run("image on: chat model FAIL after a passing image proof refuses and rolls back", func(t *testing.T) {
+		units, plan := imageUnits()
+		f := newFakeDeps(t, units, plan, passChecks())
+		f.imageEnabled = true
+		f.chatProofStatus = preflight.StatusFail
+		f.chatProofDetail = "offloaded only 20/48 layers — 28 layers stayed on the CPU (partial offload)"
+
+		code, _, errOut := f.run(Opts{})
+		if code != exitBlocked {
+			t.Fatalf("a chat proof FAIL beside the image unit must return exitBlocked, got %d; stderr = %q", code, errOut.String())
+		}
+		if !strings.Contains(errOut.String(), "chat model") || !strings.Contains(errOut.String(), "partial offload") {
+			t.Errorf("the FAIL must refuse naming the chat model and carry the detail; stderr = %q", errOut.String())
+		}
+		if f.imageProofCalls != 1 {
+			t.Errorf("the image proof must have passed first, proof calls = %d", f.imageProofCalls)
+		}
+		if !slices.Contains(f.stopOrder, imageServiceName) {
+			t.Errorf("the rollback must stop the image service this run started, stopOrder = %v", f.stopOrder)
+		}
+	})
+
 	t.Run("image on but unit absent from plan: fails closed", func(t *testing.T) {
 		units := []orchestrate.Unit{{Name: "villa-llama.container", Text: "[Container]\n"}}
 		f := newFakeDeps(t, units, orchestrate.Plan{Changed: units}, passChecks())
@@ -142,8 +173,8 @@ func TestInstallImageWiring(t *testing.T) {
 		if code != exitPass {
 			t.Fatalf("exit = %d, want exitPass; stderr = %q", code, errOut.String())
 		}
-		if f.imagePresentCalls != 0 || f.imageEnsureCalls != 0 || f.imageProofCalls != 0 || slices.Contains(f.startOrder, imageServiceName) {
-			t.Errorf("image off touched the image path: present=%d ensure=%d proof=%d starts=%v", f.imagePresentCalls, f.imageEnsureCalls, f.imageProofCalls, f.startOrder)
+		if f.imagePresentCalls != 0 || f.imageEnsureCalls != 0 || f.imageProofCalls != 0 || f.chatProofCalls != 0 || slices.Contains(f.startOrder, imageServiceName) {
+			t.Errorf("image off touched the image path: present=%d ensure=%d proof=%d chatProof=%d starts=%v", f.imagePresentCalls, f.imageEnsureCalls, f.imageProofCalls, f.chatProofCalls, f.startOrder)
 		}
 	})
 }

@@ -20,6 +20,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 	"github.com/MatrixMagician/VillaStraylight/internal/pathsafe"
 	"github.com/MatrixMagician/VillaStraylight/internal/preflight"
+	"github.com/MatrixMagician/VillaStraylight/internal/prove"
 	"github.com/MatrixMagician/VillaStraylight/internal/recommend"
 	"github.com/MatrixMagician/VillaStraylight/internal/stackapply"
 	"github.com/MatrixMagician/VillaStraylight/internal/subsystem"
@@ -316,6 +317,16 @@ func liveInstallDeps(ctx context.Context) (install.Deps, error) {
 		},
 		ProveImage: func(ctx context.Context, cfg config.VillaConfig) install.Proof {
 			return proofFromVerdict(liveImageProof(ctx, cfg))
+		},
+		// The chat model's cutover gate (liveProve: the residency fold plus one
+		// generation), run beside the eager-loaded image unit. The verdict is
+		// two-valued, so anything but a pass is a FAIL carrying its detail.
+		ProveChat: func(ctx context.Context, cfg config.VillaConfig) install.Proof {
+			v := liveProve(ctx, cfg.Backend)
+			if v.Status == prove.StatusPass {
+				return install.Proof{Status: preflight.StatusPass, Detail: v.Detail}
+			}
+			return install.Proof{Status: preflight.StatusFail, Detail: v.Detail}
 		},
 	}, nil
 }

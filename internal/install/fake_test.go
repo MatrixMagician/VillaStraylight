@@ -100,6 +100,9 @@ type fakeDeps struct {
 	imageProofCalls   int
 	imageProofStatus  preflight.Status
 	imageProofDetail  string
+	chatProofCalls    int
+	chatProofStatus   preflight.Status
+	chatProofDetail   string
 
 	agentEnabled         bool
 	agentCat             catalog.Catalog
@@ -146,6 +149,7 @@ func newFakeDeps(t *testing.T, units []orchestrate.Unit, plan orchestrate.Plan, 
 		voiceProofStatus:   preflight.StatusPass,
 		imagePresent:       true,
 		imageProofStatus:   preflight.StatusPass,
+		chatProofStatus:    preflight.StatusPass,
 		imageProofDetail:   "params 8808.62 MiB on VRAM, 0 B in RAM",
 		// A single coder entry whose id matches the default pick's Coder.Model, so an
 		// agent-on test resolves a shard without extra setup.
@@ -303,6 +307,11 @@ func newFakeDeps(t *testing.T, units []orchestrate.Unit, plan orchestrate.Plan, 
 		f.imageProofCalls++
 		f.callOrder = append(f.callOrder, "imageProof")
 		return Proof{Status: f.imageProofStatus, Detail: f.imageProofDetail}
+	}
+	d.ProveChat = func(context.Context, config.VillaConfig) Proof {
+		f.chatProofCalls++
+		f.callOrder = append(f.callOrder, "chatProof")
+		return Proof{Status: f.chatProofStatus, Detail: f.chatProofDetail}
 	}
 	d.EmbedModelPresent = func(string) bool {
 		f.embedPresentCalls++
