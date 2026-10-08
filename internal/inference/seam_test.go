@@ -60,8 +60,12 @@ import (
 // by appendSpeculationArgs's draft branch in ONE alternative, added in the SAME
 // commit as those literals — a caller that wrote any of them would be deciding
 // the draft's device/offload policy the seam owns.
+// The sd-server placement flags (#312) join on the same terms: "--params-backend",
+// "--diffusion-model" and "--eager-load" are emitted by ImageServerArgs, and a
+// caller that wrote them would be deciding the image server's device placement
+// the seam owns.
 func seamFlagPattern() *regexp.Regexp {
-	return regexp.MustCompile(`"--jinja"|"--cache-reuse"|"--repeat-penalty"|"--spec-type"|"ngram-mod"|"--mmproj|"--spec-draft`)
+	return regexp.MustCompile(`"--jinja"|"--cache-reuse"|"--repeat-penalty"|"--spec-type"|"ngram-mod"|"--mmproj|"--spec-draft|"--params-backend"|"--diffusion-model"|"--eager-load"`)
 }
 
 func TestSeamGrepGate(t *testing.T) {

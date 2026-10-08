@@ -126,16 +126,8 @@ func scrapeOffloadLogTarget(stderr string, m ResidencyMarkers) OffloadResult {
 		line := strings.TrimSpace(sc.Text())
 
 		// OLD device line: "ggml_vulkan: 0 = AMD Radeon … (RADV …) (radv) | …".
-		// Name is the segment after "N =" up to the first " | ". The prefix is the
-		// backend-owned StartLogDevicePrefix; empty disables this branch.
-		if m.StartLogDevicePrefix != "" && strings.HasPrefix(line, m.StartLogDevicePrefix) && strings.Contains(line, "=") {
-			if _, after, ok := strings.Cut(line, "="); ok {
-				name := after
-				if idx := strings.Index(after, "|"); idx >= 0 {
-					name = after[:idx]
-				}
-				noteDevice(name)
-			}
+		if name, ok := startLogDeviceName(line, m); ok {
+			noteDevice(name)
 		}
 
 		// NEW device_info entry: "- Vulkan0 : AMD Radeon 8060S Graphics (RADV GFX1151)
@@ -215,6 +207,25 @@ func scrapeOffloadLogTarget(stderr string, m ResidencyMarkers) OffloadResult {
 		Signal: detect.UnknownBool("no real Vulkan device or 'offloaded N/N' line found in stderr", ""),
 		Detail: "offload could not be confirmed from stderr (no Vulkan device line)",
 	}
+}
+
+// startLogDeviceName reads the device name off an old-format device line,
+// "ggml_vulkan: 0 = AMD Radeon … (RADV …) (radv) | …": the segment after "N =" up
+// to the first " | ". The prefix is the backend-owned StartLogDevicePrefix; empty
+// disables the match. Shared by the llama.cpp and sd-server scrapes, which read
+// the same ggml enumeration line.
+func startLogDeviceName(line string, m ResidencyMarkers) (string, bool) {
+	if m.StartLogDevicePrefix == "" || !strings.HasPrefix(line, m.StartLogDevicePrefix) {
+		return "", false
+	}
+	_, after, ok := strings.Cut(line, "=")
+	if !ok {
+		return "", false
+	}
+	if idx := strings.Index(after, "|"); idx >= 0 {
+		after = after[:idx]
+	}
+	return after, true
 }
 
 // scrapeProjectorLog reads the vision projector's start-time load line. It is
