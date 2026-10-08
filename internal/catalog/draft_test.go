@@ -10,10 +10,10 @@ import (
 	"testing"
 )
 
-// draftEntryJSON is a schema-4 entry whose draft block is spliced in per case,
+// draftEntryJSON is a schema-5 entry whose draft block is spliced in per case,
 // so each guard is exercised by one differing block and nothing else.
 const draftEntryJSON = `{
-  "schema_version": 4,
+  "schema_version": 5,
   "catalog_version": "test.invalid-draft",
   "models": [
     {

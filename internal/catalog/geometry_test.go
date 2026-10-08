@@ -17,6 +17,23 @@ func TestModelGeometry(t *testing.T) {
 	}
 }
 
+// TestModelGeometryProjectsSlidingWindow guards the promise that an entry's swa
+// block projects into the four sliding-window fields of the header's Geometry, so
+// the CAT-01 comparison covers the term the fit reserves for those layers.
+func TestModelGeometryProjectsSlidingWindow(t *testing.T) {
+	m := Model{
+		ID: "gemma", NLayers: 10, NKVHeads: 4, HeadDim: 512,
+		SWA: &SlidingWindow{NLayers: 50, NKVHeads: 16, HeadDim: 256, Window: 1024},
+	}
+	want := gguf.Geometry{
+		KVLayers: 10, HeadCountKV: 4, KeyLength: 512,
+		SWALayers: 50, SWAHeadCountKV: 16, SWAKeyLength: 256, SWAWindow: 1024,
+	}
+	if got := m.Geometry(); got != want {
+		t.Errorf("Geometry() = %+v, want %+v", got, want)
+	}
+}
+
 // TestModelGeometryZeroWhenUnpopulated guards the promise that an entry carrying
 // no fit dimensions projects the zero Geometry, which is the value every caller
 // treats as "nothing to cross-check".

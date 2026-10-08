@@ -19,7 +19,11 @@ import (
 // header reader returns. The zero Geometry means the entry declares none, which
 // every caller reads as "nothing to cross-check".
 func (m Model) Geometry() gguf.Geometry {
-	return gguf.Geometry{KVLayers: m.NLayers, HeadCountKV: m.NKVHeads, KeyLength: m.HeadDim}
+	g := gguf.Geometry{KVLayers: m.NLayers, HeadCountKV: m.NKVHeads, KeyLength: m.HeadDim}
+	if s := m.SWA; s != nil {
+		g.SWALayers, g.SWAHeadCountKV, g.SWAKeyLength, g.SWAWindow = s.NLayers, s.NKVHeads, s.HeadDim, s.Window
+	}
+	return g
 }
 
 // PrimaryFile resolves the on-disk GGUF filename for the entry: the first shard's

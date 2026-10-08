@@ -49,6 +49,9 @@ func Load(externalPath string) (Catalog, []string, error) {
 		} else if verr := validateSidecars(ext); verr != nil {
 			warnings = append(warnings, fmt.Sprintf("catalog: external catalog %q rejected (%v) — using embedded seed", externalPath, verr))
 			// fall through to embedded seed below
+		} else if verr := validateSlidingWindow(ext); verr != nil {
+			warnings = append(warnings, fmt.Sprintf("catalog: external catalog %q rejected (%v) — using embedded seed", externalPath, verr))
+			// fall through to embedded seed below
 		} else if verr := validateCoderEntries(ext); verr != nil {
 			warnings = append(warnings, fmt.Sprintf("catalog: external catalog %q rejected (%v) — using embedded seed", externalPath, verr))
 			// fall through to embedded seed below
@@ -134,6 +137,20 @@ func validateNgramEntries(c Catalog) error {
 	for _, m := range c.Models {
 		if m.NgramSafe && m.NgramProvenance == "" {
 			return fmt.Errorf("entry %q: ngram_safe is set with no ngram_provenance (the measurement that licensed it)", m.ID)
+		}
+	}
+	return nil
+}
+
+// validateSlidingWindow is the fail-closed guard on the same trust boundary for a
+// declared swa block (ADR-0029). A zeroed field collapses the sliding-window term
+// of the fit to nothing, so the entry would be admitted for a cache the server
+// still allocates; a negative one decodes via uint64 into a saturated product.
+func validateSlidingWindow(c Catalog) error {
+	for _, m := range c.Models {
+		if s := m.SWA; s != nil && (s.NLayers <= 0 || s.NKVHeads <= 0 || s.HeadDim <= 0 || s.Window <= 0) {
+			return fmt.Errorf("entry %q: swa block missing/invalid (n_layers=%d n_kv_heads=%d head_dim=%d window=%d — all must be > 0)",
+				m.ID, s.NLayers, s.NKVHeads, s.HeadDim, s.Window)
 		}
 	}
 	return nil

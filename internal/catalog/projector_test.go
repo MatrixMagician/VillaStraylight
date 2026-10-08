@@ -7,10 +7,10 @@ import (
 	"testing"
 )
 
-// projectorEntryJSON is a schema-4 entry whose projector block is spliced in per
+// projectorEntryJSON is a schema-5 entry whose projector block is spliced in per
 // case, so each guard is exercised by one differing block and nothing else.
 const projectorEntryJSON = `{
-  "schema_version": 4,
+  "schema_version": 5,
   "catalog_version": "test.invalid-projector",
   "models": [
     {
@@ -118,6 +118,7 @@ func TestSeedProjectorsCarryProvenance(t *testing.T) {
 		t.Fatalf("Load(\"\"): unexpected error: %v", err)
 	}
 	withProjector := 0
+	owner := map[string]string{}
 	for _, m := range c.Models {
 		if m.Projector == nil {
 			continue
@@ -133,6 +134,10 @@ func TestSeedProjectorsCarryProvenance(t *testing.T) {
 			if sh.Filename != filepath.Base(sh.Filename) || strings.ContainsAny(sh.Filename, `/\`) {
 				t.Errorf("seed entry %q projector filename %q is not a bare filename", m.ID, sh.Filename)
 			}
+			if prev, dup := owner[sh.Filename]; dup {
+				t.Errorf("projector filename %q is shared by %q and %q; the flat models dir would collide", sh.Filename, prev, m.ID)
+			}
+			owner[sh.Filename] = m.ID
 		}
 	}
 	if withProjector == 0 {

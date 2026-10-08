@@ -77,10 +77,16 @@ func checkOneModelGeometry(m catalog.Model, want gguf.Geometry, open func(string
 
 	catalogSide := fmt.Sprintf("catalog n_layers=%d n_kv_heads=%d head_dim=%d", m.NLayers, m.NKVHeads, m.HeadDim)
 	headerSide := fmt.Sprintf("%s header kv_layers=%d head_count_kv=%d key_length=%d", file, got.KVLayers, got.HeadCountKV, got.KeyLength)
+	if want.HasSlidingWindow() || got.HasSlidingWindow() {
+		catalogSide += fmt.Sprintf(" swa_layers=%d swa_kv_heads=%d swa_head_dim=%d swa_window=%d",
+			want.SWALayers, want.SWAHeadCountKV, want.SWAKeyLength, want.SWAWindow)
+		headerSide += fmt.Sprintf(" swa_layers=%d swa_head_count_kv=%d swa_key_length=%d swa_window=%d",
+			got.SWALayers, got.SWAHeadCountKV, got.SWAKeyLength, got.SWAWindow)
+	}
 	if got != want {
 		return fail(idCatalogGeometry, name,
 			catalogSide+"; "+headerSide,
-			"fix the "+m.ID+" entry in internal/catalog/seed.json (n_layers/n_kv_heads/head_dim) to match the GGUF header, or re-pin the shard",
+			"fix the "+m.ID+" entry in internal/catalog/seed.json (n_layers/n_kv_heads/head_dim and the swa block) to match the GGUF header, or re-pin the shard",
 			provenance, ""), true
 	}
 	return pass(idCatalogGeometry, name, TierBlock, catalogSide+"; "+headerSide, provenance), true

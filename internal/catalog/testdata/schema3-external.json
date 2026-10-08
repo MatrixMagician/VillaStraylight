@@ -1,5 +1,5 @@
 {
-  "schema_version": 4,
+  "schema_version": 5,
   "catalog_version": "test.external.schema3",
   "models": [
     {

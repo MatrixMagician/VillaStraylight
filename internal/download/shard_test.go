@@ -186,6 +186,21 @@ func TestPullRefusesGeometryMismatch(t *testing.T) {
 	}
 }
 
+// TestSWADetail guards the promise that a geometry refusal names the sliding-window
+// values of both sides when either has any, and stays silent otherwise, so a
+// refusal over the swa block never prints two identical-looking lines.
+func TestSWADetail(t *testing.T) {
+	if got := swaDetail(gguf.Geometry{KVLayers: 1}, gguf.Geometry{KVLayers: 2}); got != "" {
+		t.Errorf("swaDetail without sliding layers = %q, want empty", got)
+	}
+	got := swaDetail(gguf.Geometry{}, gguf.Geometry{SWALayers: 50, SWAHeadCountKV: 16, SWAKeyLength: 256, SWAWindow: 1024})
+	for _, want := range []string{"catalog swa n_layers=0", "header swa layers=50", "head_count_kv=16", "window=1024"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("swaDetail = %q, missing %q", got, want)
+		}
+	}
+}
+
 // TestPullRefusesUnreadableHeader guards the promise that a file villa cannot
 // parse as GGUF is a refusal too: the pull cannot claim the entry is confirmed
 // when the witness could not be read at all.

@@ -9,6 +9,12 @@
 // between the vetted entry and the file on disk is a FINDING for the operator, so
 // an unvetted or re-quantized file can never silently move the fit.
 //
+// A layer that uses sliding-window attention is not a KV-bearing layer: llama.cpp
+// bounds its cache at the window, so only the global layers grow with the context
+// and only they enter the context-scaling KV term of the fit. The bounded cache of
+// the sliding layers is reported separately, in the SWA fields, because it is a
+// second term of its own.
+//
 // The package is pure and stdlib-only. It takes an io.Reader; opening the file is
 // the caller's seam, which is what keeps `os` out of this package and out of
 // internal/preflight.
@@ -20,7 +26,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"math"
+	"slices"
 )
 
 // Sentinel errors callers match on with errors.Is. Every other failure is a
@@ -58,27 +66,56 @@ const (
 	maxKVCount    = 1 << 20
 	maxStringLen  = 1 << 24
 	maxArrayCount = 1 << 28
+	// maxLayerArray bounds the integer and bool arrays kept in memory. No model has
+	// this many blocks, and a vocabulary array has far more elements, so a
+	// per-layer array is retained and a vocabulary never is.
+	maxLayerArray = 4096
 )
 
 // Geometry is the three per-model dimensions the recommend fit inequality
 // consumes. It is the exact subset the catalog hand-carries, so the two are
 // directly comparable.
 type Geometry struct {
-	// KVLayers is the number of layers that hold a per-token KV cache, which on a
-	// dense architecture is the block count but on a hybrid one is NOT. A hybrid
-	// (Gated-DeltaNet / SSM) model gives most of its blocks a fixed-size recurrent
-	// state and only every full_attention_interval-th block a growing KV cache, so
-	// counting blocks would overstate the KV term by that factor. The name says
-	// what it counts because the two are equal often enough to hide the bug.
+	// KVLayers is the number of layers whose per-token KV cache grows with the
+	// context, which on a dense architecture is the block count but otherwise is
+	// NOT. A hybrid (Gated-DeltaNet / SSM) model gives most of its blocks a
+	// fixed-size recurrent state and only every full_attention_interval-th block a
+	// growing KV cache. A sliding-window layer is not KV-bearing either, because
+	// llama.cpp bounds its cache at the window. Counting blocks would overstate the
+	// KV term by those factors. The name says what it counts because the two are
+	// equal often enough to hide the bug.
 	KVLayers int
 	// HeadCountKV is the grouped-query KV head count, not the attention head count.
 	HeadCountKV int
 	// KeyLength is the per-head key dimension.
 	KeyLength int
+
+	// The four SWA fields describe the sliding-window layers, whose cache
+	// llama.cpp bounds at the window instead of growing it with the context
+	// (ADR-0029). They are all zero when the header carries no
+	// sliding_window_pattern, or a pattern with no sliding layer in it.
+	//
+	// SWALayers is the count of sliding-window layers, block_count minus KVLayers.
+	SWALayers int
+	// SWAHeadCountKV is the KV head count at the sliding layers, which can differ
+	// from the global layers' (Gemma 4: 16 against 4).
+	SWAHeadCountKV int
+	// SWAKeyLength is the per-head key dimension at the sliding layers:
+	// key_length_swa when the header carries it, else KeyLength.
+	SWAKeyLength int
+	// SWAWindow is the attention window, in tokens.
+	SWAWindow int
+}
+
+// HasSlidingWindow reports whether g describes any sliding-window layer, which is
+// what decides whether a comparison needs to print the four SWA values.
+func (g Geometry) HasSlidingWindow() bool {
+	return g.SWALayers != 0 || g.SWAHeadCountKV != 0 || g.SWAKeyLength != 0 || g.SWAWindow != 0
 }
 
 // Header is the decoded GGUF header plus its metadata section. The kv map holds
-// scalar and string values only; array values are parsed for their length and
+// scalar and string values, plus integer and bool arrays of at most maxLayerArray
+// elements (the per-layer arrays). Every other array is parsed for its length and
 // discarded, leaving behind a marker so a key that IS an array is distinguishable
 // from one that is absent.
 type Header struct {
@@ -88,9 +125,9 @@ type Header struct {
 	kv map[string]any
 }
 
-// arrayVal marks a key whose value was an array. The contents are discarded; the
-// marker is what lets Geometry refuse a per-layer head_count_kv as unsupported
-// instead of reporting it missing.
+// arrayVal marks a key whose value was an array that was not retained. The
+// marker is what lets uintKey refuse an array as unsupported instead of reporting
+// the key missing.
 type arrayVal struct{}
 
 // Arch returns general.architecture, the prefix every geometry key is namespaced
@@ -124,6 +161,20 @@ func (h Header) Uint(key string) (uint64, bool) {
 	}
 }
 
+// Uints returns an integer array retained at read time, widened to uint64. It is
+// false for an absent key, a non-array, an array longer than maxLayerArray, or one
+// with a negative element.
+func (h Header) Uints(key string) ([]uint64, bool) {
+	v, ok := h.kv[key].([]uint64)
+	return v, ok
+}
+
+// Bools returns a bool array retained at read time, with the limits of Uints.
+func (h Header) Bools(key string) ([]bool, bool) {
+	v, ok := h.kv[key].([]bool)
+	return v, ok
+}
+
 // archKey is the one metadata key that is not architecture-namespaced.
 const archKey = "general.architecture"
 
@@ -143,13 +194,11 @@ func (h Header) Geometry() (Geometry, error) {
 	if err != nil {
 		return Geometry{}, err
 	}
-	// A hybrid architecture gives only every full_attention_interval-th block a
-	// KV cache. The key is absent on a dense architecture, where every block bears
-	// one; a declared zero is read the same way rather than dividing by zero.
-	if interval, ok := h.Uint(arch + ".full_attention_interval"); ok && interval > 0 {
-		blocks /= interval
+	kvLayers, bearing, err := h.kvLayerSet(arch, int(blocks))
+	if err != nil {
+		return Geometry{}, err
 	}
-	kvHeads, err := h.uintKey(arch + ".attention.head_count_kv")
+	kvHeads, err := h.kvHeadCount(arch+".attention.head_count_kv", int(blocks), bearing)
 	if err != nil {
 		return Geometry{}, err
 	}
@@ -168,7 +217,100 @@ func (h Header) Geometry() (Geometry, error) {
 		}
 		keyLen = embed / heads
 	}
-	return Geometry{KVLayers: int(blocks), HeadCountKV: int(kvHeads), KeyLength: int(keyLen)}, nil
+	g := Geometry{KVLayers: kvLayers, HeadCountKV: int(kvHeads), KeyLength: int(keyLen)}
+	if err := h.slidingWindow(&g, arch, int(blocks)); err != nil {
+		return Geometry{}, err
+	}
+	return g, nil
+}
+
+// slidingWindow fills g's SWA fields from the sliding_window_pattern. The pattern
+// has already been length-checked by kvLayerSet. A pattern with no sliding layer
+// leaves the fields zero and does not need a window key; one with sliding layers
+// and no window cannot bound the cache, so the missing key is named.
+func (h Header) slidingWindow(g *Geometry, arch string, blocks int) error {
+	pattern, ok := h.Bools(arch + ".attention.sliding_window_pattern")
+	if !ok {
+		return nil
+	}
+	n := 0
+	for _, sliding := range pattern {
+		if sliding {
+			n++
+		}
+	}
+	if n == 0 {
+		return nil
+	}
+	heads, err := h.kvHeadCount(arch+".attention.head_count_kv", blocks, func(i int) bool { return pattern[i] })
+	if err != nil {
+		return err
+	}
+	window, err := h.uintKey(arch + ".attention.sliding_window")
+	if err != nil {
+		return err
+	}
+	keyLen := uint64(g.KeyLength)
+	if v, ok := h.Uint(arch + ".attention.key_length_swa"); ok {
+		keyLen = v
+	}
+	g.SWALayers, g.SWAHeadCountKV, g.SWAKeyLength, g.SWAWindow = n, int(heads), int(keyLen), int(window)
+	return nil
+}
+
+// kvLayerSet counts the KV-bearing layers and returns the predicate saying which
+// block indexes they are. A sliding_window_pattern marks the sliding layers true,
+// so the bearing ones are the false entries. A hybrid architecture instead gives
+// only every full_attention_interval-th block a KV cache; which blocks those are
+// is not needed, so its predicate admits every block. A declared zero interval is
+// read as absent rather than dividing by zero.
+func (h Header) kvLayerSet(arch string, blocks int) (int, func(int) bool, error) {
+	patKey := arch + ".attention.sliding_window_pattern"
+	if pattern, ok := h.Bools(patKey); ok {
+		if len(pattern) != blocks {
+			return 0, nil, fmt.Errorf("gguf: key %s has %d entries but %s.block_count is %d", patKey, len(pattern), arch, blocks)
+		}
+		n := 0
+		for _, sliding := range pattern {
+			if !sliding {
+				n++
+			}
+		}
+		return n, func(i int) bool { return !pattern[i] }, nil
+	}
+	all := func(int) bool { return true }
+	if interval, ok := h.Uint(arch + ".full_attention_interval"); ok && interval > 0 {
+		return blocks / int(interval), all, nil
+	}
+	return blocks, all, nil
+}
+
+// kvHeadCount reads a KV head count that is either a scalar or a per-layer array.
+// An array is read at the KV-bearing layers, which must agree; with no such layer
+// there is nothing to read and the count is zero, not an error.
+func (h Header) kvHeadCount(key string, blocks int, bearing func(int) bool) (uint64, error) {
+	per, ok := h.Uints(key)
+	if !ok {
+		return h.uintKey(key)
+	}
+	if len(per) != blocks {
+		return 0, fmt.Errorf("gguf: key %s has %d entries but block_count is %d", key, len(per), blocks)
+	}
+	seen := map[uint64]struct{}{}
+	for i, v := range per {
+		if bearing(i) {
+			seen[v] = struct{}{}
+		}
+	}
+	vals := slices.Sorted(maps.Keys(seen))
+	switch len(vals) {
+	case 0:
+		return 0, nil
+	case 1:
+		return vals[0], nil
+	default:
+		return 0, fmt.Errorf("gguf: KV-bearing layers disagree on %s: %v", key, vals)
+	}
 }
 
 // uintKey is Uint with the three failure modes separated: absent, an unsupported
@@ -178,7 +320,8 @@ func (h Header) uintKey(key string) (uint64, error) {
 	if !present {
 		return 0, fmt.Errorf("gguf: missing key %s", key)
 	}
-	if _, isArray := v.(arrayVal); isArray {
+	switch v.(type) {
+	case arrayVal, []uint64, []bool:
 		return 0, fmt.Errorf("gguf: key %s is a per-layer array, which is unsupported", key)
 	}
 	n, ok := h.Uint(key)
@@ -241,8 +384,9 @@ func ReadHeader(r io.Reader) (Header, error) {
 }
 
 // readValue decodes one metadata value of the given wire type. Arrays are walked
-// element by element and discarded, which is what keeps a million-token vocabulary
-// out of memory while still leaving the reader positioned at the next key.
+// element by element and, unless they are a small integer or bool array, discarded,
+// which is what keeps a million-token vocabulary out of memory while still leaving
+// the reader positioned at the next key.
 func readValue(r io.Reader, typ uint32) (any, error) {
 	switch typ {
 	case typeUint8, typeUint16, typeUint32, typeUint64:
@@ -273,7 +417,7 @@ func readValue(r io.Reader, typ uint32) (any, error) {
 	case typeString:
 		return readString(r)
 	case typeArray:
-		return arrayVal{}, skipArray(r)
+		return readArray(r)
 	default:
 		return nil, fmt.Errorf("gguf: unknown metadata value type %d", typ)
 	}
@@ -293,26 +437,72 @@ func scalarWidth(typ uint32) int {
 	}
 }
 
-// skipArray consumes an array value (element type, count, then every element)
-// without retaining any of it. Nested arrays recurse through readValue.
-func skipArray(r io.Reader) error {
+// readArray consumes an array value (element type, count, then every element).
+// An integer or bool array of at most maxLayerArray elements is returned as
+// []uint64 or []bool; a negative element, any other element type and any larger
+// count are consumed and discarded behind an arrayVal marker. Nested arrays
+// recurse through readValue.
+func readArray(r io.Reader) (any, error) {
 	elemType, err := readU32(r)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	count, err := readU64(r)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if count > maxArrayCount {
-		return fmt.Errorf("gguf: array length %d exceeds the %d-element cap", count, maxArrayCount)
+		return nil, fmt.Errorf("gguf: array length %d exceeds the %d-element cap", count, maxArrayCount)
+	}
+	isBool := elemType == typeBool
+	keep := count <= maxLayerArray && (isBool || scalarInt(elemType))
+	var uints []uint64
+	var bools []bool
+	if keep && isBool {
+		bools = make([]bool, 0, count)
+	} else if keep {
+		uints = make([]uint64, 0, count)
 	}
 	for i := uint64(0); i < count; i++ {
-		if _, elemErr := readValue(r, elemType); elemErr != nil {
-			return elemErr
+		v, elemErr := readValue(r, elemType)
+		if elemErr != nil {
+			return nil, elemErr
+		}
+		switch e := v.(type) {
+		case bool:
+			if keep {
+				bools = append(bools, e)
+			}
+		case uint64:
+			if keep {
+				uints = append(uints, e)
+			}
+		case int64:
+			if e < 0 {
+				keep = false
+			} else if keep {
+				uints = append(uints, uint64(e))
+			}
 		}
 	}
-	return nil
+	switch {
+	case !keep:
+		return arrayVal{}, nil
+	case isBool:
+		return bools, nil
+	default:
+		return uints, nil
+	}
+}
+
+// scalarInt reports whether typ is one of the fixed-width integer wire types.
+func scalarInt(typ uint32) bool {
+	switch typ {
+	case typeUint8, typeInt8, typeUint16, typeInt16, typeUint32, typeInt32, typeUint64, typeInt64:
+		return true
+	default:
+		return false
+	}
 }
 
 // readString decodes a u64-prefixed byte string, refusing a declared length beyond

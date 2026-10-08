@@ -88,3 +88,69 @@ func TestKVCacheUsesKVHeads(t *testing.T) {
 		t.Errorf("KV did not scale with n_kv_heads as expected")
 	}
 }
+
+// TestSWACells guards the promise that the sliding-window cache is bounded the
+// way llama.cpp bounds it: min(ctx, window*seqs + ubatch), padded up to 256.
+func TestSWACells(t *testing.T) {
+	cases := []struct {
+		name        string
+		ctx, window int
+		want        int
+	}{
+		{"gemma at the 16k test ctx", 16384, 1024, 4608},
+		{"gemma at its default ctx", 131072, 1024, 4608},
+		{"ctx below the bound is the ctx", 2048, 1024, 2048},
+		{"muse window", 100000, 2048, 8704},
+		{"padding rounds up", 1000, 1024, 1024},
+		{"zero ctx", 0, 1024, 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := swaCells(tc.ctx, tc.window); got != tc.want {
+				t.Errorf("swaCells(%d, %d) = %d, want %d", tc.ctx, tc.window, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestSWACacheBytes guards the promise that the sliding-window term is the KV
+// layout math over the sliding layers' own geometry and the bounded cell count:
+// Gemma 4 31B at ctx 16384 is 50 layers x 16 heads x 256 dims x 4608 cells.
+func TestSWACacheBytes(t *testing.T) {
+	gemma := &catalog.SlidingWindow{NLayers: 50, NKVHeads: 16, HeadDim: 256, Window: 1024}
+	if got, want := swaCacheBytes(gemma, 2, 16384), uint64(3774873600); got != want {
+		t.Errorf("swaCacheBytes(gemma, 16384) = %d, want %d", got, want)
+	}
+	if got := swaCacheBytes(nil, 2, 16384); got != 0 {
+		t.Errorf("swaCacheBytes(nil) = %d, want 0 (no block reserves nothing)", got)
+	}
+	if got := swaCacheBytes(gemma, 2, 0); got != 0 {
+		t.Errorf("swaCacheBytes(ctx=0) = %d, want 0", got)
+	}
+}
+
+// TestKVCacheBytesIncludesSWA guards the promise that kvCacheBytes is the global
+// term plus the sliding-window term, so every reader of KVCacheBytes sees both.
+func TestKVCacheBytesIncludesSWA(t *testing.T) {
+	m := catalog.Model{
+		NLayers: 10, NKVHeads: 4, HeadDim: 512, KVBytesPerElem: 2,
+		SWA: &catalog.SlidingWindow{NLayers: 50, NKVHeads: 16, HeadDim: 256, Window: 1024},
+	}
+	if got, want := kvCacheBytes(m, 16384), uint64(1342177280+3774873600); got != want {
+		t.Errorf("kvCacheBytes = %d, want %d", got, want)
+	}
+}
+
+// TestSWACacheBytesSaturates guards the promise that the sliding-window term
+// saturates like the global one, and that adding it to a saturated global term
+// stays saturated rather than wrapping small.
+func TestSWACacheBytesSaturates(t *testing.T) {
+	huge := &catalog.SlidingWindow{NLayers: 1 << 40, NKVHeads: 1 << 20, HeadDim: 1 << 10, Window: 1024}
+	if got := swaCacheBytes(huge, 2, 16384); got != math.MaxUint64 {
+		t.Errorf("swaCacheBytes(huge) = %d, want MaxUint64", got)
+	}
+	m := catalog.Model{NLayers: 48, NKVHeads: 8, HeadDim: 128, KVBytesPerElem: 2, SWA: huge}
+	if got := kvCacheBytes(m, 1<<50); got != math.MaxUint64 {
+		t.Errorf("kvCacheBytes(absurd ctx with SWA) = %d, want MaxUint64", got)
+	}
+}

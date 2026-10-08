@@ -61,11 +61,11 @@ func TestLoadSeedDownloadMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load(\"\"): unexpected error: %v", err)
 	}
-	if SupportedSchema != 4 {
-		t.Fatalf("SupportedSchema = %d, want 4 (schema bumped for the ngram qualification, ADR-0006)", SupportedSchema)
+	if SupportedSchema != 5 {
+		t.Fatalf("SupportedSchema = %d, want 5 (schema bumped for the sliding-window block, ADR-0029)", SupportedSchema)
 	}
-	if c.SchemaVersion != 4 {
-		t.Errorf("embedded seed schema_version = %d, want 4", c.SchemaVersion)
+	if c.SchemaVersion != 5 {
+		t.Errorf("embedded seed schema_version = %d, want 5", c.SchemaVersion)
 	}
 	for _, m := range c.Models {
 		if len(m.Shards) == 0 {
@@ -104,6 +104,11 @@ func TestLoadSeedVerifiedDims(t *testing.T) {
 		"qwen3.5-0.8b": {6, 2, 256},
 		"qwen3.5-2b":   {6, 2, 256},
 		"qwen3.8-27b":  {16, 4, 256},
+		// gemma4 is 60 blocks, 5 sliding-window : 1 global; only the 10 global
+		// blocks carry a full-context KV (head_count_kv 4, ADR-0029).
+		"gemma-4-31b": {10, 4, 512},
+		// deepseek2 MLA: one latent KV head of width 576 on all 47 blocks.
+		"glm-4.7-flash": {47, 1, 576},
 	}
 	for id, w := range want {
 		m, ok := c.FindByID(id)
@@ -214,7 +219,7 @@ func TestLoadMalformedFallsBack(t *testing.T) {
 	}
 }
 
-// TestLoadSeedCoderEntries asserts the schema-v3 seed ships exactly three
+// TestLoadSeedCoderEntries asserts the schema-v3 seed ships exactly four
 // role:"coder" entries (CODER-01), each with an agent-profile context,
 // a repo@revision template-provenance pin, and a single shard whose URL is
 // revision-pinned (`resolve/{40-hex}` — never `resolve/main/`).
@@ -223,13 +228,14 @@ func TestLoadSeedCoderEntries(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load(\"\"): unexpected error: %v", err)
 	}
-	if SupportedSchema != 4 {
-		t.Fatalf("SupportedSchema = %d, want 4 (schema bumped for the ngram qualification, ADR-0006)", SupportedSchema)
+	if SupportedSchema != 5 {
+		t.Fatalf("SupportedSchema = %d, want 5 (schema bumped for the sliding-window block, ADR-0029)", SupportedSchema)
 	}
 	wantIDs := map[string]bool{
 		"qwen3-coder-30b-a3b": false,
 		"qwen3-coder-next-q4": false,
 		"qwen3-coder-next-q3": false,
+		"glm-4.7-flash":       false,
 	}
 	revisionURL := regexp.MustCompile(`/resolve/[0-9a-f]{40}/`)
 	coders := 0
@@ -261,8 +267,8 @@ func TestLoadSeedCoderEntries(t *testing.T) {
 			t.Errorf("coder entry %q shard URL %q lacks a /resolve/{40-hex}/ revision pin", m.ID, u)
 		}
 	}
-	if coders != 3 {
-		t.Errorf("seed has %d role:\"coder\" entries, want exactly 3", coders)
+	if coders != 4 {
+		t.Errorf("seed has %d role:\"coder\" entries, want exactly 4", coders)
 	}
 	for id, seen := range wantIDs {
 		if !seen {
@@ -300,7 +306,7 @@ func TestLoadSeedChatEntriesCarryNoCoderKeys(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load(\"\"): unexpected error: %v", err)
 	}
-	chatIDs := []string{"qwen3.5-0.8b", "qwen3.5-2b", "qwen3.6-35b-a3b"}
+	chatIDs := []string{"qwen3.5-0.8b", "qwen3.5-2b", "qwen3.6-35b-a3b", "gemma-4-31b"}
 	// agent_ctx on a chat entry is the tools-mode ctx floor (spec v1.11 §13 item 1),
 	// and only a measured entry carries one: on 2026-09-10 two `villa work` tasks on
 	// qwen3.6-35b-a3b peaked at n_past 10,427 tokens (Crush's prompt, its tools and a
@@ -355,6 +361,10 @@ func TestLoadSeedCoderVerifiedDims(t *testing.T) {
 		"qwen3-coder-30b-a3b": {17665334432, 48, 4, 128, 65536, 64, true},
 		"qwen3-coder-next-q4": {49608478720, 12, 2, 256, 131072, 128, true},
 		"qwen3-coder-next-q3": {36282685440, 12, 2, 256, 131072, 96, true},
+		// deepseek2 MLA: one latent KV head of width 576 on all 47 blocks. The
+		// 2026-10-08 on-hardware cache-reuse probe returned true (turn 2 reused
+		// 13231 of 13231 tokens, correct answers, no degrade warning).
+		"glm-4.7-flash": {17520169312, 47, 1, 576, 131072, 64, true},
 	}
 	for id, w := range want {
 		m, ok := c.FindByID(id)
@@ -472,7 +482,7 @@ func goodCoderDims() coderDims { return coderDims{32, 8, 128, 2} }
 // from the case under test. Shared by the refuse-whole and accept tests below.
 func buildCoderCatalog(entryID string, agentCtx int, d coderDims, sampling string) string {
 	return fmt.Sprintf(`{
-  "schema_version": 4,
+  "schema_version": 5,
   "catalog_version": "test.invalid-coder",
   "models": [
     {
@@ -627,7 +637,7 @@ func TestLoadSchema4NgramExternal(t *testing.T) {
 // falls back to the seed rather than being accepted or silently downgraded.
 func TestLoadNgramValidationRejectsUnprovenanced(t *testing.T) {
 	body := `{
-  "schema_version": 4,
+  "schema_version": 5,
   "catalog_version": "test.invalid-ngram",
   "models": [
     {
@@ -693,5 +703,37 @@ func TestSeedNgramQualificationsCarryProvenance(t *testing.T) {
 	}
 	if qualified == 0 {
 		t.Errorf("no seed entry is qualified for ngram; the measured pair should be")
+	}
+}
+
+// TestSeedFamiliesBeyondQwen guards the promise that a failure in one model
+// family has a fallback in another: the seed keeps a vision-capable chat entry
+// and a coder entry that are not Qwen builds.
+func TestSeedFamiliesBeyondQwen(t *testing.T) {
+	c, _, err := Load("")
+	if err != nil {
+		t.Fatalf("Load(\"\"): %v", err)
+	}
+	var chatVision, otherCoder []string
+	for _, m := range c.Models {
+		if len(m.Shards) == 0 {
+			continue
+		}
+		nonQwen := !strings.Contains(strings.ToLower(m.Shards[0].URL), "/qwen")
+		if m.Role == "coder" {
+			if nonQwen {
+				otherCoder = append(otherCoder, m.ID)
+			}
+			continue
+		}
+		if m.Projector != nil && nonQwen {
+			chatVision = append(chatVision, m.ID)
+		}
+	}
+	if len(chatVision) == 0 {
+		t.Errorf("no non-Qwen chat entry with a projector; want one (e.g. gemma-4-31b)")
+	}
+	if len(otherCoder) == 0 {
+		t.Errorf("no non-Qwen coder entry; want one (e.g. glm-4.7-flash)")
 	}
 }
