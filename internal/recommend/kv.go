@@ -23,8 +23,56 @@ import (
 // catalog dimensions) would otherwise wrap mod 2^64 to a SMALL total and defeat
 // the fit re-validation — exactly the silent-OOM guard this math exists to
 // provide. A saturated KV can never compare ≤ envelope, so Fits stays false.
+//
+// An entry with sliding-window layers adds a second term for them (ADR-0029): see
+// swaCacheBytes. KVCacheBytes, on the recommendation and on the coder fit, is the
+// sum, so every reader of it sees both caches.
 func kvCacheBytes(m catalog.Model, ctx int) uint64 {
-	return kvBytesForDims(m.NLayers, m.NKVHeads, m.HeadDim, ctx, m.KVBytesPerElem)
+	global := kvBytesForDims(m.NLayers, m.NKVHeads, m.HeadDim, ctx, m.KVBytesPerElem)
+	return addSaturating(global, swaCacheBytes(m.SWA, m.KVBytesPerElem, ctx))
+}
+
+// llamaServerSeqMax and llamaServerUBatch are the llama-server defaults that size
+// the sliding-window cache, which villa renders none of: n_parallel resolves to 4
+// with a unified KV cache, and n_ubatch is 512. The Gemma 4 31B unit's journal
+// logs "n_parallel is set to auto, using n_parallel = 4 and kv_unified = true",
+// "n_seq_max = 4" and "n_ubatch = 512", and the 3600 MiB sliding buffer it then
+// allocates is (1024 x 4 + 512) cells. src/llama-kv-cache-iswa.cpp sizes it as
+// GGML_PAD(min(n_ctx, n_swa * (kv_unified ? n_seq_max : 1) + n_ubatch), 256).
+// TestContainerArgsLeaveSWASizingToDefaults fails the build if a render path
+// starts setting any flag that would move these.
+const (
+	llamaServerSeqMax = 4
+	llamaServerUBatch = 512
+	swaCellPad        = 256
+)
+
+// swaCells is the number of cells llama.cpp allocates for a sliding-window cache
+// of the given window at ctx: the window across every sequence plus a micro-batch,
+// never more than the context, padded up to a multiple of 256. The bound is why
+// the term is nearly flat in ctx.
+func swaCells(ctx, window int) int {
+	if ctx <= 0 {
+		return 0
+	}
+	bound := ctx
+	if window <= (math.MaxInt-llamaServerUBatch)/llamaServerSeqMax {
+		bound = min(ctx, window*llamaServerSeqMax+llamaServerUBatch)
+	}
+	if bound > math.MaxInt-swaCellPad {
+		return bound
+	}
+	return (bound + swaCellPad - 1) / swaCellPad * swaCellPad
+}
+
+// swaCacheBytes is the KV-layout math over the sliding-window layers' own
+// geometry and the bounded cell count, saturating like kvBytesForDims. A nil
+// block reserves nothing.
+func swaCacheBytes(s *catalog.SlidingWindow, kvBytesPerElem, ctx int) uint64 {
+	if s == nil {
+		return 0
+	}
+	return kvBytesForDims(s.NLayers, s.NKVHeads, s.HeadDim, swaCells(ctx, s.Window), kvBytesPerElem)
 }
 
 // draftKVCacheBytes computes the KV-cache size for a draft sidecar at ctx, using

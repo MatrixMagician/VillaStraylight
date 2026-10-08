@@ -29,7 +29,12 @@ package catalog
 // v4 (ADR-0006): adds the optional ngram speculation qualification
 // (ngram_safe, ngram_provenance). Both are optional with fail-closed absence
 // semantics: an entry without them is not qualified for speculation.
-const SupportedSchema = 4
+//
+// v5 (ADR-0029): adds the optional sliding-window block (swa), the layers whose
+// KV cache llama.cpp bounds at the window. Absence means no such layers and the
+// fit reserves nothing for them; a present block with a non-positive field
+// refuses the whole external catalog.
+const SupportedSchema = 5
 
 // Catalog is the top-level catalog document. schema_version gates parser
 // compatibility; catalog_version is informational data-freshness metadata.
@@ -133,12 +138,26 @@ type Model struct {
 	// Projector's presence does not by itself turn vision on.
 	Draft *Draft `json:"draft,omitempty"`
 
+	// SWA is the OPTIONAL sliding-window block (schema v5, ADR-0029). Absent means
+	// the entry has no sliding-window layers and the fit reserves nothing for them.
+	SWA *SlidingWindow `json:"swa,omitempty"`
+
 	// Shards is the per-shard download manifest (schema v2). A
 	// single-file model is the degenerate one-element case; large quants split
 	// into the HuggingFace `-00001-of-0000N.gguf` convention carry one Shard per
 	// file. `villa model pull` downloads + checksum-verifies every shard and
 	// rejects the model unless all shards are present and individually verified.
 	Shards []Shard `json:"shards,omitempty"`
+}
+
+// SlidingWindow is the sliding-window attention block (ADR-0029): the layers
+// whose KV cache llama.cpp bounds at the window instead of growing with the
+// context. Absent means no such layers, and the fit reserves nothing for them.
+type SlidingWindow struct {
+	NLayers  int `json:"n_layers"`   // sliding-window layers: block_count minus the KV-bearing n_layers
+	NKVHeads int `json:"n_kv_heads"` // KV heads on those layers (Gemma 4: 16, not the global layers' 4)
+	HeadDim  int `json:"head_dim"`   // <arch>.attention.key_length_swa when present, else key_length
+	Window   int `json:"window"`     // <arch>.attention.sliding_window
 }
 
 // Shard is one downloadable GGUF file for a model. The values come from a

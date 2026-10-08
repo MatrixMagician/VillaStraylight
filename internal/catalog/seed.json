@@ -1,5 +1,5 @@
 {
-  "schema_version": 4,
+  "schema_version": 5,
   "catalog_version": "2026.10.1",
   "models": [
     {
@@ -162,6 +162,12 @@
         ],
         "weight_bytes": 1363977175,
         "provenance": "gfx1151, kyuz0 rocm-10.0 image (llama.cpp b11430), 2026-10-08: clip_ctx reported CLIP using ROCm0 backend and a red-left/blue-right 128x64 PNG was described correctly through /v1/chat/completions; server worst-case estimate 1300.79 MiB"
+      },
+      "swa": {
+        "n_layers": 50,
+        "n_kv_heads": 16,
+        "head_dim": 256,
+        "window": 1024
       },
       "shards": [
         {

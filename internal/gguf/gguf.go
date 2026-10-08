@@ -11,7 +11,9 @@
 //
 // A layer that uses sliding-window attention is not a KV-bearing layer: llama.cpp
 // bounds its cache at the window, so only the global layers grow with the context
-// and only they enter the KV term of the fit.
+// and only they enter the context-scaling KV term of the fit. The bounded cache of
+// the sliding layers is reported separately, in the SWA fields, because it is a
+// second term of its own.
 //
 // The package is pure and stdlib-only. It takes an io.Reader; opening the file is
 // the caller's seam, which is what keeps `os` out of this package and out of
@@ -87,6 +89,28 @@ type Geometry struct {
 	HeadCountKV int
 	// KeyLength is the per-head key dimension.
 	KeyLength int
+
+	// The four SWA fields describe the sliding-window layers, whose cache
+	// llama.cpp bounds at the window instead of growing it with the context
+	// (ADR-0029). They are all zero when the header carries no
+	// sliding_window_pattern, or a pattern with no sliding layer in it.
+	//
+	// SWALayers is the count of sliding-window layers, block_count minus KVLayers.
+	SWALayers int
+	// SWAHeadCountKV is the KV head count at the sliding layers, which can differ
+	// from the global layers' (Gemma 4: 16 against 4).
+	SWAHeadCountKV int
+	// SWAKeyLength is the per-head key dimension at the sliding layers:
+	// key_length_swa when the header carries it, else KeyLength.
+	SWAKeyLength int
+	// SWAWindow is the attention window, in tokens.
+	SWAWindow int
+}
+
+// HasSlidingWindow reports whether g describes any sliding-window layer, which is
+// what decides whether a comparison needs to print the four SWA values.
+func (g Geometry) HasSlidingWindow() bool {
+	return g.SWALayers != 0 || g.SWAHeadCountKV != 0 || g.SWAKeyLength != 0 || g.SWAWindow != 0
 }
 
 // Header is the decoded GGUF header plus its metadata section. The kv map holds
@@ -193,7 +217,45 @@ func (h Header) Geometry() (Geometry, error) {
 		}
 		keyLen = embed / heads
 	}
-	return Geometry{KVLayers: kvLayers, HeadCountKV: int(kvHeads), KeyLength: int(keyLen)}, nil
+	g := Geometry{KVLayers: kvLayers, HeadCountKV: int(kvHeads), KeyLength: int(keyLen)}
+	if err := h.slidingWindow(&g, arch, int(blocks)); err != nil {
+		return Geometry{}, err
+	}
+	return g, nil
+}
+
+// slidingWindow fills g's SWA fields from the sliding_window_pattern. The pattern
+// has already been length-checked by kvLayerSet. A pattern with no sliding layer
+// leaves the fields zero and does not need a window key; one with sliding layers
+// and no window cannot bound the cache, so the missing key is named.
+func (h Header) slidingWindow(g *Geometry, arch string, blocks int) error {
+	pattern, ok := h.Bools(arch + ".attention.sliding_window_pattern")
+	if !ok {
+		return nil
+	}
+	n := 0
+	for _, sliding := range pattern {
+		if sliding {
+			n++
+		}
+	}
+	if n == 0 {
+		return nil
+	}
+	heads, err := h.kvHeadCount(arch+".attention.head_count_kv", blocks, func(i int) bool { return pattern[i] })
+	if err != nil {
+		return err
+	}
+	window, err := h.uintKey(arch + ".attention.sliding_window")
+	if err != nil {
+		return err
+	}
+	keyLen := uint64(g.KeyLength)
+	if v, ok := h.Uint(arch + ".attention.key_length_swa"); ok {
+		keyLen = v
+	}
+	g.SWALayers, g.SWAHeadCountKV, g.SWAKeyLength, g.SWAWindow = n, int(heads), int(keyLen), int(window)
+	return nil
 }
 
 // kvLayerSet counts the KV-bearing layers and returns the predicate saying which

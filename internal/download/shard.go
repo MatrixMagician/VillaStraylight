@@ -74,9 +74,20 @@ func verifyGeometry(m catalog.Model, modelsDir string) error {
 	}
 	if got != want {
 		return fmt.Errorf("download: model %s: %s downloaded and checksum-verified (the file is intact), but its header disagrees with the catalog entry — "+
-			"catalog n_layers=%d n_kv_heads=%d head_dim=%d; header kv_layers=%d head_count_kv=%d key_length=%d. "+
+			"catalog n_layers=%d n_kv_heads=%d head_dim=%d; header kv_layers=%d head_count_kv=%d key_length=%d%s. "+
 			"The file is kept; fix the %s entry in internal/catalog/seed.json to match the header, or re-pin the shard",
-			m.ID, m.PrimaryFile(), m.NLayers, m.NKVHeads, m.HeadDim, got.KVLayers, got.HeadCountKV, got.KeyLength, m.ID)
+			m.ID, m.PrimaryFile(), m.NLayers, m.NKVHeads, m.HeadDim, got.KVLayers, got.HeadCountKV, got.KeyLength, swaDetail(want, got), m.ID)
 	}
 	return nil
+}
+
+// swaDetail names the sliding-window values of both sides when either has any, so
+// a refusal over the swa block does not print two identical-looking lines.
+func swaDetail(want, got gguf.Geometry) string {
+	if !want.HasSlidingWindow() && !got.HasSlidingWindow() {
+		return ""
+	}
+	return fmt.Sprintf("; catalog swa n_layers=%d n_kv_heads=%d head_dim=%d window=%d; header swa layers=%d head_count_kv=%d key_length=%d window=%d",
+		want.SWALayers, want.SWAHeadCountKV, want.SWAKeyLength, want.SWAWindow,
+		got.SWALayers, got.SWAHeadCountKV, got.SWAKeyLength, got.SWAWindow)
 }
