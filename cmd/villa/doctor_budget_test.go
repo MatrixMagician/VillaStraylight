@@ -1,0 +1,142 @@
+package main
+
+import (
+	"context"
+	"errors"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/MatrixMagician/VillaStraylight/internal/inference"
+	"github.com/MatrixMagician/VillaStraylight/internal/metrics"
+)
+
+// TestAgentBudgetForScalesWithTheDecodeRate: the agent proof's budget is the time
+// agentProofTokens take at the served model's measured decode rate, floored at the
+// old constant and capped at the ceiling (#318). The rows are the models the vet
+// measured: a 50 tok/s MoE stays at the floor, the two dense models at 10 to 12
+// tok/s get about three minutes, a model too slow to be usable hits the ceiling, and
+// an unmeasured rate falls to the floor and says so.
+func TestAgentBudgetForScalesWithTheDecodeRate(t *testing.T) {
+	cases := []struct {
+		name   string
+		rate   float64
+		err    error
+		budget time.Duration
+		source string
+	}{
+		{"fast MoE at the floor", 50, nil, 90 * time.Second, "measured 50.0 tok/s"},
+		{"qwen3.8-27b, no thinking", 11.55, nil, 177 * time.Second, "measured 11.6 tok/s"},
+		{"gemma-4-31b, thinking", 10.3, nil, 199 * time.Second, "measured 10.3 tok/s"},
+		{"too slow to be usable", 2, nil, 300 * time.Second, "measured 2.0 tok/s"},
+		{"unmeasured", 0, errors.New("llm: upstream returned 401"), 90 * time.Second, "decode rate unmeasured (llm: upstream returned 401)"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			b := agentBudgetFor(c.rate, c.err)
+			if b.Budget != c.budget {
+				t.Errorf("Budget = %v, want %v", b.Budget, c.budget)
+			}
+			if b.Source != c.source {
+				t.Errorf("Source = %q, want %q", b.Source, c.source)
+			}
+		})
+	}
+}
+
+// TestAgentToolCallVerdictNamesTheBudget: every verdict the proof returns carries the
+// budget it ran under and where that budget came from, so an operator reading
+// `agent-tool-call ... signal: killed` can see the bound and the rate it was derived
+// from. A kill that the server's slots drained after names the drain; one they did
+// not drain after names the busy slots.
+func TestAgentToolCallVerdictNamesTheBudget(t *testing.T) {
+	b := agentBudget{Budget: 199 * time.Second, Source: "measured 10.3 tok/s"}
+
+	v := agentToolCallVerdict(true, nil, b, nil)
+	if v.Status != inference.StatusPass {
+		t.Fatalf("completed round: Status = %v, want PASS", v.Status)
+	}
+	if want := "the agent completed a real read→edit tool-call round-trip over the local endpoint (budget 3m19s, measured 10.3 tok/s)"; v.Detail != want {
+		t.Errorf("completed round: Detail = %q, want %q", v.Detail, want)
+	}
+
+	v = agentToolCallVerdict(false, nil, b, nil)
+	if v.Status != inference.StatusFail || !strings.Contains(v.Detail, "budget 3m19s") {
+		t.Errorf("unedited round: Status = %v Detail = %q, want FAIL naming the budget", v.Status, v.Detail)
+	}
+
+	killed := errors.New("crush run: signal: killed")
+	v = agentToolCallVerdict(false, killed, b, &slotDrain{Elapsed: 9 * time.Second, Readable: true})
+	if v.Status != inference.StatusFail {
+		t.Fatalf("killed round: Status = %v, want FAIL", v.Status)
+	}
+	if want := "the agent tool-call round-trip failed to run: crush run: signal: killed (budget 3m19s, measured 10.3 tok/s; the server's slots went idle 9s after the kill)"; v.Detail != want {
+		t.Errorf("killed round: Detail = %q, want %q", v.Detail, want)
+	}
+
+	v = agentToolCallVerdict(false, killed, b, &slotDrain{Elapsed: 90 * time.Second, Busy: 1, Readable: true})
+	if !strings.Contains(v.Detail, "1 slot still generating 1m30s after the kill") {
+		t.Errorf("undrained kill: Detail = %q, want the busy slot named", v.Detail)
+	}
+
+	v = agentToolCallVerdict(false, killed, b, &slotDrain{Elapsed: 0})
+	if !strings.Contains(v.Detail, "/slots could not be read after the kill") {
+		t.Errorf("unreadable slots: Detail = %q, want the unreadable read named", v.Detail)
+	}
+}
+
+// TestAwaitSlotsIdle: after a killed round the proof waits, bounded, for the server
+// to release the round's slots, reading /slots the way the dashboard does. It
+// returns when no slot is processing, or at the bound with the busy count, and
+// reports an unreadable /slots as such rather than as idle.
+func TestAwaitSlotsIdle(t *testing.T) {
+	busy := []metrics.Slot{{ID: 0, IsProcessing: true}, {ID: 1}}
+	idle := []metrics.Slot{{ID: 0}, {ID: 1}}
+
+	t.Run("returns once the slots drain", func(t *testing.T) {
+		reads := [][]metrics.Slot{busy, busy, idle}
+		read := func() ([]metrics.Slot, bool) {
+			s := reads[0]
+			if len(reads) > 1 {
+				reads = reads[1:]
+			}
+			return s, true
+		}
+		d := awaitSlotsIdle(t.Context(), read, time.Millisecond, time.Second)
+		if !d.Readable || d.Busy != 0 {
+			t.Errorf("drain = %+v, want readable and 0 busy", d)
+		}
+		if d.Elapsed >= time.Second {
+			t.Errorf("Elapsed = %v, want under the 1s bound (the slots drained on the third read)", d.Elapsed)
+		}
+	})
+
+	t.Run("stops at the bound with the busy count", func(t *testing.T) {
+		read := func() ([]metrics.Slot, bool) { return busy, true }
+		d := awaitSlotsIdle(t.Context(), read, time.Millisecond, 20*time.Millisecond)
+		if !d.Readable || d.Busy != 1 {
+			t.Errorf("drain = %+v, want readable with 1 busy", d)
+		}
+		if d.Elapsed < 20*time.Millisecond {
+			t.Errorf("Elapsed = %v, want at least the 20ms bound", d.Elapsed)
+		}
+	})
+
+	t.Run("an unreadable /slots is not idle", func(t *testing.T) {
+		read := func() ([]metrics.Slot, bool) { return nil, false }
+		d := awaitSlotsIdle(t.Context(), read, time.Millisecond, 20*time.Millisecond)
+		if d.Readable {
+			t.Errorf("drain = %+v, want Readable=false", d)
+		}
+	})
+
+	t.Run("a cancelled context stops the wait", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+		read := func() ([]metrics.Slot, bool) { return busy, true }
+		d := awaitSlotsIdle(ctx, read, time.Millisecond, time.Minute)
+		if d.Elapsed > time.Second {
+			t.Errorf("Elapsed = %v, want a prompt return on a cancelled context", d.Elapsed)
+		}
+	})
+}

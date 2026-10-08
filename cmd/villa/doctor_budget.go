@@ -1,0 +1,152 @@
+package main
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	"github.com/MatrixMagician/VillaStraylight/internal/config"
+	"github.com/MatrixMagician/VillaStraylight/internal/inference"
+	"github.com/MatrixMagician/VillaStraylight/internal/metrics"
+)
+
+// doctor_budget.go sizes the coding-agent tool-call round-trip's budget from the
+// served model's decode rate, measured at proof time, and after a round the budget
+// killed waits for llama-server to release the round's slots (#318, ADR-0030). The
+// invariant: every verdict names the budget it ran under and where it came from,
+// so a bound that fell to the floor reads as a fallback, never as a measurement.
+
+const (
+	// agentProofBudgetFloor is the smallest budget a round trip gets: the 90 s the
+	// proof carried before it scaled, which every model at 23 tok/s or faster still
+	// gets. It also bounds the search-residency drive, whose rounds are 512 tokens,
+	// and the wait for a killed round's slots to drain.
+	agentProofBudgetFloor = 90 * time.Second
+	// agentProofBudgetCeiling caps the budget. A model that cannot decode
+	// agentProofTokens in five minutes cannot complete a usable round trip, and
+	// doctor says so rather than wait on it.
+	agentProofBudgetCeiling = 300 * time.Second
+	// agentProofTokens is the generation one round trip is given at the measured
+	// rate: the 512 content tokens the qwen3.8-27b control generated plus about 350
+	// reasoning tokens per round over three rounds, with the remainder covering the
+	// prefill of Crush's prompt, which a decode rate does not measure.
+	agentProofTokens = 2048
+	// slotDrainPoll is how often awaitSlotsIdle re-reads /slots.
+	slotDrainPoll = 500 * time.Millisecond
+)
+
+// agentBudget is the bound on one tool-call round trip and the measurement it
+// came from, so every verdict can say what it ran under.
+type agentBudget struct {
+	Budget time.Duration
+	// Source names the measurement, or why there is none.
+	Source string
+}
+
+func (b agentBudget) String() string {
+	return fmt.Sprintf("budget %s, %s", b.Budget.Round(time.Second), b.Source)
+}
+
+// agentBudgetFor sizes the budget from a measured decode rate: agentProofTokens at
+// that rate, no less than the floor and no more than the ceiling. An unmeasured
+// rate gets the floor, and the budget says why it is the floor.
+func agentBudgetFor(rate float64, err error) agentBudget {
+	if err != nil || rate <= 0 {
+		why := "no rate"
+		if err != nil {
+			why = err.Error()
+		}
+		return agentBudget{Budget: agentProofBudgetFloor, Source: "decode rate unmeasured (" + why + ")"}
+	}
+	budget := time.Duration(float64(agentProofTokens) / rate * float64(time.Second)).Round(time.Second)
+	budget = min(max(budget, agentProofBudgetFloor), agentProofBudgetCeiling)
+	return agentBudget{Budget: budget, Source: fmt.Sprintf("measured %.1f tok/s", rate)}
+}
+
+// liveAgentBudget measures the served model's decode rate through the inference
+// client and sizes the budget from it. The probe keeps thinking on, so it measures
+// the model the agent talks to.
+func liveAgentBudget(ctx context.Context, cfg config.VillaConfig) agentBudget {
+	rate, err := inferenceClient(cfg).DecodeRate(ctx, cfg.Model)
+	return agentBudgetFor(rate, err)
+}
+
+// slotDrain is what llama-server's slots did after a killed round: how long until
+// none was processing, or how many still were at the bound.
+type slotDrain struct {
+	Elapsed  time.Duration
+	Busy     int
+	Readable bool
+}
+
+func (d slotDrain) String() string {
+	elapsed := d.Elapsed.Round(time.Second)
+	switch {
+	case !d.Readable:
+		return "/slots could not be read after the kill"
+	case d.Busy == 0:
+		return fmt.Sprintf("the server's slots went idle %s after the kill", elapsed)
+	case d.Busy == 1:
+		return fmt.Sprintf("1 slot still generating %s after the kill", elapsed)
+	default:
+		return fmt.Sprintf("%d slots still generating %s after the kill", d.Busy, elapsed)
+	}
+}
+
+// awaitSlotsIdle re-reads the slots until none is processing, the bound passes or
+// ctx ends. It cancels nothing: llama-server cancels a round itself once the
+// killed client's socket closes and the slot reaches its next batch boundary
+// (1.9 s and 9.1 s after the kill on the dev host, ADR-0030). What it adds is the
+// witness, so the next proof and the operator's next completion do not run
+// against a slot still draining, and the verdict says so when one does.
+func awaitSlotsIdle(ctx context.Context, read func() ([]metrics.Slot, bool), poll, bound time.Duration) slotDrain {
+	start := time.Now()
+	for {
+		slots, ok := read()
+		d := slotDrain{Elapsed: time.Since(start), Busy: metrics.ActiveSlots(slots), Readable: ok}
+		if !ok || d.Busy == 0 || d.Elapsed >= bound || ctx.Err() != nil {
+			return d
+		}
+		select {
+		case <-ctx.Done():
+			d.Elapsed = time.Since(start)
+			return d
+		case <-time.After(poll):
+		}
+	}
+}
+
+// liveSlotDrain waits, bounded by the floor, for the served unit's slots to drain
+// after a killed round, reading /slots through the inference client.
+func liveSlotDrain(ctx context.Context, cfg config.VillaConfig) slotDrain {
+	client := inferenceClient(cfg)
+	return awaitSlotsIdle(ctx, func() ([]metrics.Slot, bool) { return client.Slots(ctx) }, slotDrainPoll, agentProofBudgetFloor)
+}
+
+// agentToolCallVerdict maps one round trip's outcome to the doctor verdict. Every
+// detail carries the budget and its source; a killed round also carries what the
+// server's slots did afterwards.
+func agentToolCallVerdict(completed bool, err error, b agentBudget, drain *slotDrain) inference.Verdict {
+	switch {
+	case err != nil:
+		detail := fmt.Sprintf("the agent tool-call round-trip failed to run: %v (%s", err, b)
+		if drain != nil {
+			detail += "; " + drain.String()
+		}
+		return inference.Verdict{
+			Status:      inference.StatusFail,
+			Detail:      detail + ")",
+			Remediation: "ensure the agent is installed (`villa install --coding-agent`) and the stack is up (`villa up`), then re-run `villa doctor`; a round trip killed at its budget means the served model cannot finish a tool call at its measured decode rate, so check `villa verify agent` and `villa logs`",
+		}
+	case !completed:
+		return inference.Verdict{
+			Status:      inference.StatusFail,
+			Detail:      fmt.Sprintf("the agent ran but did not complete the read→edit tool-call round-trip (the probe file was not edited as instructed; %s)", b),
+			Remediation: "check `villa verify agent` and `villa logs` — the coder model may not be serving tool-calls correctly",
+		}
+	}
+	return inference.Verdict{
+		Status: inference.StatusPass,
+		Detail: fmt.Sprintf("the agent completed a real read→edit tool-call round-trip over the local endpoint (%s)", b),
+	}
+}
