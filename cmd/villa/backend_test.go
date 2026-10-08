@@ -369,7 +369,7 @@ func TestProveTargetIsTheServedCoder(t *testing.T) {
 	}
 	weight := func(id string) uint64 {
 		return recommend.Pick(fixtureProfile(), cat, recommend.Overrides{Model: id, Speculation: config.SpeculationOff},
-			recommend.MemoryInputs{}, recommend.WebSearchInputs{}).WeightBytes
+			nil).WeightBytes
 	}
 	if weight(chat) == weight(coder) {
 		t.Fatalf("fixture needs a chat and a coder whose weights differ, both are %d", weight(chat))

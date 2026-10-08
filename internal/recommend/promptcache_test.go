@@ -34,7 +34,7 @@ func promptCacheCatalog() catalog.Catalog {
 // all of it. Without the term Pick would pick "tight" and the cache would be paid
 // out of the headroom reserved for the OS and compute buffers.
 func TestPickCountsThePromptCacheInTheFit(t *testing.T) {
-	rec := Pick(profileWithEnvelope(100<<30), promptCacheCatalog(), Overrides{}, MemoryInputs{}, WebSearchInputs{})
+	rec := Pick(profileWithEnvelope(100<<30), promptCacheCatalog(), Overrides{}, nil)
 	if rec.Model != "roomy" || rec.ContextLen != 4096 {
 		t.Fatalf("Pick = %q @ ctx %d, want roomy @ 4096 (tight fits only without the prompt cache): %v", rec.Model, rec.ContextLen, rec.Notes)
 	}
@@ -52,7 +52,7 @@ func TestPickCountsThePromptCacheInTheFit(t *testing.T) {
 // reports the prompt cache as its own fit term, equal to the inference seam's
 // constant, and TotalBytes includes it, so the operator can see the sum.
 func TestRecommendationCarriesThePromptCacheTerm(t *testing.T) {
-	rec := Pick(profileWithEnvelope(124<<30), promptCacheCatalog(), Overrides{}, MemoryInputs{}, WebSearchInputs{})
+	rec := Pick(profileWithEnvelope(124<<30), promptCacheCatalog(), Overrides{}, nil)
 	if rec.PromptCacheBytes != inference.PromptCacheBytes {
 		t.Errorf("PromptCacheBytes = %d, want %d", rec.PromptCacheBytes, inference.PromptCacheBytes)
 	}
@@ -66,7 +66,7 @@ func TestRecommendationCarriesThePromptCacheTerm(t *testing.T) {
 // tight model onto the 100 GiB envelope must report a non-fit, because the
 // override re-validates the same fit including the prompt cache.
 func TestOverrideCountsThePromptCache(t *testing.T) {
-	rec := Pick(profileWithEnvelope(100<<30), promptCacheCatalog(), Overrides{Model: "tight"}, MemoryInputs{}, WebSearchInputs{})
+	rec := Pick(profileWithEnvelope(100<<30), promptCacheCatalog(), Overrides{Model: "tight"}, nil)
 	if rec.Model != "tight" || rec.Fits {
 		t.Fatalf("override tight: model %q fits %v, want tight and Fits false (cache pushes it over the envelope)", rec.Model, rec.Fits)
 	}

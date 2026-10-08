@@ -14,7 +14,7 @@ func TestPickCoderCountsThePromptCache(t *testing.T) {
 	cat := testCatalog()
 	cat.Models = append(cat.Models, entry)
 
-	rec := Pick(profileWithEnvelope(env), cat, Overrides{}, MemoryInputs{}, WebSearchInputs{})
+	rec := Pick(profileWithEnvelope(env), cat, Overrides{}, nil)
 
 	if rec.Coder != sharedCoderFit() {
 		t.Errorf("Coder = %+v, want sharedCoderFit() (fits only without the prompt cache)", rec.Coder)
@@ -31,7 +31,7 @@ func TestPickCoderCarriesThePromptCacheTerm(t *testing.T) {
 	cat := testCatalog()
 	cat.Models = append(cat.Models, coderFitEntry())
 
-	rec := Pick(profileWithEnvelope(env), cat, Overrides{}, MemoryInputs{}, WebSearchInputs{})
+	rec := Pick(profileWithEnvelope(env), cat, Overrides{}, nil)
 
 	if rec.Coder.PromptCacheBytes != 8589934592 {
 		t.Errorf("Coder.PromptCacheBytes = %d, want 8589934592 (8 GiB)", rec.Coder.PromptCacheBytes)

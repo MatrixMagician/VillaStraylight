@@ -229,8 +229,7 @@ func toolsFits(cfg config.VillaConfig) (bool, string) {
 	ctxFloor := max(cfg.Ctx, agentCtx)
 	rec := recommend.Pick(detect.Probe(), cat,
 		recommend.Overrides{Model: cfg.Model, Quant: cfg.Quant, Ctx: ctxFloor, Speculation: cfg.Speculation},
-		recommend.MemoryInputs{Enabled: subsystem.MemoryOn(cfg), EmbeddingModel: cfg.EmbeddingModel},
-		webSearchInputsFrom(cfg))
+		recommend.ReservationsFor(cfg))
 	if rec.Fits {
 		return true, ""
 	}

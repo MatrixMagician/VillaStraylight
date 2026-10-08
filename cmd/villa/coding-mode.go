@@ -182,7 +182,7 @@ func liveCodingModeDeps(ctx context.Context) *codingmode.Deps {
 			}
 			// Persisted memory inputs (fail-soft): the coder fit must see the same shrunken
 			// envelope the user was recommended (ordering).
-			rec := recommend.Pick(detect.Probe(), cat, recommend.Overrides{}, liveLoadedMemoryInputs(), liveLoadedWebSearchInputs())
+			rec := recommend.Pick(detect.Probe(), cat, recommend.Overrides{}, liveLoadedReservations())
 			coder := rec.Coder
 			if coder.Residency == codingmode.ResidencyShared {
 				// Shared residency: no coder fits standalone — apply render-delta-only on

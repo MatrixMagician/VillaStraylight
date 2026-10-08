@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -76,7 +77,10 @@ func fixtureRecommendation() recommend.Recommendation {
 		// Schema 8 (ADR-0021): the append-only prompt_cache_bytes key lands directly
 		// above schema_version, and total_bytes now includes it (55822867456 + 8 GiB).
 		PromptCacheBytes: 8589934592,
-		SchemaVersion:    8,
+		// Schema 9 (ADR-0027): the append-only reservations array lands directly
+		// above schema_version, as [] here: the nothing-reserved contract shape.
+		Reservations:  []recommend.Reservation{},
+		SchemaVersion: 9,
 	}
 }
 
@@ -95,8 +99,8 @@ func TestRecommendJSONCarriesThePromptCache(t *testing.T) {
 	if v := got["prompt_cache_bytes"]; v != float64(8589934592) || uint64(8589934592) != inference.PromptCacheBytes {
 		t.Errorf("prompt_cache_bytes = %v, want 8589934592 (inference.PromptCacheBytes = %d)", v, inference.PromptCacheBytes)
 	}
-	if v := got["schema_version"]; v != float64(8) {
-		t.Errorf("schema_version = %v, want 8", v)
+	if v := got["schema_version"]; v != float64(9) {
+		t.Errorf("schema_version = %v, want 9", v)
 	}
 }
 
@@ -424,5 +428,33 @@ func TestSaveRecommendationKeepsTheRestOfTheConfig(t *testing.T) {
 	}
 	if len(got.Resident) != 1 || got.Resident[0].Model != "side-model" || got.Resident[0].Port != 8081 {
 		t.Errorf("resident slots reset: %+v", got.Resident)
+	}
+}
+
+// TestFitTableShowsEveryReservation guards ADR-0027: the fit table prints one
+// row for each reservation with bytes, so a web-search reservation is visible in
+// the arithmetic it changes, and a zero row prints nothing.
+func TestFitTableShowsEveryReservation(t *testing.T) {
+	rec := fixtureRecommendation()
+	rec.Reservations = []recommend.Reservation{
+		{Name: "embedding", Bytes: 512 << 20},
+		{Name: "web_search", Bytes: 6 << 20},
+		{Name: "idle", Bytes: 0},
+	}
+	var buf bytes.Buffer
+	if err := writeFitTable(&buf, rec); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	for _, want := range []*regexp.Regexp{
+		regexp.MustCompile(`(?m)^− embedding reservation +0\.500 GiB \(536870912 bytes\)$`),
+		regexp.MustCompile(`(?m)^− web search reservation +0\.006 GiB \(6291456 bytes\)$`),
+	} {
+		if !want.MatchString(out) {
+			t.Errorf("fit table missing a row matching %s:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "idle") {
+		t.Errorf("a zero reservation must print no row:\n%s", out)
 	}
 }

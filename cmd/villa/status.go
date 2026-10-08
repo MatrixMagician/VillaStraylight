@@ -29,7 +29,6 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/recall"
 	"github.com/MatrixMagician/VillaStraylight/internal/recommend"
 	"github.com/MatrixMagician/VillaStraylight/internal/status"
-	"github.com/MatrixMagician/VillaStraylight/internal/subsystem"
 	"github.com/MatrixMagician/VillaStraylight/internal/taskstore"
 	"github.com/MatrixMagician/VillaStraylight/internal/usage"
 	"github.com/MatrixMagician/VillaStraylight/internal/verifystate"
@@ -400,13 +399,12 @@ func liveAgentResidency(cfg config.VillaConfig, host detect.HostProfile) string 
 	}
 	// thread the REAL memory inputs so the coder fit is computed
 	// against the post-embedding-reservation envelope — matching every other live
-	// caller (backend.go, dashboard.go, inference.go). A memory-blind MemoryInputs{}
+	// caller (backend.go, dashboard.go, inference.go). A reservation-blind nil
 	// would compute against the FULL un-reserved envelope and surface an
 	// optimistically-wrong "shared" when the post-reservation reality is "swap" — a
 	// fabricated-by-omission residency this seam's doc comment forbids.
 	rec := recommend.Pick(host, cat, recommend.Overrides{},
-		recommend.MemoryInputs{Enabled: subsystem.MemoryOn(cfg), EmbeddingModel: cfg.EmbeddingModel},
-		webSearchInputsFrom(cfg))
+		recommend.ReservationsFor(cfg))
 	return rec.Coder.Residency
 }
 
@@ -721,11 +719,11 @@ func weightBytes(cfg config.VillaConfig, host detect.HostProfile) uint64 {
 	if err != nil {
 		return 0
 	}
-	// Zero-value memory inputs ON PURPOSE: this provably keeps status.json.golden
+	// No reservations ON PURPOSE: this provably keeps status.json.golden
 	// byte-identical — WeightBytes is envelope-independent for overrides (guarded
 	// by TestPickOverrideWeightInvariance), so the frozen status path never sees
-	// the memory reservation.
-	rec := recommend.Pick(host, cat, recommend.Overrides{Model: cfg.Model, Speculation: cfg.Speculation}, recommend.MemoryInputs{}, recommend.WebSearchInputs{})
+	// a reservation.
+	rec := recommend.Pick(host, cat, recommend.Overrides{Model: cfg.Model, Speculation: cfg.Speculation}, nil)
 	return rec.WeightBytes + rec.DraftBytes
 }
 
