@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -159,18 +160,37 @@ func TestSeamGrepGate(t *testing.T) {
 		// docker.io/ literal would trip the "container image literal" regex without
 		// this allowlist; it is extended in the SAME commit as the const, mirroring the
 		// orchestrate/searxng.go precedent (Pitfall 5).
-		// orchestrate/image.go: the villa-image MANAGED-SERVICE image literal
-		// (ghcr.io/leejet/stable-diffusion.cpp:master-vulkan@sha256:…) lives here,
-		// the same category as searxngImage. Its device access and its sd-server
-		// flags come from the seam (inference.VulkanGPUAccess, ImageServerArgs), so
-		// the image literal is the only pattern this entry exempts in practice.
 		return strings.HasPrefix(rel, "inference/") ||
 			rel == "detect/gpu_amd.go" ||
 			rel == "orchestrate/memory.go" ||
 			rel == "orchestrate/searxng.go" ||
 			rel == "orchestrate/websafe.go" ||
-			rel == "orchestrate/extract.go" ||
-			rel == "orchestrate/image.go"
+			rel == "orchestrate/extract.go"
+	}
+
+	// exemptPatterns is the per-pattern allowlist: a file listed here is exempt
+	// from the named patterns only and is walked for every other one.
+	// orchestrate/image.go: the villa-image MANAGED-SERVICE image literal
+	// (ghcr.io/leejet/stable-diffusion.cpp:master-vulkan@sha256:…) lives here, the
+	// same category as searxngImage. Its device access and its sd-server flags come
+	// from the seam (inference.VulkanGPUAccess, ImageServerArgs), so the image
+	// literal is the only pattern this entry exempts: a device-args, flag, podman or
+	// GOOS literal in that file still fails the gate.
+	exemptPatterns := map[string][]string{
+		"orchestrate/image.go": {"container image literal"},
+	}
+	patternsFor := func(rel string) map[string]*regexp.Regexp {
+		exempt := exemptPatterns[rel]
+		if len(exempt) == 0 {
+			return patterns
+		}
+		pats := make(map[string]*regexp.Regexp, len(patterns))
+		for label, re := range patterns {
+			if !slices.Contains(exempt, label) {
+				pats[label] = re
+			}
+		}
+		return pats
 	}
 
 	err := filepath.Walk(internalRoot, func(path string, info os.FileInfo, err error) error {
@@ -187,7 +207,7 @@ func TestSeamGrepGate(t *testing.T) {
 		if isSeam(filepath.ToSlash(rel)) {
 			return nil
 		}
-		return matchFile(internalRoot, path, patterns, func(rel, label string) {
+		return matchFile(internalRoot, path, patternsFor(filepath.ToSlash(rel)), func(rel, label string) {
 			t.Errorf("seam leak in %s: imperative backend pattern %q matched outside the seam (move it into internal/inference/ or internal/detect/gpu_amd.go)", rel, label)
 		})
 	})
