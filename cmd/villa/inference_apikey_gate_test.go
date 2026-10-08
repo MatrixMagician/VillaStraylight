@@ -106,6 +106,7 @@ var routeSpellers = map[string]string{
 	"internal/orchestrate/openwebui.go": "Open WebUI's own container port and the embedding sidecar's base URL for its RAG settings",
 	"internal/agent/render.go":          "hands Crush its provider base URL; Crush calls llama-server itself (a keyReaders peer)",
 	"internal/agent/claude.go":          "trims /v1 off the provider base URL it was handed for Claude Code",
+	"internal/voice/voice.go":           "the voice units' own /health and /v1 base, not llama-server's",
 }
 
 // llamaRoutes are matched as a suffix of a whitespace-free literal (see the header).
