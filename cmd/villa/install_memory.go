@@ -285,6 +285,13 @@ const memoryProofNetwork = "villa"
 // leaving no stray state behind.
 const villaProbeCollection = "villa-probe"
 
+// memoryProofDeps is the in-network seam the memory proof drives: the curl exec
+// (live: a `podman run --rm --network villa` curl) and the helper image it runs.
+type memoryProofDeps struct {
+	exec  inprobe.Exec
+	image string
+}
+
 // liveMemoryProof is the production proof seam: it reaches the container-DNS-only
 // villa-embed / villa-qdrant over villa.network via a one-shot `podman run --rm --network
 // villa` curl (no host port is opened), sourcing the helper image from the
@@ -292,7 +299,16 @@ const villaProbeCollection = "villa-probe"
 // literal (keeps TestSeamGrepGate green). Every podman/curl arg is FIXED; the
 // JSON body is a constant and the model id is config-resolved, never shell-interpolated.
 func liveMemoryProof(ctx context.Context, in memoryProofInput) memoryProof {
-	helperImage := orchestrate.EmbedImage()
+	return memoryProofWith(ctx, memoryProofDeps{exec: runProbeCurlCode, image: orchestrate.EmbedImage()}, in)
+}
+
+// memoryProofWith drives the memory proof through d; liveMemoryProof binds the
+// host, tests a fake network.
+func memoryProofWith(ctx context.Context, d memoryProofDeps, in memoryProofInput) memoryProof {
+	curl := func(args ...string) ([]byte, error) {
+		out, _, err := d.exec(ctx, d.image, args...)
+		return out, err
+	}
 
 	// embedProbe POSTs the fixed /v1/embeddings body and returns len(data[0].embedding).
 	embedProbe := func() (int, error) {
@@ -305,7 +321,7 @@ func liveMemoryProof(ctx context.Context, in memoryProofInput) memoryProof {
 			return 0, err
 		}
 		url := fmt.Sprintf("http://%s:%d/v1/embeddings", in.embedAddr, in.embedPort)
-		out, err := runProbeCurl(ctx, helperImage,
+		out, err := curl(
 			"-sf", "-X", "POST", url,
 			"-H", "Content-Type: application/json",
 			"-d", string(body),
@@ -332,7 +348,6 @@ func liveMemoryProof(ctx context.Context, in memoryProofInput) memoryProof {
 	// idempotency ordering is unit-testable off-hardware.
 	qdrantProbe := func() (bool, error) {
 		base := fmt.Sprintf("http://%s:%d", in.qdrantAddr, in.qdrantPort)
-		curl := func(args ...string) ([]byte, error) { return runProbeCurl(ctx, helperImage, args...) }
 		return qdrantWritableProbe(curl, base, in.embeddingDim)
 	}
 
@@ -340,7 +355,7 @@ func liveMemoryProof(ctx context.Context, in memoryProofInput) memoryProof {
 	var rerankProbe func() (int, error)
 	if in.rerank {
 		rerankProbe = func() (int, error) {
-			scores, err := postRerank(ctx, helperImage, in.rerankAddr, in.rerankPort, rerankProbeQuery, rerankProbeDocuments)
+			scores, err := postRerank(ctx, d.exec, d.image, in.rerankAddr, in.rerankPort, rerankProbeQuery, rerankProbeDocuments)
 			if err != nil {
 				return 0, err
 			}
