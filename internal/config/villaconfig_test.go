@@ -322,7 +322,7 @@ embed_port = 0
 // back to the default. It is now stronger: there is no value to hand-edit, so the
 // only way to widen a bind is to change the constant, which this test refuses.
 func TestEndpointsNeverWidenBind(t *testing.T) {
-	for _, addr := range []string{QdrantAddr, EmbedAddr, SearxngAddr, WebsafeAddr, DashboardAddr} {
+	for _, addr := range []string{QdrantAddr, EmbedAddr, SearxngAddr, WebsafeAddr, SttAddr, TtsAddr, DashboardAddr} {
 		if addr == "" || strings.Contains(addr, "0.0.0.0") || addr == "::" {
 			t.Errorf("endpoint addr %q is widened or empty — PRIV-01 violation", addr)
 		}
@@ -1327,5 +1327,58 @@ func TestWorkspaceSurvivesFullConfigRoundTrip(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got.Workspace, []string{"/home/op/projects", "/home/op/notes"}) {
 		t.Errorf("Workspace dropped or reordered: got %v", got.Workspace)
+	}
+}
+
+// TestVoiceEndpointsAreTheContract pins the voice units' network identity. The STT
+// port is 8081 rather than whisper-server's own default because the inference
+// client gate refuses the inference port's literal outside the client; the TTS port
+// is the one Kokoro-FastAPI's image serves on, which villa does not render.
+func TestVoiceEndpointsAreTheContract(t *testing.T) {
+	if SttAddr != "villa-stt" || SttPort != 8081 {
+		t.Errorf("STT endpoint = %s:%d, want villa-stt:8081", SttAddr, SttPort)
+	}
+	if TtsAddr != "villa-tts" || TtsPort != 8880 {
+		t.Errorf("TTS endpoint = %s:%d, want villa-tts:8880", TtsAddr, TtsPort)
+	}
+}
+
+// TestVoiceEnabledIsOmittedWhenOffAndRoundTrips: an install that never opted into
+// voice gains no key on disk, and one that did keeps the gate across a save and load,
+// so a bare re-install renders the voice units again.
+func TestVoiceEnabledIsOmittedWhenOffAndRoundTrips(t *testing.T) {
+	const key = "voice_enabled"
+
+	dirOff := filepath.Join(t.TempDir(), "villa")
+	if err := SaveVillaTo(dirOff, DefaultVillaConfig()); err != nil {
+		t.Fatalf("SaveVillaTo(off): %v", err)
+	}
+	dataOff, err := os.ReadFile(filepath.Join(dirOff, "config.toml"))
+	if err != nil {
+		t.Fatalf("read off config: %v", err)
+	}
+	if strings.Contains(string(dataOff), key) {
+		t.Errorf("voice-off save wrote %q:\n%s", key, dataOff)
+	}
+
+	on := DefaultVillaConfig()
+	on.VoiceEnabled = true
+	dirOn := filepath.Join(t.TempDir(), "villa")
+	if err := SaveVillaTo(dirOn, on); err != nil {
+		t.Fatalf("SaveVillaTo(on): %v", err)
+	}
+	dataOn, err := os.ReadFile(filepath.Join(dirOn, "config.toml"))
+	if err != nil {
+		t.Fatalf("read on config: %v", err)
+	}
+	if !strings.Contains(string(dataOn), key+" = true") {
+		t.Errorf("voice-on save did not write %q = true:\n%s", key, dataOn)
+	}
+	got, err := LoadVillaFrom(dirOn)
+	if err != nil {
+		t.Fatalf("LoadVillaFrom(on): %v", err)
+	}
+	if !got.VoiceEnabled {
+		t.Error("voice-on round trip lost the gate")
 	}
 }
