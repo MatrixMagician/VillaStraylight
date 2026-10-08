@@ -292,6 +292,9 @@ func liveInstallDeps(ctx context.Context) (install.Deps, error) {
 				rerank:       subsystem.RerankOn(cfg),
 				rerankAddr:   config.RerankAddr,
 				rerankPort:   config.RerankPort,
+				extract:      subsystem.ExtractOn(cfg),
+				extractAddr:  config.ExtractAddr,
+				extractPort:  config.ExtractPort,
 			})
 			return install.Proof{Status: p.status, Detail: p.detail}
 		},

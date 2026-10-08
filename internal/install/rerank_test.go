@@ -117,9 +117,9 @@ func TestDefaultUnitsNameTheReranker(t *testing.T) {
 
 // TestInstallPicksAgainstThePlannedReservations: the install that turns a gate on
 // sizes its pick and its resource floor against the config it is about to
-// persist, not the one it read. A memory-on host without the reranker key is the
-// upgrade case: the pick must already carry the reranker row, or install picks a
-// model and a ctx for an envelope the reranker then shrinks.
+// persist, not the one it read. A memory-on host without the reranker and
+// extractor keys is the upgrade case: the pick must already carry both rows, or
+// install picks a model and a ctx for an envelope they then shrink.
 func TestInstallPicksAgainstThePlannedReservations(t *testing.T) {
 	units, plan := memoryUnits()
 	f := newFakeDeps(t, units, plan, passChecks())
@@ -128,14 +128,14 @@ func TestInstallPicksAgainstThePlannedReservations(t *testing.T) {
 	if code, _, _ := f.run(Opts{}); code != exitPass {
 		t.Fatalf("exit = %d, want 0", code)
 	}
-	if got := rows(f.pickReservations); got != "embedding,reranker" {
-		t.Errorf("Pick received reservations %q, want embedding,reranker for the config install persists", got)
+	if got := rows(f.pickReservations); got != "embedding,reranker,extractor" {
+		t.Errorf("Pick received reservations %q, want embedding,reranker,extractor for the config install persists", got)
 	}
 
 	// A web-search opt-in on the command line reserves the same way, before the fit.
 	planned := PlannedReservations(config.VillaConfig{MemoryEnabled: true}, Opts{WebSearch: true})
-	if got := rows(planned); got != "embedding,reranker,web_search" {
-		t.Errorf("PlannedReservations with --web-search = %q, want embedding,reranker,web_search", got)
+	if got := rows(planned); got != "embedding,reranker,extractor,web_search" {
+		t.Errorf("PlannedReservations with --web-search = %q, want embedding,reranker,extractor,web_search", got)
 	}
 }
 

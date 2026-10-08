@@ -20,6 +20,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -136,6 +137,42 @@ func postRerank(ctx context.Context, helperImage, addr string, port int, query s
 		return nil, err
 	}
 	return parseRerankScores(out, len(docs))
+}
+
+// postExtract is the one extraction request villa makes: the eval seam and the
+// install readiness probe both go through it. It PUTs data to the extractor's
+// /tika/text with mime as its Content-Type, the request Open WebUI's loader makes,
+// and returns the extracted text (ADR-0029). The unit is container-DNS only, so
+// the request rides the in-network curl of the memory proof with the document on
+// stdin; helperImage is the probe helper, never a pin.
+func postExtract(ctx context.Context, helperImage, addr string, port int, mime string, data []byte) (string, error) {
+	out, _, err := probeCurl(ctx, helperImage, data, extractCurlArgs(addr, port, mime))
+	if err != nil {
+		return "", err
+	}
+	return parseExtractText(out)
+}
+
+// extractCurlArgs is the curl half of an extraction request. The Content-Type is
+// load-bearing: Tika sniffs a PUT without one as a form body and extracts nothing.
+func extractCurlArgs(addr string, port int, mime string) []string {
+	url := fmt.Sprintf("http://%s:%d/tika/text", addr, port)
+	return []string{"-sf", "-X", "PUT", url, "-H", "Content-Type: " + mime, "--data-binary", "@-"}
+}
+
+// parseExtractText reads the extracted text from Tika's /tika/text answer, the
+// X-TIKA:content key of one JSON object. A reply without that key is refused, so a
+// changed answer shape never reads as a document with no text.
+func parseExtractText(out []byte) (string, error) {
+	var resp map[string]any
+	if err := json.Unmarshal(out, &resp); err != nil {
+		return "", fmt.Errorf("decode extraction response: %w", err)
+	}
+	text, ok := resp["X-TIKA:content"].(string)
+	if !ok {
+		return "", errors.New("extraction response carries no X-TIKA:content text")
+	}
+	return text, nil
 }
 
 // parseRerankScores maps llama-server's rerank answer, one result per document

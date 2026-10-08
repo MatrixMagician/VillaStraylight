@@ -120,6 +120,7 @@ type Units struct {
 	Qdrant    string
 	Embed     string
 	Rerank    string
+	Extract   string
 	Searxng   string
 	Websafe   string
 	Stt       string
@@ -160,12 +161,14 @@ func BuildSequence(gates Gates, u Units, secretNeeded bool) Sequence {
 	)
 
 	// The vector store before the embedder, so the embedder's peer is reachable;
-	// the reranker after both, so the memory proof observes every memory service.
+	// the reranker and the extractor after both, so the memory proof observes every
+	// memory service.
 	if gates.Memory {
 		steps = append(steps,
 			Step{Kind: StepStart, Service: u.Qdrant, RequiresUnit: u.Qdrant},
 			Step{Kind: StepStart, Service: u.Embed, RequiresUnit: u.Embed},
 			Step{Kind: StepStart, Service: u.Rerank, RequiresUnit: u.Rerank},
+			Step{Kind: StepStart, Service: u.Extract, RequiresUnit: u.Extract},
 			Step{Kind: StepProve, Service: u.Embed},
 		)
 	}

@@ -89,7 +89,7 @@ func TestEvalMemoryProofCoversTheReranker(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := evalMemoryProof(t.Context(), embedProbe, qdrantProbe, tc.rerank, 768)
+			got := evalMemoryProof(t.Context(), embedProbe, qdrantProbe, tc.rerank, nil, 768)
 			if got.status != tc.wantStatus {
 				t.Errorf("status = %v, want %v (detail %q)", got.status, tc.wantStatus, got.detail)
 			}

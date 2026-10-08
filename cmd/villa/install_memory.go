@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/catalog"
@@ -194,6 +195,10 @@ type memoryProofInput struct {
 	rerank     bool
 	rerankAddr string
 	rerankPort int
+	// extract is subsystem.ExtractOn: only a rendered extractor is probed.
+	extract     bool
+	extractAddr string
+	extractPort int
 }
 
 // rerankServiceName is the systemd service the villa-rerank .container generates.
@@ -209,14 +214,22 @@ var rerankProbeDocuments = []string{
 
 const rerankProbeQuery = "which port does the dashboard bind"
 
+// extractServiceName is the systemd service the villa-extract .container generates.
+const extractServiceName = "villa-extract.service"
+
+// extractProbeBody is the plain-text document the readiness probe hands the
+// extractor; the proof passes only when the extracted text carries it.
+const extractProbeBody = "villa extractor readiness probe"
+
 // evalMemoryProof is the PURE proof core (unit-testable off-hardware via injected
 // probes): it maps the probe outcomes to a verdict. An embed error or a wrong
 // vector length → FAIL("…embeddings endpoint…"); a Qdrant error or a non-writable
 // store → FAIL("…Qdrant not writable…"); a reranker error or a reranker that does
-// not put the on-topic document first → FAIL naming villa-rerank.service; all ok →
-// PASS. rerankProbe is nil when the reranker is not rendered, and then not probed.
-// wantDim is the pinned 768.
-func evalMemoryProof(_ context.Context, embedProbe func() (gotDim int, err error), qdrantProbe func() (writable bool, err error), rerankProbe func() (top int, err error), wantDim int) memoryProof {
+// not put the on-topic document first → FAIL naming villa-rerank.service; an
+// extractor error or an extraction without the probe sentence → FAIL naming
+// villa-extract.service; all ok → PASS. rerankProbe and extractProbe are nil when
+// their unit is not rendered, and then not probed. wantDim is the pinned 768.
+func evalMemoryProof(_ context.Context, embedProbe func() (gotDim int, err error), qdrantProbe func() (writable bool, err error), rerankProbe func() (top int, err error), extractProbe func() (text string, err error), wantDim int) memoryProof {
 	gotDim, err := embedProbe()
 	if err != nil {
 		return memoryProof{
@@ -243,23 +256,40 @@ func evalMemoryProof(_ context.Context, embedProbe func() (gotDim int, err error
 			detail: fmt.Sprintf("Qdrant is not writable (the probe collection round-trip failed) — check the volume permissions and `systemctl --user status %s`, then re-run `villa install`", qdrantServiceName),
 		}
 	}
-	if rerankProbe == nil {
-		return memoryProof{status: preflight.StatusPass, detail: "768-dim embeddings + Qdrant writable"}
-	}
-	top, err := rerankProbe()
-	if err != nil {
-		return memoryProof{
-			status: preflight.StatusFail,
-			detail: fmt.Sprintf("the reranker did not answer (%v) — check `systemctl --user status %s` and its journal, then re-run `villa install`", err, rerankServiceName),
+	detail := "768-dim embeddings + Qdrant writable"
+	if rerankProbe != nil {
+		top, err := rerankProbe()
+		if err != nil {
+			return memoryProof{
+				status: preflight.StatusFail,
+				detail: fmt.Sprintf("the reranker did not answer (%v) — check `systemctl --user status %s` and its journal, then re-run `villa install`", err, rerankServiceName),
+			}
 		}
-	}
-	if top != 0 {
-		return memoryProof{
-			status: preflight.StatusFail,
-			detail: fmt.Sprintf("the reranker ranked the off-topic probe document first (index %d) — the served model is not a reranker; check `systemctl --user status %s`, then re-run `villa install`", top, rerankServiceName),
+		if top != 0 {
+			return memoryProof{
+				status: preflight.StatusFail,
+				detail: fmt.Sprintf("the reranker ranked the off-topic probe document first (index %d) — the served model is not a reranker; check `systemctl --user status %s`, then re-run `villa install`", top, rerankServiceName),
+			}
 		}
+		detail += " + reranker ranking"
 	}
-	return memoryProof{status: preflight.StatusPass, detail: "768-dim embeddings + Qdrant writable + reranker ranking"}
+	if extractProbe != nil {
+		text, err := extractProbe()
+		if err != nil {
+			return memoryProof{
+				status: preflight.StatusFail,
+				detail: fmt.Sprintf("the extractor did not answer (%v) — check `systemctl --user status %s` and its journal, then re-run `villa install`", err, extractServiceName),
+			}
+		}
+		if !strings.Contains(text, extractProbeBody) {
+			return memoryProof{
+				status: preflight.StatusFail,
+				detail: fmt.Sprintf("the extractor returned no text for the probe document — check `systemctl --user status %s`, then re-run `villa install`", extractServiceName),
+			}
+		}
+		detail += " + extractor text"
+	}
+	return memoryProof{status: preflight.StatusPass, detail: detail}
 }
 
 // topScore is the index of the highest score. Scores are raw logits, so the
@@ -348,7 +378,16 @@ func liveMemoryProof(ctx context.Context, in memoryProofInput) memoryProof {
 		}
 	}
 
-	return evalMemoryProof(ctx, embedProbe, qdrantProbe, rerankProbe, in.embeddingDim)
+	// extractProbe hands the extractor the fixed plain-text document and returns
+	// the text it extracted.
+	var extractProbe func() (string, error)
+	if in.extract {
+		extractProbe = func() (string, error) {
+			return postExtract(ctx, helperImage, in.extractAddr, in.extractPort, "text/plain", []byte(extractProbeBody))
+		}
+	}
+
+	return evalMemoryProof(ctx, embedProbe, qdrantProbe, rerankProbe, extractProbe, in.embeddingDim)
 }
 
 // probeCurlFn is the injectable curl-runner seam qdrantWritableProbe drives: it runs a
