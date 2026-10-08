@@ -815,7 +815,7 @@ var RerankShard = catalog.Shard{
 }
 
 // WhisperModelShard is the pinned whisper model pre-staged into the models dir when
-// voice is on (ADR-0029). Its Filename is orchestrate.WhisperModelFilename() itself,
+// voice is on (ADR-0030). Its Filename is orchestrate.WhisperModelFilename() itself,
 // so the staged file and villa-stt's -m path cannot drift. The URL's basename
 // repeats the filename; cmd/villa's TestWhisperShardValues holds the two together.
 var WhisperModelShard = catalog.Shard{

@@ -46,7 +46,7 @@ type Opts struct {
 	// and left the unit unable to serve them would produce a stack `villa work`
 	// refuses to run on.
 	WorkspaceAgent bool
-	// Voice opts into the voice subsystem (ADR-0029), with the same
+	// Voice opts into the voice subsystem (ADR-0030), with the same
 	// persist-and-inherit behaviour as WebSearch.
 	Voice bool
 	// DryRun prints the rendered changed units and mutates NOTHING: no write, no

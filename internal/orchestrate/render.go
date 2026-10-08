@@ -327,7 +327,7 @@ func Render(in RenderInput) ([]Unit, error) {
 		units = append(units, Unit{Name: inferproxyContainerUnitName, Text: inferproxyContainerText})
 	}
 
-	// Voice (ADR-0029) is appended after every other gated unit and before the
+	// Voice (ADR-0030) is appended after every other gated unit and before the
 	// sandbox network, so no existing unit moves and a voice-off render is
 	// byte-identical by construction.
 	if subsystem.VoiceOn(in.Cfg) {

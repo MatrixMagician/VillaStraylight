@@ -1,4 +1,4 @@
-// Package voice is the pure core of the voice subsystem (ADR-0029): the network
+// Package voice is the pure core of the voice subsystem (ADR-0030): the network
 // identity of villa-stt and villa-tts, the memory each reserves, and the verdict of
 // the spoken round trip that proves them together.
 //

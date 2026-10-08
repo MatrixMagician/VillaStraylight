@@ -1,6 +1,6 @@
 package main
 
-// voice.go is the live half of the voice proof (ADR-0029): the two curl legs that
+// voice.go is the live half of the voice proof (ADR-0030): the two curl legs that
 // speak voice.ProofSentence on villa-tts and transcribe the audio on villa-stt. Both
 // run from the in-network helper because neither unit publishes a host port, and the
 // audio passes from one leg to the next on curl's stdin, so it never touches the host

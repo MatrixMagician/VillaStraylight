@@ -1,7 +1,7 @@
 package orchestrate
 
 // voice.go holds the voice subsystem's managed-service constants and view builders
-// (ADR-0029): villa-stt runs whisper-server on the GPU and villa-tts runs
+// (ADR-0030): villa-stt runs whisper-server on the GPU and villa-tts runs
 // Kokoro-FastAPI on the CPU. Like memory.go and searxng.go, neither is an inference
 // Backend; each is a digest-pinned OSS service with its own template and view.
 //

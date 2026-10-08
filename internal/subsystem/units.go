@@ -59,7 +59,7 @@ var unitTable = map[Kind][]unit{
 		{name: "villa-websafe.container"},
 	},
 	// Both voice units render whenever the subsystem does: one gate, one proof
-	// (ADR-0029), so neither carries an `on` of its own.
+	// (ADR-0030), so neither carries an `on` of its own.
 	Voice: {
 		{name: "villa-stt.container"},
 		{name: "villa-tts.container"},

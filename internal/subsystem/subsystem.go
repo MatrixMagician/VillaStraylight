@@ -82,7 +82,7 @@ const (
 	// per task by `villa work`, not by systemd.
 	Sandbox
 	// Voice is speech-to-text plus text-to-speech, villa-stt and villa-tts, proved
-	// together by one spoken round trip (ADR-0029).
+	// together by one spoken round trip (ADR-0030).
 	Voice
 )
 

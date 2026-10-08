@@ -339,7 +339,7 @@ func buildOpenWebUIView(image string, mv memory.RenderInput, memoryEnabled bool,
 	}
 
 	if voiceEnabled {
-		// Open WebUI's audio settings (ADR-0029), one ordered block after the
+		// Open WebUI's audio settings (ADR-0030), one ordered block after the
 		// web-search group. Both units are reached by container DNS and neither checks
 		// a key, so both keys carry the no-auth sentinel. The AUDIO_* keys are
 		// PersistentConfig values, so they need the trailing gate below too.

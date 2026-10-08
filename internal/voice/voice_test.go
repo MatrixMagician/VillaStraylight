@@ -38,7 +38,7 @@ func TestServiceURLsAreComposedFromOneIdentity(t *testing.T) {
 }
 
 // TestFootprintsAreTheMeasuredReservations: the two reservation rows recommend
-// subtracts before the chat-model fit, sized from the ADR-0029 measurements and
+// subtracts before the chat-model fit, sized from the ADR-0030 measurements and
 // rounded up. A smaller number would let the chat model claim memory the voice
 // units hold.
 func TestFootprintsAreTheMeasuredReservations(t *testing.T) {

@@ -1,6 +1,6 @@
 package main
 
-// verify_voice.go is `villa verify voice`: the spoken round trip (ADR-0029) against
+// verify_voice.go is `villa verify voice`: the spoken round trip (ADR-0030) against
 // the running villa-stt and villa-tts, gated on the persisted voice_enabled. The
 // verdict is voice.Prove's and the exit code is the verify family's: pass 0, fail
 // blocked, reject warn. It reads and never mutates, so it takes no stack lock,

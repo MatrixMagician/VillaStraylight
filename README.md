@@ -229,7 +229,7 @@ villa verify search                    # negative-control-first, inverse-framed 
                                        # fabricated PASS); also asserts planted injections are stripped+fenced+flagged
 ```
 
-**Opt-in voice (ADR-0029):**
+**Opt-in voice (ADR-0030):**
 
 ```bash
 villa install --voice                  # opt into voice: pre-stage the whisper model, render villa-stt (whisper.cpp
