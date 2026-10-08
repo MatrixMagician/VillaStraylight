@@ -60,6 +60,7 @@ func mountedVolumeNames(unitText string) map[string]bool {
 // the walk sees the units chat and memory actually run.
 func statefulFixtureInput() RenderInput {
 	in := memoryFixtureInput()
+	in.Cfg.Reranker = true
 	in.Cfg.WebSearchEnabled = true
 	return in
 }

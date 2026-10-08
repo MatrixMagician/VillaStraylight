@@ -180,7 +180,7 @@ type openWebUIVolumeView struct {
 // install's first boot, and SyncEndpointsWithKey already reconciles the running
 // connection list's real keys afterward through OWUI's admin API, no file, no
 // unit.
-func buildOpenWebUIView(image string, mv memory.RenderInput, memoryEnabled bool, webSearchEnabled bool, searxngAddr string, searxngPort int, webSearchResultCount int, websafeAddr string, websafePort int, residentNames []string, apiKey string) openWebUIView {
+func buildOpenWebUIView(image string, mv memory.RenderInput, memoryEnabled bool, rerankOn bool, webSearchEnabled bool, searxngAddr string, searxngPort int, webSearchResultCount int, websafeAddr string, websafePort int, residentNames []string, apiKey string) openWebUIView {
 	// Connection: reach inference over villa.network by container DNS (NOT localhost /
 	// host.containers.internal), at its internal port. Open WebUI accepts EITHER the
 	// singular OPENAI_API_BASE_URL/OPENAI_API_KEY pair or the ';'-separated plural
@@ -266,6 +266,21 @@ func buildOpenWebUIView(image string, mv memory.RenderInput, memoryEnabled bool,
 			// NOTE: the load-bearing ENABLE_PERSISTENT_CONFIG=False
 			// switch NO LONGER lives inside this memory block — it is now emitted once,
 			// last, by the trailing memoryEnabled || webSearchEnabled gate below.
+		)
+	}
+
+	if rerankOn {
+		// Hybrid search with the villa-rerank unit as the external reranker
+		// (ADR-0028), appended after the memory block it extends. With the engine
+		// external, Open WebUI posts each query and its candidate chunks to the URL
+		// and sorts by the scores that come back; the key is the no-auth sentinel
+		// because the unit is container-DNS only on villa.network.
+		env = append(env,
+			envPair{Key: "ENABLE_RAG_HYBRID_SEARCH", Value: "True"},
+			envPair{Key: "RAG_RERANKING_ENGINE", Value: "external"},
+			envPair{Key: "RAG_RERANKING_MODEL", Value: RerankModelName},
+			envPair{Key: "RAG_EXTERNAL_RERANKER_URL", Value: fmt.Sprintf("http://%s:%d/v1/rerank", mv.RerankAddr, mv.RerankPort)},
+			envPair{Key: "RAG_EXTERNAL_RERANKER_API_KEY", Value: noAuthAPIKey},
 		)
 	}
 

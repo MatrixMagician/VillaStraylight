@@ -21,8 +21,10 @@ import "time"
 // move with it (Quadlet maps villa-x.container → villa-x.service).
 //
 // The grouping is the PROOF UNIT, not a convenience: one `verify memory` proves
-// Qdrant and the embedder together, so they capture, mutate and roll back
-// together. Splitting them would produce a pairing with no proof and no meaning.
+// Qdrant, the embedder and the reranker together, so they capture, mutate and
+// roll back together. Splitting them would produce a pairing with no proof and
+// no meaning. The reranker is rendered only when subsystem.RerankOn, so a caller
+// that restarts these services skips a unit that is not on disk.
 //
 // Agent is absent: the Crush binary is a file, not a unit — nothing to render
 // and nothing to restart. It is still a subsystem because `verify agent`
@@ -33,8 +35,8 @@ var unitNames = map[Kind]struct {
 }{
 	Inference: {[]string{"villa-llama.container"}, []string{"villa-llama.service"}},
 	Chat:      {[]string{"villa-openwebui.container"}, []string{"villa-openwebui.service"}},
-	Memory: {[]string{"villa-qdrant.container", "villa-embed.container"},
-		[]string{"villa-qdrant.service", "villa-embed.service"}},
+	Memory: {[]string{"villa-qdrant.container", "villa-embed.container", "villa-rerank.container"},
+		[]string{"villa-qdrant.service", "villa-embed.service", "villa-rerank.service"}},
 	WebSearch: {[]string{"villa-searxng.container", "villa-websafe.container"},
 		[]string{"villa-searxng.service", "villa-websafe.service"}},
 }

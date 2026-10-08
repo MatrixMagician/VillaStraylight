@@ -192,7 +192,7 @@ func Render(in RenderInput) ([]Unit, error) {
 	// golden. mv is computed ONCE here (memory.RenderView is pure, cheap, identical) and
 	// reused by the memory-stack branch below.
 	mv := memory.RenderView(in.Cfg) // resolved-values handoff (Phase-18 spine)
-	owuiContainerText, err := execTemplate(tmpl, "openwebui.container.tmpl", buildOpenWebUIView(in.pinOr(ComponentOpenWebUI, openWebUIImage), mv, in.Cfg.MemoryEnabled, in.Cfg.WebSearchEnabled, config.SearxngAddr, config.SearxngPort, in.Cfg.WebSearchResultCount, config.WebsafeAddr, config.WebsafePort, residentNames, in.Cfg.InferenceSecret))
+	owuiContainerText, err := execTemplate(tmpl, "openwebui.container.tmpl", buildOpenWebUIView(in.pinOr(ComponentOpenWebUI, openWebUIImage), mv, in.Cfg.MemoryEnabled, subsystem.RerankOn(in.Cfg), in.Cfg.WebSearchEnabled, config.SearxngAddr, config.SearxngPort, in.Cfg.WebSearchResultCount, config.WebsafeAddr, config.WebsafePort, residentNames, in.Cfg.InferenceSecret))
 	if err != nil {
 		return nil, err
 	}
@@ -261,6 +261,15 @@ func Render(in RenderInput) ([]Unit, error) {
 			Unit{Name: qdrantVolumeUnitName, Text: qdrantVolumeText},
 			Unit{Name: embedContainerUnitName, Text: embedContainerText},
 		)
+		// The reranker (ADR-0028) runs the embedder's image, so it resolves its pin
+		// under the same component and moves with it.
+		if subsystem.RerankOn(in.Cfg) {
+			rerankContainerText, err := execTemplate(tmpl, "rerank.container.tmpl", buildRerankView(in.pinOr(ComponentEmbedder, embedImage), rerankGGUFFilename, mv.RerankAddr, mv.RerankPort))
+			if err != nil {
+				return nil, err
+			}
+			units = append(units, Unit{Name: rerankContainerUnitName, Text: rerankContainerText})
+		}
 	}
 
 	// v1.5 web-search stack: the single villa-searxng managed service is

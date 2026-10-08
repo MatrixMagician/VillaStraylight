@@ -41,6 +41,20 @@ const conservativeFootprintBytes uint64 = 512 << 20 // ~512 MiB
 // readers (recommend's typed-Unknown fallback) never re-type the literal.
 func ConservativeFootprintBytes() uint64 { return conservativeFootprintBytes }
 
+// rerankFootprintBytes is the reranker unit's resident reservation (ADR-0028).
+//
+// Measured on the dev host (2026-10-08) with bge-reranker-v2-m3 Q8_0 served by
+// the pinned embedder image at `--rerank -c 8192 -b 1024 -ub 1024`: VmHWM
+// 1.84 GB after a six-document request and a 1009-token pair, stable across a
+// second run (1.17 GB anonymous for the batch buffers plus the mapped 606 MB of
+// weights). 2 GiB rounds that up by 17%. The batch bound is the reason the
+// figure is four times the embedder's: it is what lets the unit rerank every
+// chunk the embedder admits.
+const rerankFootprintBytes uint64 = 2 << 30
+
+// RerankFootprintBytes returns the reranker's pinned resident reservation.
+func RerankFootprintBytes() uint64 { return rerankFootprintBytes }
+
 // Footprint returns the resident-memory reservation for an embedding model as a
 // typed detect.Bytes. On a hit it returns KnownBytes with provenance; on a miss
 // (unknown id OR empty string) it returns a typed Unknown (Known=false) carrying
