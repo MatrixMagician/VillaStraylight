@@ -141,6 +141,17 @@ budget and its source, so an operator reading a FAIL can see whether the bound
 was measured or the floor. The `--json` goldens are unchanged: the finding's
 shape did not move, only the detail's text, which the goldens hold as test data.
 
+The probe reads low on a GPU that has been idle for minutes. Measured on the dev
+host with the probe's own request (qwen3.6-35b-a3b, 64 tokens, greedy): 50.3,
+50.8 and 51.3 tok/s after 45 s idle; 15.4 then 26.0 tok/s after 160 s idle;
+doctor's own probe read 28.4 after about 2.5 min idle. The limiter is the GPU's
+power ramp, which one 64-token request does not outlast. A cold read only widens
+the budget (the floor and ceiling bound it either way) and the proof cannot fail
+from it, but the detail's rate is then the cold GPU's, not the model's. A warm-up
+request before the probe, or taking the faster of two reads, would cost a few
+seconds more per doctor run and is left to a later change if the number matters
+to an operator.
+
 The Gemma leg of this change is to be proven on hardware once the entry lands
 (#321): doctor under gemma-4-31b with `agent_enabled = true`, the agent check
 passing under the scaled budget, and `/slots` idle after a forced kill.
