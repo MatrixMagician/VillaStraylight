@@ -532,6 +532,18 @@ func liveEmbedHealth(addr string, port int) status.HealthState {
 	return e
 }
 
+// rerankHealthCache bounds the reranker probe to one per memoryHealthTTL window,
+// like the pair cache does for its two siblings.
+var rerankHealthCache = &inprobe.Cache{TTL: memoryHealthTTL}
+
+// liveRerankHealth probes the reranker llama-server's /health endpoint in-network
+// with the same coded mapping as the embedder's.
+func liveRerankHealth(addr string, port int) status.HealthState {
+	return rerankHealthCache.Get(func() status.HealthState {
+		return probeMemoryURL("http://" + net.JoinHostPort(addr, strconv.Itoa(port)) + "/health")
+	})
+}
+
 // liveReadRecallState loads recall-state.json READ-ONLY through the shared
 // liveRecallStateLoad (recall.go): an absent store yields a pointer to the ZERO
 // State — "no index yet" is a CONFIDENT empty, not nil (status renders "empty"); a
@@ -776,6 +788,13 @@ func liveStatusServices() []status.Service {
 			Kind: status.Managed,
 			Probe: func(config.VillaConfig) status.HealthState {
 				return liveEmbedHealth(config.EmbedAddr, config.EmbedPort)
+			},
+		},
+		{
+			Unit: unitServiceName(orchestrate.RerankContainerUnitName()),
+			Kind: status.Managed,
+			Probe: func(config.VillaConfig) status.HealthState {
+				return liveRerankHealth(config.RerankAddr, config.RerankPort)
 			},
 		},
 		{

@@ -81,8 +81,10 @@ type Deps struct {
 	LoadConfig func() (config.VillaConfig, error)
 	Probe      func() detect.HostProfile
 	// Pick recommends a fitting model. It takes Overrides so a wizard choice is
-	// re-validated through the single polymorphism point.
-	Pick      func(detect.HostProfile, recommend.Overrides) recommend.Recommendation
+	// re-validated through the single polymorphism point, and the reservations of
+	// the config this run will persist (PlannedReservations), so a gate the run
+	// turns on shrinks the envelope before the fit rather than after it.
+	Pick      func(detect.HostProfile, recommend.Overrides, []recommend.Reservation) recommend.Recommendation
 	ModelsDir func() string
 
 	RunChecks func(detect.HostProfile, preflight.ResourceReq) []preflight.CheckResult
@@ -118,6 +120,8 @@ type Deps struct {
 	EnsureModel        func(recommend.Recommendation) error
 	EmbedModelPresent  func(modelsDir string) bool
 	EnsureEmbedModel   func(modelsDir string) error
+	RerankModelPresent func(modelsDir string) bool
+	EnsureRerankModel  func(modelsDir string) error
 	AgentCatalog       func() (catalog.Catalog, bool)
 	CoderModelPresent  func(modelsDir string, sh catalog.Shard) bool
 	EnsureCoderModel   func(modelsDir string, sh catalog.Shard) error
@@ -185,11 +189,11 @@ const (
 // DefaultUnits names the services the flow starts, from the subsystem unit map so
 // no service name is re-typed here.
 func DefaultUnits() Units {
-	_, inf := subsystem.Inference.Units()
-	_, chat := subsystem.Chat.Units()
-	_, mem := subsystem.Memory.Units()
-	_, web := subsystem.WebSearch.Units()
-	return Units{Inference: inf[0], ChatUI: chat[0], Qdrant: mem[0], Embed: mem[1], Searxng: web[0], Websafe: web[1]}
+	_, inf := subsystem.Inference.EveryUnit()
+	_, chat := subsystem.Chat.EveryUnit()
+	_, mem := subsystem.Memory.EveryUnit()
+	_, web := subsystem.WebSearch.EveryUnit()
+	return Units{Inference: inf[0], ChatUI: chat[0], Qdrant: mem[0], Embed: mem[1], Rerank: mem[2], Searxng: web[0], Websafe: web[1]}
 }
 
 // Run executes the install flow end to end and returns its Result. It never
@@ -214,9 +218,11 @@ func Run(ctx context.Context, d Deps, opts Opts) Result {
 		return block("install: refusing to install from defaults — that would overwrite your persisted settings with seed values. Fix or remove config.toml, then re-run.\n")
 	}
 
-	// (1) Detect, (2) recommend. No fit is a refusal, never a -c 0 server.
+	// (1) Detect, (2) recommend against the reservations of the config this run
+	// will persist. No fit is a refusal, never a -c 0 server.
 	profile := d.Probe()
-	rec := d.Pick(profile, recommend.Overrides{})
+	reservations := PlannedReservations(cfg, opts)
+	rec := d.Pick(profile, recommend.Overrides{}, reservations)
 	if !RecommendationUsable(rec) {
 		// The contracted empty-state copy, emitted before the wizard is evaluated so
 		// both paths share the one emission point.
@@ -254,7 +260,7 @@ func Run(ctx context.Context, d Deps, opts Opts) Result {
 		// A chosen override is re-validated through the SAME pick seam so the rec is
 		// byte-identical to the flag path's. Checks are host-prep, not re-run.
 		if w.ModelOverride != "" {
-			rec = d.Pick(profile, recommend.Overrides{Model: w.ModelOverride})
+			rec = d.Pick(profile, recommend.Overrides{Model: w.ModelOverride}, reservations)
 			// The gates are a function of the recommendation too (the coder fit
 			// decides coding mode), so a changed recommendation is the one case they
 			// are resolved again.
@@ -340,6 +346,13 @@ func Run(ctx context.Context, d Deps, opts Opts) Result {
 		}
 		say("embedding model %s downloaded and verified\n", NomicEmbedShard.Filename)
 	}
+	if gates.Memory && !d.RerankModelPresent(d.ModelsDir()) {
+		say("reranker model %s not present — downloading...\n", RerankShard.Filename)
+		if err := d.EnsureRerankModel(d.ModelsDir()); err != nil {
+			return block("install: pre-stage reranker model %s failed: %v\n", RerankShard.Filename, err)
+		}
+		say("reranker model %s downloaded and verified\n", RerankShard.Filename)
+	}
 
 	// (6c) Pre-stage the coding agent BEFORE persisting config and starting the
 	// stack: notice, coder shard, coder weights, pinned binary, locked-down config.
@@ -390,7 +403,7 @@ func Run(ctx context.Context, d Deps, opts Opts) Result {
 	// rendered plan, so a rollback never stops a service that was running before.
 	priorRunning := map[string]bool{}
 	if d.IsActive != nil {
-		for _, svc := range []string{units.Inference, units.ChatUI, units.Qdrant, units.Embed, units.Searxng, units.Websafe, orchestrate.DashboardServiceName} {
+		for _, svc := range []string{units.Inference, units.ChatUI, units.Qdrant, units.Embed, units.Rerank, units.Searxng, units.Websafe, orchestrate.DashboardServiceName} {
 			if state, aerr := d.IsActive(svc); aerr == nil && state == "active" {
 				priorRunning[svc] = true
 			}
@@ -535,19 +548,24 @@ func Run(ctx context.Context, d Deps, opts Opts) Result {
 		return refuse("install: start %s failed: %v\n", units.ChatUI, err)
 	}
 
-	// (9b) The memory stack: the vector store, then the embedder. Each start is
-	// gated on its unit being in the written plan, never on the flag alone.
+	// (9b) The memory stack: the vector store, then the embedder, then the
+	// reranker. Each start is gated on its unit being in the written plan, never on
+	// the flag alone.
 	if gates.Memory {
 		if !UnitPresent(unitPlan, orchestrate.QdrantContainerUnitName()) ||
-			!UnitPresent(unitPlan, orchestrate.EmbedContainerUnitName()) {
-			return refuse("install: INTERNAL ERROR: memory is enabled but the memory units (%s, %s) are absent from the rendered plan — refusing to start a service systemd has never seen. This is a render/reconcile bug; please re-run `villa install`, and if it persists, file an issue.\n",
-				orchestrate.QdrantContainerUnitName(), orchestrate.EmbedContainerUnitName())
+			!UnitPresent(unitPlan, orchestrate.EmbedContainerUnitName()) ||
+			!UnitPresent(unitPlan, orchestrate.RerankContainerUnitName()) {
+			return refuse("install: INTERNAL ERROR: memory is enabled but the memory units (%s, %s, %s) are absent from the rendered plan — refusing to start a service systemd has never seen. This is a render/reconcile bug; please re-run `villa install`, and if it persists, file an issue.\n",
+				orchestrate.QdrantContainerUnitName(), orchestrate.EmbedContainerUnitName(), orchestrate.RerankContainerUnitName())
 		}
 		if err := start(units.Qdrant); err != nil {
 			return refuse("install: start %s failed: %v\n", units.Qdrant, err)
 		}
 		if err := start(units.Embed); err != nil {
 			return refuse("install: start %s failed: %v\n", units.Embed, err)
+		}
+		if err := start(units.Rerank); err != nil {
+			return refuse("install: start %s failed: %v\n", units.Rerank, err)
 		}
 	}
 
@@ -748,6 +766,16 @@ var NomicEmbedShard = catalog.Shard{
 	Filename:  "nomic-embed-text-v1.5.Q8_0.gguf",
 	SHA256:    "3e24342164b3d94991ba9692fdc0dd08e3fd7362e0aacc396a9a5c54a544c3b7",
 	SizeBytes: 146146432,
+}
+
+// RerankShard is the pinned bge-reranker-v2-m3 Q8_0 GGUF pre-staged into the
+// models dir when memory is on (ADR-0028). Its Filename MUST equal
+// orchestrate.RerankGGUFFilename(), the name the reranker unit serves.
+var RerankShard = catalog.Shard{
+	URL:       "https://huggingface.co/gpustack/bge-reranker-v2-m3-GGUF/resolve/main/bge-reranker-v2-m3-Q8_0.gguf",
+	Filename:  "bge-reranker-v2-m3-Q8_0.gguf",
+	SHA256:    "a43c7c9b11a4c1517e5bf95151960e1621d1b72f7a493364b01e386cf1aaa1d3",
+	SizeBytes: 635676416,
 }
 
 // AgentLicenseNotice is the FSL-1.1-MIT notice surfaced before the coding-agent

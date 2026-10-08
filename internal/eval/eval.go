@@ -20,6 +20,7 @@ package eval
 
 import (
 	"context"
+	"strconv"
 	"strings"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/llm"
@@ -33,9 +34,14 @@ type Case struct {
 	Prompt string `json:"prompt"`
 	// Tools makes this a tool-call case: the definitions are sent with the request,
 	// and the case is skipped when tools mode is off.
-	Tools     []llm.Tool `json:"tools,omitempty"`
-	Grader    Grader     `json:"grader"`
-	MaxTokens int        `json:"max_tokens"`
+	Tools []llm.Tool `json:"tools,omitempty"`
+	// Documents are the candidates of a rerank case (ADR-0028): the prompt is the
+	// query, and the grader names the document that must score highest. The case is
+	// conducted through Deps.Rerank, never as a completion, and is skipped when the
+	// reranker is off.
+	Documents []string `json:"documents,omitempty"`
+	Grader    Grader   `json:"grader"`
+	MaxTokens int      `json:"max_tokens,omitempty"`
 }
 
 // CaseStatus is one capability case's outcome in a run.
@@ -52,8 +58,12 @@ const (
 	Skipped CaseStatus = "skipped"
 )
 
-// toolsModeOff is the reason a tool-call case is skipped.
-const toolsModeOff = "tools mode off"
+// toolsModeOff is the reason a tool-call case is skipped; rerankerOff the reason a
+// rerank case is.
+const (
+	toolsModeOff = "tools mode off"
+	rerankerOff  = "reranker off"
+)
 
 // Result is one capability case's outcome. Excerpt is the reply, cut to one bounded
 // line, for a conducted case; Detail says why a case was unconducted or skipped.
@@ -95,13 +105,18 @@ type Run struct {
 // the only way one is made from a run, and it refuses a run with holes.
 type Baseline Run
 
-// Deps is the one seam a run needs: a completion. Complete sends the request Request
-// built (the caller sets the model) and returns the reply, or an error when no reply
-// was obtained. ToolsOn reports whether the served model was started with tool
-// calling (subsystem.ToolsOn); when it is false a tool-call case is skipped unsent.
+// Deps are the two seams a run needs. Complete sends the request Request built (the
+// caller sets the model) and returns the reply, or an error when no reply was
+// obtained. ToolsOn reports whether the served model was started with tool calling
+// (subsystem.ToolsOn); when it is false a tool-call case is skipped unsent. Rerank
+// scores each document against a query, one score per document in document order
+// (ADR-0028); RerankOn reports whether the reranker is rendered (subsystem.RerankOn),
+// and when it is false a rerank case is skipped unsent.
 type Deps struct {
 	Complete func(ctx context.Context, req llm.ChatRequest) (llm.Reply, error)
 	ToolsOn  bool
+	Rerank   func(ctx context.Context, query string, docs []string) ([]float64, error)
+	RerankOn bool
 }
 
 // graded maps a grader's verdict onto the case status it earns.
@@ -117,9 +132,13 @@ func Execute(ctx context.Context, cases []Case, d Deps) []Result {
 	return results
 }
 
-// conduct runs one case: skipped when it needs tools the stack cannot honour,
-// unconducted when no reply came back, otherwise graded.
+// conduct runs one case through the channel its kind names: a rerank case through
+// the reranker, every other through a completion. Each is skipped when the stack
+// cannot honour it, unconducted when no answer came back, otherwise graded.
 func conduct(ctx context.Context, c Case, d Deps) Result {
+	if graders[c.Grader.Kind].rerank {
+		return conductRerank(ctx, c, d)
+	}
 	if len(c.Tools) > 0 && !d.ToolsOn {
 		return Result{CaseID: c.ID, Status: Skipped, Detail: toolsModeOff}
 	}
@@ -128,6 +147,33 @@ func conduct(ctx context.Context, c Case, d Deps) Result {
 		return Result{CaseID: c.ID, Status: Unconducted, Detail: err.Error()}
 	}
 	return Result{CaseID: c.ID, Status: graded[Grade(c, reply)], Excerpt: excerpt(reply)}
+}
+
+// conductRerank scores the case's documents against its prompt and grades the
+// order. A nil seam with the gate on is a wiring fault, reported as unconducted.
+func conductRerank(ctx context.Context, c Case, d Deps) Result {
+	if !d.RerankOn {
+		return Result{CaseID: c.ID, Status: Skipped, Detail: rerankerOff}
+	}
+	if d.Rerank == nil {
+		return Result{CaseID: c.ID, Status: Unconducted, Detail: "no reranker seam"}
+	}
+	scores, err := d.Rerank(ctx, c.Prompt, c.Documents)
+	if err != nil {
+		return Result{CaseID: c.ID, Status: Unconducted, Detail: err.Error()}
+	}
+	return Result{CaseID: c.ID, Status: graded[GradeRerank(c, scores)], Excerpt: rerankExcerpt(scores)}
+}
+
+// rerankExcerpt renders a rerank outcome as the index that scored highest and
+// every score in document order, so a failure shows how far the wanted document
+// was from the top.
+func rerankExcerpt(scores []float64) string {
+	parts := make([]string, 0, len(scores))
+	for _, s := range scores {
+		parts = append(parts, strconv.FormatFloat(s, 'f', 3, 64))
+	}
+	return "top " + strconv.Itoa(argmax(scores)) + " (scores " + strings.Join(parts, " ") + ")"
 }
 
 // Request builds the completion request for one case. It is greedy by construction:

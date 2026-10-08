@@ -64,6 +64,15 @@
       "provenance": "status.Report.Services[].Health"
     },
     {
+      "id": "health:villa-rerank.service",
+      "name": "villa-rerank.service health",
+      "tier": "WARN",
+      "status": "PASS",
+      "detail": "/health is ready (200)",
+      "remediation": "",
+      "provenance": "status.Report.Services[].Health"
+    },
+    {
       "id": "MEM-DOC-residency",
       "name": "Chat-model residency under embedding load",
       "tier": "BLOCK",
@@ -110,5 +119,5 @@
     }
   ],
   "overall": "PASS",
-  "schema_version": 8
+  "schema_version": 9
 }

@@ -3,19 +3,19 @@ package subsystem
 import "testing"
 
 // TestSubsystemsMoveAsTheirProofUnit: the proof unit is the verify verb's scope,
-// so memory's units and services are Qdrant AND the embedder. Splitting them
-// would produce a pairing with no proof and no meaning.
+// so memory's units and services are Qdrant, the embedder AND the reranker.
+// Splitting them would produce a pairing with no proof and no meaning.
 func TestSubsystemsMoveAsTheirProofUnit(t *testing.T) {
-	units, services := Memory.Units()
-	if len(units) != 2 || len(services) != 2 {
-		t.Errorf("memory moves %d units / %d services, want both halves of the pairing", len(units), len(services))
+	units, services := Memory.EveryUnit()
+	if len(units) != 3 || len(services) != 3 {
+		t.Errorf("memory moves %d units / %d services, want the vector store, the embedder and the reranker", len(units), len(services))
 	}
-	units, services = WebSearch.Units()
+	units, services = WebSearch.EveryUnit()
 	if len(units) != 2 || len(services) != 2 {
 		t.Errorf("web search moves %d units / %d services, want SearXNG and the web guard together", len(units), len(services))
 	}
 	// The agent is a binary, not a unit: nothing to render and nothing to restart.
-	units, services = Agent.Units()
+	units, services = Agent.EveryUnit()
 	if len(units) != 0 || len(services) != 0 {
 		t.Errorf("the agent subsystem renders units (%v/%v); the Crush binary is a file", units, services)
 	}

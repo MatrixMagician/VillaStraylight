@@ -5,7 +5,7 @@
   "key": {
     "model": "qwen-test",
     "quant": "Q4_K_M",
-    "suite_version": 1
+    "suite_version": 2
   },
   "provenance": {
     "backend": "rocm",
@@ -17,7 +17,7 @@
   "score": {
     "passed": 1,
     "failed": 1,
-    "skipped": 1,
+    "skipped": 2,
     "unconducted": 1
   },
   "baseline_score": {
@@ -52,6 +52,11 @@
       "case_id": "tool-d",
       "status": "skipped",
       "detail": "tools mode off"
+    },
+    {
+      "case_id": "retrieval-e",
+      "status": "skipped",
+      "detail": "reranker off"
     }
   ],
   "provenance_changes": [
@@ -81,6 +86,11 @@
       "case_id": "tool-d",
       "status": "skipped",
       "detail": "tools mode off"
+    },
+    {
+      "case_id": "retrieval-e",
+      "status": "skipped",
+      "detail": "reranker off"
     }
   ]
 }

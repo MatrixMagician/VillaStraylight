@@ -321,18 +321,23 @@ type Reservation struct {
 // The registry's row names. The legacy per-service keys are derived by name.
 const (
 	reservationEmbedding = "embedding"
+	reservationReranker  = "reranker"
 	reservationWebSearch = "web_search"
 )
 
 // ReservationsFor is the reservation registry: one row for each service whose
-// gate is on in cfg, in a fixed order (embedding, then web search). A new service
-// is one row here. It is pure: it reads an already-loaded config and no host, so
-// a config that failed to load (the zero value) reserves nothing.
+// gate is on in cfg, in a fixed order (embedding, then the reranker beside it,
+// then web search). A new service is one row here. It is pure: it reads an
+// already-loaded config and no host, so a config that failed to load (the zero
+// value) reserves nothing.
 func ReservationsFor(cfg config.VillaConfig) []Reservation {
 	var res []Reservation
 	if subsystem.MemoryOn(cfg) {
 		bytes, notes := memoryReservation(cfg.EmbeddingModel)
 		res = append(res, Reservation{Name: reservationEmbedding, Bytes: bytes, Notes: notes})
+	}
+	if subsystem.RerankOn(cfg) {
+		res = append(res, Reservation{Name: reservationReranker, Bytes: memory.RerankFootprintBytes()})
 	}
 	if subsystem.WebSearchOn(cfg) {
 		bytes, notes := webSearchReservation(webSearchInputs{ResultCount: cfg.WebSearchResultCount})

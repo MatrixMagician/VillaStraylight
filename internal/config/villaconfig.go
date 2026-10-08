@@ -62,6 +62,11 @@ const (
 	EmbedAddr = "villa-embed"
 	// EmbedPort is the in-network villa-embed OpenAI /v1 port.
 	EmbedPort = 8080
+	// RerankAddr is the container-DNS name of the villa-rerank llama-server, the
+	// memory stack's reranker (ADR-0028).
+	RerankAddr = "villa-rerank"
+	// RerankPort is the in-network villa-rerank port serving /v1/rerank.
+	RerankPort = 8080
 
 	// SearxngAddr is the container-DNS name of the SearXNG metasearch service.
 	SearxngAddr = "villa-searxng"
@@ -120,6 +125,13 @@ type VillaConfig struct {
 	// Default 768. Changing it corrupts existing Qdrant vectors (no auto-reindex);
 	// it is recorded here as the anchor for the Phase-23 memory-aware swap guard.
 	EmbeddingDim int `toml:"embedding_dim,omitzero"`
+	// Reranker gates the memory stack's reranker unit and Open WebUI's hybrid
+	// search (ADR-0028). It is read only through subsystem.RerankOn, which also
+	// needs MemoryEnabled. Written true by `villa install` once the reranker's
+	// weights are staged, so a memory-on config predating the key keeps the stack
+	// it had until the next install: Open WebUI pointed at an absent reranker
+	// would answer every RAG query with no documents at all.
+	Reranker bool `toml:"reranker,omitempty"`
 
 	// --- Coding-mode fields ---
 	// These follow the v1.3 memory-stack precedent EXACTLY: append-only, all
@@ -471,6 +483,7 @@ func marshalVilla(c VillaConfig) ([]byte, error) {
 	if !c.MemoryEnabled {
 		c.EmbeddingModel = ""
 		c.EmbeddingDim = 0
+		c.Reranker = false
 	}
 	// Coding-mode omit-when-off: when coding mode is disabled the
 	// resolved coder_* fields are zeroed on this by-value copy so the ,omitempty tags

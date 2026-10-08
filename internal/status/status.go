@@ -260,7 +260,10 @@ type Report struct {
 // Version 10 tail-appends the last task's id and state ABOVE SchemaVersion; omitted
 // when the workspace agent is off or no task has ever run, so the v10 output
 // differs from v9 only in schema_version.
-const reportSchemaVersion = 10
+// Version 11 adds the villa-rerank.service row to Services when the reranker is
+// rendered (ADR-0028); no field changed shape, and a reranker-off report differs
+// from v10 only in schema_version.
+const reportSchemaVersion = 11
 
 // SchemaVersion exposes the Report contract's own version to downstream readers
 // (the dashboard serves this same document), so a consumer binds one symbol rather

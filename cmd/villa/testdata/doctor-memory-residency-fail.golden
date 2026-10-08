@@ -7,6 +7,7 @@ health:villa-llama.service   WARN   PASS  /health is ready (200)
 offload:villa-llama.service  BLOCK  PASS  residency proven on Vulkan; GTT floor corroborated
 health:villa-qdrant.service  WARN   PASS  /health is ready (200)
 health:villa-embed.service   WARN   PASS  /health is ready (200)
+health:villa-rerank.service  WARN   PASS  /health is ready (200)
 MEM-DOC-residency            BLOCK  FAIL  only a CPU model buffer was loaded — the chat model fell back to CPU under embedding load — the chat model fell back to CPU under embedding load — check the backend (`villa backend set`) and `villa logs`
 drift                        WARN   PASS  on-disk units match the rendered-from-config units
 

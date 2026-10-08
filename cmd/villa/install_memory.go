@@ -102,6 +102,31 @@ func liveEnsureEmbedModel(ctx context.Context, modelsDir string) error {
 	return pullFn(ctx, m, modelsDir)
 }
 
+// rerankModelPath is the on-disk path of the pre-staged reranker GGUF.
+func rerankModelPath(modelsDir string) string {
+	return filepath.Join(modelsDir, install.RerankShard.Filename)
+}
+
+// liveRerankModelPresent is liveEmbedModelPresent for the reranker shard: present
+// only at the pinned size, so a truncated file is re-pulled and re-verified.
+func liveRerankModelPresent(modelsDir string) bool {
+	fi, err := os.Stat(rerankModelPath(modelsDir))
+	if err != nil {
+		return false
+	}
+	return fi.Size() >= 0 && uint64(fi.Size()) == install.RerankShard.SizeBytes
+}
+
+// liveEnsureRerankModel pre-stages install.RerankShard through the same verified
+// downloader as the embedder's shard.
+func liveEnsureRerankModel(ctx context.Context, modelsDir string) error {
+	if mkErr := os.MkdirAll(modelsDir, 0o700); mkErr != nil {
+		return mkErr
+	}
+	m := catalog.Model{Shards: []catalog.Shard{install.RerankShard}}
+	return pullFn(ctx, m, modelsDir)
+}
+
 // liveLoadedConfig returns the PERSISTED config.LoadVilla() so runInstall can SEED cfg
 // from the user's on-disk config (preserving their memory/dashboard/chat fields) rather
 // than the always-default DefaultVillaConfig seed. LoadVilla self-heals zeroed
@@ -160,13 +185,33 @@ type memoryProofInput struct {
 	embeddingDim int
 	qdrantAddr   string
 	qdrantPort   int
+	// rerank is subsystem.RerankOn: only a rendered reranker is probed.
+	rerank     bool
+	rerankAddr string
+	rerankPort int
 }
 
+// rerankServiceName is the systemd service the villa-rerank .container generates.
+const rerankServiceName = "villa-rerank.service"
+
+// rerankProbeDocuments is the fixed pair the readiness probe asks the reranker to
+// order against rerankProbeQuery: the first is on topic, the second is not, so a
+// reranker that answers but cannot tell them apart fails the proof.
+var rerankProbeDocuments = []string{
+	"The dashboard listens on port 8888.",
+	"Bake the loaf for forty minutes at 180 degrees.",
+}
+
+const rerankProbeQuery = "which port does the dashboard bind"
+
 // evalMemoryProof is the PURE proof core (unit-testable off-hardware via injected
-// probes): it maps the two probe outcomes to a verdict. An embed error or a wrong
+// probes): it maps the probe outcomes to a verdict. An embed error or a wrong
 // vector length → FAIL("…embeddings endpoint…"); a Qdrant error or a non-writable
-// store → FAIL("…Qdrant not writable…"); both ok → PASS. wantDim is the pinned 768.
-func evalMemoryProof(_ context.Context, embedProbe func() (gotDim int, err error), qdrantProbe func() (writable bool, err error), wantDim int) memoryProof {
+// store → FAIL("…Qdrant not writable…"); a reranker error or a reranker that does
+// not put the on-topic document first → FAIL naming villa-rerank.service; all ok →
+// PASS. rerankProbe is nil when the reranker is not rendered, and then not probed.
+// wantDim is the pinned 768.
+func evalMemoryProof(_ context.Context, embedProbe func() (gotDim int, err error), qdrantProbe func() (writable bool, err error), rerankProbe func() (top int, err error), wantDim int) memoryProof {
 	gotDim, err := embedProbe()
 	if err != nil {
 		return memoryProof{
@@ -193,7 +238,35 @@ func evalMemoryProof(_ context.Context, embedProbe func() (gotDim int, err error
 			detail: fmt.Sprintf("Qdrant is not writable (the probe collection round-trip failed) — check the volume permissions and `systemctl --user status %s`, then re-run `villa install`", qdrantServiceName),
 		}
 	}
-	return memoryProof{status: preflight.StatusPass, detail: "768-dim embeddings + Qdrant writable"}
+	if rerankProbe == nil {
+		return memoryProof{status: preflight.StatusPass, detail: "768-dim embeddings + Qdrant writable"}
+	}
+	top, err := rerankProbe()
+	if err != nil {
+		return memoryProof{
+			status: preflight.StatusFail,
+			detail: fmt.Sprintf("the reranker did not answer (%v) — check `systemctl --user status %s` and its journal, then re-run `villa install`", err, rerankServiceName),
+		}
+	}
+	if top != 0 {
+		return memoryProof{
+			status: preflight.StatusFail,
+			detail: fmt.Sprintf("the reranker ranked the off-topic probe document first (index %d) — the served model is not a reranker; check `systemctl --user status %s`, then re-run `villa install`", top, rerankServiceName),
+		}
+	}
+	return memoryProof{status: preflight.StatusPass, detail: "768-dim embeddings + Qdrant writable + reranker ranking"}
+}
+
+// topScore is the index of the highest score. Scores are raw logits, so the
+// highest may be negative.
+func topScore(scores []float64) int {
+	top := 0
+	for i, s := range scores {
+		if s > scores[top] {
+			top = i
+		}
+	}
+	return top
 }
 
 // memoryProofNetwork is the podman network the proof reaches the container-DNS-only
@@ -258,7 +331,19 @@ func liveMemoryProof(ctx context.Context, in memoryProofInput) memoryProof {
 		return qdrantWritableProbe(curl, base, in.embeddingDim)
 	}
 
-	return evalMemoryProof(ctx, embedProbe, qdrantProbe, in.embeddingDim)
+	// rerankProbe scores the fixed two-document pair and returns the top index.
+	var rerankProbe func() (int, error)
+	if in.rerank {
+		rerankProbe = func() (int, error) {
+			scores, err := postRerank(ctx, helperImage, in.rerankAddr, in.rerankPort, rerankProbeQuery, rerankProbeDocuments)
+			if err != nil {
+				return 0, err
+			}
+			return topScore(scores), nil
+		}
+	}
+
+	return evalMemoryProof(ctx, embedProbe, qdrantProbe, rerankProbe, in.embeddingDim)
 }
 
 // probeCurlFn is the injectable curl-runner seam qdrantWritableProbe drives: it runs a

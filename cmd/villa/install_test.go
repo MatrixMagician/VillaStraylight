@@ -249,7 +249,7 @@ func TestEvalMemoryProof(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			embedProbe := func() (int, error) { return tc.embedDim, tc.embedErr }
 			qdrantProbe := func() (bool, error) { return tc.writable, tc.qdrantErr }
-			got := evalMemoryProof(t.Context(), embedProbe, qdrantProbe, wantDim)
+			got := evalMemoryProof(t.Context(), embedProbe, qdrantProbe, nil, wantDim)
 			if got.status != tc.wantStatus {
 				t.Errorf("status = %v, want %v (detail %q)", got.status, tc.wantStatus, got.detail)
 			}

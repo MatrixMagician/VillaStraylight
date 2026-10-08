@@ -33,6 +33,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/evalstore"
 	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 	"github.com/MatrixMagician/VillaStraylight/internal/llm"
+	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 	"github.com/MatrixMagician/VillaStraylight/internal/stackapply"
 	"github.com/MatrixMagician/VillaStraylight/internal/subsystem"
 	"github.com/MatrixMagician/VillaStraylight/internal/verify"
@@ -60,6 +61,9 @@ type evalDeps struct {
 	suite func() ([]eval.Case, error)
 	// complete returns the completion seam for the served model.
 	complete func(cfg config.VillaConfig, model string) func(context.Context, llm.ChatRequest) (llm.Reply, error)
+	// rerank scores documents against a query through the memory stack's reranker
+	// (ADR-0028), one score per document in document order.
+	rerank func(ctx context.Context, query string, docs []string) ([]float64, error)
 	// store is the eval-baselines.json byte seam.
 	store evalstore.Deps
 }
@@ -72,6 +76,7 @@ func liveEvalDeps() evalDeps {
 		inferenceImage: liveEvalImage,
 		suite:          eval.Suite,
 		complete:       liveEvalComplete,
+		rerank:         liveEvalRerank,
 		store: evalstore.Deps{
 			ReadAll:  storeReader(path), // absent store ⇒ no eval baseline (Reject)
 			WriteAll: func(data []byte) error { return evalstore.WriteFileAtomic(path, data) },
@@ -100,6 +105,66 @@ func liveEvalComplete(cfg config.VillaConfig, model string) func(context.Context
 		req.Model = model
 		return client.Chat(ctx, req)
 	}
+}
+
+// liveEvalRerank scores docs against query through villa-rerank over villa.network.
+func liveEvalRerank(ctx context.Context, query string, docs []string) ([]float64, error) {
+	return postRerank(ctx, orchestrate.EmbedImage(), config.RerankAddr, config.RerankPort, query, docs)
+}
+
+// postRerank is the one rerank request villa makes: the eval seam and the install
+// readiness probe both go through it. The unit is container-DNS only, so the
+// request rides the in-network curl of the memory proof; helperImage is the probe
+// helper, never a pin.
+func postRerank(ctx context.Context, helperImage, addr string, port int, query string, docs []string) ([]float64, error) {
+	body, err := json.Marshal(map[string]any{
+		"model":     orchestrate.RerankModelName,
+		"query":     query,
+		"documents": docs,
+		"top_n":     len(docs),
+	})
+	if err != nil {
+		return nil, err
+	}
+	url := fmt.Sprintf("http://%s:%d/v1/rerank", addr, port)
+	out, err := runProbeCurl(ctx, helperImage,
+		"-sf", "-X", "POST", url,
+		"-H", "Content-Type: application/json",
+		"-d", string(body),
+	)
+	if err != nil {
+		return nil, err
+	}
+	return parseRerankScores(out, len(docs))
+}
+
+// parseRerankScores maps llama-server's rerank answer, one result per document
+// carrying its index and a raw score in score order, onto one score per document
+// in document order. An answer that does not cover every document is refused.
+func parseRerankScores(out []byte, n int) ([]float64, error) {
+	var resp struct {
+		Results []struct {
+			Index          int     `json:"index"`
+			RelevanceScore float64 `json:"relevance_score"`
+		} `json:"results"`
+	}
+	if err := json.Unmarshal(out, &resp); err != nil {
+		return nil, fmt.Errorf("decode rerank response: %w", err)
+	}
+	scores := make([]float64, n)
+	seen := make([]bool, n)
+	for _, r := range resp.Results {
+		if r.Index < 0 || r.Index >= n {
+			return nil, fmt.Errorf("rerank response names document %d of %d", r.Index, n)
+		}
+		scores[r.Index], seen[r.Index] = r.RelevanceScore, true
+	}
+	for i, ok := range seen {
+		if !ok {
+			return nil, fmt.Errorf("rerank response carries no score for document %d of %d", i, n)
+		}
+	}
+	return scores, nil
 }
 
 // newEval builds `villa eval`.
@@ -166,7 +231,12 @@ func conductEval(ctx context.Context, d evalDeps) (eval.Run, *eval.Baseline, err
 		return eval.Run{}, nil, fmt.Errorf("read the eval baselines: %w", err)
 	}
 	run := evalTarget(cfg, backend, image)
-	run.Results = eval.Execute(ctx, cases, eval.Deps{Complete: d.complete(cfg, run.Key.Model), ToolsOn: run.Provenance.ToolsMode})
+	run.Results = eval.Execute(ctx, cases, eval.Deps{
+		Complete: d.complete(cfg, run.Key.Model),
+		ToolsOn:  run.Provenance.ToolsMode,
+		Rerank:   d.rerank,
+		RerankOn: subsystem.RerankOn(cfg),
+	})
 	return run, doc.Find(run.Key), nil
 }
 

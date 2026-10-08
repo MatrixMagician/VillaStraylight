@@ -279,6 +279,15 @@ func SandboxOn(cfg config.VillaConfig) bool { return On(cfg, Sandbox) }
 // read as a predicate anywhere else, which is the property the bypass test guards.
 func ToolsOn(cfg config.VillaConfig) bool { return cfg.ToolsMode || cfg.CodingMode }
 
+// RerankOn reports whether the memory stack's reranker is rendered (ADR-0028).
+//
+// It is a DERIVED gate like ToolsOn, not a Kind: the reranker is part of the
+// memory subsystem (same image, same update restart set, same proof), so it needs
+// memory on, and its own flag besides, because the flag is what `villa install`
+// flips only after the reranker's weights are staged. A memory-on config that
+// predates the flag renders the stack it always had.
+func RerankOn(cfg config.VillaConfig) bool { return MemoryOn(cfg) && cfg.Reranker }
+
 // Enabled returns every subsystem that is on, in All order. It is what a reporter
 // walks instead of writing four branches.
 func Enabled(cfg config.VillaConfig) []Kind {

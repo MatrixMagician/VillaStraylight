@@ -84,6 +84,8 @@ type RenderInput struct {
 	QdrantPort     int
 	EmbedAddr      string
 	EmbedPort      int
+	RerankAddr     string
+	RerankPort     int
 }
 
 // RenderView maps the cfg memory fields one-for-one into a RenderInput
@@ -97,5 +99,7 @@ func RenderView(cfg config.VillaConfig) RenderInput {
 		QdrantPort:     config.QdrantPort,
 		EmbedAddr:      config.EmbedAddr,
 		EmbedPort:      config.EmbedPort,
+		RerankAddr:     config.RerankAddr,
+		RerankPort:     config.RerankPort,
 	}
 }

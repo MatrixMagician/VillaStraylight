@@ -1,8 +1,11 @@
 # Memory & Knowledge
 
 VillaStraylight wires Open WebUI's **native Memory** and **RAG (document knowledge)**
-to a strictly-local vector stack: `villa-qdrant` (the vector store) and `villa-embed`
-(a dedicated llama-server embedding the `nomic-embed-text-v1.5` model, 768-dim). Memory
+to a strictly-local vector stack: `villa-qdrant` (the vector store), `villa-embed`
+(a dedicated llama-server embedding the `nomic-embed-text-v1.5` model, 768-dim) and
+`villa-rerank` (a second llama-server on the same image, scoring each query against
+its candidate chunks with `bge-reranker-v2-m3`; see
+[Hybrid search and the reranker](#hybrid-search-and-the-reranker)). Memory
 is **off by default** and opt-in per install. When you enable it, `villa` regenerates
 the Open WebUI container unit with the memory/RAG environment block (see
 [Offline-lockdown environment](#offline-lockdown-environment)) and reconciles the stack.
@@ -148,6 +151,11 @@ hand-editing the unit. The block is byte-frozen by a golden test; it evolves app
 | `RAG_EMBEDDING_CONTENT_PREFIX` | `search_document:` | nomic document task-instruction prefix (optimal retrieval). |
 | `RAG_EMBEDDING_MODEL_AUTO_UPDATE` | `False` | Never auto-download / update the embedding model at runtime (offline lockdown). |
 | `ENABLE_MEMORIES` | `True` | Enable the **manual** native Memory store + cross-chat injection (MEM-01/02/04). Does **not** enable auto-extraction. |
+| `ENABLE_RAG_HYBRID_SEARCH` | `True` | Rendered only with `reranker = true` (ADR-0028). Retrieve candidates by BM25 **and** vector similarity, then rerank them. |
+| `RAG_RERANKING_ENGINE` | `external` | Rendered with the key above. Send the candidates to an external reranker instead of loading a cross-encoder inside Open WebUI (which would download it). |
+| `RAG_RERANKING_MODEL` | `bge-reranker-v2-m3` | The model name sent with each rerank request; `villa-rerank` serves exactly this one. |
+| `RAG_EXTERNAL_RERANKER_URL` | `http://villa-rerank:8080/v1/rerank` | The local reranker by container-DNS; no host port. |
+| `RAG_EXTERNAL_RERANKER_API_KEY` | `sk-no-key-required` | Sentinel: the private `villa.network` reranker needs no real key. |
 | `ENABLE_PERSISTENT_CONFIG` | `False` | **Load-bearing.** Without it, OWUI bakes RAG/memory settings into `webui.db` on first boot and then **ignores** the env; config drifts off `config.toml`. `False` makes the rendered env win, so **config stays the single source of truth**. |
 
 These join the OWUI block's existing telemetry/offline kill-set (`ANONYMIZED_TELEMETRY=False`,
@@ -161,6 +169,36 @@ These join the OWUI block's existing telemetry/offline kill-set (`ANONYMIZED_TEL
 Neither the memory env nor the proof opens a new published host port: Open WebUI keeps its
 single loopback `PublishPort` (the chat UI on `127.0.0.1:3000`); Qdrant and the embedder are
 container-DNS only. `villa status`'s loopback/privacy audit must stay green (D-11).
+
+---
+
+## Hybrid search and the reranker
+
+Vector similarity alone ranks a chunk by how much its wording resembles the
+question. A chunk that answers in other words ("The first cars crossed on 28 May
+1937" for "When did the bridge open to traffic?") can rank below chunks that merely
+share the question's vocabulary, and only the top few reach the model. With the
+reranker on, Open WebUI retrieves candidates by BM25 and by vector similarity, sends
+the query and every candidate to `villa-rerank`, and keeps the chunks the
+cross-encoder scores highest (ADR-0028).
+
+`villa-rerank` is rendered when `memory_enabled = true` **and** `reranker = true`.
+`villa install` writes the second key once it has staged the reranker's weights
+(`bge-reranker-v2-m3-Q8_0.gguf`, 606 MB, pulled like the nomic shard), because
+Open WebUI answers a query with **no documents at all** when its reranker does not
+answer, so a config must never point it at a unit that is not there. A memory-on
+install that predates the key keeps the stack it had until `villa install` runs
+again. To opt out, set `reranker = false` by hand and run `villa up`; the next
+`villa install` turns it back on.
+
+The unit serves one query-plus-chunk pair per batch and refuses a pair over 1024
+tokens. The embedder bounds every chunk to 512 tokens at upload, so no admitted
+chunk can reach that bound. The reservation is 2 GiB, measured on the dev host at
+these flags; `villa recommend` lists it as the `reranker` row.
+
+`villa eval` carries two `rerank` cases chosen so that the embedder ranks the
+answer low and the reranker ranks it first; they are skipped with "reranker off"
+when the gate is off.
 
 ---
 

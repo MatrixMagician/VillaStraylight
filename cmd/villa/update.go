@@ -133,7 +133,7 @@ func newUpdate() *cobra.Command {
 			"target, so a rollback restores the data as well as the pin. Villa will not update a\n" +
 			"subsystem whose data it could not copy. Use --dry-run to see the disk this needs.\n\n" +
 			"Arguments are subsystem names (inference, chat, memory, search, agent), never container names:\n" +
-			"the proof unit is what `villa verify` proves, so memory moves as Qdrant plus the embedder.",
+			"the proof unit is what `villa verify` proves, so memory moves as Qdrant, the embedder and, when its gate is on, the reranker.",
 		Args: cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			os.Exit(runUpdate(cmd, args, liveUpdateDeps(), updateFlags{check: check, dryRun: dryRun, fromRegistries: fromRegistries}))
@@ -551,11 +551,11 @@ func printUnknownSubsystem(w io.Writer, arg string) {
 	// The container names a user is most likely to reach for, mapped to the
 	// subsystem that owns them and the proof that keeps them together.
 	partOf := map[string]struct{ subsystem, why string }{
-		"qdrant":          {"memory", "verify memory proves Qdrant and the embedder together"},
-		"embed":           {"memory", "verify memory proves Qdrant and the embedder together"},
-		"embedder":        {"memory", "verify memory proves Qdrant and the embedder together"},
-		"villa-qdrant":    {"memory", "verify memory proves Qdrant and the embedder together"},
-		"villa-embed":     {"memory", "verify memory proves Qdrant and the embedder together"},
+		"qdrant":          {"memory", "verify memory proves Qdrant, the embedder and the reranker together"},
+		"embed":           {"memory", "verify memory proves Qdrant, the embedder and the reranker together"},
+		"embedder":        {"memory", "verify memory proves Qdrant, the embedder and the reranker together"},
+		"villa-qdrant":    {"memory", "verify memory proves Qdrant, the embedder and the reranker together"},
+		"villa-embed":     {"memory", "verify memory proves Qdrant, the embedder and the reranker together"},
 		"searxng":         {"search", "verify search proves SearXNG and the web guard together"},
 		"websafe":         {"search", "verify search proves SearXNG and the web guard together"},
 		"villa-searxng":   {"search", "verify search proves SearXNG and the web guard together"},

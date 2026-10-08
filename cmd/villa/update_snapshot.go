@@ -27,6 +27,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 	"github.com/MatrixMagician/VillaStraylight/internal/pathsafe"
 	"github.com/MatrixMagician/VillaStraylight/internal/pinstate"
@@ -76,8 +77,8 @@ func snapshotStamp(now time.Time) string {
 // already stops Open WebUI for exactly this reason, describing the result as "a
 // clean SQLite copy". The measured cost is about two seconds for the 2.3 GB Qdrant
 // volume, against a restart that was happening anyway.
-func liveSubsystemStop(ctx context.Context, sys orchestrate.Systemd, k subsystem.Kind) error {
-	_, services := k.Units()
+func liveSubsystemStop(ctx context.Context, sys orchestrate.Systemd, cfg config.VillaConfig, k subsystem.Kind) error {
+	_, services := k.Units(cfg)
 	for _, svc := range services {
 		if ctx.Err() != nil {
 			return ctx.Err()
@@ -99,8 +100,8 @@ func liveSubsystemStop(ctx context.Context, sys orchestrate.Systemd, k subsystem
 // in this file honours cancellation; this one must not, because a Ctrl-C that
 // leaves chat stopped is villa's outage rather than the user's. The parameter is
 // kept so the signature matches the Deps seam it satisfies.
-func liveSubsystemStart(_ context.Context, sys orchestrate.Systemd, k subsystem.Kind) error {
-	_, services := k.Units()
+func liveSubsystemStart(_ context.Context, sys orchestrate.Systemd, cfg config.VillaConfig, k subsystem.Kind) error {
+	_, services := k.Units(cfg)
 	var errs []error
 	for _, svc := range services {
 		if err := sys.Start(svc); err != nil {
