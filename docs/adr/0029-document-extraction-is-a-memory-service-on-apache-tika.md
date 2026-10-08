@@ -62,6 +62,18 @@ authenticated route of ADR-0014; it was not needed, so no such route was built.
   manifest does not name it yet, and a manifest that omits a component leaves the
   compiled-in pin in force (the ADR-0022 precedent).
 
+- **A pin bound to a unit follows the unit registry's gate.** The extractor is the
+  first pin whose subsystem renders its unit only on some configs, and a static
+  per-subsystem pin list would have named it on every memory-on host: `update
+  --check` would report it, `update memory` would pull it, and a capture would
+  record an effective pin for a service the host does not run, the defect that
+  failed the reranker's first review in a new place. So a pin entry may name the
+  `.container` unit it renders into, and `pins.For(k, cfg)` and the resolver's walk
+  keep such a pin only when `subsystem.Units(cfg)` renders that unit. The gate is
+  read in one place, the unit registry; the pin table holds a unit name, bound
+  through orchestrate's accessor, and a test refuses a unit its subsystem never
+  declares.
+
 - **The footprint is 2 GiB, from a bound rather than a one-run peak.** The Tika
   image sets no heap limit, and a JVM's default is a quarter of host memory, 32 GB on
   the dev host. The unit sets `JAVA_TOOL_OPTIONS=-Xmx1g`, which reaches both the
