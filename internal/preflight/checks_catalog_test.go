@@ -41,6 +41,32 @@ func matchingModel() catalog.Model {
 	}
 }
 
+// TestCatalogGeometryPassSlidingWindow guards the promise that a sliding-window
+// architecture with a per-layer head_count_kv is witnessed at its global layers
+// only, so the catalog's 10 / 4 / 512 passes instead of degrading to a WARN.
+func TestCatalogGeometryPassSlidingWindow(t *testing.T) {
+	var heads []uint64
+	var sliding []bool
+	for range 10 {
+		heads = append(heads, 16, 16, 16, 16, 16, 4)
+		sliding = append(sliding, true, true, true, true, true, false)
+	}
+	hdr := gguf.FixtureWithArraysForTest("gemma4", map[string]uint64{
+		"gemma4.block_count":              60,
+		"gemma4.attention.head_count":     32,
+		"gemma4.attention.key_length":     512,
+		"gemma4.attention.key_length_swa": 256,
+		"gemma4.attention.sliding_window": 1024,
+	}, map[string][]uint64{"gemma4.attention.head_count_kv": heads},
+		map[string][]bool{"gemma4.attention.sliding_window_pattern": sliding})
+	m := catalog.Model{ID: "gemma-4-31b", NLayers: 10, NKVHeads: 4, HeadDim: 512, Shards: []catalog.Shard{{Filename: "gemma4.gguf"}}}
+	closed := 0
+	r := onlyResult(t, RunCatalogGeometry(catalog.Catalog{Models: []catalog.Model{m}}, openBytes(hdr, &closed)))
+	if r.Status != StatusPass {
+		t.Errorf("Status = %v, want PASS (detail: %s)", r.Status, r.Detail)
+	}
+}
+
 // openBytes builds an open seam serving b for every filename, counting closes.
 func openBytes(b []byte, closed *int) func(string) (io.ReadCloser, error) {
 	return func(string) (io.ReadCloser, error) {

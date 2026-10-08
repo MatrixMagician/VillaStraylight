@@ -13,10 +13,17 @@ import "encoding/binary"
 // plus one u64 entry per key. Keys are full metadata names, so a caller writes
 // "qwen35moe.block_count" rather than assembling the namespace itself.
 func FixtureForTest(arch string, keys map[string]uint64) []byte {
+	return FixtureWithArraysForTest(arch, keys, nil, nil)
+}
+
+// FixtureWithArraysForTest is FixtureForTest plus per-layer arrays: uintArrays are
+// encoded as u32 arrays and boolArrays as bool arrays, the shapes a sliding-window
+// architecture carries for head_count_kv and sliding_window_pattern.
+func FixtureWithArraysForTest(arch string, keys map[string]uint64, uintArrays map[string][]uint64, boolArrays map[string][]bool) []byte {
 	b := []byte{'G', 'G', 'U', 'F'}
 	b = binary.LittleEndian.AppendUint32(b, 3)
 	b = binary.LittleEndian.AppendUint64(b, 0)
-	b = binary.LittleEndian.AppendUint64(b, uint64(len(keys)+1))
+	b = binary.LittleEndian.AppendUint64(b, uint64(len(keys)+len(uintArrays)+len(boolArrays)+1))
 
 	b = appendFixtureString(b, archKey)
 	b = binary.LittleEndian.AppendUint32(b, typeString)
@@ -26,6 +33,28 @@ func FixtureForTest(arch string, keys map[string]uint64) []byte {
 		b = appendFixtureString(b, k)
 		b = binary.LittleEndian.AppendUint32(b, typeUint64)
 		b = binary.LittleEndian.AppendUint64(b, v)
+	}
+	for k, vals := range uintArrays {
+		b = appendFixtureString(b, k)
+		b = binary.LittleEndian.AppendUint32(b, typeArray)
+		b = binary.LittleEndian.AppendUint32(b, typeUint32)
+		b = binary.LittleEndian.AppendUint64(b, uint64(len(vals)))
+		for _, v := range vals {
+			b = binary.LittleEndian.AppendUint32(b, uint32(v))
+		}
+	}
+	for k, vals := range boolArrays {
+		b = appendFixtureString(b, k)
+		b = binary.LittleEndian.AppendUint32(b, typeArray)
+		b = binary.LittleEndian.AppendUint32(b, typeBool)
+		b = binary.LittleEndian.AppendUint64(b, uint64(len(vals)))
+		for _, v := range vals {
+			if v {
+				b = append(b, 1)
+			} else {
+				b = append(b, 0)
+			}
+		}
 	}
 	return b
 }
