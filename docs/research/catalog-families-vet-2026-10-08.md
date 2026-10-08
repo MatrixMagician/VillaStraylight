@@ -125,6 +125,17 @@ rendering, and Gemma runs where a 31B dense model should on this hardware.
 | `villa eval` under ngram | PASS, 16/20 against the baseline |
 | speculation off reference | 56.5 tok/s on the same prompt |
 
+### The committed head, confirmed
+
+With the static build of the PR's head (`villa version v1.17.1-14-g6b934b3`), each
+shipped entry was swapped in once more: `gemma-4-31b` swapped, status PASS, CAT-01
+PASS, answered "Earth" to the one-word planet question at 10.2 tok/s (thinking off
+for the probe); `glm-4.7-flash` swapped, status PASS, CAT-01 PASS, "Earth" at 53.3
+tok/s, doctor WARN with no FAIL. Doctor under Gemma reported the #318 FAIL as
+before. The restore left the operator's stack as it was found: no unit or config
+diff, websafe on the main binary, status PASS, doctor's one finding the stale
+`verify search` that predates this vet.
+
 ### muse-glimmer-30b: dropped
 
 `villa model swap muse-glimmer-30b` loaded the model and its projector
