@@ -300,6 +300,16 @@ func ToolsOn(cfg config.VillaConfig) bool { return cfg.ToolsMode || cfg.CodingMo
 // predates the flag renders the stack it always had.
 func RerankOn(cfg config.VillaConfig) bool { return MemoryOn(cfg) && cfg.Reranker }
 
+// ExtractOn reports whether the memory stack's document extractor is rendered
+// (ADR-0029).
+//
+// It is a DERIVED gate like RerankOn, not a Kind: the extractor is part of the
+// memory subsystem (same update restart set, same proof), so it needs memory on,
+// and its own flag besides, because the flag is what `villa install` flips when it
+// starts the extractor. A memory-on config that predates the flag renders the
+// stack it always had.
+func ExtractOn(cfg config.VillaConfig) bool { return MemoryOn(cfg) && cfg.Extractor }
+
 // Enabled returns every subsystem that is on, in All order. It is what a reporter
 // walks instead of writing four branches.
 func Enabled(cfg config.VillaConfig) []Kind {

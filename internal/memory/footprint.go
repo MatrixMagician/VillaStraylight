@@ -55,6 +55,20 @@ const rerankFootprintBytes uint64 = 2 << 30
 // RerankFootprintBytes returns the reranker's pinned resident reservation.
 func RerankFootprintBytes() uint64 { return rerankFootprintBytes }
 
+// extractFootprintBytes is the document extractor unit's resident reservation
+// (ADR-0029).
+//
+// Measured on the dev host (2026-10-08) with the pinned Apache Tika 3.3.1 image
+// under the unit's `JAVA_TOOL_OPTIONS=-Xmx1g`: cgroup peak 952 MiB after one
+// 20-page 200-dpi scan (37 s of OCR), 1245 MiB under three concurrent copies of
+// it, child JVM VmHWM 906 MiB. The heap cap plus the JVM's native memory plus up
+// to three tesseract processes bounds near 1.9 GB, so the reservation is that
+// bound rather than the one-run peak.
+const extractFootprintBytes uint64 = 2 << 30
+
+// ExtractFootprintBytes returns the extractor's pinned resident reservation.
+func ExtractFootprintBytes() uint64 { return extractFootprintBytes }
+
 // Footprint returns the resident-memory reservation for an embedding model as a
 // typed detect.Bytes. On a hit it returns KnownBytes with provenance; on a miss
 // (unknown id OR empty string) it returns a typed Unknown (Known=false) carrying

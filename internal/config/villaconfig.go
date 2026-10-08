@@ -67,6 +67,11 @@ const (
 	RerankAddr = "villa-rerank"
 	// RerankPort is the in-network villa-rerank port serving /v1/rerank.
 	RerankPort = 8080
+	// ExtractAddr is the container-DNS name of the villa-extract Apache Tika
+	// server, the memory stack's document extractor (ADR-0029).
+	ExtractAddr = "villa-extract"
+	// ExtractPort is the in-network villa-extract port serving /tika.
+	ExtractPort = 9998
 
 	// SearxngAddr is the container-DNS name of the SearXNG metasearch service.
 	SearxngAddr = "villa-searxng"
@@ -145,6 +150,13 @@ type VillaConfig struct {
 	// it had until the next install: Open WebUI pointed at an absent reranker
 	// would answer every RAG query with no documents at all.
 	Reranker bool `toml:"reranker,omitempty"`
+	// Extractor gates the memory stack's document extractor unit and Open WebUI's
+	// Tika content extraction (ADR-0029). It is read only through
+	// subsystem.ExtractOn, which also needs MemoryEnabled. Written true by `villa
+	// install`, so a memory-on config predating the key keeps the stack it had
+	// until the next install: Open WebUI pointed at an absent extractor would fail
+	// every document upload.
+	Extractor bool `toml:"extractor,omitempty"`
 
 	// --- Coding-mode fields ---
 	// These follow the v1.3 memory-stack precedent EXACTLY: append-only, all
@@ -503,6 +515,7 @@ func marshalVilla(c VillaConfig) ([]byte, error) {
 		c.EmbeddingModel = ""
 		c.EmbeddingDim = 0
 		c.Reranker = false
+		c.Extractor = false
 	}
 	// Coding-mode omit-when-off: when coding mode is disabled the
 	// resolved coder_* fields are zeroed on this by-value copy so the ,omitempty tags
