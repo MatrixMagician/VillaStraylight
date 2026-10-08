@@ -361,9 +361,10 @@ func TestLoadSeedCoderVerifiedDims(t *testing.T) {
 		"qwen3-coder-30b-a3b": {17665334432, 48, 4, 128, 65536, 64, true},
 		"qwen3-coder-next-q4": {49608478720, 12, 2, 256, 131072, 128, true},
 		"qwen3-coder-next-q3": {36282685440, 12, 2, 256, 131072, 96, true},
-		// deepseek2 MLA: one latent KV head of width 576 on all 47 blocks. No cache-reuse probe was run,
-		// so the claim stays false.
-		"glm-4.7-flash": {17520169312, 47, 1, 576, 131072, 64, false},
+		// deepseek2 MLA: one latent KV head of width 576 on all 47 blocks. The
+		// 2026-10-08 on-hardware cache-reuse probe returned true (turn 2 reused
+		// 13231 of 13231 tokens, correct answers, no degrade warning).
+		"glm-4.7-flash": {17520169312, 47, 1, 576, 131072, 64, true},
 	}
 	for id, w := range want {
 		m, ok := c.FindByID(id)

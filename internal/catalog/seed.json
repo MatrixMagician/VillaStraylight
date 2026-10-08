@@ -163,12 +163,6 @@
         "weight_bytes": 1363977175,
         "provenance": "gfx1151, kyuz0 rocm-10.0 image (llama.cpp b11430), 2026-10-08: clip_ctx reported CLIP using ROCm0 backend and a red-left/blue-right 128x64 PNG was described correctly through /v1/chat/completions; server worst-case estimate 1300.79 MiB"
       },
-      "swa": {
-        "n_layers": 50,
-        "n_kv_heads": 16,
-        "head_dim": 256,
-        "window": 1024
-      },
       "shards": [
         {
           "url": "https://huggingface.co/unsloth/gemma-4-31B-it-GGUF/resolve/c1ac76e99d5513b141e8adde7288b85c3f9c32ec/gemma-4-31B-it-UD-Q4_K_XL.gguf",
@@ -176,7 +170,13 @@
           "sha256": "9e92cb6236044c6a9870af406029c74a76e0571c157a6f95df724dcc8c7a1575",
           "size_bytes": 18822970304
         }
-      ]
+      ],
+      "swa": {
+        "n_layers": 50,
+        "n_kv_heads": 16,
+        "head_dim": 256,
+        "window": 1024
+      }
     },
     {
       "id": "qwen3-coder-30b-a3b",
@@ -315,7 +315,8 @@
           "sha256": "b0d4fbc1211f891b4cfbf2a497160bfe06a49412420068904d426b7a13f4ba7f",
           "size_bytes": 17520169312
         }
-      ]
+      ],
+      "cache_reuse_safe": true
     }
   ]
 }
