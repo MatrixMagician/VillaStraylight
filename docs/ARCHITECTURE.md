@@ -141,6 +141,10 @@ graph TD
     taskrun -.podman run --runtime=krun.-> sandbox["villa-task-&lt;id&gt; microVM<br/>villa sandbox-bridge → crush server"]
     sandbox -.villa-sandbox network.-> inferproxy["villa-inferproxy<br/>forwards 2 routes only, injects the real<br/>LLAMA_API_KEY bearer (GHSA-gvp9, ADR-0011)"]
     inferproxy -.villa.network.-> llama
+    stackapply["internal/stackapply<br/>the one stack apply (ADR-0013)"] --> catalog
+    stackapply -.catalog.Image → ImageServe.-> orchestrate
+    orchestrate -.image.container.tmpl, ImageServerArgs + VulkanGPUAccess from the seam.-> image["villa-image<br/>sd-server (stable-diffusion.cpp, Vulkan RADV)<br/>eager-loaded, proven by inference.ImageOffloadVerdict (ADR-0029)"]
+    owui -.automatic1111 engine, villa.network.-> image
 
     pinresolve --> pins["internal/pins<br/>VETTED pins, compiled in"]
     pinresolve --> pinstate["internal/pinstate<br/>EFFECTIVE pins + retained previous"]

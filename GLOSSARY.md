@@ -103,6 +103,28 @@ never be presented as vision-capable. A model swap decides it again for the
 model it swaps to (ADR-0023).
 _Avoid_: mmproj, multimodal adapter, image encoder, CLIP model
 
+**Image model**:
+The diffusion model, text encoder and VAE that `villa-image` (sd-server) serves
+for Open WebUI's image generation, picked by `image_model` from the image table.
+Its measured footprint is a reservation row held from start, because the unit
+eager-loads; it is never a chat catalog entry and never a resident-set member.
+_Avoid_: SD model, checkpoint, image checkpoint, diffusion entry
+
+**Image table**:
+The compiled-in list of image models (`internal/catalog/images.json`), read only
+through `catalog.Image(id)`. It is separate from the chat catalog so no chat
+walker can see an image entry, and `catalog_path` never replaces it: changing a
+row is a code change carrying a fresh on-hardware measurement.
+_Avoid_: image catalog, seed entry (for an image), catalog override
+
+**Placement line**:
+sd-server's one `total params memory size = … (VRAM …, RAM …)` journal line,
+printed once at load. With explicit device placement and eager load it is a
+start-time fact about where every param byte sits; any byte in `RAM` is a
+partial CPU fallback and a FAIL. It is the image proof's journal signal, the
+counterpart of llama.cpp's `load_tensors` buffer line.
+_Avoid_: load line, memory summary, VRAM line
+
 **Offload**:
 Running the model's layers on the iGPU rather than the CPU.
 _Avoid_: acceleration, GPU mode, hardware inference
