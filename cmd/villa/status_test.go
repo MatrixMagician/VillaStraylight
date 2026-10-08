@@ -305,6 +305,7 @@ func memoryStatusCfg() config.VillaConfig {
 	cfg.Quant = "Q4"
 	cfg.Ctx = 131072
 	cfg.MemoryEnabled = true
+	cfg.Reranker = true
 	return cfg
 }
 
@@ -337,6 +338,8 @@ func newMemoryStatusDeps(t *testing.T) *status.Deps {
 		status.Service{Unit: unitServiceName(orchestrate.QdrantContainerUnitName()), Kind: status.Managed,
 			Probe: func(config.VillaConfig) status.HealthState { return status.HealthReady }},
 		status.Service{Unit: unitServiceName(orchestrate.EmbedContainerUnitName()), Kind: status.Managed,
+			Probe: func(config.VillaConfig) status.HealthState { return status.HealthReady }},
+		status.Service{Unit: unitServiceName(orchestrate.RerankContainerUnitName()), Kind: status.Managed,
 			Probe: func(config.VillaConfig) status.HealthState { return status.HealthReady }},
 	)
 	d.ReadRecallState = func() *recall.State {

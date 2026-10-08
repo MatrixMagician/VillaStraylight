@@ -123,6 +123,30 @@ func TestProberArgs(t *testing.T) {
 	}
 }
 
+// TestCache proves the single-value TTL discipline the reranker row uses: one
+// refresh per window, every read inside it a hit, and Reset forces a cold refresh.
+func TestCache(t *testing.T) {
+	refreshes := 0
+	c := &Cache{TTL: 15_000_000_000} // 15s
+	refresh := func() status.HealthState {
+		refreshes++
+		return status.HealthLoading
+	}
+
+	if got := c.Get(refresh); got != status.HealthLoading {
+		t.Fatalf("first Get = %q, want loading", got)
+	}
+	_ = c.Get(refresh)
+	if refreshes != 1 {
+		t.Errorf("calls within the TTL window must be cache hits: refreshes = %d, want 1", refreshes)
+	}
+	c.Reset()
+	_ = c.Get(refresh)
+	if refreshes != 2 {
+		t.Errorf("Reset must force a cold refresh: refreshes = %d, want 2", refreshes)
+	}
+}
+
 // TestPairCache proves the TTL pair discipline: one refresh probes BOTH
 // services together, every further read within the window is a cache hit, and
 // Reset forces a cold refresh.

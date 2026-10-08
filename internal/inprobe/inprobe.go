@@ -144,6 +144,36 @@ func (p Prober) Liveness(url string) status.HealthState {
 	return MapLiveness(p.run(url))
 }
 
+// Cache is the TTL-bounded single-value refresh: PairCache for a service that
+// has no sibling to pair with (the reranker row). Mutex-guarded, keyed only on
+// time.
+type Cache struct {
+	TTL time.Duration
+
+	mu    sync.Mutex
+	at    time.Time
+	value status.HealthState
+}
+
+// Get returns the cached value, invoking refresh when the TTL window has lapsed.
+func (c *Cache) Get(refresh func() status.HealthState) status.HealthState {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !c.at.IsZero() && time.Since(c.at) < c.TTL {
+		return c.value
+	}
+	c.value = refresh()
+	c.at = time.Now()
+	return c.value
+}
+
+// Reset clears the cache so the next Get call refreshes.
+func (c *Cache) Reset() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.at = time.Time{}
+}
+
 // PairCache is the TTL-bounded pair refresh: one refresh probes BOTH services
 // of a pair together, and every further read within the TTL window is served
 // from the cache, so a dashboard poll spawns at most one probe pair per

@@ -7,5 +7,6 @@ health:villa-llama.service   WARN   PASS  /health is ready (200)
 offload:villa-llama.service  BLOCK  PASS  residency proven on Vulkan; GTT floor corroborated
 health:villa-qdrant.service  WARN   PASS  /health is ready (200)
 health:villa-embed.service   WARN   PASS  /health is ready (200)
+health:villa-rerank.service  WARN   PASS  /health is ready (200)
 MEM-DOC-residency            BLOCK  PASS  chat-model device buffer 21504.49 MiB resident on the iGPU; GTT-used floor corroborated mid-drive
 drift                        WARN   PASS  on-disk units match the rendered-from-config units
