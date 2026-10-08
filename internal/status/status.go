@@ -263,7 +263,10 @@ type Report struct {
 // Version 11 adds the villa-rerank.service row to Services when the reranker is
 // rendered (ADR-0028); no field changed shape, and a reranker-off report differs
 // from v10 only in schema_version.
-const reportSchemaVersion = 11
+// Version 12 adds the villa-extract.service row when the extractor is rendered
+// (ADR-0029); no field changed shape, and an extractor-off report differs from
+// v11 only in schema_version.
+const reportSchemaVersion = 12
 
 // SchemaVersion exposes the Report contract's own version to downstream readers
 // (the dashboard serves this same document), so a consumer binds one symbol rather

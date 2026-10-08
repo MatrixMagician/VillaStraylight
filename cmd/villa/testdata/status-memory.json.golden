@@ -113,6 +113,28 @@
       "offload_ok": false
     },
     {
+      "service": "villa-extract.service",
+      "active": "active",
+      "health": "ready",
+      "offload": {
+        "status": 1,
+        "detail": "N/A — this service has no GPU offload",
+        "remediation": "",
+        "provenance": "not an inference service (no llama-server residency to assert)",
+        "log_offload": {
+          "value": false,
+          "known": false
+        },
+        "sysfs_offload": {
+          "value": false,
+          "known": false
+        },
+        "gtt_delta_bytes": 0
+      },
+      "offload_applies": false,
+      "offload_ok": false
+    },
+    {
       "service": "villa-dashboard.service",
       "active": "active",
       "health": "ready",
@@ -168,5 +190,5 @@
   "speculation": "off",
   "vision": false,
   "tools": false,
-  "schema_version": 11
+  "schema_version": 12
 }
