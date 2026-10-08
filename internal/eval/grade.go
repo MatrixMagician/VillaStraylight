@@ -31,22 +31,33 @@ const (
 	// KindNoTool accepts a reply that calls no tool and whose content Pattern
 	// matches: the model answered rather than reaching for a tool that does not fit.
 	KindNoTool Kind = "no_tool"
+	// KindRerank accepts a reranker scoring in which the document at Top scores
+	// highest alone (ADR-0028). It is judged on scores, never on a reply.
+	KindRerank Kind = "rerank"
 )
 
 // Grader is a case's expectation. Which fields matter is the kind's: Want for exact
-// and tool, Pattern for regex and no_tool, Keys for json and tool.
+// and tool, Pattern for regex and no_tool, Keys for json and tool, Top for rerank.
 type Grader struct {
 	Kind    Kind           `json:"kind"`
 	Want    string         `json:"want,omitempty"`
 	Pattern string         `json:"pattern,omitempty"`
 	Keys    map[string]any `json:"keys,omitempty"`
+	// Top is the index of the document a rerank case wants scored highest.
+	Top int `json:"top,omitempty"`
 }
 
-// grader is one row of the table: the judgement and what a case must carry for it.
+// grader is one row of the table: the judgement, the channel a case of this kind
+// is conducted through, and what it must carry.
 type grader struct {
+	// grade judges a reply; nil for a kind conducted through the reranker.
 	grade func(r llm.Reply, g Grader) bool
+	// rerank marks a kind conducted through Deps.Rerank with the case's documents
+	// rather than through a completion.
+	rerank bool
 	// want, pattern, keys and tools say which of Want, a compilable Pattern, Keys
-	// and the case's Tools a case of this kind must carry.
+	// and the case's Tools a case of this kind must carry; a completion kind also
+	// needs its token bound.
 	want, pattern, keys, tools bool
 }
 
@@ -57,13 +68,42 @@ var graders = map[Kind]grader{
 	KindJSON:   {grade: gradeJSON, keys: true},
 	KindTool:   {grade: gradeTool, want: true, keys: true, tools: true},
 	KindNoTool: {grade: gradeNoTool, pattern: true, tools: true},
+	KindRerank: {rerank: true},
 }
 
-// Grade judges a reply against a case's grader. A kind the table does not hold
-// never passes; the loader refuses such a case before it can run.
+// Grade judges a reply against a case's grader. A kind the table does not hold, or
+// one judged on scores rather than a reply, never passes here; the loader refuses an
+// unknown kind before it can run.
 func Grade(c Case, r llm.Reply) bool {
 	row, ok := graders[c.Grader.Kind]
-	return ok && row.grade(r, c.Grader)
+	return ok && row.grade != nil && row.grade(r, c.Grader)
+}
+
+// GradeRerank judges a rerank case's scores: the document at Top must hold the
+// single highest score. A tie is a failure, because the reranker did not single
+// the document out, and a scoring that does not cover every document never passes.
+func GradeRerank(c Case, scores []float64) bool {
+	if len(scores) != len(c.Documents) || c.Grader.Top < 0 || c.Grader.Top >= len(scores) {
+		return false
+	}
+	top := scores[c.Grader.Top]
+	for i, s := range scores {
+		if i != c.Grader.Top && s >= top {
+			return false
+		}
+	}
+	return true
+}
+
+// argmax is the index of the highest score, the first on a tie, and 0 for none.
+func argmax(scores []float64) int {
+	best := 0
+	for i, s := range scores {
+		if s > scores[best] {
+			best = i
+		}
+	}
+	return best
 }
 
 func gradeExact(r llm.Reply, g Grader) bool {

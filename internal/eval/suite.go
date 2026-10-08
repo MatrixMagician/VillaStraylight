@@ -22,8 +22,8 @@ var suiteJSON []byte
 // suiteSHA256 is the sha256 of cases.json at this version. TestSuiteVersionPinsTheCases
 // fails when the file changes, so the two move together.
 const (
-	SuiteVersion = 1
-	suiteSHA256  = "4780ddc5b0e966c9d425dcba10ff3c63cc671c76b887a4b0fdf1720fd8bfc2f6"
+	SuiteVersion = 2
+	suiteSHA256  = "75d4d5eb92f5f558cbe0d698a8c61f1ce8d5483a5fa4d3d28964d254cb3d46c8"
 )
 
 // Suite returns the embedded capability cases in suite order.
@@ -79,11 +79,14 @@ func missing(c Case, row grader) string {
 	}{
 		{true, c.ID != "", "an id"},
 		{true, c.Prompt != "", "a prompt"},
-		{true, c.MaxTokens > 0, "a positive max_tokens"},
+		{!row.rerank, c.MaxTokens > 0, "a positive max_tokens"},
 		{row.want, c.Grader.Want != "", "grader.want"},
 		{row.pattern, compiles(c.Grader.Pattern), "a compilable grader.pattern"},
 		{row.keys, len(c.Grader.Keys) > 0, "grader.keys"},
 		{row.tools, len(c.Tools) > 0, "tools"},
+		{row.rerank, len(c.Documents) >= 2, "at least two documents"},
+		{row.rerank, c.Grader.Top >= 0 && c.Grader.Top < len(c.Documents), "grader.top within the documents"},
+		{row.rerank, len(c.Tools) == 0, "no tools"},
 	} {
 		if r.required && !r.met {
 			return r.what

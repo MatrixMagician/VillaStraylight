@@ -17,14 +17,27 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/llm"
 )
 
-// evalTestSuite is a fixed four-case suite, so the verb's contract is frozen
-// independently of the embedded cases.json.
+// evalTestSuite is a fixed five-case suite, so the verb's contract is frozen
+// independently of the embedded cases.json. The last case is a rerank case, which
+// the test config (memory off) skips.
 var evalTestSuite = []eval.Case{
 	{ID: "arith-a", Prompt: "pa", MaxTokens: 8, Grader: eval.Grader{Kind: eval.KindExact, Want: "4"}},
 	{ID: "code-b", Prompt: "pb", MaxTokens: 8, Grader: eval.Grader{Kind: eval.KindExact, Want: "30"}},
 	{ID: "json-c", Prompt: "pc", MaxTokens: 8, Grader: eval.Grader{Kind: eval.KindExact, Want: "x"}},
 	{ID: "tool-d", Prompt: "pd", MaxTokens: 8, Tools: []llm.Tool{{Type: "function", Function: llm.ToolFunction{Name: "f"}}},
 		Grader: eval.Grader{Kind: eval.KindTool, Want: "f", Keys: map[string]any{"x": 1.0}}},
+	{ID: "retrieval-e", Prompt: "pe", Documents: []string{"d0", "d1"}, Grader: eval.Grader{Kind: eval.KindRerank, Top: 1}},
+}
+
+// evalCompletionCases counts the suite's cases that are sent as completions.
+func evalCompletionCases() int {
+	n := 0
+	for _, c := range evalTestSuite {
+		if c.Grader.Kind != eval.KindRerank {
+			n++
+		}
+	}
+	return n
 }
 
 // evalTestConfig is a tools-off chat stack.
@@ -77,7 +90,8 @@ func fakeEvalDeps(cfg config.VillaConfig, store *evalStoreMem, replies map[strin
 				return llm.Reply{}, errors.New("connection refused")
 			}
 		},
-		store: store.deps(),
+		rerank: func(context.Context, string, []string) ([]float64, error) { return []float64{-2, 0.5}, nil },
+		store:  store.deps(),
 	}
 }
 
@@ -221,8 +235,8 @@ func TestEvalSendsGreedyRequestsToTheServedModel(t *testing.T) {
 	var sent []llm.ChatRequest
 	runEvalCmd(false, false, fakeEvalDeps(cfg, &evalStoreMem{}, map[string]string{}, &sent))
 
-	if len(sent) != len(evalTestSuite) {
-		t.Fatalf("sent %d requests, want %d (coding mode turns tools on, so nothing is skipped)", len(sent), len(evalTestSuite))
+	if len(sent) != evalCompletionCases() {
+		t.Fatalf("sent %d requests, want %d (coding mode turns tools on, so no completion case is skipped)", len(sent), evalCompletionCases())
 	}
 	for _, req := range sent {
 		if req.Model != "coder-test" || req.Temperature == nil || *req.Temperature != 0 || req.MaxTokens != 8 {

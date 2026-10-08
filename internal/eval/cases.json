@@ -139,5 +139,28 @@
     ],
     "grader": {"kind": "no_tool", "pattern": "^[^0-9]*144[^0-9]*$"},
     "max_tokens": 32
+  },
+  {
+    "id": "retrieval-bridge-opening",
+    "prompt": "When did the bridge open to traffic?",
+    "documents": [
+      "Construction of the bridge began in January 1933, after years of debate over the cost and the span.",
+      "The bridge's toll was set at fifty cents per car in its first year, and the tolls paid off the construction bonds by 1971.",
+      "The first cars crossed on 28 May 1937, the day after a pedestrian-only celebration on the deck.",
+      "Engineers chose a suspension design because the strait is deep and the tides are strong, which made piers impractical.",
+      "The bridge is open to pedestrians from dawn to dusk, and to cyclists at all hours on the western walkway."
+    ],
+    "grader": {"kind": "rerank", "top": 2}
+  },
+  {
+    "id": "retrieval-annual-plan",
+    "prompt": "How much does the annual plan cost?",
+    "documents": [
+      "The monthly plan costs 12 euros and can be cancelled at any time from the billing page.",
+      "Plans renew automatically unless cancelled, and the price of a plan is locked for as long as the subscription stays active.",
+      "Paying for a full year up front comes to 99 euros, which the billing page shows as the yearly option.",
+      "Students get thirty percent off any plan with a valid university address."
+    ],
+    "grader": {"kind": "rerank", "top": 2}
   }
 ]
