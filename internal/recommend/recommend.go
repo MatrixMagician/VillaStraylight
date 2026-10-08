@@ -22,6 +22,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 	"github.com/MatrixMagician/VillaStraylight/internal/memory"
 	"github.com/MatrixMagician/VillaStraylight/internal/subsystem"
+	"github.com/MatrixMagician/VillaStraylight/internal/voice"
 )
 
 // defaultBackend is the inference backend recommended for gfx1151. ROCm
@@ -323,13 +324,17 @@ const (
 	reservationEmbedding = "embedding"
 	reservationReranker  = "reranker"
 	reservationWebSearch = "web_search"
+	// Voice reserves two rows, not one, because two processes hold the memory and
+	// the fit table should say which.
+	reservationSTT = "stt"
+	reservationTTS = "tts"
 )
 
 // ReservationsFor is the reservation registry: one row for each service whose
 // gate is on in cfg, in a fixed order (embedding, then the reranker beside it,
-// then web search). A new service is one row here. It is pure: it reads an
-// already-loaded config and no host, so a config that failed to load (the zero
-// value) reserves nothing.
+// then web search, then stt and tts). A new service is one row here. It is pure:
+// it reads an already-loaded config and no host, so a config that failed to load
+// (the zero value) reserves nothing.
 func ReservationsFor(cfg config.VillaConfig) []Reservation {
 	var res []Reservation
 	if subsystem.MemoryOn(cfg) {
@@ -342,6 +347,12 @@ func ReservationsFor(cfg config.VillaConfig) []Reservation {
 	if subsystem.WebSearchOn(cfg) {
 		bytes, notes := webSearchReservation(webSearchInputs{ResultCount: cfg.WebSearchResultCount})
 		res = append(res, Reservation{Name: reservationWebSearch, Bytes: bytes, Notes: notes})
+	}
+	if subsystem.VoiceOn(cfg) {
+		res = append(res,
+			Reservation{Name: reservationSTT, Bytes: voice.STTFootprintBytes()},
+			Reservation{Name: reservationTTS, Bytes: voice.TTSFootprintBytes()},
+		)
 	}
 	return res
 }
