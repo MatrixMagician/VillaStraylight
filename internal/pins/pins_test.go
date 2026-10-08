@@ -169,7 +169,7 @@ func TestForGroupsByProofUnit(t *testing.T) {
 		subsystem.Voice:     {Whisper, Kokoro},
 	}
 	for k, want := range cases {
-		got := For(k)
+		got := For(k, fullStackConfig())
 		if len(got) != len(want) {
 			t.Errorf("%v has %d components, want %d", k, len(got), len(want))
 			continue
@@ -180,7 +180,7 @@ func TestForGroupsByProofUnit(t *testing.T) {
 			}
 		}
 	}
-	if len(For(subsystem.CodingMode)) != 0 {
+	if len(For(subsystem.CodingMode, fullStackConfig())) != 0 {
 		t.Error("coding mode has pinned components; it is a configuration of the stack, not a component of it")
 	}
 }

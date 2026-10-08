@@ -267,7 +267,7 @@ func diverged(in Input) []Component {
 		if !subsystem.On(in.Cfg, k) {
 			continue
 		}
-		for _, e := range pins.For(k) {
+		for _, e := range pins.For(k, in.Cfg) {
 			if k == subsystem.Inference && !isActiveBackend(in.Cfg, e.Component) {
 				continue
 			}
@@ -289,7 +289,7 @@ func diverged(in Input) []Component {
 // subsystemRow builds one subsystem's row, or an empty one for a subsystem with no
 // pinned components at all.
 func subsystemRow(in Input, k subsystem.Kind, available map[string]manifest.Component) (Subsystem, SubsystemState) {
-	entries := pins.For(k)
+	entries := pins.For(k, in.Cfg)
 	if len(entries) == 0 {
 		// Coding mode is a configuration of the stack, not a component of it.
 		return Subsystem{}, ""
