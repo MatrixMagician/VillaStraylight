@@ -74,13 +74,25 @@ func agentBudgetFor(rate float64, err error, busy int) agentBudget {
 
 // liveAgentBudget measures the served model's decode rate through the inference
 // client and sizes the budget from it. The probe keeps thinking on, so it measures
-// the model the agent talks to; the slots are read first so a rate taken under
+// the model the agent talks to; the busy count is read first so a rate taken under
 // another client's load is reported as such.
 func liveAgentBudget(ctx context.Context, cfg config.VillaConfig) agentBudget {
 	client := inferenceClient(cfg)
-	slots, _ := client.Slots(ctx)
+	busy, _ := processingSlots(client.Perf(ctx))
 	rate, err := client.DecodeRate(ctx, cfg.Model)
-	return agentBudgetFor(rate, err, metrics.ActiveSlots(slots))
+	return agentBudgetFor(rate, err, busy)
+}
+
+// processingSlots is the number of slots generating, read from the /metrics
+// requests_processing gauge, the one IsGenerating already trusts. /slots is not
+// used: llama.cpp b11430 emits each slot's next_token as an array, which
+// metrics.ParseSlots does not read, so Client.Slots is typed-Unknown on the
+// served build (measured on the dev host 2026-10-08; tracked separately).
+func processingSlots(snap metrics.PerfSnapshot, ok bool) (int, bool) {
+	if !ok {
+		return 0, false
+	}
+	return int(snap.RequestsProcessing), true
 }
 
 // slotDrain is what llama-server's slots did after a killed round: how long until
@@ -95,7 +107,7 @@ func (d slotDrain) String() string {
 	elapsed := d.Elapsed.Round(time.Second)
 	switch {
 	case !d.Readable:
-		return "/slots could not be read after the kill"
+		return "the slot count could not be read after the kill"
 	case d.Busy == 0:
 		return fmt.Sprintf("the server's slots went idle %s after the kill", elapsed)
 	case d.Busy == 1:
@@ -105,17 +117,17 @@ func (d slotDrain) String() string {
 	}
 }
 
-// awaitSlotsIdle re-reads the slots until none is processing, the bound passes or
+// awaitSlotsIdle re-reads the busy count until it is zero, the bound passes or
 // ctx ends. It cancels nothing: llama-server cancels a round itself once the
 // killed client's socket closes and the slot reaches its next batch boundary
 // (1.9 s and 9.1 s after the kill on the dev host, ADR-0030). What it adds is the
 // witness, so the next proof and the operator's next completion do not run
 // against a slot still draining, and the verdict says so when one does.
-func awaitSlotsIdle(ctx context.Context, read func() ([]metrics.Slot, bool), poll, bound time.Duration) slotDrain {
+func awaitSlotsIdle(ctx context.Context, read func() (int, bool), poll, bound time.Duration) slotDrain {
 	start := time.Now()
 	for {
-		slots, ok := read()
-		d := slotDrain{Elapsed: time.Since(start), Busy: metrics.ActiveSlots(slots), Readable: ok}
+		busy, ok := read()
+		d := slotDrain{Elapsed: time.Since(start), Busy: busy, Readable: ok}
 		if !ok || d.Busy == 0 || d.Elapsed >= bound || ctx.Err() != nil {
 			return d
 		}
@@ -129,10 +141,10 @@ func awaitSlotsIdle(ctx context.Context, read func() ([]metrics.Slot, bool), pol
 }
 
 // liveSlotDrain waits, bounded by the floor, for the served unit's slots to drain
-// after a killed round, reading /slots through the inference client.
+// after a killed round, counting them through the inference client's /metrics read.
 func liveSlotDrain(ctx context.Context, cfg config.VillaConfig) slotDrain {
 	client := inferenceClient(cfg)
-	return awaitSlotsIdle(ctx, func() ([]metrics.Slot, bool) { return client.Slots(ctx) }, slotDrainPoll, agentProofBudgetFloor)
+	return awaitSlotsIdle(ctx, func() (int, bool) { return processingSlots(client.Perf(ctx)) }, slotDrainPoll, agentProofBudgetFloor)
 }
 
 // agentToolCallVerdict maps one round trip's outcome to the doctor verdict. Every

@@ -86,27 +86,27 @@ func TestAgentToolCallVerdictNamesTheBudget(t *testing.T) {
 	}
 
 	v = agentToolCallVerdict(false, killed, b, &slotDrain{Elapsed: 0})
-	if !strings.Contains(v.Detail, "/slots could not be read after the kill") {
+	if !strings.Contains(v.Detail, "the slot count could not be read after the kill") {
 		t.Errorf("unreadable slots: Detail = %q, want the unreadable read named", v.Detail)
 	}
 }
 
 // TestAwaitSlotsIdle: after a killed round the proof waits, bounded, for the server
-// to release the round's slots, reading /slots the way the dashboard does. It
-// returns when no slot is processing, or at the bound with the busy count, and
-// reports an unreadable /slots as such rather than as idle.
+// to release the round's slots, counting them through the /metrics
+// requests_processing gauge (Client.Slots is typed-Unknown on llama.cpp b11430,
+// whose next_token is an array the slots parser does not read, so the witness
+// could not use it). It returns when no slot is processing, or
+// at the bound with the busy count, and reports an unreadable gauge as such rather
+// than as idle.
 func TestAwaitSlotsIdle(t *testing.T) {
-	busy := []metrics.Slot{{ID: 0, IsProcessing: true}, {ID: 1}}
-	idle := []metrics.Slot{{ID: 0}, {ID: 1}}
-
 	t.Run("returns once the slots drain", func(t *testing.T) {
-		reads := [][]metrics.Slot{busy, busy, idle}
-		read := func() ([]metrics.Slot, bool) {
-			s := reads[0]
+		reads := []int{2, 1, 0}
+		read := func() (int, bool) {
+			n := reads[0]
 			if len(reads) > 1 {
 				reads = reads[1:]
 			}
-			return s, true
+			return n, true
 		}
 		d := awaitSlotsIdle(t.Context(), read, time.Millisecond, time.Second)
 		if !d.Readable || d.Busy != 0 {
@@ -118,7 +118,7 @@ func TestAwaitSlotsIdle(t *testing.T) {
 	})
 
 	t.Run("stops at the bound with the busy count", func(t *testing.T) {
-		read := func() ([]metrics.Slot, bool) { return busy, true }
+		read := func() (int, bool) { return 1, true }
 		d := awaitSlotsIdle(t.Context(), read, time.Millisecond, 20*time.Millisecond)
 		if !d.Readable || d.Busy != 1 {
 			t.Errorf("drain = %+v, want readable with 1 busy", d)
@@ -128,8 +128,8 @@ func TestAwaitSlotsIdle(t *testing.T) {
 		}
 	})
 
-	t.Run("an unreadable /slots is not idle", func(t *testing.T) {
-		read := func() ([]metrics.Slot, bool) { return nil, false }
+	t.Run("an unreadable gauge is not idle", func(t *testing.T) {
+		read := func() (int, bool) { return 0, false }
 		d := awaitSlotsIdle(t.Context(), read, time.Millisecond, 20*time.Millisecond)
 		if d.Readable {
 			t.Errorf("drain = %+v, want Readable=false", d)
@@ -139,10 +139,21 @@ func TestAwaitSlotsIdle(t *testing.T) {
 	t.Run("a cancelled context stops the wait", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
 		cancel()
-		read := func() ([]metrics.Slot, bool) { return busy, true }
+		read := func() (int, bool) { return 1, true }
 		d := awaitSlotsIdle(ctx, read, time.Millisecond, time.Minute)
 		if d.Elapsed > time.Second {
 			t.Errorf("Elapsed = %v, want a prompt return on a cancelled context", d.Elapsed)
 		}
 	})
+}
+
+// TestProcessingSlots: the busy count the budget and the drain read is the
+// /metrics requests_processing gauge; an unavailable scrape is not zero busy.
+func TestProcessingSlots(t *testing.T) {
+	if n, ok := processingSlots(metrics.PerfSnapshot{RequestsProcessing: 2}, true); n != 2 || !ok {
+		t.Errorf("processingSlots(2, ok) = %d, %v; want 2, true", n, ok)
+	}
+	if n, ok := processingSlots(metrics.PerfSnapshot{}, false); ok || n != 0 {
+		t.Errorf("processingSlots(unavailable) = %d, %v; want 0, false", n, ok)
+	}
 }
