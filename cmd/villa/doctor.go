@@ -254,8 +254,8 @@ func liveCatalogGeometry(cfg config.VillaConfig) func() []preflight.CheckResult 
 // agentProofBudget (60-90s) each, and the agent tool-call probe adds another 90s,
 // so a Ctrl-C landed on a command that kept running for minutes. Cancelling is
 // safe by construction — doctor is read-only and mutates nothing, so an aborted
-// run leaves no half-applied state, and the podman probe containers are
-// exec.CommandContext children that die with the context rather than outliving it.
+// run leaves no half-applied state, and the podman probe containers are named, so
+// probeCurl force-removes one when its context is cancelled (#329).
 func liveDoctorDeps(ctx context.Context, cfg config.VillaConfig) (doctor.Deps, error) {
 	sd, err := liveStatusDeps()
 	if err != nil {

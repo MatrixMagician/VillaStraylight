@@ -3,12 +3,17 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
+	"time"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/catalog"
 	"github.com/MatrixMagician/VillaStraylight/internal/config"
@@ -415,6 +420,25 @@ func runProbeCurlIn(ctx context.Context, helperImage string, req inference.CurlR
 	return out, err
 }
 
+// probeContainerName is a fresh name per drive, so a cancelled drive stops its own
+// container and never one belonging to a drive running beside it.
+func probeContainerName() string {
+	var b [6]byte
+	_, _ = rand.Read(b[:])
+	return "villa-probe-" + hex.EncodeToString(b[:])
+}
+
+// removeProbeContainer force-removes a probe container after its context was
+// cancelled. Killing the `podman run` client does not stop the container, and its
+// curl would keep llama-server decoding a round nothing waits for (#329). The removal
+// runs on a fresh bounded context, since the caller's is already done; a failure is
+// ignored because the container may have exited and --rm taken it.
+func removeProbeContainer(name string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	_ = exec.CommandContext(ctx, "podman", "rm", "-f", name).Run() // fixed args; no shell
+}
+
 // probeCurl is the in-network probe itself. A nil stdin runs the helper exactly as
 // it always ran; a non-nil one adds `-i` and pipes it to curl.
 //
@@ -428,7 +452,8 @@ func runProbeCurlIn(ctx context.Context, helperImage string, req inference.CurlR
 // be read as infrastructure — "the probe could not run", never "the host was
 // blocked".
 func probeCurl(ctx context.Context, helperImage string, stdin []byte, curlArgs []string) (stdout []byte, exitCode int, err error) {
-	args := []string{"run", "--rm"}
+	name := probeContainerName()
+	args := []string{"run", "--rm", "--name", name}
 	if stdin != nil {
 		args = append(args, "-i")
 	}
@@ -437,6 +462,9 @@ func probeCurl(ctx context.Context, helperImage string, stdin []byte, curlArgs [
 		"--entrypoint", "curl",
 		helperImage,
 	)
+	if dl, ok := ctx.Deadline(); ok {
+		args = append(args, "--max-time", strconv.Itoa(max(1, int(math.Ceil(time.Until(dl).Seconds())))))
+	}
 	args = append(args, curlArgs...)
 	cmd := exec.CommandContext(ctx, "podman", args...) // fixed args; no shell
 	if stdin != nil {
@@ -448,6 +476,9 @@ func probeCurl(ctx context.Context, helperImage string, stdin []byte, curlArgs [
 	runErr := cmd.Run()
 	if runErr == nil {
 		return out.Bytes(), 0, nil
+	}
+	if ctx.Err() != nil {
+		removeProbeContainer(name)
 	}
 	code := inprobe.ExitCode(runErr)
 	if stderr.Len() > 0 {
