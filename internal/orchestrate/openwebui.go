@@ -33,8 +33,7 @@ package orchestrate
 //
 // The MANDATORY load-bearing key is ENABLE_PERSISTENT_CONFIG=False: it is
 // emitted exactly ONCE, LAST, gated on memoryEnabled || webSearchEnabled ||
-// voiceEnabled. ALL of
-// the appended memory keys AND the appended web-search keys are DB-backed
+// voiceEnabled. ALL of the appended memory, web-search and audio keys are DB-backed
 // PersistentConfig ConfigVars — without this trailing gate they seed the OWUI DB
 // once and the env is silently ignored after first boot, so "config is the single
 // source of truth" (INFRA-03) would NOT hold; its absence (or duplication, or being
