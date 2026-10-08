@@ -115,7 +115,7 @@ func scrapeImagePlacement(journal string, m ResidencyMarkers) (OffloadResult, ui
 		return OffloadResult{
 			Status: StatusWarn,
 			Signal: detect.UnknownBool("no params placement line found in journal", ""),
-			Detail: "residency could not be confirmed from the journal (no params placement line; a lazily loaded server prints it on its first request)",
+			Detail: "residency could not be confirmed from the journal (no params placement line; without --eager-load the line is a plan, not a fact, which is why the unit renders eager load)",
 		}, 0
 	case ram > 0:
 		return OffloadResult{

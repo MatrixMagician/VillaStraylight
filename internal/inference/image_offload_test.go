@@ -61,7 +61,7 @@ func TestImageOffloadVerdictPlacement(t *testing.T) {
 		{"eager load, all on Vulkan0", journal(sdDeviceLine, sdPlacementQ8, sdListeningLine), StatusPass, "8808.62 MiB on VRAM, 0 B in RAM"},
 		{"text encoder placed in RAM", journal(sdDeviceLine, sdPlacementPartialRAM, sdListeningLine), StatusFail, "2375.91 MiB of params in system RAM"},
 		{"everything in RAM", journal(sdDeviceLine, sdPlacementAllRAM, sdListeningLine), StatusFail, "8808.62 MiB of params in system RAM"},
-		{"lazy load: ready with no placement line", journal(sdDeviceLine, sdListeningLine), StatusWarn, "no params placement line"},
+		{"no placement line in the journal", journal(sdDeviceLine, sdListeningLine), StatusWarn, "no params placement line"},
 		{"empty journal", "", StatusWarn, "journal empty"},
 		{"software renderer enumerated", journal(sdSoftwareDeviceLine, sdPlacementQ8, sdListeningLine), StatusFail, "software renderer"},
 		{"spaced units and GiB total", journal(sdDeviceLine, sdPlacementSpaced, sdListeningLine), StatusPass, "8808.62 MiB on VRAM"},
