@@ -125,6 +125,70 @@ rendering, and Gemma runs where a 31B dense model should on this hardware.
 | `villa eval` under ngram | PASS, 16/20 against the baseline |
 | speculation off reference | 56.5 tok/s on the same prompt |
 
+### The sliding-window cache, measured (review round 1)
+
+The first version of ADR-0029 called Gemma's sliding-window caches "under 1 GB" and
+left them to the headroom. The journal of the Gemma unit at ctx 131072 (2026-10-08
+22:11:47, `villa model swap gemma-4-31b` on the committed head) says otherwise:
+
+```
+srv  llama_server: n_parallel is set to auto, using n_parallel = 4 and kv_unified = true
+llama_context: n_seq_max             = 4
+llama_context: n_ubatch              = 512
+llama_context: kv_unified            = true
+llama_kv_cache_iswa: creating non-SWA KV cache, size = 131072 cells
+llama_kv_cache:      ROCm0 KV buffer size = 10240.00 MiB
+llama_kv_cache:      ROCm0 KV buffer size =  3600.00 MiB
+```
+
+The second buffer is the sliding-window cache: llama.cpp sizes it as
+`GGML_PAD(min(n_ctx, n_swa x n_seq_max + n_ubatch), 256)` cells when the KV is
+unified (`src/llama-kv-cache-iswa.cpp`), which with villa's rendering (no `-np`,
+`-kvu`, `-ub` or `--swa-full`, so llama-server's `n_parallel = 4`, `n_ubatch = 512`)
+is 1024 x 4 + 512 = 4608 cells, at 50 layers x 16 KV heads x 256 dims x K+V x 2 bytes
+= 819,200 bytes per cell: 3,774,873,600 bytes, the 3600 MiB logged. The same 3600 MiB
+appeared on the side server at `-c 32768`. The fit reserved nothing for it; on a
+33 GB envelope at `--ctx 16384` the old fit admitted Gemma with about 0.29 GB of slack.
+The fix: the catalog entry carries the sliding-layer block (`swa`: 50 / 16 / 256 /
+window 1024), the header witnesses it (CAT-01 compares `SWALayers`, `SWAHeadCountKV`,
+`SWAKeyLength`, `SWAWindow`), and `recommend` adds the bounded term with the two
+llama-server defaults it depends on pinned by an inference test. Gemma's KV term at
+131072 is now 10.7 + 3.77 GB.
+
+**Context checkpoints.** The same journal shows llama-server creating SWA context
+checkpoints per slot, `created context checkpoint N of 32 (... n_tokens = T, size = S)`,
+with S growing at 0.78 MiB per token (6.25 MiB at 8 tokens, 157.0 MiB at 201 tokens:
+the sliding-layer state for the tokens held), so a checkpoint tops out near 800 MiB
+at the 1024-token window. `--ctx-checkpoints` defaults to 32 per slot and villa does
+not render it. A checkpoint of an active slot lives in host memory and is not under
+`--cache-ram`; only when an idle slot is saved to the prompt cache do its checkpoints
+count against the 8192 MiB (`update: - prompt ...: 186 tokens, checkpoints: 3, 541.109 MiB`).
+Measured today the server made 2 to 3 checkpoints per prompt. The worst case, 32 x
+800 MiB x 4 slots, is not bounded by anything villa renders; that is filed as #323
+rather than folded into this fit.
+
+### GLM as the coder default on 46 to 54 GB envelopes (review round 1)
+
+With `agent_ctx` 131072, GLM's coder total (17.5 GB weights + 14.2 GB KV at the
+catalog's MLA term + 8 GiB prompt cache) outranks qwen3-coder-30b-a3b's under the
+"largest coder total that fits" rule on post-reservation envelopes of about 45.8 to
+54.65 GB, so hosts in that band change their default coder. That is kept, stated here
+and in the PR, and pinned by `TestSeedPicksAt50GB` on the embedded seed. The
+alternative, an `agent_ctx` of 32768 chosen so GLM ranks below the Qwen coder, was
+rejected as sizing to lose a ranking.
+
+Because coding mode renders `--cache-reuse 256` only for an entry with
+`cache_reuse_safe`, GLM was given the probe the Qwen coders had (commit e18ce7b: a
+two-turn conversation under `--cache-reuse 256`, turn 2 must report `cache_n > 0`
+and the log must carry no degrade warning). Side server from the same image, GLM at
+`-c 65536 -fa 1 --cache-reuse 256 --cache-ram 8192 --jinja`, thinking off, 2026-10-08
+22:51: turn 1, a 13,230-token prompt, answered "10" (correct) with `cache_n 0` at
+308 tok/s prefill; turn 2, the same conversation plus one question, `prompt_n 16,
+cache_n 13231`, answered "fox" (correct); the log's only reuse lines were `graphs
+reused = 1`, no warning. `cache_reuse_safe: true` is therefore set. As with the Qwen
+hybrids in e18ce7b, what the probe observes is prefix reuse; `--cache-reuse 256`
+itself is harmless on this build, and the catalog claim is the probe's literal verdict.
+
 ### The committed head, confirmed
 
 With the static build of the PR's head (`villa version v1.17.1-14-g6b934b3`), each
