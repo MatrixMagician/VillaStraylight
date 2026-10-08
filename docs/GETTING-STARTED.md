@@ -641,6 +641,7 @@ guided install deliberately does not prompt for subsystems either.
 | **Coding agent** | A strictly-local terminal coding agent (a locked-down Crush) talking to your own model. `villa code --agent claude` launches Claude Code against the same endpoint instead, if you already have `claude` on PATH — coding mode is a hard gate for that target, and villa never installs `claude` itself. | `villa install --coding-agent` to install it (persists the gate), then `villa code` |
 | **Coding mode** | Flips the running stack to a tool-calling configuration tuned for that agent, and back. The cutover is transactional, so a failed flip is a no-op. | `villa coding-mode enter` / `exit` |
 | **Web search** | Grounded answers from the web through a local SearXNG, with a guard that sanitizes fetched pages and **flags** prompt-injection patterns (it never claims content is safe). | `villa install --web-search` (persists the gate) |
+| **Voice** | Voice input and read-aloud in Open WebUI, served locally: whisper.cpp transcribes on the GPU and Kokoro speaks on the CPU. Both units are proven together by a round trip that speaks a sentence and transcribes it back. | `villa install --voice` (persists the gate and pre-stages the whisper model), then `villa verify voice` |
 | **Resident set** | Holds several models loaded at once, each on its own loopback port, instead of restarting inference to swap between them. | `villa model resident ls` / `add` |
 | **Workspace agent** | Runs one instruction against one folder you registered, inside a per-task microVM that reaches the served model and nothing else, asking before it writes. | `villa install --workspace-agent`, then `villa workspace add` and `villa work`. See [Running a task on your own files](#running-a-task-on-your-own-files) |
 | **Backup & restore** | The recreatable workspace to one local `.tar`, and back transactionally: config, the Open WebUI volume, the usage and bench stores and the eval baselines always; the Qdrant volume and the recall state with memory on, `crush.json` with the coding agent on, and the SearXNG settings with web search on. Model weights are excluded and their identities recorded. | `villa backup` / `villa restore <archive>` |
@@ -705,6 +706,7 @@ failure, never a false green:
 ./villa verify memory    # the RAG path retrieves and cites with ZERO outbound
 ./villa verify search    # web-search outbound is BOUNDED to the sanctioned allowlist
 ./villa verify agent     # the coding agent runs with no silent cloud fallback
+./villa verify voice     # text-to-speech then speech-to-text agree on a spoken sentence
 ```
 
 `villa verify memory` and `villa verify search` are negative-control-first: they

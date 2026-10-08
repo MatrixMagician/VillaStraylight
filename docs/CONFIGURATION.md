@@ -80,6 +80,7 @@ chat_port = 3000
 | `workspace` | array of strings | _(absent)_ | The registered workspace grants: absolute, symlink-resolved folders a task may be run against. Written by `villa workspace add` and `villa workspace remove`; `villa work` refuses any path not on this list. |
 | `sandbox_memory` | string | _(absent → `4g`)_ | The `--memory` limit of a task's microVM, in podman's syntax. Edit by hand; read at task launch. The default lives in `internal/orchestrate/sandbox.go`, not in `defaultConfig()`, so an absent key writes nothing to the file. |
 | `sandbox_cpus` | int | _(absent → `4`)_ | The `--cpus` limit of a task's microVM. Edit by hand; read at task launch; zero or negative renders the default. |
+| `voice_enabled` | bool | _(absent → false)_ | The voice subsystem's gate (ADR-0028): speech-to-text (`villa-stt`, whisper.cpp on Vulkan) plus text-to-speech (`villa-tts`, Kokoro-FastAPI on the CPU), proven together by one round trip. Written by `villa install --voice`, which also pre-stages the whisper model into the models dir. With it on, Open WebUI's voice input and read-aloud point at the two units by container DNS, `villa recommend` reserves the `stt` and `tts` rows off the envelope, and `villa verify voice` speaks a sentence and transcribes it back. Nothing leaves the box: the Kokoro image bakes its weights in and was proven to make no outbound call. |
 
 ### The resident set
 
@@ -334,6 +335,22 @@ seed** rather than failing.
 
 The generated Quadlet units embed runtime configuration that is **not** exposed as
 user settings. It is recorded here for transparency.
+
+**Voice (`voice_enabled = true`).** `villa-stt` runs `whisper-server` from the pinned
+ggml-org Vulkan image with `Entrypoint=` set to the server binary (the image's own
+entrypoint is a shell that would drop every argument after the first) and
+`-m /models/ggml-large-v3-turbo.bin --host 0.0.0.0 --port 8081 --inference-path /v1/audio/transcriptions --convert`:
+the inference path puts whisper's one handler on the OpenAI transcription route Open
+WebUI calls, and `--convert` lets the image's ffmpeg turn the browser's webm into WAV.
+The unit carries only `AddDevice=/dev/dri`, read from the Vulkan backend seam, and
+mounts the models volume read-only. `villa-tts` runs the pinned Kokoro-FastAPI CPU
+image with `DOWNLOAD_MODEL=false`, `HF_HUB_OFFLINE=1` and `HF_HUB_DISABLE_TELEMETRY=1`,
+so its entrypoint never re-runs the weight download. Open WebUI gets
+`AUDIO_STT_ENGINE=openai`, `AUDIO_STT_OPENAI_API_BASE_URL=http://villa-stt:8081/v1`,
+`AUDIO_STT_MODEL=whisper-1`, `AUDIO_TTS_ENGINE=openai`,
+`AUDIO_TTS_OPENAI_API_BASE_URL=http://villa-tts:8880/v1`, `AUDIO_TTS_MODEL=kokoro` and
+`AUDIO_TTS_VOICE=af_heart`; both API keys carry the no-auth sentinel, because neither
+unit checks one and both are reachable only on `villa.network`.
 
 **Inference (llama-server) runtime flags** are fixed for Strix Halo stability and
 sourced from the backend seam (`internal/inference/backend_rocm.go` /
