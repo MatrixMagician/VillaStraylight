@@ -41,7 +41,7 @@ func TestSubsystemUnitsMatchTheRenderedUnits(t *testing.T) {
 
 	declared := map[string]subsystem.Kind{}
 	for _, k := range subsystem.Every {
-		us, svcs := k.Units()
+		us, svcs := k.EveryUnit()
 		if len(us) != len(svcs) {
 			t.Errorf("%v declares %d units but %d services — they pair positionally", k, len(us), len(svcs))
 		}
@@ -68,12 +68,12 @@ func TestSubsystemUnitsMatchTheRenderedUnits(t *testing.T) {
 	}
 
 	// The agent is a file, not a unit — its declaration must stay empty.
-	if us, svcs := subsystem.Agent.Units(); len(us) != 0 || len(svcs) != 0 {
+	if us, svcs := subsystem.Agent.EveryUnit(); len(us) != 0 || len(svcs) != 0 {
 		t.Errorf("Agent.Units() = (%v, %v), want empty — the Crush binary is a file, not a unit", us, svcs)
 	}
 
 	// CodingMode is a configuration flip of the inference unit, not its own unit.
-	if us, _ := subsystem.CodingMode.Units(); !slices.Equal(us, []string(nil)) {
+	if us, _ := subsystem.CodingMode.EveryUnit(); !slices.Equal(us, []string(nil)) {
 		t.Errorf("CodingMode.Units() = %v, want empty — coding mode flips villa-llama, it does not own a unit", us)
 	}
 }
@@ -86,7 +86,7 @@ func TestSubsystemUnitsMatchTheRenderedUnits(t *testing.T) {
 // rendered, and a declaration that named it would make update try to restart a
 // .network as a .service.
 func TestSandboxRendersANetworkAndNoContainer(t *testing.T) {
-	if us, svcs := subsystem.Sandbox.Units(); len(us) != 0 || len(svcs) != 0 {
+	if us, svcs := subsystem.Sandbox.EveryUnit(); len(us) != 0 || len(svcs) != 0 {
 		t.Errorf("Sandbox.Units() = (%v, %v), want empty — the task container is per-task, not a unit", us, svcs)
 	}
 

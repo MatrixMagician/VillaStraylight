@@ -45,6 +45,8 @@ type fakeDeps struct {
 	callOrder  []string
 	downloaded bool
 	savedCfg   config.VillaConfig
+	// pickReservations is what the last Pick was asked to reserve.
+	pickReservations []recommend.Reservation
 
 	dashWriteCalls  int
 	dashEnableCalls int
@@ -132,7 +134,8 @@ func newFakeDeps(t *testing.T, units []orchestrate.Unit, plan orchestrate.Plan, 
 	}
 	d := &Deps{
 		Probe: func() detect.HostProfile { return detect.HostProfile{} },
-		Pick: func(detect.HostProfile, recommend.Overrides) recommend.Recommendation {
+		Pick: func(_ detect.HostProfile, _ recommend.Overrides, res []recommend.Reservation) recommend.Recommendation {
+			f.pickReservations = res
 			return recommend.Recommendation{
 				Model: "qwen3.5-0.8b", Quant: "Q4_K_M", ContextLen: 4096, Backend: "rocm",
 				WeightBytes:  1 << 30,

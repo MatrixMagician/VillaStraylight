@@ -88,7 +88,7 @@ func (r *run) render(us ...orchestrate.Unit) {
 
 // inferenceUnitName is the Quadlet file villa-llama is rendered to.
 func inferenceUnitName() string {
-	units, _ := subsystem.Inference.Units()
+	units, _ := subsystem.Inference.EveryUnit()
 	return units[0]
 }
 

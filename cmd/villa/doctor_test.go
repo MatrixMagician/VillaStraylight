@@ -559,7 +559,7 @@ func doctorFindingsFor(t *testing.T, report func() status.Report) map[string]doc
 
 // inferenceUnit is the Quadlet file villa-llama is rendered to.
 func inferenceUnit() string {
-	units, _ := subsystem.Inference.Units()
+	units, _ := subsystem.Inference.EveryUnit()
 	return units[0]
 }
 

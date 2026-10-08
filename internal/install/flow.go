@@ -81,8 +81,10 @@ type Deps struct {
 	LoadConfig func() (config.VillaConfig, error)
 	Probe      func() detect.HostProfile
 	// Pick recommends a fitting model. It takes Overrides so a wizard choice is
-	// re-validated through the single polymorphism point.
-	Pick      func(detect.HostProfile, recommend.Overrides) recommend.Recommendation
+	// re-validated through the single polymorphism point, and the reservations of
+	// the config this run will persist (PlannedReservations), so a gate the run
+	// turns on shrinks the envelope before the fit rather than after it.
+	Pick      func(detect.HostProfile, recommend.Overrides, []recommend.Reservation) recommend.Recommendation
 	ModelsDir func() string
 
 	RunChecks func(detect.HostProfile, preflight.ResourceReq) []preflight.CheckResult
@@ -187,10 +189,10 @@ const (
 // DefaultUnits names the services the flow starts, from the subsystem unit map so
 // no service name is re-typed here.
 func DefaultUnits() Units {
-	_, inf := subsystem.Inference.Units()
-	_, chat := subsystem.Chat.Units()
-	_, mem := subsystem.Memory.Units()
-	_, web := subsystem.WebSearch.Units()
+	_, inf := subsystem.Inference.EveryUnit()
+	_, chat := subsystem.Chat.EveryUnit()
+	_, mem := subsystem.Memory.EveryUnit()
+	_, web := subsystem.WebSearch.EveryUnit()
 	return Units{Inference: inf[0], ChatUI: chat[0], Qdrant: mem[0], Embed: mem[1], Rerank: mem[2], Searxng: web[0], Websafe: web[1]}
 }
 
@@ -216,9 +218,11 @@ func Run(ctx context.Context, d Deps, opts Opts) Result {
 		return block("install: refusing to install from defaults — that would overwrite your persisted settings with seed values. Fix or remove config.toml, then re-run.\n")
 	}
 
-	// (1) Detect, (2) recommend. No fit is a refusal, never a -c 0 server.
+	// (1) Detect, (2) recommend against the reservations of the config this run
+	// will persist. No fit is a refusal, never a -c 0 server.
 	profile := d.Probe()
-	rec := d.Pick(profile, recommend.Overrides{})
+	reservations := PlannedReservations(cfg, opts)
+	rec := d.Pick(profile, recommend.Overrides{}, reservations)
 	if !RecommendationUsable(rec) {
 		// The contracted empty-state copy, emitted before the wizard is evaluated so
 		// both paths share the one emission point.
@@ -256,7 +260,7 @@ func Run(ctx context.Context, d Deps, opts Opts) Result {
 		// A chosen override is re-validated through the SAME pick seam so the rec is
 		// byte-identical to the flag path's. Checks are host-prep, not re-run.
 		if w.ModelOverride != "" {
-			rec = d.Pick(profile, recommend.Overrides{Model: w.ModelOverride})
+			rec = d.Pick(profile, recommend.Overrides{Model: w.ModelOverride}, reservations)
 			// The gates are a function of the recommendation too (the coder fit
 			// decides coding mode), so a changed recommendation is the one case they
 			// are resolved again.

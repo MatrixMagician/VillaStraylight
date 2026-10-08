@@ -252,7 +252,7 @@ func TestInstallNoFitEmitsContractedEmptyState(t *testing.T) {
 			return detect.HostProfile{UsableEnvelopeBytes: env}
 		}
 		// A refusing pick: empty Model is a clear no-fit.
-		f.Pick = func(detect.HostProfile, recommend.Overrides) recommend.Recommendation {
+		f.Pick = func(detect.HostProfile, recommend.Overrides, []recommend.Reservation) recommend.Recommendation {
 			return recommend.Recommendation{}
 		}
 		return f

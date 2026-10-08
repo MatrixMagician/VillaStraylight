@@ -364,7 +364,7 @@ func TestToolsOnIsTheUnionOfBothFlags(t *testing.T) {
 // declaration here would make the cross-package drift test demand a unit the
 // renderer never produces.
 func TestSandboxOwnsNoUnitsYet(t *testing.T) {
-	if us, svcs := Sandbox.Units(); len(us) != 0 || len(svcs) != 0 {
+	if us, svcs := Sandbox.EveryUnit(); len(us) != 0 || len(svcs) != 0 {
 		t.Errorf("Sandbox.Units() = (%v, %v), want empty — the task container is not a unit", us, svcs)
 	}
 	if Sandbox.AlwaysOn() {

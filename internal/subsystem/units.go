@@ -1,6 +1,11 @@
 package subsystem
 
-import "time"
+import (
+	"strings"
+	"time"
+
+	"github.com/MatrixMagician/VillaStraylight/internal/config"
+)
 
 // units.go holds the two remaining per-subsystem properties the update path
 // used to hardcode beside its flow: which Quadlet units and services move with
@@ -11,41 +16,83 @@ import "time"
 // update path would go stale the moment a sixth subsystem arrives — silently,
 // with no compile error to catch it.
 //
-// The unit and service names are re-declared rather than read from
-// internal/orchestrate because orchestrate imports THIS package — the
-// dependency only runs one way (the stateVolumes precedent). They are bound to
-// the rendered reality by a cross-package drift test in internal/orchestrate,
-// so the declaration cannot quietly disagree with what is rendered.
+// The unit names are re-declared rather than read from internal/orchestrate
+// because orchestrate imports THIS package — the dependency only runs one way
+// (the stateVolumes precedent). They are bound to the rendered reality by a
+// cross-package drift test in internal/orchestrate, so the declaration cannot
+// quietly disagree with what is rendered.
 
-// unitNames maps a subsystem to the Quadlet units and systemd services that
-// move with it (Quadlet maps villa-x.container → villa-x.service).
+// unit is one Quadlet .container unit a subsystem renders. on is the gate an
+// OPTIONAL unit inside the subsystem answers to; nil means the unit renders
+// whenever the subsystem does.
+//
+// The reranker (ADR-0028) is the first optional unit: it is memory's, runs
+// memory's pin and is proved with memory, but a memory-on host renders it only
+// with `reranker = true`. Two consumers once assumed memory's list was static
+// and each grew its own on-disk check; the gate lives here instead, so stop,
+// start, capture and restart all read one answer.
+type unit struct {
+	name string
+	on   func(config.VillaConfig) bool
+}
+
+// unitTable declares every unit each subsystem can render, in start order.
 //
 // The grouping is the PROOF UNIT, not a convenience: one `verify memory` proves
 // Qdrant, the embedder and the reranker together, so they capture, mutate and
 // roll back together. Splitting them would produce a pairing with no proof and
-// no meaning. The reranker is rendered only when subsystem.RerankOn, so a caller
-// that restarts these services skips a unit that is not on disk.
+// no meaning.
 //
 // Agent is absent: the Crush binary is a file, not a unit — nothing to render
 // and nothing to restart. It is still a subsystem because `verify agent`
 // proves it.
-var unitNames = map[Kind]struct {
-	units    []string
-	services []string
-}{
-	Inference: {[]string{"villa-llama.container"}, []string{"villa-llama.service"}},
-	Chat:      {[]string{"villa-openwebui.container"}, []string{"villa-openwebui.service"}},
-	Memory: {[]string{"villa-qdrant.container", "villa-embed.container", "villa-rerank.container"},
-		[]string{"villa-qdrant.service", "villa-embed.service", "villa-rerank.service"}},
-	WebSearch: {[]string{"villa-searxng.container", "villa-websafe.container"},
-		[]string{"villa-searxng.service", "villa-websafe.service"}},
+var unitTable = map[Kind][]unit{
+	Inference: {{name: "villa-llama.container"}},
+	Chat:      {{name: "villa-openwebui.container"}},
+	Memory: {
+		{name: "villa-qdrant.container"},
+		{name: "villa-embed.container"},
+		{name: "villa-rerank.container", on: RerankOn},
+	},
+	WebSearch: {
+		{name: "villa-searxng.container"},
+		{name: "villa-websafe.container"},
+	},
 }
 
-// Units reports the Quadlet units and services that move with this subsystem.
-// Nil slices mean the subsystem has no units (Agent — a file, not a unit).
-func (k Kind) Units() (units []string, services []string) {
-	u := unitNames[k]
-	return u.units, u.services
+// serviceOf is the Quadlet mapping: villa-x.container → villa-x.service.
+func serviceOf(unitName string) string {
+	return strings.TrimSuffix(unitName, ".container") + ".service"
+}
+
+// Units reports the Quadlet units and systemd services that move with this
+// subsystem on a host running cfg: every unit the subsystem always renders, plus
+// each optional unit whose gate cfg answers on. Nil slices mean the subsystem has
+// no units (Agent — a file, not a unit).
+//
+// This is what a caller that stops, starts, captures or restarts "the
+// subsystem's services" reads. A static list would name a unit the host never
+// rendered, and `systemctl` on a unit systemd has never seen fails.
+func (k Kind) Units(cfg config.VillaConfig) (units []string, services []string) {
+	for _, u := range unitTable[k] {
+		if u.on != nil && !u.on(cfg) {
+			continue
+		}
+		units = append(units, u.name)
+		services = append(services, serviceOf(u.name))
+	}
+	return units, services
+}
+
+// EveryUnit reports every unit and service this subsystem CAN render, gates
+// aside: the declaration, for a caller that names services rather than acting
+// on a host (install's service names, the render drift test).
+func (k Kind) EveryUnit() (units []string, services []string) {
+	for _, u := range unitTable[k] {
+		units = append(units, u.name)
+		services = append(services, serviceOf(u.name))
+	}
+	return units, services
 }
 
 // UpdateBudget is how long one subsystem's update transaction gets.

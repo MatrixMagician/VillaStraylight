@@ -136,7 +136,7 @@ func liveInstallDeps(ctx context.Context) (install.Deps, error) {
 	return install.Deps{
 		LoadConfig: liveLoadedConfig,
 		Probe:      detect.Probe,
-		Pick: func(p detect.HostProfile, ov recommend.Overrides) recommend.Recommendation {
+		Pick: func(p detect.HostProfile, ov recommend.Overrides, res []recommend.Reservation) recommend.Recommendation {
 			cat, _, err := catalog.Load(modelCatalogPath)
 			if err != nil {
 				return recommend.Recommendation{}
@@ -149,9 +149,7 @@ func liveInstallDeps(ctx context.Context) (install.Deps, error) {
 					ov.Speculation = cfg.Speculation
 				}
 			}
-			// The PERSISTED memory inputs shrink the envelope an opted-in install
-			// recommends against.
-			return recommend.Pick(p, cat, ov, liveLoadedReservations())
+			return recommend.Pick(p, cat, ov, res)
 		},
 		ModelsDir: modelsDir,
 		RunChecks: preflight.RunWithResources,

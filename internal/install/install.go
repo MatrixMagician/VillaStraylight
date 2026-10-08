@@ -124,6 +124,34 @@ func ResolveGates(cfg config.VillaConfig, opts Opts, rec recommend.Recommendatio
 	return g
 }
 
+// Persist applies the resolved gates to a copy of cfg: the gate fields the install
+// will write. The workspace agent raises tools mode and never lowers it, because an
+// operator who entered tools mode deliberately keeps it when the addon is off; the
+// reranker follows memory, since install is the one verb that stages its weights
+// (ADR-0028). Coding mode is not here: its fields carry the coder identity the
+// recommendation resolves, so AssemblePlan writes them.
+func (g Gates) Persist(cfg config.VillaConfig) config.VillaConfig {
+	cfg.MemoryEnabled = g.Memory
+	cfg.Reranker = g.Memory
+	cfg.WebSearchEnabled = g.WebSearch
+	cfg.AgentEnabled = g.Agent
+	cfg.WorkspaceAgent = g.Sandbox
+	if g.Sandbox {
+		cfg.ToolsMode = true
+	}
+	return cfg
+}
+
+// PlannedReservations sizes the pick against the config this run will persist,
+// not the one it read: the install that turns memory, the reranker or web search
+// on must reserve for them BEFORE the fit, or it picks a model and a ctx for an
+// envelope its own services then shrink (every later verb would count them).
+// The gates that reserve do not depend on the recommendation, so an empty one
+// resolves them.
+func PlannedReservations(cfg config.VillaConfig, opts Opts) []recommend.Reservation {
+	return recommend.ReservationsFor(ResolveGates(cfg, opts, recommend.Recommendation{}).Persist(cfg))
+}
+
 // GateAgentChecks reports whether the coding-agent preflight gates should run.
 //
 // It is the resolved agent gate, and exists as a named decision because getting it
@@ -184,26 +212,11 @@ func AssemblePlan(cfg config.VillaConfig, gates Gates, rec recommend.Recommendat
 	// decision the fit made is the one the rendered unit must read back.
 	plan.Config.Vision = rec.Vision
 
-	plan.Config.MemoryEnabled = gates.Memory
-	// The reranker gate is written here and nowhere else (ADR-0028): install is the
-	// one verb that stages its weights, and the render that follows must not point
-	// Open WebUI at a reranker that is not there.
-	plan.Config.Reranker = gates.Memory
-	plan.Config.WebSearchEnabled = gates.WebSearch
-	plan.Config.AgentEnabled = gates.Agent
+	plan.Config = gates.Persist(plan.Config)
 
 	// Coding mode carries the resolved coder identity: the unit, the agent config and
 	// the readiness proof must all agree on which model is served, so they come from
 	// the same recommendation the disk and envelope gates were computed from.
-	// The workspace agent persists its own gate AND tools mode, because tool calling
-	// is what the agent uses the chat endpoint for. Tools mode is raised, never
-	// lowered, here: an operator who entered it deliberately keeps it when the
-	// addon is off.
-	plan.Config.WorkspaceAgent = gates.Sandbox
-	if gates.Sandbox {
-		plan.Config.ToolsMode = true
-	}
-
 	if gates.CodingMode {
 		plan.Config.CoderModel = rec.Coder.Model
 		plan.Config.CoderQuant = rec.Coder.Quant

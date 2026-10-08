@@ -30,7 +30,7 @@ func embedServiceName() string {
 
 // inferenceUnitFile is the Quadlet unit villa-llama is rendered to.
 func inferenceUnitFile() string {
-	units, _ := subsystem.Inference.Units()
+	units, _ := subsystem.Inference.EveryUnit()
 	return units[0]
 }
 

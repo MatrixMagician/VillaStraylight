@@ -62,6 +62,12 @@ func NewSystemd() Systemd {
 	return Systemd{runCmd: runTool}
 }
 
+// SystemdForTest returns a Systemd whose tool runner is run, so a test in another
+// package can observe which systemctl calls a seam makes without a host.
+func SystemdForTest(run func(name string, args ...string) (out string, found, ok bool)) Systemd {
+	return Systemd{runCmd: run}
+}
+
 // runTool invokes a tool with a FIXED argument slice — never via a shell
 // returning stdout bounded to maxJournalOutput via io.LimitReader. A missing binary
 // yields found=false so the caller degrades; a non-zero exit yields ok=false with

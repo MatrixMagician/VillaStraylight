@@ -73,10 +73,24 @@ where the footprint comes from, and what gates the service.
   grades the reranker only, because asserting the embedder's failure inside it would
   fail for an embedder change the reranker had nothing to do with.
 
-- **`villa update` restarts only the units on disk.** Memory's service list now
-  names the reranker, and a memory-on host with the flag off has no such unit, so
-  the mutate and restore steps skip a service whose unit is absent, as capture
-  already did.
+- **A subsystem's unit list is answered from the config.** The reranker is the
+  first optional unit inside a subsystem, and two consumers of memory's unit list
+  each grew their own on-disk check before a third (the stopped window's stop and
+  start) broke every memory update on a host with the key unset. A census found
+  six consumers: update's capture, mutate, restore, stop and start, doctor's
+  inference unit, and install's service names; status and doctor's drift already
+  select by the rendered units. So `subsystem.Units` takes the config and returns
+  the units the host renders (the reranker only when `RerankOn`), `EveryUnit` is
+  the declaration for callers that name services rather than act on a host, and
+  update loads the config once and hands it to every seam. No presence check
+  remains.
+
+- **Install sizes its pick against the config it will persist.** The gates install
+  turns on (memory's reranker, a `--web-search` opt-in) reserve before the fit,
+  through `Gates.Persist` and `PlannedReservations`, so the install that first
+  enables them does not pick a model and a ctx for an envelope its own services
+  then shrink. Before this, a first `install` with memory on fitted without the
+  embedding row too.
 
 ## Consequences
 
@@ -84,7 +98,9 @@ where the footprint comes from, and what gates the service.
   a 2 GiB reservation off the chat-model fit, and one more unit, proved by the
   install readiness probe. Until then nothing changes.
 - `reranker = false` by hand turns the gate off and the next stack apply removes
-  the env from Open WebUI; the next `villa install` turns it back on. An explicit
+  the env from Open WebUI; the running `villa-rerank` unit stays until stopped,
+  which is the shape every optional unit has (nothing removes a unit the config
+  stopped rendering). The next `villa install` turns it back on. An explicit
   opt-out flag on install is the operator's call.
 - The eval suite moves to version 2, which orphans baselines recorded under
   version 1 until `villa eval --record` runs again (ADR-0018).

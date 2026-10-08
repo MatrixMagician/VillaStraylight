@@ -1343,7 +1343,7 @@ func TestInstallCodingAgentFlow(t *testing.T) {
 	t.Run("shared-residency coder fit refuses with a swap-only message, NOT free-memory copy", func(t *testing.T) {
 		f := newFakeDeps(t, units, plan, passChecks())
 		f.agentCat = catalog.Catalog{Models: []catalog.Model{{ID: "qwen3-chat"}}}
-		f.Pick = func(detect.HostProfile, recommend.Overrides) recommend.Recommendation {
+		f.Pick = func(detect.HostProfile, recommend.Overrides, []recommend.Reservation) recommend.Recommendation {
 			return recommend.Recommendation{
 				Model: "qwen3.5-0.8b", Quant: "Q4_K_M", ContextLen: 4096, Backend: "rocm",
 				WeightBytes: 1 << 30, KVCacheBytes: 1 << 28, HeadroomBytes: 1 << 28,

@@ -45,6 +45,11 @@ import (
 // about whether the stack works.
 func liveUpdateFlowDeps(context.Context) updateflow.Deps {
 	sys := orchestrate.NewSystemd()
+	// One config for the whole update: it decides which units each subsystem
+	// renders on this host (subsystem.Units), and the stack lock holds it still.
+	// A load error surfaces at the first seam that needs it, which is capture,
+	// before anything is mutated.
+	cfg, cfgErr := config.LoadVilla()
 
 	return updateflow.Deps{
 		ProveCurrent:  func(c context.Context, k subsystem.Kind) updateflow.Proof { return liveSubsystemProof(c, k) },
@@ -52,7 +57,10 @@ func liveUpdateFlowDeps(context.Context) updateflow.Deps {
 		ProveRestored: func(c context.Context, k subsystem.Kind) updateflow.Proof { return liveSubsystemProof(c, k) },
 
 		CaptureState: func(k subsystem.Kind) (updateflow.Capture, error) {
-			return liveCapture(k)
+			if cfgErr != nil {
+				return updateflow.Capture{}, fmt.Errorf("capture config: %w", cfgErr)
+			}
+			return liveCapture(cfg, k)
 		},
 
 		Pull: func(c context.Context, refs map[string]string) error {
@@ -65,14 +73,14 @@ func liveUpdateFlowDeps(context.Context) updateflow.Deps {
 		},
 
 		Mutate: func(c context.Context, k subsystem.Kind, refs map[string]string) error {
-			return liveMutate(c, sys, k, refs)
+			return liveMutate(c, sys, cfg, k, refs)
 		},
 
 		// The stopped window, wired only because the CORE decides when to use it:
 		// these three run for a subsystem that owns persistent state and are never
 		// reached for one whose image is the state being changed.
 		Stop: func(c context.Context, k subsystem.Kind) error {
-			return liveSubsystemStop(c, sys, k)
+			return liveSubsystemStop(c, sys, cfg, k)
 		},
 
 		SnapshotData: func(c context.Context, k subsystem.Kind) (pinstate.DataSnapshot, error) {
@@ -80,11 +88,11 @@ func liveUpdateFlowDeps(context.Context) updateflow.Deps {
 		},
 
 		Start: func(c context.Context, k subsystem.Kind) error {
-			return liveSubsystemStart(c, sys, k)
+			return liveSubsystemStart(c, sys, cfg, k)
 		},
 
 		Restore: func(c context.Context, k subsystem.Kind, snapshot updateflow.Capture) error {
-			return liveRestoreSubsystem(c, sys, k, snapshot)
+			return liveRestoreSubsystem(c, sys, cfg, k, snapshot)
 		},
 
 		RestoreData: func(c context.Context, k subsystem.Kind, snap pinstate.DataSnapshot) error {
@@ -141,7 +149,7 @@ var liveProofFuncs = map[subsystem.Kind]func(context.Context) updateflow.Proof{}
 //
 // Verbatim, because a re-render is not a restore: it would reproduce today's
 // template against today's config, which is not what was proven.
-func liveCapture(k subsystem.Kind) (updateflow.Capture, error) {
+func liveCapture(cfg config.VillaConfig, k subsystem.Kind) (updateflow.Capture, error) {
 	snapshot := updateflow.Capture{
 		Refs:  map[string]string{},
 		Units: map[string][]byte{},
@@ -166,24 +174,19 @@ func liveCapture(k subsystem.Kind) (updateflow.Capture, error) {
 	if err != nil {
 		return updateflow.Capture{}, err
 	}
-	units, _ := k.Units()
+	units, _ := k.Units(cfg)
 	for _, name := range units {
 		data, err := os.ReadFile(filepath.Join(dir, name))
 		if err != nil {
 			if os.IsNotExist(err) {
-				// A unit that is not on disk is not part of this host's footprint.
-				// Skipping it is correct; failing would refuse an update to a
-				// subsystem whose optional half was never installed.
+				// A unit the config renders but that is not on disk was never
+				// installed. Skipping it is correct; failing would refuse an update
+				// to a subsystem whose optional half was never written.
 				continue
 			}
 			return updateflow.Capture{}, fmt.Errorf("capture %s: %w", name, err)
 		}
 		snapshot.Units[name] = data
-	}
-
-	cfg, err := config.LoadVilla()
-	if err != nil {
-		return updateflow.Capture{}, fmt.Errorf("capture config: %w", err)
 	}
 	snapshot.Config = fmt.Sprintf("%+v", cfg)
 
@@ -196,7 +199,7 @@ func liveCapture(k subsystem.Kind) (updateflow.Capture, error) {
 // The pin is written to the store BEFORE the render, because the render reads it —
 // that is the whole loop the resolver migration closed. On any later failure the
 // rollback rewrites the store from the captured tuple.
-func liveMutate(ctx context.Context, sys orchestrate.Systemd, k subsystem.Kind, refs map[string]string) error {
+func liveMutate(ctx context.Context, sys orchestrate.Systemd, cfg config.VillaConfig, k subsystem.Kind, refs map[string]string) error {
 	// The agent's pin is a checksummed binary, not an image in a unit, so its
 	// mutation is a file move rather than a render-and-restart. The superseded
 	// binary is retained as a sibling BEFORE the new one lands, which is the
@@ -211,32 +214,16 @@ func liveMutate(ctx context.Context, sys orchestrate.Systemd, k subsystem.Kind, 
 		return fmt.Errorf("record the new pins: %w", err)
 	}
 
-	cfg, err := config.LoadVilla()
-	if err != nil {
-		return err
-	}
 	if _, err := stackapply.Apply(liveStackDeps(), cfg); err != nil {
 		return err
 	}
-
-	return restartPresent(ctx, sys, k)
+	return restartServices(ctx, sys, cfg, k)
 }
 
-// restartPresent restarts the subsystem's services whose unit is on disk. A unit
-// that is not there is not part of this host's footprint (the reranker with its
-// gate off, ADR-0028), and restarting a service systemd has never seen would fail
-// the update, so the restart set follows the same rule capture applies.
-func restartPresent(ctx context.Context, sys orchestrate.Systemd, k subsystem.Kind) error {
-	dir, err := quadletUnitDir()
-	if err != nil {
-		return err
-	}
-	units, services := k.Units()
-	exists := func(unit string) bool {
-		_, statErr := os.Stat(filepath.Join(dir, unit))
-		return statErr == nil
-	}
-	for _, svc := range presentServices(units, services, exists) {
+// restartServices restarts the services the subsystem renders on this host.
+func restartServices(ctx context.Context, sys orchestrate.Systemd, cfg config.VillaConfig, k subsystem.Kind) error {
+	_, services := k.Units(cfg)
+	for _, svc := range services {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
@@ -247,20 +234,8 @@ func restartPresent(ctx context.Context, sys orchestrate.Systemd, k subsystem.Ki
 	return nil
 }
 
-// presentServices pairs each unit with its service positionally and keeps the
-// services whose unit exists.
-func presentServices(units, services []string, exists func(unit string) bool) []string {
-	var out []string
-	for i, unit := range units {
-		if i < len(services) && exists(unit) {
-			out = append(out, services[i])
-		}
-	}
-	return out
-}
-
 // liveRestore puts the captured tuple back, verbatim, and restarts.
-func liveRestoreSubsystem(ctx context.Context, sys orchestrate.Systemd, k subsystem.Kind, snapshot updateflow.Capture) error {
+func liveRestoreSubsystem(ctx context.Context, sys orchestrate.Systemd, cfg config.VillaConfig, k subsystem.Kind, snapshot updateflow.Capture) error {
 	if err := writeEffectivePins(snapshot.Refs); err != nil {
 		return fmt.Errorf("restore the prior pins: %w", err)
 	}
@@ -275,7 +250,7 @@ func liveRestoreSubsystem(ctx context.Context, sys orchestrate.Systemd, k subsys
 	if err := sys.DaemonReload(); err != nil {
 		return err
 	}
-	return restartPresent(ctx, sys, k)
+	return restartServices(ctx, sys, cfg, k)
 }
 
 // loadPinStateForWrite reads the pin-state store immediately before a
