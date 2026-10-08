@@ -272,7 +272,7 @@ func buildOpenWebUIView(image string, mv memory.RenderInput, memoryEnabled bool,
 
 	if rerankOn {
 		// Hybrid search with the villa-rerank unit as the external reranker
-		// (ADR-0028), appended after the memory block it extends. With the engine
+		// (ADR-0029), appended after the memory block it extends. With the engine
 		// external, Open WebUI posts each query and its candidate chunks to the URL
 		// and sorts by the scores that come back; the key is the no-auth sentinel
 		// because the unit is container-DNS only on villa.network.
@@ -339,7 +339,7 @@ func buildOpenWebUIView(image string, mv memory.RenderInput, memoryEnabled bool,
 	}
 
 	if voiceEnabled {
-		// Open WebUI's audio settings (ADR-0028), one ordered block after the
+		// Open WebUI's audio settings (ADR-0029), one ordered block after the
 		// web-search group. Both units are reached by container DNS and neither checks
 		// a key, so both keys carry the no-auth sentinel. The AUDIO_* keys are
 		// PersistentConfig values, so they need the trailing gate below too.

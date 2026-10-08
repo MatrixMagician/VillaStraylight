@@ -261,7 +261,7 @@ func Render(in RenderInput) ([]Unit, error) {
 			Unit{Name: qdrantVolumeUnitName, Text: qdrantVolumeText},
 			Unit{Name: embedContainerUnitName, Text: embedContainerText},
 		)
-		// The reranker (ADR-0028) runs the embedder's image, so it resolves its pin
+		// The reranker (ADR-0029) runs the embedder's image, so it resolves its pin
 		// under the same component and moves with it.
 		if subsystem.RerankOn(in.Cfg) {
 			rerankContainerText, err := execTemplate(tmpl, "rerank.container.tmpl", buildRerankView(in.pinOr(ComponentEmbedder, embedImage), rerankGGUFFilename, mv.RerankAddr, mv.RerankPort))
@@ -327,7 +327,7 @@ func Render(in RenderInput) ([]Unit, error) {
 		units = append(units, Unit{Name: inferproxyContainerUnitName, Text: inferproxyContainerText})
 	}
 
-	// Voice (ADR-0028) is appended after every other gated unit and before the
+	// Voice (ADR-0029) is appended after every other gated unit and before the
 	// sandbox network, so no existing unit moves and a voice-off render is
 	// byte-identical by construction.
 	if subsystem.VoiceOn(in.Cfg) {

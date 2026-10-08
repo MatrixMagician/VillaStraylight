@@ -103,7 +103,7 @@ Go 1.26+. Single module, single static binary built from `./cmd/villa`.
   ADR-0017, and its seams are raw reads), `backup` (the one ordered entry
   registry, ADR-0020, and the pure manifest-skew comparison), `usage` (reset-aware Fold over llama.cpp's monotonic token totals),
   and the persistence trio `pathsafe` / `jsonstore` / `benchstore` + `verifystate`.
-  `voice` (ADR-0028) is the voice subsystem's pure core: the two reservation
+  `voice` (ADR-0029) is the voice subsystem's pure core: the two reservation
   footprints, the two services' network identities (every voice URL villa composes
   comes from `voice.STT` / `voice.TTS`), and the round-trip proof `voice.Prove`
   shared by `install --voice`, `verify voice` and `update voice`; the curl legs live
@@ -250,8 +250,8 @@ convenience.
 | Inference (ROCm 6.4.4, TG-tuned) | `docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-6.4.4@sha256:1c655ca0…05053947` | `internal/inference/backend_rocm.go` |
 | Inference (ROCm 6.4.4 rocWMMA) | `docker.io/kyuz0/amd-strix-halo-toolboxes:rocm-6.4.4-rocwmma@sha256:9a97129a…43c0141` | `internal/inference/backend_rocm.go` |
 | Chat UI (Open WebUI) | `ghcr.io/open-webui/open-webui:main@sha256:1a6399d2…8dc8b924` | `internal/orchestrate/openwebui.go` |
-| Speech-to-text (whisper.cpp, Vulkan; ADR-0028) | `ghcr.io/ggml-org/whisper.cpp:main-vulkan@sha256:8bbf6a98…7bc88955` | `internal/orchestrate/voice.go` |
-| Text-to-speech (Kokoro-FastAPI, CPU; ADR-0028) | `ghcr.io/remsky/kokoro-fastapi-cpu:v0.9.0@sha256:7f9a2569…7d9f2985` | `internal/orchestrate/voice.go` |
+| Speech-to-text (whisper.cpp, Vulkan; ADR-0029) | `ghcr.io/ggml-org/whisper.cpp:main-vulkan@sha256:8bbf6a98…7bc88955` | `internal/orchestrate/voice.go` |
+| Text-to-speech (Kokoro-FastAPI, CPU; ADR-0029) | `ghcr.io/remsky/kokoro-fastapi-cpu:v0.9.0@sha256:7f9a2569…7d9f2985` | `internal/orchestrate/voice.go` |
 
 ## Conventions
 

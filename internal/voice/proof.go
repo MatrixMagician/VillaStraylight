@@ -3,7 +3,7 @@ package voice
 // proof.go is the verdict of the voice proof: villa-tts speaks ProofSentence,
 // villa-stt transcribes the audio, and the words that come back are compared with
 // the words that went in. One round trip proves both units, which is why voice is one
-// subsystem (ADR-0028). Install, `verify voice` and `update voice` all call Prove;
+// subsystem (ADR-0029). Install, `verify voice` and `update voice` all call Prove;
 // the command tier owns only the two curl legs behind Driver.
 //
 // A leg that could not reach its service is a Reject, never a Fail: nothing about

@@ -63,7 +63,7 @@ const (
 	// EmbedPort is the in-network villa-embed OpenAI /v1 port.
 	EmbedPort = 8080
 	// RerankAddr is the container-DNS name of the villa-rerank llama-server, the
-	// memory stack's reranker (ADR-0028).
+	// memory stack's reranker (ADR-0029).
 	RerankAddr = "villa-rerank"
 	// RerankPort is the in-network villa-rerank port serving /v1/rerank.
 	RerankPort = 8080
@@ -85,7 +85,7 @@ const (
 	// InferproxyPort is the in-network port villa-inferproxy listens on.
 	InferproxyPort = 8091
 
-	// SttAddr is the container-DNS name of the villa-stt whisper-server (ADR-0028).
+	// SttAddr is the container-DNS name of the villa-stt whisper-server (ADR-0029).
 	SttAddr = "villa-stt"
 	// SttPort is the in-network port villa-stt serves on. It is rendered into the
 	// unit's --port, so it is not whisper-server's own default: that number is the
@@ -139,7 +139,7 @@ type VillaConfig struct {
 	// it is recorded here as the anchor for the Phase-23 memory-aware swap guard.
 	EmbeddingDim int `toml:"embedding_dim,omitzero"`
 	// Reranker gates the memory stack's reranker unit and Open WebUI's hybrid
-	// search (ADR-0028). It is read only through subsystem.RerankOn, which also
+	// search (ADR-0029). It is read only through subsystem.RerankOn, which also
 	// needs MemoryEnabled. Written true by `villa install` once the reranker's
 	// weights are staged, so a memory-on config predating the key keeps the stack
 	// it had until the next install: Open WebUI pointed at an absent reranker
@@ -301,7 +301,7 @@ type VillaConfig struct {
 	// drops a zero int only under that tag.
 	SandboxCPUs int `toml:"sandbox_cpus,omitzero"`
 
-	// VoiceEnabled gates the voice subsystem (ADR-0028): villa-stt and villa-tts,
+	// VoiceEnabled gates the voice subsystem (ADR-0029): villa-stt and villa-tts,
 	// and Open WebUI's audio settings. Default false, written by `install --voice`.
 	// A plain bool under ,omitempty, so a voice-off save writes no key and
 	// marshalVilla needs no zeroing branch.

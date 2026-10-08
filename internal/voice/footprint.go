@@ -1,7 +1,7 @@
 package voice
 
 // footprint.go holds the two reservation rows recommend subtracts from the envelope
-// before the chat-model fit (ADR-0027, ADR-0028). They are constants because villa
+// before the chat-model fit (ADR-0027, ADR-0029). They are constants because villa
 // pins exactly one speech model and one TTS image, so the footprint is a fact about
 // a pin rather than a function of config. Both were measured on the gfx1151 dev host
 // and rounded up; under-reserving would let the chat model claim memory the voice
