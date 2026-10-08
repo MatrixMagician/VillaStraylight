@@ -7,20 +7,23 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/detect"
 )
 
-// The fixture lines are the gfx1151 sd-server journal of 2026-10-08 (the pinned
-// master-vulkan digest, --backend Vulkan0 --params-backend Vulkan0 --eager-load):
-// the device enumeration, the placement line printed before `listening on`, and
-// the listening line. The RAM-placed, all-RAM, software-renderer and spaced-unit
-// variants are constructed from the same grammar.
+// The fixture lines are the villa-image.service invocation journal of the
+// 2026-10-08 on-hardware proof on gfx1151 (the pinned master-vulkan digest,
+// --backend Vulkan0 --params-backend Vulkan0 --eager-load), verbatim as
+// ResidencyJournal hands them to the fold: journalctl's timestamp, host and
+// unit prefix precedes every line. The device enumeration, the placement line
+// printed before `listening on`, and the listening line are copied from that
+// journal. The RAM-placed, all-RAM, software-renderer and spaced-unit variants
+// are constructed from the same grammar under the same prefix.
 const (
-	sdDeviceLine    = "ggml_vulkan: 0 = Radeon 8060S Graphics (RADV GFX1151) (radv) | uma: 1 | fp16: 1 | bf16: 0 | fp4: 0 | warp size: 64 | shared memory: 65536 | int dot: 0 | matrix cores: KHR_coopmat"
-	sdPlacementQ8   = "[I] total params memory size = 8808.62MB (VRAM 8808.62MB, RAM 0.00MB): text_encoders 2375.91MB(VRAM), diffusion_model 6272.71MB(VRAM), vae 160.00MB(VRAM), controlnet 0.00MB(N/A), extensions 0.00MB(N/A) --- diffusion_engine.cpp:1328"
-	sdListeningLine = "[I] listening on: http://0.0.0.0:1234 --- main.cpp:151"
+	sdDeviceLine    = "Oct 08 22:39:47 neurodev villa-image[3206423]: ggml_vulkan: 0 = Radeon 8060S Graphics (RADV GFX1151) (radv) | uma: 1 | fp16: 1 | bf16: 0 | fp4: 0 | warp size: 64 | shared memory: 65536 | int dot: 0 | matrix cores: KHR_coopmat"
+	sdPlacementQ8   = "Oct 08 22:39:49 neurodev villa-image[3206423]: [I] total params memory size = 8808.62MB (VRAM 8808.62MB, RAM 0.00MB): text_encoders 2375.91MB(VRAM), diffusion_model 6272.71MB(VRAM), vae 160.00MB(VRAM), controlnet 0.00MB(N/A), extensions 0.00MB(N/A) --- diffusion_engine.cpp:1328"
+	sdListeningLine = "Oct 08 22:39:49 neurodev villa-image[3206423]: [I] listening on: http://0.0.0.0:1234 --- main.cpp:151"
 
-	sdPlacementPartialRAM = "[I] total params memory size = 8808.62MB (VRAM 6432.71MB, RAM 2375.91MB): text_encoders 2375.91MB(RAM), diffusion_model 6272.71MB(VRAM), vae 160.00MB(VRAM), controlnet 0.00MB(N/A), extensions 0.00MB(N/A) --- diffusion_engine.cpp:1328"
-	sdPlacementAllRAM     = "[I] total params memory size = 8808.62MB (VRAM 0.00MB, RAM 8808.62MB): text_encoders 2375.91MB(RAM), diffusion_model 6272.71MB(RAM), vae 160.00MB(RAM), controlnet 0.00MB(N/A), extensions 0.00MB(N/A) --- diffusion_engine.cpp:1328"
-	sdPlacementSpaced     = "[I] total params memory size = 8.6 GiB (VRAM 8808.62 MiB, RAM 0 MB): text_encoders 2375.91MB(VRAM) --- diffusion_engine.cpp:1328"
-	sdSoftwareDeviceLine  = "ggml_vulkan: 0 = llvmpipe (LLVM 17.0.6, 256 bits) (llvmpipe) | uma: 0 | fp16: 1 | bf16: 0 | fp4: 0 | warp size: 8 | shared memory: 32768 | int dot: 0 | matrix cores: none"
+	sdPlacementPartialRAM = "Oct 08 22:39:49 neurodev villa-image[3206423]: [I] total params memory size = 8808.62MB (VRAM 6432.71MB, RAM 2375.91MB): text_encoders 2375.91MB(RAM), diffusion_model 6272.71MB(VRAM), vae 160.00MB(VRAM), controlnet 0.00MB(N/A), extensions 0.00MB(N/A) --- diffusion_engine.cpp:1328"
+	sdPlacementAllRAM     = "Oct 08 22:39:49 neurodev villa-image[3206423]: [I] total params memory size = 8808.62MB (VRAM 0.00MB, RAM 8808.62MB): text_encoders 2375.91MB(RAM), diffusion_model 6272.71MB(RAM), vae 160.00MB(RAM), controlnet 0.00MB(N/A), extensions 0.00MB(N/A) --- diffusion_engine.cpp:1328"
+	sdPlacementSpaced     = "Oct 08 22:39:49 neurodev villa-image[3206423]: [I] total params memory size = 8.6 GiB (VRAM 8808.62 MiB, RAM 0 MB): text_encoders 2375.91MB(VRAM) --- diffusion_engine.cpp:1328"
+	sdSoftwareDeviceLine  = "Oct 08 22:38:49 neurodev villa-image[3174369]: ggml_vulkan: 0 = llvmpipe (LLVM 19.1.7, 256 bits) (llvmpipe) | uma: 0 | fp16: 1 | bf16: 0 | fp4: 0 | warp size: 8 | shared memory: 32768 | int dot: 0 | matrix cores: none"
 
 	// q8WeightBytes is the Q8_0 row's weight_bytes, the witness reference; the
 	// placement line's 8808.62MB is within 1% of it.

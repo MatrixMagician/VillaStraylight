@@ -211,14 +211,20 @@ func scrapeOffloadLogTarget(stderr string, m ResidencyMarkers) OffloadResult {
 
 // startLogDeviceName reads the device name off an old-format device line,
 // "ggml_vulkan: 0 = AMD Radeon … (RADV …) (radv) | …": the segment after "N =" up
-// to the first " | ". The prefix is the backend-owned StartLogDevicePrefix; empty
-// disables the match. Shared by the llama.cpp and sd-server scrapes, which read
-// the same ggml enumeration line.
+// to the first " | ". The marker is the backend-owned StartLogDevicePrefix; empty
+// disables the match. It is located anywhere in the line, not only at the start:
+// the chat scrape reads bare stderr lines, the image scrape reads the invocation
+// journal, where journalctl's "Oct 08 22:39:47 host villa-image[pid]: " precedes
+// every line. Shared by both scrapes, which read the same ggml enumeration line.
 func startLogDeviceName(line string, m ResidencyMarkers) (string, bool) {
-	if m.StartLogDevicePrefix == "" || !strings.HasPrefix(line, m.StartLogDevicePrefix) {
+	if m.StartLogDevicePrefix == "" {
 		return "", false
 	}
-	_, after, ok := strings.Cut(line, "=")
+	idx := strings.Index(line, m.StartLogDevicePrefix)
+	if idx < 0 {
+		return "", false
+	}
+	_, after, ok := strings.Cut(line[idx:], "=")
 	if !ok {
 		return "", false
 	}
