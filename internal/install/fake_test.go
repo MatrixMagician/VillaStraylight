@@ -106,6 +106,13 @@ type fakeDeps struct {
 	renderedSet          bool
 	agentChecksCalls     int
 	agentChecks          []preflight.CheckResult
+
+	voiceEnabled     bool
+	voicePresent     bool
+	voiceEnsureCalls int
+	voiceProofCalls  int
+	voiceProofStatus preflight.Status
+	voiceProofDetail string
 }
 
 // newFakeDeps builds the default world: a re-install over a running stack whose
@@ -124,6 +131,8 @@ func newFakeDeps(t *testing.T, units []orchestrate.Unit, plan orchestrate.Plan, 
 		coderPresent:       true,
 		agentProofStatus:   preflight.StatusPass,
 		agentCatOK:         true,
+		voicePresent:       true,
+		voiceProofStatus:   preflight.StatusPass,
 		// A single coder entry whose id matches the default pick's Coder.Model, so an
 		// agent-on test resolves a shard without extra setup.
 		agentCat: catalog.Catalog{Models: []catalog.Model{
@@ -249,6 +258,7 @@ func newFakeDeps(t *testing.T, units []orchestrate.Unit, plan orchestrate.Plan, 
 		cfg.MemoryEnabled = f.memoryEnabled
 		cfg.WebSearchEnabled = f.webSearchEnabled
 		cfg.AgentEnabled = f.agentEnabled
+		cfg.VoiceEnabled = f.voiceEnabled
 		return cfg, nil
 	}
 	d.EmbedModelPresent = func(string) bool {
@@ -333,6 +343,17 @@ func newFakeDeps(t *testing.T, units []orchestrate.Unit, plan orchestrate.Plan, 
 		f.callOrder = append(f.callOrder, "runAgentChecks")
 		return f.agentChecks
 	}
+	d.VoiceModelPresent = func(string) bool { return f.voicePresent }
+	d.EnsureVoiceModel = func(string) error {
+		f.voiceEnsureCalls++
+		f.callOrder = append(f.callOrder, "ensureVoiceModel")
+		return nil
+	}
+	d.ProveVoice = func(context.Context) Proof {
+		f.voiceProofCalls++
+		f.callOrder = append(f.callOrder, "voiceProof")
+		return Proof{Status: f.voiceProofStatus, Detail: f.voiceProofDetail}
+	}
 	f.Deps = d
 	return f
 }
@@ -384,4 +405,6 @@ var (
 	embedServiceName     = DefaultUnits().Embed
 	searxngServiceName   = DefaultUnits().Searxng
 	websafeServiceName   = DefaultUnits().Websafe
+	sttServiceName       = DefaultUnits().Stt
+	ttsServiceName       = DefaultUnits().Tts
 )

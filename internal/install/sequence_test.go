@@ -19,6 +19,8 @@ func units() Units {
 		Rerank:    "villa-rerank.service",
 		Searxng:   "villa-searxng.service",
 		Websafe:   "villa-websafe.service",
+		Stt:       "villa-stt.service",
+		Tts:       "villa-tts.service",
 	}
 }
 
@@ -86,7 +88,8 @@ func TestInferenceStartsBeforeTheChatUI(t *testing.T) {
 		{"bare", Gates{}},
 		{"memory on", Gates{Memory: true}},
 		{"web search on", Gates{WebSearch: true}},
-		{"everything on", Gates{Memory: true, WebSearch: true, Agent: true, CodingMode: true}},
+		{"voice on", Gates{Voice: true}},
+		{"everything on", Gates{Memory: true, WebSearch: true, Agent: true, CodingMode: true, Voice: true}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s := BuildSequence(tc.gates, units(), true)
@@ -118,12 +121,25 @@ func TestVectorStoreStartsBeforeTheEmbedder(t *testing.T) {
 // TestProofsFollowTheStartsTheyProve: a proof run before its service starts would
 // report on a stack that is not up yet.
 func TestProofsFollowTheStartsTheyProve(t *testing.T) {
-	s := BuildSequence(Gates{Memory: true, WebSearch: true}, units(), true)
+	s := BuildSequence(Gates{Memory: true, WebSearch: true, Voice: true}, units(), true)
 
 	before(t, s, StepStart, units().Embed, StepProve, units().Embed,
 		"a proof must observe a started service")
 	before(t, s, StepStart, units().Searxng, StepProve, units().Searxng,
 		"a proof must observe a started service")
+	before(t, s, StepStart, units().Tts, StepProve, units().Stt,
+		"the voice proof speaks on villa-tts, so both voice units must be up")
+}
+
+// TestVoiceStartsAfterTheChatUI: the voice units serve the chat UI's dictation and
+// read-aloud, so they join a stack whose chat UI is already up.
+func TestVoiceStartsAfterTheChatUI(t *testing.T) {
+	s := BuildSequence(Gates{Voice: true}, units(), false)
+
+	for _, svc := range []string{units().Stt, units().Tts} {
+		before(t, s, StepStart, units().ChatUI, StepStart, svc,
+			"the voice units join a stack whose chat UI is already up")
+	}
 }
 
 // TestSubsystemOffProducesNoStepsForIt: a subsystem-off install must be exactly the
@@ -172,7 +188,7 @@ func TestSecretIsGeneratedOncePerOptIn(t *testing.T) {
 // start a unit systemd has never seen on a host where the render produced no such
 // unit.
 func TestEveryStartIsGatedOnItsUnit(t *testing.T) {
-	s := BuildSequence(Gates{Memory: true, WebSearch: true}, units(), true)
+	s := BuildSequence(Gates{Memory: true, WebSearch: true, Voice: true}, units(), true)
 
 	for _, st := range s.Steps {
 		if st.Kind != StepStart {
@@ -232,7 +248,8 @@ func TestPreparationPrecedesActivation(t *testing.T) {
 		{"memory", Gates{Memory: true}},
 		{"web search", Gates{WebSearch: true}},
 		{"agent", Gates{Agent: true, CodingMode: true}},
-		{"everything", Gates{Memory: true, WebSearch: true, Agent: true, CodingMode: true}},
+		{"voice", Gates{Voice: true}},
+		{"everything", Gates{Memory: true, WebSearch: true, Agent: true, CodingMode: true, Voice: true}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s := BuildSequence(tc.gates, units(), true)
@@ -254,7 +271,7 @@ func TestPreparationPrecedesActivation(t *testing.T) {
 // TestActivationOrdersStartsBeforeTheirProofs: within activation, each subsystem
 // starts its services and only then proves them.
 func TestActivationOrdersStartsBeforeTheirProofs(t *testing.T) {
-	s := BuildSequence(Gates{Memory: true, WebSearch: true, Agent: true}, units(), true)
+	s := BuildSequence(Gates{Memory: true, WebSearch: true, Agent: true, Voice: true}, units(), true)
 
 	// Every prove step must follow a start of the same service, or of the inference
 	// service in the agent case (which proves the already-running coder).

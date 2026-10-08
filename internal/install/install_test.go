@@ -45,19 +45,22 @@ func chosen(name string) bool { return name == "vulkan" || name == "rocm" }
 // subsystem the operator is relying on. Disabling is an explicit config edit.
 func TestFlagsTurnSubsystemsOnNeverOff(t *testing.T) {
 	t.Run("a flag turns a subsystem on", func(t *testing.T) {
-		g := ResolveGates(config.VillaConfig{}, Opts{CodingAgent: true, WebSearch: true}, fit())
+		g := ResolveGates(config.VillaConfig{}, Opts{CodingAgent: true, WebSearch: true, Voice: true}, fit())
 		if !g.Agent {
 			t.Error("--coding-agent must enable the agent for this run")
 		}
 		if !g.WebSearch {
 			t.Error("--web-search must enable web search for this run")
 		}
+		if !g.On(subsystem.Voice) {
+			t.Error("--voice must enable voice for this run")
+		}
 	})
 
 	t.Run("an absent flag never turns a persisted subsystem off", func(t *testing.T) {
-		on := config.VillaConfig{MemoryEnabled: true, WebSearchEnabled: true, AgentEnabled: true}
+		on := config.VillaConfig{MemoryEnabled: true, WebSearchEnabled: true, AgentEnabled: true, VoiceEnabled: true}
 		g := ResolveGates(on, Opts{}, fit())
-		for _, k := range []subsystem.Kind{subsystem.Memory, subsystem.WebSearch, subsystem.Agent} {
+		for _, k := range []subsystem.Kind{subsystem.Memory, subsystem.WebSearch, subsystem.Agent, subsystem.Voice} {
 			if !g.On(k) {
 				t.Errorf("a bare install turned %v OFF; disabling must be an explicit config edit", k)
 			}
@@ -228,22 +231,18 @@ func TestPlanGatesMatchTheConfigItWrites(t *testing.T) {
 		{"memory persisted", config.VillaConfig{MemoryEnabled: true}, Opts{}, fit()},
 		{"agent opt-in", config.VillaConfig{}, Opts{CodingAgent: true}, coderFit()},
 		{"web opt-in", config.VillaConfig{}, Opts{WebSearch: true}, fit()},
-		{"everything", config.VillaConfig{MemoryEnabled: true}, Opts{CodingAgent: true, WebSearch: true}, coderFit()},
+		{"voice opt-in", config.VillaConfig{}, Opts{Voice: true}, fit()},
+		{"voice persisted", config.VillaConfig{VoiceEnabled: true}, Opts{}, fit()},
+		{"workspace agent opt-in", config.VillaConfig{}, Opts{WorkspaceAgent: true}, fit()},
+		{"everything", config.VillaConfig{MemoryEnabled: true}, Opts{CodingAgent: true, WebSearch: true, WorkspaceAgent: true, Voice: true}, coderFit()},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			plan := AssemblePlan(tc.cfg, ResolveGates(tc.cfg, tc.opts, tc.rec), tc.rec, chosen)
-			if got := subsystem.MemoryOn(plan.Config); got != plan.Gates.Memory {
-				t.Errorf("memory: config says %v, gates say %v", got, plan.Gates.Memory)
-			}
-			if got := subsystem.WebSearchOn(plan.Config); got != plan.Gates.WebSearch {
-				t.Errorf("web search: config says %v, gates say %v", got, plan.Gates.WebSearch)
-			}
-			if got := subsystem.AgentOn(plan.Config); got != plan.Gates.Agent {
-				t.Errorf("agent: config says %v, gates say %v", got, plan.Gates.Agent)
-			}
-			if got := subsystem.CodingModeOn(plan.Config); got != plan.Gates.CodingMode {
-				t.Errorf("coding mode: config says %v, gates say %v", got, plan.Gates.CodingMode)
+			for _, k := range subsystem.Every {
+				if got, want := subsystem.On(plan.Config, k), plan.Gates.On(k); got != want {
+					t.Errorf("%v: config says %v, gates say %v", k, got, want)
+				}
 			}
 		})
 	}

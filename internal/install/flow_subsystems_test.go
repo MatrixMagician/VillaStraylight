@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 	"github.com/MatrixMagician/VillaStraylight/internal/preflight"
 	"github.com/MatrixMagician/VillaStraylight/internal/recall"
@@ -375,5 +376,193 @@ func TestInstallWebSearchRefusalsEndInNewline(t *testing.T) {
 				t.Errorf("refusal must end in a real newline, got %q", out)
 			}
 		})
+	}
+}
+
+// voiceUnits builds a voice-on plan: Render emits both voice units when the gate is
+// on, so both must be in the plan for the start gates to pass.
+func voiceUnits() ([]orchestrate.Unit, orchestrate.Plan) {
+	units := []orchestrate.Unit{
+		{Name: "villa-llama.container", Text: "[Container]\n"},
+		{Name: orchestrate.STTContainerUnitName(), Text: "[Container]\n"},
+		{Name: orchestrate.TTSContainerUnitName(), Text: "[Container]\n"},
+	}
+	return units, orchestrate.Plan{Changed: units}
+}
+
+// TestInstallVoiceWiring: with voice on, install pre-stages the whisper model before
+// any start, starts villa-stt then villa-tts after the chat UI, and proves the spoken
+// round trip once. A FAIL refuses and rolls back; voice off touches none of it.
+func TestInstallVoiceWiring(t *testing.T) {
+	t.Run("voice on: pre-stages, starts both units after the chat UI, proves, PASS folds into success", func(t *testing.T) {
+		units, plan := voiceUnits()
+		f := newFakeDeps(t, units, plan, passChecks())
+		f.voiceEnabled = true
+		f.voicePresent = false
+		f.voiceProofDetail = `heard "the quick brown fox" (agreement 1.00)`
+
+		code, out, errOut := f.run(Opts{})
+		if code != exitPass {
+			t.Fatalf("voice-on install exit = %d, want exitPass; stderr = %q", code, errOut.String())
+		}
+		if f.voiceEnsureCalls != 1 {
+			t.Errorf("an absent whisper model must be pre-staged once, EnsureVoiceModel calls = %d", f.voiceEnsureCalls)
+		}
+		ensure := slices.Index(f.callOrder, "ensureVoiceModel")
+		firstStart := slices.IndexFunc(f.callOrder, func(c string) bool { return strings.HasPrefix(c, "start:") })
+		if ensure < 0 || firstStart < 0 || ensure > firstStart {
+			t.Errorf("the whisper model must be staged before any start; callOrder = %v", f.callOrder)
+		}
+		chat := slices.Index(f.startOrder, openWebUIServiceName)
+		stt := slices.Index(f.startOrder, sttServiceName)
+		tts := slices.Index(f.startOrder, ttsServiceName)
+		if chat < 0 || stt < 0 || tts < 0 || chat > stt || stt > tts {
+			t.Errorf("want the chat UI, then %s, then %s; startOrder = %v", sttServiceName, ttsServiceName, f.startOrder)
+		}
+		if f.voiceProofCalls != 1 {
+			t.Errorf("voice-on must run the round-trip proof once, proof calls = %d", f.voiceProofCalls)
+		}
+		if slices.Index(f.callOrder, "voiceProof") < slices.Index(f.callOrder, "start:"+ttsServiceName) {
+			t.Errorf("the proof must follow both starts; callOrder = %v", f.callOrder)
+		}
+		if !strings.Contains(out.String(), `voice ready: heard "the quick brown fox" (agreement 1.00)`) {
+			t.Errorf("a PASS must narrate the proof's detail; stdout = %q", out.String())
+		}
+	})
+
+	t.Run("--voice turns the gate on and persists it", func(t *testing.T) {
+		units, plan := voiceUnits()
+		f := newFakeDeps(t, units, plan, passChecks())
+
+		code, _, errOut := f.run(Opts{Voice: true})
+		if code != exitPass {
+			t.Fatalf("exit = %d, want exitPass; stderr = %q", code, errOut.String())
+		}
+		if !f.savedCfg.VoiceEnabled {
+			t.Error("--voice must persist voice_enabled so a later bare install keeps it")
+		}
+		if !slices.Contains(f.startOrder, sttServiceName) || f.voiceProofCalls != 1 {
+			t.Errorf("--voice must start and prove the voice units; startOrder = %v, proof calls = %d", f.startOrder, f.voiceProofCalls)
+		}
+	})
+
+	t.Run("a pre-stage failure blocks before any mutation", func(t *testing.T) {
+		units, plan := voiceUnits()
+		f := newFakeDeps(t, units, plan, passChecks())
+		f.voiceEnabled = true
+		f.voicePresent = false
+		f.EnsureVoiceModel = func(string) error { return errors.New("checksum mismatch") }
+
+		code, _, errOut := f.run(Opts{})
+		if code != exitBlocked {
+			t.Fatalf("exit = %d, want exitBlocked; stderr = %q", code, errOut.String())
+		}
+		want := "install: pre-stage speech model " + orchestrate.WhisperModelFilename() + " failed: checksum mismatch"
+		if !strings.Contains(errOut.String(), want) {
+			t.Errorf("stderr = %q, want %q", errOut.String(), want)
+		}
+		if f.saveCalls != 0 || f.startCalls != 0 {
+			t.Errorf("a pre-stage failure must not mutate: save=%d start=%d", f.saveCalls, f.startCalls)
+		}
+	})
+
+	t.Run("proof FAIL refuses and rolls back", func(t *testing.T) {
+		units, plan := voiceUnits()
+		f := newFakeDeps(t, units, plan, passChecks())
+		f.voiceEnabled = true
+		f.voiceProofStatus = preflight.StatusFail
+		f.voiceProofDetail = "villa-tts returned no audio"
+
+		res, _, errOut := f.runResult(Opts{})
+		if res.Outcome != Refused {
+			t.Fatalf("outcome = %q, want %q; stderr = %q", res.Outcome, Refused, errOut.String())
+		}
+		if res.Outcome.ExitCode() != exitBlocked {
+			t.Errorf("exit = %d, want exitBlocked", res.Outcome.ExitCode())
+		}
+		if !strings.Contains(errOut.String(), "install: voice not ready: villa-tts returned no audio") {
+			t.Errorf("the FAIL must name voice and carry the detail; stderr = %q", errOut.String())
+		}
+	})
+
+	for _, missing := range []string{orchestrate.STTContainerUnitName(), orchestrate.TTSContainerUnitName()} {
+		t.Run("voice on but "+missing+" absent from the plan fails closed", func(t *testing.T) {
+			units, _ := voiceUnits()
+			units = slices.DeleteFunc(units, func(u orchestrate.Unit) bool { return u.Name == missing })
+			f := newFakeDeps(t, units, orchestrate.Plan{Changed: units}, passChecks())
+			f.voiceEnabled = true
+
+			code, _, errOut := f.run(Opts{})
+			if code != exitBlocked {
+				t.Fatalf("exit = %d, want exitBlocked; stderr = %q", code, errOut.String())
+			}
+			if !strings.Contains(errOut.String(), "INTERNAL ERROR") || !strings.Contains(errOut.String(), missing) {
+				t.Errorf("want the INTERNAL ERROR refusal naming %s; stderr = %q", missing, errOut.String())
+			}
+			if slices.Contains(f.startOrder, sttServiceName) || slices.Contains(f.startOrder, ttsServiceName) {
+				t.Errorf("no voice unit may start when either is absent; startOrder = %v", f.startOrder)
+			}
+			if f.voiceProofCalls != 0 {
+				t.Errorf("a fail-closed start gate must not reach the proof, proof calls = %d", f.voiceProofCalls)
+			}
+		})
+	}
+
+	t.Run("voice off: no pre-stage, no start, no proof", func(t *testing.T) {
+		units, plan := voiceUnits()
+		f := newFakeDeps(t, units, plan, passChecks())
+		f.voicePresent = false
+
+		code, _, errOut := f.run(Opts{})
+		if code != exitPass {
+			t.Fatalf("exit = %d, want exitPass; stderr = %q", code, errOut.String())
+		}
+		if f.voiceEnsureCalls != 0 || f.voiceProofCalls != 0 {
+			t.Errorf("voice off must stage and prove nothing: ensure=%d proof=%d", f.voiceEnsureCalls, f.voiceProofCalls)
+		}
+		if slices.Contains(f.startOrder, sttServiceName) || slices.Contains(f.startOrder, ttsServiceName) {
+			t.Errorf("voice off must start no voice unit; startOrder = %v", f.startOrder)
+		}
+	})
+
+	t.Run("a voice service running before the install is restarted on rollback, not stopped", func(t *testing.T) {
+		units, plan := voiceUnits()
+		f := newFakeDeps(t, units, plan, passChecks())
+		f.voiceEnabled = true
+		f.voiceProofStatus = preflight.StatusFail
+		f.activeState = "active"
+		for _, u := range units {
+			f.priorUnits[u.Name] = "[Container]\nImage=prior\n"
+		}
+
+		f.run(Opts{})
+		for _, svc := range []string{sttServiceName, ttsServiceName} {
+			lastRestart := lastIndex(f.callOrder, "restart:"+svc)
+			if lastRestart < 0 {
+				t.Errorf("%s was running before the install, so the rollback must restart it; callOrder = %v", svc, f.callOrder)
+				continue
+			}
+			if lastIndex(f.callOrder, "stop:"+svc) > lastRestart || lastIndex(f.callOrder, "start:"+svc) > lastRestart {
+				t.Errorf("%s: the rollback's restart must be the last call for it; callOrder = %v", svc, f.callOrder)
+			}
+		}
+	})
+}
+
+// TestInstallVoiceReservesBeforeTheFit: the install that turns voice on sizes its
+// pick against the config it persists, so the first `install --voice` already
+// subtracts the stt and tts rows rather than leaving them to the next run.
+func TestInstallVoiceReservesBeforeTheFit(t *testing.T) {
+	units, plan := voiceUnits()
+	f := newFakeDeps(t, units, plan, passChecks())
+
+	if code, _, errOut := f.run(Opts{Voice: true}); code != exitPass {
+		t.Fatalf("exit = %d, want exitPass; stderr = %q", code, errOut.String())
+	}
+	if got := rows(f.pickReservations); got != "stt,tts" {
+		t.Errorf("Pick received reservations %q, want stt,tts for the config install persists", got)
+	}
+	if got := rows(PlannedReservations(config.VillaConfig{}, Opts{Voice: true})); got != "stt,tts" {
+		t.Errorf("PlannedReservations with --voice = %q, want stt,tts", got)
 	}
 }
