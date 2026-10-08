@@ -68,6 +68,7 @@ func newInstall() *cobra.Command {
 	cmd.Flags().BoolVar(&opts.CodingAgent, "coding-agent", false, "install the local coding agent (Crush) addon: stage its pinned binary + coder model, render a locked-down config, and prove a tool-call round-trip")
 	cmd.Flags().BoolVar(&opts.WebSearch, "web-search", false, "install the web-search addon: render the SearXNG service + the SSRF-guarded villa-websafe loader, wire Open WebUI's native web search, and prove SearXNG readiness (opt-in; default off)")
 	cmd.Flags().BoolVar(&opts.WorkspaceAgent, "workspace-agent", false, "enable the workspace agent: persist the gate and serve the chat unit for tool calling, which is how the agent drives the endpoint (opt-in; default off)")
+	cmd.Flags().BoolVar(&opts.Voice, "voice", false, "install the voice addon: render whisper speech-to-text and Kokoro text-to-speech, wire Open WebUI's voice input and read-aloud, and prove a spoken round trip (opt-in; default off)")
 	return cmd
 }
 
@@ -199,6 +200,12 @@ func liveInstallDeps(ctx context.Context) (install.Deps, error) {
 		EnsureEmbedModel:   func(modelsDir string) error { return liveEnsureEmbedModel(ctx, modelsDir) },
 		RerankModelPresent: liveRerankModelPresent,
 		EnsureRerankModel:  func(modelsDir string) error { return liveEnsureRerankModel(ctx, modelsDir) },
+		VoiceModelPresent: func(modelsDir string) bool {
+			return liveCoderModelPresent(modelsDir, install.WhisperModelShard)
+		},
+		EnsureVoiceModel: func(modelsDir string) error {
+			return liveEnsureCoderModel(ctx, modelsDir, install.WhisperModelShard)
+		},
 		AgentCatalog: func() (catalog.Catalog, bool) {
 			cat, _, err := catalog.Load(modelCatalogPath)
 			if err != nil {
@@ -295,6 +302,9 @@ func liveInstallDeps(ctx context.Context) (install.Deps, error) {
 		ProveAgent: func(ctx context.Context) install.Proof {
 			p := evalAgentProof(liveAgentToolCallProbe(ctx))
 			return install.Proof{Status: p.status, Detail: p.detail}
+		},
+		ProveVoice: func(ctx context.Context) install.Proof {
+			return voiceInstallProof(liveVoiceProof(ctx))
 		},
 	}, nil
 }

@@ -64,6 +64,13 @@ func TestEveryWeightPullObservesItsCommandContext(t *testing.T) {
 		{"install coder shard", func(t *testing.T, ctx context.Context) error {
 			return liveEnsureCoderModel(ctx, t.TempDir(), catalog.Shard{})
 		}},
+		{"install speech model", func(t *testing.T, ctx context.Context) error {
+			d, err := liveInstallDeps(ctx)
+			if err != nil {
+				return err
+			}
+			return d.EnsureVoiceModel(t.TempDir())
+		}},
 		{"install main model", func(t *testing.T, ctx context.Context) error {
 			d, err := liveInstallDeps(ctx)
 			if err != nil {
