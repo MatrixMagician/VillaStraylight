@@ -261,7 +261,7 @@ func Render(in RenderInput) ([]Unit, error) {
 			Unit{Name: qdrantVolumeUnitName, Text: qdrantVolumeText},
 			Unit{Name: embedContainerUnitName, Text: embedContainerText},
 		)
-		// The reranker (ADR-0029) runs the embedder's image, so it resolves its pin
+		// The reranker (ADR-0028) runs the embedder's image, so it resolves its pin
 		// under the same component and moves with it.
 		if subsystem.RerankOn(in.Cfg) {
 			rerankContainerText, err := execTemplate(tmpl, "rerank.container.tmpl", buildRerankView(in.pinOr(ComponentEmbedder, embedImage), rerankGGUFFilename, mv.RerankAddr, mv.RerankPort))

@@ -293,7 +293,7 @@ forward.
 villa update --check                  # read-only: what is current, what has moved; works on a stopped stack
 villa update --dry-run                # the ordered plan, the download total and the snapshot disk; changes nothing
 villa update                          # apply, one subsystem at a time, each proven before it commits
-villa update <subsystem>              # apply to one of: inference, chat, memory, search, agent
+villa update <subsystem>              # apply to one of: inference, chat, memory, search, agent, voice
 ```
 
 Each subsystem is proven **before and after** it changes: villa refuses to start

@@ -291,7 +291,7 @@ func VoiceOn(cfg config.VillaConfig) bool { return On(cfg, Voice) }
 // read as a predicate anywhere else, which is the property the bypass test guards.
 func ToolsOn(cfg config.VillaConfig) bool { return cfg.ToolsMode || cfg.CodingMode }
 
-// RerankOn reports whether the memory stack's reranker is rendered (ADR-0029).
+// RerankOn reports whether the memory stack's reranker is rendered (ADR-0028).
 //
 // It is a DERIVED gate like ToolsOn, not a Kind: the reranker is part of the
 // memory subsystem (same image, same update restart set, same proof), so it needs

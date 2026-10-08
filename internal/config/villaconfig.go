@@ -63,7 +63,7 @@ const (
 	// EmbedPort is the in-network villa-embed OpenAI /v1 port.
 	EmbedPort = 8080
 	// RerankAddr is the container-DNS name of the villa-rerank llama-server, the
-	// memory stack's reranker (ADR-0029).
+	// memory stack's reranker (ADR-0028).
 	RerankAddr = "villa-rerank"
 	// RerankPort is the in-network villa-rerank port serving /v1/rerank.
 	RerankPort = 8080
@@ -139,7 +139,7 @@ type VillaConfig struct {
 	// it is recorded here as the anchor for the Phase-23 memory-aware swap guard.
 	EmbeddingDim int `toml:"embedding_dim,omitzero"`
 	// Reranker gates the memory stack's reranker unit and Open WebUI's hybrid
-	// search (ADR-0029). It is read only through subsystem.RerankOn, which also
+	// search (ADR-0028). It is read only through subsystem.RerankOn, which also
 	// needs MemoryEnabled. Written true by `villa install` once the reranker's
 	// weights are staged, so a memory-on config predating the key keeps the stack
 	// it had until the next install: Open WebUI pointed at an absent reranker

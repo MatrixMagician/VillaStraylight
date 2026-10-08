@@ -272,7 +272,7 @@ func buildOpenWebUIView(image string, mv memory.RenderInput, memoryEnabled bool,
 
 	if rerankOn {
 		// Hybrid search with the villa-rerank unit as the external reranker
-		// (ADR-0029), appended after the memory block it extends. With the engine
+		// (ADR-0028), appended after the memory block it extends. With the engine
 		// external, Open WebUI posts each query and its candidate chunks to the URL
 		// and sorts by the scores that come back; the key is the no-auth sentinel
 		// because the unit is container-DNS only on villa.network.

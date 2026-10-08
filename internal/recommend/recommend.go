@@ -324,10 +324,6 @@ const (
 	reservationEmbedding = "embedding"
 	reservationReranker  = "reranker"
 	reservationWebSearch = "web_search"
-	// Voice reserves two rows, not one, because two processes hold the memory and
-	// the fit table should say which.
-	reservationSTT = "stt"
-	reservationTTS = "tts"
 )
 
 // ReservationsFor is the reservation registry: one row for each service whose
@@ -350,8 +346,10 @@ func ReservationsFor(cfg config.VillaConfig) []Reservation {
 	}
 	if subsystem.VoiceOn(cfg) {
 		res = append(res,
-			Reservation{Name: reservationSTT, Bytes: voice.STTFootprintBytes()},
-			Reservation{Name: reservationTTS, Bytes: voice.TTSFootprintBytes()},
+			// Two rows, not one: two processes hold the memory and the fit table
+			// should say which. The names are the services' own.
+			Reservation{Name: voice.STT.Name, Bytes: voice.STTFootprintBytes()},
+			Reservation{Name: voice.TTS.Name, Bytes: voice.TTSFootprintBytes()},
 		)
 	}
 	return res
