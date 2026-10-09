@@ -98,7 +98,7 @@ func TestUpdateFollowsTheExtractorGate(t *testing.T) {
 	if got := strings.Join(*calls, "\n"); strings.Contains(got, "villa-extract") {
 		t.Errorf("the update touched the unrendered extractor:\n%s", got)
 	}
-	snap, err := liveCapture(off, subsystem.Memory)
+	snap, err := liveCapture(liveStackDeps(), off, subsystem.Memory)
 	if err != nil {
 		t.Fatalf("capture with the extractor unset: %v", err)
 	}
@@ -123,7 +123,7 @@ func TestUpdateFollowsTheExtractorGate(t *testing.T) {
 			t.Errorf("with the gate on the update did not run %q:\n%s", want, got)
 		}
 	}
-	snap, err = liveCapture(on, subsystem.Memory)
+	snap, err = liveCapture(liveStackDeps(), on, subsystem.Memory)
 	if err != nil {
 		t.Fatalf("capture with the extractor on: %v", err)
 	}
