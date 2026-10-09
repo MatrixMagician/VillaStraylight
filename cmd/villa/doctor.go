@@ -250,8 +250,9 @@ func liveCatalogGeometry(cfg config.VillaConfig) func() []preflight.CheckResult 
 //
 // ctx is the command's SIGINT/SIGTERM-cancelled context, captured by the proof
 // seams below. Without it `villa doctor` could not be interrupted: the three
-// residency proofs drive a live stack for up to residencyProofBudget /
-// agentProofBudget (60-90s) each, and the agent tool-call probe adds another 90s,
+// residency proofs drive a live stack for up to residencyProofBudget (60s) or the
+// agent budget (90s to 5min, sized from the served model's decode rate) each, and
+// the agent tool-call probe adds another agent budget,
 // so a Ctrl-C landed on a command that kept running for minutes. Cancelling is
 // safe by construction — doctor is read-only and mutates nothing, so an aborted
 // run leaves no half-applied state, and the podman probe containers are named, so
@@ -271,6 +272,9 @@ func liveDoctorDeps(ctx context.Context, cfg config.VillaConfig) (doctor.Deps, e
 	// ...and ONE config: the status report is folded from the config doctor decides
 	// from, not from a second load that could disagree with it.
 	sd.LoadConfig = func() (config.VillaConfig, error) { return cfg, nil }
+	// ...and ONE agent budget: the decode-rate probe behind it runs once, on the
+	// first agent proof that asks, and both agent proofs run under the same bound.
+	budget := sync.OnceValue(func() agentBudget { return liveAgentBudget(ctx, cfg) })
 	return doctor.Deps{
 		Probe:           sd.Probe,
 		StatusReport:    func() status.Report { return status.Run(*sd) },
@@ -292,8 +296,8 @@ func liveDoctorDeps(ctx context.Context, cfg config.VillaConfig) (doctor.Deps, e
 		// are constructed here, not run: a drive only fires when doctor.Aggregate
 		// invokes the seam for a subsystem that is on.
 		ResidencyUnderLoad:       liveResidencyUnderLoad(ctx, cfg, sd),
-		AgentToolCall:            liveAgentToolCallVerdict(ctx, cfg),
-		AgentResidencyUnderLoad:  liveAgentResidencyUnderLoad(ctx, cfg, sd),
+		AgentToolCall:            liveAgentToolCallVerdict(ctx, cfg, budget),
+		AgentResidencyUnderLoad:  liveAgentResidencyUnderLoad(ctx, cfg, sd, budget),
 		SearchResidencyUnderLoad: liveSearchResidencyUnderLoad(ctx, cfg, sd),
 		ImageResidency:           liveImageResidency(ctx, cfg, sd),
 		UnitDirExists:            liveUnitDirExists,
@@ -511,21 +515,21 @@ func runResidencyUnderLoad(ctx context.Context, cfg config.VillaConfig, sd *stat
 	})
 }
 
-// agentProofBudget bounds the WHOLE coding-agent tool-call round-trip (read→edit `crush
-// run`) the doctor tool-call + residency seams drive. It mirrors residencyProofBudget: a
-// timeout → err → a typed-Unknown WARN, never a hang masquerading as a PASS.
-const agentProofBudget = 90 * time.Second
+// The coding-agent tool-call round-trip (read→edit `crush run`) the doctor tool-call +
+// residency seams drive is bounded by an agentBudget (doctor_budget.go), sized from
+// the served model's measured decode rate. A timeout → err → a FAIL that names the
+// budget, never a hang masquerading as a PASS.
 
 const (
 	// agentResidencyDriveRounds bounds how many sequential tool-call round-trips the
 	// residency-under-load proof will drive while trying to catch one verifiably IN
 	// FLIGHT. The memory analog drives cheap embed requests; an agent
-	// round-trip is heavyweight, so a small bound under agentProofBudget suffices.
+	// round-trip is heavyweight, so a small bound under the agent budget suffices.
 	agentResidencyDriveRounds = 3
 	// agentResidencySettle is how long the proof waits after launching a tool-call
 	// round before checking it is still in flight, then sampling. Long enough
 	// that a real coder round-trip has demonstrably started loading the model, short
-	// enough to stay well inside agentProofBudget. A round that has already COMPLETED
+	// enough to stay well inside the agent budget. A round that has already COMPLETED
 	// by this point was too fast to have been sampled under load — that round is
 	// skipped and the next one is driven (or the proof degrades to a typed-Unknown
 	// WARN), never sampled idle (which could mask a CPU-fallback-under-load false-green).
@@ -547,7 +551,7 @@ const (
 // it: at the fastest rate (searchResidencyDecodeRateMax tok/s, measured 230 tok/s with
 // ngram speculation on the dev host) max_tokens must still outlast the settle with
 // margin, and at the slowest (searchResidencyDecodeRateMin tok/s, a dense model) every
-// round the proof may drive must fit inside agentProofBudget. 16 tokens finished in
+// round the proof may drive must fit inside agentProofBudgetFloor. 16 tokens finished in
 // ~0.38 s, before the settle, and the check was a permanent WARN (#286).
 const (
 	searchResidencyDriveRounds   = 3
@@ -647,7 +651,7 @@ func runSearchResidencyUnderLoad(ctx context.Context, cfg config.VillaConfig, sd
 			},
 			Rounds: searchResidencyDriveRounds,
 			Settle: searchResidencySettle,
-			Budget: agentProofBudget,
+			Budget: agentProofBudgetFloor,
 		},
 		Unsampled: func(residency.LoadResult) inference.Verdict {
 			return residency.Unevaluable(
@@ -660,35 +664,30 @@ func runSearchResidencyUnderLoad(ctx context.Context, cfg config.VillaConfig, sd
 // liveAgentToolCallVerdict builds the tool-call round-trip seam liveDoctorDeps
 // always binds (doctor.Aggregate gates the call on subsystem.AgentOn): a closure that runs the REUSED liveAgentToolCallProbe
 // (DEFINED at install_agent.go; the SAME read→edit `crush run` driver verify_agent.go
-// wires as agentTaskFn — never re-rolled here) and maps the outcome to an
-// inference.Verdict consumed opaquely by the doctor core. A completed round-trip →
-// StatusPass; not-completed → StatusFail; a probe error (binary absent, timeout, non-zero
-// exit) → StatusFail (a confident failure to drive the agent is a real fault, not an
-// unevaluable signal — the agent IS enabled). It is constructed (not run) at wiring time;
-// the drive only fires when doctor.Aggregate invokes the seam.
-func liveAgentToolCallVerdict(parent context.Context, _ config.VillaConfig) func() inference.Verdict {
+// wires as agentTaskFn — never re-rolled here) under the measured agent budget and
+// maps the outcome through agentToolCallVerdict, consumed opaquely by the doctor
+// core. A probe error (binary absent, timeout, non-zero exit) is StatusFail: a
+// confident failure to drive the agent is a real fault, not an unevaluable signal,
+// since the agent IS enabled. A round the budget killed is followed by a bounded
+// wait for the server's slots to drain, and the verdict says what they did. It is
+// constructed (not run) at wiring time; the drive only fires when doctor.Aggregate
+// invokes the seam.
+func liveAgentToolCallVerdict(parent context.Context, cfg config.VillaConfig, budget func() agentBudget) func() inference.Verdict {
 	return func() inference.Verdict {
-		ctx, cancel := context.WithTimeout(parent, agentProofBudget)
-		defer cancel()
+		b := budget()
+		client := inferenceClient(cfg)
+		before, _ := client.Counters(parent)
+		ctx, cancel := context.WithTimeout(parent, b.Budget)
 		completed, err := liveAgentToolCallProbe(ctx)()
-		if err != nil {
-			return inference.Verdict{
-				Status:      inference.StatusFail,
-				Detail:      fmt.Sprintf("the agent tool-call round-trip failed to run: %v", err),
-				Remediation: "ensure the agent is installed (`villa install --coding-agent`) and the stack is up (`villa up`), then re-run `villa doctor`; check `villa verify agent` and `villa logs`",
-			}
+		killed := err != nil && errors.Is(ctx.Err(), context.DeadlineExceeded)
+		cancel()
+		var kill *killedRound
+		if killed {
+			drain := liveSlotDrain(parent, cfg)
+			after, _ := client.Counters(parent)
+			kill = &killedRound{Drain: drain, Work: roundWorkBetween(before, after)}
 		}
-		if !completed {
-			return inference.Verdict{
-				Status:      inference.StatusFail,
-				Detail:      "the agent ran but did not complete the read→edit tool-call round-trip (the probe file was not edited as instructed)",
-				Remediation: "check `villa verify agent` and `villa logs` — the coder model may not be serving tool-calls correctly",
-			}
-		}
-		return inference.Verdict{
-			Status: inference.StatusPass,
-			Detail: "the agent completed a real read→edit tool-call round-trip over the local endpoint",
-		}
+		return agentToolCallVerdict(completed, err, b, kill)
 	}
 }
 
@@ -701,8 +700,8 @@ func liveAgentToolCallVerdict(parent context.Context, _ config.VillaConfig) func
 // mode, per distinct served model). Every unmet precondition / unevaluable drive
 // degrades to a typed-Unknown WARN; a confident CPU fallback of the coder under load is the
 // silent-degradation FAIL this seam exists to catch (consumed opaquely by the core).
-func liveAgentResidencyUnderLoad(ctx context.Context, cfg config.VillaConfig, sd *status.Deps) func() inference.Verdict {
-	return func() inference.Verdict { return runAgentResidencyUnderLoad(ctx, cfg, sd) }
+func liveAgentResidencyUnderLoad(ctx context.Context, cfg config.VillaConfig, sd *status.Deps, budget func() agentBudget) func() inference.Verdict {
+	return func() inference.Verdict { return runAgentResidencyUnderLoad(ctx, cfg, sd, budget()) }
 }
 
 // runAgentResidencyUnderLoad is the live under-tool-call-load residency proof for the
@@ -715,7 +714,7 @@ func liveAgentResidencyUnderLoad(ctx context.Context, cfg config.VillaConfig, sd
 // sampled idle, which could mask a CPU-fallback-under-load false-green). Every sampled
 // round is JOINED so no agent process outlives the call; if no round can be caught in
 // flight within the bounded rounds / budget, it degrades to a typed-Unknown WARN.
-func runAgentResidencyUnderLoad(ctx context.Context, cfg config.VillaConfig, sd *status.Deps) inference.Verdict {
+func runAgentResidencyUnderLoad(ctx context.Context, cfg config.VillaConfig, sd *status.Deps, budget agentBudget) inference.Verdict {
 	const subject = "coder residency under tool-call load"
 
 	// The shared proof shape carries the read-only gate (the served inference unit —
@@ -738,7 +737,7 @@ func runAgentResidencyUnderLoad(ctx context.Context, cfg config.VillaConfig, sd 
 			},
 			Rounds: agentResidencyDriveRounds,
 			Settle: agentResidencySettle,
-			Budget: agentProofBudget,
+			Budget: budget.Budget,
 		},
 		Unsampled: func(residency.LoadResult) inference.Verdict {
 			// No round stayed in flight long enough to sample, so the "under load"

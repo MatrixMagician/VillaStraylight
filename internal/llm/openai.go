@@ -147,6 +147,7 @@ type completeRequest struct {
 	MaxTokens   int       `json:"max_tokens"`
 	Seed        int       `json:"seed"`
 	Temperature float64   `json:"temperature"`
+	*Sampler
 }
 
 // completeResponse captures only the top-level timings block; the choices/content
@@ -268,6 +269,7 @@ func (c *OpenAIClient) Complete(ctx context.Context, req ChatRequest, nPredict i
 		MaxTokens:   nPredict,
 		Seed:        seed,
 		Temperature: temp,
+		Sampler:     req.Sampler,
 	})
 	if err != nil {
 		return Timings{}, fmt.Errorf("llm: marshal request: %w", err)

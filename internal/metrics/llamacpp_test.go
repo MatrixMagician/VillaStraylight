@@ -113,6 +113,9 @@ func TestParseCounters(t *testing.T) {
 	if !cs.PredictedTokensKnown || cs.PredictedTokensTotal != 48913 {
 		t.Errorf("PredictedTokensTotal = %d (known=%v), want 48913 (known=true)", cs.PredictedTokensTotal, cs.PredictedTokensKnown)
 	}
+	if !cs.PromptSecondsKnown || cs.PromptSecondsTotal != 412.25 {
+		t.Errorf("PromptSecondsTotal = %v (known=%v), want 412.25 (known=true)", cs.PromptSecondsTotal, cs.PromptSecondsKnown)
+	}
 
 	// Absent: a body without the two _total lines → Known=false, never a fabricated 0.
 	absent := ParseCounters([]byte(strings.Join([]string{
@@ -124,6 +127,9 @@ func TestParseCounters(t *testing.T) {
 	}
 	if absent.PredictedTokensKnown {
 		t.Errorf("PredictedTokensKnown=true on an absent counter, want false (typed-Unknown, no fabricated 0)")
+	}
+	if absent.PromptSecondsKnown {
+		t.Errorf("PromptSecondsKnown=true on an absent counter, want false (typed-Unknown, no fabricated 0)")
 	}
 	if absent.PromptTokensTotal != 0 || absent.PredictedTokensTotal != 0 {
 		t.Errorf("absent CounterSample carries non-zero totals %+v — Known=false MUST gate the zero value", absent)

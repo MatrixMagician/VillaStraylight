@@ -71,7 +71,9 @@ func TestDoctorProofsHonourTheCommandContext(t *testing.T) {
 	}{
 		{"memory residency", runResidencyUnderLoad},
 		{"search residency", runSearchResidencyUnderLoad},
-		{"agent residency", runAgentResidencyUnderLoad},
+		{"agent residency", func(ctx context.Context, cfg config.VillaConfig, sd *status.Deps) inference.Verdict {
+			return runAgentResidencyUnderLoad(ctx, cfg, sd, agentBudget{Budget: agentProofBudgetFloor})
+		}},
 	}
 
 	for _, p := range proofs {

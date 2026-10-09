@@ -48,6 +48,16 @@ type ChatRequest struct {
 	// ToolChoice is the OpenAI tool_choice string ("auto", "none" or "required");
 	// empty omits it and leaves the server default in effect.
 	ToolChoice string `json:"tool_choice,omitempty"`
+	// Sampler replaces the server's top-k, top-p and min-p for this request; nil
+	// keeps the server's. Only Complete sends it.
+	Sampler *Sampler `json:"-"`
+}
+
+// Sampler is llama-server's per-request top-k, top-p and min-p.
+type Sampler struct {
+	TopK int     `json:"top_k"`
+	TopP float64 `json:"top_p"`
+	MinP float64 `json:"min_p"`
 }
 
 // StreamFunc receives incremental content deltas as they arrive from the model.
