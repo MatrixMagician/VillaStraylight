@@ -264,7 +264,7 @@ type Report struct {
 // rendered (ADR-0028); no field changed shape, and a reranker-off report differs
 // from v10 only in schema_version.
 // Version 12 adds the villa-extract.service row when the extractor is rendered
-// (ADR-0029); no field changed shape, and an extractor-off report differs from
+// (ADR-0033); no field changed shape, and an extractor-off report differs from
 // v11 only in schema_version.
 const reportSchemaVersion = 12
 

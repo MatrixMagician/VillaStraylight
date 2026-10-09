@@ -286,7 +286,7 @@ func buildOpenWebUIView(image string, mv memory.RenderInput, memoryEnabled bool,
 	}
 
 	if extractOn {
-		// Tika as the content-extraction engine (ADR-0029): Open WebUI PUTs each
+		// Tika as the content-extraction engine (ADR-0033): Open WebUI PUTs each
 		// uploaded file to <url>/tika/text with the file's Content-Type and reads
 		// the X-TIKA:content key of the reply. All three are DB-backed ConfigVars,
 		// made authoritative by the trailing ENABLE_PERSISTENT_CONFIG=False that

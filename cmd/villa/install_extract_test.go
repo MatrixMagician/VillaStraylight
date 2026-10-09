@@ -11,7 +11,7 @@ import (
 // TestEvalMemoryProofCoversTheExtractor: with an extractor probe the memory proof
 // passes only when the extractor hands back the probe sentence; an error or an
 // empty extraction fails with a remediation naming the unit; with no probe
-// (extractor off) the verdict and detail are what they were (ADR-0029).
+// (extractor off) the verdict and detail are what they were (ADR-0033).
 func TestEvalMemoryProofCoversTheExtractor(t *testing.T) {
 	embedProbe := func() (int, error) { return 768, nil }
 	qdrantProbe := func() (bool, error) { return true, nil }

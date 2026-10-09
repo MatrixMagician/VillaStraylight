@@ -156,7 +156,7 @@ func TestLookupIsTheAllowlist(t *testing.T) {
 
 // TestForGroupsByProofUnit: the update flow walks subsystems, because the proof
 // unit is the verify verb's scope. Memory must yield Qdrant, the embedder and the
-// extractor (ADR-0029) — splitting them would produce a pairing with no proof and
+// extractor (ADR-0033) — splitting them would produce a pairing with no proof and
 // no meaning.
 func TestForGroupsByProofUnit(t *testing.T) {
 	cases := map[subsystem.Kind][]ComponentID{

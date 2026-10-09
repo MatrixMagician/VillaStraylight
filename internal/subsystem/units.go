@@ -28,7 +28,7 @@ import (
 //
 // The reranker (ADR-0028) is the first optional unit: it is memory's, runs
 // memory's pin and is proved with memory, but a memory-on host renders it only
-// with `reranker = true`; the extractor (ADR-0029) is the second, on its own
+// with `reranker = true`; the extractor (ADR-0033) is the second, on its own
 // `extractor = true`. Two consumers once assumed memory's list was static and
 // each grew its own on-disk check; the gate lives here instead, so stop, start,
 // capture and restart all read one answer.

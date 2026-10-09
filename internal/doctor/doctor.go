@@ -102,7 +102,7 @@ const (
 //     the status rows like v4/v5: one more health finding when the reranker is
 //     rendered, no new finding type. Reranker-off output is byte-identical except
 //     this bump.
-//   - v10: the villa-extract.service health finding (ADR-0029), folded for free
+//   - v10: the villa-extract.service health finding (ADR-0033), folded for free
 //     from the status rows like v9: one more health finding when the extractor is
 //     rendered, no new finding type. Extractor-off output is byte-identical except
 //     this bump.

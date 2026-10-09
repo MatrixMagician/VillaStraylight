@@ -2,7 +2,7 @@ package install
 
 import "testing"
 
-// TestInstallTurnsOnAndStartsTheExtractor guards ADR-0029's install story: with
+// TestInstallTurnsOnAndStartsTheExtractor guards ADR-0033's install story: with
 // memory on, install writes the extractor gate into the persisted config and
 // starts villa-extract after the reranker and before the memory proof. There are
 // no weights to stage. With memory off the gate stays off and nothing starts.

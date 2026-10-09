@@ -11,7 +11,7 @@ import (
 // removing a capability case must bump SuiteVersion, because a baseline recorded
 // under one suite must never be compared against another. The sha256 of the
 // embedded cases.json is pinned beside the version, and so is the digest of the
-// extract cases' fixtures (ADR-0029), since an edited document changes what a case
+// extract cases' fixtures (ADR-0033), since an edited document changes what a case
 // measures as surely as an edited case does; a changed file fails here until both
 // are moved together.
 func TestSuiteVersionPinsTheCases(t *testing.T) {

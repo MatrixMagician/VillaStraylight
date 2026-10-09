@@ -17,7 +17,7 @@ func TestRenderViewCarriesTheExtractorEndpoint(t *testing.T) {
 }
 
 // TestExtractFootprintIsTheMeasuredReservation: the extractor's footprint is the
-// bound the dev-host measurement implies (ADR-0029): the 1 GiB heap cap, the JVM's
+// bound the dev-host measurement implies (ADR-0033): the 1 GiB heap cap, the JVM's
 // native memory and up to three tesseract processes, rounded to 2 GiB.
 func TestExtractFootprintIsTheMeasuredReservation(t *testing.T) {
 	if got := ExtractFootprintBytes(); got != 2147483648 {

@@ -9,7 +9,7 @@ import (
 
 // TestExtractorRowFollowsItsGate: the registry holds an extractor row only when
 // the derived gate is on, after the reranker and before web search, and an
-// extractor flag without memory reserves nothing (ADR-0029).
+// extractor flag without memory reserves nothing (ADR-0033).
 func TestExtractorRowFollowsItsGate(t *testing.T) {
 	cases := []struct {
 		name string

@@ -550,7 +550,7 @@ func liveRerankHealth(addr string, port int) status.HealthState {
 var extractHealthCache = &inprobe.Cache{TTL: memoryHealthTTL}
 
 // liveExtractHealth probes the Tika server's /tika banner in-network with the same
-// coded mapping as the reranker's (ADR-0029).
+// coded mapping as the reranker's (ADR-0033).
 func liveExtractHealth(addr string, port int) status.HealthState {
 	return extractHealthCache.Get(func() status.HealthState {
 		return probeMemoryURL("http://" + net.JoinHostPort(addr, strconv.Itoa(port)) + "/tika")

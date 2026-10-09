@@ -65,7 +65,7 @@ type evalDeps struct {
 	// rerank scores documents against a query through the memory stack's reranker
 	// (ADR-0028), one score per document in document order.
 	rerank func(ctx context.Context, query string, docs []string) ([]float64, error)
-	// extract hands a document to the memory stack's extractor (ADR-0029) and
+	// extract hands a document to the memory stack's extractor (ADR-0033) and
 	// returns the text it extracted.
 	extract func(ctx context.Context, name, mime string, data []byte) (string, error)
 	// store is the eval-baselines.json byte seam.
@@ -153,7 +153,7 @@ func liveEvalExtract(ctx context.Context, _, mime string, data []byte) (string, 
 // postExtract is the one extraction request villa makes: the eval seam and the
 // install readiness probe both go through it. It PUTs data to the extractor's
 // /tika/text with mime as its Content-Type, the request Open WebUI's loader makes,
-// and returns the extracted text (ADR-0029). The unit is container-DNS only, so
+// and returns the extracted text (ADR-0033). The unit is container-DNS only, so
 // the request rides the in-network curl of the memory proof with the document on
 // stdin; helperImage is the probe helper, never a pin.
 func postExtract(ctx context.Context, helperImage, addr string, port int, mime string, data []byte) (string, error) {

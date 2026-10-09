@@ -104,7 +104,7 @@ const (
 	// separate component: one image, two roles, and the roles may diverge.
 	Embedder ComponentID = orchestrate.ComponentEmbedder
 	// Extractor is the Apache Tika image villa-extract serves document
-	// extraction from (ADR-0029).
+	// extraction from (ADR-0033).
 	Extractor ComponentID = orchestrate.ComponentExtractor
 	// SearXNG is the metasearch service image.
 	SearXNG ComponentID = orchestrate.ComponentSearXNG
@@ -345,7 +345,7 @@ func Table() []Entry {
 			Component: Extractor,
 			Subsystem: subsystem.Memory,
 			// Memory renders villa-extract only with `extractor = true`, so the pin
-			// is bound to the unit and follows that gate (ADR-0029).
+			// is bound to the unit and follows that gate (ADR-0033).
 			Unit:     orchestrate.ExtractContainerUnitName(),
 			Shape:    VersionTag,
 			Registry: registryDockerIO,

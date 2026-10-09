@@ -188,7 +188,7 @@ func TestDoctorUnknownOverallFailsClosed(t *testing.T) {
 }
 
 // TestDoctorJSON freezes doctor's OWN --json contract byte-for-byte. The
-// golden MUST carry "schema_version": 10 (the sandbox fold, issue #176, the TMD-01 tools-mode drift finding, issue #173, the reranker health row, ADR-0028, then the extractor health row, ADR-0029). doctor never extends status.Report's golden.
+// golden MUST carry "schema_version": 10 (the sandbox fold, issue #176, the TMD-01 tools-mode drift finding, issue #173, the reranker health row, ADR-0028, then the extractor health row, ADR-0033). doctor never extends status.Report's golden.
 func TestDoctorJSON(t *testing.T) {
 	var buf bytes.Buffer
 	renderDoctor(&buf, healthyReport(), true, false)

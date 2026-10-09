@@ -34,7 +34,7 @@ const (
 	// KindRerank accepts a reranker scoring in which the document at Top scores
 	// highest alone (ADR-0028). It is judged on scores, never on a reply.
 	KindRerank Kind = "rerank"
-	// KindExtract accepts an extraction whose text Pattern matches (ADR-0029). It
+	// KindExtract accepts an extraction whose text Pattern matches (ADR-0033). It
 	// is judged on the extracted text, never on a reply.
 	KindExtract Kind = "extract"
 )

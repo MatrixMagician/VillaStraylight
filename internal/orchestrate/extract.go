@@ -1,7 +1,7 @@
 package orchestrate
 
 // extract.go holds the villa-extract managed-service constants and view builder
-// (ADR-0029). The extractor is the memory stack's document extractor: an Apache
+// (ADR-0033). The extractor is the memory stack's document extractor: an Apache
 // Tika server Open WebUI hands each uploaded file to for its text, OCR included.
 // Like villa-embed it has no GPU device passthrough and publishes no host port,
 // and like qdrantImage its image is a fixed OSS managed-service literal, a

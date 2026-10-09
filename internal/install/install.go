@@ -137,7 +137,7 @@ func ResolveGates(cfg config.VillaConfig, opts Opts, rec recommend.Recommendatio
 // operator who entered tools mode deliberately keeps it when the addon is off; the
 // reranker follows memory, since install is the one verb that stages its weights
 // (ADR-0028), and so does the extractor, since install is the one verb that starts
-// and proves it (ADR-0029). Coding mode is not here: its fields carry the coder identity the
+// and proves it (ADR-0033). Coding mode is not here: its fields carry the coder identity the
 // recommendation resolves, so AssemblePlan writes them.
 func (g Gates) Persist(cfg config.VillaConfig) config.VillaConfig {
 	cfg.MemoryEnabled = g.Memory

@@ -40,7 +40,7 @@ type Case struct {
 	// conducted through Deps.Rerank, never as a completion, and is skipped when the
 	// reranker is off.
 	Documents []string `json:"documents,omitempty"`
-	// Document names an extract case's fixture under the embedded docs/ (ADR-0029)
+	// Document names an extract case's fixture under the embedded docs/ (ADR-0033)
 	// and Mime the Content-Type it is handed to the extractor with. The prompt is the
 	// question the fixture answers: documentation, and the bench's query, never sent.
 	// The case is conducted through Deps.Extract and skipped when the extractor is
@@ -121,7 +121,7 @@ type Baseline Run
 // (ADR-0028); RerankOn reports whether the reranker is rendered (subsystem.RerankOn),
 // and when it is false a rerank case is skipped unsent. Extract hands a fixture's
 // bytes to the extractor under its name and mime and returns the extracted text
-// (ADR-0029); ExtractOn reports whether the extractor is rendered
+// (ADR-0033); ExtractOn reports whether the extractor is rendered
 // (subsystem.ExtractOn), and when it is false an extract case is skipped unsent.
 type Deps struct {
 	Complete  func(ctx context.Context, req llm.ChatRequest) (llm.Reply, error)

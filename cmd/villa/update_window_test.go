@@ -66,7 +66,7 @@ func TestStoppedWindowFollowsTheRerankerGate(t *testing.T) {
 }
 
 // TestUpdateFollowsTheExtractorGate: the extractor is memory's second optional
-// unit (ADR-0029), so every seam of a memory update reads its gate the way it
+// unit (ADR-0033), so every seam of a memory update reads its gate the way it
 // reads the reranker's. With `extractor` unset the stopped window, the restart and
 // the capture never name villa-extract, even when a stale unit file sits on disk;
 // with the gate on, the extractor is stopped, started, restarted and captured.

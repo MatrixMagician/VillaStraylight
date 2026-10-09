@@ -1163,7 +1163,7 @@ func TestAgentCleanDriftPasses(t *testing.T) {
 // TestDoctorSchemaVersionIsTen: doctor's OWN --json contract self-version was
 // bumped append-only 6→7 for the sandbox fold (SBX-01/SBX-02, issue #176), 7→8
 // for the TMD-01 tools-mode drift finding (issue #173), 8→9 for the reranker
-// health row (ADR-0028) and 9→10 for the extractor health row (ADR-0029). The
+// health row (ADR-0028) and 9→10 for the extractor health row (ADR-0033). The
 // const is the single source of truth — Aggregate stamps it on every Report.
 // INDEPENDENT of status's reportSchemaVersion.
 func TestDoctorSchemaVersionIsTen(t *testing.T) {

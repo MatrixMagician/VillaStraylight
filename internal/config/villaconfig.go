@@ -68,7 +68,7 @@ const (
 	// RerankPort is the in-network villa-rerank port serving /v1/rerank.
 	RerankPort = 8080
 	// ExtractAddr is the container-DNS name of the villa-extract Apache Tika
-	// server, the memory stack's document extractor (ADR-0029).
+	// server, the memory stack's document extractor (ADR-0033).
 	ExtractAddr = "villa-extract"
 	// ExtractPort is the in-network villa-extract port serving /tika.
 	ExtractPort = 9998
@@ -151,7 +151,7 @@ type VillaConfig struct {
 	// would answer every RAG query with no documents at all.
 	Reranker bool `toml:"reranker,omitempty"`
 	// Extractor gates the memory stack's document extractor unit and Open WebUI's
-	// Tika content extraction (ADR-0029). It is read only through
+	// Tika content extraction (ADR-0033). It is read only through
 	// subsystem.ExtractOn, which also needs MemoryEnabled. Written true by `villa
 	// install`, so a memory-on config predating the key keeps the stack it had
 	// until the next install: Open WebUI pointed at an absent extractor would fail

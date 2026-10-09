@@ -270,7 +270,7 @@ func Render(in RenderInput) ([]Unit, error) {
 			}
 			units = append(units, Unit{Name: rerankContainerUnitName, Text: rerankContainerText})
 		}
-		// The extractor (ADR-0029) runs its own image, so it resolves its pin under
+		// The extractor (ADR-0033) runs its own image, so it resolves its pin under
 		// its own component.
 		if subsystem.ExtractOn(in.Cfg) {
 			extractContainerText, err := execTemplate(tmpl, "extract.container.tmpl", buildExtractView(in.pinOr(ComponentExtractor, extractImage), mv.ExtractAddr))

@@ -9,7 +9,7 @@ import (
 
 // TestExtractorRoundTripsWithMemoryOn: the extractor gate survives a save and load
 // beside the memory fields it belongs to, so a `villa install` that turned the
-// extractor on is still rendering it after the next load (ADR-0029).
+// extractor on is still rendering it after the next load (ADR-0033).
 func TestExtractorRoundTripsWithMemoryOn(t *testing.T) {
 	cfg := DefaultVillaConfig()
 	cfg.MemoryEnabled = true

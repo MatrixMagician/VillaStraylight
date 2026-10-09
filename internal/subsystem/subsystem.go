@@ -301,7 +301,7 @@ func ToolsOn(cfg config.VillaConfig) bool { return cfg.ToolsMode || cfg.CodingMo
 func RerankOn(cfg config.VillaConfig) bool { return MemoryOn(cfg) && cfg.Reranker }
 
 // ExtractOn reports whether the memory stack's document extractor is rendered
-// (ADR-0029).
+// (ADR-0033).
 //
 // It is a DERIVED gate like RerankOn, not a Kind: the extractor is part of the
 // memory subsystem (same update restart set, same proof), so it needs memory on,

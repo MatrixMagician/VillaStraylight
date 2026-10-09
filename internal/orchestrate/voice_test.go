@@ -112,6 +112,7 @@ func TestRenderVoiceUnitsAfterInferproxyBeforeSandboxNetwork(t *testing.T) {
 		"villa-qdrant.volume",
 		"villa-embed.container",
 		"villa-rerank.container",
+		"villa-extract.container",
 		"villa-searxng.container",
 		"villa-websafe.container",
 		"villa-inferproxy.container",

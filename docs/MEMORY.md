@@ -158,7 +158,7 @@ hand-editing the unit. The block is byte-frozen by a golden test; it evolves app
 | `RAG_RERANKING_MODEL` | `bge-reranker-v2-m3` | The model name sent with each rerank request; `villa-rerank` serves exactly this one. |
 | `RAG_EXTERNAL_RERANKER_URL` | `http://villa-rerank:8080/v1/rerank` | The local reranker by container-DNS; no host port. |
 | `RAG_EXTERNAL_RERANKER_API_KEY` | `sk-no-key-required` | Sentinel: the private `villa.network` reranker needs no real key. |
-| `CONTENT_EXTRACTION_ENGINE` | `tika` | Rendered only with `extractor = true` (ADR-0029). Hand every non-text upload to the local Tika server instead of Open WebUI's own loaders, which cannot read a scanned PDF. |
+| `CONTENT_EXTRACTION_ENGINE` | `tika` | Rendered only with `extractor = true` (ADR-0033). Hand every non-text upload to the local Tika server instead of Open WebUI's own loaders, which cannot read a scanned PDF. |
 | `TIKA_SERVER_URL` | `http://villa-extract:9998` | The local extractor by container-DNS; no host port. |
 | `TIKA_SERVER_VERSION` | `3` | The request shape for a Tika 3 server (`PUT /tika/text`, reading `X-TIKA:content`). |
 | `ENABLE_PERSISTENT_CONFIG` | `False` | **Load-bearing.** Without it, OWUI bakes RAG/memory settings into `webui.db` on first boot and then **ignores** the env; config drifts off `config.toml`. `False` makes the rendered env win, so **config stays the single source of truth**. |
@@ -214,7 +214,7 @@ PDF has no text layer, so pypdf returns nothing and the upload is refused with
 "The content provided is empty"; the document never reaches Qdrant. With the
 extractor on, every non-text upload is sent to `villa-extract`, an Apache Tika 3.3.1
 server with tesseract OCR, and the text it returns is what gets chunked and embedded
-(ADR-0029). Plain-text files still bypass it inside Open WebUI.
+(ADR-0033). Plain-text files still bypass it inside Open WebUI.
 
 `villa-extract` is rendered when `memory_enabled = true` **and** `extractor = true`.
 `villa install` writes the second key when memory is on, so a memory-on install that

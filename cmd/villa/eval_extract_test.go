@@ -8,7 +8,7 @@ import (
 // TestEvalConductsExtractCasesWhenTheGateIsOn: the verb answers the extractor gate
 // from the config it loaded, so with memory and the extractor on the extract case
 // is conducted through the extract seam and graded, while a memory-only config
-// skips it (ADR-0029).
+// skips it (ADR-0033).
 func TestEvalConductsExtractCasesWhenTheGateIsOn(t *testing.T) {
 	all := map[string]string{"pa": "4", "pb": "30", "pc": "x"}
 	cfg := evalTestConfig()

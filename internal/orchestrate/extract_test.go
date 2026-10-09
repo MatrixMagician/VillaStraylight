@@ -14,7 +14,7 @@ func extractFixtureInput() RenderInput {
 
 // TestRenderExtractUnitGolden: the villa-extract.container unit matches its golden
 // byte-for-byte, runs the pinned Tika image with the 1 GiB heap bound the
-// footprint was measured under (ADR-0029), and carries no volume, no published
+// footprint was measured under (ADR-0033), and carries no volume, no published
 // port, no device and no Exec.
 func TestRenderExtractUnitGolden(t *testing.T) {
 	units, err := Render(extractFixtureInput())

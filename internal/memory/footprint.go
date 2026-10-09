@@ -56,7 +56,7 @@ const rerankFootprintBytes uint64 = 2 << 30
 func RerankFootprintBytes() uint64 { return rerankFootprintBytes }
 
 // extractFootprintBytes is the document extractor unit's resident reservation
-// (ADR-0029).
+// (ADR-0033).
 //
 // Measured on the dev host (2026-10-08) with the pinned Apache Tika 3.3.1 image
 // under the unit's `JAVA_TOOL_OPTIONS=-Xmx1g`: cgroup peak 952 MiB after one

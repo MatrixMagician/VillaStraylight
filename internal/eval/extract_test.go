@@ -20,7 +20,7 @@ func extractCase(id, pattern string) Case {
 	}
 }
 
-// TestParseSuiteEnforcesTheExtractRules (ADR-0029): an extract case needs a
+// TestParseSuiteEnforcesTheExtractRules (ADR-0033): an extract case needs a
 // fixture that exists under docs/, a mime and a compilable pattern, carries no
 // tools and no rerank documents, and needs no token bound.
 func TestParseSuiteEnforcesTheExtractRules(t *testing.T) {
@@ -54,7 +54,7 @@ func TestParseSuiteEnforcesTheExtractRules(t *testing.T) {
 }
 
 // TestEmbeddedSuiteCarriesTheExtractionCases: the shipped suite holds the three
-// extract cases (ADR-0029), a scanned letter that needs OCR, a table row and a
+// extract cases (ADR-0033), a scanned letter that needs OCR, a table row and a
 // .docx, each over a fixture the suite embeds.
 func TestEmbeddedSuiteCarriesTheExtractionCases(t *testing.T) {
 	cases, err := Suite()
@@ -95,7 +95,7 @@ func TestFixtureReadsOnlyTheEmbeddedDocuments(t *testing.T) {
 	}
 }
 
-// TestExecuteConductsExtractCasesThroughTheExtractSeam (ADR-0029): an extract case
+// TestExecuteConductsExtractCasesThroughTheExtractSeam (ADR-0033): an extract case
 // never reaches the completion seam. With the extractor off it is skipped with its
 // own reason; a seam error is unconducted; otherwise the fixture's bytes and mime
 // are handed to the extractor and the text is graded against the pattern, with an

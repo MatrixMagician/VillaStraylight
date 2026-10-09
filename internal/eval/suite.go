@@ -3,7 +3,7 @@ package eval
 // suite.go embeds the villa-authored capability suite and loads it fail-closed: an
 // unknown grader kind, an unknown field, a duplicate id, or a case missing what its
 // kind needs is a load error, never a case that silently passes (ADR-0018). It
-// embeds the extract cases' documents beside it (ADR-0029), so a case names a
+// embeds the extract cases' documents beside it (ADR-0033), so a case names a
 // fixture the binary carries and never a path on the host.
 
 import (
