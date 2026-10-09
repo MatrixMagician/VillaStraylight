@@ -84,6 +84,7 @@ func TestRenderEmptyResidentIsByteIdentical(t *testing.T) {
 		"villa-openwebui.container",
 		"villa-openwebui.volume",
 		"villa-sandbox.network", // unconditional (issue #199)
+		"villa-closed.network",  // unconditional (ADR-0036)
 	}
 	got := unitNames(units)
 	if len(got) != len(want) {
@@ -102,25 +103,26 @@ func TestRenderEmptyResidentIsByteIdentical(t *testing.T) {
 		"villa-openwebui.container": "villa-openwebui.container.golden",
 		"villa-openwebui.volume":    "villa-openwebui.volume.golden",
 		"villa-sandbox.network":     "villa-sandbox.network.golden",
+		"villa-closed.network":      "villa-closed.network.golden",
 	}
 	for _, u := range units {
 		goldenCompare(t, goldens[u.Name], u.Text)
 	}
 
 	// The memory-ON and web-search-ON stacks must also be untouched: an empty
-	// Resident may not shift where their optional units land. The sandbox network is
-	// dropped from the fixed-five base and re-appended last, since it renders AFTER
-	// the memory/web-search blocks regardless of either gate.
-	fixedFive := want[:len(want)-1]
+	// Resident may not shift where their optional units land. The sandbox and closed
+	// networks are dropped from the fixed-five base and re-appended last, since they
+	// render AFTER the memory/web-search blocks regardless of either gate.
+	fixedFive := want[:len(want)-2]
 	for _, tc := range []struct {
 		name string
 		in   RenderInput
 		want []string
 	}{
 		{"memory-on", memoryFixtureInput(), append(append(append([]string{}, fixedFive...),
-			"villa-qdrant.container", "villa-qdrant.volume", "villa-embed.container"), "villa-sandbox.network")},
+			"villa-qdrant.container", "villa-qdrant.volume", "villa-embed.container"), "villa-sandbox.network", "villa-closed.network")},
 		{"websearch-on", searxngFixtureInput(), append(append(append([]string{}, fixedFive...),
-			"villa-searxng.container", "villa-websafe.container"), "villa-sandbox.network")},
+			"villa-searxng.container", "villa-websafe.container"), "villa-sandbox.network", "villa-closed.network")},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			units, err := Render(tc.in)
@@ -172,6 +174,7 @@ func TestRenderResidentUnitOrder(t *testing.T) {
 		residentUnitName,
 		"villa-llama-gemma3-12b.container",
 		"villa-sandbox.network", // unconditional (issue #199)
+		"villa-closed.network",  // unconditional (ADR-0036)
 	}
 	got := unitNames(units)
 	if len(got) != len(want) {

@@ -27,7 +27,7 @@ func TestRenderExtractUnitGolden(t *testing.T) {
 	for _, want := range []string{
 		"ContainerName=villa-extract",
 		"Image=docker.io/apache/tika:3.3.1.0-full@sha256:d8e6ed96260ad89307a93195a1b856102987a818ac648502f8efbaf313d32470",
-		"Network=villa.network",
+		"Network=villa-closed.network",
 		"Environment=JAVA_TOOL_OPTIONS=-Xmx1g",
 	} {
 		if !strings.Contains(c.Text, want) {
@@ -62,6 +62,7 @@ func TestRenderExtractUnitOrder(t *testing.T) {
 		"villa-rerank.container",
 		"villa-extract.container",
 		"villa-sandbox.network",
+		"villa-closed.network",
 	}
 	got := unitNames(units)
 	if strings.Join(got, ",") != strings.Join(want, ",") {

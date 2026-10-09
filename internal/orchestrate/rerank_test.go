@@ -57,6 +57,7 @@ func TestRenderRerankUnitOrder(t *testing.T) {
 		"villa-embed.container",
 		"villa-rerank.container",
 		"villa-sandbox.network",
+		"villa-closed.network",
 	}
 	got := unitNames(units)
 	if strings.Join(got, ",") != strings.Join(want, ",") {

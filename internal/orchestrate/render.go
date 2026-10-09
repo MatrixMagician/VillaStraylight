@@ -35,6 +35,14 @@ const (
 	volumeName    = "villa-models"
 )
 
+// The closed network's identities (ADR-0036): Internal=true, joined by every
+// service with no runtime need to reach off-box, and by Open WebUI to reach them.
+const (
+	closedNetworkUnitName = "villa-closed.network"
+	closedNetworkName     = "villa-closed"
+	closedNetworkAttach   = "villa-closed.network"
+)
+
 // containerView is the parsed-from-the-seam data the container template renders.
 // Every imperative field is sourced out of ContainerArgs/Image(), never literal.
 type containerView struct {
@@ -81,7 +89,11 @@ func backendLabel(name string) string {
 	}
 }
 
-type networkView struct{ NetworkName string }
+type networkView struct {
+	UnitFileName string
+	NetworkName  string
+	Internal     bool
+}
 
 type volumeView struct {
 	VolumeName string
@@ -172,7 +184,7 @@ func Render(in RenderInput) ([]Unit, error) {
 	if err != nil {
 		return nil, err
 	}
-	networkText, err := execTemplate(tmpl, "network.tmpl", networkView{NetworkName: networkName})
+	networkText, err := execTemplate(tmpl, "network.tmpl", networkView{UnitFileName: networkUnitName, NetworkName: networkName})
 	if err != nil {
 		return nil, err
 	}
@@ -184,8 +196,8 @@ func Render(in RenderInput) ([]Unit, error) {
 	// Open WebUI is the 4th/5th unit: a dedicated managed-service render path
 	// (openwebui.go) — NOT the inference Backend seam. Pitfall 4: routing it through
 	// parseContainerArgs would trip that helper's defensive all-fields-non-empty check
-	// (Open WebUI has no device/group/exec args). The owui view reuses networkAttach so
-	// it joins villa.network unchanged — the Phase-3 forward-compat scaffold pays off.
+	// (Open WebUI has no device/group/exec args). It joins villa.network and
+	// villa-closed, the one client on both sides (ADR-0036).
 	//
 	// Phase-20: Open WebUI is now memory-aware. The OWUI env block grows only
 	// when memory_enabled=true — the RAG/Qdrant/memory group is appended from the
@@ -400,11 +412,19 @@ func Render(in RenderInput) ([]Unit, error) {
 	// villa-inferproxy unit above stays gated (GHSA-gvp9 moved the gated join from
 	// villa-llama's second Network= line to this unit's existence): that is what
 	// actually changes runtime behavior.
-	sandboxNetworkText, err := execTemplate(tmpl, "sandbox.network.tmpl", networkView{NetworkName: sandboxNetworkName})
+	sandboxNetworkText, err := execTemplate(tmpl, "network.tmpl", networkView{UnitFileName: sandboxNetworkUnitName, NetworkName: sandboxNetworkName, Internal: true})
 	if err != nil {
 		return nil, err
 	}
 	units = append(units, Unit{Name: sandboxNetworkUnitName, Text: sandboxNetworkText})
+
+	// The closed network (ADR-0036), rendered unconditionally and last for the
+	// sandbox network's reasons: Open WebUI always joins it, so it always exists.
+	closedNetworkText, err := execTemplate(tmpl, "network.tmpl", networkView{UnitFileName: closedNetworkUnitName, NetworkName: closedNetworkName, Internal: true})
+	if err != nil {
+		return nil, err
+	}
+	units = append(units, Unit{Name: closedNetworkUnitName, Text: closedNetworkText})
 
 	return units, nil
 }

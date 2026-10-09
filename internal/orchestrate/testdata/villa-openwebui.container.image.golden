@@ -8,6 +8,7 @@ After=villa-llama.service
 ContainerName=villa-openwebui
 Image=ghcr.io/open-webui/open-webui:main@sha256:1a6399d237dc392a2313e0ca826020b3fd5d22536357840eb63393d18dc8b924
 Network=villa.network
+Network=villa-closed.network
 PublishPort=127.0.0.1:3000:8080
 Volume=villa-openwebui.volume:/app/backend/data:Z
 EnvironmentFile=%h/.config/villa/inference/llama.env

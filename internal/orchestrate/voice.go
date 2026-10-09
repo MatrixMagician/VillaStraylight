@@ -132,7 +132,7 @@ func buildSttView(image string) (sttView, error) {
 	return sttView{
 		ContainerName: voice.STT.Host,
 		Image:         image,
-		Network:       networkAttach,
+		Network:       closedNetworkAttach,
 		AddDevice:     devices,
 		Volume:        embedModelMount,
 		Entrypoint:    sttEntrypoint,
@@ -156,5 +156,5 @@ func buildSttExec(modelFilename string) string {
 
 // buildTtsView assembles the villa-tts view from the resolved pin.
 func buildTtsView(image string) ttsView {
-	return ttsView{ContainerName: voice.TTS.Host, Image: image, Network: networkAttach, Env: ttsEnv}
+	return ttsView{ContainerName: voice.TTS.Host, Image: image, Network: closedNetworkAttach, Env: ttsEnv}
 }

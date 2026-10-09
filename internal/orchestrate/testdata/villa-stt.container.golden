@@ -1,12 +1,12 @@
 # ~/.config/containers/systemd/villa-stt.container  (GENERATED — do not edit; source: config.toml)
 [Unit]
 Description=VillaStraylight speech-to-text (whisper-server, Vulkan)
-After=villa-network.service
+After=villa-closed-network.service
 
 [Container]
 ContainerName=villa-stt
 Image=ghcr.io/ggml-org/whisper.cpp:main-vulkan@sha256:8bbf6a98c256b67fed7664fc379755d724560bcab7714906f449b97b7bc88955
-Network=villa.network
+Network=villa-closed.network
 AddDevice=/dev/dri
 Volume=villa-models:/models:ro,z
 Entrypoint=/usr/local/bin/whisper-server

@@ -55,8 +55,8 @@ type ImageServe struct {
 }
 
 // imageView is what image.container.tmpl renders. No PublishPort: container DNS on
-// villa.network only. No EnvironmentFile: sd-server takes no key, and only
-// villa.network members (Open WebUI, the probe helper) can reach it.
+// villa-closed only. No EnvironmentFile: sd-server takes no key, and only
+// villa-closed members (Open WebUI, the probe helper) can reach it.
 type imageView struct {
 	ContainerName string
 	Image         string
@@ -81,7 +81,7 @@ func buildImageView(image string, s ImageServe, gpu inference.GPUAccess, addr st
 	return imageView{
 		ContainerName: addr,
 		Image:         image,
-		Network:       networkAttach,
+		Network:       closedNetworkAttach,
 		AddDevice:     gpu.Devices,
 		GroupAdd:      gpu.Groups,
 		PodmanArgs:    strings.Join(podmanArgs, " "),
@@ -117,7 +117,7 @@ func imageOpenWebUIEnv(s ImageServe, addr string, port int) []envPair {
 	}
 }
 
-// ImageInNetworkEndpoint is sd-server's base URL on villa.network, for the
+// ImageInNetworkEndpoint is sd-server's base URL on villa-closed, for the
 // in-network probes (readiness and the proof's generation).
 func ImageInNetworkEndpoint() string {
 	return fmt.Sprintf("http://%s:%d", config.ImageAddr, config.ImagePort)

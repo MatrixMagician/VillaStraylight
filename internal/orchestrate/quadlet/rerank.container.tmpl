@@ -1,7 +1,7 @@
 # ~/.config/containers/systemd/villa-rerank.container  (GENERATED — do not edit; source: config.toml)
 [Unit]
 Description=VillaStraylight reranker (llama-server /v1/rerank)
-After=villa-network.service
+After=villa-closed-network.service
 
 [Container]
 ContainerName={{.ContainerName}}

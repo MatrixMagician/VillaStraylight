@@ -1,12 +1,12 @@
 # ~/.config/containers/systemd/villa-image.container  (GENERATED — do not edit; source: config.toml)
 [Unit]
 Description=VillaStraylight image generation (stable-diffusion.cpp sd-server, Vulkan RADV)
-After=villa-network.service
+After=villa-closed-network.service
 
 [Container]
 ContainerName=villa-image
 Image=ghcr.io/leejet/stable-diffusion.cpp:master-vulkan@sha256:367ccc4e2b09e3c9948cb3b93bd530466547416722171409f968241c50659181
-Network=villa.network
+Network=villa-closed.network
 AddDevice=/dev/dri
 GroupAdd=keep-groups
 Volume=villa-models:/models:ro,z

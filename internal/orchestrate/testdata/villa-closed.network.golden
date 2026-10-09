@@ -1,0 +1,7 @@
+# ~/.config/containers/systemd/villa-closed.network  (GENERATED — do not edit; source: config.toml)
+[Network]
+NetworkName=villa-closed
+Internal=true
+
+[Install]
+WantedBy=default.target

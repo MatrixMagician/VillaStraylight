@@ -47,8 +47,8 @@ func TestRenderQdrant(t *testing.T) {
 	if !strings.Contains(c.Text, "Image=docker.io/qdrant/qdrant:v1.18.2-unprivileged@sha256:") {
 		t.Errorf("qdrant unit missing digest-pinned image:\n%s", c.Text)
 	}
-	if !strings.Contains(c.Text, "Network=villa.network") {
-		t.Errorf("qdrant unit missing Network=villa.network:\n%s", c.Text)
+	if !strings.Contains(c.Text, "Network=villa-closed.network") {
+		t.Errorf("qdrant unit missing Network=villa-closed.network:\n%s", c.Text)
 	}
 	if strings.Contains(c.Text, "Environment=") {
 		t.Errorf("qdrant unit must carry no Environment= block:\n%s", c.Text)
@@ -76,7 +76,8 @@ func TestRenderEmbed(t *testing.T) {
 }
 
 // TestRenderByteIdenticalWhenMemoryOff: with memory off, Render returns EXACTLY the
-// existing 5 units plus the unconditional sandbox network (issue #199) and none of
+// existing 5 units plus the unconditional sandbox and closed networks (issue #199,
+// ADR-0036) and none of
 // the three memory unit names appear (byte-identity: the 5 existing goldens stay
 // unchanged, proven by the existing render tests staying green plus this len/name
 // regression).
@@ -85,8 +86,8 @@ func TestRenderByteIdenticalWhenMemoryOff(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
-	if len(units) != 6 {
-		t.Fatalf("memory off: Render returned %d units, want exactly 6: %v", len(units), unitNames(units))
+	if len(units) != 7 {
+		t.Fatalf("memory off: Render returned %d units, want exactly 7: %v", len(units), unitNames(units))
 	}
 	for _, name := range []string{"villa-qdrant.container", "villa-qdrant.volume", "villa-embed.container"} {
 		for _, u := range units {
@@ -131,6 +132,7 @@ func TestRenderEightUnitOrderWhenMemoryOn(t *testing.T) {
 		"villa-qdrant.volume",
 		"villa-embed.container",
 		"villa-sandbox.network",
+		"villa-closed.network",
 	}
 	got := unitNames(units)
 	if len(got) != len(want) {

@@ -1,12 +1,12 @@
 # ~/.config/containers/systemd/villa-rerank.container  (GENERATED — do not edit; source: config.toml)
 [Unit]
 Description=VillaStraylight reranker (llama-server /v1/rerank)
-After=villa-network.service
+After=villa-closed-network.service
 
 [Container]
 ContainerName=villa-rerank
 Image=docker.io/kyuz0/amd-strix-halo-toolboxes:vulkan-radv@sha256:521fd5994e73d40d9af168a81f560ebb13590c060ee0ea62262388ef3ecfc5ab
-Network=villa.network
+Network=villa-closed.network
 Volume=villa-models:/models:ro,z
 Exec=llama-server -m /models/bge-reranker-v2-m3-Q8_0.gguf --rerank -c 8192 -b 1024 -ub 1024 --host 0.0.0.0 --port 8080
 

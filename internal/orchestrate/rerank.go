@@ -56,7 +56,7 @@ func buildRerankView(image, ggufFilename, rerankAddr string, rerankPort int) rer
 	return rerankView{
 		ContainerName: rerankAddr,
 		Image:         image,
-		Network:       networkAttach,
+		Network:       closedNetworkAttach,
 		Volume:        embedModelMount,
 		Exec:          buildRerankExec(ggufFilename, rerankPort),
 	}

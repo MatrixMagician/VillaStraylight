@@ -42,7 +42,7 @@ func TestRenderSTTGolden(t *testing.T) {
 		"Entrypoint=/usr/local/bin/whisper-server",
 		"Exec=-m /models/ggml-large-v3-turbo.bin --host 0.0.0.0 --port 8081 --inference-path /v1/audio/transcriptions --convert",
 		"Volume=villa-models:/models:ro,z",
-		"Network=villa.network",
+		"Network=villa-closed.network",
 	} {
 		if !strings.Contains(c.Text, want) {
 			t.Errorf("villa-stt unit missing %q:\n%s", want, c.Text)
@@ -82,8 +82,8 @@ func TestRenderByteIdenticalWhenVoiceOff(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
-	if len(units) != 6 {
-		t.Fatalf("voice off: Render returned %d units, want 6: %v", len(units), unitNames(units))
+	if len(units) != 7 {
+		t.Fatalf("voice off: Render returned %d units, want 7: %v", len(units), unitNames(units))
 	}
 	for _, u := range units {
 		if u.Name == "villa-stt.container" || u.Name == "villa-tts.container" {
@@ -120,6 +120,7 @@ func TestRenderVoiceUnitsAfterInferproxyBeforeSandboxNetwork(t *testing.T) {
 		"villa-stt.container",
 		"villa-tts.container",
 		"villa-sandbox.network",
+		"villa-closed.network",
 	}
 	if got := unitNames(units); !slices.Equal(got, want) {
 		t.Errorf("unit order = %v\nwant           %v", got, want)
