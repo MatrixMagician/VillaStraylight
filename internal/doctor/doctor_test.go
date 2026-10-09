@@ -203,49 +203,20 @@ func TestImageOffEmitsNoImageFinding(t *testing.T) {
 	}
 }
 
-// TestImageOffWarnsOnAStaleRunningImageUnit: reconcile never deletes a unit, so
-// turning image generation off leaves villa-image.container on disk and running,
-// eager-holding about 9 GB that no fit counts. With the gate off and the service
-// active, doctor emits one WARN, IMG-DOC-stale, whose remediation is the removal
-// sequence; an inactive service, or the gate on, emits no such finding.
-func TestImageOffWarnsOnAStaleRunningImageUnit(t *testing.T) {
-	activeImage := func(unit string) (string, error) {
-		if unit == "villa-image.service" {
-			return "active", nil
-		}
-		return "inactive", nil
-	}
-
+// TestImageOffNamesTheImageUnitAsAnOrphan: turning image generation off leaves
+// villa-image.container on disk until the next stack apply removes it (ADR-0035).
+// Until then it is an orphan-units WARN like any gated-off registry unit, and the
+// image-only IMG-DOC-stale finding it replaced is gone.
+func TestImageOffNamesTheImageUnitAsAnOrphan(t *testing.T) {
 	d := newDoctorDeps()
-	d.IsActive = activeImage
+	d.units["villa-image.container"] = "[Container]\nImage=sd\n"
 	r := d.aggregate()
-	f, ok := findingByID(r, "IMG-DOC-stale")
-	if !ok {
-		t.Fatalf("image off with villa-image.service active: expected IMG-DOC-stale; findings: %+v", r.Findings)
+	f, ok := findingByID(r, "orphan-units")
+	if !ok || !strings.Contains(f.Detail, "villa-image.container") {
+		t.Fatalf("image off with villa-image.container on disk: orphan-units = %+v (present %v), want it named", f, ok)
 	}
-	if f.Tier != tierWarn || f.Status != statusWarn {
-		t.Errorf("IMG-DOC-stale = (status %s, tier %s), want (WARN, WARN)", f.Status, f.Tier)
-	}
-	if !strings.Contains(f.Detail, "9 GB") {
-		t.Errorf("Detail %q does not name the memory the unit holds outside the fit", f.Detail)
-	}
-	for _, want := range []string{"systemctl --user stop villa-image.service", "villa-image.container", "daemon-reload"} {
-		if !strings.Contains(f.Remediation, want) {
-			t.Errorf("Remediation %q does not carry %q", f.Remediation, want)
-		}
-	}
-	if strings.Contains(f.Remediation, "disable") {
-		t.Errorf("Remediation %q runs systemctl disable, which refuses a generated Quadlet unit", f.Remediation)
-	}
-
-	if _, ok := findingByID(newDoctorDeps().aggregate(), "IMG-DOC-stale"); ok {
-		t.Error("image off with the service inactive is not stale, yet IMG-DOC-stale was emitted")
-	}
-
-	on := imageDoctorDeps()
-	on.IsActive = activeImage
-	if _, ok := findingByID(on.aggregate(), "IMG-DOC-stale"); ok {
-		t.Error("image on with the service active is not stale, yet IMG-DOC-stale was emitted")
+	if _, ok := findingByID(r, "IMG-DOC-stale"); ok {
+		t.Error("IMG-DOC-stale is still emitted; orphan-units replaced it")
 	}
 }
 

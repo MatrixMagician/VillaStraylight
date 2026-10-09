@@ -108,7 +108,9 @@ const (
 //     this bump.
 //   - v11: the orphan-units finding (ADR-0035) — a NEW doctor-owned finding type: a
 //     registry unit on disk the loaded config no longer renders is a WARN whose fix
-//     is `villa up`. A host with none is byte-identical except this bump.
+//     is `villa up`. It replaces IMG-DOC-stale, the image-only manual-removal WARN,
+//     since a stack apply now removes villa-image itself. A host with neither is
+//     byte-identical except this bump.
 const reportSchemaVersion = 11
 
 // The three typed-Unknown ROCm host-prep check IDs that a PROVEN ROCm residency
@@ -538,11 +540,6 @@ func Aggregate(cfg config.VillaConfig, d Deps) Report {
 	// generation can show.
 	if subsystem.ImageOn(cfg) {
 		findings = append(findings, imageResidencyFinding(d.ImageResidency()))
-	} else if state, aerr := d.IsActive(imageServiceName()); aerr == nil && state == "active" {
-		// Reconcile never deletes a unit, so a stack turned off by config alone
-		// keeps villa-image.container on disk with WantedBy=default.target, and a
-		// reboot eager-loads it again, outside every fit.
-		findings = append(findings, staleImageUnitFinding())
 	}
 
 	// 3. DRIFT — config-vs-disk drift is independent of running-stack health: even a
@@ -1015,21 +1012,6 @@ func imageResidencyFinding(v inference.Verdict) Finding {
 		f.Remediation = nonEmpty(v.Remediation, "could not evaluate the image server's offload — ensure villa-image.service is running, then re-run `villa doctor`")
 	}
 	return f
-}
-
-// staleImageUnitFinding is the WARN for an image server running while image
-// generation is off: its eager load holds about 9 GB that no fit counts, and
-// doctor never stops a service, so the finding carries the removal sequence.
-func staleImageUnitFinding() Finding {
-	return Finding{
-		ID:          "IMG-DOC-stale",
-		Name:        "Image server running while image generation is off",
-		Tier:        tierWarn,
-		Status:      statusWarn,
-		Detail:      imageServiceName() + " is active but image_enabled is false: its eager-loaded params hold about 9 GB of GPU memory that no fit counts, and the unit restarts on reboot",
-		Provenance:  "systemctl --user is-active " + imageServiceName() + " + config.toml image_enabled",
-		Remediation: "run `systemctl --user stop " + imageServiceName() + "`, remove ~/.config/containers/systemd/" + orchestrate.ImageContainerUnitName() + ", then `systemctl --user daemon-reload`",
-	}
 }
 
 // agentConfigDriftFindings is the config half of agentDriftFindings: one WARN when

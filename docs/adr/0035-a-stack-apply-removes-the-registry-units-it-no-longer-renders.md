@@ -75,6 +75,11 @@ the orphan are the ones that apply through `internal/stackapply` (ADR-0013), plu
 - **Install is unchanged.** Its gates never lower, so it never produces a removal
   set of its own. A stale orphan a re-install meets is left for `villa up`, which
   doctor names.
+- **`orphan-units` replaces `IMG-DOC-stale`.** Image generation (#324, ADR-0032)
+  shipped a doctor WARN for `villa-image.service` running while the gate is off,
+  with a four-step manual removal, because no apply removed a unit. The apply now
+  does, so the image-only finding goes and `villa-image.container` is an orphan
+  like any other registry unit.
 - **The registry is the one list a new unit joins.** Voice (#322, ADR-0030) is
   already in it. Every unit a later subsystem adds (image generation, document
   extraction) is declared in `unitTable` under its subsystem and has its gate turned
