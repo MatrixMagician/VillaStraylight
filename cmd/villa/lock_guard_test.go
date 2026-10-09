@@ -292,6 +292,8 @@ var lockRules = map[string]lockRule{
 	// The image proof reads villa-image's invocation journal (#312); its callers
 	// (install, doctor, update) hold or need no lock of their own here.
 	"liveImageProof": {readOnly: true},
+	// The voice proof reads villa-stt's invocation journal (#332) the same way.
+	"liveVoiceProof": {readOnly: true},
 }
 
 // guardFile is one non-test source file the guard reads.

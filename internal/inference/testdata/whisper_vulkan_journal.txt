@@ -1,0 +1,93 @@
+Oct 09 11:31:58 neurodev podman[1934898]: 2026-10-09 11:31:58.869628804 +0100 BST m=+0.023379845 container create e2e0c03e38ccfc3456e595b37efaddd693cce8b28e1a5d28b2fb7fcc7583fdbb (image=ghcr.io/ggml-org/whisper.cpp@sha256:8bbf6a98c256b67fed7664fc379755d724560bcab7714906f449b97b7bc88955, name=villa-stt-332-vulkan, org.opencontainers.image.version=24.04)
+Oct 09 11:31:58 neurodev podman[1934898]: 2026-10-09 11:31:58.912601087 +0100 BST m=+0.066352128 container init e2e0c03e38ccfc3456e595b37efaddd693cce8b28e1a5d28b2fb7fcc7583fdbb (image=ghcr.io/ggml-org/whisper.cpp@sha256:8bbf6a98c256b67fed7664fc379755d724560bcab7714906f449b97b7bc88955, name=villa-stt-332-vulkan, org.opencontainers.image.version=24.04)
+Oct 09 11:31:58 neurodev podman[1934898]: 2026-10-09 11:31:58.915363473 +0100 BST m=+0.069114504 container start e2e0c03e38ccfc3456e595b37efaddd693cce8b28e1a5d28b2fb7fcc7583fdbb (image=ghcr.io/ggml-org/whisper.cpp@sha256:8bbf6a98c256b67fed7664fc379755d724560bcab7714906f449b97b7bc88955, name=villa-stt-332-vulkan, org.opencontainers.image.version=24.04)
+Oct 09 11:31:58 neurodev podman[1934898]: e2e0c03e38ccfc3456e595b37efaddd693cce8b28e1a5d28b2fb7fcc7583fdbb
+Oct 09 11:31:58 neurodev podman[1934898]: 2026-10-09 11:31:58.861081013 +0100 BST m=+0.014832044 image pull 89bf67a1d5d0f4fbea85d3d06219fb5998573ee8984c3919511c2504358b6b56 ghcr.io/ggml-org/whisper.cpp@sha256:8bbf6a98c256b67fed7664fc379755d724560bcab7714906f449b97b7bc88955
+Oct 09 11:31:59 neurodev villa-stt-332-vulkan[1934936]: ffmpeg version 6.1.1-3ubuntu5 Copyright (c) 2000-2023 the FFmpeg developers
+Oct 09 11:31:59 neurodev villa-stt-332-vulkan[1934936]: built with gcc 13 (Ubuntu 13.2.0-23ubuntu3)
+Oct 09 11:31:59 neurodev villa-stt-332-vulkan[1934936]: configuration: --prefix=/usr --extra-version=3ubuntu5 --toolchain=hardened --libdir=/usr/lib/x86_64-linux-gnu --incdir=/usr/include/x86_64-linux-gnu --arch=amd64 --enable-gpl --disable-stripping --disable-omx --enable-gnutls --enable-libaom --enable-libass --enable-libbs2b --enable-libcaca --enable-libcdio --enable-libcodec2 --enable-libdav1d --enable-libflite --enable-libfontconfig --enable-libfreetype --enable-libfribidi --enable-libglslang --enable-libgme --enable-libgsm --enable-libharfbuzz --enable-libmp3lame --enable-libmysofa --enable-libopenjpeg --enable-libopenmpt --enable-libopus --enable-librubberband --enable-libshine --enable-libsnappy --enable-libsoxr --enable-libspeex --enable-libtheora --enable-libtwolame --enable-libvidstab --enable-libvorbis --enable-libvpx --enable-libwebp --enable-libx265 --enable-libxml2 --enable-libxvid --enable-libzimg --enable-openal --enable-opencl --enable-opengl --disable-sndio --enable-libvpl --disable-libmfx --enable-libdc1394 --enable-libdrm --enable-libiec61883 --enable-chromaprint --enable-frei0r --enable-ladspa --enable-libbluray --enable-libjack --enable-libpulse --enable-librabbitmq --enable-librist --enable-libsrt --enable-libssh --enable-libsvtav1 --enable-libx264 --enable-libzmq --enable-libzvbi --enable-lv2 --enable-sdl2 --enable-libplacebo --enable-librav1e --enable-pocketsphinx --enable-librsvg --enable-libjxl --enable-shared
+Oct 09 11:31:59 neurodev villa-stt-332-vulkan[1934936]: libavutil      58. 29.100 / 58. 29.100
+Oct 09 11:31:59 neurodev villa-stt-332-vulkan[1934936]: libavcodec     60. 31.102 / 60. 31.102
+Oct 09 11:31:59 neurodev villa-stt-332-vulkan[1934936]: libavformat    60. 16.100 / 60. 16.100
+Oct 09 11:31:59 neurodev villa-stt-332-vulkan[1934936]: libavdevice    60.  3.100 / 60.  3.100
+Oct 09 11:31:59 neurodev villa-stt-332-vulkan[1934936]: libavfilter     9. 12.100 /  9. 12.100
+Oct 09 11:31:59 neurodev villa-stt-332-vulkan[1934936]: libswscale      7.  5.100 /  7.  5.100
+Oct 09 11:31:59 neurodev villa-stt-332-vulkan[1934936]: libswresample   4. 12.100 /  4. 12.100
+Oct 09 11:31:59 neurodev villa-stt-332-vulkan[1934936]: libpostproc    57.  3.100 / 57.  3.100
+Oct 09 11:31:59 neurodev villa-stt-332-vulkan[1934936]: ffmpeg is available.
+Oct 09 11:31:59 neurodev villa-stt-332-vulkan[1934936]: whisper_init_from_file_with_params_no_state: loading model from '/models/ggml-large-v3-turbo.bin'
+Oct 09 11:31:59 neurodev villa-stt-332-vulkan[1934936]: whisper_init_with_params_no_state: use gpu    = 1
+Oct 09 11:31:59 neurodev villa-stt-332-vulkan[1934936]: whisper_init_with_params_no_state: flash attn = 1
+Oct 09 11:31:59 neurodev villa-stt-332-vulkan[1934936]: whisper_init_with_params_no_state: gpu_device = 0
+Oct 09 11:31:59 neurodev villa-stt-332-vulkan[1934936]: whisper_init_with_params_no_state: dtw        = 0
+Oct 09 11:31:59 neurodev villa-stt-332-vulkan[1934936]: ggml_vulkan: Found 1 Vulkan devices:
+Oct 09 11:31:59 neurodev villa-stt-332-vulkan[1934936]: ggml_vulkan: 0 = Radeon 8060S Graphics (RADV GFX1151) (radv) | uma: 1 | fp16: 1 | bf16: 0 | fp4: 0 | warp size: 64 | shared memory: 65536 | int dot: 0 | matrix cores: KHR_coopmat
+Oct 09 11:31:59 neurodev villa-stt-332-vulkan[1934936]: whisper_init_with_params_no_state: devices    = 2
+Oct 09 11:31:59 neurodev villa-stt-332-vulkan[1934936]: whisper_init_with_params_no_state: backends   = 2
+Oct 09 11:31:59 neurodev villa-stt-332-vulkan[1934936]: whisper_model_load: loading model
+Oct 09 11:31:59 neurodev villa-stt-332-vulkan[1934936]: whisper_model_load: n_vocab       = 51866
+Oct 09 11:31:59 neurodev villa-stt-332-vulkan[1934936]: whisper_model_load: n_audio_ctx   = 1500
+Oct 09 11:31:59 neurodev villa-stt-332-vulkan[1934936]: whisper_model_load: n_audio_state = 1280
+Oct 09 11:31:59 neurodev villa-stt-332-vulkan[1934936]: whisper_model_load: n_audio_head  = 20
+Oct 09 11:31:59 neurodev villa-stt-332-vulkan[1934936]: whisper_model_load: n_audio_layer = 32
+Oct 09 11:31:59 neurodev villa-stt-332-vulkan[1934936]: whisper_model_load: n_text_ctx    = 448
+Oct 09 11:31:59 neurodev villa-stt-332-vulkan[1934936]: whisper_model_load: n_text_state  = 1280
+Oct 09 11:31:59 neurodev villa-stt-332-vulkan[1934936]: whisper_model_load: n_text_head   = 20
+Oct 09 11:31:59 neurodev villa-stt-332-vulkan[1934936]: whisper_model_load: n_text_layer  = 4
+Oct 09 11:31:59 neurodev villa-stt-332-vulkan[1934936]: whisper_model_load: n_mels        = 128
+Oct 09 11:31:59 neurodev villa-stt-332-vulkan[1934936]: whisper_model_load: ftype         = 1
+Oct 09 11:31:59 neurodev villa-stt-332-vulkan[1934936]: whisper_model_load: qntvr         = 0
+Oct 09 11:31:59 neurodev villa-stt-332-vulkan[1934936]: whisper_model_load: type          = 5 (large v3)
+Oct 09 11:31:59 neurodev villa-stt-332-vulkan[1934936]: whisper_model_load: adding 1609 extra tokens
+Oct 09 11:31:59 neurodev villa-stt-332-vulkan[1934936]: whisper_model_load: n_langs       = 100
+Oct 09 11:31:59 neurodev villa-stt-332-vulkan[1934936]: whisper_model_load:      Vulkan0 total size =  1623.92 MB
+Oct 09 11:31:59 neurodev villa-stt-332-vulkan[1934936]: whisper_model_load: model size    = 1623.92 MB
+Oct 09 11:31:59 neurodev villa-stt-332-vulkan[1934936]: whisper_backend_init_gpu: device 0: Vulkan0 (type: 2)
+Oct 09 11:31:59 neurodev villa-stt-332-vulkan[1934936]: whisper_backend_init_gpu: found GPU device 0: Vulkan0 (type: 2, cnt: 0)
+Oct 09 11:31:59 neurodev villa-stt-332-vulkan[1934936]: whisper_backend_init_gpu: using Vulkan0 backend
+Oct 09 11:31:59 neurodev villa-stt-332-vulkan[1934936]: whisper_init_state: kv self size  =   10.49 MB
+Oct 09 11:31:59 neurodev villa-stt-332-vulkan[1934936]: whisper_init_state: kv cross size =   31.46 MB
+Oct 09 11:31:59 neurodev villa-stt-332-vulkan[1934936]: whisper_init_state: kv pad  size  =    7.86 MB
+Oct 09 11:31:59 neurodev villa-stt-332-vulkan[1934936]: whisper_init_state: compute buffer (conv)   =   37.69 MB
+Oct 09 11:31:59 neurodev villa-stt-332-vulkan[1934936]: whisper_init_state: compute buffer (encode) =   55.35 MB
+Oct 09 11:31:59 neurodev villa-stt-332-vulkan[1934936]: whisper_init_state: compute buffer (cross)  =   39.99 MB
+Oct 09 11:31:59 neurodev villa-stt-332-vulkan[1934936]: whisper_init_state: compute buffer (decode) =  100.04 MB
+Oct 09 11:31:59 neurodev villa-stt-332-vulkan[1934936]: ffmpeg version 6.1.1-3ubuntu5 Copyright (c) 2000-2023 the FFmpeg developers
+Oct 09 11:31:59 neurodev villa-stt-332-vulkan[1934936]:   built with gcc 13 (Ubuntu 13.2.0-23ubuntu3)
+Oct 09 11:31:59 neurodev villa-stt-332-vulkan[1934936]:   configuration: --prefix=/usr --extra-version=3ubuntu5 --toolchain=hardened --libdir=/usr/lib/x86_64-linux-gnu --incdir=/usr/include/x86_64-linux-gnu --arch=amd64 --enable-gpl --disable-stripping --disable-omx --enable-gnutls --enable-libaom --enable-libass --enable-libbs2b --enable-libcaca --enable-libcdio --enable-libcodec2 --enable-libdav1d --enable-libflite --enable-libfontconfig --enable-libfreetype --enable-libfribidi --enable-libglslang --enable-libgme --enable-libgsm --enable-libharfbuzz --enable-libmp3lame --enable-libmysofa --enable-libopenjpeg --enable-libopenmpt --enable-libopus --enable-librubberband --enable-libshine --enable-libsnappy --enable-libsoxr --enable-libspeex --enable-libtheora --enable-libtwolame --enable-libvidstab --enable-libvorbis --enable-libvpx --enable-libwebp --enable-libx265 --enable-libxml2 --enable-libxvid --enable-libzimg --enable-openal --enable-opencl --enable-opengl --disable-sndio --enable-libvpl --disable-libmfx --enable-libdc1394 --enable-libdrm --enable-libiec61883 --enable-chromaprint --enable-frei0r --enable-ladspa --enable-libbluray --enable-libjack --enable-libpulse --enable-librabbitmq --enable-librist --enable-libsrt --enable-libssh --enable-libsvtav1 --enable-libx264 --enable-libzmq --enable-libzvbi --enable-lv2 --enable-sdl2 --enable-libplacebo --enable-librav1e --enable-pocketsphinx --enable-librsvg --enable-libjxl --enable-shared
+Oct 09 11:31:59 neurodev villa-stt-332-vulkan[1934936]:   libavutil      58. 29.100 / 58. 29.100
+Oct 09 11:31:59 neurodev villa-stt-332-vulkan[1934936]:   libavcodec     60. 31.102 / 60. 31.102
+Oct 09 11:31:59 neurodev villa-stt-332-vulkan[1934936]:   libavformat    60. 16.100 / 60. 16.100
+Oct 09 11:31:59 neurodev villa-stt-332-vulkan[1934936]:   libavdevice    60.  3.100 / 60.  3.100
+Oct 09 11:31:59 neurodev villa-stt-332-vulkan[1934936]:   libavfilter     9. 12.100 /  9. 12.100
+Oct 09 11:31:59 neurodev villa-stt-332-vulkan[1934936]:   libswscale      7.  5.100 /  7.  5.100
+Oct 09 11:31:59 neurodev villa-stt-332-vulkan[1934936]:   libswresample   4. 12.100 /  4. 12.100
+Oct 09 11:31:59 neurodev villa-stt-332-vulkan[1934936]:   libpostproc    57.  3.100 / 57.  3.100
+Oct 09 11:31:59 neurodev villa-stt-332-vulkan[1934936]: [wav @ 0x563b404dfec0] Ignoring maximum wav data size, file may be invalid
+Oct 09 11:31:59 neurodev villa-stt-332-vulkan[1934936]: [wav @ 0x563b404dfec0] Estimating duration from bitrate, this may be inaccurate
+Oct 09 11:31:59 neurodev villa-stt-332-vulkan[1934936]: [aist#0:0/pcm_s16le @ 0x563b4051c140] Guessed Channel Layout: mono
+Oct 09 11:31:59 neurodev villa-stt-332-vulkan[1934936]: Input #0, wav, from './whisper-server-20261009-103159-834342468.wav':
+Oct 09 11:31:59 neurodev villa-stt-332-vulkan[1934936]:   Metadata:
+Oct 09 11:31:59 neurodev villa-stt-332-vulkan[1934936]:     encoder         : Lavf62.3.100
+Oct 09 11:31:59 neurodev villa-stt-332-vulkan[1934936]:   Duration: 00:00:58.57, bitrate: 384 kb/s
+Oct 09 11:31:59 neurodev villa-stt-332-vulkan[1934936]:   Stream #0:0: Audio: pcm_s16le ([1][0][0][0] / 0x0001), 24000 Hz, 1 channels, s16, 384 kb/s
+Oct 09 11:31:59 neurodev villa-stt-332-vulkan[1934936]: Stream mapping:
+Oct 09 11:31:59 neurodev villa-stt-332-vulkan[1934936]:   Stream #0:0 -> #0:0 (pcm_s16le (native) -> pcm_s16le (native))
+Oct 09 11:31:59 neurodev villa-stt-332-vulkan[1934936]: Press [q] to stop, [?] for help
+Oct 09 11:31:59 neurodev villa-stt-332-vulkan[1934936]: Output #0, wav, to './whisper-server-20261009-103159-834342468.wav_temp.wav':
+Oct 09 11:31:59 neurodev villa-stt-332-vulkan[1934936]:   Metadata:
+Oct 09 11:31:59 neurodev villa-stt-332-vulkan[1934936]:     ISFT            : Lavf60.16.100
+Oct 09 11:31:59 neurodev villa-stt-332-vulkan[1934936]:   Stream #0:0: Audio: pcm_s16le ([1][0][0][0] / 0x0001), 16000 Hz, mono, s16, 256 kb/s
+Oct 09 11:31:59 neurodev villa-stt-332-vulkan[1934936]:     Metadata:
+Oct 09 11:31:59 neurodev villa-stt-332-vulkan[1934936]:       encoder         : Lavc60.31.102 pcm_s16le
+Oct 09 11:32:00 neurodev villa-stt-332-vulkan[1934936]: [124B blob data]
+Oct 09 11:32:00 neurodev villa-stt-332-vulkan[1934936]: [in#0/wav @ 0x563b404dfdc0] corrupt input packet in stream 0
+Oct 09 11:32:00 neurodev villa-stt-332-vulkan[1934936]: [out#0/wav @ 0x563b404f5680] video:0kB audio:1830kB subtitle:0kB other streams:0kB global headers:0kB muxing overhead: 0.004162%
+Oct 09 11:32:00 neurodev villa-stt-332-vulkan[1934936]: size=    1830kB time=00:00:58.56 bitrate= 256.0kbits/s speed=5.01e+03x    
+Oct 09 11:32:00 neurodev villa-stt-332-vulkan[1934936]: read_audio_data: reading audio data from './whisper-server-20261009-103159-834342468.wav' ...
+Oct 09 11:32:00 neurodev villa-stt-332-vulkan[1934936]: read_audio_data: trying to decode with miniaudio
+Oct 09 11:32:00 neurodev villa-stt-332-vulkan[1934936]: 
+Oct 09 11:32:00 neurodev villa-stt-332-vulkan[1934936]: system_info: n_threads = 4 / 32 | WHISPER : VITISAI = 0 | COREML = 0 | OPENVINO = 0 | CPU : SSE3 = 1 | SSSE3 = 1 | AVX = 1 | AVX2 = 1 | F16C = 1 | FMA = 1 | BMI2 = 1 | OPENMP = 1 | REPACK = 1 | 
+Oct 09 11:32:00 neurodev villa-stt-332-vulkan[1934936]: 
+Oct 09 11:32:00 neurodev villa-stt-332-vulkan[1934936]: operator(): processing 'clip.wav' (937078 samples, 58.6 sec), 4 threads, 1 processors, lang = en, task = transcribe, timestamps = 1 ...
+Oct 09 11:32:00 neurodev villa-stt-332-vulkan[1934936]: 
