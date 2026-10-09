@@ -352,14 +352,14 @@ func TestCleanupFollowsTheRunsStream(t *testing.T) {
 					CaptureState: func(subsystem.Kind) (updateflow.Capture, error) {
 						return updateflow.Capture{Refs: map[string]string{"qdrant": "old"}}, nil
 					},
-					Mutate: func(context.Context, subsystem.Kind, map[string]string) error { return nil },
+					Mutate: func(context.Context, subsystem.Kind, map[string]string) ([]string, error) { return nil, nil },
 					Stop:   func(context.Context, subsystem.Kind) error { return nil },
 					SnapshotData: func(context.Context, subsystem.Kind) (pinstate.DataSnapshot, error) {
 						return pinstate.DataSnapshot{Volume: "villa-qdrant", Path: "/snap/memory.tar", Bytes: 1}, nil
 					},
 					Start:    func(context.Context, subsystem.Kind) error { return nil },
 					ProveNew: func(context.Context, subsystem.Kind) updateflow.Proof { return proof },
-					Restore:  func(context.Context, subsystem.Kind, updateflow.Capture) error { return nil },
+					Restore:  func(context.Context, subsystem.Kind, updateflow.Capture, []string) error { return nil },
 					RestoreData: func(context.Context, subsystem.Kind, pinstate.DataSnapshot) error {
 						return nil
 					},
