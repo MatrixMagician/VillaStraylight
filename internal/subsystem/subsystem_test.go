@@ -24,6 +24,7 @@ func TestGatesAnswerTheConfigFlags(t *testing.T) {
 		{Agent, func(c *config.VillaConfig) { c.AgentEnabled = true }, "agent_enabled"},
 		{CodingMode, func(c *config.VillaConfig) { c.CodingMode = true }, "coding_mode"},
 		{Sandbox, func(c *config.VillaConfig) { c.WorkspaceAgent = true }, "workspace_agent"},
+		{Voice, func(c *config.VillaConfig) { c.VoiceEnabled = true }, "voice_enabled"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.kind.String(), func(t *testing.T) {
@@ -60,6 +61,8 @@ func TestGatesAreIndependent(t *testing.T) {
 			cfg.CodingMode = true
 		case Sandbox:
 			cfg.WorkspaceAgent = true
+		case Voice:
+			cfg.VoiceEnabled = true
 		}
 		enabled := Enabled(cfg)
 		if len(enabled) != 1 || enabled[0] != k {
@@ -77,6 +80,7 @@ func TestNamedAccessorsAgreeWithOn(t *testing.T) {
 		AgentEnabled:     true,
 		CodingMode:       false,
 		WorkspaceAgent:   true,
+		VoiceEnabled:     true,
 	}
 	pairs := []struct {
 		kind  Kind
@@ -87,6 +91,7 @@ func TestNamedAccessorsAgreeWithOn(t *testing.T) {
 		{Agent, AgentOn(cfg)},
 		{CodingMode, CodingModeOn(cfg)},
 		{Sandbox, SandboxOn(cfg)},
+		{Voice, VoiceOn(cfg)},
 	}
 	for _, p := range pairs {
 		if got := On(cfg, p.kind); got != p.named {
@@ -98,7 +103,7 @@ func TestNamedAccessorsAgreeWithOn(t *testing.T) {
 // TestEnabledPreservesAllOrder: reporters render subsystems in a stable order, so a
 // map-backed implementation (which would randomise it) must not creep in.
 func TestEnabledPreservesAllOrder(t *testing.T) {
-	cfg := config.VillaConfig{MemoryEnabled: true, WebSearchEnabled: true, AgentEnabled: true, CodingMode: true, WorkspaceAgent: true}
+	cfg := config.VillaConfig{MemoryEnabled: true, WebSearchEnabled: true, AgentEnabled: true, CodingMode: true, WorkspaceAgent: true, VoiceEnabled: true}
 	got := Enabled(cfg)
 	if len(got) != len(All) {
 		t.Fatalf("Enabled returned %d of %d subsystems", len(got), len(All))
@@ -121,7 +126,7 @@ func TestModuleIsLoadBearing(t *testing.T) {
 	// Predicate reads only: an `if cfg.MemoryEnabled`, a `&&`, a `return c.AgentEnabled`.
 	// Assignments (`cfg.MemoryEnabled = ...`) are how a gate gets SET, which is a
 	// different operation and legitimately touches the field.
-	flags := regexp.MustCompile(`\b(cfg|c)\.(MemoryEnabled|WebSearchEnabled|AgentEnabled|CodingMode|WorkspaceAgent|ToolsMode|Reranker)\b\s*(?:[^=]|$)`)
+	flags := regexp.MustCompile(`\b(cfg|c)\.(MemoryEnabled|WebSearchEnabled|AgentEnabled|CodingMode|WorkspaceAgent|ToolsMode|Reranker|VoiceEnabled)\b\s*(?:[^=]|$)`)
 	predicate := regexp.MustCompile(`\bif\b|&&|\|\||\breturn\b`)
 
 	repoRoot := filepath.Join("..", "..")
@@ -167,7 +172,7 @@ func TestModuleIsLoadBearing(t *testing.T) {
 
 	if len(bypasses) > 0 {
 		t.Errorf("subsystem gates were read directly instead of through this module:\n  %s\n"+
-			"Use subsystem.MemoryOn / WebSearchOn / AgentOn / CodingModeOn / SandboxOn / ToolsOn so the gate has one answer.",
+			"Use subsystem.MemoryOn / WebSearchOn / AgentOn / CodingModeOn / SandboxOn / VoiceOn / ToolsOn so the gate has one answer.",
 			strings.Join(bypasses, "\n  "))
 	}
 }
@@ -231,7 +236,7 @@ func TestAllStaysTheOptionalSet(t *testing.T) {
 	}
 	// Enabled over a fully-enabled config must still return exactly the optional
 	// set, never the always-on pair.
-	cfg := config.VillaConfig{MemoryEnabled: true, WebSearchEnabled: true, AgentEnabled: true, CodingMode: true, WorkspaceAgent: true}
+	cfg := config.VillaConfig{MemoryEnabled: true, WebSearchEnabled: true, AgentEnabled: true, CodingMode: true, WorkspaceAgent: true, VoiceEnabled: true}
 	if got := len(Enabled(cfg)); got != len(All) {
 		t.Errorf("Enabled returned %d subsystems for a fully-enabled config, want %d", got, len(All))
 	}
@@ -241,7 +246,7 @@ func TestAllStaysTheOptionalSet(t *testing.T) {
 // state store, so an inserted member would silently renumber every value already
 // written to disk and re-point one subsystem's effective pin at another.
 func TestKindValuesAreStable(t *testing.T) {
-	want := map[Kind]int{Memory: 0, WebSearch: 1, Agent: 2, CodingMode: 3, Inference: 4, Chat: 5, Sandbox: 6}
+	want := map[Kind]int{Memory: 0, WebSearch: 1, Agent: 2, CodingMode: 3, Inference: 4, Chat: 5, Sandbox: 6, Voice: 7}
 	for k, n := range want {
 		if int(k) != n {
 			t.Errorf("%v = %d, want %d — a member was inserted rather than appended, renumbering stored values", k, int(k), n)
@@ -266,6 +271,7 @@ func TestOwnedStateIsTheWholeMapping(t *testing.T) {
 		Agent:      "",
 		CodingMode: "",
 		Sandbox:    "",
+		Voice:      "",
 	}
 	if len(want) != len(Every) {
 		t.Fatalf("the mapping covers %d subsystems but Every names %d — a new subsystem must declare whether it owns state", len(want), len(Every))
@@ -369,6 +375,22 @@ func TestSandboxOwnsNoUnitsYet(t *testing.T) {
 	}
 	if Sandbox.AlwaysOn() {
 		t.Error("Sandbox.AlwaysOn() = true; it is gated by workspace_agent")
+	}
+}
+
+// TestVoiceIsAnOptionalAddonListedLast: voice is gated (so Enabled can report it as
+// an addon the operator turned on), it is named "voice" in every message, and it is
+// the last entry of both lists, so every existing subsystem keeps its position in
+// status, doctor and update output.
+func TestVoiceIsAnOptionalAddonListedLast(t *testing.T) {
+	if Voice.String() != "voice" {
+		t.Errorf("Voice.String() = %q, want \"voice\"", Voice.String())
+	}
+	if Voice.AlwaysOn() {
+		t.Error("Voice.AlwaysOn() = true; it is gated by voice_enabled")
+	}
+	if All[len(All)-1] != Voice || Every[len(Every)-1] != Voice {
+		t.Errorf("voice is not last in All %v and Every %v", All, Every)
 	}
 }
 

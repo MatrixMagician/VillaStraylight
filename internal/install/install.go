@@ -46,6 +46,9 @@ type Opts struct {
 	// and left the unit unable to serve them would produce a stack `villa work`
 	// refuses to run on.
 	WorkspaceAgent bool
+	// Voice opts into the voice subsystem (ADR-0030), with the same
+	// persist-and-inherit behaviour as WebSearch.
+	Voice bool
 	// DryRun prints the rendered changed units and mutates NOTHING: no write, no
 	// pull, no persist, no privileged host-prep, no wizard.
 	DryRun bool
@@ -74,6 +77,8 @@ type Gates struct {
 	CodingMode bool
 	// Sandbox is the resolved workspace-agent gate.
 	Sandbox bool
+	// Voice is the resolved voice gate.
+	Voice bool
 }
 
 // On reports the resolved gate for a subsystem, so a caller can ask by kind rather
@@ -90,6 +95,8 @@ func (g Gates) On(k subsystem.Kind) bool {
 		return g.CodingMode
 	case subsystem.Sandbox:
 		return g.Sandbox
+	case subsystem.Voice:
+		return g.Voice
 	case subsystem.Inference, subsystem.Chat:
 		// Always on: an install renders both units unconditionally, so there is no
 		// resolved gate to hold and nothing a flag could turn off. Answered here
@@ -116,6 +123,7 @@ func ResolveGates(cfg config.VillaConfig, opts Opts, rec recommend.Recommendatio
 		WebSearch: subsystem.WebSearchOn(cfg) || opts.WebSearch,
 		Agent:     subsystem.AgentOn(cfg) || opts.CodingAgent,
 		Sandbox:   subsystem.SandboxOn(cfg) || opts.WorkspaceAgent,
+		Voice:     subsystem.VoiceOn(cfg) || opts.Voice,
 	}
 	// Coding mode is entered by the addon opt-in, and only with a coder to serve.
 	if opts.CodingAgent && rec.Coder.Model != "" {
@@ -136,6 +144,7 @@ func (g Gates) Persist(cfg config.VillaConfig) config.VillaConfig {
 	cfg.WebSearchEnabled = g.WebSearch
 	cfg.AgentEnabled = g.Agent
 	cfg.WorkspaceAgent = g.Sandbox
+	cfg.VoiceEnabled = g.Voice
 	if g.Sandbox {
 		cfg.ToolsMode = true
 	}

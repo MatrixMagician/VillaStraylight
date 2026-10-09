@@ -37,6 +37,7 @@ func pinnedFixtureConfig() config.VillaConfig {
 		EmbeddingModel:   "nomic-embed-text-v1.5",
 		EmbeddingDim:     768,
 		WebSearchEnabled: true,
+		VoiceEnabled:     true,
 	}
 }
 
@@ -253,6 +254,7 @@ func TestProbeHelpersAreNotPinned(t *testing.T) {
 		"status.go",
 		"install_searxng.go",
 		"install_memory.go",
+		"voice.go",
 	}
 
 	for _, name := range probeFiles {

@@ -122,6 +122,8 @@ type Deps struct {
 	EnsureEmbedModel   func(modelsDir string) error
 	RerankModelPresent func(modelsDir string) bool
 	EnsureRerankModel  func(modelsDir string) error
+	VoiceModelPresent  func(modelsDir string) bool
+	EnsureVoiceModel   func(modelsDir string) error
 	AgentCatalog       func() (catalog.Catalog, bool)
 	CoderModelPresent  func(modelsDir string, sh catalog.Shard) bool
 	EnsureCoderModel   func(modelsDir string, sh catalog.Shard) error
@@ -165,6 +167,7 @@ type Deps struct {
 	ProveMemory     func(context.Context, config.VillaConfig) Proof
 	ProveSearch     func(context.Context) Proof
 	ProveAgent      func(context.Context) Proof
+	ProveVoice      func(context.Context) Proof
 }
 
 func (d Deps) emit(l Line) {
@@ -193,7 +196,11 @@ func DefaultUnits() Units {
 	_, chat := subsystem.Chat.EveryUnit()
 	_, mem := subsystem.Memory.EveryUnit()
 	_, web := subsystem.WebSearch.EveryUnit()
-	return Units{Inference: inf[0], ChatUI: chat[0], Qdrant: mem[0], Embed: mem[1], Rerank: mem[2], Searxng: web[0], Websafe: web[1]}
+	_, voice := subsystem.Voice.EveryUnit()
+	return Units{
+		Inference: inf[0], ChatUI: chat[0], Qdrant: mem[0], Embed: mem[1], Rerank: mem[2], Searxng: web[0], Websafe: web[1],
+		Stt: voice[0], Tts: voice[1],
+	}
 }
 
 // Run executes the install flow end to end and returns its Result. It never
@@ -353,6 +360,13 @@ func Run(ctx context.Context, d Deps, opts Opts) Result {
 		}
 		say("reranker model %s downloaded and verified\n", RerankShard.Filename)
 	}
+	if gates.Voice && !d.VoiceModelPresent(d.ModelsDir()) {
+		say("speech model %s not present, downloading...\n", WhisperModelShard.Filename)
+		if err := d.EnsureVoiceModel(d.ModelsDir()); err != nil {
+			return block("install: pre-stage speech model %s failed: %v\n", WhisperModelShard.Filename, err)
+		}
+		say("speech model %s downloaded and verified\n", WhisperModelShard.Filename)
+	}
 
 	// (6c) Pre-stage the coding agent BEFORE persisting config and starting the
 	// stack: notice, coder shard, coder weights, pinned binary, locked-down config.
@@ -403,7 +417,7 @@ func Run(ctx context.Context, d Deps, opts Opts) Result {
 	// rendered plan, so a rollback never stops a service that was running before.
 	priorRunning := map[string]bool{}
 	if d.IsActive != nil {
-		for _, svc := range []string{units.Inference, units.ChatUI, units.Qdrant, units.Embed, units.Rerank, units.Searxng, units.Websafe, orchestrate.DashboardServiceName} {
+		for _, svc := range []string{units.Inference, units.ChatUI, units.Qdrant, units.Embed, units.Rerank, units.Searxng, units.Websafe, units.Stt, units.Tts, orchestrate.DashboardServiceName} {
 			if state, aerr := d.IsActive(svc); aerr == nil && state == "active" {
 				priorRunning[svc] = true
 			}
@@ -609,6 +623,21 @@ func Run(ctx context.Context, d Deps, opts Opts) Result {
 		}
 	}
 
+	// (9d) The voice units. Both are checked before either starts, so a plan missing
+	// one never leaves the other running alone.
+	if gates.Voice {
+		for _, unit := range []string{orchestrate.STTContainerUnitName(), orchestrate.TTSContainerUnitName()} {
+			if !UnitPresent(unitPlan, unit) {
+				return refuse("install: INTERNAL ERROR: voice is enabled but the voice unit (%s) is absent from the rendered plan, so install refuses to start a service systemd has never seen. This is a render/reconcile bug; please re-run `villa install`, and if it persists, file an issue.\n", unit)
+			}
+		}
+		for _, svc := range []string{units.Stt, units.Tts} {
+			if err := start(svc); err != nil {
+				return refuse("install: start %s failed: %v\n", svc, err)
+			}
+		}
+	}
+
 	// (10) Readiness, then each opted-in subsystem's proof. A FAIL refuses, never
 	// a silent skip.
 	ready := d.PollReady(ctx, d.Endpoint())
@@ -628,6 +657,13 @@ func Run(ctx context.Context, d Deps, opts Opts) Result {
 			return refuse("install: search service not ready: %s\n", proof.Detail)
 		}
 		say("search service ready: %s\n", proof.Detail)
+	}
+	if gates.Voice {
+		proof := d.ProveVoice(ctx)
+		if proof.Status == preflight.StatusFail {
+			return refuse("install: voice not ready: %s\n", proof.Detail)
+		}
+		say("voice ready: %s\n", proof.Detail)
 	}
 	if gates.Agent {
 		proof := d.ProveAgent(ctx)
@@ -776,6 +812,17 @@ var RerankShard = catalog.Shard{
 	Filename:  "bge-reranker-v2-m3-Q8_0.gguf",
 	SHA256:    "a43c7c9b11a4c1517e5bf95151960e1621d1b72f7a493364b01e386cf1aaa1d3",
 	SizeBytes: 635676416,
+}
+
+// WhisperModelShard is the pinned whisper model pre-staged into the models dir when
+// voice is on (ADR-0030). Its Filename is orchestrate.WhisperModelFilename() itself,
+// so the staged file and villa-stt's -m path cannot drift. The URL's basename
+// repeats the filename; cmd/villa's TestWhisperShardValues holds the two together.
+var WhisperModelShard = catalog.Shard{
+	URL:       "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin",
+	Filename:  orchestrate.WhisperModelFilename(),
+	SHA256:    "1fc70f774d38eb169993ac391eea357ef47c88757ef72ee5943879b7e8e2bc69",
+	SizeBytes: 1624555275,
 }
 
 // AgentLicenseNotice is the FSL-1.1-MIT notice surfaced before the coding-agent

@@ -32,6 +32,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/taskstore"
 	"github.com/MatrixMagician/VillaStraylight/internal/usage"
 	"github.com/MatrixMagician/VillaStraylight/internal/verifystate"
+	"github.com/MatrixMagician/VillaStraylight/internal/voice"
 )
 
 // status.go is the thin cobra caller for the offload-asserting `villa status` slice
@@ -603,6 +604,39 @@ func probeWebsafeURL(url string) status.HealthState {
 	return statusProber().Liveness(url)
 }
 
+// inferproxyHealthCache bounds the villa-inferproxy probe to one per memoryHealthTTL
+// window.
+var inferproxyHealthCache = &inprobe.Cache{TTL: memoryHealthTTL}
+
+// liveInferproxyHealth is a liveness probe of villa-inferproxy's root from
+// villa.network. The root is off the proxy's allowlist, so the proxy answers 403
+// itself: the probe proves the listener is up without reaching villa-llama.
+func liveInferproxyHealth() status.HealthState {
+	return inferproxyHealthCache.Get(func() status.HealthState {
+		return statusProber().Liveness("http://" + net.JoinHostPort(config.InferproxyAddr, strconv.Itoa(config.InferproxyPort)) + "/")
+	})
+}
+
+// voiceHealthCache refreshes villa-stt and villa-tts together, the memory pair's
+// discipline.
+var voiceHealthCache = &inprobe.PairCache{TTL: memoryHealthTTL}
+
+func voiceHealthSnapshot() (status.HealthState, status.HealthState) {
+	return voiceHealthCache.Pair(func() (status.HealthState, status.HealthState) {
+		return probeMemoryURL(voice.STT.HealthURL()), probeMemoryURL(voice.TTS.HealthURL())
+	})
+}
+
+func liveSttHealth() status.HealthState {
+	stt, _ := voiceHealthSnapshot()
+	return stt
+}
+
+func liveTtsHealth() status.HealthState {
+	_, tts := voiceHealthSnapshot()
+	return tts
+}
+
 // liveReadVerifyState loads verify-search-state.json READ-ONLY,
 // cloning liveReadRecallState's shape over verifystate.Load (fail-closed): an absent
 // store yields a pointer to the ZERO State (the status core's freshness gate then reads
@@ -810,6 +844,21 @@ func liveStatusServices() []status.Service {
 			Probe: func(config.VillaConfig) status.HealthState {
 				return liveWebsafeHealth(config.WebsafeAddr, config.WebsafePort)
 			},
+		},
+		{
+			Unit:  unitServiceName(orchestrate.InferproxyContainerUnitName()),
+			Kind:  status.Managed,
+			Probe: func(config.VillaConfig) status.HealthState { return liveInferproxyHealth() },
+		},
+		{
+			Unit:  unitServiceName(orchestrate.STTContainerUnitName()),
+			Kind:  status.Managed,
+			Probe: func(config.VillaConfig) status.HealthState { return liveSttHealth() },
+		},
+		{
+			Unit:  unitServiceName(orchestrate.TTSContainerUnitName()),
+			Kind:  status.Managed,
+			Probe: func(config.VillaConfig) status.HealthState { return liveTtsHealth() },
 		},
 		{
 			// The dashboard is a native systemd --user service, not a Quadlet

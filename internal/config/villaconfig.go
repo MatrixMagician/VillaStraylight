@@ -84,6 +84,19 @@ const (
 	InferproxyAddr = "villa-inferproxy"
 	// InferproxyPort is the in-network port villa-inferproxy listens on.
 	InferproxyPort = 8091
+
+	// SttAddr is the container-DNS name of the villa-stt whisper-server (ADR-0030).
+	SttAddr = "villa-stt"
+	// SttPort is the in-network port villa-stt serves on. It is rendered into the
+	// unit's --port, so it is not whisper-server's own default: that number is the
+	// inference unit's, and the inference client gate refuses its literal elsewhere.
+	SttPort = 8081
+
+	// TtsAddr is the container-DNS name of the villa-tts Kokoro-FastAPI service.
+	TtsAddr = "villa-tts"
+	// TtsPort is the port Kokoro-FastAPI's image serves on. villa renders no port
+	// for that unit, so this follows the pinned image rather than setting it.
+	TtsPort = 8880
 )
 
 // VillaConfig is the persisted recommend selection that later phases (Phase 3
@@ -287,6 +300,12 @@ type VillaConfig struct {
 	// default, for the same reason, and carries ,omitzero because BurntSushi/toml
 	// drops a zero int only under that tag.
 	SandboxCPUs int `toml:"sandbox_cpus,omitzero"`
+
+	// VoiceEnabled gates the voice subsystem (ADR-0030): villa-stt and villa-tts,
+	// and Open WebUI's audio settings. Default false, written by `install --voice`.
+	// A plain bool under ,omitempty, so a voice-off save writes no key and
+	// marshalVilla needs no zeroing branch.
+	VoiceEnabled bool `toml:"voice_enabled,omitempty"`
 }
 
 // ResidentModel is one secondary model held resident alongside VillaConfig.Model.

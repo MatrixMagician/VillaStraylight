@@ -25,6 +25,8 @@ func TestReservationsForFollowsTheGates(t *testing.T) {
 		{"memory on", config.VillaConfig{MemoryEnabled: true, EmbeddingModel: "nomic-embed-text-v1.5"}, []string{"embedding"}},
 		{"web search on", config.VillaConfig{WebSearchEnabled: true}, []string{"web_search"}},
 		{"both on, embedding first", config.VillaConfig{MemoryEnabled: true, WebSearchEnabled: true}, []string{"embedding", "web_search"}},
+		{"voice on, two rows", config.VillaConfig{VoiceEnabled: true}, []string{"stt", "tts"}},
+		{"everything on, voice last", config.VillaConfig{MemoryEnabled: true, WebSearchEnabled: true, VoiceEnabled: true}, []string{"embedding", "web_search", "stt", "tts"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -56,6 +58,29 @@ func TestReservationRowsCarryTheirNameAndSize(t *testing.T) {
 	wantWeb, _ := webSearchReservation(webSearchInputs{ResultCount: 3})
 	if res[1].Name != "web_search" || res[1].Bytes != wantWeb {
 		t.Errorf("web-search row = %+v, want web_search / %d", res[1], wantWeb)
+	}
+}
+
+// TestVoiceRowsAreTheMeasuredFootprints: voice reserves two rows, one per process
+// holding the memory, so the fit table names which unit holds it.
+func TestVoiceRowsAreTheMeasuredFootprints(t *testing.T) {
+	res := ReservationsFor(config.VillaConfig{VoiceEnabled: true})
+	if len(res) != 2 {
+		t.Fatalf("got %d rows, want 2", len(res))
+	}
+	if res[0].Name != "stt" || res[0].Bytes != 2684354560 {
+		t.Errorf("stt row = %+v, want stt / 2684354560", res[0])
+	}
+	if res[1].Name != "tts" || res[1].Bytes != 2147483648 {
+		t.Errorf("tts row = %+v, want tts / 2147483648", res[1])
+	}
+	rec := Pick(profileWithEnvelope(64<<30), testCatalog(), Overrides{}, res)
+	if rec.EmbeddingReservationBytes != 0 || rec.WebSearchReservationBytes != 0 || rec.MemoryConsidered {
+		t.Errorf("voice rows leaked into the v8 keys: embedding=%d web=%d memory_considered=%v",
+			rec.EmbeddingReservationBytes, rec.WebSearchReservationBytes, rec.MemoryConsidered)
+	}
+	if got := rec.ReservedBytes(); got != 2684354560+2147483648 {
+		t.Errorf("ReservedBytes = %d, want %d", got, uint64(2684354560+2147483648))
 	}
 }
 

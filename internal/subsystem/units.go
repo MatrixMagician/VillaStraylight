@@ -58,6 +58,12 @@ var unitTable = map[Kind][]unit{
 		{name: "villa-searxng.container"},
 		{name: "villa-websafe.container"},
 	},
+	// Both voice units render whenever the subsystem does: one gate, one proof
+	// (ADR-0030), so neither carries an `on` of its own.
+	Voice: {
+		{name: "villa-stt.container"},
+		{name: "villa-tts.container"},
+	},
 }
 
 // serviceOf is the Quadlet mapping: villa-x.container → villa-x.service.

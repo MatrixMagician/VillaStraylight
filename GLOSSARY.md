@@ -122,6 +122,18 @@ The running stack flipped to a tool-calling configuration for the terminal
 coding agent, and back again.
 _Avoid_: agent mode, dev mode, tool mode
 
+**Voice**:
+The subsystem behind the chat UI's voice input and read-aloud: speech-to-text
+(`villa-stt`, whisper.cpp on the GPU) and text-to-speech (`villa-tts`, Kokoro on
+the CPU), one gate, proven together.
+_Avoid_: audio stack, STT/TTS (as two subsystems), speech services
+
+**Round trip**:
+The voice proof: a fixed sentence is spoken by text-to-speech, the audio is
+transcribed by speech-to-text, and the two word sequences are compared. A service
+that could not be reached is a reject, never a fail.
+_Avoid_: smoke test, loopback test, echo test
+
 **Coder model**:
 The model the coding agent talks to, distinct from the chat model.
 _Avoid_: agent model, dev model

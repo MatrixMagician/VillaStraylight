@@ -1,0 +1,16 @@
+# ~/.config/containers/systemd/villa-tts.container  (GENERATED — do not edit; source: config.toml)
+[Unit]
+Description=VillaStraylight text-to-speech (Kokoro-FastAPI, CPU)
+After=villa-network.service
+
+[Container]
+ContainerName={{.ContainerName}}
+Image={{.Image}}
+Network={{.Network}}
+{{range .Env}}Environment={{.Key}}={{.Value}}
+{{end}}
+[Service]
+Restart=on-failure
+
+[Install]
+WantedBy=default.target

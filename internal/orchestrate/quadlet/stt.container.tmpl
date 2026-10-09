@@ -1,0 +1,19 @@
+# ~/.config/containers/systemd/villa-stt.container  (GENERATED — do not edit; source: config.toml)
+[Unit]
+Description=VillaStraylight speech-to-text (whisper-server, Vulkan)
+After=villa-network.service
+
+[Container]
+ContainerName={{.ContainerName}}
+Image={{.Image}}
+Network={{.Network}}
+{{range .AddDevice}}AddDevice={{.}}
+{{end}}Volume={{.Volume}}
+Entrypoint={{.Entrypoint}}
+Exec={{.Exec}}
+
+[Service]
+Restart=on-failure
+
+[Install]
+WantedBy=default.target

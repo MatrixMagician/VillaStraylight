@@ -110,6 +110,7 @@ actually has:
 | Qdrant + embedder | `villa verify memory` |
 | SearXNG + websafe | `villa verify search` |
 | Crush | `villa verify agent` |
+| whisper + Kokoro | `villa verify voice` |
 
 For a backend image, also check that the model still **answers well**, not only that
 it answers (ADR-0018). The proofs above pass a broken chat template or a quantisation

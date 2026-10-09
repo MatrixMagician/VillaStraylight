@@ -165,6 +165,7 @@ func TestForGroupsByProofUnit(t *testing.T) {
 		subsystem.WebSearch: {SearXNG, Websafe},
 		subsystem.Agent:     {Crush},
 		subsystem.Sandbox:   {SandboxImage},
+		subsystem.Voice:     {Whisper, Kokoro},
 	}
 	for k, want := range cases {
 		got := For(k)
@@ -180,6 +181,23 @@ func TestForGroupsByProofUnit(t *testing.T) {
 	}
 	if len(For(subsystem.CodingMode)) != 0 {
 		t.Error("coding mode has pinned components; it is a configuration of the stack, not a component of it")
+	}
+}
+
+// TestTheVoicePinsNameWhatTheirTagsSay: whisper.cpp's main-vulkan is a rolling
+// channel with no version, and Kokoro's tag names a release, so --check must report
+// a moved whisper digest as a rebuild and a moved Kokoro digest against v0.9.0.
+func TestTheVoicePinsNameWhatTheirTagsSay(t *testing.T) {
+	w, ok := Lookup(Whisper)
+	if !ok || w.Shape != RollingDigest || w.Version != "" || w.Registry != registryGHCR {
+		t.Errorf("whisper entry = %+v, want a rolling ghcr.io digest with no version", w)
+	}
+	k, ok := Lookup(Kokoro)
+	if !ok || k.Shape != VersionTag || k.Version != "0.9.0" || k.Registry != registryGHCR {
+		t.Errorf("kokoro entry = %+v, want ghcr.io version tag 0.9.0", k)
+	}
+	if ok && !strings.Contains(k.Vetted().Ref, ":v"+k.Version+"@sha256:") {
+		t.Errorf("kokoro pin %q does not carry the tag its declared version names", k.Vetted().Ref)
 	}
 }
 
@@ -238,6 +256,7 @@ func TestEveryDigestPinnedImageInTheTreeIsInTheTable(t *testing.T) {
 		filepath.Join("..", "orchestrate", "searxng.go"),
 		filepath.Join("..", "orchestrate", "websafe.go"),
 		filepath.Join("..", "orchestrate", "sandbox.go"),
+		filepath.Join("..", "orchestrate", "voice.go"),
 	}
 
 	inTable := map[string]bool{}

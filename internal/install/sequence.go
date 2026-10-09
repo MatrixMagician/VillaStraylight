@@ -122,6 +122,8 @@ type Units struct {
 	Rerank    string
 	Searxng   string
 	Websafe   string
+	Stt       string
+	Tts       string
 }
 
 // BuildSequence derives the mutate-and-start sequence for a run.
@@ -173,6 +175,15 @@ func BuildSequence(gates Gates, u Units, secretNeeded bool) Sequence {
 			Step{Kind: StepStart, Service: u.Searxng, RequiresUnit: u.Searxng},
 			Step{Kind: StepStart, Service: u.Websafe, RequiresUnit: u.Websafe},
 			Step{Kind: StepProve, Service: u.Searxng},
+		)
+	}
+
+	// One round trip proves both voice units, so the proof follows both starts.
+	if gates.Voice {
+		steps = append(steps,
+			Step{Kind: StepStart, Service: u.Stt, RequiresUnit: u.Stt},
+			Step{Kind: StepStart, Service: u.Tts, RequiresUnit: u.Tts},
+			Step{Kind: StepProve, Service: u.Stt},
 		)
 	}
 

@@ -38,6 +38,7 @@ func init() {
 		subsystem.Memory:    proveMemory,
 		subsystem.WebSearch: proveSearch,
 		subsystem.Agent:     proveAgent,
+		subsystem.Voice:     proveVoice,
 	}
 }
 
@@ -123,6 +124,12 @@ func proveAgent(ctx context.Context) updateflow.Proof {
 		return updateflow.Proof{Status: updateflow.ProofFail, Detail: p.detail}
 	}
 	return updateflow.Proof{Status: updateflow.ProofPass, Detail: p.detail}
+}
+
+// proveVoice runs the spoken round trip `villa verify voice` runs. An unreachable
+// unit is already a Reject in voice.Prove, so it cannot commit a pin.
+func proveVoice(ctx context.Context) updateflow.Proof {
+	return fromVerifyProof(liveVoiceProof(ctx))
 }
 
 // fromVerifyProof maps the verify family's vocabulary onto the update flow's.

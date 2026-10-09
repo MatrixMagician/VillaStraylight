@@ -229,6 +229,17 @@ villa verify search                    # negative-control-first, inverse-framed 
                                        # fabricated PASS); also asserts planted injections are stripped+fenced+flagged
 ```
 
+**Opt-in voice (ADR-0030):**
+
+```bash
+villa install --voice                  # opt into voice: pre-stage the whisper model, render villa-stt (whisper.cpp
+                                       # on Vulkan) and villa-tts (Kokoro on the CPU), wire Open WebUI's voice
+                                       # input and read-aloud, and prove a spoken round trip. Persists voice_enabled.
+villa verify voice                     # speak a fixed sentence on villa-tts, transcribe it on villa-stt, compare
+```
+
+Voice is strictly local: whisper serves the OpenAI transcription route itself (no shim), the Kokoro image bakes its weights in and was proven to make no outbound call at startup or synthesis, and both units are reachable only on `villa.network`.
+
 Web search is **strictly opt-in and default-OFF**: with it disabled the install renders byte-identical to v1.4 and the zero-outbound posture is unchanged. When enabled, a query reaches SearXNG's upstream engines and result pages are fetched, so outbound is no longer zero; that outbound is **bounded and provable** (`villa verify search`) and surfaced honestly in `villa status`/`doctor`/the dashboard (the outbound-bounded indicator derives from the real verify result, never a config flag). Fetched pages flow through `villa-websafe`, the sole producer of Open WebUI `page_content`, which SSRF-guards every fetch and runs an injection-guard pass (sanitize → Unicode-normalize → provenance-fence → heuristic classify). The guard **reduces and flags** prompt injection; it is never claimed to eliminate it, and the browser-side markdown-image exfiltration channel is a documented residual, not closed.
 
 **The workspace agent (v1.11):**
@@ -282,7 +293,7 @@ forward.
 villa update --check                  # read-only: what is current, what has moved; works on a stopped stack
 villa update --dry-run                # the ordered plan, the download total and the snapshot disk; changes nothing
 villa update                          # apply, one subsystem at a time, each proven before it commits
-villa update <subsystem>              # apply to one of: inference, chat, memory, search, agent
+villa update <subsystem>              # apply to one of: inference, chat, memory, search, agent, voice
 ```
 
 Each subsystem is proven **before and after** it changes: villa refuses to start

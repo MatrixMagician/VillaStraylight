@@ -111,6 +111,10 @@ const (
 	// villa-BUILT pin: its bytes come from build/sandbox/Containerfile rather than
 	// from a registry, which is why its registry host is localhost.
 	SandboxImage ComponentID = orchestrate.ComponentSandbox
+	// Whisper is the villa-stt speech-to-text image (whisper.cpp, Vulkan build).
+	Whisper ComponentID = orchestrate.ComponentWhisper
+	// Kokoro is the villa-tts text-to-speech image (Kokoro-FastAPI, CPU build).
+	Kokoro ComponentID = orchestrate.ComponentKokoro
 )
 
 // Pin is one component's pinned value.
@@ -358,6 +362,22 @@ func Table() []Entry {
 			Shape:    RollingDigest,
 			Registry: registryLocalhost,
 			Vetted:   func() Pin { return Pin{Ref: orchestrate.SandboxImage()} },
+		},
+		{
+			Component: Whisper,
+			Subsystem: subsystem.Voice,
+			// `main-vulkan` is a rolling channel on whisper.cpp master: no version.
+			Shape:    RollingDigest,
+			Registry: registryGHCR,
+			Vetted:   func() Pin { return Pin{Ref: orchestrate.WhisperImage()} },
+		},
+		{
+			Component: Kokoro,
+			Subsystem: subsystem.Voice,
+			Shape:     VersionTag,
+			Registry:  registryGHCR,
+			Version:   "0.9.0",
+			Vetted:    func() Pin { return Pin{Ref: orchestrate.KokoroImage()} },
 		},
 	}
 }

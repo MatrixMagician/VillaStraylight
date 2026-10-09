@@ -192,7 +192,7 @@ func Render(in RenderInput) ([]Unit, error) {
 	// golden. mv is computed ONCE here (memory.RenderView is pure, cheap, identical) and
 	// reused by the memory-stack branch below.
 	mv := memory.RenderView(in.Cfg) // resolved-values handoff (Phase-18 spine)
-	owuiContainerText, err := execTemplate(tmpl, "openwebui.container.tmpl", buildOpenWebUIView(in.pinOr(ComponentOpenWebUI, openWebUIImage), mv, in.Cfg.MemoryEnabled, subsystem.RerankOn(in.Cfg), in.Cfg.WebSearchEnabled, config.SearxngAddr, config.SearxngPort, in.Cfg.WebSearchResultCount, config.WebsafeAddr, config.WebsafePort, residentNames, in.Cfg.InferenceSecret))
+	owuiContainerText, err := execTemplate(tmpl, "openwebui.container.tmpl", buildOpenWebUIView(in.pinOr(ComponentOpenWebUI, openWebUIImage), mv, in.Cfg.MemoryEnabled, subsystem.RerankOn(in.Cfg), in.Cfg.WebSearchEnabled, subsystem.VoiceOn(in.Cfg), config.SearxngAddr, config.SearxngPort, in.Cfg.WebSearchResultCount, config.WebsafeAddr, config.WebsafePort, residentNames, in.Cfg.InferenceSecret))
 	if err != nil {
 		return nil, err
 	}
@@ -325,6 +325,28 @@ func Render(in RenderInput) ([]Unit, error) {
 			return nil, err
 		}
 		units = append(units, Unit{Name: inferproxyContainerUnitName, Text: inferproxyContainerText})
+	}
+
+	// Voice (ADR-0030) is appended after every other gated unit and before the
+	// sandbox network, so no existing unit moves and a voice-off render is
+	// byte-identical by construction.
+	if subsystem.VoiceOn(in.Cfg) {
+		sv, err := buildSttView(in.pinOr(ComponentWhisper, whisperImage))
+		if err != nil {
+			return nil, err
+		}
+		sttText, err := execTemplate(tmpl, "stt.container.tmpl", sv)
+		if err != nil {
+			return nil, err
+		}
+		ttsText, err := execTemplate(tmpl, "tts.container.tmpl", buildTtsView(in.pinOr(ComponentKokoro, kokoroImage)))
+		if err != nil {
+			return nil, err
+		}
+		units = append(units,
+			Unit{Name: sttContainerUnitName, Text: sttText},
+			Unit{Name: ttsContainerUnitName, Text: ttsText},
+		)
 	}
 
 	// v1.11 workspace agent: the internal task network, appended LAST so every unit

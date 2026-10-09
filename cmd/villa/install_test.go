@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -186,6 +187,63 @@ func TestNomicShardValues(t *testing.T) {
 	}
 	if install.NomicEmbedShard.SHA256 != "3e24342164b3d94991ba9692fdc0dd08e3fd7362e0aacc396a9a5c54a544c3b7" {
 		t.Errorf("NomicEmbedShard.SHA256 = %q, want 3e24342164b3d94991ba9692fdc0dd08e3fd7362e0aacc396a9a5c54a544c3b7", install.NomicEmbedShard.SHA256)
+	}
+}
+
+// TestWhisperShardValues pins the speech model's integrity values and holds the two
+// copies of its name together: the URL's basename is typed by hand, and the
+// filename must be the one villa-stt's -m serves.
+func TestWhisperShardValues(t *testing.T) {
+	sh := install.WhisperModelShard
+	if sh.Filename != orchestrate.WhisperModelFilename() {
+		t.Errorf("WhisperModelShard.Filename = %q, want orchestrate.WhisperModelFilename() %q", sh.Filename, orchestrate.WhisperModelFilename())
+	}
+	if base := path.Base(sh.URL); base != sh.Filename {
+		t.Errorf("the URL fetches %q but the shard is staged as %q", base, sh.Filename)
+	}
+	if sh.SizeBytes != 1624555275 {
+		t.Errorf("WhisperModelShard.SizeBytes = %d, want 1624555275", sh.SizeBytes)
+	}
+	if sh.SHA256 != "1fc70f774d38eb169993ac391eea357ef47c88757ef72ee5943879b7e8e2bc69" {
+		t.Errorf("WhisperModelShard.SHA256 = %q, want the LFS oid 1fc70f77...", sh.SHA256)
+	}
+}
+
+// TestLiveInstallWiresVoice: `--voice` reaches Opts, the proof seam is wired (a
+// voice-on install with a nil ProveVoice would panic after starting the units), and
+// the live presence check trusts only a speech model of the pinned size.
+func TestLiveInstallWiresVoice(t *testing.T) {
+	if newInstall().Flags().Lookup("voice") == nil {
+		t.Fatal("villa install has no --voice flag")
+	}
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	d, err := liveInstallDeps(t.Context())
+	if err != nil {
+		t.Fatalf("liveInstallDeps: %v", err)
+	}
+	if d.ProveVoice == nil || d.EnsureVoiceModel == nil || d.VoiceModelPresent == nil {
+		t.Fatal("liveInstallDeps leaves a voice seam nil")
+	}
+	dir := t.TempDir()
+	if d.VoiceModelPresent(dir) {
+		t.Error("an empty models dir must read as missing the speech model")
+	}
+	f, err := os.Create(filepath.Join(dir, install.WhisperModelShard.Filename))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Truncate(int64(install.WhisperModelShard.SizeBytes) - 1); err != nil {
+		t.Fatal(err)
+	}
+	if d.VoiceModelPresent(dir) {
+		t.Error("a truncated speech model must read as missing, so install re-pulls and re-verifies it")
+	}
+	if err := f.Truncate(int64(install.WhisperModelShard.SizeBytes)); err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	if !d.VoiceModelPresent(dir) {
+		t.Error("a file of the pinned size must read as present")
 	}
 }
 

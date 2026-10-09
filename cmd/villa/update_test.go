@@ -24,6 +24,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/manifest"
 	"github.com/MatrixMagician/VillaStraylight/internal/pins"
 	"github.com/MatrixMagician/VillaStraylight/internal/pinstate"
+	"github.com/MatrixMagician/VillaStraylight/internal/subsystem"
 	"github.com/MatrixMagician/VillaStraylight/internal/updatefetch"
 	"github.com/MatrixMagician/VillaStraylight/internal/updateflow"
 )
@@ -281,15 +282,39 @@ func TestUnknownSubsystemTeachesTheModel(t *testing.T) {
 			t.Errorf("the error does not teach the subsystem model (missing %q):\n%s", want, got)
 		}
 	}
-	if !strings.Contains(got, "inference, chat, memory, search, agent") {
+	if !strings.Contains(got, "inference, chat, memory, search, agent, voice") {
 		t.Errorf("the error does not list the valid subsystems:\n%s", got)
+	}
+}
+
+// TestAVoiceUnitNameTeachesTheVoiceSubsystem: whisper and kokoro move together
+// because one round trip proves them, and the error says so.
+func TestAVoiceUnitNameTeachesTheVoiceSubsystem(t *testing.T) {
+	for _, arg := range []string{"whisper", "kokoro", "stt", "tts", "villa-stt", "villa-tts"} {
+		var h updateHarness
+		h.run(t, config.VillaConfig{Backend: "vulkan"}, pinstate.State{}, updatefetch.Fetched{}, nil,
+			[]string{arg}, updateFlags{check: true})
+		got := h.text()
+		for _, want := range []string{"part of the voice subsystem", "verify voice proves speech-to-text and text-to-speech together", "villa update voice"} {
+			if !strings.Contains(got, want) {
+				t.Errorf("%s: missing %q:\n%s", arg, want, got)
+			}
+		}
+	}
+}
+
+// TestVoiceHasAnUpdateProof: without an entry, `villa update voice` rejects with
+// "no proof is wired for voice" and can never commit a whisper or kokoro pin.
+func TestVoiceHasAnUpdateProof(t *testing.T) {
+	if liveProofFuncs[subsystem.Voice] == nil {
+		t.Error("liveProofFuncs has no voice proof")
 	}
 }
 
 // TestEverySubsystemNameIsAccepted: the names printed in the error must be the
 // names the parser takes, or villa contradicts itself in consecutive lines.
 func TestEverySubsystemNameIsAccepted(t *testing.T) {
-	for _, name := range []string{"inference", "chat", "memory", "search", "agent", "sandbox"} {
+	for _, name := range []string{"inference", "chat", "memory", "search", "agent", "sandbox", "voice"} {
 		if _, ok := subsystemByName(name); !ok {
 			t.Errorf("%q is listed as a valid subsystem but the parser refuses it", name)
 		}
@@ -304,7 +329,7 @@ func TestEverySubsystemNameIsAccepted(t *testing.T) {
 func TestEveryComponentHasASubsystemAUserCanName(t *testing.T) {
 	for _, e := range pins.Table() {
 		found := false
-		for _, name := range []string{"inference", "chat", "memory", "search", "agent", "sandbox"} {
+		for _, name := range []string{"inference", "chat", "memory", "search", "agent", "sandbox", "voice"} {
 			if k, ok := subsystemByName(name); ok && k == e.Subsystem {
 				found = true
 				break

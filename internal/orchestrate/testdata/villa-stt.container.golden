@@ -1,0 +1,19 @@
+# ~/.config/containers/systemd/villa-stt.container  (GENERATED — do not edit; source: config.toml)
+[Unit]
+Description=VillaStraylight speech-to-text (whisper-server, Vulkan)
+After=villa-network.service
+
+[Container]
+ContainerName=villa-stt
+Image=ghcr.io/ggml-org/whisper.cpp:main-vulkan@sha256:8bbf6a98c256b67fed7664fc379755d724560bcab7714906f449b97b7bc88955
+Network=villa.network
+AddDevice=/dev/dri
+Volume=villa-models:/models:ro,z
+Entrypoint=/usr/local/bin/whisper-server
+Exec=-m /models/ggml-large-v3-turbo.bin --host 0.0.0.0 --port 8081 --inference-path /v1/audio/transcriptions --convert
+
+[Service]
+Restart=on-failure
+
+[Install]
+WantedBy=default.target

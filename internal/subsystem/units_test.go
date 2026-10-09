@@ -14,6 +14,10 @@ func TestSubsystemsMoveAsTheirProofUnit(t *testing.T) {
 	if len(units) != 2 || len(services) != 2 {
 		t.Errorf("web search moves %d units / %d services, want SearXNG and the web guard together", len(units), len(services))
 	}
+	units, services = Voice.EveryUnit()
+	if len(units) != 2 || len(services) != 2 {
+		t.Errorf("voice moves %d units / %d services, want villa-stt and villa-tts together", len(units), len(services))
+	}
 	// The agent is a binary, not a unit: nothing to render and nothing to restart.
 	units, services = Agent.EveryUnit()
 	if len(units) != 0 || len(services) != 0 {
