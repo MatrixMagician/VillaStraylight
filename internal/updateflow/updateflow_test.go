@@ -42,6 +42,11 @@ type recorder struct {
 	// data went back to what was captured rather than merely that a call happened.
 	restoredFrom pinstate.DataSnapshot
 
+	// mutated is what Mutate reports it restarted; restartedOnRestore is what the
+	// rollback handed Restore.
+	mutated            []string
+	restartedOnRestore []string
+
 	snapshot  pinstate.DataSnapshot
 	captured  Capture
 	committed map[string]map[string]string
@@ -85,9 +90,9 @@ func (r *recorder) deps() Deps {
 			r.log("pull")
 			return r.pullErr
 		},
-		Mutate: func(context.Context, subsystem.Kind, map[string]string) error {
+		Mutate: func(context.Context, subsystem.Kind, map[string]string) ([]string, error) {
 			r.log("mutate")
-			return r.mutateErr
+			return r.mutated, r.mutateErr
 		},
 		Stop: func(context.Context, subsystem.Kind) error {
 			r.log("stop")
@@ -105,8 +110,9 @@ func (r *recorder) deps() Deps {
 			r.log("prove-new")
 			return r.proveNew
 		},
-		Restore: func(context.Context, subsystem.Kind, Capture) error {
+		Restore: func(_ context.Context, _ subsystem.Kind, _ Capture, restarted []string) error {
 			r.log("restore")
+			r.restartedOnRestore = restarted
 			return r.restoreErr
 		},
 		RestoreData: func(_ context.Context, _ subsystem.Kind, snap pinstate.DataSnapshot) error {
@@ -369,6 +375,32 @@ func TestAMutateErrorRollsBack(t *testing.T) {
 	}
 }
 
+// TestARollbackRestartsWhatTheMutationRestarted (#354, ADR-0038): the mutation
+// restarts every running service whose unit the stack apply rewrote, which can
+// reach outside the subsystem, so the rollback must restart that same set, the
+// partial one included when the mutation failed halfway through its restarts.
+func TestARollbackRestartsWhatTheMutationRestarted(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		mutateErr error
+		proveNew  Proof
+		restarted []string
+	}{
+		{"a failed proof", nil, Proof{Status: ProofFail}, []string{"villa-qdrant.service", "villa-embed.service", "villa-openwebui.service"}},
+		{"a failed restart", errors.New("restart villa-openwebui.service: exit 1"), Proof{Status: ProofPass}, []string{"villa-qdrant.service", "villa-openwebui.service"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := newRecorder()
+			r.mutated, r.mutateErr, r.proveNew = tc.restarted, tc.mutateErr, tc.proveNew
+
+			Run(context.Background(), r.deps(), []Target{memoryTarget()})
+			if strings.Join(r.restartedOnRestore, ",") != strings.Join(tc.restarted, ",") {
+				t.Errorf("the rollback restarted %v, want what the mutation restarted %v", r.restartedOnRestore, tc.restarted)
+			}
+		})
+	}
+}
+
 // TestAFailedRestoreIsReportedAsIncomplete is ADR-0003's honesty requirement. The
 // worst state in the whole flow must never be reported as a clean rollback.
 func TestAFailedRestoreIsReportedAsIncomplete(t *testing.T) {
@@ -571,11 +603,11 @@ func TestRollbackRunsOnALiveContextAfterTheBudgetExpires(t *testing.T) {
 		return base(ctx, k)
 	}
 	baseRestore := d.Restore
-	d.Restore = func(ctx context.Context, k subsystem.Kind, c Capture) error {
+	d.Restore = func(ctx context.Context, k subsystem.Kind, c Capture, restarted []string) error {
 		if ctx.Err() != nil {
 			sawDoneDuringRollback = true
 		}
-		return baseRestore(ctx, k, c)
+		return baseRestore(ctx, k, c, restarted)
 	}
 	baseRestoreData := d.RestoreData
 	d.RestoreData = func(ctx context.Context, k subsystem.Kind, snap pinstate.DataSnapshot) error {

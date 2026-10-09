@@ -261,12 +261,12 @@ func TestTheIncidentReproduced(t *testing.T) {
 		snapshotted = volume
 		return pinstate.DataSnapshot{Volume: "villa-openwebui", Path: "/snap/chat.tar", Bytes: 267_000_000}, nil
 	}
-	d.Mutate = func(context.Context, subsystem.Kind, map[string]string) error {
+	d.Mutate = func(context.Context, subsystem.Kind, map[string]string) ([]string, error) {
 		r.log("mutate")
 		// The new image migrates the schema forward on first start. This is the
 		// step that makes the retained image useless as a rollback target.
 		volume = newSchema
-		return nil
+		return nil, nil
 	}
 	d.ProveNew = func(context.Context, subsystem.Kind) Proof {
 		r.log("prove-new")

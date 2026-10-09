@@ -67,9 +67,10 @@ func TestStoppedWindowFollowsTheRerankerGate(t *testing.T) {
 
 // TestUpdateFollowsTheExtractorGate: the extractor is memory's second optional
 // unit (ADR-0033), so every seam of a memory update reads its gate the way it
-// reads the reranker's. With `extractor` unset the stopped window, the restart and
-// the capture never name villa-extract, even when a stale unit file sits on disk;
-// with the gate on, the extractor is stopped, started, restarted and captured.
+// reads the reranker's. With `extractor` unset the stopped window and the capture
+// never name villa-extract, even when a stale unit file sits on disk; with the gate
+// on, the extractor is stopped, started and captured. The restart half is
+// TestAMemoryUpdateRestartsTheExtractorOnlyWhenItsGateIsOn.
 func TestUpdateFollowsTheExtractorGate(t *testing.T) {
 	cfgHome := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", cfgHome)
@@ -84,7 +85,7 @@ func TestUpdateFollowsTheExtractorGate(t *testing.T) {
 		}
 	}
 
-	off := config.VillaConfig{MemoryEnabled: true}
+	off := config.VillaConfig{Model: "qwen3.5-0.8b", Quant: "Q4_K_M", Ctx: 4096, InferenceSecret: "s", MemoryEnabled: true}
 	sys, calls := recordingSystemd("villa-extract")
 	if err := liveSubsystemStop(t.Context(), sys, off, subsystem.Memory); err != nil {
 		t.Fatalf("stop with the extractor unset: %v", err)
@@ -92,13 +93,10 @@ func TestUpdateFollowsTheExtractorGate(t *testing.T) {
 	if err := liveSubsystemStart(t.Context(), sys, off, subsystem.Memory); err != nil {
 		t.Fatalf("start with the extractor unset: %v", err)
 	}
-	if err := restartServices(t.Context(), sys, off, subsystem.Memory); err != nil {
-		t.Fatalf("restart with the extractor unset: %v", err)
-	}
 	if got := strings.Join(*calls, "\n"); strings.Contains(got, "villa-extract") {
 		t.Errorf("the update touched the unrendered extractor:\n%s", got)
 	}
-	snap, err := liveCapture(off, subsystem.Memory)
+	snap, err := liveCapture(liveStackDeps(), off, subsystem.Memory)
 	if err != nil {
 		t.Fatalf("capture with the extractor unset: %v", err)
 	}
@@ -106,7 +104,8 @@ func TestUpdateFollowsTheExtractorGate(t *testing.T) {
 		t.Errorf("capture with the extractor unset took %v, want only qdrant and the embedder", got)
 	}
 
-	on := config.VillaConfig{MemoryEnabled: true, Extractor: true}
+	on := off
+	on.Extractor = true
 	sys, calls = recordingSystemd("no-such-unit")
 	if err := liveSubsystemStop(t.Context(), sys, on, subsystem.Memory); err != nil {
 		t.Fatalf("stop with the extractor on: %v", err)
@@ -114,16 +113,13 @@ func TestUpdateFollowsTheExtractorGate(t *testing.T) {
 	if err := liveSubsystemStart(t.Context(), sys, on, subsystem.Memory); err != nil {
 		t.Fatalf("start with the extractor on: %v", err)
 	}
-	if err := restartServices(t.Context(), sys, on, subsystem.Memory); err != nil {
-		t.Fatalf("restart with the extractor on: %v", err)
-	}
 	got := strings.Join(*calls, "\n")
-	for _, want := range []string{"stop villa-extract.service", "start villa-extract.service", "restart villa-extract.service"} {
+	for _, want := range []string{"stop villa-extract.service", "start villa-extract.service"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("with the gate on the update did not run %q:\n%s", want, got)
 		}
 	}
-	snap, err = liveCapture(on, subsystem.Memory)
+	snap, err = liveCapture(liveStackDeps(), on, subsystem.Memory)
 	if err != nil {
 		t.Fatalf("capture with the extractor on: %v", err)
 	}

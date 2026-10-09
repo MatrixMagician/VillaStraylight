@@ -491,7 +491,7 @@ func TestApplyRunsTheStateMachineOnARunningStack(t *testing.T) {
 					return updateflow.Proof{Status: updateflow.ProofPass}
 				},
 				CaptureState: func(subsystem.Kind) (updateflow.Capture, error) { return updateflow.Capture{}, nil },
-				Mutate:       func(context.Context, subsystem.Kind, map[string]string) error { return nil },
+				Mutate:       func(context.Context, subsystem.Kind, map[string]string) ([]string, error) { return nil, nil },
 				Stop:         func(context.Context, subsystem.Kind) error { return nil },
 				SnapshotData: func(context.Context, subsystem.Kind) (pinstate.DataSnapshot, error) {
 					return pinstate.DataSnapshot{Volume: "villa-qdrant", Path: "/snap/memory.tar", Bytes: 2_800_000_000}, nil
@@ -841,7 +841,7 @@ func TestPruneOutputFollowsTheRunsStream(t *testing.T) {
 					CaptureState: func(subsystem.Kind) (updateflow.Capture, error) {
 						return updateflow.Capture{Refs: map[string]string{"qdrant": "old"}}, nil
 					},
-					Mutate: func(context.Context, subsystem.Kind, map[string]string) error { return nil },
+					Mutate: func(context.Context, subsystem.Kind, map[string]string) ([]string, error) { return nil, nil },
 					// The report is memory's, which owns persistent state, so the
 					// stopped window is wired: without it the core refuses and this
 					// test would exercise a refusal rather than the stream split.
@@ -851,7 +851,7 @@ func TestPruneOutputFollowsTheRunsStream(t *testing.T) {
 					},
 					Start:    func(context.Context, subsystem.Kind) error { return nil },
 					ProveNew: func(context.Context, subsystem.Kind) updateflow.Proof { return proof },
-					Restore:  func(context.Context, subsystem.Kind, updateflow.Capture) error { return nil },
+					Restore:  func(context.Context, subsystem.Kind, updateflow.Capture, []string) error { return nil },
 					RestoreData: func(context.Context, subsystem.Kind, pinstate.DataSnapshot) error {
 						return nil
 					},
