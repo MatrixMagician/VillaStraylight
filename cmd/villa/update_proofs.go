@@ -101,6 +101,7 @@ func proveMemory(ctx context.Context) updateflow.Proof {
 		owuiPort: cfg.ChatPort,
 		question: question,
 		wantFact: wantFact,
+		extract:  subsystem.ExtractOn(cfg),
 	})
 	return fromVerifyProof(memoryProofOutcome(p))
 }

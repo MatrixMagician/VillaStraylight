@@ -46,9 +46,14 @@ authenticated route of ADR-0014; it was not needed, so no such route was built.
 - **The extractor is Apache Tika 3.3.1 with OCR, as `villa-extract`, inside the
   memory subsystem behind a derived gate.** `subsystem.ExtractOn(cfg)` is
   `MemoryOn(cfg) && cfg.Extractor`, the reranker's shape. It shares memory's proof and
-  its update restart set: `verify memory` drives the upload path the extractor sits
-  on, and `villa update memory` stops, snapshots, moves and starts it with Qdrant,
-  the embedder and the reranker through `subsystem.Units(cfg)`. The flag exists for
+  its update restart set: `verify memory` does not reach the extractor through its
+  smoke upload, which is a `.txt` that Open WebUI routes to its text loader and
+  past Tika. Both `verify memory` and the proof `villa update memory` runs
+  therefore end with the install readiness probe (a plain-text PUT to
+  `/tika/text` that must return its sentence) when `ExtractOn` holds, and an
+  error or a missing sentence fails the proof. `villa update memory` stops,
+  snapshots, moves and starts the extractor with Qdrant, the embedder and the
+  reranker through `subsystem.Units(cfg)`. The flag exists for
   the reason the reranker's does: a memory-on host upgraded to this build must not
   re-render Open WebUI against a unit that is not running, so `villa install` writes
   `extractor = true` beside `memory_enabled`, and until it runs a memory-on config

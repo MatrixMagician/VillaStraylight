@@ -139,6 +139,7 @@ func runVerifyMemory(cmd *cobra.Command, _ []string, deps verifyMemoryDeps) int 
 				owuiPort: cfg.ChatPort,
 				question: ragSmokeQuestion,
 				wantFact: ragSmokeWantFact,
+				extract:  subsystem.ExtractOn(cfg),
 			})
 			return memoryProofOutcome(proof)
 		},

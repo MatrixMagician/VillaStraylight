@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -84,7 +85,7 @@ func TestEvalRagSmoke(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			egressBlocked := func() (bool, error) { return tc.blocked, tc.egressErr }
 			uploadCite := func() (string, bool, error) { return tc.answer, tc.cited, tc.uploadErr }
-			got := evalRagSmoke(egressBlocked, uploadCite, wantFact)
+			got := evalRagSmoke(egressBlocked, uploadCite, nil, wantFact)
 			if got.status != tc.wantStatus {
 				t.Errorf("status = %v, want %v (detail %q)", got.status, tc.wantStatus, got.detail)
 			}
@@ -107,7 +108,7 @@ func TestEvalRagSmokeNegativeControlFirst(t *testing.T) {
 		uploadRan := false
 		egressBlocked := func() (bool, error) { return false, errors.New("probe could not run") }
 		uploadCite := func() (string, bool, error) { uploadRan = true; return wantFact, true, nil }
-		got := evalRagSmoke(egressBlocked, uploadCite, wantFact)
+		got := evalRagSmoke(egressBlocked, uploadCite, nil, wantFact)
 		if got.status != preflight.StatusFail {
 			t.Fatalf("status = %v, want FAIL when the negative control could not run", got.status)
 		}
@@ -120,7 +121,7 @@ func TestEvalRagSmokeNegativeControlFirst(t *testing.T) {
 		uploadRan := false
 		egressBlocked := func() (bool, error) { return false, nil } // external host WAS reachable
 		uploadCite := func() (string, bool, error) { uploadRan = true; return wantFact, true, nil }
-		got := evalRagSmoke(egressBlocked, uploadCite, wantFact)
+		got := evalRagSmoke(egressBlocked, uploadCite, nil, wantFact)
 		if got.status != preflight.StatusFail {
 			t.Fatalf("status = %v, want FAIL when egress is not blocked", got.status)
 		}
@@ -213,4 +214,67 @@ func TestRunVerifyMemoryGate(t *testing.T) {
 			t.Errorf("memory-on PASS exit = %d, want exitPass (%d)", code, exitPass)
 		}
 	})
+}
+
+// TestEvalRagSmokeProbesTheExtractor guards ADR-0033: the smoke upload is a .txt
+// that Open WebUI routes past Tika, so a green RAG drive proves nothing about the
+// extractor. With an extractor probe supplied, an error or a reply without the
+// probe sentence must FAIL; a nil probe is the extractor-off case and changes
+// nothing.
+func TestEvalRagSmokeProbesTheExtractor(t *testing.T) {
+	const wantFact = "fact"
+	blocked := func() (bool, error) { return true, nil }
+	cited := func() (string, bool, error) { return wantFact, true, nil }
+
+	cases := []struct {
+		name       string
+		probe      func() (string, error)
+		wantStatus preflight.Status
+		wantDetail string
+	}{
+		{"extractor off", nil, preflight.StatusPass, "zero outbound"},
+		{"extractor answers", func() (string, error) { return "  " + extractProbeBody + "\n", nil }, preflight.StatusPass, "extractor text"},
+		{"extractor down", func() (string, error) { return "", errors.New("connection refused") }, preflight.StatusFail, extractServiceName},
+		{"extractor returns nothing", func() (string, error) { return "", nil }, preflight.StatusFail, extractServiceName},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := evalRagSmoke(blocked, cited, tc.probe, wantFact)
+			if got.status != tc.wantStatus {
+				t.Fatalf("status = %v, want %v (detail %q)", got.status, tc.wantStatus, got.detail)
+			}
+			if !strings.Contains(got.detail, tc.wantDetail) {
+				t.Errorf("detail = %q, want it to contain %q", got.detail, tc.wantDetail)
+			}
+		})
+	}
+}
+
+// TestVerifyMemoryAsksForTheExtractorProbeOnlyWhenRendered guards the wiring: the
+// smoke input carries extract exactly when subsystem.ExtractOn holds.
+func TestVerifyMemoryAsksForTheExtractorProbeOnlyWhenRendered(t *testing.T) {
+	for _, extractor := range []bool{false, true} {
+		var got ragSmokeInput
+		deps := verifyMemoryDeps{
+			loadedConfig: func() (config.VillaConfig, error) {
+				cfg := config.DefaultVillaConfig()
+				cfg.MemoryEnabled = true
+				cfg.Extractor = extractor
+				return cfg, nil
+			},
+			ragSmokeFn: func(_ context.Context, in ragSmokeInput) memoryProof {
+				got = in
+				return memoryProof{status: preflight.StatusPass}
+			},
+		}
+		cmd := &cobra.Command{}
+		cmd.SetContext(t.Context())
+		var out bytes.Buffer
+		cmd.SetOut(&out)
+		cmd.SetErr(&out)
+		runVerifyMemory(cmd, nil, deps)
+		if got.extract != extractor {
+			t.Errorf("extractor=%v: ragSmokeInput.extract = %v", extractor, got.extract)
+		}
+	}
 }
