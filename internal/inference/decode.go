@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
+	"math/rand/v2"
 	"time"
 
 	"github.com/MatrixMagician/VillaStraylight/internal/llm"
@@ -30,10 +32,17 @@ const (
 	// decodeProbeTimeout bounds the whole probe, prefill included.
 	decodeProbeTimeout = 60 * time.Second
 	// decodeProbePrompt asks for prose long enough to exceed the bound from any
-	// model, thinking or not, and varied enough that an n-gram draft on a cold
-	// cache accepts little, so the rate is the model's own.
+	// model, thinking or not.
 	decodeProbePrompt = "Explain in detail, step by step, why the sky is blue by day and red at sunset."
+	// decodeProbeTemperature over the flat decodeProbeSampler makes every sampled
+	// token close to uniform, so no window of the probe's output repeats one the
+	// server has seen. llama-server's ngram-mod keeps one n-gram map across every
+	// request and the pinned build takes no per-request speculation field, so this
+	// is how the probe keeps a draft from replaying an earlier answer (ADR-0031).
+	decodeProbeTemperature = 2.0
 )
+
+var decodeProbeSampler = llm.Sampler{TopK: 0, TopP: 1, MinP: 0}
 
 // errDecodeTooShort is returned when the reply carried fewer than
 // decodeProbeMinTokens predicted tokens.
@@ -49,7 +58,8 @@ func (c Client) DecodeRate(ctx context.Context, modelID string) (float64, error)
 	timings, err := c.Chat(decodeProbeTimeout).Complete(ctx, llm.ChatRequest{
 		Model:    modelID,
 		Messages: []llm.Message{{Role: llm.RoleUser, Content: decodeProbePrompt}},
-	}, decodeProbeMaxTokens, 0, 0)
+		Sampler:  &decodeProbeSampler,
+	}, decodeProbeMaxTokens, rand.IntN(math.MaxInt32), decodeProbeTemperature)
 	if err != nil {
 		return 0, err
 	}

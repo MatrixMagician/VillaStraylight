@@ -75,6 +75,42 @@ func TestDecodeRate(t *testing.T) {
 		}
 	})
 
+	// llama-server's ngram-mod keeps one n-gram map across every request, so a probe
+	// whose output repeats reads the draft's replay, not the model: measured on the
+	// dev host 2026-10-09, an identical greedy probe read 51.4 then 196.6 tok/s (53 of
+	// 53 drafted tokens accepted), and a nonce in the prompt or a seeded temperature-1
+	// sample still read 93.5 to 259.7 and 70.8 tok/s. A flat sampler with a fresh seed
+	// read 44.2 to 46.3 tok/s with 0 to 4 tokens accepted, back to back.
+	t.Run("each probe samples flat with a fresh seed, so no draft can replay an earlier one", func(t *testing.T) {
+		type sampled struct {
+			Temperature float64  `json:"temperature"`
+			TopK        *int     `json:"top_k"`
+			TopP        *float64 `json:"top_p"`
+			MinP        *float64 `json:"min_p"`
+			Seed        int      `json:"seed"`
+		}
+		var reqs []sampled
+		for range 2 {
+			srv, body := completionServer(t, http.StatusOK, timed)
+			if _, err := NewClient(srv.URL, "").DecodeRate(t.Context(), "m"); err != nil {
+				t.Fatalf("DecodeRate: %v", err)
+			}
+			var req sampled
+			if err := json.Unmarshal(*body, &req); err != nil {
+				t.Fatalf("decode request: %v", err)
+			}
+			reqs = append(reqs, req)
+		}
+		for i, req := range reqs {
+			if req.Temperature != 2 || req.TopK == nil || *req.TopK != 0 || req.TopP == nil || *req.TopP != 1 || req.MinP == nil || *req.MinP != 0 {
+				t.Errorf("probe %d sampler = temperature %v top_k %v top_p %v min_p %v, want 2, 0, 1, 0", i+1, req.Temperature, deref(req.TopK), deref(req.TopP), deref(req.MinP))
+			}
+		}
+		if reqs[0].Seed == reqs[1].Seed {
+			t.Errorf("both probes sent seed %d, want a fresh seed per probe", reqs[0].Seed)
+		}
+	})
+
 	t.Run("a reply without timings is an error", func(t *testing.T) {
 		srv, _ := completionServer(t, http.StatusOK, `{"choices":[{"message":{"content":"x"}}]}`)
 		if _, err := NewClient(srv.URL, "").DecodeRate(t.Context(), "m"); err == nil {
@@ -97,4 +133,11 @@ func TestDecodeRate(t *testing.T) {
 			t.Fatalf("DecodeRate: err = %v, want the 401 named", err)
 		}
 	})
+}
+
+func deref[T any](p *T) any {
+	if p == nil {
+		return nil
+	}
+	return *p
 }
