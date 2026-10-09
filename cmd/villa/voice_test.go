@@ -5,7 +5,9 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 	"github.com/MatrixMagician/VillaStraylight/internal/preflight"
 	"github.com/MatrixMagician/VillaStraylight/internal/verify"
@@ -182,5 +184,22 @@ func TestVoiceInstallProof(t *testing.T) {
 		if got.Status != tc.want || got.Detail != "d" {
 			t.Errorf("voiceInstallProof(%v) = %+v, want status %v with the detail kept", tc.in, got, tc.want)
 		}
+	}
+}
+
+// TestVoiceProofTargetIsWhisperOnVulkan: the placement fold reads villa-stt's own
+// journal, measures the GTT floor against the whisper model file, and uses the
+// Vulkan markers whatever the chat backend, because villa-stt is always Vulkan. The
+// deadline outlasts the round trip's own retries (ten 183 s attempts).
+func TestVoiceProofTargetIsWhisperOnVulkan(t *testing.T) {
+	tgt := voiceProofTarget()
+	if tgt.Service != "villa-stt.service" || tgt.ModelFile != "ggml-large-v3-turbo.bin" || tgt.WeightBytes != 1624555275 {
+		t.Errorf("target = %q %q %d, want villa-stt.service ggml-large-v3-turbo.bin 1624555275", tgt.Service, tgt.ModelFile, tgt.WeightBytes)
+	}
+	if tgt.Markers != inference.VulkanBackend().ResidencyProof() {
+		t.Errorf("Markers = %+v, want the Vulkan markers", tgt.Markers)
+	}
+	if tgt.ReadyTimeout < 1830*time.Second {
+		t.Errorf("ReadyTimeout = %v, want at least the round trip's 30m30s", tgt.ReadyTimeout)
 	}
 }

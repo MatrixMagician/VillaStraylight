@@ -52,14 +52,20 @@ func TestFootprintsAreTheMeasuredReservations(t *testing.T) {
 
 // TestThePackageStaysAPureLeaf: voice is imported by orchestrate, recommend and the
 // command tier, so it may import none of them, and it does no I/O of its own. The
-// live curl legs are the command tier's.
+// live curl legs are the command tier's. The residency protocol the proof drives
+// (#332) takes every host read as a seam, so importing it adds no I/O.
 func TestThePackageStaysAPureLeaf(t *testing.T) {
 	allowed := []string{
+		"context",
 		"errors",
 		"fmt",
 		"strings",
+		"time",
 		"unicode",
 		"github.com/MatrixMagician/VillaStraylight/internal/config",
+		"github.com/MatrixMagician/VillaStraylight/internal/detect",
+		"github.com/MatrixMagician/VillaStraylight/internal/inference",
+		"github.com/MatrixMagician/VillaStraylight/internal/residency",
 		"github.com/MatrixMagician/VillaStraylight/internal/verify",
 	}
 	files, err := filepath.Glob("*.go")
@@ -82,7 +88,7 @@ func TestThePackageStaysAPureLeaf(t *testing.T) {
 		for _, imp := range f.Imports {
 			p, _ := strconv.Unquote(imp.Path.Value)
 			if !slices.Contains(allowed, p) {
-				t.Errorf("%s imports %q; internal/voice imports only config, verify and pure stdlib", file, p)
+				t.Errorf("%s imports %q; internal/voice imports only config, verify, the residency protocol and pure stdlib", file, p)
 			}
 		}
 	}

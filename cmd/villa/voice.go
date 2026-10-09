@@ -4,7 +4,8 @@ package main
 // speak voice.ProofSentence on villa-tts and transcribe the audio on villa-stt. Both
 // run from the in-network helper because neither unit publishes a host port, and the
 // audio passes from one leg to the next on curl's stdin, so it never touches the host
-// filesystem. The verdict is voice.Prove's; this file only reports what curl saw.
+// filesystem. The verdict is voice.ProveOnGPU's (ADR-0037); this file only reports
+// what curl saw and binds the residency reads.
 // Install, `verify voice` and `update voice` call the same liveVoiceProof. It reads
 // and never mutates, so it takes no stack lock.
 
@@ -14,9 +15,12 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/MatrixMagician/VillaStraylight/internal/detect"
+	"github.com/MatrixMagician/VillaStraylight/internal/inference"
 	"github.com/MatrixMagician/VillaStraylight/internal/install"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 	"github.com/MatrixMagician/VillaStraylight/internal/preflight"
+	"github.com/MatrixMagician/VillaStraylight/internal/residency"
 	"github.com/MatrixMagician/VillaStraylight/internal/verify"
 	"github.com/MatrixMagician/VillaStraylight/internal/voice"
 )
@@ -107,9 +111,33 @@ func liveVoiceDriver(ctx context.Context) voice.Driver {
 	)
 }
 
-// liveVoiceProof is the spoken round trip against the running units.
+// voiceProofTimeout bounds the whole proof. It outlasts the round trip's own worst
+// case (ten attempts of a 60 s speak and a 120 s transcribe, with the waits), so the
+// deadline never cuts short a verdict the round trip would reach.
+const voiceProofTimeout = 31 * time.Minute
+
+// liveVoiceProof is the spoken round trip against the running units, run as the
+// drive of the residency protocol so it also proves whisper ran on the GPU (#332).
 func liveVoiceProof(ctx context.Context) verify.Proof {
-	return voice.Prove(liveVoiceDriver(ctx))
+	return voice.ProveOnGPU(ctx, liveVoiceDriver(ctx), residency.Deps{
+		GPUBusy: detect.GPUBusyPercent,
+		GTTUsed: detect.GTTUsedBytes,
+		Journal: orchestrate.NewSystemd().ResidencyJournal,
+		Fold:    inference.WhisperOffloadVerdict,
+	}, voiceProofTarget())
+}
+
+// voiceProofTarget names what the placement fold reads: villa-stt's invocation
+// journal, the whisper model file as the GTT floor's reference, and the Vulkan
+// markers, because villa-stt is always Vulkan whatever the chat backend.
+func voiceProofTarget() residency.Target {
+	return residency.Target{
+		Service:      unitServiceName(orchestrate.STTContainerUnitName()),
+		ModelFile:    install.WhisperModelShard.Filename,
+		WeightBytes:  install.WhisperModelShard.SizeBytes,
+		Markers:      inference.VulkanBackend().ResidencyProof(),
+		ReadyTimeout: voiceProofTimeout,
+	}
 }
 
 // voiceInstallProof maps the verdict onto install's two states. A Reject refuses the
