@@ -1590,6 +1590,58 @@ func TestInstallRollbackRestartsAnAlreadyActiveService(t *testing.T) {
 	}
 }
 
+// TestInstallRollbackRestoresTheDashboardUnit (#327): install rewrites the native
+// dashboard unit's ExecStart to the running binary before any container unit is
+// written. A failed install must restore that unit's prior bytes, reload the
+// manager and only then restart the dashboard, or the long-lived dashboard keeps
+// running whichever binary the failed install was run from.
+func TestInstallRollbackRestoresTheDashboardUnit(t *testing.T) {
+	units, plan := memoryUnits()
+
+	t.Run("a re-install restores the prior bytes and restarts on them", func(t *testing.T) {
+		f := newFakeDeps(t, units, plan, passChecks())
+		f.memoryEnabled = true
+		f.memoryProofStatus = preflight.StatusFail
+		f.activeState = "active"
+		prior := mustRenderDashboardUnit(t, "/home/op/repos/villa/villa")
+		f.diskUnit = prior
+
+		f.run(Opts{})
+
+		if f.dashWriteCalls != 1 {
+			t.Fatalf("the forward path must rewrite the dashboard unit for the new binary once, wrote %d times", f.dashWriteCalls)
+		}
+		if !bytes.Equal(f.diskUnit, prior) {
+			t.Errorf("dashboard unit after rollback:\n%s\nwant the prior bytes:\n%s", f.diskUnit, prior)
+		}
+		restore := lastIndex(f.callOrder, "writeUnit:"+orchestrate.DashboardServiceName)
+		reload := lastIndex(f.callOrder, "reload")
+		restart := lastIndex(f.callOrder, "restart:"+orchestrate.DashboardServiceName)
+		if restore < 0 || reload < restore || restart < reload {
+			t.Errorf("the dashboard must be restored (%d), then the manager reloaded (%d), then the dashboard restarted (%d); callOrder = %v", restore, reload, restart, f.callOrder)
+		}
+	})
+
+	t.Run("a first install removes the unit it wrote", func(t *testing.T) {
+		f := newFakeDeps(t, units, plan, passChecks())
+		f.memoryEnabled = true
+		f.memoryProofStatus = preflight.StatusFail
+		f.activeState = "inactive"
+		f.priorConfigExists = false
+		f.priorUnits = map[string]string{}
+		f.diskUnit = nil
+
+		f.run(Opts{})
+
+		if f.diskUnit != nil {
+			t.Errorf("a failed first install must remove the dashboard unit it wrote, left:\n%s", f.diskUnit)
+		}
+		if !contains(f.removedUnits, orchestrate.DashboardServiceName) {
+			t.Errorf("the dashboard unit must be removed through RemoveUnit; removed = %v", f.removedUnits)
+		}
+	})
+}
+
 // lastIndex returns the index of the last occurrence of want in order, or -1.
 func lastIndex(order []string, want string) int {
 	for i := len(order) - 1; i >= 0; i-- {

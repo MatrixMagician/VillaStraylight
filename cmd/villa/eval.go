@@ -33,6 +33,7 @@ import (
 	"github.com/MatrixMagician/VillaStraylight/internal/eval"
 	"github.com/MatrixMagician/VillaStraylight/internal/evalstore"
 	"github.com/MatrixMagician/VillaStraylight/internal/inference"
+	"github.com/MatrixMagician/VillaStraylight/internal/inprobe"
 	"github.com/MatrixMagician/VillaStraylight/internal/llm"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 	"github.com/MatrixMagician/VillaStraylight/internal/stackapply"
@@ -114,14 +115,14 @@ func liveEvalComplete(cfg config.VillaConfig, model string) func(context.Context
 
 // liveEvalRerank scores docs against query through villa-rerank over villa.network.
 func liveEvalRerank(ctx context.Context, query string, docs []string) ([]float64, error) {
-	return postRerank(ctx, orchestrate.EmbedImage(), config.RerankAddr, config.RerankPort, query, docs)
+	return postRerank(ctx, runProbeCurlCode, orchestrate.EmbedImage(), config.RerankAddr, config.RerankPort, query, docs)
 }
 
 // postRerank is the one rerank request villa makes: the eval seam and the install
 // readiness probe both go through it. The unit is container-DNS only, so the
 // request rides the in-network curl of the memory proof; helperImage is the probe
 // helper, never a pin.
-func postRerank(ctx context.Context, helperImage, addr string, port int, query string, docs []string) ([]float64, error) {
+func postRerank(ctx context.Context, exec inprobe.Exec, helperImage, addr string, port int, query string, docs []string) ([]float64, error) {
 	body, err := json.Marshal(map[string]any{
 		"model":     orchestrate.RerankModelName,
 		"query":     query,
@@ -132,7 +133,7 @@ func postRerank(ctx context.Context, helperImage, addr string, port int, query s
 		return nil, err
 	}
 	url := fmt.Sprintf("http://%s:%d/v1/rerank", addr, port)
-	out, err := runProbeCurl(ctx, helperImage,
+	out, _, err := exec(ctx, helperImage,
 		"-sf", "-X", "POST", url,
 		"-H", "Content-Type: application/json",
 		"-d", string(body),

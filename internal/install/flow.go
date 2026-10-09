@@ -413,6 +413,13 @@ func Run(ctx context.Context, d Deps, opts Opts) Result {
 			}
 		}
 	}
+	if d.ReadDashboardUnit != nil && d.UserUnitDir != nil {
+		if udir, uerr := d.UserUnitDir(); uerr == nil {
+			if b, rerr := d.ReadDashboardUnit(udir); rerr == nil {
+				priorUnits[orchestrate.DashboardServiceName] = string(b)
+			}
+		}
+	}
 	// The running set covers every service install may start, not only the
 	// rendered plan, so a rollback never stops a service that was running before.
 	priorRunning := map[string]bool{}
@@ -441,13 +448,21 @@ func Run(ctx context.Context, d Deps, opts Opts) Result {
 				if d.WriteUnit == nil {
 					return fmt.Errorf("no unit-write seam wired")
 				}
-				return d.WriteUnit(unitDir, name, text)
+				dir, err := rollbackUnitDir(d, unitDir, name)
+				if err != nil {
+					return err
+				}
+				return d.WriteUnit(dir, name, text)
 			},
 			RemoveUnit: func(name string) error {
 				if d.RemoveUnit == nil {
 					return fmt.Errorf("no unit-removal seam wired")
 				}
-				return d.RemoveUnit(unitDir, name)
+				dir, err := rollbackUnitDir(d, unitDir, name)
+				if err != nil {
+					return err
+				}
+				return d.RemoveUnit(dir, name)
 			},
 			SaveConfig:   d.SaveConfig,
 			RemoveConfig: d.RemoveConfig,
@@ -467,7 +482,7 @@ func Run(ctx context.Context, d Deps, opts Opts) Result {
 
 	// (7b) Reconcile the native dashboard unit on BOTH paths, so a re-install with
 	// unchanged containers still repairs it. Idempotent: a matching unit is a no-op.
-	if err := reconcileDashboard(d, say, mutated.RecordStart); err != nil {
+	if err := reconcileDashboard(d, say, mutated.RecordStart, mutated.RecordUnit); err != nil {
 		return refuse("install: %v\n", err)
 	}
 
@@ -693,7 +708,7 @@ func Run(ctx context.Context, d Deps, opts Opts) Result {
 // on-disk unit, and only writes → reloads → enables → starts on a difference. An
 // absent unit is the normal first-install state; any other read error is fatal.
 // The binary path resolves fail-closed: never a fixed fallback path.
-func reconcileDashboard(d Deps, say func(string, ...any), recordStart func(string)) error {
+func reconcileDashboard(d Deps, say func(string, ...any), recordStart, recordUnit func(string)) error {
 	udir, err := d.UserUnitDir()
 	if err != nil {
 		return fmt.Errorf("cannot resolve the user-unit dir for the dashboard: %w", err)
@@ -720,6 +735,7 @@ func reconcileDashboard(d Deps, say func(string, ...any), recordStart func(strin
 	if err := d.WriteDashboardUnit(udir, binPath); err != nil {
 		return fmt.Errorf("write dashboard unit failed: %w", err)
 	}
+	recordUnit(orchestrate.DashboardServiceName)
 	say("wrote %s to %s\n", orchestrate.DashboardServiceName, udir)
 	if err := d.DaemonReload(); err != nil {
 		return fmt.Errorf("daemon-reload (dashboard) failed: %w", err)
@@ -733,6 +749,15 @@ func reconcileDashboard(d Deps, say func(string, ...any), recordStart func(strin
 	say("started %s (boot-survival enabled)\n", orchestrate.DashboardServiceName)
 	recordStart(orchestrate.DashboardServiceName)
 	return nil
+}
+
+// rollbackUnitDir is the directory a rollback restores name into: the dashboard is
+// a native user service, so it lives in the user-unit dir, not the Quadlet dir.
+func rollbackUnitDir(d Deps, quadletDir, name string) (string, error) {
+	if name != orchestrate.DashboardServiceName {
+		return quadletDir, nil
+	}
+	return d.UserUnitDir()
 }
 
 // postInstall narrates the loopback endpoint, the readiness verdict and the two

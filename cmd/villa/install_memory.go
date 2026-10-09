@@ -315,6 +315,16 @@ const memoryProofNetwork = "villa"
 // leaving no stray state behind.
 const villaProbeCollection = "villa-probe"
 
+// memoryProofDeps is the in-network seam the memory proof drives: the curl exec
+// (live: a `podman run --rm --network villa` curl), the helper image it runs, and
+// the bound on waiting for a llama-server to finish loading its model.
+type memoryProofDeps struct {
+	exec     inprobe.Exec
+	image    string
+	timeout  time.Duration
+	interval time.Duration
+}
+
 // liveMemoryProof is the production proof seam: it reaches the container-DNS-only
 // villa-embed / villa-qdrant over villa.network via a one-shot `podman run --rm --network
 // villa` curl (no host port is opened), sourcing the helper image from the
@@ -322,10 +332,46 @@ const villaProbeCollection = "villa-probe"
 // literal (keeps TestSeamGrepGate green). Every podman/curl arg is FIXED; the
 // JSON body is a constant and the model id is config-resolved, never shell-interpolated.
 func liveMemoryProof(ctx context.Context, in memoryProofInput) memoryProof {
-	helperImage := orchestrate.EmbedImage()
+	return memoryProofWith(ctx, memoryProofDeps{
+		exec:     runProbeCurlCode,
+		image:    orchestrate.EmbedImage(),
+		timeout:  readinessTimeout,
+		interval: readinessInterval,
+	}, in)
+}
+
+// memoryProofWith drives the memory proof through d; liveMemoryProof binds the
+// host, tests a fake network.
+func memoryProofWith(ctx context.Context, d memoryProofDeps, in memoryProofInput) memoryProof {
+	curl := func(args ...string) ([]byte, error) {
+		out, _, err := d.exec(ctx, d.image, args...)
+		return out, err
+	}
+
+	// awaitHealth polls a llama-server's /health until it answers 200, bounded like
+	// the inference readiness poll. llama-server answers 503 while its model loads
+	// and refuses the connection for the first instants after its container starts;
+	// a request sent in that window fails, so the proof waits before its first one.
+	awaitHealth := func(addr string, port int) error {
+		url := fmt.Sprintf("http://%s:%d/health", addr, port)
+		probe := func() (int, error) {
+			out, _, err := d.exec(ctx, d.image, "-s", "-o", "/dev/null", "-w", "%{http_code}", "--max-time", "5", url)
+			if err != nil {
+				return 0, err
+			}
+			return strconv.Atoi(strings.TrimSpace(string(out)))
+		}
+		if ready := pollReadiness(ctx, probe, d.timeout, d.interval); ready.Status != preflight.StatusPass {
+			return fmt.Errorf("not ready after %s: %s", d.timeout, ready.Detail)
+		}
+		return nil
+	}
 
 	// embedProbe POSTs the fixed /v1/embeddings body and returns len(data[0].embedding).
 	embedProbe := func() (int, error) {
+		if err := awaitHealth(in.embedAddr, in.embedPort); err != nil {
+			return 0, err
+		}
 		body, err := json.Marshal(map[string]any{
 			"input":           "villa memory readiness probe",
 			"model":           in.embedModel,
@@ -335,7 +381,7 @@ func liveMemoryProof(ctx context.Context, in memoryProofInput) memoryProof {
 			return 0, err
 		}
 		url := fmt.Sprintf("http://%s:%d/v1/embeddings", in.embedAddr, in.embedPort)
-		out, err := runProbeCurl(ctx, helperImage,
+		out, err := curl(
 			"-sf", "-X", "POST", url,
 			"-H", "Content-Type: application/json",
 			"-d", string(body),
@@ -362,7 +408,6 @@ func liveMemoryProof(ctx context.Context, in memoryProofInput) memoryProof {
 	// idempotency ordering is unit-testable off-hardware.
 	qdrantProbe := func() (bool, error) {
 		base := fmt.Sprintf("http://%s:%d", in.qdrantAddr, in.qdrantPort)
-		curl := func(args ...string) ([]byte, error) { return runProbeCurl(ctx, helperImage, args...) }
 		return qdrantWritableProbe(curl, base, in.embeddingDim)
 	}
 
@@ -370,7 +415,10 @@ func liveMemoryProof(ctx context.Context, in memoryProofInput) memoryProof {
 	var rerankProbe func() (int, error)
 	if in.rerank {
 		rerankProbe = func() (int, error) {
-			scores, err := postRerank(ctx, helperImage, in.rerankAddr, in.rerankPort, rerankProbeQuery, rerankProbeDocuments)
+			if err := awaitHealth(in.rerankAddr, in.rerankPort); err != nil {
+				return 0, err
+			}
+			scores, err := postRerank(ctx, d.exec, d.image, in.rerankAddr, in.rerankPort, rerankProbeQuery, rerankProbeDocuments)
 			if err != nil {
 				return 0, err
 			}

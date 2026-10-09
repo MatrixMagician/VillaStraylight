@@ -1,12 +1,18 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
+	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/MatrixMagician/VillaStraylight/internal/config"
 	"github.com/MatrixMagician/VillaStraylight/internal/install"
 	"github.com/MatrixMagician/VillaStraylight/internal/orchestrate"
 	"github.com/MatrixMagician/VillaStraylight/internal/preflight"
@@ -115,5 +121,93 @@ func TestRerankProbeReadsTheTopIndex(t *testing.T) {
 	}
 	if _, err := parseRerankScores([]byte(`{"results":[]}`), 2); err == nil {
 		t.Error("an empty results list must be an error, never index 0")
+	}
+}
+
+// fakeMemoryNetwork answers the memory proof's in-network curl like the three
+// memory services on villa.network. Each llama-server host is still loading its
+// model for the first loading[host] /health probes: until then /health answers
+// 503 and every other route an HTTP error (curl -f exit 22), as llama-server does
+// on the host; afterwards /health answers 200 and each route its body.
+type fakeMemoryNetwork struct {
+	loading map[string]int
+	health  map[string]int
+}
+
+func (f *fakeMemoryNetwork) exec(_ context.Context, _ string, args ...string) ([]byte, int, error) {
+	i := slices.IndexFunc(args, func(a string) bool { return strings.HasPrefix(a, "http://") })
+	u, err := url.Parse(args[i])
+	if err != nil {
+		return nil, 0, err
+	}
+	host := u.Hostname()
+	ready := f.health[host] >= f.loading[host]
+	if u.Path == "/health" {
+		f.health[host]++
+		if ready {
+			return []byte("200"), 0, nil
+		}
+		return []byte("503"), 0, nil
+	}
+	if !ready {
+		return nil, 22, errors.New("exit status 22")
+	}
+	switch u.Path {
+	case "/v1/embeddings":
+		body, _ := json.Marshal(map[string]any{"data": []map[string]any{{"embedding": make([]float64, 768)}}})
+		return body, 0, nil
+	case "/v1/rerank":
+		return []byte(`{"results":[{"index":0,"relevance_score":2.5},{"index":1,"relevance_score":-6.0}]}`), 0, nil
+	default:
+		return []byte("{}"), 0, nil
+	}
+}
+
+// TestMemoryProofWaitsForEachLlamaServer: a memory service that is still loading
+// its model answers 503 on /health and an HTTP error on every request. The proof
+// polls /health until 200 before its first request to that service and passes;
+// probing the reranker two seconds after its unit started failed the install on
+// the dev host (#326).
+func TestMemoryProofWaitsForEachLlamaServer(t *testing.T) {
+	for _, host := range []string{config.RerankAddr, config.EmbedAddr} {
+		t.Run(host+" still loading", func(t *testing.T) {
+			net := &fakeMemoryNetwork{loading: map[string]int{host: 2}, health: map[string]int{}}
+			d := memoryProofDeps{exec: net.exec, image: "helper", timeout: time.Second, interval: time.Millisecond}
+			got := memoryProofWith(t.Context(), d, memoryProofInput{
+				embedAddr: config.EmbedAddr, embedPort: config.EmbedPort, embedModel: "nomic", embeddingDim: 768,
+				qdrantAddr: config.QdrantAddr, qdrantPort: config.QdrantPort,
+				rerank: true, rerankAddr: config.RerankAddr, rerankPort: config.RerankPort,
+			})
+			if got.status != preflight.StatusPass {
+				t.Fatalf("status = %v, want PASS (detail %q)", got.status, got.detail)
+			}
+			if want := "768-dim embeddings + Qdrant writable + reranker ranking"; got.detail != want {
+				t.Errorf("detail = %q, want %q", got.detail, want)
+			}
+			if n := net.health[host]; n != 3 {
+				t.Errorf("/health probes on %s = %d, want 3 (two 503s, then the 200 the request waited for)", host, n)
+			}
+		})
+	}
+}
+
+// TestMemoryProofRefusesARerankerThatNeverLoads: a reranker whose /health never
+// leaves 503 fails the proof at the readiness bound, naming its unit, rather than
+// passing or hanging.
+func TestMemoryProofRefusesARerankerThatNeverLoads(t *testing.T) {
+	net := &fakeMemoryNetwork{loading: map[string]int{config.RerankAddr: 1 << 30}, health: map[string]int{}}
+	d := memoryProofDeps{exec: net.exec, image: "helper", timeout: 5 * time.Millisecond, interval: time.Millisecond}
+	got := memoryProofWith(t.Context(), d, memoryProofInput{
+		embedAddr: config.EmbedAddr, embedPort: config.EmbedPort, embedModel: "nomic", embeddingDim: 768,
+		qdrantAddr: config.QdrantAddr, qdrantPort: config.QdrantPort,
+		rerank: true, rerankAddr: config.RerankAddr, rerankPort: config.RerankPort,
+	})
+	if got.status != preflight.StatusFail {
+		t.Fatalf("status = %v, want FAIL (detail %q)", got.status, got.detail)
+	}
+	for _, want := range []string{"villa-rerank.service", "/health 503"} {
+		if !strings.Contains(got.detail, want) {
+			t.Errorf("detail = %q, want it to contain %q", got.detail, want)
+		}
 	}
 }
