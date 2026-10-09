@@ -111,6 +111,12 @@ func TestNetworksFailWhenTheClosedNetworkRoutes(t *testing.T) {
 	if !strings.Contains(f.Remediation, "podman network rm villa-closed") {
 		t.Errorf("remediation = %q, want the network's recreation", f.Remediation)
 	}
+	// Quadlet renders a .network unit as a oneshot with RemainAfterExit, so after a
+	// `podman network rm` it still reads active and `villa up` would not re-run its
+	// create: the remediation must stop that unit too.
+	if !strings.Contains(f.Remediation, "systemctl --user stop villa-closed-network.service") {
+		t.Errorf("remediation = %q, want the network unit stopped so villa up recreates the network", f.Remediation)
+	}
 }
 
 // TestNetworksPassBeforeTheClosedNetworkExists: a host where nothing has started

@@ -279,7 +279,7 @@ func networksVerdict(f Finding, top orchestrate.Topology, running map[string][]s
 		fixes = append(fixes, "restart each container so it rejoins its unit's networks: `villa restart "+strings.Join(restarts, "` / `villa restart ")+"`")
 	}
 	for _, network := range routed {
-		fixes = append(fixes, "stop the services on "+network+", run `podman network rm "+network+"`, then `villa up` to recreate it internal")
+		fixes = append(fixes, "stop the services on "+network+" and `systemctl --user stop "+network+"-network.service`, run `podman network rm "+network+"`, then `villa up` to recreate it internal")
 	}
 	f.Status = statusFail
 	f.Detail = strings.Join(faults, "; ")
