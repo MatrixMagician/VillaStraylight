@@ -235,18 +235,22 @@ const networksProvenance = "rendered units vs `podman ps` + `podman network ls`"
 // without a restart leaves its container where it was.
 func (d Deps) networks(rendered []orchestrate.Unit) Finding {
 	f := Finding{ID: "networks", Name: "Container networks", Tier: tierBlock, Provenance: networksProvenance}
-	running, err := d.ContainerNetworks()
-	if err == nil {
-		var internal map[string]bool
-		if internal, err = d.NetworkInternal(); err == nil {
-			return networksVerdict(f, orchestrate.NetworkTopology(rendered), running, internal)
-		}
+	unread := func(err error) Finding {
+		f.Status = statusWarn
+		f.Detail = "could not read the host's podman networks to compare them with the units"
+		f.Remediation = "check that `podman ps` and `podman network ls` run for this user, then re-run `villa doctor`"
+		f.Raw = err.Error()
+		return f
 	}
-	f.Status = statusWarn
-	f.Detail = "could not read the host's podman networks to compare them with the units"
-	f.Remediation = "check that `podman ps` and `podman network ls` run for this user, then re-run `villa doctor`"
-	f.Raw = err.Error()
-	return f
+	running, err := d.ContainerNetworks()
+	if err != nil {
+		return unread(err)
+	}
+	internal, err := d.NetworkInternal()
+	if err != nil {
+		return unread(err)
+	}
+	return networksVerdict(f, orchestrate.NetworkTopology(rendered), running, internal)
 }
 
 // networksVerdict decides the networks finding from the rendered topology and the
