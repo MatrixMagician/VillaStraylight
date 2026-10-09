@@ -208,7 +208,7 @@ type killedRound struct {
 const (
 	agentRunRemediation     = "ensure the agent is installed (`villa install --coding-agent`) and the stack is up (`villa up`), then re-run `villa doctor`; check `villa verify agent` and `villa logs`"
 	agentBudgetRemediation  = "the served model generated tokens but could not finish a tool call inside a budget sized from its measured decode rate; check `villa verify agent` and `villa logs`, or serve a faster model (`villa model swap`)"
-	agentPrefillRemediation = "the served model is too slow at prefill for the agent: Crush abandons a request that sends nothing for 60 s (its request_timeout), and the server had not finished prefilling the agent's prompt in that time, so a longer doctor budget cannot help; a sliding-window model cannot reuse a cached prompt prefix without context checkpoints (#323); serve a model that prefills the agent's prompt in under a minute (`villa model swap`) to use the agent"
+	agentPrefillRemediation = "the served model is too slow at prefill for the agent: every Crush session opens with its whole system prompt and tool list to prefill, Crush abandons a request that sends nothing for 60 s (its request_timeout), and the server had not finished that prefill in time, so a longer doctor budget cannot help; serve a model that prefills the agent's prompt in under a minute (`villa model swap`) to use the agent"
 )
 
 // agentToolCallVerdict maps one round trip's outcome to the doctor verdict. Every

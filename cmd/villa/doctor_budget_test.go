@@ -118,10 +118,18 @@ func TestAgentToolCallVerdictNamesThePrefillCause(t *testing.T) {
 	if want := "the agent tool-call round-trip failed to run: crush run: signal: killed (budget 3m14s, measured 10.6 tok/s; the server prefilled 14541 prompt tokens at 242 tok/s and generated none, so no agent request reached its first token; the server's slots went idle 0s after the kill)"; v.Detail != want {
 		t.Errorf("Detail = %q, want %q", v.Detail, want)
 	}
-	for _, want := range []string{"prefill", "request_timeout", "60 s", "#323"} {
+	for _, want := range []string{"prefill", "request_timeout", "60 s", "every Crush session"} {
 		if !strings.Contains(v.Remediation, want) {
 			t.Errorf("Remediation = %q, want it to name %q", v.Remediation, want)
 		}
+	}
+	// With llama-server's default 32 context checkpoints in place, every agent request
+	// of both Gemma doctors logged "forcing full prompt re-processing": a new Crush
+	// session's prompt differs from the last one at its working directory, and a
+	// cancelled prefill leaves no checkpoint. Capping checkpoints (#323) cannot help,
+	// so the remediation must not send the operator there.
+	if strings.Contains(v.Remediation, "#323") || strings.Contains(v.Remediation, "checkpoint") {
+		t.Errorf("Remediation = %q, want no checkpoint fix named: checkpoints were present and did not help", v.Remediation)
 	}
 	if strings.Contains(v.Remediation, "decode rate") {
 		t.Errorf("Remediation = %q, want no decode-rate cause on a round that generated nothing", v.Remediation)
