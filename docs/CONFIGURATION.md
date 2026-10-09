@@ -288,6 +288,14 @@ value is rejected with a clear error and **nothing is written**. After a success
 `set`, `villa` reminds you that the change applies on the next
 `villa up` / `villa restart` (reconcile).
 
+Turning a subsystem off is a `config.toml` edit followed by `villa up` (or
+`villa restart`). The apply stops the units the config no longer renders, removes
+their files and reloads systemd, and says `removed N unit(s) no longer rendered`;
+`villa up --dry-run` lists them first. Only units villa declares are removed, never
+a unit you wrote yourself, and a resident slot is removed by
+`villa model resident rm`, not by an edit. Until the apply runs, `villa doctor`
+reports the leftover units as `orphan-units` (ADR-0035).
+
 > Note: `config set` does not expose `dashboard_port` or `chat_port`. Those carry
 > their port defaults and are validated on load; to change them, edit `config.toml`
 > directly.
