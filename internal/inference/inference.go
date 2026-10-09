@@ -139,6 +139,10 @@ type RunSpec struct {
 	// "" renders byte-identical args, which is what keeps every unit rendered before
 	// this field existed unchanged on upgrade.
 	Projector string
+	// SlidingWindow says the served model has sliding-window layers (a catalog swa
+	// block). True renders --ctx-checkpoints SWACtxCheckpoints, the cap the fit
+	// counts (ADR-0034); false renders byte-identical args.
+	SlidingWindow bool
 	// SecretEnvFile is the OPTIONAL host filesystem path to the 0600 llama.env
 	// bearer file (GHSA-qxg9, ADR-0011; orchestrate.InferenceSecretEnvHostPath).
 	// Set, ContainerArgs appends `--env-file <path>`, so the transient container is

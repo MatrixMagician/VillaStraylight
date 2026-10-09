@@ -121,6 +121,7 @@ func (b backendROCm) ContainerArgs(spec RunSpec) []string {
 	args = appendToolsArgs(args, spec)
 	args = appendSpeculationArgs(args, spec.Speculation, b.ResidencyProof().DeviceToken)
 	args = appendProjectorArgs(args, spec.Projector)
+	args = appendCtxCheckpointsArgs(args, spec.SlidingWindow)
 	return args
 }
 

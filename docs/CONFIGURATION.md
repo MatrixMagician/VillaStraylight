@@ -420,6 +420,7 @@ sourced from the backend seam (`internal/inference/backend_rocm.go` /
 | `-lv 4` | Raises llama-server log verbosity enough for the offload-residency assertion. |
 | `--metrics` | Exposes the Prometheus `/metrics` endpoint for the dashboard perf panel. |
 | `--cache-ram 8192` | Caps the RAM prompt cache at 8 GiB (ADR-0021). Rendered, not configurable: there is no `config.toml` key, and the fit counts exactly this value, once per chat unit, so each resident model adds one. `villa-embed` does not render it. |
+| `--ctx-checkpoints 1` | Caps the sliding-window context checkpoints each slot keeps in host memory (ADR-0034). Rendered only on a unit whose model has sliding-window layers (a catalog `swa` block, today `gemma-4-31b`), primary or resident, and the fit counts exactly this value. Not configurable. |
 
 The inference container also receives `--device /dev/dri`, `--group-add keep-groups`,
 `--security-opt seccomp=unconfined`, and a read-only model bind mount
@@ -551,7 +552,10 @@ configuration varies per machine are:
   + headroom + prompt cache (+ projector + draft) <= envelope`; the prompt cache
   is the 8 GiB `--cache-ram` cap every chat `llama-server` unit renders (see
   [Managed container environment](#managed-container-environment)), so a 64 GB host
-  reserves 8 GiB more than it did before v1.16. `villa recommend --json` reports it
+  reserves 8 GiB more than it did before v1.16. For a model with sliding-window
+  layers the KV term also carries the bounded sliding cache (ADR-0029) and the
+  `--ctx-checkpoints` cap (ADR-0034), all three in `kv_cache_bytes`.
+  `villa recommend --json` reports the prompt cache
   as `prompt_cache_bytes` (schema 8, appended to the schema 7 draft fields below),
   and the table prints it as a `+ prompt cache` row. Before that fit, the envelope
   shrinks by every reservation for a service beside the chat model: the embedding

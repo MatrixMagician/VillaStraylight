@@ -40,6 +40,9 @@ type ResidentUnit struct {
 	// Port is the HOST loopback port this slot publishes on, taken verbatim from
 	// config (never derived from list position).
 	Port int
+	// SlidingWindow says this slot's own model has sliding-window layers
+	// (ADR-0034), never the primary's.
+	SlidingWindow bool
 }
 
 // residentSlug turns a catalog model id into the unit-name fragment: lowercased,
@@ -119,6 +122,7 @@ func renderResidentUnits(tmpl *template.Template, in RenderInput, names []string
 			ModelFile:     r.ModelFile,
 			ModelsDir:     in.ModelsDir,
 			ContextLen:    r.Ctx,
+			SlidingWindow: r.SlidingWindow,
 		}))
 		if err != nil {
 			return nil, err
