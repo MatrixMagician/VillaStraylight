@@ -325,13 +325,14 @@ const (
 	reservationReranker  = "reranker"
 	reservationExtractor = "extractor"
 	reservationWebSearch = "web_search"
+	reservationImage     = "image"
 )
 
 // ReservationsFor is the reservation registry: one row for each service whose
 // gate is on in cfg, in a fixed order (embedding, then the reranker and the
-// extractor beside it, then web search, then stt and tts). A new service is one
-// row here. It is pure: it reads an already-loaded config and no host, so a
-// config that failed to load (the zero value) reserves nothing.
+// extractor beside it, then web search, then stt and tts, then image). A new
+// service is one row here. It is pure: it reads an already-loaded config and no
+// host, so a config that failed to load (the zero value) reserves nothing.
 func ReservationsFor(cfg config.VillaConfig) []Reservation {
 	var res []Reservation
 	if subsystem.MemoryOn(cfg) {
@@ -356,7 +357,32 @@ func ReservationsFor(cfg config.VillaConfig) []Reservation {
 			Reservation{Name: voice.TTS.Name, Bytes: voice.TTSFootprintBytes()},
 		)
 	}
+	if subsystem.ImageOn(cfg) {
+		bytes, notes := imageReservation(cfg.ImageModel)
+		res = append(res, Reservation{Name: reservationImage, Bytes: bytes, Notes: notes})
+	}
 	return res
+}
+
+// conservativeImageBytes is reserved when image_model names no image-table entry:
+// over-reserve, never 0 (the memoryReservation precedent). 24 GiB is above any
+// Z-Image quant's measured weights plus compute. It only shapes a recommend
+// preview, because the render refuses an unknown id.
+const conservativeImageBytes uint64 = 24 << 30
+
+// imageReservation resolves the image row from the compiled-in image table: the
+// entry's measured params footprint plus its peak compute at the preset, held
+// from start because the unit eager-loads. The bytes flow only from
+// catalog.Image, so the table stays the single source. A miss reserves the
+// conservative default with a note naming the id.
+func imageReservation(id string) (uint64, []string) {
+	m, ok := catalog.Image(id)
+	if ok {
+		return addSaturating(m.WeightBytes, m.ComputeBytes), nil
+	}
+	return conservativeImageBytes, []string{fmt.Sprintf(
+		"RESERVED CONSERVATIVELY: image model %q is not in the image table — reserving the conservative default %s before the chat-model fit.",
+		id, humanGiB(conservativeImageBytes))}
 }
 
 // webSearchInputs carries the web-search RAG inputs the web-search row is sized

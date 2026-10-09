@@ -27,6 +27,7 @@ package doctor
 import (
 	"errors"
 	"io/fs"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -132,9 +133,118 @@ func newDoctorDeps() *run {
 		AgentToolCall:            passVerdict,
 		AgentResidencyUnderLoad:  passVerdict,
 		SearchResidencyUnderLoad: passVerdict,
+		ImageResidency:           passVerdict,
 	}
 	r.cleanAgentDrift()
 	return r
+}
+
+// imageDoctorDeps is a healthy run with image generation on, on the host profile
+// the preflight checks pass (the memoryDoctorDeps base).
+func imageDoctorDeps() *run {
+	d := rocmDoctorDeps()
+	d.cfg.ImageEnabled = true
+	d.cfg.ImageModel = "z-image-turbo"
+	return d
+}
+
+// TestImageResidencyFindingFollowsTheProof: with image generation on, the image
+// offload proof is one BLOCK-class finding, IMG-DOC-residency. A confident FAIL (a
+// CPU or partial-RAM placement) raises Overall to FAIL and dominates a healthy
+// stack; an unevaluable proof degrades to a WARN with its detail kept; a PASS is a
+// PASS. Every non-PASS carries a remediation.
+func TestImageResidencyFindingFollowsTheProof(t *testing.T) {
+	cases := []struct {
+		name        string
+		verdict     inference.Verdict
+		wantOverall string
+		wantTier    string
+	}{
+		{"pass", inference.Verdict{Status: inference.StatusPass, Detail: "params 8808.62 MiB on VRAM, 0 B in RAM"}, "PASS", "BLOCK"},
+		{"fail", inference.Verdict{Status: inference.StatusFail, Detail: "2375.91 MiB of params in system RAM"}, "FAIL", "BLOCK"},
+		{"warn", inference.Verdict{Status: inference.StatusWarn, Detail: "could not evaluate image offload — villa-image.service is not active"}, "WARN", "WARN"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			d := imageDoctorDeps()
+			d.ImageResidency = func() inference.Verdict { return tc.verdict }
+			r := d.aggregate()
+			if r.Overall != tc.wantOverall {
+				t.Fatalf("Overall = %q, want %q; findings: %+v", r.Overall, tc.wantOverall, r.Findings)
+			}
+			f, ok := findingByID(r, "IMG-DOC-residency")
+			if !ok {
+				t.Fatalf("expected IMG-DOC-residency; findings: %+v", r.Findings)
+			}
+			if f.Status != tc.verdict.Status.String() || f.Tier != tc.wantTier {
+				t.Errorf("IMG-DOC-residency = (status %s, tier %s), want (%s, %s)", f.Status, f.Tier, tc.verdict.Status, tc.wantTier)
+			}
+			if f.Detail != tc.verdict.Detail {
+				t.Errorf("Detail = %q, want the proof's %q", f.Detail, tc.verdict.Detail)
+			}
+			if tc.verdict.Status != inference.StatusPass && f.Remediation == "" {
+				t.Error("a non-PASS image finding has no remediation")
+			}
+		})
+	}
+}
+
+// TestImageOffEmitsNoImageFinding: the proof is a real generation, so it runs only
+// when the gate is on; an opted-out stack gets no finding, never a PASS by default.
+func TestImageOffEmitsNoImageFinding(t *testing.T) {
+	d := newDoctorDeps()
+	calls := 0
+	d.ImageResidency = func() inference.Verdict { calls++; return passVerdict() }
+	r := d.aggregate()
+	if _, ok := findingByID(r, "IMG-DOC-residency"); ok || calls != 0 {
+		t.Errorf("image off: finding present = %v, proof calls = %d; want neither", ok, calls)
+	}
+}
+
+// TestImageOffWarnsOnAStaleRunningImageUnit: reconcile never deletes a unit, so
+// turning image generation off leaves villa-image.container on disk and running,
+// eager-holding about 9 GB that no fit counts. With the gate off and the service
+// active, doctor emits one WARN, IMG-DOC-stale, whose remediation is the removal
+// sequence; an inactive service, or the gate on, emits no such finding.
+func TestImageOffWarnsOnAStaleRunningImageUnit(t *testing.T) {
+	activeImage := func(unit string) (string, error) {
+		if unit == "villa-image.service" {
+			return "active", nil
+		}
+		return "inactive", nil
+	}
+
+	d := newDoctorDeps()
+	d.IsActive = activeImage
+	r := d.aggregate()
+	f, ok := findingByID(r, "IMG-DOC-stale")
+	if !ok {
+		t.Fatalf("image off with villa-image.service active: expected IMG-DOC-stale; findings: %+v", r.Findings)
+	}
+	if f.Tier != tierWarn || f.Status != statusWarn {
+		t.Errorf("IMG-DOC-stale = (status %s, tier %s), want (WARN, WARN)", f.Status, f.Tier)
+	}
+	if !strings.Contains(f.Detail, "9 GB") {
+		t.Errorf("Detail %q does not name the memory the unit holds outside the fit", f.Detail)
+	}
+	for _, want := range []string{"systemctl --user stop villa-image.service", "villa-image.container", "daemon-reload"} {
+		if !strings.Contains(f.Remediation, want) {
+			t.Errorf("Remediation %q does not carry %q", f.Remediation, want)
+		}
+	}
+	if strings.Contains(f.Remediation, "disable") {
+		t.Errorf("Remediation %q runs systemctl disable, which refuses a generated Quadlet unit", f.Remediation)
+	}
+
+	if _, ok := findingByID(newDoctorDeps().aggregate(), "IMG-DOC-stale"); ok {
+		t.Error("image off with the service inactive is not stale, yet IMG-DOC-stale was emitted")
+	}
+
+	on := imageDoctorDeps()
+	on.IsActive = activeImage
+	if _, ok := findingByID(on.aggregate(), "IMG-DOC-stale"); ok {
+		t.Error("image on with the service active is not stale, yet IMG-DOC-stale was emitted")
+	}
 }
 
 // passVerdict is a proof that proves.
@@ -1705,16 +1815,16 @@ func TestMemoryGateInput(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			d := memoryDoctorDeps()
-			var asked string
-			d.IsActive = func(unit string) (string, error) { asked = unit; return tc.state, tc.err }
+			var asked []string
+			d.IsActive = func(unit string) (string, error) { asked = append(asked, unit); return tc.state, tc.err }
 			var got preflight.MemoryGateInput
 			d.RunMemoryChecks = func(_ detect.HostProfile, in preflight.MemoryGateInput) []preflight.CheckResult {
 				got = in
 				return nil
 			}
 			d.aggregate()
-			if asked != "villa-embed.service" {
-				t.Errorf("asked about %q, want the embedder service villa-embed.service", asked)
+			if !slices.Contains(asked, "villa-embed.service") {
+				t.Errorf("asked about %q, want the embedder service villa-embed.service among them", asked)
 			}
 			if got.EmbedderActive != tc.want || got.EmbeddingModel != "test-embedder" {
 				t.Errorf("gate input = {model %q, active %v}, want {test-embedder, %v}", got.EmbeddingModel, got.EmbedderActive, tc.want)

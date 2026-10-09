@@ -26,7 +26,9 @@ func TestReservationsForFollowsTheGates(t *testing.T) {
 		{"web search on", config.VillaConfig{WebSearchEnabled: true}, []string{"web_search"}},
 		{"both on, embedding first", config.VillaConfig{MemoryEnabled: true, WebSearchEnabled: true}, []string{"embedding", "web_search"}},
 		{"voice on, two rows", config.VillaConfig{VoiceEnabled: true}, []string{"stt", "tts"}},
-		{"everything on, voice last", config.VillaConfig{MemoryEnabled: true, WebSearchEnabled: true, VoiceEnabled: true}, []string{"embedding", "web_search", "stt", "tts"}},
+		{"memory, web search and voice, voice last", config.VillaConfig{MemoryEnabled: true, WebSearchEnabled: true, VoiceEnabled: true}, []string{"embedding", "web_search", "stt", "tts"}},
+		{"image on", config.VillaConfig{ImageEnabled: true, ImageModel: "z-image-turbo"}, []string{"image"}},
+		{"everything on, image last", config.VillaConfig{MemoryEnabled: true, WebSearchEnabled: true, VoiceEnabled: true, ImageEnabled: true}, []string{"embedding", "web_search", "stt", "tts", "image"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -81,6 +83,25 @@ func TestVoiceRowsAreTheMeasuredFootprints(t *testing.T) {
 	}
 	if got := rec.ReservedBytes(); got != 2684354560+2147483648 {
 		t.Errorf("ReservedBytes = %d, want %d", got, uint64(2684354560+2147483648))
+	}
+}
+
+// TestImageReservationIsTheMeasuredFootprint: the image row is the entry's measured
+// params footprint plus its peak compute at the preset, read only from the
+// compiled-in image table. An id the table does not carry over-reserves with a
+// note naming it, never a silent 0 (the embedding row's miss semantics).
+func TestImageReservationIsTheMeasuredFootprint(t *testing.T) {
+	res := ReservationsFor(config.VillaConfig{ImageEnabled: true, ImageModel: "z-image-turbo-q4"})
+	if len(res) != 1 || res[0].Name != "image" || res[0].Bytes != 8257659904 || len(res[0].Notes) != 0 {
+		t.Errorf("image row = %+v, want image / 8257659904 with no note", res)
+	}
+
+	miss := ReservationsFor(config.VillaConfig{ImageEnabled: true, ImageModel: "no-such-image"})
+	if len(miss) != 1 || miss[0].Bytes != 24<<30 {
+		t.Fatalf("unknown image id row = %+v, want the conservative 24 GiB", miss)
+	}
+	if !hasNote(miss[0].Notes, "no-such-image") {
+		t.Errorf("the miss note must name the id, got %v", miss[0].Notes)
 	}
 }
 

@@ -63,7 +63,8 @@ Go 1.26+. Single module, single static binary built from `./cmd/villa`.
 
 - `cmd/villa/` — cobra CLI, one file per subcommand. The tree is assembled in one
   place, `newRoot` in `root.go`: detect, recommend, preflight, model, inference,
-  install, up/down/restart/logs, config, status, doctor, verify, recall, dashboard,
+  install (`--coding-agent`, `--web-search`, `--workspace-agent`, `--image`),
+  up/down/restart/logs, config, status, doctor, verify, recall, dashboard,
   websafe, inferproxy (the hidden `inferproxy-serve` subcommand mirrors websafe-serve's
   bind-mounted-binary shape — GHSA-gvp9, ADR-0011), backend, speculation, coding-mode,
   code (Crush, or Claude Code via --agent claude), tools-mode, workspace, work, task,
@@ -116,6 +117,18 @@ Go 1.26+. Single module, single static binary built from `./cmd/villa`.
   `grounding` (the post-run claim audit; it flags, never edits, and a clean audit is
   "the auditor found none") and `taskrun` (the runner, hosted by the dashboard service;
   `villa work` and `villa task` are its loopback HTTP clients).
+
+  Image generation (#312, ADR-0032) is `subsystem.Image`: `catalog.Image(id)` over the
+  compiled-in image table (`internal/catalog/images.json`, never `catalog_path`),
+  the `image` reservation row, `stackapply.ImageServe` (the one catalog-to-renderer
+  translation), `orchestrate/image.go` + `image.container.tmpl` (the `villa-image`
+  sd-server unit and Open WebUI's `automatic1111` env group), and in `inference`
+  `ImageServerArgs` (the sd-server flags; explicit `--backend/--params-backend` on the
+  Vulkan device token, `--eager-load`), `VulkanGPUAccess` (the one device-access set
+  the chat unit and the image unit both render) and `ImageOffloadVerdict` (the
+  placement-line fold: RAM > 0 is a FAIL). `cmd/villa/install_image.go` holds the
+  pre-stage and THE image proof install, doctor (`IMG-DOC-residency`) and
+  `update image` share.
   Deeper detail: `docs/ARCHITECTURE.md`, `docs/DEVELOPMENT.md`.
 
 **Conventions & gotchas (non-obvious — read before editing):**
@@ -389,6 +402,7 @@ convenience.
 | grounding | The post-run claim audit: one completion per document, reports, never edits; a clean audit is "the auditor found none" | `internal/grounding/grounding.go` |
 | backendswap.RunTools | The `tools-mode enter` / `exit` swap: a boolean axis, the ctx-floor fit guard, one real tool call in the proof (`liveToolsProve`) | `internal/backendswap/backendswap.go` |
 | taskrun | The runner: one task at a time, hosted by the dashboard service; every decision through `approval`, every terminal state through `taskstore` | `internal/taskrun/*.go` |
+| catalog.Image + inference.ImageOffloadVerdict | Image generation (ADR-0032): the compiled-in image table, the eager-loaded `villa-image` sd-server unit rendered from the seam's flags and device access, and the two-signal placement proof (any param byte in RAM is a FAIL) | `internal/catalog/image.go`, `internal/orchestrate/image.go`, `internal/inference/image_server.go`, `internal/inference/image_offload.go` |
 
 This table covers the v1.0–v1.2 spine plus the v1.6 consolidation modules and the v1.11 workspace-agent packages. The
 v1.3–v1.5 packages (`memory`, `recall`, `agent`, `codingmode`, `websafe`, `doctor`,
@@ -424,7 +438,9 @@ per resident model, named by `orchestrate.ResidentUnitName`), `villa-openwebui`,
 (v1.5 web search), and `villa-stt` + `villa-tts` (voice, ADR-0030: whisper-server on
 Vulkan with its model pre-staged in the models volume, and Kokoro on the CPU; one
 gate, `voice_enabled`, one round-trip proof) — the web-search pair bind-mounts the `villa` binary into a
-distroless container, which is why the CGO-free build gate is load-bearing. The
+distroless container, which is why the CGO-free build gate is load-bearing — and,
+when `subsystem.ImageOn`, `villa-image` (sd-server on Vulkan RADV, ADR-0032),
+rendered after the web-search block and before `villa-inferproxy`. The
 v1.11 workspace agent adds one long-lived unit, `villa-sandbox.network`
 (`Internal=true`), rendered UNCONDITIONALLY like `villa.network` — and, when
 `subsystem.SandboxOn`, a managed `villa-inferproxy` unit (issue #199 / GHSA-gvp9,

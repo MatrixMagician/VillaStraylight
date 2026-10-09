@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -60,8 +61,12 @@ import (
 // by appendSpeculationArgs's draft branch in ONE alternative, added in the SAME
 // commit as those literals — a caller that wrote any of them would be deciding
 // the draft's device/offload policy the seam owns.
+// The sd-server placement flags (#312) join on the same terms: "--params-backend",
+// "--diffusion-model" and "--eager-load" are emitted by ImageServerArgs, and a
+// caller that wrote them would be deciding the image server's device placement
+// the seam owns.
 func seamFlagPattern() *regexp.Regexp {
-	return regexp.MustCompile(`"--jinja"|"--cache-reuse"|"--repeat-penalty"|"--spec-type"|"ngram-mod"|"--mmproj|"--spec-draft`)
+	return regexp.MustCompile(`"--jinja"|"--cache-reuse"|"--repeat-penalty"|"--spec-type"|"ngram-mod"|"--mmproj|"--spec-draft|"--params-backend"|"--diffusion-model"|"--eager-load"`)
 }
 
 func TestSeamGrepGate(t *testing.T) {
@@ -88,7 +93,10 @@ func TestSeamGrepGate(t *testing.T) {
 		// literals still land ONLY in the seam (backend_rocm.go), and the regex extended
 		// in the SAME commit; the kyuz0|docker.io/ alternatives remain
 		// an un-anchored backstop that catches any image string regardless of tag.
-		"container image literal": regexp.MustCompile(`kyuz0|docker\.io/|server-vulkan|:rocm-7\.2\.4|rocm-7\.2\.4@|:rocm-10\.0|rocm-10\.0@|:rocm-6\.4\.4|rocm-6\.4\.4@|rocm7-nightlies`),
+		// leejet|stable-diffusion\.cpp (#312): the sd-server image literal may live
+		// only in orchestrate/image.go (allowlisted below, the managed-service
+		// precedent) or in the seam. Added in the SAME commit as the literal.
+		"container image literal": regexp.MustCompile(`kyuz0|docker\.io/|server-vulkan|:rocm-7\.2\.4|rocm-7\.2\.4@|:rocm-10\.0|rocm-10\.0@|:rocm-6\.4\.4|rocm-6\.4\.4@|rocm7-nightlies|leejet|stable-diffusion\.cpp`),
 		"container device args":   regexp.MustCompile(`--device\s+/dev/dri|--group-add|keep-groups`),
 		"podman invocation":       regexp.MustCompile(`exec\.Command\(\s*"podman"|"podman".*\b(run|stop|logs)\b`),
 	}
@@ -160,6 +168,31 @@ func TestSeamGrepGate(t *testing.T) {
 			rel == "orchestrate/extract.go"
 	}
 
+	// exemptPatterns is the per-pattern allowlist: a file listed here is exempt
+	// from the named patterns only and is walked for every other one.
+	// orchestrate/image.go: the villa-image MANAGED-SERVICE image literal
+	// (ghcr.io/leejet/stable-diffusion.cpp:master-vulkan@sha256:…) lives here, the
+	// same category as searxngImage. Its device access and its sd-server flags come
+	// from the seam (inference.VulkanGPUAccess, ImageServerArgs), so the image
+	// literal is the only pattern this entry exempts: a device-args, flag, podman or
+	// GOOS literal in that file still fails the gate.
+	exemptPatterns := map[string][]string{
+		"orchestrate/image.go": {"container image literal"},
+	}
+	patternsFor := func(rel string) map[string]*regexp.Regexp {
+		exempt := exemptPatterns[rel]
+		if len(exempt) == 0 {
+			return patterns
+		}
+		pats := make(map[string]*regexp.Regexp, len(patterns))
+		for label, re := range patterns {
+			if !slices.Contains(exempt, label) {
+				pats[label] = re
+			}
+		}
+		return pats
+	}
+
 	err := filepath.Walk(internalRoot, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
@@ -174,7 +207,7 @@ func TestSeamGrepGate(t *testing.T) {
 		if isSeam(filepath.ToSlash(rel)) {
 			return nil
 		}
-		return matchFile(internalRoot, path, patterns, func(rel, label string) {
+		return matchFile(internalRoot, path, patternsFor(filepath.ToSlash(rel)), func(rel, label string) {
 			t.Errorf("seam leak in %s: imperative backend pattern %q matched outside the seam (move it into internal/inference/ or internal/detect/gpu_amd.go)", rel, label)
 		})
 	})

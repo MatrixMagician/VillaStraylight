@@ -124,6 +124,11 @@ type Deps struct {
 	EnsureRerankModel  func(modelsDir string) error
 	VoiceModelPresent  func(modelsDir string) bool
 	EnsureVoiceModel   func(modelsDir string) error
+	// ImageModelPresent reports whether every one of the image entry's files is on
+	// disk at its catalog size; EnsureImageModel pulls them through the verified
+	// downloader (#312).
+	ImageModelPresent  func(modelsDir string, m catalog.ImageModel) bool
+	EnsureImageModel   func(modelsDir string, m catalog.ImageModel) error
 	AgentCatalog       func() (catalog.Catalog, bool)
 	CoderModelPresent  func(modelsDir string, sh catalog.Shard) bool
 	EnsureCoderModel   func(modelsDir string, sh catalog.Shard) error
@@ -168,6 +173,16 @@ type Deps struct {
 	ProveSearch     func(context.Context) Proof
 	ProveAgent      func(context.Context) Proof
 	ProveVoice      func(context.Context) Proof
+	// ProveImage is the image offload proof mapped onto Proof verbatim: a FAIL (a CPU
+	// or partial-RAM placement) refuses and rolls back; a WARN is reported.
+	ProveImage func(context.Context, config.VillaConfig) Proof
+	// ProveChat is the chat model's residency proof (the cutover gate: residency
+	// fold plus one generation), run after the image proof when image generation
+	// is on. The image unit's eager load lands beside an already-serving chat
+	// model, and PollReady answers 200 before that allocation finishes, so only a
+	// proof run after the image proof shows the chat model still serves resident.
+	// A FAIL refuses and rolls back.
+	ProveChat func(context.Context, config.VillaConfig) Proof
 }
 
 func (d Deps) emit(l Line) {
@@ -197,9 +212,10 @@ func DefaultUnits() Units {
 	_, mem := subsystem.Memory.EveryUnit()
 	_, web := subsystem.WebSearch.EveryUnit()
 	_, voice := subsystem.Voice.EveryUnit()
+	_, img := subsystem.Image.EveryUnit()
 	return Units{
 		Inference: inf[0], ChatUI: chat[0], Qdrant: mem[0], Embed: mem[1], Rerank: mem[2], Extract: mem[3], Searxng: web[0], Websafe: web[1],
-		Stt: voice[0], Tts: voice[1],
+		Stt: voice[0], Tts: voice[1], Image: img[0],
 	}
 }
 
@@ -368,6 +384,23 @@ func Run(ctx context.Context, d Deps, opts Opts) Result {
 		say("speech model %s downloaded and verified\n", WhisperModelShard.Filename)
 	}
 
+	// (6b) Pre-stage the image model's three files beside the embedder's, before
+	// any mutation. An id the image table does not carry blocks here: the render
+	// would refuse it anyway, and a block names the default to set.
+	if gates.Image {
+		img, ok := catalog.Image(cfg.ImageModel)
+		if !ok {
+			return block("install: image model %q is not in the image table — set image_model to a known id (default %q)\n", cfg.ImageModel, config.DefaultVillaConfig().ImageModel)
+		}
+		if !d.ImageModelPresent(d.ModelsDir(), img) {
+			say("image model %s not present — downloading...\n", img.ID)
+			if err := d.EnsureImageModel(d.ModelsDir(), img); err != nil {
+				return block("install: pre-stage image model %s failed: %v\n", img.ID, err)
+			}
+			say("image model %s downloaded and verified (%d files)\n", img.ID, len(img.Shards()))
+		}
+	}
+
 	// (6c) Pre-stage the coding agent BEFORE persisting config and starting the
 	// stack: notice, coder shard, coder weights, pinned binary, locked-down config.
 	if gates.Agent {
@@ -424,7 +457,7 @@ func Run(ctx context.Context, d Deps, opts Opts) Result {
 	// rendered plan, so a rollback never stops a service that was running before.
 	priorRunning := map[string]bool{}
 	if d.IsActive != nil {
-		for _, svc := range []string{units.Inference, units.ChatUI, units.Qdrant, units.Embed, units.Rerank, units.Extract, units.Searxng, units.Websafe, units.Stt, units.Tts, orchestrate.DashboardServiceName} {
+		for _, svc := range []string{units.Inference, units.ChatUI, units.Qdrant, units.Embed, units.Rerank, units.Extract, units.Searxng, units.Websafe, units.Stt, units.Tts, units.Image, orchestrate.DashboardServiceName} {
 			if state, aerr := d.IsActive(svc); aerr == nil && state == "active" {
 				priorRunning[svc] = true
 			}
@@ -657,6 +690,18 @@ func Run(ctx context.Context, d Deps, opts Opts) Result {
 		}
 	}
 
+	// (9e) The image server, after the voice units and gated on its unit
+	// being in the written plan, never on the flag alone.
+	if gates.Image {
+		if !UnitPresent(unitPlan, orchestrate.ImageContainerUnitName()) {
+			return refuse("install: INTERNAL ERROR: image generation is enabled but the image unit (%s) is absent from the rendered plan — refusing to start a service systemd has never seen. This is a render/reconcile bug; please re-run `villa install`, and if it persists, file an issue.\n",
+				orchestrate.ImageContainerUnitName())
+		}
+		if err := start(units.Image); err != nil {
+			return refuse("install: start %s failed: %v\n", units.Image, err)
+		}
+	}
+
 	// (10) Readiness, then each opted-in subsystem's proof. A FAIL refuses, never
 	// a silent skip.
 	ready := d.PollReady(ctx, d.Endpoint())
@@ -683,6 +728,21 @@ func Run(ctx context.Context, d Deps, opts Opts) Result {
 			return refuse("install: voice not ready: %s\n", proof.Detail)
 		}
 		say("voice ready: %s\n", proof.Detail)
+	}
+	if gates.Image {
+		proof := d.ProveImage(ctx, cfg)
+		if proof.Status == preflight.StatusFail {
+			return refuse("install: image generation not ready: %s\n", proof.Detail)
+		}
+		say("image generation ready: %s\n", proof.Detail)
+		// The image unit's eager load lands beside the chat model, and the
+		// readiness poll above answers 200 before that allocation finishes, so the
+		// chat model is proven again here, with the image unit loaded.
+		chat := d.ProveChat(ctx, cfg)
+		if chat.Status == preflight.StatusFail {
+			return refuse("install: chat model not resident beside the image server: %s\n", chat.Detail)
+		}
+		say("chat model still resident beside the image server: %s\n", chat.Detail)
 	}
 	if gates.Agent {
 		proof := d.ProveAgent(ctx)

@@ -91,6 +91,54 @@ var (
 	loadResidentLegacy = []string{"--no-mmap"}
 )
 
+// GPUAccess is the device access a rootless container needs to reach the iGPU
+// through Vulkan RADV: the DRI node, and keep-groups so the host render/video GIDs
+// survive into the container and renderD128 opens. It lives behind the seam gate so
+// a managed GPU service (villa-image) asks the seam instead of re-typing a device
+// literal; the chat unit's ContainerArgs reads the same value.
+type GPUAccess struct {
+	// Devices are Quadlet AddDevice= / podman --device values.
+	Devices []string
+	// Groups are Quadlet GroupAdd= / podman --group-add values.
+	Groups []string
+	// SecurityOpts are podman --security-opt values: the kyuz0-documented
+	// seccomp=unconfined minimum, which the image server was measured under too.
+	SecurityOpts []string
+}
+
+// vulkanGPUAccess is the one home of the Vulkan device-access set.
+var vulkanGPUAccess = GPUAccess{
+	Devices:      []string{"/dev/dri"},
+	Groups:       []string{"keep-groups"},
+	SecurityOpts: []string{"seccomp=unconfined"},
+}
+
+// VulkanGPUAccess returns the Vulkan device access, copied so a caller cannot
+// append to the seam's own slices.
+func VulkanGPUAccess() GPUAccess {
+	return GPUAccess{
+		Devices:      append([]string(nil), vulkanGPUAccess.Devices...),
+		Groups:       append([]string(nil), vulkanGPUAccess.Groups...),
+		SecurityOpts: append([]string(nil), vulkanGPUAccess.SecurityOpts...),
+	}
+}
+
+// deviceArgs renders a GPUAccess as podman run flags: devices, groups, then
+// security options.
+func (g GPUAccess) deviceArgs() []string {
+	var args []string
+	for _, d := range g.Devices {
+		args = append(args, "--device", d)
+	}
+	for _, grp := range g.Groups {
+		args = append(args, "--group-add", grp)
+	}
+	for _, opt := range g.SecurityOpts {
+		args = append(args, "--security-opt", opt)
+	}
+	return args
+}
+
 // backendVulkan is the Vulkan RADV Backend implementation. It is stateless.
 type backendVulkan struct{}
 
@@ -125,12 +173,12 @@ func (b backendVulkan) ContainerArgs(spec RunSpec) []string {
 	args := []string{
 		"run", "--rm",
 		"--name", spec.ContainerName,
-		"--device", "/dev/dri",
-		"--group-add", "keep-groups",
-		"--security-opt", "seccomp=unconfined",
+	}
+	args = append(args, vulkanGPUAccess.deviceArgs()...)
+	args = append(args,
 		"-p", hostPublish,
 		"-v", modelBind,
-	}
+	)
 	args = appendSecretEnvFileArgs(args, spec.SecretEnvFile)
 	args = append(args,
 		vulkanImage,

@@ -1,0 +1,64 @@
+{
+  "images": [
+    {
+      "id": "z-image-turbo",
+      "display_name": "Z-Image-Turbo (Q8_0)",
+      "quant": "Q8_0",
+      "diffusion": {
+        "url": "https://huggingface.co/leejet/Z-Image-Turbo-GGUF/resolve/c61c0e422dc8b541b7548cf33a4ef8302b0f8085/z_image_turbo-Q8_0.gguf",
+        "filename": "z_image_turbo-Q8_0.gguf",
+        "sha256": "df1c5baa86d1398c979495a6072dbcee79444fdb884a2445582ba0769c44e9a1",
+        "size_bytes": 6577440704
+      },
+      "text_encoder": {
+        "url": "https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/a06e946bb6b655725eafa393f4a9745d460374c9/Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
+        "filename": "Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
+        "sha256": "3605803b982cb64aead44f6c1b2ae36e3acdb41d8e46c8a94c6533bc4c67e597",
+        "size_bytes": 2497281120
+      },
+      "vae": {
+        "url": "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/6fc90a3b1b653e935a0d175e260736de25b84df5/split_files/vae/ae.safetensors",
+        "filename": "z-image-turbo-ae.safetensors",
+        "sha256": "afc8e28272cd15db3919bacdb6918ce9c1ed22e96cb12c4d5ed0fba823529e38",
+        "size_bytes": 335304388
+      },
+      "weight_bytes": 9236591616,
+      "compute_bytes": 2267021312,
+      "steps": 8,
+      "cfg_scale": 1.0,
+      "width": 1024,
+      "height": 1024,
+      "provenance": "gfx1151 (Radeon 8060S, RADV), stable-diffusion.cpp master-vulkan sha256:367ccc4e (commit e16d26a), 2026-10-08, --backend Vulkan0 --params-backend Vulkan0 --eager-load --vae-tiling --diffusion-fa: total params memory size = 8808.62MB (VRAM 8808.62MB, RAM 0.00MB): text_encoders 2375.91MB(VRAM), diffusion_model 6272.71MB(VRAM), vae 160.00MB(VRAM); GTT delta 9.19 GB at ready; compute_bytes = ceil(1.10 x the peak GTT delta during a 1024x1024 8-step generation) - weight_bytes, rounded up to a MiB, from a peak of 10457440256 B (the larger of two samplings of mem_info_gtt_used: the PR review's at 0.5 s during a 1024x1024 generation, and two generations on a quiet GPU at 0.25 s that peaked at 10129330176 B); 512x512 in 19.2 s at 100% gpu_busy; the chat model kept serving"
+    },
+    {
+      "id": "z-image-turbo-q4",
+      "display_name": "Z-Image-Turbo (Q4_K, smaller envelope)",
+      "quant": "Q4_K",
+      "diffusion": {
+        "url": "https://huggingface.co/leejet/Z-Image-Turbo-GGUF/resolve/c61c0e422dc8b541b7548cf33a4ef8302b0f8085/z_image_turbo-Q4_K.gguf",
+        "filename": "z_image_turbo-Q4_K.gguf",
+        "sha256": "14b375ab4f226bc5378f68f37e899ef3c2242b8541e61e2bc1aff40976086fbd",
+        "size_bytes": 3864250304
+      },
+      "text_encoder": {
+        "url": "https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/a06e946bb6b655725eafa393f4a9745d460374c9/Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
+        "filename": "Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
+        "sha256": "3605803b982cb64aead44f6c1b2ae36e3acdb41d8e46c8a94c6533bc4c67e597",
+        "size_bytes": 2497281120
+      },
+      "vae": {
+        "url": "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/6fc90a3b1b653e935a0d175e260736de25b84df5/split_files/vae/ae.safetensors",
+        "filename": "z-image-turbo-ae.safetensors",
+        "sha256": "afc8e28272cd15db3919bacdb6918ce9c1ed22e96cb12c4d5ed0fba823529e38",
+        "size_bytes": 335304388
+      },
+      "weight_bytes": 6523315200,
+      "compute_bytes": 1734344704,
+      "steps": 8,
+      "cfg_scale": 1.0,
+      "width": 1024,
+      "height": 1024,
+      "provenance": "gfx1151 (Radeon 8060S, RADV), stable-diffusion.cpp master-vulkan sha256:367ccc4e (commit e16d26a), 2026-10-08, --backend Vulkan0 --params-backend Vulkan0 --eager-load --vae-tiling --diffusion-fa: total params memory size = 6221.12MB (VRAM 6221.12MB, RAM 0.00MB): text_encoders 2375.91MB(VRAM), diffusion_model 3685.21MB(VRAM), vae 160.00MB(VRAM); GTT delta 6.56 GB at ready; compute_bytes = ceil(1.10 x the peak GTT delta during a 1024x1024 8-step generation) - weight_bytes, rounded up to a MiB, from a peak of 7506677760 B (two generations on a quiet GPU, gtt_used sampled every 0.25 s); 512x512 in 19.7 s at 100% gpu_busy; about 5% slower than Q8_0 and marginally less clean"
+    }
+  ]
+}

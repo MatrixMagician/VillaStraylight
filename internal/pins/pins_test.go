@@ -167,6 +167,7 @@ func TestForGroupsByProofUnit(t *testing.T) {
 		subsystem.Agent:     {Crush},
 		subsystem.Sandbox:   {SandboxImage},
 		subsystem.Voice:     {Whisper, Kokoro},
+		subsystem.Image:     {ImageServer},
 	}
 	for k, want := range cases {
 		got := For(k, fullStackConfig())
@@ -258,6 +259,7 @@ func TestEveryDigestPinnedImageInTheTreeIsInTheTable(t *testing.T) {
 		filepath.Join("..", "orchestrate", "websafe.go"),
 		filepath.Join("..", "orchestrate", "sandbox.go"),
 		filepath.Join("..", "orchestrate", "voice.go"),
+		filepath.Join("..", "orchestrate", "image.go"),
 	}
 
 	inTable := map[string]bool{}

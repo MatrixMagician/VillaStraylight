@@ -102,6 +102,11 @@ const (
 	// TtsPort is the port Kokoro-FastAPI's image serves on. villa renders no port
 	// for that unit, so this follows the pinned image rather than setting it.
 	TtsPort = 8880
+
+	// ImageAddr is the container-DNS name of villa-image (sd-server).
+	ImageAddr = "villa-image"
+	// ImagePort is the in-network sd-server port, its own --listen-port default.
+	ImagePort = 1234
 )
 
 // VillaConfig is the persisted recommend selection that later phases (Phase 3
@@ -318,6 +323,18 @@ type VillaConfig struct {
 	// A plain bool under ,omitempty, so a voice-off save writes no key and
 	// marshalVilla needs no zeroing branch.
 	VoiceEnabled bool `toml:"voice_enabled,omitempty"`
+
+	// --- Image generation fields (#312) ---
+	// Tail-appended and append-only like every optional block above.
+
+	// ImageEnabled gates villa-image (subsystem.Image). Default false. Set by
+	// `villa install --image`; a deliberate bool, never self-healed.
+	ImageEnabled bool `toml:"image_enabled,omitempty"`
+	// ImageModel is the image-table id villa-image serves (catalog.Image). It is
+	// self-healed to the default on load and zeroed by marshalVilla when image
+	// generation is off, so an image-off install is byte-identical on disk (the
+	// EmbeddingModel precedent).
+	ImageModel string `toml:"image_model,omitempty"`
 }
 
 // ResidentModel is one secondary model held resident alongside VillaConfig.Model.
@@ -391,6 +408,10 @@ func defaultConfig() VillaConfig {
 		// is a container-DNS name on villa.network only; the port is the in-network
 		// loader port. The bearer secret + host binary path have NO default (generated /
 		// captured at opt-in).
+
+		// The image model default is the SINGLE home of this id; a config test binds
+		// it to the compiled-in image table.
+		ImageModel: "z-image-turbo",
 	}
 }
 
@@ -442,6 +463,9 @@ func normalizeVilla(cfg VillaConfig) VillaConfig {
 	}
 	// WebLoaderSecret (a generated bearer) and HostVillaPath (a captured host path) are
 	// NOT self-healed — neither has a meaningful default.
+	if cfg.ImageModel == "" {
+		cfg.ImageModel = d.ImageModel
+	}
 	return cfg
 }
 
@@ -542,6 +566,11 @@ func marshalVilla(c VillaConfig) ([]byte, error) {
 		// on the next load; the secret/path are re-written by the opt-in path.
 		c.WebLoaderSecret = ""
 		c.HostVillaPath = ""
+	}
+	// Image omit-when-off: the self-healed id is dropped so an image-off install
+	// gains no image key on disk.
+	if !c.ImageEnabled {
+		c.ImageModel = ""
 	}
 	return toml.Marshal(c)
 }

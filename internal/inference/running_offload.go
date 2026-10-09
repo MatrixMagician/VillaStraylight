@@ -354,6 +354,27 @@ func verdictAsResult(v Verdict) OffloadResult {
 // is left as Unknown and never upgrades or downgrades the residency-proven verdict.
 func RunningOffloadVerdict(in RunningOffloadInput) Verdict {
 	residency := scrapeLoadTensorsResidency(in.JournalText, in.Markers, in.DraftExpected)
+	// Provenance embeds the backend-owned DeviceToken so it stays byte-identical to the
+	// pre-refactor Vulkan string ("journald load_tensors Vulkan0 residency + …") — the
+	// status --json golden is byte-frozen and must NOT change for Vulkan.
+	v := foldFloors(residency, in, "journald load_tensors "+in.Markers.DeviceToken+" residency + point-in-time mem_info_gtt_used floor")
+
+	// props config-identity drift overlay. Only ever downgrades a PASS to
+	// WARN on a CONFIRMED mismatch; it is never a residency proof and never a FAIL.
+	if drift := propsDrift(in.Props, in.ConfigModel, in.ConfigContext); drift != "" {
+		if v.Status == StatusPass {
+			v.Status = StatusWarn
+			v.Detail = v.Detail + " — /props config drift: " + drift
+			v.Remediation = "loaded model/context differs from config.toml — run `villa restart` to apply the configured selection"
+		}
+	}
+	return v
+}
+
+// foldFloors is the fold both running verdicts share: the residency signal the
+// caller scraped, combined with the point-in-time GTT floor, then the busy
+// corroboration.
+func foldFloors(residency OffloadResult, in RunningOffloadInput, provenance string) Verdict {
 	floor := gttFloor(in.GTTUsedBytes, in.WeightBytes)
 
 	v := combineOffload(residency, floor)
@@ -363,10 +384,6 @@ func RunningOffloadVerdict(in RunningOffloadInput) Verdict {
 	// verdict is exactly residency+floor and stays byte-identical. When Known, re-fold
 	// the already-combined verdict with the busy signal through combineOffload (reused,
 	// not re-rolled): Known non-zero corroborates a PASS, Known-zero FAILs.
-	// Provenance embeds the backend-owned DeviceToken so it stays byte-identical to the
-	// pre-refactor Vulkan string ("journald load_tensors Vulkan0 residency + …") — the
-	// status --json golden is byte-frozen and must NOT change for Vulkan.
-	provenance := "journald load_tensors " + in.Markers.DeviceToken + " residency + point-in-time mem_info_gtt_used floor"
 	if in.GPUBusyPercent.Known {
 		busy := gpuBusyFloor(in.GPUBusyPercent)
 		// Escalate the verdict status using combineOffload's precedence (FAIL dominates;
@@ -387,16 +404,6 @@ func RunningOffloadVerdict(in RunningOffloadInput) Verdict {
 		provenance += " + gpu_busy_percent corroboration"
 	}
 	v.Provenance = provenance
-
-	// props config-identity drift overlay. Only ever downgrades a PASS to
-	// WARN on a CONFIRMED mismatch; it is never a residency proof and never a FAIL.
-	if drift := propsDrift(in.Props, in.ConfigModel, in.ConfigContext); drift != "" {
-		if v.Status == StatusPass {
-			v.Status = StatusWarn
-			v.Detail = v.Detail + " — /props config drift: " + drift
-			v.Remediation = "loaded model/context differs from config.toml — run `villa restart` to apply the configured selection"
-		}
-	}
 	return v
 }
 

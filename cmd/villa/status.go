@@ -266,6 +266,7 @@ func liveStatusDeps() (*status.Deps, error) {
 		LoadConfig:    config.LoadVilla,
 		ModelFile:     liveModelFile,
 		ResidentUnits: liveResidentUnits,
+		ImageServe:    liveImageServe,
 		ModelsDir:     modelsDir,
 		Render:        livePinnedRender,
 		// The run's one host reading: ROCm readiness, the weight footprint and the
@@ -878,6 +879,14 @@ func liveStatusServices() []status.Service {
 			Unit:  unitServiceName(orchestrate.TTSContainerUnitName()),
 			Kind:  status.Managed,
 			Probe: func(config.VillaConfig) status.HealthState { return liveTtsHealth() },
+		},
+		{
+			// The image server's health is sd-server's cheap readiness GET; whether
+			// its params sit on the GPU is doctor's IMG-DOC-residency, which needs a
+			// generation a status run must not drive.
+			Unit:  unitServiceName(orchestrate.ImageContainerUnitName()),
+			Kind:  status.Managed,
+			Probe: liveImageHealth,
 		},
 		{
 			// The dashboard is a native systemd --user service, not a Quadlet

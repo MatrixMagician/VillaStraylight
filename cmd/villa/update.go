@@ -539,6 +539,8 @@ func subsystemByName(name string) (subsystem.Kind, bool) {
 		return subsystem.Sandbox, true
 	case "voice", "speech":
 		return subsystem.Voice, true
+	case "image", "image generation":
+		return subsystem.Image, true
 	}
 	return 0, false
 }
@@ -578,6 +580,8 @@ func printUnknownSubsystem(w io.Writer, arg string) {
 		"tts":             {"voice", "verify voice proves speech-to-text and text-to-speech together"},
 		"villa-stt":       {"voice", "verify voice proves speech-to-text and text-to-speech together"},
 		"villa-tts":       {"voice", "verify voice proves speech-to-text and text-to-speech together"},
+		"sd-server":       {"image", "the image subsystem is sd-server behind the villa-image unit"},
+		"villa-image":     {"image", "the image subsystem is sd-server behind the villa-image unit"},
 	}
 
 	if hint, ok := partOf[strings.ToLower(strings.TrimSpace(arg))]; ok {
@@ -585,7 +589,7 @@ func printUnknownSubsystem(w io.Writer, arg string) {
 			"  because %s.\n\n  villa update %s\n\n", arg, hint.subsystem, hint.why, hint.subsystem)
 	}
 
-	fmt.Fprint(w, "Subsystems: inference, chat, memory, search, agent, voice\n\n"+
+	fmt.Fprint(w, "Subsystems: inference, chat, memory, search, agent, sandbox, voice, image\n\n"+
 		"Arguments are subsystem names, never container names: the proof unit is what\n"+
 		"`villa verify` proves, so components that are proven together move together.\n")
 }

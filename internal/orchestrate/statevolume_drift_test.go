@@ -64,6 +64,8 @@ func statefulFixtureInput() RenderInput {
 	in.Cfg.Extractor = true
 	in.Cfg.WebSearchEnabled = true
 	in.Cfg.VoiceEnabled = true
+	img := imageFixtureInput()
+	in.Cfg.ImageEnabled, in.Cfg.ImageModel, in.Image = true, img.Cfg.ImageModel, img.Image
 	return in
 }
 

@@ -231,7 +231,30 @@ func input(d Deps, cfg config.VillaConfig) (in orchestrate.RenderInput, err erro
 		in.CodingMode = codingSpec(m)
 		in.AgentCtx = cfg.CoderAgentCtx
 	}
+	if in.Image, err = ImageServe(cfg); err != nil {
+		return in, err
+	}
 	return in, nil
+}
+
+// ImageServe is the image-table-to-renderer translation (#312): the entry cfg
+// names, as the ImageServe villa-image is rendered with, or nil when image
+// generation is off. It is exported for the status read-model, which assembles
+// its own render input and must hand the renderer the same answer every other
+// verb renders. An unknown id is an error: a unit whose weight paths name
+// fabricated files fails only at container start.
+func ImageServe(cfg config.VillaConfig) (*orchestrate.ImageServe, error) {
+	if !subsystem.ImageOn(cfg) {
+		return nil, nil
+	}
+	m, ok := catalog.Image(cfg.ImageModel)
+	if !ok {
+		return nil, fmt.Errorf("resolve image model: image model %q is not in the image table (default %q)", cfg.ImageModel, config.DefaultVillaConfig().ImageModel)
+	}
+	return &orchestrate.ImageServe{
+		DiffusionFile: m.Diffusion.Filename, TextEncoderFile: m.TextEncoder.Filename, VAEFile: m.VAE.Filename,
+		Steps: m.Steps, CfgScale: m.CfgScale, Width: m.Width, Height: m.Height,
+	}, nil
 }
 
 // codingSpec is the served entry's coding-mode descriptor: its fail-closed

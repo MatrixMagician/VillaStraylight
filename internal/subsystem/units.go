@@ -66,6 +66,8 @@ var unitTable = map[Kind][]unit{
 		{name: "villa-stt.container"},
 		{name: "villa-tts.container"},
 	},
+	// villa-image has no `on`: its presence is the Image Kind's own gate.
+	Image: {{name: "villa-image.container"}},
 }
 
 // serviceOf is the Quadlet mapping: villa-x.container → villa-x.service.
@@ -112,7 +114,9 @@ func (k Kind) EveryUnit() (units []string, services []string) {
 // part, and it runs twice.
 func (k Kind) UpdateBudget() time.Duration {
 	switch k {
-	case Inference:
+	case Inference, Image:
+		// Image gets inference's budget: an eager load of about 9 GB plus one real
+		// generation, run before and after the mutation.
 		return 10 * time.Minute
 	case Chat:
 		return 3 * time.Minute

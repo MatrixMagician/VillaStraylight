@@ -489,8 +489,14 @@ type Deps struct {
 	// fails closed if cfg.Resident is non-empty and this is nil, because a silently
 	// residentless render under-reports the stack.
 	ResidentUnits func(config.VillaConfig) ([]orchestrate.ResidentUnit, error)
-	ModelsDir     func() string
-	Render        func(orchestrate.RenderInput) ([]orchestrate.Unit, error)
+	// ImageServe resolves the configured image model into what villa-image serves,
+	// nil when image generation is off (#312). A seam for the reason ResidentUnits
+	// is, and nil-safe the same way: Run fails closed when image generation is on
+	// and this is unwired, because the render would refuse and a silently
+	// image-less report would under-report the stack.
+	ImageServe func(config.VillaConfig) (*orchestrate.ImageServe, error)
+	ModelsDir  func() string
+	Render     func(orchestrate.RenderInput) ([]orchestrate.Unit, error)
 
 	// Probe takes the run's host profile (detect.Probe in the live wiring). Run
 	// calls it ONCE, and ROCm readiness, the weight footprint and the agent's
@@ -659,12 +665,23 @@ func Run(d Deps) Report {
 		return Report{Overall: inference.StatusFail.String(), NoTelemetry: noTelemetryStatement, err: errors.New("status: the ResidentUnits seam is unwired while the config declares resident slots; the report would under-report the stack by omitting every resident service and its published port")}
 	}
 
+	var image *orchestrate.ImageServe
+	if d.ImageServe != nil {
+		image, err = d.ImageServe(cfg)
+		if err != nil {
+			return Report{Overall: inference.StatusFail.String(), NoTelemetry: noTelemetryStatement, err: err}
+		}
+	} else if subsystem.ImageOn(cfg) {
+		return Report{Overall: inference.StatusFail.String(), NoTelemetry: noTelemetryStatement, err: errors.New("status: the ImageServe seam is unwired while the config enables image generation; the report would under-report the stack by omitting the image service")}
+	}
+
 	units, err := d.Render(orchestrate.RenderInput{
 		Backend:   backend,
 		Cfg:       cfg,
 		ModelFile: modelFile,
 		ModelsDir: d.ModelsDir(),
 		Resident:  resident,
+		Image:     image,
 	})
 	if err != nil {
 		return Report{Overall: inference.StatusFail.String(), NoTelemetry: noTelemetryStatement, err: err}

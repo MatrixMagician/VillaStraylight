@@ -26,6 +26,8 @@ func TestEveryRenderedContainerHasAStatusRow(t *testing.T) {
 		CodingMode:       true,
 		WorkspaceAgent:   true,
 		VoiceEnabled:     true,
+		ImageEnabled:     true,
+		ImageModel:       "z-image-turbo",
 	}
 	for _, k := range subsystem.All {
 		if !subsystem.On(cfg, k) {
@@ -37,6 +39,7 @@ func TestEveryRenderedContainerHasAStatusRow(t *testing.T) {
 		Cfg:       cfg,
 		ModelFile: "qwen3-35b-a3b-moe-64.gguf",
 		ModelsDir: "/home/villa/.local/share/villa/models",
+		Image:     pinnedFixtureImage(),
 	})
 	if err != nil {
 		t.Fatalf("Render: %v", err)

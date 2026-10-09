@@ -82,6 +82,8 @@ chat_port = 3000
 | `sandbox_memory` | string | _(absent → `4g`)_ | The `--memory` limit of a task's microVM, in podman's syntax. Edit by hand; read at task launch. The default lives in `internal/orchestrate/sandbox.go`, not in `defaultConfig()`, so an absent key writes nothing to the file. |
 | `sandbox_cpus` | int | _(absent → `4`)_ | The `--cpus` limit of a task's microVM. Edit by hand; read at task launch; zero or negative renders the default. |
 | `voice_enabled` | bool | _(absent → false)_ | The voice subsystem's gate (ADR-0030): speech-to-text (`villa-stt`, whisper.cpp on Vulkan) plus text-to-speech (`villa-tts`, Kokoro-FastAPI on the CPU), proven together by one round trip. Written by `villa install --voice`, which also pre-stages the whisper model into the models dir. With it on, Open WebUI's voice input and read-aloud point at the two units by container DNS, `villa recommend` reserves the `stt` and `tts` rows off the envelope, and `villa verify voice` speaks a sentence and transcribes it back. Nothing leaves the box: the Kokoro image bakes its weights in and was proven to make no outbound call. |
+| `image_enabled` | bool | _(absent → false)_ | The image-generation gate (`subsystem.Image`, ADR-0032). Written by `villa install --image`; nothing on the command line turns it off. With it on, the render appends the `villa-image` sd-server unit, Open WebUI's image generation is wired to it, and the image model's measured footprint is reserved off the envelope before the chat-model fit. See [Image generation](#image-generation). |
+| `image_model` | string | _(absent → `z-image-turbo`)_ | The image-table id `villa-image` serves: `z-image-turbo` (Z-Image-Turbo Q8_0) or `z-image-turbo-q4` (Q4_K, about 2.5 GiB less resident and 3 GiB less reserved). Edit by hand, then `villa install`; `catalog_path` never overrides the image table. Self-healed to the default on load and omitted from the file while `image_enabled` is off. |
 
 ### The resident set
 
@@ -206,6 +208,58 @@ renders `4g` and `4`. `4g` was frozen by measurement on 2026-09-10 (spec
 157 MB RSS and completed at 2g, 4g and 8g alike, and a whole task VM (Crush, the
 bridge, the audit's reads) peaked at 420 MB. `4g` is eight times that and the
 value the prototype ran at; set `sandbox_memory` higher for a larger workbook.
+
+### Image generation
+
+Two keys drive local image generation (ADR-0032). Neither is a `config set` key.
+
+| Key | Type | Default | Written by | Read by |
+|-----|------|---------|------------|---------|
+| `image_enabled` | bool | `false` | `villa install --image` | the render (the `villa-image` unit and Open WebUI's image env group), the reservation registry (`villa recommend`), `villa status` (the `villa-image.service` row), `villa doctor` (`IMG-DOC-residency` while on, `IMG-DOC-stale` when off but the service is still active), `villa update image` |
+| `image_model` | string | `z-image-turbo` | you, by hand | the render, the reservation row, the pre-stage, the offload proof |
+
+```toml
+image_enabled = true
+image_model = "z-image-turbo"
+```
+
+`villa install --image` reserves the image model's measured footprint
+(`weight_bytes + compute_bytes` from `internal/catalog/images.json`) before the
+chat-model fit, pulls the entry's three weight files (the diffusion model, the
+Qwen3-4B text encoder and the FLUX VAE, each verified by size and SHA-256) into
+the models dir, renders `villa-image.container`, wires Open WebUI's
+`automatic1111` engine to `http://villa-image:1234`, starts the unit after the
+web-search stack and the voice units, and proves offload with one real 512x512 generation before it
+reports success: the params placement line in the unit's journal must show
+every byte on `VRAM` and none in `RAM`, the GTT floor must clear the footprint,
+and `gpu_busy_percent` must be non-zero during the drive. A partial CPU
+placement is a FAIL that rolls the install back.
+
+The unit eager-loads, so the footprint is held from the moment the service
+starts, which is what the reservation row claims. The model is picked from the
+compiled-in image table, not from `seed.json` or a `catalog_path` override, so
+changing the entry is a code change carrying a fresh on-hardware measurement.
+To turn image generation off safely, do all four steps. Reconcile never
+deletes a unit, so after the first two `villa-image.container` is still on disk
+with `WantedBy=default.target`, and the next reboot eager-loads its 9 GB again
+outside every fit (`villa doctor` reports this as `IMG-DOC-stale`):
+
+```bash
+# 1. by hand in ~/.config/villa/config.toml: image_enabled = false
+# 2. re-render Open WebUI without the image group
+villa up
+# 3. stop the unit
+systemctl --user stop villa-image.service
+# 4. remove the unit file reconcile left behind; the reload drops it from the boot set
+rm ~/.config/containers/systemd/villa-image.container
+systemctl --user daemon-reload
+```
+
+`systemctl --user disable` is not a step: `villa-image.service` is generated by
+Quadlet (`UnitFileState=generated`), which podman-systemd.unit(5) says
+`systemctl enable` cannot manage, and the generator applies its `WantedBy=`
+itself, so removing the `.container` file is what takes it out of the boot set.
+sd-server ignores SIGTERM, so step 3 waits podman's 10 s SIGKILL fallback.
 
 ### Inspecting and editing the config
 
@@ -416,6 +470,38 @@ Open WebUI is published loopback-only at `127.0.0.1:3000` (container-internal po
 `8080`) and stores data in a named volume mounted at `/app/backend/data`. The image
 is digest-pinned (`ghcr.io/open-webui/open-webui:main@sha256:...`).
 
+With `image_enabled`, ONE further ordered group is appended after the web-search
+group, and the trailing `ENABLE_PERSISTENT_CONFIG=False` gate covers it:
+
+| Variable | Value | Purpose |
+|----------|-------|---------|
+| `ENABLE_IMAGE_GENERATION` | `True` | Turn Open WebUI's image generation on. |
+| `IMAGE_GENERATION_ENGINE` | `automatic1111` | The engine whose verify is a real `GET /sdapi/v1/options`, whose model list names the real file stem, and whose generate is `POST /sdapi/v1/txt2img`. |
+| `AUTOMATIC1111_BASE_URL` | `http://villa-image:1234` | sd-server over the `villa` network by container DNS, at its own `--listen-port`. |
+| `IMAGE_SIZE` | `1024x1024` | The entry's preset, the same value the unit's `-W`/`-H` carry. |
+| `IMAGE_STEPS` | `8` | The entry's preset, the same value the unit's `--steps` carries. |
+
+`IMAGE_GENERATION_MODEL` stays unset so Open WebUI never POSTs a checkpoint
+switch to a single-model server, and `AUTOMATIC1111_PARAMS` stays unset because
+`cfg_scale` is sd-server's argv default.
+
+**The image server (`villa-image`)** runs `stable-diffusion.cpp`'s `sd-server`
+(`ghcr.io/leejet/stable-diffusion.cpp:master-vulkan@sha256:367ccc…`, a rolling
+tag pinned by digest, `internal/orchestrate/image.go`) with the entrypoint
+`/sd-server`, the same `/dev/dri`, `keep-groups` and `seccomp=unconfined` device
+access the Vulkan chat unit reads from the seam, the read-only models mount, and no
+host port. Its flags come from `internal/inference/image_server.go`:
+
+| Flag | Purpose |
+|------|---------|
+| `--listen-ip 0.0.0.0 --listen-port 1234` | Container-internal bind only; reachable from `villa.network` alone. |
+| `--diffusion-model`, `--llm`, `--vae` | The entry's three files under `/models`, each under its own flag. |
+| `--backend Vulkan0 --params-backend Vulkan0` | Explicit placement on the Vulkan device, which disables sd-server's auto-fit (the default places params on the GPU, RAM or disk by free memory, a silent CPU fallback). |
+| `--eager-load` | Load every param at start, so the footprint is held from the first moment and the placement line is in the journal before the proof's first request. |
+| `--vae-tiling` | Keeps the 1024x1024 VAE decode at a 416 MB buffer instead of a 5.8 GB one the device refuses. |
+| `--diffusion-fa` | Flash attention in the diffusion model. |
+| `--cfg-scale 1 --steps 8 -W 1024 -H 1024` | The entry's preset as argv defaults; Open WebUI's request carries no `cfg_scale`, so this is the value used. |
+
 **The task sandbox** is not a unit. Each `villa work` task is one `podman run`,
 rendered by `orchestrate.RenderSandboxRun` (`internal/orchestrate/sandbox.go`) as a
 fixed argument list, never a shell. The flags are the boundary, so they are frozen
@@ -471,8 +557,10 @@ configuration varies per machine are:
   and the table prints it as a `+ prompt cache` row. Before that fit, the envelope
   shrinks by every reservation for a service beside the chat model: the embedding
   model when `memory_enabled`, the reranker when `reranker` is also set
-  (ADR-0028), the extractor when `extractor` is also set (ADR-0033), and the
-  injection budget when `web_search_enabled` (ADR-0027). `--json` lists them as `reservations`, an array of `{name, bytes}`
+  (ADR-0028), the extractor when `extractor` is also set (ADR-0033), the
+  injection budget when `web_search_enabled` (ADR-0027), and the image model's
+  measured footprint when `image_enabled` (ADR-0027, ADR-0032). `--json` lists
+  them as `reservations`, an array of `{name, bytes}`
   (schema 9), and the table prints one `− <name> reservation` row for each.
 - **External catalog override.** `catalog_path` (or `--catalog`) lets a host use a
   curated model list different from the embedded seed.

@@ -282,7 +282,7 @@ func TestUnknownSubsystemTeachesTheModel(t *testing.T) {
 			t.Errorf("the error does not teach the subsystem model (missing %q):\n%s", want, got)
 		}
 	}
-	if !strings.Contains(got, "inference, chat, memory, search, agent, voice") {
+	if !strings.Contains(got, "inference, chat, memory, search, agent, sandbox, voice, image") {
 		t.Errorf("the error does not list the valid subsystems:\n%s", got)
 	}
 }
@@ -314,7 +314,7 @@ func TestVoiceHasAnUpdateProof(t *testing.T) {
 // TestEverySubsystemNameIsAccepted: the names printed in the error must be the
 // names the parser takes, or villa contradicts itself in consecutive lines.
 func TestEverySubsystemNameIsAccepted(t *testing.T) {
-	for _, name := range []string{"inference", "chat", "memory", "search", "agent", "sandbox", "voice"} {
+	for _, name := range []string{"inference", "chat", "memory", "search", "agent", "sandbox", "voice", "image"} {
 		if _, ok := subsystemByName(name); !ok {
 			t.Errorf("%q is listed as a valid subsystem but the parser refuses it", name)
 		}
@@ -329,7 +329,7 @@ func TestEverySubsystemNameIsAccepted(t *testing.T) {
 func TestEveryComponentHasASubsystemAUserCanName(t *testing.T) {
 	for _, e := range pins.Table() {
 		found := false
-		for _, name := range []string{"inference", "chat", "memory", "search", "agent", "sandbox", "voice"} {
+		for _, name := range []string{"inference", "chat", "memory", "search", "agent", "sandbox", "voice", "image"} {
 			if k, ok := subsystemByName(name); ok && k == e.Subsystem {
 				found = true
 				break

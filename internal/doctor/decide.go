@@ -28,6 +28,11 @@ func embedServiceName() string {
 	return strings.TrimSuffix(orchestrate.EmbedContainerUnitName(), ".container") + ".service"
 }
 
+// imageServiceName is the image server's systemd service, derived the same way.
+func imageServiceName() string {
+	return strings.TrimSuffix(orchestrate.ImageContainerUnitName(), ".container") + ".service"
+}
+
 // inferenceUnitFile is the Quadlet unit villa-llama is rendered to.
 func inferenceUnitFile() string {
 	units, _ := subsystem.Inference.EveryUnit()

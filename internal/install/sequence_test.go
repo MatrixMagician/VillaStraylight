@@ -22,6 +22,7 @@ func units() Units {
 		Websafe:   "villa-websafe.service",
 		Stt:       "villa-stt.service",
 		Tts:       "villa-tts.service",
+		Image:     "villa-image.service",
 	}
 }
 
@@ -122,7 +123,7 @@ func TestVectorStoreStartsBeforeTheEmbedder(t *testing.T) {
 // TestProofsFollowTheStartsTheyProve: a proof run before its service starts would
 // report on a stack that is not up yet.
 func TestProofsFollowTheStartsTheyProve(t *testing.T) {
-	s := BuildSequence(Gates{Memory: true, WebSearch: true, Voice: true}, units(), true)
+	s := BuildSequence(Gates{Memory: true, WebSearch: true, Voice: true, Image: true}, units(), true)
 
 	before(t, s, StepStart, units().Embed, StepProve, units().Embed,
 		"a proof must observe a started service")
@@ -130,6 +131,8 @@ func TestProofsFollowTheStartsTheyProve(t *testing.T) {
 		"a proof must observe a started service")
 	before(t, s, StepStart, units().Tts, StepProve, units().Stt,
 		"the voice proof speaks on villa-tts, so both voice units must be up")
+	before(t, s, StepStart, units().Image, StepProve, units().Image,
+		"a proof must observe a started service")
 }
 
 // TestVoiceStartsAfterTheChatUI: the voice units serve the chat UI's dictation and
@@ -140,6 +143,23 @@ func TestVoiceStartsAfterTheChatUI(t *testing.T) {
 	for _, svc := range []string{units().Stt, units().Tts} {
 		before(t, s, StepStart, units().ChatUI, StepStart, svc,
 			"the voice units join a stack whose chat UI is already up")
+	}
+}
+
+// TestImageStartsAfterTheWebSearchStack: the image unit starts after the chat UI
+// and after every web-search service, gated on its own unit, so the start order
+// matches the render order and the eager load never races the services whose
+// readiness the chat UI needs first.
+func TestImageStartsAfterTheWebSearchStack(t *testing.T) {
+	s := BuildSequence(Gates{WebSearch: true, Image: true}, units(), true)
+	before(t, s, StepStart, units().ChatUI, StepStart, units().Image, "the chat UI comes up before the image server")
+	before(t, s, StepStart, units().Websafe, StepStart, units().Image, "the web guard comes up before the image server")
+	i := s.IndexOf(StepStart, units().Image)
+	if i < 0 || s.Steps[i].RequiresUnit != units().Image {
+		t.Errorf("the image start is not gated on its unit: %+v", s.Steps)
+	}
+	if off := BuildSequence(Gates{}, units(), true); off.IndexOf(StepStart, units().Image) != -1 || off.IndexOf(StepProve, units().Image) != -1 {
+		t.Errorf("image off still planned an image step: %v", describe(off))
 	}
 }
 

@@ -125,6 +125,7 @@ type Units struct {
 	Websafe   string
 	Stt       string
 	Tts       string
+	Image     string
 }
 
 // BuildSequence derives the mutate-and-start sequence for a run.
@@ -187,6 +188,15 @@ func BuildSequence(gates Gates, u Units, secretNeeded bool) Sequence {
 			Step{Kind: StepStart, Service: u.Stt, RequiresUnit: u.Stt},
 			Step{Kind: StepStart, Service: u.Tts, RequiresUnit: u.Tts},
 			Step{Kind: StepProve, Service: u.Stt},
+		)
+	}
+
+	// The image server last, gated on its own unit: its 9 GB eager load starts
+	// after every service the chat UI depends on is up.
+	if gates.Image {
+		steps = append(steps,
+			Step{Kind: StepStart, Service: u.Image, RequiresUnit: u.Image},
+			Step{Kind: StepProve, Service: u.Image},
 		)
 	}
 
