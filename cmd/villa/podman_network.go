@@ -11,18 +11,16 @@ import (
 	"strings"
 )
 
-// liveContainerNetworks reads every running container's networks.
 func liveContainerNetworks() (map[string][]string, error) {
-	out, err := exec.Command("podman", "ps", "--format", "{{.Names}}|{{.Networks}}").Output() // fixed args; no shell
+	out, err := exec.Command("podman", "ps", "--format", "{{.Names}}|{{.Networks}}").Output()
 	if err != nil {
 		return nil, fmt.Errorf("podman ps: %w", err)
 	}
 	return parseContainerNetworks(out)
 }
 
-// liveNetworkInternal reads every podman network's Internal flag.
 func liveNetworkInternal() (map[string]bool, error) {
-	out, err := exec.Command("podman", "network", "ls", "--format", "{{.Name}}|{{.Internal}}").Output() // fixed args; no shell
+	out, err := exec.Command("podman", "network", "ls", "--format", "{{.Name}}|{{.Internal}}").Output()
 	if err != nil {
 		return nil, fmt.Errorf("podman network ls: %w", err)
 	}
@@ -57,7 +55,6 @@ func parseNetworkInternal(out []byte) (map[string]bool, error) {
 	return internal, err
 }
 
-// eachPipeLine calls fn with the two halves of every non-blank `a|b` line.
 func eachPipeLine(out []byte, fn func(a, b string) error) error {
 	for line := range strings.Lines(string(out)) {
 		line = strings.TrimSpace(line)

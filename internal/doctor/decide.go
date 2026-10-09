@@ -224,7 +224,6 @@ func agentDriftUnknown(format string, err error) agent.DriftReport {
 	return agent.DriftReport{BinaryDriftUnknown: true, Reason: fmt.Sprintf(format, err)}
 }
 
-// networksProvenance names where the networks finding's facts come from.
 const networksProvenance = "rendered units vs `podman ps` + `podman network ls`"
 
 // networks compares the podman networks the rendered units declare with the host
@@ -253,8 +252,6 @@ func (d Deps) networks(rendered []orchestrate.Unit) Finding {
 	return networksVerdict(f, orchestrate.NetworkTopology(rendered), running, internal)
 }
 
-// networksVerdict decides the networks finding from the rendered topology and the
-// two host reads.
 func networksVerdict(f Finding, top orchestrate.Topology, running map[string][]string, internal map[string]bool) Finding {
 	var faults, restarts, routed []string
 	for _, container := range slices.Sorted(maps.Keys(top.Joins)) {
@@ -290,7 +287,6 @@ func networksVerdict(f Finding, top orchestrate.Topology, running map[string][]s
 	return f
 }
 
-// sameNetworks reports whether two network lists hold the same set.
 func sameNetworks(a, b []string) bool {
 	return slices.Equal(slices.Sorted(slices.Values(a)), slices.Sorted(slices.Values(b)))
 }

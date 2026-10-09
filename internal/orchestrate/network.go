@@ -59,7 +59,6 @@ func NetworkTopology(units []Unit) Topology {
 	return top
 }
 
-// unitKey returns the value of the first key= line in a unit, or "".
 func unitKey(text, key string) string {
 	for line := range strings.SplitSeq(text, "\n") {
 		if v, ok := strings.CutPrefix(line, key+"="); ok {

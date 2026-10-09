@@ -474,13 +474,6 @@ const memoryHealthTTL = 15 * time.Second
 // parent context adds allowance for podman's own container startup.
 const memoryProbeTimeout = 10 * time.Second
 
-// memoryProbeExec is the injectable podman-probe seam. It is bound to the SHARED
-// probeCurl rather than to a local wrapper: the status path used to call the
-// stdout-only helper and then re-derive the exit code that helper had just
-// discarded, which was a third way of doing the same thing and could drift from the
-// other two. It takes the network because a row's target lives on villa or on
-// villa-closed (ADR-0036). Package-level var so status_test.go runs the mapping/TTL
-// tests hermetically.
 var memoryProbeExec = func(ctx context.Context, network, img string, args ...string) ([]byte, int, error) {
 	return probeCurl(ctx, network, img, nil, args)
 }
